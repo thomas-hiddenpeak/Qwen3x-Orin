@@ -533,6 +533,90 @@ void dequantize_nvfp4_contiguous_sequential_kernel(
   }
 }
 
+template <unsigned int kPassBase, unsigned int kWindowPasses>
+__device__ __forceinline__ void dequantize_nvfp4_contiguous_window(
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales,
+    std::uint32_t* const output_pairs, const std::size_t packed_base,
+    const std::size_t scale_base, const unsigned int lane,
+    const unsigned int warp) {
+  constexpr unsigned int kThreads = 256U;
+  static_assert(kWindowPasses == 8U || kWindowPasses == 2U);
+  static_assert(kPassBase + kWindowPasses <= 34U);
+  std::uint8_t packed_values[kWindowPasses];
+  std::uint32_t scale_words[kWindowPasses];
+#pragma unroll
+  for (unsigned int slot = 0U; slot < kWindowPasses; ++slot) {
+    constexpr unsigned int kScaleSpanPerPass = kThreads / 8U;
+    const unsigned int pass = kPassBase + slot;
+    const unsigned int packed_k = threadIdx.x + pass * kThreads;
+    packed_values[slot] = packed_weights[packed_base + packed_k];
+    scale_words[slot] = 0U;
+    if (lane == 0U) {
+      const std::size_t word_index =
+          scale_base + pass * kScaleSpanPerPass + warp * 4U;
+      scale_words[slot] = *reinterpret_cast<const std::uint32_t*>(
+          block_scales + word_index);
+    }
+  }
+
+#pragma unroll
+  for (unsigned int slot = 0U; slot < kWindowPasses; ++slot) {
+    const unsigned int pass = kPassBase + slot;
+    const unsigned int packed_k = threadIdx.x + pass * kThreads;
+    const std::uint32_t scale_word =
+        __shfl_sync(0xffff'ffffU, scale_words[slot], 0);
+    const std::uint8_t scale_code = static_cast<std::uint8_t>(
+        scale_word >> ((lane >> 3U) * 8U));
+    const float scale = decode_e4m3fn_device(scale_code);
+    const std::uint8_t packed = packed_values[slot];
+    const __nv_bfloat16 low = __float2bfloat16_rn(
+        decode_e2m1_device(packed & 0x0fU) * scale);
+    const __nv_bfloat16 high = __float2bfloat16_rn(
+        decode_e2m1_device(packed >> 4U) * scale);
+    output_pairs[packed_base + packed_k] =
+        static_cast<std::uint32_t>(__bfloat16_as_ushort(low)) |
+        (static_cast<std::uint32_t>(__bfloat16_as_ushort(high)) << 16U);
+  }
+}
+
+// Bounded latency-hiding candidate: four complete eight-pass prefetch/decode
+// windows followed by one compile-time two-pass tail.  Every window is fully
+// unrolled, preserving cross-pass memory-level parallelism without the
+// locked baseline's 34-pass live range.
+__global__ __launch_bounds__(256, 4)
+void dequantize_nvfp4_contiguous_window8_kernel(
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales,
+    __nv_bfloat16* const canonical_bf16) {
+  constexpr unsigned int kPackedPerRow = kK / 2U;
+  constexpr unsigned int kScalesPerRow = kK / 16U;
+  static_assert(kPackedPerRow == 34U * 256U);
+  const unsigned int n = blockIdx.x;
+  const unsigned int lane = threadIdx.x & 31U;
+  const unsigned int warp = threadIdx.x >> 5U;
+  const std::size_t packed_base =
+      static_cast<std::size_t>(n) * kPackedPerRow;
+  const std::size_t scale_base =
+      static_cast<std::size_t>(n) * kScalesPerRow;
+  auto* const output_pairs = reinterpret_cast<std::uint32_t*>(canonical_bf16);
+  dequantize_nvfp4_contiguous_window<0U, 8U>(
+      packed_weights, block_scales, output_pairs, packed_base, scale_base,
+      lane, warp);
+  dequantize_nvfp4_contiguous_window<8U, 8U>(
+      packed_weights, block_scales, output_pairs, packed_base, scale_base,
+      lane, warp);
+  dequantize_nvfp4_contiguous_window<16U, 8U>(
+      packed_weights, block_scales, output_pairs, packed_base, scale_base,
+      lane, warp);
+  dequantize_nvfp4_contiguous_window<24U, 8U>(
+      packed_weights, block_scales, output_pairs, packed_base, scale_base,
+      lane, warp);
+  dequantize_nvfp4_contiguous_window<32U, 2U>(
+      packed_weights, block_scales, output_pairs, packed_base, scale_base,
+      lane, warp);
+}
+
 __global__ void validate_bf16_replay_kernel(
     const __nv_bfloat16* const output,
     const __nv_bfloat16* const replay_reference, const std::size_t count,
@@ -649,6 +733,18 @@ __global__ void validate_bf16_guards_kernel(
     const std::string& label) {
   constexpr unsigned int kThreads = 256U;
   dequantize_nvfp4_contiguous_sequential_kernel<<<
+      static_cast<unsigned int>(kN), kThreads, 0, stream>>>(
+      packed_weights, block_scales, transient_weight);
+  return test.cuda_ok(cudaGetLastError(), label);
+}
+
+[[nodiscard]] bool launch_dequantize_contiguous_window8(
+    TestContext& test, const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales,
+    __nv_bfloat16* const transient_weight, const cudaStream_t stream,
+    const std::string& label) {
+  constexpr unsigned int kThreads = 256U;
+  dequantize_nvfp4_contiguous_window8_kernel<<<
       static_cast<unsigned int>(kN), kThreads, 0, stream>>>(
       packed_weights, block_scales, transient_weight);
   return test.cuda_ok(cudaGetLastError(), label);
@@ -804,7 +900,57 @@ __global__ void validate_bf16_guards_kernel(
          static_cast<double>(iterations);
 }
 
-[[nodiscard]] double measure_inclusive(
+
+[[nodiscard]] double measure_dequantize_window8(
+    TestContext& test, const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales,
+    __nv_bfloat16* const transient_weight, const cudaStream_t stream,
+    const int warmups, const int iterations, const std::string& label) {
+  for (int warmup = 0; warmup < warmups; ++warmup) {
+    if (!launch_dequantize_contiguous_window8(
+            test, packed_weights, block_scales, transient_weight, stream,
+            label + " warmup " + std::to_string(warmup))) {
+      return std::numeric_limits<double>::quiet_NaN();
+    }
+  }
+  if (!test.cuda_ok(cudaStreamSynchronize(stream), label + " warmup sync")) {
+    return std::numeric_limits<double>::quiet_NaN();
+  }
+
+  cudaEvent_t start = nullptr;
+  cudaEvent_t stop = nullptr;
+  bool ready = test.cuda_ok(cudaEventCreate(&start), label + " create start");
+  ready = ready &&
+          test.cuda_ok(cudaEventCreate(&stop), label + " create stop");
+  ready = ready &&
+          test.cuda_ok(cudaEventRecord(start, stream), label + " record start");
+  for (int iteration = 0; ready && iteration < iterations; ++iteration) {
+    ready = launch_dequantize_contiguous_window8(
+        test, packed_weights, block_scales, transient_weight, stream,
+        label + " measured " + std::to_string(iteration));
+  }
+  ready = ready &&
+          test.cuda_ok(cudaEventRecord(stop, stream), label + " record stop");
+  ready = ready &&
+          test.cuda_ok(cudaEventSynchronize(stop), label + " stop sync");
+  float total_milliseconds = 0.0F;
+  ready = ready && test.cuda_ok(
+                       cudaEventElapsedTime(&total_milliseconds, start, stop),
+                       label + " elapsed time");
+  if (stop != nullptr) {
+    (void)cudaEventDestroy(stop);
+  }
+  if (start != nullptr) {
+    (void)cudaEventDestroy(start);
+  }
+  if (!ready) {
+    return std::numeric_limits<double>::quiet_NaN();
+  }
+  return static_cast<double>(total_milliseconds) /
+         static_cast<double>(iterations);
+}
+
+[[nodiscard]] double measure_inclusive_window8(
     TestContext& test, const LtObjects& lt,
     const cublasLtMatmulAlgo_t& algorithm,
     const std::uint8_t* const packed_weights,
@@ -815,7 +961,7 @@ __global__ void validate_bf16_guards_kernel(
     const cudaStream_t stream, const float weight_scale_2,
     const int warmups, const int iterations, const std::string& label) {
   const auto launch_chain = [&](const std::string& iteration_label) {
-    bool launched = launch_dequantize_contiguous(
+    bool launched = launch_dequantize_contiguous_window8(
         test, packed_weights, block_scales, transient_weight, stream,
         iteration_label + " dequantize");
     launched = launched && launch_lt(
@@ -999,6 +1145,21 @@ int main() {
           "query sequential Down direct-dequant occupancy")) {
     return 1;
   }
+  cudaFuncAttributes window8_dequant_attributes{};
+  if (!test.cuda_ok(
+          cudaFuncGetAttributes(&window8_dequant_attributes,
+                                dequantize_nvfp4_contiguous_window8_kernel),
+          "query window8 Down direct-dequant resources")) {
+    return 1;
+  }
+  int active_window8_dequant_blocks_per_sm = 0;
+  if (!test.cuda_ok(
+          cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+              &active_window8_dequant_blocks_per_sm,
+              dequantize_nvfp4_contiguous_window8_kernel, 256, 0U),
+          "query window8 Down direct-dequant occupancy")) {
+    return 1;
+  }
 
   std::cout << std::fixed << std::setprecision(6)
             << "CUBLASLT_DOWN_C512_PROTOCOL: device=" << properties.name
@@ -1029,6 +1190,17 @@ int main() {
             << sequential_dequant_attributes.maxDynamicSharedSizeBytes
             << " active_blocks_per_sm="
             << active_sequential_dequant_blocks_per_sm << '\n';
+  std::cout << "NVFP4_DEQUANT_DOWN_C512_WINDOW8_RESOURCES: threads=256"
+            << " blocks=" << kN
+            << " registers_per_thread=" << window8_dequant_attributes.numRegs
+            << " static_shared_bytes="
+            << window8_dequant_attributes.sharedSizeBytes
+            << " local_bytes_per_thread="
+            << window8_dequant_attributes.localSizeBytes
+            << " max_dynamic_shared_bytes="
+            << window8_dequant_attributes.maxDynamicSharedSizeBytes
+            << " active_blocks_per_sm="
+            << active_window8_dequant_blocks_per_sm << '\n';
 
   DeviceBuffer<__nv_bfloat16> activation;
   DeviceBuffer<__nv_bfloat16> persistent_weight;
@@ -1037,6 +1209,7 @@ int main() {
   DeviceBuffer<__nv_bfloat16> production_output;
   DeviceBuffer<__nv_bfloat16> dequant_reference;
   DeviceBuffer<__nv_bfloat16> sequential_dequant_output;
+  DeviceBuffer<__nv_bfloat16> window8_dequant_output;
   DeviceBuffer<std::uint8_t> canonical_packed_weight;
   DeviceBuffer<std::uint8_t> canonical_block_scale;
   DeviceBuffer<__nv_bfloat16> activation_snapshot;
@@ -1060,6 +1233,9 @@ int main() {
   ready = ready && sequential_dequant_output.allocate(
                        test, kBElements + 2U * kGuardElements,
                        "allocate guarded sequential BF16 dequant output");
+  ready = ready && window8_dequant_output.allocate(
+                       test, kBElements + 2U * kGuardElements,
+                       "allocate guarded window8 BF16 dequant output");
   ready = ready && canonical_packed_weight.allocate(
                        test, kPackedWeightBytes,
                        "allocate canonical NVFP4 packed weight");
@@ -1096,6 +1272,8 @@ int main() {
       production_output.get() + kGuardElements;
   __nv_bfloat16* const sequential_dequant_payload =
       sequential_dequant_output.get() + kGuardElements;
+  __nv_bfloat16* const window8_dequant_payload =
+      window8_dequant_output.get() + kGuardElements;
   const std::size_t weight_alignment =
       pointer_alignment_bytes(persistent_weight.get());
   const std::size_t activation_alignment =
@@ -1141,6 +1319,12 @@ int main() {
                            static_cast<int>(kGuardBits & 0xffU),
                            guarded_dequant_bytes, stream),
                        "initialize sequential dequant output guards");
+  ready = ready && test.cuda_ok(
+                       cudaMemsetAsync(
+                           window8_dequant_output.get(),
+                           static_cast<int>(kGuardBits & 0xffU),
+                           guarded_dequant_bytes, stream),
+                       "initialize window8 dequant output guards");
 
   constexpr unsigned int kFillThreads = 256U;
   const auto fill = [&](DeviceBuffer<__nv_bfloat16>& buffer,
@@ -1427,15 +1611,16 @@ int main() {
   // Minimal dequant stop-loss: compare the locked 34-pass prefetch control
   // with a scalar-live sequential loop.  Both eager and replay launches are
   // checked over the complete 89,128,960-element canonical BF16 matrix.
-  const auto validate_sequential_output =
-      [&](const std::string& phase,
+  const auto validate_experimental_dequant_output =
+      [&](const __nv_bfloat16* const experimental_output,
+          const std::string& variant, const std::string& phase,
           std::array<unsigned long long, 3U>& counts) {
         bool validation_ready = test.cuda_ok(
             cudaMemsetAsync(validation.get(), 0,
                             3U * sizeof(unsigned long long), stream),
             phase + " zero validation counts");
         validate_bf16_replay_kernel<<<256U, 256U, 0, stream>>>(
-            sequential_dequant_payload, dequant_reference.get(), kBElements,
+            experimental_output, dequant_reference.get(), kBElements,
             validation.get(), validation.get() + 1U, validation.get() + 2U);
         validation_ready =
             validation_ready &&
@@ -1454,8 +1639,9 @@ int main() {
                            counts[1] == 0U && counts[2] != 0U;
         test.expect(exact,
                     phase + " is bit exact versus trusted scalar decode");
-        std::cout << "NVFP4_DEQUANT_DOWN_C512_SEQUENTIAL_VALIDATION: phase="
-                  << phase << " mismatches=" << counts[0] << '/'
+        std::cout << "NVFP4_DEQUANT_DOWN_C512_EXPERIMENTAL_VALIDATION: variant="
+                  << variant << " phase=" << phase
+                  << " mismatches=" << counts[0] << '/'
                   << kBElements << " nonfinite=" << counts[1]
                   << " encoded_sum=" << counts[2]
                   << " gate=" << (exact ? "PASS" : "FAIL") << '\n';
@@ -1468,7 +1654,9 @@ int main() {
                        stream, "launch sequential dequant validation");
   std::array<unsigned long long, 3U> sequential_eager_counts{};
   const bool sequential_eager_exact =
-      validate_sequential_output("eager", sequential_eager_counts);
+      validate_experimental_dequant_output(
+          sequential_dequant_payload, "sequential", "eager",
+          sequential_eager_counts);
   ready = ready && sequential_eager_exact;
 
   ready = ready && launch_dequantize_contiguous_sequential(
@@ -1477,7 +1665,9 @@ int main() {
                        stream, "launch sequential dequant replay");
   std::array<unsigned long long, 3U> sequential_replay_counts{};
   const bool sequential_replay_exact =
-      validate_sequential_output("replay", sequential_replay_counts);
+      validate_experimental_dequant_output(
+          sequential_dequant_payload, "sequential", "replay",
+          sequential_replay_counts);
   const bool sequential_correctness_gate =
       sequential_eager_exact && sequential_replay_exact &&
       sequential_eager_counts[2] == sequential_replay_counts[2];
@@ -1567,6 +1757,11 @@ int main() {
   test.expect(sequential_guard_gate,
               "sequential dequant prefix/suffix guards are intact");
   ready = ready && sequential_guard_gate;
+  std::cout << "NVFP4_DEQUANT_DOWN_C512_EXPERIMENTAL_GUARDS: variant="
+            << "sequential mismatches=" << sequential_guard_mismatches << '/'
+            << 2U * kGuardElements
+            << " gate=" << (sequential_guard_gate ? "PASS" : "FAIL")
+            << '\n';
 
   bool sequential_selected = false;
   if (sequential_baseline_rounds.size() ==
@@ -1616,14 +1811,171 @@ int main() {
               << '\n';
   }
 
+  ready = ready && launch_dequantize_contiguous_window8(
+                       test, canonical_packed_weight.get(),
+                       canonical_block_scale.get(), window8_dequant_payload,
+                       stream, "launch window8 dequant validation");
+  std::array<unsigned long long, 3U> window8_eager_counts{};
+  const bool window8_eager_exact =
+      validate_experimental_dequant_output(
+          window8_dequant_payload, "window8", "eager", window8_eager_counts);
+  ready = ready && window8_eager_exact;
+
+  ready = ready && launch_dequantize_contiguous_window8(
+                       test, canonical_packed_weight.get(),
+                       canonical_block_scale.get(), window8_dequant_payload,
+                       stream, "launch window8 dequant replay");
+  std::array<unsigned long long, 3U> window8_replay_counts{};
+  const bool window8_replay_exact =
+      validate_experimental_dequant_output(
+          window8_dequant_payload, "window8", "replay",
+          window8_replay_counts);
+  const bool window8_correctness_gate =
+      window8_eager_exact && window8_replay_exact &&
+      window8_eager_counts[2] == window8_replay_counts[2];
+  test.expect(window8_correctness_gate,
+              "window8 eager and replay checksums are identical");
+  ready = ready && window8_correctness_gate;
+
+  constexpr int kWindow8ScreenWarmups = 10;
+  constexpr int kWindow8ScreenIterations = 24;
+  constexpr int kWindow8ScreenRounds = 6;
+  constexpr double kWindow8RequiredSpeedup = 1.03;
+  std::vector<double> window8_baseline_rounds;
+  std::vector<double> window8_candidate_rounds;
+  window8_baseline_rounds.reserve(kWindow8ScreenRounds);
+  window8_candidate_rounds.reserve(kWindow8ScreenRounds);
+  for (int round = 0; ready && round < kWindow8ScreenRounds; ++round) {
+    double baseline_milliseconds = 0.0;
+    double candidate_milliseconds = 0.0;
+    if ((round & 1) == 0) {
+      baseline_milliseconds = measure_dequantize(
+          test, canonical_packed_weight.get(), canonical_block_scale.get(),
+          persistent_weight.get(), stream, kWindow8ScreenWarmups,
+          kWindow8ScreenIterations,
+          "window8 screen baseline round " + std::to_string(round + 1));
+      candidate_milliseconds = measure_dequantize_window8(
+          test, canonical_packed_weight.get(), canonical_block_scale.get(),
+          window8_dequant_payload, stream, kWindow8ScreenWarmups,
+          kWindow8ScreenIterations,
+          "window8 screen candidate round " + std::to_string(round + 1));
+    } else {
+      candidate_milliseconds = measure_dequantize_window8(
+          test, canonical_packed_weight.get(), canonical_block_scale.get(),
+          window8_dequant_payload, stream, kWindow8ScreenWarmups,
+          kWindow8ScreenIterations,
+          "window8 screen candidate round " + std::to_string(round + 1));
+      baseline_milliseconds = measure_dequantize(
+          test, canonical_packed_weight.get(), canonical_block_scale.get(),
+          persistent_weight.get(), stream, kWindow8ScreenWarmups,
+          kWindow8ScreenIterations,
+          "window8 screen baseline round " + std::to_string(round + 1));
+    }
+    const bool timing_ok = std::isfinite(baseline_milliseconds) &&
+                           baseline_milliseconds > 0.0 &&
+                           std::isfinite(candidate_milliseconds) &&
+                           candidate_milliseconds > 0.0;
+    test.expect(timing_ok,
+                "window8 dequant screen timing is finite and positive");
+    ready = ready && timing_ok;
+    if (timing_ok) {
+      window8_baseline_rounds.push_back(baseline_milliseconds);
+      window8_candidate_rounds.push_back(candidate_milliseconds);
+      std::cout << "NVFP4_DEQUANT_DOWN_C512_WINDOW8_ROUND: round="
+                << round + 1 << " order="
+                << (((round & 1) == 0) ? "B-C" : "C-B")
+                << " warmups=" << kWindow8ScreenWarmups
+                << " iterations=" << kWindow8ScreenIterations
+                << " baseline_milliseconds=" << baseline_milliseconds
+                << " candidate_milliseconds=" << candidate_milliseconds
+                << " speedup="
+                << baseline_milliseconds / candidate_milliseconds << '\n';
+    }
+  }
+
+  unsigned long long window8_guard_mismatches = 0U;
+  bool window8_guard_gate = test.cuda_ok(
+      cudaMemsetAsync(validation.get(), 0, sizeof(unsigned long long), stream),
+      "window8 dequant zero guard count");
+  validate_bf16_guards_kernel<<<1U, 256U, 0, stream>>>(
+      window8_dequant_output.get(), kBElements, kGuardElements, kGuardBits,
+      validation.get());
+  window8_guard_gate =
+      window8_guard_gate &&
+      test.cuda_ok(cudaGetLastError(),
+                   "launch window8 dequant guard validation");
+  window8_guard_gate =
+      window8_guard_gate &&
+      test.cuda_ok(cudaMemcpyAsync(
+                       &window8_guard_mismatches, validation.get(),
+                       sizeof(window8_guard_mismatches), cudaMemcpyDeviceToHost,
+                       stream),
+                   "copy window8 dequant guard count");
+  window8_guard_gate =
+      window8_guard_gate &&
+      test.cuda_ok(cudaStreamSynchronize(stream),
+                   "synchronize window8 dequant guard validation") &&
+      window8_guard_mismatches == 0U;
+  test.expect(window8_guard_gate,
+              "window8 dequant prefix/suffix guards are intact");
+  ready = ready && window8_guard_gate;
+  std::cout << "NVFP4_DEQUANT_DOWN_C512_EXPERIMENTAL_GUARDS: variant=window8"
+            << " mismatches=" << window8_guard_mismatches << '/'
+            << 2U * kGuardElements
+            << " gate=" << (window8_guard_gate ? "PASS" : "FAIL") << '\n';
+
+  bool window8_selected = false;
+  if (window8_baseline_rounds.size() ==
+          static_cast<std::size_t>(kWindow8ScreenRounds) &&
+      window8_candidate_rounds.size() ==
+          static_cast<std::size_t>(kWindow8ScreenRounds)) {
+    const double baseline_median = median(window8_baseline_rounds);
+    const double candidate_median = median(window8_candidate_rounds);
+    const double median_speedup = baseline_median / candidate_median;
+    double minimum_round_speedup = std::numeric_limits<double>::infinity();
+    bool all_round_positive = true;
+    for (std::size_t round = 0U; round < window8_baseline_rounds.size();
+         ++round) {
+      const double speedup =
+          window8_baseline_rounds[round] / window8_candidate_rounds[round];
+      minimum_round_speedup = std::min(minimum_round_speedup, speedup);
+      all_round_positive = all_round_positive && speedup > 1.0;
+    }
+    const bool local_memory_gate =
+        window8_dequant_attributes.localSizeBytes == 0U;
+    window8_selected =
+        window8_correctness_gate && window8_guard_gate && local_memory_gate &&
+        all_round_positive && median_speedup >= kWindow8RequiredSpeedup;
+    std::cout << "NVFP4_DEQUANT_DOWN_C512_WINDOW8_FINAL: rounds="
+              << kWindow8ScreenRounds
+              << " baseline_median_milliseconds=" << baseline_median
+              << " candidate_median_milliseconds=" << candidate_median
+              << " median_speedup=" << median_speedup
+              << " minimum_round_speedup=" << minimum_round_speedup
+              << " all_round_positive="
+              << (all_round_positive ? "true" : "false")
+              << " required_speedup=" << kWindow8RequiredSpeedup
+              << " registers_per_thread=" << window8_dequant_attributes.numRegs
+              << " local_bytes_per_thread="
+              << window8_dequant_attributes.localSizeBytes
+              << " active_blocks_per_sm="
+              << active_window8_dequant_blocks_per_sm
+              << " correctness="
+              << (window8_correctness_gate ? "true" : "false")
+              << " guards_intact="
+              << (window8_guard_gate ? "true" : "false")
+              << " action=" << (window8_selected ? "SELECT" : "REJECT")
+              << " gate=" << (window8_selected ? "PASS" : "FAIL") << '\n';
+  }
+
   // Validate the exact timed chain against the trusted scalar-dequantized
   // matrix.  Production applies the non-unit global weight scale as Lt alpha;
   // it is deliberately not rounded into the transient BF16 weights.
-  ready = ready && launch_dequantize_contiguous(
+  ready = ready && launch_dequantize_contiguous_window8(
                        test, canonical_packed_weight.get(),
                        canonical_block_scale.get(), persistent_weight.get(),
                        stream,
-                       "launch inclusive candidate dequant");
+                       "launch inclusive window8 candidate dequant");
   ready = ready && launch_lt(
                        test, lt, selected, kWeightScale2,
                        persistent_weight.get(), activation.get(),
@@ -1660,6 +2012,7 @@ int main() {
               "inclusive NVFP4 + cuBLASLt checksum is nonzero");
   std::cout << "NVFP4_CUBLASLT_DOWN_C512_VALIDATION: reference_mismatches="
             << host_validation[0] << '/' << kCElements
+            << " selected_dequant=window8"
             << " nonfinite=" << host_validation[1]
             << " encoded_sum=" << host_validation[2]
             << " weight_scale_2=" << kWeightScale2
@@ -1683,9 +2036,9 @@ int main() {
       cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
       "begin NVFP4 inclusive graph capture");
   if (graph_ready) {
-    const bool captured_dequant = launch_dequantize_contiguous(
+    const bool captured_dequant = launch_dequantize_contiguous_window8(
         test, canonical_packed_weight.get(), canonical_block_scale.get(),
-        persistent_weight.get(), stream, "capture contiguous NVFP4 dequant");
+        persistent_weight.get(), stream, "capture window8 NVFP4 dequant");
     const bool captured_lt =
         captured_dequant &&
         launch_lt(test, lt, selected, kWeightScale2,
@@ -1781,6 +2134,7 @@ int main() {
               "cold and warm graph checksums are identical");
   std::cout << "NVFP4_CUBLASLT_DOWN_C512_GRAPH: nodes="
             << graph_node_count
+            << " selected_dequant=window8"
             << " instantiated=" << (graph_instantiated ? "true" : "false")
             << " cold_reference_mismatches=" << cold_graph_validation[0]
             << '/' << kCElements
@@ -1845,6 +2199,7 @@ int main() {
               "hybrid output passes production M128 numerical gate");
   std::cout << "NVFP4_CUBLASLT_DOWN_C512_PRODUCTION_EQUIVALENCE: status="
             << production_status
+            << " selected_dequant=window8"
             << " bitwise_mismatches="
             << production_metrics.bitwise_mismatches << '/' << kCElements
             << " mismatch_fraction="
@@ -1883,27 +2238,27 @@ int main() {
           activation.get(), exact_production_output, kWeightScale2, stream,
           kFormalWarmups, kFormalIterations,
           "production M128 round " + std::to_string(round + 1));
-      dequant_milliseconds = measure_dequantize(
+      dequant_milliseconds = measure_dequantize_window8(
           test, canonical_packed_weight.get(), canonical_block_scale.get(),
           persistent_weight.get(), stream, kFormalWarmups, kFormalIterations,
-          "NVFP4 dequant round " + std::to_string(round + 1));
-      inclusive_milliseconds = measure_inclusive(
+          "NVFP4 window8 dequant round " + std::to_string(round + 1));
+      inclusive_milliseconds = measure_inclusive_window8(
           test, lt, selected, canonical_packed_weight.get(),
           canonical_block_scale.get(), persistent_weight.get(),
           activation.get(), candidate_output, workspace.get(), kWorkspaceBytes,
           stream, kWeightScale2, kFormalWarmups, kFormalIterations,
           "NVFP4 inclusive round " + std::to_string(round + 1));
     } else {
-      inclusive_milliseconds = measure_inclusive(
+      inclusive_milliseconds = measure_inclusive_window8(
           test, lt, selected, canonical_packed_weight.get(),
           canonical_block_scale.get(), persistent_weight.get(),
           activation.get(), candidate_output, workspace.get(), kWorkspaceBytes,
           stream, kWeightScale2, kFormalWarmups, kFormalIterations,
           "NVFP4 inclusive round " + std::to_string(round + 1));
-      dequant_milliseconds = measure_dequantize(
+      dequant_milliseconds = measure_dequantize_window8(
           test, canonical_packed_weight.get(), canonical_block_scale.get(),
           persistent_weight.get(), stream, kFormalWarmups, kFormalIterations,
-          "NVFP4 dequant round " + std::to_string(round + 1));
+          "NVFP4 window8 dequant round " + std::to_string(round + 1));
       production_milliseconds = measure_production_down(
           test, canonical_packed_weight.get(), canonical_block_scale.get(),
           activation.get(), exact_production_output, kWeightScale2, stream,
@@ -1925,6 +2280,7 @@ int main() {
       production_round_milliseconds.push_back(production_milliseconds);
       std::cout << "NVFP4_CUBLASLT_DOWN_C512_ROUND: round=" << round + 1
                 << " iterations=" << kFormalIterations
+                << " selected_dequant=window8"
                 << " production_M128_milliseconds="
                 << production_milliseconds
                 << " dequant_milliseconds=" << dequant_milliseconds
@@ -1976,6 +2332,7 @@ int main() {
         inclusive_speedup >= kRequiredInclusiveSpeedup && all_round_positive;
     std::cout << "NVFP4_CUBLASLT_DOWN_C512_FINAL: selected_index="
               << selected_index << " rounds=" << kFormalRounds
+              << " selected_dequant=window8"
               << " selected_workspace_bytes="
               << heuristics[static_cast<std::size_t>(selected_index)]
                      .workspaceSize
@@ -2026,10 +2383,10 @@ int main() {
                                        kCElements * sizeof(__nv_bfloat16),
                                        stream),
                        "poison zero-scale production output");
-  ready = ready && launch_dequantize_contiguous(
+  ready = ready && launch_dequantize_contiguous_window8(
                        test, canonical_packed_weight.get(),
                        canonical_block_scale.get(), persistent_weight.get(),
-                       stream, "launch zero-scale candidate dequant");
+                       stream, "launch zero-scale window8 candidate dequant");
   ready = ready && launch_lt(
                        test, lt, selected, 0.0F, persistent_weight.get(),
                        activation.get(), candidate_output, workspace.get(),
@@ -2085,6 +2442,7 @@ int main() {
               "hybrid selector routes zero scale to production");
   std::cout << "NVFP4_CUBLASLT_DOWN_C512_SCALE_ZERO: production_status="
             << zero_production_status
+            << " selected_dequant=window8"
             << " selector_admitted="
             << (select_hybrid_for_scale(0.0F) ? "true" : "false")
             << " selector_action=route_existing_production"
@@ -2253,7 +2611,7 @@ int main() {
   const bool retain_candidate =
       ready && inclusive_speed_gate && production_numerical_gate &&
       graph_ready && zero_numeric_gate && nan_gate && immutable_gate &&
-      guard_gate && lt_pointer_alignment_gate &&
+      guard_gate && lt_pointer_alignment_gate && window8_selected &&
       heuristics[static_cast<std::size_t>(selected_index)].workspaceSize == 0U;
   std::cout << "NVFP4_CUBLASLT_DOWN_C512_P0_RECOMMENDATION: action="
             << (retain_candidate
@@ -2264,6 +2622,9 @@ int main() {
             << " scale_zero_action=route_existing_production"
             << " scale_nonfinite_or_negative_action=reject_before_enqueue"
             << " workspace_bytes=0"
+            << " selected_dequant=window8"
+            << " dequant_selection_gate="
+            << (window8_selected ? "true" : "false")
             << " production_bitwise_mismatches="
             << production_metrics.bitwise_mismatches << '/' << kCElements
             << " graph_nodes=" << graph_node_count

@@ -312,12 +312,14 @@ TTFT from **2666.918 ms** to **2317.622 ms** (**1.150713x**). Nsight records
 Gate/Up M128 kernel. The 74-test suite has zero failures, and mirrored C32
 Decode remains noise-equivalent at **105.8270 vs 105.8995 ms/token**. C256,
 Down, finish-Prefill, Decode, and all selector near misses keep their existing
-routes. A separate test-only Down P0 now measures **6.610938 ms** production
-M128 versus **4.965268 ms** inclusive direct-dequant plus Lt (**1.331436x**,
-6/6 positive), with all 89,128,960 decoded values and 2,621,440 outputs
-bitwise exact. It remains outside production while its 64-byte/thread local
-spill and complete launcher rejection contract are hardened. The native fused
-large-M NVFP4 kernel remains the higher-ceiling path.
+routes. A separate test-only Down P0 selects a compile-time `8+8+8+8+2`
+Window8 decoder at 32 registers, zero local bytes, and six CTAs/SM. The full
+candidate measures **6.656049 ms** production M128 versus **4.534723 ms**
+inclusive Window8 direct-dequant plus Lt (**1.467796x**, 6/6 positive), with
+all 89,128,960 decoded values and 2,621,440 outputs bitwise exact. It remains
+outside production until its independent context and complete launcher
+rejection contract are implemented. The native fused large-M NVFP4 kernel
+remains the higher-ceiling path.
 See the [C512 inclusive cuBLASLt admission
 record](docs/metadata/qwen36-27b-prefill-nvfp4-gate-c512-inclusive-cublaslt-admission.json)
 and [Gate+Up production record](docs/metadata/qwen36-27b-prefill-nvfp4-gate-up-c512-cublaslt-production-benchmark.json).

@@ -131,6 +131,92 @@
     },
     "decision": "reject: zero spill and higher occupancy do not compensate for losing cross-pass memory-level parallelism; the original prefetching decoder remains the P0 candidate"
   },
+  "window8_no_spill_followup": {
+    "recorded_at": "2026-07-28T20:27:56+08:00",
+    "source_parent_commit": "a298022a4c01a4abfe2503751a18c7affdeed6a4",
+    "objective": "retain bounded cross-pass memory-level parallelism while eliminating the 34-pass live range and local spill",
+    "candidate": "five compile-time-unrolled windows covering passes 8+8+8+8+2; every window loads all packed values and scale words before decoding and storing",
+    "resources": {
+      "baseline_registers_per_thread": 64,
+      "baseline_local_bytes_per_thread": 64,
+      "baseline_active_blocks_per_sm": 4,
+      "candidate_registers_per_thread": 32,
+      "candidate_local_bytes_per_thread": 0,
+      "candidate_active_blocks_per_sm": 6
+    },
+    "hardening_screen": {
+      "warmups": 10,
+      "iterations": 24,
+      "rounds": 6,
+      "order": "alternating B-C and C-B",
+      "baseline_median_ms": 1.678321,
+      "candidate_median_ms": 1.276215,
+      "median_speedup": 1.315078,
+      "minimum_round_speedup": 1.312098,
+      "positive_rounds": 6,
+      "required_median_speedup": 1.03,
+      "all_rounds_must_be_strictly_positive": true,
+      "gate": "pass"
+    },
+    "correctness": {
+      "eager_values_compared": 89128960,
+      "eager_bitwise_mismatches": 0,
+      "replay_values_compared": 89128960,
+      "replay_bitwise_mismatches": 0,
+      "nonfinite": 0,
+      "guard_mismatches": 0,
+      "input_immutability": "pass"
+    },
+    "formal_inclusive_closure": {
+      "selected_dequant": "window8",
+      "dequant_median_ms": 1.266897,
+      "dequant_minimum_ms": 1.266212,
+      "dequant_maximum_ms": 1.269521,
+      "persistent_bf16_lt_control_median_ms": 3.268475,
+      "production_M128_median_ms": 6.656049,
+      "production_M128_minimum_ms": 6.653130,
+      "production_M128_maximum_ms": 6.657654,
+      "inclusive_median_ms": 4.534723,
+      "inclusive_minimum_ms": 4.533852,
+      "inclusive_maximum_ms": 4.536491,
+      "inclusive_tflop_per_second": 20.126491,
+      "inclusive_speedup": 1.467796,
+      "minimum_round_speedup": 1.466581,
+      "positive_rounds": 6,
+      "required_inclusive_speedup": 1.22,
+      "workspace_bytes": 0,
+      "gate": "pass"
+    },
+    "formal_candidate_route": {
+      "initial_generic_dequant_validation_lines": "baseline34 control qualification only; every formal candidate result below explicitly selects Window8",
+      "eager_selected_dequant": "window8",
+      "graph_selected_dequant": "window8",
+      "formal_dequant_selected_dequant": "window8",
+      "formal_inclusive_selected_dequant": "window8",
+      "zero_scale_selected_dequant": "window8",
+      "graph_nodes": 2,
+      "graph_cold_bitwise_mismatches": 0,
+      "graph_warm_bitwise_mismatches": 0,
+      "production_output_values_compared": 2621440,
+      "production_output_bitwise_mismatches": 0,
+      "zero_scale_output_bitwise_mismatches": 0,
+      "guards": "pass",
+      "input_immutability": "pass"
+    },
+    "artifacts": {
+      "raw_log": {
+        "path": "/tmp/q3x-down-c512-window8-candidate-closure.log",
+        "bytes": 11900,
+        "sha256": "9999e07814a4d6de8d9f6680ae6cf624c375eb329bb88bcab0ef2bb34235e901"
+      },
+      "binary": {
+        "path": "build/q3x_nvfp4_prefill_down_c512_cublaslt_ceiling",
+        "bytes": 5396136,
+        "sha256": "2ecfb0d749aeca8566ebbd77ab3ceff429dbf436403e7860f661f7f9c5488740"
+      }
+    },
+    "decision": "select Window8 as the exact-C512 Down production-module decoder and stop further dequant micro-tuning"
+  },
   "baseline": {
     "identity": "current public exact-C512 production Down dispatcher",
     "launcher": "launch_sm87_nvfp4_w4a16_whole_chunk_down_gemm_bf16_cuda",
@@ -223,10 +309,13 @@
   "decision": {
     "p0": "retain",
     "production": "unchanged",
+    "selected_dequant": "window8",
+    "selected_inclusive_median_ms": 4.534723,
+    "selected_inclusive_speedup": 1.467796,
     "why": "the inclusive candidate is exact for this P0, beats the live production M128 baseline in all six rounds, and exceeds the 1.22x retention gate with zero Lt workspace",
     "scratch_reuse": "the existing exact-C512 Gate/Up 170 MiB request scratch has the identical element count and can be overwritten after SiLU once a production Down module is admitted",
     "next_steps": [
-      "retain the prefetched decoder after the sequential zero-spill route regressed 13.576940%; only screen a bounded windowed decoder if it preserves cross-pass memory-level parallelism",
+      "promote the selected Window8 decoder into an independent Down context after it delivered 1.467796x inclusive with zero local spill",
       "replicate across an independent process and additional finite input distributions",
       "add an independent Down context/descriptor/algorithm and complete fail-closed launcher validation",
       "integrate exact C512 only without changing C256, finish-Prefill, Decode, or MTP",
@@ -235,7 +324,7 @@
   },
   "limitations": [
     "This is a synthetic test-only P0 ceiling, not a production or whole-Prefill result.",
-    "The selected dequant kernel spills 64 bytes of local storage per thread; a fully sequential no-spill rewrite was exact but 13.576940% slower and was rejected.",
+    "The original decoder spills 64 bytes of local storage per thread; a fully sequential no-spill rewrite was 13.576940% slower, while the selected Window8 rewrite is exact, spill-free, and 1.315078x faster in the bounded dequant screen.",
     "Only part of the proposed invalid-input selector contract is tested here; the full contract belongs in a production module test.",
     "The hybrid candidate still writes and rereads a 170 MiB BF16 weight image and is not the final fused native NVFP4 large-M upper bound."
   ]

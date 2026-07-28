@@ -1419,22 +1419,21 @@ The diagnostic Phase 3 records are:
   C256, Down, finish-Prefill, Decode, MTP, and near misses remain unchanged;
   the next bounded screen is exact-C512 Down reuse of the same scratch.
 - [`qwen36-27b-prefill-nvfp4-down-c512-cublaslt-p0-ceiling.json`](qwen36-27b-prefill-nvfp4-down-c512-cublaslt-p0-ceiling.json),
-  which retains that test-only Down P0 without changing production. The live
-  exact-C512 production M128 baseline takes **6.610938 ms**; direct dequant plus
-  zero-workspace Lt takes **4.965268 ms** inclusive (**1.331436x**), with all
-  six rounds positive and a **1.330784x** worst round against the 1.22x gate.
-  All 89,128,960 decoded BF16 values and 2,621,440 production outputs match
-  bitwise; exact two-node Graph replay, 16-byte Lt preference, guards, input
-  immutability, and scale handling pass. Production remains unchanged because
-  the decoder still has 64 local bytes/thread and the full null/shape/alias/
-  overflow/device rejection contract is not yet implemented. A hardened Down
-  module may reuse the existing 170-MiB request scratch after SiLU; it must not
-  allocate another scratch or persistent BF16 weights. Its first follow-up
-  rejects a fully sequential no-spill decoder: resources improve from
-  64 registers/64 local bytes to 20 registers/zero local bytes, but median
-  decode regresses from **1.730331 ms** to **1.965257 ms** (**0.880460x**) and
-  all six rounds lose. The original inclusive candidate independently remains
-  above its gate at **1.330223x**.
+  which retains the test-only Down P0 and its two bounded decoder follow-ups
+  without changing production. The fully sequential no-spill route is exact
+  but regresses to **0.880460x** and is rejected. The selected compile-time
+  `8+8+8+8+2` Window8 route reaches 32 registers, zero local bytes, and six
+  CTAs/SM; its dequant screen improves **1.315078x** with all six rounds
+  positive. After the entire formal candidate chain is switched to Window8,
+  direct dequant takes **1.266897 ms**, zero-workspace Lt **3.268475 ms**, and
+  the measured inclusive path **4.534723 ms** versus **6.656049 ms** live
+  production M128 (**1.467796x**, worst round **1.466581x**). All 89,128,960
+  decoded values, 2,621,440 production outputs, exact two-node Graph replays,
+  guards, immutability, scale handling, and 16-byte Lt preference pass.
+  Production remains unchanged until an independent Down context supplies the
+  full null/shape/alias/overflow/device rejection contract. It may reuse the
+  existing 170-MiB request scratch after SiLU, with no second scratch or
+  persistent BF16 weights.
 - [`qwen36-27b-prefill-nvfp4-gate-c512-native-m64n256-development-baseline.json`](qwen36-27b-prefill-nvfp4-gate-c512-native-m64n256-development-baseline.json),
   which freezes the self-developed exact-C512 M64xN256xK64 test-only baseline.
   K256 scale reuse, paired packed-weight copies, and aligned 32-bit BF16 stores
