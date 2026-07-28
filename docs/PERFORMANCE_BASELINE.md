@@ -8476,3 +8476,47 @@ memory/fallback, and Decode non-regression gates. C256 remains later. Full
 commands, resource output, hashes, regression sentinels, and limitations are
 in the
 [Z canonical XOR admission record](metadata/qwen36-27b-prefill-fp8-z-m128-canonical-xor-u16-register-feed-admission.json).
+
+## FP8 exact-C512 Z canonical register-feed production
+
+Commit `9967985` promotes the admitted no-sidecar Z cell for exact aligned
+C512 only. C256 and valid 8-byte-but-not-16-byte C512 activations retain the
+frozen generic M128 Function. Model ownership, QKV sidecars, Decode, MTP, and
+buffering are unchanged.
+
+The fixed-clock P513 `B-C-C-B` production result is:
+
+| Metric | Baseline | Production | Result |
+| --- | ---: | ---: | ---: |
+| Prefix median mirrored mean | 2,579.592500 ms | 2,556.879000 ms | **1.008883291x** |
+| Prefix throughput | 198.480962 token/s | **200.244126 token/s** | +0.8883291% |
+| TTFT median mirrored mean | 2,688.402500 ms | 2,665.658500 ms | **1.008532226x** |
+| Complete-prompt throughput | 190.819641 token/s | **192.447757 token/s** | +0.8532226% |
+
+The generated result is identical in all 20 measured generations. Full CTest
+has 64 passes, 12 expected skips, and zero failures; the Decode control is
+exact at 105.820 ms/token with 125 Graph replays and no fallback.
+
+Matched Prefix-only Nsight profiles keep 8,209 launches and replace the 48 Z
+calls from **121.420864 to 99.290464 ms (1.222885453x)**. Prefix GPU kernel
+sum drops **2,580.601152 -> 2,559.205920 ms**. The complete checked-in 17-row
+list shows the production ranking: Gate/Up 839.867392 ms, GDN recurrence
+488.585408 ms, and Down 426.555424 ms; these three families occupy 68.576280%
+of GPU time. QKV `cp.async` runs 48 times, bulk online attention runs 16 times,
+and SSM recurrence remains 1,536 C16 launches.
+
+Native complete-prompt throughput is now 46.780445% of the matched
+411.385053-token/s stock-vLLM result, a remaining 2.137645x gap. Decode remains
+frozen. The next measurement priorities are the quantized large-M Gate/Up and
+Down crossover and exact GDN plus post-RMSNorm/SiLU(Z) fusion. RMSNorm and
+SiLU(Z) are already fused with each other; the proposed test removes their
+separate boundary with GDN, not two epilogue kernels. SM87 cannot directly run
+Lt FP8/FP4, so the library screen is explicitly BF16-unpack plus cuBLASLt and
+is bounded to two checkpoint cells; full-model BF16 dual residency exceeds
+physical memory.
+
+Full identities, logs, hashes, limitations, and matched Nsight artifacts are
+in the
+[production record](metadata/qwen36-27b-prefill-fp8-z-m128-canonical-xor-register-feed-production-benchmark.json)
+and
+[Prefix audit](analysis/prefill-p513-nsys-2026-07-28/README.md).

@@ -2086,3 +2086,77 @@ exactness, memory/fallback, and Decode non-regression before promotion. C256
 stays behind that gate, and OpenAI-compatible API/EvalScope work may continue
 in parallel. See the
 [Z canonical XOR admission record](metadata/qwen36-27b-prefill-fp8-z-m128-canonical-xor-u16-register-feed-admission.json).
+
+## 2026-07-28 — Exact-C512 FP8 Z canonical register feed promoted
+
+Commit `9967985` closes the production gate above. Only exact C512
+`[6144,5120]` Z with a 16-byte-aligned activation pointer selects the new
+kernel. C256 and a valid 8-byte-but-not-16-byte C512 pointer retain the frozen
+generic M128 fallback. Production and the strict test launcher delegate to the
+same Function. No sidecar, ModelWeights field, loader allocation, runner
+workspace, Decode selector, or request buffer is added.
+
+Independent review reports no blocker. Synthetic and pinned checkpoint direct
+execution plus two Graph replays remain bit-exact across all **3,145,728**
+outputs, all strict invalid calls capture zero nodes, and the fallback and
+isolation sentinels pass. Full CTest closes at **64 passes / 12 expected skips /
+zero failures** out of 76. The P19/C32/max26 Decode control returns the exact
+26-token answer with 125 Graph replays, zero serial fallbacks, and
+**105.820 ms/token**, consistent with the frozen non-MTP Decode baseline.
+
+Fixed-clock mirrored P513 `B-C-C-B` process medians produce:
+
+| Measure | Frozen production Z | Promoted Z | Change |
+| --- | ---: | ---: | ---: |
+| 512-token Prefix | 2,579.592500 ms | 2,556.879000 ms | **-22.713500 ms, 1.008883291x** |
+| Prefix throughput | 198.480962 token/s | **200.244126 token/s** | +1.763164 token/s |
+| 513-token TTFT | 2,688.402500 ms | 2,665.658500 ms | **-22.744000 ms, 1.008532226x** |
+| Complete-prompt throughput | 190.819641 token/s | **192.447757 token/s** | +1.628116 token/s |
+
+All four processes generate token `9419`, text `Hello`, and 513 steps. Prefix
+throughput has crossed 200 token/s, but the complete-prompt number remains
+192.447757 token/s; this milestone is therefore a measured 0.85% end-to-end
+gain, not a claim that native Prefill is now close to vLLM. Against the matched
+411.385053-token/s stock-vLLM record, native reaches **46.780445%** and remains
+**2.137645x** behind.
+
+Matched `CUDA+NVTX` Nsight profiles contain exactly 8,209 Prefix launches and
+17 distinct demangled kernel names on both binaries. Z changes 48-for-48 from
+generic M128 at **121.420864 ms** to the production
+`z_m128_cp_async_canonical_xor_register_feed` Function at **99.290464 ms**,
+saving **22.130400 ms (1.222885453x)**. Total projected GPU time falls
+2,580.601152 -> 2,559.205920 ms. Selected-function SASS contains
+`LDGSTS.E.BYPASS.128`, `LDGDEPBAR`, and `DEPBAR`, so asynchronous copy is on
+the executed path rather than merely present in source.
+
+The same profile resets the architectural priority. Gate/Up M128 consumes
+**839.867392 ms**, exact C16 GDN recurrence **488.585408 ms**, and Down M128
+**426.555424 ms**; together they account for **68.576280%** of Prefix GPU
+time. Large projections in the current C512 route are M128-by-N128/K64, not a
+single-M16 generic GEMM route. Bulk full attention is the 16-launch native
+online-softmax kernel. GDN and causal Conv remain 1,536-launch C16 boundaries,
+with post-GDN RMSNorm/SiLU(Z) separate at 48 launches. RMSNorm and SiLU(Z) are
+already fused with each other; the missing boundary is GDN-to-epilogue.
+
+Decode tuning stays frozen. Static CUDA 13.3/cuBLASLt 13.5 audit shows that
+SM87 cannot directly execute Lt FP8 or FP4 matmul; a library comparison must
+unpack weights to BF16. Full-model dual residency is rejected on capacity:
+47.680664 GiB of BF16 sidecars plus canonical payload already totals
+66.447344 GiB, above the machine's 61.404 GiB MemTotal before workspace.
+
+The large-M comparator is therefore two bounded checkpoint cells: FP8 Z C512
+and NVFP4 Gate C512. Persistent-BF16 Lt first establishes an ideal ceiling;
+FP8 must reach at least 1.8x and NVFP4 1.7x before inclusive JIT unpack plus Lt
+is attempted. Inclusive JIT must then reach 1.22x in every mirrored round
+before overlap or production work. In parallel, one exact C16 GDN plus
+post-RMSNorm/SiLU(Z) composite screen preserves both BF16 boundaries. It can
+remove 48 epilogue launches and 576 MiB of logical global write-plus-read, not
+the 1,536 recurrence launches; the complete chain must be bit-exact and at
+least 1.03x faster in every mirrored round. Every admission gets a fresh
+Prefix profile. OpenAI-compatible API/EvalScope work remains behind the next
+stable Prefill architecture milestone.
+
+See the
+[production record](metadata/qwen36-27b-prefill-fp8-z-m128-canonical-xor-register-feed-production-benchmark.json)
+and the checked-in
+[complete Prefix kernel audit](analysis/prefill-p513-nsys-2026-07-28/README.md).
