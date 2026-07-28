@@ -6118,6 +6118,26 @@ decode_nvfp4x4_to_bf16x4_table_free_vector(
   return result;
 }
 
+// Test-only factorized x4 decoder for the native M64xN256 Gate cell.  Each
+// packed byte selects one exact BF16x2 E2M1 pair from shared memory, then the
+// existing packed multiply applies the decoded E4M3FN scale.  This is the
+// lower-half counterpart of the production M32 factorized x8 decoder: two
+// LDS.U32 plus two HFMA2 instructions replace the table-free PRMT chain.
+[[nodiscard]] __device__ __forceinline__ uint2
+decode_nvfp4x4_to_bf16x4_factorized_vector(
+    const std::uint16_t packed,
+    const std::uint32_t* const decoded_e2m1_byte_pairs,
+    const std::uint16_t decoded_scale) {
+  uint2 result{};
+  result.x = multiply_bf16x2_bits(
+      decoded_e2m1_byte_pairs[static_cast<std::uint8_t>(packed)],
+      decoded_scale);
+  result.y = multiply_bf16x2_bits(
+      decoded_e2m1_byte_pairs[static_cast<std::uint8_t>(packed >> 8U)],
+      decoded_scale);
+  return result;
+}
+
 // Test-only M64xN256 decoder backed by the complete E4M3xE2M1 product
 // table.  The table is laid out as 256 consecutive rows of sixteen BF16
 // products, so each packed nibble becomes one indexed shared-memory U16
@@ -6416,6 +6436,56 @@ struct alignas(32) NvFp4M32ProductLookupStorage<true, true> {
 static_assert(sizeof(NvFp4M32ProductLookupStorage<false, false>) == 8'192U);
 static_assert(sizeof(NvFp4M32ProductLookupStorage<true, false>) == 1'536U);
 static_assert(sizeof(NvFp4M32ProductLookupStorage<true, true>) == 512U);
+
+// Candidate-specific exhaustive gate for the M64xN256 factorized pair
+// lookup.  Every block constructs the same 1,536-byte lookup used by the
+// candidate, then the grid covers all 256 scale codes, all 256 packed bytes,
+// and both byte positions in the x4 word.  Results are compared raw-bitwise
+// with the retained table-free decoder, including signed zero and NaNs.
+__global__ void nvfp4_m64_n256_pair_lookup_x4_exhaustive_test_kernel(
+    std::uint32_t* const mismatch_count) {
+  __shared__ NvFp4M32ProductLookupStorage<true, false> product_lookup;
+  const std::uint8_t encoded = static_cast<std::uint8_t>(threadIdx.x);
+  const std::uint16_t low =
+      encode_bf16_rne(decode_e2m1(encoded & 0x0fU));
+  const std::uint16_t high = encode_bf16_rne(decode_e2m1(encoded >> 4U));
+  product_lookup.e2m1_byte_pairs[threadIdx.x] =
+      static_cast<std::uint32_t>(low) |
+      (static_cast<std::uint32_t>(high) << 16U);
+  product_lookup.scale_values[threadIdx.x] =
+      encode_bf16_rne(decode_e4m3fn(encoded));
+  __syncthreads();
+
+  constexpr unsigned int kPackedByteCount = 256U;
+  constexpr unsigned int kPackedBytePositions = 2U;
+  constexpr unsigned int kCombinationCount =
+      kFp8EncodedValueCount * kPackedByteCount * kPackedBytePositions;
+  const unsigned int index = blockIdx.x * blockDim.x + threadIdx.x;
+  if (index >= kCombinationCount) {
+    return;
+  }
+  const unsigned int pair_index = index / kPackedBytePositions;
+  const unsigned int byte_position = index % kPackedBytePositions;
+  const std::uint8_t scale_code =
+      static_cast<std::uint8_t>(pair_index / kPackedByteCount);
+  const std::uint8_t packed_byte =
+      static_cast<std::uint8_t>(pair_index % kPackedByteCount);
+  const std::uint16_t packed = static_cast<std::uint16_t>(
+      static_cast<unsigned int>(packed_byte) << (byte_position * 8U));
+  const std::uint16_t decoded_scale =
+      product_lookup.scale_values[scale_code];
+  const uint2 candidate = decode_nvfp4x4_to_bf16x4_factorized_vector(
+      packed, product_lookup.e2m1_byte_pairs, decoded_scale);
+  const uint2 reference =
+      decode_nvfp4x4_to_bf16x4_table_free_vector(packed, decoded_scale);
+  const std::uint32_t candidate_pair =
+      byte_position == 0U ? candidate.x : candidate.y;
+  const std::uint32_t reference_pair =
+      byte_position == 0U ? reference.x : reference.y;
+  if (candidate_pair != reference_pair) {
+    atomicAdd(mismatch_count, 1U);
+  }
+}
 
 // Test-only exhaustive semantic gate for the factorized M32 lookup. Every
 // thread compares one E4M3FN scale code and one packed pair of E2M1 values.
@@ -9110,7 +9180,7 @@ issue_nvfp4_gate_m64_n256_scale_window(
 
 template <bool kActivationCacheAll, bool kPackedWeightCacheAll,
           bool kSeedScaleCodebook, bool kScaleFactoredDecoder = false,
-          bool kFullProductLookup = false>
+          bool kFullProductLookup = false, bool kPairLookup = false>
 __global__ __launch_bounds__(kThreads, 2) void
 nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_test_kernel(
     const std::uint8_t* const packed_weights,
@@ -9135,9 +9205,13 @@ nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_test_kernel(
   static_assert(kOutputColumnBlockCount == 68U);
   static_assert(!kFullProductLookup ||
                 (!kSeedScaleCodebook && !kScaleFactoredDecoder));
+  static_assert(!kPairLookup ||
+                (!kSeedScaleCodebook && !kScaleFactoredDecoder &&
+                 !kFullProductLookup));
 
   __shared__ NvFp4M32ProductLookupStorage<!kFullProductLookup,
-                                          !kFullProductLookup>
+                                          !kFullProductLookup &&
+                                              !kPairLookup>
       product_lookup;
   extern __shared__ __align__(32) std::uint8_t dynamic_storage[];
   auto* const pipeline =
@@ -9175,7 +9249,18 @@ nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_test_kernel(
           (static_cast<std::uint32_t>(high) << 16U);
     }
   } else {
-    if constexpr (kSeedScaleCodebook) {
+    if constexpr (kPairLookup) {
+      const std::uint8_t encoded = static_cast<std::uint8_t>(thread);
+      const std::uint16_t low =
+          encode_bf16_rne(decode_e2m1(encoded & 0x0fU));
+      const std::uint16_t high =
+          encode_bf16_rne(decode_e2m1(encoded >> 4U));
+      product_lookup.e2m1_byte_pairs[thread] =
+          static_cast<std::uint32_t>(low) |
+          (static_cast<std::uint32_t>(high) << 16U);
+      product_lookup.scale_values[thread] =
+          encode_bf16_rne(decode_e4m3fn(encoded));
+    } else if constexpr (kSeedScaleCodebook) {
       if (warp == 0U) {
         cp_async_ca_shared_global_16(
             reinterpret_cast<uint4*>(product_lookup.scale_values) + lane,
@@ -9290,7 +9375,11 @@ nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_test_kernel(
         } else {
           const std::uint16_t decoded_scale =
               product_lookup.scale_values[encoded_scale];
-          if constexpr (kScaleFactoredDecoder) {
+          if constexpr (kPairLookup) {
+            decoded_b[n_panel] =
+                decode_nvfp4x4_to_bf16x4_factorized_vector(
+                    packed, product_lookup.e2m1_byte_pairs, decoded_scale);
+          } else if constexpr (kScaleFactoredDecoder) {
             decoded_b[n_panel] =
                 decode_nvfp4x4_to_bf16x4_scale_factored_exact_vector(
                     packed, decoded_scale);
@@ -28591,6 +28680,24 @@ int launch_sm87_nvfp4_w4a16_gate_m64_n256_scale_factored_x4_exhaustive_test_cuda
   return static_cast<int>(cudaGetLastError());
 }
 
+int launch_sm87_nvfp4_w4a16_gate_m64_n256_pair_lookup_x4_exhaustive_test_cuda(
+    std::uint32_t* const device_mismatch_count,
+    void* const cuda_stream) noexcept {
+  constexpr unsigned int kCombinationCount =
+      kFp8EncodedValueCount * 256U * 2U;
+  constexpr unsigned int kBlocks =
+      (kCombinationCount + kThreads - 1U) / kThreads;
+  if (device_mismatch_count == nullptr ||
+      !pointer_is_aligned<alignof(std::uint32_t)>(device_mismatch_count)) {
+    return invalid_value();
+  }
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  nvfp4_m64_n256_pair_lookup_x4_exhaustive_test_kernel
+      <<<kBlocks, kThreads, 0U, stream>>>(device_mismatch_count);
+  return static_cast<int>(cudaGetLastError());
+}
+
 int launch_sm87_nvfp4_e4m3_bf16_codebook_seed_exhaustive_test_cuda(
     std::uint32_t* const device_mismatch_count,
     void* const cuda_stream) noexcept {
@@ -28936,6 +29043,95 @@ int query_sm87_nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_cafactored_resources_
   const auto kernel =
       nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_test_kernel<
           true, false, false, true>;
+  cudaError_t status = cudaFuncSetAttribute(
+      kernel, cudaFuncAttributeMaxDynamicSharedMemorySize,
+      kDynamicSharedBytes);
+  cudaFuncAttributes attributes{};
+  if (status == cudaSuccess) {
+    status = cudaFuncGetAttributes(&attributes, kernel);
+  }
+  int active_blocks = 0;
+  if (status == cudaSuccess) {
+    status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+        &active_blocks, kernel, static_cast<int>(kThreads),
+        static_cast<std::size_t>(kDynamicSharedBytes));
+  }
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  *registers_per_thread = attributes.numRegs;
+  *static_shared_bytes = attributes.sharedSizeBytes;
+  *dynamic_shared_bytes = static_cast<std::size_t>(kDynamicSharedBytes);
+  *local_bytes = attributes.localSizeBytes;
+  *maximum_threads_per_block = attributes.maxThreadsPerBlock;
+  *active_blocks_per_sm = active_blocks;
+  return static_cast<int>(cudaSuccess);
+}
+
+int launch_sm87_nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_capairlookup_test_cuda(
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales, const float weight_scale_2,
+    const std::uint16_t* const activations,
+    const std::size_t token_count, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  constexpr int kDynamicSharedBytes =
+      static_cast<int>(sizeof(NvFp4GateM64N256PipelineStorage));
+  constexpr unsigned int kGrid = (17'408U / 256U) * (512U / 64U);
+  if (token_count != 512U || rows != 17'408U || columns != 5'120U) {
+    return invalid_value();
+  }
+  const int validation = validate_nvfp4_m64_tiles_launch(
+      packed_weights, block_scales, weight_scale_2, activations, token_count,
+      rows, columns, output);
+  if (validation != static_cast<int>(cudaSuccess)) {
+    return validation;
+  }
+  const bool aligned =
+      pointer_is_aligned<alignof(uint4)>(packed_weights) &&
+      pointer_is_aligned<alignof(uint4)>(block_scales) &&
+      pointer_is_aligned<alignof(uint4)>(activations) &&
+      pointer_is_aligned<alignof(std::uint32_t)>(output);
+  if (!aligned) {
+    return invalid_value();
+  }
+
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  cudaError_t status = cudaFuncSetAttribute(
+      nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_test_kernel<
+          true, false, false, false, false, true>,
+      cudaFuncAttributeMaxDynamicSharedMemorySize, kDynamicSharedBytes);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_test_kernel<
+      true, false, false, false, false, true>
+      <<<kGrid, kThreads, kDynamicSharedBytes, stream>>>(
+          packed_weights, block_scales, weight_scale_2, activations, output);
+  return static_cast<int>(cudaGetLastError());
+}
+
+int query_sm87_nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_capairlookup_resources_test_cuda(
+    const std::size_t token_count, const std::size_t rows,
+    const std::size_t columns, int* const registers_per_thread,
+    std::size_t* const static_shared_bytes,
+    std::size_t* const dynamic_shared_bytes, std::size_t* const local_bytes,
+    int* const maximum_threads_per_block,
+    int* const active_blocks_per_sm) noexcept {
+  constexpr int kDynamicSharedBytes =
+      static_cast<int>(sizeof(NvFp4GateM64N256PipelineStorage));
+  if (token_count != 512U || rows != 17'408U || columns != 5'120U ||
+      registers_per_thread == nullptr || static_shared_bytes == nullptr ||
+      dynamic_shared_bytes == nullptr || local_bytes == nullptr ||
+      maximum_threads_per_block == nullptr ||
+      active_blocks_per_sm == nullptr) {
+    return invalid_value();
+  }
+
+  const auto kernel =
+      nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_test_kernel<
+          true, false, false, false, false, true>;
   cudaError_t status = cudaFuncSetAttribute(
       kernel, cudaFuncAttributeMaxDynamicSharedMemorySize,
       kDynamicSharedBytes);
