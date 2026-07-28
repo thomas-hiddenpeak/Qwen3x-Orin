@@ -9,6 +9,12 @@
 #include <cstdint>
 #include <optional>
 
+namespace q3x::kernels {
+
+struct Sm87Nvfp4PrefillCublasLtContext;
+
+}  // namespace q3x::kernels
+
 namespace q3x::runtime {
 
 inline constexpr std::size_t kReferenceVocabularySize = 248'320U;
@@ -353,6 +359,68 @@ struct LogitsAnalysis {
     std::uint16_t* gate_output, std::uint16_t* up_output,
     std::size_t token_count) noexcept;
 
+// Pure-host selector for the exact-C512 large-M NVFP4 Gate/Up route. The
+// opaque cuBLASLt context and the request-owned 170 MiB scratch must both be
+// ready. Both direct-dequantization branches must satisfy the launcher's exact
+// shape, scalar-scale, alignment, span, and capacity contract. A selector
+// miss preserves the established whole-chunk dual-stream route.
+[[nodiscard]] bool use_nvfp4_c512_cublaslt_prefill_gate_up(
+    ProjectionBackend backend, const LinearWeight& gate_weight,
+    const LinearWeight& up_weight, const std::uint16_t* input,
+    std::uint16_t* gate_output, std::uint16_t* up_output,
+    std::size_t token_count,
+    const kernels::Sm87Nvfp4PrefillCublasLtContext* context,
+    std::uint16_t* bf16_weight_scratch,
+    std::size_t bf16_weight_scratch_bytes) noexcept;
+
+enum class NvFp4C512CublasLtFailureStage : std::uint8_t {
+  kNone = 0,
+  kGate,
+  kUp,
+};
+
+// Local route evidence returned to the caller. It deliberately carries no
+// process-global counters: host tests inject a branch launcher and verify the
+// same Gate-then-Up control path used by the production runner.
+struct NvFp4C512CublasLtRouteResult {
+  bool selected = false;
+  std::size_t gate_calls = 0U;
+  std::size_t up_calls = 0U;
+  NvFp4C512CublasLtFailureStage first_failure_stage =
+      NvFp4C512CublasLtFailureStage::kNone;
+  bool fallback_allowed_before_enqueue = true;
+  int launch_status = 0;
+
+  [[nodiscard]] bool ok() const noexcept {
+    return selected && gate_calls == 1U && up_calls == 1U &&
+           first_failure_stage == NvFp4C512CublasLtFailureStage::kNone &&
+           launch_status == 0;
+  }
+};
+
+using NvFp4C512CublasLtBranchLauncher = int (*)(
+    void* user_data,
+    kernels::Sm87Nvfp4PrefillCublasLtContext* context,
+    const NvFp4LinearWeight& weight, const std::uint16_t* input,
+    std::uint16_t* bf16_weight_scratch,
+    std::size_t bf16_weight_scratch_bytes, std::uint16_t* output,
+    void* cuda_stream) noexcept;
+
+// Selects once, then invokes exactly Gate followed by Up on the supplied
+// stream. Once selected, fallback is forbidden even if Gate fails before Up
+// is invoked: a launch may already have partially enqueued its two nodes.
+[[nodiscard]] NvFp4C512CublasLtRouteResult
+route_nvfp4_c512_cublaslt_prefill_gate_up(
+    ProjectionBackend backend, const LinearWeight& gate_weight,
+    const LinearWeight& up_weight, const std::uint16_t* input,
+    std::uint16_t* gate_output, std::uint16_t* up_output,
+    std::size_t token_count,
+    kernels::Sm87Nvfp4PrefillCublasLtContext* context,
+    std::uint16_t* bf16_weight_scratch,
+    std::size_t bf16_weight_scratch_bytes, void* cuda_stream,
+    NvFp4C512CublasLtBranchLauncher launcher,
+    void* launcher_user_data = nullptr) noexcept;
+
 // Pure-host selector for the narrow C32/C64 NVFP4 MLP scheduling optimization.
 // C64 retains two ordered C32 launches per branch. It accepts only the two
 // exact aligned direct-output projections with non-overlapping complete output
@@ -432,10 +500,12 @@ class ReferenceRunner {
   // Persistent conv/GDN/KV state is updated in token order. The exact aligned
   // SM87 FP8 C64 attention-output projection uses one exact kernel. Exact
   // aligned C256/C512 FP8 QKV/Z/O and NVFP4 Down projections each use one
-  // whole-chunk grid. Exact aligned NVFP4 C256/C512 Gate/Up uses one
-  // whole-chunk grid per branch on the owned two-stream event fork/join;
-  // C32/C64 retains the M32 dual-stream schedule and C64 preserves two ordered
-  // C32 launches on each branch.
+  // whole-chunk grid. Exact aligned NVFP4 C512 Gate/Up first uses the
+  // request-owned large-M BF16 scratch and opaque cuBLASLt context, serially
+  // overwriting that scratch on the main stream. A selector/context miss and
+  // C256 preserve the whole-chunk two-stream event fork/join; C32/C64 retains
+  // the M32 dual-stream schedule and C64 preserves two ordered C32 launches on
+  // each branch.
   // Exact SM87 C256/C512 full-attention tiles use one bulk causal GQA/Gate
   // launch with tile-local Q/Gate/output and global NHD K/V caches. Every
   // fallback remains on the main stream, and the logical request length is
@@ -463,6 +533,8 @@ class ReferenceRunner {
     std::uint16_t* linear_b = nullptr;
     float* fp32_scratch = nullptr;
     std::size_t fp32_scratch_elements = 0U;
+    std::uint16_t* nvfp4_large_m_weight_bf16_scratch = nullptr;
+    std::size_t nvfp4_large_m_weight_bf16_scratch_bytes = 0U;
     std::uint16_t* conv_state[kReferenceDecoderLayerCount]{};
     std::uint16_t* gdn_state[kReferenceDecoderLayerCount]{};
     std::uint16_t* key_cache[kReferenceDecoderLayerCount]{};
@@ -517,6 +589,9 @@ class ReferenceRunner {
   void* prefill_auxiliary_stream_ = nullptr;
   void* prefill_branch_ready_event_ = nullptr;
   void* prefill_branch_done_event_ = nullptr;
+  kernels::Sm87Nvfp4PrefillCublasLtContext*
+      nvfp4_prefill_cublaslt_context_ = nullptr;
+  std::size_t nvfp4_prefill_cublaslt_scratch_bytes_ = 0U;
   void* pinned_logits_ = nullptr;
   std::uint16_t* pinned_trace_ = nullptr;
   std::array<DecodeGraphP1Slot, kReferenceDecodeGraphP2MaximumSlots>

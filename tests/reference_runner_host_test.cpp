@@ -1169,6 +1169,243 @@ void test_fake_linear_weight_validation(TestContext& test) {
       "dual-stream prefill selector preserves shape and alignment fallbacks");
 }
 
+struct FakeNvFp4C512LaunchState {
+  std::size_t call_count = 0U;
+  std::size_t fail_call = 0U;
+  int failure_status = 0;
+  std::array<const std::uint8_t*, 2U> packed_weights{};
+  std::array<const std::uint16_t*, 2U> inputs{};
+  std::array<std::uint16_t*, 2U> scratches{};
+  std::array<std::size_t, 2U> scratch_bytes{};
+  std::array<std::uint16_t*, 2U> outputs{};
+  std::array<void*, 2U> streams{};
+};
+
+[[nodiscard]] int fake_nvfp4_c512_branch_launcher(
+    void* const user_data,
+    q3x::kernels::Sm87Nvfp4PrefillCublasLtContext* const,
+    const runtime::NvFp4LinearWeight& weight,
+    const std::uint16_t* const input,
+    std::uint16_t* const bf16_weight_scratch,
+    const std::size_t bf16_weight_scratch_bytes,
+    std::uint16_t* const output, void* const cuda_stream) noexcept {
+  auto* const state = static_cast<FakeNvFp4C512LaunchState*>(user_data);
+  if (state == nullptr || state->call_count >= state->packed_weights.size()) {
+    return 91;
+  }
+  const std::size_t call = state->call_count++;
+  state->packed_weights[call] = weight.packed_weight;
+  state->inputs[call] = input;
+  state->scratches[call] = bf16_weight_scratch;
+  state->scratch_bytes[call] = bf16_weight_scratch_bytes;
+  state->outputs[call] = output;
+  state->streams[call] = cuda_stream;
+  return state->fail_call == call + 1U ? state->failure_status : 0;
+}
+
+void test_nvfp4_c512_cublaslt_route(TestContext& test) {
+  static_assert(sizeof(std::uintptr_t) >= sizeof(std::uint64_t));
+  constexpr std::uintptr_t kGatePackedAddress = 0x10'0000'0000ULL;
+  constexpr std::uintptr_t kGateScaleAddress = 0x20'0000'0000ULL;
+  constexpr std::uintptr_t kUpPackedAddress = 0x30'0000'0000ULL;
+  constexpr std::uintptr_t kUpScaleAddress = 0x40'0000'0000ULL;
+  constexpr std::uintptr_t kInputAddress = 0x50'0000'0000ULL;
+  constexpr std::uintptr_t kScratchAddress = 0x60'0000'0000ULL;
+  constexpr std::uintptr_t kGateOutputAddress = 0x70'0000'0000ULL;
+  constexpr std::uintptr_t kUpOutputAddress = 0x80'0000'0000ULL;
+  constexpr std::uintptr_t kContextAddress = 0x90'0000'0000ULL;
+  constexpr std::uintptr_t kStreamAddress = 0xa0'0000'0000ULL;
+  const auto* const gate_packed =
+      reinterpret_cast<const std::uint8_t*>(kGatePackedAddress);
+  const auto* const gate_scales =
+      reinterpret_cast<const std::uint8_t*>(kGateScaleAddress);
+  const auto* const up_packed =
+      reinterpret_cast<const std::uint8_t*>(kUpPackedAddress);
+  const auto* const up_scales =
+      reinterpret_cast<const std::uint8_t*>(kUpScaleAddress);
+  const auto* const input =
+      reinterpret_cast<const std::uint16_t*>(kInputAddress);
+  auto* const scratch = reinterpret_cast<std::uint16_t*>(kScratchAddress);
+  auto* const gate_output =
+      reinterpret_cast<std::uint16_t*>(kGateOutputAddress);
+  auto* const up_output =
+      reinterpret_cast<std::uint16_t*>(kUpOutputAddress);
+  auto* const context = reinterpret_cast<
+      q3x::kernels::Sm87Nvfp4PrefillCublasLtContext*>(kContextAddress);
+  void* const stream = reinterpret_cast<void*>(kStreamAddress);
+  float device_weight_scale = 1.0F;
+  float device_input_scale = 1.0F;
+  const runtime::LinearWeight gate = runtime::NvFp4LinearWeight{
+      gate_packed, gate_scales, &device_weight_scale, &device_input_scale,
+      1.0F / 64.0F, 1.0F, runtime::kReferenceIntermediateSize,
+      runtime::kReferenceHiddenSize};
+  const runtime::LinearWeight up = runtime::NvFp4LinearWeight{
+      up_packed, up_scales, &device_weight_scale, &device_input_scale,
+      1.0F / 32.0F, 1.0F, runtime::kReferenceIntermediateSize,
+      runtime::kReferenceHiddenSize};
+  constexpr std::size_t kScratchBytes = static_cast<std::size_t>(
+      runtime::kRequestNvFp4LargeMWeightBf16ScratchBytes);
+
+  const auto selects =
+      [&](const runtime::LinearWeight& selected_gate,
+          const runtime::LinearWeight& selected_up,
+          const std::uint16_t* const selected_input,
+          std::uint16_t* const selected_scratch,
+          const std::size_t selected_scratch_bytes,
+          std::uint16_t* const selected_gate_output,
+          std::uint16_t* const selected_up_output,
+          const std::size_t token_count = 512U,
+          const runtime::ProjectionBackend backend =
+              runtime::ProjectionBackend::kSm87WeightOnly) noexcept {
+        return detail::use_nvfp4_c512_cublaslt_prefill_gate_up(
+            backend, selected_gate, selected_up, selected_input,
+            selected_gate_output, selected_up_output, token_count,
+            context, selected_scratch, selected_scratch_bytes);
+      };
+  test.expect(selects(gate, up, input, scratch, kScratchBytes, gate_output,
+                      up_output),
+              "exact C512 NVFP4 Gate/Up cuBLASLt route selects with context "
+              "and request scratch");
+
+  runtime::NvFp4LinearWeight zero_gate =
+      std::get<runtime::NvFp4LinearWeight>(gate);
+  zero_gate.weight_scale_2 = 0.0F;
+  runtime::NvFp4LinearWeight nan_up =
+      std::get<runtime::NvFp4LinearWeight>(up);
+  nan_up.weight_scale_2 = std::numeric_limits<float>::quiet_NaN();
+  runtime::NvFp4LinearWeight wrong_shape =
+      std::get<runtime::NvFp4LinearWeight>(up);
+  --wrong_shape.output_size;
+  runtime::NvFp4LinearWeight unaligned_gate =
+      std::get<runtime::NvFp4LinearWeight>(gate);
+  unaligned_gate.packed_weight = reinterpret_cast<const std::uint8_t*>(
+      kGatePackedAddress + 1U);
+  runtime::NvFp4LinearWeight unaligned_up_scale =
+      std::get<runtime::NvFp4LinearWeight>(up);
+  unaligned_up_scale.block_scale = reinterpret_cast<const std::uint8_t*>(
+      kUpScaleAddress + 2U);
+  test.expect(
+      !selects(gate, up, input, scratch, kScratchBytes, gate_output,
+               up_output, 256U) &&
+          !selects(gate, up, input, scratch, kScratchBytes, gate_output,
+                   up_output, 512U, runtime::ProjectionBackend::kReference) &&
+          !detail::use_nvfp4_c512_cublaslt_prefill_gate_up(
+              runtime::ProjectionBackend::kSm87WeightOnly, gate, up, input,
+              gate_output, up_output, 512U, nullptr, scratch,
+              kScratchBytes) &&
+          !selects(gate, up, input, nullptr, kScratchBytes, gate_output,
+                   up_output) &&
+          !selects(gate, up, input, scratch, kScratchBytes - 1U, gate_output,
+                   up_output) &&
+          !selects(runtime::LinearWeight{zero_gate}, up, input, scratch,
+                   kScratchBytes, gate_output, up_output) &&
+          !selects(gate, runtime::LinearWeight{nan_up}, input, scratch,
+                   kScratchBytes, gate_output, up_output) &&
+          !selects(gate, runtime::LinearWeight{wrong_shape}, input, scratch,
+                   kScratchBytes, gate_output, up_output),
+      "C512 cuBLASLt selector preserves token/backend/context/scratch/scale/"
+      "shape fallbacks");
+  test.expect(
+      !selects(runtime::LinearWeight{unaligned_gate}, up, input, scratch,
+               kScratchBytes, gate_output, up_output) &&
+          !selects(gate, runtime::LinearWeight{unaligned_up_scale}, input,
+                   scratch, kScratchBytes, gate_output, up_output) &&
+          !selects(gate, up,
+                   reinterpret_cast<const std::uint16_t*>(kInputAddress + 2U),
+                   scratch, kScratchBytes, gate_output, up_output) &&
+          !selects(gate, up, input,
+                   reinterpret_cast<std::uint16_t*>(kScratchAddress + 2U),
+                   kScratchBytes, gate_output, up_output) &&
+          !selects(gate, up, input, scratch, kScratchBytes,
+                   reinterpret_cast<std::uint16_t*>(
+                       kGateOutputAddress + 2U),
+                   up_output) &&
+          !selects(gate, up, input, scratch, kScratchBytes, gate_output,
+                   gate_output) &&
+          !selects(gate, up, input, gate_output, kScratchBytes, gate_output,
+                   up_output) &&
+          !selects(gate, up, input, scratch, kScratchBytes,
+                   reinterpret_cast<std::uint16_t*>(kUpPackedAddress),
+                   up_output),
+      "C512 cuBLASLt selector rejects launch-alignment and overlapping-span "
+      "near misses before enqueue");
+
+  FakeNvFp4C512LaunchState fallback_state;
+  const detail::NvFp4C512CublasLtRouteResult fallback =
+      detail::route_nvfp4_c512_cublaslt_prefill_gate_up(
+          runtime::ProjectionBackend::kSm87WeightOnly, gate, up, input,
+          gate_output, up_output, 256U, context, scratch, kScratchBytes,
+          stream, fake_nvfp4_c512_branch_launcher, &fallback_state);
+  test.expect(!fallback.selected && fallback.gate_calls == 0U &&
+                  fallback.up_calls == 0U &&
+                  fallback.first_failure_stage ==
+                      detail::NvFp4C512CublasLtFailureStage::kNone &&
+                  fallback.fallback_allowed_before_enqueue &&
+                  fallback.launch_status == 0 &&
+                  fallback_state.call_count == 0U,
+              "selector miss permits the established fallback before any "
+              "large-M call");
+
+  FakeNvFp4C512LaunchState success_state;
+  const detail::NvFp4C512CublasLtRouteResult success =
+      detail::route_nvfp4_c512_cublaslt_prefill_gate_up(
+          runtime::ProjectionBackend::kSm87WeightOnly, gate, up, input,
+          gate_output, up_output, 512U, context, scratch, kScratchBytes,
+          stream, fake_nvfp4_c512_branch_launcher, &success_state);
+  test.expect(
+      success.ok() && success.gate_calls == 1U && success.up_calls == 1U &&
+          !success.fallback_allowed_before_enqueue &&
+          success_state.call_count == 2U &&
+          success_state.packed_weights[0] == gate_packed &&
+          success_state.packed_weights[1] == up_packed &&
+          success_state.inputs[0] == input && success_state.inputs[1] == input &&
+          success_state.scratches[0] == scratch &&
+          success_state.scratches[1] == scratch &&
+          success_state.scratch_bytes[0] == kScratchBytes &&
+          success_state.scratch_bytes[1] == kScratchBytes &&
+          success_state.outputs[0] == gate_output &&
+          success_state.outputs[1] == up_output &&
+          success_state.streams[0] == stream &&
+          success_state.streams[1] == stream,
+      "selected route calls Gate then Up exactly once on the main stream and "
+      "overwrites one scratch");
+
+  FakeNvFp4C512LaunchState gate_failure_state;
+  gate_failure_state.fail_call = 1U;
+  gate_failure_state.failure_status = 37;
+  const detail::NvFp4C512CublasLtRouteResult gate_failure =
+      detail::route_nvfp4_c512_cublaslt_prefill_gate_up(
+          runtime::ProjectionBackend::kSm87WeightOnly, gate, up, input,
+          gate_output, up_output, 512U, context, scratch, kScratchBytes,
+          stream, fake_nvfp4_c512_branch_launcher, &gate_failure_state);
+  test.expect(gate_failure.selected && gate_failure.gate_calls == 1U &&
+                  gate_failure.up_calls == 0U &&
+                  gate_failure.first_failure_stage ==
+                      detail::NvFp4C512CublasLtFailureStage::kGate &&
+                  !gate_failure.fallback_allowed_before_enqueue &&
+                  gate_failure.launch_status == 37 &&
+                  gate_failure_state.call_count == 1U,
+              "Gate failure stops Up and forbids fallback after possible "
+              "partial enqueue");
+
+  FakeNvFp4C512LaunchState up_failure_state;
+  up_failure_state.fail_call = 2U;
+  up_failure_state.failure_status = 53;
+  const detail::NvFp4C512CublasLtRouteResult up_failure =
+      detail::route_nvfp4_c512_cublaslt_prefill_gate_up(
+          runtime::ProjectionBackend::kSm87WeightOnly, gate, up, input,
+          gate_output, up_output, 512U, context, scratch, kScratchBytes,
+          stream, fake_nvfp4_c512_branch_launcher, &up_failure_state);
+  test.expect(up_failure.selected && up_failure.gate_calls == 1U &&
+                  up_failure.up_calls == 1U &&
+                  up_failure.first_failure_stage ==
+                      detail::NvFp4C512CublasLtFailureStage::kUp &&
+                  !up_failure.fallback_allowed_before_enqueue &&
+                  up_failure.launch_status == 53 &&
+                  up_failure_state.call_count == 2U,
+              "Up failure records both calls and forbids old-kernel fallback");
+}
+
 void test_trace_layout_and_factory_error(TestContext& test) {
   static std::array<std::uint16_t, runtime::kReferenceTraceElements> trace{};
   trace[0U] = 11U;
@@ -1220,6 +1457,7 @@ int main() {
   test_bf16_logits_memo_perf(test);
   test_schedule_and_workspace(test);
   test_fake_linear_weight_validation(test);
+  test_nvfp4_c512_cublaslt_route(test);
   test_trace_layout_and_factory_error(test);
   if (test.failures() != 0) {
     std::cerr << test.failures() << " reference-runner host test(s) failed\n";

@@ -3,6 +3,7 @@
 #if defined(Q3X_ENABLE_GDN_B8_ADMISSION)
 #include "../kernels/reference/gdn_prefill_b8_sequential_sm87.h"
 #endif
+#include "q3x/kernels/sm87_nvfp4_prefill_cublaslt.h"
 #include "q3x/runtime/decode_ops.h"
 #include "q3x/runtime/gdn_decode.h"
 #include "q3x/runtime/layout_ops.h"
@@ -85,6 +86,41 @@ static_assert(kMaximumProjectionTileTokenCount <=
   const std::uintptr_t first_end = first_begin + first_bytes;
   const std::uintptr_t second_end = second_begin + second_bytes;
   return first_end <= second_begin || second_end <= first_begin;
+}
+
+struct ByteSpan {
+  const void* data = nullptr;
+  std::size_t bytes = 0U;
+};
+
+template <std::size_t SpanCount>
+[[nodiscard]] bool byte_ranges_are_pairwise_disjoint(
+    const std::array<ByteSpan, SpanCount>& spans) noexcept {
+  for (std::size_t left = 0U; left < spans.size(); ++left) {
+    for (std::size_t right = left + 1U; right < spans.size(); ++right) {
+      if (!byte_ranges_are_disjoint(
+              spans[left].data, spans[left].bytes,
+              spans[right].data, spans[right].bytes)) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+[[nodiscard]] int launch_nvfp4_c512_cublaslt_branch(
+    void* const,
+    kernels::Sm87Nvfp4PrefillCublasLtContext* const context,
+    const NvFp4LinearWeight& weight,
+    const std::uint16_t* const input,
+    std::uint16_t* const bf16_weight_scratch,
+    const std::size_t bf16_weight_scratch_bytes,
+    std::uint16_t* const output, void* const cuda_stream) noexcept {
+  return kernels::launch_sm87_nvfp4_prefill_cublaslt_gate_c512(
+      context, weight.packed_weight, weight.block_scale,
+      weight.weight_scale_2, input, kMaximumRequestPrefillChunkSize,
+      kReferenceIntermediateSize, kReferenceHiddenSize,
+      bf16_weight_scratch, bf16_weight_scratch_bytes, output, cuda_stream);
 }
 
 [[nodiscard]] ReferenceRunnerStatus runner_status(
@@ -323,6 +359,13 @@ ReferenceRunnerStatus ReferenceRunner::collect_request_views(
   views.fp32_scratch = static_cast<float*>(scratch.value->device_data);
   views.fp32_scratch_elements =
       static_cast<std::size_t>(scratch.value->element_capacity);
+  views.nvfp4_large_m_weight_bf16_scratch =
+      state->nvfp4_large_m_weight_bf16_scratch();
+  if (views.nvfp4_large_m_weight_bf16_scratch != nullptr) {
+    views.nvfp4_large_m_weight_bf16_scratch_bytes =
+        static_cast<std::size_t>(
+            state->plan().nvfp4_large_m_weight_bf16_scratch.byte_size);
+  }
 
   const RequestConstViewResult rope_cos = state->rope_cos(0U);
   const RequestConstViewResult rope_sin = state->rope_sin(0U);
@@ -923,6 +966,131 @@ bool use_nvfp4_whole_chunk_prefill_gate_up_dual_stream(
                                   output_bytes);
 }
 
+bool use_nvfp4_c512_cublaslt_prefill_gate_up(
+    const ProjectionBackend backend, const LinearWeight& gate_weight,
+    const LinearWeight& up_weight, const std::uint16_t* const input,
+    std::uint16_t* const gate_output, std::uint16_t* const up_output,
+    const std::size_t token_count,
+    const kernels::Sm87Nvfp4PrefillCublasLtContext* const context,
+    std::uint16_t* const bf16_weight_scratch,
+    const std::size_t bf16_weight_scratch_bytes) noexcept {
+  constexpr std::size_t kRows = kReferenceIntermediateSize;
+  constexpr std::size_t kColumns = kReferenceHiddenSize;
+  constexpr std::size_t kTokens = kMaximumRequestPrefillChunkSize;
+  constexpr std::size_t kPackedBytes = kRows * (kColumns / 2U);
+  constexpr std::size_t kScaleBytes = kRows * (kColumns / 16U);
+  constexpr std::size_t kInputBytes =
+      kTokens * kColumns * sizeof(std::uint16_t);
+  constexpr std::size_t kOutputBytes =
+      kTokens * kRows * sizeof(std::uint16_t);
+  constexpr std::size_t kRequiredScratchBytes =
+      static_cast<std::size_t>(
+          kRequestNvFp4LargeMWeightBf16ScratchBytes);
+  static_assert(kRequiredScratchBytes ==
+                kRows * kColumns * sizeof(std::uint16_t));
+
+  const auto* const gate = std::get_if<NvFp4LinearWeight>(&gate_weight);
+  const auto* const up = std::get_if<NvFp4LinearWeight>(&up_weight);
+  const auto aligned = [](const void* const pointer,
+                          const std::size_t alignment) noexcept {
+    return pointer != nullptr &&
+           (reinterpret_cast<std::uintptr_t>(pointer) % alignment) == 0U;
+  };
+  if (backend != ProjectionBackend::kSm87WeightOnly ||
+      token_count != kTokens || context == nullptr || gate == nullptr ||
+      up == nullptr || gate->output_size != kRows ||
+      gate->input_size != kColumns || up->output_size != kRows ||
+      up->input_size != kColumns ||
+      !std::isfinite(gate->weight_scale_2) ||
+      gate->weight_scale_2 <= 0.0F ||
+      !std::isfinite(up->weight_scale_2) || up->weight_scale_2 <= 0.0F ||
+      bf16_weight_scratch_bytes < kRequiredScratchBytes ||
+      !aligned(gate->packed_weight, 16U) ||
+      !aligned(up->packed_weight, 16U) ||
+      !aligned(gate->block_scale, 4U) ||
+      !aligned(up->block_scale, 4U) || !aligned(input, 16U) ||
+      !aligned(gate_output, 16U) || !aligned(up_output, 16U) ||
+      !aligned(bf16_weight_scratch, 16U)) {
+    return false;
+  }
+
+  const std::array<ByteSpan, 5U> gate_spans{{
+      {gate->packed_weight, kPackedBytes},
+      {gate->block_scale, kScaleBytes},
+      {input, kInputBytes},
+      {bf16_weight_scratch, kRequiredScratchBytes},
+      {gate_output, kOutputBytes},
+  }};
+  const std::array<ByteSpan, 5U> up_spans{{
+      {up->packed_weight, kPackedBytes},
+      {up->block_scale, kScaleBytes},
+      {input, kInputBytes},
+      {bf16_weight_scratch, kRequiredScratchBytes},
+      {up_output, kOutputBytes},
+  }};
+  return byte_ranges_are_pairwise_disjoint(gate_spans) &&
+         byte_ranges_are_pairwise_disjoint(up_spans) &&
+         byte_ranges_are_disjoint(gate_output, kOutputBytes, up_output,
+                                  kOutputBytes) &&
+         byte_ranges_are_disjoint(gate_output, kOutputBytes,
+                                  up->packed_weight, kPackedBytes) &&
+         byte_ranges_are_disjoint(gate_output, kOutputBytes,
+                                  up->block_scale, kScaleBytes) &&
+         byte_ranges_are_disjoint(up_output, kOutputBytes,
+                                  gate->packed_weight, kPackedBytes) &&
+         byte_ranges_are_disjoint(up_output, kOutputBytes,
+                                  gate->block_scale, kScaleBytes);
+}
+
+NvFp4C512CublasLtRouteResult
+route_nvfp4_c512_cublaslt_prefill_gate_up(
+    const ProjectionBackend backend, const LinearWeight& gate_weight,
+    const LinearWeight& up_weight, const std::uint16_t* const input,
+    std::uint16_t* const gate_output, std::uint16_t* const up_output,
+    const std::size_t token_count,
+    kernels::Sm87Nvfp4PrefillCublasLtContext* const context,
+    std::uint16_t* const bf16_weight_scratch,
+    const std::size_t bf16_weight_scratch_bytes,
+    void* const cuda_stream,
+    const NvFp4C512CublasLtBranchLauncher launcher,
+    void* const launcher_user_data) noexcept {
+  NvFp4C512CublasLtRouteResult result;
+  if (!use_nvfp4_c512_cublaslt_prefill_gate_up(
+          backend, gate_weight, up_weight, input, gate_output, up_output,
+          token_count, context, bf16_weight_scratch,
+          bf16_weight_scratch_bytes)) {
+    return result;
+  }
+
+  result.selected = true;
+  result.fallback_allowed_before_enqueue = false;
+  if (launcher == nullptr) {
+    result.first_failure_stage = NvFp4C512CublasLtFailureStage::kGate;
+    result.launch_status = static_cast<int>(cudaErrorInvalidValue);
+    return result;
+  }
+  const auto* const gate = std::get_if<NvFp4LinearWeight>(&gate_weight);
+  const auto* const up = std::get_if<NvFp4LinearWeight>(&up_weight);
+
+  ++result.gate_calls;
+  result.launch_status = launcher(
+      launcher_user_data, context, *gate, input, bf16_weight_scratch,
+      bf16_weight_scratch_bytes, gate_output, cuda_stream);
+  if (result.launch_status != static_cast<int>(cudaSuccess)) {
+    result.first_failure_stage = NvFp4C512CublasLtFailureStage::kGate;
+    return result;
+  }
+
+  ++result.up_calls;
+  result.launch_status = launcher(
+      launcher_user_data, context, *up, input, bf16_weight_scratch,
+      bf16_weight_scratch_bytes, up_output, cuda_stream);
+  if (result.launch_status != static_cast<int>(cudaSuccess)) {
+    result.first_failure_stage = NvFp4C512CublasLtFailureStage::kUp;
+  }
+  return result;
+}
+
 bool use_nvfp4_m32_prefill_gate_up_dual_stream(
     const ProjectionBackend backend, const LinearWeight& gate_weight,
     const LinearWeight& up_weight, const std::uint16_t* const input,
@@ -1082,6 +1250,10 @@ ReferenceRunner& ReferenceRunner::operator=(ReferenceRunner&& other) noexcept {
       std::exchange(other.prefill_branch_ready_event_, nullptr);
   prefill_branch_done_event_ =
       std::exchange(other.prefill_branch_done_event_, nullptr);
+  nvfp4_prefill_cublaslt_context_ =
+      std::exchange(other.nvfp4_prefill_cublaslt_context_, nullptr);
+  nvfp4_prefill_cublaslt_scratch_bytes_ =
+      std::exchange(other.nvfp4_prefill_cublaslt_scratch_bytes_, 0U);
   pinned_logits_ = std::exchange(other.pinned_logits_, nullptr);
   pinned_trace_ = std::exchange(other.pinned_trace_, nullptr);
   decode_graph_p1_slots_ = other.decode_graph_p1_slots_;
@@ -1117,6 +1289,8 @@ void ReferenceRunner::release() noexcept {
     (void)cudaStreamSynchronize(
         reinterpret_cast<cudaStream_t>(prefill_auxiliary_stream_));
   }
+  kernels::destroy_sm87_nvfp4_prefill_cublaslt_context(
+      nvfp4_prefill_cublaslt_context_);
   destroy_decode_graph_p1();
   if (prefill_branch_ready_event_ != nullptr) {
     (void)cudaEventDestroy(
@@ -1145,6 +1319,8 @@ void ReferenceRunner::release() noexcept {
   prefill_auxiliary_stream_ = nullptr;
   prefill_branch_ready_event_ = nullptr;
   prefill_branch_done_event_ = nullptr;
+  nvfp4_prefill_cublaslt_context_ = nullptr;
+  nvfp4_prefill_cublaslt_scratch_bytes_ = 0U;
   pinned_logits_ = nullptr;
   pinned_trace_ = nullptr;
   decode_graph_capture_active_ = false;
@@ -3057,79 +3233,109 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
         return fail_prefill_tile(launch_failure);
       }
     }
-    const bool gate_up_fork_join_available =
-        prefill_auxiliary_stream_ != nullptr &&
-        prefill_branch_ready_event_ != nullptr &&
-        prefill_branch_done_event_ != nullptr;
-    const bool use_gate_up_whole_chunk_dual_stream =
-        gate_up_fork_join_available &&
-        reference_runner_detail::
-            use_nvfp4_whole_chunk_prefill_gate_up_dual_stream(
-                projection_backend_, layer_weights.mlp.gate_proj,
+    const reference_runner_detail::NvFp4C512CublasLtRouteResult
+        c512_cublaslt_route =
+            reference_runner_detail::
+                route_nvfp4_c512_cublaslt_prefill_gate_up(
+                    projection_backend_, layer_weights.mlp.gate_proj,
+                    layer_weights.mlp.up_proj, views_.hidden[1],
+                    views_.projection[0], views_.projection[1], token_count,
+                    nvfp4_prefill_cublaslt_context_,
+                    views_.nvfp4_large_m_weight_bf16_scratch,
+                    nvfp4_prefill_cublaslt_scratch_bytes_, stream_,
+                    launch_nvfp4_c512_cublaslt_branch);
+    if (c512_cublaslt_route.selected) {
+      if (!c512_cublaslt_route.ok()) {
+        const bool gate_failed =
+            c512_cublaslt_route.first_failure_stage ==
+            reference_runner_detail::
+                NvFp4C512CublasLtFailureStage::kGate;
+        const int status =
+            c512_cublaslt_route.launch_status ==
+                    static_cast<int>(cudaSuccess)
+                ? static_cast<int>(cudaErrorUnknown)
+                : c512_cublaslt_route.launch_status;
+        return fail_prefill_tile(runner_status(
+            ReferenceRunnerError::kCudaFailure,
+            gate_failed ? "prefill_mlp_gate_c512_cublaslt"
+                        : "prefill_mlp_up_c512_cublaslt",
+            layer, status));
+      }
+    } else {
+      const bool gate_up_fork_join_available =
+          prefill_auxiliary_stream_ != nullptr &&
+          prefill_branch_ready_event_ != nullptr &&
+          prefill_branch_done_event_ != nullptr;
+      const bool use_gate_up_whole_chunk_dual_stream =
+          gate_up_fork_join_available &&
+          reference_runner_detail::
+              use_nvfp4_whole_chunk_prefill_gate_up_dual_stream(
+                  projection_backend_, layer_weights.mlp.gate_proj,
+                  layer_weights.mlp.up_proj, views_.hidden[1],
+                  views_.projection[0], views_.projection[1], token_count);
+      const bool use_gate_up_m32_dual_stream =
+          gate_up_fork_join_available &&
+          reference_runner_detail::use_nvfp4_m32_prefill_gate_up_dual_stream(
+              projection_backend_, layer_weights.mlp.gate_proj,
+              layer_weights.mlp.up_proj, views_.hidden[1],
+              views_.projection[0], views_.projection[1], token_count);
+      const bool use_gate_up_dual_stream =
+          use_gate_up_whole_chunk_dual_stream ||
+          use_gate_up_m32_dual_stream;
+      if (use_gate_up_dual_stream) {
+        const auto auxiliary_stream =
+            reinterpret_cast<cudaStream_t>(prefill_auxiliary_stream_);
+        const auto branch_ready =
+            reinterpret_cast<cudaEvent_t>(prefill_branch_ready_event_);
+        const auto branch_done =
+            reinterpret_cast<cudaEvent_t>(prefill_branch_done_event_);
+        const auto project_gate = [&]() noexcept {
+          if (use_gate_up_whole_chunk_dual_stream) {
+            return project_nvfp4_whole_chunk_on_stream(
+                layer_weights.mlp.gate_proj, views_.hidden[1],
+                views_.projection[0], "prefill_mlp_gate_projection", layer,
+                stream_);
+          }
+          return project(layer_weights.mlp.gate_proj, views_.hidden[1],
+                         views_.projection[0], "prefill_mlp_gate_projection",
+                         layer);
+        };
+        const auto project_up = [&]() noexcept {
+          if (use_gate_up_whole_chunk_dual_stream) {
+            return project_nvfp4_whole_chunk_on_stream(
                 layer_weights.mlp.up_proj, views_.hidden[1],
-                views_.projection[0], views_.projection[1], token_count);
-    const bool use_gate_up_m32_dual_stream =
-        gate_up_fork_join_available &&
-        reference_runner_detail::use_nvfp4_m32_prefill_gate_up_dual_stream(
-            projection_backend_, layer_weights.mlp.gate_proj,
-            layer_weights.mlp.up_proj, views_.hidden[1],
-            views_.projection[0], views_.projection[1], token_count);
-    const bool use_gate_up_dual_stream =
-        use_gate_up_whole_chunk_dual_stream ||
-        use_gate_up_m32_dual_stream;
-    if (use_gate_up_dual_stream) {
-      const auto auxiliary_stream =
-          reinterpret_cast<cudaStream_t>(prefill_auxiliary_stream_);
-      const auto branch_ready =
-          reinterpret_cast<cudaEvent_t>(prefill_branch_ready_event_);
-      const auto branch_done =
-          reinterpret_cast<cudaEvent_t>(prefill_branch_done_event_);
-      const auto project_gate = [&]() noexcept {
-        if (use_gate_up_whole_chunk_dual_stream) {
-          return project_nvfp4_whole_chunk_on_stream(
-              layer_weights.mlp.gate_proj, views_.hidden[1],
-              views_.projection[0], "prefill_mlp_gate_projection", layer,
-              stream_);
-        }
-        return project(layer_weights.mlp.gate_proj, views_.hidden[1],
-                       views_.projection[0], "prefill_mlp_gate_projection",
-                       layer);
-      };
-      const auto project_up = [&]() noexcept {
-        if (use_gate_up_whole_chunk_dual_stream) {
-          return project_nvfp4_whole_chunk_on_stream(
+                views_.projection[1], "prefill_mlp_up_projection_auxiliary",
+                layer, prefill_auxiliary_stream_);
+          }
+          return project_on_stream(
               layer_weights.mlp.up_proj, views_.hidden[1],
               views_.projection[1], "prefill_mlp_up_projection_auxiliary",
               layer, prefill_auxiliary_stream_);
+        };
+        if (!check_cuda(
+                static_cast<int>(cudaEventRecord(branch_ready, stream)),
+                "prefill_mlp_branch_ready_record", layer) ||
+            !check_cuda(static_cast<int>(cudaStreamWaitEvent(
+                            auxiliary_stream, branch_ready, 0U)),
+                        "prefill_mlp_branch_ready_wait", layer) ||
+            !project_gate() || !project_up() ||
+            !check_cuda(
+                static_cast<int>(cudaEventRecord(branch_done,
+                                                 auxiliary_stream)),
+                "prefill_mlp_branch_done_record", layer) ||
+            !check_cuda(static_cast<int>(
+                            cudaStreamWaitEvent(stream, branch_done, 0U)),
+                        "prefill_mlp_branch_done_wait", layer)) {
+          return fail_prefill_tile(launch_failure);
         }
-        return project_on_stream(
-            layer_weights.mlp.up_proj, views_.hidden[1], views_.projection[1],
-            "prefill_mlp_up_projection_auxiliary", layer,
-            prefill_auxiliary_stream_);
-      };
-      if (!check_cuda(
-              static_cast<int>(cudaEventRecord(branch_ready, stream)),
-              "prefill_mlp_branch_ready_record", layer) ||
-          !check_cuda(static_cast<int>(cudaStreamWaitEvent(
-                          auxiliary_stream, branch_ready, 0U)),
-                      "prefill_mlp_branch_ready_wait", layer) ||
-          !project_gate() || !project_up() ||
-          !check_cuda(
-              static_cast<int>(cudaEventRecord(branch_done,
-                                               auxiliary_stream)),
-              "prefill_mlp_branch_done_record", layer) ||
-          !check_cuda(static_cast<int>(
-                          cudaStreamWaitEvent(stream, branch_done, 0U)),
-                      "prefill_mlp_branch_done_wait", layer)) {
+      } else if (!project(layer_weights.mlp.gate_proj, views_.hidden[1],
+                          views_.projection[0],
+                          "prefill_mlp_gate_projection", layer) ||
+                 !project(layer_weights.mlp.up_proj, views_.hidden[1],
+                          views_.projection[1],
+                          "prefill_mlp_up_projection", layer)) {
         return fail_prefill_tile(launch_failure);
       }
-    } else if (!project(layer_weights.mlp.gate_proj, views_.hidden[1],
-                        views_.projection[0],
-                        "prefill_mlp_gate_projection", layer) ||
-               !project(layer_weights.mlp.up_proj, views_.hidden[1],
-                        views_.projection[1],
-                        "prefill_mlp_up_projection", layer)) {
-      return fail_prefill_tile(launch_failure);
     }
     if (!check_cuda(launch_silu_mul_reference_cuda(
                         views_.projection[0], views_.projection[1],
@@ -3281,6 +3487,37 @@ ReferenceRunnerFactoryResult create_reference_runner(
       }
       // This failure is deliberately downgraded to a serial fallback. Do not
       // leak its thread-local CUDA last-error state to the returned runner.
+      (void)cudaGetLastError();
+    }
+  }
+
+  if (options.projection_backend == ProjectionBackend::kSm87WeightOnly &&
+      runner.views_.nvfp4_large_m_weight_bf16_scratch != nullptr) {
+    kernels::Sm87Nvfp4PrefillCublasLtContext* context = nullptr;
+    const int create_status =
+        kernels::create_sm87_nvfp4_prefill_cublaslt_context(&context);
+    std::size_t required_scratch_bytes = 0U;
+    std::size_t workspace_bytes = 0U;
+    int heuristic_rank = -1;
+    const int query_status =
+        create_status == static_cast<int>(cudaSuccess) && context != nullptr
+            ? kernels::query_sm87_nvfp4_prefill_cublaslt_context(
+                  context, &required_scratch_bytes, &workspace_bytes,
+                  &heuristic_rank)
+            : static_cast<int>(cudaErrorInitializationError);
+    if (create_status == static_cast<int>(cudaSuccess) &&
+        query_status == static_cast<int>(cudaSuccess) &&
+        context != nullptr && required_scratch_bytes != 0U &&
+        workspace_bytes == 0U && heuristic_rank >= 0 &&
+        required_scratch_bytes <=
+            runner.views_.nvfp4_large_m_weight_bf16_scratch_bytes) {
+      runner.nvfp4_prefill_cublaslt_context_ = context;
+      runner.nvfp4_prefill_cublaslt_scratch_bytes_ =
+          required_scratch_bytes;
+    } else {
+      // This exact-C512 route is optional. A context/query/zero-workspace or
+      // scratch-capacity miss retains the established M128 dual-stream path.
+      kernels::destroy_sm87_nvfp4_prefill_cublaslt_context(context);
       (void)cudaGetLastError();
     }
   }
