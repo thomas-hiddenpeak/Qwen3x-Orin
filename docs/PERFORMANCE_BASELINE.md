@@ -8128,3 +8128,68 @@ whole-model, or external-replication claim follows this stop-loss. Exact logs,
 binary/build ID, resource dump, candidate/production SASS hashes, and the
 reproduction commands are in the
 [GDN C16 ping-pong rejection record](metadata/qwen36-27b-prefill-gdn-c16-scalar-vector-qk-pingpong-rejection.json).
+
+## NVFP4 Gate M128xN256 activation-reuse rejection
+
+The next bounded Gate/Up screen keeps the production M128xN128xK64 kernel and
+dispatch frozen. Its test-only M128xN256xK64 candidate assigns one N16 panel
+and eight ordered M16 accumulators to each of 16 warps. A 512-thread CTA stages
+one M128xK64 activation tile in 18,432 bytes of dynamic shared memory, decodes
+one N256xK64 B tile per stage, and halves grid X to 136/272 at C256/C512. The
+hypothesis is activation reuse across two output panels, not MTP, buffering,
+or a Prefill/Decode scheduling change. The candidate was removed after the
+screen; production dispatch, headers, CMake, runner, Decode, and ABI remain
+unchanged.
+
+Cold first-use Graph captures before resource queries pass for both token
+specializations. Each capture contains one distinct 512-thread candidate node
+with 18,432 dynamic shared bytes; all 21 malformed or aliased calls return an
+invalid status and capture zero nodes. Both instances use 124 registers,
+37,376 static plus 18,432 dynamic shared bytes, zero local/stack memory, and
+one CTA/SM. C512 checkpoint-like output and Graph replay each compare
+8,912,896 BF16 values with zero mismatch; guards and immutable inputs pass.
+
+The fixed MAXN first-cell stop-loss uses CPU 0, a locked 1.3005-GHz GPU,
+locked 3.2-GHz EMC, ten warmups, 24 iterations per pass, and six mirrored
+`B-C-C-B` rounds:
+
+| Round | Production M128xN128 | Candidate M128xN256 | Speedup |
+| ---: | ---: | ---: | ---: |
+| 1 | 6.47374 ms | 7.16983 ms | 0.902913x |
+| 2 | 6.47356 ms | 7.17340 ms | 0.902440x |
+| 3 | 6.47311 ms | 7.16705 ms | 0.903177x |
+| 4 | 6.47432 ms | 7.17073 ms | 0.902882x |
+| 5 | 6.47328 ms | 7.17105 ms | 0.902696x |
+| 6 | 6.47455 ms | 7.17158 ms | 0.902806x |
+| Aggregate | **6.47376 ms** | **7.17060 ms** | **0.902819x** |
+
+All six rounds fail the strict-positive gate and the aggregate misses the
+frozen 1.12x requirement. Candidate latency is 10.764069% higher and
+throughput is 9.718015% lower. Static SASS does not indicate hidden spills:
+candidate versus production has 1,784/1,800 instructions, 9/13 `LDG`, 67/67
+`LDS`, 45/49 `STS`, 12/11 barriers, 16/16 HMMA, and zero `LDL`/`STL`. The
+decisive structural change is one 512-thread CTA/SM instead of two
+256-thread CTA/SM; reduced activation instructions do not recover the lost
+CTA-level latency hiding and the wider synchronization domain.
+
+A separate production-only C512 NCU capture establishes the next audit
+baseline; it is not candidate NCU or before/after evidence. Production Gate
+measures 6.478944 ms, 935,854,080 L1 global-load request bytes, only 1,245,024
+hit bytes, 934,609,056 miss bytes (**99.866964% miss**), 952,508,480 LTS
+bytes, 3,481,600 SASS global loads, 191,285,888 SM instructions, and
+22,282,240 Tensor instructions. Its context has a 768-KiB persisting-L2
+set-aside, but no activation access-policy window. This motivates, but does
+not validate, a bounded activation-window screen that preserves the production
+M128xN128 tile and two CTA/SM residency.
+
+The first-cell stop-loss skips Gate/Up pair timing, C256, the other finite
+distributions, candidate NCU, Nsys, and full-model work. The exact M128xN256
+mapping is closed and must not be copied blindly into Down or FP8. The next
+priority is a two-CTA-preserving L2 activation-persistence experiment, then
+bulk-attention integration and remaining FP8/GDN traffic-ranked work while the
+OpenAI-compatible API/EvalScope path proceeds in parallel. Natural-order
+encoding-only comparison of Gate/Down M128 `<4>/<2>` production functions is
+identical between the experiment and frozen binary; that hash has a distinct
+normalization scope from earlier fixed-order SASS hashes. Full commands,
+samples, artifact hashes, NCU limitations, and cleanup evidence are in the
+[Gate N256 rejection record](metadata/qwen36-27b-prefill-nvfp4-gate-m128-n256-a-reuse-rejection.json).

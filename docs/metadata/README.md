@@ -1441,6 +1441,19 @@ The diagnostic Phase 3 records are:
   C256, the remaining distributions, pair timing, NCU, Nsys, and full-model
   work. Gate/Down M128 SASS remains byte-for-byte identical to the frozen
   `c885d8e` binary; both rejected candidates were removed and MTP was unused.
+- [`qwen36-27b-prefill-nvfp4-gate-m128-n256-a-reuse-rejection.json`](qwen36-27b-prefill-nvfp4-gate-m128-n256-a-reuse-rejection.json),
+  which rejects a test-only Gate M128xN256 activation-reuse mapping at its
+  first C512 checkpoint-like cell. Cold Graph, 21 invalid calls, resource,
+  exact **0/8,912,896**, replay, guard, and input gates pass at 124 registers,
+  55,808 total shared bytes, zero local memory, 512 threads, and one CTA/SM.
+  Fixed-clock 6x24 `B-C-C-B` timing regresses from 6.47376 to 7.17060 ms:
+  **0.902819x**, with all six rounds below one. The stop-loss skips pair/C256,
+  other distributions, candidate NCU, Nsys, and full-model work; the candidate
+  is removed and production SASS remains identical to the frozen binary. A
+  separate production Gate baseline records 99.867% L1 global-load misses, a
+  768-KiB context set-aside, and no activation access-policy window, selecting
+  a two-CTA-preserving L2 window screen next. This is not candidate traffic
+  evidence, and MTP remains unused.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

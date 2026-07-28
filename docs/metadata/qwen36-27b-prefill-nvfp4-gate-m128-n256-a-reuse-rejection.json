@@ -1,0 +1,428 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-nvfp4-gate-m128-n256-a-reuse-rejection",
+  "status": "rejected-test-only-first-C512-performance-stop-loss",
+  "recorded_at": "2026-07-28T11:55:00+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "experiment_base_head": "cc3e42194db8549aaa9ae9e3f182b7fb360c26f6",
+    "experiment_base_tree": "8f7e6837d4af5b6b5f44c9b77f92516df8f64772",
+    "experiment_base_subject": "docs: record Gate M256 Prefill rejection",
+    "base_tree_clean_before_experiment": true,
+    "candidate_scope": [
+      "src/kernels/sm87/weight_only_gemv.cu",
+      "tests/sm87_weight_only_gemv_test.cu"
+    ],
+    "candidate_test_only": true,
+    "production_library_source_temporarily_changed_for_test_build": true,
+    "experiment_binary_contains_test_only_candidate_from_production_translation_unit": true,
+    "candidate_code_retained": false,
+    "candidate_cleanup": "both candidate edits were removed after the frozen first-C512 stop-loss",
+    "final_checked_in_production_library_changed": false,
+    "production_kernel_dispatch_changed": false,
+    "public_header_changed": false,
+    "cmake_changed": false,
+    "runner_changed": false,
+    "decode_changed": false,
+    "mtp_used": false,
+    "production_interfaces_explicitly_unchanged": [
+      "production Gate/Up and Down selectors",
+      "public headers and ABI",
+      "CMake target graph",
+      "runner scheduling and workspace",
+      "Decode routes",
+      "MTP policy"
+    ],
+    "measured_experiment_binary_before_cleanup": {
+      "path_at_measurement": "build/q3x_sm87_weight_only_gemv_test",
+      "bytes": 9670944,
+      "sha256": "924222ccae68f221225bc188f9c3138dcbe734e53eebe5356a373be8b66f79b6",
+      "elf_build_id": "0837eaac8dffd136aca46dd1a1f2fcb9a4148ad4",
+      "build_type": "Release",
+      "note": "stale measured artifact identity recorded before the candidate was removed; this path was subsequently rebuilt clean and no longer contains the candidate"
+    },
+    "clean_post_rejection_binary": {
+      "path": "build/q3x_sm87_weight_only_gemv_test",
+      "bytes": 9535256,
+      "sha256": "88edf729990b64bc25ea388b3f84193e2fec87e91e6729e79cedbd177de4824e",
+      "elf_build_id": "4460de4b01deacbc846c6c0c20755512271de80c",
+      "build_type": "Release",
+      "candidate_symbol_present": false
+    }
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "nvpmodel": "MAXN",
+    "measurement_cpu": 0,
+    "fixed_frequency_readback_hz": {
+      "gpu_minimum": 1300500000,
+      "gpu_maximum": 1300500000,
+      "gpu_current": 1300500000,
+      "emc_minimum": 3200000000,
+      "emc_maximum": 3200000000,
+      "emc_current": 3200000000
+    },
+    "claim_scope": "one fixed-clock Orin, one same-process deterministic C512 checkpoint-like Gate branch screen, and one separate production-only NCU baseline"
+  },
+  "experiment": {
+    "role": "one dense MLP Gate or Up branch",
+    "shape": {
+      "rows": 17408,
+      "columns": 5120,
+      "supported_token_counts": [
+        256,
+        512
+      ],
+      "timed_token_count": 512,
+      "timed_output_elements": 8912896
+    },
+    "weight_format": "NVFP4 E2M1 packed with block-16 E4M3FN scales",
+    "activation_and_output_format": "BF16",
+    "baseline": {
+      "name": "public production M128xN128xK64 decoded-B-reuse Gate kernel",
+      "threads_per_cta": 256,
+      "registers_per_thread": 126,
+      "static_shared_bytes": 37376,
+      "dynamic_shared_bytes": 0,
+      "local_bytes": 0,
+      "active_blocks_per_sm": 2,
+      "grid_x": {
+        "C256": 272,
+        "C512": 544
+      }
+    },
+    "candidate": {
+      "name": "test-only M128xN256xK64 activation-reuse Gate kernel",
+      "threads_per_cta": 512,
+      "warps_per_cta": 16,
+      "mapping": "each warp owns one N16 panel and eight ordered M16 accumulator panels for a common M128 activation tile",
+      "activation_staging": "stage one M128xK64 A tile in 18432 bytes of opt-in dynamic shared memory and reuse it across two adjacent N128 output panels",
+      "weight_staging": "all 512 threads cooperatively decode one N256xK64 B tile per stage",
+      "output_staging": "all 16 warps drain four ordered M32 output pairs through the shared B/C overlay",
+      "grid_x": {
+        "C256": 136,
+        "C512": 272
+      },
+      "hypothesis": "halve repeated activation movement while retaining the same Tensor arithmetic"
+    },
+    "selection_gates": {
+      "first_cell": "C512 checkpoint_like",
+      "first_C512_required_speedup": 1.12,
+      "required_every_round_speedup": "strictly greater than 1.0",
+      "timing_order": "B-C-C-B",
+      "warmups": 10,
+      "iterations_per_timed_pass": 24,
+      "rounds": 6,
+      "stop_loss": "failure ends this mapping before pair, C256, other distributions, candidate NCU, Nsys, and full-model work"
+    }
+  },
+  "cold_first_use_graph_and_resources": {
+    "call_order": "valid cold CUDA Graph captures for both specializations, invalid captures, resource query, exact/replay validation, then timing",
+    "cuda_graph": {
+      "C256": {
+        "kernel_nodes": 1,
+        "grid_x": 136,
+        "block_x": 512,
+        "dynamic_shared_bytes": 18432
+      },
+      "C512": {
+        "kernel_nodes": 1,
+        "grid_x": 272,
+        "block_x": 512,
+        "dynamic_shared_bytes": 18432
+      },
+      "candidate_specializations_distinct": true,
+      "candidate_distinct_from_production": true,
+      "first_candidate_runtime_use_inside_valid_capture": true,
+      "result": "pass"
+    },
+    "invalid_graph": {
+      "invalid_statuses": 21,
+      "invalid_cases": 21,
+      "captured_kernel_nodes": 0,
+      "result": "pass"
+    },
+    "resource_gate": {
+      "maximum_registers_per_thread": 128,
+      "required_static_shared_bytes": 37376,
+      "required_dynamic_shared_bytes": 18432,
+      "maximum_total_shared_bytes": 55808,
+      "required_local_bytes": 0,
+      "required_stack_bytes": 0,
+      "required_threads_per_block": 512,
+      "minimum_active_blocks_per_sm": 1
+    },
+    "measured_candidate_resources": {
+      "C256": {
+        "registers_per_thread": 124,
+        "static_shared_bytes": 37376,
+        "dynamic_shared_bytes": 18432,
+        "total_shared_bytes": 55808,
+        "local_bytes": 0,
+        "stack_bytes": 0,
+        "maximum_threads_per_block": 512,
+        "active_blocks_per_sm": 1
+      },
+      "C512": {
+        "registers_per_thread": 124,
+        "static_shared_bytes": 37376,
+        "dynamic_shared_bytes": 18432,
+        "total_shared_bytes": 55808,
+        "local_bytes": 0,
+        "stack_bytes": 0,
+        "maximum_threads_per_block": 512,
+        "active_blocks_per_sm": 1
+      },
+      "result": "pass"
+    }
+  },
+  "correctness": {
+    "fixture": "deterministic checkpoint-like finite Gate branch payload",
+    "C512_candidate_mismatches": 0,
+    "C512_elements": 8912896,
+    "C512_replay_mismatches": 0,
+    "unexpected_nonfinite_outputs": 0,
+    "guards": "intact",
+    "immutable_inputs": "preserved",
+    "candidate_graph_replay": "pass",
+    "result": "pass"
+  },
+  "performance": {
+    "protocol": {
+      "processes": 1,
+      "fixture": "checkpoint_like",
+      "token_count": 512,
+      "warmups": 10,
+      "iterations_per_pass": 24,
+      "rounds": 6,
+      "order": "B-C-C-B",
+      "baseline": "production M128xN128",
+      "candidate": "test-only M128xN256"
+    },
+    "rounds": [
+      {
+        "round": 1,
+        "B1_ms": 6.47326,
+        "C1_ms": 7.16920,
+        "C2_ms": 7.17046,
+        "B2_ms": 6.47421,
+        "speedup": 0.902913,
+        "strict_positive_gate": "fail"
+      },
+      {
+        "round": 2,
+        "B1_ms": 6.47255,
+        "C1_ms": 7.17367,
+        "C2_ms": 7.17312,
+        "B2_ms": 6.47457,
+        "speedup": 0.902440,
+        "strict_positive_gate": "fail"
+      },
+      {
+        "round": 3,
+        "B1_ms": 6.47267,
+        "C1_ms": 7.16562,
+        "C2_ms": 7.16847,
+        "B2_ms": 6.47355,
+        "speedup": 0.903177,
+        "strict_positive_gate": "fail"
+      },
+      {
+        "round": 4,
+        "B1_ms": 6.47282,
+        "C1_ms": 7.17035,
+        "C2_ms": 7.17110,
+        "B2_ms": 6.47582,
+        "speedup": 0.902882,
+        "strict_positive_gate": "fail"
+      },
+      {
+        "round": 5,
+        "B1_ms": 6.47348,
+        "C1_ms": 7.17026,
+        "C2_ms": 7.17184,
+        "B2_ms": 6.47307,
+        "speedup": 0.902696,
+        "strict_positive_gate": "fail"
+      },
+      {
+        "round": 6,
+        "B1_ms": 6.47293,
+        "C1_ms": 7.16986,
+        "C2_ms": 7.17330,
+        "B2_ms": 6.47616,
+        "speedup": 0.902806,
+        "strict_positive_gate": "fail"
+      }
+    ],
+    "aggregate": {
+      "baseline_ms": 6.47376,
+      "candidate_ms": 7.17060,
+      "speedup": 0.902819,
+      "latency_ratio": 1.107640691,
+      "latency_increase_percent": 10.764069,
+      "throughput_change_percent": -9.718015,
+      "required_speedup": 1.12,
+      "every_round_strictly_positive": false,
+      "result": "fail"
+    }
+  },
+  "static_sass": {
+    "scope": "C512 candidate Function section compared with production C512 Gate M128 Function section",
+    "candidate": {
+      "instructions": 1784,
+      "encoding_control_words": 3568,
+      "code_bytes": 28544,
+      "LDG": 9,
+      "LDS": 67,
+      "STS": 45,
+      "BAR": 12,
+      "HMMA": 16,
+      "LDL": 0,
+      "STL": 0,
+      "encoding_only_sha256": "415e0a6342d5e768b55da377e6fb11d3756478014adbb68316ba11e3ba5aacc5"
+    },
+    "production": {
+      "instructions": 1800,
+      "encoding_control_words": 3600,
+      "code_bytes": 28800,
+      "LDG": 13,
+      "LDS": 67,
+      "STS": 49,
+      "BAR": 11,
+      "HMMA": 16,
+      "LDL": 0,
+      "STL": 0
+    },
+    "interpretation": "the candidate has slightly less static code and the same HMMA count, but that does not offset its 512-thread one-CTA residency and wider synchronization domain"
+  },
+  "production_sass_integrity": {
+    "command": "for q3x_sass_bin in /tmp/q3x-prefill-nvfp4-down-m128-production-candidate build/q3x_sm87_weight_only_gemv_test; do /usr/local/cuda/bin/cuobjdump --dump-sass \"$q3x_sass_bin\" | awk '/^[[:space:]]*Function : / {keep=($0 ~ /nvfp4_w4a16_(gate|down)_whole_chunk_m128_n128_k64_b_reuse_kernel/)} keep {print}' | grep -oE '0x[0-9a-f]{16}' | sha256sum; done",
+    "natural_function_order": [
+      "Gate<4>",
+      "Gate<2>",
+      "Down<4>",
+      "Down<2>"
+    ],
+    "encoding_control_words_per_binary": 14400,
+    "frozen_binary_sha256": "bd86e11c68f29dedb1bab9ab210d8ab4f19014f8d855450f46d3c3e24f02fdf1",
+    "experiment_binary_production_functions_sha256": "bd86e11c68f29dedb1bab9ab210d8ab4f19014f8d855450f46d3c3e24f02fdf1",
+    "comparison": "pass",
+    "hash_scope_warning": "this cuobjdump natural-function-order encoding-only hash is not interchangeable with the earlier d8c9f41f fixed-order normalized-function hash or the 1f98275c separately extracted canonical-file concatenation hash",
+    "post_cleanup_canonical_four_function_hash": "1f98275c0e73b3b4650df0df515d1a7748d9a8f6ffe22347b19154f2ad881135"
+  },
+  "production_gate_C512_ncu_baseline": {
+    "scope": "separate production M128xN128 Gate C512 diagnostic capture; no candidate NCU was run and this is not a before/after candidate comparison",
+    "kernel": "nvfp4_w4a16_gate_whole_chunk_m128_n128_k64_b_reuse_kernel<4>",
+    "launch": {
+      "grid_x": 544,
+      "block_x": 256,
+      "registers_per_thread": 126,
+      "static_shared_bytes": 37376,
+      "active_blocks_per_sm": 2,
+      "persisting_l2_cache_bytes": 786432,
+      "activation_access_policy_window_configured": false
+    },
+    "metrics": {
+      "duration_ms": 6.478944,
+      "l1_global_load_request_bytes": 935854080,
+      "l1_global_load_hit_bytes": 1245024,
+      "l1_global_load_miss_bytes": 934609056,
+      "l1_global_load_hit_percent": 0.133036125,
+      "l1_global_load_miss_percent": 99.866963875,
+      "lts_bytes": 952508480,
+      "sass_global_load_instructions": 3481600,
+      "sm_instructions": 191285888,
+      "tensor_instructions": 22282240
+    },
+    "interpretation": "the production launch has essentially no L1 reuse; its context has a 786432-byte persisting-L2 set-aside, but the Gate activation has no stream access-policy window. This motivates a bounded two-CTA-preserving activation-window experiment, but does not prove that L2 persistence will improve latency",
+    "limitations": [
+      "no candidate NCU capture",
+      "no direct DRAM-byte counter is available in this GA10B collection",
+      "one NCU capture is structural evidence rather than a repeated latency distribution",
+      "traffic classes are not separated into activation, packed weight, scale, and output bytes"
+    ],
+    "artifacts": {
+      "report": {
+        "path": "/tmp/q3x-prefill-gate-m128-c512-baseline-ncu.ncu-rep",
+        "bytes": 3531151,
+        "sha256": "9e1b02853c913d06c5afba8adcd87e3e147f1c5368aa58734f817dfcd9d0a14b"
+      },
+      "console": {
+        "path": "/tmp/q3x-prefill-gate-m128-c512-baseline-ncu-console.log",
+        "bytes": 12718,
+        "sha256": "626785bd0d5a4d489ce7f1aad19c584bf14c1d61a8105258ceba8174362ddd35"
+      },
+      "csv": {
+        "path": "/tmp/q3x-prefill-gate-m128-c512-baseline-ncu.csv",
+        "bytes": 16061,
+        "sha256": "65130aa37e8719138a947f3020ebf26627b3b473301d0620a5f0fce8b68f13d1"
+      }
+    }
+  },
+  "artifacts": {
+    "performance_log": {
+      "path": "/tmp/q3x-nvfp4-gate-m128-n256-first-process.log",
+      "bytes": 3950,
+      "sha256": "9b7a2a524c3406b78740e05274a8ed9308a30aa5cdb733ab29e2a53c9a177eb6",
+      "expected_exit": "nonzero solely because the C512 cell and first-process performance assertions fail; correctness, Graph, invalid-call, and resource gates pass"
+    },
+    "experiment_resource_log": {
+      "path": "/tmp/q3x-nvfp4-gate-m128-n256-first-process-resource.log",
+      "bytes": 61410,
+      "sha256": "055c54463c2291b161b8f2ea83bdff914bb7841b1db54fc2f542775e017da5bd"
+    },
+    "raw_experiment_sass": {
+      "path": "/tmp/q3x-nvfp4-gate-m128-n256-current.sass",
+      "bytes": 52270416,
+      "sha256": "39e595ecdb336fa69369821074ca30667d0a59234429987e633d9c0a4d01cf8c"
+    },
+    "raw_frozen_sass": {
+      "path": "/tmp/q3x-nvfp4-gate-m128-n256-frozen-c885d8e.sass",
+      "bytes": 51291486,
+      "sha256": "4223d49de221f7df18b29ab5c3ac462058372bf2f9b4c364676fb16ac0588d62"
+    },
+    "post_cleanup_resource_log": {
+      "path": "/tmp/q3x-nvfp4-gate-n256-clean-resource.log",
+      "bytes": 60910,
+      "sha256": "f9cc1d970ed4b8d37857f9d045343bd15e862e44d57f3516750c188151a3c73f",
+      "candidate_symbol_present": false
+    },
+    "post_cleanup_sass": {
+      "path": "/tmp/q3x-nvfp4-gate-n256-clean.sass",
+      "bytes": 51370790,
+      "sha256": "3513a0753cb05c1639c042f733e62005d4a62531462386e57504dace46830415"
+    }
+  },
+  "stop_loss_and_skipped_work": {
+    "trigger": "C512 checkpoint-like speedup 0.902819 is below 1.12 and every one of six rounds regresses",
+    "not_run": [
+      "Gate/Up dual-stream pair timing",
+      "C256 timing",
+      "same-bank-stress distribution",
+      "finite-special distribution",
+      "candidate NCU",
+      "Nsys",
+      "full-model Prefix or TTFT",
+      "external replication"
+    ]
+  },
+  "decision": {
+    "result": "reject and remove the M128xN256 candidate",
+    "reason": "halving grid X and static activation load instructions does not compensate for changing the production two-CTA/SM, 256-thread schedule into a one-CTA/SM, 512-thread synchronization domain",
+    "closed_scope": "this exact Gate M128xN256 wide-CTA activation-reuse mapping",
+    "do_not_generalize": [
+      "this does not prove that all activation-reuse mechanisms are exhausted",
+      "do not copy the N256 mapping blindly into Down or FP8 kernels",
+      "do not infer a candidate traffic reduction because candidate NCU was intentionally skipped"
+    ],
+    "next_priority": [
+      "preserve the production M128xN128 kernel and two CTA/SM residency while screening a bounded persisting-L2 access-policy window for the activation tile",
+      "continue bulk-attention integration and the remaining FP8/GDN traffic-ranked Prefill work",
+      "advance the OpenAI-compatible API and EvalScope path in parallel"
+    ],
+    "mtp_used": false
+  }
+}

@@ -1501,6 +1501,14 @@ row-search structure without an unpriced global-progress assumption. See the
   (**1.287555553x**). The existing two-stream fork/join remains; the gain is
   M128 B reuse, not new buffering or overlap. See the
   [M128 production record](metadata/qwen36-27b-prefill-nvfp4-gate-m128-production-benchmark.json).
+- [rejected, Gate M128xN256 activation reuse; queued L2-preserving screen]
+  A test-only 512-thread mapping passes exact/replay/Graph/resource gates at
+  124 registers and one CTA/SM, but its first C512 cell reaches only
+  **0.902819x**, with all six rounds regressing. Production stays M128xN128 at
+  two CTA/SM. Do not copy this wide-CTA mapping into Down or FP8; next screen a
+  persisting-L2 activation access window without changing the production tile
+  or occupancy. See the
+  [N256 rejection](metadata/qwen36-27b-prefill-nvfp4-gate-m128-n256-a-reuse-rejection.json).
 - [measured and rejected on real checkpoint, GDN sequential FP32-B8 and WY]
   Commit `eaa09f4` compares production M16 (`B`), sequential FP32-B8 (`S`), and a B8
   lower-triangular WY control (`W`). C256 reaches **2.76977x S** versus
