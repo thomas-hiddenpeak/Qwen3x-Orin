@@ -1,8 +1,13 @@
 # Exact Prefill GDN dataflow on SM87
 
-Status: reference-driven design plan. FlashLinearAttention and Mamba are
-architecture references only. No source, generated code, binary, package, or
-runtime dependency from either project is copied or introduced.
+Status: the P0 exact composite is implemented at commit `4c135d5` as an
+isolated test-only CUDA cell and has passed T1 synthetic correctness and
+resource validation on SM87. Qualified full-model/captured-trajectory
+retention and production promotion are `NOT_RUN`; production dispatch remains
+unchanged.
+FlashLinearAttention and Mamba are architecture references only. No source,
+generated code, binary, package, or runtime dependency from either project is
+copied or introduced.
 
 This plan is subordinate to the
 [real-model performance evidence policy](REAL_MODEL_PERFORMANCE_POLICY.md).
@@ -103,7 +108,7 @@ not for bypassing today's per-token BF16 boundary.
 
 ## P0 exact composite: C16 recurrence plus post epilogue
 
-The immediate test-only cell keeps the exact C16 recurrence and changes only
+The implemented test-only cell keeps the exact C16 recurrence and changes only
 where its already-rounded raw output lives before plain-RMSNorm and SiLU(Z):
 
 ```mermaid
@@ -127,12 +132,12 @@ BF16-RNE output order as the current standalone epilogue. The recurrence state
 is still rounded after every token; only the raw-output global write/read
 boundary is replaced by a shared BF16 boundary.
 
-The existing exact-body evidence reports 64 registers, 34,056 static shared
-bytes, zero local bytes, and four CTAs/SM. Adding 4,128 logical bytes appears
-compatible with keeping all 48 value-head CTAs in one three-CTA/SM wave, but
-the compiler and occupancy query decide the real resource result. The first
-resource gate is zero local/spill bytes and at least three active CTAs/SM; four
-remains the target, not an assumed result.
+The production exact body reports 64 registers, 34,056 static shared bytes,
+zero local bytes, and four CTAs/SM. The T1 compiler and device query now report
+64 registers, 38,184 static shared bytes, zero local bytes, and four CTAs/SM
+for the shared-boundary candidate. It therefore clears the first resource gate
+of zero local bytes and at least three active CTAs/SM while retaining the
+four-CTA target.
 
 Two controls separate the sources of improvement:
 
@@ -146,6 +151,50 @@ P513 and 48 separate epilogue launches. It does not remove the 1,536 C16
 recurrence launches and therefore cannot by itself deliver the FP32-WY
 micro-kernel's 2.8x result.
 
+The historical one-shot P513 Nsys attribution gives a planning boundary, not
+a retention result: 1,536 exact-C16 GDN calls take 488.585408 ms and 48
+standalone epilogues take 32.770496 ms, for 521.355904 ms or 339.424417 us per
+C16 cell after spreading the epilogue cost. A composite breaks even below
+339.424417 us/cell and clears a 1.03x chain gate at or below 329.538269
+us/cell. The 576 MiB figure is logical write-plus-read volume, not measured
+DRAM or L2 traffic; it cannot be converted into milliseconds until the
+global-boundary and shared-boundary cells are compared on the same pinned real
+trajectory.
+
+### P0 T1 result on 2026-07-29
+
+The standalone executable at commit `4c135d5` passed its SM87 T1 run with
+synthetic inputs. This is correctness-only evidence: no full-model pinned
+prompt path, pinned captured real-layer trajectory, timing loop, B-C-C-B
+retention decision, Nsys, NCU, Prefix, or TTFT measurement was run.
+
+| Route | Registers/thread | Static shared | Local bytes | Active CTAs/SM |
+| --- | ---: | ---: | ---: | ---: |
+| shared BF16 boundary candidate | 64 | 38,184 B | 0 | 4 |
+| global BF16 boundary control | 64 | 34,056 B | 0 | 4 |
+| frozen production exact C16 | 64 | 34,056 B | 0 | 4 |
+
+The finite fixture proves the shared raw BF16 boundary, final output, and final
+state bitwise against the production-plus-standalone-epilogue baseline. The
+global-boundary control is also bitwise. A separate NaN fixture proves the same
+shared raw, output, and state boundaries without substituting for the finite
+epilogue proof. In-place and disjoint state, one-node shared/global Graph
+replay, 22 guarded-buffer redzones, eight immutable inputs, seven invalid
+calls, and a zero-node invalid capture all pass.
+
+`compute-sanitizer` is **not a passed gate** for this result. Device checking
+is unavailable because the target Orin reports its CUDA debug feature disabled;
+the sanitizer result is `NOT_RUN`/`NOT_ESTABLISHED`.
+
+The normalized evidence record is
+[`qwen36-27b-prefill-gdn-c16-norm-gate-shared-boundary-t1-2026-07-29.json`](metadata/qwen36-27b-prefill-gdn-c16-norm-gate-shared-boundary-t1-2026-07-29.json).
+The next admissible decision is a full-model pinned-prompt path or pinned
+captured-real-layer-trajectory mirrored B-C-C-B comparison of the standalone
+baseline, global-boundary control, and shared-boundary candidate. Isolated real
+weights without the corresponding data-dependent activations and state have no
+retention authority. Until qualified evidence exists, the experimental
+incumbent and production path are unchanged.
+
 ## Gates and promotion separation
 
 The experiment and production gates are intentionally different:
@@ -153,11 +202,13 @@ The experiment and production gates are intentionally different:
 1. Exhaustive synthetic smoke proves bitwise C1/C16 outputs and final state,
    in-place/disjoint state, Graph replay, invalid calls, redzones, immutable
    inputs, NaN handling, resource limits, and exact standalone reduction order.
-2. Performance retention uses real checkpoint execution or captured real
-   layer trajectories only. Each candidate is compared with the current
-   native incumbent in mirrored B-C-C-B order. A stable all-positive result
-   may become the next test-only experimental incumbent even before it clears
-   the production gate.
+2. Performance retention uses a full-model pinned-prompt path or pinned
+   captured real-layer trajectories only. Isolated real weights without the
+   corresponding data-dependent activations and recurrent state have no
+   retention authority. Each candidate is compared with the current native
+   incumbent in mirrored B-C-C-B order. A stable all-positive result may
+   become the next test-only experimental incumbent even before it clears the
+   production gate.
 3. Production promotion separately requires the frozen native production
    threshold, full P257/P513/P769/P1025 output and recurrent-state bitwise
    checks, route-hit proof, fresh fixed-clock Prefix/TTFT repetition, and a new
@@ -169,8 +220,9 @@ The experiment and production gates are intentionally different:
 
 A chunk16/32 WY/SSD prototype becomes meaningful only if the numerical
 contract is explicitly reopened. It must then be a separate research binary,
-disable TF32 initially, use real checkpoint trajectories, and compare output,
-final state, logits, and longer continuation against both current production
-and an installed external GDN reference. The already rejected FP32-B8 result
-is the warning: short generated-token equality is not sufficient evidence for
-recurrent-state admission.
+disable TF32 initially, use a full-model pinned-prompt path or pinned captured
+real-layer trajectories, and compare output, final state, logits, and longer
+continuation against both current production and an installed external GDN
+reference. The already rejected FP32-B8 result is the warning: short
+generated-token equality is not sufficient evidence for recurrent-state
+admission.

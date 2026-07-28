@@ -1,0 +1,281 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-gdn-c16-norm-gate-shared-boundary-t1-2026-07-29",
+  "status": "t1-synthetic-correctness-pass-performance-not-run-test-only",
+  "date": "2026-07-29",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "implementation_commit": "4c135d5be75097ac3990a3167b71e8e9e1a23143",
+    "implementation_tree": "0518e77547975f9ac90cb47236e06bb46e4c15a3",
+    "implementation_parent": "d75f7fdc48591661c8401268a68bd806eb0af940",
+    "implementation_subject": "test: add exact C16 GDN norm gate cell",
+    "implementation_files": [
+      "CMakeLists.txt",
+      "tests/gdn_prefill_c16_norm_gate_sm87_candidate.cu"
+    ],
+    "scope": "standalone test-only CUDA executable",
+    "source_file": {
+      "path": "tests/gdn_prefill_c16_norm_gate_sm87_candidate.cu",
+      "lines": 1547,
+      "bytes": 66078,
+      "sha256": "2e4576772638b981da7d5b2fcb9ba883e14093b64b563b6e2852e1650886f085",
+      "git_blob": "cb3284d3333ce0df817e0aa2d6ef041715731370"
+    },
+    "measured_binary": {
+      "path": "build/q3x_gdn_prefill_c16_norm_gate_sm87_candidate",
+      "bytes": 1114976,
+      "sha256": "ff6b2859d07aedd6488914d720c4d05b60bf59117794d2100e15f9d8172a6998",
+      "elf_build_id": "46fbf66f5c3d15dee74daa613acdfe410115649b",
+      "build_type": "Release",
+      "cuda_architecture": 87
+    }
+  },
+  "qualification": {
+    "evidence_tier": "T1",
+    "payload": "synthetic",
+    "authority": "CORRECTNESS_AND_RESOURCE_ONLY",
+    "real_checkpoint_weights_used": false,
+    "full_model_pinned_prompt_path_used": false,
+    "pinned_captured_real_layer_trajectory_used": false,
+    "synthetic_performance_authority": false,
+    "performance_decision": "NOT_RUN",
+    "native_retention_decision": "NOT_RUN",
+    "production_promotion": "NOT_RUN",
+    "production_dispatch": "UNCHANGED",
+    "public_api": "UNCHANGED",
+    "public_abi": "UNCHANGED",
+    "runner": "UNCHANGED",
+    "decode": "UNCHANGED",
+    "mtp": "UNCHANGED",
+    "limitation": "This run proves only the synthetic finite/NaN bitwise, memory-contract, CUDA Graph, invalid-call, and SM87 resource gates of the standalone test cell. It provides no latency, throughput, qualified full-model/captured-trajectory retention, end-to-end Prefill, or production-promotion evidence."
+  },
+  "environment": {
+    "device_reported_by_test": "Orin",
+    "compute_capability": "8.7",
+    "cuda_architecture": 87,
+    "fixed_clock_evidence_recorded": false,
+    "temperature_envelope_recorded": false,
+    "performance_environment_qualified": false
+  },
+  "experiment": {
+    "shape": {
+      "token_count": 16,
+      "qk_heads": 16,
+      "value_heads": 48,
+      "head_dimension": 128,
+      "state_elements": 786432,
+      "state_bytes": 1572864,
+      "raw_output_elements": 98304,
+      "raw_output_bytes": 196608,
+      "final_output_elements": 98304,
+      "final_output_bytes": 196608,
+      "grid": [
+        48,
+        1,
+        1
+      ],
+      "block": [
+        256,
+        1,
+        1
+      ]
+    },
+    "baseline": "production exact-C16 register-resident BF16-state GDN followed on the same stream by the standalone 128-wide headwise plain-RMSNorm/SiLU-gate kernel",
+    "global_boundary_control": "one test-only composite kernel preserving the rounded raw-output global store, CTA synchronization, and global reload before the epilogue",
+    "shared_boundary_candidate": "one test-only composite kernel retaining the rounded raw-output tile in padded shared BF16 storage before the epilogue",
+    "shared_raw_tile": {
+      "logical_shape": [
+        16,
+        129
+      ],
+      "element_type": "uint16 BF16 word",
+      "bytes": 4128,
+      "padding_elements_per_row": 1
+    },
+    "exact_contract": [
+      "the 128x128 recurrent state remains packed in BF16 register words across C16",
+      "every state item is encoded BF16 round-to-nearest-even after each ordered token before the next recurrence step",
+      "the raw GDN output is encoded to BF16 before either the global or shared composite boundary",
+      "the 256-thread sum-of-squares reduction, rsqrtf, gamma multiplication, SiLU gate, and final BF16 encoding preserve the standalone epilogue order",
+      "exact state_input equals state_output remains supported"
+    ],
+    "not_implemented_or_claimed": [
+      "production selector or runner integration",
+      "real-checkpoint weight or activation execution",
+      "full-model pinned-prompt or pinned captured-real-layer-trajectory performance measurement",
+      "native experimental-incumbent retention",
+      "production promotion",
+      "whole-model Prefill or TTFT improvement",
+      "Decode change",
+      "MTP",
+      "Nsight Systems or Nsight Compute attribution"
+    ]
+  },
+  "t1_validation": {
+    "result": "PASS",
+    "test_exit_code": 0,
+    "evidence_banner": {
+      "tier": "T1",
+      "payload": "synthetic",
+      "authority": "correctness_only",
+      "performance_decision": "NOT_RUN",
+      "production_promotion": "NOT_RUN"
+    },
+    "finite_fixture": {
+      "shared_raw_boundary_bitwise_to_production": "PASS",
+      "shared_final_output_bitwise_to_baseline": "PASS",
+      "global_control_final_output_bitwise_to_baseline": "PASS",
+      "shared_final_state_bitwise_to_production": "PASS",
+      "global_control_final_state_bitwise_to_production": "PASS",
+      "in_place_state": "PASS",
+      "disjoint_state": "PASS",
+      "finite_final_values": 98304,
+      "nonzero_final_values_gate": "greater_than_49152",
+      "result": "PASS"
+    },
+    "nan_fixture": {
+      "shared_raw_boundary_bitwise_to_production": "PASS",
+      "shared_final_output_bitwise_to_baseline": "PASS",
+      "shared_final_state_bitwise_to_production": "PASS",
+      "purpose": "exercise the per-token packed-BF16 state and raw-output BF16 NaN boundaries independently of the finite epilogue proof",
+      "result": "PASS"
+    },
+    "cuda_graph": {
+      "shared_boundary_kernel_nodes": 1,
+      "global_control_kernel_nodes": 1,
+      "shared_boundary_grid": [
+        48,
+        1,
+        1
+      ],
+      "shared_boundary_block": [
+        256,
+        1,
+        1
+      ],
+      "shared_and_global_functions_distinct": true,
+      "shared_replay_state_and_output_bitwise": "PASS",
+      "global_replay_state_and_output_bitwise": "PASS",
+      "invalid_capture_kernel_nodes": 0,
+      "result": "PASS"
+    },
+    "memory_contract": {
+      "guarded_buffers": 22,
+      "all_prefix_and_suffix_redzones_intact": true,
+      "immutable_inputs_checked": 8,
+      "all_immutable_inputs_unchanged": true,
+      "result": "PASS"
+    },
+    "invalid_calls": {
+      "cases": 7,
+      "all_rejected_with_cuda_error_invalid_value": true,
+      "rejected_before_enqueue": true,
+      "result": "PASS"
+    },
+    "resources": {
+      "shared_boundary_candidate": {
+        "registers_per_thread": 64,
+        "static_shared_bytes": 38184,
+        "local_bytes": 0,
+        "maximum_threads_per_block": 256,
+        "active_blocks_per_sm": 4
+      },
+      "global_boundary_control": {
+        "registers_per_thread": 64,
+        "static_shared_bytes": 34056,
+        "local_bytes": 0,
+        "maximum_threads_per_block": 256,
+        "active_blocks_per_sm": 4
+      },
+      "production_exact_c16_frozen": {
+        "registers_per_thread": 64,
+        "static_shared_bytes": 34056,
+        "local_bytes": 0,
+        "maximum_threads_per_block": 256,
+        "active_blocks_per_sm": 4
+      },
+      "minimum_active_blocks_per_sm": 3,
+      "target_active_blocks_per_sm": 4,
+      "shared_boundary_gate": "PASS",
+      "global_control_gate": "PASS",
+      "production_frozen_gate": "PASS"
+    },
+    "compute_sanitizer": {
+      "availability": "UNAVAILABLE",
+      "execution_result": "NOT_RUN",
+      "correctness_result": "NOT_ESTABLISHED",
+      "reason": "the target Orin reports the CUDA debug feature disabled, so compute-sanitizer device checking is unavailable",
+      "pass_claimed": false
+    }
+  },
+  "performance": {
+    "status": "NOT_RUN",
+    "synthetic_timing_present": false,
+    "real_model_weights_used": false,
+    "real_layer_trajectory_used": false,
+    "b_c_c_b_rounds": "NOT_RUN",
+    "retention_gate": "NOT_RUN",
+    "production_gate": "NOT_RUN",
+    "nsys": "NOT_RUN",
+    "ncu": "NOT_RUN",
+    "prefix_or_ttft": "NOT_RUN",
+    "reason": "the T1 executable is correctness-only; this data-dependent state path requires a full-model pinned-prompt path or pinned captured real-layer trajectory for performance retention, and isolated real weights have no retention authority"
+  },
+  "production_state": {
+    "candidate_test_code_retained": true,
+    "production_library_changed": false,
+    "production_kernel_changed": false,
+    "production_selector_changed": false,
+    "runner_changed": false,
+    "public_api_changed": false,
+    "public_abi_changed": false,
+    "production_dispatch_after_t1": "UNCHANGED",
+    "production_files_explicitly_unchanged": [
+      "include/q3x/runtime/gdn_decode.h",
+      "src/kernels/reference/gdn_m16_register_state.cu",
+      "src/kernels/reference/gdn_decode.cu",
+      "src/kernels/reference/decode_ops.cu",
+      "src/runtime/reference_runner.cpp"
+    ]
+  },
+  "decision": {
+    "result": "retain-test-only-pending-qualified-state-path-performance",
+    "t1_correctness_and_resource_gate": "PASS",
+    "performance_decision": "NOT_RUN",
+    "production_promotion": "NOT_RUN",
+    "production_status": "UNCHANGED",
+    "next_required_step": "run mirrored B-C-C-B timing on a full-model pinned-prompt path or pinned captured real-layer trajectory for the standalone baseline, global-boundary control, and shared-boundary candidate; isolated real weights have no retention authority, and only a stable all-positive qualified result may update the test-only experimental incumbent",
+    "later_production_requirements": [
+      "clear the frozen native production threshold",
+      "pass full P257/P513/P769/P1025 output and recurrent-state bitwise checks",
+      "prove production route hits",
+      "repeat fresh fixed-clock Prefix and TTFT measurements",
+      "show the GDN interval and global traffic decrease in a fresh profile"
+    ]
+  },
+  "artifacts": [
+    {
+      "role": "final T1 synthetic correctness and resource log",
+      "path": "/tmp/q3x-gdn-c16-norm-gate-t1-final.LuaPvH.log",
+      "bytes": 832,
+      "sha256": "98f078ffc74d37fdf574f596e0f8da2f0b1e4332785b947212378b6d44deb501",
+      "expected_exit_code": 0,
+      "checked_in": false
+    },
+    {
+      "role": "measured standalone test-only Release binary",
+      "path": "build/q3x_gdn_prefill_c16_norm_gate_sm87_candidate",
+      "bytes": 1114976,
+      "sha256": "ff6b2859d07aedd6488914d720c4d05b60bf59117794d2100e15f9d8172a6998",
+      "elf_build_id": "46fbf66f5c3d15dee74daa613acdfe410115649b"
+    }
+  ],
+  "reproduction": {
+    "configure": "cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DQ3X_CUDA_ARCHITECTURES=87 -DBUILD_TESTING=ON",
+    "build": "cmake --build build --target q3x_gdn_prefill_c16_norm_gate_sm87_candidate -j2",
+    "t1_correctness": "./build/q3x_gdn_prefill_c16_norm_gate_sm87_candidate",
+    "expected_t1_exit_code": 0,
+    "performance_command": "NOT_DEFINED_OR_RUN",
+    "compute_sanitizer": "NOT_AVAILABLE_ON_THIS_TARGET_ORIN_BECAUSE_CUDA_DEBUG_FEATURE_IS_DISABLED"
+  }
+}

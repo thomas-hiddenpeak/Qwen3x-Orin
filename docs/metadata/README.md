@@ -1710,6 +1710,21 @@ The diagnostic Phase 3 records are:
   Prefill production, Decode, and MTP remain unchanged. Priority moves to an
   audit of existing FP8 QKV/Z/O candidates at 564.576448 ms / 21.425% of P513
   projected GPU time before choosing the next bounded first cell.
+- [`qwen36-27b-prefill-gdn-c16-norm-gate-shared-boundary-t1-2026-07-29.json`](qwen36-27b-prefill-gdn-c16-norm-gate-shared-boundary-t1-2026-07-29.json),
+  which records the standalone exact-C16 GDN plus plain-RMSNorm/SiLU-gate P0
+  cell at commit `4c135d5`. Its synthetic T1 run proves finite shared/global
+  final-output and recurrent-state equality plus the shared raw BF16 boundary;
+  a separate NaN case proves the shared raw, final-output, and state boundaries.
+  In-place/disjoint and one-node Graph replay, 22 guarded-buffer redzones,
+  eight immutable inputs, seven invalid calls, and the zero-node invalid
+  capture also pass. The shared candidate uses 64 registers, 38,184 static
+  shared bytes, zero local bytes, and four CTAs/SM; the global control and
+  frozen production exact-C16 body each report 64/34,056/0/four. Performance
+  and production promotion are `NOT_RUN`; no full-model pinned-prompt path or
+  pinned captured real-layer trajectory was used, and production remains
+  unchanged. Device
+  `compute-sanitizer` checking is unavailable because the target Orin reports
+  its CUDA debug feature disabled, so no sanitizer pass is claimed.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and
