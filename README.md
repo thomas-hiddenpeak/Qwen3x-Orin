@@ -298,6 +298,20 @@ branch overlap is neither double/triple buffering nor Prefill/Decode overlap.
 The Gate/Up mechanism has full evidence in the
 [M128 Gate/Up production record](docs/metadata/qwen36-27b-prefill-nvfp4-gate-m128-production-benchmark.json).
 
+A test-only exact-C512 Gate path now establishes the next large-M NVFP4
+integration target. A custom canonical-NVFP4-to-BF16 kernel takes **1.236907
+ms**, and cuBLASLt consumes the contiguous BF16 allocation without a physical
+transpose in **2.323137 ms**. The inclusive **3.561288 ms** median is
+**1.842441x** faster than the fresh **6.561464 ms** production M128 Gate
+reference. Canonical decode is bitwise exact across 89,128,960 BF16 values and
+the exact two-node CUDA Graph replays cleanly, but production-M128 bitwise
+equivalence and whole-Prefill gains are deliberately not claimed. The route
+must next pass a production-shaped Gate+Up paired-stream benchmark, Down
+reuse, memory-reserve, and pinned-checkpoint end-to-end gates. The native
+fused large-M NVFP4 kernel continues in parallel as the higher-ceiling route.
+See the [C512 inclusive cuBLASLt admission
+record](docs/metadata/qwen36-27b-prefill-nvfp4-gate-c512-inclusive-cublaslt-admission.json).
+
 For exact aligned C512 linear-attention QKV, engine startup losslessly packs
 48 canonical matrices into a 2,516,582,400-byte fragment-native sidecar. The
 M128 kernel uses a three-stage raw A/B `cp.async` pipeline and feeds decoded

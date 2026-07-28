@@ -1,0 +1,136 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-nvfp4-gate-c512-inclusive-cublaslt-admission",
+  "status": "test-only-admitted-for-production-integration",
+  "recorded_at": "2026-07-28T18:46:35+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "inclusive_candidate_commit": "606a3cdfbf0fd49859716045273ef353ebfef9cc",
+    "inclusive_candidate_tree": "7f2205b0055d522ec9a0d0863d0d3c2375749c34",
+    "inclusive_candidate_subject": "test: admit inclusive C512 NVFP4 Lt path",
+    "persistent_bf16_ceiling_commit": "d9c4c5751d310df29291b082306f0aa2f91b5779",
+    "persistent_bf16_ceiling_tree": "084ac93ccac5d858840e70bed4db2def13fa0b1c",
+    "test": "tests/sm87_nvfp4_prefill_gate_c512_cublaslt_ceiling.cu",
+    "production_reference": "exact-C512 M128 NVFP4 Gate kernel",
+    "production_changed": false
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "nvpmodel": "MAXN",
+    "fixed_frequency_readback": {
+      "gpu_hz": 1300500000,
+      "emc_hz": 3200000000
+    },
+    "claim_scope": "one fixed-clock Jetson AGX Orin; synthetic exact production Gate shape; test executable only"
+  },
+  "shape": {
+    "role": "dense MLP Gate",
+    "tokens_M": 512,
+    "rows_N": 17408,
+    "columns_K": 5120,
+    "useful_flops": 91268055040,
+    "canonical_nvfp4_weight_bytes": 50135040,
+    "temporary_bf16_weight_bytes": 178257920,
+    "activation_and_output_format": "BF16",
+    "weight_format": "NVFP4 E2M1 packed with block-16 E4M3FN scales"
+  },
+  "candidate_route": {
+    "stage_1": "one custom CUDA kernel directly decodes canonical NVFP4 into contiguous BF16 row-major [N,K] without a physical transpose",
+    "stage_2": "cuBLASLt describes that same allocation as column-major [K,N], transposes the weight operand logically, and computes the large-M GEMM",
+    "dequant_kernel": {
+      "grid": "one CTA per N row",
+      "threads_per_block": 256,
+      "packed_prefetch_passes": 10,
+      "scale_load": "aligned uint32 load by one lane per warp followed by warp broadcast",
+      "output_store": "adjacent uint32 pairs containing two BF16 values",
+      "minimum_bytes_per_call": 228392960
+    },
+    "weight_scale_2": 1.25,
+    "weight_scale_application": "cuBLASLt alpha after BF16 dequantization",
+    "cuda_graph_nodes": 2,
+    "mtp_used": false,
+    "flashinfer_dependency_added": false,
+    "decode_route_changed": false
+  },
+  "protocol": {
+    "warmup": "untimed warmup before graph timing",
+    "measured_rounds": 6,
+    "timing": "CUDA events around exact captured graph stages",
+    "production_reference_milliseconds": 6.561464,
+    "required_inclusive_speedup": 1.22,
+    "dequantization_included": true,
+    "temporary_allocation_included": false,
+    "production_M128_bitwise_compared": false
+  },
+  "primary_result": {
+    "persistent_bf16_cublaslt_median_milliseconds": 2.323137,
+    "persistent_bf16_cublaslt_tflops": 39.2866,
+    "dequant_median_milliseconds": 1.236907,
+    "dequant_range_milliseconds": [1.236699, 1.238676],
+    "dequant_minimum_traffic_gigabytes_per_second": 184.6485,
+    "inclusive_median_milliseconds": 3.561288,
+    "inclusive_range_milliseconds": [3.560853, 3.561931],
+    "inclusive_speedup_vs_production_M128": 1.842441,
+    "gate": "pass"
+  },
+  "independent_process_replication": {
+    "dequant_median_milliseconds": 1.240615,
+    "cublaslt_median_milliseconds": 2.321693,
+    "inclusive_median_milliseconds": 3.564629,
+    "inclusive_speedup_vs_production_M128": 1.840714,
+    "gate": "pass"
+  },
+  "validation": {
+    "decoded_bf16_values_compared": 89128960,
+    "decoded_bf16_mismatches_vs_scalar_oracle": 0,
+    "decoded_nonfinite_values": 0,
+    "full_output_replay_mismatches": 0,
+    "full_output_nonfinite_values": 0,
+    "cuda_graph_capture": "pass: exact two-node graph",
+    "cold_graph_replay": "pass",
+    "warm_graph_replay": "pass",
+    "non_unit_weight_scale": "pass: 1.25 applied by cuBLASLt alpha after BF16 decode",
+    "targeted_ctest": "pass"
+  },
+  "nsight_compute_dequant": {
+    "duration_milliseconds": 1.243936,
+    "memory_throughput_percent": 66.07,
+    "compute_throughput_percent": 78.71,
+    "issue_slots_busy_percent": 66.27,
+    "achieved_occupancy_percent": 91.68,
+    "highest_pipeline": "ALU at 78.7%",
+    "local_or_shared_spill_bytes": 0,
+    "csv": {
+      "path": "/tmp/q3x_dequant_final_ncu.csv",
+      "bytes": 28971,
+      "sha256": "26745654fa42a3a99ee45139e038fd7b587fadcba3c1444c3d5baf3de43ab5c0"
+    },
+    "program_log": {
+      "path": "/tmp/q3x_dequant_final_program.log",
+      "bytes": 4766,
+      "sha256": "791932baa408a4c4c87257d4887345bb4fc306caf3bb277d86bc8879af818f04"
+    }
+  },
+  "decision": {
+    "admission": "advance to Gate+Up paired-stream benchmark before any production dispatch change",
+    "why": "the inclusive route exceeds the 1.22x projection gate in two processes and preserves exact canonical NVFP4 decoding plus CUDA Graph replay",
+    "not_yet_claimed": [
+      "production integration",
+      "production M128 bitwise equivalence",
+      "Gate+Up paired-stream speedup",
+      "Down speedup",
+      "real-checkpoint end-to-end correctness",
+      "whole-Prefill throughput improvement"
+    ],
+    "next_gates": [
+      "measure two independent Gate and Up decode-plus-Lt branches under the production fork/join",
+      "bound and reuse two BF16 staging buffers without violating the free-memory reserve",
+      "verify cuBLASLt handle, algorithm and workspace are graph-capture safe",
+      "measure the Down shape with staging-buffer reuse after Gate/Up join",
+      "run real-checkpoint numerical, token, CUDA Graph and Prefix throughput gates"
+    ],
+    "native_large_M_kernel": "continue in parallel as the fused upper-bound route; it can potentially eliminate the measured approximately 1.24 ms decode/staging phase"
+  }
+}
