@@ -1,0 +1,406 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-nvfp4-gate-up-l2-apw-rejection",
+  "status": "rejected-test-only-C512-pair-performance-stop-loss",
+  "recorded_at": "2026-07-28T12:31:00+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "experiment_base_head": "c7606ee52ea1d7b2c64f139f8dfba59e04d8d6c4",
+    "experiment_base_tree": "3795133328b5d4a071cb70f9a733bd715e3e2b43",
+    "experiment_base_subject": "docs: record Gate M128 N256 Prefill rejection",
+    "test_only_source_commit": "eaa9bc87d647df5fd0afc569d0ae1ae55402c94f",
+    "test_only_source_tree": "0aeeaaa1aa64aac576061f99af7541169f3a42b6",
+    "test_only_source_subject": "test: screen Gate Up L2 persistence",
+    "candidate_scope": [
+      "CMakeLists.txt",
+      "tests/sm87_nvfp4_prefill_gate_up_l2_persist_screen.cu"
+    ],
+    "candidate_test_only": true,
+    "standalone_test_target_added": "q3x_nvfp4_prefill_gate_up_l2_persist_screen",
+    "production_kernel_source_changed": false,
+    "production_dispatch_changed": false,
+    "runner_changed": false,
+    "workspace_changed": false,
+    "public_api_or_abi_changed": false,
+    "decode_changed": false,
+    "mtp_used": false,
+    "retention": "retain the isolated BUILD_TESTING target as reproducible negative evidence; no APW policy is admitted to production",
+    "measured_binary": {
+      "path": "build/q3x_nvfp4_prefill_gate_up_l2_persist_screen",
+      "bytes": 4776328,
+      "sha256": "4ea4731c461f7ec186b7cb1420697edc271ff825af42afb7035882286601f480",
+      "elf_build_id": "4a02985d6fc0092d8d82737d1cfd0c7cda363ec8",
+      "build_type": "Release"
+    }
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "nvpmodel": "MAXN",
+    "measurement_cpu": 0,
+    "fixed_frequency_readback_hz": {
+      "gpu_minimum": 1300500000,
+      "gpu_maximum": 1300500000,
+      "gpu_current": 1300500000,
+      "emc_minimum": 3200000000,
+      "emc_maximum": 3200000000,
+      "emc_current": 3200000000
+    },
+    "cache_capabilities": {
+      "l2_bytes": 4194304,
+      "maximum_persisting_l2_bytes": 2883584,
+      "maximum_access_policy_window_bytes": 134213632,
+      "original_persisting_l2_limit_bytes": 786432,
+      "original_main_stream_window_bytes": 0,
+      "original_auxiliary_stream_window_bytes": 0
+    },
+    "claim_scope": "one fixed-clock Orin, two independent deterministic C512 Gate/Up pair screens, and passing C256/C512 validation tests"
+  },
+  "experiment": {
+    "role": "the production dense-MLP Gate and Up branch pair on its existing main/auxiliary nonblocking streams",
+    "shape": {
+      "rows_per_branch": 17408,
+      "columns": 5120,
+      "validation_token_counts": [
+        256,
+        512
+      ],
+      "timed_token_count": 512,
+      "activation_window_bytes_C256": 2621440,
+      "activation_window_bytes_C512": 5242880,
+      "C256_pair_output_elements": 8912896,
+      "C512_pair_output_elements": 17825792
+    },
+    "weight_format": "NVFP4 E2M1 packed with block-16 E4M3FN scales",
+    "activation_and_output_format": "BF16",
+    "production_kernel": {
+      "name": "public production M128xN128xK64 decoded-B-reuse Gate branch launcher, invoked once for Gate and once for Up",
+      "C256_and_C512_resources": {
+        "registers_per_thread": 126,
+        "static_shared_bytes": 37376,
+        "local_bytes": 0,
+        "threads_per_cta": 256,
+        "active_blocks_per_sm": 2
+      },
+      "topology": "record ready on main, make auxiliary wait, launch Gate on main and Up on auxiliary, record auxiliary done, then make main wait",
+      "kernel_code_changed_by_candidate": false
+    },
+    "baseline_policy": {
+      "persisting_l2_limit_bytes": 786432,
+      "main_activation_access_policy_window": false,
+      "auxiliary_activation_access_policy_window": false,
+      "policy_before_each_pass": "neutral stream windows, reset persisting lines, and restore the original limit"
+    },
+    "candidate_common": {
+      "persisting_l2_limit_bytes": 2883584,
+      "activation_window_bytes_per_stream": 5242880,
+      "nominal_selected_activation_bytes": 2621440,
+      "capacity_margin_bytes": 262144,
+      "hit_property": "cudaAccessPropertyPersisting",
+      "miss_property": "cudaAccessPropertyStreaming",
+      "kernel_launch_shape_or_code_changed": false
+    },
+    "candidate_policies": {
+      "balanced": {
+        "main_hit_ratio": 0.25,
+        "auxiliary_hit_ratio": 0.25,
+        "main_nominal_selected_bytes": 1310720,
+        "auxiliary_nominal_selected_bytes": 1310720
+      },
+      "main_owner": {
+        "main_hit_ratio": 0.5,
+        "auxiliary_hit_ratio": 0.0,
+        "main_nominal_selected_bytes": 2621440,
+        "auxiliary_nominal_selected_bytes": 0
+      }
+    },
+    "selection_gates": {
+      "required_aggregate_C512_pair_speedup": 1.02,
+      "required_every_round_speedup": "strictly greater than 1.0",
+      "timing_order": "B-C-C-B",
+      "warmup_pairs_per_pass": 10,
+      "measured_pairs_per_pass": 24,
+      "rounds_per_policy": 6,
+      "stop_loss": "failure ends the APW path before NCU, Nsys, full-model, and production integration"
+    }
+  },
+  "validation": {
+    "ctest": {
+      "command": "ctest --test-dir build --output-on-failure -R '^nvfp4_prefill_gate_up_l2_persist_screen(_c256)?$'",
+      "tests_passed": 2,
+      "tests_failed": 0,
+      "elapsed_seconds": 0.76,
+      "C512_balanced": {
+        "candidate_mismatches": 0,
+        "compared_elements": 17825792,
+        "replay_mismatches": 0,
+        "unexpected_nonfinite_outputs": 0,
+        "guards": "intact",
+        "immutable_inputs": "preserved"
+      },
+      "C256_balanced": {
+        "candidate_mismatches": 0,
+        "compared_elements": 8912896,
+        "replay_mismatches": 0,
+        "unexpected_nonfinite_outputs": 0,
+        "guards": "intact",
+        "immutable_inputs": "preserved"
+      }
+    },
+    "C512_main_owner_formal_screen": {
+      "candidate_mismatches": 0,
+      "compared_elements": 17825792,
+      "replay_mismatches": 0,
+      "unexpected_nonfinite_outputs": 0,
+      "guards": "intact",
+      "immutable_inputs": "preserved",
+      "result": "pass"
+    },
+    "invalid_contract": {
+      "invalid_statuses": 21,
+      "invalid_cases": 21,
+      "captured_kernel_nodes": 0,
+      "policy_apply_count_before_and_during_invalid_gate": 0,
+      "limit_and_stream_attributes_unchanged": true,
+      "result": "pass"
+    },
+    "restoration": {
+      "original_limit_bytes": 786432,
+      "restored_limit_bytes": 786432,
+      "main_and_auxiliary_stream_attributes_exact": true,
+      "cache_contents": "normalized_not_restored",
+      "result": "pass"
+    }
+  },
+  "performance_protocol": {
+    "processes": 2,
+    "one_process_per_policy": true,
+    "fixture": "deterministic finite checkpoint-like Gate and Up weights, scales, and BF16 activations",
+    "scope": "steady_state_same_buffer_no_producer",
+    "launch_mode": "eager direct launch",
+    "valid_cuda_graph_apw_tested": false,
+    "pass_order": "B-C-C-B",
+    "warmup_pairs_per_pass": 10,
+    "measured_pairs_per_pass": 24,
+    "rounds": 6,
+    "L2_scrub_before_each_pass": true,
+    "policy_apply_reset_and_scrub_outside_timed_events": true,
+    "timing_boundary": "CUDA events on the main stream around the complete Gate/Up fork and join",
+    "important_scope_limit": "the repeated same activation buffer has no production residual/RMSNorm producer immediately before Gate/Up"
+  },
+  "performance": {
+    "balanced": {
+      "rounds": [
+        {
+          "round": 1,
+          "B1_ms": 12.9025,
+          "C1_ms": 12.9148,
+          "C2_ms": 12.9157,
+          "B2_ms": 12.8982,
+          "speedup": 0.998847,
+          "strict_positive_gate": "fail"
+        },
+        {
+          "round": 2,
+          "B1_ms": 12.8961,
+          "C1_ms": 12.9121,
+          "C2_ms": 12.9145,
+          "B2_ms": 12.8977,
+          "speedup": 0.998728,
+          "strict_positive_gate": "fail"
+        },
+        {
+          "round": 3,
+          "B1_ms": 12.8967,
+          "C1_ms": 12.9112,
+          "C2_ms": 12.9120,
+          "B2_ms": 12.8962,
+          "speedup": 0.998828,
+          "strict_positive_gate": "fail"
+        },
+        {
+          "round": 4,
+          "B1_ms": 12.8973,
+          "C1_ms": 12.9126,
+          "C2_ms": 12.9115,
+          "B2_ms": 12.8993,
+          "speedup": 0.998933,
+          "strict_positive_gate": "fail"
+        },
+        {
+          "round": 5,
+          "B1_ms": 12.9029,
+          "C1_ms": 12.9208,
+          "C2_ms": 12.9254,
+          "B2_ms": 12.8986,
+          "speedup": 0.998270,
+          "strict_positive_gate": "fail"
+        },
+        {
+          "round": 6,
+          "B1_ms": 12.9011,
+          "C1_ms": 12.9135,
+          "C2_ms": 12.9129,
+          "B2_ms": 12.8986,
+          "speedup": 0.998966,
+          "strict_positive_gate": "fail"
+        }
+      ],
+      "aggregate": {
+        "baseline_pair_ms": 12.8988,
+        "candidate_pair_ms": 12.9148,
+        "speedup": 0.998762,
+        "latency_increase_percent": 0.123953454,
+        "throughput_change_percent": -0.1238,
+        "rounds_strictly_positive": 0,
+        "rounds_total": 6,
+        "required_speedup": 1.02,
+        "result": "fail"
+      }
+    },
+    "main_owner": {
+      "rounds": [
+        {
+          "round": 1,
+          "B1_ms": 12.9046,
+          "C1_ms": 12.9164,
+          "C2_ms": 12.9157,
+          "B2_ms": 12.9026,
+          "speedup": 0.999036,
+          "strict_positive_gate": "fail"
+        },
+        {
+          "round": 2,
+          "B1_ms": 12.9034,
+          "C1_ms": 12.9167,
+          "C2_ms": 12.9202,
+          "B2_ms": 12.9059,
+          "speedup": 0.998929,
+          "strict_positive_gate": "fail"
+        },
+        {
+          "round": 3,
+          "B1_ms": 12.9044,
+          "C1_ms": 12.9175,
+          "C2_ms": 12.9140,
+          "B2_ms": 12.9044,
+          "speedup": 0.999124,
+          "strict_positive_gate": "fail"
+        },
+        {
+          "round": 4,
+          "B1_ms": 12.9002,
+          "C1_ms": 12.9173,
+          "C2_ms": 12.9160,
+          "B2_ms": 12.9012,
+          "speedup": 0.998764,
+          "strict_positive_gate": "fail"
+        },
+        {
+          "round": 5,
+          "B1_ms": 12.8991,
+          "C1_ms": 12.9143,
+          "C2_ms": 12.9174,
+          "B2_ms": 12.9012,
+          "speedup": 0.998783,
+          "strict_positive_gate": "fail"
+        },
+        {
+          "round": 6,
+          "B1_ms": 12.9022,
+          "C1_ms": 12.9120,
+          "C2_ms": 12.9143,
+          "B2_ms": 12.9008,
+          "speedup": 0.999099,
+          "strict_positive_gate": "fail"
+        }
+      ],
+      "aggregate": {
+        "baseline_pair_ms": 12.9025,
+        "candidate_pair_ms": 12.9160,
+        "speedup": 0.998956,
+        "latency_increase_percent": 0.104509108,
+        "throughput_change_percent": -0.1044,
+        "rounds_strictly_positive": 0,
+        "rounds_total": 6,
+        "required_speedup": 1.02,
+        "result": "fail"
+      }
+    },
+    "interpretation": "neither allocation policy produces a positive round; both remain close to parity but consistently regress and therefore provide no admission case"
+  },
+  "production_profile_context": {
+    "scope": "independent retained-production P513 Nsight Systems attribution, not an APW candidate profile",
+    "Gate_Up_raw_sum_ms": 839.826784,
+    "Gate_Up_interval_union_ms": 827.442528,
+    "Gate_Up_overlap_ms": 12.384256,
+    "overlap_as_percent_of_raw_sum": 1.474620271,
+    "interpretation": "Gate and Up are logically on two streams, but their physical overlap is small; the approximately 12.9-ms pair screen is correspondingly close to twice the approximately 6.47-ms production single-branch latency",
+    "bulk_attention": {
+      "production_integrated": true,
+      "current_profile_share_percent": 2.904,
+      "priority": "not awaiting integration and not the immediate dominant Prefill target"
+    }
+  },
+  "artifacts": {
+    "balanced_frozen_log": {
+      "path": "/tmp/q3x-prefill-gate-up-l2-apw-balanced-c512-frozen.log",
+      "bytes": 14039,
+      "sha256": "b7190892956dffd7e78686ec1c923809f8b7be1f6c23f499d08de63674244902",
+      "expected_exit": "nonzero solely because the frozen C512 pair performance gate fails after correctness, resource, invalid-call, and restoration gates pass"
+    },
+    "main_owner_frozen_log": {
+      "path": "/tmp/q3x-prefill-gate-up-l2-apw-main-owner-c512-frozen.log",
+      "bytes": 14023,
+      "sha256": "e18f17de893a44fb4e5091b6b5d9a88d340117d25e194db4eb9465d17ff447b0",
+      "expected_exit": "nonzero solely because the frozen C512 pair performance gate fails after correctness, resource, invalid-call, and restoration gates pass"
+    }
+  },
+  "stop_loss_and_skipped_work": {
+    "trigger": "balanced reaches 0.998762x and main-owner reaches 0.998956x, with zero of twelve policy-rounds strictly faster than baseline",
+    "not_run": [
+      "C256 performance timing",
+      "valid CUDA Graph APW execution",
+      "NCU direct L2 lookup hit/miss counters",
+      "candidate Nsys",
+      "integrated producer-to-Gate/Up layer timing",
+      "full-model Prefix or TTFT",
+      "production policy integration",
+      "external replication"
+    ]
+  },
+  "decision": {
+    "result": "reject production integration of both test-only Gate/Up activation APW policies",
+    "closed_scope": "the balanced 0.25/0.25 and main-owner 0.5/0 C512 APW policies over the unchanged production M128 Gate/Up pair",
+    "reason": "the two-CTA production kernel remains exact and unchanged, but reserving 2.75 MiB and nominally selecting 2.5 MiB of the shared 5-MiB activation window yields no positive timing round",
+    "do_not_generalize": [
+      "no NCU candidate counters were collected, so this rejection is not a measured L2 hit-rate or DRAM-traffic conclusion",
+      "the scope has no immediately preceding production activation producer and does not close every possible producer-consumer L2 strategy",
+      "the result does not reject unrelated smaller working sets or other kernels"
+    ],
+    "next_priority": {
+      "mechanism": "Gate/Up register-fed MMA or removal of the decoded-B shared-memory round trip",
+      "first_pair_required_speedup": 1.20,
+      "rationale": "a new arithmetic/dataflow mechanism has materially more ceiling than advisory cache allocation, while preserving the proven M128 occupancy and exactness gates"
+    },
+    "bulk_attention_status": "already production-integrated and only 2.904% of the current profile; do not describe it as pending integration",
+    "decode_anchor": "unchanged",
+    "mtp_used": false
+  },
+  "reproduction": {
+    "build": "cmake --build build --target q3x_nvfp4_prefill_gate_up_l2_persist_screen -j2",
+    "validation": "ctest --test-dir build --output-on-failure -R '^nvfp4_prefill_gate_up_l2_persist_screen(_c256)?$'",
+    "balanced_screen": "set -o pipefail; taskset -c 0 ./build/q3x_nvfp4_prefill_gate_up_l2_persist_screen --mode=screen --policy=balanced --tokens=512 | tee /tmp/q3x-prefill-gate-up-l2-apw-balanced-c512-frozen.log",
+    "main_owner_screen": "set -o pipefail; taskset -c 0 ./build/q3x_nvfp4_prefill_gate_up_l2_persist_screen --mode=screen --policy=main-owner --tokens=512 | tee /tmp/q3x-prefill-gate-up-l2-apw-main-owner-c512-frozen.log",
+    "screen_exit_contract": "both frozen screen commands return nonzero solely because their performance-policy assertion fails; correctness, invalid-call, resources, and policy restoration pass",
+    "environment_requirement": "run under MAXN with CPU 0, GPU 1300500000 Hz, and EMC 3200000000 Hz read back before accepting timings"
+  },
+  "limitations": [
+    "The payload is deterministic and checkpoint-like but synthetic rather than loaded checkpoint tensor bytes.",
+    "The timed scope repeatedly reuses one activation buffer after warmup and excludes its producer.",
+    "Access-policy-window hit ratios are CUDA policy hints, not measurements of the achieved cache-resident fraction.",
+    "No direct L2 lookup, DRAM-byte, candidate Nsys, whole-model, API, EvalScope, or external-framework claim follows this stop-loss.",
+    "The negative result rejects these two APW allocations, not every possible Gate/Up kernel redesign."
+  ]
+}

@@ -1454,6 +1454,16 @@ The diagnostic Phase 3 records are:
   768-KiB context set-aside, and no activation access-policy window, selecting
   a two-CTA-preserving L2 window screen next. This is not candidate traffic
   evidence, and MTP remains unused.
+- [`qwen36-27b-prefill-nvfp4-gate-up-l2-apw-rejection.json`](qwen36-27b-prefill-nvfp4-gate-up-l2-apw-rejection.json),
+  which completes that two-CTA-preserving screen without changing production
+  kernels, dispatch, runner, Decode, or MTP policy. C256/C512 exact/replay,
+  guards, inputs, 21 zero-node invalid cases, resources, and cache-policy
+  restoration pass. At C512, a 2.75-MiB set-aside with 2.5 MiB nominally
+  selected reaches only **0.998762x** for balanced 0.25/0.25 and
+  **0.998956x** for main-owner 0.5/0; all twelve rounds regress. The stop-loss
+  skips NCU, Nsys, full-model, and production APW work, makes no measured
+  L2-hit-rate claim, and selects register-fed MMA or removal of the decoded-B
+  shared-memory round trip behind a 1.20x first-pair gate.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

@@ -8185,11 +8185,78 @@ M128xN128 tile and two CTA/SM residency.
 The first-cell stop-loss skips Gate/Up pair timing, C256, the other finite
 distributions, candidate NCU, Nsys, and full-model work. The exact M128xN256
 mapping is closed and must not be copied blindly into Down or FP8. The next
-priority is a two-CTA-preserving L2 activation-persistence experiment, then
-bulk-attention integration and remaining FP8/GDN traffic-ranked work while the
-OpenAI-compatible API/EvalScope path proceeds in parallel. Natural-order
+two-CTA-preserving L2 activation-persistence experiment is recorded below;
+bulk attention is already in production, while the remaining FP8/GDN work and
+OpenAI-compatible API/EvalScope path continue from measured priorities.
+Natural-order
 encoding-only comparison of Gate/Down M128 `<4>/<2>` production functions is
 identical between the experiment and frozen binary; that hash has a distinct
 normalization scope from earlier fixed-order SASS hashes. Full commands,
 samples, artifact hashes, NCU limitations, and cleanup evidence are in the
 [Gate N256 rejection record](metadata/qwen36-27b-prefill-nvfp4-gate-m128-n256-a-reuse-rejection.json).
+
+## NVFP4 Gate/Up persisting-L2 APW rejection
+
+The bounded follow-up at base `c7606ee` preserves the production
+M128xN128xK64 Gate/Up kernels, launch shapes, dispatch, runner, workspace,
+Decode, and MTP policy. It adds only an isolated `BUILD_TESTING` target that
+uses the existing main/auxiliary Gate/Up fork and join while applying a CUDA
+persisting-L2 limit and activation access-policy windows outside the production
+runtime. Production C256 and C512 branches remain at 126 registers/thread,
+37,376 bytes static shared memory, zero local memory, 256 threads, and two
+active CTA/SM.
+
+The Orin reports 4,194,304 bytes of L2, a 2,883,584-byte maximum persisting
+set-aside, and a 134,213,632-byte maximum window. The original context has a
+786,432-byte set-aside and no main- or auxiliary-stream APW. Both C512
+candidates set the limit to 2,883,584 bytes and cover the same 5,242,880-byte
+activation allocation. The balanced policy uses hit ratios 0.25/0.25; the
+main-owner policy uses 0.5/0. Their nominal selected total is 2,621,440 bytes,
+leaving a 262,144-byte margin. Hits are marked persisting and misses streaming;
+these ratios are CUDA policy hints, not measured resident fractions.
+
+Both validation tests pass in 0.76 seconds. Balanced C256 and C512 compare
+zero mismatches and zero replay mismatches across 8,912,896 and 17,825,792
+Gate-plus-Up outputs. The main-owner C512 screen independently compares
+0/17,825,792 candidate and replay mismatches. All results are finite, guards
+are intact, and packed weights, scales, and activations are preserved. All 21
+malformed or aliased calls return invalid before policy mutation and capture
+zero Graph nodes. After every process, the original limit and both stream
+attributes restore exactly; persisting cache contents are normalized rather
+than restored.
+
+The fixed MAXN screen runs on CPU 0 with the GPU locked at 1.3005 GHz and EMC
+at 3.2 GHz. Each pass scrubs L2, performs ten warmup pairs, and times 24 eager
+Gate/Up pairs. Six mirrored `B-C-C-B` rounds compare baseline and candidate;
+policy changes, resets, and scrubs stay outside the timed CUDA events.
+
+| C512 Gate/Up APW policy | Baseline pair | Candidate pair | Speedup | Round speedups | Frozen gate |
+| --- | ---: | ---: | ---: | --- | ---: |
+| Balanced 0.25/0.25 | 12.8988 ms | 12.9148 ms | **0.998762x** | 0.998847, 0.998728, 0.998828, 0.998933, 0.998270, 0.998966 | 1.02x and 6/6 >1 |
+| Main owner 0.5/0 | 12.9025 ms | 12.9160 ms | **0.998956x** | 0.999036, 0.998929, 0.999124, 0.998764, 0.998783, 0.999099 | 1.02x and 6/6 >1 |
+
+Balanced latency rises 0.123953454% and main-owner latency rises 0.104509108%.
+Neither policy produces one positive round, so both fail before C256 timing,
+valid-Graph APW work, NCU, candidate Nsys, integrated producer-to-Gate/Up
+timing, full-model Prefix/TTFT, or production integration. In particular, no
+candidate L2 lookup counters or direct DRAM bytes were collected; this is a
+timing rejection, not evidence that the APW failed to change L2 residency.
+The measured scope is steady-state reuse of one activation buffer without its
+production residual/RMSNorm producer, and valid CUDA Graph APW behavior remains
+untested.
+
+Independent retained-production P513 attribution gives 839.826784 ms of raw
+Gate/Up time, an 827.442528-ms interval union, and only 12.384256 ms of physical
+overlap (1.474620271% of the raw sum). The pair is logically dual-stream but
+nearly serial on this workload, consistent with the roughly 12.9-ms pair
+latency versus roughly 6.47 ms for one branch. The already-integrated bulk
+attention route occupies only 2.904% of the current profile, so it is not a
+pending integration item or the immediate dominant target.
+
+The simple balanced and owner APW policies are therefore closed. The next
+Gate/Up attempt must change arithmetic/dataflow: register-fed MMA or removal
+of the decoded-B shared-memory round trip, with a frozen **1.20x first-pair**
+gate before broader work. The standalone APW target remains as reproducible
+negative evidence. Exact rounds, binary and log hashes, restoration semantics,
+skipped work, and limitations are frozen in the
+[Gate/Up L2 APW rejection record](metadata/qwen36-27b-prefill-nvfp4-gate-up-l2-apw-rejection.json).

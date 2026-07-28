@@ -1501,14 +1501,27 @@ row-search structure without an unpriced global-progress assumption. See the
   (**1.287555553x**). The existing two-stream fork/join remains; the gain is
   M128 B reuse, not new buffering or overlap. See the
   [M128 production record](metadata/qwen36-27b-prefill-nvfp4-gate-m128-production-benchmark.json).
-- [rejected, Gate M128xN256 activation reuse; queued L2-preserving screen]
+- [rejected, Gate M128xN256 activation reuse]
   A test-only 512-thread mapping passes exact/replay/Graph/resource gates at
   124 registers and one CTA/SM, but its first C512 cell reaches only
   **0.902819x**, with all six rounds regressing. Production stays M128xN128 at
-  two CTA/SM. Do not copy this wide-CTA mapping into Down or FP8; next screen a
-  persisting-L2 activation access window without changing the production tile
-  or occupancy. See the
+  two CTA/SM. Do not copy this wide-CTA mapping into Down or FP8. Its queued
+  persisting-L2 activation-window follow-up is now completed immediately below.
+  See the
   [N256 rejection](metadata/qwen36-27b-prefill-nvfp4-gate-m128-n256-a-reuse-rejection.json).
+- [rejected, Gate/Up persisting-L2 activation APW]
+  The isolated test target keeps production M128 kernels, dispatch, runner,
+  and two-CTA/SM resources unchanged. It raises the Orin persisting set-aside
+  from 768 KiB to 2.75 MiB and nominally selects 2.5 MiB of the shared C512
+  activation window. Balanced 0.25/0.25 reaches **0.998762x** and main-owner
+  0.5/0 reaches **0.998956x**; all twelve policy rounds regress against the
+  required 1.02x and 6/6-positive gates. C256/C512 validation, 21 zero-node
+  invalid cases, exact replay/guards/inputs, resource checks, and exact policy
+  restoration pass. No NCU, Nsys, full-model, or production APW work follows
+  the stop-loss, so this makes no L2-hit-rate claim. Next screen register-fed
+  MMA or removal of the decoded-B shared-memory round trip with a **1.20x
+  first-pair** gate. See the
+  [L2 APW rejection](metadata/qwen36-27b-prefill-nvfp4-gate-up-l2-apw-rejection.json).
 - [measured and rejected on real checkpoint, GDN sequential FP32-B8 and WY]
   Commit `eaa09f4` compares production M16 (`B`), sequential FP32-B8 (`S`), and a B8
   lower-triangular WY control (`W`). C256 reaches **2.76977x S** versus
@@ -1558,9 +1571,10 @@ row-search structure without an unpriced global-progress assumption. See the
   result. See the
   [C512 boundary](metadata/qwen36-27b-prefill-c512-request-boundary.json).
 - [done, current C512 optimized-route bundle] Commits `1f7d6be`, `6327733`,
-  `10c4c85`, `86d5843`, `d1fa6c5`, and `676e8ad` route exact C256/C512 bulk
-  full-attention compute, NVFP4 Down and Gate/Up, FP8 linear-attention
-  QKV/Z/O, and FP8 full-attention Q/K/V behind the ABI-0.4 boundary.
+  `10c4c85`, `86d5843`, `d1fa6c5`, `676e8ad`, `c9a0edb`, and `c885d8e`
+  route exact C256/C512 bulk full-attention compute, NVFP4 Down and Gate/Up,
+  FP8 linear-attention QKV/Z/O, and FP8 full-attention Q/K/V behind the
+  ABI-0.4 boundary, with M128 B reuse on large-N FP8, Gate/Up, and Down.
   P257/P513 exact-token, persistent-state,
   memory, fixed-clock Prefix, and fresh-profile gates pass. C64/C32/tail
   fallbacks, Decode Graph, and default C1 remain. The early synchronous M64
@@ -1577,7 +1591,9 @@ row-search structure without an unpriced global-progress assumption. See the
   and the declared numerical/append/replay/Graph/invalid contracts pass. The
   1.05804x P513 projection excludes Q/K preprocessing and KV placement, so
   production admission then passed in `1f7d6be` and in the combined C512
-  full-model gates summarized above. See the
+  full-model gates summarized above. It is already integrated and contributes
+  only 2.904% of the current profile; it is not awaiting integration or the
+  immediate dominant Prefill target. See the
   [bulk GQA screen](metadata/qwen36-27b-prefill-bulk-causal-gqa-screen.json).
   A future GDN attempt must use a materially different algorithm or dataflow
   from the rejected whole-span register-lifetime extension. Decode remains
@@ -1615,23 +1631,28 @@ Exit criteria:
 
 The achieved non-MTP Decode result is frozen as the Phase 3 regression anchor.
 The 100-ms/token / 10-token/s objective remains documented but is no longer a
-prerequisite for Prefill work. The C256/C512 whole-chunk main/aux-stream
-Gate/Up route now uses production M128 B reuse and passes exact model, memory,
-mirrored-latency, resource/invalid, full-suite, and fresh-profile gates.
-P257/P513 Prefix reaches **175.547351155/175.730487094 token/s** and complete-
-prompt throughput reaches **164.104109691/169.740778038 token/s**. The layer
-still has one Gate and one Up node on the existing two-stream fork/join; no
-new double/triple buffering or Prefill/Decode overlap was introduced.
+prerequisite for Prefill work. The current C256/C512 route bundle includes
+production M128 B reuse for Gate/Up, FP8 large-N projections, and NVFP4 Down;
+its exact-model, memory, mirrored-latency, resource/invalid, full-suite, and
+fresh-profile gates pass. P257/P513 Prefix reaches
+**196.261675/195.040523 token/s** and complete-prompt throughput reaches
+**181.985297/187.647869 token/s**. Gate and Up remain one node each on the
+existing two-stream fork/join; current P513 attribution finds only
+12.384256 ms of overlap inside 839.826784 ms raw time. No new double/triple
+buffering or Prefill/Decode overlap was introduced.
 The parallel GDN screen measured sequential FP32-B8 at **2.76977x/2.78551x**
 over production M16 and rejected WY, but the subsequent real-checkpoint gate
 also rejects FP32-B8: Prefix aggregate state NRMSE rises from **0.0741172** at
 P257 to **0.148576** at P1025 against a 0.01 threshold. Exact short token
 output does not override recurrent-state drift. Production therefore stays
-on exact per-token BF16 M16 GDN. The immediate main line is exact FP8 large-N
-C256/C512 M128 B-tile reuse: QKV/Z/O/full-Q currently consume 739.064832 ms,
-or 25.46% of P513 Prefix union. NVFP4 Down M128 reuse follows. Bounded
-OpenAI-compatible API/EvalScope work starts in parallel so the kernel path and
-external baseline advance together.
+on exact per-token BF16 M16 GDN. FP8 large-N and NVFP4 Down M128 reuse are now
+production-complete. Gate/Up M128xN256 and the two-CTA-preserving L2 APW both
+failed their stop-losses, so the immediate main line is a new Gate/Up
+arithmetic/dataflow mechanism: register-fed MMA or removal of the decoded-B
+shared-memory round trip, beginning with a 1.20x pair gate. Bulk attention is
+already production-integrated and only 2.904% of the current profile. Bounded
+OpenAI-compatible API/EvalScope work continues in parallel so the kernel path
+and external baseline advance together.
 C1024 remains a low-priority single-kernel canary rather than the main route.
 Exact output and Decode non-regression gates remain mandatory. Multi-request
 serving throughput is a separate later target.
@@ -1639,16 +1660,16 @@ serving throughput is a separate later target.
 Before Phase 3.5, retain the completed offline same-token vLLM/FlashInfer
 matrix as the cross-framework reference. Its batch-one/output-one comparison
 uses `P / scheduled-to-first-token`; native direct timing uses complete-prompt
-`P/TTFT`. Current native production reaches **164.104109691/169.740778038
+`P/TTFT`. Current native production reaches **181.985297/187.647869
 token/s** at P257/P513, while matched stock vLLM reaches 373.579/411.385.
 These are different runtime systems and leave directional
-**2.276478024670x/2.423607680423x** gaps, not a same-kernel attribution. The
+**2.052799903x/2.192324678x** gaps, not a same-kernel attribution. The
 user's
 separately tuned 2k--8k range has no matched raw protocol and is not treated as
-a comparable result. GDN B8 admission is now closed as rejected. Introduce
-the HTTP adapter and EvalScope in parallel with the FP8 M128 screen and its
-traffic counters so the external baseline precedes later system-level
-optimization. Phase 3.5 remains
+a comparable result. GDN B8 admission is now closed as rejected. Continue
+the HTTP adapter and EvalScope in parallel with the register-fed Gate/Up
+screen and its traffic counters so the external baseline precedes later
+system-level optimization. Phase 3.5 remains
 where EvalScope and user-visible TTFT become first-class release evidence.
 
 The first P65/P513 route smoke is complete: the exact checkpoint uses
