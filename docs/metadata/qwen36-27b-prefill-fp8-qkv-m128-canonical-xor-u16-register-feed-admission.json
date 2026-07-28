@@ -1,0 +1,257 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-fp8-qkv-m128-canonical-xor-u16-register-feed-admission",
+  "status": "test_only_baseline_gate_admitted_not_production_selected",
+  "recorded_at": "2026-07-28T16:23:14+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "commit": "3e52696db70f3999c5cd1e36f026bf65a4feb72d",
+    "tree": "12ae11a39e9cd14e6714adb78cae69da6ffdec3f",
+    "parent_commit": "4b32e2017b4bcb0f46751c2e8ea9dd868a4cf27e",
+    "subject": "test: admit canonical FP8 register feed",
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "release_test_binary": {
+      "path_at_measurement": "/home/rm01/Qwen3x-Orin/build/q3x_fp8_prefill_qkv_m128_cp_async_register_feed_screen",
+      "elf_build_id": "f505bdef3f8b33836232a1b34a4c0583e280caa7",
+      "build_type": "Release",
+      "evidence_note": "The mutable build-tree binary is identified by the frozen build-ID log below rather than treated as a persistent artifact."
+    },
+    "changed_files": [
+      "CMakeLists.txt",
+      "src/kernels/sm87/weight_only_gemv.cu",
+      "tests/sm87_fp8_prefill_qkv_m128_cp_async_register_feed_screen.cu"
+    ],
+    "production_route_changed": false,
+    "production_dispatch_changed": false,
+    "model_or_runtime_ownership_changed": false,
+    "interpretation": "The kernel implementations and launchers are test-only inside the existing CUDA translation unit. No public header, production dispatcher, runner, model binding, or sidecar owner changed."
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "fixed_frequency_readback": {
+      "gpu_min_hz": 1300500000,
+      "gpu_max_hz": 1300500000,
+      "gpu_current_hz": 1300500000,
+      "emc_cap_hz": 3200000000
+    },
+    "claim_scope": "one fixed-clock Orin, exact C512 linear-attention QKV, one pinned checkpoint tensor, isolated test-only kernels"
+  },
+  "scope": {
+    "shape": {
+      "tokens": 512,
+      "rows": 10240,
+      "columns": 5120,
+      "weight_format": "FP8 E4M3FN",
+      "activation_and_output_format": "BF16"
+    },
+    "common_topology": {
+      "logical_cta": "M128-by-N128",
+      "grid_x": 320,
+      "threads_per_block": 256,
+      "raw_a_b_cp_async_slots": 3,
+      "dynamic_shared_bytes": 79872,
+      "static_shared_bytes": 512,
+      "active_blocks_per_sm": 2,
+      "register_fragment_feed": true,
+      "decoded_b_shared_round_trip_removed": true
+    },
+    "canonical_weight_no_sidecar": true,
+    "additional_persistent_weight_bytes": 0,
+    "additional_engine_lifetime_bytes": 0,
+    "production_sidecar_bytes_changed": false,
+    "mtp_used": false,
+    "flashinfer_used": false,
+    "double_or_triple_request_buffering_added": false,
+    "prefill_decode_overlap_added": false
+  },
+  "variants": {
+    "P0": {
+      "name": "canonical_p0",
+      "description": "canonical row-major raw B is copied through aligned 16-byte cp.async operations into row-major shared memory; the matrix-B fragment is gathered with uint16 loads and fed directly to registers",
+      "shared_weight_placement": "row-major",
+      "fragment_gather": "two uint16 loads per fragment row half, combined into uint32 and then uint2",
+      "xor_swizzle": false,
+      "registers_per_thread": 128,
+      "stack_bytes": 0,
+      "local_bytes": 0,
+      "disposition": "rejected_below_aggregate_gate"
+    },
+    "P1": {
+      "name": "canonical_p1_xor",
+      "description": "the only delta from P0 is aligned row-wise XOR placement of the four K16 chunks in shared memory; it retains the same uint16 fragment-gather spelling, global order, cp.async alignment, shared footprint, and register-feed arithmetic",
+      "shared_weight_placement": "logical K16 chunk XOR lane-derived two-bit key",
+      "fragment_gather": "the same uint16 gather as P0 with the XOR-adjusted shared chunk",
+      "xor_swizzle": true,
+      "registers_per_thread": 126,
+      "stack_bytes": 0,
+      "local_bytes": 0,
+      "disposition": "admitted_against_canonical_baseline_but_not_selected_over_production_sidecar"
+    },
+    "function_identity": "P0 and P1 each capture as one kernel and use distinct CUDA Functions",
+    "logical_tensor_bytes_and_hmma_unchanged": true,
+    "global_traffic_claim": "none: measured global requests may change, and no matched NCU run was performed"
+  },
+  "validation": {
+    "resource_gate": {
+      "P0": {
+        "registers_per_thread": 128,
+        "static_shared_bytes": 512,
+        "dynamic_shared_bytes": 79872,
+        "total_shared_bytes": 80384,
+        "local_bytes": 0,
+        "stack_bytes": 0,
+        "threads_per_block": 256,
+        "active_blocks_per_sm": 2,
+        "resident_warps_per_sm": 16,
+        "gate": "pass"
+      },
+      "P1": {
+        "registers_per_thread": 126,
+        "static_shared_bytes": 512,
+        "dynamic_shared_bytes": 79872,
+        "total_shared_bytes": 80384,
+        "local_bytes": 0,
+        "stack_bytes": 0,
+        "threads_per_block": 256,
+        "active_blocks_per_sm": 2,
+        "resident_warps_per_sm": 16,
+        "gate": "pass"
+      }
+    },
+    "invalid_graph_gate": {
+      "P0_invalid_statuses": 23,
+      "P0_total_cases": 23,
+      "P0_captured_nodes": 0,
+      "P1_invalid_statuses": 23,
+      "P1_total_cases": 23,
+      "P1_captured_nodes": 0,
+      "gate": "pass"
+    },
+    "synthetic": {
+      "P0_direct_mismatches": 0,
+      "P0_graph_replay_1_mismatches": 0,
+      "P0_graph_replay_2_mismatches": 0,
+      "P1_direct_mismatches": 0,
+      "P1_graph_replay_1_mismatches": 0,
+      "P1_graph_replay_2_mismatches": 0,
+      "outputs_compared_per_execution": 5242880,
+      "raw_e4m3_codes_per_byte_position": 256,
+      "byte_positions": 4,
+      "classified_nan_outputs": 512,
+      "nan_class_or_sign_mismatches": 0,
+      "guards": "intact",
+      "canonical_weights_and_activations_immutable": true,
+      "gate": "pass"
+    },
+    "pinned_checkpoint_layer0": {
+      "tensor": "model.language_model.layers.0.linear_attn.in_proj_qkv.weight",
+      "shard": "model-00001-of-00003.safetensors",
+      "dtype": "F8_E4M3",
+      "shape": [10240, 5120],
+      "bytes": 52428800,
+      "checkpoint_read_only": true,
+      "P0_direct_mismatches": 0,
+      "P0_graph_replay_1_mismatches": 0,
+      "P0_graph_replay_2_mismatches": 0,
+      "P1_direct_mismatches": 0,
+      "P1_graph_replay_1_mismatches": 0,
+      "P1_graph_replay_2_mismatches": 0,
+      "outputs_compared_per_execution": 5242880,
+      "unexpected_nonfinite_outputs": 0,
+      "guards": "intact",
+      "canonical_weights_and_activations_immutable": true,
+      "gate": "pass"
+    },
+    "targeted_ctest": {
+      "total": 2,
+      "passed": 2,
+      "failed": 0
+    },
+    "full_ctest": {
+      "total": 75,
+      "passed": 63,
+      "expected_skips": 12,
+      "failed": 0,
+      "skip_breakdown": "one tokenizer plus eleven external-model/performance tests"
+    },
+    "production_sentinel_isolation": "pass: the pre-existing production sidecar validation remains exact and does not execute the test-only canonical variants"
+  },
+  "performance_protocol": {
+    "payload": "read-only pinned checkpoint layer-0 QKV tensor",
+    "order": "B-C-C-B",
+    "rounds": 6,
+    "warmups_per_pass": 10,
+    "iterations_per_pass": 24,
+    "l2_scrub_bytes_outside_timing": 33554432,
+    "baseline": "canonical production whole-chunk QKV M128 B-reuse kernel",
+    "per_round_minimum_speedup_gate": 1.15,
+    "aggregate_speedup_gate": 1.20,
+    "comparison": "aggregate sums all B1/B2 and C1/C2 pass averages across six rounds"
+  },
+  "performance": {
+    "P0": {
+      "baseline_ms": 4.179826,
+      "candidate_ms": 3.562795,
+      "saved_ms": 0.617031,
+      "speedup": 1.173187,
+      "latency_reduction_percent": 14.762122,
+      "round_speedups": [1.173101, 1.173019, 1.173153, 1.173353, 1.173366, 1.173134],
+      "minimum_round_speedup": 1.173019,
+      "every_round_gate": true,
+      "aggregate_gate": false,
+      "decision": "reject: clears the 1.15 per-round floor but misses the 1.20 aggregate gate"
+    },
+    "P1": {
+      "baseline_ms": 4.179000,
+      "candidate_ms": 3.417671,
+      "saved_ms": 0.761329,
+      "speedup": 1.222762,
+      "latency_reduction_percent": 18.217971,
+      "round_speedups": [1.222688, 1.222765, 1.222959, 1.222597, 1.222736, 1.222828],
+      "minimum_round_speedup": 1.222597,
+      "every_round_gate": true,
+      "aggregate_gate": true,
+      "decision": "admit as a test-only baseline-clearing cell"
+    }
+  },
+  "production_sidecar_comparison": {
+    "protocol": "a contemporaneous six-round pinned-checkpoint production-sidecar contract rerun from the same source tree",
+    "production_sidecar_baseline_ms": 4.180177,
+    "production_sidecar_candidate_ms": 3.211603,
+    "production_sidecar_speedup": 1.301586,
+    "canonical_P1_candidate_ms": 3.417671,
+    "P1_slower_than_production_sidecar_percent": 6.416360,
+    "P1_to_production_sidecar_latency_ratio": 1.064163597,
+    "decision": "P1 must not replace production QKV: it clears the canonical-baseline gate but is 6.416% slower than the already-promoted sidecar kernel"
+  },
+  "evidence": {
+    "build": {"path": "/tmp/q3x-prefill-qkv-canonical-xor-u16-build.log", "bytes": 531, "sha256": "1b4ea58f747a073212b8576d66eebd41b175ddebbe3241b209e5cb5a8609f4fc"},
+    "build_id": {"path": "/tmp/q3x-prefill-qkv-canonical-xor-u16-build-id.log", "bytes": 55, "sha256": "b35a06158839cd9611053c20b8c3a9b985fdb01e8ba0285a55e86173e0984137"},
+    "cuobjdump_resources": {"path": "/tmp/q3x-prefill-qkv-canonical-xor-u16-cuobjdump-resources.log", "bytes": 53734, "sha256": "c2bf4d951682dd9e8f1da0e853ba8e69fb0d0992aca17b5795520f67d6ae3808"},
+    "synthetic_validation": {"path": "/tmp/q3x-prefill-qkv-canonical-xor-u16-synthetic-validate.log", "bytes": 3682, "sha256": "832e0f7efa94ff92e4ab8ec081a8a4b8f16806761100b3f37fdd4cab4f721336"},
+    "checkpoint_validation": {"path": "/tmp/q3x-prefill-qkv-canonical-xor-u16-checkpoint-validate.log", "bytes": 3806, "sha256": "6ecbc35e5d04a0d76cd916fcf4ef79fea3fd7d2379d1ddf27aeb9555dc6587ad"},
+    "checkpoint_screen": {"path": "/tmp/q3x-prefill-qkv-canonical-xor-u16-checkpoint-screen.log", "bytes": 17244, "sha256": "4a5825adf0782a6b8325eedfd27919142064a8f1d1cffcb0306648ee6304b203"},
+    "production_sentinel_isolation": {"path": "/tmp/q3x-prefill-qkv-production-sentinel-isolation-validate.log", "bytes": 1298, "sha256": "7b82bffcc49e029a22751a100f323dd85e3b04a71474eb720742e305967e41c6"},
+    "production_sidecar_screen_contract": {"path": "/tmp/q3x-prefill-qkv-production-sidecar-screen-contract.log", "bytes": 7610, "sha256": "c2699b99f03c3ed93001008226b2168a26b395727999d14ac47d142fa5442b8c"},
+    "targeted_ctest": {"path": "/tmp/q3x-prefill-qkv-canonical-xor-u16-ctest.log", "bytes": 676, "sha256": "ee2748dea9b8d2df7a9feaa734693d4a0045bfd4c8a8d16f6a4b794be28e8d02"},
+    "full_ctest": {"path": "/tmp/q3x-prefill-qkv-canonical-xor-u16-full-ctest.log", "bytes": 12387, "sha256": "180c51b11b1b20f08bac74e2c8b3e5a39695c182e597877c7c8a88d5e0b6fc7d"},
+    "diff_check": {"path": "/tmp/q3x-prefill-qkv-canonical-xor-u16-diff-check.log", "bytes": 146, "sha256": "16194032de5d57fab87bb66596bcce834bee47ac67bdb228f32de4248404047c"}
+  },
+  "decision": {
+    "result": "admit P1 canonical raw-B XOR plus uint16 gather register feed as a test-only baseline-clearing cell",
+    "P0": "rejected at 1.173187x because it misses the frozen 1.20 aggregate gate",
+    "P1": "passes at 1.222762x with all six rounds at or above 1.222597x and no persistent sidecar",
+    "production": "unchanged: P1 is 6.416% slower than the 3.211603-ms production sidecar kernel, so it does not replace QKV and does not proceed to QKV NCU, full-model, or dispatch promotion",
+    "next_priority": "migrate the no-sidecar canonical raw-B XOR/register-feed mechanism to exact-C512 linear-attention Z, then apply its own strict correctness, first-process performance, production-incumbent, and memory gates"
+  },
+  "limitations": [
+    "Admission is relative to the canonical row-major production baseline, not relative to the already-promoted QKV sidecar. It is explicitly not a production-selection result.",
+    "The isolated cell uses one pinned layer-0 tensor on one fixed-clock Orin. No full-model Prefix, TTFT, Decode, serving, power, or energy result follows.",
+    "No NCU or Nsys profile was run for P0/P1, so the record makes no global-load, L1, L2, DRAM, stall, or causal performance claim.",
+    "P1 requires no persistent sidecar, but this test-only result does not remove or resize the existing 2.34375-GiB production QKV sidecar.",
+    "Production QKV, C256, Decode, MTP policy, FlashInfer policy, buffering, and Prefill/Decode execution remain unchanged."
+  ]
+}

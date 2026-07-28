@@ -1320,12 +1320,12 @@ row-search structure without an unpriced global-progress assumption. See the
   has passed full production admission at `6ab59ea`. It improves mirrored
   P513 Prefix from **2,625.4595 to 2,579.5625 ms**, or
   **1.017792552x**, without changing C256 or Decode. Continue the traffic-first
-  line first with an exact-C512 QKV P0 that reads canonical row-major raw B
-  through three `cp.async` slots, gathers fragments in shared memory, and
-  register-feeds matrix B without a new sidecar. Apply the first-process
-  stop-loss before any NCU or model work. Only if it fails, extend sidecars in
-  P513-hotspot order Z -> full-Q -> O; keep C256 behind those rows. MTP remains
-  excluded.
+  line from the `3e52696` canonical-weight closeout below. Plain row-major P0
+  rejects at **1.173187x**. XOR-only P1 clears the canonical-baseline gate at
+  **1.222762x**, but remains **6.416%** slower than the current production
+  sidecar and therefore does not replace QKV. Migrate the no-sidecar XOR plus
+  uint16-gather mechanism to exact-C512 linear-attention Z next; keep C256
+  behind that P513 row. MTP remains excluded.
 - [done, current-HEAD Prefill baseline lock] At `edef543`, one fixed-frequency
   reusable-engine process with one warmup and five measured generations per
   prompt establishes the C32/max1 direct baseline. P33/P65/P129/P513 median
@@ -1762,13 +1762,14 @@ production-promoted: matched P513 Nsight moves 48 QKV launches from
 **200.807712 to 155.529536 ms (1.291122684x)** and the mirrored whole-model
 Prefix improves **1.017792552x**. It does not prove reduced global traffic:
 the prerequisite matched NCU screen in fact recorded higher global-load
-requests on its LDGSTS path. Next, screen the exact-C512 QKV canonical-row-
-major raw-B three-slot `cp.async` plus shared-gather/register-feed P0. It adds
-no sidecar and must pass the first process before NCU, full-model, or
-production work. If it fails, extend the admitted sidecar layout in
-P513-hotspot order **Z -> full-Q -> O**, with an explicit cumulative memory
-budget at each step. C256 stays behind those P513 rows. Bulk attention remains
-production-integrated.
+requests on its LDGSTS path. The subsequent no-sidecar QKV P0 rejects below
+the 1.20 aggregate gate at **1.173187x**. Its XOR-only, same-uint16-gather P1
+reaches **1.222762x** with all six rounds at least **1.222597x**, but its
+**3.417671 ms** is still **6.416%** slower than the contemporaneous
+**3.211603-ms** production sidecar. QKV production therefore stays unchanged,
+and no P1 NCU, full-model, or dispatch promotion follows. Migrate the
+canonical raw-B XOR/register-feed mechanism to exact-C512 Z next; C256 remains
+later. Bulk attention remains production-integrated.
 Bounded
 OpenAI-compatible API/EvalScope work continues in parallel so the kernel path
 and external baseline advance together.
@@ -1789,10 +1790,11 @@ a comparable result. GDN B8 admission and the canonical-weight fused Gate/Up
 shared-A screen are now closed as rejected. The exact-C512 FP8 QKV split-M64
 screen is closed at **0.936190x**, while its distinct register-feed successor
 is production-promoted at **1.017792552x** whole-model Prefix. Continue the
-HTTP adapter and EvalScope in parallel with the no-new-sidecar exact-C512 QKV
-P0; only after its stop-loss fails should sidecar work proceed
-**Z -> full-Q -> O**. C256 is intentionally later so the P513 hotspot line and
-external baseline advance first.
+HTTP adapter and EvalScope in parallel with the now-selected exact-C512 Z
+canonical raw-B XOR/register-feed screen. QKV P1 is retained only as a
+test-only admitted mechanism because it trails production by **6.416%**; C256
+is intentionally later so the P513 hotspot line and external baseline advance
+first.
 Phase 3.5 remains
 where EvalScope and user-visible TTFT become first-class release evidence.
 
@@ -1992,10 +1994,38 @@ vLLM, so this milestone narrows a still-large **2.155820x** gap and is not
 described as close to vLLM. See the
 [production record](metadata/qwen36-27b-prefill-fp8-qkv-m128-cp-async-register-feed-production-benchmark.json).
 
-The next measured step stays on P513 rather than C256. First screen one
-exact-C512 QKV P0 that consumes canonical row-major raw B through three
-`cp.async` slots, performs the fragment gather in shared memory, and
-register-feeds matrix B without another sidecar. Enforce the first-process
-stop-loss before NCU, full-model, or production work. Only if this P0 fails,
-extend the sidecar mechanism in order **Z -> full-Q -> O**, with an explicit
-cumulative memory budget. C256 register-feed work follows those P513 hotspots.
+The planned no-new-sidecar QKV follow-up is now closed by the test-only
+admission record below. It does not supersede this production result.
+
+## 2026-07-28 — Canonical raw-B XOR register feed admitted test-only
+
+Commit `3e52696` adds two production-unreachable exact-C512 QKV kernels that
+retain the 320-CTA/256-thread M128 topology, three raw A/B `cp.async` slots,
+79,872 dynamic plus 512 static shared bytes, direct matrix-B register feed,
+zero local/stack, and two CTA/SM. Both consume canonical weights with no
+sidecar. P0 keeps raw B row-major in shared memory and uses uint16 fragment
+gathers; P1 changes only the aligned K16 shared placement with XOR and keeps
+the same uint16 gather. P0 uses 128 registers and P1 126.
+
+Synthetic and pinned layer-0 validation pass for both variants: 23/23 invalid
+calls each capture zero nodes, P0/P1 are distinct one-node Functions, and
+direct plus two Graph replays compare all **5,242,880** outputs bit-exact.
+The synthetic gate also preserves exhaustive 256-code-by-four-byte-position
+coverage and all 512 NaN class/sign results. The Release suite closes at
+**63 passes / 12 expected skips / zero failures** out of 75 tests.
+
+Fixed-clock pinned-checkpoint `B-C-C-B` first rejects P0:
+**4.179826 -> 3.562795 ms (1.173187x)** misses the 1.20 aggregate gate despite
+all six rounds clearing 1.15. P1 then reaches
+**4.179000 -> 3.417671 ms (1.222762x)**, with every round at least
+**1.222597x**, so it is admitted against the canonical baseline. This is not a
+QKV production selection: a contemporaneous rerun places the existing
+production sidecar at **3.211603 ms**, making P1 **6.416% slower**. Production
+dispatch, the 2.34375-GiB QKV sidecar, full-model Prefix, Decode, MTP, and
+buffering remain unchanged; no NCU/Nsys traffic claim follows.
+
+Next, migrate the no-sidecar canonical raw-B XOR plus uint16-gather
+register-feed mechanism to exact-C512 linear-attention Z and give that shape
+its own correctness, first-process performance, incumbent-comparison, and
+memory gates. See the
+[canonical XOR admission record](metadata/qwen36-27b-prefill-fp8-qkv-m128-canonical-xor-u16-register-feed-admission.json).

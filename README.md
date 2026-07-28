@@ -311,11 +311,12 @@ outside request latency. Fixed-clock P513 Prefix improves
 **187.618324 -> 190.825320 token/s**. The 48 QKV kernels improve
 **1.291122684x**, but no global-traffic reduction is claimed. See the
 [C512 QKV register-feed production record](docs/metadata/qwen36-27b-prefill-fp8-qkv-m128-cp-async-register-feed-production-benchmark.json).
-The next P513 screen first tries canonical row-major raw B with three
-`cp.async` slots plus a shared-memory fragment gather, retaining register
-feed without another sidecar. If its first-process stop-loss fails, sidecar
-work proceeds in hotspot order Z, full-attention Q, then attention output;
-C256 remains later.
+The no-sidecar canonical QKV follow-up is now closed: plain row-major P0 misses
+its aggregate gate at **1.173187x**, while XOR-only P1 clears the canonical
+baseline at **1.222762x** but remains **6.416%** slower than the production
+sidecar. It is test-only and does not replace QKV. The same no-sidecar XOR plus
+uint16-gather mechanism moves next to exact-C512 linear-attention Z; see the
+[admission record](docs/metadata/qwen36-27b-prefill-fp8-qkv-m128-canonical-xor-u16-register-feed-admission.json).
 The faster sequential FP32-B8 GDN micro-kernel is intentionally not routed:
 its pinned-checkpoint Prefix state NRMSE grows from 0.0741 at P257 to 0.1486
 at P1025 against the frozen 0.01 gate. The default executable remains on the
