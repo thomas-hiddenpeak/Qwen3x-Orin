@@ -1336,6 +1336,16 @@ The diagnostic Phase 3 records are:
   only 1.01871x, however, below the frozen 1.03x gate. The underlying
   performance test therefore fails its two expected threshold assertions;
   the default suite passes and production remains unchanged.
+- [`qwen36-27b-prefill-gdn-c16-scalar-vector-qk-pingpong-rejection.json`](qwen36-27b-prefill-gdn-c16-scalar-vector-qk-pingpong-rejection.json),
+  which retains a standalone exact-C16 GDN experiment that parallelizes all
+  16 alpha/beta pairs and ping-pongs normalized Q/K across two shared slots.
+  It reduces dynamic CTA barriers from 47 to 16 while preserving 64 registers,
+  zero local memory, four CTA/SM, and bitwise production output/state,
+  BF16x2 NaN-half, replay, Graph, guard, input, and invalid-call contracts.
+  All six fixed-clock 24-bank rounds improve, but the **1.01990x median** and
+  **1.01946x worst round** miss the frozen 1.06x/1.04x gates. Production,
+  selector, runner, API/ABI, and MTP remain unchanged; this exact structure is
+  retained only as reproducible rejection evidence and will not be micro-tuned.
 - [`qwen36-27b-prefill-nvfp4-whole-chunk-gate-up-production-benchmark.json`](qwen36-27b-prefill-nvfp4-whole-chunk-gate-up-production-benchmark.json),
   which promotes exact aligned C256/C512 NVFP4 Gate and Up to one whole-chunk
   kernel per branch on the existing main/aux event fork/join. Frozen-binary

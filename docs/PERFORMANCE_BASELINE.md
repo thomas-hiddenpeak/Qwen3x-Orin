@@ -8007,3 +8007,65 @@ correctness, resource, memory, fixed-clock model, and fresh-profile gates.
 MTP remains outside the current target path. Full binary identities, raw
 medians, hashes, route counts, profiler counters, and limitations are in the
 [Down M128 production record](metadata/qwen36-27b-prefill-nvfp4-down-m128-production-benchmark.json).
+
+## Prefill GDN C16 scalar-vector/QK ping-pong rejection
+
+The next bounded GDN screen keeps production exact-C16 completely frozen and
+builds an independent test-only kernel. Warp 2 lanes 0--15 compute all 16
+alpha/beta pairs before token zero. Warp 0 and warp 1 use the production
+four-item normalization tree to stage Q and K into parity-selected shared
+slots: token zero is prepared before the loop and each warp stages the next
+token only after completing its own current recurrence. One CTA barrier at
+the top of every token publishes the slot and protects its reuse. This reduces
+the exact C16 path from **47 to 16 dynamic CTA barriers**.
+
+The recurrence arithmetic is unchanged. Every token decodes the persisted
+packed BF16x2 state, evaluates `alpha * state`, accumulates prediction from
+K0 through K127 in order, performs the update with FP32 FMA, rounds the state
+back to BF16x2 with independent NaN-half handling, and computes output from
+the unrounded FP32 update. Q/K normalization preserves the original four-item
+pair tree and warp reduction. The standalone screen proves production-bitwise
+in-place, disjoint-state, replay, guarded, and Graph-replay output/state.
+Positive and negative NaNs cover all four BF16x2 half-word positions; all 14
+invalid or aliased calls reject before enqueue and invalid capture has zero
+nodes. Candidate and production captures each contain one distinct 48x256
+kernel.
+
+| Exact C16 route | Registers/thread | Static shared | Stack/local/spill | Active CTA/SM | Static `BAR.SYNC` | Dynamic CTA barriers |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Production register state | 64 | 34,056 B | 0 B | 4 | 3 | 47 |
+| Test-only scalar/QK ping-pong | 64 | 35,200 B | 0 B | 4 | 1 | **16** |
+
+The formal fixed-clock screen uses MAXN, a locked 1.3005-GHz GPU, locked
+3.2-GHz EMC, 24 recurrent-state banks (37,748,736 bytes), 48 warmup launches,
+480 measured launches per pass, and six mirrored `B-C-C-B` rounds. Each pass
+resets its state pool and rotates banks every launch; full state and output
+pools are checked bitwise after each mirrored pair.
+
+| Round | Baseline B1 | Candidate C1 | Candidate C2 | Baseline B2 | Paired speedup |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 0.320717 ms | 0.314488 ms | 0.315173 ms | 0.321460 ms | 1.01988x |
+| 2 | 0.321519 ms | 0.315290 ms | 0.315583 ms | 0.321631 ms | **1.01946x** |
+| 3 | 0.321512 ms | 0.315229 ms | 0.315225 ms | 0.321505 ms | 1.01993x |
+| 4 | 0.321655 ms | 0.315361 ms | 0.315371 ms | 0.321534 ms | 1.01975x |
+| 5 | 0.321449 ms | 0.314997 ms | 0.314986 ms | 0.321379 ms | 1.02039x |
+| 6 | 0.321497 ms | 0.314946 ms | 0.315023 ms | 0.321368 ms | 1.02047x |
+
+All six rounds improve and bitwise timing-pool checks pass. The median of the
+six paired-round speedups is only **1.01990x**, however, and the worst round is
+**1.01946x**. Both miss the frozen **1.06x median** and **1.04x worst-round**
+gates. Separate pass medians move from 0.321501 to 0.315199 ms, saving about
+6.302 microseconds or 1.96018%. Reducing barriers is therefore real but not
+large enough: state arithmetic and movement dominate, and warp 0/1 next-token
+normalization still lies on the following token's critical path.
+
+The expected nonzero formal-screen exit is solely this performance-policy
+failure. The candidate remains in its standalone test target as reproducible
+negative evidence, but it is not admitted to production and this exact
+scalar-vector plus Q/K parity-slot structure will not be micro-tuned further.
+Production kernel, selector, runner, public API/ABI, Decode, MTP, FlashInfer,
+buffering policy, and Prefill/Decode overlap remain unchanged. No NCU, Nsys,
+whole-model, or external-replication claim follows this stop-loss. Exact logs,
+binary/build ID, resource dump, candidate/production SASS hashes, and the
+reproduction commands are in the
+[GDN C16 ping-pong rejection record](metadata/qwen36-27b-prefill-gdn-c16-scalar-vector-qk-pingpong-rejection.json).

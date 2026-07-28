@@ -1,0 +1,396 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-gdn-c16-scalar-vector-qk-pingpong-rejection",
+  "status": "rejected-retained-test-only-prefill-exact-c16-gdn-scalar-vector-qk-pingpong",
+  "recorded_at": "2026-07-28T11:08:46+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "base_head": "5f25ce72b7e77c1e02e665146a7cf12c90783f50",
+    "base_tree": "c5ad82303d71875c973616c295d554364a83c432",
+    "base_subject": "docs: record NVFP4 Down M128 Prefill promotion",
+    "candidate_commit": "efd42ce9f8e9efee7edb248496a528702e701128",
+    "candidate_tree": "d860fcf639f58712ca4d5a66531f64ba7125965d",
+    "candidate_subject": "test: reject GDN C16 ping-pong pipeline",
+    "candidate_commit_files": [
+      "CMakeLists.txt",
+      "tests/gdn_prefill_c16_pingpong_sm87_candidate.cu"
+    ],
+    "candidate_commit_pushed_to_origin_main": true,
+    "files": [
+      "CMakeLists.txt",
+      "tests/gdn_prefill_c16_pingpong_sm87_candidate.cu",
+      "docs/metadata/qwen36-27b-prefill-gdn-c16-scalar-vector-qk-pingpong-rejection.json",
+      "docs/metadata/README.md",
+      "docs/PERFORMANCE_BASELINE.md"
+    ],
+    "candidate_scope": "standalone test-only CUDA executable",
+    "candidate_test_code_retained": true,
+    "production_library_changed": false,
+    "production_kernel_changed": false,
+    "production_selector_changed": false,
+    "runner_changed": false,
+    "public_api_changed": false,
+    "public_abi_changed": false,
+    "production_files_explicitly_unchanged": [
+      "include/q3x/runtime/gdn_decode.h",
+      "src/kernels/reference/gdn_m16_register_state.cu",
+      "src/kernels/reference/gdn_decode.cu",
+      "src/runtime/reference_runner.cpp"
+    ],
+    "test_source": {
+      "path": "tests/gdn_prefill_c16_pingpong_sm87_candidate.cu",
+      "bytes": 67338,
+      "lines": 1535,
+      "sha256": "bfa3bf7826aae057eb29842f6b9b0b1e7e77c3d35d0cb14fe7b2263304f20b54"
+    },
+    "measured_binary": {
+      "path": "build/gdn-c16-candidate/q3x_gdn_prefill_c16_pingpong_sm87_candidate",
+      "bytes": 980648,
+      "sha256": "4407337aab651ba6bff2d85caabdbecb3651116d17f914d266f45a10c295e1dc",
+      "elf_build_id": "af00e674627e6915b8710b23b4e0f6be7258ad3f",
+      "build_type": "Release",
+      "cuda_architecture": 87
+    }
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "nvpmodel": "MAXN",
+    "gpu_frequency_hz": {
+      "minimum": 1300500000,
+      "maximum": 1300500000,
+      "current_after_measurement": 1300500000
+    },
+    "emc_frequency_hz": {
+      "minimum": 3200000000,
+      "maximum": 3200000000,
+      "current_after_measurement": 3200000000
+    },
+    "fixed_clock_gate": "pass"
+  },
+  "experiment": {
+    "shape": {
+      "token_count": 16,
+      "qk_heads": 16,
+      "value_heads": 48,
+      "head_dimension": 128,
+      "state_elements": 786432,
+      "state_bytes": 1572864,
+      "output_elements": 98304,
+      "output_bytes": 196608,
+      "grid": [
+        48,
+        1,
+        1
+      ],
+      "block": [
+        256,
+        1,
+        1
+      ]
+    },
+    "baseline": "public production exact-C16 register-resident BF16-state GDN kernel",
+    "candidate": "isolated exact-C16 scalar-vector recurrence-scalar preload with two-slot Q/K normalization ping-pong",
+    "candidate_schedule": [
+      "warp 2 lanes 0 through 15 independently compute all 16 alpha and beta pairs before token zero",
+      "warp 0 normalizes Q and warp 1 normalizes K with the production four-item pair tree and lane-ordered warp reduction",
+      "Q and K for token zero are staged before the loop; after each recurrence, warps 0 and 1 stage the next token into the opposite parity slot",
+      "one CTA barrier at the top of each token publishes the selected parity slot and prevents reuse before every warp has finished reading it",
+      "the candidate therefore executes 16 dynamic CTA barriers instead of production's 47"
+    ],
+    "exact_semantic_contract": [
+      "preserve per-token packed BF16x2 round-to-nearest-even recurrent-state encoding",
+      "preserve independent NaN handling for both BF16 half-words",
+      "compute alpha multiplied by the persisted BF16 state before prediction",
+      "preserve the state update as FP32 fused multiply-add",
+      "compute each output from the unrounded FP32 updated state",
+      "preserve left-to-right K0 through K127 prediction and output accumulation",
+      "preserve the production four-item Q/K normalization addition tree"
+    ],
+    "not_implemented_or_claimed": [
+      "production admission",
+      "selector or runner integration",
+      "whole-model Prefill speedup",
+      "Decode change",
+      "MTP",
+      "FlashInfer",
+      "double or triple buffering outside the CTA-local Q/K slots",
+      "Prefill and Decode overlap",
+      "NCU or Nsys attribution"
+    ],
+    "mtp_used": false
+  },
+  "frozen_gates": {
+    "resources": {
+      "maximum_registers_per_thread": 64,
+      "required_static_shared_bytes": 35200,
+      "required_local_bytes": 0,
+      "required_threads_per_block": 256,
+      "minimum_active_blocks_per_sm": 4
+    },
+    "correctness": [
+      "output and final state bitwise equal to production",
+      "in-place, disjoint-state, replay, guarded, and CUDA Graph replay paths remain bitwise",
+      "every immutable input and every redzone remains intact",
+      "positive and negative input NaNs cover all four packed-BF16 half-word positions",
+      "valid candidate and production captures each contain one 48x256 kernel node and use distinct functions",
+      "14 malformed or aliased candidate calls return cudaErrorInvalidValue and invalid capture contains zero nodes"
+    ],
+    "performance": {
+      "state_banks": 24,
+      "rounds": 6,
+      "order": "B-C-C-B",
+      "required_paired_round_speedup_median": 1.06,
+      "required_worst_round_speedup": 1.04,
+      "required_each_round_speedup_strictly_greater_than": 1.0,
+      "stop_loss": "failure rejects production integration and ends tuning of this exact structure"
+    }
+  },
+  "correctness_and_resources": {
+    "build": "pass",
+    "default_device_screen": "pass",
+    "output_bitwise": "pass",
+    "final_state_bitwise": "pass",
+    "inplace": "pass",
+    "disjoint_state": "pass",
+    "replay": "pass",
+    "guards": "pass",
+    "input_preservation": "pass",
+    "nan_half_words": {
+      "input_positive_nan_words": 96,
+      "input_negative_nan_words": 96,
+      "production_final_state_positive_nan_words": 24576,
+      "production_final_state_negative_nan_words": 0,
+      "candidate_matches_production_bitwise": true,
+      "note": "FP32 FMA may canonicalize the result NaN sign; the frozen gate is exact post-arithmetic BF16 word equality to production"
+    },
+    "cuda_graph": {
+      "candidate_kernel_nodes": 1,
+      "production_kernel_nodes": 1,
+      "candidate_function_distinct_from_production": true,
+      "candidate_grid": [
+        48,
+        1,
+        1
+      ],
+      "candidate_block": [
+        256,
+        1,
+        1
+      ],
+      "replay_bitwise": true,
+      "invalid_cases": 14,
+      "invalid_kernel_nodes": 0,
+      "result": "pass"
+    },
+    "resources": {
+      "production": {
+        "registers_per_thread": 64,
+        "static_shared_bytes": 34056,
+        "local_bytes": 0,
+        "stack_bytes": 0,
+        "maximum_threads_per_block": 256,
+        "active_blocks_per_sm": 4
+      },
+      "candidate": {
+        "registers_per_thread": 64,
+        "static_shared_bytes": 35200,
+        "local_bytes": 0,
+        "stack_bytes": 0,
+        "spill_load_bytes": 0,
+        "spill_store_bytes": 0,
+        "maximum_threads_per_block": 256,
+        "active_blocks_per_sm": 4
+      },
+      "gate": "pass"
+    },
+    "barriers_and_sass": {
+      "production_static_bar_sync_instructions": 3,
+      "production_dynamic_cta_barriers_per_c16": 47,
+      "production_sass_lines": 4345,
+      "candidate_static_bar_sync_instructions": 1,
+      "candidate_dynamic_cta_barriers_per_c16": 16,
+      "candidate_sass_lines": 4825,
+      "dynamic_cta_barriers_removed": 31,
+      "resource_barrier_slots_used": 1
+    }
+  },
+  "performance_protocol": {
+    "fixture": "deterministic finite BF16 GDN activations and recurrent states",
+    "state_banks": 24,
+    "state_working_set_bytes": 37748736,
+    "working_set_exceeds_l2": true,
+    "state_reset_before_each_timed_pass": true,
+    "state_bank_rotation": "every kernel launch",
+    "warmup_launches_per_pass": 48,
+    "measured_launches_per_pass": 480,
+    "rounds": 6,
+    "passes_per_variant": 12,
+    "order": "B-C-C-B",
+    "correctness_checked_after_each_mirrored_pair": true,
+    "aggregate_gate": "median of six paired-round speedups",
+    "diagnostic_aggregate": "ratio of separate twelve-pass baseline and candidate medians"
+  },
+  "performance": {
+    "rounds": [
+      {
+        "round": 1,
+        "baseline_pass1_ms": 0.320717,
+        "candidate_pass1_ms": 0.314488,
+        "candidate_pass2_ms": 0.315173,
+        "baseline_pass2_ms": 0.321460,
+        "baseline_mean_ms": 0.321088,
+        "candidate_mean_ms": 0.314830,
+        "paired_speedup": 1.01988
+      },
+      {
+        "round": 2,
+        "baseline_pass1_ms": 0.321519,
+        "candidate_pass1_ms": 0.315290,
+        "candidate_pass2_ms": 0.315583,
+        "baseline_pass2_ms": 0.321631,
+        "baseline_mean_ms": 0.321575,
+        "candidate_mean_ms": 0.315436,
+        "paired_speedup": 1.01946
+      },
+      {
+        "round": 3,
+        "baseline_pass1_ms": 0.321512,
+        "candidate_pass1_ms": 0.315229,
+        "candidate_pass2_ms": 0.315225,
+        "baseline_pass2_ms": 0.321505,
+        "baseline_mean_ms": 0.321509,
+        "candidate_mean_ms": 0.315227,
+        "paired_speedup": 1.01993
+      },
+      {
+        "round": 4,
+        "baseline_pass1_ms": 0.321655,
+        "candidate_pass1_ms": 0.315361,
+        "candidate_pass2_ms": 0.315371,
+        "baseline_pass2_ms": 0.321534,
+        "baseline_mean_ms": 0.321594,
+        "candidate_mean_ms": 0.315366,
+        "paired_speedup": 1.01975
+      },
+      {
+        "round": 5,
+        "baseline_pass1_ms": 0.321449,
+        "candidate_pass1_ms": 0.314997,
+        "candidate_pass2_ms": 0.314986,
+        "baseline_pass2_ms": 0.321379,
+        "baseline_mean_ms": 0.321414,
+        "candidate_mean_ms": 0.314991,
+        "paired_speedup": 1.02039
+      },
+      {
+        "round": 6,
+        "baseline_pass1_ms": 0.321497,
+        "candidate_pass1_ms": 0.314946,
+        "candidate_pass2_ms": 0.315023,
+        "baseline_pass2_ms": 0.321368,
+        "baseline_mean_ms": 0.321433,
+        "candidate_mean_ms": 0.314985,
+        "paired_speedup": 1.02047
+      }
+    ],
+    "summary": {
+      "baseline_pass_median_ms": 0.321501,
+      "candidate_pass_median_ms": 0.315199,
+      "separate_median_ratio": 1.01999,
+      "paired_round_speedup_median": 1.01990,
+      "minimum_round_speedup": 1.01946,
+      "maximum_round_speedup": 1.02047,
+      "rounds_faster": 6,
+      "rounds_total": 6,
+      "latency_saved_microseconds": 6.302,
+      "candidate_latency_reduction_percent": 1.960180528,
+      "bitwise": true,
+      "median_gate": "fail",
+      "worst_round_gate": "fail",
+      "all_rounds_faster_gate": "pass",
+      "overall_gate": "fail"
+    }
+  },
+  "decision": {
+    "result": "reject-and-retain-test-only",
+    "reason": "barrier reduction is real and all six rounds improve, but the 1.01990x paired median and 1.01946x worst round miss the frozen 1.06x and 1.04x gates",
+    "interpretation": "the candidate saves about 6.3 microseconds per C16 launch; state arithmetic and movement dominate, while warp 0 and warp 1 next-token normalization remains on the following token's critical path",
+    "candidate_promoted": false,
+    "production_dispatch_changed": false,
+    "runner_changed": false,
+    "public_abi_changed": false,
+    "gate_changed_after_measurement": false,
+    "full_model_executed": false,
+    "ncu_executed": false,
+    "nsys_executed": false,
+    "external_replication_executed": false,
+    "retention_policy": "retain the standalone test and CMake target as reproducible negative evidence",
+    "next_action": "do not micro-tune this exact scalar-vector plus Q/K parity-slot structure; revisit GDN only with a materially different state-update or movement mechanism"
+  },
+  "artifacts": [
+    {
+      "role": "preliminary default correctness log",
+      "path": "/tmp/q3x-gdn-c16-pingpong-correctness.log",
+      "bytes": 795,
+      "lines": 6,
+      "sha256": "d1186785130ed9d360bb6ad556195f3efccb5bc28be1dddfd0838e1041e113cc",
+      "expected_exit_code": 0,
+      "measured_binary_sha256": "6ed1db49f495cb0092cef1b7a24d576e3e1cff920ef77bef50deea9dae8a8f23",
+      "relation_to_final_binary": "a source-only normalization-expression rewrite retained byte-identical candidate SASS; the final formal log repeats and passes all default gates"
+    },
+    {
+      "role": "final fixed-clock correctness and six-round performance log",
+      "path": "/tmp/q3x-gdn-c16-pingpong-perf-formal.log",
+      "bytes": 2348,
+      "lines": 13,
+      "sha256": "fed3509392518d592f68cd9aa5d1b945082847bbeb625d1254764ff1400b0490",
+      "expected_exit_code": 1,
+      "expected_failure": "only the frozen performance-policy assertion",
+      "measured_binary_sha256": "4407337aab651ba6bff2d85caabdbecb3651116d17f914d266f45a10c295e1dc"
+    },
+    {
+      "role": "final retained Release candidate binary",
+      "path": "build/gdn-c16-candidate/q3x_gdn_prefill_c16_pingpong_sm87_candidate",
+      "bytes": 980648,
+      "sha256": "4407337aab651ba6bff2d85caabdbecb3651116d17f914d266f45a10c295e1dc",
+      "elf_build_id": "af00e674627e6915b8710b23b4e0f6be7258ad3f"
+    },
+    {
+      "role": "final cuobjdump resource report",
+      "path": "/tmp/q3x-gdn-c16-pingpong-resource-final.txt",
+      "bytes": 9805,
+      "lines": 160,
+      "sha256": "279c50965404a2155f39a9648c68bb094c51c0fce05f2ce2271c12a9001402c7"
+    },
+    {
+      "role": "final complete linked-binary SASS dump",
+      "path": "/tmp/q3x-gdn-c16-pingpong-full-final.sass",
+      "bytes": 6956136,
+      "lines": 56072,
+      "sha256": "de0e65bec6c36d8f44f2bd436f30bb145b6dbec55b0350cec8e04d480f675029"
+    },
+    {
+      "role": "final isolated candidate-kernel SASS",
+      "path": "/tmp/q3x-gdn-c16-pingpong-candidate-final.sass",
+      "bytes": 600574,
+      "lines": 4825,
+      "sha256": "f0014c09293c6da482c32ab106cc3736c4bbf68cf8d4cf5a540e19876cb83b92"
+    },
+    {
+      "role": "same-binary production exact-C16 kernel SASS",
+      "path": "/tmp/q3x-gdn-c16-production-final.sass",
+      "bytes": 540523,
+      "lines": 4345,
+      "sha256": "2d513f5bc1ba713a677d93dcad9346e8927e5ee01736eb5e0a623f8359db5849"
+    }
+  ],
+  "reproduction": {
+    "configure": "cmake -S . -B build/gdn-c16-candidate -DCMAKE_BUILD_TYPE=Release -DQ3X_CUDA_ARCHITECTURES=87 -DBUILD_TESTING=ON",
+    "build": "cmake --build build/gdn-c16-candidate --target q3x_gdn_prefill_c16_pingpong_sm87_candidate -j2",
+    "default_screen": "env -u Q3X_RUN_GDN_C16_PINGPONG_PERF ./build/gdn-c16-candidate/q3x_gdn_prefill_c16_pingpong_sm87_candidate",
+    "formal_performance_screen": "Q3X_RUN_GDN_C16_PINGPONG_PERF=1 ./build/gdn-c16-candidate/q3x_gdn_prefill_c16_pingpong_sm87_candidate",
+    "expected_formal_exit_code": 1,
+    "expected_formal_failure": "the candidate is bitwise and resource exact but fails the frozen 1.06x median and 1.04x worst-round gates"
+  }
+}
