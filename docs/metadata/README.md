@@ -1477,9 +1477,24 @@ The diagnostic Phase 3 records are:
   two-CTA resources. Equal-byte per-tensor sidecars and their builders remain
   test-only; no 5.9766-GiB full-model allocation is admitted. Pair timing,
   NCU, Nsys, full-model, production integration, Decode, and MTP are unchanged.
-  The next screen is a canonical-weight 512-thread M128 fused Gate+Up/shared-A
-  pair behind a 1.22x C512 pair gate; bulk attention is already production at
-  2.904% of the current profile.
+  The selected next screen was a canonical-weight 512-thread M128 fused
+  Gate+Up/shared-A pair behind a 1.22x C512 pair gate; bulk attention was
+  already production at 2.904% of the current profile.
+- [`qwen36-27b-prefill-nvfp4-gate-up-fused-m128-shared-a-rejection.json`](qwen36-27b-prefill-nvfp4-gate-up-fused-m128-shared-a-rejection.json),
+  which closes that canonical-weight follow-up at commit `afafcd9`. The
+  test-only 512-thread CTA keeps independent production-order Gate and Up
+  groups, private B/C overlays, and one shared M128xK64 activation stage.
+  C256/C512 resources, exact output, two Graph replays, finite/guard/input,
+  one-node valid Graph, and 34 zero-node invalid-call gates pass at 124
+  registers, 37,376 static plus 18,432 dynamic shared bytes, zero local memory,
+  and one CTA/SM. Fixed-clock C512 6x24 `B-C-C-B` timing regresses from
+  12.893605 to 14.485416 ms (**0.890109x**); all six rounds are negative versus
+  the 1.22x gate. The result is only consistent with the 512-thread
+  synchronization domain and one-CTA schedule—no skipped NCU/Nsys causal claim
+  is made. C256 timing, profiling, full-model, and production work stop there;
+  Prefill production, Decode, and MTP remain unchanged. Priority moves to an
+  audit of existing FP8 QKV/Z/O candidates at 564.576448 ms / 21.425% of P513
+  projected GPU time before choosing the next bounded first cell.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

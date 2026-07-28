@@ -8344,10 +8344,72 @@ The single-branch register-fed line is closed. Production Prefill, Decode,
 and MTP remain unchanged, and bulk attention remains already integrated at
 2.904% of the current profile.
 
-The next priority is a structurally different, test-only **512-thread M128
-fused Gate+Up** kernel that keeps canonical weights and shares one A stage
-across both projections. Its first C512 production-like pair must reach
-**1.22x** without a permanent sidecar before any profiler or whole-model work.
+The selected bounded follow-up was a structurally different, test-only
+**512-thread M128 fused Gate+Up** kernel that keeps canonical weights and
+shares one A stage across both projections. Its first C512 production-like
+pair must reach **1.22x** without a permanent sidecar before any profiler or
+whole-model work.
 Exact commands, commits, resources, artifacts, skipped work, and limitations
 are frozen in the
 [register-fed sidecar rejection record](metadata/qwen36-27b-prefill-nvfp4-gate-register-fed-sidecar-rejection.json).
+
+## NVFP4 Gate/Up 512-thread fused/shared-A rejection
+
+Commit `afafcd9` implements the bounded canonical-weight follow-up as an
+isolated `BUILD_TESTING` target. One 512-thread CTA contains independent
+eight-warp Gate and Up groups. Each group preserves the production M128/N128/
+K64 B decode, WMMA accumulation order, and private B/C overlay, while both
+consume one M128xK64 activation stage loaded into 18,432 bytes of opt-in
+dynamic shared memory. The candidate uses one main-stream kernel instead of
+the production-like two-branch main/auxiliary fork and join. Production
+dispatch, runner, workspace, public API/ABI, Decode, and MTP remain unchanged.
+
+Both C256 and C512 validation tests pass; CTest reports 2/2 in 0.83 seconds.
+Both specializations use 124 registers/thread, 37,376 bytes static plus 18,432
+bytes dynamic shared memory (55,808 total), zero local memory, 512 threads,
+and one CTA/SM. All 34 malformed or aliased calls return invalid and capture
+zero nodes. Valid C256/C512 captures each contain one node at grids 272/544,
+block 512, and 18,432 dynamic shared bytes. Candidate output and two Graph
+replays are bitwise exact against the production pair: zero mismatches across
+8,912,896 C256 and 17,825,792 C512 Gate-plus-Up outputs. Outputs remain finite,
+guards are intact, and canonical weights, scales, and activations are
+immutable.
+
+The frozen MAXN first cell runs on CPU 0 with GPU fixed at 1.3005 GHz and EMC
+at 3.2 GHz. Each of six `B-C-C-B` rounds uses ten warmups and 24 measured eager
+pairs per pass; a 32-MiB L2 scrub stays outside each timing interval.
+
+| C512 pair | Production main/aux pair | One fused/shared-A kernel | Speedup | Frozen gate |
+| --- | ---: | ---: | ---: | ---: |
+| Aggregate | **12.893605 ms** | **14.485416 ms** | **0.890109x** | 1.22x and 6/6 >1 |
+
+Round speedups are 0.890039, 0.890176, 0.890074, 0.890108, 0.890091, and
+0.890169. Every round regresses. Candidate latency rises
+**12.345740388355%**, while throughput falls **10.989059616928%**. Static SASS
+shows that the intended load/store reduction compiled without local spills:
+
+| C512 function | Instructions | LDG | LDS | STS | BAR | HMMA | SHFL | LDL/STL |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Production branch | 1,800 | 13 | 67 | 49 | 11 | 16 | 4 | 0/0 |
+| Fused/shared-A candidate | 1,328 | 9 | 67 | 45 | 11 | 16 | 4 | 0/0 |
+
+The regression is consistent with the wider 512-thread synchronization domain
+and one-CTA/SM schedule cost. No NCU or Nsys capture was run, however, so this
+is not a measured causal attribution to synchronization, occupancy, cache, or
+any particular traffic class. The stop-loss skips C256 timing, NCU, Nsys,
+full-model Prefix/TTFT, and production integration.
+
+The frozen C512 log is 8,790 bytes with SHA-256
+`2c21dbd744fb9856dcf3f9d33381080cc99a4c215c05de8ecf95198e50ce72f3`.
+The measured 4,983,784-byte binary has SHA-256
+`23fb60fc18dbfcfa4102ec0c64cf56a57598e793f98480e38effe77d9aa2666e`
+and build ID `36c5a953c43e518e242c3ac0d0ba1ac4fcfd6a11`.
+
+This exact 512-thread M128 fused/shared-A mapping is closed. The next measured
+priority moves to the FP8 QKV/Z/O group, which occupies **564.576448 ms** or
+**21.425%** of current P513 projected GPU time. The immediate action is to
+audit the existing candidates and the parallel read-only first-cell analysis
+before selecting one bounded implementation; no specific FP8 mechanism is
+inferred from this rejection. Full samples, validation contracts, commands,
+artifact identities, skipped work, and limitations are frozen in the
+[fused/shared-A rejection record](metadata/qwen36-27b-prefill-nvfp4-gate-up-fused-m128-shared-a-rejection.json).

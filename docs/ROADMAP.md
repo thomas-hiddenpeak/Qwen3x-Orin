@@ -1615,6 +1615,22 @@ row-search structure without an unpriced global-progress assumption. See the
   A future GDN attempt must use a materially different algorithm or dataflow
   from the rejected whole-span register-lifetime extension. Decode remains
   frozen and non-MTP.
+- [measured and rejected, Gate/Up 512-thread fused/shared-A] Commit `afafcd9`
+  keeps canonical NVFP4 tensors and places independent production-order Gate
+  and Up branch groups in one 512-thread M128 CTA, sharing one 18,432-byte
+  activation stage. C256/C512 resource, exact, two-replay, finite, guard,
+  immutable-input, one-node Graph, and 34 zero-node invalid-call gates pass at
+  124 registers, 55,808 total shared bytes, zero local memory, and one CTA/SM.
+  Fixed-clock C512 `B-C-C-B` timing regresses from 12.893605 to 14.485416 ms:
+  **0.890109x**, with all six rounds below one versus the required 1.22x. The
+  result is consistent with the wider synchronization domain and one-CTA
+  schedule, but no NCU/Nsys causal claim is made. C256 timing, profiling,
+  full-model, and production work are skipped; production, Decode, and MTP
+  remain unchanged. The next main-line action is to audit existing FP8
+  QKV/Z/O candidates, currently 564.576448 ms or 21.425% of P513 projected GPU
+  time, and combine that inventory with the independent read-only first-cell
+  analysis before selecting an implementation. See the
+  [fused/shared-A rejection](metadata/qwen36-27b-prefill-nvfp4-gate-up-fused-m128-shared-a-rejection.json).
 
 Closed
 table-free, half-tile, pair-fused, and shared-pipeline variants are not
@@ -1666,11 +1682,14 @@ on exact per-token BF16 M16 GDN. FP8 large-N and NVFP4 Down M128 reuse are now
 production-complete. Gate/Up M128xN256, the two-CTA-preserving L2 APW, and the
 subsequent K16/K64 single-branch register-fed sidecars all failed their frozen
 stop-losses. K64's consistent **1.017890x** is insufficient and the line is
-closed before pair/full-model work. The immediate main line is instead a
-test-only **512-thread M128 fused Gate+Up/shared-A kernel over canonical
-weights**, beginning with a **1.22x C512 pair gate** and no permanent sidecar.
-Bulk attention is already production-integrated and only 2.904% of the current
-profile. Bounded
+closed before pair/full-model work. The canonical-weight 512-thread M128
+fused Gate+Up/shared-A follow-up is also rejected: **0.890109x** at C512,
+with all six rounds regressing. The immediate main line now moves to the FP8
+QKV/Z/O group at **564.576448 ms / 21.425%** of P513 projected GPU time.
+Audit the existing FP8 candidates and wait for the independent read-only
+first-cell ranking before selecting a bounded implementation. Bulk attention
+is already production-integrated and only 2.904% of the current profile.
+Bounded
 OpenAI-compatible API/EvalScope work continues in parallel so the kernel path
 and external baseline advance together.
 C1024 remains a low-priority single-kernel canary rather than the main route.
@@ -1683,13 +1702,13 @@ uses `P / scheduled-to-first-token`; native direct timing uses complete-prompt
 `P/TTFT`. Current native production reaches **181.985297/187.647869
 token/s** at P257/P513, while matched stock vLLM reaches 373.579/411.385.
 These are different runtime systems and leave directional
-**2.052799903x/2.192324678x** gaps, not a same-kernel attribution. The
-user's
+**2.052799903x/2.192324678x** gaps, not a same-kernel attribution. The user's
 separately tuned 2k--8k range has no matched raw protocol and is not treated as
-a comparable result. GDN B8 admission is now closed as rejected. Continue
-the HTTP adapter and EvalScope in parallel with the canonical-weight fused
-Gate/Up shared-A screen so the external baseline precedes later system-level
-optimization. Phase 3.5 remains
+a comparable result. GDN B8 admission and the canonical-weight fused Gate/Up
+shared-A screen are now closed as rejected. Continue the HTTP adapter and
+EvalScope in parallel with the FP8 QKV/Z/O audit and its next admitted bounded
+screen so the external baseline precedes later system-level optimization.
+Phase 3.5 remains
 where EvalScope and user-visible TTFT become first-class release evidence.
 
 The first P65/P513 route smoke is complete: the exact checkpoint uses

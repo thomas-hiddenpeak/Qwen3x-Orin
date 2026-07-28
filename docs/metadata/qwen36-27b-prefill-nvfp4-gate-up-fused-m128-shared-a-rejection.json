@@ -1,0 +1,334 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-nvfp4-gate-up-fused-m128-shared-a-rejection",
+  "status": "rejected-test-only-first-C512-pair-performance-stop-loss",
+  "recorded_at": "2026-07-28T13:32:54+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "experiment_base_head": "68e8b78c7c135c2b846406e54f96222965bc66b4",
+    "experiment_base_tree": "b595f2cb5a0456620181c4fa6b1f4798368cc355",
+    "experiment_base_subject": "docs: record register-fed Gate rejection",
+    "test_only_source_commit": "afafcd9c76e2a44d14d54ffc0d4839ce9d65d9bc",
+    "test_only_source_tree": "c364187e0a37ddb4d9febc74d1174aada373e67c",
+    "test_only_source_subject": "test: screen shared-A Gate Up fusion",
+    "candidate_scope": [
+      "CMakeLists.txt",
+      "src/kernels/sm87/weight_only_gemv.cu",
+      "tests/sm87_nvfp4_prefill_gate_up_fused_m128_shared_a_screen.cu"
+    ],
+    "candidate_test_only": true,
+    "standalone_test_target": "q3x_nvfp4_prefill_gate_up_fused_m128_shared_a_screen",
+    "production_dispatch_changed": false,
+    "production_kernel_selection_changed": false,
+    "runner_changed": false,
+    "workspace_changed": false,
+    "public_header_or_abi_changed": false,
+    "decode_changed": false,
+    "mtp_used": false,
+    "retention": "retain the isolated BUILD_TESTING target and test-only kernel as reproducible negative evidence; do not admit the fused route to production",
+    "measured_binary": {
+      "path": "build/q3x_nvfp4_prefill_gate_up_fused_m128_shared_a_screen",
+      "bytes": 4983784,
+      "sha256": "23fb60fc18dbfcfa4102ec0c64cf56a57598e793f98480e38effe77d9aa2666e",
+      "elf_build_id": "36c5a953c43e518e242c3ac0d0ba1ac4fcfd6a11",
+      "build_type": "Release"
+    }
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "nvpmodel": "MAXN",
+    "measurement_cpu": 0,
+    "fixed_frequency_readback_hz": {
+      "gpu_minimum": 1300500000,
+      "gpu_maximum": 1300500000,
+      "gpu_current": 1300500000,
+      "emc_minimum": 3200000000,
+      "emc_maximum": 3200000000,
+      "emc_current": 3200000000
+    },
+    "claim_scope": "one fixed-clock Orin, passing C256/C512 validation, and one deterministic C512 Gate/Up pair timing process"
+  },
+  "experiment": {
+    "role": "compare the existing production-like main/auxiliary Gate/Up pair with one test-only canonical-weight fused Gate+Up kernel",
+    "shape": {
+      "rows_per_branch": 17408,
+      "columns": 5120,
+      "supported_token_counts": [
+        256,
+        512
+      ],
+      "timed_token_count": 512,
+      "C256_pair_output_elements": 8912896,
+      "C512_pair_output_elements": 17825792
+    },
+    "weight_format": "canonical row-major NVFP4 E2M1 packed weights with block-16 E4M3FN scales",
+    "activation_and_output_format": "BF16",
+    "baseline": {
+      "name": "public production M128xN128xK64 decoded-B-reuse Gate and Up branch pair",
+      "topology": "Gate on the main nonblocking stream and Up on the auxiliary nonblocking stream with the existing event fork and join",
+      "kernel_launches_per_pair": 2,
+      "resources_per_branch": {
+        "registers_per_thread": 126,
+        "static_shared_bytes": 37376,
+        "dynamic_shared_bytes": 0,
+        "local_bytes": 0,
+        "threads_per_cta": 256,
+        "active_blocks_per_sm": 2
+      }
+    },
+    "candidate": {
+      "name": "test-only 512-thread M128 Gate+Up fused/shared-A canonical kernel",
+      "kernel_launches_per_pair": 1,
+      "stream": "main nonblocking stream",
+      "mapping": "one CTA contains two independent 256-thread, eight-warp branch groups; each branch retains its own production-order B decode, WMMA accumulation, and B/C overlay",
+      "shared_activation": "all 512 threads load one M128xK64 activation stage once into 18432 bytes of opt-in dynamic shared memory for both branches",
+      "canonical_layout": true,
+      "permanent_sidecar": false,
+      "grid_x": {
+        "C256": 272,
+        "C512": 544
+      },
+      "block_x": 512,
+      "dynamic_shared_bytes": 18432
+    },
+    "selection_gates": {
+      "first_cell": "C512 deterministic checkpoint-like Gate/Up pair",
+      "required_pair_speedup": 1.22,
+      "required_every_round_speedup": "strictly greater than 1.0",
+      "timing_order": "B-C-C-B",
+      "warmups_per_pass": 10,
+      "iterations_per_pass": 24,
+      "rounds": 6,
+      "execution": "eager direct",
+      "stop_loss": "failure ends this candidate before C256 timing, profiler work, whole-model work, or production integration"
+    }
+  },
+  "validation": {
+    "ctest": {
+      "command": "ctest --test-dir build --output-on-failure -R '^nvfp4_prefill_gate_up_fused_m128_shared_a_screen(_c256)?$'",
+      "tests_passed": 2,
+      "tests_failed": 0,
+      "elapsed_seconds": 0.83,
+      "result": "pass"
+    },
+    "resources": {
+      "C256": {
+        "registers_per_thread": 124,
+        "static_shared_bytes": 37376,
+        "dynamic_shared_bytes": 18432,
+        "total_shared_bytes": 55808,
+        "local_bytes": 0,
+        "threads_per_cta": 512,
+        "active_blocks_per_sm": 1
+      },
+      "C512": {
+        "registers_per_thread": 124,
+        "static_shared_bytes": 37376,
+        "dynamic_shared_bytes": 18432,
+        "total_shared_bytes": 55808,
+        "local_bytes": 0,
+        "threads_per_cta": 512,
+        "active_blocks_per_sm": 1
+      },
+      "result": "pass"
+    },
+    "invalid_graph": {
+      "invalid_statuses": 34,
+      "invalid_cases": 34,
+      "captured_kernel_nodes": 0,
+      "result": "pass"
+    },
+    "valid_graph": {
+      "C256": {
+        "grid_x": 272,
+        "block_x": 512,
+        "dynamic_shared_bytes": 18432,
+        "kernel_nodes": 1,
+        "graph_replays": 2
+      },
+      "C512": {
+        "grid_x": 544,
+        "block_x": 512,
+        "dynamic_shared_bytes": 18432,
+        "kernel_nodes": 1,
+        "graph_replays": 2
+      },
+      "result": "pass"
+    },
+    "correctness": {
+      "fixture": "deterministic checkpoint-like finite Gate and Up weights, scales, and BF16 activations",
+      "C256": {
+        "baseline_candidate_mismatches": 0,
+        "compared_pair_output_elements": 8912896,
+        "first_graph_replay_mismatches": 0,
+        "second_graph_replay_mismatches": 0
+      },
+      "C512": {
+        "baseline_candidate_mismatches": 0,
+        "compared_pair_output_elements": 17825792,
+        "first_graph_replay_mismatches": 0,
+        "second_graph_replay_mismatches": 0
+      },
+      "unexpected_nonfinite_outputs": 0,
+      "output_guards": "intact",
+      "canonical_weights_scales_and_activations": "immutable",
+      "result": "pass"
+    }
+  },
+  "performance": {
+    "protocol": {
+      "processes": 1,
+      "fixture": "deterministic checkpoint-like finite Gate/Up pair",
+      "token_count": 512,
+      "order": "B-C-C-B",
+      "warmups_per_pass": 10,
+      "iterations_per_pass": 24,
+      "rounds": 6,
+      "l2_scrub_bytes_before_each_pass": 33554432,
+      "scrub_outside_timed_events": true,
+      "timing_boundary": "CUDA events on the main stream around the complete baseline fork/join or the single fused candidate launch"
+    },
+    "rounds": [
+      {
+        "round": 1,
+        "B1_ms": 12.893878,
+        "C1_ms": 14.486842,
+        "C2_ms": 14.486766,
+        "B2_ms": 12.893750,
+        "speedup": 0.890039,
+        "strict_positive_gate": "fail"
+      },
+      {
+        "round": 2,
+        "B1_ms": 12.892823,
+        "C1_ms": 14.485570,
+        "C2_ms": 14.483257,
+        "B2_ms": 12.894526,
+        "speedup": 0.890176,
+        "strict_positive_gate": "fail"
+      },
+      {
+        "round": 3,
+        "B1_ms": 12.894218,
+        "C1_ms": 14.486732,
+        "C2_ms": 14.485580,
+        "B2_ms": 12.893276,
+        "speedup": 0.890074,
+        "strict_positive_gate": "fail"
+      },
+      {
+        "round": 4,
+        "B1_ms": 12.891860,
+        "C1_ms": 14.482057,
+        "C2_ms": 14.485396,
+        "B2_ms": 12.892315,
+        "speedup": 0.890108,
+        "strict_positive_gate": "fail"
+      },
+      {
+        "round": 5,
+        "B1_ms": 12.895280,
+        "C1_ms": 14.485298,
+        "C2_ms": 14.485939,
+        "B2_ms": 12.891761,
+        "speedup": 0.890091,
+        "strict_positive_gate": "fail"
+      },
+      {
+        "round": 6,
+        "B1_ms": 12.897565,
+        "C1_ms": 14.489152,
+        "C2_ms": 14.482408,
+        "B2_ms": 12.892007,
+        "speedup": 0.890169,
+        "strict_positive_gate": "fail"
+      }
+    ],
+    "aggregate": {
+      "baseline_pair_ms": 12.893605,
+      "candidate_pair_ms": 14.485416,
+      "speedup": 0.890109,
+      "latency_change_percent": 12.345740388355,
+      "throughput_change_percent": -10.989059616928,
+      "strict_positive_rounds": 0,
+      "rounds_total": 6,
+      "required_speedup": 1.22,
+      "result": "fail"
+    },
+    "artifact": {
+      "path": "/tmp/q3x-prefill-gate-up-fused-shared-a-c512-first.log",
+      "bytes": 8790,
+      "sha256": "2c21dbd744fb9856dcf3f9d33381080cc99a4c215c05de8ecf95198e50ce72f3",
+      "expected_exit": "nonzero solely because every performance round and the aggregate fail after resource, invalid-call, Graph, exactness, replay, finite, guard, and immutable-input gates pass"
+    }
+  },
+  "static_sass": {
+    "scope": "C512 production branch function versus C512 fused candidate function in the measured binary",
+    "production_branch": {
+      "instructions": 1800,
+      "LDG": 13,
+      "LDS": 67,
+      "STS": 49,
+      "BAR": 11,
+      "HMMA": 16,
+      "SHFL": 4,
+      "LDL": 0,
+      "STL": 0
+    },
+    "fused_candidate": {
+      "instructions": 1328,
+      "LDG": 9,
+      "LDS": 67,
+      "STS": 45,
+      "BAR": 11,
+      "HMMA": 16,
+      "SHFL": 4,
+      "LDL": 0,
+      "STL": 0
+    },
+    "structural_observation": "the fused function has fewer static instructions, global loads, and shared stores, unchanged LDS/BAR/HMMA/SHFL counts, and no static local loads or stores",
+    "causal_limit": "static SASS counts do not identify the measured regression's causal stall or traffic source because candidate NCU and Nsys were intentionally skipped"
+  },
+  "stop_loss_and_skipped_work": {
+    "trigger": "C512 pair speedup is 0.890109 against the required 1.22x and all six paired rounds regress",
+    "not_run": [
+      "C256 performance timing",
+      "candidate NCU",
+      "candidate Nsys",
+      "full-model Prefix or TTFT",
+      "production integration",
+      "external replication"
+    ]
+  },
+  "decision": {
+    "result": "reject production integration and close this exact 512-thread M128 fused/shared-A canonical mapping",
+    "reason": "the measured regression is consistent with the wider 512-thread synchronization domain and one-CTA/SM schedule cost, but no profiler evidence was collected and no stronger causal attribution is made",
+    "production_prefill_anchor": "unchanged",
+    "decode_anchor": "unchanged",
+    "mtp_used": false,
+    "next_priority": {
+      "hotspot": "FP8 QKV/Z/O",
+      "P513_projected_gpu_time_ms": 564.576448,
+      "P513_projected_gpu_time_percent": 21.425,
+      "immediate_action": "audit the existing FP8 candidates and the parallel read-only first-cell analysis before selecting one bounded implementation",
+      "selection_status": "specific first cell pending the independent audit; do not infer one from this Gate/Up rejection"
+    }
+  },
+  "reproduction": {
+    "build": "cmake --build build --target q3x_nvfp4_prefill_gate_up_fused_m128_shared_a_screen -j2",
+    "ctest": "ctest --test-dir build --output-on-failure -R '^nvfp4_prefill_gate_up_fused_m128_shared_a_screen(_c256)?$'",
+    "C256_validation": "taskset -c 0 ./build/q3x_nvfp4_prefill_gate_up_fused_m128_shared_a_screen --mode=validate --tokens=256",
+    "C512_validation": "taskset -c 0 ./build/q3x_nvfp4_prefill_gate_up_fused_m128_shared_a_screen --mode=validate --tokens=512",
+    "C512_screen": "taskset -c 0 ./build/q3x_nvfp4_prefill_gate_up_fused_m128_shared_a_screen --mode=screen --tokens=512",
+    "artifact_verification": "wc -c /tmp/q3x-prefill-gate-up-fused-shared-a-c512-first.log build/q3x_nvfp4_prefill_gate_up_fused_m128_shared_a_screen && sha256sum /tmp/q3x-prefill-gate-up-fused-shared-a-c512-first.log build/q3x_nvfp4_prefill_gate_up_fused_m128_shared_a_screen && readelf -n build/q3x_nvfp4_prefill_gate_up_fused_m128_shared_a_screen",
+    "environment_requirement": "run under MAXN on CPU 0 with GPU 1300500000 Hz and EMC 3200000000 Hz read back before accepting timings"
+  },
+  "limitations": [
+    "The payload is deterministic and checkpoint-like rather than loaded checkpoint tensor bytes.",
+    "Only isolated eager C512 pair timing was admitted; no C256 timing, whole-layer, whole-model, API, or EvalScope performance follows.",
+    "No candidate NCU or Nsys capture was run, so the regression is not attributed to a measured stall, occupancy timeline, L2 behavior, or global-memory traffic class.",
+    "The result closes this exact one-CTA, 512-thread, two-branch-group shared-A mapping, not every possible Gate/Up fusion or activation-reuse dataflow."
+  ]
+}
