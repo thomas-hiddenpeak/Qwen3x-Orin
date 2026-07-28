@@ -311,20 +311,34 @@ TTFT from **2666.918 ms** to **2317.622 ms** (**1.150713x**). Nsight records
 128 direct-dequant and 128 cuBLASLt calls with zero calls to the prior C512
 Gate/Up M128 kernel. The 74-test suite has zero failures, and mirrored C32
 Decode remains noise-equivalent at **105.8270 vs 105.8995 ms/token**. C256,
-Down, finish-Prefill, Decode, and all selector near misses keep their existing
-routes. A separate test-only Down P0 selects a compile-time `8+8+8+8+2`
-Window8 decoder at 32 registers, zero local bytes, and six CTAs/SM. The full
-candidate measures **6.656049 ms** production M128 versus **4.534723 ms**
-inclusive Window8 direct-dequant plus Lt (**1.467796x**, 6/6 positive), with
-all 89,128,960 decoded values and 2,621,440 outputs bitwise exact. It remains
-outside production until its independent context and complete launcher
-rejection contract are implemented. The native fused large-M NVFP4 kernel
-remains the higher-ceiling path.
+finish-Prefill, Decode, and all selector near misses keep their existing
+routes. Exact C512 Down is now production too: an independent context runs the
+compile-time `8+8+8+8+2` Window8 decoder at 32 registers, zero local bytes,
+and six CTAs/SM, then invokes a zero-workspace cuBLASLt algorithm selected at
+factory time from all eight eligible heuristics on deterministic nonzero
+operands. This matters because the rejected first-rank intermediate regressed
+Prefix by **9.292605%**; autotuning selects rank 1 at about **3.275 ms** and
+frees its temporary 192-MiB tuning allocation before request execution.
+Down serially reuses the existing 170-MiB request scratch, so it adds no
+request-arena or persistent-weight allocation. All 89,128,960 decoded values
+and 2,621,440 production outputs match bitwise; two-node Graph replay, 36
+invalid-launch cases, and the full clean 81-test suite pass. Mirrored P513/C512
+benchmarking improves the prior production Prefix from **2207.4445 ms /
+231.942 token/s** to **2074.8195 ms / 246.768 token/s** (**1.063921x**) and
+TTFT from **2316.1795 ms** to **2183.614 ms** (**1.060709x**), while mirrored
+Decode is unchanged at **105.746 vs 105.750 ms/token**. Nsight records 64
+Window8 dequant plus 64 selected Lt calls and zero calls to the prior exact-C512
+Down kernel. The native fused large-M NVFP4 kernel remains the higher-ceiling
+path because the production bridge still materializes and rereads a full BF16
+weight image per layer.
 See the [C512 inclusive cuBLASLt admission
 record](docs/metadata/qwen36-27b-prefill-nvfp4-gate-c512-inclusive-cublaslt-admission.json)
 and [Gate+Up production record](docs/metadata/qwen36-27b-prefill-nvfp4-gate-up-c512-cublaslt-production-benchmark.json).
-The [Down P0 ceiling record](docs/metadata/qwen36-27b-prefill-nvfp4-down-c512-cublaslt-p0-ceiling.json)
-keeps that independent test-only result and its remaining gates.
+The [Down production record](docs/metadata/qwen36-27b-prefill-nvfp4-down-c512-cublaslt-production-benchmark.json)
+contains the formal B-C-C-B, rejected rank-zero intermediate, autotune, Nsight,
+module, and Decode evidence. The [Down P0 ceiling
+record](docs/metadata/qwen36-27b-prefill-nvfp4-down-c512-cublaslt-p0-ceiling.json)
+retains the test-only precursor and decoder-selection history.
 The parallel native large-M effort now has a frozen test-only M64xN256xK64
 baseline. K256 scale reuse, paired canonical-weight copies, and a packed BF16
 epilogue reduce Gate from **6.471293 ms** to **5.532324 ms** (**1.169724x**)
