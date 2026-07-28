@@ -1,7 +1,8 @@
 # Large-M projection dataflow on SM87
 
 Status: architecture reset after the exact-C512 NVFP4 Gate/Up head-to-head at
-commit `1fcad2f`.
+commit `1fcad2f`, updated by the pinned layer-0 Gate matched-NCU comparison at
+commit `43308b4`.
 
 This document defines the next Prefill projection work.  It deliberately does
 not promote the current M64xN256 pair-lookup kernel.  The production C512
@@ -17,10 +18,10 @@ All timing and profiler evidence in this plan is governed by the
    contract.  `N/K` is useful for classifying a family, but is not a sufficient
    production selector.
 2. The current M64xN256 kernel is a reproducible native control, not a
-   production candidate.  Its best synthetic single-Gate result is
-   5.128448 ms, but the stricter same-fixture Gate+Up test measures
-   11.37--11.40 ms versus 7.22--7.36 ms for the best zero-cuBLASLt-workspace
-   bridge.  That bridge still uses a reusable 170-MiB BF16 dequant scratch.
+   production candidate.  Pinned layer-0 real-weight Gate+Up runs measure
+   about 11.42--11.45 ms versus 7.20--7.26 ms for the best
+   zero-cuBLASLt-workspace bridge.  That bridge still uses a reusable 170-MiB
+   BF16 dequant scratch.  Synthetic timings have no promotion authority.
 3. Single-variable screens resume only after a complete dataflow cell exists.
    Cache policy, tile ownership, synchronization domain, decode placement, and
    pipeline depth are treated as a coupled configuration.
@@ -224,18 +225,20 @@ reopened merely because the NVFP4 skeleton changes.
 
 ## Decoder placement
 
-The pair lookup remains a validated mechanism, not a mandatory component of
-the new skeleton.  Its current synthetic NCU adds essentially one shared
-wavefront per lookup, so XOR bank swizzling is not the next action.  A static
-model over pinned layer-0 Gate/Up bytes predicts about 3.22 wavefronts per
-lookup, which makes real-payload measurement mandatory.
+The pair lookup remains a correctness-validated mechanism, not a mandatory
+component of the new skeleton.  The pinned layer-0 Gate NCU result supersedes
+the earlier synthetic interpretation: the data-indexed table loads account for
+24,723,640 excessive shared wavefronts, and the 48-byte B/scale staging layout
+accounts for another 16,363,520.  Decoder, shared layout, fragment feed, and
+pipeline depth must therefore be replaced as one coupled cell; an isolated XOR
+swizzle is not presumed sufficient.
 
-The first two decoder implementations in the new skeleton are complete cells:
+The first two decoder comparisons in the new skeleton are complete cells:
 
-1. retained table-free exact decoder, to isolate the topology without lookup
-   distribution sensitivity;
-2. pair lookup with the redundant BF16x2 unpack/repack removed so its hot path
-   is `LDS -> HFMA2`, followed by pinned-checkpoint timing and NCU.
+1. a conflict-free exact decoder with fragment-oriented register/shared feed,
+   paired with a conflict-free B/scale staging layout;
+2. the existing pair lookup retained only as the matched diagnostic control,
+   unless a complete new layout removes its real-weight collision pattern.
 
 Half/full warp-shuffle lookup removal is considered only after the raw-bit cell
 and only inside the new skeleton.  The rejected full-product table,
@@ -339,6 +342,54 @@ coupled operand reuse in general.  It also removes the earlier dependency that
 made Down wait for a successful native Gate topology: Down now has its own
 live, shape-specific admission evidence.
 
+## 2026-07-29 matched real-weight NCU result
+
+The exact evidence, report hashes, metric caveats, and discarded contaminated
+runs are archived in
+`metadata/qwen36-27b-gate-c512-matched-ncu-2026-07-29.json`.  Each row below is
+a one-launch, kernel-replay diagnostic from an independently started NCU
+process.  It is not a substitute for the paired admission timings above.
+
+| Gate target | NCU duration | Achieved occupancy | Tensor throughput | Registers | Shared/CTA |
+|---|---:|---:|---:|---:|---:|
+| bridge dequant | 1.282208 ms | 89.796% | 0% | 32 | 0 |
+| cuBLASLt BF16 GEMM | 2.388960 ms | 17.088% | 92.481% | 238 | 147,456 B |
+| native NVFP4 M64xN256 | 5.757120 ms | 33.069% | 37.505% | 128 | 44,544 B |
+
+The diagnostic inclusive bridge body is 3.671168 ms, making the native body
+1.568198x as slow.  Yet native records only 259,227,968 bytes of L2
+system-memory sector proxy traffic versus 513,641,120 bytes for dequant plus
+BF16 GEMM, or 50.47%.  These counters are not complete EMC traffic, but they
+are sufficient to reject external-memory volume as the primary closing gap in
+this profile.  The saved compressed-weight traffic is being consumed by the
+native inner dataflow.
+
+The concrete inner-loop gaps are:
+
+- native executes 55,705,600 ordinary shared loads, exactly 800x the BF16
+  kernel, while cuBLASLt instead executes 5,587,968 `LDSM` instructions;
+- native records 25,890,660 raw shared bank conflicts versus zero for BF16;
+  24,723,640 excessive wavefronts map to the data-indexed PairLookup loads and
+  16,363,520 more map to the 48-byte B/scale `LDGSTS` destination stride;
+- native spends 26.47% of warp cycles per issued instruction in MIO throttle,
+  with short-scoreboard and LG-throttle as the next structural stalls, while
+  cuBLASLt's dominant wait and math-pipe stalls occur at 92.48% Tensor use;
+- native output ownership makes each warp write eight separated 16-byte row
+  spans, producing exactly twice the ideal output-store sectors;
+- native `cp.async.ca` for A and `cp.async.cg` for B/scale are proven active by
+  SASS and exact dynamic `LDGSTS` counts.  The control is therefore pipelined,
+  not serial, but it has exactly two resident operand slots;
+- the cuBLASLt symbol `stages_64x3` and its exact three-stage-sized shared
+  allocation strongly support a K64 three-operand-stage implementation.  This
+  is a vendor-private-symbol inference, not a public cuBLASLt contract.
+
+The result changes the optimization question.  Adding `cp.async` is complete;
+the next cell must remove the shared decode/feed bottleneck, fix B/scale shared
+placement, and coalesce the epilogue while preserving enough independent warps
+to cover the remaining load latency.  Pipeline depth is evaluated only after
+that cell has a resource budget; a third slot alone cannot repair the measured
+MIO and conflict structure.
+
 ## Immediate implementation order
 
 1. Preserve the independent exact-C512 Gate/Up and Down production selectors
@@ -350,9 +401,23 @@ live, shape-specific admission evidence.
    Prefill loop.
 3. Retain horizontal P0 as a resource/correctness sentinel and P1 as a named-
    barrier negative sentinel.  Do not tune either with isolated cache toggles.
-4. For the next native Gate skeleton, preserve 256-thread CTA phase independence
-   and treat A reuse as an L2/tile-order locality problem; compare it as one
-   complete cell against the pinned live bridge.
-5. Refresh production NSys and rank FP8 QKV, Z, O, full Q, and full K/V before
+4. Build the next native Gate cell around independent 256-thread CTAs and at
+   least 16 resident warps/SM.  Change the decoder/register-fragment feed, the
+   48-byte B/scale shared layout and `LDGSTS` destination map, and the packed
+   BF16 epilogue ownership together.  Preserve exact accumulation order, 128
+   registers/thread or less, no spill, and bitwise equality.
+5. Add a third K64 operand slot only if the complete cell still keeps two
+   CTAs/SM.  The current slot is 21,504 B, so three slots plus the conservative
+   existing 1,536-B static allocation would be 66,048 B/CTA and 132,096 B for
+   two CTAs, below the measured 166,912-B SM budget.  Registers are the tighter
+   constraint: 128 registers x 256 threads x 2 CTAs consumes the full 65,536
+   register file.  Compare the two- and three-slot forms as complete
+   configurations; do not promote pipeline depth from an isolated
+   microbenchmark.
+6. Keep Gate/Up and Down as separate runtime configurations.  Gate qualifies
+   first against its live real-weight bridge; Down then receives its own tile
+   order, pipeline-depth, pinned timing, and NCU decision rather than inheriting
+   Gate settings.
+7. Refresh production NSys and rank FP8 QKV, Z, O, full Q, and full K/V before
    opening any FP8 kernel line.  Reuse selector and scheduling infrastructure,
    not the NVFP4 decoder.

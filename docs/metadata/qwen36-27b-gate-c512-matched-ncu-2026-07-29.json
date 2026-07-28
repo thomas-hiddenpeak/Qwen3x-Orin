@@ -1,0 +1,369 @@
+{
+  "schema_version": 1,
+  "record": "Qwen3.6-27B layer-0 Gate C512 matched NCU comparison",
+  "date": "2026-07-29",
+  "source": {
+    "commit": "43308b447cc0be8f0587ac970498699e77b5a8b3",
+    "binary": {
+      "path": "build/orin-release/q3x_nvfp4_prefill_gate_up_c512_cublaslt_pair_screen",
+      "sha256": "5474ff8338df8a998b67da037240302e4d89ffbaf130442a774241c58fd9769e"
+    },
+    "implementation": "tests/sm87_nvfp4_prefill_gate_up_c512_cublaslt_pair_screen.cu",
+    "native_kernel": "src/kernels/sm87/weight_only_gemv.cu"
+  },
+  "qualification": {
+    "authority": "diagnostic",
+    "admission": "NOT_RUN",
+    "evidence": "checkpoint_weight_only",
+    "real_checkpoint_weights": true,
+    "captured_real_layer_activation": false,
+    "activation": {
+      "kind": "deterministic_bf16",
+      "seed": "0x12345678",
+      "scale": 0.015625
+    },
+    "layer_coverage": "layer0_gate_only",
+    "shape": {
+      "M": 512,
+      "N": 17408,
+      "K": 5120
+    },
+    "limitation": "NCU kernel-replay durations are diagnostic single-launch measurements and are not admission timings. The three targets were collected in separate NCU processes. Promotion remains governed by the six-round paired real-weight timing gate."
+  },
+  "checkpoint": {
+    "descriptor": "nvidia-qwen3.6-27b-nvfp4@0893e160",
+    "directory": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "baseline_metadata": "docs/metadata/qwen36-27b-c512-real-weight-admission-baseline.json",
+    "gate_weight_sha256": "e9e2d70cef19e52d65a0f7917ea6d936c172809ed247b350443b4344297159d8",
+    "gate_block_scale_sha256": "6eeaaa3bf8605b1d85252e13e6c495f6cf1b06e7fee8f27ea6367abbbb8fde0e",
+    "gate_weight_scale_2_sha256": "10f036efcb439d7571cc2c35568c9786ae3315b169f3972ff1c2aae782131f91",
+    "gate_weight_scale_2_bits": "0x391e79e8"
+  },
+  "environment": {
+    "device": "NVIDIA Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "architecture": "SM87",
+    "driver_version": "595.78",
+    "cuda_toolkit_version": "13.3",
+    "ncu_session_cuda_version": "13.2",
+    "ncu_version": "2026.2",
+    "power_mode": "MAXN",
+    "gpu_hz": 1300500000,
+    "emc_hz": 3200000000,
+    "fixed_clocks_reported_by_target": true,
+    "cpu_affinity": [11],
+    "ncu_clock_control": "none",
+    "ncu_unmodified_clock_warning": true,
+    "profiling_permission": {
+      "RmProfilingAdminOnly": 1,
+      "invocation": "sudo -n /usr/local/cuda/bin/ncu",
+      "driver_setting_modified": false
+    },
+    "host_contamination": {
+      "monitor": 0,
+      "sampling_seconds": 0.2,
+      "monitored": [
+        "non-jtop Python processes",
+        "nsys processes"
+      ],
+      "assessment": "all reports cited by this record completed without a monitored competing host workload"
+    }
+  },
+  "protocol": {
+    "mode": "profile-checkpoint",
+    "branch": "gate",
+    "profile_from_start": false,
+    "launch_count": 1,
+    "replay_mode": "kernel",
+    "target_launches_inside_profiler_range": 1,
+    "pre_profile_checks": [
+      "pinned six-tensor checkpoint preflight",
+      "fixed GPU and EMC clocks",
+      "native resource and launch status",
+      "production reference generation",
+      "serial bridge eager exact correctness",
+      "native serial eager exact correctness"
+    ],
+    "core_sections": [
+      "LaunchStats",
+      "Occupancy",
+      "SpeedOfLight",
+      "ComputeWorkloadAnalysis",
+      "MemoryWorkloadAnalysis",
+      "SchedulerStats",
+      "WarpStateStats",
+      "SourceCounters",
+      "InstructionStats"
+    ],
+    "memory_sections": [
+      "LaunchStats",
+      "MemoryWorkloadAnalysis_Tables"
+    ],
+    "core_profile_passes_per_target": 20,
+    "memory_profile_passes_per_target": 24,
+    "core_replay_backup_restore_gb_per_target": 10.834515,
+    "memory_replay_backup_restore_gb_per_target": 13.001417,
+    "command_template": "taskset -c 11 sudo -n /usr/local/cuda/bin/ncu --clock-control none --profile-from-start off --launch-count 1 --section <section> --export <report> --force-overwrite <binary> --mode=profile-checkpoint --profile-target=<target> --native=m64n256pairlookup --checkpoint=/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4"
+  },
+  "cublaslt": {
+    "heuristic_index": 2,
+    "algorithm_id": 6,
+    "tile_id": 24,
+    "split_k": 1,
+    "reduction_scheme": 0,
+    "cta_swizzle": 1,
+    "custom_option": 0,
+    "stages_id": 15,
+    "kernel": "ampere_bf16_s16816gemm_bf16_256x128_ldg8_f2f_stages_64x3_tn"
+  },
+  "reports": {
+    "bridge_dequant_core": {
+      "path": "/tmp/q3x-gate-bridge-dequant-matched-clean.ncu-rep",
+      "sha256": "1e467c671fe11906e37bc97bcbe18399380389741cd80420ef73accd43f51336"
+    },
+    "bridge_dequant_memory": {
+      "path": "/tmp/q3x-gate-bridge-dequant-memory-clean.ncu-rep",
+      "sha256": "3b2a2190f749ee38a7430e5d71bdbe5ed764281f695ad8696743a04b10708d91"
+    },
+    "bridge_bf16_core": {
+      "path": "/tmp/q3x-gate-bridge-bf16-matched-clean.ncu-rep",
+      "sha256": "6686d19109897bac21583d3502ad5ad3f7b08c6a7d68102bef8f17e89d27cc30"
+    },
+    "bridge_bf16_memory": {
+      "path": "/tmp/q3x-gate-bridge-bf16-memory-clean2.ncu-rep",
+      "sha256": "a4b26088c222eb4b1e6c5291f717f3749f030c38ad5cee052289e4f60b7726fe"
+    },
+    "native_nvfp4_core": {
+      "path": "/tmp/q3x-gate-native-nvfp4-matched-clean.ncu-rep",
+      "sha256": "cbc6994c801a4e3c96b0e63234d16c1d5ccef45b1ec3be89724df2a6153aa421"
+    },
+    "native_nvfp4_memory": {
+      "path": "/tmp/q3x-gate-native-nvfp4-memory-clean.ncu-rep",
+      "sha256": "371a4b407636f1ba0b068d7bce66276b91c0a26e014349ea335a3029a4502dc1"
+    }
+  },
+  "results": {
+    "bridge_dequant": {
+      "kernel_role": "raw pinned NVFP4 payload to reusable BF16 image",
+      "duration_ms": 1.282208,
+      "registers_per_thread": 32,
+      "static_shared_bytes": 0,
+      "dynamic_shared_bytes": 0,
+      "theoretical_occupancy_percent": 100.0,
+      "achieved_occupancy_percent": 89.796,
+      "sm_throughput_percent": 76.58,
+      "memory_throughput_percent": 64.29,
+      "tensor_throughput_percent": 0.0,
+      "issue_active_percent": 64.48,
+      "active_warps_per_scheduler": 10.755,
+      "eligible_warps_per_scheduler": 3.557,
+      "shared_bank_conflicts": 0,
+      "local_spill_bytes": 0,
+      "sysmem_read_bytes": 50148000,
+      "sysmem_write_bytes": 178258336,
+      "l1_global_read_bytes": 89128960,
+      "l1_global_write_bytes": 178257920
+    },
+    "bridge_bf16_gemm": {
+      "duration_ms": 2.388960,
+      "grid_ctas": 272,
+      "threads_per_cta": 256,
+      "waves_per_sm": 17,
+      "resident_ctas_per_sm": 1,
+      "registers_per_thread": 238,
+      "static_shared_bytes": 49152,
+      "dynamic_shared_bytes": 98304,
+      "total_shared_bytes": 147456,
+      "theoretical_occupancy_percent": 16.667,
+      "achieved_occupancy_percent": 17.088,
+      "sm_throughput_percent": 92.481,
+      "memory_throughput_percent": 73.168,
+      "tensor_throughput_percent": 92.481,
+      "issue_active_percent": 20.591,
+      "active_warps_per_scheduler": 2.003,
+      "eligible_warps_per_scheduler": 0.311,
+      "instructions": 39688064,
+      "thread_instructions": 1248571392,
+      "stall_cycles_per_issued": {
+        "wait": 3.786,
+        "math_pipe_throttle": 3.518,
+        "barrier": 0.626,
+        "not_selected": 0.503,
+        "lg_throttle": 0.044,
+        "mio_throttle": 0.039,
+        "short_scoreboard": 0.027,
+        "long_scoreboard": 0.048
+      },
+      "shared_bank_conflicts": 0,
+      "shared_wavefronts": 23114016,
+      "ldgsts_instructions": 2147712,
+      "ldsm_instructions": 5587968,
+      "scalar_shared_load_instructions": 69632,
+      "local_spill_bytes": 0,
+      "l1_global_read_bytes": 1069547520,
+      "l1_global_write_bytes": 17825792,
+      "sysmem_read_bytes": 267408576,
+      "sysmem_write_bytes": 17826208,
+      "l2_read_hit_rate_percent": 74.999
+    },
+    "native_nvfp4_gemm": {
+      "kernel": "nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_test_kernel<1,0,0,0,0,1>",
+      "duration_ms": 5.757120,
+      "grid_ctas": 544,
+      "threads_per_cta": 256,
+      "waves_per_sm": 17,
+      "resident_ctas_per_sm": 2,
+      "registers_per_thread": 128,
+      "static_shared_bytes": 1536,
+      "dynamic_shared_bytes": 43008,
+      "total_shared_bytes": 44544,
+      "theoretical_occupancy_percent": 33.333,
+      "achieved_occupancy_percent": 33.069,
+      "sm_throughput_percent": 49.932,
+      "memory_throughput_percent": 73.967,
+      "tensor_throughput_percent": 37.505,
+      "issue_active_percent": 35.421,
+      "active_warps_per_scheduler": 3.944,
+      "eligible_warps_per_scheduler": 0.710,
+      "instructions": 168346240,
+      "thread_instructions": 5253498304,
+      "stall_cycles_per_issued": {
+        "mio_throttle": 2.94765,
+        "wait": 1.9419,
+        "short_scoreboard": 1.0849,
+        "lg_throttle": 1.0565,
+        "math_pipe_throttle": 0.864,
+        "barrier": 0.712,
+        "dispatch_stall": 0.236,
+        "long_scoreboard": 0.223
+      },
+      "shared_bank_conflicts": 25890660,
+      "shared_load_bank_conflicts": 24726024,
+      "shared_store_bank_conflicts": 1164589,
+      "shared_wavefronts": 86278287,
+      "shared_excessive_wavefronts": 41087160,
+      "shared_excessive_wavefront_denominator": 102981304,
+      "estimated_shared_access_penalty_percent": 39.85,
+      "pair_lookup_excessive_shared_wavefronts": 24723640,
+      "b_scale_ldgsts_excessive_shared_wavefronts": 16363520,
+      "ldgsts_instructions": 1740800,
+      "ldsm_instructions": 0,
+      "scalar_shared_load_instructions": 55705600,
+      "local_spill_bytes": 0,
+      "l1_global_read_bytes": 980418560,
+      "l1_global_write_bytes": 35651584,
+      "sysmem_read_bytes": 223862080,
+      "sysmem_write_bytes": 35365888,
+      "l2_read_hit_rate_percent": 77.169,
+      "cp_async_observed": true,
+      "a_ca": {
+        "requests": 696320,
+        "sectors": 11141120,
+        "bytes": 356515840,
+        "sectors_per_request": 16.0
+      },
+      "b_scale_cg": {
+        "requests": 783360,
+        "sectors": 19758080,
+        "sector_bytes": 632258560,
+        "useful_bytes_at_512_per_request": 401080320,
+        "estimated_sector_efficiency_percent": 63.43,
+        "interpretation": "The request-to-sector estimate is diagnostic only. Source/SASS attribution independently identifies a 48-byte shared row stride and thread-pair scatter layout as the B/scale LDGSTS shared-wavefront problem."
+      }
+    }
+  },
+  "derived": {
+    "bridge_inclusive_ncu_ms": 3.671168,
+    "native_over_bridge_bf16_kernel_time": 2.409885,
+    "native_over_inclusive_bridge_time": 1.568198,
+    "native_slower_than_inclusive_bridge_percent": 56.819846,
+    "native_tensor_throughput_relative_to_bridge_bf16": 0.405543,
+    "native_sm_throughput_relative_to_bridge_bf16": 0.539916,
+    "native_achieved_occupancy_relative_to_bridge_bf16": 1.935218,
+    "native_instruction_ratio": 4.241735,
+    "native_thread_instruction_ratio": 4.207607,
+    "native_shared_wavefront_ratio": 3.732726,
+    "native_ordinary_shared_load_ratio": 800.0,
+    "native_mio_stall_ratio": 75.580769,
+    "native_short_scoreboard_stall_ratio": 40.181,
+    "native_lg_throttle_stall_ratio": 24.011,
+    "bridge_inclusive_sysmem_bytes": 513641120,
+    "native_sysmem_bytes": 259227968,
+    "native_sysmem_fraction_of_bridge": 0.504687,
+    "expected_output_bytes": 17825792,
+    "native_l1_output_write_sector_ratio": 2.0,
+    "static_sass": {
+      "bridge_bf16": {
+        "rows": 1112,
+        "hmma": 128,
+        "ldgsts": 39,
+        "ldsm": 40,
+        "lds": 44,
+        "sts": 28,
+        "lop3": 63,
+        "shf": 40
+      },
+      "native_nvfp4": {
+        "rows": 1304,
+        "hmma": 64,
+        "ldgsts": 15,
+        "ldsm": 0,
+        "lds": 102,
+        "stg": 32,
+        "lop3": 244,
+        "shf": 178
+      }
+    }
+  },
+  "assessment": {
+    "traffic": "The native kernel records only 50.47% of the inclusive bridge L2 system-memory sector-byte proxy yet is 56.82% slower, so compressed-weight traffic reduction is already visible and external-memory volume is not the closing bottleneck in this profile.",
+    "tensor_feed": "Native Tensor throughput is 37.51% versus 92.48% for the cuBLASLt BF16 body despite 1.94x achieved occupancy.",
+    "decode_and_shared": "Native executes 4.24x the total instructions, executes exactly 800x as many ordinary shared-load SASS instructions as the BF16 kernel, has no LDSM fragment feed, and records 25.89 million raw shared bank conflicts where the bridge records none. PairLookup explains 24.72 million excessive shared wavefronts; the B/scale LDGSTS destination layout explains another 16.36 million.",
+    "global_access": "The native A cp.async.ca and B/scale cp.async.cg paths are proven active by both SASS and exact dynamic LDGSTS counts. The B/scale request-to-sector estimate is about 63.43%, but LDGSTS metric domains must not be mixed when deriving totals.",
+    "epilogue": "Native L1 global-write sector bytes are exactly 2x the logical BF16 output size. Source ownership maps each warp to eight separated 16-byte row spans, which forces eight 32-byte sectors for 128 useful bytes.",
+    "next_complete_cell": [
+      "replace conflict-heavy scalar PairLookup feeding with a conflict-free decoder and fragment feed",
+      "redesign the 48-byte packed-B/scale shared layout and LDGSTS destination mapping",
+      "coalesce the packed BF16 epilogue",
+      "evaluate a three-slot load/decode/MMA pipeline only as part of the complete resource-qualified cell",
+      "preserve exact accumulation order, no spills, and at least 16 resident warps per SM",
+      "qualify Gate/Up and Down as separate exact-shape specializations"
+    ],
+    "three_slot_resource_model": {
+      "status": "calculated_not_implemented",
+      "current_operand_slot_bytes": 21504,
+      "three_operand_slots_bytes_per_cta": 64512,
+      "conservative_static_bytes_per_cta": 1536,
+      "total_shared_bytes_per_cta": 66048,
+      "two_cta_shared_bytes": 132096,
+      "shared_bytes_per_sm": 166912,
+      "shared_headroom_bytes": 34816,
+      "registers_per_thread_limit": 128,
+      "registers_for_two_256_thread_ctas": 65536,
+      "register_file_headroom": 0,
+      "interpretation": "A three-slot cell is shared-memory feasible on paper, but two-CTA residency has no register headroom at 128 registers per thread and must be proven on the compiled complete cell."
+    }
+  },
+  "discarded_reports": {
+    "policy": "not evidence and not cited in any derived value",
+    "items": [
+      {
+        "path": "/tmp/q3x-gate-bridge-bf16-matched.ncu-rep",
+        "reason": "competing full-model weight scan detected"
+      },
+      {
+        "path": "/tmp/q3x-gate-bridge-bf16-memory-clean.ncu-rep",
+        "reason": "short competing Python jtop probe detected"
+      }
+    ]
+  },
+  "metric_caveats": [
+    "System-memory bytes are 32-byte L2 system-memory fill/write sector proxies on Orin UMA, not complete EMC byte counts; they exclude L2 hits and profiler replay backup traffic.",
+    "Raw bank-conflict counters and the NCU excessive-wavefront rule use different denominators and are not divided into one another.",
+    "smsp inst_executed_op_ldgsts and sm sass_inst_executed_op_ldgsts_cache subtypes are different counter domains; subtype sums are not subtracted from the total.",
+    "Memory-table report durations are not mixed with matched-core durations. The memory metric set produced a 1.552232x native-to-inclusive-bridge ratio versus 1.568198x for the core set.",
+    "NCU controlled no clocks and emitted its standard unmodified-clock warning. The target independently reported fixed 1.3005 GHz GPU and 3.2 GHz EMC clocks; durations remain diagnostic because replay itself perturbs cache, memory, and temperature state.",
+    "The cuBLASLt symbol and exact three-stage-sized shared allocation strongly support a K64 three-operand-stage interpretation, but the vendor-private symbol is not a stable ABI and does not prove exact prefetch distance."
+  ]
+}
