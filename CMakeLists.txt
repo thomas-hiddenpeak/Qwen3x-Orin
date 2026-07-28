@@ -300,8 +300,14 @@ if(BUILD_TESTING)
   add_test(NAME fp8_prefill_qkv_m128_cp_async_register_feed_screen
     COMMAND q3x_fp8_prefill_qkv_m128_cp_async_register_feed_screen
   )
+  add_test(NAME fp8_prefill_qkv_m128_cp_async_register_feed_canonical_validate
+    COMMAND q3x_fp8_prefill_qkv_m128_cp_async_register_feed_screen
+            --mode=validate-canonical
+  )
   set_tests_properties(
-    fp8_prefill_qkv_m128_cp_async_register_feed_screen PROPERTIES
+    fp8_prefill_qkv_m128_cp_async_register_feed_screen
+    fp8_prefill_qkv_m128_cp_async_register_feed_canonical_validate
+    PROPERTIES
     LABELS "cuda;sm87;prefill"
     SKIP_RETURN_CODE 77
   )

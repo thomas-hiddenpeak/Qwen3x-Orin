@@ -4859,6 +4859,99 @@ __device__ __forceinline__ void issue_fp8_qkv_register_pipeline_stage(
   cp_async_commit_group();
 }
 
+// Test-only canonical-weight counterparts to the fragment-native pipeline
+// above. Both keep the raw N128xK64 FP8 tile at equal byte count in shared
+// memory. P0 is plain row-major. P1 changes only the placement of the four
+// aligned 16-byte chunks in each row with XOR; both variants use the same
+// uint16 fragment-gather loads. The swizzle changes neither global order,
+// cp.async alignment, nor the 79,872-byte three-slot footprint. No persistent
+// sidecar is required.
+template <bool kXorSwizzle>
+__device__ __forceinline__ void
+issue_fp8_qkv_canonical_register_pipeline_stage(
+    Fp8QkvRegisterPipelineStorage* const pipeline,
+    const unsigned int shared_slot,
+    const std::uint8_t* const canonical_weights,
+    const unsigned int first_output_column,
+    const std::uint16_t* const tile_activations,
+    const unsigned int first_k) {
+  constexpr unsigned int kColumns = 5'120U;
+  constexpr unsigned int kActivationChunksPerToken = 8U;
+  constexpr unsigned int kSharedActivationChunksPerToken = 9U;
+  constexpr unsigned int kActivationChunkCount =
+      128U * kActivationChunksPerToken;
+  constexpr unsigned int kActivationLoadPasses =
+      kActivationChunkCount / kThreads;
+  constexpr unsigned int kWeightChunksPerRow = 4U;
+  const unsigned int xor_key =
+      kXorSwizzle ? ((threadIdx.x >> 3U) & 3U) : 0U;
+  static_assert(kActivationLoadPasses == 4U);
+  static_assert(128U * kWeightChunksPerRow == 2U * kThreads);
+
+#pragma unroll
+  for (unsigned int pass = 0U; pass < kActivationLoadPasses; ++pass) {
+    const unsigned int index = threadIdx.x + pass * kThreads;
+    const unsigned int token = index / kActivationChunksPerToken;
+    const unsigned int chunk = index % kActivationChunksPerToken;
+    cp_async_cg_shared_global_16(
+        pipeline->activations[shared_slot] +
+            token * kSharedActivationChunksPerToken + chunk,
+        reinterpret_cast<const uint4*>(
+            tile_activations + static_cast<std::size_t>(token) * kColumns +
+            first_k) +
+            chunk);
+  }
+#pragma unroll
+  for (unsigned int pass = 0U; pass < 2U; ++pass) {
+    const unsigned int index = threadIdx.x + pass * kThreads;
+    const unsigned int logical_row = index / kWeightChunksPerRow;
+    const unsigned int logical_chunk = index % kWeightChunksPerRow;
+    const unsigned int shared_chunk = logical_chunk ^ xor_key;
+    cp_async_cg_shared_global_16(
+        pipeline->weights[shared_slot] +
+            logical_row * kWeightChunksPerRow + shared_chunk,
+        reinterpret_cast<const uint4*>(
+            canonical_weights +
+            static_cast<std::size_t>(first_output_column + logical_row) *
+                kColumns +
+            first_k) +
+            logical_chunk);
+  }
+  cp_async_commit_group();
+}
+
+__device__ __forceinline__ std::uint32_t
+gather_fp8_qkv_canonical_fragment_row(
+    const uint4* const shared_weights, const unsigned int logical_row,
+    const unsigned int shared_chunk, const unsigned int column_in_chunk) {
+  constexpr unsigned int kWeightChunksPerRow = 4U;
+  constexpr unsigned int kBytesPerChunk = sizeof(uint4);
+  const auto* const bytes =
+      reinterpret_cast<const std::uint8_t*>(shared_weights) +
+      (logical_row * kWeightChunksPerRow + shared_chunk) * kBytesPerChunk +
+      column_in_chunk;
+  const std::uint32_t low =
+      *reinterpret_cast<const std::uint16_t*>(bytes);
+  const std::uint32_t high =
+      *reinterpret_cast<const std::uint16_t*>(bytes + 8U);
+  return low | (high << 16U);
+}
+
+__device__ __forceinline__ uint2 gather_fp8_qkv_canonical_fragment(
+    const uint4* const shared_weights, const unsigned int warp,
+    const unsigned int lane, const unsigned int k16,
+    const unsigned int xor_key) {
+  const unsigned int logical_row0 = warp * 16U + lane / 4U;
+  const unsigned int column_in_chunk = 2U * (lane % 4U);
+  const unsigned int shared_chunk = k16 ^ xor_key;
+  uint2 packed{};
+  packed.x = gather_fp8_qkv_canonical_fragment_row(
+      shared_weights, logical_row0, shared_chunk, column_in_chunk);
+  packed.y = gather_fp8_qkv_canonical_fragment_row(
+      shared_weights, logical_row0 + 8U, shared_chunk, column_in_chunk);
+  return packed;
+}
+
 // Out-of-place builder for the exact-C512 QKV register-feed sidecar. One
 // CTA owns one N128/K64 tile. Each thread gathers the eight frozen matrix-B
 // fragment bytes for each of four K16 planes and writes one contiguous uint2
@@ -5187,6 +5280,198 @@ fp8_w8a16_whole_chunk_qkv_m128_cp_async_register_feed_kernel(
                 first_output_column + local_column] =
         encode_bf16_rne(shared_output[index] * weight_scale);
   }
+}
+
+// Strictly test-only exact-C512 QKV P0/P1. These kernels retain the admitted
+// three-slot A/B cp.async schedule and direct matrix-B register feed, but read
+// canonical row-major FP8 weights. P0 keeps raw B row-major in shared memory;
+// P1 applies only the aligned row-wise K16 XOR swizzle described above while
+// retaining P0's uint16 gather spelling. The production sidecar kernel and
+// dispatch remain untouched.
+template <bool kXorSwizzle>
+__global__ __launch_bounds__(kThreads, 2) void
+fp8_w8a16_whole_chunk_qkv_m128_cp_async_canonical_register_feed_test_kernel(
+    const std::uint8_t* const canonical_weights, const float weight_scale,
+    const std::uint16_t* const activations, std::uint16_t* const output) {
+  constexpr unsigned int kRows = 10'240U;
+  constexpr unsigned int kColumns = 5'120U;
+  constexpr unsigned int kTokenCount = 512U;
+  constexpr unsigned int kResidentTokenCount = 128U;
+  constexpr unsigned int kPanelTokenCount = 16U;
+  constexpr unsigned int kOutputColumnsPerBlock = 128U;
+  constexpr unsigned int kOutputColumnsPerWarp = 16U;
+  constexpr unsigned int kColumnsPerStage = 64U;
+  constexpr unsigned int kSharedLeadingDimension = 72U;
+  constexpr unsigned int kK64StageCount = kColumns / kColumnsPerStage;
+  constexpr unsigned int kM128TileCount = kTokenCount / kResidentTokenCount;
+  constexpr unsigned int kSharedOutputCount = 32U * kOutputColumnsPerBlock;
+  static_assert(kK64StageCount == 80U);
+  static_assert(kM128TileCount == 4U);
+
+  __shared__ std::uint16_t decoded_weights[kFp8EncodedValueCount];
+  extern __shared__ __align__(32) std::uint8_t dynamic_storage[];
+  auto* const storage =
+      reinterpret_cast<Fp8QkvRegisterPipelineOrOutputStorage*>(
+          dynamic_storage);
+
+  namespace wmma = nvcuda::wmma;
+  using WeightFragment =
+      wmma::fragment<wmma::matrix_b, 16, 16, 16, __nv_bfloat16,
+                     wmma::col_major>;
+  static_assert(WeightFragment::num_elements == 8);
+  const unsigned int thread = threadIdx.x;
+  const unsigned int warp = thread / kWarpSize;
+  const unsigned int lane = thread % kWarpSize;
+  const unsigned int canonical_xor_key =
+      kXorSwizzle ? ((lane >> 3U) & 3U) : 0U;
+  decoded_weights[thread] = encode_bf16_rne(
+      decode_e4m3fn(static_cast<std::uint8_t>(thread)));
+  __syncthreads();
+
+  const unsigned int output_column_block = blockIdx.x / kM128TileCount;
+  const unsigned int token_tile = blockIdx.x % kM128TileCount;
+  const unsigned int first_output_column =
+      output_column_block * kOutputColumnsPerBlock;
+  const std::size_t first_token =
+      static_cast<std::size_t>(token_tile) * kResidentTokenCount;
+  const std::uint16_t* const tile_activations =
+      activations + first_token * kColumns;
+  std::uint16_t* const tile_output = output + first_token * kRows;
+
+  wmma::fragment<wmma::accumulator, 16, 16, 16, float> accumulator0;
+  wmma::fragment<wmma::accumulator, 16, 16, 16, float> accumulator1;
+  wmma::fragment<wmma::accumulator, 16, 16, 16, float> accumulator2;
+  wmma::fragment<wmma::accumulator, 16, 16, 16, float> accumulator3;
+  wmma::fragment<wmma::accumulator, 16, 16, 16, float> accumulator4;
+  wmma::fragment<wmma::accumulator, 16, 16, 16, float> accumulator5;
+  wmma::fragment<wmma::accumulator, 16, 16, 16, float> accumulator6;
+  wmma::fragment<wmma::accumulator, 16, 16, 16, float> accumulator7;
+  wmma::fill_fragment(accumulator0, 0.0F);
+  wmma::fill_fragment(accumulator1, 0.0F);
+  wmma::fill_fragment(accumulator2, 0.0F);
+  wmma::fill_fragment(accumulator3, 0.0F);
+  wmma::fill_fragment(accumulator4, 0.0F);
+  wmma::fill_fragment(accumulator5, 0.0F);
+  wmma::fill_fragment(accumulator6, 0.0F);
+  wmma::fill_fragment(accumulator7, 0.0F);
+
+  issue_fp8_qkv_canonical_register_pipeline_stage<kXorSwizzle>(
+      &storage->pipeline, 0U, canonical_weights, first_output_column,
+      tile_activations, 0U);
+  issue_fp8_qkv_canonical_register_pipeline_stage<kXorSwizzle>(
+      &storage->pipeline, 1U, canonical_weights, first_output_column,
+      tile_activations, kColumnsPerStage);
+
+#define Q3X_FP8_QKV_CANONICAL_MMA(ACCUMULATOR, PANEL)                 \
+  do {                                                               \
+    wmma::fragment<wmma::matrix_a, 16, 16, 16, __nv_bfloat16,       \
+                   wmma::row_major>                                  \
+        activation_fragment;                                         \
+    wmma::load_matrix_sync(                                          \
+        activation_fragment,                                         \
+        shared_a + (PANEL) * kPanelTokenCount *                      \
+                       kSharedLeadingDimension +                     \
+            inner_k,                                                 \
+        kSharedLeadingDimension);                                    \
+    wmma::mma_sync((ACCUMULATOR), activation_fragment,               \
+                   weight_fragment, (ACCUMULATOR));                  \
+  } while (false)
+
+#pragma unroll 1
+  for (unsigned int stage = 0U; stage < kK64StageCount; ++stage) {
+    if (stage + 1U < kK64StageCount) {
+      cp_async_wait_group_1();
+    } else {
+      cp_async_wait_group_0();
+    }
+    __syncthreads();
+
+    if (stage + 2U < kK64StageCount) {
+      const unsigned int future_stage = stage + 2U;
+      issue_fp8_qkv_canonical_register_pipeline_stage<kXorSwizzle>(
+          &storage->pipeline, future_stage % 3U, canonical_weights,
+          first_output_column, tile_activations,
+          future_stage * kColumnsPerStage);
+    }
+
+    const unsigned int shared_slot = stage % 3U;
+    const auto* const shared_a = reinterpret_cast<const __nv_bfloat16*>(
+        storage->pipeline.activations[shared_slot]);
+    const auto* const shared_b = storage->pipeline.weights[shared_slot];
+
+#pragma unroll
+    for (unsigned int k16 = 0U; k16 < 4U; ++k16) {
+      const uint2 packed =
+          gather_fp8_qkv_canonical_fragment(
+              shared_b, warp, lane, k16, canonical_xor_key);
+      uint4 decoded{};
+      decode_fp8x4_to_bf16x4(packed.x, decoded_weights, &decoded.x);
+      decode_fp8x4_to_bf16x4(packed.y, decoded_weights, &decoded.z);
+
+      WeightFragment weight_fragment;
+      weight_fragment.x[0] = __ushort_as_bfloat16(
+          static_cast<std::uint16_t>(decoded.x));
+      weight_fragment.x[1] = __ushort_as_bfloat16(
+          static_cast<std::uint16_t>(decoded.x >> 16U));
+      weight_fragment.x[2] = __ushort_as_bfloat16(
+          static_cast<std::uint16_t>(decoded.y));
+      weight_fragment.x[3] = __ushort_as_bfloat16(
+          static_cast<std::uint16_t>(decoded.y >> 16U));
+      weight_fragment.x[4] = __ushort_as_bfloat16(
+          static_cast<std::uint16_t>(decoded.z));
+      weight_fragment.x[5] = __ushort_as_bfloat16(
+          static_cast<std::uint16_t>(decoded.z >> 16U));
+      weight_fragment.x[6] = __ushort_as_bfloat16(
+          static_cast<std::uint16_t>(decoded.w));
+      weight_fragment.x[7] = __ushort_as_bfloat16(
+          static_cast<std::uint16_t>(decoded.w >> 16U));
+
+      const unsigned int inner_k = k16 * 16U;
+      Q3X_FP8_QKV_CANONICAL_MMA(accumulator0, 0U);
+      Q3X_FP8_QKV_CANONICAL_MMA(accumulator1, 1U);
+      Q3X_FP8_QKV_CANONICAL_MMA(accumulator2, 2U);
+      Q3X_FP8_QKV_CANONICAL_MMA(accumulator3, 3U);
+      Q3X_FP8_QKV_CANONICAL_MMA(accumulator4, 4U);
+      Q3X_FP8_QKV_CANONICAL_MMA(accumulator5, 5U);
+      Q3X_FP8_QKV_CANONICAL_MMA(accumulator6, 6U);
+      Q3X_FP8_QKV_CANONICAL_MMA(accumulator7, 7U);
+    }
+  }
+#undef Q3X_FP8_QKV_CANONICAL_MMA
+  cp_async_wait_group_0();
+  __syncthreads();
+
+  float* const shared_output = storage->output;
+#define Q3X_FP8_QKV_CANONICAL_DRAIN(ACCUMULATOR0, ACCUMULATOR1, TOKEN_OFFSET) \
+  do {                                                                         \
+    wmma::store_matrix_sync(                                                    \
+        shared_output + warp * kOutputColumnsPerWarp, (ACCUMULATOR0),          \
+        kOutputColumnsPerBlock, wmma::mem_row_major);                          \
+    wmma::store_matrix_sync(                                                    \
+        shared_output + kPanelTokenCount * kOutputColumnsPerBlock +            \
+            warp * kOutputColumnsPerWarp,                                      \
+        (ACCUMULATOR1), kOutputColumnsPerBlock, wmma::mem_row_major);           \
+    __syncthreads();                                                            \
+    for (unsigned int index = thread; index < kSharedOutputCount;               \
+         index += kThreads) {                                                   \
+      const unsigned int token =                                               \
+          index / kOutputColumnsPerBlock + (TOKEN_OFFSET);                      \
+      const unsigned int local_column = index % kOutputColumnsPerBlock;         \
+      tile_output[static_cast<std::size_t>(token) * kRows +                    \
+                  first_output_column + local_column] =                        \
+          encode_bf16_rne(shared_output[index] * weight_scale);                 \
+    }                                                                          \
+    __syncthreads();                                                            \
+  } while (false)
+
+  Q3X_FP8_QKV_CANONICAL_DRAIN(accumulator0, accumulator1, 0U);
+  Q3X_FP8_QKV_CANONICAL_DRAIN(accumulator2, accumulator3,
+                              2U * kPanelTokenCount);
+  Q3X_FP8_QKV_CANONICAL_DRAIN(accumulator4, accumulator5,
+                              4U * kPanelTokenCount);
+  Q3X_FP8_QKV_CANONICAL_DRAIN(accumulator6, accumulator7,
+                              6U * kPanelTokenCount);
+#undef Q3X_FP8_QKV_CANONICAL_DRAIN
 }
 
 // Test-only exact-C512 QKV candidate. One 512-thread CTA retains the
@@ -21462,6 +21747,162 @@ int query_sm87_fp8_w8a16_whole_chunk_qkv_m128_cp_async_register_feed_resources_t
   *maximum_threads_per_block = attributes.maxThreadsPerBlock;
   *active_blocks_per_sm = active_blocks;
   return static_cast<int>(cudaSuccess);
+}
+
+template <bool kXorSwizzle>
+int launch_fp8_qkv_canonical_register_feed_test(
+    const std::uint8_t* const canonical_weights,
+    const float weight_scale,
+    const std::uint16_t* const activations,
+    const std::size_t token_count, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  constexpr std::size_t kTokenCount = 512U;
+  constexpr std::size_t kRows = 10'240U;
+  constexpr std::size_t kColumns = 5'120U;
+  constexpr unsigned int kOutputColumnsPerBlock = 128U;
+  constexpr unsigned int kM128TileCount = 4U;
+  constexpr unsigned int kBlocks =
+      static_cast<unsigned int>(kRows / kOutputColumnsPerBlock) *
+      kM128TileCount;
+  constexpr unsigned int kCtaThreads = 256U;
+  constexpr int kDynamicSharedBytes = 79'872;
+  if (token_count != kTokenCount || rows != kRows || columns != kColumns) {
+    return invalid_value();
+  }
+  const int validation = validate_fp8_m64_tiles_launch(
+      canonical_weights, weight_scale, activations, token_count, rows,
+      columns, output);
+  if (validation != static_cast<int>(cudaSuccess)) {
+    return validation;
+  }
+  if (!pointer_is_aligned<alignof(uint4)>(canonical_weights) ||
+      !pointer_is_aligned<alignof(uint4)>(activations) ||
+      !pointer_is_aligned<alignof(std::uint16_t)>(output) ||
+      ranges_overlap(canonical_weights, kFp8QkvRegisterFeedSidecarBytes,
+                     activations, kFp8QkvRegisterFeedActivationBytes) ||
+      ranges_overlap(canonical_weights, kFp8QkvRegisterFeedSidecarBytes,
+                     output, kFp8QkvRegisterFeedOutputBytes) ||
+      ranges_overlap(activations, kFp8QkvRegisterFeedActivationBytes,
+                     output, kFp8QkvRegisterFeedOutputBytes)) {
+    return invalid_value();
+  }
+
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  const auto kernel =
+      fp8_w8a16_whole_chunk_qkv_m128_cp_async_canonical_register_feed_test_kernel<
+          kXorSwizzle>;
+  const cudaError_t attribute_status = cudaFuncSetAttribute(
+      kernel, cudaFuncAttributeMaxDynamicSharedMemorySize,
+      kDynamicSharedBytes);
+  if (attribute_status != cudaSuccess) {
+    return static_cast<int>(attribute_status);
+  }
+  kernel<<<kBlocks, kCtaThreads, kDynamicSharedBytes, stream>>>(
+      canonical_weights, weight_scale, activations, output);
+  return static_cast<int>(cudaGetLastError());
+}
+
+template <bool kXorSwizzle>
+int query_fp8_qkv_canonical_register_feed_resources_test(
+    const std::size_t token_count, const std::size_t rows,
+    const std::size_t columns, int* const registers_per_thread,
+    std::size_t* const static_shared_bytes,
+    std::size_t* const dynamic_shared_bytes,
+    std::size_t* const local_bytes,
+    int* const maximum_threads_per_block,
+    int* const active_blocks_per_sm) noexcept {
+  constexpr std::size_t kTokenCount = 512U;
+  constexpr std::size_t kRows = 10'240U;
+  constexpr std::size_t kColumns = 5'120U;
+  constexpr int kCtaThreads = 256;
+  constexpr std::size_t kDynamicSharedBytes = 79'872U;
+  if (token_count != kTokenCount || rows != kRows || columns != kColumns ||
+      registers_per_thread == nullptr || static_shared_bytes == nullptr ||
+      dynamic_shared_bytes == nullptr || local_bytes == nullptr ||
+      maximum_threads_per_block == nullptr ||
+      active_blocks_per_sm == nullptr) {
+    return invalid_value();
+  }
+
+  cudaFuncAttributes attributes{};
+  const auto kernel =
+      fp8_w8a16_whole_chunk_qkv_m128_cp_async_canonical_register_feed_test_kernel<
+          kXorSwizzle>;
+  cudaError_t status = cudaFuncSetAttribute(
+      kernel, cudaFuncAttributeMaxDynamicSharedMemorySize,
+      static_cast<int>(kDynamicSharedBytes));
+  if (status == cudaSuccess) {
+    status = cudaFuncGetAttributes(&attributes, kernel);
+  }
+  int active_blocks = 0;
+  if (status == cudaSuccess) {
+    status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+        &active_blocks, kernel, kCtaThreads, kDynamicSharedBytes);
+  }
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  *registers_per_thread = attributes.numRegs;
+  *static_shared_bytes = attributes.sharedSizeBytes;
+  *dynamic_shared_bytes = kDynamicSharedBytes;
+  *local_bytes = attributes.localSizeBytes;
+  *maximum_threads_per_block = attributes.maxThreadsPerBlock;
+  *active_blocks_per_sm = active_blocks;
+  return static_cast<int>(cudaSuccess);
+}
+
+int launch_sm87_fp8_w8a16_whole_chunk_qkv_m128_cp_async_canonical_register_feed_p0_test_cuda(
+    const std::uint8_t* const canonical_weights,
+    const float weight_scale,
+    const std::uint16_t* const activations,
+    const std::size_t token_count, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  return launch_fp8_qkv_canonical_register_feed_test<false>(
+      canonical_weights, weight_scale, activations, token_count, rows,
+      columns, output, cuda_stream);
+}
+
+int launch_sm87_fp8_w8a16_whole_chunk_qkv_m128_cp_async_canonical_register_feed_p1_test_cuda(
+    const std::uint8_t* const canonical_weights,
+    const float weight_scale,
+    const std::uint16_t* const activations,
+    const std::size_t token_count, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  return launch_fp8_qkv_canonical_register_feed_test<true>(
+      canonical_weights, weight_scale, activations, token_count, rows,
+      columns, output, cuda_stream);
+}
+
+int query_sm87_fp8_w8a16_whole_chunk_qkv_m128_cp_async_canonical_register_feed_p0_resources_test_cuda(
+    const std::size_t token_count, const std::size_t rows,
+    const std::size_t columns, int* const registers_per_thread,
+    std::size_t* const static_shared_bytes,
+    std::size_t* const dynamic_shared_bytes,
+    std::size_t* const local_bytes,
+    int* const maximum_threads_per_block,
+    int* const active_blocks_per_sm) noexcept {
+  return query_fp8_qkv_canonical_register_feed_resources_test<false>(
+      token_count, rows, columns, registers_per_thread, static_shared_bytes,
+      dynamic_shared_bytes, local_bytes, maximum_threads_per_block,
+      active_blocks_per_sm);
+}
+
+int query_sm87_fp8_w8a16_whole_chunk_qkv_m128_cp_async_canonical_register_feed_p1_resources_test_cuda(
+    const std::size_t token_count, const std::size_t rows,
+    const std::size_t columns, int* const registers_per_thread,
+    std::size_t* const static_shared_bytes,
+    std::size_t* const dynamic_shared_bytes,
+    std::size_t* const local_bytes,
+    int* const maximum_threads_per_block,
+    int* const active_blocks_per_sm) noexcept {
+  return query_fp8_qkv_canonical_register_feed_resources_test<true>(
+      token_count, rows, columns, registers_per_thread, static_shared_bytes,
+      dynamic_shared_bytes, local_bytes, maximum_threads_per_block,
+      active_blocks_per_sm);
 }
 
 // Test-only frozen control for the exact production M64 dispatch that

@@ -36,6 +36,34 @@ query_sm87_fp8_w8a16_whole_chunk_qkv_m128_cp_async_register_feed_resources_test_
     std::size_t* dynamic_shared_bytes, std::size_t* local_bytes,
     int* maximum_threads_per_block, int* active_blocks_per_sm) noexcept;
 
+[[nodiscard]] int
+launch_sm87_fp8_w8a16_whole_chunk_qkv_m128_cp_async_canonical_register_feed_p0_test_cuda(
+    const std::uint8_t* weights, float weight_scale,
+    const std::uint16_t* activations, std::size_t token_count,
+    std::size_t rows, std::size_t columns, std::uint16_t* output,
+    void* cuda_stream) noexcept;
+
+[[nodiscard]] int
+launch_sm87_fp8_w8a16_whole_chunk_qkv_m128_cp_async_canonical_register_feed_p1_test_cuda(
+    const std::uint8_t* weights, float weight_scale,
+    const std::uint16_t* activations, std::size_t token_count,
+    std::size_t rows, std::size_t columns, std::uint16_t* output,
+    void* cuda_stream) noexcept;
+
+[[nodiscard]] int
+query_sm87_fp8_w8a16_whole_chunk_qkv_m128_cp_async_canonical_register_feed_p0_resources_test_cuda(
+    std::size_t token_count, std::size_t rows, std::size_t columns,
+    int* registers_per_thread, std::size_t* static_shared_bytes,
+    std::size_t* dynamic_shared_bytes, std::size_t* local_bytes,
+    int* maximum_threads_per_block, int* active_blocks_per_sm) noexcept;
+
+[[nodiscard]] int
+query_sm87_fp8_w8a16_whole_chunk_qkv_m128_cp_async_canonical_register_feed_p1_resources_test_cuda(
+    std::size_t token_count, std::size_t rows, std::size_t columns,
+    int* registers_per_thread, std::size_t* static_shared_bytes,
+    std::size_t* dynamic_shared_bytes, std::size_t* local_bytes,
+    int* maximum_threads_per_block, int* active_blocks_per_sm) noexcept;
+
 }  // namespace q3x::kernels
 
 namespace {
@@ -670,47 +698,105 @@ struct Fixture {
 enum class Variant {
   kBaseline,
   kCandidate,
+  kCanonicalP0,
+  kCanonicalP1,
 };
 
 [[nodiscard]] const char* variant_name(const Variant variant) noexcept {
-  return variant == Variant::kBaseline ? "baseline" : "candidate";
+  switch (variant) {
+    case Variant::kBaseline:
+      return "baseline";
+    case Variant::kCandidate:
+      return "candidate";
+    case Variant::kCanonicalP0:
+      return "canonical_p0";
+    case Variant::kCanonicalP1:
+      return "canonical_p1_xor";
+  }
+  return "unknown";
+}
+
+[[nodiscard]] constexpr bool variant_is_test_only(
+    const Variant variant) noexcept {
+  return variant == Variant::kCanonicalP0 ||
+         variant == Variant::kCanonicalP1;
 }
 
 [[nodiscard]] cudaError_t launch_variant(Fixture& fixture,
                                          const cudaStream_t stream,
                                          const Variant variant) noexcept {
-  const int status =
-      variant == Variant::kBaseline
-          ? q3x::kernels::launch_sm87_fp8_w8a16_whole_chunk_gemm_bf16_cuda(
-                fixture.weights.get(), kWeightScale, fixture.activations.get(),
-                kTokens, kRows, kColumns, fixture.output(),
-                static_cast<void*>(stream))
-          : q3x::kernels::
-                launch_sm87_fp8_w8a16_whole_chunk_qkv_register_feed_gemm_bf16_cuda(
-                    fixture.sidecar.get(), kWeightScale,
-                    fixture.activations.get(), kTokens, kRows, kColumns,
-                    fixture.output(), static_cast<void*>(stream));
+  int status = static_cast<int>(cudaErrorInvalidValue);
+  switch (variant) {
+    case Variant::kBaseline:
+      status = q3x::kernels::
+          launch_sm87_fp8_w8a16_whole_chunk_gemm_bf16_cuda(
+              fixture.weights.get(), kWeightScale, fixture.activations.get(),
+              kTokens, kRows, kColumns, fixture.output(),
+              static_cast<void*>(stream));
+      break;
+    case Variant::kCandidate:
+      status = q3x::kernels::
+          launch_sm87_fp8_w8a16_whole_chunk_qkv_register_feed_gemm_bf16_cuda(
+              fixture.sidecar.get(), kWeightScale,
+              fixture.activations.get(), kTokens, kRows, kColumns,
+              fixture.output(), static_cast<void*>(stream));
+      break;
+    case Variant::kCanonicalP0:
+      status = q3x::kernels::
+          launch_sm87_fp8_w8a16_whole_chunk_qkv_m128_cp_async_canonical_register_feed_p0_test_cuda(
+              fixture.weights.get(), kWeightScale,
+              fixture.activations.get(), kTokens, kRows, kColumns,
+              fixture.output(), static_cast<void*>(stream));
+      break;
+    case Variant::kCanonicalP1:
+      status = q3x::kernels::
+          launch_sm87_fp8_w8a16_whole_chunk_qkv_m128_cp_async_canonical_register_feed_p1_test_cuda(
+              fixture.weights.get(), kWeightScale,
+              fixture.activations.get(), kTokens, kRows, kColumns,
+              fixture.output(), static_cast<void*>(stream));
+      break;
+  }
   return static_cast<cudaError_t>(status);
 }
 
-[[nodiscard]] bool run_resource_gate(TestContext& test) {
+[[nodiscard]] bool run_resource_gate(TestContext& test,
+                                     const Variant variant,
+                                     const bool assert_gate = true) {
   int registers = -1;
   std::size_t static_shared = std::numeric_limits<std::size_t>::max();
   std::size_t dynamic_shared = std::numeric_limits<std::size_t>::max();
   std::size_t local = std::numeric_limits<std::size_t>::max();
   int threads = -1;
   int active = -1;
-  const int status = q3x::kernels::
-      query_sm87_fp8_w8a16_whole_chunk_qkv_m128_cp_async_register_feed_resources_test_cuda(
-          kTokens, kRows, kColumns, &registers, &static_shared,
-          &dynamic_shared, &local, &threads, &active);
+  int status = static_cast<int>(cudaErrorInvalidValue);
+  if (variant == Variant::kCandidate) {
+    status = q3x::kernels::
+        query_sm87_fp8_w8a16_whole_chunk_qkv_m128_cp_async_register_feed_resources_test_cuda(
+            kTokens, kRows, kColumns, &registers, &static_shared,
+            &dynamic_shared, &local, &threads, &active);
+  } else if (variant == Variant::kCanonicalP0) {
+    status = q3x::kernels::
+        query_sm87_fp8_w8a16_whole_chunk_qkv_m128_cp_async_canonical_register_feed_p0_resources_test_cuda(
+            kTokens, kRows, kColumns, &registers, &static_shared,
+            &dynamic_shared, &local, &threads, &active);
+  } else if (variant == Variant::kCanonicalP1) {
+    status = q3x::kernels::
+        query_sm87_fp8_w8a16_whole_chunk_qkv_m128_cp_async_canonical_register_feed_p1_resources_test_cuda(
+            kTokens, kRows, kColumns, &registers, &static_shared,
+            &dynamic_shared, &local, &threads, &active);
+  }
   const bool gate =
       status == static_cast<int>(cudaSuccess) && registers > 0 &&
       registers <= 128 && static_shared == 512U &&
       dynamic_shared == 79'872U &&
       static_shared + dynamic_shared == 80'384U && local == 0U &&
       threads == 256 && active == 2;
-  std::cout << "FP8_REGISTER_FEED_RESOURCES: status=" << status
+  std::cout << "FP8_REGISTER_FEED_RESOURCES:";
+  if (variant_is_test_only(variant)) {
+    std::cout << " variant=" << variant_name(variant)
+              << " test_only=true";
+  }
+  std::cout << " status=" << status
             << " registers=" << registers
             << " static_shared_bytes=" << static_shared
             << " dynamic_shared_bytes=" << dynamic_shared
@@ -719,13 +805,19 @@ enum class Variant {
             << " active_blocks_per_sm=" << active
             << " resident_warps_per_sm=" << active * threads / 32
             << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
-  test.expect(gate,
-              "register-feed candidate clears the strict two-CTA resource gate");
+  if (assert_gate) {
+    test.expect(
+        gate,
+        std::string(variant_name(variant)) +
+            " clears the strict two-CTA resource gate");
+  }
   return gate;
 }
 
 [[nodiscard]] bool run_invalid_graph_gate(TestContext& test,
-                                          const cudaStream_t stream) {
+                                          const cudaStream_t stream,
+                                          const Variant variant,
+                                          const bool assert_gate = true) {
   constexpr std::uintptr_t kWeightAddress = 0x1'0000'0000ULL;
   constexpr std::uintptr_t kActivationAddress = 0x2'0000'0000ULL;
   constexpr std::uintptr_t kOutputAddress = 0x3'0000'0000ULL;
@@ -737,12 +829,24 @@ enum class Variant {
       reinterpret_cast<const std::uint16_t*>(kActivationAddress);
   auto* const output = reinterpret_cast<std::uint16_t*>(kOutputAddress);
   const auto launch =
-      [&](const std::uint8_t* const w, const float scale,
+      [variant, stream](const std::uint8_t* const w, const float scale,
           const std::uint16_t* const a, const std::size_t tokens,
           const std::size_t rows, const std::size_t columns,
           std::uint16_t* const o) noexcept {
+        if (variant == Variant::kCandidate) {
+          return q3x::kernels::
+              launch_sm87_fp8_w8a16_whole_chunk_qkv_register_feed_gemm_bf16_cuda(
+                  w, scale, a, tokens, rows, columns, o,
+                  static_cast<void*>(stream));
+        }
+        if (variant == Variant::kCanonicalP0) {
+          return q3x::kernels::
+              launch_sm87_fp8_w8a16_whole_chunk_qkv_m128_cp_async_canonical_register_feed_p0_test_cuda(
+                  w, scale, a, tokens, rows, columns, o,
+                  static_cast<void*>(stream));
+        }
         return q3x::kernels::
-            launch_sm87_fp8_w8a16_whole_chunk_qkv_register_feed_gemm_bf16_cuda(
+            launch_sm87_fp8_w8a16_whole_chunk_qkv_m128_cp_async_canonical_register_feed_p1_test_cuda(
                 w, scale, a, tokens, rows, columns, o,
                 static_cast<void*>(stream));
       };
@@ -751,7 +855,12 @@ enum class Variant {
   bool ready = test.cuda_ok(
       cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
       "invalid begin capture");
-  std::array<int, 20U> statuses{};
+  constexpr std::size_t kProductionInvalidCount = 20U;
+  constexpr std::size_t kCanonicalInvalidCount = 23U;
+  const std::size_t expected_invalid_count =
+      variant_is_test_only(variant) ? kCanonicalInvalidCount
+                                    : kProductionInvalidCount;
+  std::array<int, kCanonicalInvalidCount> statuses{};
   statuses.fill(static_cast<int>(cudaErrorUnknown));
   if (ready) {
     statuses[0] = launch(nullptr, kWeightScale, activations, kTokens, kRows,
@@ -805,6 +914,18 @@ enum class Variant {
     statuses[19] = launch(
         weights, std::numeric_limits<float>::infinity(), activations,
         kTokens, kRows, kColumns, output);
+    if (variant_is_test_only(variant)) {
+      statuses[20] = launch(weights + 8U, kWeightScale, activations,
+                            kTokens, kRows, kColumns, output);
+      statuses[21] = launch(
+          weights, kWeightScale,
+          reinterpret_cast<const std::uint16_t*>(kActivationAddress + 8U),
+          kTokens, kRows, kColumns, output);
+      statuses[22] = launch(
+          weights, kWeightScale,
+          reinterpret_cast<const std::uint16_t*>(kWeightAddress), kTokens,
+          kRows, kColumns, output);
+    }
     ready = test.cuda_ok(cudaStreamEndCapture(stream, &graph),
                          "invalid end capture") &&
             ready;
@@ -820,14 +941,23 @@ enum class Variant {
             ready;
   }
   const std::size_t invalid_count = static_cast<std::size_t>(std::count(
-      statuses.begin(), statuses.end(),
+      statuses.begin(), statuses.begin() + expected_invalid_count,
       static_cast<int>(cudaErrorInvalidValue)));
-  const bool gate = ready && invalid_count == statuses.size() && nodes == 0U;
-  std::cout << "FP8_REGISTER_FEED_INVALID_GRAPH: invalid_statuses="
-            << invalid_count << '/' << statuses.size()
+  const bool gate = ready && invalid_count == expected_invalid_count &&
+                    nodes == 0U;
+  std::cout << "FP8_REGISTER_FEED_INVALID_GRAPH:";
+  if (variant_is_test_only(variant)) {
+    std::cout << " variant=" << variant_name(variant)
+              << " test_only=true";
+  }
+  std::cout << " invalid_statuses="
+            << invalid_count << '/' << expected_invalid_count
             << " graph_nodes=" << nodes
             << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
-  test.expect(gate, "all invalid candidate calls enqueue zero nodes");
+  if (assert_gate) {
+    test.expect(gate, std::string("all invalid ") + variant_name(variant) +
+                          " calls enqueue zero nodes");
+  }
   return gate;
 }
 
@@ -1009,6 +1139,35 @@ struct GraphIdentity {
   return identity.valid;
 }
 
+[[nodiscard]] bool run_canonical_function_identity_gate(
+    TestContext& test, Fixture& fixture, const cudaStream_t stream) {
+  CapturedGraph p0_graph;
+  CapturedGraph p1_graph;
+  GraphIdentity p0_identity;
+  GraphIdentity p1_identity;
+  bool ready = capture_variant(test, fixture, stream, Variant::kCanonicalP0,
+                               p0_graph, p0_identity);
+  ready = capture_variant(test, fixture, stream, Variant::kCanonicalP1,
+                          p1_graph, p1_identity) &&
+          ready;
+  const bool gate = ready && p0_identity.valid && p1_identity.valid &&
+                    p0_identity.parameters.func !=
+                        p1_identity.parameters.func;
+  std::cout << "FP8_REGISTER_FEED_CANONICAL_FUNCTION_IDENTITY: "
+               "p0_nodes="
+            << p0_identity.node_count << " p1_nodes="
+            << p1_identity.node_count
+            << " functions_distinct="
+            << (p0_identity.parameters.func != p1_identity.parameters.func
+                    ? "true"
+                    : "false")
+            << " test_only=true gate=" << (gate ? "PASS" : "FAIL")
+            << '\n';
+  test.expect(gate,
+              "canonical P0 and P1 capture distinct template kernels");
+  return gate;
+}
+
 [[nodiscard]] bool verify_immutable(TestContext& test,
                                     const Fixture& fixture,
                                     const cudaStream_t stream) {
@@ -1041,7 +1200,9 @@ struct GraphIdentity {
 }
 
 [[nodiscard]] bool run_correctness(TestContext& test, Fixture& fixture,
-                                   const cudaStream_t stream) {
+                                   const cudaStream_t stream,
+                                   const Variant candidate_variant,
+                                   const bool assert_gate = true) {
   std::vector<std::uint16_t> baseline;
   std::vector<std::uint16_t> candidate;
   std::vector<std::uint16_t> replay1;
@@ -1054,14 +1215,16 @@ struct GraphIdentity {
                                 "baseline synchronize");
   ready = ready && copy_output(test, fixture, stream, baseline, "baseline");
 
-  ready = ready && poison_output(test, fixture, stream, 0xa5, "candidate");
+  const std::string candidate_label = variant_name(candidate_variant);
+  ready = ready && poison_output(test, fixture, stream, 0xa5,
+                                 candidate_label);
   ready = ready && test.cuda_ok(
-                       launch_variant(fixture, stream, Variant::kCandidate),
-                       "candidate direct launch");
+                       launch_variant(fixture, stream, candidate_variant),
+                       candidate_label + " direct launch");
   ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
-                                "candidate synchronize");
+                                candidate_label + " synchronize");
   ready = ready && copy_output(test, fixture, stream, candidate,
-                               "candidate");
+                               candidate_label);
 
   CapturedGraph baseline_graph;
   CapturedGraph candidate_graph;
@@ -1070,12 +1233,16 @@ struct GraphIdentity {
   ready = ready && capture_variant(test, fixture, stream, Variant::kBaseline,
                                    baseline_graph, baseline_identity);
   ready = ready && capture_variant(test, fixture, stream,
-                                   Variant::kCandidate, candidate_graph,
+                                   candidate_variant, candidate_graph,
                                    candidate_identity);
   const bool graph_identity =
       ready && baseline_identity.valid && candidate_identity.valid &&
       baseline_identity.parameters.func != candidate_identity.parameters.func;
-  std::cout << "FP8_REGISTER_FEED_VALID_GRAPH: baseline_nodes="
+  std::cout << "FP8_REGISTER_FEED_VALID_GRAPH:";
+  if (variant_is_test_only(candidate_variant)) {
+    std::cout << " variant=" << candidate_label << " test_only=true";
+  }
+  std::cout << " baseline_nodes="
             << baseline_identity.node_count
             << " candidate_nodes=" << candidate_identity.node_count
             << " baseline_grid_x=" << baseline_identity.parameters.gridDim.x
@@ -1184,7 +1351,11 @@ struct GraphIdentity {
       candidate_mismatches == 0U && replay1_mismatches == 0U &&
       replay2_mismatches == 0U && nan_class_or_sign_mismatches == 0U &&
       guards && immutable;
-  std::cout << "FP8_REGISTER_FEED_CORRECTNESS: candidate_mismatches="
+  std::cout << "FP8_REGISTER_FEED_CORRECTNESS:";
+  if (variant_is_test_only(candidate_variant)) {
+    std::cout << " variant=" << candidate_label << " test_only=true";
+  }
+  std::cout << " candidate_mismatches="
             << candidate_mismatches << '/' << kOutputElements
             << " replay1_mismatches=" << replay1_mismatches << '/'
             << kOutputElements
@@ -1205,7 +1376,10 @@ struct GraphIdentity {
             << " guards=" << (guards ? "intact" : "BAD")
             << " immutable=" << (immutable ? "true" : "false")
             << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
-  test.expect(gate, "candidate is exact across direct and Graph replay");
+  if (assert_gate) {
+    test.expect(gate, candidate_label +
+                          " is exact across direct and Graph replay");
+  }
   return gate;
 }
 
@@ -1282,7 +1456,9 @@ struct GraphIdentity {
 }
 
 [[nodiscard]] bool run_screen(TestContext& test, Fixture& fixture,
-                              const Execution& execution) {
+                              const Execution& execution,
+                              const Variant candidate_variant,
+                              const bool assert_gate = true) {
   double baseline_sum = 0.0;
   double candidate_sum = 0.0;
   bool every_round = true;
@@ -1292,9 +1468,9 @@ struct GraphIdentity {
     const float b1 = measure_pass(test, fixture, execution,
                                   Variant::kBaseline, prefix + "B1");
     const float c1 = measure_pass(test, fixture, execution,
-                                  Variant::kCandidate, prefix + "C1");
+                                  candidate_variant, prefix + "C1");
     const float c2 = measure_pass(test, fixture, execution,
-                                  Variant::kCandidate, prefix + "C2");
+                                  candidate_variant, prefix + "C2");
     const float b2 = measure_pass(test, fixture, execution,
                                   Variant::kBaseline, prefix + "B2");
     const bool finite = std::isfinite(b1) && std::isfinite(c1) &&
@@ -1310,7 +1486,12 @@ struct GraphIdentity {
       baseline_sum += static_cast<double>(b1 + b2);
       candidate_sum += static_cast<double>(c1 + c2);
     }
-    std::cout << "PERF_FP8_REGISTER_FEED_ROUND: round=" << round + 1
+    std::cout << "PERF_FP8_REGISTER_FEED_ROUND:";
+    if (variant_is_test_only(candidate_variant)) {
+      std::cout << " variant=" << variant_name(candidate_variant)
+                << " test_only=true";
+    }
+    std::cout << " round=" << round + 1
               << " order=B-C-C-B B1_ms=" << b1 << " C1_ms=" << c1
               << " C2_ms=" << c2 << " B2_ms=" << b2
               << " speedup=" << speedup
@@ -1332,7 +1513,12 @@ struct GraphIdentity {
                  : std::numeric_limits<double>::quiet_NaN();
   const bool gate = every_round && std::isfinite(speedup) &&
                     speedup >= kRequiredAggregateSpeedup;
-  std::cout << "PERF_FP8_REGISTER_FEED_AGGREGATE: baseline_ms=" << baseline_ms
+  std::cout << "PERF_FP8_REGISTER_FEED_AGGREGATE:";
+  if (variant_is_test_only(candidate_variant)) {
+    std::cout << " variant=" << variant_name(candidate_variant)
+              << " test_only=true";
+  }
+  std::cout << " baseline_ms=" << baseline_ms
             << " candidate_ms=" << candidate_ms
             << " speedup=" << speedup
             << " required_aggregate_speedup="
@@ -1346,19 +1532,27 @@ struct GraphIdentity {
             << " order=B-C-C-B"
             << " logical_tensor_bytes_and_hmma_unchanged=true"
             << " measured_global_requests_may_change=true"
-            << " fragment_native_sidecar_equal_bytes=true"
+            << " fragment_native_sidecar_equal_bytes="
+            << (candidate_variant == Variant::kCandidate ? "true" : "false")
+            << " canonical_weight_no_sidecar="
+            << (candidate_variant == Variant::kCandidate ? "false" : "true")
             << " triple_cp_async_pipeline=true"
             << " decoded_B_shared_round_trip_removed=true"
             << " register_fragment_feed=true"
             << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
-  test.expect(gate,
-              "register-feed clears frozen C512 QKV performance gate");
+  if (assert_gate) {
+    test.expect(gate,
+                std::string(variant_name(candidate_variant)) +
+                    " clears frozen C512 QKV performance gate");
+  }
   return gate;
 }
 
 enum class Mode {
   kValidate,
+  kValidateCanonical,
   kScreen,
+  kScreenCanonical,
   kMeasureBaseline,
   kMeasureCandidate,
   kProfileBaseline,
@@ -1377,8 +1571,12 @@ struct Options {
     const std::string argument(argv[index]);
     if (argument == "--mode=validate") {
       options.mode = Mode::kValidate;
+    } else if (argument == "--mode=validate-canonical") {
+      options.mode = Mode::kValidateCanonical;
     } else if (argument == "--mode=screen") {
       options.mode = Mode::kScreen;
+    } else if (argument == "--mode=screen-canonical") {
+      options.mode = Mode::kScreenCanonical;
     } else if (argument == "--mode=measure-baseline") {
       options.mode = Mode::kMeasureBaseline;
     } else if (argument == "--mode=measure-candidate") {
@@ -1411,8 +1609,12 @@ struct Options {
   switch (mode) {
     case Mode::kValidate:
       return "validate";
+    case Mode::kValidateCanonical:
+      return "validate_canonical";
     case Mode::kScreen:
       return "screen";
+    case Mode::kScreenCanonical:
+      return "screen_canonical";
     case Mode::kMeasureBaseline:
       return "measure_baseline";
     case Mode::kMeasureCandidate:
@@ -1484,9 +1686,28 @@ int main(const int argc, char** argv) {
   if (!execution.create(test)) {
     return 1;
   }
-  bool ready = run_resource_gate(test);
-  ready = run_invalid_graph_gate(test, execution.stream()) && ready;
+  bool ready = run_resource_gate(test, Variant::kCandidate);
+  ready = run_invalid_graph_gate(test, execution.stream(),
+                                 Variant::kCandidate) &&
+          ready;
   ready = run_pack_invalid_graph_gate(test, execution.stream()) && ready;
+  const bool canonical_mode = options.mode == Mode::kValidateCanonical ||
+                              options.mode == Mode::kScreenCanonical;
+  if (canonical_mode) {
+    std::cout << "FP8_REGISTER_FEED_CANONICAL_TEST_SCOPE: variants="
+                 "canonical_p0,canonical_p1_xor test_only=true "
+                 "p1_delta=xor_only_u16_gather "
+                 "production_dispatch_unchanged=true\n";
+    const bool p0_resource =
+        run_resource_gate(test, Variant::kCanonicalP0);
+    const bool p1_resource =
+        run_resource_gate(test, Variant::kCanonicalP1);
+    const bool p0_invalid = run_invalid_graph_gate(
+        test, execution.stream(), Variant::kCanonicalP0);
+    const bool p1_invalid = run_invalid_graph_gate(
+        test, execution.stream(), Variant::kCanonicalP1);
+    ready = p0_resource && p1_resource && p0_invalid && p1_invalid && ready;
+  }
   if (!ready) {
     return 1;
   }
@@ -1494,14 +1715,47 @@ int main(const int argc, char** argv) {
   if (!fixture.initialize(test, execution.stream(), selected_checkpoint)) {
     return 1;
   }
-  const bool correct = run_correctness(test, fixture, execution.stream());
-  if (correct) {
+  const bool correct = run_correctness(test, fixture, execution.stream(),
+                                       Variant::kCandidate);
+  bool canonical_functions_distinct = true;
+  bool p0_correct = true;
+  bool p1_correct = true;
+  if (canonical_mode) {
+    canonical_functions_distinct = run_canonical_function_identity_gate(
+        test, fixture, execution.stream());
+    p0_correct = run_correctness(test, fixture, execution.stream(),
+                                 Variant::kCanonicalP0);
+    p1_correct = run_correctness(test, fixture, execution.stream(),
+                                 Variant::kCanonicalP1);
+  }
+  if (correct && canonical_functions_distinct && p0_correct && p1_correct) {
     switch (options.mode) {
       case Mode::kValidate:
+      case Mode::kValidateCanonical:
         break;
       case Mode::kScreen:
-        (void)run_screen(test, fixture, execution);
+        (void)run_screen(test, fixture, execution, Variant::kCandidate);
         break;
+      case Mode::kScreenCanonical: {
+        const bool p0_gate = run_screen(test, fixture, execution,
+                                        Variant::kCanonicalP0, false);
+        std::cout
+            << "PERF_FP8_REGISTER_FEED_DISPOSITION: variant="
+            << variant_name(Variant::kCanonicalP0)
+            << " test_only=true promotion=REJECTED "
+               "performance_gate_asserted=false observed_gate="
+            << (p0_gate ? "PASS" : "FAIL") << '\n';
+        const bool p1_gate = run_screen(test, fixture, execution,
+                                        Variant::kCanonicalP1);
+        std::cout
+            << "PERF_FP8_REGISTER_FEED_DISPOSITION: variant="
+            << variant_name(Variant::kCanonicalP1)
+            << " test_only=true promotion="
+            << (p1_gate ? "BASELINE_GATE_ADMITTED" : "REJECTED")
+            << " performance_gate_asserted=true observed_gate="
+            << (p1_gate ? "PASS" : "FAIL") << '\n';
+        break;
+      }
       case Mode::kMeasureBaseline:
         (void)measure_pass(test, fixture, execution, Variant::kBaseline,
                            "standalone_baseline");
