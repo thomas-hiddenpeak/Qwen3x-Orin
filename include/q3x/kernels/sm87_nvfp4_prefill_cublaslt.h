@@ -61,8 +61,11 @@ void destroy_sm87_nvfp4_prefill_cublaslt_context(
 // it never owns the caller-provided transient BF16 scratch.
 struct Sm87Nvfp4PrefillDownCublasLtContext;
 
-// Creates one Down context for the current SM87 CUDA device. `context` must be
-// non-null and is cleared before any fallible work.
+// Creates one Down context for the current SM87 CUDA device. The factory
+// runtime-times every successful zero-workspace heuristic against exact-shape
+// temporary BF16 operands, then releases those operands and retains only the
+// fastest algorithm. `context` must be non-null and is cleared before any
+// fallible work.
 [[nodiscard]] int create_sm87_nvfp4_prefill_down_cublaslt_context(
     Sm87Nvfp4PrefillDownCublasLtContext** context) noexcept;
 
