@@ -1381,6 +1381,18 @@ The diagnostic Phase 3 records are:
   grid X from 1,088 to 544, and reduces its interval union from 1,065.953440
   to 827.889280 ms (**1.287555553x**). The gain is M128 B reuse, not new
   buffering or overlap; the existing two-stream fork/join remains unchanged.
+- [`qwen36-27b-prefill-nvfp4-gate-c512-inclusive-cublaslt-admission.json`](qwen36-27b-prefill-nvfp4-gate-c512-inclusive-cublaslt-admission.json),
+  which admits a test-only exact-C512 hybrid large-M route for the next
+  production-integration gate. Direct canonical NVFP4-to-BF16 decode takes
+  **1.236907 ms**, persistent-weight cuBLASLt takes **2.323137 ms**, and the
+  inclusive **3.561288 ms** median is **1.842441x** faster than the fresh
+  **6.561464 ms** production M128 Gate reference. All 89,128,960 decoded BF16
+  values match the scalar oracle bitwise, non-unit weight scaling and the
+  exact two-node Graph replay pass, and an independent process replicates
+  **1.840714x**. Production remains unchanged: Gate+Up pair contention,
+  production-M128 numerical comparison, Down reuse, memory admission, and
+  pinned-checkpoint Prefix gates are still required. The native fused large-M
+  kernel remains the parallel upper-bound route.
 - [`qwen36-27b-prefill-gdn-b8-block-transition-screen.json`](qwen36-27b-prefill-gdn-b8-block-transition-screen.json),
   which selects the test-only sequential FP32-B8 GDN dataflow and rejects the
   measured WY control. C256 reaches **2.76977x** versus production M16 while
