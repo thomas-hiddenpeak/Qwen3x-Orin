@@ -1393,6 +1393,17 @@ The diagnostic Phase 3 records are:
   production-M128 numerical comparison, Down reuse, memory admission, and
   pinned-checkpoint Prefix gates are still required. The native fused large-M
   kernel remains the parallel upper-bound route.
+- [`qwen36-27b-prefill-nvfp4-gate-c512-native-m64n256-development-baseline.json`](qwen36-27b-prefill-nvfp4-gate-c512-native-m64n256-development-baseline.json),
+  which freezes the self-developed exact-C512 M64xN256xK64 test-only baseline.
+  K256 scale reuse, paired packed-weight copies, and aligned 32-bit BF16 stores
+  move Gate from **6.471293 ms** to **5.532324 ms** (**1.169724x**) with 128
+  registers, zero local memory, and two CTAs/SM. All 17,825,792 outputs and
+  Graph replays are bitwise exact and 21/21 invalid cases fail closed. The
+  native route remains outside production because it misses the existing
+  1.22x gate; final NCU evidence rejects further scale-window, triple-pipeline,
+  and shared-broadcast micro-tuning as incapable of credibly supplying the
+  remaining 4.3%. Future native work requires a structural tile, decode, or
+  data-layout change.
 - [`qwen36-27b-prefill-gdn-b8-block-transition-screen.json`](qwen36-27b-prefill-gdn-b8-block-transition-screen.json),
   which selects the test-only sequential FP32-B8 GDN dataflow and rejects the
   measured WY control. C256 reaches **2.76977x** versus production M16 while

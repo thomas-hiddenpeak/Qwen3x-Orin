@@ -1,0 +1,164 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-nvfp4-gate-c512-native-m64n256-development-baseline",
+  "status": "test-only-retained-development-baseline",
+  "recorded_at": "2026-07-28T19:03:19+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "commit": "42b8b611d339e1e5c5238fc5351c4ccd56b7d21e",
+    "tree": "d09fd93c3f9be31e3031289dda1587e743797b27",
+    "parent_commit": "877cf691ad27b072c4936cb79fdc3ac800644a9d",
+    "subject": "test: retain C512 native NVFP4 large-M baseline",
+    "kernel_source": "src/kernels/sm87/weight_only_gemv.cu",
+    "screen": "tests/sm87_nvfp4_prefill_gate_register_fed_screen.cu",
+    "production_dispatch_changed": false,
+    "public_header_changed": false
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "nvpmodel": "MAXN",
+    "fixed_frequency_readback": {
+      "gpu_hz": 1300500000,
+      "emc_hz": 3200000000
+    },
+    "claim_scope": "one fixed-clock Jetson AGX Orin; synthetic exact-C512 Gate shape; test-only kernel"
+  },
+  "shape_and_topology": {
+    "tokens_M": 512,
+    "rows_N": 17408,
+    "columns_K": 5120,
+    "cta_tile": "M64xN256xK64",
+    "threads_per_cta": 256,
+    "warps_per_cta": 8,
+    "warp_tile": "M64xN32",
+    "mma": "sixteen inline mma.sync.aligned.m16n8k16 BF16 accumulator fragments per warp",
+    "pipeline": "two-slot canonical raw-A/raw-B cp.async",
+    "scale_reuse": "one K256 16-byte scale window per output row, retained for four K64 stages",
+    "packed_weight_copy": "paired adjacent lanes fill both 16-byte halves of one canonical 32-byte packed row",
+    "epilogue": "32 aligned 32-bit stores per thread instead of 64 16-bit stores",
+    "sidecar_required": false,
+    "mtp_used": false,
+    "decode_route_changed": false
+  },
+  "resource_contract": {
+    "registers_per_thread": 128,
+    "static_shared_bytes": 512,
+    "dynamic_shared_bytes": 43008,
+    "local_bytes": 0,
+    "threads_per_cta": 256,
+    "active_ctas_per_sm": 2,
+    "gate": "pass"
+  },
+  "cell_history": [
+    {
+      "cell": "initial canonical raw-B plus A cp.async double buffer",
+      "production_milliseconds": 6.470405,
+      "candidate_milliseconds": 6.197555,
+      "speedup_vs_production": 1.044026,
+      "decision": "retain as topology sentinel"
+    },
+    {
+      "cell": "K256 scale window",
+      "production_milliseconds": 6.468194,
+      "candidate_milliseconds": 5.906284,
+      "speedup_vs_previous": 1.049311,
+      "speedup_vs_production": 1.095138,
+      "l1_lts_request_bytes": 1203240960,
+      "request_bytes_saved_vs_initial": 267386880,
+      "decision": "retain"
+    },
+    {
+      "cell": "paired-lane canonical packed-B cp.async",
+      "production_milliseconds": 6.468665,
+      "candidate_milliseconds": 5.747846,
+      "speedup_vs_previous": 1.027565,
+      "speedup_vs_production": 1.125407,
+      "l1_lts_request_bytes": 1024983040,
+      "request_bytes_saved_vs_previous": 178257920,
+      "decision": "retain because every round is positive and the cumulative native route clears 1.12x"
+    },
+    {
+      "cell": "packed 32-bit BF16 epilogue",
+      "production_milliseconds": 6.469949,
+      "candidate_milliseconds": 5.532056,
+      "speedup_vs_previous": 1.039005,
+      "speedup_vs_production": 1.169538,
+      "sass_change": "64 STG.E.U16 instructions become 32 aligned 32-bit STG.E instructions",
+      "decision": "retain"
+    }
+  ],
+  "final_result": {
+    "production_milliseconds": 6.471293,
+    "candidate_milliseconds": 5.532324,
+    "speedup_vs_production": 1.169724,
+    "measured_rounds": 6,
+    "all_rounds_positive": true,
+    "sidecar_cleanup_delta_percent": 0.0048,
+    "production_admission_gate": 1.22,
+    "production_admission_gate_passed": false,
+    "interpretation": "This is the frozen native-development baseline, not a production promotion. It is 16.97% faster than production but still needs about 4.3% additional latency reduction to clear the existing 1.22x isolated Gate gate."
+  },
+  "correctness": {
+    "invalid_cases_passed": 21,
+    "invalid_cases_total": 21,
+    "captured_graph_nodes": 2,
+    "bitwise_outputs_compared": 17825792,
+    "bitwise_output_mismatches": 0,
+    "graph_replay_mismatches": 0,
+    "canonical_inputs_immutable": true,
+    "legacy_k64_c512_ctest": "pass",
+    "legacy_k64_c256_ctest": "pass"
+  },
+  "final_nsight_compute": {
+    "duration_milliseconds": 6.54,
+    "global_load_request_bytes": 1024983040,
+    "global_store_sectors": 1114112,
+    "global_store_sector_bytes": 35651584,
+    "global_store_hit_sectors": 915684,
+    "global_store_miss_sectors": 198428,
+    "barrier_stall_percent": 6.65,
+    "long_scoreboard_stall_percent": 1.66,
+    "short_scoreboard_stall_percent": 5.99,
+    "tensor_active_percent": 28.80,
+    "shared_load_bank_conflicts": 2416,
+    "shared_load_wavefronts": 44689536,
+    "shared_bank_conflict_fraction_percent": 0.005406,
+    "report": {
+      "path": "/tmp/q3x-nvfp4-gate-m64n256-final-audit-profile-candidate.ncu-rep",
+      "bytes": 3910918,
+      "sha256": "05c5c82d62d8c40731b1239f0966ea8a3d9713ecab3d3d88dad78619d2f3392e"
+    }
+  },
+  "rejected_or_stopped_cells": [
+    {
+      "cell": "U32 shared load plus shuffle register feed",
+      "candidate_milliseconds": 6.685324,
+      "speedup_vs_production": 0.967458,
+      "speedup_vs_initial_native_candidate": 0.927035,
+      "decision": "reverted"
+    },
+    {
+      "cell": "redundant U32 shared broadcast without shuffle",
+      "decision": "not implemented",
+      "reason": "final shared bank-conflict fraction is only 0.005406%, so the proposed instruction trade has no credible 4.3% upside"
+    },
+    {
+      "cell": "three-stage raw A/B pipeline",
+      "decision": "not implemented",
+      "reason": "about 65024 bytes per CTA would reduce residency to one CTA per SM while long-scoreboard stall is only 1.66%"
+    },
+    {
+      "cell": "K512 coalesced scale window",
+      "decision": "not implemented",
+      "reason": "the static maximum saves 44564480 request bytes, only 4.348% of final traffic; measured traffic-to-latency response predicts less than 1% rather than the required 4.3%"
+    }
+  ],
+  "decision": {
+    "native_route": "retain this exact test-only implementation as the next self-developed large-M optimization baseline",
+    "production_route": "unchanged",
+    "immediate_priority": "complete the admitted zero-workspace direct-dequant plus cuBLASLt Gate+Up pair screen and production integration because its measured inclusive Gate speedup is materially larger",
+    "long_term_upper_bound": "return to fused native work when a structural tile, decode, or data-layout change has a credible greater-than-4.3% cell-level upside; do not resume low-yield micro-tuning"
+  }
+}

@@ -311,6 +311,16 @@ reuse, memory-reserve, and pinned-checkpoint end-to-end gates. The native
 fused large-M NVFP4 kernel continues in parallel as the higher-ceiling route.
 See the [C512 inclusive cuBLASLt admission
 record](docs/metadata/qwen36-27b-prefill-nvfp4-gate-c512-inclusive-cublaslt-admission.json).
+The parallel native large-M effort now has a frozen test-only M64xN256xK64
+baseline. K256 scale reuse, paired canonical-weight copies, and a packed BF16
+epilogue reduce Gate from **6.471293 ms** to **5.532324 ms** (**1.169724x**)
+with 128 registers, zero local memory, and two CTAs per SM. All 17,825,792
+Gate/Up outputs and Graph replays are bitwise exact, but the route deliberately
+remains outside production because it misses the existing 1.22x admission
+gate. Nsight-guided stop-loss rejects the remaining low-upside scale,
+triple-pipeline, and shared-broadcast tweaks; future native work must introduce
+a structural change with credible greater-than-4.3% upside. See the [native
+M64xN256 development baseline](docs/metadata/qwen36-27b-prefill-nvfp4-gate-c512-native-m64n256-development-baseline.json).
 
 For exact aligned C512 linear-attention QKV, engine startup losslessly packs
 48 canonical matrices into a 2,516,582,400-byte fragment-native sidecar. The
