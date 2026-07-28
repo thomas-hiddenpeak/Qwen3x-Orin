@@ -57,6 +57,15 @@ query_sm87_fp8_w8a16_whole_chunk_z_m128_cp_async_canonical_xor_register_feed_res
     int* registers_per_thread, std::size_t* static_shared_bytes,
     std::size_t* dynamic_shared_bytes, std::size_t* local_bytes,
     int* maximum_threads_per_block, int* active_blocks_per_sm) noexcept;
+
+// Frozen direct control for the pre-promotion production M128 kernel. It must
+// never delegate to the public whole-chunk launcher after Z promotion.
+[[nodiscard]] int
+launch_sm87_fp8_w8a16_whole_chunk_large_n_m128_b_reuse_test_cuda(
+    const std::uint8_t* weights, float weight_scale,
+    const std::uint16_t* activations, std::size_t token_count,
+    std::size_t rows, std::size_t columns, std::uint16_t* output,
+    void* cuda_stream = nullptr) noexcept;
 #endif
 
 }  // namespace q3x::kernels
@@ -594,10 +603,19 @@ struct Fixture {
 enum class Variant {
   kBaseline,
   kCandidate,
+  kProduction,
 };
 
 [[nodiscard]] const char* variant_name(const Variant variant) noexcept {
-  return variant == Variant::kBaseline ? "baseline" : "candidate";
+  switch (variant) {
+    case Variant::kBaseline:
+      return "baseline";
+    case Variant::kCandidate:
+      return "candidate";
+    case Variant::kProduction:
+      return "production";
+  }
+  return "unknown";
 }
 
 [[nodiscard]] cudaError_t launch_variant(Fixture& fixture,
@@ -608,20 +626,38 @@ enum class Variant {
 #else
   const float weight_scale = kWeightScale;
 #endif
+#if defined(Q3X_FP8_Z_CANONICAL_XOR_SCREEN)
+  int status = static_cast<int>(cudaErrorInvalidValue);
+  switch (variant) {
+    case Variant::kBaseline:
+      status = q3x::kernels::
+          launch_sm87_fp8_w8a16_whole_chunk_large_n_m128_b_reuse_test_cuda(
+              fixture.weights.get(), weight_scale,
+              fixture.activations.get(), kTokens, kRows, kColumns,
+              fixture.output(), static_cast<void*>(stream));
+      break;
+    case Variant::kCandidate:
+      status = q3x::kernels::
+          launch_sm87_fp8_w8a16_whole_chunk_z_m128_cp_async_canonical_xor_register_feed_test_cuda(
+              fixture.weights.get(), weight_scale,
+              fixture.activations.get(), kTokens, kRows, kColumns,
+              fixture.output(), static_cast<void*>(stream));
+      break;
+    case Variant::kProduction:
+      status =
+          q3x::kernels::launch_sm87_fp8_w8a16_whole_chunk_gemm_bf16_cuda(
+              fixture.weights.get(), weight_scale,
+              fixture.activations.get(), kTokens, kRows, kColumns,
+              fixture.output(), static_cast<void*>(stream));
+      break;
+  }
+#else
   const int status =
       variant == Variant::kBaseline
           ? q3x::kernels::launch_sm87_fp8_w8a16_whole_chunk_gemm_bf16_cuda(
                 fixture.weights.get(), weight_scale,
-                fixture.activations.get(),
-                kTokens, kRows, kColumns, fixture.output(),
-                static_cast<void*>(stream))
-#if defined(Q3X_FP8_Z_CANONICAL_XOR_SCREEN)
-          : q3x::kernels::
-                launch_sm87_fp8_w8a16_whole_chunk_z_m128_cp_async_canonical_xor_register_feed_test_cuda(
-                    fixture.weights.get(), weight_scale,
-                    fixture.activations.get(), kTokens, kRows, kColumns,
-                    fixture.output(), static_cast<void*>(stream));
-#else
+                fixture.activations.get(), kTokens, kRows, kColumns,
+                fixture.output(), static_cast<void*>(stream))
           : q3x::kernels::
                 launch_sm87_fp8_w8a16_whole_chunk_qkv_m128_split_m64_test_cuda(
                     fixture.weights.get(), weight_scale,
@@ -969,36 +1005,80 @@ struct GraphIdentity {
 
   CapturedGraph baseline_graph;
   CapturedGraph candidate_graph;
+#if defined(Q3X_FP8_Z_CANONICAL_XOR_SCREEN)
+  CapturedGraph production_graph;
+#endif
   GraphIdentity baseline_identity;
   GraphIdentity candidate_identity;
+#if defined(Q3X_FP8_Z_CANONICAL_XOR_SCREEN)
+  GraphIdentity production_identity;
+#endif
   ready = ready && capture_variant(test, fixture, stream, Variant::kBaseline,
                                    baseline_graph, baseline_identity);
   ready = ready && capture_variant(test, fixture, stream,
                                    Variant::kCandidate, candidate_graph,
                                    candidate_identity);
+#if defined(Q3X_FP8_Z_CANONICAL_XOR_SCREEN)
+  ready = ready && capture_variant(test, fixture, stream,
+                                   Variant::kProduction, production_graph,
+                                   production_identity);
+  const bool graph_identity =
+      ready && baseline_identity.valid && candidate_identity.valid &&
+      production_identity.valid &&
+      baseline_identity.parameters.func != candidate_identity.parameters.func &&
+      production_identity.parameters.func == candidate_identity.parameters.func;
+#else
   const bool graph_identity =
       ready && baseline_identity.valid && candidate_identity.valid &&
       baseline_identity.parameters.func != candidate_identity.parameters.func;
+#endif
   std::cout << kLogStem << "_VALID_GRAPH: baseline_nodes="
             << baseline_identity.node_count
             << " candidate_nodes=" << candidate_identity.node_count
+#if defined(Q3X_FP8_Z_CANONICAL_XOR_SCREEN)
+            << " production_nodes=" << production_identity.node_count
+#endif
             << " baseline_grid_x=" << baseline_identity.parameters.gridDim.x
             << " candidate_grid_x="
             << candidate_identity.parameters.gridDim.x
+#if defined(Q3X_FP8_Z_CANONICAL_XOR_SCREEN)
+            << " production_grid_x="
+            << production_identity.parameters.gridDim.x
+#endif
             << " baseline_block_x="
             << baseline_identity.parameters.blockDim.x
             << " candidate_block_x="
             << candidate_identity.parameters.blockDim.x
+#if defined(Q3X_FP8_Z_CANONICAL_XOR_SCREEN)
+            << " production_block_x="
+            << production_identity.parameters.blockDim.x
+#endif
             << " candidate_dynamic_shared_bytes="
             << candidate_identity.parameters.sharedMemBytes
+#if defined(Q3X_FP8_Z_CANONICAL_XOR_SCREEN)
+            << " production_dynamic_shared_bytes="
+            << production_identity.parameters.sharedMemBytes
+#endif
             << " functions_distinct="
             << (baseline_identity.parameters.func !=
                         candidate_identity.parameters.func
                     ? "true"
                     : "false")
+#if defined(Q3X_FP8_Z_CANONICAL_XOR_SCREEN)
+            << " production_candidate_function_identity="
+            << (production_identity.parameters.func ==
+                        candidate_identity.parameters.func
+                    ? "true"
+                    : "false")
+#endif
             << " gate=" << (graph_identity ? "PASS" : "FAIL") << '\n';
+#if defined(Q3X_FP8_Z_CANONICAL_XOR_SCREEN)
+  test.expect(graph_identity,
+              "frozen M128, candidate, and production graph identities are exact");
+#else
   test.expect(graph_identity,
               "baseline and candidate graph identities are exact");
+#endif
 
   ready = ready && poison_output(test, fixture, stream, 0x5a, "replay1");
   ready = ready && test.cuda_ok(
@@ -1446,7 +1526,12 @@ int main(const int argc, char** argv) {
 #endif
             << " tokens=" << kTokens << " rows=" << kRows
             << " columns=" << kColumns
+#if defined(Q3X_FP8_Z_CANONICAL_XOR_SCREEN)
+            << " production_dispatch_selected=true"
+            << " production_dispatch=exact_c512_z_canonical_xor_register_feed\n";
+#else
             << " production_dispatch_unchanged=true\n";
+#endif
 
   Execution execution;
   if (!execution.create(test)) {

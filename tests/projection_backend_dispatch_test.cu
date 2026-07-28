@@ -28,6 +28,13 @@ launch_sm87_fp8_w8a16_whole_chunk_large_n_m128_b_reuse_test_cuda(
     void* cuda_stream = nullptr) noexcept;
 
 [[nodiscard]] int
+launch_sm87_fp8_w8a16_whole_chunk_z_m128_cp_async_canonical_xor_register_feed_test_cuda(
+    const std::uint8_t* weights, float weight_scale,
+    const std::uint16_t* activations, std::size_t token_count,
+    std::size_t rows, std::size_t columns, std::uint16_t* output,
+    void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
 launch_sm87_fp8_w8a16_whole_chunk_m64_historical_control_test_cuda(
     const std::uint8_t* weights, float weight_scale,
     const std::uint16_t* activations, std::size_t token_count,
@@ -1984,6 +1991,10 @@ void test_exact_fp8_whole_chunk_projection_dispatch(TestContext& test) {
             rows == 1'024U ? kM64Tokens : 128U;
         const unsigned int expected_grid = static_cast<unsigned int>(
             (rows / 128U) * (token_count / production_tile_tokens));
+        const unsigned int expected_dynamic_shared =
+            rows == 6'144U && columns == 5'120U && token_count == 512U
+                ? 79'872U
+                : 0U;
         const bool exact =
             dispatch.valid && dispatch.launches.size() == 1U && direct.valid &&
             direct.launches.size() == 1U &&
@@ -1995,7 +2006,8 @@ void test_exact_fp8_whole_chunk_projection_dispatch(TestContext& test) {
             dispatch.launches.front().block.x == 256U &&
             dispatch.launches.front().block.y == 1U &&
             dispatch.launches.front().block.z == 1U &&
-            dispatch.launches.front().dynamic_shared_bytes == 0U;
+            dispatch.launches.front().dynamic_shared_bytes ==
+                expected_dynamic_shared;
         test.expect(exact,
                     label + " is one exact whole-chunk production grid");
       };
@@ -2011,6 +2023,95 @@ void test_exact_fp8_whole_chunk_projection_dispatch(TestContext& test) {
     expect_exact_grid(attention_output, 5'120U, 6'144U, token_count,
                       "FP8 O C" + std::to_string(token_count));
   }
+
+  const auto capture_z_public = [&](const std::uint16_t* const selected_input,
+                                    const std::size_t token_count,
+                                    const std::string& label) {
+    return capture_ordered_kernel_chain(
+        test,
+        [&](cudaStream_t stream) noexcept {
+          return q3x::kernels::
+              launch_sm87_fp8_w8a16_whole_chunk_gemm_bf16_cuda(
+                  encoded_weight, 1.0F, selected_input, token_count, 6'144U,
+                  5'120U, output, static_cast<void*>(stream));
+        },
+        label);
+  };
+  const auto capture_z_frozen_m128 =
+      [&](const std::uint16_t* const selected_input,
+          const std::size_t token_count, const std::string& label) {
+        return capture_ordered_kernel_chain(
+            test,
+            [&](cudaStream_t stream) noexcept {
+              return q3x::kernels::
+                  launch_sm87_fp8_w8a16_whole_chunk_large_n_m128_b_reuse_test_cuda(
+                      encoded_weight, 1.0F, selected_input, token_count,
+                      6'144U, 5'120U, output, static_cast<void*>(stream));
+            },
+            label);
+      };
+  const CapturedKernelChain z_c512_production =
+      capture_z_public(input, 512U, "FP8 Z C512 production graph");
+  const CapturedKernelChain z_c512_candidate = capture_ordered_kernel_chain(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return q3x::kernels::
+            launch_sm87_fp8_w8a16_whole_chunk_z_m128_cp_async_canonical_xor_register_feed_test_cuda(
+                encoded_weight, 1.0F, input, 512U, 6'144U, 5'120U, output,
+                static_cast<void*>(stream));
+      },
+      "FP8 Z C512 candidate graph");
+  const CapturedKernelChain z_c512_frozen = capture_z_frozen_m128(
+      input, 512U, "FP8 Z C512 frozen M128 graph");
+  test.expect(
+      z_c512_production.valid &&
+          z_c512_production.launches.size() == 1U &&
+          z_c512_candidate.valid && z_c512_candidate.launches.size() == 1U &&
+          z_c512_frozen.valid && z_c512_frozen.launches.size() == 1U &&
+          z_c512_production.launches.front().function ==
+              z_c512_candidate.launches.front().function &&
+          z_c512_production.launches.front().function !=
+              z_c512_frozen.launches.front().function &&
+          z_c512_production.launches.front().grid.x == 192U &&
+          z_c512_production.launches.front().block.x == 256U &&
+          z_c512_production.launches.front().dynamic_shared_bytes == 79'872U,
+      "FP8 Z C512 16-byte activation selects the canonical register-feed "
+      "production function");
+
+  const CapturedKernelChain z_c256_production =
+      capture_z_public(input, 256U, "FP8 Z C256 production graph");
+  const CapturedKernelChain z_c256_frozen =
+      capture_z_frozen_m128(input, 256U, "FP8 Z C256 frozen M128 graph");
+  test.expect(
+      z_c256_production.valid && z_c256_production.launches.size() == 1U &&
+          z_c256_frozen.valid && z_c256_frozen.launches.size() == 1U &&
+          z_c256_production.launches.front().function ==
+              z_c256_frozen.launches.front().function &&
+          z_c256_production.launches.front().grid.x == 96U &&
+          z_c256_production.launches.front().dynamic_shared_bytes == 0U,
+      "FP8 Z C256 remains on the frozen M128 B-reuse function");
+
+  const auto* const z_eight_not_sixteen_aligned_input =
+      reinterpret_cast<const std::uint16_t*>(
+          reinterpret_cast<std::uintptr_t>(input) + 8U);
+  const CapturedKernelChain z_c512_alignment_fallback = capture_z_public(
+      z_eight_not_sixteen_aligned_input, 512U,
+      "FP8 Z C512 8-byte activation production graph");
+  const CapturedKernelChain z_c512_alignment_frozen = capture_z_frozen_m128(
+      z_eight_not_sixteen_aligned_input, 512U,
+      "FP8 Z C512 8-byte activation frozen M128 graph");
+  test.expect(
+      z_c512_alignment_fallback.valid &&
+          z_c512_alignment_fallback.launches.size() == 1U &&
+          z_c512_alignment_frozen.valid &&
+          z_c512_alignment_frozen.launches.size() == 1U &&
+          z_c512_alignment_fallback.launches.front().function ==
+              z_c512_alignment_frozen.launches.front().function &&
+          z_c512_alignment_fallback.launches.front().grid.x == 192U &&
+          z_c512_alignment_fallback.launches.front().dynamic_shared_bytes ==
+              0U,
+      "FP8 Z C512 8-byte activation preserves the public ABI via frozen "
+      "M128 fallback");
 
   const auto* const register_feed_sidecar =
       reinterpret_cast<const std::uint8_t*>(0x50'0000'0000ULL);

@@ -324,9 +324,13 @@ launch_sm87_fp8_w8a16_m64_attention_output_gemm_bf16_cuda(
 // attention QKV [10240,5120] and Z [6144,5120], full-attention Q
 // [12288,5120] and K/V [1024,5120], and attention output [5120,6144]. The
 // complete chunk is validated before one fixed whole-chunk grid is enqueued.
-// QKV, Z, full-attention Q, and attention output use the exact M128xN128 K64
-// B-tile-reuse route. Full-attention K/V remains on the historical M64 route:
-// C256 uses the measured-faster M-major ordering and C512 uses N-major.
+// QKV, full-attention Q, attention output, and Z C256 use the exact
+// M128xN128 K64 B-tile-reuse route. Exact Z C512 with 16-byte-aligned
+// activations uses the canonical-weight XOR+U16 register-feed route directly;
+// an otherwise valid 8-byte-aligned activation pointer preserves the public
+// ABI by falling back to M128 B-tile reuse. Full-attention K/V remains on the
+// historical M64 route: C256 uses the measured-faster M-major ordering and
+// C512 uses N-major.
 // Every shape, token-count, range, alias, or production-alignment near miss
 // returns cudaErrorInvalidValue before enqueue.
 [[nodiscard]] int launch_sm87_fp8_w8a16_whole_chunk_gemm_bf16_cuda(

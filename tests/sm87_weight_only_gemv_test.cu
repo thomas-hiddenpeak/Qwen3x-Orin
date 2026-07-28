@@ -495,6 +495,15 @@ launch_sm87_fp8_w8a16_whole_chunk_large_n_m128_b_reuse_test_cuda(
     std::size_t rows, std::size_t columns, std::uint16_t* output,
     void* cuda_stream = nullptr) noexcept;
 
+// Test compatibility entry for the promoted exact-C512 Z canonical
+// register-feed kernel. It shares the production kernel function identity.
+[[nodiscard]] int
+launch_sm87_fp8_w8a16_whole_chunk_z_m128_cp_async_canonical_xor_register_feed_test_cuda(
+    const std::uint8_t* weights, float weight_scale,
+    const std::uint16_t* activations, std::size_t token_count,
+    std::size_t rows, std::size_t columns, std::uint16_t* output,
+    void* cuda_stream = nullptr) noexcept;
+
 [[nodiscard]] int
 query_sm87_fp8_w8a16_whole_chunk_large_n_m128_b_reuse_resources_test_cuda(
     std::size_t token_count, std::size_t rows, std::size_t columns,
@@ -25277,7 +25286,8 @@ template <typename Launch>
 [[nodiscard]] WholeChunkCapturedGraph capture_whole_chunk_graph(
     TestContext& test, cudaStream_t stream, Launch&& launch,
     const std::size_t expected_nodes, const unsigned int expected_grid_x,
-    const std::string& label, const bool execute_graph = false) {
+    const std::string& label, const bool execute_graph = false,
+    const unsigned int expected_dynamic_shared_bytes = 0U) {
   WholeChunkCapturedGraph result{};
   cudaGraph_t graph = nullptr;
   cudaGraphExec_t graph_exec = nullptr;
@@ -25327,7 +25337,7 @@ template <typename Launch>
           params.gridDim.x == expected_grid_x && params.gridDim.y == 1U &&
           params.gridDim.z == 1U && params.blockDim.x == 256U &&
           params.blockDim.y == 1U && params.blockDim.z == 1U &&
-          params.sharedMemBytes == 0U;
+          params.sharedMemBytes == expected_dynamic_shared_bytes;
     }
   }
   if (ready && execute_graph) {
@@ -32079,6 +32089,9 @@ struct Fp8LargeNM128CaseResult {
   bool complete = true;
   for (const Fp8LargeNM128Shape& shape : kFp8LargeNM128Shapes) {
     for (const std::size_t token_count : {256U, 512U}) {
+      const bool exact_z_c512 =
+          shape.rows == 6'144U && shape.columns == 5'120U &&
+          token_count == 512U;
       const auto launch_production = [&]() noexcept {
         return q3x::kernels::
             launch_sm87_fp8_w8a16_whole_chunk_gemm_bf16_cuda(
@@ -32086,6 +32099,12 @@ struct Fp8LargeNM128CaseResult {
                 shape.columns, output, static_cast<void*>(stream));
       };
       const auto launch_direct = [&]() noexcept {
+        if (exact_z_c512) {
+          return q3x::kernels::
+              launch_sm87_fp8_w8a16_whole_chunk_z_m128_cp_async_canonical_xor_register_feed_test_cuda(
+                  weights, 1.0F, activations, token_count, shape.rows,
+                  shape.columns, output, static_cast<void*>(stream));
+        }
         return q3x::kernels::
             launch_sm87_fp8_w8a16_whole_chunk_large_n_m128_b_reuse_test_cuda(
                 weights, 1.0F, activations, token_count, shape.rows,
@@ -32101,15 +32120,19 @@ struct Fp8LargeNM128CaseResult {
           shape.rows / 128U * (token_count / 128U));
       const unsigned int historical_grid = static_cast<unsigned int>(
           shape.rows / 128U * (token_count / 64U));
+      const unsigned int expected_dynamic_shared_bytes =
+          exact_z_c512 ? 79'872U : 0U;
       const std::string label =
           std::string("FP8 large-N M128 production ") + shape.name + " M" +
           std::to_string(token_count);
       const WholeChunkCapturedGraph production = capture_whole_chunk_graph(
           test, stream, launch_production, 1U, production_grid,
-          label + " public graph");
+          label + " public graph", false,
+          expected_dynamic_shared_bytes);
       const WholeChunkCapturedGraph direct = capture_whole_chunk_graph(
           test, stream, launch_direct, 1U, production_grid,
-          label + " direct graph");
+          label + " direct graph", false,
+          expected_dynamic_shared_bytes);
       const WholeChunkCapturedGraph historical = capture_whole_chunk_graph(
           test, stream, launch_historical, 1U, historical_grid,
           label + " historical graph");
@@ -32130,7 +32153,8 @@ struct Fp8LargeNM128CaseResult {
                 << (function_identity ? "true" : "false")
                 << " M64_M128_function_distinct="
                 << (historical_distinct ? "true" : "false")
-                << " block=256 dynamic_shared_bytes=0"
+                << " block=256 dynamic_shared_bytes="
+                << expected_dynamic_shared_bytes
                 << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
       test.expect(gate,
                   label + " selects the exact public production M128 "
@@ -32138,6 +32162,45 @@ struct Fp8LargeNM128CaseResult {
       complete = complete && gate;
     }
   }
+
+  const auto* const eight_not_sixteen_aligned_activations =
+      reinterpret_cast<const std::uint16_t*>(
+          reinterpret_cast<std::uintptr_t>(activations) + 8U);
+  const auto launch_z_c512_alignment_fallback = [&]() noexcept {
+    return q3x::kernels::
+        launch_sm87_fp8_w8a16_whole_chunk_gemm_bf16_cuda(
+            weights, 1.0F, eight_not_sixteen_aligned_activations, 512U,
+            6'144U, 5'120U, output, static_cast<void*>(stream));
+  };
+  const auto launch_z_c512_frozen_m128 = [&]() noexcept {
+    return q3x::kernels::
+        launch_sm87_fp8_w8a16_whole_chunk_large_n_m128_b_reuse_test_cuda(
+            weights, 1.0F, eight_not_sixteen_aligned_activations, 512U,
+            6'144U, 5'120U, output, static_cast<void*>(stream));
+  };
+  const WholeChunkCapturedGraph z_c512_alignment_fallback =
+      capture_whole_chunk_graph(
+          test, stream, launch_z_c512_alignment_fallback, 1U, 192U,
+          "FP8 Z C512 8-byte activation public fallback graph");
+  const WholeChunkCapturedGraph z_c512_frozen_m128 =
+      capture_whole_chunk_graph(
+          test, stream, launch_z_c512_frozen_m128, 1U, 192U,
+          "FP8 Z C512 8-byte activation frozen M128 graph");
+  const bool z_c512_alignment_gate =
+      z_c512_alignment_fallback.valid && z_c512_frozen_m128.valid &&
+      z_c512_alignment_fallback.function != nullptr &&
+      z_c512_alignment_fallback.function == z_c512_frozen_m128.function;
+  std::cout << "FP8_Z_C512_ALIGNMENT_FALLBACK: activation_alignment=8"
+            << " required_register_feed_alignment=16"
+            << " public_frozen_M128_function_identity="
+            << (z_c512_alignment_gate ? "true" : "false")
+            << " grid=192 block=256 dynamic_shared_bytes=0"
+            << " gate=" << (z_c512_alignment_gate ? "PASS" : "FAIL")
+            << '\n';
+  test.expect(z_c512_alignment_gate,
+              "FP8 Z C512 8-byte activation preserves the public ABI on "
+              "the frozen M128 fallback function");
+  complete = complete && z_c512_alignment_gate;
 
   constexpr std::size_t kKvRows = 1'024U;
   constexpr std::size_t kKvColumns = 5'120U;
@@ -32456,6 +32519,9 @@ run_fp8_large_n_m128_b_reuse_case(
   const std::size_t output_elements = token_count * shape.rows;
   const std::size_t guarded_elements =
       output_elements + 2U * kGuardElements;
+  const bool exact_z_c512 = shape.rows == 6'144U &&
+                            shape.columns == 5'120U &&
+                            token_count == 512U;
   constexpr std::array<std::uint8_t, 16U> kCheckpointLikeCodes{{
       0x00U, 0x80U, 0x18U, 0x20U, 0x28U, 0x30U, 0x38U, 0x3cU,
       0xb8U, 0x40U, 0xc0U, 0x48U, 0x50U, 0xd0U, 0x70U, 0xf0U,
@@ -32548,6 +32614,13 @@ run_fp8_large_n_m128_b_reuse_case(
             static_cast<void*>(stream));
   };
   const auto launch_direct_compatibility = [&]() noexcept {
+    if (exact_z_c512) {
+      return q3x::kernels::
+          launch_sm87_fp8_w8a16_whole_chunk_z_m128_cp_async_canonical_xor_register_feed_test_cuda(
+              weights.get(), shape.weight_scale, activations.get(),
+              token_count, shape.rows, shape.columns, candidate_output,
+              static_cast<void*>(stream));
+    }
     return q3x::kernels::
         launch_sm87_fp8_w8a16_whole_chunk_large_n_m128_b_reuse_test_cuda(
             weights.get(), shape.weight_scale, activations.get(), token_count,
@@ -32577,16 +32650,20 @@ run_fp8_large_n_m128_b_reuse_case(
       (shape.rows / 128U) * (token_count / 64U));
   const unsigned int expected_m128_grid = static_cast<unsigned int>(
       (shape.rows / 128U) * (token_count / 128U));
+  const unsigned int expected_dynamic_shared_bytes =
+      exact_z_c512 ? 79'872U : 0U;
   const WholeChunkCapturedGraph baseline_graph = capture_whole_chunk_graph(
       test, stream, launch_baseline, 1U, expected_m64_grid,
       label + " historical M64 graph");
   const WholeChunkCapturedGraph production_graph = capture_whole_chunk_graph(
       test, stream, launch_candidate, 1U, expected_m128_grid,
-      label + " production M128 graph", true);
+      label + " production M128 graph", true,
+      expected_dynamic_shared_bytes);
   const WholeChunkCapturedGraph compatibility_graph =
       capture_whole_chunk_graph(test, stream, launch_direct_compatibility,
                                 1U, expected_m128_grid,
-                                label + " direct M128 compatibility graph");
+                                label + " direct production compatibility graph",
+                                false, expected_dynamic_shared_bytes);
   const bool production_function_identity =
       production_graph.function != nullptr &&
       production_graph.function == compatibility_graph.function;
@@ -32682,6 +32759,8 @@ run_fp8_large_n_m128_b_reuse_case(
             << (production_graph.execution_replay ? "true" : "false")
             << " historical_M64_grid=" << expected_m64_grid
             << " production_M128_grid=" << expected_m128_grid
+            << " production_dynamic_shared_bytes="
+            << expected_dynamic_shared_bytes
             << " public_direct_function_identity="
             << (production_function_identity ? "true" : "false")
             << " M64_M128_function_distinct="

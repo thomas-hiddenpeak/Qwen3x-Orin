@@ -5474,12 +5474,12 @@ fp8_w8a16_whole_chunk_qkv_m128_cp_async_canonical_register_feed_test_kernel(
 #undef Q3X_FP8_QKV_CANONICAL_DRAIN
 }
 
-// Strictly test-only exact-C512 Z raw-B XOR+U16 register-feed cell.
-// This independent symbol reuses the admitted canonical issue/gather
-// primitives without changing the locked QKV test kernel, production
-// dispatch, public API, or persistent ModelWeights layout.
+// Production exact-C512 Z raw-B XOR+U16 register-feed kernel. It consumes the
+// canonical row-major FP8 checkpoint allocation directly, so promotion does
+// not add a sidecar or change the persistent ModelWeights layout. Keep this
+// independent from the locked QKV kernels so their admitted SASS is stable.
 __global__ __launch_bounds__(kThreads, 2) void
-fp8_w8a16_whole_chunk_z_m128_cp_async_canonical_xor_register_feed_test_kernel(
+fp8_w8a16_whole_chunk_z_m128_cp_async_canonical_xor_register_feed_kernel(
     const std::uint8_t* const canonical_weights, const float weight_scale,
     const std::uint16_t* const activations, std::uint16_t* const output) {
   constexpr unsigned int kRows = 6'144U;
@@ -18861,6 +18861,31 @@ void launch_fp8_whole_chunk_m128_b_reuse_unchecked(
                                          output);
 }
 
+[[nodiscard]] int
+launch_fp8_z_m128_cp_async_canonical_xor_register_feed_unchecked(
+    const std::uint8_t* const canonical_weights,
+    const float weight_scale,
+    const std::uint16_t* const activations,
+    std::uint16_t* const output, cudaStream_t const stream) noexcept {
+  constexpr unsigned int kRows = 6'144U;
+  constexpr unsigned int kOutputColumnsPerBlock = 128U;
+  constexpr unsigned int kM128TileCount = 4U;
+  constexpr unsigned int kBlocks =
+      (kRows / kOutputColumnsPerBlock) * kM128TileCount;
+  constexpr unsigned int kCtaThreads = 256U;
+  constexpr int kDynamicSharedBytes = 79'872;
+  const cudaError_t attribute_status = cudaFuncSetAttribute(
+      fp8_w8a16_whole_chunk_z_m128_cp_async_canonical_xor_register_feed_kernel,
+      cudaFuncAttributeMaxDynamicSharedMemorySize, kDynamicSharedBytes);
+  if (attribute_status != cudaSuccess) {
+    return static_cast<int>(attribute_status);
+  }
+  fp8_w8a16_whole_chunk_z_m128_cp_async_canonical_xor_register_feed_kernel
+      <<<kBlocks, kCtaThreads, kDynamicSharedBytes, stream>>>(
+          canonical_weights, weight_scale, activations, output);
+  return static_cast<int>(cudaGetLastError());
+}
+
 template <std::size_t kRows, std::size_t kColumns>
 void launch_fp8_m128_tiles_unchecked(
     const std::uint8_t* const weights, const float weight_scale,
@@ -22093,9 +22118,9 @@ int query_sm87_fp8_w8a16_whole_chunk_qkv_m128_cp_async_canonical_register_feed_p
       active_blocks_per_sm);
 }
 
-// Strictly test-only Z C512 cell. Validation precedes every CUDA state or
-// attribute operation, and no production selector or public header references
-// this symbol.
+// Test compatibility entry for the promoted exact-C512 Z implementation.
+// Validation remains stricter than the public fallback-capable ABI, while the
+// successful path delegates to the same private unchecked production launch.
 int launch_sm87_fp8_w8a16_whole_chunk_z_m128_cp_async_canonical_xor_register_feed_test_cuda(
     const std::uint8_t* const canonical_weights,
     const float weight_scale,
@@ -22106,13 +22131,6 @@ int launch_sm87_fp8_w8a16_whole_chunk_z_m128_cp_async_canonical_xor_register_fee
   constexpr std::size_t kTokenCount = 512U;
   constexpr std::size_t kRows = 6'144U;
   constexpr std::size_t kColumns = 5'120U;
-  constexpr unsigned int kOutputColumnsPerBlock = 128U;
-  constexpr unsigned int kM128TileCount = 4U;
-  constexpr unsigned int kBlocks =
-      static_cast<unsigned int>(kRows / kOutputColumnsPerBlock) *
-      kM128TileCount;
-  constexpr unsigned int kCtaThreads = 256U;
-  constexpr int kDynamicSharedBytes = 79'872;
   constexpr std::size_t kWeightBytes = kRows * kColumns;
   constexpr std::size_t kActivationBytes =
       kTokenCount * kColumns * sizeof(std::uint16_t);
@@ -22139,16 +22157,8 @@ int launch_sm87_fp8_w8a16_whole_chunk_z_m128_cp_async_canonical_xor_register_fee
 
   const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
   (void)cudaGetLastError();
-  const cudaError_t attribute_status = cudaFuncSetAttribute(
-      fp8_w8a16_whole_chunk_z_m128_cp_async_canonical_xor_register_feed_test_kernel,
-      cudaFuncAttributeMaxDynamicSharedMemorySize, kDynamicSharedBytes);
-  if (attribute_status != cudaSuccess) {
-    return static_cast<int>(attribute_status);
-  }
-  fp8_w8a16_whole_chunk_z_m128_cp_async_canonical_xor_register_feed_test_kernel
-      <<<kBlocks, kCtaThreads, kDynamicSharedBytes, stream>>>(
-          canonical_weights, weight_scale, activations, output);
-  return static_cast<int>(cudaGetLastError());
+  return launch_fp8_z_m128_cp_async_canonical_xor_register_feed_unchecked(
+      canonical_weights, weight_scale, activations, output, stream);
 }
 
 int query_sm87_fp8_w8a16_whole_chunk_z_m128_cp_async_canonical_xor_register_feed_resources_test_cuda(
@@ -22174,7 +22184,7 @@ int query_sm87_fp8_w8a16_whole_chunk_z_m128_cp_async_canonical_xor_register_feed
 
   cudaFuncAttributes attributes{};
   const auto kernel =
-      fp8_w8a16_whole_chunk_z_m128_cp_async_canonical_xor_register_feed_test_kernel;
+      fp8_w8a16_whole_chunk_z_m128_cp_async_canonical_xor_register_feed_kernel;
   cudaError_t status = cudaFuncSetAttribute(
       kernel, cudaFuncAttributeMaxDynamicSharedMemorySize,
       static_cast<int>(kDynamicSharedBytes));
@@ -28552,6 +28562,10 @@ int launch_sm87_fp8_w8a16_whole_chunk_gemm_bf16_cuda(
   if (rows == 10'240U) {
     launch_fp8_m128_tiles_unchecked<10'240U, 5'120U>(
         weights, weight_scale, activations, token_count, output, stream);
+  } else if (rows == 6'144U && token_count == 512U &&
+             pointer_is_aligned<alignof(uint4)>(activations)) {
+    return launch_fp8_z_m128_cp_async_canonical_xor_register_feed_unchecked(
+        weights, weight_scale, activations, output, stream);
   } else if (rows == 6'144U) {
     launch_fp8_m128_tiles_unchecked<6'144U, 5'120U>(
         weights, weight_scale, activations, token_count, output, stream);
