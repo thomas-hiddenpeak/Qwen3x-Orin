@@ -56,4 +56,47 @@ struct Sm87Nvfp4PrefillCublasLtContext;
 void destroy_sm87_nvfp4_prefill_cublaslt_context(
     Sm87Nvfp4PrefillCublasLtContext* context) noexcept;
 
+// Independent device-bound exact-C512 NVFP4 Down context. It owns a distinct
+// cuBLASLt handle, problem descriptors, preference, and selected algorithm;
+// it never owns the caller-provided transient BF16 scratch.
+struct Sm87Nvfp4PrefillDownCublasLtContext;
+
+// Creates one Down context for the current SM87 CUDA device. `context` must be
+// non-null and is cleared before any fallible work.
+[[nodiscard]] int create_sm87_nvfp4_prefill_down_cublaslt_context(
+    Sm87Nvfp4PrefillDownCublasLtContext** context) noexcept;
+
+// Reports the caller-owned canonical BF16 [5120,17408] scratch extent
+// (170 MiB), the selected zero workspace requirement, and heuristic rank.
+[[nodiscard]] int query_sm87_nvfp4_prefill_down_cublaslt_context(
+    const Sm87Nvfp4PrefillDownCublasLtContext* context,
+    std::size_t* scratch_bytes, std::size_t* workspace_bytes,
+    int* heuristic_rank) noexcept;
+
+// Exact Down C512 launch over canonical checkpoint tensors:
+//
+//   packed_weights: E2M1 pairs, row-major [5120, 17408/2]
+//   block_scales:   E4M3FN, row-major [5120, 17408/16]
+//   activations:    BF16 token-major [512, 17408]
+//   output:         BF16 token-major [512, 5120]
+//
+// `bf16_scratch` is caller-owned BF16 [5120,17408] with at least the queried
+// extent. The allocation-free asynchronous launch enqueues the selected
+// Window8 canonical dequantization kernel followed by zero-workspace
+// cuBLASLt. Only the exact shape, pairwise-disjoint spans, finite positive
+// scale, and documented alignments are admitted before enqueue.
+[[nodiscard]] int launch_sm87_nvfp4_prefill_cublaslt_down_c512(
+    Sm87Nvfp4PrefillDownCublasLtContext* context,
+    const std::uint8_t* packed_weights,
+    const std::uint8_t* block_scales, float weight_scale_2,
+    const std::uint16_t* activations, std::size_t token_count,
+    std::size_t rows, std::size_t columns, std::uint16_t* bf16_scratch,
+    std::size_t scratch_bytes, std::uint16_t* output,
+    void* cuda_stream = nullptr) noexcept;
+
+// Releases host-side Down cuBLASLt resources without synchronizing. Null is
+// accepted; the owner must first complete all launches using the context.
+void destroy_sm87_nvfp4_prefill_down_cublaslt_context(
+    Sm87Nvfp4PrefillDownCublasLtContext* context) noexcept;
+
 }  // namespace q3x::kernels

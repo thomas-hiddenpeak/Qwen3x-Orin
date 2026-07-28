@@ -323,6 +323,24 @@ if(BUILD_TESTING)
     SKIP_RETURN_CODE 77
   )
 
+  # Independent production-contract test for the exact-C512 Down Window8
+  # direct-dequant + zero-workspace cuBLASLt module. Runner ownership and
+  # routing remain outside this target.
+  add_executable(q3x_sm87_nvfp4_prefill_down_cublaslt_module_test
+    tests/sm87_nvfp4_prefill_down_cublaslt_module_test.cu
+  )
+  target_link_libraries(q3x_sm87_nvfp4_prefill_down_cublaslt_module_test
+    PRIVATE q3x::kernels
+  )
+  q3x_enable_warnings(q3x_sm87_nvfp4_prefill_down_cublaslt_module_test)
+  add_test(NAME sm87_nvfp4_prefill_down_cublaslt_module
+    COMMAND q3x_sm87_nvfp4_prefill_down_cublaslt_module_test
+  )
+  set_tests_properties(sm87_nvfp4_prefill_down_cublaslt_module PROPERTIES
+    LABELS "cuda;sm87;prefill;module;down"
+    SKIP_RETURN_CODE 77
+  )
+
   # Isolated exact-C512 Gate/Up scheduling screen. It compares the production
   # M128 two-stream fork/join with one-scratch serial and two distinct
   # zero-workspace cuBLASLt dual-stream schedules. Production kernels,
