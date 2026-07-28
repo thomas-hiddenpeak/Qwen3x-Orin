@@ -239,6 +239,33 @@ if(BUILD_TESTING)
     SKIP_RETURN_CODE 77
   )
 
+  # Isolated canonical-layout Gate/Up pair candidate. One 512-thread CTA
+  # shares the M128 activation tile between two independent eight-warp branch
+  # groups; production kernels, dispatch, and runner scheduling stay frozen.
+  add_executable(q3x_nvfp4_prefill_gate_up_fused_m128_shared_a_screen
+    tests/sm87_nvfp4_prefill_gate_up_fused_m128_shared_a_screen.cu
+  )
+  target_link_libraries(
+    q3x_nvfp4_prefill_gate_up_fused_m128_shared_a_screen
+    PRIVATE q3x::kernels
+  )
+  q3x_enable_warnings(
+    q3x_nvfp4_prefill_gate_up_fused_m128_shared_a_screen
+  )
+  add_test(NAME nvfp4_prefill_gate_up_fused_m128_shared_a_screen
+    COMMAND q3x_nvfp4_prefill_gate_up_fused_m128_shared_a_screen
+  )
+  add_test(NAME nvfp4_prefill_gate_up_fused_m128_shared_a_screen_c256
+    COMMAND q3x_nvfp4_prefill_gate_up_fused_m128_shared_a_screen --tokens=256
+  )
+  set_tests_properties(
+    nvfp4_prefill_gate_up_fused_m128_shared_a_screen
+    nvfp4_prefill_gate_up_fused_m128_shared_a_screen_c256
+    PROPERTIES
+    LABELS "cuda;sm87;prefill"
+    SKIP_RETURN_CODE 77
+  )
+
   # Test-only SM87 sentinel for the lane/slot layout used when a BF16 WMMA
   # matrix_b fragment is fed directly from registers instead of shared memory.
   add_executable(q3x_sm87_bf16_matrix_b_register_feed_sentinel
