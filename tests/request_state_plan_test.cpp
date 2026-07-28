@@ -41,7 +41,18 @@ bool same_region(const runtime::RequestRegion& left,
            left.element_size_bytes == right.element_size_bytes;
 }
 
+bool empty_region(const runtime::RequestRegion& region) {
+    return region.arena_offset == 0U && region.byte_size == 0U &&
+           region.element_capacity == 0U && region.element_size_bytes == 0U;
+}
+
 void test_default_exact_plan(TestContext& test) {
+    const runtime::RequestMemoryOptions default_options;
+    test.expect(default_options.max_arena_bytes ==
+                        2ULL * 1024ULL * 1024ULL * 1024ULL &&
+                    default_options.min_free_bytes_after_create ==
+                        8ULL * 1024ULL * 1024ULL * 1024ULL,
+                "default arena cap and post-create free margin remain fixed");
     const runtime::RequestPlanResult result =
         runtime::build_request_memory_plan();
     test.expect(result.ok(), "default request memory plan succeeds");
@@ -115,6 +126,8 @@ void test_default_exact_plan(TestContext& test) {
                     plan.gqa_probability_scratch.arena_offset ==
                         plan.fp32_scratch.arena_offset,
                 "FP32 logits/GEMV scratch explicitly aliases sufficient GQA scratch");
+    test.expect(empty_region(plan.nvfp4_large_m_weight_bf16_scratch),
+                "default small request owns no NVFP4 large-M scratch");
     test.expect(plan.rope_cos_fp32.element_capacity == 4'096U &&
                     plan.rope_sin_fp32.element_capacity == 4'096U &&
                     plan.rope_cos_fp32.byte_size == 16'384U &&
@@ -498,6 +511,104 @@ void test_prefill_chunk_large_layout(TestContext& test) {
                     plan512.linear_a_bf16.element_capacity == 24'576U &&
                     plan512.linear_b_bf16.element_capacity == 24'576U,
                 "C256/C512 row capacities scale exactly with the ABI tile");
+    test.expect(empty_region(plan256.nvfp4_large_m_weight_bf16_scratch) &&
+                    empty_region(plan512.nvfp4_large_m_weight_bf16_scratch),
+                "maxseq-128 C256/C512 plans keep large-M scratch absent");
+}
+
+void test_nvfp4_large_m_scratch_layout(TestContext& test) {
+    runtime::RequestMemoryOptions options;
+    options.prefill_chunk_size = 512U;
+    options.max_sequence_length = 128U;
+    const runtime::RequestPlanResult c512_short =
+        runtime::build_request_memory_plan(options);
+
+    options.prefill_chunk_size = 256U;
+    options.max_sequence_length = 512U;
+    const runtime::RequestPlanResult c256_long =
+        runtime::build_request_memory_plan(options);
+
+    options.prefill_chunk_size = 511U;
+    const runtime::RequestPlanResult c511_long =
+        runtime::build_request_memory_plan(options);
+
+    options.prefill_chunk_size = 512U;
+    const runtime::RequestPlanResult c512 =
+        runtime::build_request_memory_plan(options);
+
+    options.max_sequence_length = 1'024U;
+    const runtime::RequestPlanResult c512_1024 =
+        runtime::build_request_memory_plan(options);
+    test.expect(c512_short && c256_long && c511_long && c512 && c512_1024,
+                "large-M scratch boundary plans all build");
+    if (!c512_short || !c256_long || !c511_long || !c512 || !c512_1024) {
+        return;
+    }
+
+    const runtime::RequestMemoryPlan& short_plan = *c512_short.value;
+    const runtime::RequestMemoryPlan& c256_plan = *c256_long.value;
+    const runtime::RequestMemoryPlan& c511_plan = *c511_long.value;
+    const runtime::RequestMemoryPlan& plan = *c512.value;
+    const runtime::RequestMemoryPlan& plan1024 = *c512_1024.value;
+    test.expect(empty_region(short_plan.nvfp4_large_m_weight_bf16_scratch) &&
+                    short_plan.arena_bytes == 174'991'360U &&
+                    empty_region(c256_plan.nvfp4_large_m_weight_bf16_scratch) &&
+                    c256_plan.arena_bytes == 156'690'432U &&
+                    empty_region(c511_plan.nvfp4_large_m_weight_bf16_scratch) &&
+                    c511_plan.arena_bytes == 200'085'504U,
+                "C512-short and sub-C512 chunks keep legacy arena contracts");
+
+    const runtime::RequestRegion& scratch =
+        plan.nvfp4_large_m_weight_bf16_scratch;
+    test.expect(scratch.arena_offset == 200'124'416U &&
+                    scratch.byte_size ==
+                        runtime::kRequestNvFp4LargeMWeightBf16ScratchBytes &&
+                    scratch.byte_size == 178'257'920U &&
+                    scratch.element_capacity ==
+                        runtime::kRequestNvFp4LargeMWeightBf16ScratchElements &&
+                    scratch.element_capacity == 89'128'960U &&
+                    scratch.element_size_bytes == 2U &&
+                    (scratch.arena_offset %
+                     runtime::kRequestArenaAlignment) == 0U,
+                "C512 maxseq-512 owns one exact aligned canonical BF16 scratch");
+    test.expect(plan.persistent_bytes == 112'001'024U &&
+                    plan.workspace_offset == 112'001'024U &&
+                    plan.workspace_bytes == 266'381'312U &&
+                    scratch.arena_offset + scratch.byte_size ==
+                        plan.rope_offset &&
+                    plan.rope_offset == 378'382'336U &&
+                    plan.rope_bytes == 131'072U &&
+                    plan.arena_bytes == 378'513'408U &&
+                    plan.arena_bytes - 200'255'488U ==
+                        runtime::kRequestNvFp4LargeMWeightBf16ScratchBytes,
+                "C512 maxseq-512 workspace and arena grow by exactly one scratch");
+
+    const runtime::RequestRegion& scratch1024 =
+        plan1024.nvfp4_large_m_weight_bf16_scratch;
+    test.expect(scratch1024.arena_offset == 233'678'848U &&
+                    scratch1024.byte_size == scratch.byte_size &&
+                    scratch1024.element_capacity == scratch.element_capacity &&
+                    plan1024.workspace_bytes == 266'381'312U &&
+                    plan1024.rope_offset == 411'936'768U &&
+                    plan1024.arena_bytes == 412'198'912U,
+                "C512 maxseq-1024 keeps one scratch and advances offsets exactly");
+
+    options = {};
+    options.prefill_chunk_size = 512U;
+    options.max_sequence_length = 512U;
+    options.max_arena_bytes = 200'255'488U;
+    const runtime::RequestPlanResult over_cap =
+        runtime::build_request_memory_plan(options);
+    options.prefill_chunk_size = 256U;
+    const runtime::RequestPlanResult fallback =
+        runtime::build_request_memory_plan(options);
+    test.expect(!over_cap &&
+                    over_cap.diagnostic.code ==
+                        runtime::RequestErrorCode::kArenaLimitExceeded &&
+                    fallback && fallback.value->arena_bytes == 156'690'432U &&
+                    empty_region(
+                        fallback.value->nvfp4_large_m_weight_bf16_scratch),
+                "arena cap fails C512 closed while C256 fallback remains available");
 }
 
 void test_alignment_non_overlap_and_schedule(TestContext& test) {
@@ -598,8 +709,12 @@ void test_minimum_maximum_and_bad_options(TestContext& test) {
                     result.value->arena_bytes ==
                         runtime::kMaximumRequestArenaBytes &&
                     result.value->persistent_bytes == 17'258'315'776ULL &&
-                    result.value->workspace_bytes == 112'295'936U &&
+                    result.value->workspace_bytes == 290'553'856U &&
                     result.value->rope_bytes == 67'108'864U &&
+                    result.value->nvfp4_large_m_weight_bf16_scratch.arena_offset ==
+                        17'370'611'712ULL &&
+                    result.value->nvfp4_large_m_weight_bf16_scratch.byte_size ==
+                        runtime::kRequestNvFp4LargeMWeightBf16ScratchBytes &&
                     result.value->fp32_scratch.element_capacity == 6'291'456U &&
                     result.value->gqa_probability_scratch.element_capacity ==
                         6'291'456U,
@@ -684,6 +799,7 @@ int main() {
     test_prefill_chunk_thirty_two_layout(test);
     test_prefill_chunk_sixty_four_layout(test);
     test_prefill_chunk_large_layout(test);
+    test_nvfp4_large_m_scratch_layout(test);
     test_alignment_non_overlap_and_schedule(test);
     test_minimum_maximum_and_bad_options(test);
     if (test.failures() != 0) {

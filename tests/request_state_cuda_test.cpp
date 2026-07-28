@@ -11,6 +11,7 @@
 #include <iostream>
 #include <limits>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -154,6 +155,8 @@ void test_create_views_rope_and_reset(TestContext& test) {
     auto linear_b = state.linear_b_buffer();
     auto fp32 = state.fp32_scratch();
     auto probabilities = state.gqa_probability_scratch();
+    std::uint16_t* const no_large_m_scratch =
+        state.nvfp4_large_m_weight_bf16_scratch();
     test.expect(hidden0 && hidden0.value->element_capacity == 5'120U &&
                     projection3 &&
                     projection3.value->element_capacity == 17'408U &&
@@ -167,6 +170,13 @@ void test_create_views_rope_and_reset(TestContext& test) {
                     probabilities.value->element_capacity == 96U &&
                     fp32.value->device_data == probabilities.value->device_data,
                 "small GQA scratch explicitly aliases the 248320 FP32 scratch");
+    test.expect(no_large_m_scratch == nullptr &&
+                    state.plan()
+                            .nvfp4_large_m_weight_bf16_scratch.byte_size == 0U &&
+                    state.plan()
+                            .nvfp4_large_m_weight_bf16_scratch.element_capacity ==
+                        0U,
+                "small request binds no NVFP4 large-M scratch");
     test.expect(!state.hidden_buffer(3U) &&
                     state.hidden_buffer(3U).error ==
                         runtime::RequestAccessError::kInvalidBufferIndex &&
@@ -308,6 +318,98 @@ void test_create_views_rope_and_reset(TestContext& test) {
     created.value.reset();
 }
 
+void test_nvfp4_large_m_scratch_binding_move_and_release(TestContext& test) {
+    {
+        runtime::RequestMemoryOptions options;
+        options.prefill_chunk_size = 512U;
+        options.max_sequence_length = 512U;
+        options.max_arena_bytes = 512ULL * 1024ULL * 1024ULL;
+        options.min_free_bytes_after_create = 0U;
+        runtime::RequestStateResult created =
+            runtime::create_request_state(options);
+        if (!created) {
+            print_diagnostic(created.diagnostic);
+        }
+        test.expect(created.ok(),
+                    "C512 maxseq-512 request state creates with one scratch");
+        if (!created) {
+            return;
+        }
+
+        runtime::RequestState& state = *created.value;
+        const runtime::RequestRegion& region =
+            state.plan().nvfp4_large_m_weight_bf16_scratch;
+        std::uint16_t* const gate_scratch =
+            state.nvfp4_large_m_weight_bf16_scratch();
+        std::uint16_t* const up_scratch =
+            state.nvfp4_large_m_weight_bf16_scratch();
+        std::uint16_t* const down_scratch =
+            state.nvfp4_large_m_weight_bf16_scratch();
+        const auto expected_pointer =
+            reinterpret_cast<std::uintptr_t>(state.arena_data()) +
+            region.arena_offset;
+        test.expect(gate_scratch != nullptr && gate_scratch == up_scratch &&
+                        up_scratch == down_scratch &&
+                        reinterpret_cast<std::uintptr_t>(gate_scratch) ==
+                            expected_pointer &&
+                        (reinterpret_cast<std::uintptr_t>(gate_scratch) %
+                         runtime::kRequestArenaAlignment) == 0U &&
+                        region.arena_offset == 200'124'416U &&
+                        region.byte_size == 178'257'920U &&
+                        region.element_capacity == 89'128'960U &&
+                        region.element_size_bytes == sizeof(std::uint16_t),
+                    "Gate/Up/Down bind the same exact aligned C512 scratch");
+
+        std::array<std::uint8_t, 2U> boundary_bytes{};
+        auto* const scratch_bytes =
+            reinterpret_cast<std::uint8_t*>(gate_scratch);
+        cudaError_t status = cudaMemset(scratch_bytes, 0x5A, 1U);
+        if (status == cudaSuccess) {
+            status = cudaMemset(scratch_bytes + region.byte_size - 1U,
+                                0xA5,
+                                1U);
+        }
+        if (status == cudaSuccess) {
+            status = cudaMemcpy(boundary_bytes.data(),
+                                scratch_bytes,
+                                1U,
+                                cudaMemcpyDeviceToHost);
+        }
+        if (status == cudaSuccess) {
+            status = cudaMemcpy(boundary_bytes.data() + 1U,
+                                scratch_bytes + region.byte_size - 1U,
+                                1U,
+                                cudaMemcpyDeviceToHost);
+        }
+        test.expect(status == cudaSuccess && boundary_bytes[0U] == 0x5AU &&
+                        boundary_bytes[1U] == 0xA5U,
+                    "C512 scratch first and last bytes are device-accessible");
+
+        runtime::RequestState moved(std::move(state));
+        test.expect(!static_cast<bool>(state) &&
+                        state.nvfp4_large_m_weight_bf16_scratch() == nullptr &&
+                        static_cast<bool>(moved) &&
+                        moved.nvfp4_large_m_weight_bf16_scratch() ==
+                            gate_scratch &&
+                        moved.plan()
+                                .nvfp4_large_m_weight_bf16_scratch.byte_size ==
+                            runtime::kRequestNvFp4LargeMWeightBf16ScratchBytes,
+                    "move construction transfers the single scratch binding");
+
+        runtime::RequestState assigned;
+        assigned = std::move(moved);
+        test.expect(!static_cast<bool>(moved) &&
+                        moved.nvfp4_large_m_weight_bf16_scratch() == nullptr &&
+                        static_cast<bool>(assigned) &&
+                        assigned.nvfp4_large_m_weight_bf16_scratch() ==
+                            gate_scratch,
+                    "move assignment preserves exactly one scratch owner");
+        created.value.reset();
+    }
+    test.expect(cudaGetLastError() == cudaSuccess,
+                "C512 scratch arena release leaves no CUDA error");
+}
+
 void test_memory_gate(TestContext& test) {
     runtime::RequestMemoryOptions options;
     options.max_sequence_length = 1U;
@@ -334,6 +436,7 @@ int main() {
     }
     TestContext test;
     test_create_views_rope_and_reset(test);
+    test_nvfp4_large_m_scratch_binding_move_and_release(test);
     test_memory_gate(test);
     if (test.failures() != 0) {
         std::cerr << test.failures() << " request-state CUDA test(s) failed\n";
