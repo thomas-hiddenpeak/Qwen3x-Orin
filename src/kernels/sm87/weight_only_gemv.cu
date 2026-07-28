@@ -6118,6 +6118,31 @@ decode_nvfp4x4_to_bf16x4_table_free_vector(
   return result;
 }
 
+// Test-only M64xN256 decoder backed by the complete E4M3xE2M1 product
+// table.  The table is laid out as 256 consecutive rows of sixteen BF16
+// products, so each packed nibble becomes one indexed shared-memory U16
+// load.  Keeping this constructor separate from the retained table-free
+// path makes the candidate's extra 8 KiB/shared-CTA tradeoff explicit.
+[[nodiscard]] __device__ __forceinline__ uint2
+decode_nvfp4x4_to_bf16x4_full_product_lookup(
+    const std::uint16_t packed, const std::uint8_t encoded_scale,
+    const std::uint16_t* const decoded_products) {
+  const std::uint16_t* const products =
+      decoded_products +
+      static_cast<unsigned int>(encoded_scale) * kNvFp4EncodedValueCount;
+  uint2 result{};
+  result.x = static_cast<std::uint32_t>(products[packed & 0x0fU]) |
+             (static_cast<std::uint32_t>(
+                  products[(packed >> 4U) & 0x0fU])
+              << 16U);
+  result.y = static_cast<std::uint32_t>(
+                 products[(packed >> 8U) & 0x0fU]) |
+             (static_cast<std::uint32_t>(
+                  products[(packed >> 12U) & 0x0fU])
+              << 16U);
+  return result;
+}
+
 // Exact x4 decoder specialized for the E2M1 magnitude set.  E4M3FN values
 // are exactly representable in BF16, as are their products by 1.5.  One
 // packed BF16 multiply therefore constructs scale*1.5 for both lanes; every
@@ -9084,7 +9109,8 @@ issue_nvfp4_gate_m64_n256_scale_window(
 }
 
 template <bool kActivationCacheAll, bool kPackedWeightCacheAll,
-          bool kSeedScaleCodebook, bool kScaleFactoredDecoder = false>
+          bool kSeedScaleCodebook, bool kScaleFactoredDecoder = false,
+          bool kFullProductLookup = false>
 __global__ __launch_bounds__(kThreads, 2) void
 nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_test_kernel(
     const std::uint8_t* const packed_weights,
@@ -9107,8 +9133,12 @@ nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_test_kernel(
   static_assert(kK64StageCount == 80U);
   static_assert(kM64TileCount == 8U);
   static_assert(kOutputColumnBlockCount == 68U);
+  static_assert(!kFullProductLookup ||
+                (!kSeedScaleCodebook && !kScaleFactoredDecoder));
 
-  __shared__ NvFp4M32ProductLookupStorage<true, true> product_lookup;
+  __shared__ NvFp4M32ProductLookupStorage<!kFullProductLookup,
+                                          !kFullProductLookup>
+      product_lookup;
   extern __shared__ __align__(32) std::uint8_t dynamic_storage[];
   auto* const pipeline =
       reinterpret_cast<NvFp4GateM64N256PipelineStorage*>(dynamic_storage);
@@ -9118,18 +9148,46 @@ nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_test_kernel(
   const unsigned int lane = thread % kWarpSize;
   const unsigned int lane_group = lane / 4U;
   const unsigned int lane_in_group = lane % 4U;
-  if constexpr (kSeedScaleCodebook) {
-    if (warp == 0U) {
-      cp_async_ca_shared_global_16(
-          reinterpret_cast<uint4*>(product_lookup.scale_values) + lane,
-          reinterpret_cast<const uint4*>(kNvFp4E4m3Bf16CodebookSeed) +
-              lane);
-      cp_async_commit_group();
-      cp_async_wait_group_0();
+  if constexpr (kFullProductLookup) {
+    constexpr unsigned int kProductWordCount =
+        kFp8EncodedValueCount * kNvFp4EncodedValueCount / 2U;
+    constexpr unsigned int kProductInitializationPasses =
+        kProductWordCount / kThreads;
+    static_assert(kProductWordCount == 2'048U);
+    static_assert(kProductInitializationPasses == 8U);
+    const unsigned int product_pair = thread & 7U;
+    const float decoded_low =
+        decode_e2m1(static_cast<std::uint8_t>(product_pair * 2U));
+    const float decoded_high =
+        decode_e2m1(static_cast<std::uint8_t>(product_pair * 2U + 1U));
+#pragma unroll 1
+    for (unsigned int pass = 0U; pass < kProductInitializationPasses;
+         ++pass) {
+      const unsigned int scale_code = (thread >> 3U) + pass * 32U;
+      const float decoded_scale =
+          decode_e4m3fn(static_cast<std::uint8_t>(scale_code));
+      const std::uint16_t low =
+          encode_bf16_rne(decoded_low * decoded_scale);
+      const std::uint16_t high =
+          encode_bf16_rne(decoded_high * decoded_scale);
+      product_lookup.product_words[thread + pass * kThreads] =
+          static_cast<std::uint32_t>(low) |
+          (static_cast<std::uint32_t>(high) << 16U);
     }
   } else {
-    product_lookup.scale_values[thread] =
-        encode_bf16_rne(decode_e4m3fn(static_cast<std::uint8_t>(thread)));
+    if constexpr (kSeedScaleCodebook) {
+      if (warp == 0U) {
+        cp_async_ca_shared_global_16(
+            reinterpret_cast<uint4*>(product_lookup.scale_values) + lane,
+            reinterpret_cast<const uint4*>(kNvFp4E4m3Bf16CodebookSeed) +
+                lane);
+        cp_async_commit_group();
+        cp_async_wait_group_0();
+      }
+    } else {
+      product_lookup.scale_values[thread] =
+          encode_bf16_rne(decode_e4m3fn(static_cast<std::uint8_t>(thread)));
+    }
   }
   __syncthreads();
 
@@ -9221,17 +9279,26 @@ nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_test_kernel(
             static_cast<std::uint16_t>(
                 static_cast<unsigned int>(shared_row[packed_offset + 4U])
                 << 8U);
-        const std::uint16_t decoded_scale =
-            product_lookup.scale_values[
-                shared_scale_row[32U + (stage % 4U) * 4U + k16]];
-        if constexpr (kScaleFactoredDecoder) {
+        const std::uint8_t encoded_scale =
+            shared_scale_row[32U + (stage % 4U) * 4U + k16];
+        if constexpr (kFullProductLookup) {
           decoded_b[n_panel] =
-              decode_nvfp4x4_to_bf16x4_scale_factored_exact_vector(
-                  packed, decoded_scale);
+              decode_nvfp4x4_to_bf16x4_full_product_lookup(
+                  packed, encoded_scale,
+                  reinterpret_cast<const std::uint16_t*>(
+                      product_lookup.product_words));
         } else {
-          decoded_b[n_panel] =
-              decode_nvfp4x4_to_bf16x4_table_free_vector(packed,
-                                                          decoded_scale);
+          const std::uint16_t decoded_scale =
+              product_lookup.scale_values[encoded_scale];
+          if constexpr (kScaleFactoredDecoder) {
+            decoded_b[n_panel] =
+                decode_nvfp4x4_to_bf16x4_scale_factored_exact_vector(
+                    packed, decoded_scale);
+          } else {
+            decoded_b[n_panel] =
+                decode_nvfp4x4_to_bf16x4_table_free_vector(packed,
+                                                            decoded_scale);
+          }
         }
       }
 
@@ -28691,6 +28758,95 @@ int query_sm87_nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_ca_resources_test_cud
   const auto kernel =
       nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_test_kernel<true, false,
                                                                false>;
+  cudaError_t status = cudaFuncSetAttribute(
+      kernel, cudaFuncAttributeMaxDynamicSharedMemorySize,
+      kDynamicSharedBytes);
+  cudaFuncAttributes attributes{};
+  if (status == cudaSuccess) {
+    status = cudaFuncGetAttributes(&attributes, kernel);
+  }
+  int active_blocks = 0;
+  if (status == cudaSuccess) {
+    status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+        &active_blocks, kernel, static_cast<int>(kThreads),
+        static_cast<std::size_t>(kDynamicSharedBytes));
+  }
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  *registers_per_thread = attributes.numRegs;
+  *static_shared_bytes = attributes.sharedSizeBytes;
+  *dynamic_shared_bytes = static_cast<std::size_t>(kDynamicSharedBytes);
+  *local_bytes = attributes.localSizeBytes;
+  *maximum_threads_per_block = attributes.maxThreadsPerBlock;
+  *active_blocks_per_sm = active_blocks;
+  return static_cast<int>(cudaSuccess);
+}
+
+int launch_sm87_nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_cafullproduct_test_cuda(
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales, const float weight_scale_2,
+    const std::uint16_t* const activations,
+    const std::size_t token_count, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  constexpr int kDynamicSharedBytes =
+      static_cast<int>(sizeof(NvFp4GateM64N256PipelineStorage));
+  constexpr unsigned int kGrid = (17'408U / 256U) * (512U / 64U);
+  if (token_count != 512U || rows != 17'408U || columns != 5'120U) {
+    return invalid_value();
+  }
+  const int validation = validate_nvfp4_m64_tiles_launch(
+      packed_weights, block_scales, weight_scale_2, activations, token_count,
+      rows, columns, output);
+  if (validation != static_cast<int>(cudaSuccess)) {
+    return validation;
+  }
+  const bool aligned =
+      pointer_is_aligned<alignof(uint4)>(packed_weights) &&
+      pointer_is_aligned<alignof(uint4)>(block_scales) &&
+      pointer_is_aligned<alignof(uint4)>(activations) &&
+      pointer_is_aligned<alignof(std::uint32_t)>(output);
+  if (!aligned) {
+    return invalid_value();
+  }
+
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  cudaError_t status = cudaFuncSetAttribute(
+      nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_test_kernel<
+          true, false, false, false, true>,
+      cudaFuncAttributeMaxDynamicSharedMemorySize, kDynamicSharedBytes);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_test_kernel<
+      true, false, false, false, true>
+      <<<kGrid, kThreads, kDynamicSharedBytes, stream>>>(
+          packed_weights, block_scales, weight_scale_2, activations, output);
+  return static_cast<int>(cudaGetLastError());
+}
+
+int query_sm87_nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_cafullproduct_resources_test_cuda(
+    const std::size_t token_count, const std::size_t rows,
+    const std::size_t columns, int* const registers_per_thread,
+    std::size_t* const static_shared_bytes,
+    std::size_t* const dynamic_shared_bytes, std::size_t* const local_bytes,
+    int* const maximum_threads_per_block,
+    int* const active_blocks_per_sm) noexcept {
+  constexpr int kDynamicSharedBytes =
+      static_cast<int>(sizeof(NvFp4GateM64N256PipelineStorage));
+  if (token_count != 512U || rows != 17'408U || columns != 5'120U ||
+      registers_per_thread == nullptr || static_shared_bytes == nullptr ||
+      dynamic_shared_bytes == nullptr || local_bytes == nullptr ||
+      maximum_threads_per_block == nullptr ||
+      active_blocks_per_sm == nullptr) {
+    return invalid_value();
+  }
+
+  const auto kernel =
+      nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_test_kernel<
+          true, false, false, false, true>;
   cudaError_t status = cudaFuncSetAttribute(
       kernel, cudaFuncAttributeMaxDynamicSharedMemorySize,
       kDynamicSharedBytes);
