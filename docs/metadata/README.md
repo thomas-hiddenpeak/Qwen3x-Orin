@@ -12,6 +12,10 @@ It is an external architecture reference with no production-selection
 authority. The promoted exact-C16 GDN/norm/gate route and current native P513
 anchor are recorded in
 [`qwen36-27b-prefill-gdn-c16-norm-gate-production-2026-07-29.json`](qwen36-27b-prefill-gdn-c16-norm-gate-production-2026-07-29.json).
+The subsequent test-only Chunk64/WY architecture proof, its 347.539616 ms
+real-P513 saving, full-state numerical characterization, and explicit
+non-production decision are recorded in
+[`qwen36-27b-prefill-gdn-chunk64-architecture-2026-07-29.json`](qwen36-27b-prefill-gdn-chunk64-architecture-2026-07-29.json).
 
 Policy correction effective 2026-07-29: cuBLASLt is permanently an external
 benchmark reference.  It has no production-dispatch, fallback, native

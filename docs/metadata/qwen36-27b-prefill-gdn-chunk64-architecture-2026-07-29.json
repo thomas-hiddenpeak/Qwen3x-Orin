@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-gdn-chunk64-architecture-2026-07-29",
+  "status": "positive_test_only_architecture_proof",
+  "recorded_at": "2026-07-29T15:30:53+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "base_commit": "5afe7b4674208f07e8cf2840a801d093aca681d1",
+    "branch": "main",
+    "kernel_file": "src/kernels/reference/gdn_prefill_chunk64_cublas_reference_sm87.cu",
+    "kernel_sha256": "80ba72b71ddecda18dc5a95bcd5a1f9f4d1bfeac1c355753e18aa24f9e0f79c4",
+    "harness_file": "tests/reference_gdn_prefill_chunk64_reference_engine_e2e_test.cpp",
+    "harness_sha256": "15f9fb21cc3ee386fe966ce8b79522f1d84d1aadad9dbcb5dc5f47880a684545"
+  },
+  "model": {
+    "path": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "performance_payload": "real authenticated model weights; no synthetic matrix performance authority"
+  },
+  "protocol": {
+    "profile": "P513",
+    "prompt_tokens": 513,
+    "prefix_tokens": 512,
+    "batch_size": 1,
+    "output_tokens": 1,
+    "prefill_chunk_size": 512,
+    "warmup_order": ["baseline", "candidate"],
+    "measurement_order": ["baseline", "candidate"],
+    "mtp": false
+  },
+  "result": {
+    "baseline_prefix_ms": 2260.333589,
+    "candidate_prefix_ms": 1912.793973,
+    "prefix_saved_ms": 347.539616,
+    "prefix_speedup": 1.181692133,
+    "baseline_prefix_tokens_per_second": 226.515237614,
+    "candidate_prefix_tokens_per_second": 267.671274182,
+    "baseline_ttft_ms": 2369.074987,
+    "candidate_ttft_ms": 2021.535722,
+    "ttft_saved_ms": 347.539265,
+    "first_token_id": 9419,
+    "generated_text": "Hello",
+    "candidate_route_hits": 48,
+    "attributed_gdn_stage_total_ms": 150.035424,
+    "component_budget_ms": 100.0,
+    "component_budget_passed": false
+  },
+  "numerical_characterization": {
+    "boundary": "P512 committed GDN state",
+    "elements": 37748736,
+    "unequal_bf16": 36851249,
+    "unequal_fraction": 0.976224714,
+    "global_nrmse": 0.117148528,
+    "maximum_absolute_error": 2.84375,
+    "maximum_layer_nrmse": 0.120440945,
+    "maximum_layer": 0,
+    "finite": true,
+    "authority": "characterization_only"
+  },
+  "artifacts": {
+    "nsys_report": {
+      "path": "/tmp/q3x-gdn-chunk64-three-stage-final-p513.nsys-rep",
+      "bytes": 594261,
+      "sha256": "3c80aceb6df24dae9aef9bcfbd5e6d2374ea5e9bbd4927629cb7f6a074389b5c",
+      "checked_in": false
+    },
+    "ncu_csv": {
+      "path": "/tmp/q3x-gdn-chunk64-three-stage-ncu-root.csv",
+      "bytes": 51095,
+      "sha256": "2615691c7912cae8beab4281cad26339e8fd344e695becd4234c8f97c610bf34",
+      "checked_in": false
+    },
+    "summary": "docs/analysis/prefill-p513-gdn-chunk64-architecture-2026-07-29/gdn-stage-summary.csv"
+  },
+  "authority": {
+    "default_runtime_changed": false,
+    "production_eligible": false,
+    "classic_cublas": "reference_only",
+    "cublaslt": "none",
+    "next_priority": "FP8 large-M projection architecture"
+  }
+}

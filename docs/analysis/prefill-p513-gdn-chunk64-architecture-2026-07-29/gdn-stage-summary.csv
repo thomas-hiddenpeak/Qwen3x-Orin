@@ -1,0 +1,11 @@
+stage,total_ms,instances,avg_us,implementation,status
+reconstruct_norm_gate,43.388864,48,903.934667,native_sm87_wmma,retained_architecture_proof
+persistent_state,40.831648,48,850.659333,native_sm87_wmma,retained_architecture_proof
+fused_kkt_block16_solve,24.748000,48,515.583333,native_sm87_wmma,retained_architecture_proof
+pack_scaled_k_v,14.436704,48,300.764667,native_cuda,retained_architecture_proof
+wy_w_u,11.443040,96,119.198333,classic_cublas_reference,reference_only
+normalize_qk,5.732128,48,119.419333,native_cuda,retained_architecture_proof
+qk_gemm,5.160448,48,107.509333,classic_cublas_reference,reference_only
+scale_qk,3.797568,48,79.116000,native_cuda,retained_architecture_proof
+prepare_gate,0.497024,48,10.354667,native_cuda,retained_architecture_proof
+attributed_total,150.035424,,,,architecture_budget

@@ -3,6 +3,10 @@
 #if defined(Q3X_ENABLE_GDN_B8_ADMISSION)
 #include "../kernels/reference/gdn_prefill_b8_sequential_sm87.h"
 #endif
+#if defined(Q3X_ENABLE_GDN_CHUNK64_REFERENCE_ADMISSION)
+#include "../kernels/reference/gdn_prefill_chunk64_cublas_reference_sm87.h"
+#include "reference_runner_gdn_chunk64_reference_admission.h"
+#endif
 #include "../kernels/reference/gdn_prefill_c16_norm_gate_sm87.h"
 #if defined(Q3X_ENABLE_GDN_C16_NORM_GATE_ADMISSION)
 #include "reference_runner_gdn_c16_norm_gate_admission.h"
@@ -50,6 +54,15 @@ constexpr float kAttentionScale = 1.0F / 16.0F;
 // matching test-only setter is deliberately absent from the public header.
 thread_local bool g_enable_prefill_gdn_b8_admission = false;
 thread_local std::size_t g_prefill_gdn_b8_admission_hits = 0U;
+#endif
+#if defined(Q3X_ENABLE_GDN_CHUNK64_REFERENCE_ADMISSION)
+// Compile-time-isolated architecture switch. The default is always false and
+// the external reference context has no fallback or production authority.
+thread_local bool g_enable_prefill_gdn_chunk64_reference_admission = false;
+thread_local std::size_t g_prefill_gdn_chunk64_reference_admission_hits = 0U;
+thread_local reference_runner_detail::
+    PrefillGdnChunk64ReferenceSnapshotHook
+        g_prefill_gdn_chunk64_reference_snapshot_hook{};
 #endif
 #if defined(Q3X_ENABLE_GDN_C16_NORM_GATE_ADMISSION)
 // The opt-in test build can still select the legacy route (false) or the
@@ -296,6 +309,19 @@ template <std::size_t SpanCount>
          first_position % 8U == 0U;
 }
 #endif
+#if defined(Q3X_ENABLE_GDN_CHUNK64_REFERENCE_ADMISSION)
+[[nodiscard]] bool use_prefill_gdn_chunk64_reference_admission(
+    const bool enabled, const ProjectionBackend backend,
+    const std::uint32_t first_position, const std::size_t token_count,
+    const void* const context, const void* const workspace,
+    const std::size_t workspace_bytes) noexcept {
+  return enabled && backend == ProjectionBackend::kSm87WeightOnly &&
+         first_position == 0U && token_count == 512U && context != nullptr &&
+         workspace != nullptr &&
+         workspace_bytes >=
+             gdn_prefill_chunk64_reference_detail::workspace_bytes();
+}
+#endif
 [[nodiscard]] bool should_use_prefill_gdn_c16_norm_gate(
     const bool enabled, const ProjectionBackend backend,
     const std::uint32_t first_position,
@@ -515,6 +541,25 @@ bool exchange_prefill_gdn_b8_admission_test_enabled(
 std::size_t exchange_prefill_gdn_b8_admission_test_hits(
     const std::size_t hits) noexcept {
   return std::exchange(g_prefill_gdn_b8_admission_hits, hits);
+}
+#endif
+#if defined(Q3X_ENABLE_GDN_CHUNK64_REFERENCE_ADMISSION)
+bool exchange_prefill_gdn_chunk64_reference_admission_test_enabled(
+    const bool enabled) noexcept {
+  return std::exchange(
+      g_enable_prefill_gdn_chunk64_reference_admission, enabled);
+}
+
+std::size_t exchange_prefill_gdn_chunk64_reference_admission_test_hits(
+    const std::size_t hits) noexcept {
+  return std::exchange(
+      g_prefill_gdn_chunk64_reference_admission_hits, hits);
+}
+
+PrefillGdnChunk64ReferenceSnapshotHook
+exchange_prefill_gdn_chunk64_reference_snapshot_hook(
+    const PrefillGdnChunk64ReferenceSnapshotHook hook) noexcept {
+  return std::exchange(g_prefill_gdn_chunk64_reference_snapshot_hook, hook);
 }
 #endif
 #if defined(Q3X_ENABLE_GDN_C16_NORM_GATE_ADMISSION)
@@ -1142,6 +1187,12 @@ ReferenceRunner& ReferenceRunner::operator=(ReferenceRunner&& other) noexcept {
       std::exchange(other.prefill_branch_ready_event_, nullptr);
   prefill_branch_done_event_ =
       std::exchange(other.prefill_branch_done_event_, nullptr);
+  prefill_gdn_chunk64_reference_context_ =
+      std::exchange(other.prefill_gdn_chunk64_reference_context_, nullptr);
+  prefill_gdn_chunk64_reference_workspace_ =
+      std::exchange(other.prefill_gdn_chunk64_reference_workspace_, nullptr);
+  prefill_gdn_chunk64_reference_workspace_bytes_ = std::exchange(
+      other.prefill_gdn_chunk64_reference_workspace_bytes_, 0U);
   pinned_logits_ = std::exchange(other.pinned_logits_, nullptr);
   pinned_trace_ = std::exchange(other.pinned_trace_, nullptr);
   decode_graph_p1_slots_ = other.decode_graph_p1_slots_;
@@ -1161,8 +1212,16 @@ ReferenceRunner& ReferenceRunner::operator=(ReferenceRunner&& other) noexcept {
 }
 
 ReferenceRunner::operator bool() const noexcept {
-  return weights_ != nullptr && state_ != nullptr && stream_ != nullptr &&
-         pinned_logits_ != nullptr;
+  const bool base = weights_ != nullptr && state_ != nullptr &&
+                    stream_ != nullptr && pinned_logits_ != nullptr;
+#if defined(Q3X_ENABLE_GDN_CHUNK64_REFERENCE_ADMISSION)
+  return base && prefill_gdn_chunk64_reference_context_ != nullptr &&
+         prefill_gdn_chunk64_reference_workspace_ != nullptr &&
+         prefill_gdn_chunk64_reference_workspace_bytes_ >=
+             gdn_prefill_chunk64_reference_detail::workspace_bytes();
+#else
+  return base;
+#endif
 }
 
 std::uint32_t ReferenceRunner::current_position() const noexcept {
@@ -1177,6 +1236,15 @@ void ReferenceRunner::release() noexcept {
     (void)cudaStreamSynchronize(
         reinterpret_cast<cudaStream_t>(prefill_auxiliary_stream_));
   }
+#if defined(Q3X_ENABLE_GDN_CHUNK64_REFERENCE_ADMISSION)
+  if (prefill_gdn_chunk64_reference_context_ != nullptr) {
+    (void)gdn_prefill_chunk64_reference_detail::destroy_context(
+        prefill_gdn_chunk64_reference_context_);
+  }
+  if (prefill_gdn_chunk64_reference_workspace_ != nullptr) {
+    (void)cudaFree(prefill_gdn_chunk64_reference_workspace_);
+  }
+#endif
   destroy_decode_graph_p1();
   if (prefill_branch_ready_event_ != nullptr) {
     (void)cudaEventDestroy(
@@ -1205,6 +1273,9 @@ void ReferenceRunner::release() noexcept {
   prefill_auxiliary_stream_ = nullptr;
   prefill_branch_ready_event_ = nullptr;
   prefill_branch_done_event_ = nullptr;
+  prefill_gdn_chunk64_reference_context_ = nullptr;
+  prefill_gdn_chunk64_reference_workspace_ = nullptr;
+  prefill_gdn_chunk64_reference_workspace_bytes_ = 0U;
   pinned_logits_ = nullptr;
   pinned_trace_ = nullptr;
   decode_graph_capture_active_ = false;
@@ -2576,6 +2647,10 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
   const bool enable_gdn_b8_admission =
       g_enable_prefill_gdn_b8_admission;
 #endif
+#if defined(Q3X_ENABLE_GDN_CHUNK64_REFERENCE_ADMISSION)
+  const bool enable_gdn_chunk64_reference_admission =
+      g_enable_prefill_gdn_chunk64_reference_admission;
+#endif
 #if defined(Q3X_ENABLE_GDN_C16_NORM_GATE_ADMISSION)
   // Snapshot the private switch at the synchronous public-call boundary.
   const bool enable_gdn_c16_norm_gate_admission =
@@ -2827,6 +2902,53 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
               enable_gdn_c16_norm_gate_admission, projection_backend_,
               first_position, token_count);
       bool gdn_output_is_normalized = false;
+#if defined(Q3X_ENABLE_GDN_CHUNK64_REFERENCE_ADMISSION)
+      const bool use_gdn_chunk64_reference =
+          use_prefill_gdn_chunk64_reference_admission(
+              enable_gdn_chunk64_reference_admission, projection_backend_,
+              first_position, token_count,
+              prefill_gdn_chunk64_reference_context_,
+              prefill_gdn_chunk64_reference_workspace_,
+              prefill_gdn_chunk64_reference_workspace_bytes_);
+      if (use_gdn_chunk64_reference) {
+        // Keep the established causal-convolution transition, then execute
+        // the complete C64x8 WY hierarchy as one test-only architecture
+        // reference. No external-library failure may fall back after state
+        // mutation; the public call is poisoned through the normal failure
+        // path instead.
+        for (std::size_t token_offset = 0U; token_offset < token_count;
+             token_offset += kPrefillKernelTileMaximumTokens) {
+          if (!check_cuda(
+                  launch_causal_conv1d_silu_update_tile_reference_cuda(
+                      views_.projection[0] +
+                          token_offset * kLinearQkvElements,
+                      kPrefillKernelTileMaximumTokens,
+                      attention->conv1d.data, views_.conv_state[layer],
+                      views_.projection[0] +
+                          token_offset * kLinearQkvElements,
+                      {}, stream_),
+                  "prefill_linear_causal_conv", layer)) {
+            return fail_prefill_tile(launch_failure);
+          }
+        }
+        ++g_prefill_gdn_chunk64_reference_admission_hits;
+        if (!check_cuda(
+                gdn_prefill_chunk64_reference_detail::launch(
+                    prefill_gdn_chunk64_reference_context_,
+                    prefill_gdn_chunk64_reference_workspace_,
+                    prefill_gdn_chunk64_reference_workspace_bytes_,
+                    views_.projection[0], views_.linear_a, views_.linear_b,
+                    attention->a_log.data, attention->dt_bias.data,
+                    views_.gdn_state[layer], views_.gdn_state[layer],
+                    kRmsEpsilon, attention->norm.data,
+                    views_.projection[1], kRmsEpsilon,
+                    views_.projection[2], stream_),
+                "prefill_linear_gdn_chunk64_reference", layer)) {
+          return fail_prefill_tile(launch_failure);
+        }
+        gdn_output_is_normalized = true;
+      } else
+#endif
 #if defined(Q3X_ENABLE_GDN_B8_ADMISSION)
       const bool use_gdn_b8 = use_prefill_gdn_b8_admission(
           enable_gdn_b8_admission, projection_backend_, first_position,
@@ -3332,6 +3454,13 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
         "prefill_tile_commit", kReferenceNoLayer,
         commit_status.cuda_error));
   }
+#if defined(Q3X_ENABLE_GDN_CHUNK64_REFERENCE_ADMISSION)
+  const auto chunk64_snapshot_hook =
+      g_prefill_gdn_chunk64_reference_snapshot_hook;
+  if (chunk64_snapshot_hook.callback != nullptr) {
+    chunk64_snapshot_hook.callback(*state_, chunk64_snapshot_hook.context);
+  }
+#endif
 #if defined(Q3X_ENABLE_GDN_C16_NORM_GATE_ADMISSION)
   // prefill_tile_synchronize above completed the full C512 state transition;
   // observe it only after the logical sequence length was committed.
@@ -3398,6 +3527,31 @@ ReferenceRunnerFactoryResult create_reference_runner(
     return result;
   }
   runner.stream_ = reinterpret_cast<void*>(stream);
+
+#if defined(Q3X_ENABLE_GDN_CHUNK64_REFERENCE_ADMISSION)
+  status = static_cast<cudaError_t>(
+      gdn_prefill_chunk64_reference_detail::create_context(
+          &runner.prefill_gdn_chunk64_reference_context_));
+  if (status != cudaSuccess) {
+    result.diagnostic = runner_status(
+        ReferenceRunnerError::kAllocationFailure,
+        "create_gdn_chunk64_reference_context", kReferenceNoLayer,
+        static_cast<int>(status));
+    return result;
+  }
+  runner.prefill_gdn_chunk64_reference_workspace_bytes_ =
+      gdn_prefill_chunk64_reference_detail::workspace_bytes();
+  status = cudaMalloc(
+      &runner.prefill_gdn_chunk64_reference_workspace_,
+      runner.prefill_gdn_chunk64_reference_workspace_bytes_);
+  if (status != cudaSuccess) {
+    result.diagnostic = runner_status(
+        ReferenceRunnerError::kAllocationFailure,
+        "cudaMalloc(gdn_chunk64_reference_workspace)", kReferenceNoLayer,
+        static_cast<int>(status));
+    return result;
+  }
+#endif
 
   if (options.projection_backend == ProjectionBackend::kSm87WeightOnly) {
     cudaStream_t auxiliary_stream = nullptr;

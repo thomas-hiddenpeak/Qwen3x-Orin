@@ -26,6 +26,10 @@ option(Q3X_BUILD_GDN_C16_NORM_GATE_ADMISSION
   "Build the test-only exact-C16 GDN norm/gate admission route"
   OFF
 )
+option(Q3X_BUILD_GDN_CHUNK64_REFERENCE_ADMISSION
+  "Build the test-only external-reference C64/WY GDN architecture route"
+  OFF
+)
 if(Q3X_BUILD_GDN_B8_ADMISSION AND NOT BUILD_TESTING)
   message(FATAL_ERROR
     "Q3X_BUILD_GDN_B8_ADMISSION is test-only and requires BUILD_TESTING=ON"
@@ -36,10 +40,19 @@ if(Q3X_BUILD_GDN_C16_NORM_GATE_ADMISSION AND NOT BUILD_TESTING)
     "Q3X_BUILD_GDN_C16_NORM_GATE_ADMISSION is test-only and requires BUILD_TESTING=ON"
   )
 endif()
-if(Q3X_BUILD_GDN_B8_ADMISSION AND
-   Q3X_BUILD_GDN_C16_NORM_GATE_ADMISSION)
+if(Q3X_BUILD_GDN_CHUNK64_REFERENCE_ADMISSION AND NOT BUILD_TESTING)
   message(FATAL_ERROR
-    "The GDN B8 and C16 norm/gate admission routes are mutually exclusive"
+    "Q3X_BUILD_GDN_CHUNK64_REFERENCE_ADMISSION is test-only and requires BUILD_TESTING=ON"
+  )
+endif()
+if((Q3X_BUILD_GDN_B8_ADMISSION AND
+    Q3X_BUILD_GDN_C16_NORM_GATE_ADMISSION) OR
+   (Q3X_BUILD_GDN_B8_ADMISSION AND
+    Q3X_BUILD_GDN_CHUNK64_REFERENCE_ADMISSION) OR
+   (Q3X_BUILD_GDN_C16_NORM_GATE_ADMISSION AND
+    Q3X_BUILD_GDN_CHUNK64_REFERENCE_ADMISSION))
+  message(FATAL_ERROR
+    "The GDN B8, C16 norm/gate, and C64/WY reference admission routes are mutually exclusive"
   )
 endif()
 
@@ -167,6 +180,15 @@ if(Q3X_BUILD_GDN_C16_NORM_GATE_ADMISSION)
   target_compile_definitions(q3x_kernels PRIVATE
     Q3X_ENABLE_GDN_C16_NORM_GATE_ADMISSION=1
   )
+endif()
+if(Q3X_BUILD_GDN_CHUNK64_REFERENCE_ADMISSION)
+  target_sources(q3x_kernels PRIVATE
+    src/kernels/reference/gdn_prefill_chunk64_cublas_reference_sm87.cu
+  )
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_GDN_CHUNK64_REFERENCE_ADMISSION=1
+  )
+  target_link_libraries(q3x_kernels PRIVATE CUDA::cublas)
 endif()
 q3x_enable_warnings(q3x_kernels)
 
@@ -1056,6 +1078,35 @@ if(BUILD_TESTING)
     set_tests_properties(
       reference_gdn_prefill_c16_norm_gate_engine_e2e PROPERTIES
       LABELS "e2e;model;sm87;prefill;gdn;admission;correctness;ability"
+      RUN_SERIAL TRUE
+      SKIP_RETURN_CODE 77
+      TIMEOUT 1800
+    )
+  endif()
+
+  if(Q3X_BUILD_GDN_CHUNK64_REFERENCE_ADMISSION)
+    add_executable(
+      q3x_reference_gdn_prefill_chunk64_reference_engine_e2e_test
+      tests/reference_gdn_prefill_chunk64_reference_engine_e2e_test.cpp
+    )
+    target_include_directories(
+      q3x_reference_gdn_prefill_chunk64_reference_engine_e2e_test
+      PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/runtime"
+    )
+    target_link_libraries(
+      q3x_reference_gdn_prefill_chunk64_reference_engine_e2e_test
+      PRIVATE q3x::engine
+    )
+    q3x_enable_warnings(
+      q3x_reference_gdn_prefill_chunk64_reference_engine_e2e_test
+    )
+    add_test(NAME reference_gdn_prefill_chunk64_reference_engine_e2e
+      COMMAND q3x_reference_gdn_prefill_chunk64_reference_engine_e2e_test
+              "${_q3x_e2e_model_dir}"
+    )
+    set_tests_properties(
+      reference_gdn_prefill_chunk64_reference_engine_e2e PROPERTIES
+      LABELS "e2e;model;sm87;prefill;gdn;architecture;reference"
       RUN_SERIAL TRUE
       SKIP_RETURN_CODE 77
       TIMEOUT 1800

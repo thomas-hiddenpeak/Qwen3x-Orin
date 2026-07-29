@@ -207,3 +207,24 @@ candidate beat stock vLLM or the terminal target by itself.
 
 The unit of progress is now a Prefix budget transition, not the count of
 individually positive micro-edits.
+
+## First architecture checkpoint
+
+The isolated Chunk64/WY route has now completed its first real-model
+checkpoint. Three native SM87 stages (block-16 KKT/solve, persistent FP32
+state, and reconstruction+norm+gate) plus reference-only W/U/QK GEMMs reduced
+P513 Prefix from 2,260.333589 to 1,912.793973 ms, saving 347.539616 ms. It
+therefore passed the 300 ms whole-Prefix stop-loss but remains above the
+100 ms component budget at an attributed 150.035424 ms.
+
+The P512 recurrent-state NRMSE is 0.117148528 across all 37,748,736 BF16
+elements. This confirms throughput mode is a distinct numerical contract;
+the route remains test-only and the default compatibility path is unchanged.
+Full evidence is in
+[`analysis/prefill-p513-gdn-chunk64-architecture-2026-07-29/README.md`](analysis/prefill-p513-gdn-chunk64-architecture-2026-07-29/README.md).
+
+Because the whole Prefix is now dominated by the 496.920736 ms FP8 projection
+family and the remaining GDN gap requires producer/consumer ownership changes,
+the next implementation priority is the format/shape-specific FP8 large-M
+path. GDN resumes only for a design capable of removing the W/U/QK global
+boundaries or most of the remaining 50.035424 ms budget.
