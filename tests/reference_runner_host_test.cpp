@@ -543,13 +543,18 @@ void test_schedule_and_workspace(TestContext& test) {
           runtime::use_bulk_causal_gqa_group_q64_prefill(0U, 407U) &&
           runtime::use_bulk_causal_gqa_group_q64_prefill(0U, 481U) &&
           runtime::use_bulk_causal_gqa_group_q64_prefill(0U, 512U) &&
+          runtime::use_bulk_causal_gqa_group_q64_prefill(512U, 2U) &&
+          runtime::use_bulk_causal_gqa_group_q64_prefill(512U, 52U) &&
+          runtime::use_bulk_causal_gqa_group_q64_prefill(512U, 183U) &&
+          runtime::use_bulk_causal_gqa_group_q64_prefill(512U, 201U) &&
           runtime::use_bulk_causal_gqa_group_q64_prefill(512U, 512U) &&
           !runtime::use_bulk_causal_gqa_group_q64_prefill(0U, 1U) &&
           !runtime::use_bulk_causal_gqa_group_q64_prefill(0U, 513U) &&
           !runtime::use_bulk_causal_gqa_group_q64_prefill(1U, 407U) &&
           !runtime::use_bulk_causal_gqa_group_q64_prefill(511U, 512U) &&
-          !runtime::use_bulk_causal_gqa_group_q64_prefill(512U, 511U),
-      "grouped-Q64 Tensor Core selector accepts P0/C2..C512 and P512/C512");
+          !runtime::use_bulk_causal_gqa_group_q64_prefill(512U, 1U) &&
+          !runtime::use_bulk_causal_gqa_group_q64_prefill(512U, 513U),
+      "grouped-Q64 Tensor Core selector accepts P0/P512 C2..C512");
 
   constexpr std::size_t kMaximum =
       std::numeric_limits<std::size_t>::max();

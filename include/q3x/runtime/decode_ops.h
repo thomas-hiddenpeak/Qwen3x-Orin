@@ -290,15 +290,15 @@ launch_residual_add_headwise_centered_rms_norm_m32_5120_cuda(
 // tile-local token zero. Attention uses the fixed 1/sqrt(256) scale and
 // preserves the FP32 attention -> BF16 -> sigmoid Gate -> BF16 boundary.
 // All arrays must be disjoint and at least uint32_t aligned. P0/C2..C512 and
-// the exact P512/C512 continuation use the grouped-Q64 Tensor Core path;
-// other legal append positions use QT2. Both paths mask incomplete tiles.
-// The launch is asynchronous, performs no allocation or synchronization, and
+// P512/C2..C512 continuations use the grouped-Q64 Tensor Core path; other
+// legal append positions use QT2. Both paths mask incomplete tiles. The
+// launch is asynchronous, performs no allocation or synchronization, and
 // uses no caller-visible scratch.
 [[nodiscard]] constexpr bool use_bulk_causal_gqa_group_q64_prefill(
     const std::size_t first_position,
     const std::size_t token_count) noexcept {
-  return (first_position == 0U && token_count >= 2U && token_count <= 512U) ||
-         (first_position == 512U && token_count == 512U);
+  return (first_position == 0U || first_position == 512U) &&
+         token_count >= 2U && token_count <= 512U;
 }
 
 [[nodiscard]] int launch_bulk_causal_gqa_sigmoid_gate_24_4_256_cuda(

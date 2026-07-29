@@ -8900,6 +8900,9 @@ void test_bulk_causal_gqa_prefill_contract(TestContext& test,
   run_bulk_gqa_correctness_case(test, stream, 0U, 512U, true);
   run_bulk_gqa_correctness_case(test, stream, 0U, 407U, true);
   run_bulk_gqa_correctness_case(test, stream, 0U, 481U, true);
+  run_bulk_gqa_correctness_case(test, stream, 512U, 52U, true);
+  run_bulk_gqa_correctness_case(test, stream, 512U, 183U, true);
+  run_bulk_gqa_correctness_case(test, stream, 512U, 201U, true);
   run_bulk_gqa_correctness_case(test, stream, 512U, 512U, true);
   run_bulk_gqa_correctness_case(test, stream, 17U, 256U, false);
 }

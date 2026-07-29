@@ -501,7 +501,7 @@ void bulk_causal_gqa_sigmoid_gate_24_4_256_c512_register_pipeline_kernel(
 // single 3,072-row axis, blockIdx.x owns 64 rows, and blockIdx.z owns one KV
 // head.  Four warps each retain one Q16 online-softmax/output state while the
 // CTA loads each K/V32 tile exactly once for all six GQA heads.  P0/C2..C512
-// and the exact P512/C512 continuation use ceil(C*6/64) x 1 x 4 CTAs.
+// and P512/C2..C512 continuations use ceil(C*6/64) x 1 x 4 CTAs.
 // Query/Gate/output addresses remain tile-local while K/V and causal positions
 // are global. P0/C512 retains a separate compile-time exact specialization so
 // extending the dataflow does not add predicates to its established hot path.
