@@ -1,5 +1,6 @@
 #include "gdn_prefill_chunk64_cublas_reference_sm87.h"
 #include "../sm87/gdn_prefill_chunk64_native_sm87.h"
+#include "../sm87/gdn_prefill_group_wy_sm87.h"
 
 #include "q3x/runtime/gdn_decode.h"
 
@@ -1882,6 +1883,16 @@ void reconstruct_norm_gate_chunk64_kernel(
              g_force_resident_state_baseline_for_test;
 }
 
+// Diagnostic-only selector for a same-ELF direction gate against the exact
+// three-launch native producer that immediately preceded group-owned WY.
+// Production never sets this environment variable and therefore always uses
+// the group-owned route below.
+[[nodiscard]] bool force_split_wy_baseline() noexcept {
+  static const bool forced_by_environment =
+      std::getenv("Q3X_GDN_CHUNK64_FORCE_SPLIT_WY_BASELINE") != nullptr;
+  return forced_by_environment;
+}
+
 [[nodiscard]] bool invalid_arguments(
     void* const /*context*/,
     void* const workspace,
@@ -1990,7 +2001,10 @@ int launch(void* const context,
     return status;
   }
 
-  if (force_fused_kkt_baseline()) {
+  const bool use_fused_kkt_baseline = force_fused_kkt_baseline();
+  const bool use_split_wy_baseline =
+      !use_fused_kkt_baseline && force_split_wy_baseline();
+  if (use_fused_kkt_baseline) {
     constexpr std::size_t fused_solve_shared_bytes =
         kChunkSize * kDimension * sizeof(Bf16) +
         2U * kChunkSize * kChunkSize * sizeof(float);
@@ -2003,7 +2017,7 @@ int launch(void* const context,
     if (status != static_cast<int>(cudaSuccess)) {
       return status;
     }
-  } else {
+  } else if (use_split_wy_baseline) {
     streamed_kkt_gate_chunk64_kernel<<<
         static_cast<unsigned int>(matrix_count), kStreamedKktThreads,
         kStreamedKktSharedBytes, stream>>>(
@@ -2020,6 +2034,14 @@ int launch(void* const context,
     if (status != static_cast<int>(cudaSuccess)) {
       return status;
     }
+  } else {
+    status = gdn_prefill_group_wy_detail::launch(
+        workspace.k, workspace.gamma, workspace.beta, workspace.k_g,
+        workspace.v, chunk_count, workspace.transform, workspace.w,
+        workspace.u, cuda_stream);
+    if (status != static_cast<int>(cudaSuccess)) {
+      return status;
+    }
   }
 
   qk_scaled_chunk64_kernel<<<static_cast<unsigned int>(matrix_count),
@@ -2030,13 +2052,15 @@ int launch(void* const context,
     return status;
   }
 
-  recompute_w_u_chunk64_kernel<<<static_cast<unsigned int>(matrix_count),
-                                 kWuThreads, kWuSharedBytes, stream>>>(
-      workspace.transform, workspace.k_g, workspace.v, workspace.w,
-      workspace.u);
-  status = launch_grid_status();
-  if (status != static_cast<int>(cudaSuccess)) {
-    return status;
+  if (use_fused_kkt_baseline || use_split_wy_baseline) {
+    recompute_w_u_chunk64_kernel<<<static_cast<unsigned int>(matrix_count),
+                                   kWuThreads, kWuSharedBytes, stream>>>(
+        workspace.transform, workspace.k_g, workspace.v, workspace.w,
+        workspace.u);
+    status = launch_grid_status();
+    if (status != static_cast<int>(cudaSuccess)) {
+      return status;
+    }
   }
 
   if (force_resident_state_baseline()) {
