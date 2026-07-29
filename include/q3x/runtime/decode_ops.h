@@ -11,6 +11,7 @@ inline constexpr std::size_t kFusedGqaMaximumSequenceLength = 64U;
 inline constexpr std::size_t kBulkCausalGqaMaximumSequenceLength = 262'144U;
 inline constexpr std::size_t kQwenRotaryDimension = 64U;
 inline constexpr std::size_t kQkRopeTileMaximumTokens = 16U;
+inline constexpr std::size_t kFullAttentionPreprocessMaximumTokens = 512U;
 
 enum class DecodeOpStatus : std::uint8_t {
   kSuccess = 0,
@@ -259,8 +260,12 @@ launch_residual_add_headwise_centered_rms_norm_prefill_5120_cuda(
 // gate_output are separate [token_count, 24, 256] arrays, while key is updated
 // in place as [token_count, 4, 256]. The operation splits Q/gate raw BF16,
 // applies centered headwise Q/K RMSNorm, then rotates Q/K using base
-// [position, 32] FP32 tables. token_count must be in [1, 16]. Writable arrays
-// must not overlap each other or any read-only input.
+// [position, 32] FP32 tables. token_count must be in
+// [1, kFullAttentionPreprocessMaximumTokens]. Writable arrays must not overlap
+// each other or any read-only input. The prompt-wide M>=2 route is admission
+// only and requires
+// Q3X_RUN_FULL_ATTENTION_PREPROCESS_PROMPT_WIDE_128_ADMISSION=1; otherwise the
+// frozen one-head-per-CTA production kernel is launched.
 [[nodiscard]] int launch_full_attention_preprocess_24_4_256_64_cuda(
     const std::uint16_t* interleaved_q_gate, std::uint16_t* key,
     const std::uint16_t* q_weight, const std::uint16_t* k_weight,

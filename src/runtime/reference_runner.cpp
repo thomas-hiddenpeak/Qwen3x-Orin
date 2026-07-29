@@ -62,9 +62,21 @@ constexpr std::size_t kFullKvElements =
     kFullKvHeads * kFullHeadDimension;
 constexpr std::size_t kRopePairs = 32U;
 constexpr std::size_t kPrefillKernelTileMaximumTokens = 16U;
+constexpr std::size_t kFullAttentionPreprocessTileMaximumTokens =
+    kFullAttentionPreprocessMaximumTokens;
 constexpr std::size_t kProductionProjectionSubtileTokens = 32U;
 constexpr float kRmsEpsilon = 1.0e-6F;
 constexpr float kAttentionScale = 1.0F / 16.0F;
+
+[[nodiscard]] bool
+full_attention_preprocess_prompt_wide_environment_enabled() noexcept {
+  const char* const value = std::getenv(
+      "Q3X_RUN_FULL_ATTENTION_PREPROCESS_PROMPT_WIDE_128_ADMISSION");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
+thread_local bool g_enable_full_attention_preprocess_prompt_wide_admission =
+    full_attention_preprocess_prompt_wide_environment_enabled();
 
 [[nodiscard]] bool
 prefill_residual_rms_prompt_wide_environment_enabled() noexcept {
@@ -184,6 +196,8 @@ static_assert(kFullQueryElements <= kReferenceIntermediateSize);
 static_assert(kFullKvElements <= kReferenceIntermediateSize);
 static_assert(kPrefillKernelTileMaximumTokens ==
               kQkRopeTileMaximumTokens);
+static_assert(kFullAttentionPreprocessTileMaximumTokens ==
+              kMaximumRequestPrefillChunkSize);
 static_assert(kMaximumRequestPrefillChunkSize == 512U);
 static_assert(kReferenceHiddenSize == 5'120U);
 static_assert(kProductionProjectionSubtileTokens ==
@@ -1073,6 +1087,20 @@ bool use_qk_rope_tile(
     const std::size_t first_position,
     const std::size_t token_count) noexcept {
   if (token_count == 0U || token_count > kQkRopeTileMaximumTokens ||
+      first_position >
+          std::numeric_limits<std::size_t>::max() - token_count) {
+    return false;
+  }
+  return first_position + token_count <=
+         std::numeric_limits<std::size_t>::max() /
+             (kRopePairs * sizeof(float));
+}
+
+bool use_full_attention_preprocess_tile(
+    const std::size_t first_position,
+    const std::size_t token_count) noexcept {
+  if (token_count == 0U ||
+      token_count > kFullAttentionPreprocessMaximumTokens ||
       first_position >
           std::numeric_limits<std::size_t>::max() - token_count) {
     return false;
@@ -3684,16 +3712,25 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
         return fail_prefill_tile(launch_failure);
       }
 
+      const std::size_t preprocess_tile_maximum =
+          g_enable_full_attention_preprocess_prompt_wide_admission
+              ? kFullAttentionPreprocessTileMaximumTokens
+              : kPrefillKernelTileMaximumTokens;
       bool use_fused_preprocess = true;
       for (std::size_t token_offset = 0U; token_offset < token_count;
-           token_offset += kPrefillKernelTileMaximumTokens) {
+           token_offset += preprocess_tile_maximum) {
         const std::size_t remaining = token_count - token_offset;
         const std::size_t subtile_tokens =
-            remaining < kPrefillKernelTileMaximumTokens
+            remaining < preprocess_tile_maximum
                 ? remaining
-                : kPrefillKernelTileMaximumTokens;
-        if (!reference_runner_detail::use_qk_rope_tile(
-                rope_first_position + token_offset, subtile_tokens)) {
+                : preprocess_tile_maximum;
+        const bool valid_tile =
+            g_enable_full_attention_preprocess_prompt_wide_admission
+                ? reference_runner_detail::use_full_attention_preprocess_tile(
+                      rope_first_position + token_offset, subtile_tokens)
+                : reference_runner_detail::use_qk_rope_tile(
+                      rope_first_position + token_offset, subtile_tokens);
+        if (!valid_tile) {
           use_fused_preprocess = false;
           break;
         }
@@ -3702,12 +3739,12 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
           use_fused_preprocess ? views_.projection[3]
                                : views_.projection[0];
       for (std::size_t token_offset = 0U; token_offset < token_count;
-           token_offset += kPrefillKernelTileMaximumTokens) {
+           token_offset += preprocess_tile_maximum) {
         const std::size_t remaining = token_count - token_offset;
         const std::size_t subtile_tokens =
-            remaining < kPrefillKernelTileMaximumTokens
+            remaining < preprocess_tile_maximum
                 ? remaining
-                : kPrefillKernelTileMaximumTokens;
+                : preprocess_tile_maximum;
         std::uint16_t* const raw_query_gate =
             views_.projection[0] + token_offset * kFullQGateElements;
         std::uint16_t* const subtile_query =

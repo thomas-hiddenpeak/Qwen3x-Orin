@@ -309,6 +309,13 @@ struct LogitsAnalysis {
 [[nodiscard]] bool use_qk_rope_tile(
     std::size_t first_position, std::size_t token_count) noexcept;
 
+// Pure-host selector for the same fused preprocessing dataflow when the
+// independent-token grid spans one complete request Prefill tile. Unlike the
+// standalone Q/K RoPE helper, the production fused kernel has no cross-token
+// state and can expose all 512 prompt rows in one launch.
+[[nodiscard]] bool use_full_attention_preprocess_tile(
+    std::size_t first_position, std::size_t token_count) noexcept;
+
 inline constexpr std::size_t kPrefillResidualRmsM32Tokens = 32U;
 
 // Pure-host decomposition of an arbitrary Prefill span into exact-M32 fused

@@ -574,6 +574,21 @@ void test_schedule_and_workspace(TestContext& test) {
       "M=0, M=17, and position/table byte-offset overflow");
 
   test.expect(
+      detail::use_full_attention_preprocess_tile(0U, 1U) &&
+          detail::use_full_attention_preprocess_tile(
+              11U, runtime::kFullAttentionPreprocessMaximumTokens) &&
+          !detail::use_full_attention_preprocess_tile(0U, 0U) &&
+          !detail::use_full_attention_preprocess_tile(
+              0U, runtime::kFullAttentionPreprocessMaximumTokens + 1U) &&
+          !detail::use_full_attention_preprocess_tile(kMaximum, 1U) &&
+          !detail::use_full_attention_preprocess_tile(
+              kMaximum /
+                  ((runtime::kQwenRotaryDimension / 2U) * sizeof(float)),
+              1U),
+      "prompt-wide full-attention preprocess selector accepts M=1..512 and "
+      "rejects M=0, M=513, and position/table byte-offset overflow");
+
+  test.expect(
       detail::use_m32_prefill_residual_rms_fusion(
           32U, runtime::kReferenceHiddenSize) &&
           detail::use_m32_prefill_residual_rms_fusion(
