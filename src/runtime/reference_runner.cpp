@@ -76,6 +76,16 @@ prefill_residual_rms_prompt_wide_environment_enabled() noexcept {
 thread_local bool g_enable_prefill_residual_rms_prompt_wide_admission =
     prefill_residual_rms_prompt_wide_environment_enabled();
 
+[[nodiscard]] bool
+gdn_conv_token_parallel_environment_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
+thread_local bool g_enable_gdn_conv_token_parallel_admission =
+    gdn_conv_token_parallel_environment_enabled();
+
 #if defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION)
 [[nodiscard]] bool nvfp4_marlin_prefill_environment_enabled() noexcept {
   const char* const value =
@@ -3357,16 +3367,28 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
         const std::size_t legacy_tail_tokens =
             reference_runner_detail::
                 prefill_gdn_chunk64_legacy_tail_token_count(token_count);
+        const bool use_token_parallel_conv =
+            g_enable_gdn_conv_token_parallel_admission;
+        std::uint16_t* const conv_qkv =
+            use_token_parallel_conv ? views_.projection[3]
+                                    : views_.projection[0];
         // Convolution is exact for arbitrary C1..C512 and owns a separate
         // recurrent state. Execute it once over the complete runner tile,
         // then split only the GDN recurrence at the last C64 boundary.
-        if (!check_cuda(
-                gdn_prefill_whole_span_conv_detail::
-                    launch_causal_conv1d_silu_update_whole_span_exact_cuda(
-                        views_.projection[0], token_count,
-                        attention->conv1d.data, views_.conv_state[layer],
-                        views_.projection[0], stream_),
-                "prefill_linear_causal_conv_whole_span", layer)) {
+        const int conv_status =
+            use_token_parallel_conv
+                ? gdn_prefill_whole_span_conv_detail::
+                      launch_causal_conv1d_silu_update_token_parallel_exact_cuda(
+                          views_.projection[0], token_count,
+                          attention->conv1d.data, views_.conv_state[layer],
+                          conv_qkv, stream_)
+                : gdn_prefill_whole_span_conv_detail::
+                      launch_causal_conv1d_silu_update_whole_span_exact_cuda(
+                          views_.projection[0], token_count,
+                          attention->conv1d.data, views_.conv_state[layer],
+                          conv_qkv, stream_);
+        if (!check_cuda(conv_status,
+                        "prefill_linear_causal_conv_whole_span", layer)) {
           return fail_prefill_tile(launch_failure);
         }
         ++g_prefill_gdn_chunk64_native_admission_hits;
@@ -3374,7 +3396,7 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
                 gdn_prefill_chunk64_native_detail::launch(
                     prefill_gdn_chunk64_native_workspace_,
                     prefill_gdn_chunk64_native_workspace_bytes_,
-                    views_.projection[0], native_prefix_tokens,
+                    conv_qkv, native_prefix_tokens,
                     views_.linear_a, views_.linear_b, attention->a_log.data,
                     attention->dt_bias.data, views_.gdn_state[layer],
                     views_.gdn_state[layer], kRmsEpsilon,
@@ -3396,7 +3418,7 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
                   : kPrefillKernelTileMaximumTokens;
           if (!check_cuda(
                   launch_gated_delta_net_update_tile_warp_parallel_cuda(
-                      views_.projection[0] +
+                      conv_qkv +
                           token_offset * kLinearQkvElements,
                       subtile_tokens,
                       views_.linear_a +
