@@ -1,7 +1,9 @@
 #include "q3x/runtime/decode_ops.h"
 
 #include <cooperative_groups.h>
+#include <cuda_bf16.h>
 #include <cuda_runtime.h>
+#include <mma.h>
 
 #include <cmath>
 #include <cstddef>
@@ -60,6 +62,9 @@ constexpr unsigned int kBulkGqaQueryTile = 2U;
 constexpr unsigned int kBulkGqaKvTile = 16U;
 constexpr unsigned int kBulkGqaThreads =
     kBulkGqaQueriesPerKv * 32U;
+constexpr unsigned int kBulkGqaTensorCoreThreads = 128U;
+constexpr unsigned int kBulkGqaTensorCoreQueryTile = 16U;
+constexpr unsigned int kBulkGqaTensorCoreKvTile = 16U;
 constexpr std::size_t kBulkGqaMaximumSequence =
     kBulkCausalGqaMaximumSequenceLength;
 constexpr float kBulkGqaAttentionScale = 1.0F / 16.0F;
@@ -114,6 +119,9 @@ static_assert(kBulkGqaQueryHeads % kBulkGqaKvHeads == 0U);
 static_assert(kBulkGqaQueriesPerKv == 6U);
 static_assert(kBulkGqaPackedDimension * 2U == kBulkGqaHeadDimension);
 static_assert(kBulkGqaThreads == 192U);
+static_assert(kBulkGqaTensorCoreThreads == 4U * 32U);
+static_assert(kBulkGqaTensorCoreQueryTile == 16U);
+static_assert(kBulkGqaTensorCoreKvTile == 16U);
 
 [[nodiscard]] bool multiply_overflows(const std::size_t left,
                                       const std::size_t right) noexcept {
@@ -1393,6 +1401,243 @@ void bulk_causal_gqa_sigmoid_gate_24_4_256_kernel(
   }
 }
 
+// Fixed P513/C512 FlashAttention-style path for SM87. One CTA owns a
+// 16-query tile and one query head. QK and P*V both execute as BF16 Tensor
+// Core MMA, while the row maximum, denominator, and FP32 output remain an
+// online state across K/V tiles. As in FlashInfer's Ampere Prefill dataflow,
+// each score tile is materialized only in shared memory, normalized once per
+// row, narrowed to BF16 for the P*V MMA, and immediately consumed. No score or
+// probability matrix is written to global memory.
+//
+// The running output lives in shared memory instead of opaque WMMA register
+// fragments. This lets every K/V tile rescale the previous online state by
+// its row-specific correction without relying on undocumented fragment lane
+// mappings. The final gate still observes a BF16-rounded attention value,
+// preserving the production attention -> BF16 -> sigmoid gate -> BF16
+// boundary.
+struct alignas(16) BulkGqaTensorCoreSharedStorage {
+  alignas(16) std::uint16_t
+      key[kBulkGqaTensorCoreKvTile * kBulkGqaHeadDimension];
+  alignas(16) std::uint16_t
+      value[kBulkGqaTensorCoreKvTile * kBulkGqaHeadDimension];
+  alignas(16) std::uint16_t probability[kBulkGqaTensorCoreQueryTile *
+                                        kBulkGqaTensorCoreKvTile];
+  alignas(16) float scores[kBulkGqaTensorCoreQueryTile *
+                           kBulkGqaTensorCoreKvTile];
+  alignas(16) float running_output[kBulkGqaTensorCoreQueryTile *
+                                   kBulkGqaHeadDimension];
+  alignas(16) float maxima[kBulkGqaTensorCoreQueryTile];
+  alignas(16) float denominators[kBulkGqaTensorCoreQueryTile];
+  alignas(16) float corrections[kBulkGqaTensorCoreQueryTile];
+};
+
+static_assert(sizeof(BulkGqaTensorCoreSharedStorage) <= 48U * 1024U);
+
+__global__ __launch_bounds__(kBulkGqaTensorCoreThreads, 2)
+void bulk_causal_gqa_sigmoid_gate_24_4_256_c512_tensor_core_kernel(
+    const std::uint16_t* const query,
+    const std::uint16_t* const key_cache,
+    const std::uint16_t* const value_cache,
+    const std::uint16_t* const gate,
+    std::uint16_t* const output) {
+  __shared__ BulkGqaTensorCoreSharedStorage storage;
+
+  constexpr unsigned int kQueryTokenStride =
+      kBulkGqaQueryHeads * kBulkGqaHeadDimension;
+  constexpr unsigned int kMatrixElements =
+      kBulkGqaTensorCoreQueryTile * kBulkGqaHeadDimension;
+  constexpr unsigned int kTileElements =
+      kBulkGqaTensorCoreKvTile * kBulkGqaHeadDimension;
+  constexpr unsigned int kPackedVectorsPerTile =
+      kTileElements * sizeof(std::uint16_t) / sizeof(uint4);
+  static_assert(kPackedVectorsPerTile == 512U);
+
+  const unsigned int thread = threadIdx.x;
+  const unsigned int warp = thread >> 5U;
+  const unsigned int query_head = blockIdx.y;
+  const unsigned int kv_head = query_head / kBulkGqaQueriesPerKv;
+  const unsigned int first_query_token =
+      blockIdx.x * kBulkGqaTensorCoreQueryTile;
+
+  for (unsigned int index = thread; index < kMatrixElements;
+       index += kBulkGqaTensorCoreThreads) {
+    storage.running_output[index] = 0.0F;
+  }
+  if (thread < kBulkGqaTensorCoreQueryTile) {
+    storage.maxima[thread] = -__int_as_float(0x7f800000);
+    storage.denominators[thread] = 0.0F;
+    storage.corrections[thread] = 0.0F;
+  }
+  __syncthreads();
+
+  const unsigned int causal_kv_length =
+      first_query_token + kBulkGqaTensorCoreQueryTile;
+  for (unsigned int kv_tile_start = 0U;
+       kv_tile_start < causal_kv_length;
+       kv_tile_start += kBulkGqaTensorCoreKvTile) {
+    auto* const shared_key_vectors =
+        reinterpret_cast<uint4*>(storage.key);
+    auto* const shared_value_vectors =
+        reinterpret_cast<uint4*>(storage.value);
+    for (unsigned int vector = thread; vector < kPackedVectorsPerTile;
+         vector += kBulkGqaTensorCoreThreads) {
+      const unsigned int local_position = vector / 32U;
+      const unsigned int vector_in_head = vector - local_position * 32U;
+      const std::size_t cache_vector_offset =
+          (static_cast<std::size_t>(kv_tile_start + local_position) *
+               kBulkGqaKvHeads +
+           kv_head) *
+              32U +
+          vector_in_head;
+      shared_key_vectors[vector] =
+          reinterpret_cast<const uint4*>(key_cache)[cache_vector_offset];
+      shared_value_vectors[vector] =
+          reinterpret_cast<const uint4*>(value_cache)[cache_vector_offset];
+    }
+    __syncthreads();
+
+    if (warp == 0U) {
+      using namespace nvcuda;
+      wmma::fragment<wmma::accumulator, 16, 16, 16, float> scores;
+      wmma::fill_fragment(scores, 0.0F);
+      const auto* const query_bf16 =
+          reinterpret_cast<const __nv_bfloat16*>(
+              query +
+              (static_cast<std::size_t>(first_query_token) *
+                   kBulkGqaQueryHeads +
+               query_head) *
+                  kBulkGqaHeadDimension);
+      const auto* const key_bf16 =
+          reinterpret_cast<const __nv_bfloat16*>(storage.key);
+#pragma unroll
+      for (unsigned int dimension = 0U;
+           dimension < kBulkGqaHeadDimension; dimension += 16U) {
+        wmma::fragment<wmma::matrix_a, 16, 16, 16, __nv_bfloat16,
+                       wmma::row_major>
+            query_fragment;
+        wmma::fragment<wmma::matrix_b, 16, 16, 16, __nv_bfloat16,
+                       wmma::col_major>
+            key_fragment;
+        wmma::load_matrix_sync(query_fragment, query_bf16 + dimension,
+                               kQueryTokenStride);
+        wmma::load_matrix_sync(key_fragment, key_bf16 + dimension,
+                               kBulkGqaHeadDimension);
+        wmma::mma_sync(scores, query_fragment, key_fragment, scores);
+      }
+      wmma::store_matrix_sync(storage.scores, scores,
+                              kBulkGqaTensorCoreKvTile,
+                              wmma::mem_row_major);
+    }
+    __syncthreads();
+
+    if (thread < kBulkGqaTensorCoreQueryTile) {
+      const unsigned int local_query = thread;
+      const unsigned int query_token = first_query_token + local_query;
+      float tile_maximum = -__int_as_float(0x7f800000);
+#pragma unroll
+      for (unsigned int local_position = 0U;
+           local_position < kBulkGqaTensorCoreKvTile; ++local_position) {
+        if (kv_tile_start + local_position <= query_token) {
+          const float score =
+              storage.scores[local_query * kBulkGqaTensorCoreKvTile +
+                             local_position] *
+              kBulkGqaAttentionScale;
+          tile_maximum = fmaxf(tile_maximum, score);
+        }
+      }
+      const float previous_maximum = storage.maxima[local_query];
+      const float next_maximum = fmaxf(previous_maximum, tile_maximum);
+      const float correction =
+          previous_maximum == -__int_as_float(0x7f800000)
+              ? 0.0F
+              : expf(previous_maximum - next_maximum);
+      float tile_denominator = 0.0F;
+#pragma unroll
+      for (unsigned int local_position = 0U;
+           local_position < kBulkGqaTensorCoreKvTile; ++local_position) {
+        float probability = 0.0F;
+        if (kv_tile_start + local_position <= query_token) {
+          probability = expf(
+              storage.scores[local_query * kBulkGqaTensorCoreKvTile +
+                             local_position] *
+                      kBulkGqaAttentionScale -
+                  next_maximum);
+          tile_denominator += probability;
+        }
+        storage.probability[local_query * kBulkGqaTensorCoreKvTile +
+                            local_position] =
+            encode_bf16_device(probability);
+      }
+      storage.maxima[local_query] = next_maximum;
+      storage.denominators[local_query] =
+          storage.denominators[local_query] * correction +
+          tile_denominator;
+      storage.corrections[local_query] = correction;
+    }
+    __syncthreads();
+
+    for (unsigned int index = thread; index < kMatrixElements;
+         index += kBulkGqaTensorCoreThreads) {
+      const unsigned int local_query = index / kBulkGqaHeadDimension;
+      storage.running_output[index] *= storage.corrections[local_query];
+    }
+    __syncthreads();
+
+    using namespace nvcuda;
+    const auto* const probability_bf16 =
+        reinterpret_cast<const __nv_bfloat16*>(storage.probability);
+    const auto* const value_bf16 =
+        reinterpret_cast<const __nv_bfloat16*>(storage.value);
+    for (unsigned int output_fragment_index = warp;
+         output_fragment_index < kBulkGqaHeadDimension / 16U;
+         output_fragment_index += 4U) {
+      const unsigned int first_dimension = 16U * output_fragment_index;
+      wmma::fragment<wmma::matrix_a, 16, 16, 16, __nv_bfloat16,
+                     wmma::row_major>
+          probability_fragment;
+      wmma::fragment<wmma::matrix_b, 16, 16, 16, __nv_bfloat16,
+                     wmma::row_major>
+          value_fragment;
+      wmma::fragment<wmma::accumulator, 16, 16, 16, float>
+          output_fragment;
+      wmma::load_matrix_sync(probability_fragment, probability_bf16,
+                             kBulkGqaTensorCoreKvTile);
+      wmma::load_matrix_sync(value_fragment,
+                             value_bf16 + first_dimension,
+                             kBulkGqaHeadDimension);
+      wmma::load_matrix_sync(
+          output_fragment, storage.running_output + first_dimension,
+          kBulkGqaHeadDimension, wmma::mem_row_major);
+      wmma::mma_sync(output_fragment, probability_fragment,
+                     value_fragment, output_fragment);
+      wmma::store_matrix_sync(
+          storage.running_output + first_dimension, output_fragment,
+          kBulkGqaHeadDimension, wmma::mem_row_major);
+    }
+    __syncthreads();
+  }
+
+  for (unsigned int index = thread; index < kMatrixElements;
+       index += kBulkGqaTensorCoreThreads) {
+    const unsigned int local_query = index / kBulkGqaHeadDimension;
+    const unsigned int dimension = index - local_query * kBulkGqaHeadDimension;
+    const unsigned int token = first_query_token + local_query;
+    const std::size_t output_index =
+        (static_cast<std::size_t>(token) * kBulkGqaQueryHeads + query_head) *
+            kBulkGqaHeadDimension +
+        dimension;
+    const std::uint16_t rounded_attention = encode_bf16_device(
+        storage.running_output[index] / storage.denominators[local_query]);
+    const float gate_value = decode_bf16_device(gate[output_index]);
+    const float gate_exp = expf(-fabsf(gate_value));
+    const float sigmoid =
+        gate_value >= 0.0F ? 1.0F / (1.0F + gate_exp)
+                           : gate_exp / (1.0F + gate_exp);
+    output[output_index] = encode_bf16_device(
+        decode_bf16_device(rounded_attention) * sigmoid);
+  }
+}
+
 // Test-only predecessor retained for direct production comparisons. Each CTA
 // owns one query head, and every position uses the original block-wide shared
 // reduction tree. The remaining softmax, value, BF16 boundary, probability-
@@ -2391,6 +2636,16 @@ int launch_bulk_causal_gqa_sigmoid_gate_24_4_256_cuda(
       kBulkGqaKvHeads, 1U);
   const auto stream = static_cast<cudaStream_t>(cuda_stream);
   (void)cudaGetLastError();
+  if (first_position == 0U && token_count == 512U) {
+    const dim3 tensor_core_blocks(
+        static_cast<unsigned int>(
+            token_count / kBulkGqaTensorCoreQueryTile),
+        kBulkGqaQueryHeads, 1U);
+    bulk_causal_gqa_sigmoid_gate_24_4_256_c512_tensor_core_kernel
+        <<<tensor_core_blocks, kBulkGqaTensorCoreThreads, 0U, stream>>>(
+            query, key_cache, value_cache, gate, output);
+    return static_cast<int>(cudaGetLastError());
+  }
   bulk_causal_gqa_sigmoid_gate_24_4_256_kernel
       <<<blocks, kBulkGqaThreads, 0U, stream>>>(
           query, key_cache, value_cache, gate,

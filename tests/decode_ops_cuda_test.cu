@@ -8492,14 +8492,29 @@ void run_bulk_gqa_correctness_case(
               label + " candidate graph has one node");
   test.expect(candidate_topology.function != nullptr,
               label + " candidate graph has a kernel identity");
-  test.expect(candidate_topology.grid.x == token_count / 2U &&
-                  candidate_topology.grid.y == 4U &&
-                  candidate_topology.grid.z == 1U &&
-                  candidate_topology.block.x == 192U &&
-                  candidate_topology.block.y == 1U &&
-                  candidate_topology.block.z == 1U &&
-                  candidate_topology.dynamic_shared_bytes == 0U,
-              label + " candidate graph has fixed QT2 topology");
+  const bool tensor_core_c512 =
+      first_position == 0U && token_count == 512U;
+  const bool expected_topology =
+      tensor_core_c512
+          ? candidate_topology.grid.x == token_count / 16U &&
+                candidate_topology.grid.y == 24U &&
+                candidate_topology.grid.z == 1U &&
+                candidate_topology.block.x == 128U &&
+                candidate_topology.block.y == 1U &&
+                candidate_topology.block.z == 1U &&
+                candidate_topology.dynamic_shared_bytes == 0U
+          : candidate_topology.grid.x == token_count / 2U &&
+                candidate_topology.grid.y == 4U &&
+                candidate_topology.grid.z == 1U &&
+                candidate_topology.block.x == 192U &&
+                candidate_topology.block.y == 1U &&
+                candidate_topology.block.z == 1U &&
+                candidate_topology.dynamic_shared_bytes == 0U;
+  test.expect(expected_topology,
+              label +
+                  (tensor_core_c512
+                       ? " candidate graph has fixed Q16 Tensor Core topology"
+                       : " candidate graph has fixed QT2 topology"));
 
   if (graph_contract) {
     BulkGqaGraphTopology baseline_topology;
