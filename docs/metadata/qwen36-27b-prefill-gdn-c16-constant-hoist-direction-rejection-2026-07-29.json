@@ -1,0 +1,180 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-gdn-c16-constant-hoist-direction-rejection-2026-07-29",
+  "status": "rejected-and-withdrawn-real-path-direction-stop-loss",
+  "date": "2026-07-29",
+  "timezone": "Asia/Shanghai",
+  "policy": {
+    "document": "docs/REAL_MODEL_PERFORMANCE_POLICY.md",
+    "evidence_tier": "T3",
+    "protocol_class": "DIRECTION_SCREEN",
+    "payload_class": "full_model_pinned_prompt",
+    "authority": "EARLY_STOP_ONLY",
+    "retention_authority": false,
+    "promotion_authority": false,
+    "rule": "The first snapshot-free real-path comparison is negative, so the candidate is rejected and withdrawn without exhaustive correctness, noise, six-round retention, or profiler work."
+  },
+  "source": {
+    "measured_head_commit": "00703e6",
+    "measured_head_subject": "docs: record C16 GDN prompt matrix",
+    "candidate_committed": false,
+    "candidate_retained_in_worktree": false,
+    "withdrawn_worktree_patch": {
+      "files": [
+        "src/kernels/reference/gdn_prefill_c16_norm_gate_sm87.cu",
+        "src/kernels/reference/gdn_prefill_c16_norm_gate_sm87.h",
+        "src/runtime/reference_runner.cpp",
+        "src/runtime/reference_runner_gdn_c16_norm_gate_admission.h",
+        "tests/reference_gdn_prefill_c16_norm_gate_engine_e2e_test.cpp"
+      ],
+      "git_diff_binary_bytes": 27820,
+      "git_diff_binary_sha256": "71f29a66974240b1c74194898d99f7aeda2991f9792cfce95d860b2371e48f59",
+      "post_measurement_withdrawal": "all five tracked files restored exactly to commit 00703e6 before this evidence record was created"
+    },
+    "measured_binary": {
+      "path": "build/gdn-c16-admission/q3x_reference_gdn_prefill_c16_norm_gate_engine_e2e_test",
+      "bytes": 7831312,
+      "sha256": "5294a6b2b112ad6c601d39f3dc17e60cd1c363a99895e5eb55ee559ac2e6268e",
+      "elf_build_id": "8ba70cec0deb8f147605b03a5a001187f26145b3",
+      "build_type": "Release",
+      "cuda_architecture": 87,
+      "cublaslt_dynamic_dependency": false,
+      "cublaslt_dynamic_import": false
+    }
+  },
+  "checkpoint": {
+    "repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "directory": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "config_sha256": "c04a19ba293737ad7be4f6e96d6666cb7e479cbe19ecc0c289fad267135b0338",
+    "quantization_config_sha256": "fd7200cd8bca2a8a5d777061521abf83e2deb97ab6bc2f04e7a0a3d3f8ecd5c1",
+    "index_sha256": "7aa103a2582b7d26631988de33dea19e8a308ee9c239e8e14feb374af30905e2",
+    "tokenizer_json_sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42"
+  },
+  "prompt": {
+    "label": "P513",
+    "prompt_tokens": 513,
+    "prefix_tokens": 512,
+    "prefill_chunk_tokens": 512,
+    "expected_generated_token": 9419,
+    "expected_generated_text": "Hello",
+    "expected_step_count": 513
+  },
+  "environment": {
+    "device": "NVIDIA Jetson AGX Orin",
+    "architecture": "SM87",
+    "driver_version": "595.78",
+    "nvpmodel": "MAXN",
+    "cpu_affinity": [11],
+    "cpu_hz": 2201600000,
+    "gpu_hz": 1300500000,
+    "emc_hz": 3200000000,
+    "fan_pwm": 255,
+    "fixed_clock_readback": true,
+    "serialized_gpu_execution": true
+  },
+  "candidate": {
+    "incumbent": "retained exact-C16 warp-row shared-BF16-boundary GDN plus RMSNorm/SiLU composite",
+    "mechanism": "compute exp(A_log) and decode dt_bias once per value-head C16 CTA, retain both FP32 values in two additional shared words, and reuse them across all sixteen token scalar updates",
+    "exact_arithmetic_intent": "the same expf and BF16 decode result is reused without changing the per-token softplus, alpha expf, beta sigmoid, state update, BF16 rounding, or epilogue order",
+    "theoretical_removed_per_c16_cta": {
+      "repeated_exp_A_log": 15,
+      "repeated_A_log_bf16_loads": 15,
+      "repeated_dt_bias_bf16_loads": 15
+    },
+    "theoretical_removed_per_p513_generation": {
+      "repeated_exp_A_log": 23040,
+      "repeated_constant_bf16_loads": 46080
+    },
+    "resources": {
+      "incumbent": {
+        "registers_per_thread": 64,
+        "static_shared_bytes": 38184,
+        "local_bytes": 0,
+        "active_blocks_per_sm": 4
+      },
+      "candidate": {
+        "registers_per_thread": 64,
+        "static_shared_bytes": 38192,
+        "local_bytes": 0,
+        "active_blocks_per_sm": 4
+      },
+      "gate": "PASS"
+    }
+  },
+  "protocol": {
+    "engine_instances": 1,
+    "same_elf_for_incumbent_and_candidate": true,
+    "batch_size": 1,
+    "max_new_tokens": 1,
+    "snapshot_hook": "empty for every timed invocation",
+    "warmup": "one incumbent-candidate-candidate-incumbent B-C-C-B",
+    "measurement": "one incumbent-candidate-candidate-incumbent B-C-C-B",
+    "incumbent_admission_hits_each_invocation": 1536,
+    "candidate_variant_hits": "0 for B, 1536 for C",
+    "generation_oracle_each_invocation": "PASS",
+    "full_noise_calibration": "NOT_RUN",
+    "formal_six_round_retention": "NOT_RUN"
+  },
+  "warmup_samples": [
+    {"route": "B1", "prefix_ms": 2531.884343, "ttft_ms": 2658.448561},
+    {"route": "C1", "prefix_ms": 2531.463346, "ttft_ms": 2640.132103},
+    {"route": "C2", "prefix_ms": 2531.006445, "ttft_ms": 2639.668418},
+    {"route": "B2", "prefix_ms": 2530.519976, "ttft_ms": 2639.219391}
+  ],
+  "measured_samples": [
+    {"route": "B1", "prefix_ms": 2530.896712, "ttft_ms": 2639.594304},
+    {"route": "C1", "prefix_ms": 2530.88743, "ttft_ms": 2639.617407},
+    {"route": "C2", "prefix_ms": 2531.130405, "ttft_ms": 2639.831967},
+    {"route": "B2", "prefix_ms": 2530.507069, "ttft_ms": 2639.240697}
+  ],
+  "aggregate": {
+    "baseline_prefix_ms": 2530.7018905,
+    "candidate_prefix_ms": 2531.0089175,
+    "prefix_saved_ms": -0.307027,
+    "prefix_speedup": 0.999878694,
+    "prefix_latency_regression_percent": 0.012132088776,
+    "baseline_ttft_ms": 2639.4175005,
+    "candidate_ttft_ms": 2639.724687,
+    "ttft_saved_ms": -0.3071865,
+    "ttft_speedup": 0.999883629,
+    "ttft_latency_regression_percent": 0.011638420217,
+    "direction": "NEGATIVE"
+  },
+  "profiling": {
+    "nsys": "NOT_RUN",
+    "ncu": "NOT_RUN",
+    "static_resource_and_sass_audit": "PASS",
+    "reason_not_run": "The valid real-path result is neutral-to-negative and the removed scalar work is not on a measurable critical path. No profiler result could reverse rejection, and no concrete successor design requires additional counters from this candidate."
+  },
+  "artifacts": [
+    {
+      "role": "snapshot-free P513 direction stdout",
+      "path": "/tmp/q3x-gdn-c16-constant-hoist-direction.log",
+      "bytes": 2155,
+      "sha256": "40ee9aa232dbfc5f360b1e5e85bd9643bd6d290a42f3551e32fbb4dd1eef8538",
+      "checked_in": false
+    }
+  ],
+  "decision": {
+    "result": "REJECT_AND_WITHDRAW",
+    "native_experimental_incumbent": "unchanged retained warp-row composite at commit 912897b",
+    "production_dispatch": "UNCHANGED",
+    "production_kernel": "UNCHANGED",
+    "candidate_source_live": false,
+    "decode": "UNCHANGED",
+    "mtp_used": false,
+    "cublaslt": {
+      "linked": false,
+      "executed": false,
+      "role": "external_reference_only",
+      "production_eligibility": "none"
+    },
+    "next_step": "Do not spend another cell on scalar constant hoisting. Select a mechanism with a material measured critical-path ceiling, such as reducing shared-state dot-product traffic or changing the exact persistent C16 launch structure."
+  },
+  "limitations": [
+    "This is one measured mirrored round after one mirrored warmup and has early-stop authority only. The approximately 0.012% regression is not a publication anchor or a precise estimate of the mechanism's cost.",
+    "The generation oracle proves route isolation and final token/text/steps for the direction screen; exhaustive candidate state/Graph/NaN qualification was intentionally not built after the negative result.",
+    "The candidate binary and withdrawn diff are identified by hashes, but the candidate source is intentionally absent from the live tree."
+  ]
+}

@@ -1770,6 +1770,18 @@ The diagnostic Phase 3 records are:
   P513 retention anchor or clear the 1.03x production margin, so production
   remains unchanged while another exact mechanism is stacked. cuBLASLt is
   neither linked nor executed, and MTP is unused.
+- [`qwen36-27b-prefill-gdn-c16-constant-hoist-direction-rejection-2026-07-29.json`](qwen36-27b-prefill-gdn-c16-constant-hoist-direction-rejection-2026-07-29.json),
+  which closes the next exact scalar cell. The candidate retains
+  `exp(A_log)` and decoded `dt_bias` in two extra shared FP32 words per C16
+  CTA, theoretically removing 23,040 repeated exponentiations and 46,080
+  constant BF16 loads over P513. Resources remain 64 registers, zero local,
+  and four CTAs/SM while shared grows 38,184 to 38,192 bytes. In the first
+  same-engine/ELF real-path screen, all route and generation oracles pass but
+  Prefix regresses 2530.701891 to 2531.008918 ms (**0.999878694x**) and TTFT
+  regresses 2639.417501 to 2639.724687 ms (**0.999883629x**). The valid
+  neutral-to-negative result triggers the direction stop-loss: no full noise,
+  six-round, NSys, or NCU work follows, the patch is fully withdrawn, and the
+  retained warp-row test incumbent plus production remain unchanged.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

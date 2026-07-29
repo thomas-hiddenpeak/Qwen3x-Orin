@@ -369,6 +369,34 @@ production integration or an independent-process promotion run. The
 normalized record is
 [`qwen36-27b-prefill-gdn-c16-warp-row-prompt-matrix-2026-07-29.json`](metadata/qwen36-27b-prefill-gdn-c16-warp-row-prompt-matrix-2026-07-29.json).
 
+### Rejected constant-hoist follow-up on 2026-07-29
+
+The next bounded cell checks the constant-scalar idea from the original plan.
+Within one value-head CTA, `A_log` and `dt_bias` are invariant across C16, so
+the candidate computes `exp(A_log)` and decodes `dt_bias` once into two extra
+shared FP32 words. It theoretically removes 15 repeated exponentiations and
+30 repeated BF16 constant loads per C16 CTA, or 23,040 exponentiations and
+46,080 loads over P513. SASS resources remain 64 registers, zero local bytes,
+and four CTAs/SM; static shared grows by eight bytes to 38,192.
+
+The candidate is compared directly with the retained warp-row incumbent in
+one ELF and engine, with admission active for both routes. Every invocation
+passes 1,536 base-admission hits, 0/1,536 variant hits, and the token/text/step
+oracle. The measured B-C-C-B result is negative:
+
+| Metric | Incumbent | Candidate | Candidate saved | Ratio |
+| --- | ---: | ---: | ---: | ---: |
+| Prefix | 2530.701891 ms | 2531.008918 ms | -0.307027 ms | 0.999878694x |
+| TTFT | 2639.417501 ms | 2639.724687 ms | -0.307187 ms | 0.999883629x |
+
+The approximately 0.012% movement is neutral-to-negative, so the direction
+stop-loss rejects it. No noise harness, six-round retention, NSys, or NCU is
+built; profiling could not reverse the decision and no successor design
+depends on counters from this scalar-only cell. The candidate patch is
+withdrawn completely, leaving the `912897b` test incumbent and production
+unchanged. Its withdrawn diff, binary, and stdout are pinned by hash in
+[`qwen36-27b-prefill-gdn-c16-constant-hoist-direction-rejection-2026-07-29.json`](metadata/qwen36-27b-prefill-gdn-c16-constant-hoist-direction-rejection-2026-07-29.json).
+
 ## Exact-contract experiment order after P0
 
 The references suggest mechanisms, but the measured bottleneck and exact
@@ -377,12 +405,12 @@ contract decide their order:
 1. The original CTA-serial P0 is complete and rejected on the pinned P513
    full-model path. A bounded profile identified its sixteen serial reduction
    trees; that diagnostic does not reverse the rejection.
-2. Inspect SASS before changing the recurrence scalars. `exp(A_log)` and
-   `dt_bias` are constant for a value head across all 16 tokens. If the compiler
-   has not lifted them, compute the two scalars once per CTA and retain them in
-   the existing shared scalar slots. This candidate must preserve zero local
-   bytes and re-establish occupancy because 64 registers x 256 threads x four
-   CTAs already fills the SM87 register file.
+2. **Complete and rejected:** SASS confirmed `exp(A_log)` and `dt_bias` were
+   inside the token loop. Hoisting them once per CTA preserves 64 registers,
+   zero local bytes, and four CTAs/SM, but the real P513 path moves
+   2530.701891 to 2531.008918 ms (0.999878694x). The patch is withdrawn; do
+   not reopen scalar constant hoisting without a different critical-path
+   mechanism.
 3. **Complete and retained at `fc597e9`:** replace the CTA-serial 16-row
    epilogue with two eight-row warp batches. One
    warp owns one token row; each lane owns dimensions `i`, `i+32`, `i+64`, and
