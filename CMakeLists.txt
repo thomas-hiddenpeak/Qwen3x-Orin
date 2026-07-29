@@ -34,6 +34,10 @@ option(Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION
   "Build the test-only native SM87 C64/WY GDN architecture route"
   OFF
 )
+option(Q3X_BUILD_FP8_PREFILL_SUPERMATRIX_V2_ADMISSION
+  "Build the test-only exact-C512 FP8 projection-supermatrix v2 route"
+  OFF
+)
 if(Q3X_BUILD_GDN_B8_ADMISSION AND NOT BUILD_TESTING)
   message(FATAL_ERROR
     "Q3X_BUILD_GDN_B8_ADMISSION is test-only and requires BUILD_TESTING=ON"
@@ -52,6 +56,11 @@ endif()
 if(Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION AND NOT BUILD_TESTING)
   message(FATAL_ERROR
     "Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION is test-only and requires BUILD_TESTING=ON"
+  )
+endif()
+if(Q3X_BUILD_FP8_PREFILL_SUPERMATRIX_V2_ADMISSION AND NOT BUILD_TESTING)
+  message(FATAL_ERROR
+    "Q3X_BUILD_FP8_PREFILL_SUPERMATRIX_V2_ADMISSION is test-only and requires BUILD_TESTING=ON"
   )
 endif()
 if((Q3X_BUILD_GDN_B8_ADMISSION AND
@@ -214,6 +223,14 @@ if(Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION)
     Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION=1
   )
 endif()
+if(Q3X_BUILD_FP8_PREFILL_SUPERMATRIX_V2_ADMISSION)
+  target_sources(q3x_kernels PRIVATE
+    src/kernels/sm87/fp8_prefill_supermatrix.cu
+  )
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_FP8_PREFILL_SUPERMATRIX_V2_ADMISSION=1
+  )
+endif()
 q3x_enable_warnings(q3x_kernels)
 
 add_library(q3x_engine STATIC
@@ -240,6 +257,11 @@ target_link_libraries(q3x_engine
   PUBLIC q3x::core q3x::kernels
   PRIVATE q3x::text
 )
+if(Q3X_BUILD_FP8_PREFILL_SUPERMATRIX_V2_ADMISSION)
+  target_compile_definitions(q3x_engine PRIVATE
+    Q3X_ENABLE_FP8_PREFILL_SUPERMATRIX_V2_ADMISSION=1
+  )
+endif()
 q3x_enable_warnings(q3x_engine)
 
 # Internal, deliberately narrow OpenAI/EvalScope evaluation adapter. It is
@@ -713,6 +735,28 @@ if(BUILD_TESTING)
     LABELS "cuda;sm87;prefill"
     SKIP_RETURN_CODE 77
   )
+
+  if(Q3X_BUILD_FP8_PREFILL_SUPERMATRIX_V2_ADMISSION)
+    # Focused synthetic correctness/guard contract for the test-only complete
+    # FP8 projection-supermatrix route. Performance admission remains a real
+    # checkpoint/EvalScope responsibility outside this target.
+    add_executable(q3x_sm87_fp8_prefill_supermatrix_v2_test
+      tests/sm87_fp8_prefill_supermatrix_v2_test.cu
+    )
+    target_link_libraries(q3x_sm87_fp8_prefill_supermatrix_v2_test
+      PRIVATE q3x::kernels CUDA::cudart
+    )
+    q3x_enable_warnings(q3x_sm87_fp8_prefill_supermatrix_v2_test)
+    add_test(NAME sm87_fp8_prefill_supermatrix_v2
+      COMMAND q3x_sm87_fp8_prefill_supermatrix_v2_test
+    )
+    set_tests_properties(sm87_fp8_prefill_supermatrix_v2 PROPERTIES
+      LABELS "cuda;sm87;prefill;correctness;synthetic;admission"
+      SKIP_RETURN_CODE 77
+      RESOURCE_LOCK q3x_sm87_gpu
+      TIMEOUT 180
+    )
+  endif()
 
   # Test-only SM87 sentinel for the lane/slot layout used when a BF16 WMMA
   # matrix_b fragment is fed directly from registers instead of shared memory.

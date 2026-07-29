@@ -36,6 +36,24 @@ inline constexpr std::size_t
 static_assert(kFp8PrefillQkvRegisterFeedSidecarBytesPerLayer ==
               kFp8PrefillQkvRegisterFeedRows *
                   kFp8PrefillQkvRegisterFeedColumns);
+inline constexpr std::size_t kFp8PrefillSupermatrixProjectionCount = 208U;
+inline constexpr std::size_t kFp8PrefillLinearQkvBytes =
+    10'240U * 5'120U;
+inline constexpr std::size_t kFp8PrefillLinearZBytes = 6'144U * 5'120U;
+inline constexpr std::size_t kFp8PrefillAttentionOutputBytes =
+    5'120U * 6'144U;
+inline constexpr std::size_t kFp8PrefillFullQueryBytes =
+    12'288U * 5'120U;
+inline constexpr std::size_t kFp8PrefillFullKvBytes = 1'024U * 5'120U;
+inline constexpr std::size_t kQwen36Fp8PrefillSupermatrixSidecarBytes =
+    kQwen36LinearAttentionLayerCount *
+        (kFp8PrefillLinearQkvBytes + kFp8PrefillLinearZBytes +
+         kFp8PrefillAttentionOutputBytes) +
+    kQwen36FullAttentionLayerCount *
+        (kFp8PrefillFullQueryBytes + 2U * kFp8PrefillFullKvBytes +
+         kFp8PrefillAttentionOutputBytes);
+static_assert(kQwen36Fp8PrefillSupermatrixSidecarBytes ==
+              7'214'202'880ULL);
 inline constexpr std::size_t kNvFp4DownScale6Rows = 5'120U;
 inline constexpr std::size_t kNvFp4DownScale6Columns = 17'408U;
 inline constexpr std::size_t
@@ -94,6 +112,11 @@ struct Fp8LinearWeight {
   // Only the exact C512 linear-attention QKV Prefill register-feed kernel may
   // consume this sidecar. Other FP8 shapes and token counts must ignore it.
   const std::uint8_t* prefill_qkv_register_feed_sidecar = nullptr;
+  // Test-only C512 projection-supermatrix prepack. It is an exact, equal-byte
+  // fragment-native permutation of this projection's canonical FP8 tensor.
+  // A non-null pointer has no effect unless the separately compiled
+  // supermatrix admission route owns every same-input partition.
+  const std::uint8_t* prefill_supermatrix_sidecar = nullptr;
 };
 
 struct NvFp4LinearWeight {
@@ -327,6 +350,16 @@ class ModelWeights {
       const std::uint8_t* arena, std::size_t arena_bytes,
       const Fp8PrefillQkvRegisterFeedSidecarDescriptor* descriptors,
       std::size_t descriptor_count) noexcept;
+
+  // Transactionally attaches the fixed 208-projection, equal-byte C512 FP8
+  // supermatrix prepack in decoder-layer order. Linear layers contribute
+  // QKV, Z, and O; full-attention layers contribute Q, K, V, and O. The
+  // canonical all-null/zero call detaches the complete set. The arena must
+  // outlive this view and all queued consumers. This is a test-only
+  // architecture surface; attachment alone never changes production
+  // dispatch.
+  [[nodiscard]] bool attach_fp8_prefill_supermatrix_sidecars(
+      const std::uint8_t* arena, std::size_t arena_bytes) noexcept;
 
   // Atomically attaches a sparse set of exact [5120,17408] NVFP4 down
   // scale6 sidecars. descriptor_count is derived from checkpoint eligibility

@@ -62,10 +62,12 @@ class SyntheticArena {
   explicit SyntheticArena(
       const bool force_fp8_attention_outputs = false,
       const bool force_nvfp4_down_projections = false,
-      const bool force_fp8_linear_qkv = false)
+      const bool force_fp8_linear_qkv = false,
+      const bool force_fp8_prefill_supermatrix = false)
       : force_fp8_attention_outputs_(force_fp8_attention_outputs),
         force_nvfp4_down_projections_(force_nvfp4_down_projections),
-        force_fp8_linear_qkv_(force_fp8_linear_qkv) {
+        force_fp8_linear_qkv_(force_fp8_linear_qkv),
+        force_fp8_prefill_supermatrix_(force_fp8_prefill_supermatrix) {
     build();
   }
 
@@ -216,11 +218,14 @@ class SyntheticArena {
           q3x::model::LayerType::kLinearAttention) {
         add_linear(prefix + "linear_attn.in_proj_qkv",
                    config->linear_qkv_projection_dim(), config->hidden_size,
-                   force_fp8_linear_qkv_ ? SyntheticLinearKind::kFp8
-                                         : next_kind());
+                   force_fp8_linear_qkv_ || force_fp8_prefill_supermatrix_
+                       ? SyntheticLinearKind::kFp8
+                       : next_kind());
         add_linear(prefix + "linear_attn.in_proj_z",
                    config->linear_value_dim(), config->hidden_size,
-                   next_kind());
+                   force_fp8_prefill_supermatrix_
+                       ? SyntheticLinearKind::kFp8
+                       : next_kind());
         add_linear(prefix + "linear_attn.in_proj_a",
                    config->linear_num_value_heads, config->hidden_size,
                    SyntheticLinearKind::kBf16);
@@ -239,20 +244,31 @@ class SyntheticArena {
         const SyntheticLinearKind output_kind = next_kind();
         add_linear(prefix + "linear_attn.out_proj", config->hidden_size,
                    config->linear_value_dim(),
-                   force_fp8_attention_outputs_
+                   force_fp8_attention_outputs_ ||
+                           force_fp8_prefill_supermatrix_
                        ? SyntheticLinearKind::kFp8
                        : output_kind);
       } else {
         add_linear(prefix + "self_attn.q_proj", config->q_projection_dim(),
-                   config->hidden_size, next_kind());
+                   config->hidden_size,
+                   force_fp8_prefill_supermatrix_
+                       ? SyntheticLinearKind::kFp8
+                       : next_kind());
         add_linear(prefix + "self_attn.k_proj", config->kv_dim(),
-                   config->hidden_size, next_kind());
+                   config->hidden_size,
+                   force_fp8_prefill_supermatrix_
+                       ? SyntheticLinearKind::kFp8
+                       : next_kind());
         add_linear(prefix + "self_attn.v_proj", config->kv_dim(),
-                   config->hidden_size, next_kind());
+                   config->hidden_size,
+                   force_fp8_prefill_supermatrix_
+                       ? SyntheticLinearKind::kFp8
+                       : next_kind());
         const SyntheticLinearKind output_kind = next_kind();
         add_linear(prefix + "self_attn.o_proj", config->hidden_size,
                    config->q_dim(),
-                   force_fp8_attention_outputs_
+                   force_fp8_attention_outputs_ ||
+                           force_fp8_prefill_supermatrix_
                        ? SyntheticLinearKind::kFp8
                        : output_kind);
         add(prefix + "self_attn.q_norm.weight", st::DType::kBf16,
@@ -275,6 +291,7 @@ class SyntheticArena {
   bool force_fp8_attention_outputs_ = false;
   bool force_nvfp4_down_projections_ = false;
   bool force_fp8_linear_qkv_ = false;
+  bool force_fp8_prefill_supermatrix_ = false;
 };
 
 [[nodiscard]] runtime::Fp8LinearWeight* mutable_attention_output(
@@ -345,6 +362,97 @@ class SyntheticArena {
     const std::uint8_t* const expected_sidecar =
         selected == expected.end() ? nullptr : selected->sidecar;
     if (qkv->prefill_qkv_register_feed_sidecar != expected_sidecar) {
+      return false;
+    }
+  }
+  return true;
+}
+
+struct Fp8PrefillSupermatrixProjection {
+  runtime::Fp8LinearWeight* weight = nullptr;
+  std::size_t output_size = 0U;
+  std::size_t input_size = 0U;
+};
+
+[[nodiscard]] std::vector<Fp8PrefillSupermatrixProjection>
+mutable_fp8_prefill_supermatrix_projections(runtime::ModelWeights& weights) {
+  std::vector<Fp8PrefillSupermatrixProjection> projections;
+  projections.reserve(runtime::kFp8PrefillSupermatrixProjectionCount);
+  const auto append = [&](runtime::LinearWeight& binding,
+                          const std::size_t output_size,
+                          const std::size_t input_size) {
+    projections.push_back(
+        {std::get_if<runtime::Fp8LinearWeight>(&binding), output_size,
+         input_size});
+  };
+
+  for (std::size_t layer_index = 0U;
+       layer_index < runtime::kQwen36DenseLayerCount; ++layer_index) {
+    auto& layer = const_cast<runtime::DecoderLayerWeights&>(
+        weights.layer(layer_index));
+    if (auto* const linear =
+            std::get_if<runtime::LinearAttentionWeights>(
+                &layer.attention)) {
+      append(linear->in_proj_qkv, 10'240U, 5'120U);
+      append(linear->in_proj_z, 6'144U, 5'120U);
+      append(linear->out_proj, 5'120U, 6'144U);
+    } else if (auto* const full =
+                   std::get_if<runtime::FullAttentionWeights>(
+                       &layer.attention)) {
+      append(full->q_proj, 12'288U, 5'120U);
+      append(full->k_proj, 1'024U, 5'120U);
+      append(full->v_proj, 1'024U, 5'120U);
+      append(full->o_proj, 5'120U, 6'144U);
+    }
+  }
+  return projections;
+}
+
+[[nodiscard]] bool fp8_prefill_supermatrix_attachments_match_layout(
+    const std::vector<Fp8PrefillSupermatrixProjection>& projections,
+    const std::uintptr_t arena_address) {
+  if (projections.size() !=
+      runtime::kFp8PrefillSupermatrixProjectionCount) {
+    return false;
+  }
+  std::size_t offset = 0U;
+  for (const Fp8PrefillSupermatrixProjection& projection : projections) {
+    if (projection.weight == nullptr ||
+        projection.weight->output_size != projection.output_size ||
+        projection.weight->input_size != projection.input_size ||
+        reinterpret_cast<std::uintptr_t>(
+            projection.weight->prefill_supermatrix_sidecar) !=
+            arena_address + offset) {
+      return false;
+    }
+    offset += projection.output_size * projection.input_size;
+  }
+  return offset == runtime::kQwen36Fp8PrefillSupermatrixSidecarBytes;
+}
+
+[[nodiscard]] std::vector<const std::uint8_t*>
+fp8_prefill_supermatrix_attachment_snapshot(
+    const std::vector<Fp8PrefillSupermatrixProjection>& projections) {
+  std::vector<const std::uint8_t*> snapshot;
+  snapshot.reserve(projections.size());
+  for (const Fp8PrefillSupermatrixProjection& projection : projections) {
+    snapshot.push_back(projection.weight == nullptr
+                           ? nullptr
+                           : projection.weight->prefill_supermatrix_sidecar);
+  }
+  return snapshot;
+}
+
+[[nodiscard]] bool fp8_prefill_supermatrix_attachments_match_snapshot(
+    const std::vector<Fp8PrefillSupermatrixProjection>& projections,
+    const std::vector<const std::uint8_t*>& snapshot) {
+  if (projections.size() != snapshot.size()) {
+    return false;
+  }
+  for (std::size_t index = 0U; index < projections.size(); ++index) {
+    if (projections[index].weight == nullptr ||
+        projections[index].weight->prefill_supermatrix_sidecar !=
+            snapshot[index]) {
       return false;
     }
   }
@@ -811,6 +919,106 @@ void test_fp8_prefill_qkv_register_feed_sidecar_attachment(
                  first_descriptors.data(), first_descriptors.size()),
         "non-FP8 linear QKV payload rejects the sidecar contract");
   }
+}
+
+void test_fp8_prefill_supermatrix_sidecar_attachment(TestContext& test) {
+  static_assert(runtime::kFp8PrefillSupermatrixProjectionCount == 208U);
+  static_assert(runtime::kQwen36Fp8PrefillSupermatrixSidecarBytes ==
+                7'214'202'880ULL);
+
+  SyntheticArena arena(/*force_fp8_attention_outputs=*/false,
+                       /*force_nvfp4_down_projections=*/false,
+                       /*force_fp8_linear_qkv=*/false,
+                       /*force_fp8_prefill_supermatrix=*/true);
+  runtime::WeightBindResult result =
+      runtime::bind_qwen36_27b_weights(arena.source());
+  test.expect(result.ok(),
+              "all-FP8 Prefill supermatrix synthetic ABI binds");
+  if (!result) {
+    return;
+  }
+  runtime::ModelWeights& weights = *result.value;
+  const std::vector<Fp8PrefillSupermatrixProjection> projections =
+      mutable_fp8_prefill_supermatrix_projections(weights);
+  test.expect(projections.size() ==
+                  runtime::kFp8PrefillSupermatrixProjectionCount,
+              "supermatrix attachment enumerates the fixed 208 projections");
+
+  const std::vector<const std::uint8_t*> detached =
+      fp8_prefill_supermatrix_attachment_snapshot(projections);
+  test.expect(std::all_of(detached.begin(), detached.end(),
+                          [](const std::uint8_t* const sidecar) {
+                            return sidecar == nullptr;
+                          }),
+              "all 208 supermatrix views default to detached");
+
+  constexpr std::size_t kArenaBytes =
+      runtime::kQwen36Fp8PrefillSupermatrixSidecarBytes;
+  constexpr std::uintptr_t kFirstArenaAddress =
+      0x0000100000000000ULL;
+  constexpr std::uintptr_t kSecondArenaAddress =
+      0x0000200000000000ULL;
+  const auto pointer = [](const std::uintptr_t address) {
+    return reinterpret_cast<const std::uint8_t*>(address);
+  };
+
+  test.expect(weights.attach_fp8_prefill_supermatrix_sidecars(
+                  pointer(kFirstArenaAddress), kArenaBytes) &&
+                  fp8_prefill_supermatrix_attachments_match_layout(
+                      projections, kFirstArenaAddress),
+              "exact supermatrix arena attaches all 208 offsets in ABI order");
+  const std::vector<const std::uint8_t*> first_snapshot =
+      fp8_prefill_supermatrix_attachment_snapshot(projections);
+
+  const auto expect_rejected_preserves =
+      [&](const std::uint8_t* const candidate_arena,
+          const std::size_t candidate_bytes, const std::string_view label) {
+        test.expect(
+            !weights.attach_fp8_prefill_supermatrix_sidecars(
+                candidate_arena, candidate_bytes) &&
+                fp8_prefill_supermatrix_attachments_match_snapshot(
+                    projections, first_snapshot),
+            label);
+      };
+
+  expect_rejected_preserves(nullptr, kArenaBytes,
+                            "null supermatrix arena is rejected atomically");
+  expect_rejected_preserves(pointer(kSecondArenaAddress), kArenaBytes - 1U,
+                            "short supermatrix arena is rejected atomically");
+  expect_rejected_preserves(pointer(kSecondArenaAddress), kArenaBytes + 1U,
+                            "long supermatrix arena is rejected atomically");
+  expect_rejected_preserves(pointer(kSecondArenaAddress + 1U), kArenaBytes,
+                            "misaligned supermatrix arena is atomic");
+  expect_rejected_preserves(
+      pointer(std::numeric_limits<std::uintptr_t>::max() - 15U),
+      kArenaBytes, "wrapping supermatrix arena is rejected atomically");
+
+  test.expect(!projections.empty() && projections.back().weight != nullptr,
+              "late supermatrix target exists for atomicity tests");
+  if (!projections.empty() && projections.back().weight != nullptr) {
+    runtime::Fp8LinearWeight& late = *projections.back().weight;
+    const std::size_t original_input_size = late.input_size;
+    late.input_size = original_input_size - 1U;
+    expect_rejected_preserves(pointer(kSecondArenaAddress), kArenaBytes,
+                              "late supermatrix shape failure is atomic");
+    late.input_size = original_input_size;
+
+    const std::uint8_t* const original_weight = late.weight;
+    late.weight = nullptr;
+    expect_rejected_preserves(pointer(kSecondArenaAddress), kArenaBytes,
+                              "late supermatrix payload failure is atomic");
+    late.weight = original_weight;
+  }
+
+  test.expect(weights.attach_fp8_prefill_supermatrix_sidecars(
+                  pointer(kSecondArenaAddress), kArenaBytes) &&
+                  fp8_prefill_supermatrix_attachments_match_layout(
+                      projections, kSecondArenaAddress),
+              "valid supermatrix replacement atomically updates 208 views");
+  test.expect(weights.attach_fp8_prefill_supermatrix_sidecars(nullptr, 0U) &&
+                  fp8_prefill_supermatrix_attachments_match_snapshot(
+                      projections, detached),
+              "canonical empty supermatrix call detaches all 208 views");
 }
 
 void test_nvfp4_down_scale6_sidecar_attachment(TestContext& test) {
@@ -1501,6 +1709,7 @@ int main() {
   test_successful_bind(test);
   test_fp8_m1_output_projection_sidecar_attachment(test);
   test_fp8_prefill_qkv_register_feed_sidecar_attachment(test);
+  test_fp8_prefill_supermatrix_sidecar_attachment(test);
   test_nvfp4_down_scale6_sidecar_attachment(test);
   test_projection_pair_eligibility(test);
   test_fp8_qkv_z_projection_pair_eligibility(test);

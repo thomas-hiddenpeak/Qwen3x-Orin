@@ -1,5 +1,9 @@
 #include "q3x/runtime/reference_runner.h"
 
+#if defined(Q3X_ENABLE_FP8_PREFILL_SUPERMATRIX_V2_ADMISSION)
+#include "q3x/kernels/sm87_fp8_prefill_supermatrix.h"
+#endif
+
 #if defined(Q3X_ENABLE_GDN_B8_ADMISSION)
 #include "../kernels/reference/gdn_prefill_b8_sequential_sm87.h"
 #endif
@@ -2783,11 +2787,76 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
                            const std::size_t layer) noexcept {
     return project_on_stream(weight, input, output, operation, layer, stream_);
   };
+#if defined(Q3X_ENABLE_FP8_PREFILL_SUPERMATRIX_V2_ADMISSION)
+  const auto has_fp8_prefill_supermatrix_sidecar =
+      [this, token_count](const LinearWeight& weight) noexcept {
+        const auto* const fp8 = std::get_if<Fp8LinearWeight>(&weight);
+        return projection_backend_ == ProjectionBackend::kSm87WeightOnly &&
+               token_count == kMaximumRequestPrefillChunkSize &&
+               fp8 != nullptr &&
+               fp8->prefill_supermatrix_sidecar != nullptr;
+      };
+  const auto project_fp8_prefill_supermatrix =
+      [this, token_count, &check_cuda](
+          const LinearWeight* const* const group_weights,
+          std::uint16_t* const* const group_outputs,
+          const std::size_t group_size,
+          const std::uint16_t* const input,
+          const char* const operation,
+          const std::size_t layer) noexcept {
+        if (group_weights == nullptr || group_outputs == nullptr ||
+            group_size == 0U || group_size > 3U) {
+          return check_cuda(static_cast<int>(cudaErrorInvalidValue),
+                            operation, layer);
+        }
+        std::array<kernels::Sm87Fp8PrefillSupermatrixPartition, 3U>
+            partitions{};
+        std::size_t columns = 0U;
+        for (std::size_t index = 0U; index < group_size; ++index) {
+          if (group_weights[index] == nullptr ||
+              group_outputs[index] == nullptr) {
+            return check_cuda(static_cast<int>(cudaErrorInvalidValue),
+                              operation, layer);
+          }
+          const auto* const fp8 =
+              std::get_if<Fp8LinearWeight>(group_weights[index]);
+          if (fp8 == nullptr ||
+              fp8->prefill_supermatrix_sidecar == nullptr ||
+              (index != 0U && fp8->input_size != columns)) {
+            return check_cuda(static_cast<int>(cudaErrorInvalidValue),
+                              operation, layer);
+          }
+          columns = fp8->input_size;
+          partitions[index] =
+              kernels::Sm87Fp8PrefillSupermatrixPartition{
+                  fp8->prefill_supermatrix_sidecar, fp8->weight_scale,
+                  fp8->output_size, group_outputs[index]};
+        }
+        return check_cuda(
+            kernels::launch_sm87_fp8_prefill_supermatrix_gemm_bf16_cuda(
+                partitions.data(), group_size, input, token_count, columns,
+                stream_),
+            operation, layer);
+      };
+#endif
   const auto project_attention_output =
-      [this, token_count, &check_cuda, &project](
+      [this, token_count, &check_cuda, &project
+#if defined(Q3X_ENABLE_FP8_PREFILL_SUPERMATRIX_V2_ADMISSION)
+       , &has_fp8_prefill_supermatrix_sidecar,
+       &project_fp8_prefill_supermatrix
+#endif
+      ](
           const LinearWeight& weight, const std::uint16_t* const input,
           std::uint16_t* const output, const char* const operation,
           const std::size_t layer) noexcept {
+#if defined(Q3X_ENABLE_FP8_PREFILL_SUPERMATRIX_V2_ADMISSION)
+        if (has_fp8_prefill_supermatrix_sidecar(weight)) {
+          const LinearWeight* const group_weights[1U] = {&weight};
+          std::uint16_t* const group_outputs[1U] = {output};
+          return project_fp8_prefill_supermatrix(
+              group_weights, group_outputs, 1U, input, operation, layer);
+        }
+#endif
         if (!reference_runner_detail::
                 use_fp8_m64_prefill_attention_output_projection(
                     projection_backend_, weight, input, output,
@@ -2938,12 +3007,29 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
             ReferenceRunnerError::kInvalidLayerSchedule,
             "prefill_linear_attention_variant", layer));
       }
-      if (!project(attention->in_proj_qkv, views_.hidden[1],
-                   views_.projection[0], "prefill_linear_qkv_projection",
-                   layer) ||
-          !project(attention->in_proj_z, views_.hidden[1],
-                   views_.projection[1], "prefill_linear_z_projection",
-                   layer)) {
+      bool linear_qkvz_projected = false;
+#if defined(Q3X_ENABLE_FP8_PREFILL_SUPERMATRIX_V2_ADMISSION)
+      if (has_fp8_prefill_supermatrix_sidecar(attention->in_proj_qkv) &&
+          has_fp8_prefill_supermatrix_sidecar(attention->in_proj_z)) {
+        const LinearWeight* const group_weights[2U] = {
+            &attention->in_proj_qkv, &attention->in_proj_z};
+        std::uint16_t* const group_outputs[2U] = {
+            views_.projection[0], views_.projection[1]};
+        if (!project_fp8_prefill_supermatrix(
+                group_weights, group_outputs, 2U, views_.hidden[1],
+                "prefill_linear_qkvz_supermatrix_projection", layer)) {
+          return fail_prefill_tile(launch_failure);
+        }
+        linear_qkvz_projected = true;
+      }
+#endif
+      if (!linear_qkvz_projected &&
+          (!project(attention->in_proj_qkv, views_.hidden[1],
+                    views_.projection[0], "prefill_linear_qkv_projection",
+                    layer) ||
+           !project(attention->in_proj_z, views_.hidden[1],
+                    views_.projection[1], "prefill_linear_z_projection",
+                    layer))) {
         return fail_prefill_tile(launch_failure);
       }
       if (supports_bf16_projection_pair(
@@ -3198,15 +3284,31 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
           static_cast<std::size_t>(first_position) * kFullKvElements;
       const std::size_t rope_first_position =
           static_cast<std::size_t>(first_position);
-      if (!project(attention->q_proj, views_.hidden[1],
-                   views_.projection[0], "prefill_full_q_gate_projection",
-                   layer) ||
-          !project(attention->k_proj, views_.hidden[1],
-                   tile_key, "prefill_full_k_projection",
-                   layer) ||
-          !project(attention->v_proj, views_.hidden[1],
-                   tile_value, "prefill_full_v_projection",
-                   layer)) {
+      bool full_qkv_projected = false;
+#if defined(Q3X_ENABLE_FP8_PREFILL_SUPERMATRIX_V2_ADMISSION)
+      if (has_fp8_prefill_supermatrix_sidecar(attention->q_proj) &&
+          has_fp8_prefill_supermatrix_sidecar(attention->k_proj) &&
+          has_fp8_prefill_supermatrix_sidecar(attention->v_proj)) {
+        const LinearWeight* const group_weights[3U] = {
+            &attention->q_proj, &attention->k_proj, &attention->v_proj};
+        std::uint16_t* const group_outputs[3U] = {
+            views_.projection[0], tile_key, tile_value};
+        if (!project_fp8_prefill_supermatrix(
+                group_weights, group_outputs, 3U, views_.hidden[1],
+                "prefill_full_qkv_supermatrix_projection", layer)) {
+          return fail_prefill_tile(launch_failure);
+        }
+        full_qkv_projected = true;
+      }
+#endif
+      if (!full_qkv_projected &&
+          (!project(attention->q_proj, views_.hidden[1],
+                    views_.projection[0], "prefill_full_q_gate_projection",
+                    layer) ||
+           !project(attention->k_proj, views_.hidden[1], tile_key,
+                    "prefill_full_k_projection", layer) ||
+           !project(attention->v_proj, views_.hidden[1], tile_value,
+                    "prefill_full_v_projection", layer))) {
         return fail_prefill_tile(launch_failure);
       }
 
