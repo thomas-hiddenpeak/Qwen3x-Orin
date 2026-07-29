@@ -77,6 +77,16 @@ thread_local bool g_enable_prefill_residual_rms_prompt_wide_admission =
     prefill_residual_rms_prompt_wide_environment_enabled();
 
 [[nodiscard]] bool
+prefill_embedding_prompt_wide_environment_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_PREFILL_EMBEDDING_PROMPT_WIDE_ADMISSION");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
+thread_local bool g_enable_prefill_embedding_prompt_wide_admission =
+    prefill_embedding_prompt_wide_environment_enabled();
+
+[[nodiscard]] bool
 gdn_conv_token_parallel_environment_enabled() noexcept {
   const char* const value =
       std::getenv("Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION");
@@ -3272,15 +3282,35 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
   const bool use_m32_residual_rms_fusion =
       residual_rms_m32_schedule.valid();
 
-  for (std::size_t token = 0U; token < token_count; ++token) {
-    if (!check_cuda(launch_embedding_gather_reference_cuda(
+  if (g_enable_prefill_embedding_prompt_wide_admission) {
+    auto* const device_token_ids =
+        reinterpret_cast<std::uint32_t*>(views_.projection[3]);
+    if (!check_cuda(
+            static_cast<int>(cudaMemcpyAsync(
+                device_token_ids, input_token_ids,
+                token_count * sizeof(std::uint32_t), cudaMemcpyHostToDevice,
+                static_cast<cudaStream_t>(stream_))),
+            "prefill_embedding_token_ids", kReferenceNoLayer) ||
+        !check_cuda(launch_embedding_gather_prompt_reference_cuda(
                         weights_->embed_tokens().weight,
                         kReferenceVocabularySize, kReferenceHiddenSize,
-                        input_token_ids[token],
-                        views_.hidden[0] + token * kReferenceHiddenSize,
+                        device_token_ids, token_count, views_.hidden[0],
                         stream_),
-                    "prefill_embedding_gather", kReferenceNoLayer)) {
+                    "prefill_embedding_gather_prompt_wide",
+                    kReferenceNoLayer)) {
       return fail_prefill_tile(launch_failure);
+    }
+  } else {
+    for (std::size_t token = 0U; token < token_count; ++token) {
+      if (!check_cuda(launch_embedding_gather_reference_cuda(
+                          weights_->embed_tokens().weight,
+                          kReferenceVocabularySize, kReferenceHiddenSize,
+                          input_token_ids[token],
+                          views_.hidden[0] + token * kReferenceHiddenSize,
+                          stream_),
+                      "prefill_embedding_gather", kReferenceNoLayer)) {
+        return fail_prefill_tile(launch_failure);
+      }
     }
   }
 
