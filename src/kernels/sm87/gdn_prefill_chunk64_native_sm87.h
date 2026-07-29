@@ -6,14 +6,15 @@
 
 namespace q3x::runtime::gdn_prefill_chunk64_native_detail {
 
-// Admission-only exact-C512 native SM87 WY cell. One 256-thread CTA owns a
-// value head for all eight ordered C64 chunks. The launcher has no library
-// context and accepts no fallback shapes. The caller-owned workspace is zero;
-// QK, the WY transform, corrected/new values, and chunk-boundary state never
-// cross the kernel boundary.
-[[nodiscard]] constexpr std::size_t workspace_bytes() noexcept { return 0U; }
+// Admission-only exact-C512 native SM87 FLA/WY pipeline. The implementation
+// is deliberately fixed to the authenticated model shape (Hg=16, H=48,
+// K=V=128, BT=64). It has no library context and accepts no fallback shape.
+// The caller owns one reusable workspace that carries the explicit FLA stage
+// boundaries; no cuBLAS/cuBLASLt handle is present in this interface.
+[[nodiscard]] std::size_t workspace_bytes() noexcept;
 
 [[nodiscard]] int launch(
+    void* workspace, std::size_t workspace_capacity_bytes,
     const std::uint16_t* conv_qkv, std::size_t token_count,
     const std::uint16_t* a, const std::uint16_t* b,
     const std::uint16_t* A_log, const std::uint16_t* dt_bias,
@@ -22,7 +23,7 @@ namespace q3x::runtime::gdn_prefill_chunk64_native_detail {
     const std::uint16_t* silu_gate, float norm_epsilon,
     std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
 
-// Reports the persistent WY cell, not the small post-normalization kernel.
+// Reports the largest-resource native FLA stage selected by the launcher.
 [[nodiscard]] int query_resources(
     int* registers_per_thread, std::size_t* static_shared_bytes,
     std::size_t* local_bytes, int* maximum_threads_per_block,

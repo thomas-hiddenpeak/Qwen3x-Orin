@@ -522,6 +522,8 @@ class ReferenceRunner {
   void* prefill_gdn_chunk64_reference_context_ = nullptr;
   void* prefill_gdn_chunk64_reference_workspace_ = nullptr;
   std::size_t prefill_gdn_chunk64_reference_workspace_bytes_ = 0U;
+  void* prefill_gdn_chunk64_native_workspace_ = nullptr;
+  std::size_t prefill_gdn_chunk64_native_workspace_bytes_ = 0U;
   void* pinned_logits_ = nullptr;
   std::uint16_t* pinned_trace_ = nullptr;
   std::array<DecodeGraphP1Slot, kReferenceDecodeGraphP2MaximumSlots>

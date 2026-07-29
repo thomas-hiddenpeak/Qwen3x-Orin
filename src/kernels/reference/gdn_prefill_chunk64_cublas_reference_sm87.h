@@ -7,8 +7,9 @@ namespace q3x::runtime::gdn_prefill_chunk64_reference_detail {
 
 // This module is a compile-time-isolated architecture reference. It may be
 // built only with BUILD_TESTING and has no production/fallback authority.
-// Its external GEMMs establish whether the C64/WY dataflow clears the real
-// P513 stop-loss before the stages are replaced by native SM87 HMMA kernels.
+// The historical filename is retained for build compatibility, but every
+// C64/WY GEMM stage is now a native fixed-shape SM87 HMMA kernel; the context
+// token carries no external-library handle.
 [[nodiscard]] std::size_t workspace_bytes() noexcept;
 
 [[nodiscard]] int create_context(void** context) noexcept;

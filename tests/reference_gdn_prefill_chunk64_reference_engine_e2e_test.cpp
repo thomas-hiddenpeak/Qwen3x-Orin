@@ -232,7 +232,7 @@ void print_diagnostic(
                       maximum_threads_per_block >= 256 &&
                       active_blocks_per_sm >= 1 &&
                       q3x::runtime::gdn_prefill_chunk64_native_detail::
-                              workspace_bytes() == 0U;
+                              workspace_bytes() > 0U;
   std::cout << "GDN_CHUNK64_NATIVE_RESOURCES"
             << " cuda_status=" << status
             << " registers_per_thread=" << registers_per_thread

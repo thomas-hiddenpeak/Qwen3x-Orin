@@ -1,8 +1,8 @@
 #include "gdn_prefill_chunk64_cublas_reference_sm87.h"
+#include "../sm87/gdn_prefill_chunk64_native_sm87.h"
 
 #include "q3x/runtime/gdn_decode.h"
 
-#include <cublas_v2.h>
 #include <cuda_bf16.h>
 #include <cuda_runtime.h>
 #include <mma.h>
@@ -78,8 +78,8 @@ using WmmaAccumulator =
     offset = append_region(offset, kHeadTokenElements, kBf16Bytes);
   }
   offset = append_region(offset, kBoundaryStateElements, kBf16Bytes);
-  // QK FP32 reuse bank, cumulative gate, and beta.
-  offset = append_region(offset, kChunkMatrixElements, kFp32Bytes);
+  // Cumulative gate and beta. QK is produced directly at its BF16 stage
+  // boundary by the native WMMA kernel, so no FP32 global scratch is needed.
   offset = append_region(offset, kScalarElements, kFp32Bytes);
   offset = append_region(offset, kScalarElements, kFp32Bytes);
   return align_workspace(offset);
@@ -97,7 +97,6 @@ struct Workspace {
   std::uint16_t* u = nullptr;
   std::uint16_t* v_new = nullptr;
   std::uint16_t* boundary_state = nullptr;
-  float* matrix_fp32 = nullptr;
   float* gamma = nullptr;
   float* beta = nullptr;
 };
@@ -137,8 +136,6 @@ template <typename T>
       take_region<std::uint16_t>(base, offset, kHeadTokenElements);
   workspace.boundary_state =
       take_region<std::uint16_t>(base, offset, kBoundaryStateElements);
-  workspace.matrix_fp32 =
-      take_region<float>(base, offset, kChunkMatrixElements);
   workspace.gamma = take_region<float>(base, offset, kScalarElements);
   workspace.beta = take_region<float>(base, offset, kScalarElements);
   return align_workspace(offset) <= capacity;
@@ -577,24 +574,212 @@ void fused_kkt_solve_block16_kernel(
   }
 }
 
-__global__ void scale_qk_kernel(const float* const qk_fp32,
-                                const float* const gamma,
-                                std::uint16_t* const qk_bf16) {
-  const std::size_t index =
-      static_cast<std::size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
-  if (index >= kChunkMatrixElements) {
-    return;
+constexpr unsigned int kQkThreads = 128U;
+constexpr unsigned int kQkWarps = kQkThreads / 32U;
+constexpr unsigned int kWmmaTile = 16U;
+constexpr std::size_t kQkSharedBytes =
+    2U * kChunkSize * kDimension * sizeof(Bf16) +
+    kQkWarps * kWmmaTile * kWmmaTile * sizeof(float);
+
+// FLA output-side QK stage. One CTA owns a complete C64/value-head matrix.
+// Q and K are staged once, four warps cover all sixteen 16x16 output tiles,
+// and causal gate scaling is applied before the sole BF16 publication. This
+// replaces both the external strided GEMM and its global FP32 scale pass.
+__global__ __launch_bounds__(kQkThreads)
+void qk_scaled_chunk64_kernel(const std::uint16_t* const q,
+                              const std::uint16_t* const k,
+                              const float* const gamma,
+                              std::uint16_t* const qk) {
+  extern __shared__ unsigned char shared_raw[];
+  auto* const shared_q = reinterpret_cast<Bf16*>(shared_raw);
+  auto* const shared_k = shared_q + kChunkSize * kDimension;
+  auto* const scratch = reinterpret_cast<float*>(
+      shared_k + kChunkSize * kDimension);
+  const unsigned int thread = threadIdx.x;
+  const unsigned int warp = thread / 32U;
+  const unsigned int lane = thread % 32U;
+  const std::size_t matrix = blockIdx.x;
+  const std::size_t matrix_vector_base =
+      matrix * kChunkSize * kDimension;
+  const std::size_t matrix_score_base =
+      matrix * kChunkSize * kChunkSize;
+
+  for (unsigned int index = thread; index < kChunkSize * kDimension;
+       index += kQkThreads) {
+    shared_q[index] = reinterpret_cast<const Bf16*>(q)[
+        matrix_vector_base + index];
+    shared_k[index] = reinterpret_cast<const Bf16*>(k)[
+        matrix_vector_base + index];
   }
-  const std::size_t element = index % (kChunkSize * kChunkSize);
-  const std::size_t matrix = index / (kChunkSize * kChunkSize);
-  const std::size_t row = element % kChunkSize;
-  const std::size_t column = element / kChunkSize;
-  float value = 0.0F;
-  if (row >= column) {
-    const float* const matrix_gamma = gamma + matrix * kChunkSize;
-    value = expf(matrix_gamma[row] - matrix_gamma[column]) * qk_fp32[index];
+  __syncthreads();
+
+  for (unsigned int tile = warp; tile < 16U; tile += kQkWarps) {
+    const unsigned int query_block = tile / 4U;
+    const unsigned int source_block = tile % 4U;
+    WmmaAccumulator accumulator;
+    wmma::fill_fragment(accumulator, 0.0F);
+#pragma unroll
+    for (unsigned int key_block = 0U;
+         key_block < kDimension / kWmmaTile; ++key_block) {
+      wmma::fragment<wmma::matrix_a, 16, 16, 16, Bf16,
+                     wmma::row_major>
+          q_fragment;
+      wmma::fragment<wmma::matrix_b, 16, 16, 16, Bf16,
+                     wmma::col_major>
+          k_fragment;
+      wmma::load_matrix_sync(
+          q_fragment,
+          shared_q + query_block * kWmmaTile * kDimension +
+              key_block * kWmmaTile,
+          static_cast<int>(kDimension));
+      wmma::load_matrix_sync(
+          k_fragment,
+          shared_k + source_block * kWmmaTile * kDimension +
+              key_block * kWmmaTile,
+          static_cast<int>(kDimension));
+      wmma::mma_sync(accumulator, q_fragment, k_fragment, accumulator);
+    }
+    float* const tile_scratch =
+        scratch + warp * kWmmaTile * kWmmaTile;
+    wmma::store_matrix_sync(tile_scratch, accumulator,
+                            static_cast<int>(kWmmaTile),
+                            wmma::mem_row_major);
+    __syncwarp();
+    for (unsigned int index = lane; index < kWmmaTile * kWmmaTile;
+         index += 32U) {
+      const unsigned int query =
+          query_block * kWmmaTile + index / kWmmaTile;
+      const unsigned int source =
+          source_block * kWmmaTile + index % kWmmaTile;
+      const float score =
+          query >= source
+              ? tile_scratch[index] *
+                    expf(gamma[matrix * kChunkSize + query] -
+                         gamma[matrix * kChunkSize + source])
+              : 0.0F;
+      qk[matrix_score_base + source * kChunkSize + query] =
+          encode_bf16_device(score);
+    }
+    __syncwarp();
   }
-  qk_bf16[index] = encode_bf16_device(value);
+}
+
+constexpr unsigned int kWuThreads = 256U;
+constexpr unsigned int kWuWarps = kWuThreads / 32U;
+constexpr std::size_t kWuSharedBytes =
+    (kChunkSize * kChunkSize +
+     2U * kChunkSize * kDimension) * sizeof(Bf16) +
+    kWuWarps * kWmmaTile * kWmmaTile * sizeof(float);
+
+// FLA WY recomputation stage. The transform, exp(g)K and V are each loaded
+// exactly once per C64/value-head CTA. Eight warps own independent 16-column
+// slabs and produce W and U with BF16 Tensor Cores, preserving the screened
+// BF16 boundary consumed by the persistent-state stage.
+__global__ __launch_bounds__(kWuThreads)
+void recompute_w_u_chunk64_kernel(
+    const std::uint16_t* const transform,
+    const std::uint16_t* const k_g,
+    const std::uint16_t* const v,
+    std::uint16_t* const w,
+    std::uint16_t* const u) {
+  extern __shared__ unsigned char shared_raw[];
+  auto* const shared_transform = reinterpret_cast<Bf16*>(shared_raw);
+  auto* const shared_k = shared_transform + kChunkSize * kChunkSize;
+  auto* const shared_v = shared_k + kChunkSize * kDimension;
+  auto* const scratch = reinterpret_cast<float*>(
+      shared_v + kChunkSize * kDimension);
+  const unsigned int thread = threadIdx.x;
+  const unsigned int warp = thread / 32U;
+  const unsigned int lane = thread % 32U;
+  const std::size_t matrix = blockIdx.x;
+  const std::size_t matrix_transform_base =
+      matrix * kChunkSize * kChunkSize;
+  const std::size_t matrix_vector_base =
+      matrix * kChunkSize * kDimension;
+
+  for (unsigned int index = thread; index < kChunkSize * kChunkSize;
+       index += kWuThreads) {
+    shared_transform[index] = reinterpret_cast<const Bf16*>(transform)[
+        matrix_transform_base + index];
+  }
+  for (unsigned int index = thread; index < kChunkSize * kDimension;
+       index += kWuThreads) {
+    shared_k[index] =
+        reinterpret_cast<const Bf16*>(k_g)[matrix_vector_base + index];
+    shared_v[index] =
+        reinterpret_cast<const Bf16*>(v)[matrix_vector_base + index];
+  }
+  __syncthreads();
+
+  float* const tile_scratch =
+      scratch + warp * kWmmaTile * kWmmaTile;
+#pragma unroll
+  for (unsigned int token_block = 0U;
+       token_block < kChunkSize / kWmmaTile; ++token_block) {
+    WmmaAccumulator w_accumulator;
+    WmmaAccumulator u_accumulator;
+    wmma::fill_fragment(w_accumulator, 0.0F);
+    wmma::fill_fragment(u_accumulator, 0.0F);
+#pragma unroll
+    for (unsigned int source_block = 0U;
+         source_block < kChunkSize / kWmmaTile; ++source_block) {
+      wmma::fragment<wmma::matrix_a, 16, 16, 16, Bf16,
+                     wmma::col_major>
+          transform_fragment;
+      wmma::fragment<wmma::matrix_b, 16, 16, 16, Bf16,
+                     wmma::row_major>
+          k_fragment;
+      wmma::fragment<wmma::matrix_b, 16, 16, 16, Bf16,
+                     wmma::row_major>
+          v_fragment;
+      wmma::load_matrix_sync(
+          transform_fragment,
+          shared_transform + token_block * kWmmaTile +
+              source_block * kWmmaTile * kChunkSize,
+          static_cast<int>(kChunkSize));
+      wmma::load_matrix_sync(
+          k_fragment,
+          shared_k + source_block * kWmmaTile * kDimension +
+              warp * kWmmaTile,
+          static_cast<int>(kDimension));
+      wmma::load_matrix_sync(
+          v_fragment,
+          shared_v + source_block * kWmmaTile * kDimension +
+              warp * kWmmaTile,
+          static_cast<int>(kDimension));
+      wmma::mma_sync(w_accumulator, transform_fragment, k_fragment,
+                     w_accumulator);
+      wmma::mma_sync(u_accumulator, transform_fragment, v_fragment,
+                     u_accumulator);
+    }
+
+    wmma::store_matrix_sync(tile_scratch, w_accumulator,
+                            static_cast<int>(kWmmaTile),
+                            wmma::mem_row_major);
+    __syncwarp();
+    for (unsigned int index = lane; index < kWmmaTile * kWmmaTile;
+         index += 32U) {
+      const unsigned int row = index / kWmmaTile;
+      const unsigned int column = index % kWmmaTile;
+      w[matrix_vector_base +
+        (token_block * kWmmaTile + row) * kDimension +
+        warp * kWmmaTile + column] = encode_bf16_device(tile_scratch[index]);
+    }
+    __syncwarp();
+    wmma::store_matrix_sync(tile_scratch, u_accumulator,
+                            static_cast<int>(kWmmaTile),
+                            wmma::mem_row_major);
+    __syncwarp();
+    for (unsigned int index = lane; index < kWmmaTile * kWmmaTile;
+         index += 32U) {
+      const unsigned int row = index / kWmmaTile;
+      const unsigned int column = index % kWmmaTile;
+      u[matrix_vector_base +
+        (token_block * kWmmaTile + row) * kDimension +
+        warp * kWmmaTile + column] = encode_bf16_device(tile_scratch[index]);
+    }
+    __syncwarp();
+  }
 }
 
 // Architecture stage B: one CTA owns 64 value rows of one head and keeps the
@@ -960,46 +1145,12 @@ void reconstruct_norm_gate_chunk64_kernel(
   }
 }
 
-[[nodiscard]] int cuda_status(const cublasStatus_t status) noexcept {
-  return status == CUBLAS_STATUS_SUCCESS
-             ? static_cast<int>(cudaSuccess)
-             : static_cast<int>(cudaErrorUnknown);
-}
-
 [[nodiscard]] int launch_grid_status() noexcept {
   return static_cast<int>(cudaGetLastError());
 }
 
-[[nodiscard]] int gemm_strided_batched(
-    cublasHandle_t const handle,
-    const cublasOperation_t operation_a,
-    const cublasOperation_t operation_b,
-    const int m,
-    const int n,
-    const int k,
-    const float alpha,
-    const void* const a,
-    const cudaDataType_t a_type,
-    const int lda,
-    const long long stride_a,
-    const void* const b,
-    const cudaDataType_t b_type,
-    const int ldb,
-    const long long stride_b,
-    const float beta,
-    void* const c,
-    const cudaDataType_t c_type,
-    const int ldc,
-    const long long stride_c,
-    const int batch_count) noexcept {
-  return cuda_status(cublasGemmStridedBatchedEx(
-      handle, operation_a, operation_b, m, n, k, &alpha, a, a_type, lda,
-      stride_a, b, b_type, ldb, stride_b, &beta, c, c_type, ldc, stride_c,
-      batch_count, CUBLAS_COMPUTE_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
-}
-
 [[nodiscard]] bool invalid_arguments(
-    void* const context,
+    void* const /*context*/,
     void* const workspace,
     const std::size_t workspace_capacity_bytes,
     const std::uint16_t* const conv_qkv,
@@ -1014,7 +1165,7 @@ void reconstruct_norm_gate_chunk64_kernel(
     const std::uint16_t* const silu_gate,
     const float norm_epsilon,
     const std::uint16_t* const output) noexcept {
-  return context == nullptr || workspace == nullptr ||
+  return workspace == nullptr ||
          workspace_capacity_bytes < required_workspace_bytes() ||
          conv_qkv == nullptr || a == nullptr || b == nullptr ||
          A_log == nullptr || dt_bias == nullptr || state_input == nullptr ||
@@ -1032,30 +1183,13 @@ int create_context(void** const context) noexcept {
   if (context == nullptr) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
-  *context = nullptr;
-  cublasHandle_t handle = nullptr;
-  cublasStatus_t status = cublasCreate(&handle);
-  if (status != CUBLAS_STATUS_SUCCESS) {
-    return cuda_status(status);
-  }
-  status = cublasSetPointerMode(handle, CUBLAS_POINTER_MODE_HOST);
-  if (status == CUBLAS_STATUS_SUCCESS) {
-    status = cublasSetMathMode(handle, CUBLAS_TENSOR_OP_MATH);
-  }
-  if (status != CUBLAS_STATUS_SUCCESS) {
-    (void)cublasDestroy(handle);
-    return cuda_status(status);
-  }
-  *context = reinterpret_cast<void*>(handle);
+  static int context_token = 0;
+  *context = &context_token;
   return static_cast<int>(cudaSuccess);
 }
 
-int destroy_context(void* const context) noexcept {
-  if (context == nullptr) {
-    return static_cast<int>(cudaSuccess);
-  }
-  return cuda_status(
-      cublasDestroy(reinterpret_cast<cublasHandle_t>(context)));
+int destroy_context(void* const /*context*/) noexcept {
+  return static_cast<int>(cudaSuccess);
 }
 
 int launch(void* const context,
@@ -1080,17 +1214,14 @@ int launch(void* const context,
                         norm_epsilon, output)) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
+  (void)context;
   Workspace workspace;
   if (!partition_workspace(workspace_raw, workspace_capacity_bytes,
                            workspace)) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
   const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
-  const auto handle = reinterpret_cast<cublasHandle_t>(context);
-  int status = cuda_status(cublasSetStream(handle, stream));
-  if (status != static_cast<int>(cudaSuccess)) {
-    return status;
-  }
+  int status = static_cast<int>(cudaSuccess);
   (void)cudaGetLastError();
 
   normalize_qk_kernel<<<
@@ -1118,13 +1249,6 @@ int launch(void* const context,
     return status;
   }
 
-  constexpr int dimension = static_cast<int>(kDimension);
-  constexpr int chunk = static_cast<int>(kChunkSize);
-  constexpr int matrices = static_cast<int>(kMatrixCount);
-  constexpr long long head_token_stride =
-      static_cast<long long>(kChunkSize * kDimension);
-  constexpr long long chunk_matrix_stride =
-      static_cast<long long>(kChunkSize * kChunkSize);
   constexpr std::size_t fused_solve_shared_bytes =
       kChunkSize * kDimension * sizeof(Bf16) +
       2U * kChunkSize * kChunkSize * sizeof(float);
@@ -1137,37 +1261,19 @@ int launch(void* const context,
     return status;
   }
 
-  status = gemm_strided_batched(
-      handle, CUBLAS_OP_T, CUBLAS_OP_N, chunk, chunk, dimension, 1.0F,
-      workspace.q, CUDA_R_16BF, dimension, head_token_stride, workspace.k,
-      CUDA_R_16BF, dimension, head_token_stride, 0.0F,
-      workspace.matrix_fp32, CUDA_R_32F, chunk, chunk_matrix_stride,
-      matrices);
-  if (status != static_cast<int>(cudaSuccess)) {
-    return status;
-  }
-  const unsigned int chunk_matrix_blocks = static_cast<unsigned int>(
-      (kChunkMatrixElements + kThreads - 1U) / kThreads);
-  scale_qk_kernel<<<chunk_matrix_blocks, kThreads, 0U, stream>>>(
-      workspace.matrix_fp32, workspace.gamma, workspace.qk);
+  qk_scaled_chunk64_kernel<<<static_cast<unsigned int>(kMatrixCount),
+                             kQkThreads, kQkSharedBytes, stream>>>(
+      workspace.q, workspace.k, workspace.gamma, workspace.qk);
   status = launch_grid_status();
   if (status != static_cast<int>(cudaSuccess)) {
     return status;
   }
 
-  status = gemm_strided_batched(
-      handle, CUBLAS_OP_N, CUBLAS_OP_T, dimension, chunk, chunk, 1.0F,
-      workspace.k_g, CUDA_R_16BF, dimension, head_token_stride,
-      workspace.transform, CUDA_R_16BF, chunk, chunk_matrix_stride, 0.0F,
-      workspace.w, CUDA_R_16BF, dimension, head_token_stride, matrices);
-  if (status != static_cast<int>(cudaSuccess)) {
-    return status;
-  }
-  status = gemm_strided_batched(
-      handle, CUBLAS_OP_N, CUBLAS_OP_T, dimension, chunk, chunk, 1.0F,
-      workspace.v, CUDA_R_16BF, dimension, head_token_stride,
-      workspace.transform, CUDA_R_16BF, chunk, chunk_matrix_stride, 0.0F,
-      workspace.u, CUDA_R_16BF, dimension, head_token_stride, matrices);
+  recompute_w_u_chunk64_kernel<<<static_cast<unsigned int>(kMatrixCount),
+                                 kWuThreads, kWuSharedBytes, stream>>>(
+      workspace.transform, workspace.k_g, workspace.v, workspace.w,
+      workspace.u);
+  status = launch_grid_status();
   if (status != static_cast<int>(cudaSuccess)) {
     return status;
   }
@@ -1196,4 +1302,78 @@ int launch(void* const context,
   return launch_grid_status();
 }
 
+int query_native_resources(int* const registers_per_thread,
+                           std::size_t* const static_shared_bytes,
+                           std::size_t* const local_bytes,
+                           int* const maximum_threads_per_block,
+                           int* const active_blocks_per_sm) noexcept {
+  if (registers_per_thread == nullptr || static_shared_bytes == nullptr ||
+      local_bytes == nullptr || maximum_threads_per_block == nullptr ||
+      active_blocks_per_sm == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  cudaFuncAttributes attributes{};
+  cudaError_t status = cudaFuncGetAttributes(
+      &attributes, recompute_w_u_chunk64_kernel);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  int active = 0;
+  status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+      &active, recompute_w_u_chunk64_kernel, static_cast<int>(kWuThreads),
+      kWuSharedBytes);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  *registers_per_thread = attributes.numRegs;
+  *static_shared_bytes = attributes.sharedSizeBytes;
+  *local_bytes = attributes.localSizeBytes;
+  *maximum_threads_per_block = attributes.maxThreadsPerBlock;
+  *active_blocks_per_sm = active;
+  return static_cast<int>(cudaSuccess);
+}
+
 }  // namespace q3x::runtime::gdn_prefill_chunk64_reference_detail
+
+namespace q3x::runtime::gdn_prefill_chunk64_native_detail {
+
+std::size_t workspace_bytes() noexcept {
+  return gdn_prefill_chunk64_reference_detail::workspace_bytes();
+}
+
+int launch(void* const workspace,
+           const std::size_t workspace_capacity_bytes,
+           const std::uint16_t* const conv_qkv,
+           const std::size_t token_count,
+           const std::uint16_t* const a,
+           const std::uint16_t* const b,
+           const std::uint16_t* const A_log,
+           const std::uint16_t* const dt_bias,
+           const std::uint16_t* const state_input,
+           std::uint16_t* const state_output,
+           const float l2_epsilon,
+           const std::uint16_t* const norm_weight,
+           const std::uint16_t* const silu_gate,
+           const float norm_epsilon,
+           std::uint16_t* const output,
+           void* const cuda_stream) noexcept {
+  if (token_count != 512U) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  return gdn_prefill_chunk64_reference_detail::launch(
+      nullptr, workspace, workspace_capacity_bytes, conv_qkv, a, b, A_log,
+      dt_bias, state_input, state_output, l2_epsilon, norm_weight, silu_gate,
+      norm_epsilon, output, cuda_stream);
+}
+
+int query_resources(int* const registers_per_thread,
+                    std::size_t* const static_shared_bytes,
+                    std::size_t* const local_bytes,
+                    int* const maximum_threads_per_block,
+                    int* const active_blocks_per_sm) noexcept {
+  return gdn_prefill_chunk64_reference_detail::query_native_resources(
+      registers_per_thread, static_shared_bytes, local_bytes,
+      maximum_threads_per_block, active_blocks_per_sm);
+}
+
+}  // namespace q3x::runtime::gdn_prefill_chunk64_native_detail

@@ -197,19 +197,20 @@ if(Q3X_BUILD_GDN_C16_NORM_GATE_ADMISSION)
     Q3X_ENABLE_GDN_C16_NORM_GATE_ADMISSION=1
   )
 endif()
-if(Q3X_BUILD_GDN_CHUNK64_REFERENCE_ADMISSION)
+if(Q3X_BUILD_GDN_CHUNK64_REFERENCE_ADMISSION OR
+   Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION)
   target_sources(q3x_kernels PRIVATE
     src/kernels/reference/gdn_prefill_chunk64_cublas_reference_sm87.cu
   )
+endif()
+if(Q3X_BUILD_GDN_CHUNK64_REFERENCE_ADMISSION)
   target_compile_definitions(q3x_kernels PRIVATE
     Q3X_ENABLE_GDN_CHUNK64_REFERENCE_ADMISSION=1
   )
-  target_link_libraries(q3x_kernels PRIVATE CUDA::cublas)
 endif()
 if(Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION)
   target_sources(q3x_kernels PRIVATE
     src/kernels/reference/gdn_prefill_whole_span_conv_sm87.cu
-    src/kernels/sm87/gdn_prefill_chunk64_native_sm87.cu
   )
   target_compile_definitions(q3x_kernels PRIVATE
     Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION=1

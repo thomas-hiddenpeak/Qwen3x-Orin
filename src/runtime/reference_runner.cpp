@@ -349,9 +349,13 @@ template <std::size_t SpanCount>
 [[nodiscard]] bool use_prefill_gdn_chunk64_native_admission(
     const bool enabled, const ProjectionBackend backend,
     const std::uint32_t first_position,
-    const std::size_t token_count) noexcept {
+    const std::size_t token_count, const void* const workspace,
+    const std::size_t workspace_bytes) noexcept {
   return enabled && backend == ProjectionBackend::kSm87WeightOnly &&
-         first_position == 0U && token_count == 512U;
+         first_position == 0U && token_count == 512U &&
+         workspace != nullptr &&
+         workspace_bytes >=
+             gdn_prefill_chunk64_native_detail::workspace_bytes();
 }
 #endif
 #if defined(Q3X_ENABLE_GDN_CHUNK64_REFERENCE_ADMISSION)
@@ -1256,6 +1260,10 @@ ReferenceRunner& ReferenceRunner::operator=(ReferenceRunner&& other) noexcept {
       std::exchange(other.prefill_gdn_chunk64_reference_workspace_, nullptr);
   prefill_gdn_chunk64_reference_workspace_bytes_ = std::exchange(
       other.prefill_gdn_chunk64_reference_workspace_bytes_, 0U);
+  prefill_gdn_chunk64_native_workspace_ =
+      std::exchange(other.prefill_gdn_chunk64_native_workspace_, nullptr);
+  prefill_gdn_chunk64_native_workspace_bytes_ = std::exchange(
+      other.prefill_gdn_chunk64_native_workspace_bytes_, 0U);
   pinned_logits_ = std::exchange(other.pinned_logits_, nullptr);
   pinned_trace_ = std::exchange(other.pinned_trace_, nullptr);
   decode_graph_p1_slots_ = other.decode_graph_p1_slots_;
@@ -1275,16 +1283,20 @@ ReferenceRunner& ReferenceRunner::operator=(ReferenceRunner&& other) noexcept {
 }
 
 ReferenceRunner::operator bool() const noexcept {
-  const bool base = weights_ != nullptr && state_ != nullptr &&
-                    stream_ != nullptr && pinned_logits_ != nullptr;
+  bool ready = weights_ != nullptr && state_ != nullptr &&
+               stream_ != nullptr && pinned_logits_ != nullptr;
 #if defined(Q3X_ENABLE_GDN_CHUNK64_REFERENCE_ADMISSION)
-  return base && prefill_gdn_chunk64_reference_context_ != nullptr &&
-         prefill_gdn_chunk64_reference_workspace_ != nullptr &&
-         prefill_gdn_chunk64_reference_workspace_bytes_ >=
-             gdn_prefill_chunk64_reference_detail::workspace_bytes();
-#else
-  return base;
+  ready = ready && prefill_gdn_chunk64_reference_context_ != nullptr &&
+          prefill_gdn_chunk64_reference_workspace_ != nullptr &&
+          prefill_gdn_chunk64_reference_workspace_bytes_ >=
+              gdn_prefill_chunk64_reference_detail::workspace_bytes();
 #endif
+#if defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
+  ready = ready && prefill_gdn_chunk64_native_workspace_ != nullptr &&
+          prefill_gdn_chunk64_native_workspace_bytes_ >=
+              gdn_prefill_chunk64_native_detail::workspace_bytes();
+#endif
+  return ready;
 }
 
 std::uint32_t ReferenceRunner::current_position() const noexcept {
@@ -1306,6 +1318,11 @@ void ReferenceRunner::release() noexcept {
   }
   if (prefill_gdn_chunk64_reference_workspace_ != nullptr) {
     (void)cudaFree(prefill_gdn_chunk64_reference_workspace_);
+  }
+#endif
+#if defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
+  if (prefill_gdn_chunk64_native_workspace_ != nullptr) {
+    (void)cudaFree(prefill_gdn_chunk64_native_workspace_);
   }
 #endif
   destroy_decode_graph_p1();
@@ -1339,6 +1356,8 @@ void ReferenceRunner::release() noexcept {
   prefill_gdn_chunk64_reference_context_ = nullptr;
   prefill_gdn_chunk64_reference_workspace_ = nullptr;
   prefill_gdn_chunk64_reference_workspace_bytes_ = 0U;
+  prefill_gdn_chunk64_native_workspace_ = nullptr;
+  prefill_gdn_chunk64_native_workspace_bytes_ = 0U;
   pinned_logits_ = nullptr;
   pinned_trace_ = nullptr;
   decode_graph_capture_active_ = false;
@@ -3046,7 +3065,9 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
       const bool use_gdn_chunk64_native =
           use_prefill_gdn_chunk64_native_admission(
               enable_gdn_chunk64_native_admission, projection_backend_,
-              first_position, token_count);
+              first_position, token_count,
+              prefill_gdn_chunk64_native_workspace_,
+              prefill_gdn_chunk64_native_workspace_bytes_);
       if (use_gdn_chunk64_native) {
         if (!check_cuda(
                 gdn_prefill_whole_span_conv_detail::
@@ -3060,6 +3081,8 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
         ++g_prefill_gdn_chunk64_native_admission_hits;
         if (!check_cuda(
                 gdn_prefill_chunk64_native_detail::launch(
+                    prefill_gdn_chunk64_native_workspace_,
+                    prefill_gdn_chunk64_native_workspace_bytes_,
                     views_.projection[0], token_count, views_.linear_a,
                     views_.linear_b, attention->a_log.data,
                     attention->dt_bias.data, views_.gdn_state[layer],
@@ -3719,6 +3742,21 @@ ReferenceRunnerFactoryResult create_reference_runner(
     return result;
   }
   runner.stream_ = reinterpret_cast<void*>(stream);
+
+#if defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
+  runner.prefill_gdn_chunk64_native_workspace_bytes_ =
+      gdn_prefill_chunk64_native_detail::workspace_bytes();
+  status = cudaMalloc(
+      &runner.prefill_gdn_chunk64_native_workspace_,
+      runner.prefill_gdn_chunk64_native_workspace_bytes_);
+  if (status != cudaSuccess) {
+    result.diagnostic = runner_status(
+        ReferenceRunnerError::kAllocationFailure,
+        "cudaMalloc(gdn_chunk64_native_workspace)", kReferenceNoLayer,
+        static_cast<int>(status));
+    return result;
+  }
+#endif
 
 #if defined(Q3X_ENABLE_GDN_CHUNK64_REFERENCE_ADMISSION)
   status = static_cast<cudaError_t>(
