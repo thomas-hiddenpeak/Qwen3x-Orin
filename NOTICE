@@ -25,3 +25,13 @@ Version 2.0. The source files preserve the upstream notices, including:
   Adapted from https://github.com/IST-DASLab/marlin
 
 Upstream vLLM source: https://github.com/vllm-project/vllm
+
+The fixed-shape SM87 grouped-query Prefill attention dataflow in
+src/kernels/reference/full_attention_c512_register_pipeline.cu includes
+adaptations from FlashInfer:
+
+FlashInfer
+Copyright 2025-2026 NVIDIA
+Copyright 2023-2026 FlashInfer community (https://flashinfer.ai/)
+
+Those adaptations remain licensed under the Apache License, Version 2.0.

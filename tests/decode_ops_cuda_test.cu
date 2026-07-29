@@ -8496,13 +8496,14 @@ void run_bulk_gqa_correctness_case(
       first_position == 0U && token_count == 512U;
   const bool expected_topology =
       tensor_core_c512
-          ? candidate_topology.grid.x == token_count / 16U &&
-                candidate_topology.grid.y == 24U &&
-                candidate_topology.grid.z == 1U &&
+          ? candidate_topology.grid.x ==
+                    token_count * 6U / 64U &&
+                candidate_topology.grid.y == 1U &&
+                candidate_topology.grid.z == 4U &&
                 candidate_topology.block.x == 128U &&
                 candidate_topology.block.y == 1U &&
                 candidate_topology.block.z == 1U &&
-                candidate_topology.dynamic_shared_bytes == 72U * 1024U
+                candidate_topology.dynamic_shared_bytes == 64U * 1024U
           : candidate_topology.grid.x == token_count / 2U &&
                 candidate_topology.grid.y == 4U &&
                 candidate_topology.grid.z == 1U &&
@@ -8513,7 +8514,7 @@ void run_bulk_gqa_correctness_case(
   test.expect(expected_topology,
               label +
                   (tensor_core_c512
-                       ? " candidate graph has fixed Q16 Tensor Core topology"
+                       ? " candidate graph has fixed grouped-Q64 Tensor Core topology"
                        : " candidate graph has fixed QT2 topology"));
 
   if (graph_contract) {
