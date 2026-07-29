@@ -3569,9 +3569,12 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
         std::get_if<NvFp4LinearWeight>(&layer_weights.mlp.down_proj);
     const std::size_t marlin_branch_elements =
         token_count * kReferenceIntermediateSize;
+    const std::size_t marlin_workspace_branch_elements =
+        static_cast<std::size_t>(state_->plan().prefill_chunk_size) *
+        kReferenceIntermediateSize;
     const bool use_marlin_mlp =
-        g_enable_nvfp4_marlin_prefill_admission && token_count ==
-            kernels::kSm87NvFp4MarlinTokens &&
+        g_enable_nvfp4_marlin_prefill_admission &&
+        kernels::sm87_nvfp4_marlin_supports_token_count(token_count) &&
         projection_backend_ == ProjectionBackend::kSm87WeightOnly &&
         marlin_gate != nullptr && marlin_up != nullptr &&
         marlin_down != nullptr &&
@@ -3588,7 +3591,8 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
         marlin_down->prefill_marlin_scales != nullptr &&
         marlin_down->prefill_marlin_global_scale != nullptr &&
         views_.projection[1] ==
-            views_.projection[0] + marlin_branch_elements &&
+            views_.projection[0] + marlin_workspace_branch_elements &&
+        marlin_branch_elements <= marlin_workspace_branch_elements &&
         views_.fp32_scratch_elements >=
             kernels::kSm87NvFp4MarlinReductionElements;
     if (use_marlin_mlp) {
@@ -3600,22 +3604,24 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
                   locks, 0, kernels::kSm87NvFp4MarlinLockBytes, stream)),
               "prefill_marlin_clear_locks", layer) ||
           !check_cuda(
-              kernels::launch_sm87_nvfp4_marlin_gate_up_m512_cuda(
+              kernels::launch_sm87_nvfp4_marlin_gate_up_cuda(
                   views_.hidden[1], marlin_gate->prefill_marlin_weight,
                   marlin_gate->prefill_marlin_scales,
                   marlin_gate->prefill_marlin_global_scale,
-                  views_.projection[0], views_.fp32_scratch, locks, stream_),
+                  token_count, views_.projection[0], views_.fp32_scratch,
+                  locks, stream_),
               "prefill_marlin_gate_up", layer) ||
           !check_cuda(
-              kernels::launch_sm87_nvfp4_marlin_gate_up_silu_m512_cuda(
-                  views_.projection[0], views_.projection[2], stream_),
+              kernels::launch_sm87_nvfp4_marlin_gate_up_silu_cuda(
+                  views_.projection[0], token_count, views_.projection[2],
+                  stream_),
               "prefill_marlin_gate_up_silu", layer) ||
           !check_cuda(
-              kernels::launch_sm87_nvfp4_marlin_down_m512_cuda(
+              kernels::launch_sm87_nvfp4_marlin_down_cuda(
                   views_.projection[2], marlin_down->prefill_marlin_weight,
                   marlin_down->prefill_marlin_scales,
-                  marlin_down->prefill_marlin_global_scale, views_.hidden[1],
-                  views_.fp32_scratch, locks, stream_),
+                  marlin_down->prefill_marlin_global_scale, token_count,
+                  views_.hidden[1], views_.fp32_scratch, locks, stream_),
               "prefill_marlin_down", layer)) {
         return fail_prefill_tile(launch_failure);
       }

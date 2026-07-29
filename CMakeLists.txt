@@ -35,7 +35,7 @@ option(Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION
   OFF
 )
 option(Q3X_BUILD_NVFP4_MARLIN_PREFILL_ADMISSION
-  "Build the test-only exact-C512 vLLM-Marlin NVFP4 Prefill route"
+  "Build the test-only scheduler-wide vLLM-Marlin NVFP4 Prefill route"
   OFF
 )
 if(Q3X_BUILD_GDN_B8_ADMISSION AND NOT BUILD_TESTING)

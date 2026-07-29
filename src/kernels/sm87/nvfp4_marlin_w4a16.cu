@@ -155,12 +155,11 @@ __device__ __forceinline__ std::uint16_t encode_bf16_bits(
 }
 
 __global__ void merged_gate_up_silu_kernel(
-    const std::uint16_t* const merged, std::uint16_t* const output) {
-  constexpr std::size_t kElements =
-      kSm87NvFp4MarlinTokens * kSm87NvFp4MarlinIntermediate;
+    const std::uint16_t* const merged, const std::size_t elements,
+    std::uint16_t* const output) {
   for (std::size_t index =
            static_cast<std::size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
-       index < kElements;
+       index < elements;
        index += static_cast<std::size_t>(blockDim.x) * gridDim.x) {
     const std::size_t token = index / kSm87NvFp4MarlinIntermediate;
     const std::size_t column = index % kSm87NvFp4MarlinIntermediate;
@@ -281,29 +280,20 @@ __global__ void merged_gate_up_silu_kernel(
   return static_cast<int>(cudaPeekAtLastError());
 }
 
-[[nodiscard]] int launch_fixed_marlin(
+template <int ThreadMBlocks, int ThreadNBlocks, int ThreadKBlocks,
+          bool MBlockSize8>
+[[nodiscard]] int launch_marlin_specialization(
     const std::uint16_t* const input,
     const std::uint8_t* const marlin_weight,
     const std::uint8_t* const marlin_scales,
-    const float* const marlin_global_scale, const int output_size,
-    const int input_size, std::uint16_t* const output, float* const c_tmp,
-    std::int32_t* const locks, void* const cuda_stream) noexcept {
-  if (!aligned(input, 16U) || !aligned(marlin_weight, 16U) ||
-      !aligned(marlin_scales, 16U) ||
-      !aligned(marlin_global_scale, alignof(float)) ||
-      !aligned(output, 16U) || !aligned(c_tmp, 16U) ||
-      !aligned(locks, alignof(std::int32_t))) {
-    return static_cast<int>(cudaErrorInvalidValue);
-  }
-  const int device_status = validate_fixed_device();
-  if (device_status != static_cast<int>(cudaSuccess)) {
-    return device_status;
-  }
-
+    const float* const marlin_global_scale, const std::size_t token_count,
+    const int output_size, const int input_size, std::uint16_t* const output,
+    float* const c_tmp, std::int32_t* const locks,
+    void* const cuda_stream) noexcept {
   const auto kernel =
       marlin::Marlin<vllm::kBFloat16.id(), vllm::kFE2M1f.id(),
                      vllm::kBFloat16.id(), vllm::kFE4M3fn.id(), kThreads,
-                     kThreadMBlocks, kThreadNBlocks, kThreadKBlocks, false,
+                     ThreadMBlocks, ThreadNBlocks, ThreadKBlocks, MBlockSize8,
                      kStages, kGroupBlocks, false>;
   cudaError_t status = cudaFuncSetAttribute(
       kernel, cudaFuncAttributeMaxDynamicSharedMemorySize,
@@ -319,10 +309,51 @@ __global__ void merged_gate_up_silu_kernel(
       reinterpret_cast<int4*>(output), reinterpret_cast<int4*>(c_tmp),
       nullptr, nullptr, reinterpret_cast<const int4*>(marlin_scales),
       marlin_global_scale, nullptr, nullptr, input_size / kGroupSize,
-      static_cast<int>(kSm87NvFp4MarlinTokens), output_size, input_size,
-      input_size, locks, false, false, true,
+      static_cast<int>(token_count), output_size, input_size, input_size, locks,
+      false, false, true,
       static_cast<int>(kSm87NvFp4MarlinDynamicSharedBytes));
   return static_cast<int>(cudaPeekAtLastError());
+}
+
+[[nodiscard]] int launch_fixed_marlin(
+    const std::uint16_t* const input,
+    const std::uint8_t* const marlin_weight,
+    const std::uint8_t* const marlin_scales,
+    const float* const marlin_global_scale, const std::size_t token_count,
+    const int output_size, const int input_size, std::uint16_t* const output,
+    float* const c_tmp, std::int32_t* const locks,
+    void* const cuda_stream) noexcept {
+  if (!aligned(input, 16U) || !aligned(marlin_weight, 16U) ||
+      !aligned(marlin_scales, 16U) ||
+      !aligned(marlin_global_scale, alignof(float)) ||
+      !aligned(output, 16U) || !aligned(c_tmp, 16U) ||
+      !aligned(locks, alignof(std::int32_t)) ||
+      !sm87_nvfp4_marlin_supports_token_count(token_count)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const int device_status = validate_fixed_device();
+  if (device_status != static_cast<int>(cudaSuccess)) {
+    return device_status;
+  }
+
+  if (token_count <= 8U) {
+    return launch_marlin_specialization<1, 8, 8, true>(
+        input, marlin_weight, marlin_scales, marlin_global_scale, token_count,
+        output_size, input_size, output, c_tmp, locks, cuda_stream);
+  }
+  if (token_count <= 16U) {
+    return launch_marlin_specialization<1, 8, 8, false>(
+        input, marlin_weight, marlin_scales, marlin_global_scale, token_count,
+        output_size, input_size, output, c_tmp, locks, cuda_stream);
+  }
+  if (token_count <= kSm87NvFp4MarlinTailMaximumTokens) {
+    return launch_marlin_specialization<2, 16, 4, false>(
+        input, marlin_weight, marlin_scales, marlin_global_scale, token_count,
+        output_size, input_size, output, c_tmp, locks, cuda_stream);
+  }
+  return launch_marlin_specialization<4, 16, 4, false>(
+      input, marlin_weight, marlin_scales, marlin_global_scale, token_count,
+      output_size, input_size, output, c_tmp, locks, cuda_stream);
 }
 
 }  // namespace
@@ -405,6 +436,59 @@ int prepare_sm87_nvfp4_marlin_down_cuda(
       transpose_scratch_bytes, cuda_stream);
 }
 
+int launch_sm87_nvfp4_marlin_gate_up_cuda(
+    const std::uint16_t* const input,
+    const std::uint8_t* const marlin_weight,
+    const std::uint8_t* const marlin_scales,
+    const float* const marlin_global_scale,
+    const std::size_t token_count,
+    std::uint16_t* const merged_gate_up_output, float* const c_tmp,
+    std::int32_t* const locks, void* const cuda_stream) noexcept {
+  return launch_fixed_marlin(
+      input, marlin_weight, marlin_scales, marlin_global_scale,
+      token_count,
+      static_cast<int>(kSm87NvFp4MarlinGateUpOutput),
+      static_cast<int>(kSm87NvFp4MarlinHidden), merged_gate_up_output, c_tmp,
+      locks, cuda_stream);
+}
+
+int launch_sm87_nvfp4_marlin_down_cuda(
+    const std::uint16_t* const input,
+    const std::uint8_t* const marlin_weight,
+    const std::uint8_t* const marlin_scales,
+    const float* const marlin_global_scale, const std::size_t token_count,
+    std::uint16_t* const output, float* const c_tmp,
+    std::int32_t* const locks,
+    void* const cuda_stream) noexcept {
+  return launch_fixed_marlin(
+      input, marlin_weight, marlin_scales, marlin_global_scale,
+      token_count,
+      static_cast<int>(kSm87NvFp4MarlinHidden),
+      static_cast<int>(kSm87NvFp4MarlinIntermediate), output, c_tmp, locks,
+      cuda_stream);
+}
+
+int launch_sm87_nvfp4_marlin_gate_up_silu_cuda(
+    const std::uint16_t* const merged_gate_up,
+    const std::size_t token_count, std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  if (!aligned(merged_gate_up, alignof(std::uint16_t)) ||
+      !aligned(output, alignof(std::uint16_t)) ||
+      !sm87_nvfp4_marlin_supports_token_count(token_count)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  constexpr unsigned int kBlockThreads = 256U;
+  const std::size_t elements =
+      token_count * kSm87NvFp4MarlinIntermediate;
+  const unsigned int required_blocks = static_cast<unsigned int>(
+      (elements + kBlockThreads - 1U) / kBlockThreads);
+  const unsigned int blocks = required_blocks < 4096U ? required_blocks : 4096U;
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  merged_gate_up_silu_kernel<<<blocks, kBlockThreads, 0U, stream>>>(
+      merged_gate_up, elements, output);
+  return static_cast<int>(cudaPeekAtLastError());
+}
+
 int launch_sm87_nvfp4_marlin_gate_up_m512_cuda(
     const std::uint16_t* const input,
     const std::uint8_t* const marlin_weight,
@@ -412,11 +496,10 @@ int launch_sm87_nvfp4_marlin_gate_up_m512_cuda(
     const float* const marlin_global_scale,
     std::uint16_t* const merged_gate_up_output, float* const c_tmp,
     std::int32_t* const locks, void* const cuda_stream) noexcept {
-  return launch_fixed_marlin(
+  return launch_sm87_nvfp4_marlin_gate_up_cuda(
       input, marlin_weight, marlin_scales, marlin_global_scale,
-      static_cast<int>(kSm87NvFp4MarlinGateUpOutput),
-      static_cast<int>(kSm87NvFp4MarlinHidden), merged_gate_up_output, c_tmp,
-      locks, cuda_stream);
+      kSm87NvFp4MarlinTokens, merged_gate_up_output, c_tmp, locks,
+      cuda_stream);
 }
 
 int launch_sm87_nvfp4_marlin_down_m512_cuda(
@@ -426,31 +509,16 @@ int launch_sm87_nvfp4_marlin_down_m512_cuda(
     const float* const marlin_global_scale, std::uint16_t* const output,
     float* const c_tmp, std::int32_t* const locks,
     void* const cuda_stream) noexcept {
-  return launch_fixed_marlin(
+  return launch_sm87_nvfp4_marlin_down_cuda(
       input, marlin_weight, marlin_scales, marlin_global_scale,
-      static_cast<int>(kSm87NvFp4MarlinHidden),
-      static_cast<int>(kSm87NvFp4MarlinIntermediate), output, c_tmp, locks,
-      cuda_stream);
+      kSm87NvFp4MarlinTokens, output, c_tmp, locks, cuda_stream);
 }
 
 int launch_sm87_nvfp4_marlin_gate_up_silu_m512_cuda(
     const std::uint16_t* const merged_gate_up,
     std::uint16_t* const output, void* const cuda_stream) noexcept {
-  if (!aligned(merged_gate_up, alignof(std::uint16_t)) ||
-      !aligned(output, alignof(std::uint16_t))) {
-    return static_cast<int>(cudaErrorInvalidValue);
-  }
-  constexpr unsigned int kBlockThreads = 256U;
-  constexpr std::size_t kElements =
-      kSm87NvFp4MarlinTokens * kSm87NvFp4MarlinIntermediate;
-  constexpr unsigned int kRequiredBlocks = static_cast<unsigned int>(
-      (kElements + kBlockThreads - 1U) / kBlockThreads);
-  constexpr unsigned int kBlocks =
-      kRequiredBlocks < 4096U ? kRequiredBlocks : 4096U;
-  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
-  merged_gate_up_silu_kernel<<<kBlocks, kBlockThreads, 0U, stream>>>(
-      merged_gate_up, output);
-  return static_cast<int>(cudaPeekAtLastError());
+  return launch_sm87_nvfp4_marlin_gate_up_silu_cuda(
+      merged_gate_up, kSm87NvFp4MarlinTokens, output, cuda_stream);
 }
 
 int query_sm87_nvfp4_marlin_m512_resources_cuda(
