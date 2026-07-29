@@ -133,6 +133,7 @@ add_library(q3x_kernels STATIC
   src/kernels/reference/gdn_decode.cu
   src/kernels/reference/gdn_m16_register_state.cu
   src/kernels/reference/gdn_prefill_b8_sequential_sm87.cu
+  src/kernels/reference/gdn_prefill_c16_norm_gate_sm87.cu
   src/kernels/reference/layout_ops.cu
   src/kernels/reference/fp8_reference.cu
   src/kernels/reference/gemv_reference.cu
@@ -163,9 +164,6 @@ if(Q3X_BUILD_GDN_B8_ADMISSION)
   )
 endif()
 if(Q3X_BUILD_GDN_C16_NORM_GATE_ADMISSION)
-  target_sources(q3x_kernels PRIVATE
-    src/kernels/reference/gdn_prefill_c16_norm_gate_sm87.cu
-  )
   target_compile_definitions(q3x_kernels PRIVATE
     Q3X_ENABLE_GDN_C16_NORM_GATE_ADMISSION=1
   )
@@ -811,10 +809,9 @@ if(BUILD_TESTING)
     SKIP_RETURN_CODE 77
   )
 
-  # Isolated exact-C16 GDN plus plain-RMSNorm/SiLU epilogue screen. The same
-  # private implementation is compiled into this executable by default. In
-  # an opt-in admission build the executable links the q3x_kernels copy and
-  # compiles only its standalone harness.
+  # Isolated exact-C16 GDN plus plain-RMSNorm/SiLU epilogue screen. The
+  # production implementation is linked from q3x_kernels; this translation
+  # unit compiles only the standalone correctness/resource harness.
   add_executable(q3x_gdn_prefill_c16_norm_gate_sm87_candidate
     tests/gdn_prefill_c16_norm_gate_sm87_candidate.cu
     src/kernels/reference/gdn_prefill_c16_norm_gate_sm87.cu
@@ -826,13 +823,10 @@ if(BUILD_TESTING)
     $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr;-Xptxas=-v>
   )
   target_compile_definitions(q3x_gdn_prefill_c16_norm_gate_sm87_candidate
-    PRIVATE Q3X_GDN_C16_NORM_GATE_STANDALONE=1
+    PRIVATE
+      Q3X_GDN_C16_NORM_GATE_STANDALONE=1
+      Q3X_GDN_C16_NORM_GATE_USE_LINKED_IMPLEMENTATION=1
   )
-  if(Q3X_BUILD_GDN_C16_NORM_GATE_ADMISSION)
-    target_compile_definitions(q3x_gdn_prefill_c16_norm_gate_sm87_candidate
-      PRIVATE Q3X_GDN_C16_NORM_GATE_USE_LINKED_IMPLEMENTATION=1
-    )
-  endif()
   q3x_enable_warnings(q3x_gdn_prefill_c16_norm_gate_sm87_candidate)
   add_test(NAME gdn_prefill_c16_norm_gate_sm87_candidate
     COMMAND q3x_gdn_prefill_c16_norm_gate_sm87_candidate

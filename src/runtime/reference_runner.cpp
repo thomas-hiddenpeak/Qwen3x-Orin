@@ -3,8 +3,8 @@
 #if defined(Q3X_ENABLE_GDN_B8_ADMISSION)
 #include "../kernels/reference/gdn_prefill_b8_sequential_sm87.h"
 #endif
-#if defined(Q3X_ENABLE_GDN_C16_NORM_GATE_ADMISSION)
 #include "../kernels/reference/gdn_prefill_c16_norm_gate_sm87.h"
+#if defined(Q3X_ENABLE_GDN_C16_NORM_GATE_ADMISSION)
 #include "reference_runner_gdn_c16_norm_gate_admission.h"
 #endif
 #include "q3x/runtime/decode_ops.h"
@@ -52,8 +52,9 @@ thread_local bool g_enable_prefill_gdn_b8_admission = false;
 thread_local std::size_t g_prefill_gdn_b8_admission_hits = 0U;
 #endif
 #if defined(Q3X_ENABLE_GDN_C16_NORM_GATE_ADMISSION)
-// Admission-only controls remain private, thread-local, and default off. The
-// public runner and production selector therefore retain the existing route.
+// The opt-in test build can still select the legacy route (false) or the
+// production fused route (true) inside one ELF. Release builds do not expose
+// this switch and always use the production selector below.
 thread_local bool g_enable_prefill_gdn_c16_norm_gate_admission = false;
 thread_local std::size_t g_prefill_gdn_c16_norm_gate_admission_hits = 0U;
 thread_local reference_runner_detail::
@@ -295,8 +296,7 @@ template <std::size_t SpanCount>
          first_position % 8U == 0U;
 }
 #endif
-#if defined(Q3X_ENABLE_GDN_C16_NORM_GATE_ADMISSION)
-[[nodiscard]] bool use_prefill_gdn_c16_norm_gate_admission(
+[[nodiscard]] bool should_use_prefill_gdn_c16_norm_gate(
     const bool enabled, const ProjectionBackend backend,
     const std::uint32_t first_position,
     const std::size_t token_count) noexcept {
@@ -304,7 +304,6 @@ template <std::size_t SpanCount>
          (token_count == 256U || token_count == 512U) &&
          first_position % kPrefillKernelTileMaximumTokens == 0U;
 }
-#endif
 
 }  // namespace
 
@@ -2581,6 +2580,8 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
   // Snapshot the private switch at the synchronous public-call boundary.
   const bool enable_gdn_c16_norm_gate_admission =
       g_enable_prefill_gdn_c16_norm_gate_admission;
+#else
+  constexpr bool enable_gdn_c16_norm_gate_admission = true;
 #endif
   const auto stream = reinterpret_cast<cudaStream_t>(stream_);
   ReferenceRunnerStatus launch_failure{};
@@ -2821,6 +2822,11 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
                           layer)) {
         return fail_prefill_tile(launch_failure);
       }
+      const bool use_gdn_c16_norm_gate =
+          should_use_prefill_gdn_c16_norm_gate(
+              enable_gdn_c16_norm_gate_admission, projection_backend_,
+              first_position, token_count);
+      bool gdn_output_is_normalized = false;
 #if defined(Q3X_ENABLE_GDN_B8_ADMISSION)
       const bool use_gdn_b8 = use_prefill_gdn_b8_admission(
           enable_gdn_b8_admission, projection_backend_, first_position,
@@ -2860,16 +2866,11 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
         }
       } else
 #endif
-#if defined(Q3X_ENABLE_GDN_C16_NORM_GATE_ADMISSION)
-      const bool use_gdn_c16_norm_gate =
-          use_prefill_gdn_c16_norm_gate_admission(
-              enable_gdn_c16_norm_gate_admission, projection_backend_,
-              first_position, token_count);
       if (use_gdn_c16_norm_gate) {
         // Preserve the established causal-convolution state order, then
         // consume every exact C16 slice in the C256/C512 composite
-        // GDN/norm/gate route. Any launch error terminates the tile; admission
-        // never falls back after partially updating recurrent state.
+        // GDN/norm/gate route. Any launch error terminates the tile; the
+        // production route never falls back after partially updating state.
         for (std::size_t token_offset = 0U; token_offset < token_count;
              token_offset += kPrefillKernelTileMaximumTokens) {
           if (!check_cuda(
@@ -2883,7 +2884,7 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
                       {}, stream_),
                   "prefill_linear_causal_conv", layer) ||
               !check_cuda(
-                  gdn_prefill_c16_norm_gate_test_detail::
+                  gdn_prefill_c16_norm_gate_detail::
                       launch_shared_boundary(
                           views_.projection[0] +
                               token_offset * kLinearQkvElements,
@@ -2901,14 +2902,15 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
                           views_.projection[2] +
                               token_offset * kLinearValueElements,
                           stream_),
-                  "prefill_linear_gdn_c16_norm_gate_admission", layer)) {
+                  "prefill_linear_gdn_c16_norm_gate", layer)) {
             return fail_prefill_tile(launch_failure);
           }
+#if defined(Q3X_ENABLE_GDN_C16_NORM_GATE_ADMISSION)
           ++g_prefill_gdn_c16_norm_gate_admission_hits;
-        }
-      } else
 #endif
-      {
+        }
+        gdn_output_is_normalized = true;
+      } else {
         for (std::size_t token_offset = 0U; token_offset < token_count;
              token_offset += kPrefillKernelTileMaximumTokens) {
           const std::size_t remaining = token_count - token_offset;
@@ -2946,8 +2948,7 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
           }
         }
       }
-#if defined(Q3X_ENABLE_GDN_C16_NORM_GATE_ADMISSION)
-      if (!use_gdn_c16_norm_gate &&
+      if (!gdn_output_is_normalized &&
           !check_cuda(
               launch_headwise_plain_rms_norm_silu_gate_reference_cuda(
                   views_.projection[2], attention->norm.data,
@@ -2957,17 +2958,6 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
               "prefill_linear_output_norm_gate", layer)) {
         return fail_prefill_tile(launch_failure);
       }
-#else
-      if (!check_cuda(
-              launch_headwise_plain_rms_norm_silu_gate_reference_cuda(
-                  views_.projection[2], attention->norm.data,
-                  views_.projection[1], token_count * kGdnValueHeadCount,
-                  kGdnHeadDimension, kRmsEpsilon, views_.projection[2],
-                  stream_),
-              "prefill_linear_output_norm_gate", layer)) {
-        return fail_prefill_tile(launch_failure);
-      }
-#endif
       if (!project_attention_output(
               attention->out_proj, views_.projection[2], views_.hidden[1],
               "prefill_linear_output_projection", layer)) {

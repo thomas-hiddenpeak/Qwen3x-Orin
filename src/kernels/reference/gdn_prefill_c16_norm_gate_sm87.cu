@@ -31,7 +31,7 @@ query_gated_delta_net_update_warp_eight_row_register_state_m16_resources_test_cu
 #endif
 
 #if !defined(Q3X_GDN_C16_NORM_GATE_USE_LINKED_IMPLEMENTATION)
-namespace gdn_prefill_c16_norm_gate_test_detail {
+namespace gdn_prefill_c16_norm_gate_detail {
 namespace {
 
 constexpr unsigned int kThreads = 256U;
@@ -139,11 +139,10 @@ __device__ __forceinline__ float stable_sigmoid_device(const float value) {
   return exponential / (1.0F + exponential);
 }
 
-// The arithmetic through raw-output BF16 encoding is a literal test-only copy
-// of the production exact-C16 register-state kernel. The template changes only
-// where that rounded raw output resides before the already-defined plain
-// RMSNorm/SiLU epilogue. kStoreRawDebug is compiled only for correctness and
-// has no performance or resource authority.
+// The arithmetic through raw-output BF16 encoding preserves the legacy
+// exact-C16 register-state kernel bit for bit. The production specialization
+// retains that rounded boundary in shared memory and immediately executes the
+// plain RMSNorm/SiLU epilogue. kStoreRawDebug remains correctness-only.
 template <bool kUseSharedBoundary, bool kStoreRawDebug>
 __launch_bounds__(kThreads, 4)
 __global__ void gated_delta_net_update_c16_plain_rms_norm_silu_gate_kernel(
@@ -687,8 +686,13 @@ template <bool kUseSharedBoundary>
       maximum_threads_per_block, active_blocks_per_sm);
 }
 
-}  // namespace gdn_prefill_c16_norm_gate_test_detail
+}  // namespace gdn_prefill_c16_norm_gate_detail
 #endif
+
+// Keep the standalone diagnostic harness source-compatible with its retained
+// records while the runtime uses the production detail namespace above.
+namespace gdn_prefill_c16_norm_gate_test_detail =
+    gdn_prefill_c16_norm_gate_detail;
 }  // namespace q3x::runtime
 
 #if defined(Q3X_GDN_C16_NORM_GATE_STANDALONE)

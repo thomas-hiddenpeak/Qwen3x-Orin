@@ -4,11 +4,10 @@
 #include <cstddef>
 #include <cstdint>
 
-namespace q3x::runtime::gdn_prefill_c16_norm_gate_test_detail {
+namespace q3x::runtime::gdn_prefill_c16_norm_gate_detail {
 
-// Private exact-C16 candidate launchers. These declarations are shared by the
-// isolated standalone screen and the opt-in admission route only; this header
-// is not installed and is not part of the public runtime ABI.
+// Internal exact-C16 production launcher and its isolated diagnostic
+// controls. This header is not installed and is not part of the public ABI.
 [[nodiscard]] int launch_shared_boundary(
     const std::uint16_t* conv_qkv, std::size_t token_count,
     const std::uint16_t* a, const std::uint16_t* b,
@@ -47,6 +46,6 @@ namespace q3x::runtime::gdn_prefill_c16_norm_gate_test_detail {
     std::size_t* local_bytes, int* maximum_threads_per_block,
     int* active_blocks_per_sm) noexcept;
 
-}  // namespace q3x::runtime::gdn_prefill_c16_norm_gate_test_detail
+}  // namespace q3x::runtime::gdn_prefill_c16_norm_gate_detail
 
 #endif  // Q3X_KERNELS_REFERENCE_GDN_PREFILL_C16_NORM_GATE_SM87_H_
