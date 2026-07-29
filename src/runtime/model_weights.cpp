@@ -908,6 +908,145 @@ bool ModelWeights::attach_nvfp4_down_scale6_sidecars(
   return true;
 }
 
+#if defined(Q3X_ENABLE_NVFP4_PREFILL_MARLIN_ADMISSION)
+bool ModelWeights::attach_nvfp4_prefill_marlin_sidecars(
+    const std::uint8_t* const arena, const std::size_t arena_bytes,
+    const NvFp4PrefillMarlinSidecarDescriptor* const descriptors,
+    const std::size_t descriptor_count) noexcept {
+  constexpr std::uintptr_t kRequiredAlignment = 16U;
+  constexpr auto kPointerMaximum =
+      std::numeric_limits<std::uintptr_t>::max();
+
+  // The only empty representation is an explicit detach. Clearing every
+  // exact Gate/Up view is safe even for a deliberately malformed test fixture.
+  if (descriptor_count == 0U) {
+    if (arena != nullptr || arena_bytes != 0U || descriptors != nullptr) {
+      return false;
+    }
+    for (DecoderLayerWeights& layer : layers_) {
+      if (auto* const gate =
+              std::get_if<NvFp4LinearWeight>(&layer.mlp.gate_proj);
+          gate != nullptr) {
+        gate->prefill_marlin_sidecar = nullptr;
+      }
+      if (auto* const up =
+              std::get_if<NvFp4LinearWeight>(&layer.mlp.up_proj);
+          up != nullptr) {
+        up->prefill_marlin_sidecar = nullptr;
+      }
+    }
+    return true;
+  }
+
+  if (descriptor_count != kQwen36DenseLayerCount || arena == nullptr ||
+      descriptors == nullptr ||
+      arena_bytes != kQwen36NvFp4PrefillMarlinSidecarBytes) {
+    return false;
+  }
+
+  const std::uintptr_t arena_address =
+      reinterpret_cast<std::uintptr_t>(arena);
+  if ((arena_address % kRequiredAlignment) != 0U ||
+      arena_bytes > kPointerMaximum ||
+      arena_address > kPointerMaximum - arena_bytes) {
+    return false;
+  }
+  const std::uintptr_t arena_end = arena_address + arena_bytes;
+
+  std::array<bool, kQwen36DenseLayerCount> seen_layers{};
+  std::array<NvFp4LinearWeight*, kQwen36DenseLayerCount> gates{};
+  std::array<NvFp4LinearWeight*, kQwen36DenseLayerCount> ups{};
+  std::array<const std::uint8_t*, kQwen36DenseLayerCount>
+      validated_gate_sidecars{};
+  std::array<const std::uint8_t*, kQwen36DenseLayerCount>
+      validated_up_sidecars{};
+  std::array<std::uintptr_t, 2U * kQwen36DenseLayerCount> range_begins{};
+  std::array<std::uintptr_t, 2U * kQwen36DenseLayerCount> range_ends{};
+  std::size_t validated_range_count = 0U;
+
+  for (std::size_t index = 0U; index < descriptor_count; ++index) {
+    const NvFp4PrefillMarlinSidecarDescriptor& descriptor =
+        descriptors[index];
+    if (descriptor.layer_index >= kQwen36DenseLayerCount ||
+        seen_layers[descriptor.layer_index] ||
+        descriptor.gate_sidecar == nullptr ||
+        descriptor.up_sidecar == nullptr ||
+        descriptor.bytes_per_projection !=
+            kNvFp4PrefillMarlinSidecarBytesPerProjection ||
+        descriptor.output_size != kNvFp4PrefillMarlinRows ||
+        descriptor.input_size != kNvFp4PrefillMarlinColumns) {
+      return false;
+    }
+
+    DecoderLayerWeights& layer = layers_[descriptor.layer_index];
+    NvFp4LinearWeight* const gate =
+        std::get_if<NvFp4LinearWeight>(&layer.mlp.gate_proj);
+    NvFp4LinearWeight* const up =
+        std::get_if<NvFp4LinearWeight>(&layer.mlp.up_proj);
+    if (!has_valid_nvfp4_payload(gate) || !has_valid_nvfp4_payload(up) ||
+        gate->output_size != kNvFp4PrefillMarlinRows ||
+        up->output_size != kNvFp4PrefillMarlinRows ||
+        gate->input_size != kNvFp4PrefillMarlinColumns ||
+        up->input_size != kNvFp4PrefillMarlinColumns) {
+      return false;
+    }
+
+    const std::array<const std::uint8_t*, 2U> sidecars{
+        descriptor.gate_sidecar, descriptor.up_sidecar};
+    for (const std::uint8_t* const sidecar : sidecars) {
+      const std::uintptr_t sidecar_address =
+          reinterpret_cast<std::uintptr_t>(sidecar);
+      if ((sidecar_address % kRequiredAlignment) != 0U ||
+          sidecar_address < arena_address || sidecar_address >= arena_end ||
+          sidecar_address >
+              kPointerMaximum -
+                  kNvFp4PrefillMarlinSidecarBytesPerProjection) {
+        return false;
+      }
+      const std::uintptr_t sidecar_end =
+          sidecar_address + kNvFp4PrefillMarlinSidecarBytesPerProjection;
+      if (sidecar_end > arena_end) {
+        return false;
+      }
+      for (std::size_t prior = 0U; prior < validated_range_count; ++prior) {
+        if (sidecar_address < range_ends[prior] &&
+            range_begins[prior] < sidecar_end) {
+          return false;
+        }
+      }
+      range_begins[validated_range_count] = sidecar_address;
+      range_ends[validated_range_count] = sidecar_end;
+      ++validated_range_count;
+    }
+
+    seen_layers[descriptor.layer_index] = true;
+    gates[index] = gate;
+    ups[index] = up;
+    validated_gate_sidecars[index] = descriptor.gate_sidecar;
+    validated_up_sidecars[index] = descriptor.up_sidecar;
+  }
+
+  // Validation is complete. No operation below can fail, so replacing every
+  // old admission view is one all-or-nothing observable state transition.
+  for (DecoderLayerWeights& layer : layers_) {
+    auto* const gate =
+        std::get_if<NvFp4LinearWeight>(&layer.mlp.gate_proj);
+    auto* const up = std::get_if<NvFp4LinearWeight>(&layer.mlp.up_proj);
+    if (gate != nullptr) {
+      gate->prefill_marlin_sidecar = nullptr;
+    }
+    if (up != nullptr) {
+      up->prefill_marlin_sidecar = nullptr;
+    }
+  }
+  for (std::size_t index = 0U; index < descriptor_count; ++index) {
+    gates[index]->prefill_marlin_sidecar = validated_gate_sidecars[index];
+    ups[index]->prefill_marlin_sidecar = validated_up_sidecars[index];
+  }
+  return true;
+}
+#endif
+
 LinearWeightKind linear_weight_kind(const LinearWeight& weight) noexcept {
   if (std::holds_alternative<Bf16LinearWeight>(weight)) {
     return LinearWeightKind::kBf16;

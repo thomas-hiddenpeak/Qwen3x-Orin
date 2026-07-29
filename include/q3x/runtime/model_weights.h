@@ -41,6 +41,23 @@ inline constexpr std::size_t kNvFp4DownScale6Columns = 17'408U;
 inline constexpr std::size_t
     kNvFp4DownScale6SidecarBytesPerProjection = 4'177'920U;
 
+#if defined(Q3X_ENABLE_NVFP4_PREFILL_MARLIN_ADMISSION)
+inline constexpr std::size_t kNvFp4PrefillMarlinRows = 17'408U;
+inline constexpr std::size_t kNvFp4PrefillMarlinColumns = 5'120U;
+inline constexpr std::size_t
+    kNvFp4PrefillMarlinSidecarBytesPerProjection =
+        kNvFp4PrefillMarlinRows * kNvFp4PrefillMarlinColumns / 2U +
+        kNvFp4PrefillMarlinRows *
+            (kNvFp4PrefillMarlinColumns / 16U) * sizeof(std::uint16_t);
+inline constexpr std::size_t kNvFp4PrefillMarlinSidecarBytesPerLayer =
+    2U * kNvFp4PrefillMarlinSidecarBytesPerProjection;
+inline constexpr std::size_t kQwen36NvFp4PrefillMarlinSidecarBytes =
+    kQwen36DenseLayerCount *
+    kNvFp4PrefillMarlinSidecarBytesPerLayer;
+static_assert(kNvFp4PrefillMarlinSidecarBytesPerProjection == 55'705'600U);
+static_assert(kQwen36NvFp4PrefillMarlinSidecarBytes == 7'130'316'800ULL);
+#endif
+
 // One descriptor for an exact C512 linear-attention FP8 QKV Prefill
 // register-feed sidecar. Descriptor fields are copied by the attach call;
 // the pointed-to arena remains non-owning and must outlive ModelWeights and
@@ -65,6 +82,21 @@ struct NvFp4DownScale6SidecarDescriptor {
   std::size_t output_size = 0U;
   std::size_t input_size = 0U;
 };
+
+#if defined(Q3X_ENABLE_NVFP4_PREFILL_MARLIN_ADMISSION)
+// One exact-C512 admission descriptor for a dense layer's Gate and Up
+// projections. The descriptor array is copied only for validation; the two
+// pointed-to regions remain non-owning and must outlive ModelWeights and every
+// queued admission kernel that consumes them.
+struct NvFp4PrefillMarlinSidecarDescriptor {
+  std::size_t layer_index = 0U;
+  const std::uint8_t* gate_sidecar = nullptr;
+  const std::uint8_t* up_sidecar = nullptr;
+  std::size_t bytes_per_projection = 0U;
+  std::size_t output_size = 0U;
+  std::size_t input_size = 0U;
+};
+#endif
 
 struct Bf16VectorWeight {
   const std::uint16_t* data = nullptr;
@@ -107,6 +139,11 @@ struct NvFp4LinearWeight {
   std::size_t input_size = 0U;
   const std::uint8_t* down_scale6_sidecar = nullptr;
   unsigned int down_scale6_base = 0U;
+#if defined(Q3X_ENABLE_NVFP4_PREFILL_MARLIN_ADMISSION)
+  // Test-only fragment-native exact-C512 Prefill admission view. Production
+  // dispatch must ignore this pointer even when a testing build attaches it.
+  const std::uint8_t* prefill_marlin_sidecar = nullptr;
+#endif
 };
 
 // The active alternative is selected strictly from the payload weight dtype:
@@ -341,6 +378,18 @@ class ModelWeights {
       const std::uint8_t* arena, std::size_t arena_bytes,
       const NvFp4DownScale6SidecarDescriptor* descriptors,
       std::size_t descriptor_count) noexcept;
+
+#if defined(Q3X_ENABLE_NVFP4_PREFILL_MARLIN_ADMISSION)
+  // Transactionally attaches the complete 64-layer Gate/Up admission arena.
+  // Every projection must be an exact canonical NVFP4 [17408,5120] binding,
+  // and every sidecar range must be aligned, disjoint, and contained in the
+  // exact compact arena. The canonical all-null/zero call detaches all views.
+  // The arena is non-owning and must outlive ModelWeights and queued kernels.
+  [[nodiscard]] bool attach_nvfp4_prefill_marlin_sidecars(
+      const std::uint8_t* arena, std::size_t arena_bytes,
+      const NvFp4PrefillMarlinSidecarDescriptor* descriptors,
+      std::size_t descriptor_count) noexcept;
+#endif
 
  private:
   friend class ModelWeightBinder;

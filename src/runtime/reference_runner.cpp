@@ -11,6 +11,10 @@
 #if defined(Q3X_ENABLE_GDN_C16_NORM_GATE_ADMISSION)
 #include "reference_runner_gdn_c16_norm_gate_admission.h"
 #endif
+#if defined(Q3X_ENABLE_NVFP4_PREFILL_MARLIN_ADMISSION)
+#include "q3x/kernels/sm87_nvfp4_prefill_marlin.h"
+#include "reference_runner_nvfp4_prefill_marlin_admission.h"
+#endif
 #include "q3x/runtime/decode_ops.h"
 #include "q3x/runtime/gdn_decode.h"
 #include "q3x/runtime/layout_ops.h"
@@ -22,6 +26,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <limits>
 #include <type_traits>
@@ -73,6 +78,23 @@ thread_local std::size_t g_prefill_gdn_c16_norm_gate_admission_hits = 0U;
 thread_local reference_runner_detail::
     PrefillGdnC16NormGateAdmissionSnapshotHook
         g_prefill_gdn_c16_norm_gate_admission_snapshot_hook{};
+#endif
+#if defined(Q3X_ENABLE_NVFP4_PREFILL_MARLIN_ADMISSION)
+// Compile-time and thread-local isolation keep this exact-C512 architecture
+// route unreachable from production builds and disabled by default in tests.
+// The evaluation server executes inference on its own worker thread.  Let that
+// thread inherit the same explicit environment admission that caused engine
+// creation to attach the sidecars.  Unit/E2E tests still override this value
+// through the private exchange accessor before each synchronous call.
+[[nodiscard]] bool nvfp4_prefill_marlin_environment_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_NVFP4_PREFILL_MARLIN_ADMISSION");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
+thread_local bool g_enable_prefill_nvfp4_marlin_admission =
+    nvfp4_prefill_marlin_environment_enabled();
+thread_local std::size_t g_prefill_nvfp4_marlin_admission_hits = 0U;
 #endif
 
 static_assert(kLinearQkvElements <= kReferenceIntermediateSize);
@@ -331,6 +353,24 @@ template <std::size_t SpanCount>
          first_position % kPrefillKernelTileMaximumTokens == 0U;
 }
 
+#if defined(Q3X_ENABLE_NVFP4_PREFILL_MARLIN_ADMISSION)
+[[nodiscard]] bool use_prefill_nvfp4_marlin_gate_up_silu(
+    const bool enabled, const ProjectionBackend backend,
+    const LinearWeight& gate_weight, const LinearWeight& up_weight,
+    const std::size_t token_count) noexcept {
+  constexpr std::size_t kRows = 17'408U;
+  constexpr std::size_t kColumns = 5'120U;
+  const auto* const gate = std::get_if<NvFp4LinearWeight>(&gate_weight);
+  const auto* const up = std::get_if<NvFp4LinearWeight>(&up_weight);
+  return enabled && backend == ProjectionBackend::kSm87WeightOnly &&
+         token_count == 512U && gate != nullptr && up != nullptr &&
+         gate->output_size == kRows && gate->input_size == kColumns &&
+         up->output_size == kRows && up->input_size == kColumns &&
+         gate->prefill_marlin_sidecar != nullptr &&
+         up->prefill_marlin_sidecar != nullptr;
+}
+#endif
+
 }  // namespace
 
 ReferenceRunnerStatus ReferenceRunner::collect_request_views(
@@ -579,6 +619,17 @@ exchange_prefill_gdn_c16_norm_gate_admission_snapshot_hook(
     const PrefillGdnC16NormGateAdmissionSnapshotHook hook) noexcept {
   return std::exchange(
       g_prefill_gdn_c16_norm_gate_admission_snapshot_hook, hook);
+}
+#endif
+#if defined(Q3X_ENABLE_NVFP4_PREFILL_MARLIN_ADMISSION)
+bool exchange_prefill_nvfp4_marlin_admission_test_enabled(
+    const bool enabled) noexcept {
+  return std::exchange(g_enable_prefill_nvfp4_marlin_admission, enabled);
+}
+
+std::size_t exchange_prefill_nvfp4_marlin_admission_test_hits(
+    const std::size_t hits) noexcept {
+  return std::exchange(g_prefill_nvfp4_marlin_admission_hits, hits);
 }
 #endif
 
@@ -2658,6 +2709,11 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
 #else
   constexpr bool enable_gdn_c16_norm_gate_admission = true;
 #endif
+#if defined(Q3X_ENABLE_NVFP4_PREFILL_MARLIN_ADMISSION)
+  // Snapshot the private admission switch at the synchronous tile boundary.
+  const bool enable_nvfp4_marlin_admission =
+      g_enable_prefill_nvfp4_marlin_admission;
+#endif
   const auto stream = reinterpret_cast<cudaStream_t>(stream_);
   ReferenceRunnerStatus launch_failure{};
   const auto check_cuda = [&launch_failure](
@@ -3311,9 +3367,34 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
         return fail_prefill_tile(launch_failure);
       }
     }
-    // Production Prefill is self-hosted only.  External-library comparison
+    // Production Prefill is self-hosted only. External-library comparison
     // modules are compiled exclusively into benchmark targets.
-    {
+    bool used_fused_gate_up_silu = false;
+#if defined(Q3X_ENABLE_NVFP4_PREFILL_MARLIN_ADMISSION)
+    used_fused_gate_up_silu = use_prefill_nvfp4_marlin_gate_up_silu(
+        enable_nvfp4_marlin_admission, projection_backend_,
+        layer_weights.mlp.gate_proj, layer_weights.mlp.up_proj, token_count);
+    if (used_fused_gate_up_silu) {
+      const auto& gate =
+          std::get<NvFp4LinearWeight>(layer_weights.mlp.gate_proj);
+      const auto& up =
+          std::get<NvFp4LinearWeight>(layer_weights.mlp.up_proj);
+      ++g_prefill_nvfp4_marlin_admission_hits;
+      if (!check_cuda(
+              kernels::launch_sm87_nvfp4_prefill_marlin_gate_up_silu_cuda(
+                  gate.prefill_marlin_sidecar, gate.weight_scale_2,
+                  up.prefill_marlin_sidecar, up.weight_scale_2,
+                  views_.hidden[1], token_count, gate.output_size,
+                  gate.input_size, views_.projection[0], stream_),
+              "prefill_mlp_nvfp4_marlin_gate_up_silu", layer)) {
+        // Once selected, a failed admission launch poisons the tile exactly
+        // like every other CUDA failure; it must never fall back after an
+        // incomplete or failed fused write.
+        return fail_prefill_tile(launch_failure);
+      }
+    }
+#endif
+    if (!used_fused_gate_up_silu) {
       const bool gate_up_fork_join_available =
           prefill_auxiliary_stream_ != nullptr &&
           prefill_branch_ready_event_ != nullptr &&
@@ -3388,13 +3469,13 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
                           "prefill_mlp_up_projection", layer)) {
         return fail_prefill_tile(launch_failure);
       }
-    }
-    if (!check_cuda(launch_silu_mul_reference_cuda(
-                        views_.projection[0], views_.projection[1],
-                        token_count * kReferenceIntermediateSize,
-                        views_.projection[0], stream_),
-                    "prefill_mlp_silu_mul", layer)) {
-      return fail_prefill_tile(launch_failure);
+      if (!check_cuda(launch_silu_mul_reference_cuda(
+                          views_.projection[0], views_.projection[1],
+                          token_count * kReferenceIntermediateSize,
+                          views_.projection[0], stream_),
+                      "prefill_mlp_silu_mul", layer)) {
+        return fail_prefill_tile(launch_failure);
+      }
     }
     if (!project_down(layer_weights.mlp.down_proj, views_.projection[0],
                       views_.hidden[1], "prefill_mlp_down_projection",

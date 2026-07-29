@@ -1,0 +1,213 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36_27b_prefill_nvfp4_marlin_evalscope_rejection",
+  "recorded_at": "2026-07-29",
+  "timezone": "Asia/Shanghai",
+  "status": "rejected_external_whole_product_direction_test_only_archive",
+  "policy": {
+    "evidence_tier": "T3",
+    "protocol_class": "EXTERNAL_API_DIRECTION_SCREEN",
+    "roadmap_priority_authority": true,
+    "production_retention_authority": false,
+    "release_authority": false,
+    "publication_authority": false,
+    "candidate_test_only": true,
+    "production_dispatch_changed": false,
+    "decode_changed": false,
+    "mtp_used": false,
+    "external_reference_decides_incremental_retention": false
+  },
+  "source": {
+    "experiment_base_head": "74354cf",
+    "branch": "codex/rejected-nvfp4-prefill-marlin",
+    "build_type": "Release",
+    "measured_binary": {
+      "name": "qwen3x-eval-server",
+      "bytes": 7911080,
+      "sha256": "53fd18c085e6df3cf6ead204709dc0773e1eeb78b4be25412e5cf1fe3fc25051",
+      "elf_build_id": "a55e2b48869e314dfd1afdcc87298879bc7dd7fd"
+    },
+    "same_native_elf_for_baseline_and_candidate": true,
+    "candidate_runtime_difference": "Q3X_RUN_NVFP4_PREFILL_MARLIN_ADMISSION=1",
+    "candidate_compile_option": "Q3X_BUILD_NVFP4_PREFILL_MARLIN_ADMISSION=ON",
+    "ordinary_build_default": false
+  },
+  "environment": {
+    "device": "NVIDIA Jetson AGX Orin",
+    "architecture": "SM87",
+    "nvpmodel": "MAXN",
+    "gpu_hz": 1300500000,
+    "emc_hz": 3200000000,
+    "cpu_hz": 2201600000,
+    "cpu_affinity": [11],
+    "temperature_envelope": "NOT_CAPTURED",
+    "competing_gpu_processes": 0
+  },
+  "workload": {
+    "framework": "EvalScope perf",
+    "version": "1.9.1",
+    "install_spec": "evalscope[perf]==1.9.1",
+    "endpoint": "/v1/completions",
+    "manifest": "benchmarks/evalscope/qwen36-sharegpt-false-thinking-v1.manifest.json",
+    "manifest_sha256": "d3d97e17c46e7beb4009006552118c70e5e8cef3f799f42e1e46bd7c23ceaa6",
+    "corpus_sha256": "bd2091cdc0599ac59ab881efc6d1307a03bb149f49e6fd728a99d926ccc67989",
+    "warmup_requests": 1,
+    "measured_requests": 32,
+    "parallel": 1,
+    "prompt_tokens_total": 15802,
+    "prompt_tokens_mean": 493.8125,
+    "prompt_tokens_range": [20, 1160],
+    "output_tokens_per_request": 16,
+    "temperature": 0.0,
+    "seed": 42,
+    "stream": true,
+    "tokenize_prompt": true,
+    "prefix_cache": false,
+    "chunked_prefill": false,
+    "mtp": false
+  },
+  "candidate": {
+    "role": "exact-C512 fused real-weight NVFP4 Gate+Up plus SiLU architecture",
+    "sidecar_bytes_per_projection": 55705600,
+    "sidecar_projections": 128,
+    "sidecar_bytes_total": 7130316800,
+    "persistent_ctas": 32,
+    "threads_per_cta": 256,
+    "warps_gate": 4,
+    "warps_up": 4,
+    "tile": "M64xN128xK64",
+    "global_to_shared_stages": 2,
+    "shared_to_register_slots": 2,
+    "registers_per_thread": 128,
+    "dynamic_shared_bytes": 71680,
+    "active_ctas_per_sm": 2,
+    "local_bytes": 0,
+    "route": "SM87, token_count=512, Gate/Up NVFP4 K5120 N17408, authenticated sidecars",
+    "failure_behavior": "hard failure after selection; no fallback"
+  },
+  "validation": {
+    "sqlite_integrity": "3/3 passed",
+    "ordered_request_manifest_match": "32/32 in all runs",
+    "unique_requests": "32/32 in all runs",
+    "successful_requests": "32/32 in all runs",
+    "completion_tokens": "16/16 per request in all runs",
+    "choice_chunks": "16/16 per request in all runs",
+    "itl_samples": "15 per request in all runs",
+    "finish_reason": "length on 32/32 in all runs",
+    "native_baseline_candidate_exact_output": "32/32",
+    "native_vllm_exact_output": "25/32",
+    "usage_event_observable_in_evalscope_database": false,
+    "usage_event_followup": "separate raw-SSE protocol audit"
+  },
+  "results": {
+    "native_baseline": {
+      "wall_time_seconds": 153.65128660795745,
+      "mean_ttft_ms": 3169.1703741671517,
+      "p50_ttft_ms": 3326.888590003364,
+      "p99_ttft_ms": 6664.325395016931,
+      "mean_latency_seconds": 4.801299427606864,
+      "mean_tpot_ms": 108.80860356264748,
+      "mean_itl_ms": 108.79877863068639,
+      "prompt_throughput_tok_s": 102.84326508972838,
+      "total_throughput_tok_s": 106.17548580393803
+    },
+    "native_candidate": {
+      "wall_time_seconds": 154.07412174902856,
+      "mean_ttft_ms": 3186.292257592868,
+      "p50_ttft_ms": 3326.605801936239,
+      "p99_ttft_ms": 6750.515163992532,
+      "mean_latency_seconds": 4.8145266316932975,
+      "mean_tpot_ms": 108.54895827336198,
+      "mean_itl_ms": 108.53941427121754,
+      "prompt_throughput_tok_s": 102.56102595697341,
+      "total_throughput_tok_s": 105.88410185179498
+    },
+    "stock_vllm": {
+      "wall_time_seconds": 86.78518431307748,
+      "mean_ttft_ms": 1147.2806024212332,
+      "p50_ttft_ms": 1149.5683500543237,
+      "p99_ttft_ms": 2623.8524080254138,
+      "mean_latency_seconds": 2.711837220504094,
+      "mean_tpot_ms": 104.3037745388574,
+      "mean_itl_ms": 104.30246364048799,
+      "prompt_throughput_tok_s": 182.08177035142654,
+      "total_throughput_tok_s": 187.98139485591525
+    }
+  },
+  "derived": {
+    "candidate_minus_baseline_mean_ttft_ms": 17.121883425716078,
+    "candidate_over_baseline_mean_ttft": 1.0054026389888286,
+    "candidate_minus_baseline_p50_ttft_ms": -0.282788067124784,
+    "candidate_minus_baseline_p99_ttft_ms": 86.1897689756006,
+    "candidate_minus_baseline_prompt_throughput_tok_s": -0.2822391327549667,
+    "candidate_prompt_throughput_change_percent": -0.274435765,
+    "baseline_over_vllm_mean_ttft": 2.7623323949510703,
+    "baseline_fraction_of_vllm_prompt_throughput": 0.5648191188565223,
+    "decision": "reject candidate against native baseline; vLLM remains an independent cumulative floor"
+  },
+  "prompt_length_buckets": [
+    {
+      "prompt_tokens": "1-128",
+      "requests": 4,
+      "candidate_minus_baseline_mean_ttft_ms": -1.2121170293539762,
+      "candidate_slower_requests": 1
+    },
+    {
+      "prompt_tokens": "129-512",
+      "requests": 13,
+      "candidate_minus_baseline_mean_ttft_ms": -1.6156447728952537,
+      "candidate_slower_requests": 2
+    },
+    {
+      "prompt_tokens": "513-1024",
+      "requests": 13,
+      "candidate_minus_baseline_mean_ttft_ms": 32.10944522064752,
+      "candidate_slower_requests": 13
+    },
+    {
+      "prompt_tokens": "1025+",
+      "requests": 2,
+      "candidate_minus_baseline_mean_ttft_ms": 78.16466595977545,
+      "candidate_slower_requests": 2
+    }
+  ],
+  "nsys_diagnostic": {
+    "authority": "diagnostic_only_after_valid_negative_direction",
+    "candidate_gate_up_silu_mean_ms_per_layer": 10.0363625,
+    "baseline_gate_or_up_mean_ms_per_branch_layer": 4.3657618,
+    "baseline_silu_mean_ms_per_layer": 0.67096,
+    "baseline_pair_plus_silu_ms_per_layer": 9.4024836,
+    "candidate_regression_ms_per_layer": 0.6338789,
+    "projected_64_layer_regression_ms": 40.5682496,
+    "ncu_status": "INCOMPLETE_INVALID_NO_CLAIM"
+  },
+  "artifact_hashes": {
+    "native_baseline_db": "c3b227e90beea9eda1bca43784a3c34fa9e577db75177f54650614796af704d3",
+    "native_candidate_db": "baf9b9140d46b6f04b63d3cb52cd5802e6a226073e5ee6bf8d751f9f302393ef",
+    "stock_vllm_db": "2db1ff4c2156432ad466dd1e00bea70482beb0f90225b2efbe95a5e18b93ad41",
+    "validated_triplet_summary": "6f6e3086acec1f3ff154ae8760560d0e9cbc4b8e6a9b11e6b95fa3b04b0def90",
+    "nsys_report": "4d2c2d1ff2c7647b04be54c025f26429ed43a01bb9a02fe8f34cc4d8aff8a23c",
+    "nsys_kernel_summary": "d2042028ba1a3037620284c6ec4e15293a160b13b0baa50de8d417d119ef2c33"
+  },
+  "decision": {
+    "result": "REJECT_DIRECTION",
+    "production_prefill_anchor": "unchanged",
+    "native_development_incumbent": "unchanged",
+    "archive_scope": "test-only rejected branch",
+    "next_external_candidate": "Chunk64/WY GDN architecture reference proof",
+    "next_order": [
+      "minimal evaluation-worker admission wiring",
+      "same EvalScope native baseline/candidate pair; use the frozen vLLM record",
+      "reject immediately if whole-product negative",
+      "if positive, run public capability and numerical validation",
+      "then implement native SM87 closed-cell and use NSys/NCU for mechanism"
+    ]
+  },
+  "limitations": [
+    "One process and one 32-request round per system; not release-grade repetition.",
+    "Temperature envelope was not captured.",
+    "EvalScope 1.9.1 benchmark_data.db omits the final choices-empty usage event.",
+    "No valid NCU report exists.",
+    "No public capability score follows from this performance direction run."
+  ]
+}
