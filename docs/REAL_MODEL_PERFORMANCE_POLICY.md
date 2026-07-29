@@ -39,6 +39,34 @@ payload tier. It has early-stop authority only; T3 gains production authority
 only after the formal correctness, noise, repetition, and promotion protocol
 completes.
 
+## External whole-product evaluation
+
+Evidence tier and observation surface are orthogonal. EvalScope through the
+project's OpenAI-compatible adapter is an external T3 protocol class, not a
+new payload tier. Project-level performance, capability, and release claims
+must ultimately exercise the pinned real model through such a publicly
+recognized framework and user-visible API. An internal P513 run, component
+timer, NSys trace, or NCU cell may screen direction and explain a result, but
+it cannot replace the external whole-product observation.
+
+The decision order is:
+
+1. run the smallest predeclared real external workload that can reveal whether
+   the complete architecture change matters;
+2. if positive, validate correctness, state, resources, noise, and mechanism
+   with the applicable T2--T4 tools;
+3. return the completed architecture milestone to the same external protocol
+   before retention or production promotion.
+
+A one-process, one-round external run may set roadmap priority but has no
+release, promotion, publication, or threshold-recalibration authority.
+Release evidence must predeclare workload and framework versions, preserve
+raw artifact hashes, repeat independent processes in mirrored order, record
+success and output completeness, report tail latency, and obtain a parseable
+public capability score. A framework-reported number is inadmissible when its
+request contract fails; truncation before an answer marker is a protocol
+failure, not an accuracy score.
+
 ## Required production payload
 
 For weight-dependent kernels, T2--T4 must load the real weight, block scale,

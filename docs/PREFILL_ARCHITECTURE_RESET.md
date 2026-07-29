@@ -25,6 +25,24 @@ the required gain.
 MTP is excluded. cuBLASLt is an external timing and numerical reference only;
 it has no production, fallback, retention, or promotion eligibility.
 
+## External whole-product checkpoint
+
+The OpenAI-compatible adapter and EvalScope 1.9.1 direction baseline are now
+implemented. On one warmup plus 32 real ShareGPT requests at concurrency one,
+native mean TTFT is **3,168.79 ms** versus **1,144.51 ms** for matched stock
+vLLM, a **2.768687x** gap. Mean TPOT is much closer at **108.92 versus 104.42
+ms (1.043095x)**. Total external workload throughput is **106.1454 versus
+188.0494 token/s**. This separates the project-level priority cleanly:
+Decode remains frozen and Prefill architecture is P0.
+
+This is a single-process directional baseline, not release evidence. Every
+complete GDN or projection architecture milestone must first show value in the
+real generation path and then return to the same external workload after its
+numerical and engineering gates pass. P513 remains the fast direction and
+profiler-attribution cell; it no longer has sole authority over project-level
+progress. The reproduction procedure, retained configuration, and limitations
+are in [`EVALSCOPE_EVALUATION.md`](EVALSCOPE_EVALUATION.md).
+
 ## Same-host evidence
 
 One post-warmup stock-vLLM P513 request was captured on the same Orin and the
@@ -268,8 +286,12 @@ candidate beat stock vLLM or the terminal target by itself.
 7. In parallel at the design level, specify authenticated W4A4/W8A8 sidecars
    for the throughput contract. Combine retained routes and re-profile only
    after each whole-path milestone.
-8. Introduce the OpenAI-compatible API before any throughput-mode production
-   promotion so EvalScope can gate capability, not merely token identity.
+8. [done] Introduce the OpenAI-compatible API before any throughput-mode
+   production promotion so EvalScope can gate capability, not merely token
+   identity.
+9. Return every complete architecture milestone to the pinned external
+   workload; only then may it advance from internal explanation to a
+   whole-product decision.
 
 The unit of progress is now a Prefix budget transition, not the count of
 individually positive micro-edits.

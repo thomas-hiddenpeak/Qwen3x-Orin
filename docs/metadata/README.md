@@ -5,6 +5,14 @@ The reports are evidence artifacts, not model files and not end-to-end support
 claims. A report reaches only `metadata-compatible` until all referenced shard
 headers and tensor contracts pass the runtime inspector on the target Orin.
 
+The first OpenAI/EvalScope whole-product direction baseline is recorded in
+[`qwen36-27b-evalscope-external-directional-baseline-2026-07-29.json`](qwen36-27b-evalscope-external-directional-baseline-2026-07-29.json).
+It compares 32 identical real ShareGPT token-ID requests against native and
+stock vLLM, establishes the 2.768687x TTFT gap as a Prefill architecture
+priority, and records the first C-Eval attempt as an invalid output-cap
+measurement. Its authority is roadmap prioritization only: it is not a
+release baseline, production promotion, threshold reset, or capability score.
+
 The current Prefill architecture reset and same-host stock-vLLM P513 kernel
 profile are recorded in
 [`qwen36-27b-vllm-p513-architecture-profile-2026-07-29.json`](qwen36-27b-vllm-p513-architecture-profile-2026-07-29.json).

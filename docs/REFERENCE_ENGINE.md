@@ -34,9 +34,16 @@ engine, see the [reference benchmark harness](REFERENCE_BENCHMARK.md).
 
 ## Prompt and greedy policy
 
-Each call accepts exactly one user text message. It uses
-`Tokenizer::format_qwen36_chat` with `add_generation_prompt=true` and
-`enable_thinking=false`. The resulting token IDs are the runner inputs.
+`generate` remains the single-user convenience call. `generate_chat` accepts
+an optional leading system message followed by alternating user/assistant
+turns and a final user turn. Both use the pinned chat formatter with
+`add_generation_prompt=true` and `enable_thinking=false`.
+`generate_prompt` accepts one non-empty raw string, while
+`generate_prompt_token_ids` accepts one non-empty flat list of IDs inside the
+pinned vocabulary. Those completion surfaces do not apply a chat template;
+the token-ID form also avoids a decode/re-encode round trip. All four entry
+points converge on the same reset, capacity, Prefill, greedy Decode, stop, and
+result path.
 
 Prefill preserves token semantics while optionally batching projections:
 
@@ -71,6 +78,16 @@ This is a logical control-plane split, not separate device executors,
 double/triple buffering, or Prefill/Decode overlap. The existing exact aligned
 NVFP4 C32/C64 gate/up branch may use one auxiliary stream inside a layer; that
 narrow event-joined overlap is not a phase-level scheduler.
+
+An optional noexcept committed-token observer runs after a prediction is
+committed and decoded but before the next Decode step. It receives token ID,
+zero-based index, incremental UTF-8 bytes, accumulated text, elapsed step
+time, and terminal-token status. Returning false records `kCancelled` and
+prevents the next Decode step; an observed `<|im_end|>` still takes precedence
+as the semantic stop reason. This observer powers true SSE and disconnect
+cancellation without adding device allocation. It cannot cancel work already
+inside Prefill: the first observation occurs only after `finish_prefill` has
+committed the first generated token.
 
 The required request capacity is therefore
 `prompt_token_count + max_new_tokens - 1`: the first generated token is a

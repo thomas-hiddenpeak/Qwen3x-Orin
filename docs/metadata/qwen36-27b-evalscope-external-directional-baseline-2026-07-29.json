@@ -1,0 +1,275 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36_27b_evalscope_external_directional_baseline",
+  "recorded_at": "2026-07-29",
+  "timezone": "Asia/Shanghai",
+  "status": "external_single_process_directional_baseline_capability_pending",
+  "policy": {
+    "evidence_tier": "T3",
+    "protocol_class": "EXTERNAL_API_DIRECTIONAL_BASELINE",
+    "payload_class": "full_model_public_workload",
+    "roadmap_priority_authority": true,
+    "release_performance_authority": false,
+    "production_promotion_authority": false,
+    "threshold_recalibration_authority": false,
+    "capability_score_authority": false,
+    "publication_anchor_authority": false,
+    "cuBLASLt_production_eligibility": false,
+    "mtp_used": false
+  },
+  "source": {
+    "repository_base_before_gateway": "19ae97c04fe1b126eb8e17c94a0a21665dcff185",
+    "gateway_implementation_commit": "1d391a22cbec26d32ba0b3a455e3c86cb5dd21d5",
+    "gateway_release_binary_sha256": "2dded37f9fa766805652a51a76d68bc1ea28a97a5ade67fd1017a54dbcd00b2e",
+    "measurement_binary_sha256": "NOT_CAPTURED",
+    "measurement_source_state": "uncommitted functional precursor of 1d391a2",
+    "post_measurement_changes": [
+      "early streaming errors retain HTTP status through a first-event handshake",
+      "ingress thread reserve and validation were hardened",
+      "sampling and output-cap defaults now fail closed",
+      "exception messages were removed from client responses"
+    ],
+    "equivalence_limit": "The changes do not alter native model arithmetic or the fixed request contents, but the released binary is not byte-identical to the measured binary; this is one reason the result has directional authority only.",
+    "evalscope": {
+      "version": "1.9.1",
+      "python": "3.13.14",
+      "aiohttp": "3.14.3"
+    },
+    "vllm": {
+      "version": "0.23.1rc1.dev269+gccd49f682",
+      "python": "3.13.14",
+      "torch": "2.11.0",
+      "cuda": "13.3",
+      "flashinfer": "0.6.12"
+    },
+    "corpus_builder": {
+      "python": "3.13.14",
+      "transformers": "5.12.1"
+    }
+  },
+  "checkpoint": {
+    "repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "config_sha256": "c04a19ba293737ad7be4f6e96d6666cb7e479cbe19ecc0c289fad267135b0338",
+    "quantization_config_sha256": "fd7200cd8bca2a8a5d777061521abf83e2deb97ab6bc2f04e7a0a3d3f8ecd5c1",
+    "index_sha256": "7aa103a2582b7d26631988de33dea19e8a308ee9c239e8e14feb374af30905e2",
+    "tokenizer_json_sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42",
+    "tokenizer_config_sha256": "5186f0defcd7f232382c7f0aebcd2252d073bb921ab240e407b7ae8745d2b29b",
+    "chat_template_jinja_sha256": "e84f32a23fdda27689f868aa4a1a5621f41133e51a48d7f3efcbea2839574259"
+  },
+  "environment": {
+    "device": "NVIDIA Jetson AGX Orin",
+    "architecture": "SM87",
+    "operating_system": "Linux 6.8.12-1021-tegra aarch64",
+    "l4t": "R39.2.0",
+    "driver": "595.78",
+    "nvpmodel": "MAXN",
+    "gpu_hz": 1300500000,
+    "emc_hz": 3200000000,
+    "cpu_affinity": [11],
+    "temperature_envelope": "NOT_CAPTURED",
+    "server_execution": "serialized; no competing GPU server"
+  },
+  "workload": {
+    "framework": "EvalScope perf",
+    "endpoint": "/v1/completions",
+    "api": "openai",
+    "dataset_mode": "line_by_line",
+    "source_dataset": "swift/sharegpt",
+    "source_file": "common_zh_70k.jsonl",
+    "source_revision": "0cccec87492d6e36056c017734c112f92fbc1efd",
+    "source_sha256": "a78dfae704e5ca29f18b881b0d298f4bf401093bf33d4ea993dd5728e591c565",
+    "manifest": "benchmarks/evalscope/qwen36-sharegpt-false-thinking-v1.manifest.json",
+    "corpus_sha256": "bd2091cdc0599ac59ab881efc6d1307a03bb149f49e6fd728a99d926ccc67989",
+    "warmup": {
+      "count": 1,
+      "source_line": 0
+    },
+    "measured": {
+      "count": 32,
+      "source_lines": "1..32"
+    },
+    "prompt_tokens": {
+      "minimum": 20,
+      "median": 509.5,
+      "median_method": "arithmetic mean of the two middle values for 32 samples",
+      "evalscope_nearest_observed_p50": 511,
+      "mean": 493.8125,
+      "maximum": 1160
+    },
+    "output_tokens_per_request": 16,
+    "temperature": 0.0,
+    "seed": 42,
+    "stream": true,
+    "include_usage": true,
+    "enable_thinking": false,
+    "parallel": 1,
+    "request_rate": "unlimited closed loop",
+    "prefix_cache": false,
+    "chunked_prefill": false,
+    "mtp": false
+  },
+  "systems": {
+    "native": {
+      "projection_backend": "sm87",
+      "prefill_chunk_size": 512,
+      "gpu_workers": 1,
+      "batching": "batch-one serialized",
+      "cross_request_prefix_cache": false,
+      "launch_command_exactly_retained": false
+    },
+    "vllm": {
+      "served_model_name": "qwen3.6-27b-nvfp4",
+      "max_model_len": 4096,
+      "max_num_seqs": 1,
+      "max_num_batched_tokens": 4096,
+      "gpu_memory_utilization": 0.78,
+      "kv_cache_dtype": "bfloat16",
+      "mamba_cache_dtype": "bfloat16",
+      "prefix_cache": false,
+      "chunked_prefill": false,
+      "attention_backend": "FLASHINFER",
+      "mamba_backend": "TRITON",
+      "generation_config": "vllm",
+      "default_chat_template_kwargs": {
+        "enable_thinking": false
+      },
+      "projection_backend_observed": "Marlin FP8/NVFP4",
+      "gdn_backend_observed": "Triton/FLA",
+      "warning": "vLLM reported that this model does not officially support disabling chunked Prefill; all 32 requests nevertheless completed."
+    }
+  },
+  "results": {
+    "native": {
+      "duration_seconds": 153.6949,
+      "success": 32,
+      "failed": 0,
+      "mean_latency_seconds": 4.8027,
+      "mean_ttft_milliseconds": 3168.79,
+      "p50_ttft_milliseconds": 3330.91,
+      "p95_ttft_milliseconds": 5848.73,
+      "p99_ttft_milliseconds": 6684.63,
+      "mean_tpot_milliseconds": 108.92,
+      "mean_itl_milliseconds": 108.92,
+      "workload_prompt_tokens_per_second": 102.81410651982216,
+      "workload_prompt_tokens_per_second_steady": 101.91966692147203,
+      "completion_tokens_per_second_overall": 3.331275948496959,
+      "total_tokens_per_second": 106.1454
+    },
+    "vllm": {
+      "duration_seconds": 86.7538,
+      "success": 32,
+      "failed": 0,
+      "mean_latency_seconds": 2.7109,
+      "mean_ttft_milliseconds": 1144.51,
+      "p50_ttft_milliseconds": 1144.38,
+      "p95_ttft_milliseconds": 2340.83,
+      "p99_ttft_milliseconds": 2617.73,
+      "mean_tpot_milliseconds": 104.42,
+      "mean_itl_milliseconds": 104.42,
+      "workload_prompt_tokens_per_second": 182.1476435265419,
+      "workload_prompt_tokens_per_second_steady": 183.1087543274259,
+      "completion_tokens_per_second_overall": 5.901758858726076,
+      "total_tokens_per_second": 188.0494
+    }
+  },
+  "derived_comparison": {
+    "native_over_vllm_mean_ttft": 2.7686870363736444,
+    "native_over_vllm_p50_ttft": 2.910667785176252,
+    "native_over_vllm_p99_ttft": 2.5535979646487608,
+    "native_over_vllm_mean_tpot": 1.04309519249186,
+    "native_over_vllm_mean_latency": 1.7716256593751152,
+    "native_fraction_of_vllm_workload_prompt_throughput": 0.5644547715756776,
+    "native_fraction_of_vllm_total_throughput": 0.5644548719644944,
+    "decision": "Decode remains frozen; whole-path Prefill architecture is P0."
+  },
+  "output_parity": {
+    "same_request_keys": "32/32",
+    "successful_fixed_length_outputs": "32/32 on both systems",
+    "exact_generated_text": "26/32",
+    "accuracy_authority": false,
+    "divergences": [
+      {
+        "prompt_sha256": "1bfdd646560ed2ac44a06c11bfb02ace9d5e36f9c41d113487b1adf6485d1d3f",
+        "first_divergent_token_index": 3
+      },
+      {
+        "prompt_sha256": "8db888b9b2329d56999dae558b618765dc9f2ca28bfdfeee59a4143e33da4735",
+        "first_divergent_token_index": 7
+      },
+      {
+        "prompt_sha256": "ce6572c5e632b178ad4b5bff835d70c2cbe0c3d9ebf23f3a525421bb4dea0c36",
+        "first_divergent_token_index": 4
+      },
+      {
+        "prompt_sha256": "d4bb39aa0a52c6f9cc504dd04fc8427135feade1de4f42426f101b113e4a6575",
+        "first_divergent_token_index": 7
+      },
+      {
+        "prompt_sha256": "d6ccfea85d4a079daf9b66aa6505660e49faa58e897520dd4f0a3f16fb56ec50",
+        "first_divergent_token_index": 0
+      },
+      {
+        "prompt_sha256": "ddbc2762428a8bece5645b52a4e1595832ef8c7a4497588ae49e2cf404eca3fb",
+        "first_divergent_token_index": 5
+      }
+    ]
+  },
+  "capability_attempt": {
+    "status": "INVALID_CAPABILITY_MEASUREMENT",
+    "dataset": "C-Eval 5-shot validation",
+    "subsets": [
+      "computer_network",
+      "business_administration",
+      "law",
+      "clinical_medicine"
+    ],
+    "limit_per_subset": 5,
+    "samples": 20,
+    "max_tokens": 32,
+    "api_success": "20/20",
+    "output_tokens_exactly_32": "20/20",
+    "max_tokens_stop": "20/20",
+    "parsable_answers": "0/20",
+    "evalscope_reported_mean_acc": 0.0,
+    "score_admissible": false,
+    "failure_class": "evaluation_protocol_output_cap",
+    "interpretation": "Every response was truncated before the required answer marker; the reported zero must not be interpreted as model accuracy."
+  },
+  "artifact_hashes": {
+    "native": {
+      "benchmark_args_json": "f9727306271c7fcfee8392ff505ca7935b72d85272cd4b9d3b8f919937ee9f76",
+      "benchmark_data_db": "b38bf67375d39f814ddcb5ca1af853ae45c0a8ea7fcd9ce77e5d239ba5c794a3",
+      "benchmark_percentile_json": "a48f8807d44d15130875b73179565373f160a03867e5f9d4eef2a235bf2a39d9",
+      "benchmark_summary_json": "40f12cc43364ccbe81fcf5da9d421ccf4514c260defc34e303ec3a2380ed27f1",
+      "workload_throughput_json": "6b1260d84d792a903464a0d259c5265ce79ceb6ec33c538493e50d7c0ffcefc7",
+      "workload_timeline_json": "fe518c683ba5ba6e5586f0919b293d81a9149e937781d9b640116b2fea60744f"
+    },
+    "vllm": {
+      "benchmark_args_json": "6cb076935cd8313c2f8693c492b3600279f570c1876a6da25ef9650c04b1861e",
+      "benchmark_data_db": "aa34687b10d6944cf588f778a68e257817a309ee7c5126d1ac204d8c39323e94",
+      "benchmark_percentile_json": "156e5fabc9e41af360b16d8c17958ca833be22e7039542f0eec19745105c8b1f",
+      "benchmark_summary_json": "8ab75a8756589461b9d5b84ce3090ebfb331e9c242b0657ede9c732bc0a6b6ed",
+      "workload_throughput_json": "728f153f4f5ef5b6ce89c71b018c34985cfa04d0acc16773d53f2dcf6020fba4",
+      "workload_timeline_json": "7198612d3d527ef64cb6e01435739ff2a38ff04a310ca9957aac1469a0605187"
+    },
+    "capability_attempt": {
+      "task_config_yaml": "66257e30f61b8b266d532caf11d0c47b285fa33c05950e455291717534fa3eea",
+      "eval_log": "369aaad6dd2aa5246f217d7adc0af2a240391f497598d8e80473295c4e093379",
+      "report_json": "ea81afc1377af9f7292e16dc4d01394801412784fb007751ddc859fc84652e1a",
+      "report_html": "1a05b05c68aa1f353edefe02742924994446e0acf372c56affa9b2d8b6d2786a"
+    }
+  },
+  "limitations": [
+    "One warmup and one 32-request process per system; no mirrored or independent-process repetition.",
+    "Temperature was not captured.",
+    "The exact native launch command and measurement binary hash were not retained.",
+    "The released gateway has safety-only changes after measurement and is not byte-identical.",
+    "The first 32 ShareGPT rows are a directional distribution, not length-stratified public coverage.",
+    "EvalScope 1.9.1 benchmark_summary Input Throughput is inconsistent at zero; prompt throughput comes from workload_throughput.json.",
+    "Workload prompt throughput includes Decode, HTTP, and transitions; it is not a Prefill-kernel token rate.",
+    "No automated post-run validator yet enforces request, chunk, finish, usage, and response completeness.",
+    "The C-Eval output cap invalidated every capability sample; no public capability score exists yet.",
+    "vLLM is an external architecture reference only and has no native production eligibility."
+  ]
+}

@@ -94,9 +94,12 @@ production baseline reaches **200.147883 Prefix token/s** and **192.358998
 complete-prompt token/s** at P513, averaged over two independent processes.
 That is only **46.758869%** of the matched stock-vLLM complete-prompt result,
 leaving a **2.138632x** gap, so the project is not yet close to its vLLM
-reference. A minimal OpenAI-compatible evaluation gateway is staged alongside
-Prefill work; Paged KV, continuous batching, production serving, MTP, and
-vision remain later work. See [the roadmap](docs/ROADMAP.md).
+reference. A loopback-only OpenAI-compatible evaluation gateway is now
+implemented and has completed its first EvalScope whole-product direction
+baseline. It is not production serving; Paged KV, continuous batching, MTP,
+and vision remain later work. See the
+[external evaluation contract](docs/EVALSCOPE_EVALUATION.md) and
+[the roadmap](docs/ROADMAP.md).
 
 ## Why a new engine?
 
@@ -195,6 +198,22 @@ build/orin-release/qwen3x-orin generate MODEL_DIR \
   --max-tokens 32 --projection-backend sm87 \
   --prefill-chunk-size 32
 ```
+
+Run the evaluation-only OpenAI adapter with one resident model:
+
+```bash
+build/orin-release/qwen3x-eval-server MODEL_DIR \
+  --host 127.0.0.1 --port 18080 \
+  --model qwen3.6-27b-nvfp4 \
+  --max-sequence-length 4096 --max-output-tokens 4096 \
+  --prefill-chunk-size 512 --projection-backend sm87
+```
+
+It supports a strict greedy text subset of chat/completions and completions,
+including real token SSE for EvalScope. It is unauthenticated, loopback-only,
+batch-one, and intentionally not a production server. Requests must state
+`temperature=0` and an explicit output-token cap. See
+[the EvalScope procedure](docs/EVALSCOPE_EVALUATION.md).
 
 The correctness reference remains the default. On an SM87 device, select the
 validated direct FP8/NVFP4-to-BF16 layer path explicitly with
@@ -805,10 +824,12 @@ Native inference is currently a bounded, batch-one surface with a correctness
 reference, opt-in shape-gated projection optimization, and opt-in `C<=512`
 prompt-prefix tiling. Exact C256/C512 full-attention work is bulked, while
 linear-attention recurrent state still advances in ordered C16 subtiles. It
-does not yet provide a complete large-Prefill backend,
-continuous batching, a server, or a release-grade performance claim. Prefill
-and Decode have distinct internal host-control plans but still execute through
-the same runner, without double/triple buffering or Prefill/Decode overlap.
+does not yet provide a complete large-Prefill backend, continuous batching,
+or a production server. The separate loopback evaluation adapter is only an
+external measurement surface and is not a release-grade performance claim.
+Prefill and Decode have distinct internal host-control plans but still execute
+through the same runner, without double/triple buffering or Prefill/Decode
+overlap.
 Most work remains serialized on the main stream. The narrow exception is exact
 aligned NVFP4 C32/C64 and C256/C512 MLP Gate/Up: the runner may overlap Gate
 on its main stream with Up on one owned auxiliary stream and join them with

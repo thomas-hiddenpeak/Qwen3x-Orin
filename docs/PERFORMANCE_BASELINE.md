@@ -8554,3 +8554,36 @@ captured, so the record is not a thermal characterization. Exact samples,
 payload and prompt hashes, binaries, logs, memory, and limitations are frozen
 in the
 [native-only baseline record](metadata/qwen36-27b-native-only-c512-p513-baseline-2026-07-29.json).
+
+## EvalScope external directional baseline
+
+This is a one-warmup, 32-request, concurrency-one external directional
+baseline used to prioritize architecture work. It is not a release baseline,
+a native-candidate promotion gate, or a capability score. Both native and
+stock vLLM receive the same hash-locked false-thinking token-ID requests over
+`/v1/completions`, produce 16 greedy streamed tokens, disable prefix cache and
+MTP, and complete 32/32 requests.
+
+| Metric | Native | stock vLLM | Native / vLLM |
+| --- | ---: | ---: | ---: |
+| Mean TTFT | 3,168.79 ms | 1,144.51 ms | **2.768687x** |
+| p50 TTFT | 3,330.91 ms | 1,144.38 ms | **2.910668x** |
+| p99 TTFT | 6,684.63 ms | 2,617.73 ms | **2.553598x** |
+| Mean TPOT | 108.92 ms | 104.42 ms | **1.043095x** |
+| Mean latency | 4.8027 s | 2.7109 s | **1.771626x** |
+| Total workload throughput | 106.1454 token/s | 188.0494 token/s | **56.4455%** |
+
+The near-parity TPOT and 2.77x TTFT gap freeze Decode and make whole-path
+Prefill architecture the P0. EvalScope's workload prompt rate is not a
+Prefill-kernel rate because its wall time also includes Decode, HTTP, and
+request transitions. Its 1.9.1 summary incorrectly reports zero input
+throughput, so prompt-throughput comparisons use `workload_throughput.json`.
+
+Native and vLLM text is exact for 26/32 requests; the six divergences remain a
+numerical and capability audit, not an accuracy verdict. The first 20-sample
+C-Eval smoke is also explicitly invalid: every successful request hit the
+32-token cap before the required answer marker, so EvalScope's reported zero
+has no capability authority. Reproduction, artifact hashes, and limitations
+are recorded in the
+[external evaluation record](metadata/qwen36-27b-evalscope-external-directional-baseline-2026-07-29.json)
+and [evaluation contract](EVALSCOPE_EVALUATION.md).

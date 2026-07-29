@@ -1780,9 +1780,9 @@ transfer now passes its test-only gate at **2.524897 -> 2.062244 ms
 about **22.21 ms**, not a measured Prefix result. Bounded Z production
 integration and mirrored P513 validation are next; C256 remains later. Bulk
 attention remains production-integrated.
-Bounded
-OpenAI-compatible API/EvalScope work continues in parallel so the kernel path
-and external baseline advance together.
+The bounded OpenAI-compatible adapter and first EvalScope external direction
+baseline are now complete; release repetition and valid capability scoring
+remain in Phase 3.5.
 C1024 remains a low-priority single-kernel canary rather than the main route.
 Exact output and Decode non-regression gates remain mandatory. Multi-request
 serving throughput is a separate later target.
@@ -1799,12 +1799,12 @@ separately tuned 2k--8k range has no matched raw protocol and is not treated as
 a comparable result. GDN B8 admission and the canonical-weight fused Gate/Up
 shared-A screen are now closed as rejected. The exact-C512 FP8 QKV split-M64
 screen is closed at **0.936190x**, while its distinct register-feed successor
-is production-promoted at **1.017792552x** whole-model Prefix. Continue the
-HTTP adapter and EvalScope in parallel with the now-admitted, test-only
-exact-C512 Z canonical raw-B XOR/register-feed cell. It clears the isolated
-gate at **1.224345x**, but production routing and whole-P513 evidence remain
-pending. QKV P1 is retained only as a test-only admitted mechanism because it
-trails production by **6.416%**; C256 is intentionally later so the P513
+is production-promoted at **1.017792552x** whole-model Prefix. The HTTP
+adapter and first EvalScope direction baseline are complete alongside the
+test-only exact-C512 Z canonical raw-B XOR/register-feed cell. It clears the
+isolated gate at **1.224345x**, but production routing and whole-P513 evidence
+remain pending. QKV P1 is retained only as a test-only admitted mechanism
+because it trails production by **6.416%**; C256 is intentionally later so the P513
 hotspot line and external baseline advance first.
 Phase 3.5 remains
 where EvalScope and user-visible TTFT become first-class release evidence.
@@ -1832,16 +1832,24 @@ prompt token and LM head, so cross-framework comparisons use complete-prompt
 
 ## Phase 3.5 — External evaluation gateway
 
+Status: active. The gateway and first external performance direction baseline
+are complete. Release-grade repeated performance and a valid capability score
+remain open.
+
 Deliverables:
 
-- One resident model and one serialized batch-one GPU worker behind a bounded
-  request queue; this is an evaluation adapter, not continuous batching.
-- Text-only `POST /v1/chat/completions` and raw text/token-ID
+- [done] One resident model and one serialized batch-one GPU worker behind a
+  bounded request queue; this is an evaluation adapter, not continuous
+  batching.
+- [done] Text-only `POST /v1/chat/completions` and raw text/token-ID
   `POST /v1/completions`, with explicit supported-field validation.
-- True per-token SSE, non-streaming responses, exact token usage, cancellation
-  at a committed token boundary, `GET /v1/models`, and `GET /healthz`.
-- Pinned EvalScope capability smoke tests plus single-request Prefill, Decode,
-  and end-to-end latency matrices.
+- [done] True per-token SSE, non-streaming responses, exact token usage,
+  cancellation at a committed token boundary, `GET /v1/models`, and
+  `GET /healthz`.
+- [partially done] Pinned EvalScope single-request Prefill-dominated TTFT,
+  Decode TPOT, and end-to-end latency direction matrix. The first C-Eval
+  smoke was invalid because all 20 responses hit a 32-token output cap before
+  the answer marker; no capability score is claimed.
 
 Exit criteria:
 
@@ -1852,6 +1860,15 @@ Exit criteria:
 - Direct CUDA/engine timing and HTTP-visible timing remain separate reports.
 - Unsupported sampling, tool, media, and concurrency semantics fail clearly
   rather than being silently ignored.
+
+Current external direction evidence uses one warmup plus 32 real, exact-token
+ShareGPT requests at concurrency one. Native versus stock-vLLM mean TTFT is
+3,168.79 versus 1,144.51 ms (**2.768687x**), while TPOT is 108.92 versus
+104.42 ms (**1.043095x**). The result establishes Prefill architecture as P0
+but has roadmap-priority authority only. Phase exit still requires independent
+mirrored repetitions, automatic result-integrity checks, and a calibrated,
+parseable public capability run. See
+[the external evaluation contract](EVALSCOPE_EVALUATION.md).
 
 ## Phase 4 — 35B-A3B MoE
 
