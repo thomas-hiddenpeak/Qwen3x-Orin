@@ -1,0 +1,271 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-gdn-persistent-span-direction-rejection-2026-07-29",
+  "status": "rejected-and-withdrawn-real-path-direction-stop-loss",
+  "date": "2026-07-29",
+  "timezone": "Asia/Shanghai",
+  "policy": {
+    "document": "docs/REAL_MODEL_PERFORMANCE_POLICY.md",
+    "evidence_tier": "T3",
+    "protocol_class": "DIRECTION_SCREEN_WITH_BOUNDED_NSYS_DIAGNOSTIC",
+    "payload_class": "full_model_pinned_prompt",
+    "authority": "EARLY_STOP_ONLY",
+    "retention_authority": false,
+    "promotion_authority": false,
+    "rule": "The best resource-clean candidate is negative on the first snapshot-free real generation-path screen. NSys answers only whether its kernel interval hides a benefit; it cannot reverse rejection."
+  },
+  "source": {
+    "measured_head_commit": "174a1f0",
+    "measured_head_subject": "docs: reject packed C16 GDN scratch",
+    "candidate_committed": false,
+    "candidate_retained_in_worktree": false,
+    "withdrawn_worktree_patch": {
+      "files": [
+        "src/kernels/reference/gdn_prefill_c16_norm_gate_sm87.cu",
+        "src/kernels/reference/gdn_prefill_c16_norm_gate_sm87.h",
+        "src/runtime/reference_runner.cpp",
+        "src/runtime/reference_runner_gdn_c16_norm_gate_admission.h",
+        "tests/reference_gdn_prefill_c16_norm_gate_engine_e2e_test.cpp"
+      ],
+      "git_diff_bytes": 46017,
+      "git_diff_sha256": "f6e58e85a303c0dcab061d3a93ceac842f292a5e72743949e69cc7d54eea9e17",
+      "identified_variant": "C512, four-CTA launch contract, shared-output reload epilogue",
+      "post_measurement_withdrawal": "all five tracked files restored exactly to commit 174a1f0 before this evidence record was created"
+    },
+    "measured_binary": {
+      "path": "build/gdn-c16-admission/q3x_reference_gdn_prefill_c16_norm_gate_engine_e2e_test",
+      "bytes": 7832528,
+      "sha256": "77ab2cf9f8555a3ec8644b051c86431dcc561451c8b9d7ea208077615324d979",
+      "elf_build_id": "3812c9be2389fd78a21ee900010e306e1708e0f6",
+      "build_type": "Release",
+      "cuda_architecture": 87,
+      "cublaslt_dynamic_dependency": false,
+      "cublaslt_dynamic_import": false
+    }
+  },
+  "checkpoint": {
+    "repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "directory": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "config_sha256": "c04a19ba293737ad7be4f6e96d6666cb7e479cbe19ecc0c289fad267135b0338",
+    "quantization_config_sha256": "fd7200cd8bca2a8a5d777061521abf83e2deb97ab6bc2f04e7a0a3d3f8ecd5c1",
+    "index_sha256": "7aa103a2582b7d26631988de33dea19e8a308ee9c239e8e14feb374af30905e2",
+    "tokenizer_json_sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42"
+  },
+  "prompt": {
+    "label": "P513",
+    "prompt_tokens": 513,
+    "prefix_tokens": 512,
+    "prefill_chunk_tokens": 512,
+    "expected_generated_token": 9419,
+    "expected_generated_text": "Hello",
+    "expected_step_count": 513
+  },
+  "environment": {
+    "device": "NVIDIA Jetson AGX Orin",
+    "architecture": "SM87",
+    "driver_version": "595.78",
+    "nvpmodel": "MAXN",
+    "cpu_affinity": [11],
+    "cpu_hz": 2201600000,
+    "gpu_hz": 1300500000,
+    "emc_hz": 3200000000,
+    "fan_pwm": 255,
+    "fixed_clock_readback": true,
+    "serialized_gpu_execution": true
+  },
+  "candidate": {
+    "incumbent": "retained exact-C16 warp-row shared-BF16-boundary GDN plus RMSNorm/SiLU composite",
+    "mechanism": "one value-head CTA keeps packed BF16 recurrent-state words in registers across the complete C256/C512 span and reuses one 4,128-byte C16 raw-output shared window for the incumbent warp-row RMSNorm/SiLU epilogue",
+    "semantic_intent": [
+      "preserve BF16 round-to-nearest-even state after every token",
+      "preserve key-0-through-key-127 prediction and output FMA order",
+      "preserve every raw-output BF16 boundary",
+      "preserve the incumbent RMSNorm reduction and SiLU gate order",
+      "write final recurrent state once after the complete span"
+    ],
+    "removed_per_p513_generation": {
+      "intermediate_c16_kernel_calls": 1488,
+      "intermediate_state_publication_boundaries": 1488,
+      "logical_state_write_plus_reload_bytes": 4680843264
+    },
+    "raw_output_storage": {
+      "window_tokens": 16,
+      "row_stride_elements": 129,
+      "shared_bytes": 4128,
+      "whole_c512_raw_tile_allocated": false
+    }
+  },
+  "variant_sweep": [
+    {
+      "label": "automatic-register-allocation-one-read-epilogue",
+      "registers_per_thread": 78,
+      "static_shared_bytes": 38184,
+      "local_bytes": 0,
+      "active_blocks_per_sm": 3,
+      "baseline_prefix_ms": 2530.7946725,
+      "candidate_prefix_ms": 2532.003674,
+      "prefix_saved_ms": -1.2090015,
+      "prefix_speedup": 0.999522512,
+      "decision": "NEGATIVE"
+    },
+    {
+      "label": "four-CTA-shared-output-reload-epilogue",
+      "registers_per_thread": 64,
+      "static_shared_bytes": 38184,
+      "local_bytes": 0,
+      "active_blocks_per_sm": 4,
+      "baseline_prefix_ms": 2531.7775995,
+      "candidate_prefix_ms": 2532.033922,
+      "prefix_saved_ms": -0.2563225,
+      "prefix_speedup": 0.999898768,
+      "baseline_ttft_ms": 2640.529857,
+      "candidate_ttft_ms": 2640.769251,
+      "ttft_saved_ms": -0.239394,
+      "ttft_speedup": 0.999909347,
+      "decision": "NEGATIVE_BEST_VARIANT"
+    },
+    {
+      "label": "four-CTA-one-read-fully-unrolled-epilogue",
+      "registers_per_thread": 63,
+      "static_shared_bytes": 38184,
+      "local_bytes": 0,
+      "active_blocks_per_sm": 4,
+      "baseline_prefix_ms": 2531.6748315,
+      "candidate_prefix_ms": 2533.471391,
+      "prefix_saved_ms": -1.7965595,
+      "prefix_speedup": 0.99929087,
+      "baseline_ttft_ms": 2640.415709,
+      "candidate_ttft_ms": 2642.2547165,
+      "ttft_saved_ms": -1.8390075,
+      "ttft_speedup": 0.999304001,
+      "decision": "NEGATIVE"
+    }
+  ],
+  "protocol": {
+    "engine_instances": 1,
+    "same_elf_for_incumbent_and_candidate": true,
+    "batch_size": 1,
+    "max_new_tokens": 1,
+    "snapshot_hook": "empty for every timed invocation",
+    "warmup": "one incumbent-candidate-candidate-incumbent B-C-C-B",
+    "measurement": "one incumbent-candidate-candidate-incumbent B-C-C-B",
+    "incumbent_equivalent_c16_hits_each_invocation": 1536,
+    "candidate_actual_span_kernel_hits": "0 for B, 48 for C",
+    "generation_oracle_each_invocation": "PASS",
+    "full_noise_calibration": "NOT_RUN",
+    "formal_six_round_retention": "NOT_RUN",
+    "exhaustive_candidate_correctness": "NOT_RUN_AFTER_NEGATIVE_DIRECTION"
+  },
+  "best_variant_warmup_samples": [
+    {"route": "B1", "prefix_ms": 2532.462071, "ttft_ms": 2659.282864},
+    {"route": "C1", "prefix_ms": 2532.570048, "ttft_ms": 2641.309056},
+    {"route": "C2", "prefix_ms": 2532.28439, "ttft_ms": 2641.079463},
+    {"route": "B2", "prefix_ms": 2532.000524, "ttft_ms": 2640.773645}
+  ],
+  "best_variant_measured_samples": [
+    {"route": "B1", "prefix_ms": 2532.006421, "ttft_ms": 2640.758166},
+    {"route": "C1", "prefix_ms": 2532.169535, "ttft_ms": 2640.907552},
+    {"route": "C2", "prefix_ms": 2531.898309, "ttft_ms": 2640.63095},
+    {"route": "B2", "prefix_ms": 2531.548778, "ttft_ms": 2640.301548}
+  ],
+  "aggregate_best_variant": {
+    "baseline_prefix_ms": 2531.7775995,
+    "candidate_prefix_ms": 2532.033922,
+    "prefix_saved_ms": -0.2563225,
+    "prefix_speedup": 0.999898768,
+    "prefix_latency_regression_percent": 0.010124210754,
+    "baseline_ttft_ms": 2640.529857,
+    "candidate_ttft_ms": 2640.769251,
+    "ttft_saved_ms": -0.239394,
+    "ttft_speedup": 0.999909347,
+    "ttft_latency_regression_percent": 0.009066134941,
+    "direction": "NEGATIVE"
+  },
+  "profiling": {
+    "question": "Does the persistent span reduce the aggregate GDN kernel interval despite the near-neutral end-to-end direction result, or is its own kernel interval slower than the C16 incumbent?",
+    "tool": "NSys",
+    "trace": "cuda,nvtx",
+    "candidate_kernel_calls": 192,
+    "incumbent_kernel_calls": 6144,
+    "candidate_total_ns": 1992103264,
+    "incumbent_total_ns": 1974845760,
+    "candidate_average_ns": 10375537.8,
+    "incumbent_average_ns": 321426.7,
+    "candidate_per_generation_ms": 498.025816,
+    "incumbent_per_generation_ms": 493.71144,
+    "candidate_minus_incumbent_per_generation_ms": 4.314376,
+    "candidate_logical_span_latency_ratio": 1.008738659165,
+    "profiled_baseline_prefix_ms": 2537.3485035,
+    "profiled_candidate_prefix_ms": 2537.2233345,
+    "profiled_prefix_saved_ms": 0.125169,
+    "interpretation": "The tiny profiled end-to-end sign flip is noise under instrumentation. The directly aggregated templated kernel intervals show that the persistent kernel is 4.314 ms slower per request and therefore hides no kernel-level benefit.",
+    "ncu": "NOT_RUN",
+    "reason_ncu_not_run": "NSys answers the predeclared causal question and the candidate is already rejected; additional counters cannot reverse the real-path direction decision."
+  },
+  "artifacts": [
+    {
+      "role": "three-CTA P513 direction stdout",
+      "path": "/tmp/q3x-gdn-persistent-span-direction.log",
+      "bytes": 2125,
+      "sha256": "d460c1fa1aee7db0a8899c68371d9ab7cf080136ad85f26dc504278974936076",
+      "checked_in": false
+    },
+    {
+      "role": "best four-CTA P513 direction stdout",
+      "path": "/tmp/q3x-gdn-persistent-span-lb4-direction.log",
+      "bytes": 2125,
+      "sha256": "57879c155e1e882b379a0b0fa126ced34d0fa00b257b8c7366ae5a4d8fca57d3",
+      "checked_in": false
+    },
+    {
+      "role": "one-read four-CTA P513 direction stdout",
+      "path": "/tmp/q3x-gdn-persistent-span-lb4-oneread-direction.log",
+      "bytes": 2125,
+      "sha256": "fe3ceaae5e1c9edca0c1df8a407049124e2379a46384d26ce2786177fdce5187",
+      "checked_in": false
+    },
+    {
+      "role": "best-variant NSys profiled direction stdout",
+      "path": "/tmp/q3x-gdn-persistent-span-best-nsys-run.log",
+      "bytes": 3740,
+      "sha256": "e713fb084e04b446b4fab3ec7d6d6e5d4884e62b16df401c73b3b9c81f570b27",
+      "checked_in": false
+    },
+    {
+      "role": "best-variant NSys report",
+      "path": "/tmp/q3x-gdn-persistent-span-best.nsys-rep",
+      "bytes": 4598363,
+      "sha256": "d9ea549fc8bcbe04d100fc964e0ea3a13641063bbe8723f72462093ff0dc6e73",
+      "checked_in": false
+    },
+    {
+      "role": "best-variant NSys CUDA kernel summary CSV",
+      "path": "/tmp/q3x-gdn-persistent-span-best-kernel-summary.csv",
+      "bytes": 9608,
+      "sha256": "3acf52a8bf6b63896d26a918c4795f192b7b470e23d2ca7c89555cd1bd8a3ab8",
+      "checked_in": false
+    }
+  ],
+  "decision": {
+    "result": "REJECT_AND_WITHDRAW",
+    "native_experimental_incumbent": "unchanged retained warp-row composite at commit 912897b",
+    "production_dispatch": "UNCHANGED",
+    "production_kernel": "UNCHANGED",
+    "candidate_source_live": false,
+    "decode": "UNCHANGED",
+    "mtp_used": false,
+    "cublaslt": {
+      "linked": false,
+      "executed": false,
+      "role": "external_reference_only",
+      "production_eligibility": "none"
+    },
+    "next_step": "Freeze the exact GDN dataflow at the retained warp-row C16 result. Move the main Prefill effort to the much larger real-weight NVFP4 Gate/Up/Down and FP8 QKV/Z/O GEMM intervals; use GDN again only for a materially different exact algorithm, not another state-lifetime or scratch variant."
+  },
+  "limitations": [
+    "Each variant has one measured mirrored round after one mirrored warmup and therefore only early-stop authority; the 0.010% best-variant regression is not a precise estimate or publication anchor.",
+    "The generation oracle proves route isolation and token/text/step semantics, but exhaustive state, Graph, guard, NaN, C256, and multi-prompt qualification was intentionally not built after the negative result.",
+    "The candidate source is absent from the live tree by design; its best-variant diff, binary, stdout, NSys report, and kernel summary are pinned by hashes."
+  ]
+}

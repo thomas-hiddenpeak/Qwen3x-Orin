@@ -1796,6 +1796,20 @@ The diagnostic Phase 3 records are:
   withdrawn; exhaustive correctness, noise, six-round retention, and NCU do
   not follow. Production, Decode, MTP, and the native incumbent are unchanged;
   cuBLASLt is neither linked nor executed.
+- [`qwen36-27b-prefill-gdn-persistent-span-direction-rejection-2026-07-29.json`](qwen36-27b-prefill-gdn-persistent-span-direction-rejection-2026-07-29.json),
+  which closes the last planned exact state-lifetime cell on the real P513
+  path. One C512 CTA retains packed BF16 state and reuses a C16 shared raw
+  window, removing 1,488 intermediate state-publication boundaries per
+  request. The 78-register/three-CTA form and both four-CTA forms are
+  negative. The best 64-register/zero-local/four-CTA variant moves Prefix
+  2531.777600 to 2532.033922 ms (**0.999898768x**) and TTFT 2640.529857 to
+  2640.769251 ms (**0.999909347x**). Bounded NSys shows the candidate C512
+  kernels total 498.025816 ms/request versus 493.711440 ms for the incumbent
+  C16 chain, so the kernel interval itself is 4.314376 ms slower. The patch is
+  fully withdrawn; full correctness, noise, retention, and NCU do not follow.
+  The retained warp-row C16 experimental incumbent, production, Decode, MTP,
+  and cuBLASLt policy remain unchanged. Priority returns to the larger
+  real-weight Prefill GEMM intervals.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

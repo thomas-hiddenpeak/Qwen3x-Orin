@@ -434,6 +434,37 @@ warp-row test incumbent and production remain unchanged. The normalized
 record is
 [`qwen36-27b-prefill-gdn-c16-packed-prediction-direction-rejection-2026-07-29.json`](metadata/qwen36-27b-prefill-gdn-c16-packed-prediction-direction-rejection-2026-07-29.json).
 
+### Rejected exact persistent-span follow-up on 2026-07-29
+
+The final planned exact-state-lifetime cell combines the old whole-span idea
+with the retained warp-row epilogue on the real path. One C256/C512 CTA keeps
+packed BF16 state in registers, preserves per-token BF16 rounding, and reuses
+one 4,128-byte C16 raw-output shared window. At P513 this removes 1,488
+intermediate kernel/state-publication boundaries and 4,680,843,264 logical
+bytes of state write-plus-reload traffic without allocating a C512 raw tile.
+
+Three bounded resource shapes are all negative:
+
+| Shape | Registers | CTA/SM | Baseline Prefix | Candidate Prefix | Ratio |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Automatic allocation, one-read epilogue | 78 | 3 | 2530.794673 ms | 2532.003674 ms | 0.999522512x |
+| Four-CTA, epilogue shared reload | 64 | 4 | 2531.777600 ms | 2532.033922 ms | 0.999898768x |
+| Four-CTA, one-read epilogue | 63 | 4 | 2531.674832 ms | 2533.471391 ms | 0.999290870x |
+
+All invocations pass 1,536 incumbent-equivalent C16 hits, 0/48 persistent
+kernel hits, and token 9419/text `Hello`/513-step semantics. The best
+four-CTA variant regresses Prefix by 0.256323 ms and TTFT by 0.239394 ms in
+the first snapshot-free direction screen, so no correctness or retention
+harness follows.
+
+A bounded NSys trace asks whether the near-neutral end-to-end result conceals
+a lower aggregate GDN interval. It does not: 192 candidate C512 calls take
+1.992103 s, while 6,144 incumbent C16 calls take 1.974846 s. Per request the
+persistent kernel interval is 4.314376 ms slower. The instrumented Prefix sign
+flips by only +0.125169 ms, which is noise and cannot reverse the prior
+rejection. The candidate is fully withdrawn; the normalized record is
+[`qwen36-27b-prefill-gdn-persistent-span-direction-rejection-2026-07-29.json`](metadata/qwen36-27b-prefill-gdn-persistent-span-direction-rejection-2026-07-29.json).
+
 ## Exact-contract experiment order after P0
 
 The references suggest mechanisms, but the measured bottleneck and exact
@@ -468,14 +499,16 @@ contract decide their order:
    prediction reloads both halves and the update repeats decode/multiply work.
    The best resource-clean compiler shape is 0.996571160x on P513; NSys places
    the full loss in the candidate kernel. The patch is withdrawn.
-6. Re-screen an exact persistent C512 composite on the same
-   real trajectory. It must keep packed BF16 state live but preserve every C16
-   output boundary; it must not allocate a C512 raw tile. The old synthetic
-   1.01871x result is motivation only, not retention evidence.
-7. Consider `cp.async` double buffering only after matched NCU shows a material
-   Q/K/Z global-load scoreboard stall. SM87 has LDGSTS but no TMA, WGMMA, CTA
-   clusters, or distributed shared memory; any added buffer must retain at
-   least three active CTAs/SM.
+6. **Complete and rejected:** the exact persistent C512 composite keeps BF16
+   state live, preserves every C16 raw-output boundary, and uses only one C16
+   shared window. The best 64-register/four-CTA variant is 0.999898768x on the
+   real P513 path; NSys shows its aggregate GDN interval is 4.314376 ms slower
+   per request. The patch is withdrawn.
+7. Freeze this exact GDN dataflow at the retained warp-row C16 incumbent. The
+   main Prefill effort returns to the substantially larger real-weight NVFP4
+   Gate/Up/Down and FP8 QKV/Z/O GEMM intervals. Reopen GDN only for a
+   materially different exact algorithm, not another scalar, scratch, or
+   state-lifetime variant.
 
 ## Gates and promotion separation
 
