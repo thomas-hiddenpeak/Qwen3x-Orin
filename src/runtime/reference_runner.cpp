@@ -1,9 +1,13 @@
 #include "q3x/runtime/reference_runner.h"
 
 #include "q3x/kernels/sm87_fp8_prefill_supermatrix.h"
+#if defined(Q3X_ENABLE_BF16_AB_LARGE_M_PREFILL_ADMISSION)
+#include "q3x/kernels/sm87_bf16_ab_prefill.h"
+#endif
 #if defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION)
 #include "q3x/kernels/sm87_fp8_marlin_w8a16.h"
 #endif
+
 #if defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION)
 #include "q3x/kernels/sm87_nvfp4_marlin.h"
 #endif
@@ -84,6 +88,18 @@ thread_local std::size_t g_nvfp4_marlin_prefill_admission_hits = 0U;
 thread_local bool g_enable_fp8_marlin_prefill_admission =
     fp8_marlin_prefill_environment_enabled();
 thread_local std::size_t g_fp8_marlin_prefill_admission_hits = 0U;
+#endif
+
+#if defined(Q3X_ENABLE_BF16_AB_LARGE_M_PREFILL_ADMISSION)
+[[nodiscard]] bool bf16_ab_large_m_prefill_environment_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_BF16_AB_LARGE_M_PREFILL_ADMISSION");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
+thread_local bool g_enable_bf16_ab_large_m_prefill_admission =
+    bf16_ab_large_m_prefill_environment_enabled();
+thread_local std::size_t g_bf16_ab_large_m_prefill_admission_hits = 0U;
 #endif
 
 #if defined(Q3X_ENABLE_GDN_B8_ADMISSION)
@@ -2894,6 +2910,12 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
   fp8_marlin_locks =
       reinterpret_cast<std::int32_t*>(views_.projection[3]);
 #endif
+#if defined(Q3X_ENABLE_BF16_AB_LARGE_M_PREFILL_ADMISSION)
+  const bool enable_bf16_ab_large_m_prefill_admission =
+      g_enable_bf16_ab_large_m_prefill_admission;
+#else
+  constexpr bool enable_bf16_ab_large_m_prefill_admission = false;
+#endif
   const auto is_fp8_marlin_projection =
       [fp8_marlin_tile_enabled](const LinearWeight& weight) noexcept {
 #if defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION)
@@ -3066,7 +3088,9 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
                               views_.fp32_scratch_elements, output, stream_),
                           operation, layer);
       };
-  const auto project_pair = [this, token_count, &check_cuda](
+  const auto project_pair =
+      [this, token_count, &check_cuda,
+       enable_bf16_ab_large_m_prefill_admission](
                                 const LinearWeight& first_weight,
                                 const LinearWeight& second_weight,
                                 const std::uint16_t* const input,
@@ -3077,6 +3101,28 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
     const std::size_t columns = linear_input_size(first_weight);
     const std::size_t first_rows = linear_output_size(first_weight);
     const std::size_t second_rows = linear_output_size(second_weight);
+#if defined(Q3X_ENABLE_BF16_AB_LARGE_M_PREFILL_ADMISSION)
+    if (enable_bf16_ab_large_m_prefill_admission && token_count >= 2U &&
+        supports_bf16_projection_pair(
+            projection_backend_, first_weight, second_weight)) {
+      const auto* const first = std::get_if<Bf16LinearWeight>(&first_weight);
+      const auto* const second =
+          std::get_if<Bf16LinearWeight>(&second_weight);
+      if (first == nullptr || second == nullptr) {
+        return check_cuda(static_cast<int>(cudaErrorInvalidValue),
+                          operation, layer);
+      }
+      const int status = kernels::launch_sm87_bf16_ab_large_m_prefill_cuda(
+          first->weight, second->weight, input, token_count,
+          first_output, second_output, stream_);
+      if (status == static_cast<int>(cudaSuccess)) {
+        ++g_bf16_ab_large_m_prefill_admission_hits;
+      }
+      return check_cuda(status, operation, layer);
+    }
+#else
+    (void)enable_bf16_ab_large_m_prefill_admission;
+#endif
     for (std::size_t token_offset = 0U; token_offset < token_count;
          token_offset += kProductionProjectionSubtileTokens) {
       const std::size_t remaining = token_count - token_offset;
