@@ -301,7 +301,8 @@ template <std::size_t SpanCount>
     const std::uint32_t first_position,
     const std::size_t token_count) noexcept {
   return enabled && backend == ProjectionBackend::kSm87WeightOnly &&
-         first_position == 0U && token_count == 512U;
+         (token_count == 256U || token_count == 512U) &&
+         first_position % kPrefillKernelTileMaximumTokens == 0U;
 }
 #endif
 
@@ -2865,10 +2866,10 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
               enable_gdn_c16_norm_gate_admission, projection_backend_,
               first_position, token_count);
       if (use_gdn_c16_norm_gate) {
-        // P513: preserve the established causal-convolution state order, then
-        // consume each exact C16 slice in the composite GDN/norm/gate kernel.
-        // Any launch error terminates the tile; the admission route never
-        // falls back after partially updating recurrent state.
+        // Preserve the established causal-convolution state order, then
+        // consume every exact C16 slice in the C256/C512 composite
+        // GDN/norm/gate route. Any launch error terminates the tile; admission
+        // never falls back after partially updating recurrent state.
         for (std::size_t token_offset = 0U; token_offset < token_count;
              token_offset += kPrefillKernelTileMaximumTokens) {
           if (!check_cuda(

@@ -37,6 +37,19 @@ constexpr std::size_t kSnapshotStageCount = 2U;
 constexpr std::array<std::uint32_t, kSnapshotStageCount>
     kExpectedCommittedPositions{kPrefixTokens, kPromptTokens};
 
+struct DirectionProfile {
+  std::string_view label;
+  std::size_t prompt_tokens;
+  std::size_t prefill_chunk_tokens;
+};
+
+constexpr std::array<DirectionProfile, 4U> kDirectionProfiles{{
+    {"P257", 257U, 256U},
+    {"P513", 513U, 512U},
+    {"P769", 769U, 512U},
+    {"P1025", 1'025U, 512U},
+}};
+
 using SnapshotStage =
     detail::PrefillGdnC16NormGateAdmissionSnapshotStage;
 using SnapshotHook = detail::PrefillGdnC16NormGateAdmissionSnapshotHook;
@@ -279,6 +292,239 @@ class ScopedSnapshotHook {
   return passed;
 }
 
+struct MatrixSnapshotCollector {
+  SnapshotMode mode = SnapshotMode::kStoreReference;
+  const MatrixSnapshotCollector* reference = nullptr;
+  std::vector<SnapshotStage> expected_stages;
+  std::vector<std::uint32_t> expected_positions;
+  std::vector<std::vector<std::uint16_t>> snapshots;
+  std::vector<std::uint16_t> scratch;
+  std::vector<std::size_t> unequal_elements;
+  std::vector<std::size_t> first_mismatch;
+  std::size_t calls = 0U;
+  int cuda_error = static_cast<int>(cudaSuccess);
+  bool contract_error = false;
+};
+
+void collect_matrix_gdn_snapshot(const runtime::RequestState& state,
+                                 const SnapshotStage stage,
+                                 void* const context) noexcept {
+  auto* const collector = static_cast<MatrixSnapshotCollector*>(context);
+  if (collector == nullptr ||
+      (stage != SnapshotStage::kPrefixTile &&
+       stage != SnapshotStage::kStep)) {
+    return;
+  }
+  const std::size_t boundary = collector->calls++;
+  if (boundary >= collector->expected_stages.size() ||
+      boundary >= collector->expected_positions.size() ||
+      stage != collector->expected_stages[boundary] ||
+      state.current_position() != collector->expected_positions[boundary]) {
+    collector->contract_error = true;
+    return;
+  }
+
+  const runtime::RequestRegion& region = state.plan().gdn_state;
+  const bool valid_region =
+      state.arena_data() != nullptr &&
+      region.byte_size == runtime::kRequestGdnStateBytes &&
+      region.element_size_bytes == sizeof(std::uint16_t) &&
+      region.element_capacity ==
+          runtime::kRequestLinearLayerCount * runtime::kGdnStateElements &&
+      region.arena_offset <= state.arena_bytes() &&
+      region.byte_size <= state.arena_bytes() - region.arena_offset;
+  if (!valid_region) {
+    collector->contract_error = true;
+    return;
+  }
+  const std::size_t element_count =
+      static_cast<std::size_t>(region.element_capacity);
+  std::uint16_t* destination = nullptr;
+  if (collector->mode == SnapshotMode::kStoreReference) {
+    if (boundary >= collector->snapshots.size() ||
+        collector->snapshots[boundary].size() != element_count) {
+      collector->contract_error = true;
+      return;
+    }
+    destination = collector->snapshots[boundary].data();
+  } else {
+    if (collector->scratch.size() != element_count ||
+        collector->reference == nullptr ||
+        boundary >= collector->reference->snapshots.size() ||
+        collector->reference->snapshots[boundary].size() != element_count ||
+        boundary >= collector->unequal_elements.size() ||
+        boundary >= collector->first_mismatch.size()) {
+      collector->contract_error = true;
+      return;
+    }
+    destination = collector->scratch.data();
+  }
+
+  const auto* const source =
+      static_cast<const std::uint8_t*>(state.arena_data()) +
+      static_cast<std::size_t>(region.arena_offset);
+  const cudaError_t copy_status = cudaMemcpy(
+      destination, source, static_cast<std::size_t>(region.byte_size),
+      cudaMemcpyDeviceToHost);
+  if (copy_status != cudaSuccess) {
+    collector->cuda_error = static_cast<int>(copy_status);
+    return;
+  }
+  if (collector->mode == SnapshotMode::kCompareReference) {
+    const std::vector<std::uint16_t>& expected =
+        collector->reference->snapshots[boundary];
+    std::size_t unequal = 0U;
+    std::size_t first = std::numeric_limits<std::size_t>::max();
+    for (std::size_t index = 0U; index < element_count; ++index) {
+      if (destination[index] != expected[index]) {
+        if (first == std::numeric_limits<std::size_t>::max()) {
+          first = index;
+        }
+        ++unequal;
+      }
+    }
+    collector->unequal_elements[boundary] = unequal;
+    collector->first_mismatch[boundary] = first;
+  }
+}
+
+class ScopedMatrixSnapshotHook {
+ public:
+  explicit ScopedMatrixSnapshotHook(
+      MatrixSnapshotCollector& collector) noexcept
+      : previous_(
+            detail::exchange_prefill_gdn_c16_norm_gate_admission_snapshot_hook(
+                SnapshotHook{collect_matrix_gdn_snapshot, &collector})) {}
+  ~ScopedMatrixSnapshotHook() {
+    (void)detail::exchange_prefill_gdn_c16_norm_gate_admission_snapshot_hook(
+        previous_);
+  }
+
+  ScopedMatrixSnapshotHook(const ScopedMatrixSnapshotHook&) = delete;
+  ScopedMatrixSnapshotHook& operator=(const ScopedMatrixSnapshotHook&) =
+      delete;
+
+ private:
+  SnapshotHook previous_{};
+};
+
+[[nodiscard]] bool prepare_matrix_collector(
+    MatrixSnapshotCollector& collector, const DirectionProfile& profile) {
+  const std::size_t prefix_tokens = profile.prompt_tokens - 1U;
+  for (std::size_t committed = profile.prefill_chunk_tokens;
+       committed < prefix_tokens;
+       committed += profile.prefill_chunk_tokens) {
+    collector.expected_stages.push_back(SnapshotStage::kPrefixTile);
+    collector.expected_positions.push_back(
+        static_cast<std::uint32_t>(committed));
+  }
+  collector.expected_stages.push_back(SnapshotStage::kPrefixTile);
+  collector.expected_positions.push_back(
+      static_cast<std::uint32_t>(prefix_tokens));
+  collector.expected_stages.push_back(SnapshotStage::kStep);
+  collector.expected_positions.push_back(
+      static_cast<std::uint32_t>(profile.prompt_tokens));
+
+  const std::size_t elements =
+      static_cast<std::size_t>(runtime::kRequestGdnStateBytes /
+                               sizeof(std::uint16_t));
+  try {
+    collector.unequal_elements.resize(collector.expected_positions.size());
+    collector.first_mismatch.resize(collector.expected_positions.size(),
+                                    std::numeric_limits<std::size_t>::max());
+    if (collector.mode == SnapshotMode::kStoreReference) {
+      collector.snapshots.resize(collector.expected_positions.size());
+      for (std::vector<std::uint16_t>& snapshot : collector.snapshots) {
+        snapshot.resize(elements);
+      }
+    } else {
+      collector.scratch.resize(elements);
+    }
+  } catch (const std::bad_alloc&) {
+    std::cerr << "host allocation failed while preparing matrix snapshots\n";
+    return false;
+  } catch (const std::length_error&) {
+    std::cerr << "matrix snapshot size exceeds host vector capacity\n";
+    return false;
+  }
+  return true;
+}
+
+[[nodiscard]] bool validate_matrix_collector(
+    const MatrixSnapshotCollector& collector,
+    const DirectionProfile& profile, const bool require_bitwise_exact) {
+  bool passed = !collector.contract_error &&
+                collector.cuda_error == static_cast<int>(cudaSuccess) &&
+                collector.calls == collector.expected_positions.size();
+  for (std::size_t boundary = 0U;
+       boundary < collector.expected_positions.size(); ++boundary) {
+    const bool exact =
+        !require_bitwise_exact || collector.unequal_elements[boundary] == 0U;
+    passed = passed && exact;
+    std::cout << "GDN_C16_MATRIX_STATE profile=" << profile.label
+              << " boundary=" << boundary
+              << " stage="
+              << (collector.expected_stages[boundary] ==
+                          SnapshotStage::kPrefixTile
+                      ? "prefix_tile"
+                      : "finish_prefill_step")
+              << " committed_position="
+              << collector.expected_positions[boundary]
+              << " region_bytes=" << runtime::kRequestGdnStateBytes;
+    if (require_bitwise_exact) {
+      std::cout << " unequal_bf16="
+                << collector.unequal_elements[boundary]
+                << " first_mismatch=";
+      if (collector.first_mismatch[boundary] ==
+          std::numeric_limits<std::size_t>::max()) {
+        std::cout << "none";
+      } else {
+        std::cout << collector.first_mismatch[boundary];
+      }
+    }
+    std::cout << " gate=" << (exact ? "PASS" : "FAIL") << '\n';
+  }
+  if (collector.cuda_error != static_cast<int>(cudaSuccess)) {
+    std::cerr << "matrix GDN snapshot CUDA failure: "
+              << cudaGetErrorString(
+                     static_cast<cudaError_t>(collector.cuda_error))
+              << '\n';
+  }
+  return passed;
+}
+
+[[nodiscard]] bool validate_matrix_reference_activity(
+    const MatrixSnapshotCollector& collector,
+    const DirectionProfile& profile) {
+  bool passed = !collector.snapshots.empty();
+  for (std::size_t boundary = 0U; boundary < collector.snapshots.size();
+       ++boundary) {
+    const std::vector<std::uint16_t>& snapshot =
+        collector.snapshots[boundary];
+    const std::size_t nonzero = static_cast<std::size_t>(std::count_if(
+        snapshot.begin(), snapshot.end(),
+        [](const std::uint16_t value) { return (value & 0x7fffU) != 0U; }));
+    std::size_t changed = 0U;
+    if (boundary != 0U) {
+      const std::vector<std::uint16_t>& previous =
+          collector.snapshots[boundary - 1U];
+      for (std::size_t index = 0U; index < snapshot.size(); ++index) {
+        changed += snapshot[index] != previous[index] ? 1U : 0U;
+      }
+    }
+    const bool boundary_passed =
+        nonzero != 0U && (boundary == 0U || changed != 0U);
+    passed = passed && boundary_passed;
+    std::cout << "GDN_C16_MATRIX_ACTIVITY profile=" << profile.label
+              << " boundary=" << boundary
+              << " nonzero_bf16=" << nonzero
+              << " changed_from_previous_bf16=" << changed
+              << " gate=" << (boundary_passed ? "PASS" : "FAIL")
+              << '\n';
+  }
+  return passed;
+}
+
 [[nodiscard]] std::string model_directory_from(
     const int argc, char** const argv) {
   if (argc >= 2 && argv[1] != nullptr && argv[1][0] != '\0' &&
@@ -289,11 +535,12 @@ class ScopedSnapshotHook {
   return environment == nullptr ? std::string{} : std::string(environment);
 }
 
-[[nodiscard]] std::string repeated_hello_prompt() {
-  constexpr std::size_t kWords = kPromptTokens - 12U;
+[[nodiscard]] std::string repeated_hello_prompt(
+    const std::size_t prompt_tokens) {
+  const std::size_t words = prompt_tokens - 12U;
   std::string prompt;
-  prompt.reserve(kWords * 6U);
-  for (std::size_t index = 0U; index < kWords; ++index) {
+  prompt.reserve(words * 6U);
+  for (std::size_t index = 0U; index < words; ++index) {
     if (index != 0U) {
       prompt.push_back(' ');
     }
@@ -313,14 +560,17 @@ void print_diagnostic(
             << " operation=" << diagnostic.operation << '\n';
 }
 
-[[nodiscard]] bool expected_generation(
-    const runtime::ReferenceGeneration& generation) {
-  bool steps_exact = generation.steps.size() == kPromptTokens &&
-                     generation.prompt_token_ids.size() == kPromptTokens;
+[[nodiscard]] bool expected_generation_profile(
+    const runtime::ReferenceGeneration& generation,
+    const std::size_t prompt_tokens,
+    const std::size_t prefill_chunk_tokens) {
+  const std::size_t prefix_tokens = prompt_tokens - 1U;
+  bool steps_exact = generation.steps.size() == prompt_tokens &&
+                     generation.prompt_token_ids.size() == prompt_tokens;
   if (steps_exact) {
     for (std::size_t index = 0U; index < generation.steps.size(); ++index) {
       const runtime::ReferenceStepResult& step = generation.steps[index];
-      const bool prefix_step = index < kPrefixTokens;
+      const bool prefix_step = index < prefix_tokens;
       const bool prediction_exact =
           prefix_step
               ? !step.prediction.has_value()
@@ -335,17 +585,23 @@ void print_diagnostic(
       }
     }
   }
-  return generation.prompt_token_ids.size() == kPromptTokens &&
+  return generation.prompt_token_ids.size() == prompt_tokens &&
          generation.generated_token_ids ==
              std::vector<std::uint32_t>{kExpectedGeneratedToken} &&
          std::string_view(generation.generated_text) ==
              kExpectedGeneratedText &&
          generation.stop_reason == runtime::ReferenceStopReason::kMaxNewTokens &&
-         generation.requested_prefill_chunk_size == kPrefixTokens &&
-         generation.effective_prefill_chunk_size == kPrefixTokens &&
+         generation.requested_prefill_chunk_size == prefill_chunk_tokens &&
+         generation.effective_prefill_chunk_size == prefill_chunk_tokens &&
          generation.decode_graph_replays == 0U &&
          generation.decode_graph_serial_fallbacks == 0U &&
          generation.traces.empty() && steps_exact;
+}
+
+[[nodiscard]] bool expected_generation(
+    const runtime::ReferenceGeneration& generation) {
+  return expected_generation_profile(generation, kPromptTokens,
+                                     kPrefixTokens);
 }
 
 [[nodiscard]] bool same_generation_semantics(
@@ -527,6 +783,246 @@ struct DirectionSample {
   return positive ? 0 : 3;
 }
 
+[[nodiscard]] bool run_matrix_direction_sample(
+    runtime::ReferenceEngine& engine, const DirectionProfile& profile,
+    const std::string& prompt, const bool admission_enabled,
+    const std::string_view phase, const std::string_view route,
+    DirectionSample& sample) {
+  runtime::ReferenceGenerateOptions options;
+  options.max_new_tokens = 1U;
+  options.prefill_chunk_size =
+      static_cast<std::uint32_t>(profile.prefill_chunk_tokens);
+  options.logits_mode = runtime::ReferenceLogitsMode::kPredictedTokenOnly;
+
+  (void)detail::exchange_prefill_gdn_c16_norm_gate_admission_snapshot_hook({});
+  (void)detail::exchange_prefill_gdn_c16_norm_gate_admission_test_hits(0U);
+  runtime::ReferenceGenerateResult result;
+  {
+    const ScopedAdmission admission(admission_enabled);
+    result = engine.generate(prompt, options);
+  }
+  sample.route_hits =
+      detail::exchange_prefill_gdn_c16_norm_gate_admission_test_hits(0U);
+  if (!result) {
+    std::cerr << "matrix direction " << profile.label << ' ' << phase << ' '
+              << route << " generation failed: ";
+    print_diagnostic(result.diagnostic);
+    return false;
+  }
+
+  for (const double elapsed :
+       result.value->timing.prefix_execution_milliseconds) {
+    sample.prefix_milliseconds += elapsed;
+  }
+  sample.ttft_milliseconds =
+      result.value->timing.time_to_first_token_milliseconds;
+  const std::size_t prefix_tokens = profile.prompt_tokens - 1U;
+  const std::size_t expected_hits =
+      admission_enabled
+          ? runtime::kRequestLinearLayerCount * (prefix_tokens / 16U)
+          : 0U;
+  const std::size_t expected_prefix_tiles =
+      (prefix_tokens + profile.prefill_chunk_tokens - 1U) /
+      profile.prefill_chunk_tokens;
+  const bool passed =
+      expected_generation_profile(*result.value, profile.prompt_tokens,
+                                  profile.prefill_chunk_tokens) &&
+      result.value->timing.prefix_execution_milliseconds.size() ==
+          expected_prefix_tiles &&
+      std::isfinite(sample.prefix_milliseconds) &&
+      sample.prefix_milliseconds > 0.0 &&
+      std::isfinite(sample.ttft_milliseconds) &&
+      sample.ttft_milliseconds > 0.0 && sample.route_hits == expected_hits;
+  std::cout << "GDN_C16_MATRIX_SAMPLE profile=" << profile.label
+            << " phase=" << phase << " route=" << route
+            << " prefix_ms=" << sample.prefix_milliseconds
+            << " ttft_ms=" << sample.ttft_milliseconds
+            << " prefix_tiles="
+            << result.value->timing.prefix_execution_milliseconds.size()
+            << " route_hits=" << sample.route_hits
+            << " expected_hits=" << expected_hits
+            << " oracle=" << (passed ? "PASS" : "FAIL") << '\n';
+  return passed;
+}
+
+[[nodiscard]] int run_direction_matrix(runtime::ReferenceEngine& engine) {
+  constexpr std::array<bool, 4U> kCandidateRoute{false, true, true, false};
+  constexpr std::array<std::string_view, 4U> kRoute{"B1", "C1", "C2",
+                                                   "B2"};
+  std::cout << std::fixed << std::setprecision(9);
+  bool all_positive = true;
+  for (const DirectionProfile& profile : kDirectionProfiles) {
+    const std::string prompt = repeated_hello_prompt(profile.prompt_tokens);
+    std::array<DirectionSample, 4U> warmup;
+    std::array<DirectionSample, 4U> measured;
+    bool passed = true;
+    for (std::size_t index = 0U; index < kRoute.size(); ++index) {
+      passed = run_matrix_direction_sample(
+                   engine, profile, prompt, kCandidateRoute[index],
+                   "warmup", kRoute[index], warmup[index]) &&
+               passed;
+    }
+    for (std::size_t index = 0U; index < kRoute.size(); ++index) {
+      passed = run_matrix_direction_sample(
+                   engine, profile, prompt, kCandidateRoute[index],
+                   "measured", kRoute[index], measured[index]) &&
+               passed;
+    }
+    if (!passed) {
+      std::cout << "GDN_C16_MATRIX profile=" << profile.label
+                << " direction=INVALID\n";
+      return 1;
+    }
+
+    const double baseline_prefix =
+        (measured[0].prefix_milliseconds +
+         measured[3].prefix_milliseconds) /
+        2.0;
+    const double candidate_prefix =
+        (measured[1].prefix_milliseconds +
+         measured[2].prefix_milliseconds) /
+        2.0;
+    const double baseline_ttft =
+        (measured[0].ttft_milliseconds + measured[3].ttft_milliseconds) /
+        2.0;
+    const double candidate_ttft =
+        (measured[1].ttft_milliseconds + measured[2].ttft_milliseconds) /
+        2.0;
+    const double prefix_saved = baseline_prefix - candidate_prefix;
+    const double ttft_saved = baseline_ttft - candidate_ttft;
+    const bool positive = prefix_saved > 0.0 && ttft_saved > 0.0;
+    all_positive = all_positive && positive;
+    std::cout << "GDN_C16_MATRIX profile=" << profile.label
+              << " prompt_tokens=" << profile.prompt_tokens
+              << " prefix_tokens=" << profile.prompt_tokens - 1U
+              << " chunk=" << profile.prefill_chunk_tokens
+              << " baseline_prefix_ms=" << baseline_prefix
+              << " candidate_prefix_ms=" << candidate_prefix
+              << " prefix_saved_ms=" << prefix_saved
+              << " prefix_speedup=" << baseline_prefix / candidate_prefix
+              << " baseline_ttft_ms=" << baseline_ttft
+              << " candidate_ttft_ms=" << candidate_ttft
+              << " ttft_saved_ms=" << ttft_saved
+              << " ttft_speedup=" << baseline_ttft / candidate_ttft
+              << " direction=" << (positive ? "POSITIVE" : "NEGATIVE")
+              << " authority=EARLY_STOP_ONLY production_unchanged=true\n";
+  }
+  std::cout << "GDN_C16_MATRIX_DIRECTION result="
+            << (all_positive ? "POSITIVE" : "NEGATIVE")
+            << " profiles=4 production_unchanged=true\n";
+  return all_positive ? 0 : 3;
+}
+
+[[nodiscard]] runtime::ReferenceGenerateResult
+run_matrix_correctness_generation(
+    runtime::ReferenceEngine& engine, const DirectionProfile& profile,
+    const std::string& prompt, const bool admission_enabled,
+    MatrixSnapshotCollector& collector, std::size_t& route_hits) {
+  runtime::ReferenceGenerateOptions options;
+  options.max_new_tokens = 1U;
+  options.prefill_chunk_size =
+      static_cast<std::uint32_t>(profile.prefill_chunk_tokens);
+  options.logits_mode = runtime::ReferenceLogitsMode::kPredictedTokenOnly;
+
+  (void)detail::exchange_prefill_gdn_c16_norm_gate_admission_test_hits(0U);
+  runtime::ReferenceGenerateResult result;
+  {
+    const ScopedMatrixSnapshotHook snapshot_hook(collector);
+    const ScopedAdmission admission(admission_enabled);
+    result = engine.generate(prompt, options);
+  }
+  route_hits =
+      detail::exchange_prefill_gdn_c16_norm_gate_admission_test_hits(0U);
+  return result;
+}
+
+[[nodiscard]] bool run_matrix_correctness_profile(
+    runtime::ReferenceEngine& engine, const DirectionProfile& profile) {
+  MatrixSnapshotCollector baseline_collector;
+  MatrixSnapshotCollector candidate_collector;
+  candidate_collector.mode = SnapshotMode::kCompareReference;
+  candidate_collector.reference = &baseline_collector;
+  if (!prepare_matrix_collector(baseline_collector, profile) ||
+      !prepare_matrix_collector(candidate_collector, profile)) {
+    return false;
+  }
+
+  const std::string prompt = repeated_hello_prompt(profile.prompt_tokens);
+  std::size_t baseline_hits = 0U;
+  runtime::ReferenceGenerateResult baseline =
+      run_matrix_correctness_generation(
+          engine, profile, prompt, false, baseline_collector, baseline_hits);
+  if (!baseline) {
+    std::cerr << "matrix baseline generation failed " << profile.label
+              << ": ";
+    print_diagnostic(baseline.diagnostic);
+    return false;
+  }
+
+  std::size_t candidate_hits = 0U;
+  runtime::ReferenceGenerateResult candidate =
+      run_matrix_correctness_generation(
+          engine, profile, prompt, true, candidate_collector,
+          candidate_hits);
+  if (!candidate) {
+    std::cerr << "matrix candidate generation failed " << profile.label
+              << ": ";
+    print_diagnostic(candidate.diagnostic);
+    return false;
+  }
+
+  const std::size_t prefix_tokens = profile.prompt_tokens - 1U;
+  const std::size_t expected_hits =
+      runtime::kRequestLinearLayerCount * (prefix_tokens / 16U);
+  const bool baseline_expected = expected_generation_profile(
+      *baseline.value, profile.prompt_tokens, profile.prefill_chunk_tokens);
+  const bool candidate_expected = expected_generation_profile(
+      *candidate.value, profile.prompt_tokens, profile.prefill_chunk_tokens);
+  const bool semantics_exact =
+      same_generation_semantics(*baseline.value, *candidate.value);
+  const bool route_exact =
+      baseline_hits == 0U && candidate_hits == expected_hits;
+  const bool baseline_snapshots =
+      validate_matrix_collector(baseline_collector, profile, false);
+  const bool baseline_activity =
+      validate_matrix_reference_activity(baseline_collector, profile);
+  const bool candidate_snapshots =
+      validate_matrix_collector(candidate_collector, profile, true);
+  const bool passed = baseline_expected && candidate_expected &&
+                      semantics_exact && route_exact && baseline_snapshots &&
+                      baseline_activity && candidate_snapshots;
+  std::cout << "GDN_C16_MATRIX_CORRECTNESS profile=" << profile.label
+            << " prompt_tokens=" << profile.prompt_tokens
+            << " prefix_tokens=" << prefix_tokens
+            << " chunk=" << profile.prefill_chunk_tokens
+            << " boundaries="
+            << candidate_collector.expected_positions.size()
+            << " generated_token="
+            << (candidate.value->generated_token_ids.empty()
+                    ? runtime::kReferenceVocabularySize
+                    : candidate.value->generated_token_ids.front())
+            << " generated_text=" << candidate.value->generated_text
+            << " baseline_hits=" << baseline_hits
+            << " candidate_hits=" << candidate_hits
+            << " expected_hits=" << expected_hits
+            << " generation_semantics_exact="
+            << (semantics_exact ? "true" : "false")
+            << " timing_authority=NONE"
+            << " result=" << (passed ? "PASS" : "FAIL") << '\n';
+  return passed;
+}
+
+[[nodiscard]] int run_correctness_matrix(runtime::ReferenceEngine& engine) {
+  bool passed = true;
+  for (const DirectionProfile& profile : kDirectionProfiles) {
+    passed = run_matrix_correctness_profile(engine, profile) && passed;
+  }
+  std::cout << "GDN_C16_MATRIX_CORRECTNESS_ALL profiles=4 result="
+            << (passed ? "PASS" : "FAIL")
+            << " production_unchanged=true\n";
+  return passed ? 0 : 1;
+}
+
 [[nodiscard]] int run_retention_screen(runtime::ReferenceEngine& engine,
                                        const std::string& prompt) {
   constexpr std::size_t kRounds = 6U;
@@ -695,10 +1191,20 @@ int main(const int argc, char** const argv) {
   const bool retention_mode =
       argc == 3 && argv[2] != nullptr &&
       std::string_view(argv[2]) == "--retention";
-  if (argc > 3 || (argc == 3 && !direction_mode && !retention_mode)) {
+  const bool matrix_direction_mode =
+      argc == 3 && argv[2] != nullptr &&
+      std::string_view(argv[2]) == "--matrix-direction";
+  const bool matrix_correctness_mode =
+      argc == 3 && argv[2] != nullptr &&
+      std::string_view(argv[2]) == "--matrix-correctness";
+  if (argc > 3 ||
+      (argc == 3 && !direction_mode && !retention_mode &&
+       !matrix_direction_mode && !matrix_correctness_mode)) {
     std::cerr << "usage: "
                  "q3x_reference_gdn_prefill_c16_norm_gate_engine_e2e_test "
-                 "[MODEL_DIR|-] [--direction|--retention]\n";
+                 "[MODEL_DIR|-] "
+                 "[--direction|--retention|--matrix-direction|"
+                 "--matrix-correctness]\n";
     return 2;
   }
   const std::string model_directory = model_directory_from(argc, argv);
@@ -721,7 +1227,10 @@ int main(const int argc, char** const argv) {
 
   runtime::ReferenceEngineOptions options;
   options.request_options.prefill_chunk_size = kPrefixTokens;
-  options.request_options.max_sequence_length = kPromptTokens + 1U;
+  options.request_options.max_sequence_length =
+      (matrix_direction_mode || matrix_correctness_mode)
+          ? kDirectionProfiles.back().prompt_tokens + 1U
+          : kPromptTokens + 1U;
   options.projection_backend = runtime::ProjectionBackend::kSm87WeightOnly;
   runtime::ReferenceEngineCreateResult created =
       runtime::create_reference_engine(std::filesystem::path(model_directory),
@@ -742,7 +1251,14 @@ int main(const int argc, char** const argv) {
             << load.fp8_prefill_qkv_sidecar_layers
             << " request_arena_bytes=" << load.request_arena_bytes << '\n';
 
-  const std::string prompt = repeated_hello_prompt();
+  if (matrix_direction_mode) {
+    return run_direction_matrix(*created.value);
+  }
+  if (matrix_correctness_mode) {
+    return run_correctness_matrix(*created.value);
+  }
+
+  const std::string prompt = repeated_hello_prompt(kPromptTokens);
   if (direction_mode) {
     return run_direction_screen(*created.value, prompt);
   }
