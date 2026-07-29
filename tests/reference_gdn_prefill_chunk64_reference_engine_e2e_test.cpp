@@ -41,6 +41,20 @@ constexpr std::string_view kRunEnvironment =
     "Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION";
 using SelectedSnapshotHook = detail::PrefillGdnChunk64NativeSnapshotHook;
 
+static_assert(detail::prefill_gdn_chunk64_native_prefix_token_count(63U) ==
+              0U);
+static_assert(detail::prefill_gdn_chunk64_native_prefix_token_count(64U) ==
+              64U);
+static_assert(detail::prefill_gdn_chunk64_native_prefix_token_count(127U) ==
+              64U);
+static_assert(detail::prefill_gdn_chunk64_native_prefix_token_count(481U) ==
+              448U);
+static_assert(detail::prefill_gdn_chunk64_legacy_tail_token_count(64U) == 0U);
+static_assert(detail::prefill_gdn_chunk64_legacy_tail_token_count(127U) ==
+              63U);
+static_assert(detail::prefill_gdn_chunk64_legacy_tail_token_count(481U) ==
+              33U);
+
 [[nodiscard]] bool exchange_admission(const bool enabled) noexcept {
   return detail::exchange_prefill_gdn_chunk64_native_admission_test_enabled(
       enabled);
@@ -232,7 +246,12 @@ void print_diagnostic(
     const std::size_t tile =
         runtime::reference_engine_detail::next_prefix_tile_token_count(
             remaining, kPrefillChunkTokens);
-    if (tile >= 64U && tile % 64U == 0U) {
+#if defined(Q3X_GDN_CHUNK64_NATIVE_TEST)
+    const bool admitted = tile >= 64U;
+#else
+    const bool admitted = tile >= 64U && tile % 64U == 0U;
+#endif
+    if (admitted) {
       ++admitted_tiles;
     }
     remaining -= tile;

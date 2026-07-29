@@ -366,13 +366,11 @@ template <std::size_t SpanCount>
     const std::uint32_t /*first_position*/,
     const std::size_t token_count, const void* const workspace,
     const std::size_t workspace_bytes) noexcept {
-  // The prefix scheduler emits C512/C256/C64 tiles plus C32/<=31 tails.
-  // Admit only complete C64 blocks at any sequence position; every tail
-  // remains on the established ordered path, so no padded token can mutate
-  // the recurrent state.
+  // Every admitted runner tile contains at least one complete C64 prefix.
+  // The caller keeps any final 1..63 tokens on the established ordered path;
+  // no padding is permitted to mutate the recurrent state.
   return enabled && backend == ProjectionBackend::kSm87WeightOnly &&
          token_count >= 64U && token_count <= 512U &&
-         token_count % 64U == 0U &&
          workspace != nullptr &&
          workspace_bytes >=
              gdn_prefill_chunk64_native_detail::workspace_bytes();
@@ -3140,6 +3138,15 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
               prefill_gdn_chunk64_native_workspace_,
               prefill_gdn_chunk64_native_workspace_bytes_);
       if (use_gdn_chunk64_native) {
+        const std::size_t native_prefix_tokens =
+            reference_runner_detail::
+                prefill_gdn_chunk64_native_prefix_token_count(token_count);
+        const std::size_t legacy_tail_tokens =
+            reference_runner_detail::
+                prefill_gdn_chunk64_legacy_tail_token_count(token_count);
+        // Convolution is exact for arbitrary C1..C512 and owns a separate
+        // recurrent state. Execute it once over the complete runner tile,
+        // then split only the GDN recurrence at the last C64 boundary.
         if (!check_cuda(
                 gdn_prefill_whole_span_conv_detail::
                     launch_causal_conv1d_silu_update_whole_span_exact_cuda(
@@ -3154,13 +3161,61 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
                 gdn_prefill_chunk64_native_detail::launch(
                     prefill_gdn_chunk64_native_workspace_,
                     prefill_gdn_chunk64_native_workspace_bytes_,
-                    views_.projection[0], token_count, views_.linear_a,
-                    views_.linear_b, attention->a_log.data,
+                    views_.projection[0], native_prefix_tokens,
+                    views_.linear_a, views_.linear_b, attention->a_log.data,
                     attention->dt_bias.data, views_.gdn_state[layer],
                     views_.gdn_state[layer], kRmsEpsilon,
                     attention->norm.data, views_.projection[1],
                     kRmsEpsilon, views_.projection[2], stream_),
                 "prefill_linear_gdn_chunk64_native", layer)) {
+          return fail_prefill_tile(launch_failure);
+        }
+        // The native launch above and these legacy launches share one stream
+        // and one in-place state span. Consequently the first tail token sees
+        // exactly the state produced by the final native-prefix token.
+        for (std::size_t token_offset = native_prefix_tokens;
+             token_offset < token_count;
+             token_offset += kPrefillKernelTileMaximumTokens) {
+          const std::size_t remaining = token_count - token_offset;
+          const std::size_t subtile_tokens =
+              remaining < kPrefillKernelTileMaximumTokens
+                  ? remaining
+                  : kPrefillKernelTileMaximumTokens;
+          if (!check_cuda(
+                  launch_gated_delta_net_update_tile_warp_parallel_cuda(
+                      views_.projection[0] +
+                          token_offset * kLinearQkvElements,
+                      subtile_tokens,
+                      views_.linear_a +
+                          token_offset * kLinearScalarElements,
+                      views_.linear_b +
+                          token_offset * kLinearScalarElements,
+                      attention->a_log.data, attention->dt_bias.data,
+                      views_.gdn_state[layer], views_.gdn_state[layer],
+                      kRmsEpsilon,
+                      views_.projection[2] +
+                          token_offset * kLinearValueElements,
+                      {}, stream_),
+                  "prefill_linear_gdn_chunk64_native_tail", layer)) {
+            return fail_prefill_tile(launch_failure);
+          }
+        }
+        // The native prefix was normalized and gated inside its final kernel;
+        // apply the same established boundary only to the raw legacy tail.
+        if (legacy_tail_tokens != 0U &&
+            !check_cuda(
+                launch_headwise_plain_rms_norm_silu_gate_reference_cuda(
+                    views_.projection[2] +
+                        native_prefix_tokens * kLinearValueElements,
+                    attention->norm.data,
+                    views_.projection[1] +
+                        native_prefix_tokens * kLinearValueElements,
+                    legacy_tail_tokens * kGdnValueHeadCount,
+                    kGdnHeadDimension, kRmsEpsilon,
+                    views_.projection[2] +
+                        native_prefix_tokens * kLinearValueElements,
+                    stream_),
+                "prefill_linear_gdn_chunk64_native_tail_norm_gate", layer)) {
           return fail_prefill_tile(launch_failure);
         }
         gdn_output_is_normalized = true;

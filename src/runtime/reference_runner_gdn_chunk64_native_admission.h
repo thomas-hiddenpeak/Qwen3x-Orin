@@ -8,6 +8,18 @@ class RequestState;
 
 namespace reference_runner_detail {
 
+[[nodiscard]] constexpr std::size_t
+prefill_gdn_chunk64_native_prefix_token_count(
+    const std::size_t token_count) noexcept {
+  return token_count - token_count % 64U;
+}
+
+[[nodiscard]] constexpr std::size_t
+prefill_gdn_chunk64_legacy_tail_token_count(
+    const std::size_t token_count) noexcept {
+  return token_count % 64U;
+}
+
 [[nodiscard]] bool exchange_prefill_gdn_chunk64_native_admission_test_enabled(
     bool enabled) noexcept;
 [[nodiscard]] std::size_t
