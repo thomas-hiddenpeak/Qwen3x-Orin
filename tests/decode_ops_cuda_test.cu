@@ -8603,15 +8603,17 @@ void run_bulk_gqa_correctness_case(
                            48) /
         16.0F);
   }
+  const float value_bias = first_position == 512U ? 2.0F : 0.0F;
   for (std::size_t index = 0U; index < cache_elements; ++index) {
     key[index] = encode_bf16(
         static_cast<float>(static_cast<int>((index * 29U + 7U) % 113U) -
                            56) /
         64.0F);
-    value[index] = encode_bf16(
+    const float centered_value =
         static_cast<float>(static_cast<int>((index * 31U + 11U) % 109U) -
                            54) /
-        32.0F);
+        32.0F;
+    value[index] = encode_bf16(centered_value + value_bias);
   }
   std::fill_n(key + cache_elements,
               allocated_cache_elements - cache_elements, 0x7fc1U);
@@ -8898,6 +8900,7 @@ void test_bulk_causal_gqa_prefill_contract(TestContext& test,
   run_bulk_gqa_correctness_case(test, stream, 0U, 512U, true);
   run_bulk_gqa_correctness_case(test, stream, 0U, 407U, true);
   run_bulk_gqa_correctness_case(test, stream, 0U, 481U, true);
+  run_bulk_gqa_correctness_case(test, stream, 512U, 512U, true);
   run_bulk_gqa_correctness_case(test, stream, 17U, 256U, false);
 }
 
