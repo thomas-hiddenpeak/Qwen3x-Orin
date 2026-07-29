@@ -1392,6 +1392,28 @@ if(BUILD_TESTING)
 
   if(Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION)
     add_executable(
+      q3x_gdn_prefill_token_parallel_conv_sm87_test
+      tests/gdn_prefill_token_parallel_conv_sm87_test.cu
+    )
+    target_link_libraries(
+      q3x_gdn_prefill_token_parallel_conv_sm87_test
+      PRIVATE q3x::kernels CUDA::cudart
+    )
+    q3x_enable_warnings(
+      q3x_gdn_prefill_token_parallel_conv_sm87_test
+    )
+    add_test(NAME gdn_prefill_token_parallel_conv_sm87
+      COMMAND q3x_gdn_prefill_token_parallel_conv_sm87_test
+    )
+    set_tests_properties(
+      gdn_prefill_token_parallel_conv_sm87 PROPERTIES
+      LABELS "cuda;sm87;prefill;gdn;correctness;boundary;cuda_graph"
+      SKIP_RETURN_CODE 77
+      RESOURCE_LOCK q3x_sm87_gpu
+      TIMEOUT 300
+    )
+
+    add_executable(
       q3x_reference_gdn_prefill_chunk64_native_engine_e2e_test
       tests/reference_gdn_prefill_chunk64_reference_engine_e2e_test.cpp
     )
