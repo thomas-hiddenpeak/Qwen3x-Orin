@@ -8502,7 +8502,7 @@ void run_bulk_gqa_correctness_case(
                 candidate_topology.block.x == 128U &&
                 candidate_topology.block.y == 1U &&
                 candidate_topology.block.z == 1U &&
-                candidate_topology.dynamic_shared_bytes == 0U
+                candidate_topology.dynamic_shared_bytes == 72U * 1024U
           : candidate_topology.grid.x == token_count / 2U &&
                 candidate_topology.grid.y == 4U &&
                 candidate_topology.grid.z == 1U &&
