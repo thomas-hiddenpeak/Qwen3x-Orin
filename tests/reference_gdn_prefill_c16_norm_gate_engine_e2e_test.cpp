@@ -7,10 +7,12 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
+#include <iomanip>
 #include <iostream>
 #include <limits>
 #include <new>
@@ -411,13 +413,292 @@ void print_diagnostic(
   return result;
 }
 
+struct DirectionSample {
+  double prefix_milliseconds = 0.0;
+  double ttft_milliseconds = 0.0;
+  std::size_t route_hits = 0U;
+};
+
+[[nodiscard]] bool run_direction_sample(
+    runtime::ReferenceEngine& engine, const std::string& prompt,
+    const bool admission_enabled, const std::string_view phase,
+    const std::string_view route, DirectionSample& sample) {
+  runtime::ReferenceGenerateOptions options;
+  options.max_new_tokens = 1U;
+  options.prefill_chunk_size = kPrefixTokens;
+  options.logits_mode = runtime::ReferenceLogitsMode::kPredictedTokenOnly;
+
+  (void)detail::exchange_prefill_gdn_c16_norm_gate_admission_snapshot_hook({});
+  (void)detail::exchange_prefill_gdn_c16_norm_gate_admission_test_hits(0U);
+  runtime::ReferenceGenerateResult result;
+  {
+    const ScopedAdmission admission(admission_enabled);
+    result = engine.generate(prompt, options);
+  }
+  sample.route_hits =
+      detail::exchange_prefill_gdn_c16_norm_gate_admission_test_hits(0U);
+  if (!result) {
+    std::cerr << "direction " << phase << ' ' << route
+              << " generation failed: ";
+    print_diagnostic(result.diagnostic);
+    return false;
+  }
+
+  for (const double elapsed :
+       result.value->timing.prefix_execution_milliseconds) {
+    sample.prefix_milliseconds += elapsed;
+  }
+  sample.ttft_milliseconds =
+      result.value->timing.time_to_first_token_milliseconds;
+  const std::size_t expected_hits =
+      admission_enabled ? kExpectedRouteHits : 0U;
+  const bool passed =
+      expected_generation(*result.value) &&
+      result.value->timing.prefix_execution_milliseconds.size() == 1U &&
+      std::isfinite(sample.prefix_milliseconds) &&
+      sample.prefix_milliseconds > 0.0 &&
+      std::isfinite(sample.ttft_milliseconds) &&
+      sample.ttft_milliseconds > 0.0 &&
+      sample.route_hits == expected_hits;
+  std::cout << "GDN_C16_DIRECTION_SAMPLE phase=" << phase
+            << " route=" << route
+            << " prefix_ms=" << sample.prefix_milliseconds
+            << " ttft_ms=" << sample.ttft_milliseconds
+            << " route_hits=" << sample.route_hits
+            << " expected_hits=" << expected_hits
+            << " oracle=" << (passed ? "PASS" : "FAIL") << '\n';
+  return passed;
+}
+
+[[nodiscard]] int run_direction_screen(runtime::ReferenceEngine& engine,
+                                       const std::string& prompt) {
+  std::cout << std::fixed << std::setprecision(9);
+  constexpr std::array<bool, 4U> kCandidateRoute{false, true, true, false};
+  constexpr std::array<std::string_view, 4U> kRoute{"B1", "C1", "C2",
+                                                   "B2"};
+  std::array<DirectionSample, 4U> warmup;
+  std::array<DirectionSample, 4U> measured;
+  bool passed = true;
+  for (std::size_t index = 0U; index < kRoute.size(); ++index) {
+    passed = run_direction_sample(engine, prompt, kCandidateRoute[index],
+                                  "warmup", kRoute[index], warmup[index]) &&
+             passed;
+  }
+  for (std::size_t index = 0U; index < kRoute.size(); ++index) {
+    passed = run_direction_sample(engine, prompt, kCandidateRoute[index],
+                                  "measured", kRoute[index],
+                                  measured[index]) &&
+             passed;
+  }
+  if (!passed) {
+    std::cout << "GDN_C16_DIRECTION INVALID\n";
+    return 1;
+  }
+
+  const double baseline_prefix =
+      (measured[0].prefix_milliseconds +
+       measured[3].prefix_milliseconds) /
+      2.0;
+  const double candidate_prefix =
+      (measured[1].prefix_milliseconds +
+       measured[2].prefix_milliseconds) /
+      2.0;
+  const double baseline_ttft =
+      (measured[0].ttft_milliseconds + measured[3].ttft_milliseconds) /
+      2.0;
+  const double candidate_ttft =
+      (measured[1].ttft_milliseconds + measured[2].ttft_milliseconds) /
+      2.0;
+  const double prefix_saved = baseline_prefix - candidate_prefix;
+  const double ttft_saved = baseline_ttft - candidate_ttft;
+  const double prefix_speedup = baseline_prefix / candidate_prefix;
+  const double ttft_speedup = baseline_ttft / candidate_ttft;
+  const bool positive = prefix_saved > 0.0 && ttft_saved > 0.0;
+  std::cout << "GDN_C16_DIRECTION baseline_prefix_ms=" << baseline_prefix
+            << " candidate_prefix_ms=" << candidate_prefix
+            << " prefix_saved_ms=" << prefix_saved
+            << " prefix_speedup=" << prefix_speedup
+            << " baseline_ttft_ms=" << baseline_ttft
+            << " candidate_ttft_ms=" << candidate_ttft
+            << " ttft_saved_ms=" << ttft_saved
+            << " ttft_speedup=" << ttft_speedup
+            << " direction=" << (positive ? "POSITIVE" : "NEGATIVE")
+            << " authority=EARLY_STOP_ONLY production_unchanged=true\n";
+  return positive ? 0 : 3;
+}
+
+[[nodiscard]] int run_retention_screen(runtime::ReferenceEngine& engine,
+                                       const std::string& prompt) {
+  constexpr std::size_t kRounds = 6U;
+  constexpr std::array<bool, 4U> kCandidateRoute{false, true, true, false};
+  constexpr std::array<bool, 4U> kBaselineRoute{false, false, false, false};
+  constexpr std::array<std::string_view, 4U> kCandidateLabel{
+      "B1", "C1", "C2", "B2"};
+  constexpr std::array<std::string_view, 4U> kBaselineLabel{
+      "B1", "B2", "B3", "B4"};
+  std::cout << std::fixed << std::setprecision(9);
+
+  std::array<DirectionSample, 4U> warmup;
+  bool passed = true;
+  for (std::size_t index = 0U; index < kCandidateLabel.size(); ++index) {
+    passed = run_direction_sample(engine, prompt, kCandidateRoute[index],
+                                  "retention_warmup",
+                                  kCandidateLabel[index], warmup[index]) &&
+             passed;
+  }
+  if (!passed) {
+    std::cout << "GDN_C16_RETENTION INVALID phase=warmup\n";
+    return 1;
+  }
+
+  double maximum_prefix_noise = 0.0;
+  double maximum_ttft_noise = 0.0;
+  double baseline_prefix_sum = 0.0;
+  double candidate_prefix_sum = 0.0;
+  double baseline_ttft_sum = 0.0;
+  double candidate_ttft_sum = 0.0;
+  bool all_positive = true;
+  for (std::size_t round = 0U; round < kRounds; ++round) {
+    std::array<DirectionSample, 4U> noise;
+    const std::string noise_phase =
+        "noise_round_" + std::to_string(round + 1U);
+    for (std::size_t index = 0U; index < kBaselineLabel.size(); ++index) {
+      passed = run_direction_sample(engine, prompt, kBaselineRoute[index],
+                                    noise_phase, kBaselineLabel[index],
+                                    noise[index]) &&
+               passed;
+    }
+    if (!passed) {
+      std::cout << "GDN_C16_RETENTION INVALID phase=" << noise_phase
+                << '\n';
+      return 1;
+    }
+    const double outer_prefix =
+        (noise[0].prefix_milliseconds + noise[3].prefix_milliseconds) /
+        2.0;
+    const double inner_prefix =
+        (noise[1].prefix_milliseconds + noise[2].prefix_milliseconds) /
+        2.0;
+    const double outer_ttft =
+        (noise[0].ttft_milliseconds + noise[3].ttft_milliseconds) / 2.0;
+    const double inner_ttft =
+        (noise[1].ttft_milliseconds + noise[2].ttft_milliseconds) / 2.0;
+    const double prefix_noise =
+        std::max(outer_prefix, inner_prefix) /
+            std::min(outer_prefix, inner_prefix) -
+        1.0;
+    const double ttft_noise =
+        std::max(outer_ttft, inner_ttft) /
+            std::min(outer_ttft, inner_ttft) -
+        1.0;
+    maximum_prefix_noise = std::max(maximum_prefix_noise, prefix_noise);
+    maximum_ttft_noise = std::max(maximum_ttft_noise, ttft_noise);
+    std::cout << "GDN_C16_RETENTION_NOISE round=" << round + 1U
+              << " outer_prefix_ms=" << outer_prefix
+              << " inner_prefix_ms=" << inner_prefix
+              << " prefix_noise_fraction=" << prefix_noise
+              << " outer_ttft_ms=" << outer_ttft
+              << " inner_ttft_ms=" << inner_ttft
+              << " ttft_noise_fraction=" << ttft_noise << '\n';
+
+    std::array<DirectionSample, 4U> candidate;
+    const std::string candidate_phase =
+        "candidate_round_" + std::to_string(round + 1U);
+    for (std::size_t index = 0U; index < kCandidateLabel.size(); ++index) {
+      passed = run_direction_sample(engine, prompt, kCandidateRoute[index],
+                                    candidate_phase,
+                                    kCandidateLabel[index],
+                                    candidate[index]) &&
+               passed;
+    }
+    if (!passed) {
+      std::cout << "GDN_C16_RETENTION INVALID phase=" << candidate_phase
+                << '\n';
+      return 1;
+    }
+    const double baseline_prefix =
+        (candidate[0].prefix_milliseconds +
+         candidate[3].prefix_milliseconds) /
+        2.0;
+    const double candidate_prefix =
+        (candidate[1].prefix_milliseconds +
+         candidate[2].prefix_milliseconds) /
+        2.0;
+    const double baseline_ttft =
+        (candidate[0].ttft_milliseconds +
+         candidate[3].ttft_milliseconds) /
+        2.0;
+    const double candidate_ttft =
+        (candidate[1].ttft_milliseconds +
+         candidate[2].ttft_milliseconds) /
+        2.0;
+    const double prefix_saved = baseline_prefix - candidate_prefix;
+    const double ttft_saved = baseline_ttft - candidate_ttft;
+    const bool round_positive = prefix_saved > 0.0 && ttft_saved > 0.0;
+    all_positive = all_positive && round_positive;
+    baseline_prefix_sum += baseline_prefix;
+    candidate_prefix_sum += candidate_prefix;
+    baseline_ttft_sum += baseline_ttft;
+    candidate_ttft_sum += candidate_ttft;
+    std::cout << "GDN_C16_RETENTION_ROUND round=" << round + 1U
+              << " baseline_prefix_ms=" << baseline_prefix
+              << " candidate_prefix_ms=" << candidate_prefix
+              << " prefix_saved_ms=" << prefix_saved
+              << " prefix_speedup=" << baseline_prefix / candidate_prefix
+              << " baseline_ttft_ms=" << baseline_ttft
+              << " candidate_ttft_ms=" << candidate_ttft
+              << " ttft_saved_ms=" << ttft_saved
+              << " ttft_speedup=" << baseline_ttft / candidate_ttft
+              << " positive=" << (round_positive ? "true" : "false")
+              << '\n';
+  }
+
+  const double baseline_prefix =
+      baseline_prefix_sum / static_cast<double>(kRounds);
+  const double candidate_prefix =
+      candidate_prefix_sum / static_cast<double>(kRounds);
+  const double baseline_ttft =
+      baseline_ttft_sum / static_cast<double>(kRounds);
+  const double candidate_ttft =
+      candidate_ttft_sum / static_cast<double>(kRounds);
+  const double prefix_speedup = baseline_prefix / candidate_prefix;
+  const double ttft_speedup = baseline_ttft / candidate_ttft;
+  const bool clears_noise =
+      prefix_speedup - 1.0 > maximum_prefix_noise &&
+      ttft_speedup - 1.0 > maximum_ttft_noise;
+  const bool retained = all_positive && clears_noise;
+  std::cout << "GDN_C16_RETENTION baseline_prefix_ms=" << baseline_prefix
+            << " candidate_prefix_ms=" << candidate_prefix
+            << " prefix_saved_ms=" << baseline_prefix - candidate_prefix
+            << " prefix_speedup=" << prefix_speedup
+            << " maximum_prefix_noise_fraction=" << maximum_prefix_noise
+            << " baseline_ttft_ms=" << baseline_ttft
+            << " candidate_ttft_ms=" << candidate_ttft
+            << " ttft_saved_ms=" << baseline_ttft - candidate_ttft
+            << " ttft_speedup=" << ttft_speedup
+            << " maximum_ttft_noise_fraction=" << maximum_ttft_noise
+            << " all_rounds_positive="
+            << (all_positive ? "true" : "false")
+            << " clears_noise=" << (clears_noise ? "true" : "false")
+            << " decision=" << (retained ? "RETAIN" : "REJECT")
+            << " authority=NATIVE_EXPERIMENT_RETENTION"
+            << " production_unchanged=true\n";
+  return retained ? 0 : 3;
+}
+
 }  // namespace
 
 int main(const int argc, char** const argv) {
-  if (argc > 2) {
+  const bool direction_mode =
+      argc == 3 && argv[2] != nullptr &&
+      std::string_view(argv[2]) == "--direction";
+  const bool retention_mode =
+      argc == 3 && argv[2] != nullptr &&
+      std::string_view(argv[2]) == "--retention";
+  if (argc > 3 || (argc == 3 && !direction_mode && !retention_mode)) {
     std::cerr << "usage: "
                  "q3x_reference_gdn_prefill_c16_norm_gate_engine_e2e_test "
-                 "[MODEL_DIR|-]\n";
+                 "[MODEL_DIR|-] [--direction|--retention]\n";
     return 2;
   }
   const std::string model_directory = model_directory_from(argc, argv);
@@ -437,15 +718,6 @@ int main(const int argc, char** const argv) {
       exchange_prefill_gdn_c16_norm_gate_admission_test_enabled(false);
   (void)detail::exchange_prefill_gdn_c16_norm_gate_admission_test_hits(0U);
   (void)detail::exchange_prefill_gdn_c16_norm_gate_admission_snapshot_hook({});
-
-  SnapshotCollector baseline_collector;
-  SnapshotCollector candidate_collector;
-  candidate_collector.mode = SnapshotMode::kCompareReference;
-  candidate_collector.reference = &baseline_collector;
-  if (!prepare_collector(baseline_collector) ||
-      !prepare_collector(candidate_collector)) {
-    return 1;
-  }
 
   runtime::ReferenceEngineOptions options;
   options.request_options.prefill_chunk_size = kPrefixTokens;
@@ -471,6 +743,21 @@ int main(const int argc, char** const argv) {
             << " request_arena_bytes=" << load.request_arena_bytes << '\n';
 
   const std::string prompt = repeated_hello_prompt();
+  if (direction_mode) {
+    return run_direction_screen(*created.value, prompt);
+  }
+  if (retention_mode) {
+    return run_retention_screen(*created.value, prompt);
+  }
+
+  SnapshotCollector baseline_collector;
+  SnapshotCollector candidate_collector;
+  candidate_collector.mode = SnapshotMode::kCompareReference;
+  candidate_collector.reference = &baseline_collector;
+  if (!prepare_collector(baseline_collector) ||
+      !prepare_collector(candidate_collector)) {
+    return 1;
+  }
   std::size_t baseline_hits = 0U;
   runtime::ReferenceGenerateResult baseline = run_generation(
       *created.value, prompt, false, baseline_collector, baseline_hits);

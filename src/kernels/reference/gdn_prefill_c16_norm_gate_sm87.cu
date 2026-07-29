@@ -40,6 +40,10 @@ constexpr unsigned int kWarpsPerBlock = kThreads / kWarpSize;
 constexpr unsigned int kRowsPerWarpBatch = 8U;
 constexpr unsigned int kBatchRowOffset = 64U;
 constexpr unsigned int kTokenCount = 16U;
+constexpr unsigned int kEpilogueBatches =
+    kTokenCount / kWarpsPerBlock;
+constexpr unsigned int kEpilogueValuesPerLane =
+    kGdnHeadDimension / kWarpSize;
 constexpr unsigned int kFullWarpMask = 0xffffffffU;
 constexpr std::size_t kKeysPerLane = kGdnHeadDimension / kWarpSize;
 constexpr std::size_t kKeyPairsPerLane = kKeysPerLane / 2U;
@@ -57,6 +61,8 @@ static_assert(kWarpsPerBlock * kRowsPerWarpBatch * 2U ==
               kGdnHeadDimension);
 static_assert(kKeysPerLane == 4U);
 static_assert(kKeyPairsPerLane == 2U);
+static_assert(kEpilogueBatches == 2U);
+static_assert(kEpilogueValuesPerLane == 4U);
 static_assert(kScratchRowStride == 129U);
 static_assert(kRawRowStride == 129U);
 static_assert(kRawTileElements * sizeof(std::uint16_t) == 4128U);
@@ -451,53 +457,62 @@ __global__ void gated_delta_net_update_c16_plain_rms_norm_silu_gate_kernel(
   }
   __syncthreads();
 
-#pragma unroll 1
-  for (unsigned int token = 0U; token < kTokenCount; ++token) {
+  // The standalone epilogue maps one 256-thread CTA to one token/head row.
+  // Its reduction order is 128, 64, 32, 16, 8, 4, 2, 1: stride 128 adds
+  // zero, stride 64 forms (i, i+64), and stride 32 combines that with
+  // (i+32, i+96). Preserve those exact FP32 additions while assigning one
+  // warp to one token row. Eight rows run in parallel and two batches cover
+  // C16, eliminating the predecessor's 16 serial CTA-wide reduction trees.
+#pragma unroll
+  for (unsigned int batch = 0U; batch < kEpilogueBatches; ++batch) {
+    const unsigned int token = batch * kWarpsPerBlock + warp;
     const std::size_t output_offset =
         static_cast<std::size_t>(token) * kGdnVElements +
         value_head * kGdnHeadDimension;
-    float raw_value = 0.0F;
-    std::uint16_t raw_word = 0U;
-    if (thread < kGdnHeadDimension) {
-      if constexpr (kUseSharedBoundary) {
-        raw_word = raw_output[static_cast<std::size_t>(token) *
-                                  kRawRowStride +
-                              thread];
-      } else {
-        raw_word = output[output_offset + thread];
-      }
-      raw_value = decode_bf16_device(raw_word);
-    }
-    float sum = 0.0F;
-    if (thread < kGdnHeadDimension) {
-      sum = fmaf(raw_value, raw_value, sum);
-    }
-    row_scratch[thread] = sum;
-    __syncthreads();
+    float raw_values[kEpilogueValuesPerLane];
+    std::uint16_t raw_words[kEpilogueValuesPerLane];
+    float squares[kEpilogueValuesPerLane];
 #pragma unroll
-    for (unsigned int stride = kThreads / 2U; stride != 0U;
+    for (unsigned int item = 0U; item < kEpilogueValuesPerLane; ++item) {
+      const unsigned int dimension = lane + item * kWarpSize;
+      if constexpr (kUseSharedBoundary) {
+        raw_words[item] =
+            raw_output[static_cast<std::size_t>(token) * kRawRowStride +
+                       dimension];
+      } else {
+        raw_words[item] = output[output_offset + dimension];
+      }
+      raw_values[item] = decode_bf16_device(raw_words[item]);
+      squares[item] = fmaf(raw_values[item], raw_values[item], 0.0F);
+    }
+    const float first_pair = squares[0] + squares[2];
+    const float second_pair = squares[1] + squares[3];
+    float warp_sum = first_pair + second_pair;
+#pragma unroll
+    for (unsigned int stride = kWarpSize / 2U; stride != 0U;
          stride >>= 1U) {
-      if (thread < stride) {
-        row_scratch[thread] += row_scratch[thread + stride];
-      }
-      __syncthreads();
+      warp_sum += __shfl_down_sync(kFullWarpMask, warp_sum, stride);
     }
-    const float inverse_rms =
-        rsqrtf(row_scratch[0] /
-                   static_cast<float>(kGdnHeadDimension) +
-               norm_epsilon);
-    if (thread < kGdnHeadDimension) {
+    float inverse_rms = 0.0F;
+    if (lane == 0U) {
+      inverse_rms =
+          rsqrtf(warp_sum / static_cast<float>(kGdnHeadDimension) +
+                 norm_epsilon);
+    }
+    inverse_rms = __shfl_sync(kFullWarpMask, inverse_rms, 0U);
+#pragma unroll
+    for (unsigned int item = 0U; item < kEpilogueValuesPerLane; ++item) {
+      const unsigned int dimension = lane + item * kWarpSize;
       if constexpr (kStoreRawDebug) {
-        raw_debug[output_offset + thread] = raw_word;
+        raw_debug[output_offset + dimension] = raw_words[item];
       }
-      float value = raw_value * inverse_rms *
-                    decode_bf16_device(norm_weight[thread]);
+      float value = raw_values[item] * inverse_rms *
+                    decode_bf16_device(norm_weight[dimension]);
       const float gate_value =
-          decode_bf16_device(silu_gate[output_offset + thread]);
+          decode_bf16_device(silu_gate[output_offset + dimension]);
       value *= gate_value / (1.0F + expf(-gate_value));
-      output[output_offset + thread] = encode_bf16_device(value);
+      output[output_offset + dimension] = encode_bf16_device(value);
     }
-    __syncthreads();
   }
 }
 
