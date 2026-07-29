@@ -22,6 +22,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <limits>
 #include <type_traits>
@@ -56,9 +57,21 @@ thread_local bool g_enable_prefill_gdn_b8_admission = false;
 thread_local std::size_t g_prefill_gdn_b8_admission_hits = 0U;
 #endif
 #if defined(Q3X_ENABLE_GDN_CHUNK64_REFERENCE_ADMISSION)
-// Compile-time-isolated architecture switch. The default is always false and
-// the external reference context has no fallback or production authority.
-thread_local bool g_enable_prefill_gdn_chunk64_reference_admission = false;
+// Compile-time-isolated architecture switch. It stays false unless the
+// admission-only environment value is exactly "1"; the external reference
+// context has no fallback or production authority.
+// The evaluation server runs generation on a dedicated worker. Initialize
+// that worker's private switch from the same explicit environment gate used
+// by the test harness; synchronous tests may still override it through the
+// private exchange accessor between runner calls.
+[[nodiscard]] bool gdn_chunk64_reference_environment_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_GDN_CHUNK64_REFERENCE_ADMISSION");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
+thread_local bool g_enable_prefill_gdn_chunk64_reference_admission =
+    gdn_chunk64_reference_environment_enabled();
 thread_local std::size_t g_prefill_gdn_chunk64_reference_admission_hits = 0U;
 thread_local reference_runner_detail::
     PrefillGdnChunk64ReferenceSnapshotHook
