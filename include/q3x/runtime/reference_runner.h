@@ -364,10 +364,10 @@ struct LogitsAnalysis {
     std::uint16_t* gate_output, std::uint16_t* up_output,
     std::size_t token_count) noexcept;
 
-// Test-admission controls for the exact-C512, all-64-layer vLLM-Marlin MLP
-// route. The build-time admission remains absent from ordinary production
-// binaries; these calls provide deterministic route-hit accounting to the
-// dedicated real-generation executable.
+// Test-admission controls for the scheduler-wide, all-64-layer vLLM-Marlin
+// MLP route. It covers <=32/C64/C256/C512 with vLLM's corresponding M tile;
+// the build-time admission remains absent from ordinary production binaries.
+// These calls provide deterministic route-hit accounting to real generation.
 bool exchange_nvfp4_marlin_prefill_admission_test_enabled(
     bool enabled) noexcept;
 std::size_t exchange_nvfp4_marlin_prefill_admission_test_hits(

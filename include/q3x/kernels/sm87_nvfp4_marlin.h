@@ -6,9 +6,16 @@
 namespace q3x::kernels {
 
 // Fixed Qwen3.6-27B/Orin contract. This API intentionally does not expose a
-// generic Marlin surface: production callers may use only M512 BF16 x NVFP4
-// Gate+Up and Down projections on an exact 16-SM SM87 device.
+// generic Marlin surface: callers may use only the scheduler's <=32 tail,
+// C64, C256, and C512 BF16 x NVFP4 Gate+Up and Down projections on a 16-SM
+// SM87 device. The shape selector is copied from vLLM's frozen Marlin launch:
+// M1..8=M8N128K128, M9..16=M16N128K128, M17..32=M32N256K64, and
+// M64/M256/M512=M64N256K64. Every specialization uses 256 threads, four
+// pipeline stages, and a persistent 16-CTA grid.
 inline constexpr std::size_t kSm87NvFp4MarlinTokens = 512U;
+inline constexpr std::size_t kSm87NvFp4MarlinTailMaximumTokens = 32U;
+inline constexpr std::size_t kSm87NvFp4MarlinM64Tokens = 64U;
+inline constexpr std::size_t kSm87NvFp4MarlinM256Tokens = 256U;
 inline constexpr std::size_t kSm87NvFp4MarlinHidden = 5'120U;
 inline constexpr std::size_t kSm87NvFp4MarlinIntermediate = 17'408U;
 inline constexpr std::size_t kSm87NvFp4MarlinGateUpOutput = 34'816U;
@@ -25,6 +32,61 @@ inline constexpr std::size_t kSm87NvFp4MarlinReductionElements =
     kSm87NvFp4MarlinThreadN;
 inline constexpr std::size_t kSm87NvFp4MarlinReductionBytes =
     kSm87NvFp4MarlinReductionElements * sizeof(float);
+
+[[nodiscard]] constexpr bool sm87_nvfp4_marlin_supports_token_count(
+    const std::size_t token_count) noexcept {
+  return (token_count >= 1U &&
+          token_count <= kSm87NvFp4MarlinTailMaximumTokens) ||
+         token_count == kSm87NvFp4MarlinM64Tokens ||
+         token_count == kSm87NvFp4MarlinM256Tokens ||
+         token_count == kSm87NvFp4MarlinTokens;
+}
+
+struct Sm87NvFp4MarlinTileConfig {
+  std::size_t thread_m = 0U;
+  std::size_t thread_n = 0U;
+  std::size_t thread_k = 0U;
+  std::size_t threads = 0U;
+  std::size_t stages = 0U;
+  std::size_t persistent_ctas = 0U;
+  bool m_block_size_8 = false;
+
+  [[nodiscard]] constexpr bool valid() const noexcept {
+    return thread_m != 0U;
+  }
+};
+
+// Exact specialization selected by vLLM ccd49f682's determine_exec_config
+// for both Qwen3.6 Gate+Up (N=34816,K=5120) and Down
+// (N=5120,K=17408). Neither shape triggers vLLM's low-work N64 override.
+[[nodiscard]] constexpr Sm87NvFp4MarlinTileConfig
+sm87_nvfp4_marlin_tile_config(const std::size_t token_count) noexcept {
+  if (token_count >= 1U && token_count <= 8U) {
+    return {8U, 128U, 128U, 256U, 4U, 16U, true};
+  }
+  if (token_count <= 16U) {
+    return token_count >= 9U
+               ? Sm87NvFp4MarlinTileConfig{
+                     16U, 128U, 128U, 256U, 4U, 16U, false}
+               : Sm87NvFp4MarlinTileConfig{};
+  }
+  if (token_count <= kSm87NvFp4MarlinTailMaximumTokens) {
+    return {32U, 256U, 64U, 256U, 4U, 16U, false};
+  }
+  if (token_count == kSm87NvFp4MarlinM64Tokens ||
+      token_count == kSm87NvFp4MarlinM256Tokens ||
+      token_count == kSm87NvFp4MarlinTokens) {
+    return {64U, 256U, 64U, 256U, 4U, 16U, false};
+  }
+  return {};
+}
+
+static_assert(sm87_nvfp4_marlin_tile_config(1U).thread_m == 8U);
+static_assert(sm87_nvfp4_marlin_tile_config(9U).thread_k == 128U);
+static_assert(sm87_nvfp4_marlin_tile_config(31U).thread_m == 32U);
+static_assert(sm87_nvfp4_marlin_tile_config(64U).thread_n == 256U);
+static_assert(sm87_nvfp4_marlin_tile_config(256U).thread_m == 64U);
+static_assert(!sm87_nvfp4_marlin_tile_config(33U).valid());
 
 [[nodiscard]] constexpr std::size_t sm87_nvfp4_marlin_weight_bytes(
     const std::size_t output_size, const std::size_t input_size) noexcept {
@@ -74,6 +136,26 @@ inline constexpr std::size_t kSm87NvFp4MarlinReductionBytes =
 // Locks must be zero-initialized before their first launch. The vendored
 // stripe scheduler returns them to zero, so one workspace is reusable on an
 // ordered stream. C_tmp is the fixed FP32 cross-CTA reduction workspace.
+[[nodiscard]] int launch_sm87_nvfp4_marlin_gate_up_cuda(
+    const std::uint16_t* input, const std::uint8_t* marlin_weight,
+    const std::uint8_t* marlin_scales, const float* marlin_global_scale,
+    std::size_t token_count, std::uint16_t* merged_gate_up_output,
+    float* c_tmp, std::int32_t* locks,
+    void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int launch_sm87_nvfp4_marlin_down_cuda(
+    const std::uint16_t* input, const std::uint8_t* marlin_weight,
+    const std::uint8_t* marlin_scales, const float* marlin_global_scale,
+    std::size_t token_count, std::uint16_t* output, float* c_tmp,
+    std::int32_t* locks, void* cuda_stream = nullptr) noexcept;
+
+// Converts row-major merged [M,34816] into canonical BF16
+// SiLU(gate)*up [M,17408]. M follows the same C64/C256/C512 contract.
+[[nodiscard]] int launch_sm87_nvfp4_marlin_gate_up_silu_cuda(
+    const std::uint16_t* merged_gate_up, std::size_t token_count,
+    std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
+
+// Compatibility aliases retained for the authenticated layer-0 C512 test.
 [[nodiscard]] int launch_sm87_nvfp4_marlin_gate_up_m512_cuda(
     const std::uint16_t* input, const std::uint8_t* marlin_weight,
     const std::uint8_t* marlin_scales, const float* marlin_global_scale,
@@ -86,9 +168,6 @@ inline constexpr std::size_t kSm87NvFp4MarlinReductionBytes =
     std::uint16_t* output, float* c_tmp, std::int32_t* locks,
     void* cuda_stream = nullptr) noexcept;
 
-// Converts the row-major merged [512,34816] Marlin result into the canonical
-// BF16 SiLU(gate)*up [512,17408] Down input without splitting Gate/Up into two
-// additional matrices.
 [[nodiscard]] int launch_sm87_nvfp4_marlin_gate_up_silu_m512_cuda(
     const std::uint16_t* merged_gate_up, std::uint16_t* output,
     void* cuda_stream = nullptr) noexcept;

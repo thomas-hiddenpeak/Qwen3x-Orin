@@ -145,7 +145,7 @@ struct NvFp4LinearWeight {
   std::size_t input_size = 0U;
   const std::uint8_t* down_scale6_sidecar = nullptr;
   unsigned int down_scale6_base = 0U;
-  // Test-only exact-C512 Marlin admission. Production scheduling ignores
+  // Test-only scheduler-wide Marlin admission. Production scheduling ignores
   // these views unless the dedicated admission build is enabled. Gate and Up
   // bindings point at the same merged N=34816 sidecar; Down points at its own
   // N=5120/K=17408 sidecar.
@@ -378,7 +378,7 @@ class ModelWeights {
   // QKV, Z, and O; full-attention layers contribute Q, K, V, and O. The
   // canonical all-null/zero call detaches the complete set. The arena must
   // outlive this view and all queued consumers. Production dispatch consumes
-  // the pointers only when the complete exact-C512 inventory is published.
+  // the pointers only when the complete all-layer inventory is published.
   [[nodiscard]] bool attach_fp8_prefill_supermatrix_sidecars(
       const std::uint8_t* arena, std::size_t arena_bytes) noexcept;
 
