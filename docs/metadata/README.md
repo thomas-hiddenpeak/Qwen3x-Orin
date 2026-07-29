@@ -1648,6 +1648,17 @@ The diagnostic Phase 3 records are:
   regresses one Gate **4.406944 -> 4.746720 ms**, despite two fewer registers
   and a 64-KiB smaller runner. The source is reverted; the next bounded cell
   targets the merged 64-byte B row with two compile-time-selected K64 planes.
+- [`qwen36-27b-prefill-gate-c512-k128-b32-planes-production-2026-07-29.json`](qwen36-27b-prefill-gate-c512-k128-b32-planes-production-2026-07-29.json),
+  which promotes two independent 32-byte shared-B planes inside each exact-
+  C512 K128 Gate/Up slot. Across two B-C-C-B sets every candidate Prefix beats
+  every baseline; the combined mean falls **2293.33775 -> 2288.51025 ms** and
+  reaches **223.726330 token/s**. Matched real-weight NCU eliminates all
+  5,570,560 load-bank conflicts, lowers shared-load wavefronts 14.29%, reduces
+  registers 249 -> 247, and improves one Gate **4.406944 -> 4.384128 ms** with
+  identical global/L2 sectors. Fresh production NSys ranks Gate/Up at 556.839
+  ms, GDN at 488.461 ms, and Down at 426.603 ms. All 76 runnable Release tests
+  pass with 12 expected skips; cuBLASLt remains reference-only and MTP is not
+  used.
 - [`qwen36-27b-prefill-gdn-b8-block-transition-screen.json`](qwen36-27b-prefill-gdn-b8-block-transition-screen.json),
   which selects the test-only sequential FP32-B8 GDN dataflow and rejects the
   measured WY control. C256 reaches **2.76977x** versus production M16 while

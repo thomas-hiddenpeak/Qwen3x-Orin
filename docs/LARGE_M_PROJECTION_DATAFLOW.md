@@ -11,7 +11,9 @@ implementation commit. Commit `55da501` promotes this cell for the exact C512
 Gate/Up production route after real-path P513 and full validation. Commit
 `398305c` promotes strict one-dimensional A-stationary CTA traversal, and
 commit `d7aa73b` promotes the K128/two-slot pipeline after real-model B-C-C-B,
-matched NCU, and the full Release suite.
+matched NCU, and the full Release suite. Commit `1c7993d` then restores two
+independent 32-byte shared-B planes inside every K128 slot, removing the merged
+B64-row bank conflicts without changing the publication schedule.
 
 This document defines the next Prefill projection work.  The self-hosted
 kernel line is the only line eligible for production: cuBLASLt is an external
@@ -20,8 +22,9 @@ eligibility.  Historical commits and measurements that called a cuBLASLt
 bridge a production route are retained below for provenance, but that status
 is explicitly revoked by the qualification policy in this revision. The
 exact C512 Gate/Up production route now uses the 256-thread
-M128xN256xK128 BS512 cell with a two-slot pipeline and strict one-dimensional
-A-stationary traversal; C256 remains on its independent M128xN128 route. This
+M128xN256xK128 BS512 cell with a two-slot pipeline, two independent B32 planes,
+and strict one-dimensional A-stationary traversal; C256 remains on its
+independent M128xN128 route. This
 promoted cell is also the native baseline that the next C512 experiments must
 beat.
 All timing and profiler evidence in this plan is governed by the
@@ -829,6 +832,21 @@ K128 B row: split it into two compile-time-selected 32-byte K64 planes without
 changing total shared bytes, barriers, or the fully unrolled consumer. See
 [`metadata/qwen36-27b-prefill-gate-c512-k128-k64-consumer-loop-rejection-2026-07-29.json`](metadata/qwen36-27b-prefill-gate-c512-k128-k64-consumer-loop-rejection-2026-07-29.json).
 
+That B32 split is promoted. Across two complete B-C-C-B sets, all four
+candidate Prefix values beat all four baselines; the combined mean moves
+**2,293.33775 -> 2,288.51025 ms** and throughput rises from **223.255384 to
+223.726330 token/s**. A second mirrored set independently confirms TTFT
+2,419.9555 -> 2,415.0145 ms after one isolated finish-prefill outlier in the
+first set. Every output remains token 9419, text `Hello`, and 513 steps.
+
+Matched NCU moves one real Gate from **4.406944 to 4.384128 ms**, eliminates
+all 5,570,560 ordinary shared-load conflicts, restores shared-load wavefronts
+38,993,920 -> 33,423,360, and reduces registers 249 -> 247. Global and L2
+sectors are identical. Fresh production NSys places Gate/Up at 556.838624 ms
+marginal, followed by GDN at 488.460576 ms and Down at 426.603328 ms. All 76
+runnable Release tests pass, with 12 expected skips and zero failures. See
+[`metadata/qwen36-27b-prefill-gate-c512-k128-b32-planes-production-2026-07-29.json`](metadata/qwen36-27b-prefill-gate-c512-k128-b32-planes-production-2026-07-29.json).
+
 ## Triton and vLLM design-reference screen
 
 The reference screen pins Triton `78420176` and vLLM `2899dca`. Their native
@@ -880,7 +898,7 @@ problem.
    routes and their readiness/hit/fallback observability. cuBLASLt dispatch,
    contexts, scratch, and fallback are already absent from production; keep the
    comparator in an isolated repeatable reference harness only.
-2. Preserve the promoted native-only P513 anchor at 223.203047 Prefix token/s.
+2. Preserve the promoted native-only P513 anchor at 223.726330 Prefix token/s.
    The matched BS512/BF16/dequant NCU diagnostic is complete and
    identifies feed/decode instruction density rather than L2 volume as the
    primary Gate gap.  The external reference retains diagnostic authority
@@ -898,8 +916,8 @@ problem.
    operations, 33.56% fewer warp instructions, and 1.090064x lower profiled
    duration verify the mechanism. Preserve its zero-spill one-CTA exception
    and the larger-M reuse. The later promoted strict 1D A-stationary order and
-   K128/two-slot publication are now the production baseline at 249
-   registers/thread and 118,784 dynamic shared bytes.
+   K128/two-slot publication with independent B32 planes is now the production
+   baseline at 247 registers/thread and 118,784 dynamic shared bytes.
 6. The first coupled 48-byte raw-B/K256-scale consumer-order cell is rejected:
    it regresses real P513 Prefix by 27.049 ms and increases async-landing
    excessive wavefronts by 74.07%. Preserve compact 32-byte landing. Next,
@@ -922,10 +940,12 @@ problem.
    the same 5,570,560 load conflicts and regresses matched Gate latency 0.472%.
    LD144 then changes the bank phase but multiplies load conflicts fivefold and
    regresses real Prefix by 39.524 ms. Close blind leading-dimension sweeps.
-   A runtime K64 consumer loop then leaves the conflicts intact and regresses
-   Prefix by 41.437 ms. Next retain complete unrolling and K128 publication but
-   split the merged 64-byte B row into two compile-time-selected 32-byte K64
-   planes. Re-run the same
+   A runtime K64 consumer loop leaves the conflicts intact and regresses Prefix
+   by 41.437 ms. The independent B32 plane successor removes all load conflicts
+   and is promoted; preserve it and do not reopen merged B64 rows. Fresh NSys
+   ranks Gate/Up, GDN, then Down, so compare the remaining Gate structural
+   ceiling against those two larger cross-kernel opportunities before the next
+   implementation. Re-run the same
    pinned real-weight six-round B-C-C-B screen against the current retained
    native champion after each complete configuration; keep every stable
    all-positive result and update that champion.  Run matched NCU to attribute
