@@ -8210,10 +8210,15 @@ struct BulkGqaResources {
 
 struct BulkGqaGraphTopology {
   std::size_t node_count = 0U;
+  std::size_t kernel_node_count = 0U;
   void* function = nullptr;
   dim3 grid{};
   dim3 block{};
   unsigned int dynamic_shared_bytes = 0U;
+  void* secondary_function = nullptr;
+  dim3 secondary_grid{};
+  dim3 secondary_block{};
+  unsigned int secondary_dynamic_shared_bytes = 0U;
 };
 
 [[nodiscard]] int launch_bulk_gqa_baseline(
@@ -8277,26 +8282,39 @@ template <typename Launch>
                          label + " read nodes") &&
             ready;
   }
-  if (ready && copied_nodes == 1U) {
+  for (std::size_t index = 0U; ready && index < copied_nodes; ++index) {
     cudaGraphNodeType type = cudaGraphNodeTypeEmpty;
-    ready = test.cuda_ok(cudaGraphNodeGetType(nodes[0], &type),
+    ready = test.cuda_ok(cudaGraphNodeGetType(nodes[index], &type),
                          label + " node type") &&
             ready;
-    if (ready) {
-      test.expect(type == cudaGraphNodeTypeKernel,
-                  label + " sole node is a kernel");
+    if (!ready || type != cudaGraphNodeTypeKernel) {
+      continue;
     }
     cudaKernelNodeParams parameters{};
-    if (ready && type == cudaGraphNodeTypeKernel) {
-      ready = test.cuda_ok(cudaGraphKernelNodeGetParams(nodes[0], &parameters),
-                           label + " kernel parameters") &&
-              ready;
-      if (ready) {
-        topology.function = parameters.func;
-        topology.grid = parameters.gridDim;
-        topology.block = parameters.blockDim;
-        topology.dynamic_shared_bytes = parameters.sharedMemBytes;
-      }
+    ready = test.cuda_ok(
+                cudaGraphKernelNodeGetParams(nodes[index], &parameters),
+                label + " kernel parameters") &&
+            ready;
+    if (!ready) {
+      continue;
+    }
+    ++topology.kernel_node_count;
+    if (topology.function == nullptr ||
+        parameters.sharedMemBytes > topology.dynamic_shared_bytes) {
+      topology.secondary_function = topology.function;
+      topology.secondary_grid = topology.grid;
+      topology.secondary_block = topology.block;
+      topology.secondary_dynamic_shared_bytes =
+          topology.dynamic_shared_bytes;
+      topology.function = parameters.func;
+      topology.grid = parameters.gridDim;
+      topology.block = parameters.blockDim;
+      topology.dynamic_shared_bytes = parameters.sharedMemBytes;
+    } else {
+      topology.secondary_function = parameters.func;
+      topology.secondary_grid = parameters.gridDim;
+      topology.secondary_block = parameters.blockDim;
+      topology.secondary_dynamic_shared_bytes = parameters.sharedMemBytes;
     }
   }
   cudaGraphExec_t executable = nullptr;
@@ -8391,6 +8409,58 @@ void expect_invalid_bulk_gqa_compatibility_scale_graph(
                 label + " rejects before enqueue and captures zero nodes");
   }
   (void)test.cuda_ok(cudaGraphDestroy(graph), label + " destroy graph");
+}
+
+void test_bulk_gqa_flashinfer_cold_capture_contract(TestContext& test,
+                                                    cudaStream_t stream) {
+  const char* const enabled =
+      std::getenv("Q3X_FULL_ATTENTION_FLASHINFER_DIRECT");
+  if (enabled == nullptr || std::strcmp(enabled, "1") != 0) {
+    return;
+  }
+  constexpr std::uintptr_t kAddressStride = 0x1'0000'0000ULL;
+  const auto* const query =
+      reinterpret_cast<const std::uint16_t*>(1U * kAddressStride);
+  const auto* const key =
+      reinterpret_cast<const std::uint16_t*>(2U * kAddressStride);
+  const auto* const value =
+      reinterpret_cast<const std::uint16_t*>(3U * kAddressStride);
+  const auto* const gate =
+      reinterpret_cast<const std::uint16_t*>(4U * kAddressStride);
+  auto* const output =
+      reinterpret_cast<std::uint16_t*>(5U * kAddressStride);
+  BulkGqaGraphTopology topology;
+  const std::string label = "bulk GQA FlashInfer cold capture";
+  const bool ready = capture_bulk_gqa_graph(
+      test, stream, label,
+      [&]() {
+        return q3x::runtime::
+            launch_bulk_causal_gqa_sigmoid_gate_24_4_256_cuda(
+                query, key, value, gate, 0U, 512U, output,
+                static_cast<void*>(stream));
+      },
+      false, topology);
+  if (!ready) {
+    return;
+  }
+  const bool topology_gate =
+      topology.node_count == 2U && topology.kernel_node_count == 2U &&
+      topology.function != nullptr && topology.grid.x == 48U &&
+      topology.grid.y == 1U && topology.grid.z == 4U &&
+      topology.block.x == 32U && topology.block.y == 4U &&
+      topology.block.z == 1U &&
+      topology.dynamic_shared_bytes == 65'568U &&
+      topology.secondary_function != nullptr &&
+      topology.secondary_function != topology.function &&
+      topology.secondary_grid.x == 12'288U &&
+      topology.secondary_grid.y == 1U &&
+      topology.secondary_grid.z == 1U &&
+      topology.secondary_block.x == 256U &&
+      topology.secondary_block.y == 1U &&
+      topology.secondary_block.z == 1U &&
+      topology.secondary_dynamic_shared_bytes == 0U;
+  test.expect(topology_gate,
+              label + " captures attention and Gate without warmup");
 }
 
 void test_bulk_gqa_near_max_graph_contract(TestContext& test,
@@ -8673,15 +8743,34 @@ void run_bulk_gqa_correctness_case(
   if (!ready) {
     return;
   }
-  test.expect(candidate_topology.node_count == 1U,
-              label + " candidate graph has one node");
+  const char* const flashinfer_direct_value =
+      std::getenv("Q3X_FULL_ATTENTION_FLASHINFER_DIRECT");
+  const bool flashinfer_direct =
+      flashinfer_direct_value != nullptr &&
+      std::strcmp(flashinfer_direct_value, "1") == 0 &&
+      q3x::runtime::use_bulk_causal_gqa_group_q64_prefill(
+          first_position, token_count);
+  const std::size_t expected_candidate_nodes = flashinfer_direct ? 2U : 1U;
+  test.expect(candidate_topology.node_count == expected_candidate_nodes &&
+                  candidate_topology.kernel_node_count ==
+                      expected_candidate_nodes,
+              label + " candidate graph has the expected kernel chain");
   test.expect(candidate_topology.function != nullptr,
               label + " candidate graph has a kernel identity");
   const bool tensor_core_group_q64 =
       q3x::runtime::use_bulk_causal_gqa_group_q64_prefill(
           first_position, token_count);
-  const bool expected_topology =
-      tensor_core_group_q64
+  const bool expected_attention_topology =
+      flashinfer_direct
+          ? candidate_topology.grid.x ==
+                    (token_count * 6U + 63U) / 64U &&
+                candidate_topology.grid.y == 1U &&
+                candidate_topology.grid.z == 4U &&
+                candidate_topology.block.x == 32U &&
+                candidate_topology.block.y == 4U &&
+                candidate_topology.block.z == 1U &&
+                candidate_topology.dynamic_shared_bytes == 65'568U
+          : tensor_core_group_q64
           ? candidate_topology.grid.x ==
                     (token_count * 6U + 63U) / 64U &&
                 candidate_topology.grid.y == 1U &&
@@ -8697,11 +8786,27 @@ void run_bulk_gqa_correctness_case(
                 candidate_topology.block.y == 1U &&
                 candidate_topology.block.z == 1U &&
                 candidate_topology.dynamic_shared_bytes == 0U;
-  test.expect(expected_topology,
+  test.expect(expected_attention_topology,
               label +
-                  (tensor_core_group_q64
+                  (flashinfer_direct
+                       ? " candidate graph has FlashInfer grouped-Q64 topology"
+                       : tensor_core_group_q64
                        ? " candidate graph has grouped-Q64 Tensor Core topology"
                        : " candidate graph has fixed QT2 topology"));
+  if (flashinfer_direct) {
+    const bool expected_gate_topology =
+        candidate_topology.secondary_function != nullptr &&
+        candidate_topology.secondary_function != candidate_topology.function &&
+        candidate_topology.secondary_grid.x == token_count * 24U &&
+        candidate_topology.secondary_grid.y == 1U &&
+        candidate_topology.secondary_grid.z == 1U &&
+        candidate_topology.secondary_block.x == 256U &&
+        candidate_topology.secondary_block.y == 1U &&
+        candidate_topology.secondary_block.z == 1U &&
+        candidate_topology.secondary_dynamic_shared_bytes == 0U;
+    test.expect(expected_gate_topology,
+                label + " candidate graph has the sigmoid-gate epilogue");
+  }
 
   if (graph_contract) {
     BulkGqaGraphTopology baseline_topology;
@@ -8789,6 +8894,20 @@ void run_bulk_gqa_correctness_case(
             << " nonfinite_mismatches=" << metrics.nonfinite_mismatches
             << " baseline_nodes=" << (3U * token_count + 1U)
             << " candidate_nodes=" << candidate_topology.node_count
+            << " candidate_grid=(" << candidate_topology.grid.x << ','
+            << candidate_topology.grid.y << ',' << candidate_topology.grid.z
+            << ") candidate_block=(" << candidate_topology.block.x << ','
+            << candidate_topology.block.y << ','
+            << candidate_topology.block.z << ") candidate_smem="
+            << candidate_topology.dynamic_shared_bytes
+            << " secondary_grid=(" << candidate_topology.secondary_grid.x
+            << ',' << candidate_topology.secondary_grid.y << ','
+            << candidate_topology.secondary_grid.z << ") secondary_block=("
+            << candidate_topology.secondary_block.x << ','
+            << candidate_topology.secondary_block.y << ','
+            << candidate_topology.secondary_block.z
+            << ") secondary_smem="
+            << candidate_topology.secondary_dynamic_shared_bytes
             << " future_poison_positions=" << future_positions
             << " generic_max_abs=" << generic_metrics.maximum_absolute
             << " generic_nrmse=" << generic_metrics.normalized_rmse
@@ -8895,6 +9014,7 @@ void test_bulk_causal_gqa_prefill_contract(TestContext& test,
             << resources.active_blocks_per_multiprocessor
             << " gate=" << (resource_gate ? "PASS" : "FAIL") << '\n';
 
+  test_bulk_gqa_flashinfer_cold_capture_contract(test, stream);
   test_bulk_gqa_near_max_graph_contract(test, stream);
   run_bulk_gqa_correctness_case(test, stream, 0U, 256U, true);
   run_bulk_gqa_correctness_case(test, stream, 0U, 512U, true);

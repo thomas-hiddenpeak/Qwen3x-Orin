@@ -35,3 +35,8 @@ Copyright 2025-2026 NVIDIA
 Copyright 2023-2026 FlashInfer community (https://flashinfer.ai/)
 
 Those adaptations remain licensed under the Apache License, Version 2.0.
+The directly compiled header subset is pinned to flashinfer-python 0.6.12
+(source wheel SHA-256
+09762e5a4a9cf40804a90c26d50a679de0fb362f4547457b12ea0c19a2f11aef);
+the upstream and bundled-component license texts are preserved under
+third_party/flashinfer/.
