@@ -296,8 +296,9 @@ struct LogitsAnalysis {
 
 // Pure-host selector for the production bulk causal full-attention Prefill
 // route. Only an explicitly selected SM87 backend, a full-attention layer,
-// and an exact C256/C512 tile whose complete global causal range fits the
-// kernel ABI may bypass the established per-token GQA/Gate schedule.
+// and a 2..512-token tile whose complete global causal range fits the kernel
+// ABI may bypass the established per-token GQA/Gate schedule. The kernel's
+// QT2 grid masks the second row of an odd final query pair.
 [[nodiscard]] bool use_bulk_causal_gqa_sigmoid_gate_prefill(
     ProjectionBackend backend, model::LayerType layer_type,
     std::size_t first_position, std::size_t token_count) noexcept;

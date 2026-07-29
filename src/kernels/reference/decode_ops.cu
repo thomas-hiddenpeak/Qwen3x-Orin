@@ -1846,7 +1846,7 @@ void launch_attention_scores_unchecked(
     const std::size_t first_position,
     const std::size_t token_count,
     const std::uint16_t* const output) noexcept {
-  if ((token_count != 256U && token_count != 512U) ||
+  if (token_count < kBulkGqaQueryTile || token_count > 512U ||
       first_position > kBulkGqaMaximumSequence - token_count ||
       query == nullptr || key_cache == nullptr || value_cache == nullptr ||
       gate == nullptr || output == nullptr) {
@@ -2398,7 +2398,8 @@ int launch_bulk_causal_gqa_sigmoid_gate_24_4_256_cuda(
     return static_cast<int>(cudaErrorInvalidValue);
   }
   const dim3 blocks(
-      static_cast<unsigned int>(token_count / kBulkGqaQueryTile),
+      static_cast<unsigned int>((token_count + kBulkGqaQueryTile - 1U) /
+                                kBulkGqaQueryTile),
       kBulkGqaKvHeads, 1U);
   const auto stream = static_cast<cudaStream_t>(cuda_stream);
   (void)cudaGetLastError();
