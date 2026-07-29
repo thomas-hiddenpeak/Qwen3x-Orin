@@ -13,6 +13,7 @@ namespace {
 constexpr unsigned int kThreads = 256U;
 constexpr unsigned int kBlocks =
     static_cast<unsigned int>(kGdnQkvChannels / kThreads);
+constexpr unsigned int kTokenTile = 8U;
 
 static_assert(kGdnQkvChannels == 10240U);
 static_assert(kGdnConvHistoryWidth == 3U);
@@ -88,6 +89,100 @@ void causal_conv1d_silu_update_whole_span_kernel(
   history[history_offset + 2U] = history_2;
 }
 
+// The width-four convolution depends only on raw projection values, not on
+// prior convolution outputs. One CTA therefore owns 256 channels across an
+// independent C8 token tile. The first token tile snapshots the incoming
+// history before publishing the final raw history; all later tiles source
+// their three predecessors directly from the immutable raw tensor. A
+// disjoint output is required so token tiles cannot race with those reads.
+__global__ __launch_bounds__(kThreads)
+void causal_conv1d_silu_update_token_parallel_kernel(
+    const std::uint16_t* const raw_qkv,
+    const unsigned int token_count,
+    const std::uint16_t* const conv_weight,
+    std::uint16_t* const history,
+    std::uint16_t* const output) {
+  const unsigned int channel = blockIdx.x * kThreads + threadIdx.x;
+  const unsigned int token_base = blockIdx.y * kTokenTile;
+  const unsigned int history_offset = channel * kGdnConvHistoryWidth;
+  const unsigned int weight_offset = channel * kGdnConvKernelWidth;
+
+  const float weight_0 = decode_bf16_device(conv_weight[weight_offset]);
+  const float weight_1 =
+      decode_bf16_device(conv_weight[weight_offset + 1U]);
+  const float weight_2 =
+      decode_bf16_device(conv_weight[weight_offset + 2U]);
+  const float weight_3 =
+      decode_bf16_device(conv_weight[weight_offset + 3U]);
+
+  std::uint16_t history_0;
+  std::uint16_t history_1;
+  std::uint16_t history_2;
+  if (token_base == 0U) {
+    history_0 = history[history_offset];
+    history_1 = history[history_offset + 1U];
+    history_2 = history[history_offset + 2U];
+
+    // Only this tile consumes the incoming history, so it may safely publish
+    // the final raw-input history after retaining the old values in registers.
+    if (token_count >= kGdnConvHistoryWidth) {
+      history[history_offset] =
+          raw_qkv[(static_cast<std::size_t>(token_count) - 3U) *
+                      kGdnQkvChannels +
+                  channel];
+      history[history_offset + 1U] =
+          raw_qkv[(static_cast<std::size_t>(token_count) - 2U) *
+                      kGdnQkvChannels +
+                  channel];
+      history[history_offset + 2U] =
+          raw_qkv[(static_cast<std::size_t>(token_count) - 1U) *
+                      kGdnQkvChannels +
+                  channel];
+    } else if (token_count == 2U) {
+      history[history_offset] = history_2;
+      history[history_offset + 1U] = raw_qkv[channel];
+      history[history_offset + 2U] =
+          raw_qkv[kGdnQkvChannels + channel];
+    } else {
+      history[history_offset] = history_1;
+      history[history_offset + 1U] = history_2;
+      history[history_offset + 2U] = raw_qkv[channel];
+    }
+  } else {
+    const std::size_t prior_base =
+        (static_cast<std::size_t>(token_base) - 3U) * kGdnQkvChannels +
+        channel;
+    history_0 = raw_qkv[prior_base];
+    history_1 = raw_qkv[prior_base + kGdnQkvChannels];
+    history_2 = raw_qkv[prior_base + 2U * kGdnQkvChannels];
+  }
+
+#pragma unroll
+  for (unsigned int local_token = 0U; local_token < kTokenTile;
+       ++local_token) {
+    const unsigned int token = token_base + local_token;
+    if (token < token_count) {
+      const std::size_t element =
+          static_cast<std::size_t>(token) * kGdnQkvChannels + channel;
+      const std::uint16_t current_bits = raw_qkv[element];
+      float convolution = 0.0F;
+      convolution =
+          fmaf(decode_bf16_device(history_0), weight_0, convolution);
+      convolution =
+          fmaf(decode_bf16_device(history_1), weight_1, convolution);
+      convolution =
+          fmaf(decode_bf16_device(history_2), weight_2, convolution);
+      convolution =
+          fmaf(decode_bf16_device(current_bits), weight_3, convolution);
+      output[element] = encode_bf16_device(
+          convolution / (1.0F + expf(-convolution)));
+      history_0 = history_1;
+      history_1 = history_2;
+      history_2 = current_bits;
+    }
+  }
+}
+
 [[nodiscard]] bool invalid_alias(
     const std::uint16_t* const raw_qkv,
     const std::uint16_t* const conv_weight,
@@ -118,6 +213,33 @@ int launch_causal_conv1d_silu_update_whole_span_exact_cuda(
   (void)cudaGetLastError();
   causal_conv1d_silu_update_whole_span_kernel<<<
       kBlocks, kThreads, 0U, stream>>>(
+      raw_qkv, static_cast<unsigned int>(token_count), conv_weight,
+      history_in_out, conv_qkv_output);
+  return static_cast<int>(cudaGetLastError());
+}
+
+int launch_causal_conv1d_silu_update_token_parallel_exact_cuda(
+    const std::uint16_t* const raw_qkv,
+    const std::size_t token_count,
+    const std::uint16_t* const conv_weight,
+    std::uint16_t* const history_in_out,
+    std::uint16_t* const conv_qkv_output,
+    void* const cuda_stream) noexcept {
+  if (token_count == 0U || token_count > kMaximumTokenCount ||
+      raw_qkv == nullptr || conv_weight == nullptr ||
+      history_in_out == nullptr || conv_qkv_output == nullptr ||
+      raw_qkv == conv_qkv_output ||
+      invalid_alias(raw_qkv, conv_weight, history_in_out,
+                    conv_qkv_output)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const auto stream = static_cast<cudaStream_t>(cuda_stream);
+  const unsigned int token_tiles =
+      static_cast<unsigned int>((token_count + kTokenTile - 1U) /
+                                kTokenTile);
+  (void)cudaGetLastError();
+  causal_conv1d_silu_update_token_parallel_kernel<<<
+      dim3(kBlocks, token_tiles), kThreads, 0U, stream>>>(
       raw_qkv, static_cast<unsigned int>(token_count), conv_weight,
       history_in_out, conv_qkv_output);
   return static_cast<int>(cudaGetLastError());

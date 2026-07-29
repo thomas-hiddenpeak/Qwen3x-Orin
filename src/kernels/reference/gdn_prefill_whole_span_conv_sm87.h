@@ -24,6 +24,16 @@ inline constexpr std::size_t kMaximumTokenCount = 512U;
     std::uint16_t* conv_qkv_output,
     void* cuda_stream = nullptr) noexcept;
 
+// Token-parallel admission for the same exact arithmetic. Unlike the
+// established in-place launcher, this form requires a disjoint output so
+// independent C8 token tiles can read the immutable raw projection safely.
+[[nodiscard]] int
+launch_causal_conv1d_silu_update_token_parallel_exact_cuda(
+    const std::uint16_t* raw_qkv, std::size_t token_count,
+    const std::uint16_t* conv_weight, std::uint16_t* history_in_out,
+    std::uint16_t* conv_qkv_output,
+    void* cuda_stream = nullptr) noexcept;
+
 // Private admission resource query. No kernel is launched.
 [[nodiscard]] int
 query_causal_conv1d_silu_update_whole_span_resources_cuda(
