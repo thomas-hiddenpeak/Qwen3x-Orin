@@ -14,3 +14,13 @@ Qwen model weights, tokenizers, model configuration files, and other model
 artifacts are distributed separately by their respective publishers. They are
 not part of this Work and are not licensed by the repository's Apache-2.0
 license.
+
+The fixed-shape SM87 grouped-query Prefill attention dataflow in
+src/kernels/reference/full_attention_c512_register_pipeline.cu includes
+adaptations from FlashInfer:
+
+FlashInfer
+Copyright 2025-2026 NVIDIA
+Copyright 2023-2026 FlashInfer community (https://flashinfer.ai/)
+
+Those adaptations remain licensed under the Apache License, Version 2.0.
