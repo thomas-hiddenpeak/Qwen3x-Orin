@@ -1,6 +1,9 @@
 #include "q3x/runtime/reference_runner.h"
 
 #include "q3x/kernels/sm87_fp8_prefill_supermatrix.h"
+#if defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION)
+#include "q3x/kernels/sm87_nvfp4_marlin.h"
+#endif
 
 #if defined(Q3X_ENABLE_GDN_B8_ADMISSION)
 #include "../kernels/reference/gdn_prefill_b8_sequential_sm87.h"
@@ -55,6 +58,18 @@ constexpr std::size_t kPrefillKernelTileMaximumTokens = 16U;
 constexpr std::size_t kProductionProjectionSubtileTokens = 32U;
 constexpr float kRmsEpsilon = 1.0e-6F;
 constexpr float kAttentionScale = 1.0F / 16.0F;
+
+#if defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION)
+[[nodiscard]] bool nvfp4_marlin_prefill_environment_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_NVFP4_MARLIN_PREFILL_ADMISSION");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
+thread_local bool g_enable_nvfp4_marlin_prefill_admission =
+    nvfp4_marlin_prefill_environment_enabled();
+thread_local std::size_t g_nvfp4_marlin_prefill_admission_hits = 0U;
+#endif
 
 #if defined(Q3X_ENABLE_GDN_B8_ADMISSION)
 // Admission-only switch. It has internal storage and defaults off in every
@@ -582,6 +597,26 @@ ConstBf16Span ReferenceTraceView::final_norm() const noexcept {
 }
 
 namespace reference_runner_detail {
+
+bool exchange_nvfp4_marlin_prefill_admission_test_enabled(
+    const bool enabled) noexcept {
+#if defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION)
+  return std::exchange(g_enable_nvfp4_marlin_prefill_admission, enabled);
+#else
+  (void)enabled;
+  return false;
+#endif
+}
+
+std::size_t exchange_nvfp4_marlin_prefill_admission_test_hits(
+    const std::size_t hits) noexcept {
+#if defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION)
+  return std::exchange(g_nvfp4_marlin_prefill_admission_hits, hits);
+#else
+  (void)hits;
+  return 0U;
+#endif
+}
 
 #if defined(Q3X_ENABLE_GDN_B8_ADMISSION)
 // Private test hook for real-checkpoint admission. Keeping this declaration
@@ -3524,9 +3559,75 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
         return fail_prefill_tile(launch_failure);
       }
     }
-    // Production Prefill is self-hosted only.  External-library comparison
-    // modules are compiled exclusively into benchmark targets.
-    {
+    bool marlin_mlp_completed = false;
+#if defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION)
+    const auto* const marlin_gate =
+        std::get_if<NvFp4LinearWeight>(&layer_weights.mlp.gate_proj);
+    const auto* const marlin_up =
+        std::get_if<NvFp4LinearWeight>(&layer_weights.mlp.up_proj);
+    const auto* const marlin_down =
+        std::get_if<NvFp4LinearWeight>(&layer_weights.mlp.down_proj);
+    const std::size_t marlin_branch_elements =
+        token_count * kReferenceIntermediateSize;
+    const bool use_marlin_mlp =
+        g_enable_nvfp4_marlin_prefill_admission && token_count ==
+            kernels::kSm87NvFp4MarlinTokens &&
+        projection_backend_ == ProjectionBackend::kSm87WeightOnly &&
+        marlin_gate != nullptr && marlin_up != nullptr &&
+        marlin_down != nullptr &&
+        marlin_gate->prefill_marlin_weight != nullptr &&
+        marlin_gate->prefill_marlin_scales != nullptr &&
+        marlin_gate->prefill_marlin_global_scale != nullptr &&
+        marlin_gate->prefill_marlin_weight ==
+            marlin_up->prefill_marlin_weight &&
+        marlin_gate->prefill_marlin_scales ==
+            marlin_up->prefill_marlin_scales &&
+        marlin_gate->prefill_marlin_global_scale ==
+            marlin_up->prefill_marlin_global_scale &&
+        marlin_down->prefill_marlin_weight != nullptr &&
+        marlin_down->prefill_marlin_scales != nullptr &&
+        marlin_down->prefill_marlin_global_scale != nullptr &&
+        views_.projection[1] ==
+            views_.projection[0] + marlin_branch_elements &&
+        views_.fp32_scratch_elements >=
+            kernels::kSm87NvFp4MarlinReductionElements;
+    if (use_marlin_mlp) {
+      auto* const locks =
+          reinterpret_cast<std::int32_t*>(views_.projection[3]);
+      const auto stream = reinterpret_cast<cudaStream_t>(stream_);
+      if (!check_cuda(
+              static_cast<int>(cudaMemsetAsync(
+                  locks, 0, kernels::kSm87NvFp4MarlinLockBytes, stream)),
+              "prefill_marlin_clear_locks", layer) ||
+          !check_cuda(
+              kernels::launch_sm87_nvfp4_marlin_gate_up_m512_cuda(
+                  views_.hidden[1], marlin_gate->prefill_marlin_weight,
+                  marlin_gate->prefill_marlin_scales,
+                  marlin_gate->prefill_marlin_global_scale,
+                  views_.projection[0], views_.fp32_scratch, locks, stream_),
+              "prefill_marlin_gate_up", layer) ||
+          !check_cuda(
+              kernels::launch_sm87_nvfp4_marlin_gate_up_silu_m512_cuda(
+                  views_.projection[0], views_.projection[2], stream_),
+              "prefill_marlin_gate_up_silu", layer) ||
+          !check_cuda(
+              kernels::launch_sm87_nvfp4_marlin_down_m512_cuda(
+                  views_.projection[2], marlin_down->prefill_marlin_weight,
+                  marlin_down->prefill_marlin_scales,
+                  marlin_down->prefill_marlin_global_scale, views_.hidden[1],
+                  views_.fp32_scratch, locks, stream_),
+              "prefill_marlin_down", layer)) {
+        return fail_prefill_tile(launch_failure);
+      }
+      ++g_nvfp4_marlin_prefill_admission_hits;
+      marlin_mlp_completed = true;
+    }
+#endif
+
+    if (!marlin_mlp_completed) {
+      // Production Prefill is self-hosted only. External-library comparison
+      // modules are compiled exclusively into benchmark targets.
+      {
       const bool gate_up_fork_join_available =
           prefill_auxiliary_stream_ != nullptr &&
           prefill_branch_ready_event_ != nullptr &&
@@ -3601,18 +3702,19 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
                           "prefill_mlp_up_projection", layer)) {
         return fail_prefill_tile(launch_failure);
       }
-    }
-    if (!check_cuda(launch_silu_mul_reference_cuda(
+      }
+      if (!check_cuda(launch_silu_mul_reference_cuda(
                         views_.projection[0], views_.projection[1],
                         token_count * kReferenceIntermediateSize,
                         views_.projection[0], stream_),
                     "prefill_mlp_silu_mul", layer)) {
-      return fail_prefill_tile(launch_failure);
-    }
-    if (!project_down(layer_weights.mlp.down_proj, views_.projection[0],
-                      views_.hidden[1], "prefill_mlp_down_projection",
-                      layer)) {
-      return fail_prefill_tile(launch_failure);
+        return fail_prefill_tile(launch_failure);
+      }
+      if (!project_down(layer_weights.mlp.down_proj, views_.projection[0],
+                        views_.hidden[1], "prefill_mlp_down_projection",
+                        layer)) {
+        return fail_prefill_tile(launch_failure);
+      }
     }
     if (use_m32_residual_rms_fusion) {
       const bool is_final_layer =

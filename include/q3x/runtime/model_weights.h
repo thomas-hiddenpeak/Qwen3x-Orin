@@ -84,6 +84,21 @@ struct NvFp4DownScale6SidecarDescriptor {
   std::size_t input_size = 0U;
 };
 
+// One complete test-admission Marlin sidecar set for a dense layer. Gate and
+// Up are represented by one N=34816 projection and therefore share all three
+// pointers. Down retains its independent K/N shape and launch. Descriptor
+// storage is copied by attach; the six pointed-to device arenas must outlive
+// ModelWeights and all queued consumers.
+struct NvFp4MarlinPrefillSidecarDescriptor {
+  std::size_t layer_index = 0U;
+  const std::uint8_t* gate_up_weight = nullptr;
+  const std::uint8_t* gate_up_scales = nullptr;
+  const float* gate_up_global_scale = nullptr;
+  const std::uint8_t* down_weight = nullptr;
+  const std::uint8_t* down_scales = nullptr;
+  const float* down_global_scale = nullptr;
+};
+
 struct Bf16VectorWeight {
   const std::uint16_t* data = nullptr;
   std::size_t element_count = 0U;
@@ -130,6 +145,13 @@ struct NvFp4LinearWeight {
   std::size_t input_size = 0U;
   const std::uint8_t* down_scale6_sidecar = nullptr;
   unsigned int down_scale6_base = 0U;
+  // Test-only exact-C512 Marlin admission. Production scheduling ignores
+  // these views unless the dedicated admission build is enabled. Gate and Up
+  // bindings point at the same merged N=34816 sidecar; Down points at its own
+  // N=5120/K=17408 sidecar.
+  const std::uint8_t* prefill_marlin_weight = nullptr;
+  const std::uint8_t* prefill_marlin_scales = nullptr;
+  const float* prefill_marlin_global_scale = nullptr;
 };
 
 // The active alternative is selected strictly from the payload weight dtype:
@@ -372,6 +394,14 @@ class ModelWeights {
   [[nodiscard]] bool attach_nvfp4_down_scale6_sidecars(
       const std::uint8_t* arena, std::size_t arena_bytes,
       const NvFp4DownScale6SidecarDescriptor* descriptors,
+      std::size_t descriptor_count) noexcept;
+
+  // Transactionally attaches exactly one complete Gate+Up/Down Marlin set
+  // for every dense layer. A canonical null/zero call detaches the set. The
+  // method validates all layer shapes and pointer alignments before changing
+  // any binding; it is intentionally not a production scheduling switch.
+  [[nodiscard]] bool attach_nvfp4_marlin_prefill_sidecars(
+      const NvFp4MarlinPrefillSidecarDescriptor* descriptors,
       std::size_t descriptor_count) noexcept;
 
  private:

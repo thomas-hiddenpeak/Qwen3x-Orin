@@ -34,6 +34,10 @@ option(Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION
   "Build the test-only native SM87 C64/WY GDN architecture route"
   OFF
 )
+option(Q3X_BUILD_NVFP4_MARLIN_PREFILL_ADMISSION
+  "Build the test-only exact-C512 vLLM-Marlin NVFP4 Prefill route"
+  OFF
+)
 if(Q3X_BUILD_GDN_B8_ADMISSION AND NOT BUILD_TESTING)
   message(FATAL_ERROR
     "Q3X_BUILD_GDN_B8_ADMISSION is test-only and requires BUILD_TESTING=ON"
@@ -52,6 +56,11 @@ endif()
 if(Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION AND NOT BUILD_TESTING)
   message(FATAL_ERROR
     "Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION is test-only and requires BUILD_TESTING=ON"
+  )
+endif()
+if(Q3X_BUILD_NVFP4_MARLIN_PREFILL_ADMISSION AND NOT BUILD_TESTING)
+  message(FATAL_ERROR
+    "Q3X_BUILD_NVFP4_MARLIN_PREFILL_ADMISSION is test-only and requires BUILD_TESTING=ON"
   )
 endif()
 if((Q3X_BUILD_GDN_B8_ADMISSION AND
@@ -170,6 +179,7 @@ add_library(q3x_kernels STATIC
   src/kernels/reference/projection_dispatch.cpp
   src/kernels/sm87/device_probe.cu
   src/kernels/sm87/fp8_prefill_supermatrix.cu
+  src/kernels/sm87/nvfp4_marlin_w4a16.cu
   src/kernels/sm87/weight_only_gemv.cu
 )
 add_library(q3x::kernels ALIAS q3x_kernels)
@@ -209,6 +219,11 @@ if(Q3X_BUILD_GDN_CHUNK64_REFERENCE_ADMISSION)
     Q3X_ENABLE_GDN_CHUNK64_REFERENCE_ADMISSION=1
   )
 endif()
+if(Q3X_BUILD_NVFP4_MARLIN_PREFILL_ADMISSION)
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION=1
+  )
+endif()
 if(Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION)
   target_sources(q3x_kernels PRIVATE
     src/kernels/reference/gdn_prefill_whole_span_conv_sm87.cu
@@ -243,6 +258,11 @@ target_link_libraries(q3x_engine
   PUBLIC q3x::core q3x::kernels
   PRIVATE q3x::text
 )
+if(Q3X_BUILD_NVFP4_MARLIN_PREFILL_ADMISSION)
+  target_compile_definitions(q3x_engine PRIVATE
+    Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION=1
+  )
+endif()
 q3x_enable_warnings(q3x_engine)
 
 # Internal, deliberately narrow OpenAI/EvalScope evaluation adapter. It is
@@ -406,6 +426,23 @@ if(BUILD_TESTING)
   set_tests_properties(sm87_weight_only_gemv PROPERTIES
     LABELS "cuda;sm87"
     SKIP_RETURN_CODE 77
+  )
+
+  add_executable(q3x_sm87_nvfp4_marlin_layer0_test
+    tests/sm87_nvfp4_marlin_layer0_test.cu
+  )
+  target_link_libraries(q3x_sm87_nvfp4_marlin_layer0_test
+    PRIVATE q3x::kernels q3x_test_pinned_checkpoint CUDA::cudart
+  )
+  q3x_enable_warnings(q3x_sm87_nvfp4_marlin_layer0_test)
+  add_test(NAME sm87_nvfp4_marlin_layer0
+    COMMAND q3x_sm87_nvfp4_marlin_layer0_test
+            "${_q3x_real_perf_model_dir}"
+  )
+  set_tests_properties(sm87_nvfp4_marlin_layer0 PROPERTIES
+    LABELS "cuda;sm87;prefill;correctness;checkpoint"
+    SKIP_RETURN_CODE 77
+    RESOURCE_LOCK q3x_sm87_gpu
   )
 
   # Isolated Gate/Up activation-persistence screen. This target reuses the
