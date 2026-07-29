@@ -30,6 +30,10 @@ option(Q3X_BUILD_GDN_CHUNK64_REFERENCE_ADMISSION
   "Build the test-only external-reference C64/WY GDN architecture route"
   OFF
 )
+option(Q3X_BUILD_FP8_PREFILL_SUPERMATRIX_ADMISSION
+  "Build the test-only exact-C512 FP8 projection-supermatrix route"
+  OFF
+)
 if(Q3X_BUILD_GDN_B8_ADMISSION AND NOT BUILD_TESTING)
   message(FATAL_ERROR
     "Q3X_BUILD_GDN_B8_ADMISSION is test-only and requires BUILD_TESTING=ON"
@@ -43,6 +47,11 @@ endif()
 if(Q3X_BUILD_GDN_CHUNK64_REFERENCE_ADMISSION AND NOT BUILD_TESTING)
   message(FATAL_ERROR
     "Q3X_BUILD_GDN_CHUNK64_REFERENCE_ADMISSION is test-only and requires BUILD_TESTING=ON"
+  )
+endif()
+if(Q3X_BUILD_FP8_PREFILL_SUPERMATRIX_ADMISSION AND NOT BUILD_TESTING)
+  message(FATAL_ERROR
+    "Q3X_BUILD_FP8_PREFILL_SUPERMATRIX_ADMISSION is test-only and requires BUILD_TESTING=ON"
   )
 endif()
 if((Q3X_BUILD_GDN_B8_ADMISSION AND
@@ -153,6 +162,7 @@ add_library(q3x_kernels STATIC
   src/kernels/reference/nvfp4_reference.cu
   src/kernels/reference/projection_dispatch.cpp
   src/kernels/sm87/device_probe.cu
+  src/kernels/sm87/fp8_prefill_supermatrix.cu
   src/kernels/sm87/weight_only_gemv.cu
 )
 add_library(q3x::kernels ALIAS q3x_kernels)
@@ -190,6 +200,11 @@ if(Q3X_BUILD_GDN_CHUNK64_REFERENCE_ADMISSION)
   )
   target_link_libraries(q3x_kernels PRIVATE CUDA::cublas)
 endif()
+if(Q3X_BUILD_FP8_PREFILL_SUPERMATRIX_ADMISSION)
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_FP8_PREFILL_SUPERMATRIX_ADMISSION=1
+  )
+endif()
 q3x_enable_warnings(q3x_kernels)
 
 add_library(q3x_engine STATIC
@@ -216,6 +231,11 @@ target_link_libraries(q3x_engine
   PUBLIC q3x::core q3x::kernels
   PRIVATE q3x::text
 )
+if(Q3X_BUILD_FP8_PREFILL_SUPERMATRIX_ADMISSION)
+  target_compile_definitions(q3x_engine PRIVATE
+    Q3X_ENABLE_FP8_PREFILL_SUPERMATRIX_ADMISSION=1
+  )
+endif()
 q3x_enable_warnings(q3x_engine)
 
 add_executable(qwen3x-orin src/main.cpp)

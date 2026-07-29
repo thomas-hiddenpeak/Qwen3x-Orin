@@ -1,6 +1,9 @@
 #include "q3x/runtime/reference_engine.h"
 
 #include "q3x/core/sha256.h"
+#if defined(Q3X_ENABLE_FP8_PREFILL_SUPERMATRIX_ADMISSION)
+#include "q3x/kernels/sm87_fp8_prefill_supermatrix.h"
+#endif
 #include "q3x/kernels/sm87_weight_only_gemv.h"
 #include "q3x/text/tokenizer.h"
 
@@ -12,6 +15,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <cstdlib>
 #include <fstream>
 #include <future>
 #include <limits>
@@ -183,6 +187,48 @@ struct Sm87Fp8PrefillQkvPreparation {
   std::string message;
   std::string fallback_reason;
 };
+
+#if defined(Q3X_ENABLE_FP8_PREFILL_SUPERMATRIX_ADMISSION)
+struct Sm87Fp8PrefillSupermatrixSidecars {
+  std::uint8_t* data = nullptr;
+  std::size_t bytes = 0U;
+
+  Sm87Fp8PrefillSupermatrixSidecars() noexcept = default;
+  Sm87Fp8PrefillSupermatrixSidecars(
+      const Sm87Fp8PrefillSupermatrixSidecars&) = delete;
+  Sm87Fp8PrefillSupermatrixSidecars& operator=(
+      const Sm87Fp8PrefillSupermatrixSidecars&) = delete;
+
+  ~Sm87Fp8PrefillSupermatrixSidecars() { release(); }
+
+  void release() noexcept {
+    if (data != nullptr) {
+      (void)cudaFree(data);
+    }
+    data = nullptr;
+    bytes = 0U;
+  }
+};
+
+struct Sm87Fp8PrefillSupermatrixPreparation {
+  bool enabled = false;
+  bool hard_failure = false;
+  std::size_t projections = 0U;
+  std::uint64_t bytes = 0U;
+  int cuda_error = 0;
+  std::string message;
+};
+
+struct Fp8PrefillSupermatrixProjectionPlan {
+  const Fp8LinearWeight* projection = nullptr;
+};
+
+[[nodiscard]] bool fp8_prefill_supermatrix_admission_requested() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_FP8_PREFILL_SUPERMATRIX_ADMISSION");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+#endif
 
 constexpr std::size_t kNvFp4DownScale6GroupSize = 16U;
 constexpr std::size_t kNvFp4DownScale6ColumnsPerTile = 512U;
@@ -1421,17 +1467,227 @@ prepare_sm87_fp8_prefill_qkv_sidecars(
   return result;
 }
 
+#if defined(Q3X_ENABLE_FP8_PREFILL_SUPERMATRIX_ADMISSION)
+[[nodiscard]] Sm87Fp8PrefillSupermatrixPreparation
+prepare_sm87_fp8_prefill_supermatrix_sidecars(
+    ModelWeights& model_weights,
+    const std::uint64_t minimum_free_bytes_after_prepare,
+    Sm87Fp8PrefillSupermatrixSidecars& owner) {
+  Sm87Fp8PrefillSupermatrixPreparation result;
+  if (owner.data != nullptr || owner.bytes != 0U) {
+    result.hard_failure = true;
+    result.message =
+        "FP8 Prefill supermatrix sidecar owner was not empty before prepare";
+    return result;
+  }
+
+  std::vector<Fp8PrefillSupermatrixProjectionPlan> plans;
+  plans.reserve(kFp8PrefillSupermatrixProjectionCount);
+  std::size_t planned_bytes = 0U;
+  const auto append = [&](const LinearWeight& binding,
+                          const std::size_t rows,
+                          const std::size_t columns) {
+    const auto* const fp8 = std::get_if<Fp8LinearWeight>(&binding);
+    if (fp8 == nullptr || fp8->weight == nullptr ||
+        fp8->weight_scale_device == nullptr ||
+        fp8->input_scale_device == nullptr ||
+        !std::isfinite(fp8->weight_scale) || fp8->weight_scale < 0.0F ||
+        !std::isfinite(fp8->input_scale) || fp8->input_scale < 0.0F ||
+        fp8->output_size != rows || fp8->input_size != columns ||
+        fp8->prefill_supermatrix_sidecar != nullptr ||
+        (reinterpret_cast<std::uintptr_t>(fp8->weight) % 16U) != 0U ||
+        rows > std::numeric_limits<std::size_t>::max() / columns ||
+        rows * columns >
+            kQwen36Fp8PrefillSupermatrixSidecarBytes - planned_bytes) {
+      return false;
+    }
+    plans.push_back({fp8});
+    planned_bytes += rows * columns;
+    return true;
+  };
+
+  for (std::size_t layer_index = 0U;
+       layer_index < kQwen36DenseLayerCount; ++layer_index) {
+    const DecoderLayerWeights& layer = model_weights.layer(layer_index);
+    if (const auto* const linear =
+            std::get_if<LinearAttentionWeights>(&layer.attention)) {
+      if (!append(linear->in_proj_qkv, 10'240U, 5'120U) ||
+          !append(linear->in_proj_z, 6'144U, 5'120U) ||
+          !append(linear->out_proj, 5'120U, 6'144U)) {
+        result.hard_failure = true;
+        result.message =
+            "ineligible linear-attention FP8 supermatrix projection at layer " +
+            std::to_string(layer_index);
+        return result;
+      }
+    } else if (const auto* const full =
+                   std::get_if<FullAttentionWeights>(&layer.attention)) {
+      if (!append(full->q_proj, 12'288U, 5'120U) ||
+          !append(full->k_proj, 1'024U, 5'120U) ||
+          !append(full->v_proj, 1'024U, 5'120U) ||
+          !append(full->o_proj, 5'120U, 6'144U)) {
+        result.hard_failure = true;
+        result.message =
+            "ineligible full-attention FP8 supermatrix projection at layer " +
+            std::to_string(layer_index);
+        return result;
+      }
+    } else {
+      result.hard_failure = true;
+      result.message = "invalid attention variant while inventorying FP8 "
+                       "supermatrix projections";
+      return result;
+    }
+  }
+  if (plans.size() != kFp8PrefillSupermatrixProjectionCount ||
+      planned_bytes != kQwen36Fp8PrefillSupermatrixSidecarBytes) {
+    result.hard_failure = true;
+    result.message = "FP8 Prefill supermatrix inventory did not cover the "
+                     "fixed 208-projection arena";
+    return result;
+  }
+
+  constexpr std::size_t kArenaBytes =
+      kQwen36Fp8PrefillSupermatrixSidecarBytes;
+  (void)cudaGetLastError();
+  std::size_t free_bytes = 0U;
+  std::size_t total_bytes = 0U;
+  cudaError_t status = cudaMemGetInfo(&free_bytes, &total_bytes);
+  (void)total_bytes;
+  if (status != cudaSuccess) {
+    result.hard_failure = true;
+    result.cuda_error = static_cast<int>(status);
+    result.message =
+        "cudaMemGetInfo failed before FP8 Prefill supermatrix prepare";
+    return result;
+  }
+  const std::uint64_t free_u64 = static_cast<std::uint64_t>(free_bytes);
+  if (kArenaBytes > free_u64 ||
+      minimum_free_bytes_after_prepare > free_u64 - kArenaBytes) {
+    result.hard_failure = true;
+    result.message = "insufficient device-memory margin for the requested "
+                     "FP8 Prefill supermatrix admission";
+    return result;
+  }
+
+  void* allocation = nullptr;
+  status = cudaMalloc(&allocation, kArenaBytes);
+  if (status != cudaSuccess || allocation == nullptr) {
+    result.hard_failure = true;
+    result.cuda_error = static_cast<int>(status);
+    result.message =
+        "cudaMalloc failed for the requested FP8 Prefill supermatrix arena";
+    return result;
+  }
+  owner.data = static_cast<std::uint8_t*>(allocation);
+  owner.bytes = kArenaBytes;
+  if ((reinterpret_cast<std::uintptr_t>(owner.data) % 16U) != 0U) {
+    result.hard_failure = true;
+    result.message =
+        "cudaMalloc returned a misaligned FP8 Prefill supermatrix arena";
+    owner.release();
+    return result;
+  }
+
+  std::size_t remaining_free_bytes = 0U;
+  std::size_t remaining_total_bytes = 0U;
+  status = cudaMemGetInfo(&remaining_free_bytes, &remaining_total_bytes);
+  (void)remaining_total_bytes;
+  if (status != cudaSuccess ||
+      static_cast<std::uint64_t>(remaining_free_bytes) <
+          minimum_free_bytes_after_prepare) {
+    result.hard_failure = true;
+    result.cuda_error = static_cast<int>(status);
+    result.message = status != cudaSuccess
+                         ? "cudaMemGetInfo failed after FP8 Prefill "
+                           "supermatrix allocation"
+                         : "FP8 Prefill supermatrix allocation violated the "
+                           "post-create memory margin";
+    owner.release();
+    return result;
+  }
+
+  cudaStream_t stream = nullptr;
+  status = cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking);
+  if (status != cudaSuccess) {
+    result.hard_failure = true;
+    result.cuda_error = static_cast<int>(status);
+    result.message =
+        "cudaStreamCreateWithFlags failed for FP8 supermatrix packing";
+    owner.release();
+    return result;
+  }
+
+  std::size_t offset = 0U;
+  for (std::size_t index = 0U; index < plans.size(); ++index) {
+    const Fp8LinearWeight& projection = *plans[index].projection;
+    status = static_cast<cudaError_t>(
+        kernels::launch_sm87_fp8_prefill_supermatrix_pack_cuda(
+            projection.weight, owner.data + offset, projection.output_size,
+            projection.input_size, static_cast<void*>(stream)));
+    if (status != cudaSuccess) {
+      result.hard_failure = true;
+      result.cuda_error = static_cast<int>(status);
+      result.message = "FP8 supermatrix pack launch failed at projection " +
+                       std::to_string(index);
+      (void)cudaStreamDestroy(stream);
+      owner.release();
+      return result;
+    }
+    offset += projection.output_size * projection.input_size;
+  }
+  if (offset != kArenaBytes) {
+    result.hard_failure = true;
+    result.message = "FP8 supermatrix pack offset did not close the arena";
+    (void)cudaStreamDestroy(stream);
+    owner.release();
+    return result;
+  }
+
+  status = cudaStreamSynchronize(stream);
+  const cudaError_t destroy_status = cudaStreamDestroy(stream);
+  if (status != cudaSuccess || destroy_status != cudaSuccess) {
+    const cudaError_t failure =
+        status != cudaSuccess ? status : destroy_status;
+    result.hard_failure = true;
+    result.cuda_error = static_cast<int>(failure);
+    result.message = "FP8 supermatrix pack stream failed to synchronize or "
+                     "destroy";
+    owner.release();
+    return result;
+  }
+
+  if (!model_weights.attach_fp8_prefill_supermatrix_sidecars(
+          owner.data, owner.bytes)) {
+    result.hard_failure = true;
+    result.message =
+        "ModelWeights rejected the complete FP8 supermatrix sidecar arena";
+    owner.release();
+    return result;
+  }
+
+  result.enabled = true;
+  result.projections = plans.size();
+  result.bytes = kArenaBytes;
+  return result;
+}
+#endif
+
 }  // namespace
 
 struct ReferenceEngine::Impl {
   // Declaration order is part of the safety contract. Destruction is exactly
-  // runner -> request_state -> model_weights -> Prefill QKV sidecars -> down
-  // scale6 sidecars -> output sidecars -> resident_weights -> tokenizer.
+  // runner -> request_state -> model_weights -> Prefill supermatrix/QKV
+  // sidecars -> down scale6 sidecars -> output sidecars -> resident_weights
+  // -> tokenizer.
   std::unique_ptr<text::Tokenizer> tokenizer;
   std::optional<ResidentWeights> resident_weights;
   Sm87Fp8OutputProjectionSidecars fp8_output_sidecars;
   Sm87NvFp4DownScale6Sidecars nvfp4_down_scale6_sidecars;
   Sm87Fp8PrefillQkvSidecars fp8_prefill_qkv_sidecars;
+#if defined(Q3X_ENABLE_FP8_PREFILL_SUPERMATRIX_ADMISSION)
+  Sm87Fp8PrefillSupermatrixSidecars fp8_prefill_supermatrix_sidecars;
+#endif
   std::optional<ModelWeights> model_weights;
   std::optional<RequestState> request_state;
   std::optional<ReferenceRunner> runner;
@@ -1611,9 +1867,45 @@ struct ReferenceEngine::Impl {
         impl->load.nvfp4_down_scale6_sidecar_fallback_reason =
             down_scale6_preparation.fallback_reason;
 
-        // The register-feed compute route is exact-C512-only. Treat smaller
-        // engine chunk capacities as "not requested" so they do not pay for
-        // 2.34 GiB of derived weights that their scheduler cannot dispatch.
+        // The register-feed compute routes are exact-C512-only. The explicit
+        // architecture admission replaces (rather than co-allocates with)
+        // the legacy QKV-only sidecars so its real P513 direction cell pays
+        // for one unambiguous derived layout.
+#if defined(Q3X_ENABLE_FP8_PREFILL_SUPERMATRIX_ADMISSION)
+        const bool use_fp8_prefill_supermatrix =
+            fp8_prefill_supermatrix_admission_requested();
+        if (use_fp8_prefill_supermatrix) {
+          if (impl->load.request_prefill_chunk_size !=
+              kMaximumRequestPrefillChunkSize) {
+            result.diagnostic = engine_diagnostic(
+                ReferenceEngineError::kRunnerFactoryFailure,
+                "fp8_prefill_supermatrix_sidecar_prepare",
+                "the requested FP8 Prefill supermatrix admission requires "
+                "a C512 engine plan");
+            return result;
+          }
+          const Sm87Fp8PrefillSupermatrixPreparation preparation =
+              prepare_sm87_fp8_prefill_supermatrix_sidecars(
+                  *impl->model_weights,
+                  options.request_options.min_free_bytes_after_create,
+                  impl->fp8_prefill_supermatrix_sidecars);
+          if (preparation.hard_failure || !preparation.enabled ||
+              preparation.projections !=
+                  kFp8PrefillSupermatrixProjectionCount ||
+              preparation.bytes !=
+                  kQwen36Fp8PrefillSupermatrixSidecarBytes) {
+            result.diagnostic = engine_diagnostic(
+                ReferenceEngineError::kRunnerFactoryFailure,
+                "fp8_prefill_supermatrix_sidecar_prepare",
+                preparation.message.empty()
+                    ? "the requested FP8 Prefill supermatrix admission did "
+                      "not publish its complete arena"
+                    : preparation.message);
+            result.diagnostic.cuda_error = preparation.cuda_error;
+            return result;
+          }
+        } else
+#endif
         if (impl->load.request_prefill_chunk_size ==
             kMaximumRequestPrefillChunkSize) {
           const Clock::time_point prefill_qkv_begin = Clock::now();
