@@ -38,6 +38,10 @@ option(Q3X_BUILD_NVFP4_MARLIN_PREFILL_ADMISSION
   "Build the test-only scheduler-wide vLLM-Marlin NVFP4 Prefill route"
   OFF
 )
+option(Q3X_BUILD_FP8_MARLIN_PREFILL_ADMISSION
+  "Build the test-only frozen-vLLM FP8 W8A16 Marlin Prefill route"
+  OFF
+)
 if(Q3X_BUILD_GDN_B8_ADMISSION AND NOT BUILD_TESTING)
   message(FATAL_ERROR
     "Q3X_BUILD_GDN_B8_ADMISSION is test-only and requires BUILD_TESTING=ON"
@@ -61,6 +65,11 @@ endif()
 if(Q3X_BUILD_NVFP4_MARLIN_PREFILL_ADMISSION AND NOT BUILD_TESTING)
   message(FATAL_ERROR
     "Q3X_BUILD_NVFP4_MARLIN_PREFILL_ADMISSION is test-only and requires BUILD_TESTING=ON"
+  )
+endif()
+if(Q3X_BUILD_FP8_MARLIN_PREFILL_ADMISSION AND NOT BUILD_TESTING)
+  message(FATAL_ERROR
+    "Q3X_BUILD_FP8_MARLIN_PREFILL_ADMISSION is test-only and requires BUILD_TESTING=ON"
   )
 endif()
 if((Q3X_BUILD_GDN_B8_ADMISSION AND
@@ -222,6 +231,14 @@ endif()
 if(Q3X_BUILD_NVFP4_MARLIN_PREFILL_ADMISSION)
   target_compile_definitions(q3x_kernels PRIVATE
     Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_FP8_MARLIN_PREFILL_ADMISSION)
+  target_sources(q3x_kernels PRIVATE
+    src/kernels/sm87/fp8_marlin_w8a16.cu
+  )
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION=1
   )
 endif()
 if(Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION)
@@ -454,6 +471,25 @@ if(BUILD_TESTING)
     SKIP_RETURN_CODE 77
     RESOURCE_LOCK q3x_sm87_gpu
   )
+
+  if(Q3X_BUILD_FP8_MARLIN_PREFILL_ADMISSION)
+    # Compile/link sentinel for the direct frozen-vLLM W8A16 port.  It invokes
+    # only pre-device argument rejection, so this first admission gate requires
+    # no GPU and does not claim real-payload correctness or performance.
+    add_executable(q3x_sm87_fp8_marlin_layer0_compile_test
+      tests/sm87_fp8_marlin_layer0_compile_test.cu
+    )
+    target_link_libraries(q3x_sm87_fp8_marlin_layer0_compile_test
+      PRIVATE q3x::kernels CUDA::cudart
+    )
+    q3x_enable_warnings(q3x_sm87_fp8_marlin_layer0_compile_test)
+    add_test(NAME sm87_fp8_marlin_layer0_compile
+      COMMAND q3x_sm87_fp8_marlin_layer0_compile_test
+    )
+    set_tests_properties(sm87_fp8_marlin_layer0_compile PROPERTIES
+      LABELS "host;sm87;prefill;compile_contract"
+    )
+  endif()
 
   # Isolated Gate/Up activation-persistence screen. This target reuses the
   # public production M128 launcher while keeping all L2 access-policy-window
