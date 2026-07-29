@@ -724,6 +724,25 @@ shared pair tables are excluded; the next decoder cell must remain entirely
 register/ALU resident. See
 [`metadata/qwen36-27b-prefill-gate-c512-lane-striped-pair-rejection-2026-07-29.json`](metadata/qwen36-27b-prefill-gate-c512-lane-striped-pair-rejection-2026-07-29.json).
 
+The next bounded scale-feed cell kept that decoder and every production
+layout invariant, but hoisted each output panel's four consecutive encoded
+E4M3 bytes out of the K16 loop as one aligned `LDS.U32`. It therefore replaced
+sixteen scalar scale loads with four vector loads plus register byte
+selection. The required real-generation direction cell is non-positive:
+P513 Prefix moves from **2,331.422 to 2,332.512 ms** (+1.090 ms), and both
+runs return token 9419, text `Hello`, and 513 steps.
+
+Matched real-weight NCU confirms that the load coalescing works narrowly but
+does not remove total work. Shared-load wavefronts fall exactly **6.25%**,
+while async-landing wavefronts, global sectors, excessive shared wavefronts,
+and ordinary bank conflicts are unchanged. The compiled replacement needs
+twelve byte-extraction `SHF` operations, raises registers 241 -> 245, and
+raises executed instructions **0.464%**. One layer-0 Gate launch consequently
+regresses 4.698528 -> 4.709888 ms. Canonical-byte scale hoisting is therefore
+excluded; a successor must change the producer representation or fuse scale
+conversion so that vector loading also removes instructions. See
+[`metadata/qwen36-27b-prefill-gate-c512-scale-u32-hoist-rejection-2026-07-29.json`](metadata/qwen36-27b-prefill-gate-c512-scale-u32-hoist-rejection-2026-07-29.json).
+
 ## Triton and vLLM design-reference screen
 
 The reference screen pins Triton `78420176` and vLLM `2899dca`. Their native
@@ -798,9 +817,16 @@ problem.
    excessive wavefronts by 74.07%. Preserve compact 32-byte landing. Next,
    screen a producer/load skeleton that can decouple canonical strided B
    gathers from the shared destination, or reduce the table-free decoder's
-   PRMT/LOP3/IMAD expansion entirely in registers. The conflict-free
+   PRMT/LOP3/IMAD expansion entirely in registers. The inspected CUTLASS and
+   Triton SM87-compatible E2M1 lowerings do not beat the retained x4
+   instruction count, so importing either lowering is not an eligible
+   experiment. The conflict-free
    lane-striped shared pair table is also rejected despite 5.85% fewer
-   instructions because its LSU stalls regress real P513. Complete
+   instructions because its LSU stalls regress real P513. Canonical scale
+   U32 hoisting is rejected as well: it lowers shared-load wavefronts 6.25%
+   but adds byte extraction, four registers, and 0.464% total instructions.
+   Reopen scale feed only with a producer representation or fused conversion
+   that removes total work. Complete
    B-stationary/A-stationary CTA ordering only as a bounded full configuration,
    not as an explanation for the rejected row stride. Re-run the same
    pinned real-weight six-round B-C-C-B screen against the current retained

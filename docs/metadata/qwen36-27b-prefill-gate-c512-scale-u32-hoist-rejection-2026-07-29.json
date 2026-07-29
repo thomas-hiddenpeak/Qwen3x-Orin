@@ -1,0 +1,204 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-gate-c512-scale-u32-hoist-rejection-2026-07-29",
+  "status": "direction-rejected-and-source-reverted",
+  "recorded_at": "2026-07-29T11:09:07+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "baseline_commit": "285c0af",
+    "baseline_subject": "docs: reject lane-striped C512 decoder",
+    "candidate_commit": null,
+    "candidate_source_status": "uncommitted direction candidate; reverted after negative real-generation direction and bounded matched NCU attribution",
+    "production_source_after_screen": "identical to 285c0af"
+  },
+  "policy": {
+    "performance_decision_payload": "full resident real checkpoint and native generation path",
+    "direction_gate": "one fresh fixed-clock P513 baseline followed by one candidate",
+    "diagnostic_after_rejection": "one matched full-metric NCU launch with pinned real layer-0 Gate weights",
+    "synthetic_performance_authority": "NONE",
+    "complete_harness_built": false,
+    "reason_complete_harness_not_built": "the candidate did not improve the real generation direction cell",
+    "cublaslt_executed": false,
+    "cublaslt_role": "REFERENCE_ONLY",
+    "cublaslt_production_eligibility": "NONE",
+    "mtp_used": false
+  },
+  "reference_screen": {
+    "role": "design ideas only; no source, dependency, runtime, or production path imported",
+    "flashinfer_head": "1ca039eb6992f365788f149fbb1dfae993ce920d",
+    "cutlass_head": "7ac18190ca2d876117abd1c06bc788e87f8c8734",
+    "triton_head": "4a4243f426fb45703a37124bce7e5e2b19c09ac5",
+    "findings": [
+      "FlashInfer's inspected portable FP4 dequantization uses a floating lookup and multiplication, while native FP4 conversion paths target newer architectures; neither is an SM87 hot-path replacement.",
+      "CUTLASS's compatible E2M1-to-BF16 x4 helper uses six PRMT instructions, versus five PRMT instructions in the retained native x4 decoder.",
+      "Triton's NVIDIA E2M1-to-BF16 x8 lowering uses ten PRMT instructions, equal to two retained native x4 decoders; it does not reduce the SM87 decode work.",
+      "The bounded native experiment therefore targeted the adjacent shared-scale load stream rather than replacing the retained exact decoder with a heavier reference lowering."
+    ]
+  },
+  "candidate": {
+    "shape": "exact-C512 NVFP4 Gate/Up M128xN256xK64, 272 CTAs per branch, 256 threads",
+    "retained_components": [
+      "canonical packed NVFP4 weights and canonical E4M3 scales",
+      "compact 32-byte B shared rows with retained half swizzle",
+      "K512 scale windows",
+      "three-stage A/B cp.async pipeline",
+      "exact table-free E2M1 decoder and shared E4M3-to-BF16 codebook",
+      "MMA and accumulation order",
+      "coalesced BF16 epilogue",
+      "zero persistent sidecar and zero workspace"
+    ],
+    "change": {
+      "baseline": "for each of four K16 phases, load one encoded E4M3 U8 from each of four output panels",
+      "candidate": "before the K16 loop, load one aligned U32 containing all four consecutive E4M3 codes from each output panel; select each later byte in registers",
+      "intended_effect": "replace sixteen scalar shared loads per stage body with four vector shared loads and reduce shared LSU pressure",
+      "compiled_effect": "four LDS.U32 plus twelve nonzero-byte SHF extractions replace sixteen LDS.U8; the load wavefront count falls, but total hot-loop work does not"
+    },
+    "resources": {
+      "registers_per_thread": {"baseline": 241, "candidate": 245},
+      "allocated_registers_per_thread": {"baseline": 248, "candidate": 248},
+      "static_shared_bytes": {"baseline": 512, "candidate": 512},
+      "dynamic_shared_bytes": {"baseline": 96256, "candidate": 96256},
+      "local_bytes": {"baseline": 0, "candidate": 0},
+      "active_blocks_per_sm": {"baseline": 1, "candidate": 1}
+    }
+  },
+  "environment": {
+    "device": "NVIDIA Jetson AGX Orin Developer Kit",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "nvpmodel": "MAXN",
+    "cpu_affinity": "taskset --cpu-list 11",
+    "fixed_frequency_readback": {
+      "cpu_hz": 2201600000,
+      "gpu_hz": 1300500000,
+      "emc_hz": 3200000000
+    },
+    "fan_pwm": 255
+  },
+  "real_generation_direction": {
+    "model": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "prompt": "P513; 501 space-separated copies of hello in the pinned non-thinking chat template",
+    "rendered_prompt_tokens": 513,
+    "prefix_tokens": 512,
+    "max_new_tokens": 1,
+    "prefill_chunk_size": 512,
+    "projection_backend": "sm87_weight_only",
+    "baseline": {
+      "prefix_ms": 2331.422,
+      "finish_prefill_ms": 125.274,
+      "ttft_ms": 2456.695,
+      "prefix_tokens_per_second": 219.608462132,
+      "generated_token_id": 9419,
+      "generated_text": "Hello",
+      "step_count": 513
+    },
+    "candidate": {
+      "prefix_ms": 2332.512,
+      "finish_prefill_ms": 125.095,
+      "ttft_ms": 2457.607,
+      "prefix_tokens_per_second": 219.505837483,
+      "generated_token_id": 9419,
+      "generated_text": "Hello",
+      "step_count": 513
+    },
+    "result": {
+      "prefix_delta_ms": 1.090,
+      "prefix_latency_regression_percent": 0.046752583,
+      "ttft_delta_ms": 0.912,
+      "ttft_latency_regression_percent": 0.037123045,
+      "direction": "NON_POSITIVE"
+    }
+  },
+  "matched_ncu": {
+    "authority": "post-rejection causal diagnostic only",
+    "payload": "pinned real Qwen3.6-27B-NVFP4 layer-0 Gate weight and scale tensors with deterministic BF16 activation",
+    "shape": "M512xN17408xK5120",
+    "launches_per_binary": 1,
+    "set": "full",
+    "replay_mode": "kernel",
+    "metric_passes": 35,
+    "validation": {
+      "gate_bf16_elements_per_replay": 8912896,
+      "gate_mismatches": 0,
+      "up_bf16_elements_per_replay": 8912896,
+      "up_mismatches": 0,
+      "guards": "intact"
+    },
+    "metrics": {
+      "duration_ms": {"baseline": 4.698528, "candidate": 4.709888, "change_percent": 0.241777850},
+      "achieved_occupancy_percent": {"baseline": 16.720473, "candidate": 16.703134},
+      "executed_warp_instructions": {"baseline": 149986240, "candidate": 150682560, "change_percent": 0.464255921},
+      "shared_load_wavefronts": {"baseline": 33423360, "candidate": 31334400, "change_percent": -6.25},
+      "shared_excessive_wavefronts": {"baseline": 4700160, "candidate": 4700160},
+      "ordinary_shared_load_bank_conflicts": {"baseline": 0, "candidate": 0},
+      "ldgsts_shared_wavefronts": {"baseline": 9052160, "candidate": 9052160},
+      "global_load_sectors": {"baseline": 17408000, "candidate": 17408000},
+      "tensor_throughput_percent_elapsed": {"baseline": 45.742045, "candidate": 45.558996},
+      "warp_stall_samples": {
+        "mio_throttle": {"baseline": 2381, "candidate": 2804},
+        "short_scoreboard": {"baseline": 839, "candidate": 638},
+        "barrier": {"baseline": 2330, "candidate": 2700},
+        "long_scoreboard": {"baseline": 985, "candidate": 1037}
+      }
+    },
+    "interpretation": [
+      "The candidate achieves the narrow LSU goal: ordinary shared-load wavefronts fall exactly 6.25%, while compact async landing, global sectors, excessive wavefronts, and bank conflicts do not change.",
+      "The compiler replaces the twelve avoided non-low-byte U8 loads with twelve SHF extractions. Four additional live scale words raise registers from 241 to 245, and executed instructions rise 0.464% instead of falling.",
+      "Grouping the four scale loads before the K16 consumers also lengthens their live range and creates a burst dependency. MIO-throttle and barrier samples rise, tensor utilization falls slightly, and the real Gate launch regresses 0.242%.",
+      "A scale-load successor is eligible only if it removes total work, for example through a changed producer representation or fused conversion; another load-hoist/extract permutation on the canonical byte layout is excluded."
+    ]
+  },
+  "restoration_validation": {
+    "source_diff_from_baseline": "none",
+    "rebuilt_resources": {
+      "registers_per_thread": 241,
+      "static_shared_bytes": 512,
+      "dynamic_shared_bytes": 96256,
+      "local_bytes": 0,
+      "active_blocks_per_sm": 1
+    },
+    "real_generation_smoke": {
+      "prefix_ms": 2331.898,
+      "finish_prefill_ms": 124.957,
+      "ttft_ms": 2456.855,
+      "generated_token_id": 9419,
+      "generated_text": "Hello",
+      "step_count": 513,
+      "status": "PASS"
+    }
+  },
+  "artifacts": {
+    "baseline_direction_log": {"path": "/tmp/q3x-prefill-scale-u32-hoist-direction-baseline.log", "bytes": 9275, "sha256": "3c3f896d0c8105248a0c3479eadad9ee50451fa19a0b4b75c0407dd8b5b2bc56"},
+    "candidate_direction_log": {"path": "/tmp/q3x-prefill-scale-u32-hoist-direction-candidate.log", "bytes": 9275, "sha256": "5c1c626a139850c02a701ee2d3527e3f984ceb5cb644f29c609ddf1b3ba8c5da"},
+    "baseline_runner": {"path": "/tmp/q3x-prefill-row48-scale256-baseline-c8f731f", "bytes": 7566848, "sha256": "8897fad9627a5aec453fffa5f012304f3f45d8c5b0a4754b0091276117ecfcbe"},
+    "candidate_runner": {"path": "/tmp/q3x-prefill-scale-u32-hoist-candidate-uncommitted", "bytes": 7566848, "sha256": "02779ca203da6ced820e03887bde1cb9f56c4926e7e308eff994e8ecb30bca8a"},
+    "candidate_profile_binary": {"path": "/tmp/q3x-prefill-scale-u32-hoist-ncu-candidate-uncommitted", "bytes": 6033520, "sha256": "b3212e0c379aca6b9e3d19f17deaca336e9da3c81794b9e2d32b62e6663b08fd"},
+    "profile_smoke_log": {"path": "/tmp/q3x-prefill-scale-u32-hoist-profile-smoke.log", "bytes": 5048, "sha256": "5466699def3cbe178ed17a0c21fb57accd518ea4fdf1d36e15e5999ac079e66a"},
+    "baseline_ncu_report": {"path": "/tmp/q3x-prefill-row48-scale256-baseline-full.ncu-rep", "bytes": 15105603, "sha256": "bfd3447bdd05e8582dbd19ff98f4f75d88b1a653d68d35e5ffcc72cb46f16a48"},
+    "candidate_ncu_report": {"path": "/tmp/q3x-prefill-scale-u32-hoist-candidate-full.ncu-rep", "bytes": 15095849, "sha256": "a259af3b2b8810e8a4732c69ee97a57d3bbb5015abf1efd0dd9bcea8f6c0a166"},
+    "candidate_ncu_log": {"path": "/tmp/q3x-prefill-scale-u32-hoist-ncu-candidate.log", "bytes": 462, "sha256": "c8264614f5898a914be019ef916d54cb85fa3665651f251b0c36eefe51bd9477"},
+    "restored_production_log": {"path": "/tmp/q3x-prefill-scale-u32-hoist-restored-production.log", "bytes": 9275, "sha256": "032b547c171e8be54f2fbefbdbe22cf180e3713e58c6ad011d569d9454deb853"}
+  },
+  "decision": {
+    "result": "REJECT",
+    "production_changed": false,
+    "correctness_gate": "PASS",
+    "real_generation_direction_gate": "FAIL",
+    "resource_gate": "PASS",
+    "compiled_mechanism_gate": "PASS",
+    "matched_ncu_diagnostic": "COMPLETE",
+    "reason": "The real P513 generation path regresses Prefix by 1.090 ms and TTFT by 0.912 ms. Matched NCU confirms that 6.25% fewer shared-load wavefronts are offset by 0.464% more instructions, four more registers, and a 0.242% Gate regression.",
+    "candidate_code_removed": true,
+    "production_dispatch_changed": false,
+    "retained_route": "the exact-C512 M128xN256 production kernel with scalar encoded-scale loads",
+    "stop_loss": "Do not build a complete B-C-C-B harness, run NSys, or screen more extraction permutations after the real path is non-positive and matched NCU shows no total-work reduction.",
+    "reopen_when": "Only a producer/layout change that removes both the scalar loads and compensating byte extraction, while retaining real-checkpoint correctness and bounded ownership, may reopen scale feed work."
+  },
+  "limitations": [
+    "The performance direction is one fresh fixed-clock baseline/candidate process pair, sufficient to reject a non-positive direction but not a latency distribution.",
+    "The NCU comparison covers one pinned real layer-0 Gate launch with deterministic BF16 activation; it is causal diagnostic evidence, not whole-model throughput authority.",
+    "The candidate source was intentionally reverted and its binaries are retained only under /tmp with hashes; no experimental production path remains in the repository.",
+    "No multi-request, serving, power, energy, or scheduler-overlap claim is made."
+  ]
+}
