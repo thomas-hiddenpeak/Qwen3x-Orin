@@ -1,0 +1,159 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-gate-c512-k128-ld144-rejection-2026-07-29",
+  "status": "real-generation-direction-rejected-matched-ncu-attributed-source-reverted",
+  "recorded_at": "2026-07-29T12:51:25+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "baseline_commit": "6e4f5b6",
+    "production_implementation_commit": "d7aa73b62a22e511f31d8accab87bb79155f59c4",
+    "candidate_commit": null,
+    "candidate_source_status": "uncommitted direction candidate; fully reverted after negative real-generation direction and bounded matched NCU",
+    "production_source_after_screen": "identical to 6e4f5b6"
+  },
+  "policy": {
+    "performance_decision_payload": "full resident real checkpoint and native generation path",
+    "direction_gate": "one fresh fixed-clock P513 baseline followed by one candidate",
+    "complete_harness_built": false,
+    "reason_complete_harness_not_built": "the candidate regressed the real generation Prefix by 39.524 ms",
+    "post_rejection_diagnostic": "one matched full-metric NCU launch with pinned real layer-0 Gate weights",
+    "synthetic_performance_authority": "NONE",
+    "cublaslt_executed": false,
+    "cublaslt_role": "REFERENCE_ONLY",
+    "cublaslt_production_eligibility": "NONE",
+    "mtp_used": false
+  },
+  "candidate": {
+    "route": "exact-C512 NVFP4 Gate and Up only",
+    "shape": "M512xN17408xK5120",
+    "retained_components": [
+      "M128xN256xK128 ownership",
+      "two K128 publication slots and 40 CTA barriers",
+      "two ordered K64 cp.async commit groups per slot",
+      "K512 scale windows and compact B-half swizzle",
+      "strict one-dimensional A-stationary CTA order",
+      "exact decoder, MMA count, accumulation order, and epilogue"
+    ],
+    "change": {
+      "baseline": "M128xLD136 activation row; 17 uint4 chunks per token and 69,632 activation bytes across two slots",
+      "candidate": "M128xLD144 activation row; 18 uint4 chunks per token and 73,728 activation bytes across two slots",
+      "intended_effect": "move each token row by a non-congruent 16-byte shared-bank phase while preserving every copy and consumer semantic",
+      "dynamic_shared_bytes": {"baseline": 118784, "candidate": 122880}
+    },
+    "resources": {
+      "registers_per_thread": {"baseline": 249, "candidate": 249},
+      "static_shared_bytes": {"baseline": 512, "candidate": 512},
+      "dynamic_shared_bytes": {"baseline": 118784, "candidate": 122880},
+      "local_bytes": {"baseline": 0, "candidate": 0},
+      "threads_per_cta": 256,
+      "active_blocks_per_sm": {"baseline": 1, "candidate": 1}
+    }
+  },
+  "environment": {
+    "device": "NVIDIA Jetson AGX Orin Developer Kit",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "nvpmodel": "MAXN",
+    "cpu_affinity": "taskset --cpu-list 11",
+    "fixed_frequency_readback": {
+      "cpu_hz": 2201600000,
+      "gpu_hz": 1300500000,
+      "emc_hz": 3200000000
+    },
+    "fan_pwm": 255
+  },
+  "real_generation_direction": {
+    "model": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "prompt": "P513; 501 space-separated copies of hello in the pinned non-thinking chat template",
+    "rendered_prompt_tokens": 513,
+    "prefix_tokens": 512,
+    "max_new_tokens": 1,
+    "prefill_chunk_size": 512,
+    "projection_backend": "sm87_weight_only",
+    "baseline": {
+      "prefix_ms": 2294.365,
+      "finish_prefill_ms": 124.648,
+      "ttft_ms": 2419.013,
+      "generated_token_id": 9419,
+      "generated_text": "Hello",
+      "step_count": 513
+    },
+    "candidate": {
+      "prefix_ms": 2333.889,
+      "finish_prefill_ms": 125.380,
+      "ttft_ms": 2459.268,
+      "generated_token_id": 9419,
+      "generated_text": "Hello",
+      "step_count": 513
+    },
+    "result": {
+      "prefix_regression_ms": 39.524,
+      "prefix_latency_regression_percent": 1.722655288,
+      "prefix_speedup": 0.983065176,
+      "ttft_regression_ms": 40.255,
+      "ttft_latency_regression_percent": 1.664108461,
+      "direction": "NEGATIVE"
+    }
+  },
+  "matched_ncu": {
+    "authority": "post-rejection causal diagnostic using pinned real layer-0 Gate weights",
+    "shape": "M512xN17408xK5120",
+    "launches_per_binary": 1,
+    "set": "full",
+    "replay_mode": "kernel",
+    "metrics": {
+      "duration_ms": {"baseline": 4.406944, "candidate": 4.709184, "delta_ms": 0.302240, "change_percent": 6.858267316, "speedup": 0.935819029},
+      "registers_per_thread": {"baseline": 249, "candidate": 249},
+      "achieved_occupancy_percent": {"baseline": 16.718785, "candidate": 16.716446},
+      "executed_warp_instructions": {"baseline": 144095808, "candidate": 144095808},
+      "ordinary_shared_load_bank_conflicts": {"baseline": 5570560, "candidate": 27852800, "multiple": 5.0},
+      "shared_load_wavefronts": {"baseline": 38993920, "candidate": 61276160, "delta": 22282240, "change_percent": 57.142857143},
+      "shared_store_bank_conflicts": {"baseline": 690063, "candidate": 680013},
+      "tensor_throughput_percent_elapsed": {"baseline": 49.147110, "candidate": 45.802624, "relative_change_percent": -6.805051202}
+    },
+    "whole_prefix_attribution": {
+      "gate_up_launches": 128,
+      "projected_added_ms": 38.686720,
+      "observed_prefix_regression_ms": 39.524,
+      "explained_percent": 97.881590932
+    },
+    "interpretation": [
+      "The non-congruent phase changes the bank behavior, but in the wrong direction: each logical activation load incurs five times the conflict work.",
+      "The added 22,282,240 shared-load wavefronts occur with exactly the same warp instruction count and nearly identical occupancy, isolating bank service as the regression mechanism.",
+      "The per-Gate 0.302240-ms regression projected over 128 Gate/Up calls explains 97.88% of the full real-model Prefix regression.",
+      "Further blind leading-dimension sweeps are closed. The next eligible cell must change or isolate the compiled K64 consumer schedule."
+    ]
+  },
+  "restoration": {
+    "candidate_code_removed": true,
+    "source_diff_from_head": "none",
+    "retained_kernel": "M128xN256xK128 LD136 two-slot production kernel",
+    "retained_dynamic_shared_bytes": 118784,
+    "retained_registers_per_thread": 249
+  },
+  "artifacts": {
+    "baseline_runner": {"path": "/tmp/q3x-prefill-gate-k128-ld144-direction-baseline", "bytes": 7632408, "sha256": "db12ff8618ca2c2904f81e7b77b41dae58ab0fa78c16d2a47f133f2ed1ae5c2c"},
+    "candidate_runner": {"path": "/tmp/q3x-prefill-gate-k128-ld144-direction-candidate", "bytes": 7632432, "sha256": "35ef99dbe0239b5fac7d86269d14a308a8fc5c57ae4aac4247a0d96825ac2700"},
+    "baseline_direction_log": {"path": "/tmp/q3x-prefill-gate-k128-ld144-direction-baseline.log", "bytes": 9002, "sha256": "4b397d39dc250c3b538e94c89e4918b0082e342ffc0eaba64c3ae7986d22cbf6"},
+    "candidate_direction_log": {"path": "/tmp/q3x-prefill-gate-k128-ld144-direction-candidate.log", "bytes": 9002, "sha256": "08f2833c164ce499b3b0182d9feb0248e0ae65269b5274131dfbc355dca663e9"},
+    "baseline_ncu_report": {"path": "/tmp/q3x-prefill-gate-k128-candidate-full.ncu-rep", "bytes": 15075539, "sha256": "a26514c394a35126f45d8fd8f72025c3b34ce2c91a0d30e32a2b55b0b72330b5"},
+    "candidate_ncu_report": {"path": "/tmp/q3x-prefill-gate-k128-ld144-candidate-full.ncu-rep", "bytes": 15743140, "sha256": "7c97f70019f64c5a1827a344c57b2dd17be145f8f77541997549d9c269fb9b2f"},
+    "candidate_ncu_log": {"path": "/tmp/q3x-prefill-gate-k128-ld144-ncu-candidate.log", "bytes": 5469, "sha256": "e8d3929a75b5cae99c0526e6a9016886dc54a28fdb9400fc26fa22683da17c7c"}
+  },
+  "decision": {
+    "result": "REJECT",
+    "production_changed": false,
+    "correctness_gate": "PASS",
+    "real_generation_direction_gate": "FAIL",
+    "matched_ncu_diagnostic": "COMPLETE",
+    "reason": "LD144 regresses real P513 Prefix by 39.524 ms and increases the target Gate duration 6.858% by multiplying activation-load bank conflicts fivefold.",
+    "stop_loss": "Do not build B-C-C-B, run NSys, or sweep further leading dimensions after the real path and matched NCU identify a dominant shared-bank regression.",
+    "next": "isolate the two K64 consumer bodies or otherwise constrain their compiled schedule while retaining the promoted K128 publication unit"
+  },
+  "limitations": [
+    "The direction screen is one baseline/candidate process pair, sufficient for the 39.524-ms rejection but not a latency distribution.",
+    "The matched NCU activation is deterministic BF16 rather than a captured layer-0 activation; weights and scales are pinned real checkpoint tensors.",
+    "This result closes blind leading-dimension padding, not every possible shared-memory swizzle or consumer schedule."
+  ]
+}

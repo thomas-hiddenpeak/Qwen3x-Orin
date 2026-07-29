@@ -1632,6 +1632,15 @@ The diagnostic Phase 3 records are:
   LD72 and LD136 are 128-byte congruent in shared-bank phase, so the candidate
   only adds 4 KiB of shared storage. It is fully reverted; the `d7aa73b` K128
   production route remains the native champion.
+- [`qwen36-27b-prefill-gate-c512-k128-ld144-rejection-2026-07-29.json`](qwen36-27b-prefill-gate-c512-k128-ld144-rejection-2026-07-29.json),
+  which rejects a non-congruent LD144 activation bank phase. The required real
+  P513 direction regresses Prefix **2294.365 -> 2333.889 ms**, so no formal
+  harness is built. Matched real-weight NCU attributes the loss directly: one
+  Gate regresses **4.406944 -> 4.709184 ms**, load-bank conflicts increase
+  fivefold to 27,852,800, and shared-load wavefronts rise 57.14% with unchanged
+  instructions and occupancy. The 128 target launches explain 97.88% of the
+  whole-prefix regression. The candidate is fully reverted and blind leading-
+  dimension sweeps are closed.
 - [`qwen36-27b-prefill-gdn-b8-block-transition-screen.json`](qwen36-27b-prefill-gdn-b8-block-transition-screen.json),
   which selects the test-only sequential FP32-B8 GDN dataflow and rejects the
   measured WY control. C256 reaches **2.76977x** versus production M16 while

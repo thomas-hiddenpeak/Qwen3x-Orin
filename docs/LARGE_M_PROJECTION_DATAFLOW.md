@@ -809,6 +809,16 @@ must use a legal non-congruent leading dimension or change the compiled K64
 consumer schedule. See
 [`metadata/qwen36-27b-prefill-gate-c512-k128-split-plane-rejection-2026-07-29.json`](metadata/qwen36-27b-prefill-gate-c512-k128-split-plane-rejection-2026-07-29.json).
 
+The direct non-congruent LD144 screen changes the bank phase but proves that
+padding is not monotonic. Real P513 Prefix regresses **2,294.365 -> 2,333.889
+ms** (+39.524 ms). Matched real-weight NCU moves one Gate from 4.406944 to
+4.709184 ms and multiplies load-bank conflicts **5,570,560 -> 27,852,800**;
+shared-load wavefronts rise 57.14% with identical warp instruction count and
+occupancy. The 0.302240-ms target regression across 128 Gate/Up launches
+projects to 38.686720 ms, explaining 97.88% of the Prefix loss. The source is
+reverted and blind leading-dimension sweeps are closed. See
+[`metadata/qwen36-27b-prefill-gate-c512-k128-ld144-rejection-2026-07-29.json`](metadata/qwen36-27b-prefill-gate-c512-k128-ld144-rejection-2026-07-29.json).
+
 ## Triton and vLLM design-reference screen
 
 The reference screen pins Triton `78420176` and vLLM `2899dca`. Their native
@@ -900,9 +910,10 @@ problem.
    The grouped-4, grouped-17, and four-slot K64 direction cells are rejected.
    The congruent LD72 split-plane successor is rejected: it retains exactly
    the same 5,570,560 load conflicts and regresses matched Gate latency 0.472%.
-   Next retain K128 publication while testing a legal non-congruent A leading
-   dimension or an isolated K64 consumer schedule; do not infer bank-conflict
-   behavior from a physical split whose stride differs by 128 bytes. Re-run the same
+   LD144 then changes the bank phase but multiplies load conflicts fivefold and
+   regresses real Prefix by 39.524 ms. Close blind leading-dimension sweeps.
+   Next retain K128 publication while isolating or otherwise constraining the
+   two compiled K64 consumer bodies. Re-run the same
    pinned real-weight six-round B-C-C-B screen against the current retained
    native champion after each complete configuration; keep every stable
    all-positive result and update that champion.  Run matched NCU to attribute
