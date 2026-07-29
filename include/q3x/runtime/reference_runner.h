@@ -309,11 +309,40 @@ struct LogitsAnalysis {
 [[nodiscard]] bool use_qk_rope_tile(
     std::size_t first_position, std::size_t token_count) noexcept;
 
-// Selects the exact-M32 residual-add plus centered-RMSNorm schedule for every
-// non-empty C32 multiple through C512. When selected, layer 0 retains its
-// standalone input norm; each MLP residual produces the normalized input for
-// the next layer (or the final norm after the final layer), so no subsequent
-// input/final norm is scheduled.
+inline constexpr std::size_t kPrefillResidualRmsM32Tokens = 32U;
+
+// Pure-host decomposition of an arbitrary Prefill span into exact-M32 fused
+// tiles and a final 1..31-token reference tail. A zero fused prefix means the
+// existing all-reference schedule must remain in force.
+struct PrefillResidualRmsM32Schedule {
+  std::size_t fused_prefix_tokens = 0U;
+  std::size_t fallback_tail_tokens = 0U;
+
+  [[nodiscard]] constexpr bool valid() const noexcept {
+    return fused_prefix_tokens != 0U;
+  }
+};
+
+[[nodiscard]] constexpr PrefillResidualRmsM32Schedule
+prefill_residual_rms_m32_schedule(
+    const std::size_t token_count,
+    const std::size_t hidden_size) noexcept {
+  if (token_count < kPrefillResidualRmsM32Tokens ||
+      token_count > kMaximumRequestPrefillChunkSize ||
+      hidden_size != kReferenceHiddenSize) {
+    return {};
+  }
+  const std::size_t fused_prefix_tokens =
+      token_count - token_count % kPrefillResidualRmsM32Tokens;
+  return {fused_prefix_tokens, token_count - fused_prefix_tokens};
+}
+
+// Selects the exact-M32 residual-add plus centered-RMSNorm prefix schedule for
+// every M=32..512 span. A final 1..31-token suffix uses the established
+// residual-add and centered-RMSNorm launches. When selected, layer 0 retains
+// its standalone input norm; each MLP residual produces the normalized input
+// for the next layer (or the final norm after the final layer), so no
+// subsequent whole-span input/final norm is scheduled.
 [[nodiscard]] bool use_m32_prefill_residual_rms_fusion(
     std::size_t token_count, std::size_t hidden_size) noexcept;
 

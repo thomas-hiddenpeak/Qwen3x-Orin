@@ -560,23 +560,53 @@ void test_schedule_and_workspace(TestContext& test) {
       detail::use_m32_prefill_residual_rms_fusion(
           32U, runtime::kReferenceHiddenSize) &&
           detail::use_m32_prefill_residual_rms_fusion(
+              33U, runtime::kReferenceHiddenSize) &&
+          detail::use_m32_prefill_residual_rms_fusion(
+              63U, runtime::kReferenceHiddenSize) &&
+          detail::use_m32_prefill_residual_rms_fusion(
               64U, runtime::kReferenceHiddenSize) &&
           detail::use_m32_prefill_residual_rms_fusion(
               256U, runtime::kReferenceHiddenSize) &&
           detail::use_m32_prefill_residual_rms_fusion(
+              407U, runtime::kReferenceHiddenSize) &&
+          detail::use_m32_prefill_residual_rms_fusion(
+              481U, runtime::kReferenceHiddenSize) &&
+          detail::use_m32_prefill_residual_rms_fusion(
               512U, runtime::kReferenceHiddenSize) &&
           !detail::use_m32_prefill_residual_rms_fusion(
+              0U, runtime::kReferenceHiddenSize) &&
+          !detail::use_m32_prefill_residual_rms_fusion(
               31U, runtime::kReferenceHiddenSize) &&
-          !detail::use_m32_prefill_residual_rms_fusion(
-              33U, runtime::kReferenceHiddenSize) &&
-          !detail::use_m32_prefill_residual_rms_fusion(
-              63U, runtime::kReferenceHiddenSize) &&
           !detail::use_m32_prefill_residual_rms_fusion(
               513U, runtime::kReferenceHiddenSize) &&
           !detail::use_m32_prefill_residual_rms_fusion(32U, 5'119U) &&
           !detail::use_m32_prefill_residual_rms_fusion(32U, 5'121U),
-      "Prefill residual/RMS schedule preserves ordered M32 boundaries through "
-      "C512 and every non-multiple fallback");
+      "Prefill residual/RMS schedule accepts arbitrary M=32..512 spans and "
+      "preserves smaller, over-capacity, and wrong-hidden fallbacks");
+
+  const auto expect_residual_rms_schedule =
+      [&test](const std::size_t token_count,
+              const std::size_t expected_prefix,
+              const std::size_t expected_tail) {
+        const detail::PrefillResidualRmsM32Schedule schedule =
+            detail::prefill_residual_rms_m32_schedule(
+                token_count, runtime::kReferenceHiddenSize);
+        test.expect(schedule.fused_prefix_tokens == expected_prefix &&
+                        schedule.fallback_tail_tokens == expected_tail &&
+                        schedule.valid() == (expected_prefix != 0U),
+                    "Prefill residual/RMS M=" +
+                        std::to_string(token_count) + " decomposes into M" +
+                        std::to_string(expected_prefix) + "+M" +
+                        std::to_string(expected_tail));
+      };
+  expect_residual_rms_schedule(31U, 0U, 0U);
+  expect_residual_rms_schedule(32U, 32U, 0U);
+  expect_residual_rms_schedule(33U, 32U, 1U);
+  expect_residual_rms_schedule(63U, 32U, 31U);
+  expect_residual_rms_schedule(64U, 64U, 0U);
+  expect_residual_rms_schedule(407U, 384U, 23U);
+  expect_residual_rms_schedule(481U, 480U, 1U);
+  expect_residual_rms_schedule(512U, 512U, 0U);
 
   const runtime::RequestPlanResult built =
       runtime::build_request_memory_plan();
