@@ -10,7 +10,46 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <limits>
+
+namespace q3x::runtime::gdn_prefill_chunk64_native_detail {
+namespace {
+
+thread_local InspectionHook g_inspection_hook{};
+thread_local bool g_force_fused_kkt_baseline_for_test = false;
+
+}  // namespace
+
+InspectionHook exchange_inspection_hook(const InspectionHook hook) noexcept {
+  const InspectionHook previous = g_inspection_hook;
+  g_inspection_hook = hook;
+  return previous;
+}
+
+bool exchange_force_fused_kkt_baseline_for_test(
+    const bool enabled) noexcept {
+  const bool previous = g_force_fused_kkt_baseline_for_test;
+  g_force_fused_kkt_baseline_for_test = enabled;
+  return previous;
+}
+
+void inspect_native_boundaries(
+    const std::uint16_t* const transform,
+    const std::size_t transform_elements,
+    const std::uint16_t* const state_output,
+    const std::size_t state_elements,
+    const std::uint16_t* const output,
+    const std::size_t output_elements,
+    void* const cuda_stream) noexcept {
+  const InspectionHook hook = g_inspection_hook;
+  if (hook.callback != nullptr) {
+    hook.callback(transform, transform_elements, state_output, state_elements,
+                  output, output_elements, cuda_stream, hook.context);
+  }
+}
+
+}  // namespace q3x::runtime::gdn_prefill_chunk64_native_detail
 
 namespace q3x::runtime::gdn_prefill_chunk64_reference_detail {
 namespace {
@@ -78,8 +117,13 @@ using WmmaAccumulator =
     offset = append_region(offset, kHeadTokenElements, kBf16Bytes);
   }
   offset = append_region(offset, kBoundaryStateElements, kBf16Bytes);
+  // The open-book KKT path deliberately preserves FLA's FP32 A boundary
+  // between the streamed dot product and the triangular inverse. This costs
+  // one bounded C64 matrix per chunk/head and lets the two kernels use 8 KiB
+  // and 32 KiB of shared memory instead of sharing a 48 KiB fused lifetime.
+  offset = append_region(offset, kChunkMatrixElements, kFp32Bytes);
   // Cumulative gate and beta. QK is produced directly at its BF16 stage
-  // boundary by the native WMMA kernel, so no FP32 global scratch is needed.
+  // boundary by the native WMMA kernel.
   offset = append_region(offset, kScalarElements, kFp32Bytes);
   offset = append_region(offset, kScalarElements, kFp32Bytes);
   return align_workspace(offset);
@@ -97,6 +141,7 @@ struct Workspace {
   std::uint16_t* u = nullptr;
   std::uint16_t* v_new = nullptr;
   std::uint16_t* boundary_state = nullptr;
+  float* kkt = nullptr;
   float* gamma = nullptr;
   float* beta = nullptr;
 };
@@ -136,6 +181,7 @@ template <typename T>
       take_region<std::uint16_t>(base, offset, kHeadTokenElements);
   workspace.boundary_state =
       take_region<std::uint16_t>(base, offset, kBoundaryStateElements);
+  workspace.kkt = take_region<float>(base, offset, kChunkMatrixElements);
   workspace.gamma = take_region<float>(base, offset, kScalarElements);
   workspace.beta = take_region<float>(base, offset, kScalarElements);
   return align_workspace(offset) <= capacity;
@@ -572,6 +618,384 @@ void fused_kkt_solve_block16_kernel(
     const unsigned int column = index % kChunkSize;
     matrix_transform[row + column * kChunkSize] =
         __float2bfloat16_rn(shared_inverse[index] * matrix_beta[column]);
+  }
+}
+
+// P513's exact vLLM/FLA specialization is C64 x K128 with BK64, four warps,
+// and 8 KiB of dynamic shared memory. The important property is the dataflow,
+// not Triton's launch syntax: one warp owns a 16-row strip and keeps all four
+// output fragments live while two K64 panels pass through shared memory.
+// Every K element is therefore fetched once per CTA instead of occupying a
+// full K128 shared lifetime beside the triangular inverse.
+constexpr unsigned int kStreamedKktThreads = 128U;
+constexpr unsigned int kStreamedKktWarps = kStreamedKktThreads / 32U;
+constexpr unsigned int kStreamedKktPanel = 64U;
+constexpr unsigned int kStreamedKktVectorsPerRow =
+    kStreamedKktPanel * sizeof(Bf16) / sizeof(uint4);
+constexpr unsigned int kStreamedKktVectorCount =
+    kChunkSize * kStreamedKktVectorsPerRow;
+constexpr std::size_t kStreamedKktSharedBytes =
+    kChunkSize * kStreamedKktPanel * sizeof(Bf16);
+constexpr unsigned int kStreamedKktScratchFloats =
+    kStreamedKktWarps * kSolveSubblock * kSolveSubblock;
+
+static_assert(kStreamedKktWarps == 4U);
+static_assert(kStreamedKktPanel == 4U * kSolveSubblock);
+static_assert(kStreamedKktSharedBytes >=
+              (kStreamedKktScratchFloats + 2U * kChunkSize) *
+                  sizeof(float));
+
+__global__ __launch_bounds__(kStreamedKktThreads)
+void streamed_kkt_gate_chunk64_kernel(
+    const std::uint16_t* const k,
+    const float* const gamma,
+    const float* const beta,
+    float* const kkt) {
+  extern __shared__ unsigned char shared_raw[];
+  auto* const shared_k = reinterpret_cast<Bf16*>(shared_raw);
+  const unsigned int thread = threadIdx.x;
+  const unsigned int warp = thread / 32U;
+  const unsigned int lane = thread % 32U;
+  const std::size_t matrix = blockIdx.x;
+  const auto* const matrix_k = reinterpret_cast<const Bf16*>(
+      k + matrix * kChunkSize * kDimension);
+  const float* const matrix_gamma = gamma + matrix * kChunkSize;
+  const float* const matrix_beta = beta + matrix * kChunkSize;
+  float* const matrix_kkt = kkt + matrix * kChunkSize * kChunkSize;
+
+  WmmaAccumulator accumulators[4];
+#pragma unroll
+  for (unsigned int column_block = 0U; column_block < 4U;
+       ++column_block) {
+    wmma::fill_fragment(accumulators[column_block], 0.0F);
+  }
+
+#pragma unroll
+  for (unsigned int panel = 0U; panel < kDimension / kStreamedKktPanel;
+       ++panel) {
+    for (unsigned int vector = thread; vector < kStreamedKktVectorCount;
+         vector += kStreamedKktThreads) {
+      const unsigned int row = vector / kStreamedKktVectorsPerRow;
+      const unsigned int vector_in_row =
+          vector % kStreamedKktVectorsPerRow;
+      const auto* const source = reinterpret_cast<const uint4*>(
+          matrix_k + row * kDimension + panel * kStreamedKktPanel) +
+          vector_in_row;
+      reinterpret_cast<uint4*>(shared_k)[vector] = *source;
+    }
+    __syncthreads();
+
+#pragma unroll
+    for (unsigned int dimension_block = 0U;
+         dimension_block < kStreamedKktPanel / kSolveSubblock;
+         ++dimension_block) {
+      wmma::fragment<wmma::matrix_a, 16, 16, 16, Bf16,
+                     wmma::row_major>
+          row_fragment;
+      wmma::load_matrix_sync(
+          row_fragment,
+          shared_k + warp * kSolveSubblock * kStreamedKktPanel +
+              dimension_block * kSolveSubblock,
+          static_cast<int>(kStreamedKktPanel));
+#pragma unroll
+      for (unsigned int column_block = 0U; column_block < 4U;
+           ++column_block) {
+        wmma::fragment<wmma::matrix_b, 16, 16, 16, Bf16,
+                       wmma::col_major>
+            column_fragment;
+        wmma::load_matrix_sync(
+            column_fragment,
+            shared_k + column_block * kSolveSubblock * kStreamedKktPanel +
+                dimension_block * kSolveSubblock,
+            static_cast<int>(kStreamedKktPanel));
+        wmma::mma_sync(accumulators[column_block], row_fragment,
+                       column_fragment, accumulators[column_block]);
+      }
+    }
+    // The next panel overwrites the same 8 KiB bank. The final iteration's
+    // barrier also makes that bank available as output scratch.
+    __syncthreads();
+  }
+
+  auto* const shared_float = reinterpret_cast<float*>(shared_raw);
+  float* const warp_scratch =
+      shared_float + warp * kSolveSubblock * kSolveSubblock;
+  float* const shared_beta = shared_float + kStreamedKktScratchFloats;
+  float* const shared_gamma = shared_beta + kChunkSize;
+  if (thread < kChunkSize) {
+    shared_beta[thread] = matrix_beta[thread];
+    shared_gamma[thread] = matrix_gamma[thread];
+  }
+  __syncthreads();
+
+#pragma unroll
+  for (unsigned int column_block = 0U; column_block < 4U;
+       ++column_block) {
+    wmma::store_matrix_sync(warp_scratch, accumulators[column_block],
+                            static_cast<int>(kSolveSubblock),
+                            wmma::mem_row_major);
+    __syncwarp();
+    for (unsigned int index = lane;
+         index < kSolveSubblock * kSolveSubblock; index += 32U) {
+      const unsigned int row =
+          warp * kSolveSubblock + index / kSolveSubblock;
+      const unsigned int column =
+          column_block * kSolveSubblock + index % kSolveSubblock;
+      float value = 0.0F;
+      if (row > column) {
+        value = shared_beta[row] *
+                expf(shared_gamma[row] - shared_gamma[column]) *
+                warp_scratch[index];
+      }
+      matrix_kkt[row * kChunkSize + column] = value;
+    }
+    __syncwarp();
+  }
+}
+
+template <unsigned int Row, unsigned int Inner>
+__device__ __forceinline__ void accumulate_diagonal_inverse_column(
+    const float* const diagonal_l,
+    const unsigned int lane,
+    const float (&inverse_column)[kSolveSubblock],
+    float& value) {
+  if constexpr (Inner < Row) {
+    if (lane <= Inner) {
+      value -= diagonal_l[Row * kChunkSize + Inner] *
+               inverse_column[Inner];
+    }
+    accumulate_diagonal_inverse_column<Row, Inner + 1U>(
+        diagonal_l, lane, inverse_column, value);
+  }
+}
+
+template <unsigned int Row>
+__device__ __forceinline__ void solve_diagonal_inverse_column(
+    const float* const diagonal_l,
+    const unsigned int lane,
+    float (&inverse_column)[kSolveSubblock]) {
+  float value = lane == Row ? 1.0F : 0.0F;
+  accumulate_diagonal_inverse_column<Row, 0U>(
+      diagonal_l, lane, inverse_column, value);
+  inverse_column[Row] = lane <= Row ? value : 0.0F;
+  if constexpr (Row + 1U < kSolveSubblock) {
+    solve_diagonal_inverse_column<Row + 1U>(
+        diagonal_l, lane, inverse_column);
+  }
+}
+
+__device__ __forceinline__ void warp_form_transform_block(
+    const Bf16* const diagonal_inverse,
+    const Bf16* const left0,
+    const Bf16* const right0,
+    const Bf16* const left1,
+    const Bf16* const right1,
+    const Bf16* const left2,
+    const Bf16* const right2,
+    Bf16* const inverse,
+    const unsigned int output_base,
+    float* const scratch,
+    const float* const beta,
+    Bf16* const transform,
+    const unsigned int row_base,
+    const unsigned int column_base) {
+  const unsigned int lane = threadIdx.x % 32U;
+  WmmaAccumulator inner;
+  wmma::fill_fragment(inner, 0.0F);
+  warp_accumulate_row_major_product(inner, left0,
+                                    static_cast<int>(kChunkSize), right0,
+                                    static_cast<int>(kChunkSize));
+  if (left1 != nullptr && right1 != nullptr) {
+    warp_accumulate_row_major_product(inner, left1,
+                                      static_cast<int>(kChunkSize), right1,
+                                      static_cast<int>(kChunkSize));
+  }
+  if (left2 != nullptr && right2 != nullptr) {
+    warp_accumulate_row_major_product(inner, left2,
+                                      static_cast<int>(kChunkSize), right2,
+                                      static_cast<int>(kChunkSize));
+  }
+  wmma::store_matrix_sync(scratch, inner,
+                          static_cast<int>(kSolveSubblock),
+                          wmma::mem_row_major);
+  __syncwarp();
+  for (unsigned int index = lane;
+       index < kSolveSubblock * kSolveSubblock; index += 32U) {
+    const unsigned int row = index / kSolveSubblock;
+    const unsigned int column = index % kSolveSubblock;
+    inverse[output_base + row * kChunkSize + column] =
+        __float2bfloat16_rn(scratch[index]);
+  }
+  __syncwarp();
+
+  WmmaAccumulator outer;
+  wmma::fill_fragment(outer, 0.0F);
+  warp_accumulate_row_major_product(
+      outer, diagonal_inverse, static_cast<int>(kChunkSize),
+      inverse + output_base, static_cast<int>(kChunkSize));
+  wmma::store_matrix_sync(scratch, outer,
+                          static_cast<int>(kSolveSubblock),
+                          wmma::mem_row_major);
+  __syncwarp();
+  for (unsigned int index = lane;
+       index < kSolveSubblock * kSolveSubblock; index += 32U) {
+    const unsigned int row = index / kSolveSubblock;
+    const unsigned int column = index % kSolveSubblock;
+    const float value = -scratch[index];
+    inverse[output_base + row * kChunkSize + column] =
+        __float2bfloat16_rn(value);
+    const unsigned int output_row = row_base + row;
+    const unsigned int output_column = column_base + column;
+    transform[output_row + output_column * kChunkSize] =
+        __float2bfloat16_rn(value * beta[output_column]);
+  }
+  __syncwarp();
+}
+
+constexpr std::size_t kSplitSolveSharedBytes =
+    kChunkSize * kChunkSize *
+    (sizeof(float) + 2U * sizeof(Bf16));
+
+static_assert(kSplitSolveSharedBytes == 32U * 1024U);
+
+// The second half mirrors FLA's block-16 merge while preserving the existing
+// project's exact FP32-before-final-BF16 transform boundary. Four warps keep
+// their diagonal inverse columns in registers. Only BF16 L/inverse operands
+// survive into the Tensor-Core block merge; the old full FP32 inverse matrix
+// and its 16 KiB shared lifetime disappear.
+__global__ __launch_bounds__(kFusedSolveThreads)
+void solve_kkt_block16_register_kernel(
+    const float* const kkt,
+    const float* const beta,
+    std::uint16_t* const transform) {
+  extern __shared__ unsigned char shared_raw[];
+  auto* const shared_l = reinterpret_cast<float*>(shared_raw);
+  auto* const shared_l_bf16 = reinterpret_cast<Bf16*>(
+      shared_raw + kChunkSize * kChunkSize * sizeof(float));
+  auto* const shared_inverse_bf16 =
+      shared_l_bf16 + kChunkSize * kChunkSize;
+  const unsigned int thread = threadIdx.x;
+  const unsigned int warp = thread / 32U;
+  const unsigned int lane = thread % 32U;
+  const std::size_t matrix = blockIdx.x;
+  const float* const matrix_kkt =
+      kkt + matrix * kChunkSize * kChunkSize;
+  const float* const matrix_beta = beta + matrix * kChunkSize;
+  auto* const matrix_transform = reinterpret_cast<Bf16*>(
+      transform + matrix * kChunkSize * kChunkSize);
+
+  for (unsigned int index = thread;
+       index < kChunkSize * kChunkSize; index += kFusedSolveThreads) {
+    shared_l[index] = matrix_kkt[index];
+    const unsigned int row = index / kChunkSize;
+    const unsigned int column = index % kChunkSize;
+    if (row < column) {
+      matrix_transform[row + column * kChunkSize] =
+          __float2bfloat16_rn(0.0F);
+    }
+  }
+  __syncthreads();
+
+  float inverse_column[kSolveSubblock]{};
+  if (lane < kSolveSubblock) {
+    const unsigned int diagonal_base =
+        warp * kSolveSubblock * kChunkSize + warp * kSolveSubblock;
+    solve_diagonal_inverse_column<0U>(
+        shared_l + diagonal_base, lane, inverse_column);
+#pragma unroll
+    for (unsigned int row = 0U; row < kSolveSubblock; ++row) {
+      const unsigned int output_row = warp * kSolveSubblock + row;
+      const unsigned int output_column = warp * kSolveSubblock + lane;
+      const float value = inverse_column[row];
+      shared_inverse_bf16[diagonal_base + row * kChunkSize + lane] =
+          __float2bfloat16_rn(value);
+      matrix_transform[output_row + output_column * kChunkSize] =
+          __float2bfloat16_rn(value * matrix_beta[output_column]);
+    }
+  }
+  __syncthreads();
+
+  for (unsigned int index = thread;
+       index < kChunkSize * kChunkSize; index += kFusedSolveThreads) {
+    shared_l_bf16[index] = __float2bfloat16_rn(shared_l[index]);
+  }
+  __syncthreads();
+
+  // shared_l is dead after its BF16 publication. Reuse the first 4 KiB for
+  // per-warp WMMA scratch and cache beta once in the remaining bank.
+  float* const scratch = shared_l;
+  float* const shared_beta =
+      scratch + kFusedSolveWarps * kSolveSubblock * kSolveSubblock;
+  if (thread < kChunkSize) {
+    shared_beta[thread] = matrix_beta[thread];
+  }
+  __syncthreads();
+  float* const warp_scratch =
+      scratch + warp * kSolveSubblock * kSolveSubblock;
+
+  // First subdiagonal: inv(i,j) = -inv(i,i) L(i,j) inv(j,j).
+  if (warp < 3U) {
+    const unsigned int row_block = warp + 1U;
+    const unsigned int column_block = warp;
+    const unsigned int output_base =
+        row_block * kSolveSubblock * kChunkSize +
+        column_block * kSolveSubblock;
+    warp_form_transform_block(
+        shared_inverse_bf16 +
+            row_block * kSolveSubblock * kChunkSize +
+            row_block * kSolveSubblock,
+        shared_l_bf16 + output_base,
+        shared_inverse_bf16 +
+            column_block * kSolveSubblock * kChunkSize +
+            column_block * kSolveSubblock,
+        nullptr, nullptr, nullptr, nullptr, shared_inverse_bf16,
+        output_base, warp_scratch, shared_beta, matrix_transform,
+        row_block * kSolveSubblock, column_block * kSolveSubblock);
+  }
+  __syncthreads();
+
+  if (warp < 2U) {
+    const unsigned int row_block = warp + 2U;
+    const unsigned int column_block = warp;
+    const unsigned int middle_block = warp + 1U;
+    const unsigned int output_base =
+        row_block * kSolveSubblock * kChunkSize +
+        column_block * kSolveSubblock;
+    warp_form_transform_block(
+        shared_inverse_bf16 +
+            row_block * kSolveSubblock * kChunkSize +
+            row_block * kSolveSubblock,
+        shared_l_bf16 + output_base,
+        shared_inverse_bf16 +
+            column_block * kSolveSubblock * kChunkSize +
+            column_block * kSolveSubblock,
+        shared_l_bf16 +
+            row_block * kSolveSubblock * kChunkSize +
+            middle_block * kSolveSubblock,
+        shared_inverse_bf16 +
+            middle_block * kSolveSubblock * kChunkSize +
+            column_block * kSolveSubblock,
+        nullptr, nullptr, shared_inverse_bf16, output_base, warp_scratch,
+        shared_beta, matrix_transform, row_block * kSolveSubblock,
+        column_block * kSolveSubblock);
+  }
+  __syncthreads();
+
+  if (warp == 0U) {
+    constexpr unsigned int row_block = 3U;
+    constexpr unsigned int output_base =
+        row_block * kSolveSubblock * kChunkSize;
+    warp_form_transform_block(
+        shared_inverse_bf16 +
+            row_block * kSolveSubblock * kChunkSize +
+            row_block * kSolveSubblock,
+        shared_l_bf16 + output_base, shared_inverse_bf16,
+        shared_l_bf16 + output_base + kSolveSubblock,
+        shared_inverse_bf16 + kSolveSubblock * kChunkSize,
+        shared_l_bf16 + output_base + 2U * kSolveSubblock,
+        shared_inverse_bf16 + 2U * kSolveSubblock * kChunkSize,
+        shared_inverse_bf16, output_base, warp_scratch, shared_beta,
+        matrix_transform, row_block * kSolveSubblock, 0U);
   }
 }
 
@@ -1151,6 +1575,14 @@ void reconstruct_norm_gate_chunk64_kernel(
   return static_cast<int>(cudaGetLastError());
 }
 
+[[nodiscard]] bool force_fused_kkt_baseline() noexcept {
+  static const bool forced_by_environment =
+      std::getenv("Q3X_GDN_CHUNK64_FORCE_FUSED_KKT_BASELINE") != nullptr;
+  return forced_by_environment ||
+         gdn_prefill_chunk64_native_detail::
+             g_force_fused_kkt_baseline_for_test;
+}
+
 [[nodiscard]] bool invalid_arguments(
     void* const /*context*/,
     void* const workspace,
@@ -1259,16 +1691,36 @@ int launch(void* const context,
     return status;
   }
 
-  constexpr std::size_t fused_solve_shared_bytes =
-      kChunkSize * kDimension * sizeof(Bf16) +
-      2U * kChunkSize * kChunkSize * sizeof(float);
-  fused_kkt_solve_block16_kernel<<<
-      static_cast<unsigned int>(matrix_count), kFusedSolveThreads,
-      fused_solve_shared_bytes, stream>>>(
-      workspace.k, workspace.gamma, workspace.beta, workspace.transform);
-  status = launch_grid_status();
-  if (status != static_cast<int>(cudaSuccess)) {
-    return status;
+  if (force_fused_kkt_baseline()) {
+    constexpr std::size_t fused_solve_shared_bytes =
+        kChunkSize * kDimension * sizeof(Bf16) +
+        2U * kChunkSize * kChunkSize * sizeof(float);
+    fused_kkt_solve_block16_kernel<<<
+        static_cast<unsigned int>(matrix_count), kFusedSolveThreads,
+        fused_solve_shared_bytes, stream>>>(
+        workspace.k, workspace.gamma, workspace.beta,
+        workspace.transform);
+    status = launch_grid_status();
+    if (status != static_cast<int>(cudaSuccess)) {
+      return status;
+    }
+  } else {
+    streamed_kkt_gate_chunk64_kernel<<<
+        static_cast<unsigned int>(matrix_count), kStreamedKktThreads,
+        kStreamedKktSharedBytes, stream>>>(
+        workspace.k, workspace.gamma, workspace.beta, workspace.kkt);
+    status = launch_grid_status();
+    if (status != static_cast<int>(cudaSuccess)) {
+      return status;
+    }
+    solve_kkt_block16_register_kernel<<<
+        static_cast<unsigned int>(matrix_count), kFusedSolveThreads,
+        kSplitSolveSharedBytes, stream>>>(
+        workspace.kkt, workspace.beta, workspace.transform);
+    status = launch_grid_status();
+    if (status != static_cast<int>(cudaSuccess)) {
+      return status;
+    }
   }
 
   qk_scaled_chunk64_kernel<<<static_cast<unsigned int>(matrix_count),
@@ -1310,7 +1762,14 @@ int launch(void* const context,
       workspace.boundary_state, workspace.q, workspace.v_new,
       workspace.qk, workspace.gamma, norm_weight, silu_gate,
       norm_epsilon, output);
-  return launch_grid_status();
+  status = launch_grid_status();
+  if (status == static_cast<int>(cudaSuccess)) {
+    gdn_prefill_chunk64_native_detail::inspect_native_boundaries(
+        workspace.transform, matrix_count * kChunkSize * kChunkSize,
+        state_output, kGdnStateElements, output,
+        token_count * kGdnVElements, cuda_stream);
+  }
+  return status;
 }
 
 int query_native_resources(int* const registers_per_thread,

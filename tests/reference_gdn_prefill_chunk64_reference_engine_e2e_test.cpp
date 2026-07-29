@@ -124,6 +124,105 @@ struct StateSnapshot {
   bool contract_error = false;
 };
 
+#if defined(Q3X_GDN_CHUNK64_NATIVE_TEST)
+struct NativeBoundarySnapshot {
+  std::vector<std::uint16_t> transform;
+  std::vector<std::uint16_t> state;
+  std::vector<std::uint16_t> output;
+  std::size_t calls = 0U;
+  int cuda_error = static_cast<int>(cudaSuccess);
+  bool contract_error = false;
+};
+
+class ScopedFusedKktBaseline {
+ public:
+  explicit ScopedFusedKktBaseline(const bool enabled) noexcept
+      : previous_(q3x::runtime::gdn_prefill_chunk64_native_detail::
+                      exchange_force_fused_kkt_baseline_for_test(enabled)) {}
+
+  ~ScopedFusedKktBaseline() {
+    (void)q3x::runtime::gdn_prefill_chunk64_native_detail::
+        exchange_force_fused_kkt_baseline_for_test(previous_);
+  }
+
+  [[nodiscard]] bool valid() const noexcept { return true; }
+
+  ScopedFusedKktBaseline(const ScopedFusedKktBaseline&) = delete;
+  ScopedFusedKktBaseline& operator=(const ScopedFusedKktBaseline&) = delete;
+
+ private:
+  bool previous_ = false;
+};
+
+void collect_native_boundaries(
+    const std::uint16_t* const transform,
+    const std::size_t transform_elements,
+    const std::uint16_t* const state_output,
+    const std::size_t state_elements,
+    const std::uint16_t* const output,
+    const std::size_t output_elements,
+    void* const cuda_stream,
+    void* const context) noexcept {
+  auto* const snapshot = static_cast<NativeBoundarySnapshot*>(context);
+  if (snapshot == nullptr) {
+    return;
+  }
+  ++snapshot->calls;
+  if (snapshot->calls != runtime::kRequestLinearLayerCount) {
+    return;
+  }
+  if (transform == nullptr || state_output == nullptr || output == nullptr ||
+      snapshot->transform.size() != transform_elements ||
+      snapshot->state.size() != state_elements ||
+      snapshot->output.size() != output_elements) {
+    snapshot->contract_error = true;
+    return;
+  }
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  cudaError_t status = cudaMemcpyAsync(
+      snapshot->transform.data(), transform,
+      transform_elements * sizeof(std::uint16_t), cudaMemcpyDeviceToHost,
+      stream);
+  if (status == cudaSuccess) {
+    status = cudaMemcpyAsync(
+        snapshot->state.data(), state_output,
+        state_elements * sizeof(std::uint16_t), cudaMemcpyDeviceToHost,
+        stream);
+  }
+  if (status == cudaSuccess) {
+    status = cudaMemcpyAsync(
+        snapshot->output.data(), output,
+        output_elements * sizeof(std::uint16_t), cudaMemcpyDeviceToHost,
+        stream);
+  }
+  if (status == cudaSuccess) {
+    status = cudaStreamSynchronize(stream);
+  }
+  snapshot->cuda_error = static_cast<int>(status);
+}
+
+class ScopedNativeInspectionHook {
+ public:
+  explicit ScopedNativeInspectionHook(
+      NativeBoundarySnapshot& snapshot) noexcept
+      : previous_(q3x::runtime::gdn_prefill_chunk64_native_detail::
+                      exchange_inspection_hook(
+                          {collect_native_boundaries, &snapshot})) {}
+
+  ~ScopedNativeInspectionHook() {
+    (void)q3x::runtime::gdn_prefill_chunk64_native_detail::
+        exchange_inspection_hook(previous_);
+  }
+
+  ScopedNativeInspectionHook(const ScopedNativeInspectionHook&) = delete;
+  ScopedNativeInspectionHook& operator=(
+      const ScopedNativeInspectionHook&) = delete;
+
+ private:
+  q3x::runtime::gdn_prefill_chunk64_native_detail::InspectionHook previous_{};
+};
+#endif
+
 void collect_state_snapshot(const runtime::RequestState& state,
                             void* const context) noexcept {
   auto* const snapshot = static_cast<StateSnapshot*>(context);
@@ -388,6 +487,356 @@ void print_diagnostic(
          snapshot.region_bytes == runtime::kRequestGdnStateBytes;
 }
 
+#if defined(Q3X_GDN_CHUNK64_NATIVE_TEST)
+struct DifferenceMetrics {
+  std::size_t elements = 0U;
+  std::size_t unequal_bf16 = 0U;
+  std::size_t nonfinite = 0U;
+  double maximum_absolute_error = 0.0;
+  double nrmse = 0.0;
+  double cosine = 0.0;
+};
+
+[[nodiscard]] DifferenceMetrics compare_bf16(
+    const std::vector<std::uint16_t>& baseline,
+    const std::vector<std::uint16_t>& candidate) {
+  DifferenceMetrics metrics;
+  if (baseline.size() != candidate.size()) {
+    metrics.nonfinite = 1U;
+    return metrics;
+  }
+  metrics.elements = baseline.size();
+  double baseline_square_sum = 0.0;
+  double candidate_square_sum = 0.0;
+  double error_square_sum = 0.0;
+  double dot = 0.0;
+  for (std::size_t index = 0U; index < baseline.size(); ++index) {
+    const double expected =
+        static_cast<double>(decode_bf16(baseline[index]));
+    const double actual =
+        static_cast<double>(decode_bf16(candidate[index]));
+    if (!std::isfinite(expected) || !std::isfinite(actual)) {
+      ++metrics.nonfinite;
+      continue;
+    }
+    const double error = actual - expected;
+    baseline_square_sum += expected * expected;
+    candidate_square_sum += actual * actual;
+    error_square_sum += error * error;
+    dot += expected * actual;
+    metrics.maximum_absolute_error =
+        std::fmax(metrics.maximum_absolute_error, std::fabs(error));
+    metrics.unequal_bf16 += baseline[index] != candidate[index] ? 1U : 0U;
+  }
+  metrics.nrmse =
+      baseline_square_sum > 0.0
+          ? std::sqrt(error_square_sum / baseline_square_sum)
+          : (error_square_sum == 0.0
+                 ? 0.0
+                 : std::numeric_limits<double>::infinity());
+  metrics.cosine =
+      baseline_square_sum > 0.0 && candidate_square_sum > 0.0
+          ? dot / std::sqrt(baseline_square_sum * candidate_square_sum)
+          : (baseline_square_sum == candidate_square_sum ? 1.0 : 0.0);
+  return metrics;
+}
+
+void print_difference_metrics(const std::string_view region,
+                              const DifferenceMetrics& metrics) {
+  std::cout << "GDN_CHUNK64_NATIVE_KKT_EQUIVALENCE"
+            << " region=" << region
+            << " elements=" << metrics.elements
+            << " unequal_bf16=" << metrics.unequal_bf16
+            << " max_abs_error=" << metrics.maximum_absolute_error
+            << " nrmse=" << metrics.nrmse
+            << " cosine=" << metrics.cosine
+            << " nonfinite=" << metrics.nonfinite << '\n';
+}
+
+[[nodiscard]] bool exact_metrics(const DifferenceMetrics& metrics) {
+  return metrics.elements != 0U && metrics.unequal_bf16 == 0U &&
+         metrics.nonfinite == 0U && metrics.maximum_absolute_error == 0.0 &&
+         metrics.nrmse == 0.0 && metrics.cosine == 1.0;
+}
+
+[[nodiscard]] bool run_native_kkt_equivalence(
+    runtime::ReferenceEngine& engine,
+    const std::string& prompt) {
+  if (g_prompt_tokens != kDefaultPromptTokens) {
+    std::cerr << "KKT equivalence requires the real P513 route\n";
+    return false;
+  }
+  constexpr std::size_t kNativeTokens = kDefaultPromptTokens - 1U;
+  constexpr std::size_t kTransformElements =
+      (kNativeTokens / 64U) * runtime::kGdnValueHeadCount * 64U * 64U;
+  constexpr std::size_t kOutputElements =
+      kNativeTokens * runtime::kGdnVElements;
+
+  StateSnapshot fused_state;
+  StateSnapshot split_state;
+  NativeBoundarySnapshot fused_boundaries;
+  NativeBoundarySnapshot split_boundaries;
+  try {
+    const std::size_t request_state_elements =
+        static_cast<std::size_t>(runtime::kRequestGdnStateBytes /
+                                 sizeof(std::uint16_t));
+    fused_state.values.resize(request_state_elements);
+    split_state.values.resize(request_state_elements);
+    fused_boundaries.transform.resize(kTransformElements);
+    split_boundaries.transform.resize(kTransformElements);
+    fused_boundaries.state.resize(runtime::kGdnStateElements);
+    split_boundaries.state.resize(runtime::kGdnStateElements);
+    fused_boundaries.output.resize(kOutputElements);
+    split_boundaries.output.resize(kOutputElements);
+  } catch (const std::bad_alloc&) {
+    std::cerr << "KKT equivalence host allocation failed\n";
+    return false;
+  }
+
+  std::size_t fused_hits = 0U;
+  runtime::ReferenceGenerateResult fused_result;
+  {
+    const ScopedFusedKktBaseline route(true);
+    if (!route.valid()) {
+      std::cerr << "failed to select fused KKT baseline\n";
+      return false;
+    }
+    const ScopedNativeInspectionHook hook(fused_boundaries);
+    fused_result = run_snapshot_generation(
+        engine, prompt, true, fused_state, fused_hits);
+  }
+
+  std::size_t split_hits = 0U;
+  runtime::ReferenceGenerateResult split_result;
+  {
+    const ScopedFusedKktBaseline route(false);
+    if (!route.valid()) {
+      std::cerr << "failed to select split KKT candidate\n";
+      return false;
+    }
+    const ScopedNativeInspectionHook hook(split_boundaries);
+    split_result = run_snapshot_generation(
+        engine, prompt, true, split_state, split_hits);
+  }
+  if (!fused_result || !split_result) {
+    std::cerr << "KKT equivalence generation failed\n";
+    if (!fused_result) {
+      print_diagnostic(fused_result.diagnostic);
+    }
+    if (!split_result) {
+      print_diagnostic(split_result.diagnostic);
+    }
+    return false;
+  }
+
+  const DifferenceMetrics transform = compare_bf16(
+      fused_boundaries.transform, split_boundaries.transform);
+  const DifferenceMetrics final_layer_state = compare_bf16(
+      fused_boundaries.state, split_boundaries.state);
+  const DifferenceMetrics final_layer_output = compare_bf16(
+      fused_boundaries.output, split_boundaries.output);
+  const DifferenceMetrics full_request_state = compare_bf16(
+      fused_state.values, split_state.values);
+  print_difference_metrics("transform", transform);
+  print_difference_metrics("final_layer_state", final_layer_state);
+  print_difference_metrics("final_layer_output", final_layer_output);
+  print_difference_metrics("full_request_state", full_request_state);
+
+  const bool boundary_contract =
+      !fused_boundaries.contract_error &&
+      !split_boundaries.contract_error &&
+      fused_boundaries.cuda_error == static_cast<int>(cudaSuccess) &&
+      split_boundaries.cuda_error == static_cast<int>(cudaSuccess) &&
+      fused_boundaries.calls == runtime::kRequestLinearLayerCount &&
+      split_boundaries.calls == runtime::kRequestLinearLayerCount;
+  const bool generation_semantics =
+      expected_generation(*fused_result.value) &&
+      expected_generation(*split_result.value) &&
+      fused_result.value->generated_token_ids ==
+          split_result.value->generated_token_ids &&
+      fused_result.value->generated_text == split_result.value->generated_text;
+  const bool passed =
+      valid_snapshot(fused_state) && valid_snapshot(split_state) &&
+      fused_hits == expected_native_route_hits() &&
+      split_hits == expected_native_route_hits() && boundary_contract &&
+      generation_semantics && exact_metrics(transform) &&
+      exact_metrics(final_layer_state) && exact_metrics(final_layer_output) &&
+      exact_metrics(full_request_state);
+  std::cout << "GDN_CHUNK64_NATIVE_KKT_EQUIVALENCE"
+            << " fused_hits=" << fused_hits
+            << " split_hits=" << split_hits
+            << " boundary_contract="
+            << (boundary_contract ? "PASS" : "FAIL")
+            << " generation_semantics="
+            << (generation_semantics ? "PASS" : "FAIL")
+            << " gate=" << (passed ? "PASS" : "FAIL")
+            << " authority=REAL_WEIGHT_CANDIDATE_VS_FUSED\n";
+  return passed;
+}
+
+class DeviceBuffer {
+ public:
+  explicit DeviceBuffer(const std::size_t bytes) noexcept : bytes_(bytes) {
+    status_ = cudaMalloc(&data_, bytes_);
+  }
+
+  ~DeviceBuffer() {
+    if (data_ != nullptr) {
+      (void)cudaFree(data_);
+    }
+  }
+
+  DeviceBuffer(const DeviceBuffer&) = delete;
+  DeviceBuffer& operator=(const DeviceBuffer&) = delete;
+
+  [[nodiscard]] bool valid() const noexcept {
+    return status_ == cudaSuccess && data_ != nullptr;
+  }
+
+  [[nodiscard]] bool zero() noexcept {
+    return valid() && cudaMemset(data_, 0, bytes_) == cudaSuccess;
+  }
+
+  [[nodiscard]] void* data() noexcept { return data_; }
+  [[nodiscard]] const void* data() const noexcept { return data_; }
+
+  template <typename T>
+  [[nodiscard]] T* as() noexcept {
+    return static_cast<T*>(data_);
+  }
+
+  template <typename T>
+  [[nodiscard]] const T* as() const noexcept {
+    return static_cast<const T*>(data_);
+  }
+
+ private:
+  void* data_ = nullptr;
+  std::size_t bytes_ = 0U;
+  cudaError_t status_ = cudaErrorMemoryAllocation;
+};
+
+[[nodiscard]] bool run_native_graph_validation() {
+  constexpr std::size_t kTokens = 512U;
+  constexpr std::size_t kBf16Bytes = sizeof(std::uint16_t);
+  DeviceBuffer workspace(
+      q3x::runtime::gdn_prefill_chunk64_native_detail::workspace_bytes());
+  DeviceBuffer conv_qkv(
+      kTokens * runtime::kGdnQkvChannels * kBf16Bytes);
+  DeviceBuffer a(kTokens * runtime::kGdnValueHeadCount * kBf16Bytes);
+  DeviceBuffer b(kTokens * runtime::kGdnValueHeadCount * kBf16Bytes);
+  DeviceBuffer A_log(runtime::kGdnValueHeadCount * kBf16Bytes);
+  DeviceBuffer dt_bias(runtime::kGdnValueHeadCount * kBf16Bytes);
+  DeviceBuffer state(runtime::kGdnStateElements * kBf16Bytes);
+  DeviceBuffer norm(runtime::kGdnHeadDimension * kBf16Bytes);
+  DeviceBuffer silu_gate(kTokens * runtime::kGdnVElements * kBf16Bytes);
+  DeviceBuffer output(kTokens * runtime::kGdnVElements * kBf16Bytes);
+  DeviceBuffer* const buffers[] = {
+      &workspace, &conv_qkv, &a,     &b,      &A_log,
+      &dt_bias,  &state,    &norm,  &silu_gate, &output};
+  bool ready = true;
+  for (DeviceBuffer* const buffer : buffers) {
+    ready = buffer->zero() && ready;
+  }
+  if (!ready) {
+    std::cerr << "native Graph buffer allocation/initialization failed\n";
+    return false;
+  }
+
+  cudaStream_t stream = nullptr;
+  cudaGraph_t graph = nullptr;
+  cudaGraphExec_t executable = nullptr;
+  ready = cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking) ==
+          cudaSuccess;
+  const ScopedFusedKktBaseline route(false);
+  ready = route.valid() && ready;
+  auto launch = [&]() {
+    return q3x::runtime::gdn_prefill_chunk64_native_detail::launch(
+        workspace.data(),
+        q3x::runtime::gdn_prefill_chunk64_native_detail::workspace_bytes(),
+        conv_qkv.as<const std::uint16_t>(), kTokens,
+        a.as<const std::uint16_t>(), b.as<const std::uint16_t>(),
+        A_log.as<const std::uint16_t>(), dt_bias.as<const std::uint16_t>(),
+        state.as<const std::uint16_t>(), state.as<std::uint16_t>(), 1.0e-6F,
+        norm.as<const std::uint16_t>(),
+        silu_gate.as<const std::uint16_t>(), 1.0e-6F,
+        output.as<std::uint16_t>(), stream);
+  };
+  if (ready) {
+    ready = launch() == static_cast<int>(cudaSuccess) &&
+            cudaStreamSynchronize(stream) == cudaSuccess;
+  }
+  if (ready) {
+    ready = cudaStreamBeginCapture(stream, cudaStreamCaptureModeGlobal) ==
+            cudaSuccess;
+  }
+  if (ready) {
+    ready = launch() == static_cast<int>(cudaSuccess);
+  }
+  if (ready) {
+    ready = cudaStreamEndCapture(stream, &graph) == cudaSuccess &&
+            graph != nullptr;
+  } else if (stream != nullptr) {
+    (void)cudaStreamEndCapture(stream, &graph);
+  }
+
+  std::size_t node_count = 0U;
+  std::size_t kernel_nodes = 0U;
+  std::size_t other_nodes = 0U;
+  if (ready) {
+    ready = cudaGraphGetNodes(graph, nullptr, &node_count) == cudaSuccess;
+  }
+  std::vector<cudaGraphNode_t> nodes(node_count);
+  if (ready && node_count != 0U) {
+    std::size_t capacity = node_count;
+    ready = cudaGraphGetNodes(graph, nodes.data(), &capacity) == cudaSuccess &&
+            capacity == node_count;
+  }
+  if (ready) {
+    for (const cudaGraphNode_t node : nodes) {
+      cudaGraphNodeType type = cudaGraphNodeTypeEmpty;
+      if (cudaGraphNodeGetType(node, &type) != cudaSuccess) {
+        ready = false;
+        break;
+      }
+      if (type == cudaGraphNodeTypeKernel) {
+        ++kernel_nodes;
+      } else {
+        ++other_nodes;
+      }
+    }
+  }
+  if (ready) {
+    ready = cudaGraphInstantiate(&executable, graph, 0U) == cudaSuccess;
+  }
+  if (ready) {
+    ready = cudaGraphLaunch(executable, stream) == cudaSuccess &&
+            cudaGraphLaunch(executable, stream) == cudaSuccess &&
+            cudaStreamSynchronize(stream) == cudaSuccess;
+  }
+  const bool passed =
+      ready && node_count == 9U && kernel_nodes == 9U && other_nodes == 0U;
+  std::cout << "GDN_CHUNK64_NATIVE_GRAPH"
+            << " nodes=" << node_count
+            << " kernel_nodes=" << kernel_nodes
+            << " other_nodes=" << other_nodes
+            << " replays=2"
+            << " gate=" << (passed ? "PASS" : "FAIL")
+            << " authority=CAPTURE_INSTANTIATE_REPLAY_SMOKE\n";
+
+  if (executable != nullptr) {
+    (void)cudaGraphExecDestroy(executable);
+  }
+  if (graph != nullptr) {
+    (void)cudaGraphDestroy(graph);
+  }
+  if (stream != nullptr) {
+    (void)cudaStreamDestroy(stream);
+  }
+  return passed;
+}
+#endif
+
 [[nodiscard]] bool run_state_characterization(runtime::ReferenceEngine& engine,
                                               const std::string& prompt) {
   const std::size_t element_count =
@@ -606,6 +1055,14 @@ int main(const int argc, char** const argv) {
     return 4;
   }
 #if defined(Q3X_GDN_CHUNK64_NATIVE_TEST)
+  if (std::getenv("Q3X_GDN_CHUNK64_RUN_KKT_EQUIVALENCE") != nullptr &&
+      !run_native_kkt_equivalence(*created.value, prompt)) {
+    return 7;
+  }
+  if (std::getenv("Q3X_GDN_CHUNK64_VALIDATE_GRAPH") != nullptr &&
+      !run_native_graph_validation()) {
+    return 8;
+  }
   if (std::getenv("Q3X_GDN_CHUNK64_SKIP_STATE_CHARACTERIZATION") == nullptr &&
       !run_state_characterization(*created.value, prompt)) {
     return 5;
