@@ -2728,7 +2728,7 @@ void test_exact_nvfp4_whole_chunk_branch_dispatch(TestContext& test) {
             output_columns_per_cta *
             (token_count / kWholeChunkTokensPerCta));
         const std::size_t expected_dynamic_shared_bytes =
-            gate_c512 ? 96'256U : 0U;
+            gate_c512 ? 118'784U : 0U;
         const bool exact =
             dispatch.valid && dispatch.launches.size() == 1U &&
             direct.valid && direct.launches.size() == 1U &&
@@ -2747,7 +2747,8 @@ void test_exact_nvfp4_whole_chunk_branch_dispatch(TestContext& test) {
             direct.launches.front().block.x == 256U &&
             direct.launches.front().dynamic_shared_bytes ==
                 expected_dynamic_shared_bytes;
-        test.expect(exact, label + " is one exact N-major production grid");
+        test.expect(exact,
+                    label + " is one exact A-stationary production grid");
       };
 
   expect_exact_grid(gate_up, hidden_input, intermediate_output, 256U, true,
@@ -2874,7 +2875,7 @@ void test_exact_nvfp4_whole_chunk_branch_dispatch(TestContext& test) {
               (kIntermediateSize / (c512 ? 256U : 128U)) *
               (token_count / 128U));
           const unsigned int expected_dynamic_shared_bytes =
-              c512 ? 96'256U : 0U;
+              c512 ? 118'784U : 0U;
           test.expect(
               ready && parameters.func == direct.launches.front().function &&
                   parameters.gridDim.x == expected_grid &&
@@ -2885,7 +2886,8 @@ void test_exact_nvfp4_whole_chunk_branch_dispatch(TestContext& test) {
                   parameters.blockDim.z == 1U &&
                   parameters.sharedMemBytes ==
                       expected_dynamic_shared_bytes,
-              label + " branch is the function-identical N-major node");
+              label +
+                  " branch is the function-identical A-stationary node");
           kernel_nodes.push_back(nodes[index]);
         } else if (ready && type == cudaGraphNodeTypeMemset) {
           test.expect(joined_marker_node == nullptr,

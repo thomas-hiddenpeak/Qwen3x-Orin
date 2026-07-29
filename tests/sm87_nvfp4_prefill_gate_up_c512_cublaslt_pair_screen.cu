@@ -2088,7 +2088,7 @@ struct ComparisonResult {
              NativeKernel::kM64N256BSwizzleScale5123Stage) {
     expected_dynamic_shared = 68'608U;
   } else if (m128n256_bs512_256t) {
-    expected_dynamic_shared = 96'256U;
+    expected_dynamic_shared = 118'784U;
   } else if (fixture.native_kernel == NativeKernel::kM128N256HorizontalP0) {
     expected_dynamic_shared = 61'440U;
   } else if (fixture.native_kernel ==

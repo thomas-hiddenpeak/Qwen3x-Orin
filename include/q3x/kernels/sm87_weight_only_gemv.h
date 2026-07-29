@@ -465,8 +465,10 @@ launch_sm87_fp8_w8a16_whole_chunk_qkv_register_feed_pack_cuda(
 // Exact C256/C512 NVFP4 dense-MLP Gate or Up branch. activations is
 // contiguous token-major BF16 [token_count, 5120] and output is contiguous
 // token-major BF16 [token_count, 17408]. C256 uses an M128xN128 CTA; C512 uses
-// an M128xN256 CTA with a three-stage raw-operand pipeline and K512 scale
-// windows. Both reuse each decoded B fragment across eight ordered M16 panels
+// an M128xN256 CTA with two K128 raw-operand slots and K512 scale windows. Each
+// K128 slot preserves two ordered K64 async-copy groups, reducing the C512
+// publication barriers from 80 to 40 without changing accumulation order.
+// Both routes reuse each decoded B fragment across eight ordered M16 panels
 // and launch 272 CTAs. Only token_count=256 or 512 and the exact aligned
 // checkpoint shape are accepted; every near miss fails closed.
 [[nodiscard]] int

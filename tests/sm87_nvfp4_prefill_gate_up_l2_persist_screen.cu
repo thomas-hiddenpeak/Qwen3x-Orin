@@ -680,7 +680,7 @@ struct Fixture {
             token_count, kRows, kColumns, &registers, &shared, &local,
             &threads, &active);
     const bool c256 = token_count == 256U;
-    const int expected_registers = c256 ? 126 : 244;
+    const int expected_registers = c256 ? 126 : 249;
     const std::size_t expected_shared = c256 ? 37'376U : 512U;
     const int expected_active = c256 ? 2 : 1;
     const bool gate = status == static_cast<int>(cudaSuccess) &&
