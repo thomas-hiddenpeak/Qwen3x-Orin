@@ -1621,6 +1621,17 @@ The diagnostic Phase 3 records are:
   screen. All 76 runnable Release tests pass with 12 expected skips; C256,
   Down, FP8, GDN, Decode, MTP, and cuBLASLt's reference-only status are
   unchanged.
+- [`qwen36-27b-prefill-gate-c512-k128-split-plane-rejection-2026-07-29.json`](qwen36-27b-prefill-gate-c512-k128-split-plane-rejection-2026-07-29.json),
+  which rejects splitting each K128 activation slot into two physical LD72
+  K64 planes. The required first real P513 direction is positive by 1.085 ms,
+  so the candidate correctly advances to complete validation; formal B-C-C-B
+  then retains only a 0.684-ms mean advantage without cross-run separation.
+  Matched real-weight NCU is decisively negative: one Gate regresses
+  **4.406944 -> 4.427744 ms**, while 5,570,560 load-bank conflicts, 38,993,920
+  shared-load wavefronts, and 144,095,808 warp instructions are all unchanged.
+  LD72 and LD136 are 128-byte congruent in shared-bank phase, so the candidate
+  only adds 4 KiB of shared storage. It is fully reverted; the `d7aa73b` K128
+  production route remains the native champion.
 - [`qwen36-27b-prefill-gdn-b8-block-transition-screen.json`](qwen36-27b-prefill-gdn-b8-block-transition-screen.json),
   which selects the test-only sequential FP32-B8 GDN dataflow and rejects the
   measured WY control. C256 reaches **2.76977x** versus production M16 while

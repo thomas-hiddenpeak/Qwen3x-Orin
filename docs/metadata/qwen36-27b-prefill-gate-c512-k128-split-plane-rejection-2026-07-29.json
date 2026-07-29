@@ -1,0 +1,215 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-gate-c512-k128-split-plane-rejection-2026-07-29",
+  "status": "direction-positive-but-formal-unstable-and-matched-ncu-rejected-source-reverted",
+  "recorded_at": "2026-07-29T12:44:03+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "baseline_commit": "fad7394",
+    "baseline_subject": "docs: record K128 C512 Gate promotion",
+    "production_implementation_commit": "d7aa73b62a22e511f31d8accab87bb79155f59c4",
+    "candidate_commit": null,
+    "candidate_source_status": "uncommitted bounded candidate; fully reverted after the formal stability and matched-NCU gates failed",
+    "production_source_after_screen": "identical to fad7394"
+  },
+  "policy": {
+    "performance_decision_payload": "full resident real checkpoint and native generation path",
+    "direction_gate": "one fresh fixed-clock P513 baseline followed by one candidate",
+    "post_direction_gate": "a positive direction retains the candidate long enough for correctness, resources, mirrored real-model timing, and matched NCU",
+    "promotion_gate": "the mirrored candidate must be stable and the real-weight target kernel must not regress",
+    "synthetic_performance_authority": "NONE",
+    "cublaslt_executed": false,
+    "cublaslt_role": "REFERENCE_ONLY",
+    "cublaslt_production_eligibility": "NONE",
+    "mtp_used": false
+  },
+  "candidate": {
+    "route": "exact-C512 NVFP4 Gate and Up only",
+    "shape": "M512xN17408xK5120",
+    "retained_components": [
+      "M128xN256xK128 ownership",
+      "two K128 publication slots and 40 CTA barriers",
+      "two ordered K64 cp.async commit groups per slot",
+      "K512 scale windows and compact B-half swizzle",
+      "strict one-dimensional A-stationary CTA order",
+      "exact decoder, MMA count, accumulation order, and epilogue"
+    ],
+    "change": {
+      "baseline": "one M128xLD136 activation array per K128 slot; the second K64 half begins at element offset 64 in each row",
+      "candidate": "two independent M128xLD72 activation planes per K128 slot; each K64 half owns one plane",
+      "intended_effect": "retain 40 K128 publications while restoring the conflict behavior attributed to the predecessor K64/LD72 pipeline",
+      "shared_bytes": {"baseline": 118784, "candidate": 122880},
+      "shared_byte_delta": 4096
+    },
+    "resources": {
+      "registers_per_thread": {"baseline": 249, "candidate": 249},
+      "static_shared_bytes": {"baseline": 512, "candidate": 512},
+      "dynamic_shared_bytes": {"baseline": 118784, "candidate": 122880},
+      "local_bytes": {"baseline": 0, "candidate": 0},
+      "threads_per_cta": 256,
+      "active_blocks_per_sm": {"baseline": 1, "candidate": 1}
+    }
+  },
+  "environment": {
+    "device": "NVIDIA Jetson AGX Orin Developer Kit",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "nvpmodel": "MAXN",
+    "cpu_affinity": "taskset --cpu-list 11",
+    "fixed_frequency_readback": {
+      "cpu_hz": 2201600000,
+      "gpu_hz": 1300500000,
+      "emc_hz": 3200000000
+    },
+    "fan_pwm": 255
+  },
+  "real_generation_direction": {
+    "model": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "prompt": "P513; 501 space-separated copies of hello in the pinned non-thinking chat template",
+    "rendered_prompt_tokens": 513,
+    "prefix_tokens": 512,
+    "max_new_tokens": 1,
+    "prefill_chunk_size": 512,
+    "projection_backend": "sm87_weight_only",
+    "baseline": {
+      "prefix_ms": 2295.072,
+      "finish_prefill_ms": 127.160,
+      "ttft_ms": 2422.232
+    },
+    "candidate": {
+      "prefix_ms": 2293.987,
+      "finish_prefill_ms": 125.275,
+      "ttft_ms": 2419.262
+    },
+    "result": {
+      "prefix_saved_ms": 1.085,
+      "prefix_latency_reduction_percent": 0.047275205,
+      "prefix_speedup": 1.000472976,
+      "direction": "POSITIVE_ADVANCE_TO_VALIDATION"
+    },
+    "oracle": {
+      "generated_token_id": 9419,
+      "generated_text": "Hello",
+      "step_count": 513
+    }
+  },
+  "formal_real_model_b_c_c_b": {
+    "order": ["B1", "C1", "C2", "B2"],
+    "runs": {
+      "B1": {"prefix_ms": 2295.072, "finish_prefill_ms": 127.160, "ttft_ms": 2422.232},
+      "C1": {"prefix_ms": 2293.987, "finish_prefill_ms": 125.275, "ttft_ms": 2419.262},
+      "C2": {"prefix_ms": 2292.811, "finish_prefill_ms": 125.616, "ttft_ms": 2418.427},
+      "B2": {"prefix_ms": 2293.094, "finish_prefill_ms": 124.795, "ttft_ms": 2417.889}
+    },
+    "result": {
+      "baseline_prefix_ms": 2294.083,
+      "candidate_prefix_ms": 2293.399,
+      "prefix_saved_ms": 0.684,
+      "prefix_latency_reduction_percent": 0.029815835,
+      "prefix_speedup": 1.000298247,
+      "baseline_ttft_ms": 2420.0605,
+      "candidate_ttft_ms": 2418.8445,
+      "ttft_saved_ms": 1.216,
+      "ttft_speedup": 1.000502719,
+      "both_candidate_runs_faster_than_both_baseline_runs": false,
+      "exact_oracle_every_run": true,
+      "stability_gate": "FAIL"
+    }
+  },
+  "correctness_and_resources": {
+    "real_checkpoint_gate_up_eager_and_graph": "PASS_BITWISE",
+    "bf16_elements_compared_per_branch": 8912896,
+    "gate_mismatches": 0,
+    "up_mismatches": 0,
+    "nonfinite_values": 0,
+    "guards": "intact",
+    "invalid_contract": "PASS",
+    "targeted_tests": {
+      "passed": [
+        "sm87_weight_only_gemv",
+        "nvfp4_prefill_gate_up_l2_persist_screen",
+        "nvfp4_prefill_gate_up_l2_persist_screen_c256",
+        "nvfp4_prefill_gate_up_c512_native_only_smoke",
+        "nvfp4_prefill_gate_up_c512_checkpoint_retention",
+        "projection_backend_dispatch after candidate resource-contract update"
+      ],
+      "failed": 0
+    }
+  },
+  "matched_ncu": {
+    "authority": "post-direction causal diagnostic using pinned real layer-0 Gate weights",
+    "shape": "M512xN17408xK5120",
+    "launches_per_binary": 1,
+    "set": "full",
+    "replay_mode": "kernel",
+    "metrics": {
+      "duration_ms": {"baseline": 4.406944, "candidate": 4.427744, "change_percent": 0.471982399, "speedup": 0.995302348},
+      "registers_per_thread": {"baseline": 249, "candidate": 249},
+      "executed_warp_instructions": {"baseline": 144095808, "candidate": 144095808},
+      "ordinary_shared_load_bank_conflicts": {"baseline": 5570560, "candidate": 5570560},
+      "shared_load_wavefronts": {"baseline": 38993920, "candidate": 38993920},
+      "tensor_throughput_percent_elapsed": {"baseline": 49.147110, "candidate": 49.114619},
+      "global_and_l2_traffic": "unchanged by construction; no traffic-reduction claim"
+    },
+    "interpretation": [
+      "The intended mechanism does not occur: splitting the two halves into separate LD72 planes leaves every measured shared-load conflict and wavefront unchanged.",
+      "LD72 and LD136 differ by 64 BF16 elements, exactly 128 bytes, and are therefore congruent under the SM87 shared-bank address mapping. Both plane bases are also 128-byte aligned.",
+      "The candidate adds 4 KiB of resident shared storage without changing the compiled warp instruction count or shared-load service work, and the real Gate launch regresses 0.472%.",
+      "A successor must change the bank phase or compiler consumer schedule, not merely split storage at an equivalent bank address."
+    ]
+  },
+  "restoration_validation": {
+    "source_diff_from_head": "none",
+    "restored_resources": {
+      "registers_per_thread": 249,
+      "static_shared_bytes": 512,
+      "dynamic_shared_bytes": 118784,
+      "local_bytes": 0,
+      "active_blocks_per_sm": 1
+    },
+    "targeted_tests": {"passed": 4, "failed": 0},
+    "real_generation_smoke": {
+      "prefix_ms": 2293.271,
+      "finish_prefill_ms": 126.903,
+      "ttft_ms": 2420.174,
+      "generated_token_id": 9419,
+      "generated_text": "Hello",
+      "step_count": 513,
+      "status": "PASS"
+    }
+  },
+  "artifacts": {
+    "baseline_runner": {"path": "/tmp/q3x-prefill-gate-k128-split-plane-direction-baseline", "bytes": 7632408, "sha256": "00f26a4bb96211dbacb85760c2a7276a9111eb47d060f3b729e94bfe621fd015"},
+    "candidate_runner": {"path": "/tmp/q3x-prefill-gate-k128-split-plane-direction-candidate", "bytes": 7632432, "sha256": "14ff5022a3474a0de5d9f4aa38e47ddddd33291ea8ca446181cf54e96d390148"},
+    "formal_logs": {
+      "B1": {"path": "/tmp/q3x-prefill-gate-k128-split-plane-direction-baseline.log", "bytes": 9002, "sha256": "fc4c46236db00ce11e40dffb1f4d623578481ae93fa82e0c664c3c5687fd1d8d"},
+      "C1": {"path": "/tmp/q3x-prefill-gate-k128-split-plane-direction-candidate.log", "bytes": 9002, "sha256": "44a3c291a8ffacb455e8823758fa4489486917abaafcc98bfa3de78638c61151"},
+      "C2": {"path": "/tmp/q3x-prefill-gate-k128-split-plane-formal-c2.log", "bytes": 9002, "sha256": "813ec9662c7148548ad5ad120f54296bf527fc8d3cfe3c2553e3212df4971fa7"},
+      "B2": {"path": "/tmp/q3x-prefill-gate-k128-split-plane-formal-b2.log", "bytes": 9002, "sha256": "3a3ee7e55d0c4f184bae091acdb3fbb58e4f94b5c340ed11cae3dc3dddb22e07"}
+    },
+    "baseline_ncu_report": {"path": "/tmp/q3x-prefill-gate-k128-candidate-full.ncu-rep", "bytes": 15075539, "sha256": "a26514c394a35126f45d8fd8f72025c3b34ce2c91a0d30e32a2b55b0b72330b5"},
+    "candidate_ncu_report": {"path": "/tmp/q3x-prefill-gate-k128-split-plane-candidate-full.ncu-rep", "bytes": 15103824, "sha256": "9941685ce1cb1447fcc352f274f09a97d3b3fcab75548aa5504142ff872f7129"},
+    "candidate_ncu_log": {"path": "/tmp/q3x-prefill-gate-k128-split-plane-ncu-candidate.log", "bytes": 5475, "sha256": "11ba7cc61c2d648ed62621e39269d5fbcb2d97de030478f6fdce9acddf3cce91"},
+    "restored_runner": {"path": "build/orin-release/qwen3x-orin", "bytes": 7632408, "sha256": "db12ff8618ca2c2904f81e7b77b41dae58ab0fa78c16d2a47f133f2ed1ae5c2c"},
+    "restored_generation_log": {"path": "/tmp/q3x-prefill-gate-k128-split-plane-restored-production.log", "bytes": 9002, "sha256": "c7fc6e6fad50beb47108643879a174a1f1520ea8a5e172c2a77d86e6b0095572"}
+  },
+  "decision": {
+    "result": "REJECT",
+    "production_changed": false,
+    "direction_gate": "PASS",
+    "correctness_gate": "PASS",
+    "resource_gate": "PASS",
+    "formal_stability_gate": "FAIL",
+    "matched_ncu_target_gate": "FAIL",
+    "reason": "The initial real path is only 1.085 ms positive and the mirrored mean only 0.684 ms positive without cross-run separation. Matched real-weight NCU then shows identical conflicts, wavefronts, and instructions but a 0.472% Gate regression.",
+    "candidate_code_removed": true,
+    "retained_route": "M128xN256xK128 LD136 two-slot production kernel at d7aa73b",
+    "next": "change the shared-bank phase with a legal non-congruent leading dimension, or isolate the K64 consumer schedule; always screen the real P513 generation path before deeper validation"
+  },
+  "limitations": [
+    "The real-model gate covers one fixed P513 prompt and batch one; the matched NCU target regression is the causal rejection evidence.",
+    "The deterministic BF16 activation used by NCU is not a captured layer-0 activation, while Gate weights and scales are the pinned checkpoint bytes.",
+    "The result rejects only the congruent LD72 physical split. It does not prove that every bank-phase transform or compiler schedule is ineffective."
+  ]
+}

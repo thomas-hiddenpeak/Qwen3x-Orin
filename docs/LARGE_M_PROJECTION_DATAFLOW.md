@@ -793,9 +793,21 @@ ms**. Global and L2 read sectors, hits, and misses are identical, while
 instructions fall 4.15%, barrier stalls fall 15.43%, MIO-throttle samples fall
 25.24%, and Tensor utilization rises from 46.36% to 49.15%. The LD136 A row
 does introduce 5,570,560 ordinary shared-load bank conflicts and higher
-scoreboard stalls. The next bounded cell therefore retains K128 publication
-but presents its two K64 activation halves as independent LD72 planes. See
+scoreboard stalls. A first bounded successor retains K128 publication and
+presents its two K64 activation halves as independent LD72 planes. See
 [`metadata/qwen36-27b-prefill-gate-c512-k128-double-production-2026-07-29.json`](metadata/qwen36-27b-prefill-gate-c512-k128-double-production-2026-07-29.json).
+
+That physical split is rejected. Its first real P513 direction is positive by
+1.085 ms, but formal B-C-C-B retains only a 0.684-ms mean advantage without
+cross-run separation. More importantly, matched real-weight NCU regresses one
+Gate launch **4.406944 -> 4.427744 ms** and leaves all 5,570,560 load-bank
+conflicts, all 38,993,920 shared-load wavefronts, and all 144,095,808 warp
+instructions unchanged. LD72 and LD136 differ by exactly 128 bytes per row and
+are congruent under the SM87 bank mapping; separately aligned planes therefore
+do not change the consumer bank phase. The source is reverted. A successor
+must use a legal non-congruent leading dimension or change the compiled K64
+consumer schedule. See
+[`metadata/qwen36-27b-prefill-gate-c512-k128-split-plane-rejection-2026-07-29.json`](metadata/qwen36-27b-prefill-gate-c512-k128-split-plane-rejection-2026-07-29.json).
 
 ## Triton and vLLM design-reference screen
 
@@ -886,9 +898,11 @@ problem.
    strict 1D A-stationary order saves 6.291 ms on formal P513 B-C-C-B and is
    promoted; do not replace it with the measured-slower equivalent 2D grid.
    The grouped-4, grouped-17, and four-slot K64 direction cells are rejected.
-   Next retain K128 publication while splitting A into two conflict-free LD72
-   K64 planes; this targets the 5,570,560 shared-load conflicts introduced by
-   LD136 without restoring 80 CTA barriers. Re-run the same
+   The congruent LD72 split-plane successor is rejected: it retains exactly
+   the same 5,570,560 load conflicts and regresses matched Gate latency 0.472%.
+   Next retain K128 publication while testing a legal non-congruent A leading
+   dimension or an isolated K64 consumer schedule; do not infer bank-conflict
+   behavior from a physical split whose stride differs by 128 bytes. Re-run the same
    pinned real-weight six-round B-C-C-B screen against the current retained
    native champion after each complete configuration; keep every stable
    all-positive result and update that champion.  Run matched NCU to attribute
