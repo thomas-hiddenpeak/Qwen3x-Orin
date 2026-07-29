@@ -18,6 +18,7 @@ namespace {
 
 thread_local InspectionHook g_inspection_hook{};
 thread_local bool g_force_fused_kkt_baseline_for_test = false;
+thread_local bool g_force_resident_state_baseline_for_test = false;
 
 }  // namespace
 
@@ -31,6 +32,13 @@ bool exchange_force_fused_kkt_baseline_for_test(
     const bool enabled) noexcept {
   const bool previous = g_force_fused_kkt_baseline_for_test;
   g_force_fused_kkt_baseline_for_test = enabled;
+  return previous;
+}
+
+bool exchange_force_resident_state_baseline_for_test(
+    const bool enabled) noexcept {
+  const bool previous = g_force_resident_state_baseline_for_test;
+  g_force_resident_state_baseline_for_test = enabled;
   return previous;
 }
 
@@ -1207,13 +1215,11 @@ void recompute_w_u_chunk64_kernel(
   }
 }
 
-// Architecture stage B: one CTA owns 64 value rows of one head and keeps the
-// 64x128 FP32 state tile in eight WMMA accumulator fragments per warp across
-// all eight chunks. The shared banks only materialize the BF16 boundary used
-// by W and by output reconstruction; no intermediate state is written back
-// and reloaded between chunks.
+// Frozen stage-B baseline. It keeps the FP32 recurrence in accumulator
+// fragments, but each chunk still materializes the entire 64x128 tile as
+// FP32, rounds it into a second BF16 shared tile, and reloads that tile for W.
 __global__ __launch_bounds__(kFusedSolveThreads)
-void persistent_state_chunk64_kernel(
+void persistent_state_chunk64_baseline_kernel(
     const std::uint16_t* const w,
     const std::uint16_t* const u,
     const std::uint16_t* const k_decay,
@@ -1420,6 +1426,290 @@ void persistent_state_chunk64_kernel(
   }
 }
 
+constexpr std::size_t kResidentStateScratchElements =
+    kFusedSolveWarps * kSolveSubblock * kSolveSubblock;
+constexpr std::size_t kResidentStateScratchBytes =
+    kResidentStateScratchElements * sizeof(float);
+constexpr std::size_t kResidentVNewElements = 64U * kChunkSize;
+constexpr std::size_t kResidentVNewBytes =
+    kResidentVNewElements * sizeof(Bf16);
+constexpr std::size_t kResidentMatrixElements = kChunkSize * kDimension;
+constexpr std::size_t kResidentMatrixBytes =
+    kResidentMatrixElements * sizeof(Bf16);
+constexpr std::size_t kResidentStateSharedBytes =
+    kResidentStateScratchBytes + kResidentVNewBytes +
+    kResidentMatrixBytes;
+static_assert(kResidentStateSharedBytes == 28U * 1024U);
+
+__device__ __forceinline__ void resident_state_cp_async_16(
+    void* const shared_destination, const void* const global_source) {
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800
+  const unsigned int shared_address =
+      static_cast<unsigned int>(__cvta_generic_to_shared(
+          shared_destination));
+  asm volatile("cp.async.cg.shared.global [%0], [%1], 16;" :
+               : "r"(shared_address), "l"(global_source));
+#endif
+}
+
+__device__ __forceinline__ void resident_state_cp_async_commit() {
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800
+  asm volatile("cp.async.commit_group;" ::: "memory");
+#endif
+}
+
+__device__ __forceinline__ void resident_state_cp_async_wait_all() {
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800
+  asm volatile("cp.async.wait_group 0;" ::: "memory");
+#endif
+}
+
+// Open-book stage-B candidate, specialized to the authenticated GDN shape.
+// The recurrence H remains in FP32 accumulator fragments for the whole
+// request. At each chunk, its BF16 matrix-A operand is formed directly from
+// those fragments, rather than through the baseline's 32-KiB FP32 and
+// 16-KiB BF16 shared round trip. One 16-KiB shared slot is reused for W then
+// K, so every global tile is loaded once per CTA instead of once per warp.
+// The CTA-owned 64-row half of Vnew is retained in 8 KiB of shared memory for
+// the state update while the public BF16 Vnew boundary is still written.
+__global__ __launch_bounds__(kFusedSolveThreads)
+void persistent_state_chunk64_resident_kernel(
+    const std::uint16_t* const w,
+    const std::uint16_t* const u,
+    const std::uint16_t* const k_decay,
+    const float* const gamma,
+    const std::uint16_t* const state_input,
+    std::uint16_t* const state_output,
+    const unsigned int chunk_count,
+    std::uint16_t* const v_new,
+    std::uint16_t* const boundary_state) {
+  extern __shared__ unsigned char shared_raw[];
+  auto* const shared_scratch = reinterpret_cast<float*>(shared_raw);
+  auto* const shared_v_new = reinterpret_cast<Bf16*>(
+      shared_raw + kResidentStateScratchBytes);
+  auto* const shared_matrix = reinterpret_cast<Bf16*>(
+      shared_raw + kResidentStateScratchBytes + kResidentVNewBytes);
+
+  const unsigned int thread = threadIdx.x;
+  const unsigned int warp = thread / 32U;
+  const unsigned int lane = thread % 32U;
+  const unsigned int value_head = blockIdx.x / 2U;
+  const unsigned int value_half = blockIdx.x % 2U;
+  const unsigned int local_value_base = warp * kSolveSubblock;
+  const unsigned int value_base = value_half * 64U + local_value_base;
+  const std::size_t head_state_base =
+      static_cast<std::size_t>(value_head) * kDimension * kDimension;
+  float* const tile_scratch =
+      shared_scratch + warp * kSolveSubblock * kSolveSubblock;
+
+  WmmaAccumulator state_fragments[kDimension / kSolveSubblock];
+#pragma unroll
+  for (unsigned int key_block = 0U;
+       key_block < kDimension / kSolveSubblock; ++key_block) {
+    for (unsigned int index = lane;
+         index < kSolveSubblock * kSolveSubblock; index += 32U) {
+      const unsigned int local_value = index / kSolveSubblock;
+      const unsigned int key_in_block = index % kSolveSubblock;
+      const std::size_t source =
+          head_state_base +
+          static_cast<std::size_t>(value_base + local_value) * kDimension +
+          key_block * kSolveSubblock + key_in_block;
+      tile_scratch[index] = decode_bf16_device(state_input[source]);
+    }
+    __syncwarp();
+    wmma::load_matrix_sync(state_fragments[key_block], tile_scratch,
+                           static_cast<int>(kSolveSubblock),
+                           wmma::mem_row_major);
+    __syncwarp();
+  }
+
+  for (unsigned int chunk_index = 0U; chunk_index < chunk_count;
+       ++chunk_index) {
+    const std::size_t matrix =
+        static_cast<std::size_t>(chunk_index) * kValueHeadCount +
+        value_head;
+    const auto* const matrix_w = reinterpret_cast<const Bf16*>(
+        w + matrix * kChunkSize * kDimension);
+    const auto* const matrix_u = reinterpret_cast<const Bf16*>(
+        u + matrix * kChunkSize * kDimension);
+    const auto* const matrix_k_decay = reinterpret_cast<const Bf16*>(
+        k_decay + matrix * kChunkSize * kDimension);
+    auto* const matrix_v_new = reinterpret_cast<Bf16*>(
+        v_new + matrix * kChunkSize * kDimension);
+
+    // Hide the once-per-CTA W transfer behind the mandatory H publication.
+    for (unsigned int vector = thread;
+         vector < kResidentMatrixBytes / 16U;
+         vector += kFusedSolveThreads) {
+      resident_state_cp_async_16(
+          reinterpret_cast<unsigned char*>(shared_matrix) + vector * 16U,
+          reinterpret_cast<const unsigned char*>(matrix_w) + vector * 16U);
+    }
+    resident_state_cp_async_commit();
+
+#pragma unroll
+    for (unsigned int key_block = 0U;
+         key_block < kDimension / kSolveSubblock; ++key_block) {
+      wmma::store_matrix_sync(tile_scratch, state_fragments[key_block],
+                              static_cast<int>(kSolveSubblock),
+                              wmma::mem_row_major);
+      __syncwarp();
+      for (unsigned int index = lane;
+           index < kSolveSubblock * kSolveSubblock; index += 32U) {
+        const unsigned int local_value = index / kSolveSubblock;
+        const unsigned int key_in_block = index % kSolveSubblock;
+        boundary_state[
+            matrix * kDimension * kDimension +
+            static_cast<std::size_t>(value_base + local_value) * kDimension +
+            key_block * kSolveSubblock + key_in_block] =
+            encode_bf16_device(tile_scratch[index]);
+      }
+      __syncwarp();
+    }
+
+    resident_state_cp_async_wait_all();
+    __syncthreads();
+
+    // Four products remain live long enough to free the shared W/K slot.
+    WmmaAccumulator products[kChunkSize / kSolveSubblock];
+#pragma unroll
+    for (unsigned int token_block = 0U;
+         token_block < kChunkSize / kSolveSubblock; ++token_block) {
+      wmma::fill_fragment(products[token_block], 0.0F);
+#pragma unroll
+      for (unsigned int key_block = 0U;
+           key_block < kDimension / kSolveSubblock; ++key_block) {
+        wmma::fragment<wmma::matrix_a, 16, 16, 16, Bf16,
+                       wmma::row_major>
+            state_fragment;
+        wmma::fragment<wmma::matrix_b, 16, 16, 16, Bf16,
+                       wmma::col_major>
+            w_fragment;
+#pragma unroll
+        for (unsigned int element = 0U;
+             element < state_fragment.num_elements; ++element) {
+          state_fragment.x[element] = __float2bfloat16_rn(
+              state_fragments[key_block].x[element]);
+        }
+        wmma::load_matrix_sync(
+            w_fragment,
+            shared_matrix +
+                token_block * kSolveSubblock * kDimension +
+                key_block * kSolveSubblock,
+            static_cast<int>(kDimension));
+        wmma::mma_sync(products[token_block], state_fragment, w_fragment,
+                       products[token_block]);
+      }
+    }
+    __syncthreads();
+
+    // Reuse the same slot for K. Its transfer overlaps the product
+    // publication, U subtraction, and BF16 Vnew materialization below.
+    for (unsigned int vector = thread;
+         vector < kResidentMatrixBytes / 16U;
+         vector += kFusedSolveThreads) {
+      resident_state_cp_async_16(
+          reinterpret_cast<unsigned char*>(shared_matrix) + vector * 16U,
+          reinterpret_cast<const unsigned char*>(matrix_k_decay) +
+              vector * 16U);
+    }
+    resident_state_cp_async_commit();
+
+#pragma unroll
+    for (unsigned int token_block = 0U;
+         token_block < kChunkSize / kSolveSubblock; ++token_block) {
+      wmma::store_matrix_sync(tile_scratch, products[token_block],
+                              static_cast<int>(kSolveSubblock),
+                              wmma::mem_row_major);
+      __syncwarp();
+      for (unsigned int index = lane;
+           index < kSolveSubblock * kSolveSubblock; index += 32U) {
+        const unsigned int local_value = index / kSolveSubblock;
+        const unsigned int token_in_block = index % kSolveSubblock;
+        const unsigned int token_in_chunk =
+            token_block * kSolveSubblock + token_in_block;
+        const unsigned int local_half_value =
+            local_value_base + local_value;
+        const unsigned int value_dimension =
+            value_half * 64U + local_half_value;
+        const std::size_t element =
+            static_cast<std::size_t>(token_in_chunk) * kDimension +
+            value_dimension;
+        const Bf16 corrected = __float2bfloat16_rn(
+            __bfloat162float(matrix_u[element]) - tile_scratch[index]);
+        matrix_v_new[element] = corrected;
+        shared_v_new[token_in_chunk * 64U + local_half_value] = corrected;
+      }
+      __syncwarp();
+    }
+
+    const float decay =
+        expf(gamma[matrix * kChunkSize + kChunkSize - 1U]);
+#pragma unroll
+    for (unsigned int key_block = 0U;
+         key_block < kDimension / kSolveSubblock; ++key_block) {
+#pragma unroll
+      for (unsigned int element = 0U;
+           element < state_fragments[key_block].num_elements; ++element) {
+        state_fragments[key_block].x[element] *= decay;
+      }
+    }
+
+    resident_state_cp_async_wait_all();
+    __syncthreads();
+
+#pragma unroll
+    for (unsigned int key_block = 0U;
+         key_block < kDimension / kSolveSubblock; ++key_block) {
+#pragma unroll
+      for (unsigned int token_block = 0U;
+           token_block < kChunkSize / kSolveSubblock; ++token_block) {
+        wmma::fragment<wmma::matrix_a, 16, 16, 16, Bf16,
+                       wmma::col_major>
+            v_fragment;
+        wmma::fragment<wmma::matrix_b, 16, 16, 16, Bf16,
+                       wmma::row_major>
+            k_fragment;
+        wmma::load_matrix_sync(
+            v_fragment,
+            shared_v_new +
+                token_block * kSolveSubblock * 64U + local_value_base,
+            64);
+        wmma::load_matrix_sync(
+            k_fragment,
+            shared_matrix +
+                token_block * kSolveSubblock * kDimension +
+                key_block * kSolveSubblock,
+            static_cast<int>(kDimension));
+        wmma::mma_sync(state_fragments[key_block], v_fragment, k_fragment,
+                       state_fragments[key_block]);
+      }
+    }
+    __syncthreads();
+  }
+
+#pragma unroll
+  for (unsigned int key_block = 0U;
+       key_block < kDimension / kSolveSubblock; ++key_block) {
+    wmma::store_matrix_sync(tile_scratch, state_fragments[key_block],
+                            static_cast<int>(kSolveSubblock),
+                            wmma::mem_row_major);
+    __syncwarp();
+    for (unsigned int index = lane;
+         index < kSolveSubblock * kSolveSubblock; index += 32U) {
+      const unsigned int local_value = index / kSolveSubblock;
+      const unsigned int key_in_block = index % kSolveSubblock;
+      const std::size_t destination =
+          head_state_base +
+          static_cast<std::size_t>(value_base + local_value) * kDimension +
+          key_block * kSolveSubblock + key_in_block;
+      state_output[destination] =
+          encode_bf16_device(tile_scratch[index]);
+    }
+    __syncwarp();
+  }
+}
+
 // Architecture stage C: reconstruct one C64/value-head tile with WMMA, keep
 // its FP32 output on chip, then publish the same BF16 boundary consumed by
 // plain RMSNorm and SiLU(Z). One CTA therefore replaces the two batched GEMM
@@ -1583,6 +1873,15 @@ void reconstruct_norm_gate_chunk64_kernel(
              g_force_fused_kkt_baseline_for_test;
 }
 
+[[nodiscard]] bool force_resident_state_baseline() noexcept {
+  static const bool forced_by_environment =
+      std::getenv(
+          "Q3X_GDN_CHUNK64_FORCE_RESIDENT_STATE_BASELINE") != nullptr;
+  return forced_by_environment ||
+         gdn_prefill_chunk64_native_detail::
+             g_force_resident_state_baseline_for_test;
+}
+
 [[nodiscard]] bool invalid_arguments(
     void* const /*context*/,
     void* const workspace,
@@ -1740,15 +2039,23 @@ int launch(void* const context,
     return status;
   }
 
-  constexpr std::size_t persistent_state_shared_bytes =
-      64U * kDimension * (sizeof(float) + sizeof(Bf16));
-  persistent_state_chunk64_kernel<<<
-      static_cast<unsigned int>(kValueHeadCount * 2U),
-      kFusedSolveThreads, persistent_state_shared_bytes, stream>>>(
-      workspace.w, workspace.u, workspace.k_decay, workspace.gamma,
-      state_input, state_output, static_cast<unsigned int>(chunk_count),
-      workspace.v_new,
-      workspace.boundary_state);
+  if (force_resident_state_baseline()) {
+    constexpr std::size_t persistent_state_baseline_shared_bytes =
+        64U * kDimension * (sizeof(float) + sizeof(Bf16));
+    persistent_state_chunk64_baseline_kernel<<<
+        static_cast<unsigned int>(kValueHeadCount * 2U),
+        kFusedSolveThreads, persistent_state_baseline_shared_bytes, stream>>>(
+        workspace.w, workspace.u, workspace.k_decay, workspace.gamma,
+        state_input, state_output, static_cast<unsigned int>(chunk_count),
+        workspace.v_new, workspace.boundary_state);
+  } else {
+    persistent_state_chunk64_resident_kernel<<<
+        static_cast<unsigned int>(kValueHeadCount * 2U),
+        kFusedSolveThreads, kResidentStateSharedBytes, stream>>>(
+        workspace.w, workspace.u, workspace.k_decay, workspace.gamma,
+        state_input, state_output, static_cast<unsigned int>(chunk_count),
+        workspace.v_new, workspace.boundary_state);
+  }
   status = launch_grid_status();
   if (status != static_cast<int>(cudaSuccess)) {
     return status;
@@ -1784,14 +2091,14 @@ int query_native_resources(int* const registers_per_thread,
   }
   cudaFuncAttributes attributes{};
   cudaError_t status = cudaFuncGetAttributes(
-      &attributes, recompute_w_u_chunk64_kernel);
+      &attributes, persistent_state_chunk64_resident_kernel);
   if (status != cudaSuccess) {
     return static_cast<int>(status);
   }
   int active = 0;
   status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
-      &active, recompute_w_u_chunk64_kernel, static_cast<int>(kWuThreads),
-      kWuSharedBytes);
+      &active, persistent_state_chunk64_resident_kernel,
+      static_cast<int>(kFusedSolveThreads), kResidentStateSharedBytes);
   if (status != cudaSuccess) {
     return static_cast<int>(status);
   }
