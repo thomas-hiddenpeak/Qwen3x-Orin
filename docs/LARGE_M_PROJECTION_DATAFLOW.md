@@ -7,18 +7,18 @@ retained structured BS512 cell at commit `18c89ac`.  The post-isolation
 BS512/BF16/dequant matched-NCU decomposition is pinned at commit `9908add`,
 and the 256-thread M128xN256 successor is retained at commit `375f8df`.  Its
 source-identical M64-to-M128 matched-NCU attribution is pinned to that same
-implementation commit.
+implementation commit. Commit `55da501` promotes this cell for the exact C512
+Gate/Up production route after real-path P513 and full validation.
 
 This document defines the next Prefill projection work.  The self-hosted
 kernel line is the only line eligible for production: cuBLASLt is an external
 performance reference and has no production-dispatch, fallback, or promotion
 eligibility.  Historical commits and measurements that called a cuBLASLt
 bridge a production route are retained below for provenance, but that status
-is explicitly revoked by the qualification policy in this revision.  The
-current native production routes remain selected until an accumulated native
-candidate clears the self-hosted production gate below.  The 256-thread
-M128xN256 BS512 successor is the retained native experimental baseline for the
-exact-C512 Gate/Up line; production dispatch remains unchanged.
+is explicitly revoked by the qualification policy in this revision. The
+exact C512 Gate/Up production route now uses the 256-thread M128xN256
+BS512 cell; C256 remains on its independent M128xN128 route. This promoted
+cell is also the native baseline that the next C512 experiments must beat.
 All timing and profiler evidence in this plan is governed by the
 [real-model performance evidence policy](REAL_MODEL_PERFORMANCE_POLICY.md).
 
@@ -30,8 +30,8 @@ All timing and profiler evidence in this plan is governed by the
    production selector.
 2. The M64xN256 PairLookup kernel is the reproducible historical native
    control; CF3 superseded it, structured BS512 superseded CF3, and the
-   256-thread M128xN256 reuse cell now supersedes structured BS512 as the
-   retained native experimental baseline.
+   256-thread M128xN256 reuse cell superseded structured BS512 and is now the
+   exact-C512 native production and development baseline.
    Pinned layer-0 real-weight Gate+Up runs measure PairLookup at about
    11.42--11.45 ms versus 7.20--7.26 ms for the best zero-cuBLASLt-workspace
    reference.  That external reference still uses a reusable 170-MiB BF16
@@ -121,7 +121,7 @@ whole-chunk implementations; each target is retained against the current
 native experimental champion for its role and is promoted only against the
 current native production baseline.
 
-## Retained NVFP4 cell: one 256-thread M128xN256 CTA
+## Retained and promoted NVFP4 cell: one 256-thread M128xN256 CTA
 
 The retained Gate experiment grows the prior BS512 CTA vertically from
 M64 to M128 without widening its eight-warp thread block.  It keeps BS512's
@@ -149,8 +149,9 @@ This is intentionally not a cache-policy micro-tune.  It halves the CTA count
 and approximately halves raw-B landing, exact decode, scale presentation, and
 barrier work while retaining the proven BS512 feed mechanisms.  The matched
 BF16 reference reaches high Tensor utilization with the same 272-CTA,
-256-thread, one-CTA/SM geometry, making this a credible test-only exception to
-the incumbent two-CTA heuristic.  Its lack of an NVFP4 decoder means it is
+256-thread, one-CTA/SM geometry, making this a credible shape-specialized
+exception to the incumbent two-CTA heuristic. Its lack of an NVFP4 decoder
+means it is
 evidence of schedulability, not evidence that the new native cell will win.
 
 Commit `375f8df` implements that test-only cell. The exact native-only record
@@ -168,9 +169,12 @@ Against structured BS512, six real-weight B-C-C-B rounds retain the new cell:
 | serial | 10.184074 ms | 9.372453 ms | 1.086596x | yes |
 | dual | 10.115721 ms | 9.324912 ms | 1.084806x | yes |
 
-Dual is also uniformly faster than serial at 1.005214x and becomes the
-recommended experimental schedule. This is a development retention result,
-not a production promotion or end-to-end Prefill claim.
+Dual is also uniformly faster than serial at 1.005214x. This table records the
+development retention step; commit `55da501` subsequently promotes the same
+kernel for C512. Fixed-clock real-path P513 Prefix improves from 2559.131 to
+2331.928 ms (1.097431x), or from 200.067914 to 219.560810 token/s, while TTFT
+improves from 2685.244 to 2457.942 ms. The production record is
+[`metadata/qwen36-27b-prefill-gate-c512-m128n256-production-2026-07-29.json`](metadata/qwen36-27b-prefill-gate-c512-m128n256-production-2026-07-29.json).
 
 ## Prior wide-CTA skeleton: M128xN256 as two sub-CTAs
 
@@ -635,8 +639,9 @@ the same test-only binary.  Each process arms exactly one layer-0 Gate launch
 at M512xN17408xK5120.  The weights and scales are pinned real checkpoint
 bytes; the activation is deterministic BF16 rather than a captured layer
 tensor.  cuBLASLt setup and profiling are `NOT_RUN`, and this evidence has
-diagnostic authority only.  Production dispatch remains unchanged.  Binary,
-report, checkpoint, opcode, load/L2, shared, stall, and derived-counter hashes
+diagnostic authority only. This NCU capture predates the later production
+promotion. Binary, report, checkpoint, opcode, load/L2, shared, stall, and
+derived-counter hashes
 and values are preserved in
 [`metadata/qwen36-27b-gate-c512-m128n256-bs512-256t-matched-ncu-2026-07-29.json`](metadata/qwen36-27b-gate-c512-m128n256-bs512-256t-matched-ncu-2026-07-29.json).
 
@@ -705,7 +710,7 @@ The secondary reference is `M-fast` grouped CTA ordering from
 and [vLLM's block-FP8 PID mapping](https://github.com/vllm-project/vllm/blob/2899dca8432d40632987b0ec24253a8fe6df2710/vllm/model_executor/layers/quantization/utils/fp8_utils.py#L735-L813).
 The native screen will compare complete B-stationary and A-stationary CTA
 orders as one isolated scheduling cell after the scale layout. Gate/Up and
-Down remain separately specialized: Gate keeps M64xN256 as its incumbent;
+Down remain separately specialized: C512 Gate keeps M128xN256 as its baseline;
 Down separately screens N256/N128/N64 and two/three stages.
 
 Split-K is excluded because even M128xN256 provides 272 Gate and 80 Down CTAs
@@ -721,8 +726,8 @@ problem.
    routes and their readiness/hit/fallback observability. cuBLASLt dispatch,
    contexts, scratch, and fallback are already absent from production; keep the
    comparator in an isolated repeatable reference harness only.
-2. Preserve the new two-process native-only P513 anchor at 200.147883 Prefix
-   token/s.  The matched BS512/BF16/dequant NCU diagnostic is complete and
+2. Preserve the promoted native-only P513 anchor at 219.560810 Prefix token/s.
+   The matched BS512/BF16/dequant NCU diagnostic is complete and
    identifies feed/decode instruction density rather than L2 volume as the
    primary Gate gap.  The external reference retains diagnostic authority
    only.
@@ -731,9 +736,10 @@ problem.
    Prefill loop.
 4. Retain horizontal P0 as a resource/correctness sentinel and P1 as a named-
    barrier negative sentinel.  Do not tune either with isolated cache toggles.
-5. The 256-thread M128xN256 structural cell is now the retained native
-   experimental baseline after six all-positive real-weight rounds. Its
-   source-identical matched NCU attribution against structured BS512 is
+5. The 256-thread M128xN256 structural cell is now the exact-C512 production
+   and development baseline after six all-positive real-weight rounds plus a
+   positive full-model P513 B-C-C-B promotion. Its source-identical matched
+   NCU attribution against structured BS512 is
    complete: identical HMMA work, half the compressed-B decode/dependency
    operations, 33.56% fewer warp instructions, and 1.090064x lower profiled
    duration verify the mechanism. Preserve its zero-spill one-CTA exception

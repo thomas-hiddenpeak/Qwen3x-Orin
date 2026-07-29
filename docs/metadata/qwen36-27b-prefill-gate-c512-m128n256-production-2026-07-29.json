@@ -1,0 +1,222 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-gate-c512-m128n256-production-2026-07-29",
+  "status": "production-promoted",
+  "recorded_at": "2026-07-29T10:23:12+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "baseline_commit": "b6741b0",
+    "baseline_tree": "b432cfdf2f7bb5aff636a3b00a329e0832dc0c7f",
+    "implementation_commit": "55da501",
+    "implementation_tree": "73ded4ade723a8da9b77aee56f5b91b26a8394d6",
+    "subject": "perf: promote C512 M128N256 Gate/Up",
+    "files": [
+      "include/q3x/kernels/sm87_weight_only_gemv.h",
+      "src/kernels/sm87/weight_only_gemv.cu",
+      "tests/projection_backend_dispatch_test.cu",
+      "tests/sm87_nvfp4_prefill_gate_up_c512_cublaslt_pair_screen.cu",
+      "tests/sm87_weight_only_gemv_test.cu"
+    ]
+  },
+  "binaries": {
+    "baseline": {
+      "path": "/tmp/q3x-gate-p513-baseline-b6741b0",
+      "bytes": 7633480,
+      "sha256": "a49fa294c5d4d61354d96bd3abda1348720f0a1df6a418d329f376706bca7894",
+      "elf_build_id": "3a28f924e0689f2bb13266273acd2e486f64e865"
+    },
+    "measured_candidate": {
+      "path": "build/orin-release/qwen3x-orin",
+      "sha256": "e0f6cddfd064621cc0a35f826947cc536b6d27723ce3c43bde79d1c394789c40",
+      "note": "B-C-C-B and NSys binary before a source-comment-only rebuild; kernel source and generated route are unchanged"
+    },
+    "post_hardening_release": {
+      "path": "build/orin-release/qwen3x-orin",
+      "bytes": 7566848,
+      "sha256": "8897fad9627a5aec453fffa5f012304f3f45d8c5b0a4754b0091276117ecfcbe",
+      "elf_build_id": "9b70099d07a31848854434f00872211ca69c4c02"
+    }
+  },
+  "environment": {
+    "device": "NVIDIA Jetson AGX Orin Developer Kit",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "active_gpu_tpcs": 8,
+    "operating_system": "Linux 6.8.12-1021-tegra aarch64",
+    "cuda_compiler": "13.3.33",
+    "nvpmodel": "MAXN",
+    "cpu_affinity": "taskset --cpu-list 11",
+    "fixed_frequency_readback": {
+      "cpu_hz": 2201600000,
+      "gpu_hz": 1300500000,
+      "emc_hz": 3200000000
+    },
+    "fan_pwm": 255
+  },
+  "production_change": {
+    "role": "NVFP4 Gate and Up branches",
+    "selected_shape": {
+      "tokens": 512,
+      "rows": 17408,
+      "columns": 5120,
+      "activation": "BF16",
+      "weight": "canonical packed NVFP4 E2M1 with canonical E4M3 block-16 scales",
+      "output": "BF16"
+    },
+    "previous_c512_topology": "one M128xN128 CTA, 544 CTAs per branch",
+    "new_c512_topology": "one 256-thread M128xN256 CTA, 272 CTAs per branch",
+    "pipeline": "three K64 raw A/B stages plus two K512 scale windows",
+    "resources": {
+      "registers_per_thread": 241,
+      "static_shared_bytes": 512,
+      "dynamic_shared_bytes": 96256,
+      "local_bytes": 0,
+      "maximum_threads_per_block": 256,
+      "active_blocks_per_sm": 1
+    },
+    "unchanged": [
+      "C256 Gate/Up remains M128xN128",
+      "Down remains its independent M128xN128 route",
+      "FP8 projections",
+      "finish-Prefill",
+      "Decode",
+      "request memory and model weight layout"
+    ],
+    "workspace_bytes_added": 0,
+    "persistent_sidecar_bytes_added": 0,
+    "public_abi_changed": false,
+    "mtp_used": false,
+    "cublaslt_production_eligibility": "NONE"
+  },
+  "correctness": {
+    "pinned_real_weight_bundle": "Qwen3.6-27B-NVFP4 layer-0 Gate and Up",
+    "gate_weight_sha256": "e9e2d70cef19e52d65a0f7917ea6d936c172809ed247b350443b4344297159d8",
+    "gate_block_scale_sha256": "6eeaaa3bf8605b1d85252e13e6c495f6cf1b06e7fee8f27ea6367abbbb8fde0e",
+    "up_weight_sha256": "e604b0b18206afe695a191ecf77a6aaf4dfbc0f7e93f1f9789d9b579aed6215f",
+    "up_block_scale_sha256": "ba393d3f9d25a1f4decba80715c6079d27d9de1d059a038a2f3f3f0932870947",
+    "bf16_elements_compared_per_branch": 8912896,
+    "gate_mismatches": 0,
+    "up_mismatches": 0,
+    "eager_replays": 2,
+    "graph_replays": 2,
+    "guards": "intact",
+    "inputs_preserved": true,
+    "invalid_calls": 4,
+    "invalid_graph_nodes": 0,
+    "real_model_oracle": {
+      "prompt": "P513",
+      "generated_token_id_each_run": 9419,
+      "generated_text_each_run": "Hello",
+      "step_count_each_run": 513
+    }
+  },
+  "real_model_protocol": {
+    "model": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "order": ["B1", "C1", "C2", "B2"],
+    "prompt": "P513; 501 space-separated copies of hello in the pinned non-thinking chat template",
+    "rendered_prompt_tokens": 513,
+    "prefix_tokens": 512,
+    "max_new_tokens": 1,
+    "prefill_chunk_size": 512,
+    "projection_backend": "sm87_weight_only",
+    "decode_graph_cache": "disabled",
+    "performance_payload": "full resident checkpoint and real generation path"
+  },
+  "real_model_runs": {
+    "B1": {
+      "prefix_ms": 2559.857,
+      "finish_prefill_ms": 126.811,
+      "ttft_ms": 2686.667,
+      "log": {"path": "/tmp/q3x-gate-p513-b1.log", "bytes": 9002, "sha256": "8b79091c876ef250dd7b3afc1db12bbc129699a1cab3a5e6e53ee9d6a22533d7"}
+    },
+    "C1": {
+      "prefix_ms": 2331.970,
+      "finish_prefill_ms": 126.920,
+      "ttft_ms": 2458.890,
+      "log": {"path": "/tmp/q3x-gate-p513-c1.log", "bytes": 9002, "sha256": "7db34a388f868ff6afdd9e5dfc8c8c9a414c4ea08a83f84aa589dcbf1293f679"}
+    },
+    "C2": {
+      "prefix_ms": 2331.886,
+      "finish_prefill_ms": 125.107,
+      "ttft_ms": 2456.994,
+      "log": {"path": "/tmp/q3x-gate-p513-c2.log", "bytes": 9002, "sha256": "4ed199d133222d735312d982e03d2e5e0c15b1ac1b85723a9fe74438981c3e4a"}
+    },
+    "B2": {
+      "prefix_ms": 2558.405,
+      "finish_prefill_ms": 125.416,
+      "ttft_ms": 2683.821,
+      "log": {"path": "/tmp/q3x-gate-p513-b2.log", "bytes": 9002, "sha256": "c39a53fcac8742e9ab8a2f2631d172d865e0dbd7c2510299f5811961db262abc"}
+    }
+  },
+  "real_model_result": {
+    "baseline_prefix_ms": 2559.131,
+    "candidate_prefix_ms": 2331.928,
+    "prefix_saved_ms": 227.203,
+    "prefix_latency_reduction_percent": 8.878130897,
+    "prefix_speedup": 1.097431396,
+    "baseline_prefix_tokens_per_second": 200.067914,
+    "candidate_prefix_tokens_per_second": 219.560810,
+    "baseline_ttft_ms": 2685.244,
+    "candidate_ttft_ms": 2457.942,
+    "ttft_saved_ms": 227.302,
+    "ttft_latency_reduction_percent": 8.464854590,
+    "ttft_speedup": 1.092476552,
+    "all_measured_candidate_runs_positive": true
+  },
+  "nsys": {
+    "candidate_workload": "P513/C512/max1 with q3x.prefill.prefix_tile NVTX range",
+    "candidate_prefix_wall_ms": 2341.397856,
+    "candidate_kernel_calls": 8209,
+    "candidate_kernel_sum_ms": 2326.689760,
+    "candidate_distinct_kernel_names": 17,
+    "candidate_gate_up": {
+      "kernel": "nvfp4_w4a16_gate_c512_m128_n256_bswizzle_scale512_3stage_256t_kernel",
+      "calls": 128,
+      "total_ms": 605.830496,
+      "average_us": 4733.051,
+      "maximum_us": 4777.152
+    },
+    "prior_production_profile": {
+      "source": "docs/analysis/prefill-p513-nsys-2026-07-28/production-9967985-prefix-kernel-top20.csv",
+      "prefix_wall_ms": 2568.257216,
+      "kernel_sum_ms": 2559.205920,
+      "gate_up_total_ms": 839.867392
+    },
+    "delta": {
+      "prefix_wall_saved_ms": 226.859360,
+      "kernel_sum_saved_ms": 232.516160,
+      "gate_up_kernel_sum_saved_ms": 234.036896,
+      "interpretation": "the Gate/Up substitution accounts for the complete measured Prefix improvement within one-shot profiler noise"
+    },
+    "artifacts": {
+      "report": {"path": "/tmp/q3x-gate-m128n256-production-p513.nsys-rep", "bytes": 854749, "sha256": "b0d6d0e0b02aab0f6aba3d3d2cfd310b081024561ece8078be11974400a5f0b3"},
+      "sqlite": {"path": "/tmp/q3x-gate-m128n256-production-p513.sqlite", "bytes": 2424832, "sha256": "2816ef231dfe02fc59891a0c284d0a60139c4823cf099d4309c227a2e065fe1d"},
+      "checked_in_summary": "docs/analysis/prefill-p513-gate-m128n256-production-2026-07-29/prefix-kernel-top20.csv"
+    }
+  },
+  "verification": {
+    "targeted_tests": [
+      "sm87_weight_only_gemv",
+      "projection_backend_dispatch",
+      "nvfp4_prefill_gate_up_c512_native_only_smoke",
+      "nvfp4_prefill_gate_up_c512_checkpoint_retention"
+    ],
+    "full_release_ctest": {
+      "declared_tests": 88,
+      "runnable_tests_passed": 76,
+      "environment_or_policy_skips": 12,
+      "code_failures": 0,
+      "note": "the first sweep found test 37 unbuilt; after building its target, the isolated rerun passed"
+    },
+    "production_cublaslt_isolation": "PASS"
+  },
+  "decision": {
+    "result": "PROMOTE",
+    "production_route": "exact C512 Gate/Up only",
+    "development_baseline_after_promotion": "the promoted M128xN256 kernel",
+    "external_reference_execution": "NOT_RUN",
+    "cublaslt_role": "REFERENCE_ONLY",
+    "cublaslt_decision_authority": "NONE",
+    "next": "screen coupled raw-B plus packed-scale consumer-order layouts against this new native baseline, using the real generation path before extended validation"
+  }
+}
