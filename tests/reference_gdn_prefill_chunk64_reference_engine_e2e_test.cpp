@@ -127,6 +127,8 @@ struct StateSnapshot {
 #if defined(Q3X_GDN_CHUNK64_NATIVE_TEST)
 struct NativeBoundarySnapshot {
   std::vector<std::uint16_t> transform;
+  std::vector<std::uint16_t> w;
+  std::vector<std::uint16_t> u;
   std::vector<std::uint16_t> state;
   std::vector<std::uint16_t> output;
   std::size_t calls = 0U;
@@ -154,6 +156,46 @@ class ScopedFusedKktBaseline {
   bool previous_ = false;
 };
 
+class ScopedSplitWyBaseline {
+ public:
+  explicit ScopedSplitWyBaseline(const bool enabled) noexcept
+      : previous_(q3x::runtime::gdn_prefill_chunk64_native_detail::
+                      exchange_force_split_wy_baseline_for_test(enabled)) {}
+
+  ~ScopedSplitWyBaseline() {
+    (void)q3x::runtime::gdn_prefill_chunk64_native_detail::
+        exchange_force_split_wy_baseline_for_test(previous_);
+  }
+
+  [[nodiscard]] bool valid() const noexcept { return true; }
+
+  ScopedSplitWyBaseline(const ScopedSplitWyBaseline&) = delete;
+  ScopedSplitWyBaseline& operator=(const ScopedSplitWyBaseline&) = delete;
+
+ private:
+  bool previous_ = false;
+};
+
+class ScopedWyTimingHook {
+ public:
+  ScopedWyTimingHook(cudaEvent_t begin, cudaEvent_t after_initial,
+                     cudaEvent_t after_qk, cudaEvent_t after_final) noexcept
+      : previous_(q3x::runtime::gdn_prefill_chunk64_native_detail::
+                      exchange_wy_timing_hook(
+                          {begin, after_initial, after_qk, after_final})) {}
+
+  ~ScopedWyTimingHook() {
+    (void)q3x::runtime::gdn_prefill_chunk64_native_detail::
+        exchange_wy_timing_hook(previous_);
+  }
+
+  ScopedWyTimingHook(const ScopedWyTimingHook&) = delete;
+  ScopedWyTimingHook& operator=(const ScopedWyTimingHook&) = delete;
+
+ private:
+  q3x::runtime::gdn_prefill_chunk64_native_detail::WyTimingHook previous_{};
+};
+
 class ScopedResidentStateBaseline {
  public:
   explicit ScopedResidentStateBaseline(const bool enabled) noexcept
@@ -179,6 +221,10 @@ class ScopedResidentStateBaseline {
 void collect_native_boundaries(
     const std::uint16_t* const transform,
     const std::size_t transform_elements,
+    const std::uint16_t* const w,
+    const std::size_t w_elements,
+    const std::uint16_t* const u,
+    const std::size_t u_elements,
     const std::uint16_t* const state_output,
     const std::size_t state_elements,
     const std::uint16_t* const output,
@@ -193,8 +239,11 @@ void collect_native_boundaries(
   if (snapshot->calls != runtime::kRequestLinearLayerCount) {
     return;
   }
-  if (transform == nullptr || state_output == nullptr || output == nullptr ||
+  if (transform == nullptr || w == nullptr || u == nullptr ||
+      state_output == nullptr || output == nullptr ||
       snapshot->transform.size() != transform_elements ||
+      snapshot->w.size() != w_elements ||
+      snapshot->u.size() != u_elements ||
       snapshot->state.size() != state_elements ||
       snapshot->output.size() != output_elements) {
     snapshot->contract_error = true;
@@ -205,6 +254,16 @@ void collect_native_boundaries(
       snapshot->transform.data(), transform,
       transform_elements * sizeof(std::uint16_t), cudaMemcpyDeviceToHost,
       stream);
+  if (status == cudaSuccess) {
+    status = cudaMemcpyAsync(
+        snapshot->w.data(), w, w_elements * sizeof(std::uint16_t),
+        cudaMemcpyDeviceToHost, stream);
+  }
+  if (status == cudaSuccess) {
+    status = cudaMemcpyAsync(
+        snapshot->u.data(), u, u_elements * sizeof(std::uint16_t),
+        cudaMemcpyDeviceToHost, stream);
+  }
   if (status == cudaSuccess) {
     status = cudaMemcpyAsync(
         snapshot->state.data(), state_output,
@@ -582,11 +641,131 @@ void print_difference_metrics(const std::string_view suite,
          metrics.nrmse == 0.0 && metrics.cosine == 1.0;
 }
 
+void destroy_event(cudaEvent_t& event) noexcept {
+  if (event != nullptr) {
+    (void)cudaEventDestroy(event);
+    event = nullptr;
+  }
+}
+
+[[nodiscard]] bool valid_group_wy_event_sample(
+    const Sample& sample) noexcept {
+  return sample.semantic_oracle &&
+         sample.route_hits == expected_native_route_hits() &&
+         std::isfinite(sample.prefix_milliseconds) &&
+         sample.prefix_milliseconds > 0.0 &&
+         std::isfinite(sample.ttft_milliseconds) &&
+         sample.ttft_milliseconds > 0.0;
+}
+
+[[nodiscard]] bool run_timed_group_wy_sample(
+    runtime::ReferenceEngine& engine, const std::string& prompt,
+    const bool split_baseline, const std::string_view phase, Sample& sample,
+    float& initial_milliseconds, float& final_milliseconds) {
+  cudaEvent_t begin = nullptr;
+  cudaEvent_t after_initial = nullptr;
+  cudaEvent_t after_qk = nullptr;
+  cudaEvent_t after_final = nullptr;
+  bool ready = cudaEventCreate(&begin) == cudaSuccess &&
+               cudaEventCreate(&after_initial) == cudaSuccess &&
+               cudaEventCreate(&after_qk) == cudaSuccess &&
+               cudaEventCreate(&after_final) == cudaSuccess;
+  if (ready) {
+    const ScopedFusedKktBaseline fused_route(false);
+    const ScopedSplitWyBaseline split_route(split_baseline);
+    const ScopedResidentStateBaseline resident_route(false);
+    const ScopedWyTimingHook timing(begin, after_initial, after_qk,
+                                    after_final);
+    (void)run_sample(engine, prompt, true, phase, sample);
+    // The event gate owns a stricter native-route contract and does not rely
+    // on the legacy harness's prefix-execution-count convention.
+    ready = valid_group_wy_event_sample(sample);
+  }
+  if (ready) {
+    ready = cudaEventSynchronize(after_final) == cudaSuccess &&
+            cudaEventElapsedTime(&initial_milliseconds, begin,
+                                 after_initial) == cudaSuccess &&
+            cudaEventElapsedTime(&final_milliseconds, after_qk,
+                                 after_final) == cudaSuccess;
+  }
+  destroy_event(after_final);
+  destroy_event(after_qk);
+  destroy_event(after_initial);
+  destroy_event(begin);
+  return ready;
+}
+
+[[nodiscard]] bool run_native_group_wy_event_attribution(
+    runtime::ReferenceEngine& engine, const std::string& prompt) {
+  if (g_prompt_tokens != kDefaultPromptTokens) {
+    std::cerr << "group-WY event attribution requires real P513\n";
+    return false;
+  }
+  Sample baseline_warmup;
+  Sample candidate_warmup;
+  bool ready = false;
+  {
+    const ScopedFusedKktBaseline fused_route(false);
+    const ScopedSplitWyBaseline split_route(true);
+    const ScopedResidentStateBaseline resident_route(false);
+    (void)run_sample(engine, prompt, true, "wy_event_baseline_warmup",
+                     baseline_warmup);
+    ready = valid_group_wy_event_sample(baseline_warmup);
+  }
+  {
+    const ScopedFusedKktBaseline fused_route(false);
+    const ScopedSplitWyBaseline split_route(false);
+    const ScopedResidentStateBaseline resident_route(false);
+    (void)run_sample(engine, prompt, true, "wy_event_candidate_warmup",
+                     candidate_warmup);
+    ready = valid_group_wy_event_sample(candidate_warmup) && ready;
+  }
+
+  Sample baseline;
+  Sample candidate;
+  float baseline_initial = 0.0F;
+  float baseline_final = 0.0F;
+  float candidate_initial = 0.0F;
+  float candidate_final = 0.0F;
+  ready = run_timed_group_wy_sample(
+              engine, prompt, true, "wy_event_baseline", baseline,
+              baseline_initial, baseline_final) &&
+          ready;
+  ready = run_timed_group_wy_sample(
+              engine, prompt, false, "wy_event_candidate", candidate,
+              candidate_initial, candidate_final) &&
+          ready;
+  const float baseline_total = baseline_initial + baseline_final;
+  const float candidate_total = candidate_initial + candidate_final;
+  const float saved = baseline_total - candidate_total;
+  const bool semantics =
+      baseline.semantic_oracle && candidate.semantic_oracle &&
+      baseline.generated_token == candidate.generated_token &&
+      baseline.generated_text == candidate.generated_text;
+  const bool passed = ready && semantics && std::isfinite(baseline_total) &&
+                      std::isfinite(candidate_total) &&
+                      baseline_total > 0.0F && candidate_total > 0.0F &&
+                      saved > 0.0F;
+  std::cout << "GDN_CHUNK64_NATIVE_GROUP_WY_EVENT_ATTRIBUTION"
+            << " baseline_kkt_solve_ms=" << baseline_initial
+            << " baseline_recompute_ms=" << baseline_final
+            << " baseline_total_ms=" << baseline_total
+            << " candidate_group_ms=" << candidate_initial
+            << " candidate_post_qk_ms=" << candidate_final
+            << " candidate_total_ms=" << candidate_total
+            << " saved_ms=" << saved
+            << " speedup=" << baseline_total / candidate_total
+            << " generation_semantics=" << (semantics ? "PASS" : "FAIL")
+            << " gate=" << (passed ? "PASS" : "FAIL")
+            << " authority=REAL_WEIGHT_FINAL_LAYER_CUDA_EVENT\n";
+  return passed;
+}
+
 [[nodiscard]] bool run_native_kkt_equivalence(
     runtime::ReferenceEngine& engine,
     const std::string& prompt) {
   if (g_prompt_tokens != kDefaultPromptTokens) {
-    std::cerr << "KKT equivalence requires the real P513 route\n";
+    std::cerr << "group-WY equivalence requires the real P513 route\n";
     return false;
   }
   constexpr std::size_t kNativeTokens = kDefaultPromptTokens - 1U;
@@ -595,109 +774,121 @@ void print_difference_metrics(const std::string_view suite,
   constexpr std::size_t kOutputElements =
       kNativeTokens * runtime::kGdnVElements;
 
-  StateSnapshot fused_state;
-  StateSnapshot split_state;
-  NativeBoundarySnapshot fused_boundaries;
-  NativeBoundarySnapshot split_boundaries;
+  StateSnapshot baseline_state;
+  StateSnapshot candidate_state;
+  NativeBoundarySnapshot baseline_boundaries;
+  NativeBoundarySnapshot candidate_boundaries;
   try {
     const std::size_t request_state_elements =
         static_cast<std::size_t>(runtime::kRequestGdnStateBytes /
                                  sizeof(std::uint16_t));
-    fused_state.values.resize(request_state_elements);
-    split_state.values.resize(request_state_elements);
-    fused_boundaries.transform.resize(kTransformElements);
-    split_boundaries.transform.resize(kTransformElements);
-    fused_boundaries.state.resize(runtime::kGdnStateElements);
-    split_boundaries.state.resize(runtime::kGdnStateElements);
-    fused_boundaries.output.resize(kOutputElements);
-    split_boundaries.output.resize(kOutputElements);
+    baseline_state.values.resize(request_state_elements);
+    candidate_state.values.resize(request_state_elements);
+    baseline_boundaries.transform.resize(kTransformElements);
+    candidate_boundaries.transform.resize(kTransformElements);
+    baseline_boundaries.w.resize(kOutputElements);
+    candidate_boundaries.w.resize(kOutputElements);
+    baseline_boundaries.u.resize(kOutputElements);
+    candidate_boundaries.u.resize(kOutputElements);
+    baseline_boundaries.state.resize(runtime::kGdnStateElements);
+    candidate_boundaries.state.resize(runtime::kGdnStateElements);
+    baseline_boundaries.output.resize(kOutputElements);
+    candidate_boundaries.output.resize(kOutputElements);
   } catch (const std::bad_alloc&) {
-    std::cerr << "KKT equivalence host allocation failed\n";
+    std::cerr << "group-WY equivalence host allocation failed\n";
     return false;
   }
 
-  std::size_t fused_hits = 0U;
-  runtime::ReferenceGenerateResult fused_result;
+  std::size_t baseline_hits = 0U;
+  runtime::ReferenceGenerateResult baseline_result;
   {
-    const ScopedFusedKktBaseline route(true);
-    if (!route.valid()) {
-      std::cerr << "failed to select fused KKT baseline\n";
+    const ScopedFusedKktBaseline fused_route(false);
+    const ScopedSplitWyBaseline split_route(true);
+    if (!fused_route.valid() || !split_route.valid()) {
+      std::cerr << "failed to select split-WY baseline\n";
       return false;
     }
-    const ScopedNativeInspectionHook hook(fused_boundaries);
-    fused_result = run_snapshot_generation(
-        engine, prompt, true, fused_state, fused_hits);
+    const ScopedNativeInspectionHook hook(baseline_boundaries);
+    baseline_result = run_snapshot_generation(
+        engine, prompt, true, baseline_state, baseline_hits);
   }
 
-  std::size_t split_hits = 0U;
-  runtime::ReferenceGenerateResult split_result;
+  std::size_t candidate_hits = 0U;
+  runtime::ReferenceGenerateResult candidate_result;
   {
-    const ScopedFusedKktBaseline route(false);
-    if (!route.valid()) {
-      std::cerr << "failed to select split KKT candidate\n";
+    const ScopedFusedKktBaseline fused_route(false);
+    const ScopedSplitWyBaseline split_route(false);
+    if (!fused_route.valid() || !split_route.valid()) {
+      std::cerr << "failed to select group-owned WY candidate\n";
       return false;
     }
-    const ScopedNativeInspectionHook hook(split_boundaries);
-    split_result = run_snapshot_generation(
-        engine, prompt, true, split_state, split_hits);
+    const ScopedNativeInspectionHook hook(candidate_boundaries);
+    candidate_result = run_snapshot_generation(
+        engine, prompt, true, candidate_state, candidate_hits);
   }
-  if (!fused_result || !split_result) {
-    std::cerr << "KKT equivalence generation failed\n";
-    if (!fused_result) {
-      print_diagnostic(fused_result.diagnostic);
+  if (!baseline_result || !candidate_result) {
+    std::cerr << "group-WY equivalence generation failed\n";
+    if (!baseline_result) {
+      print_diagnostic(baseline_result.diagnostic);
     }
-    if (!split_result) {
-      print_diagnostic(split_result.diagnostic);
+    if (!candidate_result) {
+      print_diagnostic(candidate_result.diagnostic);
     }
     return false;
   }
 
   const DifferenceMetrics transform = compare_bf16(
-      fused_boundaries.transform, split_boundaries.transform);
+      baseline_boundaries.transform, candidate_boundaries.transform);
+  const DifferenceMetrics w = compare_bf16(
+      baseline_boundaries.w, candidate_boundaries.w);
+  const DifferenceMetrics u = compare_bf16(
+      baseline_boundaries.u, candidate_boundaries.u);
   const DifferenceMetrics final_layer_state = compare_bf16(
-      fused_boundaries.state, split_boundaries.state);
+      baseline_boundaries.state, candidate_boundaries.state);
   const DifferenceMetrics final_layer_output = compare_bf16(
-      fused_boundaries.output, split_boundaries.output);
+      baseline_boundaries.output, candidate_boundaries.output);
   const DifferenceMetrics full_request_state = compare_bf16(
-      fused_state.values, split_state.values);
-  print_difference_metrics("GDN_CHUNK64_NATIVE_KKT_EQUIVALENCE",
-                           "transform", transform);
-  print_difference_metrics("GDN_CHUNK64_NATIVE_KKT_EQUIVALENCE",
-                           "final_layer_state", final_layer_state);
-  print_difference_metrics("GDN_CHUNK64_NATIVE_KKT_EQUIVALENCE",
-                           "final_layer_output", final_layer_output);
-  print_difference_metrics("GDN_CHUNK64_NATIVE_KKT_EQUIVALENCE",
-                           "full_request_state", full_request_state);
+      baseline_state.values, candidate_state.values);
+  constexpr std::string_view kSuite =
+      "GDN_CHUNK64_NATIVE_GROUP_WY_EQUIVALENCE";
+  print_difference_metrics(kSuite, "transform", transform);
+  print_difference_metrics(kSuite, "w", w);
+  print_difference_metrics(kSuite, "u", u);
+  print_difference_metrics(kSuite, "final_layer_state", final_layer_state);
+  print_difference_metrics(kSuite, "final_layer_output", final_layer_output);
+  print_difference_metrics(kSuite, "full_request_state", full_request_state);
 
   const bool boundary_contract =
-      !fused_boundaries.contract_error &&
-      !split_boundaries.contract_error &&
-      fused_boundaries.cuda_error == static_cast<int>(cudaSuccess) &&
-      split_boundaries.cuda_error == static_cast<int>(cudaSuccess) &&
-      fused_boundaries.calls == runtime::kRequestLinearLayerCount &&
-      split_boundaries.calls == runtime::kRequestLinearLayerCount;
+      !baseline_boundaries.contract_error &&
+      !candidate_boundaries.contract_error &&
+      baseline_boundaries.cuda_error == static_cast<int>(cudaSuccess) &&
+      candidate_boundaries.cuda_error == static_cast<int>(cudaSuccess) &&
+      baseline_boundaries.calls == runtime::kRequestLinearLayerCount &&
+      candidate_boundaries.calls == runtime::kRequestLinearLayerCount;
   const bool generation_semantics =
-      expected_generation(*fused_result.value) &&
-      expected_generation(*split_result.value) &&
-      fused_result.value->generated_token_ids ==
-          split_result.value->generated_token_ids &&
-      fused_result.value->generated_text == split_result.value->generated_text;
+      expected_generation(*baseline_result.value) &&
+      expected_generation(*candidate_result.value) &&
+      baseline_result.value->generated_token_ids ==
+          candidate_result.value->generated_token_ids &&
+      baseline_result.value->generated_text ==
+          candidate_result.value->generated_text;
   const bool passed =
-      valid_snapshot(fused_state) && valid_snapshot(split_state) &&
-      fused_hits == expected_native_route_hits() &&
-      split_hits == expected_native_route_hits() && boundary_contract &&
-      generation_semantics && exact_metrics(transform) &&
+      valid_snapshot(baseline_state) && valid_snapshot(candidate_state) &&
+      baseline_hits == expected_native_route_hits() &&
+      candidate_hits == expected_native_route_hits() && boundary_contract &&
+      generation_semantics && exact_metrics(transform) && exact_metrics(w) &&
+      exact_metrics(u) &&
       exact_metrics(final_layer_state) && exact_metrics(final_layer_output) &&
       exact_metrics(full_request_state);
-  std::cout << "GDN_CHUNK64_NATIVE_KKT_EQUIVALENCE"
-            << " fused_hits=" << fused_hits
-            << " split_hits=" << split_hits
+  std::cout << kSuite
+            << " baseline_hits=" << baseline_hits
+            << " candidate_hits=" << candidate_hits
             << " boundary_contract="
             << (boundary_contract ? "PASS" : "FAIL")
             << " generation_semantics="
             << (generation_semantics ? "PASS" : "FAIL")
             << " gate=" << (passed ? "PASS" : "FAIL")
-            << " authority=REAL_WEIGHT_CANDIDATE_VS_FUSED\n";
+            << " authority=REAL_WEIGHT_GROUP_VS_SPLIT\n";
   return passed;
 }
 
@@ -726,6 +917,10 @@ void print_difference_metrics(const std::string_view suite,
     candidate_state.values.resize(request_state_elements);
     baseline_boundaries.transform.resize(kTransformElements);
     candidate_boundaries.transform.resize(kTransformElements);
+    baseline_boundaries.w.resize(kOutputElements);
+    candidate_boundaries.w.resize(kOutputElements);
+    baseline_boundaries.u.resize(kOutputElements);
+    candidate_boundaries.u.resize(kOutputElements);
     baseline_boundaries.state.resize(runtime::kGdnStateElements);
     candidate_boundaries.state.resize(runtime::kGdnStateElements);
     baseline_boundaries.output.resize(kOutputElements);
@@ -739,6 +934,7 @@ void print_difference_metrics(const std::string_view suite,
   runtime::ReferenceGenerateResult baseline_result;
   {
     const ScopedFusedKktBaseline kkt_route(false);
+    const ScopedSplitWyBaseline split_route(false);
     const ScopedResidentStateBaseline route(true);
     const ScopedNativeInspectionHook hook(baseline_boundaries);
     baseline_result = run_snapshot_generation(
@@ -749,6 +945,7 @@ void print_difference_metrics(const std::string_view suite,
   runtime::ReferenceGenerateResult candidate_result;
   {
     const ScopedFusedKktBaseline kkt_route(false);
+    const ScopedSplitWyBaseline split_route(false);
     const ScopedResidentStateBaseline route(false);
     const ScopedNativeInspectionHook hook(candidate_boundaries);
     candidate_result = run_snapshot_generation(
@@ -767,6 +964,10 @@ void print_difference_metrics(const std::string_view suite,
 
   const DifferenceMetrics transform = compare_bf16(
       baseline_boundaries.transform, candidate_boundaries.transform);
+  const DifferenceMetrics w = compare_bf16(
+      baseline_boundaries.w, candidate_boundaries.w);
+  const DifferenceMetrics u = compare_bf16(
+      baseline_boundaries.u, candidate_boundaries.u);
   const DifferenceMetrics final_layer_state = compare_bf16(
       baseline_boundaries.state, candidate_boundaries.state);
   const DifferenceMetrics final_layer_output = compare_bf16(
@@ -776,6 +977,8 @@ void print_difference_metrics(const std::string_view suite,
   constexpr std::string_view kSuite =
       "GDN_CHUNK64_NATIVE_RESIDENT_STATE_EQUIVALENCE";
   print_difference_metrics(kSuite, "transform", transform);
+  print_difference_metrics(kSuite, "w", w);
+  print_difference_metrics(kSuite, "u", u);
   print_difference_metrics(kSuite, "final_layer_state", final_layer_state);
   print_difference_metrics(kSuite, "final_layer_output", final_layer_output);
   print_difference_metrics(kSuite, "full_request_state", full_request_state);
@@ -798,7 +1001,8 @@ void print_difference_metrics(const std::string_view suite,
       valid_snapshot(baseline_state) && valid_snapshot(candidate_state) &&
       baseline_hits == expected_native_route_hits() &&
       candidate_hits == expected_native_route_hits() && boundary_contract &&
-      generation_semantics && exact_metrics(transform) &&
+      generation_semantics && exact_metrics(transform) && exact_metrics(w) &&
+      exact_metrics(u) &&
       exact_metrics(final_layer_state) && exact_metrics(final_layer_output) &&
       exact_metrics(full_request_state);
   std::cout << kSuite
@@ -933,8 +1137,10 @@ class DeviceBuffer {
   ready = cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking) ==
           cudaSuccess;
   const ScopedFusedKktBaseline kkt_route(false);
+  const ScopedSplitWyBaseline split_route(false);
   const ScopedResidentStateBaseline resident_route(false);
-  ready = kkt_route.valid() && resident_route.valid() && ready;
+  ready = kkt_route.valid() && split_route.valid() &&
+          resident_route.valid() && ready;
   auto launch = [&]() {
     return q3x::runtime::gdn_prefill_chunk64_native_detail::launch(
         workspace.data(),
@@ -1000,7 +1206,7 @@ class DeviceBuffer {
             cudaStreamSynchronize(stream) == cudaSuccess;
   }
   const bool passed =
-      ready && node_count == 9U && kernel_nodes == 9U && other_nodes == 0U;
+      ready && node_count == 7U && kernel_nodes == 7U && other_nodes == 0U;
   std::cout << "GDN_CHUNK64_NATIVE_GRAPH"
             << " nodes=" << node_count
             << " kernel_nodes=" << kernel_nodes
@@ -1188,6 +1394,17 @@ int main(const int argc, char** const argv) {
   std::cout << std::fixed << std::setprecision(9);
   const std::string prompt = repeated_hello_prompt();
 #if defined(Q3X_GDN_CHUNK64_NATIVE_TEST)
+  if (std::getenv(
+          "Q3X_GDN_CHUNK64_RUN_GROUP_WY_EQUIVALENCE_ONLY") != nullptr) {
+    return run_native_kkt_equivalence(*created.value, prompt) ? 0 : 7;
+  }
+  if (std::getenv(
+          "Q3X_GDN_CHUNK64_RUN_GROUP_WY_EVENT_ATTRIBUTION_ONLY") !=
+      nullptr) {
+    return run_native_group_wy_event_attribution(*created.value, prompt)
+               ? 0
+               : 10;
+  }
   // A structural recurrence rewrite must prove its exact real-model
   // boundaries before its first direction timing is allowed to matter.
   if (std::getenv(
