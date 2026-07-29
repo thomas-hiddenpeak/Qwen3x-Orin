@@ -12,6 +12,10 @@
 #include "../kernels/sm87/gdn_prefill_chunk64_native_sm87.h"
 #include "reference_runner_gdn_chunk64_native_admission.h"
 #endif
+#if defined(Q3X_ENABLE_NVFP4_PREFILL_MARLIN_PAIR_ADMISSION)
+#include "q3x/kernels/sm87_nvfp4_prefill_marlin.h"
+#include "reference_runner_nvfp4_prefill_marlin_pair_admission.h"
+#endif
 #include "../kernels/reference/gdn_prefill_c16_norm_gate_sm87.h"
 #if defined(Q3X_ENABLE_GDN_C16_NORM_GATE_ADMISSION)
 #include "reference_runner_gdn_c16_norm_gate_admission.h"
@@ -76,6 +80,21 @@ thread_local bool g_enable_prefill_gdn_chunk64_native_admission =
 thread_local std::size_t g_prefill_gdn_chunk64_native_admission_hits = 0U;
 thread_local reference_runner_detail::PrefillGdnChunk64NativeSnapshotHook
     g_prefill_gdn_chunk64_native_snapshot_hook{};
+#endif
+#if defined(Q3X_ENABLE_NVFP4_PREFILL_MARLIN_PAIR_ADMISSION)
+// The Marlin large-M path is an architecture admission, never a production
+// fallback.  Server worker threads inherit only the exact explicit value
+// "1"; synchronous tests may switch the same private thread-local between
+// complete runner calls.
+[[nodiscard]] bool nvfp4_prefill_marlin_pair_environment_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_NVFP4_PREFILL_MARLIN_PAIR_ADMISSION");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
+thread_local bool g_enable_prefill_nvfp4_marlin_pair_admission =
+    nvfp4_prefill_marlin_pair_environment_enabled();
+thread_local std::size_t g_prefill_nvfp4_marlin_pair_admission_hits = 0U;
 #endif
 #if defined(Q3X_ENABLE_GDN_CHUNK64_REFERENCE_ADMISSION)
 // Compile-time-isolated architecture switch. It stays false unless the
@@ -352,6 +371,49 @@ template <std::size_t SpanCount>
          first_position == 0U && token_count == 512U;
 }
 #endif
+#if defined(Q3X_ENABLE_NVFP4_PREFILL_MARLIN_PAIR_ADMISSION)
+[[nodiscard]] bool use_prefill_nvfp4_marlin_pair_admission(
+    const bool enabled, const ProjectionBackend backend,
+    const DenseMlpWeights& mlp, const std::uint16_t* const input,
+    std::uint16_t* const gate_output, std::uint16_t* const up_output,
+    const std::size_t token_count) noexcept {
+  constexpr std::size_t kTokens = 512U;
+  constexpr std::size_t kRows = kNvFp4PrefillMarlinRows;
+  constexpr std::size_t kColumns = kNvFp4PrefillMarlinColumns;
+  const auto* const gate = std::get_if<NvFp4LinearWeight>(&mlp.gate_proj);
+  const auto* const up = std::get_if<NvFp4LinearWeight>(&mlp.up_proj);
+  const auto& sidecars = mlp.prefill_marlin_pair_sidecars;
+  const auto aligned = [](const void* const pointer,
+                          const std::size_t alignment) noexcept {
+    return pointer != nullptr &&
+           reinterpret_cast<std::uintptr_t>(pointer) % alignment == 0U;
+  };
+  if (!enabled || backend != ProjectionBackend::kSm87WeightOnly ||
+      token_count != kTokens || gate == nullptr || up == nullptr ||
+      gate->output_size != kRows || gate->input_size != kColumns ||
+      up->output_size != kRows || up->input_size != kColumns ||
+      sidecars.bytes_per_projection !=
+          kernels::sm87_nvfp4_prefill_marlin_sidecar_bytes_per_projection() ||
+      !std::isfinite(gate->weight_scale_2) || gate->weight_scale_2 < 0.0F ||
+      !std::isfinite(up->weight_scale_2) || up->weight_scale_2 < 0.0F ||
+      !aligned(sidecars.gate, 16U) || !aligned(sidecars.up, 16U) ||
+      !aligned(input, 16U) || !aligned(gate_output, 16U) ||
+      !aligned(up_output, 16U)) {
+    return false;
+  }
+
+  constexpr std::size_t kInputBytes =
+      kTokens * kColumns * sizeof(std::uint16_t);
+  constexpr std::size_t kOutputBytes =
+      kTokens * kRows * sizeof(std::uint16_t);
+  return byte_ranges_are_disjoint(input, kInputBytes, gate_output,
+                                  kOutputBytes) &&
+         byte_ranges_are_disjoint(input, kInputBytes, up_output,
+                                  kOutputBytes) &&
+         byte_ranges_are_disjoint(gate_output, kOutputBytes, up_output,
+                                  kOutputBytes);
+}
+#endif
 #if defined(Q3X_ENABLE_GDN_CHUNK64_REFERENCE_ADMISSION)
 [[nodiscard]] bool use_prefill_gdn_chunk64_reference_admission(
     const bool enabled, const ProjectionBackend backend,
@@ -602,6 +664,18 @@ PrefillGdnChunk64NativeSnapshotHook
 exchange_prefill_gdn_chunk64_native_snapshot_hook(
     const PrefillGdnChunk64NativeSnapshotHook hook) noexcept {
   return std::exchange(g_prefill_gdn_chunk64_native_snapshot_hook, hook);
+}
+#endif
+#if defined(Q3X_ENABLE_NVFP4_PREFILL_MARLIN_PAIR_ADMISSION)
+bool exchange_prefill_nvfp4_marlin_pair_admission_test_enabled(
+    const bool enabled) noexcept {
+  return std::exchange(g_enable_prefill_nvfp4_marlin_pair_admission,
+                       enabled);
+}
+
+std::size_t exchange_prefill_nvfp4_marlin_pair_admission_test_hits(
+    const std::size_t hits) noexcept {
+  return std::exchange(g_prefill_nvfp4_marlin_pair_admission_hits, hits);
 }
 #endif
 #if defined(Q3X_ENABLE_GDN_CHUNK64_REFERENCE_ADMISSION)
@@ -2712,6 +2786,10 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
   const bool enable_gdn_chunk64_native_admission =
       g_enable_prefill_gdn_chunk64_native_admission;
 #endif
+#if defined(Q3X_ENABLE_NVFP4_PREFILL_MARLIN_PAIR_ADMISSION)
+  const bool enable_nvfp4_prefill_marlin_pair_admission =
+      g_enable_prefill_nvfp4_marlin_pair_admission;
+#endif
 #if defined(Q3X_ENABLE_GDN_CHUNK64_REFERENCE_ADMISSION)
   const bool enable_gdn_chunk64_reference_admission =
       g_enable_prefill_gdn_chunk64_reference_admission;
@@ -3408,7 +3486,36 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
     }
     // Production Prefill is self-hosted only.  External-library comparison
     // modules are compiled exclusively into benchmark targets.
-    {
+    bool projected_gate_up_pair = false;
+#if defined(Q3X_ENABLE_NVFP4_PREFILL_MARLIN_PAIR_ADMISSION)
+    if (use_prefill_nvfp4_marlin_pair_admission(
+            enable_nvfp4_prefill_marlin_pair_admission,
+            projection_backend_, layer_weights.mlp, views_.hidden[1],
+            views_.projection[0], views_.projection[1], token_count)) {
+      const auto* const gate =
+          std::get_if<NvFp4LinearWeight>(&layer_weights.mlp.gate_proj);
+      const auto* const up =
+          std::get_if<NvFp4LinearWeight>(&layer_weights.mlp.up_proj);
+      const NvFp4PrefillMarlinPairSidecars& sidecars =
+          layer_weights.mlp.prefill_marlin_pair_sidecars;
+      // The selector proved both alternatives and the complete pair sidecar.
+      // Once selected, any launch error is a hard request failure: silently
+      // falling back would invalidate both route accounting and the external
+      // architecture screen.
+      if (!check_cuda(
+              kernels::launch_sm87_nvfp4_prefill_marlin_pair_cuda(
+                  sidecars.gate, gate->weight_scale_2, sidecars.up,
+                  up->weight_scale_2, views_.hidden[1], token_count,
+                  kNvFp4PrefillMarlinRows, kNvFp4PrefillMarlinColumns,
+                  views_.projection[0], views_.projection[1], stream_),
+              "prefill_mlp_nvfp4_marlin_pair", layer)) {
+        return fail_prefill_tile(launch_failure);
+      }
+      ++g_prefill_nvfp4_marlin_pair_admission_hits;
+      projected_gate_up_pair = true;
+    }
+#endif
+    if (!projected_gate_up_pair) {
       const bool gate_up_fork_join_available =
           prefill_auxiliary_stream_ != nullptr &&
           prefill_branch_ready_event_ != nullptr &&

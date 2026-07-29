@@ -177,6 +177,9 @@ struct ReferenceEngineLoadStats {
   double fp8_output_sidecar_milliseconds = 0.0;
   double nvfp4_down_scale6_sidecar_milliseconds = 0.0;
   double fp8_prefill_qkv_sidecar_milliseconds = 0.0;
+#if defined(Q3X_ENABLE_NVFP4_PREFILL_MARLIN_PAIR_ADMISSION)
+  double nvfp4_prefill_marlin_pair_sidecar_milliseconds = 0.0;
+#endif
   double runner_factory_milliseconds = 0.0;
   ReferenceDecodeGraphCachePolicy decode_graph_cache_requested_policy =
       ReferenceDecodeGraphCachePolicy::kDisabled;
@@ -232,6 +235,14 @@ struct ReferenceEngineLoadStats {
   // Empty when the complete 48-layer inventory was attached or when the
   // exact SM87 C512 sidecar route was not requested.
   std::string fp8_prefill_qkv_sidecar_fallback_reason;
+#if defined(Q3X_ENABLE_NVFP4_PREFILL_MARLIN_PAIR_ADMISSION)
+  // This inventory exists only in an explicitly requested test build. Unlike
+  // optional production sidecars, a requested incomplete preparation fails
+  // engine creation instead of publishing a fallback result.
+  bool nvfp4_prefill_marlin_pair_sidecars_enabled = false;
+  std::size_t nvfp4_prefill_marlin_pair_sidecar_layers = 0U;
+  std::uint64_t nvfp4_prefill_marlin_pair_sidecar_bytes = 0U;
+#endif
   // True only when tokenizer parsing and resident loading actually executed
   // concurrently. When true, total_milliseconds is wall time and phase
   // timings intentionally overlap.

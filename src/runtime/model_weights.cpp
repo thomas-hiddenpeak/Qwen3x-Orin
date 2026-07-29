@@ -908,6 +908,132 @@ bool ModelWeights::attach_nvfp4_down_scale6_sidecars(
   return true;
 }
 
+#if defined(Q3X_ENABLE_NVFP4_PREFILL_MARLIN_PAIR_ADMISSION)
+bool ModelWeights::attach_nvfp4_prefill_marlin_pair_sidecars(
+    const std::uint8_t* const arena, const std::size_t arena_bytes,
+    const NvFp4PrefillMarlinPairSidecarDescriptor* const descriptors,
+    const std::size_t descriptor_count) noexcept {
+  constexpr std::uintptr_t kRequiredAlignment = 16U;
+  constexpr auto kPointerMaximum =
+      std::numeric_limits<std::uintptr_t>::max();
+
+  // The only empty representation is an explicit detach. Clear every pair
+  // view, including deliberately malformed fixture layers, only after the
+  // detach tuple itself has been validated.
+  if (descriptor_count == 0U) {
+    if (arena != nullptr || arena_bytes != 0U || descriptors != nullptr) {
+      return false;
+    }
+    for (DecoderLayerWeights& layer : layers_) {
+      layer.mlp.prefill_marlin_pair_sidecars = {};
+    }
+    return true;
+  }
+
+  if (descriptor_count != kQwen36DenseLayerCount || arena == nullptr ||
+      descriptors == nullptr) {
+    return false;
+  }
+
+  // The kernel owns the layout and reports this contract to the engine. The
+  // attach boundary verifies that one identical nonzero value was propagated
+  // to every projection without defining a second byte-count authority here.
+  const std::size_t bytes_per_projection =
+      descriptors[0].bytes_per_projection;
+  constexpr std::size_t kProjectionCount =
+      2U * kQwen36DenseLayerCount;
+  if (bytes_per_projection == 0U ||
+      (bytes_per_projection % kRequiredAlignment) != 0U ||
+      bytes_per_projection >
+          std::numeric_limits<std::size_t>::max() / kProjectionCount ||
+      arena_bytes != bytes_per_projection * kProjectionCount) {
+    return false;
+  }
+
+  const std::uintptr_t arena_address =
+      reinterpret_cast<std::uintptr_t>(arena);
+  if ((arena_address % kRequiredAlignment) != 0U ||
+      arena_bytes > kPointerMaximum ||
+      arena_address > kPointerMaximum - arena_bytes) {
+    return false;
+  }
+  const std::uintptr_t arena_end = arena_address + arena_bytes;
+
+  std::array<bool, kQwen36DenseLayerCount> seen_layers{};
+  std::array<DenseMlpWeights*, kQwen36DenseLayerCount> targets{};
+  std::array<NvFp4PrefillMarlinPairSidecars, kQwen36DenseLayerCount>
+      validated_pairs{};
+  std::array<std::uintptr_t, kProjectionCount> range_begins{};
+  std::array<std::uintptr_t, kProjectionCount> range_ends{};
+  std::size_t validated_range_count = 0U;
+
+  for (std::size_t index = 0U; index < descriptor_count; ++index) {
+    const NvFp4PrefillMarlinPairSidecarDescriptor& descriptor =
+        descriptors[index];
+    if (descriptor.layer_index >= kQwen36DenseLayerCount ||
+        seen_layers[descriptor.layer_index] ||
+        descriptor.gate_sidecar == nullptr ||
+        descriptor.up_sidecar == nullptr ||
+        descriptor.bytes_per_projection != bytes_per_projection ||
+        descriptor.output_size != kNvFp4PrefillMarlinRows ||
+        descriptor.input_size != kNvFp4PrefillMarlinColumns) {
+      return false;
+    }
+
+    DenseMlpWeights& mlp = layers_[descriptor.layer_index].mlp;
+    if (!supports_nvfp4_gate_up_silu_fusion(
+            ProjectionBackend::kSm87WeightOnly, mlp.gate_proj,
+            mlp.up_proj)) {
+      return false;
+    }
+
+    const std::array<const std::uint8_t*, 2U> sidecars{
+        descriptor.gate_sidecar, descriptor.up_sidecar};
+    for (const std::uint8_t* const sidecar : sidecars) {
+      const std::uintptr_t sidecar_address =
+          reinterpret_cast<std::uintptr_t>(sidecar);
+      if ((sidecar_address % kRequiredAlignment) != 0U ||
+          sidecar_address < arena_address || sidecar_address >= arena_end ||
+          bytes_per_projection > kPointerMaximum ||
+          sidecar_address > kPointerMaximum - bytes_per_projection) {
+        return false;
+      }
+      const std::uintptr_t sidecar_end =
+          sidecar_address + bytes_per_projection;
+      if (sidecar_end > arena_end) {
+        return false;
+      }
+      for (std::size_t prior = 0U; prior < validated_range_count; ++prior) {
+        if (sidecar_address < range_ends[prior] &&
+            range_begins[prior] < sidecar_end) {
+          return false;
+        }
+      }
+      range_begins[validated_range_count] = sidecar_address;
+      range_ends[validated_range_count] = sidecar_end;
+      ++validated_range_count;
+    }
+
+    seen_layers[descriptor.layer_index] = true;
+    targets[index] = &mlp;
+    validated_pairs[index] = {descriptor.gate_sidecar,
+                              descriptor.up_sidecar,
+                              bytes_per_projection};
+  }
+
+  // Validation is complete. The compact arena size and 128 disjoint equal-
+  // sized ranges imply exact coverage, so publishing the replacement cannot
+  // expose a partial layer inventory.
+  for (DecoderLayerWeights& layer : layers_) {
+    layer.mlp.prefill_marlin_pair_sidecars = {};
+  }
+  for (std::size_t index = 0U; index < descriptor_count; ++index) {
+    targets[index]->prefill_marlin_pair_sidecars = validated_pairs[index];
+  }
+  return true;
+}
+#endif
+
 LinearWeightKind linear_weight_kind(const LinearWeight& weight) noexcept {
   if (std::holds_alternative<Bf16LinearWeight>(weight)) {
     return LinearWeightKind::kBf16;

@@ -41,6 +41,11 @@ inline constexpr std::size_t kNvFp4DownScale6Columns = 17'408U;
 inline constexpr std::size_t
     kNvFp4DownScale6SidecarBytesPerProjection = 4'177'920U;
 
+#if defined(Q3X_ENABLE_NVFP4_PREFILL_MARLIN_PAIR_ADMISSION)
+inline constexpr std::size_t kNvFp4PrefillMarlinRows = 17'408U;
+inline constexpr std::size_t kNvFp4PrefillMarlinColumns = 5'120U;
+#endif
+
 // One descriptor for an exact C512 linear-attention FP8 QKV Prefill
 // register-feed sidecar. Descriptor fields are copied by the attach call;
 // the pointed-to arena remains non-owning and must outlive ModelWeights and
@@ -65,6 +70,30 @@ struct NvFp4DownScale6SidecarDescriptor {
   std::size_t output_size = 0U;
   std::size_t input_size = 0U;
 };
+
+#if defined(Q3X_ENABLE_NVFP4_PREFILL_MARLIN_PAIR_ADMISSION)
+// One test-only descriptor for a dense layer's exact Gate/Up Marlin pair.
+// The descriptor is copied only during transactional validation. Both
+// pointed-to projection regions remain non-owning and must outlive
+// ModelWeights and every queued admission kernel that consumes them.
+struct NvFp4PrefillMarlinPairSidecarDescriptor {
+  std::size_t layer_index = 0U;
+  const std::uint8_t* gate_sidecar = nullptr;
+  const std::uint8_t* up_sidecar = nullptr;
+  std::size_t bytes_per_projection = 0U;
+  std::size_t output_size = 0U;
+  std::size_t input_size = 0U;
+};
+
+// Pair ownership is deliberate: neither Gate nor Up may independently opt
+// into the Marlin admission route. Only the exact jointly validated pair is
+// published to a runner built with the test-only admission macro.
+struct NvFp4PrefillMarlinPairSidecars {
+  const std::uint8_t* gate = nullptr;
+  const std::uint8_t* up = nullptr;
+  std::size_t bytes_per_projection = 0U;
+};
+#endif
 
 struct Bf16VectorWeight {
   const std::uint16_t* data = nullptr;
@@ -219,6 +248,9 @@ struct DenseMlpWeights {
   LinearWeight gate_proj;
   LinearWeight up_proj;
   LinearWeight down_proj;
+#if defined(Q3X_ENABLE_NVFP4_PREFILL_MARLIN_PAIR_ADMISSION)
+  NvFp4PrefillMarlinPairSidecars prefill_marlin_pair_sidecars;
+#endif
 };
 
 struct LinearAttentionWeights {
@@ -341,6 +373,20 @@ class ModelWeights {
       const std::uint8_t* arena, std::size_t arena_bytes,
       const NvFp4DownScale6SidecarDescriptor* descriptors,
       std::size_t descriptor_count) noexcept;
+
+#if defined(Q3X_ENABLE_NVFP4_PREFILL_MARLIN_PAIR_ADMISSION)
+  // Transactionally attaches the complete 64-layer Gate/Up test arena.
+  // Every target must be an exact canonical NVFP4 [17408,5120] pair. The
+  // per-projection byte contract comes from the admission kernel query and is
+  // carried in every descriptor rather than duplicated here. All ranges must
+  // be 16-byte aligned, disjoint, and exactly cover the compact arena. The
+  // canonical all-null/zero call detaches every pair view. Only the arena must
+  // outlive ModelWeights and every queued admission kernel using it.
+  [[nodiscard]] bool attach_nvfp4_prefill_marlin_pair_sidecars(
+      const std::uint8_t* arena, std::size_t arena_bytes,
+      const NvFp4PrefillMarlinPairSidecarDescriptor* descriptors,
+      std::size_t descriptor_count) noexcept;
+#endif
 
  private:
   friend class ModelWeightBinder;

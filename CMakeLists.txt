@@ -34,6 +34,10 @@ option(Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION
   "Build the test-only native SM87 C64/WY GDN architecture route"
   OFF
 )
+option(Q3X_BUILD_NVFP4_PREFILL_MARLIN_PAIR_ADMISSION
+  "Build the test-only exact-C512 NVFP4 Marlin Gate/Up pair route"
+  OFF
+)
 if(Q3X_BUILD_GDN_B8_ADMISSION AND NOT BUILD_TESTING)
   message(FATAL_ERROR
     "Q3X_BUILD_GDN_B8_ADMISSION is test-only and requires BUILD_TESTING=ON"
@@ -54,6 +58,11 @@ if(Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION AND NOT BUILD_TESTING)
     "Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION is test-only and requires BUILD_TESTING=ON"
   )
 endif()
+if(Q3X_BUILD_NVFP4_PREFILL_MARLIN_PAIR_ADMISSION AND NOT BUILD_TESTING)
+  message(FATAL_ERROR
+    "Q3X_BUILD_NVFP4_PREFILL_MARLIN_PAIR_ADMISSION is test-only and requires BUILD_TESTING=ON"
+  )
+endif()
 if((Q3X_BUILD_GDN_B8_ADMISSION AND
     Q3X_BUILD_GDN_C16_NORM_GATE_ADMISSION) OR
    (Q3X_BUILD_GDN_B8_ADMISSION AND
@@ -68,6 +77,15 @@ if((Q3X_BUILD_GDN_B8_ADMISSION AND
     Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION))
   message(FATAL_ERROR
     "The GDN B8, C16 norm/gate, C64/WY reference, and C64/WY native admission routes are mutually exclusive"
+  )
+endif()
+
+# This admission changes test-only runtime view layouts shared by q3x_core,
+# q3x_kernels, q3x_engine, and its E2E executable. Keep one process-wide ABI
+# by defining the feature consistently for every target in the build.
+if(Q3X_BUILD_NVFP4_PREFILL_MARLIN_PAIR_ADMISSION)
+  add_compile_definitions(
+    Q3X_ENABLE_NVFP4_PREFILL_MARLIN_PAIR_ADMISSION=1
   )
 endif()
 
@@ -212,6 +230,11 @@ if(Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION)
   )
   target_compile_definitions(q3x_kernels PRIVATE
     Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_NVFP4_PREFILL_MARLIN_PAIR_ADMISSION)
+  target_sources(q3x_kernels PRIVATE
+    src/kernels/sm87/nvfp4_prefill_marlin.cu
   )
 endif()
 q3x_enable_warnings(q3x_kernels)
@@ -1213,6 +1236,36 @@ if(BUILD_TESTING)
     set_tests_properties(
       reference_gdn_prefill_chunk64_native_engine_e2e PROPERTIES
       LABELS "e2e;model;sm87;prefill;gdn;architecture;native;characterization"
+      RUN_SERIAL TRUE
+      SKIP_RETURN_CODE 77
+      TIMEOUT 1800
+    )
+  endif()
+
+  if(Q3X_BUILD_NVFP4_PREFILL_MARLIN_PAIR_ADMISSION)
+    add_executable(
+      q3x_reference_nvfp4_prefill_marlin_pair_engine_e2e_test
+      tests/runtime/reference_nvfp4_prefill_marlin_pair_engine_e2e.cpp
+    )
+    target_include_directories(
+      q3x_reference_nvfp4_prefill_marlin_pair_engine_e2e_test
+      PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/runtime"
+    )
+    target_link_libraries(
+      q3x_reference_nvfp4_prefill_marlin_pair_engine_e2e_test
+      PRIVATE q3x::engine
+    )
+    q3x_enable_warnings(
+      q3x_reference_nvfp4_prefill_marlin_pair_engine_e2e_test
+    )
+    add_test(NAME reference_nvfp4_prefill_marlin_pair_engine_e2e
+      COMMAND q3x_reference_nvfp4_prefill_marlin_pair_engine_e2e_test
+              "${_q3x_e2e_model_dir}"
+    )
+    set_tests_properties(
+      reference_nvfp4_prefill_marlin_pair_engine_e2e PROPERTIES
+      LABELS "e2e;model;sm87;prefill;nvfp4;marlin;architecture;direction"
+      ENVIRONMENT "Q3X_RUN_NVFP4_PREFILL_MARLIN_PAIR_ADMISSION=1"
       RUN_SERIAL TRUE
       SKIP_RETURN_CODE 77
       TIMEOUT 1800

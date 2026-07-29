@@ -1,0 +1,147 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-nvfp4-marlin-persistent-rejection-2026-07-29",
+  "status": "test_only_real_p513_stop_loss_rejection",
+  "recorded_at": "2026-07-29T23:33:59+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "base_commit": "be9d1018270d178b949c3775444c0cc72d832d27",
+    "branch": "codex/prefill-nvfp4-marlin-gate-up",
+    "kernel": {
+      "path": "src/kernels/sm87/nvfp4_prefill_marlin.cu",
+      "sha256": "5130e6ea2c178ff07e6bb4b9457cd0245d4cec1324902a259b255da2b9124b62"
+    },
+    "header": {
+      "path": "include/q3x/kernels/sm87_nvfp4_prefill_marlin.h",
+      "sha256": "cfe440e1d1db873ff826a7fd2a3f5bba0f7e181f91785a5e6b022ac126638032"
+    },
+    "performance_elf": {
+      "path": "build/nvfp4-prefill-marlin-pair/q3x_reference_nvfp4_prefill_marlin_pair_engine_e2e_test",
+      "bytes": 7967288,
+      "sha256": "15bdc542563b4fd19b3016dcc12baaa13ab0980d3a727797e91b497f405cb477",
+      "checked_in": false
+    }
+  },
+  "model": {
+    "path": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "performance_payload": "real authenticated model weights; no synthetic matrix performance authority",
+    "prompt_tokens": 513,
+    "prefill_prefix_tokens": 512,
+    "output_tokens": 1
+  },
+  "isolation": {
+    "baseline": "retained exact-C512 native NVFP4 Gate and Up routes",
+    "candidate": "test-only exact-C512 persistent NVFP4 Marlin Gate+Up route",
+    "gdn_native_enabled_on_both_sides": true,
+    "candidate_route_hits": 64,
+    "baseline_route_hits": 0,
+    "same_model_and_engine": true,
+    "cublaslt_role": "reference_only_never_production",
+    "cublaslt_used_by_candidate": false,
+    "mtp_used": false
+  },
+  "implementation": {
+    "route_gate": "Q3X_RUN_NVFP4_PREFILL_MARLIN_PAIR_ADMISSION=1",
+    "scope": "SM87 exact M=512, Gate and Up N=17408 K=5120",
+    "tile": "M64N256K64",
+    "threads_per_cta": 256,
+    "warps_per_cta": 8,
+    "global_to_shared_stages": 4,
+    "shared_to_register_slots": 2,
+    "logical_branch_queue": "Gate N tiles followed by Up N tiles; each CTA owns one branch tile at a time",
+    "silu_fused": false,
+    "final_fixed_grid_ctas": 32,
+    "final_resources": {
+      "registers_per_thread": 128,
+      "static_shared_bytes": 512,
+      "dynamic_shared_bytes": 73728,
+      "local_or_spill_bytes": 0,
+      "active_ctas_per_sm": 2
+    }
+  },
+  "sidecar": {
+    "format": "fragment-native packed 4-bit payload plus one-byte E4M3 scales",
+    "bytes_per_projection": 50135040,
+    "projection_count": 128,
+    "total_bytes": 6417285120,
+    "direct_load_prepare_ms": 2263.0,
+    "separate_profile_prepare_ms": 1387.91,
+    "timing_caveat": "The two preparation measurements came from separate real-model load runs and are recorded as startup-cost observations, not a paired benchmark."
+  },
+  "real_p513_progression": [
+    {
+      "revision": "v1",
+      "registers_per_thread": 176,
+      "fixed_grid_ctas": 16,
+      "baseline_prefix_ms": 2260.534531,
+      "candidate_prefix_ms": 2809.022615,
+      "candidate_minus_baseline_ms": 548.488084,
+      "candidate_regression_percent": 24.263645,
+      "baseline_over_candidate_speed": 0.804740595
+    },
+    {
+      "revision": "v2",
+      "registers_per_thread": 128,
+      "fixed_grid_ctas": 16,
+      "baseline_prefix_ms": 2072.841305,
+      "candidate_prefix_ms": 2281.591426,
+      "candidate_minus_baseline_ms": 208.750121,
+      "candidate_regression_percent": 10.070724,
+      "baseline_over_candidate_speed": 0.908506791
+    },
+    {
+      "revision": "final_grid32",
+      "registers_per_thread": 128,
+      "fixed_grid_ctas": 32,
+      "baseline_prefix_ms": 2073.508802,
+      "candidate_prefix_ms": 2145.321072,
+      "candidate_minus_baseline_ms": 71.812270,
+      "candidate_regression_percent": 3.463321,
+      "baseline_over_candidate_speed": 0.966526097,
+      "baseline_ttft_ms": 2182.391545,
+      "candidate_ttft_ms": 2254.100070,
+      "ttft_regression_ms": 71.708525,
+      "ttft_regression_percent": 3.285777,
+      "generated_token_id": 9419,
+      "generated_text": "Hello",
+      "candidate_route_hits": 64
+    }
+  ],
+  "nsys_v1": {
+    "baseline_prefix_ms": 2081.186151,
+    "candidate_prefix_ms": 2630.813251,
+    "candidate_minus_baseline_ms": 549.627100,
+    "candidate_regression_percent": 26.409319,
+    "pair_kernel_average_ms_per_layer": 17.380041,
+    "incumbent_branch_kernel_average_ms_per_launch": 4.371922,
+    "pair_vs_two_incumbent_branches_ratio": 1.987688824,
+    "report": {
+      "path": "/tmp/q3x-marlin-v1-p513-20260729.nsys-rep",
+      "bytes": 1759464,
+      "sha256": "544987fa0e87c46527aff650574474f666ff042276eb1e20b7e90eed92aa1f82",
+      "checked_in": false
+    }
+  },
+  "correctness": {
+    "real_generation_oracle": "pass",
+    "generated_token_id": 9419,
+    "generated_text": "Hello",
+    "candidate_route_hits": 64,
+    "resource_query": "pass"
+  },
+  "external_performance_gate": {
+    "direct_real_p513": "fail_development_stop_loss",
+    "evalscope_perf_8": "not_run_candidate_eliminated_before_external_admission",
+    "evalscope_perf_32": "not_run",
+    "long_output_matrix": "not_run",
+    "capability_matrix": "not_run"
+  },
+  "decision": {
+    "candidate": "rejected",
+    "production_default_changed": false,
+    "production_route_admitted": false,
+    "reason": "The best 32-CTA revision preserves the strict real-generation oracle but regresses prefix time by 3.463321% and TTFT by 3.285777% on the first complete real-model gate.",
+    "retained_evidence": "Reducing register pressure and filling both resident CTA slots recovered most of the v1 loss, but this persistent skeleton still does not beat the incumbent.",
+    "revisit_condition": "Only a structurally different dataflow may reopen the direction gate; do not promote or run larger matrices for this candidate."
+  }
+}
