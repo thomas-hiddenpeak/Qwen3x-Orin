@@ -28022,12 +28022,13 @@ void run_nvfp4_down_m128_b_reuse_screen(TestContext& test,
     TestContext& test) {
   constexpr std::size_t kRows = 17'408U;
   constexpr std::size_t kColumns = 5'120U;
-  constexpr int kMaximumRegisters = 128;
-  constexpr std::size_t kExpectedSharedBytes = 37'376U;
   constexpr int kExpectedThreads = 256;
-  constexpr int kMinimumActiveBlocks = 2;
   bool complete = true;
   for (const std::size_t token_count : {256U, 512U}) {
+    const bool c512 = token_count == 512U;
+    const int maximum_registers = c512 ? 255 : 128;
+    const std::size_t expected_static_shared_bytes = c512 ? 512U : 37'376U;
+    const int minimum_active_blocks = c512 ? 1 : 2;
     int registers = -1;
     std::size_t shared = std::numeric_limits<std::size_t>::max();
     std::size_t local = std::numeric_limits<std::size_t>::max();
@@ -28038,10 +28039,10 @@ void run_nvfp4_down_m128_b_reuse_screen(TestContext& test,
             token_count, kRows, kColumns, &registers, &shared, &local,
             &threads, &active);
     const bool gate = status == static_cast<int>(cudaSuccess) &&
-                      registers <= kMaximumRegisters &&
-                      shared == kExpectedSharedBytes && local == 0U &&
+                      registers <= maximum_registers &&
+                      shared == expected_static_shared_bytes && local == 0U &&
                       threads == kExpectedThreads &&
-                      active >= kMinimumActiveBlocks;
+                      active >= minimum_active_blocks;
     std::cout << "NVFP4_GATE_M128_PRODUCTION_RESOURCES: tokens=" << token_count
               << " status=" << status
               << " registers_per_thread=" << registers
@@ -28049,7 +28050,9 @@ void run_nvfp4_down_m128_b_reuse_screen(TestContext& test,
               << " local_bytes=" << local
               << " maximum_threads_per_block=" << threads
               << " active_blocks_per_sm=" << active
-              << " limits=regs<=128,shared=37376,local=0,threads=256,cta>=2"
+              << " limits=regs<=" << maximum_registers
+              << ",static_shared=" << expected_static_shared_bytes
+              << ",local=0,threads=256,cta>=" << minimum_active_blocks
               << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
     test.expect(gate,
                 "NVFP4 Gate M128 production kernel clears the hard resource "

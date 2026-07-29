@@ -3090,11 +3090,15 @@ int main(const int argc, char** const argv) {
       selfhosted_production_observation_finite &&
       production_vs_best_native.every_round_positive &&
       production_vs_best_native.speedup > 1.0;
+  const bool selected_native_is_production =
+      fixture.native_kernel ==
+      NativeKernel::kM128N256BSwizzleScale5123Stage256T;
   // This executable decides whether a native experiment is retained.  The
   // cuBLASLt path is an external reference only and is deliberately absent
   // from this decision.  The self-hosted production comparison is likewise
-  // an observation here; promotion remains a separate integration decision
-  // after broader shape and end-to-end validation.
+  // an observation here for development cells. Once the selected native
+  // function is the exact production C512 route, report route identity rather
+  // than asking two wrappers around the same kernel to beat one another.
   const bool checkpoint_retention = development_retention_gate;
   if (performance_checkpoint) {
 #if !defined(Q3X_NATIVE_RETENTION_ONLY)
@@ -3197,9 +3201,13 @@ int main(const int argc, char** const argv) {
                       ? "NOT_APPLICABLE"
                       : (development_retention_gate ? "PASS" : "REJECT"))
               << " selfhosted_production_shape_observation="
-              << (selfhosted_production_shape_observation ? "POSITIVE"
-                                                          : "NEGATIVE")
-              << " production_promotion=NOT_RUN"
+              << (selected_native_is_production
+                      ? "IDENTICAL_ROUTE"
+                      : (selfhosted_production_shape_observation ? "POSITIVE"
+                                                                  : "NEGATIVE"))
+              << " production_promotion="
+              << (selected_native_is_production ? "ALREADY_SELECTED"
+                                                 : "NOT_RUN")
               << " recommended_native_schedule="
               << variant_name(native_recommendation)
               << " candidate_exceeds_cublaslt_reference="
@@ -3286,9 +3294,13 @@ int main(const int argc, char** const argv) {
                     ? "NOT_APPLICABLE"
                     : (development_retention_gate ? "PASS" : "REJECT"))
             << " selfhosted_production_shape_observation="
-            << (selfhosted_production_shape_observation ? "POSITIVE"
-                                                        : "NEGATIVE")
-            << " production_promotion=NOT_RUN"
+            << (selected_native_is_production
+                    ? "IDENTICAL_ROUTE"
+                    : (selfhosted_production_shape_observation ? "POSITIVE"
+                                                                : "NEGATIVE"))
+            << " production_promotion="
+            << (selected_native_is_production ? "ALREADY_SELECTED"
+                                               : "NOT_RUN")
             << " cublaslt_role=REFERENCE_ONLY"
             << " cublaslt_reference_execution="
             << (cublaslt_reference_requested ? "RUN" : "NOT_RUN")

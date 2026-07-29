@@ -2720,9 +2720,15 @@ void test_exact_nvfp4_whole_chunk_branch_dispatch(TestContext& test) {
             },
             label + " direct production graph");
         constexpr std::size_t kWholeChunkTokensPerCta = 128U;
+        const bool gate_c512 = gate_up_shape && token_count == 512U;
+        const std::size_t output_columns_per_cta =
+            gate_c512 ? 256U : 128U;
         const unsigned int expected_grid = static_cast<unsigned int>(
-            (gate_up_shape ? kIntermediateSize : kHiddenSize) / 128U *
+            (gate_up_shape ? kIntermediateSize : kHiddenSize) /
+            output_columns_per_cta *
             (token_count / kWholeChunkTokensPerCta));
+        const std::size_t expected_dynamic_shared_bytes =
+            gate_c512 ? 96'256U : 0U;
         const bool exact =
             dispatch.valid && dispatch.launches.size() == 1U &&
             direct.valid && direct.launches.size() == 1U &&
@@ -2735,10 +2741,12 @@ void test_exact_nvfp4_whole_chunk_branch_dispatch(TestContext& test) {
             dispatch.launches.front().block.x == 256U &&
             dispatch.launches.front().block.y == 1U &&
             dispatch.launches.front().block.z == 1U &&
-            dispatch.launches.front().dynamic_shared_bytes == 0U &&
+            dispatch.launches.front().dynamic_shared_bytes ==
+                expected_dynamic_shared_bytes &&
             direct.launches.front().grid.x == expected_grid &&
             direct.launches.front().block.x == 256U &&
-            direct.launches.front().dynamic_shared_bytes == 0U;
+            direct.launches.front().dynamic_shared_bytes ==
+                expected_dynamic_shared_bytes;
         test.expect(exact, label + " is one exact N-major production grid");
       };
 
@@ -2861,8 +2869,12 @@ void test_exact_nvfp4_whole_chunk_branch_dispatch(TestContext& test) {
           ready = test.cuda_ok(cudaGraphKernelNodeGetParams(
                                    nodes[index], &parameters),
                                "read fork/join kernel " + label);
+          const bool c512 = token_count == 512U;
           const unsigned int expected_grid = static_cast<unsigned int>(
-              (kIntermediateSize / 128U) * (token_count / 128U));
+              (kIntermediateSize / (c512 ? 256U : 128U)) *
+              (token_count / 128U));
+          const unsigned int expected_dynamic_shared_bytes =
+              c512 ? 96'256U : 0U;
           test.expect(
               ready && parameters.func == direct.launches.front().function &&
                   parameters.gridDim.x == expected_grid &&
@@ -2871,7 +2883,8 @@ void test_exact_nvfp4_whole_chunk_branch_dispatch(TestContext& test) {
                   parameters.blockDim.x == 256U &&
                   parameters.blockDim.y == 1U &&
                   parameters.blockDim.z == 1U &&
-                  parameters.sharedMemBytes == 0U,
+                  parameters.sharedMemBytes ==
+                      expected_dynamic_shared_bytes,
               label + " branch is the function-identical N-major node");
           kernel_nodes.push_back(nodes[index]);
         } else if (ready && type == cudaGraphNodeTypeMemset) {

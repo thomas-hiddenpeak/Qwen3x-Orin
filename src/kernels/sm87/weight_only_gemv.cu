@@ -10077,12 +10077,12 @@ nvfp4_w4a16_gate_c512_m64_n256_bswizzle_scale512_3stage_test_kernel(
   }
 }
 
-// Test-only one-CTA structural successor to the retained M64xN256 BS512
-// complete cell.  One eight-warp CTA owns M128xN256, keeping the retained
-// three-stage raw-operand pipeline, B half swizzle, K512 scale windows, exact
-// decoder, accumulation order, and coalesced epilogue.  Doubling M lets every
+// Exact-C512 Gate/Up production cell. One eight-warp CTA owns M128xN256 and
+// keeps the retained three-stage raw-operand pipeline, B half swizzle, K512
+// scale windows, exact decoder, accumulation order, and coalesced epilogue.
+// Doubling M lets every
 // decoded B fragment feed eight ordered M16 panels while halving the CTA count.
-// Production dispatch never references this kernel.
+// C256 deliberately remains on the separately validated M128xN128 route.
 struct alignas(32) NvFp4GateM128N256BSwizzleScale5123PipelineStorage {
   uint4 activations[3][1'152];  // 3 * M128 * LD72 BF16 = 55,296 B.
   uint4 weights[3][512];        // 3 * N256 * 32 packed bytes = 24,576 B.
@@ -10172,7 +10172,7 @@ issue_nvfp4_gate_m128_n256_bswizzle_scale512_window(
 }
 
 __global__ __launch_bounds__(kThreads, 1) void
-nvfp4_w4a16_gate_c512_m128_n256_bswizzle_scale512_3stage_256t_test_kernel(
+nvfp4_w4a16_gate_c512_m128_n256_bswizzle_scale512_3stage_256t_kernel(
     const std::uint8_t* const packed_weights,
     const std::uint8_t* const block_scales, const float weight_scale_2,
     const std::uint16_t* const activations, std::uint16_t* const output) {
@@ -29490,8 +29490,23 @@ int launch_sm87_nvfp4_w4a16_whole_chunk_gate_up_branch_gemm_bf16_cuda(
         <<<kOutputColumnBlockCount * 2U, kThreads, 0U, stream>>>(
             packed_weights, block_scales, weight_scale_2, activations, output);
   } else {
-    nvfp4_w4a16_gate_whole_chunk_m128_n128_k64_b_reuse_kernel<4U>
-        <<<kOutputColumnBlockCount * 4U, kThreads, 0U, stream>>>(
+    // The exact-C512 M128xN256 route halves the Gate/Up CTA count and reuses
+    // each decoded B fragment across the same eight ordered M16 panels as the
+    // C256 M128xN128 route. Keep C256 shape-specialized rather than forcing a
+    // single topology across both chunk sizes.
+    constexpr int kDynamicSharedBytes = static_cast<int>(
+        sizeof(NvFp4GateM128N256BSwizzleScale5123PipelineStorage));
+    cudaError_t status = cudaFuncSetAttribute(
+        nvfp4_w4a16_gate_c512_m128_n256_bswizzle_scale512_3stage_256t_kernel,
+        cudaFuncAttributeMaxDynamicSharedMemorySize, kDynamicSharedBytes);
+    if (status != cudaSuccess) {
+      return static_cast<int>(status);
+    }
+    constexpr unsigned int kM128N256Grid =
+        (17'408U / 256U) * (512U / 128U);
+    static_assert(kM128N256Grid == 272U);
+    nvfp4_w4a16_gate_c512_m128_n256_bswizzle_scale512_3stage_256t_kernel
+        <<<kM128N256Grid, kThreads, kDynamicSharedBytes, stream>>>(
             packed_weights, block_scales, weight_scale_2, activations, output);
   }
   return static_cast<int>(cudaGetLastError());
@@ -29537,12 +29552,20 @@ int query_sm87_nvfp4_w4a16_whole_chunk_gate_m128_b_reuse_resources_test_cuda(
           &active_blocks, kernel, static_cast<int>(kThreads), 0U);
     }
   } else {
+    constexpr int kDynamicSharedBytes = static_cast<int>(
+        sizeof(NvFp4GateM128N256BSwizzleScale5123PipelineStorage));
     const auto kernel =
-        nvfp4_w4a16_gate_whole_chunk_m128_n128_k64_b_reuse_kernel<4U>;
-    status = cudaFuncGetAttributes(&attributes, kernel);
+        nvfp4_w4a16_gate_c512_m128_n256_bswizzle_scale512_3stage_256t_kernel;
+    status = cudaFuncSetAttribute(
+        kernel, cudaFuncAttributeMaxDynamicSharedMemorySize,
+        kDynamicSharedBytes);
+    if (status == cudaSuccess) {
+      status = cudaFuncGetAttributes(&attributes, kernel);
+    }
     if (status == cudaSuccess) {
       status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
-          &active_blocks, kernel, static_cast<int>(kThreads), 0U);
+          &active_blocks, kernel, static_cast<int>(kThreads),
+          static_cast<std::size_t>(kDynamicSharedBytes));
     }
   }
   if (status != cudaSuccess) {
@@ -30732,12 +30755,12 @@ int launch_sm87_nvfp4_w4a16_gate_c512_m128_n256_bswizzle_scale512_3stage_256t_te
   const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
   (void)cudaGetLastError();
   cudaError_t status = cudaFuncSetAttribute(
-      nvfp4_w4a16_gate_c512_m128_n256_bswizzle_scale512_3stage_256t_test_kernel,
+      nvfp4_w4a16_gate_c512_m128_n256_bswizzle_scale512_3stage_256t_kernel,
       cudaFuncAttributeMaxDynamicSharedMemorySize, kDynamicSharedBytes);
   if (status != cudaSuccess) {
     return static_cast<int>(status);
   }
-  nvfp4_w4a16_gate_c512_m128_n256_bswizzle_scale512_3stage_256t_test_kernel
+  nvfp4_w4a16_gate_c512_m128_n256_bswizzle_scale512_3stage_256t_kernel
       <<<kGrid, kThreads, kDynamicSharedBytes, stream>>>(
           packed_weights, block_scales, weight_scale_2, activations, output);
   return static_cast<int>(cudaGetLastError());
@@ -30761,7 +30784,7 @@ int query_sm87_nvfp4_w4a16_gate_c512_m128_n256_bswizzle_scale512_3stage_256t_res
   }
 
   const auto kernel =
-      nvfp4_w4a16_gate_c512_m128_n256_bswizzle_scale512_3stage_256t_test_kernel;
+      nvfp4_w4a16_gate_c512_m128_n256_bswizzle_scale512_3stage_256t_kernel;
   cudaError_t status = cudaFuncSetAttribute(
       kernel, cudaFuncAttributeMaxDynamicSharedMemorySize,
       kDynamicSharedBytes);
