@@ -1,0 +1,121 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-gate-c512-k128-k64-consumer-loop-rejection-2026-07-29",
+  "status": "real-generation-direction-rejected-matched-ncu-attributed-source-reverted",
+  "recorded_at": "2026-07-29T12:58:09+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "baseline_commit": "bc4be64",
+    "production_implementation_commit": "d7aa73b62a22e511f31d8accab87bb79155f59c4",
+    "candidate_commit": null,
+    "candidate_change": "replace complete unrolling of the two K64 consumer halves with a runtime two-iteration loop",
+    "candidate_source_status": "uncommitted direction candidate; fully reverted",
+    "production_source_after_screen": "identical to bc4be64"
+  },
+  "policy": {
+    "performance_decision_payload": "full resident real checkpoint and native generation path",
+    "direction_gate": "one fresh fixed-clock P513 baseline followed by one candidate",
+    "complete_harness_built": false,
+    "reason_complete_harness_not_built": "the candidate regressed real P513 Prefix by 41.437 ms",
+    "post_rejection_diagnostic": "one matched full-metric NCU launch with pinned real layer-0 Gate weights",
+    "synthetic_performance_authority": "NONE",
+    "cublaslt_executed": false,
+    "cublaslt_role": "REFERENCE_ONLY",
+    "mtp_used": false
+  },
+  "candidate": {
+    "shape": "M512xN17408xK5120",
+    "unchanged": [
+      "M128xN256xK128 ownership and LD136 layout",
+      "two K128 publication slots, 40 CTA barriers, and 80 K64 cp.async groups",
+      "K512 scale windows, B-half swizzle, decoder, MMA count, accumulation order, and epilogue",
+      "118,784 dynamic shared bytes and one CTA/SM"
+    ],
+    "compiled_effect": {
+      "runner_bytes": {"baseline": 7632408, "candidate": 7566872, "delta": -65536},
+      "registers_per_thread": {"baseline": 249, "candidate": 247},
+      "local_bytes": {"baseline": 0, "candidate": 0}
+    }
+  },
+  "environment": {
+    "device": "NVIDIA Jetson AGX Orin Developer Kit",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "nvpmodel": "MAXN",
+    "cpu_affinity": "taskset --cpu-list 11",
+    "fixed_frequency_readback": {"cpu_hz": 2201600000, "gpu_hz": 1300500000, "emc_hz": 3200000000},
+    "fan_pwm": 255
+  },
+  "real_generation_direction": {
+    "model": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "prompt": "P513; 501 space-separated copies of hello in the pinned non-thinking chat template",
+    "rendered_prompt_tokens": 513,
+    "prefix_tokens": 512,
+    "max_new_tokens": 1,
+    "prefill_chunk_size": 512,
+    "baseline": {"prefix_ms": 2294.071, "finish_prefill_ms": 125.981, "ttft_ms": 2420.052},
+    "candidate": {"prefix_ms": 2335.508, "finish_prefill_ms": 125.891, "ttft_ms": 2461.399},
+    "result": {
+      "prefix_regression_ms": 41.437,
+      "prefix_latency_regression_percent": 1.806264933,
+      "prefix_speedup": 0.982257821,
+      "ttft_regression_ms": 41.347,
+      "ttft_latency_regression_percent": 1.708517007,
+      "direction": "NEGATIVE"
+    },
+    "oracle": {"generated_token_id": 9419, "generated_text": "Hello", "step_count": 513}
+  },
+  "matched_ncu": {
+    "authority": "post-rejection causal diagnostic using pinned real layer-0 Gate weights",
+    "shape": "M512xN17408xK5120",
+    "launches_per_binary": 1,
+    "set": "full",
+    "replay_mode": "kernel",
+    "metrics": {
+      "duration_ms": {"baseline": 4.406944, "candidate": 4.746720, "delta_ms": 0.339776, "change_percent": 7.710014014},
+      "registers_per_thread": {"baseline": 249, "candidate": 247},
+      "achieved_occupancy_percent": {"baseline": 16.718785, "candidate": 16.762218},
+      "executed_warp_instructions": {"baseline": 144095808, "candidate": 147623104, "delta": 3527296, "change_percent": 2.447882453},
+      "ordinary_shared_load_bank_conflicts": {"baseline": 5570560, "candidate": 5570560},
+      "shared_load_wavefronts": {"baseline": 38993920, "candidate": 39047765, "change_percent": 0.138085630},
+      "tensor_throughput_percent_elapsed": {"baseline": 49.147110, "candidate": 45.629341, "relative_change_percent": -7.157631446}
+    },
+    "whole_prefix_attribution": {
+      "gate_up_launches": 128,
+      "projected_added_ms": 43.491328,
+      "observed_prefix_regression_ms": 41.437,
+      "interpretation": "the target regression explains the complete real Prefix loss; non-target timing noise offsets about 2.05 ms"
+    },
+    "interpretation": [
+      "Preventing unrolling reduces code footprint and two registers but does not remove any shared-load bank conflicts.",
+      "Runtime half selection and loop control add 3,527,296 warp instructions; Tensor utilization falls 7.16% relative.",
+      "The conflict source is not cross-half compiler motion that a runtime loop can isolate.",
+      "The next bounded cell should split the merged 64-byte B row into two compile-time-selected 32-byte K64 planes without adding shared bytes or a runtime loop."
+    ]
+  },
+  "artifacts": {
+    "baseline_runner": {"path": "/tmp/q3x-prefill-gate-k128-k64-consumer-loop-direction-baseline", "bytes": 7632408, "sha256": "7b51e4e5426dd4d2f397795c7bcb152cfe4694b4ad898a734b26e3122694566e"},
+    "candidate_runner": {"path": "/tmp/q3x-prefill-gate-k128-k64-consumer-loop-direction-candidate", "bytes": 7566872, "sha256": "d9e4310ab09a8b59ce5a5b74e60f7552e8e6786f212e1cddcc2c82c6f092a7d3"},
+    "baseline_direction_log": {"path": "/tmp/q3x-prefill-gate-k128-k64-consumer-loop-direction-baseline.log", "bytes": 9002, "sha256": "bbb662e1e21ef36080e6af46ec530309017d375de2bceb6c07ab3c2f63a997db"},
+    "candidate_direction_log": {"path": "/tmp/q3x-prefill-gate-k128-k64-consumer-loop-direction-candidate.log", "bytes": 9002, "sha256": "f1b95d8638808d9c06c37a2c0827f4cea430975b41af2cdf5473e199cd4ce933"},
+    "baseline_ncu_report": {"path": "/tmp/q3x-prefill-gate-k128-candidate-full.ncu-rep", "bytes": 15075539, "sha256": "a26514c394a35126f45d8fd8f72025c3b34ce2c91a0d30e32a2b55b0b72330b5"},
+    "candidate_ncu_report": {"path": "/tmp/q3x-prefill-gate-k128-k64-consumer-loop-candidate-full.ncu-rep", "bytes": 15191656, "sha256": "95b2bad1af86130db7fe5bd08e3be1f06d6d8a440076150d58473547a4dc2b78"},
+    "candidate_ncu_log": {"path": "/tmp/q3x-prefill-gate-k128-k64-consumer-loop-ncu-candidate.log", "bytes": 5481, "sha256": "06fd74fec4d863325d9fef89e4b1cab51566f91e251b06a797ecbf9e56d45f62"}
+  },
+  "decision": {
+    "result": "REJECT",
+    "production_changed": false,
+    "correctness_gate": "PASS",
+    "real_generation_direction_gate": "FAIL",
+    "matched_ncu_diagnostic": "COMPLETE",
+    "candidate_code_removed": true,
+    "retained_route": "fully unrolled M128xN256xK128 two-slot production kernel",
+    "next": "split each shared K128 B row into two compile-time-selected K64/32-byte planes while retaining complete unrolling and the 40-stage publication schedule"
+  },
+  "limitations": [
+    "The direction screen is one baseline/candidate process pair, sufficient for the 41.437-ms rejection but not a latency distribution.",
+    "The NCU activation is deterministic BF16; weights and scales are pinned real checkpoint tensors.",
+    "This rejects runtime half iteration, not a compile-time B-plane layout change."
+  ]
+}

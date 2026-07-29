@@ -1641,6 +1641,13 @@ The diagnostic Phase 3 records are:
   instructions and occupancy. The 128 target launches explain 97.88% of the
   whole-prefix regression. The candidate is fully reverted and blind leading-
   dimension sweeps are closed.
+- [`qwen36-27b-prefill-gate-c512-k128-k64-consumer-loop-rejection-2026-07-29.json`](qwen36-27b-prefill-gate-c512-k128-k64-consumer-loop-rejection-2026-07-29.json),
+  which rejects replacing the fully unrolled two-half consumer with a runtime
+  K64 loop. Real P513 Prefix regresses **2294.071 -> 2335.508 ms**. Matched NCU
+  keeps all 5,570,560 load conflicts, adds 2.45% warp instructions, and
+  regresses one Gate **4.406944 -> 4.746720 ms**, despite two fewer registers
+  and a 64-KiB smaller runner. The source is reverted; the next bounded cell
+  targets the merged 64-byte B row with two compile-time-selected K64 planes.
 - [`qwen36-27b-prefill-gdn-b8-block-transition-screen.json`](qwen36-27b-prefill-gdn-b8-block-transition-screen.json),
   which selects the test-only sequential FP32-B8 GDN dataflow and rejects the
   measured WY control. C256 reaches **2.76977x** versus production M16 while

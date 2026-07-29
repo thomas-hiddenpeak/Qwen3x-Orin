@@ -819,6 +819,16 @@ projects to 38.686720 ms, explaining 97.88% of the Prefix loss. The source is
 reverted and blind leading-dimension sweeps are closed. See
 [`metadata/qwen36-27b-prefill-gate-c512-k128-ld144-rejection-2026-07-29.json`](metadata/qwen36-27b-prefill-gate-c512-k128-ld144-rejection-2026-07-29.json).
 
+A runtime two-iteration K64 consumer loop is also rejected. It shrinks the
+runner by 64 KiB and reduces registers 249 -> 247, but real Prefix regresses
+**2,294.071 -> 2,335.508 ms**. NCU leaves all 5,570,560 load conflicts intact,
+adds 2.45% warp instructions, and moves one Gate from 4.406944 to 4.746720 ms.
+This closes runtime half iteration and disproves cross-half compiler motion as
+the conflict source. The next structural distinction to test is the merged
+K128 B row: split it into two compile-time-selected 32-byte K64 planes without
+changing total shared bytes, barriers, or the fully unrolled consumer. See
+[`metadata/qwen36-27b-prefill-gate-c512-k128-k64-consumer-loop-rejection-2026-07-29.json`](metadata/qwen36-27b-prefill-gate-c512-k128-k64-consumer-loop-rejection-2026-07-29.json).
+
 ## Triton and vLLM design-reference screen
 
 The reference screen pins Triton `78420176` and vLLM `2899dca`. Their native
@@ -912,8 +922,10 @@ problem.
    the same 5,570,560 load conflicts and regresses matched Gate latency 0.472%.
    LD144 then changes the bank phase but multiplies load conflicts fivefold and
    regresses real Prefix by 39.524 ms. Close blind leading-dimension sweeps.
-   Next retain K128 publication while isolating or otherwise constraining the
-   two compiled K64 consumer bodies. Re-run the same
+   A runtime K64 consumer loop then leaves the conflicts intact and regresses
+   Prefix by 41.437 ms. Next retain complete unrolling and K128 publication but
+   split the merged 64-byte B row into two compile-time-selected 32-byte K64
+   planes. Re-run the same
    pinned real-weight six-round B-C-C-B screen against the current retained
    native champion after each complete configuration; keep every stable
    all-positive result and update that champion.  Run matched NCU to attribute
