@@ -1364,12 +1364,21 @@ int run_evaluation_server(const EvaluationServerOptions& options,
                          std::ref(next_request_id));
   }
 
+  const runtime::ReferenceEngineLoadStats& load = engine.load_stats();
   std::cout << "ready: http://" << options.bind_address << ':'
             << options.port << "/v1 model=" << options.served_model
             << " max_sequence_length=" << options.max_sequence_length
             << " prefill_chunk_size=" << options.prefill_chunk_size
             << " inference_workers=1 queue_capacity="
-            << options.inference_queue_capacity << '\n';
+            << options.inference_queue_capacity
+            << " fp8_prefill_supermatrix_sidecar_ms="
+            << load.fp8_prefill_supermatrix_sidecar_milliseconds
+            << " fp8_prefill_supermatrix_sidecars_enabled="
+            << (load.fp8_prefill_supermatrix_sidecars_enabled ? 1 : 0)
+            << " fp8_prefill_supermatrix_sidecar_projections="
+            << load.fp8_prefill_supermatrix_sidecar_projections
+            << " fp8_prefill_supermatrix_sidecar_bytes="
+            << load.fp8_prefill_supermatrix_sidecar_bytes << '\n';
 
   bool fatal_accept_error = false;
   while (!stop_requested.load(std::memory_order_relaxed)) {

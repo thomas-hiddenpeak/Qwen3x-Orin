@@ -1,8 +1,6 @@
 #include "q3x/runtime/reference_runner.h"
 
-#if defined(Q3X_ENABLE_FP8_PREFILL_SUPERMATRIX_V2_ADMISSION)
 #include "q3x/kernels/sm87_fp8_prefill_supermatrix.h"
-#endif
 
 #if defined(Q3X_ENABLE_GDN_B8_ADMISSION)
 #include "../kernels/reference/gdn_prefill_b8_sequential_sm87.h"
@@ -2787,7 +2785,6 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
                            const std::size_t layer) noexcept {
     return project_on_stream(weight, input, output, operation, layer, stream_);
   };
-#if defined(Q3X_ENABLE_FP8_PREFILL_SUPERMATRIX_V2_ADMISSION)
   const auto has_fp8_prefill_supermatrix_sidecar =
       [this, token_count](const LinearWeight& weight) noexcept {
         const auto* const fp8 = std::get_if<Fp8LinearWeight>(&weight);
@@ -2838,25 +2835,19 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
                 stream_),
             operation, layer);
       };
-#endif
   const auto project_attention_output =
-      [this, token_count, &check_cuda, &project
-#if defined(Q3X_ENABLE_FP8_PREFILL_SUPERMATRIX_V2_ADMISSION)
-       , &has_fp8_prefill_supermatrix_sidecar,
-       &project_fp8_prefill_supermatrix
-#endif
-      ](
+      [this, token_count, &check_cuda, &project,
+       &has_fp8_prefill_supermatrix_sidecar,
+       &project_fp8_prefill_supermatrix](
           const LinearWeight& weight, const std::uint16_t* const input,
           std::uint16_t* const output, const char* const operation,
           const std::size_t layer) noexcept {
-#if defined(Q3X_ENABLE_FP8_PREFILL_SUPERMATRIX_V2_ADMISSION)
         if (has_fp8_prefill_supermatrix_sidecar(weight)) {
           const LinearWeight* const group_weights[1U] = {&weight};
           std::uint16_t* const group_outputs[1U] = {output};
           return project_fp8_prefill_supermatrix(
               group_weights, group_outputs, 1U, input, operation, layer);
         }
-#endif
         if (!reference_runner_detail::
                 use_fp8_m64_prefill_attention_output_projection(
                     projection_backend_, weight, input, output,
@@ -3008,7 +2999,6 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
             "prefill_linear_attention_variant", layer));
       }
       bool linear_qkvz_projected = false;
-#if defined(Q3X_ENABLE_FP8_PREFILL_SUPERMATRIX_V2_ADMISSION)
       if (has_fp8_prefill_supermatrix_sidecar(attention->in_proj_qkv) &&
           has_fp8_prefill_supermatrix_sidecar(attention->in_proj_z)) {
         const LinearWeight* const group_weights[2U] = {
@@ -3022,7 +3012,6 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
         }
         linear_qkvz_projected = true;
       }
-#endif
       if (!linear_qkvz_projected &&
           (!project(attention->in_proj_qkv, views_.hidden[1],
                     views_.projection[0], "prefill_linear_qkv_projection",
@@ -3285,7 +3274,6 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
       const std::size_t rope_first_position =
           static_cast<std::size_t>(first_position);
       bool full_qkv_projected = false;
-#if defined(Q3X_ENABLE_FP8_PREFILL_SUPERMATRIX_V2_ADMISSION)
       if (has_fp8_prefill_supermatrix_sidecar(attention->q_proj) &&
           has_fp8_prefill_supermatrix_sidecar(attention->k_proj) &&
           has_fp8_prefill_supermatrix_sidecar(attention->v_proj)) {
@@ -3300,7 +3288,6 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
         }
         full_qkv_projected = true;
       }
-#endif
       if (!full_qkv_projected &&
           (!project(attention->q_proj, views_.hidden[1],
                     views_.projection[0], "prefill_full_q_gate_projection",

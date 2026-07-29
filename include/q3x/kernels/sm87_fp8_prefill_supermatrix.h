@@ -5,7 +5,7 @@
 
 namespace q3x::kernels {
 
-// One host-side partition descriptor for the test-only exact-C512 FP8
+// One host-side partition descriptor for the production exact-C512 FP8
 // projection-supermatrix launcher. The launcher copies these values into the
 // CUDA kernel argument packet synchronously; the descriptor array itself need
 // not remain alive after the call. Device payloads must remain valid until the

@@ -177,6 +177,7 @@ struct ReferenceEngineLoadStats {
   double fp8_output_sidecar_milliseconds = 0.0;
   double nvfp4_down_scale6_sidecar_milliseconds = 0.0;
   double fp8_prefill_qkv_sidecar_milliseconds = 0.0;
+  double fp8_prefill_supermatrix_sidecar_milliseconds = 0.0;
   double runner_factory_milliseconds = 0.0;
   ReferenceDecodeGraphCachePolicy decode_graph_cache_requested_policy =
       ReferenceDecodeGraphCachePolicy::kDisabled;
@@ -232,6 +233,11 @@ struct ReferenceEngineLoadStats {
   // Empty when the complete 48-layer inventory was attached or when the
   // exact SM87 C512 sidecar route was not requested.
   std::string fp8_prefill_qkv_sidecar_fallback_reason;
+  // The fixed 208-projection exact-C512 inventory replaces the legacy
+  // QKV-only sidecars when its complete arena is admitted.
+  bool fp8_prefill_supermatrix_sidecars_enabled = false;
+  std::size_t fp8_prefill_supermatrix_sidecar_projections = 0U;
+  std::uint64_t fp8_prefill_supermatrix_sidecar_bytes = 0U;
   // True only when tokenizer parsing and resident loading actually executed
   // concurrently. When true, total_milliseconds is wall time and phase
   // timings intentionally overlap.
