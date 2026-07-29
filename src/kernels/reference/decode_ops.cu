@@ -32,10 +32,7 @@ constexpr unsigned int kResidualRmsBlocks =
 constexpr std::size_t kResidualRmsBytes =
     kResidualRmsHiddenSize * sizeof(std::uint16_t);
 constexpr std::size_t kResidualRmsM32TokenCount = 32U;
-constexpr std::size_t kResidualRmsM32ElementCount =
-    kResidualRmsM32TokenCount * kResidualRmsHiddenSize;
-constexpr std::size_t kResidualRmsM32Bytes =
-    kResidualRmsM32ElementCount * sizeof(std::uint16_t);
+constexpr std::size_t kResidualRmsPrefillMaximumTokenCount = 512U;
 constexpr unsigned int kResidualRmsM32Threads = 512U;
 constexpr std::size_t kFusedGqaQueryHeads = 24U;
 constexpr std::size_t kFusedGqaKvHeads = 4U;
@@ -91,6 +88,7 @@ static_assert(kBf16GreedyArgmaxBlocks != 0U &&
 static_assert(kResidualRmsHiddenSize % kThreads == 0U);
 static_assert(kResidualRmsHiddenSize % kResidualRmsM32Threads == 0U);
 static_assert(kResidualRmsM32TokenCount <= kMaximumBlocks);
+static_assert(kResidualRmsPrefillMaximumTokenCount <= kMaximumBlocks);
 static_assert(kResidualRmsM32TokenCount <=
               std::numeric_limits<std::size_t>::max() /
                   kResidualRmsHiddenSize);
@@ -686,14 +684,15 @@ __global__ void residual_add_centered_rms_norm_5120_kernel(
   }
 }
 
-// Exact-M32 Prefill path. One 512-thread CTA owns one token and stages the
-// rounded residual in shared memory. The lower 256 lanes retain the reference
-// path's exact per-lane accumulation order and reduction tree while caching
-// the BF16 residual bits in registers for the output pass. The block-wide
+// Exact prompt-span Prefill path. One 512-thread CTA owns one token and stages
+// the rounded residual in shared memory. Grid size is the admitted span; the
+// original M32 ABI and the prompt-wide ABI therefore execute the same
+// per-token instructions, reduction tree, and BF16 boundaries. The lower 256
+// lanes cache residual bits in registers for the output pass. Block-wide
 // barriers also make normalized_output == right safe: every right operand is
 // consumed before any normalized value is written.
 __global__ __launch_bounds__(kResidualRmsM32Threads, 3)
-void residual_add_headwise_centered_rms_norm_m32_5120_kernel(
+void residual_add_headwise_centered_rms_norm_prefill_5120_kernel(
     const std::uint16_t* const left,
     const std::uint16_t* const right,
     const std::uint16_t* const weight,
@@ -1734,6 +1733,48 @@ void launch_attention_scores_unchecked(
       head_dimension, attention_scale, scores);
 }
 
+[[nodiscard]] bool valid_residual_rms_prefill_5120_arguments(
+    const std::uint16_t* const left,
+    const std::uint16_t* const right,
+    const std::uint16_t* const weight,
+    const std::size_t token_count,
+    const std::size_t hidden_size,
+    const float epsilon,
+    const std::uint16_t* const residual_output,
+    const std::uint16_t* const normalized_output) noexcept {
+  if (token_count == 0U ||
+      token_count > kResidualRmsPrefillMaximumTokenCount ||
+      hidden_size != kResidualRmsHiddenSize || !valid_epsilon(epsilon) ||
+      left == nullptr || right == nullptr || weight == nullptr ||
+      residual_output == nullptr || normalized_output == nullptr ||
+      product3_overflows(token_count, hidden_size,
+                         sizeof(std::uint16_t))) {
+    return false;
+  }
+  const std::size_t bytes =
+      token_count * kResidualRmsHiddenSize * sizeof(std::uint16_t);
+  if (byte_range_overflows(left, bytes) ||
+      byte_range_overflows(right, bytes) ||
+      byte_range_overflows(weight, kResidualRmsBytes) ||
+      byte_range_overflows(residual_output, bytes) ||
+      byte_range_overflows(normalized_output, bytes)) {
+    return false;
+  }
+
+  // residual_output is always independent. normalized_output may exactly
+  // alias projection-right for the production layout, but no partial or
+  // other writable overlap is legal.
+  return !ranges_overlap(residual_output, bytes, left, bytes) &&
+         !ranges_overlap(residual_output, bytes, right, bytes) &&
+         !ranges_overlap(residual_output, bytes, weight,
+                         kResidualRmsBytes) &&
+         !ranges_overlap(residual_output, bytes, normalized_output, bytes) &&
+         !ranges_overlap(normalized_output, bytes, left, bytes) &&
+         !partially_overlaps(normalized_output, bytes, right, bytes) &&
+         !ranges_overlap(normalized_output, bytes, weight,
+                         kResidualRmsBytes);
+}
+
 [[nodiscard]] bool valid_residual_rms_m32_5120_arguments(
     const std::uint16_t* const left,
     const std::uint16_t* const right,
@@ -1743,35 +1784,10 @@ void launch_attention_scores_unchecked(
     const float epsilon,
     const std::uint16_t* const residual_output,
     const std::uint16_t* const normalized_output) noexcept {
-  if (token_count != kResidualRmsM32TokenCount ||
-      hidden_size != kResidualRmsHiddenSize || !valid_epsilon(epsilon) ||
-      left == nullptr || right == nullptr || weight == nullptr ||
-      residual_output == nullptr || normalized_output == nullptr ||
-      byte_range_overflows(left, kResidualRmsM32Bytes) ||
-      byte_range_overflows(right, kResidualRmsM32Bytes) ||
-      byte_range_overflows(weight, kResidualRmsBytes) ||
-      byte_range_overflows(residual_output, kResidualRmsM32Bytes) ||
-      byte_range_overflows(normalized_output, kResidualRmsM32Bytes)) {
-    return false;
-  }
-
-  // residual_output is always independent. normalized_output may exactly
-  // alias projection-right for the production layout, but no partial or
-  // other writable overlap is legal.
-  return !ranges_overlap(residual_output, kResidualRmsM32Bytes, left,
-                         kResidualRmsM32Bytes) &&
-         !ranges_overlap(residual_output, kResidualRmsM32Bytes, right,
-                         kResidualRmsM32Bytes) &&
-         !ranges_overlap(residual_output, kResidualRmsM32Bytes, weight,
-                         kResidualRmsBytes) &&
-         !ranges_overlap(residual_output, kResidualRmsM32Bytes,
-                         normalized_output, kResidualRmsM32Bytes) &&
-         !ranges_overlap(normalized_output, kResidualRmsM32Bytes, left,
-                         kResidualRmsM32Bytes) &&
-         !partially_overlaps(normalized_output, kResidualRmsM32Bytes, right,
-                             kResidualRmsM32Bytes) &&
-         !ranges_overlap(normalized_output, kResidualRmsM32Bytes, weight,
-                         kResidualRmsBytes);
+  return token_count == kResidualRmsM32TokenCount &&
+         valid_residual_rms_prefill_5120_arguments(
+             left, right, weight, token_count, hidden_size, epsilon,
+             residual_output, normalized_output);
 }
 
 [[nodiscard]] bool valid_attention_score_test_arguments(
@@ -1940,10 +1956,35 @@ int launch_residual_add_headwise_centered_rms_norm_m32_5120_cuda(
 
   const auto stream = static_cast<cudaStream_t>(cuda_stream);
   (void)cudaGetLastError();
-  residual_add_headwise_centered_rms_norm_m32_5120_kernel
+  residual_add_headwise_centered_rms_norm_prefill_5120_kernel
       <<<static_cast<unsigned int>(kResidualRmsM32TokenCount),
          kResidualRmsM32Threads, 0U, stream>>>(
           left, right, weight, epsilon, residual_output, normalized_output);
+  return static_cast<int>(cudaGetLastError());
+}
+
+int launch_residual_add_headwise_centered_rms_norm_prefill_5120_cuda(
+    const std::uint16_t* const left,
+    const std::uint16_t* const right,
+    const std::uint16_t* const weight,
+    const std::size_t token_count,
+    const std::size_t hidden_size,
+    const float epsilon,
+    std::uint16_t* const residual_output,
+    std::uint16_t* const normalized_output,
+    void* const cuda_stream) noexcept {
+  if (!valid_residual_rms_prefill_5120_arguments(
+          left, right, weight, token_count, hidden_size, epsilon,
+          residual_output, normalized_output)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+
+  const auto stream = static_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  residual_add_headwise_centered_rms_norm_prefill_5120_kernel
+      <<<static_cast<unsigned int>(token_count), kResidualRmsM32Threads, 0U,
+         stream>>>(left, right, weight, epsilon, residual_output,
+                   normalized_output);
   return static_cast<int>(cudaGetLastError());
 }
 
@@ -1960,13 +2001,15 @@ int query_residual_add_headwise_centered_rms_norm_m32_5120_test_cuda_resources(
   }
   cudaFuncAttributes attributes{};
   cudaError_t status = cudaFuncGetAttributes(
-      &attributes, residual_add_headwise_centered_rms_norm_m32_5120_kernel);
+      &attributes,
+      residual_add_headwise_centered_rms_norm_prefill_5120_kernel);
   if (status != cudaSuccess) {
     return static_cast<int>(status);
   }
   int active_blocks = 0;
   status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
-      &active_blocks, residual_add_headwise_centered_rms_norm_m32_5120_kernel,
+      &active_blocks,
+      residual_add_headwise_centered_rms_norm_prefill_5120_kernel,
       static_cast<int>(kResidualRmsM32Threads), 0U);
   if (status != cudaSuccess) {
     return static_cast<int>(status);
