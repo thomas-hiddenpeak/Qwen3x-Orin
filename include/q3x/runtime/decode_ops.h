@@ -142,6 +142,19 @@ inline constexpr std::size_t kBf16GreedyArgmaxWorkspaceResults = 33U;
     std::size_t hidden_size, std::size_t token_id, std::uint16_t* output,
     void* cuda_stream = nullptr) noexcept;
 
+// Prompt-wide counterpart. token_ids must already reside in device-accessible
+// storage. The embedding_table, token_ids, and output byte ranges must be
+// pairwise disjoint. One CTA owns one token row and copies the complete hidden
+// vector, avoiding one launch per prompt token while retaining bitwise copy
+// semantics. Token values are not synchronized back for host validation; a
+// device token outside vocabulary_size leaves its output row unmodified, so
+// callers that require request failure must validate token IDs before launch.
+[[nodiscard]] int launch_embedding_gather_prompt_reference_cuda(
+    const std::uint16_t* embedding_table, std::size_t vocabulary_size,
+    std::size_t hidden_size, const std::uint32_t* token_ids,
+    std::size_t token_count, std::uint16_t* output,
+    void* cuda_stream = nullptr) noexcept;
+
 [[nodiscard]] int launch_centered_rms_norm_reference_cuda(
     const std::uint16_t* input, const std::uint16_t* weight,
     std::size_t hidden_size, float epsilon, std::uint16_t* output,

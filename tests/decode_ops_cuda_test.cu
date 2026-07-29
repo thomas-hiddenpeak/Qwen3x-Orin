@@ -1016,6 +1016,349 @@ void test_embedding(TestContext& test, cudaStream_t stream) {
   }
 }
 
+struct EmbeddingPromptInvalidCase {
+  const char* name;
+  const std::uint16_t* table;
+  std::size_t vocabulary_size;
+  std::size_t hidden_size;
+  const std::uint32_t* token_ids;
+  std::size_t token_count;
+  std::uint16_t* output;
+};
+
+[[nodiscard]] std::vector<EmbeddingPromptInvalidCase>
+embedding_prompt_invalid_cases() {
+  constexpr std::uintptr_t kStride = 0x1000'0000ULL;
+  constexpr std::size_t kMaximum =
+      std::numeric_limits<std::size_t>::max();
+  constexpr std::size_t kMaximumGrid =
+      std::numeric_limits<unsigned int>::max();
+  constexpr std::size_t kOutputByteOverflowHidden =
+      kMaximum / (2U * kMaximumGrid) + 1U;
+  const auto* const table =
+      reinterpret_cast<const std::uint16_t*>(1U * kStride);
+  const auto* const token_ids =
+      reinterpret_cast<const std::uint32_t*>(2U * kStride);
+  auto* const output = reinterpret_cast<std::uint16_t*>(3U * kStride);
+  const auto* const range_end_u16 = reinterpret_cast<const std::uint16_t*>(
+      std::numeric_limits<std::uintptr_t>::max() - 1U);
+  const auto* const range_end_u32 = reinterpret_cast<const std::uint32_t*>(
+      std::numeric_limits<std::uintptr_t>::max() - 1U);
+  auto* const range_end_output = reinterpret_cast<std::uint16_t*>(
+      std::numeric_limits<std::uintptr_t>::max() - 1U);
+  return {
+      {"vocabulary-zero", table, 0U, 1U, token_ids, 1U, output},
+      {"hidden-zero", table, 1U, 0U, token_ids, 1U, output},
+      {"token-count-zero", table, 1U, 1U, token_ids, 0U, output},
+      {"null-table", nullptr, 1U, 1U, token_ids, 1U, output},
+      {"null-token-ids", table, 1U, 1U, nullptr, 1U, output},
+      {"null-output", table, 1U, 1U, token_ids, 1U, nullptr},
+      {"token-count-exceeds-grid", table, 1U, 1U, token_ids,
+       static_cast<std::size_t>(std::numeric_limits<unsigned int>::max()) +
+           1U,
+       output},
+      {"table-element-count-overflow", table, kMaximum, 2U, token_ids, 1U,
+       output},
+      {"output-element-count-overflow", table, 1U, 2U, token_ids, kMaximum,
+       output},
+      {"table-byte-count-overflow", table, kMaximum / 2U + 1U, 1U,
+       token_ids, 1U, output},
+      {"output-byte-count-overflow", table, 1U,
+       kOutputByteOverflowHidden, token_ids, kMaximumGrid, output},
+      {"table-token-ids-alias", table, 2U, 2U,
+       reinterpret_cast<const std::uint32_t*>(table), 1U, output},
+      {"table-output-alias", table, 2U, 2U, token_ids, 1U,
+       const_cast<std::uint16_t*>(table)},
+      {"table-output-partial-alias", table, 2U, 2U, token_ids, 1U,
+       const_cast<std::uint16_t*>(table) + 1U},
+      {"token-ids-output-alias", table, 2U, 2U, token_ids, 1U,
+       reinterpret_cast<std::uint16_t*>(
+           const_cast<std::uint32_t*>(token_ids))},
+      {"table-address-range-overflow", range_end_u16, 1U, 2U, token_ids,
+       1U, output},
+      {"token-id-address-range-overflow", table, 1U, 2U, range_end_u32, 1U,
+       output},
+      {"output-address-range-overflow", table, 1U, 2U, token_ids, 1U,
+       range_end_output},
+  };
+}
+
+void test_embedding_prompt_launch_validation(TestContext& test) {
+  for (const EmbeddingPromptInvalidCase& invalid :
+       embedding_prompt_invalid_cases()) {
+    test.expect(
+        static_cast<cudaError_t>(
+            q3x::runtime::launch_embedding_gather_prompt_reference_cuda(
+                invalid.table, invalid.vocabulary_size, invalid.hidden_size,
+                invalid.token_ids, invalid.token_count, invalid.output,
+                nullptr)) == cudaErrorInvalidValue,
+        "prompt embedding rejects " + std::string(invalid.name));
+  }
+}
+
+void test_embedding_prompt_invalid_graph(TestContext& test,
+                                         cudaStream_t stream) {
+  for (const EmbeddingPromptInvalidCase& invalid :
+       embedding_prompt_invalid_cases()) {
+    const std::string label =
+        "prompt embedding invalid graph " + std::string(invalid.name);
+    if (!test.cuda_ok(
+            cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+            label + " begin capture")) {
+      return;
+    }
+    const cudaError_t status = static_cast<cudaError_t>(
+        q3x::runtime::launch_embedding_gather_prompt_reference_cuda(
+            invalid.table, invalid.vocabulary_size, invalid.hidden_size,
+            invalid.token_ids, invalid.token_count, invalid.output,
+            static_cast<void*>(stream)));
+    test.expect(status == cudaErrorInvalidValue,
+                label + " returns cudaErrorInvalidValue");
+    cudaGraph_t graph = nullptr;
+    if (!test.cuda_ok(cudaStreamEndCapture(stream, &graph),
+                      label + " end capture")) {
+      return;
+    }
+    std::size_t node_count = 0U;
+    if (test.cuda_ok(cudaGraphGetNodes(graph, nullptr, &node_count),
+                     label + " count nodes")) {
+      test.expect(node_count == 0U, label + " captures zero nodes");
+    }
+    if (graph != nullptr) {
+      (void)test.cuda_ok(cudaGraphDestroy(graph), label + " destroy graph");
+    }
+  }
+}
+
+void run_embedding_prompt_case(TestContext& test, cudaStream_t stream,
+                               const std::size_t token_count,
+                               const bool singleton_last_token) {
+  constexpr std::size_t kVocabulary = 17U;
+  constexpr std::size_t kHidden = 259U;
+  const std::size_t element_count = token_count * kHidden;
+  const std::string label =
+      "prompt embedding M" + std::to_string(token_count) +
+      (singleton_last_token ? " boundary-last" : " boundary-first");
+  GuardedBf16Buffer table;
+  ManagedBuffer<std::uint32_t> token_ids;
+  GuardedBf16Buffer scalar;
+  GuardedBf16Buffer batch;
+  bool ready = table.allocate(test, kVocabulary * kHidden, label + " table");
+  ready = ready && test.cuda_ok(token_ids.allocate(token_count),
+                                label + " token IDs allocate");
+  ready = ready && scalar.allocate(test, element_count, label + " scalar");
+  ready = ready && batch.allocate(test, element_count, label + " batch");
+  if (!ready) {
+    return;
+  }
+  table.initialize(0U, 0x9111U, 0x9222U);
+  scalar.initialize(0xc1c1U, 0xa111U, 0xa222U);
+  batch.initialize(0xd2d2U, 0xb111U, 0xb222U);
+  for (std::size_t index = 0U; index < kVocabulary * kHidden; ++index) {
+    table.data()[index] = static_cast<std::uint16_t>(
+        (index * 977U + index / kHidden * 131U + 0x1234U) & 0xffffU);
+  }
+  for (std::size_t token = 0U; token < token_count; ++token) {
+    token_ids[token] =
+        static_cast<std::uint32_t>((token * 7U + 3U) % kVocabulary);
+  }
+  if (token_count == 1U) {
+    token_ids[0] = static_cast<std::uint32_t>(
+        singleton_last_token ? kVocabulary - 1U : 0U);
+  } else {
+    token_ids[0] = 0U;
+    token_ids[1] = static_cast<std::uint32_t>(kVocabulary - 1U);
+    if (token_count >= 3U) {
+      token_ids[2] = static_cast<std::uint32_t>(kVocabulary - 1U);
+    }
+  }
+  const std::vector<std::uint16_t> table_before = table.snapshot();
+  const std::vector<std::uint32_t> token_ids_before(
+      token_ids.data(), token_ids.data() + token_ids.size());
+
+  ready = launch_after_stale(test, stream, label + " scalar", [&]() {
+    int status = static_cast<int>(cudaSuccess);
+    for (std::size_t token = 0U; token < token_count; ++token) {
+      status = q3x::runtime::launch_embedding_gather_reference_cuda(
+          table.data(), kVocabulary, kHidden, token_ids_before[token],
+          scalar.data() + token * kHidden, static_cast<void*>(stream));
+      if (status != static_cast<int>(cudaSuccess)) {
+        break;
+      }
+    }
+    return status;
+  });
+  ready = ready && launch_after_stale(test, stream, label + " batch", [&]() {
+    return q3x::runtime::launch_embedding_gather_prompt_reference_cuda(
+        table.data(), kVocabulary, kHidden, token_ids.data(), token_count,
+        batch.data(), static_cast<void*>(stream));
+  });
+  if (!ready) {
+    return;
+  }
+  expect_bf16_bits_equal(test, batch.data(), scalar.data(), element_count,
+                         label + " batch versus scalar");
+  table.expect_snapshot(test, table_before, label + " preserves table");
+  test.expect(std::equal(token_ids.data(), token_ids.data() + token_ids.size(),
+                         token_ids_before.data()),
+              label + " preserves token IDs");
+  scalar.expect_guards(test, label + " scalar output");
+  batch.expect_guards(test, label + " batch output");
+
+  cudaGraph_t graph = nullptr;
+  ready = test.cuda_ok(
+      cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+      label + " graph begin capture");
+  if (ready) {
+    const cudaError_t capture_status = static_cast<cudaError_t>(
+        q3x::runtime::launch_embedding_gather_prompt_reference_cuda(
+            table.data(), kVocabulary, kHidden, token_ids.data(), token_count,
+            batch.data(), static_cast<void*>(stream)));
+    test.expect(capture_status == cudaSuccess,
+                label + " graph launch succeeds");
+    ready = test.cuda_ok(cudaStreamEndCapture(stream, &graph),
+                         label + " graph end capture");
+  }
+  cudaGraphExec_t executable = nullptr;
+  if (ready) {
+    std::size_t node_count = 0U;
+    ready = test.cuda_ok(cudaGraphGetNodes(graph, nullptr, &node_count),
+                         label + " graph count nodes");
+    test.expect(node_count == 1U, label + " graph captures one node");
+    if (ready && node_count == 1U) {
+      cudaGraphNode_t node = nullptr;
+      std::size_t capacity = 1U;
+      ready = test.cuda_ok(cudaGraphGetNodes(graph, &node, &capacity),
+                           label + " graph fetch node");
+      cudaGraphNodeType node_type = cudaGraphNodeTypeEmpty;
+      ready = ready && test.cuda_ok(cudaGraphNodeGetType(node, &node_type),
+                                    label + " graph node type");
+      test.expect(node_type == cudaGraphNodeTypeKernel,
+                  label + " graph node is a kernel");
+      cudaKernelNodeParams parameters{};
+      ready = ready && test.cuda_ok(cudaGraphKernelNodeGetParams(
+                                        node, &parameters),
+                                    label + " graph kernel parameters");
+      if (ready) {
+        test.expect(parameters.gridDim.x == token_count &&
+                        parameters.gridDim.y == 1U &&
+                        parameters.gridDim.z == 1U &&
+                        parameters.blockDim.x == 256U &&
+                        parameters.blockDim.y == 1U &&
+                        parameters.blockDim.z == 1U &&
+                        parameters.sharedMemBytes == 0U,
+                    label + " graph has exact topology");
+      }
+    }
+    ready = ready && test.cuda_ok(
+                         cudaGraphInstantiate(&executable, graph, nullptr,
+                                              nullptr, 0U),
+                         label + " graph instantiate");
+  }
+  for (unsigned int replay = 0U; ready && replay < 2U; ++replay) {
+    batch.initialize(static_cast<std::uint16_t>(0xe300U + replay), 0xb111U,
+                     0xb222U);
+    ready = test.cuda_ok(cudaGraphLaunch(executable, stream),
+                         label + " graph replay " +
+                             std::to_string(replay));
+    ready = ready && test.cuda_ok(
+                         cudaStreamSynchronize(stream),
+                         label + " graph synchronize " +
+                             std::to_string(replay));
+    if (ready) {
+      expect_bf16_bits_equal(test, batch.data(), scalar.data(), element_count,
+                             label + " graph replay exact " +
+                                 std::to_string(replay));
+      batch.expect_guards(test, label + " graph replay guards " +
+                                   std::to_string(replay));
+    }
+  }
+  if (executable != nullptr) {
+    (void)test.cuda_ok(cudaGraphExecDestroy(executable),
+                       label + " graph exec destroy");
+  }
+  if (graph != nullptr) {
+    (void)test.cuda_ok(cudaGraphDestroy(graph), label + " graph destroy");
+  }
+  table.expect_snapshot(test, table_before,
+                        label + " graph preserves table");
+  test.expect(std::equal(token_ids.data(), token_ids.data() + token_ids.size(),
+                         token_ids_before.data()),
+              label + " graph preserves token IDs");
+}
+
+void test_embedding_prompt_invalid_device_token(TestContext& test,
+                                                cudaStream_t stream) {
+  constexpr std::size_t kVocabulary = 7U;
+  constexpr std::size_t kHidden = 259U;
+  constexpr std::size_t kTokenCount = 5U;
+  constexpr std::uint16_t kPoison = 0xdeadU;
+  const std::string label = "prompt embedding device-invalid token";
+  GuardedBf16Buffer table;
+  ManagedBuffer<std::uint32_t> token_ids;
+  GuardedBf16Buffer output;
+  bool ready = table.allocate(test, kVocabulary * kHidden, label + " table");
+  ready = ready && test.cuda_ok(token_ids.allocate(kTokenCount),
+                                label + " token IDs allocate");
+  ready = ready && output.allocate(test, kTokenCount * kHidden,
+                                   label + " output");
+  if (!ready) {
+    return;
+  }
+  table.initialize(0U, 0x7111U, 0x7222U);
+  output.initialize(kPoison, 0x8111U, 0x8222U);
+  for (std::size_t index = 0U; index < kVocabulary * kHidden; ++index) {
+    table.data()[index] = static_cast<std::uint16_t>(
+        (index * 521U + index / kHidden * 29U + 0x3456U) & 0xffffU);
+  }
+  token_ids[0] = 0U;
+  token_ids[1] = static_cast<std::uint32_t>(kVocabulary);
+  token_ids[2] = static_cast<std::uint32_t>(kVocabulary - 1U);
+  token_ids[3] = std::numeric_limits<std::uint32_t>::max();
+  token_ids[4] = 0U;
+  const std::vector<std::uint16_t> table_before = table.snapshot();
+  const std::vector<std::uint32_t> token_ids_before(
+      token_ids.data(), token_ids.data() + token_ids.size());
+  ready = launch_after_stale(test, stream, label, [&]() {
+    return q3x::runtime::launch_embedding_gather_prompt_reference_cuda(
+        table.data(), kVocabulary, kHidden, token_ids.data(), kTokenCount,
+        output.data(), static_cast<void*>(stream));
+  });
+  if (!ready) {
+    return;
+  }
+  for (std::size_t token = 0U; token < kTokenCount; ++token) {
+    const bool valid = token_ids[token] < kVocabulary;
+    for (std::size_t hidden = 0U; hidden < kHidden; ++hidden) {
+      const std::uint16_t expected =
+          valid ? table.data()[static_cast<std::size_t>(token_ids[token]) *
+                                   kHidden + hidden]
+                : kPoison;
+      test.expect(output.data()[token * kHidden + hidden] == expected,
+                  label + " row " + std::to_string(token) + " element " +
+                      std::to_string(hidden));
+    }
+  }
+  table.expect_snapshot(test, table_before, label + " preserves table");
+  test.expect(std::equal(token_ids.data(), token_ids.data() + token_ids.size(),
+                         token_ids_before.data()),
+              label + " preserves token IDs");
+  output.expect_guards(test, label + " output");
+}
+
+void test_embedding_prompt(TestContext& test, cudaStream_t stream) {
+  constexpr std::array<std::size_t, 11U> kTokenCounts{
+      1U, 2U, 7U, 8U, 31U, 32U, 64U, 407U, 481U, 511U, 512U};
+  for (const std::size_t token_count : kTokenCounts) {
+    run_embedding_prompt_case(test, stream, token_count, false);
+    if (token_count == 1U) {
+      run_embedding_prompt_case(test, stream, token_count, true);
+    }
+  }
+  test_embedding_prompt_invalid_device_token(test, stream);
+  test_embedding_prompt_invalid_graph(test, stream);
+}
+
 void test_vector_ops(TestContext& test, cudaStream_t stream) {
   constexpr std::size_t kCount = 777U;
   constexpr float kEpsilon = 1.0e-6F;
@@ -9503,6 +9846,7 @@ void test_nonfinite(TestContext& test, cudaStream_t stream) {
 int main() {
   TestContext test;
   test_launch_validation(test);
+  test_embedding_prompt_launch_validation(test);
   test_residual_rms_m32_launch_validation(test);
 
   int device_count = 0;
@@ -9527,6 +9871,7 @@ int main() {
   }
 
   test_embedding(test, stream);
+  test_embedding_prompt(test, stream);
   test_vector_ops(test, stream);
   test_residual_rms_fused(test, stream);
   test_residual_rms_fused_perf(test, stream);
