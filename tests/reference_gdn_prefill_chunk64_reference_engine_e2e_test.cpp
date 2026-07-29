@@ -154,6 +154,28 @@ class ScopedFusedKktBaseline {
   bool previous_ = false;
 };
 
+class ScopedResidentStateBaseline {
+ public:
+  explicit ScopedResidentStateBaseline(const bool enabled) noexcept
+      : previous_(q3x::runtime::gdn_prefill_chunk64_native_detail::
+                      exchange_force_resident_state_baseline_for_test(
+                          enabled)) {}
+
+  ~ScopedResidentStateBaseline() {
+    (void)q3x::runtime::gdn_prefill_chunk64_native_detail::
+        exchange_force_resident_state_baseline_for_test(previous_);
+  }
+
+  [[nodiscard]] bool valid() const noexcept { return true; }
+
+  ScopedResidentStateBaseline(const ScopedResidentStateBaseline&) = delete;
+  ScopedResidentStateBaseline& operator=(
+      const ScopedResidentStateBaseline&) = delete;
+
+ private:
+  bool previous_ = false;
+};
+
 void collect_native_boundaries(
     const std::uint16_t* const transform,
     const std::size_t transform_elements,
@@ -372,8 +394,8 @@ void print_diagnostic(
   const bool passed = status == static_cast<int>(cudaSuccess) &&
                       registers_per_thread > 0 &&
                       registers_per_thread <= 255 && local_bytes == 0U &&
-                      maximum_threads_per_block >= 256 &&
-                      active_blocks_per_sm >= 1 &&
+                      maximum_threads_per_block >= 128 &&
+                      active_blocks_per_sm >= 2 &&
                       q3x::runtime::gdn_prefill_chunk64_native_detail::
                               workspace_bytes() > 0U;
   std::cout << "GDN_CHUNK64_NATIVE_RESOURCES"
@@ -541,9 +563,10 @@ struct DifferenceMetrics {
   return metrics;
 }
 
-void print_difference_metrics(const std::string_view region,
+void print_difference_metrics(const std::string_view suite,
+                              const std::string_view region,
                               const DifferenceMetrics& metrics) {
-  std::cout << "GDN_CHUNK64_NATIVE_KKT_EQUIVALENCE"
+  std::cout << suite
             << " region=" << region
             << " elements=" << metrics.elements
             << " unequal_bf16=" << metrics.unequal_bf16
@@ -637,10 +660,14 @@ void print_difference_metrics(const std::string_view region,
       fused_boundaries.output, split_boundaries.output);
   const DifferenceMetrics full_request_state = compare_bf16(
       fused_state.values, split_state.values);
-  print_difference_metrics("transform", transform);
-  print_difference_metrics("final_layer_state", final_layer_state);
-  print_difference_metrics("final_layer_output", final_layer_output);
-  print_difference_metrics("full_request_state", full_request_state);
+  print_difference_metrics("GDN_CHUNK64_NATIVE_KKT_EQUIVALENCE",
+                           "transform", transform);
+  print_difference_metrics("GDN_CHUNK64_NATIVE_KKT_EQUIVALENCE",
+                           "final_layer_state", final_layer_state);
+  print_difference_metrics("GDN_CHUNK64_NATIVE_KKT_EQUIVALENCE",
+                           "final_layer_output", final_layer_output);
+  print_difference_metrics("GDN_CHUNK64_NATIVE_KKT_EQUIVALENCE",
+                           "full_request_state", full_request_state);
 
   const bool boundary_contract =
       !fused_boundaries.contract_error &&
@@ -672,6 +699,163 @@ void print_difference_metrics(const std::string_view region,
             << " gate=" << (passed ? "PASS" : "FAIL")
             << " authority=REAL_WEIGHT_CANDIDATE_VS_FUSED\n";
   return passed;
+}
+
+[[nodiscard]] bool run_native_resident_state_equivalence(
+    runtime::ReferenceEngine& engine,
+    const std::string& prompt) {
+  if (g_prompt_tokens != kDefaultPromptTokens) {
+    std::cerr << "resident-state equivalence requires the real P513 route\n";
+    return false;
+  }
+  constexpr std::size_t kNativeTokens = kDefaultPromptTokens - 1U;
+  constexpr std::size_t kTransformElements =
+      (kNativeTokens / 64U) * runtime::kGdnValueHeadCount * 64U * 64U;
+  constexpr std::size_t kOutputElements =
+      kNativeTokens * runtime::kGdnVElements;
+
+  StateSnapshot baseline_state;
+  StateSnapshot candidate_state;
+  NativeBoundarySnapshot baseline_boundaries;
+  NativeBoundarySnapshot candidate_boundaries;
+  try {
+    const std::size_t request_state_elements =
+        static_cast<std::size_t>(runtime::kRequestGdnStateBytes /
+                                 sizeof(std::uint16_t));
+    baseline_state.values.resize(request_state_elements);
+    candidate_state.values.resize(request_state_elements);
+    baseline_boundaries.transform.resize(kTransformElements);
+    candidate_boundaries.transform.resize(kTransformElements);
+    baseline_boundaries.state.resize(runtime::kGdnStateElements);
+    candidate_boundaries.state.resize(runtime::kGdnStateElements);
+    baseline_boundaries.output.resize(kOutputElements);
+    candidate_boundaries.output.resize(kOutputElements);
+  } catch (const std::bad_alloc&) {
+    std::cerr << "resident-state equivalence host allocation failed\n";
+    return false;
+  }
+
+  std::size_t baseline_hits = 0U;
+  runtime::ReferenceGenerateResult baseline_result;
+  {
+    const ScopedFusedKktBaseline kkt_route(false);
+    const ScopedResidentStateBaseline route(true);
+    const ScopedNativeInspectionHook hook(baseline_boundaries);
+    baseline_result = run_snapshot_generation(
+        engine, prompt, true, baseline_state, baseline_hits);
+  }
+
+  std::size_t candidate_hits = 0U;
+  runtime::ReferenceGenerateResult candidate_result;
+  {
+    const ScopedFusedKktBaseline kkt_route(false);
+    const ScopedResidentStateBaseline route(false);
+    const ScopedNativeInspectionHook hook(candidate_boundaries);
+    candidate_result = run_snapshot_generation(
+        engine, prompt, true, candidate_state, candidate_hits);
+  }
+  if (!baseline_result || !candidate_result) {
+    std::cerr << "resident-state equivalence generation failed\n";
+    if (!baseline_result) {
+      print_diagnostic(baseline_result.diagnostic);
+    }
+    if (!candidate_result) {
+      print_diagnostic(candidate_result.diagnostic);
+    }
+    return false;
+  }
+
+  const DifferenceMetrics transform = compare_bf16(
+      baseline_boundaries.transform, candidate_boundaries.transform);
+  const DifferenceMetrics final_layer_state = compare_bf16(
+      baseline_boundaries.state, candidate_boundaries.state);
+  const DifferenceMetrics final_layer_output = compare_bf16(
+      baseline_boundaries.output, candidate_boundaries.output);
+  const DifferenceMetrics full_request_state = compare_bf16(
+      baseline_state.values, candidate_state.values);
+  constexpr std::string_view kSuite =
+      "GDN_CHUNK64_NATIVE_RESIDENT_STATE_EQUIVALENCE";
+  print_difference_metrics(kSuite, "transform", transform);
+  print_difference_metrics(kSuite, "final_layer_state", final_layer_state);
+  print_difference_metrics(kSuite, "final_layer_output", final_layer_output);
+  print_difference_metrics(kSuite, "full_request_state", full_request_state);
+
+  const bool boundary_contract =
+      !baseline_boundaries.contract_error &&
+      !candidate_boundaries.contract_error &&
+      baseline_boundaries.cuda_error == static_cast<int>(cudaSuccess) &&
+      candidate_boundaries.cuda_error == static_cast<int>(cudaSuccess) &&
+      baseline_boundaries.calls == runtime::kRequestLinearLayerCount &&
+      candidate_boundaries.calls == runtime::kRequestLinearLayerCount;
+  const bool generation_semantics =
+      expected_generation(*baseline_result.value) &&
+      expected_generation(*candidate_result.value) &&
+      baseline_result.value->generated_token_ids ==
+          candidate_result.value->generated_token_ids &&
+      baseline_result.value->generated_text ==
+          candidate_result.value->generated_text;
+  const bool passed =
+      valid_snapshot(baseline_state) && valid_snapshot(candidate_state) &&
+      baseline_hits == expected_native_route_hits() &&
+      candidate_hits == expected_native_route_hits() && boundary_contract &&
+      generation_semantics && exact_metrics(transform) &&
+      exact_metrics(final_layer_state) && exact_metrics(final_layer_output) &&
+      exact_metrics(full_request_state);
+  std::cout << kSuite
+            << " baseline_hits=" << baseline_hits
+            << " candidate_hits=" << candidate_hits
+            << " boundary_contract="
+            << (boundary_contract ? "PASS" : "FAIL")
+            << " generation_semantics="
+            << (generation_semantics ? "PASS" : "FAIL")
+            << " gate=" << (passed ? "PASS" : "FAIL")
+            << " authority=REAL_WEIGHT_CANDIDATE_VS_BASELINE\n";
+  return passed;
+}
+
+[[nodiscard]] bool run_native_resident_state_direction(
+    runtime::ReferenceEngine& engine,
+    const std::string& prompt) {
+  Sample baseline;
+  Sample candidate;
+  bool valid = false;
+  {
+    const ScopedFusedKktBaseline kkt_route(false);
+    const ScopedResidentStateBaseline route(true);
+    valid = run_sample(engine, prompt, true, "resident_baseline", baseline);
+  }
+  {
+    const ScopedFusedKktBaseline kkt_route(false);
+    const ScopedResidentStateBaseline route(false);
+    valid = run_sample(engine, prompt, true, "resident_candidate", candidate) &&
+            valid;
+  }
+  const bool semantics =
+      baseline.semantic_oracle && candidate.semantic_oracle &&
+      baseline.generated_token == candidate.generated_token &&
+      baseline.generated_text == candidate.generated_text;
+  const double prefix_saved =
+      baseline.prefix_milliseconds - candidate.prefix_milliseconds;
+  const double ttft_saved =
+      baseline.ttft_milliseconds - candidate.ttft_milliseconds;
+  const bool positive = valid && semantics && prefix_saved > 0.0 &&
+                        ttft_saved > 0.0;
+  std::cout << "GDN_CHUNK64_NATIVE_RESIDENT_STATE_DIRECTION"
+            << " prompt_tokens=" << g_prompt_tokens
+            << " baseline_prefix_ms=" << baseline.prefix_milliseconds
+            << " candidate_prefix_ms=" << candidate.prefix_milliseconds
+            << " prefix_saved_ms=" << prefix_saved
+            << " prefix_speedup="
+            << baseline.prefix_milliseconds / candidate.prefix_milliseconds
+            << " baseline_ttft_ms=" << baseline.ttft_milliseconds
+            << " candidate_ttft_ms=" << candidate.ttft_milliseconds
+            << " ttft_saved_ms=" << ttft_saved
+            << " ttft_speedup="
+            << baseline.ttft_milliseconds / candidate.ttft_milliseconds
+            << " direction=" << (positive ? "POSITIVE" : "NEGATIVE")
+            << " semantic_oracle=" << (semantics ? "PASS" : "FAIL")
+            << " authority=REAL_WEIGHT_SINGLE_B_C\n";
+  return positive;
 }
 
 class DeviceBuffer {
@@ -748,8 +932,9 @@ class DeviceBuffer {
   cudaGraphExec_t executable = nullptr;
   ready = cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking) ==
           cudaSuccess;
-  const ScopedFusedKktBaseline route(false);
-  ready = route.valid() && ready;
+  const ScopedFusedKktBaseline kkt_route(false);
+  const ScopedResidentStateBaseline resident_route(false);
+  ready = kkt_route.valid() && resident_route.valid() && ready;
   auto launch = [&]() {
     return q3x::runtime::gdn_prefill_chunk64_native_detail::launch(
         workspace.data(),
@@ -969,6 +1154,11 @@ int main(const int argc, char** const argv) {
   if (!validate_native_resources()) {
     return 6;
   }
+#if defined(Q3X_GDN_CHUNK64_NATIVE_TEST)
+  if (std::getenv("Q3X_GDN_CHUNK64_VALIDATE_GRAPH_ONLY") != nullptr) {
+    return run_native_graph_validation() ? 0 : 8;
+  }
+#endif
   runtime::ReferenceEngineOptions options;
   const char* const prompt_tokens_environment =
       std::getenv("Q3X_GDN_CHUNK64_PROMPT_TOKENS");
@@ -997,6 +1187,21 @@ int main(const int argc, char** const argv) {
 
   std::cout << std::fixed << std::setprecision(9);
   const std::string prompt = repeated_hello_prompt();
+#if defined(Q3X_GDN_CHUNK64_NATIVE_TEST)
+  // A structural recurrence rewrite must prove its exact real-model
+  // boundaries before its first direction timing is allowed to matter.
+  if (std::getenv(
+          "Q3X_GDN_CHUNK64_RUN_RESIDENT_STATE_EQUIVALENCE") != nullptr &&
+      !run_native_resident_state_equivalence(*created.value, prompt)) {
+    return 9;
+  }
+  if (std::getenv(
+          "Q3X_GDN_CHUNK64_RUN_RESIDENT_STATE_DIRECTION_ONLY") != nullptr) {
+    return run_native_resident_state_direction(*created.value, prompt)
+               ? 0
+               : 3;
+  }
+#endif
   Sample baseline_warmup;
   Sample candidate_warmup;
   Sample baseline;
