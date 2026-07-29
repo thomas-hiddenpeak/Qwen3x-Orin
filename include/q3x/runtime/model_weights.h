@@ -54,6 +54,14 @@ inline constexpr std::size_t kQwen36Fp8PrefillSupermatrixSidecarBytes =
          kFp8PrefillAttentionOutputBytes);
 static_assert(kQwen36Fp8PrefillSupermatrixSidecarBytes ==
               7'214'202'880ULL);
+inline constexpr std::size_t kQwen36Fp8MarlinScaleElements =
+    kQwen36LinearAttentionLayerCount * (10'240U + 6'144U + 5'120U) +
+    kQwen36FullAttentionLayerCount *
+        (12'288U + 2U * 1'024U + 5'120U);
+inline constexpr std::size_t kQwen36Fp8MarlinScaleBytes =
+    kQwen36Fp8MarlinScaleElements * sizeof(std::uint16_t);
+static_assert(kQwen36Fp8MarlinScaleElements == 1'343'488U);
+static_assert(kQwen36Fp8MarlinScaleBytes == 2'686'976U);
 inline constexpr std::size_t kNvFp4DownScale6Rows = 5'120U;
 inline constexpr std::size_t kNvFp4DownScale6Columns = 17'408U;
 inline constexpr std::size_t
@@ -132,6 +140,12 @@ struct Fp8LinearWeight {
   // FP8 tensor. A non-null pointer has no effect unless the runtime owns every
   // same-input partition in the complete model-wide arena.
   const std::uint8_t* prefill_supermatrix_sidecar = nullptr;
+  // Test-only direct frozen-vLLM W8A16 Marlin views. The weight sidecar is an
+  // equal-byte projection-local permutation; scales contains one BF16 value
+  // per output channel. They have no scheduling authority without the
+  // dedicated admission build and runtime switch.
+  const std::uint8_t* prefill_marlin_weight = nullptr;
+  const std::uint16_t* prefill_marlin_scales = nullptr;
 };
 
 struct NvFp4LinearWeight {
@@ -381,6 +395,14 @@ class ModelWeights {
   // the pointers only when the complete all-layer inventory is published.
   [[nodiscard]] bool attach_fp8_prefill_supermatrix_sidecars(
       const std::uint8_t* arena, std::size_t arena_bytes) noexcept;
+
+  // Transactionally attaches the complete 208-projection W8A16 Marlin
+  // inventory in decoder-layer order. A canonical all-null/zero call detaches
+  // the set. Both compact arenas must outlive this ModelWeights view.
+  [[nodiscard]] bool attach_fp8_marlin_prefill_sidecars(
+      const std::uint8_t* weight_arena, std::size_t weight_arena_bytes,
+      const std::uint16_t* scale_arena,
+      std::size_t scale_arena_elements) noexcept;
 
   // Atomically attaches a sparse set of exact [5120,17408] NVFP4 down
   // scale6 sidecars. descriptor_count is derived from checkpoint eligibility

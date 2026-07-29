@@ -1031,4 +1031,76 @@ const PinnedBundleDescriptor& qwen36_27b_nvfp4_layer0_mlp_bundle() {
   return descriptor;
 }
 
+const PinnedBundleDescriptor& qwen36_27b_fp8_attention_bundle() {
+  static const PinnedBundleDescriptor descriptor = [] {
+    PinnedBundleDescriptor value;
+    value.id = "qwen36-27b-fp8-attention-layer0-layer3";
+    value.model = &qwen36_27b_nvfp4_model_revision();
+    value.require_single_shard = true;
+    const auto add_weight =
+        [&value](const std::string_view name, const std::uint64_t rows,
+                 const std::uint64_t columns, const std::uint64_t begin,
+                 const std::uint64_t end, const std::string_view sha256) {
+          value.tensors.push_back(PinnedTensor{
+              std::string(name), std::string(kQwen36Shard1),
+              st::DType::kF8E4M3, {rows, columns}, begin, end,
+              std::string(sha256), std::nullopt, false});
+        };
+    const auto add_scale =
+        [&value](const std::string_view name, const std::uint64_t begin,
+                 const std::uint64_t end, const std::string_view sha256,
+                 const std::uint32_t bits) {
+          value.tensors.push_back(PinnedTensor{
+              std::string(name), std::string(kQwen36Shard1),
+              st::DType::kF32, {}, begin, end, std::string(sha256), bits,
+              true});
+        };
+
+    add_weight(kQwen36Layer0LinearQkvWeight, 10'240U, 5'120U,
+               3'485'125'152ULL, 3'537'553'952ULL,
+               "66eeb8a7cfd3f577a4f7bafdb5b68f4f7ba3cb1aa9717801082791b2de696ed7");
+    add_scale(kQwen36Layer0LinearQkvScale, 126'516U, 126'520U,
+              "d552446f521b6f79296f0473d8e8a66303ca4d1299688f286b90c7c923527021",
+              0x3a84'0000U);
+    add_weight(kQwen36Layer0LinearZWeight, 6'144U, 5'120U,
+               3'537'553'952ULL, 3'569'011'232ULL,
+               "79a60d790f4ca146c05ea2efeff51964f825b1cdd92a83c8ee11b9fe9cfafdae");
+    add_scale(kQwen36Layer0LinearZScale, 126'524U, 126'528U,
+              "861e5d0c508a43c225a124a22f8e12e331ad3abe057c528bdc3a256754b856e9",
+              0x3a09'2493U);
+    add_weight(kQwen36Layer0LinearOutputWeight, 5'120U, 6'144U,
+               3'569'011'232ULL, 3'600'468'512ULL,
+               "e49a9f770a84cfcf7c2eb60f041aa7f1af8b84f5ab6323d3b8a9151588ff2bb9");
+    add_scale(kQwen36Layer0LinearOutputScale, 126'532U, 126'536U,
+              "5ca44a7624bfdd927b145a51f20f36e4af5f571c8e9d3badc472103b8dbbb6cd",
+              0x3b36'db6eU);
+    add_weight(kQwen36Layer3FullQueryWeight, 12'288U, 5'120U,
+               5'862'443'552ULL, 5'925'358'112ULL,
+               "6a688dbc61bfb33c1224c70b6c7b31e0429ad40d7d16d2107f5fa06dd1636d74");
+    add_scale(kQwen36Layer3FullQueryScale, 127'436U, 127'440U,
+              "244dfdafb9cd58fdbd7e17d776ec799b963143a042fa42a736e56ee93ecd1c0b",
+              0x3a39'2493U);
+    add_weight(kQwen36Layer3FullKeyWeight, 1'024U, 5'120U,
+               5'825'743'392ULL, 5'830'986'272ULL,
+               "5f2b231009ca89447ac875a0f31bf9a22ef5d9e1ad900ad45bdbd3659bffa2e6");
+    add_scale(kQwen36Layer3FullKeyScale, 127'420U, 127'424U,
+              "379103c7503d8ec1fb68d53ce76c6ae6289a08a97ff917ce266a52bd14a2f47f",
+              0x39ea'4925U);
+    add_weight(kQwen36Layer3FullValueWeight, 1'024U, 5'120U,
+               5'925'358'112ULL, 5'930'600'992ULL,
+               "9c7a05577136027a738019bee827f2c8d48c6a04f53eac27657c3bacb5d7d607");
+    add_scale(kQwen36Layer3FullValueScale, 127'444U, 127'448U,
+              "9cb3e868ade3b74a542b0d369ef0e2dac077fcb05e13638c030a04a2d071d68e",
+              0x39f9'2493U);
+    add_weight(kQwen36Layer3FullOutputWeight, 5'120U, 6'144U,
+               5'830'986'272ULL, 5'862'443'552ULL,
+               "9193d4ef91b531b8e87bd30ab063d7737064f23b474018baefef72b75e52a7dc");
+    add_scale(kQwen36Layer3FullOutputScale, 127'428U, 127'432U,
+              "6d01432aab9c18d82ad6b9ce725e55be13d599874caf3b226433de8f686a50d0",
+              0x3b46'db6eU);
+    return value;
+  }();
+  return descriptor;
+}
+
 }  // namespace q3x::test::support

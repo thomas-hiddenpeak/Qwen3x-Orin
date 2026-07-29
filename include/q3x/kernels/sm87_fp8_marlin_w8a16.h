@@ -6,10 +6,11 @@
 namespace q3x::kernels {
 
 // Test-admission-only direct port of the BF16 x E4M3FN W8A16 path selected by
-// vLLM ccd49f6821ee110cc5a2b1aba620a8a1d66c7cbb.  This is intentionally a
-// Qwen3.6-27B/SM87 surface, not a generic Marlin API.  Production dispatch
-// remains on the existing FP8 supermatrix implementation until real-checkpoint
-// end-to-end admission is complete.
+// vLLM ccd49f6821ee110cc5a2b1aba620a8a1d66c7cbb. This is intentionally a
+// Qwen3.6-27B/SM87 surface, not a generic Marlin API. Prefill M=2..512 is one
+// runner tile. Large non-M64-aligned spans use a complete M64 prefix followed
+// by one ordered masked tail launch because upstream Marlin intentionally
+// truncates prob_m to floor(prob_m/64) parallel panels.
 inline constexpr std::size_t kSm87Fp8MarlinSmCount = 16U;
 inline constexpr std::size_t kSm87Fp8MarlinC32Tokens = 32U;
 inline constexpr std::size_t kSm87Fp8MarlinC64Tokens = 64U;
@@ -68,10 +69,27 @@ struct Sm87Fp8MarlinShape {
 
 [[nodiscard]] constexpr bool sm87_fp8_marlin_supports_token_count(
     const std::size_t token_count) noexcept {
-  return token_count == kSm87Fp8MarlinC32Tokens ||
-         token_count == kSm87Fp8MarlinC64Tokens ||
-         token_count == kSm87Fp8MarlinC256Tokens ||
-         token_count == kSm87Fp8MarlinC512Tokens;
+  return token_count >= 2U && token_count <= kSm87Fp8MarlinC512Tokens;
+}
+
+struct Sm87Fp8MarlinExecutionPlan {
+  std::size_t primary_tokens = 0U;
+  std::size_t remainder_tokens = 0U;
+  std::size_t launch_count = 0U;
+};
+
+[[nodiscard]] constexpr Sm87Fp8MarlinExecutionPlan
+sm87_fp8_marlin_execution_plan(const std::size_t token_count) noexcept {
+  if (!sm87_fp8_marlin_supports_token_count(token_count)) {
+    return {};
+  }
+  if (token_count <= kSm87Fp8MarlinC64Tokens ||
+      token_count % kSm87Fp8MarlinC64Tokens == 0U) {
+    return {token_count, 0U, 1U};
+  }
+  const std::size_t primary =
+      token_count - token_count % kSm87Fp8MarlinC64Tokens;
+  return {primary, token_count - primary, 2U};
 }
 
 struct Sm87Fp8MarlinTileConfig {
@@ -87,10 +105,11 @@ struct Sm87Fp8MarlinTileConfig {
   }
 };
 
-// Exact frozen-vLLM auto-selector result.  N=1024 K/V uses the low-work N64
-// override at C32/C64; every other Qwen projection, and K/V at C256/C512,
-// uses the large-batch M64N256K64 skeleton.  All variants are group_blocks=-1
-// (one BF16 channel scale per N), four pipeline stages, and a 16-CTA grid.
+// Frozen-vLLM selector family. N=1024 K/V uses its N64/K128 low-work override
+// for M17..64. Every other Qwen projection uses N128/K128 through M16 and
+// N256/K64 above it. M33..48 uses vLLM's ceil(M/16)=3 ThreadMBlocks member,
+// while M49..64 uses four blocks. All
+// variants use one BF16 channel scale per N, four stages, and 16 CTAs.
 [[nodiscard]] constexpr Sm87Fp8MarlinTileConfig
 sm87_fp8_marlin_tile_config(const std::size_t token_count,
                             const std::size_t output_size) noexcept {
@@ -102,16 +121,23 @@ sm87_fp8_marlin_tile_config(const std::size_t token_count,
       !supported_output) {
     return {};
   }
-  if (output_size == 1'024U && token_count == kSm87Fp8MarlinC32Tokens) {
+  if (token_count <= 8U) {
+    return {8U, 128U, 128U, 256U, 4U, 16U};
+  }
+  if (token_count <= 16U) {
+    return {16U, 128U, 128U, 256U, 4U, 16U};
+  }
+  if (output_size == 1'024U && token_count <= kSm87Fp8MarlinC32Tokens) {
     return {32U, 64U, 128U, 128U, 4U, 16U};
   }
-  if (output_size == 1'024U && token_count == kSm87Fp8MarlinC64Tokens) {
-    return {64U, 64U, 128U, 128U, 4U, 16U};
+  if (output_size == 1'024U &&
+      token_count <= kSm87Fp8MarlinC64Tokens) {
+    return {token_count <= 48U ? 48U : 64U, 64U, 128U, 128U, 4U, 16U};
   }
-  if (token_count == kSm87Fp8MarlinC32Tokens) {
+  if (token_count <= kSm87Fp8MarlinC32Tokens) {
     return {32U, 256U, 64U, 256U, 4U, 16U};
   }
-  return {64U, 256U, 64U, 256U, 4U, 16U};
+  return {token_count <= 48U ? 48U : 64U, 256U, 64U, 256U, 4U, 16U};
 }
 
 static_assert(sm87_fp8_marlin_shape(
@@ -122,7 +148,17 @@ static_assert(sm87_fp8_marlin_tile_config(32U, 1'024U).thread_k == 128U);
 static_assert(sm87_fp8_marlin_tile_config(64U, 1'024U).threads == 128U);
 static_assert(sm87_fp8_marlin_tile_config(256U, 1'024U).thread_n == 256U);
 static_assert(sm87_fp8_marlin_tile_config(512U, 5'120U).thread_m == 64U);
-static_assert(!sm87_fp8_marlin_tile_config(128U, 5'120U).valid());
+static_assert(sm87_fp8_marlin_tile_config(128U, 5'120U).valid());
+static_assert(sm87_fp8_marlin_tile_config(7U, 10'240U).thread_m == 8U);
+static_assert(sm87_fp8_marlin_tile_config(15U, 1'024U).thread_n == 128U);
+static_assert(sm87_fp8_marlin_tile_config(33U, 1'024U).thread_n == 64U);
+static_assert(sm87_fp8_marlin_tile_config(33U, 1'024U).thread_m == 48U);
+static_assert(sm87_fp8_marlin_tile_config(33U, 10'240U).thread_m == 48U);
+static_assert(sm87_fp8_marlin_execution_plan(407U).primary_tokens == 384U);
+static_assert(sm87_fp8_marlin_execution_plan(407U).remainder_tokens == 23U);
+static_assert(sm87_fp8_marlin_execution_plan(481U).primary_tokens == 448U);
+static_assert(sm87_fp8_marlin_execution_plan(481U).remainder_tokens == 33U);
+static_assert(sm87_fp8_marlin_execution_plan(512U).launch_count == 1U);
 static_assert(!sm87_fp8_marlin_tile_config(32U, 2'048U).valid());
 
 [[nodiscard]] constexpr std::size_t sm87_fp8_marlin_weight_bytes(

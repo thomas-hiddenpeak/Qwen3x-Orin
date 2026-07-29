@@ -25,6 +25,17 @@ static_assert(kernels::sm87_fp8_marlin_weight_bytes(
               52'428'800U);
 static_assert(kernels::sm87_fp8_marlin_scale_bytes(
                   kLayer0Qkv.output_size) == 20'480U);
+static_assert(kernels::sm87_fp8_marlin_supports_token_count(2U));
+static_assert(kernels::sm87_fp8_marlin_supports_token_count(407U));
+static_assert(kernels::sm87_fp8_marlin_execution_plan(407U).primary_tokens ==
+              384U);
+static_assert(kernels::sm87_fp8_marlin_execution_plan(481U).remainder_tokens ==
+              33U);
+static_assert(kernels::sm87_fp8_marlin_tile_config(33U, 1'024U).thread_m ==
+              48U);
+static_assert(kernels::sm87_fp8_marlin_tile_config(
+                  33U, kLayer0Qkv.output_size)
+                  .thread_m == 48U);
 
 }  // namespace
 
@@ -47,6 +58,6 @@ int main() {
                "ccd49f6821ee110cc5a2b1aba620a8a1d66c7cbb"
             << " layer0_qkv_n=" << kLayer0Qkv.output_size
             << " layer0_qkv_k=" << kLayer0Qkv.input_size
-            << " scheduler=C32,C64,C256,C512\n";
+            << " scheduler=M2..M512\n";
   return 0;
 }

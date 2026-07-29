@@ -408,6 +408,19 @@ bool exchange_nvfp4_marlin_prefill_admission_test_enabled(
 std::size_t exchange_nvfp4_marlin_prefill_admission_test_hits(
     std::size_t hits) noexcept;
 
+// Test-admission controls for the complete 208-projection FP8 W8A16 Marlin
+// route. A/B remain their canonical BF16 pair because the checkpoint stores
+// them as BF16. Ordinary builds return false/zero and contain no W8 kernels.
+bool exchange_fp8_marlin_prefill_admission_test_enabled(
+    bool enabled) noexcept;
+std::size_t exchange_fp8_marlin_prefill_admission_test_hits(
+    std::size_t hits) noexcept;
+
+[[nodiscard]] bool use_fp8_marlin_prefill_projection(
+    ProjectionBackend backend, const LinearWeight& weight,
+    const std::uint16_t* input, std::uint16_t* output,
+    std::size_t token_count) noexcept;
+
 // Pure-host validation entry used by tests and factory preflight. It checks
 // exact batch-one workspace, cache, RoPE, and 48/16 schedule capacities.
 [[nodiscard]] ReferenceRunnerError validate_reference_workspace_plan(

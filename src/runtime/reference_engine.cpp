@@ -2,6 +2,9 @@
 
 #include "q3x/core/sha256.h"
 #include "q3x/kernels/sm87_fp8_prefill_supermatrix.h"
+#if defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION)
+#include "q3x/kernels/sm87_fp8_marlin_w8a16.h"
+#endif
 #include "q3x/kernels/sm87_nvfp4_marlin.h"
 #include "q3x/kernels/sm87_weight_only_gemv.h"
 #include "q3x/text/tokenizer.h"
@@ -236,6 +239,41 @@ struct Sm87Fp8PrefillSupermatrixPreparation {
   int cuda_error = 0;
   std::string message;
 };
+
+#if defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION)
+struct Sm87Fp8MarlinPrefillSidecars {
+  std::uint8_t* weights = nullptr;
+  std::uint16_t* scales = nullptr;
+  std::uint64_t bytes = 0U;
+
+  Sm87Fp8MarlinPrefillSidecars() noexcept = default;
+  Sm87Fp8MarlinPrefillSidecars(const Sm87Fp8MarlinPrefillSidecars&) = delete;
+  Sm87Fp8MarlinPrefillSidecars& operator=(
+      const Sm87Fp8MarlinPrefillSidecars&) = delete;
+  ~Sm87Fp8MarlinPrefillSidecars() { release(); }
+
+  void release() noexcept {
+    if (weights != nullptr) {
+      (void)cudaFree(weights);
+    }
+    if (scales != nullptr) {
+      (void)cudaFree(scales);
+    }
+    weights = nullptr;
+    scales = nullptr;
+    bytes = 0U;
+  }
+};
+
+struct Sm87Fp8MarlinPrefillPreparation {
+  bool enabled = false;
+  bool hard_failure = false;
+  std::size_t projections = 0U;
+  std::uint64_t bytes = 0U;
+  int cuda_error = 0;
+  std::string message;
+};
+#endif
 
 #if defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION)
 struct Sm87NvFp4MarlinPrefillSidecars {
@@ -1814,6 +1852,231 @@ prepare_sm87_fp8_prefill_supermatrix_sidecars(
   return result;
 }
 
+#if defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION)
+[[nodiscard]] Sm87Fp8MarlinPrefillPreparation
+prepare_sm87_fp8_marlin_prefill_sidecars(
+    ModelWeights& model_weights,
+    const std::uint64_t minimum_free_bytes_after_prepare,
+    Sm87Fp8MarlinPrefillSidecars& owner) {
+  Sm87Fp8MarlinPrefillPreparation result;
+  if (owner.weights != nullptr || owner.scales != nullptr ||
+      owner.bytes != 0U) {
+    result.hard_failure = true;
+    result.message = "FP8 Marlin Prefill owner was not empty before prepare";
+    return result;
+  }
+
+  std::vector<Fp8PrefillSupermatrixProjectionPlan> plans;
+  plans.reserve(kFp8PrefillSupermatrixProjectionCount);
+  std::size_t planned_weight_bytes = 0U;
+  std::size_t planned_scale_elements = 0U;
+  const auto append = [&](const LinearWeight& binding,
+                          const std::size_t rows,
+                          const std::size_t columns) {
+    const auto* const fp8 = std::get_if<Fp8LinearWeight>(&binding);
+    if (fp8 == nullptr || fp8->weight == nullptr ||
+        fp8->weight_scale_device == nullptr ||
+        fp8->input_scale_device == nullptr ||
+        !std::isfinite(fp8->weight_scale) || fp8->weight_scale < 0.0F ||
+        !std::isfinite(fp8->input_scale) || fp8->input_scale < 0.0F ||
+        fp8->output_size != rows || fp8->input_size != columns ||
+        fp8->prefill_marlin_weight != nullptr ||
+        fp8->prefill_marlin_scales != nullptr ||
+        (reinterpret_cast<std::uintptr_t>(fp8->weight) % 16U) != 0U ||
+        rows > std::numeric_limits<std::size_t>::max() / columns ||
+        rows * columns >
+            kQwen36Fp8PrefillSupermatrixSidecarBytes -
+                planned_weight_bytes ||
+        rows > kQwen36Fp8MarlinScaleElements - planned_scale_elements) {
+      return false;
+    }
+    plans.push_back({fp8});
+    planned_weight_bytes += rows * columns;
+    planned_scale_elements += rows;
+    return true;
+  };
+
+  for (std::size_t layer_index = 0U;
+       layer_index < kQwen36DenseLayerCount; ++layer_index) {
+    const DecoderLayerWeights& layer = model_weights.layer(layer_index);
+    if (const auto* const linear =
+            std::get_if<LinearAttentionWeights>(&layer.attention)) {
+      if (!append(linear->in_proj_qkv, 10'240U, 5'120U) ||
+          !append(linear->in_proj_z, 6'144U, 5'120U) ||
+          !append(linear->out_proj, 5'120U, 6'144U)) {
+        result.hard_failure = true;
+        result.message =
+            "ineligible linear-attention FP8 Marlin projection at layer " +
+            std::to_string(layer_index);
+        return result;
+      }
+    } else if (const auto* const full =
+                   std::get_if<FullAttentionWeights>(&layer.attention)) {
+      if (!append(full->q_proj, 12'288U, 5'120U) ||
+          !append(full->k_proj, 1'024U, 5'120U) ||
+          !append(full->v_proj, 1'024U, 5'120U) ||
+          !append(full->o_proj, 5'120U, 6'144U)) {
+        result.hard_failure = true;
+        result.message =
+            "ineligible full-attention FP8 Marlin projection at layer " +
+            std::to_string(layer_index);
+        return result;
+      }
+    } else {
+      result.hard_failure = true;
+      result.message =
+          "invalid attention variant while inventorying FP8 Marlin";
+      return result;
+    }
+  }
+  if (plans.size() != kFp8PrefillSupermatrixProjectionCount ||
+      planned_weight_bytes !=
+          kQwen36Fp8PrefillSupermatrixSidecarBytes ||
+      planned_scale_elements != kQwen36Fp8MarlinScaleElements) {
+    result.hard_failure = true;
+    result.message =
+        "FP8 Marlin inventory did not cover the fixed 208 projections";
+    return result;
+  }
+
+  constexpr std::uint64_t kWeightBytes =
+      kQwen36Fp8PrefillSupermatrixSidecarBytes;
+  constexpr std::uint64_t kScaleBytes = kQwen36Fp8MarlinScaleBytes;
+  constexpr std::uint64_t kRetainedBytes = kWeightBytes + kScaleBytes;
+  constexpr std::uint64_t kScratchBytes = kFp8PrefillFullQueryBytes;
+  std::size_t free_bytes = 0U;
+  std::size_t total_bytes = 0U;
+  cudaError_t status = cudaMemGetInfo(&free_bytes, &total_bytes);
+  (void)total_bytes;
+  if (status != cudaSuccess) {
+    result.hard_failure = true;
+    result.cuda_error = static_cast<int>(status);
+    result.message = "cudaMemGetInfo failed before FP8 Marlin prepare";
+    return result;
+  }
+  const std::uint64_t free_u64 = static_cast<std::uint64_t>(free_bytes);
+  if (kRetainedBytes + kScratchBytes > free_u64 ||
+      minimum_free_bytes_after_prepare >
+          free_u64 - (kRetainedBytes + kScratchBytes)) {
+    result.hard_failure = true;
+    result.message = "insufficient device memory for complete FP8 Marlin "
+                     "admission";
+    return result;
+  }
+
+  status = cudaMalloc(reinterpret_cast<void**>(&owner.weights), kWeightBytes);
+  if (status == cudaSuccess) {
+    status =
+        cudaMalloc(reinterpret_cast<void**>(&owner.scales), kScaleBytes);
+  }
+  void* transpose_scratch = nullptr;
+  if (status == cudaSuccess) {
+    status = cudaMalloc(&transpose_scratch, kScratchBytes);
+  }
+  if (status != cudaSuccess || owner.weights == nullptr ||
+      owner.scales == nullptr || transpose_scratch == nullptr) {
+    result.hard_failure = true;
+    result.cuda_error = static_cast<int>(status);
+    result.message = "cudaMalloc failed for complete FP8 Marlin admission";
+    if (transpose_scratch != nullptr) {
+      (void)cudaFree(transpose_scratch);
+    }
+    owner.release();
+    return result;
+  }
+
+  std::size_t remaining_free = 0U;
+  status = cudaMemGetInfo(&remaining_free, &total_bytes);
+  if (status != cudaSuccess ||
+      static_cast<std::uint64_t>(remaining_free) <
+          minimum_free_bytes_after_prepare) {
+    result.hard_failure = true;
+    result.cuda_error = static_cast<int>(status);
+    result.message = status == cudaSuccess
+                         ? "FP8 Marlin allocation violated memory margin"
+                         : "cudaMemGetInfo failed after FP8 Marlin allocation";
+    (void)cudaFree(transpose_scratch);
+    owner.release();
+    return result;
+  }
+
+  cudaStream_t stream = nullptr;
+  status = cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking);
+  if (status != cudaSuccess) {
+    result.hard_failure = true;
+    result.cuda_error = static_cast<int>(status);
+    result.message = "failed to create FP8 Marlin preparation stream";
+    (void)cudaFree(transpose_scratch);
+    owner.release();
+    return result;
+  }
+
+  std::size_t weight_offset = 0U;
+  std::size_t scale_offset = 0U;
+  for (std::size_t index = 0U; index < plans.size(); ++index) {
+    const Fp8LinearWeight& projection = *plans[index].projection;
+    status = static_cast<cudaError_t>(
+        kernels::prepare_sm87_fp8_marlin_projection_cuda(
+            projection.weight, projection.weight_scale_device,
+            projection.output_size, projection.input_size,
+            owner.weights + weight_offset, owner.scales + scale_offset,
+            transpose_scratch, kScratchBytes, static_cast<void*>(stream)));
+    if (status != cudaSuccess) {
+      result.hard_failure = true;
+      result.cuda_error = static_cast<int>(status);
+      result.message = "FP8 Marlin repack failed at projection " +
+                       std::to_string(index);
+      (void)cudaStreamDestroy(stream);
+      (void)cudaFree(transpose_scratch);
+      owner.release();
+      return result;
+    }
+    weight_offset += projection.output_size * projection.input_size;
+    scale_offset += projection.output_size;
+  }
+  if (weight_offset != kWeightBytes ||
+      scale_offset != kQwen36Fp8MarlinScaleElements) {
+    result.hard_failure = true;
+    result.message = "FP8 Marlin pack offsets did not close both arenas";
+    (void)cudaStreamDestroy(stream);
+    (void)cudaFree(transpose_scratch);
+    owner.release();
+    return result;
+  }
+
+  status = cudaStreamSynchronize(stream);
+  const cudaError_t destroy_status = cudaStreamDestroy(stream);
+  const cudaError_t scratch_status = cudaFree(transpose_scratch);
+  if (status != cudaSuccess || destroy_status != cudaSuccess ||
+      scratch_status != cudaSuccess) {
+    const cudaError_t failure =
+        status != cudaSuccess
+            ? status
+            : (destroy_status != cudaSuccess ? destroy_status
+                                             : scratch_status);
+    result.hard_failure = true;
+    result.cuda_error = static_cast<int>(failure);
+    result.message = "FP8 Marlin preparation did not retire cleanly";
+    owner.release();
+    return result;
+  }
+  if (!model_weights.attach_fp8_marlin_prefill_sidecars(
+          owner.weights, kWeightBytes, owner.scales,
+          kQwen36Fp8MarlinScaleElements)) {
+    result.hard_failure = true;
+    result.message = "ModelWeights rejected complete FP8 Marlin inventory";
+    owner.release();
+    return result;
+  }
+
+  owner.bytes = kRetainedBytes;
+  result.enabled = true;
+  result.projections = plans.size();
+  result.bytes = kRetainedBytes;
+  return result;
+}
+#endif
+
 #if defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION)
 [[nodiscard]] Sm87NvFp4MarlinPrefillPreparation
 prepare_sm87_nvfp4_marlin_prefill_sidecars(
@@ -2106,6 +2369,9 @@ struct ReferenceEngine::Impl {
   Sm87NvFp4DownScale6Sidecars nvfp4_down_scale6_sidecars;
   Sm87Fp8PrefillQkvSidecars fp8_prefill_qkv_sidecars;
   Sm87Fp8PrefillSupermatrixSidecars fp8_prefill_supermatrix_sidecars;
+#if defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION)
+  Sm87Fp8MarlinPrefillSidecars fp8_marlin_prefill_sidecars;
+#endif
 #if defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION)
   Sm87NvFp4MarlinPrefillSidecars nvfp4_marlin_prefill_sidecars;
 #endif
@@ -2294,6 +2560,36 @@ struct ReferenceEngine::Impl {
         // silently falls back to the old projection layout.
         if (impl->load.request_prefill_chunk_size ==
             kMaximumRequestPrefillChunkSize) {
+#if defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION)
+          const Clock::time_point fp8_marlin_begin = Clock::now();
+          const Sm87Fp8MarlinPrefillPreparation fp8_marlin_preparation =
+              prepare_sm87_fp8_marlin_prefill_sidecars(
+                  *impl->model_weights,
+                  options.request_options.min_free_bytes_after_create,
+                  impl->fp8_marlin_prefill_sidecars);
+          impl->load.fp8_marlin_prefill_sidecar_milliseconds =
+              elapsed_milliseconds(fp8_marlin_begin);
+          if (fp8_marlin_preparation.hard_failure ||
+              !fp8_marlin_preparation.enabled ||
+              fp8_marlin_preparation.projections !=
+                  kFp8PrefillSupermatrixProjectionCount) {
+            result.diagnostic = engine_diagnostic(
+                ReferenceEngineError::kRunnerFactoryFailure,
+                "fp8_marlin_prefill_sidecar_prepare",
+                fp8_marlin_preparation.message.empty()
+                    ? "the test admission did not publish all 208 FP8 "
+                      "Marlin projections"
+                    : fp8_marlin_preparation.message);
+            result.diagnostic.cuda_error =
+                fp8_marlin_preparation.cuda_error;
+            return result;
+          }
+          impl->load.fp8_marlin_prefill_sidecars_enabled = true;
+          impl->load.fp8_marlin_prefill_sidecar_projections =
+              fp8_marlin_preparation.projections;
+          impl->load.fp8_marlin_prefill_sidecar_bytes =
+              fp8_marlin_preparation.bytes;
+#else
           const Clock::time_point supermatrix_begin = Clock::now();
           const Sm87Fp8PrefillSupermatrixPreparation preparation =
               prepare_sm87_fp8_prefill_supermatrix_sidecars(
@@ -2322,6 +2618,7 @@ struct ReferenceEngine::Impl {
               preparation.projections;
           impl->load.fp8_prefill_supermatrix_sidecar_bytes =
               preparation.bytes;
+#endif
 #if defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION)
           const Clock::time_point marlin_begin = Clock::now();
           const Sm87NvFp4MarlinPrefillPreparation marlin_preparation =

@@ -1,6 +1,9 @@
 #include "q3x/runtime/reference_runner.h"
 
 #include "q3x/kernels/sm87_fp8_prefill_supermatrix.h"
+#if defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION)
+#include "q3x/kernels/sm87_fp8_marlin_w8a16.h"
+#endif
 #if defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION)
 #include "q3x/kernels/sm87_nvfp4_marlin.h"
 #endif
@@ -69,6 +72,18 @@ constexpr float kAttentionScale = 1.0F / 16.0F;
 thread_local bool g_enable_nvfp4_marlin_prefill_admission =
     nvfp4_marlin_prefill_environment_enabled();
 thread_local std::size_t g_nvfp4_marlin_prefill_admission_hits = 0U;
+#endif
+
+#if defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION)
+[[nodiscard]] bool fp8_marlin_prefill_environment_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_FP8_MARLIN_PREFILL_ADMISSION");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
+thread_local bool g_enable_fp8_marlin_prefill_admission =
+    fp8_marlin_prefill_environment_enabled();
+thread_local std::size_t g_fp8_marlin_prefill_admission_hits = 0U;
 #endif
 
 #if defined(Q3X_ENABLE_GDN_B8_ADMISSION)
@@ -618,6 +633,26 @@ std::size_t exchange_nvfp4_marlin_prefill_admission_test_hits(
 #endif
 }
 
+bool exchange_fp8_marlin_prefill_admission_test_enabled(
+    const bool enabled) noexcept {
+#if defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION)
+  return std::exchange(g_enable_fp8_marlin_prefill_admission, enabled);
+#else
+  (void)enabled;
+  return false;
+#endif
+}
+
+std::size_t exchange_fp8_marlin_prefill_admission_test_hits(
+    const std::size_t hits) noexcept {
+#if defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION)
+  return std::exchange(g_fp8_marlin_prefill_admission_hits, hits);
+#else
+  (void)hits;
+  return 0U;
+#endif
+}
+
 #if defined(Q3X_ENABLE_GDN_B8_ADMISSION)
 // Private test hook for real-checkpoint admission. Keeping this declaration
 // out of the installed header prevents the numerically distinct B8 recurrence
@@ -1015,6 +1050,31 @@ bool use_m32_prefill_residual_rms_fusion(
     const std::size_t token_count,
     const std::size_t hidden_size) noexcept {
   return prefill_residual_rms_m32_schedule(token_count, hidden_size).valid();
+}
+
+bool use_fp8_marlin_prefill_projection(
+    const ProjectionBackend backend, const LinearWeight& weight,
+    const std::uint16_t* const input, std::uint16_t* const output,
+    const std::size_t token_count) noexcept {
+  const auto* const selected = std::get_if<Fp8LinearWeight>(&weight);
+  const auto aligned = [](const void* const pointer,
+                          const std::size_t alignment) noexcept {
+    return pointer != nullptr &&
+           (reinterpret_cast<std::uintptr_t>(pointer) % alignment) == 0U;
+  };
+  if (backend != ProjectionBackend::kSm87WeightOnly || token_count < 2U ||
+      token_count > kMaximumRequestPrefillChunkSize || selected == nullptr) {
+    return false;
+  }
+  const bool supported_shape =
+      (selected->output_size == 10'240U && selected->input_size == 5'120U) ||
+      (selected->output_size == 6'144U && selected->input_size == 5'120U) ||
+      (selected->output_size == 5'120U && selected->input_size == 6'144U) ||
+      (selected->output_size == 12'288U && selected->input_size == 5'120U) ||
+      (selected->output_size == 1'024U && selected->input_size == 5'120U);
+  return supported_shape && aligned(selected->prefill_marlin_weight, 16U) &&
+         aligned(selected->prefill_marlin_scales, 16U) &&
+         aligned(input, 16U) && aligned(output, 16U);
 }
 
 bool use_fp8_whole_chunk_prefill_projection(
@@ -2825,11 +2885,65 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
                                    operation, layer, status);
     return false;
   };
+  bool fp8_marlin_tile_enabled = false;
+  std::int32_t* fp8_marlin_locks = nullptr;
+#if defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION)
+  fp8_marlin_tile_enabled =
+      g_enable_fp8_marlin_prefill_admission &&
+      kernels::sm87_fp8_marlin_supports_token_count(token_count);
+  fp8_marlin_locks =
+      reinterpret_cast<std::int32_t*>(views_.projection[3]);
+#endif
+  const auto is_fp8_marlin_projection =
+      [fp8_marlin_tile_enabled](const LinearWeight& weight) noexcept {
+#if defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION)
+        const auto* const fp8 = std::get_if<Fp8LinearWeight>(&weight);
+        return fp8_marlin_tile_enabled && fp8 != nullptr &&
+               kernels::sm87_fp8_marlin_supports_shape(
+                   fp8->output_size, fp8->input_size);
+#else
+        (void)weight;
+        return false;
+#endif
+      };
   const auto project_on_stream =
-      [this, token_count, &check_cuda](
+      [this, token_count, &check_cuda, &is_fp8_marlin_projection,
+       fp8_marlin_locks](
           const LinearWeight& weight, const std::uint16_t* const input,
           std::uint16_t* const output, const char* const operation,
           const std::size_t layer, void* const launch_stream) noexcept {
+#if defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION)
+        if (is_fp8_marlin_projection(weight)) {
+          const auto* const fp8 = std::get_if<Fp8LinearWeight>(&weight);
+          if (fp8 == nullptr ||
+              !reference_runner_detail::use_fp8_marlin_prefill_projection(
+                  projection_backend_, weight, input, output, token_count) ||
+              fp8_marlin_locks == nullptr ||
+              views_.fp32_scratch_elements <
+                  kernels::kSm87Fp8MarlinReductionElements) {
+            return check_cuda(static_cast<int>(cudaErrorInvalidValue),
+                              operation, layer);
+          }
+          const auto stream =
+              reinterpret_cast<cudaStream_t>(launch_stream);
+          const int clear_status = static_cast<int>(cudaMemsetAsync(
+              fp8_marlin_locks, 0, kernels::kSm87Fp8MarlinLockBytes,
+              stream));
+          if (clear_status != static_cast<int>(cudaSuccess)) {
+            return check_cuda(clear_status, operation, layer);
+          }
+          const int status = kernels::launch_sm87_fp8_marlin_projection_cuda(
+              input, fp8->prefill_marlin_weight,
+              fp8->prefill_marlin_scales, token_count, fp8->output_size,
+              fp8->input_size, output, views_.fp32_scratch,
+              fp8_marlin_locks, launch_stream);
+          if (status == static_cast<int>(cudaSuccess)) {
+            ++g_fp8_marlin_prefill_admission_hits;
+            return true;
+          }
+          return check_cuda(status, operation, layer);
+        }
+#endif
         if (reference_runner_detail::use_fp8_whole_chunk_prefill_projection(
                 projection_backend_, weight, input, output, token_count)) {
           const int status =
@@ -2873,9 +2987,11 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
     return project_on_stream(weight, input, output, operation, layer, stream_);
   };
   const auto has_fp8_prefill_supermatrix_sidecar =
-      [this, token_count](const LinearWeight& weight) noexcept {
+      [this, token_count,
+       fp8_marlin_tile_enabled](const LinearWeight& weight) noexcept {
         const auto* const fp8 = std::get_if<Fp8LinearWeight>(&weight);
-        return projection_backend_ == ProjectionBackend::kSm87WeightOnly &&
+        return !fp8_marlin_tile_enabled &&
+               projection_backend_ == ProjectionBackend::kSm87WeightOnly &&
                token_count == kMaximumRequestPrefillChunkSize &&
                fp8 != nullptr &&
                fp8->prefill_supermatrix_sidecar != nullptr;
@@ -2925,10 +3041,13 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
   const auto project_attention_output =
       [this, token_count, &check_cuda, &project,
        &has_fp8_prefill_supermatrix_sidecar,
-       &project_fp8_prefill_supermatrix](
+       &project_fp8_prefill_supermatrix, &is_fp8_marlin_projection](
           const LinearWeight& weight, const std::uint16_t* const input,
           std::uint16_t* const output, const char* const operation,
           const std::size_t layer) noexcept {
+        if (is_fp8_marlin_projection(weight)) {
+          return project(weight, input, output, operation, layer);
+        }
         if (has_fp8_prefill_supermatrix_sidecar(weight)) {
           const LinearWeight* const group_weights[1U] = {&weight};
           std::uint16_t* const group_outputs[1U] = {output};
