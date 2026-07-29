@@ -218,6 +218,30 @@ target_link_libraries(q3x_engine
 )
 q3x_enable_warnings(q3x_engine)
 
+# Internal, deliberately narrow OpenAI/EvalScope evaluation adapter. It is
+# kept separate from q3x_engine so the core runtime has no HTTP/protocol
+# dependency and external evaluation cannot become a hidden production
+# fallback path.
+add_library(q3x_eval_gateway STATIC
+  src/server/openai_protocol.cpp
+  src/server/evaluation_server.cpp
+)
+target_compile_features(q3x_eval_gateway PUBLIC cxx_std_17)
+target_include_directories(q3x_eval_gateway
+  PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/generated>
+)
+target_link_libraries(q3x_eval_gateway
+  PUBLIC q3x::engine
+  PRIVATE q3x::core Threads::Threads
+)
+q3x_enable_warnings(q3x_eval_gateway)
+
+add_executable(qwen3x-eval-server src/eval_server_main.cpp)
+target_link_libraries(qwen3x-eval-server PRIVATE q3x_eval_gateway)
+q3x_enable_warnings(qwen3x-eval-server)
+
 add_executable(qwen3x-orin src/main.cpp)
 target_link_libraries(qwen3x-orin
   PRIVATE q3x::engine q3x::text q3x::core q3x::kernels
@@ -895,6 +919,16 @@ if(BUILD_TESTING)
     COMMAND q3x_reference_engine_control_test
   )
 
+  add_executable(q3x_openai_protocol_test
+    tests/openai_protocol_test.cpp
+  )
+  target_link_libraries(q3x_openai_protocol_test
+    PRIVATE q3x_eval_gateway q3x::core
+  )
+  q3x_enable_warnings(q3x_openai_protocol_test)
+  add_test(NAME openai_protocol COMMAND q3x_openai_protocol_test)
+  add_test(NAME eval_server_help COMMAND qwen3x-eval-server --help)
+
   add_executable(q3x_reference_benchmark_control_test
     tests/reference_benchmark_control_test.cpp
   )
@@ -1416,7 +1450,7 @@ if(BUILD_TESTING)
 endif()
 
 install(TARGETS q3x_core q3x_text q3x_kernels q3x_engine
-                qwen3x-orin qwen3x-inspect
+                qwen3x-orin qwen3x-eval-server qwen3x-inspect
   EXPORT Qwen3xOrinTargets
   ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
   LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
@@ -1424,6 +1458,7 @@ install(TARGETS q3x_core q3x_text q3x_kernels q3x_engine
 )
 install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
   FILES_MATCHING PATTERN "*.h"
+  PATTERN "q3x/server/*" EXCLUDE
 )
 # Remove the header exported by older builds when installing over an existing
 # prefix.  The external-reference ABI now lives under tests/support only.

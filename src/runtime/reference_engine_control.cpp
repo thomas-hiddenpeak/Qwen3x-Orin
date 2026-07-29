@@ -166,6 +166,16 @@ GenerationControlResult run_generation_control_impl(
     control.generated_token_ids.reserve(options.max_new_tokens);
     control.steps.reserve(static_cast<std::size_t>(required_steps));
 
+    auto commit_token = [&](const std::uint32_t token_id,
+                            const double elapsed_milliseconds) {
+      const std::size_t token_index = control.generated_token_ids.size();
+      control.generated_token_ids.push_back(token_id);
+      return options.committed_token == nullptr ||
+             options.committed_token(options.committed_token_context,
+                                     token_id, token_index,
+                                     elapsed_milliseconds);
+    };
+
     auto execute = [&](void* const phase_context,
                        const StepFunction phase_step,
                        const NvtxRangeName nvtx_range_name,
@@ -357,13 +367,16 @@ GenerationControlResult run_generation_control_impl(
       control.timing.prompt_prefill_milliseconds = prompt_prefill;
     }
 
-    control.generated_token_ids.push_back(predicted_token);
     control.timing.time_to_first_token_milliseconds =
         control.timing.prompt_prefill_milliseconds;
     control.timing.total_generation_milliseconds =
         control.timing.prompt_prefill_milliseconds;
+    const bool continue_after_first = commit_token(
+        predicted_token, control.timing.prompt_prefill_milliseconds);
     if (predicted_token == options.stop_token_id) {
       control.stop_reason = ReferenceStopReason::kImEnd;
+    } else if (!continue_after_first) {
+      control.stop_reason = ReferenceStopReason::kCancelled;
     } else {
       while (control.generated_token_ids.size() < options.max_new_tokens) {
         const std::uint32_t input_token =
@@ -385,12 +398,17 @@ GenerationControlResult run_generation_control_impl(
             !std::isfinite(total_generation)) {
           return failure(GenerationControlError::kUnexpectedStep);
         }
-        control.generated_token_ids.push_back(predicted_token);
         control.timing.subsequent_token_milliseconds.push_back(elapsed);
         control.timing.decode_after_first_milliseconds = decode_after_first;
         control.timing.total_generation_milliseconds = total_generation;
+        const bool continue_generation = commit_token(predicted_token,
+                                                      elapsed);
         if (predicted_token == options.stop_token_id) {
           control.stop_reason = ReferenceStopReason::kImEnd;
+          break;
+        }
+        if (!continue_generation) {
+          control.stop_reason = ReferenceStopReason::kCancelled;
           break;
         }
       }

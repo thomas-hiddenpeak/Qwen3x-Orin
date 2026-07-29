@@ -79,6 +79,29 @@ struct PhaseContext {
   FakeRunner* runner = nullptr;
 };
 
+struct CommittedTokenRecorder {
+  std::array<std::uint32_t, 8U> token_ids{};
+  std::array<std::size_t, 8U> indices{};
+  std::array<double, 8U> elapsed_milliseconds{};
+  std::size_t count = 0U;
+  std::size_t cancel_after = static_cast<std::size_t>(-1);
+};
+
+bool record_committed_token(void* const context,
+                            const std::uint32_t token_id,
+                            const std::size_t token_index,
+                            const double elapsed_milliseconds) noexcept {
+  auto& recorder = *static_cast<CommittedTokenRecorder*>(context);
+  if (recorder.count >= recorder.token_ids.size()) {
+    return false;
+  }
+  recorder.token_ids[recorder.count] = token_id;
+  recorder.indices[recorder.count] = token_index;
+  recorder.elapsed_milliseconds[recorder.count] = elapsed_milliseconds;
+  ++recorder.count;
+  return recorder.count < recorder.cancel_after;
+}
+
 runtime::ReferenceStepOutcome fake_step(
     void* const context,
     const std::uint32_t input_token,
@@ -1159,6 +1182,52 @@ void test_generated_text_stop_semantics(TestContext& test) {
               "a mismatched terminal token is never removed");
 }
 
+void test_committed_token_observer_and_cancellation(TestContext& test) {
+  FakeRunner fake;
+  fake.predictions = {42U, 43U, 44U};
+  CommittedTokenRecorder recorder;
+  recorder.cancel_after = 2U;
+  detail::GenerationControlOptions observed = options(3U, 3U);
+  observed.committed_token_context = &recorder;
+  observed.committed_token = record_committed_token;
+  auto result = detail::run_generation_control(
+      {7U}, observed, &fake, fake_step);
+  test.expect(result &&
+                  result.value->generated_token_ids ==
+                      std::vector<std::uint32_t>({42U, 43U}) &&
+                  result.value->stop_reason ==
+                      runtime::ReferenceStopReason::kCancelled &&
+                  fake.inputs == std::vector<std::uint32_t>({7U, 42U}) &&
+                  recorder.count == 2U &&
+                  recorder.token_ids[0] == 42U &&
+                  recorder.token_ids[1] == 43U &&
+                  recorder.indices[0] == 0U &&
+                  recorder.indices[1] == 1U &&
+                  recorder.elapsed_milliseconds[0] == 1.0 &&
+                  recorder.elapsed_milliseconds[1] == 2.0,
+              "observer sees committed tokens and cancellation prevents the "
+              "next Decode step");
+
+  fake = {};
+  fake.predictions = {runtime::kQwen36ImEndTokenId};
+  recorder = {};
+  recorder.cancel_after = 1U;
+  observed = options(3U, 3U);
+  observed.committed_token_context = &recorder;
+  observed.committed_token = record_committed_token;
+  result = detail::run_generation_control(
+      {7U}, observed, &fake, fake_step);
+  test.expect(result && recorder.count == 1U &&
+                  result.value->generated_token_ids ==
+                      std::vector<std::uint32_t>(
+                          {runtime::kQwen36ImEndTokenId}) &&
+                  result.value->stop_reason ==
+                      runtime::ReferenceStopReason::kImEnd &&
+                  fake.inputs == std::vector<std::uint32_t>({7U}),
+              "terminal stop takes precedence over simultaneous observer "
+              "cancellation");
+}
+
 void test_engine_backend_validation(TestContext& test) {
   runtime::ReferenceEngineOptions engine_options;
   engine_options.projection_backend =
@@ -1204,6 +1273,7 @@ int main() {
   test_tile_failures_and_malformed_results(test);
   test_validation_and_runner_failures(test);
   test_generated_text_stop_semantics(test);
+  test_committed_token_observer_and_cancellation(test);
   test_engine_backend_validation(test);
   if (test.failures() != 0) {
     std::cerr << test.failures() << " reference engine control test(s) failed\n";

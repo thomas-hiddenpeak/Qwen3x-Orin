@@ -72,6 +72,33 @@ struct ReferenceEngineOptions {
       ReferenceDecodeGraphCachePolicy::kDisabled;
 };
 
+// Text-only messages accepted by the pinned Qwen 3.6 chat formatter. The
+// tokenizer deliberately fails closed on unsupported roles, non-alternating
+// histories, tool payloads, and multimodal content.
+struct ReferenceChatMessage {
+  std::string role;
+  std::string content;
+};
+
+// A token is reported only after its Prefill/Decode step has completed and
+// the id has been committed to the generation transcript. String views are
+// valid only for the duration of the callback. text_delta may be empty when a
+// token contributes no visible text (including the configured stop token).
+struct ReferenceTokenEvent {
+  std::size_t index = 0U;
+  std::uint32_t token_id = 0U;
+  std::string_view text_delta;
+  std::string_view generated_text;
+  double elapsed_milliseconds = 0.0;
+  bool is_stop_token = false;
+};
+
+// Returning false requests cancellation at the current committed-token
+// boundary. The observer must not throw and is invoked synchronously on the
+// engine's serialized generation thread.
+using ReferenceTokenObserver = bool (*)(
+    void* context, const ReferenceTokenEvent& event) noexcept;
+
 struct ReferenceGenerateOptions {
   std::uint32_t max_new_tokens = 16U;
   bool capture_trace = false;
@@ -89,11 +116,17 @@ struct ReferenceGenerateOptions {
   // the ordinary serial step on every incompatible option or cache miss.
   // Graph preparation is explicit and never occurs in a timed request.
   bool use_prepared_decode_graph_cache = false;
+  // Optional synchronous per-token observer used by the streaming gateway.
+  // Keep the callback and context at the end for aggregate-initializer source
+  // compatibility with the pre-existing options surface.
+  ReferenceTokenObserver token_observer = nullptr;
+  void* token_observer_context = nullptr;
 };
 
 enum class ReferenceStopReason : std::uint8_t {
   kImEnd,
   kMaxNewTokens,
+  kCancelled,
 };
 
 struct ReferenceGenerationTiming {
@@ -357,6 +390,24 @@ class ReferenceEngine {
       std::string_view user_prompt,
       const ReferenceGenerateOptions& options = {});
 
+  // Formats a supported text-only chat history with the pinned template,
+  // resets request state, then performs the same batch-one greedy path as
+  // generate(). The final message must be a user message.
+  [[nodiscard]] ReferenceGenerateResult generate_chat(
+      const std::vector<ReferenceChatMessage>& messages,
+      const ReferenceGenerateOptions& options = {});
+
+  // Raw completion surfaces. generate_prompt() encodes bytes without a chat
+  // template; generate_prompt_token_ids() executes caller-supplied pinned
+  // vocabulary ids exactly. They are used by /v1/completions and must never
+  // be emulated through generate_chat().
+  [[nodiscard]] ReferenceGenerateResult generate_prompt(
+      std::string_view prompt,
+      const ReferenceGenerateOptions& options = {});
+  [[nodiscard]] ReferenceGenerateResult generate_prompt_token_ids(
+      const std::vector<std::uint32_t>& prompt_token_ids,
+      const ReferenceGenerateOptions& options = {});
+
   // Test-only, fixed-position CUDA Graph P1 screen. It first performs an exact
   // one-token predicted-only generation so the owned runner is left at the
   // prompt boundary, then snapshots the complete request arena. Serial and
@@ -385,6 +436,10 @@ class ReferenceEngine {
       const ReferenceOneShotOptions&);
   struct Impl;
   explicit ReferenceEngine(std::unique_ptr<Impl> impl) noexcept;
+  [[nodiscard]] ReferenceGenerateResult generate_tokenized(
+      std::string rendered_prompt,
+      std::vector<std::uint32_t> prompt_token_ids,
+      const ReferenceGenerateOptions& options);
 
   std::unique_ptr<Impl> impl_;
 };
@@ -521,6 +576,9 @@ using StepFunction = ReferenceStepOutcome (*)(
 using PrefillTileFunction = ReferencePrefillTileOutcome (*)(
     void* context, const std::uint32_t* input_token_ids,
     std::size_t token_count, const ReferencePrefillTileOptions& options);
+using CommittedTokenFunction = bool (*)(
+    void* context, std::uint32_t token_id, std::size_t token_index,
+    double elapsed_milliseconds) noexcept;
 
 // Host-side execution seams for the two generation phases. The first
 // implementation may route every callback to the same runner and stream; the
@@ -548,6 +606,8 @@ struct GenerationControlOptions {
   bool capture_trace = false;
   ReferenceLogitsMode logits_mode = ReferenceLogitsMode::kFullStatistics;
   bool emit_nvtx_phase_ranges = false;
+  void* committed_token_context = nullptr;
+  CommittedTokenFunction committed_token = nullptr;
 };
 
 struct GenerationControl {

@@ -703,15 +703,84 @@ sm87_device_diagnostic(const ProjectionBackend backend,
   return diagnostic;
 }
 
-[[nodiscard]] text::ChatResult format_single_user_prompt(
-    const text::Tokenizer& tokenizer, const std::string_view user_prompt) {
+[[nodiscard]] text::ChatResult format_chat_prompt(
+    const text::Tokenizer& tokenizer,
+    const std::vector<ReferenceChatMessage>& source_messages) {
   std::vector<text::ChatMessage> messages;
-  messages.reserve(1U);
-  messages.push_back({"user", std::string(user_prompt)});
+  messages.reserve(source_messages.size());
+  for (const ReferenceChatMessage& message : source_messages) {
+    messages.push_back({message.role, message.content});
+  }
   text::Qwen36ChatOptions options;
   options.add_generation_prompt = true;
   options.enable_thinking = false;
   return tokenizer.format_qwen36_chat(messages, options);
+}
+
+[[nodiscard]] text::ChatResult format_single_user_prompt(
+    const text::Tokenizer& tokenizer, const std::string_view user_prompt) {
+  std::vector<ReferenceChatMessage> messages;
+  messages.reserve(1U);
+  messages.push_back({"user", std::string(user_prompt)});
+  return format_chat_prompt(tokenizer, messages);
+}
+
+struct EngineTokenObserverContext {
+  const text::Tokenizer* tokenizer = nullptr;
+  ReferenceTokenObserver observer = nullptr;
+  void* observer_context = nullptr;
+  std::uint32_t stop_token_id = kQwen36ImEndTokenId;
+  std::vector<std::uint32_t> single_token_id;
+  std::string generated_text;
+  std::string text_delta;
+  text::TokenizerErrorCode decode_error = text::TokenizerErrorCode::kNone;
+  std::string failure_message;
+};
+
+bool observe_committed_token(void* const opaque,
+                             const std::uint32_t token_id,
+                             const std::size_t token_index,
+                             const double elapsed_milliseconds) noexcept {
+  auto& context = *static_cast<EngineTokenObserverContext*>(opaque);
+  try {
+    const bool is_stop_token = token_id == context.stop_token_id;
+    if (!is_stop_token) {
+      context.single_token_id[0] = token_id;
+      text::DecodeOptions decode_options;
+      decode_options.skip_special_tokens = false;
+      text::DecodeResult decoded =
+          context.tokenizer->decode(context.single_token_id,
+                                    decode_options);
+      if (!decoded) {
+        context.decode_error = decoded.error.code;
+        context.failure_message = decoded.error.message;
+        return false;
+      }
+      context.text_delta = std::move(decoded.text);
+      context.generated_text += context.text_delta;
+    } else {
+      context.text_delta.clear();
+    }
+
+    ReferenceTokenEvent event;
+    event.index = token_index;
+    event.token_id = token_id;
+    event.text_delta = context.text_delta;
+    event.generated_text = context.generated_text;
+    event.elapsed_milliseconds = elapsed_milliseconds;
+    event.is_stop_token = is_stop_token;
+    return context.observer(context.observer_context, event);
+  } catch (const std::bad_alloc&) {
+    context.decode_error = text::TokenizerErrorCode::kAllocationFailure;
+    context.failure_message =
+        "allocation failure while preparing a committed-token event";
+    return false;
+  } catch (...) {
+    context.decode_error = text::TokenizerErrorCode::kInternalError;
+    context.failure_message =
+        "unexpected failure while preparing a committed-token event";
+    return false;
+  }
 }
 
 [[nodiscard]] bool hash_span(const ConstBf16Span span,
@@ -1973,6 +2042,40 @@ std::uint32_t ReferenceEngine::max_sequence_length() const noexcept {
 ReferenceGenerateResult ReferenceEngine::generate(
     const std::string_view user_prompt,
     const ReferenceGenerateOptions& options) {
+  if (user_prompt.empty()) {
+    ReferenceGenerateResult result;
+    result.diagnostic = engine_diagnostic(
+        ReferenceEngineError::kInvalidArgument, "generation_options",
+        "prompt must be non-empty");
+    return result;
+  }
+  try {
+    std::vector<ReferenceChatMessage> messages;
+    messages.reserve(1U);
+    messages.push_back({"user", std::string(user_prompt)});
+    return generate_chat(messages, options);
+  } catch (const std::bad_alloc&) {
+    ReferenceGenerateResult result;
+    result.diagnostic = engine_diagnostic(
+        ReferenceEngineError::kAllocationFailure, "generate",
+        "host allocation failed while preparing the user message");
+    return result;
+  } catch (const std::length_error& error) {
+    ReferenceGenerateResult result;
+    result.diagnostic = engine_diagnostic(
+        ReferenceEngineError::kAllocationFailure, "generate", error.what());
+    return result;
+  } catch (const std::exception& error) {
+    ReferenceGenerateResult result;
+    result.diagnostic = engine_diagnostic(
+        ReferenceEngineError::kTokenizerFailure, "generate", error.what());
+    return result;
+  }
+}
+
+ReferenceGenerateResult ReferenceEngine::generate_prompt(
+    const std::string_view prompt,
+    const ReferenceGenerateOptions& options) {
   ReferenceGenerateResult result;
   if (!*this) {
     result.diagnostic = engine_diagnostic(
@@ -1980,17 +2083,157 @@ ReferenceGenerateResult ReferenceEngine::generate(
         "reference engine is empty");
     return result;
   }
-  if (user_prompt.empty() || options.max_new_tokens == 0U ||
+  if (prompt.empty()) {
+    result.diagnostic = engine_diagnostic(
+        ReferenceEngineError::kInvalidArgument, "raw_prompt",
+        "raw completion prompt must be non-empty");
+    return result;
+  }
+  text::EncodeResult encoded = impl_->tokenizer->encode(prompt);
+  if (!encoded) {
+    result.diagnostic = tokenizer_diagnostic("raw_prompt_encode",
+                                             encoded.error);
+    return result;
+  }
+  try {
+    return generate_tokenized(std::string(prompt),
+                              std::move(encoded.token_ids), options);
+  } catch (const std::bad_alloc&) {
+    result.diagnostic = engine_diagnostic(
+        ReferenceEngineError::kAllocationFailure, "raw_prompt_encode",
+        "host allocation failed while retaining the raw prompt");
+    return result;
+  } catch (const std::length_error& error) {
+    result.diagnostic = engine_diagnostic(
+        ReferenceEngineError::kAllocationFailure, "raw_prompt_encode",
+        error.what());
+    return result;
+  }
+}
+
+ReferenceGenerateResult ReferenceEngine::generate_prompt_token_ids(
+    const std::vector<std::uint32_t>& prompt_token_ids,
+    const ReferenceGenerateOptions& options) {
+  ReferenceGenerateResult result;
+  if (!*this) {
+    result.diagnostic = engine_diagnostic(
+        ReferenceEngineError::kInvalidArgument, "engine",
+        "reference engine is empty");
+    return result;
+  }
+  if (prompt_token_ids.empty()) {
+    result.diagnostic = engine_diagnostic(
+        ReferenceEngineError::kInvalidArgument, "prompt_token_ids",
+        "raw completion token prompt must be non-empty");
+    return result;
+  }
+  text::DecodeOptions decode_options;
+  decode_options.skip_special_tokens = false;
+  text::DecodeResult decoded =
+      impl_->tokenizer->decode(prompt_token_ids, decode_options);
+  if (!decoded) {
+    result.diagnostic = tokenizer_diagnostic("raw_prompt_decode",
+                                             decoded.error);
+    return result;
+  }
+  try {
+    return generate_tokenized(std::move(decoded.text), prompt_token_ids,
+                              options);
+  } catch (const std::bad_alloc&) {
+    result.diagnostic = engine_diagnostic(
+        ReferenceEngineError::kAllocationFailure, "raw_prompt_decode",
+        "host allocation failed while retaining raw prompt token ids");
+    return result;
+  } catch (const std::length_error& error) {
+    result.diagnostic = engine_diagnostic(
+        ReferenceEngineError::kAllocationFailure, "raw_prompt_decode",
+        error.what());
+    return result;
+  }
+}
+
+ReferenceGenerateResult ReferenceEngine::generate_chat(
+    const std::vector<ReferenceChatMessage>& messages,
+    const ReferenceGenerateOptions& options) {
+  ReferenceGenerateResult result;
+  if (!*this) {
+    result.diagnostic = engine_diagnostic(
+        ReferenceEngineError::kInvalidArgument, "engine",
+        "reference engine is empty");
+    return result;
+  }
+  if (messages.empty()) {
+    result.diagnostic = engine_diagnostic(
+        ReferenceEngineError::kInvalidArgument, "chat_messages",
+        "messages must be non-empty");
+    return result;
+  }
+
+  try {
+    text::ChatResult chat = format_chat_prompt(*impl_->tokenizer, messages);
+    if (!chat) {
+      result.diagnostic = tokenizer_diagnostic("chat_encode", chat.error);
+      return result;
+    }
+    if (chat.token_ids.empty()) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kTokenizerFailure, "chat_encode",
+          "the rendered chat prompt encoded to zero tokens");
+      return result;
+    }
+
+    return generate_tokenized(std::move(chat.rendered),
+                              std::move(chat.token_ids), options);
+  } catch (const std::bad_alloc&) {
+    result.diagnostic = engine_diagnostic(
+        ReferenceEngineError::kAllocationFailure, "chat_encode",
+        "host allocation failed while formatting chat messages");
+    return result;
+  } catch (const std::length_error& error) {
+    result.diagnostic = engine_diagnostic(
+        ReferenceEngineError::kAllocationFailure, "chat_encode",
+        error.what());
+    return result;
+  } catch (const std::exception& error) {
+    result.diagnostic = engine_diagnostic(
+        ReferenceEngineError::kTokenizerFailure, "chat_encode",
+        error.what());
+    return result;
+  }
+}
+
+ReferenceGenerateResult ReferenceEngine::generate_tokenized(
+    std::string rendered_prompt,
+    std::vector<std::uint32_t> prompt_token_ids,
+    const ReferenceGenerateOptions& options) {
+  ReferenceGenerateResult result;
+  if (!*this) {
+    result.diagnostic = engine_diagnostic(
+        ReferenceEngineError::kInvalidArgument, "engine",
+        "reference engine is empty");
+    return result;
+  }
+  if (prompt_token_ids.empty() || options.max_new_tokens == 0U ||
       options.prefill_chunk_size == 0U ||
       options.prefill_chunk_size > kMaximumRequestPrefillChunkSize ||
       options.stop_token_id >= kReferenceVocabularySize ||
-      !is_valid_reference_logits_mode(options.logits_mode)) {
+      !is_valid_reference_logits_mode(options.logits_mode) ||
+      (options.token_observer == nullptr &&
+       options.token_observer_context != nullptr)) {
     result.diagnostic = engine_diagnostic(
         ReferenceEngineError::kInvalidArgument, "generation_options",
-        "prompt must be non-empty, max_new_tokens must be positive, "
+        "prompt tokens must be non-empty, max_new_tokens must be positive, "
         "prefill_chunk_size must be in [1,512], and stop_token_id must be in "
-        "the pinned vocabulary");
+        "the pinned vocabulary; observer context requires an observer");
     return result;
+  }
+  for (const std::uint32_t token_id : prompt_token_ids) {
+    if (token_id >= kReferenceVocabularySize) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kInvalidArgument, "prompt_token_ids",
+          "prompt contains an id outside the pinned vocabulary");
+      return result;
+    }
   }
   if (options.capture_trace && !impl_->trace_enabled) {
     result.diagnostic = engine_diagnostic(
@@ -2012,18 +2255,6 @@ ReferenceGenerateResult ReferenceEngine::generate(
   }
 
   try {
-    text::ChatResult chat =
-        format_single_user_prompt(*impl_->tokenizer, user_prompt);
-    if (!chat) {
-      result.diagnostic = tokenizer_diagnostic("chat_encode", chat.error);
-      return result;
-    }
-    if (chat.token_ids.empty()) {
-      result.diagnostic = engine_diagnostic(
-          ReferenceEngineError::kTokenizerFailure, "chat_encode",
-          "the rendered chat prompt encoded to zero tokens");
-      return result;
-    }
 
     const ReferenceRunnerStatus reset = impl_->runner->reset();
     if (!reset) {
@@ -2048,6 +2279,17 @@ ReferenceGenerateResult ReferenceEngine::generate(
     control_options.logits_mode = options.logits_mode;
     control_options.emit_nvtx_phase_ranges = options.emit_nvtx_phase_ranges;
 
+    EngineTokenObserverContext observer_context;
+    if (options.token_observer != nullptr) {
+      observer_context.tokenizer = impl_->tokenizer.get();
+      observer_context.observer = options.token_observer;
+      observer_context.observer_context = options.token_observer_context;
+      observer_context.stop_token_id = options.stop_token_id;
+      observer_context.single_token_id.resize(1U);
+      control_options.committed_token_context = &observer_context;
+      control_options.committed_token = observe_committed_token;
+    }
+
     reference_engine_detail::PrefillPlan prefill_plan;
     prefill_plan.context = &step_context;
     prefill_plan.prefix_step = step_with_trace;
@@ -2067,7 +2309,7 @@ ReferenceGenerateResult ReferenceEngine::generate(
 
     reference_engine_detail::GenerationControlResult control =
         reference_engine_detail::run_generation_control(
-            chat.token_ids, control_options, prefill_plan, decode_plan);
+            prompt_token_ids, control_options, prefill_plan, decode_plan);
     if (!control) {
       result.diagnostic = control_diagnostic(control);
       if (use_production_decode_graph_cache &&
@@ -2104,6 +2346,16 @@ ReferenceGenerateResult ReferenceEngine::generate(
       }
       return result;
     }
+    if (observer_context.decode_error != text::TokenizerErrorCode::kNone) {
+      result.diagnostic = engine_diagnostic(
+          observer_context.decode_error ==
+                  text::TokenizerErrorCode::kAllocationFailure
+              ? ReferenceEngineError::kAllocationFailure
+              : ReferenceEngineError::kDecodeFailure,
+          "token_observer_decode", observer_context.failure_message,
+          std::string(text::to_string(observer_context.decode_error)));
+      return result;
+    }
 
     const std::size_t text_token_count =
         reference_engine_detail::generated_text_token_count(
@@ -2128,8 +2380,8 @@ ReferenceGenerateResult ReferenceEngine::generate(
     }
 
     ReferenceGeneration generation;
-    generation.rendered_prompt = std::move(chat.rendered);
-    generation.prompt_token_ids = std::move(chat.token_ids);
+    generation.rendered_prompt = std::move(rendered_prompt);
+    generation.prompt_token_ids = std::move(prompt_token_ids);
     generation.generated_token_ids =
         std::move(control.value->generated_token_ids);
     generation.generated_text = std::move(decoded.text);
@@ -3645,6 +3897,8 @@ std::string_view to_string(const ReferenceStopReason reason) noexcept {
       return "im_end";
     case ReferenceStopReason::kMaxNewTokens:
       return "max_new_tokens";
+    case ReferenceStopReason::kCancelled:
+      return "cancelled";
   }
   return "unknown";
 }
