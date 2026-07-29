@@ -2720,15 +2720,15 @@ void test_exact_nvfp4_whole_chunk_branch_dispatch(TestContext& test) {
             },
             label + " direct production graph");
         constexpr std::size_t kWholeChunkTokensPerCta = 128U;
-        const bool gate_c512 = gate_up_shape && token_count == 512U;
+        const bool n256_c512 = token_count == 512U;
         const std::size_t output_columns_per_cta =
-            gate_c512 ? 256U : 128U;
+            n256_c512 ? 256U : 128U;
         const unsigned int expected_grid = static_cast<unsigned int>(
             (gate_up_shape ? kIntermediateSize : kHiddenSize) /
             output_columns_per_cta *
             (token_count / kWholeChunkTokensPerCta));
         const std::size_t expected_dynamic_shared_bytes =
-            gate_c512 ? 118'784U : 0U;
+            n256_c512 ? 118'784U : 0U;
         const bool exact =
             dispatch.valid && dispatch.launches.size() == 1U &&
             direct.valid && direct.launches.size() == 1U &&
@@ -2747,8 +2747,7 @@ void test_exact_nvfp4_whole_chunk_branch_dispatch(TestContext& test) {
             direct.launches.front().block.x == 256U &&
             direct.launches.front().dynamic_shared_bytes ==
                 expected_dynamic_shared_bytes;
-        test.expect(exact,
-                    label + " is one exact A-stationary production grid");
+        test.expect(exact, label + " is one exact production grid");
       };
 
   expect_exact_grid(gate_up, hidden_input, intermediate_output, 256U, true,

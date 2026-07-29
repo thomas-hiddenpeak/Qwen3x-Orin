@@ -10,8 +10,6 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <cstdlib>
-#include <cstring>
 #include <limits>
 
 namespace q3x::kernels {
@@ -10099,17 +10097,6 @@ struct alignas(32) NvFp4GateM128N256BSwizzleScale512K1282PipelineStorage {
 static_assert(
     sizeof(NvFp4GateM128N256BSwizzleScale512K1282PipelineStorage) ==
     118'784U);
-
-#if defined(Q3X_ENABLE_NVFP4_PREFILL_DOWN_M128N256_ADMISSION)
-[[nodiscard]] bool nvfp4_prefill_down_m128n256_admission_enabled() noexcept {
-  static const bool enabled = []() noexcept {
-    const char* const value =
-        std::getenv("Q3X_RUN_NVFP4_PREFILL_DOWN_M128N256_ADMISSION");
-    return value != nullptr && std::strcmp(value, "1") == 0;
-  }();
-  return enabled;
-}
-#endif
 
 template <unsigned int kColumns, bool kActivationCacheAll>
 __device__ __forceinline__ void
@@ -29438,9 +29425,7 @@ int launch_sm87_nvfp4_w4a16_whole_chunk_down_gemm_bf16_cuda(
 
   const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
   (void)cudaGetLastError();
-#if defined(Q3X_ENABLE_NVFP4_PREFILL_DOWN_M128N256_ADMISSION)
-  if (token_count == 512U &&
-      nvfp4_prefill_down_m128n256_admission_enabled()) {
+  if (token_count == 512U) {
     constexpr int kDynamicSharedBytes = static_cast<int>(
         sizeof(NvFp4GateM128N256BSwizzleScale512K1282PipelineStorage));
     const auto kernel =
@@ -29459,17 +29444,10 @@ int launch_sm87_nvfp4_w4a16_whole_chunk_down_gemm_bf16_cuda(
         packed_weights, block_scales, weight_scale_2, activations, output);
     return static_cast<int>(cudaGetLastError());
   }
-#endif
   constexpr unsigned int kOutputColumnBlockCount = 5'120U / 128U;
-  if (token_count == 256U) {
-    nvfp4_w4a16_down_whole_chunk_m128_n128_k64_b_reuse_kernel<2U>
-        <<<kOutputColumnBlockCount * 2U, kThreads, 0U, stream>>>(
-            packed_weights, block_scales, weight_scale_2, activations, output);
-  } else {
-    nvfp4_w4a16_down_whole_chunk_m128_n128_k64_b_reuse_kernel<4U>
-        <<<kOutputColumnBlockCount * 4U, kThreads, 0U, stream>>>(
-            packed_weights, block_scales, weight_scale_2, activations, output);
-  }
+  nvfp4_w4a16_down_whole_chunk_m128_n128_k64_b_reuse_kernel<2U>
+      <<<kOutputColumnBlockCount * 2U, kThreads, 0U, stream>>>(
+          packed_weights, block_scales, weight_scale_2, activations, output);
   return static_cast<int>(cudaGetLastError());
 }
 
@@ -31549,12 +31527,21 @@ int query_sm87_nvfp4_w4a16_whole_chunk_down_m128_b_reuse_resources_test_cuda(
           &active_blocks, kernel, static_cast<int>(kThreads), 0U);
     }
   } else {
+    constexpr int kDynamicSharedBytes = static_cast<int>(
+        sizeof(NvFp4GateM128N256BSwizzleScale512K1282PipelineStorage));
     const auto kernel =
-        nvfp4_w4a16_down_whole_chunk_m128_n128_k64_b_reuse_kernel<4U>;
-    status = cudaFuncGetAttributes(&attributes, kernel);
+        nvfp4_w4a16_gate_c512_m128_n256_bswizzle_scale512_k128_2stage_256t_kernel<
+            5'120U, 17'408U, true, false>;
+    status = cudaFuncSetAttribute(
+        kernel, cudaFuncAttributeMaxDynamicSharedMemorySize,
+        kDynamicSharedBytes);
+    if (status == cudaSuccess) {
+      status = cudaFuncGetAttributes(&attributes, kernel);
+    }
     if (status == cudaSuccess) {
       status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
-          &active_blocks, kernel, static_cast<int>(kThreads), 0U);
+          &active_blocks, kernel, static_cast<int>(kThreads),
+          static_cast<std::size_t>(kDynamicSharedBytes));
     }
   }
   if (status != cudaSuccess) {

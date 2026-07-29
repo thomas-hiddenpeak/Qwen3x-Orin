@@ -26906,12 +26906,16 @@ void fill_nvfp4_gate_m128_scale_distribution(
     TestContext& test) {
   constexpr std::size_t kRows = 5'120U;
   constexpr std::size_t kColumns = 17'408U;
-  constexpr int kMaximumRegisters = 128;
-  constexpr std::size_t kExpectedSharedBytes = 37'376U;
   constexpr int kExpectedThreads = 256;
-  constexpr int kMinimumActiveBlocks = 2;
   bool complete = true;
   for (const std::size_t token_count : {256U, 512U}) {
+    const bool down_m128n256_production = token_count == 512U;
+    const int maximum_registers = down_m128n256_production ? 255 : 128;
+    const std::size_t expected_static_shared_bytes =
+        down_m128n256_production ? 512U : 37'376U;
+    const std::size_t expected_dynamic_shared_bytes =
+        down_m128n256_production ? 118'784U : 0U;
+    const int minimum_active_blocks = down_m128n256_production ? 1 : 2;
     int registers = -1;
     std::size_t shared = std::numeric_limits<std::size_t>::max();
     std::size_t local = std::numeric_limits<std::size_t>::max();
@@ -26922,10 +26926,10 @@ void fill_nvfp4_gate_m128_scale_distribution(
             token_count, kRows, kColumns, &registers, &shared, &local,
             &threads, &active);
     const bool gate = status == static_cast<int>(cudaSuccess) &&
-                      registers <= kMaximumRegisters &&
-                      shared == kExpectedSharedBytes && local == 0U &&
+                      registers <= maximum_registers &&
+                      shared == expected_static_shared_bytes && local == 0U &&
                       threads == kExpectedThreads &&
-                      active >= kMinimumActiveBlocks;
+                      active >= minimum_active_blocks;
     std::cout << "NVFP4_DOWN_M128_PRODUCTION_RESOURCES: tokens=" << token_count
               << " status=" << status
               << " registers_per_thread=" << registers
@@ -26933,7 +26937,11 @@ void fill_nvfp4_gate_m128_scale_distribution(
               << " local_bytes=" << local
               << " maximum_threads_per_block=" << threads
               << " active_blocks_per_sm=" << active
-              << " limits=regs<=128,shared=37376,local=0,threads=256,cta>=2"
+              << " expected_dynamic_shared_bytes="
+              << expected_dynamic_shared_bytes
+              << " limits=regs<=" << maximum_registers
+              << ",static_shared=" << expected_static_shared_bytes
+              << ",local=0,threads=256,cta>=" << minimum_active_blocks
               << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
     test.expect(gate,
                 "NVFP4 Down M128 production kernel clears the hard resource "
@@ -27105,11 +27113,6 @@ void fill_nvfp4_gate_m128_scale_distribution(
       reinterpret_cast<const std::uint16_t*>(0x30'0000'0000ULL);
   auto* const output =
       reinterpret_cast<std::uint16_t*>(0x40'0000'0000ULL);
-  const char* const down_m128n256_admission_value =
-      std::getenv("Q3X_RUN_NVFP4_PREFILL_DOWN_M128N256_ADMISSION");
-  const bool down_m128n256_admission_enabled =
-      down_m128n256_admission_value != nullptr &&
-      std::string_view(down_m128n256_admission_value) == "1";
   bool complete = true;
   for (const std::size_t token_count : {256U, 512U}) {
     const auto launch_public = [&]() noexcept {
@@ -27130,15 +27133,14 @@ void fill_nvfp4_gate_m128_scale_distribution(
               weights, scales, 1.0F, activations, token_count, kRows,
               kColumns, output, static_cast<void*>(stream));
     };
-    const bool down_m128n256_admission =
-        down_m128n256_admission_enabled && token_count == 512U;
+    const bool down_m128n256_production = token_count == 512U;
     const unsigned int production_grid =
-        down_m128n256_admission
+        down_m128n256_production
             ? static_cast<unsigned int>(kRows / 256U * (token_count / 128U))
             : static_cast<unsigned int>(kRows / 128U *
                                         (token_count / 128U));
     const unsigned int production_dynamic_shared_bytes =
-        down_m128n256_admission ? 118'784U : 0U;
+        down_m128n256_production ? 118'784U : 0U;
     const unsigned int historical_grid = static_cast<unsigned int>(
         kRows / 128U * (token_count / 64U));
     const std::string label =
@@ -27164,8 +27166,8 @@ void fill_nvfp4_gate_m128_scale_distribution(
     std::cout << "NVFP4_DOWN_M128_PRODUCTION_DISPATCH: tokens="
               << token_count << " production_grid=" << production_grid
               << " historical_M64_grid=" << historical_grid
-              << " m128n256_admission="
-              << (down_m128n256_admission ? "true" : "false")
+              << " m128n256_production="
+              << (down_m128n256_production ? "true" : "false")
               << " public_direct_function_identity="
               << (production_identity ? "true" : "false")
               << " M64_M128_function_distinct="

@@ -1,7 +1,8 @@
 # EvalScope-8 C512 Down M128xN256 positive screen — 2026-07-29
 
-Status: positive real-model serving-path candidate; test-only and not yet a
-production default.
+Status: positive real-model serving-path candidate at measurement time;
+subsequently promoted as the exact-C512 production default after the
+admission contracts closed.
 
 The exact C512 NVFP4 Down shape was moved from the incumbent M128xN128 route to
 an M128xN256xK128, 256-thread cell. The long-K Down specialization traverses
@@ -124,3 +125,21 @@ This N=8 candidate result is not compared numerically with the separately
 frozen N=32 vLLM reference because the measured request sets differ. The
 cumulative native runner still has not cleared the project's vLLM parity
 milestone, so no parity or market-floor claim is made.
+
+## Subsequent production promotion
+
+The source-identical C512 route was then made unconditional in the public
+Down dispatcher; the test-only CMake option, compile definition, and runtime
+environment selector were removed. C256 remains on its prior M128xN128 route.
+
+A clean production build reported the expected C512 contract: 80 CTAs, 256
+threads, 118,784 B dynamic shared memory, 247 registers per thread, 512 B
+static shared memory, zero local bytes, and one active CTA per SM. The general
+SM87 weight-only test, projection-backend dispatch test, both NVFP4 reference
+module tests, and the real-checkpoint P257/P513 bulk-attention E2E test passed.
+
+One final real P513 production smoke generated token `9419` (`Hello`) after
+513 steps with Prefix `1,929.511 ms` and TTFT `2,052.431 ms`, matching the
+admitted candidate direction. No second EvalScope run, 32-request
+confirmation, long-output workload, or capability matrix was added because
+the promotion changed only route authority, not the measured kernel.
