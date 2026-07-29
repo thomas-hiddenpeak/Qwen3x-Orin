@@ -18,7 +18,9 @@ namespace q3x::runtime::gdn_prefill_chunk64_native_detail {
 namespace {
 
 thread_local InspectionHook g_inspection_hook{};
+thread_local WyTimingHook g_wy_timing_hook{};
 thread_local bool g_force_fused_kkt_baseline_for_test = false;
+thread_local bool g_force_split_wy_baseline_for_test = false;
 thread_local bool g_force_resident_state_baseline_for_test = false;
 
 }  // namespace
@@ -29,10 +31,23 @@ InspectionHook exchange_inspection_hook(const InspectionHook hook) noexcept {
   return previous;
 }
 
+WyTimingHook exchange_wy_timing_hook(const WyTimingHook hook) noexcept {
+  const WyTimingHook previous = g_wy_timing_hook;
+  g_wy_timing_hook = hook;
+  return previous;
+}
+
 bool exchange_force_fused_kkt_baseline_for_test(
     const bool enabled) noexcept {
   const bool previous = g_force_fused_kkt_baseline_for_test;
   g_force_fused_kkt_baseline_for_test = enabled;
+  return previous;
+}
+
+bool exchange_force_split_wy_baseline_for_test(
+    const bool enabled) noexcept {
+  const bool previous = g_force_split_wy_baseline_for_test;
+  g_force_split_wy_baseline_for_test = enabled;
   return previous;
 }
 
@@ -46,6 +61,10 @@ bool exchange_force_resident_state_baseline_for_test(
 void inspect_native_boundaries(
     const std::uint16_t* const transform,
     const std::size_t transform_elements,
+    const std::uint16_t* const w,
+    const std::size_t w_elements,
+    const std::uint16_t* const u,
+    const std::size_t u_elements,
     const std::uint16_t* const state_output,
     const std::size_t state_elements,
     const std::uint16_t* const output,
@@ -53,8 +72,9 @@ void inspect_native_boundaries(
     void* const cuda_stream) noexcept {
   const InspectionHook hook = g_inspection_hook;
   if (hook.callback != nullptr) {
-    hook.callback(transform, transform_elements, state_output, state_elements,
-                  output, output_elements, cuda_stream, hook.context);
+    hook.callback(transform, transform_elements, w, w_elements, u,
+                  u_elements, state_output, state_elements, output,
+                  output_elements, cuda_stream, hook.context);
   }
 }
 
@@ -1866,6 +1886,15 @@ void reconstruct_norm_gate_chunk64_kernel(
   return static_cast<int>(cudaGetLastError());
 }
 
+[[nodiscard]] int record_wy_timing_event(
+    void* const event, cudaStream_t stream) noexcept {
+  if (event == nullptr) {
+    return static_cast<int>(cudaSuccess);
+  }
+  return static_cast<int>(cudaEventRecord(
+      reinterpret_cast<cudaEvent_t>(event), stream));
+}
+
 [[nodiscard]] bool force_fused_kkt_baseline() noexcept {
   static const bool forced_by_environment =
       std::getenv("Q3X_GDN_CHUNK64_FORCE_FUSED_KKT_BASELINE") != nullptr;
@@ -1890,7 +1919,9 @@ void reconstruct_norm_gate_chunk64_kernel(
 [[nodiscard]] bool force_split_wy_baseline() noexcept {
   static const bool forced_by_environment =
       std::getenv("Q3X_GDN_CHUNK64_FORCE_SPLIT_WY_BASELINE") != nullptr;
-  return forced_by_environment;
+  return forced_by_environment ||
+         gdn_prefill_chunk64_native_detail::
+             g_force_split_wy_baseline_for_test;
 }
 
 [[nodiscard]] bool invalid_arguments(
@@ -2004,6 +2035,12 @@ int launch(void* const context,
   const bool use_fused_kkt_baseline = force_fused_kkt_baseline();
   const bool use_split_wy_baseline =
       !use_fused_kkt_baseline && force_split_wy_baseline();
+  const auto timing_hook =
+      gdn_prefill_chunk64_native_detail::g_wy_timing_hook;
+  status = record_wy_timing_event(timing_hook.begin, stream);
+  if (status != static_cast<int>(cudaSuccess)) {
+    return status;
+  }
   if (use_fused_kkt_baseline) {
     constexpr std::size_t fused_solve_shared_bytes =
         kChunkSize * kDimension * sizeof(Bf16) +
@@ -2043,11 +2080,19 @@ int launch(void* const context,
       return status;
     }
   }
+  status = record_wy_timing_event(timing_hook.after_initial, stream);
+  if (status != static_cast<int>(cudaSuccess)) {
+    return status;
+  }
 
   qk_scaled_chunk64_kernel<<<static_cast<unsigned int>(matrix_count),
                              kQkThreads, kQkSharedBytes, stream>>>(
       workspace.q, workspace.k, workspace.gamma, workspace.qk);
   status = launch_grid_status();
+  if (status != static_cast<int>(cudaSuccess)) {
+    return status;
+  }
+  status = record_wy_timing_event(timing_hook.after_qk, stream);
   if (status != static_cast<int>(cudaSuccess)) {
     return status;
   }
@@ -2061,6 +2106,10 @@ int launch(void* const context,
     if (status != static_cast<int>(cudaSuccess)) {
       return status;
     }
+  }
+  status = record_wy_timing_event(timing_hook.after_final, stream);
+  if (status != static_cast<int>(cudaSuccess)) {
+    return status;
   }
 
   if (force_resident_state_baseline()) {
@@ -2097,7 +2146,8 @@ int launch(void* const context,
   if (status == static_cast<int>(cudaSuccess)) {
     gdn_prefill_chunk64_native_detail::inspect_native_boundaries(
         workspace.transform, matrix_count * kChunkSize * kChunkSize,
-        state_output, kGdnStateElements, output,
+        workspace.w, head_token_elements, workspace.u,
+        head_token_elements, state_output, kGdnStateElements, output,
         token_count * kGdnVElements, cuda_stream);
   }
   return status;

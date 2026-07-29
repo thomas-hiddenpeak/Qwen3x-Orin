@@ -11,6 +11,8 @@ namespace q3x::runtime::gdn_prefill_chunk64_native_detail {
 // production default and has no synchronization or copy cost.
 using InspectionCallback = void (*)(
     const std::uint16_t* transform, std::size_t transform_elements,
+    const std::uint16_t* w, std::size_t w_elements,
+    const std::uint16_t* u, std::size_t u_elements,
     const std::uint16_t* state_output, std::size_t state_elements,
     const std::uint16_t* output, std::size_t output_elements,
     void* cuda_stream, void* context) noexcept;
@@ -20,10 +22,26 @@ struct InspectionHook {
   void* context = nullptr;
 };
 
+// Test-only CUDA-event observation points bracketing the WY producer. The
+// split baseline has work on both sides of QK, while the group-owned route is
+// complete at after_initial. Null events are the production default.
+struct WyTimingHook {
+  void* begin = nullptr;
+  void* after_initial = nullptr;
+  void* after_qk = nullptr;
+  void* after_final = nullptr;
+};
+
 [[nodiscard]] InspectionHook exchange_inspection_hook(
     InspectionHook hook) noexcept;
 
+[[nodiscard]] WyTimingHook exchange_wy_timing_hook(
+    WyTimingHook hook) noexcept;
+
 [[nodiscard]] bool exchange_force_fused_kkt_baseline_for_test(
+    bool enabled) noexcept;
+
+[[nodiscard]] bool exchange_force_split_wy_baseline_for_test(
     bool enabled) noexcept;
 
 [[nodiscard]] bool exchange_force_resident_state_baseline_for_test(
