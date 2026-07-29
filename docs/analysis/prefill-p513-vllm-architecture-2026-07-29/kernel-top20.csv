@@ -1,8 +1,8 @@
 rank,total_time_ms,instances,average_us,kernel_group,kernel_name
-1,666.459104,128,5206.7118,W4A16_Marlin,"marlin NVFP4 large-M family 1"
-2,334.742240,128,2615.1738,W4A16_Marlin,"marlin NVFP4 large-M family 2"
-3,57.148032,129,443.0080,W8A16_Marlin,"marlin FP8 large-M family 1"
-4,39.852192,128,311.3453,W8A16_Marlin,"marlin FP8 large-M family 2"
+1,666.459104,128,5206.7118,W4A16_Marlin,"marlin NVFP4 M64xN256xK64 family"
+2,334.742240,128,2615.1738,W8A16_Marlin,"marlin FP8 M64xN256xK64 family"
+3,57.148032,129,443.0080,W4A16_Marlin,"marlin NVFP4 M8xN128xK128 family"
+4,39.852192,128,311.3453,W8A16_Marlin,"marlin FP8 M8xN128xK128 family"
 5,13.419968,48,279.5827,epilogue,"triton_poi_fused_marlin_gemm_mul_silu_slice_4"
 6,11.600480,48,241.6767,GDN,"chunk_gated_delta_rule_fwd_kernel_h_blockdim64"
 7,10.069408,48,209.7793,GDN,"chunk_fwd_kernel_o"

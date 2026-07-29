@@ -113,7 +113,11 @@ characterization. Add `Q3X_GDN_CHUNK64_PROFILE_CANDIDATE=1` and wrap the
 command with `nsys --capture-range=cudaProfilerApi` to isolate the measured
 candidate.
 
-The next whole-project priority is the 496.920736 ms FP8 projection family.
-Returning to GDN is justified only by a producer/consumer fusion that removes
-the W/U/QK global boundaries or by a new value/head ownership scheme capable
-of closing most of the remaining 50.035424 ms budget.
+The next whole-project priority is the common exact projection pipeline:
+1,481.580032 ms native W4A16+W8A16 versus 1,098.201568 ms in stock vLLM.
+FP8 is the first executable proof of the raw-operand/register-decode/direct-MMA
+cell, not an isolated tuning campaign; the same cell must have an explicit
+NVFP4 Gate/Up and Down port. Returning to GDN is justified only by a
+producer/consumer fusion that removes the W/U/QK global boundaries or by a new
+value/head ownership scheme capable of closing most of the remaining
+50.035424 ms budget.

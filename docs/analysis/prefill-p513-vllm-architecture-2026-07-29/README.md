@@ -26,9 +26,16 @@ Triton/FLA GDN, and FlashInfer Full Attention on SM87.
 
 `nsys stats --report cuda_gpu_kern_sum --format csv` attributes 1,224.727008 ms
 of kernel time. The four Marlin rows occupy 1,098.201568 ms (89.67%):
-1,001.201344 ms W4A16 and 97.000224 ms W8A16. Named chunk-GDN core kernels
+723.607136 ms W4A16 and 374.594432 ms W8A16. Named chunk-GDN core kernels
 occupy 41.549376 ms and the FlashInfer Full Attention kernel occupies
 3.349504 ms.
+
+The format split is decoded from the second `Marlin` template type ID, not
+from tile shape: `562949953487106` is FE2M1/NVFP4 and
+`2814749767172868` is FE4M3FN/FP8. The earlier checked-in classification
+incorrectly grouped the two M64 rows as W4A16 and the two M8 rows as W8A16;
+the raw durations were correct, but that interpretation and the resulting
+priority decision were not.
 
 The raw report is not checked in. Its retained identity is:
 

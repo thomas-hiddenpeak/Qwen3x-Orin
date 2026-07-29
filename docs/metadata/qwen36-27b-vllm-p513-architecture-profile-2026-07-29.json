@@ -53,8 +53,8 @@
     "num_cached_tokens": 0,
     "gpu_kernel_total_ms": 1224.727008,
     "groups_ms": {
-      "w4a16_marlin": 1001.201344,
-      "w8a16_marlin": 97.000224,
+      "w4a16_marlin": 723.607136,
+      "w8a16_marlin": 374.594432,
       "named_gdn_chunk_core": 41.549376,
       "flashinfer_full_attention": 3.349504,
       "causal_conv": 12.726208,
@@ -78,14 +78,16 @@
     "top20": "docs/analysis/prefill-p513-vllm-architecture-2026-07-29/kernel-top20.csv"
   },
   "interpretation": {
-    "primary_gap": "native token-serial GDN and native FP8 large-M projections",
+    "primary_gap": "native token-serial GDN plus the shared native W4A16/W8A16 operand-pipeline architecture",
     "not_primary": [
       "Full Attention",
       "CUDA launch overhead",
-      "NVFP4 Gate/Up replacement by stock Marlin"
+      "operator-local tile scans"
     ],
-    "native_nvfp4_observation": "current native Gate/Up plus Down totals 984.659296 ms versus stock-vLLM W4A16 Marlin at 1001.201344 ms",
-    "decision": "stop operator-local Prefill scanning and execute the chunk-WY GDN plus shape/format-specific projection architecture in docs/PREFILL_ARCHITECTURE_RESET.md",
+    "native_nvfp4_observation": "current native Gate/Up plus Down totals 984.659296 ms versus stock-vLLM W4A16 Marlin at 723.607136 ms",
+    "native_fp8_observation": "current native FP8 projections total 496.920736 ms versus stock-vLLM W8A16 Marlin at 374.594432 ms",
+    "classification_correction": "The second Marlin template type ID is the format authority. FE2M1/NVFP4 is 562949953487106 and FE4M3FN/FP8 is 2814749767172868; tile shape is not a format classifier.",
+    "decision": "stop operator-local Prefill scanning and execute the chunk-WY GDN plus a common Marlin-class W4A16/W8A16 operand-pipeline architecture in docs/PREFILL_ARCHITECTURE_RESET.md",
     "cublaslt_authority": "NONE",
     "mtp_used": false
   }

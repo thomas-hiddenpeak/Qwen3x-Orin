@@ -13,8 +13,9 @@ isolated parameter scans to two coupled architecture tracks:
 
 1. replace the token-serial GDN chain with a chunk/WY hierarchy designed for
    SM87 Tensor Cores; and
-2. split large-M projections by numerical format and by Gate/Up, Down, and
-   attention-projection shape instead of using one schedule family.
+2. replace the current decoded-shared/WMMA projection family with one
+   Marlin-class raw-operand pipeline shared by W4A16 and W8A16, while keeping
+   Gate/Up, Down, and attention-projection ownership shape-specific.
 
 Full Attention, launch-count reduction, buffering, `cp.async`, L2 access-policy
 windows, and epilogue fusion remain supporting mechanisms. None is a primary
@@ -32,8 +33,8 @@ same real checkpoint. It produced token 9419 and measured **1,246.689081 ms /
 
 | Group | This project, ms | stock vLLM, ms | Consequence |
 | --- | ---: | ---: | --- |
-| NVFP4 MLP Gate/Up + Down | 984.659296 | 1,001.201344 | The native aggregate is already slightly faster; W4A16 kernel replacement alone cannot explain or close the gap. |
-| FP8 QKV/Z/O projections | 496.920736 | 97.000224 | A Marlin-class large-M FP8 path is a first-order exact-path target. |
+| NVFP4 MLP Gate/Up + Down | 984.659296 | 723.607136 | The 261.052160 ms gap is the largest exact projection-family opportunity. |
+| FP8 QKV/Z/O projections | 496.920736 | 374.594432 | The 122.326304 ms gap is material, but not the previously reported 399.9 ms. |
 | GDN recurrence/core | 493.889408 | 41.549376 named chunk core | A token-serial recurrence is structurally wrong for Prefill. |
 | Full Attention core | 76.471744 | 3.349504 | Worth fixing after the two dominant gaps, but it cannot lead the program. |
 | Everything else | 208.797316 | at most 81.626560 | Fusion and scheduling are cleanup, not the architecture. |
@@ -43,6 +44,14 @@ reconstruction, inverse-layout merge, and WY recomputation, plus 48 KKT and 48
 local-cumsum calls. The current native trace contains 1,536 exact C16 GDN
 calls. This is the expected signature of an algorithm change rather than a
 better serial kernel.
+
+The Marlin split above corrects an earlier classification error. The second
+kernel template type ID is authoritative: `562949953487106` is FE2M1/NVFP4
+and `2814749767172868` is FE4M3FN/FP8. Grouping by M64 versus M8 tile shape
+incorrectly produced 1,001.201344 ms W4A16 and 97.000224 ms W8A16 even though
+the four raw row times were correct. The corrected W4A16+W8A16 total remains
+1,098.201568 ms, versus 1,481.580032 ms native, leaving a 383.378464 ms common
+projection-pipeline opportunity.
 
 The complete captured top-20 list and reproduction command are recorded in
 [the vLLM architecture profile](analysis/prefill-p513-vllm-architecture-2026-07-29/README.md).
@@ -85,8 +94,8 @@ promotion decision.
 - Preserve the current per-token BF16 recurrent-state rounding and current
   quantized-weight interpretation.
 - Remain the default and the fallback during development.
-- Pursue Marlin-class FP8 projection dataflow and any exact shape-specific
-  projection improvement.
+- Pursue a Marlin-class W4A16/W8A16 projection dataflow and exact
+  shape-specific ownership without changing numerical formats.
 - Do not claim that this mode can reach 2,000 token/s; its purpose is exact
   compatibility and a stable comparator.
 
@@ -146,9 +155,20 @@ Projection dispatch is a matrix, not one kernel:
 
 | Family | Compatibility path | Throughput path | First structural requirement |
 | --- | --- | --- | --- |
-| Gate/Up, K=5120 N=17408 | retained native W4A16 large-M kernel | calibrated groupwise W4A4 INT4 MMA, fused activation quantization and SiLU where profitable | preserve high N-parallelism and share A without coupling independent weight-pipeline phases |
-| Down, K=17408 N=5120 | independent W4A16 Down schedule | calibrated groupwise W4A4 INT4 MMA with a Down-specific K pipeline | choose stages and K ownership for only 40 N128 tiles; do not inherit Gate tuning |
-| FP8 QKV/Z/O | Marlin-class W8A16 BF16-HMMA path | calibrated W8A8 INT8 MMA, optionally W4A4 only after quality evidence | eliminate scalar FP8 decode from the HMMA feed and specialize large-N versus O projection |
+| Gate/Up, K=5120 N=17408 | Marlin-class W4A16 raw-operand/register-decode path | calibrated groupwise W4A4 INT4 MMA, fused activation quantization and SiLU where profitable | preserve high N-parallelism and share A without coupling independent weight-pipeline phases |
+| Down, K=17408 N=5120 | the same operand-pipeline skeleton with independent Down ownership | calibrated groupwise W4A4 INT4 MMA with a Down-specific K pipeline | choose stages and K ownership for the smaller N grid; do not inherit Gate tuning |
+| FP8 QKV/Z/O | Marlin-class W8A16 raw-operand/register-decode path | calibrated W8A8 INT8 MMA, optionally W4A4 only after quality evidence | remove the decoded-B shared tensor and specialize large-N versus O projection |
+
+The exact common skeleton is one complete dataflow cell, not a tile sweep. The
+measured vLLM large-M configuration uses 256 threads, M64xN256xK64 ownership,
+four asynchronous stages, XOR-swizzled A, register-buffered packed B,
+register dequantization, and direct MMA. The native implementation may change
+shape where SM87 resource evidence requires it, but it must preserve the
+coupled mechanism: engine-lifetime authenticated prepack, pipelined raw A/B,
+fragment-oriented register feed, no decoded-B shared tensor, no per-K64
+full-CTA producer/consumer bubble, and one final output publication. FP8 is
+the first executable proof because its exact bitwise expansion is simpler;
+the cell is admitted only with a concrete NVFP4 port and aggregate budget.
 
 The uniform integer sidecar is generated from the authenticated real weights,
 cached with a source-payload digest, and never replaces the checkpoint. Group
@@ -175,8 +195,11 @@ to low-yield scanning:
 
 - GDN C512 across 48 layers: named recurrence/core at or below 100 ms and at
   least 300 ms saved from whole Prefix in its first real P513 direction run;
-- exact FP8 QKV/Z/O: at or below 150 ms aggregate, then at or below the
-  stock-vLLM 97 ms reference after stabilization;
+- exact W4A16+W8A16 projections: at or below 1,250 ms aggregate in the first
+  complete engine route, then at or below the stock-vLLM 1,098.201568 ms
+  reference after stabilization;
+- exact W4A16: at or below 850 ms, then at or below 723.607136 ms; exact
+  W8A16: at or below 425 ms, then at or below 374.594432 ms;
 - throughput MLP projections: at or below 350 ms aggregate in the first full
   route and below 200 ms before the 512 ms Prefix milestone;
 - any new experiment must name a credible path to at least 100 ms P513
@@ -198,11 +221,17 @@ candidate beat stock vLLM or the terminal target by itself.
    baseline-versus-candidate direction cell. A negative direction closes the
    architecture version; a positive direction unlocks full numerical and
    resource work.
-5. In parallel at the design level, specify authenticated W4A4/W8A8 sidecars;
-   device implementation begins with Down and FP8 because Gate/Up is already
-   competitive with stock vLLM.
-6. Combine retained routes and re-profile only after each whole-path milestone.
-7. Introduce the OpenAI-compatible API before any throughput-mode production
+5. Profile one real-weight native and stock-vLLM large-M W8A16 cell under the
+   same NCU metrics, then implement the complete four-stage raw-operand,
+   register-decode, direct-MMA proof in FP8. Do not retain decoded-B shared
+   storage merely to preserve the current kernel skeleton.
+6. Port the proven operand pipeline to NVFP4 Gate/Up and Down as separate
+   ownership configurations; judge the program on the aggregate
+   383.378464-ms projection gap, not on the number of local edits.
+7. In parallel at the design level, specify authenticated W4A4/W8A8 sidecars
+   for the throughput contract. Combine retained routes and re-profile only
+   after each whole-path milestone.
+8. Introduce the OpenAI-compatible API before any throughput-mode production
    promotion so EvalScope can gate capability, not merely token identity.
 
 The unit of progress is now a Prefix budget transition, not the count of
@@ -223,8 +252,9 @@ the route remains test-only and the default compatibility path is unchanged.
 Full evidence is in
 [`analysis/prefill-p513-gdn-chunk64-architecture-2026-07-29/README.md`](analysis/prefill-p513-gdn-chunk64-architecture-2026-07-29/README.md).
 
-Because the whole Prefix is now dominated by the 496.920736 ms FP8 projection
-family and the remaining GDN gap requires producer/consumer ownership changes,
-the next implementation priority is the format/shape-specific FP8 large-M
-path. GDN resumes only for a design capable of removing the W/U/QK global
-boundaries or most of the remaining 50.035424 ms budget.
+Because the remaining projection program is 1,481.580032 ms native versus
+1,098.201568 ms in stock vLLM, the next implementation priority is the common
+Marlin-class W4A16/W8A16 operand pipeline. FP8 is its first exact executable
+proof, not a standalone optimization campaign. GDN resumes only for a design
+capable of removing the W/U/QK global boundaries or most of the remaining
+50.035424 ms budget.
