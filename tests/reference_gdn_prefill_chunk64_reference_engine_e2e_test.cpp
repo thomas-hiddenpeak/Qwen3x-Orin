@@ -176,6 +176,24 @@ class ScopedSplitWyBaseline {
   bool previous_ = false;
 };
 
+class ScopedPackedQkvBaseline {
+ public:
+  explicit ScopedPackedQkvBaseline(const bool enabled) noexcept
+      : previous_(q3x::runtime::gdn_prefill_chunk64_native_detail::
+                      exchange_force_packed_qkv_baseline_for_test(enabled)) {}
+
+  ~ScopedPackedQkvBaseline() {
+    (void)q3x::runtime::gdn_prefill_chunk64_native_detail::
+        exchange_force_packed_qkv_baseline_for_test(previous_);
+  }
+
+  ScopedPackedQkvBaseline(const ScopedPackedQkvBaseline&) = delete;
+  ScopedPackedQkvBaseline& operator=(const ScopedPackedQkvBaseline&) = delete;
+
+ private:
+  bool previous_ = false;
+};
+
 class ScopedWyTimingHook {
  public:
   ScopedWyTimingHook(cudaEvent_t begin, cudaEvent_t after_initial,
@@ -660,8 +678,8 @@ void destroy_event(cudaEvent_t& event) noexcept {
 
 [[nodiscard]] bool run_timed_group_wy_sample(
     runtime::ReferenceEngine& engine, const std::string& prompt,
-    const bool split_baseline, const std::string_view phase, Sample& sample,
-    float& initial_milliseconds, float& final_milliseconds) {
+    const bool packed_baseline, const std::string_view phase, Sample& sample,
+    float& group_milliseconds, float& qk_milliseconds) {
   cudaEvent_t begin = nullptr;
   cudaEvent_t after_initial = nullptr;
   cudaEvent_t after_qk = nullptr;
@@ -672,7 +690,8 @@ void destroy_event(cudaEvent_t& event) noexcept {
                cudaEventCreate(&after_final) == cudaSuccess;
   if (ready) {
     const ScopedFusedKktBaseline fused_route(false);
-    const ScopedSplitWyBaseline split_route(split_baseline);
+    const ScopedSplitWyBaseline split_route(false);
+    const ScopedPackedQkvBaseline packed_route(packed_baseline);
     const ScopedResidentStateBaseline resident_route(false);
     const ScopedWyTimingHook timing(begin, after_initial, after_qk,
                                     after_final);
@@ -683,10 +702,10 @@ void destroy_event(cudaEvent_t& event) noexcept {
   }
   if (ready) {
     ready = cudaEventSynchronize(after_final) == cudaSuccess &&
-            cudaEventElapsedTime(&initial_milliseconds, begin,
+            cudaEventElapsedTime(&group_milliseconds, begin,
                                  after_initial) == cudaSuccess &&
-            cudaEventElapsedTime(&final_milliseconds, after_qk,
-                                 after_final) == cudaSuccess;
+            cudaEventElapsedTime(&qk_milliseconds, after_initial,
+                                 after_qk) == cudaSuccess;
   }
   destroy_event(after_final);
   destroy_event(after_qk);
@@ -706,37 +725,39 @@ void destroy_event(cudaEvent_t& event) noexcept {
   bool ready = false;
   {
     const ScopedFusedKktBaseline fused_route(false);
-    const ScopedSplitWyBaseline split_route(true);
+    const ScopedSplitWyBaseline split_route(false);
+    const ScopedPackedQkvBaseline packed_route(true);
     const ScopedResidentStateBaseline resident_route(false);
-    (void)run_sample(engine, prompt, true, "wy_event_baseline_warmup",
+    (void)run_sample(engine, prompt, true, "packless_event_baseline_warmup",
                      baseline_warmup);
     ready = valid_group_wy_event_sample(baseline_warmup);
   }
   {
     const ScopedFusedKktBaseline fused_route(false);
     const ScopedSplitWyBaseline split_route(false);
+    const ScopedPackedQkvBaseline packed_route(false);
     const ScopedResidentStateBaseline resident_route(false);
-    (void)run_sample(engine, prompt, true, "wy_event_candidate_warmup",
+    (void)run_sample(engine, prompt, true, "packless_event_candidate_warmup",
                      candidate_warmup);
     ready = valid_group_wy_event_sample(candidate_warmup) && ready;
   }
 
   Sample baseline;
   Sample candidate;
-  float baseline_initial = 0.0F;
-  float baseline_final = 0.0F;
-  float candidate_initial = 0.0F;
-  float candidate_final = 0.0F;
+  float baseline_group = 0.0F;
+  float baseline_qk = 0.0F;
+  float candidate_group = 0.0F;
+  float candidate_qk = 0.0F;
   ready = run_timed_group_wy_sample(
-              engine, prompt, true, "wy_event_baseline", baseline,
-              baseline_initial, baseline_final) &&
+              engine, prompt, true, "packless_event_baseline", baseline,
+              baseline_group, baseline_qk) &&
           ready;
   ready = run_timed_group_wy_sample(
-              engine, prompt, false, "wy_event_candidate", candidate,
-              candidate_initial, candidate_final) &&
+              engine, prompt, false, "packless_event_candidate", candidate,
+              candidate_group, candidate_qk) &&
           ready;
-  const float baseline_total = baseline_initial + baseline_final;
-  const float candidate_total = candidate_initial + candidate_final;
+  const float baseline_total = baseline_group + baseline_qk;
+  const float candidate_total = candidate_group + candidate_qk;
   const float saved = baseline_total - candidate_total;
   const bool semantics =
       baseline.semantic_oracle && candidate.semantic_oracle &&
@@ -747,17 +768,17 @@ void destroy_event(cudaEvent_t& event) noexcept {
                       baseline_total > 0.0F && candidate_total > 0.0F &&
                       saved > 0.0F;
   std::cout << "GDN_CHUNK64_NATIVE_GROUP_WY_EVENT_ATTRIBUTION"
-            << " baseline_kkt_solve_ms=" << baseline_initial
-            << " baseline_recompute_ms=" << baseline_final
-            << " baseline_total_ms=" << baseline_total
-            << " candidate_group_ms=" << candidate_initial
-            << " candidate_post_qk_ms=" << candidate_final
-            << " candidate_total_ms=" << candidate_total
+            << " baseline_group_ms=" << baseline_group
+            << " baseline_qk_ms=" << baseline_qk
+            << " baseline_core_window_ms=" << baseline_total
+            << " candidate_group_ms=" << candidate_group
+            << " candidate_qk_ms=" << candidate_qk
+            << " candidate_core_window_ms=" << candidate_total
             << " saved_ms=" << saved
             << " speedup=" << baseline_total / candidate_total
             << " generation_semantics=" << (semantics ? "PASS" : "FAIL")
             << " gate=" << (passed ? "PASS" : "FAIL")
-            << " authority=REAL_WEIGHT_FINAL_LAYER_CUDA_EVENT\n";
+            << " authority=REAL_WEIGHT_FINAL_LAYER_PACKED_VS_PACKLESS_CORE_WINDOW\n";
   return passed;
 }
 
@@ -803,9 +824,10 @@ void destroy_event(cudaEvent_t& event) noexcept {
   runtime::ReferenceGenerateResult baseline_result;
   {
     const ScopedFusedKktBaseline fused_route(false);
-    const ScopedSplitWyBaseline split_route(true);
+    const ScopedSplitWyBaseline split_route(false);
+    const ScopedPackedQkvBaseline packed_route(true);
     if (!fused_route.valid() || !split_route.valid()) {
-      std::cerr << "failed to select split-WY baseline\n";
+      std::cerr << "failed to select d51 packed-QKV baseline\n";
       return false;
     }
     const ScopedNativeInspectionHook hook(baseline_boundaries);
@@ -818,8 +840,9 @@ void destroy_event(cudaEvent_t& event) noexcept {
   {
     const ScopedFusedKktBaseline fused_route(false);
     const ScopedSplitWyBaseline split_route(false);
+    const ScopedPackedQkvBaseline packed_route(false);
     if (!fused_route.valid() || !split_route.valid()) {
-      std::cerr << "failed to select group-owned WY candidate\n";
+      std::cerr << "failed to select compact packless candidate\n";
       return false;
     }
     const ScopedNativeInspectionHook hook(candidate_boundaries);
@@ -850,7 +873,7 @@ void destroy_event(cudaEvent_t& event) noexcept {
   const DifferenceMetrics full_request_state = compare_bf16(
       baseline_state.values, candidate_state.values);
   constexpr std::string_view kSuite =
-      "GDN_CHUNK64_NATIVE_GROUP_WY_EQUIVALENCE";
+      "GDN_CHUNK64_NATIVE_PACKLESS_EQUIVALENCE";
   print_difference_metrics(kSuite, "transform", transform);
   print_difference_metrics(kSuite, "w", w);
   print_difference_metrics(kSuite, "u", u);
@@ -888,7 +911,7 @@ void destroy_event(cudaEvent_t& event) noexcept {
             << " generation_semantics="
             << (generation_semantics ? "PASS" : "FAIL")
             << " gate=" << (passed ? "PASS" : "FAIL")
-            << " authority=REAL_WEIGHT_GROUP_VS_SPLIT\n";
+            << " authority=REAL_WEIGHT_PACKLESS_VS_D51_PACKED\n";
   return passed;
 }
 
@@ -1138,6 +1161,7 @@ class DeviceBuffer {
           cudaSuccess;
   const ScopedFusedKktBaseline kkt_route(false);
   const ScopedSplitWyBaseline split_route(false);
+  const ScopedPackedQkvBaseline packed_route(false);
   const ScopedResidentStateBaseline resident_route(false);
   ready = kkt_route.valid() && split_route.valid() &&
           resident_route.valid() && ready;
@@ -1206,7 +1230,7 @@ class DeviceBuffer {
             cudaStreamSynchronize(stream) == cudaSuccess;
   }
   const bool passed =
-      ready && node_count == 7U && kernel_nodes == 7U && other_nodes == 0U;
+      ready && node_count == 6U && kernel_nodes == 6U && other_nodes == 0U;
   std::cout << "GDN_CHUNK64_NATIVE_GRAPH"
             << " nodes=" << node_count
             << " kernel_nodes=" << kernel_nodes

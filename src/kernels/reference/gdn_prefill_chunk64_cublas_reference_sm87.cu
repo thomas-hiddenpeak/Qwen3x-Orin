@@ -21,6 +21,7 @@ thread_local InspectionHook g_inspection_hook{};
 thread_local WyTimingHook g_wy_timing_hook{};
 thread_local bool g_force_fused_kkt_baseline_for_test = false;
 thread_local bool g_force_split_wy_baseline_for_test = false;
+thread_local bool g_force_packed_qkv_baseline_for_test = false;
 thread_local bool g_force_resident_state_baseline_for_test = false;
 
 }  // namespace
@@ -48,6 +49,13 @@ bool exchange_force_split_wy_baseline_for_test(
     const bool enabled) noexcept {
   const bool previous = g_force_split_wy_baseline_for_test;
   g_force_split_wy_baseline_for_test = enabled;
+  return previous;
+}
+
+bool exchange_force_packed_qkv_baseline_for_test(
+    const bool enabled) noexcept {
+  const bool previous = g_force_packed_qkv_baseline_for_test;
+  g_force_packed_qkv_baseline_for_test = enabled;
   return previous;
 }
 
@@ -96,8 +104,12 @@ constexpr std::size_t kQkHeadCount = kGdnQkHeadCount;
 constexpr std::size_t kValueHeadCount = kGdnValueHeadCount;
 constexpr std::size_t kDimension = kGdnHeadDimension;
 constexpr std::size_t kMatrixCount = kChunkCount * kValueHeadCount;
+constexpr std::size_t kCompactMatrixCount =
+    kChunkCount * kQkHeadCount;
 constexpr std::size_t kHeadTokenElements =
     kMatrixCount * kChunkSize * kDimension;
+constexpr std::size_t kCompactHeadTokenElements =
+    kCompactMatrixCount * kChunkSize * kDimension;
 constexpr std::size_t kChunkMatrixElements =
     kMatrixCount * kChunkSize * kChunkSize;
 constexpr std::size_t kBoundaryStateElements =
@@ -112,6 +124,7 @@ constexpr std::size_t kVOffset = kGdnQElements + kGdnKElements;
 
 static_assert(kTokenCount % kChunkSize == 0U);
 static_assert(kQkHeadCount * 3U == kValueHeadCount);
+static_assert(kCompactHeadTokenElements * 3U == kHeadTokenElements);
 static_assert(kDimension == 128U);
 static_assert(kChunkSize == 4U * kSolveSubblock);
 
@@ -135,7 +148,10 @@ using WmmaAccumulator =
 
 [[nodiscard]] constexpr std::size_t required_workspace_bytes() noexcept {
   std::size_t offset = 0U;
-  // Q, K, exp(g)K, end-decayed K, V, T, QK, W, U, Vnew, and H.
+  // Same-ELF packed-baseline capacity is retained for Q, K, exp(g)K,
+  // end-decayed K, and V. The production path uses only the compact H16
+  // prefix of Q/K and never touches the three packed materializations.
+  // T, QK, W, U, Vnew, and H retain their value-head layout.
   for (unsigned int index = 0U; index < 5U; ++index) {
     offset = append_region(offset, kHeadTokenElements, kBf16Bytes);
   }
@@ -242,6 +258,7 @@ __device__ __forceinline__ float stable_sigmoid_device(const float value) {
   return exponential / (1.0F + exponential);
 }
 
+template <bool Compact>
 __global__ __launch_bounds__(kNormalizeThreads) void normalize_qk_kernel(
     const std::uint16_t* const conv_qkv,
     const float l2_epsilon,
@@ -273,14 +290,22 @@ __global__ __launch_bounds__(kNormalizeThreads) void normalize_qk_kernel(
   const float k_scale = rsqrtf(k_squares[0] + l2_epsilon);
   const std::size_t chunk = token / kChunkSize;
   const std::size_t token_in_chunk = token % kChunkSize;
-#pragma unroll
-  for (std::size_t replica = 0U; replica < 3U; ++replica) {
-    const std::size_t value_head = qk_head * 3U + replica;
-    const std::size_t matrix = chunk * kValueHeadCount + value_head;
+  if constexpr (Compact) {
+    const std::size_t matrix = chunk * kQkHeadCount + qk_head;
     const std::size_t destination =
         (matrix * kChunkSize + token_in_chunk) * kDimension + dimension;
     q[destination] = encode_bf16_device(q_value * q_scale);
     k[destination] = encode_bf16_device(k_value * k_scale);
+  } else {
+#pragma unroll
+    for (std::size_t replica = 0U; replica < 3U; ++replica) {
+      const std::size_t value_head = qk_head * 3U + replica;
+      const std::size_t matrix = chunk * kValueHeadCount + value_head;
+      const std::size_t destination =
+          (matrix * kChunkSize + token_in_chunk) * kDimension + dimension;
+      q[destination] = encode_bf16_device(q_value * q_scale);
+      k[destination] = encode_bf16_device(k_value * k_scale);
+    }
   }
 }
 
@@ -1118,6 +1143,94 @@ void qk_scaled_chunk64_kernel(const std::uint16_t* const q,
   }
 }
 
+// Compact H16 variant. One CTA stages Q/K once for a GQA group, computes the
+// raw QK score once, then applies the three value-head-specific gamma vectors
+// while publishing the unchanged BF16 QK boundary.
+__global__ __launch_bounds__(kQkThreads)
+void qk_scaled_group_chunk64_kernel(const std::uint16_t* const compact_q,
+                                    const std::uint16_t* const compact_k,
+                                    const float* const gamma,
+                                    std::uint16_t* const qk) {
+  extern __shared__ unsigned char shared_raw[];
+  auto* const shared_q = reinterpret_cast<Bf16*>(shared_raw);
+  auto* const shared_k = shared_q + kChunkSize * kDimension;
+  auto* const scratch = reinterpret_cast<float*>(
+      shared_k + kChunkSize * kDimension);
+  const unsigned int thread = threadIdx.x;
+  const unsigned int warp = thread / 32U;
+  const unsigned int lane = thread % 32U;
+  const std::size_t compact_matrix = blockIdx.x;
+  const std::size_t chunk = compact_matrix / kQkHeadCount;
+  const std::size_t qk_head = compact_matrix % kQkHeadCount;
+  const std::size_t compact_vector_base =
+      compact_matrix * kChunkSize * kDimension;
+  const std::size_t first_value_head = qk_head * 3U;
+
+  for (unsigned int index = thread; index < kChunkSize * kDimension;
+       index += kQkThreads) {
+    shared_q[index] = reinterpret_cast<const Bf16*>(compact_q)[
+        compact_vector_base + index];
+    shared_k[index] = reinterpret_cast<const Bf16*>(compact_k)[
+        compact_vector_base + index];
+  }
+  __syncthreads();
+
+  for (unsigned int tile = warp; tile < 16U; tile += kQkWarps) {
+    const unsigned int query_block = tile / 4U;
+    const unsigned int source_block = tile % 4U;
+    WmmaAccumulator accumulator;
+    wmma::fill_fragment(accumulator, 0.0F);
+#pragma unroll
+    for (unsigned int key_block = 0U;
+         key_block < kDimension / kWmmaTile; ++key_block) {
+      wmma::fragment<wmma::matrix_a, 16, 16, 16, Bf16,
+                     wmma::row_major>
+          q_fragment;
+      wmma::fragment<wmma::matrix_b, 16, 16, 16, Bf16,
+                     wmma::col_major>
+          k_fragment;
+      wmma::load_matrix_sync(
+          q_fragment,
+          shared_q + query_block * kWmmaTile * kDimension +
+              key_block * kWmmaTile,
+          static_cast<int>(kDimension));
+      wmma::load_matrix_sync(
+          k_fragment,
+          shared_k + source_block * kWmmaTile * kDimension +
+              key_block * kWmmaTile,
+          static_cast<int>(kDimension));
+      wmma::mma_sync(accumulator, q_fragment, k_fragment, accumulator);
+    }
+    float* const tile_scratch =
+        scratch + warp * kWmmaTile * kWmmaTile;
+    wmma::store_matrix_sync(tile_scratch, accumulator,
+                            static_cast<int>(kWmmaTile),
+                            wmma::mem_row_major);
+    __syncwarp();
+    for (unsigned int index = lane; index < kWmmaTile * kWmmaTile;
+         index += 32U) {
+      const unsigned int query =
+          query_block * kWmmaTile + index / kWmmaTile;
+      const unsigned int source =
+          source_block * kWmmaTile + index % kWmmaTile;
+#pragma unroll
+      for (unsigned int replica = 0U; replica < 3U; ++replica) {
+        const std::size_t value_head = first_value_head + replica;
+        const std::size_t matrix = chunk * kValueHeadCount + value_head;
+        const float score =
+            query >= source
+                ? tile_scratch[index] *
+                      expf(gamma[matrix * kChunkSize + query] -
+                           gamma[matrix * kChunkSize + source])
+                : 0.0F;
+        qk[matrix * kChunkSize * kChunkSize +
+           source * kChunkSize + query] = encode_bf16_device(score);
+      }
+    }
+    __syncwarp();
+  }
+}
+
 constexpr unsigned int kWuThreads = 256U;
 constexpr unsigned int kWuWarps = kWuThreads / 32U;
 constexpr std::size_t kWuSharedBytes =
@@ -1460,7 +1573,12 @@ constexpr std::size_t kResidentMatrixBytes =
 constexpr std::size_t kResidentStateSharedBytes =
     kResidentStateScratchBytes + kResidentVNewBytes +
     kResidentMatrixBytes;
+constexpr std::size_t kResidentDecayScaleBytes =
+    kChunkSize * sizeof(float);
+constexpr std::size_t kResidentStatePacklessSharedBytes =
+    kResidentStateSharedBytes + kResidentDecayScaleBytes;
 static_assert(kResidentStateSharedBytes == 28U * 1024U);
+static_assert(kResidentStatePacklessSharedBytes == 28U * 1024U + 256U);
 
 __device__ __forceinline__ void resident_state_cp_async_16(
     void* const shared_destination, const void* const global_source) {
@@ -1493,6 +1611,7 @@ __device__ __forceinline__ void resident_state_cp_async_wait_all() {
 // K, so every global tile is loaded once per CTA instead of once per warp.
 // The CTA-owned 64-row half of Vnew is retained in 8 KiB of shared memory for
 // the state update while the public BF16 Vnew boundary is still written.
+template <bool Packless>
 __global__ __launch_bounds__(kFusedSolveThreads)
 void persistent_state_chunk64_resident_kernel(
     const std::uint16_t* const w,
@@ -1510,6 +1629,8 @@ void persistent_state_chunk64_resident_kernel(
       shared_raw + kResidentStateScratchBytes);
   auto* const shared_matrix = reinterpret_cast<Bf16*>(
       shared_raw + kResidentStateScratchBytes + kResidentVNewBytes);
+  auto* const shared_decay_scale = reinterpret_cast<float*>(
+      shared_raw + kResidentStateSharedBytes);
 
   const unsigned int thread = threadIdx.x;
   const unsigned int warp = thread / 32U;
@@ -1553,8 +1674,12 @@ void persistent_state_chunk64_resident_kernel(
         w + matrix * kChunkSize * kDimension);
     const auto* const matrix_u = reinterpret_cast<const Bf16*>(
         u + matrix * kChunkSize * kDimension);
-    const auto* const matrix_k_decay = reinterpret_cast<const Bf16*>(
-        k_decay + matrix * kChunkSize * kDimension);
+    const std::size_t k_matrix =
+        Packless ? static_cast<std::size_t>(chunk_index) * kQkHeadCount +
+                       value_head / 3U
+                 : matrix;
+    const auto* const matrix_k_source = reinterpret_cast<const Bf16*>(
+        k_decay + k_matrix * kChunkSize * kDimension);
     auto* const matrix_v_new = reinterpret_cast<Bf16*>(
         v_new + matrix * kChunkSize * kDimension);
 
@@ -1624,17 +1749,37 @@ void persistent_state_chunk64_resident_kernel(
     }
     __syncthreads();
 
-    // Reuse the same slot for K. Its transfer overlaps the product
-    // publication, U subtraction, and BF16 Vnew materialization below.
-    for (unsigned int vector = thread;
-         vector < kResidentMatrixBytes / 16U;
-         vector += kFusedSolveThreads) {
-      resident_state_cp_async_16(
-          reinterpret_cast<unsigned char*>(shared_matrix) + vector * 16U,
-          reinterpret_cast<const unsigned char*>(matrix_k_decay) +
-              vector * 16U);
+    // Reuse the same slot for K. The packed baseline can copy its preformed
+    // BF16 boundary asynchronously. Production instead forms the identical
+    // end-decayed BF16 K from compact H16 K and gamma at the consumption
+    // point, eliminating the global materialization and its 3x GQA copies.
+    if constexpr (Packless) {
+      if (thread < kChunkSize) {
+        shared_decay_scale[thread] = expf(
+            gamma[matrix * kChunkSize + kChunkSize - 1U] -
+            gamma[matrix * kChunkSize + thread]);
+      }
+      __syncthreads();
+      for (unsigned int index = thread;
+           index < kResidentMatrixElements;
+           index += kFusedSolveThreads) {
+        const unsigned int token_in_chunk = index / kDimension;
+        shared_matrix[index] = __float2bfloat16_rn(
+            shared_decay_scale[token_in_chunk] *
+            __bfloat162float(matrix_k_source[index]));
+      }
+      __syncthreads();
+    } else {
+      for (unsigned int vector = thread;
+           vector < kResidentMatrixBytes / 16U;
+           vector += kFusedSolveThreads) {
+        resident_state_cp_async_16(
+            reinterpret_cast<unsigned char*>(shared_matrix) + vector * 16U,
+            reinterpret_cast<const unsigned char*>(matrix_k_source) +
+                vector * 16U);
+      }
+      resident_state_cp_async_commit();
     }
-    resident_state_cp_async_commit();
 
 #pragma unroll
     for (unsigned int token_block = 0U;
@@ -1676,7 +1821,9 @@ void persistent_state_chunk64_resident_kernel(
       }
     }
 
-    resident_state_cp_async_wait_all();
+    if constexpr (!Packless) {
+      resident_state_cp_async_wait_all();
+    }
     __syncthreads();
 
 #pragma unroll
@@ -1735,6 +1882,7 @@ void persistent_state_chunk64_resident_kernel(
 // its FP32 output on chip, then publish the same BF16 boundary consumed by
 // plain RMSNorm and SiLU(Z). One CTA therefore replaces the two batched GEMM
 // calls plus scale, scatter, and standalone norm/gate materialization.
+template <bool CompactQ>
 __global__ __launch_bounds__(kThreads)
 void reconstruct_norm_gate_chunk64_kernel(
     const std::uint16_t* const boundary_state,
@@ -1755,8 +1903,10 @@ void reconstruct_norm_gate_chunk64_kernel(
   const unsigned int value_base = warp * kSolveSubblock;
   const auto* const matrix_state = reinterpret_cast<const Bf16*>(
       boundary_state + matrix * kDimension * kDimension);
+  const std::size_t q_matrix =
+      CompactQ ? chunk_index * kQkHeadCount + value_head / 3U : matrix;
   const auto* const matrix_q = reinterpret_cast<const Bf16*>(
-      q + matrix * kChunkSize * kDimension);
+      q + q_matrix * kChunkSize * kDimension);
   const auto* const matrix_v_new = reinterpret_cast<const Bf16*>(
       v_new + matrix * kChunkSize * kDimension);
   const auto* const matrix_qk = reinterpret_cast<const Bf16*>(
@@ -1924,6 +2074,14 @@ void reconstruct_norm_gate_chunk64_kernel(
              g_force_split_wy_baseline_for_test;
 }
 
+[[nodiscard]] bool force_packed_qkv_baseline() noexcept {
+  static const bool forced_by_environment =
+      std::getenv("Q3X_GDN_CHUNK64_FORCE_PACKED_QKV_BASELINE") != nullptr;
+  return forced_by_environment ||
+         gdn_prefill_chunk64_native_detail::
+             g_force_packed_qkv_baseline_for_test;
+}
+
 [[nodiscard]] bool invalid_arguments(
     void* const /*context*/,
     void* const workspace,
@@ -2006,10 +2164,26 @@ int launch(void* const context,
   int status = static_cast<int>(cudaSuccess);
   (void)cudaGetLastError();
 
-  normalize_qk_kernel<<<
-      static_cast<unsigned int>(token_count * kQkHeadCount),
-      kNormalizeThreads, 0U, stream>>>(conv_qkv, l2_epsilon, workspace.q,
-                                       workspace.k);
+  const bool use_fused_kkt_baseline = force_fused_kkt_baseline();
+  const bool use_split_wy_baseline =
+      !use_fused_kkt_baseline && force_split_wy_baseline();
+  const bool use_resident_state_baseline =
+      force_resident_state_baseline();
+  const bool use_packed_qkv_baseline =
+      force_packed_qkv_baseline() || use_fused_kkt_baseline ||
+      use_split_wy_baseline || use_resident_state_baseline;
+
+  if (use_packed_qkv_baseline) {
+    normalize_qk_kernel<false><<<
+        static_cast<unsigned int>(token_count * kQkHeadCount),
+        kNormalizeThreads, 0U, stream>>>(
+        conv_qkv, l2_epsilon, workspace.q, workspace.k);
+  } else {
+    normalize_qk_kernel<true><<<
+        static_cast<unsigned int>(token_count * kQkHeadCount),
+        kNormalizeThreads, 0U, stream>>>(
+        conv_qkv, l2_epsilon, workspace.q, workspace.k);
+  }
   status = launch_grid_status();
   if (status != static_cast<int>(cudaSuccess)) {
     return status;
@@ -2021,20 +2195,18 @@ int launch(void* const context,
   if (status != static_cast<int>(cudaSuccess)) {
     return status;
   }
-  const unsigned int head_token_blocks = static_cast<unsigned int>(
-      (head_token_elements + kThreads - 1U) / kThreads);
-  pack_scaled_k_v_kernel<<<head_token_blocks, kThreads, 0U, stream>>>(
-      conv_qkv, workspace.k, workspace.gamma, head_token_elements,
-      workspace.k_g,
-      workspace.k_decay, workspace.v);
-  status = launch_grid_status();
-  if (status != static_cast<int>(cudaSuccess)) {
-    return status;
+  if (use_packed_qkv_baseline) {
+    const unsigned int head_token_blocks = static_cast<unsigned int>(
+        (head_token_elements + kThreads - 1U) / kThreads);
+    pack_scaled_k_v_kernel<<<head_token_blocks, kThreads, 0U, stream>>>(
+        conv_qkv, workspace.k, workspace.gamma, head_token_elements,
+        workspace.k_g, workspace.k_decay, workspace.v);
+    status = launch_grid_status();
+    if (status != static_cast<int>(cudaSuccess)) {
+      return status;
+    }
   }
 
-  const bool use_fused_kkt_baseline = force_fused_kkt_baseline();
-  const bool use_split_wy_baseline =
-      !use_fused_kkt_baseline && force_split_wy_baseline();
   const auto timing_hook =
       gdn_prefill_chunk64_native_detail::g_wy_timing_hook;
   status = record_wy_timing_event(timing_hook.begin, stream);
@@ -2071,11 +2243,19 @@ int launch(void* const context,
     if (status != static_cast<int>(cudaSuccess)) {
       return status;
     }
-  } else {
+  } else if (use_packed_qkv_baseline) {
     status = gdn_prefill_group_wy_detail::launch(
         workspace.k, workspace.gamma, workspace.beta, workspace.k_g,
         workspace.v, chunk_count, workspace.transform, workspace.w,
         workspace.u, cuda_stream);
+    if (status != static_cast<int>(cudaSuccess)) {
+      return status;
+    }
+  } else {
+    status = gdn_prefill_group_wy_detail::launch_packless(
+        workspace.k, workspace.gamma, workspace.beta, conv_qkv,
+        chunk_count, workspace.transform, workspace.w, workspace.u,
+        cuda_stream);
     if (status != static_cast<int>(cudaSuccess)) {
       return status;
     }
@@ -2085,9 +2265,16 @@ int launch(void* const context,
     return status;
   }
 
-  qk_scaled_chunk64_kernel<<<static_cast<unsigned int>(matrix_count),
-                             kQkThreads, kQkSharedBytes, stream>>>(
-      workspace.q, workspace.k, workspace.gamma, workspace.qk);
+  if (use_packed_qkv_baseline) {
+    qk_scaled_chunk64_kernel<<<static_cast<unsigned int>(matrix_count),
+                               kQkThreads, kQkSharedBytes, stream>>>(
+        workspace.q, workspace.k, workspace.gamma, workspace.qk);
+  } else {
+    qk_scaled_group_chunk64_kernel<<<
+        static_cast<unsigned int>(chunk_count * kQkHeadCount),
+        kQkThreads, kQkSharedBytes, stream>>>(
+        workspace.q, workspace.k, workspace.gamma, workspace.qk);
+  }
   status = launch_grid_status();
   if (status != static_cast<int>(cudaSuccess)) {
     return status;
@@ -2112,7 +2299,7 @@ int launch(void* const context,
     return status;
   }
 
-  if (force_resident_state_baseline()) {
+  if (use_resident_state_baseline) {
     constexpr std::size_t persistent_state_baseline_shared_bytes =
         64U * kDimension * (sizeof(float) + sizeof(Bf16));
     persistent_state_chunk64_baseline_kernel<<<
@@ -2121,11 +2308,18 @@ int launch(void* const context,
         workspace.w, workspace.u, workspace.k_decay, workspace.gamma,
         state_input, state_output, static_cast<unsigned int>(chunk_count),
         workspace.v_new, workspace.boundary_state);
-  } else {
-    persistent_state_chunk64_resident_kernel<<<
+  } else if (use_packed_qkv_baseline) {
+    persistent_state_chunk64_resident_kernel<false><<<
         static_cast<unsigned int>(kValueHeadCount * 2U),
         kFusedSolveThreads, kResidentStateSharedBytes, stream>>>(
         workspace.w, workspace.u, workspace.k_decay, workspace.gamma,
+        state_input, state_output, static_cast<unsigned int>(chunk_count),
+        workspace.v_new, workspace.boundary_state);
+  } else {
+    persistent_state_chunk64_resident_kernel<true><<<
+        static_cast<unsigned int>(kValueHeadCount * 2U),
+        kFusedSolveThreads, kResidentStatePacklessSharedBytes, stream>>>(
+        workspace.w, workspace.u, workspace.k, workspace.gamma,
         state_input, state_output, static_cast<unsigned int>(chunk_count),
         workspace.v_new, workspace.boundary_state);
   }
@@ -2136,12 +2330,21 @@ int launch(void* const context,
 
   constexpr std::size_t reconstruction_shared_bytes =
       kDimension * kChunkSize * sizeof(float);
-  reconstruct_norm_gate_chunk64_kernel<<<
-      static_cast<unsigned int>(matrix_count), kThreads,
-      reconstruction_shared_bytes, stream>>>(
-      workspace.boundary_state, workspace.q, workspace.v_new,
-      workspace.qk, workspace.gamma, norm_weight, silu_gate,
-      norm_epsilon, output);
+  if (use_packed_qkv_baseline) {
+    reconstruct_norm_gate_chunk64_kernel<false><<<
+        static_cast<unsigned int>(matrix_count), kThreads,
+        reconstruction_shared_bytes, stream>>>(
+        workspace.boundary_state, workspace.q, workspace.v_new,
+        workspace.qk, workspace.gamma, norm_weight, silu_gate,
+        norm_epsilon, output);
+  } else {
+    reconstruct_norm_gate_chunk64_kernel<true><<<
+        static_cast<unsigned int>(matrix_count), kThreads,
+        reconstruction_shared_bytes, stream>>>(
+        workspace.boundary_state, workspace.q, workspace.v_new,
+        workspace.qk, workspace.gamma, norm_weight, silu_gate,
+        norm_epsilon, output);
+  }
   status = launch_grid_status();
   if (status == static_cast<int>(cudaSuccess)) {
     gdn_prefill_chunk64_native_detail::inspect_native_boundaries(
@@ -2165,14 +2368,15 @@ int query_native_resources(int* const registers_per_thread,
   }
   cudaFuncAttributes attributes{};
   cudaError_t status = cudaFuncGetAttributes(
-      &attributes, persistent_state_chunk64_resident_kernel);
+      &attributes, persistent_state_chunk64_resident_kernel<true>);
   if (status != cudaSuccess) {
     return static_cast<int>(status);
   }
   int active = 0;
   status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
-      &active, persistent_state_chunk64_resident_kernel,
-      static_cast<int>(kFusedSolveThreads), kResidentStateSharedBytes);
+      &active, persistent_state_chunk64_resident_kernel<true>,
+      static_cast<int>(kFusedSolveThreads),
+      kResidentStatePacklessSharedBytes);
   if (status != cudaSuccess) {
     return static_cast<int>(status);
   }

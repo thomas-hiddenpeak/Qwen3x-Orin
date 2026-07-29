@@ -22,9 +22,11 @@ struct InspectionHook {
   void* context = nullptr;
 };
 
-// Test-only CUDA-event observation points bracketing the WY producer. The
-// split baseline has work on both sides of QK, while the group-owned route is
-// complete at after_initial. Null events are the production default.
+// Test-only CUDA-event observation points bracketing the group-owned WY and
+// QK kernels.  They deliberately begin after the packed route's pack kernel,
+// so this hook attributes only the common core window; end-to-end timing owns
+// the omitted pack/state/reconstruct contribution. Null events are the
+// production default.
 struct WyTimingHook {
   void* begin = nullptr;
   void* after_initial = nullptr;
@@ -42,6 +44,9 @@ struct WyTimingHook {
     bool enabled) noexcept;
 
 [[nodiscard]] bool exchange_force_split_wy_baseline_for_test(
+    bool enabled) noexcept;
+
+[[nodiscard]] bool exchange_force_packed_qkv_baseline_for_test(
     bool enabled) noexcept;
 
 [[nodiscard]] bool exchange_force_resident_state_baseline_for_test(
