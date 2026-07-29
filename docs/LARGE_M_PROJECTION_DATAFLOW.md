@@ -743,6 +743,29 @@ excluded; a successor must change the producer representation or fuse scale
 conversion so that vector loading also removes instructions. See
 [`metadata/qwen36-27b-prefill-gate-c512-scale-u32-hoist-rejection-2026-07-29.json`](metadata/qwen36-27b-prefill-gate-c512-scale-u32-hoist-rejection-2026-07-29.json).
 
+The complete grid-order screen then changes only inter-CTA traversal. The old
+N-major/B-stationary order executes four M128 token tiles for each N256 weight
+panel. The promoted strict one-dimensional M-major/A-stationary order instead
+executes all 68 N256 panels for one M128 token tile before advancing M. A
+logically equivalent `dim3(68,4)` grid is slower on the real path, so the 1D
+order is part of the mechanism rather than an interchangeable launch spelling.
+
+The formal full-model B-C-C-B result moves mean P513 Prefix from
+**2,330.9795 to 2,324.6885 ms**, saving 6.291 ms and raising Prefix throughput
+from **219.650151 to 220.244562 token/s**. Both candidate processes beat both
+baseline processes and return the exact token/text/step oracle. Real-weight
+Gate/Up eager and Graph replays are bitwise exact, and the full Release suite
+has 76 runnable passes, 12 policy/environment skips, and zero code failures.
+
+Matched NCU attributes a real layer-0 Gate improvement from 4.698528 to
+4.665280 ms. This is deliberately not described as improved L2 persistence:
+the order sacrifices B reuse and lowers aggregate L2 read hit rate from 74.42%
+to 60.56%. It instead represents the same 557,056 output sectors with 9.45%
+fewer L2 write requests and lowers barrier/short-scoreboard samples enough to
+overcome the added read misses and three mapping registers. Gate/Up and Down
+therefore keep separate grid-order policies. See
+[`metadata/qwen36-27b-prefill-gate-c512-a-stationary-production-2026-07-29.json`](metadata/qwen36-27b-prefill-gate-c512-a-stationary-production-2026-07-29.json).
+
 ## Triton and vLLM design-reference screen
 
 The reference screen pins Triton `78420176` and vLLM `2899dca`. Their native
@@ -811,7 +834,8 @@ problem.
    complete: identical HMMA work, half the compressed-B decode/dependency
    operations, 33.56% fewer warp instructions, and 1.090064x lower profiled
    duration verify the mechanism. Preserve its zero-spill one-CTA exception
-   and the larger-M reuse; do not treat 241 registers as the end-state target.
+   and the larger-M reuse. The later promoted strict 1D A-stationary order is
+   now the production baseline at 244 registers/thread.
 6. The first coupled 48-byte raw-B/K256-scale consumer-order cell is rejected:
    it regresses real P513 Prefix by 27.049 ms and increases async-landing
    excessive wavefronts by 74.07%. Preserve compact 32-byte landing. Next,
@@ -826,9 +850,10 @@ problem.
    U32 hoisting is rejected as well: it lowers shared-load wavefronts 6.25%
    but adds byte extraction, four registers, and 0.464% total instructions.
    Reopen scale feed only with a producer representation or fused conversion
-   that removes total work. Complete
-   B-stationary/A-stationary CTA ordering only as a bounded full configuration,
-   not as an explanation for the rejected row stride. Re-run the same
+   that removes total work. The complete grid-order screen is positive:
+   strict 1D A-stationary order saves 6.291 ms on formal P513 B-C-C-B and is
+   promoted; do not replace it with the measured-slower equivalent 2D grid.
+   Re-run the same
    pinned real-weight six-round B-C-C-B screen against the current retained
    native champion after each complete configuration; keep every stable
    all-positive result and update that champion.  Run matched NCU to attribute

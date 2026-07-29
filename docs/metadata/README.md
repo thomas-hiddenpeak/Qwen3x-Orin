@@ -1596,6 +1596,17 @@ The diagnostic Phase 3 records are:
   tensor, so the report is diagnostic-only. cuBLASLt is `NOT_RUN`; production
   promotion and dispatch remain unchanged. The next native cell couples raw-B
   and packed-scale consumer order rather than reopening isolated cache tuning.
+- [`qwen36-27b-prefill-gate-c512-a-stationary-production-2026-07-29.json`](qwen36-27b-prefill-gate-c512-a-stationary-production-2026-07-29.json),
+  which promotes strict one-dimensional A-stationary CTA ordering for exact
+  C512 NVFP4 Gate/Up. Formal real-model B-C-C-B lowers mean P513 Prefix from
+  **2330.9795 to 2324.6885 ms** and raises throughput from **219.650151 to
+  220.244562 token/s**; both candidate runs beat both native baselines and
+  preserve token 9419 (`Hello`). Matched NCU lowers one real-weight Gate from
+  **4.698528 to 4.665280 ms** despite more L2 read misses, while L2 write
+  requests fall **9.45%** for unchanged output sectors. Gate/Up eager/Graph
+  replays are bitwise exact and all 76 runnable Release tests pass with 12
+  policy/environment skips. C256, Down, FP8, Decode, GDN, MTP, and the
+  cuBLASLt reference-only production policy are unchanged.
 - [`qwen36-27b-prefill-gdn-b8-block-transition-screen.json`](qwen36-27b-prefill-gdn-b8-block-transition-screen.json),
   which selects the test-only sequential FP32-B8 GDN dataflow and rejects the
   measured WY control. C256 reaches **2.76977x** versus production M16 while

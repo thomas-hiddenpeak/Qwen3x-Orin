@@ -10210,8 +10210,13 @@ nvfp4_w4a16_gate_c512_m128_n256_bswizzle_scale512_3stage_256t_kernel(
       decode_e4m3fn(static_cast<std::uint8_t>(thread)));
   __syncthreads();
 
-  const unsigned int output_column_block = blockIdx.x / kM128TileCount;
-  const unsigned int token_tile = blockIdx.x % kM128TileCount;
+  // Traverse all 68 N256 panels for one M128 token tile before advancing M.
+  // The strict one-dimensional order is intentional: an equivalent dim3
+  // grid lost the real P513 gain even though it removed the division below.
+  const unsigned int output_column_block =
+      blockIdx.x % kOutputColumnBlockCount;
+  const unsigned int token_tile =
+      blockIdx.x / kOutputColumnBlockCount;
   const unsigned int first_output_column =
       output_column_block * kOutputColumnsPerBlock;
   const std::size_t first_token =

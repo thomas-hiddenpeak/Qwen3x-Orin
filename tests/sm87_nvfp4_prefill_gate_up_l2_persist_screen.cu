@@ -679,9 +679,14 @@ struct Fixture {
         query_sm87_nvfp4_w4a16_whole_chunk_gate_m128_b_reuse_resources_test_cuda(
             token_count, kRows, kColumns, &registers, &shared, &local,
             &threads, &active);
+    const bool c256 = token_count == 256U;
+    const int expected_registers = c256 ? 126 : 244;
+    const std::size_t expected_shared = c256 ? 37'376U : 512U;
+    const int expected_active = c256 ? 2 : 1;
     const bool gate = status == static_cast<int>(cudaSuccess) &&
-                      registers <= 128 && shared == 37'376U && local == 0U &&
-                      threads == 256 && active >= 2;
+                      registers == expected_registers &&
+                      shared == expected_shared && local == 0U &&
+                      threads == 256 && active == expected_active;
     std::cout << "L2_APW_PRODUCTION_RESOURCES: tokens=" << token_count
               << " status=" << status << " registers=" << registers
               << " static_shared_bytes=" << shared
