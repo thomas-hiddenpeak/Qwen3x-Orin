@@ -10081,12 +10081,16 @@ nvfp4_w4a16_gate_c512_m64_n256_bswizzle_scale512_3stage_test_kernel(
 // keeps the retained B half swizzle, K512 scale windows, exact decoder,
 // accumulation order, and coalesced epilogue. Two K64 async groups share one
 // K128 slot, so a two-slot ring preserves all 80 copy groups while publishing
-// only 40 stages through CTA barriers. Doubling M lets every decoded B
-// fragment feed eight ordered M16 panels while halving the CTA count. C256
-// deliberately remains on the separately validated M128xN128 route.
+// only 40 stages through CTA barriers. Each slot keeps two independent
+// 32-byte K64 B planes rather than one conflict-prone 64-byte merged row.
+// Doubling M lets every decoded B fragment feed eight ordered M16 panels while
+// halving the CTA count. C256 deliberately remains on the separately validated
+// M128xN128 route.
 struct alignas(32) NvFp4GateM128N256BSwizzleScale512K1282PipelineStorage {
   uint4 activations[2][2'176];  // 2 * M128 * LD136 BF16 = 69,632 B.
-  uint4 weights[2][1'024];      // 2 * N256 * 64 packed bytes = 32,768 B.
+  // Preserve the predecessor K64 kernel's 32-byte shared B row independently
+  // for each half while publishing both planes as one K128 stage.
+  uint4 weights[2][2][512];     // 2 * 2 * N256 * 32 packed bytes = 32,768 B.
   uint4 scales[2][512];         // 2 * N256 * 32 scale bytes = 16,384 B.
 };
 
@@ -10143,8 +10147,8 @@ issue_nvfp4_gate_m128_n256_bswizzle_k128_2_pipeline_stage(
           static_cast<std::size_t>(output_column) * kPackedColumns +
           (first_k + k64_half * 64U) / 2U;
       cp_async_cg_shared_global_16(
-          pipeline->weights[shared_slot] + local_output_column * 4U +
-              k64_half * 2U + shared_half,
+          pipeline->weights[shared_slot][k64_half] +
+              local_output_column * 2U + shared_half,
           packed_row + canonical_half * sizeof(uint4));
     }
     cp_async_commit_group();
@@ -10285,18 +10289,17 @@ nvfp4_w4a16_gate_c512_m128_n256_bswizzle_scale512_k128_2stage_256t_kernel(
       const unsigned int shared_scale_slot = (stage / 4U) % 2U;
       const auto* const shared_a = reinterpret_cast<const __nv_bfloat16*>(
           pipeline->activations[shared_slot]);
-      const auto* const shared_b = reinterpret_cast<const std::uint8_t*>(
-          pipeline->weights[shared_slot]);
       const auto* const shared_scales =
           reinterpret_cast<const std::uint8_t*>(
               pipeline->scales[shared_scale_slot]);
 #pragma unroll
       for (unsigned int k64_half = 0U; k64_half < 2U; ++k64_half) {
+        const auto* const shared_b = reinterpret_cast<const std::uint8_t*>(
+            pipeline->weights[shared_slot][k64_half]);
 #pragma unroll
         for (unsigned int k16 = 0U; k16 < 4U; ++k16) {
           uint2 decoded_b[4];
           const unsigned int swizzled_packed_offset =
-              k64_half * 32U +
               ((k16 * 8U) ^ shared_half_swizzle) + lane_in_group;
           const unsigned int k64_stage = stage * 2U + k64_half;
           const unsigned int swizzled_scale_offset =
@@ -10306,7 +10309,7 @@ nvfp4_w4a16_gate_c512_m128_n256_bswizzle_scale512_k128_2stage_256t_kernel(
             const unsigned int shared_row_index =
                 warp * kOutputColumnsPerWarp + n_panel * 8U + lane_group;
             const auto* const shared_row =
-                shared_b + shared_row_index * 64U;
+                shared_b + shared_row_index * 32U;
             const auto* const shared_scale_row =
                 shared_scales + shared_row_index * 32U;
             const std::uint16_t packed =
