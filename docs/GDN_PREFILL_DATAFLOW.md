@@ -11,8 +11,11 @@ batches while preserving the exact reduction order. The revised candidate is
 retained as the test-only native experimental incumbent after all six real
 P513 rounds passed: Prefix falls from 2556.550133 to 2529.929521 ms
 (1.010522274x), and TTFT falls from 2665.298000 to 2638.661993 ms
-(1.010094513x). Production dispatch remains unchanged pending the separate
-P257/P513/P769/P1025 promotion gate.
+(1.010094513x). Commit `912897b` then passes the P257/P513/P769/P1025
+direction and complete-state matrix, including C256 and a second tile at
+nonzero first position. The 1.03x production margin is still not cleared, so
+production dispatch remains unchanged while the next exact mechanism is
+stacked on this test-only incumbent.
 FlashLinearAttention and Mamba are architecture references only. No source,
 generated code, binary, package, or runtime dependency from either project is
 copied or introduced.
@@ -328,6 +331,44 @@ warning; independent `jetson_clocks` readback held GPU at 1.3005 GHz, EMC at
 The normalized record, including all six raw rounds and report hashes, is
 [`qwen36-27b-prefill-gdn-c16-warp-row-epilogue-retention-2026-07-29.json`](metadata/qwen36-27b-prefill-gdn-c16-warp-row-epilogue-retention-2026-07-29.json).
 
+### C256/C512 prompt matrix on 2026-07-29
+
+Commit `912897b` broadens only the private, default-off test admission from
+the original `first_position=0, token_count=512` cell to exact C256/C512
+tiles whose first position is a multiple of 16. It does not change the public
+API, production selector, installed library, or default Release executable.
+The matrix runs one warm-up B-C-C-B and one measured B-C-C-B per profile with
+the snapshot hook disabled.
+
+| Profile | Candidate route hits | Baseline Prefix | Candidate Prefix | Saved | Prefix ratio |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| P257/C256 | 768 | 1305.395772 ms | 1291.743567 ms | 13.652206 ms | 1.010568820x |
+| P513/C512 | 1,536 | 2558.817347 ms | 2532.032192 ms | 26.785156 ms | 1.010578521x |
+| P769/C512+C256 | 2,304 | 3941.470050 ms | 3901.138868 ms | 40.331183 ms | 1.010338310x |
+| P1025/C512+C512 | 3,072 | 5264.451827 ms | 5210.626985 ms | 53.824843 ms | 1.010329821x |
+
+All 32 generation invocations pass the token 9419, text `Hello`, ordered-step,
+tile-count, and route-hit oracle. The saved time scales approximately with the
+number of C16 slices, including the second tile at `first_position=512`.
+These non-P513 measurements have applicability/direction authority only; the
+formal retention anchor remains the six-round P513 result above.
+
+The subsequent correctness mode snapshots the complete 75,497,472-byte GDN
+region after every committed Prefix tile and after the final prompt step. It
+compares two boundaries for P257/P513 and three for P769/P1025, for ten
+complete-state boundaries total. All 37,748,736 BF16 words match at every
+boundary, all state snapshots are nonzero, successive states change, and
+generation semantics remain exact. Timing from this mode has no authority
+because each snapshot copies the full state inside the runner boundary.
+
+The default Release rebuild and admission-symbol isolation scan pass. The
+candidate still reaches only about 1.01x against the production GDN chain,
+below the separately declared 1.03x cumulative production margin. Therefore
+the matrix expands the test-only incumbent but deliberately does not trigger
+production integration or an independent-process promotion run. The
+normalized record is
+[`qwen36-27b-prefill-gdn-c16-warp-row-prompt-matrix-2026-07-29.json`](metadata/qwen36-27b-prefill-gdn-c16-warp-row-prompt-matrix-2026-07-29.json).
+
 ## Exact-contract experiment order after P0
 
 The references suggest mechanisms, but the measured bottleneck and exact
@@ -351,11 +392,12 @@ contract decide their order:
    The same warp then applies gamma, SiLU(Z), and BF16-RNE output. This targets
    CTA-wide barriers without reopening recurrent-state arithmetic. The six
    P513 rounds retain it as the test-only native experimental incumbent.
-4. Run the separate production-promotion qualification for the retained
-   warp-row candidate: broaden only the test admission, then prove complete
-   output/state bitwise and route hits at P257/P513/P769/P1025 and repeat
-   fixed-clock real-path timing. Production remains unchanged until this gate
-   closes.
+4. **Applicability matrix complete at `912897b`:** the retained warp-row
+   candidate is positive at P257/P513/P769/P1025, and complete GDN state is
+   bitwise at all ten C256/C512/final-step boundaries. The measured
+   1.01033x-1.01058x range does not clear the 1.03x production margin. Keep
+   production unchanged, retain the expanded test incumbent, and stack the
+   next exact mechanism before running independent-process promotion.
 5. Re-screen an exact persistent C512 composite on the same
    real trajectory. It must keep packed BF16 state live but preserve every C16
    output boundary; it must not allocate a C512 raw tile. The old synthetic

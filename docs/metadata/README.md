@@ -1756,6 +1756,20 @@ The diagnostic Phase 3 records are:
   native experimental incumbent; production still awaits the separate
   P257/P513/P769/P1025 promotion gate. cuBLASLt is neither linked nor
   executed, and MTP is unused.
+- [`qwen36-27b-prefill-gdn-c16-warp-row-prompt-matrix-2026-07-29.json`](qwen36-27b-prefill-gdn-c16-warp-row-prompt-matrix-2026-07-29.json),
+  which extends only the private test admission at commit `912897b` to C256
+  and C512 tiles at 16-aligned first positions. One warm-up plus one measured
+  B-C-C-B per profile is positive across P257/P513/P769/P1025: Prefix ratios
+  are **1.010568820x/1.010578521x/1.010338310x/1.010329821x**, saving
+  13.652206/26.785156/40.331183/53.824843 ms. All 32 invocations pass the
+  generation and 768/1,536/2,304/3,072 route-hit oracles. A separate
+  timing-inadmissible correctness mode compares every word in the
+  37,748,736-element GDN state at ten C256/C512/final-step boundaries; all
+  are bitwise with active, changing state. Default Release isolation passes.
+  This confirms multi-tile applicability but does not replace the six-round
+  P513 retention anchor or clear the 1.03x production margin, so production
+  remains unchanged while another exact mechanism is stacked. cuBLASLt is
+  neither linked nor executed, and MTP is unused.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

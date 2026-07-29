@@ -1,0 +1,313 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-gdn-c16-warp-row-prompt-matrix-2026-07-29",
+  "status": "test-only-prompt-matrix-pass-production-unchanged",
+  "date": "2026-07-29",
+  "timezone": "Asia/Shanghai",
+  "policy": {
+    "document": "docs/REAL_MODEL_PERFORMANCE_POLICY.md",
+    "payload_tier": "T3",
+    "performance_protocol": "DIRECTION_SCREEN",
+    "performance_authority": "EARLY_APPLICABILITY_ONLY",
+    "correctness_authority": "COMPLETE_GDN_STATE_AND_GENERATION_SEMANTICS",
+    "production_promotion_authority": false,
+    "reason": "The P513 mechanism was already formally retained. This matrix tests whether the same exact C16 mechanism remains positive and bitwise across C256/C512 tiles and nonzero first positions. One warmup plus one measured B-C-C-B per profile has no new formal retention or production authority."
+  },
+  "source": {
+    "implementation_commit": "912897b",
+    "implementation_tree": "292b723ba53351cbdd77793154f46f5fd89bc768",
+    "implementation_subject": "test: expand retained C16 GDN prompt matrix",
+    "files": [
+      {
+        "path": "src/runtime/reference_runner.cpp",
+        "sha256": "9c36385db9a770657013e8de4394f096e6276868f363bcbdf4219f82b6f24168",
+        "git_blob": "2671dab5ef79a9d041b8c390fdba4df6083e6b14"
+      },
+      {
+        "path": "tests/reference_gdn_prefill_c16_norm_gate_engine_e2e_test.cpp",
+        "sha256": "9ca8ba145fa0bd00d3de9c6ef1878347b1c5056c8254f3a6bd792164975618dc",
+        "git_blob": "fe388e0d1e18f53e6fa017591286656415b6359f"
+      }
+    ],
+    "measured_binary": {
+      "path": "build/gdn-c16-admission/q3x_reference_gdn_prefill_c16_norm_gate_engine_e2e_test",
+      "bytes": 7697656,
+      "sha256": "3e9587d582ce0e78867cd67b70d7900412f6a11c95fb5500cbf7287007746960",
+      "elf_build_id": "04afb28d67ae09e719d15809b4792a515afd79f1",
+      "build_type": "Release",
+      "cuda_architecture": 87,
+      "cublaslt_dynamic_dependency": false,
+      "cublaslt_dynamic_import": false
+    }
+  },
+  "checkpoint": {
+    "repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "directory": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "config_sha256": "c04a19ba293737ad7be4f6e96d6666cb7e479cbe19ecc0c289fad267135b0338",
+    "quantization_config_sha256": "fd7200cd8bca2a8a5d777061521abf83e2deb97ab6bc2f04e7a0a3d3f8ecd5c1",
+    "index_sha256": "7aa103a2582b7d26631988de33dea19e8a308ee9c239e8e14feb374af30905e2",
+    "tokenizer_json_sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42",
+    "tokenizer_config_sha256": "5186f0defcd7f232382c7f0aebcd2252d073bb921ab240e407b7ae8745d2b29b"
+  },
+  "environment": {
+    "device": "NVIDIA Jetson AGX Orin",
+    "architecture": "SM87",
+    "driver_version": "595.78",
+    "nvpmodel": "MAXN",
+    "cpu_affinity": [11],
+    "cpu_hz": 2201600000,
+    "gpu_hz": 1300500000,
+    "emc_hz": 3200000000,
+    "fan_pwm": 255,
+    "fixed_clock_readback": true,
+    "serialized_gpu_execution": true
+  },
+  "test_only_admission": {
+    "enabled_backend": "sm87_weight_only",
+    "enabled_token_counts": [256, 512],
+    "first_position_contract": "multiple of 16",
+    "default_enabled": false,
+    "public_api_changed": false,
+    "production_selector_changed": false,
+    "default_release_symbol_scan": "PASS_NO_ADMISSION_SYMBOLS",
+    "default_release_rebuild": "PASS"
+  },
+  "direction_matrix": {
+    "protocol": "for each profile, one warmup B-C-C-B followed by one measured B-C-C-B in the same engine and ELF; snapshot hook empty for every timing invocation",
+    "total_generations": 32,
+    "all_generation_oracles": "PASS",
+    "profiles": [
+      {
+        "label": "P257",
+        "prompt_tokens": 257,
+        "prefix_tokens": 256,
+        "chunk_tokens": 256,
+        "candidate_route_hits": 768,
+        "warmup": [
+          {"route": "B1", "prefix_ms": 1306.376037, "ttft_ms": 1432.417718},
+          {"route": "C1", "prefix_ms": 1291.797103, "ttft_ms": 1399.834279},
+          {"route": "C2", "prefix_ms": 1291.70171, "ttft_ms": 1399.702021},
+          {"route": "B2", "prefix_ms": 1305.4703, "ttft_ms": 1413.487764}
+        ],
+        "measured": [
+          {"route": "B1", "prefix_ms": 1305.330779, "ttft_ms": 1413.323379},
+          {"route": "C1", "prefix_ms": 1291.575661, "ttft_ms": 1399.584037},
+          {"route": "C2", "prefix_ms": 1291.911472, "ttft_ms": 1399.895975},
+          {"route": "B2", "prefix_ms": 1305.460765, "ttft_ms": 1413.464244}
+        ],
+        "aggregate": {
+          "baseline_prefix_ms": 1305.395772,
+          "candidate_prefix_ms": 1291.7435665,
+          "prefix_saved_ms": 13.6522055,
+          "prefix_speedup": 1.01056882,
+          "baseline_ttft_ms": 1413.3938115,
+          "candidate_ttft_ms": 1399.740006,
+          "ttft_saved_ms": 13.6538055,
+          "ttft_speedup": 1.00975453,
+          "direction": "POSITIVE"
+        }
+      },
+      {
+        "label": "P513",
+        "prompt_tokens": 513,
+        "prefix_tokens": 512,
+        "chunk_tokens": 512,
+        "candidate_route_hits": 1536,
+        "warmup": [
+          {"route": "B1", "prefix_ms": 2559.184036, "ttft_ms": 2668.152294},
+          {"route": "C1", "prefix_ms": 2532.142703, "ttft_ms": 2641.071088},
+          {"route": "C2", "prefix_ms": 2532.04443, "ttft_ms": 2640.998991},
+          {"route": "B2", "prefix_ms": 2558.844642, "ttft_ms": 2667.723427}
+        ],
+        "measured": [
+          {"route": "B1", "prefix_ms": 2558.5784, "ttft_ms": 2667.530721},
+          {"route": "C1", "prefix_ms": 2532.031087, "ttft_ms": 2640.998544},
+          {"route": "C2", "prefix_ms": 2532.033296, "ttft_ms": 2641.00021},
+          {"route": "B2", "prefix_ms": 2559.056294, "ttft_ms": 2667.9746}
+        ],
+        "aggregate": {
+          "baseline_prefix_ms": 2558.817347,
+          "candidate_prefix_ms": 2532.0321915,
+          "prefix_saved_ms": 26.7851555,
+          "prefix_speedup": 1.010578521,
+          "baseline_ttft_ms": 2667.7526605,
+          "candidate_ttft_ms": 2640.999377,
+          "ttft_saved_ms": 26.7532835,
+          "ttft_speedup": 1.010129985,
+          "direction": "POSITIVE"
+        }
+      },
+      {
+        "label": "P769",
+        "prompt_tokens": 769,
+        "prefix_tokens": 768,
+        "chunk_tokens": 512,
+        "candidate_route_hits": 2304,
+        "warmup": [
+          {"route": "B1", "prefix_ms": 3941.812513, "ttft_ms": 4051.682764},
+          {"route": "C1", "prefix_ms": 3901.545796, "ttft_ms": 4011.423055},
+          {"route": "C2", "prefix_ms": 3901.540676, "ttft_ms": 4011.389583},
+          {"route": "B2", "prefix_ms": 3941.349471, "ttft_ms": 4051.231242}
+        ],
+        "measured": [
+          {"route": "B1", "prefix_ms": 3941.677667, "ttft_ms": 4051.584367},
+          {"route": "C1", "prefix_ms": 3901.108323, "ttft_ms": 4010.95723},
+          {"route": "C2", "prefix_ms": 3901.169412, "ttft_ms": 4011.069903},
+          {"route": "B2", "prefix_ms": 3941.262433, "ttft_ms": 4051.12702}
+        ],
+        "aggregate": {
+          "baseline_prefix_ms": 3941.47005,
+          "candidate_prefix_ms": 3901.1388675,
+          "prefix_saved_ms": 40.3311825,
+          "prefix_speedup": 1.01033831,
+          "baseline_ttft_ms": 4051.3556935,
+          "candidate_ttft_ms": 4011.0135665,
+          "ttft_saved_ms": 40.342127,
+          "ttft_speedup": 1.010057839,
+          "direction": "POSITIVE"
+        }
+      },
+      {
+        "label": "P1025",
+        "prompt_tokens": 1025,
+        "prefix_tokens": 1024,
+        "chunk_tokens": 512,
+        "candidate_route_hits": 3072,
+        "warmup": [
+          {"route": "B1", "prefix_ms": 5264.495035, "ttft_ms": 5375.311856},
+          {"route": "C1", "prefix_ms": 5211.583292, "ttft_ms": 5322.420913},
+          {"route": "C2", "prefix_ms": 5211.350171, "ttft_ms": 5322.13304},
+          {"route": "B2", "prefix_ms": 5264.756419, "ttft_ms": 5375.466935}
+        ],
+        "measured": [
+          {"route": "B1", "prefix_ms": 5264.93911, "ttft_ms": 5375.766203},
+          {"route": "C1", "prefix_ms": 5210.83097, "ttft_ms": 5321.633167},
+          {"route": "C2", "prefix_ms": 5210.422999, "ttft_ms": 5321.22046},
+          {"route": "B2", "prefix_ms": 5263.964544, "ttft_ms": 5374.786261}
+        ],
+        "aggregate": {
+          "baseline_prefix_ms": 5264.451827,
+          "candidate_prefix_ms": 5210.6269845,
+          "prefix_saved_ms": 53.8248425,
+          "prefix_speedup": 1.010329821,
+          "baseline_ttft_ms": 5375.276232,
+          "candidate_ttft_ms": 5321.4268135,
+          "ttft_saved_ms": 53.8494185,
+          "ttft_speedup": 1.010119357,
+          "direction": "POSITIVE"
+        }
+      }
+    ],
+    "result": "ALL_POSITIVE",
+    "interpretation": "Saved time scales approximately linearly with the number of exact C16 slices, including the second Prefill tile at first_position 512."
+  },
+  "correctness_matrix": {
+    "timing_authority": "NONE_BECAUSE_SNAPSHOT_COPIES_OCCUR_INSIDE_THE_RUNNER_BOUNDARY",
+    "gdn_region_bytes_per_boundary": 75497472,
+    "gdn_region_bf16_elements_per_boundary": 37748736,
+    "profiles": [
+      {
+        "label": "P257",
+        "committed_positions": [256, 257],
+        "boundary_stages": ["prefix_tile", "finish_prefill_step"],
+        "unequal_bf16": [0, 0],
+        "nonzero_bf16": [37748736, 37748736],
+        "changed_from_previous_bf16": [0, 37464733],
+        "baseline_route_hits": 0,
+        "candidate_route_hits": 768,
+        "generated_token": 9419,
+        "generated_text": "Hello",
+        "generation_semantics_exact": true,
+        "result": "PASS"
+      },
+      {
+        "label": "P513",
+        "committed_positions": [512, 513],
+        "boundary_stages": ["prefix_tile", "finish_prefill_step"],
+        "unequal_bf16": [0, 0],
+        "nonzero_bf16": [37748736, 37748736],
+        "changed_from_previous_bf16": [0, 37461455],
+        "baseline_route_hits": 0,
+        "candidate_route_hits": 1536,
+        "generated_token": 9419,
+        "generated_text": "Hello",
+        "generation_semantics_exact": true,
+        "result": "PASS"
+      },
+      {
+        "label": "P769",
+        "committed_positions": [512, 768, 769],
+        "boundary_stages": ["prefix_tile", "prefix_tile", "finish_prefill_step"],
+        "unequal_bf16": [0, 0, 0],
+        "nonzero_bf16": [37748736, 37748736, 37748736],
+        "changed_from_previous_bf16": [0, 37685254, 37460283],
+        "baseline_route_hits": 0,
+        "candidate_route_hits": 2304,
+        "generated_token": 9419,
+        "generated_text": "Hello",
+        "generation_semantics_exact": true,
+        "result": "PASS"
+      },
+      {
+        "label": "P1025",
+        "committed_positions": [512, 1024, 1025],
+        "boundary_stages": ["prefix_tile", "prefix_tile", "finish_prefill_step"],
+        "unequal_bf16": [0, 0, 0],
+        "nonzero_bf16": [37748736, 37748736, 37748736],
+        "changed_from_previous_bf16": [0, 37686590, 37463116],
+        "baseline_route_hits": 0,
+        "candidate_route_hits": 3072,
+        "generated_token": 9419,
+        "generated_text": "Hello",
+        "generation_semantics_exact": true,
+        "result": "PASS"
+      }
+    ],
+    "all_boundaries_bitwise": true,
+    "all_generation_semantics_exact": true,
+    "all_route_counts_exact": true,
+    "result": "PASS"
+  },
+  "artifacts": [
+    {
+      "role": "snapshot-free direction matrix stdout",
+      "path": "/tmp/q3x-gdn-c16-warp-row-matrix-direction.log",
+      "bytes": 7077,
+      "sha256": "6c50e48b1ff14b81f45b4bbc77a084be16fdf81784c8af71c5884a797fcd03f9",
+      "checked_in": false
+    },
+    {
+      "role": "multi-boundary complete-GDN-state correctness stdout",
+      "path": "/tmp/q3x-gdn-c16-warp-row-matrix-correctness.log",
+      "bytes": 5216,
+      "sha256": "c39a66b6915641ffc1e14caf74e3e1d9757c194183634dbf5ccb6610be861c89",
+      "checked_in": false
+    }
+  ],
+  "decision": {
+    "test_only_admission_expanded": true,
+    "native_experimental_incumbent": "unchanged warp-row exact-C16 shared-BF16-boundary composite",
+    "formal_retention": "inherited from the six-round P513 record at commit fc597e9; this matrix does not replace it",
+    "production_margin": "1.03x where specified",
+    "matrix_prefix_speedup_range": [1.010329821, 1.010578521],
+    "production_margin_cleared": false,
+    "production_dispatch": "UNCHANGED",
+    "production_kernel": "UNCHANGED",
+    "decode": "UNCHANGED",
+    "mtp_used": false,
+    "cublaslt": {
+      "linked": false,
+      "executed": false,
+      "role": "external_reference_only",
+      "production_eligibility": "none"
+    },
+    "next_step": "Keep this exact multi-length test incumbent and stack another independently justified GDN mechanism. Repeat the real-path direction/retention funnel against this incumbent; run independent-process production qualification only after cumulative gain reaches the predeclared margin."
+  },
+  "limitations": [
+    "The non-P513 timings are one measured mirrored round after one mirrored warmup and have direction/applicability authority only; they are not new formal retention or publication anchors.",
+    "Correctness compares complete GDN recurrent state and generation semantics at every committed Prefill boundary and the final prompt step, but does not claim full hidden, KV, or logits bitwise equality.",
+    "The 1.03x production margin is not cleared, so no production integration, selector, or independent-process promotion run is claimed.",
+    "The admission remains BUILD_TESTING-only, private, thread-local, default off, and absent from the default Release executable."
+  ]
+}
