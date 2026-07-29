@@ -1,0 +1,112 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36_27b_evalscope_vllm_frozen_reference",
+  "recorded_at": "2026-07-29",
+  "timezone": "Asia/Shanghai",
+  "status": "frozen_market_reference_do_not_rerun_per_candidate",
+  "policy": {
+    "purpose": "cumulative market floor only",
+    "incremental_native_retention_authority": false,
+    "production_eligibility": false,
+    "rerun_when": [
+      "the cumulative native runner approaches or exceeds this floor",
+      "the model/checkpoint changes",
+      "the EvalScope corpus or request protocol changes",
+      "the hardware, clocks, vLLM version, or backend configuration changes"
+    ],
+    "rerun_for_each_native_candidate": false
+  },
+  "raw_artifacts": {
+    "ephemeral_leaf": "/tmp/q3x-evalscope-vllm-marlin-run1/vllm/parallel_1_number_32",
+    "repository_retention": "hashes and aggregates only; DB contains reversible prompts/responses",
+    "benchmark_log_sha256": "e97921e01f7dfe7b18335ce82d091aadbf04b55c0e540928df78939dbb2df615",
+    "benchmark_args_json_sha256": "7b7bef9da7c5d6a2f5bc09a8abfc24687de700f8b2cf1be385f2c62967372bdb",
+    "benchmark_data_db_sha256": "2db1ff4c2156432ad466dd1e00bea70482beb0f90225b2efbe95a5e18b93ad41",
+    "benchmark_percentile_json_sha256": "e03aeff30858d923f92b01b5402c80a13b31cab90a368738aafa30ed48affbe9",
+    "benchmark_summary_json_sha256": "13bd6bb70453b5ebacd2f4fbdc794d7e73a0c8f81044325254cef96bdb5e8902",
+    "workload_throughput_json_sha256": "be659be7daff5e7f7c2aa1110cb2a95bdb8cf70bba0117d58d81f002f8c29f6e",
+    "workload_timeline_json_sha256": "31be2527e9e7cd9ae10c330d2162853520a6dbef3f799f42e1e46bd7c23ceaa6"
+  },
+  "environment": {
+    "device": "NVIDIA Jetson AGX Orin",
+    "architecture": "SM87",
+    "nvpmodel": "MAXN",
+    "gpu_hz": 1300500000,
+    "emc_hz": 3200000000,
+    "cpu_hz": 2201600000,
+    "cpu_affinity": [11],
+    "temperature_envelope": "NOT_CAPTURED"
+  },
+  "checkpoint": {
+    "repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404"
+  },
+  "software": {
+    "evalscope": "1.9.1",
+    "evalscope_install_spec": "evalscope[perf]==1.9.1",
+    "vllm": "0.23.1rc1.dev269+gccd49f682",
+    "torch": "2.11.0",
+    "cuda": "13.3",
+    "flashinfer": "0.6.12"
+  },
+  "vllm_configuration": {
+    "max_model_len": 4096,
+    "max_num_seqs": 1,
+    "max_num_batched_tokens": 4096,
+    "gpu_memory_utilization": 0.78,
+    "kv_cache_dtype": "bfloat16",
+    "mamba_cache_dtype": "bfloat16",
+    "mamba_ssm_cache_dtype": "bfloat16",
+    "prefix_cache": false,
+    "chunked_prefill": false,
+    "attention_backend": "FLASHINFER",
+    "mamba_backend": "TRITON",
+    "generation_config": "vllm",
+    "enable_thinking": false,
+    "mtp": false
+  },
+  "workload": {
+    "manifest": "benchmarks/evalscope/qwen36-sharegpt-false-thinking-v1.manifest.json",
+    "manifest_sha256": "d3d97e17c46e7beb4009006552118c70e5e8cef3f799f42e1e46bd7c23ceaa6",
+    "corpus_sha256": "bd2091cdc0599ac59ab881efc6d1307a03bb149f49e6fd728a99d926ccc67989",
+    "warmup_requests": 1,
+    "measured_requests": 32,
+    "parallel": 1,
+    "prompt_tokens_total": 15802,
+    "prompt_tokens_mean": 493.8125,
+    "prompt_tokens_range": [20, 1160],
+    "output_tokens_per_request": 16,
+    "temperature": 0.0,
+    "seed": 42,
+    "stream": true,
+    "tokenize_prompt": true
+  },
+  "validation": {
+    "sqlite_integrity": "passed",
+    "manifest_request_match": "32/32 ordered unique requests",
+    "successful_requests": "32/32",
+    "completion_tokens": "16/16 per request",
+    "choice_chunks": "16/16 per request",
+    "itl_samples": "15 per request",
+    "finish_reason": "length on 32/32",
+    "usage_event_observable_in_evalscope_database": false
+  },
+  "metrics": {
+    "wall_time_seconds": 86.78518431307748,
+    "mean_request_latency_seconds": 2.711837220504094,
+    "mean_ttft_ms": 1147.2806024212332,
+    "p50_ttft_ms": 1149.5683500543237,
+    "p99_ttft_ms": 2623.8524080254138,
+    "mean_tpot_ms": 104.3037745388574,
+    "mean_itl_ms": 104.30246364048799,
+    "prompt_throughput_tok_s": 182.08177035142654,
+    "completion_throughput_tok_s": 5.899624504488697,
+    "total_throughput_tok_s": 187.98139485591525
+  },
+  "limitations": [
+    "One process and one measured round; this is a market floor, not release evidence.",
+    "Temperature envelope was not captured.",
+    "EvalScope 1.9.1 omits the final choices-empty usage event from benchmark_data.db.",
+    "vLLM output is not an accuracy oracle."
+  ]
+}

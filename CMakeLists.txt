@@ -253,6 +253,19 @@ target_link_libraries(qwen3x-inspect PRIVATE q3x::core)
 q3x_enable_warnings(qwen3x-inspect)
 
 if(BUILD_TESTING)
+  find_package(Python3 QUIET COMPONENTS Interpreter)
+  if(Python3_Interpreter_FOUND)
+    add_test(
+      NAME evalscope_triplet_validator
+      COMMAND "${CMAKE_COMMAND}" -E env "PYTHONDONTWRITEBYTECODE=1"
+              "${Python3_EXECUTABLE}"
+              "${CMAKE_CURRENT_SOURCE_DIR}/tests/evalscope_triplet_gate_test.py"
+    )
+    set_tests_properties(evalscope_triplet_validator PROPERTIES
+      LABELS "evaluation;host"
+    )
+  endif()
+
   set(Q3X_E2E_MODEL_DIR "" CACHE PATH
       "Pinned Qwen3.6-27B-NVFP4 model directory for optional E2E tests")
   set(Q3X_REAL_PERF_MODEL_DIR "" CACHE PATH
