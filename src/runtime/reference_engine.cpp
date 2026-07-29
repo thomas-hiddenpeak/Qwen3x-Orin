@@ -2,6 +2,7 @@
 
 #include "q3x/core/sha256.h"
 #include "q3x/kernels/sm87_fp8_prefill_supermatrix.h"
+#include "q3x/kernels/sm87_nvfp4_marlin.h"
 #include "q3x/kernels/sm87_weight_only_gemv.h"
 #include "q3x/text/tokenizer.h"
 
@@ -214,6 +215,56 @@ struct Sm87Fp8PrefillSupermatrixPreparation {
   int cuda_error = 0;
   std::string message;
 };
+
+#if defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION)
+struct Sm87NvFp4MarlinPrefillSidecars {
+  std::uint8_t* gate_up_weights = nullptr;
+  std::uint8_t* gate_up_scales = nullptr;
+  float* gate_up_global_scales = nullptr;
+  std::uint8_t* down_weights = nullptr;
+  std::uint8_t* down_scales = nullptr;
+  float* down_global_scales = nullptr;
+  std::uint64_t bytes = 0U;
+  std::vector<NvFp4MarlinPrefillSidecarDescriptor> descriptors;
+
+  Sm87NvFp4MarlinPrefillSidecars() noexcept = default;
+  Sm87NvFp4MarlinPrefillSidecars(
+      const Sm87NvFp4MarlinPrefillSidecars&) = delete;
+  Sm87NvFp4MarlinPrefillSidecars& operator=(
+      const Sm87NvFp4MarlinPrefillSidecars&) = delete;
+  ~Sm87NvFp4MarlinPrefillSidecars() { release(); }
+
+  void release() noexcept {
+    for (void* const allocation :
+         {static_cast<void*>(gate_up_weights),
+          static_cast<void*>(gate_up_scales),
+          static_cast<void*>(gate_up_global_scales),
+          static_cast<void*>(down_weights), static_cast<void*>(down_scales),
+          static_cast<void*>(down_global_scales)}) {
+      if (allocation != nullptr) {
+        (void)cudaFree(allocation);
+      }
+    }
+    gate_up_weights = nullptr;
+    gate_up_scales = nullptr;
+    gate_up_global_scales = nullptr;
+    down_weights = nullptr;
+    down_scales = nullptr;
+    down_global_scales = nullptr;
+    bytes = 0U;
+    descriptors.clear();
+  }
+};
+
+struct Sm87NvFp4MarlinPrefillPreparation {
+  bool enabled = false;
+  bool hard_failure = false;
+  std::size_t layers = 0U;
+  std::uint64_t bytes = 0U;
+  int cuda_error = 0;
+  std::string message;
+};
+#endif
 
 struct Fp8PrefillSupermatrixProjectionPlan {
   const Fp8LinearWeight* projection = nullptr;
@@ -1729,19 +1780,301 @@ prepare_sm87_fp8_prefill_supermatrix_sidecars(
   return result;
 }
 
+#if defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION)
+[[nodiscard]] Sm87NvFp4MarlinPrefillPreparation
+prepare_sm87_nvfp4_marlin_prefill_sidecars(
+    ModelWeights& model_weights,
+    const std::uint64_t minimum_free_bytes_after_prepare,
+    Sm87NvFp4MarlinPrefillSidecars& owner) {
+  Sm87NvFp4MarlinPrefillPreparation result;
+  if (owner.gate_up_weights != nullptr || owner.gate_up_scales != nullptr ||
+      owner.gate_up_global_scales != nullptr || owner.down_weights != nullptr ||
+      owner.down_scales != nullptr || owner.down_global_scales != nullptr ||
+      owner.bytes != 0U || !owner.descriptors.empty()) {
+    result.hard_failure = true;
+    result.message = "NVFP4 Marlin Prefill owner was not empty before prepare";
+    return result;
+  }
+
+  constexpr std::size_t kLayerCount = kQwen36DenseLayerCount;
+  constexpr std::size_t kGateWeightBytes =
+      kernels::sm87_nvfp4_marlin_weight_bytes(
+          kernels::kSm87NvFp4MarlinIntermediate,
+          kernels::kSm87NvFp4MarlinHidden);
+  constexpr std::size_t kGateScaleBytes =
+      kernels::sm87_nvfp4_marlin_scale_bytes(
+          kernels::kSm87NvFp4MarlinIntermediate,
+          kernels::kSm87NvFp4MarlinHidden);
+  constexpr std::size_t kGateUpWeightBytes = 2U * kGateWeightBytes;
+  constexpr std::size_t kGateUpScaleBytes = 2U * kGateScaleBytes;
+  constexpr std::size_t kDownWeightBytes =
+      kernels::sm87_nvfp4_marlin_weight_bytes(
+          kernels::kSm87NvFp4MarlinHidden,
+          kernels::kSm87NvFp4MarlinIntermediate);
+  constexpr std::size_t kDownScaleBytes =
+      kernels::sm87_nvfp4_marlin_scale_bytes(
+          kernels::kSm87NvFp4MarlinHidden,
+          kernels::kSm87NvFp4MarlinIntermediate);
+  static_assert(kGateWeightBytes == kDownWeightBytes);
+  static_assert(kGateScaleBytes == kDownScaleBytes);
+  constexpr std::uint64_t kRetainedBytes =
+      static_cast<std::uint64_t>(kLayerCount) *
+      (kGateUpWeightBytes + kGateUpScaleBytes + sizeof(float) +
+       kDownWeightBytes + kDownScaleBytes + sizeof(float));
+  constexpr std::uint64_t kScratchBytes = kGateUpWeightBytes;
+
+  for (std::size_t layer_index = 0U; layer_index < kLayerCount;
+       ++layer_index) {
+    const DecoderLayerWeights& layer = model_weights.layer(layer_index);
+    const auto* const gate =
+        std::get_if<NvFp4LinearWeight>(&layer.mlp.gate_proj);
+    const auto* const up = std::get_if<NvFp4LinearWeight>(&layer.mlp.up_proj);
+    const auto* const down =
+        std::get_if<NvFp4LinearWeight>(&layer.mlp.down_proj);
+    if (gate == nullptr || up == nullptr || down == nullptr ||
+        gate->packed_weight == nullptr || gate->block_scale == nullptr ||
+        gate->weight_scale_2_device == nullptr || up->packed_weight == nullptr ||
+        up->block_scale == nullptr || up->weight_scale_2_device == nullptr ||
+        down->packed_weight == nullptr || down->block_scale == nullptr ||
+        down->weight_scale_2_device == nullptr ||
+        gate->output_size != kernels::kSm87NvFp4MarlinIntermediate ||
+        up->output_size != kernels::kSm87NvFp4MarlinIntermediate ||
+        gate->input_size != kernels::kSm87NvFp4MarlinHidden ||
+        up->input_size != kernels::kSm87NvFp4MarlinHidden ||
+        down->output_size != kernels::kSm87NvFp4MarlinHidden ||
+        down->input_size != kernels::kSm87NvFp4MarlinIntermediate ||
+        gate->weight_scale_2 != up->weight_scale_2 ||
+        gate->prefill_marlin_weight != nullptr ||
+        up->prefill_marlin_weight != nullptr ||
+        down->prefill_marlin_weight != nullptr) {
+      result.hard_failure = true;
+      result.message =
+          "ineligible NVFP4 Marlin inventory at layer " +
+          std::to_string(layer_index);
+      return result;
+    }
+  }
+
+  std::size_t free_bytes = 0U;
+  std::size_t total_bytes = 0U;
+  cudaError_t status = cudaMemGetInfo(&free_bytes, &total_bytes);
+  (void)total_bytes;
+  if (status != cudaSuccess) {
+    result.hard_failure = true;
+    result.cuda_error = static_cast<int>(status);
+    result.message = "cudaMemGetInfo failed before NVFP4 Marlin prepare";
+    return result;
+  }
+  const std::uint64_t free_u64 = static_cast<std::uint64_t>(free_bytes);
+  if (kRetainedBytes + kScratchBytes > free_u64 ||
+      minimum_free_bytes_after_prepare >
+          free_u64 - (kRetainedBytes + kScratchBytes)) {
+    result.hard_failure = true;
+    result.message =
+        "insufficient device memory for complete NVFP4 Marlin admission";
+    return result;
+  }
+
+  const auto allocate = [](void** const destination,
+                           const std::size_t bytes) noexcept {
+    *destination = nullptr;
+    return cudaMalloc(destination, bytes);
+  };
+  status = allocate(reinterpret_cast<void**>(&owner.gate_up_weights),
+                    kLayerCount * kGateUpWeightBytes);
+  if (status == cudaSuccess) {
+    status = allocate(reinterpret_cast<void**>(&owner.gate_up_scales),
+                      kLayerCount * kGateUpScaleBytes);
+  }
+  if (status == cudaSuccess) {
+    status = allocate(reinterpret_cast<void**>(&owner.gate_up_global_scales),
+                      kLayerCount * sizeof(float));
+  }
+  if (status == cudaSuccess) {
+    status = allocate(reinterpret_cast<void**>(&owner.down_weights),
+                      kLayerCount * kDownWeightBytes);
+  }
+  if (status == cudaSuccess) {
+    status = allocate(reinterpret_cast<void**>(&owner.down_scales),
+                      kLayerCount * kDownScaleBytes);
+  }
+  if (status == cudaSuccess) {
+    status = allocate(reinterpret_cast<void**>(&owner.down_global_scales),
+                      kLayerCount * sizeof(float));
+  }
+  void* transpose_scratch = nullptr;
+  if (status == cudaSuccess) {
+    status = cudaMalloc(&transpose_scratch, kScratchBytes);
+  }
+  if (status != cudaSuccess || transpose_scratch == nullptr) {
+    result.hard_failure = true;
+    result.cuda_error = static_cast<int>(status);
+    result.message = "cudaMalloc failed for complete NVFP4 Marlin admission";
+    if (transpose_scratch != nullptr) {
+      (void)cudaFree(transpose_scratch);
+    }
+    owner.release();
+    return result;
+  }
+
+  std::size_t remaining_free = 0U;
+  status = cudaMemGetInfo(&remaining_free, &total_bytes);
+  if (status != cudaSuccess ||
+      static_cast<std::uint64_t>(remaining_free) <
+          minimum_free_bytes_after_prepare) {
+    result.hard_failure = true;
+    result.cuda_error = static_cast<int>(status);
+    result.message = status == cudaSuccess
+                         ? "NVFP4 Marlin allocation violated memory margin"
+                         : "cudaMemGetInfo failed after NVFP4 Marlin allocation";
+    (void)cudaFree(transpose_scratch);
+    owner.release();
+    return result;
+  }
+
+  cudaStream_t stream = nullptr;
+  status = cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking);
+  if (status != cudaSuccess) {
+    result.hard_failure = true;
+    result.cuda_error = static_cast<int>(status);
+    result.message = "failed to create NVFP4 Marlin preparation stream";
+    (void)cudaFree(transpose_scratch);
+    owner.release();
+    return result;
+  }
+
+  std::vector<std::uint8_t> gate_scales(kGateScaleBytes);
+  std::vector<std::uint8_t> up_scales(kGateScaleBytes);
+  std::vector<std::uint8_t> down_scales(kDownScaleBytes);
+  owner.descriptors.reserve(kLayerCount);
+  for (std::size_t layer_index = 0U; layer_index < kLayerCount;
+       ++layer_index) {
+    const DecoderLayerWeights& layer = model_weights.layer(layer_index);
+    const auto* const gate =
+        std::get_if<NvFp4LinearWeight>(&layer.mlp.gate_proj);
+    const auto* const up = std::get_if<NvFp4LinearWeight>(&layer.mlp.up_proj);
+    const auto* const down =
+        std::get_if<NvFp4LinearWeight>(&layer.mlp.down_proj);
+    status = cudaMemcpyAsync(gate_scales.data(), gate->block_scale,
+                             kGateScaleBytes, cudaMemcpyDeviceToHost, stream);
+    if (status == cudaSuccess) {
+      status = cudaMemcpyAsync(up_scales.data(), up->block_scale,
+                               kGateScaleBytes, cudaMemcpyDeviceToHost, stream);
+    }
+    if (status == cudaSuccess) {
+      status = cudaMemcpyAsync(down_scales.data(), down->block_scale,
+                               kDownScaleBytes, cudaMemcpyDeviceToHost, stream);
+    }
+    if (status == cudaSuccess) {
+      status = cudaStreamSynchronize(stream);
+    }
+    float gate_up_factor = 0.0F;
+    float down_factor = 0.0F;
+    if (status != cudaSuccess ||
+        !kernels::derive_sm87_nvfp4_marlin_scale_factor(
+            gate_scales.data(), gate_scales.size(), up_scales.data(),
+            up_scales.size(), &gate_up_factor) ||
+        !kernels::derive_sm87_nvfp4_marlin_scale_factor(
+            down_scales.data(), down_scales.size(), nullptr, 0U,
+            &down_factor)) {
+      result.hard_failure = true;
+      result.cuda_error = static_cast<int>(status);
+      result.message =
+          "failed to authenticate NVFP4 Marlin scales at layer " +
+          std::to_string(layer_index);
+      (void)cudaStreamDestroy(stream);
+      (void)cudaFree(transpose_scratch);
+      owner.release();
+      return result;
+    }
+
+    std::uint8_t* const gate_up_weight =
+        owner.gate_up_weights + layer_index * kGateUpWeightBytes;
+    std::uint8_t* const gate_up_scale =
+        owner.gate_up_scales + layer_index * kGateUpScaleBytes;
+    float* const gate_up_global = owner.gate_up_global_scales + layer_index;
+    std::uint8_t* const down_weight =
+        owner.down_weights + layer_index * kDownWeightBytes;
+    std::uint8_t* const down_scale =
+        owner.down_scales + layer_index * kDownScaleBytes;
+    float* const down_global = owner.down_global_scales + layer_index;
+    status = static_cast<cudaError_t>(
+        kernels::prepare_sm87_nvfp4_marlin_gate_up_cuda(
+            gate->packed_weight, up->packed_weight, gate->block_scale,
+            up->block_scale, gate->weight_scale_2_device, gate_up_factor,
+            gate_up_weight, gate_up_scale, gate_up_global, transpose_scratch,
+            kScratchBytes, static_cast<void*>(stream)));
+    if (status == cudaSuccess) {
+      status = static_cast<cudaError_t>(
+          kernels::prepare_sm87_nvfp4_marlin_down_cuda(
+              down->packed_weight, down->block_scale,
+              down->weight_scale_2_device, down_factor, down_weight,
+              down_scale, down_global, transpose_scratch, kScratchBytes,
+              static_cast<void*>(stream)));
+    }
+    if (status != cudaSuccess) {
+      result.hard_failure = true;
+      result.cuda_error = static_cast<int>(status);
+      result.message = "NVFP4 Marlin repack failed at layer " +
+                       std::to_string(layer_index);
+      (void)cudaStreamDestroy(stream);
+      (void)cudaFree(transpose_scratch);
+      owner.release();
+      return result;
+    }
+    owner.descriptors.push_back(NvFp4MarlinPrefillSidecarDescriptor{
+        layer_index, gate_up_weight, gate_up_scale, gate_up_global,
+        down_weight, down_scale, down_global});
+  }
+
+  status = cudaStreamSynchronize(stream);
+  const cudaError_t destroy_status = cudaStreamDestroy(stream);
+  const cudaError_t scratch_status = cudaFree(transpose_scratch);
+  if (status != cudaSuccess || destroy_status != cudaSuccess ||
+      scratch_status != cudaSuccess) {
+    const cudaError_t failure = status != cudaSuccess
+                                    ? status
+                                    : (destroy_status != cudaSuccess
+                                           ? destroy_status
+                                           : scratch_status);
+    result.hard_failure = true;
+    result.cuda_error = static_cast<int>(failure);
+    result.message = "NVFP4 Marlin preparation did not retire cleanly";
+    owner.release();
+    return result;
+  }
+  if (!model_weights.attach_nvfp4_marlin_prefill_sidecars(
+          owner.descriptors.data(), owner.descriptors.size())) {
+    result.hard_failure = true;
+    result.message = "ModelWeights rejected complete NVFP4 Marlin inventory";
+    owner.release();
+    return result;
+  }
+
+  owner.bytes = kRetainedBytes;
+  result.enabled = true;
+  result.layers = kLayerCount;
+  result.bytes = kRetainedBytes;
+  return result;
+}
+#endif
+
 }  // namespace
 
 struct ReferenceEngine::Impl {
   // Declaration order is part of the safety contract. Destruction is exactly
   // runner -> request_state -> model_weights -> Prefill supermatrix/QKV
-  // sidecars -> down scale6 sidecars -> output sidecars -> resident_weights
-  // -> tokenizer.
+  // sidecars -> Marlin admission sidecars -> down scale6 sidecars -> output
+  // sidecars -> resident_weights -> tokenizer.
   std::unique_ptr<text::Tokenizer> tokenizer;
   std::optional<ResidentWeights> resident_weights;
   Sm87Fp8OutputProjectionSidecars fp8_output_sidecars;
   Sm87NvFp4DownScale6Sidecars nvfp4_down_scale6_sidecars;
   Sm87Fp8PrefillQkvSidecars fp8_prefill_qkv_sidecars;
   Sm87Fp8PrefillSupermatrixSidecars fp8_prefill_supermatrix_sidecars;
+#if defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION)
+  Sm87NvFp4MarlinPrefillSidecars nvfp4_marlin_prefill_sidecars;
+#endif
   std::optional<ModelWeights> model_weights;
   std::optional<RequestState> request_state;
   std::optional<ReferenceRunner> runner;
@@ -1955,6 +2288,33 @@ struct ReferenceEngine::Impl {
               preparation.projections;
           impl->load.fp8_prefill_supermatrix_sidecar_bytes =
               preparation.bytes;
+#if defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION)
+          const Clock::time_point marlin_begin = Clock::now();
+          const Sm87NvFp4MarlinPrefillPreparation marlin_preparation =
+              prepare_sm87_nvfp4_marlin_prefill_sidecars(
+                  *impl->model_weights,
+                  options.request_options.min_free_bytes_after_create,
+                  impl->nvfp4_marlin_prefill_sidecars);
+          impl->load.nvfp4_marlin_prefill_sidecar_milliseconds =
+              elapsed_milliseconds(marlin_begin);
+          if (marlin_preparation.hard_failure ||
+              !marlin_preparation.enabled ||
+              marlin_preparation.layers != kQwen36DenseLayerCount) {
+            result.diagnostic = engine_diagnostic(
+                ReferenceEngineError::kRunnerFactoryFailure,
+                "nvfp4_marlin_prefill_sidecar_prepare",
+                marlin_preparation.message.empty()
+                    ? "the test admission did not publish all Marlin layers"
+                    : marlin_preparation.message);
+            result.diagnostic.cuda_error = marlin_preparation.cuda_error;
+            return result;
+          }
+          impl->load.nvfp4_marlin_prefill_sidecars_enabled = true;
+          impl->load.nvfp4_marlin_prefill_sidecar_layers =
+              marlin_preparation.layers;
+          impl->load.nvfp4_marlin_prefill_sidecar_bytes =
+              marlin_preparation.bytes;
+#endif
         }
       }
 

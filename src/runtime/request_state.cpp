@@ -22,7 +22,10 @@ constexpr std::uint64_t kFp32Bytes = 4U;
 constexpr std::uint64_t kHiddenElements = 5'120U;
 constexpr std::uint64_t kProjectionElements = 17'408U;
 constexpr std::uint64_t kLinearScalarElements = 48U;
-constexpr std::uint64_t kFp32MinimumElements = 248'320U;
+// The exact-C512 Marlin admission reuses this buffer for its 16-SM x M64 x
+// N256 FP32 cross-CTA reduction. Production's vocabulary scratch is slightly
+// smaller, so reserve the larger fixed capacity for both routes.
+constexpr std::uint64_t kFp32MinimumElements = 262'144U;
 constexpr std::uint64_t kQueryHeadCount = 24U;
 constexpr std::uint64_t kKvHeadCount = 4U;
 constexpr std::uint64_t kHeadDimension = 256U;

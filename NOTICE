@@ -14,3 +14,14 @@ Qwen model weights, tokenizers, model configuration files, and other model
 artifacts are distributed separately by their respective publishers. They are
 not part of this Work and are not licensed by the repository's Apache-2.0
 license.
+
+This Work incorporates a fixed-shape subset of the vLLM Marlin CUDA kernel
+core from vLLM commit ccd49f6821ee110cc5a2b1aba620a8a1d66c7cbb. vLLM and
+the incorporated Marlin-derived files are licensed under the Apache License,
+Version 2.0. The source files preserve the upstream notices, including:
+
+  Modified by Neural Magic
+  Copyright (C) Marlin.2024 Elias Frantar
+  Adapted from https://github.com/IST-DASLab/marlin
+
+Upstream vLLM source: https://github.com/vllm-project/vllm

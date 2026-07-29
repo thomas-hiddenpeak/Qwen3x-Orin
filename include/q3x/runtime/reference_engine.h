@@ -178,6 +178,7 @@ struct ReferenceEngineLoadStats {
   double nvfp4_down_scale6_sidecar_milliseconds = 0.0;
   double fp8_prefill_qkv_sidecar_milliseconds = 0.0;
   double fp8_prefill_supermatrix_sidecar_milliseconds = 0.0;
+  double nvfp4_marlin_prefill_sidecar_milliseconds = 0.0;
   double runner_factory_milliseconds = 0.0;
   ReferenceDecodeGraphCachePolicy decode_graph_cache_requested_policy =
       ReferenceDecodeGraphCachePolicy::kDisabled;
@@ -238,6 +239,12 @@ struct ReferenceEngineLoadStats {
   bool fp8_prefill_supermatrix_sidecars_enabled = false;
   std::size_t fp8_prefill_supermatrix_sidecar_projections = 0U;
   std::uint64_t fp8_prefill_supermatrix_sidecar_bytes = 0U;
+  // Populated only by the dedicated test-admission build. This is the sum of
+  // all retained Gate+Up and Down Marlin weights, processed scales, and
+  // global scales; the disposable load-time transpose scratch is excluded.
+  bool nvfp4_marlin_prefill_sidecars_enabled = false;
+  std::size_t nvfp4_marlin_prefill_sidecar_layers = 0U;
+  std::uint64_t nvfp4_marlin_prefill_sidecar_bytes = 0U;
   // True only when tokenizer parsing and resident loading actually executed
   // concurrently. When true, total_milliseconds is wall time and phase
   // timings intentionally overlap.

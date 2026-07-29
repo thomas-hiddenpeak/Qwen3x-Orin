@@ -364,6 +364,15 @@ struct LogitsAnalysis {
     std::uint16_t* gate_output, std::uint16_t* up_output,
     std::size_t token_count) noexcept;
 
+// Test-admission controls for the exact-C512, all-64-layer vLLM-Marlin MLP
+// route. The build-time admission remains absent from ordinary production
+// binaries; these calls provide deterministic route-hit accounting to the
+// dedicated real-generation executable.
+bool exchange_nvfp4_marlin_prefill_admission_test_enabled(
+    bool enabled) noexcept;
+std::size_t exchange_nvfp4_marlin_prefill_admission_test_hits(
+    std::size_t hits) noexcept;
+
 // Pure-host validation entry used by tests and factory preflight. It checks
 // exact batch-one workspace, cache, RoPE, and 48/16 schedule capacities.
 [[nodiscard]] ReferenceRunnerError validate_reference_workspace_plan(

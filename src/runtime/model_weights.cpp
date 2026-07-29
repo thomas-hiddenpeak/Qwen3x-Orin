@@ -4,6 +4,7 @@
 
 #include <cuda_runtime.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -114,6 +115,16 @@ template <typename Weight>
 [[nodiscard]] NvFp4LinearWeight* nvfp4_down_projection(
     DecoderLayerWeights& layer) noexcept {
   return std::get_if<NvFp4LinearWeight>(&layer.mlp.down_proj);
+}
+
+[[nodiscard]] NvFp4LinearWeight* nvfp4_gate_projection(
+    DecoderLayerWeights& layer) noexcept {
+  return std::get_if<NvFp4LinearWeight>(&layer.mlp.gate_proj);
+}
+
+[[nodiscard]] NvFp4LinearWeight* nvfp4_up_projection(
+    DecoderLayerWeights& layer) noexcept {
+  return std::get_if<NvFp4LinearWeight>(&layer.mlp.up_proj);
 }
 
 }  // namespace
@@ -1004,6 +1015,101 @@ bool ModelWeights::attach_nvfp4_down_scale6_sidecars(
   for (std::size_t index = 0U; index < descriptor_count; ++index) {
     targets[index]->down_scale6_sidecar = validated_sidecars[index];
     targets[index]->down_scale6_base = validated_bases[index];
+  }
+  return true;
+}
+
+bool ModelWeights::attach_nvfp4_marlin_prefill_sidecars(
+    const NvFp4MarlinPrefillSidecarDescriptor* const descriptors,
+    const std::size_t descriptor_count) noexcept {
+  const auto clear_all = [this]() noexcept {
+    for (DecoderLayerWeights& layer : layers_) {
+      for (NvFp4LinearWeight* const projection :
+           {nvfp4_gate_projection(layer), nvfp4_up_projection(layer),
+            nvfp4_down_projection(layer)}) {
+        if (projection != nullptr) {
+          projection->prefill_marlin_weight = nullptr;
+          projection->prefill_marlin_scales = nullptr;
+          projection->prefill_marlin_global_scale = nullptr;
+        }
+      }
+    }
+  };
+
+  if (descriptor_count == 0U) {
+    if (descriptors != nullptr) {
+      return false;
+    }
+    clear_all();
+    return true;
+  }
+  if (descriptors == nullptr ||
+      descriptor_count != kQwen36DenseLayerCount) {
+    return false;
+  }
+
+  struct Validated {
+    NvFp4LinearWeight* gate = nullptr;
+    NvFp4LinearWeight* up = nullptr;
+    NvFp4LinearWeight* down = nullptr;
+    const NvFp4MarlinPrefillSidecarDescriptor* descriptor = nullptr;
+  };
+  std::array<bool, kQwen36DenseLayerCount> seen{};
+  std::array<Validated, kQwen36DenseLayerCount> validated{};
+  constexpr std::size_t kGateRows = 17'408U;
+  constexpr std::size_t kHidden = 5'120U;
+  for (std::size_t index = 0U; index < descriptor_count; ++index) {
+    const NvFp4MarlinPrefillSidecarDescriptor& descriptor = descriptors[index];
+    if (descriptor.layer_index >= kQwen36DenseLayerCount ||
+        seen[descriptor.layer_index] || descriptor.gate_up_weight == nullptr ||
+        descriptor.gate_up_scales == nullptr ||
+        descriptor.gate_up_global_scale == nullptr ||
+        descriptor.down_weight == nullptr || descriptor.down_scales == nullptr ||
+        descriptor.down_global_scale == nullptr ||
+        reinterpret_cast<std::uintptr_t>(descriptor.gate_up_weight) % 16U != 0U ||
+        reinterpret_cast<std::uintptr_t>(descriptor.gate_up_scales) % 16U != 0U ||
+        reinterpret_cast<std::uintptr_t>(descriptor.gate_up_global_scale) %
+                alignof(float) !=
+            0U ||
+        reinterpret_cast<std::uintptr_t>(descriptor.down_weight) % 16U != 0U ||
+        reinterpret_cast<std::uintptr_t>(descriptor.down_scales) % 16U != 0U ||
+        reinterpret_cast<std::uintptr_t>(descriptor.down_global_scale) %
+                alignof(float) !=
+            0U) {
+      return false;
+    }
+    DecoderLayerWeights& layer = layers_[descriptor.layer_index];
+    NvFp4LinearWeight* const gate = nvfp4_gate_projection(layer);
+    NvFp4LinearWeight* const up = nvfp4_up_projection(layer);
+    NvFp4LinearWeight* const down = nvfp4_down_projection(layer);
+    if (!has_valid_nvfp4_payload(gate) || !has_valid_nvfp4_payload(up) ||
+        !has_valid_nvfp4_payload(down) || gate->output_size != kGateRows ||
+        up->output_size != kGateRows || gate->input_size != kHidden ||
+        up->input_size != kHidden || down->output_size != kHidden ||
+        down->input_size != kGateRows) {
+      return false;
+    }
+    seen[descriptor.layer_index] = true;
+    validated[index] = Validated{gate, up, down, &descriptor};
+  }
+  if (std::any_of(seen.begin(), seen.end(), [](const bool value) {
+        return !value;
+      })) {
+    return false;
+  }
+
+  clear_all();
+  for (const Validated& entry : validated) {
+    const NvFp4MarlinPrefillSidecarDescriptor& descriptor = *entry.descriptor;
+    for (NvFp4LinearWeight* const projection : {entry.gate, entry.up}) {
+      projection->prefill_marlin_weight = descriptor.gate_up_weight;
+      projection->prefill_marlin_scales = descriptor.gate_up_scales;
+      projection->prefill_marlin_global_scale =
+          descriptor.gate_up_global_scale;
+    }
+    entry.down->prefill_marlin_weight = descriptor.down_weight;
+    entry.down->prefill_marlin_scales = descriptor.down_scales;
+    entry.down->prefill_marlin_global_scale = descriptor.down_global_scale;
   }
   return true;
 }
