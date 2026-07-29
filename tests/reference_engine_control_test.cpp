@@ -704,6 +704,133 @@ void test_all_prompt_tile_admission(TestContext& test) {
               "all-prompt admission rejects incompatible trace capture");
 }
 
+void test_single_arbitrary_tile_admission(TestContext& test) {
+  const auto run_shape = [&test](
+                             const std::size_t prompt_size,
+                             const std::uint32_t chunk_size,
+                             const std::vector<std::size_t>& expected_tiles,
+                             const runtime::ReferenceLogitsMode logits_mode) {
+    FakeRunner fake;
+    fake.predictions = {runtime::kQwen36ImEndTokenId};
+    PhaseContext context{&fake};
+
+    detail::PrefillPlan prefill_plan;
+    prefill_plan.context = &context;
+    prefill_plan.prefix_step = fake_prefix_step;
+    prefill_plan.finish_prefill = fake_finish_prefill;
+    prefill_plan.prefix_tile = fake_prefix_tile;
+    prefill_plan.finish_prefill_from_tile =
+        fake_finish_prefill_from_tile;
+    detail::DecodePlan decode_plan;
+    decode_plan.context = &context;
+    decode_plan.decode_step = fake_decode_step;
+
+    std::vector<std::uint32_t> prompt(prompt_size);
+    for (std::size_t index = 0U; index < prompt.size(); ++index) {
+      prompt[index] = static_cast<std::uint32_t>(2'000U + index);
+    }
+    detail::GenerationControlOptions control_options =
+        options(1U, static_cast<std::uint32_t>(prompt_size), false,
+                chunk_size, logits_mode);
+    control_options.prefill_all_prompt_tokens = true;
+    control_options.prefill_single_arbitrary_tile = true;
+    const auto result = detail::run_generation_control(
+        prompt, control_options, prefill_plan, decode_plan);
+
+    std::vector<std::size_t> actual_tiles;
+    std::vector<std::uint32_t> reconstructed_prompt;
+    for (const auto& tile : fake.tile_inputs) {
+      actual_tiles.push_back(tile.size());
+      reconstructed_prompt.insert(reconstructed_prompt.end(), tile.begin(),
+                                  tile.end());
+    }
+    bool only_final_tile_retains =
+        fake.tile_options.size() == expected_tiles.size() &&
+        !fake.tile_options.empty();
+    for (std::size_t index = 0U; index < fake.tile_options.size(); ++index) {
+      only_final_tile_retains =
+          only_final_tile_retains &&
+          fake.tile_options[index].retain_last_hidden_for_logits ==
+              (index + 1U == fake.tile_options.size());
+    }
+    const bool correct_result_arm =
+        result &&
+        (logits_mode == runtime::ReferenceLogitsMode::kFullStatistics
+             ? result.value->steps.back().logits.has_value() &&
+                   !result.value->steps.back().prediction.has_value()
+             : !result.value->steps.back().logits.has_value() &&
+                   result.value->steps.back().prediction.has_value());
+    test.expect(
+        result && actual_tiles == expected_tiles &&
+            reconstructed_prompt == prompt && only_final_tile_retains &&
+            fake.phase_calls.size() == expected_tiles.size() + 1U &&
+            fake.phase_calls.back() == PhaseCall::kFinishPrefillFromTile &&
+            fake.next_position == prompt_size &&
+            fake.inputs == std::vector<std::uint32_t>({prompt.back()}) &&
+            result.value->steps.size() == prompt_size &&
+            result.value->timing.prefix_execution_milliseconds.size() ==
+                expected_tiles.size() &&
+            correct_result_arm &&
+            has_consistent_prefill_timing(result.value->timing),
+        "single-arbitrary admission preserves ordered whole-prompt state "
+        "while eliminating canonical scheduler splits");
+  };
+
+  constexpr auto kFull = runtime::ReferenceLogitsMode::kFullStatistics;
+  constexpr auto kPredicted =
+      runtime::ReferenceLogitsMode::kPredictedTokenOnly;
+  run_shape(32U, 512U, {32U}, kFull);
+  run_shape(64U, 512U, {64U}, kPredicted);
+  run_shape(256U, 512U, {256U}, kPredicted);
+  run_shape(407U, 512U, {407U}, kFull);
+  run_shape(481U, 512U, {481U}, kPredicted);
+  run_shape(512U, 512U, {512U}, kPredicted);
+  run_shape(513U, 512U, {512U, 1U}, kPredicted);
+  run_shape(1'025U, 512U, {512U, 512U, 1U}, kPredicted);
+  run_shape(407U, 320U, {320U, 87U}, kPredicted);
+
+  test.expect(
+      detail::next_single_arbitrary_prefix_tile_token_count(407U, 512U) ==
+              407U &&
+          detail::next_single_arbitrary_prefix_tile_token_count(481U,
+                                                                 512U) ==
+              481U &&
+          detail::next_single_arbitrary_prefix_tile_token_count(513U,
+                                                                 512U) ==
+              512U &&
+          detail::single_arbitrary_prefix_execution_count(407U, 512U) ==
+              1U &&
+          detail::single_arbitrary_prefix_execution_count(1'025U, 512U) ==
+              3U &&
+          detail::single_arbitrary_prefix_execution_count(407U, 0U) == 0U,
+      "single-arbitrary scheduler boundaries and cardinalities are exact");
+
+  FakeRunner fake;
+  fake.predictions = {runtime::kQwen36ImEndTokenId};
+  PhaseContext context{&fake};
+  detail::PrefillPlan prefill_plan;
+  prefill_plan.context = &context;
+  prefill_plan.prefix_step = fake_prefix_step;
+  prefill_plan.finish_prefill = fake_finish_prefill;
+  prefill_plan.prefix_tile = fake_prefix_tile;
+  prefill_plan.finish_prefill_from_tile =
+      fake_finish_prefill_from_tile;
+  detail::DecodePlan decode_plan;
+  decode_plan.context = &context;
+  decode_plan.decode_step = fake_decode_step;
+  detail::GenerationControlOptions invalid = options(1U, 407U, false, 512U);
+  invalid.prefill_single_arbitrary_tile = true;
+  const auto result = detail::run_generation_control(
+      std::vector<std::uint32_t>(407U, 7U), invalid, prefill_plan,
+      decode_plan);
+  test.expect(!result &&
+                  result.error ==
+                      detail::GenerationControlError::kInvalidArgument &&
+                  fake.phase_calls.empty(),
+              "single-arbitrary admission fails closed unless whole-prompt "
+              "admission is explicit");
+}
+
 std::vector<std::size_t> prefix_schedule(
     std::size_t remaining_tokens,
     const std::size_t requested_chunk_size) {
@@ -1409,6 +1536,7 @@ int main() {
   test_prefill_decode_and_stop(test);
   test_explicit_phase_plans(test);
   test_all_prompt_tile_admission(test);
+  test_single_arbitrary_tile_admission(test);
   test_explicit_c512_prefill_schedule(test);
   test_explicit_phase_plan_shape_matrix(test);
   test_nvtx_phase_ranges_preserve_control_semantics(test);

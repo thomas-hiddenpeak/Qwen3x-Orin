@@ -51,6 +51,17 @@ inline constexpr std::uint64_t kProductionDecodeGraphMaximumFreeDropBytes =
   return value != nullptr && std::strcmp(value, "1") == 0;
 }
 
+// Same-ELF test-only scheduler admission. Enabling this also implies the
+// whole-prompt admission because the architecture probe must compare one
+// P-token layer-major tile with the canonical decomposition of the same P
+// prompt tokens; it must not reintroduce a scalar final prompt step.
+[[nodiscard]] bool
+prefill_single_arbitrary_tile_environment_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_PREFILL_SINGLE_ARBITRARY_TILE_ADMISSION");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
 struct DecodeGraphP1DeviceBuffer {
   void* data = nullptr;
   std::size_t bytes = 0U;
@@ -2906,9 +2917,15 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
     control_options.capture_trace = options.capture_trace;
     control_options.logits_mode = options.logits_mode;
     control_options.emit_nvtx_phase_ranges = options.emit_nvtx_phase_ranges;
+    const bool single_arbitrary_prefill_tile =
+        !options.capture_trace && options.prefill_chunk_size > 1U &&
+        prefill_single_arbitrary_tile_environment_enabled();
     control_options.prefill_all_prompt_tokens =
         !options.capture_trace && options.prefill_chunk_size > 1U &&
-        prefill_all_prompt_tokens_environment_enabled();
+        (prefill_all_prompt_tokens_environment_enabled() ||
+         single_arbitrary_prefill_tile);
+    control_options.prefill_single_arbitrary_tile =
+        single_arbitrary_prefill_tile;
 
     EngineTokenObserverContext observer_context;
     if (options.token_observer != nullptr) {
@@ -3025,6 +3042,8 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
                               : options.prefill_chunk_size;
     generation.all_prompt_tokens_prefilled_by_tiles =
         control_options.prefill_all_prompt_tokens;
+    generation.single_arbitrary_prefill_tiles =
+        control_options.prefill_single_arbitrary_tile;
     generation.timing = std::move(control.value->timing);
     generation.steps = std::move(control.value->steps);
     generation.traces = std::move(traces);

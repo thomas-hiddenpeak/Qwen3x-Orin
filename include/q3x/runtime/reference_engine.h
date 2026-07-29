@@ -167,6 +167,10 @@ struct ReferenceGeneration {
   // True only when every prompt token was committed by prefill tiles and the
   // final prediction was produced from the retained last hidden row.
   bool all_prompt_tokens_prefilled_by_tiles = false;
+  // True only for the test admission that dispatches each request-sized
+  // prefix chunk as one arbitrary 1..512-token layer-major tile instead of
+  // decomposing it into canonical C512/C256/C64/C32/tail executions.
+  bool single_arbitrary_prefill_tiles = false;
   ReferenceGenerationTiming timing;
   std::vector<ReferenceStepResult> steps;
   std::vector<ReferenceTraceDigest> traces;
@@ -575,6 +579,32 @@ static_assert(kMaximumRequestPrefillChunkSize == 512U);
   return count;
 }
 
+// Test-only scheduler used to measure whether eliminating repeated
+// layer/weight traversal is the missing system-level prefill architecture.
+// Individual subkernels remain free to use their established ordered
+// fallbacks inside this one public layer-major tile.
+[[nodiscard]] constexpr std::size_t
+next_single_arbitrary_prefix_tile_token_count(
+    const std::size_t remaining_tokens,
+    const std::size_t requested_chunk_size) noexcept {
+  if (remaining_tokens == 0U || requested_chunk_size == 0U) {
+    return 0U;
+  }
+  return remaining_tokens < requested_chunk_size ? remaining_tokens
+                                                 : requested_chunk_size;
+}
+
+[[nodiscard]] constexpr std::size_t
+single_arbitrary_prefix_execution_count(
+    const std::size_t prefix_token_count,
+    const std::size_t effective_prefill_chunk_size) noexcept {
+  if (effective_prefill_chunk_size == 0U) {
+    return 0U;
+  }
+  return prefix_token_count / effective_prefill_chunk_size +
+         (prefix_token_count % effective_prefill_chunk_size != 0U ? 1U : 0U);
+}
+
 enum class GenerationControlError : std::uint8_t {
   kNone = 0,
   kInvalidArgument,
@@ -633,6 +663,10 @@ struct GenerationControlOptions {
   // last normalized hidden row for finish_prefill_from_tile. Default-off keeps
   // the production prompt-(P-1) plus scalar-final-step schedule unchanged.
   bool prefill_all_prompt_tokens = false;
+  // Test-only admission layered on top of prefill_all_prompt_tokens. Each
+  // request-sized chunk is one arbitrary 1..512-token prefix_tile call. It is
+  // invalid unless whole-prompt admission is also enabled.
+  bool prefill_single_arbitrary_tile = false;
   void* committed_token_context = nullptr;
   CommittedTokenFunction committed_token = nullptr;
 };
