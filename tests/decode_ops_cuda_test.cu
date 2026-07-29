@@ -2004,6 +2004,169 @@ void test_residual_rms_m32_fused_exact(TestContext& test,
   graph_normalized.expect_guards(test, label + " graph normalized");
 }
 
+void fill_residual_rms_m32_prefix_tail_fixture(
+    const std::size_t token_count, std::uint16_t* const left,
+    std::uint16_t* const right, std::uint16_t* const weight) {
+  std::uint32_t left_state = 0x7f4a7c15U;
+  std::uint32_t right_state = 0x94d049bbU;
+  const std::size_t element_count =
+      token_count * kResidualRmsM32HiddenSize;
+  for (std::size_t index = 0U; index < element_count; ++index) {
+    const int left_code = static_cast<int>(
+                              next_deterministic_random(left_state) % 2049U) -
+                          1024;
+    const int right_code = static_cast<int>(
+                               next_deterministic_random(right_state) %
+                               2049U) -
+                           1024;
+    left[index] = encode_bf16(static_cast<float>(left_code) / 192.0F);
+    right[index] = encode_bf16(static_cast<float>(right_code) / 256.0F);
+  }
+  for (std::size_t dimension = 0U;
+       dimension < kResidualRmsM32HiddenSize; ++dimension) {
+    const int code = static_cast<int>((dimension * 53U + 19U) % 257U) - 128;
+    weight[dimension] = encode_bf16(static_cast<float>(code) / 256.0F);
+  }
+}
+
+int launch_residual_rms_m32_prefix_tail_baseline(
+    const std::uint16_t* const left,
+    const std::uint16_t* const right,
+    const std::uint16_t* const weight, const std::size_t token_count,
+    std::uint16_t* const residual, std::uint16_t* const normalized,
+    cudaStream_t stream) {
+  const int residual_status = q3x::runtime::launch_residual_add_reference_cuda(
+      left, right, token_count * kResidualRmsM32HiddenSize, residual,
+      static_cast<void*>(stream));
+  if (residual_status != static_cast<int>(cudaSuccess)) {
+    return residual_status;
+  }
+  return q3x::runtime::launch_headwise_centered_rms_norm_reference_cuda(
+      residual, weight, token_count, kResidualRmsM32HiddenSize,
+      kResidualRmsM32Epsilon, normalized, static_cast<void*>(stream));
+}
+
+int launch_residual_rms_m32_prefix_tail_candidate(
+    const std::uint16_t* const left,
+    const std::uint16_t* const right,
+    const std::uint16_t* const weight, const std::size_t token_count,
+    std::uint16_t* const residual, std::uint16_t* const normalized,
+    cudaStream_t stream) {
+  const std::size_t prefix_tokens =
+      token_count - token_count % kResidualRmsM32TokenCount;
+  for (std::size_t token_offset = 0U; token_offset < prefix_tokens;
+       token_offset += kResidualRmsM32TokenCount) {
+    const std::size_t element_offset =
+        token_offset * kResidualRmsM32HiddenSize;
+    const int status = q3x::runtime::
+        launch_residual_add_headwise_centered_rms_norm_m32_5120_cuda(
+            left + element_offset, right + element_offset, weight,
+            kResidualRmsM32TokenCount, kResidualRmsM32HiddenSize,
+            kResidualRmsM32Epsilon, residual + element_offset,
+            normalized + element_offset, static_cast<void*>(stream));
+    if (status != static_cast<int>(cudaSuccess)) {
+      return status;
+    }
+  }
+  const std::size_t tail_tokens = token_count - prefix_tokens;
+  if (tail_tokens == 0U) {
+    return static_cast<int>(cudaSuccess);
+  }
+  const std::size_t element_offset =
+      prefix_tokens * kResidualRmsM32HiddenSize;
+  const int residual_status = q3x::runtime::launch_residual_add_reference_cuda(
+      left + element_offset, right + element_offset,
+      tail_tokens * kResidualRmsM32HiddenSize, residual + element_offset,
+      static_cast<void*>(stream));
+  if (residual_status != static_cast<int>(cudaSuccess)) {
+    return residual_status;
+  }
+  return q3x::runtime::launch_headwise_centered_rms_norm_reference_cuda(
+      residual + element_offset, weight, tail_tokens,
+      kResidualRmsM32HiddenSize, kResidualRmsM32Epsilon,
+      normalized + element_offset, static_cast<void*>(stream));
+}
+
+void test_residual_rms_m32_prefix_tail_exact(TestContext& test,
+                                             cudaStream_t stream) {
+  constexpr std::array<std::size_t, 4U> kTokenCounts{33U, 63U, 407U, 481U};
+  for (const std::size_t token_count : kTokenCounts) {
+    const std::string label =
+        "M32 residual/RMS prefix-tail M" + std::to_string(token_count);
+    const std::size_t element_count =
+        token_count * kResidualRmsM32HiddenSize;
+    GuardedBf16Buffer left;
+    GuardedBf16Buffer right;
+    GuardedBf16Buffer weight;
+    GuardedBf16Buffer baseline_residual;
+    GuardedBf16Buffer baseline_normalized;
+    GuardedBf16Buffer candidate_residual;
+    GuardedBf16Buffer alias_right;
+    bool ready = left.allocate(test, element_count, label + " left");
+    ready = ready && right.allocate(test, element_count, label + " right");
+    ready = ready &&
+            weight.allocate(test, kResidualRmsM32HiddenSize,
+                            label + " weight");
+    ready = ready && baseline_residual.allocate(
+                         test, element_count, label + " baseline residual");
+    ready = ready && baseline_normalized.allocate(
+                         test, element_count, label + " baseline normalized");
+    ready = ready && candidate_residual.allocate(
+                         test, element_count, label + " candidate residual");
+    ready = ready &&
+            alias_right.allocate(test, element_count,
+                                 label + " alias right/normalized");
+    if (!ready) {
+      return;
+    }
+
+    left.initialize(0U, 0x1111U, 0x1112U);
+    right.initialize(0U, 0x2221U, 0x2222U);
+    weight.initialize(0U, 0x3331U, 0x3332U);
+    baseline_residual.initialize(0xa1a1U, 0x4441U, 0x4442U);
+    baseline_normalized.initialize(0xb2b2U, 0x5551U, 0x5552U);
+    candidate_residual.initialize(0xc3c3U, 0x6661U, 0x6662U);
+    alias_right.initialize(0U, 0x7771U, 0x7772U);
+    fill_residual_rms_m32_prefix_tail_fixture(
+        token_count, left.data(), right.data(), weight.data());
+    std::copy_n(right.data(), element_count, alias_right.data());
+    const std::vector<std::uint16_t> left_before = left.snapshot();
+    const std::vector<std::uint16_t> right_before = right.snapshot();
+    const std::vector<std::uint16_t> weight_before = weight.snapshot();
+
+    ready = launch_after_stale(test, stream, label + " baseline", [&]() {
+      return launch_residual_rms_m32_prefix_tail_baseline(
+          left.data(), right.data(), weight.data(), token_count,
+          baseline_residual.data(), baseline_normalized.data(), stream);
+    });
+    ready = ready &&
+            launch_after_stale(test, stream, label + " candidate alias-right",
+                               [&]() {
+                                 return launch_residual_rms_m32_prefix_tail_candidate(
+                                     left.data(), alias_right.data(),
+                                     weight.data(), token_count,
+                                     candidate_residual.data(),
+                                     alias_right.data(), stream);
+                               });
+    if (!ready) {
+      return;
+    }
+    expect_bf16_bits_equal(test, candidate_residual.data(),
+                           baseline_residual.data(), element_count,
+                           label + " residual");
+    expect_bf16_bits_equal(test, alias_right.data(),
+                           baseline_normalized.data(), element_count,
+                           label + " normalized alias-right");
+    left.expect_snapshot(test, left_before, label + " preserves left");
+    right.expect_snapshot(test, right_before, label + " preserves right");
+    weight.expect_snapshot(test, weight_before, label + " preserves weight");
+    baseline_residual.expect_guards(test, label + " baseline residual");
+    baseline_normalized.expect_guards(test, label + " baseline normalized");
+    candidate_residual.expect_guards(test, label + " candidate residual");
+    alias_right.expect_guards(test, label + " alias right/normalized");
+  }
+}
+
 void test_residual_rms_m32_nan_operand_order(TestContext& test,
                                               cudaStream_t stream) {
   const std::string label = "M32 residual RMSNorm NaN operand order";
@@ -8972,6 +9135,7 @@ int main() {
   test_residual_rms_fused(test, stream);
   test_residual_rms_fused_perf(test, stream);
   test_residual_rms_m32_fused_exact(test, stream);
+  test_residual_rms_m32_prefix_tail_exact(test, stream);
   test_residual_rms_m32_nan_operand_order(test, stream);
   test_prefill_m32_residual_rms_formal_perf(test, stream);
   test_outer_rms_tile_exact(test, stream);

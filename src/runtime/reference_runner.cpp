@@ -135,6 +135,8 @@ static_assert(kPrefillKernelTileMaximumTokens ==
               kQkRopeTileMaximumTokens);
 static_assert(kMaximumRequestPrefillChunkSize == 512U);
 static_assert(kReferenceHiddenSize == 5'120U);
+static_assert(kProductionProjectionSubtileTokens ==
+              reference_runner_detail::kPrefillResidualRmsM32Tokens);
 static_assert(kProductionProjectionSubtileTokens <=
               kMaximumProjectionTileTokenCount);
 static_assert(kMaximumProjectionTileTokenCount <=
@@ -1012,10 +1014,7 @@ bool use_qk_rope_tile(
 bool use_m32_prefill_residual_rms_fusion(
     const std::size_t token_count,
     const std::size_t hidden_size) noexcept {
-  return token_count != 0U &&
-         token_count <= kMaximumRequestPrefillChunkSize &&
-         token_count % kProductionProjectionSubtileTokens == 0U &&
-         hidden_size == kReferenceHiddenSize;
+  return prefill_residual_rms_m32_schedule(token_count, hidden_size).valid();
 }
 
 bool use_fp8_whole_chunk_prefill_projection(
@@ -3021,15 +3020,19 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
         }
         return check_cuda(status, operation, layer);
       };
+  const auto residual_rms_m32_schedule =
+      reference_runner_detail::prefill_residual_rms_m32_schedule(
+          token_count, kReferenceHiddenSize);
   const auto residual_norm_m32_tiles =
-      [this, token_count, &check_cuda](
+      [this, residual_rms_m32_schedule, &check_cuda](
           const std::uint16_t* const left,
           const std::uint16_t* const right,
           const std::uint16_t* const norm_weight,
           std::uint16_t* const residual_output,
           std::uint16_t* const normalized_output,
           const char* const operation, const std::size_t layer) noexcept {
-        for (std::size_t token_offset = 0U; token_offset < token_count;
+        for (std::size_t token_offset = 0U;
+             token_offset < residual_rms_m32_schedule.fused_prefix_tokens;
              token_offset += kProductionProjectionSubtileTokens) {
           const std::size_t element_offset =
               token_offset * kReferenceHiddenSize;
@@ -3044,11 +3047,33 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
             return false;
           }
         }
+        if (residual_rms_m32_schedule.fallback_tail_tokens != 0U) {
+          const std::size_t element_offset =
+              residual_rms_m32_schedule.fused_prefix_tokens *
+              kReferenceHiddenSize;
+          const std::size_t tail_elements =
+              residual_rms_m32_schedule.fallback_tail_tokens *
+              kReferenceHiddenSize;
+          if (!check_cuda(
+                  launch_residual_add_reference_cuda(
+                      left + element_offset, right + element_offset,
+                      tail_elements, residual_output + element_offset,
+                      stream_),
+                  operation, layer) ||
+              !check_cuda(
+                  launch_headwise_centered_rms_norm_reference_cuda(
+                      residual_output + element_offset, norm_weight,
+                      residual_rms_m32_schedule.fallback_tail_tokens,
+                      kReferenceHiddenSize, kRmsEpsilon,
+                      normalized_output + element_offset, stream_),
+                  operation, layer)) {
+            return false;
+          }
+        }
         return true;
       };
   const bool use_m32_residual_rms_fusion =
-      reference_runner_detail::use_m32_prefill_residual_rms_fusion(
-          token_count, kReferenceHiddenSize);
+      residual_rms_m32_schedule.valid();
 
   for (std::size_t token = 0U; token < token_count; ++token) {
     if (!check_cuda(launch_embedding_gather_reference_cuda(
@@ -3064,8 +3089,9 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
 
   for (std::size_t layer = 0U; layer < kReferenceDecoderLayerCount; ++layer) {
     const DecoderLayerWeights& layer_weights = weights_->layer(layer);
-    // The M32-tiled C32/C64 layer-(N-1) MLP boundary already produced layer
-    // N's normalized input. Layer 0 still normalizes the embedding explicitly.
+    // The M32-prefix plus reference-tail layer-(N-1) MLP boundary already
+    // produced layer N's normalized input. Layer 0 still normalizes the
+    // embedding explicitly.
     if ((!use_m32_residual_rms_fusion || layer == 0U) &&
         !check_cuda(launch_headwise_centered_rms_norm_reference_cuda(
                         views_.hidden[0],
@@ -3834,8 +3860,8 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
 
   // Match the non-logit step boundary even though this output is not consumed
   // by the following layer-major tile or by persistent state.
-  // The C32/C64 M32-tiled path folded this norm into the final layer's MLP
-  // residual boundary.
+  // The M32-prefix plus reference-tail path folded this norm into the final
+  // layer's MLP residual boundary.
   if (!use_m32_residual_rms_fusion &&
       !check_cuda(launch_headwise_centered_rms_norm_reference_cuda(
                       views_.hidden[0], weights_->final_norm().data,
