@@ -245,12 +245,13 @@ __global__ void pack_scaled_k_v_kernel(
     const std::uint16_t* const conv_qkv,
     const std::uint16_t* const k,
     const float* const gamma,
+    const std::size_t element_count,
     std::uint16_t* const k_g,
     std::uint16_t* const k_decay,
     std::uint16_t* const v) {
   const std::size_t index =
       static_cast<std::size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
-  if (index >= kHeadTokenElements) {
+  if (index >= element_count) {
     return;
   }
   const std::size_t dimension = index % kDimension;
@@ -795,6 +796,7 @@ void persistent_state_chunk64_kernel(
     const float* const gamma,
     const std::uint16_t* const state_input,
     std::uint16_t* const state_output,
+    const unsigned int chunk_count,
     std::uint16_t* const v_new,
     std::uint16_t* const boundary_state) {
   extern __shared__ unsigned char shared_raw[];
@@ -838,7 +840,7 @@ void persistent_state_chunk64_kernel(
         static_cast<int>(kDimension), wmma::mem_row_major);
   }
 
-  for (unsigned int chunk_index = 0U; chunk_index < kChunkCount;
+  for (unsigned int chunk_index = 0U; chunk_index < chunk_count;
        ++chunk_index) {
 #pragma unroll
     for (unsigned int key_block = 0U;
@@ -1153,6 +1155,7 @@ void reconstruct_norm_gate_chunk64_kernel(
     void* const /*context*/,
     void* const workspace,
     const std::size_t workspace_capacity_bytes,
+    const std::size_t token_count,
     const std::uint16_t* const conv_qkv,
     const std::uint16_t* const a,
     const std::uint16_t* const b,
@@ -1165,7 +1168,8 @@ void reconstruct_norm_gate_chunk64_kernel(
     const std::uint16_t* const silu_gate,
     const float norm_epsilon,
     const std::uint16_t* const output) noexcept {
-  return workspace == nullptr ||
+  return token_count == 0U || token_count > kTokenCount ||
+         token_count % kChunkSize != 0U || workspace == nullptr ||
          workspace_capacity_bytes < required_workspace_bytes() ||
          conv_qkv == nullptr || a == nullptr || b == nullptr ||
          A_log == nullptr || dt_bias == nullptr || state_input == nullptr ||
@@ -1195,6 +1199,7 @@ int destroy_context(void* const /*context*/) noexcept {
 int launch(void* const context,
            void* const workspace_raw,
            const std::size_t workspace_capacity_bytes,
+           const std::size_t token_count,
            const std::uint16_t* const conv_qkv,
            const std::uint16_t* const a,
            const std::uint16_t* const b,
@@ -1209,9 +1214,9 @@ int launch(void* const context,
            std::uint16_t* const output,
            void* const cuda_stream) noexcept {
   if (invalid_arguments(context, workspace_raw, workspace_capacity_bytes,
-                        conv_qkv, a, b, A_log, dt_bias, state_input,
-                        state_output, l2_epsilon, norm_weight, silu_gate,
-                        norm_epsilon, output)) {
+                        token_count, conv_qkv, a, b, A_log, dt_bias,
+                        state_input, state_output, l2_epsilon, norm_weight,
+                        silu_gate, norm_epsilon, output)) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
   (void)context;
@@ -1221,18 +1226,22 @@ int launch(void* const context,
     return static_cast<int>(cudaErrorInvalidValue);
   }
   const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  const std::size_t chunk_count = token_count / kChunkSize;
+  const std::size_t matrix_count = chunk_count * kValueHeadCount;
+  const std::size_t head_token_elements =
+      matrix_count * kChunkSize * kDimension;
   int status = static_cast<int>(cudaSuccess);
   (void)cudaGetLastError();
 
   normalize_qk_kernel<<<
-      static_cast<unsigned int>(kTokenCount * kQkHeadCount),
+      static_cast<unsigned int>(token_count * kQkHeadCount),
       kNormalizeThreads, 0U, stream>>>(conv_qkv, l2_epsilon, workspace.q,
                                        workspace.k);
   status = launch_grid_status();
   if (status != static_cast<int>(cudaSuccess)) {
     return status;
   }
-  prepare_gate_kernel<<<static_cast<unsigned int>(kMatrixCount),
+  prepare_gate_kernel<<<static_cast<unsigned int>(matrix_count),
                         kChunkThreads, 0U, stream>>>(
       a, b, A_log, dt_bias, workspace.gamma, workspace.beta);
   status = launch_grid_status();
@@ -1240,9 +1249,10 @@ int launch(void* const context,
     return status;
   }
   const unsigned int head_token_blocks = static_cast<unsigned int>(
-      (kHeadTokenElements + kThreads - 1U) / kThreads);
+      (head_token_elements + kThreads - 1U) / kThreads);
   pack_scaled_k_v_kernel<<<head_token_blocks, kThreads, 0U, stream>>>(
-      conv_qkv, workspace.k, workspace.gamma, workspace.k_g,
+      conv_qkv, workspace.k, workspace.gamma, head_token_elements,
+      workspace.k_g,
       workspace.k_decay, workspace.v);
   status = launch_grid_status();
   if (status != static_cast<int>(cudaSuccess)) {
@@ -1253,7 +1263,7 @@ int launch(void* const context,
       kChunkSize * kDimension * sizeof(Bf16) +
       2U * kChunkSize * kChunkSize * sizeof(float);
   fused_kkt_solve_block16_kernel<<<
-      static_cast<unsigned int>(kMatrixCount), kFusedSolveThreads,
+      static_cast<unsigned int>(matrix_count), kFusedSolveThreads,
       fused_solve_shared_bytes, stream>>>(
       workspace.k, workspace.gamma, workspace.beta, workspace.transform);
   status = launch_grid_status();
@@ -1261,7 +1271,7 @@ int launch(void* const context,
     return status;
   }
 
-  qk_scaled_chunk64_kernel<<<static_cast<unsigned int>(kMatrixCount),
+  qk_scaled_chunk64_kernel<<<static_cast<unsigned int>(matrix_count),
                              kQkThreads, kQkSharedBytes, stream>>>(
       workspace.q, workspace.k, workspace.gamma, workspace.qk);
   status = launch_grid_status();
@@ -1269,7 +1279,7 @@ int launch(void* const context,
     return status;
   }
 
-  recompute_w_u_chunk64_kernel<<<static_cast<unsigned int>(kMatrixCount),
+  recompute_w_u_chunk64_kernel<<<static_cast<unsigned int>(matrix_count),
                                  kWuThreads, kWuSharedBytes, stream>>>(
       workspace.transform, workspace.k_g, workspace.v, workspace.w,
       workspace.u);
@@ -1284,7 +1294,8 @@ int launch(void* const context,
       static_cast<unsigned int>(kValueHeadCount * 2U),
       kFusedSolveThreads, persistent_state_shared_bytes, stream>>>(
       workspace.w, workspace.u, workspace.k_decay, workspace.gamma,
-      state_input, state_output, workspace.v_new,
+      state_input, state_output, static_cast<unsigned int>(chunk_count),
+      workspace.v_new,
       workspace.boundary_state);
   status = launch_grid_status();
   if (status != static_cast<int>(cudaSuccess)) {
@@ -1294,7 +1305,7 @@ int launch(void* const context,
   constexpr std::size_t reconstruction_shared_bytes =
       kDimension * kChunkSize * sizeof(float);
   reconstruct_norm_gate_chunk64_kernel<<<
-      static_cast<unsigned int>(kMatrixCount), kThreads,
+      static_cast<unsigned int>(matrix_count), kThreads,
       reconstruction_shared_bytes, stream>>>(
       workspace.boundary_state, workspace.q, workspace.v_new,
       workspace.qk, workspace.gamma, norm_weight, silu_gate,
@@ -1357,13 +1368,13 @@ int launch(void* const workspace,
            const float norm_epsilon,
            std::uint16_t* const output,
            void* const cuda_stream) noexcept {
-  if (token_count != 512U) {
+  if (token_count == 0U || token_count > 512U || token_count % 64U != 0U) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
   return gdn_prefill_chunk64_reference_detail::launch(
-      nullptr, workspace, workspace_capacity_bytes, conv_qkv, a, b, A_log,
-      dt_bias, state_input, state_output, l2_epsilon, norm_weight, silu_gate,
-      norm_epsilon, output, cuda_stream);
+      nullptr, workspace, workspace_capacity_bytes, token_count, conv_qkv, a,
+      b, A_log, dt_bias, state_input, state_output, l2_epsilon, norm_weight,
+      silu_gate, norm_epsilon, output, cuda_stream);
 }
 
 int query_resources(int* const registers_per_thread,

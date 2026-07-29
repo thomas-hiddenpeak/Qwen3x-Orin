@@ -19,6 +19,7 @@ namespace q3x::runtime::gdn_prefill_chunk64_reference_detail {
     void* context,
     void* workspace,
     std::size_t workspace_capacity_bytes,
+    std::size_t token_count,
     const std::uint16_t* conv_qkv,
     const std::uint16_t* a,
     const std::uint16_t* b,

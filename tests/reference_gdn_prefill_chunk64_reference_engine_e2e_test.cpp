@@ -30,12 +30,11 @@ namespace {
 namespace runtime = q3x::runtime;
 namespace detail = q3x::runtime::reference_runner_detail;
 
-constexpr std::size_t kPromptTokens = 513U;
-constexpr std::size_t kPrefixTokens = 512U;
-constexpr std::size_t kExpectedRouteHits =
-    runtime::kRequestLinearLayerCount;
+constexpr std::size_t kDefaultPromptTokens = 513U;
+constexpr std::size_t kPrefillChunkTokens = 512U;
 constexpr std::uint32_t kExpectedGeneratedToken = 9'419U;
 constexpr std::string_view kExpectedGeneratedText = "Hello";
+std::size_t g_prompt_tokens = kDefaultPromptTokens;
 #if defined(Q3X_GDN_CHUNK64_NATIVE_TEST)
 constexpr std::string_view kRouteMarker = "GDN_CHUNK64_NATIVE";
 constexpr std::string_view kRunEnvironment =
@@ -97,6 +96,8 @@ struct Sample {
   double prefix_milliseconds = 0.0;
   double ttft_milliseconds = 0.0;
   std::size_t route_hits = 0U;
+  std::uint32_t generated_token = runtime::kReferenceVocabularySize;
+  std::string generated_text;
   bool semantic_oracle = false;
 };
 
@@ -177,10 +178,10 @@ class ScopedSnapshotHook {
 }
 
 [[nodiscard]] std::string repeated_hello_prompt() {
-  constexpr std::size_t kWords = kPromptTokens - 12U;
+  const std::size_t words = g_prompt_tokens - 12U;
   std::string prompt;
-  prompt.reserve(kWords * 6U);
-  for (std::size_t index = 0U; index < kWords; ++index) {
+  prompt.reserve(words * 6U);
+  for (std::size_t index = 0U; index < words; ++index) {
     if (index != 0U) {
       prompt.push_back(' ');
     }
@@ -202,17 +203,41 @@ void print_diagnostic(
 
 [[nodiscard]] bool expected_generation(
     const runtime::ReferenceGeneration& generation) {
-  return generation.prompt_token_ids.size() == kPromptTokens &&
-         generation.generated_token_ids.size() == 1U &&
-         generation.generated_token_ids.front() <
-             runtime::kReferenceVocabularySize &&
-         generation.stop_reason ==
-             runtime::ReferenceStopReason::kMaxNewTokens &&
-         generation.requested_prefill_chunk_size == kPrefixTokens &&
-         generation.effective_prefill_chunk_size == kPrefixTokens &&
-         generation.steps.size() == kPromptTokens &&
-         generation.generated_token_ids.front() == kExpectedGeneratedToken &&
-         std::string_view(generation.generated_text) == kExpectedGeneratedText;
+  const bool generic =
+      generation.prompt_token_ids.size() == g_prompt_tokens &&
+      generation.generated_token_ids.size() == 1U &&
+      generation.generated_token_ids.front() <
+          runtime::kReferenceVocabularySize &&
+      generation.stop_reason ==
+          runtime::ReferenceStopReason::kMaxNewTokens &&
+      generation.requested_prefill_chunk_size == kPrefillChunkTokens &&
+      generation.effective_prefill_chunk_size == kPrefillChunkTokens &&
+      generation.steps.size() == g_prompt_tokens;
+  return generic &&
+         (g_prompt_tokens != kDefaultPromptTokens ||
+          (generation.generated_token_ids.front() == kExpectedGeneratedToken &&
+           std::string_view(generation.generated_text) ==
+               kExpectedGeneratedText));
+}
+
+[[nodiscard]] std::size_t expected_prefix_executions() noexcept {
+  return runtime::reference_engine_detail::prefix_execution_count(
+      g_prompt_tokens - 1U, kPrefillChunkTokens);
+}
+
+[[nodiscard]] std::size_t expected_native_route_hits() noexcept {
+  std::size_t remaining = g_prompt_tokens - 1U;
+  std::size_t admitted_tiles = 0U;
+  while (remaining != 0U) {
+    const std::size_t tile =
+        runtime::reference_engine_detail::next_prefix_tile_token_count(
+            remaining, kPrefillChunkTokens);
+    if (tile >= 64U && tile % 64U == 0U) {
+      ++admitted_tiles;
+    }
+    remaining -= tile;
+  }
+  return admitted_tiles * runtime::kRequestLinearLayerCount;
 }
 
 [[nodiscard]] bool validate_native_resources() {
@@ -257,7 +282,7 @@ void print_diagnostic(
                               Sample& sample) {
   runtime::ReferenceGenerateOptions options;
   options.max_new_tokens = 1U;
-  options.prefill_chunk_size = kPrefixTokens;
+  options.prefill_chunk_size = kPrefillChunkTokens;
   options.logits_mode = runtime::ReferenceLogitsMode::kPredictedTokenOnly;
 
   (void)exchange_hits(0U);
@@ -281,16 +306,23 @@ void print_diagnostic(
   }
   sample.ttft_milliseconds =
       result.value->timing.time_to_first_token_milliseconds;
+  if (!result.value->generated_token_ids.empty()) {
+    sample.generated_token = result.value->generated_token_ids.front();
+  }
+  sample.generated_text = result.value->generated_text;
   sample.semantic_oracle = expected_generation(*result.value);
-  const std::size_t expected_hits = candidate ? kExpectedRouteHits : 0U;
+  const std::size_t expected_hits =
+      candidate ? expected_native_route_hits() : 0U;
   const bool structural_oracle =
-      result.value->timing.prefix_execution_milliseconds.size() == 1U &&
+      result.value->timing.prefix_execution_milliseconds.size() ==
+          expected_prefix_executions() &&
       std::isfinite(sample.prefix_milliseconds) &&
       sample.prefix_milliseconds > 0.0 &&
       std::isfinite(sample.ttft_milliseconds) &&
       sample.ttft_milliseconds > 0.0 && sample.route_hits == expected_hits;
 
   std::cout << kRouteMarker << "_SAMPLE phase=" << phase
+            << " prompt_tokens=" << g_prompt_tokens
             << " route=" << (candidate ? "candidate" : "baseline")
             << " prefix_ms=" << sample.prefix_milliseconds
             << " ttft_ms=" << sample.ttft_milliseconds
@@ -316,7 +348,7 @@ void print_diagnostic(
     std::size_t& route_hits) {
   runtime::ReferenceGenerateOptions options;
   options.max_new_tokens = 1U;
-  options.prefill_chunk_size = kPrefixTokens;
+  options.prefill_chunk_size = kPrefillChunkTokens;
   options.logits_mode = runtime::ReferenceLogitsMode::kPredictedTokenOnly;
   (void)exchange_hits(0U);
   runtime::ReferenceGenerateResult result;
@@ -333,7 +365,7 @@ void print_diagnostic(
   return !snapshot.contract_error &&
          snapshot.cuda_error == static_cast<int>(cudaSuccess) &&
          snapshot.calls == 1U &&
-         snapshot.committed_position == kPrefixTokens &&
+         snapshot.committed_position == g_prompt_tokens - 1U &&
          snapshot.region_bytes == runtime::kRequestGdnStateBytes;
 }
 
@@ -420,9 +452,10 @@ void print_diagnostic(
                          expected_generation(*candidate_result.value);
   const bool passed = valid_snapshot(baseline) && valid_snapshot(candidate) &&
                       baseline_hits == 0U &&
-                      candidate_hits == kExpectedRouteHits && finite &&
-                      semantics && std::isfinite(nrmse);
+                      candidate_hits == expected_native_route_hits() &&
+                      finite && semantics && std::isfinite(nrmse);
   std::cout << kRouteMarker << "_STATE_CHARACTERIZATION"
+            << " prompt_tokens=" << g_prompt_tokens
             << " elements=" << element_count
             << " unequal_bf16=" << unequal
             << " unequal_fraction=" << unequal_fraction
@@ -469,8 +502,21 @@ int main(const int argc, char** const argv) {
     return 6;
   }
   runtime::ReferenceEngineOptions options;
-  options.request_options.prefill_chunk_size = kPrefixTokens;
-  options.request_options.max_sequence_length = kPromptTokens + 1U;
+  const char* const prompt_tokens_environment =
+      std::getenv("Q3X_GDN_CHUNK64_PROMPT_TOKENS");
+  if (prompt_tokens_environment != nullptr) {
+    char* end = nullptr;
+    const unsigned long long parsed =
+        std::strtoull(prompt_tokens_environment, &end, 10);
+    if (end == prompt_tokens_environment || *end != '\0' || parsed < 13U ||
+        parsed > 4096U) {
+      std::cerr << "invalid Q3X_GDN_CHUNK64_PROMPT_TOKENS\n";
+      return 2;
+    }
+    g_prompt_tokens = static_cast<std::size_t>(parsed);
+  }
+  options.request_options.prefill_chunk_size = kPrefillChunkTokens;
+  options.request_options.max_sequence_length = g_prompt_tokens + 1U;
   options.projection_backend = runtime::ProjectionBackend::kSm87WeightOnly;
   runtime::ReferenceEngineCreateResult created =
       runtime::create_reference_engine(std::filesystem::path(model_directory),
@@ -517,8 +563,11 @@ int main(const int argc, char** const argv) {
       baseline.ttft_milliseconds - candidate.ttft_milliseconds;
   const bool positive = prefix_saved > 0.0 && ttft_saved > 0.0;
   const bool semantic_oracle =
-      baseline.semantic_oracle && candidate.semantic_oracle;
+      baseline.semantic_oracle && candidate.semantic_oracle &&
+      baseline.generated_token == candidate.generated_token &&
+      baseline.generated_text == candidate.generated_text;
   std::cout << kRouteMarker << "_DIRECTION"
+            << " prompt_tokens=" << g_prompt_tokens
             << " baseline_prefix_ms=" << baseline.prefix_milliseconds
             << " candidate_prefix_ms=" << candidate.prefix_milliseconds
             << " prefix_saved_ms=" << prefix_saved
@@ -538,7 +587,8 @@ int main(const int argc, char** const argv) {
     return 4;
   }
 #if defined(Q3X_GDN_CHUNK64_NATIVE_TEST)
-  if (!run_state_characterization(*created.value, prompt)) {
+  if (std::getenv("Q3X_GDN_CHUNK64_SKIP_STATE_CHARACTERIZATION") == nullptr &&
+      !run_state_characterization(*created.value, prompt)) {
     return 5;
   }
 #else

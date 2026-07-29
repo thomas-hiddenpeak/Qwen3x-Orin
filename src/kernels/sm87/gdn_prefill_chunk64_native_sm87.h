@@ -6,7 +6,7 @@
 
 namespace q3x::runtime::gdn_prefill_chunk64_native_detail {
 
-// Admission-only exact-C512 native SM87 FLA/WY pipeline. The implementation
+// Admission-only C64..C512 native SM87 FLA/WY pipeline. The implementation
 // is deliberately fixed to the authenticated model shape (Hg=16, H=48,
 // K=V=128, BT=64). It has no library context and accepts no fallback shape.
 // The caller owns one reusable workspace that carries the explicit FLA stage

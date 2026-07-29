@@ -348,11 +348,16 @@ template <std::size_t SpanCount>
 #if defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
 [[nodiscard]] bool use_prefill_gdn_chunk64_native_admission(
     const bool enabled, const ProjectionBackend backend,
-    const std::uint32_t first_position,
+    const std::uint32_t /*first_position*/,
     const std::size_t token_count, const void* const workspace,
     const std::size_t workspace_bytes) noexcept {
+  // The prefix scheduler emits C512/C256/C64 tiles plus C32/<=31 tails.
+  // Admit only complete C64 blocks at any sequence position; every tail
+  // remains on the established ordered path, so no padded token can mutate
+  // the recurrent state.
   return enabled && backend == ProjectionBackend::kSm87WeightOnly &&
-         first_position == 0U && token_count == 512U &&
+         token_count >= 64U && token_count <= 512U &&
+         token_count % 64U == 0U &&
          workspace != nullptr &&
          workspace_bytes >=
              gdn_prefill_chunk64_native_detail::workspace_bytes();
@@ -3130,7 +3135,8 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
                     prefill_gdn_chunk64_reference_context_,
                     prefill_gdn_chunk64_reference_workspace_,
                     prefill_gdn_chunk64_reference_workspace_bytes_,
-                    views_.projection[0], views_.linear_a, views_.linear_b,
+                    token_count, views_.projection[0], views_.linear_a,
+                    views_.linear_b,
                     attention->a_log.data, attention->dt_bias.data,
                     views_.gdn_state[layer], views_.gdn_state[layer],
                     kRmsEpsilon, attention->norm.data,
