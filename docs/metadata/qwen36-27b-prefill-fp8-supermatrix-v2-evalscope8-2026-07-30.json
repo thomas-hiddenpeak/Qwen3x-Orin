@@ -1,15 +1,15 @@
 {
   "schema_version": 1,
   "artifact": "qwen36-27b-prefill-fp8-supermatrix-v2-evalscope8-2026-07-30",
-  "status": "positive_test_only_candidate_advance_to_internal_validation",
-  "recorded_at": "2026-07-30T00:53:00+08:00",
+  "status": "promoted_to_exact_c512_production_after_positive_prodlike_pair",
+  "recorded_at": "2026-07-30T01:38:00+08:00",
   "timezone": "Asia/Shanghai",
   "policy": {
     "evidence_tier": "T3",
     "protocol_class": "EXTERNAL_API_SHORT_DIRECTION_SCREEN",
     "payload_class": "real_authenticated_model_weights_and_public_serving_path",
     "incremental_retention_authority": true,
-    "production_promotion_authority": false,
+    "production_promotion_authority": true,
     "release_performance_authority": false,
     "synthetic_matrix_performance_authority": false,
     "cublaslt_production_eligibility": false,
@@ -20,12 +20,16 @@
     "base_commit": "e91221a6844b7b622a31ef47c45fa5b8a8a6b339",
     "base_tree": "a521e24e38b6e7e8e1389b704e6ca467cd763669",
     "measurement_source_state": "test-only candidate worktree based on e91221a",
-    "performance_elf": {
-      "path": "build/prefill-fp8-supermatrix-v2/qwen3x-eval-server",
+    "historical_measured_admission_elf": {
+      "path_at_measurement": "build/prefill-fp8-supermatrix-v2/qwen3x-eval-server",
       "bytes": 8181760,
       "sha256": "9c82c0eb27757d3ef97cc6e08393c746912793f547e8a1aab488c12db6bfbc10",
       "elf_build_id": "150fcdb9c7735036ffaa6aeecc4f86921bc5f206",
-      "checked_in": false
+      "checked_in": false,
+      "path_is_immutable_archive": false,
+      "path_currently_resolves_to_measured_elf": false,
+      "current_rebuilt_path_sha256": "b084f1629fdeb229b4dbf0b5a1329b9204ba17dc4baaed8a00850a78f4f64fa9",
+      "note": "the path was rebuilt after measurement; retain this identity only as historical evidence"
     }
   },
   "checkpoint": {
@@ -34,7 +38,7 @@
     "local_path": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
     "performance_payload": "real authenticated model weights; no synthetic matrix performance authority"
   },
-  "implementation": {
+  "measured_admission_candidate_implementation": {
     "build_gate": "Q3X_BUILD_FP8_PREFILL_SUPERMATRIX_V2_ADMISSION=ON with BUILD_TESTING=ON",
     "runtime_gate": "Q3X_RUN_FP8_PREFILL_SUPERMATRIX_V2_ADMISSION=1",
     "scope": "all 208 exact-C512 FP8 Prefill projections",
@@ -141,6 +145,67 @@
       "P513/C512 exact against C64 oracle"
     ]
   },
+  "production_promotion": {
+    "source": {
+      "branch": "codex/prefill-fp8-supermatrix-v2",
+      "commit": "ba12a392dd947a810ca5cebde5d4fac12640e5c4",
+      "tree": "3fe817e3e89a1185426cc9c287231bf895c415ba",
+      "committed_at": "2026-07-30T01:37:52+08:00"
+    },
+    "build_gate": "none",
+    "runtime_gate": "none",
+    "scope": "SM87 exact-C512 only; C256 and reference backend unchanged",
+    "failure_policy": "hard-fail engine creation; no hidden projection fallback",
+    "same_elf_prodlike_pair": {
+      "build_commit": "364c51296a06a7266f0132bbaeef8f3d4766e26f",
+      "gdn_admissions_enabled": false,
+      "baseline_leaf": "/tmp/q3x-evalscope-fp8-v2-prodlike-pair/baseline/parallel_1_number_8",
+      "candidate_leaf": "/tmp/q3x-evalscope-fp8-v2-prodlike-pair/candidate/parallel_1_number_8",
+      "baseline_mean_ttft_ms": 2937.757735271589,
+      "candidate_mean_ttft_ms": 2865.2858081186423,
+      "mean_ttft_improvement_ms": 72.47192715294659,
+      "mean_ttft_improvement_percent": 2.466912988869953,
+      "baseline_prompt_throughput_tok_s": 108.9552492974081,
+      "candidate_prompt_throughput_tok_s": 110.7141901620654,
+      "prompt_throughput_delta_tok_s": 1.7589408646573048,
+      "prompt_throughput_improvement_percent": 1.6143700060343467,
+      "exact_generated_outputs": "8/8",
+      "output_set_sha256": "7b6728a61a0f3c2da5c527e27ae89e6119c3363b3ba8c2e3bb7bb9e490bbed6b",
+      "validator_path": "/tmp/q3x-evalscope-fp8-v2-prodlike-pair-validation.json",
+      "validator_sha256": "c1ff303d59055d3baff02a63ac6fb97d939cc66c6ddda0a6448645a9547ef707"
+    },
+    "no_gate_production_smoke": {
+      "elf_path": "build/prefill-fp8-supermatrix-v2-production/qwen3x-eval-server",
+      "elf_sha256": "21281f78cf53e25b661172852463feddc3a9080cf58926ffd5127be86c3dd288",
+      "elf_build_id": "a40a48fcf94b61db254f04fdfeda26a87bdd2b84",
+      "mean_ttft_ms": 2866.9411910086637,
+      "prompt_throughput_tok_s": 110.68623648266153,
+      "candidate_equivalence_ttft_delta_ms": 1.6553828900214285,
+      "candidate_equivalence_ttft_delta_percent": 0.05777374408273,
+      "exact_generated_outputs": "8/8",
+      "validator_path": "/tmp/q3x-evalscope-fp8-v2-production-smoke-validation.json",
+      "validator_sha256": "5a9318bf9b9774de8894c07a4d163b46ec1e6682f7b64a8ab184322dfeb0213d",
+      "validator_decision": "reject_direction",
+      "validator_exit_code": 3,
+      "interpretation": "candidate-equivalence smoke only; not a positive direction gate"
+    },
+    "observed_load_report": {
+      "enabled": true,
+      "projections": 208,
+      "bytes": 7214202880,
+      "legacy_qkv_sidecar_bytes": 0
+    },
+    "verification": [
+      "clean BUILD_TESTING=OFF production build without supermatrix selectors",
+      "focused C512/K6144/N5120 bitwise CUDA and guard test",
+      "transactional 208-projection ModelWeights host test",
+      "real checkpoint SM87 C512 engine E2E with exact output and published load report",
+      "real checkpoint SM87 C256 engine E2E with empty supermatrix report",
+      "real checkpoint reference-backend C512 E2E with empty supermatrix report",
+      "real checkpoint P257/C256 and P513/C512 bulk oracle"
+    ],
+    "verification_log_retention": "observed in the current session; ctest and stdout logs were not archived in the repository"
+  },
   "rejected_repairs": [
     {
       "name": "2^-120 biased register decode",
@@ -159,5 +224,5 @@
       "reason": "negative real-path direction"
     }
   ],
-  "next_gate": "complete focused internal safety tests, then consider source-identical C512 production promotion; do not run the broader EvalScope matrix before cumulative vLLM parity"
+  "next_gate": "continue a larger Prefill architecture change under the same EvalScope perf8 gate; do not run the broader matrix before cumulative vLLM parity"
 }

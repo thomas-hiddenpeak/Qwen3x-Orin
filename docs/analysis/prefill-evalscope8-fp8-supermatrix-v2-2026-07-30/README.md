@@ -1,8 +1,9 @@
 # FP8 projection-supermatrix v2 external direction gate
 
-Status: retained test-only candidate. The candidate passes the first real
-OpenAI-compatible `evalscope perf` gate and advances to internal validation.
-It is not yet a production-default or release-performance claim.
+Status: promoted to the exact-C512 production path after passing the real
+OpenAI-compatible `evalscope perf` direction gate, focused correctness tests,
+and real-checkpoint C256/C512 validation. It is not a release-performance or
+vLLM-parity claim.
 
 ## Decision first
 
@@ -21,6 +22,35 @@ The validator decision is `advance_to_internal_validation`. The 32-request
 confirmation, long-output run, capability suite, and test-set matrix were not
 run: this stage uses the cheapest real external performance gate to reject or
 retain an architecture.
+
+## Production promotion
+
+Before removing the gates, a second production-like same-ELF pair was built
+with every GDN admission disabled. It reproduced the direction independently:
+
+| EvalScope perf8 metric | Native baseline | Candidate | Change |
+| --- | ---: | ---: | ---: |
+| Mean TTFT | 2,937.757735 ms | 2,865.285808 ms | -72.471927 ms (-2.4669%) |
+| Prompt throughput | 108.955249 tok/s | 110.714190 tok/s | +1.758941 tok/s (+1.6144%) |
+| Total wall time | 36.537937 s | 35.957450 s | -0.580486 s |
+| Successful requests | 8/8 | 8/8 | unchanged |
+| Exact generated outputs | - | 8/8 | passed |
+
+The final no-gate production binary then measured 2,866.941191 ms mean TTFT
+and 110.686236 prompt tok/s. Its 8/8 outputs matched the production-like
+candidate, and its TTFT differed by only 1.655383 ms (0.0578%). This closes
+the discrepancy seen in an isolated absolute run: the promotion decision is
+the paired baseline-to-candidate delta, not an unpaired historical number.
+The validator intentionally labels this second comparison `reject_direction`
+because it is a candidate-to-candidate equivalence smoke, not another positive
+direction gate.
+
+Exact C512 now prepares the complete arena unconditionally for the SM87
+backend. The ready log observed `enabled=1`, `projections=208`, and
+`bytes=7214202880`; no CMake option or runtime environment selector is needed.
+C256 and the reference backend retain zero supermatrix statistics. A failed
+C512 inventory, allocation, memory-margin check, pack, or attach aborts engine
+creation instead of falling back.
 
 ## Real P513 fast direction
 
@@ -56,7 +86,7 @@ An exact 256-entry BF16 codebook is initialized once per persistent CTA.
 The equal-byte engine-lifetime sidecar covers all 208 projections and occupies
 7,214,202,880 bytes (6.71875 GiB). It is mutually exclusive with the older
 2.34375 GiB QKV-only Prefill sidecars. Decode output-projection sidecars remain
-unchanged. Explicit admission hard-fails if the post-create device-memory
+unchanged. Production C512 creation hard-fails if the post-create device-memory
 margin cannot be preserved; it never falls back to cuBLAS or cuBLASLt.
 
 Resource audit of the exact measured ELF:
@@ -117,5 +147,8 @@ SHA-256
 
 This result retains a cumulative native improvement. It does not claim vLLM
 parity: the frozen vLLM reference remains the end-stage market floor and is
-not restarted per candidate. cuBLASLt remains reference-only, MTP is disabled,
-and synthetic matrices have no performance authority.
+not restarted per candidate. The production-like result is still only 60.8%
+of the frozen vLLM prompt throughput and has 2.50x its mean TTFT, so the next
+work remains a larger Prefill architecture change rather than a broader test
+matrix. cuBLASLt remains reference-only, MTP is disabled, and synthetic
+matrices have no performance authority.
