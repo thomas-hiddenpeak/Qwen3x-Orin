@@ -177,6 +177,43 @@ single global approximation is not assumed sufficient. The first candidate
 uses the calibration already present in the checkpoint and measures actual
 trajectory error before adding a calibration pipeline.
 
+### Matched NCU verdict
+
+The same-real-checkpoint NCU audit is now complete. The current native FP8
+QKV kernel computes M512xN10240xK5120 in 3.47 ms under NCU; stock vLLM's
+merged QKVZ kernel computes M512xN16384xK5120 in 3.86 ms. Native uses 320
+M128xN128 CTA instances, 128 registers/thread, 79,872 bytes of dynamic shared
+memory, and 32.96% achieved occupancy. vLLM uses 16 persistent M64xN256 CTA
+instances, 255 registers/thread, 166,912 bytes of dynamic shared memory, and
+16.67% achieved occupancy. Despite half the occupancy and 1.6x the output
+work, vLLM reaches 53.74% tensor-pipe activity versus native 36.78%.
+
+The causal difference is on-SM dataflow. Native records 16,442,656 shared-load
+and 503,616 shared-store bank conflicts, 3.210 LG-throttle stall cycles per
+issue, and 2.835 MIO-throttle cycles per issue. The vLLM capture records no
+shared bank conflicts in these metrics, 0.00177 LG-throttle cycles, and 0.164
+MIO-throttle cycles. Therefore neither two-CTA residency nor the native shared
+E4M3 lookup/decode skeleton remains an architectural requirement. The full
+evidence and report hashes are pinned in
+[`analysis/prefill-p513-fp8-supermatrix-ncu-2026-07-29/README.md`](analysis/prefill-p513-fp8-supermatrix-ncu-2026-07-29/README.md).
+
+### Projection-supermatrix call topology
+
+The compatibility proof targets the whole FP8 family. At load time it forms
+logical same-input supermatrices without modifying the checkpoint:
+
+- linear attention: QKV + Z = N16384;
+- full attention: Q/gate + K + V = N14336; and
+- MLP: Gate + Up = N34816, with Down retaining its own K-heavy ownership.
+
+Each partition retains its own exact scalar weight scale and output address;
+merging is a scheduling and prepack contract, not a numerical rescaling. For
+FP8 this reduces 208 native large projection calls to 128 family calls (one
+merged input and one output per layer). For NVFP4 it reduces 192 calls to 128
+(one merged Gate+Up and one Down per layer). A QKVZ-only bring-up is allowed
+to establish correctness, but performance admission waits for the complete
+family on real P513.
+
 ## Budgets and stop-loss gates
 
 The terminal numerator is 512 Prefix tokens. The architectural milestones are:
