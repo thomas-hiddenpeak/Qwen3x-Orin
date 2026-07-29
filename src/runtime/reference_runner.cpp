@@ -1317,6 +1317,14 @@ ReferenceRunner& ReferenceRunner::operator=(ReferenceRunner&& other) noexcept {
   trace_enabled_ = std::exchange(other.trace_enabled_, false);
   trace_valid_ = std::exchange(other.trace_valid_, false);
   poisoned_ = std::exchange(other.poisoned_, false);
+  retained_prefill_hidden_valid_ =
+      std::exchange(other.retained_prefill_hidden_valid_, false);
+  retained_prefill_position_ =
+      std::exchange(other.retained_prefill_position_, 0U);
+  retained_prefill_input_token_ =
+      std::exchange(other.retained_prefill_input_token_, 0U);
+  retained_prefill_hidden_row_ =
+      std::exchange(other.retained_prefill_hidden_row_, 0U);
   trace_position_ = std::exchange(other.trace_position_, 0U);
   trace_input_token_ = std::exchange(other.trace_input_token_, 0U);
   return *this;
@@ -1406,6 +1414,10 @@ void ReferenceRunner::release() noexcept {
   trace_enabled_ = false;
   trace_valid_ = false;
   poisoned_ = false;
+  retained_prefill_hidden_valid_ = false;
+  retained_prefill_position_ = 0U;
+  retained_prefill_input_token_ = 0U;
+  retained_prefill_hidden_row_ = 0U;
   trace_position_ = 0U;
   trace_input_token_ = 0U;
 }
@@ -1471,6 +1483,7 @@ ReferenceStepOutcome ReferenceRunner::fail_step(
   }
   poisoned_ = true;
   trace_valid_ = false;
+  retained_prefill_hidden_valid_ = false;
   ReferenceStepOutcome outcome;
   outcome.status = status;
   return outcome;
@@ -1487,6 +1500,7 @@ ReferencePrefillTileOutcome ReferenceRunner::fail_prefill_tile(
   }
   poisoned_ = true;
   trace_valid_ = false;
+  retained_prefill_hidden_valid_ = false;
   ReferencePrefillTileOutcome outcome;
   outcome.status = status;
   return outcome;
@@ -1535,6 +1549,10 @@ ReferenceRunnerStatus ReferenceRunner::reset() noexcept {
   }
   poisoned_ = false;
   trace_valid_ = false;
+  retained_prefill_hidden_valid_ = false;
+  retained_prefill_position_ = 0U;
+  retained_prefill_input_token_ = 0U;
+  retained_prefill_hidden_row_ = 0U;
   trace_position_ = 0U;
   trace_input_token_ = 0U;
   return {};
@@ -1836,6 +1854,9 @@ ReferenceStepOutcome ReferenceRunner::step_impl(
   if (options.measure_timing) {
     started = Clock::now();
   }
+  // Any ordinary step may overwrite the shared hidden workspace. Retention is
+  // a one-call hand-off from a marked prefill tile to its dedicated finalizer.
+  retained_prefill_hidden_valid_ = false;
   if (!static_cast<bool>(*this)) {
     return fail_step(
         runner_status(ReferenceRunnerError::kInvalidRunner, "step"));
@@ -2711,6 +2732,9 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
   if (options.measure_timing) {
     started = Clock::now();
   }
+  // A new tile overwrites the prior layer-major workspace even if validation
+  // later rejects the call, so stale retained rows must fail closed.
+  retained_prefill_hidden_valid_ = false;
   if (!static_cast<bool>(*this)) {
     return fail_prefill_tile(
         runner_status(ReferenceRunnerError::kInvalidRunner,
@@ -2757,6 +2781,12 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
     tile.step_count = 1U;
     tile.steps[0] = std::move(*step_outcome.value);
     tile.timing = tile.steps[0].timing;
+    if (options.retain_last_hidden_for_logits) {
+      retained_prefill_hidden_valid_ = true;
+      retained_prefill_position_ = tile.steps[0].position;
+      retained_prefill_input_token_ = tile.steps[0].input_token_id;
+      retained_prefill_hidden_row_ = 0U;
+    }
     ReferencePrefillTileOutcome outcome;
     outcome.value.emplace(std::move(tile));
     return outcome;
@@ -3809,8 +3839,211 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
         Clock::now() - started;
     tile.timing.emplace(ReferenceStepTiming{elapsed.count()});
   }
+  if (options.retain_last_hidden_for_logits) {
+    retained_prefill_hidden_valid_ = true;
+    retained_prefill_position_ =
+        committed_length - 1U;
+    retained_prefill_input_token_ = input_token_ids[token_count - 1U];
+    retained_prefill_hidden_row_ = token_count - 1U;
+  }
   ReferencePrefillTileOutcome outcome;
   outcome.value.emplace(std::move(tile));
+  return outcome;
+}
+
+ReferenceStepOutcome ReferenceRunner::finish_prefill_from_retained_tile(
+    const std::uint32_t input_token_id,
+    const ReferenceStepOptions& options) noexcept {
+  using Clock = std::chrono::steady_clock;
+  Clock::time_point started{};
+  if (options.measure_timing) {
+    started = Clock::now();
+  }
+
+  // Consume the hand-off before validation or launch. A failed finalization
+  // poisons the request exactly like a failed ordinary step and can never
+  // accidentally reuse a workspace row after another operation.
+  const bool retained_valid = retained_prefill_hidden_valid_;
+  const std::uint32_t retained_position = retained_prefill_position_;
+  const std::uint32_t retained_input_token =
+      retained_prefill_input_token_;
+  const std::size_t retained_hidden_row = retained_prefill_hidden_row_;
+  retained_prefill_hidden_valid_ = false;
+
+  if (!static_cast<bool>(*this)) {
+    return fail_step(runner_status(
+        ReferenceRunnerError::kInvalidRunner,
+        "finish_prefill_from_retained_tile"));
+  }
+  if (poisoned_) {
+    ReferenceStepOutcome outcome;
+    outcome.status = runner_status(
+        ReferenceRunnerError::kPoisoned,
+        "finish_prefill_from_retained_tile");
+    return outcome;
+  }
+  if (!options.compute_logits || options.capture_trace ||
+      !is_valid_reference_logits_mode(options.logits_mode)) {
+    return fail_step(runner_status(
+        ReferenceRunnerError::kInvalidStepOptions,
+        "retained_prefill_logits_options"));
+  }
+  if (!retained_valid || state_->current_position() == 0U ||
+      retained_position + 1U != state_->current_position() ||
+      retained_input_token != input_token_id ||
+      retained_hidden_row >= kMaximumRequestPrefillChunkSize) {
+    return fail_step(runner_status(
+        ReferenceRunnerError::kInvalidStepOptions,
+        "retained_prefill_hidden_contract"));
+  }
+
+  ReferenceRunnerStatus launch_failure{};
+  const auto check_cuda = [&launch_failure](
+                              const int status,
+                              const char* const operation) noexcept {
+    if (status == static_cast<int>(cudaSuccess)) {
+      return true;
+    }
+    launch_failure = runner_status(ReferenceRunnerError::kCudaFailure,
+                                   operation, kReferenceNoLayer, status);
+    return false;
+  };
+  const bool prediction_only =
+      options.logits_mode == ReferenceLogitsMode::kPredictedTokenOnly;
+  const bool use_sm87_bf16_logits =
+      projection_backend_ == ProjectionBackend::kSm87WeightOnly &&
+      linear_weight_kind(weights_->lm_head()) != LinearWeightKind::kBf16;
+  const auto stream = reinterpret_cast<cudaStream_t>(stream_);
+  const std::uint16_t* const final_normalized_hidden =
+      views_.hidden[1] + retained_hidden_row * kReferenceHiddenSize;
+
+  if (use_sm87_bf16_logits) {
+    auto* const device_bf16_logits =
+        reinterpret_cast<std::uint16_t*>(views_.fp32_scratch);
+    if (!check_cuda(
+            launch_projection_to_bf16_cuda(
+                projection_backend_, weights_->lm_head(),
+                final_normalized_hidden, nullptr, 0U, device_bf16_logits,
+                stream_),
+            "retained_prefill_lm_head_sm87_bf16")) {
+      return fail_step(launch_failure);
+    }
+    if (prediction_only) {
+      constexpr std::size_t kGreedyWorkspaceBytes =
+          kReferenceVocabularySize * sizeof(std::uint16_t) +
+          kBf16GreedyArgmaxWorkspaceResults *
+              sizeof(Bf16GreedyArgmaxResult);
+      static_assert((kReferenceVocabularySize * sizeof(std::uint16_t)) %
+                            alignof(Bf16GreedyArgmaxResult) ==
+                        0U);
+      if (views_.fp32_scratch_elements <
+          (kGreedyWorkspaceBytes + sizeof(float) - 1U) / sizeof(float)) {
+        return fail_step(runner_status(
+            ReferenceRunnerError::kInvalidRequestState,
+            "retained_prefill_bf16_greedy_argmax_workspace"));
+      }
+      auto* const greedy_workspace =
+          reinterpret_cast<Bf16GreedyArgmaxResult*>(
+              device_bf16_logits + kReferenceVocabularySize);
+      if (!check_cuda(
+              launch_bf16_greedy_argmax_cuda(
+                  device_bf16_logits, kReferenceVocabularySize,
+                  greedy_workspace, stream_),
+              "retained_prefill_bf16_greedy_argmax") ||
+          !check_cuda(
+              static_cast<int>(cudaMemcpyAsync(
+                  pinned_logits_, greedy_workspace,
+                  sizeof(Bf16GreedyArgmaxResult), cudaMemcpyDeviceToHost,
+                  stream)),
+              "retained_prefill_logits_prediction_d2h")) {
+        return fail_step(launch_failure);
+      }
+    } else if (!check_cuda(
+                   static_cast<int>(cudaMemcpyAsync(
+                       pinned_logits_, device_bf16_logits,
+                       kReferenceVocabularySize * sizeof(std::uint16_t),
+                       cudaMemcpyDeviceToHost, stream)),
+                   "retained_prefill_logits_bf16_d2h")) {
+      return fail_step(launch_failure);
+    }
+  } else if (!check_cuda(
+                 launch_projection_reference_cuda(
+                     weights_->lm_head(), final_normalized_hidden,
+                     views_.fp32_scratch, stream_),
+                 "retained_prefill_lm_head") ||
+             !check_cuda(
+                 static_cast<int>(cudaMemcpyAsync(
+                     pinned_logits_, views_.fp32_scratch,
+                     kReferenceVocabularySize * sizeof(float),
+                     cudaMemcpyDeviceToHost, stream)),
+                 "retained_prefill_logits_d2h")) {
+    return fail_step(launch_failure);
+  }
+
+  const cudaError_t sync_status = cudaStreamSynchronize(stream);
+  if (sync_status != cudaSuccess) {
+    return fail_step(runner_status(
+        ReferenceRunnerError::kCudaFailure,
+        "retained_prefill_logits_synchronize", kReferenceNoLayer,
+        static_cast<int>(sync_status)));
+  }
+
+  ReferenceStepResult result;
+  result.position = retained_position;
+  result.input_token_id = input_token_id;
+  if (prediction_only && use_sm87_bf16_logits) {
+    const auto& greedy =
+        *static_cast<const Bf16GreedyArgmaxResult*>(pinned_logits_);
+    if (greedy.has_nonfinite != 0U) {
+      return fail_step(runner_status(
+          ReferenceRunnerError::kNonFiniteLogits,
+          "retained_prefill_bf16_greedy_argmax"));
+    }
+    if (greedy.index >= kReferenceVocabularySize) {
+      return fail_step(runner_status(
+          ReferenceRunnerError::kCudaFailure,
+          "retained_prefill_bf16_greedy_argmax_result"));
+    }
+    result.prediction.emplace(ReferenceStepPrediction{greedy.index});
+  } else {
+    const reference_runner_detail::LogitsAnalysis analysis =
+        use_sm87_bf16_logits
+            ? reference_runner_detail::analyze_bf16_logits_bits(
+                  static_cast<const std::uint16_t*>(pinned_logits_),
+                  kReferenceVocabularySize)
+            : (prediction_only
+                   ? reference_runner_detail::analyze_bf16_argmax_in_place(
+                         static_cast<float*>(pinned_logits_),
+                         kReferenceVocabularySize)
+                   : reference_runner_detail::analyze_bf16_logits_in_place(
+                         static_cast<float*>(pinned_logits_),
+                         kReferenceVocabularySize));
+    if (!analysis.ok()) {
+      return fail_step(runner_status(
+          ReferenceRunnerError::kNonFiniteLogits,
+          "retained_prefill_bf16_logits_analysis"));
+    }
+    if (prediction_only) {
+      result.prediction.emplace(ReferenceStepPrediction{
+          static_cast<std::uint32_t>(analysis.predicted_index)});
+    } else {
+      ReferenceStepLogits logits;
+      logits.predicted_token_id =
+          static_cast<std::uint32_t>(analysis.predicted_index);
+      logits.chosen_logit = analysis.maximum;
+      logits.max_log_probability = analysis.max_log_probability;
+      logits.logsumexp = analysis.logsumexp;
+      result.logits.emplace(logits);
+    }
+  }
+  if (options.measure_timing) {
+    const std::chrono::duration<double, std::milli> elapsed =
+        Clock::now() - started;
+    result.timing.emplace(ReferenceStepTiming{elapsed.count()});
+  }
+
+  ReferenceStepOutcome outcome;
+  outcome.value.emplace(std::move(result));
   return outcome;
 }
 

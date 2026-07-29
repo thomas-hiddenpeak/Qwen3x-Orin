@@ -45,6 +45,7 @@ enum class PhaseCall : std::uint8_t {
   kPrefixStep,
   kPrefixTile,
   kFinishPrefill,
+  kFinishPrefillFromTile,
   kDecodeStep,
 };
 
@@ -187,6 +188,25 @@ runtime::ReferenceStepOutcome fake_decode_step(
     const runtime::ReferenceStepOptions& options) {
   FakeRunner& fake = *static_cast<PhaseContext*>(context)->runner;
   fake.phase_calls.push_back(PhaseCall::kDecodeStep);
+  return fake_step(&fake, input_token, options);
+}
+
+runtime::ReferenceStepOutcome fake_finish_prefill_from_tile(
+    void* const context,
+    const std::uint32_t input_token,
+    const runtime::ReferenceStepOptions& options) {
+  FakeRunner& fake = *static_cast<PhaseContext*>(context)->runner;
+  fake.phase_calls.push_back(PhaseCall::kFinishPrefillFromTile);
+  runtime::ReferenceStepOutcome outcome;
+  if (fake.next_position == 0U) {
+    outcome.status.error = runtime::ReferenceRunnerError::kInvalidStepOptions;
+    outcome.status.operation = "fake_retained_prefill_position";
+    return outcome;
+  }
+  // The real callback returns logits for the final position already committed
+  // by the tile and never advances request state. Reuse the scalar result
+  // builder at position P-1 while preserving next_position == P.
+  --fake.next_position;
   return fake_step(&fake, input_token, options);
 }
 
@@ -556,6 +576,132 @@ void test_explicit_phase_plans(TestContext& test) {
                       detail::GenerationControlError::kInvalidArgument &&
                   fake.inputs.empty(),
               "an incomplete decode plan fails before phase execution");
+}
+
+void test_all_prompt_tile_admission(TestContext& test) {
+  const auto run_shape = [&test](
+                             const std::size_t prompt_size,
+                             const std::vector<std::size_t>& expected_tiles,
+                             const runtime::ReferenceLogitsMode logits_mode) {
+    FakeRunner fake;
+    fake.predictions = {runtime::kQwen36ImEndTokenId};
+    PhaseContext context{&fake};
+
+    detail::PrefillPlan prefill_plan;
+    prefill_plan.context = &context;
+    prefill_plan.prefix_step = fake_prefix_step;
+    prefill_plan.finish_prefill = fake_finish_prefill;
+    prefill_plan.prefix_tile = fake_prefix_tile;
+    prefill_plan.finish_prefill_from_tile =
+        fake_finish_prefill_from_tile;
+    detail::DecodePlan decode_plan;
+    decode_plan.context = &context;
+    decode_plan.decode_step = fake_decode_step;
+
+    std::vector<std::uint32_t> prompt(prompt_size);
+    for (std::size_t index = 0U; index < prompt.size(); ++index) {
+      prompt[index] = static_cast<std::uint32_t>(1'000U + index);
+    }
+    detail::GenerationControlOptions control_options =
+        options(1U, static_cast<std::uint32_t>(prompt_size), false, 512U,
+                logits_mode);
+    control_options.prefill_all_prompt_tokens = true;
+    const auto result = detail::run_generation_control(
+        prompt, control_options, prefill_plan, decode_plan);
+
+    std::vector<std::size_t> actual_tiles;
+    actual_tiles.reserve(fake.tile_inputs.size());
+    for (const auto& tile : fake.tile_inputs) {
+      actual_tiles.push_back(tile.size());
+    }
+    bool only_final_tile_retains =
+        fake.tile_options.size() == expected_tiles.size() &&
+        !fake.tile_options.empty();
+    for (std::size_t index = 0U; index < fake.tile_options.size(); ++index) {
+      only_final_tile_retains =
+          only_final_tile_retains &&
+          fake.tile_options[index].retain_last_hidden_for_logits ==
+              (index + 1U == fake.tile_options.size());
+    }
+    bool phase_order =
+        fake.phase_calls.size() == expected_tiles.size() + 1U &&
+        !fake.phase_calls.empty() &&
+        fake.phase_calls.back() == PhaseCall::kFinishPrefillFromTile;
+    for (std::size_t index = 0U; index < expected_tiles.size(); ++index) {
+      phase_order = phase_order &&
+                    fake.phase_calls[index] == PhaseCall::kPrefixTile;
+    }
+    const bool correct_result_arm =
+        result &&
+        (logits_mode == runtime::ReferenceLogitsMode::kFullStatistics
+             ? result.value->steps.back().logits.has_value() &&
+                   !result.value->steps.back().prediction.has_value()
+             : !result.value->steps.back().logits.has_value() &&
+                   result.value->steps.back().prediction.has_value());
+    test.expect(
+        result && actual_tiles == expected_tiles && only_final_tile_retains &&
+            phase_order && fake.next_position == prompt_size &&
+            fake.inputs == std::vector<std::uint32_t>({prompt.back()}) &&
+            result.value->steps.size() == prompt_size &&
+            result.value->steps.back().position == prompt_size - 1U &&
+            result.value->steps.back().input_token_id == prompt.back() &&
+            correct_result_arm &&
+            result.value->timing.prefix_execution_milliseconds.size() ==
+                expected_tiles.size() &&
+            result.value->timing.finish_prefill_milliseconds == 1.0 &&
+            has_consistent_prefill_timing(result.value->timing),
+        "all-prompt admission tiles every prompt token and finalizes the "
+        "already-committed last step without advancing state");
+  };
+
+  constexpr auto kFull = runtime::ReferenceLogitsMode::kFullStatistics;
+  constexpr auto kPredicted =
+      runtime::ReferenceLogitsMode::kPredictedTokenOnly;
+  run_shape(32U, {32U}, kFull);
+  run_shape(64U, {64U}, kPredicted);
+  run_shape(256U, {256U}, kPredicted);
+  run_shape(407U, {256U, 64U, 64U, 23U}, kPredicted);
+  run_shape(481U, {256U, 64U, 64U, 64U, 32U, 1U}, kPredicted);
+  run_shape(512U, {512U}, kPredicted);
+  run_shape(513U, {512U, 1U}, kPredicted);
+  run_shape(564U, {512U, 32U, 20U}, kPredicted);
+  run_shape(695U, {512U, 64U, 64U, 32U, 23U}, kPredicted);
+  run_shape(713U, {512U, 64U, 64U, 64U, 9U}, kPredicted);
+  run_shape(1'025U, {512U, 512U, 1U}, kPredicted);
+
+  FakeRunner fake;
+  fake.predictions = {runtime::kQwen36ImEndTokenId};
+  PhaseContext context{&fake};
+  detail::PrefillPlan incomplete_plan;
+  incomplete_plan.context = &context;
+  incomplete_plan.prefix_step = fake_prefix_step;
+  incomplete_plan.finish_prefill = fake_finish_prefill;
+  incomplete_plan.prefix_tile = fake_prefix_tile;
+  detail::DecodePlan decode_plan;
+  decode_plan.context = &context;
+  decode_plan.decode_step = fake_decode_step;
+  detail::GenerationControlOptions admitted =
+      options(1U, 32U, false, 32U);
+  admitted.prefill_all_prompt_tokens = true;
+  auto result = detail::run_generation_control(
+      std::vector<std::uint32_t>(32U, 7U), admitted, incomplete_plan,
+      decode_plan);
+  test.expect(!result &&
+                  result.error ==
+                      detail::GenerationControlError::kInvalidArgument,
+              "all-prompt admission fails closed without a retained-hidden "
+              "finalizer");
+
+  incomplete_plan.finish_prefill_from_tile =
+      fake_finish_prefill_from_tile;
+  admitted.capture_trace = true;
+  result = detail::run_generation_control(
+      std::vector<std::uint32_t>(32U, 7U), admitted, incomplete_plan,
+      decode_plan);
+  test.expect(!result &&
+                  result.error ==
+                      detail::GenerationControlError::kInvalidArgument,
+              "all-prompt admission rejects incompatible trace capture");
 }
 
 std::vector<std::size_t> prefix_schedule(
@@ -1262,6 +1408,7 @@ int main() {
   TestContext test;
   test_prefill_decode_and_stop(test);
   test_explicit_phase_plans(test);
+  test_all_prompt_tile_admission(test);
   test_explicit_c512_prefill_schedule(test);
   test_explicit_phase_plan_shape_matrix(test);
   test_nvtx_phase_ranges_preserve_control_semantics(test);

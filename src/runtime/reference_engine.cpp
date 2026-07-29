@@ -13,6 +13,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <future>
@@ -40,6 +41,15 @@ inline constexpr double kProductionDecodeGraphMaximumPrepareMilliseconds =
     1'000.0;
 inline constexpr std::uint64_t kProductionDecodeGraphMaximumFreeDropBytes =
     256ULL * 1024ULL * 1024ULL;
+
+// Same-ELF test-only admission. The ordinary runner schedule remains the
+// unconditional default; only the exact value "1" moves the final prompt
+// token into the bulk-prefill tile path.
+[[nodiscard]] bool prefill_all_prompt_tokens_environment_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_PREFILL_ALL_PROMPT_TOKENS_ADMISSION");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
 
 struct DecodeGraphP1DeviceBuffer {
   void* data = nullptr;
@@ -964,6 +974,19 @@ struct EngineStepContext {
   }
   return context.runner->prefill_prefix_tile(input_token_ids, token_count,
                                              options);
+}
+
+[[nodiscard]] ReferenceStepOutcome finish_prefill_from_retained_tile(
+    void* const opaque_context, const std::uint32_t input_token_id,
+    const ReferenceStepOptions& options) {
+  auto& context = *static_cast<EngineStepContext*>(opaque_context);
+  if (context.capture_trace) {
+    return {{}, {ReferenceRunnerError::kTraceUnavailable, 0,
+                 kReferenceNoLayer,
+                 "engine_retained_prefill_trace"}};
+  }
+  return context.runner->finish_prefill_from_retained_tile(input_token_id,
+                                                            options);
 }
 
 [[nodiscard]] ReferenceStepOutcome decode_with_prepared_graph_cache(
@@ -2883,6 +2906,9 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
     control_options.capture_trace = options.capture_trace;
     control_options.logits_mode = options.logits_mode;
     control_options.emit_nvtx_phase_ranges = options.emit_nvtx_phase_ranges;
+    control_options.prefill_all_prompt_tokens =
+        !options.capture_trace && options.prefill_chunk_size > 1U &&
+        prefill_all_prompt_tokens_environment_enabled();
 
     EngineTokenObserverContext observer_context;
     if (options.token_observer != nullptr) {
@@ -2900,6 +2926,8 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
     prefill_plan.prefix_step = step_with_trace;
     prefill_plan.finish_prefill = step_with_trace;
     prefill_plan.prefix_tile = prefill_prefix_tile;
+    prefill_plan.finish_prefill_from_tile =
+        finish_prefill_from_retained_tile;
 
     reference_engine_detail::DecodePlan decode_plan;
     decode_plan.context = &step_context;
@@ -2995,6 +3023,8 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
     generation.effective_prefill_chunk_size =
         options.capture_trace ? kDefaultRequestPrefillChunkSize
                               : options.prefill_chunk_size;
+    generation.all_prompt_tokens_prefilled_by_tiles =
+        control_options.prefill_all_prompt_tokens;
     generation.timing = std::move(control.value->timing);
     generation.steps = std::move(control.value->steps);
     generation.traces = std::move(traces);

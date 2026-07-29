@@ -765,6 +765,8 @@ void PrintGeneration(
          << generation.requested_prefill_chunk_size << '\n'
          << "prefill.effective_chunk_size="
          << generation.effective_prefill_chunk_size << '\n'
+         << "prefill.all_prompt_tokens_prefilled_by_tiles="
+         << (generation.all_prompt_tokens_prefilled_by_tiles ? 1 : 0) << '\n'
          << "load.total_ms=" << load.total_milliseconds << '\n'
          << "load.tokenizer_ms=" << load.tokenizer_milliseconds << '\n'
          << "load.resident_ms=" << load.resident_load_milliseconds << '\n'
@@ -981,6 +983,8 @@ void PrintBenchmarkReport(
          << '\n'
          << "prefill.effective_chunk_size=" << report.prefill_chunk_size
          << '\n'
+         << "prefill.all_prompt_tokens_prefilled_by_tiles="
+         << (report.all_prompt_tokens_prefilled_by_tiles ? 1 : 0) << '\n'
          << "load.total_ms=" << load.total_milliseconds << '\n'
          << "load.tokenizer_ms=" << load.tokenizer_milliseconds << '\n'
          << "load.resident_ms=" << load.resident_load_milliseconds << '\n'

@@ -131,7 +131,9 @@ enum class ReferenceStopReason : std::uint8_t {
 
 struct ReferenceGenerationTiming {
   // One aggregate duration for each prefix_step or prefix_tile execution, in
-  // execution order. The final prompt token has its own field below.
+  // execution order. Under the test-only whole-prompt admission, the final
+  // prompt token is included here; its logits-only finalize duration remains
+  // in finish_prefill_milliseconds below.
   std::vector<double> prefix_execution_milliseconds;
   double finish_prefill_milliseconds = 0.0;
   double prompt_prefill_milliseconds = 0.0;
@@ -162,6 +164,9 @@ struct ReferenceGeneration {
       kDefaultRequestPrefillChunkSize;
   std::uint32_t effective_prefill_chunk_size =
       kDefaultRequestPrefillChunkSize;
+  // True only when every prompt token was committed by prefill tiles and the
+  // final prediction was produced from the retained last hidden row.
+  bool all_prompt_tokens_prefilled_by_tiles = false;
   ReferenceGenerationTiming timing;
   std::vector<ReferenceStepResult> steps;
   std::vector<ReferenceTraceDigest> traces;
@@ -604,6 +609,10 @@ struct PrefillPlan {
   StepFunction prefix_step = nullptr;
   StepFunction finish_prefill = nullptr;
   PrefillTileFunction prefix_tile = nullptr;
+  // Required only by the test-only whole-prompt tile admission. This callback
+  // finalizes logits from the last prompt step already committed by a marked
+  // prefix tile; it must not append or commit another model-state step.
+  StepFunction finish_prefill_from_tile = nullptr;
 };
 
 struct DecodePlan {
@@ -619,6 +628,11 @@ struct GenerationControlOptions {
   bool capture_trace = false;
   ReferenceLogitsMode logits_mode = ReferenceLogitsMode::kFullStatistics;
   bool emit_nvtx_phase_ranges = false;
+  // Test-only admission. When enabled with a chunk size greater than one, all
+  // prompt tokens are submitted to prefix tiles and the final tile retains its
+  // last normalized hidden row for finish_prefill_from_tile. Default-off keeps
+  // the production prompt-(P-1) plus scalar-final-step schedule unchanged.
+  bool prefill_all_prompt_tokens = false;
   void* committed_token_context = nullptr;
   CommittedTokenFunction committed_token = nullptr;
 };
