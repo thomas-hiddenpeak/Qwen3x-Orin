@@ -1,0 +1,298 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-gate-c512-k128-double-production-2026-07-29",
+  "status": "promoted-production-exact-c512-gate-up-k128-double-buffer",
+  "recorded_at": "2026-07-29T12:26:47+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "baseline_commit": "398305c",
+    "baseline_subject": "perf: promote A-stationary C512 Gate order",
+    "production_commit": "d7aa73b62a22e511f31d8accab87bb79155f59c4",
+    "production_subject": "perf: promote K128 C512 Gate pipeline",
+    "production_tree": "ad9c257e9bf2c406d399172d44601ac973aff5b8",
+    "changed_files": [
+      "include/q3x/kernels/sm87_weight_only_gemv.h",
+      "src/kernels/sm87/weight_only_gemv.cu",
+      "tests/projection_backend_dispatch_test.cu",
+      "tests/sm87_nvfp4_prefill_gate_up_c512_cublaslt_pair_screen.cu",
+      "tests/sm87_nvfp4_prefill_gate_up_l2_persist_screen.cu"
+    ]
+  },
+  "policy": {
+    "performance_decision_payload": "full resident real checkpoint and native generation path",
+    "direction_rule": "run one real P513 baseline/candidate pair first; build the complete harness only after a positive direction",
+    "retention_rule": "compare each experiment with the retained native champion; keep a stable positive result and update the champion",
+    "promotion_rule": "promote only through native real-model correctness, mirrored timing, profiler attribution, and full-suite gates",
+    "synthetic_performance_authority": "NONE",
+    "cublaslt_role": "REFERENCE_ONLY",
+    "cublaslt_production_eligibility": "NONE",
+    "mtp_used": false
+  },
+  "production_change": {
+    "phase": "Prefill",
+    "route": "exact-C512 NVFP4 Gate and Up only",
+    "shape": "M512xN17408xK5120",
+    "baseline": {
+      "tile": "M128xN256xK64",
+      "pipeline": "three shared slots, one K64 cp.async group and one CTA publication per stage",
+      "stage_count": 80,
+      "activation_layout": "M128xLD72 per slot",
+      "dynamic_shared_bytes": 96256
+    },
+    "promoted": {
+      "kernel": "nvfp4_w4a16_gate_c512_m128_n256_bswizzle_scale512_k128_2stage_256t_kernel",
+      "tile": "M128xN256xK128",
+      "pipeline": "two shared slots; each slot contains two ordered K64 cp.async commit groups and is published once by a CTA barrier",
+      "stage_count": 40,
+      "activation_layout": "M128xLD136 per slot",
+      "dynamic_shared_bytes": 118784,
+      "grid": "272 CTAs in the retained strict one-dimensional A-stationary order",
+      "threads_per_cta": 256,
+      "active_blocks_per_sm": 1
+    },
+    "mechanism": [
+      "Preserve the proven K64 async-copy group size and source order.",
+      "Consume two K64 halves from one resident K128 slot before recycling it.",
+      "Reduce shared-stage publication and CTA barrier count from 80 to 40 without changing global sectors, scale-window granularity, MMA count, or accumulation order."
+    ],
+    "unchanged": [
+      "canonical packed NVFP4 weights and canonical E4M3 scales",
+      "compact 32-byte B half landing and retained half swizzle",
+      "K512 scale windows",
+      "table-free exact E2M1 decoder and shared E4M3-to-BF16 codebook",
+      "MMA and FP32 accumulation order",
+      "coalesced BF16 epilogue",
+      "strict one-dimensional A-stationary CTA traversal",
+      "C256 Gate/Up, Down, FP8, GDN, Decode, ABI, and scheduling",
+      "zero persistent sidecar and zero workspace"
+    ],
+    "resources": {
+      "registers_per_thread": {"baseline": 244, "promoted": 249},
+      "allocated_registers_per_thread": {"baseline": 248, "promoted": 256},
+      "static_shared_bytes": {"baseline": 512, "promoted": 512},
+      "dynamic_shared_bytes": {"baseline": 96256, "promoted": 118784},
+      "local_bytes": {"baseline": 0, "promoted": 0},
+      "threads_per_cta": 256,
+      "active_blocks_per_sm": {"baseline": 1, "promoted": 1}
+    }
+  },
+  "predecessor_direction_rejections": [
+    {
+      "candidate": "group four M tiles per N panel before advancing N",
+      "baseline_prefix_ms": 2322.552,
+      "candidate_prefix_ms": 2332.299,
+      "prefix_delta_ms": 9.747,
+      "result": "REJECT_AND_REVERT"
+    },
+    {
+      "candidate": "group seventeen M tiles per N-panel sequence",
+      "baseline_prefix_ms": 2322.552,
+      "candidate_prefix_ms": 2337.986,
+      "prefix_delta_ms": 15.434,
+      "result": "REJECT_AND_REVERT"
+    },
+    {
+      "candidate": "four-slot K64 raw-A/raw-B pipeline",
+      "baseline_prefix_ms": 2323.716,
+      "candidate_prefix_ms": 2328.550,
+      "prefix_delta_ms": 4.834,
+      "result": "REJECT_AND_REVERT"
+    }
+  ],
+  "environment": {
+    "device": "NVIDIA Jetson AGX Orin Developer Kit",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "l2_bytes": 4194304,
+    "nvpmodel": "MAXN",
+    "cpu_affinity": "taskset --cpu-list 11",
+    "fixed_frequency_readback": {
+      "cpu_hz": 2201600000,
+      "gpu_hz": 1300500000,
+      "emc_hz": 3200000000
+    },
+    "fan_pwm": 255
+  },
+  "real_generation_direction": {
+    "model": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "prompt": "P513; 501 space-separated copies of hello in the pinned non-thinking chat template",
+    "rendered_prompt_tokens": 513,
+    "prefix_tokens": 512,
+    "max_new_tokens": 1,
+    "prefill_chunk_size": 512,
+    "projection_backend": "sm87_weight_only",
+    "baseline": {
+      "prefix_ms": 2323.716,
+      "finish_prefill_ms": 126.574,
+      "ttft_ms": 2450.290
+    },
+    "candidate": {
+      "prefix_ms": 2293.976,
+      "finish_prefill_ms": 126.919,
+      "ttft_ms": 2420.895
+    },
+    "result": {
+      "prefix_saved_ms": 29.740,
+      "prefix_latency_reduction_percent": 1.279838,
+      "direction": "POSITIVE"
+    },
+    "oracle": {
+      "generated_token_id": 9419,
+      "generated_text": "Hello",
+      "step_count": 513
+    }
+  },
+  "formal_real_model_b_c_c_b": {
+    "order": ["B1", "C1", "C2", "B2"],
+    "runs": {
+      "B1": {"prefix_ms": 2322.624, "finish_prefill_ms": 126.440, "ttft_ms": 2449.064},
+      "C1": {"prefix_ms": 2294.256, "finish_prefill_ms": 127.014, "ttft_ms": 2421.270},
+      "C2": {"prefix_ms": 2293.495, "finish_prefill_ms": 126.704, "ttft_ms": 2420.199},
+      "B2": {"prefix_ms": 2322.834, "finish_prefill_ms": 124.973, "ttft_ms": 2447.807}
+    },
+    "result": {
+      "baseline_prefix_ms": 2322.729,
+      "candidate_prefix_ms": 2293.8755,
+      "prefix_saved_ms": 28.8535,
+      "prefix_latency_reduction_percent": 1.242224,
+      "prefix_speedup": 1.012578494,
+      "baseline_prefix_tokens_per_second": 220.430364,
+      "candidate_prefix_tokens_per_second": 223.203047,
+      "baseline_ttft_ms": 2448.4355,
+      "candidate_ttft_ms": 2420.7345,
+      "ttft_saved_ms": 27.701,
+      "ttft_speedup": 1.011443220,
+      "both_candidate_runs_faster_than_both_baseline_runs": true,
+      "exact_oracle_every_run": true,
+      "gate": "PASS"
+    }
+  },
+  "correctness": {
+    "pinned_real_weight_bundle": "Qwen3.6-27B-NVFP4 layer-0 Gate and Up",
+    "bf16_elements_compared_per_branch": 8912896,
+    "eager_replays_per_branch": 2,
+    "graph_replays_per_branch": 2,
+    "gate_mismatches": 0,
+    "up_mismatches": 0,
+    "nonfinite_values": 0,
+    "guards": "intact",
+    "input_immutability": "PASS",
+    "invalid_contract": "PASS"
+  },
+  "matched_ncu": {
+    "authority": "causal diagnostic after positive real-generation result",
+    "payload": "pinned real layer-0 Gate weight and scale tensors with deterministic BF16 activation",
+    "shape": "M512xN17408xK5120",
+    "launches_per_binary": 1,
+    "set": "full",
+    "replay_mode": "kernel",
+    "metrics": {
+      "duration_ms": {"baseline": 4.665280, "candidate": 4.406944, "change_percent": -5.537417},
+      "registers_per_thread": {"baseline": 244, "candidate": 249},
+      "achieved_occupancy_percent": {"baseline": 16.743704, "candidate": 16.718785},
+      "executed_warp_instructions": {"baseline": 150330048, "candidate": 144095808, "change_percent": -4.147035},
+      "global_load_sectors": {"baseline": 17408000, "candidate": 17408000},
+      "l2_read_sectors": {"baseline": 17408000, "candidate": 17408000},
+      "l2_read_hit_sectors": {"baseline": 10321920, "candidate": 10321920},
+      "l2_read_miss_sectors": {"baseline": 7086080, "candidate": 7086080},
+      "l2_read_hit_rate_percent": {"baseline": 60.555572, "candidate": 60.554464},
+      "tensor_throughput_percent_elapsed": {"baseline": 46.362924, "candidate": 49.147110},
+      "ordinary_shared_load_bank_conflicts": {"baseline": 0, "candidate": 5570560},
+      "shared_load_wavefronts": {"baseline": 33423360, "candidate": 38993920, "change_percent": 16.666667},
+      "shared_store_bank_conflicts": {"baseline": 337464, "candidate": 690063},
+      "ldgsts_shared_wavefronts": {"baseline": 9052160, "candidate": 9052160},
+      "warp_stall_samples": {
+        "barrier": {"baseline": 2191, "candidate": 1853, "change_percent": -15.426746},
+        "mio_throttle": {"baseline": 2627, "candidate": 1964, "change_percent": -25.237914},
+        "wait": {"baseline": 35527, "candidate": 33417, "change_percent": -5.939145},
+        "short_scoreboard": {"baseline": 523, "candidate": 1351},
+        "long_scoreboard": {"baseline": 1463, "candidate": 1824}
+      }
+    },
+    "interpretation": [
+      "Global and L2 read sectors, hits, and misses are unchanged, so the promotion is not a traffic-reduction or L2-persistence result.",
+      "Halving stage publications lowers executed instructions 4.15%, barrier stalls 15.43%, and MIO-throttle samples 25.24%; Tensor utilization rises 6.01% relative.",
+      "The wider LD136 activation row introduces 5,570,560 ordinary shared-load bank conflicts and higher scoreboard stalls. A bounded successor should retain K128 publication while presenting the two K64 halves as independent conflict-free LD72 planes."
+    ]
+  },
+  "production_nsys": {
+    "prefix_nvtx_host_ms": 2302.400832,
+    "kernel_calls": 8209,
+    "gpu_raw_ms": 2282.970400,
+    "gpu_union_ms": 2281.471360,
+    "gpu_span_ms": 2301.551808,
+    "gpu_idle_ms": 20.080448,
+    "gpu_overlap_ms": 1.499040,
+    "top_marginal_intervals": [
+      {"rank": 1, "family": "NVFP4 Gate/Up K128", "calls": 128, "raw_ms": 563.383040, "marginal_ms": 561.884000},
+      {"rank": 2, "family": "GDN", "calls": 1536, "raw_ms": 488.595296, "marginal_ms": 488.595296},
+      {"rank": 3, "family": "NVFP4 Down", "calls": 64, "raw_ms": 426.793920, "marginal_ms": 426.793920},
+      {"rank": 4, "family": "FP8 attention output", "calls": 64, "raw_ms": 162.069120, "marginal_ms": 162.069120},
+      {"rank": 5, "family": "FP8 QKV", "calls": 48, "raw_ms": 155.482400, "marginal_ms": 155.482400},
+      {"rank": 6, "family": "FP8 Z", "calls": 48, "raw_ms": 99.272576, "marginal_ms": 99.272576},
+      {"rank": 7, "family": "FP8 full-attention Q", "calls": 16, "raw_ms": 80.158432, "marginal_ms": 80.158432},
+      {"rank": 8, "family": "bulk attention", "calls": 16, "raw_ms": 76.348640, "marginal_ms": 76.348640}
+    ],
+    "baseline_to_candidate_attribution": {
+      "gate_marginal_saved_ms": 31.392256,
+      "prefix_gpu_union_saved_ms": 31.412128,
+      "prefix_host_saved_ms": 31.547616,
+      "interpretation": "The Gate/Up marginal saving accounts for the complete observed Prefix reduction; other leading intervals remain stable. Gate/Up remains the largest Prefill critical interval after promotion."
+    }
+  },
+  "verification": {
+    "full_release_ctest": {
+      "declared_tests": 88,
+      "runnable_tests_passed": 76,
+      "environment_or_policy_skips": 12,
+      "code_failures": 0,
+      "elapsed_seconds": 68.66
+    },
+    "final_main_generation": {
+      "prefix_ms": 2292.839,
+      "finish_prefill_ms": 125.459,
+      "ttft_ms": 2418.297,
+      "generated_token_id": 9419,
+      "generated_text": "Hello",
+      "step_count": 513,
+      "status": "PASS"
+    },
+    "production_cublaslt_isolation": "PASS"
+  },
+  "artifacts": {
+    "baseline_runner": {"path": "/tmp/q3x-prefill-gate-c512-a-stationary-current-baseline", "bytes": 7566848, "sha256": "60b31148896a1d728368ba4e064a18fc9af1df155fcad9e1d96b15359ff963e9"},
+    "candidate_runner": {"path": "/tmp/q3x-prefill-gate-k128-double-candidate", "bytes": 7632408, "sha256": "4aab9c124f1b1bbdc51a3bf7716aa9069ad9edb804ca50a621eb90e280e2eb90"},
+    "final_main_runner": {"path": "/tmp/q3x-prefill-gate-k128-final-main-binary", "bytes": 7632408, "sha256": "00f26a4bb96211dbacb85760c2a7276a9111eb47d060f3b729e94bfe621fd015"},
+    "formal_logs": {
+      "B1": {"path": "/tmp/q3x-prefill-gate-k128-formal-b1.log", "bytes": 9002, "sha256": "f0fbd796708ee7484dbc8ecdb605080b2763cf49febf30680dc1981cac96dc18"},
+      "C1": {"path": "/tmp/q3x-prefill-gate-k128-formal-c1.log", "bytes": 9002, "sha256": "2e94abbef94989e2d67d008d270612501e9d3ac81605f101498e08e5fe08949f"},
+      "C2": {"path": "/tmp/q3x-prefill-gate-k128-formal-c2.log", "bytes": 9002, "sha256": "ceb97119ad68df60d6751b8c043725007ac2917cabe2aa4cf325518a0ac20593"},
+      "B2": {"path": "/tmp/q3x-prefill-gate-k128-formal-b2.log", "bytes": 9002, "sha256": "2daae7ab1c0e97bd079083abcfc4d782f68dd36568379d976fbd2151eb67e689"}
+    },
+    "retention_log": {"path": "/tmp/q3x-prefill-gate-k128-retention.log", "bytes": 19594, "sha256": "96fc12ce3531308cb247bababd34c1367e30e3eb3b52bb6a833f81818e52d88d"},
+    "baseline_ncu_report": {"path": "/tmp/q3x-prefill-gate-c512-a-stationary-candidate-full.ncu-rep", "bytes": 14975219, "sha256": "af68a3f940088d47435486f3d5718a8239d7b77e38c44751d93abde8225fe173"},
+    "candidate_ncu_report": {"path": "/tmp/q3x-prefill-gate-k128-candidate-full.ncu-rep", "bytes": 15075539, "sha256": "a26514c394a35126f45d8fd8f72025c3b34ce2c91a0d30e32a2b55b0b72330b5"},
+    "production_nsys_report": {"path": "/tmp/q3x-prefill-gate-k128-production-p513.nsys-rep", "bytes": 853360, "sha256": "70d5be1eaa7e24a005bf095f0ce776eb617eb60fa25eeb702a8e0aa23e13d939"},
+    "production_nsys_sqlite": {"path": "/tmp/q3x-prefill-gate-k128-production-p513.sqlite", "bytes": 2416640, "sha256": "0ce55a543adcaa7da47eca091a0401a7695b7238039836472d6b5b26246bd469"},
+    "full_ctest_log": {"path": "/tmp/q3x-prefill-gate-k128-full-ctest-final.log", "bytes": 15154, "sha256": "ecc13614c898d910f459f6a7aae21a756cc0c35f8b7ec7b8168b8f72a237ebd4"},
+    "final_main_generation_log": {"path": "/tmp/q3x-prefill-gate-k128-final-main.log", "bytes": 9002, "sha256": "31c8884562e22767fe698a343c67955fe8e3bd9531d8d6020eedc4ff2e1dd932"}
+  },
+  "decision": {
+    "result": "PROMOTE",
+    "production_route": "exact C512 NVFP4 Gate/Up only",
+    "new_native_production_baseline": "M128xN256xK128 two-slot pipeline in strict one-dimensional A-stationary order",
+    "new_p513_prefix_anchor_ms": 2293.8755,
+    "new_p513_prefix_anchor_tokens_per_second": 223.203047,
+    "external_reference_execution_for_decision": "NOT_RUN",
+    "cublaslt_decision_authority": "NONE",
+    "mtp_used": false,
+    "next": "retain K128 publication but split each activation slot into two independent LD72 K64 planes; run real P513 direction first, then exact/resource/mirrored/NCU/full-suite validation only if positive"
+  },
+  "limitations": [
+    "The formal end-to-end result is batch one, one fixed P513 prompt, max one generated token, one checkpoint revision, one Orin, and one mirrored B-C-C-B process family.",
+    "The NCU activation is deterministic BF16 rather than a captured layer-0 activation tensor; weights and scales are the pinned real checkpoint tensors.",
+    "The promoted layout introduces ordinary shared-load bank conflicts, so this is a retained intermediate champion rather than a claim of a finished Gate dataflow.",
+    "The 223.20 token/s anchor remains far below the long-term 2k--8k token/s Prefill target and does not close the architecture gap by itself."
+  ]
+}

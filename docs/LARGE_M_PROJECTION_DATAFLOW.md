@@ -8,7 +8,10 @@ BS512/BF16/dequant matched-NCU decomposition is pinned at commit `9908add`,
 and the 256-thread M128xN256 successor is retained at commit `375f8df`.  Its
 source-identical M64-to-M128 matched-NCU attribution is pinned to that same
 implementation commit. Commit `55da501` promotes this cell for the exact C512
-Gate/Up production route after real-path P513 and full validation.
+Gate/Up production route after real-path P513 and full validation. Commit
+`398305c` promotes strict one-dimensional A-stationary CTA traversal, and
+commit `d7aa73b` promotes the K128/two-slot pipeline after real-model B-C-C-B,
+matched NCU, and the full Release suite.
 
 This document defines the next Prefill projection work.  The self-hosted
 kernel line is the only line eligible for production: cuBLASLt is an external
@@ -16,9 +19,11 @@ performance reference and has no production-dispatch, fallback, or promotion
 eligibility.  Historical commits and measurements that called a cuBLASLt
 bridge a production route are retained below for provenance, but that status
 is explicitly revoked by the qualification policy in this revision. The
-exact C512 Gate/Up production route now uses the 256-thread M128xN256
-BS512 cell; C256 remains on its independent M128xN128 route. This promoted
-cell is also the native baseline that the next C512 experiments must beat.
+exact C512 Gate/Up production route now uses the 256-thread
+M128xN256xK128 BS512 cell with a two-slot pipeline and strict one-dimensional
+A-stationary traversal; C256 remains on its independent M128xN128 route. This
+promoted cell is also the native baseline that the next C512 experiments must
+beat.
 All timing and profiler evidence in this plan is governed by the
 [real-model performance evidence policy](REAL_MODEL_PERFORMANCE_POLICY.md).
 
@@ -30,8 +35,9 @@ All timing and profiler evidence in this plan is governed by the
    production selector.
 2. The M64xN256 PairLookup kernel is the reproducible historical native
    control; CF3 superseded it, structured BS512 superseded CF3, and the
-   256-thread M128xN256 reuse cell superseded structured BS512 and is now the
-   exact-C512 native production and development baseline.
+   256-thread M128xN256 reuse cell superseded structured BS512. Its later
+   A-stationary K128/two-slot configuration is now the exact-C512 native
+   production and development baseline.
    Pinned layer-0 real-weight Gate+Up runs measure PairLookup at about
    11.42--11.45 ms versus 7.20--7.26 ms for the best zero-cuBLASLt-workspace
    reference.  That external reference still uses a reusable 170-MiB BF16
@@ -766,6 +772,31 @@ overcome the added read misses and three mapping registers. Gate/Up and Down
 therefore keep separate grid-order policies. See
 [`metadata/qwen36-27b-prefill-gate-c512-a-stationary-production-2026-07-29.json`](metadata/qwen36-27b-prefill-gate-c512-a-stationary-production-2026-07-29.json).
 
+The next pipeline-depth screen first rejects two partial reversals of that
+order. Switching M tiles after four N panels regresses real P513 Prefix by
+9.747 ms, and switching after seventeen panels regresses it by 15.434 ms. A
+four-slot K64 A/B pipeline also regresses Prefix by 4.834 ms. These results
+keep the strict full A-stationary traversal and show that adding nominal copy
+distance without changing the publication unit is not useful.
+
+The promoted successor instead combines two ordered K64 `cp.async` commit
+groups in one resident K128 slot. A two-slot ring still carries the same 80
+K64 copy groups, but only 40 CTA barriers publish them. Formal full-model
+B-C-C-B lowers mean P513 Prefix from **2,322.7290 to 2,293.8755 ms**, saving
+28.8535 ms and raising Prefix throughput from **220.430364 to 223.203047
+token/s**. Every real-model run returns token 9419, text `Hello`, and 513
+steps; pinned real Gate/Up eager and Graph replays are bitwise exact; all 76
+runnable Release tests pass with 12 expected skips.
+
+Matched NCU lowers one real-weight Gate launch from **4.665280 to 4.406944
+ms**. Global and L2 read sectors, hits, and misses are identical, while
+instructions fall 4.15%, barrier stalls fall 15.43%, MIO-throttle samples fall
+25.24%, and Tensor utilization rises from 46.36% to 49.15%. The LD136 A row
+does introduce 5,570,560 ordinary shared-load bank conflicts and higher
+scoreboard stalls. The next bounded cell therefore retains K128 publication
+but presents its two K64 activation halves as independent LD72 planes. See
+[`metadata/qwen36-27b-prefill-gate-c512-k128-double-production-2026-07-29.json`](metadata/qwen36-27b-prefill-gate-c512-k128-double-production-2026-07-29.json).
+
 ## Triton and vLLM design-reference screen
 
 The reference screen pins Triton `78420176` and vLLM `2899dca`. Their native
@@ -817,7 +848,7 @@ problem.
    routes and their readiness/hit/fallback observability. cuBLASLt dispatch,
    contexts, scratch, and fallback are already absent from production; keep the
    comparator in an isolated repeatable reference harness only.
-2. Preserve the promoted native-only P513 anchor at 219.560810 Prefix token/s.
+2. Preserve the promoted native-only P513 anchor at 223.203047 Prefix token/s.
    The matched BS512/BF16/dequant NCU diagnostic is complete and
    identifies feed/decode instruction density rather than L2 volume as the
    primary Gate gap.  The external reference retains diagnostic authority
@@ -834,8 +865,9 @@ problem.
    complete: identical HMMA work, half the compressed-B decode/dependency
    operations, 33.56% fewer warp instructions, and 1.090064x lower profiled
    duration verify the mechanism. Preserve its zero-spill one-CTA exception
-   and the larger-M reuse. The later promoted strict 1D A-stationary order is
-   now the production baseline at 244 registers/thread.
+   and the larger-M reuse. The later promoted strict 1D A-stationary order and
+   K128/two-slot publication are now the production baseline at 249
+   registers/thread and 118,784 dynamic shared bytes.
 6. The first coupled 48-byte raw-B/K256-scale consumer-order cell is rejected:
    it regresses real P513 Prefix by 27.049 ms and increases async-landing
    excessive wavefronts by 74.07%. Preserve compact 32-byte landing. Next,
@@ -853,7 +885,10 @@ problem.
    that removes total work. The complete grid-order screen is positive:
    strict 1D A-stationary order saves 6.291 ms on formal P513 B-C-C-B and is
    promoted; do not replace it with the measured-slower equivalent 2D grid.
-   Re-run the same
+   The grouped-4, grouped-17, and four-slot K64 direction cells are rejected.
+   Next retain K128 publication while splitting A into two conflict-free LD72
+   K64 planes; this targets the 5,570,560 shared-load conflicts introduced by
+   LD136 without restoring 80 CTA barriers. Re-run the same
    pinned real-weight six-round B-C-C-B screen against the current retained
    native champion after each complete configuration; keep every stable
    all-positive result and update that champion.  Run matched NCU to attribute

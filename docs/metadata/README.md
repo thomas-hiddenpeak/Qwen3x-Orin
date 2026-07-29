@@ -1607,6 +1607,20 @@ The diagnostic Phase 3 records are:
   replays are bitwise exact and all 76 runnable Release tests pass with 12
   policy/environment skips. C256, Down, FP8, Decode, GDN, MTP, and the
   cuBLASLt reference-only production policy are unchanged.
+- [`qwen36-27b-prefill-gate-c512-k128-double-production-2026-07-29.json`](qwen36-27b-prefill-gate-c512-k128-double-production-2026-07-29.json),
+  which promotes the exact-C512 Gate/Up M128xN256 pipeline from 80 published
+  K64 stages in three slots to 40 published K128 stages in two slots while
+  preserving the same 80 ordered K64 `cp.async` groups. Formal real-model
+  B-C-C-B lowers mean P513 Prefix from **2322.7290 to 2293.8755 ms** and raises
+  throughput from **220.430364 to 223.203047 token/s**; both candidate runs
+  beat both native baselines and preserve token 9419 (`Hello`). Matched NCU
+  lowers one real Gate from **4.665280 to 4.406944 ms**, with identical global
+  and L2 read sectors but 4.15% fewer instructions, 15.43% fewer barrier-stall
+  samples, and 25.24% fewer MIO-throttle samples. The new LD136 row also
+  exposes 5,570,560 shared-load conflicts, defining the next LD72 split-plane
+  screen. All 76 runnable Release tests pass with 12 expected skips; C256,
+  Down, FP8, GDN, Decode, MTP, and cuBLASLt's reference-only status are
+  unchanged.
 - [`qwen36-27b-prefill-gdn-b8-block-transition-screen.json`](qwen36-27b-prefill-gdn-b8-block-transition-screen.json),
   which selects the test-only sequential FP32-B8 GDN dataflow and rejects the
   measured WY control. C256 reaches **2.76977x** versus production M16 while
