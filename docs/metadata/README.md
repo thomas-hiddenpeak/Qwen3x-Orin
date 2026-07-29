@@ -1739,6 +1739,23 @@ The diagnostic Phase 3 records are:
   later bounded profile remains admissible for an explicit causal question;
   it cannot reverse the rejection. cuBLASLt is neither linked nor executed,
   and MTP is unused.
+- [`qwen36-27b-prefill-gdn-c16-warp-row-epilogue-retention-2026-07-29.json`](qwen36-27b-prefill-gdn-c16-warp-row-epilogue-retention-2026-07-29.json),
+  which records the materially revised successor at commit `fc597e9`. A
+  bounded NSys/NCU diagnosis attributes the predecessor's regression to
+  sixteen serial 256-thread reduction trees per C16 CTA. The successor maps
+  one row per warp in two eight-row batches while preserving the exact
+  `(i,i+64)`, `(i+32,i+96)`, then 16/8/4/2/1 FP32 addition order. T1 and the
+  complete 37,748,736-word P513 GDN-state gate remain bitwise, with unchanged
+  64-register/38,184-byte-shared/zero-local/four-CTA resources. All six
+  snapshot-free real P513 rounds are positive: Prefix falls from 2556.550133
+  to 2529.929521 ms (**1.010522274x**, 26.620613 ms saved), while TTFT falls
+  from 2665.298000 to 2638.661993 ms (**1.010094513x**). The gains clear the
+  maximum matched noise by 126.4x/115.0x. NSys attributes 27.700000 ms per
+  request to the closed kernel interval, and NCU shows fewer instructions and
+  a 35.998% lower barrier-stall ratio. The candidate becomes the test-only
+  native experimental incumbent; production still awaits the separate
+  P257/P513/P769/P1025 promotion gate. cuBLASLt is neither linked nor
+  executed, and MTP is unused.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

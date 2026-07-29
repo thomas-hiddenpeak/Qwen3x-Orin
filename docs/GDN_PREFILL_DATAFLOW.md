@@ -1,13 +1,18 @@
 # Exact Prefill GDN dataflow on SM87
 
-Status: the P0 exact composite is implemented at commit `4c135d5` as an
-isolated test-only CUDA cell, passed T1 synthetic correctness/resource gates,
-and passed the P513/C512 complete-GDN-state correctness gate at `6e668f5`.
-Its first snapshot-free real-model generation-path direction screen is
-negative: Prefix is 2558.744418 ms for baseline versus 2565.174709 ms for the
-candidate, or 0.997493235x. The candidate is therefore rejected as a
-test-only performance incumbent. Formal retention and production promotion
-were not run; production dispatch remains unchanged.
+Status: the original P0 exact composite is implemented at commit `4c135d5` as
+an isolated test-only CUDA cell, passed T1 synthetic correctness/resource
+gates, and passed the P513/C512 complete-GDN-state correctness gate at
+`6e668f5`. Its CTA-serial sixteen-row epilogue was rejected by the first
+snapshot-free real-model direction screen at 0.997493235x. A bounded
+NSys/NCU diagnosis then identified sixteen serial 256-thread reduction trees
+as the loss. Commit `fc597e9` replaces that epilogue with two eight-row warp
+batches while preserving the exact reduction order. The revised candidate is
+retained as the test-only native experimental incumbent after all six real
+P513 rounds passed: Prefix falls from 2556.550133 to 2529.929521 ms
+(1.010522274x), and TTFT falls from 2665.298000 to 2638.661993 ms
+(1.010094513x). Production dispatch remains unchanged pending the separate
+P257/P513/P769/P1025 promotion gate.
 FlashLinearAttention and Mamba are architecture references only. No source,
 generated code, binary, package, or runtime dependency from either project is
 copied or introduced.
@@ -152,11 +157,15 @@ flowchart LR
 One CTA still owns one value head. After each token's FP32 state update and
 raw output are complete, the raw result is encoded to BF16 exactly as today
 and placed in a padded `uint16_t raw_output[16][129]` tile. The tile costs
-4,128 bytes. After the recurrence, the CTA processes the 16 token rows with
-the same FP32 sum-of-squares pairing, `rsqrtf`, gamma multiply, SiLU, and
-BF16-RNE output order as the current standalone epilogue. The recurrence state
-is still rounded after every token; only the raw-output global write/read
-boundary is replaced by a shared BF16 boundary.
+4,128 bytes. The first implementation then processed the 16 token rows
+serially with sixteen CTA-wide 256-thread reduction trees. The retained
+revision assigns one row to each warp and covers C16 in two eight-warp
+batches. Each lane forms `(i,i+64)` and `(i+32,i+96)`, combines those pairs,
+and then applies shuffle strides 16/8/4/2/1, preserving the standalone
+epilogue's FP32 addition order before `rsqrtf`, gamma, SiLU, and BF16-RNE.
+The recurrence state remains rounded after every token; only the raw-output
+global write/read boundary and the redundant CTA-wide synchronization are
+removed.
 
 The production exact body reports 64 registers, 34,056 static shared bytes,
 zero local bytes, and four CTAs/SM. The T1 compiler and device query now report
@@ -270,35 +279,88 @@ must return through a new real generation-path direction screen. The
 normalized record is
 [`qwen36-27b-prefill-gdn-c16-norm-gate-p513-direction-rejection-2026-07-29.json`](metadata/qwen36-27b-prefill-gdn-c16-norm-gate-p513-direction-rejection-2026-07-29.json).
 
+### Warp-row successor retention on 2026-07-29
+
+The bounded diagnostic asked one question: why did the serial composite lose
+despite removing the standalone epilogue boundary? In the old trace, 1,536
+production recurrence calls take 488.448096 ms and 48 standalone epilogues
+take 32.742624 ms, or 521.190720 ms together. The old composite takes
+526.216832 ms, 5.026112 ms more than that combined baseline. Matched NCU
+shows unchanged four-CTA occupancy, but 13,920,924 warp instructions and a
+1.165107 barrier-stall ratio versus 13,378,716 and 0.789614 for recurrence
+alone. Source and SASS inspection ties that excess to the sixteen serial
+CTA-wide reduction trees, not to occupancy.
+
+Commit `fc597e9` implements the predeclared exact warp-row mapping. T1 again
+passes finite and NaN raw-output/final-output/state bitwise checks,
+in-place/disjoint state, Graph replay, guards, immutable inputs, invalid calls,
+and the 64-register/38,184-byte-shared/zero-local/four-CTA resource gate. The
+real P513 engine test again proves 0/1,536 baseline/candidate route hits,
+token 9419/text `Hello`/513 steps, and zero unequal words in the complete
+37,748,736-word GDN state at positions 512 and 513.
+
+The snapshot-free fixed-clock direction screen is positive by about 27.04 ms,
+so the candidate advances to formal retention. Each of six rounds first runs
+an incumbent-only B-B-B-B noise cell and then one B-C-C-B comparison in the
+same engine and ELF. All six Prefix and TTFT comparisons are positive.
+
+| Metric | Baseline | Candidate | Saved | Ratio | Maximum matched noise |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Prefix | 2556.550133 ms | 2529.929521 ms | 26.620613 ms | 1.010522274x | 0.0083235% |
+| TTFT | 2665.298000 ms | 2638.661993 ms | 26.636007 ms | 1.010094513x | 0.0087757% |
+| Prefix throughput | 200.270 token/s | 202.377 token/s | +2.107 token/s | 1.010522274x | — |
+
+The Prefix and TTFT gains are respectively 126.4x and 115.0x their maximum
+matched noise. This is sufficient to update the test-only native experimental
+incumbent, not to change production.
+
+The post-change NSys trace attributes 493.622104 ms per candidate generation
+to the revised composite, versus 521.322104 ms for production recurrence plus
+standalone epilogue, closing 27.700000 ms in the kernel interval. It is
+32.594728 ms faster than the old serial composite. Matched NCU reduces the
+candidate duration from 358.144 to 336.768 us, warp instructions from
+13,920,924 to 13,443,612, thread instructions from 244,449,390 to
+235,093,614, and the barrier-stall ratio from 1.165107 to 0.745749. Resources
+remain unchanged. NCU used `--clock-control none` and emitted its clock
+warning; independent `jetson_clocks` readback held GPU at 1.3005 GHz, EMC at
+3.2 GHz, and CPU 11 at 2.2016 GHz.
+
+The normalized record, including all six raw rounds and report hashes, is
+[`qwen36-27b-prefill-gdn-c16-warp-row-epilogue-retention-2026-07-29.json`](metadata/qwen36-27b-prefill-gdn-c16-warp-row-epilogue-retention-2026-07-29.json).
+
 ## Exact-contract experiment order after P0
 
 The references suggest mechanisms, but the measured bottleneck and exact
 contract decide their order:
 
-1. P0 is complete and rejected on the pinned P513 full-model path. Baseline
-   and candidate route hits are 0/1,536, complete GDN state is bitwise at both
-   committed boundaries, and the snapshot-free direction screen is negative.
-   Do not build the formal retention harness for this unchanged candidate. A
-   bounded profile is optional only if it answers a named question for the
-   next design.
+1. The original CTA-serial P0 is complete and rejected on the pinned P513
+   full-model path. A bounded profile identified its sixteen serial reduction
+   trees; that diagnostic does not reverse the rejection.
 2. Inspect SASS before changing the recurrence scalars. `exp(A_log)` and
    `dt_bias` are constant for a value head across all 16 tokens. If the compiler
    has not lifted them, compute the two scalars once per CTA and retain them in
    the existing shared scalar slots. This candidate must preserve zero local
    bytes and re-establish occupancy because 64 registers x 256 threads x four
    CTAs already fills the SM87 register file.
-3. Replace the CTA-serial 16-row epilogue with two eight-row warp batches. One
+3. **Complete and retained at `fc597e9`:** replace the CTA-serial 16-row
+   epilogue with two eight-row warp batches. One
    warp owns one token row; each lane owns dimensions `i`, `i+32`, `i+64`, and
    `i+96`. To remain bitwise, the first pair must be
    `(x_i^2 + x_{i+64}^2)`, the second pair
    `(x_{i+32}^2 + x_{i+96}^2)`, followed by the existing stride-16-to-1 tree.
    The same warp then applies gamma, SiLU(Z), and BF16-RNE output. This targets
-   CTA-wide barriers without reopening recurrent-state arithmetic.
-4. Re-screen an exact persistent C512 composite on the same
+   CTA-wide barriers without reopening recurrent-state arithmetic. The six
+   P513 rounds retain it as the test-only native experimental incumbent.
+4. Run the separate production-promotion qualification for the retained
+   warp-row candidate: broaden only the test admission, then prove complete
+   output/state bitwise and route hits at P257/P513/P769/P1025 and repeat
+   fixed-clock real-path timing. Production remains unchanged until this gate
+   closes.
+5. Re-screen an exact persistent C512 composite on the same
    real trajectory. It must keep packed BF16 state live but preserve every C16
    output boundary; it must not allocate a C512 raw tile. The old synthetic
    1.01871x result is motivation only, not retention evidence.
-5. Consider `cp.async` double buffering only after matched NCU shows a material
+6. Consider `cp.async` double buffering only after matched NCU shows a material
    Q/K/Z global-load scoreboard stall. SM87 has LDGSTS but no TMA, WGMMA, CTA
    clusters, or distributed shared memory; any added buffer must retain at
    least three active CTAs/SM.

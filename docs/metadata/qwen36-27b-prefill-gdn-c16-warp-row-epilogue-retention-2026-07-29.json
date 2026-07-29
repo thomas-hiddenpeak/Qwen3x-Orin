@@ -1,0 +1,414 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-gdn-c16-warp-row-epilogue-retention-2026-07-29",
+  "status": "retained-test-only-native-experimental-incumbent-production-unchanged",
+  "date": "2026-07-29",
+  "timezone": "Asia/Shanghai",
+  "policy": {
+    "document": "docs/REAL_MODEL_PERFORMANCE_POLICY.md",
+    "evidence_tier": "T3",
+    "protocol_class": "REAL_GENERATION_PATH_SIX_ROUND_RETENTION",
+    "payload_class": "full_model_pinned_prompt",
+    "authority": "NATIVE_EXPERIMENT_RETENTION",
+    "retention_authority": true,
+    "production_promotion_authority": false,
+    "synthetic_performance_authority": false,
+    "rule": "A positive real-path direction result unlocks formal incumbent noise calibration and six mirrored B-C-C-B rounds. All six Prefix and TTFT rounds must be positive and the aggregate gain must exceed the maximum matched incumbent noise. Production promotion is a later, separate gate."
+  },
+  "source": {
+    "implementation_commit": "fc597e9",
+    "implementation_tree": "78971db739c0de76b9f256897d48f9d0ec409621",
+    "implementation_subject": "perf: retain warp-row C16 GDN epilogue",
+    "implementation_files": [
+      {
+        "path": "src/kernels/reference/gdn_prefill_c16_norm_gate_sm87.cu",
+        "sha256": "c79128ef418721bc89a2b5b0987e925895e217d14adbc7975fc29df0abc48256",
+        "git_blob": "aea07bfc11b72d3deb876941f6a0e67d4a113837"
+      },
+      {
+        "path": "tests/reference_gdn_prefill_c16_norm_gate_engine_e2e_test.cpp",
+        "sha256": "3b80b3465afc600f364a6e68599b196d2d829c7526166677b7ed1667e1269494",
+        "git_blob": "5033e1390ee89b6d97cf7bec8ccf12d973bd4b4a"
+      }
+    ],
+    "scope": "BUILD_TESTING-only exact-C16 GDN plus plain-RMSNorm/SiLU-gate admission route and its committed direction/retention harness",
+    "production_source_changed": false,
+    "measured_binary": {
+      "path": "build/gdn-c16-admission/q3x_reference_gdn_prefill_c16_norm_gate_engine_e2e_test",
+      "sha256": "2e947454b537aaf4f5f2adb827b0b62d17be6a95a64c3e286fdb0a8648fd0b5f",
+      "elf_build_id": "1d21b9998f505dd84c5c2706a802e6e3b13de425",
+      "build_type": "Release",
+      "cuda_architecture": 87,
+      "cublaslt_dynamic_dependency": false,
+      "cublaslt_dynamic_import": false
+    }
+  },
+  "checkpoint": {
+    "repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "directory": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "config_sha256": "c04a19ba293737ad7be4f6e96d6666cb7e479cbe19ecc0c289fad267135b0338",
+    "quantization_config_sha256": "fd7200cd8bca2a8a5d777061521abf83e2deb97ab6bc2f04e7a0a3d3f8ecd5c1",
+    "index_sha256": "7aa103a2582b7d26631988de33dea19e8a308ee9c239e8e14feb374af30905e2",
+    "tokenizer_json_sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42",
+    "tokenizer_config_sha256": "5186f0defcd7f232382c7f0aebcd2252d073bb921ab240e407b7ae8745d2b29b",
+    "generation_config_sha256": "e70c136c1b78ddc1fb0905bac8e733a4dc448d4f852a5dd75143fffc70be550e",
+    "shards": [
+      {
+        "file": "model-00001-of-00003.safetensors",
+        "bytes": 9965652512,
+        "sha256": "b4a0d9a57ff1859dac1144b53ca285011db072737d8813fc16d8d1e07ecae17d"
+      },
+      {
+        "file": "model-00002-of-00003.safetensors",
+        "bytes": 9985757032,
+        "sha256": "06da4242b0f491118d19d4d4c7564307a7bd6059c6bed284e08c93f6fc5a556d"
+      },
+      {
+        "file": "model-00003-of-00003.safetensors",
+        "bytes": 1970287640,
+        "sha256": "e90f5b2bb16814a0565de284ea179edec201edfb120d13f1debaab66f9e60845"
+      }
+    ]
+  },
+  "prompt": {
+    "manifest": "benchmarks/qwen36-27b-sm87-prefill-prompts-v1.json",
+    "manifest_sha256": "18e719e9e9fac23bb409066c664c5bab961e94d67434045d709558d38dc3e966",
+    "label": "P513",
+    "user_text_sha256": "8d7c3cf87620b2b2f7b27bb388c2e15df9daee140e1628813e6026fb55bef6a2",
+    "rendered_prompt_sha256": "4ad308e4947eb28d279307ba7f81d3a4e680c5726d8949a754ba06ca36dfb838",
+    "prompt_id_csv_sha256": "45ae21468cb8a0b0ac64566985daba4c0b78e429b99cac3453a98664587efd6d",
+    "prompt_token_count": 513,
+    "prefix_token_count": 512,
+    "expected_generated_ids": [9419],
+    "expected_generated_text": "Hello",
+    "expected_stop_reason": "max_new_tokens",
+    "expected_step_count": 513
+  },
+  "environment": {
+    "device": "NVIDIA Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "architecture": "SM87",
+    "driver_version": "595.78",
+    "nvcc_version": "13.3.33",
+    "ncu_version": "2026.2",
+    "nsys_version": "2026.1.3",
+    "nvpmodel": "MAXN",
+    "cpu_affinity": [11],
+    "cpu_11_hz": 2201600000,
+    "gpu_hz": 1300500000,
+    "emc_hz": 3200000000,
+    "fan_pwm": 255,
+    "fixed_clocks_external_readback": true,
+    "competing_gpu_process_check": "none observed before the serialized run",
+    "temperature_celsius": {
+      "before_formal_retention": {
+        "cpu": 65.906,
+        "gpu": 57.75,
+        "junction": 65.906
+      },
+      "after_nsys": {
+        "cpu": 72.187,
+        "gpu": 64.343,
+        "junction": 72.437
+      }
+    }
+  },
+  "candidate": {
+    "rejected_predecessor": "one C16 CTA serially executes sixteen 256-thread RMS reduction trees after the exact recurrence",
+    "retained_mechanism": "eight warps each own one token row; two warp batches cover C16; each lane owns dimensions i, i+32, i+64, and i+96",
+    "exact_reduction_order": "form (i,i+64), form (i+32,i+96), combine those pairs, then warp shuffle strides 16,8,4,2,1",
+    "exact_boundaries": [
+      "per-token recurrent state remains BF16-RNE",
+      "raw GDN output remains a BF16 word before normalization",
+      "plain RMSNorm, gamma, SiLU gate, and final BF16-RNE remain bitwise to the standalone epilogue"
+    ],
+    "intended_effect": "remove the predecessor's serial CTA-wide epilogue barriers while retaining the shared raw-output boundary",
+    "resource_contract": {
+      "registers_per_thread": 64,
+      "static_shared_bytes": 38184,
+      "local_bytes": 0,
+      "active_blocks_per_sm": 4
+    }
+  },
+  "correctness": {
+    "standalone_t1": {
+      "finite_raw_output_state_bitwise": "PASS",
+      "nan_raw_output_state_bitwise": "PASS",
+      "in_place_and_disjoint_state": "PASS",
+      "cuda_graph": "PASS",
+      "redzones_and_immutable_inputs": "PASS",
+      "invalid_calls": "PASS"
+    },
+    "full_model_p513": {
+      "baseline_route_hits": 0,
+      "candidate_route_hits": 1536,
+      "generated_token_id": 9419,
+      "generated_text": "Hello",
+      "step_count": 513,
+      "gdn_region_bytes": 75497472,
+      "gdn_region_bf16_elements": 37748736,
+      "committed_positions": [512, 513],
+      "unequal_bf16_at_each_position": [0, 0],
+      "baseline_nonzero_bf16_at_each_position": [37748736, 37748736],
+      "baseline_changed_between_positions_bf16": 37461455,
+      "proved_scope": "complete GDN recurrent state bitwise plus generated token/text and ordered-step semantics",
+      "not_proved": "full hidden, KV, or logits bitwise identity"
+    }
+  },
+  "direction_screen": {
+    "protocol": "one snapshot-free warmup B-C-C-B followed by one measured B-C-C-B in one engine and one ELF",
+    "prefix_saved_ms": 27.0423,
+    "prefix_speedup_rounded": 1.01069,
+    "ttft_saved_ms": 27.0368,
+    "ttft_speedup_rounded": 1.01025,
+    "result": "POSITIVE",
+    "authority": "EARLY_SCREEN_UNLOCK_ONLY"
+  },
+  "formal_retention": {
+    "protocol": {
+      "engine_instances": 1,
+      "same_elf_for_baseline_and_candidate": true,
+      "batch_size": 1,
+      "requested_and_effective_prefill_chunk_size": 512,
+      "max_new_tokens": 1,
+      "snapshot_hook": "empty for every timed invocation",
+      "warmup": "one B-C-C-B",
+      "rounds": 6,
+      "noise_per_round": "one B-B-B-B immediately before the candidate comparison",
+      "comparison_per_round": "one B-C-C-B",
+      "route_and_generation_oracle_each_invocation": "PASS"
+    },
+    "warmup_samples": [
+      {"route": "B1", "prefix_ms": 2558.278642, "ttft_ms": 2683.924081},
+      {"route": "C1", "prefix_ms": 2530.274049, "ttft_ms": 2639.002872},
+      {"route": "C2", "prefix_ms": 2530.095172, "ttft_ms": 2638.846076},
+      {"route": "B2", "prefix_ms": 2556.82818, "ttft_ms": 2665.57806}
+    ],
+    "rounds": [
+      {
+        "round": 1,
+        "noise_prefix_ms": [2556.875033, 2556.813214, 2556.474912, 2556.838696],
+        "noise_ttft_ms": [2665.628786, 2665.542614, 2665.208536, 2665.590177],
+        "noise_prefix_fraction": 0.000083235,
+        "noise_ttft_fraction": 0.000087757,
+        "comparison_prefix_ms": [2557.059664, 2530.15284, 2530.017069, 2556.711771],
+        "comparison_ttft_ms": [2665.792393, 2638.870241, 2638.761895, 2665.423636],
+        "baseline_prefix_ms": 2556.8857175,
+        "candidate_prefix_ms": 2530.0849545,
+        "prefix_speedup": 1.010592831,
+        "baseline_ttft_ms": 2665.6080145,
+        "candidate_ttft_ms": 2638.816068,
+        "ttft_speedup": 1.010153018,
+        "positive": true
+      },
+      {
+        "round": 2,
+        "noise_prefix_ms": [2556.897378, 2556.933159, 2557.035501, 2556.966482],
+        "noise_ttft_ms": [2665.642236, 2665.676225, 2665.762823, 2665.692876],
+        "noise_prefix_fraction": 0.000020493,
+        "noise_ttft_fraction": 0.000019495,
+        "comparison_prefix_ms": [2557.073048, 2530.309746, 2530.062132, 2556.29331],
+        "comparison_ttft_ms": [2665.887508, 2639.06203, 2638.821904, 2665.026457],
+        "baseline_prefix_ms": 2556.683179,
+        "candidate_prefix_ms": 2530.185939,
+        "prefix_speedup": 1.010472448,
+        "baseline_ttft_ms": 2665.4569825,
+        "candidate_ttft_ms": 2638.941967,
+        "ttft_speedup": 1.010047593,
+        "positive": true
+      },
+      {
+        "round": 3,
+        "noise_prefix_ms": [2556.749095, 2556.723724, 2556.616496, 2556.812854],
+        "noise_ttft_ms": [2665.484162, 2665.451432, 2665.381996, 2665.511218],
+        "noise_prefix_fraction": 0.000043363,
+        "noise_ttft_fraction": 0.00003038,
+        "comparison_prefix_ms": [2556.475416, 2529.703473, 2529.901688, 2556.471206],
+        "comparison_ttft_ms": [2665.218677, 2638.45323, 2638.609301, 2665.214403],
+        "baseline_prefix_ms": 2556.473311,
+        "candidate_prefix_ms": 2529.8025805,
+        "prefix_speedup": 1.010542613,
+        "baseline_ttft_ms": 2665.21654,
+        "candidate_ttft_ms": 2638.5312655,
+        "ttft_speedup": 1.010113685,
+        "positive": true
+      },
+      {
+        "round": 4,
+        "noise_prefix_ms": [2556.489067, 2556.54376, 2556.347826, 2556.273494],
+        "noise_ttft_ms": [2665.292873, 2665.551728, 2665.113552, 2665.00978],
+        "noise_prefix_fraction": 0.000025236,
+        "noise_ttft_fraction": 0.000068031,
+        "comparison_prefix_ms": [2556.255866, 2529.77215, 2529.76601, 2556.419113],
+        "comparison_ttft_ms": [2665.023672, 2638.516885, 2638.445464, 2665.229289],
+        "baseline_prefix_ms": 2556.3374895,
+        "candidate_prefix_ms": 2529.76908,
+        "prefix_speedup": 1.010502306,
+        "baseline_ttft_ms": 2665.1264805,
+        "candidate_ttft_ms": 2638.4811745,
+        "ttft_speedup": 1.010098729,
+        "positive": true
+      },
+      {
+        "round": 5,
+        "noise_prefix_ms": [2556.275277, 2556.629748, 2555.888209, 2556.310073],
+        "noise_ttft_ms": [2665.008364, 2665.376467, 2664.632432, 2665.116025],
+        "noise_prefix_fraction": 0.000013182,
+        "noise_ttft_fraction": 0.000021668,
+        "comparison_prefix_ms": [2556.297438, 2530.0575, 2529.596219, 2556.274154],
+        "comparison_ttft_ms": [2665.00915, 2638.78822, 2638.295227, 2665.012714],
+        "baseline_prefix_ms": 2556.285796,
+        "candidate_prefix_ms": 2529.8268595,
+        "prefix_speedup": 1.010458793,
+        "baseline_ttft_ms": 2665.010932,
+        "candidate_ttft_ms": 2638.5417235,
+        "ttft_speedup": 1.010031757,
+        "positive": true
+      },
+      {
+        "round": 6,
+        "noise_prefix_ms": [2556.253807, 2556.310164, 2556.716699, 2556.494078],
+        "noise_ttft_ms": [2664.939343, 2665.0517, 2665.474907, 2665.284607],
+        "noise_prefix_fraction": 0.000054565,
+        "noise_ttft_fraction": 0.000056781,
+        "comparison_prefix_ms": [2556.834117, 2530.059869, 2529.75555, 2556.436493],
+        "comparison_ttft_ms": [2665.58983, 2638.809886, 2638.509631, 2665.148271],
+        "baseline_prefix_ms": 2556.635305,
+        "candidate_prefix_ms": 2529.9077095,
+        "prefix_speedup": 1.010564652,
+        "baseline_ttft_ms": 2665.3690505,
+        "candidate_ttft_ms": 2638.6597585,
+        "ttft_speedup": 1.010122295,
+        "positive": true
+      }
+    ],
+    "aggregate": {
+      "baseline_prefix_ms": 2556.550133,
+      "candidate_prefix_ms": 2529.9295205,
+      "prefix_saved_ms": 26.6206125,
+      "prefix_speedup": 1.010522274,
+      "baseline_prefix_tokens_per_second": 200.269884557,
+      "candidate_prefix_tokens_per_second": 202.377179226,
+      "maximum_prefix_noise_fraction": 0.000083235,
+      "prefix_gain_over_maximum_noise": 126.416,
+      "baseline_ttft_ms": 2665.298,
+      "candidate_ttft_ms": 2638.661992833,
+      "ttft_saved_ms": 26.636007167,
+      "ttft_speedup": 1.010094513,
+      "maximum_ttft_noise_fraction": 0.000087757,
+      "ttft_gain_over_maximum_noise": 115.028,
+      "all_rounds_positive": true,
+      "clears_noise": true,
+      "decision": "RETAIN"
+    }
+  },
+  "causal_attribution": {
+    "question": "Why did the predecessor regress despite removing the standalone epilogue boundary, and does the warp-row mechanism close that loss?",
+    "predecessor_nsys": {
+      "report": "/tmp/q3x-gdn-c16-nsys.s0rxpx/p513-correctness-attribution.nsys-rep",
+      "bytes": 1452218,
+      "sha256": "0db0a9cbdcf40e3e4c1533f02b0db230cba16a0f39b04ae593263fc2b767092b",
+      "production_recurrence_calls": 1536,
+      "production_recurrence_total_ms": 488.448096,
+      "standalone_epilogue_calls": 48,
+      "standalone_epilogue_total_ms": 32.742624,
+      "baseline_combined_ms": 521.19072,
+      "serial_composite_calls": 1536,
+      "serial_composite_total_ms": 526.216832,
+      "serial_composite_delta_vs_baseline_ms": 5.026112
+    },
+    "warp_row_nsys": {
+      "report": "/tmp/q3x-gdn-c16-warp-nsys.owRAd8/p513-direction-attribution.nsys-rep",
+      "bytes": 5112990,
+      "sha256": "57ebbac451e0e4b9c59d868d7d945d7822a1dc43958b71ede2288216302b49a2",
+      "profiled_generations_per_route": 4,
+      "production_recurrence_calls": 6144,
+      "production_recurrence_total_ms": 1954.456768,
+      "standalone_epilogue_calls": 192,
+      "standalone_epilogue_total_ms": 130.831648,
+      "baseline_combined_per_generation_ms": 521.322104,
+      "warp_row_composite_calls": 6144,
+      "warp_row_composite_total_ms": 1974.488416,
+      "warp_row_composite_per_generation_ms": 493.622104,
+      "kernel_attributed_saved_per_generation_ms": 27.7,
+      "warp_row_over_recurrence_only_per_generation_ms": 5.007912,
+      "warp_row_vs_serial_predecessor_saved_ms": 32.594728,
+      "warp_row_vs_serial_predecessor_speedup": 1.06603
+    },
+    "matched_ncu": {
+      "predecessor_candidate_report": {
+        "path": "/tmp/q3x-gdn-c16-nsys.s0rxpx/candidate-c16-composite.ncu-rep",
+        "bytes": 315480,
+        "sha256": "338100edceb73b0c5f285146bc28321651c67f5da285d94e6e95e04dd0b08b70"
+      },
+      "production_recurrence_report": {
+        "path": "/tmp/q3x-gdn-c16-nsys.s0rxpx/baseline-c16-recurrence.ncu-rep",
+        "bytes": 224640,
+        "sha256": "6027b76b9ff9b83c51c551967eb1efd910071b03946b9f51bd6b574fe1a2e93a"
+      },
+      "standalone_epilogue_report": {
+        "path": "/tmp/q3x-gdn-c16-nsys.s0rxpx/baseline-standalone-epilogue.ncu-rep",
+        "bytes": 359430,
+        "sha256": "26c5cf1488d5ac20380a3ba2537c50da5fd23e2f37621927ff2ee8b16f75a9d6"
+      },
+      "warp_row_candidate_report": {
+        "path": "/tmp/q3x-gdn-c16-warp-nsys.owRAd8/warp-row-c16-composite.ncu-rep",
+        "bytes": 334610,
+        "sha256": "c185bfa1c2742755dd5a1c27e74886ff7af431e81bd2199c9b05995a6afdbb9c"
+      },
+      "comparison": {
+        "predecessor_duration_us": 358.144,
+        "warp_row_duration_us": 336.768,
+        "duration_speedup": 1.063473,
+        "predecessor_warp_instructions": 13920924,
+        "warp_row_warp_instructions": 13443612,
+        "predecessor_thread_instructions": 244449390,
+        "warp_row_thread_instructions": 235093614,
+        "predecessor_barrier_stall_ratio": 1.165107,
+        "warp_row_barrier_stall_ratio": 0.745749,
+        "barrier_stall_reduction_percent": 35.998,
+        "predecessor_mio_stall": 2.645517,
+        "warp_row_mio_stall": 2.255587,
+        "predecessor_short_scoreboard_stall": 1.337527,
+        "warp_row_short_scoreboard_stall": 2.19901,
+        "predecessor_long_scoreboard_stall": 0.59806,
+        "warp_row_long_scoreboard_stall": 0.618245,
+        "resources_unchanged": "64 registers, 38184 static shared bytes, zero local bytes, four CTA/SM"
+      },
+      "clock_note": "NCU emitted its unmodified-GPU-clocks warning because collection used --clock-control none; the external jetson_clocks readback independently held GPU at 1.3005 GHz, EMC at 3.2 GHz, and CPU 11 at 2.2016 GHz."
+    },
+    "conclusion": "The serial epilogue performed sixteen CTA-wide reduction trees and roughly 160 CTA barriers per C16 CTA. The exact warp-row mapping removes that structure; the measured instruction and barrier reductions close the predecessor regression and explain the real-path gain."
+  },
+  "isolation": {
+    "default_release_admission_option": "OFF",
+    "default_release_rebuild": "PASS",
+    "default_qwen3x_orin_symbol_scan_for_admission_symbols": "NONE",
+    "production_route_changed": false,
+    "test_only_route_current_scope": "first_position 0, token_count 512",
+    "cuBLASLt": {
+      "linked": false,
+      "executed": false,
+      "role": "external_reference_only",
+      "production_eligibility": "none"
+    },
+    "mtp_used": false
+  },
+  "decision": {
+    "native_experimental_incumbent": "warp-row exact-C16 shared-BF16-boundary composite",
+    "candidate_retained": true,
+    "production_promotion": "NOT_RUN",
+    "production_dispatch": "UNCHANGED",
+    "production_kernel": "UNCHANGED",
+    "production_selector": "UNCHANGED",
+    "decode": "UNCHANGED",
+    "next_required_gate": "broaden only the test admission and prove P257/P513/P769/P1025 output, complete recurrent-state bitwise equality, route hits, and fixed-clock real-path performance before any production integration"
+  },
+  "limitations": [
+    "The retention decision covers one batch-1 P513/C512 prompt on one AGX Orin; it is not a production-promotion or broad workload claim.",
+    "Full-model correctness proves complete GDN recurrent state plus generated token/text/step semantics, not full hidden, KV, or logits bitwise identity.",
+    "The test-only route currently admits exactly first_position zero and token_count 512. P257/P769/P1025 promotion coverage has not yet run.",
+    "Nsight reports are ephemeral files under /tmp and are identified by byte size and SHA256; they are not checked into the repository.",
+    "cuBLASLt has no retention, selector, fallback, promotion, or production eligibility and was neither linked nor executed."
+  ]
+}
