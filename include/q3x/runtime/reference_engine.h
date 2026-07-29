@@ -518,15 +518,13 @@ struct ReferenceOneShotResult {
 
 namespace reference_engine_detail {
 
-inline constexpr std::size_t kOptimizedPrefillSubtileTokens = 32U;
-inline constexpr std::size_t kPrefillM64TileTokens = 64U;
-inline constexpr std::size_t kPrefillM256TileTokens = 256U;
 static_assert(kMaximumRequestPrefillChunkSize == 512U);
 
-// The public C512 request boundary is independent from individual kernel
-// limits. Scheduler calls use only exact C512/C256/C64/C32 tiles plus an
-// ordered <=31 tail. Non-canonical request caps such as C128, C192, and C320
-// therefore decompose into the same explicit production sizes.
+// One scheduler call owns the largest actual prefix span permitted by the
+// request cap. Kernel-specific tiling remains inside the runner, preserving
+// layer-major execution and avoiding repeated 64-layer traversals for lengths
+// such as 407 or 481. Requests above the public C512 boundary still use one
+// complete C512 call followed by one actual-sized remainder call.
 [[nodiscard]] constexpr std::size_t next_prefix_tile_token_count(
     const std::size_t remaining_tokens,
     const std::size_t requested_chunk_size) noexcept {
@@ -536,18 +534,6 @@ static_assert(kMaximumRequestPrefillChunkSize == 512U);
   const std::size_t candidate = remaining_tokens < requested_chunk_size
                                     ? remaining_tokens
                                     : requested_chunk_size;
-  if (candidate >= kMaximumRequestPrefillChunkSize) {
-    return kMaximumRequestPrefillChunkSize;
-  }
-  if (candidate >= kPrefillM256TileTokens) {
-    return kPrefillM256TileTokens;
-  }
-  if (candidate >= kPrefillM64TileTokens) {
-    return kPrefillM64TileTokens;
-  }
-  if (candidate >= kOptimizedPrefillSubtileTokens) {
-    return kOptimizedPrefillSubtileTokens;
-  }
   return candidate;
 }
 

@@ -454,7 +454,17 @@ if(BUILD_TESTING)
     COMMAND q3x_sm87_nvfp4_marlin_layer0_test
             "${_q3x_real_perf_model_dir}"
   )
-  set_tests_properties(sm87_nvfp4_marlin_layer0 PROPERTIES
+  add_test(NAME sm87_nvfp4_marlin_layer0_m407
+    COMMAND q3x_sm87_nvfp4_marlin_layer0_test
+            "${_q3x_real_perf_model_dir}" --tokens=407
+  )
+  add_test(NAME sm87_nvfp4_marlin_layer0_m481
+    COMMAND q3x_sm87_nvfp4_marlin_layer0_test
+            "${_q3x_real_perf_model_dir}" --tokens=481
+  )
+  set_tests_properties(sm87_nvfp4_marlin_layer0
+                       sm87_nvfp4_marlin_layer0_m407
+                       sm87_nvfp4_marlin_layer0_m481 PROPERTIES
     LABELS "cuda;sm87;prefill;correctness;checkpoint"
     SKIP_RETURN_CODE 77
     RESOURCE_LOCK q3x_sm87_gpu

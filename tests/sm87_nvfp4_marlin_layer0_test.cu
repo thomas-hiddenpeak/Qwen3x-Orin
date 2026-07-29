@@ -5,6 +5,7 @@
 #include <cuda_runtime.h>
 
 #include <algorithm>
+#include <charconv>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -13,6 +14,7 @@
 #include <iostream>
 #include <limits>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace {
@@ -74,6 +76,73 @@ class DeviceAllocation {
 
 [[nodiscard]] bool launch_ok(const int status, const char* stage) {
   return cuda_ok(static_cast<cudaError_t>(status), stage);
+}
+
+[[nodiscard]] bool parse_token_count(const int argc, char** const argv,
+                                     std::size_t* const token_count) {
+  if (token_count == nullptr) {
+    return false;
+  }
+  if (argc == 2) {
+    *token_count = kernels::kSm87NvFp4MarlinTokens;
+    return true;
+  }
+  if (argc != 3) {
+    return false;
+  }
+  constexpr std::string_view kPrefix = "--tokens=";
+  const std::string_view argument(argv[2]);
+  if (argument.size() < kPrefix.size() ||
+      argument.compare(0U, kPrefix.size(), kPrefix) != 0) {
+    return false;
+  }
+  const std::string_view value = argument.substr(kPrefix.size());
+  std::size_t parsed = 0U;
+  const auto result =
+      std::from_chars(value.data(), value.data() + value.size(), parsed);
+  if (result.ec != std::errc{} || result.ptr != value.data() + value.size() ||
+      !kernels::sm87_nvfp4_marlin_supports_token_count(parsed)) {
+    return false;
+  }
+  *token_count = parsed;
+  return true;
+}
+
+// Correctness-only canonical oracle. Performance gates never use this split
+// path: it deliberately favors an already-authenticated M32/small-M sequence
+// so arbitrary Marlin spans can be compared against the checkpoint layout
+// without introducing another candidate implementation.
+[[nodiscard]] bool launch_canonical_projection(
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales, const float weight_scale_2,
+    const std::uint16_t* const activations, const std::size_t token_count,
+    const std::size_t rows, const std::size_t columns,
+    std::uint16_t* const output, const char* const stage) {
+  std::size_t token_offset = 0U;
+  while (token_count - token_offset >= 32U) {
+    if (!launch_ok(kernels::launch_sm87_nvfp4_w4a16_m32_gemm_bf16_cuda(
+                       packed_weights, block_scales, weight_scale_2,
+                       activations + token_offset * columns, rows, columns,
+                       output + token_offset * rows),
+                   stage)) {
+      return false;
+    }
+    token_offset += 32U;
+  }
+  while (token_offset < token_count) {
+    const std::size_t launch_tokens =
+        std::min<std::size_t>(8U, token_count - token_offset);
+    if (!launch_ok(
+            kernels::launch_sm87_nvfp4_w4a16_small_m_gemm_bf16_cuda(
+                packed_weights, block_scales, weight_scale_2,
+                activations + token_offset * columns, launch_tokens, rows,
+                columns, output + token_offset * rows),
+            stage)) {
+      return false;
+    }
+    token_offset += launch_tokens;
+  }
+  return true;
 }
 
 [[nodiscard]] const support::PinnedTensorPayload* tensor(
@@ -153,8 +222,10 @@ void print_statistics(const char* name, const ErrorStatistics& statistics,
 }  // namespace
 
 int main(const int argc, char** const argv) {
-  if (argc != 2) {
-    std::cerr << "usage: q3x_sm87_nvfp4_marlin_layer0_test MODEL_DIRECTORY\n";
+  std::size_t token_count = 0U;
+  if (!parse_token_count(argc, argv, &token_count)) {
+    std::cerr << "usage: q3x_sm87_nvfp4_marlin_layer0_test MODEL_DIRECTORY "
+                 "[--tokens=1..512]\n";
     return 77;
   }
 
@@ -352,13 +423,13 @@ int main(const int argc, char** const argv) {
     return 1;
   }
 
-  constexpr std::size_t kGateInputElements =
-      kernels::kSm87NvFp4MarlinTokens * kernels::kSm87NvFp4MarlinHidden;
-  constexpr std::size_t kGateElements = kernels::kSm87NvFp4MarlinTokens *
-                                        kernels::kSm87NvFp4MarlinIntermediate;
-  constexpr std::size_t kMergedElements = 2U * kGateElements;
-  constexpr std::size_t kDownInputElements = kGateElements;
-  constexpr std::size_t kDownOutputElements = kGateInputElements;
+  const std::size_t kGateInputElements =
+      token_count * kernels::kSm87NvFp4MarlinHidden;
+  const std::size_t kGateElements =
+      token_count * kernels::kSm87NvFp4MarlinIntermediate;
+  const std::size_t kMergedElements = 2U * kGateElements;
+  const std::size_t kDownInputElements = kGateElements;
+  const std::size_t kDownOutputElements = kGateInputElements;
   std::vector<std::uint16_t> gate_input(kGateInputElements);
   std::vector<std::uint16_t> down_input(kDownInputElements);
   for (std::size_t index = 0U; index < gate_input.size(); ++index) {
@@ -397,52 +468,45 @@ int main(const int argc, char** const argv) {
     return 1;
   }
 
-  if (!launch_ok(kernels::launch_sm87_nvfp4_marlin_gate_up_m512_cuda(
+  if (!launch_ok(kernels::launch_sm87_nvfp4_marlin_gate_up_cuda(
                      gate_input_device.as<std::uint16_t>(),
                      marlin_gate_up_weight.as<std::uint8_t>(),
                      marlin_gate_up_scales.as<std::uint8_t>(),
                      marlin_gate_up_global.as<float>(),
+                     token_count,
                      merged_output_device.as<std::uint16_t>(), c_tmp.as<float>(),
                      locks.as<std::int32_t>()),
                  "candidate_gate_up") ||
-      !launch_ok(
-          kernels::launch_sm87_nvfp4_w4a16_whole_chunk_gate_up_branch_gemm_bf16_cuda(
-              gate_weight_device.as<std::uint8_t>(),
-              gate_scales_device.as<std::uint8_t>(), *gate_global->f32_value,
-              gate_input_device.as<std::uint16_t>(),
-              kernels::kSm87NvFp4MarlinTokens,
-              kernels::kSm87NvFp4MarlinIntermediate,
-              kernels::kSm87NvFp4MarlinHidden,
-              gate_reference_device.as<std::uint16_t>()),
-          "reference_gate") ||
-      !launch_ok(
-          kernels::launch_sm87_nvfp4_w4a16_whole_chunk_gate_up_branch_gemm_bf16_cuda(
-              up_weight_device.as<std::uint8_t>(),
-              up_scales_device.as<std::uint8_t>(), *up_global->f32_value,
-              gate_input_device.as<std::uint16_t>(),
-              kernels::kSm87NvFp4MarlinTokens,
-              kernels::kSm87NvFp4MarlinIntermediate,
-              kernels::kSm87NvFp4MarlinHidden,
-              up_reference_device.as<std::uint16_t>()),
-          "reference_up") ||
-      !launch_ok(kernels::launch_sm87_nvfp4_marlin_down_m512_cuda(
+      !launch_canonical_projection(
+          gate_weight_device.as<std::uint8_t>(),
+          gate_scales_device.as<std::uint8_t>(), *gate_global->f32_value,
+          gate_input_device.as<std::uint16_t>(), token_count,
+          kernels::kSm87NvFp4MarlinIntermediate,
+          kernels::kSm87NvFp4MarlinHidden,
+          gate_reference_device.as<std::uint16_t>(), "reference_gate") ||
+      !launch_canonical_projection(
+          up_weight_device.as<std::uint8_t>(),
+          up_scales_device.as<std::uint8_t>(), *up_global->f32_value,
+          gate_input_device.as<std::uint16_t>(), token_count,
+          kernels::kSm87NvFp4MarlinIntermediate,
+          kernels::kSm87NvFp4MarlinHidden,
+          up_reference_device.as<std::uint16_t>(), "reference_up") ||
+      !launch_ok(kernels::launch_sm87_nvfp4_marlin_down_cuda(
                      down_input_device.as<std::uint16_t>(),
                      marlin_down_weight.as<std::uint8_t>(),
                      marlin_down_scales.as<std::uint8_t>(),
                      marlin_down_global.as<float>(),
+                     token_count,
                      down_output_device.as<std::uint16_t>(), c_tmp.as<float>(),
                      locks.as<std::int32_t>()),
                  "candidate_down") ||
-      !launch_ok(kernels::launch_sm87_nvfp4_w4a16_whole_chunk_down_gemm_bf16_cuda(
-                     down_weight_device.as<std::uint8_t>(),
-                     down_scales_device.as<std::uint8_t>(),
-                     *down_global->f32_value,
-                     down_input_device.as<std::uint16_t>(),
-                     kernels::kSm87NvFp4MarlinTokens,
-                     kernels::kSm87NvFp4MarlinHidden,
-                     kernels::kSm87NvFp4MarlinIntermediate,
-                     down_reference_device.as<std::uint16_t>()),
-                 "reference_down") ||
+      !launch_canonical_projection(
+          down_weight_device.as<std::uint8_t>(),
+          down_scales_device.as<std::uint8_t>(), *down_global->f32_value,
+          down_input_device.as<std::uint16_t>(), token_count,
+          kernels::kSm87NvFp4MarlinHidden,
+          kernels::kSm87NvFp4MarlinIntermediate,
+          down_reference_device.as<std::uint16_t>(), "reference_down") ||
       !cuda_ok(cudaDeviceSynchronize(), "gemm_synchronize")) {
     return 1;
   }
@@ -499,6 +563,14 @@ int main(const int argc, char** const argv) {
   print_statistics("gate", gate_error, kGateElements);
   print_statistics("up", up_error, kGateElements);
   print_statistics("down", down_error, kDownOutputElements);
+  std::cout << "MARLIN_LAYER0_CASE token_count=" << token_count
+            << " primary_tokens="
+            << kernels::sm87_nvfp4_marlin_execution_plan(token_count)
+                   .primary_tokens
+            << " remainder_tokens="
+            << kernels::sm87_nvfp4_marlin_execution_plan(token_count)
+                   .remainder_tokens
+            << '\n';
 
   std::size_t free_after = 0U;
   if (!cuda_ok(cudaMemGetInfo(&free_after, &total_memory), "memory_after")) {

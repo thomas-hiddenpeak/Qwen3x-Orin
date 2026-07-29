@@ -580,42 +580,35 @@ void test_explicit_c512_prefill_schedule(TestContext& test) {
   const bool boundaries_exact =
       prefix_schedule(31U, kC512) == std::vector<std::size_t>({31U}) &&
       prefix_schedule(32U, kC512) == std::vector<std::size_t>({32U}) &&
-      prefix_schedule(33U, kC512) ==
-          std::vector<std::size_t>({32U, 1U}) &&
-      prefix_schedule(63U, kC512) ==
-          std::vector<std::size_t>({32U, 31U}) &&
+      prefix_schedule(33U, kC512) == std::vector<std::size_t>({33U}) &&
+      prefix_schedule(63U, kC512) == std::vector<std::size_t>({63U}) &&
       prefix_schedule(64U, kC512) == std::vector<std::size_t>({64U}) &&
-      prefix_schedule(65U, kC512) ==
-          std::vector<std::size_t>({64U, 1U}) &&
-      prefix_schedule(255U, kC512) ==
-          std::vector<std::size_t>({64U, 64U, 64U, 32U, 31U}) &&
+      prefix_schedule(65U, kC512) == std::vector<std::size_t>({65U}) &&
+      prefix_schedule(255U, kC512) == std::vector<std::size_t>({255U}) &&
       prefix_schedule(256U, kC512) == std::vector<std::size_t>({256U}) &&
-      prefix_schedule(257U, kC512) ==
-          std::vector<std::size_t>({256U, 1U}) &&
-      prefix_schedule(511U, kC512) ==
-          std::vector<std::size_t>({256U, 64U, 64U, 64U, 32U, 31U}) &&
+      prefix_schedule(257U, kC512) == std::vector<std::size_t>({257U}) &&
+      prefix_schedule(407U, kC512) == std::vector<std::size_t>({407U}) &&
+      prefix_schedule(481U, kC512) == std::vector<std::size_t>({481U}) &&
+      prefix_schedule(511U, kC512) == std::vector<std::size_t>({511U}) &&
       prefix_schedule(512U, kC512) == std::vector<std::size_t>({512U}) &&
       prefix_schedule(513U, kC512) ==
           std::vector<std::size_t>({512U, 1U}) &&
       prefix_schedule(769U, kC512) ==
-          std::vector<std::size_t>({512U, 256U, 1U});
+          std::vector<std::size_t>({512U, 257U});
   test.expect(boundaries_exact,
-              "C512 scheduler boundaries use only 512/256/64/32/tail tiles");
+              "C512 scheduler emits one actual-sized tile per request span");
 
   const bool noncanonical_caps_exact =
-      prefix_schedule(128U, 128U) ==
-          std::vector<std::size_t>({64U, 64U}) &&
-      prefix_schedule(192U, 192U) ==
-          std::vector<std::size_t>({64U, 64U, 64U}) &&
-      prefix_schedule(320U, 320U) ==
-          std::vector<std::size_t>({256U, 64U});
+      prefix_schedule(128U, 128U) == std::vector<std::size_t>({128U}) &&
+      prefix_schedule(192U, 192U) == std::vector<std::size_t>({192U}) &&
+      prefix_schedule(320U, 320U) == std::vector<std::size_t>({320U});
   test.expect(noncanonical_caps_exact,
-              "C128/C192/C320 caps decompose into explicit production tiles");
+              "C128/C192/C320 caps retain their actual request spans");
 
   test.expect(detail::next_prefix_tile_token_count(1U, 0U) == 0U &&
                   detail::next_prefix_tile_token_count(0U, kC512) == 0U &&
-                  detail::prefix_execution_count(769U, kC512) == 3U &&
-                  detail::prefix_execution_count(320U, 320U) == 2U,
+                  detail::prefix_execution_count(769U, kC512) == 2U &&
+                  detail::prefix_execution_count(320U, 320U) == 1U,
               "scheduler zero guards and execution cardinalities are exact");
 }
 
@@ -931,13 +924,12 @@ void test_chunked_prefix_tiles(TestContext& test) {
   const auto c64_tail_result = detail::run_generation_control(
       c64_tail_prompt, options(1U, 128U, false, 64U), &fake, fake_step,
       fake_prefill_tile);
-  test.expect(c64_tail_result && fake.tile_inputs.size() == 3U &&
+  test.expect(c64_tail_result && fake.tile_inputs.size() == 2U &&
                   fake.tile_inputs[0].size() == 64U &&
-                  fake.tile_inputs[1].size() == 32U &&
-                  fake.tile_inputs[2].size() == 31U &&
+                  fake.tile_inputs[1].size() == 63U &&
                   fake.inputs == std::vector<std::uint32_t>({627U}),
-              "chunk sixty-four keeps a 63-token remainder on optimized "
-              "C32+M31 runner calls");
+              "chunk sixty-four keeps its 63-token remainder in one actual "
+              "runner call");
 
   std::vector<std::uint32_t> c512_prompt;
   for (std::uint32_t token = 1'000U; token < 1'770U; ++token) {
@@ -948,12 +940,11 @@ void test_chunked_prefix_tiles(TestContext& test) {
   const auto c512_result = detail::run_generation_control(
       c512_prompt, options(1U, 770U, false, 512U), &fake, fake_step,
       fake_prefill_tile);
-  test.expect(c512_result && fake.tile_inputs.size() == 3U &&
+  test.expect(c512_result && fake.tile_inputs.size() == 2U &&
                   fake.tile_inputs[0].size() == 512U &&
-                  fake.tile_inputs[1].size() == 256U &&
-                  fake.tile_inputs[2].size() == 1U &&
+                  fake.tile_inputs[1].size() == 257U &&
                   fake.inputs == std::vector<std::uint32_t>({1'769U}),
-              "C512 routes a 769-token prefix as C512+C256+tail before the "
+              "C512 routes a 769-token prefix as C512+C257 before the "
               "scalar final prompt token");
 }
 

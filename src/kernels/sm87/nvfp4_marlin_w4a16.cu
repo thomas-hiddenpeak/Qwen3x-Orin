@@ -315,6 +315,34 @@ template <int ThreadMBlocks, int ThreadNBlocks, int ThreadKBlocks,
   return static_cast<int>(cudaPeekAtLastError());
 }
 
+[[nodiscard]] int launch_marlin_segment(
+    const std::uint16_t* const input,
+    const std::uint8_t* const marlin_weight,
+    const std::uint8_t* const marlin_scales,
+    const float* const marlin_global_scale, const std::size_t token_count,
+    const int output_size, const int input_size, std::uint16_t* const output,
+    float* const c_tmp, std::int32_t* const locks,
+    void* const cuda_stream) noexcept {
+  if (token_count <= 8U) {
+    return launch_marlin_specialization<1, 8, 8, true>(
+        input, marlin_weight, marlin_scales, marlin_global_scale, token_count,
+        output_size, input_size, output, c_tmp, locks, cuda_stream);
+  }
+  if (token_count <= 16U) {
+    return launch_marlin_specialization<1, 8, 8, false>(
+        input, marlin_weight, marlin_scales, marlin_global_scale, token_count,
+        output_size, input_size, output, c_tmp, locks, cuda_stream);
+  }
+  if (token_count <= kSm87NvFp4MarlinTailMaximumTokens) {
+    return launch_marlin_specialization<2, 16, 4, false>(
+        input, marlin_weight, marlin_scales, marlin_global_scale, token_count,
+        output_size, input_size, output, c_tmp, locks, cuda_stream);
+  }
+  return launch_marlin_specialization<4, 16, 4, false>(
+      input, marlin_weight, marlin_scales, marlin_global_scale, token_count,
+      output_size, input_size, output, c_tmp, locks, cuda_stream);
+}
+
 [[nodiscard]] int launch_fixed_marlin(
     const std::uint16_t* const input,
     const std::uint8_t* const marlin_weight,
@@ -336,24 +364,25 @@ template <int ThreadMBlocks, int ThreadNBlocks, int ThreadKBlocks,
     return device_status;
   }
 
-  if (token_count <= 8U) {
-    return launch_marlin_specialization<1, 8, 8, true>(
-        input, marlin_weight, marlin_scales, marlin_global_scale, token_count,
-        output_size, input_size, output, c_tmp, locks, cuda_stream);
+  const Sm87NvFp4MarlinExecutionPlan plan =
+      sm87_nvfp4_marlin_execution_plan(token_count);
+  const int primary_status = launch_marlin_segment(
+      input, marlin_weight, marlin_scales, marlin_global_scale,
+      plan.primary_tokens, output_size, input_size, output, c_tmp, locks,
+      cuda_stream);
+  if (primary_status != static_cast<int>(cudaSuccess) ||
+      plan.remainder_tokens == 0U) {
+    return primary_status;
   }
-  if (token_count <= 16U) {
-    return launch_marlin_specialization<1, 8, 8, false>(
-        input, marlin_weight, marlin_scales, marlin_global_scale, token_count,
-        output_size, input_size, output, c_tmp, locks, cuda_stream);
-  }
-  if (token_count <= kSm87NvFp4MarlinTailMaximumTokens) {
-    return launch_marlin_specialization<2, 16, 4, false>(
-        input, marlin_weight, marlin_scales, marlin_global_scale, token_count,
-        output_size, input_size, output, c_tmp, locks, cuda_stream);
-  }
-  return launch_marlin_specialization<4, 16, 4, false>(
-      input, marlin_weight, marlin_scales, marlin_global_scale, token_count,
-      output_size, input_size, output, c_tmp, locks, cuda_stream);
+
+  const std::size_t input_offset =
+      plan.primary_tokens * static_cast<std::size_t>(input_size);
+  const std::size_t output_offset =
+      plan.primary_tokens * static_cast<std::size_t>(output_size);
+  return launch_marlin_segment(
+      input + input_offset, marlin_weight, marlin_scales,
+      marlin_global_scale, plan.remainder_tokens, output_size, input_size,
+      output + output_offset, c_tmp, locks, cuda_stream);
 }
 
 }  // namespace
