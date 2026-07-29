@@ -42,6 +42,10 @@ option(Q3X_BUILD_FP8_MARLIN_PREFILL_ADMISSION
   "Build the test-only frozen-vLLM FP8 W8A16 Marlin Prefill route"
   OFF
 )
+option(Q3X_BUILD_BF16_AB_LARGE_M_PREFILL_ADMISSION
+  "Build the test-only Qwen3.6 BF16 A/B large-M Prefill route"
+  OFF
+)
 if(Q3X_BUILD_GDN_B8_ADMISSION AND NOT BUILD_TESTING)
   message(FATAL_ERROR
     "Q3X_BUILD_GDN_B8_ADMISSION is test-only and requires BUILD_TESTING=ON"
@@ -70,6 +74,11 @@ endif()
 if(Q3X_BUILD_FP8_MARLIN_PREFILL_ADMISSION AND NOT BUILD_TESTING)
   message(FATAL_ERROR
     "Q3X_BUILD_FP8_MARLIN_PREFILL_ADMISSION is test-only and requires BUILD_TESTING=ON"
+  )
+endif()
+if(Q3X_BUILD_BF16_AB_LARGE_M_PREFILL_ADMISSION AND NOT BUILD_TESTING)
+  message(FATAL_ERROR
+    "Q3X_BUILD_BF16_AB_LARGE_M_PREFILL_ADMISSION is test-only and requires BUILD_TESTING=ON"
   )
 endif()
 if((Q3X_BUILD_GDN_B8_ADMISSION AND
@@ -239,6 +248,14 @@ if(Q3X_BUILD_FP8_MARLIN_PREFILL_ADMISSION)
   )
   target_compile_definitions(q3x_kernels PRIVATE
     Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_BF16_AB_LARGE_M_PREFILL_ADMISSION)
+  target_sources(q3x_kernels PRIVATE
+    src/kernels/sm87/bf16_ab_prefill.cu
+  )
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_BF16_AB_LARGE_M_PREFILL_ADMISSION=1
   )
 endif()
 if(Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION)
