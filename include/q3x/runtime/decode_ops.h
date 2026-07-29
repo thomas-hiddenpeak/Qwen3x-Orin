@@ -198,6 +198,18 @@ launch_residual_add_headwise_centered_rms_norm_m32_5120_cuda(
     std::uint16_t* residual_output, std::uint16_t* normalized_output,
     void* cuda_stream = nullptr) noexcept;
 
+// Prompt-wide form of the exact Prefill residual boundary above. It retains
+// the same per-token reduction order and BF16 rounding boundary, but admits a
+// complete 1..512-token Prefill tile in one launch instead of decomposing it
+// into M32 launches plus a reference tail.
+[[nodiscard]] int
+launch_residual_add_headwise_centered_rms_norm_prefill_5120_cuda(
+    const std::uint16_t* left, const std::uint16_t* right,
+    const std::uint16_t* weight, std::size_t token_count,
+    std::size_t hidden_size, float epsilon,
+    std::uint16_t* residual_output, std::uint16_t* normalized_output,
+    void* cuda_stream = nullptr) noexcept;
+
 [[nodiscard]] int launch_fp32_to_bf16_reference_cuda(
     const float* input, std::size_t element_count, std::uint16_t* output,
     void* cuda_stream = nullptr) noexcept;

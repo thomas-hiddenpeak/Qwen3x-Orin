@@ -2094,9 +2094,23 @@ int launch_residual_rms_m32_prefix_tail_candidate(
       normalized + element_offset, static_cast<void*>(stream));
 }
 
+int launch_residual_rms_prompt_wide_candidate(
+    const std::uint16_t* const left,
+    const std::uint16_t* const right,
+    const std::uint16_t* const weight, const std::size_t token_count,
+    std::uint16_t* const residual, std::uint16_t* const normalized,
+    cudaStream_t stream) {
+  return q3x::runtime::
+      launch_residual_add_headwise_centered_rms_norm_prefill_5120_cuda(
+          left, right, weight, token_count, kResidualRmsM32HiddenSize,
+          kResidualRmsM32Epsilon, residual, normalized,
+          static_cast<void*>(stream));
+}
+
 void test_residual_rms_m32_prefix_tail_exact(TestContext& test,
                                              cudaStream_t stream) {
-  constexpr std::array<std::size_t, 4U> kTokenCounts{33U, 63U, 407U, 481U};
+  constexpr std::array<std::size_t, 8U> kTokenCounts{
+      1U, 31U, 32U, 33U, 407U, 481U, 511U, 512U};
   for (const std::size_t token_count : kTokenCounts) {
     const std::string label =
         "M32 residual/RMS prefix-tail M" + std::to_string(token_count);
@@ -2109,6 +2123,10 @@ void test_residual_rms_m32_prefix_tail_exact(TestContext& test,
     GuardedBf16Buffer baseline_normalized;
     GuardedBf16Buffer candidate_residual;
     GuardedBf16Buffer alias_right;
+    GuardedBf16Buffer prompt_residual;
+    GuardedBf16Buffer prompt_normalized;
+    GuardedBf16Buffer prompt_alias_residual;
+    GuardedBf16Buffer prompt_alias_right;
     bool ready = left.allocate(test, element_count, label + " left");
     ready = ready && right.allocate(test, element_count, label + " right");
     ready = ready &&
@@ -2123,6 +2141,16 @@ void test_residual_rms_m32_prefix_tail_exact(TestContext& test,
     ready = ready &&
             alias_right.allocate(test, element_count,
                                  label + " alias right/normalized");
+    ready = ready && prompt_residual.allocate(
+                         test, element_count, label + " prompt residual");
+    ready = ready && prompt_normalized.allocate(
+                         test, element_count, label + " prompt normalized");
+    ready = ready && prompt_alias_residual.allocate(
+                         test, element_count,
+                         label + " prompt alias residual");
+    ready = ready && prompt_alias_right.allocate(
+                         test, element_count,
+                         label + " prompt alias right/normalized");
     if (!ready) {
       return;
     }
@@ -2134,9 +2162,14 @@ void test_residual_rms_m32_prefix_tail_exact(TestContext& test,
     baseline_normalized.initialize(0xb2b2U, 0x5551U, 0x5552U);
     candidate_residual.initialize(0xc3c3U, 0x6661U, 0x6662U);
     alias_right.initialize(0U, 0x7771U, 0x7772U);
+    prompt_residual.initialize(0xd4d4U, 0x8881U, 0x8882U);
+    prompt_normalized.initialize(0xe5e5U, 0x9991U, 0x9992U);
+    prompt_alias_residual.initialize(0xf6f6U, 0xaaa1U, 0xaaa2U);
+    prompt_alias_right.initialize(0U, 0xbbb1U, 0xbbb2U);
     fill_residual_rms_m32_prefix_tail_fixture(
         token_count, left.data(), right.data(), weight.data());
     std::copy_n(right.data(), element_count, alias_right.data());
+    std::copy_n(right.data(), element_count, prompt_alias_right.data());
     const std::vector<std::uint16_t> left_before = left.snapshot();
     const std::vector<std::uint16_t> right_before = right.snapshot();
     const std::vector<std::uint16_t> weight_before = weight.snapshot();
@@ -2155,6 +2188,22 @@ void test_residual_rms_m32_prefix_tail_exact(TestContext& test,
                                      candidate_residual.data(),
                                      alias_right.data(), stream);
                                });
+    ready = ready && launch_after_stale(
+                         test, stream, label + " prompt-wide", [&]() {
+                           return launch_residual_rms_prompt_wide_candidate(
+                               left.data(), right.data(), weight.data(),
+                               token_count, prompt_residual.data(),
+                               prompt_normalized.data(), stream);
+                         });
+    ready = ready && launch_after_stale(
+                         test, stream, label + " prompt-wide alias-right",
+                         [&]() {
+                           return launch_residual_rms_prompt_wide_candidate(
+                               left.data(), prompt_alias_right.data(),
+                               weight.data(), token_count,
+                               prompt_alias_residual.data(),
+                               prompt_alias_right.data(), stream);
+                         });
     if (!ready) {
       return;
     }
@@ -2164,6 +2213,96 @@ void test_residual_rms_m32_prefix_tail_exact(TestContext& test,
     expect_bf16_bits_equal(test, alias_right.data(),
                            baseline_normalized.data(), element_count,
                            label + " normalized alias-right");
+    expect_bf16_bits_equal(test, prompt_residual.data(),
+                           baseline_residual.data(), element_count,
+                           label + " prompt-wide residual");
+    expect_bf16_bits_equal(test, prompt_normalized.data(),
+                           baseline_normalized.data(), element_count,
+                           label + " prompt-wide normalized");
+    expect_bf16_bits_equal(test, prompt_alias_residual.data(),
+                           baseline_residual.data(), element_count,
+                           label + " prompt-wide alias residual");
+    expect_bf16_bits_equal(test, prompt_alias_right.data(),
+                           baseline_normalized.data(), element_count,
+                           label + " prompt-wide normalized alias-right");
+
+    if (token_count == 512U) {
+      cudaGraph_t graph = nullptr;
+      ready = test.cuda_ok(
+          cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+          label + " prompt-wide graph begin capture");
+      if (ready) {
+        const cudaError_t status = static_cast<cudaError_t>(
+            launch_residual_rms_prompt_wide_candidate(
+                left.data(), right.data(), weight.data(), token_count,
+                prompt_residual.data(), prompt_normalized.data(), stream));
+        test.expect(status == cudaSuccess,
+                    label + " prompt-wide graph launch succeeds");
+        ready = test.cuda_ok(cudaStreamEndCapture(stream, &graph),
+                             label + " prompt-wide graph end capture");
+      }
+      cudaGraphExec_t executable = nullptr;
+      if (ready) {
+        std::size_t node_count = 0U;
+        ready = test.cuda_ok(cudaGraphGetNodes(graph, nullptr, &node_count),
+                             label + " prompt-wide graph count nodes");
+        test.expect(node_count == 1U,
+                    label + " prompt-wide graph has one kernel");
+        cudaGraphNode_t node = nullptr;
+        std::size_t capacity = 1U;
+        if (ready && node_count == 1U) {
+          ready = test.cuda_ok(cudaGraphGetNodes(graph, &node, &capacity),
+                               label + " prompt-wide graph fetch node");
+          cudaKernelNodeParams parameters{};
+          ready = ready && test.cuda_ok(
+                               cudaGraphKernelNodeGetParams(node, &parameters),
+                               label + " prompt-wide graph parameters");
+          if (ready) {
+            test.expect(parameters.gridDim.x == token_count &&
+                            parameters.gridDim.y == 1U &&
+                            parameters.gridDim.z == 1U &&
+                            parameters.blockDim.x == 512U &&
+                            parameters.blockDim.y == 1U &&
+                            parameters.blockDim.z == 1U &&
+                            parameters.sharedMemBytes == 0U,
+                        label + " prompt-wide graph has exact topology");
+          }
+        }
+        ready = ready && test.cuda_ok(
+                             cudaGraphInstantiate(&executable, graph, nullptr,
+                                                  nullptr, 0U),
+                             label + " prompt-wide graph instantiate");
+      }
+      if (ready) {
+        // A successful direct launch populated these buffers above. Poison
+        // the payloads before replay so the equality check proves that the
+        // captured node executed with the intended output arguments.
+        prompt_residual.initialize(0x1a1aU, 0x8881U, 0x8882U);
+        prompt_normalized.initialize(0x2b2bU, 0x9991U, 0x9992U);
+        ready = test.cuda_ok(cudaGraphLaunch(executable, stream),
+                             label + " prompt-wide graph replay");
+        ready = ready && test.cuda_ok(
+                             cudaStreamSynchronize(stream),
+                             label + " prompt-wide graph synchronize");
+      }
+      if (executable != nullptr) {
+        (void)test.cuda_ok(cudaGraphExecDestroy(executable),
+                           label + " prompt-wide graph exec destroy");
+      }
+      if (graph != nullptr) {
+        (void)test.cuda_ok(cudaGraphDestroy(graph),
+                           label + " prompt-wide graph destroy");
+      }
+      if (!ready) {
+        return;
+      }
+      expect_bf16_bits_equal(test, prompt_residual.data(),
+                             baseline_residual.data(), element_count,
+                             label + " prompt-wide graph residual");
+      expect_bf16_bits_equal(test, prompt_normalized.data(),
+                             baseline_normalized.data(), element_count,
+                             label + " prompt-wide graph normalized");
+    }
     left.expect_snapshot(test, left_before, label + " preserves left");
     right.expect_snapshot(test, right_before, label + " preserves right");
     weight.expect_snapshot(test, weight_before, label + " preserves weight");
@@ -2171,6 +2310,98 @@ void test_residual_rms_m32_prefix_tail_exact(TestContext& test,
     baseline_normalized.expect_guards(test, label + " baseline normalized");
     candidate_residual.expect_guards(test, label + " candidate residual");
     alias_right.expect_guards(test, label + " alias right/normalized");
+    prompt_residual.expect_guards(test, label + " prompt residual");
+    prompt_normalized.expect_guards(test, label + " prompt normalized");
+    prompt_alias_residual.expect_guards(test,
+                                        label + " prompt alias residual");
+    prompt_alias_right.expect_guards(
+        test, label + " prompt alias right/normalized");
+  }
+}
+
+void test_residual_rms_prompt_wide_invalid_graph(TestContext& test,
+                                                 cudaStream_t stream) {
+  constexpr std::uintptr_t kStride = 0x1000'0000ULL;
+  const auto* const left =
+      reinterpret_cast<const std::uint16_t*>(1U * kStride);
+  const auto* const right =
+      reinterpret_cast<const std::uint16_t*>(2U * kStride);
+  const auto* const weight =
+      reinterpret_cast<const std::uint16_t*>(3U * kStride);
+  auto* const residual = reinterpret_cast<std::uint16_t*>(4U * kStride);
+  auto* const normalized = reinterpret_cast<std::uint16_t*>(5U * kStride);
+  constexpr std::uintptr_t kM32Bytes =
+      32U * kResidualRmsM32HiddenSize * sizeof(std::uint16_t);
+  const auto* const overflow_only_at_prompt_span =
+      reinterpret_cast<const std::uint16_t*>(
+          std::numeric_limits<std::uintptr_t>::max() - kM32Bytes - 16U);
+  auto* const right_tail = reinterpret_cast<std::uint16_t*>(
+      2U * kStride +
+      400U * kResidualRmsM32HiddenSize * sizeof(std::uint16_t));
+  struct InvalidCase {
+    const char* name;
+    const std::uint16_t* left;
+    const std::uint16_t* right;
+    const std::uint16_t* weight;
+    std::size_t token_count;
+    std::size_t hidden_size;
+    float epsilon;
+    std::uint16_t* residual;
+    std::uint16_t* normalized;
+  };
+  const std::array<InvalidCase, 9U> cases{{
+      {"M0", left, right, weight, 0U, kResidualRmsM32HiddenSize,
+       kResidualRmsM32Epsilon, residual, normalized},
+      {"M513", left, right, weight, 513U, kResidualRmsM32HiddenSize,
+       kResidualRmsM32Epsilon, residual, normalized},
+      {"null-left", nullptr, right, weight, 512U,
+       kResidualRmsM32HiddenSize, kResidualRmsM32Epsilon, residual,
+       normalized},
+      {"hidden-5119", left, right, weight, 512U, 5'119U,
+       kResidualRmsM32Epsilon, residual, normalized},
+      {"epsilon-zero", left, right, weight, 512U,
+       kResidualRmsM32HiddenSize, 0.0F, residual, normalized},
+      {"residual-alias-left", left, right, weight, 512U,
+       kResidualRmsM32HiddenSize, kResidualRmsM32Epsilon,
+       const_cast<std::uint16_t*>(left), normalized},
+      {"normalized-partial-alias-right", left, right, weight, 512U,
+       kResidualRmsM32HiddenSize, kResidualRmsM32Epsilon, residual,
+       reinterpret_cast<std::uint16_t*>(
+           2U * kStride + sizeof(std::uint16_t))},
+      {"normalized-tail-alias-right", left, right, weight, 512U,
+       kResidualRmsM32HiddenSize, kResidualRmsM32Epsilon, residual,
+       right_tail},
+      {"left-overflow-only-at-prompt-span", overflow_only_at_prompt_span,
+       right, weight, 512U, kResidualRmsM32HiddenSize,
+       kResidualRmsM32Epsilon, residual, normalized},
+  }};
+  for (const InvalidCase& invalid : cases) {
+    const std::string label =
+        "prompt-wide residual/RMS invalid " + std::string(invalid.name);
+    if (!test.cuda_ok(
+            cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+            label + " begin capture")) {
+      return;
+    }
+    const cudaError_t status = static_cast<cudaError_t>(q3x::runtime::
+        launch_residual_add_headwise_centered_rms_norm_prefill_5120_cuda(
+            invalid.left, invalid.right, invalid.weight,
+            invalid.token_count, invalid.hidden_size, invalid.epsilon,
+            invalid.residual, invalid.normalized,
+            static_cast<void*>(stream)));
+    test.expect(status == cudaErrorInvalidValue,
+                label + " returns cudaErrorInvalidValue");
+    cudaGraph_t graph = nullptr;
+    if (!test.cuda_ok(cudaStreamEndCapture(stream, &graph),
+                      label + " end capture")) {
+      return;
+    }
+    std::size_t node_count = 0U;
+    if (test.cuda_ok(cudaGraphGetNodes(graph, nullptr, &node_count),
+                     label + " count nodes")) {
+      test.expect(node_count == 0U, label + " captures zero nodes");
+    }
+    (void)test.cuda_ok(cudaGraphDestroy(graph), label + " destroy graph");
   }
 }
 
@@ -9301,6 +9532,7 @@ int main() {
   test_residual_rms_fused_perf(test, stream);
   test_residual_rms_m32_fused_exact(test, stream);
   test_residual_rms_m32_prefix_tail_exact(test, stream);
+  test_residual_rms_prompt_wide_invalid_graph(test, stream);
   test_residual_rms_m32_nan_operand_order(test, stream);
   test_prefill_m32_residual_rms_formal_perf(test, stream);
   test_outer_rms_tile_exact(test, stream);

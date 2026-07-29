@@ -66,6 +66,16 @@ constexpr std::size_t kProductionProjectionSubtileTokens = 32U;
 constexpr float kRmsEpsilon = 1.0e-6F;
 constexpr float kAttentionScale = 1.0F / 16.0F;
 
+[[nodiscard]] bool
+prefill_residual_rms_prompt_wide_environment_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_PREFILL_RESIDUAL_RMS_PROMPT_WIDE_ADMISSION");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
+thread_local bool g_enable_prefill_residual_rms_prompt_wide_admission =
+    prefill_residual_rms_prompt_wide_environment_enabled();
+
 #if defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION)
 [[nodiscard]] bool nvfp4_marlin_prefill_environment_enabled() noexcept {
   const char* const value =
@@ -3188,14 +3198,26 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
   const auto residual_rms_m32_schedule =
       reference_runner_detail::prefill_residual_rms_m32_schedule(
           token_count, kReferenceHiddenSize);
+  const bool use_residual_rms_prompt_wide =
+      residual_rms_m32_schedule.valid() &&
+      g_enable_prefill_residual_rms_prompt_wide_admission;
   const auto residual_norm_m32_tiles =
-      [this, residual_rms_m32_schedule, &check_cuda](
+      [this, token_count, residual_rms_m32_schedule,
+       use_residual_rms_prompt_wide, &check_cuda](
           const std::uint16_t* const left,
           const std::uint16_t* const right,
           const std::uint16_t* const norm_weight,
           std::uint16_t* const residual_output,
           std::uint16_t* const normalized_output,
           const char* const operation, const std::size_t layer) noexcept {
+        if (use_residual_rms_prompt_wide) {
+          return check_cuda(
+              launch_residual_add_headwise_centered_rms_norm_prefill_5120_cuda(
+                  left, right, norm_weight, token_count,
+                  kReferenceHiddenSize, kRmsEpsilon, residual_output,
+                  normalized_output, stream_),
+              operation, layer);
+        }
         for (std::size_t token_offset = 0U;
              token_offset < residual_rms_m32_schedule.fused_prefix_tokens;
              token_offset += kProductionProjectionSubtileTokens) {
