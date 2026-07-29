@@ -12,6 +12,9 @@ stock vLLM, establishes the 2.768687x TTFT gap as a Prefill architecture
 priority, and records the first C-Eval attempt as an invalid output-cap
 measurement. Its authority is roadmap prioritization only: it is not a
 release baseline, production promotion, threshold reset, or capability score.
+The fresh stock-vLLM run is separately frozen in
+[`qwen36-27b-evalscope-vllm-frozen-reference-2026-07-29.json`](qwen36-27b-evalscope-vllm-frozen-reference-2026-07-29.json).
+It is a cumulative market floor and is not rerun for each native candidate.
 
 The current Prefill architecture reset and same-host stock-vLLM P513 kernel
 profile are recorded in
