@@ -278,6 +278,11 @@ if(Q3X_BUILD_NVFP4_MARLIN_PREFILL_ADMISSION)
     Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION=1
   )
 endif()
+if(Q3X_BUILD_FP8_MARLIN_PREFILL_ADMISSION)
+  target_compile_definitions(q3x_engine PRIVATE
+    Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION=1
+  )
+endif()
 q3x_enable_warnings(q3x_engine)
 
 # Internal, deliberately narrow OpenAI/EvalScope evaluation adapter. It is
@@ -486,6 +491,23 @@ if(BUILD_TESTING)
     )
     set_tests_properties(sm87_fp8_marlin_layer0_compile PROPERTIES
       LABELS "host;sm87;prefill;compile_contract"
+    )
+
+    add_executable(q3x_sm87_fp8_marlin_real_qkv_test
+      tests/sm87_fp8_marlin_real_qkv_test.cu
+    )
+    target_link_libraries(q3x_sm87_fp8_marlin_real_qkv_test
+      PRIVATE q3x::kernels q3x_test_pinned_checkpoint CUDA::cudart
+    )
+    q3x_enable_warnings(q3x_sm87_fp8_marlin_real_qkv_test)
+    add_test(NAME sm87_fp8_marlin_real_qkv_m407
+      COMMAND q3x_sm87_fp8_marlin_real_qkv_test
+              "${_q3x_real_perf_model_dir}"
+    )
+    set_tests_properties(sm87_fp8_marlin_real_qkv_m407 PROPERTIES
+      LABELS "cuda;sm87;prefill;correctness;checkpoint;performance"
+      SKIP_RETURN_CODE 77
+      RESOURCE_LOCK q3x_sm87_gpu
     )
   endif()
 

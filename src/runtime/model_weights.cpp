@@ -905,6 +905,130 @@ bool ModelWeights::attach_fp8_prefill_supermatrix_sidecars(
   return sidecar_address == arena_address + arena_bytes;
 }
 
+bool ModelWeights::attach_fp8_marlin_prefill_sidecars(
+    const std::uint8_t* const weight_arena,
+    const std::size_t weight_arena_bytes,
+    const std::uint16_t* const scale_arena,
+    const std::size_t scale_arena_elements) noexcept {
+  constexpr std::uintptr_t kRequiredAlignment = 16U;
+  constexpr auto kPointerMaximum =
+      std::numeric_limits<std::uintptr_t>::max();
+  const auto clear_all = [this]() noexcept {
+    for (DecoderLayerWeights& layer : layers_) {
+      if (auto* const linear =
+              std::get_if<LinearAttentionWeights>(&layer.attention)) {
+        for (LinearWeight* const binding :
+             {&linear->in_proj_qkv, &linear->in_proj_z,
+              &linear->out_proj}) {
+          if (auto* const fp8 = std::get_if<Fp8LinearWeight>(binding)) {
+            fp8->prefill_marlin_weight = nullptr;
+            fp8->prefill_marlin_scales = nullptr;
+          }
+        }
+      } else if (auto* const full =
+                     std::get_if<FullAttentionWeights>(&layer.attention)) {
+        for (LinearWeight* const binding :
+             {&full->q_proj, &full->k_proj, &full->v_proj,
+              &full->o_proj}) {
+          if (auto* const fp8 = std::get_if<Fp8LinearWeight>(binding)) {
+            fp8->prefill_marlin_weight = nullptr;
+            fp8->prefill_marlin_scales = nullptr;
+          }
+        }
+      }
+    }
+  };
+
+  if (weight_arena == nullptr && weight_arena_bytes == 0U &&
+      scale_arena == nullptr && scale_arena_elements == 0U) {
+    clear_all();
+    return true;
+  }
+  if (weight_arena == nullptr || scale_arena == nullptr ||
+      weight_arena_bytes != kQwen36Fp8PrefillSupermatrixSidecarBytes ||
+      scale_arena_elements != kQwen36Fp8MarlinScaleElements) {
+    return false;
+  }
+  const std::uintptr_t weight_address =
+      reinterpret_cast<std::uintptr_t>(weight_arena);
+  const std::uintptr_t scale_address =
+      reinterpret_cast<std::uintptr_t>(scale_arena);
+  constexpr std::size_t kScaleBytes = kQwen36Fp8MarlinScaleBytes;
+  if ((weight_address % kRequiredAlignment) != 0U ||
+      (scale_address % kRequiredAlignment) != 0U ||
+      weight_arena_bytes > kPointerMaximum ||
+      weight_address > kPointerMaximum - weight_arena_bytes ||
+      kScaleBytes > kPointerMaximum ||
+      scale_address > kPointerMaximum - kScaleBytes) {
+    return false;
+  }
+  const std::uintptr_t weight_end = weight_address + weight_arena_bytes;
+  const std::uintptr_t scale_end = scale_address + kScaleBytes;
+  if (weight_address < scale_end && scale_address < weight_end) {
+    return false;
+  }
+
+  std::array<Fp8LinearWeight*, kFp8PrefillSupermatrixProjectionCount>
+      projections{};
+  std::size_t projection_count = 0U;
+  std::size_t validated_weight_bytes = 0U;
+  std::size_t validated_scale_elements = 0U;
+  const auto append = [&](LinearWeight& binding, const std::size_t rows,
+                          const std::size_t columns) noexcept {
+    Fp8LinearWeight* const fp8 = std::get_if<Fp8LinearWeight>(&binding);
+    if (projection_count >= projections.size() ||
+        !has_valid_fp8_payload(fp8) || fp8->output_size != rows ||
+        fp8->input_size != columns ||
+        rows > std::numeric_limits<std::size_t>::max() / columns ||
+        rows * columns > weight_arena_bytes - validated_weight_bytes ||
+        rows > scale_arena_elements - validated_scale_elements) {
+      return false;
+    }
+    projections[projection_count++] = fp8;
+    validated_weight_bytes += rows * columns;
+    validated_scale_elements += rows;
+    return true;
+  };
+
+  for (DecoderLayerWeights& layer : layers_) {
+    if (auto* const linear =
+            std::get_if<LinearAttentionWeights>(&layer.attention)) {
+      if (!append(linear->in_proj_qkv, 10'240U, 5'120U) ||
+          !append(linear->in_proj_z, 6'144U, 5'120U) ||
+          !append(linear->out_proj, 5'120U, 6'144U)) {
+        return false;
+      }
+    } else if (auto* const full =
+                   std::get_if<FullAttentionWeights>(&layer.attention)) {
+      if (!append(full->q_proj, 12'288U, 5'120U) ||
+          !append(full->k_proj, 1'024U, 5'120U) ||
+          !append(full->v_proj, 1'024U, 5'120U) ||
+          !append(full->o_proj, 5'120U, 6'144U)) {
+        return false;
+      }
+    } else {
+      return false;
+    }
+  }
+  if (projection_count != projections.size() ||
+      validated_weight_bytes != weight_arena_bytes ||
+      validated_scale_elements != scale_arena_elements) {
+    return false;
+  }
+
+  clear_all();
+  std::size_t weight_offset = 0U;
+  std::size_t scale_offset = 0U;
+  for (Fp8LinearWeight* const projection : projections) {
+    projection->prefill_marlin_weight = weight_arena + weight_offset;
+    projection->prefill_marlin_scales = scale_arena + scale_offset;
+    weight_offset += projection->output_size * projection->input_size;
+    scale_offset += projection->output_size;
+  }
+  return weight_offset == weight_arena_bytes &&
+         scale_offset == scale_arena_elements;
+}
+
 bool ModelWeights::attach_nvfp4_down_scale6_sidecars(
     const std::uint8_t* const arena, const std::size_t arena_bytes,
     const NvFp4DownScale6SidecarDescriptor* const descriptors,

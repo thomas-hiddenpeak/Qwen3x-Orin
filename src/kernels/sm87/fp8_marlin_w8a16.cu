@@ -106,7 +106,7 @@ __global__ void expand_fp8_scale_kernel(
 }
 
 template <int Threads, int ThreadMBlocks, int ThreadNBlocks,
-          int ThreadKBlocks>
+          int ThreadKBlocks, bool MBlockSize8 = false>
 [[nodiscard]] int launch_marlin_specialization(
     const std::uint16_t* const input,
     const std::uint8_t* const marlin_weight,
@@ -117,7 +117,7 @@ template <int Threads, int ThreadMBlocks, int ThreadNBlocks,
   const auto kernel =
       marlin::Marlin<vllm::kBFloat16.id(), vllm::kFE4M3fn.id(),
                      vllm::kBFloat16.id(), vllm::kBFloat16.id(), Threads,
-                     ThreadMBlocks, ThreadNBlocks, ThreadKBlocks, false,
+                     ThreadMBlocks, ThreadNBlocks, ThreadKBlocks, MBlockSize8,
                      kStages, kGroupBlocks, false>;
   cudaError_t status = cudaFuncSetAttribute(
       kernel, cudaFuncAttributeMaxDynamicSharedMemorySize,
@@ -136,6 +136,54 @@ template <int Threads, int ThreadMBlocks, int ThreadNBlocks,
       input_size, input_size, locks, false, false, true,
       static_cast<int>(kSm87Fp8MarlinDynamicSharedBytes));
   return static_cast<int>(cudaPeekAtLastError());
+}
+
+[[nodiscard]] int launch_marlin_segment(
+    const std::uint16_t* const input,
+    const std::uint8_t* const marlin_weight,
+    const std::uint16_t* const marlin_scales,
+    const std::size_t token_count, const int output_size,
+    const int input_size, std::uint16_t* const output, float* const c_tmp,
+    std::int32_t* const locks, void* const cuda_stream) noexcept {
+  if (token_count <= 8U) {
+    return launch_marlin_specialization<256, 1, 8, 8, true>(
+        input, marlin_weight, marlin_scales, token_count, output_size,
+        input_size, output, c_tmp, locks, cuda_stream);
+  }
+  if (token_count <= 16U) {
+    return launch_marlin_specialization<256, 1, 8, 8>(
+        input, marlin_weight, marlin_scales, token_count, output_size,
+        input_size, output, c_tmp, locks, cuda_stream);
+  }
+  if (output_size == 1'024 &&
+      token_count <= kSm87Fp8MarlinC64Tokens) {
+    if (token_count <= kSm87Fp8MarlinC32Tokens) {
+      return launch_marlin_specialization<128, 2, 4, 8>(
+          input, marlin_weight, marlin_scales, token_count, output_size,
+          input_size, output, c_tmp, locks, cuda_stream);
+    }
+    if (token_count <= 48U) {
+      return launch_marlin_specialization<128, 3, 4, 8>(
+          input, marlin_weight, marlin_scales, token_count, output_size,
+          input_size, output, c_tmp, locks, cuda_stream);
+    }
+    return launch_marlin_specialization<128, 4, 4, 8>(
+        input, marlin_weight, marlin_scales, token_count, output_size,
+        input_size, output, c_tmp, locks, cuda_stream);
+  }
+  if (token_count <= kSm87Fp8MarlinC32Tokens) {
+    return launch_marlin_specialization<256, 2, 16, 4>(
+        input, marlin_weight, marlin_scales, token_count, output_size,
+        input_size, output, c_tmp, locks, cuda_stream);
+  }
+  if (token_count <= 48U) {
+    return launch_marlin_specialization<256, 3, 16, 4>(
+        input, marlin_weight, marlin_scales, token_count, output_size,
+        input_size, output, c_tmp, locks, cuda_stream);
+  }
+  return launch_marlin_specialization<256, 4, 16, 4>(
+      input, marlin_weight, marlin_scales, token_count, output_size,
+      input_size, output, c_tmp, locks, cuda_stream);
 }
 
 }  // namespace
@@ -229,25 +277,21 @@ int launch_sm87_fp8_marlin_projection_cuda(
   }
   const int output_size_int = static_cast<int>(output_size);
   const int input_size_int = static_cast<int>(input_size);
-
-  if (output_size == 1'024U && token_count == kSm87Fp8MarlinC32Tokens) {
-    return launch_marlin_specialization<128, 2, 4, 8>(
-        input, marlin_weight, marlin_scales, token_count, output_size_int,
-        input_size_int, output, c_tmp, locks, cuda_stream);
+  const Sm87Fp8MarlinExecutionPlan plan =
+      sm87_fp8_marlin_execution_plan(token_count);
+  const int primary_status = launch_marlin_segment(
+      input, marlin_weight, marlin_scales, plan.primary_tokens,
+      output_size_int, input_size_int, output, c_tmp, locks, cuda_stream);
+  if (primary_status != static_cast<int>(cudaSuccess) ||
+      plan.remainder_tokens == 0U) {
+    return primary_status;
   }
-  if (output_size == 1'024U && token_count == kSm87Fp8MarlinC64Tokens) {
-    return launch_marlin_specialization<128, 4, 4, 8>(
-        input, marlin_weight, marlin_scales, token_count, output_size_int,
-        input_size_int, output, c_tmp, locks, cuda_stream);
-  }
-  if (token_count == kSm87Fp8MarlinC32Tokens) {
-    return launch_marlin_specialization<256, 2, 16, 4>(
-        input, marlin_weight, marlin_scales, token_count, output_size_int,
-        input_size_int, output, c_tmp, locks, cuda_stream);
-  }
-  return launch_marlin_specialization<256, 4, 16, 4>(
-      input, marlin_weight, marlin_scales, token_count, output_size_int,
-      input_size_int, output, c_tmp, locks, cuda_stream);
+  const std::size_t input_offset = plan.primary_tokens * input_size;
+  const std::size_t output_offset = plan.primary_tokens * output_size;
+  return launch_marlin_segment(
+      input + input_offset, marlin_weight, marlin_scales,
+      plan.remainder_tokens, output_size_int, input_size_int,
+      output + output_offset, c_tmp, locks, cuda_stream);
 }
 
 }  // namespace q3x::kernels

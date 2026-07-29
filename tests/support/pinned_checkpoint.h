@@ -186,6 +186,8 @@ struct PinnedBundleLoadResult {
 qwen36_27b_nvfp4_model_revision();
 [[nodiscard]] const PinnedBundleDescriptor&
 qwen36_27b_nvfp4_layer0_mlp_bundle();
+[[nodiscard]] const PinnedBundleDescriptor&
+qwen36_27b_fp8_attention_bundle();
 
 inline constexpr std::string_view kQwen36Layer0GateWeight =
     "model.language_model.layers.0.mlp.gate_proj.weight";
@@ -205,5 +207,33 @@ inline constexpr std::string_view kQwen36Layer0DownBlockScale =
     "model.language_model.layers.0.mlp.down_proj.weight_scale";
 inline constexpr std::string_view kQwen36Layer0DownWeightScale2 =
     "model.language_model.layers.0.mlp.down_proj.weight_scale_2";
+inline constexpr std::string_view kQwen36Layer0LinearQkvWeight =
+    "model.language_model.layers.0.linear_attn.in_proj_qkv.weight";
+inline constexpr std::string_view kQwen36Layer0LinearQkvScale =
+    "model.language_model.layers.0.linear_attn.in_proj_qkv.weight_scale";
+inline constexpr std::string_view kQwen36Layer0LinearZWeight =
+    "model.language_model.layers.0.linear_attn.in_proj_z.weight";
+inline constexpr std::string_view kQwen36Layer0LinearZScale =
+    "model.language_model.layers.0.linear_attn.in_proj_z.weight_scale";
+inline constexpr std::string_view kQwen36Layer0LinearOutputWeight =
+    "model.language_model.layers.0.linear_attn.out_proj.weight";
+inline constexpr std::string_view kQwen36Layer0LinearOutputScale =
+    "model.language_model.layers.0.linear_attn.out_proj.weight_scale";
+inline constexpr std::string_view kQwen36Layer3FullQueryWeight =
+    "model.language_model.layers.3.self_attn.q_proj.weight";
+inline constexpr std::string_view kQwen36Layer3FullQueryScale =
+    "model.language_model.layers.3.self_attn.q_proj.weight_scale";
+inline constexpr std::string_view kQwen36Layer3FullKeyWeight =
+    "model.language_model.layers.3.self_attn.k_proj.weight";
+inline constexpr std::string_view kQwen36Layer3FullKeyScale =
+    "model.language_model.layers.3.self_attn.k_proj.weight_scale";
+inline constexpr std::string_view kQwen36Layer3FullValueWeight =
+    "model.language_model.layers.3.self_attn.v_proj.weight";
+inline constexpr std::string_view kQwen36Layer3FullValueScale =
+    "model.language_model.layers.3.self_attn.v_proj.weight_scale";
+inline constexpr std::string_view kQwen36Layer3FullOutputWeight =
+    "model.language_model.layers.3.self_attn.o_proj.weight";
+inline constexpr std::string_view kQwen36Layer3FullOutputScale =
+    "model.language_model.layers.3.self_attn.o_proj.weight_scale";
 
 }  // namespace q3x::test::support

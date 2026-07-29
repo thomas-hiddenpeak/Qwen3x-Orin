@@ -778,6 +778,8 @@ void PrintGeneration(
          << load.fp8_prefill_qkv_sidecar_milliseconds << '\n'
          << "load.fp8_prefill_supermatrix_sidecar_ms="
          << load.fp8_prefill_supermatrix_sidecar_milliseconds << '\n'
+         << "load.fp8_marlin_prefill_sidecar_ms="
+         << load.fp8_marlin_prefill_sidecar_milliseconds << '\n'
          << "load.nvfp4_marlin_prefill_sidecar_ms="
          << load.nvfp4_marlin_prefill_sidecar_milliseconds << '\n'
          << "load.runner_factory_ms=" << load.runner_factory_milliseconds
@@ -814,6 +816,12 @@ void PrintGeneration(
          << load.fp8_prefill_supermatrix_sidecar_projections << '\n'
          << "load.fp8_prefill_supermatrix_sidecar_bytes="
          << load.fp8_prefill_supermatrix_sidecar_bytes << '\n'
+         << "load.fp8_marlin_prefill_sidecars_enabled="
+         << (load.fp8_marlin_prefill_sidecars_enabled ? 1 : 0) << '\n'
+         << "load.fp8_marlin_prefill_sidecar_projections="
+         << load.fp8_marlin_prefill_sidecar_projections << '\n'
+         << "load.fp8_marlin_prefill_sidecar_bytes="
+         << load.fp8_marlin_prefill_sidecar_bytes << '\n'
          << "load.nvfp4_marlin_prefill_sidecars_enabled="
          << (load.nvfp4_marlin_prefill_sidecars_enabled ? 1 : 0) << '\n'
          << "load.nvfp4_marlin_prefill_sidecar_layers="
@@ -972,7 +980,8 @@ void PrintBenchmarkReport(
     const q3x::runtime::ReferenceEngineLoadStats& load,
     const q3x::runtime::ReferenceBenchmarkReport& report,
     const q3x::runtime::ProjectionBackend projection_backend,
-    const std::size_t nvfp4_marlin_prefill_route_hits) {
+    const std::size_t nvfp4_marlin_prefill_route_hits,
+    const std::size_t fp8_marlin_prefill_route_hits) {
   output << std::fixed << std::setprecision(3)
          << "status=ok\n"
          << "projection.backend="
@@ -995,6 +1004,8 @@ void PrintBenchmarkReport(
          << load.fp8_prefill_qkv_sidecar_milliseconds << '\n'
          << "load.fp8_prefill_supermatrix_sidecar_ms="
          << load.fp8_prefill_supermatrix_sidecar_milliseconds << '\n'
+         << "load.fp8_marlin_prefill_sidecar_ms="
+         << load.fp8_marlin_prefill_sidecar_milliseconds << '\n'
          << "load.nvfp4_marlin_prefill_sidecar_ms="
          << load.nvfp4_marlin_prefill_sidecar_milliseconds << '\n'
          << "load.runner_factory_ms=" << load.runner_factory_milliseconds
@@ -1031,6 +1042,12 @@ void PrintBenchmarkReport(
          << load.fp8_prefill_supermatrix_sidecar_projections << '\n'
          << "load.fp8_prefill_supermatrix_sidecar_bytes="
          << load.fp8_prefill_supermatrix_sidecar_bytes << '\n'
+         << "load.fp8_marlin_prefill_sidecars_enabled="
+         << (load.fp8_marlin_prefill_sidecars_enabled ? 1 : 0) << '\n'
+         << "load.fp8_marlin_prefill_sidecar_projections="
+         << load.fp8_marlin_prefill_sidecar_projections << '\n'
+         << "load.fp8_marlin_prefill_sidecar_bytes="
+         << load.fp8_marlin_prefill_sidecar_bytes << '\n'
          << "load.nvfp4_marlin_prefill_sidecars_enabled="
          << (load.nvfp4_marlin_prefill_sidecars_enabled ? 1 : 0) << '\n'
          << "load.nvfp4_marlin_prefill_sidecar_layers="
@@ -1069,7 +1086,9 @@ void PrintBenchmarkReport(
          << "benchmark.decode_graph_serial_fallbacks="
          << report.decode_graph_serial_fallbacks << '\n'
          << "benchmark.nvfp4_marlin_prefill_route_hits="
-         << nvfp4_marlin_prefill_route_hits << '\n';
+         << nvfp4_marlin_prefill_route_hits << '\n'
+         << "benchmark.fp8_marlin_prefill_route_hits="
+         << fp8_marlin_prefill_route_hits << '\n';
   PrintDecodeGraphCacheLoadStats(output, load);
   PrintStringField(output, "model.directory", model_directory.string());
   PrintLatencyStatistics(output, "stats.prompt_prefix",
@@ -1177,6 +1196,9 @@ int RunBenchmark(const int argc, char** const argv) {
   static_cast<void>(
       q3x::runtime::reference_runner_detail::
           exchange_nvfp4_marlin_prefill_admission_test_hits(0U));
+  static_cast<void>(
+      q3x::runtime::reference_runner_detail::
+          exchange_fp8_marlin_prefill_admission_test_hits(0U));
 
   q3x::runtime::ReferenceBenchmarkOptions benchmark_options;
   benchmark_options.warmup_rounds = parsed.value->warmup_rounds;
@@ -1273,6 +1295,9 @@ int RunBenchmark(const int argc, char** const argv) {
                        parsed.value->projection_backend,
                        q3x::runtime::reference_runner_detail::
                            exchange_nvfp4_marlin_prefill_admission_test_hits(
+                               0U),
+                       q3x::runtime::reference_runner_detail::
+                           exchange_fp8_marlin_prefill_admission_test_hits(
                                0U));
   return 0;
 }
