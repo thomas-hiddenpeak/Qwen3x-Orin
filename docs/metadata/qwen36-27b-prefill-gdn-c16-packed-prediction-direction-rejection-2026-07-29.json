@@ -1,0 +1,256 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-gdn-c16-packed-prediction-direction-rejection-2026-07-29",
+  "status": "rejected-and-withdrawn-real-path-direction-stop-loss",
+  "date": "2026-07-29",
+  "timezone": "Asia/Shanghai",
+  "policy": {
+    "document": "docs/REAL_MODEL_PERFORMANCE_POLICY.md",
+    "evidence_tier": "T3",
+    "protocol_class": "DIRECTION_SCREEN_WITH_BOUNDED_NSYS_DIAGNOSTIC",
+    "payload_class": "full_model_pinned_prompt",
+    "authority": "EARLY_STOP_ONLY",
+    "retention_authority": false,
+    "promotion_authority": false,
+    "rule": "The candidate is negative on the first resource-clean real generation-path screen. A bounded NSys trace answers only whether the loss resides in the candidate kernel; it cannot reverse rejection."
+  },
+  "source": {
+    "measured_head_commit": "adb72225303690a7267081f10588addcdc151d37",
+    "measured_head_subject": "docs: reject C16 GDN constant hoist",
+    "candidate_committed": false,
+    "candidate_retained_in_worktree": false,
+    "withdrawn_worktree_patch": {
+      "files": [
+        "src/kernels/reference/gdn_prefill_c16_norm_gate_sm87.cu",
+        "src/kernels/reference/gdn_prefill_c16_norm_gate_sm87.h",
+        "src/runtime/reference_runner.cpp",
+        "src/runtime/reference_runner_gdn_c16_norm_gate_admission.h",
+        "tests/reference_gdn_prefill_c16_norm_gate_engine_e2e_test.cpp"
+      ],
+      "git_diff_bytes": 34293,
+      "git_diff_sha256": "c8f0bb171bb2f5a1da1059a95cd4085b1eaf1a5cb6afc228a20e8264221d2a65",
+      "identified_variant": "owner-lane loop unroll 8",
+      "post_measurement_withdrawal": "all five tracked files restored exactly to commit adb7222 before this evidence record was created"
+    },
+    "measured_binary": {
+      "path": "build/gdn-c16-admission/q3x_reference_gdn_prefill_c16_norm_gate_engine_e2e_test",
+      "bytes": 7831360,
+      "sha256": "e9fa0804b746f119c4d3612a0f0fe57c9f8bf69d174baa6cd69527fa9b02e4b5",
+      "elf_build_id": "9b3cf3f684304d6b7ac906e93d81103f37e56ac2",
+      "build_type": "Release",
+      "cuda_architecture": 87,
+      "cublaslt_dynamic_dependency": false,
+      "cublaslt_dynamic_import": false
+    }
+  },
+  "checkpoint": {
+    "repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "directory": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "config_sha256": "c04a19ba293737ad7be4f6e96d6666cb7e479cbe19ecc0c289fad267135b0338",
+    "quantization_config_sha256": "fd7200cd8bca2a8a5d777061521abf83e2deb97ab6bc2f04e7a0a3d3f8ecd5c1",
+    "index_sha256": "7aa103a2582b7d26631988de33dea19e8a308ee9c239e8e14feb374af30905e2",
+    "tokenizer_json_sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42"
+  },
+  "prompt": {
+    "label": "P513",
+    "prompt_tokens": 513,
+    "prefix_tokens": 512,
+    "prefill_chunk_tokens": 512,
+    "expected_generated_token": 9419,
+    "expected_generated_text": "Hello",
+    "expected_step_count": 513
+  },
+  "environment": {
+    "device": "NVIDIA Jetson AGX Orin",
+    "architecture": "SM87",
+    "driver_version": "595.78",
+    "nvpmodel": "MAXN",
+    "cpu_affinity": [11],
+    "cpu_hz": 2201600000,
+    "gpu_hz": 1300500000,
+    "emc_hz": 3200000000,
+    "fan_pwm": 255,
+    "fixed_clock_readback": true,
+    "serialized_gpu_execution": true
+  },
+  "candidate": {
+    "incumbent": "retained exact-C16 warp-row shared-BF16-boundary GDN plus RMSNorm/SiLU composite",
+    "mechanism": "store the pre-prediction recurrent state as two packed BF16 values per shared 32-bit word, recreate the original alpha multiply and sequential prediction FMA order in the row-owner lane, then recompute alpha times state from register-held BF16 words for the update",
+    "exact_arithmetic_intent": "prediction key order remains 0 through 127 and every alpha multiply, FMA, BF16 rounding, state write, Q dot product, RMSNorm reduction, and SiLU gate retains incumbent order",
+    "logical_shared_traffic_effect_per_token_row_bytes": {
+      "initial_scaled_state_write_removed": 256,
+      "update_scaled_state_read_removed": 512,
+      "prediction_read_removed": 0,
+      "total_removed": 768
+    },
+    "logical_shared_traffic_effect_per_c16_value_head_cta_bytes": 12288,
+    "logical_shared_traffic_effect_per_p513_generation_bytes": 452984832,
+    "structural_cost": "The exact sequential dot product reloads each packed word for its low and high halves and concentrates 128 decode/multiply/FMA iterations in each of eight row-owner lanes. The update must decode and multiply all 128 state values again.",
+    "final_variant_resources": {
+      "incumbent": {
+        "registers_per_thread": 64,
+        "static_shared_bytes": 38184,
+        "local_bytes": 0,
+        "active_blocks_per_sm": 4
+      },
+      "candidate": {
+        "registers_per_thread": 64,
+        "static_shared_bytes": 38184,
+        "local_bytes": 0,
+        "active_blocks_per_sm": 4
+      },
+      "gate": "PASS"
+    }
+  },
+  "compiler_shape_sweep": [
+    {
+      "owner_lane_unroll": "full",
+      "registers_per_thread": 64,
+      "local_bytes_per_thread": 56,
+      "active_blocks_per_sm": 4,
+      "decision": "RESOURCE_GATE_FAIL_NO_TIMING"
+    },
+    {
+      "owner_lane_unroll": 1,
+      "registers_per_thread": 64,
+      "local_bytes_per_thread": 0,
+      "baseline_prefix_ms": 2536.465743,
+      "candidate_prefix_ms": 2753.87482,
+      "prefix_saved_ms": -217.409077,
+      "prefix_speedup": 0.921053392,
+      "decision": "NEGATIVE"
+    },
+    {
+      "owner_lane_unroll": 4,
+      "registers_per_thread": 64,
+      "local_bytes_per_thread": 0,
+      "baseline_prefix_ms": 2537.4790705,
+      "candidate_prefix_ms": 2560.4355175,
+      "prefix_saved_ms": -22.956447,
+      "prefix_speedup": 0.991034163,
+      "decision": "NEGATIVE"
+    },
+    {
+      "owner_lane_unroll": 8,
+      "registers_per_thread": 64,
+      "local_bytes_per_thread": 0,
+      "baseline_prefix_ms": 2537.5451435,
+      "candidate_prefix_ms": 2546.2759165,
+      "prefix_saved_ms": -8.730773,
+      "prefix_speedup": 0.99657116,
+      "decision": "NEGATIVE_FINAL_VARIANT"
+    }
+  ],
+  "protocol": {
+    "engine_instances": 1,
+    "same_elf_for_incumbent_and_candidate": true,
+    "batch_size": 1,
+    "max_new_tokens": 1,
+    "snapshot_hook": "empty for every timed invocation",
+    "warmup": "one incumbent-candidate-candidate-incumbent B-C-C-B",
+    "measurement": "one incumbent-candidate-candidate-incumbent B-C-C-B",
+    "incumbent_admission_hits_each_invocation": 1536,
+    "candidate_variant_hits": "0 for B, 1536 for C",
+    "generation_oracle_each_invocation": "PASS",
+    "full_noise_calibration": "NOT_RUN",
+    "formal_six_round_retention": "NOT_RUN",
+    "exhaustive_candidate_correctness": "NOT_RUN_AFTER_NEGATIVE_DIRECTION"
+  },
+  "warmup_samples_final_variant": [
+    {"route": "B1", "prefix_ms": 2538.274757, "ttft_ms": 2665.271256},
+    {"route": "C1", "prefix_ms": 2546.170644, "ttft_ms": 2654.902005},
+    {"route": "C2", "prefix_ms": 2546.397528, "ttft_ms": 2655.123481},
+    {"route": "B2", "prefix_ms": 2537.544259, "ttft_ms": 2646.211588}
+  ],
+  "measured_samples_final_variant": [
+    {"route": "B1", "prefix_ms": 2537.469668, "ttft_ms": 2646.163141},
+    {"route": "C1", "prefix_ms": 2546.398173, "ttft_ms": 2655.073374},
+    {"route": "C2", "prefix_ms": 2546.15366, "ttft_ms": 2654.89395},
+    {"route": "B2", "prefix_ms": 2537.620619, "ttft_ms": 2646.358125}
+  ],
+  "aggregate_final_variant": {
+    "baseline_prefix_ms": 2537.5451435,
+    "candidate_prefix_ms": 2546.2759165,
+    "prefix_saved_ms": -8.730773,
+    "prefix_speedup": 0.99657116,
+    "prefix_latency_regression_percent": 0.344063750841,
+    "baseline_ttft_ms": 2646.260633,
+    "candidate_ttft_ms": 2654.983662,
+    "ttft_saved_ms": -8.723029,
+    "ttft_speedup": 0.99671447,
+    "ttft_latency_regression_percent": 0.329636049119,
+    "direction": "NEGATIVE"
+  },
+  "profiling": {
+    "question": "Does the remaining final-variant regression reside in the candidate GDN kernel, or in route and scheduling side effects?",
+    "tool": "NSys",
+    "trace": "cuda,nvtx",
+    "candidate_kernel_calls": 6144,
+    "incumbent_kernel_calls": 6144,
+    "candidate_total_ns": 2036155968,
+    "incumbent_total_ns": 1998316576,
+    "candidate_average_ns": 331405.6,
+    "incumbent_average_ns": 325246.8,
+    "candidate_minus_incumbent_average_ns": 6158.8,
+    "candidate_kernel_latency_ratio": 1.01893577431,
+    "candidate_minus_incumbent_per_generation_ms": 9.459848,
+    "profiled_baseline_prefix_ms": 2543.676122,
+    "profiled_candidate_prefix_ms": 2552.7230255,
+    "profiled_prefix_regression_ms": 9.0469035,
+    "conclusion": "The templated candidate kernel interval explains the end-to-end loss. There is no route-side benefit hidden by unrelated work.",
+    "ncu": "NOT_RUN",
+    "reason_ncu_not_run": "NSys answers the predeclared causal question and the mechanism is already rejected; additional counters cannot reverse the direction decision."
+  },
+  "artifacts": [
+    {
+      "role": "snapshot-free P513 final-variant direction stdout",
+      "path": "/tmp/q3x-gdn-c16-packed-prediction-u8-direction.log",
+      "bytes": 2185,
+      "sha256": "6a1a233b3adcf3738c58cac0791141a80651c0cff84cdfaef2d1492415f4bd03",
+      "checked_in": false
+    },
+    {
+      "role": "NSys profiled direction stdout",
+      "path": "/tmp/q3x-gdn-c16-packed-prediction-u8-nsys-run.log",
+      "bytes": 3807,
+      "sha256": "5f278cdb51bbb86e4adaa1c503736b33f7b994e3e47db2a3fb74bbd338e26be1",
+      "checked_in": false
+    },
+    {
+      "role": "NSys report",
+      "path": "/tmp/q3x-gdn-c16-packed-prediction-u8.nsys-rep",
+      "bytes": 5103902,
+      "sha256": "dd7b06239cc9c04f53b408862cacd0d420c901cc6ee3085437dba797b7afbdac",
+      "checked_in": false
+    },
+    {
+      "role": "NSys CUDA kernel summary CSV",
+      "path": "/tmp/q3x-gdn-c16-packed-prediction-u8-kernel-summary.csv",
+      "bytes": 9636,
+      "sha256": "ce782433cd6d6fbf3695e7efc06e5ff844ea323e551a1507ce7423627c4225db",
+      "checked_in": false
+    }
+  ],
+  "decision": {
+    "result": "REJECT_AND_WITHDRAW",
+    "native_experimental_incumbent": "unchanged retained warp-row composite at commit 912897b",
+    "production_dispatch": "UNCHANGED",
+    "production_kernel": "UNCHANGED",
+    "candidate_source_live": false,
+    "decode": "UNCHANGED",
+    "mtp_used": false,
+    "cublaslt": {
+      "linked": false,
+      "executed": false,
+      "role": "external_reference_only",
+      "production_eligibility": "none"
+    },
+    "next_step": "Do not revisit packed prediction scratch while the exact sequential dot requires duplicate packed-word reads and a second decode/multiply pass. Move to an exact persistent C512 structure that keeps BF16 state in registers across C16 slices while preserving every C16 output boundary."
+  },
+  "limitations": [
+    "The final timing is one measured mirrored round after one mirrored warmup and has early-stop authority only; it is not a publication anchor or precise cost estimate.",
+    "The generation oracle proves route isolation and token/text/step semantics, but exhaustive candidate state, Graph, guard, NaN, and multi-prompt qualification was intentionally not built after the negative result.",
+    "The candidate source is absent from the live tree by design; its final unroll-8 diff, binary, stdout, NSys report, and kernel summary are identified by hashes."
+  ]
+}

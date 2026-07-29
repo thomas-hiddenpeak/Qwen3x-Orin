@@ -1782,6 +1782,20 @@ The diagnostic Phase 3 records are:
   neutral-to-negative result triggers the direction stop-loss: no full noise,
   six-round, NSys, or NCU work follows, the patch is fully withdrawn, and the
   retained warp-row test incumbent plus production remain unchanged.
+- [`qwen36-27b-prefill-gdn-c16-packed-prediction-direction-rejection-2026-07-29.json`](qwen36-27b-prefill-gdn-c16-packed-prediction-direction-rejection-2026-07-29.json),
+  which closes the shared-scratch packing cell against the retained warp-row
+  incumbent. Packing removes 768 logical shared bytes per token row, but exact
+  sequential prediction must reload both halves and the update repeats BF16
+  decode/alpha multiplication. Full unroll fails the zero-local resource gate
+  at 56 bytes/thread; resource-clean unroll 1/4/8 variants are all negative on
+  the real P513 path. The best unroll-8 cell moves Prefix 2537.545144 to
+  2546.275917 ms (**0.996571160x**) and TTFT 2646.260633 to 2654.983662 ms
+  (**0.996714470x**). A bounded NSys diagnostic shows 331.406 versus
+  325.247 us per candidate/incumbent kernel call, explaining about 9.460 ms
+  per request and the full profiled end-to-end loss. The patch is fully
+  withdrawn; exhaustive correctness, noise, six-round retention, and NCU do
+  not follow. Production, Decode, MTP, and the native incumbent are unchanged;
+  cuBLASLt is neither linked nor executed.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

@@ -397,6 +397,43 @@ withdrawn completely, leaving the `912897b` test incumbent and production
 unchanged. Its withdrawn diff, binary, and stdout are pinned by hash in
 [`qwen36-27b-prefill-gdn-c16-constant-hoist-direction-rejection-2026-07-29.json`](metadata/qwen36-27b-prefill-gdn-c16-constant-hoist-direction-rejection-2026-07-29.json).
 
+### Rejected packed-prediction scratch follow-up on 2026-07-29
+
+The next cell targets the retained composite's shared-state path. It packs two
+BF16 state values into each 32-bit scratch word before prediction, recreates
+the incumbent's key-0-through-key-127 alpha-multiply/FMA sequence in each row
+owner, and recomputes scaled state from the register-held BF16 words for the
+update. This removes 768 logical shared bytes per token row: 256 bytes of
+initial writes and 512 bytes of update reads. Because exact key order separates
+the low and high halves, prediction must still load each packed word twice;
+there is no prediction-read saving.
+
+A full owner-lane unroll produces 56 local bytes per thread and is rejected by
+the resource gate without timing. Bounded partial-unroll variants retain 64
+registers, 38,184 static shared bytes, zero local bytes, and four CTAs/SM, but
+all real P513 screens are negative:
+
+| Owner-loop unroll | Baseline Prefix | Candidate Prefix | Candidate saved | Ratio |
+| --- | ---: | ---: | ---: | ---: |
+| 1 | 2536.465743 ms | 2753.874820 ms | -217.409077 ms | 0.921053392x |
+| 4 | 2537.479071 ms | 2560.435518 ms | -22.956447 ms | 0.991034163x |
+| 8 | 2537.545144 ms | 2546.275917 ms | -8.730773 ms | 0.996571160x |
+
+The final unroll-8 invocation passes 1,536 base and variant route hits plus the
+token 9419/text `Hello`/513-step oracle. A bounded NSys trace then answers the
+only remaining causal question. Across 6,144 calls per route, the candidate
+kernel averages 331.406 us versus 325.247 us for the incumbent, a 6.159 us
+loss per call or 9.460 ms per P513 request. The profiled end-to-end Prefix
+regression is 9.047 ms, so the kernel interval explains the loss; route and
+scheduling effects do not hide a benefit.
+
+The candidate is fully withdrawn. Exact sequential prediction turns packing
+into duplicate loads plus a second decode/multiply pass, so this mechanism
+must not be reopened without changing that structural constraint. The retained
+warp-row test incumbent and production remain unchanged. The normalized
+record is
+[`qwen36-27b-prefill-gdn-c16-packed-prediction-direction-rejection-2026-07-29.json`](metadata/qwen36-27b-prefill-gdn-c16-packed-prediction-direction-rejection-2026-07-29.json).
+
 ## Exact-contract experiment order after P0
 
 The references suggest mechanisms, but the measured bottleneck and exact
@@ -426,11 +463,16 @@ contract decide their order:
    1.01033x-1.01058x range does not clear the 1.03x production margin. Keep
    production unchanged, retain the expanded test incumbent, and stack the
    next exact mechanism before running independent-process promotion.
-5. Re-screen an exact persistent C512 composite on the same
+5. **Complete and rejected:** packing pre-prediction BF16 state halves initial
+   scratch writes and removes scaled-state update reads, but exact sequential
+   prediction reloads both halves and the update repeats decode/multiply work.
+   The best resource-clean compiler shape is 0.996571160x on P513; NSys places
+   the full loss in the candidate kernel. The patch is withdrawn.
+6. Re-screen an exact persistent C512 composite on the same
    real trajectory. It must keep packed BF16 state live but preserve every C16
    output boundary; it must not allocate a C512 raw tile. The old synthetic
    1.01871x result is motivation only, not retention evidence.
-6. Consider `cp.async` double buffering only after matched NCU shows a material
+7. Consider `cp.async` double buffering only after matched NCU shows a material
    Q/K/Z global-load scoreboard stall. SM87 has LDGSTS but no TMA, WGMMA, CTA
    clusters, or distributed shared memory; any added buffer must retain at
    least three active CTAs/SM.
