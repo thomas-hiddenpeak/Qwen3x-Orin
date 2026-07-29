@@ -1,0 +1,174 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-gate-c512-row48-scale256-rejection-2026-07-29",
+  "status": "direction-rejected-and-source-reverted",
+  "recorded_at": "2026-07-29T10:40:56+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "baseline_commit": "c8f731f",
+    "baseline_subject": "docs: record C512 M128N256 production",
+    "candidate_commit": null,
+    "candidate_source_status": "uncommitted direction candidate; reverted after the negative real-generation result and bounded NCU attribution",
+    "modified_files_during_screen": [
+      "src/kernels/sm87/weight_only_gemv.cu",
+      "tests/sm87_nvfp4_prefill_gate_up_c512_cublaslt_pair_screen.cu"
+    ],
+    "production_source_after_screen": "identical to c8f731f"
+  },
+  "policy": {
+    "performance_decision_payload": "full resident real checkpoint and native generation path",
+    "direction_gate": "one fixed-clock P513 baseline followed by one candidate; stop extended harness work on a negative direction",
+    "diagnostic_after_rejection": "one bounded matched NCU launch per binary with pinned real layer-0 Gate weights",
+    "synthetic_performance_authority": "NONE",
+    "cublaslt_executed": false,
+    "cublaslt_role": "REFERENCE_ONLY",
+    "cublaslt_production_eligibility": "NONE",
+    "mtp_used": false
+  },
+  "candidate": {
+    "shape": {
+      "role": "exact-C512 NVFP4 Gate and Up",
+      "M": 512,
+      "N": 17408,
+      "K": 5120,
+      "cta_tile": "M128xN256xK64",
+      "grid_ctas_per_branch": 272,
+      "threads_per_cta": 256
+    },
+    "invariants": [
+      "canonical packed NVFP4 weight allocation",
+      "canonical packed E4M3 scale allocation",
+      "three raw A/B cp.async stages",
+      "exact table-free decoder",
+      "MMA and accumulation order",
+      "coalesced BF16 epilogue",
+      "no workspace or persistent sidecar"
+    ],
+    "change": {
+      "raw_b_shared_row_bytes": {"baseline": 32, "candidate": 48},
+      "raw_b_shared_layout": "two canonical uint4 halves plus one unused uint4 pad per logical N row",
+      "scale_window_k": {"baseline": 512, "candidate": 256},
+      "scale_shared_row_bytes": {"baseline": 32, "candidate": 16},
+      "scale_layout": "independent canonical K256 row without half swizzle",
+      "intended_mechanism": "color the eight four-lane consumer groups across shared banks while preserving the retained three-stage pipeline"
+    },
+    "resources": {
+      "registers_per_thread": {"baseline": 241, "candidate": 243},
+      "allocated_registers_per_thread": {"baseline": 248, "candidate": 248},
+      "static_shared_bytes": {"baseline": 512, "candidate": 512},
+      "dynamic_shared_bytes": {"baseline": 96256, "candidate": 100352},
+      "local_bytes": {"baseline": 0, "candidate": 0},
+      "active_blocks_per_sm": {"baseline": 1, "candidate": 1},
+      "device_max_optin_shared_bytes_per_block": 166912
+    }
+  },
+  "environment": {
+    "device": "NVIDIA Jetson AGX Orin Developer Kit",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "active_gpu_tpcs": 8,
+    "nvpmodel": "MAXN",
+    "cpu_affinity": "taskset --cpu-list 11",
+    "fixed_frequency_readback": {
+      "cpu_hz": 2201600000,
+      "gpu_hz": 1300500000,
+      "emc_hz": 3200000000
+    },
+    "fan_pwm": 255
+  },
+  "real_generation_direction": {
+    "model": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "prompt": "P513; 501 space-separated copies of hello in the pinned non-thinking chat template",
+    "rendered_prompt_tokens": 513,
+    "prefix_tokens": 512,
+    "max_new_tokens": 1,
+    "prefill_chunk_size": 512,
+    "projection_backend": "sm87_weight_only",
+    "order": ["baseline", "candidate"],
+    "baseline": {
+      "prefix_ms": 2331.651,
+      "finish_prefill_ms": 126.680,
+      "ttft_ms": 2458.332,
+      "prefix_tokens_per_second": 219.586893579,
+      "generated_token_id": 9419,
+      "generated_text": "Hello",
+      "step_count": 513
+    },
+    "candidate": {
+      "prefix_ms": 2358.700,
+      "finish_prefill_ms": 130.045,
+      "ttft_ms": 2488.745,
+      "prefix_tokens_per_second": 217.068724297,
+      "generated_token_id": 9419,
+      "generated_text": "Hello",
+      "step_count": 513
+    },
+    "result": {
+      "prefix_delta_ms": 27.049,
+      "prefix_latency_regression_percent": 1.160079274,
+      "candidate_over_baseline_speed_ratio": 0.988532242,
+      "ttft_delta_ms": 30.413,
+      "ttft_latency_regression_percent": 1.237139654,
+      "direction": "NEGATIVE"
+    }
+  },
+  "matched_ncu": {
+    "authority": "post-rejection causal diagnostic only",
+    "payload": "pinned real Qwen3.6-27B-NVFP4 layer-0 Gate weight and scale tensors with deterministic BF16 activation",
+    "shape": "M512xN17408xK5120",
+    "launches_per_binary": 1,
+    "set": "full",
+    "replay_mode": "kernel",
+    "metric_passes": 35,
+    "validation": {
+      "gate_bf16_elements_per_replay": 8912896,
+      "gate_mismatches": 0,
+      "up_bf16_elements_per_replay": 8912896,
+      "up_mismatches": 0,
+      "guards": "intact"
+    },
+    "metrics": {
+      "duration_ms": {"baseline": 4.698528, "candidate": 4.860000, "change_percent": 3.436650798},
+      "achieved_occupancy_percent": {"baseline": 16.720473, "candidate": 16.563015, "delta_points": -0.157458},
+      "executed_warp_instructions": {"baseline": 149986240, "candidate": 148791616, "change_percent": -0.796489065},
+      "shared_excessive_wavefronts": {"baseline": 4700160, "candidate": 8181760, "change_percent": 74.074074074},
+      "ldgsts_shared_wavefronts": {"baseline": 9052160, "candidate": 12533760, "change_percent": 38.461538462},
+      "shared_bank_conflicts": {"baseline": 1010177, "candidate": 1177985, "change_percent": 16.611742299},
+      "ordinary_shared_load_bank_conflicts": {"baseline": 0, "candidate": 0},
+      "ordinary_shared_store_bank_conflicts": {"baseline": 1010177, "candidate": 1177985},
+      "global_load_sectors": {"baseline": 17408000, "candidate": 20889600, "change_percent": 20.0},
+      "ldgsts_instructions": {"baseline": 1088000, "candidate": 1088000},
+      "tensor_throughput_percent_elapsed": {"baseline": 11.435511, "candidate": 11.044184, "change_percent": -3.422033349},
+      "sm_throughput_percent_elapsed": {"baseline": 45.742045, "candidate": 44.176735, "change_percent": -3.422037646},
+      "warp_stall_samples": {
+        "mio_throttle": {"baseline": 2381, "candidate": 4934, "change_percent": 107.223855523},
+        "long_scoreboard": {"baseline": 985, "candidate": 1467, "change_percent": 48.934010152},
+        "barrier": {"baseline": 2330, "candidate": 2584, "change_percent": 10.901287554}
+      }
+    },
+    "interpretation": [
+      "The baseline already records zero ordinary shared-load bank conflicts, so padding consumer rows targeted a counter that was not limiting this kernel.",
+      "A 48-byte cp.async destination row fragments LDGSTS landing: excessive shared wavefronts rise 74.07% and the source-side sector work observed for the combined async transaction rises 20% even though instruction count and canonical payload bytes are unchanged.",
+      "The 0.161472-ms layer-0 Gate regression explains about 20.67 ms across 128 Gate/Up launches and is consistent with the measured 27.049-ms whole-Prefix regression.",
+      "The next no-sidecar cell must preserve compact 32-byte async landing; consumer padding is rejected. Any canonical-weight gather repair requires a different load/producer skeleton or a replacement model layout, not another row-stride tweak."
+    ]
+  },
+  "artifacts": {
+    "baseline_runner": {"path": "/tmp/q3x-prefill-row48-scale256-baseline-c8f731f", "bytes": 7566848, "sha256": "8897fad9627a5aec453fffa5f012304f3f45d8c5b0a4754b0091276117ecfcbe"},
+    "candidate_runner": {"path": "/tmp/q3x-prefill-row48-scale256-candidate-uncommitted", "bytes": 7566848, "sha256": "14af902f792d708a84517658a92b16cb3de0123fd0c0c4ce4396145fef67ccde"},
+    "baseline_direction_log": {"path": "/tmp/q3x-prefill-row48-scale256-direction-baseline.log", "bytes": 9275, "sha256": "dd0a3959dfc8178ba188d54fb50534d1b0a322bdd5d9f5787af84c5b6c2ad489"},
+    "candidate_direction_log": {"path": "/tmp/q3x-prefill-row48-scale256-direction-candidate.log", "bytes": 9275, "sha256": "75826e41eea24b3905e27a28aee02ad8b11dcde508b5c48351a115b0614845c7"},
+    "baseline_ncu_binary": {"path": "/tmp/q3x-prefill-row48-scale256-ncu-baseline-screen-c8f731f", "bytes": 6036040, "sha256": "688c80077dfb2266ee20fe67e830c1c65b51ece9d48c0ddcdfcb6203ceb6bb6d"},
+    "candidate_ncu_binary": {"path": "/tmp/q3x-prefill-row48-scale256-ncu-candidate-screen-uncommitted", "bytes": 6036040, "sha256": "34cc66ef36f1b31d4b56342a2a530629b3a553fe0a8f76c8a3bcd8319d2a4cb7"},
+    "baseline_ncu_report": {"path": "/tmp/q3x-prefill-row48-scale256-baseline-full.ncu-rep", "bytes": 15105603, "sha256": "bfd3447bdd05e8582dbd19ff98f4f75d88b1a653d68d35e5ffcc72cb46f16a48"},
+    "candidate_ncu_report": {"path": "/tmp/q3x-prefill-row48-scale256-candidate-full.ncu-rep", "bytes": 15436559, "sha256": "5dbb828e865fe0cca6b7d1801908ada4861e13d500c7f67b385abd8d5bd22302"}
+  },
+  "decision": {
+    "result": "REJECT",
+    "reason": "negative real-generation direction confirmed by matched real-weight NCU",
+    "production_changed": false,
+    "development_baseline_changed": false,
+    "retained_baseline": "exact-C512 M128xN256 B-half-swizzle/K512-scale three-stage production cell at c8f731f",
+    "next": "preserve compact 32-byte cp.async landing; screen a different producer/load skeleton or exact decoder/feed reduction before considering any persistent replacement layout"
+  }
+}

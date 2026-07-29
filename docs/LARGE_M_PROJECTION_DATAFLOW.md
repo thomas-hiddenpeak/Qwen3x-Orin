@@ -675,6 +675,36 @@ feed as one coupled dataflow cell.  If two CTAs/SM later becomes desirable, it
 requires a different tile/warp skeleton rather than a local cache toggle.
 This result is Gate-only and does not select a Down configuration.
 
+### Rejected compact-to-padded shared-feed cell
+
+The first post-promotion direction cell kept the M128xN256 grid, exact
+decoder, accumulation order, three raw-operand stages, canonical checkpoint
+allocations, and zero sidecar bytes, but changed raw-B shared rows from 32 to
+48 bytes and scale windows from a swizzled 32-byte K512 row to an independent
+16-byte K256 row.  Its intended target was the remaining shared-feed work.
+The real generation path rejected it before a full harness was built: one
+fixed-clock P513 baseline/candidate pair moved Prefix from **2,331.651 to
+2,358.700 ms** (-1.147% throughput, +27.049 ms), while both processes returned
+token 9419, text `Hello`, and 513 steps.
+
+A bounded 35-pass real-checkpoint NCU comparison explains the direction. One
+layer-0 Gate launch regresses from **4.698528 to 4.860000 ms**. Ordinary
+shared-load bank conflicts are already zero in both kernels; the padded row
+instead raises excessive shared wavefronts from **4,700,160 to 8,181,760**,
+`LDGSTS` shared wavefronts from 9,052,160 to 12,533,760, and global-load
+sectors attributed to the combined async transactions by exactly 20%.
+MIO-throttle samples more than double. Registers rise 241 -> 243, but allocated
+registers remain 248 and occupancy remains one CTA/SM, so residency is not the
+cause.
+
+This rejects 48-byte consumer padding, not all coupled feed work. The current
+compact 32-byte half-swizzled destination must be preserved until a different
+producer/load skeleton can separate canonical strided global gathers from
+shared landing, or a replacement model layout can serve every Prefill and
+Decode consumer without persistent duplication. Another row-stride tweak is
+not an eligible next experiment. The machine-readable record is
+[`metadata/qwen36-27b-prefill-gate-c512-row48-scale256-rejection-2026-07-29.json`](metadata/qwen36-27b-prefill-gate-c512-row48-scale256-rejection-2026-07-29.json).
+
 ## Triton and vLLM design-reference screen
 
 The reference screen pins Triton `78420176` and vLLM `2899dca`. Their native
@@ -744,12 +774,14 @@ problem.
    operations, 33.56% fewer warp instructions, and 1.090064x lower profiled
    duration verify the mechanism. Preserve its zero-spill one-CTA exception
    and the larger-M reuse; do not treat 241 registers as the end-state target.
-6. Next, screen a coupled raw-B plus packed-scale consumer-order layout and
-   complete B-stationary/A-stationary CTA ordering.
-   A scale-only win may update the native experimental baseline, but it does
-   not close the raw-B feed line by itself.  After the shared feed is repaired,
-   reduce the table-free decoder's
-   PRMT/LOP3/IMAD expansion without reintroducing PairLookup.  Re-run the same
+6. The first coupled 48-byte raw-B/K256-scale consumer-order cell is rejected:
+   it regresses real P513 Prefix by 27.049 ms and increases async-landing
+   excessive wavefronts by 74.07%. Preserve compact 32-byte landing. Next,
+   screen a producer/load skeleton that can decouple canonical strided B
+   gathers from the shared destination, or reduce the table-free decoder's
+   PRMT/LOP3/IMAD expansion without reintroducing PairLookup. Complete
+   B-stationary/A-stationary CTA ordering only as a bounded full configuration,
+   not as an explanation for the rejected row stride. Re-run the same
    pinned real-weight six-round B-C-C-B screen against the current retained
    native champion after each complete configuration; keep every stable
    all-positive result and update that champion.  Run matched NCU to attribute
