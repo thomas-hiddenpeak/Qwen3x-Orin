@@ -1,0 +1,286 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-down-m128n256-evalscope8-2026-07-29",
+  "status": "positive_test_only_candidate_advance_to_internal_validation",
+  "recorded_at": "2026-07-30T00:04:00+08:00",
+  "timezone": "Asia/Shanghai",
+  "policy": {
+    "evidence_tier": "T3",
+    "protocol_class": "EXTERNAL_API_SHORT_DIRECTION_SCREEN",
+    "payload_class": "real_authenticated_model_weights_and_public_serving_path",
+    "incremental_retention_authority": true,
+    "production_promotion_authority": false,
+    "release_performance_authority": false,
+    "synthetic_matrix_performance_authority": false,
+    "cublaslt_production_eligibility": false,
+    "mtp_used": false
+  },
+  "source": {
+    "branch": "codex/prefill-down-m128n256",
+    "base_commit": "be9d1018270d178b949c3775444c0cc72d832d27",
+    "base_tree": "a36652db65cc58c1d0873a23457f73e0ab5c6a65",
+    "measurement_source_state": "test-only candidate worktree based on be9d101",
+    "candidate_sources": [
+      {
+        "path": "CMakeLists.txt",
+        "sha256_at_measurement": "af9d31757ccce39ecb92b6d7c6c58ad66ec7aa1eede40ece8c417a683c82030b"
+      },
+      {
+        "path": "src/kernels/sm87/weight_only_gemv.cu",
+        "sha256_at_measurement": "437cb7980abd24e86a862c632320db8ba066090459fa3712d09925c1447ecf47"
+      }
+    ],
+    "performance_elf": {
+      "path": "build/prefill-down-m128n256/qwen3x-eval-server",
+      "bytes": 8111192,
+      "sha256": "3a8f3e35085c51c66ee64baf6e42e607ac988d50886051cb3332e366a7d2cf31",
+      "elf_build_id": "cf0b6dd10dbfa09097c31c48eed236d1a7bcda24",
+      "checked_in": false
+    }
+  },
+  "checkpoint": {
+    "repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "local_path": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "performance_payload": "real authenticated model weights; no synthetic matrix performance authority"
+  },
+  "environment": {
+    "device": "NVIDIA Jetson AGX Orin",
+    "architecture": "SM87",
+    "claim_scope": "one device, one test-only exact-C512 Down candidate, one direct P513 screen, and one EvalScope-8 external API direction screen"
+  },
+  "implementation": {
+    "build_gate": "Q3X_BUILD_NVFP4_PREFILL_DOWN_M128N256_ADMISSION=ON with BUILD_TESTING=ON",
+    "runtime_gate": "Q3X_RUN_NVFP4_PREFILL_DOWN_M128N256_ADMISSION=1",
+    "route_scope": {
+      "operation": "NVFP4 W4A16 Down GEMM",
+      "tokens_M": 512,
+      "rows_N": 5120,
+      "columns_K": 17408,
+      "activation_and_output": "BF16",
+      "packed_weight": "canonical NVFP4 E2M1 with block-16 FP8 scales"
+    },
+    "cell": {
+      "tile": "M128N256K128",
+      "threads": 256,
+      "grid_ctas": 80,
+      "pipeline_shared_stages": 2,
+      "traversal": "B-stationary: four adjacent M128 token tiles per N256 packed-weight panel",
+      "activation_load_cache_operator": ".cg",
+      "scale_window_K": 512
+    },
+    "persistent_sidecar_bytes": 0,
+    "caller_workspace_bytes": 0,
+    "cublas": false,
+    "cublaslt_production_path": false,
+    "cublaslt_authority": "reference/test only; no production, fallback, retention, or promotion authority",
+    "mtp": false,
+    "production_default_changed_at_measurement": false,
+    "c256_route_changed": false
+  },
+  "resource_audit": {
+    "method": "cuobjdump on the exact Down template instantiation",
+    "registers_per_thread": 247,
+    "static_shared_bytes": 512,
+    "dynamic_shared_bytes": 118784,
+    "local_bytes": 0,
+    "stack_bytes": 0,
+    "expected_active_ctas_per_sm": "approximately 1"
+  },
+  "direct_p513": {
+    "authority": "single_round_real_model_fast_direction_screen",
+    "same_elf": true,
+    "common_runtime_gate": "Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION=1",
+    "candidate_only_runtime_gate": "Q3X_RUN_NVFP4_PREFILL_DOWN_M128N256_ADMISSION=1",
+    "prefix_tokens": 512,
+    "output_tokens": 1,
+    "committed_steps": 513,
+    "baseline_prefix_ms": 2073.989,
+    "candidate_prefix_ms": 1928.877,
+    "prefix_saved_ms": 145.112,
+    "prefix_speedup": 1.075231339,
+    "prefix_improvement_percent": 6.996758421,
+    "baseline_ttft_ms": 2201.500,
+    "candidate_ttft_ms": 2055.147,
+    "ttft_saved_ms": 146.353,
+    "ttft_speedup": 1.071212911,
+    "ttft_improvement_percent": 6.647876448,
+    "baseline_generated_token_id": 9419,
+    "candidate_generated_token_id": 9419,
+    "baseline_generated_text": "Hello",
+    "candidate_generated_text": "Hello"
+  },
+  "evalscope": {
+    "authority": "external_t3_single_round_direction_only",
+    "software": {
+      "evalscope": "1.9.1",
+      "install_spec": "evalscope[perf]==1.9.1"
+    },
+    "protocol": {
+      "command_family": "evalscope perf",
+      "api": "openai",
+      "endpoint": "/v1/completions",
+      "dataset": "line_by_line",
+      "data_source": "local",
+      "corpus": "/tmp/q3x-sharegpt-false-thinking-33.jsonl",
+      "corpus_sha256": "bd2091cdc0599ac59ab881efc6d1307a03bb149f49e6fd728a99d926ccc67989",
+      "declared_cases": 33,
+      "warmup_requests": 1,
+      "measured_requests": 8,
+      "parallel": 1,
+      "num_workers": 1,
+      "output_tokens_per_request": 16,
+      "temperature": 0.0,
+      "seed": 42,
+      "stream": true,
+      "tokenize_prompt": true,
+      "request_rate": "unlimited closed loop"
+    },
+    "native_baseline": {
+      "leaf": "/tmp/q3x-evalscope-down-m128n256-v1-baseline-8/baseline/parallel_1_number_8",
+      "success_requests": 8,
+      "failed_requests": 0,
+      "prompt_tokens": 3981,
+      "completion_tokens": 128,
+      "wall_time_seconds": 36.52716243104078,
+      "mean_latency_seconds": 4.565623479895294,
+      "mean_ttft_ms": 2934.7459819109645,
+      "p50_ttft_ms": 3329.5713390689343,
+      "p99_ttft_ms": 4597.793144057505,
+      "mean_tpot_ms": 108.72516653228863,
+      "mean_itl_ms": 108.71463571481097,
+      "prompt_throughput_tok_s": 108.98738733170651,
+      "completion_throughput_tok_s": 3.5042415419388178,
+      "total_throughput_tok_s": 112.49162887364534,
+      "prompt_set_sha256": "443d5cb8682c95ac44a109b9767ac127ef4b33bd291ad6b2b082a92674720144",
+      "output_set_sha256": "820fbb844d9ca89cc02ef5f4bee55c0a65e8ec4afe900d945b308fbc44905265"
+    },
+    "native_candidate": {
+      "leaf": "/tmp/q3x-evalscope-down-m128n256-v1-candidate-8/candidate/parallel_1_number_8",
+      "success_requests": 8,
+      "failed_requests": 0,
+      "prompt_tokens": 3981,
+      "completion_tokens": 128,
+      "wall_time_seconds": 35.80162286898121,
+      "mean_latency_seconds": 4.474947346869158,
+      "mean_ttft_ms": 2844.0135785203893,
+      "p50_ttft_ms": 3329.611491994001,
+      "p99_ttft_ms": 4307.465573074296,
+      "mean_tpot_ms": 108.7289178899179,
+      "mean_itl_ms": 108.7183940243752,
+      "prompt_throughput_tok_s": 111.19607662950854,
+      "completion_throughput_tok_s": 3.5752569225262727,
+      "total_throughput_tok_s": 114.7713335520348,
+      "prompt_set_sha256": "443d5cb8682c95ac44a109b9767ac127ef4b33bd291ad6b2b082a92674720144",
+      "output_set_sha256": "820fbb844d9ca89cc02ef5f4bee55c0a65e8ec4afe900d945b308fbc44905265"
+    },
+    "candidate_vs_baseline": {
+      "exact_generated_outputs": "8/8",
+      "mean_ttft_delta_ms": -90.7324033905752,
+      "mean_ttft_improvement_ms": 90.7324033905752,
+      "mean_ttft_ratio": 0.9690833878128373,
+      "mean_ttft_speedup": 1.0319029431068254,
+      "mean_ttft_improvement_percent": 3.091661218716267,
+      "prompt_throughput_delta_tok_s": 2.2086892978020245,
+      "prompt_throughput_ratio": 1.02026554954547,
+      "prompt_throughput_improvement_percent": 2.026554954546997,
+      "prompt_length_buckets": [
+        {
+          "prompt_tokens": "1-128",
+          "requests": 2,
+          "candidate_faster": 1,
+          "candidate_slower": 1,
+          "mean_candidate_minus_baseline_ttft_ms": -0.07317005656659603
+        },
+        {
+          "prompt_tokens": "129-512",
+          "requests": 2,
+          "candidate_faster": 1,
+          "candidate_slower": 1,
+          "mean_candidate_minus_baseline_ttft_ms": -0.04021602217108011
+        },
+        {
+          "prompt_tokens": "513-1024",
+          "requests": 3,
+          "candidate_faster": 3,
+          "candidate_slower": 0,
+          "mean_candidate_minus_baseline_ttft_ms": -145.1016279946392
+        },
+        {
+          "prompt_tokens": "1025+",
+          "requests": 1,
+          "candidate_faster": 1,
+          "candidate_slower": 0,
+          "mean_candidate_minus_baseline_ttft_ms": -290.3275709832087
+        }
+      ]
+    }
+  },
+  "validation": {
+    "validator": {
+      "path": "/tmp/q3x-evalscope-down-m128n256-v1-short-direction.json",
+      "sha256": "a9c4394acfad6b46c70c1ad609367af8f5b79dca6ada2e51eff4b81744ae8f1d",
+      "decision": "advance_to_internal_validation",
+      "exit_code": 0
+    },
+    "benchmark_arguments_comparable": "passed",
+    "database_integrity": "passed",
+    "request_manifest_match": "passed",
+    "summary_recomputation": "passed",
+    "completion_chunk_completeness": "passed",
+    "candidate_vs_baseline_output_set": "bitwise-identical hash; 8/8 exact generated outputs",
+    "internal_tests": [
+      "sm87_nvfp4_prefill_down_cublaslt_module: passed with cuBLASLt as test/reference only",
+      "sm87_nvfp4_prefill_cublaslt_module: passed Gate specialization regression",
+      "reference_prefill_bulk_attention_e2e: passed P257/P513 real-checkpoint regression"
+    ]
+  },
+  "artifact_hashes": {
+    "native_baseline": {
+      "benchmark_args_json": "c69aed55c6d931b32804ab67a0540174fb83e03170613e60a107696e8c327ba3",
+      "benchmark_data_db": "08a4942e4c86dc5a927a95d02c5aa175df5f3e1e2c4bb2d051479b784b2cb624",
+      "benchmark_percentile_json": "5ee712a9a5efd349f5d65542fbd2262bd50c7cf63af01e3b47aaa818aaade8a2",
+      "benchmark_summary_json": "227630e82453b999585a33d9412e7a10d3610c85785c582d7de63838508d89fd",
+      "workload_throughput_json": "6ac806b64461458c557838dd395dd2e9357996694bdfc40d587e64b8d2ec79e4",
+      "workload_timeline_json": "0a9c78a549cce3db428c444eb61cd03f1ae4d76c0f35e158b16b65aab29aac6b"
+    },
+    "native_candidate": {
+      "benchmark_args_json": "6a509e2a1e8e694d79f9195ecaf44caec5efbe41990646311fcb21493315c479",
+      "benchmark_data_db": "c45aa0726ab758c089c38ce21a8af6f7ea996aab3f98679db20711a8f12c747f",
+      "benchmark_percentile_json": "3a819799e0ba4c9f317acc2f71f247fd26f11b6462832fba6ed0f58322f8d76b",
+      "benchmark_summary_json": "09a0630fb63ae9d8c2b0da76f9769d42b2d5f4eb256d2dff8d67a48e9c03ca57",
+      "workload_throughput_json": "c6b69ac7f184eeca9ff330375127583a0b9c2156b1fecb1e78a57647e351e16b",
+      "workload_timeline_json": "02ff6f63c15333d1cdf200f5967b884acd56d3e1b18d0d64f7b590f2d3b5d5f4"
+    }
+  },
+  "frozen_vllm_reference": {
+    "artifact": "docs/metadata/qwen36-27b-evalscope-vllm-frozen-reference-2026-07-29.json",
+    "leaf": "/tmp/q3x-evalscope-vllm-marlin-run1/vllm/parallel_1_number_32",
+    "measured_requests": 32,
+    "mean_ttft_ms": 1147.2806024212332,
+    "prompt_throughput_tok_s": 182.08177035142654,
+    "production_eligibility": false,
+    "comparison_boundary": "The candidate is an N=8 direction screen and the frozen reference is N=32; no direct numerical parity ratio is claimed. The cumulative native runner has not yet cleared the project vLLM parity milestone."
+  },
+  "decision": {
+    "fast_real_model_screen_passed": true,
+    "external_short_performance_gate_passed": true,
+    "retain_candidate_for_internal_validation": true,
+    "validator_decision": "advance_to_internal_validation",
+    "production_default_changed": false,
+    "vllm_parity_gate_passed": false,
+    "run_confirmation_32": false,
+    "run_long_output_matrix": false,
+    "run_capability_or_test_set_matrix": false,
+    "funnel_reason": "The simplest real API performance gate is used first to reject weak architecture directions. Full32, long-output, and capability matrices are deferred until cumulative native performance approaches the frozen market floor or a production decision requires them.",
+    "next": "close admission-aware internal validation, then decide production promotion as the next cumulative native baseline"
+  },
+  "limitations": [
+    "One P513 baseline/candidate screen and one EvalScope-8 baseline/candidate process; this is directional evidence, not release statistics.",
+    "The exact candidate was test-only and the production default was unchanged at measurement time.",
+    "Resource residency is inferred from the measured register/shared-memory footprint and is recorded as approximately one CTA per SM.",
+    "Workload prompt throughput includes Decode, HTTP, and transitions; it is not an isolated GEMM token rate.",
+    "No full32 confirmation, long-output workload, or capability/test-set matrix was run under the staged evaluation funnel.",
+    "The candidate has not established parity with the separately frozen vLLM market reference."
+  ]
+}

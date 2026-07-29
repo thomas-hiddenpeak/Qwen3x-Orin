@@ -27105,6 +27105,11 @@ void fill_nvfp4_gate_m128_scale_distribution(
       reinterpret_cast<const std::uint16_t*>(0x30'0000'0000ULL);
   auto* const output =
       reinterpret_cast<std::uint16_t*>(0x40'0000'0000ULL);
+  const char* const down_m128n256_admission_value =
+      std::getenv("Q3X_RUN_NVFP4_PREFILL_DOWN_M128N256_ADMISSION");
+  const bool down_m128n256_admission_enabled =
+      down_m128n256_admission_value != nullptr &&
+      std::string_view(down_m128n256_admission_value) == "1";
   bool complete = true;
   for (const std::size_t token_count : {256U, 512U}) {
     const auto launch_public = [&]() noexcept {
@@ -27125,18 +27130,26 @@ void fill_nvfp4_gate_m128_scale_distribution(
               weights, scales, 1.0F, activations, token_count, kRows,
               kColumns, output, static_cast<void*>(stream));
     };
-    const unsigned int production_grid = static_cast<unsigned int>(
-        kRows / 128U * (token_count / 128U));
+    const bool down_m128n256_admission =
+        down_m128n256_admission_enabled && token_count == 512U;
+    const unsigned int production_grid =
+        down_m128n256_admission
+            ? static_cast<unsigned int>(kRows / 256U * (token_count / 128U))
+            : static_cast<unsigned int>(kRows / 128U *
+                                        (token_count / 128U));
+    const unsigned int production_dynamic_shared_bytes =
+        down_m128n256_admission ? 118'784U : 0U;
     const unsigned int historical_grid = static_cast<unsigned int>(
         kRows / 128U * (token_count / 64U));
     const std::string label =
         "NVFP4 Down M128 production M" + std::to_string(token_count);
     const WholeChunkCapturedGraph production = capture_whole_chunk_graph(
         test, stream, launch_public, 1U, production_grid,
-        label + " public graph");
+        label + " public graph", false, production_dynamic_shared_bytes);
     const WholeChunkCapturedGraph direct = capture_whole_chunk_graph(
         test, stream, launch_direct, 1U, production_grid,
-        label + " direct compatibility graph");
+        label + " direct compatibility graph", false,
+        production_dynamic_shared_bytes);
     const WholeChunkCapturedGraph historical = capture_whole_chunk_graph(
         test, stream, launch_historical, 1U, historical_grid,
         label + " historical M64 graph");
@@ -27151,14 +27164,18 @@ void fill_nvfp4_gate_m128_scale_distribution(
     std::cout << "NVFP4_DOWN_M128_PRODUCTION_DISPATCH: tokens="
               << token_count << " production_grid=" << production_grid
               << " historical_M64_grid=" << historical_grid
+              << " m128n256_admission="
+              << (down_m128n256_admission ? "true" : "false")
               << " public_direct_function_identity="
               << (production_identity ? "true" : "false")
               << " M64_M128_function_distinct="
               << (historical_distinct ? "true" : "false")
-              << " block=256 dynamic_shared_bytes=0"
+              << " block=256 dynamic_shared_bytes="
+              << production_dynamic_shared_bytes
               << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
     test.expect(gate,
-                label + " selects the exact public M128 function and grid");
+                label + " selects the expected exact public function, grid, "
+                        "and dynamic shared-memory contract");
     complete = complete && gate;
   }
   return complete;
