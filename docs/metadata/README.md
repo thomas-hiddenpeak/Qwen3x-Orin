@@ -5,6 +5,14 @@ The reports are evidence artifacts, not model files and not end-to-end support
 claims. A report reaches only `metadata-compatible` until all referenced shard
 headers and tensor contracts pass the runtime inspector on the target Orin.
 
+The current Prefill architecture reset and same-host stock-vLLM P513 kernel
+profile are recorded in
+[`qwen36-27b-vllm-p513-architecture-profile-2026-07-29.json`](qwen36-27b-vllm-p513-architecture-profile-2026-07-29.json).
+It is an external architecture reference with no production-selection
+authority. The promoted exact-C16 GDN/norm/gate route and current native P513
+anchor are recorded in
+[`qwen36-27b-prefill-gdn-c16-norm-gate-production-2026-07-29.json`](qwen36-27b-prefill-gdn-c16-norm-gate-production-2026-07-29.json).
+
 Policy correction effective 2026-07-29: cuBLASLt is permanently an external
 benchmark reference.  It has no production-dispatch, fallback, native
 development-retention, or production-promotion eligibility.  Older evidence

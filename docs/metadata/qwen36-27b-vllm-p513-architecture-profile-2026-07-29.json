@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-vllm-p513-architecture-profile-2026-07-29",
+  "status": "confirmed_external_architecture_reference",
+  "recorded_at": "2026-07-29T14:14:09+08:00",
+  "timezone": "Asia/Shanghai",
+  "native_source": {
+    "commit": "baca98b5917d1d9120712e7a9a3fda385c2fe1f9",
+    "branch": "main",
+    "profiler_control_file": "tools/reference/qwen36_27b_vllm_prefill.py",
+    "profiler_control_sha256": "a8b78ad97c362232df8119aba8cdd799a88b502b5a0584f11616721309a7d5e2",
+    "profiler_control_state": "captured from the exact uncommitted content promoted with this evidence record"
+  },
+  "reference_runtime": {
+    "vllm_version": "0.23.1rc1.dev269+gccd49f682",
+    "vllm_inspected_commit": "6f00a1ae3bd4b86168667bce673998218f461c0f",
+    "torch": "2.11.0",
+    "cuda": "13.3",
+    "flashinfer_python": "0.6.12",
+    "attention_backend_requested": "FLASHINFER",
+    "actual_full_attention_backend": "FLASHINFER",
+    "actual_gdn_backend": "Triton/FLA",
+    "actual_nvfp4_backend": "Marlin W4A16",
+    "actual_fp8_backend": "Marlin W8A16 weight-only"
+  },
+  "model": {
+    "path": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "config_sha256": "c04a19ba293737ad7be4f6e96d6666cb7e479cbe19ecc0c289fad267135b0338",
+    "tokenizer_json_sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42",
+    "performance_payload": "real authenticated checkpoint and fixed P513 prompt; no synthetic matrices"
+  },
+  "protocol": {
+    "profile": "P513",
+    "prompt_tokens": 513,
+    "token_rate_numerator": 513,
+    "warmups": 1,
+    "measurements": 1,
+    "captured_measurement_index": 1,
+    "capture_range": "cudaProfilerApi",
+    "batch_size": 1,
+    "output_tokens": 1,
+    "prefix_caching": false,
+    "chunked_prefill": false,
+    "mtp": false,
+    "fixed_clock_snapshot_in_capture_record": false,
+    "claim_scope": "same-host architecture attribution; not a release absolute-performance anchor"
+  },
+  "result": {
+    "scheduled_to_first_token_ms": 1246.689080959186,
+    "scheduled_prefill_tokens_per_second": 411.48992786982996,
+    "outer_wall_ms": 1248.094604,
+    "first_token_id": 9419,
+    "num_cached_tokens": 0,
+    "gpu_kernel_total_ms": 1224.727008,
+    "groups_ms": {
+      "w4a16_marlin": 1001.201344,
+      "w8a16_marlin": 97.000224,
+      "named_gdn_chunk_core": 41.549376,
+      "flashinfer_full_attention": 3.349504,
+      "causal_conv": 12.726208,
+      "other": 68.900352
+    },
+    "kernel_instances_observed": 1895
+  },
+  "artifacts": {
+    "nsys_report": {
+      "path": "/tmp/q3x-vllm-p513-architecture.nsys-rep",
+      "bytes": 206614,
+      "sha256": "5d9125bc479d5356d0da11ae039710432b390beee8d81fec7ff1b87bff164a6d",
+      "checked_in": false
+    },
+    "measurement_jsonl": {
+      "path": "/tmp/q3x-vllm-p513-architecture.jsonl",
+      "bytes": 3270,
+      "sha256": "391d5d8d604947375b10ea10d656749e49231561f1d02814e7ea3ad944667284",
+      "checked_in": false
+    },
+    "top20": "docs/analysis/prefill-p513-vllm-architecture-2026-07-29/kernel-top20.csv"
+  },
+  "interpretation": {
+    "primary_gap": "native token-serial GDN and native FP8 large-M projections",
+    "not_primary": [
+      "Full Attention",
+      "CUDA launch overhead",
+      "NVFP4 Gate/Up replacement by stock Marlin"
+    ],
+    "native_nvfp4_observation": "current native Gate/Up plus Down totals 984.659296 ms versus stock-vLLM W4A16 Marlin at 1001.201344 ms",
+    "decision": "stop operator-local Prefill scanning and execute the chunk-WY GDN plus shape/format-specific projection architecture in docs/PREFILL_ARCHITECTURE_RESET.md",
+    "cublaslt_authority": "NONE",
+    "mtp_used": false
+  }
+}

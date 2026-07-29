@@ -142,6 +142,16 @@ def parse_args() -> argparse.Namespace:
         help="disable CUDA graphs/compiled graph capture",
     )
     parser.add_argument(
+        "--cuda-profiler-measurement",
+        type=int,
+        default=0,
+        metavar="INDEX",
+        help=(
+            "wrap one 1-based measured request in cudaProfilerStart/Stop; "
+            "use with nsys --capture-range=cudaProfilerApi (zero disables)"
+        ),
+    )
+    parser.add_argument(
         "--expected-vllm-version",
         default=PINNED_VLLM_VERSION,
         help="checked against vllm.__version__",
@@ -584,6 +594,11 @@ def main() -> int:
     args = parse_args()
     if args.warmups < 0 or args.measurements < 1:
         raise RuntimeError("--warmups must be non-negative and --measurements positive")
+    if not 0 <= args.cuda_profiler_measurement <= args.measurements:
+        raise RuntimeError(
+            "--cuda-profiler-measurement must be zero or a 1-based measured "
+            "request index"
+        )
     if not 0.0 < args.gpu_memory_utilization < 1.0:
         raise RuntimeError("--gpu-memory-utilization must be between zero and one")
 
@@ -726,7 +741,18 @@ def main() -> int:
                         f"prompt {case.label}: greedy first token changed during warmup"
                     )
             for measurement_index in range(1, args.measurements + 1):
-                measured = run_once(llm, TokensPrompt, sampling, case)
+                profile_this_request = (
+                    args.cuda_profiler_measurement == measurement_index
+                )
+                if profile_this_request:
+                    torch.cuda.synchronize()
+                    torch.cuda.cudart().cudaProfilerStart()
+                try:
+                    measured = run_once(llm, TokensPrompt, sampling, case)
+                finally:
+                    if profile_this_request:
+                        torch.cuda.synchronize()
+                        torch.cuda.cudart().cudaProfilerStop()
                 first_token = measured["first_token_id"]
                 if stable_first_token is None:
                     stable_first_token = first_token

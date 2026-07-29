@@ -1,0 +1,259 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-gdn-c16-norm-gate-production-2026-07-29",
+  "status": "promoted-production-exact-c16-gdn-plain-rmsnorm-silu-gate",
+  "recorded_at": "2026-07-29T14:02:00+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "baseline_commit": "5fb0bc08dc9603c5f5eed9b2038d8a293d80c77d",
+    "production_commit": "baca98b5917d1d9120712e7a9a3fda385c2fe1f9",
+    "production_subject": "perf: promote exact C16 GDN norm gate",
+    "production_tree": "7c1e087113e83e97306e81dc7c27cf9ea6a8107a",
+    "changed_files": [
+      "CMakeLists.txt",
+      "src/kernels/reference/gdn_prefill_c16_norm_gate_sm87.cu",
+      "src/kernels/reference/gdn_prefill_c16_norm_gate_sm87.h",
+      "src/runtime/reference_runner.cpp"
+    ],
+    "retained_kernel_origin": {
+      "implementation_commit": "fc597e9",
+      "prompt_matrix_commit": "912897b",
+      "note": "The promoted shared-boundary warp-row kernel is arithmetic-identical to the previously retained test-only incumbent. The production commit changes linkage, naming, selector ownership, and fallback control; it does not change recurrent-state or epilogue arithmetic."
+    }
+  },
+  "policy": {
+    "performance_decision_payload": "full resident real checkpoint and native generation path",
+    "experiment_rule": "compare each native candidate with the current native incumbent; a stable positive result may update the incumbent without clearing an external or terminal milestone",
+    "promotion_rule": "reuse the existing six-round and multi-length bitwise qualification for the source-identical retained kernel, then require a fresh final-selector P513 direction screen, independent-process B-C-C-B, complete P513 state comparison, profile, and full Release suite",
+    "synthetic_performance_authority": "NONE",
+    "cublaslt_role": "REFERENCE_ONLY",
+    "cublaslt_production_eligibility": "NONE",
+    "mtp_used": false
+  },
+  "checkpoint": {
+    "repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "directory": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "config_sha256": "c04a19ba293737ad7be4f6e96d6666cb7e479cbe19ecc0c289fad267135b0338",
+    "quantization_config_sha256": "fd7200cd8bca2a8a5d777061521abf83e2deb97ab6bc2f04e7a0a3d3f8ecd5c1",
+    "index_sha256": "7aa103a2582b7d26631988de33dea19e8a308ee9c239e8e14feb374af30905e2",
+    "tokenizer_json_sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42",
+    "tokenizer_config_sha256": "5186f0defcd7f232382c7f0aebcd2252d073bb921ab240e407b7ae8745d2b29b",
+    "generation_config_sha256": "e70c136c1b78ddc1fb0905bac8e733a4dc448d4f852a5dd75143fffc70be550e"
+  },
+  "production_change": {
+    "phase": "Prefill linear-attention GDN",
+    "selector": {
+      "projection_backend": "sm87_weight_only",
+      "token_counts": [256, 512],
+      "first_position_alignment_tokens": 16,
+      "fallback": "all other backends, token counts, and alignments retain the exact legacy M16 update plus standalone norm/gate path"
+    },
+    "baseline": {
+      "gdn_update": "1536 exact-C16 gated_delta_net_update_warp_eight_row_register_state_m16_kernel calls at P513",
+      "epilogue": "48 whole-C512 headwise plain-RMSNorm/SiLU-gate calls",
+      "rounded_raw_boundary": "global BF16 output write by every C16 update followed by a later whole-tile reread"
+    },
+    "promoted": {
+      "kernel": "gated_delta_net_update_c16_plain_rms_norm_silu_gate_kernel<true,false>",
+      "calls_at_p513": 1536,
+      "mapping": "eight warps own eight token/head rows per batch; two batches cover C16, with four dimensions per lane",
+      "rounded_raw_boundary": "the same BF16-RNE raw words remain in a padded shared C16 tile until the in-kernel epilogue",
+      "removed": [
+        "48 separate whole-C512 norm/gate launches",
+        "the Prefill raw-output global write-plus-read boundary, logically 576 MiB at P513"
+      ]
+    },
+    "exact_contract": [
+      "per-token recurrent state remains BF16-RNE",
+      "raw GDN output remains BF16-RNE before normalization",
+      "RMS reduction pairings and order remain bitwise identical",
+      "gamma, SiLU gate, final BF16-RNE, in-place/disjoint state, and Decode are unchanged"
+    ],
+    "resources": {
+      "registers_per_thread": 64,
+      "static_shared_bytes": 38184,
+      "local_bytes": 0,
+      "threads_per_cta": 256,
+      "active_blocks_per_sm": 4
+    }
+  },
+  "environment": {
+    "device": "NVIDIA Jetson AGX Orin Developer Kit",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "nvpmodel": "MAXN",
+    "cpu_affinity": "taskset --cpu-list 11",
+    "fixed_frequency_readback": {
+      "cpu_hz": 2201600000,
+      "gpu_hz": 1300500000,
+      "emc_hz": 3200000000
+    },
+    "fan_pwm": 255,
+    "temperature_after_validation_celsius": {
+      "cpu": 68.718,
+      "gpu": 60.593,
+      "junction": 68.812
+    }
+  },
+  "real_generation": {
+    "prompt": "P513; 501 space-separated copies of hello in the pinned non-thinking chat template",
+    "rendered_prompt_tokens": 513,
+    "prefix_tokens": 512,
+    "max_new_tokens": 1,
+    "prefill_chunk_size": 512,
+    "projection_backend": "sm87_weight_only",
+    "final_same_elf_direction": {
+      "baseline_prefix_ms": 2287.042617,
+      "candidate_prefix_ms": 2260.170400,
+      "prefix_saved_ms": 26.872217,
+      "prefix_speedup": 1.011889465,
+      "baseline_ttft_ms": 2395.872749,
+      "candidate_ttft_ms": 2368.9864525,
+      "ttft_saved_ms": 26.8862965,
+      "ttft_speedup": 1.011349283,
+      "baseline_route_hits": 0,
+      "candidate_route_hits": 1536,
+      "oracle_every_run": "PASS",
+      "direction": "POSITIVE"
+    },
+    "final_independent_process_b_c_c_b": {
+      "runs": {
+        "B1": {"prefix_ms": 2288.496, "finish_prefill_ms": 124.703, "ttft_ms": 2413.198},
+        "C1": {"prefix_ms": 2260.647, "finish_prefill_ms": 127.179, "ttft_ms": 2387.827},
+        "C2": {"prefix_ms": 2260.830, "finish_prefill_ms": 127.112, "ttft_ms": 2387.942},
+        "B2": {"prefix_ms": 2289.525, "finish_prefill_ms": 127.055, "ttft_ms": 2416.580}
+      },
+      "baseline_prefix_mean_ms": 2289.0105,
+      "candidate_prefix_mean_ms": 2260.7385,
+      "prefix_saved_ms": 28.272,
+      "prefix_speedup": 1.012505648,
+      "baseline_prefix_tokens_per_second": 223.677436167,
+      "candidate_prefix_tokens_per_second": 226.474667459,
+      "baseline_ttft_mean_ms": 2414.889,
+      "candidate_ttft_mean_ms": 2387.8845,
+      "ttft_saved_ms": 27.0045,
+      "ttft_speedup": 1.011308964,
+      "both_candidate_prefix_runs_faster_than_both_baseline_runs": true,
+      "oracle_every_run": "PASS"
+    },
+    "prior_formal_retention": {
+      "record": "qwen36-27b-prefill-gdn-c16-warp-row-epilogue-retention-2026-07-29.json",
+      "rounds": 6,
+      "all_rounds_positive": true,
+      "aggregate_prefix_speedup": 1.010522274,
+      "aggregate_ttft_speedup": 1.010094513
+    },
+    "prior_prompt_matrix": {
+      "record": "qwen36-27b-prefill-gdn-c16-warp-row-prompt-matrix-2026-07-29.json",
+      "profiles": ["P257", "P513", "P769", "P1025"],
+      "prefix_speedup_range": [1.010329821, 1.010578521],
+      "all_direction_runs_positive": true,
+      "all_complete_gdn_state_boundaries_bitwise": true
+    }
+  },
+  "correctness": {
+    "standalone": {
+      "finite_and_nan_raw_output_state_bitwise": "PASS",
+      "in_place_and_disjoint_state": "PASS",
+      "cuda_graph": "PASS",
+      "redzones_and_immutable_inputs": "PASS",
+      "invalid_calls": 7
+    },
+    "final_full_model_p513": {
+      "gdn_region_bytes": 75497472,
+      "gdn_region_bf16_elements": 37748736,
+      "committed_positions": [512, 513],
+      "unequal_bf16_at_each_position": [0, 0],
+      "changed_between_positions_bf16": 37461455,
+      "generated_token_id": 9419,
+      "generated_text": "Hello",
+      "step_count": 513,
+      "baseline_route_hits": 0,
+      "candidate_route_hits": 1536,
+      "result": "PASS"
+    }
+  },
+  "production_nsys": {
+    "authority": "diagnostic attribution after positive real-generation timing",
+    "final_prefix_nvtx_host_ms": 2269.067744,
+    "final_generation_nvtx_host_ms": 2379.268160,
+    "final_finish_prefill_nvtx_host_ms": 110.169664,
+    "baseline_chain": {
+      "gdn_update_calls": 1536,
+      "gdn_update_raw_ms": 488.460576,
+      "standalone_norm_gate_calls": 48,
+      "standalone_norm_gate_raw_ms": 32.736640,
+      "combined_raw_ms": 521.197216
+    },
+    "promoted_chain": {
+      "fused_calls": 1536,
+      "fused_raw_ms": 493.889408,
+      "standalone_prefill_norm_gate_calls": 0,
+      "combined_raw_ms": 493.889408
+    },
+    "closed_interval": {
+      "saved_ms": 27.307808,
+      "speedup": 1.055291342,
+      "latency_reduction_percent": 5.239439
+    },
+    "final_top_kernel_families": [
+      {"rank": 1, "family": "NVFP4 Gate/Up K128 B32", "calls": 128, "raw_ms": 557.676224},
+      {"rank": 2, "family": "fused exact-C16 GDN plus norm/gate", "calls": 1536, "raw_ms": 493.889408},
+      {"rank": 3, "family": "NVFP4 Down", "calls": 64, "raw_ms": 426.983072},
+      {"rank": 4, "family": "FP8 attention output", "calls": 64, "raw_ms": 161.996992},
+      {"rank": 5, "family": "FP8 QKV", "calls": 48, "raw_ms": 155.501280},
+      {"rank": 6, "family": "FP8 Z", "calls": 48, "raw_ms": 99.285184}
+    ],
+    "interpretation": [
+      "The old update grows by about 5.43 ms when it absorbs the exact epilogue, but the separate 32.74-ms whole-tile norm/gate interval disappears.",
+      "The resulting 27.31-ms closed GPU interval matches the 26.87-ms same-ELF and 28.27-ms independent-process Prefix savings.",
+      "Cross-profile total kernel sums are not used as causal evidence because unrelated families drift between separate profiler processes."
+    ]
+  },
+  "verification": {
+    "full_release_ctest": {
+      "declared_tests": 88,
+      "runnable_tests_passed": 76,
+      "environment_or_policy_skips": 12,
+      "code_failures": 0,
+      "elapsed_seconds": 68.91
+    },
+    "production_cublaslt_isolation": "PASS",
+    "decode_route_changed": false,
+    "mtp_used": false
+  },
+  "artifacts": {
+    "baseline_runner": {"path": "/tmp/q3x-prefill-gdn-c16-prepromotion-baseline", "bytes": 7632408, "sha256": "8d6c4ab17e96e4f09b0ebefaf56619b0c67f2ee659d1b2f5b6716b413c8c6300"},
+    "production_runner": {"path": "build/orin-release/qwen3x-orin", "bytes": 7768560, "sha256": "feddecf0aed4a7c7cd14d85e468afcbb495ddf61383fe521795bc62a93cdd3a4", "elf_build_id": "46e96cb129b2f1c432e133662ac762641f4ab1cb"},
+    "same_elf_direction_log": {"path": "/tmp/q3x-gdn-c16-final-source-direction.log", "bytes": 1619, "sha256": "146fab3c1688b9b38350d697f1c9215cf446d92cc5d259a78f9c6e2e60a886a1"},
+    "independent_process_logs": {
+      "B1": {"path": "/tmp/q3x-gdn-c16-final-b1.log", "bytes": 9275, "sha256": "cb5d6d142314158812b874628c0fae54a8b46e3767995b3f49786c0e2bd8d018"},
+      "C1": {"path": "/tmp/q3x-gdn-c16-final-c1.log", "bytes": 9275, "sha256": "bd4a8e5600d08b5c40a838dd54415c1b916d4197e5cb2569cf0c6ea5c01765b6"},
+      "C2": {"path": "/tmp/q3x-gdn-c16-final-c2.log", "bytes": 9275, "sha256": "333b00d976741174d05a3e69ba1fb32629e6357ea32d12b5aeccd639121491e1"},
+      "B2": {"path": "/tmp/q3x-gdn-c16-final-b2.log", "bytes": 9275, "sha256": "1260dbdbfc99aade9e566ff109329a6067918e313584a366c54bf80ee0dc2fa5"}
+    },
+    "standalone_correctness_log": {"path": "/tmp/q3x-gdn-c16-final-standalone-correctness.log", "bytes": 832, "sha256": "98f078ffc74d37fdf574f596e0f8da2f0b1e4332785b947212378b6d44deb501"},
+    "engine_correctness_log": {"path": "/tmp/q3x-gdn-c16-final-engine-correctness.log", "bytes": 1206, "sha256": "91cfe63a0f7666f7b760120a66e5ae331b15824159a10adc7882e21234e93b88"},
+    "full_ctest_log": {"path": "/tmp/q3x-gdn-c16-final-full-ctest.log", "bytes": 15154, "sha256": "472211019d795856185f028b304a7493056c777bdcd57f58e27291fd1638a1be"},
+    "production_nsys_report": {"path": "/tmp/q3x-prefill-gdn-c16-final-p513.nsys-rep", "bytes": 691783, "sha256": "d7893fb9a1baa1d84da3c87fbc2bf64e732ea221128838e8cc4561cbae3e5461"},
+    "production_nsys_sqlite": {"path": "/tmp/q3x-prefill-gdn-c16-final-p513.sqlite", "bytes": 1888256, "sha256": "ebfc2549fbbdb24ef0cd9dc4b297afc93615a4e1238dba2f124130764fdd0f4b"},
+    "production_nsys_log": {"path": "/tmp/q3x-prefill-gdn-c16-final-p513.log", "bytes": 938, "sha256": "b4e662eb2b77900668dc10104fb0700ce2112c8dda3871d99bff83c34f2b96f1"}
+  },
+  "decision": {
+    "result": "PROMOTE",
+    "new_native_production_baseline": "exact-C16 shared-BF16-boundary GDN plus warp-row plain-RMSNorm/SiLU gate for aligned C256/C512 Prefill",
+    "new_p513_prefix_anchor_ms": 2260.7385,
+    "new_p513_prefix_anchor_tokens_per_second": 226.474667459,
+    "external_reference_execution_for_decision": "NOT_RUN",
+    "cublaslt_decision_authority": "NONE",
+    "mtp_used": false,
+    "next": "keep exact GDN arithmetic frozen at the promoted route; use the fresh rank order to pursue a structural Gate or shape-specific Down kernel rather than another scalar GDN micro-tune"
+  },
+  "limitations": [
+    "The new production anchor is batch one, one P513 prompt, max one generated token, one checkpoint revision, and one Orin.",
+    "The final production-selector repetition is one independent-process B-C-C-B; the six-round retention and multi-length correctness evidence are inherited only because the promoted kernel arithmetic is source-identical to the retained incumbent.",
+    "The old and new NSys reports are separate processes. Only the named GDN-chain replacement and the disappearance of the standalone Prefill norm/gate kernel are used for causal attribution.",
+    "The improvement reaches about 226.47 token/s and remains far below the long-term 2k--8k token/s target."
+  ]
+}
