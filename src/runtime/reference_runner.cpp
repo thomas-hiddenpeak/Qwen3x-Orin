@@ -7,6 +7,11 @@
 #include "../kernels/reference/gdn_prefill_chunk64_cublas_reference_sm87.h"
 #include "reference_runner_gdn_chunk64_reference_admission.h"
 #endif
+#if defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
+#include "../kernels/reference/gdn_prefill_whole_span_conv_sm87.h"
+#include "../kernels/sm87/gdn_prefill_chunk64_native_sm87.h"
+#include "reference_runner_gdn_chunk64_native_admission.h"
+#endif
 #include "../kernels/reference/gdn_prefill_c16_norm_gate_sm87.h"
 #if defined(Q3X_ENABLE_GDN_C16_NORM_GATE_ADMISSION)
 #include "reference_runner_gdn_c16_norm_gate_admission.h"
@@ -55,6 +60,22 @@ constexpr float kAttentionScale = 1.0F / 16.0F;
 // matching test-only setter is deliberately absent from the public header.
 thread_local bool g_enable_prefill_gdn_b8_admission = false;
 thread_local std::size_t g_prefill_gdn_b8_admission_hits = 0U;
+#endif
+#if defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
+// Native C64/WY architecture admission. This build remains test-only and the
+// worker-local route is enabled only by the exact value "1". It has no
+// external-library context, workspace, fallback, or default-route authority.
+[[nodiscard]] bool gdn_chunk64_native_environment_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
+thread_local bool g_enable_prefill_gdn_chunk64_native_admission =
+    gdn_chunk64_native_environment_enabled();
+thread_local std::size_t g_prefill_gdn_chunk64_native_admission_hits = 0U;
+thread_local reference_runner_detail::PrefillGdnChunk64NativeSnapshotHook
+    g_prefill_gdn_chunk64_native_snapshot_hook{};
 #endif
 #if defined(Q3X_ENABLE_GDN_CHUNK64_REFERENCE_ADMISSION)
 // Compile-time-isolated architecture switch. It stays false unless the
@@ -322,6 +343,15 @@ template <std::size_t SpanCount>
          first_position % 8U == 0U;
 }
 #endif
+#if defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
+[[nodiscard]] bool use_prefill_gdn_chunk64_native_admission(
+    const bool enabled, const ProjectionBackend backend,
+    const std::uint32_t first_position,
+    const std::size_t token_count) noexcept {
+  return enabled && backend == ProjectionBackend::kSm87WeightOnly &&
+         first_position == 0U && token_count == 512U;
+}
+#endif
 #if defined(Q3X_ENABLE_GDN_CHUNK64_REFERENCE_ADMISSION)
 [[nodiscard]] bool use_prefill_gdn_chunk64_reference_admission(
     const bool enabled, const ProjectionBackend backend,
@@ -554,6 +584,24 @@ bool exchange_prefill_gdn_b8_admission_test_enabled(
 std::size_t exchange_prefill_gdn_b8_admission_test_hits(
     const std::size_t hits) noexcept {
   return std::exchange(g_prefill_gdn_b8_admission_hits, hits);
+}
+#endif
+#if defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
+bool exchange_prefill_gdn_chunk64_native_admission_test_enabled(
+    const bool enabled) noexcept {
+  return std::exchange(g_enable_prefill_gdn_chunk64_native_admission,
+                       enabled);
+}
+
+std::size_t exchange_prefill_gdn_chunk64_native_admission_test_hits(
+    const std::size_t hits) noexcept {
+  return std::exchange(g_prefill_gdn_chunk64_native_admission_hits, hits);
+}
+
+PrefillGdnChunk64NativeSnapshotHook
+exchange_prefill_gdn_chunk64_native_snapshot_hook(
+    const PrefillGdnChunk64NativeSnapshotHook hook) noexcept {
+  return std::exchange(g_prefill_gdn_chunk64_native_snapshot_hook, hook);
 }
 #endif
 #if defined(Q3X_ENABLE_GDN_CHUNK64_REFERENCE_ADMISSION)
@@ -2660,6 +2708,10 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
   const bool enable_gdn_b8_admission =
       g_enable_prefill_gdn_b8_admission;
 #endif
+#if defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
+  const bool enable_gdn_chunk64_native_admission =
+      g_enable_prefill_gdn_chunk64_native_admission;
+#endif
 #if defined(Q3X_ENABLE_GDN_CHUNK64_REFERENCE_ADMISSION)
   const bool enable_gdn_chunk64_reference_admission =
       g_enable_prefill_gdn_chunk64_reference_admission;
@@ -2915,6 +2967,36 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
               enable_gdn_c16_norm_gate_admission, projection_backend_,
               first_position, token_count);
       bool gdn_output_is_normalized = false;
+#if defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
+      const bool use_gdn_chunk64_native =
+          use_prefill_gdn_chunk64_native_admission(
+              enable_gdn_chunk64_native_admission, projection_backend_,
+              first_position, token_count);
+      if (use_gdn_chunk64_native) {
+        if (!check_cuda(
+                gdn_prefill_whole_span_conv_detail::
+                    launch_causal_conv1d_silu_update_whole_span_exact_cuda(
+                        views_.projection[0], token_count,
+                        attention->conv1d.data, views_.conv_state[layer],
+                        views_.projection[0], stream_),
+                "prefill_linear_causal_conv_whole_span", layer)) {
+          return fail_prefill_tile(launch_failure);
+        }
+        ++g_prefill_gdn_chunk64_native_admission_hits;
+        if (!check_cuda(
+                gdn_prefill_chunk64_native_detail::launch(
+                    views_.projection[0], token_count, views_.linear_a,
+                    views_.linear_b, attention->a_log.data,
+                    attention->dt_bias.data, views_.gdn_state[layer],
+                    views_.gdn_state[layer], kRmsEpsilon,
+                    attention->norm.data, views_.projection[1],
+                    kRmsEpsilon, views_.projection[2], stream_),
+                "prefill_linear_gdn_chunk64_native", layer)) {
+          return fail_prefill_tile(launch_failure);
+        }
+        gdn_output_is_normalized = true;
+      } else
+#endif
 #if defined(Q3X_ENABLE_GDN_CHUNK64_REFERENCE_ADMISSION)
       const bool use_gdn_chunk64_reference =
           use_prefill_gdn_chunk64_reference_admission(
@@ -3467,6 +3549,14 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
         "prefill_tile_commit", kReferenceNoLayer,
         commit_status.cuda_error));
   }
+#if defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
+  const auto native_chunk64_snapshot_hook =
+      g_prefill_gdn_chunk64_native_snapshot_hook;
+  if (native_chunk64_snapshot_hook.callback != nullptr) {
+    native_chunk64_snapshot_hook.callback(
+        *state_, native_chunk64_snapshot_hook.context);
+  }
+#endif
 #if defined(Q3X_ENABLE_GDN_CHUNK64_REFERENCE_ADMISSION)
   const auto chunk64_snapshot_hook =
       g_prefill_gdn_chunk64_reference_snapshot_hook;

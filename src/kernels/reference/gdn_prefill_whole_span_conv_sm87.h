@@ -1,0 +1,36 @@
+#ifndef Q3X_KERNELS_REFERENCE_GDN_PREFILL_WHOLE_SPAN_CONV_SM87_H_
+#define Q3X_KERNELS_REFERENCE_GDN_PREFILL_WHOLE_SPAN_CONV_SM87_H_
+
+#include <cstddef>
+#include <cstdint>
+
+namespace q3x::runtime::gdn_prefill_whole_span_conv_detail {
+
+inline constexpr std::size_t kMaximumTokenCount = 512U;
+
+// Private, test-only Prefill launcher. This entry point deliberately stays
+// outside the installed/public GDN ABI: the production tile ABI remains
+// capped at 16 tokens.
+//
+// raw_qkv and conv_qkv_output are token-major BF16 [token_count, 10240].
+// conv_weight is channel-major BF16 [10240, 4], and history_in_out is
+// channel-major BF16 [10240, 3], oldest to newest. The complete span is
+// advanced in one launch. Exact raw_qkv == conv_qkv_output aliasing is
+// supported; every other operand must be disjoint. History always receives
+// the original raw BF16 inputs, never the convolved outputs.
+[[nodiscard]] int launch_causal_conv1d_silu_update_whole_span_exact_cuda(
+    const std::uint16_t* raw_qkv, std::size_t token_count,
+    const std::uint16_t* conv_weight, std::uint16_t* history_in_out,
+    std::uint16_t* conv_qkv_output,
+    void* cuda_stream = nullptr) noexcept;
+
+// Private admission resource query. No kernel is launched.
+[[nodiscard]] int
+query_causal_conv1d_silu_update_whole_span_resources_cuda(
+    int* registers_per_thread, std::size_t* static_shared_bytes,
+    std::size_t* local_bytes, int* maximum_threads_per_block,
+    int* active_blocks_per_sm) noexcept;
+
+}  // namespace q3x::runtime::gdn_prefill_whole_span_conv_detail
+
+#endif  // Q3X_KERNELS_REFERENCE_GDN_PREFILL_WHOLE_SPAN_CONV_SM87_H_

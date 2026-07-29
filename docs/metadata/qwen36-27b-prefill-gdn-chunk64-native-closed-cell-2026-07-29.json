@@ -1,0 +1,161 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-gdn-chunk64-native-closed-cell-2026-07-29",
+  "status": "positive_test_only_architecture_proof",
+  "recorded_at": "2026-07-29T22:58:01+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "base_commit": "2d3635bb1171f442c3953373a486a2b569d6c1dd",
+    "branch": "codex/prefill-gdn-native-closed-cell",
+    "native_kernel": {
+      "path": "src/kernels/sm87/gdn_prefill_chunk64_native_sm87.cu",
+      "sha256": "56dbe90b372d70b952b259e9b0170a134a3324e41135baf87b558b10070d31ec"
+    },
+    "whole_span_conv": {
+      "path": "src/kernels/reference/gdn_prefill_whole_span_conv_sm87.cu",
+      "sha256": "c507f6889d46de0108c55c4cb974bc3311382393aa8429db7bbf11c21835a901"
+    },
+    "performance_elf": {
+      "path": "build/gdn-chunk64-native/qwen3x-eval-server",
+      "sha256": "bf0f418c1b8a1f1be32c10926ee56acb333ead339ddfc0b043dd1b4d20bb5733",
+      "checked_in": false
+    }
+  },
+  "model": {
+    "path": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "performance_payload": "real authenticated model weights; no synthetic matrix performance authority"
+  },
+  "implementation": {
+    "route_gate": "Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION=1",
+    "route_scope": "SM87, first_position=0, token_count=512",
+    "cublas": false,
+    "cublaslt": false,
+    "caller_workspace_bytes": 0,
+    "candidate_route_hits": 48,
+    "resources": {
+      "registers_per_thread": 238,
+      "dynamic_shared_bytes": 139776,
+      "static_shared_bytes": 0,
+      "local_or_spill_bytes": 0,
+      "active_blocks_per_sm": 1
+    }
+  },
+  "direct_p513": {
+    "authority": "single_round_real_model_architecture_screen",
+    "prefix_tokens": 512,
+    "output_tokens": 1,
+    "baseline_prefix_ms": 2262.149079,
+    "candidate_prefix_ms": 2075.589930,
+    "prefix_saved_ms": 186.559149,
+    "prefix_speedup": 1.089882470,
+    "baseline_ttft_ms": 2370.976408,
+    "candidate_ttft_ms": 2184.402283,
+    "ttft_saved_ms": 186.574125,
+    "ttft_speedup": 1.085411980,
+    "generated_token_id": 9419,
+    "generated_text": "Hello"
+  },
+  "numerical_characterization": {
+    "boundary": "P512 committed GDN state",
+    "elements": 37748736,
+    "finite": true,
+    "unequal_bf16_fraction": 0.976318916,
+    "global_nrmse": 0.117322148,
+    "maximum_layer_nrmse": 0.120398323,
+    "maximum_layer": 0,
+    "authority": "characterization_only"
+  },
+  "evalscope": {
+    "authority": "external_t3_single_round_direction_only",
+    "protocol": {
+      "command_family": "evalscope perf",
+      "api": "openai completions",
+      "concurrency": 1,
+      "output_tokens": 16,
+      "seed": 42,
+      "stream": true,
+      "corpus": "/tmp/q3x-sharegpt-false-thinking-33.jsonl",
+      "corpus_sha256": "bd2091cdc0599ac59ab881efc6d1307a03bb149f49e6fd728a99d926ccc67989"
+    },
+    "screen_8": {
+      "success": "8/8",
+      "baseline_mean_ttft_ms": 3058.708351,
+      "candidate_mean_ttft_ms": 2937.559402,
+      "ttft_saved_ms": 121.148948,
+      "ttft_improvement_percent": 3.960788,
+      "baseline_prompt_throughput_tok_s": 106.074486,
+      "candidate_prompt_throughput_tok_s": 108.874605,
+      "prompt_throughput_improvement_percent": 2.639766,
+      "exact_outputs": "6/8"
+    },
+    "confirmation_32": {
+      "success": "32/32",
+      "baseline_mean_ttft_ms": 3164.923112,
+      "candidate_mean_ttft_ms": 3078.984291,
+      "ttft_saved_ms": 85.938821,
+      "ttft_improvement_percent": 2.715353,
+      "baseline_p50_ttft_ms": 3324.451837,
+      "candidate_p50_ttft_ms": 3198.587670,
+      "baseline_p99_ttft_ms": 6674.394963,
+      "candidate_p99_ttft_ms": 6494.050686,
+      "baseline_prompt_throughput_tok_s": 102.982294,
+      "candidate_prompt_throughput_tok_s": 104.775275,
+      "prompt_throughput_improvement_percent": 1.741057,
+      "exact_outputs": "30/32",
+      "mismatch_prompt_tokens": [695, 713],
+      "hit_buckets": {
+        "513-1024": {
+          "candidate_faster": "13/13",
+          "mean_ttft_delta_ms": -187.570062
+        },
+        "1025+": {
+          "candidate_faster": "2/2",
+          "mean_ttft_delta_ms": -184.616266
+        }
+      }
+    },
+    "frozen_vllm_reference": {
+      "mean_ttft_ms": 1147.280602,
+      "p50_ttft_ms": 1149.568350,
+      "p99_ttft_ms": 2623.852408,
+      "prompt_throughput_tok_s": 182.081770,
+      "benchmark_db_sha256": "2db1ff4c2156432ad466dd1e00bea70482beb0f90225b2efbe95a5e18b93ad41"
+    },
+    "candidate_vs_vllm": {
+      "mean_ttft_ratio": 2.683724,
+      "mean_ttft_gap_ms": 1931.703688,
+      "prompt_throughput_fraction": 0.575430,
+      "prompt_throughput_gap_tok_s": -77.306495
+    },
+    "reference_architecture_equivalence": {
+      "reference": "cuBLAS C64/WY test-only candidate",
+      "native_output_set_sha256": "4046cec268e48e5af4bd1a6883f961eb14ba6dcc4d59e25de0c5c1abbf1e0c19",
+      "reference_output_set_sha256": "4046cec268e48e5af4bd1a6883f961eb14ba6dcc4d59e25de0c5c1abbf1e0c19",
+      "raw_text_exact": "32/32",
+      "native_minus_reference_ttft_ms": 67.781804
+    }
+  },
+  "artifacts": {
+    "screen_8_validator": {
+      "path": "/tmp/q3x-evalscope-gdn-native-short-direction-run1.json",
+      "sha256": "39abbd169bba2127df171b7c2b98c4c7f82f1c0c7c1cdc0cfb436e8ef20bc040"
+    },
+    "confirmation_32_validator": {
+      "path": "/tmp/q3x-evalscope-gdn-native-full-direction-run1.json",
+      "sha256": "24b926621384eccd02656c534d7cec1ee3174aff0a9485c4d1c616af0fe71a3e"
+    },
+    "baseline_32_db_sha256": "283bd2c8e02bd3b7c7ead527f7f209fbff46f4cd13beb0a4ba6dffdb93ce6920",
+    "candidate_32_db_sha256": "005ac858b9d3244cf7a5966f4dd3fcabcad4b14748cb6854e616fc71e6264e0f",
+    "reference_candidate_32_db_sha256": "e9751fc4b282ec0c3f57c23f561bc2013f71d501ad79e3f1aa29635a293cb96f"
+  },
+  "decision": {
+    "retain_as_test_only_architecture_proof": true,
+    "production_default_changed": false,
+    "fast_real_model_screen_passed": true,
+    "vllm_parity_gate_passed": false,
+    "run_long_output_matrix": false,
+    "run_capability_matrix": false,
+    "reason": "The native route improves the real serving path and reproduces the reference architecture outputs, but state divergence remains characterization-only and whole-run performance is still materially below the frozen vLLM reference.",
+    "next_priority": "native NVFP4 Marlin-style Gate+Up production vertical slice"
+  }
+}

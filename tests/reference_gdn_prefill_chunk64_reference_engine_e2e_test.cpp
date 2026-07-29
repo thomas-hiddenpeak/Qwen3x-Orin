@@ -1,7 +1,12 @@
 #include "q3x/runtime/reference_engine.h"
 #include "q3x/runtime/gdn_decode.h"
 
+#if defined(Q3X_GDN_CHUNK64_NATIVE_TEST)
+#include "gdn_prefill_chunk64_native_sm87.h"
+#include "reference_runner_gdn_chunk64_native_admission.h"
+#else
 #include "reference_runner_gdn_chunk64_reference_admission.h"
+#endif
 
 #include <cuda_profiler_api.h>
 #include <cuda_runtime_api.h>
@@ -31,18 +36,54 @@ constexpr std::size_t kExpectedRouteHits =
     runtime::kRequestLinearLayerCount;
 constexpr std::uint32_t kExpectedGeneratedToken = 9'419U;
 constexpr std::string_view kExpectedGeneratedText = "Hello";
+#if defined(Q3X_GDN_CHUNK64_NATIVE_TEST)
+constexpr std::string_view kRouteMarker = "GDN_CHUNK64_NATIVE";
+constexpr std::string_view kRunEnvironment =
+    "Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION";
+using SelectedSnapshotHook = detail::PrefillGdnChunk64NativeSnapshotHook;
+
+[[nodiscard]] bool exchange_admission(const bool enabled) noexcept {
+  return detail::exchange_prefill_gdn_chunk64_native_admission_test_enabled(
+      enabled);
+}
+
+[[nodiscard]] std::size_t exchange_hits(const std::size_t hits) noexcept {
+  return detail::exchange_prefill_gdn_chunk64_native_admission_test_hits(hits);
+}
+
+[[nodiscard]] SelectedSnapshotHook exchange_snapshot_hook(
+    const SelectedSnapshotHook hook) noexcept {
+  return detail::exchange_prefill_gdn_chunk64_native_snapshot_hook(hook);
+}
+#else
+constexpr std::string_view kRouteMarker = "GDN_CHUNK64_REFERENCE";
+constexpr std::string_view kRunEnvironment =
+    "Q3X_RUN_GDN_CHUNK64_REFERENCE_ADMISSION";
+using SelectedSnapshotHook = detail::PrefillGdnChunk64ReferenceSnapshotHook;
+
+[[nodiscard]] bool exchange_admission(const bool enabled) noexcept {
+  return detail::exchange_prefill_gdn_chunk64_reference_admission_test_enabled(
+      enabled);
+}
+
+[[nodiscard]] std::size_t exchange_hits(const std::size_t hits) noexcept {
+  return detail::exchange_prefill_gdn_chunk64_reference_admission_test_hits(
+      hits);
+}
+
+[[nodiscard]] SelectedSnapshotHook exchange_snapshot_hook(
+    const SelectedSnapshotHook hook) noexcept {
+  return detail::exchange_prefill_gdn_chunk64_reference_snapshot_hook(hook);
+}
+#endif
 
 class ScopedAdmission {
  public:
   explicit ScopedAdmission(const bool enabled) noexcept
-      : previous_(
-            detail::exchange_prefill_gdn_chunk64_reference_admission_test_enabled(
-                enabled)) {}
+      : previous_(exchange_admission(enabled)) {}
 
   ~ScopedAdmission() {
-    (void)detail::
-        exchange_prefill_gdn_chunk64_reference_admission_test_enabled(
-            previous_);
+    (void)exchange_admission(previous_);
   }
 
   ScopedAdmission(const ScopedAdmission&) = delete;
@@ -104,20 +145,18 @@ void collect_state_snapshot(const runtime::RequestState& state,
 class ScopedSnapshotHook {
  public:
   explicit ScopedSnapshotHook(StateSnapshot& snapshot) noexcept
-      : previous_(detail::exchange_prefill_gdn_chunk64_reference_snapshot_hook(
-            detail::PrefillGdnChunk64ReferenceSnapshotHook{
-                collect_state_snapshot, &snapshot})) {}
+      : previous_(exchange_snapshot_hook(
+            SelectedSnapshotHook{collect_state_snapshot, &snapshot})) {}
 
   ~ScopedSnapshotHook() {
-    (void)detail::exchange_prefill_gdn_chunk64_reference_snapshot_hook(
-        previous_);
+    (void)exchange_snapshot_hook(previous_);
   }
 
   ScopedSnapshotHook(const ScopedSnapshotHook&) = delete;
   ScopedSnapshotHook& operator=(const ScopedSnapshotHook&) = delete;
 
  private:
-  detail::PrefillGdnChunk64ReferenceSnapshotHook previous_{};
+  SelectedSnapshotHook previous_{};
 };
 
 [[nodiscard]] float decode_bf16(const std::uint16_t value) noexcept {
@@ -165,14 +204,50 @@ void print_diagnostic(
     const runtime::ReferenceGeneration& generation) {
   return generation.prompt_token_ids.size() == kPromptTokens &&
          generation.generated_token_ids.size() == 1U &&
-         generation.generated_token_ids.front() == kExpectedGeneratedToken &&
-         std::string_view(generation.generated_text) ==
-             kExpectedGeneratedText &&
+         generation.generated_token_ids.front() <
+             runtime::kReferenceVocabularySize &&
          generation.stop_reason ==
              runtime::ReferenceStopReason::kMaxNewTokens &&
          generation.requested_prefill_chunk_size == kPrefixTokens &&
          generation.effective_prefill_chunk_size == kPrefixTokens &&
-         generation.steps.size() == kPromptTokens;
+         generation.steps.size() == kPromptTokens &&
+         generation.generated_token_ids.front() == kExpectedGeneratedToken &&
+         std::string_view(generation.generated_text) == kExpectedGeneratedText;
+}
+
+[[nodiscard]] bool validate_native_resources() {
+#if defined(Q3X_GDN_CHUNK64_NATIVE_TEST)
+  int registers_per_thread = 0;
+  std::size_t static_shared_bytes = 0U;
+  std::size_t local_bytes = 0U;
+  int maximum_threads_per_block = 0;
+  int active_blocks_per_sm = 0;
+  const int status =
+      q3x::runtime::gdn_prefill_chunk64_native_detail::query_resources(
+          &registers_per_thread, &static_shared_bytes, &local_bytes,
+          &maximum_threads_per_block, &active_blocks_per_sm);
+  const bool passed = status == static_cast<int>(cudaSuccess) &&
+                      registers_per_thread > 0 &&
+                      registers_per_thread <= 255 && local_bytes == 0U &&
+                      maximum_threads_per_block >= 256 &&
+                      active_blocks_per_sm >= 1 &&
+                      q3x::runtime::gdn_prefill_chunk64_native_detail::
+                              workspace_bytes() == 0U;
+  std::cout << "GDN_CHUNK64_NATIVE_RESOURCES"
+            << " cuda_status=" << status
+            << " registers_per_thread=" << registers_per_thread
+            << " static_shared_bytes=" << static_shared_bytes
+            << " local_bytes=" << local_bytes
+            << " maximum_threads_per_block=" << maximum_threads_per_block
+            << " active_blocks_per_sm=" << active_blocks_per_sm
+            << " workspace_bytes="
+            << q3x::runtime::gdn_prefill_chunk64_native_detail::
+                   workspace_bytes()
+            << " gate=" << (passed ? "PASS" : "FAIL") << '\n';
+  return passed;
+#else
+  return true;
+#endif
 }
 
 [[nodiscard]] bool run_sample(runtime::ReferenceEngine& engine,
@@ -185,16 +260,15 @@ void print_diagnostic(
   options.prefill_chunk_size = kPrefixTokens;
   options.logits_mode = runtime::ReferenceLogitsMode::kPredictedTokenOnly;
 
-  (void)detail::exchange_prefill_gdn_chunk64_reference_admission_test_hits(0U);
+  (void)exchange_hits(0U);
   runtime::ReferenceGenerateResult result;
   {
     const ScopedAdmission admission(candidate);
     result = engine.generate(prompt, options);
   }
-  sample.route_hits =
-      detail::exchange_prefill_gdn_chunk64_reference_admission_test_hits(0U);
+  sample.route_hits = exchange_hits(0U);
   if (!result) {
-    std::cerr << "GDN_CHUNK64_REFERENCE_SAMPLE phase=" << phase
+    std::cerr << kRouteMarker << "_SAMPLE phase=" << phase
               << " route=" << (candidate ? "candidate" : "baseline")
               << " generation failed: ";
     print_diagnostic(result.diagnostic);
@@ -216,7 +290,7 @@ void print_diagnostic(
       std::isfinite(sample.ttft_milliseconds) &&
       sample.ttft_milliseconds > 0.0 && sample.route_hits == expected_hits;
 
-  std::cout << "GDN_CHUNK64_REFERENCE_SAMPLE phase=" << phase
+  std::cout << kRouteMarker << "_SAMPLE phase=" << phase
             << " route=" << (candidate ? "candidate" : "baseline")
             << " prefix_ms=" << sample.prefix_milliseconds
             << " ttft_ms=" << sample.ttft_milliseconds
@@ -244,15 +318,14 @@ void print_diagnostic(
   options.max_new_tokens = 1U;
   options.prefill_chunk_size = kPrefixTokens;
   options.logits_mode = runtime::ReferenceLogitsMode::kPredictedTokenOnly;
-  (void)detail::exchange_prefill_gdn_chunk64_reference_admission_test_hits(0U);
+  (void)exchange_hits(0U);
   runtime::ReferenceGenerateResult result;
   {
     const ScopedSnapshotHook hook(snapshot);
     const ScopedAdmission admission(candidate);
     result = engine.generate(prompt, options);
   }
-  route_hits =
-      detail::exchange_prefill_gdn_chunk64_reference_admission_test_hits(0U);
+  route_hits = exchange_hits(0U);
   return result;
 }
 
@@ -349,7 +422,7 @@ void print_diagnostic(
                       baseline_hits == 0U &&
                       candidate_hits == kExpectedRouteHits && finite &&
                       semantics && std::isfinite(nrmse);
-  std::cout << "GDN_CHUNK64_STATE_CHARACTERIZATION"
+  std::cout << kRouteMarker << "_STATE_CHARACTERIZATION"
             << " elements=" << element_count
             << " unequal_bf16=" << unequal
             << " unequal_fraction=" << unequal_fraction
@@ -370,9 +443,13 @@ void print_diagnostic(
 
 int main(const int argc, char** const argv) {
   if (argc > 2) {
-    std::cerr << "usage: "
-                 "q3x_reference_gdn_prefill_chunk64_reference_engine_e2e_test "
-                 "[MODEL_DIR|-]\n";
+    std::cerr << "usage: q3x_reference_gdn_prefill_chunk64_"
+#if defined(Q3X_GDN_CHUNK64_NATIVE_TEST)
+                 "native"
+#else
+                 "reference"
+#endif
+                 "_engine_e2e_test [MODEL_DIR|-]\n";
     return 2;
   }
   const std::string model_directory = model_directory_from(argc, argv);
@@ -380,16 +457,17 @@ int main(const int argc, char** const argv) {
     std::cout << "SKIP: set Q3X_E2E_MODEL_DIR to the pinned model directory\n";
     return 77;
   }
-  const char* const enabled =
-      std::getenv("Q3X_RUN_GDN_CHUNK64_REFERENCE_ADMISSION");
+  const char* const enabled = std::getenv(kRunEnvironment.data());
   if (enabled == nullptr || std::string_view(enabled) != "1") {
-    std::cout << "SKIP: set Q3X_RUN_GDN_CHUNK64_REFERENCE_ADMISSION=1 to "
-                 "run the isolated architecture screen\n";
+    std::cout << "SKIP: set " << kRunEnvironment
+              << "=1 to run the isolated architecture screen\n";
     return 77;
   }
 
-  (void)detail::
-      exchange_prefill_gdn_chunk64_reference_admission_test_enabled(false);
+  (void)exchange_admission(false);
+  if (!validate_native_resources()) {
+    return 6;
+  }
   runtime::ReferenceEngineOptions options;
   options.request_options.prefill_chunk_size = kPrefixTokens;
   options.request_options.max_sequence_length = kPromptTokens + 1U;
@@ -429,7 +507,7 @@ int main(const int argc, char** const argv) {
     structural_oracle = false;
   }
   if (!structural_oracle) {
-    std::cout << "GDN_CHUNK64_REFERENCE_DIRECTION result=INVALID\n";
+    std::cout << kRouteMarker << "_DIRECTION result=INVALID\n";
     return 1;
   }
 
@@ -440,7 +518,7 @@ int main(const int argc, char** const argv) {
   const bool positive = prefix_saved > 0.0 && ttft_saved > 0.0;
   const bool semantic_oracle =
       baseline.semantic_oracle && candidate.semantic_oracle;
-  std::cout << "GDN_CHUNK64_REFERENCE_DIRECTION"
+  std::cout << kRouteMarker << "_DIRECTION"
             << " baseline_prefix_ms=" << baseline.prefix_milliseconds
             << " candidate_prefix_ms=" << candidate.prefix_milliseconds
             << " prefix_saved_ms=" << prefix_saved
@@ -459,9 +537,15 @@ int main(const int argc, char** const argv) {
   if (!semantic_oracle) {
     return 4;
   }
+#if defined(Q3X_GDN_CHUNK64_NATIVE_TEST)
+  if (!run_state_characterization(*created.value, prompt)) {
+    return 5;
+  }
+#else
   if (std::getenv("Q3X_GDN_CHUNK64_CHARACTERIZE_STATE") != nullptr &&
       !run_state_characterization(*created.value, prompt)) {
     return 5;
   }
+#endif
   return positive ? 0 : 3;
 }
