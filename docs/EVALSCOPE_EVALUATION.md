@@ -167,6 +167,49 @@ whole-workload prompt throughput while satisfying the declared output policy.
 Exit 3 is a valid external rejection. The frozen vLLM result is not an
 incremental retention threshold.
 
+## Performance-first architecture funnel
+
+Prefill architecture work must pass the public serving path before broader
+evaluation infrastructure is expanded. The order is fixed:
+
+1. Run one real-checkpoint native baseline/candidate pair through
+   `evalscope perf`, concurrency one, streaming enabled, and a short output.
+   A candidate that does not improve both mean TTFT and whole-workload prompt
+   throughput stops here. NSys or NCU may then explain the rejection, but a
+   capability or length matrix is not built for it.
+2. Retain positive native increments and periodically compare the cumulative
+   runner with the frozen vLLM result above. vLLM is not restarted for each
+   experiment and is never a production backend.
+3. Only a cumulative native runner that approaches or beats the frozen vLLM
+   short-output floor advances to longer-output `evalscope perf` stability
+   runs.
+4. Public capability suites, length buckets, concurrency, and release-grade
+   repetition come last. They validate a competitive runner; they do not
+   select an obviously noncompetitive Prefill architecture.
+
+For a fast direction screen, use the same hash-locked corpus and API contract
+as the 32-request run, but measure only the first eight requests. The corpus
+already pins 16 output tokens in every request body; EvalScope 1.9.1 preserves
+that value instead of overriding it from the command line:
+
+```bash
+uvx --from 'evalscope[perf]==1.9.1' evalscope perf \
+  --model qwen3.6-27b-nvfp4 --api openai \
+  --url http://127.0.0.1:18080/v1/completions \
+  --tokenizer-path MODEL_DIR \
+  --dataset line_by_line --data-source local \
+  --dataset-path /tmp/q3x-sharegpt-false-thinking-33.jsonl \
+  --number 8 --parallel 1 --warmup-num 1 --num-workers 1 \
+  --max-tokens 16 --temperature 0 --seed 42 \
+  --stream --tokenize-prompt --no-test-connection \
+  --outputs-dir OUTPUT_DIR --name RUN_NAME --no-timestamp
+```
+
+This eight-request, 16-token screen is directional only. It cannot promote a
+kernel or replace the pinned 32-request short-output comparison. A true
+one-token workload would require a separate hash-locked corpus and manifest;
+changing only this command-line option is insufficient.
+
 ## Capability gate: first attempt invalid
 
 A C-Eval 5-shot smoke used four public subsets and five validation examples
@@ -176,9 +219,10 @@ configured 32-token output cap before emitting the required
 That number is an invalid measurement, not model accuracy: parseable answers
 were 0/20 and all 20 stopped at `max_tokens`.
 
-The next capability step is to calibrate an output cap on a small predeclared
-sample until the answer contract is observable, freeze it, rerun the smoke,
-then remove `--limit` for the complete public suite. Capability results do not
+After the performance funnel admits a competitive cumulative runner, the next
+capability step is to calibrate an output cap on a small predeclared sample
+until the answer contract is observable, freeze it, rerun the smoke, then
+remove `--limit` for the complete public suite. Capability results do not
 become authoritative until answer extraction, request success, truncation,
 and output-format coverage all pass.
 
