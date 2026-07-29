@@ -1,5 +1,7 @@
 #include "gdn_prefill_group_wy_sm87.h"
 
+#include "q3x/runtime/gdn_decode.h"
+
 #include <cuda_bf16.h>
 #include <cuda_runtime.h>
 #include <mma.h>
@@ -43,11 +45,17 @@ constexpr std::size_t kScratchOffset =
     kTransformOffset + kMatrixBf16Bytes;
 constexpr std::size_t kScratchBytes =
     kWarps * kTile * kTile * sizeof(float);
-constexpr std::size_t kSharedBytes = kScratchOffset + kScratchBytes;
+constexpr std::size_t kPackedSharedBytes =
+    kScratchOffset + kScratchBytes;
+constexpr std::size_t kGateScaleOffset = kPackedSharedBytes;
+constexpr std::size_t kGateScaleBytes = kChunk * sizeof(float);
+constexpr std::size_t kPacklessSharedBytes =
+    kGateScaleOffset + kGateScaleBytes;
 
 static_assert(kQkHeads * kHeadGroup == kValueHeads);
 static_assert(kWarps == 8U);
-static_assert(kSharedBytes == 80U * 1024U);
+static_assert(kPackedSharedBytes == 80U * 1024U);
+static_assert(kPacklessSharedBytes == 80U * 1024U + 256U);
 
 namespace wmma = nvcuda::wmma;
 using Bf16 = __nv_bfloat16;
@@ -317,6 +325,7 @@ __device__ __forceinline__ void recompute_w_u(
   }
 }
 
+template <bool Packless>
 __global__ __launch_bounds__(kThreads)
 void gqa_group_wy_chunk64_kernel(
     const std::uint16_t* const k,
@@ -324,6 +333,7 @@ void gqa_group_wy_chunk64_kernel(
     const float* const beta,
     const std::uint16_t* const gated_k,
     const std::uint16_t* const value,
+    const std::uint16_t* const conv_qkv,
     const unsigned int chunk_count,
     std::uint16_t* const transform,
     std::uint16_t* const w,
@@ -344,6 +354,8 @@ void gqa_group_wy_chunk64_kernel(
       reinterpret_cast<Bf16*>(shared + kTransformOffset);
   auto* const shared_scratch =
       reinterpret_cast<float*>(shared + kScratchOffset);
+  auto* const shared_gate_scale =
+      reinterpret_cast<float*>(shared + kGateScaleOffset);
 
   const unsigned int thread = threadIdx.x;
   const unsigned int warp = thread / 32U;
@@ -358,8 +370,10 @@ void gqa_group_wy_chunk64_kernel(
   const std::size_t first_matrix =
       static_cast<std::size_t>(chunk_index) * kValueHeads +
       first_value_head;
+  const std::size_t compact_matrix =
+      static_cast<std::size_t>(chunk_index) * kQkHeads + qk_head;
   const auto* const matrix_k = reinterpret_cast<const Bf16*>(
-      k + first_matrix * kKElements);
+      k + (Packless ? compact_matrix : first_matrix) * kKElements);
 
   for (unsigned int index = thread; index < kKElements;
        index += kThreads) {
@@ -424,10 +438,6 @@ void gqa_group_wy_chunk64_kernel(
 
     auto* const matrix_transform = reinterpret_cast<Bf16*>(
         transform + matrix * kGramElements);
-    const auto* const matrix_gated_k = reinterpret_cast<const Bf16*>(
-        gated_k + matrix * kKElements);
-    const auto* const matrix_value = reinterpret_cast<const Bf16*>(
-        value + matrix * kKElements);
     auto* const matrix_w =
         reinterpret_cast<Bf16*>(w + matrix * kKElements);
     auto* const matrix_u =
@@ -437,10 +447,36 @@ void gqa_group_wy_chunk64_kernel(
          index += kThreads) {
       matrix_transform[index] = shared_transform[index];
     }
-    for (unsigned int index = thread; index < kKElements;
-         index += kThreads) {
-      shared_gated_k[index] = matrix_gated_k[index];
-      shared_value[index] = matrix_value[index];
+    if constexpr (Packless) {
+      if (thread < kChunk) {
+        shared_gate_scale[thread] = expf(matrix_gate[thread]);
+      }
+      __syncthreads();
+      for (unsigned int index = thread; index < kKElements;
+           index += kThreads) {
+        const unsigned int token_in_chunk = index / kDimension;
+        const unsigned int dimension = index % kDimension;
+        const unsigned int token = chunk_index * kChunk + token_in_chunk;
+        shared_gated_k[index] = __float2bfloat16_rn(
+            shared_gate_scale[token_in_chunk] *
+            __bfloat162float(shared_k[index]));
+        const std::size_t source =
+            static_cast<std::size_t>(token) * kGdnQkvChannels +
+            kGdnQElements + kGdnKElements +
+            static_cast<std::size_t>(value_head) * kDimension + dimension;
+        shared_value[index] =
+            reinterpret_cast<const Bf16*>(conv_qkv)[source];
+      }
+    } else {
+      const auto* const matrix_gated_k = reinterpret_cast<const Bf16*>(
+          gated_k + matrix * kKElements);
+      const auto* const matrix_value = reinterpret_cast<const Bf16*>(
+          value + matrix * kKElements);
+      for (unsigned int index = thread; index < kKElements;
+           index += kThreads) {
+        shared_gated_k[index] = matrix_gated_k[index];
+        shared_value[index] = matrix_value[index];
+      }
     }
     __syncthreads();
 
@@ -450,25 +486,57 @@ void gqa_group_wy_chunk64_kernel(
   }
 }
 
-[[nodiscard]] bool invalid_arguments(
+[[nodiscard]] bool invalid_common_arguments(
     const std::uint16_t* const k, const float* const cumulative_gate,
-    const float* const beta, const std::uint16_t* const gated_k,
-    const std::uint16_t* const value, const std::size_t chunk_count,
+    const float* const beta, const std::size_t chunk_count,
     const std::uint16_t* const transform, const std::uint16_t* const w,
     const std::uint16_t* const u) noexcept {
   return k == nullptr || cumulative_gate == nullptr || beta == nullptr ||
-         gated_k == nullptr || value == nullptr || transform == nullptr ||
-         w == nullptr || u == nullptr || chunk_count == 0U ||
+         transform == nullptr || w == nullptr || u == nullptr ||
+         chunk_count == 0U ||
          chunk_count > kMaximumChunks;
+}
+
+template <bool Packless>
+[[nodiscard]] int launch_impl(
+    const std::uint16_t* const k, const float* const cumulative_gate,
+    const float* const beta, const std::uint16_t* const gated_k,
+    const std::uint16_t* const value,
+    const std::uint16_t* const conv_qkv, const std::size_t chunk_count,
+    std::uint16_t* const transform, std::uint16_t* const w,
+    std::uint16_t* const u, void* const cuda_stream) noexcept {
+  if (invalid_common_arguments(k, cumulative_gate, beta, chunk_count,
+                               transform, w, u) ||
+      (Packless ? conv_qkv == nullptr
+                : (gated_k == nullptr || value == nullptr))) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  constexpr std::size_t shared_bytes =
+      Packless ? kPacklessSharedBytes : kPackedSharedBytes;
+  gqa_group_wy_chunk64_kernel<Packless><<<
+      static_cast<unsigned int>(chunk_count * kQkHeads), kThreads,
+      shared_bytes, stream>>>(
+      k, cumulative_gate, beta, gated_k, value, conv_qkv,
+      static_cast<unsigned int>(chunk_count), transform, w, u);
+  return static_cast<int>(cudaGetLastError());
 }
 
 }  // namespace
 
 int configure() noexcept {
-  return static_cast<int>(cudaFuncSetAttribute(
-      gqa_group_wy_chunk64_kernel,
+  cudaError_t status = cudaFuncSetAttribute(
+      gqa_group_wy_chunk64_kernel<false>,
       cudaFuncAttributeMaxDynamicSharedMemorySize,
-      static_cast<int>(kSharedBytes)));
+      static_cast<int>(kPackedSharedBytes));
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  status = cudaFuncSetAttribute(
+      gqa_group_wy_chunk64_kernel<true>,
+      cudaFuncAttributeMaxDynamicSharedMemorySize,
+      static_cast<int>(kPacklessSharedBytes));
+  return static_cast<int>(status);
 }
 
 int launch(const std::uint16_t* const k,
@@ -481,10 +549,6 @@ int launch(const std::uint16_t* const k,
            std::uint16_t* const w,
            std::uint16_t* const u,
            void* const cuda_stream) noexcept {
-  if (invalid_arguments(k, cumulative_gate, beta, gated_k, value,
-                        chunk_count, transform, w, u)) {
-    return static_cast<int>(cudaErrorInvalidValue);
-  }
   // The native runner does not own a library context. Configure the opt-in
   // dynamic-shared limit lazily on the first real launch and retain the CUDA
   // status for every later layer invocation.
@@ -492,13 +556,27 @@ int launch(const std::uint16_t* const k,
   if (configuration_status != static_cast<int>(cudaSuccess)) {
     return configuration_status;
   }
-  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
-  gqa_group_wy_chunk64_kernel<<<
-      static_cast<unsigned int>(chunk_count * kQkHeads), kThreads,
-      kSharedBytes, stream>>>(
-      k, cumulative_gate, beta, gated_k, value,
-      static_cast<unsigned int>(chunk_count), transform, w, u);
-  return static_cast<int>(cudaGetLastError());
+  return launch_impl<false>(k, cumulative_gate, beta, gated_k, value,
+                            nullptr, chunk_count, transform, w, u,
+                            cuda_stream);
+}
+
+int launch_packless(const std::uint16_t* const compact_k,
+                    const float* const cumulative_gate,
+                    const float* const beta,
+                    const std::uint16_t* const conv_qkv,
+                    const std::size_t chunk_count,
+                    std::uint16_t* const transform,
+                    std::uint16_t* const w,
+                    std::uint16_t* const u,
+                    void* const cuda_stream) noexcept {
+  static const int configuration_status = configure();
+  if (configuration_status != static_cast<int>(cudaSuccess)) {
+    return configuration_status;
+  }
+  return launch_impl<true>(compact_k, cumulative_gate, beta, nullptr,
+                           nullptr, conv_qkv, chunk_count, transform, w, u,
+                           cuda_stream);
 }
 
 int query_resources(int* const registers_per_thread,
@@ -513,7 +591,8 @@ int query_resources(int* const registers_per_thread,
   }
   cudaFuncAttributes attributes{};
   cudaError_t status =
-      cudaFuncGetAttributes(&attributes, gqa_group_wy_chunk64_kernel);
+      cudaFuncGetAttributes(&attributes,
+                            gqa_group_wy_chunk64_kernel<true>);
   if (status != cudaSuccess) {
     return static_cast<int>(status);
   }
@@ -523,8 +602,8 @@ int query_resources(int* const registers_per_thread,
   }
   int active = 0;
   status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
-      &active, gqa_group_wy_chunk64_kernel, static_cast<int>(kThreads),
-      kSharedBytes);
+      &active, gqa_group_wy_chunk64_kernel<true>,
+      static_cast<int>(kThreads), kPacklessSharedBytes);
   if (status != cudaSuccess) {
     return static_cast<int>(status);
   }
