@@ -9,6 +9,10 @@
  */
 #include <cuda_bf16.h>
 #include <cuda_runtime.h>
+#if defined(Q3X_ENABLE_FLASHINFER_PREFILL_ATTENTION_ADMISSION)
+#include <flashinfer/attention/default_prefill_params.cuh>
+#include <flashinfer/attention/prefill.cuh>
+#endif
 #include <mma.h>
 
 #include <cmath>
@@ -47,6 +51,12 @@ static_assert(kBulkGqaRegisterThreads == 128U);
 static_assert(kBulkGqaPackedQueryCount == 3'072U);
 static_assert(kBulkGqaGroupGridX == 48U);
 
+#if defined(Q3X_ENABLE_FLASHINFER_PREFILL_ATTENTION_ADMISSION)
+using FlashInferPrefillParams =
+    flashinfer::SinglePrefillParams<__nv_bfloat16, __nv_bfloat16,
+                                    __nv_bfloat16>;
+#endif
+
 __device__ __forceinline__ float decode_bf16_device(
     const std::uint16_t value) {
   return __uint_as_float(static_cast<unsigned int>(value) << 16U);
@@ -62,6 +72,75 @@ __device__ __forceinline__ std::uint16_t encode_bf16_device(
   bits += 0x7fffU + ((bits >> 16U) & 1U);
   return static_cast<std::uint16_t>(bits >> 16U);
 }
+
+#if defined(Q3X_ENABLE_FLASHINFER_PREFILL_ATTENTION_ADMISSION)
+__global__ void bulk_gqa_flashinfer_sigmoid_gate_kernel(
+    const std::uint16_t* const gate,
+    const std::size_t element_count,
+    std::uint16_t* const output) {
+  const std::size_t index =
+      static_cast<std::size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  if (index >= element_count) {
+    return;
+  }
+  const float attention = decode_bf16_device(output[index]);
+  const float gate_value = decode_bf16_device(gate[index]);
+  const float gate_exp = exp2f(-fabsf(gate_value) * 1.4426950408889634F);
+  const float sigmoid = gate_value >= 0.0F
+                            ? 1.0F / (1.0F + gate_exp)
+                            : gate_exp / (1.0F + gate_exp);
+  output[index] = encode_bf16_device(attention * sigmoid);
+}
+
+int launch_bulk_gqa_flashinfer_direct(
+    const std::uint16_t* const query,
+    const std::uint16_t* const key_cache,
+    const std::uint16_t* const value_cache,
+    const std::uint16_t* const gate,
+    const std::size_t first_position,
+    const std::size_t token_count,
+    std::uint16_t* const output,
+    cudaStream_t const stream) noexcept {
+  const std::size_t kv_length = first_position + token_count;
+  if (token_count == 0U || token_count > kBulkGqaC512TokenCount ||
+      kv_length > static_cast<std::size_t>(UINT32_MAX)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  FlashInferPrefillParams params(
+      reinterpret_cast<__nv_bfloat16*>(const_cast<std::uint16_t*>(query)),
+      reinterpret_cast<__nv_bfloat16*>(
+          const_cast<std::uint16_t*>(key_cache)),
+      reinterpret_cast<__nv_bfloat16*>(
+          const_cast<std::uint16_t*>(value_cache)),
+      nullptr, reinterpret_cast<__nv_bfloat16*>(output), nullptr, nullptr,
+      kBulkGqaQueryHeads, kBulkGqaKvHeads,
+      static_cast<std::uint32_t>(token_count),
+      static_cast<std::uint32_t>(kv_length),
+      kBulkGqaQueryHeads * kBulkGqaHeadDimension, kBulkGqaHeadDimension,
+      kBulkGqaKvHeads * kBulkGqaHeadDimension, kBulkGqaHeadDimension,
+      kBulkGqaHeadDimension, -1, 0.0F, kBulkGqaAttentionScale, 1.0F,
+      10'000.0F);
+  const cudaError_t status =
+      flashinfer::SinglePrefillWithKVCacheDispatched<
+          kBulkGqaHeadDimension, kBulkGqaHeadDimension,
+          flashinfer::PosEncodingMode::kNone, false,
+          flashinfer::MaskMode::kCausal,
+          flashinfer::DefaultAttention<false, false, false, false>>(
+          params, nullptr, stream);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  constexpr unsigned int kGateThreads = 256U;
+  const std::size_t element_count =
+      token_count * kBulkGqaQueryHeads * kBulkGqaHeadDimension;
+  const unsigned int blocks = static_cast<unsigned int>(
+      (element_count + kGateThreads - 1U) / kGateThreads);
+  bulk_gqa_flashinfer_sigmoid_gate_kernel<<<blocks, kGateThreads, 0U,
+                                            stream>>>(gate, element_count,
+                                                      output);
+  return static_cast<int>(cudaGetLastError());
+}
+#endif
 
 // SM80/SM87 FlashAttention-style register pipeline for the one production
 // shape P0/C512/H24/KV4/D256. Four warps cooperatively own one Q16 tile and
@@ -935,6 +1014,19 @@ int launch_bulk_causal_gqa_sigmoid_gate_24_4_256_c512_register_pipeline_cuda(
     void* const cuda_stream) noexcept {
   const auto stream = static_cast<cudaStream_t>(cuda_stream);
   (void)cudaGetLastError();
+
+#if defined(Q3X_ENABLE_FLASHINFER_PREFILL_ATTENTION_ADMISSION)
+  static const bool use_flashinfer_direct = []() noexcept {
+    const char* const value =
+        std::getenv("Q3X_FULL_ATTENTION_FLASHINFER_DIRECT");
+    return value != nullptr && std::strcmp(value, "1") == 0;
+  }();
+  if (use_flashinfer_direct) {
+    return launch_bulk_gqa_flashinfer_direct(
+        query, key_cache, value_cache, gate, first_position, token_count,
+        output, stream);
+  }
+#endif
 
   // The final production binary keeps the v2 route as an exact same-ELF
   // comparator.  Production defaults to the KV-head-centric v3 route; setting
