@@ -2190,3 +2190,29 @@ See the
 [production record](metadata/qwen36-27b-prefill-fp8-z-m128-canonical-xor-register-feed-production-benchmark.json)
 and the checked-in
 [complete Prefix kernel audit](analysis/prefill-p513-nsys-2026-07-28/README.md).
+
+## 2026-07-30 — Prompt-wide full-attention preprocessing retained admission-only
+
+The full-attention Q/gate split, centered Q/K RMSNorm, and partial RoPE path
+now has a default-off prompt-wide candidate. One 128-thread CTA owns one
+token/head, retains dimensions `d` and `d+128`, reconstructs the frozen FP32
+reduction order exactly, and replaces the M16 launch decomposition with one
+two-dimensional M-by-28 grid for M up to 512. The default runner remains on
+the frozen M16/256-thread route unless
+`Q3X_RUN_FULL_ATTENTION_PREPROCESS_PROMPT_WIDE_128_ADMISSION=1` is explicit.
+
+Finite M2/M8/M16/M32/M407/M481/M511/M512 and nonfinite M2/M16 fixtures are
+bit-exact for query, key, and gate. At M512 the candidate captures one
+`grid=(512,28,1), block=(128,1,1)` Graph kernel and two replays remain
+bit-exact. Static resources are 19 registers, 516 B shared, zero local/stack,
+and 12 CTA/SM, versus 18 registers, 1,024 B shared, zero local/stack, and six
+CTA/SM for the frozen kernel.
+
+One real-weight, same-ELF, complete-runner P513 `B1-C1-C2-B2` direction round
+with one warmup per process measures **1.335845/1.330867/1.338389/1.341969 s**.
+Both mirrored pairs are positive; means move from **1.338907 to 1.334628 s**,
+or **-4.279 ms / 1.003206137x**. All four responses contain 513 prompt tokens,
+one generated token `9419`, and text `Hello`. This retains a native
+development mechanism; it does not clear a production-promotion gate and is
+not a new public Prefill performance anchor. See the
+[admission record](metadata/qwen36-27b-prefill-full-attention-preprocess-prompt-wide-128-admission.json).

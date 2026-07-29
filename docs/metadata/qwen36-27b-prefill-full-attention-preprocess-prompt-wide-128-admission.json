@@ -1,0 +1,146 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-full-attention-preprocess-prompt-wide-128-admission",
+  "status": "native_development_candidate_retained_not_production_promoted",
+  "recorded_at": "2026-07-30T07:25:59+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "base_commit": "374e5e4da8a9f95a254a85bf6ef9a91060cd6446",
+    "base_tree": "c2ca23e7ffd00eb8f5377de788f9e8745ea2d1fd",
+    "tree_state_at_measurement": "The candidate source, runner admission, and validation harness were measured from one uncommitted worktree and committed together without a source change.",
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "checkpoint_directory_at_measurement": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "production_default_changed": false,
+    "admission_environment": "Q3X_RUN_FULL_ATTENTION_PREPROCESS_PROMPT_WIDE_128_ADMISSION=1",
+    "public_contract_change": "The fused full-attention preprocess launcher accepts M in [1,512]; the default-off runner continues to decompose Prefill into M16 launches."
+  },
+  "measured_binaries": {
+    "server": {
+      "path_at_measurement": "/tmp/q3x-attention-preprocess-prompt-wide/build/orin-attention/qwen3x-eval-server",
+      "bytes": 10808824,
+      "sha256": "81ceb4f3f7b6b958bae3c243786c13d8bd479814e74f464b03fb16573e5599d3",
+      "elf_build_id": "9cf1ef0b700c4876f2182b06cfc4e9db45b0d731"
+    },
+    "cuda_test": {
+      "path_at_measurement": "/tmp/q3x-attention-preprocess-prompt-wide/build/orin-attention/q3x_decode_ops_cuda_test",
+      "bytes": 2066584,
+      "sha256": "4b707aaeffa7033c7842c6ebba7da64c372859cb160ee383821ad8f19ab3dad1"
+    },
+    "build_type": "Release",
+    "target_architecture": "sm_87"
+  },
+  "mechanism": {
+    "scope": "Qwen3.6 full-attention Q24/KV4/D256 centered Q/K RMSNorm, raw Q/gate split, and partial D64 NeoX RoPE",
+    "baseline": "one 256-thread CTA per token/head with a 256-float shared reduction tree and a flat M*28 grid",
+    "candidate": "one 128-thread CTA per token/head; each lane owns d and d+128, reconstructs the baseline reduction order exactly, and uses a two-dimensional token-by-head grid",
+    "prompt_maximum_tokens": 512,
+    "grid_at_m512": [512, 28, 1],
+    "block": [128, 1, 1],
+    "candidate_resources": {
+      "registers_per_thread": 19,
+      "static_shared_bytes": 516,
+      "stack_bytes": 0,
+      "local_bytes": 0,
+      "active_blocks_per_sm": 12
+    },
+    "baseline_resources": {
+      "registers_per_thread": 18,
+      "static_shared_bytes": 1024,
+      "stack_bytes": 0,
+      "local_bytes": 0,
+      "active_blocks_per_sm": 6
+    },
+    "mtp_used": false,
+    "cublaslt_used": false,
+    "new_persistent_allocation_bytes": 0,
+    "prefill_decode_overlap_changed": false
+  },
+  "validation": {
+    "build_commands": [
+      "cmake --build build/orin-attention --target q3x_decode_ops_cuda_test q3x_reference_runner_host_test -j2",
+      "cmake --build build/orin-attention --target qwen3x-eval-server -j2"
+    ],
+    "host_test": {
+      "command": "./build/orin-attention/q3x_reference_runner_host_test",
+      "result": "pass"
+    },
+    "cuda_test": {
+      "command": "./build/orin-attention/q3x_decode_ops_cuda_test",
+      "result": "pass",
+      "finite_exact_token_counts": [2, 8, 16, 32, 407, 481, 511, 512],
+      "nonfinite_exact_token_counts": [2, 16],
+      "query_key_gate_comparison": "bitwise identical to the split, centered-RMSNorm, and M16-RoPE reference dataflow",
+      "input_guards": "intact"
+    },
+    "graph": {
+      "token_count": 512,
+      "kernel_nodes": 1,
+      "grid": [512, 28, 1],
+      "block": [128, 1, 1],
+      "dynamic_shared_bytes": 0,
+      "replays": 2,
+      "replay_query_key_gate_comparison": "bitwise identical",
+      "result": "pass"
+    },
+    "resource_gate": "pass"
+  },
+  "performance_protocol": {
+    "authority": "one-round direction-and-retention evidence for the native development incumbent; not a production promotion or public performance anchor",
+    "path": "OpenAI-compatible /v1/completions over the complete qwen3x-eval-server runner",
+    "payload": "real resident model weights and a fixed 513-token raw-ID prompt",
+    "prompt_contract": "[248045,846,198,14556] + 500 copies of 23066 + [248046,198,248045,74455,198,248068,271,248069,271]",
+    "request": {
+      "model": "qwen3.6-27b-nvfp4",
+      "max_tokens": 1,
+      "temperature": 0,
+      "stream": false
+    },
+    "server_arguments": "--max-sequence-length 2048 --max-output-tokens 64 --prefill-chunk-size 512 --projection-backend sm87",
+    "order": "B1-C1-C2-B2",
+    "processes": 4,
+    "warmups_per_process": 1,
+    "measured_requests_per_process": 1,
+    "same_elf": true,
+    "baseline_admission_value": "0",
+    "candidate_admission_value": "1",
+    "common_environment": {
+      "Q3X_RUN_NVFP4_MARLIN_PREFILL_ADMISSION": "1",
+      "Q3X_RUN_FP8_MARLIN_PREFILL_ADMISSION": "1",
+      "Q3X_RUN_BF16_AB_LARGE_M_PREFILL_ADMISSION": "1",
+      "Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION": "1",
+      "Q3X_RUN_PREFILL_ALL_PROMPT_TOKENS_ADMISSION": "1",
+      "Q3X_RUN_PREFILL_SINGLE_ARBITRARY_TILE_ADMISSION": "1",
+      "Q3X_FULL_ATTENTION_FLASHINFER_DIRECT": "1",
+      "Q3X_RUN_PREFILL_RESIDUAL_RMS_PROMPT_WIDE_ADMISSION": "1",
+      "Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION": "1"
+    }
+  },
+  "performance": {
+    "wall_seconds": {
+      "B1": 1.335845,
+      "C1": 1.330867,
+      "C2": 1.338389,
+      "B2": 1.341969
+    },
+    "paired_saved_milliseconds": [4.978, 3.58],
+    "paired_speedups": [1.003740419, 1.002674858],
+    "every_pair_positive": true,
+    "baseline_mean_seconds": 1.338907,
+    "candidate_mean_seconds": 1.334628,
+    "mean_saved_milliseconds": 4.279,
+    "mean_speedup": 1.003206137,
+    "latency_reduction_percent": 0.319589038,
+    "complete_prompt_tokens_per_second": {
+      "baseline": 383.148344134,
+      "candidate": 384.376770156
+    },
+    "generated_token_id": 9419,
+    "generated_text": "Hello",
+    "usage": {
+      "prompt_tokens": 513,
+      "completion_tokens": 1,
+      "total_tokens": 514
+    },
+    "decision": "retain the prompt-wide preprocessing mechanism behind its default-off admission gate; do not promote it to the default production route from this bounded evidence"
+  }
+}

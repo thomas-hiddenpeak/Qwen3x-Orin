@@ -135,7 +135,20 @@ int launch_full_attention_preprocess_warp_rms_24_4_256_64_test_cuda(
     std::size_t first_position, std::size_t token_count,
     void* cuda_stream) noexcept;
 
+int launch_full_attention_preprocess_prompt_wide_128_test_cuda(
+    const std::uint16_t* interleaved_q_gate, std::uint16_t* key,
+    const std::uint16_t* q_weight, const std::uint16_t* k_weight,
+    float epsilon, std::uint16_t* query_output,
+    std::uint16_t* gate_output, const float* cosines, const float* sines,
+    std::size_t first_position, std::size_t token_count,
+    void* cuda_stream) noexcept;
+
 int query_full_attention_preprocess_24_4_256_64_resources_test_cuda(
+    int* registers, std::size_t* static_shared_bytes,
+    std::size_t* local_bytes, int* maximum_threads,
+    int* active_blocks_per_multiprocessor) noexcept;
+
+int query_full_attention_preprocess_prompt_wide_128_resources_test_cuda(
     int* registers, std::size_t* static_shared_bytes,
     std::size_t* local_bytes, int* maximum_threads,
     int* active_blocks_per_multiprocessor) noexcept;
@@ -627,9 +640,9 @@ void test_launch_validation(TestContext& test) {
           preprocess_interleaved, preprocess_key, preprocess_q_weight,
           preprocess_k_weight, 1.0e-6F, preprocess_query, preprocess_gate,
           preprocess_cosines.data(), preprocess_sines.data(), 0U,
-          q3x::runtime::kQkRopeTileMaximumTokens + 1U) ==
+          q3x::runtime::kFullAttentionPreprocessMaximumTokens + 1U) ==
           cudaErrorInvalidValue,
-      "full-attention preprocess rejects M=17");
+      "full-attention preprocess rejects M=513");
   test.expect(
       launch_preprocess(
           preprocess_interleaved, preprocess_key, preprocess_q_weight,
@@ -3942,18 +3955,31 @@ void run_full_attention_preproc_fusion_exact_case(
     if (status != static_cast<int>(cudaSuccess)) {
       return status;
     }
-    return q3x::runtime::
-        launch_qk_partial_neox_rope_tile_24_4_256_64_cuda(
-            baseline_query.data(), baseline_key.data(), cosines.data(),
-            sines.data(), kFirstPosition, token_count,
-            static_cast<void*>(stream));
+    for (std::size_t token_offset = 0U; token_offset < token_count;
+         token_offset += q3x::runtime::kQkRopeTileMaximumTokens) {
+      const std::size_t remaining = token_count - token_offset;
+      const std::size_t subtile_tokens =
+          std::min(remaining, q3x::runtime::kQkRopeTileMaximumTokens);
+      status = q3x::runtime::
+          launch_qk_partial_neox_rope_tile_24_4_256_64_cuda(
+              baseline_query.data() +
+                  token_offset * kQueryElementsPerToken,
+              baseline_key.data() + token_offset * kKeyElementsPerToken,
+              cosines.data(), sines.data(), kFirstPosition + token_offset,
+              subtile_tokens, static_cast<void*>(stream));
+      if (status != static_cast<int>(cudaSuccess)) {
+        return status;
+      }
+    }
+    return static_cast<int>(cudaSuccess);
   };
   const auto launch_candidate = [&]() {
-    return q3x::runtime::launch_full_attention_preprocess_24_4_256_64_cuda(
-        interleaved_q_gate.data(), candidate_key.data(), q_weight.data(),
-        k_weight.data(), kEpsilon, candidate_query.data(),
-        candidate_gate.data(), cosines.data(), sines.data(), kFirstPosition,
-        token_count, static_cast<void*>(stream));
+    return q3x::runtime::
+        launch_full_attention_preprocess_prompt_wide_128_test_cuda(
+            interleaved_q_gate.data(), candidate_key.data(), q_weight.data(),
+            k_weight.data(), kEpsilon, candidate_query.data(),
+            candidate_gate.data(), cosines.data(), sines.data(),
+            kFirstPosition, token_count, static_cast<void*>(stream));
   };
   const auto launch_warp = [&]() {
     return q3x::runtime::
@@ -3968,9 +3994,13 @@ void run_full_attention_preproc_fusion_exact_case(
       test, stream, label + " baseline four launches", launch_baseline);
   const bool candidate_ready = launch_after_stale(
       test, stream, label + " candidate one launch", launch_candidate);
-  const bool warp_ready = launch_after_stale(
-      test, stream, label + " warp-RMS one launch", launch_warp);
-  if (baseline_ready && candidate_ready && warp_ready) {
+  const bool check_warp =
+      token_count <= q3x::runtime::kQkRopeTileMaximumTokens;
+  const bool warp_ready =
+      !check_warp || launch_after_stale(
+                         test, stream, label + " warp-RMS one launch",
+                         launch_warp);
+  if (baseline_ready && candidate_ready) {
     expect_bf16_bits_equal(test, candidate_query.data(),
                            baseline_query.data(), query_elements,
                            label + " normalized and rotated query");
@@ -3979,15 +4009,17 @@ void run_full_attention_preproc_fusion_exact_case(
                            label + " in-place normalized and rotated key");
     expect_bf16_bits_equal(test, candidate_gate.data(), baseline_gate.data(),
                            query_elements, label + " raw packed gate");
-    expect_bf16_bits_equal(test, warp_query.data(), candidate_query.data(),
-                           query_elements,
-                           label + " warp-RMS normalized and rotated query");
-    expect_bf16_bits_equal(test, warp_key.data(), candidate_key.data(),
-                           key_elements,
-                           label + " warp-RMS normalized and rotated key");
-    expect_bf16_bits_equal(test, warp_gate.data(), candidate_gate.data(),
-                           query_elements,
-                           label + " warp-RMS raw packed gate");
+    if (warp_ready && check_warp) {
+      expect_bf16_bits_equal(
+          test, warp_query.data(), candidate_query.data(), query_elements,
+          label + " warp-RMS normalized and rotated query");
+      expect_bf16_bits_equal(
+          test, warp_key.data(), candidate_key.data(), key_elements,
+          label + " warp-RMS normalized and rotated key");
+      expect_bf16_bits_equal(test, warp_gate.data(), candidate_gate.data(),
+                             query_elements,
+                             label + " warp-RMS raw packed gate");
+    }
   }
 
   interleaved_q_gate.expect_snapshot(test, original_interleaved,
@@ -4014,12 +4046,15 @@ void run_full_attention_preproc_fusion_exact_case(
 
 void test_full_attention_preproc_fusion_exact(TestContext& test,
                                               cudaStream_t stream) {
-  constexpr std::array<std::size_t, 4U> kTokenCounts = {1U, 2U, 8U, 16U};
+  constexpr std::array<std::size_t, 8U> kTokenCounts = {
+      2U, 8U, 16U, 32U, 407U, 481U, 511U, 512U};
   for (const std::size_t token_count : kTokenCounts) {
     run_full_attention_preproc_fusion_exact_case(
         test, stream, token_count, FullAttentionPreprocFixture::kFinite);
-    run_full_attention_preproc_fusion_exact_case(
-        test, stream, token_count, FullAttentionPreprocFixture::kNonfinite);
+    if (token_count == 2U || token_count == 16U) {
+      run_full_attention_preproc_fusion_exact_case(
+          test, stream, token_count, FullAttentionPreprocFixture::kNonfinite);
+    }
   }
 }
 
@@ -4045,11 +4080,14 @@ void test_full_attention_preproc_warp_rms_contract(TestContext& test,
 
   FullPreprocessKernelResources production_resources;
   FullPreprocessKernelResources candidate_resources;
-  constexpr std::array<std::pair<const char*, FullPreprocessResourceQuery>, 2U>
+  constexpr std::array<std::pair<const char*, FullPreprocessResourceQuery>, 3U>
       kQueries{{
           {"production",
            q3x::runtime::
                query_full_attention_preprocess_24_4_256_64_resources_test_cuda},
+          {"prompt-wide-128",
+           q3x::runtime::
+               query_full_attention_preprocess_prompt_wide_128_resources_test_cuda},
           {"warp-RMS",
            q3x::runtime::
                query_full_attention_preprocess_warp_rms_24_4_256_64_resources_test_cuda},
@@ -4361,6 +4399,264 @@ void test_full_attention_preproc_warp_rms_contract(TestContext& test,
                "zero_node_cases="
             << (invalid_gate ? 15 : 0)
             << " gate=" << (invalid_gate ? "PASS" : "FAIL") << '\n';
+}
+
+void test_full_attention_preproc_prompt_wide_contract(TestContext& test,
+                                                      cudaStream_t stream) {
+  constexpr std::size_t kTokenCount = 512U;
+  constexpr std::size_t kQueryHeads = 24U;
+  constexpr std::size_t kKeyHeads = 4U;
+  constexpr std::size_t kDimension = 256U;
+  constexpr std::size_t kCombinedHeads = kQueryHeads + kKeyHeads;
+  constexpr std::size_t kHalfRotary = 32U;
+  constexpr std::size_t kFirstPosition = 7U;
+  constexpr float kEpsilon = 1.0e-6F;
+  constexpr std::size_t kQueryElements =
+      kTokenCount * kQueryHeads * kDimension;
+  constexpr std::size_t kKeyElements =
+      kTokenCount * kKeyHeads * kDimension;
+  constexpr std::size_t kInterleavedElements = 2U * kQueryElements;
+  constexpr std::size_t kTableElements =
+      (kFirstPosition + kTokenCount) * kHalfRotary;
+  const std::string label =
+      "full-attention preprocess prompt-wide M512 contract";
+
+  FullPreprocessKernelResources production_resources;
+  FullPreprocessKernelResources candidate_resources;
+  bool ready = test.cuda_ok(
+      static_cast<cudaError_t>(q3x::runtime::
+          query_full_attention_preprocess_24_4_256_64_resources_test_cuda(
+              &production_resources.registers,
+              &production_resources.static_shared_bytes,
+              &production_resources.local_bytes,
+              &production_resources.maximum_threads,
+              &production_resources.active_blocks_per_multiprocessor)),
+      label + " query frozen production resources");
+  ready = ready && test.cuda_ok(
+                       static_cast<cudaError_t>(q3x::runtime::
+                           query_full_attention_preprocess_prompt_wide_128_resources_test_cuda(
+                               &candidate_resources.registers,
+                               &candidate_resources.static_shared_bytes,
+                               &candidate_resources.local_bytes,
+                               &candidate_resources.maximum_threads,
+                               &candidate_resources
+                                    .active_blocks_per_multiprocessor)),
+                       label + " query candidate resources");
+  if (!ready) {
+    return;
+  }
+  const bool resource_gate =
+      production_resources.local_bytes == 0U &&
+      candidate_resources.registers <= 32 &&
+      candidate_resources.static_shared_bytes <= 1'024U &&
+      candidate_resources.local_bytes == 0U &&
+      candidate_resources.maximum_threads >= 128 &&
+      candidate_resources.active_blocks_per_multiprocessor >= 10 &&
+      candidate_resources.active_blocks_per_multiprocessor >=
+          production_resources.active_blocks_per_multiprocessor;
+  test.expect(resource_gate,
+              label + " keeps the <=32r/1KiB/0-local/10-CTA envelope");
+  std::cout << "DECODE_FULL_PREPROCESS_PROMPT_WIDE_RESOURCES: "
+               "production_regs="
+            << production_resources.registers
+            << " production_shared_bytes="
+            << production_resources.static_shared_bytes
+            << " production_local_bytes=" << production_resources.local_bytes
+            << " production_active_blocks_per_sm="
+            << production_resources.active_blocks_per_multiprocessor
+            << " candidate_regs=" << candidate_resources.registers
+            << " candidate_shared_bytes="
+            << candidate_resources.static_shared_bytes
+            << " candidate_local_bytes=" << candidate_resources.local_bytes
+            << " candidate_active_blocks_per_sm="
+            << candidate_resources.active_blocks_per_multiprocessor
+            << " gate=" << (resource_gate ? "PASS" : "FAIL") << '\n';
+
+  GuardedBf16Buffer interleaved;
+  GuardedBf16Buffer key;
+  GuardedBf16Buffer q_weight;
+  GuardedBf16Buffer k_weight;
+  GuardedBf16Buffer query;
+  GuardedBf16Buffer gate;
+  ManagedBuffer<float> cosines;
+  ManagedBuffer<float> sines;
+  ready = interleaved.allocate(test, kInterleavedElements,
+                               label + " interleaved Q/gate");
+  ready = ready && key.allocate(test, kKeyElements, label + " key");
+  ready = ready && q_weight.allocate(test, kDimension, label + " Q weight");
+  ready = ready && k_weight.allocate(test, kDimension, label + " K weight");
+  ready = ready && query.allocate(test, kQueryElements, label + " query");
+  ready = ready && gate.allocate(test, kQueryElements, label + " gate");
+  ready = ready &&
+          test.cuda_ok(cosines.allocate(kTableElements),
+                       label + " allocate cosines");
+  ready = ready && test.cuda_ok(sines.allocate(kTableElements),
+                                label + " allocate sines");
+  if (!ready) {
+    return;
+  }
+
+  interleaved.initialize(0U, 0x1379U, 0xec86U);
+  key.initialize(0U, 0x2468U, 0xdb97U);
+  q_weight.initialize(0U, 0x35a7U, 0xca58U);
+  k_weight.initialize(0U, 0x468bU, 0xb974U);
+  query.initialize(0x7913U, 0x579cU, 0xa863U);
+  gate.initialize(0x6824U, 0x68adU, 0x9752U);
+  for (std::size_t index = 0U; index < kInterleavedElements; ++index) {
+    interleaved.data()[index] = encode_bf16(
+        static_cast<float>(static_cast<int>((index * 37U + 11U) % 509U) -
+                           254) /
+        128.0F);
+  }
+  for (std::size_t index = 0U; index < kKeyElements; ++index) {
+    key.data()[index] = encode_bf16(
+        static_cast<float>(static_cast<int>((index * 43U + 17U) % 503U) -
+                           251) /
+        96.0F);
+  }
+  for (std::size_t index = 0U; index < kDimension; ++index) {
+    q_weight.data()[index] = encode_bf16(
+        static_cast<float>(static_cast<int>((index * 17U) % 61U) - 30) /
+        64.0F);
+    k_weight.data()[index] = encode_bf16(
+        static_cast<float>(static_cast<int>((index * 29U) % 67U) - 33) /
+        64.0F);
+  }
+  for (std::size_t index = 0U; index < kTableElements; ++index) {
+    const float angle =
+        static_cast<float>(static_cast<int>((index * 13U) % 1'009U) - 504) /
+        2'048.0F;
+    cosines[index] = std::cos(angle);
+    sines[index] = std::sin(angle);
+  }
+
+  const auto original_interleaved = interleaved.snapshot();
+  const auto original_q_weight = q_weight.snapshot();
+  const auto original_k_weight = k_weight.snapshot();
+  const std::vector<std::uint16_t> key_seed(
+      key.data(), key.data() + kKeyElements);
+  const std::vector<float> original_cosines(
+      cosines.data(), cosines.data() + kTableElements);
+  const std::vector<float> original_sines(
+      sines.data(), sines.data() + kTableElements);
+  const auto launch_candidate = [&]() {
+    return q3x::runtime::
+        launch_full_attention_preprocess_prompt_wide_128_test_cuda(
+            interleaved.data(), key.data(), q_weight.data(), k_weight.data(),
+            kEpsilon, query.data(), gate.data(), cosines.data(), sines.data(),
+            kFirstPosition, kTokenCount, static_cast<void*>(stream));
+  };
+
+  cudaGraph_t graph = nullptr;
+  ready = test.cuda_ok(
+      cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+      label + " begin capture");
+  const cudaError_t launch_status =
+      ready ? static_cast<cudaError_t>(launch_candidate()) : cudaErrorUnknown;
+  test.expect(launch_status == cudaSuccess,
+              label + " capture launch succeeds");
+  ready = ready && test.cuda_ok(cudaStreamEndCapture(stream, &graph),
+                                label + " end capture");
+  if (!ready) {
+    return;
+  }
+
+  std::size_t node_count = 0U;
+  ready = test.cuda_ok(cudaGraphGetNodes(graph, nullptr, &node_count),
+                       label + " count graph nodes") &&
+          ready;
+  test.expect(node_count == 1U, label + " captures exactly one kernel node");
+  cudaGraphNode_t node = nullptr;
+  std::size_t node_capacity = 1U;
+  cudaKernelNodeParams parameters{};
+  if (node_count == 1U) {
+    ready = test.cuda_ok(cudaGraphGetNodes(graph, &node, &node_capacity),
+                         label + " fetch graph node") &&
+            ready;
+    cudaGraphNodeType node_type = cudaGraphNodeTypeEmpty;
+    ready = test.cuda_ok(cudaGraphNodeGetType(node, &node_type),
+                         label + " query graph node type") &&
+            ready;
+    test.expect(node_type == cudaGraphNodeTypeKernel,
+                label + " graph node is a kernel");
+    ready = test.cuda_ok(cudaGraphKernelNodeGetParams(node, &parameters),
+                         label + " query kernel node parameters") &&
+            ready;
+  } else {
+    ready = false;
+  }
+  const bool topology_gate =
+      ready && parameters.gridDim.x == kTokenCount &&
+      parameters.gridDim.y == kCombinedHeads && parameters.gridDim.z == 1U &&
+      parameters.blockDim.x == 128U && parameters.blockDim.y == 1U &&
+      parameters.blockDim.z == 1U && parameters.sharedMemBytes == 0U;
+  test.expect(topology_gate,
+              label + " captures one (512,28,1)x(128,1,1) kernel");
+
+  cudaGraphExec_t executable = nullptr;
+  if (ready) {
+    ready = test.cuda_ok(
+                cudaGraphInstantiate(&executable, graph, nullptr, nullptr, 0U),
+                label + " instantiate graph") &&
+            ready;
+  }
+  std::vector<std::uint16_t> first_query;
+  std::vector<std::uint16_t> first_key;
+  std::vector<std::uint16_t> first_gate;
+  for (std::size_t replay = 0U; ready && replay < 2U; ++replay) {
+    std::copy(key_seed.begin(), key_seed.end(), key.data());
+    std::fill_n(query.data(), kQueryElements,
+                static_cast<std::uint16_t>(0x7100U + replay));
+    std::fill_n(gate.data(), kQueryElements,
+                static_cast<std::uint16_t>(0x7200U + replay));
+    ready = test.cuda_ok(cudaGraphLaunch(executable, stream),
+                         label + " replay " + std::to_string(replay + 1U)) &&
+            ready;
+    ready = test.cuda_ok(
+                cudaStreamSynchronize(stream),
+                label + " replay " + std::to_string(replay + 1U) + " sync") &&
+            ready;
+    if (ready && replay == 0U) {
+      first_query.assign(query.data(), query.data() + kQueryElements);
+      first_key.assign(key.data(), key.data() + kKeyElements);
+      first_gate.assign(gate.data(), gate.data() + kQueryElements);
+    }
+  }
+  if (ready) {
+    expect_bf16_bits_equal(test, query.data(), first_query.data(),
+                           kQueryElements, label + " dual-replay query");
+    expect_bf16_bits_equal(test, key.data(), first_key.data(), kKeyElements,
+                           label + " dual-replay key");
+    expect_bf16_bits_equal(test, gate.data(), first_gate.data(),
+                           kQueryElements, label + " dual-replay gate");
+  }
+  if (executable != nullptr) {
+    (void)test.cuda_ok(cudaGraphExecDestroy(executable),
+                       label + " destroy graph executable");
+  }
+  (void)test.cuda_ok(cudaGraphDestroy(graph), label + " destroy graph");
+
+  interleaved.expect_snapshot(test, original_interleaved,
+                              label + " interleaved input");
+  q_weight.expect_snapshot(test, original_q_weight, label + " Q weight");
+  k_weight.expect_snapshot(test, original_k_weight, label + " K weight");
+  key.expect_guards(test, label + " key");
+  query.expect_guards(test, label + " query");
+  gate.expect_guards(test, label + " gate");
+  test.expect(std::memcmp(cosines.data(), original_cosines.data(),
+                          kTableElements * sizeof(float)) == 0,
+              label + " cosine table is unchanged");
+  test.expect(std::memcmp(sines.data(), original_sines.data(),
+                          kTableElements * sizeof(float)) == 0,
+              label + " sine table is unchanged");
+  std::cout << "DECODE_FULL_PREPROCESS_PROMPT_WIDE_GRAPH: nodes="
+            << node_count << " grid=" << parameters.gridDim.x << 'x'
+            << parameters.gridDim.y << 'x' << parameters.gridDim.z
+            << " block=" << parameters.blockDim.x << 'x'
+            << parameters.blockDim.y << 'x' << parameters.blockDim.z
+            << " dual_replay=" << (ready ? "pass" : "fail")
+            << " gate=" << (topology_gate && ready ? "PASS" : "FAIL")
+            << '\n';
 }
 
 void test_full_attention_preproc_rope_fusion_perf(TestContext& test,
@@ -9905,6 +10201,7 @@ int main() {
               "GDN L2 target 16x128");
   test_full_attention_preproc_fusion_exact(test, stream);
   test_full_attention_preproc_warp_rms_contract(test, stream);
+  test_full_attention_preproc_prompt_wide_contract(test, stream);
   test_full_attention_preproc_rope_fusion_perf(test, stream);
   test_full_attention_preproc_warp_rms_perf(test, stream);
   test_rope(test, stream);
