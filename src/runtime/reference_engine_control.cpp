@@ -141,6 +141,8 @@ GenerationControlResult run_generation_control_impl(
       options.prefill_chunk_size > kMaximumRequestPrefillChunkSize ||
       options.stop_token_id >= kReferenceVocabularySize ||
       !is_valid_reference_logits_mode(options.logits_mode) ||
+      (options.prefill_single_arbitrary_tile &&
+       !options.prefill_all_prompt_tokens) ||
       (options.prefill_all_prompt_tokens &&
        (options.capture_trace || options.prefill_chunk_size <= 1U ||
         prefill_plan.finish_prefill_from_tile == nullptr))) {
@@ -264,8 +266,12 @@ GenerationControlResult run_generation_control_impl(
       return failure(GenerationControlError::kInvalidArgument);
     }
     const std::size_t prefix_execution_count =
-        reference_engine_detail::prefix_execution_count(
-            prefix_token_count, effective_prefill_chunk_size);
+        options.prefill_single_arbitrary_tile
+            ? reference_engine_detail::
+                  single_arbitrary_prefix_execution_count(
+                      prefix_token_count, effective_prefill_chunk_size)
+            : reference_engine_detail::prefix_execution_count(
+                  prefix_token_count, effective_prefill_chunk_size);
     control.timing.prefix_execution_milliseconds.reserve(
         prefix_execution_count);
 
@@ -273,9 +279,14 @@ GenerationControlResult run_generation_control_impl(
     if (effective_prefill_chunk_size > 1U) {
       while (prefix_index < prefix_token_count) {
         const std::size_t tile_token_count =
-            reference_engine_detail::next_prefix_tile_token_count(
-                prefix_token_count - prefix_index,
-                effective_prefill_chunk_size);
+            options.prefill_single_arbitrary_tile
+                ? reference_engine_detail::
+                      next_single_arbitrary_prefix_tile_token_count(
+                          prefix_token_count - prefix_index,
+                          effective_prefill_chunk_size)
+                : reference_engine_detail::next_prefix_tile_token_count(
+                      prefix_token_count - prefix_index,
+                      effective_prefill_chunk_size);
         ReferencePrefillTileOptions tile_options;
         tile_options.measure_timing = true;
         tile_options.retain_last_hidden_for_logits =
