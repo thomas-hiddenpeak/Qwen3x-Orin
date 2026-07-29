@@ -8504,7 +8504,7 @@ void run_bulk_gqa_correctness_case(
                 candidate_topology.block.y == 1U &&
                 candidate_topology.block.z == 1U &&
                 candidate_topology.dynamic_shared_bytes == 64U * 1024U
-          : candidate_topology.grid.x == token_count / 2U &&
+          : candidate_topology.grid.x == (token_count + 1U) / 2U &&
                 candidate_topology.grid.y == 4U &&
                 candidate_topology.grid.z == 1U &&
                 candidate_topology.block.x == 192U &&
@@ -8597,7 +8597,7 @@ void run_bulk_gqa_correctness_case(
     const int invalid_failures_before = test.failures();
     const std::string invalid = "bulk GQA invalid graph ";
     expect_invalid_bulk_gqa_graph(
-        test, stream, invalid + "C255", query, key, value, gate, 0U, 255U,
+        test, stream, invalid + "C1", query, key, value, gate, 0U, 1U,
         candidate);
     expect_invalid_bulk_gqa_graph(
         test, stream, invalid + "C513", query, key, value, gate, 0U, 513U,
@@ -8694,6 +8694,8 @@ void test_bulk_causal_gqa_prefill_contract(TestContext& test,
   test_bulk_gqa_near_max_graph_contract(test, stream);
   run_bulk_gqa_correctness_case(test, stream, 0U, 256U, true);
   run_bulk_gqa_correctness_case(test, stream, 0U, 512U, true);
+  run_bulk_gqa_correctness_case(test, stream, 0U, 407U, true);
+  run_bulk_gqa_correctness_case(test, stream, 0U, 481U, true);
   run_bulk_gqa_correctness_case(test, stream, 17U, 256U, false);
 }
 

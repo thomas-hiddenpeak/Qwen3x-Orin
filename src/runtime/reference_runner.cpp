@@ -992,7 +992,8 @@ bool use_bulk_causal_gqa_sigmoid_gate_prefill(
     const std::size_t token_count) noexcept {
   return backend == ProjectionBackend::kSm87WeightOnly &&
          layer_type == model::LayerType::kFullAttention &&
-         (token_count == 256U || token_count == 512U) &&
+         token_count >= 2U &&
+         token_count <= kMaximumRequestPrefillChunkSize &&
          first_position <=
              kBulkCausalGqaMaximumSequenceLength - token_count;
 }
