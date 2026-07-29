@@ -1,0 +1,155 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-gate-c512-lane-striped-pair-rejection-2026-07-29",
+  "status": "direction-rejected-and-source-reverted",
+  "recorded_at": "2026-07-29T10:52:23+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "baseline_commit": "1928fca",
+    "baseline_subject": "docs: reject C512 padded shared feed",
+    "candidate_commit": null,
+    "candidate_source_status": "uncommitted direction candidate; reverted after negative real-generation direction and bounded NCU attribution",
+    "production_source_after_screen": "identical to 1928fca"
+  },
+  "policy": {
+    "performance_decision_payload": "full resident real checkpoint and native generation path",
+    "direction_gate": "one fixed-clock P513 baseline followed by one candidate",
+    "diagnostic_after_rejection": "one matched full-metric NCU launch with pinned real layer-0 Gate weights",
+    "synthetic_performance_authority": "NONE",
+    "cublaslt_executed": false,
+    "cublaslt_role": "REFERENCE_ONLY",
+    "cublaslt_production_eligibility": "NONE",
+    "mtp_used": false
+  },
+  "candidate": {
+    "shape": "exact-C512 NVFP4 Gate/Up M128xN256xK64, 272 CTAs per branch, 256 threads",
+    "retained_components": [
+      "canonical packed NVFP4 weights and canonical E4M3 scales",
+      "compact 32-byte B shared rows with retained half swizzle",
+      "K512 scale windows",
+      "three-stage A/B cp.async pipeline",
+      "MMA and accumulation order",
+      "coalesced BF16 epilogue",
+      "zero persistent sidecar and zero workspace"
+    ],
+    "change": {
+      "decoder_baseline": "table-free x4 PRMT/LOP3 construction followed by two exact BF16x2 multiplies",
+      "decoder_candidate": "two conflict-free shared U32 pair lookups followed by the same two exact BF16x2 multiplies",
+      "table_layout": "[encoded_byte][lane], 256 x 32 x U32; address bank is always lane",
+      "table_lifetime": "CTA-temporary only",
+      "table_initialization": "one 1-KiB exact pair codebook expanded cooperatively into a 32-KiB lane-striped table before the K loop"
+    },
+    "resources": {
+      "registers_per_thread": {"baseline": 241, "candidate": 241},
+      "allocated_registers_per_thread": {"baseline": 248, "candidate": 248},
+      "static_shared_bytes": {"baseline": 512, "candidate": 1536},
+      "dynamic_shared_bytes": {"baseline": 96256, "candidate": 129024},
+      "local_bytes": {"baseline": 0, "candidate": 0},
+      "active_blocks_per_sm": {"baseline": 1, "candidate": 1},
+      "device_max_optin_shared_bytes_per_block": 166912
+    }
+  },
+  "environment": {
+    "device": "NVIDIA Jetson AGX Orin Developer Kit",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "active_gpu_tpcs": 8,
+    "nvpmodel": "MAXN",
+    "cpu_affinity": "taskset --cpu-list 11",
+    "fixed_frequency_readback": {
+      "cpu_hz": 2201600000,
+      "gpu_hz": 1300500000,
+      "emc_hz": 3200000000
+    },
+    "fan_pwm": 255
+  },
+  "real_generation_direction": {
+    "model": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "prompt": "P513; 501 space-separated copies of hello in the pinned non-thinking chat template",
+    "rendered_prompt_tokens": 513,
+    "prefix_tokens": 512,
+    "max_new_tokens": 1,
+    "prefill_chunk_size": 512,
+    "projection_backend": "sm87_weight_only",
+    "baseline": {
+      "prefix_ms": 2330.984,
+      "finish_prefill_ms": 125.914,
+      "ttft_ms": 2456.897,
+      "prefix_tokens_per_second": 219.649727325,
+      "generated_token_id": 9419,
+      "generated_text": "Hello",
+      "step_count": 513
+    },
+    "candidate": {
+      "prefix_ms": 2357.151,
+      "finish_prefill_ms": 127.417,
+      "ttft_ms": 2484.568,
+      "prefix_tokens_per_second": 217.211370846,
+      "generated_token_id": 9419,
+      "generated_text": "Hello",
+      "step_count": 513
+    },
+    "result": {
+      "prefix_delta_ms": 26.167,
+      "prefix_latency_regression_percent": 1.122573128,
+      "ttft_delta_ms": 27.671,
+      "ttft_latency_regression_percent": 1.126258040,
+      "direction": "NEGATIVE"
+    }
+  },
+  "matched_ncu": {
+    "authority": "post-rejection causal diagnostic only",
+    "payload": "pinned real Qwen3.6-27B-NVFP4 layer-0 Gate weight and scale tensors with deterministic BF16 activation",
+    "shape": "M512xN17408xK5120",
+    "launches_per_binary": 1,
+    "set": "full",
+    "replay_mode": "kernel",
+    "metric_passes": 35,
+    "validation": {
+      "gate_bf16_elements_per_replay": 8912896,
+      "gate_mismatches": 0,
+      "up_bf16_elements_per_replay": 8912896,
+      "up_mismatches": 0,
+      "guards": "intact"
+    },
+    "metrics": {
+      "duration_ms": {"baseline": 4.698528, "candidate": 4.904576, "change_percent": 4.385373462},
+      "achieved_occupancy_percent": {"baseline": 16.720473, "candidate": 16.694756},
+      "executed_warp_instructions": {"baseline": 149986240, "candidate": 141210432, "change_percent": -5.851075405},
+      "shared_load_wavefronts": {"baseline": 33423360, "candidate": 39227886, "change_percent": 17.366674087},
+      "shared_excessive_wavefronts": {"baseline": 4700160, "candidate": 4700160, "change_percent": 0.0},
+      "shared_bank_conflicts": {"baseline": 1010177, "candidate": 1156560, "change_percent": 14.490826855},
+      "ordinary_shared_load_bank_conflicts": {"baseline": 0, "candidate": 0},
+      "ldgsts_shared_wavefronts": {"baseline": 9052160, "candidate": 9052160},
+      "global_load_sectors": {"baseline": 17408000, "candidate": 17408000},
+      "tensor_throughput_percent_elapsed": {"baseline": 11.435511, "candidate": 10.975675, "change_percent": -4.021123324},
+      "warp_stall_samples": {
+        "mio_throttle": {"baseline": 2381, "candidate": 5902, "change_percent": 147.879042419},
+        "short_scoreboard": {"baseline": 839, "candidate": 3241, "change_percent": 286.293206198},
+        "barrier": {"baseline": 2330, "candidate": 2977, "change_percent": 27.768240343},
+        "long_scoreboard": {"baseline": 985, "candidate": 480, "change_percent": -51.269035533}
+      }
+    },
+    "interpretation": [
+      "The lane-striped lookup achieves its narrow goal: data-indexed loads add no excessive shared wavefronts, and compact B/scale async landing plus global sectors remain unchanged.",
+      "The candidate removes 5.85% of dynamic warp instructions but replaces ALU/PRMT work with 17.37% more shared-load wavefronts; MIO throttle rises 2.48x and short-scoreboard samples rise 3.86x.",
+      "The shared LSU and dependency cost dominates the arithmetic reduction, producing a 0.206048-ms layer-0 Gate regression and a consistent 26.167-ms whole-Prefix regression.",
+      "Future exact decoder work must stay register/ALU resident; neither conflict-prone nor conflict-free shared pair tables are eligible."
+    ]
+  },
+  "artifacts": {
+    "baseline_direction_log": {"path": "/tmp/q3x-prefill-lane-striped-pair-direction-baseline.log", "bytes": 9275, "sha256": "6f970f1458be0f0681390e2991d933aaf220f51335b786f9036abb6ea9fbda52"},
+    "candidate_direction_log": {"path": "/tmp/q3x-prefill-lane-striped-pair-direction-candidate.log", "bytes": 9275, "sha256": "8a4c3d963c4a1f8e4cbc003e26d3762310d520d2817b0648f9e53ee40be9b03c"},
+    "candidate_runner": {"path": "/tmp/q3x-prefill-lane-striped-pair-candidate-uncommitted", "bytes": 7566872, "sha256": "0548adc45d04fb905f8a50e8db55ab0cc9cbe30ac2ab47ae95b903d53ce8e14c"},
+    "candidate_ncu_binary": {"path": "/tmp/q3x-prefill-lane-striped-pair-ncu-candidate-screen-uncommitted", "bytes": 6035792, "sha256": "1909e5802ff903929e025da7cba57b4738f4679d831c0035619ff2fb79cd5d4a"},
+    "baseline_ncu_report": {"path": "/tmp/q3x-prefill-row48-scale256-baseline-full.ncu-rep", "bytes": 15105603, "sha256": "bfd3447bdd05e8582dbd19ff98f4f75d88b1a653d68d35e5ffcc72cb46f16a48"},
+    "candidate_ncu_report": {"path": "/tmp/q3x-prefill-lane-striped-pair-candidate-full.ncu-rep", "bytes": 15447824, "sha256": "10acadf020df047f181405fa32f02f21260e080ceebd47c6eee7f91079fc6ae5"}
+  },
+  "decision": {
+    "result": "REJECT",
+    "production_changed": false,
+    "development_baseline_changed": false,
+    "retained_baseline": "exact-C512 M128xN256 compact B-half-swizzle/K512-scale table-free three-stage production cell",
+    "next": "preserve compact async landing and keep decode register/ALU resident; study exact bit-manipulation paths before the next real-generation direction screen"
+  }
+}

@@ -705,6 +705,25 @@ Decode consumer without persistent duplication. Another row-stride tweak is
 not an eligible next experiment. The machine-readable record is
 [`metadata/qwen36-27b-prefill-gate-c512-row48-scale256-rejection-2026-07-29.json`](metadata/qwen36-27b-prefill-gate-c512-row48-scale256-rejection-2026-07-29.json).
 
+The follow-up lane-striped pair-table cell preserved the compact 32-byte B
+landing and every pipeline/ordering invariant.  It replicated the exact
+256-entry E2M1 pair codebook as `[encoded_byte][lane]` in 32 KiB of
+CTA-temporary shared memory, making every data-dependent address land in bank
+`lane`.  This also fails the real-path direction gate: P513 Prefix moves from
+**2,330.984 to 2,357.151 ms** (+26.167 ms), with exact token 9419, text
+`Hello`, and 513 steps.
+
+Matched real-weight NCU shows that the mechanism itself worked but the trade
+was negative. Dynamic warp instructions fall **5.85%**, compact B/scale
+`LDGSTS`, global sectors, and excessive shared wavefronts remain identical,
+and the lane-striped lookups introduce no new excessive wavefronts.  However,
+ordinary shared-load wavefronts rise **17.37%**, MIO-throttle samples rise
+2.48x, short-scoreboard samples rise 3.86x, and one Gate launch regresses
+4.698528 -> 4.904576 ms.  Therefore both conflict-prone and conflict-free
+shared pair tables are excluded; the next decoder cell must remain entirely
+register/ALU resident. See
+[`metadata/qwen36-27b-prefill-gate-c512-lane-striped-pair-rejection-2026-07-29.json`](metadata/qwen36-27b-prefill-gate-c512-lane-striped-pair-rejection-2026-07-29.json).
+
 ## Triton and vLLM design-reference screen
 
 The reference screen pins Triton `78420176` and vLLM `2899dca`. Their native
@@ -779,7 +798,9 @@ problem.
    excessive wavefronts by 74.07%. Preserve compact 32-byte landing. Next,
    screen a producer/load skeleton that can decouple canonical strided B
    gathers from the shared destination, or reduce the table-free decoder's
-   PRMT/LOP3/IMAD expansion without reintroducing PairLookup. Complete
+   PRMT/LOP3/IMAD expansion entirely in registers. The conflict-free
+   lane-striped shared pair table is also rejected despite 5.85% fewer
+   instructions because its LSU stalls regress real P513. Complete
    B-stationary/A-stationary CTA ordering only as a bounded full configuration,
    not as an explanation for the rejected row stride. Re-run the same
    pinned real-weight six-round B-C-C-B screen against the current retained
