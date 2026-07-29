@@ -6,6 +6,26 @@
 
 namespace q3x::runtime::gdn_prefill_chunk64_native_detail {
 
+// Test-only observation point for proving that a native pipeline rewrite does
+// not change its established BF16 boundaries.  A null callback is the
+// production default and has no synchronization or copy cost.
+using InspectionCallback = void (*)(
+    const std::uint16_t* transform, std::size_t transform_elements,
+    const std::uint16_t* state_output, std::size_t state_elements,
+    const std::uint16_t* output, std::size_t output_elements,
+    void* cuda_stream, void* context) noexcept;
+
+struct InspectionHook {
+  InspectionCallback callback = nullptr;
+  void* context = nullptr;
+};
+
+[[nodiscard]] InspectionHook exchange_inspection_hook(
+    InspectionHook hook) noexcept;
+
+[[nodiscard]] bool exchange_force_fused_kkt_baseline_for_test(
+    bool enabled) noexcept;
+
 // Admission-only C64..C512 native SM87 FLA/WY pipeline. The implementation
 // is deliberately fixed to the authenticated model shape (Hg=16, H=48,
 // K=V=128, BT=64). It has no library context and accepts no fallback shape.
