@@ -538,6 +538,15 @@ void test_schedule_and_workspace(TestContext& test) {
               runtime::kBulkCausalGqaMaximumSequenceLength - 511U, 512U),
       "bulk causal GQA/Gate selector preserves reference, non-full-layer, "
       "single-token, over-capacity, and causal-range fallbacks");
+  test.expect(
+      runtime::use_bulk_causal_gqa_group_q64_prefill(0U, 2U) &&
+          runtime::use_bulk_causal_gqa_group_q64_prefill(0U, 407U) &&
+          runtime::use_bulk_causal_gqa_group_q64_prefill(0U, 481U) &&
+          runtime::use_bulk_causal_gqa_group_q64_prefill(0U, 512U) &&
+          !runtime::use_bulk_causal_gqa_group_q64_prefill(0U, 1U) &&
+          !runtime::use_bulk_causal_gqa_group_q64_prefill(0U, 513U) &&
+          !runtime::use_bulk_causal_gqa_group_q64_prefill(1U, 407U),
+      "grouped-Q64 Tensor Core selector accepts exactly P0/C2..C512");
 
   constexpr std::size_t kMaximum =
       std::numeric_limits<std::size_t>::max();

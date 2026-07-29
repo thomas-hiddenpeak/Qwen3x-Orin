@@ -493,13 +493,14 @@ void bulk_causal_gqa_sigmoid_gate_24_4_256_c512_register_pipeline_kernel(
   }
 }
 
-// Fixed-shape SM87 Prefill v3.  The flattened query axis follows the
+// SM87 Prefill v3.  The flattened query axis follows the
 // FlashInfer single-Prefill ownership model: [token, query-in-KV-group] is a
 // single 3,072-row axis, blockIdx.x owns 64 rows, and blockIdx.z owns one KV
 // head.  Four warps each retain one Q16 online-softmax/output state while the
-// CTA loads each K/V32 tile exactly once for all six GQA heads.  The P513
-// runner's prefix tile contains 512 tokens, so this is 48 x 1 x 4 = 192 CTAs
-// per layer; the one-token finish remains on the existing Decode path.
+// CTA loads each K/V32 tile exactly once for all six GQA heads.  P0/C2..C512
+// uses ceil(C*6/64) x 1 x 4 CTAs.  P0/C512 retains a separate compile-time
+// exact specialization so extending the dataflow does not add predicates to
+// its established hot path.
 struct alignas(16) BulkGqaGroupSharedStorage {
   alignas(16) std::uint16_t
       query[kBulkGqaGroupQueryTile * kBulkGqaHeadDimension];
@@ -511,11 +512,13 @@ struct alignas(16) BulkGqaGroupSharedStorage {
 
 static_assert(sizeof(BulkGqaGroupSharedStorage) == 64U * 1024U);
 
+template <bool kExactC512>
 __device__ __forceinline__ void bulk_gqa_stage_group_kv_tile(
     std::uint16_t* const shared,
     const std::uint16_t* const global,
     const unsigned int kv_head,
     const unsigned int tile_start,
+    const unsigned int token_count,
     const unsigned int thread) {
   constexpr unsigned int kVectorsPerHead =
       kBulkGqaHeadDimension * sizeof(std::uint16_t) / sizeof(uint4);
@@ -529,26 +532,46 @@ __device__ __forceinline__ void bulk_gqa_stage_group_kv_tile(
     const unsigned int local_position = vector / kVectorsPerHead;
     const unsigned int vector_in_head =
         vector - local_position * kVectorsPerHead;
-    const std::size_t global_vector =
-        (static_cast<std::size_t>(tile_start + local_position) *
-             kBulkGqaKvHeads +
-         kv_head) *
-            kVectorsPerHead +
-        vector_in_head;
-    bulk_gqa_cp_async_cg_16(
-        shared + vector * (sizeof(uint4) / sizeof(std::uint16_t)),
-        reinterpret_cast<const uint4*>(global) + global_vector);
+    if constexpr (kExactC512) {
+      const std::size_t global_vector =
+          (static_cast<std::size_t>(tile_start + local_position) *
+               kBulkGqaKvHeads +
+           kv_head) *
+              kVectorsPerHead +
+          vector_in_head;
+      bulk_gqa_cp_async_cg_16(
+          shared + vector * (sizeof(uint4) / sizeof(std::uint16_t)),
+          reinterpret_cast<const uint4*>(global) + global_vector);
+    } else {
+      auto* const shared_vector =
+          reinterpret_cast<uint4*>(shared) + vector;
+      if (tile_start + local_position < token_count) {
+        const std::size_t global_vector =
+            (static_cast<std::size_t>(tile_start + local_position) *
+                 kBulkGqaKvHeads +
+             kv_head) *
+                kVectorsPerHead +
+            vector_in_head;
+        bulk_gqa_cp_async_cg_16(
+            shared_vector,
+            reinterpret_cast<const uint4*>(global) + global_vector);
+      } else {
+        *shared_vector = make_uint4(0U, 0U, 0U, 0U);
+      }
+    }
   }
   bulk_gqa_cp_async_commit();
 }
 
+template <bool kExactC512>
 __global__ __launch_bounds__(kBulkGqaRegisterThreads, 1)
 void bulk_causal_gqa_sigmoid_gate_24_4_256_c512_group_q64_kernel(
     const std::uint16_t* const query,
     const std::uint16_t* const key_cache,
     const std::uint16_t* const value_cache,
     const std::uint16_t* const gate,
-    std::uint16_t* const output) {
+    std::uint16_t* const output,
+    const unsigned int token_count) {
   extern __shared__ __align__(16) unsigned char dynamic_shared[];
   auto& storage =
       *reinterpret_cast<BulkGqaGroupSharedStorage*>(dynamic_shared);
@@ -570,8 +593,17 @@ void bulk_causal_gqa_sigmoid_gate_24_4_256_c512_group_q64_kernel(
       blockIdx.x * kBulkGqaGroupQueryTile;
   const unsigned int warp_packed_query =
       first_packed_query + warp * kBulkGqaTensorCoreQueryTile;
+  const unsigned int packed_query_count =
+      kExactC512 ? kBulkGqaPackedQueryCount
+                 : token_count * kBulkGqaQueriesPerKv;
+  const unsigned int remaining_packed_queries =
+      packed_query_count - first_packed_query;
+  const unsigned int valid_packed_queries =
+      kExactC512 || remaining_packed_queries >= kBulkGqaGroupQueryTile
+          ? kBulkGqaGroupQueryTile
+          : remaining_packed_queries;
   const unsigned int last_packed_query =
-      first_packed_query + kBulkGqaGroupQueryTile - 1U;
+      first_packed_query + valid_packed_queries - 1U;
   const unsigned int causal_kv_length =
       last_packed_query / kBulkGqaQueriesPerKv + 1U;
   const unsigned int iteration_count =
@@ -586,19 +618,37 @@ void bulk_causal_gqa_sigmoid_gate_24_4_256_c512_group_q64_kernel(
     const unsigned int vector_in_head = vector - local_packed_query * 32U;
     const unsigned int packed_query =
         first_packed_query + local_packed_query;
-    const unsigned int query_token =
-        packed_query / kBulkGqaQueriesPerKv;
-    const unsigned int query_in_group =
-        packed_query - query_token * kBulkGqaQueriesPerKv;
-    const unsigned int query_head =
-        kv_head * kBulkGqaQueriesPerKv + query_in_group;
-    const std::size_t global_vector =
-        (static_cast<std::size_t>(query_token) * kBulkGqaQueryHeads +
-         query_head) *
-            32U +
-        vector_in_head;
-    shared_query_vectors[vector] =
-        reinterpret_cast<const uint4*>(query)[global_vector];
+    if constexpr (kExactC512) {
+      const unsigned int query_token =
+          packed_query / kBulkGqaQueriesPerKv;
+      const unsigned int query_in_group =
+          packed_query - query_token * kBulkGqaQueriesPerKv;
+      const unsigned int query_head =
+          kv_head * kBulkGqaQueriesPerKv + query_in_group;
+      const std::size_t global_vector =
+          (static_cast<std::size_t>(query_token) * kBulkGqaQueryHeads +
+           query_head) *
+              32U +
+          vector_in_head;
+      shared_query_vectors[vector] =
+          reinterpret_cast<const uint4*>(query)[global_vector];
+    } else if (packed_query < packed_query_count) {
+      const unsigned int query_token =
+          packed_query / kBulkGqaQueriesPerKv;
+      const unsigned int query_in_group =
+          packed_query - query_token * kBulkGqaQueriesPerKv;
+      const unsigned int query_head =
+          kv_head * kBulkGqaQueriesPerKv + query_in_group;
+      const std::size_t global_vector =
+          (static_cast<std::size_t>(query_token) * kBulkGqaQueryHeads +
+           query_head) *
+              32U +
+          vector_in_head;
+      shared_query_vectors[vector] =
+          reinterpret_cast<const uint4*>(query)[global_vector];
+    } else {
+      shared_query_vectors[vector] = make_uint4(0U, 0U, 0U, 0U);
+    }
   }
   __syncthreads();
 
@@ -614,10 +664,12 @@ void bulk_causal_gqa_sigmoid_gate_24_4_256_c512_group_q64_kernel(
   float denominators[2] = {0.0F, 0.0F};
 
   unsigned int current_tile_start = 0U;
-  bulk_gqa_stage_group_kv_tile(storage.key, key_cache, kv_head,
-                               current_tile_start, thread);
-  bulk_gqa_stage_group_kv_tile(storage.value, value_cache, kv_head,
-                               current_tile_start, thread);
+  bulk_gqa_stage_group_kv_tile<kExactC512>(
+      storage.key, key_cache, kv_head, current_tile_start, token_count,
+      thread);
+  bulk_gqa_stage_group_kv_tile<kExactC512>(
+      storage.value, value_cache, kv_head, current_tile_start, token_count,
+      thread);
 
   for (unsigned int iteration = 0U; iteration < iteration_count;
        ++iteration) {
@@ -666,8 +718,9 @@ void bulk_causal_gqa_sigmoid_gate_24_4_256_c512_group_q64_kernel(
     const bool has_next = iteration + 1U < iteration_count;
     __syncthreads();
     if (has_next) {
-      bulk_gqa_stage_group_kv_tile(storage.key, key_cache, kv_head,
-                                   next_tile_start, thread);
+      bulk_gqa_stage_group_kv_tile<kExactC512>(
+          storage.key, key_cache, kv_head, next_tile_start, token_count,
+          thread);
       bulk_gqa_cp_async_wait_group_1();
     } else {
       bulk_gqa_cp_async_wait_group_0();
@@ -691,10 +744,22 @@ void bulk_causal_gqa_sigmoid_gate_24_4_256_c512_group_q64_kernel(
         const unsigned int kv_position =
             current_tile_start + score * kBulkGqaTensorCoreKvTile +
             column;
-        score_fragment.x[reg] =
-            kv_position <= query_token
-                ? score_fragment.x[reg] * kBulkGqaAttentionScale
-                : -__int_as_float(0x7f800000);
+        if constexpr (kExactC512) {
+          score_fragment.x[reg] =
+              kv_position <= query_token
+                  ? score_fragment.x[reg] * kBulkGqaAttentionScale
+                  : -__int_as_float(0x7f800000);
+        } else if (packed_query >= packed_query_count) {
+          // The incomplete Q64 tail is never stored.  Give its private WMMA
+          // rows a finite dummy distribution so -inf - -inf cannot create a
+          // NaN that obscures diagnostics for adjacent valid rows.
+          score_fragment.x[reg] = 0.0F;
+        } else {
+          score_fragment.x[reg] =
+              kv_position < token_count && kv_position <= query_token
+                  ? score_fragment.x[reg] * kBulkGqaAttentionScale
+                  : -__int_as_float(0x7f800000);
+        }
       }
 
       __nv_bfloat16 probability_bits[8];
@@ -775,8 +840,9 @@ void bulk_causal_gqa_sigmoid_gate_24_4_256_c512_group_q64_kernel(
 
     __syncthreads();
     if (has_next) {
-      bulk_gqa_stage_group_kv_tile(storage.value, value_cache, kv_head,
-                                   next_tile_start, thread);
+      bulk_gqa_stage_group_kv_tile<kExactC512>(
+          storage.value, value_cache, kv_head, next_tile_start, token_count,
+          thread);
     }
     current_tile_start = next_tile_start;
   }
@@ -791,6 +857,9 @@ void bulk_causal_gqa_sigmoid_gate_24_4_256_c512_group_q64_kernel(
       const unsigned int first = 2U * row_group;
       const unsigned int packed_query =
           warp_packed_query + lane / 4U + 8U * row_group;
+      if (!kExactC512 && packed_query >= packed_query_count) {
+        continue;
+      }
       const unsigned int query_token =
           packed_query / kBulkGqaQueriesPerKv;
       const unsigned int query_in_group =
@@ -838,6 +907,8 @@ int launch_bulk_causal_gqa_sigmoid_gate_24_4_256_c512_register_pipeline_cuda(
     const std::uint16_t* const key_cache,
     const std::uint16_t* const value_cache,
     const std::uint16_t* const gate,
+    const std::size_t first_position,
+    const std::size_t token_count,
     std::uint16_t* const output,
     void* const cuda_stream) noexcept {
   const auto stream = static_cast<cudaStream_t>(cuda_stream);
@@ -852,7 +923,8 @@ int launch_bulk_causal_gqa_sigmoid_gate_24_4_256_c512_register_pipeline_cuda(
         std::getenv("Q3X_FULL_ATTENTION_C512_FORCE_V2_BASELINE");
     return value != nullptr && std::strcmp(value, "1") == 0;
   }();
-  if (force_v2_baseline) {
+  if (force_v2_baseline && first_position == 0U &&
+      token_count == kBulkGqaC512TokenCount) {
     constexpr std::size_t kV2DynamicSharedBytes =
         sizeof(BulkGqaRegisterSharedStorage);
     const cudaError_t attribute_status = cudaFuncSetAttribute(
@@ -873,17 +945,42 @@ int launch_bulk_causal_gqa_sigmoid_gate_24_4_256_c512_register_pipeline_cuda(
 
   constexpr std::size_t kV3DynamicSharedBytes =
       sizeof(BulkGqaGroupSharedStorage);
-  const cudaError_t attribute_status = cudaFuncSetAttribute(
-      bulk_causal_gqa_sigmoid_gate_24_4_256_c512_group_q64_kernel,
-      cudaFuncAttributeMaxDynamicSharedMemorySize,
-      static_cast<int>(kV3DynamicSharedBytes));
+  const bool exact_c512 =
+      first_position == 0U && token_count == kBulkGqaC512TokenCount;
+  const cudaError_t attribute_status =
+      exact_c512
+          ? cudaFuncSetAttribute(
+                bulk_causal_gqa_sigmoid_gate_24_4_256_c512_group_q64_kernel<
+                    true>,
+                cudaFuncAttributeMaxDynamicSharedMemorySize,
+                static_cast<int>(kV3DynamicSharedBytes))
+          : cudaFuncSetAttribute(
+                bulk_causal_gqa_sigmoid_gate_24_4_256_c512_group_q64_kernel<
+                    false>,
+                cudaFuncAttributeMaxDynamicSharedMemorySize,
+                static_cast<int>(kV3DynamicSharedBytes));
   if (attribute_status != cudaSuccess) {
     return static_cast<int>(attribute_status);
   }
-  const dim3 blocks(kBulkGqaGroupGridX, 1U, kBulkGqaKvHeads);
-  bulk_causal_gqa_sigmoid_gate_24_4_256_c512_group_q64_kernel
-      <<<blocks, kBulkGqaRegisterThreads, kV3DynamicSharedBytes, stream>>>(
-          query, key_cache, value_cache, gate, output);
+  const dim3 blocks(
+      exact_c512
+          ? kBulkGqaGroupGridX
+          : static_cast<unsigned int>(
+                (token_count * kBulkGqaQueriesPerKv +
+                 kBulkGqaGroupQueryTile - 1U) /
+                kBulkGqaGroupQueryTile),
+      1U, kBulkGqaKvHeads);
+  if (exact_c512) {
+    bulk_causal_gqa_sigmoid_gate_24_4_256_c512_group_q64_kernel<true>
+        <<<blocks, kBulkGqaRegisterThreads, kV3DynamicSharedBytes, stream>>>(
+            query, key_cache, value_cache, gate, output,
+            static_cast<unsigned int>(token_count));
+  } else {
+    bulk_causal_gqa_sigmoid_gate_24_4_256_c512_group_q64_kernel<false>
+        <<<blocks, kBulkGqaRegisterThreads, kV3DynamicSharedBytes, stream>>>(
+            query, key_cache, value_cache, gate, output,
+            static_cast<unsigned int>(token_count));
+  }
   return static_cast<int>(cudaGetLastError());
 }
 

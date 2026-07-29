@@ -17,6 +17,8 @@ int launch_bulk_causal_gqa_sigmoid_gate_24_4_256_c512_register_pipeline_cuda(
     const std::uint16_t* key_cache,
     const std::uint16_t* value_cache,
     const std::uint16_t* gate,
+    std::size_t first_position,
+    std::size_t token_count,
     std::uint16_t* output,
     void* cuda_stream) noexcept;
 
@@ -2403,9 +2405,10 @@ int launch_bulk_causal_gqa_sigmoid_gate_24_4_256_cuda(
       kBulkGqaKvHeads, 1U);
   const auto stream = static_cast<cudaStream_t>(cuda_stream);
   (void)cudaGetLastError();
-  if (first_position == 0U && token_count == 512U) {
+  if (use_bulk_causal_gqa_group_q64_prefill(first_position, token_count)) {
     return launch_bulk_causal_gqa_sigmoid_gate_24_4_256_c512_register_pipeline_cuda(
-        query, key_cache, value_cache, gate, output, cuda_stream);
+        query, key_cache, value_cache, gate, first_position, token_count,
+        output, cuda_stream);
   }
   bulk_causal_gqa_sigmoid_gate_24_4_256_kernel
       <<<blocks, kBulkGqaThreads, 0U, stream>>>(
@@ -2431,6 +2434,35 @@ int launch_bulk_causal_gqa_sigmoid_24_4_256_qt2_bk16_test_cuda(
   return launch_bulk_causal_gqa_sigmoid_gate_24_4_256_cuda(
       query, key_cache, value_cache, gate, first_position, token_count,
       output, cuda_stream);
+}
+
+int launch_bulk_causal_gqa_sigmoid_24_4_256_qt2_bk16_generic_test_cuda(
+    const std::uint16_t* const query,
+    const std::uint16_t* const key_cache,
+    const std::uint16_t* const value_cache,
+    const std::uint16_t* const gate,
+    const std::size_t first_position,
+    const std::size_t token_count,
+    const float attention_scale,
+    std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  if (attention_scale != kBulkGqaAttentionScale ||
+      !valid_bulk_causal_gqa_arguments(query, key_cache, value_cache, gate,
+                                       first_position, token_count, output)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const dim3 blocks(
+      static_cast<unsigned int>((token_count + kBulkGqaQueryTile - 1U) /
+                                kBulkGqaQueryTile),
+      kBulkGqaKvHeads, 1U);
+  const auto stream = static_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  bulk_causal_gqa_sigmoid_gate_24_4_256_kernel
+      <<<blocks, kBulkGqaThreads, 0U, stream>>>(
+          query, key_cache, value_cache, gate,
+          static_cast<unsigned int>(first_position),
+          static_cast<unsigned int>(token_count), output);
+  return static_cast<int>(cudaGetLastError());
 }
 
 int query_bulk_causal_gqa_sigmoid_24_4_256_qt2_bk16_resources_test_cuda(

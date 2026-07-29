@@ -115,6 +115,13 @@ int launch_bulk_causal_gqa_sigmoid_24_4_256_qt2_bk16_test_cuda(
     float attention_scale, std::uint16_t* output,
     void* cuda_stream) noexcept;
 
+int launch_bulk_causal_gqa_sigmoid_24_4_256_qt2_bk16_generic_test_cuda(
+    const std::uint16_t* query, const std::uint16_t* key_cache,
+    const std::uint16_t* value_cache, const std::uint16_t* gate,
+    std::size_t first_position, std::size_t token_count,
+    float attention_scale, std::uint16_t* output,
+    void* cuda_stream) noexcept;
+
 int query_bulk_causal_gqa_sigmoid_24_4_256_qt2_bk16_resources_test_cuda(
     int* registers, std::size_t* static_shared_bytes,
     std::size_t* local_bytes, int* maximum_threads,
@@ -8532,6 +8539,7 @@ void run_bulk_gqa_correctness_case(
   ManagedBuffer<std::uint16_t> gate_storage;
   ManagedBuffer<std::uint16_t> baseline_storage;
   ManagedBuffer<std::uint16_t> candidate_storage;
+  ManagedBuffer<std::uint16_t> generic_storage;
   ManagedBuffer<std::uint16_t> replay_storage;
   ManagedBuffer<float> scratch;
   bool ready = test.cuda_ok(query_storage.allocate(guarded_query_elements),
@@ -8548,6 +8556,9 @@ void run_bulk_gqa_correctness_case(
   ready = ready &&
           test.cuda_ok(candidate_storage.allocate(guarded_query_elements),
                        label + " allocate candidate");
+  ready = ready &&
+          test.cuda_ok(generic_storage.allocate(guarded_query_elements),
+                       label + " allocate generic bulk");
   ready = ready && test.cuda_ok(replay_storage.allocate(guarded_query_elements),
                                 label + " allocate replay");
   ready = ready && test.cuda_ok(scratch.allocate(scratch_elements),
@@ -8568,6 +8579,8 @@ void run_bulk_gqa_correctness_case(
       baseline_storage.data() + kBulkGqaGuardElements;
   std::uint16_t* const candidate =
       candidate_storage.data() + kBulkGqaGuardElements;
+  std::uint16_t* const generic =
+      generic_storage.data() + kBulkGqaGuardElements;
   std::uint16_t* const replay =
       replay_storage.data() + kBulkGqaGuardElements;
   std::fill_n(query_storage.data(), query_storage.size(), kBulkGqaGuard);
@@ -8578,6 +8591,7 @@ void run_bulk_gqa_correctness_case(
               kBulkGqaGuard);
   std::fill_n(candidate_storage.data(), candidate_storage.size(),
               kBulkGqaGuard);
+  std::fill_n(generic_storage.data(), generic_storage.size(), kBulkGqaGuard);
   std::fill_n(replay_storage.data(), replay_storage.size(), kBulkGqaGuard);
   for (std::size_t index = 0U; index < query_elements; ++index) {
     query[index] = encode_bf16(
@@ -8625,6 +8639,12 @@ void run_bulk_gqa_correctness_case(
       label + " production launch");
   ready = ready && test.cuda_ok(
       static_cast<cudaError_t>(q3x::runtime::
+          launch_bulk_causal_gqa_sigmoid_24_4_256_qt2_bk16_generic_test_cuda(
+              query, key, value, gate, first_position, token_count,
+              kBulkGqaScale, generic, static_cast<void*>(stream))),
+      label + " generic bulk launch");
+  ready = ready && test.cuda_ok(
+      static_cast<cudaError_t>(q3x::runtime::
           launch_bulk_causal_gqa_sigmoid_24_4_256_qt2_bk16_test_cuda(
               query, key, value, gate, first_position, token_count,
               kBulkGqaScale, replay, static_cast<void*>(stream))),
@@ -8655,12 +8675,13 @@ void run_bulk_gqa_correctness_case(
               label + " candidate graph has one node");
   test.expect(candidate_topology.function != nullptr,
               label + " candidate graph has a kernel identity");
-  const bool tensor_core_c512 =
-      first_position == 0U && token_count == 512U;
+  const bool tensor_core_group_q64 =
+      q3x::runtime::use_bulk_causal_gqa_group_q64_prefill(
+          first_position, token_count);
   const bool expected_topology =
-      tensor_core_c512
+      tensor_core_group_q64
           ? candidate_topology.grid.x ==
-                    token_count * 6U / 64U &&
+                    (token_count * 6U + 63U) / 64U &&
                 candidate_topology.grid.y == 1U &&
                 candidate_topology.grid.z == 4U &&
                 candidate_topology.block.x == 128U &&
@@ -8676,8 +8697,8 @@ void run_bulk_gqa_correctness_case(
                 candidate_topology.dynamic_shared_bytes == 0U;
   test.expect(expected_topology,
               label +
-                  (tensor_core_c512
-                       ? " candidate graph has fixed grouped-Q64 Tensor Core topology"
+                  (tensor_core_group_q64
+                       ? " candidate graph has grouped-Q64 Tensor Core topology"
                        : " candidate graph has fixed QT2 topology"));
 
   if (graph_contract) {
@@ -8706,6 +8727,18 @@ void run_bulk_gqa_correctness_case(
       metrics.normalized_rmse <= 0.005 && metrics.cosine >= 0.9999 &&
       metrics.relative_samples != 0U && metrics.p99_relative <= 0.02;
   test.expect(numerical_gate, label + " clears online-softmax error gates");
+  const BulkGqaErrorMetrics generic_metrics =
+      bulk_gqa_error_metrics(candidate, generic, query_elements);
+  const bool generic_numerical_gate =
+      generic_metrics.nonfinite_mismatches == 0U &&
+      generic_metrics.maximum_absolute <= 0.03125 &&
+      generic_metrics.p99_absolute <= 0.00390625 &&
+      generic_metrics.normalized_rmse <= 0.005 &&
+      generic_metrics.cosine >= 0.9999 &&
+      generic_metrics.relative_samples != 0U &&
+      generic_metrics.p99_relative <= 0.02;
+  test.expect(generic_numerical_gate,
+              label + " matches the existing generic bulk path");
   test.expect(std::memcmp(replay, candidate,
                           query_elements * sizeof(std::uint16_t)) == 0,
               label + " candidate Graph replay is bitwise deterministic");
@@ -8727,6 +8760,8 @@ void run_bulk_gqa_correctness_case(
               label + " baseline guards are intact");
   test.expect(guards_intact(candidate_storage, query_elements),
               label + " candidate guards are intact");
+  test.expect(guards_intact(generic_storage, query_elements),
+              label + " generic bulk guards are intact");
   test.expect(guards_intact(replay_storage, query_elements),
               label + " replay guards are intact");
   test.expect(std::memcmp(query_storage.data(), query_snapshot.data(),
@@ -8753,6 +8788,10 @@ void run_bulk_gqa_correctness_case(
             << " baseline_nodes=" << (3U * token_count + 1U)
             << " candidate_nodes=" << candidate_topology.node_count
             << " future_poison_positions=" << future_positions
+            << " generic_max_abs=" << generic_metrics.maximum_absolute
+            << " generic_nrmse=" << generic_metrics.normalized_rmse
+            << " generic_gate="
+            << (generic_numerical_gate ? "PASS" : "FAIL")
             << " replay=bitwise gate="
             << (numerical_gate ? "PASS" : "FAIL") << '\n';
 
