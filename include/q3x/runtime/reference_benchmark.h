@@ -124,6 +124,7 @@ struct ReferenceBenchmarkReport {
   std::size_t decode_graph_serial_fallbacks = 0U;
   ReferenceLogitsMode logits_mode = ReferenceLogitsMode::kFullStatistics;
   bool nvtx_phase_ranges_emitted = false;
+  bool all_prompt_tokens_prefilled_by_tiles = false;
 };
 
 struct ReferenceBenchmarkDiagnostic {

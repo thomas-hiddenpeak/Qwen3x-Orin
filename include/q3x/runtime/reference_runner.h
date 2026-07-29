@@ -176,6 +176,11 @@ struct ReferenceDecodeGraphCachePrepareOutcome {
 
 struct ReferencePrefillTileOptions {
   bool measure_timing = false;
+  // Test-only whole-prompt admission contract. A successful tile retains the
+  // final token's already-normalized hidden row for exactly one subsequent
+  // finish_prefill_from_retained_tile call. The tile still commits every
+  // persistent KV/GDN/conv update and the complete logical sequence length.
+  bool retain_last_hidden_for_logits = false;
 };
 
 // A prefix tile never produces logits or trace data. The C512 fixed-capacity
@@ -455,6 +460,15 @@ class ReferenceRunner {
       const std::uint32_t* input_token_ids, std::size_t token_count,
       const ReferencePrefillTileOptions& options = {}) noexcept;
 
+  // Test-only final-prompt admission boundary. Consumes the retained final
+  // normalized hidden row from the immediately preceding marked prefill tile
+  // and runs only lm_head/logits analysis. It never gathers an embedding,
+  // executes a decoder layer, updates persistent model state, or advances the
+  // logical request position.
+  [[nodiscard]] ReferenceStepOutcome finish_prefill_from_retained_tile(
+      std::uint32_t input_token_id,
+      const ReferenceStepOptions& options = {}) noexcept;
+
   // A successful reset synchronizes the owned streams, clears all persistent
   // request state through RequestState::reset_async, clears poison, and
   // invalidates the prior trace. Reset is the only poison recovery operation.
@@ -543,6 +557,10 @@ class ReferenceRunner {
   bool trace_enabled_ = false;
   bool trace_valid_ = false;
   bool poisoned_ = false;
+  bool retained_prefill_hidden_valid_ = false;
+  std::uint32_t retained_prefill_position_ = 0U;
+  std::uint32_t retained_prefill_input_token_ = 0U;
+  std::size_t retained_prefill_hidden_row_ = 0U;
   std::uint32_t trace_position_ = 0U;
   std::uint32_t trace_input_token_ = 0U;
 };

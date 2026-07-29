@@ -179,7 +179,8 @@ using reference_benchmark_detail::DeviceMemorySnapshot;
     return "prefix_execution_milliseconds.size";
   }
   const std::size_t prefix_token_count =
-      generation.prompt_token_ids.size() - 1U;
+      generation.prompt_token_ids.size() -
+      (generation.all_prompt_tokens_prefilled_by_tiles ? 0U : 1U);
   const std::size_t effective_prefill_chunk_size =
       generation.effective_prefill_chunk_size;
   const std::size_t expected_prefix_execution_count =
@@ -319,6 +320,10 @@ std::string generation_mismatch_field(const ReferenceGeneration& expected,
   if (expected.effective_prefill_chunk_size !=
       actual.effective_prefill_chunk_size) {
     return "effective_prefill_chunk_size";
+  }
+  if (expected.all_prompt_tokens_prefilled_by_tiles !=
+      actual.all_prompt_tokens_prefilled_by_tiles) {
+    return "all_prompt_tokens_prefilled_by_tiles";
   }
   if (expected.decode_graph_replays != actual.decode_graph_replays) {
     return "decode_graph_replays";
@@ -633,6 +638,8 @@ ReferenceBenchmarkResult run_benchmark_control(
         !run_phase(options.measured_rounds, false)) {
       return result;
     }
+    report.all_prompt_tokens_prefilled_by_tiles =
+        baselines.front()->all_prompt_tokens_prefilled_by_tiles;
 
     const auto prompt_prefix_stats =
         compute_latency_statistics(all_prompt_prefix);

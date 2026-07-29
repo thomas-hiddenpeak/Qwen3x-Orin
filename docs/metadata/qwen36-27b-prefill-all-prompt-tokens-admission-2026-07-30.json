@@ -1,0 +1,147 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-all-prompt-tokens-admission-2026-07-30",
+  "status": "retained_after_positive_real_generation_matrix",
+  "recorded_at": "2026-07-30T03:24:53+08:00",
+  "timezone": "Asia/Shanghai",
+  "policy": {
+    "evidence_tier": "T2_REAL_GENERATION_DIRECTION_SCREEN",
+    "performance_payload": "real authenticated model weights and complete generation path",
+    "synthetic_matrix_performance_authority": false,
+    "cublaslt_production_eligibility": false,
+    "mtp_used": false,
+    "retention_rule": "retain cumulative architecture after real-path output parity and positive matrix mean; preserve negative shapes explicitly"
+  },
+  "source": {
+    "branch": "codex/prefill-all-prompt-tokens",
+    "base_commit": "25bb361",
+    "worktree": "/tmp/q3x-prefill-all-prompt-tokens",
+    "measurement_session": "66390",
+    "measurement_elf_identity": "not_archived_before_post-run_relink",
+    "measurement_build_gates": {
+      "Q3X_BUILD_NVFP4_MARLIN_PREFILL_ADMISSION": false,
+      "Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION": false
+    },
+    "candidate_runtime_gate": "Q3X_RUN_PREFILL_ALL_PROMPT_TOKENS_ADMISSION=1",
+    "baseline_runtime_gate": "unset",
+    "same_elf": true,
+    "same_process": true,
+    "same_engine_instance": true
+  },
+  "checkpoint": {
+    "repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "local_path": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4"
+  },
+  "protocol": {
+    "prefill_chunk_size": 512,
+    "output_tokens": 1,
+    "logits_mode": "predicted_token_only",
+    "prompt_construction": "pinned repeated-hello prompt through the production non-thinking chat template",
+    "prompt_token_counts": [32, 64, 407, 481, 564, 695, 713, 1025],
+    "comparison_order": "baseline_then_candidate_per_shape",
+    "correctness_contract": [
+      "identical prompt token ids",
+      "identical generated token ids and rendered text",
+      "identical ordered position/input/prediction transcript",
+      "baseline admission active bit false",
+      "candidate admission active bit true",
+      "candidate transcript contains exactly P prompt steps with final position P-1"
+    ]
+  },
+  "implementation": {
+    "control_change": "all P prompt tokens are submitted to prefill tiles; the last tile marks its final normalized hidden row for one-shot retention",
+    "finalize_change": "lm_head, greedy argmax, D2H result and logits analysis only",
+    "forbidden_finalize_work": [
+      "embedding gather",
+      "decoder-layer execution",
+      "KV cache update",
+      "GDN state update",
+      "conv state update",
+      "logical sequence-length commit"
+    ],
+    "default_route_changed": false,
+    "trace_capture_compatibility": "fails closed; admission is disabled by the public engine when trace capture is requested"
+  },
+  "results": {
+    "all_outputs_exact": true,
+    "generated_token_id_all_shapes": 9419,
+    "generated_text_all_shapes": "Hello",
+    "candidate_finalize_milliseconds_approx": 4.53,
+    "mean_baseline_ttft_milliseconds": 2852.575,
+    "mean_candidate_ttft_milliseconds": 2723.627,
+    "mean_ttft_saved_milliseconds": 128.948,
+    "mean_ttft_improvement_percent": 4.520407,
+    "shapes": [
+      {
+        "prompt_tokens": 32,
+        "baseline_ttft_milliseconds": 657.352,
+        "candidate_ttft_milliseconds": 282.348,
+        "candidate_minus_baseline_milliseconds": -375.004,
+        "classification": "positive_exact_C32_boundary"
+      },
+      {
+        "prompt_tokens": 64,
+        "baseline_ttft_milliseconds": 909.088,
+        "candidate_ttft_milliseconds": 513.678,
+        "candidate_minus_baseline_milliseconds": -395.410,
+        "classification": "positive_exact_C64_boundary"
+      },
+      {
+        "prompt_tokens": 407,
+        "baseline_ttft_milliseconds": 2906.090,
+        "candidate_ttft_milliseconds": 2815.180,
+        "candidate_minus_baseline_milliseconds": -90.910,
+        "classification": "positive_tail_merge_M22_plus_finish_to_M23"
+      },
+      {
+        "prompt_tokens": 481,
+        "baseline_ttft_milliseconds": 3354.710,
+        "candidate_ttft_milliseconds": 3359.620,
+        "candidate_minus_baseline_milliseconds": 4.910,
+        "classification": "negative_remainder_one_preserved"
+      },
+      {
+        "prompt_tokens": 564,
+        "baseline_ttft_milliseconds": 2742.240,
+        "candidate_ttft_milliseconds": 2647.830,
+        "candidate_minus_baseline_milliseconds": -94.410,
+        "classification": "positive_tail_merge_M19_plus_finish_to_M20"
+      },
+      {
+        "prompt_tokens": 695,
+        "baseline_ttft_milliseconds": 3946.720,
+        "candidate_ttft_milliseconds": 3856.460,
+        "candidate_minus_baseline_milliseconds": -90.260,
+        "classification": "positive_tail_merge_M22_plus_finish_to_M23"
+      },
+      {
+        "prompt_tokens": 713,
+        "baseline_ttft_milliseconds": 4096.550,
+        "candidate_ttft_milliseconds": 4106.470,
+        "candidate_minus_baseline_milliseconds": 9.920,
+        "classification": "negative_tail_merge_M8_plus_finish_to_M9"
+      },
+      {
+        "prompt_tokens": 1025,
+        "baseline_ttft_milliseconds": 4207.850,
+        "candidate_ttft_milliseconds": 4207.430,
+        "candidate_minus_baseline_milliseconds": -0.420,
+        "classification": "neutral_remainder_one_preserved"
+      }
+    ]
+  },
+  "state_transition_evidence": {
+    "observed": "all eight candidate transcripts contain P ordered prompt steps, end at P-1, and exactly match baseline predictions",
+    "static": "finish_prefill_from_retained_tile has no RequestState commit call and launches only lm_head/argmax/copy operations",
+    "scope_limit": "no independent per-layer device-state snapshot was captured in this direction screen"
+  },
+  "decision": {
+    "retain": true,
+    "production_default": false,
+    "reason": "four large positive shapes plus 128.948 ms positive matrix mean with 8/8 exact output parity",
+    "negative_samples": [481, 713],
+    "neutral_samples": [1025],
+    "next": "run one current-cumulative external eight-request gate; separately design scheduler lookahead or masked M33-M64/M511 kernels for remainder-one shapes"
+  }
+}

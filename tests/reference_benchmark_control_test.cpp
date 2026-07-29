@@ -652,6 +652,11 @@ void test_step_comparison(TestContext& test) {
   test.expect(detail::generation_mismatch_field(expected, actual) ==
                   "effective_prefill_chunk_size",
               "prefill dispatch policy changes are localized");
+  actual = expected;
+  actual.all_prompt_tokens_prefilled_by_tiles = true;
+  test.expect(detail::generation_mismatch_field(expected, actual) ==
+                  "all_prompt_tokens_prefilled_by_tiles",
+              "whole-prompt admission policy changes are localized");
   test.expect(runtime::to_string(
                   runtime::ReferenceBenchmarkError::kRepeatabilityFailure) ==
                   "repeatability_failure",

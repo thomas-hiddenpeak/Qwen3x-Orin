@@ -1149,6 +1149,28 @@ if(BUILD_TESTING)
     TIMEOUT 1800
   )
 
+  add_executable(q3x_reference_prefill_all_prompt_tokens_admission_e2e_test
+    tests/reference_prefill_all_prompt_tokens_admission_e2e_test.cpp
+  )
+  target_link_libraries(
+    q3x_reference_prefill_all_prompt_tokens_admission_e2e_test
+    PRIVATE q3x::engine
+  )
+  q3x_enable_warnings(
+    q3x_reference_prefill_all_prompt_tokens_admission_e2e_test
+  )
+  add_test(NAME reference_prefill_all_prompt_tokens_admission_e2e
+    COMMAND q3x_reference_prefill_all_prompt_tokens_admission_e2e_test
+            "${_q3x_e2e_model_dir}"
+  )
+  set_tests_properties(
+    reference_prefill_all_prompt_tokens_admission_e2e PROPERTIES
+    LABELS "e2e;model;sm87;prefill;whole_prompt_admission"
+    RUN_SERIAL TRUE
+    SKIP_RETURN_CODE 77
+    TIMEOUT 3600
+  )
+
   if(Q3X_BUILD_GDN_B8_ADMISSION)
     add_executable(q3x_reference_gdn_prefill_b8_admission_e2e_test
       tests/reference_gdn_prefill_b8_admission_e2e_test.cpp

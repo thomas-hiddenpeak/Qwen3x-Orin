@@ -140,7 +140,10 @@ GenerationControlResult run_generation_control_impl(
       options.prefill_chunk_size == 0U ||
       options.prefill_chunk_size > kMaximumRequestPrefillChunkSize ||
       options.stop_token_id >= kReferenceVocabularySize ||
-      !is_valid_reference_logits_mode(options.logits_mode)) {
+      !is_valid_reference_logits_mode(options.logits_mode) ||
+      (options.prefill_all_prompt_tokens &&
+       (options.capture_trace || options.prefill_chunk_size <= 1U ||
+        prefill_plan.finish_prefill_from_tile == nullptr))) {
     return failure(GenerationControlError::kInvalidArgument);
   }
   for (const std::uint32_t token : prompt_token_ids) {
@@ -248,7 +251,12 @@ GenerationControlResult run_generation_control_impl(
     ReferenceRunnerStatus runner_failure_status;
     std::uint32_t predicted_token = 0U;
 
-    const std::size_t prefix_token_count = prompt_token_ids.size() - 1U;
+    const bool use_all_prompt_tile_admission =
+        options.prefill_all_prompt_tokens;
+    const std::size_t prefix_token_count =
+        use_all_prompt_tile_admission
+            ? prompt_token_ids.size()
+            : prompt_token_ids.size() - 1U;
     const std::size_t effective_prefill_chunk_size =
         options.capture_trace ? 1U : options.prefill_chunk_size;
     if (effective_prefill_chunk_size > 1U && prefix_token_count != 0U &&
@@ -270,6 +278,9 @@ GenerationControlResult run_generation_control_impl(
                 effective_prefill_chunk_size);
         ReferencePrefillTileOptions tile_options;
         tile_options.measure_timing = true;
+        tile_options.retain_last_hidden_for_logits =
+            use_all_prompt_tile_admission &&
+            prefix_index + tile_token_count == prefix_token_count;
         const auto invoke_prefix_tile = [&]() {
           return prefill_plan.prefix_tile(
               prefill_plan.context,
@@ -349,9 +360,23 @@ GenerationControlResult run_generation_control_impl(
     }
 
     {
+      const StepFunction finish_prefill =
+          use_all_prompt_tile_admission
+              ? prefill_plan.finish_prefill_from_tile
+              : prefill_plan.finish_prefill;
+      // The final prompt step already exists in the transcript when every
+      // prompt token was committed by tiles. Replace only that placeholder
+      // with the logits-bearing finalizer result; the callback itself must not
+      // advance model state or logical position.
+      if (use_all_prompt_tile_admission) {
+        if (control.steps.empty()) {
+          return failure(GenerationControlError::kUnexpectedStep);
+        }
+        control.steps.pop_back();
+      }
       double elapsed = 0.0;
       const GenerationControlError error = execute(
-          prefill_plan.context, prefill_plan.finish_prefill,
+          prefill_plan.context, finish_prefill,
           NvtxRangeName::kFinishPrefill,
           prompt_token_ids.back(), true, elapsed,
           predicted_token, runner_failure_status);
