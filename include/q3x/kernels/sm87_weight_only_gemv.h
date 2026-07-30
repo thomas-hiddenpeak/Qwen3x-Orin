@@ -480,26 +480,6 @@ launch_sm87_nvfp4_w4a16_whole_chunk_gate_up_branch_gemm_bf16_cuda(
     std::size_t rows, std::size_t columns, std::uint16_t* output,
     void* cuda_stream = nullptr) noexcept;
 
-// Exact-C512 structural large-M Gate+Up cell. One two-resident M64xphysical-
-// N256 CTA pairs matching Gate/Up N128 slices, shares the BF16 activation
-// stage, preserves independent BF16 rounding, evaluates SiLU(gate)*up in the
-// owning CTA, and writes only the final [512,17408] intermediate. Canonical
-// packed weights/scales are consumed directly in this first executable cell.
-[[nodiscard]] int
-launch_sm87_nvfp4_w4a16_gate_up_silu_c512_m64_n256_pair_cuda(
-    const std::uint8_t* gate_packed_weights,
-    const std::uint8_t* gate_block_scales, float gate_weight_scale_2,
-    const std::uint8_t* up_packed_weights,
-    const std::uint8_t* up_block_scales, float up_weight_scale_2,
-    const std::uint16_t* activations, std::size_t token_count,
-    std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
-
-[[nodiscard]] int
-query_sm87_nvfp4_w4a16_gate_up_silu_c512_m64_n256_pair_resources_cuda(
-    int* registers_per_thread, std::size_t* static_shared_bytes,
-    std::size_t* dynamic_shared_bytes, std::size_t* local_bytes,
-    int* maximum_threads_per_block, int* active_blocks_per_sm) noexcept;
-
 // Exact C256/C512 NVFP4 dense-MLP Down branch. activations is contiguous
 // token-major BF16 [token_count, 17408] and output is contiguous token-major
 // BF16 [token_count, 5120]. C256 retains the M128xN128, two-CTA/SM route

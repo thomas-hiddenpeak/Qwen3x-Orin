@@ -11,9 +11,6 @@
 #if defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION)
 #include "q3x/kernels/sm87_nvfp4_marlin.h"
 #endif
-#if defined(Q3X_ENABLE_NVFP4_LARGE_M_PAIR_PREFILL_ADMISSION)
-#include "q3x/kernels/sm87_weight_only_gemv.h"
-#endif
 
 #if defined(Q3X_ENABLE_GDN_B8_ADMISSION)
 #include "../kernels/reference/gdn_prefill_b8_sequential_sm87.h"
@@ -142,19 +139,6 @@ thread_local std::size_t g_gdn_conv_compact_qk_fused_candidate_hits = 0U;
 thread_local bool g_enable_nvfp4_marlin_prefill_admission =
     nvfp4_marlin_prefill_environment_enabled();
 thread_local std::size_t g_nvfp4_marlin_prefill_admission_hits = 0U;
-#endif
-
-#if defined(Q3X_ENABLE_NVFP4_LARGE_M_PAIR_PREFILL_ADMISSION)
-[[nodiscard]] bool
-nvfp4_large_m_pair_prefill_environment_enabled() noexcept {
-  const char* const value =
-      std::getenv("Q3X_RUN_NVFP4_LARGE_M_PAIR_PREFILL_ADMISSION");
-  return value != nullptr && std::strcmp(value, "1") == 0;
-}
-
-thread_local bool g_enable_nvfp4_large_m_pair_prefill_admission =
-    nvfp4_large_m_pair_prefill_environment_enabled();
-thread_local std::size_t g_nvfp4_large_m_pair_prefill_admission_hits = 0U;
 #endif
 
 #if defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION)
@@ -4024,58 +4008,7 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
         marlin_branch_elements <= marlin_workspace_branch_elements &&
         views_.fp32_scratch_elements >=
             kernels::kSm87NvFp4MarlinReductionElements;
-    bool use_large_m_pair_mlp = false;
-#if defined(Q3X_ENABLE_NVFP4_LARGE_M_PAIR_PREFILL_ADMISSION)
-    use_large_m_pair_mlp =
-        g_enable_nvfp4_large_m_pair_prefill_admission &&
-        token_count == 512U &&
-        projection_backend_ == ProjectionBackend::kSm87WeightOnly &&
-        marlin_gate != nullptr && marlin_up != nullptr &&
-        marlin_down != nullptr && marlin_gate->packed_weight != nullptr &&
-        marlin_gate->block_scale != nullptr &&
-        marlin_up->packed_weight != nullptr &&
-        marlin_up->block_scale != nullptr &&
-        marlin_gate->output_size == kReferenceIntermediateSize &&
-        marlin_up->output_size == kReferenceIntermediateSize &&
-        marlin_gate->input_size == kReferenceHiddenSize &&
-        marlin_up->input_size == kReferenceHiddenSize &&
-        marlin_down->prefill_marlin_weight != nullptr &&
-        marlin_down->prefill_marlin_scales != nullptr &&
-        marlin_down->prefill_marlin_global_scale != nullptr &&
-        marlin_branch_elements <= marlin_workspace_branch_elements &&
-        views_.fp32_scratch_elements >=
-            kernels::kSm87NvFp4MarlinReductionElements;
-    if (use_large_m_pair_mlp) {
-      auto* const locks =
-          reinterpret_cast<std::int32_t*>(views_.projection[3]);
-      const auto stream = reinterpret_cast<cudaStream_t>(stream_);
-      if (!check_cuda(
-              kernels::
-                  launch_sm87_nvfp4_w4a16_gate_up_silu_c512_m64_n256_pair_cuda(
-                      marlin_gate->packed_weight, marlin_gate->block_scale,
-                      marlin_gate->weight_scale_2, marlin_up->packed_weight,
-                      marlin_up->block_scale, marlin_up->weight_scale_2,
-                      views_.hidden[1], token_count, views_.projection[2],
-                      stream_),
-              "prefill_nvfp4_large_m_pair_gate_up_silu", layer) ||
-          !check_cuda(
-              static_cast<int>(cudaMemsetAsync(
-                  locks, 0, kernels::kSm87NvFp4MarlinLockBytes, stream)),
-              "prefill_nvfp4_large_m_pair_clear_down_locks", layer) ||
-          !check_cuda(
-              kernels::launch_sm87_nvfp4_marlin_down_cuda(
-                  views_.projection[2], marlin_down->prefill_marlin_weight,
-                  marlin_down->prefill_marlin_scales,
-                  marlin_down->prefill_marlin_global_scale, token_count,
-                  views_.hidden[1], views_.fp32_scratch, locks, stream_),
-              "prefill_nvfp4_large_m_pair_marlin_down", layer)) {
-        return fail_prefill_tile(launch_failure);
-      }
-      ++g_nvfp4_large_m_pair_prefill_admission_hits;
-      marlin_mlp_completed = true;
-    }
-#endif
-    if (!use_large_m_pair_mlp && use_marlin_mlp) {
+    if (use_marlin_mlp) {
       auto* const locks =
           reinterpret_cast<std::int32_t*>(views_.projection[3]);
       const auto stream = reinterpret_cast<cudaStream_t>(stream_);
