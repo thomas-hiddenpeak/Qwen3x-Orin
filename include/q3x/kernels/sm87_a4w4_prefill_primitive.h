@@ -178,9 +178,13 @@ sm87_a4w4_swizzled_k64_byte_offset(
 //
 // to the FP32 output.  S32 partials from groups with different scale products
 // must never be combined before dequantization.  The scales are non-negative,
-// finite BF16 values; a zero-code group may use a zero scale.  The primitive
+// finite BF16 values. The nearest_even_v1 producer stores BF16 one for an
+// all-zero group and emits zero codes. The primitive
 // consumes calibrated scales and does not prescribe or silently redo the
-// model's offline/dynamic scale search.
+// model's offline/dynamic scale search. The nearest_even_v1 producers first
+// round threshold/7 to the stored BF16 scale and then quantize clipped values
+// against that decoded stored scale; code generation never divides by an
+// unpersisted FP32 scale.
 [[nodiscard]] Q3X_SM87_A4W4_HOST_DEVICE constexpr std::size_t
 sm87_a4w4_k64_scale_offset(
     const std::size_t outer_coordinate, const std::size_t k64_group,
