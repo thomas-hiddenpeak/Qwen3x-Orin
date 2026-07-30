@@ -12,6 +12,10 @@
 #include "q3x/kernels/sm87_nvfp4_marlin.h"
 #endif
 
+#if defined(Q3X_ENABLE_NVFP4_A8W4_GATE_ADMISSION)
+#include "q3x/kernels/sm87_nvfp4_a8w4_gate_admission.h"
+#endif
+
 #if defined(Q3X_ENABLE_GDN_B8_ADMISSION)
 #include "../kernels/reference/gdn_prefill_b8_sequential_sm87.h"
 #endif
@@ -158,6 +162,18 @@ prefill_marlin_gate_up_epilogue_environment_enabled() noexcept {
 
 thread_local bool g_enable_prefill_marlin_gate_up_epilogue_admission =
     prefill_marlin_gate_up_epilogue_environment_enabled();
+#endif
+
+#if defined(Q3X_ENABLE_NVFP4_A8W4_GATE_ADMISSION)
+[[nodiscard]] bool nvfp4_a8w4_gate_prefill_environment_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_NVFP4_A8W4_GATE_ADMISSION");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
+thread_local bool g_enable_nvfp4_a8w4_gate_prefill_admission =
+    nvfp4_a8w4_gate_prefill_environment_enabled();
+thread_local std::size_t g_nvfp4_a8w4_gate_prefill_admission_hits = 0U;
 #endif
 
 #if defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION)
@@ -730,6 +746,26 @@ std::size_t exchange_nvfp4_marlin_prefill_admission_test_hits(
     const std::size_t hits) noexcept {
 #if defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION)
   return std::exchange(g_nvfp4_marlin_prefill_admission_hits, hits);
+#else
+  (void)hits;
+  return 0U;
+#endif
+}
+
+bool exchange_nvfp4_a8w4_gate_prefill_admission_test_enabled(
+    const bool enabled) noexcept {
+#if defined(Q3X_ENABLE_NVFP4_A8W4_GATE_ADMISSION)
+  return std::exchange(g_enable_nvfp4_a8w4_gate_prefill_admission, enabled);
+#else
+  (void)enabled;
+  return false;
+#endif
+}
+
+std::size_t exchange_nvfp4_a8w4_gate_prefill_admission_test_hits(
+    const std::size_t hits) noexcept {
+#if defined(Q3X_ENABLE_NVFP4_A8W4_GATE_ADMISSION)
+  return std::exchange(g_nvfp4_a8w4_gate_prefill_admission_hits, hits);
 #else
   (void)hits;
   return 0U;
@@ -4103,15 +4139,111 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
           prefill_auxiliary_stream_ != nullptr &&
           prefill_branch_ready_event_ != nullptr &&
           prefill_branch_done_event_ != nullptr;
+      bool a8w4_gate_up_projected = false;
+#if defined(Q3X_ENABLE_NVFP4_A8W4_GATE_ADMISSION)
+      const auto* const a8w4_gate =
+          std::get_if<NvFp4LinearWeight>(&layer_weights.mlp.gate_proj);
+      constexpr std::size_t kA8W4QuantizedOffset = 0U;
+      constexpr std::size_t kA8W4RowScaleOffset =
+          kernels::kSm87NvFp4A8W4GateAdmissionActivationBytes;
+      constexpr std::size_t kA8W4LockOffset =
+          kA8W4RowScaleOffset +
+          kernels::kSm87NvFp4A8W4GateAdmissionRowScaleBytes;
+      constexpr std::size_t kA8W4WorkspaceBytes =
+          kA8W4LockOffset +
+          kernels::kSm87NvFp4A8W4GateAdmissionLockBytes;
+      static_assert(kA8W4RowScaleOffset % alignof(float) == 0U);
+      static_assert(kA8W4LockOffset % alignof(std::int32_t) == 0U);
+      const bool use_a8w4_gate =
+          g_enable_nvfp4_a8w4_gate_prefill_admission &&
+          token_count == kernels::kSm87NvFp4A8W4GateAdmissionTokens &&
+          projection_backend_ == ProjectionBackend::kSm87WeightOnly &&
+          gate_up_fork_join_available && a8w4_gate != nullptr &&
+          a8w4_gate->prefill_a8w4_weight != nullptr &&
+          a8w4_gate->prefill_a8w4_integer_scales != nullptr &&
+          a8w4_gate->prefill_a8w4_rho != nullptr &&
+          state_->plan().projection_bf16[3].byte_size >=
+              kA8W4WorkspaceBytes &&
+          views_.fp32_scratch_elements * sizeof(float) >=
+              kernels::kSm87NvFp4A8W4GateAdmissionReductionBytes &&
+          reference_runner_detail::
+              use_nvfp4_whole_chunk_prefill_gate_up_dual_stream(
+                  projection_backend_, layer_weights.mlp.gate_proj,
+                  layer_weights.mlp.up_proj, views_.hidden[1],
+                  views_.projection[0], views_.projection[1], token_count);
+      if (g_enable_nvfp4_a8w4_gate_prefill_admission &&
+          token_count == kernels::kSm87NvFp4A8W4GateAdmissionTokens &&
+          !use_a8w4_gate) {
+        (void)check_cuda(static_cast<int>(cudaErrorInvalidValue),
+                         "prefill_a8w4_gate_route_ineligible", layer);
+        return fail_prefill_tile(launch_failure);
+      }
+      if (use_a8w4_gate) {
+        const auto auxiliary_stream =
+            reinterpret_cast<cudaStream_t>(prefill_auxiliary_stream_);
+        const auto branch_ready =
+            reinterpret_cast<cudaEvent_t>(prefill_branch_ready_event_);
+        const auto branch_done =
+            reinterpret_cast<cudaEvent_t>(prefill_branch_done_event_);
+        auto* const workspace =
+            reinterpret_cast<std::uint8_t*>(views_.projection[3]);
+        auto* const quantized_activation = reinterpret_cast<std::int8_t*>(
+            workspace + kA8W4QuantizedOffset);
+        auto* const row_scales =
+            reinterpret_cast<float*>(workspace + kA8W4RowScaleOffset);
+        auto* const locks =
+            reinterpret_cast<std::int32_t*>(workspace + kA8W4LockOffset);
+        const auto stream = reinterpret_cast<cudaStream_t>(stream_);
+        if (!check_cuda(
+                static_cast<int>(cudaEventRecord(branch_ready, stream)),
+                "prefill_a8w4_gate_branch_ready_record", layer) ||
+            !check_cuda(static_cast<int>(cudaStreamWaitEvent(
+                            auxiliary_stream, branch_ready, 0U)),
+                        "prefill_a8w4_gate_branch_ready_wait", layer) ||
+            !check_cuda(static_cast<int>(cudaMemsetAsync(
+                            locks, 0,
+                            kernels::kSm87NvFp4A8W4GateAdmissionLockBytes,
+                            stream)),
+                        "prefill_a8w4_gate_clear_locks", layer) ||
+            !check_cuda(
+                kernels::launch_sm87_dynamic_a8_gate_m512_admission_cuda(
+                    views_.hidden[1], a8w4_gate->prefill_a8w4_rho,
+                    quantized_activation, row_scales, true, stream_),
+                "prefill_a8w4_gate_quantize", layer) ||
+            !check_cuda(
+                kernels::launch_sm87_nvfp4_a8w4_gate_m512_admission_cuda(
+                    quantized_activation, row_scales,
+                    a8w4_gate->prefill_a8w4_weight,
+                    a8w4_gate->prefill_a8w4_integer_scales,
+                    views_.projection[0], views_.fp32_scratch, locks, true,
+                    stream_),
+                "prefill_a8w4_gate_projection", layer) ||
+            !project_nvfp4_whole_chunk_on_stream(
+                layer_weights.mlp.up_proj, views_.hidden[1],
+                views_.projection[1], "prefill_mlp_up_projection_auxiliary",
+                layer, prefill_auxiliary_stream_) ||
+            !check_cuda(
+                static_cast<int>(cudaEventRecord(branch_done,
+                                                 auxiliary_stream)),
+                "prefill_a8w4_gate_branch_done_record", layer) ||
+            !check_cuda(static_cast<int>(
+                            cudaStreamWaitEvent(stream, branch_done, 0U)),
+                        "prefill_a8w4_gate_branch_done_wait", layer)) {
+          return fail_prefill_tile(launch_failure);
+        }
+        ++g_nvfp4_a8w4_gate_prefill_admission_hits;
+        a8w4_gate_up_projected = true;
+      }
+#endif
       const bool use_gate_up_whole_chunk_dual_stream =
-          gate_up_fork_join_available &&
+          !a8w4_gate_up_projected && gate_up_fork_join_available &&
           reference_runner_detail::
               use_nvfp4_whole_chunk_prefill_gate_up_dual_stream(
                   projection_backend_, layer_weights.mlp.gate_proj,
                   layer_weights.mlp.up_proj, views_.hidden[1],
                   views_.projection[0], views_.projection[1], token_count);
       const bool use_gate_up_m32_dual_stream =
-          gate_up_fork_join_available &&
+          !a8w4_gate_up_projected && gate_up_fork_join_available &&
           reference_runner_detail::use_nvfp4_m32_prefill_gate_up_dual_stream(
               projection_backend_, layer_weights.mlp.gate_proj,
               layer_weights.mlp.up_proj, views_.hidden[1],
@@ -4119,7 +4251,9 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
       const bool use_gate_up_dual_stream =
           use_gate_up_whole_chunk_dual_stream ||
           use_gate_up_m32_dual_stream;
-      if (use_gate_up_dual_stream) {
+      if (a8w4_gate_up_projected) {
+        // Gate and Up have already joined the main stream above.
+      } else if (use_gate_up_dual_stream) {
         const auto auxiliary_stream =
             reinterpret_cast<cudaStream_t>(prefill_auxiliary_stream_);
         const auto branch_ready =
@@ -4514,6 +4648,32 @@ ReferenceRunnerFactoryResult create_reference_runner(
     return result;
   }
 
+#if defined(Q3X_ENABLE_NVFP4_A8W4_GATE_ADMISSION)
+  if (g_enable_nvfp4_a8w4_gate_prefill_admission) {
+    if (options.projection_backend != ProjectionBackend::kSm87WeightOnly ||
+        state->plan().prefill_chunk_size !=
+            kernels::kSm87NvFp4A8W4GateAdmissionTokens) {
+      result.diagnostic = runner_status(
+          ReferenceRunnerError::kInvalidDependency,
+          "a8w4_gate_prefill_admission_configuration");
+      return result;
+    }
+    for (std::size_t layer_index = 0U;
+         layer_index < kReferenceDecoderLayerCount; ++layer_index) {
+      const auto* const gate = std::get_if<NvFp4LinearWeight>(
+          &weights->layer(layer_index).mlp.gate_proj);
+      if (gate == nullptr || gate->prefill_a8w4_weight == nullptr ||
+          gate->prefill_a8w4_integer_scales == nullptr ||
+          gate->prefill_a8w4_rho == nullptr) {
+        result.diagnostic = runner_status(
+            ReferenceRunnerError::kInvalidDependency,
+            "a8w4_gate_prefill_admission_inventory", layer_index);
+        return result;
+      }
+    }
+  }
+#endif
+
   cudaStream_t stream = nullptr;
   cudaError_t status =
       cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking);
@@ -4569,13 +4729,17 @@ ReferenceRunnerFactoryResult create_reference_runner(
     cudaStream_t auxiliary_stream = nullptr;
     cudaEvent_t branch_ready = nullptr;
     cudaEvent_t branch_done = nullptr;
-    const bool auxiliary_ready =
-        cudaStreamCreateWithFlags(&auxiliary_stream,
-                                  cudaStreamNonBlocking) == cudaSuccess &&
-        cudaEventCreateWithFlags(&branch_ready,
-                                 cudaEventDisableTiming) == cudaSuccess &&
-        cudaEventCreateWithFlags(&branch_done,
-                                 cudaEventDisableTiming) == cudaSuccess;
+    cudaError_t auxiliary_status = cudaStreamCreateWithFlags(
+        &auxiliary_stream, cudaStreamNonBlocking);
+    if (auxiliary_status == cudaSuccess) {
+      auxiliary_status =
+          cudaEventCreateWithFlags(&branch_ready, cudaEventDisableTiming);
+    }
+    if (auxiliary_status == cudaSuccess) {
+      auxiliary_status =
+          cudaEventCreateWithFlags(&branch_done, cudaEventDisableTiming);
+    }
+    const bool auxiliary_ready = auxiliary_status == cudaSuccess;
     if (auxiliary_ready) {
       runner.prefill_auxiliary_stream_ =
           reinterpret_cast<void*>(auxiliary_stream);
@@ -4596,6 +4760,18 @@ ReferenceRunnerFactoryResult create_reference_runner(
       if (auxiliary_stream != nullptr) {
         (void)cudaStreamDestroy(auxiliary_stream);
       }
+#if defined(Q3X_ENABLE_NVFP4_A8W4_GATE_ADMISSION)
+      // The explicit admission is defined as Gate on the main stream and
+      // exact Up on the auxiliary stream. Never report a requested probe
+      // while silently measuring the canonical serial route.
+      if (g_enable_nvfp4_a8w4_gate_prefill_admission) {
+        result.diagnostic = runner_status(
+            ReferenceRunnerError::kAllocationFailure,
+            "create_a8w4_gate_prefill_auxiliary_resources",
+            kReferenceNoLayer, static_cast<int>(auxiliary_status));
+        return result;
+      }
+#endif
       // This failure is deliberately downgraded to a serial fallback. Do not
       // leak its thread-local CUDA last-error state to the returned runner.
       (void)cudaGetLastError();

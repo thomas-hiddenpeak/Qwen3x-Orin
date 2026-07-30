@@ -137,6 +137,18 @@ struct NvFp4MarlinPrefillSidecarDescriptor {
   const float* down_global_scale = nullptr;
 };
 
+// One test-admission approximate A8xW4 Gate sidecar. Unlike the exact Marlin
+// inventory above this represents only the canonical [17408,5120] Gate
+// projection; Up and Down retain the self-hosted exact production kernels.
+// Descriptor storage is copied by attach and the three device arenas must
+// outlive ModelWeights and all queued consumers.
+struct NvFp4A8W4GatePrefillSidecarDescriptor {
+  std::size_t layer_index = 0U;
+  const std::uint8_t* weight = nullptr;
+  const std::uint16_t* integer_scales = nullptr;
+  const float* rho = nullptr;
+};
+
 struct Bf16VectorWeight {
   const std::uint16_t* data = nullptr;
   std::size_t element_count = 0U;
@@ -206,6 +218,12 @@ struct NvFp4LinearWeight {
   const std::uint8_t* prefill_marlin_weight = nullptr;
   const std::uint8_t* prefill_marlin_scales = nullptr;
   const float* prefill_marlin_global_scale = nullptr;
+  // Test-only approximate C512 Gate admission. These bindings have no
+  // scheduling authority without both the dedicated build and runtime gates.
+  // They are mutually exclusive with the exact Marlin derived layout.
+  const std::uint8_t* prefill_a8w4_weight = nullptr;
+  const std::uint16_t* prefill_a8w4_integer_scales = nullptr;
+  const float* prefill_a8w4_rho = nullptr;
 };
 
 // The active alternative is selected strictly from the payload weight dtype:
@@ -481,6 +499,13 @@ class ModelWeights {
   // any binding; it is intentionally not a production scheduling switch.
   [[nodiscard]] bool attach_nvfp4_marlin_prefill_sidecars(
       const NvFp4MarlinPrefillSidecarDescriptor* descriptors,
+      std::size_t descriptor_count) noexcept;
+
+  // Transactionally attaches one approximate Gate-only A8xW4 sidecar for
+  // every dense layer. Null/zero detaches the complete set. Exact Marlin and
+  // A8xW4 derived views may never coexist on a projection.
+  [[nodiscard]] bool attach_nvfp4_a8w4_gate_prefill_sidecars(
+      const NvFp4A8W4GatePrefillSidecarDescriptor* descriptors,
       std::size_t descriptor_count) noexcept;
 
  private:

@@ -421,6 +421,13 @@ bool exchange_nvfp4_marlin_prefill_admission_test_enabled(
 std::size_t exchange_nvfp4_marlin_prefill_admission_test_hits(
     std::size_t hits) noexcept;
 
+// Approximate Gate-only C512 admission controls. Ordinary builds return
+// false/zero and contain neither the sidecar preparation nor S8xW4 launch.
+bool exchange_nvfp4_a8w4_gate_prefill_admission_test_enabled(
+    bool enabled) noexcept;
+std::size_t exchange_nvfp4_a8w4_gate_prefill_admission_test_hits(
+    std::size_t hits) noexcept;
+
 // Test-admission controls for the complete 208-projection FP8 W8A16 Marlin
 // route. A/B remain their canonical BF16 pair because the checkpoint stores
 // them as BF16. Ordinary builds return false/zero and contain no W8 kernels.

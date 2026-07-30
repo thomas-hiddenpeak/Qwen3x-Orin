@@ -770,6 +770,8 @@ void execute_job(runtime::ReferenceEngine& engine,
   generate_options.token_observer_context = &observer;
 
   runtime::ReferenceGenerateResult generated;
+  (void)runtime::reference_runner_detail::
+      exchange_nvfp4_a8w4_gate_prefill_admission_test_hits(0U);
   switch (job->request.prompt_kind) {
     case OpenAIPromptKind::kChatMessages:
       generated = engine.generate_chat(job->request.messages,
@@ -784,8 +786,14 @@ void execute_job(runtime::ReferenceEngine& engine,
           job->request.prompt_token_ids, generate_options);
       break;
   }
+  const std::size_t a8w4_gate_hits =
+      runtime::reference_runner_detail::
+          exchange_nvfp4_a8w4_gate_prefill_admission_test_hits(0U);
 
   if (observer.protocol_failure) {
+    std::cerr << "evaluation request " << job->id
+              << " failed stage=stream_encoding"
+              << " nvfp4_a8w4_gate_hits=" << a8w4_gate_hits << '\n';
     publish_job_error(
         job,
         simple_error(500, "stream_encoding_error",
@@ -795,6 +803,9 @@ void execute_job(runtime::ReferenceEngine& engine,
   }
   if (job->cancelled.load(std::memory_order_relaxed) ||
       stopping.load(std::memory_order_relaxed)) {
+    std::cerr << "evaluation request " << job->id
+              << " cancelled nvfp4_a8w4_gate_hits=" << a8w4_gate_hits
+              << '\n';
     job->close_events();
     return;
   }
@@ -803,7 +814,8 @@ void execute_job(runtime::ReferenceEngine& engine,
               << " failed stage=" << generated.diagnostic.stage
               << " code=" << runtime::to_string(generated.diagnostic.code)
               << " message=" << generated.diagnostic.message
-              << " context=" << generated.diagnostic.context << '\n';
+              << " context=" << generated.diagnostic.context
+              << " nvfp4_a8w4_gate_hits=" << a8w4_gate_hits << '\n';
     const bool client_error =
         generated.diagnostic.code ==
             runtime::ReferenceEngineError::kInvalidArgument ||
@@ -826,6 +838,17 @@ void execute_job(runtime::ReferenceEngine& engine,
         stopping);
     return;
   }
+  std::cout << "evaluation request " << job->id
+            << " prompt_tokens=" << generated.value->prompt_token_ids.size()
+            << " completion_tokens="
+            << generated.value->generated_token_ids.size()
+            << " prompt_prefill_ms="
+            << generated.value->timing.prompt_prefill_milliseconds
+            << " ttft_ms="
+            << generated.value->timing.time_to_first_token_milliseconds
+            << " total_ms="
+            << generated.value->timing.total_generation_milliseconds
+            << " nvfp4_a8w4_gate_hits=" << a8w4_gate_hits << '\n';
   if (generated.value->stop_reason ==
       runtime::ReferenceStopReason::kCancelled) {
     job->close_events();
@@ -1379,6 +1402,16 @@ int run_evaluation_server(const EvaluationServerOptions& options,
             << load.fp8_prefill_supermatrix_sidecar_projections
             << " fp8_prefill_supermatrix_sidecar_bytes="
             << load.fp8_prefill_supermatrix_sidecar_bytes
+            << " nvfp4_a8w4_gate_requested="
+            << (load.nvfp4_a8w4_gate_prefill_sidecars_requested ? 1 : 0)
+            << " nvfp4_a8w4_gate_enabled="
+            << (load.nvfp4_a8w4_gate_prefill_sidecars_enabled ? 1 : 0)
+            << " nvfp4_a8w4_gate_layers="
+            << load.nvfp4_a8w4_gate_prefill_sidecar_layers
+            << " nvfp4_a8w4_gate_bytes="
+            << load.nvfp4_a8w4_gate_prefill_sidecar_bytes
+            << " nvfp4_a8w4_gate_prepare_ms="
+            << load.nvfp4_a8w4_gate_prefill_sidecar_milliseconds
             << " nvfp4_down_consumer_order_requested="
             << (load.nvfp4_down_consumer_order_sidecars_requested ? 1 : 0)
             << " nvfp4_down_consumer_order_enabled="

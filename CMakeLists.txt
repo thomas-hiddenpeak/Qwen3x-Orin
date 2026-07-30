@@ -99,6 +99,12 @@ if(Q3X_BUILD_NVFP4_A8W4_GATE_ADMISSION AND NOT BUILD_TESTING)
     "Q3X_BUILD_NVFP4_A8W4_GATE_ADMISSION is test-only and requires BUILD_TESTING=ON"
   )
 endif()
+if(Q3X_BUILD_NVFP4_A8W4_GATE_ADMISSION AND
+   Q3X_BUILD_NVFP4_MARLIN_PREFILL_ADMISSION)
+  message(FATAL_ERROR
+    "A8W4 Gate and exact NVFP4 Marlin Prefill derived sidecars are mutually exclusive"
+  )
+endif()
 if((Q3X_BUILD_GDN_B8_ADMISSION AND
     Q3X_BUILD_GDN_C16_NORM_GATE_ADMISSION) OR
    (Q3X_BUILD_GDN_B8_ADMISSION AND
@@ -292,6 +298,9 @@ if(Q3X_BUILD_NVFP4_A8W4_GATE_ADMISSION)
   target_sources(q3x_kernels PRIVATE
     src/kernels/sm87/nvfp4_a8w4_gate_admission.cu
   )
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_NVFP4_A8W4_GATE_ADMISSION=1
+  )
 endif()
 if(Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION)
   target_sources(q3x_kernels PRIVATE
@@ -335,6 +344,11 @@ endif()
 if(Q3X_BUILD_FP8_MARLIN_PREFILL_ADMISSION)
   target_compile_definitions(q3x_engine PRIVATE
     Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_NVFP4_A8W4_GATE_ADMISSION)
+  target_compile_definitions(q3x_engine PRIVATE
+    Q3X_ENABLE_NVFP4_A8W4_GATE_ADMISSION=1
   )
 endif()
 q3x_enable_warnings(q3x_engine)

@@ -1383,7 +1383,10 @@ bool ModelWeights::attach_nvfp4_marlin_prefill_sidecars(
         !has_valid_nvfp4_payload(down) || gate->output_size != kGateRows ||
         up->output_size != kGateRows || gate->input_size != kHidden ||
         up->input_size != kHidden || down->output_size != kHidden ||
-        down->input_size != kGateRows) {
+        down->input_size != kGateRows ||
+        gate->prefill_a8w4_weight != nullptr ||
+        gate->prefill_a8w4_integer_scales != nullptr ||
+        gate->prefill_a8w4_rho != nullptr) {
       return false;
     }
     seen[descriptor.layer_index] = true;
@@ -1407,6 +1410,80 @@ bool ModelWeights::attach_nvfp4_marlin_prefill_sidecars(
     entry.down->prefill_marlin_weight = descriptor.down_weight;
     entry.down->prefill_marlin_scales = descriptor.down_scales;
     entry.down->prefill_marlin_global_scale = descriptor.down_global_scale;
+  }
+  return true;
+}
+
+bool ModelWeights::attach_nvfp4_a8w4_gate_prefill_sidecars(
+    const NvFp4A8W4GatePrefillSidecarDescriptor* const descriptors,
+    const std::size_t descriptor_count) noexcept {
+  const auto clear_all = [this]() noexcept {
+    for (DecoderLayerWeights& layer : layers_) {
+      NvFp4LinearWeight* const gate = nvfp4_gate_projection(layer);
+      if (gate != nullptr) {
+        gate->prefill_a8w4_weight = nullptr;
+        gate->prefill_a8w4_integer_scales = nullptr;
+        gate->prefill_a8w4_rho = nullptr;
+      }
+    }
+  };
+
+  if (descriptor_count == 0U) {
+    if (descriptors != nullptr) {
+      return false;
+    }
+    clear_all();
+    return true;
+  }
+  if (descriptors == nullptr ||
+      descriptor_count != kQwen36DenseLayerCount) {
+    return false;
+  }
+
+  struct Validated {
+    NvFp4LinearWeight* gate = nullptr;
+    const NvFp4A8W4GatePrefillSidecarDescriptor* descriptor = nullptr;
+  };
+  std::array<bool, kQwen36DenseLayerCount> seen{};
+  std::array<Validated, kQwen36DenseLayerCount> validated{};
+  constexpr std::size_t kGateRows = 17'408U;
+  constexpr std::size_t kHidden = 5'120U;
+  for (std::size_t index = 0U; index < descriptor_count; ++index) {
+    const NvFp4A8W4GatePrefillSidecarDescriptor& descriptor =
+        descriptors[index];
+    if (descriptor.layer_index >= kQwen36DenseLayerCount ||
+        seen[descriptor.layer_index] || descriptor.weight == nullptr ||
+        descriptor.integer_scales == nullptr || descriptor.rho == nullptr ||
+        reinterpret_cast<std::uintptr_t>(descriptor.weight) % 16U != 0U ||
+        reinterpret_cast<std::uintptr_t>(descriptor.integer_scales) % 16U !=
+            0U ||
+        reinterpret_cast<std::uintptr_t>(descriptor.rho) % alignof(float) !=
+            0U) {
+      return false;
+    }
+    DecoderLayerWeights& layer = layers_[descriptor.layer_index];
+    NvFp4LinearWeight* const gate = nvfp4_gate_projection(layer);
+    if (!has_valid_nvfp4_payload(gate) || gate->output_size != kGateRows ||
+        gate->input_size != kHidden || gate->prefill_marlin_weight != nullptr ||
+        gate->prefill_marlin_scales != nullptr ||
+        gate->prefill_marlin_global_scale != nullptr) {
+      return false;
+    }
+    seen[descriptor.layer_index] = true;
+    validated[index] = Validated{gate, &descriptor};
+  }
+  if (std::any_of(seen.begin(), seen.end(), [](const bool value) {
+        return !value;
+      })) {
+    return false;
+  }
+
+  clear_all();
+  for (const Validated& entry : validated) {
+    entry.gate->prefill_a8w4_weight = entry.descriptor->weight;
+    entry.gate->prefill_a8w4_integer_scales =
+        entry.descriptor->integer_scales;
+    entry.gate->prefill_a8w4_rho = entry.descriptor->rho;
   }
   return true;
 }

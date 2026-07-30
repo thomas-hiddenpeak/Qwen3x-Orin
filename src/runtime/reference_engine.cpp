@@ -6,6 +6,9 @@
 #include "q3x/kernels/sm87_fp8_marlin_w8a16.h"
 #endif
 #include "q3x/kernels/sm87_nvfp4_marlin.h"
+#if defined(Q3X_ENABLE_NVFP4_A8W4_GATE_ADMISSION)
+#include "q3x/kernels/sm87_nvfp4_a8w4_gate_admission.h"
+#endif
 #include "q3x/kernels/sm87_weight_only_gemv.h"
 #include "q3x/text/tokenizer.h"
 #include "reference_runner_gdn_chunk64_native_admission.h"
@@ -70,6 +73,7 @@ prefill_single_arbitrary_tile_environment_enabled() noexcept {
   return value != nullptr && std::strcmp(value, "1") == 0;
 }
 
+#if defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION)
 // The fused Marlin Gate/Up epilogue changes the retained sidecar's N ordering,
 // so load-time packing and runner dispatch must use one immutable process-wide
 // selector. The candidate remains absent unless explicitly admitted.
@@ -82,6 +86,21 @@ prefill_marlin_gate_up_epilogue_environment_enabled() noexcept {
   }();
   return enabled;
 }
+#endif
+
+#if defined(Q3X_ENABLE_NVFP4_A8W4_GATE_ADMISSION)
+// Immutable for the process lifetime because it controls both retained
+// sidecar ownership and runner dispatch. Exact value "1" is the only opt-in.
+[[nodiscard]] bool
+nvfp4_a8w4_gate_prefill_environment_enabled() noexcept {
+  static const bool enabled = []() noexcept {
+    const char* const value =
+        std::getenv("Q3X_RUN_NVFP4_A8W4_GATE_ADMISSION");
+    return value != nullptr && std::strcmp(value, "1") == 0;
+  }();
+  return enabled;
+}
+#endif
 
 // Same-ELF, whole-runner Decode Down admission. The value is immutable for
 // the process lifetime: sidecar ownership is decided while the engine is
@@ -414,6 +433,39 @@ struct Sm87NvFp4MarlinPrefillSidecars {
 };
 
 struct Sm87NvFp4MarlinPrefillPreparation {
+  bool enabled = false;
+  bool hard_failure = false;
+  std::size_t layers = 0U;
+  std::uint64_t bytes = 0U;
+  int cuda_error = 0;
+  std::string message;
+};
+#endif
+
+#if defined(Q3X_ENABLE_NVFP4_A8W4_GATE_ADMISSION)
+struct Sm87NvFp4A8W4GatePrefillSidecars {
+  std::uint8_t* arena = nullptr;
+  std::uint64_t bytes = 0U;
+  std::vector<NvFp4A8W4GatePrefillSidecarDescriptor> descriptors;
+
+  Sm87NvFp4A8W4GatePrefillSidecars() noexcept = default;
+  Sm87NvFp4A8W4GatePrefillSidecars(
+      const Sm87NvFp4A8W4GatePrefillSidecars&) = delete;
+  Sm87NvFp4A8W4GatePrefillSidecars& operator=(
+      const Sm87NvFp4A8W4GatePrefillSidecars&) = delete;
+  ~Sm87NvFp4A8W4GatePrefillSidecars() { release(); }
+
+  void release() noexcept {
+    if (arena != nullptr) {
+      (void)cudaFree(arena);
+    }
+    arena = nullptr;
+    bytes = 0U;
+    descriptors.clear();
+  }
+};
+
+struct Sm87NvFp4A8W4GatePrefillPreparation {
   bool enabled = false;
   bool hard_failure = false;
   std::size_t layers = 0U;
@@ -2821,6 +2873,194 @@ prepare_sm87_nvfp4_marlin_prefill_sidecars(
 }
 #endif
 
+#if defined(Q3X_ENABLE_NVFP4_A8W4_GATE_ADMISSION)
+[[nodiscard]] Sm87NvFp4A8W4GatePrefillPreparation
+prepare_sm87_nvfp4_a8w4_gate_prefill_sidecars(
+    ModelWeights& model_weights,
+    const std::uint64_t minimum_free_bytes_after_prepare,
+    Sm87NvFp4A8W4GatePrefillSidecars& owner) {
+  Sm87NvFp4A8W4GatePrefillPreparation result;
+  if (owner.arena != nullptr || owner.bytes != 0U ||
+      !owner.descriptors.empty()) {
+    result.hard_failure = true;
+    result.message = "A8W4 Gate Prefill owner was not empty before prepare";
+    return result;
+  }
+
+  constexpr std::size_t kLayerCount = kQwen36DenseLayerCount;
+  constexpr std::uint64_t kWeightBytes =
+      static_cast<std::uint64_t>(kLayerCount) *
+      kernels::kSm87NvFp4A8W4GateAdmissionWeightBytes;
+  constexpr std::uint64_t kScaleBytes =
+      static_cast<std::uint64_t>(kLayerCount) *
+      kernels::kSm87NvFp4A8W4GateAdmissionScaleBytes;
+  constexpr std::uint64_t kRhoBytes =
+      static_cast<std::uint64_t>(kLayerCount) * sizeof(float);
+  constexpr std::uint64_t kRetainedBytes =
+      kWeightBytes + kScaleBytes + kRhoBytes;
+  constexpr std::uint64_t kScratchBytes =
+      kernels::kSm87NvFp4A8W4GateAdmissionScratchBytes;
+  static_assert(kWeightBytes % 16U == 0U);
+  static_assert(kScaleBytes % 16U == 0U);
+  static_assert(kRetainedBytes == 3'208'642'816ULL);
+
+  for (std::size_t layer_index = 0U; layer_index < kLayerCount;
+       ++layer_index) {
+    const DecoderLayerWeights& layer = model_weights.layer(layer_index);
+    const auto* const gate =
+        std::get_if<NvFp4LinearWeight>(&layer.mlp.gate_proj);
+    if (gate == nullptr || gate->packed_weight == nullptr ||
+        gate->block_scale == nullptr ||
+        gate->weight_scale_2_device == nullptr ||
+        !std::isfinite(gate->weight_scale_2) || gate->weight_scale_2 < 0.0F ||
+        gate->output_size !=
+            kernels::kSm87NvFp4A8W4GateAdmissionRows ||
+        gate->input_size !=
+            kernels::kSm87NvFp4A8W4GateAdmissionColumns ||
+        gate->prefill_marlin_weight != nullptr ||
+        gate->prefill_marlin_scales != nullptr ||
+        gate->prefill_marlin_global_scale != nullptr ||
+        gate->prefill_a8w4_weight != nullptr ||
+        gate->prefill_a8w4_integer_scales != nullptr ||
+        gate->prefill_a8w4_rho != nullptr) {
+      result.hard_failure = true;
+      result.message = "ineligible A8W4 Gate projection at layer " +
+                       std::to_string(layer_index);
+      return result;
+    }
+  }
+
+  std::size_t free_bytes = 0U;
+  std::size_t total_bytes = 0U;
+  cudaError_t status = cudaMemGetInfo(&free_bytes, &total_bytes);
+  (void)total_bytes;
+  if (status != cudaSuccess) {
+    result.hard_failure = true;
+    result.cuda_error = static_cast<int>(status);
+    result.message = "cudaMemGetInfo failed before A8W4 Gate prepare";
+    return result;
+  }
+  const std::uint64_t free_u64 = static_cast<std::uint64_t>(free_bytes);
+  if (kRetainedBytes + kScratchBytes > free_u64 ||
+      minimum_free_bytes_after_prepare >
+          free_u64 - (kRetainedBytes + kScratchBytes)) {
+    result.hard_failure = true;
+    result.message =
+        "insufficient device memory for complete A8W4 Gate admission";
+    return result;
+  }
+
+  status = cudaMalloc(reinterpret_cast<void**>(&owner.arena),
+                      static_cast<std::size_t>(kRetainedBytes));
+  void* scratch = nullptr;
+  if (status == cudaSuccess) {
+    status = cudaMalloc(&scratch, static_cast<std::size_t>(kScratchBytes));
+  }
+  if (status != cudaSuccess || owner.arena == nullptr || scratch == nullptr) {
+    result.hard_failure = true;
+    result.cuda_error = static_cast<int>(status);
+    result.message = "cudaMalloc failed for complete A8W4 Gate admission";
+    if (scratch != nullptr) {
+      (void)cudaFree(scratch);
+    }
+    owner.release();
+    return result;
+  }
+
+  std::size_t remaining_free = 0U;
+  status = cudaMemGetInfo(&remaining_free, &total_bytes);
+  if (status != cudaSuccess ||
+      static_cast<std::uint64_t>(remaining_free) <
+          minimum_free_bytes_after_prepare) {
+    result.hard_failure = true;
+    result.cuda_error = static_cast<int>(status);
+    result.message = status == cudaSuccess
+                         ? "A8W4 Gate allocation violated memory margin"
+                         : "cudaMemGetInfo failed after A8W4 Gate allocation";
+    (void)cudaFree(scratch);
+    owner.release();
+    return result;
+  }
+
+  cudaStream_t stream = nullptr;
+  status = cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking);
+  if (status != cudaSuccess) {
+    result.hard_failure = true;
+    result.cuda_error = static_cast<int>(status);
+    result.message = "failed to create A8W4 Gate preparation stream";
+    (void)cudaFree(scratch);
+    owner.release();
+    return result;
+  }
+
+  auto* const scale_base = reinterpret_cast<std::uint16_t*>(
+      owner.arena + static_cast<std::size_t>(kWeightBytes));
+  auto* const rho_base = reinterpret_cast<float*>(
+      owner.arena + static_cast<std::size_t>(kWeightBytes + kScaleBytes));
+  owner.descriptors.reserve(kLayerCount);
+  for (std::size_t layer_index = 0U; layer_index < kLayerCount;
+       ++layer_index) {
+    const auto* const gate = std::get_if<NvFp4LinearWeight>(
+        &model_weights.layer(layer_index).mlp.gate_proj);
+    std::uint8_t* const weight =
+        owner.arena +
+        layer_index * kernels::kSm87NvFp4A8W4GateAdmissionWeightBytes;
+    std::uint16_t* const scales =
+        scale_base +
+        layer_index * kernels::kSm87NvFp4A8W4GateAdmissionScaleElements;
+    float* const rho = rho_base + layer_index;
+    status = static_cast<cudaError_t>(
+        kernels::prepare_sm87_nvfp4_a8w4_gate_m512_admission_cuda(
+            gate->packed_weight, gate->block_scale,
+            gate->weight_scale_2_device, weight, scales, rho, scratch,
+            static_cast<std::size_t>(kScratchBytes), true,
+            static_cast<void*>(stream)));
+    if (status != cudaSuccess) {
+      result.hard_failure = true;
+      result.cuda_error = static_cast<int>(status);
+      result.message = "A8W4 Gate repack failed at layer " +
+                       std::to_string(layer_index);
+      (void)cudaStreamDestroy(stream);
+      (void)cudaFree(scratch);
+      owner.release();
+      return result;
+    }
+    owner.descriptors.push_back(NvFp4A8W4GatePrefillSidecarDescriptor{
+        layer_index, weight, scales, rho});
+  }
+
+  status = cudaStreamSynchronize(stream);
+  const cudaError_t destroy_status = cudaStreamDestroy(stream);
+  const cudaError_t scratch_status = cudaFree(scratch);
+  if (status != cudaSuccess || destroy_status != cudaSuccess ||
+      scratch_status != cudaSuccess) {
+    const cudaError_t failure = status != cudaSuccess
+                                    ? status
+                                    : (destroy_status != cudaSuccess
+                                           ? destroy_status
+                                           : scratch_status);
+    result.hard_failure = true;
+    result.cuda_error = static_cast<int>(failure);
+    result.message = "A8W4 Gate preparation did not retire cleanly";
+    owner.release();
+    return result;
+  }
+  if (!model_weights.attach_nvfp4_a8w4_gate_prefill_sidecars(
+          owner.descriptors.data(), owner.descriptors.size())) {
+    result.hard_failure = true;
+    result.message = "ModelWeights rejected complete A8W4 Gate inventory";
+    owner.release();
+    return result;
+  }
+
+  owner.bytes = kRetainedBytes;
+  result.enabled = true;
+  result.layers = kLayerCount;
+  result.bytes = kRetainedBytes;
+  return result;
+}
+#endif
+
 }  // namespace
 
 namespace reference_runner_detail {
@@ -2852,6 +3092,9 @@ struct ReferenceEngine::Impl {
 #endif
 #if defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION)
   Sm87NvFp4MarlinPrefillSidecars nvfp4_marlin_prefill_sidecars;
+#endif
+#if defined(Q3X_ENABLE_NVFP4_A8W4_GATE_ADMISSION)
+  Sm87NvFp4A8W4GatePrefillSidecars nvfp4_a8w4_gate_prefill_sidecars;
 #endif
   Sm87NvFp4DownConsumerOrderSidecars
       nvfp4_down_consumer_order_sidecars;
@@ -2982,6 +3225,22 @@ struct ReferenceEngine::Impl {
         impl->load.request_prefill_chunk_size =
             impl->request_state->plan().prefill_chunk_size;
       }
+
+#if defined(Q3X_ENABLE_NVFP4_A8W4_GATE_ADMISSION)
+      impl->load.nvfp4_a8w4_gate_prefill_sidecars_requested =
+          nvfp4_a8w4_gate_prefill_environment_enabled();
+      if (impl->load.nvfp4_a8w4_gate_prefill_sidecars_requested &&
+          (options.projection_backend != ProjectionBackend::kSm87WeightOnly ||
+           impl->load.request_prefill_chunk_size !=
+               kMaximumRequestPrefillChunkSize)) {
+        result.diagnostic = engine_diagnostic(
+            ReferenceEngineError::kRunnerFactoryFailure,
+            "nvfp4_a8w4_gate_prefill_sidecar_prepare",
+            "the explicit A8W4 Gate admission requires the sm87_weight_only "
+            "backend and prefill_chunk_size=512");
+        return result;
+      }
+#endif
 
       if (options.projection_backend ==
           ProjectionBackend::kSm87WeightOnly) {
@@ -3125,6 +3384,35 @@ struct ReferenceEngine::Impl {
               marlin_preparation.layers;
           impl->load.nvfp4_marlin_prefill_sidecar_bytes =
               marlin_preparation.bytes;
+#endif
+#if defined(Q3X_ENABLE_NVFP4_A8W4_GATE_ADMISSION)
+          if (impl->load.nvfp4_a8w4_gate_prefill_sidecars_requested) {
+            const Clock::time_point a8w4_begin = Clock::now();
+            const Sm87NvFp4A8W4GatePrefillPreparation a8w4_preparation =
+                prepare_sm87_nvfp4_a8w4_gate_prefill_sidecars(
+                    *impl->model_weights,
+                    options.request_options.min_free_bytes_after_create,
+                    impl->nvfp4_a8w4_gate_prefill_sidecars);
+            impl->load.nvfp4_a8w4_gate_prefill_sidecar_milliseconds =
+                elapsed_milliseconds(a8w4_begin);
+            if (a8w4_preparation.hard_failure ||
+                !a8w4_preparation.enabled ||
+                a8w4_preparation.layers != kQwen36DenseLayerCount) {
+              result.diagnostic = engine_diagnostic(
+                  ReferenceEngineError::kRunnerFactoryFailure,
+                  "nvfp4_a8w4_gate_prefill_sidecar_prepare",
+                  a8w4_preparation.message.empty()
+                      ? "the explicit A8W4 Gate admission did not publish all 64 layers"
+                      : a8w4_preparation.message);
+              result.diagnostic.cuda_error = a8w4_preparation.cuda_error;
+              return result;
+            }
+            impl->load.nvfp4_a8w4_gate_prefill_sidecars_enabled = true;
+            impl->load.nvfp4_a8w4_gate_prefill_sidecar_layers =
+                a8w4_preparation.layers;
+            impl->load.nvfp4_a8w4_gate_prefill_sidecar_bytes =
+                a8w4_preparation.bytes;
+          }
 #endif
         }
 
