@@ -24,7 +24,7 @@ inline constexpr std::size_t kRequestProjectionBufferCount = 4U;
 inline constexpr std::uint64_t kRequestConvStateBytes = 2'949'120U;
 inline constexpr std::uint64_t kRequestGdnStateBytes = 75'497'472U;
 inline constexpr std::uint64_t kRequestKvBytesPerToken = 65'536U;
-inline constexpr std::uint64_t kDefaultRequestArenaBytes = 88'031'744U;
+inline constexpr std::uint64_t kDefaultRequestArenaBytes = 88'087'040U;
 inline constexpr std::uint64_t kMaximumRequestArenaBytes = 17'437'720'576ULL;
 
 enum class RequestErrorCode : std::uint8_t {

@@ -258,9 +258,14 @@ single-token operations. Extending `ReferencePrefillTileResult::steps` to 512
 entries is a public C++ ABI change; the current project/package ABI is `0.4.0`,
 and exact-version consumers must rebuild rather than mix older objects with the
 new static library. At the default 128-token sequence capacity, C512 uses an
-exact 88,123,392-byte workspace and 174,991,360-byte request arena. At the
+exact 88,178,688-byte workspace and 175,046,656-byte request arena. At the
 absolute 262,144-token capacity those values are 112,295,936 and
 17,437,720,576 bytes, respectively.
+
+A 40,000-token prompt with up to 16 generated tokens needs an exact
+40,015-position, 2,802,085,376-byte C512 request arena. The evaluation server's
+default 2 GiB request cap rejects it before allocation; the rounded deployment
+preflight is `--max-sequence-length 40960 --request-max-arena-bytes 3221225472`.
 
 With the SM87 backend, M9 through M15 quantized tiles
 are split into an M8 launch plus the remaining M1..M7 rows. M16 selects the
