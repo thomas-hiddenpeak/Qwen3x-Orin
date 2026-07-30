@@ -147,7 +147,8 @@ static_assert(sm87_nvfp4_marlin_execution_plan(512U).launch_count == 1U);
     float scale_factor, std::uint8_t* marlin_weight,
     std::uint8_t* marlin_scales, float* marlin_global_scale,
     void* transpose_scratch, std::size_t transpose_scratch_bytes,
-    void* cuda_stream = nullptr) noexcept;
+    void* cuda_stream = nullptr,
+    bool interleave_gate_up = false) noexcept;
 
 // Load-time-only transformation for canonical Down [5120,17408/2].
 [[nodiscard]] int prepare_sm87_nvfp4_marlin_down_cuda(
@@ -167,6 +168,16 @@ static_assert(sm87_nvfp4_marlin_execution_plan(512U).launch_count == 1U);
     const std::uint8_t* marlin_scales, const float* marlin_global_scale,
     std::size_t token_count, std::uint16_t* merged_gate_up_output,
     float* c_tmp, std::int32_t* locks,
+    void* cuda_stream = nullptr) noexcept;
+
+// Candidate-only fused epilogue. The Marlin cross-CTA reduction continues to
+// use merged_gate_up_workspace; only the last writer consumes adjacent BF16
+// Gate/Up columns and publishes SiLU(gate)*up directly to output.
+[[nodiscard]] int launch_sm87_nvfp4_marlin_gate_up_epilogue_cuda(
+    const std::uint16_t* input, const std::uint8_t* marlin_weight,
+    const std::uint8_t* marlin_scales, const float* marlin_global_scale,
+    std::size_t token_count, std::uint16_t* merged_gate_up_workspace,
+    std::uint16_t* output, float* c_tmp, std::int32_t* locks,
     void* cuda_stream = nullptr) noexcept;
 
 [[nodiscard]] int launch_sm87_nvfp4_marlin_down_cuda(
