@@ -17,9 +17,7 @@ constexpr unsigned int kHeadDimension = 256U;
 constexpr unsigned int kWarpsPerKvCta = kQueriesPerKv;
 constexpr unsigned int kSplitThreads = kWarpsPerKvCta * 32U;
 constexpr unsigned int kMergeThreads = kHeadDimension;
-constexpr unsigned int kFourSplits = 4U;
 constexpr unsigned int kEightSplits = 8U;
-constexpr unsigned int kEightSplitThreshold = 512U;
 constexpr unsigned int kPositionsPerTile = kQueriesPerKv;
 constexpr unsigned int kPipelineStages = 2U;
 constexpr unsigned int kStateMaximumOffset = 0U;
@@ -33,14 +31,13 @@ static_assert(kSplitThreads == 192U);
 static_assert(kMergeThreads == 256U);
 static_assert(kStateElements == kHeadDimension + 2U);
 static_assert(kDecodeGqaSplitKvMaximumSplits == kEightSplits);
+static_assert(decode_gqa_splitkv_split_count(
+                  kDecodeGqaSplitKvFourSplitMaximumSequenceLength) == 4U);
+static_assert(decode_gqa_splitkv_split_count(
+                  kDecodeGqaSplitKvFourSplitMaximumSequenceLength + 1U) ==
+              kEightSplits);
 static_assert(kDecodeGqaSplitKvMaximumWorkspaceElements ==
               kQueryHeads * kEightSplits * kStateElements);
-
-[[nodiscard]] constexpr unsigned int split_count_for_sequence(
-    const std::size_t sequence_length) noexcept {
-  return sequence_length <= kEightSplitThreshold ? kFourSplits
-                                                  : kEightSplits;
-}
 
 __device__ __forceinline__ float decode_bf16(const std::uint16_t value) {
   return __uint_as_float(static_cast<unsigned int>(value) << 16U);
@@ -126,18 +123,30 @@ __device__ __forceinline__ void enqueue_cache_tile(
 // load six different cache positions, then every Q warp consumes all six rows.
 // A two-stage K/V cp.async schedule overlaps the next tile with online-state
 // arithmetic and amortizes synchronization across six positions.
+template <bool kDynamicGraph>
 __global__ __launch_bounds__(kSplitThreads, 2)
 void decode_gqa_splitkv_state_24_4_256_kernel(
     const std::uint16_t* __restrict__ query,
     const std::uint16_t* __restrict__ key_cache,
     const std::uint16_t* __restrict__ value_cache,
-    const unsigned int sequence_length,
+    const unsigned int captured_sequence_length,
     const float attention_scale,
-    const unsigned int split_count,
-    float* __restrict__ states) {
+    const unsigned int captured_split_count,
+    float* __restrict__ states,
+    const DecodeDynamicGraphParameters* const parameters) {
   __shared__ DecodeGqaPipelineStorage storage;
 
+  const unsigned int sequence_length =
+      kDynamicGraph ? parameters->sequence_length : captured_sequence_length;
+  const unsigned int split_count =
+      kDynamicGraph ? parameters->split_count : captured_split_count;
+
   const unsigned int task = blockIdx.x;
+  if constexpr (kDynamicGraph) {
+    if (task >= kKvHeads * split_count) {
+      return;
+    }
+  }
   const unsigned int kv_head = task / split_count;
   const unsigned int split = task - kv_head * split_count;
   const unsigned int warp = threadIdx.x >> 5U;
@@ -284,14 +293,19 @@ void decode_gqa_splitkv_state_24_4_256_kernel(
 // One CTA merges all sequence splits for one Q head.  Split numerators are
 // rescaled to the global maximum before summation.  The attention result is
 // explicitly rounded to BF16 before the sigmoid gate observes it.
+template <bool kDynamicGraph>
 __global__ __launch_bounds__(kMergeThreads, 2)
 void decode_gqa_splitkv_merge_gate_24_4_256_kernel(
     const float* __restrict__ states,
-    const unsigned int split_count,
+    const unsigned int captured_split_count,
     const std::uint16_t* __restrict__ gate,
-    std::uint16_t* __restrict__ output) {
+    std::uint16_t* __restrict__ output,
+    const DecodeDynamicGraphParameters* const parameters) {
   __shared__ float split_scales[kEightSplits];
   __shared__ float inverse_denominator;
+
+  const unsigned int split_count =
+      kDynamicGraph ? parameters->split_count : captured_split_count;
 
   const unsigned int query_head = blockIdx.x;
   const unsigned int dimension = threadIdx.x;
@@ -360,7 +374,7 @@ std::size_t gqa_attention_splitkv_sigmoid_gate_24_4_256_workspace_elements(
     return 0U;
   }
   return static_cast<std::size_t>(kQueryHeads) *
-         split_count_for_sequence(sequence_length) * kStateElements;
+         decode_gqa_splitkv_split_count(sequence_length) * kStateElements;
 }
 
 int launch_gqa_attention_splitkv_sigmoid_gate_24_4_256_cuda(
@@ -384,21 +398,57 @@ int launch_gqa_attention_splitkv_sigmoid_gate_24_4_256_cuda(
     return static_cast<int>(cudaErrorInvalidValue);
   }
 
-  const unsigned int split_count = split_count_for_sequence(sequence_length);
+  const unsigned int split_count =
+      decode_gqa_splitkv_split_count(sequence_length);
   const auto stream = static_cast<cudaStream_t>(cuda_stream);
   (void)cudaGetLastError();
-  decode_gqa_splitkv_state_24_4_256_kernel
+  decode_gqa_splitkv_state_24_4_256_kernel<false>
       <<<kKvHeads * split_count, kSplitThreads, 0U, stream>>>(
           query, key_cache, value_cache,
           static_cast<unsigned int>(sequence_length), attention_scale,
-          split_count, workspace);
+          split_count, workspace, nullptr);
   cudaError_t status = cudaGetLastError();
   if (status != cudaSuccess) {
     return static_cast<int>(status);
   }
-  decode_gqa_splitkv_merge_gate_24_4_256_kernel
+  decode_gqa_splitkv_merge_gate_24_4_256_kernel<false>
       <<<kQueryHeads, kMergeThreads, 0U, stream>>>(
-          workspace, split_count, gate, output);
+          workspace, split_count, gate, output, nullptr);
+  return static_cast<int>(cudaGetLastError());
+}
+
+int launch_gqa_attention_splitkv_dynamic_graph_sigmoid_gate_24_4_256_cuda(
+    const std::uint16_t* const query,
+    const std::uint16_t* const key_cache,
+    const std::uint16_t* const value_cache,
+    const float attention_scale,
+    float* const workspace,
+    const std::size_t workspace_elements,
+    const std::uint16_t* const gate,
+    std::uint16_t* const output,
+    const DecodeDynamicGraphParameters* const parameters,
+    void* const cuda_stream) noexcept {
+  if (workspace_elements < kDecodeGqaSplitKvMaximumWorkspaceElements ||
+      !std::isfinite(attention_scale) || attention_scale < 0.0F ||
+      query == nullptr || key_cache == nullptr || value_cache == nullptr ||
+      workspace == nullptr || gate == nullptr || output == nullptr ||
+      parameters == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+
+  const auto stream = static_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  decode_gqa_splitkv_state_24_4_256_kernel<true>
+      <<<kKvHeads * kEightSplits, kSplitThreads, 0U, stream>>>(
+          query, key_cache, value_cache, 0U, attention_scale, 0U,
+          workspace, parameters);
+  cudaError_t status = cudaGetLastError();
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  decode_gqa_splitkv_merge_gate_24_4_256_kernel<true>
+      <<<kQueryHeads, kMergeThreads, 0U, stream>>>(
+          workspace, 0U, gate, output, parameters);
   return static_cast<int>(cudaGetLastError());
 }
 

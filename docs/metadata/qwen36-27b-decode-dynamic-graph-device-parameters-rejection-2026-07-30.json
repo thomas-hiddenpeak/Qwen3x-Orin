@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "date": "2026-07-30",
+  "model": "qwen3.6-27b-nvfp4",
+  "hardware": "Jetson AGX Orin SM87",
+  "candidate": "long-position decode CUDA Graph with one 16-byte captured H2D parameter block and zero hot-path cudaGraphExecKernelNodeSetParams calls",
+  "status": "rejected",
+  "decision": "route_closed_no_further_topology_tuning",
+  "build": {
+    "elf": "/tmp/q3x-dynamic-splitkv-admission-build/qwen3x-eval-server",
+    "elf_build_id_sha1": "50bb8202d0baad4eeacdef02f65bbf496741abce",
+    "elf_sha256": "5ea3a51eb5710ecb8fe67040fdc16f5d25c84be17762e1fe721fa05fe86f6121",
+    "compile_gate": "Q3X_ENABLE_DECODE_DYNAMIC_GRAPH_ADMISSION=1",
+    "runtime_gates": [
+      "Q3X_RUN_DECODE_GQA_SPLITKV_ADMISSION=1",
+      "Q3X_RUN_DECODE_DYNAMIC_GRAPH_ADMISSION=1"
+    ]
+  },
+  "topology": {
+    "nodes": 407,
+    "kernel_nodes": 405,
+    "memcpy_nodes": 2,
+    "hot_path_kernel_node_set_params_calls_per_token": 0,
+    "captured_parameter_h2d_bytes_per_token": 16,
+    "graph_launches_per_token": 1
+  },
+  "real_model_direction_screen": {
+    "warmup_seconds": 7.83,
+    "completed_request_seconds_approx": [7.83, 5.35, 4.0, 5.5],
+    "completed_requests": 4,
+    "planned_requests": 8,
+    "termination": "SIGINT_after_directional_rejection",
+    "comparison": "same catastrophic range as the rejected 65-SetParams dynamic graph; retained serial split-KV baseline had been roughly 3-4 seconds/request"
+  },
+  "interpretation": [
+    "Removing all dynamic cudaGraphExecKernelNodeSetParams calls did not recover serving performance.",
+    "The host node-update hypothesis is therefore falsified as the dominant cause.",
+    "The dynamic-kernel/topology route is rejected without full noise characterization because the first real-path screen is overwhelmingly negative.",
+    "No production path was changed and no new dynamic-graph candidate will be built on this route."
+  ]
+}

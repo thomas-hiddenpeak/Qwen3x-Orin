@@ -1,6 +1,7 @@
 #include "q3x/runtime/reference_runner.h"
 
 #include "q3x/kernels/sm87_fp8_prefill_supermatrix.h"
+#include "q3x/kernels/sm87_weight_only_gemv.h"
 #if defined(Q3X_ENABLE_BF16_AB_LARGE_M_PREFILL_ADMISSION)
 #include "q3x/kernels/sm87_bf16_ab_prefill.h"
 #endif
@@ -1497,6 +1498,8 @@ ReferenceRunner& ReferenceRunner::operator=(ReferenceRunner&& other) noexcept {
   pinned_trace_ = std::exchange(other.pinned_trace_, nullptr);
   decode_graph_p1_slots_ = other.decode_graph_p1_slots_;
   other.decode_graph_p1_slots_ = {};
+  decode_graph_dynamic_slot_ = other.decode_graph_dynamic_slot_;
+  other.decode_graph_dynamic_slot_ = {};
   decode_graph_capture_active_ =
       std::exchange(other.decode_graph_capture_active_, false);
   views_ = other.views_;
@@ -1628,6 +1631,18 @@ int ReferenceRunner::destroy_decode_graph_p1_slot(
       first_error = static_cast<int>(status);
     }
   }
+  if (slot.dynamic_device_parameters != nullptr) {
+    const cudaError_t status = cudaFree(slot.dynamic_device_parameters);
+    if (status != cudaSuccess && first_error == static_cast<int>(cudaSuccess)) {
+      first_error = static_cast<int>(status);
+    }
+  }
+  if (slot.dynamic_host_parameters != nullptr) {
+    const cudaError_t status = cudaFreeHost(slot.dynamic_host_parameters);
+    if (status != cudaSuccess && first_error == static_cast<int>(cudaSuccess)) {
+      first_error = static_cast<int>(status);
+    }
+  }
   slot = {};
   return first_error;
 }
@@ -1645,6 +1660,7 @@ void ReferenceRunner::destroy_decode_graph_p1() noexcept {
        position < decode_graph_p1_slots_.size(); ++position) {
     destroy_decode_graph_p1_slot(position);
   }
+  (void)destroy_decode_graph_p1_slot(decode_graph_dynamic_slot_);
 }
 
 ReferenceStepOutcome ReferenceRunner::fail_step(
@@ -1765,7 +1781,7 @@ ReferenceRunner::prepare_fixed_position_decode_graph_p1(
   options.logits_mode = ReferenceLogitsMode::kPredictedTokenOnly;
   ReferenceStepOutcome captured =
       step_impl(input_token_id, options,
-                DecodeGraphP1Action::kCaptureOnly);
+                DecodeGraphP1Action::kCaptureFixed);
   ReferenceDecodeGraphP1PrepareOutcome outcome;
   outcome.status = captured.status;
   const std::optional<ReferenceDecodeGraphP1Stats> stats =
@@ -1880,7 +1896,7 @@ ReferenceRunner::prepare_fixed_position_decode_graph_cache(
       return outcome;
     }
     ReferenceStepOutcome captured = step_impl(
-        input_token_id, options, DecodeGraphP1Action::kCaptureOnly,
+        input_token_id, options, DecodeGraphP1Action::kCaptureFixed,
         &staged_slots[position]);
     if (!captured) {
       const RequestOperationStatus restore_status = restore_entry_position();
@@ -1980,7 +1996,9 @@ ReferenceRunner::clear_fixed_position_decode_graph_cache() noexcept {
 
   std::array<DecodeGraphP1Slot, kReferenceDecodeGraphP2MaximumSlots>
       detached_slots = decode_graph_p1_slots_;
+  DecodeGraphP1Slot detached_dynamic_slot = decode_graph_dynamic_slot_;
   decode_graph_p1_slots_ = {};
+  decode_graph_dynamic_slot_ = {};
   int first_error = static_cast<int>(cudaSuccess);
   for (DecodeGraphP1Slot& slot : detached_slots) {
     const int status = destroy_decode_graph_p1_slot(slot);
@@ -1988,6 +2006,12 @@ ReferenceRunner::clear_fixed_position_decode_graph_cache() noexcept {
         first_error == static_cast<int>(cudaSuccess)) {
       first_error = status;
     }
+  }
+  const int dynamic_status =
+      destroy_decode_graph_p1_slot(detached_dynamic_slot);
+  if (dynamic_status != static_cast<int>(cudaSuccess) &&
+      first_error == static_cast<int>(cudaSuccess)) {
+    first_error = dynamic_status;
   }
   if (first_error != static_cast<int>(cudaSuccess)) {
     poisoned_ = true;
@@ -2030,7 +2054,183 @@ ReferenceRunner::replay_fixed_position_decode_graph_p1(
   options.measure_timing = measure_timing;
   options.logits_mode = ReferenceLogitsMode::kPredictedTokenOnly;
   return step_impl(input_token_id, options,
-                   DecodeGraphP1Action::kReplay);
+                   DecodeGraphP1Action::kReplayFixed);
+}
+
+ReferenceDecodeGraphP1PrepareOutcome
+ReferenceRunner::prepare_dynamic_position_decode_graph_p1(
+    const std::uint32_t input_token_id) noexcept {
+  constexpr std::uint32_t kCapturePosition =
+      static_cast<std::uint32_t>(kFusedGqaMaximumSequenceLength);
+  ReferenceDecodeGraphP1PrepareOutcome outcome;
+  if (!static_cast<bool>(*this)) {
+    outcome.status = runner_status(ReferenceRunnerError::kInvalidRunner,
+                                   "decode_graph_dynamic_prepare");
+    return outcome;
+  }
+  if (poisoned_) {
+    outcome.status = runner_status(ReferenceRunnerError::kPoisoned,
+                                   "decode_graph_dynamic_prepare");
+    return outcome;
+  }
+  if (state_->max_sequence_length() <= kCapturePosition) {
+    outcome.status = runner_status(
+        ReferenceRunnerError::kCapacityExceeded,
+        "decode_graph_dynamic_capacity");
+    return outcome;
+  }
+  if (input_token_id >= kReferenceVocabularySize) {
+    outcome.status = runner_status(ReferenceRunnerError::kTokenOutOfRange,
+                                   "decode_graph_dynamic_input_token");
+    return outcome;
+  }
+  if (!reference_runner_detail::use_decode_gqa_splitkv(
+          static_cast<std::size_t>(kCapturePosition) + 1U)) {
+    outcome.status = runner_status(
+        ReferenceRunnerError::kInvalidStepOptions,
+        "decode_graph_dynamic_requires_splitkv");
+    return outcome;
+  }
+
+  DecodeGraphP1Slot staged_slot;
+  cudaError_t allocation_status = cudaHostAlloc(
+      reinterpret_cast<void**>(&staged_slot.dynamic_host_parameters),
+      sizeof(DecodeDynamicGraphParameters), cudaHostAllocDefault);
+  if (allocation_status == cudaSuccess) {
+    allocation_status = cudaMalloc(
+        reinterpret_cast<void**>(&staged_slot.dynamic_device_parameters),
+        sizeof(DecodeDynamicGraphParameters));
+  }
+  if (allocation_status != cudaSuccess) {
+    const int cleanup_status = destroy_decode_graph_p1_slot(staged_slot);
+    outcome.status = runner_status(
+        ReferenceRunnerError::kCudaFailure,
+        cleanup_status == static_cast<int>(cudaSuccess)
+            ? "decode_graph_dynamic_parameter_allocate"
+            : "decode_graph_dynamic_parameter_allocate_cleanup",
+        kReferenceNoLayer,
+        cleanup_status == static_cast<int>(cudaSuccess)
+            ? static_cast<int>(allocation_status)
+            : cleanup_status);
+    return outcome;
+  }
+  *staged_slot.dynamic_host_parameters = DecodeDynamicGraphParameters{
+      input_token_id, kCapturePosition, kCapturePosition + 1U,
+      decode_gqa_splitkv_split_count(kCapturePosition + 1U)};
+
+  const std::uint32_t entry_position = state_->current_position();
+  const RequestOperationStatus position_status =
+      state_->set_sequence_length(kCapturePosition);
+  if (!position_status) {
+    const int cleanup_status = destroy_decode_graph_p1_slot(staged_slot);
+    outcome.status = runner_status(
+        cleanup_status == static_cast<int>(cudaSuccess)
+            ? ReferenceRunnerError::kStateCommitFailure
+            : ReferenceRunnerError::kCudaFailure,
+        cleanup_status == static_cast<int>(cudaSuccess)
+            ? "decode_graph_dynamic_set_position"
+            : "decode_graph_dynamic_set_position_cleanup",
+        kReferenceNoLayer,
+        cleanup_status == static_cast<int>(cudaSuccess)
+            ? position_status.cuda_error
+            : cleanup_status);
+    return outcome;
+  }
+
+  ReferenceStepOptions options;
+  options.compute_logits = true;
+  options.capture_trace = false;
+  options.measure_timing = false;
+  options.logits_mode = ReferenceLogitsMode::kPredictedTokenOnly;
+  ReferenceStepOutcome captured = step_impl(
+      input_token_id, options, DecodeGraphP1Action::kCaptureDynamic,
+      &staged_slot);
+  const RequestOperationStatus restore_status =
+      state_->set_sequence_length(entry_position);
+  if (!captured || !restore_status) {
+    const int cleanup_status = destroy_decode_graph_p1_slot(staged_slot);
+    if (!restore_status) {
+      poisoned_ = true;
+      trace_valid_ = false;
+      outcome.status = runner_status(
+          cleanup_status == static_cast<int>(cudaSuccess)
+              ? ReferenceRunnerError::kStateCommitFailure
+              : ReferenceRunnerError::kCudaFailure,
+          cleanup_status == static_cast<int>(cudaSuccess)
+              ? "decode_graph_dynamic_restore_position"
+              : "decode_graph_dynamic_rollback_destroy",
+          kReferenceNoLayer,
+          cleanup_status == static_cast<int>(cudaSuccess)
+              ? restore_status.cuda_error
+              : cleanup_status);
+    } else {
+      outcome.status = captured.status;
+    }
+    return outcome;
+  }
+
+  (void)destroy_decode_graph_p1_slot(decode_graph_dynamic_slot_);
+  decode_graph_dynamic_slot_ = staged_slot;
+  staged_slot = {};
+  outcome.status = captured.status;
+  outcome.value.emplace(decode_graph_dynamic_slot_.stats);
+  return outcome;
+}
+
+bool ReferenceRunner::has_dynamic_position_decode_graph_p1(
+    const std::uint32_t position) const noexcept {
+  constexpr std::uint32_t kFirstPosition =
+      static_cast<std::uint32_t>(kFusedGqaMaximumSequenceLength);
+  if (state_ == nullptr || position < kFirstPosition ||
+      position >= state_->max_sequence_length() ||
+      position >= kDecodeGqaSplitKvMaximumSequenceLength) {
+    return false;
+  }
+  const DecodeGraphP1Slot& slot = decode_graph_dynamic_slot_;
+  if (slot.graph == nullptr || slot.exec == nullptr ||
+      slot.embedding_node == nullptr ||
+      slot.embedding_launch.function == nullptr ||
+      slot.dynamic_host_parameters == nullptr ||
+      slot.dynamic_device_parameters == nullptr ||
+      slot.stats.position != kFirstPosition ||
+      slot.stats.position_dynamic_kernel_node_count != 0U) {
+    return false;
+  }
+  for (const DecodeGraphP1Slot::DynamicLayer& layer :
+       slot.dynamic_layers) {
+    if (layer.qkv_node == nullptr || layer.preprocess_node == nullptr ||
+        layer.split_state_node == nullptr || layer.merge_node == nullptr ||
+        layer.qkv_launch.function == nullptr ||
+        layer.preprocess_launch.function == nullptr ||
+        layer.split_state_launch.function == nullptr ||
+        layer.merge_launch.function == nullptr) {
+      return false;
+    }
+  }
+  return true;
+}
+
+std::optional<ReferenceDecodeGraphP1Stats>
+ReferenceRunner::dynamic_position_decode_graph_p1_stats() const noexcept {
+  constexpr std::uint32_t kFirstPosition =
+      static_cast<std::uint32_t>(kFusedGqaMaximumSequenceLength);
+  if (!has_dynamic_position_decode_graph_p1(kFirstPosition)) {
+    return std::nullopt;
+  }
+  return decode_graph_dynamic_slot_.stats;
+}
+
+ReferenceStepOutcome
+ReferenceRunner::replay_dynamic_position_decode_graph_p1(
+    const std::uint32_t input_token_id,
+    const bool measure_timing) noexcept {
+  ReferenceStepOptions options;
+  options.compute_logits = true;
+  options.capture_trace = false;
+  options.measure_timing = measure_timing;
+  options.logits_mode = ReferenceLogitsMode::kPredictedTokenOnly;
+  return step_impl(input_token_id, options,
+                   DecodeGraphP1Action::kReplayDynamic);
 }
 
 ReferenceStepOutcome ReferenceRunner::step_impl(
@@ -2076,6 +2276,18 @@ ReferenceStepOutcome ReferenceRunner::step_impl(
 
   const bool use_decode_graph_p1 =
       graph_action != DecodeGraphP1Action::kDisabled;
+  const bool capture_fixed_graph =
+      graph_action == DecodeGraphP1Action::kCaptureFixed;
+  const bool capture_dynamic_graph =
+      graph_action == DecodeGraphP1Action::kCaptureDynamic;
+  const bool capture_decode_graph =
+      capture_fixed_graph || capture_dynamic_graph;
+  const bool replay_fixed_graph =
+      graph_action == DecodeGraphP1Action::kReplayFixed;
+  const bool replay_dynamic_graph =
+      graph_action == DecodeGraphP1Action::kReplayDynamic;
+  const bool replay_decode_graph =
+      replay_fixed_graph || replay_dynamic_graph;
   if (use_decode_graph_p1 &&
       (!options.compute_logits || options.capture_trace ||
        options.logits_mode != ReferenceLogitsMode::kPredictedTokenOnly ||
@@ -2085,7 +2297,7 @@ ReferenceStepOutcome ReferenceRunner::step_impl(
         ReferenceRunnerError::kInvalidStepOptions,
         "decode_graph_p1_contract"));
   }
-  if (graph_action == DecodeGraphP1Action::kCaptureOnly) {
+  if (capture_decode_graph) {
     int device = -1;
     cudaDeviceProp properties{};
     cudaError_t cuda_status = cudaGetDevice(&device);
@@ -2109,15 +2321,25 @@ ReferenceStepOutcome ReferenceRunner::step_impl(
   const auto stream = reinterpret_cast<cudaStream_t>(stream_);
   DecodeGraphP1Slot* decode_graph_slot = nullptr;
   Clock::time_point decode_graph_prepare_started{};
-  if (graph_action == DecodeGraphP1Action::kCaptureOnly) {
-    if (position >= decode_graph_p1_slots_.size()) {
+  if (capture_decode_graph) {
+    if (capture_fixed_graph && position >= decode_graph_p1_slots_.size()) {
       return fail_step(runner_status(
           ReferenceRunnerError::kInvalidStepOptions,
           "decode_graph_p1_position_not_cacheable"));
     }
-    decode_graph_slot = capture_destination == nullptr
-                            ? &decode_graph_p1_slots_[position]
-                            : capture_destination;
+    if (capture_dynamic_graph &&
+        position != kFusedGqaMaximumSequenceLength) {
+      return fail_step(runner_status(
+          ReferenceRunnerError::kInvalidStepOptions,
+          "decode_graph_dynamic_capture_position"));
+    }
+    if (capture_destination != nullptr) {
+      decode_graph_slot = capture_destination;
+    } else if (capture_dynamic_graph) {
+      decode_graph_slot = &decode_graph_dynamic_slot_;
+    } else {
+      decode_graph_slot = &decode_graph_p1_slots_[position];
+    }
     decode_graph_prepare_started = Clock::now();
     const cudaError_t begin_status = cudaStreamBeginCapture(
         stream, cudaStreamCaptureModeThreadLocal);
@@ -2128,13 +2350,18 @@ ReferenceStepOutcome ReferenceRunner::step_impl(
           static_cast<int>(begin_status)));
     }
     decode_graph_capture_active_ = true;
-  } else if (graph_action == DecodeGraphP1Action::kReplay) {
-    if (!has_fixed_position_decode_graph_p1(position)) {
+  } else if (replay_decode_graph) {
+    const bool prepared = replay_dynamic_graph
+                              ? has_dynamic_position_decode_graph_p1(position)
+                              : has_fixed_position_decode_graph_p1(position);
+    if (!prepared) {
       return fail_step(runner_status(
           ReferenceRunnerError::kInvalidStepOptions,
           "decode_graph_p1_not_prepared"));
     }
-    decode_graph_slot = &decode_graph_p1_slots_[position];
+    decode_graph_slot = replay_dynamic_graph
+                            ? &decode_graph_dynamic_slot_
+                            : &decode_graph_p1_slots_[position];
   }
   ReferenceRunnerStatus launch_failure{};
   const auto check_cuda = [&launch_failure](
@@ -2147,6 +2374,41 @@ ReferenceStepOutcome ReferenceRunner::step_impl(
                                    operation, layer, status);
     return false;
   };
+  std::size_t dynamic_full_layer_slot = 0U;
+  const auto record_dynamic_capture_tail =
+      [capture_dynamic_graph, stream, &launch_failure](
+          void*& destination, const char* const operation,
+          const std::size_t layer) noexcept {
+        if (!capture_dynamic_graph) {
+          return true;
+        }
+        cudaStreamCaptureStatus capture_status =
+            cudaStreamCaptureStatusNone;
+        const cudaGraphNode_t* dependencies = nullptr;
+        std::size_t dependency_count = 0U;
+#if CUDART_VERSION >= 13000
+        const cudaError_t status = cudaStreamGetCaptureInfo(
+            stream, &capture_status, nullptr, nullptr, &dependencies,
+            nullptr, &dependency_count);
+#else
+        const cudaError_t status = cudaStreamGetCaptureInfo_v2(
+            stream, &capture_status, nullptr, nullptr, &dependencies,
+            &dependency_count);
+#endif
+        if (status != cudaSuccess ||
+            capture_status != cudaStreamCaptureStatusActive ||
+            dependency_count != 1U || dependencies == nullptr ||
+            dependencies[0] == nullptr) {
+          launch_failure = runner_status(
+              status == cudaSuccess
+                  ? ReferenceRunnerError::kInvalidStepOptions
+                  : ReferenceRunnerError::kCudaFailure,
+              operation, layer, static_cast<int>(status));
+          return false;
+        }
+        destination = dependencies[0];
+        return true;
+      };
   const auto project = [this, &check_cuda](
                            const LinearWeight& weight,
                            const std::uint16_t* const input,
@@ -2185,12 +2447,40 @@ ReferenceStepOutcome ReferenceRunner::step_impl(
       projection_backend_ == ProjectionBackend::kSm87WeightOnly &&
       linear_weight_kind(weights_->lm_head()) != LinearWeightKind::kBf16;
 
-  if (graph_action != DecodeGraphP1Action::kReplay) {
-  if (!check_cuda(launch_embedding_gather_reference_cuda(
-                      weights_->embed_tokens().weight,
-                      kReferenceVocabularySize, kReferenceHiddenSize,
-                      input_token_id, views_.hidden[0], stream_),
-                  "embedding_gather", kReferenceNoLayer)) {
+  if (!replay_decode_graph) {
+  if (capture_dynamic_graph) {
+    if (decode_graph_slot == nullptr ||
+        decode_graph_slot->dynamic_host_parameters == nullptr ||
+        decode_graph_slot->dynamic_device_parameters == nullptr ||
+        !check_cuda(static_cast<int>(cudaMemcpyAsync(
+                        decode_graph_slot->dynamic_device_parameters,
+                        decode_graph_slot->dynamic_host_parameters,
+                        sizeof(DecodeDynamicGraphParameters),
+                        cudaMemcpyHostToDevice, stream)),
+                    "decode_graph_dynamic_parameter_h2d",
+                    kReferenceNoLayer) ||
+        !check_cuda(launch_embedding_gather_dynamic_graph_cuda(
+                        weights_->embed_tokens().weight,
+                        kReferenceVocabularySize, kReferenceHiddenSize,
+                        decode_graph_slot->dynamic_device_parameters,
+                        views_.hidden[0], stream_),
+                    "embedding_gather_dynamic_graph",
+                    kReferenceNoLayer) ||
+        !record_dynamic_capture_tail(
+            decode_graph_slot->embedding_node,
+            "decode_graph_dynamic_capture_embedding",
+            kReferenceNoLayer)) {
+      return fail_step(launch_failure.ok()
+                           ? runner_status(
+                                 ReferenceRunnerError::kInvalidRunner,
+                                 "decode_graph_dynamic_parameters")
+                           : launch_failure);
+    }
+  } else if (!check_cuda(launch_embedding_gather_reference_cuda(
+                             weights_->embed_tokens().weight,
+                             kReferenceVocabularySize, kReferenceHiddenSize,
+                             input_token_id, views_.hidden[0], stream_),
+                         "embedding_gather", kReferenceNoLayer)) {
     return fail_step(launch_failure);
   }
   if (options.capture_trace &&
@@ -2317,6 +2607,19 @@ ReferenceStepOutcome ReferenceRunner::step_impl(
             ReferenceRunnerError::kInvalidLayerSchedule,
             "full_attention_variant", layer));
       }
+      if (capture_dynamic_graph &&
+          (decode_graph_slot == nullptr ||
+           dynamic_full_layer_slot >=
+               decode_graph_slot->dynamic_layers.size())) {
+        return fail_step(runner_status(
+            ReferenceRunnerError::kInvalidStepOptions,
+            "decode_graph_dynamic_full_layer_count", layer));
+      }
+      DecodeGraphP1Slot::DynamicLayer* const dynamic_graph_layer =
+          capture_dynamic_graph
+              ? &decode_graph_slot
+                     ->dynamic_layers[dynamic_full_layer_slot]
+              : nullptr;
       std::uint16_t* const current_key =
           views_.key_cache[layer] +
           static_cast<std::size_t>(position) * kFullKvElements;
@@ -2328,18 +2631,68 @@ ReferenceStepOutcome ReferenceRunner::step_impl(
       std::uint16_t* full_query = views_.projection[0];
       const std::size_t rope_first_position =
           static_cast<std::size_t>(position);
-      if (!check_cuda(launch_full_attention_q_kv_to_bf16_cuda(
-                          projection_backend_, attention->q_proj,
-                          attention->k_proj, attention->v_proj,
-                          views_.hidden[1], views_.fp32_scratch,
-                          views_.fp32_scratch_elements, views_.projection[0],
-                          current_key, current_value, stream_),
-                      "full_q_k_v_projection", layer)) {
+      if (dynamic_graph_layer != nullptr) {
+        const auto* const q_weight =
+            std::get_if<Fp8LinearWeight>(&attention->q_proj);
+        const auto* const k_weight =
+            std::get_if<Fp8LinearWeight>(&attention->k_proj);
+        const auto* const v_weight =
+            std::get_if<Fp8LinearWeight>(&attention->v_proj);
+        if (q_weight == nullptr || k_weight == nullptr || v_weight == nullptr ||
+            decode_graph_slot->dynamic_device_parameters == nullptr ||
+            !check_cuda(
+                kernels::launch_sm87_fp8_w8a16_gemv_q_kv_dynamic_graph_bf16_cuda(
+                    q_weight->weight, q_weight->weight_scale,
+                    k_weight->weight, k_weight->weight_scale,
+                    v_weight->weight, v_weight->weight_scale,
+                    views_.hidden[1], kFullQGateElements, kFullKvElements,
+                    kReferenceHiddenSize, views_.projection[0],
+                    views_.key_cache[layer], views_.value_cache[layer],
+                    decode_graph_slot->dynamic_device_parameters, stream_),
+                "full_q_k_v_projection_dynamic_graph", layer)) {
+          return fail_step(launch_failure.ok()
+                               ? runner_status(
+                                     ReferenceRunnerError::kInvalidModelWeights,
+                                     "full_q_k_v_projection_dynamic_weights",
+                                     layer)
+                               : launch_failure);
+        }
+      } else if (!check_cuda(launch_full_attention_q_kv_to_bf16_cuda(
+                                 projection_backend_, attention->q_proj,
+                                 attention->k_proj, attention->v_proj,
+                                 views_.hidden[1], views_.fp32_scratch,
+                                 views_.fp32_scratch_elements,
+                                 views_.projection[0], current_key,
+                                 current_value, stream_),
+                             "full_q_k_v_projection", layer)) {
+        return fail_step(launch_failure);
+      }
+      if (dynamic_graph_layer != nullptr &&
+          !record_dynamic_capture_tail(
+              dynamic_graph_layer->qkv_node,
+              "decode_graph_dynamic_capture_qkv", layer)) {
         return fail_step(launch_failure);
       }
 
-      if (reference_runner_detail::use_qk_rope_tile(rope_first_position,
-                                                     1U)) {
+      if (dynamic_graph_layer != nullptr) {
+        full_query = views_.projection[3];
+        if (!check_cuda(
+                launch_full_attention_preprocess_dynamic_graph_24_4_256_64_cuda(
+                    views_.projection[0], views_.key_cache[layer],
+                    attention->q_norm.data, attention->k_norm.data,
+                    kRmsEpsilon, full_query, packed_gates,
+                    views_.rope_cos, views_.rope_sin,
+                    decode_graph_slot->dynamic_device_parameters, stream_),
+                "full_preprocess_dynamic_graph", layer)) {
+          return fail_step(launch_failure);
+        }
+        if (!record_dynamic_capture_tail(
+                dynamic_graph_layer->preprocess_node,
+                "decode_graph_dynamic_capture_preprocess", layer)) {
+          return fail_step(launch_failure);
+        }
+      } else if (reference_runner_detail::use_qk_rope_tile(
+                     rope_first_position, 1U)) {
         full_query = views_.projection[3];
         if (!check_cuda(launch_full_attention_preprocess_24_4_256_64_cuda(
                             views_.projection[0], current_key,
@@ -2400,14 +2753,27 @@ ReferenceStepOutcome ReferenceRunner::step_impl(
         }
       } else if (reference_runner_detail::use_decode_gqa_splitkv(
                      sequence_length)) {
-        if (!check_cuda(
-                launch_gqa_attention_splitkv_sigmoid_gate_24_4_256_cuda(
-                    full_query, views_.key_cache[layer],
-                    views_.value_cache[layer], sequence_length,
-                    kAttentionScale, views_.fp32_scratch,
-                    views_.fp32_scratch_elements, packed_gates,
-                    views_.projection[1], stream_),
-                "full_gqa_splitkv_output_gate", layer)) {
+        const int split_status =
+            dynamic_graph_layer != nullptr
+                ? launch_gqa_attention_splitkv_dynamic_graph_sigmoid_gate_24_4_256_cuda(
+                      full_query, views_.key_cache[layer],
+                      views_.value_cache[layer], kAttentionScale,
+                      views_.fp32_scratch, views_.fp32_scratch_elements,
+                      packed_gates, views_.projection[1],
+                      decode_graph_slot->dynamic_device_parameters, stream_)
+                : launch_gqa_attention_splitkv_sigmoid_gate_24_4_256_cuda(
+                      full_query, views_.key_cache[layer],
+                      views_.value_cache[layer], sequence_length,
+                      kAttentionScale, views_.fp32_scratch,
+                      views_.fp32_scratch_elements, packed_gates,
+                      views_.projection[1], stream_);
+        if (!check_cuda(split_status, "full_gqa_splitkv_output_gate", layer)) {
+          return fail_step(launch_failure);
+        }
+        if (dynamic_graph_layer != nullptr &&
+            !record_dynamic_capture_tail(
+                dynamic_graph_layer->merge_node,
+                "decode_graph_dynamic_capture_split_merge", layer)) {
           return fail_step(launch_failure);
         }
       } else if (!check_cuda(launch_gqa_attention_reference_cuda(
@@ -2430,6 +2796,7 @@ ReferenceStepOutcome ReferenceRunner::step_impl(
                    "full_output_projection", layer)) {
         return fail_step(launch_failure);
       }
+      ++dynamic_full_layer_slot;
     } else {
       return fail_step(runner_status(
           ReferenceRunnerError::kInvalidLayerSchedule, "layer_schedule",
@@ -2552,7 +2919,7 @@ ReferenceStepOutcome ReferenceRunner::step_impl(
   }
   }
 
-  if (graph_action == DecodeGraphP1Action::kCaptureOnly) {
+  if (capture_decode_graph) {
     cudaGraph_t captured_graph = nullptr;
     const cudaError_t end_status =
         cudaStreamEndCapture(stream, &captured_graph);
@@ -2636,23 +3003,52 @@ ReferenceStepOutcome ReferenceRunner::step_impl(
           "decode_graph_p1_root_count", kReferenceNoLayer,
           static_cast<int>(graph_status)));
     }
-    cudaGraphNode_t embedding_node = nullptr;
+    cudaGraphNode_t root_node = nullptr;
     std::size_t returned_root_count = 1U;
     graph_status = cudaGraphGetRootNodes(
-        captured_graph, &embedding_node, &returned_root_count);
+        captured_graph, &root_node, &returned_root_count);
     cudaGraphNodeType root_type{};
     if (graph_status == cudaSuccess && returned_root_count == 1U &&
-        embedding_node != nullptr) {
-      graph_status = cudaGraphNodeGetType(embedding_node, &root_type);
+        root_node != nullptr) {
+      graph_status = cudaGraphNodeGetType(root_node, &root_type);
     }
+    const cudaGraphNodeType expected_root_type =
+        capture_dynamic_graph ? cudaGraphNodeTypeMemcpy
+                              : cudaGraphNodeTypeKernel;
     if (graph_status != cudaSuccess || returned_root_count != 1U ||
-        embedding_node == nullptr || root_type != cudaGraphNodeTypeKernel) {
+        root_node == nullptr || root_type != expected_root_type) {
       (void)cudaGraphDestroy(captured_graph);
       return fail_step(runner_status(
           graph_status == cudaSuccess
               ? ReferenceRunnerError::kInvalidStepOptions
               : ReferenceRunnerError::kCudaFailure,
-          "decode_graph_p1_embedding_root", kReferenceNoLayer,
+          capture_dynamic_graph ? "decode_graph_dynamic_parameter_root"
+                                : "decode_graph_p1_embedding_root",
+          kReferenceNoLayer,
+          static_cast<int>(graph_status)));
+    }
+
+    cudaGraphNode_t embedding_node =
+        capture_dynamic_graph
+            ? reinterpret_cast<cudaGraphNode_t>(
+                  decode_graph_slot == nullptr
+                      ? nullptr
+                      : decode_graph_slot->embedding_node)
+            : root_node;
+    cudaGraphNodeType embedding_type{};
+    if (capture_dynamic_graph && embedding_node != nullptr) {
+      graph_status = cudaGraphNodeGetType(embedding_node, &embedding_type);
+    }
+    if (embedding_node == nullptr ||
+        (capture_dynamic_graph &&
+         (graph_status != cudaSuccess ||
+          embedding_type != cudaGraphNodeTypeKernel))) {
+      (void)cudaGraphDestroy(captured_graph);
+      return fail_step(runner_status(
+          graph_status == cudaSuccess
+              ? ReferenceRunnerError::kInvalidStepOptions
+              : ReferenceRunnerError::kCudaFailure,
+          "decode_graph_dynamic_embedding_node", kReferenceNoLayer,
           static_cast<int>(graph_status)));
     }
 
@@ -2687,28 +3083,143 @@ ReferenceStepOutcome ReferenceRunner::step_impl(
           ReferenceRunnerError::kInvalidStepOptions,
           "decode_graph_p1_embedding_shape"));
     }
-    const auto captured_table =
-        *static_cast<const std::uint16_t* const*>(
-            embedding_launch.kernelParams[0]);
-    const std::size_t captured_offset =
-        *static_cast<const std::size_t*>(
-            embedding_launch.kernelParams[1]);
-    const std::size_t captured_hidden_size =
-        *static_cast<const std::size_t*>(
-            embedding_launch.kernelParams[2]);
-    const auto captured_output =
-        *static_cast<std::uint16_t* const*>(
-            embedding_launch.kernelParams[3]);
-    if (captured_table != weights_->embed_tokens().weight ||
-        captured_offset !=
-            static_cast<std::size_t>(input_token_id) *
-                kReferenceHiddenSize ||
-        captured_hidden_size != kReferenceHiddenSize ||
-        captured_output != views_.hidden[0]) {
+    const auto captured_table = *static_cast<const std::uint16_t* const*>(
+        embedding_launch.kernelParams[0]);
+    const auto captured_output = *static_cast<std::uint16_t* const*>(
+        embedding_launch.kernelParams[3]);
+    bool valid_embedding_arguments =
+        captured_table == weights_->embed_tokens().weight &&
+        captured_output == views_.hidden[0];
+    if (capture_dynamic_graph) {
+      const std::size_t captured_hidden_size =
+          *static_cast<const std::size_t*>(
+              embedding_launch.kernelParams[1]);
+      const auto captured_parameters =
+          *static_cast<const DecodeDynamicGraphParameters* const*>(
+              embedding_launch.kernelParams[2]);
+      valid_embedding_arguments =
+          valid_embedding_arguments &&
+          captured_hidden_size == kReferenceHiddenSize &&
+          decode_graph_slot != nullptr &&
+          captured_parameters ==
+              decode_graph_slot->dynamic_device_parameters;
+    } else {
+      const std::size_t captured_offset =
+          *static_cast<const std::size_t*>(
+              embedding_launch.kernelParams[1]);
+      const std::size_t captured_hidden_size =
+          *static_cast<const std::size_t*>(
+              embedding_launch.kernelParams[2]);
+      valid_embedding_arguments =
+          valid_embedding_arguments &&
+          captured_offset ==
+              static_cast<std::size_t>(input_token_id) *
+                  kReferenceHiddenSize &&
+          captured_hidden_size == kReferenceHiddenSize;
+    }
+    if (!valid_embedding_arguments) {
       (void)cudaGraphDestroy(captured_graph);
       return fail_step(runner_status(
           ReferenceRunnerError::kInvalidStepOptions,
           "decode_graph_p1_embedding_arguments"));
+    }
+
+    if (capture_dynamic_graph) {
+      bool topology_valid =
+          dynamic_full_layer_slot == kRequestFullLayerCount;
+      const char* topology_operation =
+          topology_valid ? nullptr
+                         : "decode_graph_dynamic_full_layer_topology";
+      const auto single_dependency =
+          [&graph_status](void* const node,
+                          void*& dependency) noexcept {
+            cudaGraphNode_t resolved = nullptr;
+            std::size_t count = 1U;
+#if CUDART_VERSION >= 13000
+            graph_status = cudaGraphNodeGetDependencies(
+                reinterpret_cast<cudaGraphNode_t>(node), &resolved,
+                nullptr, &count);
+#else
+            graph_status = cudaGraphNodeGetDependencies(
+                reinterpret_cast<cudaGraphNode_t>(node), &resolved,
+                &count);
+#endif
+            if (graph_status != cudaSuccess || count != 1U ||
+                resolved == nullptr) {
+              return false;
+            }
+            dependency = resolved;
+            return true;
+          };
+      const auto inspect_launch =
+          [&graph_status](
+              void* const node, const unsigned int grid_x,
+              const unsigned int grid_y, const unsigned int grid_z,
+              const unsigned int block_x,
+              DecodeGraphP1KernelLaunch& saved) noexcept {
+            if (node == nullptr) {
+              return false;
+            }
+            cudaKernelNodeParams params{};
+            graph_status = cudaGraphKernelNodeGetParams(
+                reinterpret_cast<cudaGraphNode_t>(node), &params);
+            if (graph_status != cudaSuccess || params.func == nullptr ||
+                params.gridDim.x != grid_x ||
+                params.gridDim.y != grid_y ||
+                params.gridDim.z != grid_z ||
+                params.blockDim.x != block_x ||
+                params.blockDim.y != 1U || params.blockDim.z != 1U ||
+                params.sharedMemBytes != 0U ||
+                params.kernelParams == nullptr || params.extra != nullptr) {
+              return false;
+            }
+            saved.function = params.func;
+            saved.grid = {params.gridDim.x, params.gridDim.y,
+                          params.gridDim.z};
+            saved.block = {params.blockDim.x, params.blockDim.y,
+                           params.blockDim.z};
+            saved.shared_memory_bytes = params.sharedMemBytes;
+            return true;
+          };
+
+      for (std::size_t index = 0U;
+           topology_valid && index < kRequestFullLayerCount; ++index) {
+        DecodeGraphP1Slot::DynamicLayer& layer_nodes =
+            decode_graph_slot->dynamic_layers[index];
+        if (!single_dependency(layer_nodes.merge_node,
+                               layer_nodes.split_state_node)) {
+          topology_valid = false;
+          topology_operation =
+              "decode_graph_dynamic_split_merge_dependency";
+          break;
+        }
+        const bool launch_shapes_valid =
+            inspect_launch(layer_nodes.qkv_node, 2'048U, 1U, 1U,
+                           256U, layer_nodes.qkv_launch) &&
+            inspect_launch(layer_nodes.preprocess_node, 28U, 1U, 1U,
+                           256U, layer_nodes.preprocess_launch) &&
+            inspect_launch(layer_nodes.split_state_node, 32U, 1U, 1U,
+                           192U, layer_nodes.split_state_launch) &&
+            inspect_launch(layer_nodes.merge_node, 24U, 1U, 1U,
+                           256U, layer_nodes.merge_launch);
+        if (!launch_shapes_valid) {
+          topology_valid = false;
+          topology_operation =
+              "decode_graph_dynamic_kernel_shape";
+        }
+      }
+      if (!topology_valid) {
+        (void)cudaGraphDestroy(captured_graph);
+        return fail_step(runner_status(
+            graph_status == cudaSuccess
+                ? ReferenceRunnerError::kInvalidStepOptions
+                : ReferenceRunnerError::kCudaFailure,
+            topology_operation == nullptr
+                ? "decode_graph_dynamic_topology"
+                : topology_operation,
+            kReferenceNoLayer, static_cast<int>(graph_status)));
+      }
+      stats.position_dynamic_kernel_node_count = 0U;
     }
     const Clock::time_point topology_finished = Clock::now();
     stats.topology_inspection_milliseconds =
@@ -2770,6 +3281,15 @@ ReferenceStepOutcome ReferenceRunner::step_impl(
         embedding_launch.blockDim.z};
     prepared_slot.embedding_launch.shared_memory_bytes =
         embedding_launch.sharedMemBytes;
+    if (capture_dynamic_graph) {
+      prepared_slot.dynamic_layers = decode_graph_slot->dynamic_layers;
+      prepared_slot.dynamic_host_parameters =
+          decode_graph_slot->dynamic_host_parameters;
+      prepared_slot.dynamic_device_parameters =
+          decode_graph_slot->dynamic_device_parameters;
+      decode_graph_slot->dynamic_host_parameters = nullptr;
+      decode_graph_slot->dynamic_device_parameters = nullptr;
+    }
     stats.total_prepare_milliseconds =
         std::chrono::duration<double, std::milli>(
             Clock::now() - decode_graph_prepare_started)
@@ -2788,34 +3308,49 @@ ReferenceStepOutcome ReferenceRunner::step_impl(
     return outcome;
   }
 
-  if (graph_action == DecodeGraphP1Action::kReplay) {
-    cudaKernelNodeParams embedding_params{};
-    embedding_params.func = decode_graph_slot->embedding_launch.function;
-    embedding_params.gridDim =
-        dim3(decode_graph_slot->embedding_launch.grid[0],
-             decode_graph_slot->embedding_launch.grid[1],
-             decode_graph_slot->embedding_launch.grid[2]);
-    embedding_params.blockDim =
-        dim3(decode_graph_slot->embedding_launch.block[0],
-             decode_graph_slot->embedding_launch.block[1],
-             decode_graph_slot->embedding_launch.block[2]);
-    embedding_params.sharedMemBytes =
-        decode_graph_slot->embedding_launch.shared_memory_bytes;
-    const std::uint16_t* embedding_table =
-        weights_->embed_tokens().weight;
-    std::size_t embedding_offset =
-        static_cast<std::size_t>(input_token_id) * kReferenceHiddenSize;
-    std::size_t embedding_hidden_size = kReferenceHiddenSize;
-    std::uint16_t* embedding_output = views_.hidden[0];
-    void* embedding_arguments[] = {
-        &embedding_table, &embedding_offset, &embedding_hidden_size,
-        &embedding_output};
-    embedding_params.kernelParams = embedding_arguments;
-    embedding_params.extra = nullptr;
-    cudaError_t graph_status = cudaGraphExecKernelNodeSetParams(
-        reinterpret_cast<cudaGraphExec_t>(decode_graph_slot->exec),
-        reinterpret_cast<cudaGraphNode_t>(decode_graph_slot->embedding_node),
-        &embedding_params);
+  if (replay_decode_graph) {
+    cudaError_t graph_status = cudaSuccess;
+    if (replay_dynamic_graph) {
+      if (decode_graph_slot->dynamic_host_parameters == nullptr ||
+          decode_graph_slot->dynamic_device_parameters == nullptr) {
+        graph_status = cudaErrorInvalidValue;
+      } else {
+        const std::uint32_t sequence_length = position + 1U;
+        *decode_graph_slot->dynamic_host_parameters =
+            DecodeDynamicGraphParameters{
+                input_token_id, position, sequence_length,
+                decode_gqa_splitkv_split_count(sequence_length)};
+      }
+    } else {
+      cudaKernelNodeParams embedding_params{};
+      embedding_params.func = decode_graph_slot->embedding_launch.function;
+      embedding_params.gridDim =
+          dim3(decode_graph_slot->embedding_launch.grid[0],
+               decode_graph_slot->embedding_launch.grid[1],
+               decode_graph_slot->embedding_launch.grid[2]);
+      embedding_params.blockDim =
+          dim3(decode_graph_slot->embedding_launch.block[0],
+               decode_graph_slot->embedding_launch.block[1],
+               decode_graph_slot->embedding_launch.block[2]);
+      embedding_params.sharedMemBytes =
+          decode_graph_slot->embedding_launch.shared_memory_bytes;
+      const std::uint16_t* embedding_table =
+          weights_->embed_tokens().weight;
+      std::size_t embedding_offset =
+          static_cast<std::size_t>(input_token_id) * kReferenceHiddenSize;
+      std::size_t embedding_hidden_size = kReferenceHiddenSize;
+      std::uint16_t* embedding_output = views_.hidden[0];
+      void* embedding_arguments[] = {
+          &embedding_table, &embedding_offset, &embedding_hidden_size,
+          &embedding_output};
+      embedding_params.kernelParams = embedding_arguments;
+      embedding_params.extra = nullptr;
+      graph_status = cudaGraphExecKernelNodeSetParams(
+          reinterpret_cast<cudaGraphExec_t>(decode_graph_slot->exec),
+          reinterpret_cast<cudaGraphNode_t>(
+              decode_graph_slot->embedding_node),
+          &embedding_params);
+    }
     if (graph_status == cudaSuccess) {
       graph_status = cudaGraphLaunch(
           reinterpret_cast<cudaGraphExec_t>(decode_graph_slot->exec), stream);
@@ -2823,7 +3358,9 @@ ReferenceStepOutcome ReferenceRunner::step_impl(
     if (graph_status != cudaSuccess) {
       return fail_step(runner_status(
           ReferenceRunnerError::kCudaFailure,
-          "decode_graph_p1_update_or_launch", kReferenceNoLayer,
+          replay_dynamic_graph ? "decode_graph_dynamic_launch"
+                               : "decode_graph_p1_update_or_launch",
+          kReferenceNoLayer,
           static_cast<int>(graph_status)));
     }
   }

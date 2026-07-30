@@ -1,5 +1,7 @@
 #include "q3x/kernels/sm87_weight_only_gemv.h"
 
+#include "q3x/runtime/decode_ops.h"
+
 #include "projection_route_registry.h"
 
 #include <cuda_bf16.h>
@@ -3085,6 +3087,57 @@ fp8_w8a16_gemv_bf16_q_kv_two_phase_reduction_scratch_ping_pong_kernel(
   decoded_weights[fp8_swizzled_codebook_slot(code)] = decode_e4m3fn(code);
   __syncthreads();
 
+  constexpr unsigned int kQRowQuads =
+      static_cast<unsigned int>(kFp8FullAttentionQRows / 4U);
+  unsigned int scratch_slot = 0U;
+  for (unsigned int row_quad = blockIdx.x; row_quad < kQRowQuads;
+       row_quad += kFp8FullAttentionBlocks) {
+    fp8_w8a16_gemv_bf16_complete_row_quad_no_tail_barrier_body(
+        q_weights, q_weight_scale, activation, kFp8KvPairColumns,
+        4U * row_quad, q_output, decoded_weights, warp_sums[scratch_slot],
+        lane, warp);
+    scratch_slot ^= 1U;
+  }
+
+  if (blockIdx.x >= kFp8FullAttentionKvFirstBlock &&
+      blockIdx.x <
+          kFp8FullAttentionKvFirstBlock + kFp8FullAttentionKvBlocks) {
+    const std::size_t row0 =
+        2U * static_cast<std::size_t>(blockIdx.x -
+                                     kFp8FullAttentionKvFirstBlock);
+    fp8_w8a16_gemv_bf16_complete_projection_pair_row_pair_body<false>(
+        key_weights, key_weight_scale, value_weights, value_weight_scale,
+        activation, kFp8KvPairColumns, row0, key_output, value_output,
+        decoded_weights, warp_sums[scratch_slot], lane, warp);
+  }
+}
+
+// Graph-stable production counterpart. The projection/reduction body is
+// identical; only K/V row selection moves from host kernel-parameter updates
+// into one device-resident control block.
+__global__ __launch_bounds__(kThreads, 4) void
+fp8_w8a16_gemv_bf16_q_kv_dynamic_graph_kernel(
+    const std::uint8_t* const q_weights, const float q_weight_scale,
+    const std::uint8_t* const key_weights, const float key_weight_scale,
+    const std::uint8_t* const value_weights, const float value_weight_scale,
+    const std::uint16_t* const activation,
+    std::uint16_t* const q_output, std::uint16_t* const key_cache,
+    std::uint16_t* const value_cache,
+    const runtime::DecodeDynamicGraphParameters* const parameters) {
+  __shared__ float decoded_weights[kFp8EncodedValueCount];
+  __shared__ float warp_sums[2U][4U][kWarpsPerBlock];
+  const unsigned int lane = threadIdx.x & (kWarpSize - 1U);
+  const unsigned int warp = threadIdx.x / kWarpSize;
+  const std::uint8_t code = static_cast<std::uint8_t>(threadIdx.x);
+  decoded_weights[fp8_swizzled_codebook_slot(code)] = decode_e4m3fn(code);
+  __syncthreads();
+
+  std::uint16_t* const key_output =
+      key_cache + static_cast<std::size_t>(parameters->position) *
+                      kFp8KvPairRows;
+  std::uint16_t* const value_output =
+      value_cache + static_cast<std::size_t>(parameters->position) *
+                        kFp8KvPairRows;
   constexpr unsigned int kQRowQuads =
       static_cast<unsigned int>(kFp8FullAttentionQRows / 4U);
   unsigned int scratch_slot = 0U;
@@ -23272,6 +23325,42 @@ int launch_sm87_fp8_w8a16_gemv_q_kv_bf16_cuda(
           q_weights, q_weight_scale, key_weights, key_weight_scale,
           value_weights, value_weight_scale, activation, q_output,
           key_output, value_output);
+  return static_cast<int>(cudaGetLastError());
+}
+
+int launch_sm87_fp8_w8a16_gemv_q_kv_dynamic_graph_bf16_cuda(
+    const std::uint8_t* const q_weights, const float q_weight_scale,
+    const std::uint8_t* const key_weights, const float key_weight_scale,
+    const std::uint8_t* const value_weights, const float value_weight_scale,
+    const std::uint16_t* const activation, const std::size_t q_rows,
+    const std::size_t kv_rows, const std::size_t columns,
+    std::uint16_t* const q_output,
+    std::uint16_t* const key_cache, std::uint16_t* const value_cache,
+    const runtime::DecodeDynamicGraphParameters* const parameters,
+    void* const cuda_stream) noexcept {
+  const int validation = validate_fp8_q_kv_launch(
+      q_weights, q_weight_scale, key_weights, key_weight_scale,
+      value_weights, value_weight_scale, activation, q_rows, kv_rows,
+      columns, q_output, key_cache, value_cache);
+  if (validation != static_cast<int>(cudaSuccess)) {
+    return validation;
+  }
+  if (parameters == nullptr ||
+      !pointer_is_aligned<alignof(runtime::DecodeDynamicGraphParameters)>(
+          parameters) ||
+      !fp8_q_kv_launch_is_aligned(q_weights, key_weights, value_weights,
+                                  activation, q_output, key_cache,
+                                  value_cache)) {
+    return invalid_value();
+  }
+
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  fp8_w8a16_gemv_bf16_q_kv_dynamic_graph_kernel
+      <<<kFp8FullAttentionBlocks, kThreads, 0U, stream>>>(
+          q_weights, q_weight_scale, key_weights, key_weight_scale,
+          value_weights, value_weight_scale, activation, q_output,
+          key_cache, value_cache, parameters);
   return static_cast<int>(cudaGetLastError());
 }
 

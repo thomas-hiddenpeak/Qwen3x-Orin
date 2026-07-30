@@ -3,6 +3,10 @@
 #include <cstddef>
 #include <cstdint>
 
+namespace q3x::runtime {
+struct DecodeDynamicGraphParameters;
+}
+
 namespace q3x::kernels {
 
 // SM87 single-request weight-only projection kernels. Unless an exact derived
@@ -124,6 +128,19 @@ launch_sm87_fp8_w8a16_m1_output_projection_aosoa4_pack_cuda(
     std::size_t kv_rows, std::size_t columns,
     std::uint16_t* q_output, std::uint16_t* key_output,
     std::uint16_t* value_output, void* cuda_stream = nullptr) noexcept;
+
+// Graph-stable counterpart for the exact production Q/K/V projection. K and
+// V are base cache pointers; the device control block selects the output row.
+[[nodiscard]] int launch_sm87_fp8_w8a16_gemv_q_kv_dynamic_graph_bf16_cuda(
+    const std::uint8_t* q_weights, float q_weight_scale,
+    const std::uint8_t* key_weights, float key_weight_scale,
+    const std::uint8_t* value_weights, float value_weight_scale,
+    const std::uint16_t* activation, std::size_t q_rows,
+    std::size_t kv_rows, std::size_t columns,
+    std::uint16_t* q_output, std::uint16_t* key_cache,
+    std::uint16_t* value_cache,
+    const runtime::DecodeDynamicGraphParameters* parameters,
+    void* cuda_stream = nullptr) noexcept;
 
 // ModelOpt NVFP4 W4A16 canonical layout. packed_weights is [rows, columns/2],
 // block_scales is E4M3FN [rows, columns/16], low nibble precedes high nibble,

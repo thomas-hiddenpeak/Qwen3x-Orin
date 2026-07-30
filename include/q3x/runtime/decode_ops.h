@@ -10,14 +10,37 @@ inline constexpr std::size_t kFullAttentionHeadDimension = 256U;
 inline constexpr std::size_t kFusedGqaMaximumSequenceLength = 64U;
 inline constexpr std::size_t kDecodeGqaSplitKvMaximumSequenceLength = 4'096U;
 inline constexpr std::size_t kDecodeGqaSplitKvMaximumSplits = 8U;
+inline constexpr std::size_t
+    kDecodeGqaSplitKvFourSplitMaximumSequenceLength = 512U;
 inline constexpr std::size_t kDecodeGqaSplitKvStateElements = 258U;
 inline constexpr std::size_t kDecodeGqaSplitKvMaximumWorkspaceElements =
     24U * kDecodeGqaSplitKvMaximumSplits *
     kDecodeGqaSplitKvStateElements;
+
+[[nodiscard]] constexpr unsigned int decode_gqa_splitkv_split_count(
+    const std::size_t sequence_length) noexcept {
+  return sequence_length <=
+                 kDecodeGqaSplitKvFourSplitMaximumSequenceLength
+             ? 4U
+             : 8U;
+}
 inline constexpr std::size_t kBulkCausalGqaMaximumSequenceLength = 262'144U;
 inline constexpr std::size_t kQwenRotaryDimension = 64U;
 inline constexpr std::size_t kQkRopeTileMaximumTokens = 16U;
 inline constexpr std::size_t kFullAttentionPreprocessMaximumTokens = 512U;
+
+// One cache-line-friendly control block drives the graph-stable long-decode
+// admission path. A captured H2D memcpy refreshes it before every replay;
+// position-dependent kernels then read it directly instead of requiring any
+// cudaGraphExecKernelNodeSetParams calls on the host hot path.
+struct alignas(16) DecodeDynamicGraphParameters {
+  std::uint32_t input_token_id = 0U;
+  std::uint32_t position = 0U;
+  std::uint32_t sequence_length = 0U;
+  std::uint32_t split_count = 0U;
+};
+
+static_assert(sizeof(DecodeDynamicGraphParameters) == 16U);
 
 enum class DecodeOpStatus : std::uint8_t {
   kSuccess = 0,
@@ -148,6 +171,11 @@ inline constexpr std::size_t kBf16GreedyArgmaxWorkspaceResults = 33U;
     const std::uint16_t* embedding_table, std::size_t vocabulary_size,
     std::size_t hidden_size, std::size_t token_id, std::uint16_t* output,
     void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int launch_embedding_gather_dynamic_graph_cuda(
+    const std::uint16_t* embedding_table, std::size_t vocabulary_size,
+    std::size_t hidden_size, const DecodeDynamicGraphParameters* parameters,
+    std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
 
 // Prompt-wide counterpart. token_ids must already reside in device-accessible
 // storage. The embedding_table, token_ids, and output byte ranges must be
@@ -293,6 +321,19 @@ launch_residual_add_headwise_centered_rms_norm_prefill_5120_cuda(
     std::size_t first_position, std::size_t token_count,
     void* cuda_stream = nullptr) noexcept;
 
+[[nodiscard]] int launch_full_attention_preprocess_dynamic_graph_24_4_256_64_cuda(
+    const std::uint16_t* interleaved_q_gate,
+    std::uint16_t* key_cache,
+    const std::uint16_t* q_weight,
+    const std::uint16_t* k_weight,
+    float epsilon,
+    std::uint16_t* query_output,
+    std::uint16_t* gate_output,
+    const float* cosines,
+    const float* sines,
+    const DecodeDynamicGraphParameters* parameters,
+    void* cuda_stream = nullptr) noexcept;
+
 [[nodiscard]] int launch_softmax_reference_cuda(
     const float* input, std::size_t rows, std::size_t columns, float* output,
     void* cuda_stream = nullptr) noexcept;
@@ -341,6 +382,15 @@ launch_gqa_attention_splitkv_sigmoid_gate_24_4_256_cuda(
     const std::uint16_t* value_cache, std::size_t sequence_length,
     float attention_scale, float* workspace, std::size_t workspace_elements,
     const std::uint16_t* gate, std::uint16_t* output,
+    void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
+launch_gqa_attention_splitkv_dynamic_graph_sigmoid_gate_24_4_256_cuda(
+    const std::uint16_t* query, const std::uint16_t* key_cache,
+    const std::uint16_t* value_cache, float attention_scale,
+    float* workspace, std::size_t workspace_elements,
+    const std::uint16_t* gate, std::uint16_t* output,
+    const DecodeDynamicGraphParameters* parameters,
     void* cuda_stream = nullptr) noexcept;
 
 // Fixed-shape bulk causal full-attention path for Q=24, KV=4, and D=256.

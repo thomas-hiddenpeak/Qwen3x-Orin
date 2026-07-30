@@ -348,6 +348,21 @@ __global__ void embedding_gather_kernel(
   }
 }
 
+__global__ void embedding_gather_dynamic_graph_kernel(
+    const std::uint16_t* const table,
+    const std::size_t hidden_size,
+    const DecodeDynamicGraphParameters* const parameters,
+    std::uint16_t* const output) {
+  const std::size_t offset =
+      static_cast<std::size_t>(parameters->input_token_id) * hidden_size;
+  for (std::size_t index =
+           static_cast<std::size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+       index < hidden_size;
+       index += static_cast<std::size_t>(blockDim.x) * gridDim.x) {
+    output[index] = table[offset + index];
+  }
+}
+
 __global__ void embedding_gather_prompt_kernel(
     const std::uint16_t* const table,
     const std::size_t vocabulary_size,
@@ -531,6 +546,104 @@ __global__ void full_attention_preprocess_24_4_256_64_kernel(
         decode_bf16_device(head_output[dimension + kHalfRotary]);
     // Spell out which product is rounded before the FFMA. This is the exact
     // instruction order emitted for qk_partial_neox_rope_tile above.
+    const float rotated_first = fmaf(first, cosine, -(second * sine));
+    const float rotated_second = fmaf(second, cosine, first * sine);
+    head_output[dimension] = encode_bf16_device(rotated_first);
+    head_output[dimension + kHalfRotary] =
+        encode_bf16_device(rotated_second);
+  }
+}
+
+// Exact M=1 graph-stable variant. The computation is deliberately duplicated
+// from the frozen production kernel so its arithmetic and synchronization
+// remain unchanged; only the cache row and RoPE position come from the device
+// control block captured by the graph.
+__global__ void full_attention_preprocess_dynamic_graph_24_4_256_64_kernel(
+    const std::uint16_t* const interleaved_q_gate,
+    std::uint16_t* const key_cache,
+    const std::uint16_t* const q_weight,
+    const std::uint16_t* const k_weight,
+    const float epsilon,
+    std::uint16_t* const query_output,
+    std::uint16_t* const gate_output,
+    const float* const cosines,
+    const float* const sines,
+    const DecodeDynamicGraphParameters* const parameters) {
+  constexpr std::size_t kCombinedHeads =
+      kFullPreprocessQueryHeads + kFullPreprocessKvHeads;
+  constexpr std::size_t kKeyElementsPerToken =
+      kFullPreprocessKvHeads * kFullPreprocessHeadDimension;
+  __shared__ float partial[kThreads];
+
+  const std::size_t first_position = parameters->position;
+  std::uint16_t* const key =
+      key_cache + first_position * kKeyElementsPerToken;
+  const std::size_t combined_head = static_cast<std::size_t>(blockIdx.x);
+  const std::size_t token = combined_head / kCombinedHeads;
+  const std::size_t token_head = combined_head - token * kCombinedHeads;
+  const bool is_query = token_head < kFullPreprocessQueryHeads;
+  const std::size_t head =
+      is_query ? token_head : token_head - kFullPreprocessQueryHeads;
+  const std::size_t dimension = threadIdx.x;
+
+  std::size_t packed_offset = 0U;
+  const std::uint16_t* weight = nullptr;
+  float value = 0.0F;
+  if (is_query) {
+    packed_offset =
+        (token * kFullPreprocessQueryHeads + head) *
+            kFullPreprocessHeadDimension +
+        dimension;
+    const std::size_t interleaved_offset =
+        (token * kFullPreprocessQueryHeads + head) *
+            (2U * kFullPreprocessHeadDimension) +
+        dimension;
+    value = decode_bf16_device(interleaved_q_gate[interleaved_offset]);
+    gate_output[packed_offset] =
+        interleaved_q_gate[interleaved_offset +
+                           kFullPreprocessHeadDimension];
+    weight = q_weight;
+  } else {
+    packed_offset =
+        (token * kFullPreprocessKvHeads + head) *
+            kFullPreprocessHeadDimension +
+        dimension;
+    value = decode_bf16_device(key[packed_offset]);
+    weight = k_weight;
+  }
+
+  float sum = 0.0F;
+  sum = fmaf(value, value, sum);
+  partial[threadIdx.x] = sum;
+  __syncthreads();
+  for (unsigned int stride = kThreads / 2U; stride != 0U; stride >>= 1U) {
+    if (threadIdx.x < stride) {
+      partial[threadIdx.x] += partial[threadIdx.x + stride];
+    }
+    __syncthreads();
+  }
+  const float inverse_rms =
+      rsqrtf(partial[0] /
+                 static_cast<float>(kFullPreprocessHeadDimension) +
+             epsilon);
+  const float gamma = decode_bf16_device(weight[dimension]) + 1.0F;
+  const std::uint16_t normalized =
+      encode_bf16_device(value * inverse_rms * gamma);
+  std::uint16_t* const normalized_output = is_query ? query_output : key;
+  normalized_output[packed_offset] = normalized;
+
+  constexpr std::size_t kHalfRotary = kQwenRotaryDimension / 2U;
+  __syncthreads();
+  if (dimension < kHalfRotary) {
+    std::uint16_t* const head_output =
+        normalized_output + packed_offset - dimension;
+    const std::size_t table_offset =
+        (first_position + token) * kHalfRotary + dimension;
+    const float cosine = cosines[table_offset];
+    const float sine = sines[table_offset];
+    const float first = decode_bf16_device(head_output[dimension]);
+    const float second =
+        decode_bf16_device(head_output[dimension + kHalfRotary]);
     const float rotated_first = fmaf(first, cosine, -(second * sine));
     const float rotated_second = fmaf(second, cosine, first * sine);
     head_output[dimension] = encode_bf16_device(rotated_first);
@@ -2720,6 +2833,27 @@ int launch_embedding_gather_reference_cuda(
   return static_cast<int>(cudaGetLastError());
 }
 
+int launch_embedding_gather_dynamic_graph_cuda(
+    const std::uint16_t* const embedding_table,
+    const std::size_t vocabulary_size,
+    const std::size_t hidden_size,
+    const DecodeDynamicGraphParameters* const parameters,
+    std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  if (vocabulary_size == 0U ||
+      multiply_overflows(vocabulary_size, hidden_size) || hidden_size == 0U ||
+      embedding_table == nullptr || parameters == nullptr ||
+      output == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const auto stream = static_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  embedding_gather_dynamic_graph_kernel
+      <<<block_count(hidden_size), kThreads, 0U, stream>>>(
+          embedding_table, hidden_size, parameters, output);
+  return static_cast<int>(cudaGetLastError());
+}
+
 int launch_embedding_gather_prompt_reference_cuda(
     const std::uint16_t* const embedding_table,
     const std::size_t vocabulary_size,
@@ -3185,6 +3319,36 @@ int launch_full_attention_preprocess_24_4_256_64_cuda(
             interleaved_q_gate, key, q_weight, k_weight, epsilon,
             query_output, gate_output, cosines, sines, first_position);
   }
+  return static_cast<int>(cudaGetLastError());
+}
+
+int launch_full_attention_preprocess_dynamic_graph_24_4_256_64_cuda(
+    const std::uint16_t* const interleaved_q_gate,
+    std::uint16_t* const key_cache,
+    const std::uint16_t* const q_weight,
+    const std::uint16_t* const k_weight,
+    const float epsilon,
+    std::uint16_t* const query_output,
+    std::uint16_t* const gate_output,
+    const float* const cosines,
+    const float* const sines,
+    const DecodeDynamicGraphParameters* const parameters,
+    void* const cuda_stream) noexcept {
+  if (!valid_epsilon(epsilon) || interleaved_q_gate == nullptr ||
+      key_cache == nullptr || q_weight == nullptr || k_weight == nullptr ||
+      query_output == nullptr || gate_output == nullptr ||
+      cosines == nullptr || sines == nullptr || parameters == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  constexpr unsigned int kCombinedHeads =
+      static_cast<unsigned int>(kFullPreprocessQueryHeads +
+                                kFullPreprocessKvHeads);
+  const auto stream = static_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  full_attention_preprocess_dynamic_graph_24_4_256_64_kernel
+      <<<kCombinedHeads, kThreads, 0U, stream>>>(
+          interleaved_q_gate, key_cache, q_weight, k_weight, epsilon,
+          query_output, gate_output, cosines, sines, parameters);
   return static_cast<int>(cudaGetLastError());
 }
 

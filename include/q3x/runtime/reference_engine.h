@@ -197,6 +197,11 @@ struct ReferenceEngineLoadStats {
   std::uint32_t decode_graph_cache_first_position = 0U;
   std::uint32_t decode_graph_cache_last_position = 0U;
   std::size_t decode_graph_cache_slot_count = 0U;
+  bool decode_graph_dynamic_position_ready = false;
+  std::uint32_t decode_graph_dynamic_first_position = 0U;
+  std::size_t decode_graph_dynamic_node_count = 0U;
+  std::size_t decode_graph_dynamic_kernel_node_count = 0U;
+  std::size_t decode_graph_dynamic_updated_kernel_node_count = 0U;
   double decode_graph_cache_capture_enqueue_milliseconds = 0.0;
   double decode_graph_cache_topology_inspection_milliseconds = 0.0;
   double decode_graph_cache_instantiate_milliseconds = 0.0;
