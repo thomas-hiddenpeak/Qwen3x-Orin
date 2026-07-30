@@ -1,6 +1,7 @@
 #include "q3x/runtime/model_weights.h"
 
 #include "q3x/io/safetensors.h"
+#include "q3x/runtime/prefill_quantized_contract.h"
 
 #include <cuda_runtime.h>
 
@@ -1411,6 +1412,225 @@ bool ModelWeights::attach_nvfp4_marlin_prefill_sidecars(
   return true;
 }
 
+bool ModelWeights::attach_prefill_a4_sidecars(
+    const std::uint8_t* const arena, const std::size_t arena_bytes,
+    const PrefillSidecarManifest* const manifest) noexcept {
+  const auto projection_for = [](DecoderLayerWeights& layer,
+                                 const PrefillProjectionFamily family)
+      noexcept -> LinearWeight* {
+    switch (family) {
+      case PrefillProjectionFamily::kMlpGate:
+        return &layer.mlp.gate_proj;
+      case PrefillProjectionFamily::kMlpUp:
+        return &layer.mlp.up_proj;
+      case PrefillProjectionFamily::kMlpDown:
+        return &layer.mlp.down_proj;
+      case PrefillProjectionFamily::kLinearQkv:
+      case PrefillProjectionFamily::kLinearZ:
+      case PrefillProjectionFamily::kLinearO: {
+        auto* const attention =
+            std::get_if<LinearAttentionWeights>(&layer.attention);
+        if (attention == nullptr) {
+          return nullptr;
+        }
+        if (family == PrefillProjectionFamily::kLinearQkv) {
+          return &attention->in_proj_qkv;
+        }
+        if (family == PrefillProjectionFamily::kLinearZ) {
+          return &attention->in_proj_z;
+        }
+        return &attention->out_proj;
+      }
+      case PrefillProjectionFamily::kFullQ:
+      case PrefillProjectionFamily::kFullK:
+      case PrefillProjectionFamily::kFullV:
+      case PrefillProjectionFamily::kFullO: {
+        auto* const attention =
+            std::get_if<FullAttentionWeights>(&layer.attention);
+        if (attention == nullptr) {
+          return nullptr;
+        }
+        if (family == PrefillProjectionFamily::kFullQ) {
+          return &attention->q_proj;
+        }
+        if (family == PrefillProjectionFamily::kFullK) {
+          return &attention->k_proj;
+        }
+        if (family == PrefillProjectionFamily::kFullV) {
+          return &attention->v_proj;
+        }
+        return &attention->o_proj;
+      }
+      case PrefillProjectionFamily::kCount:
+        return nullptr;
+    }
+    return nullptr;
+  };
+  const auto clear_weight = [](LinearWeight& binding) noexcept {
+    if (auto* const fp8 = std::get_if<Fp8LinearWeight>(&binding)) {
+      fp8->prefill_a4_weight = nullptr;
+      fp8->prefill_a4_scales = nullptr;
+      fp8->prefill_a4_metadata = nullptr;
+      fp8->prefill_a4_scale_group_size = 0U;
+    } else if (auto* const nvfp4 =
+                   std::get_if<NvFp4LinearWeight>(&binding)) {
+      nvfp4->prefill_a4_weight = nullptr;
+      nvfp4->prefill_a4_scales = nullptr;
+      nvfp4->prefill_a4_metadata = nullptr;
+      nvfp4->prefill_a4_scale_group_size = 0U;
+    }
+  };
+  const auto clear_all = [this, &clear_weight]() noexcept {
+    for (DecoderLayerWeights& layer : layers_) {
+      clear_weight(layer.mlp.gate_proj);
+      clear_weight(layer.mlp.up_proj);
+      clear_weight(layer.mlp.down_proj);
+      if (auto* const linear =
+              std::get_if<LinearAttentionWeights>(&layer.attention)) {
+        clear_weight(linear->in_proj_qkv);
+        clear_weight(linear->in_proj_z);
+        clear_weight(linear->out_proj);
+      } else if (auto* const full =
+                     std::get_if<FullAttentionWeights>(&layer.attention)) {
+        clear_weight(full->q_proj);
+        clear_weight(full->k_proj);
+        clear_weight(full->v_proj);
+        clear_weight(full->o_proj);
+      }
+    }
+  };
+
+  if (arena == nullptr && arena_bytes == 0U && manifest == nullptr) {
+    clear_all();
+    return true;
+  }
+  if (arena == nullptr || manifest == nullptr ||
+      manifest->residency_class != PrefillSidecarResidencyClass::kA4 ||
+      (manifest->kind != PrefillSidecarKind::kA4K64 &&
+       manifest->kind != PrefillSidecarKind::kA4K128) ||
+      !validate_prefill_sidecar_manifest(*manifest) ||
+      manifest->projections.size() != kQwen36PrefillProjectionCount ||
+      manifest->summary.arena_bytes != arena_bytes ||
+      arena_bytes == 0U) {
+    return false;
+  }
+  constexpr auto kPointerMaximum =
+      std::numeric_limits<std::uintptr_t>::max();
+  const std::uintptr_t arena_address =
+      reinterpret_cast<std::uintptr_t>(arena);
+  if (arena_address % manifest->arena_alignment != 0U ||
+      arena_bytes > kPointerMaximum ||
+      arena_address > kPointerMaximum - arena_bytes) {
+    return false;
+  }
+  const std::uintptr_t arena_end = arena_address + arena_bytes;
+
+  struct ValidatedBinding {
+    LinearWeight* binding = nullptr;
+    const std::uint8_t* weight = nullptr;
+    const std::uint16_t* scales = nullptr;
+    const std::uint8_t* metadata = nullptr;
+    std::uint32_t scale_group_size = 0U;
+  };
+  std::array<ValidatedBinding, kQwen36PrefillProjectionCount> validated{};
+  for (std::size_t index = 0U; index < manifest->projections.size();
+       ++index) {
+    const PrefillProjectionSidecarEntry& entry =
+        manifest->projections[index];
+    if (entry.ordinal != index || entry.layer_index >= layers_.size() ||
+        entry.quantization != PrefillWeightQuantization::kSymmetricW4 ||
+        (entry.scale_group_size != 64U &&
+         entry.scale_group_size != 128U) ||
+        entry.input_size % entry.scale_group_size != 0U ||
+        entry.sidecar_offset > arena_bytes ||
+        entry.sidecar_byte_size > arena_bytes - entry.sidecar_offset ||
+        entry.weight_bytes > entry.sidecar_byte_size ||
+        entry.scale_bytes > entry.sidecar_byte_size - entry.weight_bytes ||
+        entry.metadata_bytes !=
+            entry.sidecar_byte_size - entry.weight_bytes -
+                entry.scale_bytes) {
+      return false;
+    }
+    LinearWeight* const binding =
+        projection_for(layers_[entry.layer_index], entry.family);
+    if (binding == nullptr ||
+        linear_output_size(*binding) != entry.output_size ||
+        linear_input_size(*binding) != entry.input_size) {
+      return false;
+    }
+    const bool mlp =
+        entry.family == PrefillProjectionFamily::kMlpGate ||
+        entry.family == PrefillProjectionFamily::kMlpUp ||
+        entry.family == PrefillProjectionFamily::kMlpDown;
+    if (mlp) {
+      const auto* const nvfp4 =
+          std::get_if<NvFp4LinearWeight>(binding);
+      if (!has_valid_nvfp4_payload(nvfp4) ||
+          nvfp4->prefill_marlin_weight != nullptr ||
+          nvfp4->prefill_marlin_scales != nullptr ||
+          nvfp4->prefill_marlin_global_scale != nullptr) {
+        return false;
+      }
+    } else {
+      const auto* const fp8 = std::get_if<Fp8LinearWeight>(binding);
+      if (!has_valid_fp8_payload(fp8) ||
+          fp8->prefill_qkv_register_feed_sidecar != nullptr ||
+          fp8->prefill_supermatrix_sidecar != nullptr ||
+          fp8->prefill_marlin_weight != nullptr ||
+          fp8->prefill_marlin_scales != nullptr) {
+        return false;
+      }
+    }
+
+    const std::uintptr_t projection_address =
+        arena_address + entry.sidecar_offset;
+    if (projection_address >= arena_end ||
+        projection_address % 16U != 0U ||
+        entry.weight_bytes > arena_end - projection_address) {
+      return false;
+    }
+    const std::uintptr_t scale_address =
+        projection_address + entry.weight_bytes;
+    if (scale_address % alignof(std::uint16_t) != 0U ||
+        entry.scale_bytes > arena_end - scale_address) {
+      return false;
+    }
+    const std::uintptr_t metadata_address =
+        scale_address + entry.scale_bytes;
+    if (entry.metadata_bytes > arena_end - metadata_address) {
+      return false;
+    }
+    validated[index] = ValidatedBinding{
+        binding,
+        reinterpret_cast<const std::uint8_t*>(projection_address),
+        reinterpret_cast<const std::uint16_t*>(scale_address),
+        entry.metadata_bytes == 0U
+            ? nullptr
+            : reinterpret_cast<const std::uint8_t*>(metadata_address),
+        entry.scale_group_size};
+  }
+
+  clear_all();
+  for (const ValidatedBinding& entry : validated) {
+    if (auto* const fp8 = std::get_if<Fp8LinearWeight>(entry.binding)) {
+      fp8->prefill_a4_weight = entry.weight;
+      fp8->prefill_a4_scales = entry.scales;
+      fp8->prefill_a4_metadata = entry.metadata;
+      fp8->prefill_a4_scale_group_size = entry.scale_group_size;
+    } else if (auto* const nvfp4 =
+                   std::get_if<NvFp4LinearWeight>(entry.binding)) {
+      nvfp4->prefill_a4_weight = entry.weight;
+      nvfp4->prefill_a4_scales = entry.scales;
+      nvfp4->prefill_a4_metadata = entry.metadata;
+      nvfp4->prefill_a4_scale_group_size = entry.scale_group_size;
+    } else {
+      clear_all();
+      return false;
+    }
+  }
+  return true;
+}
+
 LinearWeightKind linear_weight_kind(const LinearWeight& weight) noexcept {
   if (std::holds_alternative<Bf16LinearWeight>(weight)) {
     return LinearWeightKind::kBf16;
@@ -1431,6 +1651,24 @@ std::size_t linear_input_size(const LinearWeight& weight) noexcept {
   return std::visit(
       [](const auto& selected) noexcept { return input_size_of(selected); },
       weight);
+}
+
+PrefillA4LinearSidecarView prefill_a4_sidecar_view(
+    const LinearWeight& weight) noexcept {
+  if (const auto* const fp8 = std::get_if<Fp8LinearWeight>(&weight)) {
+    return {fp8->prefill_a4_weight, fp8->prefill_a4_scales,
+            fp8->prefill_a4_metadata,
+            fp8->prefill_a4_scale_group_size, fp8->output_size,
+            fp8->input_size};
+  }
+  if (const auto* const nvfp4 =
+          std::get_if<NvFp4LinearWeight>(&weight)) {
+    return {nvfp4->prefill_a4_weight, nvfp4->prefill_a4_scales,
+            nvfp4->prefill_a4_metadata,
+            nvfp4->prefill_a4_scale_group_size, nvfp4->output_size,
+            nvfp4->input_size};
+  }
+  return {};
 }
 
 bool supports_bf16_projection_pair(
