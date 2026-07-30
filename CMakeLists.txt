@@ -190,6 +190,7 @@ add_library(q3x_core STATIC
   src/model/weight_manifest.cpp
   src/runtime/model_weights.cpp
   src/runtime/long_prefill_layer_major.cpp
+  src/runtime/prefill_a4_sidecar_converter.cpp
   src/runtime/prefill_quantized_contract.cpp
   src/runtime/reference_oracle.cpp
   src/runtime/resident_weights.cpp
@@ -431,6 +432,10 @@ q3x_enable_warnings(qwen3x-orin)
 add_executable(qwen3x-inspect tools/q3x-inspect/main.cpp)
 target_link_libraries(qwen3x-inspect PRIVATE q3x::core)
 q3x_enable_warnings(qwen3x-inspect)
+
+add_executable(qwen3x-a4-sidecar tools/q3x-a4-sidecar/main.cpp)
+target_link_libraries(qwen3x-a4-sidecar PRIVATE q3x::core)
+q3x_enable_warnings(qwen3x-a4-sidecar)
 
 if(BUILD_TESTING)
   find_package(Python3 QUIET COMPONENTS Interpreter)
@@ -1859,6 +1864,20 @@ if(BUILD_TESTING)
     LABELS "host;prefill;architecture;manifest;arena"
   )
 
+  add_executable(q3x_prefill_a4_sidecar_converter_test
+    tests/prefill_a4_sidecar_converter_test.cpp
+  )
+  target_link_libraries(q3x_prefill_a4_sidecar_converter_test
+    PRIVATE q3x::core
+  )
+  q3x_enable_warnings(q3x_prefill_a4_sidecar_converter_test)
+  add_test(NAME prefill_a4_sidecar_converter
+    COMMAND q3x_prefill_a4_sidecar_converter_test
+  )
+  set_tests_properties(prefill_a4_sidecar_converter PROPERTIES
+    LABELS "host;prefill;quantization;sidecar;io"
+  )
+
   if(Q3X_BUILD_LONG_PREFILL_LAYER_MAJOR_ADMISSION)
     add_executable(q3x_long_prefill_layer_major_plan_test
       tests/long_prefill_layer_major_plan_test.cpp
@@ -2092,6 +2111,7 @@ endif()
 
 install(TARGETS q3x_core q3x_text q3x_kernels q3x_engine
                 qwen3x-orin qwen3x-eval-server qwen3x-inspect
+                qwen3x-a4-sidecar
   EXPORT Qwen3xOrinTargets
   ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
   LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
