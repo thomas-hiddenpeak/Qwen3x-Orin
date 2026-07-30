@@ -844,17 +844,10 @@ __global__ void Marlin(
       int4* sh_a_stage = sh_a + a_sh_stage * pipe;
   #pragma unroll
       for (int i = 0; i < a_sh_wr_iters; i++) {
-#if defined(Q3X_VLLM_MARLIN_CACHE_ACTIVATION_A)
-        cp_async4_ca_pred(
-            &sh_a_stage[a_sh_wr_trans[i]],
-            &A[a_gl_rd_delta_i * i + a_gl_rd + a_gl_rd_delta_o * a_off],
-            a_sh_wr_pred[i]);
-#else
         cp_async4_pred(
             &sh_a_stage[a_sh_wr_trans[i]],
             &A[a_gl_rd_delta_i * i + a_gl_rd + a_gl_rd_delta_o * a_off],
             a_sh_wr_pred[i]);
-#endif
       }
       int4* sh_b_stage = sh_b + b_sh_stage * pipe;
   #pragma unroll

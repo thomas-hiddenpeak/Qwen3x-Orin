@@ -1,14 +1,7 @@
 #include "q3x/kernels/sm87_nvfp4_marlin.h"
 
 #include "third_party/vllm_marlin/gptq_marlin_repack_kernel.cuh"
-
-// The fixed SM87 NVFP4 path reuses each activation tile across many output
-// tiles.  Keep only A in L1 while packed weights and block scales retain the
-// vendored Marlin streaming policy.  This translation-unit-local switch does
-// not alter the FP8 Marlin instantiations.
-#define Q3X_VLLM_MARLIN_CACHE_ACTIVATION_A 1
 #include "third_party/vllm_marlin/marlin_template.h"
-#undef Q3X_VLLM_MARLIN_CACHE_ACTIVATION_A
 
 #include <cuda_fp16.h>
 #include <cuda_runtime.h>
