@@ -2018,7 +2018,7 @@ void launch_attention_scores_unchecked(
     const std::size_t first_position,
     const std::size_t token_count,
     const std::uint16_t* const output) noexcept {
-  if (token_count < kBulkGqaQueryTile || token_count > 512U ||
+  if (token_count == 0U || token_count > 512U ||
       first_position > kBulkGqaMaximumSequence - token_count ||
       query == nullptr || key_cache == nullptr || value_cache == nullptr ||
       gate == nullptr || output == nullptr) {

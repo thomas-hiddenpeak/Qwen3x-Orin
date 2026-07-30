@@ -313,7 +313,7 @@ launch_residual_add_headwise_centered_rms_norm_prefill_5120_cuda(
     std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
 
 // Fixed-shape bulk causal full-attention path for Q=24, KV=4, and D=256.
-// token_count must be in [2, 512]. query_tile, gate_tile, and
+// token_count must be in [1, 512]. query_tile, gate_tile, and
 // output_tile are tile-local [token_count, 24, 256] BF16 arrays. key_cache
 // and value_cache use global contiguous NHD layout
 // [position, 4, 256], and first_position is the global append position of
@@ -321,7 +321,8 @@ launch_residual_add_headwise_centered_rms_norm_prefill_5120_cuda(
 // preserves the FP32 attention -> BF16 -> sigmoid Gate -> BF16 boundary.
 // All arrays must be disjoint and at least uint32_t aligned. P0/C2..C512 and
 // P512/C2..C512 continuations use the grouped-Q64 Tensor Core path; other
-// legal append positions use QT2. Both paths mask incomplete tiles. The
+// legal append positions use QT2. Both paths mask incomplete tiles; the QT2
+// path also masks its unused second query row when token_count is one. The
 // launch is asynchronous, performs no allocation or synchronization, and
 // uses no caller-visible scratch.
 [[nodiscard]] constexpr bool use_bulk_causal_gqa_group_q64_prefill(

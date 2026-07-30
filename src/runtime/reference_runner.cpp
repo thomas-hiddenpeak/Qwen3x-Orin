@@ -68,6 +68,19 @@ constexpr std::size_t kProductionProjectionSubtileTokens = 32U;
 constexpr float kRmsEpsilon = 1.0e-6F;
 constexpr float kAttentionScale = 1.0F / 16.0F;
 
+[[nodiscard]] bool decode_bulk_causal_gqa_c1_environment_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_DECODE_BULK_GQA_C1_ADMISSION");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
+// Keep the established serial decode path as the same-ELF baseline. The
+// evaluation server executes generation on a dedicated worker, so initialize
+// the admission switch independently in that worker from the process
+// environment.
+thread_local bool g_enable_decode_bulk_causal_gqa_c1_admission =
+    decode_bulk_causal_gqa_c1_environment_enabled();
+
 [[nodiscard]] bool
 full_attention_preprocess_prompt_wide_environment_enabled() noexcept {
   const char* const value = std::getenv(
@@ -2381,6 +2394,18 @@ ReferenceStepOutcome ReferenceRunner::step_impl(
                     views_.fp32_scratch_elements, packed_gates,
                     views_.projection[1], stream_),
                 "full_gqa_output_gate", layer)) {
+          return fail_step(launch_failure);
+        }
+      } else if (g_enable_decode_bulk_causal_gqa_c1_admission &&
+                 projection_backend_ == ProjectionBackend::kSm87WeightOnly &&
+                 static_cast<std::size_t>(position) <
+                     kBulkCausalGqaMaximumSequenceLength) {
+        if (!check_cuda(
+                launch_bulk_causal_gqa_sigmoid_gate_24_4_256_cuda(
+                    full_query, views_.key_cache[layer],
+                    views_.value_cache[layer], packed_gates, position, 1U,
+                    views_.projection[1], stream_),
+                "full_bulk_gqa_output_gate_c1", layer)) {
           return fail_step(launch_failure);
         }
       } else if (!check_cuda(launch_gqa_attention_reference_cuda(

@@ -9790,9 +9790,6 @@ void run_bulk_gqa_correctness_case(
     const int invalid_failures_before = test.failures();
     const std::string invalid = "bulk GQA invalid graph ";
     expect_invalid_bulk_gqa_graph(
-        test, stream, invalid + "C1", query, key, value, gate, 0U, 1U,
-        candidate);
-    expect_invalid_bulk_gqa_graph(
         test, stream, invalid + "C513", query, key, value, gate, 0U, 513U,
         candidate);
     expect_invalid_bulk_gqa_graph(
@@ -9826,7 +9823,7 @@ void run_bulk_gqa_correctness_case(
     expect_invalid_bulk_gqa_compatibility_scale_graph(
         test, stream, invalid + "compatibility wrong scale", query, key,
         value, gate, candidate);
-    std::cout << "BULK_GQA_INVALID_GRAPH: production_cases=11 "
+    std::cout << "BULK_GQA_INVALID_GRAPH: production_cases=10 "
                  "compatibility_cases=1 "
                  "zero_node_contract=true "
                  "gate="
@@ -9886,6 +9883,7 @@ void test_bulk_causal_gqa_prefill_contract(TestContext& test,
 
   test_bulk_gqa_flashinfer_cold_capture_contract(test, stream);
   test_bulk_gqa_near_max_graph_contract(test, stream);
+  run_bulk_gqa_correctness_case(test, stream, 64U, 1U, true);
   run_bulk_gqa_correctness_case(test, stream, 0U, 256U, true);
   run_bulk_gqa_correctness_case(test, stream, 0U, 512U, true);
   run_bulk_gqa_correctness_case(test, stream, 0U, 407U, true);
