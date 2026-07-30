@@ -1,0 +1,187 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-long-context-attention-admission-2026-07-31",
+  "status": "retained_default_off_candidate_not_yet_production_promoted",
+  "recorded_at": "2026-07-31T03:30:00+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "implementation_commit": "a6bb6eebb00acfd32ea1c6b9c318f6ea6584166e",
+    "gate_correction_commit": "660b803c242139de56070038006170d740aaa478",
+    "measured_tree": "cddd572c137f45d7c8bbd4a16dbe97af313bdfd1",
+    "branch": "codex/prefill-2k-systematic",
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "checkpoint_directory_at_measurement": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "build_admission": "Q3X_BUILD_FULL_ATTENTION_LONG_CONTEXT_GROUP_Q64_ADMISSION=ON",
+    "run_admission": "Q3X_RUN_FULL_ATTENTION_LONG_CONTEXT_GROUP_Q64_ADMISSION=1",
+    "production_default_changed": false
+  },
+  "measured_binary": {
+    "path_at_measurement": "/tmp/q3x-prefill-long-attn-eval-build/qwen3x-eval-server",
+    "bytes": 12429480,
+    "sha256": "8cde68fcb02a94252c058dda13b5fb972e9f3673ac0c0391d1e46c81ad7e22c1",
+    "elf_build_id": "b761b6c35f22cae9312025255332b6ffc279d9e0",
+    "build_type": "Release",
+    "target_architecture": "sm_87",
+    "same_elf_off_on": true
+  },
+  "mechanism": {
+    "problem": "P1024 and later C2..C512 full-attention tiles fell back to the generic QT2 kernel although the existing online-softmax wrapper accepted arbitrary global first positions.",
+    "candidate": "Admit P1024+ tiles through the existing FlashInfer SinglePrefill direct route, with the native grouped-Q64 online-softmax kernel as the non-FlashInfer fallback.",
+    "scope": {
+      "minimum_first_position": 1024,
+      "maximum_sequence_length": 40960,
+      "minimum_token_count": 2,
+      "maximum_token_count": 512,
+      "packed_first_position_bits": 18
+    },
+    "fallback": "The established generic QT2 path remains unchanged when either BUILD or RUN admission is disabled or a selector boundary is missed.",
+    "mtp_used": false,
+    "cublaslt_used": false,
+    "new_persistent_allocation_bytes": 0
+  },
+  "external_performance_protocol": {
+    "authority": "real-model, whole-server direction and retention gate",
+    "framework": "EvalScope perf 1.9.1",
+    "path": "OpenAI-compatible streamed /v1/completions",
+    "workload": "complete natural ShareGPT conversations, one warmup plus four measured requests per bucket",
+    "request": {
+      "parallel": 1,
+      "workers": 1,
+      "max_tokens": 1,
+      "temperature": 0,
+      "seed": 42,
+      "prefix_cache": false,
+      "mtp": false
+    },
+    "server": {
+      "prefill_chunk_size": 512,
+      "max_sequence_length": 4096,
+      "projection_backend": "sm87",
+      "flashinfer_direct": true
+    },
+    "baseline_output_root": "/tmp/q3x-long-attn-final-off-matrix-v1",
+    "candidate_output_root": "/tmp/q3x-long-attn-final-on-matrix-v1",
+    "command": "tools/evaluation/run_native_pure_prefill_matrix.sh ELF MODEL_DIR /tmp/q3x-pure-prefill-corpora-v1 OUTPUT_ROOT",
+    "metric": "EvalScope TTFT and effective total throughput; both include the full HTTP/server/model path"
+  },
+  "external_performance": {
+    "p512": {
+      "average_prompt_tokens": 527.25,
+      "baseline_ttft_ms": 1232.0,
+      "candidate_ttft_ms": 1207.26,
+      "ttft_reduction_percent": 2.01,
+      "baseline_total_throughput_tokens_per_second": 428.6653,
+      "candidate_total_throughput_tokens_per_second": 437.4626,
+      "throughput_gain_percent": 2.05,
+      "route_note": "The P1024+ candidate is not reached; this small difference has no retention authority."
+    },
+    "p1k": {
+      "average_prompt_tokens": 1053.75,
+      "baseline_ttft_ms": 2458.84,
+      "candidate_ttft_ms": 2383.31,
+      "ttft_reduction_percent": 3.07,
+      "baseline_total_throughput_tokens_per_second": 428.9021,
+      "candidate_total_throughput_tokens_per_second": 442.5026,
+      "throughput_gain_percent": 3.17
+    },
+    "p2k": {
+      "average_prompt_tokens": 1924.75,
+      "baseline_ttft_ms": 5016.55,
+      "candidate_ttft_ms": 4359.22,
+      "ttft_reduction_percent": 13.10,
+      "baseline_total_throughput_tokens_per_second": 383.8488,
+      "candidate_total_throughput_tokens_per_second": 441.7258,
+      "throughput_gain_percent": 15.08
+    },
+    "p4k": {
+      "average_prompt_tokens": 3806.75,
+      "baseline_ttft_ms": 12501.98,
+      "candidate_ttft_ms": 8460.03,
+      "ttft_reduction_percent": 32.33,
+      "baseline_total_throughput_tokens_per_second": 304.5593,
+      "candidate_total_throughput_tokens_per_second": 450.0613,
+      "throughput_gain_percent": 47.77
+    },
+    "success_requests_per_bucket": "4/4 baseline and 4/4 candidate",
+    "semantic_first_token_comparison": "equal for every request in every bucket after ignoring response IDs and timestamps"
+  },
+  "external_artifact_hashes": {
+    "baseline_summary_sha256": {
+      "p512": "e94ac36bde535dd65cd90a85a1c28e0c7b027c7cb11184ca6e7a44536c91981f",
+      "p1k": "0cd2a5bced592530438e1a360474dc2d3417238962b7510391faf3db7f545861",
+      "p2k": "06229438f687d2ff21a49c6e0672c8d4964b63115e061eecb5a1d716b2c1b2af",
+      "p4k": "df36e6735ee9f7c99662a5e3db5d41b736a34fe221f93d7748b0389456210258"
+    },
+    "candidate_summary_sha256": {
+      "p512": "8cc209bbbcc57f259b69ee27dba36be6e9809228a59cb5fc710585acc5fabfff",
+      "p1k": "d67557a5e32399193cfe5a13edf063cfd92abd09bc6cfa1731169844edbc8c40",
+      "p2k": "e5d445dbface72e5851d3304307902a95885a429017addfb398c6f6a38fddeff",
+      "p4k": "ae81829ba587e651acc36a633eae58a17f3031909be818c1da243ae61092413b"
+    }
+  },
+  "nsys_p3847": {
+    "baseline_report": {
+      "path_at_measurement": "/tmp/q3x-long-attn-off-p3847-v2.nsys-rep",
+      "bytes": 1419816,
+      "sha256": "743e1072360d457510ffcb19d34040ea71c00702d51b3f88605e0a9c82ee8ff6"
+    },
+    "candidate_report": {
+      "path_at_measurement": "/tmp/q3x-long-attn-on-p3847-v1.nsys-rep",
+      "bytes": 1496953,
+      "sha256": "2825d56ac3f2c76fd943cddd1e1e456f7db38236c35cf4ee83e452a9dbd548b4"
+    },
+    "baseline": {
+      "generic_qt2_calls": 96,
+      "generic_qt2_total_ns": 4177819904,
+      "flashinfer_attention_calls": 32,
+      "flashinfer_attention_total_ns": 10753280,
+      "flashinfer_gate_calls": 32,
+      "flashinfer_gate_total_ns": 5407808,
+      "attention_chain_total_ns": 4193980992,
+      "all_kernel_total_ns": 13378881632
+    },
+    "candidate": {
+      "generic_qt2_calls": 0,
+      "generic_qt2_total_ns": 0,
+      "flashinfer_attention_calls": 128,
+      "flashinfer_attention_total_ns": 130801792,
+      "flashinfer_gate_calls": 128,
+      "flashinfer_gate_total_ns": 20052768,
+      "attention_chain_total_ns": 150854560,
+      "all_kernel_total_ns": 9343491808
+    },
+    "attention_chain_saved_ns": 4043126432,
+    "attention_chain_reduction_percent": 96.4031,
+    "projection_kernel_time_note": "The three large projection families remained approximately 7.6 seconds in both profiles; the measured wall improvement is attributable to removal of the QT2 path."
+  },
+  "validation": {
+    "host_gate_off_on": "pass 2/2",
+    "cuda_test_binary_sha256": "06470bbbe091d7f28dba7b271694bade1f5cfda7723991cab7dd61d3ef1e22bf",
+    "flashinfer_direct_cuda_suite": "pass",
+    "native_group_q64_fallback_cuda_suite": "pass",
+    "long_position_cases": [
+      {
+        "first_position": 1024,
+        "token_count": 256,
+        "maximum_absolute_error": 0.0078125,
+        "normalized_rmse": 0.0000678493,
+        "cosine": 1.0
+      },
+      {
+        "first_position": 4096,
+        "token_count": 64,
+        "maximum_absolute_error": 0.0,
+        "normalized_rmse": 0.0,
+        "cosine": 1.0
+      }
+    ],
+    "p17_fallback": "pass; P17 remains on generic QT2",
+    "graph_replay": "bitwise deterministic",
+    "input_and_guard_integrity": "pass"
+  },
+  "split_kv_priority": {
+    "finding": "The C512 FlashInfer specialization already launches 192 CTAs. On the 16-SM Orin its automatic split-KV heuristic does not partition this shape even when scratch is supplied.",
+    "decision": "Do not prioritize forced split-KV before layer-major execution and large-M projection work; profile again at 8K/16K/40K before considering forced S2."
+  },
+  "decision": "Retain the candidate and use it as the new optimized Prefill composition baseline. Keep BUILD and RUN gates default-off until the production-promotion change is reviewed together with the remaining Prefill architecture work."
+}

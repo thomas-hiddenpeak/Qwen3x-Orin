@@ -28,6 +28,14 @@ real-P513 saving, full-state numerical characterization, and explicit
 non-production decision are recorded in
 [`qwen36-27b-prefill-gdn-chunk64-architecture-2026-07-29.json`](qwen36-27b-prefill-gdn-chunk64-architecture-2026-07-29.json).
 
+The first real-prompt long-context Prefill structure win is recorded in
+[`qwen36-27b-prefill-long-context-attention-admission-2026-07-31.json`](qwen36-27b-prefill-long-context-attention-admission-2026-07-31.json).
+On the same server ELF it removes all 96 generic-QT2 calls from the P3847
+profile, cuts the measured attention chain by 96.4%, and improves the P4K
+EvalScope effective throughput from 304.6 to 450.1 token/s.  It is a retained
+default-off candidate and a new optimized-composition baseline, not yet a
+default production-route promotion.
+
 Policy correction effective 2026-07-29: cuBLASLt is permanently an external
 benchmark reference.  It has no production-dispatch, fallback, native
 development-retention, or production-promotion eligibility.  Older evidence
