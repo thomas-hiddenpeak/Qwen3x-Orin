@@ -109,6 +109,13 @@ constexpr unsigned int kFp8QkvZMaximumTestBlocks =
     kFp8QkvRowQuads + kFp8ZRowQuads;
 constexpr unsigned int kFp8QkvZProductionBlocks = 1'536U;
 constexpr unsigned int kFp8QkvZMaximumZBlocks = 768U;
+// Test-admission-only topology for the exact Decode QKV/Z pair.  AGX Orin
+// exposes sixteen SMs, so 64 CTAs keep four independent row-quad owners on
+// every SM.  The complete 4,096-task projection divides exactly: every CTA
+// owns 40 QKV row quads followed by 24 Z row quads.
+constexpr unsigned int kFp8QkvZBalancedPersistentBlocks = 64U;
+constexpr unsigned int kFp8QkvZTotalRowQuads =
+    kFp8QkvRowQuads + kFp8ZRowQuads;
 constexpr std::size_t kLinearAttentionAbRows = 48U;
 constexpr unsigned int kFp8QkvZAbFirstTailBlock = 1'024U;
 constexpr std::size_t kLinearAttentionConvHistoryWidth = 3U;
@@ -171,6 +178,9 @@ static_assert(kFp8QkvRegisterFeedK16Groups * kThreads *
               kFp8QkvRegisterFeedNBlockRows *
                   kFp8QkvRegisterFeedKStageColumns);
 static_assert(kFp8QkvRegisterFeedSidecarBytes == 52'428'800U);
+static_assert(kFp8QkvZTotalRowQuads == 4'096U);
+static_assert((kFp8QkvRowQuads % kFp8QkvZBalancedPersistentBlocks) == 0U);
+static_assert((kFp8ZRowQuads % kFp8QkvZBalancedPersistentBlocks) == 0U);
 static_assert((kFp8FullAttentionBlocks % 2U) == 0U);
 static_assert((kFp8FullAttentionKvFirstBlock % 2U) == 0U);
 static_assert((kFp8FullAttentionKvBlocks % 2U) == 0U);
@@ -2186,6 +2196,243 @@ __device__ __forceinline__ void bf16_exact_shared_tree_reduce(
   if constexpr (ScratchWillBeReused) {
     __syncthreads();
   }
+}
+
+// One CTA-resident activation stripe for the exact K=5120 row-quad mapping.
+// The canonical body assigns four adjacent K values to every thread and
+// advances by 1,024 values, hence these five packed words are precisely all
+// activation data consumed by this thread for every QKV and Z row quad.  The
+// five one-time LDG.E.64 instructions replace 64 * 5 repeated activation
+// loads in the persistent topology without changing BF16 decode or FFMA
+// ordering.
+struct Fp8QkvZActivationStripe {
+  std::uint64_t stage0;
+  std::uint64_t stage1;
+  std::uint64_t stage2;
+  std::uint64_t stage3;
+  std::uint64_t stage4;
+};
+
+template <unsigned int Stage>
+__device__ __forceinline__ void
+fp8_w8a16_qkv_z_balanced_accumulate_stage(
+    const std::uint8_t* const row0_weights,
+    const std::uint8_t* const row1_weights,
+    const std::uint8_t* const row2_weights,
+    const std::uint8_t* const row3_weights,
+    const std::uint64_t packed_activation,
+    const float* const decoded_weights, float (&accumulators0)[4],
+    float (&accumulators1)[4], float (&accumulators2)[4],
+    float (&accumulators3)[4]) {
+  static_assert(Stage < 5U);
+  constexpr std::size_t kStageColumns = kFp8VectorColumnsPerBlock;
+  const std::size_t first_column =
+      static_cast<std::size_t>(threadIdx.x) * kFp8VectorValuesPerLane +
+      static_cast<std::size_t>(Stage) * kStageColumns;
+  const std::uint32_t packed_weights0 = __ldcs(
+      reinterpret_cast<const unsigned int*>(row0_weights + first_column));
+  const std::uint32_t packed_weights1 = __ldcs(
+      reinterpret_cast<const unsigned int*>(row1_weights + first_column));
+  const std::uint32_t packed_weights2 = __ldcs(
+      reinterpret_cast<const unsigned int*>(row2_weights + first_column));
+  const std::uint32_t packed_weights3 = __ldcs(
+      reinterpret_cast<const unsigned int*>(row3_weights + first_column));
+  constexpr std::uint32_t kFp8PackedHighBits = 0x0707'0707U;
+  const std::uint32_t swizzled_weights0 =
+      packed_weights0 ^ ((packed_weights0 >> 5U) & kFp8PackedHighBits);
+  const std::uint32_t swizzled_weights1 =
+      packed_weights1 ^ ((packed_weights1 >> 5U) & kFp8PackedHighBits);
+  const std::uint32_t swizzled_weights2 =
+      packed_weights2 ^ ((packed_weights2 >> 5U) & kFp8PackedHighBits);
+  const std::uint32_t swizzled_weights3 =
+      packed_weights3 ^ ((packed_weights3 >> 5U) & kFp8PackedHighBits);
+#pragma unroll
+  for (unsigned int value = 0U; value < kFp8VectorValuesPerLane; ++value) {
+    const unsigned int weight_shift = value * 8U;
+    const std::uint8_t encoded_weight0 = static_cast<std::uint8_t>(
+        (swizzled_weights0 >> weight_shift) & 0xffU);
+    const std::uint8_t encoded_weight1 = static_cast<std::uint8_t>(
+        (swizzled_weights1 >> weight_shift) & 0xffU);
+    const std::uint8_t encoded_weight2 = static_cast<std::uint8_t>(
+        (swizzled_weights2 >> weight_shift) & 0xffU);
+    const std::uint8_t encoded_weight3 = static_cast<std::uint8_t>(
+        (swizzled_weights3 >> weight_shift) & 0xffU);
+    const std::uint16_t encoded_activation = static_cast<std::uint16_t>(
+        (packed_activation >> (value * 16U)) & 0xffffU);
+    const float decoded_activation = decode_bf16(encoded_activation);
+    accumulators0[value] =
+        fmaf(decoded_weights[encoded_weight0], decoded_activation,
+             accumulators0[value]);
+    accumulators1[value] =
+        fmaf(decoded_weights[encoded_weight1], decoded_activation,
+             accumulators1[value]);
+    accumulators2[value] =
+        fmaf(decoded_weights[encoded_weight2], decoded_activation,
+             accumulators2[value]);
+    accumulators3[value] =
+        fmaf(decoded_weights[encoded_weight3], decoded_activation,
+             accumulators3[value]);
+  }
+}
+
+// Exact arithmetic row-quad body for the globally balanced persistent
+// candidate.  It differs from the production body only in the source of the
+// five activation words: the caller-owned register stripe replaces repeated
+// global loads.  Weight load policy, E4M3FN lookup, FFMA order, warp tree,
+// block tree, global scale, and BF16 publication order remain unchanged.
+__device__ __forceinline__ void
+fp8_w8a16_gemv_bf16_qkv_z_balanced_row_quad_body(
+    const std::uint8_t* const weights, const float weight_scale,
+    const unsigned int row0, std::uint16_t* const output,
+    const Fp8QkvZActivationStripe& activation_stripe,
+    const float* const decoded_weights,
+    float (*const warp_sums)[kWarpsPerBlock], const unsigned int lane,
+    const unsigned int warp) {
+  const std::uint8_t* const row0_weights =
+      weights + static_cast<std::size_t>(row0) * kFp8QkvZColumns;
+  const std::uint8_t* const row1_weights = row0_weights + kFp8QkvZColumns;
+  const std::uint8_t* const row2_weights = row1_weights + kFp8QkvZColumns;
+  const std::uint8_t* const row3_weights = row2_weights + kFp8QkvZColumns;
+  float accumulators0[4]{0.0F, 0.0F, 0.0F, 0.0F};
+  float accumulators1[4]{0.0F, 0.0F, 0.0F, 0.0F};
+  float accumulators2[4]{0.0F, 0.0F, 0.0F, 0.0F};
+  float accumulators3[4]{0.0F, 0.0F, 0.0F, 0.0F};
+
+  fp8_w8a16_qkv_z_balanced_accumulate_stage<0U>(
+      row0_weights, row1_weights, row2_weights, row3_weights,
+      activation_stripe.stage0, decoded_weights, accumulators0,
+      accumulators1, accumulators2, accumulators3);
+  fp8_w8a16_qkv_z_balanced_accumulate_stage<1U>(
+      row0_weights, row1_weights, row2_weights, row3_weights,
+      activation_stripe.stage1, decoded_weights, accumulators0,
+      accumulators1, accumulators2, accumulators3);
+  fp8_w8a16_qkv_z_balanced_accumulate_stage<2U>(
+      row0_weights, row1_weights, row2_weights, row3_weights,
+      activation_stripe.stage2, decoded_weights, accumulators0,
+      accumulators1, accumulators2, accumulators3);
+  fp8_w8a16_qkv_z_balanced_accumulate_stage<3U>(
+      row0_weights, row1_weights, row2_weights, row3_weights,
+      activation_stripe.stage3, decoded_weights, accumulators0,
+      accumulators1, accumulators2, accumulators3);
+  fp8_w8a16_qkv_z_balanced_accumulate_stage<4U>(
+      row0_weights, row1_weights, row2_weights, row3_weights,
+      activation_stripe.stage4, decoded_weights, accumulators0,
+      accumulators1, accumulators2, accumulators3);
+
+  float sum0 = (accumulators0[0] + accumulators0[1]) +
+               (accumulators0[2] + accumulators0[3]);
+  float sum1 = (accumulators1[0] + accumulators1[1]) +
+               (accumulators1[2] + accumulators1[3]);
+  float sum2 = (accumulators2[0] + accumulators2[1]) +
+               (accumulators2[2] + accumulators2[3]);
+  float sum3 = (accumulators3[0] + accumulators3[1]) +
+               (accumulators3[2] + accumulators3[3]);
+  sum0 = warp_sum(sum0);
+  sum1 = warp_sum(sum1);
+  sum2 = warp_sum(sum2);
+  sum3 = warp_sum(sum3);
+  if (lane == 0U) {
+    warp_sums[0U][warp] = sum0;
+    warp_sums[1U][warp] = sum1;
+    warp_sums[2U][warp] = sum2;
+    warp_sums[3U][warp] = sum3;
+  }
+  __syncthreads();
+  if (warp == 0U) {
+    float block_sum0 = lane < kWarpsPerBlock ? warp_sums[0U][lane] : 0.0F;
+    float block_sum1 = lane < kWarpsPerBlock ? warp_sums[1U][lane] : 0.0F;
+    float block_sum2 = lane < kWarpsPerBlock ? warp_sums[2U][lane] : 0.0F;
+    float block_sum3 = lane < kWarpsPerBlock ? warp_sums[3U][lane] : 0.0F;
+    block_sum0 = warp_sum(block_sum0) * weight_scale;
+    block_sum1 = warp_sum(block_sum1) * weight_scale;
+    block_sum2 = warp_sum(block_sum2) * weight_scale;
+    block_sum3 = warp_sum(block_sum3) * weight_scale;
+    if (lane == 0U) {
+      output[row0] = encode_bf16_rne(block_sum0);
+      output[row0 + 1U] = encode_bf16_rne(block_sum1);
+      output[row0 + 2U] = encode_bf16_rne(block_sum2);
+      output[row0 + 3U] = encode_bf16_rne(block_sum3);
+    }
+  }
+}
+
+// Structural Decode candidate derived from the persistent, uniformly tiled
+// schedulers used by production Triton/vLLM kernels.  QKV and Z are one
+// contiguous logical row-quad space instead of two unequal grid phases.  The
+// fixed 64-CTA grid makes every CTA own exactly 64 row quads, eliminating the
+// predecessor's 4/2/1 work split.  Per-thread activation stripes and the FP8
+// codebook remain resident across the complete projection.  A/B preserve
+// their historical per-thread K order and shared-tree reduction, but use one
+// row on each of 48 CTAs so they do not recreate a 24-CTA tail.
+__global__ __launch_bounds__(kThreads, 4) void
+fp8_w8a16_gemv_bf16_qkv_z_bf16_ab_balanced_persistent_test_kernel(
+    const std::uint8_t* const qkv_weights, const float qkv_weight_scale,
+    const std::uint8_t* const z_weights, const float z_weight_scale,
+    const std::uint16_t* const a_weights,
+    const std::uint16_t* const b_weights,
+    const std::uint16_t* const activation,
+    std::uint16_t* const qkv_output, std::uint16_t* const z_output,
+    std::uint16_t* const a_output, std::uint16_t* const b_output) {
+  __shared__ float decoded_weights[kFp8EncodedValueCount];
+  __shared__ float warp_sums[2U][4U][kWarpsPerBlock];
+  const unsigned int lane = threadIdx.x & (kWarpSize - 1U);
+  const unsigned int warp = threadIdx.x / kWarpSize;
+  const std::size_t first_column =
+      static_cast<std::size_t>(threadIdx.x) * kFp8VectorValuesPerLane;
+  const Fp8QkvZActivationStripe activation_stripe{
+      *reinterpret_cast<const std::uint64_t*>(activation + first_column),
+      *reinterpret_cast<const std::uint64_t*>(
+          activation + first_column + 1U * kFp8VectorColumnsPerBlock),
+      *reinterpret_cast<const std::uint64_t*>(
+          activation + first_column + 2U * kFp8VectorColumnsPerBlock),
+      *reinterpret_cast<const std::uint64_t*>(
+          activation + first_column + 3U * kFp8VectorColumnsPerBlock),
+      *reinterpret_cast<const std::uint64_t*>(
+          activation + first_column + 4U * kFp8VectorColumnsPerBlock)};
+  const std::uint8_t code = static_cast<std::uint8_t>(threadIdx.x);
+  decoded_weights[fp8_swizzled_codebook_slot(code)] = decode_e4m3fn(code);
+  __syncthreads();
+
+  unsigned int scratch_slot = 0U;
+  for (unsigned int task = blockIdx.x; task < kFp8QkvZTotalRowQuads;
+       task += gridDim.x) {
+    const bool is_qkv = task < kFp8QkvRowQuads;
+    const unsigned int row_quad =
+        is_qkv ? task : task - kFp8QkvRowQuads;
+    const std::uint8_t* const weights = is_qkv ? qkv_weights : z_weights;
+    const float weight_scale =
+        is_qkv ? qkv_weight_scale : z_weight_scale;
+    std::uint16_t* const output = is_qkv ? qkv_output : z_output;
+    fp8_w8a16_gemv_bf16_qkv_z_balanced_row_quad_body(
+        weights, weight_scale, 4U * row_quad, output, activation_stripe,
+        decoded_weights, warp_sums[scratch_slot], lane, warp);
+    scratch_slot ^= 1U;
+  }
+
+  // The last row-quad body deliberately has no trailing block barrier.
+  // Re-converge before reusing decoded_weights as the exact BF16 reduction
+  // scratch and before any warp can leave the persistent projection.
+  __syncthreads();
+  if (blockIdx.x >= kLinearAttentionAbRows) {
+    return;
+  }
+  const unsigned int row = blockIdx.x;
+  const std::uint16_t* const a_row_weights =
+      a_weights + static_cast<std::size_t>(row) * kFp8QkvZColumns;
+  const std::uint16_t* const b_row_weights =
+      b_weights + static_cast<std::size_t>(row) * kFp8QkvZColumns;
+  float a_sum = 0.0F;
+  float b_sum = 0.0F;
+  for (std::size_t column = threadIdx.x; column < kFp8QkvZColumns;
+       column += kThreads) {
+    const float decoded_activation = decode_bf16(activation[column]);
+    a_sum = fmaf(decode_bf16(a_row_weights[column]), decoded_activation,
+                 a_sum);
+    b_sum = fmaf(decode_bf16(b_row_weights[column]), decoded_activation,
+                 b_sum);
+  }
+  bf16_exact_shared_tree_reduce<true>(a_sum, decoded_weights, a_output, row);
+  bf16_exact_shared_tree_reduce<false>(b_sum, decoded_weights, b_output, row);
 }
 
 // Test-only exact-M1 composite candidate. Twenty-four light tail CTAs each
@@ -19350,6 +19597,22 @@ void launch_fp8_qkv_z_bf16_ab_pair_tail_composite_unchecked(
           a_output, b_output);
 }
 
+void launch_fp8_qkv_z_bf16_ab_balanced_persistent_test_unchecked(
+    const std::uint8_t* const qkv_weights, const float qkv_weight_scale,
+    const std::uint8_t* const z_weights, const float z_weight_scale,
+    const std::uint16_t* const a_weights,
+    const std::uint16_t* const b_weights,
+    const std::uint16_t* const activation,
+    std::uint16_t* const qkv_output, std::uint16_t* const z_output,
+    std::uint16_t* const a_output, std::uint16_t* const b_output,
+    cudaStream_t const stream) noexcept {
+  fp8_w8a16_gemv_bf16_qkv_z_bf16_ab_balanced_persistent_test_kernel
+      <<<kFp8QkvZBalancedPersistentBlocks, kThreads, 0U, stream>>>(
+          qkv_weights, qkv_weight_scale, z_weights, z_weight_scale,
+          a_weights, b_weights, activation, qkv_output, z_output, a_output,
+          b_output);
+}
+
 void
 launch_fp8_qkv_z_bf16_ab_pair_tail_composite_register_lookahead_test_unchecked(
     const std::uint8_t* const qkv_weights, const float qkv_weight_scale,
@@ -22811,6 +23074,72 @@ int query_sm87_fp8_w8a16_m1_output_projection_aosoa4_residual_epilogue_resources
   status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
       &active_blocks,
       fp8_w8a16_gemv_bf16_row_quad_aosoa4_residual_epilogue_test_kernel,
+      static_cast<int>(kThreads), 0U);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  *registers_per_thread = attributes.numRegs;
+  *static_shared_bytes = attributes.sharedSizeBytes;
+  *local_bytes = attributes.localSizeBytes;
+  *maximum_threads_per_block = attributes.maxThreadsPerBlock;
+  *active_blocks_per_sm = active_blocks;
+  return static_cast<int>(cudaSuccess);
+}
+
+int launch_sm87_fp8_w8a16_m1_qkv_z_bf16_ab_balanced_persistent_test_cuda(
+    const std::uint8_t* const qkv_weights, const float qkv_weight_scale,
+    const std::uint8_t* const z_weights, const float z_weight_scale,
+    const std::uint16_t* const a_weights,
+    const std::uint16_t* const b_weights,
+    const std::uint16_t* const activation, const std::size_t qkv_rows,
+    const std::size_t z_rows, const std::size_t ab_rows,
+    const std::size_t columns, std::uint16_t* const qkv_output,
+    std::uint16_t* const z_output, std::uint16_t* const a_output,
+    std::uint16_t* const b_output, void* const cuda_stream) noexcept {
+  const int validation = validate_fp8_qkv_z_bf16_ab_launch(
+      qkv_weights, qkv_weight_scale, z_weights, z_weight_scale, a_weights,
+      b_weights, activation, qkv_rows, z_rows, ab_rows, columns, qkv_output,
+      z_output, a_output, b_output);
+  if (validation != static_cast<int>(cudaSuccess)) {
+    return validation;
+  }
+  if (!fp8_qkv_z_bf16_ab_launch_is_aligned(
+          qkv_weights, z_weights, a_weights, b_weights, activation,
+          qkv_output, z_output, a_output, b_output)) {
+    return invalid_value();
+  }
+
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  launch_fp8_qkv_z_bf16_ab_balanced_persistent_test_unchecked(
+      qkv_weights, qkv_weight_scale, z_weights, z_weight_scale, a_weights,
+      b_weights, activation, qkv_output, z_output, a_output, b_output,
+      stream);
+  return static_cast<int>(cudaGetLastError());
+}
+
+int query_sm87_fp8_w8a16_m1_qkv_z_bf16_ab_balanced_persistent_resources_test_cuda(
+    int* const registers_per_thread,
+    std::size_t* const static_shared_bytes,
+    std::size_t* const local_bytes,
+    int* const maximum_threads_per_block,
+    int* const active_blocks_per_sm) noexcept {
+  if (registers_per_thread == nullptr || static_shared_bytes == nullptr ||
+      local_bytes == nullptr || maximum_threads_per_block == nullptr ||
+      active_blocks_per_sm == nullptr) {
+    return invalid_value();
+  }
+  cudaFuncAttributes attributes{};
+  cudaError_t status = cudaFuncGetAttributes(
+      &attributes,
+      fp8_w8a16_gemv_bf16_qkv_z_bf16_ab_balanced_persistent_test_kernel);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  int active_blocks = 0;
+  status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+      &active_blocks,
+      fp8_w8a16_gemv_bf16_qkv_z_bf16_ab_balanced_persistent_test_kernel,
       static_cast<int>(kThreads), 0U);
   if (status != cudaSuccess) {
     return static_cast<int>(status);
