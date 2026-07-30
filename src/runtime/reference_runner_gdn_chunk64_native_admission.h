@@ -25,6 +25,9 @@ prefill_gdn_chunk64_legacy_tail_token_count(
 [[nodiscard]] std::size_t
 exchange_prefill_gdn_chunk64_native_admission_test_hits(
     std::size_t hits) noexcept;
+[[nodiscard]] std::size_t
+exchange_gdn_conv_compact_qk_fused_candidate_test_hits(
+    std::size_t hits) noexcept;
 
 using PrefillGdnChunk64NativeSnapshotCallback = void (*)(
     const RequestState& state, void* context) noexcept;

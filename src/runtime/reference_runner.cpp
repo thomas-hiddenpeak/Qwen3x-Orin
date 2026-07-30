@@ -108,6 +108,17 @@ gdn_conv_token_parallel_environment_enabled() noexcept {
 thread_local bool g_enable_gdn_conv_token_parallel_admission =
     gdn_conv_token_parallel_environment_enabled();
 
+[[nodiscard]] bool
+gdn_conv_compact_qk_fused_candidate_environment_enabled() noexcept {
+  const char* const value = std::getenv(
+      "Q3X_RUN_GDN_CONV_COMPACT_QK_FUSED_CANDIDATE");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
+thread_local bool g_enable_gdn_conv_compact_qk_fused_candidate =
+    gdn_conv_compact_qk_fused_candidate_environment_enabled();
+thread_local std::size_t g_gdn_conv_compact_qk_fused_candidate_hits = 0U;
+
 #if defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION)
 [[nodiscard]] bool nvfp4_marlin_prefill_environment_enabled() noexcept {
   const char* const value =
@@ -737,6 +748,11 @@ bool exchange_prefill_gdn_chunk64_native_admission_test_enabled(
 std::size_t exchange_prefill_gdn_chunk64_native_admission_test_hits(
     const std::size_t hits) noexcept {
   return std::exchange(g_prefill_gdn_chunk64_native_admission_hits, hits);
+}
+
+std::size_t exchange_gdn_conv_compact_qk_fused_candidate_test_hits(
+    const std::size_t hits) noexcept {
+  return std::exchange(g_gdn_conv_compact_qk_fused_candidate_hits, hits);
 }
 
 PrefillGdnChunk64NativeSnapshotHook
@@ -3427,31 +3443,52 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
                 prefill_gdn_chunk64_legacy_tail_token_count(token_count);
         const bool use_token_parallel_conv =
             g_enable_gdn_conv_token_parallel_admission;
+        // The fused candidate writes the native compact workspace for the
+        // complete C64-aligned span.  An arbitrary legacy tail must continue
+        // to use the established whole-span convolution because it shares the
+        // recurrent history but is not consumed by the native workspace.
+        const bool use_conv_compact_qk_fused_candidate =
+            g_enable_gdn_conv_compact_qk_fused_candidate &&
+            use_token_parallel_conv && legacy_tail_tokens == 0U;
         std::uint16_t* const conv_qkv =
             use_token_parallel_conv ? views_.projection[3]
                                     : views_.projection[0];
         // Convolution is exact for arbitrary C1..C512 and owns a separate
         // recurrent state. Execute it once over the complete runner tile,
         // then split only the GDN recurrence at the last C64 boundary.
-        const int conv_status =
-            use_token_parallel_conv
-                ? gdn_prefill_whole_span_conv_detail::
-                      launch_causal_conv1d_silu_update_token_parallel_exact_cuda(
-                          views_.projection[0], token_count,
-                          attention->conv1d.data, views_.conv_state[layer],
-                          conv_qkv, stream_)
-                : gdn_prefill_whole_span_conv_detail::
-                      launch_causal_conv1d_silu_update_whole_span_exact_cuda(
-                          views_.projection[0], token_count,
-                          attention->conv1d.data, views_.conv_state[layer],
-                          conv_qkv, stream_);
+        int conv_status = static_cast<int>(cudaErrorInvalidValue);
+        if (use_conv_compact_qk_fused_candidate) {
+          conv_status = gdn_prefill_chunk64_native_detail::
+              launch_fused_conv_compact_qk_preprocess(
+                  prefill_gdn_chunk64_native_workspace_,
+                  prefill_gdn_chunk64_native_workspace_bytes_,
+                  views_.projection[0], token_count,
+                  attention->conv1d.data, views_.conv_state[layer],
+                  conv_qkv, kRmsEpsilon, stream_);
+        } else if (use_token_parallel_conv) {
+          conv_status = gdn_prefill_whole_span_conv_detail::
+              launch_causal_conv1d_silu_update_token_parallel_exact_cuda(
+                  views_.projection[0], token_count,
+                  attention->conv1d.data, views_.conv_state[layer],
+                  conv_qkv, stream_);
+        } else {
+          conv_status = gdn_prefill_whole_span_conv_detail::
+              launch_causal_conv1d_silu_update_whole_span_exact_cuda(
+                  views_.projection[0], token_count,
+                  attention->conv1d.data, views_.conv_state[layer],
+                  conv_qkv, stream_);
+        }
         if (!check_cuda(conv_status,
                         "prefill_linear_causal_conv_whole_span", layer)) {
           return fail_prefill_tile(launch_failure);
         }
+        if (use_conv_compact_qk_fused_candidate) {
+          ++g_gdn_conv_compact_qk_fused_candidate_hits;
+        }
         ++g_prefill_gdn_chunk64_native_admission_hits;
-        if (!check_cuda(
-                gdn_prefill_chunk64_native_detail::launch(
+        const int native_status =
+            use_conv_compact_qk_fused_candidate
+                ? gdn_prefill_chunk64_native_detail::launch_qk_preprocessed(
                     prefill_gdn_chunk64_native_workspace_,
                     prefill_gdn_chunk64_native_workspace_bytes_,
                     conv_qkv, native_prefix_tokens,
@@ -3459,8 +3496,18 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
                     attention->dt_bias.data, views_.gdn_state[layer],
                     views_.gdn_state[layer], kRmsEpsilon,
                     attention->norm.data, views_.projection[1],
-                    kRmsEpsilon, views_.projection[2], stream_),
-                "prefill_linear_gdn_chunk64_native", layer)) {
+                    kRmsEpsilon, views_.projection[2], stream_)
+                : gdn_prefill_chunk64_native_detail::launch(
+                    prefill_gdn_chunk64_native_workspace_,
+                    prefill_gdn_chunk64_native_workspace_bytes_,
+                    conv_qkv, native_prefix_tokens,
+                    views_.linear_a, views_.linear_b, attention->a_log.data,
+                    attention->dt_bias.data, views_.gdn_state[layer],
+                    views_.gdn_state[layer], kRmsEpsilon,
+                    attention->norm.data, views_.projection[1],
+                    kRmsEpsilon, views_.projection[2], stream_);
+        if (!check_cuda(native_status, "prefill_linear_gdn_chunk64_native",
+                        layer)) {
           return fail_prefill_tile(launch_failure);
         }
         // The native launch above and these legacy launches share one stream

@@ -1,4 +1,5 @@
 #include "gdn_prefill_chunk64_cublas_reference_sm87.h"
+#include "gdn_prefill_whole_span_conv_sm87.h"
 #include "../sm87/gdn_prefill_chunk64_native_sm87.h"
 #include "../sm87/gdn_prefill_group_wy_sm87.h"
 #include "../sm87/gdn_prefill_wy_vllm_layout_sm87.h"
@@ -2156,23 +2157,24 @@ int destroy_context(void* const /*context*/) noexcept {
   return static_cast<int>(cudaSuccess);
 }
 
-int launch(void* const context,
-           void* const workspace_raw,
-           const std::size_t workspace_capacity_bytes,
-           const std::size_t token_count,
-           const std::uint16_t* const conv_qkv,
-           const std::uint16_t* const a,
-           const std::uint16_t* const b,
-           const std::uint16_t* const A_log,
-           const std::uint16_t* const dt_bias,
-           const std::uint16_t* const state_input,
-           std::uint16_t* const state_output,
-           const float l2_epsilon,
-           const std::uint16_t* const norm_weight,
-           const std::uint16_t* const silu_gate,
-           const float norm_epsilon,
-           std::uint16_t* const output,
-           void* const cuda_stream) noexcept {
+int launch_impl(void* const context,
+                void* const workspace_raw,
+                const std::size_t workspace_capacity_bytes,
+                const std::size_t token_count,
+                const std::uint16_t* const conv_qkv,
+                const std::uint16_t* const a,
+                const std::uint16_t* const b,
+                const std::uint16_t* const A_log,
+                const std::uint16_t* const dt_bias,
+                const std::uint16_t* const state_input,
+                std::uint16_t* const state_output,
+                const float l2_epsilon,
+                const std::uint16_t* const norm_weight,
+                const std::uint16_t* const silu_gate,
+                const float norm_epsilon,
+                std::uint16_t* const output,
+                void* const cuda_stream,
+                const bool qk_preprocessed) noexcept {
   if (invalid_arguments(context, workspace_raw, workspace_capacity_bytes,
                         token_count, conv_qkv, a, b, A_log, dt_bias,
                         state_input, state_output, l2_epsilon, norm_weight,
@@ -2202,7 +2204,16 @@ int launch(void* const context,
       force_packed_qkv_baseline() || use_fused_kkt_baseline ||
       use_split_wy_baseline || use_resident_state_baseline;
 
-  if (use_packed_qkv_baseline) {
+  // A preprocessed workspace is layout-compatible only with the production
+  // compact route. Diagnostic packed baselines must remain fully self-owned.
+  if (qk_preprocessed && use_packed_qkv_baseline) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+
+  if (qk_preprocessed) {
+    // The immediately preceding same-stream fused convolution populated the
+    // exact compact BF16 Q/K regions.  No host synchronization is required.
+  } else if (use_packed_qkv_baseline) {
     normalize_qk_kernel<false><<<
         static_cast<unsigned int>(token_count * kQkHeadCount),
         kNormalizeThreads, 0U, stream>>>(
@@ -2393,6 +2404,29 @@ int launch(void* const context,
   return status;
 }
 
+int launch(void* const context,
+           void* const workspace_raw,
+           const std::size_t workspace_capacity_bytes,
+           const std::size_t token_count,
+           const std::uint16_t* const conv_qkv,
+           const std::uint16_t* const a,
+           const std::uint16_t* const b,
+           const std::uint16_t* const A_log,
+           const std::uint16_t* const dt_bias,
+           const std::uint16_t* const state_input,
+           std::uint16_t* const state_output,
+           const float l2_epsilon,
+           const std::uint16_t* const norm_weight,
+           const std::uint16_t* const silu_gate,
+           const float norm_epsilon,
+           std::uint16_t* const output,
+           void* const cuda_stream) noexcept {
+  return launch_impl(context, workspace_raw, workspace_capacity_bytes,
+                     token_count, conv_qkv, a, b, A_log, dt_bias,
+                     state_input, state_output, l2_epsilon, norm_weight,
+                     silu_gate, norm_epsilon, output, cuda_stream, false);
+}
+
 int query_native_resources(int* const registers_per_thread,
                            std::size_t* const static_shared_bytes,
                            std::size_t* const local_bytes,
@@ -2456,6 +2490,79 @@ int launch(void* const workspace,
       nullptr, workspace, workspace_capacity_bytes, token_count, conv_qkv, a,
       b, A_log, dt_bias, state_input, state_output, l2_epsilon, norm_weight,
       silu_gate, norm_epsilon, output, cuda_stream);
+}
+
+int launch_fused_conv_compact_qk_preprocess(
+    void* const workspace_raw,
+    const std::size_t workspace_capacity_bytes,
+    const std::uint16_t* const raw_qkv,
+    const std::size_t token_count,
+    const std::uint16_t* const conv_weight,
+    std::uint16_t* const history_in_out,
+    std::uint16_t* const conv_qkv_output,
+    const float l2_epsilon,
+    void* const cuda_stream) noexcept {
+  gdn_prefill_chunk64_reference_detail::Workspace workspace;
+  if (token_count == 0U || token_count > 512U || token_count % 64U != 0U ||
+      !gdn_prefill_chunk64_reference_detail::partition_workspace(
+          workspace_raw, workspace_capacity_bytes, workspace)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  return gdn_prefill_whole_span_conv_detail::
+      launch_causal_conv1d_silu_update_token_parallel_compact_qk_exact_cuda(
+          raw_qkv, token_count, conv_weight, history_in_out,
+          conv_qkv_output, l2_epsilon, workspace.q, workspace.k,
+          cuda_stream);
+}
+
+int launch_qk_preprocessed(
+    void* const workspace,
+    const std::size_t workspace_capacity_bytes,
+    const std::uint16_t* const conv_qkv,
+    const std::size_t token_count,
+    const std::uint16_t* const a,
+    const std::uint16_t* const b,
+    const std::uint16_t* const A_log,
+    const std::uint16_t* const dt_bias,
+    const std::uint16_t* const state_input,
+    std::uint16_t* const state_output,
+    const float l2_epsilon,
+    const std::uint16_t* const norm_weight,
+    const std::uint16_t* const silu_gate,
+    const float norm_epsilon,
+    std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  if (token_count == 0U || token_count > 512U || token_count % 64U != 0U) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  return gdn_prefill_chunk64_reference_detail::launch_impl(
+      nullptr, workspace, workspace_capacity_bytes, token_count, conv_qkv, a,
+      b, A_log, dt_bias, state_input, state_output, l2_epsilon, norm_weight,
+      silu_gate, norm_epsilon, output, cuda_stream, true);
+}
+
+int launch_compact_qk_baseline_for_test(
+    const std::uint16_t* const conv_qkv,
+    const std::size_t token_count,
+    const float l2_epsilon,
+    std::uint16_t* const compact_q,
+    std::uint16_t* const compact_k,
+    void* const cuda_stream) noexcept {
+  if (conv_qkv == nullptr || compact_q == nullptr || compact_k == nullptr ||
+      compact_q == compact_k || compact_q == conv_qkv ||
+      compact_k == conv_qkv || token_count == 0U || token_count > 512U ||
+      token_count % 64U != 0U || !std::isfinite(l2_epsilon) ||
+      l2_epsilon <= 0.0F) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  gdn_prefill_chunk64_reference_detail::normalize_qk_kernel<true><<<
+      static_cast<unsigned int>(
+          token_count *
+          gdn_prefill_chunk64_reference_detail::kQkHeadCount),
+      gdn_prefill_chunk64_reference_detail::kNormalizeThreads, 0U,
+      stream>>>(conv_qkv, l2_epsilon, compact_q, compact_k);
+  return gdn_prefill_chunk64_reference_detail::launch_grid_status();
 }
 
 int query_resources(int* const registers_per_thread,
