@@ -62,6 +62,9 @@ enum class VllmLayoutWyRouteForTest : std::int8_t {
 exchange_vllm_layout_wy_route_for_test(
     VllmLayoutWyRouteForTest route) noexcept;
 
+[[nodiscard]] bool exchange_force_chunk_o_bv64_candidate_for_test(
+    bool enabled) noexcept;
+
 // Admission-only C64..C512 native SM87 FLA/WY pipeline. The implementation
 // is deliberately fixed to the authenticated model shape (Hg=16, H=48,
 // K=V=128, BT=64). It has no library context and accepts no fallback shape.

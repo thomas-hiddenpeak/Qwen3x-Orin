@@ -1,5 +1,6 @@
 #include "gdn_prefill_chunk64_cublas_reference_sm87.h"
 #include "../sm87/gdn_prefill_chunk64_native_sm87.h"
+#include "../sm87/gdn_prefill_chunk_o_bv64_sm87.h"
 #include "../sm87/gdn_prefill_group_wy_sm87.h"
 #include "../sm87/gdn_prefill_wy_vllm_layout_sm87.h"
 
@@ -27,6 +28,7 @@ thread_local bool g_force_resident_state_baseline_for_test = false;
 thread_local VllmLayoutWyRouteForTest
     g_vllm_layout_wy_route_for_test =
         VllmLayoutWyRouteForTest::kProductionDefault;
+thread_local bool g_force_chunk_o_bv64_candidate_for_test = false;
 
 }  // namespace
 
@@ -75,6 +77,13 @@ VllmLayoutWyRouteForTest exchange_vllm_layout_wy_route_for_test(
   const VllmLayoutWyRouteForTest previous =
       g_vllm_layout_wy_route_for_test;
   g_vllm_layout_wy_route_for_test = route;
+  return previous;
+}
+
+bool exchange_force_chunk_o_bv64_candidate_for_test(
+    const bool enabled) noexcept {
+  const bool previous = g_force_chunk_o_bv64_candidate_for_test;
+  g_force_chunk_o_bv64_candidate_for_test = enabled;
   return previous;
 }
 
@@ -2111,6 +2120,16 @@ void reconstruct_norm_gate_chunk64_kernel(
   return !force_group_owned_baseline;
 }
 
+// Same-ELF structural candidate. The production default remains the frozen
+// compact-QK baseline until the real-model P513 gate promotes this route.
+[[nodiscard]] bool force_chunk_o_bv64_candidate() noexcept {
+  static const bool forced_by_environment =
+      std::getenv("Q3X_GDN_CHUNK64_CHUNK_O_BV64") != nullptr;
+  return forced_by_environment ||
+         gdn_prefill_chunk64_native_detail::
+             g_force_chunk_o_bv64_candidate_for_test;
+}
+
 [[nodiscard]] bool invalid_arguments(
     void* const /*context*/,
     void* const workspace,
@@ -2201,6 +2220,8 @@ int launch(void* const context,
   const bool use_packed_qkv_baseline =
       force_packed_qkv_baseline() || use_fused_kkt_baseline ||
       use_split_wy_baseline || use_resident_state_baseline;
+  const bool use_chunk_o_bv64_candidate =
+      force_chunk_o_bv64_candidate() && !use_packed_qkv_baseline;
 
   if (use_packed_qkv_baseline) {
     normalize_qk_kernel<false><<<
@@ -2302,19 +2323,21 @@ int launch(void* const context,
     return status;
   }
 
-  if (use_packed_qkv_baseline) {
-    qk_scaled_chunk64_kernel<<<static_cast<unsigned int>(matrix_count),
-                               kQkThreads, kQkSharedBytes, stream>>>(
-        workspace.q, workspace.k, workspace.gamma, workspace.qk);
-  } else {
-    qk_scaled_group_chunk64_kernel<<<
-        static_cast<unsigned int>(chunk_count * kQkHeadCount),
-        kQkThreads, kQkSharedBytes, stream>>>(
-        workspace.q, workspace.k, workspace.gamma, workspace.qk);
-  }
-  status = launch_grid_status();
-  if (status != static_cast<int>(cudaSuccess)) {
-    return status;
+  if (!use_chunk_o_bv64_candidate) {
+    if (use_packed_qkv_baseline) {
+      qk_scaled_chunk64_kernel<<<static_cast<unsigned int>(matrix_count),
+                                 kQkThreads, kQkSharedBytes, stream>>>(
+          workspace.q, workspace.k, workspace.gamma, workspace.qk);
+    } else {
+      qk_scaled_group_chunk64_kernel<<<
+          static_cast<unsigned int>(chunk_count * kQkHeadCount),
+          kQkThreads, kQkSharedBytes, stream>>>(
+          workspace.q, workspace.k, workspace.gamma, workspace.qk);
+    }
+    status = launch_grid_status();
+    if (status != static_cast<int>(cudaSuccess)) {
+      return status;
+    }
   }
   status = record_wy_timing_event(timing_hook.after_qk, stream);
   if (status != static_cast<int>(cudaSuccess)) {
@@ -2365,24 +2388,34 @@ int launch(void* const context,
     return status;
   }
 
-  constexpr std::size_t reconstruction_shared_bytes =
-      kDimension * kChunkSize * sizeof(float);
-  if (use_packed_qkv_baseline) {
-    reconstruct_norm_gate_chunk64_kernel<false><<<
-        static_cast<unsigned int>(matrix_count), kThreads,
-        reconstruction_shared_bytes, stream>>>(
-        workspace.boundary_state, workspace.q, workspace.v_new,
-        workspace.qk, workspace.gamma, norm_weight, silu_gate,
-        norm_epsilon, output);
+  if (use_chunk_o_bv64_candidate) {
+    // Packless WY/state never touch workspace.v. Reuse that exact-size
+    // legacy region for the BF16 [T,H,V] boundary between BV64 owners and
+    // the independent exact D128 norm/gate epilogue.
+    status = gdn_prefill_chunk_o_bv64_detail::launch(
+        workspace.q, workspace.k, workspace.boundary_state,
+        workspace.v_new, workspace.gamma, token_count, norm_weight,
+        silu_gate, norm_epsilon, workspace.v, output, cuda_stream);
   } else {
-    reconstruct_norm_gate_chunk64_kernel<true><<<
-        static_cast<unsigned int>(matrix_count), kThreads,
-        reconstruction_shared_bytes, stream>>>(
-        workspace.boundary_state, workspace.q, workspace.v_new,
-        workspace.qk, workspace.gamma, norm_weight, silu_gate,
-        norm_epsilon, output);
+    constexpr std::size_t reconstruction_shared_bytes =
+        kDimension * kChunkSize * sizeof(float);
+    if (use_packed_qkv_baseline) {
+      reconstruct_norm_gate_chunk64_kernel<false><<<
+          static_cast<unsigned int>(matrix_count), kThreads,
+          reconstruction_shared_bytes, stream>>>(
+          workspace.boundary_state, workspace.q, workspace.v_new,
+          workspace.qk, workspace.gamma, norm_weight, silu_gate,
+          norm_epsilon, output);
+    } else {
+      reconstruct_norm_gate_chunk64_kernel<true><<<
+          static_cast<unsigned int>(matrix_count), kThreads,
+          reconstruction_shared_bytes, stream>>>(
+          workspace.boundary_state, workspace.q, workspace.v_new,
+          workspace.qk, workspace.gamma, norm_weight, silu_gate,
+          norm_epsilon, output);
+    }
+    status = launch_grid_status();
   }
-  status = launch_grid_status();
   if (status == static_cast<int>(cudaSuccess)) {
     gdn_prefill_chunk64_native_detail::inspect_native_boundaries(
         workspace.transform, matrix_count * kChunkSize * kChunkSize,
@@ -2402,6 +2435,11 @@ int query_native_resources(int* const registers_per_thread,
       local_bytes == nullptr || maximum_threads_per_block == nullptr ||
       active_blocks_per_sm == nullptr) {
     return static_cast<int>(cudaErrorInvalidValue);
+  }
+  if (force_chunk_o_bv64_candidate()) {
+    return gdn_prefill_chunk_o_bv64_detail::query_chunk_o_resources(
+        registers_per_thread, static_shared_bytes, local_bytes,
+        maximum_threads_per_block, active_blocks_per_sm);
   }
   cudaFuncAttributes attributes{};
   cudaError_t status = cudaFuncGetAttributes(

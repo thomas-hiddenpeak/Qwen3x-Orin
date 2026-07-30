@@ -40,3 +40,12 @@ The directly compiled header subset is pinned to flashinfer-python 0.6.12
 09762e5a4a9cf40804a90c26d50a679de0fb362f4547457b12ea0c19a2f11aef);
 the upstream and bundled-component license texts are preserved under
 third_party/flashinfer/.
+
+The fixed-shape SM87 GDN chunk-output dataflow in
+src/kernels/sm87/gdn_prefill_chunk_o_bv64_sm87.cu is adapted from the vLLM
+FlashLinearAttention chunk output implementation in
+vllm/model_executor/layers/fla/ops/chunk_o.py. vLLM is licensed under the
+Apache License, Version 2.0. The upstream file credits
+FlashLinearAttention, Copyright 2023-2025 Songlin Yang and Yu Zhang,
+licensed under the MIT License. The Qwen3x-Orin implementation is a native
+CUDA specialization and does not incorporate Triton-generated code.
