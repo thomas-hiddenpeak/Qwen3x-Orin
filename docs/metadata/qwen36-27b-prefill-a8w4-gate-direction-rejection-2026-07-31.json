@@ -1,0 +1,143 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-a8w4-gate-direction-rejection-2026-07-31",
+  "status": "real_api_direction_candidate_rejected",
+  "recorded_at": "2026-07-31T04:07:20+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "branch": "codex/a8w4-gate-admission",
+    "commits": [
+      "59ed87d",
+      "0d613ed",
+      "e5c73bb"
+    ],
+    "build_admission": "Q3X_BUILD_NVFP4_A8W4_GATE_ADMISSION=ON",
+    "run_admission": "Q3X_RUN_NVFP4_A8W4_GATE_ADMISSION=1",
+    "production_default_changed": false,
+    "system_branch_merged": false
+  },
+  "candidate": {
+    "scope": "M512 Gate only across all 64 layers; dynamic per-row A8 activation, offline symmetric K32 W4 recode, vendored SM87 S8xU4B8 Marlin kernel",
+    "composition": "A8W4 Gate on the main stream plus canonical exact whole-chunk Up on an auxiliary stream, standalone SiLU multiply, and the incumbent exact NVFP4 Marlin Down",
+    "numerical_contract": "explicit approximate throughput experiment",
+    "sidecar_layers": 64,
+    "sidecar_bytes": 3208642816,
+    "sidecar_prepare_ms_unprofiled": 1521.41,
+    "mtp_used": false,
+    "cublaslt_used": false
+  },
+  "measured_binary": {
+    "path_at_measurement": "/tmp/q3x-a8w4-gate-admission/build-a8w4-cumulative/qwen3x-eval-server",
+    "bytes": 12632488,
+    "sha256": "18773992a61b8ede180ffbf40daf998d86b73c12a64253939192a0f81184b25b",
+    "elf_build_id": "642be937bab402cf58eac526d8487e1a6e285004",
+    "same_elf_off_on": true,
+    "build_type": "Release",
+    "target_architecture": "sm_87"
+  },
+  "real_api_direction_gate": {
+    "framework": "EvalScope perf 1.9.1",
+    "workload": "natural ShareGPT P512 bucket, real authenticated checkpoint, one warmup and four measured OpenAI-compatible streaming requests, max_tokens=1",
+    "model": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "baseline_output": "/tmp/q3x-a8w4-marlin-off-p512-v1",
+    "candidate_output": "/tmp/q3x-a8w4-marlin-on-p512-v1",
+    "baseline_summary_sha256": "ade0910feab3a847bec665c066a6a0f3ab19d871aafa5bdf0aff3201946884c3",
+    "candidate_summary_sha256": "1687cc8ab89894098dbc983cc16e5048f2a53efe52e617f4259dbef1b618e957",
+    "average_prompt_tokens": 527.25,
+    "baseline_total_throughput_tokens_per_second": 437.428,
+    "candidate_total_throughput_tokens_per_second": 424.5052,
+    "throughput_change_percent": -2.9543,
+    "baseline_ttft_ms": 1207.41,
+    "candidate_ttft_ms": 1244.13,
+    "ttft_change_percent": 3.0412,
+    "baseline_internal_prompt_prefill_mean_ms": 1202.8625,
+    "candidate_internal_prompt_prefill_mean_ms": 1237.2425,
+    "success_requests": "4/4 baseline and 4/4 candidate",
+    "route_hit_requests": [
+      {
+        "prompt_tokens": 564,
+        "baseline_prefill_ms": 1274.97,
+        "candidate_prefill_ms": 1340.12,
+        "delta_ms": 65.15,
+        "delta_percent": 5.1099,
+        "candidate_hits": 64
+      },
+      {
+        "prompt_tokens": 556,
+        "baseline_prefill_ms": 1272.65,
+        "candidate_prefill_ms": 1338.55,
+        "delta_ms": 65.9,
+        "delta_percent": 5.1782,
+        "candidate_hits": 64
+      }
+    ],
+    "no_hit_control": "The P481 no-hit request was 1125.45 ms baseline and 1125.44 ms candidate.",
+    "decision_authority": "negative real API direction; no expanded timing or capability harness"
+  },
+  "nsys_attribution": {
+    "workload": "the same natural 564-token OpenAI-compatible request, one C512 candidate tile plus a 52-token exact tail",
+    "baseline": {
+      "prompt_prefill_ms": 1279.9,
+      "request_gpu_span_ms": 1279.706912,
+      "report": {
+        "path_at_measurement": "/tmp/q3x-a8w4-baseline-real-p564-v1.nsys-rep",
+        "bytes": 1464595,
+        "sha256": "54887b6066d516a57294e8aa1c1b3bf8a2833182c38ced126f227e3b87168510"
+      },
+      "c512_exact_fused_gate_up": {
+        "instances": 64,
+        "total_ms": 458.463808,
+        "mean_ms_per_layer": 7.163497
+      },
+      "c512_exact_marlin_down": {
+        "instances": 64,
+        "total_ms": 218.467296,
+        "mean_ms_per_layer": 3.413552
+      }
+    },
+    "candidate": {
+      "prompt_prefill_ms": 1349.8,
+      "request_gpu_span_ms": 1349.586016,
+      "span_delta_ms": 69.879104,
+      "report": {
+        "path_at_measurement": "/tmp/q3x-a8w4-gate-real-p564-v2.nsys-rep",
+        "bytes": 1521712,
+        "sha256": "5829df26ecccd623c1f35543fe364f1b8093b3d1cf8a139ac3319d7fbc04fbc1"
+      },
+      "c512_a8_quantize": {
+        "instances": 64,
+        "total_ms": 7.511232,
+        "mean_ms_per_layer": 0.117363
+      },
+      "c512_a8w4_gate": {
+        "instances": 64,
+        "total_ms": 184.633408,
+        "mean_ms_per_layer": 2.884897
+      },
+      "c512_native_exact_up": {
+        "instances": 64,
+        "total_ms": 279.566944,
+        "mean_ms_per_layer": 4.368234
+      },
+      "c512_standalone_silu_mul": {
+        "instances": 64,
+        "total_ms": 42.887776,
+        "mean_ms_per_layer": 0.670122
+      },
+      "c512_exact_marlin_down": {
+        "instances": 64,
+        "total_ms": 218.623936,
+        "mean_ms_per_layer": 3.415999
+      }
+    },
+    "causal_finding": "A8 Gate is individually faster, but A8 Gate and exact Up both consume the available SM resources and alternate rather than overlap materially. Their serialized chain plus the standalone SiLU boundary is slower than the incumbent fused exact Gate+Up path. The unchanged exact Down confirms that the regression belongs to the Gate-only composition, not the downstream route.",
+    "first_token_semantics": "The profiled baseline and candidate both returned the same visible first token, 是的; this is a direction observation, not an accuracy promotion claim."
+  },
+  "decision": {
+    "candidate_retained_as_performance_baseline": false,
+    "candidate_merged_to_system_branch": false,
+    "expanded_statistics_run": false,
+    "next_action": "Archive this Gate-only failure. Use A8 only to validate a complete all-projection execution plane; the terminal architecture must be full-model A4-dominant, layer-major, and eliminate the Gate/Up-to-Down materialization boundary.",
+    "reason": "The real API direction is unambiguously negative, and Gate-only A8 has no credible arithmetic path to the 2,000 token/s whole-Prefill target."
+  }
+}
