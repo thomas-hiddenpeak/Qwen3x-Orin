@@ -36,6 +36,14 @@ EvalScope effective throughput from 304.6 to 450.1 token/s.  It is a retained
 default-off candidate and a new optimized-composition baseline, not yet a
 default production-route promotion.
 
+The first production-wired layer-major P4K direction test is recorded in
+[`qwen36-27b-prefill-layer-major-p4k-direction-2026-07-31.json`](qwen36-27b-prefill-layer-major-p4k-direction-2026-07-31.json).
+The same-ELF real API result was 0.74% slower: its 57.5 ms of new slab D2D
+traffic and 116.6 ms loss from splitting residual/RMS normalization outweighed
+the synchronization saving while every projection remained C512.  The route
+is retained only as a default-off architecture surface for a future true
+large-M or persistent-weight dataflow; it is not a performance incumbent.
+
 Policy correction effective 2026-07-29: cuBLASLt is permanently an external
 benchmark reference.  It has no production-dispatch, fallback, native
 development-retention, or production-promotion eligibility.  Older evidence

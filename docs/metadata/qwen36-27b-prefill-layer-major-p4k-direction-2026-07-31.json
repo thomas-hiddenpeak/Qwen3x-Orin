@@ -1,0 +1,98 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-layer-major-p4k-direction-2026-07-31",
+  "status": "architecture_scaffold_retained_performance_candidate_rejected",
+  "recorded_at": "2026-07-31T03:50:00+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "planner_commit": "f43d63d",
+    "runner_commit": "148382616a90231562aa273916a77468e82a437f",
+    "measured_tree": "cf0ba80126c35c4bf49f774805f4ba14c27b27ec",
+    "build_admission": "Q3X_BUILD_LONG_PREFILL_LAYER_MAJOR_ADMISSION=ON",
+    "run_admission": "Q3X_RUN_LONG_PREFILL_LAYER_MAJOR_ADMISSION=1",
+    "production_default_changed": false
+  },
+  "mechanism": {
+    "baseline": "Tile-major P4K execution: each C512 tile traverses all 64 layers and commits before the next tile.",
+    "candidate": "Layer-major execution: gather a complete prompt slab, process all C512 tiles of one layer before advancing, and synchronize and commit once after all 64 layers.",
+    "implemented_scope": "P513..P4096, C512, SM87, no trace callback",
+    "hidden_slab_count": 2,
+    "p4096_hidden_slab_increment_bytes": 83886080,
+    "per_tile_explicit_synchronization": false,
+    "whole_prompt_final_synchronizations": 1,
+    "limitations": [
+      "Every layer/tile still stages into and publishes from the existing C512 scratch with two device-to-device copies.",
+      "Projection kernels and weight reads remain C512; this version does not yet execute one large-M projection per layer.",
+      "The cross-layer residual/RMS fusion is disabled because its normalized scratch cannot survive intervening tiles."
+    ],
+    "mtp_used": false,
+    "cublaslt_used": false
+  },
+  "measured_binary": {
+    "path_at_measurement": "/tmp/q3x-prefill-long-attn-eval-build/qwen3x-eval-server",
+    "bytes": 12431280,
+    "sha256": "f9c46fbb132f03faf9e85555a9f39908f72efa393ae8578332cf7601805f3fb4",
+    "elf_build_id": "59350f90a7b214feab42a9daee942a4eaa7a26a0",
+    "same_elf_off_on": true,
+    "build_type": "Release",
+    "target_architecture": "sm_87"
+  },
+  "real_api_direction_gate": {
+    "framework": "EvalScope perf 1.9.1",
+    "workload": "P4K complete natural ShareGPT conversations; one warmup and four measured requests",
+    "common_composition": "retained long-context FlashInfer attention plus the existing optimized Prefill projection/GDN routes",
+    "baseline_output": "/tmp/q3x-layer-major-off-p4k-v1",
+    "candidate_output": "/tmp/q3x-layer-major-on-p4k-v1",
+    "baseline_summary_sha256": "a757ad8f135c55c083f666ef39a677cb49abdb8c94cf0c04ee3e5ff09da26d10",
+    "candidate_summary_sha256": "0466bcdb2758ae43155abdb846b640b6f700399a477d6e2a04745bd25704695c",
+    "average_prompt_tokens": 3806.75,
+    "baseline_ttft_ms": 8558.49,
+    "candidate_ttft_ms": 8622.13,
+    "ttft_change_percent": 0.7436,
+    "baseline_total_throughput_tokens_per_second": 444.8833,
+    "candidate_total_throughput_tokens_per_second": 441.6008,
+    "throughput_change_percent": -0.7378,
+    "baseline_internal_prompt_prefill_mean_ms": 8552.305,
+    "candidate_internal_prompt_prefill_mean_ms": 8616.08,
+    "internal_prompt_prefill_change_percent": 0.7457,
+    "success_requests": "4/4 baseline and 4/4 candidate",
+    "semantic_first_tokens": "equal request by request",
+    "route_hits": "all candidate requests logged layer_major_prefill=1"
+  },
+  "nsys_directional_attribution": {
+    "candidate_report": {
+      "path_at_measurement": "/tmp/q3x-layer-major-on-p3847-v1.nsys-rep",
+      "bytes": 1677781,
+      "sha256": "08c6c311f83696d2770df159ab102d0cf649659edc2afc8f5879001fac5bf280"
+    },
+    "comparison_baseline_report": "/tmp/q3x-long-attn-on-p3847-v1.nsys-rep",
+    "comparison_warning": "The NSys comparison uses the immediately preceding optimized-attention ELF rather than the same layer-major-capable ELF; it has attribution authority only. The real API direction gate above is the same-ELF decision authority.",
+    "baseline_kernel_total_ns": 9343491808,
+    "candidate_kernel_total_ns": 9435921344,
+    "kernel_time_increase_ns": 92429536,
+    "baseline_memcpy_total_ns": 771924096,
+    "candidate_memcpy_total_ns": 832800896,
+    "memcpy_time_increase_ns": 60876800,
+    "candidate_device_to_device_copies": 1024,
+    "candidate_device_to_device_total_ns": 57480256,
+    "baseline_fused_residual_rms_ns": 143658112,
+    "candidate_residual_add_ns": 134024704,
+    "candidate_headwise_rms_norm_ns": 126231360,
+    "candidate_unfused_residual_rms_total_ns": 260256064,
+    "unfused_residual_rms_increase_ns": 116597952,
+    "finding": "The extra D2D slab traffic and loss of the residual/RMS fusion outweigh the synchronization reduction while projections remain C512."
+  },
+  "validation": {
+    "host_tests": [
+      "reference_engine_control",
+      "reference_benchmark_control",
+      "eval_server_help",
+      "request_state_plan",
+      "long_prefill_layer_major_plan"
+    ],
+    "host_result": "pass 5/5",
+    "final_generation": "finite and successful",
+    "first_token_semantics": "unchanged for all measured P4K requests"
+  },
+  "decision": "Do not retain this implementation as a performance baseline and do not expand its statistical matrix. Keep the default-off layer-major execution surface because it is the required integration point for a future one-layer large-M projection or persistent-weight dataflow; remove the two D2D copies and restore/fuse residual normalization before retesting."
+}
