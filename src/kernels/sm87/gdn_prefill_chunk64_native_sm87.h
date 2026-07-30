@@ -13,6 +13,15 @@ using InspectionCallback = void (*)(
     const std::uint16_t* transform, std::size_t transform_elements,
     const std::uint16_t* w, std::size_t w_elements,
     const std::uint16_t* u, std::size_t u_elements,
+    const std::uint16_t* v_new, std::size_t v_new_elements,
+    const std::uint16_t* boundary_state,
+    std::size_t boundary_state_elements,
+    const std::uint16_t* compact_k, std::size_t compact_k_elements,
+    const float* gamma, std::size_t gamma_elements,
+    const std::uint16_t* diagnostic_k_decay,
+    std::size_t diagnostic_k_decay_elements,
+    const std::uint16_t* diagnostic_post_update_state,
+    std::size_t diagnostic_post_update_state_elements,
     const std::uint16_t* state_output, std::size_t state_elements,
     const std::uint16_t* output, std::size_t output_elements,
     void* cuda_stream, void* context) noexcept;
@@ -76,6 +85,9 @@ exchange_vllm_layout_wy_route_for_test(
     VllmLayoutWyRouteForTest route) noexcept;
 
 [[nodiscard]] bool exchange_force_legacy_qk_reconstruct_baseline_for_test(
+    bool enabled) noexcept;
+
+[[nodiscard]] bool exchange_force_packless_resident_state_fallback_for_test(
     bool enabled) noexcept;
 
 // Admission-only C64..C512 native SM87 FLA/WY pipeline. The implementation

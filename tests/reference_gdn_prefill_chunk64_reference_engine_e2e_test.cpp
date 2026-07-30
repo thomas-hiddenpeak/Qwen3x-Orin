@@ -2,7 +2,6 @@
 #include "q3x/runtime/gdn_decode.h"
 
 #if defined(Q3X_GDN_CHUNK64_NATIVE_TEST)
-#include "../src/kernels/reference/gdn_prefill_whole_span_conv_sm87.h"
 #include "gdn_prefill_chunk64_native_sm87.h"
 #include "reference_runner_gdn_chunk64_native_admission.h"
 #else
@@ -41,8 +40,6 @@ constexpr std::string_view kRouteMarker = "GDN_CHUNK64_NATIVE";
 constexpr std::string_view kRunEnvironment =
     "Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION";
 using SelectedSnapshotHook = detail::PrefillGdnChunk64NativeSnapshotHook;
-using NativeFinalSnapshotHook =
-    detail::PrefillGdnChunk64NativeFinalSnapshotHook;
 
 static_assert(detail::prefill_gdn_chunk64_native_prefix_token_count(63U) ==
               0U);
@@ -67,26 +64,9 @@ static_assert(detail::prefill_gdn_chunk64_legacy_tail_token_count(481U) ==
   return detail::exchange_prefill_gdn_chunk64_native_admission_test_hits(hits);
 }
 
-[[nodiscard]] std::size_t exchange_fused_preprocess_hits(
-    const std::size_t hits) noexcept {
-  return detail::exchange_gdn_conv_compact_qk_fused_candidate_test_hits(hits);
-}
-
-[[nodiscard]] bool exchange_fused_preprocess_enabled(
-    const bool enabled) noexcept {
-  return detail::exchange_gdn_conv_compact_qk_fused_candidate_test_enabled(
-      enabled);
-}
-
 [[nodiscard]] SelectedSnapshotHook exchange_snapshot_hook(
     const SelectedSnapshotHook hook) noexcept {
   return detail::exchange_prefill_gdn_chunk64_native_snapshot_hook(hook);
-}
-
-[[nodiscard]] NativeFinalSnapshotHook exchange_native_final_snapshot_hook(
-    const NativeFinalSnapshotHook hook) noexcept {
-  return detail::exchange_prefill_gdn_chunk64_native_final_snapshot_hook(
-      hook);
 }
 #else
 constexpr std::string_view kRouteMarker = "GDN_CHUNK64_REFERENCE";
@@ -102,16 +82,6 @@ using SelectedSnapshotHook = detail::PrefillGdnChunk64ReferenceSnapshotHook;
 [[nodiscard]] std::size_t exchange_hits(const std::size_t hits) noexcept {
   return detail::exchange_prefill_gdn_chunk64_reference_admission_test_hits(
       hits);
-}
-
-[[nodiscard]] std::size_t exchange_fused_preprocess_hits(
-    const std::size_t /*hits*/) noexcept {
-  return 0U;
-}
-
-[[nodiscard]] bool exchange_fused_preprocess_enabled(
-    const bool /*enabled*/) noexcept {
-  return false;
 }
 
 [[nodiscard]] SelectedSnapshotHook exchange_snapshot_hook(
@@ -136,29 +106,10 @@ class ScopedAdmission {
   bool previous_ = false;
 };
 
-class ScopedFusedPreprocessCandidate {
- public:
-  explicit ScopedFusedPreprocessCandidate(const bool enabled) noexcept
-      : previous_(exchange_fused_preprocess_enabled(enabled)) {}
-
-  ~ScopedFusedPreprocessCandidate() {
-    (void)exchange_fused_preprocess_enabled(previous_);
-  }
-
-  ScopedFusedPreprocessCandidate(const ScopedFusedPreprocessCandidate&) =
-      delete;
-  ScopedFusedPreprocessCandidate& operator=(
-      const ScopedFusedPreprocessCandidate&) = delete;
-
- private:
-  bool previous_ = false;
-};
-
 struct Sample {
   double prefix_milliseconds = 0.0;
   double ttft_milliseconds = 0.0;
   std::size_t route_hits = 0U;
-  std::size_t fused_preprocess_hits = 0U;
   std::uint32_t generated_token = runtime::kReferenceVocabularySize;
   std::string generated_text;
   bool semantic_oracle = false;
@@ -178,25 +129,19 @@ struct NativeBoundarySnapshot {
   std::vector<std::uint16_t> transform;
   std::vector<std::uint16_t> w;
   std::vector<std::uint16_t> u;
+  std::vector<std::uint16_t> v_new;
+  std::vector<std::uint16_t> boundary_state;
+  std::vector<std::uint16_t> compact_k;
+  std::vector<float> gamma;
+  std::vector<std::uint16_t> diagnostic_k_decay;
+  std::vector<std::uint16_t> diagnostic_post_update_state;
   std::vector<std::uint16_t> state;
   std::vector<std::uint16_t> output;
+  std::size_t capture_call = runtime::kRequestLinearLayerCount;
   std::size_t calls = 0U;
-  std::size_t target_call = runtime::kRequestLinearLayerCount;
-  bool captured = false;
   int cuda_error = static_cast<int>(cudaSuccess);
   bool contract_error = false;
-};
-
-struct NativePreprocessBoundarySnapshot {
-  std::vector<std::uint16_t> conv_qkv;
-  std::vector<std::uint16_t> conv_history;
-  std::vector<std::uint16_t> compact_q;
-  std::vector<std::uint16_t> compact_k;
-  std::size_t conv_calls = 0U;
-  std::size_t qk_calls = 0U;
-  int conv_cuda_error = static_cast<int>(cudaSuccess);
-  int qk_cuda_error = static_cast<int>(cudaSuccess);
-  bool contract_error = false;
+  bool captured = false;
 };
 
 class ScopedFusedKktBaseline {
@@ -257,38 +202,6 @@ class ScopedPackedQkvBaseline {
   bool previous_ = false;
 };
 
-class ScopedVllmLayoutWyCandidate {
- public:
-  explicit ScopedVllmLayoutWyCandidate(const bool enabled) noexcept
-      : ScopedVllmLayoutWyCandidate(
-            enabled
-                ? q3x::runtime::gdn_prefill_chunk64_native_detail::
-                      VllmLayoutWyRouteForTest::kVllmLayout
-                : q3x::runtime::gdn_prefill_chunk64_native_detail::
-                      VllmLayoutWyRouteForTest::kGroupOwned) {}
-
-  explicit ScopedVllmLayoutWyCandidate(
-      const q3x::runtime::gdn_prefill_chunk64_native_detail::
-          VllmLayoutWyRouteForTest route) noexcept
-      : previous_(q3x::runtime::gdn_prefill_chunk64_native_detail::
-                      exchange_vllm_layout_wy_route_for_test(route)) {}
-
-  ~ScopedVllmLayoutWyCandidate() {
-    (void)q3x::runtime::gdn_prefill_chunk64_native_detail::
-        exchange_vllm_layout_wy_route_for_test(previous_);
-  }
-
-  ScopedVllmLayoutWyCandidate(const ScopedVllmLayoutWyCandidate&) = delete;
-  ScopedVllmLayoutWyCandidate& operator=(
-      const ScopedVllmLayoutWyCandidate&) = delete;
-
- private:
-  q3x::runtime::gdn_prefill_chunk64_native_detail::
-      VllmLayoutWyRouteForTest previous_ =
-          q3x::runtime::gdn_prefill_chunk64_native_detail::
-              VllmLayoutWyRouteForTest::kProductionDefault;
-};
-
 class ScopedWyTimingHook {
  public:
   ScopedWyTimingHook(cudaEvent_t begin, cudaEvent_t after_initial,
@@ -331,21 +244,22 @@ class ScopedResidentStateBaseline {
   bool previous_ = false;
 };
 
-class ScopedChunkOBv64Candidate {
+class ScopedPacklessResidentStateFallback {
  public:
-  explicit ScopedChunkOBv64Candidate(const bool enabled) noexcept
+  explicit ScopedPacklessResidentStateFallback(const bool enabled) noexcept
       : previous_(q3x::runtime::gdn_prefill_chunk64_native_detail::
-                      exchange_force_legacy_qk_reconstruct_baseline_for_test(
-                          !enabled)) {}
+                      exchange_force_packless_resident_state_fallback_for_test(
+                          enabled)) {}
 
-  ~ScopedChunkOBv64Candidate() {
+  ~ScopedPacklessResidentStateFallback() {
     (void)q3x::runtime::gdn_prefill_chunk64_native_detail::
-        exchange_force_legacy_qk_reconstruct_baseline_for_test(previous_);
+        exchange_force_packless_resident_state_fallback_for_test(previous_);
   }
 
-  ScopedChunkOBv64Candidate(const ScopedChunkOBv64Candidate&) = delete;
-  ScopedChunkOBv64Candidate& operator=(
-      const ScopedChunkOBv64Candidate&) = delete;
+  ScopedPacklessResidentStateFallback(
+      const ScopedPacklessResidentStateFallback&) = delete;
+  ScopedPacklessResidentStateFallback& operator=(
+      const ScopedPacklessResidentStateFallback&) = delete;
 
  private:
   bool previous_ = false;
@@ -358,6 +272,18 @@ void collect_native_boundaries(
     const std::size_t w_elements,
     const std::uint16_t* const u,
     const std::size_t u_elements,
+    const std::uint16_t* const v_new,
+    const std::size_t v_new_elements,
+    const std::uint16_t* const boundary_state,
+    const std::size_t boundary_state_elements,
+    const std::uint16_t* const compact_k,
+    const std::size_t compact_k_elements,
+    const float* const gamma,
+    const std::size_t gamma_elements,
+    const std::uint16_t* const diagnostic_k_decay,
+    const std::size_t diagnostic_k_decay_elements,
+    const std::uint16_t* const diagnostic_post_update_state,
+    const std::size_t diagnostic_post_update_state_elements,
     const std::uint16_t* const state_output,
     const std::size_t state_elements,
     const std::uint16_t* const output,
@@ -369,51 +295,82 @@ void collect_native_boundaries(
     return;
   }
   ++snapshot->calls;
-  if (snapshot->calls != snapshot->target_call) {
+  if (snapshot->calls != snapshot->capture_call) {
     return;
   }
-  snapshot->captured = true;
-  if (transform == nullptr || w == nullptr || u == nullptr ||
-      state_output == nullptr || output == nullptr ||
-      snapshot->transform.size() != transform_elements ||
-      snapshot->w.size() != w_elements ||
-      snapshot->u.size() != u_elements ||
-      snapshot->state.size() != state_elements ||
-      snapshot->output.size() != output_elements) {
+  const bool valid =
+      snapshot->capture_call != 0U &&
+      snapshot->capture_call <= runtime::kRequestLinearLayerCount &&
+      (snapshot->transform.empty() ||
+       (transform != nullptr &&
+        snapshot->transform.size() == transform_elements)) &&
+      (snapshot->w.empty() ||
+       (w != nullptr && snapshot->w.size() == w_elements)) &&
+      (snapshot->u.empty() ||
+       (u != nullptr && snapshot->u.size() == u_elements)) &&
+      (snapshot->v_new.empty() ||
+       (v_new != nullptr && snapshot->v_new.size() == v_new_elements)) &&
+      (snapshot->boundary_state.empty() ||
+       (boundary_state != nullptr &&
+        snapshot->boundary_state.size() == boundary_state_elements)) &&
+      (snapshot->compact_k.empty() ||
+       (compact_k != nullptr &&
+        snapshot->compact_k.size() == compact_k_elements)) &&
+      (snapshot->gamma.empty() ||
+       (gamma != nullptr && snapshot->gamma.size() == gamma_elements)) &&
+      (snapshot->diagnostic_k_decay.empty() ||
+       (diagnostic_k_decay != nullptr &&
+        snapshot->diagnostic_k_decay.size() ==
+            diagnostic_k_decay_elements)) &&
+      (snapshot->diagnostic_post_update_state.empty() ||
+       (diagnostic_post_update_state != nullptr &&
+        snapshot->diagnostic_post_update_state.size() ==
+            diagnostic_post_update_state_elements)) &&
+      (snapshot->state.empty() ||
+       (state_output != nullptr && snapshot->state.size() == state_elements)) &&
+      (snapshot->output.empty() ||
+       (output != nullptr && snapshot->output.size() == output_elements));
+  if (!valid) {
     snapshot->contract_error = true;
     return;
   }
   const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
-  cudaError_t status = cudaMemcpyAsync(
-      snapshot->transform.data(), transform,
-      transform_elements * sizeof(std::uint16_t), cudaMemcpyDeviceToHost,
-      stream);
-  if (status == cudaSuccess) {
+  cudaError_t status = cudaSuccess;
+  const auto copy_if_requested =
+      [&](std::vector<std::uint16_t>& destination,
+          const std::uint16_t* const source,
+          const std::size_t elements) noexcept {
+        if (status == cudaSuccess && !destination.empty()) {
+          status = cudaMemcpyAsync(
+              destination.data(), source,
+              elements * sizeof(std::uint16_t), cudaMemcpyDeviceToHost,
+              stream);
+        }
+      };
+  copy_if_requested(snapshot->transform, transform, transform_elements);
+  copy_if_requested(snapshot->w, w, w_elements);
+  copy_if_requested(snapshot->u, u, u_elements);
+  copy_if_requested(snapshot->v_new, v_new, v_new_elements);
+  copy_if_requested(snapshot->boundary_state, boundary_state,
+                    boundary_state_elements);
+  copy_if_requested(snapshot->compact_k, compact_k, compact_k_elements);
+  if (status == cudaSuccess && !snapshot->gamma.empty()) {
     status = cudaMemcpyAsync(
-        snapshot->w.data(), w, w_elements * sizeof(std::uint16_t),
-        cudaMemcpyDeviceToHost, stream);
+        snapshot->gamma.data(), gamma,
+        gamma_elements * sizeof(float), cudaMemcpyDeviceToHost, stream);
   }
-  if (status == cudaSuccess) {
-    status = cudaMemcpyAsync(
-        snapshot->u.data(), u, u_elements * sizeof(std::uint16_t),
-        cudaMemcpyDeviceToHost, stream);
-  }
-  if (status == cudaSuccess) {
-    status = cudaMemcpyAsync(
-        snapshot->state.data(), state_output,
-        state_elements * sizeof(std::uint16_t), cudaMemcpyDeviceToHost,
-        stream);
-  }
-  if (status == cudaSuccess) {
-    status = cudaMemcpyAsync(
-        snapshot->output.data(), output,
-        output_elements * sizeof(std::uint16_t), cudaMemcpyDeviceToHost,
-        stream);
-  }
+  copy_if_requested(snapshot->diagnostic_k_decay, diagnostic_k_decay,
+                    diagnostic_k_decay_elements);
+  copy_if_requested(snapshot->diagnostic_post_update_state,
+                    diagnostic_post_update_state,
+                    diagnostic_post_update_state_elements);
+  copy_if_requested(snapshot->state, state_output, state_elements);
+  copy_if_requested(snapshot->output, output, output_elements);
   if (status == cudaSuccess) {
     status = cudaStreamSynchronize(stream);
   }
   snapshot->cuda_error = static_cast<int>(status);
+  snapshot->captured = status == cudaSuccess;
 }
 
 class ScopedNativeInspectionHook {
@@ -435,107 +392,6 @@ class ScopedNativeInspectionHook {
 
  private:
   q3x::runtime::gdn_prefill_chunk64_native_detail::InspectionHook previous_{};
-};
-
-void collect_native_conv_boundaries(
-    const std::uint16_t* const conv_qkv,
-    const std::size_t conv_qkv_elements,
-    const std::uint16_t* const history,
-    const std::size_t history_elements,
-    void* const cuda_stream,
-    void* const context) noexcept {
-  auto* const snapshot =
-      static_cast<NativePreprocessBoundarySnapshot*>(context);
-  if (snapshot == nullptr || ++snapshot->conv_calls != 1U) {
-    return;
-  }
-  if (conv_qkv == nullptr || history == nullptr ||
-      snapshot->conv_qkv.size() != conv_qkv_elements ||
-      snapshot->conv_history.size() != history_elements) {
-    snapshot->contract_error = true;
-    return;
-  }
-  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
-  cudaError_t status = cudaMemcpyAsync(
-      snapshot->conv_qkv.data(), conv_qkv,
-      conv_qkv_elements * sizeof(std::uint16_t), cudaMemcpyDeviceToHost,
-      stream);
-  if (status == cudaSuccess) {
-    status = cudaMemcpyAsync(
-        snapshot->conv_history.data(), history,
-        history_elements * sizeof(std::uint16_t), cudaMemcpyDeviceToHost,
-        stream);
-  }
-  if (status == cudaSuccess) {
-    status = cudaStreamSynchronize(stream);
-  }
-  snapshot->conv_cuda_error = static_cast<int>(status);
-}
-
-void collect_native_qk_boundaries(
-    const std::uint16_t* const compact_q,
-    const std::size_t compact_q_elements,
-    const std::uint16_t* const compact_k,
-    const std::size_t compact_k_elements,
-    void* const cuda_stream,
-    void* const context) noexcept {
-  auto* const snapshot =
-      static_cast<NativePreprocessBoundarySnapshot*>(context);
-  if (snapshot == nullptr || ++snapshot->qk_calls != 1U) {
-    return;
-  }
-  if (compact_q == nullptr || compact_k == nullptr ||
-      snapshot->compact_q.size() != compact_q_elements ||
-      snapshot->compact_k.size() != compact_k_elements) {
-    snapshot->contract_error = true;
-    return;
-  }
-  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
-  cudaError_t status = cudaMemcpyAsync(
-      snapshot->compact_q.data(), compact_q,
-      compact_q_elements * sizeof(std::uint16_t), cudaMemcpyDeviceToHost,
-      stream);
-  if (status == cudaSuccess) {
-    status = cudaMemcpyAsync(
-        snapshot->compact_k.data(), compact_k,
-        compact_k_elements * sizeof(std::uint16_t), cudaMemcpyDeviceToHost,
-        stream);
-  }
-  if (status == cudaSuccess) {
-    status = cudaStreamSynchronize(stream);
-  }
-  snapshot->qk_cuda_error = static_cast<int>(status);
-}
-
-class ScopedNativePreprocessInspectionHooks {
- public:
-  explicit ScopedNativePreprocessInspectionHooks(
-      NativePreprocessBoundarySnapshot& snapshot) noexcept
-      : previous_conv_(
-            q3x::runtime::gdn_prefill_whole_span_conv_detail::
-                exchange_boundary_inspection_hook(
-                    {collect_native_conv_boundaries, &snapshot})),
-        previous_qk_(q3x::runtime::gdn_prefill_chunk64_native_detail::
-                         exchange_preprocess_inspection_hook(
-                             {collect_native_qk_boundaries, &snapshot})) {}
-
-  ~ScopedNativePreprocessInspectionHooks() {
-    (void)q3x::runtime::gdn_prefill_chunk64_native_detail::
-        exchange_preprocess_inspection_hook(previous_qk_);
-    (void)q3x::runtime::gdn_prefill_whole_span_conv_detail::
-        exchange_boundary_inspection_hook(previous_conv_);
-  }
-
-  ScopedNativePreprocessInspectionHooks(
-      const ScopedNativePreprocessInspectionHooks&) = delete;
-  ScopedNativePreprocessInspectionHooks& operator=(
-      const ScopedNativePreprocessInspectionHooks&) = delete;
-
- private:
-  q3x::runtime::gdn_prefill_whole_span_conv_detail::
-      BoundaryInspectionHook previous_conv_{};
-  q3x::runtime::gdn_prefill_chunk64_native_detail::
-      PreprocessInspectionHook previous_qk_{};
 };
 #endif
 
@@ -590,23 +446,26 @@ class ScopedSnapshotHook {
 };
 
 #if defined(Q3X_GDN_CHUNK64_NATIVE_TEST)
-class ScopedNativeFinalSnapshotHook {
+class ScopedGenerateReturnSnapshotHook {
  public:
-  explicit ScopedNativeFinalSnapshotHook(StateSnapshot& snapshot) noexcept
-      : previous_(exchange_native_final_snapshot_hook(
-            NativeFinalSnapshotHook{collect_state_snapshot, &snapshot})) {}
+  explicit ScopedGenerateReturnSnapshotHook(
+      StateSnapshot& snapshot) noexcept
+      : previous_(detail::
+            exchange_reference_engine_generate_return_snapshot_hook(
+                {collect_state_snapshot, &snapshot})) {}
 
-  ~ScopedNativeFinalSnapshotHook() {
-    (void)exchange_native_final_snapshot_hook(previous_);
+  ~ScopedGenerateReturnSnapshotHook() {
+    (void)detail::exchange_reference_engine_generate_return_snapshot_hook(
+        previous_);
   }
 
-  ScopedNativeFinalSnapshotHook(const ScopedNativeFinalSnapshotHook&) =
-      delete;
-  ScopedNativeFinalSnapshotHook& operator=(
-      const ScopedNativeFinalSnapshotHook&) = delete;
+  ScopedGenerateReturnSnapshotHook(
+      const ScopedGenerateReturnSnapshotHook&) = delete;
+  ScopedGenerateReturnSnapshotHook& operator=(
+      const ScopedGenerateReturnSnapshotHook&) = delete;
 
  private:
-  NativeFinalSnapshotHook previous_{};
+  detail::ReferenceEngineGenerateReturnSnapshotHook previous_{};
 };
 #endif
 
@@ -615,6 +474,16 @@ class ScopedNativeFinalSnapshotHook {
   float decoded = 0.0F;
   std::memcpy(&decoded, &bits, sizeof(decoded));
   return decoded;
+}
+
+[[nodiscard]] std::uint16_t encode_bf16(const float value) noexcept {
+  std::uint32_t bits = 0U;
+  std::memcpy(&bits, &value, sizeof(bits));
+  if ((bits & 0x7fffffffU) > 0x7f800000U) {
+    return static_cast<std::uint16_t>((bits >> 16U) | 0x0040U);
+  }
+  bits += 0x7fffU + ((bits >> 16U) & 1U);
+  return static_cast<std::uint16_t>(bits >> 16U);
 }
 
 [[nodiscard]] std::string model_directory_from(
@@ -671,22 +540,8 @@ void print_diagnostic(
 }
 
 [[nodiscard]] std::size_t expected_prefix_executions() noexcept {
-  const char* const all_prompt_value =
-      std::getenv("Q3X_RUN_PREFILL_ALL_PROMPT_TOKENS_ADMISSION");
-  const bool all_prompt =
-      all_prompt_value != nullptr && std::strcmp(all_prompt_value, "1") == 0;
-  const char* const single_arbitrary_value =
-      std::getenv("Q3X_RUN_PREFILL_SINGLE_ARBITRARY_TILE_ADMISSION");
-  const bool single_arbitrary = single_arbitrary_value != nullptr &&
-                                std::strcmp(single_arbitrary_value, "1") == 0;
-  const std::size_t prefix_tokens =
-      all_prompt ? g_prompt_tokens : g_prompt_tokens - 1U;
-  return single_arbitrary
-             ? runtime::reference_engine_detail::
-                   single_arbitrary_prefix_execution_count(
-                       prefix_tokens, kPrefillChunkTokens)
-              : runtime::reference_engine_detail::prefix_execution_count(
-                    prefix_tokens, kPrefillChunkTokens);
+  return runtime::reference_engine_detail::prefix_execution_count(
+      g_prompt_tokens - 1U, kPrefillChunkTokens);
 }
 
 [[nodiscard]] std::size_t expected_native_route_hits() noexcept {
@@ -707,49 +562,6 @@ void print_diagnostic(
     remaining -= tile;
   }
   return admitted_tiles * runtime::kRequestLinearLayerCount;
-}
-
-[[nodiscard]] std::size_t expected_aligned_fused_preprocess_hits() noexcept {
-#if defined(Q3X_GDN_CHUNK64_NATIVE_TEST)
-  std::size_t remaining = g_prompt_tokens - 1U;
-  std::size_t admitted_tiles = 0U;
-  while (remaining != 0U) {
-    const std::size_t tile =
-        runtime::reference_engine_detail::next_prefix_tile_token_count(
-            remaining, kPrefillChunkTokens);
-    if (tile >= 64U && tile % 64U == 0U) {
-      ++admitted_tiles;
-    }
-    remaining -= tile;
-  }
-  return admitted_tiles * runtime::kRequestLinearLayerCount;
-#else
-  return 0U;
-#endif
-}
-
-[[nodiscard]] std::size_t
-expected_environment_fused_preprocess_hits() noexcept {
-#if defined(Q3X_GDN_CHUNK64_NATIVE_TEST)
-  const char* const token_parallel =
-      std::getenv("Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION");
-  const char* const standalone_baseline = std::getenv(
-      "Q3X_RUN_GDN_CONV_COMPACT_QK_STANDALONE_BASELINE");
-  const char* const selector =
-      std::getenv("Q3X_RUN_GDN_CONV_COMPACT_QK_FUSED_CANDIDATE");
-  const bool token_parallel_enabled =
-      token_parallel != nullptr && std::strcmp(token_parallel, "1") == 0;
-  const bool baseline_forced =
-      standalone_baseline != nullptr &&
-      std::strcmp(standalone_baseline, "1") == 0;
-  const bool compatibility_selector_enabled =
-      selector == nullptr || std::strcmp(selector, "1") == 0;
-  if (token_parallel_enabled && !baseline_forced &&
-      compatibility_selector_enabled) {
-    return expected_aligned_fused_preprocess_hits();
-  }
-#endif
-  return 0U;
 }
 
 [[nodiscard]] bool validate_native_resources() {
@@ -791,26 +603,19 @@ expected_environment_fused_preprocess_hits() noexcept {
                               const std::string& prompt,
                               const bool candidate,
                               const std::string_view phase,
-                              Sample& sample,
-                              const std::string_view route_label = {},
-                              const std::size_t
-                                  expected_fused_preprocess_hits_override =
-                                      std::numeric_limits<
-                                          std::size_t>::max()) {
+                              Sample& sample) {
   runtime::ReferenceGenerateOptions options;
   options.max_new_tokens = 1U;
   options.prefill_chunk_size = kPrefillChunkTokens;
   options.logits_mode = runtime::ReferenceLogitsMode::kPredictedTokenOnly;
 
   (void)exchange_hits(0U);
-  (void)exchange_fused_preprocess_hits(0U);
   runtime::ReferenceGenerateResult result;
   {
     const ScopedAdmission admission(candidate);
     result = engine.generate(prompt, options);
   }
   sample.route_hits = exchange_hits(0U);
-  sample.fused_preprocess_hits = exchange_fused_preprocess_hits(0U);
   if (!result) {
     std::cerr << kRouteMarker << "_SAMPLE phase=" << phase
               << " route=" << (candidate ? "candidate" : "baseline")
@@ -832,28 +637,17 @@ expected_environment_fused_preprocess_hits() noexcept {
   sample.semantic_oracle = expected_generation(*result.value);
   const std::size_t expected_hits =
       candidate ? expected_native_route_hits() : 0U;
-  const std::size_t expected_preprocess_hits =
-      expected_fused_preprocess_hits_override !=
-              std::numeric_limits<std::size_t>::max()
-          ? expected_fused_preprocess_hits_override
-          : (candidate ? expected_environment_fused_preprocess_hits() : 0U);
   const bool structural_oracle =
       result.value->timing.prefix_execution_milliseconds.size() ==
           expected_prefix_executions() &&
       std::isfinite(sample.prefix_milliseconds) &&
       sample.prefix_milliseconds > 0.0 &&
       std::isfinite(sample.ttft_milliseconds) &&
-      sample.ttft_milliseconds > 0.0 && sample.route_hits == expected_hits &&
-      sample.fused_preprocess_hits == expected_preprocess_hits;
+      sample.ttft_milliseconds > 0.0 && sample.route_hits == expected_hits;
 
-  const std::string_view route =
-      route_label.empty()
-          ? (candidate ? std::string_view{"candidate"}
-                       : std::string_view{"baseline"})
-          : route_label;
   std::cout << kRouteMarker << "_SAMPLE phase=" << phase
             << " prompt_tokens=" << g_prompt_tokens
-            << " route=" << route
+            << " route=" << (candidate ? "candidate" : "baseline")
             << " prefix_ms=" << sample.prefix_milliseconds
             << " ttft_ms=" << sample.ttft_milliseconds
             << " generated_token="
@@ -863,9 +657,6 @@ expected_environment_fused_preprocess_hits() noexcept {
             << " generated_text=" << result.value->generated_text
             << " route_hits=" << sample.route_hits
             << " expected_hits=" << expected_hits
-            << " fused_preprocess_hits=" << sample.fused_preprocess_hits
-            << " expected_fused_preprocess_hits="
-            << expected_preprocess_hits
             << " structural_oracle="
             << (structural_oracle ? "PASS" : "FAIL")
             << " semantic_oracle="
@@ -878,14 +669,12 @@ expected_environment_fused_preprocess_hits() noexcept {
     const std::string& prompt,
     const bool candidate,
     StateSnapshot& snapshot,
-    std::size_t& route_hits,
-    std::size_t* const fused_preprocess_hits = nullptr) {
+    std::size_t& route_hits) {
   runtime::ReferenceGenerateOptions options;
   options.max_new_tokens = 1U;
   options.prefill_chunk_size = kPrefillChunkTokens;
   options.logits_mode = runtime::ReferenceLogitsMode::kPredictedTokenOnly;
   (void)exchange_hits(0U);
-  (void)exchange_fused_preprocess_hits(0U);
   runtime::ReferenceGenerateResult result;
   {
     const ScopedSnapshotHook hook(snapshot);
@@ -893,11 +682,6 @@ expected_environment_fused_preprocess_hits() noexcept {
     result = engine.generate(prompt, options);
   }
   route_hits = exchange_hits(0U);
-  const std::size_t observed_fused_hits =
-      exchange_fused_preprocess_hits(0U);
-  if (fused_preprocess_hits != nullptr) {
-    *fused_preprocess_hits = observed_fused_hits;
-  }
   return result;
 }
 
@@ -909,44 +693,39 @@ expected_environment_fused_preprocess_hits() noexcept {
          snapshot.region_bytes == runtime::kRequestGdnStateBytes;
 }
 
-#if defined(Q3X_GDN_CHUNK64_NATIVE_TEST)
-[[nodiscard]] bool valid_final_request_snapshot(
-    const StateSnapshot& snapshot) {
+[[nodiscard]] bool valid_snapshot_contract(const StateSnapshot& snapshot) {
   return !snapshot.contract_error &&
          snapshot.cuda_error == static_cast<int>(cudaSuccess) &&
          snapshot.calls == 1U &&
-         snapshot.committed_position == g_prompt_tokens &&
          snapshot.region_bytes == runtime::kRequestGdnStateBytes;
 }
-#endif
 
 #if defined(Q3X_GDN_CHUNK64_NATIVE_TEST)
 struct DifferenceMetrics {
   std::size_t elements = 0U;
   std::size_t unequal_bf16 = 0U;
   std::size_t nonfinite = 0U;
-  std::size_t first_unequal = std::numeric_limits<std::size_t>::max();
-  std::uint16_t first_expected = 0U;
-  std::uint16_t first_actual = 0U;
   double maximum_absolute_error = 0.0;
   double nrmse = 0.0;
   double cosine = 0.0;
 };
 
-[[nodiscard]] DifferenceMetrics compare_bf16(
+[[nodiscard]] DifferenceMetrics compare_bf16_range(
     const std::vector<std::uint16_t>& baseline,
-    const std::vector<std::uint16_t>& candidate) {
+    const std::vector<std::uint16_t>& candidate,
+    const std::size_t begin, const std::size_t end) {
   DifferenceMetrics metrics;
-  if (baseline.size() != candidate.size()) {
+  if (baseline.size() != candidate.size() || begin > end ||
+      end > baseline.size()) {
     metrics.nonfinite = 1U;
     return metrics;
   }
-  metrics.elements = baseline.size();
+  metrics.elements = end - begin;
   double baseline_square_sum = 0.0;
   double candidate_square_sum = 0.0;
   double error_square_sum = 0.0;
   double dot = 0.0;
-  for (std::size_t index = 0U; index < baseline.size(); ++index) {
+  for (std::size_t index = begin; index < end; ++index) {
     const double expected =
         static_cast<double>(decode_bf16(baseline[index]));
     const double actual =
@@ -962,14 +741,7 @@ struct DifferenceMetrics {
     dot += expected * actual;
     metrics.maximum_absolute_error =
         std::fmax(metrics.maximum_absolute_error, std::fabs(error));
-    if (baseline[index] != candidate[index]) {
-      if (metrics.first_unequal == std::numeric_limits<std::size_t>::max()) {
-        metrics.first_unequal = index;
-        metrics.first_expected = baseline[index];
-        metrics.first_actual = candidate[index];
-      }
-      ++metrics.unequal_bf16;
-    }
+    metrics.unequal_bf16 += baseline[index] != candidate[index] ? 1U : 0U;
   }
   metrics.nrmse =
       baseline_square_sum > 0.0
@@ -984,6 +756,12 @@ struct DifferenceMetrics {
   return metrics;
 }
 
+[[nodiscard]] DifferenceMetrics compare_bf16(
+    const std::vector<std::uint16_t>& baseline,
+    const std::vector<std::uint16_t>& candidate) {
+  return compare_bf16_range(baseline, candidate, 0U, baseline.size());
+}
+
 void print_difference_metrics(const std::string_view suite,
                               const std::string_view region,
                               const DifferenceMetrics& metrics) {
@@ -991,14 +769,6 @@ void print_difference_metrics(const std::string_view suite,
             << " region=" << region
             << " elements=" << metrics.elements
             << " unequal_bf16=" << metrics.unequal_bf16
-            << " first_unequal="
-            << (metrics.first_unequal ==
-                        std::numeric_limits<std::size_t>::max()
-                    ? metrics.elements
-                    : metrics.first_unequal)
-            << " first_expected_bf16=0x" << std::hex
-            << metrics.first_expected
-            << " first_actual_bf16=0x" << metrics.first_actual << std::dec
             << " max_abs_error=" << metrics.maximum_absolute_error
             << " nrmse=" << metrics.nrmse
             << " cosine=" << metrics.cosine
@@ -1009,6 +779,22 @@ void print_difference_metrics(const std::string_view suite,
   return metrics.elements != 0U && metrics.unequal_bf16 == 0U &&
          metrics.nonfinite == 0U && metrics.maximum_absolute_error == 0.0 &&
          metrics.nrmse == 0.0 && metrics.cosine == 1.0;
+}
+
+[[nodiscard]] std::size_t first_unequal_bf16(
+    const std::vector<std::uint16_t>& baseline,
+    const std::vector<std::uint16_t>& candidate,
+    const std::size_t begin, const std::size_t end) noexcept {
+  if (baseline.size() != candidate.size() || end > baseline.size() ||
+      begin > end) {
+    return std::numeric_limits<std::size_t>::max();
+  }
+  for (std::size_t index = begin; index < end; ++index) {
+    if (baseline[index] != candidate[index]) {
+      return index;
+    }
+  }
+  return std::numeric_limits<std::size_t>::max();
 }
 
 void destroy_event(cudaEvent_t& event) noexcept {
@@ -1136,8 +922,7 @@ void destroy_event(cudaEvent_t& event) noexcept {
 
 [[nodiscard]] bool run_native_kkt_equivalence(
     runtime::ReferenceEngine& engine,
-    const std::string& prompt,
-    const bool vllm_layout_candidate = false) {
+    const std::string& prompt) {
   if (g_prompt_tokens != kDefaultPromptTokens) {
     std::cerr << "group-WY equivalence requires the real P513 route\n";
     return false;
@@ -1178,10 +963,9 @@ void destroy_event(cudaEvent_t& event) noexcept {
   {
     const ScopedFusedKktBaseline fused_route(false);
     const ScopedSplitWyBaseline split_route(false);
-    const ScopedPackedQkvBaseline packed_route(!vllm_layout_candidate);
-    const ScopedVllmLayoutWyCandidate vllm_route(false);
+    const ScopedPackedQkvBaseline packed_route(true);
     if (!fused_route.valid() || !split_route.valid()) {
-      std::cerr << "failed to select WY equivalence baseline\n";
+      std::cerr << "failed to select d51 packed-QKV baseline\n";
       return false;
     }
     const ScopedNativeInspectionHook hook(baseline_boundaries);
@@ -1195,10 +979,8 @@ void destroy_event(cudaEvent_t& event) noexcept {
     const ScopedFusedKktBaseline fused_route(false);
     const ScopedSplitWyBaseline split_route(false);
     const ScopedPackedQkvBaseline packed_route(false);
-    const ScopedVllmLayoutWyCandidate vllm_route(
-        vllm_layout_candidate);
     if (!fused_route.valid() || !split_route.valid()) {
-      std::cerr << "failed to select WY equivalence candidate\n";
+      std::cerr << "failed to select compact packless candidate\n";
       return false;
     }
     const ScopedNativeInspectionHook hook(candidate_boundaries);
@@ -1228,21 +1010,18 @@ void destroy_event(cudaEvent_t& event) noexcept {
       baseline_boundaries.output, candidate_boundaries.output);
   const DifferenceMetrics full_request_state = compare_bf16(
       baseline_state.values, candidate_state.values);
-  const std::string_view suite =
-      vllm_layout_candidate
-          ? "GDN_CHUNK64_NATIVE_VLLM_LAYOUT_EQUIVALENCE"
-          : "GDN_CHUNK64_NATIVE_PACKLESS_EQUIVALENCE";
-  print_difference_metrics(suite, "transform", transform);
-  print_difference_metrics(suite, "w", w);
-  print_difference_metrics(suite, "u", u);
-  print_difference_metrics(suite, "final_layer_state", final_layer_state);
-  print_difference_metrics(suite, "final_layer_output", final_layer_output);
-  print_difference_metrics(suite, "full_request_state", full_request_state);
+  constexpr std::string_view kSuite =
+      "GDN_CHUNK64_NATIVE_PACKLESS_EQUIVALENCE";
+  print_difference_metrics(kSuite, "transform", transform);
+  print_difference_metrics(kSuite, "w", w);
+  print_difference_metrics(kSuite, "u", u);
+  print_difference_metrics(kSuite, "final_layer_state", final_layer_state);
+  print_difference_metrics(kSuite, "final_layer_output", final_layer_output);
+  print_difference_metrics(kSuite, "full_request_state", full_request_state);
 
   const bool boundary_contract =
       !baseline_boundaries.contract_error &&
       !candidate_boundaries.contract_error &&
-      baseline_boundaries.captured && candidate_boundaries.captured &&
       baseline_boundaries.cuda_error == static_cast<int>(cudaSuccess) &&
       candidate_boundaries.cuda_error == static_cast<int>(cudaSuccess) &&
       baseline_boundaries.calls == runtime::kRequestLinearLayerCount &&
@@ -1262,7 +1041,7 @@ void destroy_event(cudaEvent_t& event) noexcept {
       exact_metrics(u) &&
       exact_metrics(final_layer_state) && exact_metrics(final_layer_output) &&
       exact_metrics(full_request_state);
-  std::cout << suite
+  std::cout << kSuite
             << " baseline_hits=" << baseline_hits
             << " candidate_hits=" << candidate_hits
             << " boundary_contract="
@@ -1270,82 +1049,7 @@ void destroy_event(cudaEvent_t& event) noexcept {
             << " generation_semantics="
             << (generation_semantics ? "PASS" : "FAIL")
             << " gate=" << (passed ? "PASS" : "FAIL")
-            << " authority="
-            << (vllm_layout_candidate
-                    ? "REAL_WEIGHT_VLLM_LAYOUT_VS_GROUP_OWNED"
-                    : "REAL_WEIGHT_PACKLESS_VS_D51_PACKED")
-            << '\n';
-  return passed;
-}
-
-[[nodiscard]] bool run_native_vllm_layout_bccb(
-    runtime::ReferenceEngine& engine,
-    const std::string& prompt) {
-  auto run_route = [&](const bool vllm_layout,
-                       const std::string_view phase,
-                       Sample& sample) {
-    const ScopedFusedKktBaseline fused_route(false);
-    const ScopedSplitWyBaseline split_route(false);
-    const ScopedPackedQkvBaseline packed_route(false);
-    const ScopedResidentStateBaseline resident_route(false);
-    const ScopedVllmLayoutWyCandidate vllm_route(vllm_layout);
-    return run_sample(engine, prompt, true, phase, sample,
-                      vllm_layout ? "vllm_layout" : "group_owned");
-  };
-
-  Sample baseline_warmup;
-  Sample candidate_warmup;
-  bool ready = run_route(false, "vllm_layout_baseline_warmup",
-                         baseline_warmup) &&
-               run_route(true, "vllm_layout_candidate_warmup",
-                         candidate_warmup);
-  Sample baseline_first;
-  Sample candidate_first;
-  Sample candidate_second;
-  Sample baseline_second;
-  ready = run_route(false, "vllm_layout_B1", baseline_first) && ready;
-  ready = run_route(true, "vllm_layout_C1", candidate_first) && ready;
-  ready = run_route(true, "vllm_layout_C2", candidate_second) && ready;
-  ready = run_route(false, "vllm_layout_B2", baseline_second) && ready;
-
-  const bool semantics =
-      baseline_first.semantic_oracle && candidate_first.semantic_oracle &&
-      candidate_second.semantic_oracle && baseline_second.semantic_oracle &&
-      baseline_first.generated_token == candidate_first.generated_token &&
-      baseline_first.generated_token == candidate_second.generated_token &&
-      baseline_first.generated_token == baseline_second.generated_token &&
-      baseline_first.generated_text == candidate_first.generated_text &&
-      baseline_first.generated_text == candidate_second.generated_text &&
-      baseline_first.generated_text == baseline_second.generated_text;
-  const double first_saved = baseline_first.prefix_milliseconds -
-                             candidate_first.prefix_milliseconds;
-  const double second_saved = baseline_second.prefix_milliseconds -
-                              candidate_second.prefix_milliseconds;
-  const double baseline_mean =
-      (baseline_first.prefix_milliseconds +
-       baseline_second.prefix_milliseconds) /
-      2.0;
-  const double candidate_mean =
-      (candidate_first.prefix_milliseconds +
-       candidate_second.prefix_milliseconds) /
-      2.0;
-  const double mean_saved = baseline_mean - candidate_mean;
-  const bool passed = ready && semantics && first_saved > 0.0 &&
-                      second_saved > 0.0 && mean_saved > 0.0;
-  std::cout << "GDN_CHUNK64_NATIVE_VLLM_LAYOUT_BCCB"
-            << " B1_prefix_ms=" << baseline_first.prefix_milliseconds
-            << " C1_prefix_ms=" << candidate_first.prefix_milliseconds
-            << " C2_prefix_ms=" << candidate_second.prefix_milliseconds
-            << " B2_prefix_ms=" << baseline_second.prefix_milliseconds
-            << " pair1_saved_ms=" << first_saved
-            << " pair2_saved_ms=" << second_saved
-            << " baseline_mean_ms=" << baseline_mean
-            << " candidate_mean_ms=" << candidate_mean
-            << " mean_saved_ms=" << mean_saved
-            << " speedup=" << baseline_mean / candidate_mean
-            << " generation_semantics=" << (semantics ? "PASS" : "FAIL")
-            << " gate=" << (passed ? "PASS" : "FAIL")
-            << " authority=REAL_WEIGHT_SAME_ENGINE_B_C_C_B\n";
+            << " authority=REAL_WEIGHT_PACKLESS_VS_D51_PACKED\n";
   return passed;
 }
 
@@ -1443,7 +1147,6 @@ void destroy_event(cudaEvent_t& event) noexcept {
   const bool boundary_contract =
       !baseline_boundaries.contract_error &&
       !candidate_boundaries.contract_error &&
-      baseline_boundaries.captured && candidate_boundaries.captured &&
       baseline_boundaries.cuda_error == static_cast<int>(cudaSuccess) &&
       candidate_boundaries.cuda_error == static_cast<int>(cudaSuccess) &&
       baseline_boundaries.calls == runtime::kRequestLinearLayerCount &&
@@ -1475,43 +1178,297 @@ void destroy_event(cudaEvent_t& event) noexcept {
   return passed;
 }
 
-[[nodiscard]] bool run_native_chunk_o_bv64_equivalence(
-    runtime::ReferenceEngine& engine,
-    const std::string& prompt) {
+// Narrow real-weight diagnostic for a structural recurrence candidate. It
+// captures only the first GDN layer invocation and walks the recurrent
+// boundaries in execution order: H before chunk i, Vnew for chunk i, then
+// final H. This deliberately does not build a full correctness harness.
+[[nodiscard]] bool run_vllm_faithful_state_call1_snapshot(
+    runtime::ReferenceEngine& engine, const std::string& prompt) {
   if (g_prompt_tokens != kDefaultPromptTokens) {
-    std::cerr << "chunk-o BV64 equivalence requires the real P513 route\n";
+    std::cerr << "vLLM-faithful snapshot requires the real P513 route\n";
     return false;
   }
   constexpr std::size_t kNativeTokens = kDefaultPromptTokens - 1U;
-  constexpr std::size_t kTransformElements =
-      (kNativeTokens / 64U) * runtime::kGdnValueHeadCount * 64U * 64U;
+  constexpr std::size_t kChunkCount = kNativeTokens / 64U;
+  constexpr std::size_t kChunkVNewElements =
+      64U * runtime::kGdnVElements;
+  constexpr std::size_t kVNewElements =
+      kChunkCount * kChunkVNewElements;
+  constexpr std::size_t kBoundaryElements =
+      kChunkCount * runtime::kGdnStateElements;
+  constexpr std::size_t kCompactKElements =
+      kChunkCount * runtime::kGdnQkHeadCount * 64U * 128U;
+  constexpr std::size_t kGammaElements =
+      kChunkCount * runtime::kGdnValueHeadCount * 64U;
+
+  NativeBoundarySnapshot baseline;
+  NativeBoundarySnapshot candidate;
+  baseline.capture_call = 1U;
+  candidate.capture_call = 1U;
+  try {
+    baseline.v_new.resize(kVNewElements);
+    candidate.v_new.resize(kVNewElements);
+    baseline.boundary_state.resize(kBoundaryElements);
+    candidate.boundary_state.resize(kBoundaryElements);
+    baseline.state.resize(runtime::kGdnStateElements);
+    candidate.state.resize(runtime::kGdnStateElements);
+    candidate.compact_k.resize(kCompactKElements);
+    candidate.gamma.resize(kGammaElements);
+    candidate.diagnostic_k_decay.resize(kVNewElements);
+    candidate.diagnostic_post_update_state.resize(
+        runtime::kGdnStateElements);
+  } catch (const std::bad_alloc&) {
+    std::cerr << "vLLM-faithful snapshot host allocation failed\n";
+    return false;
+  }
+
+  Sample baseline_sample;
+  Sample candidate_sample;
+  bool baseline_completed = false;
+  bool candidate_completed = false;
+  {
+    const ScopedFusedKktBaseline kkt_route(false);
+    const ScopedSplitWyBaseline split_route(false);
+    const ScopedPackedQkvBaseline packed_route(false);
+    const ScopedResidentStateBaseline resident_route(false);
+    const ScopedPacklessResidentStateFallback packless_fallback(true);
+    const ScopedNativeInspectionHook hook(baseline);
+    baseline_completed = run_sample(
+        engine, prompt, true, "faithful_call1_baseline", baseline_sample);
+  }
+  {
+    const ScopedFusedKktBaseline kkt_route(false);
+    const ScopedSplitWyBaseline split_route(false);
+    const ScopedPackedQkvBaseline packed_route(false);
+    const ScopedResidentStateBaseline resident_route(false);
+    const ScopedPacklessResidentStateFallback packless_fallback(false);
+    const ScopedNativeInspectionHook hook(candidate);
+    candidate_completed = run_sample(
+        engine, prompt, true, "faithful_call1_candidate", candidate_sample);
+  }
+
+  const bool snapshot_contract =
+      baseline.calls == runtime::kRequestLinearLayerCount &&
+      candidate.calls == runtime::kRequestLinearLayerCount &&
+      baseline.captured && candidate.captured &&
+      !baseline.contract_error && !candidate.contract_error &&
+      baseline.cuda_error == static_cast<int>(cudaSuccess) &&
+      candidate.cuda_error == static_cast<int>(cudaSuccess);
+  // Full-production prompt tiling can make the older timing-vector shape
+  // check in run_sample return false even when generation and the snapshot
+  // both completed. The narrow gate is the captured call contract plus the
+  // exact native route-hit count; the two booleans remain diagnostic only.
+  const bool ready =
+      snapshot_contract &&
+      baseline_sample.route_hits == expected_native_route_hits() &&
+      candidate_sample.route_hits == expected_native_route_hits();
+
+  constexpr std::string_view kSuite =
+      "GDN_CHUNK64_VLLM_FAITHFUL_CALL1_SNAPSHOT";
+  const DifferenceMetrics v_new =
+      compare_bf16(baseline.v_new, candidate.v_new);
+  const DifferenceMetrics boundary =
+      compare_bf16(baseline.boundary_state, candidate.boundary_state);
+  const DifferenceMetrics final_state =
+      compare_bf16(baseline.state, candidate.state);
+  print_difference_metrics(kSuite, "v_new", v_new);
+  print_difference_metrics(kSuite, "boundary_state", boundary);
+  print_difference_metrics(kSuite, "final_state", final_state);
+
+  std::vector<std::uint16_t> expected_k_decay;
+  std::vector<std::uint16_t> observed_k_decay;
+  std::vector<std::uint16_t> baseline_h1;
+  std::vector<std::uint16_t> candidate_boundary_h1;
+  try {
+    expected_k_decay.resize(kChunkVNewElements);
+    observed_k_decay.assign(
+        candidate.diagnostic_k_decay.begin(),
+        candidate.diagnostic_k_decay.begin() + kChunkVNewElements);
+    baseline_h1.assign(
+        baseline.boundary_state.begin() + runtime::kGdnStateElements,
+        baseline.boundary_state.begin() +
+            2U * runtime::kGdnStateElements);
+    candidate_boundary_h1.assign(
+        candidate.boundary_state.begin() + runtime::kGdnStateElements,
+        candidate.boundary_state.begin() +
+            2U * runtime::kGdnStateElements);
+  } catch (const std::bad_alloc&) {
+    std::cerr << "vLLM-faithful component comparison allocation failed\n";
+    return false;
+  }
+  for (std::size_t head = 0U;
+       head < runtime::kGdnValueHeadCount; ++head) {
+    const std::size_t compact_head = head / 3U;
+    const float g_last = candidate.gamma[
+        head * 64U + 63U];
+    for (std::size_t token = 0U; token < 64U; ++token) {
+      const float scale = std::exp(
+          g_last - candidate.gamma[head * 64U + token]);
+      for (std::size_t key = 0U; key < 128U; ++key) {
+        const std::size_t source =
+            (compact_head * 64U + token) * 128U + key;
+        const std::size_t destination =
+            (head * 64U + token) * 128U + key;
+        expected_k_decay[destination] = encode_bf16(
+            decode_bf16(candidate.compact_k[source]) * scale);
+      }
+    }
+  }
+  const DifferenceMetrics k_decay =
+      compare_bf16(expected_k_decay, observed_k_decay);
+  const DifferenceMetrics post_update_oracle = compare_bf16(
+      baseline_h1, candidate.diagnostic_post_update_state);
+  const DifferenceMetrics post_update_publication = compare_bf16(
+      candidate_boundary_h1,
+      candidate.diagnostic_post_update_state);
+  print_difference_metrics(kSuite, "chunk0_k_decay", k_decay);
+  print_difference_metrics(kSuite, "chunk0_post_update_vs_oracle",
+                           post_update_oracle);
+  print_difference_metrics(kSuite, "chunk0_post_update_vs_publication",
+                           post_update_publication);
+  for (std::size_t chunk = 0U; chunk < kChunkCount; ++chunk) {
+    const std::size_t boundary_begin =
+        chunk * runtime::kGdnStateElements;
+    const std::size_t v_new_begin = chunk * kChunkVNewElements;
+    const DifferenceMetrics chunk_boundary = compare_bf16_range(
+        baseline.boundary_state, candidate.boundary_state,
+        boundary_begin, boundary_begin + runtime::kGdnStateElements);
+    const DifferenceMetrics chunk_v_new = compare_bf16_range(
+        baseline.v_new, candidate.v_new, v_new_begin,
+        v_new_begin + kChunkVNewElements);
+    std::cout << kSuite
+              << " chunk=" << chunk
+              << " boundary_unequal_bf16="
+              << chunk_boundary.unequal_bf16
+              << " boundary_nrmse=" << chunk_boundary.nrmse
+              << " v_new_unequal_bf16=" << chunk_v_new.unequal_bf16
+              << " v_new_nrmse=" << chunk_v_new.nrmse << '\n';
+  }
+
+  std::string_view first_stage = "none";
+  std::size_t first_chunk = kChunkCount;
+  std::size_t first_index = std::numeric_limits<std::size_t>::max();
+  std::size_t first_local = std::numeric_limits<std::size_t>::max();
+  for (std::size_t chunk = 0U; chunk < kChunkCount; ++chunk) {
+    const std::size_t boundary_begin =
+        chunk * runtime::kGdnStateElements;
+    const std::size_t boundary_end =
+        boundary_begin + runtime::kGdnStateElements;
+    first_index = first_unequal_bf16(
+        baseline.boundary_state, candidate.boundary_state,
+        boundary_begin, boundary_end);
+    if (first_index != std::numeric_limits<std::size_t>::max()) {
+      first_stage = "boundary_state";
+      first_chunk = chunk;
+      first_local = first_index - boundary_begin;
+      break;
+    }
+    const std::size_t v_new_begin = chunk * kChunkVNewElements;
+    const std::size_t v_new_end = v_new_begin + kChunkVNewElements;
+    first_index = first_unequal_bf16(
+        baseline.v_new, candidate.v_new, v_new_begin, v_new_end);
+    if (first_index != std::numeric_limits<std::size_t>::max()) {
+      first_stage = "v_new";
+      first_chunk = chunk;
+      first_local = first_index - v_new_begin;
+      break;
+    }
+  }
+  if (first_stage == "none") {
+    first_index = first_unequal_bf16(
+        baseline.state, candidate.state, 0U, baseline.state.size());
+    if (first_index != std::numeric_limits<std::size_t>::max()) {
+      first_stage = "final_state";
+      first_local = first_index;
+    }
+  }
+
+  std::cout << kSuite
+            << " first_stage=" << first_stage;
+  if (first_index != std::numeric_limits<std::size_t>::max()) {
+    constexpr std::size_t kStateMatrixElements = 128U * 128U;
+    std::size_t head = 0U;
+    std::size_t token_or_value = 0U;
+    std::size_t value_or_key = 0U;
+    if (first_stage == "v_new") {
+      head = first_local / (64U * 128U);
+      const std::size_t remainder = first_local % (64U * 128U);
+      token_or_value = remainder / 128U;
+      value_or_key = remainder % 128U;
+      std::cout << " chunk=" << first_chunk
+                << " head=" << head
+                << " token_in_chunk=" << token_or_value
+                << " value=" << value_or_key;
+    } else {
+      head = first_local / kStateMatrixElements;
+      const std::size_t remainder = first_local % kStateMatrixElements;
+      token_or_value = remainder / 128U;
+      value_or_key = remainder % 128U;
+      if (first_stage == "boundary_state") {
+        std::cout << " chunk=" << first_chunk;
+      }
+      std::cout << " head=" << head
+                << " value=" << token_or_value
+                << " key=" << value_or_key;
+    }
+    const std::vector<std::uint16_t>* baseline_region = &baseline.state;
+    const std::vector<std::uint16_t>* candidate_region = &candidate.state;
+    if (first_stage == "v_new") {
+      baseline_region = &baseline.v_new;
+      candidate_region = &candidate.v_new;
+    } else if (first_stage == "boundary_state") {
+      baseline_region = &baseline.boundary_state;
+      candidate_region = &candidate.boundary_state;
+    }
+    std::cout << " baseline_bf16=" << (*baseline_region)[first_index]
+              << " candidate_bf16=" << (*candidate_region)[first_index]
+              << " baseline_value="
+              << decode_bf16((*baseline_region)[first_index])
+              << " candidate_value="
+              << decode_bf16((*candidate_region)[first_index]);
+  }
+  std::cout << " baseline_token=" << baseline_sample.generated_token
+            << " candidate_token=" << candidate_sample.generated_token
+            << " baseline_sample_shape="
+            << (baseline_completed ? "PASS" : "MISMATCH")
+            << " candidate_sample_shape="
+            << (candidate_completed ? "PASS" : "MISMATCH")
+            << " snapshot_contract="
+            << (snapshot_contract ? "PASS" : "FAIL")
+            << " authority=REAL_WEIGHT_P513_FIRST_GDN_CALL\n";
+  return ready;
+}
+
+[[nodiscard]] bool run_vllm_faithful_state_equivalence(
+    runtime::ReferenceEngine& engine, const std::string& prompt) {
+  if (g_prompt_tokens != kDefaultPromptTokens) {
+    std::cerr << "vLLM-faithful equivalence requires the real P513 route\n";
+    return false;
+  }
+  constexpr std::size_t kNativeTokens = kDefaultPromptTokens - 1U;
   constexpr std::size_t kOutputElements =
       kNativeTokens * runtime::kGdnVElements;
+  const std::size_t request_state_elements =
+      static_cast<std::size_t>(runtime::kRequestGdnStateBytes /
+                               sizeof(std::uint16_t));
 
   StateSnapshot baseline_state;
   StateSnapshot candidate_state;
-  NativeBoundarySnapshot baseline_boundaries;
-  NativeBoundarySnapshot candidate_boundaries;
-  baseline_boundaries.target_call = 1U;
-  candidate_boundaries.target_call = 1U;
+  StateSnapshot baseline_return_state;
+  StateSnapshot candidate_return_state;
+  NativeBoundarySnapshot baseline_final;
+  NativeBoundarySnapshot candidate_final;
   try {
-    const std::size_t request_state_elements =
-        static_cast<std::size_t>(runtime::kRequestGdnStateBytes /
-                                 sizeof(std::uint16_t));
     baseline_state.values.resize(request_state_elements);
     candidate_state.values.resize(request_state_elements);
-    baseline_boundaries.transform.resize(kTransformElements);
-    candidate_boundaries.transform.resize(kTransformElements);
-    baseline_boundaries.w.resize(kOutputElements);
-    candidate_boundaries.w.resize(kOutputElements);
-    baseline_boundaries.u.resize(kOutputElements);
-    candidate_boundaries.u.resize(kOutputElements);
-    baseline_boundaries.state.resize(runtime::kGdnStateElements);
-    candidate_boundaries.state.resize(runtime::kGdnStateElements);
-    baseline_boundaries.output.resize(kOutputElements);
-    candidate_boundaries.output.resize(kOutputElements);
+    baseline_return_state.values.resize(request_state_elements);
+    candidate_return_state.values.resize(request_state_elements);
+    baseline_final.state.resize(runtime::kGdnStateElements);
+    candidate_final.state.resize(runtime::kGdnStateElements);
+    baseline_final.output.resize(kOutputElements);
+    candidate_final.output.resize(kOutputElements);
   } catch (const std::bad_alloc&) {
-    std::cerr << "chunk-o BV64 equivalence host allocation failed\n";
+    std::cerr << "vLLM-faithful equivalence host allocation failed\n";
     return false;
   }
 
@@ -1522,11 +1479,14 @@ void destroy_event(cudaEvent_t& event) noexcept {
     const ScopedSplitWyBaseline split_route(false);
     const ScopedPackedQkvBaseline packed_route(false);
     const ScopedResidentStateBaseline resident_route(false);
-    const ScopedChunkOBv64Candidate route(false);
-    const ScopedNativeInspectionHook hook(baseline_boundaries);
+    const ScopedPacklessResidentStateFallback packless_fallback(true);
+    const ScopedNativeInspectionHook hook(baseline_final);
+    const ScopedGenerateReturnSnapshotHook return_hook(
+        baseline_return_state);
     baseline_result = run_snapshot_generation(
         engine, prompt, true, baseline_state, baseline_hits);
   }
+
   std::size_t candidate_hits = 0U;
   runtime::ReferenceGenerateResult candidate_result;
   {
@@ -1534,13 +1494,15 @@ void destroy_event(cudaEvent_t& event) noexcept {
     const ScopedSplitWyBaseline split_route(false);
     const ScopedPackedQkvBaseline packed_route(false);
     const ScopedResidentStateBaseline resident_route(false);
-    const ScopedChunkOBv64Candidate route(true);
-    const ScopedNativeInspectionHook hook(candidate_boundaries);
+    const ScopedPacklessResidentStateFallback packless_fallback(false);
+    const ScopedNativeInspectionHook hook(candidate_final);
+    const ScopedGenerateReturnSnapshotHook return_hook(
+        candidate_return_state);
     candidate_result = run_snapshot_generation(
         engine, prompt, true, candidate_state, candidate_hits);
   }
   if (!baseline_result || !candidate_result) {
-    std::cerr << "chunk-o BV64 equivalence generation failed\n";
+    std::cerr << "vLLM-faithful equivalence generation failed\n";
     if (!baseline_result) {
       print_diagnostic(baseline_result.diagnostic);
     }
@@ -1550,53 +1512,30 @@ void destroy_event(cudaEvent_t& event) noexcept {
     return false;
   }
 
-  const DifferenceMetrics transform = compare_bf16(
-      baseline_boundaries.transform, candidate_boundaries.transform);
-  const DifferenceMetrics w = compare_bf16(
-      baseline_boundaries.w, candidate_boundaries.w);
-  const DifferenceMetrics u = compare_bf16(
-      baseline_boundaries.u, candidate_boundaries.u);
   const DifferenceMetrics final_layer_state = compare_bf16(
-      baseline_boundaries.state, candidate_boundaries.state);
+      baseline_final.state, candidate_final.state);
   const DifferenceMetrics final_layer_output = compare_bf16(
-      baseline_boundaries.output, candidate_boundaries.output);
-  const DifferenceMetrics full_request_state = compare_bf16(
+      baseline_final.output, candidate_final.output);
+  const DifferenceMetrics post_c512_request_state = compare_bf16(
       baseline_state.values, candidate_state.values);
+  const DifferenceMetrics post_c1_request_state = compare_bf16(
+      baseline_return_state.values, candidate_return_state.values);
   constexpr std::string_view kSuite =
-      "GDN_CHUNK64_NATIVE_CHUNK_O_BV64_EQUIVALENCE";
-  print_difference_metrics(kSuite, "transform", transform);
-  print_difference_metrics(kSuite, "w", w);
-  print_difference_metrics(kSuite, "u", u);
-  print_difference_metrics(kSuite, "first_layer_state", final_layer_state);
-  print_difference_metrics(kSuite, "first_layer_output", final_layer_output);
-  print_difference_metrics(kSuite, "full_request_state", full_request_state);
-
-  if (final_layer_output.first_unequal !=
-      std::numeric_limits<std::size_t>::max()) {
-    const std::size_t token =
-        final_layer_output.first_unequal / runtime::kGdnVElements;
-    const std::size_t within_token =
-        final_layer_output.first_unequal % runtime::kGdnVElements;
-    const std::size_t head = within_token / runtime::kGdnHeadDimension;
-    const std::size_t value = within_token % runtime::kGdnHeadDimension;
-    std::cout << kSuite
-              << " first_mismatch_token=" << token
-              << " first_mismatch_head=" << head
-              << " first_mismatch_value=" << value
-              << " first_expected_bf16=0x" << std::hex
-              << final_layer_output.first_expected
-              << " first_actual_bf16=0x"
-              << final_layer_output.first_actual << std::dec << '\n';
-  }
+      "GDN_CHUNK64_VLLM_FAITHFUL_EQUIVALENCE";
+  print_difference_metrics(kSuite, "final_layer_state", final_layer_state);
+  print_difference_metrics(kSuite, "final_layer_output", final_layer_output);
+  print_difference_metrics(kSuite, "post_c512_request_state",
+                           post_c512_request_state);
+  print_difference_metrics(kSuite, "post_c1_request_state",
+                           post_c1_request_state);
 
   const bool boundary_contract =
-      !baseline_boundaries.contract_error &&
-      !candidate_boundaries.contract_error &&
-      baseline_boundaries.captured && candidate_boundaries.captured &&
-      baseline_boundaries.cuda_error == static_cast<int>(cudaSuccess) &&
-      candidate_boundaries.cuda_error == static_cast<int>(cudaSuccess) &&
-      baseline_boundaries.calls == runtime::kRequestLinearLayerCount &&
-      candidate_boundaries.calls == runtime::kRequestLinearLayerCount;
+      baseline_final.captured && candidate_final.captured &&
+      !baseline_final.contract_error && !candidate_final.contract_error &&
+      baseline_final.cuda_error == static_cast<int>(cudaSuccess) &&
+      candidate_final.cuda_error == static_cast<int>(cudaSuccess) &&
+      baseline_final.calls == runtime::kRequestLinearLayerCount &&
+      candidate_final.calls == runtime::kRequestLinearLayerCount;
   const bool generation_semantics =
       expected_generation(*baseline_result.value) &&
       expected_generation(*candidate_result.value) &&
@@ -1604,26 +1543,228 @@ void destroy_event(cudaEvent_t& event) noexcept {
           candidate_result.value->generated_token_ids &&
       baseline_result.value->generated_text ==
           candidate_result.value->generated_text;
-  const bool upstream_exact = exact_metrics(transform) && exact_metrics(w) &&
-                              exact_metrics(u) &&
-                              exact_metrics(final_layer_state);
+  const bool return_state_contract =
+      valid_snapshot_contract(baseline_return_state) &&
+      valid_snapshot_contract(candidate_return_state) &&
+      baseline_return_state.committed_position == g_prompt_tokens &&
+      candidate_return_state.committed_position == g_prompt_tokens;
   const bool passed =
       valid_snapshot(baseline_state) && valid_snapshot(candidate_state) &&
       baseline_hits == expected_native_route_hits() &&
       candidate_hits == expected_native_route_hits() && boundary_contract &&
-      upstream_exact && exact_metrics(final_layer_output) &&
-      exact_metrics(full_request_state) && generation_semantics;
+      return_state_contract && generation_semantics &&
+      exact_metrics(final_layer_state) && exact_metrics(final_layer_output) &&
+      exact_metrics(post_c512_request_state) &&
+      exact_metrics(post_c1_request_state);
   std::cout << kSuite
             << " baseline_hits=" << baseline_hits
             << " candidate_hits=" << candidate_hits
             << " boundary_contract="
             << (boundary_contract ? "PASS" : "FAIL")
-            << " upstream_exact=" << (upstream_exact ? "PASS" : "FAIL")
+            << " return_state_contract="
+            << (return_state_contract ? "PASS" : "FAIL")
+            << " baseline_return_position="
+            << baseline_return_state.committed_position
+            << " candidate_return_position="
+            << candidate_return_state.committed_position
             << " generation_semantics="
             << (generation_semantics ? "PASS" : "FAIL")
+            << " generated_token="
+            << candidate_result.value->generated_token_ids.front()
+            << " generated_text=" << candidate_result.value->generated_text
             << " gate=" << (passed ? "PASS" : "FAIL")
-            << " authority=REAL_WEIGHT_FIRST_LAYER_AND_FULL_REQUEST\n";
+            << " authority=REAL_WEIGHT_P513_POST_C512_AND_POST_C1_STATE\n";
   return passed;
+}
+
+[[nodiscard]] bool run_vllm_faithful_default_smoke(
+    runtime::ReferenceEngine& engine, const std::string& prompt) {
+  Sample sample;
+  {
+    const ScopedFusedKktBaseline kkt_route(false);
+    const ScopedSplitWyBaseline split_route(false);
+    const ScopedPackedQkvBaseline packed_route(false);
+    const ScopedResidentStateBaseline resident_route(false);
+    // Deliberately install no state-recurrence selector: this is the native
+    // C64 production default exactly as a caller reaches it.
+    (void)run_sample(engine, prompt, true, "faithful_default_smoke", sample);
+  }
+  const bool passed =
+      sample.route_hits == expected_native_route_hits() &&
+      sample.semantic_oracle &&
+      sample.generated_token == kExpectedGeneratedToken &&
+      sample.generated_text == kExpectedGeneratedText &&
+      std::isfinite(sample.prefix_milliseconds) &&
+      sample.prefix_milliseconds > 0.0 &&
+      std::isfinite(sample.ttft_milliseconds) &&
+      sample.ttft_milliseconds > 0.0;
+  std::cout << "GDN_CHUNK64_VLLM_FAITHFUL_DEFAULT_SMOKE"
+            << " prompt_tokens=" << g_prompt_tokens
+            << " prefix_ms=" << sample.prefix_milliseconds
+            << " ttft_ms=" << sample.ttft_milliseconds
+            << " route_hits=" << sample.route_hits
+            << " generated_token=" << sample.generated_token
+            << " generated_text=" << sample.generated_text
+            << " gate=" << (passed ? "PASS" : "FAIL")
+            << " authority=REAL_WEIGHT_PRODUCTION_DEFAULT_NO_SELECTOR\n";
+  return passed;
+}
+
+// One clean real-weight B->C direction read. Both samples stay on the full
+// native production route; only the state-recurrence implementation changes.
+// No inspection hook is installed, so C launches the production <false>
+// candidate template and performs no diagnostic writes.
+[[nodiscard]] bool run_vllm_faithful_state_direction(
+    runtime::ReferenceEngine& engine, const std::string& prompt) {
+  Sample baseline;
+  Sample candidate;
+  {
+    const ScopedFusedKktBaseline kkt_route(false);
+    const ScopedSplitWyBaseline split_route(false);
+    const ScopedPackedQkvBaseline packed_route(false);
+    const ScopedResidentStateBaseline resident_route(false);
+    const ScopedPacklessResidentStateFallback packless_fallback(true);
+    (void)run_sample(engine, prompt, true, "faithful_clean_baseline",
+                     baseline);
+  }
+  {
+    const ScopedFusedKktBaseline kkt_route(false);
+    const ScopedSplitWyBaseline split_route(false);
+    const ScopedPackedQkvBaseline packed_route(false);
+    const ScopedResidentStateBaseline resident_route(false);
+    const ScopedPacklessResidentStateFallback packless_fallback(false);
+    (void)run_sample(engine, prompt, true, "faithful_clean_candidate",
+                     candidate);
+  }
+  const std::size_t expected_hits = expected_native_route_hits();
+  const bool valid =
+      baseline.route_hits == expected_hits &&
+      candidate.route_hits == expected_hits &&
+      std::isfinite(baseline.prefix_milliseconds) &&
+      baseline.prefix_milliseconds > 0.0 &&
+      std::isfinite(candidate.prefix_milliseconds) &&
+      candidate.prefix_milliseconds > 0.0 &&
+      std::isfinite(baseline.ttft_milliseconds) &&
+      baseline.ttft_milliseconds > 0.0 &&
+      std::isfinite(candidate.ttft_milliseconds) &&
+      candidate.ttft_milliseconds > 0.0;
+  const bool semantics =
+      baseline.semantic_oracle && candidate.semantic_oracle &&
+      baseline.generated_token == candidate.generated_token &&
+      baseline.generated_text == candidate.generated_text;
+  const double prefix_saved =
+      baseline.prefix_milliseconds - candidate.prefix_milliseconds;
+  const double ttft_saved =
+      baseline.ttft_milliseconds - candidate.ttft_milliseconds;
+  const bool positive = valid && semantics && prefix_saved > 0.0 &&
+                        ttft_saved > 0.0;
+  std::cout << "GDN_CHUNK64_VLLM_FAITHFUL_CLEAN_DIRECTION"
+            << " prompt_tokens=" << g_prompt_tokens
+            << " baseline_prefix_ms=" << baseline.prefix_milliseconds
+            << " candidate_prefix_ms=" << candidate.prefix_milliseconds
+            << " prefix_saved_ms=" << prefix_saved
+            << " prefix_speedup="
+            << baseline.prefix_milliseconds / candidate.prefix_milliseconds
+            << " baseline_ttft_ms=" << baseline.ttft_milliseconds
+            << " candidate_ttft_ms=" << candidate.ttft_milliseconds
+            << " ttft_saved_ms=" << ttft_saved
+            << " ttft_speedup="
+            << baseline.ttft_milliseconds / candidate.ttft_milliseconds
+            << " baseline_hits=" << baseline.route_hits
+            << " candidate_hits=" << candidate.route_hits
+            << " generated_token=" << candidate.generated_token
+            << " generated_text=" << candidate.generated_text
+            << " direction=" << (positive ? "POSITIVE" : "NEGATIVE")
+            << " semantic_oracle=" << (semantics ? "PASS" : "FAIL")
+            << " authority=REAL_WEIGHT_SINGLE_CLEAN_B_C"
+            << " production_default=faithful\n";
+  return positive;
+}
+
+[[nodiscard]] bool run_vllm_faithful_state_bccb(
+    runtime::ReferenceEngine& engine, const std::string& prompt) {
+  auto run = [&](const bool faithful, const std::string_view phase,
+                 Sample& sample) {
+    const ScopedFusedKktBaseline kkt_route(false);
+    const ScopedSplitWyBaseline split_route(false);
+    const ScopedPackedQkvBaseline packed_route(false);
+    const ScopedResidentStateBaseline resident_route(false);
+    const ScopedPacklessResidentStateFallback packless_fallback(!faithful);
+    (void)run_sample(engine, prompt, true, phase, sample);
+  };
+
+  Sample warm_baseline;
+  Sample warm_candidate;
+  Sample baseline_first;
+  Sample candidate_first;
+  Sample candidate_second;
+  Sample baseline_second;
+  run(false, "faithful_bccb_warm_baseline", warm_baseline);
+  run(true, "faithful_bccb_warm_candidate", warm_candidate);
+  run(false, "faithful_bccb_b1", baseline_first);
+  run(true, "faithful_bccb_c1", candidate_first);
+  run(true, "faithful_bccb_c2", candidate_second);
+  run(false, "faithful_bccb_b2", baseline_second);
+
+  const std::size_t expected_hits = expected_native_route_hits();
+  const Sample* const samples[] = {
+      &warm_baseline, &warm_candidate, &baseline_first,
+      &candidate_first, &candidate_second, &baseline_second};
+  bool valid = true;
+  for (const Sample* const sample : samples) {
+    valid = valid && sample->route_hits == expected_hits &&
+            sample->semantic_oracle &&
+            sample->generated_token == kExpectedGeneratedToken &&
+            sample->generated_text == kExpectedGeneratedText &&
+            std::isfinite(sample->prefix_milliseconds) &&
+            sample->prefix_milliseconds > 0.0 &&
+            std::isfinite(sample->ttft_milliseconds) &&
+            sample->ttft_milliseconds > 0.0;
+  }
+  const double pair1_prefix_saved =
+      baseline_first.prefix_milliseconds -
+      candidate_first.prefix_milliseconds;
+  const double pair1_ttft_saved =
+      baseline_first.ttft_milliseconds - candidate_first.ttft_milliseconds;
+  const double pair2_prefix_saved =
+      baseline_second.prefix_milliseconds -
+      candidate_second.prefix_milliseconds;
+  const double pair2_ttft_saved =
+      baseline_second.ttft_milliseconds -
+      candidate_second.ttft_milliseconds;
+  const bool positive = valid && pair1_prefix_saved > 0.0 &&
+                        pair1_ttft_saved > 0.0 &&
+                        pair2_prefix_saved > 0.0 &&
+                        pair2_ttft_saved > 0.0;
+  std::cout << "GDN_CHUNK64_VLLM_FAITHFUL_BCCB"
+            << " prompt_tokens=" << g_prompt_tokens
+            << " pair1_baseline_prefix_ms="
+            << baseline_first.prefix_milliseconds
+            << " pair1_candidate_prefix_ms="
+            << candidate_first.prefix_milliseconds
+            << " pair1_prefix_saved_ms=" << pair1_prefix_saved
+            << " pair1_baseline_ttft_ms="
+            << baseline_first.ttft_milliseconds
+            << " pair1_candidate_ttft_ms="
+            << candidate_first.ttft_milliseconds
+            << " pair1_ttft_saved_ms=" << pair1_ttft_saved
+            << " pair2_baseline_prefix_ms="
+            << baseline_second.prefix_milliseconds
+            << " pair2_candidate_prefix_ms="
+            << candidate_second.prefix_milliseconds
+            << " pair2_prefix_saved_ms=" << pair2_prefix_saved
+            << " pair2_baseline_ttft_ms="
+            << baseline_second.ttft_milliseconds
+            << " pair2_candidate_ttft_ms="
+            << candidate_second.ttft_milliseconds
+            << " pair2_ttft_saved_ms=" << pair2_ttft_saved
+            << " route_hits_each=" << expected_hits
+            << " generated_token=" << candidate_second.generated_token
+            << " generated_text=" << candidate_second.generated_text
+            << " gate=" << (positive ? "PASS" : "FAIL")
+            << " authority=REAL_WEIGHT_WARM_SAME_PROCESS_B_C_C_B"
+            << " production_default=faithful\n";
+  return positive;
 }
 
 [[nodiscard]] bool run_native_resident_state_direction(
@@ -1671,504 +1812,6 @@ void destroy_event(cudaEvent_t& event) noexcept {
   return positive;
 }
 
-[[nodiscard]] bool run_native_chunk_o_bv64_direction(
-    runtime::ReferenceEngine& engine,
-    const std::string& prompt) {
-  Sample baseline_first;
-  Sample candidate_first;
-  Sample candidate_second;
-  Sample baseline_second;
-  bool valid = false;
-  {
-    const ScopedFusedKktBaseline kkt_route(false);
-    const ScopedSplitWyBaseline split_route(false);
-    const ScopedPackedQkvBaseline packed_route(false);
-    const ScopedResidentStateBaseline resident_route(false);
-    const ScopedChunkOBv64Candidate route(false);
-    valid = run_sample(engine, prompt, true, "chunk_o_bv64_B1",
-                       baseline_first);
-  }
-  {
-    const ScopedFusedKktBaseline kkt_route(false);
-    const ScopedSplitWyBaseline split_route(false);
-    const ScopedPackedQkvBaseline packed_route(false);
-    const ScopedResidentStateBaseline resident_route(false);
-    const ScopedChunkOBv64Candidate route(true);
-    valid = run_sample(engine, prompt, true, "chunk_o_bv64_C1",
-                       candidate_first) &&
-            valid;
-  }
-  {
-    const ScopedFusedKktBaseline kkt_route(false);
-    const ScopedSplitWyBaseline split_route(false);
-    const ScopedPackedQkvBaseline packed_route(false);
-    const ScopedResidentStateBaseline resident_route(false);
-    const ScopedChunkOBv64Candidate route(true);
-    valid = run_sample(engine, prompt, true, "chunk_o_bv64_C2",
-                       candidate_second) &&
-            valid;
-  }
-  {
-    const ScopedFusedKktBaseline kkt_route(false);
-    const ScopedSplitWyBaseline split_route(false);
-    const ScopedPackedQkvBaseline packed_route(false);
-    const ScopedResidentStateBaseline resident_route(false);
-    const ScopedChunkOBv64Candidate route(false);
-    valid = run_sample(engine, prompt, true, "chunk_o_bv64_B2",
-                       baseline_second) &&
-            valid;
-  }
-  const bool semantics =
-      baseline_first.semantic_oracle && candidate_first.semantic_oracle &&
-      candidate_second.semantic_oracle && baseline_second.semantic_oracle &&
-      baseline_first.generated_token == candidate_first.generated_token &&
-      baseline_first.generated_token == candidate_second.generated_token &&
-      baseline_first.generated_token == baseline_second.generated_token &&
-      baseline_first.generated_text == candidate_first.generated_text &&
-      baseline_first.generated_text == candidate_second.generated_text &&
-      baseline_first.generated_text == baseline_second.generated_text;
-  const double prefix_saved_first = baseline_first.prefix_milliseconds -
-                                    candidate_first.prefix_milliseconds;
-  const double prefix_saved_second = baseline_second.prefix_milliseconds -
-                                     candidate_second.prefix_milliseconds;
-  const double ttft_saved_first =
-      baseline_first.ttft_milliseconds - candidate_first.ttft_milliseconds;
-  const double ttft_saved_second =
-      baseline_second.ttft_milliseconds - candidate_second.ttft_milliseconds;
-  const double baseline_prefix_mean =
-      (baseline_first.prefix_milliseconds +
-       baseline_second.prefix_milliseconds) /
-      2.0;
-  const double candidate_prefix_mean =
-      (candidate_first.prefix_milliseconds +
-       candidate_second.prefix_milliseconds) /
-      2.0;
-  const double baseline_ttft_mean =
-      (baseline_first.ttft_milliseconds + baseline_second.ttft_milliseconds) /
-      2.0;
-  const double candidate_ttft_mean =
-      (candidate_first.ttft_milliseconds +
-       candidate_second.ttft_milliseconds) /
-      2.0;
-  const bool positive = valid && semantics && prefix_saved_first > 0.0 &&
-                        prefix_saved_second > 0.0 &&
-                        ttft_saved_first > 0.0 && ttft_saved_second > 0.0;
-  std::cout << "GDN_CHUNK64_NATIVE_CHUNK_O_BV64_DIRECTION"
-            << " prompt_tokens=" << g_prompt_tokens
-            << " B1_prefix_ms=" << baseline_first.prefix_milliseconds
-            << " C1_prefix_ms=" << candidate_first.prefix_milliseconds
-            << " C2_prefix_ms=" << candidate_second.prefix_milliseconds
-            << " B2_prefix_ms=" << baseline_second.prefix_milliseconds
-            << " pair1_prefix_saved_ms=" << prefix_saved_first
-            << " pair2_prefix_saved_ms=" << prefix_saved_second
-            << " baseline_prefix_mean_ms=" << baseline_prefix_mean
-            << " candidate_prefix_mean_ms=" << candidate_prefix_mean
-            << " prefix_speedup="
-            << baseline_prefix_mean / candidate_prefix_mean
-            << " B1_ttft_ms=" << baseline_first.ttft_milliseconds
-            << " C1_ttft_ms=" << candidate_first.ttft_milliseconds
-            << " C2_ttft_ms=" << candidate_second.ttft_milliseconds
-            << " B2_ttft_ms=" << baseline_second.ttft_milliseconds
-            << " pair1_ttft_saved_ms=" << ttft_saved_first
-            << " pair2_ttft_saved_ms=" << ttft_saved_second
-            << " baseline_ttft_mean_ms=" << baseline_ttft_mean
-            << " candidate_ttft_mean_ms=" << candidate_ttft_mean
-            << " ttft_speedup="
-            << baseline_ttft_mean / candidate_ttft_mean
-            << " direction=" << (positive ? "POSITIVE" : "NEGATIVE")
-            << " semantic_oracle=" << (semantics ? "PASS" : "FAIL")
-            << " authority=REAL_WEIGHT_SAME_PROCESS_B_C_C_B"
-            << " native_c64_default=chunk_o_bv64\n";
-  return positive;
-}
-
-[[nodiscard]] bool run_native_conv_compact_qk_direction(
-    runtime::ReferenceEngine& engine,
-    const std::string& prompt) {
-  const char* const requested =
-      std::getenv("Q3X_RUN_GDN_CONV_COMPACT_QK_FUSED_CANDIDATE");
-  if (requested == nullptr || std::strcmp(requested, "1") != 0) {
-    std::cerr << "conv+compact-QK direction requires "
-                 "Q3X_RUN_GDN_CONV_COMPACT_QK_FUSED_CANDIDATE=1\n";
-    return false;
-  }
-
-  Sample baseline;
-  Sample candidate;
-  bool valid = false;
-  {
-    const ScopedFusedPreprocessCandidate route(false);
-    valid = run_sample(engine, prompt, true, "conv_compact_qk_baseline",
-                       baseline, "conv_compact_qk_baseline", 0U);
-  }
-  {
-    const ScopedFusedPreprocessCandidate route(true);
-    valid = run_sample(
-                engine, prompt, true, "conv_compact_qk_candidate",
-                candidate, "conv_compact_qk_candidate",
-                expected_aligned_fused_preprocess_hits()) &&
-            valid;
-  }
-  const bool hits =
-      baseline.route_hits == expected_native_route_hits() &&
-      candidate.route_hits == expected_native_route_hits() &&
-      baseline.fused_preprocess_hits == 0U &&
-      candidate.fused_preprocess_hits ==
-          expected_aligned_fused_preprocess_hits();
-  const bool semantics =
-      baseline.semantic_oracle && candidate.semantic_oracle &&
-      baseline.generated_token == candidate.generated_token &&
-      baseline.generated_text == candidate.generated_text;
-  const double prefix_saved =
-      baseline.prefix_milliseconds - candidate.prefix_milliseconds;
-  const double ttft_saved =
-      baseline.ttft_milliseconds - candidate.ttft_milliseconds;
-  const bool positive = valid && hits && semantics && prefix_saved > 0.0 &&
-                        ttft_saved > 0.0;
-  std::cout << "GDN_CHUNK64_NATIVE_CONV_COMPACT_QK_DIRECTION"
-            << " prompt_tokens=" << g_prompt_tokens
-            << " baseline_prefix_ms=" << baseline.prefix_milliseconds
-            << " candidate_prefix_ms=" << candidate.prefix_milliseconds
-            << " prefix_saved_ms=" << prefix_saved
-            << " prefix_speedup="
-            << baseline.prefix_milliseconds / candidate.prefix_milliseconds
-            << " baseline_ttft_ms=" << baseline.ttft_milliseconds
-            << " candidate_ttft_ms=" << candidate.ttft_milliseconds
-            << " ttft_saved_ms=" << ttft_saved
-            << " ttft_speedup="
-            << baseline.ttft_milliseconds / candidate.ttft_milliseconds
-            << " baseline_native_hits=" << baseline.route_hits
-            << " candidate_native_hits=" << candidate.route_hits
-            << " baseline_fused_hits=" << baseline.fused_preprocess_hits
-            << " candidate_fused_hits=" << candidate.fused_preprocess_hits
-            << " expected_fused_hits="
-            << expected_aligned_fused_preprocess_hits()
-            << " direction=" << (positive ? "POSITIVE" : "NEGATIVE")
-            << " semantic_oracle=" << (semantics ? "PASS" : "FAIL")
-            << " hit_oracle=" << (hits ? "PASS" : "FAIL")
-            << " generated_token=" << candidate.generated_token
-            << " generated_text=" << candidate.generated_text
-            << " authority=REAL_WEIGHT_SINGLE_B_C\n";
-  return positive;
-}
-
-[[nodiscard]] bool run_native_conv_compact_qk_bccb(
-    runtime::ReferenceEngine& engine,
-    const std::string& prompt) {
-  if (g_prompt_tokens != kDefaultPromptTokens) {
-    std::cerr << "conv+compact-QK B-C-C-B requires real P513\n";
-    return false;
-  }
-
-  auto run_route = [&](const bool fused_preprocess,
-                       const std::string_view phase,
-                       Sample& sample) {
-    const ScopedFusedPreprocessCandidate preprocess_route(
-        fused_preprocess);
-    const ScopedFusedKktBaseline kkt_route(false);
-    const ScopedSplitWyBaseline split_route(false);
-    const ScopedPackedQkvBaseline packed_route(false);
-    const ScopedResidentStateBaseline resident_route(false);
-    const ScopedVllmLayoutWyCandidate wy_route(
-        q3x::runtime::gdn_prefill_chunk64_native_detail::
-            VllmLayoutWyRouteForTest::kProductionDefault);
-    return run_sample(
-        engine, prompt, true, phase, sample,
-        fused_preprocess ? "fused_conv_compact_qk" : "standalone_conv_qk",
-        fused_preprocess ? expected_aligned_fused_preprocess_hits() : 0U);
-  };
-
-  Sample baseline_warmup;
-  Sample candidate_warmup;
-  bool ready = run_route(false, "conv_compact_qk_B_warmup",
-                         baseline_warmup) &&
-               run_route(true, "conv_compact_qk_C_warmup",
-                         candidate_warmup);
-  Sample baseline_first;
-  Sample candidate_first;
-  Sample candidate_second;
-  Sample baseline_second;
-  ready = run_route(false, "conv_compact_qk_B1", baseline_first) && ready;
-  ready = run_route(true, "conv_compact_qk_C1", candidate_first) && ready;
-  ready = run_route(true, "conv_compact_qk_C2", candidate_second) && ready;
-  ready = run_route(false, "conv_compact_qk_B2", baseline_second) && ready;
-
-  const bool semantics =
-      baseline_first.semantic_oracle && candidate_first.semantic_oracle &&
-      candidate_second.semantic_oracle && baseline_second.semantic_oracle &&
-      baseline_first.generated_token == candidate_first.generated_token &&
-      baseline_first.generated_token == candidate_second.generated_token &&
-      baseline_first.generated_token == baseline_second.generated_token &&
-      baseline_first.generated_text == candidate_first.generated_text &&
-      baseline_first.generated_text == candidate_second.generated_text &&
-      baseline_first.generated_text == baseline_second.generated_text;
-  const std::size_t expected_fused_hits =
-      expected_aligned_fused_preprocess_hits();
-  const bool hits =
-      baseline_first.route_hits == expected_native_route_hits() &&
-      candidate_first.route_hits == expected_native_route_hits() &&
-      candidate_second.route_hits == expected_native_route_hits() &&
-      baseline_second.route_hits == expected_native_route_hits() &&
-      baseline_first.fused_preprocess_hits == 0U &&
-      candidate_first.fused_preprocess_hits == expected_fused_hits &&
-      candidate_second.fused_preprocess_hits == expected_fused_hits &&
-      baseline_second.fused_preprocess_hits == 0U;
-  const double prefix_saved_first =
-      baseline_first.prefix_milliseconds -
-      candidate_first.prefix_milliseconds;
-  const double prefix_saved_second =
-      baseline_second.prefix_milliseconds -
-      candidate_second.prefix_milliseconds;
-  const double ttft_saved_first =
-      baseline_first.ttft_milliseconds - candidate_first.ttft_milliseconds;
-  const double ttft_saved_second =
-      baseline_second.ttft_milliseconds - candidate_second.ttft_milliseconds;
-  const double baseline_prefix_mean =
-      (baseline_first.prefix_milliseconds +
-       baseline_second.prefix_milliseconds) /
-      2.0;
-  const double candidate_prefix_mean =
-      (candidate_first.prefix_milliseconds +
-       candidate_second.prefix_milliseconds) /
-      2.0;
-  const double baseline_ttft_mean =
-      (baseline_first.ttft_milliseconds +
-       baseline_second.ttft_milliseconds) /
-      2.0;
-  const double candidate_ttft_mean =
-      (candidate_first.ttft_milliseconds +
-       candidate_second.ttft_milliseconds) /
-      2.0;
-  const bool passed =
-      ready && semantics && hits && prefix_saved_first > 0.0 &&
-      prefix_saved_second > 0.0 && ttft_saved_first > 0.0 &&
-      ttft_saved_second > 0.0;
-  std::cout << "GDN_CHUNK64_NATIVE_CONV_COMPACT_QK_BCCB"
-            << " B1_prefix_ms=" << baseline_first.prefix_milliseconds
-            << " C1_prefix_ms=" << candidate_first.prefix_milliseconds
-            << " C2_prefix_ms=" << candidate_second.prefix_milliseconds
-            << " B2_prefix_ms=" << baseline_second.prefix_milliseconds
-            << " prefix_pair1_saved_ms=" << prefix_saved_first
-            << " prefix_pair2_saved_ms=" << prefix_saved_second
-            << " prefix_speedup="
-            << baseline_prefix_mean / candidate_prefix_mean
-            << " B1_ttft_ms=" << baseline_first.ttft_milliseconds
-            << " C1_ttft_ms=" << candidate_first.ttft_milliseconds
-            << " C2_ttft_ms=" << candidate_second.ttft_milliseconds
-            << " B2_ttft_ms=" << baseline_second.ttft_milliseconds
-            << " ttft_pair1_saved_ms=" << ttft_saved_first
-            << " ttft_pair2_saved_ms=" << ttft_saved_second
-            << " ttft_speedup=" << baseline_ttft_mean / candidate_ttft_mean
-            << " baseline_fused_hits="
-            << baseline_first.fused_preprocess_hits << ','
-            << baseline_second.fused_preprocess_hits
-            << " candidate_fused_hits="
-            << candidate_first.fused_preprocess_hits << ','
-            << candidate_second.fused_preprocess_hits
-            << " hit_oracle=" << (hits ? "PASS" : "FAIL")
-            << " generation_semantics=" << (semantics ? "PASS" : "FAIL")
-            << " gate=" << (passed ? "PASS" : "FAIL")
-            << " authority=REAL_WEIGHT_SAME_ENGINE_B_C_C_B_BOTH_METRICS\n";
-  return passed;
-}
-
-[[nodiscard]] bool run_native_conv_compact_qk_equivalence(
-    runtime::ReferenceEngine& engine,
-    const std::string& prompt) {
-  if (g_prompt_tokens != kDefaultPromptTokens) {
-    std::cerr << "conv+compact-QK equivalence requires real P513\n";
-    return false;
-  }
-  constexpr std::size_t kNativeTokens = kDefaultPromptTokens - 1U;
-  constexpr std::size_t kConvElements =
-      kNativeTokens * runtime::kGdnQkvChannels;
-  constexpr std::size_t kHistoryElements =
-      runtime::kGdnQkvChannels * runtime::kGdnConvHistoryWidth;
-  constexpr std::size_t kCompactElements =
-      kNativeTokens * runtime::kGdnQkHeadCount *
-      runtime::kGdnHeadDimension;
-  constexpr std::size_t kTransformElements =
-      (kNativeTokens / 64U) * runtime::kGdnValueHeadCount * 64U * 64U;
-  constexpr std::size_t kOutputElements =
-      kNativeTokens * runtime::kGdnVElements;
-
-  StateSnapshot baseline_state;
-  StateSnapshot candidate_state;
-  StateSnapshot baseline_final_request_state;
-  StateSnapshot candidate_final_request_state;
-  NativePreprocessBoundarySnapshot baseline_preprocess;
-  NativePreprocessBoundarySnapshot candidate_preprocess;
-  NativeBoundarySnapshot baseline_final;
-  NativeBoundarySnapshot candidate_final;
-  try {
-    const std::size_t request_state_elements =
-        static_cast<std::size_t>(runtime::kRequestGdnStateBytes /
-                                 sizeof(std::uint16_t));
-    baseline_state.values.resize(request_state_elements);
-    candidate_state.values.resize(request_state_elements);
-    baseline_final_request_state.values.resize(request_state_elements);
-    candidate_final_request_state.values.resize(request_state_elements);
-    for (NativePreprocessBoundarySnapshot* const snapshot :
-         {&baseline_preprocess, &candidate_preprocess}) {
-      snapshot->conv_qkv.resize(kConvElements);
-      snapshot->conv_history.resize(kHistoryElements);
-      snapshot->compact_q.resize(kCompactElements);
-      snapshot->compact_k.resize(kCompactElements);
-    }
-    for (NativeBoundarySnapshot* const snapshot :
-         {&baseline_final, &candidate_final}) {
-      snapshot->transform.resize(kTransformElements);
-      snapshot->w.resize(kOutputElements);
-      snapshot->u.resize(kOutputElements);
-      snapshot->state.resize(runtime::kGdnStateElements);
-      snapshot->output.resize(kOutputElements);
-    }
-  } catch (const std::bad_alloc&) {
-    std::cerr << "conv+compact-QK equivalence host allocation failed\n";
-    return false;
-  }
-
-  std::size_t baseline_native_hits = 0U;
-  std::size_t baseline_fused_hits = 0U;
-  runtime::ReferenceGenerateResult baseline_result;
-  {
-    const ScopedFusedPreprocessCandidate route(false);
-    const ScopedFusedKktBaseline kkt_route(false);
-    const ScopedSplitWyBaseline split_route(false);
-    const ScopedPackedQkvBaseline packed_route(false);
-    const ScopedResidentStateBaseline resident_route(false);
-    const ScopedVllmLayoutWyCandidate wy_route(
-        q3x::runtime::gdn_prefill_chunk64_native_detail::
-            VllmLayoutWyRouteForTest::kProductionDefault);
-    const ScopedNativePreprocessInspectionHooks preprocess_hook(
-        baseline_preprocess);
-    const ScopedNativeInspectionHook final_hook(baseline_final);
-    const ScopedNativeFinalSnapshotHook final_request_hook(
-        baseline_final_request_state);
-    baseline_result = run_snapshot_generation(
-        engine, prompt, true, baseline_state, baseline_native_hits,
-        &baseline_fused_hits);
-  }
-
-  std::size_t candidate_native_hits = 0U;
-  std::size_t candidate_fused_hits = 0U;
-  runtime::ReferenceGenerateResult candidate_result;
-  {
-    const ScopedFusedPreprocessCandidate route(true);
-    const ScopedFusedKktBaseline kkt_route(false);
-    const ScopedSplitWyBaseline split_route(false);
-    const ScopedPackedQkvBaseline packed_route(false);
-    const ScopedResidentStateBaseline resident_route(false);
-    const ScopedVllmLayoutWyCandidate wy_route(
-        q3x::runtime::gdn_prefill_chunk64_native_detail::
-            VllmLayoutWyRouteForTest::kProductionDefault);
-    const ScopedNativePreprocessInspectionHooks preprocess_hook(
-        candidate_preprocess);
-    const ScopedNativeInspectionHook final_hook(candidate_final);
-    const ScopedNativeFinalSnapshotHook final_request_hook(
-        candidate_final_request_state);
-    candidate_result = run_snapshot_generation(
-        engine, prompt, true, candidate_state, candidate_native_hits,
-        &candidate_fused_hits);
-  }
-  if (!baseline_result || !candidate_result) {
-    std::cerr << "conv+compact-QK equivalence generation failed\n";
-    if (!baseline_result) {
-      print_diagnostic(baseline_result.diagnostic);
-    }
-    if (!candidate_result) {
-      print_diagnostic(candidate_result.diagnostic);
-    }
-    return false;
-  }
-
-  const DifferenceMetrics conv = compare_bf16(
-      baseline_preprocess.conv_qkv, candidate_preprocess.conv_qkv);
-  const DifferenceMetrics history = compare_bf16(
-      baseline_preprocess.conv_history,
-      candidate_preprocess.conv_history);
-  const DifferenceMetrics q = compare_bf16(
-      baseline_preprocess.compact_q, candidate_preprocess.compact_q);
-  const DifferenceMetrics k = compare_bf16(
-      baseline_preprocess.compact_k, candidate_preprocess.compact_k);
-  const DifferenceMetrics final_state = compare_bf16(
-      baseline_final.state, candidate_final.state);
-  const DifferenceMetrics final_output = compare_bf16(
-      baseline_final.output, candidate_final.output);
-  const DifferenceMetrics post_native_request_state = compare_bf16(
-      baseline_state.values, candidate_state.values);
-  const DifferenceMetrics full_request_state = compare_bf16(
-      baseline_final_request_state.values,
-      candidate_final_request_state.values);
-  constexpr std::string_view kSuite =
-      "GDN_CHUNK64_NATIVE_CONV_COMPACT_QK_EQUIVALENCE";
-  print_difference_metrics(kSuite, "first_layer_conv", conv);
-  print_difference_metrics(kSuite, "first_layer_history", history);
-  print_difference_metrics(kSuite, "first_layer_compact_q", q);
-  print_difference_metrics(kSuite, "first_layer_compact_k", k);
-  print_difference_metrics(kSuite, "final_layer_state", final_state);
-  print_difference_metrics(kSuite, "final_layer_output", final_output);
-  print_difference_metrics(kSuite, "post_native_C512_request_state",
-                           post_native_request_state);
-  print_difference_metrics(kSuite, "post_prompt_P513_request_state",
-                           full_request_state);
-
-  const bool preprocess_contract =
-      !baseline_preprocess.contract_error &&
-      !candidate_preprocess.contract_error &&
-      baseline_preprocess.conv_calls == runtime::kRequestLinearLayerCount &&
-      candidate_preprocess.conv_calls == runtime::kRequestLinearLayerCount &&
-      baseline_preprocess.qk_calls == runtime::kRequestLinearLayerCount &&
-      candidate_preprocess.qk_calls == runtime::kRequestLinearLayerCount &&
-      baseline_preprocess.conv_cuda_error == static_cast<int>(cudaSuccess) &&
-      candidate_preprocess.conv_cuda_error == static_cast<int>(cudaSuccess) &&
-      baseline_preprocess.qk_cuda_error == static_cast<int>(cudaSuccess) &&
-      candidate_preprocess.qk_cuda_error == static_cast<int>(cudaSuccess);
-  const bool final_contract =
-      !baseline_final.contract_error && !candidate_final.contract_error &&
-      baseline_final.cuda_error == static_cast<int>(cudaSuccess) &&
-      candidate_final.cuda_error == static_cast<int>(cudaSuccess) &&
-      baseline_final.calls == runtime::kRequestLinearLayerCount &&
-      candidate_final.calls == runtime::kRequestLinearLayerCount;
-  const bool hits =
-      baseline_native_hits == expected_native_route_hits() &&
-      candidate_native_hits == expected_native_route_hits() &&
-      baseline_fused_hits == 0U &&
-      candidate_fused_hits == expected_aligned_fused_preprocess_hits();
-  const bool generation =
-      expected_generation(*baseline_result.value) &&
-      expected_generation(*candidate_result.value) &&
-      baseline_result.value->generated_token_ids ==
-          candidate_result.value->generated_token_ids &&
-      baseline_result.value->generated_text ==
-          candidate_result.value->generated_text;
-  const bool passed =
-      valid_snapshot(baseline_state) && valid_snapshot(candidate_state) &&
-      valid_final_request_snapshot(baseline_final_request_state) &&
-      valid_final_request_snapshot(candidate_final_request_state) &&
-      preprocess_contract && final_contract && hits && generation &&
-      exact_metrics(conv) && exact_metrics(history) && exact_metrics(q) &&
-      exact_metrics(k) && exact_metrics(final_state) &&
-      exact_metrics(final_output) &&
-      exact_metrics(post_native_request_state) &&
-      exact_metrics(full_request_state);
-  std::cout << kSuite
-            << " baseline_native_hits=" << baseline_native_hits
-            << " candidate_native_hits=" << candidate_native_hits
-            << " baseline_fused_hits=" << baseline_fused_hits
-            << " candidate_fused_hits=" << candidate_fused_hits
-            << " preprocess_contract="
-            << (preprocess_contract ? "PASS" : "FAIL")
-            << " final_contract=" << (final_contract ? "PASS" : "FAIL")
-            << " generation_semantics=" << (generation ? "PASS" : "FAIL")
-            << " generated_token="
-            << candidate_result.value->generated_token_ids.front()
-            << " generated_text=" << candidate_result.value->generated_text
-            << " gate=" << (passed ? "PASS" : "FAIL")
-            << " authority=REAL_WEIGHT_SAME_ENGINE_EXACT\n";
-  return passed;
-}
-
 class DeviceBuffer {
  public:
   explicit DeviceBuffer(const std::size_t bytes) noexcept : bytes_(bytes) {
@@ -2211,187 +1854,7 @@ class DeviceBuffer {
   cudaError_t status_ = cudaErrorMemoryAllocation;
 };
 
-[[nodiscard]] bool run_native_conv_compact_qk_graph_validation() {
-  constexpr std::size_t kTokens = 512U;
-  constexpr std::size_t kBf16Bytes = sizeof(std::uint16_t);
-  DeviceBuffer workspace(
-      q3x::runtime::gdn_prefill_chunk64_native_detail::workspace_bytes());
-  DeviceBuffer raw_qkv(
-      kTokens * runtime::kGdnQkvChannels * kBf16Bytes);
-  DeviceBuffer conv_weight(
-      runtime::kGdnQkvChannels * runtime::kGdnConvKernelWidth *
-      kBf16Bytes);
-  DeviceBuffer history(
-      runtime::kGdnQkvChannels * runtime::kGdnConvHistoryWidth *
-      kBf16Bytes);
-  DeviceBuffer conv_qkv(
-      kTokens * runtime::kGdnQkvChannels * kBf16Bytes);
-  DeviceBuffer a(kTokens * runtime::kGdnValueHeadCount * kBf16Bytes);
-  DeviceBuffer b(kTokens * runtime::kGdnValueHeadCount * kBf16Bytes);
-  DeviceBuffer A_log(runtime::kGdnValueHeadCount * kBf16Bytes);
-  DeviceBuffer dt_bias(runtime::kGdnValueHeadCount * kBf16Bytes);
-  DeviceBuffer state(runtime::kGdnStateElements * kBf16Bytes);
-  DeviceBuffer norm(runtime::kGdnHeadDimension * kBf16Bytes);
-  DeviceBuffer silu_gate(kTokens * runtime::kGdnVElements * kBf16Bytes);
-  DeviceBuffer output(kTokens * runtime::kGdnVElements * kBf16Bytes);
-  DeviceBuffer* const buffers[] = {
-      &workspace, &raw_qkv, &conv_weight, &history, &conv_qkv,
-      &a,         &b,       &A_log,       &dt_bias, &state,
-      &norm,      &silu_gate, &output};
-  bool ready = true;
-  for (DeviceBuffer* const buffer : buffers) {
-    ready = buffer->zero() && ready;
-  }
-  if (!ready) {
-    std::cerr << "conv+compact-QK Graph buffer setup failed\n";
-    return false;
-  }
-
-  cudaStream_t stream = nullptr;
-  cudaGraph_t graph = nullptr;
-  cudaGraphExec_t executable = nullptr;
-  ready = cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking) ==
-          cudaSuccess;
-  const ScopedFusedKktBaseline kkt_route(false);
-  const ScopedSplitWyBaseline split_route(false);
-  const ScopedPackedQkvBaseline packed_route(false);
-  const ScopedResidentStateBaseline resident_route(false);
-  const ScopedVllmLayoutWyCandidate wy_route(
-      q3x::runtime::gdn_prefill_chunk64_native_detail::
-          VllmLayoutWyRouteForTest::kProductionDefault);
-  ready = kkt_route.valid() && split_route.valid() &&
-          resident_route.valid() && ready;
-  auto launch = [&]() {
-    int status = q3x::runtime::gdn_prefill_chunk64_native_detail::
-        launch_fused_conv_compact_qk_preprocess(
-            workspace.data(),
-            q3x::runtime::gdn_prefill_chunk64_native_detail::
-                workspace_bytes(),
-            raw_qkv.as<const std::uint16_t>(), kTokens,
-            conv_weight.as<const std::uint16_t>(),
-            history.as<std::uint16_t>(), conv_qkv.as<std::uint16_t>(),
-            1.0e-6F, stream);
-    if (status != static_cast<int>(cudaSuccess)) {
-      return status;
-    }
-    return q3x::runtime::gdn_prefill_chunk64_native_detail::
-        launch_qk_preprocessed(
-            workspace.data(),
-            q3x::runtime::gdn_prefill_chunk64_native_detail::
-                workspace_bytes(),
-            conv_qkv.as<const std::uint16_t>(), kTokens,
-            a.as<const std::uint16_t>(), b.as<const std::uint16_t>(),
-            A_log.as<const std::uint16_t>(),
-            dt_bias.as<const std::uint16_t>(),
-            state.as<const std::uint16_t>(), state.as<std::uint16_t>(),
-            1.0e-6F, norm.as<const std::uint16_t>(),
-            silu_gate.as<const std::uint16_t>(), 1.0e-6F,
-            output.as<std::uint16_t>(), stream);
-  };
-  if (ready) {
-    ready = launch() == static_cast<int>(cudaSuccess) &&
-            cudaStreamSynchronize(stream) == cudaSuccess;
-  }
-  if (ready) {
-    ready = cudaStreamBeginCapture(stream, cudaStreamCaptureModeGlobal) ==
-            cudaSuccess;
-  }
-  if (ready) {
-    ready = launch() == static_cast<int>(cudaSuccess);
-  }
-  if (ready) {
-    ready = cudaStreamEndCapture(stream, &graph) == cudaSuccess &&
-            graph != nullptr;
-  } else if (stream != nullptr) {
-    (void)cudaStreamEndCapture(stream, &graph);
-  }
-
-  std::size_t node_count = 0U;
-  std::size_t kernel_nodes = 0U;
-  std::size_t other_nodes = 0U;
-  std::size_t fused_preprocess_nodes = 0U;
-  std::size_t standalone_normalize_nodes = 0U;
-  if (ready) {
-    ready = cudaGraphGetNodes(graph, nullptr, &node_count) == cudaSuccess;
-  }
-  std::vector<cudaGraphNode_t> nodes(node_count);
-  if (ready && node_count != 0U) {
-    std::size_t capacity = node_count;
-    ready = cudaGraphGetNodes(graph, nodes.data(), &capacity) == cudaSuccess &&
-            capacity == node_count;
-  }
-  const void* const fused_preprocess_handle =
-      q3x::runtime::gdn_prefill_whole_span_conv_detail::
-          token_parallel_compact_qk_kernel_handle_for_test();
-  const void* const standalone_normalize_handle =
-      q3x::runtime::gdn_prefill_chunk64_native_detail::
-          compact_qk_baseline_kernel_handle_for_test();
-  if (ready) {
-    ready = fused_preprocess_handle != nullptr &&
-            standalone_normalize_handle != nullptr;
-  }
-  if (ready) {
-    for (const cudaGraphNode_t node : nodes) {
-      cudaGraphNodeType type = cudaGraphNodeTypeEmpty;
-      if (cudaGraphNodeGetType(node, &type) != cudaSuccess) {
-        ready = false;
-        break;
-      }
-      if (type != cudaGraphNodeTypeKernel) {
-        ++other_nodes;
-        continue;
-      }
-      ++kernel_nodes;
-      cudaKernelNodeParams parameters{};
-      if (cudaGraphKernelNodeGetParams(node, &parameters) != cudaSuccess) {
-        ready = false;
-        break;
-      }
-      fused_preprocess_nodes +=
-          parameters.func == fused_preprocess_handle ? 1U : 0U;
-      standalone_normalize_nodes +=
-          parameters.func == standalone_normalize_handle ? 1U : 0U;
-    }
-  }
-  if (ready) {
-    ready = cudaGraphInstantiate(&executable, graph, 0U) == cudaSuccess;
-  }
-  if (ready) {
-    ready = cudaGraphLaunch(executable, stream) == cudaSuccess &&
-            cudaGraphLaunch(executable, stream) == cudaSuccess &&
-            cudaStreamSynchronize(stream) == cudaSuccess;
-  }
-  constexpr std::size_t kExpectedNodes = 8U;
-  const bool passed = ready && node_count == kExpectedNodes &&
-                      kernel_nodes == kExpectedNodes && other_nodes == 0U &&
-                      fused_preprocess_nodes == 1U &&
-                      standalone_normalize_nodes == 0U;
-  std::cout << "GDN_CHUNK64_NATIVE_CONV_COMPACT_QK_GRAPH"
-            << " nodes=" << node_count
-            << " kernel_nodes=" << kernel_nodes
-            << " other_nodes=" << other_nodes
-            << " fused_preprocess_nodes=" << fused_preprocess_nodes
-            << " standalone_normalize_nodes="
-            << standalone_normalize_nodes
-            << " replays=2"
-            << " gate=" << (passed ? "PASS" : "FAIL")
-            << " authority=PURE_KERNEL_CAPTURE_INSTANTIATE_REPLAY\n";
-
-  if (executable != nullptr) {
-    (void)cudaGraphExecDestroy(executable);
-  }
-  if (graph != nullptr) {
-    (void)cudaGraphDestroy(graph);
-  }
-  if (stream != nullptr) {
-    (void)cudaStreamDestroy(stream);
-  }
-  return passed;
-}
-
-[[nodiscard]] bool run_native_graph_validation(
-    const bool vllm_layout_candidate = false,
-    const bool production_default = false) {
+[[nodiscard]] bool run_native_graph_validation() {
   constexpr std::size_t kTokens = 512U;
   constexpr std::size_t kBf16Bytes = sizeof(std::uint16_t);
   DeviceBuffer workspace(
@@ -2427,16 +1890,7 @@ class DeviceBuffer {
   const ScopedSplitWyBaseline split_route(false);
   const ScopedPackedQkvBaseline packed_route(false);
   const ScopedResidentStateBaseline resident_route(false);
-  const ScopedVllmLayoutWyCandidate vllm_route(
-      production_default
-          ? q3x::runtime::gdn_prefill_chunk64_native_detail::
-                VllmLayoutWyRouteForTest::kProductionDefault
-          : (vllm_layout_candidate
-                 ? q3x::runtime::gdn_prefill_chunk64_native_detail::
-                       VllmLayoutWyRouteForTest::kVllmLayout
-                 : q3x::runtime::gdn_prefill_chunk64_native_detail::
-                       VllmLayoutWyRouteForTest::kGroupOwned));
-  const ScopedChunkOBv64Candidate chunk_o_route(true);
+  const ScopedPacklessResidentStateFallback packless_fallback(false);
   ready = kkt_route.valid() && split_route.valid() &&
           resident_route.valid() && ready;
   auto launch = [&]() {
@@ -2503,22 +1957,13 @@ class DeviceBuffer {
             cudaGraphLaunch(executable, stream) == cudaSuccess &&
             cudaStreamSynchronize(stream) == cudaSuccess;
   }
-  const bool expected_vllm_layout =
-      vllm_layout_candidate || production_default;
-  const std::size_t expected_nodes = expected_vllm_layout ? 8U : 6U;
-  const bool passed = ready && node_count == expected_nodes &&
-                      kernel_nodes == expected_nodes && other_nodes == 0U;
+  const bool passed =
+      ready && node_count == 6U && kernel_nodes == 6U && other_nodes == 0U;
   std::cout << "GDN_CHUNK64_NATIVE_GRAPH"
             << " nodes=" << node_count
             << " kernel_nodes=" << kernel_nodes
             << " other_nodes=" << other_nodes
             << " replays=2"
-            << " route="
-            << (production_default
-                    ? "production_default_vllm_layout"
-                    : (vllm_layout_candidate ? "vllm_layout"
-                                             : "group_owned"))
-            << " chunk_o_bv64_candidate=true"
             << " gate=" << (passed ? "PASS" : "FAIL")
             << " authority=CAPTURE_INSTANTIATE_REPLAY_SMOKE\n";
 
@@ -2668,19 +2113,6 @@ int main(const int argc, char** const argv) {
     return 6;
   }
 #if defined(Q3X_GDN_CHUNK64_NATIVE_TEST)
-  if (std::getenv(
-          "Q3X_GDN_CHUNK64_VALIDATE_CONV_COMPACT_QK_GRAPH_ONLY") !=
-      nullptr) {
-    return run_native_conv_compact_qk_graph_validation() ? 0 : 15;
-  }
-  if (std::getenv(
-          "Q3X_GDN_CHUNK64_VALIDATE_PRODUCTION_GRAPH_ONLY") != nullptr) {
-    return run_native_graph_validation(false, true) ? 0 : 8;
-  }
-  if (std::getenv(
-          "Q3X_GDN_CHUNK64_VALIDATE_VLLM_LAYOUT_GRAPH_ONLY") != nullptr) {
-    return run_native_graph_validation(true) ? 0 : 8;
-  }
   if (std::getenv("Q3X_GDN_CHUNK64_VALIDATE_GRAPH_ONLY") != nullptr) {
     return run_native_graph_validation() ? 0 : 8;
   }
@@ -2715,34 +2147,6 @@ int main(const int argc, char** const argv) {
   const std::string prompt = repeated_hello_prompt();
 #if defined(Q3X_GDN_CHUNK64_NATIVE_TEST)
   if (std::getenv(
-          "Q3X_GDN_CHUNK64_RUN_CONV_COMPACT_QK_EQUIVALENCE_ONLY") !=
-      nullptr) {
-    return run_native_conv_compact_qk_equivalence(*created.value, prompt)
-               ? 0
-               : 14;
-  }
-  if (std::getenv(
-          "Q3X_GDN_CHUNK64_RUN_CONV_COMPACT_QK_BCCB_ONLY") != nullptr) {
-    return run_native_conv_compact_qk_bccb(*created.value, prompt) ? 0 : 16;
-  }
-  if (std::getenv(
-          "Q3X_GDN_CHUNK64_RUN_PRODUCTION_DEFAULT_ONLY") != nullptr) {
-    Sample production_default;
-    return run_sample(*created.value, prompt, true, "production_default",
-                      production_default,
-                      "production_default_vllm_layout")
-               ? 0
-               : 13;
-  }
-  if (std::getenv(
-          "Q3X_GDN_CHUNK64_RUN_VLLM_LAYOUT_BCCB_ONLY") != nullptr) {
-    return run_native_vllm_layout_bccb(*created.value, prompt) ? 0 : 12;
-  }
-  if (std::getenv(
-          "Q3X_GDN_CHUNK64_RUN_VLLM_LAYOUT_EQUIVALENCE_ONLY") != nullptr) {
-    return run_native_kkt_equivalence(*created.value, prompt, true) ? 0 : 11;
-  }
-  if (std::getenv(
           "Q3X_GDN_CHUNK64_RUN_GROUP_WY_EQUIVALENCE_ONLY") != nullptr) {
     return run_native_kkt_equivalence(*created.value, prompt) ? 0 : 7;
   }
@@ -2752,6 +2156,34 @@ int main(const int argc, char** const argv) {
     return run_native_group_wy_event_attribution(*created.value, prompt)
                ? 0
                : 10;
+  }
+  if (std::getenv(
+          "Q3X_GDN_CHUNK64_RUN_VLLM_FAITHFUL_CALL1_SNAPSHOT_ONLY") !=
+      nullptr) {
+    return run_vllm_faithful_state_call1_snapshot(*created.value, prompt)
+               ? 0
+               : 11;
+  }
+  if (std::getenv(
+          "Q3X_GDN_CHUNK64_RUN_VLLM_FAITHFUL_EQUIVALENCE_ONLY") != nullptr) {
+    return run_vllm_faithful_state_equivalence(*created.value, prompt)
+               ? 0
+               : 9;
+  }
+  if (std::getenv(
+          "Q3X_GDN_CHUNK64_RUN_VLLM_FAITHFUL_DEFAULT_SMOKE_ONLY") !=
+      nullptr) {
+    return run_vllm_faithful_default_smoke(*created.value, prompt) ? 0 : 3;
+  }
+  if (std::getenv(
+          "Q3X_GDN_CHUNK64_RUN_VLLM_FAITHFUL_DIRECTION_ONLY") != nullptr) {
+    return run_vllm_faithful_state_direction(*created.value, prompt)
+               ? 0
+               : 3;
+  }
+  if (std::getenv("Q3X_GDN_CHUNK64_RUN_VLLM_FAITHFUL_BCCB_ONLY") !=
+      nullptr) {
+    return run_vllm_faithful_state_bccb(*created.value, prompt) ? 0 : 3;
   }
   // A structural recurrence rewrite must prove its exact real-model
   // boundaries before its first direction timing is allowed to matter.
@@ -2763,20 +2195,6 @@ int main(const int argc, char** const argv) {
   if (std::getenv(
           "Q3X_GDN_CHUNK64_RUN_RESIDENT_STATE_DIRECTION_ONLY") != nullptr) {
     return run_native_resident_state_direction(*created.value, prompt)
-               ? 0
-               : 3;
-  }
-  if (std::getenv(
-          "Q3X_GDN_CHUNK64_RUN_CHUNK_O_BV64_EQUIVALENCE_ONLY") != nullptr) {
-    return run_native_chunk_o_bv64_equivalence(*created.value, prompt) ? 0 : 9;
-  }
-  if (std::getenv(
-          "Q3X_GDN_CHUNK64_RUN_CHUNK_O_BV64_DIRECTION_ONLY") != nullptr) {
-    return run_native_chunk_o_bv64_direction(*created.value, prompt) ? 0 : 3;
-  }
-  if (std::getenv(
-          "Q3X_GDN_CHUNK64_RUN_CONV_COMPACT_QK_DIRECTION_ONLY") != nullptr) {
-    return run_native_conv_compact_qk_direction(*created.value, prompt)
                ? 0
                : 3;
   }

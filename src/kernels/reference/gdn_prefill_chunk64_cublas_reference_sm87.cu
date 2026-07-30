@@ -31,6 +31,7 @@ thread_local VllmLayoutWyRouteForTest
     g_vllm_layout_wy_route_for_test =
         VllmLayoutWyRouteForTest::kProductionDefault;
 thread_local bool g_force_legacy_qk_reconstruct_baseline_for_test = false;
+thread_local bool g_force_packless_resident_state_fallback_for_test = false;
 
 }  // namespace
 
@@ -90,9 +91,17 @@ VllmLayoutWyRouteForTest exchange_vllm_layout_wy_route_for_test(
 }
 
 bool exchange_force_legacy_qk_reconstruct_baseline_for_test(
-    const bool enabled) noexcept {
+  const bool enabled) noexcept {
   const bool previous = g_force_legacy_qk_reconstruct_baseline_for_test;
   g_force_legacy_qk_reconstruct_baseline_for_test = enabled;
+  return previous;
+}
+
+bool exchange_force_packless_resident_state_fallback_for_test(
+    const bool enabled) noexcept {
+  const bool previous =
+      g_force_packless_resident_state_fallback_for_test;
+  g_force_packless_resident_state_fallback_for_test = enabled;
   return previous;
 }
 
@@ -103,6 +112,18 @@ void inspect_native_boundaries(
     const std::size_t w_elements,
     const std::uint16_t* const u,
     const std::size_t u_elements,
+    const std::uint16_t* const v_new,
+    const std::size_t v_new_elements,
+    const std::uint16_t* const boundary_state,
+    const std::size_t boundary_state_elements,
+    const std::uint16_t* const compact_k,
+    const std::size_t compact_k_elements,
+    const float* const gamma,
+    const std::size_t gamma_elements,
+    const std::uint16_t* const diagnostic_k_decay,
+    const std::size_t diagnostic_k_decay_elements,
+    const std::uint16_t* const diagnostic_post_update_state,
+    const std::size_t diagnostic_post_update_state_elements,
     const std::uint16_t* const state_output,
     const std::size_t state_elements,
     const std::uint16_t* const output,
@@ -111,8 +132,14 @@ void inspect_native_boundaries(
   const InspectionHook hook = g_inspection_hook;
   if (hook.callback != nullptr) {
     hook.callback(transform, transform_elements, w, w_elements, u,
-                  u_elements, state_output, state_elements, output,
-                  output_elements, cuda_stream, hook.context);
+                  u_elements, v_new, v_new_elements, boundary_state,
+                  boundary_state_elements, compact_k, compact_k_elements,
+                  gamma, gamma_elements, diagnostic_k_decay,
+                  diagnostic_k_decay_elements,
+                  diagnostic_post_update_state,
+                  diagnostic_post_update_state_elements, state_output,
+                  state_elements, output, output_elements, cuda_stream,
+                  hook.context);
   }
 }
 
@@ -1921,6 +1948,708 @@ void persistent_state_chunk64_resident_kernel(
   }
 }
 
+// Frozen-vLLM-faithful state recurrence candidate for SM87.  The resident
+// state has the same logical [BV64, BK64] shape as the public H boundary, but
+// its physical register ownership follows the update GEMM accumulator:
+// every warp owns K16 x V64 (eight m16n8 fragments) in each K64 bank.  W*H
+// temporarily changes ownership to T16 x V64 through one shared panel; the
+// K*V update then lands directly back in the resident state fragments.
+//
+// The six 8-KiB panels and 260-byte gate tail reproduce the authenticated
+// vLLM specialization's 49,412-byte lifetime.  W/U/raw-K/gamma are issued
+// with cp.async before H publication, while the sixth panel is reused for
+// the state operand and rounded Vnew.  The production selector remains the
+// resident kernel above; this kernel is reachable only through the explicit
+// diagnostic selector below.
+constexpr unsigned int kFaithfulPanelRows = 64U;
+constexpr unsigned int kFaithfulPanelColumns = 64U;
+constexpr unsigned int kFaithfulPanelChunks = 8U;
+constexpr unsigned int kFaithfulKeyBanks = 2U;
+constexpr unsigned int kFaithfulValuePanels = 8U;
+constexpr std::size_t kFaithfulPanelElements =
+    kFaithfulPanelRows * kFaithfulPanelColumns;
+constexpr std::size_t kFaithfulPanelBytes =
+    kFaithfulPanelElements * sizeof(std::uint16_t);
+constexpr std::size_t kFaithfulW0Offset = 0U;
+constexpr std::size_t kFaithfulW1Offset =
+    kFaithfulW0Offset + kFaithfulPanelBytes;
+constexpr std::size_t kFaithfulUOffset =
+    kFaithfulW1Offset + kFaithfulPanelBytes;
+constexpr std::size_t kFaithfulK0Offset =
+    kFaithfulUOffset + kFaithfulPanelBytes;
+constexpr std::size_t kFaithfulK1Offset =
+    kFaithfulK0Offset + kFaithfulPanelBytes;
+constexpr std::size_t kFaithfulTransientOffset =
+    kFaithfulK1Offset + kFaithfulPanelBytes;
+constexpr std::size_t kFaithfulGammaOffset =
+    kFaithfulTransientOffset + kFaithfulPanelBytes;
+constexpr std::size_t kFaithfulGammaElements = kChunkSize + 1U;
+constexpr std::size_t kFaithfulStateSharedBytes =
+    kFaithfulGammaOffset + kFaithfulGammaElements * sizeof(float);
+static_assert(kFaithfulGammaOffset == 48U * 1024U);
+static_assert(kFaithfulStateSharedBytes == 49412U);
+
+struct FaithfulM16K16 final {
+  std::uint32_t x0;
+  std::uint32_t x1;
+  std::uint32_t x2;
+  std::uint32_t x3;
+};
+
+struct FaithfulK16N8 final {
+  std::uint32_t x0;
+  std::uint32_t x1;
+};
+
+struct FaithfulM16N8Accumulator final {
+  float x0;
+  float x1;
+  float x2;
+  float x3;
+};
+
+[[nodiscard]] __device__ __forceinline__ unsigned int
+faithful_swizzled_chunk(const unsigned int row,
+                        const unsigned int logical_chunk) {
+  return logical_chunk ^ (row & 7U);
+}
+
+[[nodiscard]] __device__ __forceinline__ std::uint32_t
+faithful_pack_pair(const float low, const float high) {
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800
+  std::uint32_t packed = 0U;
+  asm("cvt.rn.bf16x2.f32 %0, %2, %1;"
+      : "=r"(packed)
+      : "f"(low), "f"(high));
+  return packed;
+#else
+  return static_cast<std::uint32_t>(encode_bf16_device(low)) |
+         (static_cast<std::uint32_t>(encode_bf16_device(high)) << 16U);
+#endif
+}
+
+__device__ __forceinline__ void faithful_zero(
+    FaithfulM16N8Accumulator& accumulator) {
+  accumulator.x0 = 0.0F;
+  accumulator.x1 = 0.0F;
+  accumulator.x2 = 0.0F;
+  accumulator.x3 = 0.0F;
+}
+
+__device__ __forceinline__ void faithful_mma(
+    FaithfulM16N8Accumulator& accumulator,
+    const FaithfulM16K16& a,
+    const FaithfulK16N8& b) {
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800
+  asm volatile(
+      "mma.sync.aligned.m16n8k16.row.col.f32.bf16.bf16.f32 "
+      "{%0, %1, %2, %3}, {%4, %5, %6, %7}, {%8, %9}, "
+      "{%0, %1, %2, %3};"
+      : "+f"(accumulator.x0), "+f"(accumulator.x1),
+        "+f"(accumulator.x2), "+f"(accumulator.x3)
+      : "r"(a.x0), "r"(a.x1), "r"(a.x2), "r"(a.x3),
+        "r"(b.x0), "r"(b.x1));
+#else
+  (void)accumulator;
+  (void)a;
+  (void)b;
+#endif
+}
+
+// Row-major [M64,K64] matrix-A loader.  Four warps select independent M16
+// rows; the XOR swizzle is identical to the vLLM shared layout.
+__device__ __forceinline__ void faithful_load_a(
+    FaithfulM16K16& fragment,
+    const std::uint16_t* const shared_matrix,
+    const unsigned int m_panel,
+    const unsigned int k16,
+    const unsigned int lane) {
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 750
+  const unsigned int quadrant = lane / 8U;
+  const unsigned int row =
+      m_panel * 16U + (lane % 8U) + (quadrant & 1U) * 8U;
+  const unsigned int logical_chunk =
+      k16 * 2U + (quadrant >> 1U);
+  const unsigned int physical_chunk =
+      faithful_swizzled_chunk(row, logical_chunk);
+  const auto* const source =
+      shared_matrix + row * kFaithfulPanelColumns +
+      physical_chunk * 8U;
+  const unsigned int shared_address = static_cast<unsigned int>(
+      __cvta_generic_to_shared(source));
+  asm volatile(
+      "ldmatrix.sync.aligned.m8n8.x4.shared.b16 "
+      "{%0, %1, %2, %3}, [%4];"
+      : "=r"(fragment.x0), "=r"(fragment.x1),
+        "=r"(fragment.x2), "=r"(fragment.x3)
+      : "r"(shared_address)
+      : "memory");
+#else
+  (void)fragment;
+  (void)shared_matrix;
+  (void)m_panel;
+  (void)k16;
+  (void)lane;
+#endif
+}
+
+// Load two adjacent K16 matrix-B fragments from the row-major [N64,K64]
+// backing of a column-major logical [K64,N64] operand. Each canonical 8x8
+// tile is already the transpose of true [K,N], so a plain x4 load is the
+// register-equivalent pair of true-[K,N] x2.trans loads.
+__device__ __forceinline__ void faithful_load_b_pair_transposed(
+    FaithfulK16N8& first,
+    FaithfulK16N8& second,
+    const std::uint16_t* const shared_matrix,
+    const unsigned int n_panel,
+    const unsigned int k32,
+    const unsigned int lane) {
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 750
+  const unsigned int row = n_panel * 8U + (lane & 7U);
+  const unsigned int logical_chunk = k32 * 4U + (lane >> 3U);
+  const unsigned int physical_chunk =
+      faithful_swizzled_chunk(row, logical_chunk);
+  const auto* const source =
+      shared_matrix + row * kFaithfulPanelColumns +
+      physical_chunk * 8U;
+  const unsigned int shared_address = static_cast<unsigned int>(
+      __cvta_generic_to_shared(source));
+  asm volatile(
+      "ldmatrix.sync.aligned.m8n8.x4.shared.b16 "
+      "{%0, %1, %2, %3}, [%4];"
+      : "=r"(first.x0), "=r"(first.x1), "=r"(second.x0),
+        "=r"(second.x1)
+      : "r"(shared_address)
+      : "memory");
+#else
+  (void)first;
+  (void)second;
+  (void)shared_matrix;
+  (void)n_panel;
+  (void)k32;
+  (void)lane;
+#endif
+}
+
+__device__ __forceinline__ void faithful_stage_panel(
+    const std::uint16_t* const global_matrix,
+    const unsigned int global_leading,
+    const unsigned int global_column,
+    std::uint16_t* const shared_matrix,
+    const unsigned int thread) {
+  constexpr unsigned int kVectorCount =
+      kFaithfulPanelBytes / sizeof(uint4);
+  static_assert(kVectorCount == 512U);
+  for (unsigned int vector = thread; vector < kVectorCount;
+       vector += kFusedSolveThreads) {
+    const unsigned int row = vector / kFaithfulPanelChunks;
+    const unsigned int logical_chunk =
+        vector % kFaithfulPanelChunks;
+    const unsigned int physical_chunk =
+        faithful_swizzled_chunk(row, logical_chunk);
+    resident_state_cp_async_16(
+        shared_matrix + row * kFaithfulPanelColumns +
+            physical_chunk * 8U,
+        global_matrix + row * global_leading + global_column +
+            logical_chunk * 8U);
+  }
+  resident_state_cp_async_commit();
+}
+
+__device__ __forceinline__ void faithful_stage_chunk(
+    const std::uint16_t* const matrix_w,
+    const std::uint16_t* const matrix_u,
+    const std::uint16_t* const matrix_k,
+    const float* const matrix_gamma,
+    const unsigned int value_half,
+    std::uint16_t* const shared_w0,
+    std::uint16_t* const shared_w1,
+    std::uint16_t* const shared_u,
+    std::uint16_t* const shared_k0,
+    std::uint16_t* const shared_k1,
+    float* const shared_gamma,
+    const unsigned int thread) {
+  faithful_stage_panel(matrix_w, kDimension, 0U, shared_w0, thread);
+  faithful_stage_panel(matrix_w, kDimension, 64U, shared_w1, thread);
+  faithful_stage_panel(matrix_u, kDimension, value_half * 64U,
+                       shared_u, thread);
+  faithful_stage_panel(matrix_k, kDimension, 0U, shared_k0, thread);
+  faithful_stage_panel(matrix_k, kDimension, 64U, shared_k1, thread);
+  if (thread < kChunkSize * sizeof(float) / 16U) {
+    resident_state_cp_async_16(shared_gamma + thread * 4U,
+                               matrix_gamma + thread * 4U);
+  }
+  resident_state_cp_async_commit();
+}
+
+__device__ __forceinline__ void faithful_load_initial_state(
+    FaithfulM16N8Accumulator
+        (&state)[kFaithfulKeyBanks][kFaithfulValuePanels],
+    const std::uint16_t* const state_input,
+    const std::size_t head_state_base,
+    const unsigned int value_half,
+    const unsigned int warp,
+    const unsigned int lane) {
+  const unsigned int group = lane >> 2U;
+  const unsigned int pair = lane & 3U;
+  const unsigned int key0 = warp * 16U + group;
+  const unsigned int key1 = key0 + 8U;
+#pragma unroll
+  for (unsigned int bank = 0U; bank < kFaithfulKeyBanks; ++bank) {
+#pragma unroll
+    for (unsigned int panel = 0U; panel < kFaithfulValuePanels;
+         ++panel) {
+      const unsigned int value0 =
+          value_half * 64U + panel * 8U + pair * 2U;
+      const unsigned int value1 = value0 + 1U;
+      const unsigned int bank_key0 = bank * 64U + key0;
+      const unsigned int bank_key1 = bank * 64U + key1;
+      state[bank][panel].x0 = decode_bf16_device(
+          state_input[head_state_base +
+                      static_cast<std::size_t>(value0) * kDimension +
+                      bank_key0]);
+      state[bank][panel].x1 = decode_bf16_device(
+          state_input[head_state_base +
+                      static_cast<std::size_t>(value1) * kDimension +
+                      bank_key0]);
+      state[bank][panel].x2 = decode_bf16_device(
+          state_input[head_state_base +
+                      static_cast<std::size_t>(value0) * kDimension +
+                      bank_key1]);
+      state[bank][panel].x3 = decode_bf16_device(
+          state_input[head_state_base +
+                      static_cast<std::size_t>(value1) * kDimension +
+                      bank_key1]);
+    }
+  }
+}
+
+// Publish one K64 x V64 update accumulator as the row-major [V64,K64]
+// backing required by mma.row.col.  Pair conversion remains packed even
+// though the two K rows land eight columns apart in this backing.
+__device__ __forceinline__ void faithful_store_state_bank_shared(
+    const FaithfulM16N8Accumulator
+        (&state)[kFaithfulKeyBanks][kFaithfulValuePanels],
+    std::uint16_t* const shared_state,
+    const unsigned int bank,
+    const unsigned int warp,
+    const unsigned int lane) {
+  const unsigned int group = lane >> 2U;
+  const unsigned int pair = lane & 3U;
+  const unsigned int key0 = warp * 16U + group;
+  const unsigned int key1 = key0 + 8U;
+#pragma unroll
+  for (unsigned int panel = 0U; panel < kFaithfulValuePanels;
+       ++panel) {
+    const unsigned int value0 = panel * 8U + pair * 2U;
+    const unsigned int value1 = value0 + 1U;
+    const unsigned int chunk00 =
+        faithful_swizzled_chunk(value0, key0 / 8U);
+    const unsigned int chunk01 =
+        faithful_swizzled_chunk(value0, key1 / 8U);
+    const unsigned int chunk10 =
+        faithful_swizzled_chunk(value1, key0 / 8U);
+    const unsigned int chunk11 =
+        faithful_swizzled_chunk(value1, key1 / 8U);
+    const std::uint32_t packed0 =
+        faithful_pack_pair(state[bank][panel].x0,
+                           state[bank][panel].x2);
+    const std::uint32_t packed1 =
+        faithful_pack_pair(state[bank][panel].x1,
+                           state[bank][panel].x3);
+    shared_state[value0 * kFaithfulPanelColumns + chunk00 * 8U +
+                 key0 % 8U] = static_cast<std::uint16_t>(packed0);
+    shared_state[value0 * kFaithfulPanelColumns + chunk01 * 8U +
+                 key1 % 8U] = static_cast<std::uint16_t>(packed0 >> 16U);
+    shared_state[value1 * kFaithfulPanelColumns + chunk10 * 8U +
+                 key0 % 8U] = static_cast<std::uint16_t>(packed1);
+    shared_state[value1 * kFaithfulPanelColumns + chunk11 * 8U +
+                 key1 % 8U] = static_cast<std::uint16_t>(packed1 >> 16U);
+  }
+}
+
+// The shared backing is already H[V,K], so each mandatory public boundary
+// vector is one 128-bit shared load and one 128-bit global store.
+__device__ __forceinline__ void faithful_copy_state_bank_global(
+    const std::uint16_t* const shared_state,
+    std::uint16_t* const global_state,
+    const unsigned int value_half,
+    const unsigned int bank,
+    const unsigned int thread) {
+  constexpr unsigned int kVectorCount =
+      kFaithfulPanelBytes / sizeof(uint4);
+  static_assert(kVectorCount == 512U);
+#pragma unroll 1
+  for (unsigned int vector = thread; vector < kVectorCount;
+       vector += kFusedSolveThreads) {
+    const unsigned int value = vector / 8U;
+    const unsigned int logical_chunk = vector % 8U;
+    const unsigned int key_base = logical_chunk * 8U;
+    const unsigned int physical_chunk =
+        faithful_swizzled_chunk(value, logical_chunk);
+    const uint4 packed = *reinterpret_cast<const uint4*>(
+        shared_state + value * kFaithfulPanelColumns +
+        physical_chunk * 8U);
+    auto* const destination = reinterpret_cast<uint4*>(
+        global_state +
+        static_cast<std::size_t>(value_half * 64U + value) *
+            kDimension +
+        bank * 64U + key_base);
+    *destination = packed;
+  }
+}
+
+[[nodiscard]] __device__ __forceinline__ std::uint32_t
+faithful_load_shared_pair(const std::uint16_t* const shared_matrix,
+                          const unsigned int row,
+                          const unsigned int panel,
+                          const unsigned int pair) {
+  const unsigned int physical_chunk =
+      faithful_swizzled_chunk(row, panel);
+  return *reinterpret_cast<const std::uint32_t*>(
+      shared_matrix + row * kFaithfulPanelColumns +
+      physical_chunk * 8U + pair * 2U);
+}
+
+__device__ __forceinline__ void faithful_store_v_transposed(
+    std::uint16_t* const shared_matrix,
+    const unsigned int value,
+    const unsigned int token,
+    const std::uint16_t rounded) {
+  const unsigned int physical_chunk =
+      faithful_swizzled_chunk(value, token / 8U);
+  shared_matrix[value * kFaithfulPanelColumns +
+                physical_chunk * 8U + token % 8U] = rounded;
+}
+
+__device__ __forceinline__ void faithful_form_decayed_k_transpose(
+    const std::uint16_t* const shared_raw_k0,
+    const std::uint16_t* const shared_raw_k1,
+    const float* const shared_gamma,
+    std::uint16_t* const shared_decayed_k0,
+    std::uint16_t* const shared_decayed_k1,
+    const unsigned int thread) {
+#pragma unroll 1
+  for (unsigned int index = thread;
+       index < kFaithfulPanelElements;
+       index += kFusedSolveThreads) {
+    const unsigned int token = index / kFaithfulPanelColumns;
+    const unsigned int key = index % kFaithfulPanelColumns;
+    const unsigned int raw_chunk =
+        faithful_swizzled_chunk(token, key / 8U);
+    const unsigned int raw_offset =
+        token * kFaithfulPanelColumns + raw_chunk * 8U + key % 8U;
+    const unsigned int transposed_chunk =
+        faithful_swizzled_chunk(key, token / 8U);
+    const unsigned int transposed_offset =
+        key * kFaithfulPanelColumns + transposed_chunk * 8U +
+        token % 8U;
+    const float scale = shared_gamma[token];
+    shared_decayed_k0[transposed_offset] = encode_bf16_device(
+        decode_bf16_device(shared_raw_k0[raw_offset]) * scale);
+    shared_decayed_k1[transposed_offset] = encode_bf16_device(
+        decode_bf16_device(shared_raw_k1[raw_offset]) * scale);
+  }
+}
+
+__device__ __forceinline__ void faithful_scale_state(
+    FaithfulM16N8Accumulator
+        (&state)[kFaithfulKeyBanks][kFaithfulValuePanels],
+    const float decay) {
+#pragma unroll
+  for (unsigned int bank = 0U; bank < kFaithfulKeyBanks; ++bank) {
+#pragma unroll
+    for (unsigned int panel = 0U; panel < kFaithfulValuePanels;
+         ++panel) {
+      state[bank][panel].x0 *= decay;
+      state[bank][panel].x1 *= decay;
+      state[bank][panel].x2 *= decay;
+      state[bank][panel].x3 *= decay;
+    }
+  }
+}
+
+template <bool Diagnostic>
+__global__ __launch_bounds__(kFusedSolveThreads, 2)
+void persistent_state_chunk64_vllm_faithful_kernel(
+    const std::uint16_t* const w,
+    const std::uint16_t* const u,
+    const std::uint16_t* const compact_k,
+    const float* const gamma,
+    const std::uint16_t* const state_input,
+    std::uint16_t* const state_output,
+    const unsigned int chunk_count,
+    std::uint16_t* const v_new,
+    std::uint16_t* const boundary_state,
+    std::uint16_t* const diagnostic_k_decay,
+    std::uint16_t* const diagnostic_post_update_state) {
+  extern __shared__ __align__(16) unsigned char shared_raw[];
+  auto* const shared_w0 = reinterpret_cast<std::uint16_t*>(
+      shared_raw + kFaithfulW0Offset);
+  auto* const shared_w1 = reinterpret_cast<std::uint16_t*>(
+      shared_raw + kFaithfulW1Offset);
+  auto* const shared_u = reinterpret_cast<std::uint16_t*>(
+      shared_raw + kFaithfulUOffset);
+  auto* const shared_k0 = reinterpret_cast<std::uint16_t*>(
+      shared_raw + kFaithfulK0Offset);
+  auto* const shared_k1 = reinterpret_cast<std::uint16_t*>(
+      shared_raw + kFaithfulK1Offset);
+  auto* const shared_transient = reinterpret_cast<std::uint16_t*>(
+      shared_raw + kFaithfulTransientOffset);
+  auto* const shared_gamma = reinterpret_cast<float*>(
+      shared_raw + kFaithfulGammaOffset);
+
+  const unsigned int thread = threadIdx.x;
+  const unsigned int warp = thread / 32U;
+  const unsigned int lane = thread % 32U;
+  const unsigned int value_head = blockIdx.x / 2U;
+  const unsigned int value_half = blockIdx.x % 2U;
+  const std::size_t head_state_base =
+      static_cast<std::size_t>(value_head) * kDimension * kDimension;
+
+  FaithfulM16N8Accumulator
+      state[kFaithfulKeyBanks][kFaithfulValuePanels];
+  faithful_load_initial_state(state, state_input, head_state_base,
+                              value_half, warp, lane);
+
+  // One extra publication iteration reuses the exact same BF16 conversion
+  // instructions for final state_output instead of cloning a second static
+  // conversion tail after the recurrence.
+  for (unsigned int chunk_index = 0U;; ++chunk_index) {
+    const bool has_chunk = chunk_index < chunk_count;
+    const std::size_t matrix =
+        static_cast<std::size_t>(chunk_index) * kValueHeadCount +
+        value_head;
+    const std::size_t compact_matrix =
+        static_cast<std::size_t>(chunk_index) * kQkHeadCount +
+        value_head / 3U;
+
+    const std::uint16_t* matrix_w = nullptr;
+    const std::uint16_t* matrix_u = nullptr;
+    const std::uint16_t* matrix_k = nullptr;
+    const float* matrix_gamma = nullptr;
+    std::uint16_t* matrix_v_new = nullptr;
+    std::uint16_t* publication = state_output + head_state_base;
+    if (has_chunk) {
+      matrix_w = w + matrix * kChunkSize * kDimension;
+      matrix_u = u + matrix * kChunkSize * kDimension;
+      matrix_k = compact_k +
+                 compact_matrix * kChunkSize * kDimension;
+      matrix_gamma = gamma + matrix * kChunkSize;
+      matrix_v_new = v_new + matrix * kChunkSize * kDimension;
+      publication = boundary_state + matrix * kDimension * kDimension;
+      faithful_stage_chunk(matrix_w, matrix_u, matrix_k, matrix_gamma,
+                           value_half, shared_w0, shared_w1, shared_u,
+                           shared_k0, shared_k1, shared_gamma, thread);
+    }
+
+    FaithfulM16N8Accumulator products[kFaithfulValuePanels];
+#pragma unroll
+    for (unsigned int panel = 0U; panel < kFaithfulValuePanels;
+         ++panel) {
+      faithful_zero(products[panel]);
+    }
+
+#pragma unroll
+    for (unsigned int bank = 0U; bank < kFaithfulKeyBanks; ++bank) {
+      faithful_store_state_bank_shared(state, shared_transient, bank,
+                                       warp, lane);
+      __syncthreads();
+      faithful_copy_state_bank_global(shared_transient, publication,
+                                      value_half, bank, thread);
+      if (!has_chunk) {
+        __syncthreads();
+        continue;
+      }
+      if (bank == 0U) {
+        resident_state_cp_async_wait_all();
+      }
+      __syncthreads();
+
+      const std::uint16_t* const selected_w =
+          bank == 0U ? shared_w0 : shared_w1;
+#pragma unroll
+      for (unsigned int key_pair = 0U; key_pair < 2U; ++key_pair) {
+        FaithfulM16K16 w_fragment0{};
+        FaithfulM16K16 w_fragment1{};
+        faithful_load_a(w_fragment0, selected_w, warp,
+                        key_pair * 2U, lane);
+        faithful_load_a(w_fragment1, selected_w, warp,
+                        key_pair * 2U + 1U, lane);
+#pragma unroll
+        for (unsigned int panel = 0U;
+             panel < kFaithfulValuePanels; ++panel) {
+          FaithfulK16N8 state_fragment0{};
+          FaithfulK16N8 state_fragment1{};
+          faithful_load_b_pair_transposed(
+              state_fragment0, state_fragment1, shared_transient,
+              panel, key_pair, lane);
+          faithful_mma(products[panel], w_fragment0,
+                       state_fragment0);
+          faithful_mma(products[panel], w_fragment1,
+                       state_fragment1);
+        }
+      }
+      __syncthreads();
+    }
+
+    if (!has_chunk) {
+      return;
+    }
+
+    // Products are T16xV64 per warp.  Preserve the public BF16 Vnew boundary
+    // and retain that identical rounded tile as row-major [T64,V64] for the
+    // update GEMM's matrix-B operand.
+    const unsigned int group = lane >> 2U;
+    const unsigned int pair = lane & 3U;
+    const unsigned int token0 = warp * 16U + group;
+    const unsigned int token1 = token0 + 8U;
+#pragma unroll
+    for (unsigned int panel = 0U; panel < kFaithfulValuePanels;
+         ++panel) {
+      const std::uint32_t u0 = faithful_load_shared_pair(
+          shared_u, token0, panel, pair);
+      const std::uint32_t u1 = faithful_load_shared_pair(
+          shared_u, token1, panel, pair);
+      const float corrected00 =
+          decode_bf16_device(static_cast<std::uint16_t>(u0)) -
+          products[panel].x0;
+      const float corrected01 =
+          decode_bf16_device(static_cast<std::uint16_t>(u0 >> 16U)) -
+          products[panel].x1;
+      const float corrected10 =
+          decode_bf16_device(static_cast<std::uint16_t>(u1)) -
+          products[panel].x2;
+      const float corrected11 =
+          decode_bf16_device(static_cast<std::uint16_t>(u1 >> 16U)) -
+          products[panel].x3;
+      const std::uint32_t rounded0 =
+          faithful_pack_pair(corrected00, corrected01);
+      const std::uint32_t rounded1 =
+          faithful_pack_pair(corrected10, corrected11);
+      *reinterpret_cast<std::uint32_t*>(
+          matrix_v_new + token0 * kDimension + value_half * 64U +
+          panel * 8U + pair * 2U) = rounded0;
+      *reinterpret_cast<std::uint32_t*>(
+          matrix_v_new + token1 * kDimension + value_half * 64U +
+          panel * 8U + pair * 2U) = rounded1;
+      const unsigned int value0 = panel * 8U + pair * 2U;
+      const unsigned int value1 = value0 + 1U;
+      faithful_store_v_transposed(
+          shared_transient, value0, token0,
+          static_cast<std::uint16_t>(rounded0));
+      faithful_store_v_transposed(
+          shared_transient, value1, token0,
+          static_cast<std::uint16_t>(rounded0 >> 16U));
+      faithful_store_v_transposed(
+          shared_transient, value0, token1,
+          static_cast<std::uint16_t>(rounded1));
+      faithful_store_v_transposed(
+          shared_transient, value1, token1,
+          static_cast<std::uint16_t>(rounded1 >> 16U));
+    }
+    __syncthreads();
+
+    // The project contract rounds end-decayed K (rather than vLLM's
+    // algebraically moved V decay) at BF16.  Keep that boundary exact, but
+    // form the transpose in a retained runtime loop so the conversion body
+    // appears once in static code.  W is dead here and becomes the K^T slot.
+    // U is dead after Vnew. Capture raw g_last there before any warp can
+    // overwrite gamma[63] with its unit end-decay scale. Reading gamma[63]
+    // directly inside the in-place conversion is a cross-warp race: lane 63
+    // may publish 1 before lane 0 has observed the original cumulative gate.
+    auto* const shared_raw_last = reinterpret_cast<float*>(shared_u);
+    if (thread == 0U) {
+      shared_raw_last[0] = shared_gamma[kChunkSize - 1U];
+    }
+    __syncthreads();
+    const float raw_last = shared_raw_last[0];
+    if (thread < kChunkSize) {
+      shared_gamma[thread] =
+          expf(raw_last - shared_gamma[thread]);
+      if (thread == 0U) {
+        shared_gamma[kChunkSize] = expf(raw_last);
+      }
+    }
+    __syncthreads();
+    faithful_form_decayed_k_transpose(
+        shared_k0, shared_k1, shared_gamma, shared_w0, shared_w1,
+        thread);
+    faithful_scale_state(state, shared_gamma[kChunkSize]);
+    __syncthreads();
+
+    if constexpr (Diagnostic) {
+      // Export the exact shared operand consumed by update MMA in canonical
+      // [T,K] order. Only one value-half CTA publishes each value head.
+      if (chunk_index == 0U && value_half == 0U) {
+        for (unsigned int index = thread;
+             index < kChunkSize * kDimension;
+             index += kFusedSolveThreads) {
+          const unsigned int token = index / kDimension;
+          const unsigned int key = index % kDimension;
+          const unsigned int bank = key / 64U;
+          const unsigned int local_key = key % 64U;
+          const std::uint16_t* const selected_k =
+              bank == 0U ? shared_w0 : shared_w1;
+          const unsigned int physical_chunk =
+              faithful_swizzled_chunk(local_key, token / 8U);
+          const std::uint16_t value =
+              selected_k[local_key * kFaithfulPanelColumns +
+                         physical_chunk * 8U + token % 8U];
+          diagnostic_k_decay[
+              matrix * kChunkSize * kDimension + index] = value;
+        }
+      }
+    }
+
+#pragma unroll
+    for (unsigned int bank = 0U; bank < kFaithfulKeyBanks; ++bank) {
+      const std::uint16_t* const selected_k =
+          bank == 0U ? shared_w0 : shared_w1;
+#pragma unroll
+      for (unsigned int token_pair = 0U; token_pair < 2U;
+           ++token_pair) {
+        FaithfulM16K16 k_fragment0{};
+        FaithfulM16K16 k_fragment1{};
+        faithful_load_a(k_fragment0, selected_k, warp,
+                        token_pair * 2U, lane);
+        faithful_load_a(k_fragment1, selected_k, warp,
+                        token_pair * 2U + 1U, lane);
+#pragma unroll
+        for (unsigned int panel = 0U;
+             panel < kFaithfulValuePanels; ++panel) {
+          FaithfulK16N8 v_fragment0{};
+          FaithfulK16N8 v_fragment1{};
+          faithful_load_b_pair_transposed(
+              v_fragment0, v_fragment1, shared_transient, panel,
+              token_pair, lane);
+          faithful_mma(state[bank][panel], k_fragment0, v_fragment0);
+          faithful_mma(state[bank][panel], k_fragment1, v_fragment1);
+        }
+      }
+    }
+    __syncthreads();
+
+    if constexpr (Diagnostic) {
+      // Materialize the register-resident H immediately after chunk0's
+      // update, before the next iteration's boundary publication.
+      if (chunk_index == 0U) {
+#pragma unroll
+        for (unsigned int bank = 0U; bank < kFaithfulKeyBanks; ++bank) {
+          faithful_store_state_bank_shared(
+              state, shared_transient, bank, warp, lane);
+          __syncthreads();
+          faithful_copy_state_bank_global(
+              shared_transient,
+              diagnostic_post_update_state + head_state_base,
+              value_half, bank, thread);
+          __syncthreads();
+        }
+      }
+    }
+  }
+}
+
 // Architecture stage C: reconstruct one C64/value-head tile with WMMA, keep
 // its FP32 output on chip, then publish the same BF16 boundary consumed by
 // plain RMSNorm and SiLU(Z). One CTA therefore replaces the two batched GEMM
@@ -2105,6 +2834,19 @@ void reconstruct_norm_gate_chunk64_kernel(
              g_force_resident_state_baseline_for_test;
 }
 
+// Explicit rollback for the incumbent packless resident recurrence. The
+// vLLM-faithful recurrence is the native-C64 default after passing the exact
+// state, Graph, and warm B-C-C-B promotion gates.
+[[nodiscard]] bool force_packless_resident_state_fallback() noexcept {
+  static const bool forced_by_environment =
+      std::getenv(
+          "Q3X_GDN_CHUNK64_FORCE_PACKLESS_RESIDENT_STATE_FALLBACK") !=
+      nullptr;
+  return forced_by_environment ||
+         gdn_prefill_chunk64_native_detail::
+             g_force_packless_resident_state_fallback_for_test;
+}
+
 // Diagnostic-only selector for a same-ELF direction gate against the exact
 // three-launch native producer that immediately preceded group-owned WY.
 // Production never sets this environment variable and therefore always uses
@@ -2242,6 +2984,12 @@ int launch_impl(void* const context,
       !use_fused_kkt_baseline && force_split_wy_baseline();
   const bool use_resident_state_baseline =
       force_resident_state_baseline();
+  const bool use_packless_resident_state_fallback =
+      !use_resident_state_baseline &&
+      force_packless_resident_state_fallback();
+  const bool use_vllm_faithful_state_candidate =
+      !use_resident_state_baseline &&
+      !use_packless_resident_state_fallback;
   const bool use_packed_qkv_baseline =
       force_packed_qkv_baseline() || use_fused_kkt_baseline ||
       use_split_wy_baseline || use_resident_state_baseline;
@@ -2414,6 +3162,48 @@ int launch_impl(void* const context,
         workspace.w, workspace.u, workspace.k_decay, workspace.gamma,
         state_input, state_output, static_cast<unsigned int>(chunk_count),
         workspace.v_new, workspace.boundary_state);
+  } else if (use_vllm_faithful_state_candidate) {
+    // The runner invokes this launcher once per GDN layer.  Opt in to the
+    // 49,412-byte dynamic shared lifetime once during candidate warmup,
+    // rather than adding 48 driver calls to every measured prefix.
+    const bool diagnostic =
+        gdn_prefill_chunk64_native_detail::g_inspection_hook.callback !=
+        nullptr;
+    if (diagnostic) {
+      static const int attribute_status = static_cast<int>(
+          cudaFuncSetAttribute(
+              persistent_state_chunk64_vllm_faithful_kernel<true>,
+              cudaFuncAttributeMaxDynamicSharedMemorySize,
+              static_cast<int>(kFaithfulStateSharedBytes)));
+      status = attribute_status;
+      if (status != static_cast<int>(cudaSuccess)) {
+        return status;
+      }
+      persistent_state_chunk64_vllm_faithful_kernel<true><<<
+          static_cast<unsigned int>(kValueHeadCount * 2U),
+          kFusedSolveThreads, kFaithfulStateSharedBytes, stream>>>(
+          workspace.w, workspace.u, workspace.k, workspace.gamma,
+          state_input, state_output,
+          static_cast<unsigned int>(chunk_count), workspace.v_new,
+          workspace.boundary_state, workspace.k_decay, workspace.k_g);
+    } else {
+      static const int attribute_status = static_cast<int>(
+          cudaFuncSetAttribute(
+              persistent_state_chunk64_vllm_faithful_kernel<false>,
+              cudaFuncAttributeMaxDynamicSharedMemorySize,
+              static_cast<int>(kFaithfulStateSharedBytes)));
+      status = attribute_status;
+      if (status != static_cast<int>(cudaSuccess)) {
+        return status;
+      }
+      persistent_state_chunk64_vllm_faithful_kernel<false><<<
+          static_cast<unsigned int>(kValueHeadCount * 2U),
+          kFusedSolveThreads, kFaithfulStateSharedBytes, stream>>>(
+          workspace.w, workspace.u, workspace.k, workspace.gamma,
+          state_input, state_output,
+          static_cast<unsigned int>(chunk_count), workspace.v_new,
+          workspace.boundary_state, nullptr, nullptr);
+    }
   } else {
     persistent_state_chunk64_resident_kernel<true><<<
         static_cast<unsigned int>(kValueHeadCount * 2U),
@@ -2459,7 +3249,13 @@ int launch_impl(void* const context,
     gdn_prefill_chunk64_native_detail::inspect_native_boundaries(
         workspace.transform, matrix_count * kChunkSize * kChunkSize,
         workspace.w, head_token_elements, workspace.u,
-        head_token_elements, state_output, kGdnStateElements, output,
+        head_token_elements, workspace.v_new, head_token_elements,
+        workspace.boundary_state,
+        matrix_count * kDimension * kDimension, workspace.k,
+        chunk_count * kQkHeadCount * kChunkSize * kDimension,
+        workspace.gamma, matrix_count * kChunkSize,
+        workspace.k_decay, head_token_elements, workspace.k_g,
+        kGdnStateElements, state_output, kGdnStateElements, output,
         token_count * kGdnVElements, cuda_stream);
   }
   return status;

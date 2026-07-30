@@ -59,5 +59,19 @@ struct PrefillGdnChunk64NativeFinalSnapshotHook {
 exchange_prefill_gdn_chunk64_native_final_snapshot_hook(
     PrefillGdnChunk64NativeFinalSnapshotHook hook) noexcept;
 
+// Test-only observation point after successful generation has completed all
+// prompt work and immediately before ReferenceEngine::generate returns.
+using ReferenceEngineGenerateReturnSnapshotCallback = void (*)(
+    const RequestState& state, void* context) noexcept;
+
+struct ReferenceEngineGenerateReturnSnapshotHook {
+  ReferenceEngineGenerateReturnSnapshotCallback callback = nullptr;
+  void* context = nullptr;
+};
+
+[[nodiscard]] ReferenceEngineGenerateReturnSnapshotHook
+exchange_reference_engine_generate_return_snapshot_hook(
+    ReferenceEngineGenerateReturnSnapshotHook hook) noexcept;
+
 }  // namespace reference_runner_detail
 }  // namespace q3x::runtime

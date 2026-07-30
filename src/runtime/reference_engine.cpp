@@ -8,6 +8,7 @@
 #include "q3x/kernels/sm87_nvfp4_marlin.h"
 #include "q3x/kernels/sm87_weight_only_gemv.h"
 #include "q3x/text/tokenizer.h"
+#include "reference_runner_gdn_chunk64_native_admission.h"
 
 #include <cuda_runtime_api.h>
 
@@ -34,6 +35,10 @@
 
 namespace q3x::runtime {
 namespace {
+
+thread_local reference_runner_detail::
+    ReferenceEngineGenerateReturnSnapshotHook
+        g_reference_engine_generate_return_snapshot_hook{};
 
 using Clock = std::chrono::steady_clock;
 
@@ -2358,6 +2363,17 @@ prepare_sm87_nvfp4_marlin_prefill_sidecars(
 
 }  // namespace
 
+namespace reference_runner_detail {
+
+ReferenceEngineGenerateReturnSnapshotHook
+exchange_reference_engine_generate_return_snapshot_hook(
+    const ReferenceEngineGenerateReturnSnapshotHook hook) noexcept {
+  return std::exchange(g_reference_engine_generate_return_snapshot_hook,
+                       hook);
+}
+
+}  // namespace reference_runner_detail
+
 struct ReferenceEngine::Impl {
   // Declaration order is part of the safety contract. Destruction is exactly
   // runner -> request_state -> model_weights -> Prefill supermatrix/QKV
@@ -3348,6 +3364,12 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
     generation.decode_graph_serial_fallbacks =
         step_context.decode_graph_serial_fallbacks;
     result.value.emplace(std::move(generation));
+    const auto generate_return_snapshot_hook =
+        g_reference_engine_generate_return_snapshot_hook;
+    if (generate_return_snapshot_hook.callback != nullptr) {
+      generate_return_snapshot_hook.callback(
+          *impl_->request_state, generate_return_snapshot_hook.context);
+    }
     return result;
   } catch (const std::bad_alloc&) {
     result.diagnostic = engine_diagnostic(
