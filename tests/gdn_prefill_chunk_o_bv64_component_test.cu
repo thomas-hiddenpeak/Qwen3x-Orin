@@ -32,7 +32,7 @@ constexpr std::size_t kOutputElements =
     kTokens * kValueHeads * kDimension;
 constexpr std::size_t kFragmentMatrixElements = 16U * 16U;
 constexpr std::size_t kFragmentARegisters = 32U * 4U;
-constexpr std::size_t kFragmentBRegisters = 32U * 2U;
+constexpr std::size_t kFragmentBRegisters = 32U * 4U;
 constexpr std::size_t kFragmentAccumulatorRegisters = 32U * 4U;
 constexpr std::uint16_t kZero = 0x0000U;
 constexpr std::uint16_t kOne = 0x3f80U;
@@ -231,14 +231,61 @@ void reset(Buffers& buffers) {
   return unequal == 0U;
 }
 
-[[nodiscard]] bool launch_component(Buffers& buffers) {
+[[nodiscard]] bool launch_component(
+    Buffers& buffers, const std::size_t token_count = kTokens) {
   return chunk_o::launch(
              buffers.q.data(), buffers.k.data(), buffers.h.data(),
-             buffers.v.data(), buffers.gamma.data(), kTokens,
+             buffers.v.data(), buffers.gamma.data(), token_count,
              buffers.weight.data(), buffers.gate.data(), kEpsilon,
              buffers.raw.data(), buffers.output.data()) ==
              static_cast<int>(cudaSuccess) &&
          cudaDeviceSynchronize() == cudaSuccess;
+}
+
+void test_partial_query_mask(TestContext& test, Buffers& buffers) {
+  reset(buffers);
+  constexpr std::size_t kValidTokens = 13U;
+  constexpr std::size_t kQkHead = 0U;
+  constexpr std::size_t kQuery = 11U;
+  constexpr std::size_t kSource = 2U;
+  constexpr std::size_t kPaddedQuery = 20U;
+  constexpr std::size_t kKey = 17U;
+  constexpr std::size_t kPaddedKey = 29U;
+  constexpr std::size_t kValueHead = 2U;
+  constexpr std::size_t kValue = 70U;
+  buffers.q.data()[compact_index(kQkHead, kQuery, kKey)] = kOne;
+  buffers.k.data()[compact_index(kQkHead, kSource, kKey)] = kOne;
+  buffers.v.data()[value_index(kValueHead, kSource, kValue)] = kOne;
+
+  // Deliberately violate producer padding for one query.  The partial
+  // specialization must still suppress its score/output publication from
+  // token_count rather than relying only on the producer-owned zero row.
+  buffers.q.data()[compact_index(kQkHead, kPaddedQuery, kPaddedKey)] = kOne;
+  buffers.h.data()[state_index(kValueHead, kValue, kPaddedKey)] = kOne;
+
+  const bool ready = launch_component(buffers, kValidTokens);
+  test.expect(ready, "partial-query-mask component launch");
+  if (!ready) {
+    return;
+  }
+
+  std::size_t unequal = 0U;
+  const std::size_t expected = output_index(kQuery, kValueHead, kValue);
+  for (std::size_t token = 0U; token < kTokens; ++token) {
+    for (std::size_t head = 0U; head < kValueHeads; ++head) {
+      for (std::size_t value = 0U; value < kDimension; ++value) {
+        const std::size_t index = output_index(token, head, value);
+        const std::uint16_t wanted =
+            token < kValidTokens
+                ? (index == expected ? kOne : kZero)
+                : kPoison;
+        unequal += buffers.raw.data()[index] != wanted ? 1U : 0U;
+      }
+    }
+  }
+  std::cout << "GDN_CHUNK_O_BV64_PARTIAL_QUERY_MASK unequal=" << unequal
+            << " gate=" << (unequal == 0U ? "PASS" : "FAIL") << '\n';
+  test.expect(unequal == 0U, "GDN_CHUNK_O_BV64_PARTIAL_QUERY_MASK");
 }
 
 void check_component_epilogue(TestContext& test, Buffers& buffers,
@@ -309,7 +356,7 @@ void test_fragment_lane_mapping(TestContext& test, Buffers& buffers) {
   check_u32("GDN_CHUNK_O_BV64_FRAGMENT_A", buffers.direct_a.data(),
             buffers.loaded_a.data(), kFragmentARegisters, 4U);
   check_u32("GDN_CHUNK_O_BV64_FRAGMENT_B", buffers.direct_b.data(),
-            buffers.loaded_b.data(), kFragmentBRegisters, 2U);
+            buffers.loaded_b.data(), kFragmentBRegisters, 4U);
 
   std::size_t unequal = 0U;
   std::size_t first = kFragmentAccumulatorRegisters;
@@ -433,6 +480,7 @@ int main() {
   test_fragment_lane_mapping(test, buffers);
   test_state_only(test, buffers);
   test_qk_v_only(test, buffers);
+  test_partial_query_mask(test, buffers);
   test_rows8_norm(test, buffers);
   std::cout << "GDN_CHUNK_O_BV64_COMPONENT_RESULT gate="
             << (test.result() == 0 ? "PASS" : "FAIL")

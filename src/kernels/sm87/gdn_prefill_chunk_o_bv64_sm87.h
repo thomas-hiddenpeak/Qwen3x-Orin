@@ -8,9 +8,12 @@ namespace q3x::runtime::gdn_prefill_chunk_o_bv64_detail {
 
 // Model- and architecture-fixed FLA output stage for Qwen3.6 GDN:
 // Hg=16, H=48, K=V=128, BT=BK=BV=64 on SM87.  compact_q/compact_k are
-// chunk-major [chunk, Hg, BT, K]. boundary_state and v_new are the established
-// BF16 recurrence boundaries. raw_output is an internal BF16 [T,H,V]
-// boundary consumed by the exact rows-8 RMSNorm+SiLU epilogue.
+// chunk-major [ceil(T/64), Hg, BT, K].  The final chunk follows the native
+// identity-padding contract: padded Q/K/V rows are zero and padded gamma
+// repeats the last real cumulative gate. boundary_state and v_new are the
+// established BF16 recurrence boundaries. raw_output is an internal BF16
+// [ceil(T/64)*64,H,V] workspace; only real rows are consumed by the
+// exact rows-8 RMSNorm+SiLU epilogue.
 [[nodiscard]] int launch(
     const std::uint16_t* compact_q, const std::uint16_t* compact_k,
     const std::uint16_t* boundary_state, const std::uint16_t* v_new,
@@ -30,7 +33,7 @@ namespace q3x::runtime::gdn_prefill_chunk_o_bv64_detail {
     std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
 
 // Correctness-only lane sentinel. `matrix_a` and canonical [N,K] `matrix_b`
-// are 16x16 BF16. Output arrays hold 32 lane fragments: A4, B2 and C4.
+// are 16x16 BF16. Output arrays hold 32 lane fragments: A4, paired B4 and C4.
 [[nodiscard]] int launch_fragment_sentinel(
     const std::uint16_t* matrix_a, const std::uint16_t* matrix_b,
     std::uint32_t* loaded_a, std::uint32_t* direct_a,

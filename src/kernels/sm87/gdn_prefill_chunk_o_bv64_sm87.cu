@@ -135,30 +135,65 @@ __device__ __forceinline__ void load_m16k16(
 #endif
 }
 
-__device__ __forceinline__ void load_k16n8_transposed(
-    K16N8Fragment& fragment, const std::uint16_t* const tile,
-    const unsigned int n_panel, const unsigned int k16,
-    const unsigned int lane) {
+__device__ __forceinline__ void load_k16n16_transposed_pair(
+    K16N8Fragment& first, K16N8Fragment& second,
+    const std::uint16_t* const tile, const unsigned int n16,
+    const unsigned int k16, const unsigned int lane) {
 #if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 750
-  // tile is a true [K,N] row-major backing for the logical column-major B
-  // operand. Lanes 0..15 provide the sixteen K rows of one K16xN8 tile;
-  // ldmatrix.trans then emits the official mma.m16n8k16 B lane fragment.
+  // tile is a true [K,N] row-major backing.  Lanes 0..15 provide the two
+  // K8 halves of the first N8 panel and lanes 16..31 the same two halves of
+  // the adjacent N8 panel.  One x4 transaction therefore feeds two
+  // mma.m16n8k16 B operands.
   const unsigned int row =
       k16 * 16U + (lane & 7U) + ((lane >> 3U) & 1U) * 8U;
-  const unsigned int column = n_panel * 8U;
+  const unsigned int column = n16 * 16U + ((lane >> 4U) & 1U) * 8U;
   const auto* const source = tile + shared_index(row, column);
   const unsigned int shared_address =
       static_cast<unsigned int>(__cvta_generic_to_shared(source));
   asm volatile(
-      "ldmatrix.sync.aligned.m8n8.x2.trans.shared.b16 "
-      "{%0, %1}, [%2];"
-      : "=r"(fragment.x0), "=r"(fragment.x1)
+      "ldmatrix.sync.aligned.m8n8.x4.trans.shared.b16 "
+      "{%0, %1, %2, %3}, [%4];"
+      : "=r"(first.x0), "=r"(first.x1),
+        "=r"(second.x0), "=r"(second.x1)
       : "r"(shared_address)
       : "memory");
 #else
-  (void)fragment;
+  (void)first;
+  (void)second;
   (void)tile;
-  (void)n_panel;
+  (void)n16;
+  (void)k16;
+  (void)lane;
+#endif
+}
+
+__device__ __forceinline__ void load_n16k16_as_k16n16_pair(
+    K16N8Fragment& first, K16N8Fragment& second,
+    const std::uint16_t* const tile, const unsigned int n16,
+    const unsigned int k16, const unsigned int lane) {
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 750
+  // `tile` keeps the canonical [N,K] row-major backing.  That byte layout is
+  // also the logical [K,N] column-major B operand expected by mma.row.col.
+  // x4 groups two adjacent N8 panels while retaining that direct backing.
+  const unsigned int row =
+      n16 * 16U + (lane & 7U) + ((lane >> 4U) & 1U) * 8U;
+  const unsigned int column =
+      k16 * 16U + ((lane >> 3U) & 1U) * 8U;
+  const auto* const source = tile + shared_index(row, column);
+  const unsigned int shared_address =
+      static_cast<unsigned int>(__cvta_generic_to_shared(source));
+  asm volatile(
+      "ldmatrix.sync.aligned.m8n8.x4.trans.shared.b16 "
+      "{%0, %1, %2, %3}, [%4];"
+      : "=r"(first.x0), "=r"(first.x1),
+        "=r"(second.x0), "=r"(second.x1)
+      : "r"(shared_address)
+      : "memory");
+#else
+  (void)first;
+  (void)second;
+  (void)tile;
+  (void)n16;
   (void)k16;
   (void)lane;
 #endif
@@ -209,25 +244,12 @@ __device__ __forceinline__ void mma_m16n8k16(
          (static_cast<std::uint32_t>(high) << 16U);
 }
 
-__device__ __forceinline__ void store_bf16_vector_nk_to_kn(
-    std::uint16_t* const destination, const unsigned int first_key,
-    const unsigned int n, const uint4 values) {
-  destination[shared_index(first_key + 0U, n)] =
-      static_cast<std::uint16_t>(values.x);
-  destination[shared_index(first_key + 1U, n)] =
-      static_cast<std::uint16_t>(values.x >> 16U);
-  destination[shared_index(first_key + 2U, n)] =
-      static_cast<std::uint16_t>(values.y);
-  destination[shared_index(first_key + 3U, n)] =
-      static_cast<std::uint16_t>(values.y >> 16U);
-  destination[shared_index(first_key + 4U, n)] =
-      static_cast<std::uint16_t>(values.z);
-  destination[shared_index(first_key + 5U, n)] =
-      static_cast<std::uint16_t>(values.z >> 16U);
-  destination[shared_index(first_key + 6U, n)] =
-      static_cast<std::uint16_t>(values.w);
-  destination[shared_index(first_key + 7U, n)] =
-      static_cast<std::uint16_t>(values.w >> 16U);
+[[nodiscard]] __device__ __forceinline__ std::uint32_t pack_bf16_pair_rne(
+    const float low, const float high) {
+  const __nv_bfloat162_raw packed =
+      static_cast<__nv_bfloat162_raw>(__floats2bfloat162_rn(low, high));
+  return static_cast<std::uint32_t>(packed.x) |
+         (static_cast<std::uint32_t>(packed.y) << 16U);
 }
 
 __device__ __forceinline__ void store_fp32_accumulator(
@@ -257,56 +279,70 @@ __device__ __forceinline__ void load_fp32_accumulator(
   accumulator = M16N8Accumulator{low.x, low.y, high.x, high.y};
 }
 
-[[nodiscard]] __device__ __forceinline__ std::uint16_t gated_score(
+template <bool Partial>
+[[nodiscard]] __device__ __forceinline__ float gated_score(
     const float raw, const unsigned int query, const unsigned int source,
-    const float* const gamma) {
-  if (source > query) {
-    return 0U;
+    const unsigned int valid_tokens, const float* const gamma) {
+  if (source > query ||
+      (Partial && (query >= valid_tokens || source >= valid_tokens))) {
+    return 0.0F;
   }
-  return encode_bf16(raw * expf(gamma[query] - gamma[source]));
+  return raw * expf(gamma[query] - gamma[source]);
 }
 
+template <bool Partial>
 __device__ __forceinline__ void store_gated_score_accumulator(
     std::uint16_t* const destination,
     const M16N8Accumulator& accumulator,
     const unsigned int m_panel, const unsigned int n_panel,
-    const unsigned int lane, const float* const gamma) {
+    const unsigned int lane, const unsigned int valid_tokens,
+    const float* const gamma) {
   const unsigned int query0 = m_panel * 16U + lane / 4U;
   const unsigned int query1 = query0 + 8U;
   const unsigned int source0 = n_panel * 8U + 2U * (lane & 3U);
   const unsigned int source1 = source0 + 1U;
   *reinterpret_cast<std::uint32_t*>(
       destination + shared_index(query0, source0)) =
-      pack_bf16_pair(gated_score(accumulator.x0, query0, source0, gamma),
-                     gated_score(accumulator.x1, query0, source1, gamma));
+      pack_bf16_pair_rne(
+          gated_score<Partial>(accumulator.x0, query0, source0,
+                               valid_tokens, gamma),
+          gated_score<Partial>(accumulator.x1, query0, source1,
+                               valid_tokens, gamma));
   *reinterpret_cast<std::uint32_t*>(
       destination + shared_index(query1, source0)) =
-      pack_bf16_pair(gated_score(accumulator.x2, query1, source0, gamma),
-                     gated_score(accumulator.x3, query1, source1, gamma));
+      pack_bf16_pair_rne(
+          gated_score<Partial>(accumulator.x2, query1, source0,
+                               valid_tokens, gamma),
+          gated_score<Partial>(accumulator.x3, query1, source1,
+                               valid_tokens, gamma));
 }
 
+template <bool Partial>
 __device__ __forceinline__ void store_raw_output_accumulator(
     std::uint16_t* const raw_output,
     const M16N8Accumulator& accumulator,
     const unsigned int token_base, const unsigned int value_head,
     const unsigned int value_base, const unsigned int m_panel,
-    const unsigned int n_panel, const unsigned int lane) {
+    const unsigned int n_panel, const unsigned int lane,
+    const unsigned int valid_tokens) {
   const unsigned int query0 = m_panel * 16U + lane / 4U;
   const unsigned int query1 = query0 + 8U;
   const unsigned int value =
       value_base + n_panel * 8U + 2U * (lane & 3U);
-  *reinterpret_cast<std::uint32_t*>(
-      raw_output +
-      static_cast<std::size_t>(token_base + query0) * kValuesPerToken +
-      value_head * kValueDimension + value) =
-      pack_bf16_pair(encode_bf16(accumulator.x0),
-                     encode_bf16(accumulator.x1));
-  *reinterpret_cast<std::uint32_t*>(
-      raw_output +
-      static_cast<std::size_t>(token_base + query1) * kValuesPerToken +
-      value_head * kValueDimension + value) =
-      pack_bf16_pair(encode_bf16(accumulator.x2),
-                     encode_bf16(accumulator.x3));
+  if (!Partial || query0 < valid_tokens) {
+    *reinterpret_cast<std::uint32_t*>(
+        raw_output +
+        static_cast<std::size_t>(token_base + query0) * kValuesPerToken +
+        value_head * kValueDimension + value) =
+        pack_bf16_pair_rne(accumulator.x0, accumulator.x1);
+  }
+  if (!Partial || query1 < valid_tokens) {
+    *reinterpret_cast<std::uint32_t*>(
+        raw_output +
+        static_cast<std::size_t>(token_base + query1) * kValuesPerToken +
+        value_head * kValueDimension + value) =
+        pack_bf16_pair_rne(accumulator.x2, accumulator.x3);
+  }
 }
 
 __global__ __launch_bounds__(32)
@@ -326,14 +362,16 @@ void fragment_lane_sentinel_kernel(
     const unsigned int row = index / 16U;
     const unsigned int column = index % 16U;
     shared_a[shared_index(row, column)] = matrix_a[index];
-    shared_b[shared_index(column, row)] = matrix_b[index];
+    shared_b[shared_index(row, column)] = matrix_b[index];
   }
   __syncwarp();
 
   M16K16Fragment loaded_a{};
   K16N8Fragment loaded_b{};
+  K16N8Fragment loaded_b_high{};
   load_m16k16(loaded_a, shared_a, 0U, 0U, lane);
-  load_k16n8_transposed(loaded_b, shared_b, 0U, 0U, lane);
+  load_n16k16_as_k16n16_pair(
+      loaded_b, loaded_b_high, shared_b, 0U, 0U, lane);
 
   const unsigned int group = lane / 4U;
   const unsigned int thread_in_group = lane & 3U;
@@ -348,10 +386,15 @@ void fragment_lane_sentinel_kernel(
       pack_bf16_pair(shared_a[shared_index(group + 8U, low_key + 8U)],
                      shared_a[shared_index(group + 8U, low_key + 9U)])};
   const K16N8Fragment direct_b{
-      pack_bf16_pair(shared_b[shared_index(low_key, group)],
-                     shared_b[shared_index(low_key + 1U, group)]),
-      pack_bf16_pair(shared_b[shared_index(low_key + 8U, group)],
-                     shared_b[shared_index(low_key + 9U, group)])};
+      pack_bf16_pair(shared_b[shared_index(group, low_key)],
+                     shared_b[shared_index(group, low_key + 1U)]),
+      pack_bf16_pair(shared_b[shared_index(group, low_key + 8U)],
+                     shared_b[shared_index(group, low_key + 9U)])};
+  const K16N8Fragment direct_b_high{
+      pack_bf16_pair(shared_b[shared_index(group + 8U, low_key)],
+                     shared_b[shared_index(group + 8U, low_key + 1U)]),
+      pack_bf16_pair(shared_b[shared_index(group + 8U, low_key + 8U)],
+                     shared_b[shared_index(group + 8U, low_key + 9U)])};
 
   loaded_a_output[lane * 4U + 0U] = loaded_a.x0;
   loaded_a_output[lane * 4U + 1U] = loaded_a.x1;
@@ -361,10 +404,14 @@ void fragment_lane_sentinel_kernel(
   direct_a_output[lane * 4U + 1U] = direct_a.x1;
   direct_a_output[lane * 4U + 2U] = direct_a.x2;
   direct_a_output[lane * 4U + 3U] = direct_a.x3;
-  loaded_b_output[lane * 2U + 0U] = loaded_b.x0;
-  loaded_b_output[lane * 2U + 1U] = loaded_b.x1;
-  direct_b_output[lane * 2U + 0U] = direct_b.x0;
-  direct_b_output[lane * 2U + 1U] = direct_b.x1;
+  loaded_b_output[lane * 4U + 0U] = loaded_b.x0;
+  loaded_b_output[lane * 4U + 1U] = loaded_b.x1;
+  loaded_b_output[lane * 4U + 2U] = loaded_b_high.x0;
+  loaded_b_output[lane * 4U + 3U] = loaded_b_high.x1;
+  direct_b_output[lane * 4U + 0U] = direct_b.x0;
+  direct_b_output[lane * 4U + 1U] = direct_b.x1;
+  direct_b_output[lane * 4U + 2U] = direct_b_high.x0;
+  direct_b_output[lane * 4U + 3U] = direct_b_high.x1;
 
   M16N8Accumulator loaded_accumulator = zero_accumulator();
   M16N8Accumulator direct_accumulator = zero_accumulator();
@@ -380,6 +427,7 @@ void fragment_lane_sentinel_kernel(
   direct_accumulator_output[lane * 4U + 3U] = direct_accumulator.x3;
 }
 
+template <bool Partial>
 __global__ __launch_bounds__(kChunkThreads, 3)
 void chunk_o_bv64_kernel(
     const std::uint16_t* const compact_q,
@@ -387,6 +435,7 @@ void chunk_o_bv64_kernel(
     const std::uint16_t* const boundary_state,
     const std::uint16_t* const v_new,
     const float* const cumulative_gate,
+    const unsigned int token_count,
     std::uint16_t* const raw_output) {
   __shared__ __align__(16) unsigned char shared_storage[kSharedBytes];
   auto* const shared_q = reinterpret_cast<std::uint16_t*>(
@@ -402,6 +451,10 @@ void chunk_o_bv64_kernel(
   const unsigned int qk_head = value_head / kHeadGroup;
   const unsigned int value_base = bv_index * kBv;
   const unsigned int token_base = chunk_index * kChunk;
+  const unsigned int valid_tokens =
+      Partial && token_base + kChunk > token_count
+          ? token_count - token_base
+          : kChunk;
   const std::size_t compact_matrix =
       static_cast<std::size_t>(chunk_index) * kQkHeads + qk_head;
   const std::size_t value_matrix =
@@ -427,7 +480,7 @@ void chunk_o_bv64_kernel(
     score[panel] = zero_accumulator();
   }
 
-#pragma unroll
+#pragma unroll 1
   for (unsigned int key_panel = 0U; key_panel < kKeyPanels; ++key_panel) {
     const unsigned int first_key = key_panel * kBk;
 #pragma unroll
@@ -438,12 +491,13 @@ void chunk_o_bv64_kernel(
       const unsigned int column = vector * 8U;
       cp_async_cg_16(shared_q + shared_index(row, column),
                      matrix_q + row * kKeyDimension + first_key + column);
-      const uint4 k_values = *reinterpret_cast<const uint4*>(
+      cp_async_cg_16(
+          shared_k + shared_index(row, column),
           matrix_k + row * kKeyDimension + first_key + column);
-      const uint4 h_values = *reinterpret_cast<const uint4*>(
-          matrix_h + (value_base + row) * kKeyDimension + first_key + column);
-      store_bf16_vector_nk_to_kn(shared_k, column, row, k_values);
-      store_bf16_vector_nk_to_kn(shared_h, column, row, h_values);
+      cp_async_cg_16(
+          shared_h + shared_index(row, column),
+          matrix_h +
+              (value_base + row) * kKeyDimension + first_key + column);
     }
     cp_async_commit();
     cp_async_wait_all();
@@ -454,16 +508,22 @@ void chunk_o_bv64_kernel(
       M16K16Fragment q_fragment{};
       load_m16k16(q_fragment, shared_q, query_panel, k16, lane);
 #pragma unroll
-      for (unsigned int panel = 0U; panel < kN8Panels; ++panel) {
-        K16N8Fragment h_fragment{};
-        load_k16n8_transposed(h_fragment, shared_h, panel, k16, lane);
-        mma_m16n8k16(state[panel], q_fragment, h_fragment);
+      for (unsigned int pair = 0U; pair < kN8Panels / 2U; ++pair) {
+        K16N8Fragment h_low{};
+        K16N8Fragment h_high{};
+        load_n16k16_as_k16n16_pair(
+            h_low, h_high, shared_h, pair, k16, lane);
+        mma_m16n8k16(state[pair * 2U], q_fragment, h_low);
+        mma_m16n8k16(state[pair * 2U + 1U], q_fragment, h_high);
       }
 #pragma unroll
-      for (unsigned int panel = 0U; panel < kN8Panels; ++panel) {
-        K16N8Fragment k_fragment{};
-        load_k16n8_transposed(k_fragment, shared_k, panel, k16, lane);
-        mma_m16n8k16(score[panel], q_fragment, k_fragment);
+      for (unsigned int pair = 0U; pair < kN8Panels / 2U; ++pair) {
+        K16N8Fragment k_low{};
+        K16N8Fragment k_high{};
+        load_n16k16_as_k16n16_pair(
+            k_low, k_high, shared_k, pair, k16, lane);
+        mma_m16n8k16(score[pair * 2U], q_fragment, k_low);
+        mma_m16n8k16(score[pair * 2U + 1U], q_fragment, k_high);
       }
     }
     __syncthreads();
@@ -512,8 +572,9 @@ void chunk_o_bv64_kernel(
       shared_storage + kAOffset);
 #pragma unroll
   for (unsigned int panel = 0U; panel < kN8Panels; ++panel) {
-    store_gated_score_accumulator(shared_a, score[panel], query_panel,
-                                  panel, lane, shared_gamma);
+    store_gated_score_accumulator<Partial>(
+        shared_a, score[panel], query_panel, panel, lane,
+        valid_tokens, shared_gamma);
   }
   __syncthreads();
 
@@ -540,9 +601,11 @@ void chunk_o_bv64_kernel(
   for (unsigned int source_k16 = 0U; source_k16 < 4U; ++source_k16) {
     K16N8Fragment value_fragments[4U];
 #pragma unroll
-    for (unsigned int n = 0U; n < 4U; ++n) {
-      load_k16n8_transposed(value_fragments[n], shared_v,
-                            value_group * 4U + n, source_k16, lane);
+    for (unsigned int pair = 0U; pair < 2U; ++pair) {
+      load_k16n16_transposed_pair(
+          value_fragments[pair * 2U],
+          value_fragments[pair * 2U + 1U], shared_v,
+          value_group * 2U + pair, source_k16, lane);
     }
 #pragma unroll
     for (unsigned int m = 0U; m < 2U; ++m) {
@@ -561,9 +624,10 @@ void chunk_o_bv64_kernel(
   for (unsigned int m = 0U; m < 2U; ++m) {
 #pragma unroll
     for (unsigned int n = 0U; n < 4U; ++n) {
-      store_raw_output_accumulator(
+      store_raw_output_accumulator<Partial>(
           raw_output, state[m * 4U + n], token_base, value_head,
-          value_base, query_group * 2U + m, value_group * 4U + n, lane);
+          value_base, query_group * 2U + m, value_group * 4U + n,
+          lane, valid_tokens);
     }
   }
 }
@@ -848,7 +912,7 @@ void rms_norm_silu_rows8_kernel(
   return compact_q == nullptr || compact_k == nullptr ||
          boundary_state == nullptr || v_new == nullptr ||
          cumulative_gate == nullptr || token_count == 0U ||
-         token_count > kMaximumTokens || token_count % kChunk != 0U ||
+         token_count > kMaximumTokens ||
          norm_weight == nullptr || silu_gate == nullptr ||
          raw_output == nullptr || output == nullptr ||
          !std::isfinite(norm_epsilon) || norm_epsilon <= 0.0F;
@@ -906,12 +970,19 @@ int launch(const std::uint16_t* const compact_q,
   }
   const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
   const unsigned int chunk_count =
-      static_cast<unsigned int>(token_count / kChunk);
+      static_cast<unsigned int>((token_count + kChunk - 1U) / kChunk);
   const dim3 grid(2U, chunk_count, kValueHeads);
   (void)cudaGetLastError();
-  chunk_o_bv64_kernel<<<grid, kChunkThreads, 0U, stream>>>(
-      compact_q, compact_k, boundary_state, v_new, cumulative_gate,
-      raw_output);
+  const unsigned int tokens = static_cast<unsigned int>(token_count);
+  if (token_count % kChunk == 0U) {
+    chunk_o_bv64_kernel<false><<<grid, kChunkThreads, 0U, stream>>>(
+        compact_q, compact_k, boundary_state, v_new, cumulative_gate,
+        tokens, raw_output);
+  } else {
+    chunk_o_bv64_kernel<true><<<grid, kChunkThreads, 0U, stream>>>(
+        compact_q, compact_k, boundary_state, v_new, cumulative_gate,
+        tokens, raw_output);
+  }
   int status = static_cast<int>(cudaGetLastError());
   if (status != static_cast<int>(cudaSuccess)) {
     return status;
@@ -944,7 +1015,7 @@ int launch_wmma_oracle(const std::uint16_t* const compact_q,
   }
   const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
   const unsigned int chunk_count =
-      static_cast<unsigned int>(token_count / kChunk);
+      static_cast<unsigned int>((token_count + kChunk - 1U) / kChunk);
   const dim3 grid(2U, chunk_count, kValueHeads);
   (void)cudaGetLastError();
   chunk_o_bv64_wmma_oracle_kernel<<<grid, kChunkThreads, 0U, stream>>>(
@@ -1015,7 +1086,7 @@ int query_chunk_o_resources(int* const registers_per_thread,
                             int* const maximum_threads_per_block,
                             int* const active_blocks_per_sm) noexcept {
   return query_kernel_resources(
-      chunk_o_bv64_kernel, static_cast<int>(kChunkThreads),
+      chunk_o_bv64_kernel<false>, static_cast<int>(kChunkThreads),
       registers_per_thread, static_shared_bytes, local_bytes,
       maximum_threads_per_block, active_blocks_per_sm);
 }
