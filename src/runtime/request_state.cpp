@@ -253,6 +253,17 @@ RequestPlanResult build_request_memory_plan(
         options.long_prefill_token_capacity > options.max_sequence_length ||
         (options.long_prefill_token_capacity != 0U &&
          options.prefill_chunk_size != kMaximumRequestPrefillChunkSize) ||
+        (options.long_prefill_projection_span_capacity != 0U &&
+         (options.long_prefill_token_capacity == 0U ||
+          options.long_prefill_projection_span_capacity <
+              kRequestLongPrefillProjectionSpanAlignment ||
+          options.long_prefill_projection_span_capacity %
+                  kRequestLongPrefillProjectionSpanAlignment !=
+              0U ||
+          options.long_prefill_projection_span_capacity >
+              options.long_prefill_token_capacity ||
+          options.long_prefill_projection_span_capacity >
+              kRequestLongPrefillAdmissionMaximumTokens)) ||
         options.max_arena_bytes == 0U ||
         options.max_arena_bytes > kMaximumConfigurableArenaBytes) {
         return plan_failure(make_diagnostic(
@@ -271,12 +282,18 @@ RequestPlanResult build_request_memory_plan(
     std::uint64_t rope_elements = 0U;
     std::uint64_t hidden_elements = 0U;
     std::uint64_t long_prefill_hidden_elements = 0U;
+    std::uint64_t long_prefill_primary_elements = 0U;
+    std::uint64_t long_prefill_secondary_elements = 0U;
     std::uint64_t projection_elements = 0U;
     std::uint64_t a4_hidden_packed_bytes = 0U;
     std::uint64_t a4_hidden_scale_elements = 0U;
     std::uint64_t a4_intermediate_packed_bytes = 0U;
     std::uint64_t a4_intermediate_scale_elements = 0U;
     std::uint64_t linear_scalar_elements = 0U;
+    const std::uint64_t a4_workspace_token_capacity =
+        options.long_prefill_projection_span_capacity == 0U
+            ? options.prefill_chunk_size
+            : options.long_prefill_projection_span_capacity;
     if (!checked_multiply(kRequestLinearLayerCount,
                           kConvChannels,
                           conv_elements) ||
@@ -306,22 +323,28 @@ RequestPlanResult build_request_memory_plan(
         !checked_multiply(kHiddenElements,
                           options.long_prefill_token_capacity,
                           long_prefill_hidden_elements) ||
+        !checked_multiply(kRequestLongPrefillPrimaryWidth,
+                          options.long_prefill_projection_span_capacity,
+                          long_prefill_primary_elements) ||
+        !checked_multiply(kRequestLongPrefillSecondaryWidth,
+                          options.long_prefill_projection_span_capacity,
+                          long_prefill_secondary_elements) ||
         !checked_multiply(kProjectionElements,
                           options.prefill_chunk_size,
                           projection_elements) ||
         !checked_multiply(kHiddenElements / 2U,
-                          options.prefill_chunk_size,
+                          a4_workspace_token_capacity,
                           a4_hidden_packed_bytes) ||
         !checked_multiply(kHiddenElements /
                               kRequestA4PrefillScaleGroupSize,
-                          options.prefill_chunk_size,
+                          a4_workspace_token_capacity,
                           a4_hidden_scale_elements) ||
         !checked_multiply(kProjectionElements / 2U,
-                          options.prefill_chunk_size,
+                          a4_workspace_token_capacity,
                           a4_intermediate_packed_bytes) ||
         !checked_multiply(kProjectionElements /
                               kRequestA4PrefillScaleGroupSize,
-                          options.prefill_chunk_size,
+                          a4_workspace_token_capacity,
                           a4_intermediate_scale_elements) ||
         !checked_multiply(kLinearScalarElements,
                           options.prefill_chunk_size,
@@ -346,6 +369,8 @@ RequestPlanResult build_request_memory_plan(
         static_cast<std::uint32_t>(options.max_sequence_length);
     plan.long_prefill_token_capacity =
         options.long_prefill_token_capacity;
+    plan.long_prefill_projection_span_capacity =
+        options.long_prefill_projection_span_capacity;
     plan.persistent_offset = 0U;
     if (!builder.add(conv_elements, kBf16Bytes, plan.conv_state) ||
         !builder.add(gdn_elements, kBf16Bytes, plan.gdn_state)) {
@@ -435,6 +460,18 @@ RequestPlanResult build_request_memory_plan(
                     "long_prefill_hidden_bf16"));
             }
         }
+    }
+    if (long_prefill_primary_elements != 0U &&
+        (!builder.add(long_prefill_primary_elements,
+                      kBf16Bytes,
+                      plan.long_prefill_projection_primary_bf16) ||
+         !builder.add(long_prefill_secondary_elements,
+                      kBf16Bytes,
+                      plan.long_prefill_projection_secondary_bf16))) {
+        return plan_failure(make_diagnostic(
+            RequestErrorCode::kArithmeticOverflow,
+            "long-Prefill projection span layout overflows uint64",
+            "long_prefill_projection_span_bf16"));
     }
     if (!builder.align()) {
         return plan_failure(make_diagnostic(
@@ -714,6 +751,34 @@ RequestViewResult RequestState::long_prefill_hidden_buffer(
     RequestViewResult result;
     result.value.emplace(
         mutable_view(plan_.long_prefill_hidden_bf16[index]));
+    return result;
+}
+
+RequestViewResult RequestState::long_prefill_projection_primary_buffer()
+    noexcept {
+    if (arena_ == nullptr) {
+        return access_failure(RequestAccessError::kEmptyState);
+    }
+    if (plan_.long_prefill_projection_span_capacity == 0U) {
+        return access_failure(RequestAccessError::kCapacityExceeded);
+    }
+    RequestViewResult result;
+    result.value.emplace(
+        mutable_view(plan_.long_prefill_projection_primary_bf16));
+    return result;
+}
+
+RequestViewResult RequestState::long_prefill_projection_secondary_buffer()
+    noexcept {
+    if (arena_ == nullptr) {
+        return access_failure(RequestAccessError::kEmptyState);
+    }
+    if (plan_.long_prefill_projection_span_capacity == 0U) {
+        return access_failure(RequestAccessError::kCapacityExceeded);
+    }
+    RequestViewResult result;
+    result.value.emplace(
+        mutable_view(plan_.long_prefill_projection_secondary_bf16));
     return result;
 }
 

@@ -57,7 +57,12 @@ void test_default_exact_plan(TestContext& test) {
     }
     const runtime::RequestMemoryPlan& plan = *result.value;
     test.expect(plan.batch_size == 1U && plan.prefill_chunk_size == 1U &&
-                    plan.max_sequence_length == 128U,
+                    plan.max_sequence_length == 128U &&
+                    plan.long_prefill_projection_span_capacity == 0U &&
+                    plan.long_prefill_projection_primary_bf16.byte_size ==
+                        0U &&
+                    plan.long_prefill_projection_secondary_bf16.byte_size ==
+                        0U,
                 "default plan is batch-one, chunk-one, with 128 positions");
     test.expect(plan.conv_state.byte_size == 2'949'120U &&
                     plan.conv_state.element_capacity == 1'474'560U &&
@@ -834,6 +839,12 @@ void test_a4_prefill_workspace(TestContext& test) {
                     plan.prefill_a4_intermediate_scales_bf16.byte_size ==
                         278'528U,
                 "A4 C512 hidden/intermediate packed and K64 scale bytes are exact");
+    test.expect(plan.long_prefill_projection_span_capacity == 0U &&
+                    plan.long_prefill_projection_primary_bf16.byte_size ==
+                        0U &&
+                    plan.long_prefill_projection_secondary_bf16.byte_size ==
+                        0U,
+                "legacy A4 C512 route reserves no whole-M span workspace");
     const std::array<const runtime::RequestRegion*, 4U> regions = {
         &plan.prefill_a4_hidden_packed,
         &plan.prefill_a4_hidden_scales_bf16,
@@ -868,6 +879,118 @@ void test_a4_prefill_workspace(TestContext& test) {
                 "ordinary request arena remains byte-identical without A4");
 }
 
+void test_long_prefill_projection_span_workspace(TestContext& test) {
+    runtime::RequestMemoryOptions options;
+    options.max_sequence_length = 4'096U;
+    options.prefill_chunk_size = runtime::kMaximumRequestPrefillChunkSize;
+    options.long_prefill_token_capacity = 4'096U;
+    options.long_prefill_projection_span_capacity = 4'096U;
+    options.enable_a4_prefill_workspace = true;
+    options.max_arena_bytes = 1ULL * 1024ULL * 1024ULL * 1024ULL;
+    const auto built = runtime::build_request_memory_plan(options);
+    test.expect(built.ok(), "P4096/S4096 whole-M request workspace builds");
+    if (!built) {
+        return;
+    }
+    const runtime::RequestMemoryPlan& plan = *built.value;
+    constexpr std::uint64_t kPrimaryElements = 4'096ULL * 12'288ULL;
+    constexpr std::uint64_t kSecondaryElements = 4'096ULL * 6'144ULL;
+    test.expect(plan.long_prefill_token_capacity == 4'096U &&
+                    plan.long_prefill_projection_span_capacity == 4'096U &&
+                    plan.persistent_bytes == 346'882'048U &&
+                    plan.workspace_bytes == 372'080'640U &&
+                    plan.rope_bytes == 1'048'576U &&
+                    plan.arena_bytes == 720'011'264U,
+                "P4096/S4096 whole-M arena budget is byte-exact");
+    test.expect(
+        plan.long_prefill_projection_primary_bf16.arena_offset ==
+                567'967'744U &&
+            plan.long_prefill_projection_primary_bf16.element_capacity ==
+                kPrimaryElements &&
+            plan.long_prefill_projection_primary_bf16.byte_size ==
+                100'663'296U &&
+            plan.long_prefill_projection_primary_bf16.element_size_bytes ==
+                2U &&
+            plan.long_prefill_projection_secondary_bf16.arena_offset ==
+                668'631'040U &&
+            plan.long_prefill_projection_secondary_bf16.element_capacity ==
+                kSecondaryElements &&
+            plan.long_prefill_projection_secondary_bf16.byte_size ==
+                50'331'648U &&
+            plan.long_prefill_projection_secondary_bf16.element_size_bytes ==
+                2U,
+        "S4096 primary and secondary BF16 projection spans are exact");
+    test.expect(plan.prefill_a4_hidden_packed.byte_size == 10'485'760U &&
+                    plan.prefill_a4_hidden_scales_bf16.byte_size == 655'360U &&
+                    plan.prefill_a4_intermediate_packed.byte_size ==
+                        35'651'584U &&
+                    plan.prefill_a4_intermediate_scales_bf16.byte_size ==
+                        2'228'224U,
+                "A4 hidden and intermediate workspaces scale from C512 to S4096");
+
+    const std::array<const runtime::RequestRegion*, 8U> span_regions = {
+        &plan.prefill_a4_hidden_packed,
+        &plan.prefill_a4_hidden_scales_bf16,
+        &plan.prefill_a4_intermediate_packed,
+        &plan.prefill_a4_intermediate_scales_bf16,
+        &plan.long_prefill_hidden_bf16[0],
+        &plan.long_prefill_hidden_bf16[1],
+        &plan.long_prefill_projection_primary_bf16,
+        &plan.long_prefill_projection_secondary_bf16,
+    };
+    bool aligned_and_ordered = true;
+    std::uint64_t prior_end = 0U;
+    for (const runtime::RequestRegion* const region : span_regions) {
+        aligned_and_ordered =
+            aligned_and_ordered && region->byte_size != 0U &&
+            region->arena_offset % runtime::kRequestArenaAlignment == 0U &&
+            region->arena_offset >= prior_end;
+        prior_end = region->arena_offset + region->byte_size;
+    }
+    test.expect(aligned_and_ordered && prior_end <= plan.rope_offset,
+                "whole-M owning regions are aligned, ordered, and disjoint");
+
+    options.max_arena_bytes = plan.arena_bytes - 1U;
+    const auto one_byte_short = runtime::build_request_memory_plan(options);
+    test.expect(!one_byte_short &&
+                    one_byte_short.diagnostic.code ==
+                        runtime::RequestErrorCode::kArenaLimitExceeded,
+                "whole-M arena fails closed one byte below its exact budget");
+
+    options.max_arena_bytes = 1ULL * 1024ULL * 1024ULL * 1024ULL;
+    options.max_sequence_length = 513U;
+    options.long_prefill_token_capacity = 513U;
+    options.long_prefill_projection_span_capacity = 512U;
+    const auto tail = runtime::build_request_memory_plan(options);
+    test.expect(tail &&
+                    tail.value->long_prefill_token_capacity == 513U &&
+                    tail.value->long_prefill_projection_span_capacity ==
+                        512U,
+                "P513 accepts S512 and leaves the final one-token tail to scheduling");
+
+    options.long_prefill_projection_span_capacity = 256U;
+    auto rejected = runtime::build_request_memory_plan(options);
+    test.expect(!rejected && rejected.diagnostic.code ==
+                                 runtime::RequestErrorCode::kInvalidOption,
+                "projection span below C512 is rejected");
+    options.long_prefill_projection_span_capacity = 513U;
+    rejected = runtime::build_request_memory_plan(options);
+    test.expect(!rejected && rejected.diagnostic.code ==
+                                 runtime::RequestErrorCode::kInvalidOption,
+                "projection span not divisible by C512 is rejected");
+    options.long_prefill_projection_span_capacity = 1'024U;
+    rejected = runtime::build_request_memory_plan(options);
+    test.expect(!rejected && rejected.diagnostic.code ==
+                                 runtime::RequestErrorCode::kInvalidOption,
+                "projection span above the full hidden capacity is rejected");
+    options.long_prefill_token_capacity = 0U;
+    options.long_prefill_projection_span_capacity = 512U;
+    rejected = runtime::build_request_memory_plan(options);
+    test.expect(!rejected && rejected.diagnostic.code ==
+                                 runtime::RequestErrorCode::kInvalidOption,
+                "projection span without long-Prefill hidden slabs is rejected");
+}
+
 }  // namespace
 
 int main() {
@@ -881,6 +1004,7 @@ int main() {
     test_native_only_c512_layout(test);
     test_long_context_prefill_plans(test);
     test_a4_prefill_workspace(test);
+    test_long_prefill_projection_span_workspace(test);
     test_alignment_non_overlap_and_schedule(test);
     test_minimum_maximum_and_bad_options(test);
     if (test.failures() != 0) {

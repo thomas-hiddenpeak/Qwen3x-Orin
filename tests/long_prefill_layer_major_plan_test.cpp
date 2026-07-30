@@ -407,6 +407,197 @@ void test_tail_and_invalid_plans(TestContext& test) {
               "first macro admission accepts only C512 scratch");
 }
 
+void test_projection_span_schedule_case(
+    TestContext& test, const std::uint32_t prompt_tokens,
+    const std::uint32_t projection_span_tokens,
+    const std::uint32_t expected_projection_spans,
+    const std::uint32_t expected_full_projection_spans,
+    const std::uint32_t expected_projection_tail,
+    const std::uint32_t expected_state_tiles,
+    const std::uint32_t expected_full_state_tiles,
+    const std::uint32_t expected_state_tail,
+    const char* const plan_message, const char* const coverage_message) {
+  runtime::LongPrefillProjectionSpanOptions options;
+  options.prompt_token_count = prompt_tokens;
+  options.hidden_token_capacity = prompt_tokens;
+  options.projection_span_token_count = projection_span_tokens;
+  const auto built =
+      runtime::build_long_prefill_projection_span_plan(options);
+  test.expect(built &&
+                  built.value->projection_span_token_count ==
+                      projection_span_tokens &&
+                  built.value->projection_span_count ==
+                      expected_projection_spans &&
+                  built.value->full_projection_span_count ==
+                      expected_full_projection_spans &&
+                  built.value->projection_tail_token_count ==
+                      expected_projection_tail &&
+                  built.value->state_tile_token_count == 512U &&
+                  built.value->state_tile_count == expected_state_tiles &&
+                  built.value->full_state_tile_count ==
+                      expected_full_state_tiles &&
+                  built.value->state_tail_token_count == expected_state_tail &&
+                  built.value->work_item_count ==
+                      static_cast<std::size_t>(expected_projection_spans) *
+                          runtime::kRequestLayerCount,
+              plan_message);
+  if (!built) {
+    return;
+  }
+
+  const runtime::LongPrefillProjectionSpanPlan& plan = *built.value;
+  std::array<std::uint32_t, runtime::kRequestLayerCount> span_covered{};
+  std::array<std::uint32_t, runtime::kRequestLayerCount> state_covered{};
+  std::array<std::uint32_t, runtime::kRequestLayerCount> state_tile_counts{};
+  bool exact = true;
+  for (std::size_t ordinal = 0U; ordinal < plan.work_item_count; ++ordinal) {
+    runtime::LongPrefillProjectionSpanWorkItem span;
+    if (!runtime::long_prefill_projection_span_work_item(plan, ordinal,
+                                                         span)) {
+      exact = false;
+      break;
+    }
+    const std::size_t layer = ordinal / plan.projection_span_count;
+    const std::uint32_t span_index =
+        static_cast<std::uint32_t>(ordinal % plan.projection_span_count);
+    const std::uint32_t expected_first =
+        span_index * projection_span_tokens;
+    const std::uint32_t remaining = prompt_tokens - expected_first;
+    const std::uint32_t expected_tokens =
+        remaining < projection_span_tokens ? remaining
+                                           : projection_span_tokens;
+    const std::uint32_t expected_tiles =
+        1U + (expected_tokens - 1U) / 512U;
+    const model::LayerType expected_type =
+        ((layer + 1U) % 4U) == 0U
+            ? model::LayerType::kFullAttention
+            : model::LayerType::kLinearAttention;
+    exact = exact && span.ordinal == ordinal && span.layer_index == layer &&
+            span.layer_type == expected_type &&
+            span.projection_span_index == span_index &&
+            span.first_position == expected_first &&
+            span.first_position == span_covered[layer] &&
+            span.token_count == expected_tokens &&
+            span.first_state_tile_index == expected_first / 512U &&
+            span.state_tile_count == expected_tiles &&
+            span.full_state_tile_count == expected_tokens / 512U &&
+            span.state_tail_token_count == expected_tokens % 512U &&
+            span.input_hidden_buffer == layer % 2U &&
+            span.output_hidden_buffer == (layer + 1U) % 2U &&
+            span.first_projection_span_for_layer == (span_index == 0U) &&
+            span.last_projection_span_for_layer ==
+                (span_index + 1U == plan.projection_span_count) &&
+            span.updates_recurrent_state ==
+                (expected_type == model::LayerType::kLinearAttention) &&
+            span.appends_kv ==
+                (expected_type == model::LayerType::kFullAttention);
+
+    std::uint32_t span_state_covered = span.first_position;
+    for (std::uint32_t tile_index = 0U;
+         tile_index < span.state_tile_count; ++tile_index) {
+      runtime::LongPrefillProjectionSpanStateTile tile;
+      if (!runtime::long_prefill_projection_span_state_tile(
+              plan, ordinal, tile_index, tile)) {
+        exact = false;
+        break;
+      }
+      const std::uint32_t tile_remaining =
+          span.first_position + span.token_count - span_state_covered;
+      const std::uint32_t expected_tile_tokens =
+          tile_remaining < 512U ? tile_remaining : 512U;
+      exact = exact && tile.projection_span_ordinal == ordinal &&
+              tile.layer_index == layer && tile.layer_type == expected_type &&
+              tile.projection_span_index == span_index &&
+              tile.state_tile_index == state_tile_counts[layer] &&
+              tile.state_tile_index_in_span == tile_index &&
+              tile.first_position == span_state_covered &&
+              tile.first_position == state_covered[layer] &&
+              tile.token_count == expected_tile_tokens &&
+              tile.token_count > 0U && tile.token_count <= 512U &&
+              tile.first_state_tile_for_span == (tile_index == 0U) &&
+              tile.last_state_tile_for_span ==
+                  (tile_index + 1U == span.state_tile_count) &&
+              tile.first_state_tile_for_layer ==
+                  (state_tile_counts[layer] == 0U) &&
+              tile.last_state_tile_for_layer ==
+                  (tile.first_position + tile.token_count == prompt_tokens) &&
+              tile.updates_recurrent_state == span.updates_recurrent_state &&
+              tile.appends_kv == span.appends_kv;
+      span_state_covered += tile.token_count;
+      state_covered[layer] += tile.token_count;
+      ++state_tile_counts[layer];
+    }
+    runtime::LongPrefillProjectionSpanStateTile out_of_span;
+    exact = exact &&
+            !runtime::long_prefill_projection_span_state_tile(
+                plan, ordinal, span.state_tile_count, out_of_span) &&
+            span_state_covered == span.first_position + span.token_count;
+    span_covered[layer] += span.token_count;
+  }
+  for (std::size_t layer = 0U; layer < runtime::kRequestLayerCount; ++layer) {
+    exact = exact && span_covered[layer] == prompt_tokens &&
+            state_covered[layer] == prompt_tokens &&
+            state_tile_counts[layer] == expected_state_tiles;
+  }
+  runtime::LongPrefillProjectionSpanWorkItem out_of_range;
+  exact = exact && !runtime::long_prefill_projection_span_work_item(
+                       plan, plan.work_item_count, out_of_range);
+  test.expect(exact, coverage_message);
+}
+
+void test_projection_span_schedules(TestContext& test) {
+  test_projection_span_schedule_case(
+      test, 513U, runtime::kLongPrefillProjectionSpanDefaultTokens, 1U, 0U,
+      513U, 2U, 1U, 1U,
+      "P513 whole-M plan is one short projection span with C512+C1 state",
+      "P513 projection/state intervals are ordered, complete, and disjoint");
+  test_projection_span_schedule_case(
+      test, 4'096U, runtime::kLongPrefillProjectionSpanDefaultTokens, 1U, 1U,
+      0U, 8U, 8U, 0U,
+      "P4096 whole-M plan is one full S4096 span with eight C512 states",
+      "P4096 projection/state intervals are ordered, complete, and disjoint");
+  test_projection_span_schedule_case(
+      test, 40'960U, runtime::kLongPrefillProjectionSpanDefaultTokens, 10U,
+      10U, 0U, 80U, 80U, 0U,
+      "P40960 whole-M plan is ten S4096 spans and 640 layer/span items",
+      "P40960 projection/state intervals are ordered, complete, and disjoint");
+  test_projection_span_schedule_case(
+      test, 40'960U, 2'048U, 20U, 20U, 0U, 80U, 80U, 0U,
+      "P40960 accepts configured S2048 projection spans",
+      "configured S2048 preserves the same exact C512 state sequence");
+  test_projection_span_schedule_case(
+      test, 4'096U, 3'072U, 2U, 1U, 1'024U, 8U, 8U, 0U,
+      "projection span is configurable to another C512 multiple",
+      "configured S3072 ends with an ordered non-overlapping S1024 span");
+}
+
+void test_projection_span_invalid_options(TestContext& test) {
+  runtime::LongPrefillProjectionSpanOptions options;
+  options.prompt_token_count = 4'096U;
+  options.hidden_token_capacity = 4'096U;
+  options.projection_span_token_count = 513U;
+  auto built = runtime::build_long_prefill_projection_span_plan(options);
+  test.expect(!built &&
+                  built.error == runtime::LongPrefillLayerMajorPlanError::
+                                     kInvalidOption,
+              "projection span rejects a non-C512 multiple");
+
+  options.projection_span_token_count = 256U;
+  built = runtime::build_long_prefill_projection_span_plan(options);
+  test.expect(!built &&
+                  built.error == runtime::LongPrefillLayerMajorPlanError::
+                                     kInvalidOption,
+              "projection span rejects a value below one state tile");
+
+  options.projection_span_token_count = 4'096U;
+  options.state_tile_token_count = 256U;
+  built = runtime::build_long_prefill_projection_span_plan(options);
+  test.expect(!built &&
+                  built.error == runtime::LongPrefillLayerMajorPlanError::
+                                     kInvalidOption,
+              "whole-M plan keeps the recurrent state tile fixed at C512");
+}
+
 struct RecordingCallbacks {
   std::size_t prepare_calls = 0U;
   std::size_t prepared_buffer = std::numeric_limits<std::size_t>::max();
@@ -541,6 +732,8 @@ int main() {
   test_layer_major_schedule(test);
   test_p40960_layer_major_schedule(test);
   test_tail_and_invalid_plans(test);
+  test_projection_span_schedules(test);
+  test_projection_span_invalid_options(test);
   test_executor_callbacks(test);
   if (test.failures() != 0) {
     std::cerr << test.failures()

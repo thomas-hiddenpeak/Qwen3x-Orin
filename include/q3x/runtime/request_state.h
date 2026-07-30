@@ -23,8 +23,12 @@ inline constexpr std::size_t kRequestHiddenBufferCount = 3U;
 inline constexpr std::size_t kRequestProjectionBufferCount = 4U;
 inline constexpr std::size_t kRequestLongPrefillHiddenBufferCount = 2U;
 inline constexpr std::size_t kRequestA4PrefillScaleGroupSize = 64U;
+inline constexpr std::uint32_t kRequestLongPrefillProjectionSpanAlignment =
+    kMaximumRequestPrefillChunkSize;
 inline constexpr std::uint32_t kRequestLongPrefillAdmissionMaximumTokens =
     40'960U;
+inline constexpr std::uint64_t kRequestLongPrefillPrimaryWidth = 12'288U;
+inline constexpr std::uint64_t kRequestLongPrefillSecondaryWidth = 6'144U;
 inline constexpr std::uint64_t kRequestConvStateBytes = 2'949'120U;
 inline constexpr std::uint64_t kRequestGdnStateBytes = 75'497'472U;
 inline constexpr std::uint64_t kRequestKvBytesPerToken = 65'536U;
@@ -61,6 +65,12 @@ struct RequestMemoryOptions {
     // tile-major arena. A nonzero value reserves two full-length BF16 hidden
     // slabs while the existing C512 projection workspace remains shared.
     std::uint32_t long_prefill_token_capacity = 0U;
+    // Optional whole-M projection span. Zero preserves the established
+    // layer-major C512 workspace byte-for-byte. A nonzero value requires the
+    // long-Prefill slabs above, is measured in tokens, and must be a C512
+    // multiple no larger than the full hidden capacity. The final logical
+    // span may be a shorter tail when P itself is not C512-aligned.
+    std::uint32_t long_prefill_projection_span_capacity = 0U;
     // Gated full-model A4 Prefill admission. Reserves one packed hidden input
     // and one packed intermediate/attention-output input plus their BF16 K64
     // scales. Decode and ordinary Prefill retain the byte-identical arena when
@@ -116,6 +126,7 @@ struct RequestMemoryPlan {
     std::uint32_t prefill_chunk_size = kDefaultRequestPrefillChunkSize;
     std::uint32_t max_sequence_length = 0U;
     std::uint32_t long_prefill_token_capacity = 0U;
+    std::uint32_t long_prefill_projection_span_capacity = 0U;
     std::uint64_t arena_bytes = 0U;
     std::uint64_t persistent_offset = 0U;
     std::uint64_t persistent_bytes = 0U;
@@ -137,11 +148,19 @@ struct RequestMemoryPlan {
     // reused by every layer/tile instead of scaling projection storage by P.
     std::array<RequestRegion, kRequestLongPrefillHiddenBufferCount>
         long_prefill_hidden_bf16;
+    // Optional whole-M projection outputs. They are independent of the four
+    // legacy [C,17408] projection buffers and only exist when an explicit
+    // projection span capacity S is admitted.
+    RequestRegion long_prefill_projection_primary_bf16;    // [S, 12288]
+    RequestRegion long_prefill_projection_secondary_bf16;  // [S, 6144]
     std::array<RequestRegion, kRequestProjectionBufferCount> projection_bf16;
-    RequestRegion prefill_a4_hidden_packed;       // [C, 5120/2] U8
-    RequestRegion prefill_a4_hidden_scales_bf16;  // [C, 5120/64]
-    RequestRegion prefill_a4_intermediate_packed;  // [C, 17408/2] U8
-    RequestRegion prefill_a4_intermediate_scales_bf16;  // [C, 17408/64]
+    // These use T=C on the legacy route and T=S on the explicit whole-M
+    // route. The intermediate allocation also backs the smaller [T,6144]
+    // attention-output input because their lifetimes are disjoint.
+    RequestRegion prefill_a4_hidden_packed;       // [T, 5120/2] U8
+    RequestRegion prefill_a4_hidden_scales_bf16;  // [T, 5120/64]
+    RequestRegion prefill_a4_intermediate_packed;  // [T, 17408/2] U8
+    RequestRegion prefill_a4_intermediate_scales_bf16;  // [T, 17408/64]
     RequestRegion linear_a_bf16;  // [48], independent from projection buffers
     RequestRegion linear_b_bf16;  // [48], independent from projection buffers
     RequestRegion fp32_scratch;
@@ -272,6 +291,10 @@ class RequestState {
     [[nodiscard]] RequestViewResult hidden_buffer(std::size_t index) noexcept;
     [[nodiscard]] RequestViewResult long_prefill_hidden_buffer(
         std::size_t index) noexcept;
+    [[nodiscard]] RequestViewResult
+    long_prefill_projection_primary_buffer() noexcept;
+    [[nodiscard]] RequestViewResult
+    long_prefill_projection_secondary_buffer() noexcept;
     [[nodiscard]] RequestViewResult projection_buffer(std::size_t index) noexcept;
     [[nodiscard]] RequestViewResult prefill_a4_hidden_packed() noexcept;
     [[nodiscard]] RequestViewResult prefill_a4_hidden_scales() noexcept;

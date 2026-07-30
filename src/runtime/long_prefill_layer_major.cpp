@@ -39,6 +39,48 @@ namespace {
                  kRequestLayerCount;
 }
 
+[[nodiscard]] bool valid_projection_span_plan(
+    const LongPrefillProjectionSpanPlan& plan) noexcept {
+  if (plan.prompt_token_count == 0U ||
+      plan.prompt_token_count > kLongPrefillLayerMajorMaximumTokens ||
+      plan.hidden_token_capacity < plan.prompt_token_count ||
+      plan.hidden_token_capacity > kLongPrefillLayerMajorMaximumTokens ||
+      plan.state_tile_token_count != kLongPrefillLayerMajorTileTokens ||
+      plan.projection_span_token_count < plan.state_tile_token_count ||
+      plan.projection_span_token_count >
+          kLongPrefillLayerMajorMaximumTokens ||
+      plan.projection_span_token_count % plan.state_tile_token_count != 0U ||
+      plan.embedding_output_hidden_buffer != 0U ||
+      plan.final_hidden_buffer != kRequestLayerCount %
+                                      kRequestLongPrefillHiddenBufferCount) {
+    return false;
+  }
+  const std::uint32_t expected_projection_spans = tile_count_for(
+      plan.prompt_token_count, plan.projection_span_token_count);
+  const std::uint32_t expected_state_tiles = tile_count_for(
+      plan.prompt_token_count, plan.state_tile_token_count);
+  return plan.projection_span_count == expected_projection_spans &&
+         plan.full_projection_span_count ==
+             plan.prompt_token_count / plan.projection_span_token_count &&
+         plan.projection_tail_token_count ==
+             plan.prompt_token_count % plan.projection_span_token_count &&
+         plan.state_tile_count == expected_state_tiles &&
+         plan.full_state_tile_count ==
+             plan.prompt_token_count / plan.state_tile_token_count &&
+         plan.state_tail_token_count ==
+             plan.prompt_token_count % plan.state_tile_token_count &&
+         plan.work_item_count ==
+             static_cast<std::size_t>(expected_projection_spans) *
+                 kRequestLayerCount;
+}
+
+[[nodiscard]] constexpr model::LayerType layer_type_for(
+    const std::size_t layer) noexcept {
+  return ((layer + 1U) % 4U) == 0U
+             ? model::LayerType::kFullAttention
+             : model::LayerType::kLinearAttention;
+}
+
 }  // namespace
 
 bool long_prefill_layer_major_build_enabled() noexcept {
@@ -124,10 +166,7 @@ bool long_prefill_layer_major_work_item(
       plan.prompt_token_count - first_position;
   const std::uint32_t token_count =
       remaining < plan.tile_token_count ? remaining : plan.tile_token_count;
-  const model::LayerType layer_type =
-      ((layer + 1U) % 4U) == 0U
-          ? model::LayerType::kFullAttention
-          : model::LayerType::kLinearAttention;
+  const model::LayerType layer_type = layer_type_for(layer);
 
   item = {};
   item.ordinal = ordinal;
@@ -145,6 +184,149 @@ bool long_prefill_layer_major_work_item(
   item.updates_recurrent_state =
       layer_type == model::LayerType::kLinearAttention;
   item.appends_kv = layer_type == model::LayerType::kFullAttention;
+  return true;
+}
+
+LongPrefillProjectionSpanPlanResult
+build_long_prefill_projection_span_plan(
+    const LongPrefillProjectionSpanOptions& options) noexcept {
+  LongPrefillProjectionSpanPlanResult result;
+  if (!long_prefill_layer_major_build_enabled()) {
+    result.error = LongPrefillLayerMajorPlanError::kBuildDisabled;
+    return result;
+  }
+  if (options.prompt_token_count == 0U ||
+      options.state_tile_token_count != kLongPrefillLayerMajorTileTokens ||
+      options.projection_span_token_count < options.state_tile_token_count ||
+      options.projection_span_token_count >
+          kLongPrefillLayerMajorMaximumTokens ||
+      options.projection_span_token_count % options.state_tile_token_count !=
+          0U) {
+    result.error = LongPrefillLayerMajorPlanError::kInvalidOption;
+    return result;
+  }
+  if (options.prompt_token_count > kLongPrefillLayerMajorMaximumTokens ||
+      options.hidden_token_capacity < options.prompt_token_count ||
+      options.hidden_token_capacity > kLongPrefillLayerMajorMaximumTokens) {
+    result.error = LongPrefillLayerMajorPlanError::kCapacityExceeded;
+    return result;
+  }
+
+  const std::uint32_t projection_span_count = tile_count_for(
+      options.prompt_token_count, options.projection_span_token_count);
+  if (projection_span_count >
+      std::numeric_limits<std::size_t>::max() / kRequestLayerCount) {
+    result.error = LongPrefillLayerMajorPlanError::kArithmeticOverflow;
+    return result;
+  }
+
+  LongPrefillProjectionSpanPlan plan;
+  plan.prompt_token_count = options.prompt_token_count;
+  plan.hidden_token_capacity = options.hidden_token_capacity;
+  plan.projection_span_token_count = options.projection_span_token_count;
+  plan.projection_span_count = projection_span_count;
+  plan.full_projection_span_count =
+      options.prompt_token_count / options.projection_span_token_count;
+  plan.projection_tail_token_count =
+      options.prompt_token_count % options.projection_span_token_count;
+  plan.state_tile_token_count = options.state_tile_token_count;
+  plan.state_tile_count =
+      tile_count_for(options.prompt_token_count, options.state_tile_token_count);
+  plan.full_state_tile_count =
+      options.prompt_token_count / options.state_tile_token_count;
+  plan.state_tail_token_count =
+      options.prompt_token_count % options.state_tile_token_count;
+  plan.work_item_count =
+      static_cast<std::size_t>(projection_span_count) * kRequestLayerCount;
+  plan.embedding_output_hidden_buffer = 0U;
+  plan.final_hidden_buffer =
+      kRequestLayerCount % kRequestLongPrefillHiddenBufferCount;
+  result.value.emplace(plan);
+  return result;
+}
+
+bool long_prefill_projection_span_work_item(
+    const LongPrefillProjectionSpanPlan& plan, const std::size_t ordinal,
+    LongPrefillProjectionSpanWorkItem& item) noexcept {
+  if (!valid_projection_span_plan(plan) || ordinal >= plan.work_item_count) {
+    return false;
+  }
+  const std::size_t layer = ordinal / plan.projection_span_count;
+  const std::uint32_t projection_span =
+      static_cast<std::uint32_t>(ordinal % plan.projection_span_count);
+  const std::uint32_t first_position =
+      projection_span * plan.projection_span_token_count;
+  const std::uint32_t remaining = plan.prompt_token_count - first_position;
+  const std::uint32_t token_count =
+      remaining < plan.projection_span_token_count
+          ? remaining
+          : plan.projection_span_token_count;
+  const model::LayerType layer_type = layer_type_for(layer);
+
+  item = {};
+  item.ordinal = ordinal;
+  item.layer_index = layer;
+  item.layer_type = layer_type;
+  item.projection_span_index = projection_span;
+  item.first_position = first_position;
+  item.token_count = token_count;
+  item.first_state_tile_index = first_position / plan.state_tile_token_count;
+  item.state_tile_count =
+      tile_count_for(token_count, plan.state_tile_token_count);
+  item.full_state_tile_count = token_count / plan.state_tile_token_count;
+  item.state_tail_token_count = token_count % plan.state_tile_token_count;
+  item.input_hidden_buffer =
+      layer % kRequestLongPrefillHiddenBufferCount;
+  item.output_hidden_buffer =
+      (layer + 1U) % kRequestLongPrefillHiddenBufferCount;
+  item.first_projection_span_for_layer = projection_span == 0U;
+  item.last_projection_span_for_layer =
+      projection_span + 1U == plan.projection_span_count;
+  item.updates_recurrent_state =
+      layer_type == model::LayerType::kLinearAttention;
+  item.appends_kv = layer_type == model::LayerType::kFullAttention;
+  return true;
+}
+
+bool long_prefill_projection_span_state_tile(
+    const LongPrefillProjectionSpanPlan& plan,
+    const std::size_t projection_span_ordinal,
+    const std::uint32_t state_tile_index_in_span,
+    LongPrefillProjectionSpanStateTile& tile) noexcept {
+  LongPrefillProjectionSpanWorkItem span;
+  if (!long_prefill_projection_span_work_item(
+          plan, projection_span_ordinal, span) ||
+      state_tile_index_in_span >= span.state_tile_count) {
+    return false;
+  }
+  const std::uint32_t first_position =
+      span.first_position +
+      state_tile_index_in_span * plan.state_tile_token_count;
+  const std::uint32_t span_end = span.first_position + span.token_count;
+  const std::uint32_t remaining = span_end - first_position;
+  const std::uint32_t token_count =
+      remaining < plan.state_tile_token_count
+          ? remaining
+          : plan.state_tile_token_count;
+
+  tile = {};
+  tile.projection_span_ordinal = projection_span_ordinal;
+  tile.layer_index = span.layer_index;
+  tile.layer_type = span.layer_type;
+  tile.projection_span_index = span.projection_span_index;
+  tile.state_tile_index =
+      span.first_state_tile_index + state_tile_index_in_span;
+  tile.state_tile_index_in_span = state_tile_index_in_span;
+  tile.first_position = first_position;
+  tile.token_count = token_count;
+  tile.first_state_tile_for_span = state_tile_index_in_span == 0U;
+  tile.last_state_tile_for_span =
+      state_tile_index_in_span + 1U == span.state_tile_count;
+  tile.first_state_tile_for_layer = first_position == 0U;
+  tile.last_state_tile_for_layer =
+      first_position + token_count == plan.prompt_token_count;
+  tile.updates_recurrent_state = span.updates_recurrent_state;
+  tile.appends_kv = span.appends_kv;
   return true;
 }
 

@@ -23,6 +23,8 @@ inline constexpr std::uint64_t kPrefillPromptArenaMaximumTokens = 40'000U;
 inline constexpr std::uint64_t kPrefillPromptHiddenWidth = 5'120U;
 inline constexpr std::uint64_t kPrefillPromptAttentionOutputWidth = 6'144U;
 inline constexpr std::uint64_t kPrefillPromptIntermediateWidth = 17'408U;
+inline constexpr std::uint64_t kPrefillPromptPrimaryProjectionWidth = 12'288U;
+inline constexpr std::uint64_t kPrefillPromptSecondaryProjectionWidth = 6'144U;
 
 // Raw payload totals intentionally exclude projection-to-projection alignment.
 // They are fixed arithmetic identities for the pinned 400-projection model.
@@ -235,6 +237,12 @@ struct PrefillPromptArenaPlan {
 
   // Ping-pong canonical residual storage [P, 5120] BF16.
   std::array<PrefillPromptArenaRegion, 2U> hidden_bf16;
+  // Reusable whole-M projection outputs for one staging span S. These remain
+  // BF16 because the ordered Attention/GDN state kernels consume canonical
+  // outputs while quantized inputs below are retained across projection
+  // families.
+  PrefillPromptArenaRegion projection_primary_bf16;    // [S, 12288]
+  PrefillPromptArenaRegion projection_secondary_bf16;  // [S, 6144]
   // Reusable normalized projection input [S, 5120].
   PrefillPromptArenaRegion hidden_quantized;
   PrefillPromptArenaRegion hidden_scales_bf16;
