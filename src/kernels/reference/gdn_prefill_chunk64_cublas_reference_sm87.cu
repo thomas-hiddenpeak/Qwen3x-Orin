@@ -1,6 +1,7 @@
 #include "gdn_prefill_chunk64_cublas_reference_sm87.h"
 #include "../sm87/gdn_prefill_chunk64_native_sm87.h"
 #include "../sm87/gdn_prefill_group_wy_sm87.h"
+#include "../sm87/gdn_prefill_wy_vllm_layout_sm87.h"
 
 #include "q3x/runtime/gdn_decode.h"
 
@@ -23,6 +24,9 @@ thread_local bool g_force_fused_kkt_baseline_for_test = false;
 thread_local bool g_force_split_wy_baseline_for_test = false;
 thread_local bool g_force_packed_qkv_baseline_for_test = false;
 thread_local bool g_force_resident_state_baseline_for_test = false;
+thread_local VllmLayoutWyRouteForTest
+    g_vllm_layout_wy_route_for_test =
+        VllmLayoutWyRouteForTest::kProductionDefault;
 
 }  // namespace
 
@@ -63,6 +67,14 @@ bool exchange_force_resident_state_baseline_for_test(
     const bool enabled) noexcept {
   const bool previous = g_force_resident_state_baseline_for_test;
   g_force_resident_state_baseline_for_test = enabled;
+  return previous;
+}
+
+VllmLayoutWyRouteForTest exchange_vllm_layout_wy_route_for_test(
+    const VllmLayoutWyRouteForTest route) noexcept {
+  const VllmLayoutWyRouteForTest previous =
+      g_vllm_layout_wy_route_for_test;
+  g_vllm_layout_wy_route_for_test = route;
   return previous;
 }
 
@@ -2082,6 +2094,23 @@ void reconstruct_norm_gate_chunk64_kernel(
              g_force_packed_qkv_baseline_for_test;
 }
 
+// Same-ELF selector for the admitted value-head-owned C64 hierarchy.  The
+// preceding group-owned route remains available for exact and performance
+// regression diagnosis, but production takes the admitted route by default.
+[[nodiscard]] bool use_vllm_layout_wy_candidate() noexcept {
+  const auto route_for_test = gdn_prefill_chunk64_native_detail::
+      g_vllm_layout_wy_route_for_test;
+  if (route_for_test != gdn_prefill_chunk64_native_detail::
+                            VllmLayoutWyRouteForTest::kProductionDefault) {
+    return route_for_test == gdn_prefill_chunk64_native_detail::
+                                 VllmLayoutWyRouteForTest::kVllmLayout;
+  }
+  static const bool force_group_owned_baseline =
+      std::getenv("Q3X_GDN_CHUNK64_FORCE_GROUP_OWNED_WY_BASELINE") !=
+      nullptr;
+  return !force_group_owned_baseline;
+}
+
 [[nodiscard]] bool invalid_arguments(
     void* const /*context*/,
     void* const workspace,
@@ -2247,6 +2276,14 @@ int launch(void* const context,
     status = gdn_prefill_group_wy_detail::launch(
         workspace.k, workspace.gamma, workspace.beta, workspace.k_g,
         workspace.v, chunk_count, workspace.transform, workspace.w,
+        workspace.u, cuda_stream);
+    if (status != static_cast<int>(cudaSuccess)) {
+      return status;
+    }
+  } else if (use_vllm_layout_wy_candidate()) {
+    status = gdn_prefill_wy_vllm_layout_detail::launch_packless(
+        workspace.k, workspace.gamma, workspace.beta, conv_qkv,
+        chunk_count, workspace.kkt, workspace.transform, workspace.w,
         workspace.u, cuda_stream);
     if (status != static_cast<int>(cudaSuccess)) {
       return status;
