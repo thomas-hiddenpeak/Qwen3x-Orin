@@ -96,6 +96,13 @@ decode_down_k512_consumer_order_environment_enabled() noexcept {
   return enabled;
 }
 
+[[nodiscard]] bool
+decode_gate_up_coupled_feed_environment_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_DECODE_GATE_UP_COUPLED_FEED_ADMISSION");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
 struct DecodeGraphP1DeviceBuffer {
   void* data = nullptr;
   std::size_t bytes = 0U;
@@ -232,6 +239,35 @@ struct Sm87NvFp4DownConsumerOrderSidecars {
 };
 
 struct Sm87NvFp4DownConsumerOrderPreparation {
+  bool enabled = false;
+  bool hard_failure = false;
+  std::size_t layers = 0U;
+  std::uint64_t bytes = 0U;
+  int cuda_error = 0;
+  std::string message;
+};
+
+struct Sm87NvFp4GateUpCoupledFeedSidecars {
+  std::uint8_t* data = nullptr;
+  std::size_t bytes = 0U;
+
+  Sm87NvFp4GateUpCoupledFeedSidecars() noexcept = default;
+  Sm87NvFp4GateUpCoupledFeedSidecars(
+      const Sm87NvFp4GateUpCoupledFeedSidecars&) = delete;
+  Sm87NvFp4GateUpCoupledFeedSidecars& operator=(
+      const Sm87NvFp4GateUpCoupledFeedSidecars&) = delete;
+  ~Sm87NvFp4GateUpCoupledFeedSidecars() { release(); }
+
+  void release() noexcept {
+    if (data != nullptr) {
+      (void)cudaFree(data);
+    }
+    data = nullptr;
+    bytes = 0U;
+  }
+};
+
+struct Sm87NvFp4GateUpCoupledFeedPreparation {
   bool enabled = false;
   bool hard_failure = false;
   std::size_t layers = 0U;
@@ -469,6 +505,28 @@ struct Fp8PrefillQkvLayerPlan {
     return nullptr;
   }
   return std::get_if<NvFp4LinearWeight>(&layer.mlp.down_proj);
+}
+
+[[nodiscard]] bool exact_nvfp4_gate_up_pair(
+    const DecoderLayerWeights& layer,
+    const NvFp4LinearWeight*& gate,
+    const NvFp4LinearWeight*& up) noexcept {
+  gate = std::get_if<NvFp4LinearWeight>(&layer.mlp.gate_proj);
+  up = std::get_if<NvFp4LinearWeight>(&layer.mlp.up_proj);
+  const auto valid = [](const NvFp4LinearWeight* const projection) noexcept {
+    return projection != nullptr && projection->packed_weight != nullptr &&
+           projection->block_scale != nullptr &&
+           projection->weight_scale_2_device != nullptr &&
+           projection->input_scale_device != nullptr &&
+           std::isfinite(projection->weight_scale_2) &&
+           projection->weight_scale_2 >= 0.0F &&
+           projection->output_size == kNvFp4GateUpCoupledFeedRows &&
+           projection->input_size == kNvFp4GateUpCoupledFeedColumns &&
+           projection->decode_gate_up_coupled_feed_sidecar == nullptr &&
+           (reinterpret_cast<std::uintptr_t>(projection->packed_weight) %
+            alignof(std::uint32_t)) == 0U;
+  };
+  return valid(gate) && valid(up);
 }
 
 [[nodiscard]] bool derive_nvfp4_down_scale6_base(
@@ -1308,6 +1366,153 @@ prepare_sm87_fp8_output_projection_sidecars(
     return result;
   }
 
+  result.enabled = true;
+  result.layers = kQwen36DenseLayerCount;
+  result.bytes = kSidecarBytes;
+  return result;
+}
+
+[[nodiscard]] Sm87NvFp4GateUpCoupledFeedPreparation
+prepare_sm87_nvfp4_gate_up_coupled_feed_sidecars(
+    ModelWeights& model_weights,
+    const std::uint64_t minimum_free_bytes_after_prepare,
+    Sm87NvFp4GateUpCoupledFeedSidecars& owner) {
+  Sm87NvFp4GateUpCoupledFeedPreparation result;
+  if (owner.data != nullptr || owner.bytes != 0U) {
+    result.hard_failure = true;
+    result.message =
+        "NVFP4 Gate/Up coupled-feed owner was not empty before prepare";
+    return result;
+  }
+
+  for (const DecoderLayerWeights& layer : model_weights.layers()) {
+    const NvFp4LinearWeight* gate = nullptr;
+    const NvFp4LinearWeight* up = nullptr;
+    if (!exact_nvfp4_gate_up_pair(layer, gate, up)) {
+      result.hard_failure = true;
+      result.message =
+          "model does not expose a complete exact NVFP4 Gate/Up inventory";
+      return result;
+    }
+  }
+
+  constexpr std::size_t kSidecarBytes =
+      kQwen36NvFp4GateUpCoupledFeedBytes;
+  (void)cudaGetLastError();
+  std::size_t free_bytes = 0U;
+  std::size_t total_bytes = 0U;
+  cudaError_t status = cudaMemGetInfo(&free_bytes, &total_bytes);
+  (void)total_bytes;
+  if (status != cudaSuccess) {
+    result.hard_failure = true;
+    result.cuda_error = static_cast<int>(status);
+    result.message =
+        "cudaMemGetInfo failed before Gate/Up coupled-feed prepare";
+    return result;
+  }
+  const std::uint64_t free_u64 = static_cast<std::uint64_t>(free_bytes);
+  if (kSidecarBytes > free_u64 ||
+      minimum_free_bytes_after_prepare > free_u64 - kSidecarBytes) {
+    result.hard_failure = true;
+    result.cuda_error = static_cast<int>(cudaErrorMemoryAllocation);
+    result.message =
+        "insufficient device-memory margin for Gate/Up coupled-feed arena";
+    return result;
+  }
+
+  void* allocation = nullptr;
+  status = cudaMalloc(&allocation, kSidecarBytes);
+  if (status != cudaSuccess || allocation == nullptr) {
+    result.hard_failure = true;
+    result.cuda_error = static_cast<int>(status);
+    result.message =
+        "cudaMalloc failed while creating Gate/Up coupled-feed arena";
+    return result;
+  }
+  owner.data = static_cast<std::uint8_t*>(allocation);
+  owner.bytes = kSidecarBytes;
+
+  std::size_t remaining_free_bytes = 0U;
+  std::size_t remaining_total_bytes = 0U;
+  status = cudaMemGetInfo(&remaining_free_bytes, &remaining_total_bytes);
+  (void)remaining_total_bytes;
+  if (status != cudaSuccess ||
+      static_cast<std::uint64_t>(remaining_free_bytes) <
+          minimum_free_bytes_after_prepare) {
+    result.hard_failure = true;
+    result.cuda_error = static_cast<int>(
+        status != cudaSuccess ? status : cudaErrorMemoryAllocation);
+    result.message =
+        "Gate/Up coupled-feed allocation violated the free-memory margin";
+    owner.release();
+    return result;
+  }
+
+  cudaStream_t stream = nullptr;
+  status = cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking);
+  if (status != cudaSuccess) {
+    result.hard_failure = true;
+    result.cuda_error = static_cast<int>(status);
+    result.message =
+        "cudaStreamCreateWithFlags failed for Gate/Up coupled-feed pack";
+    owner.release();
+    return result;
+  }
+
+  for (std::size_t layer_index = 0U;
+       layer_index < kQwen36DenseLayerCount; ++layer_index) {
+    const DecoderLayerWeights& layer = model_weights.layer(layer_index);
+    const NvFp4LinearWeight* gate = nullptr;
+    const NvFp4LinearWeight* up = nullptr;
+    (void)exact_nvfp4_gate_up_pair(layer, gate, up);
+    std::uint8_t* const layer_sidecar =
+        owner.data + layer_index * kNvFp4GateUpCoupledFeedBytesPerLayer;
+    status = static_cast<cudaError_t>(
+        kernels::launch_sm87_nvfp4_w4a16_gate_up_coupled_feed_pack_cuda(
+            gate->packed_weight, gate->block_scale, gate->output_size,
+            gate->input_size, layer_sidecar, static_cast<void*>(stream)));
+    if (status == cudaSuccess) {
+      status = static_cast<cudaError_t>(
+          kernels::launch_sm87_nvfp4_w4a16_gate_up_coupled_feed_pack_cuda(
+              up->packed_weight, up->block_scale, up->output_size,
+              up->input_size,
+              layer_sidecar +
+                  kNvFp4GateUpCoupledFeedBytesPerProjection,
+              static_cast<void*>(stream)));
+    }
+    if (status != cudaSuccess) {
+      result.hard_failure = true;
+      result.cuda_error = static_cast<int>(status);
+      result.message =
+          "Gate/Up coupled-feed pack launch failed at layer " +
+          std::to_string(layer_index);
+      (void)cudaStreamDestroy(stream);
+      owner.release();
+      return result;
+    }
+  }
+
+  status = cudaStreamSynchronize(stream);
+  const cudaError_t destroy_status = cudaStreamDestroy(stream);
+  if (status != cudaSuccess || destroy_status != cudaSuccess) {
+    const cudaError_t failure =
+        status != cudaSuccess ? status : destroy_status;
+    result.hard_failure = true;
+    result.cuda_error = static_cast<int>(failure);
+    result.message =
+        "Gate/Up coupled-feed pack stream failed to synchronize or destroy";
+    owner.release();
+    return result;
+  }
+
+  if (!model_weights.attach_nvfp4_gate_up_coupled_feed_sidecars(
+          owner.data, owner.bytes)) {
+    result.hard_failure = true;
+    result.message =
+        "ModelWeights rejected the complete Gate/Up coupled-feed arena";
+    owner.release();
+    return result;
+  }
   result.enabled = true;
   result.layers = kQwen36DenseLayerCount;
   result.bytes = kSidecarBytes;
@@ -2639,6 +2844,7 @@ struct ReferenceEngine::Impl {
   std::optional<ResidentWeights> resident_weights;
   Sm87Fp8OutputProjectionSidecars fp8_output_sidecars;
   Sm87NvFp4DownScale6Sidecars nvfp4_down_scale6_sidecars;
+  Sm87NvFp4GateUpCoupledFeedSidecars nvfp4_gate_up_coupled_feed_sidecars;
   Sm87Fp8PrefillQkvSidecars fp8_prefill_qkv_sidecars;
   Sm87Fp8PrefillSupermatrixSidecars fp8_prefill_supermatrix_sidecars;
 #if defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION)
@@ -2922,9 +3128,43 @@ struct ReferenceEngine::Impl {
 #endif
         }
 
-        // Prepare the Decode-only experiment last. This preserves the exact
-        // production/Prefill sidecar inventory and makes an explicit memory
-        // miss visible instead of evicting or silently bypassing it.
+        // Prepare Decode-only experiments only after every production/Prefill
+        // sidecar has succeeded.  A capacity miss must fail the explicitly
+        // requested experiment instead of displacing or silently bypassing
+        // the production inventory.
+        impl->load.nvfp4_gate_up_coupled_feed_requested =
+            decode_gate_up_coupled_feed_environment_enabled();
+        if (impl->load.nvfp4_gate_up_coupled_feed_requested) {
+          const Clock::time_point coupled_begin = Clock::now();
+          const Sm87NvFp4GateUpCoupledFeedPreparation coupled_preparation =
+              prepare_sm87_nvfp4_gate_up_coupled_feed_sidecars(
+                  *impl->model_weights,
+                  options.request_options.min_free_bytes_after_create,
+                  impl->nvfp4_gate_up_coupled_feed_sidecars);
+          impl->load.nvfp4_gate_up_coupled_feed_milliseconds =
+              elapsed_milliseconds(coupled_begin);
+          if (coupled_preparation.hard_failure ||
+              !coupled_preparation.enabled ||
+              coupled_preparation.layers != kQwen36DenseLayerCount ||
+              coupled_preparation.bytes !=
+                  kQwen36NvFp4GateUpCoupledFeedBytes) {
+            result.diagnostic = engine_diagnostic(
+                ReferenceEngineError::kRunnerFactoryFailure,
+                "nvfp4_gate_up_coupled_feed_prepare",
+                coupled_preparation.message.empty()
+                    ? "the Decode admission did not publish all 64 Gate/Up "
+                      "coupled feeds"
+                    : coupled_preparation.message);
+            result.diagnostic.cuda_error = coupled_preparation.cuda_error;
+            return result;
+          }
+          impl->load.nvfp4_gate_up_coupled_feed_enabled = true;
+          impl->load.nvfp4_gate_up_coupled_feed_layers =
+              coupled_preparation.layers;
+          impl->load.nvfp4_gate_up_coupled_feed_bytes =
+              coupled_preparation.bytes;
+        }
+
         impl->load.nvfp4_down_consumer_order_sidecars_requested =
             decode_down_k512_consumer_order_environment_enabled();
         if (impl->load.nvfp4_down_consumer_order_sidecars_requested) {

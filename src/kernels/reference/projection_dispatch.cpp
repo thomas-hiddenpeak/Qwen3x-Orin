@@ -1521,6 +1521,18 @@ int launch_post_attention_residual_norm_mlp_gate_up_silu_impl(
         pointer_is_aligned(up_output, alignof(std::uint16_t));
     if (aligned_fusion) {
       if (up_publication == MlpUpPublication::kDecodeRunnerDead) {
+        if (gate.decode_gate_up_coupled_feed_sidecar != nullptr &&
+            up.decode_gate_up_coupled_feed_sidecar != nullptr) {
+          return kernels::
+              launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_coupled_feed_bf16_cuda(
+                  gate.decode_gate_up_coupled_feed_sidecar,
+                  gate.weight_scale_2,
+                  up.decode_gate_up_coupled_feed_sidecar,
+                  up.weight_scale_2, residual_left,
+                  residual_right_and_normalized, norm_weight, epsilon,
+                  gate.output_size, gate.input_size, residual_output,
+                  gate_output, up_output, cuda_stream);
+        }
         return kernels::
             launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_bf16_cuda(
                 gate.packed_weight, gate.block_scale, gate.weight_scale_2,

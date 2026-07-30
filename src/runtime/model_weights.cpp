@@ -1251,6 +1251,71 @@ bool ModelWeights::attach_nvfp4_down_consumer_order_sidecars(
   return true;
 }
 
+bool ModelWeights::attach_nvfp4_gate_up_coupled_feed_sidecars(
+    const std::uint8_t* const arena,
+    const std::size_t arena_bytes) noexcept {
+  constexpr std::uintptr_t kRequiredAlignment = 16U;
+  constexpr auto kPointerMaximum =
+      std::numeric_limits<std::uintptr_t>::max();
+
+  if (arena == nullptr || arena_bytes == 0U) {
+    if (arena != nullptr || arena_bytes != 0U) {
+      return false;
+    }
+    for (DecoderLayerWeights& layer : layers_) {
+      if (NvFp4LinearWeight* const gate = nvfp4_gate_projection(layer);
+          gate != nullptr) {
+        gate->decode_gate_up_coupled_feed_sidecar = nullptr;
+      }
+      if (NvFp4LinearWeight* const up = nvfp4_up_projection(layer);
+          up != nullptr) {
+        up->decode_gate_up_coupled_feed_sidecar = nullptr;
+      }
+    }
+    return true;
+  }
+
+  const std::uintptr_t arena_address =
+      reinterpret_cast<std::uintptr_t>(arena);
+  if (arena_bytes != kQwen36NvFp4GateUpCoupledFeedBytes ||
+      (arena_address % kRequiredAlignment) != 0U ||
+      arena_bytes > kPointerMaximum ||
+      arena_address > kPointerMaximum - arena_bytes) {
+    return false;
+  }
+
+  std::array<NvFp4LinearWeight*, kQwen36DenseLayerCount> gates{};
+  std::array<NvFp4LinearWeight*, kQwen36DenseLayerCount> ups{};
+  for (std::size_t layer_index = 0U;
+       layer_index < kQwen36DenseLayerCount; ++layer_index) {
+    NvFp4LinearWeight* const gate =
+        nvfp4_gate_projection(layers_[layer_index]);
+    NvFp4LinearWeight* const up =
+        nvfp4_up_projection(layers_[layer_index]);
+    if (!has_valid_nvfp4_payload(gate) || !has_valid_nvfp4_payload(up) ||
+        gate->output_size != kNvFp4GateUpCoupledFeedRows ||
+        gate->input_size != kNvFp4GateUpCoupledFeedColumns ||
+        up->output_size != kNvFp4GateUpCoupledFeedRows ||
+        up->input_size != kNvFp4GateUpCoupledFeedColumns) {
+      return false;
+    }
+    gates[layer_index] = gate;
+    ups[layer_index] = up;
+  }
+
+  // Validation above is complete; pointer publication cannot fail.
+  for (std::size_t layer_index = 0U;
+       layer_index < kQwen36DenseLayerCount; ++layer_index) {
+    const std::size_t layer_offset =
+        layer_index * kNvFp4GateUpCoupledFeedBytesPerLayer;
+    gates[layer_index]->decode_gate_up_coupled_feed_sidecar =
+        arena + layer_offset;
+    ups[layer_index]->decode_gate_up_coupled_feed_sidecar =
+        arena + layer_offset + kNvFp4GateUpCoupledFeedBytesPerProjection;
+  }
+  return true;
+}
+
 bool ModelWeights::attach_nvfp4_marlin_prefill_sidecars(
     const NvFp4MarlinPrefillSidecarDescriptor* const descriptors,
     const std::size_t descriptor_count) noexcept {

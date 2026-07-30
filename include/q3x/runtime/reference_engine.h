@@ -186,6 +186,7 @@ struct ReferenceEngineLoadStats {
   double fp8_output_sidecar_milliseconds = 0.0;
   double nvfp4_down_scale6_sidecar_milliseconds = 0.0;
   double nvfp4_down_consumer_order_sidecar_milliseconds = 0.0;
+  double nvfp4_gate_up_coupled_feed_milliseconds = 0.0;
   double fp8_prefill_qkv_sidecar_milliseconds = 0.0;
   double fp8_prefill_supermatrix_sidecar_milliseconds = 0.0;
   double fp8_marlin_prefill_sidecar_milliseconds = 0.0;
@@ -244,6 +245,13 @@ struct ReferenceEngineLoadStats {
   bool nvfp4_down_consumer_order_sidecars_enabled = false;
   std::size_t nvfp4_down_consumer_order_sidecar_layers = 0U;
   std::uint64_t nvfp4_down_consumer_order_sidecar_bytes = 0U;
+
+  // Explicit Decode admission only.  The arena is an equal-byte Gate+Up
+  // weight+scale permutation and therefore coexists with canonical tensors.
+  bool nvfp4_gate_up_coupled_feed_requested = false;
+  bool nvfp4_gate_up_coupled_feed_enabled = false;
+  std::size_t nvfp4_gate_up_coupled_feed_layers = 0U;
+  std::uint64_t nvfp4_gate_up_coupled_feed_bytes = 0U;
   // The exact C512 register-feed layout is optional and intentionally
   // co-resident with the canonical 48 linear-attention QKV tensors. A
   // capacity miss preserves the canonical Prefill route; all non-capacity

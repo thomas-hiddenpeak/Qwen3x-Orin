@@ -71,6 +71,19 @@ inline constexpr std::size_t
         kNvFp4DownScale6Rows * kNvFp4DownScale6Columns / 2U;
 static_assert(kNvFp4DownConsumerOrderWeightBytesPerProjection ==
               44'564'480U);
+inline constexpr std::size_t kNvFp4GateUpCoupledFeedRows = 17'408U;
+inline constexpr std::size_t kNvFp4GateUpCoupledFeedColumns = 5'120U;
+inline constexpr std::size_t
+    kNvFp4GateUpCoupledFeedBytesPerProjection =
+        kNvFp4GateUpCoupledFeedRows *
+        (kNvFp4GateUpCoupledFeedColumns / 2U +
+         kNvFp4GateUpCoupledFeedColumns / 16U);
+inline constexpr std::size_t kNvFp4GateUpCoupledFeedBytesPerLayer =
+    2U * kNvFp4GateUpCoupledFeedBytesPerProjection;
+inline constexpr std::size_t kQwen36NvFp4GateUpCoupledFeedBytes =
+    kQwen36DenseLayerCount * kNvFp4GateUpCoupledFeedBytesPerLayer;
+static_assert(kNvFp4GateUpCoupledFeedBytesPerProjection == 50'135'040U);
+static_assert(kQwen36NvFp4GateUpCoupledFeedBytes == 6'417'285'120ULL);
 
 // One descriptor for an exact C512 linear-attention FP8 QKV Prefill
 // register-feed sidecar. Descriptor fields are copied by the attach call;
@@ -181,6 +194,11 @@ struct NvFp4LinearWeight {
   // lane and K256 phase. It has no scheduling authority unless the explicit
   // whole-runner admission is enabled and scale6 is attached as well.
   const std::uint8_t* down_consumer_order_weight = nullptr;
+  // Equal-byte Decode-only [row-quad][K512][phase][weight-feed,scale-feed]
+  // representation.  Engine preparation attaches it only under the explicit
+  // test admission; Prefill and every generic projection keep canonical
+  // packed-weight and block-scale bindings.
+  const std::uint8_t* decode_gate_up_coupled_feed_sidecar = nullptr;
   // Test-only scheduler-wide Marlin admission. Production scheduling ignores
   // these views unless the dedicated admission build is enabled. Gate and Up
   // bindings point at the same merged N=34816 sidecar; Down points at its own
@@ -448,6 +466,14 @@ class ModelWeights {
       const std::uint8_t* arena, std::size_t arena_bytes,
       const NvFp4DownConsumerOrderSidecarDescriptor* descriptors,
       std::size_t descriptor_count) noexcept;
+
+  // Transactionally attaches the fixed 64-layer Gate+Up coupled-feed arena.
+  // Each layer owns Gate followed by Up, both exact equal-byte permutations
+  // of the canonical packed weight and block-scale tensors.  A null/zero call
+  // detaches all views.  The arena must outlive ModelWeights and all queued
+  // Decode consumers.
+  [[nodiscard]] bool attach_nvfp4_gate_up_coupled_feed_sidecars(
+      const std::uint8_t* arena, std::size_t arena_bytes) noexcept;
 
   // Transactionally attaches exactly one complete Gate+Up/Down Marlin set
   // for every dense layer. A canonical null/zero call detaches the set. The
