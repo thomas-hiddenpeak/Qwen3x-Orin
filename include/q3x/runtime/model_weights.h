@@ -13,6 +13,8 @@
 
 namespace q3x::runtime {
 
+struct PrefillSidecarManifest;
+
 inline constexpr std::size_t kQwen36DenseLayerCount = 64U;
 inline constexpr std::size_t kQwen36LinearAttentionLayerCount = 48U;
 inline constexpr std::size_t kQwen36FullAttentionLayerCount = 16U;
@@ -176,6 +178,12 @@ struct Fp8LinearWeight {
   // dedicated admission build and runtime switch.
   const std::uint8_t* prefill_marlin_weight = nullptr;
   const std::uint16_t* prefill_marlin_scales = nullptr;
+  // Full-model A4 Prefill plane. The calibrated sidecar is independent from
+  // the checkpoint's exact FP8 representation and is never used by Decode.
+  const std::uint8_t* prefill_a4_weight = nullptr;
+  const std::uint16_t* prefill_a4_scales = nullptr;
+  const std::uint8_t* prefill_a4_metadata = nullptr;
+  std::uint32_t prefill_a4_scale_group_size = 0U;
 };
 
 struct NvFp4LinearWeight {
@@ -206,12 +214,33 @@ struct NvFp4LinearWeight {
   const std::uint8_t* prefill_marlin_weight = nullptr;
   const std::uint8_t* prefill_marlin_scales = nullptr;
   const float* prefill_marlin_global_scale = nullptr;
+  // Full-model A4 Prefill plane. Canonical NVFP4 remains resident for the
+  // exact Decode path; only prior exact-Prefill sidecars are mutually
+  // exclusive with this view.
+  const std::uint8_t* prefill_a4_weight = nullptr;
+  const std::uint16_t* prefill_a4_scales = nullptr;
+  const std::uint8_t* prefill_a4_metadata = nullptr;
+  std::uint32_t prefill_a4_scale_group_size = 0U;
 };
 
 // The active alternative is selected strictly from the payload weight dtype:
 // BF16, F8_E4M3, or canonical ModelOpt packed U8 NVFP4 respectively.
 using LinearWeight =
     std::variant<Bf16LinearWeight, Fp8LinearWeight, NvFp4LinearWeight>;
+
+struct PrefillA4LinearSidecarView {
+  const std::uint8_t* weight = nullptr;
+  const std::uint16_t* scales = nullptr;
+  const std::uint8_t* metadata = nullptr;
+  std::uint32_t scale_group_size = 0U;
+  std::size_t output_size = 0U;
+  std::size_t input_size = 0U;
+
+  [[nodiscard]] bool attached() const noexcept {
+    return weight != nullptr && scales != nullptr &&
+           (scale_group_size == 64U || scale_group_size == 128U);
+  }
+};
 
 enum class LinearWeightKind : std::uint8_t {
   kBf16,
@@ -246,6 +275,8 @@ inline constexpr std::size_t kMaximumProjectionTileTokenCount = 64U;
 [[nodiscard]] std::size_t linear_output_size(
     const LinearWeight& weight) noexcept;
 [[nodiscard]] std::size_t linear_input_size(
+    const LinearWeight& weight) noexcept;
+[[nodiscard]] PrefillA4LinearSidecarView prefill_a4_sidecar_view(
     const LinearWeight& weight) noexcept;
 
 // True only for the production fused linear-attention A/B projection ABI:
@@ -482,6 +513,17 @@ class ModelWeights {
   [[nodiscard]] bool attach_nvfp4_marlin_prefill_sidecars(
       const NvFp4MarlinPrefillSidecarDescriptor* descriptors,
       std::size_t descriptor_count) noexcept;
+
+  // Transactionally publishes the complete calibrated 400-projection A4
+  // inventory described by manifest. The arena and manifest must represent
+  // the same pinned checkpoint, A4 residency class, offsets, shapes and K64
+  // or K128 format. Existing exact Prefill sidecars make attachment fail;
+  // canonical checkpoint weights and Decode-only sidecars remain untouched.
+  // Passing all null/zero detaches A4 views. The arena must outlive every
+  // runner and queued kernel that consumes it.
+  [[nodiscard]] bool attach_prefill_a4_sidecars(
+      const std::uint8_t* arena, std::size_t arena_bytes,
+      const PrefillSidecarManifest* manifest) noexcept;
 
  private:
   friend class ModelWeightBinder;
