@@ -24,7 +24,7 @@ inline constexpr std::size_t kRequestProjectionBufferCount = 4U;
 inline constexpr std::size_t kRequestLongPrefillHiddenBufferCount = 2U;
 inline constexpr std::size_t kRequestA4PrefillScaleGroupSize = 64U;
 inline constexpr std::uint32_t kRequestLongPrefillAdmissionMaximumTokens =
-    4'096U;
+    40'960U;
 inline constexpr std::uint64_t kRequestConvStateBytes = 2'949'120U;
 inline constexpr std::uint64_t kRequestGdnStateBytes = 75'497'472U;
 inline constexpr std::uint64_t kRequestKvBytesPerToken = 65'536U;

@@ -40,22 +40,22 @@ BUCKETS = {
     "p8k": BucketContract(
         token_window=(7_168, 8_191),
         max_sequence_length=8_192,
-        request_max_arena_bytes=705_593_344,
-        planned_arena_bytes=705_593_344,
+        request_max_arena_bytes=873_365_504,
+        planned_arena_bytes=873_365_504,
         phases=("prefill1",),
     ),
     "p16k": BucketContract(
         token_window=(14_336, 16_383),
         max_sequence_length=16_384,
-        request_max_arena_bytes=1_245_085_696,
-        planned_arena_bytes=1_245_085_696,
+        request_max_arena_bytes=1_580_630_016,
+        planned_arena_bytes=1_580_630_016,
         phases=("prefill1",),
     ),
     "p40k": BucketContract(
         token_window=(39_000, 40_000),
         max_sequence_length=40_960,
-        request_max_arena_bytes=3_221_225_472,
-        planned_arena_bytes=2_864_349_184,
+        request_max_arena_bytes=3_703_209_984,
+        planned_arena_bytes=3_703_209_984,
         phases=("prefill1", "cold16"),
     ),
 }

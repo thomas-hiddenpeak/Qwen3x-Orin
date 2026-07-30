@@ -5,7 +5,7 @@ default production route and does not change the existing tile-major fallback.
 It adds no Attention, GDN, GEMM, or CUDA kernel and cannot be selected by an
 ordinary build.
 
-The first bounded shape is batch-one `P<=4096`, `C=512`. The request planner
+The bounded shape is batch-one `P<=40960`, `C=512`. The request planner
 option `long_prefill_token_capacity` reserves two BF16 `[P,5120]` hidden slabs
 after the existing C512 scratch. All three C512 hidden buffers, four projection
 buffers, linear `a`/`b`, and FP32 scratch retain their original offsets and are
@@ -16,6 +16,15 @@ reused by every layer/tile. At P4096 this adds exactly 83,886,080 bytes:
 | Existing request arena | 436,109,312 |
 | Two full hidden slabs | 83,886,080 |
 | Layer-major admission arena | 519,995,392 |
+
+The same checked layout scales to the external long-context matrix without
+falling back to tile-major weight rescans:
+
+| Capacity | Two hidden slabs | Exact layer-major arena |
+| ---: | ---: | ---: |
+| 8,192 | 167,772,160 | 873,365,504 |
+| 16,384 | 335,544,320 | 1,580,630,016 |
+| 40,960 | 838,860,800 | 3,703,209,984 |
 
 The runner binding gathers all embeddings into hidden slab 0, then emits all
 prompt tiles of layer 0 before any tile of layer 1. A layer reads slab
@@ -57,17 +66,16 @@ env -u Q3X_RUN_LONG_PREFILL_LAYER_MAJOR_ADMISSION \
   build/long-prefill-host/qwen3x-eval-server MODEL_DIR \
   --prefill-chunk-size 512 --max-sequence-length 4096
 
-# P513..P4096 layer-major candidate.
+# P513..P40960 layer-major candidate.
 Q3X_RUN_LONG_PREFILL_LAYER_MAJOR_ADMISSION=1 \
   build/long-prefill-host/qwen3x-eval-server MODEL_DIR \
-  --prefill-chunk-size 512 --max-sequence-length 4096
+  --prefill-chunk-size 512 --max-sequence-length 40960 \
+  --request-max-arena-bytes 3703209984
 ```
 
 Each successful request log reports `layer_major_prefill=0|1` and the native
 `prompt_prefill_ms`. No GPU execution or real-weight correctness/performance
 claim is part of the host admission commit. The first device-direction run
-must use the same real tokenized P4096 request with `max_new_tokens=1`, compare
+must use the authorized real tokenized 8K/16K/40K requests, compare
 final prediction and persistent Conv/GDN/KV/position state, and only then judge
-timing. A negative direction should be profiled and archived before further
-architecture work; a positive direction graduates to mirrored timing and the
-P1K/P2K/P4K matrix.
+timing. Host plan coverage is not a GPU correctness or performance claim.

@@ -70,7 +70,7 @@ prefill_single_arbitrary_tile_environment_enabled() noexcept {
   return value != nullptr && std::strcmp(value, "1") == 0;
 }
 
-// Same binary, request-time admission switch for the P<=4096 layer-major
+// Same binary, request-time admission switch for the P<=40960 layer-major
 // runner. The build gate owns code availability and the request arena owns
 // the two full hidden slabs; only the exact value "1" changes dispatch.
 [[nodiscard]] bool

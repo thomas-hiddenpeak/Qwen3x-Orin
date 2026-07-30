@@ -44,6 +44,10 @@ contains no GPU run and no long-context performance result.
 
 The first production-wired layer-major P4K direction test is recorded in
 [`qwen36-27b-prefill-layer-major-p4k-direction-2026-07-31.json`](qwen36-27b-prefill-layer-major-p4k-direction-2026-07-31.json).
+
+The host-only extension of that executor and its external runner contract to
+P40K is recorded in
+[`qwen36-27b-prefill-long-layer-major-p40k-admission-2026-07-31.json`](qwen36-27b-prefill-long-layer-major-p40k-admission-2026-07-31.json).
 The same-ELF real API result was 0.74% slower: its 57.5 ms of new slab D2D
 traffic and 116.6 ms loss from splitting residual/RMS normalization outweighed
 the synchronization saving while every projection remained C512.  The route

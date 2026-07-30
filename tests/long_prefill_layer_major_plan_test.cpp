@@ -114,6 +114,59 @@ void test_p4096_memory_plan(TestContext& test) {
               "layer-major plan reuses every existing C512 scratch region");
 }
 
+void test_long_context_memory_plans(TestContext& test) {
+  struct Case final {
+    std::uint32_t tokens;
+    std::uint64_t persistent_bytes;
+    std::uint64_t workspace_bytes;
+    std::uint64_t rope_bytes;
+    std::uint64_t arena_bytes;
+  };
+  constexpr std::array<Case, 3U> cases = {{
+      {8'192U, 615'317'504U, 255'950'848U, 2'097'152U, 873'365'504U},
+      {16'384U, 1'152'188'416U, 424'247'296U, 4'194'304U,
+       1'580'630'016U},
+      {40'960U, 2'762'801'152U, 929'923'072U, 10'485'760U,
+       3'703'209'984U},
+  }};
+  for (const Case& expected : cases) {
+    runtime::RequestMemoryOptions options;
+    options.prefill_chunk_size = runtime::kMaximumRequestPrefillChunkSize;
+    options.max_sequence_length = expected.tokens;
+    options.long_prefill_token_capacity = expected.tokens;
+    options.max_arena_bytes = 4ULL * 1024ULL * 1024ULL * 1024ULL;
+    const runtime::RequestPlanResult built =
+        runtime::build_request_memory_plan(options);
+    test.expect(built.ok(), "long-context layer-major request plan builds");
+    if (!built) {
+      continue;
+    }
+    const runtime::RequestMemoryPlan& plan = *built.value;
+    const std::uint64_t slab_elements =
+        static_cast<std::uint64_t>(expected.tokens) * 5'120ULL;
+    const std::uint64_t slab_bytes = slab_elements * 2ULL;
+    test.expect(plan.long_prefill_token_capacity == expected.tokens &&
+                    plan.persistent_bytes == expected.persistent_bytes &&
+                    plan.workspace_bytes == expected.workspace_bytes &&
+                    plan.rope_bytes == expected.rope_bytes &&
+                    plan.arena_bytes == expected.arena_bytes &&
+                    plan.long_prefill_hidden_bf16[0].element_capacity ==
+                        slab_elements &&
+                    plan.long_prefill_hidden_bf16[1].element_capacity ==
+                        slab_elements &&
+                    plan.long_prefill_hidden_bf16[0].byte_size == slab_bytes &&
+                    plan.long_prefill_hidden_bf16[1].byte_size == slab_bytes,
+                "8K/16K/40K layer-major arena and hidden slabs are exact");
+    options.max_arena_bytes = expected.arena_bytes - 1U;
+    const runtime::RequestPlanResult one_byte_short =
+        runtime::build_request_memory_plan(options);
+    test.expect(!one_byte_short &&
+                    one_byte_short.diagnostic.code ==
+                        runtime::RequestErrorCode::kArenaLimitExceeded,
+                "long-context layer-major arena rejects one byte below plan");
+  }
+}
+
 void test_memory_plan_fail_closed(TestContext& test) {
   runtime::RequestMemoryOptions options;
   options.prefill_chunk_size = runtime::kMaximumRequestPrefillChunkSize;
@@ -125,21 +178,22 @@ void test_memory_plan_fail_closed(TestContext& test) {
                              runtime::RequestErrorCode::kArenaLimitExceeded,
               "P4096 layer-major arena fails closed by one byte");
 
-  options.max_arena_bytes = 1ULL * 1024ULL * 1024ULL * 1024ULL;
-  options.long_prefill_token_capacity = 4'097U;
+  options.max_arena_bytes = 4ULL * 1024ULL * 1024ULL * 1024ULL;
+  options.max_sequence_length = 40'961U;
+  options.long_prefill_token_capacity = 40'961U;
   result = runtime::build_request_memory_plan(options);
   test.expect(!result && result.diagnostic.code ==
                              runtime::RequestErrorCode::kInvalidOption,
-              "P4097 hidden admission capacity is rejected");
+              "P40961 hidden admission capacity is rejected");
 
-  options.long_prefill_token_capacity = 4'096U;
-  options.max_sequence_length = 4'095U;
+  options.long_prefill_token_capacity = 40'960U;
+  options.max_sequence_length = 40'959U;
   result = runtime::build_request_memory_plan(options);
   test.expect(!result && result.diagnostic.code ==
                              runtime::RequestErrorCode::kInvalidOption,
               "hidden capacity above request sequence capacity is rejected");
 
-  options.max_sequence_length = 4'096U;
+  options.max_sequence_length = 40'960U;
   options.prefill_chunk_size = 256U;
   result = runtime::build_request_memory_plan(options);
   test.expect(!result && result.diagnostic.code ==
@@ -181,8 +235,9 @@ void test_route_gate(TestContext& test) {
   candidate.prompt_token_count = 512U;
   test.expect(falls_back(candidate), "short C512 prompt falls back");
   candidate = query;
-  candidate.prompt_token_count = 4'097U;
-  test.expect(falls_back(candidate), "P4097 falls back in the first admission");
+  candidate.prompt_token_count = 40'961U;
+  candidate.hidden_token_capacity = 40'961U;
+  test.expect(falls_back(candidate), "P40961 falls back above admission cap");
   candidate = query;
   candidate.prefill_chunk_size = 256U;
   test.expect(falls_back(candidate), "non-C512 scratch policy falls back");
@@ -260,6 +315,46 @@ void test_layer_major_schedule(TestContext& test) {
               "work-item lookup rejects the first out-of-range ordinal");
 }
 
+void test_p40960_layer_major_schedule(TestContext& test) {
+  runtime::LongPrefillLayerMajorOptions options;
+  options.prompt_token_count = 40'960U;
+  options.hidden_token_capacity = 40'960U;
+  const auto result = runtime::build_long_prefill_layer_major_plan(options);
+  test.expect(result && result.value->tile_count == 80U &&
+                  result.value->full_tile_count == 80U &&
+                  result.value->tail_token_count == 0U &&
+                  result.value->work_item_count == 5'120U,
+              "P40960 plan is 64 layers by eighty C512 tiles");
+  if (!result) {
+    return;
+  }
+  std::array<std::uint32_t, runtime::kRequestLayerCount> covered{};
+  bool ordered = true;
+  for (std::size_t ordinal = 0U; ordinal < result.value->work_item_count;
+       ++ordinal) {
+    runtime::LongPrefillLayerMajorWorkItem item;
+    if (!runtime::long_prefill_layer_major_work_item(*result.value, ordinal,
+                                                     item)) {
+      ordered = false;
+      break;
+    }
+    const std::size_t layer = ordinal / 80U;
+    const std::uint32_t tile = static_cast<std::uint32_t>(ordinal % 80U);
+    ordered = ordered && item.layer_index == layer &&
+              item.tile_index == tile &&
+              item.first_position == tile * 512U &&
+              item.token_count == 512U &&
+              item.first_position == covered[layer] &&
+              item.last_tile_for_layer == (tile == 79U);
+    covered[layer] += item.token_count;
+  }
+  for (const std::uint32_t tokens : covered) {
+    ordered = ordered && tokens == 40'960U;
+  }
+  test.expect(ordered,
+              "P40960 preserves ascending recurrent/KV order in every layer");
+}
+
 void test_tail_and_invalid_plans(TestContext& test) {
   runtime::LongPrefillLayerMajorOptions options;
   options.prompt_token_count = 4'001U;
@@ -289,13 +384,13 @@ void test_tail_and_invalid_plans(TestContext& test) {
                              runtime::LongPrefillLayerMajorPlanError::
                                  kInvalidOption,
               "zero-token macro plan is rejected");
-  options.prompt_token_count = 4'097U;
-  options.hidden_token_capacity = 4'097U;
+  options.prompt_token_count = 40'961U;
+  options.hidden_token_capacity = 40'961U;
   result = runtime::build_long_prefill_layer_major_plan(options);
   test.expect(!result && result.error ==
                              runtime::LongPrefillLayerMajorPlanError::
                                  kCapacityExceeded,
-              "first admission rejects P4097");
+              "admission rejects P40961");
   options.prompt_token_count = 4'096U;
   options.hidden_token_capacity = 4'095U;
   result = runtime::build_long_prefill_layer_major_plan(options);
@@ -440,9 +535,11 @@ void test_executor_callbacks(TestContext& test) {
 int main() {
   TestContext test;
   test_p4096_memory_plan(test);
+  test_long_context_memory_plans(test);
   test_memory_plan_fail_closed(test);
   test_route_gate(test);
   test_layer_major_schedule(test);
+  test_p40960_layer_major_schedule(test);
   test_tail_and_invalid_plans(test);
   test_executor_callbacks(test);
   if (test.failures() != 0) {

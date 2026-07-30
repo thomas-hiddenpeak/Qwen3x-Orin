@@ -22,6 +22,7 @@ repository=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 validator="${repository}/tools/evaluation/validate_long_prefill_manifest.py"
 attention_gate=Q3X_RUN_FULL_ATTENTION_LONG_CONTEXT_GROUP_Q64_ADMISSION
 flashinfer_gate=Q3X_FULL_ATTENTION_FLASHINFER_DIRECT
+long_prefill_gate=Q3X_RUN_LONG_PREFILL_LAYER_MAJOR_ADMISSION
 
 positive_integer() {
   [[ $1 =~ ^[1-9][0-9]*$ ]]
@@ -70,6 +71,10 @@ if ! strings -a "${server}" | grep -F "${attention_gate}" >/dev/null; then
 fi
 if ! strings -a "${server}" | grep -F "${flashinfer_gate}" >/dev/null; then
   echo "server does not contain the FlashInfer direct attention BUILD admission" >&2
+  exit 2
+fi
+if ! strings -a "${server}" | grep -F "${long_prefill_gate}" >/dev/null; then
+  echo "server does not contain the layer-major long-Prefill BUILD admission" >&2
   exit 2
 fi
 if [[ "${dry_run}" == 0 ]] && ! readelf -h "${server}" >/dev/null 2>&1; then
@@ -141,6 +146,8 @@ printf 'long_context_matrix server=%q server_sha256=%s manifest=%q manifest_sha2
   "${#selected_runs[@]}" "${dry_run}"
 printf 'long_context_attention build_marker=present run_admission=%s=1 flashinfer_direct=%s=1\n' \
   "${attention_gate}" "${flashinfer_gate}"
+printf 'long_context_prefill build_marker=present run_admission=%s=1\n' \
+  "${long_prefill_gate}"
 
 for index in "${!selected_runs[@]}"; do
   mapfile -d '' -t contract <"${contract_files[index]}"
@@ -252,7 +259,7 @@ for index in "${!selected_runs[@]}"; do
     -u Q3X_RUN_DECODE_GQA_SPLITKV_ADMISSION \
     -u Q3X_RUN_DECODE_DOWN_K512_CONSUMER_ORDER_ADMISSION \
     -u Q3X_RUN_DECODE_GATE_UP_COUPLED_FEED_ADMISSION \
-    -u Q3X_RUN_LONG_PREFILL_LAYER_MAJOR_ADMISSION \
+    Q3X_RUN_LONG_PREFILL_LAYER_MAJOR_ADMISSION=1 \
     Q3X_RUN_PREFILL_ALL_PROMPT_TOKENS_ADMISSION=1 \
     Q3X_RUN_PREFILL_SINGLE_ARBITRARY_TILE_ADMISSION=1 \
     Q3X_RUN_NVFP4_MARLIN_PREFILL_ADMISSION=1 \
@@ -308,9 +315,9 @@ for index in "${!selected_runs[@]}"; do
     exit 5
   fi
   if ! grep -Eq \
-      'long_prefill_run_requested=0 .*long_prefill_hidden_capacity=0' \
+      "long_prefill_run_requested=1 .*long_prefill_hidden_capacity=${max_sequence_length}" \
       "${server_log}"; then
-    echo "server retained rejected layer-major hidden slabs in this run" >&2
+    echo "server did not admit full-capacity layer-major hidden slabs" >&2
     exit 5
   fi
 
