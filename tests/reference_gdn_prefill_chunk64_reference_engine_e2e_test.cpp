@@ -611,6 +611,9 @@ struct DifferenceMetrics {
   std::size_t elements = 0U;
   std::size_t unequal_bf16 = 0U;
   std::size_t nonfinite = 0U;
+  std::size_t first_unequal = std::numeric_limits<std::size_t>::max();
+  std::uint16_t first_expected = 0U;
+  std::uint16_t first_actual = 0U;
   double maximum_absolute_error = 0.0;
   double nrmse = 0.0;
   double cosine = 0.0;
@@ -645,7 +648,14 @@ struct DifferenceMetrics {
     dot += expected * actual;
     metrics.maximum_absolute_error =
         std::fmax(metrics.maximum_absolute_error, std::fabs(error));
-    metrics.unequal_bf16 += baseline[index] != candidate[index] ? 1U : 0U;
+    if (baseline[index] != candidate[index]) {
+      if (metrics.first_unequal == std::numeric_limits<std::size_t>::max()) {
+        metrics.first_unequal = index;
+        metrics.first_expected = baseline[index];
+        metrics.first_actual = candidate[index];
+      }
+      ++metrics.unequal_bf16;
+    }
   }
   metrics.nrmse =
       baseline_square_sum > 0.0
@@ -667,6 +677,14 @@ void print_difference_metrics(const std::string_view suite,
             << " region=" << region
             << " elements=" << metrics.elements
             << " unequal_bf16=" << metrics.unequal_bf16
+            << " first_unequal="
+            << (metrics.first_unequal ==
+                        std::numeric_limits<std::size_t>::max()
+                    ? metrics.elements
+                    : metrics.first_unequal)
+            << " first_expected_bf16=0x" << std::hex
+            << metrics.first_expected
+            << " first_actual_bf16=0x" << metrics.first_actual << std::dec
             << " max_abs_error=" << metrics.maximum_absolute_error
             << " nrmse=" << metrics.nrmse
             << " cosine=" << metrics.cosine
@@ -1057,6 +1075,126 @@ void destroy_event(cudaEvent_t& event) noexcept {
             << (generation_semantics ? "PASS" : "FAIL")
             << " gate=" << (passed ? "PASS" : "FAIL")
             << " authority=REAL_WEIGHT_CANDIDATE_VS_BASELINE\n";
+  return passed;
+}
+
+[[nodiscard]] bool run_native_chunk_o_bv64_equivalence(
+    runtime::ReferenceEngine& engine,
+    const std::string& prompt) {
+  if (g_prompt_tokens != kDefaultPromptTokens) {
+    std::cerr << "chunk-o BV64 equivalence requires the real P513 route\n";
+    return false;
+  }
+  constexpr std::size_t kNativeTokens = kDefaultPromptTokens - 1U;
+  constexpr std::size_t kTransformElements =
+      (kNativeTokens / 64U) * runtime::kGdnValueHeadCount * 64U * 64U;
+  constexpr std::size_t kOutputElements =
+      kNativeTokens * runtime::kGdnVElements;
+
+  NativeBoundarySnapshot baseline_boundaries;
+  NativeBoundarySnapshot candidate_boundaries;
+  try {
+    baseline_boundaries.transform.resize(kTransformElements);
+    candidate_boundaries.transform.resize(kTransformElements);
+    baseline_boundaries.w.resize(kOutputElements);
+    candidate_boundaries.w.resize(kOutputElements);
+    baseline_boundaries.u.resize(kOutputElements);
+    candidate_boundaries.u.resize(kOutputElements);
+    baseline_boundaries.state.resize(runtime::kGdnStateElements);
+    candidate_boundaries.state.resize(runtime::kGdnStateElements);
+    baseline_boundaries.output.resize(kOutputElements);
+    candidate_boundaries.output.resize(kOutputElements);
+  } catch (const std::bad_alloc&) {
+    std::cerr << "chunk-o BV64 equivalence host allocation failed\n";
+    return false;
+  }
+
+  Sample baseline;
+  Sample candidate;
+  bool valid = false;
+  {
+    const ScopedFusedKktBaseline kkt_route(false);
+    const ScopedSplitWyBaseline split_route(false);
+    const ScopedPackedQkvBaseline packed_route(false);
+    const ScopedResidentStateBaseline resident_route(false);
+    const ScopedChunkOBv64Candidate route(false);
+    const ScopedNativeInspectionHook hook(baseline_boundaries);
+    valid = run_sample(engine, prompt, true, "chunk_o_bv64_eq_baseline",
+                       baseline);
+  }
+  {
+    const ScopedFusedKktBaseline kkt_route(false);
+    const ScopedSplitWyBaseline split_route(false);
+    const ScopedPackedQkvBaseline packed_route(false);
+    const ScopedResidentStateBaseline resident_route(false);
+    const ScopedChunkOBv64Candidate route(true);
+    const ScopedNativeInspectionHook hook(candidate_boundaries);
+    valid = run_sample(engine, prompt, true, "chunk_o_bv64_eq_candidate",
+                       candidate) &&
+            valid;
+  }
+
+  const DifferenceMetrics transform = compare_bf16(
+      baseline_boundaries.transform, candidate_boundaries.transform);
+  const DifferenceMetrics w = compare_bf16(
+      baseline_boundaries.w, candidate_boundaries.w);
+  const DifferenceMetrics u = compare_bf16(
+      baseline_boundaries.u, candidate_boundaries.u);
+  const DifferenceMetrics final_layer_state = compare_bf16(
+      baseline_boundaries.state, candidate_boundaries.state);
+  const DifferenceMetrics final_layer_output = compare_bf16(
+      baseline_boundaries.output, candidate_boundaries.output);
+  constexpr std::string_view kSuite =
+      "GDN_CHUNK64_NATIVE_CHUNK_O_BV64_EQUIVALENCE";
+  print_difference_metrics(kSuite, "transform", transform);
+  print_difference_metrics(kSuite, "w", w);
+  print_difference_metrics(kSuite, "u", u);
+  print_difference_metrics(kSuite, "final_layer_state", final_layer_state);
+  print_difference_metrics(kSuite, "final_layer_output", final_layer_output);
+
+  if (final_layer_output.first_unequal !=
+      std::numeric_limits<std::size_t>::max()) {
+    const std::size_t token =
+        final_layer_output.first_unequal / runtime::kGdnVElements;
+    const std::size_t within_token =
+        final_layer_output.first_unequal % runtime::kGdnVElements;
+    const std::size_t head = within_token / runtime::kGdnHeadDimension;
+    const std::size_t value = within_token % runtime::kGdnHeadDimension;
+    std::cout << kSuite
+              << " first_mismatch_token=" << token
+              << " first_mismatch_head=" << head
+              << " first_mismatch_value=" << value
+              << " first_expected_bf16=0x" << std::hex
+              << final_layer_output.first_expected
+              << " first_actual_bf16=0x"
+              << final_layer_output.first_actual << std::dec << '\n';
+  }
+
+  const bool boundary_contract =
+      !baseline_boundaries.contract_error &&
+      !candidate_boundaries.contract_error &&
+      baseline_boundaries.cuda_error == static_cast<int>(cudaSuccess) &&
+      candidate_boundaries.cuda_error == static_cast<int>(cudaSuccess) &&
+      baseline_boundaries.calls == runtime::kRequestLinearLayerCount &&
+      candidate_boundaries.calls == runtime::kRequestLinearLayerCount;
+  const bool generation_semantics =
+      baseline.semantic_oracle && candidate.semantic_oracle &&
+      baseline.generated_token == candidate.generated_token &&
+      baseline.generated_text == candidate.generated_text;
+  const bool upstream_exact = exact_metrics(transform) && exact_metrics(w) &&
+                              exact_metrics(u) &&
+                              exact_metrics(final_layer_state);
+  const bool passed = valid && boundary_contract && upstream_exact &&
+                      exact_metrics(final_layer_output) &&
+                      generation_semantics;
+  std::cout << kSuite
+            << " boundary_contract="
+            << (boundary_contract ? "PASS" : "FAIL")
+            << " upstream_exact=" << (upstream_exact ? "PASS" : "FAIL")
+            << " generation_semantics="
+            << (generation_semantics ? "PASS" : "FAIL")
+            << " gate=" << (passed ? "PASS" : "FAIL")
+            << " authority=REAL_WEIGHT_FINAL_LAYER_OUTPUT\n";
   return passed;
 }
 
@@ -1515,6 +1653,10 @@ int main(const int argc, char** const argv) {
     return run_native_resident_state_direction(*created.value, prompt)
                ? 0
                : 3;
+  }
+  if (std::getenv(
+          "Q3X_GDN_CHUNK64_RUN_CHUNK_O_BV64_EQUIVALENCE_ONLY") != nullptr) {
+    return run_native_chunk_o_bv64_equivalence(*created.value, prompt) ? 0 : 9;
   }
   if (std::getenv(
           "Q3X_GDN_CHUNK64_RUN_CHUNK_O_BV64_DIRECTION_ONLY") != nullptr) {
