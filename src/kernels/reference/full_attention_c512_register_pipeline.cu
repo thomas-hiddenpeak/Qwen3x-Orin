@@ -7,6 +7,8 @@
  * Licensed under the Apache License, Version 2.0.  This file is a
  * fixed-model, SM87-specific modification and is not part of FlashInfer.
  */
+#include "q3x/runtime/decode_ops.h"
+
 #include <cuda_bf16.h>
 #include <cuda_runtime.h>
 #if defined(Q3X_ENABLE_FLASHINFER_PREFILL_ATTENTION_ADMISSION)
@@ -42,7 +44,8 @@ constexpr unsigned int kBulkGqaGroupQueryTile = 64U;
 constexpr unsigned int kBulkGqaGroupKvTile = 32U;
 constexpr unsigned int kBulkGqaGroupGridX =
     kBulkGqaPackedQueryCount / kBulkGqaGroupQueryTile;
-constexpr unsigned int kBulkGqaRangeFirstPositionBits = 18U;
+constexpr unsigned int kBulkGqaRangeFirstPositionBits =
+    kBulkCausalGqaGroupQ64FirstPositionBits;
 constexpr unsigned int kBulkGqaRangeFirstPositionMask =
     (1U << kBulkGqaRangeFirstPositionBits) - 1U;
 
@@ -50,6 +53,8 @@ static_assert(kBulkGqaQueriesPerKv == 6U);
 static_assert(kBulkGqaRegisterThreads == 128U);
 static_assert(kBulkGqaPackedQueryCount == 3'072U);
 static_assert(kBulkGqaGroupGridX == 48U);
+static_assert(kBulkCausalGqaLongContextGroupQ64MaximumSequenceLength <=
+              (1U << kBulkGqaRangeFirstPositionBits));
 
 #if defined(Q3X_ENABLE_FLASHINFER_PREFILL_ATTENTION_ADMISSION)
 using FlashInferPrefillParams =
@@ -580,7 +585,8 @@ void bulk_causal_gqa_sigmoid_gate_24_4_256_c512_register_pipeline_kernel(
 // single 3,072-row axis, blockIdx.x owns 64 rows, and blockIdx.z owns one KV
 // head.  Four warps each retain one Q16 online-softmax/output state while the
 // CTA loads each K/V32 tile exactly once for all six GQA heads.  P0/C2..C512
-// and P512/C2..C512 continuations use ceil(C*6/64) x 1 x 4 CTAs.
+// P512/C2..C512 continuations, and admission-only arbitrary-position tiles
+// through a 40K KV span use ceil(C*6/64) x 1 x 4 CTAs.
 // Query/Gate/output addresses remain tile-local while K/V and causal positions
 // are global. P0/C512 retains a separate compile-time exact specialization so
 // extending the dataflow does not add predicates to its established hot path.

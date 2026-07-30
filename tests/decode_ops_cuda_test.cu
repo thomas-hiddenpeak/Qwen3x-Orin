@@ -9618,8 +9618,11 @@ void run_bulk_gqa_correctness_case(
   const bool flashinfer_direct =
       flashinfer_direct_value != nullptr &&
       std::strcmp(flashinfer_direct_value, "1") == 0 &&
-      q3x::runtime::use_bulk_causal_gqa_group_q64_prefill(
-          first_position, token_count);
+      (q3x::runtime::use_bulk_causal_gqa_group_q64_prefill(
+           first_position, token_count) ||
+       q3x::runtime::
+           use_bulk_causal_gqa_long_context_group_q64_admission(
+               first_position, token_count));
   const std::size_t expected_candidate_nodes = flashinfer_direct ? 2U : 1U;
   test.expect(candidate_topology.node_count == expected_candidate_nodes &&
                   candidate_topology.kernel_node_count ==
@@ -9629,6 +9632,8 @@ void run_bulk_gqa_correctness_case(
               label + " candidate graph has a kernel identity");
   const bool tensor_core_group_q64 =
       q3x::runtime::use_bulk_causal_gqa_group_q64_prefill(
+          first_position, token_count) ||
+      q3x::runtime::use_bulk_causal_gqa_long_context_group_q64_admission(
           first_position, token_count);
   const bool expected_attention_topology =
       flashinfer_direct
@@ -9895,6 +9900,12 @@ void test_bulk_causal_gqa_prefill_contract(TestContext& test,
   run_bulk_gqa_correctness_case(test, stream, 512U, 201U, true);
   run_bulk_gqa_correctness_case(test, stream, 512U, 512U, true);
   run_bulk_gqa_correctness_case(test, stream, 17U, 256U, false);
+  if (q3x::runtime::
+          use_bulk_causal_gqa_long_context_group_q64_admission(
+              1'024U, 256U)) {
+    run_bulk_gqa_correctness_case(test, stream, 1'024U, 256U, true);
+    run_bulk_gqa_correctness_case(test, stream, 4'096U, 64U, true);
+  }
 }
 
 void run_bulk_gqa_perf_case(TestContext& test,

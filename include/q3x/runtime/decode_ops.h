@@ -15,6 +15,10 @@ inline constexpr std::size_t kDecodeGqaSplitKvMaximumWorkspaceElements =
     24U * kDecodeGqaSplitKvMaximumSplits *
     kDecodeGqaSplitKvStateElements;
 inline constexpr std::size_t kBulkCausalGqaMaximumSequenceLength = 262'144U;
+inline constexpr std::size_t
+    kBulkCausalGqaLongContextGroupQ64MaximumSequenceLength = 40'960U;
+inline constexpr unsigned int
+    kBulkCausalGqaGroupQ64FirstPositionBits = 18U;
 inline constexpr std::size_t kQwenRotaryDimension = 64U;
 inline constexpr std::size_t kQkRopeTileMaximumTokens = 16U;
 inline constexpr std::size_t kFullAttentionPreprocessMaximumTokens = 512U;
@@ -352,15 +356,43 @@ launch_gqa_attention_splitkv_sigmoid_gate_24_4_256_cuda(
 // preserves the FP32 attention -> BF16 -> sigmoid Gate -> BF16 boundary.
 // All arrays must be disjoint and at least uint32_t aligned. P0/C2..C512 and
 // P512/C2..C512 continuations use the grouped-Q64 Tensor Core path; other
-// legal append positions use QT2. Both paths mask incomplete tiles. The
-// launch is asynchronous, performs no allocation or synchronization, and
-// uses no caller-visible scratch.
+// legal append positions use QT2 unless the separately built and enabled
+// long-context admission selects grouped-Q64 through a 40K KV span. Both
+// paths mask incomplete tiles. The launch is asynchronous, performs no
+// allocation or synchronization, and uses no caller-visible scratch.
 [[nodiscard]] constexpr bool use_bulk_causal_gqa_group_q64_prefill(
     const std::size_t first_position,
     const std::size_t token_count) noexcept {
   return (first_position == 0U || first_position == 512U) &&
          token_count >= 2U && token_count <= 512U;
 }
+
+// Structural selector for the admission-only extension of the grouped-Q64
+// online-softmax kernel. The packed launch ABI reserves 18 low bits for the
+// first position, while this first candidate intentionally stops at the 40K
+// product target. Keeping this selector pure makes overflow, KV-capacity, and
+// fallback boundaries testable without a CUDA device.
+[[nodiscard]] constexpr bool
+can_use_bulk_causal_gqa_long_context_group_q64_prefill(
+    const std::size_t first_position,
+    const std::size_t token_count) noexcept {
+  constexpr std::size_t kFirstPositionCapacity =
+      std::size_t{1U} << kBulkCausalGqaGroupQ64FirstPositionBits;
+  return token_count >= 2U && token_count <= 512U &&
+         first_position < kFirstPositionCapacity &&
+         first_position <=
+             kBulkCausalGqaLongContextGroupQ64MaximumSequenceLength -
+                 token_count;
+}
+
+// Reports whether the long-context route is present in this binary, and
+// whether BUILD+RUN admission selects it for this tile. A false result always
+// retains the established QT2 path.
+[[nodiscard]] bool
+bulk_causal_gqa_long_context_group_q64_admission_compiled() noexcept;
+
+[[nodiscard]] bool use_bulk_causal_gqa_long_context_group_q64_admission(
+    std::size_t first_position, std::size_t token_count) noexcept;
 
 [[nodiscard]] int launch_bulk_causal_gqa_sigmoid_gate_24_4_256_cuda(
     const std::uint16_t* query_tile, const std::uint16_t* key_cache,

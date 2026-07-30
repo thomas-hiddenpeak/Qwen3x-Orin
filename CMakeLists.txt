@@ -50,6 +50,10 @@ option(Q3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION
   "Build the test-only FlashInfer SM87 Prefill-attention route"
   OFF
 )
+option(Q3X_BUILD_FULL_ATTENTION_LONG_CONTEXT_GROUP_Q64_ADMISSION
+  "Build the test-only long-context grouped-Q64 Prefill-attention route"
+  OFF
+)
 if(Q3X_BUILD_GDN_B8_ADMISSION AND NOT BUILD_TESTING)
   message(FATAL_ERROR
     "Q3X_BUILD_GDN_B8_ADMISSION is test-only and requires BUILD_TESTING=ON"
@@ -88,6 +92,12 @@ endif()
 if(Q3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION AND NOT BUILD_TESTING)
   message(FATAL_ERROR
     "Q3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION is test-only and requires BUILD_TESTING=ON"
+  )
+endif()
+if(Q3X_BUILD_FULL_ATTENTION_LONG_CONTEXT_GROUP_Q64_ADMISSION AND
+   NOT BUILD_TESTING)
+  message(FATAL_ERROR
+    "Q3X_BUILD_FULL_ATTENTION_LONG_CONTEXT_GROUP_Q64_ADMISSION is test-only and requires BUILD_TESTING=ON"
   )
 endif()
 if((Q3X_BUILD_GDN_B8_ADMISSION AND
@@ -277,6 +287,11 @@ if(Q3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION)
   )
   target_compile_definitions(q3x_kernels PRIVATE
     Q3X_ENABLE_FLASHINFER_PREFILL_ATTENTION_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_FULL_ATTENTION_LONG_CONTEXT_GROUP_Q64_ADMISSION)
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_FULL_ATTENTION_LONG_CONTEXT_GROUP_Q64_ADMISSION=1
   )
 endif()
 if(Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION)
@@ -1110,6 +1125,17 @@ if(BUILD_TESTING)
   target_link_libraries(q3x_reference_runner_host_test PRIVATE q3x::kernels)
   q3x_enable_warnings(q3x_reference_runner_host_test)
   add_test(NAME reference_runner_host COMMAND q3x_reference_runner_host_test)
+  if(Q3X_BUILD_FULL_ATTENTION_LONG_CONTEXT_GROUP_Q64_ADMISSION)
+    add_test(NAME reference_runner_host_long_context_group_q64_admission
+      COMMAND q3x_reference_runner_host_test
+    )
+    set_tests_properties(
+      reference_runner_host_long_context_group_q64_admission PROPERTIES
+      ENVIRONMENT
+        "Q3X_RUN_FULL_ATTENTION_LONG_CONTEXT_GROUP_Q64_ADMISSION=1"
+      LABELS "host;sm87;prefill;attention;admission"
+    )
+  endif()
 
   add_executable(q3x_reference_engine_control_test
     tests/reference_engine_control_test.cpp

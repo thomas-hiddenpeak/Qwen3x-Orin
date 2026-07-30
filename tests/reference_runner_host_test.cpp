@@ -573,6 +573,51 @@ void test_schedule_and_workspace(TestContext& test) {
           !runtime::use_bulk_causal_gqa_group_q64_prefill(512U, 513U),
       "grouped-Q64 Tensor Core selector accepts P0/P512 C2..C512");
 
+  constexpr std::size_t kLongMaximum =
+      runtime::kBulkCausalGqaLongContextGroupQ64MaximumSequenceLength;
+  constexpr std::size_t kPackedPositionCapacity =
+      std::size_t{1U}
+      << runtime::kBulkCausalGqaGroupQ64FirstPositionBits;
+  test.expect(
+      runtime::can_use_bulk_causal_gqa_long_context_group_q64_prefill(
+          1U, 2U) &&
+          runtime::can_use_bulk_causal_gqa_long_context_group_q64_prefill(
+              1'024U, 512U) &&
+          runtime::can_use_bulk_causal_gqa_long_context_group_q64_prefill(
+              4'096U, 512U) &&
+          runtime::can_use_bulk_causal_gqa_long_context_group_q64_prefill(
+              kLongMaximum - 512U, 512U) &&
+          !runtime::can_use_bulk_causal_gqa_long_context_group_q64_prefill(
+              1'024U, 1U) &&
+          !runtime::can_use_bulk_causal_gqa_long_context_group_q64_prefill(
+              1'024U, 513U) &&
+          !runtime::can_use_bulk_causal_gqa_long_context_group_q64_prefill(
+              kLongMaximum - 511U, 512U) &&
+          !runtime::can_use_bulk_causal_gqa_long_context_group_q64_prefill(
+              kPackedPositionCapacity, 2U) &&
+          !runtime::can_use_bulk_causal_gqa_long_context_group_q64_prefill(
+              std::numeric_limits<std::size_t>::max(), 2U),
+      "long-context grouped-Q64 capability enforces C2..C512, 40K KV, "
+      "18-bit ABI, and overflow boundaries");
+  const char* const long_context_environment = std::getenv(
+      "Q3X_RUN_FULL_ATTENTION_LONG_CONTEXT_GROUP_Q64_ADMISSION");
+  const bool long_context_run_enabled =
+      long_context_environment != nullptr &&
+      std::strcmp(long_context_environment, "1") == 0;
+  const bool long_context_expected =
+      runtime::
+          bulk_causal_gqa_long_context_group_q64_admission_compiled() &&
+      long_context_run_enabled;
+  test.expect(
+      runtime::use_bulk_causal_gqa_long_context_group_q64_admission(
+          1'024U, 512U) == long_context_expected &&
+          runtime::use_bulk_causal_gqa_long_context_group_q64_admission(
+              4'096U, 512U) == long_context_expected &&
+          !runtime::use_bulk_causal_gqa_long_context_group_q64_admission(
+              kLongMaximum - 511U, 512U),
+      "long-context grouped-Q64 dispatch requires both BUILD and RUN "
+      "admission and preserves the 40K fallback");
+
   constexpr std::size_t kMaximum =
       std::numeric_limits<std::size_t>::max();
   test.expect(
