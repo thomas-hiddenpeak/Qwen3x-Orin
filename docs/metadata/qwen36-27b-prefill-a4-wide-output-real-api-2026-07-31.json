@@ -101,6 +101,37 @@
     "device_to_device_copy_ms": 12.809,
     "finding": "GEMM families were 65.9 percent of kernel time, but GDN plus full attention already approached 3 seconds and become the next hard floor as GEMM improves."
   },
+  "wide_real_p2048_nsys": {
+    "authority": "ready-resident server, one real tokenized OpenAI request; startup excluded with an interactive NSys session",
+    "report": "/tmp/q3x-a4-wide-p2048-real-20260731.nsys-rep",
+    "report_bytes": 1639677,
+    "report_sha256": "e93218023422c1115762194ae5a068ecb81960f0068479f46f0ac8bb11d5ba6f",
+    "sqlite_sha256": "d8e1260b477359c9f991a10b58e8a4c267d798298a71eaf2c96879e3f386ccf5",
+    "profiled_prompt_prefill_ms": 7702.72,
+    "generic_a4": {
+      "instances": 272,
+      "total_ms": 2014.650,
+      "prior_total_ms": 4076.619,
+      "speedup": 2.0234
+    },
+    "paired_gate_up": {
+      "instances": 64,
+      "total_ms": 2064.028,
+      "prior_total_ms": 2846.601,
+      "speedup": 1.3791
+    },
+    "all_a4_projection_ms": 4078.679,
+    "prior_all_a4_projection_ms": 6923.220,
+    "all_a4_projection_speedup": 1.6974,
+    "gdn": {
+      "instances": 6144,
+      "total_ms": 1973.360,
+      "time_percent": 25.8
+    },
+    "full_attention_ms": 960.039,
+    "device_to_device_copy_ms": 12.729,
+    "finding": "Wide output tiles nearly halve generic projection time and materially improve paired Gate/Up. Exact K64 dequantization still leaves both projection families at 53.3 percent of kernel time, while unchanged GDN and attention now form a 2.93 second nonprojection floor."
+  },
   "decision": {
     "retain_as_cumulative_baseline": true,
     "prefill_target_tokens_per_second": 2000,
@@ -108,7 +139,6 @@
     "run_evalscope_matrix_now": false,
     "reason": "The wider-output skeleton produces a repeatable 24.9 to 34.5 percent gain over the retained M64N64 path while protecting P1024, but absolute P2048/P4096 throughput remains 7.5 to 9.1 times below the first target.",
     "next_priority": [
-      "Profile the retained wide route on the same real P2048 request",
       "reduce K64-scale dequantization and FP32 accumulation frequency through a separately calibrated model-specific consumer policy",
       "replace 6144 C16 GDN launches at P2048 with a whole-span or coarse-block fused update",
       "then retest P8K through P40K and run the external EvalScope performance gate"
