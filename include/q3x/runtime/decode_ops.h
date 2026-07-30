@@ -8,6 +8,12 @@ namespace q3x::runtime {
 inline constexpr std::size_t kLinearAttentionHeadDimension = 128U;
 inline constexpr std::size_t kFullAttentionHeadDimension = 256U;
 inline constexpr std::size_t kFusedGqaMaximumSequenceLength = 64U;
+inline constexpr std::size_t kDecodeGqaSplitKvMaximumSequenceLength = 4'096U;
+inline constexpr std::size_t kDecodeGqaSplitKvMaximumSplits = 8U;
+inline constexpr std::size_t kDecodeGqaSplitKvStateElements = 258U;
+inline constexpr std::size_t kDecodeGqaSplitKvMaximumWorkspaceElements =
+    24U * kDecodeGqaSplitKvMaximumSplits *
+    kDecodeGqaSplitKvStateElements;
 inline constexpr std::size_t kBulkCausalGqaMaximumSequenceLength = 262'144U;
 inline constexpr std::size_t kQwenRotaryDimension = 64U;
 inline constexpr std::size_t kQkRopeTileMaximumTokens = 16U;
@@ -311,6 +317,31 @@ launch_residual_add_headwise_centered_rms_norm_prefill_5120_cuda(
     float attention_scale, float* probabilities_scratch,
     std::size_t scratch_elements, const std::uint16_t* gate,
     std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
+
+// Fixed Qwen3.6 decode-only split-KV GQA path for Q=24, KV=4, D=256.
+// Stage one launches either 16 CTAs (four sequence splits) or 32 CTAs (eight
+// sequence splits).  Each CTA owns one KV head/split and shares each K/V row
+// across the six associated Q warps while retaining a stable online-softmax
+// (maximum, denominator, FP32 value accumulator) state.  Stage two merges the
+// split states without materializing scores or probabilities, rounds attention
+// to BF16, applies the sigmoid gate, and rounds the final result to BF16.
+//
+// sequence_length must be in (kFusedGqaMaximumSequenceLength,
+// kDecodeGqaSplitKvMaximumSequenceLength].  workspace is caller-owned FP32
+// storage and must contain at least
+// gqa_attention_splitkv_sigmoid_gate_24_4_256_workspace_elements()
+// elements for the selected sequence length.  All launches are asynchronous.
+[[nodiscard]] std::size_t
+gqa_attention_splitkv_sigmoid_gate_24_4_256_workspace_elements(
+    std::size_t sequence_length) noexcept;
+
+[[nodiscard]] int
+launch_gqa_attention_splitkv_sigmoid_gate_24_4_256_cuda(
+    const std::uint16_t* query, const std::uint16_t* key_cache,
+    const std::uint16_t* value_cache, std::size_t sequence_length,
+    float attention_scale, float* workspace, std::size_t workspace_elements,
+    const std::uint16_t* gate, std::uint16_t* output,
+    void* cuda_stream = nullptr) noexcept;
 
 // Fixed-shape bulk causal full-attention path for Q=24, KV=4, and D=256.
 // token_count must be in [2, 512]. query_tile, gate_tile, and
