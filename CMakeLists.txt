@@ -446,6 +446,7 @@ if(BUILD_TESTING)
     # the runner, or an installed production target.
     add_library(q3x_test_sm87_a4w4_primitive STATIC
       src/kernels/sm87/a4w4_prefill_primitive.cu
+      src/kernels/sm87/a4w4_prefill_gemm.cu
     )
     target_compile_features(q3x_test_sm87_a4w4_primitive
       PUBLIC cxx_std_17 cuda_std_17
@@ -473,6 +474,24 @@ if(BUILD_TESTING)
     )
     set_tests_properties(sm87_a4w4_primitive_abi PROPERTIES
       LABELS "host;sm87;prefill;correctness;synthetic;compile_contract"
+    )
+
+    add_executable(q3x_sm87_a4w4_prefill_gemm_test
+      tests/sm87_a4w4_prefill_gemm_test.cu
+    )
+    target_include_directories(q3x_sm87_a4w4_prefill_gemm_test
+      PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    )
+    target_link_libraries(q3x_sm87_a4w4_prefill_gemm_test
+      PRIVATE q3x_test_sm87_a4w4_primitive CUDA::cudart
+    )
+    q3x_enable_warnings(q3x_sm87_a4w4_prefill_gemm_test)
+    add_test(NAME sm87_a4w4_prefill_gemm_correctness
+      COMMAND q3x_sm87_a4w4_prefill_gemm_test
+    )
+    set_tests_properties(sm87_a4w4_prefill_gemm_correctness PROPERTIES
+      LABELS "cuda;sm87;prefill;correctness;synthetic;smoke"
+      SKIP_RETURN_CODE 77
     )
 
     # Compile the reusable helper independently to compute_87 PTX and fail the
