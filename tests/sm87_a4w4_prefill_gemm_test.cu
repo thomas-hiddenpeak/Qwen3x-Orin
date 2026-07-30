@@ -337,11 +337,171 @@ class DeviceBuffer final {
   return true;
 }
 
+[[nodiscard]] bool run_large_m_projection() {
+  constexpr std::size_t kLargeM = 1'024U;
+  constexpr std::size_t kLargeN = 128U;
+  constexpr std::size_t kLargeK = 64U;
+  constexpr std::size_t kLargeGroups = 1U;
+  constexpr std::size_t kLargeAPackedBytes =
+      kernels::sm87_a4w4_consumer_packed_capacity_bytes(kLargeM, kLargeK);
+  constexpr std::size_t kLargeAScaleElements =
+      kernels::sm87_a4w4_consumer_scale_capacity_elements(kLargeM, kLargeK);
+  constexpr std::size_t kLargeBPackedBytes =
+      kernels::sm87_a4w4_consumer_packed_capacity_bytes(kLargeN, kLargeK);
+  constexpr std::size_t kLargeBScaleElements =
+      kernels::sm87_a4w4_consumer_scale_capacity_elements(kLargeN, kLargeK);
+  static_assert(kernels::sm87_a4w4_prefill_uses_large_m_candidate(kLargeM));
+
+  std::vector<std::uint8_t> packed_a(kLargeAPackedBytes);
+  std::vector<std::uint16_t> a_scales(kLargeAScaleElements);
+  for (std::size_t m = 0U; m < kLargeM; ++m) {
+    for (std::size_t byte = 0U; byte < kLargeK / 2U; ++byte) {
+      const int even =
+          static_cast<int>((7U * m + 5U * (2U * byte) + 1U) % 15U) - 7;
+      const int odd = static_cast<int>(
+                          (11U * m + 3U * (2U * byte + 1U) + 2U) % 15U) -
+                      7;
+      packed_a[kernels::sm87_a4w4_consumer_packed_offset(
+          m, 0U, byte, kLargeGroups)] =
+          kernels::sm87_a4w4_pack_signed_pair(even, odd);
+    }
+    a_scales[kernels::sm87_a4w4_consumer_scale_offset(
+        m, 0U, kLargeGroups)] =
+        encode_bf16(static_cast<float>(1U + m % 4U) / 16.0F);
+  }
+
+  std::vector<std::uint8_t> packed_b(kLargeBPackedBytes);
+  std::vector<std::uint16_t> b_scales(kLargeBScaleElements);
+  for (std::size_t n = 0U; n < kLargeN; ++n) {
+    for (std::size_t byte = 0U; byte < kLargeK / 2U; ++byte) {
+      const int even =
+          static_cast<int>((13U * n + 2U * byte + 3U) % 15U) - 7;
+      const int odd =
+          static_cast<int>((3U * n + 7U * byte + 4U) % 15U) - 7;
+      packed_b[kernels::sm87_a4w4_consumer_packed_offset(
+          n, 0U, byte, kLargeGroups)] =
+          kernels::sm87_a4w4_pack_signed_pair(even, odd);
+    }
+    b_scales[kernels::sm87_a4w4_consumer_scale_offset(
+        n, 0U, kLargeGroups)] =
+        encode_bf16(static_cast<float>(1U + n % 3U) / 32.0F);
+  }
+
+  DeviceBuffer<std::uint8_t> device_a;
+  DeviceBuffer<std::uint16_t> device_a_scales;
+  DeviceBuffer<std::uint8_t> device_b;
+  DeviceBuffer<std::uint16_t> device_b_scales;
+  DeviceBuffer<std::uint16_t> device_output;
+  if (!device_a.allocate(packed_a.size()) ||
+      !device_a_scales.allocate(a_scales.size()) ||
+      !device_b.allocate(packed_b.size()) ||
+      !device_b_scales.allocate(b_scales.size()) ||
+      !device_output.allocate(kLargeM * kLargeN)) {
+    std::cerr << "large-M device allocation failed\n";
+    return false;
+  }
+  if (!cuda_ok(cudaMemcpy(device_a.get(), packed_a.data(), packed_a.size(),
+                          cudaMemcpyHostToDevice),
+               "copy large-M A") ||
+      !cuda_ok(cudaMemcpy(device_a_scales.get(), a_scales.data(),
+                          a_scales.size() * sizeof(a_scales[0]),
+                          cudaMemcpyHostToDevice),
+               "copy large-M A scales") ||
+      !cuda_ok(cudaMemcpy(device_b.get(), packed_b.data(), packed_b.size(),
+                          cudaMemcpyHostToDevice),
+               "copy large-M B") ||
+      !cuda_ok(cudaMemcpy(device_b_scales.get(), b_scales.data(),
+                          b_scales.size() * sizeof(b_scales[0]),
+                          cudaMemcpyHostToDevice),
+               "copy large-M B scales")) {
+    return false;
+  }
+
+  kernels::Sm87A4W4PrefillGemmResources resources{};
+  if (!launch_ok(
+          kernels::query_sm87_a4w4_prefill_gemm_m64n64_resources_cuda(
+              &resources),
+          "query M64N64 resources")) {
+    return false;
+  }
+  if (resources.active_blocks_per_sm < 2 || resources.local_bytes != 0U ||
+      resources.static_shared_bytes != 13'056U) {
+    std::cerr << "M64N64 resource contract failed: registers="
+              << resources.registers_per_thread
+              << " shared=" << resources.static_shared_bytes
+              << " local=" << resources.local_bytes
+              << " active_blocks=" << resources.active_blocks_per_sm << '\n';
+    return false;
+  }
+
+  if (!launch_ok(kernels::launch_sm87_a4w4_prefill_gemm_bf16_cuda(
+                     device_a.get(), packed_a.size(), device_a_scales.get(),
+                     a_scales.size(), device_b.get(), packed_b.size(),
+                     device_b_scales.get(), b_scales.size(), kLargeM,
+                     kLargeN, kLargeK, device_output.get(), kLargeN),
+                 "M64N64 A4W4 GEMM") ||
+      !cuda_ok(cudaDeviceSynchronize(), "synchronize M64N64 GEMM")) {
+    return false;
+  }
+
+  std::vector<std::uint16_t> output(kLargeM * kLargeN);
+  if (!cuda_ok(cudaMemcpy(output.data(), device_output.get(),
+                          output.size() * sizeof(output[0]),
+                          cudaMemcpyDeviceToHost),
+               "copy M64N64 output")) {
+    return false;
+  }
+
+  std::size_t mismatches = 0U;
+  for (std::size_t m = 0U; m < kLargeM; ++m) {
+    for (std::size_t n = 0U; n < kLargeN; ++n) {
+      std::int32_t integer_partial = 0;
+      for (std::size_t k = 0U; k < kLargeK; ++k) {
+        const int a = signed_code(
+            packed_a[kernels::sm87_a4w4_consumer_packed_offset(
+                m, 0U, k / 2U, kLargeGroups)],
+            k);
+        const int b = signed_code(
+            packed_b[kernels::sm87_a4w4_consumer_packed_offset(
+                n, 0U, k / 2U, kLargeGroups)],
+            k);
+        integer_partial += a * b;
+      }
+      const float expected =
+          static_cast<float>(integer_partial) *
+          decode_bf16(a_scales[kernels::sm87_a4w4_consumer_scale_offset(
+              m, 0U, kLargeGroups)]) *
+          decode_bf16(b_scales[kernels::sm87_a4w4_consumer_scale_offset(
+              n, 0U, kLargeGroups)]);
+      const std::uint16_t expected_bits = encode_bf16(expected);
+      const std::uint16_t actual_bits = output[m * kLargeN + n];
+      if (actual_bits != expected_bits) {
+        ++mismatches;
+        if (mismatches <= 8U) {
+          std::cerr << "M64N64 mismatch m=" << m << " n=" << n
+                    << " expected=" << decode_bf16(expected_bits)
+                    << " actual=" << decode_bf16(actual_bits) << '\n';
+        }
+      }
+    }
+  }
+  if (mismatches != 0U) {
+    std::cerr << "M64N64 GEMM mismatches=" << mismatches << '\n';
+    return false;
+  }
+  std::cout << "SM87 A4W4 M64N64 GEMM passed: M=" << kLargeM
+            << " N=" << kLargeN << " K=" << kLargeK
+            << " registers=" << resources.registers_per_thread
+            << " active_blocks_per_sm=" << resources.active_blocks_per_sm
+            << '\n';
+  return true;
+}
+
 }  // namespace
 
 int main() {
   if (!device_is_target()) {
     return 77;
   }
-  return run_projection() ? 0 : 1;
+  return run_projection() && run_large_m_projection() ? 0 : 1;
 }

@@ -264,16 +264,20 @@ struct PrefillA4EnginePaths final {
   constexpr std::size_t kHidden = 5'120U;
   constexpr std::size_t kIntermediate = 17'408U;
   constexpr std::size_t kPackedK64Bytes = 32U;
-  // The first production runner admission owns one complete C512 staging
-  // contract. Smaller consumer blocks are kernel-correctness shapes only;
-  // admitting them here would let engine creation succeed and the first
-  // request fail at runner dispatch.
+  // The ordinary admission owns one complete C512 staging contract. The
+  // explicit whole-M route instead owns one complete projection span; both
+  // use the same physical M64 consumer blocks and must be exact allocations
+  // for their selected token capacity.
   if (plan.prefill_chunk_size != kMaximumRequestPrefillChunkSize) {
     return false;
   }
+  const std::size_t workspace_tokens =
+      plan.long_prefill_projection_span_capacity == 0U
+          ? static_cast<std::size_t>(plan.prefill_chunk_size)
+          : static_cast<std::size_t>(
+                plan.long_prefill_projection_span_capacity);
   const std::size_t outer_blocks =
-      (static_cast<std::size_t>(plan.prefill_chunk_size) +
-       kOuterBlock - 1U) /
+      (workspace_tokens + kOuterBlock - 1U) /
       kOuterBlock;
   const auto packed_bytes = [outer_blocks](const std::size_t logical_k) {
     return outer_blocks * (logical_k / 64U) * kOuterBlock *
@@ -3549,7 +3553,7 @@ struct ReferenceEngine::Impl {
             ReferenceEngineError::kRequestStateFailure,
             "prefill_a4_request_workspace",
             "A4 admission requires complete K64 consumer workspaces for a "
-            "C512 request Prefill chunk");
+            "C512 chunk or the selected whole-M projection span");
         return result;
       }
 #endif

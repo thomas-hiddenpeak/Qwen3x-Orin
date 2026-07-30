@@ -15,13 +15,31 @@ namespace kernels = q3x::kernels;
       kernels::sm87_a4w4_gateup_paired_plan(512U, 17'408U, 5'120U);
   const kernels::Sm87A4W4GateUpPairedPlan p3847 =
       kernels::sm87_a4w4_gateup_paired_plan(3'847U, 17'408U, 5'120U);
+  const kernels::Sm87A4W4GateUpPairedPlan p1024 =
+      kernels::sm87_a4w4_gateup_paired_plan(1'024U, 17'408U, 5'120U);
+  const kernels::Sm87A4W4GateUpPairedPlan p4096 =
+      kernels::sm87_a4w4_gateup_paired_plan(4'096U, 17'408U, 5'120U);
   return p512.m_tiles == 16U && p512.n_tiles == 136U &&
          p512.k64_groups == 80U && p512.work_tiles == 2'176U &&
          p512.launch_ctas == 32U &&
+         p512.tile_m == 32U && p512.tile_n == 128U &&
+         p512.kernel ==
+             kernels::Sm87A4W4GateUpPairedKernel::kM32N128K64 &&
          p512.packed_output_row_bytes == 8'704U &&
          p512.output_scale_row_elements == 272U &&
          p3847.m_tiles == 121U && p3847.n_tiles == 136U &&
-         p3847.work_tiles == 16'456U && p3847.launch_ctas == 32U;
+         p3847.work_tiles == 16'456U && p3847.launch_ctas == 32U &&
+         p3847.kernel ==
+             kernels::Sm87A4W4GateUpPairedKernel::kM32N128K64 &&
+         p1024.m_tiles == 16U && p1024.n_tiles == 272U &&
+         p1024.work_tiles == 4'352U && p1024.tile_m == 64U &&
+         p1024.tile_n == 64U &&
+         p1024.kernel ==
+             kernels::Sm87A4W4GateUpPairedKernel::kM64N64K64 &&
+         p4096.m_tiles == 64U && p4096.n_tiles == 272U &&
+         p4096.work_tiles == 17'408U &&
+         p4096.kernel ==
+             kernels::Sm87A4W4GateUpPairedKernel::kM64N64K64;
 }
 
 [[nodiscard]] bool check_tail_and_rejection_plans() {
@@ -40,7 +58,9 @@ namespace kernels = q3x::kernels;
 
 [[nodiscard]] bool check_fail_closed_host_surface() {
   if (kernels::query_sm87_a4w4_gateup_paired_resources_cuda(nullptr) !=
-      static_cast<int>(cudaErrorInvalidValue)) {
+          static_cast<int>(cudaErrorInvalidValue) ||
+      kernels::query_sm87_a4w4_gateup_paired_large_m_resources_cuda(
+          nullptr) != static_cast<int>(cudaErrorInvalidValue)) {
     return false;
   }
 
@@ -56,8 +76,10 @@ namespace kernels = q3x::kernels;
 [[nodiscard]] bool check_link_contract() {
   auto* volatile query =
       &kernels::query_sm87_a4w4_gateup_paired_resources_cuda;
+  auto* volatile large_m_query =
+      &kernels::query_sm87_a4w4_gateup_paired_large_m_resources_cuda;
   auto* volatile launch = &kernels::launch_sm87_a4w4_gateup_paired_cuda;
-  return query != nullptr && launch != nullptr;
+  return query != nullptr && large_m_query != nullptr && launch != nullptr;
 }
 
 }  // namespace

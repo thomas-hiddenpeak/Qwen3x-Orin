@@ -17,6 +17,10 @@ inline constexpr std::size_t kStageABytes =
     kSm87A4W4PrefillTileM * kPackedK64Bytes;
 inline constexpr std::size_t kStageBBytes =
     kSm87A4W4PrefillTileN * kPackedK64Bytes;
+inline constexpr std::size_t kLargeMStageABytes =
+    kSm87A4W4PrefillLargeMTileM * kPackedK64Bytes;
+inline constexpr std::size_t kLargeMStageBBytes =
+    kSm87A4W4PrefillLargeMTileN * kPackedK64Bytes;
 inline constexpr int kRequiredSmCount = 16;
 
 struct alignas(16) Sm87A4W4PipelineStage final {
@@ -26,9 +30,19 @@ struct alignas(16) Sm87A4W4PipelineStage final {
   std::uint16_t b_scales[kSm87A4W4PrefillTileN];
 };
 
+struct alignas(16) Sm87A4W4M64N64PipelineStage final {
+  std::uint8_t a[kLargeMStageABytes];
+  std::uint8_t b[kLargeMStageBBytes];
+  std::uint16_t a_scales[kSm87A4W4PrefillLargeMTileM];
+  std::uint16_t b_scales[kSm87A4W4PrefillLargeMTileN];
+};
+
 static_assert(kStageABytes == 1'024U);
 static_assert(kStageBBytes == 4'096U);
 static_assert(sizeof(Sm87A4W4PipelineStage) == 5'440U);
+static_assert(kLargeMStageABytes == 2'048U);
+static_assert(kLargeMStageBBytes == 2'048U);
+static_assert(sizeof(Sm87A4W4M64N64PipelineStage) == 4'352U);
 
 [[nodiscard]] constexpr bool aligned(const void* const pointer,
                                      const std::size_t alignment) noexcept {
@@ -223,6 +237,61 @@ __device__ __forceinline__ void prefetch_stage(
   cp_async_commit();
 }
 
+__device__ __forceinline__ void prefetch_m64n64_stage(
+    Sm87A4W4M64N64PipelineStage& stage,
+    const std::uint8_t* const packed_a,
+    const std::uint16_t* const a_k64_scales_bf16,
+    const std::uint8_t* const packed_b,
+    const std::uint16_t* const b_k64_scales_bf16,
+    const std::size_t m_tile_start,
+    const std::size_t n_tile_start,
+    const std::size_t k64_group,
+    const std::size_t k64_group_count) noexcept {
+  // M64N64 contains exactly 256 aligned 16-byte vectors, so every thread
+  // contributes one cp.async and neither operand monopolizes a second pass.
+  constexpr std::size_t kVectorCount =
+      (kLargeMStageABytes + kLargeMStageBBytes) / 16U;
+  static_assert(kVectorCount == kSm87A4W4PrefillThreads);
+  const std::size_t vector = threadIdx.x;
+  if (vector < kLargeMStageABytes / 16U) {
+    const std::size_t row = vector / 2U;
+    const std::size_t row_vector = vector % 2U;
+    const std::size_t global_row = m_tile_start + row;
+    const std::uint8_t* const source =
+        packed_a + sm87_a4w4_consumer_packed_offset(
+                       global_row, k64_group, row_vector * 16U,
+                       k64_group_count);
+    cp_async_16(
+        stage.a + sm87_a4w4_swizzled_k64_byte_offset(
+                      row, row_vector * 16U),
+        source, 16U);
+  } else {
+    const std::size_t b_vector = vector - kLargeMStageABytes / 16U;
+    const std::size_t row = b_vector / 2U;
+    const std::size_t row_vector = b_vector % 2U;
+    const std::size_t global_row = n_tile_start + row;
+    const std::uint8_t* const source =
+        packed_b + sm87_a4w4_consumer_packed_offset(
+                       global_row, k64_group, row_vector * 16U,
+                       k64_group_count);
+    cp_async_16(
+        stage.b + sm87_a4w4_swizzled_k64_byte_offset(
+                      row, row_vector * 16U),
+        source, 16U);
+  }
+  if (threadIdx.x < kSm87A4W4PrefillLargeMTileM) {
+    const std::size_t global_m = m_tile_start + threadIdx.x;
+    const std::size_t global_n = n_tile_start + threadIdx.x;
+    stage.a_scales[threadIdx.x] =
+        a_k64_scales_bf16[sm87_a4w4_consumer_scale_offset(
+            global_m, k64_group, k64_group_count)];
+    stage.b_scales[threadIdx.x] =
+        b_k64_scales_bf16[sm87_a4w4_consumer_scale_offset(
+            global_n, k64_group, k64_group_count)];
+  }
+  cp_async_commit();
+}
+
 extern "C" __global__
     __launch_bounds__(kSm87A4W4PrefillThreads,
                       kSm87A4W4PrefillCtasPerSm)
@@ -339,6 +408,120 @@ void q3x_sm87_a4w4_prefill_gemm_kernel(
   }
 }
 
+extern "C" __global__
+    __launch_bounds__(kSm87A4W4PrefillThreads,
+                      kSm87A4W4PrefillCtasPerSm)
+void q3x_sm87_a4w4_prefill_gemm_m64n64_kernel(
+    const std::uint8_t* const packed_a,
+    const std::uint16_t* const a_k64_scales_bf16,
+    const std::uint8_t* const packed_b,
+    const std::uint16_t* const b_k64_scales_bf16,
+    const std::size_t k64_group_count,
+    std::uint16_t* const output_bf16,
+    const std::size_t output_row_stride_elements,
+    const std::size_t m_tile_count,
+    const std::size_t work_tile_count) {
+  __shared__ Sm87A4W4M64N64PipelineStage
+      pipeline[kSm87A4W4PrefillPipelineStages];
+
+  const unsigned int lane = threadIdx.x % kSm87A4W4WarpThreads;
+  const unsigned int warp = threadIdx.x / kSm87A4W4WarpThreads;
+  const std::size_t warp_m = warp / 2U;
+  const std::size_t warp_n = warp % 2U;
+
+  for (std::size_t work_tile = blockIdx.x; work_tile < work_tile_count;
+       work_tile += gridDim.x) {
+    // N-major ordering keeps all M64 consumers of one B N64 block adjacent.
+    // Compared with M32N128 this halves B bytes per output while retaining
+    // 4,096 outputs, 32 MMA instructions/K64, and eight warps per CTA.
+    const std::size_t n_tile = work_tile / m_tile_count;
+    const std::size_t m_tile = work_tile - n_tile * m_tile_count;
+    const std::size_t m_tile_start =
+        m_tile * kSm87A4W4PrefillLargeMTileM;
+    const std::size_t n_tile_start =
+        n_tile * kSm87A4W4PrefillLargeMTileN;
+
+    float accumulators[4U][4U]{};
+
+    prefetch_m64n64_stage(
+        pipeline[0U], packed_a, a_k64_scales_bf16, packed_b,
+        b_k64_scales_bf16, m_tile_start, n_tile_start, 0U,
+        k64_group_count);
+    if (k64_group_count > 1U) {
+      prefetch_m64n64_stage(
+          pipeline[1U], packed_a, a_k64_scales_bf16, packed_b,
+          b_k64_scales_bf16, m_tile_start, n_tile_start, 1U,
+          k64_group_count);
+    }
+
+    for (std::size_t group = 0U; group < k64_group_count; ++group) {
+      if (group + 2U < k64_group_count) {
+        prefetch_m64n64_stage(
+            pipeline[(group + 2U) % kSm87A4W4PrefillPipelineStages],
+            packed_a, a_k64_scales_bf16, packed_b,
+            b_k64_scales_bf16, m_tile_start, n_tile_start, group + 2U,
+            k64_group_count);
+      }
+      if (group + 1U == k64_group_count) {
+        cp_async_wait<0>();
+      } else {
+        cp_async_wait<1>();
+      }
+      __syncthreads();
+
+      const Sm87A4W4M64N64PipelineStage& stage =
+          pipeline[group % kSm87A4W4PrefillPipelineStages];
+      const std::uint8_t* const warp_a =
+          stage.a + warp_m * 16U * kPackedK64Bytes;
+      const Sm87A4W4AFragment a =
+          sm87_a4w4_load_a_fragment_swizzled_shared(warp_a, lane);
+
+#pragma unroll
+      for (unsigned int fragment = 0U; fragment < 4U; ++fragment) {
+        const std::size_t fragment_n = warp_n * 32U + fragment * 8U;
+        const std::uint8_t* const warp_b =
+            stage.b + fragment_n * kPackedK64Bytes;
+        const Sm87A4W4BFragment b =
+            sm87_a4w4_load_b_fragment_swizzled_shared(warp_b, lane);
+        Sm87A4W4Accumulator partial{};
+        sm87_a4w4_mma_m16n8k64(partial, a, b);
+        const std::int32_t integer_partial[4U] = {
+            partial.x0, partial.x1, partial.x2, partial.x3};
+
+#pragma unroll
+        for (unsigned int output = 0U; output < 4U; ++output) {
+          const Sm87A4W4AccumulatorCoordinate coordinate =
+              sm87_a4w4_accumulator_coordinate(lane, output);
+          const std::size_t local_m = warp_m * 16U + coordinate.m;
+          const std::size_t local_n = fragment_n + coordinate.n;
+          const float a_scale = decode_bf16(stage.a_scales[local_m]);
+          const float b_scale = decode_bf16(stage.b_scales[local_n]);
+          accumulators[fragment][output] +=
+              static_cast<float>(integer_partial[output]) * a_scale *
+              b_scale;
+        }
+      }
+      __syncthreads();
+    }
+
+#pragma unroll
+    for (unsigned int fragment = 0U; fragment < 4U; ++fragment) {
+#pragma unroll
+      for (unsigned int output = 0U; output < 4U; ++output) {
+        const Sm87A4W4AccumulatorCoordinate coordinate =
+            sm87_a4w4_accumulator_coordinate(lane, output);
+        const std::size_t global_m =
+            m_tile_start + warp_m * 16U + coordinate.m;
+        const std::size_t global_n =
+            n_tile_start + warp_n * 32U + fragment * 8U + coordinate.n;
+        output_bf16[global_m * output_row_stride_elements + global_n] =
+            encode_bf16(accumulators[fragment][output]);
+      }
+    }
+    __syncthreads();
+  }
+}
+
 [[nodiscard]] int validate_sm87(
     cudaDeviceProp* const properties = nullptr) noexcept {
   int device = -1;
@@ -448,6 +631,53 @@ int query_sm87_a4w4_prefill_gemm_resources_cuda(
   resources->active_blocks_per_sm = active_blocks;
   resources->compute_major = properties.major;
   resources->compute_minor = properties.minor;
+
+  return static_cast<int>(cudaSuccess);
+}
+
+int query_sm87_a4w4_prefill_gemm_m64n64_resources_cuda(
+    Sm87A4W4PrefillGemmResources* const resources) noexcept {
+  if (resources == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  *resources = Sm87A4W4PrefillGemmResources{};
+  cudaDeviceProp properties{};
+  const int device_status = validate_sm87(&properties);
+  if (device_status != static_cast<int>(cudaSuccess)) {
+    return device_status;
+  }
+  cudaFuncAttributes attributes{};
+  cudaError_t status = cudaFuncGetAttributes(
+      &attributes, q3x_sm87_a4w4_prefill_gemm_m64n64_kernel);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  int active_blocks = 0;
+  status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+      &active_blocks, q3x_sm87_a4w4_prefill_gemm_m64n64_kernel,
+      static_cast<int>(kSm87A4W4PrefillThreads), 0U);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  resources->registers_per_thread = attributes.numRegs;
+  resources->static_shared_bytes = attributes.sharedSizeBytes;
+  resources->dynamic_shared_bytes = attributes.maxDynamicSharedSizeBytes;
+  resources->local_bytes = attributes.localSizeBytes;
+  resources->maximum_threads_per_block = attributes.maxThreadsPerBlock;
+  resources->active_blocks_per_sm = active_blocks;
+  resources->compute_major = properties.major;
+  resources->compute_minor = properties.minor;
+
+  if (resources->local_bytes != 0U ||
+      resources->active_blocks_per_sm <
+          static_cast<int>(kSm87A4W4PrefillCtasPerSm) ||
+      resources->maximum_threads_per_block <
+          static_cast<int>(kSm87A4W4PrefillThreads) ||
+      resources->static_shared_bytes !=
+          sizeof(Sm87A4W4M64N64PipelineStage) *
+              kSm87A4W4PrefillPipelineStages) {
+    return static_cast<int>(cudaErrorLaunchOutOfResources);
+  }
   return static_cast<int>(cudaSuccess);
 }
 
@@ -497,9 +727,13 @@ int launch_sm87_a4w4_prefill_gemm_bf16_cuda(
   if (device_status != static_cast<int>(cudaSuccess)) {
     return device_status;
   }
+  const bool use_large_m =
+      sm87_a4w4_prefill_uses_large_m_candidate(token_count);
   Sm87A4W4PrefillGemmResources resources{};
   const int resource_status =
-      query_sm87_a4w4_prefill_gemm_resources_cuda(&resources);
+      use_large_m
+          ? query_sm87_a4w4_prefill_gemm_m64n64_resources_cuda(&resources)
+          : query_sm87_a4w4_prefill_gemm_resources_cuda(&resources);
   if (resource_status != static_cast<int>(cudaSuccess)) {
     return resource_status;
   }
@@ -510,6 +744,17 @@ int launch_sm87_a4w4_prefill_gemm_bf16_cuda(
   }
 
   const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  if (use_large_m) {
+    const std::size_t m64_tiles =
+        token_count / kSm87A4W4PrefillLargeMTileM;
+    q3x_sm87_a4w4_prefill_gemm_m64n64_kernel<<<
+        static_cast<unsigned int>(plan.launch_ctas),
+        static_cast<unsigned int>(kSm87A4W4PrefillThreads), 0U, stream>>>(
+        packed_a, a_k64_scales_bf16, packed_b, b_k64_scales_bf16,
+        plan.k64_groups, output_bf16, output_row_stride_elements, m64_tiles,
+        plan.work_tiles);
+    return static_cast<int>(cudaPeekAtLastError());
+  }
   q3x_sm87_a4w4_prefill_gemm_kernel<<<
       static_cast<unsigned int>(plan.launch_ctas),
       static_cast<unsigned int>(kSm87A4W4PrefillThreads), 0U, stream>>>(

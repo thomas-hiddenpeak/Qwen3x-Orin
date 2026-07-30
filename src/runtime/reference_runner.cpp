@@ -686,6 +686,27 @@ ReferenceRunnerStatus ReferenceRunner::collect_request_views(
           static_cast<std::uint16_t*>(view.value->device_data);
     }
   }
+  if (state->plan().long_prefill_projection_span_capacity != 0U) {
+    const std::uint64_t span_tokens =
+        state->plan().long_prefill_projection_span_capacity;
+    RequestViewResult primary =
+        state->long_prefill_projection_primary_buffer();
+    RequestViewResult secondary =
+        state->long_prefill_projection_secondary_buffer();
+    if (!valid_view(primary,
+                    span_tokens * kRequestLongPrefillPrimaryWidth,
+                    sizeof(std::uint16_t)) ||
+        !valid_view(secondary,
+                    span_tokens * kRequestLongPrefillSecondaryWidth,
+                    sizeof(std::uint16_t))) {
+      return runner_status(ReferenceRunnerError::kInvalidRequestState,
+                           "long_prefill_projection_span_workspace");
+    }
+    views.long_prefill_projection_primary =
+        static_cast<std::uint16_t*>(primary.value->device_data);
+    views.long_prefill_projection_secondary =
+        static_cast<std::uint16_t*>(secondary.value->device_data);
+  }
   for (std::size_t index = 0U; index < 4U; ++index) {
     RequestViewResult view = state->projection_buffer(index);
     if (!valid_view(view, workspace_tokens * kReferenceIntermediateSize,
@@ -1599,27 +1620,46 @@ ReferenceRunnerError validate_reference_workspace_plan(
       return ReferenceRunnerError::kInvalidRequestState;
     }
   }
+  if (plan.long_prefill_projection_span_capacity != 0U) {
+    const std::uint64_t span_tokens =
+        plan.long_prefill_projection_span_capacity;
+    if (plan.long_prefill_token_capacity == 0U ||
+        span_tokens > plan.long_prefill_token_capacity ||
+        span_tokens % kRequestLongPrefillProjectionSpanAlignment != 0U ||
+        !bf16_region_at_least(
+            plan.long_prefill_projection_primary_bf16,
+            span_tokens * kRequestLongPrefillPrimaryWidth) ||
+        !bf16_region_at_least(
+            plan.long_prefill_projection_secondary_bf16,
+            span_tokens * kRequestLongPrefillSecondaryWidth)) {
+      return ReferenceRunnerError::kInvalidRequestState;
+    }
+  }
   const bool has_a4_workspace =
       plan.prefill_a4_hidden_packed.byte_size != 0U ||
       plan.prefill_a4_hidden_scales_bf16.byte_size != 0U ||
       plan.prefill_a4_intermediate_packed.byte_size != 0U ||
       plan.prefill_a4_intermediate_scales_bf16.byte_size != 0U;
+  const std::uint64_t a4_workspace_tokens =
+      plan.long_prefill_projection_span_capacity == 0U
+          ? plan.prefill_chunk_size
+          : plan.long_prefill_projection_span_capacity;
   if (has_a4_workspace &&
       (!byte_region_at_least(
            plan.prefill_a4_hidden_packed,
-           static_cast<std::uint64_t>(plan.prefill_chunk_size) *
+           a4_workspace_tokens *
                kReferenceHiddenSize / 2U) ||
        !bf16_region_at_least(
            plan.prefill_a4_hidden_scales_bf16,
-           static_cast<std::uint64_t>(plan.prefill_chunk_size) *
+           a4_workspace_tokens *
                kReferenceHiddenSize / kRequestA4PrefillScaleGroupSize) ||
        !byte_region_at_least(
            plan.prefill_a4_intermediate_packed,
-           static_cast<std::uint64_t>(plan.prefill_chunk_size) *
+           a4_workspace_tokens *
                kReferenceIntermediateSize / 2U) ||
        !bf16_region_at_least(
            plan.prefill_a4_intermediate_scales_bf16,
-           static_cast<std::uint64_t>(plan.prefill_chunk_size) *
+           a4_workspace_tokens *
                kReferenceIntermediateSize /
                kRequestA4PrefillScaleGroupSize))) {
     return ReferenceRunnerError::kInvalidRequestState;
@@ -4968,6 +5008,676 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
   return outcome;
 }
 
+ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
+    const LongPrefillProjectionSpanPlan& plan,
+    const LongPrefillProjectionSpanWorkItem& item) noexcept {
+#if !defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
+  (void)plan;
+  (void)item;
+  return runner_status(ReferenceRunnerError::kInvalidStepOptions,
+                       "prefill_projection_span_not_built");
+#else
+  LongPrefillProjectionSpanWorkItem expected_item;
+  const std::uint64_t item_end =
+      static_cast<std::uint64_t>(item.first_position) + item.token_count;
+  if (!long_prefill_projection_span_work_item(
+          plan, item.ordinal, expected_item) ||
+      expected_item.layer_index != item.layer_index ||
+      expected_item.projection_span_index != item.projection_span_index ||
+      expected_item.first_position != item.first_position ||
+      expected_item.token_count != item.token_count ||
+      expected_item.input_hidden_buffer != item.input_hidden_buffer ||
+      expected_item.output_hidden_buffer != item.output_hidden_buffer ||
+      item.layer_index >= kReferenceDecoderLayerCount ||
+      item.token_count == 0U ||
+      item.token_count % kLongPrefillLayerMajorTileTokens != 0U ||
+      item.token_count > plan.projection_span_token_count ||
+      item_end > plan.prompt_token_count ||
+      item.input_hidden_buffer >= kRequestLongPrefillHiddenBufferCount ||
+      item.output_hidden_buffer >= kRequestLongPrefillHiddenBufferCount ||
+      item.layer_type !=
+          reference_runner_detail::expected_reference_layer_type(
+              item.layer_index)) {
+    return runner_status(ReferenceRunnerError::kInvalidStepOptions,
+                         "prefill_projection_span_item",
+                         item.layer_index);
+  }
+
+  const RequestMemoryPlan& request_plan = state_->plan();
+  const std::size_t span_capacity =
+      request_plan.long_prefill_projection_span_capacity;
+  const bool selected = a4w4_full_prefill_admission_enabled_ ||
+                        g_enable_a4w4_full_prefill_admission;
+  if (!selected ||
+      projection_backend_ != ProjectionBackend::kSm87WeightOnly ||
+      span_capacity != plan.projection_span_token_count ||
+      span_capacity < item.token_count ||
+      views_.long_prefill_hidden[item.input_hidden_buffer] == nullptr ||
+      views_.long_prefill_hidden[item.output_hidden_buffer] == nullptr ||
+      views_.long_prefill_projection_primary == nullptr ||
+      views_.long_prefill_projection_secondary == nullptr ||
+      views_.prefill_a4_hidden_packed == nullptr ||
+      views_.prefill_a4_hidden_scales == nullptr ||
+      views_.prefill_a4_intermediate_packed == nullptr ||
+      views_.prefill_a4_intermediate_scales == nullptr ||
+      !valid_a4w4_full_prefill_inventory(*weights_)) {
+    return runner_status(ReferenceRunnerError::kInvalidRequestState,
+                         "prefill_projection_span_workspace",
+                         item.layer_index);
+  }
+
+  const std::size_t hidden_packed_capacity =
+      static_cast<std::size_t>(request_plan.prefill_a4_hidden_packed.byte_size);
+  const std::size_t hidden_scale_capacity = static_cast<std::size_t>(
+      request_plan.prefill_a4_hidden_scales_bf16.element_capacity);
+  const std::size_t intermediate_packed_capacity = static_cast<std::size_t>(
+      request_plan.prefill_a4_intermediate_packed.byte_size);
+  const std::size_t intermediate_scale_capacity = static_cast<std::size_t>(
+      request_plan.prefill_a4_intermediate_scales_bf16.element_capacity);
+  if (hidden_packed_capacity <
+          kernels::sm87_a4w4_consumer_packed_capacity_bytes(
+              span_capacity, kReferenceHiddenSize) ||
+      hidden_scale_capacity <
+          kernels::sm87_a4w4_consumer_scale_capacity_elements(
+              span_capacity, kReferenceHiddenSize) ||
+      intermediate_packed_capacity <
+          kernels::sm87_a4w4_consumer_packed_capacity_bytes(
+              span_capacity, kReferenceIntermediateSize) ||
+      intermediate_scale_capacity <
+          kernels::sm87_a4w4_consumer_scale_capacity_elements(
+              span_capacity, kReferenceIntermediateSize) ||
+      reinterpret_cast<std::uintptr_t>(
+          views_.prefill_a4_hidden_packed) % 16U != 0U ||
+      reinterpret_cast<std::uintptr_t>(
+          views_.prefill_a4_intermediate_packed) % 16U != 0U) {
+    return runner_status(ReferenceRunnerError::kInvalidRequestState,
+                         "prefill_projection_span_a4_capacity",
+                         item.layer_index);
+  }
+
+  const auto stream = reinterpret_cast<cudaStream_t>(stream_);
+  ReferenceRunnerStatus failure{};
+  const auto check_cuda = [&failure, &item](
+                              const int status,
+                              const char* const operation) noexcept {
+    if (status == static_cast<int>(cudaSuccess)) {
+      return true;
+    }
+    failure = runner_status(ReferenceRunnerError::kCudaFailure, operation,
+                            item.layer_index, status);
+    return false;
+  };
+
+  reference_runner_detail::A4W4FullPrefillAdmissionHits local_hits{};
+  const auto quantize =
+      [this, &check_cuda, &local_hits](
+          const std::uint16_t* const input,
+          const std::size_t input_row_stride,
+          const std::size_t token_count,
+          const std::size_t input_size,
+          const float clip_ratio,
+          std::uint8_t* const packed,
+          const std::size_t packed_capacity,
+          std::uint16_t* const scales,
+          const std::size_t scale_capacity,
+          const char* const operation) noexcept {
+        const int status = kernels::launch_sm87_a4_quantize_bf16_cuda(
+            input, input_row_stride, token_count, input_size, clip_ratio,
+            packed, packed_capacity, scales, scale_capacity, stream_);
+        if (!check_cuda(status, operation)) {
+          return false;
+        }
+        ++local_hits.activation_quantize_hits;
+        ++g_a4w4_full_prefill_admission_hits.activation_quantize_hits;
+        return true;
+      };
+  const auto project =
+      [this, &check_cuda, &local_hits](
+          const LinearWeight& weight,
+          const std::uint8_t* const packed_input,
+          const std::size_t packed_input_capacity,
+          const std::uint16_t* const input_scales,
+          const std::size_t input_scale_capacity,
+          const std::size_t token_count,
+          std::uint16_t* const output,
+          const char* const operation) noexcept {
+        const PrefillA4LinearSidecarView sidecar =
+            prefill_a4_sidecar_view(weight);
+        const std::size_t weight_capacity =
+            kernels::sm87_a4w4_consumer_packed_capacity_bytes(
+                sidecar.output_size, sidecar.input_size);
+        const std::size_t weight_scale_capacity =
+            kernels::sm87_a4w4_consumer_scale_capacity_elements(
+                sidecar.output_size, sidecar.input_size);
+        const int status = kernels::launch_sm87_a4w4_prefill_gemm_bf16_cuda(
+            packed_input, packed_input_capacity, input_scales,
+            input_scale_capacity, sidecar.weight, weight_capacity,
+            sidecar.scales, weight_scale_capacity, token_count,
+            sidecar.output_size, sidecar.input_size, output,
+            sidecar.output_size, stream_);
+        if (!check_cuda(status, operation)) {
+          return false;
+        }
+        ++local_hits.generic_projection_hits;
+        ++local_hits.logical_projection_hits;
+        ++g_a4w4_full_prefill_admission_hits.generic_projection_hits;
+        ++g_a4w4_full_prefill_admission_hits.logical_projection_hits;
+        return true;
+      };
+  const auto project_linear_pair =
+      [this, &check_cuda](
+          const LinearWeight& first_weight,
+          const LinearWeight& second_weight,
+          const std::uint16_t* const input,
+          const std::size_t token_count,
+          std::uint16_t* const first_output,
+          std::uint16_t* const second_output,
+          const char* const operation) noexcept {
+        const std::size_t columns = linear_input_size(first_weight);
+        const std::size_t first_rows = linear_output_size(first_weight);
+        const std::size_t second_rows = linear_output_size(second_weight);
+        for (std::size_t offset = 0U; offset < token_count;
+             offset += kProductionProjectionSubtileTokens) {
+          const std::size_t remaining = token_count - offset;
+          const std::size_t count =
+              remaining < kProductionProjectionSubtileTokens
+                  ? remaining
+                  : kProductionProjectionSubtileTokens;
+          if (!check_cuda(
+                  launch_projection_pair_tile_to_bf16_cuda(
+                      projection_backend_, first_weight, second_weight,
+                      input + offset * columns, count, views_.fp32_scratch,
+                      views_.fp32_scratch_elements,
+                      first_output + offset * first_rows,
+                      second_output + offset * second_rows, stream_),
+                  operation)) {
+            return false;
+          }
+        }
+        return true;
+      };
+
+  const std::size_t token_count = item.token_count;
+  const std::size_t hidden_offset =
+      static_cast<std::size_t>(item.first_position) * kReferenceHiddenSize;
+  const std::uint16_t* const input_hidden =
+      views_.long_prefill_hidden[item.input_hidden_buffer] + hidden_offset;
+  std::uint16_t* const output_hidden =
+      views_.long_prefill_hidden[item.output_hidden_buffer] + hidden_offset;
+  std::uint16_t* const primary = views_.long_prefill_projection_primary;
+  std::uint16_t* const secondary = views_.long_prefill_projection_secondary;
+  const DecoderLayerWeights& layer_weights =
+      weights_->layer(item.layer_index);
+
+  if (!check_cuda(
+          launch_headwise_centered_rms_norm_reference_cuda(
+              input_hidden, layer_weights.input_layernorm.data, token_count,
+              kReferenceHiddenSize, kRmsEpsilon, primary, stream_),
+          "prefill_projection_span_input_norm")) {
+    return failure;
+  }
+
+  const model::LayerType layer_type = item.layer_type;
+  if (layer_type == model::LayerType::kLinearAttention) {
+    const auto* const attention =
+        std::get_if<LinearAttentionWeights>(&layer_weights.attention);
+    if (attention == nullptr) {
+      return runner_status(ReferenceRunnerError::kInvalidLayerSchedule,
+                           "prefill_projection_span_linear_variant",
+                           item.layer_index);
+    }
+    const PrefillA4LinearSidecarView qkv_sidecar =
+        prefill_a4_sidecar_view(attention->in_proj_qkv);
+    std::uint16_t* const linear_a =
+        primary + token_count * kLinearQkvElements;
+    std::uint16_t* const linear_b =
+        linear_a + token_count * kLinearScalarElements;
+    if (!project_linear_pair(
+            attention->in_proj_a, attention->in_proj_b, primary,
+            token_count, linear_a, linear_b,
+            "prefill_projection_span_linear_ab") ||
+        !quantize(primary, kReferenceHiddenSize, token_count,
+                  kReferenceHiddenSize, qkv_sidecar.activation_clip_ratio,
+                  views_.prefill_a4_hidden_packed, hidden_packed_capacity,
+                  views_.prefill_a4_hidden_scales, hidden_scale_capacity,
+                  "prefill_projection_span_linear_input_quantize") ||
+        !project(attention->in_proj_qkv,
+                 views_.prefill_a4_hidden_packed, hidden_packed_capacity,
+                 views_.prefill_a4_hidden_scales, hidden_scale_capacity,
+                 token_count, primary,
+                 "prefill_projection_span_linear_qkv") ||
+        !project(attention->in_proj_z,
+                 views_.prefill_a4_hidden_packed, hidden_packed_capacity,
+                 views_.prefill_a4_hidden_scales, hidden_scale_capacity,
+                 token_count, secondary,
+                 "prefill_projection_span_linear_z")) {
+      return failure;
+    }
+
+    for (std::uint32_t tile_index = 0U;
+         tile_index < item.state_tile_count; ++tile_index) {
+      LongPrefillProjectionSpanStateTile tile;
+      if (!long_prefill_projection_span_state_tile(
+              plan, item.ordinal, tile_index, tile) ||
+          tile.token_count != kLongPrefillLayerMajorTileTokens) {
+        return runner_status(ReferenceRunnerError::kInvalidStepOptions,
+                             "prefill_projection_span_linear_state_tile",
+                             item.layer_index);
+      }
+      const std::size_t local_first =
+          static_cast<std::size_t>(tile.first_position -
+                                   item.first_position);
+      std::uint16_t* const qkv =
+          primary + local_first * kLinearQkvElements;
+      const std::uint16_t* const z =
+          secondary + local_first * kLinearValueElements;
+      for (std::size_t offset = 0U; offset < tile.token_count;
+           offset += kPrefillKernelTileMaximumTokens) {
+        if (!check_cuda(
+                launch_causal_conv1d_silu_update_tile_reference_cuda(
+                    qkv + offset * kLinearQkvElements,
+                    kPrefillKernelTileMaximumTokens,
+                    attention->conv1d.data,
+                    views_.conv_state[item.layer_index],
+                    qkv + offset * kLinearQkvElements, {}, stream_),
+                "prefill_projection_span_linear_conv") ||
+            !check_cuda(
+                gdn_prefill_c16_norm_gate_detail::launch_shared_boundary(
+                    qkv + offset * kLinearQkvElements,
+                    kPrefillKernelTileMaximumTokens,
+                    linear_a + (local_first + offset) *
+                                   kLinearScalarElements,
+                    linear_b + (local_first + offset) *
+                                   kLinearScalarElements,
+                    attention->a_log.data, attention->dt_bias.data,
+                    views_.gdn_state[item.layer_index],
+                    views_.gdn_state[item.layer_index], kRmsEpsilon,
+                    attention->norm.data,
+                    z + offset * kLinearValueElements, kRmsEpsilon,
+                    views_.projection[2] +
+                        offset * kLinearValueElements,
+                    stream_),
+                "prefill_projection_span_linear_gdn_norm_gate")) {
+          return failure;
+        }
+      }
+      if (!check_cuda(
+              static_cast<int>(cudaMemcpyAsync(
+                  secondary + local_first * kLinearValueElements,
+                  views_.projection[2],
+                  static_cast<std::size_t>(tile.token_count) *
+                      kLinearValueElements * sizeof(std::uint16_t),
+                  cudaMemcpyDeviceToDevice, stream)),
+              "prefill_projection_span_linear_publish_output")) {
+        return failure;
+      }
+    }
+
+    const PrefillA4LinearSidecarView output_sidecar =
+        prefill_a4_sidecar_view(attention->out_proj);
+    if (!quantize(secondary, kLinearValueElements, token_count,
+                  kLinearValueElements,
+                  output_sidecar.activation_clip_ratio,
+                  views_.prefill_a4_intermediate_packed,
+                  intermediate_packed_capacity,
+                  views_.prefill_a4_intermediate_scales,
+                  intermediate_scale_capacity,
+                  "prefill_projection_span_linear_output_quantize") ||
+        !project(attention->out_proj,
+                 views_.prefill_a4_intermediate_packed,
+                 intermediate_packed_capacity,
+                 views_.prefill_a4_intermediate_scales,
+                 intermediate_scale_capacity, token_count, secondary,
+                 "prefill_projection_span_linear_output")) {
+      return failure;
+    }
+  } else if (layer_type == model::LayerType::kFullAttention) {
+    const auto* const attention =
+        std::get_if<FullAttentionWeights>(&layer_weights.attention);
+    if (attention == nullptr) {
+      return runner_status(ReferenceRunnerError::kInvalidLayerSchedule,
+                           "prefill_projection_span_full_variant",
+                           item.layer_index);
+    }
+    const PrefillA4LinearSidecarView q_sidecar =
+        prefill_a4_sidecar_view(attention->q_proj);
+    std::uint16_t* const span_key =
+        views_.key_cache[item.layer_index] +
+        static_cast<std::size_t>(item.first_position) * kFullKvElements;
+    std::uint16_t* const span_value =
+        views_.value_cache[item.layer_index] +
+        static_cast<std::size_t>(item.first_position) * kFullKvElements;
+    if (!quantize(primary, kReferenceHiddenSize, token_count,
+                  kReferenceHiddenSize, q_sidecar.activation_clip_ratio,
+                  views_.prefill_a4_hidden_packed, hidden_packed_capacity,
+                  views_.prefill_a4_hidden_scales, hidden_scale_capacity,
+                  "prefill_projection_span_full_input_quantize") ||
+        !project(attention->q_proj, views_.prefill_a4_hidden_packed,
+                 hidden_packed_capacity, views_.prefill_a4_hidden_scales,
+                 hidden_scale_capacity, token_count, primary,
+                 "prefill_projection_span_full_q") ||
+        !project(attention->k_proj, views_.prefill_a4_hidden_packed,
+                 hidden_packed_capacity, views_.prefill_a4_hidden_scales,
+                 hidden_scale_capacity, token_count, span_key,
+                 "prefill_projection_span_full_k") ||
+        !project(attention->v_proj, views_.prefill_a4_hidden_packed,
+                 hidden_packed_capacity, views_.prefill_a4_hidden_scales,
+                 hidden_scale_capacity, token_count, span_value,
+                 "prefill_projection_span_full_v")) {
+      return failure;
+    }
+
+    for (std::uint32_t tile_index = 0U;
+         tile_index < item.state_tile_count; ++tile_index) {
+      LongPrefillProjectionSpanStateTile tile;
+      if (!long_prefill_projection_span_state_tile(
+              plan, item.ordinal, tile_index, tile) ||
+          tile.token_count != kLongPrefillLayerMajorTileTokens) {
+        return runner_status(ReferenceRunnerError::kInvalidStepOptions,
+                             "prefill_projection_span_full_state_tile",
+                             item.layer_index);
+      }
+      const std::size_t local_first =
+          static_cast<std::size_t>(tile.first_position -
+                                   item.first_position);
+      std::uint16_t* const raw_query =
+          primary + local_first * kFullQGateElements;
+      std::uint16_t* const tile_key =
+          span_key + local_first * kFullKvElements;
+      std::uint16_t* const packed_gates =
+          views_.projection[3] +
+          static_cast<std::size_t>(tile.token_count) * kFullQueryElements;
+      const std::size_t preprocess_tile_maximum =
+          g_enable_full_attention_preprocess_prompt_wide_admission
+              ? kFullAttentionPreprocessTileMaximumTokens
+              : kPrefillKernelTileMaximumTokens;
+      bool use_fused_preprocess = true;
+      for (std::size_t offset = 0U; offset < tile.token_count;
+           offset += preprocess_tile_maximum) {
+        const std::size_t remaining = tile.token_count - offset;
+        const std::size_t count =
+            remaining < preprocess_tile_maximum
+                ? remaining
+                : preprocess_tile_maximum;
+        const bool valid =
+            g_enable_full_attention_preprocess_prompt_wide_admission
+                ? reference_runner_detail::use_full_attention_preprocess_tile(
+                      static_cast<std::size_t>(tile.first_position) + offset,
+                      count)
+                : reference_runner_detail::use_qk_rope_tile(
+                      static_cast<std::size_t>(tile.first_position) + offset,
+                      count);
+        if (!valid) {
+          use_fused_preprocess = false;
+          break;
+        }
+      }
+      std::uint16_t* const tile_query =
+          use_fused_preprocess ? views_.projection[3]
+                               : views_.projection[0];
+      for (std::size_t offset = 0U; offset < tile.token_count;
+           offset += preprocess_tile_maximum) {
+        const std::size_t remaining = tile.token_count - offset;
+        const std::size_t count =
+            remaining < preprocess_tile_maximum
+                ? remaining
+                : preprocess_tile_maximum;
+        std::uint16_t* const raw_query_gate =
+            raw_query + offset * kFullQGateElements;
+        std::uint16_t* const query =
+            tile_query + offset * kFullQueryElements;
+        std::uint16_t* const split_query =
+            views_.projection[3] + offset * kFullQueryElements;
+        std::uint16_t* const gates =
+            packed_gates + offset * kFullQueryElements;
+        std::uint16_t* const key =
+            tile_key + offset * kFullKvElements;
+        const std::size_t first_position =
+            static_cast<std::size_t>(tile.first_position) + offset;
+        if (use_fused_preprocess) {
+          if (!check_cuda(
+                  launch_full_attention_preprocess_24_4_256_64_cuda(
+                      raw_query_gate, key, attention->q_norm.data,
+                      attention->k_norm.data, kRmsEpsilon, query, gates,
+                      views_.rope_cos, views_.rope_sin, first_position,
+                      count, stream_),
+                  "prefill_projection_span_full_preprocess")) {
+            return failure;
+          }
+          continue;
+        }
+        if (!check_cuda(
+                launch_split_interleaved_q_gate_reference_cuda(
+                    raw_query_gate, count * kFullQueryHeads,
+                    kFullHeadDimension, split_query, gates, stream_),
+                "prefill_projection_span_full_split_q_gate") ||
+            !check_cuda(
+                launch_headwise_centered_rms_norm_reference_cuda(
+                    split_query, attention->q_norm.data,
+                    count * kFullQueryHeads, kFullHeadDimension,
+                    kRmsEpsilon, query, stream_),
+                "prefill_projection_span_full_q_norm") ||
+            !check_cuda(
+                launch_headwise_centered_rms_norm_reference_cuda(
+                    key, attention->k_norm.data, count * kFullKvHeads,
+                    kFullHeadDimension, kRmsEpsilon, key, stream_),
+                "prefill_projection_span_full_k_norm")) {
+          return failure;
+        }
+        for (std::size_t token = 0U; token < count; ++token) {
+          const std::size_t position = first_position + token;
+          const float* const cosines =
+              views_.rope_cos + position * kRopePairs;
+          const float* const sines =
+              views_.rope_sin + position * kRopePairs;
+          if (!check_cuda(
+                  launch_partial_neox_rope_256_64_reference_cuda(
+                      query + token * kFullQueryElements, cosines, sines,
+                      kFullQueryHeads,
+                      query + token * kFullQueryElements, stream_),
+                  "prefill_projection_span_full_q_rope") ||
+              !check_cuda(
+                  launch_partial_neox_rope_256_64_reference_cuda(
+                      key + token * kFullKvElements, cosines, sines,
+                      kFullKvHeads, key + token * kFullKvElements, stream_),
+                  "prefill_projection_span_full_k_rope")) {
+            return failure;
+          }
+        }
+      }
+
+      std::uint16_t* const attention_output =
+          secondary + local_first * kFullQueryElements;
+      if (reference_runner_detail::
+              use_bulk_causal_gqa_sigmoid_gate_prefill(
+                  projection_backend_, layer_type, tile.first_position,
+                  tile.token_count)) {
+        if (!check_cuda(
+                launch_bulk_causal_gqa_sigmoid_gate_24_4_256_cuda(
+                    tile_query, views_.key_cache[item.layer_index],
+                    views_.value_cache[item.layer_index], packed_gates,
+                    tile.first_position, tile.token_count,
+                    attention_output, stream_),
+                "prefill_projection_span_full_attention")) {
+          return failure;
+        }
+      } else {
+        const std::size_t fused_prefix =
+            reference_runner_detail::
+                fused_gqa_sigmoid_gate_prefix_token_count(
+                    tile.first_position, tile.token_count);
+        for (std::size_t token = 0U; token < tile.token_count; ++token) {
+          const std::size_t sequence_length =
+              static_cast<std::size_t>(tile.first_position) + token + 1U;
+          const bool fused = token < fused_prefix;
+          const int status =
+              fused
+                  ? launch_gqa_attention_sigmoid_gate_24_4_256_cuda(
+                        tile_query + token * kFullQueryElements,
+                        views_.key_cache[item.layer_index],
+                        views_.value_cache[item.layer_index], sequence_length,
+                        kAttentionScale, views_.fp32_scratch,
+                        views_.fp32_scratch_elements,
+                        packed_gates + token * kFullQueryElements,
+                        attention_output + token * kFullQueryElements,
+                        stream_)
+                  : launch_gqa_attention_reference_cuda(
+                        tile_query + token * kFullQueryElements,
+                        views_.key_cache[item.layer_index],
+                        views_.value_cache[item.layer_index],
+                        kFullQueryHeads, kFullKvHeads, sequence_length,
+                        kFullHeadDimension, kAttentionScale,
+                        views_.fp32_scratch, views_.fp32_scratch_elements,
+                        attention_output + token * kFullQueryElements,
+                        stream_);
+          if (!check_cuda(status,
+                          "prefill_projection_span_full_attention_fallback")) {
+            return failure;
+          }
+        }
+        if (fused_prefix < tile.token_count &&
+            !check_cuda(
+                launch_sigmoid_gate_reference_cuda(
+                    attention_output + fused_prefix * kFullQueryElements,
+                    packed_gates + fused_prefix * kFullQueryElements,
+                    (tile.token_count - fused_prefix) * kFullQueryElements,
+                    attention_output + fused_prefix * kFullQueryElements,
+                    stream_),
+                "prefill_projection_span_full_gate_fallback")) {
+          return failure;
+        }
+      }
+    }
+
+    const PrefillA4LinearSidecarView output_sidecar =
+        prefill_a4_sidecar_view(attention->o_proj);
+    if (!quantize(secondary, kFullQueryElements, token_count,
+                  kFullQueryElements,
+                  output_sidecar.activation_clip_ratio,
+                  views_.prefill_a4_intermediate_packed,
+                  intermediate_packed_capacity,
+                  views_.prefill_a4_intermediate_scales,
+                  intermediate_scale_capacity,
+                  "prefill_projection_span_full_output_quantize") ||
+        !project(attention->o_proj,
+                 views_.prefill_a4_intermediate_packed,
+                 intermediate_packed_capacity,
+                 views_.prefill_a4_intermediate_scales,
+                 intermediate_scale_capacity, token_count, secondary,
+                 "prefill_projection_span_full_output")) {
+      return failure;
+    }
+  } else {
+    return runner_status(ReferenceRunnerError::kInvalidLayerSchedule,
+                         "prefill_projection_span_layer_type",
+                         item.layer_index);
+  }
+
+  if (!check_cuda(
+          launch_residual_add_reference_cuda(
+              input_hidden, secondary, token_count * kReferenceHiddenSize,
+              output_hidden, stream_),
+          "prefill_projection_span_attention_residual") ||
+      !check_cuda(
+          launch_headwise_centered_rms_norm_reference_cuda(
+              output_hidden, layer_weights.post_attention_layernorm.data,
+              token_count, kReferenceHiddenSize, kRmsEpsilon, primary,
+              stream_),
+          "prefill_projection_span_post_attention_norm")) {
+    return failure;
+  }
+
+  const PrefillA4LinearSidecarView gate_sidecar =
+      prefill_a4_sidecar_view(layer_weights.mlp.gate_proj);
+  const PrefillA4LinearSidecarView up_sidecar =
+      prefill_a4_sidecar_view(layer_weights.mlp.up_proj);
+  const PrefillA4LinearSidecarView down_sidecar =
+      prefill_a4_sidecar_view(layer_weights.mlp.down_proj);
+  const std::size_t gate_weight_capacity =
+      kernels::sm87_a4w4_consumer_packed_capacity_bytes(
+          gate_sidecar.output_size, gate_sidecar.input_size);
+  const std::size_t gate_scale_capacity =
+      kernels::sm87_a4w4_consumer_scale_capacity_elements(
+          gate_sidecar.output_size, gate_sidecar.input_size);
+  const std::size_t up_weight_capacity =
+      kernels::sm87_a4w4_consumer_packed_capacity_bytes(
+          up_sidecar.output_size, up_sidecar.input_size);
+  const std::size_t up_scale_capacity =
+      kernels::sm87_a4w4_consumer_scale_capacity_elements(
+          up_sidecar.output_size, up_sidecar.input_size);
+  if (!quantize(primary, kReferenceHiddenSize, token_count,
+                kReferenceHiddenSize, gate_sidecar.activation_clip_ratio,
+                views_.prefill_a4_hidden_packed, hidden_packed_capacity,
+                views_.prefill_a4_hidden_scales, hidden_scale_capacity,
+                "prefill_projection_span_mlp_input_quantize")) {
+    return failure;
+  }
+  const int paired_status = kernels::launch_sm87_a4w4_gateup_paired_cuda(
+      views_.prefill_a4_hidden_packed, hidden_packed_capacity,
+      views_.prefill_a4_hidden_scales, hidden_scale_capacity,
+      gate_sidecar.weight, gate_weight_capacity, gate_sidecar.scales,
+      gate_scale_capacity, up_sidecar.weight, up_weight_capacity,
+      up_sidecar.scales, up_scale_capacity, token_count,
+      kReferenceIntermediateSize, kReferenceHiddenSize,
+      down_sidecar.activation_clip_ratio,
+      views_.prefill_a4_intermediate_packed,
+      intermediate_packed_capacity,
+      views_.prefill_a4_intermediate_scales,
+      intermediate_scale_capacity, stream_);
+  if (!check_cuda(paired_status,
+                  "prefill_projection_span_mlp_gate_up_paired")) {
+    return failure;
+  }
+  ++local_hits.paired_gate_up_hits;
+  local_hits.logical_projection_hits += 2U;
+  ++g_a4w4_full_prefill_admission_hits.paired_gate_up_hits;
+  g_a4w4_full_prefill_admission_hits.logical_projection_hits += 2U;
+  if (!project(layer_weights.mlp.down_proj,
+               views_.prefill_a4_intermediate_packed,
+               intermediate_packed_capacity,
+               views_.prefill_a4_intermediate_scales,
+               intermediate_scale_capacity, token_count, secondary,
+               "prefill_projection_span_mlp_down") ||
+      !check_cuda(
+          launch_residual_add_reference_cuda(
+              output_hidden, secondary,
+              token_count * kReferenceHiddenSize, output_hidden, stream_),
+          "prefill_projection_span_mlp_residual")) {
+    return failure;
+  }
+
+  const bool linear = layer_type == model::LayerType::kLinearAttention;
+  const std::size_t expected_generic = linear ? 4U : 5U;
+  const std::size_t expected_logical = linear ? 6U : 7U;
+  if (local_hits.activation_quantize_hits != 3U ||
+      local_hits.generic_projection_hits != expected_generic ||
+      local_hits.paired_gate_up_hits != 1U ||
+      local_hits.logical_projection_hits != expected_logical) {
+    return runner_status(ReferenceRunnerError::kInvalidRunner,
+                         "prefill_projection_span_a4_accounting",
+                         item.layer_index);
+  }
+
+  if (item.layer_index + 1U == kReferenceDecoderLayerCount &&
+      item.last_projection_span_for_layer) {
+    const std::size_t retained_row =
+        (plan.prompt_token_count - 1U) %
+        kLongPrefillLayerMajorTileTokens;
+    if (!check_cuda(
+            launch_headwise_centered_rms_norm_reference_cuda(
+                output_hidden + (token_count - 1U) * kReferenceHiddenSize,
+                weights_->final_norm().data, 1U, kReferenceHiddenSize,
+                kRmsEpsilon,
+                views_.hidden[1] + retained_row * kReferenceHiddenSize,
+                stream_),
+            "prefill_projection_span_final_norm")) {
+      return failure;
+    }
+  }
+  return {};
+#endif
+}
+
 ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
     const std::uint32_t* const input_token_ids,
     const std::size_t token_count,
@@ -5026,6 +5736,138 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
         ReferenceRunnerError::kInvalidStepOptions,
         "prefill_layer_major_route"));
   }
+
+#if defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
+  const std::uint32_t projection_span_capacity =
+      state_->plan().long_prefill_projection_span_capacity;
+  const bool projection_span_selected =
+      projection_span_capacity != 0U &&
+      prompt_token_count % kLongPrefillLayerMajorTileTokens == 0U &&
+      (a4w4_full_prefill_admission_enabled_ ||
+       g_enable_a4w4_full_prefill_admission);
+  if (projection_span_selected) {
+    LongPrefillProjectionSpanOptions span_options;
+    span_options.prompt_token_count = prompt_token_count;
+    span_options.hidden_token_capacity =
+        state_->plan().long_prefill_token_capacity;
+    span_options.projection_span_token_count = projection_span_capacity;
+    span_options.state_tile_token_count =
+        kLongPrefillLayerMajorTileTokens;
+    const LongPrefillProjectionSpanPlanResult span_plan =
+        build_long_prefill_projection_span_plan(span_options);
+    if (!span_plan) {
+      return fail_long_prefill(runner_status(
+          ReferenceRunnerError::kInvalidStepOptions,
+          "prefill_projection_span_plan"));
+    }
+
+    const auto hits_before = g_a4w4_full_prefill_admission_hits;
+    auto* const device_token_ids =
+        reinterpret_cast<std::uint32_t*>(views_.projection[3]);
+    const auto stream = reinterpret_cast<cudaStream_t>(stream_);
+    for (std::uint32_t first = 0U; first < prompt_token_count;
+         first += kLongPrefillLayerMajorTileTokens) {
+      const std::uint32_t count =
+          std::min(kLongPrefillLayerMajorTileTokens,
+                   prompt_token_count - first);
+      cudaError_t status = cudaMemcpyAsync(
+          device_token_ids, input_token_ids + first,
+          static_cast<std::size_t>(count) * sizeof(std::uint32_t),
+          cudaMemcpyHostToDevice, stream);
+      if (status == cudaSuccess) {
+        status = static_cast<cudaError_t>(
+            launch_embedding_gather_prompt_reference_cuda(
+                weights_->embed_tokens().weight,
+                kReferenceVocabularySize, kReferenceHiddenSize,
+                device_token_ids, count,
+                views_.long_prefill_hidden[0] +
+                    static_cast<std::size_t>(first) *
+                        kReferenceHiddenSize,
+                stream_));
+      }
+      if (status != cudaSuccess) {
+        return fail_long_prefill(runner_status(
+            ReferenceRunnerError::kCudaFailure,
+            "prefill_projection_span_embedding", kReferenceNoLayer,
+            static_cast<int>(status)));
+      }
+    }
+
+    for (std::size_t ordinal = 0U;
+         ordinal < span_plan.value->work_item_count; ++ordinal) {
+      LongPrefillProjectionSpanWorkItem item;
+      if (!long_prefill_projection_span_work_item(
+              *span_plan.value, ordinal, item)) {
+        return fail_long_prefill(runner_status(
+            ReferenceRunnerError::kInvalidStepOptions,
+            "prefill_projection_span_work_item"));
+      }
+      const ReferenceRunnerStatus executed =
+          execute_long_prefill_projection_span(*span_plan.value, item);
+      if (!executed) {
+        return fail_long_prefill(executed);
+      }
+    }
+
+    const cudaError_t sync_status = cudaStreamSynchronize(stream);
+    if (sync_status != cudaSuccess) {
+      return fail_long_prefill(runner_status(
+          ReferenceRunnerError::kCudaFailure,
+          "prefill_projection_span_synchronize", kReferenceNoLayer,
+          static_cast<int>(sync_status)));
+    }
+    const auto& hits_after = g_a4w4_full_prefill_admission_hits;
+    const std::size_t spans = span_plan.value->projection_span_count;
+    const auto exact_delta = [spans](
+                                 const std::size_t current,
+                                 const std::size_t initial,
+                                 const std::size_t per_span) noexcept {
+      return current >= initial &&
+             current - initial == spans * per_span;
+    };
+    if (!exact_delta(hits_after.activation_quantize_hits,
+                     hits_before.activation_quantize_hits, 192U) ||
+        !exact_delta(hits_after.generic_projection_hits,
+                     hits_before.generic_projection_hits, 272U) ||
+        !exact_delta(hits_after.paired_gate_up_hits,
+                     hits_before.paired_gate_up_hits, 64U) ||
+        !exact_delta(hits_after.logical_projection_hits,
+                     hits_before.logical_projection_hits, 400U) ||
+        hits_after.complete_model_tile_hits !=
+            hits_before.complete_model_tile_hits) {
+      return fail_long_prefill(runner_status(
+          ReferenceRunnerError::kInvalidRunner,
+          "prefill_projection_span_aggregate_accounting"));
+    }
+    const RequestOperationStatus commit =
+        state_->set_sequence_length(prompt_token_count);
+    if (!commit) {
+      return fail_long_prefill(runner_status(
+          ReferenceRunnerError::kStateCommitFailure,
+          "prefill_projection_span_commit", kReferenceNoLayer,
+          commit.cuda_error));
+    }
+    g_a4w4_full_prefill_admission_hits.complete_model_tile_hits += spans;
+    retained_prefill_hidden_valid_ = true;
+    retained_prefill_position_ = prompt_token_count - 1U;
+    retained_prefill_input_token_ =
+        input_token_ids[prompt_token_count - 1U];
+    retained_prefill_hidden_row_ =
+        (prompt_token_count - 1U) % kLongPrefillLayerMajorTileTokens;
+
+    ReferenceLongPrefillResult value;
+    value.first_position = 0U;
+    value.token_count = token_count;
+    if (measure_timing) {
+      const std::chrono::duration<double, std::milli> elapsed =
+          Clock::now() - started;
+      value.timing.emplace(ReferenceStepTiming{elapsed.count()});
+    }
+    ReferenceLongPrefillOutcome outcome;
+    outcome.value.emplace(std::move(value));
+    return outcome;
+  }
+#endif
 
   LongPrefillLayerMajorOptions plan_options;
   plan_options.prompt_token_count = prompt_token_count;
