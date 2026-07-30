@@ -19,6 +19,25 @@ namespace q3x::runtime::gdn_prefill_chunk_o_bv64_detail {
     float norm_epsilon, std::uint16_t* raw_output,
     std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
 
+// Correctness-only WMMA oracle for diagnosing inline-PTX fragment mapping.
+// Engine dispatch and performance admission never call this entry.
+[[nodiscard]] int launch_wmma_oracle(
+    const std::uint16_t* compact_q, const std::uint16_t* compact_k,
+    const std::uint16_t* boundary_state, const std::uint16_t* v_new,
+    const float* cumulative_gate, std::size_t token_count,
+    const std::uint16_t* norm_weight, const std::uint16_t* silu_gate,
+    float norm_epsilon, std::uint16_t* raw_output,
+    std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
+
+// Correctness-only lane sentinel. `matrix_a` and canonical [N,K] `matrix_b`
+// are 16x16 BF16. Output arrays hold 32 lane fragments: A4, B2 and C4.
+[[nodiscard]] int launch_fragment_sentinel(
+    const std::uint16_t* matrix_a, const std::uint16_t* matrix_b,
+    std::uint32_t* loaded_a, std::uint32_t* direct_a,
+    std::uint32_t* loaded_b, std::uint32_t* direct_b,
+    float* loaded_accumulator, float* direct_accumulator,
+    void* cuda_stream = nullptr) noexcept;
+
 // Correctness-fixture entry for the independent exact epilogue. row_count
 // rows of D128 BF16 input/gate are normalized without launching chunk-o.
 [[nodiscard]] int launch_norm_rows8(

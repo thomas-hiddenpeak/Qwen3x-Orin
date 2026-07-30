@@ -52,7 +52,7 @@ struct WyTimingHook {
 [[nodiscard]] bool exchange_force_resident_state_baseline_for_test(
     bool enabled) noexcept;
 
-[[nodiscard]] bool exchange_force_chunk_o_bv64_candidate_for_test(
+[[nodiscard]] bool exchange_force_legacy_qk_reconstruct_baseline_for_test(
     bool enabled) noexcept;
 
 // Admission-only C64..C512 native SM87 FLA/WY pipeline. The implementation
