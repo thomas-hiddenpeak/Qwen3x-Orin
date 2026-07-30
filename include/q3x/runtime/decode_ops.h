@@ -378,7 +378,8 @@ can_use_bulk_causal_gqa_long_context_group_q64_prefill(
     const std::size_t token_count) noexcept {
   constexpr std::size_t kFirstPositionCapacity =
       std::size_t{1U} << kBulkCausalGqaGroupQ64FirstPositionBits;
-  return token_count >= 2U && token_count <= 512U &&
+  return first_position >= 1'024U && token_count >= 2U &&
+         token_count <= 512U &&
          first_position < kFirstPositionCapacity &&
          first_position <=
              kBulkCausalGqaLongContextGroupQ64MaximumSequenceLength -

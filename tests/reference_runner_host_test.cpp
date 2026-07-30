@@ -580,13 +580,13 @@ void test_schedule_and_workspace(TestContext& test) {
       << runtime::kBulkCausalGqaGroupQ64FirstPositionBits;
   test.expect(
       runtime::can_use_bulk_causal_gqa_long_context_group_q64_prefill(
-          1U, 2U) &&
-          runtime::can_use_bulk_causal_gqa_long_context_group_q64_prefill(
-              1'024U, 512U) &&
+          1'024U, 512U) &&
           runtime::can_use_bulk_causal_gqa_long_context_group_q64_prefill(
               4'096U, 512U) &&
           runtime::can_use_bulk_causal_gqa_long_context_group_q64_prefill(
               kLongMaximum - 512U, 512U) &&
+          !runtime::can_use_bulk_causal_gqa_long_context_group_q64_prefill(
+              1'023U, 2U) &&
           !runtime::can_use_bulk_causal_gqa_long_context_group_q64_prefill(
               1'024U, 1U) &&
           !runtime::can_use_bulk_causal_gqa_long_context_group_q64_prefill(
@@ -597,8 +597,8 @@ void test_schedule_and_workspace(TestContext& test) {
               kPackedPositionCapacity, 2U) &&
           !runtime::can_use_bulk_causal_gqa_long_context_group_q64_prefill(
               std::numeric_limits<std::size_t>::max(), 2U),
-      "long-context grouped-Q64 capability enforces C2..C512, 40K KV, "
-      "18-bit ABI, and overflow boundaries");
+      "long-context grouped-Q64 capability enforces P1024+, C2..C512, "
+      "40K KV, 18-bit ABI, and overflow boundaries");
   const char* const long_context_environment = std::getenv(
       "Q3X_RUN_FULL_ATTENTION_LONG_CONTEXT_GROUP_Q64_ADMISSION");
   const bool long_context_run_enabled =

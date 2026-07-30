@@ -9543,7 +9543,13 @@ void run_bulk_gqa_correctness_case(
                            48) /
         16.0F);
   }
-  const float value_bias = first_position == 512U ? 2.0F : 0.0F;
+  // Long-context centered synthetic values drive the reference output close
+  // enough to zero that normalized/relative errors become ill-conditioned
+  // even when absolute BF16 error is only O(1e-5).  Exercise arbitrary
+  // positions with the same non-zero-mean value fixture already used by the
+  // established P512 continuation cases so every numerical gate remains
+  // meaningful instead of relaxing it for the new route.
+  const float value_bias = first_position >= 512U ? 2.0F : 0.0F;
   for (std::size_t index = 0U; index < cache_elements; ++index) {
     key[index] = encode_bf16(
         static_cast<float>(static_cast<int>((index * 29U + 7U) % 113U) -
