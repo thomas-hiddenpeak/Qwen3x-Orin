@@ -197,7 +197,7 @@ class DeviceBuffer final {
                  "quantize A4") ||
       !launch_ok(kernels::launch_sm87_a4w4_prefill_gemm_bf16_cuda(
                      device_a.get(), kPackedRowBytes,
-                     device_a_scales.get(), device_b.get(),
+                     device_a_scales.get(), kGroups, device_b.get(),
                      kPackedRowBytes, device_b_scales.get(), kM, kN, kK,
                      device_output.get(), kN),
                  "A4W4 GEMM") ||

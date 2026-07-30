@@ -115,6 +115,7 @@ struct Sm87A4W4PrefillGemmResources final {
     const std::uint8_t* packed_a,
     std::size_t packed_a_row_stride_bytes,
     const std::uint16_t* a_k64_scales_bf16,
+    std::size_t a_scale_row_stride_elements,
     const std::uint8_t* packed_b,
     std::size_t packed_b_row_stride_bytes,
     const std::uint16_t* b_k64_scales_bf16,

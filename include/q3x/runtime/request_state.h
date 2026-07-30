@@ -22,6 +22,7 @@ inline constexpr std::size_t kRequestFullLayerCount = 16U;
 inline constexpr std::size_t kRequestHiddenBufferCount = 3U;
 inline constexpr std::size_t kRequestProjectionBufferCount = 4U;
 inline constexpr std::size_t kRequestLongPrefillHiddenBufferCount = 2U;
+inline constexpr std::size_t kRequestA4PrefillScaleGroupSize = 64U;
 inline constexpr std::uint32_t kRequestLongPrefillAdmissionMaximumTokens =
     4'096U;
 inline constexpr std::uint64_t kRequestConvStateBytes = 2'949'120U;
@@ -60,6 +61,11 @@ struct RequestMemoryOptions {
     // tile-major arena. A nonzero value reserves two full-length BF16 hidden
     // slabs while the existing C512 projection workspace remains shared.
     std::uint32_t long_prefill_token_capacity = 0U;
+    // Gated full-model A4 Prefill admission. Reserves one packed hidden input
+    // and one packed intermediate/attention-output input plus their BF16 K64
+    // scales. Decode and ordinary Prefill retain the byte-identical arena when
+    // this is false.
+    bool enable_a4_prefill_workspace = false;
     std::uint64_t max_arena_bytes = 2ULL * 1024ULL * 1024ULL * 1024ULL;
     std::uint64_t min_free_bytes_after_create =
         8ULL * 1024ULL * 1024ULL * 1024ULL;
@@ -132,6 +138,10 @@ struct RequestMemoryPlan {
     std::array<RequestRegion, kRequestLongPrefillHiddenBufferCount>
         long_prefill_hidden_bf16;
     std::array<RequestRegion, kRequestProjectionBufferCount> projection_bf16;
+    RequestRegion prefill_a4_hidden_packed;       // [C, 5120/2] U8
+    RequestRegion prefill_a4_hidden_scales_bf16;  // [C, 5120/64]
+    RequestRegion prefill_a4_intermediate_packed;  // [C, 17408/2] U8
+    RequestRegion prefill_a4_intermediate_scales_bf16;  // [C, 17408/64]
     RequestRegion linear_a_bf16;  // [48], independent from projection buffers
     RequestRegion linear_b_bf16;  // [48], independent from projection buffers
     RequestRegion fp32_scratch;
@@ -263,6 +273,10 @@ class RequestState {
     [[nodiscard]] RequestViewResult long_prefill_hidden_buffer(
         std::size_t index) noexcept;
     [[nodiscard]] RequestViewResult projection_buffer(std::size_t index) noexcept;
+    [[nodiscard]] RequestViewResult prefill_a4_hidden_packed() noexcept;
+    [[nodiscard]] RequestViewResult prefill_a4_hidden_scales() noexcept;
+    [[nodiscard]] RequestViewResult prefill_a4_intermediate_packed() noexcept;
+    [[nodiscard]] RequestViewResult prefill_a4_intermediate_scales() noexcept;
     [[nodiscard]] RequestViewResult linear_a_buffer() noexcept;
     [[nodiscard]] RequestViewResult linear_b_buffer() noexcept;
     [[nodiscard]] RequestViewResult fp32_scratch() noexcept;

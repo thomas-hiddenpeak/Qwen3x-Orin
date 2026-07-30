@@ -577,6 +577,38 @@ ReferenceRunnerStatus ReferenceRunner::collect_request_views(
     views.projection[index] =
         static_cast<std::uint16_t*>(view.value->device_data);
   }
+  if (state->plan().prefill_a4_hidden_packed.byte_size != 0U) {
+    RequestViewResult hidden_packed = state->prefill_a4_hidden_packed();
+    RequestViewResult hidden_scales = state->prefill_a4_hidden_scales();
+    RequestViewResult intermediate_packed =
+        state->prefill_a4_intermediate_packed();
+    RequestViewResult intermediate_scales =
+        state->prefill_a4_intermediate_scales();
+    if (!valid_view(hidden_packed,
+                    workspace_tokens * kReferenceHiddenSize / 2U, 1U) ||
+        !valid_view(hidden_scales,
+                    workspace_tokens * kReferenceHiddenSize /
+                        kRequestA4PrefillScaleGroupSize,
+                    sizeof(std::uint16_t)) ||
+        !valid_view(intermediate_packed,
+                    workspace_tokens * kReferenceIntermediateSize / 2U,
+                    1U) ||
+        !valid_view(intermediate_scales,
+                    workspace_tokens * kReferenceIntermediateSize /
+                        kRequestA4PrefillScaleGroupSize,
+                    sizeof(std::uint16_t))) {
+      return runner_status(ReferenceRunnerError::kInvalidRequestState,
+                           "prefill_a4_workspace");
+    }
+    views.prefill_a4_hidden_packed =
+        static_cast<std::uint8_t*>(hidden_packed.value->device_data);
+    views.prefill_a4_hidden_scales =
+        static_cast<std::uint16_t*>(hidden_scales.value->device_data);
+    views.prefill_a4_intermediate_packed =
+        static_cast<std::uint8_t*>(intermediate_packed.value->device_data);
+    views.prefill_a4_intermediate_scales =
+        static_cast<std::uint16_t*>(intermediate_scales.value->device_data);
+  }
 
   RequestViewResult linear_a = state->linear_a_buffer();
   RequestViewResult linear_b = state->linear_b_buffer();
@@ -1407,6 +1439,11 @@ ReferenceRunnerError validate_reference_workspace_plan(
            region.element_capacity >= elements &&
            region.byte_size >= elements * sizeof(float);
   };
+  const auto byte_region_at_least = [](const RequestRegion& region,
+                                       const std::uint64_t bytes) noexcept {
+    return region.element_size_bytes == 1U &&
+           region.element_capacity >= bytes && region.byte_size >= bytes;
+  };
 
   for (const RequestRegion& region : plan.hidden_bf16) {
     if (!bf16_region_at_least(
@@ -1421,6 +1458,31 @@ ReferenceRunnerError validate_reference_workspace_plan(
                         kReferenceIntermediateSize)) {
       return ReferenceRunnerError::kInvalidRequestState;
     }
+  }
+  const bool has_a4_workspace =
+      plan.prefill_a4_hidden_packed.byte_size != 0U ||
+      plan.prefill_a4_hidden_scales_bf16.byte_size != 0U ||
+      plan.prefill_a4_intermediate_packed.byte_size != 0U ||
+      plan.prefill_a4_intermediate_scales_bf16.byte_size != 0U;
+  if (has_a4_workspace &&
+      (!byte_region_at_least(
+           plan.prefill_a4_hidden_packed,
+           static_cast<std::uint64_t>(plan.prefill_chunk_size) *
+               kReferenceHiddenSize / 2U) ||
+       !bf16_region_at_least(
+           plan.prefill_a4_hidden_scales_bf16,
+           static_cast<std::uint64_t>(plan.prefill_chunk_size) *
+               kReferenceHiddenSize / kRequestA4PrefillScaleGroupSize) ||
+       !byte_region_at_least(
+           plan.prefill_a4_intermediate_packed,
+           static_cast<std::uint64_t>(plan.prefill_chunk_size) *
+               kReferenceIntermediateSize / 2U) ||
+       !bf16_region_at_least(
+           plan.prefill_a4_intermediate_scales_bf16,
+           static_cast<std::uint64_t>(plan.prefill_chunk_size) *
+               kReferenceIntermediateSize /
+               kRequestA4PrefillScaleGroupSize))) {
+    return ReferenceRunnerError::kInvalidRequestState;
   }
   if (!bf16_region_at_least(
           plan.linear_a_bf16,
