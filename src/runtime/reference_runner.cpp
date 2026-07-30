@@ -755,6 +755,12 @@ std::size_t exchange_gdn_conv_compact_qk_fused_candidate_test_hits(
   return std::exchange(g_gdn_conv_compact_qk_fused_candidate_hits, hits);
 }
 
+bool exchange_gdn_conv_compact_qk_fused_candidate_test_enabled(
+    const bool enabled) noexcept {
+  return std::exchange(g_enable_gdn_conv_compact_qk_fused_candidate,
+                       enabled);
+}
+
 PrefillGdnChunk64NativeSnapshotHook
 exchange_prefill_gdn_chunk64_native_snapshot_hook(
     const PrefillGdnChunk64NativeSnapshotHook hook) noexcept {

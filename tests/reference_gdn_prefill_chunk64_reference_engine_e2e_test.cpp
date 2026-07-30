@@ -69,6 +69,12 @@ static_assert(detail::prefill_gdn_chunk64_legacy_tail_token_count(481U) ==
   return detail::exchange_gdn_conv_compact_qk_fused_candidate_test_hits(hits);
 }
 
+[[nodiscard]] bool exchange_fused_preprocess_enabled(
+    const bool enabled) noexcept {
+  return detail::exchange_gdn_conv_compact_qk_fused_candidate_test_enabled(
+      enabled);
+}
+
 [[nodiscard]] SelectedSnapshotHook exchange_snapshot_hook(
     const SelectedSnapshotHook hook) noexcept {
   return detail::exchange_prefill_gdn_chunk64_native_snapshot_hook(hook);
@@ -94,6 +100,11 @@ using SelectedSnapshotHook = detail::PrefillGdnChunk64ReferenceSnapshotHook;
   return 0U;
 }
 
+[[nodiscard]] bool exchange_fused_preprocess_enabled(
+    const bool /*enabled*/) noexcept {
+  return false;
+}
+
 [[nodiscard]] SelectedSnapshotHook exchange_snapshot_hook(
     const SelectedSnapshotHook hook) noexcept {
   return detail::exchange_prefill_gdn_chunk64_reference_snapshot_hook(hook);
@@ -111,6 +122,24 @@ class ScopedAdmission {
 
   ScopedAdmission(const ScopedAdmission&) = delete;
   ScopedAdmission& operator=(const ScopedAdmission&) = delete;
+
+ private:
+  bool previous_ = false;
+};
+
+class ScopedFusedPreprocessCandidate {
+ public:
+  explicit ScopedFusedPreprocessCandidate(const bool enabled) noexcept
+      : previous_(exchange_fused_preprocess_enabled(enabled)) {}
+
+  ~ScopedFusedPreprocessCandidate() {
+    (void)exchange_fused_preprocess_enabled(previous_);
+  }
+
+  ScopedFusedPreprocessCandidate(const ScopedFusedPreprocessCandidate&) =
+      delete;
+  ScopedFusedPreprocessCandidate& operator=(
+      const ScopedFusedPreprocessCandidate&) = delete;
 
  private:
   bool previous_ = false;
@@ -510,13 +539,8 @@ void print_diagnostic(
   return admitted_tiles * runtime::kRequestLinearLayerCount;
 }
 
-[[nodiscard]] std::size_t expected_fused_preprocess_hits() noexcept {
+[[nodiscard]] std::size_t expected_aligned_fused_preprocess_hits() noexcept {
 #if defined(Q3X_GDN_CHUNK64_NATIVE_TEST)
-  const char* const selector =
-      std::getenv("Q3X_RUN_GDN_CONV_COMPACT_QK_FUSED_CANDIDATE");
-  if (selector == nullptr || std::strcmp(selector, "1") != 0) {
-    return 0U;
-  }
   std::size_t remaining = g_prompt_tokens - 1U;
   std::size_t admitted_tiles = 0U;
   while (remaining != 0U) {
@@ -532,6 +556,18 @@ void print_diagnostic(
 #else
   return 0U;
 #endif
+}
+
+[[nodiscard]] std::size_t
+expected_environment_fused_preprocess_hits() noexcept {
+#if defined(Q3X_GDN_CHUNK64_NATIVE_TEST)
+  const char* const selector =
+      std::getenv("Q3X_RUN_GDN_CONV_COMPACT_QK_FUSED_CANDIDATE");
+  if (selector != nullptr && std::strcmp(selector, "1") == 0) {
+    return expected_aligned_fused_preprocess_hits();
+  }
+#endif
+  return 0U;
 }
 
 [[nodiscard]] bool validate_native_resources() {
@@ -574,7 +610,11 @@ void print_diagnostic(
                               const bool candidate,
                               const std::string_view phase,
                               Sample& sample,
-                              const std::string_view route_label = {}) {
+                              const std::string_view route_label = {},
+                              const std::size_t
+                                  expected_fused_preprocess_hits_override =
+                                      std::numeric_limits<
+                                          std::size_t>::max()) {
   runtime::ReferenceGenerateOptions options;
   options.max_new_tokens = 1U;
   options.prefill_chunk_size = kPrefillChunkTokens;
@@ -611,7 +651,10 @@ void print_diagnostic(
   const std::size_t expected_hits =
       candidate ? expected_native_route_hits() : 0U;
   const std::size_t expected_preprocess_hits =
-      candidate ? expected_fused_preprocess_hits() : 0U;
+      expected_fused_preprocess_hits_override !=
+              std::numeric_limits<std::size_t>::max()
+          ? expected_fused_preprocess_hits_override
+          : (candidate ? expected_environment_fused_preprocess_hits() : 0U);
   const bool structural_oracle =
       result.value->timing.prefix_execution_milliseconds.size() ==
           expected_prefix_executions() &&
@@ -1257,6 +1300,76 @@ void destroy_event(cudaEvent_t& event) noexcept {
   return positive;
 }
 
+[[nodiscard]] bool run_native_conv_compact_qk_direction(
+    runtime::ReferenceEngine& engine,
+    const std::string& prompt) {
+  const char* const requested =
+      std::getenv("Q3X_RUN_GDN_CONV_COMPACT_QK_FUSED_CANDIDATE");
+  if (requested == nullptr || std::strcmp(requested, "1") != 0) {
+    std::cerr << "conv+compact-QK direction requires "
+                 "Q3X_RUN_GDN_CONV_COMPACT_QK_FUSED_CANDIDATE=1\n";
+    return false;
+  }
+
+  Sample baseline;
+  Sample candidate;
+  bool valid = false;
+  {
+    const ScopedFusedPreprocessCandidate route(false);
+    valid = run_sample(engine, prompt, true, "conv_compact_qk_baseline",
+                       baseline, "conv_compact_qk_baseline", 0U);
+  }
+  {
+    const ScopedFusedPreprocessCandidate route(true);
+    valid = run_sample(
+                engine, prompt, true, "conv_compact_qk_candidate",
+                candidate, "conv_compact_qk_candidate",
+                expected_aligned_fused_preprocess_hits()) &&
+            valid;
+  }
+  const bool hits =
+      baseline.route_hits == expected_native_route_hits() &&
+      candidate.route_hits == expected_native_route_hits() &&
+      baseline.fused_preprocess_hits == 0U &&
+      candidate.fused_preprocess_hits ==
+          expected_aligned_fused_preprocess_hits();
+  const bool semantics =
+      baseline.semantic_oracle && candidate.semantic_oracle &&
+      baseline.generated_token == candidate.generated_token &&
+      baseline.generated_text == candidate.generated_text;
+  const double prefix_saved =
+      baseline.prefix_milliseconds - candidate.prefix_milliseconds;
+  const double ttft_saved =
+      baseline.ttft_milliseconds - candidate.ttft_milliseconds;
+  const bool positive = valid && hits && semantics && prefix_saved > 0.0 &&
+                        ttft_saved > 0.0;
+  std::cout << "GDN_CHUNK64_NATIVE_CONV_COMPACT_QK_DIRECTION"
+            << " prompt_tokens=" << g_prompt_tokens
+            << " baseline_prefix_ms=" << baseline.prefix_milliseconds
+            << " candidate_prefix_ms=" << candidate.prefix_milliseconds
+            << " prefix_saved_ms=" << prefix_saved
+            << " prefix_speedup="
+            << baseline.prefix_milliseconds / candidate.prefix_milliseconds
+            << " baseline_ttft_ms=" << baseline.ttft_milliseconds
+            << " candidate_ttft_ms=" << candidate.ttft_milliseconds
+            << " ttft_saved_ms=" << ttft_saved
+            << " ttft_speedup="
+            << baseline.ttft_milliseconds / candidate.ttft_milliseconds
+            << " baseline_native_hits=" << baseline.route_hits
+            << " candidate_native_hits=" << candidate.route_hits
+            << " baseline_fused_hits=" << baseline.fused_preprocess_hits
+            << " candidate_fused_hits=" << candidate.fused_preprocess_hits
+            << " expected_fused_hits="
+            << expected_aligned_fused_preprocess_hits()
+            << " direction=" << (positive ? "POSITIVE" : "NEGATIVE")
+            << " semantic_oracle=" << (semantics ? "PASS" : "FAIL")
+            << " hit_oracle=" << (hits ? "PASS" : "FAIL")
+            << " generated_token=" << candidate.generated_token
+            << " generated_text=" << candidate.generated_text
+            << " authority=REAL_WEIGHT_SINGLE_B_C\n";
+  return positive;
+}
+
 class DeviceBuffer {
  public:
   explicit DeviceBuffer(const std::size_t bytes) noexcept : bytes_(bytes) {
@@ -1655,6 +1768,12 @@ int main(const int argc, char** const argv) {
   if (std::getenv(
           "Q3X_GDN_CHUNK64_RUN_RESIDENT_STATE_DIRECTION_ONLY") != nullptr) {
     return run_native_resident_state_direction(*created.value, prompt)
+               ? 0
+               : 3;
+  }
+  if (std::getenv(
+          "Q3X_GDN_CHUNK64_RUN_CONV_COMPACT_QK_DIRECTION_ONLY") != nullptr) {
+    return run_native_conv_compact_qk_direction(*created.value, prompt)
                ? 0
                : 3;
   }
