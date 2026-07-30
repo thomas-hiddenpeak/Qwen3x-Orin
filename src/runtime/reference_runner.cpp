@@ -78,6 +78,15 @@ full_attention_preprocess_prompt_wide_environment_enabled() noexcept {
 thread_local bool g_enable_full_attention_preprocess_prompt_wide_admission =
     full_attention_preprocess_prompt_wide_environment_enabled();
 
+[[nodiscard]] bool decode_gqa_splitkv_environment_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_DECODE_GQA_SPLITKV_ADMISSION");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
+thread_local bool g_enable_decode_gqa_splitkv_admission =
+    decode_gqa_splitkv_environment_enabled();
+
 [[nodiscard]] bool
 prefill_residual_rms_prompt_wide_environment_enabled() noexcept {
   const char* const value =
@@ -1110,6 +1119,12 @@ bool use_fused_gqa_sigmoid_gate_tile(
   return token_count != 0U &&
          fused_gqa_sigmoid_gate_prefix_token_count(first_position,
                                                    token_count) == token_count;
+}
+
+bool use_decode_gqa_splitkv(const std::size_t sequence_length) noexcept {
+  return g_enable_decode_gqa_splitkv_admission &&
+         sequence_length > kFusedGqaMaximumSequenceLength &&
+         sequence_length <= kDecodeGqaSplitKvMaximumSequenceLength;
 }
 
 std::size_t fused_gqa_sigmoid_gate_prefix_token_count(
@@ -2381,6 +2396,18 @@ ReferenceStepOutcome ReferenceRunner::step_impl(
                     views_.fp32_scratch_elements, packed_gates,
                     views_.projection[1], stream_),
                 "full_gqa_output_gate", layer)) {
+          return fail_step(launch_failure);
+        }
+      } else if (reference_runner_detail::use_decode_gqa_splitkv(
+                     sequence_length)) {
+        if (!check_cuda(
+                launch_gqa_attention_splitkv_sigmoid_gate_24_4_256_cuda(
+                    full_query, views_.key_cache[layer],
+                    views_.value_cache[layer], sequence_length,
+                    kAttentionScale, views_.fp32_scratch,
+                    views_.fp32_scratch_elements, packed_gates,
+                    views_.projection[1], stream_),
+                "full_gqa_splitkv_output_gate", layer)) {
           return fail_step(launch_failure);
         }
       } else if (!check_cuda(launch_gqa_attention_reference_cuda(

@@ -501,6 +501,23 @@ void test_schedule_and_workspace(TestContext& test) {
       "large Prefill tiles retain exactly their position-bounded fused GQA prefix");
 
   test.expect(
+      runtime::gqa_attention_splitkv_sigmoid_gate_24_4_256_workspace_elements(
+          64U) == 0U &&
+          runtime::gqa_attention_splitkv_sigmoid_gate_24_4_256_workspace_elements(
+              65U) == 24U * 4U * 258U &&
+          runtime::gqa_attention_splitkv_sigmoid_gate_24_4_256_workspace_elements(
+              512U) == 24U * 4U * 258U &&
+          runtime::gqa_attention_splitkv_sigmoid_gate_24_4_256_workspace_elements(
+              513U) == 24U * 8U * 258U &&
+          runtime::gqa_attention_splitkv_sigmoid_gate_24_4_256_workspace_elements(
+              4'096U) ==
+              runtime::kDecodeGqaSplitKvMaximumWorkspaceElements &&
+          runtime::gqa_attention_splitkv_sigmoid_gate_24_4_256_workspace_elements(
+              4'097U) == 0U,
+      "decode split-KV workspace switches from 16 to 32 state CTAs and "
+      "rejects positions outside [65,4096]");
+
+  test.expect(
       detail::use_bulk_causal_gqa_sigmoid_gate_prefill(
           runtime::ProjectionBackend::kSm87WeightOnly,
           q3x::model::LayerType::kFullAttention, 0U, 256U) &&

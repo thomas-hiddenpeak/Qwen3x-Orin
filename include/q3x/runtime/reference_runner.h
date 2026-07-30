@@ -288,6 +288,12 @@ struct LogitsAnalysis {
 [[nodiscard]] bool use_fused_gqa_sigmoid_gate_tile(
     std::size_t first_position, std::size_t token_count) noexcept;
 
+// Admission-only decode selector.  The legacy score/softmax/value/gate path
+// remains in the same ELF and is selected unless the split-KV admission flag
+// is enabled and the dynamic sequence length is in [65, 4096].
+[[nodiscard]] bool use_decode_gqa_splitkv(
+    std::size_t sequence_length) noexcept;
+
 // Returns the leading token count whose causal positions remain within the
 // fused GQA/Gate kernel limit. A C256/C512 tile beginning before position 64
 // keeps this prefix fused while its suffix follows the reference fallback.

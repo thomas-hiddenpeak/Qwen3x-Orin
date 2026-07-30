@@ -205,6 +205,7 @@ add_library(q3x_kernels STATIC
   src/kernels/reference/nvfp4_reference.cu
   src/kernels/reference/projection_dispatch.cpp
   src/kernels/sm87/device_probe.cu
+  src/kernels/sm87/decode_gqa_splitkv_sm87.cu
   src/kernels/sm87/fp8_prefill_supermatrix.cu
   src/kernels/sm87/nvfp4_marlin_w4a16.cu
   src/kernels/sm87/weight_only_gemv.cu
