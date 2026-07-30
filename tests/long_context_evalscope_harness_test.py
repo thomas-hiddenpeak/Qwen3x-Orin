@@ -73,6 +73,7 @@ class Fixture:
             "#!/bin/sh\n"
             "# Q3X_RUN_FULL_ATTENTION_LONG_CONTEXT_GROUP_Q64_ADMISSION\n"
             "# Q3X_FULL_ATTENTION_FLASHINFER_DIRECT\n"
+            "# Q3X_RUN_LONG_PREFILL_LAYER_MAJOR_ADMISSION\n"
             + "# " + ("x" * 262_144) + "\n"
             "exit 0\n"
         )
@@ -214,11 +215,11 @@ class LongContextEvalScopeHarnessTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("runs=4 dry_run=1", result.stdout)
         self.assertIn("--max-sequence-length 8192", result.stdout)
-        self.assertIn("--request-max-arena-bytes 705593344", result.stdout)
+        self.assertIn("--request-max-arena-bytes 873365504", result.stdout)
         self.assertIn("--max-sequence-length 16384", result.stdout)
-        self.assertIn("--request-max-arena-bytes 1245085696", result.stdout)
+        self.assertIn("--request-max-arena-bytes 1580630016", result.stdout)
         self.assertEqual(result.stdout.count("--max-sequence-length 40960"), 2)
-        self.assertEqual(result.stdout.count("--request-max-arena-bytes 3221225472"), 2)
+        self.assertEqual(result.stdout.count("--request-max-arena-bytes 3703209984"), 2)
         self.assertIn("phase=cold16", result.stdout)
         self.assertIn("--max-output-tokens 16", result.stdout)
         self.assertIn("server_readiness_route=http://127.0.0.1:", result.stdout)

@@ -174,10 +174,21 @@ The pure host planner also locks the long-context C512 deployment envelope:
 | 40,015 | 2,700,869,632 | 90,971,648 | 10,244,096 | 2,802,085,376 | rejected |
 | 40,960 | 2,762,801,152 | 91,062,272 | 10,485,760 | 2,864,349,184 | rejected |
 
+When the explicit layer-major long-Prefill admission is requested, two full
+BF16 `[P,5120]` hidden slabs are added after the reusable C512 workspace. The
+external long-context runner therefore uses these exact enlarged arenas:
+
+| Capacity | Hidden slab increment | Layer-major arena bytes |
+| ---: | ---: | ---: |
+| 8,192 | 167,772,160 | 873,365,504 |
+| 16,384 | 335,544,320 | 1,580,630,016 |
+| 40,960 | 838,860,800 | 3,703,209,984 |
+
 Capacity 40,015 is the exact reservation for a 40,000-token prompt and at
 most 16 generated tokens (`prompt + max_new_tokens - 1`). A rounded deployment
-reservation uses `--max-sequence-length 40960 --request-max-arena-bytes
-3221225472` on `qwen3x-eval-server`; the existing 8 GiB post-create free-memory
+layer-major reservation uses `--max-sequence-length 40960
+--request-max-arena-bytes 3703209984` on `qwen3x-eval-server`; the existing
+8 GiB post-create free-memory
 margin remains independent. Under C512, the default 2 GiB cap accepts at most
 30,079 positions; 30,080 is already 4,096 bytes over the cap.
 

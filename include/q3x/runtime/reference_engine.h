@@ -172,7 +172,7 @@ struct ReferenceGeneration {
   // decomposing it into canonical C512/C256/C64/C32/tail executions.
   bool single_arbitrary_prefill_tiles = false;
   // True only when one whole prompt used the build- and runtime-gated
-  // P<=4096 layer-major runner path.
+  // P<=40960 layer-major runner path.
   bool layer_major_prefill = false;
   ReferenceGenerationTiming timing;
   std::vector<ReferenceStepResult> steps;
@@ -674,7 +674,7 @@ struct PrefillPlan {
   // finalizes logits from the last prompt step already committed by a marked
   // prefix tile; it must not append or commit another model-state step.
   StepFunction finish_prefill_from_tile = nullptr;
-  // Required only for the whole-prompt P<=4096 layer-major admission.
+  // Required only for the whole-prompt P<=40960 layer-major admission.
   LongPrefillFunction layer_major_prompt = nullptr;
 };
 

@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-long-layer-major-p40k-admission-2026-07-31",
+  "status": "host_capacity_admission_only_no_gpu_performance_claim",
+  "implementation_base": "9fd115a",
+  "maximum_prompt_tokens": 40960,
+  "tile_tokens": 512,
+  "layer_count": 64,
+  "capacities": {
+    "8192": {
+      "tiles_per_layer": 16,
+      "work_items": 1024,
+      "arena_bytes": 873365504
+    },
+    "16384": {
+      "tiles_per_layer": 32,
+      "work_items": 2048,
+      "arena_bytes": 1580630016
+    },
+    "40960": {
+      "tiles_per_layer": 80,
+      "work_items": 5120,
+      "arena_bytes": 3703209984
+    }
+  },
+  "required_build_gate": "Q3X_BUILD_LONG_PREFILL_LAYER_MAJOR_ADMISSION=ON",
+  "required_run_gate": "Q3X_RUN_LONG_PREFILL_LAYER_MAJOR_ADMISSION=1",
+  "corpus_policy": "authorized_real_natural_corpus_only_no_padding_repeat_truncation_concat_or_synthetic_text",
+  "performance": {
+    "gpu_runs": 0,
+    "tokens_per_second": null
+  }
+}

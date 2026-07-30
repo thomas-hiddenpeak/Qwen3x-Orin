@@ -311,7 +311,7 @@ struct LogitsAnalysis {
 
 // Admission-only decode selector.  The legacy score/softmax/value/gate path
 // remains in the same ELF and is selected unless the split-KV admission flag
-// is enabled and the dynamic sequence length is in [65, 4096].
+// is enabled and the dynamic sequence length is in [65, 40960].
 [[nodiscard]] bool use_decode_gqa_splitkv(
     std::size_t sequence_length) noexcept;
 
@@ -540,7 +540,7 @@ class ReferenceRunner {
       const std::uint32_t* input_token_ids, std::size_t token_count,
       const ReferencePrefillTileOptions& options = {}) noexcept;
 
-  // Test-build/runtime-gated P513..P4096 path. Embeddings are gathered once
+  // Test-build/runtime-gated P513..P40960 path. Embeddings are gathered once
   // into the first full hidden slab, then all C512/tail tiles of layer L run
   // before layer L+1. Existing projection, GDN, and Attention kernel ABIs are
   // reused with explicit global positions. The prompt owns exactly one
