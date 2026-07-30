@@ -50,6 +50,10 @@ option(Q3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION
   "Build the test-only FlashInfer SM87 Prefill-attention route"
   OFF
 )
+option(Q3X_BUILD_NVFP4_A8W4_GATE_ADMISSION
+  "Build the test-only approximate A8xW4 Gate C512 direction probe"
+  OFF
+)
 if(Q3X_BUILD_GDN_B8_ADMISSION AND NOT BUILD_TESTING)
   message(FATAL_ERROR
     "Q3X_BUILD_GDN_B8_ADMISSION is test-only and requires BUILD_TESTING=ON"
@@ -88,6 +92,11 @@ endif()
 if(Q3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION AND NOT BUILD_TESTING)
   message(FATAL_ERROR
     "Q3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION is test-only and requires BUILD_TESTING=ON"
+  )
+endif()
+if(Q3X_BUILD_NVFP4_A8W4_GATE_ADMISSION AND NOT BUILD_TESTING)
+  message(FATAL_ERROR
+    "Q3X_BUILD_NVFP4_A8W4_GATE_ADMISSION is test-only and requires BUILD_TESTING=ON"
   )
 endif()
 if((Q3X_BUILD_GDN_B8_ADMISSION AND
@@ -277,6 +286,11 @@ if(Q3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION)
   )
   target_compile_definitions(q3x_kernels PRIVATE
     Q3X_ENABLE_FLASHINFER_PREFILL_ATTENTION_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_NVFP4_A8W4_GATE_ADMISSION)
+  target_sources(q3x_kernels PRIVATE
+    src/kernels/sm87/nvfp4_a8w4_gate_admission.cu
   )
 endif()
 if(Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION)
@@ -472,6 +486,25 @@ if(BUILD_TESTING)
   )
   q3x_enable_warnings(q3x_nvfp4_test)
   add_test(NAME nvfp4_reference COMMAND q3x_nvfp4_test)
+
+  if(Q3X_BUILD_NVFP4_A8W4_GATE_ADMISSION)
+    # Compile/link and independent RUN-gate sentinel.  Every call uses the
+    # disabled admission flag, so argument rejection occurs before probing a
+    # CUDA device and this test is safe on non-GPU builders.
+    add_executable(q3x_sm87_nvfp4_a8w4_gate_compile_test
+      tests/sm87_nvfp4_a8w4_gate_compile_test.cu
+    )
+    target_link_libraries(q3x_sm87_nvfp4_a8w4_gate_compile_test
+      PRIVATE q3x::kernels CUDA::cudart
+    )
+    q3x_enable_warnings(q3x_sm87_nvfp4_a8w4_gate_compile_test)
+    add_test(NAME sm87_nvfp4_a8w4_gate_compile
+      COMMAND q3x_sm87_nvfp4_a8w4_gate_compile_test
+    )
+    set_tests_properties(sm87_nvfp4_a8w4_gate_compile PROPERTIES
+      LABELS "host;sm87;prefill;compile_contract;approximate_admission"
+    )
+  endif()
 
   add_executable(q3x_sm87_weight_only_gemv_test
     tests/sm87_weight_only_gemv_test.cu
@@ -1789,6 +1822,7 @@ install(TARGETS q3x_core q3x_text q3x_kernels q3x_engine
 install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
   FILES_MATCHING PATTERN "*.h"
   PATTERN "q3x/server/*" EXCLUDE
+  PATTERN "q3x/kernels/sm87_nvfp4_a8w4_gate_admission.h" EXCLUDE
 )
 # Remove the header exported by older builds when installing over an existing
 # prefix.  The external-reference ABI now lives under tests/support only.
