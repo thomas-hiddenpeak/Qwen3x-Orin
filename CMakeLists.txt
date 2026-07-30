@@ -172,6 +172,7 @@ add_library(q3x_core STATIC
   src/model/weight_manifest.cpp
   src/runtime/model_weights.cpp
   src/runtime/long_prefill_layer_major.cpp
+  src/runtime/prefill_quantized_contract.cpp
   src/runtime/reference_oracle.cpp
   src/runtime/resident_weights.cpp
   src/runtime/request_state.cpp
@@ -1708,6 +1709,20 @@ if(BUILD_TESTING)
   target_link_libraries(q3x_request_state_plan_test PRIVATE q3x::core)
   q3x_enable_warnings(q3x_request_state_plan_test)
   add_test(NAME request_state_plan COMMAND q3x_request_state_plan_test)
+
+  add_executable(q3x_prefill_quantized_contract_test
+    tests/prefill_quantized_contract_test.cpp
+  )
+  target_link_libraries(q3x_prefill_quantized_contract_test
+    PRIVATE q3x::core
+  )
+  q3x_enable_warnings(q3x_prefill_quantized_contract_test)
+  add_test(NAME prefill_quantized_contract
+    COMMAND q3x_prefill_quantized_contract_test
+  )
+  set_tests_properties(prefill_quantized_contract PROPERTIES
+    LABELS "host;prefill;architecture;manifest;arena"
+  )
 
   if(Q3X_BUILD_LONG_PREFILL_LAYER_MAJOR_ADMISSION)
     add_executable(q3x_long_prefill_layer_major_plan_test
