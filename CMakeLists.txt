@@ -46,6 +46,10 @@ option(Q3X_BUILD_BF16_AB_LARGE_M_PREFILL_ADMISSION
   "Build the test-only Qwen3.6 BF16 A/B large-M Prefill route"
   OFF
 )
+option(Q3X_BUILD_SM87_A4W4_PRIMITIVE_ADMISSION
+  "Build the test-only native SM87 S4xS4 Tensor Core primitive"
+  OFF
+)
 option(Q3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION
   "Build the test-only FlashInfer SM87 Prefill-attention route"
   OFF
@@ -91,6 +95,11 @@ endif()
 if(Q3X_BUILD_BF16_AB_LARGE_M_PREFILL_ADMISSION AND NOT BUILD_TESTING)
   message(FATAL_ERROR
     "Q3X_BUILD_BF16_AB_LARGE_M_PREFILL_ADMISSION is test-only and requires BUILD_TESTING=ON"
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_PRIMITIVE_ADMISSION AND NOT BUILD_TESTING)
+  message(FATAL_ERROR
+    "Q3X_BUILD_SM87_A4W4_PRIMITIVE_ADMISSION is test-only and requires BUILD_TESTING=ON"
   )
 endif()
 if(Q3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION AND NOT BUILD_TESTING)
@@ -429,6 +438,82 @@ if(BUILD_TESTING)
   endif()
   if(NOT Q3X_REAL_PERF_CPU MATCHES "^[0-9]+$")
     message(FATAL_ERROR "Q3X_REAL_PERF_CPU must be one non-negative CPU id")
+  endif()
+
+  if(Q3X_BUILD_SM87_A4W4_PRIMITIVE_ADMISSION)
+    # Isolated prerequisite for the future full-model A4W4 Prefill plane.
+    # Neither this source nor its launch surface is linked into q3x_kernels,
+    # the runner, or an installed production target.
+    add_library(q3x_test_sm87_a4w4_primitive STATIC
+      src/kernels/sm87/a4w4_prefill_primitive.cu
+    )
+    target_compile_features(q3x_test_sm87_a4w4_primitive
+      PUBLIC cxx_std_17 cuda_std_17
+    )
+    target_include_directories(q3x_test_sm87_a4w4_primitive
+      PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    )
+    target_link_libraries(q3x_test_sm87_a4w4_primitive
+      PRIVATE CUDA::cudart
+    )
+    q3x_enable_warnings(q3x_test_sm87_a4w4_primitive)
+
+    add_executable(q3x_sm87_a4w4_primitive_abi_test
+      tests/sm87_a4w4_primitive_abi_test.cpp
+    )
+    target_include_directories(q3x_sm87_a4w4_primitive_abi_test
+      PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    )
+    target_link_libraries(q3x_sm87_a4w4_primitive_abi_test
+      PRIVATE q3x_test_sm87_a4w4_primitive
+    )
+    q3x_enable_warnings(q3x_sm87_a4w4_primitive_abi_test)
+    add_test(NAME sm87_a4w4_primitive_abi
+      COMMAND q3x_sm87_a4w4_primitive_abi_test
+    )
+    set_tests_properties(sm87_a4w4_primitive_abi PROPERTIES
+      LABELS "host;sm87;prefill;correctness;synthetic;compile_contract"
+    )
+
+    # Compile the reusable helper independently to compute_87 PTX and fail the
+    # build if nvcc does not retain the exact native S4 Tensor Core opcode.
+    set(_q3x_a4w4_ptx_dir
+      "${CMAKE_CURRENT_BINARY_DIR}/sm87_a4w4_ptx_sentinel"
+    )
+    set(_q3x_a4w4_ptx
+      "${_q3x_a4w4_ptx_dir}/sm87_a4w4_mma_ptx_sentinel.ptx"
+    )
+    set(_q3x_a4w4_ptx_stamp
+      "${_q3x_a4w4_ptx_dir}/sm87_a4w4_mma_ptx_sentinel.verified"
+    )
+    add_custom_command(
+      OUTPUT "${_q3x_a4w4_ptx}"
+      COMMAND "${CMAKE_COMMAND}" -E make_directory
+              "${_q3x_a4w4_ptx_dir}"
+      COMMAND "${CMAKE_CUDA_COMPILER}"
+              --ptx --std=c++17 --gpu-architecture=compute_87
+              --include-path "${CMAKE_CURRENT_SOURCE_DIR}/include"
+              "${CMAKE_CURRENT_SOURCE_DIR}/tests/sm87_a4w4_mma_ptx_sentinel.cu"
+              --output-file "${_q3x_a4w4_ptx}"
+      DEPENDS
+        tests/sm87_a4w4_mma_ptx_sentinel.cu
+        include/q3x/kernels/sm87_a4w4_prefill_primitive.h
+      VERBATIM
+    )
+    add_custom_command(
+      OUTPUT "${_q3x_a4w4_ptx_stamp}"
+      COMMAND "${CMAKE_COMMAND}"
+              "-DQ3X_PTX_FILE=${_q3x_a4w4_ptx}"
+              -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/VerifySm87A4W4Ptx.cmake"
+      COMMAND "${CMAKE_COMMAND}" -E touch "${_q3x_a4w4_ptx_stamp}"
+      DEPENDS
+        "${_q3x_a4w4_ptx}"
+        cmake/VerifySm87A4W4Ptx.cmake
+      VERBATIM
+    )
+    add_custom_target(q3x_sm87_a4w4_mma_ptx_sentinel ALL
+      DEPENDS "${_q3x_a4w4_ptx_stamp}"
+    )
   endif()
 
   add_library(q3x_test_pinned_checkpoint STATIC
