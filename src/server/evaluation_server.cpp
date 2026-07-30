@@ -1363,6 +1363,18 @@ int run_evaluation_server(const EvaluationServerOptions& options,
     engine_options.request_options.long_prefill_token_capacity =
         std::min(options.max_sequence_length,
                  runtime::kLongPrefillLayerMajorMaximumTokens);
+    const bool authenticated_a4_requested =
+        !options.prefill_a4_payload_path.empty() &&
+        !options.prefill_a4_calibration_policy_path.empty();
+    if (authenticated_a4_requested) {
+      const std::uint32_t aligned_capacity =
+          engine_options.request_options.long_prefill_token_capacity /
+          runtime::kLongPrefillLayerMajorTileTokens *
+          runtime::kLongPrefillLayerMajorTileTokens;
+      engine_options.request_options.long_prefill_projection_span_capacity =
+          std::min(runtime::kLongPrefillProjectionSpanDefaultTokens,
+                   aligned_capacity);
+    }
   }
   engine_options.request_options.max_arena_bytes =
       options.request_max_arena_bytes;
@@ -1447,6 +1459,9 @@ int run_evaluation_server(const EvaluationServerOptions& options,
             << (long_prefill_requested ? 1 : 0)
             << " long_prefill_hidden_capacity="
             << engine_options.request_options.long_prefill_token_capacity
+            << " long_prefill_projection_span_capacity="
+            << engine_options.request_options
+                   .long_prefill_projection_span_capacity
             << " inference_workers=1 queue_capacity="
             << options.inference_queue_capacity
             << " fp8_prefill_supermatrix_sidecar_ms="

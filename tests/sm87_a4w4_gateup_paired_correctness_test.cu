@@ -17,8 +17,8 @@ namespace {
 
 namespace kernels = q3x::kernels;
 
-inline constexpr std::size_t kM = 65U;
-inline constexpr std::size_t kN = 128U;
+inline constexpr std::size_t kM = 1'024U;
+inline constexpr std::size_t kN = 64U;
 inline constexpr std::size_t kK = 256U;
 inline constexpr std::size_t kGroups = kK / 64U;
 inline constexpr std::size_t kOutputGroups = kN / 64U;
@@ -362,13 +362,14 @@ struct QuantizedReference final {
   }
 
   kernels::Sm87A4W4GateUpPairedResources resources{};
-  if (!launch_ok(kernels::query_sm87_a4w4_gateup_paired_resources_cuda(
-                     &resources),
-                 "query paired Gate+Up resources")) {
+  if (!launch_ok(
+          kernels::query_sm87_a4w4_gateup_paired_large_m_resources_cuda(
+              &resources),
+          "query paired Gate+Up large-M resources")) {
     return false;
   }
   if (resources.local_bytes != 0U || resources.active_blocks_per_sm < 2 ||
-      resources.static_shared_bytes != 45'760U ||
+      resources.static_shared_bytes != 35'968U ||
       resources.maximum_threads_per_block < 256) {
     std::cerr << "resource contract failed: registers="
               << resources.registers_per_thread

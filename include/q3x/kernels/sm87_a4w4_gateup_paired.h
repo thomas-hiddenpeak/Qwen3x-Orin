@@ -32,6 +32,21 @@ inline constexpr std::size_t kSm87A4W4GateUpCtasPerSm = 2U;
 inline constexpr std::size_t kSm87A4W4GateUpPackedOutputTileRowBytes =
     kSm87A4W4GateUpTileN / 2U;
 
+// Large-M candidate.  Keep the per-warp M16xN32 ownership and accumulator
+// footprint unchanged while exchanging CTA-level N reuse for twice as much M
+// reuse of each staged Gate/Up row.  The launcher admits this shape only for
+// complete M64 spans of at least 1024 tokens; C512 and all tails stay on the
+// established M32N128 kernel.
+inline constexpr std::size_t kSm87A4W4GateUpLargeMTileM = 64U;
+inline constexpr std::size_t kSm87A4W4GateUpLargeMTileN = 64U;
+inline constexpr std::size_t kSm87A4W4GateUpLargeMTileK = 64U;
+inline constexpr std::size_t kSm87A4W4GateUpLargeMMinimumTokens = 1'024U;
+
+enum class Sm87A4W4GateUpPairedKernel : std::uint8_t {
+  kM32N128K64 = 0U,
+  kM64N64K64 = 1U,
+};
+
 struct Sm87A4W4GateUpPairedPlan final {
   std::size_t token_count{};
   std::size_t intermediate_size{};
@@ -43,6 +58,10 @@ struct Sm87A4W4GateUpPairedPlan final {
   std::size_t launch_ctas{};
   std::size_t packed_output_row_bytes{};
   std::size_t output_scale_row_elements{};
+  std::size_t tile_m{};
+  std::size_t tile_n{};
+  Sm87A4W4GateUpPairedKernel kernel{
+      Sm87A4W4GateUpPairedKernel::kM32N128K64};
 };
 
 [[nodiscard]] constexpr std::size_t sm87_a4w4_gateup_ceil_div(
@@ -56,15 +75,23 @@ struct Sm87A4W4GateUpPairedPlan final {
 sm87_a4w4_gateup_paired_plan(const std::size_t token_count,
                              const std::size_t intermediate_size,
                              const std::size_t input_size) noexcept {
+  const bool use_large_m =
+      token_count >= kSm87A4W4GateUpLargeMMinimumTokens &&
+      token_count % kSm87A4W4GateUpLargeMTileM == 0U;
+  const std::size_t tile_m = use_large_m
+                                 ? kSm87A4W4GateUpLargeMTileM
+                                 : kSm87A4W4GateUpTileM;
+  const std::size_t tile_n = use_large_m
+                                 ? kSm87A4W4GateUpLargeMTileN
+                                 : kSm87A4W4GateUpTileN;
   if (token_count == 0U || intermediate_size == 0U || input_size == 0U ||
-      intermediate_size % kSm87A4W4GateUpTileN != 0U ||
+      intermediate_size % tile_n != 0U ||
       input_size % kSm87A4W4GateUpTileK != 0U) {
     return {};
   }
   const std::size_t m_tiles = sm87_a4w4_gateup_ceil_div(
-      token_count, kSm87A4W4GateUpTileM);
-  const std::size_t n_tiles =
-      intermediate_size / kSm87A4W4GateUpTileN;
+      token_count, tile_m);
+  const std::size_t n_tiles = intermediate_size / tile_n;
   if (m_tiles == 0U || n_tiles == 0U ||
       m_tiles > static_cast<std::size_t>(-1) / n_tiles) {
     return {};
@@ -79,7 +106,11 @@ sm87_a4w4_gateup_paired_plan(const std::size_t token_count,
           work_tiles,
           kSm87A4W4GateUpPersistentCtas,
           intermediate_size / 2U,
-          intermediate_size / kSm87A4W4GateUpTileK};
+          intermediate_size / kSm87A4W4GateUpTileK,
+          tile_m,
+          tile_n,
+          use_large_m ? Sm87A4W4GateUpPairedKernel::kM64N64K64
+                      : Sm87A4W4GateUpPairedKernel::kM32N128K64};
 }
 
 struct Sm87A4W4GateUpPairedResources final {
@@ -97,6 +128,12 @@ struct Sm87A4W4GateUpPairedResources final {
 // fails with cudaErrorLaunchOutOfResources unless the compiled kernel has no
 // local-memory/stack frame and admits at least two resident CTAs per SM.
 [[nodiscard]] int query_sm87_a4w4_gateup_paired_resources_cuda(
+    Sm87A4W4GateUpPairedResources* resources) noexcept;
+
+// Independent resource gate for the large-M candidate.  It has the same hard
+// requirements as the established path: no local-memory frame/spill and at
+// least two resident 256-thread CTAs per SM87 SM.
+[[nodiscard]] int query_sm87_a4w4_gateup_paired_large_m_resources_cuda(
     Sm87A4W4GateUpPairedResources* resources) noexcept;
 
 // output_clip_ratio is calibration-owned and must be in (0, 1].  Quantized
@@ -129,6 +166,16 @@ static_assert(sm87_a4w4_gateup_paired_plan(512U, 17'408U, 5'120U)
                   .work_tiles == 2'176U);
 static_assert(sm87_a4w4_gateup_paired_plan(512U, 17'408U, 5'120U)
                   .launch_ctas == 32U);
+static_assert(sm87_a4w4_gateup_paired_plan(1'024U, 17'408U, 5'120U)
+                  .kernel == Sm87A4W4GateUpPairedKernel::kM64N64K64);
+static_assert(sm87_a4w4_gateup_paired_plan(1'024U, 17'408U, 5'120U)
+                  .m_tiles == 16U);
+static_assert(sm87_a4w4_gateup_paired_plan(1'024U, 17'408U, 5'120U)
+                  .n_tiles == 272U);
+static_assert(sm87_a4w4_gateup_paired_plan(1'088U, 17'408U, 5'120U)
+                  .kernel == Sm87A4W4GateUpPairedKernel::kM64N64K64);
+static_assert(sm87_a4w4_gateup_paired_plan(1'025U, 17'408U, 5'120U)
+                  .kernel == Sm87A4W4GateUpPairedKernel::kM32N128K64);
 static_assert(sm87_a4w4_gateup_paired_plan(65U, 64U, 192U)
                   .launch_ctas == 0U);
 static_assert(sm87_a4w4_gateup_paired_plan(65U, 128U, 192U)

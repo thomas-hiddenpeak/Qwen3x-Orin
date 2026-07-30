@@ -1,0 +1,119 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-a4-whole-m-m64n64-real-api-2026-07-31",
+  "status": "positive_cumulative_baseline_retained_target_not_met",
+  "recorded_at": "2026-07-31T16:20:00+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "base_commit": "bd8dd36",
+    "branch": "codex/a4w4-full-prefill",
+    "build_admission": "Q3X_BUILD_LONG_PREFILL_LAYER_MAJOR_ADMISSION=ON and authenticated full-model A4 support",
+    "run_admission": "Q3X_RUN_LONG_PREFILL_LAYER_MAJOR_ADMISSION=1",
+    "production_default_changed": false
+  },
+  "model": {
+    "path_at_measurement": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "checkpoint_family": "Qwen3.6-27B-NVFP4",
+    "performance_payload": "real authenticated checkpoint and real 400-projection A4 sidecar; no synthetic performance authority",
+    "a4_payload_bytes": 12923699200,
+    "a4_payload_sha256": "ca4aa4790e1bbd12fcb2dbced29f7820374a7ab232e40ed5cb1eeb07960af689",
+    "a4_policy_sha256": "68372c03e64099772665093e0a3042188f46f64891722f34f38f0a4b163c6559"
+  },
+  "measured_binary": {
+    "path_at_measurement": "/tmp/q3x-a4w4-full-prefill/build-a4w4-full-make/qwen3x-eval-server",
+    "bytes": 9015688,
+    "sha256": "fee87c247bd4807d581dd96410338730ccd4c0ce01105d06f58aa448206a6008",
+    "elf_build_id": "ef9d52820094dfa3196dd56047ecd0c4e36f07d5",
+    "build_type": "Release",
+    "target_architecture": "sm_87"
+  },
+  "implementation": {
+    "projection_span_tokens": 4096,
+    "whole_m_scope": "authenticated A4, SM87, no trace, P divisible by 512; other lengths fail closed to the established C512 layer-major route",
+    "execution": "one quantization and one large-M projection call per projection family and span instead of repeating C512 projection tiles",
+    "generic_candidate": "M64N64K64, eight warps, three cp.async stages, 32 persistent CTAs",
+    "paired_gate_up_candidate": "M64N64K64, eight warps, three cp.async stages, 32 persistent CTAs",
+    "selection": "M >= 1024 and M divisible by 64; C512 and tails retain M32N128K64",
+    "mtp_used": false,
+    "cublas_or_cublaslt_production_path_used": false,
+    "generic_resources": {
+      "registers_per_thread": 79,
+      "static_shared_bytes": 13056,
+      "local_or_stack_bytes": 0,
+      "active_blocks_per_sm": 3
+    },
+    "paired_resources": {
+      "registers_per_thread": 84,
+      "static_shared_bytes": 35968,
+      "local_or_stack_bytes": 0,
+      "active_blocks_per_sm": 2
+    }
+  },
+  "real_openai_api_gate": {
+    "authority": "two-round real-model end-to-end direction and cumulative-baseline gate",
+    "endpoint": "POST /v1/completions",
+    "prompt": "flat exact token-id array containing token 9419",
+    "output_tokens": 1,
+    "temperature": 0,
+    "ordering": [
+      "candidate then near-equal fallback baseline",
+      "fallback baseline then candidate"
+    ],
+    "all_requests": "HTTP 200, exact usage accounting, generated text Hello",
+    "measurements": [
+      {
+        "candidate_prompt_tokens": 1024,
+        "candidate_prompt_prefill_ms": [4784.75, 4778.89],
+        "candidate_mean_prompt_prefill_ms": 4781.82,
+        "candidate_prompt_throughput_tok_s": 214.1444,
+        "fallback_prompt_tokens": 1023,
+        "fallback_prompt_prefill_ms": [6081.09, 6080.74],
+        "fallback_mean_prompt_prefill_ms": 6080.915,
+        "fallback_prompt_throughput_tok_s": 168.2313,
+        "normalized_throughput_speedup": 1.2729
+      },
+      {
+        "candidate_prompt_tokens": 2048,
+        "candidate_prompt_prefill_ms": [10323.4, 10317.3],
+        "candidate_mean_prompt_prefill_ms": 10320.35,
+        "candidate_prompt_throughput_tok_s": 198.4429,
+        "fallback_prompt_tokens": 2047,
+        "fallback_prompt_prefill_ms": [12947.0, 12945.3],
+        "fallback_mean_prompt_prefill_ms": 12946.15,
+        "fallback_prompt_throughput_tok_s": 158.1119,
+        "normalized_throughput_speedup": 1.2551
+      },
+      {
+        "candidate_prompt_tokens": 4096,
+        "candidate_prompt_prefill_ms": [23416.4, 23407.7],
+        "candidate_mean_prompt_prefill_ms": 23412.05,
+        "candidate_prompt_throughput_tok_s": 174.9531,
+        "fallback_prompt_tokens": 4095,
+        "fallback_prompt_prefill_ms": [29014.3, 29015.8],
+        "fallback_mean_prompt_prefill_ms": 29015.05,
+        "fallback_prompt_throughput_tok_s": 141.1292,
+        "normalized_throughput_speedup": 1.2397
+      }
+    ],
+    "repeat_stability": "candidate and fallback means changed by less than 0.2 percent when request order was reversed"
+  },
+  "validation": {
+    "generic_cuda_correctness": "M65 fallback and M1024 candidate bit-exact; candidate NRMSE 0",
+    "paired_cuda_correctness": "M1024 candidate code mismatches 0, scale mismatches 0, NRMSE 0",
+    "whole_m_host_capacity": "P4096/S4096 full capacities accepted and six independent one-byte-short capacities rejected",
+    "full_build": "pass",
+    "ctest": {
+      "summary": "99 of 102 passed or skipped; three configured layer0 tests failed before execution because CMake supplied an empty checkpoint path",
+      "candidate_related_failures": 0,
+      "manual_real_checkpoint_followup": "P512 layer0 passed; pre-existing P407/P481 fused-epilogue strict threshold failures reproduced and are outside this change"
+    }
+  },
+  "decision": {
+    "retain_as_cumulative_baseline": true,
+    "prefill_target_tokens_per_second": 2000,
+    "target_met": false,
+    "evalscope_matrix_now": false,
+    "reason": "The real API improvement is repeatable and material at every tested length, so the mechanism contributes to the project. Absolute Prefill remains 9.3 to 11.4 times below the first 2K token/s target, so this is a checkpoint for the next kernel skeleton rather than a production-performance completion claim.",
+    "next_step": "Profile the retained whole-M route with real weights, then replace the constant-output-area M64N64 probe with shape-specific larger-output tiles: paired Gate/Up M64N128 and generic M64N256, with independent Down and attention planning."
+  }
+}

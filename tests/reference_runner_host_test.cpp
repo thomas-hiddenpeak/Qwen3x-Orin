@@ -729,6 +729,56 @@ void test_schedule_and_workspace(TestContext& test) {
                       runtime::ReferenceRunnerError::kNone,
               "C512 plan and tile result satisfy the runner workspace ABI");
 
+  runtime::RequestMemoryOptions whole_m_options;
+  whole_m_options.max_sequence_length = 4'096U;
+  whole_m_options.prefill_chunk_size =
+      runtime::kMaximumRequestPrefillChunkSize;
+  whole_m_options.long_prefill_token_capacity = 4'096U;
+  whole_m_options.long_prefill_projection_span_capacity = 4'096U;
+  whole_m_options.enable_a4_prefill_workspace = true;
+  whole_m_options.max_arena_bytes = 1ULL * 1024ULL * 1024ULL * 1024ULL;
+  const runtime::RequestPlanResult whole_m_built =
+      runtime::build_request_memory_plan(whole_m_options);
+  test.expect(whole_m_built &&
+                  detail::validate_reference_workspace_plan(
+                      *whole_m_built.value) ==
+                      runtime::ReferenceRunnerError::kNone,
+              "S4096 primary, secondary, and A4 workspaces satisfy the "
+              "runner ABI");
+  if (whole_m_built) {
+    const runtime::RequestMemoryPlan whole_m_plan = *whole_m_built.value;
+    const auto expect_one_byte_short =
+        [&test, &whole_m_plan](
+            runtime::RequestRegion runtime::RequestMemoryPlan::* const region,
+            const std::string_view message) {
+          runtime::RequestMemoryPlan undersized = whole_m_plan;
+          --(undersized.*region).byte_size;
+          test.expect(detail::validate_reference_workspace_plan(undersized) ==
+                          runtime::ReferenceRunnerError::kInvalidRequestState,
+                      message);
+        };
+    expect_one_byte_short(
+        &runtime::RequestMemoryPlan::long_prefill_projection_primary_bf16,
+        "S4096 primary BF16 span one byte below capacity is rejected");
+    expect_one_byte_short(
+        &runtime::RequestMemoryPlan::long_prefill_projection_secondary_bf16,
+        "S4096 secondary BF16 span one byte below capacity is rejected");
+    expect_one_byte_short(
+        &runtime::RequestMemoryPlan::prefill_a4_hidden_packed,
+        "S4096 A4 hidden packed span one byte below capacity is rejected");
+    expect_one_byte_short(
+        &runtime::RequestMemoryPlan::prefill_a4_hidden_scales_bf16,
+        "S4096 A4 hidden scales span one byte below capacity is rejected");
+    expect_one_byte_short(
+        &runtime::RequestMemoryPlan::prefill_a4_intermediate_packed,
+        "S4096 A4 intermediate packed span one byte below capacity is "
+        "rejected");
+    expect_one_byte_short(
+        &runtime::RequestMemoryPlan::prefill_a4_intermediate_scales_bf16,
+        "S4096 A4 intermediate scales span one byte below capacity is "
+        "rejected");
+  }
+
   plan.prefill_chunk_size = runtime::kMaximumRequestPrefillChunkSize;
   test.expect(detail::validate_reference_workspace_plan(plan) ==
                   runtime::ReferenceRunnerError::kInvalidRequestState,

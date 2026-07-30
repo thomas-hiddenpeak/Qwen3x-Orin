@@ -598,6 +598,8 @@ class ReferenceRunner {
   struct Views {
     std::uint16_t* hidden[3]{};
     std::uint16_t* long_prefill_hidden[2]{};
+    std::uint16_t* long_prefill_projection_primary = nullptr;
+    std::uint16_t* long_prefill_projection_secondary = nullptr;
     std::uint16_t* projection[4]{};
     std::uint8_t* prefill_a4_hidden_packed = nullptr;
     std::uint16_t* prefill_a4_hidden_scales = nullptr;
@@ -635,6 +637,9 @@ class ReferenceRunner {
       const std::uint32_t* input_token_ids, std::size_t token_count,
       const ReferencePrefillTileOptions& options,
       const LongPrefillLayerTileInvocation* layer_tile) noexcept;
+  [[nodiscard]] ReferenceRunnerStatus execute_long_prefill_projection_span(
+      const LongPrefillProjectionSpanPlan& plan,
+      const LongPrefillProjectionSpanWorkItem& item) noexcept;
 
   enum class DecodeGraphP1Action : std::uint8_t {
     kDisabled = 0,

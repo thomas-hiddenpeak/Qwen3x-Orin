@@ -34,6 +34,22 @@ inline constexpr std::size_t kSm87A4W4PrefillPipelineStages = 3U;
 inline constexpr std::size_t kSm87A4W4PrefillPersistentCtas = 32U;
 inline constexpr std::size_t kSm87A4W4PrefillCtasPerSm = 2U;
 
+// Whole-span large-M candidate.  It preserves the public consumer/output ABI
+// and the 256-thread persistent launch contract, but assigns the eight warps
+// as 4x2 M16N32 warp tiles.  Relative to M32N128, M64N64 halves packed-B and
+// B-scale staging per output while accepting the corresponding A rescan.  It
+// is deliberately selected only for exact M64 spans: C512 and all tails stay
+// on the established M32N128 kernel.
+inline constexpr std::size_t kSm87A4W4PrefillLargeMTileM = 64U;
+inline constexpr std::size_t kSm87A4W4PrefillLargeMTileN = 64U;
+inline constexpr std::size_t kSm87A4W4PrefillLargeMMinimumTokens = 1'024U;
+
+[[nodiscard]] constexpr bool sm87_a4w4_prefill_uses_large_m_candidate(
+    const std::size_t token_count) noexcept {
+  return token_count >= kSm87A4W4PrefillLargeMMinimumTokens &&
+         token_count % kSm87A4W4PrefillLargeMTileM == 0U;
+}
+
 struct Sm87A4W4PrefillGemmPlan final {
   std::size_t token_count{};
   std::size_t output_size{};
@@ -112,6 +128,12 @@ struct Sm87A4W4PrefillGemmResources final {
 [[nodiscard]] int query_sm87_a4w4_prefill_gemm_resources_cuda(
     Sm87A4W4PrefillGemmResources* resources) noexcept;
 
+// Queries the independently compiled M64N64 candidate.  Keeping this separate
+// from the baseline query makes the >=2 CTA/SM and zero-local-spill admission
+// auditable without changing the established resource-query ABI.
+[[nodiscard]] int query_sm87_a4w4_prefill_gemm_m64n64_resources_cuda(
+    Sm87A4W4PrefillGemmResources* resources) noexcept;
+
 // Launches one persistent projection.  The current admission accepts arbitrary
 // positive M, all fixed Qwen3.6 projection N values (multiples of 128), and K
 // values divisible by 64.  Tail M rows are zero-filled in the async staging
@@ -141,5 +163,10 @@ static_assert(sm87_a4w4_prefill_gemm_plan(3'847U, 12'288U, 5'120U)
 static_assert(sm87_a4w4_prefill_gemm_plan(1U, 1'024U, 5'120U)
                   .m_tiles == 1U);
 static_assert(sm87_a4w4_prefill_gemm_plan(0U, 128U, 64U).launch_ctas == 0U);
+static_assert(!sm87_a4w4_prefill_uses_large_m_candidate(512U));
+static_assert(!sm87_a4w4_prefill_uses_large_m_candidate(1'023U));
+static_assert(sm87_a4w4_prefill_uses_large_m_candidate(1'024U));
+static_assert(sm87_a4w4_prefill_uses_large_m_candidate(4'096U));
+static_assert(!sm87_a4w4_prefill_uses_large_m_candidate(4'097U));
 
 }  // namespace q3x::kernels
