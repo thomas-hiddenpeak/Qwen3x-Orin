@@ -1,6 +1,11 @@
 #include "q3x/runtime/reference_engine.h"
 
 #include "q3x/core/sha256.h"
+#include "q3x/model/weight_manifest.h"
+#if defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
+#include "q3x/runtime/prefill_a4_sidecar_converter.h"
+#include "q3x/runtime/prefill_quantized_contract.h"
+#endif
 #include "q3x/kernels/sm87_fp8_prefill_supermatrix.h"
 #if defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION)
 #include "q3x/kernels/sm87_fp8_marlin_w8a16.h"
@@ -19,6 +24,8 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <cerrno>
+#include <fcntl.h>
 #include <fstream>
 #include <future>
 #include <limits>
@@ -30,6 +37,9 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
 #include <utility>
 #include <vector>
 
@@ -112,6 +122,184 @@ decode_gate_up_coupled_feed_environment_enabled() noexcept {
       std::getenv("Q3X_RUN_DECODE_GATE_UP_COUPLED_FEED_ADMISSION");
   return value != nullptr && std::strcmp(value, "1") == 0;
 }
+
+struct PrefillA4EnginePaths final {
+  bool requested = false;
+  std::filesystem::path payload;
+  std::filesystem::path policy;
+  std::filesystem::path receipt;
+};
+
+[[nodiscard]] bool resolve_prefill_a4_engine_paths(
+    const ReferenceEngineOptions& options, PrefillA4EnginePaths& paths,
+    std::string& error) {
+  const bool has_payload = !options.prefill_a4_payload_path.empty();
+  const bool has_policy =
+      !options.prefill_a4_calibration_policy_path.empty();
+  const bool has_receipt = !options.prefill_a4_receipt_path.empty();
+  paths.requested = has_payload || has_policy || has_receipt;
+  if (!paths.requested) {
+    return true;
+  }
+  if (!has_payload || !has_policy) {
+    error = "A4 Prefill admission requires both payload and calibration "
+            "policy paths; receipt alone is not an admission";
+    return false;
+  }
+  paths.payload = options.prefill_a4_payload_path;
+  paths.policy = options.prefill_a4_calibration_policy_path;
+  paths.receipt = has_receipt
+                      ? options.prefill_a4_receipt_path
+                      : std::filesystem::path(
+                            options.prefill_a4_payload_path.string() +
+                            ".receipt.json");
+  if (paths.payload == paths.policy || paths.payload == paths.receipt ||
+      paths.policy == paths.receipt) {
+    error = "A4 payload, policy, and receipt must be distinct paths";
+    return false;
+  }
+  return true;
+}
+
+#if defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
+
+[[nodiscard]] bool pread_exact_engine(const int fd, void* const destination,
+                                      const std::size_t bytes,
+                                      const std::uint64_t offset,
+                                      int& system_error) noexcept {
+  if (offset > static_cast<std::uint64_t>(
+                   std::numeric_limits<off_t>::max())) {
+    system_error = EOVERFLOW;
+    return false;
+  }
+  auto* const output = static_cast<std::uint8_t*>(destination);
+  std::size_t completed = 0U;
+  while (completed < bytes) {
+    const std::uint64_t position = offset + completed;
+    if (position < offset ||
+        position > static_cast<std::uint64_t>(
+                       std::numeric_limits<off_t>::max())) {
+      system_error = EOVERFLOW;
+      return false;
+    }
+    const ssize_t count = ::pread(fd, output + completed, bytes - completed,
+                                  static_cast<off_t>(position));
+    if (count < 0) {
+      if (errno == EINTR) {
+        continue;
+      }
+      system_error = errno;
+      return false;
+    }
+    if (count == 0) {
+      system_error = EIO;
+      return false;
+    }
+    completed += static_cast<std::size_t>(count);
+  }
+  return true;
+}
+
+[[nodiscard]] bool read_small_regular_file(
+    const std::filesystem::path& path, const std::uint64_t maximum_bytes,
+    std::string& output, std::string& error, int& system_error) {
+  const int descriptor =
+      ::open(path.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+  if (descriptor < 0) {
+    system_error = errno;
+    error = "failed to open a regular non-symlink receipt";
+    return false;
+  }
+  struct FdGuard final {
+    int descriptor = -1;
+    ~FdGuard() {
+      if (descriptor >= 0) {
+        (void)::close(descriptor);
+      }
+    }
+  } guard{descriptor};
+  struct stat before {};
+  if (::fstat(descriptor, &before) != 0 || !S_ISREG(before.st_mode) ||
+      before.st_size < 0) {
+    system_error = errno;
+    error = "receipt fstat/regular-file check failed";
+    return false;
+  }
+  const std::uint64_t bytes = static_cast<std::uint64_t>(before.st_size);
+  if (bytes == 0U || bytes > maximum_bytes ||
+      bytes > std::numeric_limits<std::size_t>::max()) {
+    error = "receipt byte length is outside its strict bound";
+    return false;
+  }
+  output.resize(static_cast<std::size_t>(bytes));
+  if (!pread_exact_engine(descriptor, output.data(), output.size(), 0U,
+                          system_error)) {
+    error = "receipt read was incomplete";
+    return false;
+  }
+  std::uint8_t extra = 0U;
+  ssize_t extra_count = 0;
+  do {
+    extra_count = ::pread(descriptor, &extra, 1U,
+                          static_cast<off_t>(bytes));
+  } while (extra_count < 0 && errno == EINTR);
+  struct stat after {};
+  if (extra_count != 0 || ::fstat(descriptor, &after) != 0 ||
+      before.st_dev != after.st_dev || before.st_ino != after.st_ino ||
+      before.st_size != after.st_size ||
+      before.st_mtim.tv_sec != after.st_mtim.tv_sec ||
+      before.st_mtim.tv_nsec != after.st_mtim.tv_nsec ||
+      before.st_ctim.tv_sec != after.st_ctim.tv_sec ||
+      before.st_ctim.tv_nsec != after.st_ctim.tv_nsec) {
+    system_error = extra_count < 0 ? errno : 0;
+    error = "receipt changed while it was being read";
+    return false;
+  }
+  return true;
+}
+
+[[nodiscard]] bool has_complete_a4_request_workspace(
+    const RequestMemoryPlan& plan) noexcept {
+  constexpr std::size_t kOuterBlock = 64U;
+  constexpr std::size_t kHidden = 5'120U;
+  constexpr std::size_t kIntermediate = 17'408U;
+  constexpr std::size_t kPackedK64Bytes = 32U;
+  // The first production runner admission owns one complete C512 staging
+  // contract. Smaller consumer blocks are kernel-correctness shapes only;
+  // admitting them here would let engine creation succeed and the first
+  // request fail at runner dispatch.
+  if (plan.prefill_chunk_size != kMaximumRequestPrefillChunkSize) {
+    return false;
+  }
+  const std::size_t outer_blocks =
+      (static_cast<std::size_t>(plan.prefill_chunk_size) +
+       kOuterBlock - 1U) /
+      kOuterBlock;
+  const auto packed_bytes = [outer_blocks](const std::size_t logical_k) {
+    return outer_blocks * (logical_k / 64U) * kOuterBlock *
+           kPackedK64Bytes;
+  };
+  const auto scale_bytes = [outer_blocks](const std::size_t logical_k) {
+    return outer_blocks * (logical_k / 64U) * kOuterBlock *
+           sizeof(std::uint16_t);
+  };
+  return plan.prefill_a4_hidden_packed.byte_size ==
+             packed_bytes(kHidden) &&
+         plan.prefill_a4_hidden_packed.element_size_bytes == 1U &&
+         plan.prefill_a4_hidden_scales_bf16.byte_size ==
+             scale_bytes(kHidden) &&
+         plan.prefill_a4_hidden_scales_bf16.element_size_bytes ==
+             sizeof(std::uint16_t) &&
+         plan.prefill_a4_intermediate_packed.byte_size ==
+             packed_bytes(kIntermediate) &&
+         plan.prefill_a4_intermediate_packed.element_size_bytes == 1U &&
+         plan.prefill_a4_intermediate_scales_bf16.byte_size ==
+             scale_bytes(kIntermediate) &&
+         plan.prefill_a4_intermediate_scales_bf16.element_size_bytes ==
+             sizeof(std::uint16_t);
+}
+
+#endif
 
 struct DecodeGraphP1DeviceBuffer {
   void* data = nullptr;
@@ -2846,6 +3034,300 @@ prepare_sm87_nvfp4_marlin_prefill_sidecars(
 }
 #endif
 
+#if defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
+struct Sm87A4PrefillSidecars final {
+  std::uint8_t* data = nullptr;
+  std::size_t bytes = 0U;
+
+  Sm87A4PrefillSidecars() noexcept = default;
+  Sm87A4PrefillSidecars(const Sm87A4PrefillSidecars&) = delete;
+  Sm87A4PrefillSidecars& operator=(const Sm87A4PrefillSidecars&) = delete;
+  ~Sm87A4PrefillSidecars() { release(); }
+
+  void release() noexcept {
+    if (data != nullptr) {
+      (void)cudaFree(data);
+    }
+    data = nullptr;
+    bytes = 0U;
+  }
+};
+
+struct Sm87A4PrefillPreparation final {
+  bool enabled = false;
+  std::size_t projections = 0U;
+  std::uint64_t bytes = 0U;
+  std::uint64_t copy_chunks = 0U;
+  int cuda_error = 0;
+  int dependency_error = 0;
+  std::string message;
+  std::string context;
+  std::string physical_layout;
+  std::string manifest_sha256;
+  std::string policy_sha256;
+  std::string payload_sha256;
+};
+
+[[nodiscard]] bool resident_matches_pinned_identity(
+    const ResidentWeights& resident) {
+  const std::vector<ShardIdentity>& pinned = pinned_qwen36_27b_shards();
+  const ResidentLoadStats& stats = resident.stats();
+  if (resident.size_bytes() != kPinnedQwen36_27BArenaBytes ||
+      stats.shards.size() != pinned.size()) {
+    return false;
+  }
+  for (const ShardIdentity& identity : pinned) {
+    const auto found = std::find_if(
+        stats.shards.begin(), stats.shards.end(),
+        [&identity](const ShardLoadStats& loaded) {
+          return loaded.filename == identity.filename;
+        });
+    if (found == stats.shards.end() ||
+        found->bytes_read != identity.file_size ||
+        found->sha256 != identity.sha256) {
+      return false;
+    }
+  }
+  return true;
+}
+
+[[nodiscard]] Sm87A4PrefillPreparation prepare_sm87_a4_prefill_sidecars(
+    const std::filesystem::path& model_directory,
+    const PrefillA4EnginePaths& paths, const ResidentWeights& resident,
+    const std::uint64_t minimum_free_bytes_after_prepare,
+    ModelWeights& model_weights, Sm87A4PrefillSidecars& owner) {
+  Sm87A4PrefillPreparation result;
+  if (!paths.requested || owner.data != nullptr || owner.bytes != 0U) {
+    result.message = "invalid A4 Prefill preparation state";
+    result.context = "prefill_a4_sidecar_prepare";
+    return result;
+  }
+  if (!resident_matches_pinned_identity(resident)) {
+    result.message =
+        "resident checkpoint stats do not retain every pinned shard identity";
+    result.context = "prefill_a4.resident_identity";
+    return result;
+  }
+
+  const model::weights::ManifestResult source_manifest =
+      model::weights::build_qwen36_27b_text_manifest(model_directory);
+  if (!source_manifest) {
+    result.message = "could not rebuild the pinned checkpoint manifest";
+    if (!source_manifest.diagnostics.empty()) {
+      result.message += ": " + source_manifest.diagnostics.front().message;
+      result.context = source_manifest.diagnostics.front().context;
+    }
+    return result;
+  }
+  PrefillSidecarManifestOptions manifest_options;
+  manifest_options.kind = PrefillSidecarKind::kA4K64;
+  PrefillSidecarManifestResult built_manifest =
+      build_qwen36_27b_prefill_sidecar_manifest(
+          *source_manifest.value, pinned_qwen36_27b_shards(),
+          manifest_options);
+  if (!built_manifest) {
+    result.message = built_manifest.diagnostic.message;
+    result.context = built_manifest.diagnostic.context;
+    result.dependency_error =
+        static_cast<int>(built_manifest.diagnostic.code);
+    return result;
+  }
+  const PrefillSidecarManifest& manifest = *built_manifest.value;
+  if (manifest.kind != PrefillSidecarKind::kA4K64 ||
+      manifest.residency_class != PrefillSidecarResidencyClass::kA4 ||
+      manifest.projections.size() != kQwen36PrefillProjectionCount) {
+    result.message = "rebuilt sidecar manifest is not the complete A4-K64 ABI";
+    result.context = "prefill_a4.manifest";
+    return result;
+  }
+
+  std::string receipt_document;
+  int receipt_system_error = 0;
+  if (!read_small_regular_file(paths.receipt, 1ULL * 1024ULL * 1024ULL,
+                               receipt_document, result.message,
+                               receipt_system_error)) {
+    result.context = paths.receipt.string();
+    result.dependency_error = receipt_system_error;
+    return result;
+  }
+  PrefillA4ConverterDiagnostic receipt_diagnostic;
+  std::optional<PrefillA4PublicationReceipt> receipt =
+      parse_prefill_a4_publication_receipt(receipt_document,
+                                           receipt_diagnostic);
+  if (!receipt.has_value() || !receipt_diagnostic) {
+    result.message = receipt_diagnostic.message.empty()
+                         ? "strict publication receipt parse failed"
+                         : receipt_diagnostic.message;
+    result.context = receipt_diagnostic.context.empty()
+                         ? paths.receipt.string()
+                         : receipt_diagnostic.context;
+    result.dependency_error =
+        static_cast<int>(receipt_diagnostic.code);
+    return result;
+  }
+  PrefillA4PublicationAuthenticationResult authenticated =
+      authenticate_prefill_a4_publication_for_residency(
+          manifest, *receipt, paths.payload, paths.policy);
+  if (!authenticated) {
+    result.message = authenticated.diagnostic.message;
+    result.context = authenticated.diagnostic.context;
+    result.dependency_error =
+        authenticated.diagnostic.system_error != 0
+            ? authenticated.diagnostic.system_error
+            : static_cast<int>(authenticated.diagnostic.code);
+    return result;
+  }
+  PrefillA4AuthenticatedPublication publication =
+      std::move(*authenticated.value);
+  if (publication.receipt().physical_layout != kPrefillA4PhysicalLayout ||
+      publication.policy().physical_layout != kPrefillA4PhysicalLayout ||
+      publication.policy().sidecar_kind != PrefillSidecarKind::kA4K64 ||
+      publication.receipt().payload_bytes != manifest.summary.arena_bytes ||
+      publication.receipt().payload_bytes == 0U ||
+      publication.receipt().payload_bytes >
+          std::numeric_limits<std::size_t>::max()) {
+    result.message = "authenticated publication is not the K64 consumer ABI";
+    result.context = "prefill_a4.publication";
+    return result;
+  }
+
+  const std::size_t payload_bytes =
+      static_cast<std::size_t>(publication.receipt().payload_bytes);
+  std::size_t free_bytes = 0U;
+  std::size_t total_bytes = 0U;
+  cudaError_t cuda_status = cudaMemGetInfo(&free_bytes, &total_bytes);
+  (void)total_bytes;
+  if (cuda_status != cudaSuccess) {
+    result.message = "cudaMemGetInfo failed before A4 sidecar residency";
+    result.context = "prefill_a4.cudaMemGetInfo_before";
+    result.cuda_error = static_cast<int>(cuda_status);
+    return result;
+  }
+  const std::uint64_t free_u64 = static_cast<std::uint64_t>(free_bytes);
+  if (publication.receipt().payload_bytes > free_u64 ||
+      minimum_free_bytes_after_prepare >
+          free_u64 - publication.receipt().payload_bytes) {
+    result.message =
+        "insufficient device memory for authenticated A4 sidecar residency";
+    result.context = "prefill_a4.memory_gate";
+    return result;
+  }
+
+  cuda_status = cudaMalloc(reinterpret_cast<void**>(&owner.data),
+                           payload_bytes);
+  if (cuda_status != cudaSuccess) {
+    result.message = "cudaMalloc failed for the A4 sidecar arena";
+    result.context = "prefill_a4.cudaMalloc";
+    result.cuda_error = static_cast<int>(cuda_status);
+    return result;
+  }
+
+  constexpr std::size_t kCopyChunkBytes = 32U * 1024U * 1024U;
+  const std::size_t staging_bytes =
+      std::min(payload_bytes, kCopyChunkBytes);
+  void* staging = nullptr;
+  cuda_status = cudaHostAlloc(&staging, staging_bytes, cudaHostAllocDefault);
+  if (cuda_status != cudaSuccess) {
+    result.message = "cudaHostAlloc failed for A4 sidecar staging";
+    result.context = "prefill_a4.cudaHostAlloc";
+    result.cuda_error = static_cast<int>(cuda_status);
+    owner.release();
+    return result;
+  }
+  struct PinnedGuard final {
+    void* data = nullptr;
+    ~PinnedGuard() {
+      if (data != nullptr) {
+        (void)cudaFreeHost(data);
+      }
+    }
+  } pinned{staging};
+
+  core::Sha256 copied_hash;
+  std::uint64_t offset = 0U;
+  while (offset < publication.receipt().payload_bytes) {
+    const std::size_t count = static_cast<std::size_t>(
+        std::min<std::uint64_t>(staging_bytes,
+                                publication.receipt().payload_bytes - offset));
+    int read_error = 0;
+    if (!pread_exact_engine(publication.payload_fd(), staging, count, offset,
+                            read_error)) {
+      result.message = "failed to read the held A4 payload descriptor";
+      result.context = "prefill_a4.payload_copy";
+      result.dependency_error = read_error;
+      owner.release();
+      return result;
+    }
+    if (!copied_hash.update(staging, count)) {
+      result.message = "A4 payload copy SHA-256 length overflowed";
+      result.context = "prefill_a4.payload_copy_sha256";
+      owner.release();
+      return result;
+    }
+    cuda_status = cudaMemcpy(owner.data + static_cast<std::size_t>(offset),
+                             staging, count, cudaMemcpyHostToDevice);
+    if (cuda_status != cudaSuccess) {
+      result.message = "A4 payload H2D copy failed";
+      result.context = "prefill_a4.cudaMemcpy";
+      result.cuda_error = static_cast<int>(cuda_status);
+      owner.release();
+      return result;
+    }
+    offset += count;
+    ++result.copy_chunks;
+  }
+  const std::string copied_digest = copied_hash.finalize().hex();
+  if (copied_digest != publication.receipt().payload_sha256) {
+    result.message = "bytes copied to the A4 arena failed receipt SHA-256";
+    result.context = "prefill_a4.payload_copy_sha256";
+    owner.release();
+    return result;
+  }
+  PrefillA4ConverterDiagnostic unchanged =
+      publication.revalidate_unchanged_after_consumption();
+  if (!unchanged) {
+    result.message = unchanged.message;
+    result.context = unchanged.context;
+    result.dependency_error = unchanged.system_error != 0
+                                  ? unchanged.system_error
+                                  : static_cast<int>(unchanged.code);
+    owner.release();
+    return result;
+  }
+  cuda_status = cudaMemGetInfo(&free_bytes, &total_bytes);
+  if (cuda_status != cudaSuccess ||
+      static_cast<std::uint64_t>(free_bytes) <
+          minimum_free_bytes_after_prepare) {
+    result.message =
+        "A4 residency did not preserve the configured free-memory reserve";
+    result.context = "prefill_a4.cudaMemGetInfo_after";
+    result.cuda_error = cuda_status == cudaSuccess
+                            ? 0
+                            : static_cast<int>(cuda_status);
+    owner.release();
+    return result;
+  }
+
+  if (!model_weights.attach_prefill_a4_sidecars(
+          owner.data, payload_bytes, &manifest, &publication.policy())) {
+    result.message =
+        "ModelWeights rejected the authenticated A4 sidecar inventory";
+    result.context = "prefill_a4.attach";
+    owner.release();
+    return result;
+  }
+  owner.bytes = payload_bytes;
+  result.enabled = true;
+  result.projections = manifest.projections.size();
+  result.bytes = publication.receipt().payload_bytes;
+  result.physical_layout = publication.receipt().physical_layout;
+  result.manifest_sha256 = manifest.manifest_sha256;
+  result.policy_sha256 = publication.policy().policy_sha256;
+  result.payload_sha256 = publication.receipt().payload_sha256;
+  return result;
+}
+#endif
+
 }  // namespace
 
 namespace reference_runner_detail {
@@ -2862,7 +3344,7 @@ exchange_reference_engine_generate_return_snapshot_hook(
 struct ReferenceEngine::Impl {
   // Declaration order is part of the safety contract. Destruction is exactly
   // runner -> request_state -> model_weights -> Decode Down consumer-order
-  // sidecars -> Marlin admission sidecars -> Prefill supermatrix/QKV
+  // sidecars -> A4/Marlin admission sidecars -> Prefill supermatrix/QKV
   // sidecars -> down scale6 sidecars -> output sidecars -> resident_weights
   // -> tokenizer.
   std::unique_ptr<text::Tokenizer> tokenizer;
@@ -2877,6 +3359,9 @@ struct ReferenceEngine::Impl {
 #endif
 #if defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION)
   Sm87NvFp4MarlinPrefillSidecars nvfp4_marlin_prefill_sidecars;
+#endif
+#if defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
+  Sm87A4PrefillSidecars prefill_a4_sidecars;
 #endif
   Sm87NvFp4DownConsumerOrderSidecars
       nvfp4_down_consumer_order_sidecars;
@@ -2926,6 +3411,52 @@ struct ReferenceEngine::Impl {
           "unknown Decode Graph cache policy");
       return result;
     }
+    PrefillA4EnginePaths prefill_a4_paths;
+    std::string prefill_a4_path_error;
+    if (!resolve_prefill_a4_engine_paths(
+            options, prefill_a4_paths, prefill_a4_path_error)) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kInvalidArgument,
+          "prefill_a4_sidecar_options", prefill_a4_path_error);
+      return result;
+    }
+    if (prefill_a4_paths.requested &&
+        options.projection_backend != ProjectionBackend::kSm87WeightOnly) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kInvalidArgument,
+          "prefill_a4_sidecar_options",
+          "A4 Prefill admission requires the SM87 projection backend");
+      return result;
+    }
+    if (prefill_a4_paths.requested &&
+        options.request_options.prefill_chunk_size !=
+            kMaximumRequestPrefillChunkSize) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kInvalidArgument,
+          "prefill_a4_sidecar_options",
+          "A4 Prefill admission requires a 512-token Prefill chunk");
+      return result;
+    }
+    if (prefill_a4_paths.requested && options.enable_trace) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kInvalidArgument,
+          "prefill_a4_sidecar_options",
+          "A4 Prefill admission is incompatible with activation tracing");
+      return result;
+    }
+#if !defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
+    if (prefill_a4_paths.requested) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kInvalidArgument,
+          "prefill_a4_sidecar_options",
+          "this binary does not contain the full-model A4 Prefill admission");
+      return result;
+    }
+#endif
+    RequestMemoryOptions request_options = options.request_options;
+    if (prefill_a4_paths.requested) {
+      request_options.enable_a4_prefill_workspace = true;
+    }
     const Clock::time_point build_begin = Clock::now();
     if (std::optional<ReferenceEngineDiagnostic> diagnostic =
             sm87_device_diagnostic(options.projection_backend)) {
@@ -2938,6 +3469,8 @@ struct ReferenceEngine::Impl {
       const bool resident_was_prepared = prepared_resident.has_value();
       auto impl = std::make_unique<Impl>();
       impl->trace_enabled = options.enable_trace;
+      impl->load.prefill_a4_sidecars_requested =
+          prefill_a4_paths.requested;
       impl->load.decode_graph_cache_requested_policy =
           options.decode_graph_cache_policy;
       if (prepared_tokenizer != nullptr) {
@@ -2993,7 +3526,7 @@ struct ReferenceEngine::Impl {
       {
         const Clock::time_point begin = Clock::now();
         RequestStateResult request =
-            create_request_state(options.request_options);
+            create_request_state(request_options);
         impl->load.request_state_milliseconds = elapsed_milliseconds(begin);
         if (!request) {
           result.diagnostic = request_diagnostic(request.diagnostic);
@@ -3007,6 +3540,19 @@ struct ReferenceEngine::Impl {
         impl->load.request_prefill_chunk_size =
             impl->request_state->plan().prefill_chunk_size;
       }
+
+#if defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
+      if (prefill_a4_paths.requested &&
+          !has_complete_a4_request_workspace(
+              impl->request_state->plan())) {
+        result.diagnostic = engine_diagnostic(
+            ReferenceEngineError::kRequestStateFailure,
+            "prefill_a4_request_workspace",
+            "A4 admission requires complete K64 consumer workspaces for a "
+            "C512 request Prefill chunk");
+        return result;
+      }
+#endif
 
       if (options.projection_backend ==
           ProjectionBackend::kSm87WeightOnly) {
@@ -3063,7 +3609,8 @@ struct ReferenceEngine::Impl {
         // layout. It replaces (rather than co-allocates with) the legacy
         // QKV-only sidecars. Preparation is all-or-nothing: C512 never
         // silently falls back to the old projection layout.
-        if (impl->load.request_prefill_chunk_size ==
+        if (!prefill_a4_paths.requested &&
+            impl->load.request_prefill_chunk_size ==
             kMaximumRequestPrefillChunkSize) {
 #if defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION)
           const Clock::time_point fp8_marlin_begin = Clock::now();
@@ -3153,6 +3700,54 @@ struct ReferenceEngine::Impl {
 #endif
         }
 
+#if defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
+        if (prefill_a4_paths.requested) {
+          const Clock::time_point prefill_a4_begin = Clock::now();
+          const Sm87A4PrefillPreparation prefill_a4_preparation =
+              prepare_sm87_a4_prefill_sidecars(
+                  model_directory, prefill_a4_paths,
+                  *impl->resident_weights,
+                  request_options.min_free_bytes_after_create,
+                  *impl->model_weights, impl->prefill_a4_sidecars);
+          impl->load.prefill_a4_sidecar_milliseconds =
+              elapsed_milliseconds(prefill_a4_begin);
+          if (!prefill_a4_preparation.enabled ||
+              prefill_a4_preparation.projections !=
+                  kQwen36PrefillProjectionCount ||
+              prefill_a4_preparation.bytes !=
+                  kPrefillA4K64SidecarPayloadBytes) {
+            result.diagnostic = engine_diagnostic(
+                ReferenceEngineError::kRunnerFactoryFailure,
+                "prefill_a4_sidecar_prepare",
+                prefill_a4_preparation.message.empty()
+                    ? "the authenticated A4 publication did not attach all "
+                      "400 projections"
+                    : prefill_a4_preparation.message,
+                prefill_a4_preparation.context);
+            result.diagnostic.cuda_error =
+                prefill_a4_preparation.cuda_error;
+            result.diagnostic.dependency_error =
+                prefill_a4_preparation.dependency_error;
+            return result;
+          }
+          impl->load.prefill_a4_sidecars_enabled = true;
+          impl->load.prefill_a4_sidecar_projections =
+              prefill_a4_preparation.projections;
+          impl->load.prefill_a4_sidecar_bytes =
+              prefill_a4_preparation.bytes;
+          impl->load.prefill_a4_sidecar_copy_chunks =
+              prefill_a4_preparation.copy_chunks;
+          impl->load.prefill_a4_physical_layout =
+              prefill_a4_preparation.physical_layout;
+          impl->load.prefill_a4_manifest_sha256 =
+              prefill_a4_preparation.manifest_sha256;
+          impl->load.prefill_a4_policy_sha256 =
+              prefill_a4_preparation.policy_sha256;
+          impl->load.prefill_a4_payload_sha256 =
+              prefill_a4_preparation.payload_sha256;
+        }
+#endif
+
         // Prepare Decode-only experiments only after every production/Prefill
         // sidecar has succeeded.  A capacity miss must fail the explicitly
         // requested experiment instead of displacing or silently bypassing
@@ -3225,6 +3820,8 @@ struct ReferenceEngine::Impl {
         ReferenceRunnerOptions runner_options;
         runner_options.enable_trace = options.enable_trace;
         runner_options.projection_backend = options.projection_backend;
+        runner_options.enable_a4w4_full_prefill_admission =
+            prefill_a4_paths.requested;
         const Clock::time_point begin = Clock::now();
         ReferenceRunnerFactoryResult runner = create_reference_runner(
             &*impl->model_weights, &*impl->request_state, runner_options);
@@ -5242,6 +5839,52 @@ ReferenceOneShotResult generate_reference(
     return result;
   }
 
+  ReferenceEngineOptions a4_preflight_options;
+  a4_preflight_options.projection_backend = options.projection_backend;
+  a4_preflight_options.prefill_a4_payload_path =
+      options.prefill_a4_payload_path;
+  a4_preflight_options.prefill_a4_calibration_policy_path =
+      options.prefill_a4_calibration_policy_path;
+  a4_preflight_options.prefill_a4_receipt_path =
+      options.prefill_a4_receipt_path;
+  PrefillA4EnginePaths a4_preflight_paths;
+  std::string a4_preflight_error;
+  if (!resolve_prefill_a4_engine_paths(a4_preflight_options,
+                                       a4_preflight_paths,
+                                       a4_preflight_error) ||
+      (a4_preflight_paths.requested &&
+       options.projection_backend != ProjectionBackend::kSm87WeightOnly)) {
+    result.diagnostic = engine_diagnostic(
+        ReferenceEngineError::kInvalidArgument, "one_shot_options",
+        a4_preflight_error.empty()
+            ? "A4 Prefill admission requires the SM87 projection backend"
+            : a4_preflight_error);
+    return result;
+  }
+  if (a4_preflight_paths.requested &&
+      options.generation.prefill_chunk_size !=
+          kMaximumRequestPrefillChunkSize) {
+    result.diagnostic = engine_diagnostic(
+        ReferenceEngineError::kInvalidArgument, "one_shot_options",
+        "A4 Prefill admission requires a 512-token Prefill chunk");
+    return result;
+  }
+  if (a4_preflight_paths.requested &&
+      options.generation.capture_trace) {
+    result.diagnostic = engine_diagnostic(
+        ReferenceEngineError::kInvalidArgument, "one_shot_options",
+        "A4 Prefill admission is incompatible with activation tracing");
+    return result;
+  }
+#if !defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
+  if (a4_preflight_paths.requested) {
+    result.diagnostic = engine_diagnostic(
+        ReferenceEngineError::kInvalidArgument, "one_shot_options",
+        "this binary does not contain the full-model A4 Prefill admission");
+    return result;
+  }
+#endif
+
   try {
     const Clock::time_point one_shot_prepare_begin = Clock::now();
     std::optional<std::future<TimedResidentLoad>> resident_future;
@@ -5350,6 +5993,12 @@ ReferenceOneShotResult generate_reference(
     engine_options.projection_backend = options.projection_backend;
     engine_options.decode_graph_cache_policy =
         options.decode_graph_cache_policy;
+    engine_options.prefill_a4_payload_path =
+        options.prefill_a4_payload_path;
+    engine_options.prefill_a4_calibration_policy_path =
+        options.prefill_a4_calibration_policy_path;
+    engine_options.prefill_a4_receipt_path =
+        options.prefill_a4_receipt_path;
 
     ReferenceEngine::Impl::BuildResult built;
     if (resident_future.has_value()) {

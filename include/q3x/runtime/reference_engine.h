@@ -70,6 +70,15 @@ struct ReferenceEngineOptions {
   // prepared during engine creation and never lazily inside generate().
   ReferenceDecodeGraphCachePolicy decode_graph_cache_policy =
       ReferenceDecodeGraphCachePolicy::kDisabled;
+  // Explicit full-model A4 Prefill publication admission. Leaving all three
+  // paths empty preserves the established exact-Prefill engine. Supplying a
+  // payload requires a calibration policy; receipt may be empty, in which
+  // case `<payload>.receipt.json` is used. A partial request fails closed.
+  // These paths have scheduling authority only in the dedicated
+  // Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION build.
+  std::filesystem::path prefill_a4_payload_path;
+  std::filesystem::path prefill_a4_calibration_policy_path;
+  std::filesystem::path prefill_a4_receipt_path;
 };
 
 // Text-only messages accepted by the pinned Qwen 3.6 chat formatter. The
@@ -194,6 +203,7 @@ struct ReferenceEngineLoadStats {
   double fp8_prefill_supermatrix_sidecar_milliseconds = 0.0;
   double fp8_marlin_prefill_sidecar_milliseconds = 0.0;
   double nvfp4_marlin_prefill_sidecar_milliseconds = 0.0;
+  double prefill_a4_sidecar_milliseconds = 0.0;
   double runner_factory_milliseconds = 0.0;
   ReferenceDecodeGraphCachePolicy decode_graph_cache_requested_policy =
       ReferenceDecodeGraphCachePolicy::kDisabled;
@@ -282,6 +292,20 @@ struct ReferenceEngineLoadStats {
   bool nvfp4_marlin_prefill_sidecars_enabled = false;
   std::size_t nvfp4_marlin_prefill_sidecar_layers = 0U;
   std::uint64_t nvfp4_marlin_prefill_sidecar_bytes = 0U;
+  // Populated only after strict receipt/policy/payload authentication, a
+  // complete same-fd chunked H2D copy, post-copy inode revalidation, and one
+  // transactional 400-projection attachment. Exact Prefill sidecars are not
+  // prepared when this explicit replacement is requested; canonical Decode
+  // weights and Decode-only sidecars remain resident.
+  bool prefill_a4_sidecars_requested = false;
+  bool prefill_a4_sidecars_enabled = false;
+  std::size_t prefill_a4_sidecar_projections = 0U;
+  std::uint64_t prefill_a4_sidecar_bytes = 0U;
+  std::uint64_t prefill_a4_sidecar_copy_chunks = 0U;
+  std::string prefill_a4_physical_layout;
+  std::string prefill_a4_manifest_sha256;
+  std::string prefill_a4_policy_sha256;
+  std::string prefill_a4_payload_sha256;
   // True only when tokenizer parsing and resident loading actually executed
   // concurrently. When true, total_milliseconds is wall time and phase
   // timings intentionally overlap.
@@ -524,6 +548,11 @@ struct ReferenceOneShotOptions {
   // initialization of the pre-existing surface remains source-compatible.
   ReferenceDecodeGraphCachePolicy decode_graph_cache_policy =
       ReferenceDecodeGraphCachePolicy::kDisabled;
+  // Mirrors ReferenceEngineOptions for one-shot callers. Receipt may be
+  // omitted to select `<payload>.receipt.json`.
+  std::filesystem::path prefill_a4_payload_path;
+  std::filesystem::path prefill_a4_calibration_policy_path;
+  std::filesystem::path prefill_a4_receipt_path;
 };
 
 struct ReferenceOneShotGeneration {

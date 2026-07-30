@@ -61,6 +61,11 @@ struct ReferenceRunnerOptions {
   // Explicitly opt into the SM87 weight-only projection kernels. Correctness
   // reference dispatch remains the stable default.
   ProjectionBackend projection_backend = ProjectionBackend::kReference;
+  // Select the authenticated full-model A4 Prefill route for this runner.
+  // Engine callers set this only after attaching all 400 sidecars. The
+  // environment/test hook remains available for direct runner experiments,
+  // but production selection must not depend on thread-local initialization.
+  bool enable_a4w4_full_prefill_admission = false;
 };
 
 enum class ReferenceLogitsMode : std::uint8_t {
@@ -450,6 +455,26 @@ bool exchange_fp8_marlin_prefill_admission_test_enabled(
 std::size_t exchange_fp8_marlin_prefill_admission_test_hits(
     std::size_t hits) noexcept;
 
+// Scheduler-wide accounting for the gated calibrated A4W4 Prefill plane.
+// generic_projection_hits counts one logical projection per generic GEMM;
+// paired_gate_up_hits counts one fused Gate+Up launch while
+// logical_projection_hits counts both branches. A complete 64-layer tile is
+// admitted only when the local delta is exactly 192 quantizations, 272
+// generic projections, 64 paired launches, and all 400 logical projections.
+struct A4W4FullPrefillAdmissionHits {
+  std::size_t activation_quantize_hits = 0U;
+  std::size_t generic_projection_hits = 0U;
+  std::size_t paired_gate_up_hits = 0U;
+  std::size_t logical_projection_hits = 0U;
+  std::size_t complete_model_tile_hits = 0U;
+};
+
+bool exchange_a4w4_full_prefill_admission_test_enabled(
+    bool enabled) noexcept;
+A4W4FullPrefillAdmissionHits
+exchange_a4w4_full_prefill_admission_test_hits(
+    A4W4FullPrefillAdmissionHits hits) noexcept;
+
 [[nodiscard]] bool use_fp8_marlin_prefill_projection(
     ProjectionBackend backend, const LinearWeight& weight,
     const std::uint16_t* input, std::uint16_t* output,
@@ -660,6 +685,7 @@ class ReferenceRunner {
   bool decode_graph_capture_active_ = false;
   Views views_{};
   ProjectionBackend projection_backend_ = ProjectionBackend::kReference;
+  bool a4w4_full_prefill_admission_enabled_ = false;
   bool trace_enabled_ = false;
   bool trace_valid_ = false;
   bool poisoned_ = false;

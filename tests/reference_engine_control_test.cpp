@@ -1683,6 +1683,120 @@ void test_engine_backend_validation(TestContext& test) {
                       runtime::ReferenceEngineError::kInvalidArgument &&
                   generated.diagnostic.stage == "one_shot_options",
               "one-shot generation rejects an unknown logits mode before I/O");
+
+  runtime::ReferenceEngineOptions partial_a4;
+  partial_a4.prefill_a4_payload_path = "payload.a4";
+  const runtime::ReferenceEngineCreateResult partial_created =
+      runtime::create_reference_engine("unused-model-directory", partial_a4);
+  test.expect(!partial_created &&
+                  partial_created.diagnostic.code ==
+                      runtime::ReferenceEngineError::kInvalidArgument &&
+                  partial_created.diagnostic.stage ==
+                      "prefill_a4_sidecar_options",
+              "engine rejects a partial A4 publication request before I/O");
+
+  runtime::ReferenceOneShotOptions partial_one_shot_a4;
+  partial_one_shot_a4.prefill_a4_payload_path = "payload.a4";
+  const runtime::ReferenceOneShotResult partial_one_shot =
+      runtime::generate_reference("unused-model-directory", "prompt",
+                                  partial_one_shot_a4);
+  test.expect(!partial_one_shot &&
+                  partial_one_shot.diagnostic.code ==
+                      runtime::ReferenceEngineError::kInvalidArgument &&
+                  partial_one_shot.diagnostic.stage == "one_shot_options",
+              "one-shot rejects a partial A4 publication before asset I/O");
+
+  runtime::ReferenceEngineOptions wrong_backend_a4;
+  wrong_backend_a4.prefill_a4_payload_path = "payload.a4";
+  wrong_backend_a4.prefill_a4_calibration_policy_path = "policy.json";
+  const runtime::ReferenceEngineCreateResult wrong_backend_created =
+      runtime::create_reference_engine("unused-model-directory",
+                                       wrong_backend_a4);
+  test.expect(!wrong_backend_created &&
+                  wrong_backend_created.diagnostic.code ==
+                      runtime::ReferenceEngineError::kInvalidArgument &&
+                  wrong_backend_created.diagnostic.stage ==
+                      "prefill_a4_sidecar_options",
+              "engine rejects A4 residency without the SM87 backend before "
+              "model I/O");
+
+  runtime::ReferenceEngineOptions wrong_chunk_a4;
+  wrong_chunk_a4.projection_backend =
+      runtime::ProjectionBackend::kSm87WeightOnly;
+  wrong_chunk_a4.prefill_a4_payload_path = "payload.a4";
+  wrong_chunk_a4.prefill_a4_calibration_policy_path = "policy.json";
+  wrong_chunk_a4.request_options.prefill_chunk_size = 1U;
+  const runtime::ReferenceEngineCreateResult wrong_chunk_created =
+      runtime::create_reference_engine("unused-model-directory",
+                                       wrong_chunk_a4);
+  test.expect(!wrong_chunk_created &&
+                  wrong_chunk_created.diagnostic.code ==
+                      runtime::ReferenceEngineError::kInvalidArgument &&
+                  wrong_chunk_created.diagnostic.stage ==
+                      "prefill_a4_sidecar_options",
+              "engine rejects a non-C512 A4 request before model I/O");
+
+  runtime::ReferenceOneShotOptions wrong_chunk_one_shot_a4;
+  wrong_chunk_one_shot_a4.projection_backend =
+      runtime::ProjectionBackend::kSm87WeightOnly;
+  wrong_chunk_one_shot_a4.prefill_a4_payload_path = "payload.a4";
+  wrong_chunk_one_shot_a4.prefill_a4_calibration_policy_path =
+      "policy.json";
+  wrong_chunk_one_shot_a4.generation.prefill_chunk_size = 1U;
+  const runtime::ReferenceOneShotResult wrong_chunk_one_shot =
+      runtime::generate_reference("unused-model-directory", "prompt",
+                                  wrong_chunk_one_shot_a4);
+  test.expect(!wrong_chunk_one_shot &&
+                  wrong_chunk_one_shot.diagnostic.code ==
+                      runtime::ReferenceEngineError::kInvalidArgument &&
+                  wrong_chunk_one_shot.diagnostic.stage ==
+                      "one_shot_options",
+              "one-shot rejects a non-C512 A4 request before asset I/O");
+
+  runtime::ReferenceEngineOptions trace_a4;
+  trace_a4.projection_backend =
+      runtime::ProjectionBackend::kSm87WeightOnly;
+  trace_a4.prefill_a4_payload_path = "payload.a4";
+  trace_a4.prefill_a4_calibration_policy_path = "policy.json";
+  trace_a4.request_options.prefill_chunk_size = 512U;
+  trace_a4.enable_trace = true;
+  const runtime::ReferenceEngineCreateResult trace_created =
+      runtime::create_reference_engine("unused-model-directory", trace_a4);
+  test.expect(!trace_created &&
+                  trace_created.diagnostic.code ==
+                      runtime::ReferenceEngineError::kInvalidArgument &&
+                  trace_created.diagnostic.stage ==
+                      "prefill_a4_sidecar_options",
+              "engine rejects A4 plus tracing before model I/O");
+
+  runtime::ReferenceOneShotOptions trace_one_shot_a4;
+  trace_one_shot_a4.projection_backend =
+      runtime::ProjectionBackend::kSm87WeightOnly;
+  trace_one_shot_a4.prefill_a4_payload_path = "payload.a4";
+  trace_one_shot_a4.prefill_a4_calibration_policy_path = "policy.json";
+  trace_one_shot_a4.generation.prefill_chunk_size = 512U;
+  trace_one_shot_a4.generation.capture_trace = true;
+  const runtime::ReferenceOneShotResult trace_one_shot =
+      runtime::generate_reference("unused-model-directory", "prompt",
+                                  trace_one_shot_a4);
+  test.expect(!trace_one_shot &&
+                  trace_one_shot.diagnostic.code ==
+                      runtime::ReferenceEngineError::kInvalidArgument &&
+                  trace_one_shot.diagnostic.stage ==
+                      "one_shot_options",
+              "one-shot rejects A4 plus tracing before asset I/O");
+
+  const runtime::ReferenceEngineLoadStats empty_load;
+  test.expect(!empty_load.prefill_a4_sidecars_requested &&
+                  !empty_load.prefill_a4_sidecars_enabled &&
+                  empty_load.prefill_a4_sidecar_projections == 0U &&
+                  empty_load.prefill_a4_sidecar_bytes == 0U &&
+                  empty_load.prefill_a4_sidecar_copy_chunks == 0U &&
+                  empty_load.prefill_a4_physical_layout.empty() &&
+                  empty_load.prefill_a4_manifest_sha256.empty() &&
+                  empty_load.prefill_a4_policy_sha256.empty() &&
+                  empty_load.prefill_a4_payload_sha256.empty(),
+              "A4 load statistics default to an unrequested empty route");
 }
 
 }  // namespace
