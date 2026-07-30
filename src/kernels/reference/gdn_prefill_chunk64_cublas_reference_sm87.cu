@@ -23,6 +23,7 @@ thread_local bool g_force_fused_kkt_baseline_for_test = false;
 thread_local bool g_force_split_wy_baseline_for_test = false;
 thread_local bool g_force_packed_qkv_baseline_for_test = false;
 thread_local bool g_force_resident_state_baseline_for_test = false;
+thread_local bool g_force_bt64_state_candidate_for_test = false;
 
 }  // namespace
 
@@ -63,6 +64,13 @@ bool exchange_force_resident_state_baseline_for_test(
     const bool enabled) noexcept {
   const bool previous = g_force_resident_state_baseline_for_test;
   g_force_resident_state_baseline_for_test = enabled;
+  return previous;
+}
+
+bool exchange_force_bt64_state_candidate_for_test(
+    const bool enabled) noexcept {
+  const bool previous = g_force_bt64_state_candidate_for_test;
+  g_force_bt64_state_candidate_for_test = enabled;
   return previous;
 }
 
@@ -1878,6 +1886,568 @@ void persistent_state_chunk64_resident_kernel(
   }
 }
 
+// Dedicated SM87 stage-B replacement.  This is a new CTA macro-tile rather
+// than another variant of the V16-owned WMMA kernel above.  Four warps own a
+// complete BV64 tile; each warp carries H[V16,K128] as sixteen m16n8 FP32
+// accumulator fragments for the whole request.  The two tensor products are
+// expressed as CTA-wide BT64xBV64xBK64 operations with explicit ldmatrix and
+// mma.sync instructions.
+constexpr unsigned int kBt64PanelRows = 64U;
+constexpr unsigned int kBt64PanelColumns = 64U;
+constexpr unsigned int kBt64PanelChunks = 8U;
+constexpr unsigned int kBt64KeyBanks = 2U;
+constexpr unsigned int kBt64N8Panels = 8U;
+constexpr std::size_t kBt64PanelElements =
+    kBt64PanelRows * kBt64PanelColumns;
+constexpr std::size_t kBt64PanelBytes =
+    kBt64PanelElements * sizeof(std::uint16_t);
+constexpr std::size_t kBt64W0Offset = 0U;
+constexpr std::size_t kBt64W1Offset = kBt64W0Offset + kBt64PanelBytes;
+constexpr std::size_t kBt64UOffset = kBt64W1Offset + kBt64PanelBytes;
+constexpr std::size_t kBt64K0Offset = kBt64UOffset + kBt64PanelBytes;
+constexpr std::size_t kBt64K1Offset = kBt64K0Offset + kBt64PanelBytes;
+constexpr std::size_t kBt64TransientOffset =
+    kBt64K1Offset + kBt64PanelBytes;
+constexpr std::size_t kBt64StateSharedBytes =
+    kBt64TransientOffset + kBt64PanelBytes;
+static_assert(kBt64StateSharedBytes == 48U * 1024U);
+
+struct Bt64M16K16 final {
+  std::uint32_t x0;
+  std::uint32_t x1;
+  std::uint32_t x2;
+  std::uint32_t x3;
+};
+
+struct Bt64K16N8 final {
+  std::uint32_t x0;
+  std::uint32_t x1;
+};
+
+struct Bt64M16N8Accumulator final {
+  float x0;
+  float x1;
+  float x2;
+  float x3;
+};
+
+[[nodiscard]] __device__ __forceinline__ unsigned int bt64_swizzled_chunk(
+    const unsigned int row, const unsigned int logical_chunk) {
+  return logical_chunk ^ (row & 7U);
+}
+
+[[nodiscard]] __device__ __forceinline__ std::uint32_t bt64_pack_pair(
+    const float low, const float high) {
+  return static_cast<std::uint32_t>(encode_bf16_device(low)) |
+         (static_cast<std::uint32_t>(encode_bf16_device(high)) << 16U);
+}
+
+[[nodiscard]] __device__ __forceinline__ float bt64_decode_low(
+    const std::uint32_t packed) {
+  return decode_bf16_device(static_cast<std::uint16_t>(packed));
+}
+
+[[nodiscard]] __device__ __forceinline__ float bt64_decode_high(
+    const std::uint32_t packed) {
+  return decode_bf16_device(static_cast<std::uint16_t>(packed >> 16U));
+}
+
+__device__ __forceinline__ void bt64_load_a(
+    Bt64M16K16& fragment, const std::uint16_t* const shared_matrix,
+    const unsigned int m_panel, const unsigned int k16,
+    const unsigned int lane) {
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 750
+  const unsigned int quadrant = lane / 8U;
+  const unsigned int row =
+      m_panel * 16U + (lane % 8U) + (quadrant & 1U) * 8U;
+  const unsigned int logical_chunk =
+      k16 * 2U + (quadrant >> 1U);
+  const unsigned int physical_chunk =
+      bt64_swizzled_chunk(row, logical_chunk);
+  const auto* const source =
+      shared_matrix + row * kBt64PanelColumns + physical_chunk * 8U;
+  const unsigned int shared_address = static_cast<unsigned int>(
+      __cvta_generic_to_shared(source));
+  asm volatile(
+      "ldmatrix.sync.aligned.m8n8.x4.shared.b16 "
+      "{%0, %1, %2, %3}, [%4];"
+      : "=r"(fragment.x0), "=r"(fragment.x1),
+        "=r"(fragment.x2), "=r"(fragment.x3)
+      : "r"(shared_address)
+      : "memory");
+#else
+  (void)fragment;
+  (void)shared_matrix;
+  (void)m_panel;
+  (void)k16;
+  (void)lane;
+#endif
+}
+
+// `shared_matrix` is the row-major [N,K] backing of the logical column-major
+// [K,N] matrix-B operand.  The XOR is applied per canonical N row before the
+// transposed ldmatrix load.
+__device__ __forceinline__ void bt64_load_b(
+    Bt64K16N8& fragment, const std::uint16_t* const shared_matrix,
+    const unsigned int n_panel, const unsigned int k16,
+    const unsigned int lane) {
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 750
+  const unsigned int row = n_panel * 8U + (lane & 7U);
+  const unsigned int logical_chunk =
+      k16 * 2U + ((lane >> 3U) & 1U);
+  const unsigned int physical_chunk =
+      bt64_swizzled_chunk(row, logical_chunk);
+  const auto* const source =
+      shared_matrix + row * kBt64PanelColumns + physical_chunk * 8U;
+  const unsigned int shared_address = static_cast<unsigned int>(
+      __cvta_generic_to_shared(source));
+  asm volatile(
+      "ldmatrix.sync.aligned.m8n8.x2.trans.shared.b16 "
+      "{%0, %1}, [%2];"
+      : "=r"(fragment.x0), "=r"(fragment.x1)
+      : "r"(shared_address)
+      : "memory");
+#else
+  (void)fragment;
+  (void)shared_matrix;
+  (void)n_panel;
+  (void)k16;
+  (void)lane;
+#endif
+}
+
+__device__ __forceinline__ void bt64_mma(
+    Bt64M16N8Accumulator& accumulator,
+    const Bt64M16K16& a, const Bt64K16N8& b) {
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800
+  asm volatile(
+      "mma.sync.aligned.m16n8k16.row.col.f32.bf16.bf16.f32 "
+      "{%0, %1, %2, %3}, {%4, %5, %6, %7}, {%8, %9}, "
+      "{%0, %1, %2, %3};"
+      : "+f"(accumulator.x0), "+f"(accumulator.x1),
+        "+f"(accumulator.x2), "+f"(accumulator.x3)
+      : "r"(a.x0), "r"(a.x1), "r"(a.x2), "r"(a.x3),
+        "r"(b.x0), "r"(b.x1));
+#else
+  (void)accumulator;
+  (void)a;
+  (void)b;
+#endif
+}
+
+__device__ __forceinline__ void bt64_zero(
+    Bt64M16N8Accumulator& accumulator) {
+  accumulator.x0 = 0.0F;
+  accumulator.x1 = 0.0F;
+  accumulator.x2 = 0.0F;
+  accumulator.x3 = 0.0F;
+}
+
+[[nodiscard]] __device__ __forceinline__ std::uint16_t bt64_uint4_bf16(
+    const uint4 packed, const unsigned int element) {
+  const std::uint32_t word =
+      element < 2U ? packed.x
+                   : (element < 4U ? packed.y
+                                   : (element < 6U ? packed.z : packed.w));
+  return static_cast<std::uint16_t>(
+      word >> ((element & 1U) * 16U));
+}
+
+__device__ __forceinline__ void bt64_stage_w_u(
+    const std::uint16_t* const matrix_w,
+    const std::uint16_t* const matrix_u,
+    const unsigned int value_half,
+    std::uint16_t* const shared_w0,
+    std::uint16_t* const shared_w1,
+    std::uint16_t* const shared_u,
+    const unsigned int thread) {
+  constexpr unsigned int kWVectorCount =
+      kChunkSize * kDimension * sizeof(std::uint16_t) / sizeof(uint4);
+  constexpr unsigned int kUVectorCount =
+      kChunkSize * 64U * sizeof(std::uint16_t) / sizeof(uint4);
+  static_assert(kWVectorCount == 1024U);
+  static_assert(kUVectorCount == 512U);
+
+  for (unsigned int vector = thread; vector < kWVectorCount;
+       vector += kFusedSolveThreads) {
+    const unsigned int row = vector / 16U;
+    const unsigned int source_chunk = vector % 16U;
+    const unsigned int bank = source_chunk / kBt64PanelChunks;
+    const unsigned int logical_chunk =
+        source_chunk % kBt64PanelChunks;
+    const unsigned int physical_chunk =
+        bt64_swizzled_chunk(row, logical_chunk);
+    std::uint16_t* const selected_shared =
+        bank == 0U ? shared_w0 : shared_w1;
+    resident_state_cp_async_16(
+        selected_shared + row * kBt64PanelColumns + physical_chunk * 8U,
+        matrix_w + row * kDimension + source_chunk * 8U);
+  }
+
+  for (unsigned int vector = thread; vector < kUVectorCount;
+       vector += kFusedSolveThreads) {
+    const unsigned int row = vector / kBt64PanelChunks;
+    const unsigned int logical_chunk = vector % kBt64PanelChunks;
+    const unsigned int physical_chunk =
+        bt64_swizzled_chunk(row, logical_chunk);
+    resident_state_cp_async_16(
+        shared_u + row * kBt64PanelColumns + physical_chunk * 8U,
+        matrix_u + row * kDimension + value_half * 64U +
+            logical_chunk * 8U);
+  }
+  resident_state_cp_async_commit();
+}
+
+__device__ __forceinline__ void bt64_form_decayed_k_transpose(
+    const std::uint16_t* const compact_k,
+    const float* const decay_scale,
+    std::uint16_t* const shared_k0,
+    std::uint16_t* const shared_k1,
+    const unsigned int thread) {
+  constexpr unsigned int kVectorCount =
+      kChunkSize * kDimension * sizeof(std::uint16_t) / sizeof(uint4);
+  static_assert(kVectorCount == 1024U);
+  const auto* const vectors = reinterpret_cast<const uint4*>(compact_k);
+  for (unsigned int vector = thread; vector < kVectorCount;
+       vector += kFusedSolveThreads) {
+    const unsigned int token = vector / 16U;
+    const unsigned int key_base = (vector % 16U) * 8U;
+    const uint4 packed = vectors[vector];
+    const float scale = decay_scale[token];
+#pragma unroll
+    for (unsigned int element = 0U; element < 8U; ++element) {
+      const unsigned int key = key_base + element;
+      const unsigned int bank = key / 64U;
+      const unsigned int key_row = key % 64U;
+      const unsigned int logical_chunk = token / 8U;
+      const unsigned int physical_chunk =
+          bt64_swizzled_chunk(key_row, logical_chunk);
+      std::uint16_t* const selected_shared =
+          bank == 0U ? shared_k0 : shared_k1;
+      selected_shared[key_row * kBt64PanelColumns +
+                      physical_chunk * 8U + token % 8U] =
+          encode_bf16_device(
+              decode_bf16_device(bt64_uint4_bf16(packed, element)) *
+              scale);
+    }
+  }
+}
+
+__device__ __forceinline__ void bt64_load_initial_state(
+    Bt64M16N8Accumulator (&state)[kBt64KeyBanks][kBt64N8Panels],
+    const std::uint16_t* const state_input,
+    const std::size_t head_state_base,
+    const unsigned int value_half,
+    const unsigned int warp,
+    const unsigned int lane) {
+  const unsigned int group = lane >> 2U;
+  const unsigned int pair = lane & 3U;
+  const unsigned int value0 = value_half * 64U + warp * 16U + group;
+  const unsigned int value1 = value0 + 8U;
+#pragma unroll
+  for (unsigned int bank = 0U; bank < kBt64KeyBanks; ++bank) {
+#pragma unroll
+    for (unsigned int panel = 0U; panel < kBt64N8Panels; ++panel) {
+      const unsigned int key = bank * 64U + panel * 8U + pair * 2U;
+      const auto* const first = reinterpret_cast<const std::uint32_t*>(
+          state_input + head_state_base +
+          static_cast<std::size_t>(value0) * kDimension + key);
+      const auto* const second = reinterpret_cast<const std::uint32_t*>(
+          state_input + head_state_base +
+          static_cast<std::size_t>(value1) * kDimension + key);
+      const std::uint32_t first_pair = *first;
+      const std::uint32_t second_pair = *second;
+      state[bank][panel].x0 = bt64_decode_low(first_pair);
+      state[bank][panel].x1 = bt64_decode_high(first_pair);
+      state[bank][panel].x2 = bt64_decode_low(second_pair);
+      state[bank][panel].x3 = bt64_decode_high(second_pair);
+    }
+  }
+}
+
+__device__ __forceinline__ void bt64_store_state_bank_shared(
+    const Bt64M16N8Accumulator (&state)[kBt64KeyBanks][kBt64N8Panels],
+    std::uint16_t* const shared_state,
+    const unsigned int bank,
+    const unsigned int warp,
+    const unsigned int lane) {
+  const unsigned int group = lane >> 2U;
+  const unsigned int pair = lane & 3U;
+  const unsigned int row0 = warp * 16U + group;
+  const unsigned int row1 = row0 + 8U;
+#pragma unroll
+  for (unsigned int panel = 0U; panel < kBt64N8Panels; ++panel) {
+    const unsigned int chunk0 = bt64_swizzled_chunk(row0, panel);
+    const unsigned int chunk1 = bt64_swizzled_chunk(row1, panel);
+    auto* const first = reinterpret_cast<std::uint32_t*>(
+        shared_state + row0 * kBt64PanelColumns + chunk0 * 8U + pair * 2U);
+    auto* const second = reinterpret_cast<std::uint32_t*>(
+        shared_state + row1 * kBt64PanelColumns + chunk1 * 8U + pair * 2U);
+    *first = bt64_pack_pair(state[bank][panel].x0,
+                            state[bank][panel].x1);
+    *second = bt64_pack_pair(state[bank][panel].x2,
+                             state[bank][panel].x3);
+  }
+}
+
+__device__ __forceinline__ void bt64_copy_state_bank_global(
+    const std::uint16_t* const shared_state,
+    std::uint16_t* const global_state,
+    const unsigned int value_half,
+    const unsigned int bank,
+    const unsigned int thread) {
+  constexpr unsigned int kVectorCount =
+      kBt64PanelBytes / sizeof(uint4);
+  static_assert(kVectorCount == 512U);
+  for (unsigned int vector = thread; vector < kVectorCount;
+       vector += kFusedSolveThreads) {
+    const unsigned int row = vector / kBt64PanelChunks;
+    const unsigned int logical_chunk = vector % kBt64PanelChunks;
+    const unsigned int physical_chunk =
+        bt64_swizzled_chunk(row, logical_chunk);
+    const auto* const source = reinterpret_cast<const uint4*>(
+        shared_state + row * kBt64PanelColumns + physical_chunk * 8U);
+    auto* const destination = reinterpret_cast<uint4*>(
+        global_state +
+        static_cast<std::size_t>(value_half * 64U + row) * kDimension +
+        bank * 64U + logical_chunk * 8U);
+    *destination = *source;
+  }
+}
+
+[[nodiscard]] __device__ __forceinline__ std::uint32_t bt64_load_u_pair(
+    const std::uint16_t* const shared_u,
+    const unsigned int token,
+    const unsigned int value_panel,
+    const unsigned int pair) {
+  const unsigned int physical_chunk =
+      bt64_swizzled_chunk(token, value_panel);
+  const auto* const source = reinterpret_cast<const std::uint32_t*>(
+      shared_u + token * kBt64PanelColumns + physical_chunk * 8U + pair * 2U);
+  return *source;
+}
+
+__device__ __forceinline__ void bt64_store_vt(
+    std::uint16_t* const shared_vt,
+    const unsigned int value,
+    const unsigned int token,
+    const std::uint16_t rounded) {
+  const unsigned int logical_chunk = token / 8U;
+  const unsigned int physical_chunk =
+      bt64_swizzled_chunk(value, logical_chunk);
+  shared_vt[value * kBt64PanelColumns + physical_chunk * 8U + token % 8U] =
+      rounded;
+}
+
+__device__ __forceinline__ void bt64_scale_state(
+    Bt64M16N8Accumulator (&state)[kBt64KeyBanks][kBt64N8Panels],
+    const float decay) {
+#pragma unroll
+  for (unsigned int bank = 0U; bank < kBt64KeyBanks; ++bank) {
+#pragma unroll
+    for (unsigned int panel = 0U; panel < kBt64N8Panels; ++panel) {
+      state[bank][panel].x0 *= decay;
+      state[bank][panel].x1 *= decay;
+      state[bank][panel].x2 *= decay;
+      state[bank][panel].x3 *= decay;
+    }
+  }
+}
+
+__global__ __launch_bounds__(kFusedSolveThreads, 2)
+void persistent_state_chunk64_bt64_bv64_bk64_kernel(
+    const std::uint16_t* const w,
+    const std::uint16_t* const u,
+    const std::uint16_t* const compact_k,
+    const float* const gamma,
+    const std::uint16_t* const state_input,
+    std::uint16_t* const state_output,
+    const unsigned int chunk_count,
+    std::uint16_t* const v_new,
+    std::uint16_t* const boundary_state) {
+  extern __shared__ __align__(16) unsigned char shared_raw[];
+  auto* const shared_w0 = reinterpret_cast<std::uint16_t*>(
+      shared_raw + kBt64W0Offset);
+  auto* const shared_w1 = reinterpret_cast<std::uint16_t*>(
+      shared_raw + kBt64W1Offset);
+  auto* const shared_u = reinterpret_cast<std::uint16_t*>(
+      shared_raw + kBt64UOffset);
+  auto* const shared_k0 = reinterpret_cast<std::uint16_t*>(
+      shared_raw + kBt64K0Offset);
+  auto* const shared_k1 = reinterpret_cast<std::uint16_t*>(
+      shared_raw + kBt64K1Offset);
+  auto* const shared_transient = reinterpret_cast<std::uint16_t*>(
+      shared_raw + kBt64TransientOffset);
+  auto* const shared_decay_scale =
+      reinterpret_cast<float*>(shared_transient);
+
+  const unsigned int thread = threadIdx.x;
+  const unsigned int warp = thread / 32U;
+  const unsigned int lane = thread % 32U;
+  const unsigned int value_head = blockIdx.x / 2U;
+  const unsigned int value_half = blockIdx.x % 2U;
+  const std::size_t head_state_base =
+      static_cast<std::size_t>(value_head) * kDimension * kDimension;
+
+  Bt64M16N8Accumulator state[kBt64KeyBanks][kBt64N8Panels];
+  bt64_load_initial_state(state, state_input, head_state_base,
+                          value_half, warp, lane);
+
+  for (unsigned int chunk_index = 0U; chunk_index < chunk_count;
+       ++chunk_index) {
+    const std::size_t matrix =
+        static_cast<std::size_t>(chunk_index) * kValueHeadCount +
+        value_head;
+    const std::size_t compact_matrix =
+        static_cast<std::size_t>(chunk_index) * kQkHeadCount +
+        value_head / 3U;
+    const auto* const matrix_w =
+        w + matrix * kChunkSize * kDimension;
+    const auto* const matrix_u =
+        u + matrix * kChunkSize * kDimension;
+    const auto* const matrix_k =
+        compact_k + compact_matrix * kChunkSize * kDimension;
+    const auto* const matrix_gamma = gamma + matrix * kChunkSize;
+    auto* const matrix_v_new =
+        v_new + matrix * kChunkSize * kDimension;
+    auto* const matrix_boundary =
+        boundary_state + matrix * kDimension * kDimension;
+
+    // Stage W/U first.  Their global transfers remain in flight while all
+    // threads form the exact BF16 decayed-K transpose from compact K.
+    bt64_stage_w_u(matrix_w, matrix_u, value_half, shared_w0,
+                   shared_w1, shared_u, thread);
+    if (thread < kChunkSize) {
+      const float last = matrix_gamma[kChunkSize - 1U];
+      shared_decay_scale[thread] =
+          expf(last - matrix_gamma[thread]);
+      if (thread == 0U) {
+        shared_decay_scale[kChunkSize] = expf(last);
+      }
+    }
+    __syncthreads();
+    bt64_form_decayed_k_transpose(matrix_k, shared_decay_scale,
+                                  shared_k0, shared_k1, thread);
+    const float state_decay = shared_decay_scale[kChunkSize];
+    resident_state_cp_async_wait_all();
+    __syncthreads();
+
+    {
+      Bt64M16N8Accumulator products[kBt64N8Panels];
+#pragma unroll
+      for (unsigned int panel = 0U; panel < kBt64N8Panels; ++panel) {
+        bt64_zero(products[panel]);
+      }
+
+#pragma unroll
+      for (unsigned int bank = 0U; bank < kBt64KeyBanks; ++bank) {
+        bt64_store_state_bank_shared(state, shared_transient, bank,
+                                     warp, lane);
+        __syncthreads();
+        bt64_copy_state_bank_global(
+            shared_transient, matrix_boundary, value_half, bank, thread);
+
+        const std::uint16_t* const selected_w =
+            bank == 0U ? shared_w0 : shared_w1;
+#pragma unroll
+        for (unsigned int k16 = 0U; k16 < 4U; ++k16) {
+          Bt64M16K16 a_fragment{};
+          bt64_load_a(a_fragment, selected_w, warp, k16, lane);
+#pragma unroll
+          for (unsigned int panel = 0U; panel < kBt64N8Panels; ++panel) {
+            Bt64K16N8 b_fragment{};
+            bt64_load_b(b_fragment, shared_transient, panel, k16,
+                        lane);
+            bt64_mma(products[panel], a_fragment, b_fragment);
+          }
+        }
+        __syncthreads();
+      }
+
+      // The product layout is [T64,V64].  Subtract U in FP32, publish the
+      // public BF16 Vnew pairs, and transpose the same rounded values into
+      // the reusable [V64,T64] shared tile for the update GEMM.
+      const unsigned int group = lane >> 2U;
+      const unsigned int pair = lane & 3U;
+      const unsigned int token0 = warp * 16U + group;
+      const unsigned int token1 = token0 + 8U;
+#pragma unroll
+      for (unsigned int panel = 0U; panel < kBt64N8Panels; ++panel) {
+        const unsigned int value0 = panel * 8U + pair * 2U;
+        const unsigned int value1 = value0 + 1U;
+        const std::uint32_t u0 =
+            bt64_load_u_pair(shared_u, token0, panel, pair);
+        const std::uint32_t u1 =
+            bt64_load_u_pair(shared_u, token1, panel, pair);
+        const float corrected00 =
+            bt64_decode_low(u0) - products[panel].x0;
+        const float corrected01 =
+            bt64_decode_high(u0) - products[panel].x1;
+        const float corrected10 =
+            bt64_decode_low(u1) - products[panel].x2;
+        const float corrected11 =
+            bt64_decode_high(u1) - products[panel].x3;
+        const std::uint16_t rounded00 =
+            encode_bf16_device(corrected00);
+        const std::uint16_t rounded01 =
+            encode_bf16_device(corrected01);
+        const std::uint16_t rounded10 =
+            encode_bf16_device(corrected10);
+        const std::uint16_t rounded11 =
+            encode_bf16_device(corrected11);
+        *reinterpret_cast<std::uint32_t*>(
+            matrix_v_new + token0 * kDimension +
+            value_half * 64U + value0) =
+            static_cast<std::uint32_t>(rounded00) |
+            (static_cast<std::uint32_t>(rounded01) << 16U);
+        *reinterpret_cast<std::uint32_t*>(
+            matrix_v_new + token1 * kDimension +
+            value_half * 64U + value0) =
+            static_cast<std::uint32_t>(rounded10) |
+            (static_cast<std::uint32_t>(rounded11) << 16U);
+        bt64_store_vt(shared_transient, value0, token0, rounded00);
+        bt64_store_vt(shared_transient, value1, token0, rounded01);
+        bt64_store_vt(shared_transient, value0, token1, rounded10);
+        bt64_store_vt(shared_transient, value1, token1, rounded11);
+      }
+    }
+    __syncthreads();
+
+    bt64_scale_state(state, state_decay);
+#pragma unroll
+    for (unsigned int token_block = 0U; token_block < 4U;
+         ++token_block) {
+      Bt64M16K16 a_fragment{};
+      bt64_load_a(a_fragment, shared_transient, warp, token_block,
+                  lane);
+#pragma unroll
+      for (unsigned int bank = 0U; bank < kBt64KeyBanks; ++bank) {
+        const std::uint16_t* const selected_k =
+            bank == 0U ? shared_k0 : shared_k1;
+#pragma unroll
+        for (unsigned int panel = 0U; panel < kBt64N8Panels; ++panel) {
+          Bt64K16N8 b_fragment{};
+          bt64_load_b(b_fragment, selected_k, panel, token_block,
+                      lane);
+          bt64_mma(state[bank][panel], a_fragment, b_fragment);
+        }
+      }
+    }
+    __syncthreads();
+  }
+
+#pragma unroll
+  for (unsigned int bank = 0U; bank < kBt64KeyBanks; ++bank) {
+    bt64_store_state_bank_shared(state, shared_transient, bank,
+                                 warp, lane);
+    __syncthreads();
+    bt64_copy_state_bank_global(
+        shared_transient, state_output + head_state_base,
+        value_half, bank, thread);
+    __syncthreads();
+  }
+}
+
 // Architecture stage C: reconstruct one C64/value-head tile with WMMA, keep
 // its FP32 output on chip, then publish the same BF16 boundary consumed by
 // plain RMSNorm and SiLU(Z). One CTA therefore replaces the two batched GEMM
@@ -2062,6 +2632,15 @@ void reconstruct_norm_gate_chunk64_kernel(
              g_force_resident_state_baseline_for_test;
 }
 
+[[nodiscard]] bool force_bt64_state_candidate() noexcept {
+  static const bool forced_by_environment =
+      std::getenv(
+          "Q3X_GDN_CHUNK64_USE_BT64_STATE_CANDIDATE") != nullptr;
+  return forced_by_environment ||
+         gdn_prefill_chunk64_native_detail::
+             g_force_bt64_state_candidate_for_test;
+}
+
 // Diagnostic-only selector for a same-ELF direction gate against the exact
 // three-launch native producer that immediately preceded group-owned WY.
 // Production never sets this environment variable and therefore always uses
@@ -2172,6 +2751,8 @@ int launch(void* const context,
   const bool use_packed_qkv_baseline =
       force_packed_qkv_baseline() || use_fused_kkt_baseline ||
       use_split_wy_baseline || use_resident_state_baseline;
+  const bool use_bt64_state_candidate =
+      !use_packed_qkv_baseline && force_bt64_state_candidate();
 
   if (use_packed_qkv_baseline) {
     normalize_qk_kernel<false><<<
@@ -2315,6 +2896,13 @@ int launch(void* const context,
         workspace.w, workspace.u, workspace.k_decay, workspace.gamma,
         state_input, state_output, static_cast<unsigned int>(chunk_count),
         workspace.v_new, workspace.boundary_state);
+  } else if (use_bt64_state_candidate) {
+    persistent_state_chunk64_bt64_bv64_bk64_kernel<<<
+        static_cast<unsigned int>(kValueHeadCount * 2U),
+        kFusedSolveThreads, kBt64StateSharedBytes, stream>>>(
+        workspace.w, workspace.u, workspace.k, workspace.gamma,
+        state_input, state_output, static_cast<unsigned int>(chunk_count),
+        workspace.v_new, workspace.boundary_state);
   } else {
     persistent_state_chunk64_resident_kernel<true><<<
         static_cast<unsigned int>(kValueHeadCount * 2U),
@@ -2368,15 +2956,15 @@ int query_native_resources(int* const registers_per_thread,
   }
   cudaFuncAttributes attributes{};
   cudaError_t status = cudaFuncGetAttributes(
-      &attributes, persistent_state_chunk64_resident_kernel<true>);
+      &attributes, persistent_state_chunk64_bt64_bv64_bk64_kernel);
   if (status != cudaSuccess) {
     return static_cast<int>(status);
   }
   int active = 0;
   status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
-      &active, persistent_state_chunk64_resident_kernel<true>,
+      &active, persistent_state_chunk64_bt64_bv64_bk64_kernel,
       static_cast<int>(kFusedSolveThreads),
-      kResidentStatePacklessSharedBytes);
+      kBt64StateSharedBytes);
   if (status != cudaSuccess) {
     return static_cast<int>(status);
   }

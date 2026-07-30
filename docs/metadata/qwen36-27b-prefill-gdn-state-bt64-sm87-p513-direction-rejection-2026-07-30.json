@@ -1,0 +1,356 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-gdn-state-bt64-sm87-p513-direction-rejection-2026-07-30",
+  "status": "rejected-test-only-real-generation-path-direction-stop-loss",
+  "date": "2026-07-30",
+  "timezone": "Asia/Shanghai",
+  "policy": {
+    "document": "docs/REAL_MODEL_PERFORMANCE_POLICY.md",
+    "evidence_tier": "T3",
+    "protocol_class": "DIRECTION_SCREEN",
+    "payload_class": "full_model_pinned_prompt_real_weights",
+    "authority": "EARLY_STOP_ONLY",
+    "retention_authority": false,
+    "promotion_authority": false,
+    "publication_anchor_authority": false,
+    "synthetic_performance_authority": false,
+    "rule": "Run the candidate first in the pinned real generation path. A negative first B-to-C direction result rejects the unchanged candidate before a complete noise harness, profiler, or promotion screen is built."
+  },
+  "source": {
+    "measured_base_commit": "19e10f6d74fa1b2d0d177bb1fb530238b624d59f",
+    "development_branch": "codex/gdn-state-bt64-sm87",
+    "candidate_source": "the test-only candidate diff is committed together with this record",
+    "files": [
+      "src/kernels/reference/gdn_prefill_chunk64_cublas_reference_sm87.cu",
+      "src/kernels/sm87/gdn_prefill_chunk64_native_sm87.h"
+    ],
+    "candidate_kernel": "persistent_state_chunk64_bt64_bv64_bk64_kernel",
+    "candidate_scope": "same-ELF test-selectable replacement for only the exact-C64 cross-chunk persistent-state stage",
+    "old_v16_wmma_kernel_modified": false,
+    "production_default_changed": false,
+    "production_dispatch_changed": false,
+    "production_selector_default": "persistent_state_chunk64_resident_kernel<true>",
+    "candidate_selector": {
+      "environment_variable": "Q3X_GDN_CHUNK64_USE_BT64_STATE_CANDIDATE",
+      "baseline_value": "absent",
+      "candidate_value": "1",
+      "default_enabled": false
+    },
+    "binary": {
+      "path": "build/orin-release/qwen3x-orin",
+      "bytes": 11536328,
+      "sha256": "5420d00ab9a08afa0aae11fe34e8cf70345f788ff1565a3c906fc02cc6a6ae83",
+      "elf_build_id": "d0f0408945f8699c348d7f176eaf6b08da09099e",
+      "build_type": "Release",
+      "cuda_architecture": 87,
+      "cublaslt_dynamic_dependency": false,
+      "cublaslt_dynamic_import": false
+    },
+    "candidate_cuda_object": {
+      "path": "build/orin-release/CMakeFiles/q3x_kernels.dir/src/kernels/reference/gdn_prefill_chunk64_cublas_reference_sm87.cu.o",
+      "sha256": "cf1a52aa8a658351347f8703ae11b4f8b1fc4c5c9445a376c89b9285af7fb50e"
+    },
+    "toolchain": {
+      "cuda_compiler": "CUDA 13.3 V13.3.33",
+      "host_compiler": "g++ 13.3.0",
+      "kernel_library_build": "PASS",
+      "runner_build": "PASS",
+      "diff_check": "PASS"
+    }
+  },
+  "checkpoint": {
+    "repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "directory": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "canonical_directory": true,
+    "real_weights": true,
+    "config_sha256": "c04a19ba293737ad7be4f6e96d6666cb7e479cbe19ecc0c289fad267135b0338",
+    "quantization_config_sha256": "fd7200cd8bca2a8a5d777061521abf83e2deb97ab6bc2f04e7a0a3d3f8ecd5c1",
+    "index_sha256": "7aa103a2582b7d26631988de33dea19e8a308ee9c239e8e14feb374af30905e2",
+    "tokenizer_json_sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42",
+    "tokenizer_config_sha256": "5186f0defcd7f232382c7f0aebcd2252d073bb921ab240e407b7ae8745d2b29b",
+    "generation_config_sha256": "e70c136c1b78ddc1fb0905bac8e733a4dc448d4f852a5dd75143fffc70be550e"
+  },
+  "prompt": {
+    "manifest": "benchmarks/qwen36-27b-sm87-prefill-prompts-v1.json",
+    "manifest_sha256": "18e719e9e9fac23bb409066c664c5bab961e94d67434045d709558d38dc3e966",
+    "label": "P513",
+    "user_text_sha256": "8d7c3cf87620b2b2f7b27bb388c2e15df9daee140e1628813e6026fb55bef6a2",
+    "rendered_prompt_sha256": "4ad308e4947eb28d279307ba7f81d3a4e680c5726d8949a754ba06ca36dfb838",
+    "prompt_id_csv_sha256": "45ae21468cb8a0b0ac64566985daba4c0b78e429b99cac3453a98664587efd6d",
+    "prompt_token_count": 513,
+    "prefix_token_count": 512,
+    "expected_generated_ids": [
+      9419
+    ],
+    "expected_generated_text": "Hello",
+    "expected_stop_reason": "max_new_tokens",
+    "expected_step_count": 513
+  },
+  "environment": {
+    "device": "NVIDIA Jetson AGX Orin",
+    "nvidia_smi_name": "Orin (nvgpu)",
+    "compute_capability": "8.7",
+    "architecture": "SM87",
+    "driver_version": "595.78",
+    "cuda_version": "13.3",
+    "nvpmodel": "MAXN",
+    "operating_system": "Linux 6.8.12-1021-tegra aarch64",
+    "cpu": "12-core Cortex-A78AE",
+    "cpu_affinity": [
+      11
+    ],
+    "competing_gpu_process_check": "none observed before either serialized process",
+    "nsys_used": false,
+    "ncu_used": false,
+    "vllm_executed": false
+  },
+  "candidate_design": {
+    "macro_tile": "BT64xBV64xBK64",
+    "threads": 128,
+    "warps": 4,
+    "value_rows_per_warp": 16,
+    "resident_state": "each warp retains H[V16,K128] as sixteen m16n8 FP32 accumulators across all chunks",
+    "tensor_instruction": "mma.sync.aligned.m16n8k16.row.col.f32.bf16.bf16.f32",
+    "shared_loads": [
+      "ldmatrix.sync.aligned.m8n8.x4.shared.b16",
+      "ldmatrix.sync.aligned.m8n8.x2.trans.shared.b16"
+    ],
+    "shared_layout": "six XOR-swizzled 64x64 BF16 panels: W0, W1, U, K0, K1, and transient H/Vt",
+    "global_to_shared": "cp.async stages W and U while compact K is decoded, decayed, BF16-rounded, and transposed",
+    "exact_boundaries": [
+      "state is BF16 before the W times H-transpose dot",
+      "corrected Vnew is BF16 before the state update",
+      "K times exp(g_last-g_t) is BF16 before the state update",
+      "the recurrence accumulator is FP32",
+      "final persistent state and each public boundary state are BF16"
+    ]
+  },
+  "protocol": {
+    "same_elf_for_baseline_and_candidate": true,
+    "separate_serialized_processes": true,
+    "process_order": [
+      "baseline",
+      "candidate"
+    ],
+    "projection_backend": "sm87_weight_only",
+    "batch_size": 1,
+    "requested_prefill_chunk_size": 512,
+    "effective_prefill_chunk_size": 512,
+    "max_sequence_length": 1024,
+    "max_new_tokens": 1,
+    "warmup_rounds_per_process": 1,
+    "measured_rounds_per_process": 1,
+    "logits_mode": "predicted_token_only",
+    "command_template": "taskset -c 11 env <selector> build/orin-release/qwen3x-orin benchmark /home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4 --prompt <P513 user_text> --max-tokens 1 --warmup 1 --iterations 1 --max-sequence-length 1024 --prefill-chunk-size 512 --projection-backend sm87",
+    "baseline_selector": "no Q3X_GDN_CHUNK64_USE_BT64_STATE_CANDIDATE",
+    "candidate_selector": "Q3X_GDN_CHUNK64_USE_BT64_STATE_CANDIDATE=1",
+    "native_route_hits_per_process": 48,
+    "candidate_state_kernel_launches": 48,
+    "route_hit_evidence": "the production schedule has one exact-C512 native tile and 48 linear-attention layers; the CLI does not print the internal native-route counter, so 48 is schedule-derived rather than an observed counter field",
+    "full_noise_calibration": "NOT_RUN",
+    "formal_six_round_retention": "NOT_RUN",
+    "profiling": "NOT_RUN"
+  },
+  "measurements": {
+    "baseline": {
+      "prefix_ms": 2103.612,
+      "prefix_tokens_per_second": 243.390891476185,
+      "finish_prefill_ms": 108.764,
+      "ttft_ms": 2212.375,
+      "complete_prompt_tokens_per_second": 231.877507203797,
+      "generated_token_id": 9419,
+      "generated_text": "Hello",
+      "stop_reason": "max_new_tokens",
+      "step_count": 513,
+      "request_arena_bytes": 233996288,
+      "persistent_drop_bytes": 0,
+      "persistent_drop_detected": false
+    },
+    "candidate": {
+      "prefix_ms": 2105.132,
+      "prefix_tokens_per_second": 243.215152303989,
+      "finish_prefill_ms": 109.611,
+      "ttft_ms": 2214.742,
+      "complete_prompt_tokens_per_second": 231.629688695117,
+      "generated_token_id": 9419,
+      "generated_text": "Hello",
+      "stop_reason": "max_new_tokens",
+      "step_count": 513,
+      "request_arena_bytes": 233996288,
+      "persistent_drop_bytes": 111665152,
+      "maximum_observed_drop_bytes": 135446528,
+      "drop_tolerance_bytes": 67108864,
+      "persistent_drop_detected": true
+    },
+    "delta": {
+      "prefix_candidate_minus_baseline_ms": 1.520,
+      "prefix_candidate_latency_change_percent": 0.072256670907,
+      "prefix_speedup": 0.999277955017,
+      "ttft_candidate_minus_baseline_ms": 2.367,
+      "ttft_candidate_latency_change_percent": 0.106989095429,
+      "ttft_speedup": 0.998931252489,
+      "direction": "NEGATIVE"
+    }
+  },
+  "semantic_screen": {
+    "generated_token_oracle": "PASS",
+    "baseline_generated_token_id": 9419,
+    "candidate_generated_token_id": 9419,
+    "ordered_step_count_oracle": "PASS",
+    "complete_gdn_state_bitwise_equivalence": "NOT_RUN_AFTER_NEGATIVE_DIRECTION",
+    "full_hidden_or_logits_equivalence": "NOT_RUN_AFTER_NEGATIVE_DIRECTION",
+    "retention_semantics_established": false
+  },
+  "static_resource_audit": {
+    "method": "cuobjdump --dump-resource-usage on the measured CUDA object",
+    "candidate": {
+      "registers_per_thread": 215,
+      "stack_bytes": 0,
+      "static_shared_bytes": 0,
+      "dynamic_shared_bytes": 49152,
+      "local_bytes": 0,
+      "launch_bounds": "128 threads, minimum 2 blocks",
+      "static_occupancy_target": "2 CTA/SM and 8 warps/SM",
+      "device_occupancy_api": "NOT_RUN"
+    },
+    "production_incumbent": {
+      "registers_per_thread": 252,
+      "stack_bytes": 0,
+      "static_shared_bytes": 0,
+      "dynamic_shared_bytes": 28928,
+      "local_bytes": 0
+    },
+    "resource_interpretation": "The candidate removed 37 registers per thread and retained zero local memory. Resource occupancy alone did not turn into a positive real-P513 result."
+  },
+  "static_sass_audit": {
+    "method": "static opcode-row counts from cuobjdump --dump-sass; these are not dynamic executed-instruction counts",
+    "production_incumbent": {
+      "total_instruction_rows": 2968,
+      "HMMA": 128,
+      "LDSM": 0,
+      "LDGSTS": 7,
+      "LDG": 66,
+      "STG": 80,
+      "LDS": 125,
+      "STS": 136,
+      "BAR": 6,
+      "F2FP": 147,
+      "MUFU_EX2": 2
+    },
+    "candidate": {
+      "total_instruction_rows": 2800,
+      "HMMA": 128,
+      "LDSM": 140,
+      "LDGSTS": 14,
+      "LDG": 50,
+      "STG": 44,
+      "LDS": 198,
+      "STS": 106,
+      "BAR": 12,
+      "F2FP": 168,
+      "MUFU_EX2": 2
+    },
+    "vllm_fla_chunk_delta_h_reference": {
+      "provenance": "the already collected local vLLM/FlashLinearAttention cubin audit; vLLM was not executed in this direction screen",
+      "registers_per_thread": 255,
+      "dynamic_shared_bytes": 49412,
+      "total_instruction_rows": 1936,
+      "HMMA": 128,
+      "LDSM": 80,
+      "F2FP": 67,
+      "unknown_in_this_record": [
+        "LDGSTS",
+        "LDG",
+        "STG",
+        "LDS",
+        "STS",
+        "BAR"
+      ]
+    },
+    "candidate_vs_vllm": {
+      "extra_instruction_rows": 864,
+      "extra_instruction_percent": 44.628099173554,
+      "LDSM_ratio": 1.75,
+      "F2FP_extra_rows": 101,
+      "F2FP_ratio": 2.507462686567
+    }
+  },
+  "existing_architecture_anchor": {
+    "provenance": "the latest real-P513 Nsys audit preceding this candidate",
+    "production_persistent_state_total_ms": 49.340352,
+    "production_instances": 48,
+    "production_average_us": 1027.924,
+    "vllm_chunk_delta_h_total_ms": 11.600480,
+    "vllm_instances": 48,
+    "vllm_average_us": 241.676667,
+    "production_to_vllm_latency_ratio": 4.253302621960,
+    "candidate_stage_timing": "NOT_PROFILED_AFTER_NEGATIVE_DIRECTION",
+    "interpretation": "The new macro-tile did not establish any closure of the approximately 4.25x incumbent-to-vLLM state-stage gap. The end-to-end direction screen was already negative, so a profile was not authorized."
+  },
+  "offline_attribution": {
+    "classification": "structural_dataflow_mismatch_not_an_occupancy_or_single_parameter_failure",
+    "findings": [
+      "The candidate has the same 128 static HMMA rows as both references, but it still carries 2800 SASS rows versus vLLM's 1936. Replacing WMMA syntax with explicit mma.sync and ldmatrix therefore repaired only the fragment-feed mechanism, not the complete dataflow.",
+      "The compact K tile is loaded, multiplied by 64 decay factors, BF16-rounded, and transposed independently in every state CTA. Two value halves and three value heads sharing one QK head repeat that preparation six times per QK head. This project-specific exact preparation remains scalar-heavy and is a principal source of F2FP and STS work.",
+      "F2FP rises from the incumbent's 147 to 168 and remains 2.51x vLLM's 67. The candidate rounds the pre-dot state, corrected Vnew, decayed K, and final state inside the same kernel; the implementation expresses several of those boundaries as per-element conversions instead of a reference-like vectorized epilogue.",
+      "The 106 static STS rows come from materializing resident state into shared memory for boundary publication and the W dot, scattering the transposed decayed-K tile, and scattering the BF16 Vnew transpose for the update. They are not eliminated by the new tensor-core macro-tile.",
+      "The 12 static BAR rows are twice the incumbent count. The implementation serializes decay preparation, each of two state-bank materializations and global boundary copies, the Vnew transpose, the state update, and final-state publication. Those phase barriers prevent the load, conversion, ldmatrix, and MMA streams from forming the tight reference pipeline.",
+      "Fourteen LDGSTS rows prove that cp.async is present, but the kernel issues one W/U transfer group and calls wait-all before either tensor product. It overlaps that transfer only with compact-K formation; it does not implement the vLLM kernel's alternating two-stage load-and-MMA pipeline.",
+      "The candidate uses 140 LDSM rows versus vLLM's 80. It repeatedly reloads B fragments across eight N8 panels and two key banks instead of preserving the reference kernel's fragment reuse and phase ordering.",
+      "The candidate matches the reference's four-warps, approximately 49-KiB shared-memory, 128-HMMA, and two-CTA resource envelope. The negative P513 result demonstrates that matching those headline quantities is insufficient while conversion, transpose, materialization, and synchronization remain structurally different."
+    ],
+    "memory_drop": {
+      "status": "OBSERVED_PENDING_DIAGNOSIS",
+      "process_metric_bytes": 111665152,
+      "causal_attribution_to_kernel": false,
+      "reason": "The candidate kernel performs no dynamic allocation and uses the same request arena size as baseline. A process-level free-memory drop is not evidence that the kernel allocated or leaked memory; it must be reproduced and localized separately if this design line is ever reopened."
+    }
+  },
+  "next_design_constraint": {
+    "rule": "Do not tune this 2800-row candidate locally and do not add it to the cumulative native baseline.",
+    "required_change": "Start from a more faithful vLLM/FlashLinearAttention chunk_delta_h dataflow skeleton: match warp ownership, shared layouts, true two-stage producer-consumer scheduling, fragment reuse, vectorized conversion/store boundaries, and synchronization topology before inserting only the exact BF16 boundaries required by this project.",
+    "must_remove_or_amortize": [
+      "sixfold compact-K decay-and-transpose work per shared QK head",
+      "full state-to-shared rematerialization for every boundary phase",
+      "scalar Vnew and K transpose stores",
+      "wait-all separation between global staging and both MMA phases",
+      "barriers that do not exist in the reference dataflow"
+    ],
+    "coordination_dependency": "wait for the separate chunk-o equivalence result before choosing the next complete GDN architecture boundary",
+    "first_gate_for_next_candidate": "same-ELF real-weight P513 baseline-to-candidate direction screen before a complete harness or profiler campaign"
+  },
+  "decision": {
+    "direction": "NEGATIVE",
+    "candidate_retained_as_native_experimental_incumbent": false,
+    "candidate_eligible_for_production": false,
+    "candidate_eligible_for_cumulative_baseline": false,
+    "formal_retention": "NOT_RUN",
+    "production_promotion": "NOT_RUN",
+    "production_dispatch": "UNCHANGED",
+    "production_kernel": "UNCHANGED",
+    "runner_default": "UNCHANGED",
+    "decode": "UNCHANGED",
+    "mtp_used": false,
+    "cublaslt": {
+      "linked": false,
+      "executed": false,
+      "role": "none in production or this screen"
+    },
+    "stopped_work": [
+      "full correctness and state-equivalence harness",
+      "B-B-B-B noise calibration",
+      "formal six-round B-C-C-B retention screen",
+      "Nsys and NCU profiling",
+      "production integration"
+    ],
+    "result": "archive the coherent BT64 redesign as a negative structural experiment on its independent branch; do not merge it into the production or cumulative performance baseline"
+  },
+  "limitations": [
+    "This is one measured baseline process followed by one measured candidate process, each with one warmup. It has early-stop authority only and is not a noise-calibrated performance estimate.",
+    "The output oracle establishes the same first generated token and ordered step count, not complete recurrent-state, hidden-state, KV, or logits equality.",
+    "The candidate state kernel was not isolated with Nsys or NCU after the negative end-to-end direction result. Static SASS explains structural differences but is not a measured stall or duration attribution.",
+    "The vLLM cubin and timing values are prior local audit anchors. vLLM was not launched during this screen.",
+    "The candidate process memory-drop warning is recorded without attributing it to a kernel allocation or leak."
+  ]
+}

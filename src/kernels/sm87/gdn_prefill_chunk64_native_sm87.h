@@ -52,6 +52,12 @@ struct WyTimingHook {
 [[nodiscard]] bool exchange_force_resident_state_baseline_for_test(
     bool enabled) noexcept;
 
+// Selects the same-ELF SM87 BT64xBV64xBK64 state-recurrence candidate. The
+// production default remains the admitted resident-state route until the
+// real-model direction and exact-boundary gates promote this candidate.
+[[nodiscard]] bool exchange_force_bt64_state_candidate_for_test(
+    bool enabled) noexcept;
+
 // Admission-only C64..C512 native SM87 FLA/WY pipeline. The implementation
 // is deliberately fixed to the authenticated model shape (Hg=16, H=48,
 // K=V=128, BT=64). It has no library context and accepts no fallback shape.
