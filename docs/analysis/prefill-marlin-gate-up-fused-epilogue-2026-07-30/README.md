@@ -78,4 +78,3 @@ ordinary Marlin plus independent SiLU output with the interleaved fused
 epilogue bit-for-bit at arbitrary M, including its default M512 case.  The
 fixture target compiles successfully; the real runner gate above is the
 executed correctness and performance authority for this commit.
-
