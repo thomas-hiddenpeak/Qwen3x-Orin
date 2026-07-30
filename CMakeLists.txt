@@ -1395,6 +1395,32 @@ if(BUILD_TESTING)
 
   if(Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION)
     add_executable(
+      q3x_gdn_prefill_chunk_o_bv64_component_test
+      tests/gdn_prefill_chunk_o_bv64_component_test.cu
+    )
+    target_include_directories(
+      q3x_gdn_prefill_chunk_o_bv64_component_test
+      PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/kernels/sm87"
+    )
+    target_link_libraries(
+      q3x_gdn_prefill_chunk_o_bv64_component_test
+      PRIVATE q3x::kernels CUDA::cudart
+    )
+    q3x_enable_warnings(
+      q3x_gdn_prefill_chunk_o_bv64_component_test
+    )
+    add_test(NAME gdn_prefill_chunk_o_bv64_component
+      COMMAND q3x_gdn_prefill_chunk_o_bv64_component_test
+    )
+    set_tests_properties(
+      gdn_prefill_chunk_o_bv64_component PROPERTIES
+      LABELS "cuda;sm87;prefill;gdn;correctness;component"
+      SKIP_RETURN_CODE 77
+      RESOURCE_LOCK q3x_sm87_gpu
+      TIMEOUT 300
+    )
+
+    add_executable(
       q3x_gdn_prefill_token_parallel_conv_sm87_test
       tests/gdn_prefill_token_parallel_conv_sm87_test.cu
     )
