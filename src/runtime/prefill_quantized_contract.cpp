@@ -507,6 +507,10 @@ pinned_dense_checkpoint() noexcept {
          left.whole_prompt_staging == right.whole_prompt_staging &&
          same_region(left.hidden_bf16[0], right.hidden_bf16[0]) &&
          same_region(left.hidden_bf16[1], right.hidden_bf16[1]) &&
+         same_region(left.projection_primary_bf16,
+                     right.projection_primary_bf16) &&
+         same_region(left.projection_secondary_bf16,
+                     right.projection_secondary_bf16) &&
          same_region(left.hidden_quantized, right.hidden_quantized) &&
          same_region(left.hidden_scales_bf16, right.hidden_scales_bf16) &&
          same_region(left.attention_output_input_quantized,
@@ -942,6 +946,8 @@ PrefillPromptArenaPlanResult build_prefill_prompt_arena_plan(
 
     std::uint64_t full_hidden_elements = 0U;
     std::uint64_t staged_hidden_elements = 0U;
+    std::uint64_t staged_primary_projection_elements = 0U;
+    std::uint64_t staged_secondary_projection_elements = 0U;
     std::uint64_t staged_intermediate_elements = 0U;
     std::uint64_t staged_attention_output_elements = 0U;
     std::uint64_t hidden_scale_elements = 0U;
@@ -953,6 +959,12 @@ PrefillPromptArenaPlanResult build_prefill_prompt_arena_plan(
                           full_hidden_elements) ||
         !checked_multiply(staging_tokens, kPrefillPromptHiddenWidth,
                           staged_hidden_elements) ||
+        !checked_multiply(staging_tokens,
+                          kPrefillPromptPrimaryProjectionWidth,
+                          staged_primary_projection_elements) ||
+        !checked_multiply(staging_tokens,
+                          kPrefillPromptSecondaryProjectionWidth,
+                          staged_secondary_projection_elements) ||
         !checked_multiply(staging_tokens, kPrefillPromptIntermediateWidth,
                           staged_intermediate_elements) ||
         !checked_multiply(staging_tokens,
@@ -969,6 +981,10 @@ PrefillPromptArenaPlanResult build_prefill_prompt_arena_plan(
                           intermediate_scale_elements) ||
         !allocate_region(full_hidden_elements, 16U, plan.hidden_bf16[0]) ||
         !allocate_region(full_hidden_elements, 16U, plan.hidden_bf16[1]) ||
+        !allocate_region(staged_primary_projection_elements, 16U,
+                         plan.projection_primary_bf16) ||
+        !allocate_region(staged_secondary_projection_elements, 16U,
+                         plan.projection_secondary_bf16) ||
         !allocate_region(staged_hidden_elements, activation_bits,
                          plan.hidden_quantized) ||
         !allocate_region(hidden_scale_elements, 16U,

@@ -297,9 +297,11 @@ void test_manifest_fail_closed(TestContext& test,
 
 [[nodiscard]] bool regions_are_disjoint_and_aligned(
     const runtime::PrefillPromptArenaPlan& plan) {
-  std::array<runtime::PrefillPromptArenaRegion, 7U> regions = {
+  std::array<runtime::PrefillPromptArenaRegion, 9U> regions = {
       plan.hidden_bf16[0],
       plan.hidden_bf16[1],
+      plan.projection_primary_bf16,
+      plan.projection_secondary_bf16,
       plan.hidden_quantized,
       plan.hidden_scales_bf16,
       plan.intermediate_quantized,
@@ -323,9 +325,13 @@ void test_prompt_arena_sizes(TestContext& test) {
   options.activation = runtime::PrefillPromptActivation::kA8;
   options.activation_scale_group_size = 128U;
   auto built = runtime::build_prefill_prompt_arena_plan(options);
-  test.expect(built && built.value->arena_bytes == 22'202'368U &&
+  test.expect(built && built.value->arena_bytes == 41'076'736U &&
                   built.value->hidden_bf16[0].byte_size == 5'242'880U &&
                   built.value->hidden_bf16[1].byte_size == 5'242'880U &&
+                  built.value->projection_primary_bf16.byte_size ==
+                      12'582'912U &&
+                  built.value->projection_secondary_bf16.byte_size ==
+                      6'291'456U &&
                   built.value->hidden_quantized.byte_size == 2'621'440U &&
                   built.value->hidden_scales_bf16.byte_size == 40'960U &&
                   built.value->attention_output_input_quantized.byte_size ==
@@ -350,8 +356,12 @@ void test_prompt_arena_sizes(TestContext& test) {
   options.activation = runtime::PrefillPromptActivation::kA4;
   options.activation_scale_group_size = 64U;
   built = runtime::build_prefill_prompt_arena_plan(options);
-  test.expect(built && built.value->arena_bytes == 132'923'392U &&
+  test.expect(built && built.value->arena_bytes == 283'918'336U &&
                   built.value->hidden_bf16[0].byte_size == 41'943'040U &&
+                  built.value->projection_primary_bf16.byte_size ==
+                      100'663'296U &&
+                  built.value->projection_secondary_bf16.byte_size ==
+                      50'331'648U &&
                   built.value->hidden_quantized.byte_size == 10'485'760U &&
                   built.value->hidden_scales_bf16.byte_size == 655'360U &&
                   built.value->attention_output_input_quantized.byte_size ==
@@ -371,10 +381,15 @@ void test_prompt_arena_sizes(TestContext& test) {
   options.prompt_token_count = 40'000U;
   options.activation = runtime::PrefillPromptActivation::kA8;
   options.activation_scale_group_size = 128U;
+  options.max_arena_bytes = 4ULL * 1024ULL * 1024ULL * 1024ULL;
   built = runtime::build_prefill_prompt_arena_plan(options);
-  test.expect(built && built.value->arena_bytes == 1'734'560'000ULL &&
+  test.expect(built && built.value->arena_bytes == 3'209'120'000ULL &&
                   built.value->hidden_bf16[0].byte_size == 409'600'000U &&
                   built.value->hidden_bf16[1].byte_size == 409'600'000U &&
+                  built.value->projection_primary_bf16.byte_size ==
+                      983'040'000U &&
+                  built.value->projection_secondary_bf16.byte_size ==
+                      491'520'000U &&
                   built.value->hidden_quantized.byte_size == 204'800'000U &&
                   built.value->hidden_scales_bf16.byte_size == 3'200'000U &&
                   built.value->attention_output_input_quantized.byte_size ==
@@ -390,7 +405,7 @@ void test_prompt_arena_sizes(TestContext& test) {
   options.activation = runtime::PrefillPromptActivation::kA4;
   options.activation_scale_group_size = 128U;
   built = runtime::build_prefill_prompt_arena_plan(options);
-  test.expect(built && built.value->arena_bytes == 1'284'000'000ULL &&
+  test.expect(built && built.value->arena_bytes == 2'758'560'000ULL &&
                   built.value->hidden_quantized.byte_size == 102'400'000U &&
                   built.value->attention_output_input_quantized.byte_size ==
                       122'880'000U &&
@@ -409,8 +424,13 @@ void test_prompt_arena_sizes(TestContext& test) {
   built = runtime::build_prefill_prompt_arena_plan(options);
   test.expect(built && !built.value->whole_prompt_staging &&
                   built.value->staging_token_capacity == 4'096U &&
-                  built.value->hidden_bf16[0].byte_size == 409'600'000U,
-              "P40K microspan fallback retains full BF16 slabs only");
+                  built.value->hidden_bf16[0].byte_size == 409'600'000U &&
+                  built.value->projection_primary_bf16.byte_size ==
+                      100'663'296U &&
+                  built.value->projection_secondary_bf16.byte_size ==
+                      50'331'648U &&
+                  built.value->arena_bytes == 1'064'071'424U,
+              "P40K S4096 arena keeps full slabs and bounded projections");
 }
 
 void test_prompt_arena_fail_closed(TestContext& test) {
@@ -418,7 +438,7 @@ void test_prompt_arena_fail_closed(TestContext& test) {
   options.prompt_token_count = 40'000U;
   options.activation = runtime::PrefillPromptActivation::kA8;
   options.activation_scale_group_size = 128U;
-  options.max_arena_bytes = 1'734'559'999ULL;
+  options.max_arena_bytes = 3'209'119'999ULL;
   auto built = runtime::build_prefill_prompt_arena_plan(options);
   test.expect(!built &&
                   built.diagnostic.code == runtime::
@@ -458,6 +478,7 @@ void test_mutually_exclusive_residency(TestContext& test,
   arena_options.prompt_token_count = 40'000U;
   arena_options.activation = runtime::PrefillPromptActivation::kA8;
   arena_options.activation_scale_group_size = 128U;
+  arena_options.max_arena_bytes = 4ULL * 1024ULL * 1024ULL * 1024ULL;
   const auto a8_arena =
       runtime::build_prefill_prompt_arena_plan(arena_options);
   arena_options.activation = runtime::PrefillPromptActivation::kA4;

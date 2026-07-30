@@ -12,6 +12,8 @@
 namespace q3x::runtime {
 
 inline constexpr std::uint32_t kLongPrefillLayerMajorTileTokens = 512U;
+inline constexpr std::uint32_t kLongPrefillProjectionSpanDefaultTokens =
+    4'096U;
 inline constexpr std::uint32_t kLongPrefillLayerMajorMaximumTokens =
     kRequestLongPrefillAdmissionMaximumTokens;
 
@@ -102,6 +104,99 @@ build_long_prefill_layer_major_plan(
 [[nodiscard]] bool long_prefill_layer_major_work_item(
     const LongPrefillLayerMajorPlan& plan, std::size_t ordinal,
     LongPrefillLayerMajorWorkItem& item) noexcept;
+
+// Opt-in whole-M schedule. Unlike LongPrefillLayerMajorPlan, whose callback
+// granularity remains one C512 state tile for compatibility, this plan emits
+// one work item per layer/projection span. The consumer performs whole-span
+// projections around the ordered C512 state tiles described by
+// long_prefill_projection_span_state_tile(). Projection spans must be an
+// integral number of C512 tiles; only the final span and its final state tile
+// may be short.
+struct LongPrefillProjectionSpanOptions {
+  std::uint32_t prompt_token_count = 0U;
+  std::uint32_t hidden_token_capacity = 0U;
+  std::uint32_t projection_span_token_count =
+      kLongPrefillProjectionSpanDefaultTokens;
+  std::uint32_t state_tile_token_count =
+      kLongPrefillLayerMajorTileTokens;
+};
+
+struct LongPrefillProjectionSpanPlan {
+  std::uint32_t prompt_token_count = 0U;
+  std::uint32_t hidden_token_capacity = 0U;
+  std::uint32_t projection_span_token_count = 0U;
+  std::uint32_t projection_span_count = 0U;
+  std::uint32_t full_projection_span_count = 0U;
+  std::uint32_t projection_tail_token_count = 0U;
+  std::uint32_t state_tile_token_count = 0U;
+  std::uint32_t state_tile_count = 0U;
+  std::uint32_t full_state_tile_count = 0U;
+  std::uint32_t state_tail_token_count = 0U;
+  std::size_t work_item_count = 0U;
+  std::size_t embedding_output_hidden_buffer = 0U;
+  std::size_t final_hidden_buffer = 0U;
+};
+
+struct LongPrefillProjectionSpanPlanResult {
+  std::optional<LongPrefillProjectionSpanPlan> value;
+  LongPrefillLayerMajorPlanError error =
+      LongPrefillLayerMajorPlanError::kNone;
+
+  [[nodiscard]] bool ok() const noexcept {
+    return value.has_value() && error == LongPrefillLayerMajorPlanError::kNone;
+  }
+  [[nodiscard]] explicit operator bool() const noexcept { return ok(); }
+};
+
+struct LongPrefillProjectionSpanWorkItem {
+  std::size_t ordinal = 0U;
+  std::size_t layer_index = 0U;
+  model::LayerType layer_type = model::LayerType::kInvalid;
+  std::uint32_t projection_span_index = 0U;
+  std::uint32_t first_position = 0U;
+  std::uint32_t token_count = 0U;
+  std::uint32_t first_state_tile_index = 0U;
+  std::uint32_t state_tile_count = 0U;
+  std::uint32_t full_state_tile_count = 0U;
+  std::uint32_t state_tail_token_count = 0U;
+  std::size_t input_hidden_buffer = 0U;
+  std::size_t output_hidden_buffer = 0U;
+  bool first_projection_span_for_layer = false;
+  bool last_projection_span_for_layer = false;
+  bool updates_recurrent_state = false;
+  bool appends_kv = false;
+};
+
+struct LongPrefillProjectionSpanStateTile {
+  std::size_t projection_span_ordinal = 0U;
+  std::size_t layer_index = 0U;
+  model::LayerType layer_type = model::LayerType::kInvalid;
+  std::uint32_t projection_span_index = 0U;
+  std::uint32_t state_tile_index = 0U;
+  std::uint32_t state_tile_index_in_span = 0U;
+  std::uint32_t first_position = 0U;
+  std::uint32_t token_count = 0U;
+  bool first_state_tile_for_span = false;
+  bool last_state_tile_for_span = false;
+  bool first_state_tile_for_layer = false;
+  bool last_state_tile_for_layer = false;
+  bool updates_recurrent_state = false;
+  bool appends_kv = false;
+};
+
+[[nodiscard]] LongPrefillProjectionSpanPlanResult
+build_long_prefill_projection_span_plan(
+    const LongPrefillProjectionSpanOptions& options) noexcept;
+
+[[nodiscard]] bool long_prefill_projection_span_work_item(
+    const LongPrefillProjectionSpanPlan& plan, std::size_t ordinal,
+    LongPrefillProjectionSpanWorkItem& item) noexcept;
+
+[[nodiscard]] bool long_prefill_projection_span_state_tile(
+    const LongPrefillProjectionSpanPlan& plan,
+    std::size_t projection_span_ordinal,
+    std::uint32_t state_tile_index_in_span,
+    LongPrefillProjectionSpanStateTile& tile) noexcept;
 
 using LongPrefillPrepareHiddenFunction = bool (*)(
     void* context, std::size_t output_hidden_buffer,
