@@ -70,6 +70,19 @@ prefill_single_arbitrary_tile_environment_enabled() noexcept {
   return value != nullptr && std::strcmp(value, "1") == 0;
 }
 
+// Same-ELF, whole-runner Decode Down admission. The value is immutable for
+// the process lifetime: sidecar ownership is decided while the engine is
+// built and every captured/replayed graph must retain the same dispatch.
+[[nodiscard]] bool
+decode_down_k512_consumer_order_environment_enabled() noexcept {
+  static const bool enabled = []() noexcept {
+    const char* const value = std::getenv(
+        "Q3X_RUN_DECODE_DOWN_K512_CONSUMER_ORDER_ADMISSION");
+    return value != nullptr && std::strcmp(value, "1") == 0;
+  }();
+  return enabled;
+}
+
 struct DecodeGraphP1DeviceBuffer {
   void* data = nullptr;
   std::size_t bytes = 0U;
@@ -181,6 +194,37 @@ struct Sm87NvFp4DownScale6Preparation {
   int cuda_error = 0;
   std::string message;
   std::string fallback_reason;
+};
+
+struct Sm87NvFp4DownConsumerOrderSidecars {
+  std::uint8_t* data = nullptr;
+  std::size_t bytes = 0U;
+  std::vector<NvFp4DownConsumerOrderSidecarDescriptor> descriptors;
+
+  Sm87NvFp4DownConsumerOrderSidecars() noexcept = default;
+  Sm87NvFp4DownConsumerOrderSidecars(
+      const Sm87NvFp4DownConsumerOrderSidecars&) = delete;
+  Sm87NvFp4DownConsumerOrderSidecars& operator=(
+      const Sm87NvFp4DownConsumerOrderSidecars&) = delete;
+  ~Sm87NvFp4DownConsumerOrderSidecars() { release(); }
+
+  void release() noexcept {
+    if (data != nullptr) {
+      (void)cudaFree(data);
+    }
+    data = nullptr;
+    bytes = 0U;
+    descriptors.clear();
+  }
+};
+
+struct Sm87NvFp4DownConsumerOrderPreparation {
+  bool enabled = false;
+  bool hard_failure = false;
+  std::size_t layers = 0U;
+  std::uint64_t bytes = 0U;
+  int cuda_error = 0;
+  std::string message;
 };
 
 struct Sm87Fp8PrefillQkvSidecars {
@@ -356,6 +400,11 @@ struct NvFp4DownScale6LayerPlan {
   std::size_t layer_index = 0U;
   const NvFp4LinearWeight* down = nullptr;
   unsigned int scale_base = 0U;
+};
+
+struct NvFp4DownConsumerOrderLayerPlan {
+  std::size_t layer_index = 0U;
+  const NvFp4LinearWeight* down = nullptr;
 };
 
 struct Fp8PrefillQkvLayerPlan {
@@ -1466,6 +1515,198 @@ prepare_sm87_nvfp4_down_scale6_sidecars(
   return result;
 }
 
+[[nodiscard]] Sm87NvFp4DownConsumerOrderPreparation
+prepare_sm87_nvfp4_down_consumer_order_sidecars(
+    ModelWeights& model_weights,
+    const std::uint64_t minimum_free_bytes_after_prepare,
+    Sm87NvFp4DownConsumerOrderSidecars& owner) {
+  Sm87NvFp4DownConsumerOrderPreparation result;
+  if (owner.data != nullptr || owner.bytes != 0U ||
+      !owner.descriptors.empty()) {
+    result.hard_failure = true;
+    result.message =
+        "NVFP4 Down consumer-order owner was not empty before prepare";
+    return result;
+  }
+
+  // This admission is intentionally downstream of scale6 preparation. It
+  // permutes weights only for layers already using that exact scale path, so
+  // the experiment changes neither scale representation nor arithmetic.
+  std::vector<NvFp4DownConsumerOrderLayerPlan> plans;
+  plans.reserve(kQwen36DenseLayerCount);
+  for (std::size_t layer_index = 0U;
+       layer_index < kQwen36DenseLayerCount; ++layer_index) {
+    const NvFp4LinearWeight* const down =
+        exact_nvfp4_down_projection(model_weights.layer(layer_index));
+    if (down == nullptr || down->down_scale6_sidecar == nullptr) {
+      continue;
+    }
+    if (down->down_consumer_order_weight != nullptr) {
+      result.hard_failure = true;
+      result.message =
+          "NVFP4 Down consumer-order pointer was already attached at layer " +
+          std::to_string(layer_index);
+      return result;
+    }
+    plans.push_back({layer_index, down});
+  }
+  if (plans.empty()) {
+    result.hard_failure = true;
+    result.message =
+        "NVFP4 Down consumer-order admission found no scale6 layers";
+    return result;
+  }
+  if (plans.size() >
+      std::numeric_limits<std::size_t>::max() /
+          kNvFp4DownConsumerOrderWeightBytesPerProjection) {
+    result.hard_failure = true;
+    result.message =
+        "NVFP4 Down consumer-order sidecar byte count overflowed";
+    return result;
+  }
+  const std::size_t arena_bytes =
+      plans.size() * kNvFp4DownConsumerOrderWeightBytesPerProjection;
+  const std::uint64_t arena_u64 = static_cast<std::uint64_t>(arena_bytes);
+
+  std::size_t free_bytes = 0U;
+  std::size_t total_bytes = 0U;
+  cudaError_t status = cudaMemGetInfo(&free_bytes, &total_bytes);
+  (void)total_bytes;
+  if (status != cudaSuccess) {
+    result.hard_failure = true;
+    result.cuda_error = static_cast<int>(status);
+    result.message =
+        "cudaMemGetInfo failed before NVFP4 Down consumer-order prepare";
+    return result;
+  }
+  const std::uint64_t free_u64 = static_cast<std::uint64_t>(free_bytes);
+  if (arena_u64 > free_u64 ||
+      minimum_free_bytes_after_prepare > free_u64 - arena_u64) {
+    result.hard_failure = true;
+    result.cuda_error = static_cast<int>(cudaErrorMemoryAllocation);
+    result.message =
+        "insufficient device-memory margin for explicit NVFP4 Down "
+        "consumer-order admission";
+    return result;
+  }
+
+  void* allocation = nullptr;
+  status = cudaMalloc(&allocation, arena_bytes);
+  if (status != cudaSuccess || allocation == nullptr) {
+    result.hard_failure = true;
+    result.cuda_error = static_cast<int>(status);
+    result.message =
+        "cudaMalloc failed for NVFP4 Down consumer-order admission";
+    return result;
+  }
+  owner.data = static_cast<std::uint8_t*>(allocation);
+  owner.bytes = arena_bytes;
+  if ((reinterpret_cast<std::uintptr_t>(owner.data) % 16U) != 0U) {
+    result.hard_failure = true;
+    result.message =
+        "cudaMalloc returned a misaligned NVFP4 Down consumer-order arena";
+    owner.release();
+    return result;
+  }
+
+  std::size_t remaining_free_bytes = 0U;
+  std::size_t remaining_total_bytes = 0U;
+  status = cudaMemGetInfo(&remaining_free_bytes, &remaining_total_bytes);
+  (void)remaining_total_bytes;
+  if (status != cudaSuccess ||
+      static_cast<std::uint64_t>(remaining_free_bytes) <
+          minimum_free_bytes_after_prepare) {
+    result.hard_failure = true;
+    result.cuda_error = static_cast<int>(
+        status != cudaSuccess ? status : cudaErrorMemoryAllocation);
+    result.message = status != cudaSuccess
+                         ? "cudaMemGetInfo failed after NVFP4 Down "
+                           "consumer-order allocation"
+                         : "NVFP4 Down consumer-order allocation violated "
+                           "the device-memory margin";
+    owner.release();
+    return result;
+  }
+
+  std::vector<NvFp4DownConsumerOrderSidecarDescriptor> descriptors;
+  descriptors.reserve(plans.size());
+  cudaStream_t stream = nullptr;
+  status = cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking);
+  if (status != cudaSuccess) {
+    result.hard_failure = true;
+    result.cuda_error = static_cast<int>(status);
+    result.message =
+        "failed to create NVFP4 Down consumer-order preparation stream";
+    owner.release();
+    return result;
+  }
+
+  int pack_error = static_cast<int>(cudaSuccess);
+  std::size_t failed_layer = 0U;
+  for (std::size_t index = 0U; index < plans.size(); ++index) {
+    const NvFp4DownConsumerOrderLayerPlan& plan = plans[index];
+    std::uint8_t* const destination =
+        owner.data +
+        index * kNvFp4DownConsumerOrderWeightBytesPerProjection;
+    pack_error = kernels::
+        launch_sm87_nvfp4_w4a16_down_consumer_order_pack_test_cuda(
+            plan.down->packed_weight, destination,
+            kNvFp4DownScale6Rows, kNvFp4DownScale6Columns, stream);
+    if (pack_error != static_cast<int>(cudaSuccess)) {
+      failed_layer = plan.layer_index;
+      break;
+    }
+    descriptors.push_back(
+        {plan.layer_index, destination,
+         kNvFp4DownConsumerOrderWeightBytesPerProjection,
+         kNvFp4DownScale6Rows, kNvFp4DownScale6Columns});
+  }
+
+  const cudaError_t synchronize_status = cudaStreamSynchronize(stream);
+  const cudaError_t destroy_status = cudaStreamDestroy(stream);
+  if (pack_error != static_cast<int>(cudaSuccess) ||
+      synchronize_status != cudaSuccess || destroy_status != cudaSuccess) {
+    const int failure =
+        pack_error != static_cast<int>(cudaSuccess)
+            ? pack_error
+            : static_cast<int>(synchronize_status != cudaSuccess
+                                   ? synchronize_status
+                                   : destroy_status);
+    result.hard_failure = true;
+    result.cuda_error = failure;
+    result.message =
+        pack_error != static_cast<int>(cudaSuccess)
+            ? "NVFP4 Down consumer-order pack launch failed at layer " +
+                  std::to_string(failed_layer)
+            : "NVFP4 Down consumer-order preparation did not retire cleanly";
+    owner.release();
+    return result;
+  }
+  if (descriptors.size() != plans.size()) {
+    result.hard_failure = true;
+    result.message =
+        "NVFP4 Down consumer-order descriptor inventory was incomplete";
+    owner.release();
+    return result;
+  }
+
+  owner.descriptors = std::move(descriptors);
+  if (!model_weights.attach_nvfp4_down_consumer_order_sidecars(
+          owner.data, owner.bytes, owner.descriptors.data(),
+          owner.descriptors.size())) {
+    result.hard_failure = true;
+    result.message =
+        "ModelWeights rejected the NVFP4 Down consumer-order arena";
+    owner.release();
+    return result;
+  }
+
+  result.enabled = true;
+  result.layers = plans.size();
+  result.bytes = arena_u64;
+  return result;
+}
+
 [[maybe_unused, nodiscard]] Sm87Fp8PrefillQkvPreparation
 prepare_sm87_fp8_prefill_qkv_sidecars(
     ModelWeights& model_weights,
@@ -2376,9 +2617,10 @@ exchange_reference_engine_generate_return_snapshot_hook(
 
 struct ReferenceEngine::Impl {
   // Declaration order is part of the safety contract. Destruction is exactly
-  // runner -> request_state -> model_weights -> Prefill supermatrix/QKV
-  // sidecars -> Marlin admission sidecars -> down scale6 sidecars -> output
-  // sidecars -> resident_weights -> tokenizer.
+  // runner -> request_state -> model_weights -> Decode Down consumer-order
+  // sidecars -> Marlin admission sidecars -> Prefill supermatrix/QKV
+  // sidecars -> down scale6 sidecars -> output sidecars -> resident_weights
+  // -> tokenizer.
   std::unique_ptr<text::Tokenizer> tokenizer;
   std::optional<ResidentWeights> resident_weights;
   Sm87Fp8OutputProjectionSidecars fp8_output_sidecars;
@@ -2391,6 +2633,8 @@ struct ReferenceEngine::Impl {
 #if defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION)
   Sm87NvFp4MarlinPrefillSidecars nvfp4_marlin_prefill_sidecars;
 #endif
+  Sm87NvFp4DownConsumerOrderSidecars
+      nvfp4_down_consumer_order_sidecars;
   std::optional<ModelWeights> model_weights;
   std::optional<RequestState> request_state;
   std::optional<ReferenceRunner> runner;
@@ -2662,6 +2906,39 @@ struct ReferenceEngine::Impl {
           impl->load.nvfp4_marlin_prefill_sidecar_bytes =
               marlin_preparation.bytes;
 #endif
+        }
+
+        // Prepare the Decode-only experiment last. This preserves the exact
+        // production/Prefill sidecar inventory and makes an explicit memory
+        // miss visible instead of evicting or silently bypassing it.
+        impl->load.nvfp4_down_consumer_order_sidecars_requested =
+            decode_down_k512_consumer_order_environment_enabled();
+        if (impl->load.nvfp4_down_consumer_order_sidecars_requested) {
+          const Clock::time_point consumer_order_begin = Clock::now();
+          const Sm87NvFp4DownConsumerOrderPreparation preparation =
+              prepare_sm87_nvfp4_down_consumer_order_sidecars(
+                  *impl->model_weights,
+                  options.request_options.min_free_bytes_after_create,
+                  impl->nvfp4_down_consumer_order_sidecars);
+          impl->load.nvfp4_down_consumer_order_sidecar_milliseconds =
+              elapsed_milliseconds(consumer_order_begin);
+          if (preparation.hard_failure || !preparation.enabled ||
+              preparation.layers == 0U) {
+            result.diagnostic = engine_diagnostic(
+                ReferenceEngineError::kRunnerFactoryFailure,
+                "nvfp4_down_consumer_order_sidecar_prepare",
+                preparation.message.empty()
+                    ? "the explicit Decode Down consumer-order admission "
+                      "did not publish any layer"
+                    : preparation.message);
+            result.diagnostic.cuda_error = preparation.cuda_error;
+            return result;
+          }
+          impl->load.nvfp4_down_consumer_order_sidecars_enabled = true;
+          impl->load.nvfp4_down_consumer_order_sidecar_layers =
+              preparation.layers;
+          impl->load.nvfp4_down_consumer_order_sidecar_bytes =
+              preparation.bytes;
         }
       }
 

@@ -1049,6 +1049,7 @@ bool ModelWeights::attach_nvfp4_down_scale6_sidecars(
           down != nullptr) {
         down->down_scale6_sidecar = nullptr;
         down->down_scale6_base = 0U;
+        down->down_consumer_order_weight = nullptr;
       }
     }
     return true;
@@ -1134,11 +1135,118 @@ bool ModelWeights::attach_nvfp4_down_scale6_sidecars(
         down != nullptr) {
       down->down_scale6_sidecar = nullptr;
       down->down_scale6_base = 0U;
+      down->down_consumer_order_weight = nullptr;
     }
   }
   for (std::size_t index = 0U; index < descriptor_count; ++index) {
     targets[index]->down_scale6_sidecar = validated_sidecars[index];
     targets[index]->down_scale6_base = validated_bases[index];
+  }
+  return true;
+}
+
+bool ModelWeights::attach_nvfp4_down_consumer_order_sidecars(
+    const std::uint8_t* const arena, const std::size_t arena_bytes,
+    const NvFp4DownConsumerOrderSidecarDescriptor* const descriptors,
+    const std::size_t descriptor_count) noexcept {
+  constexpr std::uintptr_t kRequiredAlignment = 16U;
+  constexpr auto kPointerMaximum =
+      std::numeric_limits<std::uintptr_t>::max();
+
+  const auto clear_all = [this]() noexcept {
+    for (DecoderLayerWeights& layer : layers_) {
+      if (NvFp4LinearWeight* const down = nvfp4_down_projection(layer);
+          down != nullptr) {
+        down->down_consumer_order_weight = nullptr;
+      }
+    }
+  };
+
+  if (descriptor_count == 0U) {
+    if (arena != nullptr || arena_bytes != 0U || descriptors != nullptr) {
+      return false;
+    }
+    clear_all();
+    return true;
+  }
+
+  if (arena == nullptr || descriptors == nullptr ||
+      descriptor_count > kQwen36DenseLayerCount ||
+      descriptor_count >
+          std::numeric_limits<std::size_t>::max() /
+              kNvFp4DownConsumerOrderWeightBytesPerProjection ||
+      arena_bytes !=
+          descriptor_count *
+              kNvFp4DownConsumerOrderWeightBytesPerProjection) {
+    return false;
+  }
+
+  const std::uintptr_t arena_address =
+      reinterpret_cast<std::uintptr_t>(arena);
+  if ((arena_address % kRequiredAlignment) != 0U ||
+      arena_bytes > kPointerMaximum ||
+      arena_address > kPointerMaximum - arena_bytes) {
+    return false;
+  }
+  const std::uintptr_t arena_end = arena_address + arena_bytes;
+
+  std::array<bool, kQwen36DenseLayerCount> seen_layers{};
+  std::array<NvFp4LinearWeight*, kQwen36DenseLayerCount> targets{};
+  std::array<const std::uint8_t*, kQwen36DenseLayerCount>
+      validated_sidecars{};
+  std::array<std::uintptr_t, kQwen36DenseLayerCount> range_begins{};
+  std::array<std::uintptr_t, kQwen36DenseLayerCount> range_ends{};
+  for (std::size_t index = 0U; index < descriptor_count; ++index) {
+    const NvFp4DownConsumerOrderSidecarDescriptor& descriptor =
+        descriptors[index];
+    if (descriptor.layer_index >= kQwen36DenseLayerCount ||
+        seen_layers[descriptor.layer_index] || descriptor.sidecar == nullptr ||
+        descriptor.bytes !=
+            kNvFp4DownConsumerOrderWeightBytesPerProjection ||
+        descriptor.output_size != kNvFp4DownScale6Rows ||
+        descriptor.input_size != kNvFp4DownScale6Columns) {
+      return false;
+    }
+
+    NvFp4LinearWeight* const down =
+        nvfp4_down_projection(layers_[descriptor.layer_index]);
+    if (!has_valid_nvfp4_payload(down) ||
+        down->output_size != kNvFp4DownScale6Rows ||
+        down->input_size != kNvFp4DownScale6Columns ||
+        down->down_scale6_sidecar == nullptr) {
+      return false;
+    }
+
+    const std::uintptr_t sidecar_address =
+        reinterpret_cast<std::uintptr_t>(descriptor.sidecar);
+    if ((sidecar_address % kRequiredAlignment) != 0U ||
+        sidecar_address < arena_address || sidecar_address >= arena_end ||
+        descriptor.bytes > kPointerMaximum ||
+        sidecar_address > kPointerMaximum - descriptor.bytes) {
+      return false;
+    }
+    const std::uintptr_t sidecar_end = sidecar_address + descriptor.bytes;
+    if (sidecar_end > arena_end) {
+      return false;
+    }
+    for (std::size_t prior = 0U; prior < index; ++prior) {
+      if (sidecar_address < range_ends[prior] &&
+          range_begins[prior] < sidecar_end) {
+        return false;
+      }
+    }
+
+    seen_layers[descriptor.layer_index] = true;
+    targets[index] = down;
+    validated_sidecars[index] = descriptor.sidecar;
+    range_begins[index] = sidecar_address;
+    range_ends[index] = sidecar_end;
+  }
+
+  clear_all();
+  for (std::size_t index = 0U; index < descriptor_count; ++index) {
+    targets[index]->down_consumer_order_weight =
+        validated_sidecars[index];
   }
   return true;
 }

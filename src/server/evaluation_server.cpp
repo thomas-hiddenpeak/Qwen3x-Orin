@@ -1378,7 +1378,15 @@ int run_evaluation_server(const EvaluationServerOptions& options,
             << " fp8_prefill_supermatrix_sidecar_projections="
             << load.fp8_prefill_supermatrix_sidecar_projections
             << " fp8_prefill_supermatrix_sidecar_bytes="
-            << load.fp8_prefill_supermatrix_sidecar_bytes << '\n';
+            << load.fp8_prefill_supermatrix_sidecar_bytes
+            << " nvfp4_down_consumer_order_requested="
+            << (load.nvfp4_down_consumer_order_sidecars_requested ? 1 : 0)
+            << " nvfp4_down_consumer_order_enabled="
+            << (load.nvfp4_down_consumer_order_sidecars_enabled ? 1 : 0)
+            << " nvfp4_down_consumer_order_layers="
+            << load.nvfp4_down_consumer_order_sidecar_layers
+            << " nvfp4_down_consumer_order_bytes="
+            << load.nvfp4_down_consumer_order_sidecar_bytes << '\n';
 
   bool fatal_accept_error = false;
   while (!stop_requested.load(std::memory_order_relaxed)) {

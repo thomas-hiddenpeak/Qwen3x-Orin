@@ -778,6 +778,8 @@ void PrintGeneration(
          << load.fp8_output_sidecar_milliseconds << '\n'
          << "load.nvfp4_down_scale6_sidecar_ms="
          << load.nvfp4_down_scale6_sidecar_milliseconds << '\n'
+         << "load.nvfp4_down_consumer_order_sidecar_ms="
+         << load.nvfp4_down_consumer_order_sidecar_milliseconds << '\n'
          << "load.fp8_prefill_qkv_sidecar_ms="
          << load.fp8_prefill_qkv_sidecar_milliseconds << '\n'
          << "load.fp8_prefill_supermatrix_sidecar_ms="
@@ -806,6 +808,16 @@ void PrintGeneration(
          << load.nvfp4_down_scale6_sidecar_bytes << '\n'
          << "load.nvfp4_down_scale6_sidecar_fallback_reason="
          << load.nvfp4_down_scale6_sidecar_fallback_reason << '\n'
+         << "load.nvfp4_down_consumer_order_sidecars_requested="
+         << (load.nvfp4_down_consumer_order_sidecars_requested ? 1 : 0)
+         << '\n'
+         << "load.nvfp4_down_consumer_order_sidecars_enabled="
+         << (load.nvfp4_down_consumer_order_sidecars_enabled ? 1 : 0)
+         << '\n'
+         << "load.nvfp4_down_consumer_order_sidecar_layers="
+         << load.nvfp4_down_consumer_order_sidecar_layers << '\n'
+         << "load.nvfp4_down_consumer_order_sidecar_bytes="
+         << load.nvfp4_down_consumer_order_sidecar_bytes << '\n'
          << "load.fp8_prefill_qkv_sidecars_enabled="
          << (load.fp8_prefill_qkv_sidecars_enabled ? 1 : 0) << '\n'
          << "load.fp8_prefill_qkv_sidecar_layers="
@@ -1008,6 +1020,8 @@ void PrintBenchmarkReport(
          << load.fp8_output_sidecar_milliseconds << '\n'
          << "load.nvfp4_down_scale6_sidecar_ms="
          << load.nvfp4_down_scale6_sidecar_milliseconds << '\n'
+         << "load.nvfp4_down_consumer_order_sidecar_ms="
+         << load.nvfp4_down_consumer_order_sidecar_milliseconds << '\n'
          << "load.fp8_prefill_qkv_sidecar_ms="
          << load.fp8_prefill_qkv_sidecar_milliseconds << '\n'
          << "load.fp8_prefill_supermatrix_sidecar_ms="
@@ -1036,6 +1050,16 @@ void PrintBenchmarkReport(
          << load.nvfp4_down_scale6_sidecar_bytes << '\n'
          << "load.nvfp4_down_scale6_sidecar_fallback_reason="
          << load.nvfp4_down_scale6_sidecar_fallback_reason << '\n'
+         << "load.nvfp4_down_consumer_order_sidecars_requested="
+         << (load.nvfp4_down_consumer_order_sidecars_requested ? 1 : 0)
+         << '\n'
+         << "load.nvfp4_down_consumer_order_sidecars_enabled="
+         << (load.nvfp4_down_consumer_order_sidecars_enabled ? 1 : 0)
+         << '\n'
+         << "load.nvfp4_down_consumer_order_sidecar_layers="
+         << load.nvfp4_down_consumer_order_sidecar_layers << '\n'
+         << "load.nvfp4_down_consumer_order_sidecar_bytes="
+         << load.nvfp4_down_consumer_order_sidecar_bytes << '\n'
          << "load.fp8_prefill_qkv_sidecars_enabled="
          << (load.fp8_prefill_qkv_sidecars_enabled ? 1 : 0) << '\n'
          << "load.fp8_prefill_qkv_sidecar_layers="

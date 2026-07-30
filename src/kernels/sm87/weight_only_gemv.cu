@@ -15569,6 +15569,156 @@ nvfp4_w4a16_scale6_activation_staged_phase(
   }
 }
 
+// Exact [N=5120,K=17408] Decode Down phase for the K512 consumer-order
+// weight sidecar. Each aligned uint4 contains the four canonical row words
+// consumed by one lane in one K256 phase. A warp therefore issues one
+// LDG.128 per phase instead of four independent scalar LDGs, while scale6
+// reconstruction, activation order, every per-row FFMA dependency chain,
+// warp reduction, scale multiplication, and BF16 publication remain ordered
+// exactly as in nvfp4_w4a16_scale6_activation_staged_phase.
+__device__ __forceinline__ void
+nvfp4_w4a16_down_scale6_consumer_order_phase(
+    const uint4* const consumer_order_weights,
+    const std::uint8_t* const scale6_sidecar,
+    const unsigned int scale_base, const float weight_scale_2,
+    std::uint16_t* const output, const ulonglong2* const staged_activation,
+    const float* const decoded_weights, const float* const decoded_scales,
+    const unsigned int lane, const unsigned int warp) {
+  constexpr std::uint32_t kRows = 5'120U;
+  constexpr std::uint32_t kColumns = 17'408U;
+  constexpr std::uint32_t kBlocks = 32U;
+  constexpr std::uint32_t kWarps = 16U;
+  constexpr std::uint32_t kPackedColumns =
+      kColumns / kNvFp4ValuesPerByte;
+  constexpr std::uint32_t kPackedIterationStride =
+      kNvFp4VectorColumnsPerWarp / kNvFp4ValuesPerByte;
+  constexpr std::uint32_t kRowStride = kBlocks * kWarps * 4U;
+  constexpr std::uint32_t kTilesPerRowQuad =
+      kColumns / kNvFp4Scale6ColumnsPerTile;
+  constexpr std::uint32_t kPhasesPerTile = 2U;
+  constexpr std::uint32_t kVectorsPerTile =
+      kPhasesPerTile * kWarpSize;
+  constexpr std::uint32_t kVectorsPerRowQuad =
+      kTilesPerRowQuad * kVectorsPerTile;
+  static_assert(kTilesPerRowQuad == 34U);
+  static_assert(kVectorsPerRowQuad * sizeof(uint4) ==
+                4U * kPackedColumns);
+
+  const std::uint32_t first_row =
+      4U * (static_cast<std::uint32_t>(blockIdx.x) * kWarps + warp);
+#pragma unroll 1
+  for (std::uint32_t row0 = first_row; row0 < kRows;
+       row0 += kRowStride) {
+    const auto lane_weights =
+        consumer_order_weights +
+        static_cast<std::size_t>(row0 / 4U) * kVectorsPerRowQuad + lane;
+    float accumulators0[4]{0.0F, 0.0F, 0.0F, 0.0F};
+    float accumulators1[4]{0.0F, 0.0F, 0.0F, 0.0F};
+    float accumulators2[4]{0.0F, 0.0F, 0.0F, 0.0F};
+    float accumulators3[4]{0.0F, 0.0F, 0.0F, 0.0F};
+
+    const uint4* tile_lane_weights = lane_weights;
+#pragma unroll 1
+    for (std::uint32_t packed_column =
+             lane * kNvFp4VectorPackedBytesPerLane;
+         packed_column < kPackedColumns;
+         packed_column += 2U * kPackedIterationStride,
+                       tile_lane_weights += kVectorsPerTile) {
+      std::uint32_t local_raw_scale_codes =
+          nvfp4_scale6_raw_scale_codes_for_lane(
+              scale6_sidecar, scale_base, row0, packed_column,
+              kPackedColumns, lane);
+      const std::uint32_t partner_raw_scale_codes = __shfl_xor_sync(
+          0xffff'ffffU, local_raw_scale_codes, 1);
+      const std::uint32_t odd_lane_mask = 0U - (lane & 1U);
+      const std::uint32_t phase0_raw_scale_codes =
+          (local_raw_scale_codes & ~odd_lane_mask) |
+          (partner_raw_scale_codes & odd_lane_mask);
+      local_raw_scale_codes ^=
+          partner_raw_scale_codes ^ phase0_raw_scale_codes;
+
+#pragma unroll
+      for (unsigned int phase = 0U; phase < kPhasesPerTile; ++phase) {
+        const std::uint32_t raw_scale_codes =
+            phase == 0U ? phase0_raw_scale_codes : local_raw_scale_codes;
+        const float block_scale0 =
+            decoded_scales[raw_scale_codes & 0xffU];
+        const float block_scale1 =
+            decoded_scales[(raw_scale_codes >> 8U) & 0xffU];
+        const float block_scale2 =
+            decoded_scales[(raw_scale_codes >> 16U) & 0xffU];
+        const float block_scale3 =
+            decoded_scales[(raw_scale_codes >> 24U) & 0xffU];
+        const uint4 packed_weights =
+            __ldcs(tile_lane_weights + phase * kWarpSize);
+        const std::uint32_t phase_packed_column =
+            packed_column + phase * kPackedIterationStride;
+        const std::uint32_t first_column =
+            phase_packed_column * kNvFp4ValuesPerByte;
+        const ulonglong2 packed_activations =
+            staged_activation[first_column / 8U];
+
+#pragma unroll
+        for (unsigned int half = 0U; half < 2U; ++half) {
+          const std::uint64_t packed_activation =
+              half == 0U ? packed_activations.x : packed_activations.y;
+#pragma unroll
+          for (unsigned int value = 0U; value < 4U; ++value) {
+            const unsigned int packed_value = half * 4U + value;
+            const unsigned int shift = packed_value * 4U;
+            const std::uint16_t encoded_activation =
+                static_cast<std::uint16_t>(
+                    (packed_activation >> (value * 16U)) & 0xffffU);
+            const float decoded_activation =
+                decode_bf16(encoded_activation);
+            accumulators0[value] =
+                fmaf(decoded_weights[(packed_weights.x >> shift) & 0x0fU] *
+                         block_scale0,
+                     decoded_activation, accumulators0[value]);
+            accumulators1[value] =
+                fmaf(decoded_weights[(packed_weights.y >> shift) & 0x0fU] *
+                         block_scale1,
+                     decoded_activation, accumulators1[value]);
+            accumulators2[value] =
+                fmaf(decoded_weights[(packed_weights.z >> shift) & 0x0fU] *
+                         block_scale2,
+                     decoded_activation, accumulators2[value]);
+            accumulators3[value] =
+                fmaf(decoded_weights[(packed_weights.w >> shift) & 0x0fU] *
+                         block_scale3,
+                     decoded_activation, accumulators3[value]);
+          }
+        }
+      }
+    }
+
+    float sum = (accumulators0[0] + accumulators0[1]) +
+                (accumulators0[2] + accumulators0[3]);
+    sum = warp_sum(sum) * weight_scale_2;
+    if (lane == 0U) {
+      output[row0] = encode_bf16_rne(sum);
+    }
+    sum = (accumulators1[0] + accumulators1[1]) +
+          (accumulators1[2] + accumulators1[3]);
+    sum = warp_sum(sum) * weight_scale_2;
+    if (lane == 0U) {
+      output[row0 + 1U] = encode_bf16_rne(sum);
+    }
+    sum = (accumulators2[0] + accumulators2[1]) +
+          (accumulators2[2] + accumulators2[3]);
+    sum = warp_sum(sum) * weight_scale_2;
+    if (lane == 0U) {
+      output[row0 + 2U] = encode_bf16_rne(sum);
+    }
+    sum = (accumulators3[0] + accumulators3[1]) +
+          (accumulators3[2] + accumulators3[3]);
+    sum = warp_sum(sum) * weight_scale_2;
+    if (lane == 0U) {
+      output[row0 + 3U] = encode_bf16_rne(sum);
+    }
+  }
+}
+
 // Test-only exact arithmetic twin of the production gate/up phase. Packed
 // weights and block scales are one-pass streams much larger than L1, so the
 // candidate changes only those global-load cache operators. Keeping a
@@ -16896,6 +17046,162 @@ nvfp4_w4a16_down_residual_norm_activation_staged_scale6_test_kernel(
 
   nvfp4_w4a16_scale6_activation_staged_phase<kRows, kColumns, false>(
       packed_weights, scale6_sidecar, scale_base, weight_scale_2,
+      raw_down_output, staged_activation, decoded_weights, decoded_scales,
+      lane, warp);
+
+  __syncthreads();
+  for (std::uint32_t local_row = tid;;
+       local_row += kCoarsenedThreads) {
+    const std::uint32_t row =
+        static_cast<std::uint32_t>(blockIdx.x) * kRowsPerCtaPerStride +
+        (local_row / kRowsPerCtaPerStride) * kRowStride +
+        local_row % kRowsPerCtaPerStride;
+    if (row >= kRows) {
+      break;
+    }
+    residual_output[row] = encode_bf16_rne(
+        decode_bf16(residual_left[row]) + decode_bf16(raw_down_output[row]));
+  }
+
+  cooperative_groups::this_grid().sync();
+  if (tid < kNormThreads) {
+    float sum = 0.0F;
+    for (std::uint32_t index = tid; index < kRows;
+         index += kNormThreads) {
+      const float value = decode_bf16(residual_output[index]);
+      sum = fmaf(value, value, sum);
+    }
+    decoded_scales[tid] = sum;
+  }
+  __syncthreads();
+  for (unsigned int stride = kNormThreads / 2U; stride != 0U;
+       stride >>= 1U) {
+    if (tid < stride) {
+      decoded_scales[tid] += decoded_scales[tid + stride];
+    }
+    __syncthreads();
+  }
+  const float inverse_rms =
+      rsqrtf(decoded_scales[0] / static_cast<float>(kRows) + epsilon);
+  if (blockIdx.x < kNormalizedBlocks && tid < kNormThreads) {
+    const std::uint32_t index =
+        static_cast<std::uint32_t>(blockIdx.x) * kNormThreads + tid;
+    const float gamma = decode_bf16(norm_weight[index]) + 1.0F;
+    normalized_output[index] = encode_bf16_rne(
+        decode_bf16(residual_output[index]) * inverse_rms * gamma);
+  }
+}
+
+// Equal-byte canonical-to-consumer-order pack for exact Decode Down. The
+// output order is [row_quad][K512 tile][K256 phase][lane], with four
+// canonical row words in uint4.{x,y,z,w}. No value is decoded, compressed,
+// padded, or discarded.
+__global__ __launch_bounds__(256, 4) void
+nvfp4_w4a16_down_consumer_order_pack_test_kernel(
+    const std::uint8_t* const canonical_weights,
+    uint4* const consumer_order_weights) {
+  constexpr std::uint32_t kRows = 5'120U;
+  constexpr std::uint32_t kColumns = 17'408U;
+  constexpr std::uint32_t kPackedColumns =
+      kColumns / kNvFp4ValuesPerByte;
+  constexpr std::uint32_t kRowQuads = kRows / 4U;
+  constexpr std::uint32_t kTilesPerRowQuad =
+      kColumns / kNvFp4Scale6ColumnsPerTile;
+  constexpr std::uint32_t kPhasesPerTile = 2U;
+  constexpr std::uint32_t kVectorsPerTile =
+      kPhasesPerTile * kWarpSize;
+  constexpr std::uint32_t kVectorsPerRowQuad =
+      kTilesPerRowQuad * kVectorsPerTile;
+  constexpr std::uint32_t kVectorCount =
+      kRowQuads * kVectorsPerRowQuad;
+  constexpr std::uint32_t kPackedPhaseStride =
+      kNvFp4VectorColumnsPerWarp / kNvFp4ValuesPerByte;
+  static_assert(static_cast<std::size_t>(kVectorCount) * sizeof(uint4) ==
+                static_cast<std::size_t>(kRows) * kPackedColumns);
+
+  for (std::uint32_t vector =
+           static_cast<std::uint32_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+       vector < kVectorCount;
+       vector += static_cast<std::uint32_t>(gridDim.x) * blockDim.x) {
+    const std::uint32_t lane = vector % kWarpSize;
+    const std::uint32_t phase =
+        (vector / kWarpSize) % kPhasesPerTile;
+    const std::uint32_t tile =
+        (vector / kVectorsPerTile) % kTilesPerRowQuad;
+    const std::uint32_t row_quad = vector / kVectorsPerRowQuad;
+    const std::uint32_t packed_column =
+        tile * (2U * kPackedPhaseStride) + phase * kPackedPhaseStride +
+        lane * kNvFp4VectorPackedBytesPerLane;
+    const auto row0 = reinterpret_cast<const std::uint32_t*>(
+        canonical_weights +
+        static_cast<std::size_t>(4U * row_quad) * kPackedColumns +
+        packed_column);
+    const std::size_t row_words =
+        kPackedColumns / sizeof(std::uint32_t);
+    consumer_order_weights[vector] =
+        make_uint4(row0[0U], row0[row_words], row0[2U * row_words],
+                   row0[3U * row_words]);
+  }
+}
+
+// Admission-only exact Decode Down Function for the equal-byte K512
+// consumer-order sidecar. Grid/block shape, CTA-local raw/residual ownership,
+// cooperative RMSNorm barrier, output boundaries, and Graph topology are the
+// production scale6 contract. Only the projection phase's packed-weight load
+// representation changes.
+__global__ __launch_bounds__(512, 2) void
+nvfp4_w4a16_down_residual_norm_scale6_consumer_order_test_kernel(
+    const uint4* const consumer_order_weights,
+    const std::uint8_t* const scale6_sidecar,
+    const unsigned int scale_base, const float weight_scale_2,
+    const std::uint16_t* const activation,
+    std::uint16_t* const raw_down_output,
+    const std::uint16_t* const residual_left,
+    const std::uint16_t* const norm_weight, const float epsilon,
+    std::uint16_t* const residual_output,
+    std::uint16_t* const normalized_output) {
+  constexpr std::uint32_t kRows = 5'120U;
+  constexpr std::uint32_t kColumns = 17'408U;
+  constexpr unsigned int kCoarsenedThreads = 512U;
+  constexpr unsigned int kNormThreads = 256U;
+  constexpr unsigned int kCoarsenedWarps = 16U;
+  constexpr unsigned int kCoarsenedBlocks = 32U;
+  constexpr std::uint32_t kActivationVectorCount = kColumns / 8U;
+  constexpr std::uint32_t kActivationWordCount = kColumns / 4U;
+  constexpr std::uint32_t kRowStride =
+      kCoarsenedBlocks * kCoarsenedWarps * 4U;
+  constexpr std::uint32_t kRowsPerCtaPerStride = kCoarsenedWarps * 4U;
+  constexpr std::uint32_t kNormalizedBlocks = kRows / kNormThreads;
+  static_assert(kCoarsenedThreads == kCoarsenedWarps * kWarpSize);
+  static_assert(kRowStride ==
+                kNvFp4M1RowQuadMaximumBlocks * kWarpsPerBlock * 4U);
+
+  __shared__ ulonglong2 staged_activation[kActivationVectorCount];
+  __shared__ float decoded_weights[kNvFp4EncodedValueCount];
+  __shared__ float decoded_scales[kFp8EncodedValueCount];
+  const unsigned int tid = threadIdx.x;
+  const unsigned int lane = tid & (kWarpSize - 1U);
+  const unsigned int warp = tid / kWarpSize;
+  const auto activation_words =
+      reinterpret_cast<const std::uint64_t*>(activation);
+  auto staged_activation_words =
+      reinterpret_cast<std::uint64_t*>(staged_activation);
+  for (std::uint32_t word = tid; word < kActivationWordCount;
+       word += kCoarsenedThreads) {
+    staged_activation_words[word] = activation_words[word];
+  }
+  if (tid < kFp8EncodedValueCount) {
+    decoded_scales[tid] =
+        decode_e4m3fn(static_cast<std::uint8_t>(tid));
+  }
+  if (tid < kNvFp4EncodedValueCount) {
+    decoded_weights[tid] =
+        decode_e2m1(static_cast<std::uint8_t>(tid));
+  }
+  __syncthreads();
+
+  nvfp4_w4a16_down_scale6_consumer_order_phase(
+      consumer_order_weights, scale6_sidecar, scale_base, weight_scale_2,
       raw_down_output, staged_activation, decoded_weights, decoded_scales,
       lane, warp);
 
@@ -20372,6 +20678,53 @@ launch_nvfp4_down_residual_norm_scale6_test_unchecked(
   };
   return cudaLaunchCooperativeKernel(
       nvfp4_w4a16_down_residual_norm_activation_staged_scale6_test_kernel,
+      dim3{32U}, dim3{512U}, arguments, 0U, stream);
+}
+
+void launch_nvfp4_down_consumer_order_pack_test_unchecked(
+    const std::uint8_t* const canonical_weights,
+    std::uint8_t* const consumer_order_weights,
+    cudaStream_t const stream) noexcept {
+  constexpr unsigned int kBlocks = 4'096U;
+  constexpr unsigned int kThreads = 256U;
+  nvfp4_w4a16_down_consumer_order_pack_test_kernel
+      <<<kBlocks, kThreads, 0U, stream>>>(
+          canonical_weights,
+          reinterpret_cast<uint4*>(consumer_order_weights));
+}
+
+[[nodiscard]] cudaError_t
+launch_nvfp4_down_residual_norm_scale6_consumer_order_test_unchecked(
+    const std::uint8_t* const consumer_order_weights,
+    const std::uint8_t* const scale6_sidecar,
+    const unsigned int scale_base, const float weight_scale_2,
+    const std::uint16_t* const activation,
+    const std::uint16_t* const residual_left,
+    const std::uint16_t* const norm_weight, const float epsilon,
+    std::uint16_t* const raw_down_output,
+    std::uint16_t* const residual_output,
+    std::uint16_t* const normalized_output,
+    cudaStream_t const stream) noexcept {
+  const auto* weight_argument =
+      reinterpret_cast<const uint4*>(consumer_order_weights);
+  const std::uint8_t* scale6_argument = scale6_sidecar;
+  unsigned int base_argument = scale_base;
+  float scale_argument = weight_scale_2;
+  const std::uint16_t* activation_argument = activation;
+  std::uint16_t* raw_argument = raw_down_output;
+  const std::uint16_t* residual_left_argument = residual_left;
+  const std::uint16_t* norm_weight_argument = norm_weight;
+  float epsilon_argument = epsilon;
+  std::uint16_t* residual_argument = residual_output;
+  std::uint16_t* normalized_argument = normalized_output;
+  void* arguments[] = {
+      &weight_argument,        &scale6_argument,       &base_argument,
+      &scale_argument,         &activation_argument,   &raw_argument,
+      &residual_left_argument, &norm_weight_argument,  &epsilon_argument,
+      &residual_argument,      &normalized_argument,
+  };
+  return cudaLaunchCooperativeKernel(
+      nvfp4_w4a16_down_residual_norm_scale6_consumer_order_test_kernel,
       dim3{32U}, dim3{512U}, arguments, 0U, stream);
 }
 
@@ -26885,7 +27238,8 @@ int launch_sm87_nvfp4_w4a16_down_residual_norm_dead_raw_inline_residual_test_cud
   return static_cast<int>(cudaGetLastError());
 }
 
-int launch_sm87_nvfp4_w4a16_down_residual_norm_scale6_test_cuda(
+[[nodiscard]] static int
+launch_sm87_nvfp4_w4a16_down_residual_norm_scale6_validated_impl(
     const std::uint8_t* const packed_weights,
     const std::uint8_t* const scale6_sidecar,
     const unsigned int scale_base, const float weight_scale_2,
@@ -26896,7 +27250,7 @@ int launch_sm87_nvfp4_w4a16_down_residual_norm_scale6_test_cuda(
     std::uint16_t* const raw_down_output,
     std::uint16_t* const residual_output,
     std::uint16_t* const normalized_output,
-    void* const cuda_stream) noexcept {
+    void* const cuda_stream, const bool consumer_order) noexcept {
   constexpr std::size_t kRows = 5'120U;
   constexpr std::size_t kColumns = 17'408U;
   constexpr std::size_t kPackedBytes = kRows * kColumns / 2U;
@@ -26925,9 +27279,11 @@ int launch_sm87_nvfp4_w4a16_down_residual_norm_scale6_test_cuda(
     return invalid_value();
   }
   constexpr std::uintptr_t kSidecarAlignment = 32U;
+  constexpr std::uintptr_t kConsumerOrderAlignment = 16U;
   const bool aligned =
       (reinterpret_cast<std::uintptr_t>(packed_weights) %
-       alignof(std::uint32_t)) == 0U &&
+       (consumer_order ? kConsumerOrderAlignment
+                       : alignof(std::uint32_t))) == 0U &&
       (reinterpret_cast<std::uintptr_t>(scale6_sidecar) %
        kSidecarAlignment) == 0U &&
       (reinterpret_cast<std::uintptr_t>(activation) %
@@ -26978,13 +27334,81 @@ int launch_sm87_nvfp4_w4a16_down_residual_norm_scale6_test_cuda(
   const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
   (void)cudaGetLastError();
   const cudaError_t launch_status =
-      launch_nvfp4_down_residual_norm_scale6_test_unchecked(
-          packed_weights, scale6_sidecar, scale_base, weight_scale_2,
-          activation, residual_left, norm_weight, epsilon, raw_down_output,
-          residual_output, normalized_output, stream);
+      consumer_order
+          ? launch_nvfp4_down_residual_norm_scale6_consumer_order_test_unchecked(
+                packed_weights, scale6_sidecar, scale_base, weight_scale_2,
+                activation, residual_left, norm_weight, epsilon,
+                raw_down_output, residual_output, normalized_output, stream)
+          : launch_nvfp4_down_residual_norm_scale6_test_unchecked(
+                packed_weights, scale6_sidecar, scale_base, weight_scale_2,
+                activation, residual_left, norm_weight, epsilon,
+                raw_down_output, residual_output, normalized_output, stream);
   if (launch_status != cudaSuccess) {
     return static_cast<int>(launch_status);
   }
+  return static_cast<int>(cudaGetLastError());
+}
+
+int launch_sm87_nvfp4_w4a16_down_residual_norm_scale6_test_cuda(
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const scale6_sidecar,
+    const unsigned int scale_base, const float weight_scale_2,
+    const std::uint16_t* const activation,
+    const std::uint16_t* const residual_left,
+    const std::uint16_t* const norm_weight, const float epsilon,
+    const std::size_t rows, const std::size_t columns,
+    std::uint16_t* const raw_down_output,
+    std::uint16_t* const residual_output,
+    std::uint16_t* const normalized_output,
+    void* const cuda_stream) noexcept {
+  return launch_sm87_nvfp4_w4a16_down_residual_norm_scale6_validated_impl(
+      packed_weights, scale6_sidecar, scale_base, weight_scale_2, activation,
+      residual_left, norm_weight, epsilon, rows, columns, raw_down_output,
+      residual_output, normalized_output, cuda_stream, false);
+}
+
+int launch_sm87_nvfp4_w4a16_down_residual_norm_scale6_consumer_order_test_cuda(
+    const std::uint8_t* const consumer_order_weights,
+    const std::uint8_t* const scale6_sidecar,
+    const unsigned int scale_base, const float weight_scale_2,
+    const std::uint16_t* const activation,
+    const std::uint16_t* const residual_left,
+    const std::uint16_t* const norm_weight, const float epsilon,
+    const std::size_t rows, const std::size_t columns,
+    std::uint16_t* const raw_down_output,
+    std::uint16_t* const residual_output,
+    std::uint16_t* const normalized_output,
+    void* const cuda_stream) noexcept {
+  return launch_sm87_nvfp4_w4a16_down_residual_norm_scale6_validated_impl(
+      consumer_order_weights, scale6_sidecar, scale_base, weight_scale_2,
+      activation, residual_left, norm_weight, epsilon, rows, columns,
+      raw_down_output, residual_output, normalized_output, cuda_stream, true);
+}
+
+int launch_sm87_nvfp4_w4a16_down_consumer_order_pack_test_cuda(
+    const std::uint8_t* const canonical_weights,
+    std::uint8_t* const consumer_order_weights,
+    const std::size_t rows, const std::size_t columns,
+    void* const cuda_stream) noexcept {
+  constexpr std::size_t kRows = 5'120U;
+  constexpr std::size_t kColumns = 17'408U;
+  constexpr std::size_t kBytes = kRows * kColumns / 2U;
+  if (rows != kRows || columns != kColumns ||
+      canonical_weights == nullptr || consumer_order_weights == nullptr ||
+      byte_range_overflows(canonical_weights, kBytes) ||
+      byte_range_overflows(consumer_order_weights, kBytes) ||
+      (reinterpret_cast<std::uintptr_t>(canonical_weights) %
+       alignof(std::uint32_t)) != 0U ||
+      (reinterpret_cast<std::uintptr_t>(consumer_order_weights) %
+       alignof(uint4)) != 0U ||
+      ranges_overlap(canonical_weights, kBytes, consumer_order_weights,
+                     kBytes)) {
+    return invalid_value();
+  }
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  launch_nvfp4_down_consumer_order_pack_test_unchecked(
+      canonical_weights, consumer_order_weights, stream);
   return static_cast<int>(cudaGetLastError());
 }
 
@@ -27186,6 +27610,40 @@ int query_sm87_nvfp4_w4a16_m1_down_residual_norm_scale6_resources_cuda(
       query_sm87_nvfp4_w4a16_m1_down_residual_norm_scale6_resources_test_cuda(
           registers_per_thread, static_shared_bytes, local_bytes,
           maximum_threads_per_block, active_blocks_per_sm);
+}
+
+int query_sm87_nvfp4_w4a16_m1_down_residual_norm_scale6_consumer_order_resources_test_cuda(
+    int* const registers_per_thread,
+    std::size_t* const static_shared_bytes,
+    std::size_t* const local_bytes,
+    int* const maximum_threads_per_block,
+    int* const active_blocks_per_sm) noexcept {
+  if (registers_per_thread == nullptr || static_shared_bytes == nullptr ||
+      local_bytes == nullptr || maximum_threads_per_block == nullptr ||
+      active_blocks_per_sm == nullptr) {
+    return invalid_value();
+  }
+  cudaFuncAttributes attributes{};
+  cudaError_t status = cudaFuncGetAttributes(
+      &attributes,
+      nvfp4_w4a16_down_residual_norm_scale6_consumer_order_test_kernel);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  int active_blocks = 0;
+  status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+      &active_blocks,
+      nvfp4_w4a16_down_residual_norm_scale6_consumer_order_test_kernel,
+      512, 0U);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  *registers_per_thread = attributes.numRegs;
+  *static_shared_bytes = attributes.sharedSizeBytes;
+  *local_bytes = attributes.localSizeBytes;
+  *maximum_threads_per_block = attributes.maxThreadsPerBlock;
+  *active_blocks_per_sm = active_blocks;
+  return static_cast<int>(cudaSuccess);
 }
 
 int launch_sm87_nvfp4_w4a16_down_residual_norm_predecessor_test_cuda(
