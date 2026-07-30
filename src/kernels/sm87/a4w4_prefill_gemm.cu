@@ -180,6 +180,7 @@ void q3x_sm87_a4w4_prefill_gemm_kernel(
     const std::uint8_t* const packed_a,
     const std::size_t packed_a_row_stride_bytes,
     const std::uint16_t* const a_k64_scales_bf16,
+    const std::size_t a_scale_row_stride_elements,
     const std::uint8_t* const packed_b,
     const std::size_t packed_b_row_stride_bytes,
     const std::uint16_t* const b_k64_scales_bf16,
@@ -268,7 +269,8 @@ void q3x_sm87_a4w4_prefill_gemm_kernel(
           const std::size_t scale_m =
               global_m < token_count ? global_m : m_tile_start;
           const float a_scale = decode_bf16(
-              a_k64_scales_bf16[scale_m * k64_group_count + group]);
+              a_k64_scales_bf16[
+                  scale_m * a_scale_row_stride_elements + group]);
           const float b_scale = decode_bf16(
               b_k64_scales_bf16[global_n * k64_group_count + group]);
           accumulators[fragment][output] +=
@@ -412,6 +414,7 @@ int launch_sm87_a4w4_prefill_gemm_bf16_cuda(
     const std::uint8_t* const packed_a,
     const std::size_t packed_a_row_stride_bytes,
     const std::uint16_t* const a_k64_scales_bf16,
+    const std::size_t a_scale_row_stride_elements,
     const std::uint8_t* const packed_b,
     const std::size_t packed_b_row_stride_bytes,
     const std::uint16_t* const b_k64_scales_bf16,
@@ -431,6 +434,7 @@ int launch_sm87_a4w4_prefill_gemm_bf16_cuda(
       !product_fits(plan.k64_groups, kPackedK64Bytes) ||
       packed_a_row_stride_bytes < input_size / 2U ||
       packed_b_row_stride_bytes < input_size / 2U ||
+      a_scale_row_stride_elements < plan.k64_groups ||
       packed_a_row_stride_bytes % 16U != 0U ||
       packed_b_row_stride_bytes % 16U != 0U ||
       output_row_stride_elements < output_size) {
@@ -456,9 +460,9 @@ int launch_sm87_a4w4_prefill_gemm_bf16_cuda(
   q3x_sm87_a4w4_prefill_gemm_kernel<<<
       static_cast<unsigned int>(plan.launch_ctas),
       static_cast<unsigned int>(kSm87A4W4PrefillThreads), 0U, stream>>>(
-      packed_a, packed_a_row_stride_bytes, a_k64_scales_bf16, packed_b,
-      packed_b_row_stride_bytes, b_k64_scales_bf16, token_count,
-      output_size, plan.k64_groups, output_bf16,
+      packed_a, packed_a_row_stride_bytes, a_k64_scales_bf16,
+      a_scale_row_stride_elements, packed_b, packed_b_row_stride_bytes,
+      b_k64_scales_bf16, token_count, output_size, plan.k64_groups, output_bf16,
       output_row_stride_elements, plan.m_tiles, plan.work_tiles);
   return static_cast<int>(cudaPeekAtLastError());
 }

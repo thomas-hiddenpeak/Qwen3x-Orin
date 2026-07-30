@@ -574,6 +574,10 @@ class ReferenceRunner {
     std::uint16_t* hidden[3]{};
     std::uint16_t* long_prefill_hidden[2]{};
     std::uint16_t* projection[4]{};
+    std::uint8_t* prefill_a4_hidden_packed = nullptr;
+    std::uint16_t* prefill_a4_hidden_scales = nullptr;
+    std::uint8_t* prefill_a4_intermediate_packed = nullptr;
+    std::uint16_t* prefill_a4_intermediate_scales = nullptr;
     std::uint16_t* linear_a = nullptr;
     std::uint16_t* linear_b = nullptr;
     float* fp32_scratch = nullptr;

@@ -813,6 +813,61 @@ void test_minimum_maximum_and_bad_options(TestContext& test) {
                 "request diagnostic enum names are stable");
 }
 
+void test_a4_prefill_workspace(TestContext& test) {
+    runtime::RequestMemoryOptions options;
+    options.max_sequence_length = 4'096U;
+    options.prefill_chunk_size = runtime::kMaximumRequestPrefillChunkSize;
+    options.enable_a4_prefill_workspace = true;
+    const auto built = runtime::build_request_memory_plan(options);
+    test.expect(built.ok(), "A4 C512 request workspace builds");
+    if (!built) {
+        return;
+    }
+    const runtime::RequestMemoryPlan& plan = *built.value;
+    test.expect(plan.prefill_a4_hidden_packed.byte_size == 1'310'720U &&
+                    plan.prefill_a4_hidden_packed.element_size_bytes == 1U &&
+                    plan.prefill_a4_hidden_scales_bf16.byte_size == 81'920U &&
+                    plan.prefill_a4_hidden_scales_bf16.element_size_bytes ==
+                        2U &&
+                    plan.prefill_a4_intermediate_packed.byte_size ==
+                        4'456'448U &&
+                    plan.prefill_a4_intermediate_scales_bf16.byte_size ==
+                        278'528U,
+                "A4 C512 hidden/intermediate packed and K64 scale bytes are exact");
+    const std::array<const runtime::RequestRegion*, 4U> regions = {
+        &plan.prefill_a4_hidden_packed,
+        &plan.prefill_a4_hidden_scales_bf16,
+        &plan.prefill_a4_intermediate_packed,
+        &plan.prefill_a4_intermediate_scales_bf16,
+    };
+    bool ordered = true;
+    std::uint64_t prior_end = 0U;
+    for (const runtime::RequestRegion* const region : regions) {
+        ordered = ordered &&
+                  region->arena_offset % runtime::kRequestArenaAlignment ==
+                      0U &&
+                  region->arena_offset >= prior_end;
+        prior_end = region->arena_offset + region->byte_size;
+    }
+    test.expect(ordered && prior_end <= plan.arena_bytes,
+                "A4 regions are aligned, ordered, and contained");
+
+    options.max_arena_bytes = plan.arena_bytes - 1U;
+    const auto rejected = runtime::build_request_memory_plan(options);
+    test.expect(!rejected && rejected.diagnostic.code ==
+                                 runtime::RequestErrorCode::kArenaLimitExceeded,
+                "A4 arena fails closed one byte below the exact plan");
+
+    const auto ordinary = runtime::build_request_memory_plan();
+    test.expect(ordinary &&
+                    ordinary.value->prefill_a4_hidden_packed.byte_size == 0U &&
+                    ordinary.value->prefill_a4_intermediate_packed.byte_size ==
+                        0U &&
+                    ordinary.value->arena_bytes ==
+                        runtime::kDefaultRequestArenaBytes,
+                "ordinary request arena remains byte-identical without A4");
+}
+
 }  // namespace
 
 int main() {
@@ -825,6 +880,7 @@ int main() {
     test_prefill_chunk_large_layout(test);
     test_native_only_c512_layout(test);
     test_long_context_prefill_plans(test);
+    test_a4_prefill_workspace(test);
     test_alignment_non_overlap_and_schedule(test);
     test_minimum_maximum_and_bad_options(test);
     if (test.failures() != 0) {

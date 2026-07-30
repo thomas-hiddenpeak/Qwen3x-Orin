@@ -272,6 +272,10 @@ RequestPlanResult build_request_memory_plan(
     std::uint64_t hidden_elements = 0U;
     std::uint64_t long_prefill_hidden_elements = 0U;
     std::uint64_t projection_elements = 0U;
+    std::uint64_t a4_hidden_packed_bytes = 0U;
+    std::uint64_t a4_hidden_scale_elements = 0U;
+    std::uint64_t a4_intermediate_packed_bytes = 0U;
+    std::uint64_t a4_intermediate_scale_elements = 0U;
     std::uint64_t linear_scalar_elements = 0U;
     if (!checked_multiply(kRequestLinearLayerCount,
                           kConvChannels,
@@ -305,6 +309,20 @@ RequestPlanResult build_request_memory_plan(
         !checked_multiply(kProjectionElements,
                           options.prefill_chunk_size,
                           projection_elements) ||
+        !checked_multiply(kHiddenElements / 2U,
+                          options.prefill_chunk_size,
+                          a4_hidden_packed_bytes) ||
+        !checked_multiply(kHiddenElements /
+                              kRequestA4PrefillScaleGroupSize,
+                          options.prefill_chunk_size,
+                          a4_hidden_scale_elements) ||
+        !checked_multiply(kProjectionElements / 2U,
+                          options.prefill_chunk_size,
+                          a4_intermediate_packed_bytes) ||
+        !checked_multiply(kProjectionElements /
+                              kRequestA4PrefillScaleGroupSize,
+                          options.prefill_chunk_size,
+                          a4_intermediate_scale_elements) ||
         !checked_multiply(kLinearScalarElements,
                           options.prefill_chunk_size,
                           linear_scalar_elements)) {
@@ -369,6 +387,20 @@ RequestPlanResult build_request_memory_plan(
                 "projection workspace layout overflows uint64",
                 "projection_bf16"));
         }
+    }
+    if (options.enable_a4_prefill_workspace &&
+        (!builder.add(a4_hidden_packed_bytes, 1U,
+                      plan.prefill_a4_hidden_packed) ||
+         !builder.add(a4_hidden_scale_elements, kBf16Bytes,
+                      plan.prefill_a4_hidden_scales_bf16) ||
+         !builder.add(a4_intermediate_packed_bytes, 1U,
+                      plan.prefill_a4_intermediate_packed) ||
+         !builder.add(a4_intermediate_scale_elements, kBf16Bytes,
+                      plan.prefill_a4_intermediate_scales_bf16))) {
+        return plan_failure(make_diagnostic(
+            RequestErrorCode::kArithmeticOverflow,
+            "A4 Prefill workspace layout overflows uint64",
+            "prefill_a4_workspace"));
     }
     if (!builder.add(linear_scalar_elements,
                      kBf16Bytes,
@@ -695,6 +727,55 @@ RequestViewResult RequestState::projection_buffer(
     }
     RequestViewResult result;
     result.value.emplace(mutable_view(plan_.projection_bf16[index]));
+    return result;
+}
+
+RequestViewResult RequestState::prefill_a4_hidden_packed() noexcept {
+    if (arena_ == nullptr) {
+        return access_failure(RequestAccessError::kEmptyState);
+    }
+    if (plan_.prefill_a4_hidden_packed.byte_size == 0U) {
+        return access_failure(RequestAccessError::kCapacityExceeded);
+    }
+    RequestViewResult result;
+    result.value.emplace(mutable_view(plan_.prefill_a4_hidden_packed));
+    return result;
+}
+
+RequestViewResult RequestState::prefill_a4_hidden_scales() noexcept {
+    if (arena_ == nullptr) {
+        return access_failure(RequestAccessError::kEmptyState);
+    }
+    if (plan_.prefill_a4_hidden_scales_bf16.byte_size == 0U) {
+        return access_failure(RequestAccessError::kCapacityExceeded);
+    }
+    RequestViewResult result;
+    result.value.emplace(mutable_view(plan_.prefill_a4_hidden_scales_bf16));
+    return result;
+}
+
+RequestViewResult RequestState::prefill_a4_intermediate_packed() noexcept {
+    if (arena_ == nullptr) {
+        return access_failure(RequestAccessError::kEmptyState);
+    }
+    if (plan_.prefill_a4_intermediate_packed.byte_size == 0U) {
+        return access_failure(RequestAccessError::kCapacityExceeded);
+    }
+    RequestViewResult result;
+    result.value.emplace(mutable_view(plan_.prefill_a4_intermediate_packed));
+    return result;
+}
+
+RequestViewResult RequestState::prefill_a4_intermediate_scales() noexcept {
+    if (arena_ == nullptr) {
+        return access_failure(RequestAccessError::kEmptyState);
+    }
+    if (plan_.prefill_a4_intermediate_scales_bf16.byte_size == 0U) {
+        return access_failure(RequestAccessError::kCapacityExceeded);
+    }
+    RequestViewResult result;
+    result.value.emplace(
+        mutable_view(plan_.prefill_a4_intermediate_scales_bf16));
     return result;
 }
 
