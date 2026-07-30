@@ -79,10 +79,16 @@ M32 CTA may consume the upper or lower half of an M64 block.
 - codes are four-bit two's-complement;
 - even K occupies the low nibble and odd K the high nibble;
 - scales are BF16, little-endian;
-- every K64 group uses
-  `threshold=max(abs(group))*weight_clip_ratio` and
-  `scale=BF16(threshold/7)`;
-- rounding is deterministic nearest-even version 1.
+- every nonzero K64 group uses
+  `threshold=max(abs(group))*weight_clip_ratio`, then
+  `stored_scale_bf16=BF16_RNE(threshold/7)`;
+- W4 codes are produced with
+  `RNE(clip(value,+/-threshold)/decode(stored_scale_bf16))`, not by dividing
+  by the pre-BF16 FP32 scale;
+- a zero K64 group stores `BF16(1)` and 64 zero codes;
+- if a nonzero scale would round to BF16 zero, it is clamped to the minimum
+  positive BF16 subnormal before code generation;
+- code rounding is deterministic nearest-even version 1.
 
 All fixed model N and K dimensions are divisible by 64. Weight and scale byte
 counts therefore remain exactly the manifest's original A4-K64 budget; only

@@ -314,6 +314,12 @@ void test_consumer_prepack_quantization_and_io(TestContext& test) {
   source[19] = -1.5F;
   source[64] = 7.0F;
   source[65] = -7.0F;
+  // Raw FP32 scale makes the second value an exact -6.5 tie (-6). The stored
+  // BF16 scale is slightly smaller, so the required stored-scale path emits
+  // -7 and distinguishes the two numerical contracts.
+  const float noninteger_scale = 0.1F / 7.0F;
+  source[2U * kColumns] = 0.1F;
+  source[2U * kColumns + 1U] = -6.5F * noninteger_scale;
   source[64U * kColumns] = 7.0F;
   source[64U * kColumns + 1U] = -7.0F;
   runtime::PrefillA4ProjectionCalibration calibration;
@@ -342,13 +348,16 @@ void test_consumer_prepack_quantization_and_io(TestContext& test) {
   test.expect(std::equal(expected.begin(), expected.end(), packed.begin()),
               "signed W4 is two's-complement packed low-even/high-odd");
   test.expect(scales[0] == 0x80U && scales[1] == 0x3fU &&
-                  scales[2] == 0U && scales[3] == 0U &&
+                  scales[2] == 0x80U && scales[3] == 0x3fU &&
+                  scales[4] == 0x6aU && scales[5] == 0x3cU &&
                   scales[128] == 0x80U && scales[129] == 0x3fU &&
                   scales[256] == 0x80U && scales[257] == 0x3fU,
-              "consumer scales are [N64 block][K64 block][N64] BF16 LE");
+              "consumer scales are BF16 LE and zero groups store one");
   test.expect(packed[32] == 0U && packed[2'048] == 0x97U &&
                   packed[4'096] == 0x97U,
               "K64 and N64 consumer block ordering is exact");
+  test.expect(packed[64] == 0x97U,
+              "codes divide by decoded BF16 scale rather than raw FP32 scale");
 
   const auto missing_activation =
       runtime::quantize_prefill_a4_k64_consumer_blocks(
