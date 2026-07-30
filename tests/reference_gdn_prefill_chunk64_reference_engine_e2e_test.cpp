@@ -194,6 +194,38 @@ class ScopedPackedQkvBaseline {
   bool previous_ = false;
 };
 
+class ScopedVllmLayoutWyCandidate {
+ public:
+  explicit ScopedVllmLayoutWyCandidate(const bool enabled) noexcept
+      : ScopedVllmLayoutWyCandidate(
+            enabled
+                ? q3x::runtime::gdn_prefill_chunk64_native_detail::
+                      VllmLayoutWyRouteForTest::kVllmLayout
+                : q3x::runtime::gdn_prefill_chunk64_native_detail::
+                      VllmLayoutWyRouteForTest::kGroupOwned) {}
+
+  explicit ScopedVllmLayoutWyCandidate(
+      const q3x::runtime::gdn_prefill_chunk64_native_detail::
+          VllmLayoutWyRouteForTest route) noexcept
+      : previous_(q3x::runtime::gdn_prefill_chunk64_native_detail::
+                      exchange_vllm_layout_wy_route_for_test(route)) {}
+
+  ~ScopedVllmLayoutWyCandidate() {
+    (void)q3x::runtime::gdn_prefill_chunk64_native_detail::
+        exchange_vllm_layout_wy_route_for_test(previous_);
+  }
+
+  ScopedVllmLayoutWyCandidate(const ScopedVllmLayoutWyCandidate&) = delete;
+  ScopedVllmLayoutWyCandidate& operator=(
+      const ScopedVllmLayoutWyCandidate&) = delete;
+
+ private:
+  q3x::runtime::gdn_prefill_chunk64_native_detail::
+      VllmLayoutWyRouteForTest previous_ =
+          q3x::runtime::gdn_prefill_chunk64_native_detail::
+              VllmLayoutWyRouteForTest::kProductionDefault;
+};
+
 class ScopedWyTimingHook {
  public:
   ScopedWyTimingHook(cudaEvent_t begin, cudaEvent_t after_initial,
@@ -433,8 +465,18 @@ void print_diagnostic(
 }
 
 [[nodiscard]] std::size_t expected_prefix_executions() noexcept {
+  const bool all_prompt_tokens =
+      std::getenv("Q3X_RUN_PREFILL_ALL_PROMPT_TOKENS_ADMISSION") != nullptr;
+  const std::size_t prefix_tokens =
+      all_prompt_tokens ? g_prompt_tokens : g_prompt_tokens - 1U;
+  if (std::getenv("Q3X_RUN_PREFILL_SINGLE_ARBITRARY_TILE_ADMISSION") !=
+      nullptr) {
+    return runtime::reference_engine_detail::
+        single_arbitrary_prefix_execution_count(prefix_tokens,
+                                                kPrefillChunkTokens);
+  }
   return runtime::reference_engine_detail::prefix_execution_count(
-      g_prompt_tokens - 1U, kPrefillChunkTokens);
+      prefix_tokens, kPrefillChunkTokens);
 }
 
 [[nodiscard]] std::size_t expected_native_route_hits() noexcept {
@@ -496,7 +538,8 @@ void print_diagnostic(
                               const std::string& prompt,
                               const bool candidate,
                               const std::string_view phase,
-                              Sample& sample) {
+                              Sample& sample,
+                              const std::string_view route_label = {}) {
   runtime::ReferenceGenerateOptions options;
   options.max_new_tokens = 1U;
   options.prefill_chunk_size = kPrefillChunkTokens;
@@ -538,9 +581,14 @@ void print_diagnostic(
       std::isfinite(sample.ttft_milliseconds) &&
       sample.ttft_milliseconds > 0.0 && sample.route_hits == expected_hits;
 
+  const std::string_view route =
+      route_label.empty()
+          ? (candidate ? std::string_view{"candidate"}
+                       : std::string_view{"baseline"})
+          : route_label;
   std::cout << kRouteMarker << "_SAMPLE phase=" << phase
             << " prompt_tokens=" << g_prompt_tokens
-            << " route=" << (candidate ? "candidate" : "baseline")
+            << " route=" << route
             << " prefix_ms=" << sample.prefix_milliseconds
             << " ttft_ms=" << sample.ttft_milliseconds
             << " generated_token="
@@ -784,7 +832,8 @@ void destroy_event(cudaEvent_t& event) noexcept {
 
 [[nodiscard]] bool run_native_kkt_equivalence(
     runtime::ReferenceEngine& engine,
-    const std::string& prompt) {
+    const std::string& prompt,
+    const bool vllm_layout_candidate = false) {
   if (g_prompt_tokens != kDefaultPromptTokens) {
     std::cerr << "group-WY equivalence requires the real P513 route\n";
     return false;
@@ -825,9 +874,10 @@ void destroy_event(cudaEvent_t& event) noexcept {
   {
     const ScopedFusedKktBaseline fused_route(false);
     const ScopedSplitWyBaseline split_route(false);
-    const ScopedPackedQkvBaseline packed_route(true);
+    const ScopedPackedQkvBaseline packed_route(!vllm_layout_candidate);
+    const ScopedVllmLayoutWyCandidate vllm_route(false);
     if (!fused_route.valid() || !split_route.valid()) {
-      std::cerr << "failed to select d51 packed-QKV baseline\n";
+      std::cerr << "failed to select WY equivalence baseline\n";
       return false;
     }
     const ScopedNativeInspectionHook hook(baseline_boundaries);
@@ -841,8 +891,10 @@ void destroy_event(cudaEvent_t& event) noexcept {
     const ScopedFusedKktBaseline fused_route(false);
     const ScopedSplitWyBaseline split_route(false);
     const ScopedPackedQkvBaseline packed_route(false);
+    const ScopedVllmLayoutWyCandidate vllm_route(
+        vllm_layout_candidate);
     if (!fused_route.valid() || !split_route.valid()) {
-      std::cerr << "failed to select compact packless candidate\n";
+      std::cerr << "failed to select WY equivalence candidate\n";
       return false;
     }
     const ScopedNativeInspectionHook hook(candidate_boundaries);
@@ -872,14 +924,16 @@ void destroy_event(cudaEvent_t& event) noexcept {
       baseline_boundaries.output, candidate_boundaries.output);
   const DifferenceMetrics full_request_state = compare_bf16(
       baseline_state.values, candidate_state.values);
-  constexpr std::string_view kSuite =
-      "GDN_CHUNK64_NATIVE_PACKLESS_EQUIVALENCE";
-  print_difference_metrics(kSuite, "transform", transform);
-  print_difference_metrics(kSuite, "w", w);
-  print_difference_metrics(kSuite, "u", u);
-  print_difference_metrics(kSuite, "final_layer_state", final_layer_state);
-  print_difference_metrics(kSuite, "final_layer_output", final_layer_output);
-  print_difference_metrics(kSuite, "full_request_state", full_request_state);
+  const std::string_view suite =
+      vllm_layout_candidate
+          ? "GDN_CHUNK64_NATIVE_VLLM_LAYOUT_EQUIVALENCE"
+          : "GDN_CHUNK64_NATIVE_PACKLESS_EQUIVALENCE";
+  print_difference_metrics(suite, "transform", transform);
+  print_difference_metrics(suite, "w", w);
+  print_difference_metrics(suite, "u", u);
+  print_difference_metrics(suite, "final_layer_state", final_layer_state);
+  print_difference_metrics(suite, "final_layer_output", final_layer_output);
+  print_difference_metrics(suite, "full_request_state", full_request_state);
 
   const bool boundary_contract =
       !baseline_boundaries.contract_error &&
@@ -903,7 +957,7 @@ void destroy_event(cudaEvent_t& event) noexcept {
       exact_metrics(u) &&
       exact_metrics(final_layer_state) && exact_metrics(final_layer_output) &&
       exact_metrics(full_request_state);
-  std::cout << kSuite
+  std::cout << suite
             << " baseline_hits=" << baseline_hits
             << " candidate_hits=" << candidate_hits
             << " boundary_contract="
@@ -911,7 +965,82 @@ void destroy_event(cudaEvent_t& event) noexcept {
             << " generation_semantics="
             << (generation_semantics ? "PASS" : "FAIL")
             << " gate=" << (passed ? "PASS" : "FAIL")
-            << " authority=REAL_WEIGHT_PACKLESS_VS_D51_PACKED\n";
+            << " authority="
+            << (vllm_layout_candidate
+                    ? "REAL_WEIGHT_VLLM_LAYOUT_VS_GROUP_OWNED"
+                    : "REAL_WEIGHT_PACKLESS_VS_D51_PACKED")
+            << '\n';
+  return passed;
+}
+
+[[nodiscard]] bool run_native_vllm_layout_bccb(
+    runtime::ReferenceEngine& engine,
+    const std::string& prompt) {
+  auto run_route = [&](const bool vllm_layout,
+                       const std::string_view phase,
+                       Sample& sample) {
+    const ScopedFusedKktBaseline fused_route(false);
+    const ScopedSplitWyBaseline split_route(false);
+    const ScopedPackedQkvBaseline packed_route(false);
+    const ScopedResidentStateBaseline resident_route(false);
+    const ScopedVllmLayoutWyCandidate vllm_route(vllm_layout);
+    return run_sample(engine, prompt, true, phase, sample,
+                      vllm_layout ? "vllm_layout" : "group_owned");
+  };
+
+  Sample baseline_warmup;
+  Sample candidate_warmup;
+  bool ready = run_route(false, "vllm_layout_baseline_warmup",
+                         baseline_warmup) &&
+               run_route(true, "vllm_layout_candidate_warmup",
+                         candidate_warmup);
+  Sample baseline_first;
+  Sample candidate_first;
+  Sample candidate_second;
+  Sample baseline_second;
+  ready = run_route(false, "vllm_layout_B1", baseline_first) && ready;
+  ready = run_route(true, "vllm_layout_C1", candidate_first) && ready;
+  ready = run_route(true, "vllm_layout_C2", candidate_second) && ready;
+  ready = run_route(false, "vllm_layout_B2", baseline_second) && ready;
+
+  const bool semantics =
+      baseline_first.semantic_oracle && candidate_first.semantic_oracle &&
+      candidate_second.semantic_oracle && baseline_second.semantic_oracle &&
+      baseline_first.generated_token == candidate_first.generated_token &&
+      baseline_first.generated_token == candidate_second.generated_token &&
+      baseline_first.generated_token == baseline_second.generated_token &&
+      baseline_first.generated_text == candidate_first.generated_text &&
+      baseline_first.generated_text == candidate_second.generated_text &&
+      baseline_first.generated_text == baseline_second.generated_text;
+  const double first_saved = baseline_first.prefix_milliseconds -
+                             candidate_first.prefix_milliseconds;
+  const double second_saved = baseline_second.prefix_milliseconds -
+                              candidate_second.prefix_milliseconds;
+  const double baseline_mean =
+      (baseline_first.prefix_milliseconds +
+       baseline_second.prefix_milliseconds) /
+      2.0;
+  const double candidate_mean =
+      (candidate_first.prefix_milliseconds +
+       candidate_second.prefix_milliseconds) /
+      2.0;
+  const double mean_saved = baseline_mean - candidate_mean;
+  const bool passed = ready && semantics && first_saved > 0.0 &&
+                      second_saved > 0.0 && mean_saved > 0.0;
+  std::cout << "GDN_CHUNK64_NATIVE_VLLM_LAYOUT_BCCB"
+            << " B1_prefix_ms=" << baseline_first.prefix_milliseconds
+            << " C1_prefix_ms=" << candidate_first.prefix_milliseconds
+            << " C2_prefix_ms=" << candidate_second.prefix_milliseconds
+            << " B2_prefix_ms=" << baseline_second.prefix_milliseconds
+            << " pair1_saved_ms=" << first_saved
+            << " pair2_saved_ms=" << second_saved
+            << " baseline_mean_ms=" << baseline_mean
+            << " candidate_mean_ms=" << candidate_mean
+            << " mean_saved_ms=" << mean_saved
+            << " speedup=" << baseline_mean / candidate_mean
+            << " generation_semantics=" << (semantics ? "PASS" : "FAIL")
+            << " gate=" << (passed ? "PASS" : "FAIL")
+            << " authority=REAL_WEIGHT_SAME_ENGINE_B_C_C_B\n";
   return passed;
 }
 
@@ -1127,7 +1256,9 @@ class DeviceBuffer {
   cudaError_t status_ = cudaErrorMemoryAllocation;
 };
 
-[[nodiscard]] bool run_native_graph_validation() {
+[[nodiscard]] bool run_native_graph_validation(
+    const bool vllm_layout_candidate = false,
+    const bool production_default = false) {
   constexpr std::size_t kTokens = 512U;
   constexpr std::size_t kBf16Bytes = sizeof(std::uint16_t);
   DeviceBuffer workspace(
@@ -1163,6 +1294,15 @@ class DeviceBuffer {
   const ScopedSplitWyBaseline split_route(false);
   const ScopedPackedQkvBaseline packed_route(false);
   const ScopedResidentStateBaseline resident_route(false);
+  const ScopedVllmLayoutWyCandidate vllm_route(
+      production_default
+          ? q3x::runtime::gdn_prefill_chunk64_native_detail::
+                VllmLayoutWyRouteForTest::kProductionDefault
+          : (vllm_layout_candidate
+                 ? q3x::runtime::gdn_prefill_chunk64_native_detail::
+                       VllmLayoutWyRouteForTest::kVllmLayout
+                 : q3x::runtime::gdn_prefill_chunk64_native_detail::
+                       VllmLayoutWyRouteForTest::kGroupOwned));
   ready = kkt_route.valid() && split_route.valid() &&
           resident_route.valid() && ready;
   auto launch = [&]() {
@@ -1229,13 +1369,21 @@ class DeviceBuffer {
             cudaGraphLaunch(executable, stream) == cudaSuccess &&
             cudaStreamSynchronize(stream) == cudaSuccess;
   }
-  const bool passed =
-      ready && node_count == 6U && kernel_nodes == 6U && other_nodes == 0U;
+  const bool expected_vllm_layout =
+      vllm_layout_candidate || production_default;
+  const std::size_t expected_nodes = expected_vllm_layout ? 8U : 6U;
+  const bool passed = ready && node_count == expected_nodes &&
+                      kernel_nodes == expected_nodes && other_nodes == 0U;
   std::cout << "GDN_CHUNK64_NATIVE_GRAPH"
             << " nodes=" << node_count
             << " kernel_nodes=" << kernel_nodes
             << " other_nodes=" << other_nodes
             << " replays=2"
+            << " route="
+            << (production_default
+                    ? "production_default_vllm_layout"
+                    : (vllm_layout_candidate ? "vllm_layout"
+                                             : "group_owned"))
             << " gate=" << (passed ? "PASS" : "FAIL")
             << " authority=CAPTURE_INSTANTIATE_REPLAY_SMOKE\n";
 
@@ -1385,6 +1533,14 @@ int main(const int argc, char** const argv) {
     return 6;
   }
 #if defined(Q3X_GDN_CHUNK64_NATIVE_TEST)
+  if (std::getenv(
+          "Q3X_GDN_CHUNK64_VALIDATE_PRODUCTION_GRAPH_ONLY") != nullptr) {
+    return run_native_graph_validation(false, true) ? 0 : 8;
+  }
+  if (std::getenv(
+          "Q3X_GDN_CHUNK64_VALIDATE_VLLM_LAYOUT_GRAPH_ONLY") != nullptr) {
+    return run_native_graph_validation(true) ? 0 : 8;
+  }
   if (std::getenv("Q3X_GDN_CHUNK64_VALIDATE_GRAPH_ONLY") != nullptr) {
     return run_native_graph_validation() ? 0 : 8;
   }
@@ -1418,6 +1574,23 @@ int main(const int argc, char** const argv) {
   std::cout << std::fixed << std::setprecision(9);
   const std::string prompt = repeated_hello_prompt();
 #if defined(Q3X_GDN_CHUNK64_NATIVE_TEST)
+  if (std::getenv(
+          "Q3X_GDN_CHUNK64_RUN_PRODUCTION_DEFAULT_ONLY") != nullptr) {
+    Sample production_default;
+    return run_sample(*created.value, prompt, true, "production_default",
+                      production_default,
+                      "production_default_vllm_layout")
+               ? 0
+               : 13;
+  }
+  if (std::getenv(
+          "Q3X_GDN_CHUNK64_RUN_VLLM_LAYOUT_BCCB_ONLY") != nullptr) {
+    return run_native_vllm_layout_bccb(*created.value, prompt) ? 0 : 12;
+  }
+  if (std::getenv(
+          "Q3X_GDN_CHUNK64_RUN_VLLM_LAYOUT_EQUIVALENCE_ONLY") != nullptr) {
+    return run_native_kkt_equivalence(*created.value, prompt, true) ? 0 : 11;
+  }
   if (std::getenv(
           "Q3X_GDN_CHUNK64_RUN_GROUP_WY_EQUIVALENCE_ONLY") != nullptr) {
     return run_native_kkt_equivalence(*created.value, prompt) ? 0 : 7;
