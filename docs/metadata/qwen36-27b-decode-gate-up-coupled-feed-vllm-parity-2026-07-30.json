@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36_27b_decode_gate_up_coupled_feed_vllm_parity",
+  "recorded_at": "2026-07-30T14:26:24+08:00",
+  "status": "retained_after_two_real_serving_vllm_parity_runs",
+  "base_commit": "549eba4",
+  "candidate_commit": "17cc711",
+  "runtime_gate": "Q3X_RUN_DECODE_GATE_UP_COUPLED_FEED_ADMISSION=1",
+  "composition": {
+    "decode_splitkv": true,
+    "prefill_marlin_gate_up_epilogue": true,
+    "decode_gate_up_coupled_feed": true,
+    "decode_down_consumer_order": false,
+    "mtp_used": false
+  },
+  "build": {
+    "type": "Release",
+    "elf": "/tmp/q3x-decode-gateup-coupled-feed-cumulative-build/qwen3x-eval-server",
+    "elf_sha256": "93d3e4d799c1f7ddc55cf0adeffb203f312a4cb79fed05108d0ab8d671d0e54b",
+    "bf16_ab_large_m": true,
+    "flashinfer_prefill_attention": true,
+    "fp8_marlin_prefill": true,
+    "gdn_chunk64_native": true,
+    "nvfp4_marlin_prefill": true
+  },
+  "candidate": {
+    "mechanism": "equal-byte consumer-order Gate/Up weight-and-scale feed",
+    "layers": 64,
+    "sidecar_bytes": 6417285120,
+    "registers_per_thread": 64,
+    "static_shared_bytes": 13632,
+    "local_bytes": 0,
+    "active_ctas_per_sm": 2
+  },
+  "workload": {
+    "framework": "EvalScope 1.9.1",
+    "corpus_sha256": "bd2091cdc0599ac59ab881efc6d1307a03bb149f49e6fd728a99d926ccc67989",
+    "requests": 8,
+    "warmup_requests": 1,
+    "parallel": 1,
+    "completion_tokens_per_request": 16,
+    "stream": true,
+    "temperature": 0.0,
+    "seed": 42
+  },
+  "frozen_vllm_first8": {
+    "prompt_throughput_tokens_per_second": 181.896870119,
+    "mean_ttft_milliseconds": 1168.570642,
+    "mean_tpot_milliseconds": 104.4663898,
+    "wall_time_seconds": 21.886028
+  },
+  "run1": {
+    "exact_outputs": "8/8",
+    "prompt_throughput_tokens_per_second": 183.3419336520688,
+    "mean_ttft_milliseconds": 1152.6762198191136,
+    "mean_tpot_milliseconds": 104.08370976607937,
+    "wall_time_seconds": 21.71352685499005,
+    "result": "/tmp/q3x-evalscope-gateup-coupled-cumulative-fullon-run1/gateupcoupledcumulativefullon/parallel_1_number_8",
+    "validator": "/tmp/q3x-evalscope-gateup-coupled-cumulative-fullon-vs-180517.json",
+    "validator_sha256": "341656a457cd5d685262e425a180a7bb657c5cf0979ee20555240aa5e89e524f",
+    "validator_decision": "advance_to_internal_validation"
+  },
+  "run2": {
+    "exact_outputs": "8/8",
+    "prompt_throughput_tokens_per_second": 183.3155530204889,
+    "mean_ttft_milliseconds": 1153.7219934980385,
+    "mean_tpot_milliseconds": 104.04199066688307,
+    "wall_time_seconds": 21.716651611961424,
+    "result": "/tmp/q3x-evalscope-gateup-coupled-cumulative-fullon-run2/gateupcoupledcumulativefullonr2/parallel_1_number_8",
+    "validator": "/tmp/q3x-evalscope-gateup-coupled-cumulative-fullon-run2-vs-180517.json",
+    "validator_sha256": "238b103c803e2ef6b42af8da3c5cb10662613ba0a35691db166b6731894d4ed1",
+    "validator_decision": "reject_direction",
+    "formal_rejection_scope": "incremental-native TTFT single-round rule only",
+    "native_mean_ttft_delta_milliseconds": 0.6250214646570385
+  },
+  "decision": {
+    "result": "retain_and_advance_cumulative_candidate",
+    "vllm_parity": "passed_twice",
+    "correctness": "exact_8_of_8_twice",
+    "reason": "Both independent real-serving runs exceed the frozen vLLM first-eight floor in prompt throughput, TTFT, TPOT, and wall time while preserving all native outputs. The run-2 validator exit 3 is caused only by a +0.625 ms native TTFT noise movement and does not overturn the product-level gate."
+  },
+  "next_step": "replace the 6.417 GB duplicate arena with a load-time in-place or canonical-storage consumer-order representation while retaining the measured dataflow"
+}
