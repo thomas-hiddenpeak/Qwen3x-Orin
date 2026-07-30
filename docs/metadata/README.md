@@ -36,6 +36,12 @@ EvalScope effective throughput from 304.6 to 450.1 token/s.  It is a retained
 default-off candidate and a new optimized-composition baseline, not yet a
 default production-route promotion.
 
+The host-only 8K/16K/40K API-runner capacity contract is recorded in
+[`qwen36-27b-long-context-runner-preflight-2026-07-31.json`](qwen36-27b-long-context-runner-preflight-2026-07-31.json).
+It locks the 40,960-position 2,864,349,184-byte arena, explicit 3-GiB cap,
+attention BUILD+RUN readiness check, and real-corpus fail-closed policy. It
+contains no GPU run and no long-context performance result.
+
 The first production-wired layer-major P4K direction test is recorded in
 [`qwen36-27b-prefill-layer-major-p4k-direction-2026-07-31.json`](qwen36-27b-prefill-layer-major-p4k-direction-2026-07-31.json).
 The same-ELF real API result was 0.74% slower: its 57.5 ms of new slab D2D
