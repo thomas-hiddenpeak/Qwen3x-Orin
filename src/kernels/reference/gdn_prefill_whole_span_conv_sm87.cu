@@ -158,13 +158,17 @@ void causal_conv1d_silu_update_token_parallel_kernel(
       history[history_offset + 1U] = history_2;
       history[history_offset + 2U] = raw_qkv[channel];
     }
-  } else {
+  } else if (token_base < token_count) {
     const std::size_t prior_base =
         (static_cast<std::size_t>(token_base) - 3U) * kGdnQkvChannels +
         channel;
     history_0 = raw_qkv[prior_base];
     history_1 = raw_qkv[prior_base + kGdnQkvChannels];
     history_2 = raw_qkv[prior_base + 2U * kGdnQkvChannels];
+  } else {
+    history_0 = 0U;
+    history_1 = 0U;
+    history_2 = 0U;
   }
 
 #pragma unroll
@@ -256,13 +260,20 @@ void causal_conv1d_silu_update_token_parallel_compact_qk_kernel(
       history[history_offset + 1U] = history_2;
       history[history_offset + 2U] = raw_qkv[channel];
     }
-  } else {
+  } else if (token_base < token_count) {
     const std::size_t prior_base =
         (static_cast<std::size_t>(token_base) - 3U) * kGdnQkvChannels +
         channel;
     history_0 = raw_qkv[prior_base];
     history_1 = raw_qkv[prior_base + kGdnQkvChannels];
     history_2 = raw_qkv[prior_base + 2U * kGdnQkvChannels];
+  } else {
+    // Pure padding C8 tiles exist only to zero the compact C64 tail. They do
+    // not participate in convolution and must not observe raw projection
+    // rows beyond the logical request span.
+    history_0 = 0U;
+    history_1 = 0U;
+    history_2 = 0U;
   }
 
 #pragma unroll
@@ -318,9 +329,13 @@ void causal_conv1d_silu_update_token_parallel_compact_qk_kernel(
 #pragma unroll
     for (unsigned int item = 0U; item < 4U; ++item) {
       const unsigned int dimension = lane + item * 32U;
-      values[item] = decode_bf16_device(
-          convolved_qk[warp * kThreads +
-                       head_in_block * kQkHeadDimension + dimension]);
+      values[item] = token < token_count
+                         ? decode_bf16_device(
+                               convolved_qk[
+                                   warp * kThreads +
+                                   head_in_block * kQkHeadDimension +
+                                   dimension])
+                         : 0.0F;
     }
     pair_0 = values[0] * values[0] + values[2] * values[2];
     pair_1 = values[1] * values[1] + values[3] * values[3];
@@ -450,7 +465,7 @@ int launch_causal_conv1d_silu_update_token_parallel_compact_qk_exact_cuda(
     std::uint16_t* const compact_k,
     void* const cuda_stream) noexcept {
   if (token_count == 0U || token_count > kMaximumTokenCount ||
-      token_count % kChunkSize != 0U || raw_qkv == nullptr ||
+      raw_qkv == nullptr ||
       conv_weight == nullptr || history_in_out == nullptr ||
       conv_qkv_output == nullptr || compact_q == nullptr ||
       compact_k == nullptr || !std::isfinite(l2_epsilon) ||
@@ -465,9 +480,10 @@ int launch_causal_conv1d_silu_update_token_parallel_compact_qk_exact_cuda(
     return static_cast<int>(cudaErrorInvalidValue);
   }
   const auto stream = static_cast<cudaStream_t>(cuda_stream);
-  const unsigned int token_tiles =
-      static_cast<unsigned int>((token_count + kTokenTile - 1U) /
-                                kTokenTile);
+  const std::size_t padded_token_count =
+      ((token_count + kChunkSize - 1U) / kChunkSize) * kChunkSize;
+  const unsigned int token_tiles = static_cast<unsigned int>(
+      padded_token_count / kTokenTile);
   (void)cudaGetLastError();
   causal_conv1d_silu_update_token_parallel_compact_qk_kernel<<<
       dim3(kBlocks, token_tiles), kThreads, 0U, stream>>>(

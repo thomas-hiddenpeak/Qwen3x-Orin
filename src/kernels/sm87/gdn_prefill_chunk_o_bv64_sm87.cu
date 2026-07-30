@@ -848,7 +848,7 @@ void rms_norm_silu_rows8_kernel(
   return compact_q == nullptr || compact_k == nullptr ||
          boundary_state == nullptr || v_new == nullptr ||
          cumulative_gate == nullptr || token_count == 0U ||
-         token_count > kMaximumTokens || token_count % kChunk != 0U ||
+         token_count > kMaximumTokens ||
          norm_weight == nullptr || silu_gate == nullptr ||
          raw_output == nullptr || output == nullptr ||
          !std::isfinite(norm_epsilon) || norm_epsilon <= 0.0F;
@@ -906,7 +906,7 @@ int launch(const std::uint16_t* const compact_q,
   }
   const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
   const unsigned int chunk_count =
-      static_cast<unsigned int>(token_count / kChunk);
+      static_cast<unsigned int>((token_count + kChunk - 1U) / kChunk);
   const dim3 grid(2U, chunk_count, kValueHeads);
   (void)cudaGetLastError();
   chunk_o_bv64_kernel<<<grid, kChunkThreads, 0U, stream>>>(
@@ -944,7 +944,7 @@ int launch_wmma_oracle(const std::uint16_t* const compact_q,
   }
   const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
   const unsigned int chunk_count =
-      static_cast<unsigned int>(token_count / kChunk);
+      static_cast<unsigned int>((token_count + kChunk - 1U) / kChunk);
   const dim3 grid(2U, chunk_count, kValueHeads);
   (void)cudaGetLastError();
   chunk_o_bv64_wmma_oracle_kernel<<<grid, kChunkThreads, 0U, stream>>>(

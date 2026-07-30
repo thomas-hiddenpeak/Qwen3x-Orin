@@ -331,6 +331,7 @@ __device__ __forceinline__ float stable_sigmoid_device(const float value) {
 template <bool Compact>
 __global__ __launch_bounds__(kNormalizeThreads) void normalize_qk_kernel(
     const std::uint16_t* const conv_qkv,
+    const std::size_t token_count,
     const float l2_epsilon,
     std::uint16_t* const q,
     std::uint16_t* const k) {
@@ -341,8 +342,13 @@ __global__ __launch_bounds__(kNormalizeThreads) void normalize_qk_kernel(
   const std::size_t qk_head = blockIdx.x % kQkHeadCount;
   const std::size_t source =
       token * kGdnQkvChannels + qk_head * kDimension + dimension;
-  const float q_value = decode_bf16_device(conv_qkv[kQOffset + source]);
-  const float k_value = decode_bf16_device(conv_qkv[kKOffset + source]);
+  const bool valid_token = token < token_count;
+  const float q_value = valid_token
+                            ? decode_bf16_device(conv_qkv[kQOffset + source])
+                            : 0.0F;
+  const float k_value = valid_token
+                            ? decode_bf16_device(conv_qkv[kKOffset + source])
+                            : 0.0F;
   q_squares[dimension] = q_value * q_value;
   k_squares[dimension] = k_value * k_value;
   __syncthreads();
@@ -384,6 +390,7 @@ __global__ __launch_bounds__(kChunkThreads) void prepare_gate_kernel(
     const std::uint16_t* const b,
     const std::uint16_t* const A_log,
     const std::uint16_t* const dt_bias,
+    const std::size_t token_count,
     float* const gamma,
     float* const beta) {
   __shared__ float log_alpha[kChunkSize];
@@ -393,13 +400,23 @@ __global__ __launch_bounds__(kChunkThreads) void prepare_gate_kernel(
   const std::size_t value_head = matrix % kValueHeadCount;
   const std::size_t token = chunk * kChunkSize + token_in_chunk;
   const std::size_t scalar = token * kValueHeadCount + value_head;
-  const float gate_input = decode_bf16_device(a[scalar]) +
-                           decode_bf16_device(dt_bias[value_head]);
-  const float g = -expf(decode_bf16_device(A_log[value_head])) *
-                  stable_softplus_device(gate_input);
+  const bool valid_token = token < token_count;
+  const float gate_input =
+      valid_token ? decode_bf16_device(a[scalar]) +
+                        decode_bf16_device(dt_bias[value_head])
+                  : 0.0F;
+  // Padding is the identity recurrence: no log-decay and no delta update.
+  // Keeping g=0 extends the final real cumulative gate through lane 63, so
+  // fixed-shape consumers of gamma[63] observe the true tail last token.
+  const float g = valid_token
+                      ? -expf(decode_bf16_device(A_log[value_head])) *
+                            stable_softplus_device(gate_input)
+                      : 0.0F;
   log_alpha[token_in_chunk] = g;
   beta[matrix * kChunkSize + token_in_chunk] =
-      stable_sigmoid_device(decode_bf16_device(b[scalar]));
+      valid_token
+          ? stable_sigmoid_device(decode_bf16_device(b[scalar]))
+          : 0.0F;
   __syncthreads();
   if (token_in_chunk == 0U) {
     float cumulative = 0.0F;
@@ -415,6 +432,7 @@ __global__ void pack_scaled_k_v_kernel(
     const std::uint16_t* const conv_qkv,
     const std::uint16_t* const k,
     const float* const gamma,
+    const std::size_t token_count,
     const std::size_t element_count,
     std::uint16_t* const k_g,
     std::uint16_t* const k_decay,
@@ -438,10 +456,14 @@ __global__ void pack_scaled_k_v_kernel(
   k_g[index] = encode_bf16_device(expf(cumulative) * k_value);
   k_decay[index] =
       encode_bf16_device(expf(final_cumulative - cumulative) * k_value);
-  const std::size_t source =
-      token * kGdnQkvChannels + kVOffset +
-      value_head * kDimension + dimension;
-  v[index] = conv_qkv[source];
+  if (token < token_count) {
+    const std::size_t source =
+        token * kGdnQkvChannels + kVOffset +
+        value_head * kDimension + dimension;
+    v[index] = conv_qkv[source];
+  } else {
+    v[index] = encode_bf16_device(0.0F);
+  }
 }
 
 __device__ __forceinline__ void lower_subblock_coordinates(
@@ -2664,8 +2686,9 @@ void reconstruct_norm_gate_chunk64_kernel(
     const float* const gamma,
     const std::uint16_t* const norm_weight,
     const std::uint16_t* const silu_gate,
-  const float norm_epsilon,
-  std::uint16_t* const output) {
+    const std::size_t token_count,
+    const float norm_epsilon,
+    std::uint16_t* const output) {
   extern __shared__ float shared_output[];
   const unsigned int warp = threadIdx.x / 32U;
   const unsigned int lane = threadIdx.x % 32U;
@@ -2767,6 +2790,11 @@ void reconstruct_norm_gate_chunk64_kernel(
   // scatter-then-normalize route.
   for (unsigned int token_in_chunk = warp;
        token_in_chunk < kChunkSize; token_in_chunk += 8U) {
+    const std::size_t token =
+        chunk_index * kChunkSize + token_in_chunk;
+    if (token >= token_count) {
+      continue;
+    }
     float square_sum = 0.0F;
 #pragma unroll
     for (unsigned int value_dimension = lane;
@@ -2784,8 +2812,6 @@ void reconstruct_norm_gate_chunk64_kernel(
         rsqrtf(square_sum / static_cast<float>(kDimension) +
                norm_epsilon),
         0U);
-    const std::size_t token =
-        chunk_index * kChunkSize + token_in_chunk;
 #pragma unroll
     for (unsigned int value_dimension = lane;
          value_dimension < kDimension; value_dimension += 32U) {
@@ -2914,7 +2940,7 @@ void reconstruct_norm_gate_chunk64_kernel(
     const float norm_epsilon,
     const std::uint16_t* const output) noexcept {
   return token_count == 0U || token_count > kTokenCount ||
-         token_count % kChunkSize != 0U || workspace == nullptr ||
+         workspace == nullptr ||
          workspace_capacity_bytes < required_workspace_bytes() ||
          conv_qkv == nullptr || a == nullptr || b == nullptr ||
          A_log == nullptr || dt_bias == nullptr || state_input == nullptr ||
@@ -2972,7 +2998,9 @@ int launch_impl(void* const context,
     return static_cast<int>(cudaErrorInvalidValue);
   }
   const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
-  const std::size_t chunk_count = token_count / kChunkSize;
+  const std::size_t chunk_count =
+      (token_count + kChunkSize - 1U) / kChunkSize;
+  const std::size_t padded_token_count = chunk_count * kChunkSize;
   const std::size_t matrix_count = chunk_count * kValueHeadCount;
   const std::size_t head_token_elements =
       matrix_count * kChunkSize * kDimension;
@@ -3007,14 +3035,14 @@ int launch_impl(void* const context,
     // exact compact BF16 Q/K regions.  No host synchronization is required.
   } else if (use_packed_qkv_baseline) {
     normalize_qk_kernel<false><<<
-        static_cast<unsigned int>(token_count * kQkHeadCount),
+        static_cast<unsigned int>(padded_token_count * kQkHeadCount),
         kNormalizeThreads, 0U, stream>>>(
-        conv_qkv, l2_epsilon, workspace.q, workspace.k);
+        conv_qkv, token_count, l2_epsilon, workspace.q, workspace.k);
   } else {
     normalize_qk_kernel<true><<<
-        static_cast<unsigned int>(token_count * kQkHeadCount),
+        static_cast<unsigned int>(padded_token_count * kQkHeadCount),
         kNormalizeThreads, 0U, stream>>>(
-        conv_qkv, l2_epsilon, workspace.q, workspace.k);
+        conv_qkv, token_count, l2_epsilon, workspace.q, workspace.k);
   }
   status = launch_grid_status();
   if (status != static_cast<int>(cudaSuccess)) {
@@ -3027,7 +3055,8 @@ int launch_impl(void* const context,
       compact_qk_elements, cuda_stream);
   prepare_gate_kernel<<<static_cast<unsigned int>(matrix_count),
                         kChunkThreads, 0U, stream>>>(
-      a, b, A_log, dt_bias, workspace.gamma, workspace.beta);
+      a, b, A_log, dt_bias, token_count, workspace.gamma,
+      workspace.beta);
   status = launch_grid_status();
   if (status != static_cast<int>(cudaSuccess)) {
     return status;
@@ -3036,8 +3065,9 @@ int launch_impl(void* const context,
     const unsigned int head_token_blocks = static_cast<unsigned int>(
         (head_token_elements + kThreads - 1U) / kThreads);
     pack_scaled_k_v_kernel<<<head_token_blocks, kThreads, 0U, stream>>>(
-        conv_qkv, workspace.k, workspace.gamma, head_token_elements,
-        workspace.k_g, workspace.k_decay, workspace.v);
+        conv_qkv, workspace.k, workspace.gamma, token_count,
+        head_token_elements, workspace.k_g, workspace.k_decay,
+        workspace.v);
     status = launch_grid_status();
     if (status != static_cast<int>(cudaSuccess)) {
       return status;
@@ -3091,16 +3121,16 @@ int launch_impl(void* const context,
   } else if (use_vllm_layout_wy_candidate()) {
     status = gdn_prefill_wy_vllm_layout_detail::launch_packless(
         workspace.k, workspace.gamma, workspace.beta, conv_qkv,
-        chunk_count, workspace.kkt, workspace.transform, workspace.w,
-        workspace.u, cuda_stream);
+        token_count, chunk_count, workspace.kkt, workspace.transform,
+        workspace.w, workspace.u, cuda_stream);
     if (status != static_cast<int>(cudaSuccess)) {
       return status;
     }
   } else {
     status = gdn_prefill_group_wy_detail::launch_packless(
         workspace.k, workspace.gamma, workspace.beta, conv_qkv,
-        chunk_count, workspace.transform, workspace.w, workspace.u,
-        cuda_stream);
+        token_count, chunk_count, workspace.transform, workspace.w,
+        workspace.u, cuda_stream);
     if (status != static_cast<int>(cudaSuccess)) {
       return status;
     }
@@ -3234,14 +3264,14 @@ int launch_impl(void* const context,
           reconstruction_shared_bytes, stream>>>(
           workspace.boundary_state, workspace.q, workspace.v_new,
           workspace.qk, workspace.gamma, norm_weight, silu_gate,
-          norm_epsilon, output);
+          token_count, norm_epsilon, output);
     } else {
       reconstruct_norm_gate_chunk64_kernel<true><<<
           static_cast<unsigned int>(matrix_count), kThreads,
           reconstruction_shared_bytes, stream>>>(
           workspace.boundary_state, workspace.q, workspace.v_new,
           workspace.qk, workspace.gamma, norm_weight, silu_gate,
-          norm_epsilon, output);
+          token_count, norm_epsilon, output);
     }
     status = launch_grid_status();
   }
@@ -3345,7 +3375,7 @@ int launch(void* const workspace,
            const float norm_epsilon,
            std::uint16_t* const output,
            void* const cuda_stream) noexcept {
-  if (token_count == 0U || token_count > 512U || token_count % 64U != 0U) {
+  if (token_count == 0U || token_count > 512U) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
   return gdn_prefill_chunk64_reference_detail::launch(
@@ -3365,7 +3395,7 @@ int launch_fused_conv_compact_qk_preprocess(
     const float l2_epsilon,
     void* const cuda_stream) noexcept {
   gdn_prefill_chunk64_reference_detail::Workspace workspace;
-  if (token_count == 0U || token_count > 512U || token_count % 64U != 0U ||
+  if (token_count == 0U || token_count > 512U ||
       !gdn_prefill_chunk64_reference_detail::partition_workspace(
           workspace_raw, workspace_capacity_bytes, workspace)) {
     return static_cast<int>(cudaErrorInvalidValue);
@@ -3394,7 +3424,7 @@ int launch_qk_preprocessed(
     const float norm_epsilon,
     std::uint16_t* const output,
     void* const cuda_stream) noexcept {
-  if (token_count == 0U || token_count > 512U || token_count % 64U != 0U) {
+  if (token_count == 0U || token_count > 512U) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
   return gdn_prefill_chunk64_reference_detail::launch_impl(
@@ -3413,17 +3443,18 @@ int launch_compact_qk_baseline_for_test(
   if (conv_qkv == nullptr || compact_q == nullptr || compact_k == nullptr ||
       compact_q == compact_k || compact_q == conv_qkv ||
       compact_k == conv_qkv || token_count == 0U || token_count > 512U ||
-      token_count % 64U != 0U || !std::isfinite(l2_epsilon) ||
-      l2_epsilon <= 0.0F) {
+      !std::isfinite(l2_epsilon) || l2_epsilon <= 0.0F) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
   const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  const std::size_t padded_token_count =
+      ((token_count + 63U) / 64U) * 64U;
   gdn_prefill_chunk64_reference_detail::normalize_qk_kernel<true><<<
       static_cast<unsigned int>(
-          token_count *
+          padded_token_count *
           gdn_prefill_chunk64_reference_detail::kQkHeadCount),
       gdn_prefill_chunk64_reference_detail::kNormalizeThreads, 0U,
-      stream>>>(conv_qkv, l2_epsilon, compact_q, compact_k);
+      stream>>>(conv_qkv, token_count, l2_epsilon, compact_q, compact_k);
   return gdn_prefill_chunk64_reference_detail::launch_grid_status();
 }
 

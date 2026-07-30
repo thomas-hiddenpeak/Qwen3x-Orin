@@ -25,7 +25,8 @@ namespace q3x::runtime::gdn_prefill_group_wy_detail {
 [[nodiscard]] int launch_packless(
     const std::uint16_t* compact_k, const float* cumulative_gate,
     const float* beta, const std::uint16_t* conv_qkv,
-    std::size_t chunk_count, std::uint16_t* transform,
+    std::size_t token_count, std::size_t chunk_count,
+    std::uint16_t* transform,
     std::uint16_t* w, std::uint16_t* u,
     void* cuda_stream) noexcept;
 
