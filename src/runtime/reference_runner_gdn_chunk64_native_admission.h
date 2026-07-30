@@ -28,6 +28,9 @@ exchange_prefill_gdn_chunk64_native_admission_test_hits(
 [[nodiscard]] std::size_t
 exchange_gdn_conv_compact_qk_fused_candidate_test_hits(
     std::size_t hits) noexcept;
+[[nodiscard]] bool
+exchange_gdn_conv_compact_qk_fused_candidate_test_enabled(
+    bool enabled) noexcept;
 
 using PrefillGdnChunk64NativeSnapshotCallback = void (*)(
     const RequestState& state, void* context) noexcept;
