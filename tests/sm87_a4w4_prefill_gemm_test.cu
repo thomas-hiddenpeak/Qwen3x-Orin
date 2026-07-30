@@ -3,6 +3,7 @@
 
 #include <cuda_runtime.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -233,6 +234,53 @@ class DeviceBuffer final {
                           cudaMemcpyDeviceToHost),
                "copy output")) {
     return false;
+  }
+
+  for (std::size_t m = 0U; m < kM; ++m) {
+    for (std::size_t group = 0U; group < kGroups; ++group) {
+      float maximum = 0.0F;
+      for (std::size_t inner = 0U; inner < 64U; ++inner) {
+        maximum = std::fmax(
+            maximum,
+            std::fabs(decode_bf16(input[m * kK + group * 64U + inner])));
+      }
+      std::uint16_t expected_scale_bits =
+          encode_bf16(maximum == 0.0F ? 1.0F : maximum / 7.0F);
+      float stored_scale = decode_bf16(expected_scale_bits);
+      if (maximum != 0.0F && stored_scale == 0.0F) {
+        expected_scale_bits = 1U;
+        stored_scale = decode_bf16(expected_scale_bits);
+      }
+      const std::size_t scale_offset =
+          kernels::sm87_a4w4_consumer_scale_offset(m, group, kGroups);
+      if (a_scales[scale_offset] != expected_scale_bits) {
+        std::cerr << "dynamic A stored-scale mismatch at m=" << m
+                  << " group=" << group << '\n';
+        return false;
+      }
+      for (std::size_t inner = 0U; inner < 64U; ++inner) {
+        const float value = decode_bf16(
+            input[m * kK + group * 64U + inner]);
+        const float clipped = std::max(-maximum, std::min(maximum, value));
+        const int expected_code = stored_scale == 0.0F
+                                      ? 0
+                                      : std::max(
+                                            -7, std::min(
+                                                    7, static_cast<int>(
+                                                           std::nearbyint(
+                                                               clipped /
+                                                               stored_scale))));
+        const int actual_code = signed_code(
+            packed_a[kernels::sm87_a4w4_consumer_packed_offset(
+                m, group, inner / 2U, kGroups)],
+            inner);
+        if (actual_code != expected_code) {
+          std::cerr << "dynamic A stored-scale code mismatch at m=" << m
+                    << " group=" << group << " inner=" << inner << '\n';
+          return false;
+        }
+      }
+    }
   }
 
   std::size_t mismatches = 0U;

@@ -1,6 +1,7 @@
 #include "q3x/runtime/model_weights.h"
 
 #include "q3x/io/safetensors.h"
+#include "q3x/runtime/prefill_a4_sidecar_converter.h"
 #include "q3x/runtime/prefill_quantized_contract.h"
 
 #include <cuda_runtime.h>
@@ -1414,7 +1415,8 @@ bool ModelWeights::attach_nvfp4_marlin_prefill_sidecars(
 
 bool ModelWeights::attach_prefill_a4_sidecars(
     const std::uint8_t* const arena, const std::size_t arena_bytes,
-    const PrefillSidecarManifest* const manifest) noexcept {
+    const PrefillSidecarManifest* const manifest,
+    const PrefillA4CalibrationPolicy* const policy) noexcept {
   const auto projection_for = [](DecoderLayerWeights& layer,
                                  const PrefillProjectionFamily family)
       noexcept -> LinearWeight* {
@@ -1472,12 +1474,14 @@ bool ModelWeights::attach_prefill_a4_sidecars(
       fp8->prefill_a4_scales = nullptr;
       fp8->prefill_a4_metadata = nullptr;
       fp8->prefill_a4_scale_group_size = 0U;
+      fp8->prefill_a4_activation_clip_ratio = 0.0F;
     } else if (auto* const nvfp4 =
                    std::get_if<NvFp4LinearWeight>(&binding)) {
       nvfp4->prefill_a4_weight = nullptr;
       nvfp4->prefill_a4_scales = nullptr;
       nvfp4->prefill_a4_metadata = nullptr;
       nvfp4->prefill_a4_scale_group_size = 0U;
+      nvfp4->prefill_a4_activation_clip_ratio = 0.0F;
     }
   };
   const auto clear_all = [this, &clear_weight]() noexcept {
@@ -1500,16 +1504,27 @@ bool ModelWeights::attach_prefill_a4_sidecars(
     }
   };
 
-  if (arena == nullptr && arena_bytes == 0U && manifest == nullptr) {
+  if (arena == nullptr && arena_bytes == 0U && manifest == nullptr &&
+      policy == nullptr) {
     clear_all();
     return true;
   }
-  if (arena == nullptr || manifest == nullptr ||
+  bool contracts_valid = false;
+  try {
+    contracts_valid = manifest != nullptr && policy != nullptr &&
+                      validate_prefill_sidecar_manifest(*manifest).ok() &&
+                      validate_prefill_a4_calibration_policy(
+                          *policy, *manifest)
+                          .ok();
+  } catch (...) {
+    return false;
+  }
+  if (arena == nullptr || manifest == nullptr || policy == nullptr ||
       manifest->residency_class != PrefillSidecarResidencyClass::kA4 ||
-      (manifest->kind != PrefillSidecarKind::kA4K64 &&
-       manifest->kind != PrefillSidecarKind::kA4K128) ||
-      !validate_prefill_sidecar_manifest(*manifest) ||
+      manifest->kind != PrefillSidecarKind::kA4K64 ||
+      !contracts_valid ||
       manifest->projections.size() != kQwen36PrefillProjectionCount ||
+      policy->projections.size() != manifest->projections.size() ||
       manifest->summary.arena_bytes != arena_bytes ||
       arena_bytes == 0U) {
     return false;
@@ -1531,16 +1546,23 @@ bool ModelWeights::attach_prefill_a4_sidecars(
     const std::uint16_t* scales = nullptr;
     const std::uint8_t* metadata = nullptr;
     std::uint32_t scale_group_size = 0U;
+    float activation_clip_ratio = 0.0F;
   };
   std::array<ValidatedBinding, kQwen36PrefillProjectionCount> validated{};
   for (std::size_t index = 0U; index < manifest->projections.size();
        ++index) {
     const PrefillProjectionSidecarEntry& entry =
         manifest->projections[index];
+    const PrefillA4ProjectionCalibration& calibration =
+        policy->projections[index];
     if (entry.ordinal != index || entry.layer_index >= layers_.size() ||
         entry.quantization != PrefillWeightQuantization::kSymmetricW4 ||
-        (entry.scale_group_size != 64U &&
-         entry.scale_group_size != 128U) ||
+        entry.scale_group_size != 64U ||
+        calibration.activation_scale_group_size != 64U ||
+        calibration.channel_equalization.has_value() ||
+        !std::isfinite(calibration.activation_clip_ratio) ||
+        calibration.activation_clip_ratio <= 0.0 ||
+        calibration.activation_clip_ratio > 1.0 ||
         entry.input_size % entry.scale_group_size != 0U ||
         entry.sidecar_offset > arena_bytes ||
         entry.sidecar_byte_size > arena_bytes - entry.sidecar_offset ||
@@ -1607,7 +1629,8 @@ bool ModelWeights::attach_prefill_a4_sidecars(
         entry.metadata_bytes == 0U
             ? nullptr
             : reinterpret_cast<const std::uint8_t*>(metadata_address),
-        entry.scale_group_size};
+        entry.scale_group_size,
+        static_cast<float>(calibration.activation_clip_ratio)};
   }
 
   clear_all();
@@ -1617,12 +1640,16 @@ bool ModelWeights::attach_prefill_a4_sidecars(
       fp8->prefill_a4_scales = entry.scales;
       fp8->prefill_a4_metadata = entry.metadata;
       fp8->prefill_a4_scale_group_size = entry.scale_group_size;
+      fp8->prefill_a4_activation_clip_ratio =
+          entry.activation_clip_ratio;
     } else if (auto* const nvfp4 =
                    std::get_if<NvFp4LinearWeight>(entry.binding)) {
       nvfp4->prefill_a4_weight = entry.weight;
       nvfp4->prefill_a4_scales = entry.scales;
       nvfp4->prefill_a4_metadata = entry.metadata;
       nvfp4->prefill_a4_scale_group_size = entry.scale_group_size;
+      nvfp4->prefill_a4_activation_clip_ratio =
+          entry.activation_clip_ratio;
     } else {
       clear_all();
       return false;
@@ -1658,14 +1685,16 @@ PrefillA4LinearSidecarView prefill_a4_sidecar_view(
   if (const auto* const fp8 = std::get_if<Fp8LinearWeight>(&weight)) {
     return {fp8->prefill_a4_weight, fp8->prefill_a4_scales,
             fp8->prefill_a4_metadata,
-            fp8->prefill_a4_scale_group_size, fp8->output_size,
+            fp8->prefill_a4_scale_group_size,
+            fp8->prefill_a4_activation_clip_ratio, fp8->output_size,
             fp8->input_size};
   }
   if (const auto* const nvfp4 =
           std::get_if<NvFp4LinearWeight>(&weight)) {
     return {nvfp4->prefill_a4_weight, nvfp4->prefill_a4_scales,
             nvfp4->prefill_a4_metadata,
-            nvfp4->prefill_a4_scale_group_size, nvfp4->output_size,
+            nvfp4->prefill_a4_scale_group_size,
+            nvfp4->prefill_a4_activation_clip_ratio, nvfp4->output_size,
             nvfp4->input_size};
   }
   return {};

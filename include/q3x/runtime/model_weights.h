@@ -14,6 +14,7 @@
 namespace q3x::runtime {
 
 struct PrefillSidecarManifest;
+struct PrefillA4CalibrationPolicy;
 
 inline constexpr std::size_t kQwen36DenseLayerCount = 64U;
 inline constexpr std::size_t kQwen36LinearAttentionLayerCount = 48U;
@@ -184,6 +185,7 @@ struct Fp8LinearWeight {
   const std::uint16_t* prefill_a4_scales = nullptr;
   const std::uint8_t* prefill_a4_metadata = nullptr;
   std::uint32_t prefill_a4_scale_group_size = 0U;
+  float prefill_a4_activation_clip_ratio = 0.0F;
 };
 
 struct NvFp4LinearWeight {
@@ -221,6 +223,7 @@ struct NvFp4LinearWeight {
   const std::uint16_t* prefill_a4_scales = nullptr;
   const std::uint8_t* prefill_a4_metadata = nullptr;
   std::uint32_t prefill_a4_scale_group_size = 0U;
+  float prefill_a4_activation_clip_ratio = 0.0F;
 };
 
 // The active alternative is selected strictly from the payload weight dtype:
@@ -233,12 +236,14 @@ struct PrefillA4LinearSidecarView {
   const std::uint16_t* scales = nullptr;
   const std::uint8_t* metadata = nullptr;
   std::uint32_t scale_group_size = 0U;
+  float activation_clip_ratio = 0.0F;
   std::size_t output_size = 0U;
   std::size_t input_size = 0U;
 
   [[nodiscard]] bool attached() const noexcept {
     return weight != nullptr && scales != nullptr &&
-           (scale_group_size == 64U || scale_group_size == 128U);
+           scale_group_size == 64U && activation_clip_ratio > 0.0F &&
+           activation_clip_ratio <= 1.0F;
   }
 };
 
@@ -517,13 +522,16 @@ class ModelWeights {
   // Transactionally publishes the complete calibrated 400-projection A4
   // inventory described by manifest. The arena and manifest must represent
   // the same pinned checkpoint, A4 residency class, offsets, shapes and K64
-  // or K128 format. Existing exact Prefill sidecars make attachment fail;
+  // consumer format. The authenticated policy supplies the per-projection
+  // dynamic-activation clip ratio and must bind the same manifest. Existing
+  // exact Prefill sidecars make attachment fail;
   // canonical checkpoint weights and Decode-only sidecars remain untouched.
   // Passing all null/zero detaches A4 views. The arena must outlive every
   // runner and queued kernel that consumes it.
   [[nodiscard]] bool attach_prefill_a4_sidecars(
       const std::uint8_t* arena, std::size_t arena_bytes,
-      const PrefillSidecarManifest* manifest) noexcept;
+      const PrefillSidecarManifest* manifest,
+      const PrefillA4CalibrationPolicy* policy) noexcept;
 
  private:
   friend class ModelWeightBinder;

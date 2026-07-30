@@ -274,10 +274,11 @@ struct QuantizedReference final {
             maximum, std::fabs(products[m * kN + group * 64U + inner]));
       }
       const float clipped_maximum = maximum * kOutputClipRatio;
-      const float scale =
-          clipped_maximum > 0.0F ? clipped_maximum / 7.0F : 1.0F;
+      const std::uint16_t scale_bits = encode_bf16(
+          maximum == 0.0F ? 1.0F : clipped_maximum / 7.0F);
+      const float stored_scale = decode_bf16(scale_bits);
       reference.scales[kernels::sm87_a4w4_consumer_scale_offset(
-          m, group, kOutputGroups)] = encode_bf16(scale);
+          m, group, kOutputGroups)] = scale_bits;
       for (std::size_t byte = 0U; byte < 32U; ++byte) {
         const float even_value = std::max(
             -clipped_maximum,
@@ -290,8 +291,12 @@ struct QuantizedReference final {
         reference.packed[kernels::sm87_a4w4_consumer_packed_offset(
             m, group, byte, kOutputGroups)] =
             kernels::sm87_a4w4_pack_signed_pair(
-                round_and_clamp(even_value / scale),
-                round_and_clamp(odd_value / scale));
+                stored_scale == 0.0F
+                    ? 0
+                    : round_and_clamp(even_value / stored_scale),
+                stored_scale == 0.0F
+                    ? 0
+                    : round_and_clamp(odd_value / stored_scale));
       }
     }
   }

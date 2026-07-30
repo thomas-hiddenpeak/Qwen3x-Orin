@@ -98,12 +98,21 @@ void q3x_sm87_a4_quantize_bf16_kernel(
   }
   maximum = __shfl_sync(0xffffffffU, maximum, 0U);
   const float clipped_maximum = maximum * clip_ratio;
-  const float scale = clipped_maximum > 0.0F ? clipped_maximum / 7.0F : 1.0F;
-  const float inverse_scale = 1.0F / scale;
+  std::uint16_t scale_bits =
+      encode_bf16(maximum == 0.0F ? 1.0F : clipped_maximum / 7.0F);
+  float stored_scale = decode_bf16(scale_bits);
+  if (maximum != 0.0F && stored_scale == 0.0F) {
+    scale_bits = 1U;
+    stored_scale = decode_bf16(scale_bits);
+  }
   even = fminf(fmaxf(even, -clipped_maximum), clipped_maximum);
   odd = fminf(fmaxf(odd, -clipped_maximum), clipped_maximum);
-  const int even_rounded = __float2int_rn(even * inverse_scale);
-  const int odd_rounded = __float2int_rn(odd * inverse_scale);
+  const int even_rounded = stored_scale == 0.0F
+                               ? 0
+                               : __float2int_rn(even / stored_scale);
+  const int odd_rounded = stored_scale == 0.0F
+                              ? 0
+                              : __float2int_rn(odd / stored_scale);
   const int even_code = even_rounded < -7 ? -7 :
                         (even_rounded > 7 ? 7 : even_rounded);
   const int odd_code = odd_rounded < -7 ? -7 :
@@ -114,7 +123,7 @@ void q3x_sm87_a4_quantize_bf16_kernel(
   if (lane == 0U) {
     a_k64_scales_bf16[sm87_a4w4_consumer_scale_offset(
         row, group, k64_group_count)] =
-        encode_bf16(scale);
+        scale_bits;
   }
 }
 
