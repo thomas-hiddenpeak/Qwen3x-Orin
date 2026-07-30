@@ -65,7 +65,8 @@ __device__ __forceinline__ float decode_e4m3fn_device(
 __global__ void transpose_modelopt_words_kernel(
     const std::uint32_t* const first,
     const std::uint32_t* const second, const int first_n, const int total_n,
-    const int k_words, std::uint32_t* const output) {
+    const int k_words, const bool interleave_gate_up,
+    std::uint32_t* const output) {
   __shared__ std::uint32_t tile[32][33];
   const int input_k = static_cast<int>(blockIdx.x) * 32 + threadIdx.x;
   const int input_n = static_cast<int>(blockIdx.y) * 32 + threadIdx.y;
@@ -74,8 +75,12 @@ __global__ void transpose_modelopt_words_kernel(
   for (int offset = 0; offset < 32; offset += 8) {
     const int row = input_n + offset;
     if (input_k < k_words && row < total_n) {
-      const std::uint32_t* const selected = row < first_n ? first : second;
-      const int selected_row = row < first_n ? row : row - first_n;
+      const bool select_second =
+          interleave_gate_up ? (row & 1) != 0 : row >= first_n;
+      const std::uint32_t* const selected = select_second ? second : first;
+      const int selected_row = interleave_gate_up
+                                   ? row / 2
+                                   : (select_second ? row - first_n : row);
       tile[threadIdx.y + offset][threadIdx.x] =
           selected[static_cast<std::size_t>(selected_row) * k_words + input_k];
     }
@@ -98,6 +103,7 @@ __global__ void process_modelopt_scales_kernel(
     const std::uint8_t* const first,
     const std::uint8_t* const second, const int first_n, const int total_n,
     const int groups, const float scale_factor,
+    const bool interleave_gate_up,
     std::uint8_t* const output) {
   const std::size_t total =
       static_cast<std::size_t>(total_n) * static_cast<std::size_t>(groups);
@@ -116,9 +122,14 @@ __global__ void process_modelopt_scales_kernel(
     const int permutation_lane = before_four & 63;
     const int source_n = chunk * 64 + (permutation_lane & 7) * 8 +
                          permutation_lane / 8;
-    const std::uint8_t* const selected = source_n < first_n ? first : second;
-    const int selected_n =
-        source_n < first_n ? source_n : source_n - first_n;
+    const bool select_second = interleave_gate_up
+                                   ? (source_n & 1) != 0
+                                   : source_n >= first_n;
+    const std::uint8_t* const selected = select_second ? second : first;
+    const int selected_n = interleave_gate_up
+                               ? source_n / 2
+                               : (select_second ? source_n - first_n
+                                                : source_n);
     const std::uint8_t code =
         selected[static_cast<std::size_t>(selected_n) * groups + group];
 
@@ -203,7 +214,7 @@ __global__ void merged_gate_up_silu_kernel(
     std::uint8_t* const marlin_weight, std::uint8_t* const marlin_scales,
     float* const marlin_global_scale, void* const transpose_scratch,
     const std::size_t transpose_scratch_bytes,
-    void* const cuda_stream) noexcept {
+    void* const cuda_stream, const bool interleave_gate_up) noexcept {
   const std::size_t required_weight_bytes =
       sm87_nvfp4_marlin_weight_bytes(static_cast<std::size_t>(total_n),
                                      static_cast<std::size_t>(input_size));
@@ -217,7 +228,8 @@ __global__ void merged_gate_up_silu_kernel(
       !aligned(transpose_scratch, 16U) ||
       transpose_scratch_bytes < required_weight_bytes || first_n <= 0 ||
       total_n < first_n || input_size <= 0 || total_n % 64 != 0 ||
-      input_size % 16 != 0) {
+      input_size % 16 != 0 ||
+      (interleave_gate_up && total_n != 2 * first_n)) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
   if ((total_n != first_n) != (second_weight != nullptr) ||
@@ -239,7 +251,8 @@ __global__ void merged_gate_up_silu_kernel(
                                     stream>>>(
       reinterpret_cast<const std::uint32_t*>(first_weight),
       reinterpret_cast<const std::uint32_t*>(second_weight), first_n, total_n,
-      k_words, reinterpret_cast<std::uint32_t*>(transpose_scratch));
+      k_words, interleave_gate_up,
+      reinterpret_cast<std::uint32_t*>(transpose_scratch));
   cudaError_t status = cudaPeekAtLastError();
   if (status != cudaSuccess) {
     return static_cast<int>(status);
@@ -274,27 +287,28 @@ __global__ void merged_gate_up_silu_kernel(
                             4096U));
   process_modelopt_scales_kernel<<<scale_blocks, kScaleThreads, 0U, stream>>>(
       first_scales, second_scales, first_n, total_n, input_size / kGroupSize,
-      scale_factor, marlin_scales);
+      scale_factor, interleave_gate_up, marlin_scales);
   process_global_scale_kernel<<<1U, 1U, 0U, stream>>>(
       canonical_global_scale, scale_factor, marlin_global_scale);
   return static_cast<int>(cudaPeekAtLastError());
 }
 
-template <int ThreadMBlocks, int ThreadNBlocks, int ThreadKBlocks,
-          bool MBlockSize8>
+template <bool FusedGateUp, int ThreadMBlocks, int ThreadNBlocks,
+          int ThreadKBlocks, bool MBlockSize8>
 [[nodiscard]] int launch_marlin_specialization(
     const std::uint16_t* const input,
     const std::uint8_t* const marlin_weight,
     const std::uint8_t* const marlin_scales,
     const float* const marlin_global_scale, const std::size_t token_count,
     const int output_size, const int input_size, std::uint16_t* const output,
-    float* const c_tmp, std::int32_t* const locks,
+    std::uint16_t* const fused_gate_up_output, float* const c_tmp,
+    std::int32_t* const locks,
     void* const cuda_stream) noexcept {
   const auto kernel =
       marlin::Marlin<vllm::kBFloat16.id(), vllm::kFE2M1f.id(),
                      vllm::kBFloat16.id(), vllm::kFE4M3fn.id(), kThreads,
                      ThreadMBlocks, ThreadNBlocks, ThreadKBlocks, MBlockSize8,
-                     kStages, kGroupBlocks, false>;
+                     kStages, kGroupBlocks, false, FusedGateUp>;
   cudaError_t status = cudaFuncSetAttribute(
       kernel, cudaFuncAttributeMaxDynamicSharedMemorySize,
       static_cast<int>(kSm87NvFp4MarlinDynamicSharedBytes));
@@ -307,7 +321,8 @@ template <int ThreadMBlocks, int ThreadNBlocks, int ThreadKBlocks,
       reinterpret_cast<const int4*>(input),
       reinterpret_cast<const int4*>(marlin_weight),
       reinterpret_cast<int4*>(output), reinterpret_cast<int4*>(c_tmp),
-      nullptr, nullptr, reinterpret_cast<const int4*>(marlin_scales),
+      reinterpret_cast<const int4*>(fused_gate_up_output), nullptr,
+      reinterpret_cast<const int4*>(marlin_scales),
       marlin_global_scale, nullptr, nullptr, input_size / kGroupSize,
       static_cast<int>(token_count), output_size, input_size, input_size, locks,
       false, false, true,
@@ -315,47 +330,56 @@ template <int ThreadMBlocks, int ThreadNBlocks, int ThreadKBlocks,
   return static_cast<int>(cudaPeekAtLastError());
 }
 
+template <bool FusedGateUp>
 [[nodiscard]] int launch_marlin_segment(
     const std::uint16_t* const input,
     const std::uint8_t* const marlin_weight,
     const std::uint8_t* const marlin_scales,
     const float* const marlin_global_scale, const std::size_t token_count,
     const int output_size, const int input_size, std::uint16_t* const output,
-    float* const c_tmp, std::int32_t* const locks,
+    std::uint16_t* const fused_gate_up_output, float* const c_tmp,
+    std::int32_t* const locks,
     void* const cuda_stream) noexcept {
   if (token_count <= 8U) {
-    return launch_marlin_specialization<1, 8, 8, true>(
+    return launch_marlin_specialization<FusedGateUp, 1, 8, 8, true>(
         input, marlin_weight, marlin_scales, marlin_global_scale, token_count,
-        output_size, input_size, output, c_tmp, locks, cuda_stream);
+        output_size, input_size, output, fused_gate_up_output, c_tmp, locks,
+        cuda_stream);
   }
   if (token_count <= 16U) {
-    return launch_marlin_specialization<1, 8, 8, false>(
+    return launch_marlin_specialization<FusedGateUp, 1, 8, 8, false>(
         input, marlin_weight, marlin_scales, marlin_global_scale, token_count,
-        output_size, input_size, output, c_tmp, locks, cuda_stream);
+        output_size, input_size, output, fused_gate_up_output, c_tmp, locks,
+        cuda_stream);
   }
   if (token_count <= kSm87NvFp4MarlinTailMaximumTokens) {
-    return launch_marlin_specialization<2, 16, 4, false>(
+    return launch_marlin_specialization<FusedGateUp, 2, 16, 4, false>(
         input, marlin_weight, marlin_scales, marlin_global_scale, token_count,
-        output_size, input_size, output, c_tmp, locks, cuda_stream);
+        output_size, input_size, output, fused_gate_up_output, c_tmp, locks,
+        cuda_stream);
   }
-  return launch_marlin_specialization<4, 16, 4, false>(
+  return launch_marlin_specialization<FusedGateUp, 4, 16, 4, false>(
       input, marlin_weight, marlin_scales, marlin_global_scale, token_count,
-      output_size, input_size, output, c_tmp, locks, cuda_stream);
+      output_size, input_size, output, fused_gate_up_output, c_tmp, locks,
+      cuda_stream);
 }
 
+template <bool FusedGateUp>
 [[nodiscard]] int launch_fixed_marlin(
     const std::uint16_t* const input,
     const std::uint8_t* const marlin_weight,
     const std::uint8_t* const marlin_scales,
     const float* const marlin_global_scale, const std::size_t token_count,
     const int output_size, const int input_size, std::uint16_t* const output,
-    float* const c_tmp, std::int32_t* const locks,
+    std::uint16_t* const fused_gate_up_output, float* const c_tmp,
+    std::int32_t* const locks,
     void* const cuda_stream) noexcept {
   if (!aligned(input, 16U) || !aligned(marlin_weight, 16U) ||
       !aligned(marlin_scales, 16U) ||
       !aligned(marlin_global_scale, alignof(float)) ||
       !aligned(output, 16U) || !aligned(c_tmp, 16U) ||
       !aligned(locks, alignof(std::int32_t)) ||
+      (FusedGateUp && !aligned(fused_gate_up_output, 8U)) ||
       !sm87_nvfp4_marlin_supports_token_count(token_count)) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
@@ -366,10 +390,10 @@ template <int ThreadMBlocks, int ThreadNBlocks, int ThreadKBlocks,
 
   const Sm87NvFp4MarlinExecutionPlan plan =
       sm87_nvfp4_marlin_execution_plan(token_count);
-  const int primary_status = launch_marlin_segment(
+  const int primary_status = launch_marlin_segment<FusedGateUp>(
       input, marlin_weight, marlin_scales, marlin_global_scale,
-      plan.primary_tokens, output_size, input_size, output, c_tmp, locks,
-      cuda_stream);
+      plan.primary_tokens, output_size, input_size, output,
+      fused_gate_up_output, c_tmp, locks, cuda_stream);
   if (primary_status != static_cast<int>(cudaSuccess) ||
       plan.remainder_tokens == 0U) {
     return primary_status;
@@ -379,10 +403,13 @@ template <int ThreadMBlocks, int ThreadNBlocks, int ThreadKBlocks,
       plan.primary_tokens * static_cast<std::size_t>(input_size);
   const std::size_t output_offset =
       plan.primary_tokens * static_cast<std::size_t>(output_size);
-  return launch_marlin_segment(
+  return launch_marlin_segment<FusedGateUp>(
       input + input_offset, marlin_weight, marlin_scales,
       marlin_global_scale, plan.remainder_tokens, output_size, input_size,
-      output + output_offset, c_tmp, locks, cuda_stream);
+      output + output_offset,
+      fused_gate_up_output +
+          plan.primary_tokens * static_cast<std::size_t>(output_size / 2),
+      c_tmp, locks, cuda_stream);
 }
 
 }  // namespace
@@ -435,7 +462,7 @@ int prepare_sm87_nvfp4_marlin_gate_up_cuda(
     std::uint8_t* const marlin_scales, float* const marlin_global_scale,
     void* const transpose_scratch,
     const std::size_t transpose_scratch_bytes,
-    void* const cuda_stream) noexcept {
+    void* const cuda_stream, const bool interleave_gate_up) noexcept {
   return prepare_projection(
       canonical_gate_weight, canonical_up_weight, canonical_gate_scales,
       canonical_up_scales, canonical_shared_weight_scale_2_device,
@@ -443,7 +470,7 @@ int prepare_sm87_nvfp4_marlin_gate_up_cuda(
       static_cast<int>(kSm87NvFp4MarlinGateUpOutput),
       static_cast<int>(kSm87NvFp4MarlinHidden), marlin_weight, marlin_scales,
       marlin_global_scale, transpose_scratch, transpose_scratch_bytes,
-      cuda_stream);
+      cuda_stream, interleave_gate_up);
 }
 
 int prepare_sm87_nvfp4_marlin_down_cuda(
@@ -462,7 +489,7 @@ int prepare_sm87_nvfp4_marlin_down_cuda(
       static_cast<int>(kSm87NvFp4MarlinHidden),
       static_cast<int>(kSm87NvFp4MarlinIntermediate), marlin_weight,
       marlin_scales, marlin_global_scale, transpose_scratch,
-      transpose_scratch_bytes, cuda_stream);
+      transpose_scratch_bytes, cuda_stream, false);
 }
 
 int launch_sm87_nvfp4_marlin_gate_up_cuda(
@@ -473,12 +500,28 @@ int launch_sm87_nvfp4_marlin_gate_up_cuda(
     const std::size_t token_count,
     std::uint16_t* const merged_gate_up_output, float* const c_tmp,
     std::int32_t* const locks, void* const cuda_stream) noexcept {
-  return launch_fixed_marlin(
+  return launch_fixed_marlin<false>(
       input, marlin_weight, marlin_scales, marlin_global_scale,
       token_count,
       static_cast<int>(kSm87NvFp4MarlinGateUpOutput),
-      static_cast<int>(kSm87NvFp4MarlinHidden), merged_gate_up_output, c_tmp,
-      locks, cuda_stream);
+      static_cast<int>(kSm87NvFp4MarlinHidden), merged_gate_up_output, nullptr,
+      c_tmp, locks, cuda_stream);
+}
+
+int launch_sm87_nvfp4_marlin_gate_up_epilogue_cuda(
+    const std::uint16_t* const input,
+    const std::uint8_t* const marlin_weight,
+    const std::uint8_t* const marlin_scales,
+    const float* const marlin_global_scale,
+    const std::size_t token_count,
+    std::uint16_t* const merged_gate_up_workspace,
+    std::uint16_t* const output, float* const c_tmp,
+    std::int32_t* const locks, void* const cuda_stream) noexcept {
+  return launch_fixed_marlin<true>(
+      input, marlin_weight, marlin_scales, marlin_global_scale, token_count,
+      static_cast<int>(kSm87NvFp4MarlinGateUpOutput),
+      static_cast<int>(kSm87NvFp4MarlinHidden), merged_gate_up_workspace,
+      output, c_tmp, locks, cuda_stream);
 }
 
 int launch_sm87_nvfp4_marlin_down_cuda(
@@ -489,12 +532,12 @@ int launch_sm87_nvfp4_marlin_down_cuda(
     std::uint16_t* const output, float* const c_tmp,
     std::int32_t* const locks,
     void* const cuda_stream) noexcept {
-  return launch_fixed_marlin(
+  return launch_fixed_marlin<false>(
       input, marlin_weight, marlin_scales, marlin_global_scale,
       token_count,
       static_cast<int>(kSm87NvFp4MarlinHidden),
-      static_cast<int>(kSm87NvFp4MarlinIntermediate), output, c_tmp, locks,
-      cuda_stream);
+      static_cast<int>(kSm87NvFp4MarlinIntermediate), output, nullptr, c_tmp,
+      locks, cuda_stream);
 }
 
 int launch_sm87_nvfp4_marlin_gate_up_silu_cuda(

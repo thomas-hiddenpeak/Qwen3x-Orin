@@ -445,6 +445,8 @@ int main(const int argc, char** const argv) {
   DeviceAllocation gate_input_device;
   DeviceAllocation down_input_device;
   DeviceAllocation merged_output_device;
+  DeviceAllocation baseline_silu_output_device;
+  DeviceAllocation fused_silu_output_device;
   DeviceAllocation gate_reference_device;
   DeviceAllocation up_reference_device;
   DeviceAllocation down_output_device;
@@ -452,6 +454,10 @@ int main(const int argc, char** const argv) {
   if (!gate_input_device.allocate(gate_input.size() * sizeof(std::uint16_t)) ||
       !down_input_device.allocate(down_input.size() * sizeof(std::uint16_t)) ||
       !merged_output_device.allocate(kMergedElements * sizeof(std::uint16_t)) ||
+      !baseline_silu_output_device.allocate(kGateElements *
+                                            sizeof(std::uint16_t)) ||
+      !fused_silu_output_device.allocate(kGateElements *
+                                         sizeof(std::uint16_t)) ||
       !gate_reference_device.allocate(kGateElements * sizeof(std::uint16_t)) ||
       !up_reference_device.allocate(kGateElements * sizeof(std::uint16_t)) ||
       !down_output_device.allocate(kDownOutputElements * sizeof(std::uint16_t)) ||
@@ -477,6 +483,10 @@ int main(const int argc, char** const argv) {
                      merged_output_device.as<std::uint16_t>(), c_tmp.as<float>(),
                      locks.as<std::int32_t>()),
                  "candidate_gate_up") ||
+      !launch_ok(kernels::launch_sm87_nvfp4_marlin_gate_up_silu_cuda(
+                     merged_output_device.as<std::uint16_t>(), token_count,
+                     baseline_silu_output_device.as<std::uint16_t>()),
+                 "baseline_gate_up_silu") ||
       !launch_canonical_projection(
           gate_weight_device.as<std::uint8_t>(),
           gate_scales_device.as<std::uint8_t>(), *gate_global->f32_value,
@@ -507,11 +517,36 @@ int main(const int argc, char** const argv) {
           kernels::kSm87NvFp4MarlinHidden,
           kernels::kSm87NvFp4MarlinIntermediate,
           down_reference_device.as<std::uint16_t>(), "reference_down") ||
+      !launch_ok(kernels::prepare_sm87_nvfp4_marlin_gate_up_cuda(
+                     gate_weight_device.as<std::uint8_t>(),
+                     up_weight_device.as<std::uint8_t>(),
+                     gate_scales_device.as<std::uint8_t>(),
+                     up_scales_device.as<std::uint8_t>(),
+                     gate_global_device.as<float>(), gate_up_factor,
+                     marlin_gate_up_weight.as<std::uint8_t>(),
+                     marlin_gate_up_scales.as<std::uint8_t>(),
+                     marlin_gate_up_global.as<float>(), transpose_scratch.get(),
+                     transpose_scratch.bytes(), nullptr, true),
+                 "prepare_gate_up_interleaved") ||
+      !cuda_ok(cudaMemset(locks.get(), 0, locks.bytes()),
+               "clear_fused_locks") ||
+      !launch_ok(
+          kernels::launch_sm87_nvfp4_marlin_gate_up_epilogue_cuda(
+              gate_input_device.as<std::uint16_t>(),
+              marlin_gate_up_weight.as<std::uint8_t>(),
+              marlin_gate_up_scales.as<std::uint8_t>(),
+              marlin_gate_up_global.as<float>(), token_count,
+              merged_output_device.as<std::uint16_t>(),
+              fused_silu_output_device.as<std::uint16_t>(), c_tmp.as<float>(),
+              locks.as<std::int32_t>()),
+          "candidate_gate_up_epilogue") ||
       !cuda_ok(cudaDeviceSynchronize(), "gemm_synchronize")) {
     return 1;
   }
 
   std::vector<std::uint16_t> merged_output(kMergedElements);
+  std::vector<std::uint16_t> baseline_silu_output(kGateElements);
+  std::vector<std::uint16_t> fused_silu_output(kGateElements);
   std::vector<std::uint16_t> gate_reference(kGateElements);
   std::vector<std::uint16_t> up_reference(kGateElements);
   std::vector<std::uint16_t> down_output(kDownOutputElements);
@@ -520,6 +555,16 @@ int main(const int argc, char** const argv) {
                           merged_output.size() * sizeof(std::uint16_t),
                           cudaMemcpyDeviceToHost),
                "download_gate_up") ||
+      !cuda_ok(cudaMemcpy(baseline_silu_output.data(),
+                          baseline_silu_output_device.get(),
+                          baseline_silu_output.size() * sizeof(std::uint16_t),
+                          cudaMemcpyDeviceToHost),
+               "download_baseline_silu") ||
+      !cuda_ok(cudaMemcpy(fused_silu_output.data(),
+                          fused_silu_output_device.get(),
+                          fused_silu_output.size() * sizeof(std::uint16_t),
+                          cudaMemcpyDeviceToHost),
+               "download_fused_silu") ||
       !cuda_ok(cudaMemcpy(gate_reference.data(), gate_reference_device.get(),
                           gate_reference.size() * sizeof(std::uint16_t),
                           cudaMemcpyDeviceToHost),
@@ -560,9 +605,14 @@ int main(const int argc, char** const argv) {
       compare_output(up_reference, merged_output, up_index);
   const ErrorStatistics down_error = compare_output(
       down_reference, down_output, [](const std::size_t index) { return index; });
+  const ErrorStatistics fused_epilogue_error = compare_output(
+      baseline_silu_output, fused_silu_output,
+      [](const std::size_t index) { return index; });
   print_statistics("gate", gate_error, kGateElements);
   print_statistics("up", up_error, kGateElements);
   print_statistics("down", down_error, kDownOutputElements);
+  print_statistics("fused_gate_up_epilogue", fused_epilogue_error,
+                   kGateElements);
   std::cout << "MARLIN_LAYER0_CASE token_count=" << token_count
             << " primary_tokens="
             << kernels::sm87_nvfp4_marlin_execution_plan(token_count)
@@ -591,6 +641,7 @@ int main(const int argc, char** const argv) {
   constexpr double kMaximumAbsoluteLimit = 2.0;
   if (gate_error.finite != kGateElements || up_error.finite != kGateElements ||
       down_error.finite != kDownOutputElements ||
+      fused_epilogue_error.bitwise_equal != kGateElements ||
       gate_error.nrmse > kNrmseLimit || up_error.nrmse > kNrmseLimit ||
       down_error.nrmse > kNrmseLimit ||
       gate_error.maximum_absolute > kMaximumAbsoluteLimit ||

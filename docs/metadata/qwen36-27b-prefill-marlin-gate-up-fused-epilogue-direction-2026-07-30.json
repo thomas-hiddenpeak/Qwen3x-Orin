@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36_27b_prefill_marlin_gate_up_fused_epilogue_direction",
+  "recorded_at": "2026-07-30T13:55:19+08:00",
+  "status": "retained_after_cumulative_real_serving_direction_gate",
+  "base_commit": "8051485",
+  "runtime_gate": "Q3X_RUN_PREFILL_MARLIN_GATE_UP_EPILOGUE_ADMISSION=1",
+  "candidate": {
+    "mechanism": "interleaved Gate/Up Marlin N layout with final-writer BF16 SiLU-times-Up epilogue",
+    "external_library_in_production": false,
+    "mtp_used": false,
+    "elf_sha256": "17a64518ab85e5d95356ae4937c67e088c70d7bce34e53b88f609f608c4953f7",
+    "resources": {
+      "m64_registers_per_thread": 255,
+      "m64_stack_bytes": 0,
+      "m64_local_bytes": 0,
+      "m32_registers_per_thread": 200,
+      "m32_stack_bytes": 0,
+      "m32_local_bytes": 0,
+      "m16_registers_per_thread": 126,
+      "m16_stack_bytes": 0,
+      "m16_local_bytes": 0,
+      "m8_registers_per_thread": 123,
+      "m8_stack_bytes": 0,
+      "m8_local_bytes": 0
+    }
+  },
+  "real_model_evalscope_first8": {
+    "corpus_sha256": "bd2091cdc0599ac59ab881efc6d1307a03bb149f49e6fd728a99d926ccc67989",
+    "exact_outputs": "8/8",
+    "baseline_wall_time_seconds": 22.169210155960172,
+    "candidate_wall_time_seconds": 22.053249445045367,
+    "wall_time_delta_seconds": -0.115960710914805,
+    "baseline_mean_ttft_milliseconds": 1167.6885909691919,
+    "candidate_mean_ttft_milliseconds": 1153.0969720333815,
+    "mean_ttft_delta_milliseconds": -14.591618935810402,
+    "baseline_mean_tpot_milliseconds": 106.87678646063432,
+    "candidate_mean_tpot_milliseconds": 106.8848825370272,
+    "mean_tpot_delta_milliseconds": 0.00809607639288,
+    "baseline_prompt_throughput_tokens_per_second": 179.57338001641486,
+    "candidate_prompt_throughput_tokens_per_second": 180.51761532559087,
+    "prompt_throughput_delta_tokens_per_second": 0.9442353091760083,
+    "result": "/tmp/q3x-evalscope-prefill-marlin-gateup-epilogue-run2/prefillmarlingateupepiloguefix/parallel_1_number_8",
+    "validator": "/tmp/q3x-evalscope-prefill-marlin-gateup-epilogue-run2-validation.json"
+  },
+  "decision": {
+    "result": "retain_in_cumulative_baseline",
+    "reason": "The final real-serving run preserves all eight generated outputs, improves every TTFT prompt-length bucket, lowers wall time by 115.96 ms, and raises prompt throughput by 0.944 tok/s without adding stack or local memory to the large-M kernel."
+  }
+}

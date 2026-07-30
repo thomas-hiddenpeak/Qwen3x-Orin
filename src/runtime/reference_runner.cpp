@@ -148,6 +148,16 @@ thread_local std::size_t g_gdn_conv_compact_qk_fused_candidate_hits = 0U;
 thread_local bool g_enable_nvfp4_marlin_prefill_admission =
     nvfp4_marlin_prefill_environment_enabled();
 thread_local std::size_t g_nvfp4_marlin_prefill_admission_hits = 0U;
+
+[[nodiscard]] bool
+prefill_marlin_gate_up_epilogue_environment_enabled() noexcept {
+  const char* const value = std::getenv(
+      "Q3X_RUN_PREFILL_MARLIN_GATE_UP_EPILOGUE_ADMISSION");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
+thread_local bool g_enable_prefill_marlin_gate_up_epilogue_admission =
+    prefill_marlin_gate_up_epilogue_environment_enabled();
 #endif
 
 #if defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION)
@@ -4039,23 +4049,38 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
       auto* const locks =
           reinterpret_cast<std::int32_t*>(views_.projection[3]);
       const auto stream = reinterpret_cast<cudaStream_t>(stream_);
+      const bool use_fused_gate_up_epilogue =
+          g_enable_prefill_marlin_gate_up_epilogue_admission;
       if (!check_cuda(
               static_cast<int>(cudaMemsetAsync(
                   locks, 0, kernels::kSm87NvFp4MarlinLockBytes, stream)),
               "prefill_marlin_clear_locks", layer) ||
-          !check_cuda(
-              kernels::launch_sm87_nvfp4_marlin_gate_up_cuda(
-                  views_.hidden[1], marlin_gate->prefill_marlin_weight,
-                  marlin_gate->prefill_marlin_scales,
-                  marlin_gate->prefill_marlin_global_scale,
-                  token_count, views_.projection[0], views_.fp32_scratch,
-                  locks, stream_),
-              "prefill_marlin_gate_up", layer) ||
-          !check_cuda(
-              kernels::launch_sm87_nvfp4_marlin_gate_up_silu_cuda(
-                  views_.projection[0], token_count, views_.projection[2],
-                  stream_),
-              "prefill_marlin_gate_up_silu", layer) ||
+          !(use_fused_gate_up_epilogue
+                ? check_cuda(
+                      kernels::
+                          launch_sm87_nvfp4_marlin_gate_up_epilogue_cuda(
+                              views_.hidden[1],
+                              marlin_gate->prefill_marlin_weight,
+                              marlin_gate->prefill_marlin_scales,
+                              marlin_gate->prefill_marlin_global_scale,
+                              token_count, views_.projection[0],
+                              views_.projection[2], views_.fp32_scratch, locks,
+                              stream_),
+                      "prefill_marlin_gate_up_epilogue", layer)
+                : (check_cuda(
+                       kernels::launch_sm87_nvfp4_marlin_gate_up_cuda(
+                           views_.hidden[1],
+                           marlin_gate->prefill_marlin_weight,
+                           marlin_gate->prefill_marlin_scales,
+                           marlin_gate->prefill_marlin_global_scale,
+                           token_count, views_.projection[0],
+                           views_.fp32_scratch, locks, stream_),
+                       "prefill_marlin_gate_up", layer) &&
+                   check_cuda(
+                       kernels::launch_sm87_nvfp4_marlin_gate_up_silu_cuda(
+                           views_.projection[0], token_count,
+                           views_.projection[2], stream_),
+                       "prefill_marlin_gate_up_silu", layer))) ||
           !check_cuda(
               kernels::launch_sm87_nvfp4_marlin_down_cuda(
                   views_.projection[2], marlin_down->prefill_marlin_weight,

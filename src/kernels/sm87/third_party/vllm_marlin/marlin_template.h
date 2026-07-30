@@ -54,7 +54,8 @@ template <typename scalar_t,  // compute dtype, half or nv_float16
           const bool has_act_order,  // whether act_order is enabled
           const int group_blocks,    // number of consecutive 16x16 blocks
                                      // with a separate quantization scale
-          const bool is_zp_float     // is zero point of float16 type?
+          const bool is_zp_float,    // is zero point of float16 type?
+          const bool fused_gate_up = false
           >
 __global__ void Marlin(
     const int4* __restrict__ A,  // fp16 input matrix of shape mxk
@@ -238,7 +239,8 @@ template <const vllm::ScalarTypeId a_type_id,  // A ScalarType id
                              // fetch pipeline
           const int group_blocks,  // number of consecutive 16x16 blocks
                                    // with a separate quantization scale
-          const bool is_zp_float   // is zero point of float16 type?
+          const bool is_zp_float,  // is zero point of float16 type?
+          const bool fused_gate_up = false
           >
 __global__ void Marlin(
     const int4* __restrict__ A0,  // fp16 input matrix of shape mxk
@@ -478,6 +480,11 @@ __global__ void Marlin(
     if (slice_col == n_tiles) {
       A += 16 * thread_m_blocks * lda / (is_a_8bit ? 16 : 8);
       C += 16 * thread_m_blocks * prob_n / 8;
+      if constexpr (fused_gate_up) {
+        b_bias_ptr = reinterpret_cast<const int4*>(
+            reinterpret_cast<const int2*>(b_bias_ptr) +
+            2 * thread_m_blocks * prob_n);
+      }
       slice_col = 0;
       par_id++;
     }
@@ -492,6 +499,12 @@ __global__ void Marlin(
   auto init_part1_slice = [&]() {
     if (part1_mn_iters) {
       part1_mn_iters--;
+      if constexpr (fused_gate_up) {
+        b_bias_ptr = reinterpret_cast<const int4*>(
+            reinterpret_cast<const int2*>(b_bias_ptr) +
+            2 * thread_m_blocks * prob_n *
+                (slice_col_par / n_tiles - par_id));
+      }
       par_id = slice_col_par / n_tiles;
       slice_col = slice_col_par % n_tiles;
       slice_iters = k_tiles;
@@ -512,6 +525,13 @@ __global__ void Marlin(
       slice_col_par = (iters * blockIdx.x) / k_tiles;
       slice_row = (iters * blockIdx.x) % k_tiles;
       slice_col = (slice_col_par + global_mn_tiles - part2_mn_tiles) % n_tiles;
+      if constexpr (fused_gate_up) {
+        b_bias_ptr = reinterpret_cast<const int4*>(
+            reinterpret_cast<const int2*>(b_bias_ptr) +
+            2 * thread_m_blocks * prob_n *
+                ((slice_col_par + global_mn_tiles - part2_mn_tiles) / n_tiles -
+                 par_id));
+      }
       par_id = (slice_col_par + global_mn_tiles - part2_mn_tiles) / n_tiles;
       A = A0 + 16 * thread_m_blocks / (is_a_8bit ? 16 : 8) * par_id * lda;
       C = C0 + 16 * thread_m_blocks / 8 * par_id * prob_n;
@@ -1671,13 +1691,16 @@ __global__ void Marlin(
         }
         res = __hmul2(res, tmp_scale);
       }
-      if (has_bias && last) {
-        c_scalar_t2 tmp_bias = b_bias[0];
-        if constexpr (m_block_size_8) {
-          tmp_bias = Cdtype::num2num2(
-              reinterpret_cast<scalar_t*>(&b_bias[0])[(threadIdx.x % 8) / 4]);
+      if constexpr (!fused_gate_up) {
+        if (has_bias && last) {
+          c_scalar_t2 tmp_bias = b_bias[0];
+          if constexpr (m_block_size_8) {
+            tmp_bias = Cdtype::num2num2(
+                reinterpret_cast<scalar_t*>(&b_bias[0])
+                    [(threadIdx.x % 8) / 4]);
+          }
+          res = __hadd2(res, tmp_bias);
         }
-        res = __hadd2(res, tmp_bias);
       }
 
       if constexpr (m_block_size_8) {
@@ -1734,6 +1757,24 @@ __global__ void Marlin(
   #pragma unroll
           for (int a = 0; a < 4; a++) {
             atomicAdd(&C_half2[a], sh_red_half2[a]);
+          }
+        } else if constexpr (fused_gate_up) {
+          if (last) {
+            const c_scalar_t* const gate_up =
+                reinterpret_cast<const c_scalar_t*>(&sh_red[c_sh_rd]);
+            std::uint32_t fused[2];
+  #pragma unroll
+            for (int pair = 0; pair < 4; pair++) {
+              const float gate = Cdtype::num2float(gate_up[2 * pair]);
+              const float up = Cdtype::num2float(gate_up[2 * pair + 1]);
+              const c_scalar_t value = Cdtype::float2num(
+                  gate / (1.0F + expf(-gate)) * up);
+              reinterpret_cast<c_scalar_t*>(fused)[pair] = value;
+            }
+            reinterpret_cast<int2*>(const_cast<int4*>(b_bias_ptr))[c_gl_wr] =
+                *reinterpret_cast<const int2*>(fused);
+          } else {
+            C[c_gl_wr] = sh_red[c_sh_rd];
           }
         } else {
           C[c_gl_wr] = sh_red[c_sh_rd];
@@ -1910,11 +1951,13 @@ __global__ void Marlin(
 
       thread_block_reduce();
 
-      if (has_bias && last) {
-        __syncthreads();
-        cp_async4_pred(&sh_bias[bias_sh_wr], &b_bias_ptr[bias_gl_rd],
-                       threadIdx.x < 16 * thread_n_blocks / 8);
-        cp_async_fence();
+      if constexpr (!fused_gate_up) {
+        if (has_bias && last) {
+          __syncthreads();
+          cp_async4_pred(&sh_bias[bias_sh_wr], &b_bias_ptr[bias_gl_rd],
+                         threadIdx.x < 16 * thread_n_blocks / 8);
+          cp_async_fence();
+        }
       }
 
       if constexpr (!has_act_order && group_blocks == -1 &&
@@ -2009,13 +2052,15 @@ __global__ void Marlin(
         barrier_release(&locks[locks_off], last);
       }
 
-      if (has_bias && last) {
-        cp_async_wait<0>();
-        __syncthreads();
-        reinterpret_cast<int4*>(&frag_bias)[0] = sh_bias[bias_sh_rd];
-        if constexpr (!is_a_8bit)
-          reinterpret_cast<int4*>(&frag_bias)[1] = sh_bias[bias_sh_rd + 4];
-        __syncthreads();
+      if constexpr (!fused_gate_up) {
+        if (has_bias && last) {
+          cp_async_wait<0>();
+          __syncthreads();
+          reinterpret_cast<int4*>(&frag_bias)[0] = sh_bias[bias_sh_rd];
+          if constexpr (!is_a_8bit)
+            reinterpret_cast<int4*>(&frag_bias)[1] = sh_bias[bias_sh_rd + 4];
+          __syncthreads();
+        }
       }
 
       if (use_atomic_add && slice_count > 1 && slice_idx != 0)
@@ -2041,7 +2086,10 @@ __global__ void Marlin(
                   (threadIdx.x % b_sh_stride);
         b_gl_rd += b_sh_stride * slice_col + b_gl_rd_delta_o * slice_row;
 
-        bias_gl_rd = (thread_n_blocks * 16 / 8) * slice_col + threadIdx.x;
+        if constexpr (!fused_gate_up) {
+          bias_gl_rd =
+              (thread_n_blocks * 16 / 8) * slice_col + threadIdx.x;
+        }
         // Update slice k/n for scales loading
         if constexpr (has_act_order) {
           slice_k_start = tb_k * slice_row;

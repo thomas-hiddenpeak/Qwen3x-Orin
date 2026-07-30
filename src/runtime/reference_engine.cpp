@@ -70,6 +70,19 @@ prefill_single_arbitrary_tile_environment_enabled() noexcept {
   return value != nullptr && std::strcmp(value, "1") == 0;
 }
 
+// The fused Marlin Gate/Up epilogue changes the retained sidecar's N ordering,
+// so load-time packing and runner dispatch must use one immutable process-wide
+// selector. The candidate remains absent unless explicitly admitted.
+[[nodiscard]] bool
+prefill_marlin_gate_up_epilogue_environment_enabled() noexcept {
+  static const bool enabled = []() noexcept {
+    const char* const value = std::getenv(
+        "Q3X_RUN_PREFILL_MARLIN_GATE_UP_EPILOGUE_ADMISSION");
+    return value != nullptr && std::strcmp(value, "1") == 0;
+  }();
+  return enabled;
+}
+
 // Same-ELF, whole-runner Decode Down admission. The value is immutable for
 // the process lifetime: sidecar ownership is decided while the engine is
 // built and every captured/replayed graph must retain the same dispatch.
@@ -2546,7 +2559,8 @@ prepare_sm87_nvfp4_marlin_prefill_sidecars(
             gate->packed_weight, up->packed_weight, gate->block_scale,
             up->block_scale, gate->weight_scale_2_device, gate_up_factor,
             gate_up_weight, gate_up_scale, gate_up_global, transpose_scratch,
-            kScratchBytes, static_cast<void*>(stream)));
+            kScratchBytes, static_cast<void*>(stream),
+            prefill_marlin_gate_up_epilogue_environment_enabled()));
     if (status == cudaSuccess) {
       status = static_cast<cudaError_t>(
           kernels::prepare_sm87_nvfp4_marlin_down_cuda(
