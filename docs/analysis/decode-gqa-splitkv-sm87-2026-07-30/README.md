@@ -1,6 +1,7 @@
 # Decode GQA split-KV design (SM87)
 
-Status: compiled candidate; no GPU correctness or performance claim yet.
+Status: retained in the cumulative real-serving baseline after the first
+external direction gate.
 
 Base checkpoint: `c65f938`.
 
@@ -77,12 +78,30 @@ The old score/softmax/value/gate route remains in the same executable.
 dynamic sequence lengths 65..4096.  Lengths 1..64 retain the existing fused
 kernel and lengths above 4096 retain the old long-sequence route.
 
-Before promotion:
+The retained direction gate used the real Qwen3.6-27B-NVFP4 checkpoint, the
+frozen first-eight ShareGPT request manifest, one warmup, serial OpenAI
+streaming, and 16 generated tokens per request.  It compared against the
+`c92a2ef` cumulative result:
+
+| Metric | `c92a2ef` | split-KV pipeline | Delta |
+| --- | ---: | ---: | ---: |
+| exact generated outputs | 8/8 | 8/8 | unchanged |
+| wall time | 22.376038 s | 22.196906 s | -0.179132 s |
+| mean TTFT | 1167.935631 ms | 1167.302413 ms | -0.633218 ms |
+| mean TPOT | 108.587628 ms | 107.136280 ms | -1.451347 ms |
+| prompt throughput | 177.913533 tok/s | 179.349317 tok/s | +1.435784 tok/s |
+
+The measured ELF SHA-256 is
+`059e294ee024bd97ef04d2f89f84d9a71bd15f471054f4e9d76e38c1c285c35a`.
+The result leaf is
+`/tmp/q3x-evalscope-decode-splitkv-fixed-b751e73-run1/splitkvfixedb751e73/parallel_1_number_8`;
+the validator record is
+`/tmp/q3x-evalscope-decode-splitkv-fixed-b751e73-vs-c92.json`.
+
+The next validation stages are:
 
 1. run the CUDA reference comparison at boundary and long lengths;
-2. run the real-weight short-output EvalScope workload with the selector off
-   and on against the same executable;
-3. retain only if real TPOT/latency improve without changing exact generated
-   outputs;
-4. only after a positive whole-runner direction, add repeated timing, NSys,
-   NCU, graph-topology, and full correctness coverage.
+2. repeat timing after composing with the next cumulative candidates;
+3. audit NSys/NCU and graph topology only after the composed serving path
+   remains positive;
+4. run the wider correctness/capability suite before default-on promotion.
