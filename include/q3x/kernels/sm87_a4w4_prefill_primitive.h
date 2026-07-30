@@ -36,6 +36,9 @@ inline constexpr std::size_t kSm87A4W4ARegistersPerThread = 4U;
 inline constexpr std::size_t kSm87A4W4BRegistersPerThread = 2U;
 inline constexpr std::size_t kSm87A4W4AccumulatorRegistersPerThread = 4U;
 inline constexpr std::size_t kSm87A4W4NibblesPerRegister = 8U;
+inline constexpr std::size_t kSm87A4W4ConsumerOuterBlock = 64U;
+inline constexpr std::size_t kSm87A4W4ConsumerKBlock = 64U;
+inline constexpr std::size_t kSm87A4W4ConsumerPackedKBlockBytes = 32U;
 inline constexpr std::int32_t kSm87A4W4MaximumK64Partial =
     static_cast<std::int32_t>(kSm87A4W4MmaK * 8U * 8U);
 inline constexpr int kSm87A4W4RequiredComputeMajor = 8;
@@ -88,6 +91,83 @@ sm87_a4w4_k64_group_count(
   return logical_k % kSm87A4W4MmaK == 0U
              ? logical_k / kSm87A4W4MmaK
              : 0U;
+}
+
+// Full-model Prefill consumer layout. N/M=64 is only the physical block, not
+// a CTA tile restriction: wider CTA tiles concatenate adjacent outer blocks.
+// For logical X[outer,K], packed bytes and scales are respectively
+//
+//   [ceil(outer/64), K/64, 64, 32]
+//   [ceil(outer/64), K/64, 64]
+//
+// Dynamic activations zero-pad the final outer block. All pinned projection N
+// dimensions are exact multiples of 64, so offline weights add no padding.
+[[nodiscard]] Q3X_SM87_A4W4_HOST_DEVICE constexpr std::size_t
+sm87_a4w4_consumer_outer_block_count(
+    const std::size_t outer_count) noexcept {
+  return outer_count == 0U
+             ? 0U
+             : 1U + (outer_count - 1U) / kSm87A4W4ConsumerOuterBlock;
+}
+
+[[nodiscard]] Q3X_SM87_A4W4_HOST_DEVICE constexpr std::size_t
+sm87_a4w4_consumer_packed_capacity_bytes(
+    const std::size_t outer_count, const std::size_t logical_k) noexcept {
+  const std::size_t groups = sm87_a4w4_k64_group_count(logical_k);
+  const std::size_t blocks =
+      sm87_a4w4_consumer_outer_block_count(outer_count);
+  return groups == 0U || blocks == 0U
+             ? 0U
+             : blocks * groups * kSm87A4W4ConsumerOuterBlock *
+                   kSm87A4W4ConsumerPackedKBlockBytes;
+}
+
+[[nodiscard]] Q3X_SM87_A4W4_HOST_DEVICE constexpr std::size_t
+sm87_a4w4_consumer_scale_capacity_elements(
+    const std::size_t outer_count, const std::size_t logical_k) noexcept {
+  const std::size_t groups = sm87_a4w4_k64_group_count(logical_k);
+  const std::size_t blocks =
+      sm87_a4w4_consumer_outer_block_count(outer_count);
+  return groups == 0U || blocks == 0U
+             ? 0U
+             : blocks * groups * kSm87A4W4ConsumerOuterBlock;
+}
+
+[[nodiscard]] Q3X_SM87_A4W4_HOST_DEVICE constexpr std::size_t
+sm87_a4w4_consumer_packed_offset(
+    const std::size_t outer_coordinate, const std::size_t k64_group,
+    const std::size_t byte_in_k64, const std::size_t k64_group_count) noexcept {
+  return (((outer_coordinate / kSm87A4W4ConsumerOuterBlock) *
+               k64_group_count +
+           k64_group) *
+              kSm87A4W4ConsumerOuterBlock +
+          outer_coordinate % kSm87A4W4ConsumerOuterBlock) *
+             kSm87A4W4ConsumerPackedKBlockBytes +
+         byte_in_k64;
+}
+
+[[nodiscard]] Q3X_SM87_A4W4_HOST_DEVICE constexpr std::size_t
+sm87_a4w4_consumer_scale_offset(
+    const std::size_t outer_coordinate, const std::size_t k64_group,
+    const std::size_t k64_group_count) noexcept {
+  return ((outer_coordinate / kSm87A4W4ConsumerOuterBlock) *
+              k64_group_count +
+          k64_group) *
+             kSm87A4W4ConsumerOuterBlock +
+         outer_coordinate % kSm87A4W4ConsumerOuterBlock;
+}
+
+// Shared-memory row swizzle for one packed K64 block. Each logical row has
+// two 16-byte halves. Rows 4..7 (and 12..15) exchange those halves, mapping
+// every warp LDS.u32 fragment load across all 32 banks without a 2-way alias.
+[[nodiscard]] Q3X_SM87_A4W4_HOST_DEVICE constexpr std::size_t
+sm87_a4w4_swizzled_k64_byte_offset(
+    const std::size_t row, const std::size_t logical_byte) noexcept {
+  const std::size_t half = logical_byte / 16U;
+  const std::size_t byte_in_half = logical_byte % 16U;
+  const std::size_t physical_half = half ^ ((row >> 2U) & 1U);
+  return row * kSm87A4W4ConsumerPackedKBlockBytes +
+         physical_half * 16U + byte_in_half;
 }
 
 // Real-model scale contract: one BF16 scale for every logical K64 group.
@@ -264,6 +344,47 @@ sm87_a4w4_load_b_fragment(const std::uint8_t* const packed_b,
       sm87_a4w4_load_packed_u32(
           packed_b + n * packed_row_stride_bytes + group_byte + 16U +
           byte_in_group),
+  };
+}
+
+// Loads from one shared-memory K64 block staged with
+// sm87_a4w4_swizzled_k64_byte_offset(). The logical fragment ownership is
+// byte-identical to the canonical helpers above; only the physical shared
+// address changes to remove the row-stride bank alias.
+[[nodiscard]] __device__ __forceinline__ Sm87A4W4AFragment
+sm87_a4w4_load_a_fragment_swizzled_shared(
+    const std::uint8_t* const packed_a, const unsigned int lane) noexcept {
+  const std::size_t row0 = lane / 4U;
+  const std::size_t row1 = row0 + 8U;
+  const std::size_t byte_in_half = 4U * (lane % 4U);
+  return {
+      sm87_a4w4_load_packed_u32(
+          packed_a + sm87_a4w4_swizzled_k64_byte_offset(
+                         row0, byte_in_half)),
+      sm87_a4w4_load_packed_u32(
+          packed_a + sm87_a4w4_swizzled_k64_byte_offset(
+                         row1, byte_in_half)),
+      sm87_a4w4_load_packed_u32(
+          packed_a + sm87_a4w4_swizzled_k64_byte_offset(
+                         row0, 16U + byte_in_half)),
+      sm87_a4w4_load_packed_u32(
+          packed_a + sm87_a4w4_swizzled_k64_byte_offset(
+                         row1, 16U + byte_in_half)),
+  };
+}
+
+[[nodiscard]] __device__ __forceinline__ Sm87A4W4BFragment
+sm87_a4w4_load_b_fragment_swizzled_shared(
+    const std::uint8_t* const packed_b, const unsigned int lane) noexcept {
+  const std::size_t row = lane / 4U;
+  const std::size_t byte_in_half = 4U * (lane % 4U);
+  return {
+      sm87_a4w4_load_packed_u32(
+          packed_b + sm87_a4w4_swizzled_k64_byte_offset(
+                         row, byte_in_half)),
+      sm87_a4w4_load_packed_u32(
+          packed_b + sm87_a4w4_swizzled_k64_byte_offset(
+                         row, 16U + byte_in_half)),
   };
 }
 

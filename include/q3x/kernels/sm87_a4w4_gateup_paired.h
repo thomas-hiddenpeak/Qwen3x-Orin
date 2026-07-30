@@ -6,30 +6,30 @@
 namespace q3x::kernels {
 
 // Test-admission-only paired Gate+Up projection for the Qwen3.6 Prefill
-// plane.  The kernel consumes one canonical A4 activation tile and two W4
+// plane.  The kernel consumes one consumer-order A4 activation and two W4
 // matrices, computes SiLU(Gate) * Up without materializing either BF16
-// projection, and writes the canonical A4/K64 activation ABI required by a
-// future paired Down projection.
+// projection, and writes the same consumer-order A4/K64 activation ABI used
+// directly by the Down projection.
 //
-//   A:             signed A4 [M, K/2]
-//   A scales:      BF16      [M, K/64]
-//   Gate/Up B:     signed W4 [N, K/2]
-//   Gate/Up scales BF16      [N, K/64]
-//   output:        signed A4 [M, N/2]
-//   output scales: BF16      [M, N/64]
+//   A:             signed A4 [ceil(M/64),K/64,64,32]
+//   A scales:      BF16      [ceil(M/64),K/64,64]
+//   Gate/Up B:     signed W4 [N/64,K/64,64,32]
+//   Gate/Up scales BF16      [N/64,K/64,64]
+//   output:        signed A4 [ceil(M/64),N/64,64,32]
+//   output scales: BF16      [ceil(M/64),N/64,64]
 //
 // This surface is intentionally absent from q3x_kernels, the runner, and all
 // production selectors.  Synthetic inputs establish correctness only; they
 // are not a performance admission payload.
-inline constexpr std::size_t kSm87A4W4GateUpTileM = 64U;
-inline constexpr std::size_t kSm87A4W4GateUpTileN = 64U;
+inline constexpr std::size_t kSm87A4W4GateUpTileM = 32U;
+inline constexpr std::size_t kSm87A4W4GateUpTileN = 128U;
 inline constexpr std::size_t kSm87A4W4GateUpTileK = 64U;
 inline constexpr std::size_t kSm87A4W4GateUpThreads = 256U;
 inline constexpr std::size_t kSm87A4W4GateUpWarps = 8U;
 inline constexpr std::size_t kSm87A4W4GateUpPipelineStages = 3U;
 inline constexpr std::size_t kSm87A4W4GateUpPersistentCtas = 32U;
 inline constexpr std::size_t kSm87A4W4GateUpCtasPerSm = 2U;
-inline constexpr std::size_t kSm87A4W4GateUpPackedOutputGroupBytes =
+inline constexpr std::size_t kSm87A4W4GateUpPackedOutputTileRowBytes =
     kSm87A4W4GateUpTileN / 2U;
 
 struct Sm87A4W4GateUpPairedPlan final {
@@ -79,7 +79,7 @@ sm87_a4w4_gateup_paired_plan(const std::size_t token_count,
           work_tiles,
           kSm87A4W4GateUpPersistentCtas,
           intermediate_size / 2U,
-          intermediate_size / kSm87A4W4GateUpTileN};
+          intermediate_size / kSm87A4W4GateUpTileK};
 }
 
 struct Sm87A4W4GateUpPairedResources final {
@@ -104,25 +104,25 @@ struct Sm87A4W4GateUpPairedResources final {
 // staging and are never written to the output buffers.
 [[nodiscard]] int launch_sm87_a4w4_gateup_paired_cuda(
     const std::uint8_t* packed_a,
-    std::size_t packed_a_row_stride_bytes,
+    std::size_t packed_a_capacity_bytes,
     const std::uint16_t* a_k64_scales_bf16,
-    std::size_t a_scale_row_stride_elements,
+    std::size_t a_scale_capacity_elements,
     const std::uint8_t* packed_gate_b,
-    std::size_t packed_gate_b_row_stride_bytes,
+    std::size_t packed_gate_b_capacity_bytes,
     const std::uint16_t* gate_b_k64_scales_bf16,
-    std::size_t gate_b_scale_row_stride_elements,
+    std::size_t gate_b_scale_capacity_elements,
     const std::uint8_t* packed_up_b,
-    std::size_t packed_up_b_row_stride_bytes,
+    std::size_t packed_up_b_capacity_bytes,
     const std::uint16_t* up_b_k64_scales_bf16,
-    std::size_t up_b_scale_row_stride_elements,
+    std::size_t up_b_scale_capacity_elements,
     std::size_t token_count,
     std::size_t intermediate_size,
     std::size_t input_size,
     float output_clip_ratio,
     std::uint8_t* packed_output,
-    std::size_t packed_output_row_stride_bytes,
+    std::size_t packed_output_capacity_bytes,
     std::uint16_t* output_k64_scales_bf16,
-    std::size_t output_scale_row_stride_elements,
+    std::size_t output_scale_capacity_elements,
     void* cuda_stream = nullptr) noexcept;
 
 static_assert(sm87_a4w4_gateup_paired_plan(512U, 17'408U, 5'120U)
@@ -130,10 +130,12 @@ static_assert(sm87_a4w4_gateup_paired_plan(512U, 17'408U, 5'120U)
 static_assert(sm87_a4w4_gateup_paired_plan(512U, 17'408U, 5'120U)
                   .launch_ctas == 32U);
 static_assert(sm87_a4w4_gateup_paired_plan(65U, 64U, 192U)
-                  .m_tiles == 2U);
-static_assert(sm87_a4w4_gateup_paired_plan(1U, 64U, 64U)
+                  .launch_ctas == 0U);
+static_assert(sm87_a4w4_gateup_paired_plan(65U, 128U, 192U)
+                  .m_tiles == 3U);
+static_assert(sm87_a4w4_gateup_paired_plan(1U, 128U, 64U)
                   .launch_ctas == 32U);
-static_assert(sm87_a4w4_gateup_paired_plan(0U, 64U, 64U)
+static_assert(sm87_a4w4_gateup_paired_plan(0U, 128U, 64U)
                   .launch_ctas == 0U);
 
 }  // namespace q3x::kernels

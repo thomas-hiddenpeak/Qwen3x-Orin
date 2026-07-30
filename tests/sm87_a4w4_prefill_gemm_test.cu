@@ -16,10 +16,18 @@ namespace {
 namespace kernels = q3x::kernels;
 
 inline constexpr std::size_t kM = 65U;
-inline constexpr std::size_t kN = 64U;
+inline constexpr std::size_t kN = 128U;
 inline constexpr std::size_t kK = 128U;
 inline constexpr std::size_t kGroups = kK / 64U;
 inline constexpr std::size_t kPackedRowBytes = kK / 2U;
+inline constexpr std::size_t kAPackedBytes =
+    kernels::sm87_a4w4_consumer_packed_capacity_bytes(kM, kK);
+inline constexpr std::size_t kAScaleElements =
+    kernels::sm87_a4w4_consumer_scale_capacity_elements(kM, kK);
+inline constexpr std::size_t kBPackedBytes =
+    kernels::sm87_a4w4_consumer_packed_capacity_bytes(kN, kK);
+inline constexpr std::size_t kBScaleElements =
+    kernels::sm87_a4w4_consumer_scale_capacity_elements(kN, kK);
 
 template <typename T>
 class DeviceBuffer final {
@@ -116,7 +124,7 @@ class DeviceBuffer final {
     }
   }
 
-  std::vector<std::uint8_t> packed_b(kN * kPackedRowBytes);
+  std::vector<std::uint8_t> packed_b(kBPackedBytes);
   for (std::size_t n = 0U; n < kN; ++n) {
     for (std::size_t byte = 0U; byte < kPackedRowBytes; ++byte) {
       const int even =
@@ -124,14 +132,18 @@ class DeviceBuffer final {
       const int odd = static_cast<int>(
                           (7U * n + 3U * (2U * byte + 1U) + 2U) % 15U) -
                       7;
-      packed_b[n * kPackedRowBytes + byte] =
+      const std::size_t group = byte / 32U;
+      const std::size_t byte_in_group = byte % 32U;
+      packed_b[kernels::sm87_a4w4_consumer_packed_offset(
+          n, group, byte_in_group, kGroups)] =
           kernels::sm87_a4w4_pack_signed_pair(even, odd);
     }
   }
-  std::vector<std::uint16_t> b_scales(kN * kGroups);
+  std::vector<std::uint16_t> b_scales(kBScaleElements);
   for (std::size_t n = 0U; n < kN; ++n) {
     for (std::size_t group = 0U; group < kGroups; ++group) {
-      b_scales[n * kGroups + group] = encode_bf16(
+      b_scales[kernels::sm87_a4w4_consumer_scale_offset(
+          n, group, kGroups)] = encode_bf16(
           static_cast<float>(1U + ((n + group) % 4U)) / 32.0F);
     }
   }
@@ -143,8 +155,8 @@ class DeviceBuffer final {
   DeviceBuffer<std::uint16_t> device_b_scales;
   DeviceBuffer<std::uint16_t> device_output;
   if (!device_input.allocate(input.size()) ||
-      !device_a.allocate(kM * kPackedRowBytes) ||
-      !device_a_scales.allocate(kM * kGroups) ||
+      !device_a.allocate(kAPackedBytes) ||
+      !device_a_scales.allocate(kAScaleElements) ||
       !device_b.allocate(packed_b.size()) ||
       !device_b_scales.allocate(b_scales.size()) ||
       !device_output.allocate(kM * kN)) {
@@ -167,7 +179,7 @@ class DeviceBuffer final {
 
   const int invalid_quant = kernels::launch_sm87_a4_quantize_bf16_cuda(
       device_input.get(), kK, kM, kK, 0.0F, device_a.get(),
-      kPackedRowBytes, device_a_scales.get(), kGroups);
+      kAPackedBytes, device_a_scales.get(), kAScaleElements);
   if (invalid_quant != static_cast<int>(cudaErrorInvalidValue)) {
     std::cerr << "zero clip ratio was not rejected\n";
     return false;
@@ -180,7 +192,7 @@ class DeviceBuffer final {
     return false;
   }
   if (resources.active_blocks_per_sm < 2 || resources.local_bytes != 0U ||
-      resources.static_shared_bytes != 12'288U) {
+      resources.static_shared_bytes != 16'320U) {
     std::cerr << "resource contract failed: registers="
               << resources.registers_per_thread
               << " shared=" << resources.static_shared_bytes
@@ -192,21 +204,22 @@ class DeviceBuffer final {
 
   if (!launch_ok(kernels::launch_sm87_a4_quantize_bf16_cuda(
                      device_input.get(), kK, kM, kK, 1.0F,
-                     device_a.get(), kPackedRowBytes,
-                     device_a_scales.get(), kGroups),
+                     device_a.get(), kAPackedBytes,
+                     device_a_scales.get(), kAScaleElements),
                  "quantize A4") ||
       !launch_ok(kernels::launch_sm87_a4w4_prefill_gemm_bf16_cuda(
-                     device_a.get(), kPackedRowBytes,
-                     device_a_scales.get(), kGroups, device_b.get(),
-                     kPackedRowBytes, device_b_scales.get(), kM, kN, kK,
+                     device_a.get(), kAPackedBytes,
+                     device_a_scales.get(), kAScaleElements, device_b.get(),
+                     kBPackedBytes, device_b_scales.get(), kBScaleElements,
+                     kM, kN, kK,
                      device_output.get(), kN),
                  "A4W4 GEMM") ||
       !cuda_ok(cudaDeviceSynchronize(), "synchronize A4W4 GEMM")) {
     return false;
   }
 
-  std::vector<std::uint8_t> packed_a(kM * kPackedRowBytes);
-  std::vector<std::uint16_t> a_scales(kM * kGroups);
+  std::vector<std::uint8_t> packed_a(kAPackedBytes);
+  std::vector<std::uint16_t> a_scales(kAScaleElements);
   std::vector<std::uint16_t> output(kM * kN);
   if (!cuda_ok(cudaMemcpy(packed_a.data(), device_a.get(), packed_a.size(),
                           cudaMemcpyDeviceToHost),
@@ -232,14 +245,20 @@ class DeviceBuffer final {
         for (std::size_t inner = 0U; inner < 64U; ++inner) {
           const std::size_t k = group * 64U + inner;
           const int a = signed_code(
-              packed_a[m * kPackedRowBytes + k / 2U], k);
+              packed_a[kernels::sm87_a4w4_consumer_packed_offset(
+                  m, group, (k % 64U) / 2U, kGroups)], k);
           const int b = signed_code(
-              packed_b[n * kPackedRowBytes + k / 2U], k);
+              packed_b[kernels::sm87_a4w4_consumer_packed_offset(
+                  n, group, (k % 64U) / 2U, kGroups)], k);
           integer_partial += a * b;
         }
         expected += static_cast<float>(integer_partial) *
-                    decode_bf16(a_scales[m * kGroups + group]) *
-                    decode_bf16(b_scales[n * kGroups + group]);
+                    decode_bf16(a_scales[
+                        kernels::sm87_a4w4_consumer_scale_offset(
+                            m, group, kGroups)]) *
+                    decode_bf16(b_scales[
+                        kernels::sm87_a4w4_consumer_scale_offset(
+                            n, group, kGroups)]);
       }
       const std::uint16_t expected_bits = encode_bf16(expected);
       const std::uint16_t actual_bits = output[m * kN + n];

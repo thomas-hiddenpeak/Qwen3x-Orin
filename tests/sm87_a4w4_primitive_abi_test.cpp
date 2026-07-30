@@ -172,6 +172,76 @@ using q3x::kernels::Sm87A4W4FragmentCoordinate;
   return true;
 }
 
+[[nodiscard]] bool check_consumer_layout_and_swizzle() {
+  constexpr std::size_t kOuter = 65U;
+  constexpr std::size_t kPaddedOuter = 128U;
+  constexpr std::size_t kLogicalK = 128U;
+  constexpr std::size_t kGroups = 2U;
+  constexpr std::size_t kPackedBytes =
+      q3x::kernels::sm87_a4w4_consumer_packed_capacity_bytes(
+          kOuter, kLogicalK);
+  constexpr std::size_t kScaleElements =
+      q3x::kernels::sm87_a4w4_consumer_scale_capacity_elements(
+          kOuter, kLogicalK);
+  static_assert(kPackedBytes == kPaddedOuter * kLogicalK / 2U);
+  static_assert(kScaleElements == kPaddedOuter * kGroups);
+
+  std::array<unsigned int, kPackedBytes> packed_visits{};
+  std::array<unsigned int, kScaleElements> scale_visits{};
+  for (std::size_t outer = 0U; outer < kPaddedOuter; ++outer) {
+    for (std::size_t group = 0U; group < kGroups; ++group) {
+      const std::size_t scale_offset =
+          q3x::kernels::sm87_a4w4_consumer_scale_offset(
+              outer, group, kGroups);
+      if (scale_offset >= scale_visits.size()) {
+        return false;
+      }
+      ++scale_visits[scale_offset];
+      for (std::size_t byte = 0U; byte < 32U; ++byte) {
+        const std::size_t packed_offset =
+            q3x::kernels::sm87_a4w4_consumer_packed_offset(
+                outer, group, byte, kGroups);
+        if (packed_offset >= packed_visits.size()) {
+          return false;
+        }
+        ++packed_visits[packed_offset];
+      }
+    }
+  }
+  for (const unsigned int visits : packed_visits) {
+    if (visits != 1U) {
+      return false;
+    }
+  }
+  for (const unsigned int visits : scale_visits) {
+    if (visits != 1U) {
+      return false;
+    }
+  }
+
+  // One LDS.u32 instruction loads the first logical 16-byte half for all
+  // lanes. The XOR half-row swizzle must assign every lane to a unique bank.
+  std::array<unsigned int, 32U> bank_visits{};
+  for (std::size_t lane = 0U;
+       lane < q3x::kernels::kSm87A4W4WarpThreads; ++lane) {
+    const std::size_t row = lane / 4U;
+    const std::size_t logical_byte = 4U * (lane % 4U);
+    const std::size_t physical_byte =
+        q3x::kernels::sm87_a4w4_swizzled_k64_byte_offset(
+            row, logical_byte);
+    if (physical_byte >= 8U * 32U) {
+      return false;
+    }
+    ++bank_visits[(physical_byte / 4U) % 32U];
+  }
+  for (const unsigned int visits : bank_visits) {
+    if (visits != 1U) {
+      return false;
+    }
+  }
+  return true;
+}
+
 [[nodiscard]] bool check_real_model_k64_scale_contract() {
   constexpr std::size_t kGateK = 5'120U;
   constexpr std::size_t kAttentionOK = 6'144U;
@@ -222,6 +292,10 @@ int main() {
   }
   if (!check_direct_load_register_abi()) {
     std::cerr << "canonical packed bytes do not match fragment registers\n";
+    return 1;
+  }
+  if (!check_consumer_layout_and_swizzle()) {
+    std::cerr << "consumer block layout/shared swizzle check failed\n";
     return 1;
   }
   if (!check_real_model_k64_scale_contract()) {

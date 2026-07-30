@@ -36,9 +36,9 @@ struct alignas(16) Sm87A4W4GateUpSharedStorage final {
   float product[kSm87A4W4GateUpTileM][kSm87A4W4GateUpTileN];
 };
 
-static_assert(kPackedVectorsPerStage == 384U);
-static_assert(sizeof(Sm87A4W4GateUpPipelineStage) == 6'528U);
-static_assert(sizeof(Sm87A4W4GateUpSharedStorage) == 35'968U);
+static_assert(kPackedVectorsPerStage == 576U);
+static_assert(sizeof(Sm87A4W4GateUpPipelineStage) == 9'792U);
+static_assert(sizeof(Sm87A4W4GateUpSharedStorage) == 45'760U);
 static_assert(sizeof(Sm87A4W4GateUpSharedStorage) *
                   kSm87A4W4GateUpCtasPerSm <=
               96U * 1'024U);
@@ -53,6 +53,20 @@ static_assert(sizeof(Sm87A4W4GateUpSharedStorage) *
                                           const std::size_t second) noexcept {
   return first == 0U ||
          second <= std::numeric_limits<std::size_t>::max() / first;
+}
+
+[[nodiscard]] constexpr bool consumer_capacity_fits(
+    const std::size_t outer_count,
+    const std::size_t k64_group_count) noexcept {
+  const std::size_t blocks =
+      sm87_a4w4_consumer_outer_block_count(outer_count);
+  return blocks != 0U && k64_group_count != 0U &&
+         product_fits(blocks, k64_group_count) &&
+         product_fits(blocks * k64_group_count,
+                      kSm87A4W4ConsumerOuterBlock) &&
+         product_fits(blocks * k64_group_count *
+                          kSm87A4W4ConsumerOuterBlock,
+                      kSm87A4W4ConsumerPackedKBlockBytes);
 }
 
 [[nodiscard]] __device__ __forceinline__ float decode_bf16(
@@ -116,24 +130,18 @@ __device__ __forceinline__ void cp_async_wait() noexcept {
 __device__ __forceinline__ void prefetch_stage(
     Sm87A4W4GateUpPipelineStage& stage,
     const std::uint8_t* const packed_a,
-    const std::size_t packed_a_row_stride_bytes,
     const std::uint16_t* const a_k64_scales_bf16,
-    const std::size_t a_scale_row_stride_elements,
     const std::uint8_t* const packed_gate_b,
-    const std::size_t packed_gate_b_row_stride_bytes,
     const std::uint16_t* const gate_b_k64_scales_bf16,
-    const std::size_t gate_b_scale_row_stride_elements,
     const std::uint8_t* const packed_up_b,
-    const std::size_t packed_up_b_row_stride_bytes,
     const std::uint16_t* const up_b_k64_scales_bf16,
-    const std::size_t up_b_scale_row_stride_elements,
     const std::size_t token_count,
     const std::size_t m_tile_start,
     const std::size_t n_tile_start,
-    const std::size_t k64_group) noexcept {
-  // There are 384 packed 16-byte vectors.  Every thread issues at least one
-  // copy and the first 128 threads issue two.  A occupies exactly one shared
-  // segment and is subsequently consumed by both projection branches.
+    const std::size_t k64_group,
+    const std::size_t k64_group_count) noexcept {
+  // The three global consumer blocks are contiguous in N64 halves. A is
+  // staged once and subsequently consumed by both projection branches.
   for (std::size_t vector = threadIdx.x; vector < kPackedVectorsPerStage;
        vector += blockDim.x) {
     if (vector < kStageABytes / 16U) {
@@ -142,21 +150,25 @@ __device__ __forceinline__ void prefetch_stage(
       const std::size_t global_row = m_tile_start + row;
       const bool valid = global_row < token_count;
       const std::uint8_t* const source =
-          valid ? packed_a + global_row * packed_a_row_stride_bytes +
-                      k64_group * kPackedK64Bytes + row_vector * 16U
+          valid ? packed_a + sm87_a4w4_consumer_packed_offset(
+                                 global_row, k64_group,
+                                 row_vector * 16U, k64_group_count)
                 : packed_a;
-      cp_async_16(stage.a + row * kPackedK64Bytes + row_vector * 16U,
-                  source, valid ? 16U : 0U);
+      cp_async_16(
+          stage.a + sm87_a4w4_swizzled_k64_byte_offset(
+                        row, row_vector * 16U),
+          source, valid ? 16U : 0U);
     } else if (vector < (kStageABytes + kStageBBytes) / 16U) {
       const std::size_t gate_vector = vector - kStageABytes / 16U;
       const std::size_t row = gate_vector / 2U;
       const std::size_t row_vector = gate_vector % 2U;
       const std::uint8_t* const source =
-          packed_gate_b +
-          (n_tile_start + row) * packed_gate_b_row_stride_bytes +
-          k64_group * kPackedK64Bytes + row_vector * 16U;
+          packed_gate_b + sm87_a4w4_consumer_packed_offset(
+                              n_tile_start + row, k64_group,
+                              row_vector * 16U, k64_group_count);
       cp_async_16(
-          stage.gate_b + row * kPackedK64Bytes + row_vector * 16U,
+          stage.gate_b + sm87_a4w4_swizzled_k64_byte_offset(
+                             row, row_vector * 16U),
           source, 16U);
     } else {
       const std::size_t up_vector =
@@ -164,37 +176,32 @@ __device__ __forceinline__ void prefetch_stage(
       const std::size_t row = up_vector / 2U;
       const std::size_t row_vector = up_vector % 2U;
       const std::uint8_t* const source =
-          packed_up_b +
-          (n_tile_start + row) * packed_up_b_row_stride_bytes +
-          k64_group * kPackedK64Bytes + row_vector * 16U;
-      cp_async_16(stage.up_b + row * kPackedK64Bytes + row_vector * 16U,
-                  source, 16U);
+          packed_up_b + sm87_a4w4_consumer_packed_offset(
+                            n_tile_start + row, k64_group,
+                            row_vector * 16U, k64_group_count);
+      cp_async_16(
+          stage.up_b + sm87_a4w4_swizzled_k64_byte_offset(
+                           row, row_vector * 16U),
+          source, 16U);
     }
   }
 
-  // Scale tensors are strided by K64 group across rows, so a 16-byte async
-  // vector would fetch unrelated groups.  One thread owns each scalar global
-  // load and publishes it to the same three-stage shared slot.  In particular
-  // each A scale reaches global memory once, then serves Gate and Up together.
-  if (threadIdx.x < 3U * kSm87A4W4GateUpTileN) {
-    const std::size_t table = threadIdx.x / kSm87A4W4GateUpTileN;
-    const std::size_t row = threadIdx.x % kSm87A4W4GateUpTileN;
-    if (table == 0U) {
-      const std::size_t global_row = m_tile_start + row;
-      stage.a_scales[row] =
-          global_row < token_count
-              ? a_k64_scales_bf16[
-                    global_row * a_scale_row_stride_elements + k64_group]
-              : static_cast<std::uint16_t>(0U);
-    } else if (table == 1U) {
-      stage.gate_b_scales[row] = gate_b_k64_scales_bf16[
-          (n_tile_start + row) * gate_b_scale_row_stride_elements +
-          k64_group];
-    } else {
-      stage.up_b_scales[row] = up_b_k64_scales_bf16[
-          (n_tile_start + row) * up_b_scale_row_stride_elements +
-          k64_group];
-    }
+  if (threadIdx.x < kSm87A4W4GateUpTileM) {
+    const std::size_t global_row = m_tile_start + threadIdx.x;
+    stage.a_scales[threadIdx.x] =
+        global_row < token_count
+            ? a_k64_scales_bf16[sm87_a4w4_consumer_scale_offset(
+                  global_row, k64_group, k64_group_count)]
+            : static_cast<std::uint16_t>(0U);
+  }
+  if (threadIdx.x < kSm87A4W4GateUpTileN) {
+    const std::size_t global_row = n_tile_start + threadIdx.x;
+    stage.gate_b_scales[threadIdx.x] =
+        gate_b_k64_scales_bf16[sm87_a4w4_consumer_scale_offset(
+            global_row, k64_group, k64_group_count)];
+    stage.up_b_scales[threadIdx.x] =
+        up_b_k64_scales_bf16[sm87_a4w4_consumer_scale_offset(
+            global_row, k64_group, k64_group_count)];
   }
   cp_async_commit();
 }
@@ -204,32 +211,25 @@ extern "C" __global__
                       kSm87A4W4GateUpCtasPerSm)
 void q3x_sm87_a4w4_gateup_paired_kernel(
     const std::uint8_t* const packed_a,
-    const std::size_t packed_a_row_stride_bytes,
     const std::uint16_t* const a_k64_scales_bf16,
-    const std::size_t a_scale_row_stride_elements,
     const std::uint8_t* const packed_gate_b,
-    const std::size_t packed_gate_b_row_stride_bytes,
     const std::uint16_t* const gate_b_k64_scales_bf16,
-    const std::size_t gate_b_scale_row_stride_elements,
     const std::uint8_t* const packed_up_b,
-    const std::size_t packed_up_b_row_stride_bytes,
     const std::uint16_t* const up_b_k64_scales_bf16,
-    const std::size_t up_b_scale_row_stride_elements,
     const std::size_t token_count,
     const std::size_t k64_group_count,
     const float output_clip_ratio,
     std::uint8_t* const packed_output,
-    const std::size_t packed_output_row_stride_bytes,
     std::uint16_t* const output_k64_scales_bf16,
-    const std::size_t output_scale_row_stride_elements,
+    const std::size_t output_k64_group_count,
     const std::size_t m_tile_count,
     const std::size_t work_tile_count) {
   __shared__ Sm87A4W4GateUpSharedStorage shared;
 
   const unsigned int lane = threadIdx.x % kSm87A4W4WarpThreads;
   const unsigned int warp = threadIdx.x / kSm87A4W4WarpThreads;
-  const std::size_t warp_m = warp % 4U;
-  const std::size_t warp_n = warp / 4U;
+  const std::size_t warp_m = warp % 2U;
+  const std::size_t warp_n = warp / 2U;
 
   for (std::size_t work_tile = blockIdx.x; work_tile < work_tile_count;
        work_tile += gridDim.x) {
@@ -242,22 +242,14 @@ void q3x_sm87_a4w4_gateup_paired_kernel(
     float up_accumulators[4U][4U]{};
 
     prefetch_stage(
-        shared.pipeline[0U], packed_a, packed_a_row_stride_bytes,
-        a_k64_scales_bf16, a_scale_row_stride_elements, packed_gate_b,
-        packed_gate_b_row_stride_bytes, gate_b_k64_scales_bf16,
-        gate_b_scale_row_stride_elements, packed_up_b,
-        packed_up_b_row_stride_bytes, up_b_k64_scales_bf16,
-        up_b_scale_row_stride_elements, token_count, m_tile_start,
-        n_tile_start, 0U);
+        shared.pipeline[0U], packed_a, a_k64_scales_bf16, packed_gate_b,
+        gate_b_k64_scales_bf16, packed_up_b, up_b_k64_scales_bf16,
+        token_count, m_tile_start, n_tile_start, 0U, k64_group_count);
     if (k64_group_count > 1U) {
       prefetch_stage(
-          shared.pipeline[1U], packed_a, packed_a_row_stride_bytes,
-          a_k64_scales_bf16, a_scale_row_stride_elements, packed_gate_b,
-          packed_gate_b_row_stride_bytes, gate_b_k64_scales_bf16,
-          gate_b_scale_row_stride_elements, packed_up_b,
-          packed_up_b_row_stride_bytes, up_b_k64_scales_bf16,
-          up_b_scale_row_stride_elements, token_count, m_tile_start,
-          n_tile_start, 1U);
+          shared.pipeline[1U], packed_a, a_k64_scales_bf16, packed_gate_b,
+          gate_b_k64_scales_bf16, packed_up_b, up_b_k64_scales_bf16,
+          token_count, m_tile_start, n_tile_start, 1U, k64_group_count);
     }
 
     for (std::size_t group = 0U; group < k64_group_count; ++group) {
@@ -265,13 +257,10 @@ void q3x_sm87_a4w4_gateup_paired_kernel(
         prefetch_stage(
             shared.pipeline[(group + 2U) %
                             kSm87A4W4GateUpPipelineStages],
-            packed_a, packed_a_row_stride_bytes, a_k64_scales_bf16,
-            a_scale_row_stride_elements, packed_gate_b,
-            packed_gate_b_row_stride_bytes, gate_b_k64_scales_bf16,
-            gate_b_scale_row_stride_elements, packed_up_b,
-            packed_up_b_row_stride_bytes, up_b_k64_scales_bf16,
-            up_b_scale_row_stride_elements, token_count, m_tile_start,
-            n_tile_start, group + 2U);
+            packed_a, a_k64_scales_bf16, packed_gate_b,
+            gate_b_k64_scales_bf16, packed_up_b, up_b_k64_scales_bf16,
+            token_count, m_tile_start, n_tile_start, group + 2U,
+            k64_group_count);
       }
       if (group + 1U == k64_group_count) {
         cp_async_wait<0>();
@@ -284,8 +273,8 @@ void q3x_sm87_a4w4_gateup_paired_kernel(
           shared.pipeline[group % kSm87A4W4GateUpPipelineStages];
       const std::uint8_t* const warp_a =
           stage.a + warp_m * 16U * kPackedK64Bytes;
-      const Sm87A4W4AFragment a = sm87_a4w4_load_a_fragment(
-          warp_a, kPackedK64Bytes, 0U, lane);
+      const Sm87A4W4AFragment a =
+          sm87_a4w4_load_a_fragment_swizzled_shared(warp_a, lane);
       const std::size_t local_m0 = warp_m * 16U + lane / 4U;
       const std::size_t local_m1 = local_m0 + 8U;
       const float a_scale0 = decode_bf16(stage.a_scales[local_m0]);
@@ -299,9 +288,9 @@ void q3x_sm87_a4w4_gateup_paired_kernel(
         const std::uint8_t* const up_b =
             stage.up_b + fragment_n * kPackedK64Bytes;
         const Sm87A4W4BFragment gate_fragment =
-            sm87_a4w4_load_b_fragment(gate_b, kPackedK64Bytes, 0U, lane);
+            sm87_a4w4_load_b_fragment_swizzled_shared(gate_b, lane);
         const Sm87A4W4BFragment up_fragment =
-            sm87_a4w4_load_b_fragment(up_b, kPackedK64Bytes, 0U, lane);
+            sm87_a4w4_load_b_fragment_swizzled_shared(up_b, lane);
         Sm87A4W4Accumulator gate_partial{};
         Sm87A4W4Accumulator up_partial{};
         sm87_a4w4_mma_m16n8k64(gate_partial, a, gate_fragment);
@@ -354,42 +343,52 @@ void q3x_sm87_a4w4_gateup_paired_kernel(
     }
     __syncthreads();
 
-    // Each warp quantizes eight complete N64 rows.  A row's 64 FP32 products
-    // stay inside this CTA: no BF16 Gate or Up tensor reaches global memory.
+    // Each warp owns four M rows and quantizes both N64 halves. A complete
+    // output K64 group stays inside this CTA; no BF16 Gate or Up tensor
+    // reaches global memory.
 #pragma unroll
-    for (unsigned int row_iteration = 0U; row_iteration < 8U;
+    for (unsigned int row_iteration = 0U; row_iteration < 4U;
          ++row_iteration) {
       const std::size_t local_m = warp + row_iteration * 8U;
       const std::size_t global_m = m_tile_start + local_m;
       if (global_m < token_count) {
-        float even = shared.product[local_m][2U * lane];
-        float odd = shared.product[local_m][2U * lane + 1U];
-        float maximum = fmaxf(fabsf(even), fabsf(odd));
+        for (unsigned int output_group = 0U; output_group < 2U;
+             ++output_group) {
+          float even =
+              shared.product[local_m][output_group * 64U + 2U * lane];
+          float odd = shared.product[local_m]
+                                    [output_group * 64U + 2U * lane + 1U];
+          float maximum = fmaxf(fabsf(even), fabsf(odd));
 #pragma unroll
-        for (unsigned int delta = 16U; delta != 0U; delta /= 2U) {
-          maximum = fmaxf(maximum,
-                          __shfl_down_sync(0xffffffffU, maximum, delta));
-        }
-        maximum = __shfl_sync(0xffffffffU, maximum, 0U);
-        const float clipped_maximum = maximum * output_clip_ratio;
-        const float scale =
-            clipped_maximum > 0.0F ? clipped_maximum / 7.0F : 1.0F;
-        const float inverse_scale = 1.0F / scale;
-        even = fminf(fmaxf(even, -clipped_maximum), clipped_maximum);
-        odd = fminf(fmaxf(odd, -clipped_maximum), clipped_maximum);
-        int even_code = __float2int_rn(even * inverse_scale);
-        int odd_code = __float2int_rn(odd * inverse_scale);
-        even_code = even_code < -7 ? -7 :
-                    (even_code > 7 ? 7 : even_code);
-        odd_code = odd_code < -7 ? -7 :
-                   (odd_code > 7 ? 7 : odd_code);
-        packed_output[global_m * packed_output_row_stride_bytes +
-                      n_tile_start / 2U + lane] =
-            sm87_a4w4_pack_signed_pair(even_code, odd_code);
-        if (lane == 0U) {
-          output_k64_scales_bf16[
-              global_m * output_scale_row_stride_elements + n_tile] =
-              encode_bf16(scale);
+          for (unsigned int delta = 16U; delta != 0U; delta /= 2U) {
+            maximum = fmaxf(
+                maximum,
+                __shfl_down_sync(0xffffffffU, maximum, delta));
+          }
+          maximum = __shfl_sync(0xffffffffU, maximum, 0U);
+          const float clipped_maximum = maximum * output_clip_ratio;
+          const float scale =
+              clipped_maximum > 0.0F ? clipped_maximum / 7.0F : 1.0F;
+          const float inverse_scale = 1.0F / scale;
+          even = fminf(fmaxf(even, -clipped_maximum), clipped_maximum);
+          odd = fminf(fmaxf(odd, -clipped_maximum), clipped_maximum);
+          int even_code = __float2int_rn(even * inverse_scale);
+          int odd_code = __float2int_rn(odd * inverse_scale);
+          even_code = even_code < -7 ? -7
+                                     : (even_code > 7 ? 7 : even_code);
+          odd_code = odd_code < -7 ? -7
+                                   : (odd_code > 7 ? 7 : odd_code);
+          const std::size_t global_output_group =
+              n_tile_start / 64U + output_group;
+          packed_output[sm87_a4w4_consumer_packed_offset(
+              global_m, global_output_group, lane,
+              output_k64_group_count)] =
+              sm87_a4w4_pack_signed_pair(even_code, odd_code);
+          if (lane == 0U) {
+            output_k64_scales_bf16[sm87_a4w4_consumer_scale_offset(
+                global_m, global_output_group, output_k64_group_count)] =
+                encode_bf16(scale);
+          }
         }
       }
     }
@@ -469,25 +468,25 @@ int query_sm87_a4w4_gateup_paired_resources_cuda(
 
 int launch_sm87_a4w4_gateup_paired_cuda(
     const std::uint8_t* const packed_a,
-    const std::size_t packed_a_row_stride_bytes,
+    const std::size_t packed_a_capacity_bytes,
     const std::uint16_t* const a_k64_scales_bf16,
-    const std::size_t a_scale_row_stride_elements,
+    const std::size_t a_scale_capacity_elements,
     const std::uint8_t* const packed_gate_b,
-    const std::size_t packed_gate_b_row_stride_bytes,
+    const std::size_t packed_gate_b_capacity_bytes,
     const std::uint16_t* const gate_b_k64_scales_bf16,
-    const std::size_t gate_b_scale_row_stride_elements,
+    const std::size_t gate_b_scale_capacity_elements,
     const std::uint8_t* const packed_up_b,
-    const std::size_t packed_up_b_row_stride_bytes,
+    const std::size_t packed_up_b_capacity_bytes,
     const std::uint16_t* const up_b_k64_scales_bf16,
-    const std::size_t up_b_scale_row_stride_elements,
+    const std::size_t up_b_scale_capacity_elements,
     const std::size_t token_count,
     const std::size_t intermediate_size,
     const std::size_t input_size,
     const float output_clip_ratio,
     std::uint8_t* const packed_output,
-    const std::size_t packed_output_row_stride_bytes,
+    const std::size_t packed_output_capacity_bytes,
     std::uint16_t* const output_k64_scales_bf16,
-    const std::size_t output_scale_row_stride_elements,
+    const std::size_t output_scale_capacity_elements,
     void* const cuda_stream) noexcept {
   const Sm87A4W4GateUpPairedPlan plan =
       sm87_a4w4_gateup_paired_plan(token_count, intermediate_size,
@@ -502,28 +501,35 @@ int launch_sm87_a4w4_gateup_paired_cuda(
       !aligned(up_b_k64_scales_bf16, alignof(std::uint16_t)) ||
       !aligned(packed_output, 16U) ||
       !aligned(output_k64_scales_bf16, alignof(std::uint16_t)) ||
-      packed_a_row_stride_bytes < input_size / 2U ||
-      packed_gate_b_row_stride_bytes < input_size / 2U ||
-      packed_up_b_row_stride_bytes < input_size / 2U ||
-      packed_a_row_stride_bytes % 16U != 0U ||
-      packed_gate_b_row_stride_bytes % 16U != 0U ||
-      packed_up_b_row_stride_bytes % 16U != 0U ||
-      a_scale_row_stride_elements < plan.k64_groups ||
-      gate_b_scale_row_stride_elements < plan.k64_groups ||
-      up_b_scale_row_stride_elements < plan.k64_groups ||
-      packed_output_row_stride_bytes < plan.packed_output_row_bytes ||
-      output_scale_row_stride_elements <
-          plan.output_scale_row_elements ||
-      !product_fits(token_count, packed_a_row_stride_bytes) ||
-      !product_fits(token_count, a_scale_row_stride_elements) ||
-      !product_fits(intermediate_size,
-                    packed_gate_b_row_stride_bytes) ||
-      !product_fits(intermediate_size,
-                    gate_b_scale_row_stride_elements) ||
-      !product_fits(intermediate_size, packed_up_b_row_stride_bytes) ||
-      !product_fits(intermediate_size, up_b_scale_row_stride_elements) ||
-      !product_fits(token_count, packed_output_row_stride_bytes) ||
-      !product_fits(token_count, output_scale_row_stride_elements)) {
+      !consumer_capacity_fits(token_count, plan.k64_groups) ||
+      !consumer_capacity_fits(intermediate_size, plan.k64_groups) ||
+      !consumer_capacity_fits(
+          token_count, intermediate_size / kSm87A4W4ConsumerKBlock)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const std::size_t required_a_bytes =
+      sm87_a4w4_consumer_packed_capacity_bytes(token_count, input_size);
+  const std::size_t required_a_scale_elements =
+      sm87_a4w4_consumer_scale_capacity_elements(token_count, input_size);
+  const std::size_t required_b_bytes =
+      sm87_a4w4_consumer_packed_capacity_bytes(intermediate_size, input_size);
+  const std::size_t required_b_scale_elements =
+      sm87_a4w4_consumer_scale_capacity_elements(intermediate_size,
+                                                 input_size);
+  const std::size_t required_output_bytes =
+      sm87_a4w4_consumer_packed_capacity_bytes(token_count,
+                                               intermediate_size);
+  const std::size_t required_output_scale_elements =
+      sm87_a4w4_consumer_scale_capacity_elements(token_count,
+                                                 intermediate_size);
+  if (packed_a_capacity_bytes < required_a_bytes ||
+      a_scale_capacity_elements < required_a_scale_elements ||
+      packed_gate_b_capacity_bytes < required_b_bytes ||
+      gate_b_scale_capacity_elements < required_b_scale_elements ||
+      packed_up_b_capacity_bytes < required_b_bytes ||
+      up_b_scale_capacity_elements < required_b_scale_elements ||
+      packed_output_capacity_bytes < required_output_bytes ||
+      output_scale_capacity_elements < required_output_scale_elements) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
 
@@ -542,14 +548,11 @@ int launch_sm87_a4w4_gateup_paired_cuda(
   q3x_sm87_a4w4_gateup_paired_kernel<<<
       static_cast<unsigned int>(kSm87A4W4GateUpPersistentCtas),
       static_cast<unsigned int>(kSm87A4W4GateUpThreads), 0U, stream>>>(
-      packed_a, packed_a_row_stride_bytes, a_k64_scales_bf16,
-      a_scale_row_stride_elements, packed_gate_b,
-      packed_gate_b_row_stride_bytes, gate_b_k64_scales_bf16,
-      gate_b_scale_row_stride_elements, packed_up_b,
-      packed_up_b_row_stride_bytes, up_b_k64_scales_bf16,
-      up_b_scale_row_stride_elements, token_count, plan.k64_groups,
-      output_clip_ratio, packed_output, packed_output_row_stride_bytes,
-      output_k64_scales_bf16, output_scale_row_stride_elements,
+      packed_a, a_k64_scales_bf16, packed_gate_b,
+      gate_b_k64_scales_bf16, packed_up_b, up_b_k64_scales_bf16,
+      token_count, plan.k64_groups, output_clip_ratio, packed_output,
+      output_k64_scales_bf16,
+      intermediate_size / kSm87A4W4ConsumerKBlock,
       plan.m_tiles, plan.work_tiles);
   return static_cast<int>(cudaPeekAtLastError());
 }
