@@ -10,6 +10,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <limits>
 #include <type_traits>
 #include <variant>
@@ -20,6 +21,15 @@ namespace {
 constexpr std::size_t kMaximumSm87SmallMTokens = 8U;
 constexpr std::size_t kSm87DirectBf16Rows = 48U;
 constexpr std::size_t kSm87DirectBf16Columns = 5120U;
+
+[[nodiscard]] bool fp8_qkvz_dual_worker_admission_enabled() noexcept {
+  static const bool enabled = []() noexcept {
+    const char* const value =
+        std::getenv("Q3X_RUN_FP8_QKVZ_DUAL_WORKER_ADMISSION");
+    return value != nullptr && value[0] == '1' && value[1] == '\0';
+  }();
+  return enabled;
+}
 
 [[nodiscard]] bool valid_scale(const float value) noexcept {
   return std::isfinite(value) && value >= 0.0F;
@@ -1319,6 +1329,14 @@ int launch_linear_attention_qkv_z_ab_to_bf16_cuda(
     return static_cast<int>(cudaErrorNotSupported);
   }
 
+  if (fp8_qkvz_dual_worker_admission_enabled()) {
+    return kernels::
+        launch_sm87_fp8_w8a16_m1_qkv_z_bf16_ab_dual_worker_test_cuda(
+            qkv->weight, qkv->weight_scale, z->weight, z->weight_scale,
+            a->weight, b->weight, input, qkv->output_size, z->output_size,
+            a->output_size, qkv->input_size, qkv_output, z_output, a_output,
+            b_output, cuda_stream);
+  }
   return kernels::launch_sm87_fp8_w8a16_gemv_qkv_z_bf16_ab_pair_cuda(
       qkv->weight, qkv->weight_scale, z->weight, z->weight_scale, a->weight,
       b->weight, input, qkv->output_size, z->output_size, a->output_size,

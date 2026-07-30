@@ -96,6 +96,29 @@ launch_sm87_fp8_w8a16_m1_output_projection_aosoa4_pack_cuda(
     std::uint16_t* a_output, std::uint16_t* b_output,
     void* cuda_stream = nullptr) noexcept;
 
+// Test-admission-only exact Decode QKV/Z/A/B rearchitecture. A 512-thread CTA
+// contains two independently synchronized 256-thread row-quad workers. The
+// fixed 1,024-CTA grid retains the production resident warp/owner population;
+// each worker owns two row quads and keeps its five packed activation words
+// only across those two tasks. Ordinary production dispatch never selects
+// this entry point.
+[[nodiscard]] int
+launch_sm87_fp8_w8a16_m1_qkv_z_bf16_ab_dual_worker_test_cuda(
+    const std::uint8_t* qkv_weights, float qkv_weight_scale,
+    const std::uint8_t* z_weights, float z_weight_scale,
+    const std::uint16_t* a_weights, const std::uint16_t* b_weights,
+    const std::uint16_t* activation, std::size_t qkv_rows,
+    std::size_t z_rows, std::size_t ab_rows, std::size_t columns,
+    std::uint16_t* qkv_output, std::uint16_t* z_output,
+    std::uint16_t* a_output, std::uint16_t* b_output,
+    void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
+query_sm87_fp8_w8a16_m1_qkv_z_bf16_ab_dual_worker_resources_test_cuda(
+    int* registers_per_thread, std::size_t* static_shared_bytes,
+    std::size_t* local_bytes, int* maximum_threads_per_block,
+    int* active_blocks_per_sm) noexcept;
+
 // Fused checkpoint K/V projection for the exact FP8 [1024, 5120] M=1
 // shape. Both matrices consume the same activation while retaining the
 // single-projection BF16 result for every output row. Unsupported shapes or
