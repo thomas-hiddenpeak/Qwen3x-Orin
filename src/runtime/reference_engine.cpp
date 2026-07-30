@@ -2917,9 +2917,6 @@ prepare_sm87_nvfp4_a8w4_gate_prefill_sidecars(
             kernels::kSm87NvFp4A8W4GateAdmissionRows ||
         gate->input_size !=
             kernels::kSm87NvFp4A8W4GateAdmissionColumns ||
-        gate->prefill_marlin_weight != nullptr ||
-        gate->prefill_marlin_scales != nullptr ||
-        gate->prefill_marlin_global_scale != nullptr ||
         gate->prefill_a8w4_weight != nullptr ||
         gate->prefill_a8w4_integer_scales != nullptr ||
         gate->prefill_a8w4_rho != nullptr) {

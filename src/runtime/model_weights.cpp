@@ -1383,10 +1383,7 @@ bool ModelWeights::attach_nvfp4_marlin_prefill_sidecars(
         !has_valid_nvfp4_payload(down) || gate->output_size != kGateRows ||
         up->output_size != kGateRows || gate->input_size != kHidden ||
         up->input_size != kHidden || down->output_size != kHidden ||
-        down->input_size != kGateRows ||
-        gate->prefill_a8w4_weight != nullptr ||
-        gate->prefill_a8w4_integer_scales != nullptr ||
-        gate->prefill_a8w4_rho != nullptr) {
+        down->input_size != kGateRows) {
       return false;
     }
     seen[descriptor.layer_index] = true;
@@ -1464,9 +1461,7 @@ bool ModelWeights::attach_nvfp4_a8w4_gate_prefill_sidecars(
     DecoderLayerWeights& layer = layers_[descriptor.layer_index];
     NvFp4LinearWeight* const gate = nvfp4_gate_projection(layer);
     if (!has_valid_nvfp4_payload(gate) || gate->output_size != kGateRows ||
-        gate->input_size != kHidden || gate->prefill_marlin_weight != nullptr ||
-        gate->prefill_marlin_scales != nullptr ||
-        gate->prefill_marlin_global_scale != nullptr) {
+        gate->input_size != kHidden) {
       return false;
     }
     seen[descriptor.layer_index] = true;

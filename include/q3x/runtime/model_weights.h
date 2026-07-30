@@ -220,7 +220,8 @@ struct NvFp4LinearWeight {
   const float* prefill_marlin_global_scale = nullptr;
   // Test-only approximate C512 Gate admission. These bindings have no
   // scheduling authority without both the dedicated build and runtime gates.
-  // They are mutually exclusive with the exact Marlin derived layout.
+  // They may coexist with the exact Marlin Gate+Up/Down derived layout so one
+  // ELF can compare only the Gate substitution against its locked baseline.
   const std::uint8_t* prefill_a8w4_weight = nullptr;
   const std::uint16_t* prefill_a8w4_integer_scales = nullptr;
   const float* prefill_a8w4_rho = nullptr;
@@ -502,8 +503,8 @@ class ModelWeights {
       std::size_t descriptor_count) noexcept;
 
   // Transactionally attaches one approximate Gate-only A8xW4 sidecar for
-  // every dense layer. Null/zero detaches the complete set. Exact Marlin and
-  // A8xW4 derived views may never coexist on a projection.
+  // every dense layer. Null/zero detaches the complete set without changing
+  // any exact Marlin derived view on the same projection.
   [[nodiscard]] bool attach_nvfp4_a8w4_gate_prefill_sidecars(
       const NvFp4A8W4GatePrefillSidecarDescriptor* descriptors,
       std::size_t descriptor_count) noexcept;

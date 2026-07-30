@@ -27,9 +27,10 @@ namespace q3x::kernels {
 //
 // This is not bit-exact NVFP4.  The production/canonical BF16 x NVFP4 route
 // remains the mandatory fallback until real-runner accuracy and performance
-// admission are both passed.  A future resident-load integration must select
-// either its exact derived sidecar or this sidecar; retaining both derived
-// forms is expressly outside this probe's memory contract.
+// admission are both passed. The direction ELF intentionally retains the
+// locked exact Marlin sidecars beside this Gate-only view: RUN-off measures
+// exact Gate+Up+Down, while RUN-on substitutes only Gate and reuses Marlin
+// Down after the fork/join.
 inline constexpr std::size_t kSm87NvFp4A8W4GateAdmissionTokens = 512U;
 inline constexpr std::size_t kSm87NvFp4A8W4GateAdmissionRows = 17'408U;
 inline constexpr std::size_t kSm87NvFp4A8W4GateAdmissionColumns = 5'120U;

@@ -8,7 +8,8 @@
 #include "q3x/kernels/sm87_fp8_marlin_w8a16.h"
 #endif
 
-#if defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION)
+#if defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION) || \
+    defined(Q3X_ENABLE_NVFP4_A8W4_GATE_ADMISSION)
 #include "q3x/kernels/sm87_nvfp4_marlin.h"
 #endif
 
@@ -4045,6 +4046,13 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
         return fail_prefill_tile(launch_failure);
       }
     }
+#if defined(Q3X_ENABLE_NVFP4_A8W4_GATE_ADMISSION)
+    const bool prefer_a8w4_gate_m512 =
+        g_enable_nvfp4_a8w4_gate_prefill_admission &&
+        token_count == kernels::kSm87NvFp4A8W4GateAdmissionTokens;
+#else
+    constexpr bool prefer_a8w4_gate_m512 = false;
+#endif
     bool marlin_mlp_completed = false;
 #if defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION)
     const auto* const marlin_gate =
@@ -4059,6 +4067,7 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
         static_cast<std::size_t>(state_->plan().prefill_chunk_size) *
         kReferenceIntermediateSize;
     const bool use_marlin_mlp =
+        !prefer_a8w4_gate_m512 &&
         g_enable_nvfp4_marlin_prefill_admission &&
         kernels::sm87_nvfp4_marlin_supports_token_count(token_count) &&
         projection_backend_ == ProjectionBackend::kSm87WeightOnly &&
@@ -4134,15 +4143,17 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
     if (!marlin_mlp_completed) {
       // Production Prefill is self-hosted only. External-library comparison
       // modules are compiled exclusively into benchmark targets.
+      bool a8w4_gate_up_projected = false;
       {
       const bool gate_up_fork_join_available =
           prefill_auxiliary_stream_ != nullptr &&
           prefill_branch_ready_event_ != nullptr &&
           prefill_branch_done_event_ != nullptr;
-      bool a8w4_gate_up_projected = false;
 #if defined(Q3X_ENABLE_NVFP4_A8W4_GATE_ADMISSION)
       const auto* const a8w4_gate =
           std::get_if<NvFp4LinearWeight>(&layer_weights.mlp.gate_proj);
+      const auto* const a8w4_down =
+          std::get_if<NvFp4LinearWeight>(&layer_weights.mlp.down_proj);
       constexpr std::size_t kA8W4QuantizedOffset = 0U;
       constexpr std::size_t kA8W4RowScaleOffset =
           kernels::kSm87NvFp4A8W4GateAdmissionActivationBytes;
@@ -4154,14 +4165,23 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
           kernels::kSm87NvFp4A8W4GateAdmissionLockBytes;
       static_assert(kA8W4RowScaleOffset % alignof(float) == 0U);
       static_assert(kA8W4LockOffset % alignof(std::int32_t) == 0U);
+      static_assert(
+          kernels::kSm87NvFp4A8W4GateAdmissionReductionBytes ==
+          kernels::kSm87NvFp4MarlinReductionBytes);
+      static_assert(kernels::kSm87NvFp4A8W4GateAdmissionLockBytes ==
+                    kernels::kSm87NvFp4MarlinLockBytes);
       const bool use_a8w4_gate =
           g_enable_nvfp4_a8w4_gate_prefill_admission &&
           token_count == kernels::kSm87NvFp4A8W4GateAdmissionTokens &&
           projection_backend_ == ProjectionBackend::kSm87WeightOnly &&
           gate_up_fork_join_available && a8w4_gate != nullptr &&
+          a8w4_down != nullptr &&
           a8w4_gate->prefill_a8w4_weight != nullptr &&
           a8w4_gate->prefill_a8w4_integer_scales != nullptr &&
           a8w4_gate->prefill_a8w4_rho != nullptr &&
+          a8w4_down->prefill_marlin_weight != nullptr &&
+          a8w4_down->prefill_marlin_scales != nullptr &&
+          a8w4_down->prefill_marlin_global_scale != nullptr &&
           state_->plan().projection_bf16[3].byte_size >=
               kA8W4WorkspaceBytes &&
           views_.fp32_scratch_elements * sizeof(float) >=
@@ -4218,10 +4238,12 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
                     views_.projection[0], views_.fp32_scratch, locks, true,
                     stream_),
                 "prefill_a8w4_gate_projection", layer) ||
-            !project_nvfp4_whole_chunk_on_stream(
-                layer_weights.mlp.up_proj, views_.hidden[1],
-                views_.projection[1], "prefill_mlp_up_projection_auxiliary",
-                layer, prefill_auxiliary_stream_) ||
+            !check_cuda(
+                launch_exact_nvfp4_whole_chunk_branch_to_bf16_cuda(
+                    projection_backend_, layer_weights.mlp.up_proj,
+                    views_.hidden[1], token_count, views_.projection[1],
+                    prefill_auxiliary_stream_),
+                "prefill_a8w4_exact_up_projection_auxiliary", layer) ||
             !check_cuda(
                 static_cast<int>(cudaEventRecord(branch_done,
                                                  auxiliary_stream)),
@@ -4315,7 +4337,41 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
                     "prefill_mlp_silu_mul", layer)) {
         return fail_prefill_tile(launch_failure);
       }
-      if (!project_down(layer_weights.mlp.down_proj, views_.projection[0],
+      bool down_projected = false;
+#if defined(Q3X_ENABLE_NVFP4_A8W4_GATE_ADMISSION)
+      if (a8w4_gate_up_projected) {
+        const auto* const a8w4_down =
+            std::get_if<NvFp4LinearWeight>(&layer_weights.mlp.down_proj);
+        auto* const locks =
+            reinterpret_cast<std::int32_t*>(views_.projection[3]);
+        const auto stream = reinterpret_cast<cudaStream_t>(stream_);
+        if (a8w4_down == nullptr ||
+            a8w4_down->prefill_marlin_weight == nullptr ||
+            a8w4_down->prefill_marlin_scales == nullptr ||
+            a8w4_down->prefill_marlin_global_scale == nullptr ||
+            !check_cuda(
+                static_cast<int>(cudaMemsetAsync(
+                    locks, 0, kernels::kSm87NvFp4MarlinLockBytes, stream)),
+                "prefill_a8w4_marlin_down_clear_locks", layer) ||
+            !check_cuda(
+                kernels::launch_sm87_nvfp4_marlin_down_cuda(
+                    views_.projection[0],
+                    a8w4_down->prefill_marlin_weight,
+                    a8w4_down->prefill_marlin_scales,
+                    a8w4_down->prefill_marlin_global_scale, token_count,
+                    views_.hidden[1], views_.fp32_scratch, locks, stream_),
+                "prefill_a8w4_marlin_down", layer)) {
+          if (!launch_failure) {
+            (void)check_cuda(static_cast<int>(cudaErrorInvalidValue),
+                             "prefill_a8w4_marlin_down_inventory", layer);
+          }
+          return fail_prefill_tile(launch_failure);
+        }
+        down_projected = true;
+      }
+#endif
+      if (!down_projected &&
+          !project_down(layer_weights.mlp.down_proj, views_.projection[0],
                         views_.hidden[1], "prefill_mlp_down_projection",
                         layer)) {
         return fail_prefill_tile(launch_failure);
@@ -4662,9 +4718,24 @@ ReferenceRunnerFactoryResult create_reference_runner(
          layer_index < kReferenceDecoderLayerCount; ++layer_index) {
       const auto* const gate = std::get_if<NvFp4LinearWeight>(
           &weights->layer(layer_index).mlp.gate_proj);
-      if (gate == nullptr || gate->prefill_a8w4_weight == nullptr ||
+      const auto* const up = std::get_if<NvFp4LinearWeight>(
+          &weights->layer(layer_index).mlp.up_proj);
+      const auto* const down = std::get_if<NvFp4LinearWeight>(
+          &weights->layer(layer_index).mlp.down_proj);
+      if (gate == nullptr || up == nullptr || down == nullptr ||
+          gate->prefill_a8w4_weight == nullptr ||
           gate->prefill_a8w4_integer_scales == nullptr ||
-          gate->prefill_a8w4_rho == nullptr) {
+          gate->prefill_a8w4_rho == nullptr ||
+          gate->prefill_marlin_weight == nullptr ||
+          gate->prefill_marlin_scales == nullptr ||
+          gate->prefill_marlin_global_scale == nullptr ||
+          gate->prefill_marlin_weight != up->prefill_marlin_weight ||
+          gate->prefill_marlin_scales != up->prefill_marlin_scales ||
+          gate->prefill_marlin_global_scale !=
+              up->prefill_marlin_global_scale ||
+          down->prefill_marlin_weight == nullptr ||
+          down->prefill_marlin_scales == nullptr ||
+          down->prefill_marlin_global_scale == nullptr) {
         result.diagnostic = runner_status(
             ReferenceRunnerError::kInvalidDependency,
             "a8w4_gate_prefill_admission_inventory", layer_index);
