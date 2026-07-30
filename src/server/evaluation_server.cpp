@@ -1378,7 +1378,15 @@ int run_evaluation_server(const EvaluationServerOptions& options,
             << " fp8_prefill_supermatrix_sidecar_projections="
             << load.fp8_prefill_supermatrix_sidecar_projections
             << " fp8_prefill_supermatrix_sidecar_bytes="
-            << load.fp8_prefill_supermatrix_sidecar_bytes << '\n';
+            << load.fp8_prefill_supermatrix_sidecar_bytes
+            << " decode_graph_dynamic_position_ready="
+            << (load.decode_graph_dynamic_position_ready ? 1 : 0)
+            << " decode_graph_dynamic_first_position="
+            << load.decode_graph_dynamic_first_position
+            << " decode_graph_dynamic_nodes="
+            << load.decode_graph_dynamic_node_count
+            << " decode_graph_dynamic_updated_nodes="
+            << load.decode_graph_dynamic_updated_kernel_node_count << '\n';
 
   bool fatal_accept_error = false;
   while (!stop_requested.load(std::memory_order_relaxed)) {

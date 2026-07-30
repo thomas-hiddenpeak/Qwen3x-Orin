@@ -50,6 +50,10 @@ option(Q3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION
   "Build the test-only FlashInfer SM87 Prefill-attention route"
   OFF
 )
+option(Q3X_BUILD_DECODE_DYNAMIC_GRAPH_ADMISSION
+  "Build the test-only long-position reusable Decode CUDA Graph route"
+  OFF
+)
 if(Q3X_BUILD_GDN_B8_ADMISSION AND NOT BUILD_TESTING)
   message(FATAL_ERROR
     "Q3X_BUILD_GDN_B8_ADMISSION is test-only and requires BUILD_TESTING=ON"
@@ -88,6 +92,11 @@ endif()
 if(Q3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION AND NOT BUILD_TESTING)
   message(FATAL_ERROR
     "Q3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION is test-only and requires BUILD_TESTING=ON"
+  )
+endif()
+if(Q3X_BUILD_DECODE_DYNAMIC_GRAPH_ADMISSION AND NOT BUILD_TESTING)
+  message(FATAL_ERROR
+    "Q3X_BUILD_DECODE_DYNAMIC_GRAPH_ADMISSION is test-only and requires BUILD_TESTING=ON"
   )
 endif()
 if((Q3X_BUILD_GDN_B8_ADMISSION AND
@@ -320,6 +329,11 @@ endif()
 if(Q3X_BUILD_FP8_MARLIN_PREFILL_ADMISSION)
   target_compile_definitions(q3x_engine PRIVATE
     Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_DECODE_DYNAMIC_GRAPH_ADMISSION)
+  target_compile_definitions(q3x_engine PRIVATE
+    Q3X_ENABLE_DECODE_DYNAMIC_GRAPH_ADMISSION=1
   )
 endif()
 q3x_enable_warnings(q3x_engine)

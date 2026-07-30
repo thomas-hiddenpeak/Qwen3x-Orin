@@ -136,6 +136,9 @@ struct ReferenceDecodeGraphP1Stats {
   std::size_t kernel_node_count = 0U;
   std::size_t memcpy_node_count = 0U;
   std::size_t other_node_count = 0U;
+  // Number of kernel nodes whose parameters must be replaced before each
+  // position-dynamic replay. Fixed-position slots report zero.
+  std::size_t position_dynamic_kernel_node_count = 0U;
   double capture_enqueue_milliseconds = 0.0;
   double topology_inspection_milliseconds = 0.0;
   double instantiate_milliseconds = 0.0;
@@ -476,8 +479,9 @@ class ReferenceRunner {
       std::uint32_t input_token_id) noexcept;
   [[nodiscard]] std::uint64_t
   fixed_position_decode_graph_cache_mask() const noexcept;
-  // Synchronizes both owned streams before detaching the complete bank. This
-  // does not reset request state, trace state, or an existing poison marker.
+  // Synchronizes both owned streams before detaching the complete fixed bank
+  // and the optional dynamic-position graph. This does not reset request
+  // state, trace state, or an existing poison marker.
   [[nodiscard]] ReferenceRunnerStatus
   clear_fixed_position_decode_graph_cache() noexcept;
   [[nodiscard]] bool has_fixed_position_decode_graph_p1(
@@ -488,6 +492,21 @@ class ReferenceRunner {
   // Callers select their serial fallback with has_* before replay. Directly
   // replaying a missing slot is an invalid experimental operation.
   [[nodiscard]] ReferenceStepOutcome replay_fixed_position_decode_graph_p1(
+      std::uint32_t input_token_id, bool measure_timing = false) noexcept;
+
+  // Test-admission long-position graph. One graph is captured at current
+  // position 64 (sequence length 65) and reuses the identical long-attention
+  // topology through the request capacity. Replay updates only the embedding
+  // and the five position-dependent nodes in each of the 16 full-attention
+  // layers; all other kernel parameters remain fixed in the GraphExec.
+  [[nodiscard]] ReferenceDecodeGraphP1PrepareOutcome
+  prepare_dynamic_position_decode_graph_p1(
+      std::uint32_t input_token_id) noexcept;
+  [[nodiscard]] bool has_dynamic_position_decode_graph_p1(
+      std::uint32_t position) const noexcept;
+  [[nodiscard]] std::optional<ReferenceDecodeGraphP1Stats>
+  dynamic_position_decode_graph_p1_stats() const noexcept;
+  [[nodiscard]] ReferenceStepOutcome replay_dynamic_position_decode_graph_p1(
       std::uint32_t input_token_id, bool measure_timing = false) noexcept;
 
   // Executes 1..512 non-logit prompt-prefix tokens in layer-major order. The
@@ -557,8 +576,10 @@ class ReferenceRunner {
 
   enum class DecodeGraphP1Action : std::uint8_t {
     kDisabled = 0,
-    kCaptureOnly,
-    kReplay,
+    kCaptureFixed,
+    kReplayFixed,
+    kCaptureDynamic,
+    kReplayDynamic,
   };
   struct DecodeGraphP1Slot;
   [[nodiscard]] ReferenceStepOutcome step_impl(
@@ -579,6 +600,19 @@ class ReferenceRunner {
     void* embedding_node = nullptr;
     ReferenceDecodeGraphP1Stats stats{};
     DecodeGraphP1KernelLaunch embedding_launch{};
+    struct DynamicLayer {
+      void* qkv_node = nullptr;
+      void* preprocess_node = nullptr;
+      void* score_node = nullptr;
+      void* softmax_node = nullptr;
+      void* value_node = nullptr;
+      DecodeGraphP1KernelLaunch qkv_launch{};
+      DecodeGraphP1KernelLaunch preprocess_launch{};
+      DecodeGraphP1KernelLaunch score_launch{};
+      DecodeGraphP1KernelLaunch softmax_launch{};
+      DecodeGraphP1KernelLaunch value_launch{};
+    };
+    std::array<DynamicLayer, kRequestFullLayerCount> dynamic_layers{};
   };
 
   [[nodiscard]] static int destroy_decode_graph_p1_slot(
@@ -601,6 +635,7 @@ class ReferenceRunner {
   std::uint16_t* pinned_trace_ = nullptr;
   std::array<DecodeGraphP1Slot, kReferenceDecodeGraphP2MaximumSlots>
       decode_graph_p1_slots_{};
+  DecodeGraphP1Slot decode_graph_dynamic_slot_{};
   bool decode_graph_capture_active_ = false;
   Views views_{};
   ProjectionBackend projection_backend_ = ProjectionBackend::kReference;

@@ -44,6 +44,8 @@ using Clock = std::chrono::steady_clock;
 
 inline constexpr std::uint32_t kProductionDecodeGraphFirstPosition = 19U;
 inline constexpr std::uint32_t kProductionDecodeGraphLastPosition = 43U;
+inline constexpr std::uint32_t kProductionDecodeGraphDynamicFirstPosition =
+    64U;
 inline constexpr std::uint32_t kProductionDecodeGraphCaptureTokenId = 0U;
 inline constexpr double kProductionDecodeGraphMaximumPrepareMilliseconds =
     1'000.0;
@@ -69,6 +71,15 @@ prefill_single_arbitrary_tile_environment_enabled() noexcept {
       std::getenv("Q3X_RUN_PREFILL_SINGLE_ARBITRARY_TILE_ADMISSION");
   return value != nullptr && std::strcmp(value, "1") == 0;
 }
+
+#if defined(Q3X_ENABLE_DECODE_DYNAMIC_GRAPH_ADMISSION)
+[[nodiscard]] bool
+decode_dynamic_graph_environment_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_DECODE_DYNAMIC_GRAPH_ADMISSION");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+#endif
 
 struct DecodeGraphP1DeviceBuffer {
   void* data = nullptr;
@@ -1053,6 +1064,14 @@ struct EngineStepContext {
           context.runner->current_position())) {
     ++context.decode_graph_replays;
     return context.runner->replay_fixed_position_decode_graph_p1(
+        input_token_id, options.measure_timing);
+  }
+  if (options.compute_logits && !options.capture_trace &&
+      options.logits_mode == ReferenceLogitsMode::kPredictedTokenOnly &&
+      context.runner->has_dynamic_position_decode_graph_p1(
+          context.runner->current_position())) {
+    ++context.decode_graph_replays;
+    return context.runner->replay_dynamic_position_decode_graph_p1(
         input_token_id, options.measure_timing);
   }
   ++context.decode_graph_serial_fallbacks;
@@ -2397,6 +2416,7 @@ struct ReferenceEngine::Impl {
   ReferenceEngineLoadStats load;
   bool trace_enabled = false;
   bool decode_graph_cache_ready = false;
+  bool decode_graph_dynamic_position_ready = false;
 
   struct BuildResult {
     std::unique_ptr<Impl> value;
@@ -2934,6 +2954,102 @@ struct ReferenceEngine::Impl {
         }
       }
 
+#if defined(Q3X_ENABLE_DECODE_DYNAMIC_GRAPH_ADMISSION)
+      if (decode_dynamic_graph_environment_enabled()) {
+        constexpr std::uint32_t kDynamicFirstPosition =
+            kProductionDecodeGraphDynamicFirstPosition;
+        if (!impl->decode_graph_cache_ready) {
+          if (impl->load.decode_graph_cache_fallback_reason.empty()) {
+            impl->load.decode_graph_cache_fallback_reason =
+                "dynamic_graph_requires_admitted_short_graph_cache";
+          }
+        } else if (impl->request_state->max_sequence_length() <=
+                   kDynamicFirstPosition) {
+          impl->load.decode_graph_cache_fallback_reason =
+              "dynamic_graph_window_outside_request_capacity";
+        } else {
+          const Clock::time_point dynamic_prepare_begin = Clock::now();
+          ReferenceDecodeGraphP1PrepareOutcome dynamic_prepared =
+              impl->runner->prepare_dynamic_position_decode_graph_p1(
+                  kProductionDecodeGraphCaptureTokenId);
+          const double dynamic_prepare_milliseconds =
+              elapsed_milliseconds(dynamic_prepare_begin);
+          bool dynamic_exact = dynamic_prepared.ok();
+          if (dynamic_exact) {
+            const ReferenceDecodeGraphP1Stats& stats =
+                *dynamic_prepared.value;
+            dynamic_exact =
+                stats.position == kDynamicFirstPosition &&
+                stats.input_token_id ==
+                    kProductionDecodeGraphCaptureTokenId &&
+                stats.node_count == 438U &&
+                stats.kernel_node_count == 437U &&
+                stats.memcpy_node_count == 1U &&
+                stats.other_node_count == 0U &&
+                stats.position_dynamic_kernel_node_count ==
+                    5U * kRequestFullLayerCount &&
+                impl->runner->has_dynamic_position_decode_graph_p1(
+                    kDynamicFirstPosition);
+          }
+          if (!dynamic_exact) {
+            impl->load.decode_graph_cache_fallback_reason =
+                dynamic_prepared.ok()
+                    ? "dynamic_graph_topology_contract_mismatch"
+                    : decode_graph_prepare_fallback_reason(
+                          dynamic_prepared.status);
+            if (!rollback_decode_graph_cache(
+                    "decode_graph_dynamic_prepare_rollback")) {
+              return result;
+            }
+            impl->decode_graph_cache_ready = false;
+            impl->decode_graph_dynamic_position_ready = false;
+            impl->load.decode_graph_cache_effective_policy =
+                ReferenceDecodeGraphCachePolicy::kDisabled;
+            impl->load.decode_graph_cache_first_position = 0U;
+            impl->load.decode_graph_cache_last_position = 0U;
+            impl->load.decode_graph_cache_slot_count = 0U;
+          } else {
+            const ReferenceRunnerStatus reset_status =
+                impl->runner->reset();
+            if (!reset_status) {
+              if (!rollback_decode_graph_cache(
+                      "decode_graph_dynamic_ready_cleanup")) {
+                return result;
+              }
+              result.diagnostic = runner_diagnostic(
+                  ReferenceEngineError::kRunnerFactoryFailure,
+                  "decode_graph_dynamic_ready_reset", reset_status);
+              return result;
+            }
+            const ReferenceDecodeGraphP1Stats& stats =
+                *dynamic_prepared.value;
+            impl->decode_graph_dynamic_position_ready = true;
+            impl->load.decode_graph_dynamic_position_ready = true;
+            impl->load.decode_graph_dynamic_first_position =
+                kDynamicFirstPosition;
+            impl->load.decode_graph_dynamic_node_count =
+                stats.node_count;
+            impl->load.decode_graph_dynamic_kernel_node_count =
+                stats.kernel_node_count;
+            impl->load
+                .decode_graph_dynamic_updated_kernel_node_count =
+                stats.position_dynamic_kernel_node_count + 1U;
+            impl->load.decode_graph_cache_capture_enqueue_milliseconds +=
+                stats.capture_enqueue_milliseconds;
+            impl->load
+                .decode_graph_cache_topology_inspection_milliseconds +=
+                stats.topology_inspection_milliseconds;
+            impl->load.decode_graph_cache_instantiate_milliseconds +=
+                stats.instantiate_milliseconds;
+            impl->load.decode_graph_cache_upload_ready_milliseconds +=
+                stats.upload_ready_milliseconds;
+            impl->load.decode_graph_cache_prepare_milliseconds +=
+                dynamic_prepare_milliseconds;
+          }
+        }
+      }
+#endif
+
       double prepared_milliseconds = 0.0;
       if (prepared_work_wall_milliseconds > 0.0) {
         prepared_milliseconds = prepared_work_wall_milliseconds;
@@ -3283,11 +3399,17 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
         const ReferenceRunnerStatus clear_status =
             impl_->runner->clear_fixed_position_decode_graph_cache();
         impl_->decode_graph_cache_ready = false;
+        impl_->decode_graph_dynamic_position_ready = false;
         impl_->load.decode_graph_cache_effective_policy =
             ReferenceDecodeGraphCachePolicy::kDisabled;
         impl_->load.decode_graph_cache_first_position = 0U;
         impl_->load.decode_graph_cache_last_position = 0U;
         impl_->load.decode_graph_cache_slot_count = 0U;
+        impl_->load.decode_graph_dynamic_position_ready = false;
+        impl_->load.decode_graph_dynamic_first_position = 0U;
+        impl_->load.decode_graph_dynamic_node_count = 0U;
+        impl_->load.decode_graph_dynamic_kernel_node_count = 0U;
+        impl_->load.decode_graph_dynamic_updated_kernel_node_count = 0U;
         if (!clear_status) {
           impl_->load.decode_graph_cache_fallback_reason =
               "runtime_graph_failure_demote_cleanup_failed";
