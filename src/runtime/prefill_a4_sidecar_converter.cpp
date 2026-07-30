@@ -1434,8 +1434,8 @@ PrefillA4ConverterDiagnostic quantize_prefill_a4_k64_consumer_blocks(
           maximum = std::max(maximum, std::fabs(value));
         }
         const float threshold = maximum * static_cast<float>(clip_ratio);
-        std::uint16_t scale_bits =
-            float_to_bf16_nearest_even(threshold / 7.0F);
+        std::uint16_t scale_bits = float_to_bf16_nearest_even(
+            maximum == 0.0F ? 1.0F : threshold / 7.0F);
         float stored_scale = bf16_to_float(scale_bits);
         if (maximum != 0.0F && stored_scale == 0.0F) {
           scale_bits = 1U;

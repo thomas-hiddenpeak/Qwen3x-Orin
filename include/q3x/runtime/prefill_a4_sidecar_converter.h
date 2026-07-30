@@ -151,7 +151,9 @@ validate_prefill_a4_calibration_policy(
 //
 // Within each pair, even K is the low nibble and odd K the high nibble. Signed
 // codes are four-bit two's-complement in [-7,7]. N and K must be multiples of
-// 64 and both output byte lengths are checked exactly.
+// 64 and both output byte lengths are checked exactly. For each nonzero group,
+// threshold/7 is first rounded to BF16; codes are then nearest-even rounded
+// using that decoded stored scale. A zero group stores BF16(1) and zero codes.
 //
 // This bounded primitive is also the only experimental nearest-round smoke
 // entry point. Production callers must pass kProductionCalibrated and a
