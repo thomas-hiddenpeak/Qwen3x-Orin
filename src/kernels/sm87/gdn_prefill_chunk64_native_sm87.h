@@ -22,6 +22,16 @@ struct InspectionHook {
   void* context = nullptr;
 };
 
+using PreprocessInspectionCallback = void (*)(
+    const std::uint16_t* compact_q, std::size_t compact_q_elements,
+    const std::uint16_t* compact_k, std::size_t compact_k_elements,
+    void* cuda_stream, void* context) noexcept;
+
+struct PreprocessInspectionHook {
+  PreprocessInspectionCallback callback = nullptr;
+  void* context = nullptr;
+};
+
 // Test-only CUDA-event observation points bracketing the group-owned WY and
 // QK kernels.  They deliberately begin after the packed route's pack kernel,
 // so this hook attributes only the common core window; end-to-end timing owns
@@ -36,6 +46,9 @@ struct WyTimingHook {
 
 [[nodiscard]] InspectionHook exchange_inspection_hook(
     InspectionHook hook) noexcept;
+
+[[nodiscard]] PreprocessInspectionHook exchange_preprocess_inspection_hook(
+    PreprocessInspectionHook hook) noexcept;
 
 [[nodiscard]] WyTimingHook exchange_wy_timing_hook(
     WyTimingHook hook) noexcept;
@@ -108,6 +121,9 @@ exchange_vllm_layout_wy_route_for_test(
     const std::uint16_t* conv_qkv, std::size_t token_count,
     float l2_epsilon, std::uint16_t* compact_q,
     std::uint16_t* compact_k, void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] const void* compact_qk_baseline_kernel_handle_for_test()
+    noexcept;
 
 // Reports the largest-resource native FLA stage selected by the launcher.
 [[nodiscard]] int query_resources(

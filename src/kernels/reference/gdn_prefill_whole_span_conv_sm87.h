@@ -8,6 +8,19 @@ namespace q3x::runtime::gdn_prefill_whole_span_conv_detail {
 
 inline constexpr std::size_t kMaximumTokenCount = 512U;
 
+using BoundaryInspectionCallback = void (*)(
+    const std::uint16_t* conv_qkv, std::size_t conv_qkv_elements,
+    const std::uint16_t* history, std::size_t history_elements,
+    void* cuda_stream, void* context) noexcept;
+
+struct BoundaryInspectionHook {
+  BoundaryInspectionCallback callback = nullptr;
+  void* context = nullptr;
+};
+
+[[nodiscard]] BoundaryInspectionHook exchange_boundary_inspection_hook(
+    BoundaryInspectionHook hook) noexcept;
+
 // Private, test-only Prefill launcher. This entry point deliberately stays
 // outside the installed/public GDN ABI: the production tile ABI remains
 // capped at 16 tokens.
@@ -62,6 +75,9 @@ query_causal_conv1d_silu_update_token_parallel_compact_qk_resources_cuda(
     int* registers_per_thread, std::size_t* static_shared_bytes,
     std::size_t* local_bytes, int* maximum_threads_per_block,
     int* active_blocks_per_sm) noexcept;
+
+[[nodiscard]] const void*
+token_parallel_compact_qk_kernel_handle_for_test() noexcept;
 
 }  // namespace q3x::runtime::gdn_prefill_whole_span_conv_detail
 

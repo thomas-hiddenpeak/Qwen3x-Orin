@@ -2,6 +2,7 @@
 #include "q3x/runtime/gdn_decode.h"
 
 #if defined(Q3X_GDN_CHUNK64_NATIVE_TEST)
+#include "../src/kernels/reference/gdn_prefill_whole_span_conv_sm87.h"
 #include "gdn_prefill_chunk64_native_sm87.h"
 #include "reference_runner_gdn_chunk64_native_admission.h"
 #else
@@ -40,6 +41,8 @@ constexpr std::string_view kRouteMarker = "GDN_CHUNK64_NATIVE";
 constexpr std::string_view kRunEnvironment =
     "Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION";
 using SelectedSnapshotHook = detail::PrefillGdnChunk64NativeSnapshotHook;
+using NativeFinalSnapshotHook =
+    detail::PrefillGdnChunk64NativeFinalSnapshotHook;
 
 static_assert(detail::prefill_gdn_chunk64_native_prefix_token_count(63U) ==
               0U);
@@ -78,6 +81,12 @@ static_assert(detail::prefill_gdn_chunk64_legacy_tail_token_count(481U) ==
 [[nodiscard]] SelectedSnapshotHook exchange_snapshot_hook(
     const SelectedSnapshotHook hook) noexcept {
   return detail::exchange_prefill_gdn_chunk64_native_snapshot_hook(hook);
+}
+
+[[nodiscard]] NativeFinalSnapshotHook exchange_native_final_snapshot_hook(
+    const NativeFinalSnapshotHook hook) noexcept {
+  return detail::exchange_prefill_gdn_chunk64_native_final_snapshot_hook(
+      hook);
 }
 #else
 constexpr std::string_view kRouteMarker = "GDN_CHUNK64_REFERENCE";
@@ -173,6 +182,18 @@ struct NativeBoundarySnapshot {
   std::vector<std::uint16_t> output;
   std::size_t calls = 0U;
   int cuda_error = static_cast<int>(cudaSuccess);
+  bool contract_error = false;
+};
+
+struct NativePreprocessBoundarySnapshot {
+  std::vector<std::uint16_t> conv_qkv;
+  std::vector<std::uint16_t> conv_history;
+  std::vector<std::uint16_t> compact_q;
+  std::vector<std::uint16_t> compact_k;
+  std::size_t conv_calls = 0U;
+  std::size_t qk_calls = 0U;
+  int conv_cuda_error = static_cast<int>(cudaSuccess);
+  int qk_cuda_error = static_cast<int>(cudaSuccess);
   bool contract_error = false;
 };
 
@@ -392,6 +413,107 @@ class ScopedNativeInspectionHook {
  private:
   q3x::runtime::gdn_prefill_chunk64_native_detail::InspectionHook previous_{};
 };
+
+void collect_native_conv_boundaries(
+    const std::uint16_t* const conv_qkv,
+    const std::size_t conv_qkv_elements,
+    const std::uint16_t* const history,
+    const std::size_t history_elements,
+    void* const cuda_stream,
+    void* const context) noexcept {
+  auto* const snapshot =
+      static_cast<NativePreprocessBoundarySnapshot*>(context);
+  if (snapshot == nullptr || ++snapshot->conv_calls != 1U) {
+    return;
+  }
+  if (conv_qkv == nullptr || history == nullptr ||
+      snapshot->conv_qkv.size() != conv_qkv_elements ||
+      snapshot->conv_history.size() != history_elements) {
+    snapshot->contract_error = true;
+    return;
+  }
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  cudaError_t status = cudaMemcpyAsync(
+      snapshot->conv_qkv.data(), conv_qkv,
+      conv_qkv_elements * sizeof(std::uint16_t), cudaMemcpyDeviceToHost,
+      stream);
+  if (status == cudaSuccess) {
+    status = cudaMemcpyAsync(
+        snapshot->conv_history.data(), history,
+        history_elements * sizeof(std::uint16_t), cudaMemcpyDeviceToHost,
+        stream);
+  }
+  if (status == cudaSuccess) {
+    status = cudaStreamSynchronize(stream);
+  }
+  snapshot->conv_cuda_error = static_cast<int>(status);
+}
+
+void collect_native_qk_boundaries(
+    const std::uint16_t* const compact_q,
+    const std::size_t compact_q_elements,
+    const std::uint16_t* const compact_k,
+    const std::size_t compact_k_elements,
+    void* const cuda_stream,
+    void* const context) noexcept {
+  auto* const snapshot =
+      static_cast<NativePreprocessBoundarySnapshot*>(context);
+  if (snapshot == nullptr || ++snapshot->qk_calls != 1U) {
+    return;
+  }
+  if (compact_q == nullptr || compact_k == nullptr ||
+      snapshot->compact_q.size() != compact_q_elements ||
+      snapshot->compact_k.size() != compact_k_elements) {
+    snapshot->contract_error = true;
+    return;
+  }
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  cudaError_t status = cudaMemcpyAsync(
+      snapshot->compact_q.data(), compact_q,
+      compact_q_elements * sizeof(std::uint16_t), cudaMemcpyDeviceToHost,
+      stream);
+  if (status == cudaSuccess) {
+    status = cudaMemcpyAsync(
+        snapshot->compact_k.data(), compact_k,
+        compact_k_elements * sizeof(std::uint16_t), cudaMemcpyDeviceToHost,
+        stream);
+  }
+  if (status == cudaSuccess) {
+    status = cudaStreamSynchronize(stream);
+  }
+  snapshot->qk_cuda_error = static_cast<int>(status);
+}
+
+class ScopedNativePreprocessInspectionHooks {
+ public:
+  explicit ScopedNativePreprocessInspectionHooks(
+      NativePreprocessBoundarySnapshot& snapshot) noexcept
+      : previous_conv_(
+            q3x::runtime::gdn_prefill_whole_span_conv_detail::
+                exchange_boundary_inspection_hook(
+                    {collect_native_conv_boundaries, &snapshot})),
+        previous_qk_(q3x::runtime::gdn_prefill_chunk64_native_detail::
+                         exchange_preprocess_inspection_hook(
+                             {collect_native_qk_boundaries, &snapshot})) {}
+
+  ~ScopedNativePreprocessInspectionHooks() {
+    (void)q3x::runtime::gdn_prefill_chunk64_native_detail::
+        exchange_preprocess_inspection_hook(previous_qk_);
+    (void)q3x::runtime::gdn_prefill_whole_span_conv_detail::
+        exchange_boundary_inspection_hook(previous_conv_);
+  }
+
+  ScopedNativePreprocessInspectionHooks(
+      const ScopedNativePreprocessInspectionHooks&) = delete;
+  ScopedNativePreprocessInspectionHooks& operator=(
+      const ScopedNativePreprocessInspectionHooks&) = delete;
+
+ private:
+  q3x::runtime::gdn_prefill_whole_span_conv_detail::
+      BoundaryInspectionHook previous_conv_{};
+  q3x::runtime::gdn_prefill_chunk64_native_detail::
+      PreprocessInspectionHook previous_qk_{};
+};
 #endif
 
 void collect_state_snapshot(const runtime::RequestState& state,
@@ -443,6 +565,27 @@ class ScopedSnapshotHook {
  private:
   SelectedSnapshotHook previous_{};
 };
+
+#if defined(Q3X_GDN_CHUNK64_NATIVE_TEST)
+class ScopedNativeFinalSnapshotHook {
+ public:
+  explicit ScopedNativeFinalSnapshotHook(StateSnapshot& snapshot) noexcept
+      : previous_(exchange_native_final_snapshot_hook(
+            NativeFinalSnapshotHook{collect_state_snapshot, &snapshot})) {}
+
+  ~ScopedNativeFinalSnapshotHook() {
+    (void)exchange_native_final_snapshot_hook(previous_);
+  }
+
+  ScopedNativeFinalSnapshotHook(const ScopedNativeFinalSnapshotHook&) =
+      delete;
+  ScopedNativeFinalSnapshotHook& operator=(
+      const ScopedNativeFinalSnapshotHook&) = delete;
+
+ private:
+  NativeFinalSnapshotHook previous_{};
+};
+#endif
 
 [[nodiscard]] float decode_bf16(const std::uint16_t value) noexcept {
   const std::uint32_t bits = static_cast<std::uint32_t>(value) << 16U;
@@ -561,9 +704,21 @@ void print_diagnostic(
 [[nodiscard]] std::size_t
 expected_environment_fused_preprocess_hits() noexcept {
 #if defined(Q3X_GDN_CHUNK64_NATIVE_TEST)
+  const char* const token_parallel =
+      std::getenv("Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION");
+  const char* const standalone_baseline = std::getenv(
+      "Q3X_RUN_GDN_CONV_COMPACT_QK_STANDALONE_BASELINE");
   const char* const selector =
       std::getenv("Q3X_RUN_GDN_CONV_COMPACT_QK_FUSED_CANDIDATE");
-  if (selector != nullptr && std::strcmp(selector, "1") == 0) {
+  const bool token_parallel_enabled =
+      token_parallel != nullptr && std::strcmp(token_parallel, "1") == 0;
+  const bool baseline_forced =
+      standalone_baseline != nullptr &&
+      std::strcmp(standalone_baseline, "1") == 0;
+  const bool compatibility_selector_enabled =
+      selector == nullptr || std::strcmp(selector, "1") == 0;
+  if (token_parallel_enabled && !baseline_forced &&
+      compatibility_selector_enabled) {
     return expected_aligned_fused_preprocess_hits();
   }
 #endif
@@ -696,12 +851,14 @@ expected_environment_fused_preprocess_hits() noexcept {
     const std::string& prompt,
     const bool candidate,
     StateSnapshot& snapshot,
-    std::size_t& route_hits) {
+    std::size_t& route_hits,
+    std::size_t* const fused_preprocess_hits = nullptr) {
   runtime::ReferenceGenerateOptions options;
   options.max_new_tokens = 1U;
   options.prefill_chunk_size = kPrefillChunkTokens;
   options.logits_mode = runtime::ReferenceLogitsMode::kPredictedTokenOnly;
   (void)exchange_hits(0U);
+  (void)exchange_fused_preprocess_hits(0U);
   runtime::ReferenceGenerateResult result;
   {
     const ScopedSnapshotHook hook(snapshot);
@@ -709,6 +866,11 @@ expected_environment_fused_preprocess_hits() noexcept {
     result = engine.generate(prompt, options);
   }
   route_hits = exchange_hits(0U);
+  const std::size_t observed_fused_hits =
+      exchange_fused_preprocess_hits(0U);
+  if (fused_preprocess_hits != nullptr) {
+    *fused_preprocess_hits = observed_fused_hits;
+  }
   return result;
 }
 
@@ -719,6 +881,17 @@ expected_environment_fused_preprocess_hits() noexcept {
          snapshot.committed_position == g_prompt_tokens - 1U &&
          snapshot.region_bytes == runtime::kRequestGdnStateBytes;
 }
+
+#if defined(Q3X_GDN_CHUNK64_NATIVE_TEST)
+[[nodiscard]] bool valid_final_request_snapshot(
+    const StateSnapshot& snapshot) {
+  return !snapshot.contract_error &&
+         snapshot.cuda_error == static_cast<int>(cudaSuccess) &&
+         snapshot.calls == 1U &&
+         snapshot.committed_position == g_prompt_tokens &&
+         snapshot.region_bytes == runtime::kRequestGdnStateBytes;
+}
+#endif
 
 #if defined(Q3X_GDN_CHUNK64_NATIVE_TEST)
 struct DifferenceMetrics {
@@ -1370,6 +1543,323 @@ void destroy_event(cudaEvent_t& event) noexcept {
   return positive;
 }
 
+[[nodiscard]] bool run_native_conv_compact_qk_bccb(
+    runtime::ReferenceEngine& engine,
+    const std::string& prompt) {
+  if (g_prompt_tokens != kDefaultPromptTokens) {
+    std::cerr << "conv+compact-QK B-C-C-B requires real P513\n";
+    return false;
+  }
+
+  auto run_route = [&](const bool fused_preprocess,
+                       const std::string_view phase,
+                       Sample& sample) {
+    const ScopedFusedPreprocessCandidate preprocess_route(
+        fused_preprocess);
+    const ScopedFusedKktBaseline kkt_route(false);
+    const ScopedSplitWyBaseline split_route(false);
+    const ScopedPackedQkvBaseline packed_route(false);
+    const ScopedResidentStateBaseline resident_route(false);
+    const ScopedVllmLayoutWyCandidate wy_route(
+        q3x::runtime::gdn_prefill_chunk64_native_detail::
+            VllmLayoutWyRouteForTest::kProductionDefault);
+    return run_sample(
+        engine, prompt, true, phase, sample,
+        fused_preprocess ? "fused_conv_compact_qk" : "standalone_conv_qk",
+        fused_preprocess ? expected_aligned_fused_preprocess_hits() : 0U);
+  };
+
+  Sample baseline_warmup;
+  Sample candidate_warmup;
+  bool ready = run_route(false, "conv_compact_qk_B_warmup",
+                         baseline_warmup) &&
+               run_route(true, "conv_compact_qk_C_warmup",
+                         candidate_warmup);
+  Sample baseline_first;
+  Sample candidate_first;
+  Sample candidate_second;
+  Sample baseline_second;
+  ready = run_route(false, "conv_compact_qk_B1", baseline_first) && ready;
+  ready = run_route(true, "conv_compact_qk_C1", candidate_first) && ready;
+  ready = run_route(true, "conv_compact_qk_C2", candidate_second) && ready;
+  ready = run_route(false, "conv_compact_qk_B2", baseline_second) && ready;
+
+  const bool semantics =
+      baseline_first.semantic_oracle && candidate_first.semantic_oracle &&
+      candidate_second.semantic_oracle && baseline_second.semantic_oracle &&
+      baseline_first.generated_token == candidate_first.generated_token &&
+      baseline_first.generated_token == candidate_second.generated_token &&
+      baseline_first.generated_token == baseline_second.generated_token &&
+      baseline_first.generated_text == candidate_first.generated_text &&
+      baseline_first.generated_text == candidate_second.generated_text &&
+      baseline_first.generated_text == baseline_second.generated_text;
+  const std::size_t expected_fused_hits =
+      expected_aligned_fused_preprocess_hits();
+  const bool hits =
+      baseline_first.route_hits == expected_native_route_hits() &&
+      candidate_first.route_hits == expected_native_route_hits() &&
+      candidate_second.route_hits == expected_native_route_hits() &&
+      baseline_second.route_hits == expected_native_route_hits() &&
+      baseline_first.fused_preprocess_hits == 0U &&
+      candidate_first.fused_preprocess_hits == expected_fused_hits &&
+      candidate_second.fused_preprocess_hits == expected_fused_hits &&
+      baseline_second.fused_preprocess_hits == 0U;
+  const double prefix_saved_first =
+      baseline_first.prefix_milliseconds -
+      candidate_first.prefix_milliseconds;
+  const double prefix_saved_second =
+      baseline_second.prefix_milliseconds -
+      candidate_second.prefix_milliseconds;
+  const double ttft_saved_first =
+      baseline_first.ttft_milliseconds - candidate_first.ttft_milliseconds;
+  const double ttft_saved_second =
+      baseline_second.ttft_milliseconds - candidate_second.ttft_milliseconds;
+  const double baseline_prefix_mean =
+      (baseline_first.prefix_milliseconds +
+       baseline_second.prefix_milliseconds) /
+      2.0;
+  const double candidate_prefix_mean =
+      (candidate_first.prefix_milliseconds +
+       candidate_second.prefix_milliseconds) /
+      2.0;
+  const double baseline_ttft_mean =
+      (baseline_first.ttft_milliseconds +
+       baseline_second.ttft_milliseconds) /
+      2.0;
+  const double candidate_ttft_mean =
+      (candidate_first.ttft_milliseconds +
+       candidate_second.ttft_milliseconds) /
+      2.0;
+  const bool passed =
+      ready && semantics && hits && prefix_saved_first > 0.0 &&
+      prefix_saved_second > 0.0 && ttft_saved_first > 0.0 &&
+      ttft_saved_second > 0.0;
+  std::cout << "GDN_CHUNK64_NATIVE_CONV_COMPACT_QK_BCCB"
+            << " B1_prefix_ms=" << baseline_first.prefix_milliseconds
+            << " C1_prefix_ms=" << candidate_first.prefix_milliseconds
+            << " C2_prefix_ms=" << candidate_second.prefix_milliseconds
+            << " B2_prefix_ms=" << baseline_second.prefix_milliseconds
+            << " prefix_pair1_saved_ms=" << prefix_saved_first
+            << " prefix_pair2_saved_ms=" << prefix_saved_second
+            << " prefix_speedup="
+            << baseline_prefix_mean / candidate_prefix_mean
+            << " B1_ttft_ms=" << baseline_first.ttft_milliseconds
+            << " C1_ttft_ms=" << candidate_first.ttft_milliseconds
+            << " C2_ttft_ms=" << candidate_second.ttft_milliseconds
+            << " B2_ttft_ms=" << baseline_second.ttft_milliseconds
+            << " ttft_pair1_saved_ms=" << ttft_saved_first
+            << " ttft_pair2_saved_ms=" << ttft_saved_second
+            << " ttft_speedup=" << baseline_ttft_mean / candidate_ttft_mean
+            << " baseline_fused_hits="
+            << baseline_first.fused_preprocess_hits << ','
+            << baseline_second.fused_preprocess_hits
+            << " candidate_fused_hits="
+            << candidate_first.fused_preprocess_hits << ','
+            << candidate_second.fused_preprocess_hits
+            << " hit_oracle=" << (hits ? "PASS" : "FAIL")
+            << " generation_semantics=" << (semantics ? "PASS" : "FAIL")
+            << " gate=" << (passed ? "PASS" : "FAIL")
+            << " authority=REAL_WEIGHT_SAME_ENGINE_B_C_C_B_BOTH_METRICS\n";
+  return passed;
+}
+
+[[nodiscard]] bool run_native_conv_compact_qk_equivalence(
+    runtime::ReferenceEngine& engine,
+    const std::string& prompt) {
+  if (g_prompt_tokens != kDefaultPromptTokens) {
+    std::cerr << "conv+compact-QK equivalence requires real P513\n";
+    return false;
+  }
+  constexpr std::size_t kNativeTokens = kDefaultPromptTokens - 1U;
+  constexpr std::size_t kConvElements =
+      kNativeTokens * runtime::kGdnQkvChannels;
+  constexpr std::size_t kHistoryElements =
+      runtime::kGdnQkvChannels * runtime::kGdnConvHistoryWidth;
+  constexpr std::size_t kCompactElements =
+      kNativeTokens * runtime::kGdnQkHeadCount *
+      runtime::kGdnHeadDimension;
+  constexpr std::size_t kTransformElements =
+      (kNativeTokens / 64U) * runtime::kGdnValueHeadCount * 64U * 64U;
+  constexpr std::size_t kOutputElements =
+      kNativeTokens * runtime::kGdnVElements;
+
+  StateSnapshot baseline_state;
+  StateSnapshot candidate_state;
+  StateSnapshot baseline_final_request_state;
+  StateSnapshot candidate_final_request_state;
+  NativePreprocessBoundarySnapshot baseline_preprocess;
+  NativePreprocessBoundarySnapshot candidate_preprocess;
+  NativeBoundarySnapshot baseline_final;
+  NativeBoundarySnapshot candidate_final;
+  try {
+    const std::size_t request_state_elements =
+        static_cast<std::size_t>(runtime::kRequestGdnStateBytes /
+                                 sizeof(std::uint16_t));
+    baseline_state.values.resize(request_state_elements);
+    candidate_state.values.resize(request_state_elements);
+    baseline_final_request_state.values.resize(request_state_elements);
+    candidate_final_request_state.values.resize(request_state_elements);
+    for (NativePreprocessBoundarySnapshot* const snapshot :
+         {&baseline_preprocess, &candidate_preprocess}) {
+      snapshot->conv_qkv.resize(kConvElements);
+      snapshot->conv_history.resize(kHistoryElements);
+      snapshot->compact_q.resize(kCompactElements);
+      snapshot->compact_k.resize(kCompactElements);
+    }
+    for (NativeBoundarySnapshot* const snapshot :
+         {&baseline_final, &candidate_final}) {
+      snapshot->transform.resize(kTransformElements);
+      snapshot->w.resize(kOutputElements);
+      snapshot->u.resize(kOutputElements);
+      snapshot->state.resize(runtime::kGdnStateElements);
+      snapshot->output.resize(kOutputElements);
+    }
+  } catch (const std::bad_alloc&) {
+    std::cerr << "conv+compact-QK equivalence host allocation failed\n";
+    return false;
+  }
+
+  std::size_t baseline_native_hits = 0U;
+  std::size_t baseline_fused_hits = 0U;
+  runtime::ReferenceGenerateResult baseline_result;
+  {
+    const ScopedFusedPreprocessCandidate route(false);
+    const ScopedFusedKktBaseline kkt_route(false);
+    const ScopedSplitWyBaseline split_route(false);
+    const ScopedPackedQkvBaseline packed_route(false);
+    const ScopedResidentStateBaseline resident_route(false);
+    const ScopedVllmLayoutWyCandidate wy_route(
+        q3x::runtime::gdn_prefill_chunk64_native_detail::
+            VllmLayoutWyRouteForTest::kProductionDefault);
+    const ScopedNativePreprocessInspectionHooks preprocess_hook(
+        baseline_preprocess);
+    const ScopedNativeInspectionHook final_hook(baseline_final);
+    const ScopedNativeFinalSnapshotHook final_request_hook(
+        baseline_final_request_state);
+    baseline_result = run_snapshot_generation(
+        engine, prompt, true, baseline_state, baseline_native_hits,
+        &baseline_fused_hits);
+  }
+
+  std::size_t candidate_native_hits = 0U;
+  std::size_t candidate_fused_hits = 0U;
+  runtime::ReferenceGenerateResult candidate_result;
+  {
+    const ScopedFusedPreprocessCandidate route(true);
+    const ScopedFusedKktBaseline kkt_route(false);
+    const ScopedSplitWyBaseline split_route(false);
+    const ScopedPackedQkvBaseline packed_route(false);
+    const ScopedResidentStateBaseline resident_route(false);
+    const ScopedVllmLayoutWyCandidate wy_route(
+        q3x::runtime::gdn_prefill_chunk64_native_detail::
+            VllmLayoutWyRouteForTest::kProductionDefault);
+    const ScopedNativePreprocessInspectionHooks preprocess_hook(
+        candidate_preprocess);
+    const ScopedNativeInspectionHook final_hook(candidate_final);
+    const ScopedNativeFinalSnapshotHook final_request_hook(
+        candidate_final_request_state);
+    candidate_result = run_snapshot_generation(
+        engine, prompt, true, candidate_state, candidate_native_hits,
+        &candidate_fused_hits);
+  }
+  if (!baseline_result || !candidate_result) {
+    std::cerr << "conv+compact-QK equivalence generation failed\n";
+    if (!baseline_result) {
+      print_diagnostic(baseline_result.diagnostic);
+    }
+    if (!candidate_result) {
+      print_diagnostic(candidate_result.diagnostic);
+    }
+    return false;
+  }
+
+  const DifferenceMetrics conv = compare_bf16(
+      baseline_preprocess.conv_qkv, candidate_preprocess.conv_qkv);
+  const DifferenceMetrics history = compare_bf16(
+      baseline_preprocess.conv_history,
+      candidate_preprocess.conv_history);
+  const DifferenceMetrics q = compare_bf16(
+      baseline_preprocess.compact_q, candidate_preprocess.compact_q);
+  const DifferenceMetrics k = compare_bf16(
+      baseline_preprocess.compact_k, candidate_preprocess.compact_k);
+  const DifferenceMetrics final_state = compare_bf16(
+      baseline_final.state, candidate_final.state);
+  const DifferenceMetrics final_output = compare_bf16(
+      baseline_final.output, candidate_final.output);
+  const DifferenceMetrics post_native_request_state = compare_bf16(
+      baseline_state.values, candidate_state.values);
+  const DifferenceMetrics full_request_state = compare_bf16(
+      baseline_final_request_state.values,
+      candidate_final_request_state.values);
+  constexpr std::string_view kSuite =
+      "GDN_CHUNK64_NATIVE_CONV_COMPACT_QK_EQUIVALENCE";
+  print_difference_metrics(kSuite, "first_layer_conv", conv);
+  print_difference_metrics(kSuite, "first_layer_history", history);
+  print_difference_metrics(kSuite, "first_layer_compact_q", q);
+  print_difference_metrics(kSuite, "first_layer_compact_k", k);
+  print_difference_metrics(kSuite, "final_layer_state", final_state);
+  print_difference_metrics(kSuite, "final_layer_output", final_output);
+  print_difference_metrics(kSuite, "post_native_C512_request_state",
+                           post_native_request_state);
+  print_difference_metrics(kSuite, "post_prompt_P513_request_state",
+                           full_request_state);
+
+  const bool preprocess_contract =
+      !baseline_preprocess.contract_error &&
+      !candidate_preprocess.contract_error &&
+      baseline_preprocess.conv_calls == runtime::kRequestLinearLayerCount &&
+      candidate_preprocess.conv_calls == runtime::kRequestLinearLayerCount &&
+      baseline_preprocess.qk_calls == runtime::kRequestLinearLayerCount &&
+      candidate_preprocess.qk_calls == runtime::kRequestLinearLayerCount &&
+      baseline_preprocess.conv_cuda_error == static_cast<int>(cudaSuccess) &&
+      candidate_preprocess.conv_cuda_error == static_cast<int>(cudaSuccess) &&
+      baseline_preprocess.qk_cuda_error == static_cast<int>(cudaSuccess) &&
+      candidate_preprocess.qk_cuda_error == static_cast<int>(cudaSuccess);
+  const bool final_contract =
+      !baseline_final.contract_error && !candidate_final.contract_error &&
+      baseline_final.cuda_error == static_cast<int>(cudaSuccess) &&
+      candidate_final.cuda_error == static_cast<int>(cudaSuccess) &&
+      baseline_final.calls == runtime::kRequestLinearLayerCount &&
+      candidate_final.calls == runtime::kRequestLinearLayerCount;
+  const bool hits =
+      baseline_native_hits == expected_native_route_hits() &&
+      candidate_native_hits == expected_native_route_hits() &&
+      baseline_fused_hits == 0U &&
+      candidate_fused_hits == expected_aligned_fused_preprocess_hits();
+  const bool generation =
+      expected_generation(*baseline_result.value) &&
+      expected_generation(*candidate_result.value) &&
+      baseline_result.value->generated_token_ids ==
+          candidate_result.value->generated_token_ids &&
+      baseline_result.value->generated_text ==
+          candidate_result.value->generated_text;
+  const bool passed =
+      valid_snapshot(baseline_state) && valid_snapshot(candidate_state) &&
+      valid_final_request_snapshot(baseline_final_request_state) &&
+      valid_final_request_snapshot(candidate_final_request_state) &&
+      preprocess_contract && final_contract && hits && generation &&
+      exact_metrics(conv) && exact_metrics(history) && exact_metrics(q) &&
+      exact_metrics(k) && exact_metrics(final_state) &&
+      exact_metrics(final_output) &&
+      exact_metrics(post_native_request_state) &&
+      exact_metrics(full_request_state);
+  std::cout << kSuite
+            << " baseline_native_hits=" << baseline_native_hits
+            << " candidate_native_hits=" << candidate_native_hits
+            << " baseline_fused_hits=" << baseline_fused_hits
+            << " candidate_fused_hits=" << candidate_fused_hits
+            << " preprocess_contract="
+            << (preprocess_contract ? "PASS" : "FAIL")
+            << " final_contract=" << (final_contract ? "PASS" : "FAIL")
+            << " generation_semantics=" << (generation ? "PASS" : "FAIL")
+            << " generated_token="
+            << candidate_result.value->generated_token_ids.front()
+            << " generated_text=" << candidate_result.value->generated_text
+            << " gate=" << (passed ? "PASS" : "FAIL")
+            << " authority=REAL_WEIGHT_SAME_ENGINE_EXACT\n";
+  return passed;
+}
+
 class DeviceBuffer {
  public:
   explicit DeviceBuffer(const std::size_t bytes) noexcept : bytes_(bytes) {
@@ -1411,6 +1901,184 @@ class DeviceBuffer {
   std::size_t bytes_ = 0U;
   cudaError_t status_ = cudaErrorMemoryAllocation;
 };
+
+[[nodiscard]] bool run_native_conv_compact_qk_graph_validation() {
+  constexpr std::size_t kTokens = 512U;
+  constexpr std::size_t kBf16Bytes = sizeof(std::uint16_t);
+  DeviceBuffer workspace(
+      q3x::runtime::gdn_prefill_chunk64_native_detail::workspace_bytes());
+  DeviceBuffer raw_qkv(
+      kTokens * runtime::kGdnQkvChannels * kBf16Bytes);
+  DeviceBuffer conv_weight(
+      runtime::kGdnQkvChannels * runtime::kGdnConvKernelWidth *
+      kBf16Bytes);
+  DeviceBuffer history(
+      runtime::kGdnQkvChannels * runtime::kGdnConvHistoryWidth *
+      kBf16Bytes);
+  DeviceBuffer conv_qkv(
+      kTokens * runtime::kGdnQkvChannels * kBf16Bytes);
+  DeviceBuffer a(kTokens * runtime::kGdnValueHeadCount * kBf16Bytes);
+  DeviceBuffer b(kTokens * runtime::kGdnValueHeadCount * kBf16Bytes);
+  DeviceBuffer A_log(runtime::kGdnValueHeadCount * kBf16Bytes);
+  DeviceBuffer dt_bias(runtime::kGdnValueHeadCount * kBf16Bytes);
+  DeviceBuffer state(runtime::kGdnStateElements * kBf16Bytes);
+  DeviceBuffer norm(runtime::kGdnHeadDimension * kBf16Bytes);
+  DeviceBuffer silu_gate(kTokens * runtime::kGdnVElements * kBf16Bytes);
+  DeviceBuffer output(kTokens * runtime::kGdnVElements * kBf16Bytes);
+  DeviceBuffer* const buffers[] = {
+      &workspace, &raw_qkv, &conv_weight, &history, &conv_qkv,
+      &a,         &b,       &A_log,       &dt_bias, &state,
+      &norm,      &silu_gate, &output};
+  bool ready = true;
+  for (DeviceBuffer* const buffer : buffers) {
+    ready = buffer->zero() && ready;
+  }
+  if (!ready) {
+    std::cerr << "conv+compact-QK Graph buffer setup failed\n";
+    return false;
+  }
+
+  cudaStream_t stream = nullptr;
+  cudaGraph_t graph = nullptr;
+  cudaGraphExec_t executable = nullptr;
+  ready = cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking) ==
+          cudaSuccess;
+  const ScopedFusedKktBaseline kkt_route(false);
+  const ScopedSplitWyBaseline split_route(false);
+  const ScopedPackedQkvBaseline packed_route(false);
+  const ScopedResidentStateBaseline resident_route(false);
+  const ScopedVllmLayoutWyCandidate wy_route(
+      q3x::runtime::gdn_prefill_chunk64_native_detail::
+          VllmLayoutWyRouteForTest::kProductionDefault);
+  ready = kkt_route.valid() && split_route.valid() &&
+          resident_route.valid() && ready;
+  auto launch = [&]() {
+    int status = q3x::runtime::gdn_prefill_chunk64_native_detail::
+        launch_fused_conv_compact_qk_preprocess(
+            workspace.data(),
+            q3x::runtime::gdn_prefill_chunk64_native_detail::
+                workspace_bytes(),
+            raw_qkv.as<const std::uint16_t>(), kTokens,
+            conv_weight.as<const std::uint16_t>(),
+            history.as<std::uint16_t>(), conv_qkv.as<std::uint16_t>(),
+            1.0e-6F, stream);
+    if (status != static_cast<int>(cudaSuccess)) {
+      return status;
+    }
+    return q3x::runtime::gdn_prefill_chunk64_native_detail::
+        launch_qk_preprocessed(
+            workspace.data(),
+            q3x::runtime::gdn_prefill_chunk64_native_detail::
+                workspace_bytes(),
+            conv_qkv.as<const std::uint16_t>(), kTokens,
+            a.as<const std::uint16_t>(), b.as<const std::uint16_t>(),
+            A_log.as<const std::uint16_t>(),
+            dt_bias.as<const std::uint16_t>(),
+            state.as<const std::uint16_t>(), state.as<std::uint16_t>(),
+            1.0e-6F, norm.as<const std::uint16_t>(),
+            silu_gate.as<const std::uint16_t>(), 1.0e-6F,
+            output.as<std::uint16_t>(), stream);
+  };
+  if (ready) {
+    ready = launch() == static_cast<int>(cudaSuccess) &&
+            cudaStreamSynchronize(stream) == cudaSuccess;
+  }
+  if (ready) {
+    ready = cudaStreamBeginCapture(stream, cudaStreamCaptureModeGlobal) ==
+            cudaSuccess;
+  }
+  if (ready) {
+    ready = launch() == static_cast<int>(cudaSuccess);
+  }
+  if (ready) {
+    ready = cudaStreamEndCapture(stream, &graph) == cudaSuccess &&
+            graph != nullptr;
+  } else if (stream != nullptr) {
+    (void)cudaStreamEndCapture(stream, &graph);
+  }
+
+  std::size_t node_count = 0U;
+  std::size_t kernel_nodes = 0U;
+  std::size_t other_nodes = 0U;
+  std::size_t fused_preprocess_nodes = 0U;
+  std::size_t standalone_normalize_nodes = 0U;
+  if (ready) {
+    ready = cudaGraphGetNodes(graph, nullptr, &node_count) == cudaSuccess;
+  }
+  std::vector<cudaGraphNode_t> nodes(node_count);
+  if (ready && node_count != 0U) {
+    std::size_t capacity = node_count;
+    ready = cudaGraphGetNodes(graph, nodes.data(), &capacity) == cudaSuccess &&
+            capacity == node_count;
+  }
+  const void* const fused_preprocess_handle =
+      q3x::runtime::gdn_prefill_whole_span_conv_detail::
+          token_parallel_compact_qk_kernel_handle_for_test();
+  const void* const standalone_normalize_handle =
+      q3x::runtime::gdn_prefill_chunk64_native_detail::
+          compact_qk_baseline_kernel_handle_for_test();
+  if (ready) {
+    ready = fused_preprocess_handle != nullptr &&
+            standalone_normalize_handle != nullptr;
+  }
+  if (ready) {
+    for (const cudaGraphNode_t node : nodes) {
+      cudaGraphNodeType type = cudaGraphNodeTypeEmpty;
+      if (cudaGraphNodeGetType(node, &type) != cudaSuccess) {
+        ready = false;
+        break;
+      }
+      if (type != cudaGraphNodeTypeKernel) {
+        ++other_nodes;
+        continue;
+      }
+      ++kernel_nodes;
+      cudaKernelNodeParams parameters{};
+      if (cudaGraphKernelNodeGetParams(node, &parameters) != cudaSuccess) {
+        ready = false;
+        break;
+      }
+      fused_preprocess_nodes +=
+          parameters.func == fused_preprocess_handle ? 1U : 0U;
+      standalone_normalize_nodes +=
+          parameters.func == standalone_normalize_handle ? 1U : 0U;
+    }
+  }
+  if (ready) {
+    ready = cudaGraphInstantiate(&executable, graph, 0U) == cudaSuccess;
+  }
+  if (ready) {
+    ready = cudaGraphLaunch(executable, stream) == cudaSuccess &&
+            cudaGraphLaunch(executable, stream) == cudaSuccess &&
+            cudaStreamSynchronize(stream) == cudaSuccess;
+  }
+  constexpr std::size_t kExpectedNodes = 8U;
+  const bool passed = ready && node_count == kExpectedNodes &&
+                      kernel_nodes == kExpectedNodes && other_nodes == 0U &&
+                      fused_preprocess_nodes == 1U &&
+                      standalone_normalize_nodes == 0U;
+  std::cout << "GDN_CHUNK64_NATIVE_CONV_COMPACT_QK_GRAPH"
+            << " nodes=" << node_count
+            << " kernel_nodes=" << kernel_nodes
+            << " other_nodes=" << other_nodes
+            << " fused_preprocess_nodes=" << fused_preprocess_nodes
+            << " standalone_normalize_nodes="
+            << standalone_normalize_nodes
+            << " replays=2"
+            << " gate=" << (passed ? "PASS" : "FAIL")
+            << " authority=PURE_KERNEL_CAPTURE_INSTANTIATE_REPLAY\n";
+
+  if (executable != nullptr) {
+    (void)cudaGraphExecDestroy(executable);
+  }
+  if (graph != nullptr) {
+    (void)cudaGraphDestroy(graph);
+  }
+  if (stream != nullptr) {
+    (void)cudaStreamDestroy(stream);
+  }
+  return passed;
+}
 
 [[nodiscard]] bool run_native_graph_validation(
     const bool vllm_layout_candidate = false,
@@ -1690,6 +2358,11 @@ int main(const int argc, char** const argv) {
   }
 #if defined(Q3X_GDN_CHUNK64_NATIVE_TEST)
   if (std::getenv(
+          "Q3X_GDN_CHUNK64_VALIDATE_CONV_COMPACT_QK_GRAPH_ONLY") !=
+      nullptr) {
+    return run_native_conv_compact_qk_graph_validation() ? 0 : 15;
+  }
+  if (std::getenv(
           "Q3X_GDN_CHUNK64_VALIDATE_PRODUCTION_GRAPH_ONLY") != nullptr) {
     return run_native_graph_validation(false, true) ? 0 : 8;
   }
@@ -1730,6 +2403,17 @@ int main(const int argc, char** const argv) {
   std::cout << std::fixed << std::setprecision(9);
   const std::string prompt = repeated_hello_prompt();
 #if defined(Q3X_GDN_CHUNK64_NATIVE_TEST)
+  if (std::getenv(
+          "Q3X_GDN_CHUNK64_RUN_CONV_COMPACT_QK_EQUIVALENCE_ONLY") !=
+      nullptr) {
+    return run_native_conv_compact_qk_equivalence(*created.value, prompt)
+               ? 0
+               : 14;
+  }
+  if (std::getenv(
+          "Q3X_GDN_CHUNK64_RUN_CONV_COMPACT_QK_BCCB_ONLY") != nullptr) {
+    return run_native_conv_compact_qk_bccb(*created.value, prompt) ? 0 : 16;
+  }
   if (std::getenv(
           "Q3X_GDN_CHUNK64_RUN_PRODUCTION_DEFAULT_ONLY") != nullptr) {
     Sample production_default;

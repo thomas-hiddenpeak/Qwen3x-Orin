@@ -11,6 +11,8 @@
 namespace q3x::runtime::gdn_prefill_whole_span_conv_detail {
 namespace {
 
+thread_local BoundaryInspectionHook g_boundary_inspection_hook{};
+
 constexpr unsigned int kThreads = 256U;
 constexpr unsigned int kBlocks =
     static_cast<unsigned int>(kGdnQkvChannels / kThreads);
@@ -363,6 +365,25 @@ void causal_conv1d_silu_update_token_parallel_compact_qk_kernel(
 
 }  // namespace
 
+BoundaryInspectionHook exchange_boundary_inspection_hook(
+    const BoundaryInspectionHook hook) noexcept {
+  const BoundaryInspectionHook previous = g_boundary_inspection_hook;
+  g_boundary_inspection_hook = hook;
+  return previous;
+}
+
+void inspect_boundaries(const std::uint16_t* const conv_qkv,
+                        const std::size_t token_count,
+                        const std::uint16_t* const history,
+                        void* const cuda_stream) noexcept {
+  const BoundaryInspectionHook hook = g_boundary_inspection_hook;
+  if (hook.callback != nullptr) {
+    hook.callback(conv_qkv, token_count * kGdnQkvChannels, history,
+                  kGdnQkvChannels * kGdnConvHistoryWidth, cuda_stream,
+                  hook.context);
+  }
+}
+
 int launch_causal_conv1d_silu_update_whole_span_exact_cuda(
     const std::uint16_t* const raw_qkv,
     const std::size_t token_count,
@@ -410,7 +431,12 @@ int launch_causal_conv1d_silu_update_token_parallel_exact_cuda(
       dim3(kBlocks, token_tiles), kThreads, 0U, stream>>>(
       raw_qkv, static_cast<unsigned int>(token_count), conv_weight,
       history_in_out, conv_qkv_output);
-  return static_cast<int>(cudaGetLastError());
+  const cudaError_t status = cudaGetLastError();
+  if (status == cudaSuccess) {
+    inspect_boundaries(conv_qkv_output, token_count, history_in_out,
+                       cuda_stream);
+  }
+  return static_cast<int>(status);
 }
 
 int launch_causal_conv1d_silu_update_token_parallel_compact_qk_exact_cuda(
@@ -447,7 +473,12 @@ int launch_causal_conv1d_silu_update_token_parallel_compact_qk_exact_cuda(
       dim3(kBlocks, token_tiles), kThreads, 0U, stream>>>(
       raw_qkv, static_cast<unsigned int>(token_count), conv_weight,
       history_in_out, conv_qkv_output, l2_epsilon, compact_q, compact_k);
-  return static_cast<int>(cudaGetLastError());
+  const cudaError_t status = cudaGetLastError();
+  if (status == cudaSuccess) {
+    inspect_boundaries(conv_qkv_output, token_count, history_in_out,
+                       cuda_stream);
+  }
+  return static_cast<int>(status);
 }
 
 int query_causal_conv1d_silu_update_whole_span_resources_cuda(
@@ -514,6 +545,11 @@ int query_causal_conv1d_silu_update_token_parallel_compact_qk_resources_cuda(
   *maximum_threads_per_block = attributes.maxThreadsPerBlock;
   *active_blocks_per_sm = active_blocks;
   return static_cast<int>(cudaSuccess);
+}
+
+const void* token_parallel_compact_qk_kernel_handle_for_test() noexcept {
+  return reinterpret_cast<const void*>(
+      causal_conv1d_silu_update_token_parallel_compact_qk_kernel);
 }
 
 }  // namespace q3x::runtime::gdn_prefill_whole_span_conv_detail

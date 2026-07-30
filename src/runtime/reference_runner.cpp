@@ -110,9 +110,19 @@ thread_local bool g_enable_gdn_conv_token_parallel_admission =
 
 [[nodiscard]] bool
 gdn_conv_compact_qk_fused_candidate_environment_enabled() noexcept {
-  const char* const value = std::getenv(
+  const char* const baseline = std::getenv(
+      "Q3X_RUN_GDN_CONV_COMPACT_QK_STANDALONE_BASELINE");
+  if (baseline != nullptr && std::strcmp(baseline, "1") == 0) {
+    return false;
+  }
+  // The exact real-weight, pure-Graph, and same-engine B-C-C-B gates admit
+  // this route as the native token-parallel production default.  Preserve
+  // the original candidate selector as a compatibility override: an
+  // explicit value other than "1" selects the old two-kernel path.
+  const char* const compatibility_selector = std::getenv(
       "Q3X_RUN_GDN_CONV_COMPACT_QK_FUSED_CANDIDATE");
-  return value != nullptr && std::strcmp(value, "1") == 0;
+  return compatibility_selector == nullptr ||
+         std::strcmp(compatibility_selector, "1") == 0;
 }
 
 thread_local bool g_enable_gdn_conv_compact_qk_fused_candidate =
@@ -177,6 +187,9 @@ thread_local bool g_enable_prefill_gdn_chunk64_native_admission =
 thread_local std::size_t g_prefill_gdn_chunk64_native_admission_hits = 0U;
 thread_local reference_runner_detail::PrefillGdnChunk64NativeSnapshotHook
     g_prefill_gdn_chunk64_native_snapshot_hook{};
+thread_local reference_runner_detail::
+    PrefillGdnChunk64NativeFinalSnapshotHook
+        g_prefill_gdn_chunk64_native_final_snapshot_hook{};
 #endif
 #if defined(Q3X_ENABLE_GDN_CHUNK64_REFERENCE_ADMISSION)
 // Compile-time-isolated architecture switch. It stays false unless the
@@ -765,6 +778,13 @@ PrefillGdnChunk64NativeSnapshotHook
 exchange_prefill_gdn_chunk64_native_snapshot_hook(
     const PrefillGdnChunk64NativeSnapshotHook hook) noexcept {
   return std::exchange(g_prefill_gdn_chunk64_native_snapshot_hook, hook);
+}
+
+PrefillGdnChunk64NativeFinalSnapshotHook
+exchange_prefill_gdn_chunk64_native_final_snapshot_hook(
+    const PrefillGdnChunk64NativeFinalSnapshotHook hook) noexcept {
+  return std::exchange(g_prefill_gdn_chunk64_native_final_snapshot_hook,
+                       hook);
 }
 #endif
 #if defined(Q3X_ENABLE_GDN_CHUNK64_REFERENCE_ADMISSION)
@@ -2847,6 +2867,14 @@ ReferenceStepOutcome ReferenceRunner::step_impl(
         ReferenceRunnerError::kStateCommitFailure, "commit_token",
         kReferenceNoLayer, commit_status.cuda_error));
   }
+#if defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
+  const auto native_chunk64_final_snapshot_hook =
+      g_prefill_gdn_chunk64_native_final_snapshot_hook;
+  if (native_chunk64_final_snapshot_hook.callback != nullptr) {
+    native_chunk64_final_snapshot_hook.callback(
+        *state_, native_chunk64_final_snapshot_hook.context);
+  }
+#endif
 #if defined(Q3X_ENABLE_GDN_C16_NORM_GATE_ADMISSION)
   // step_synchronize above makes every recurrent-state write visible before
   // this admission-only observer runs. The callback has no return channel so

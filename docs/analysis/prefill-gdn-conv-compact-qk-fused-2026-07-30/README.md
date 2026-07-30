@@ -2,8 +2,9 @@
 
 Date: 2026-07-30
 
-This branch starts from cumulative checkpoint `fba08add`. It is a structural
-candidate only: no real-model performance result is claimed here.
+This work starts from cumulative checkpoint `fba08add`. The structural route
+has now passed its real-model direction and retention gates and is the native
+token-parallel production default.
 
 ## Frozen evidence and selection
 
@@ -83,9 +84,9 @@ also remain passing.
 Synthetic values are used only for this correctness component gate. They are
 not a performance verdict.
 
-## Real-path admission evidence
+## Real-path admission and retention evidence
 
-The same-ELF selector is:
+The original same-ELF development selector was:
 
 `Q3X_RUN_GDN_CONV_COMPACT_QK_FUSED_CANDIDATE=1`
 
@@ -102,7 +103,37 @@ also show
 `causal_conv1d_silu_update_token_parallel_compact_qk_kernel` and no standalone
 `normalize_qk_kernel` for the aligned tile before any timing is accepted.
 
-The next authorized gate is one real-model P513 baseline/candidate direction
-sample with the complete production environment. A negative result is enough
-to reject the structure; a positive result must then pass the full project
-retention protocol.
+The first real-weight P513 direction sample was positive in the complete
+production path: prefix latency fell from 1312.116842 ms to 1302.796253 ms
+and TTFT fell from 1317.269851 ms to 1307.258893 ms. The candidate then
+passed all three retention gates:
+
+- exact same-engine boundaries: first-layer convolution (5,242,880 BF16),
+  history (30,720), compact Q and K (1,048,576 each), final-layer state
+  (786,432), final-layer output (3,145,728), the post-native-C512 request
+  state (37,748,736), and the directly observed post-prompt-P513 request
+  state (37,748,736) all had zero unequal BF16 values; generation remained
+  token 9419 / `Hello`, with native hits 48/48 and fused hits 0/48;
+- CUDA Graph: eight nodes, all kernel nodes, exactly one fused-preprocess
+  node, zero standalone-normalize nodes, successful instantiate and two
+  replays;
+- same-engine real-weight B-C-C-B: both prefix pairs were positive
+  (+2.810068 ms and +7.314881 ms) and both TTFT pairs were positive
+  (+2.796020 ms and +7.634692 ms), with exact route-hit and generation
+  oracles.
+
+Consequently, once native C64 and token-parallel convolution are active, the
+fused route is selected by default for a C64-aligned span. The authenticated
+old two-kernel route remains available through:
+
+`Q3X_RUN_GDN_CONV_COMPACT_QK_STANDALONE_BASELINE=1`
+
+For compatibility, explicitly setting
+`Q3X_RUN_GDN_CONV_COMPACT_QK_FUSED_CANDIDATE` to a value other than `1` also
+selects the old route. Arbitrary legacy tails retain the old path regardless,
+because compact native Q/K only owns the aligned prefix.
+
+A production-default real-weight P513 smoke omitted both the development
+selector and the fallback selector. It observed 48/48 fused-preprocess hits,
+48/48 native hits, token 9419 / `Hello`, and passing structural and semantic
+oracles.
