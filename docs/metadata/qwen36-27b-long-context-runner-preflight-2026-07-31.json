@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-long-context-runner-preflight-2026-07-31",
+  "status": "host_preflight_only_no_gpu_performance_claim",
+  "recorded_at": "2026-07-31T00:00:00+08:00",
+  "implementation_base": "fd02798726098de90d2e6230d16e7b7a8406a366",
+  "limits": {
+    "absolute_sequence_positions": 262144,
+    "evaluation_server_default_request_arena_bytes": 2147483648,
+    "prefill_chunk_tokens": 512,
+    "capacities": {
+      "p8k": {
+        "max_sequence_length": 8192,
+        "planned_arena_bytes": 705593344,
+        "request_max_arena_bytes": 705593344,
+        "max_output_tokens": [1]
+      },
+      "p16k": {
+        "max_sequence_length": 16384,
+        "planned_arena_bytes": 1245085696,
+        "request_max_arena_bytes": 1245085696,
+        "max_output_tokens": [1]
+      },
+      "p40k": {
+        "prompt_target_tokens": 40000,
+        "prompt_plus_16_required_positions": 40015,
+        "max_sequence_length": 40960,
+        "planned_arena_bytes": 2864349184,
+        "request_max_arena_bytes": 3221225472,
+        "max_output_tokens": [1, 16]
+      }
+    }
+  },
+  "known_boundaries": {
+    "existing_short_evalscope_runner_max_sequence_length": 4096,
+    "layer_major_prefill_maximum_tokens": 4096,
+    "optimized_decode_gqa_splitkv_maximum_sequence_length": 4096,
+    "long_context_group_q64_attention_maximum_sequence_length": 40960
+  },
+  "admission": {
+    "build_required": [
+      "Q3X_BUILD_FULL_ATTENTION_LONG_CONTEXT_GROUP_Q64_ADMISSION=ON",
+      "Q3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION=ON"
+    ],
+    "run_required": [
+      "Q3X_RUN_FULL_ATTENTION_LONG_CONTEXT_GROUP_Q64_ADMISSION=1",
+      "Q3X_FULL_ATTENTION_FLASHINFER_DIRECT=1"
+    ],
+    "readiness_required": {
+      "long_context_group_q64_compiled": 1,
+      "long_context_group_q64_run_requested": 1,
+      "long_context_group_q64_probe_selected": 1
+    }
+  },
+  "corpus_policy": {
+    "builder_in_repository": false,
+    "manifest_schema": "benchmarks/evalscope/qwen36-long-context-prefill-v1.manifest.schema.json",
+    "manifest_sha256_argument_required": true,
+    "authorized_real_natural_corpus_required": true,
+    "padding_repetition_truncation_concatenation_synthetic_text_allowed": false,
+    "missing_corpus_behavior": "fail_closed_before_gpu_lock"
+  },
+  "performance": {
+    "gpu_runs": 0,
+    "p8k_tokens_per_second": null,
+    "p16k_tokens_per_second": null,
+    "p40k_tokens_per_second": null
+  }
+}

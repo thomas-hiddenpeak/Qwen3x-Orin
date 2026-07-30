@@ -1,5 +1,6 @@
 #include "q3x/server/evaluation_server.h"
 
+#include "q3x/runtime/decode_ops.h"
 #include "q3x/server/openai_protocol.h"
 
 #include <arpa/inet.h>
@@ -17,6 +18,7 @@
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <deque>
 #include <iostream>
@@ -1324,7 +1326,13 @@ int run_evaluation_server(const EvaluationServerOptions& options,
       options.max_sequence_length;
   engine_options.request_options.prefill_chunk_size =
       options.prefill_chunk_size;
+  const char* const long_prefill_value =
+      std::getenv("Q3X_RUN_LONG_PREFILL_LAYER_MAJOR_ADMISSION");
+  const bool long_prefill_requested =
+      long_prefill_value != nullptr &&
+      std::strcmp(long_prefill_value, "1") == 0;
   if (runtime::long_prefill_layer_major_build_enabled() &&
+      long_prefill_requested &&
       options.prefill_chunk_size ==
           runtime::kLongPrefillLayerMajorTileTokens &&
       options.max_sequence_length >
@@ -1385,12 +1393,35 @@ int run_evaluation_server(const EvaluationServerOptions& options,
   }
 
   const runtime::ReferenceEngineLoadStats& load = engine.load_stats();
+  const char* const long_context_attention_value = std::getenv(
+      "Q3X_RUN_FULL_ATTENTION_LONG_CONTEXT_GROUP_Q64_ADMISSION");
+  const bool long_context_attention_requested =
+      long_context_attention_value != nullptr &&
+      std::strcmp(long_context_attention_value, "1") == 0;
+  const bool long_context_attention_probe_selected =
+      runtime::use_bulk_causal_gqa_long_context_group_q64_admission(
+          1'024U, 512U);
   std::cout << "ready: http://" << options.bind_address << ':'
             << options.port << "/v1 model=" << options.served_model
             << " max_sequence_length=" << options.max_sequence_length
+            << " maximum_output_tokens=" << options.maximum_output_tokens
+            << " request_max_arena_bytes="
+            << options.request_max_arena_bytes
             << " prefill_chunk_size=" << options.prefill_chunk_size
+            << " readiness_route=/healthz"
+            << " long_context_group_q64_compiled="
+            << (runtime::
+                        bulk_causal_gqa_long_context_group_q64_admission_compiled()
+                    ? 1
+                    : 0)
+            << " long_context_group_q64_run_requested="
+            << (long_context_attention_requested ? 1 : 0)
+            << " long_context_group_q64_probe_selected="
+            << (long_context_attention_probe_selected ? 1 : 0)
             << " long_prefill_build_enabled="
             << (runtime::long_prefill_layer_major_build_enabled() ? 1 : 0)
+            << " long_prefill_run_requested="
+            << (long_prefill_requested ? 1 : 0)
             << " long_prefill_hidden_capacity="
             << engine_options.request_options.long_prefill_token_capacity
             << " inference_workers=1 queue_capacity="
@@ -1410,7 +1441,7 @@ int run_evaluation_server(const EvaluationServerOptions& options,
             << " nvfp4_down_consumer_order_layers="
             << load.nvfp4_down_consumer_order_sidecar_layers
             << " nvfp4_down_consumer_order_bytes="
-            << load.nvfp4_down_consumer_order_sidecar_bytes << '\n';
+            << load.nvfp4_down_consumer_order_sidecar_bytes << std::endl;
 
   bool fatal_accept_error = false;
   while (!stop_requested.load(std::memory_order_relaxed)) {

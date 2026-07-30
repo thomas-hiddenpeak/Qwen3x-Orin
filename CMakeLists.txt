@@ -411,6 +411,15 @@ if(BUILD_TESTING)
     set_tests_properties(evalscope_triplet_validator PROPERTIES
       LABELS "evaluation;host"
     )
+    add_test(
+      NAME long_context_evalscope_harness
+      COMMAND "${CMAKE_COMMAND}" -E env "PYTHONDONTWRITEBYTECODE=1"
+              "${Python3_EXECUTABLE}"
+              "${CMAKE_CURRENT_SOURCE_DIR}/tests/long_context_evalscope_harness_test.py"
+    )
+    set_tests_properties(long_context_evalscope_harness PROPERTIES
+      LABELS "evaluation;host"
+    )
   endif()
 
   set(Q3X_E2E_MODEL_DIR "" CACHE PATH
