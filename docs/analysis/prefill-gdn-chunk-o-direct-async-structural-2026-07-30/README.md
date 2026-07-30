@@ -1,16 +1,36 @@
-# GDN chunk-o direct-async structural candidate (static gate)
+# REJECTED: GDN chunk-o direct-async structural candidate
 
 Date: 2026-07-30
 
-## Status and authority
+## Decision and authority
 
-This is a **correctness-screened structural candidate**, not a production
-admission and not a performance claim.  It is based on cumulative commit
-`85f5f01`.  Per the GPU-ownership coordination rule, only the component
-correctness executable was run under `/tmp/q3x-gpu-bench.lock`; no real model
-or profiler was started.  The first performance gate remains the
-real-checkpoint generation path; synthetic data is only a fragment and
-boundary correctness authority.
+**REJECTED.  Do not merge or cherry-pick this kernel into any production
+path.**  The real-checkpoint P513 generation gate was both much slower and
+semantically wrong.  The synthetic component PASS was therefore insufficient
+and has no admission authority.
+
+This experiment is based on cumulative commit `85f5f01`.  Commits `7f7f735`
+and `7f2c02a` are development/diagnostic skeletons only; neither is an
+admissible implementation.  The real model and complete generation path take
+priority over fragment tests, resource tables, and structural similarity to a
+reference artifact.
+
+## Real-weight production-path rejection
+
+The authenticated Qwen3.6-27B-NVFP4 P513 request produced:
+
+| route | token / text | Prefix ms | result |
+|:---|:---|---:|:---|
+| incumbent | 9419 / `Hello` | 1,255.367 | semantic PASS |
+| direct-async | 71093 / <code>&#96;&#96;&#96;</code> | 1,579.420 | semantic **FAIL** |
+| delta | — | **+324.054** | strong regression |
+
+The candidate was about 25.8% slower by these rounded Prefix values and
+changed the generated token/text.  This immediately terminates the direction:
+there is no further performance profiling, parameter scan, external EvalScope
+run, or attempt to repair it.  Its compiled 162 registers/thread, 24 KiB
+shared memory and three-CTA/SM bound did not translate into either correct
+execution or a real-path gain.
 
 The comparison source is the installed vLLM/FLA implementation at:
 
@@ -58,7 +78,7 @@ Those mechanisms are coupled: changing only the load cache operator cannot
 remove the register transpose, and changing only occupancy cannot repair the
 instruction/data lifetime.
 
-## Candidate data flow
+## Rejected candidate data flow
 
 Grid and ownership remain `(2, chunks, 48)` and one BV64 half per CTA, so the
 candidate preserves the incumbent scheduling phase and exact external
@@ -85,7 +105,7 @@ The existing 16 KiB FP32 QH layout exchange, causal BF16 score boundary, and
 separate exact rows-8 RMSNorm+SiLU epilogue remain unchanged.  This isolates
 the candidate to the on-chip load/fragment skeleton.
 
-## Tail contract
+## Intended tail contract
 
 The kernel remains fixed C64 internally.  For a final partial chunk, the
 producer contract is the FLA identity-padding contract already implemented by
@@ -107,7 +127,7 @@ whose query or source is outside `token_count` and suppresses padded raw-output
 stores.  Thus real query/source masking does not depend on the producer zeros,
 while the common full-C64 production path pays no tail predicate cost.
 
-## Static evidence
+## Static evidence (non-admission)
 
 Release CUDA 13.3 SM87 compilation completed for `q3x_kernels` and
 `q3x_gdn_prefill_chunk_o_bv64_component_test`, and the complete native-engine
@@ -131,7 +151,7 @@ the 64-site QH/QK body executes for two BK panels and the final 32 sites
 execute once, totaling the same 160 dynamic MMA operations per warp path as
 the incumbent.  The reduction is instruction-cache/control duplication.
 
-## Component correctness
+## Component correctness (insufficient)
 
 The first x4 draft incorrectly used `.trans` for canonical `[N,K]`, which
 double-transposed the logical B operand.  The expanded B4 sentinel rejected
@@ -150,13 +170,11 @@ GDN_CHUNK_O_BV64_ROWS8_NORM unequal=0 gate=PASS
 GDN_CHUNK_O_BV64_COMPONENT_RESULT gate=PASS
 ```
 
-The fixed SASS now has exactly the selected Triton artifact's B/A fragment
+The fixed SASS had exactly the selected Triton artifact's B/A fragment
 site split: 44 non-transposing `LDSM.M88.4` and eight transposing
-`LDSM.MT88.4` sites.
+`LDSM.MT88.4` sites.  The subsequent real-model semantic failure demonstrates
+why matching instruction shape and passing isolated fragments cannot establish
+the actual model-layout/numerical contract.
 
-The next admissible sequence is:
-
-1. run one real P513 incumbent/candidate generation pair in the same ELF;
-2. if positive, run complete real-output exactness and the external first-8
-   EvalScope gate;
-3. only then use NSys/NCU to attribute the retained direction.
+No further work is authorized on this candidate.  It is retained only as a
+negative result that rules out this implementation skeleton.
