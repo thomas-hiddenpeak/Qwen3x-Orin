@@ -280,21 +280,22 @@ __global__ void merged_gate_up_silu_kernel(
   return static_cast<int>(cudaPeekAtLastError());
 }
 
-template <int ThreadMBlocks, int ThreadNBlocks, int ThreadKBlocks,
-          bool MBlockSize8>
+template <bool FusedDownResidual, int ThreadMBlocks, int ThreadNBlocks,
+          int ThreadKBlocks, bool MBlockSize8>
 [[nodiscard]] int launch_marlin_specialization(
     const std::uint16_t* const input,
     const std::uint8_t* const marlin_weight,
     const std::uint8_t* const marlin_scales,
     const float* const marlin_global_scale, const std::size_t token_count,
     const int output_size, const int input_size, std::uint16_t* const output,
-    float* const c_tmp, std::int32_t* const locks,
+    const std::uint16_t* const residual, float* const c_tmp,
+    std::int32_t* const locks,
     void* const cuda_stream) noexcept {
   const auto kernel =
       marlin::Marlin<vllm::kBFloat16.id(), vllm::kFE2M1f.id(),
                      vllm::kBFloat16.id(), vllm::kFE4M3fn.id(), kThreads,
                      ThreadMBlocks, ThreadNBlocks, ThreadKBlocks, MBlockSize8,
-                     kStages, kGroupBlocks, false>;
+                     kStages, kGroupBlocks, false, FusedDownResidual>;
   cudaError_t status = cudaFuncSetAttribute(
       kernel, cudaFuncAttributeMaxDynamicSharedMemorySize,
       static_cast<int>(kSm87NvFp4MarlinDynamicSharedBytes));
@@ -307,7 +308,8 @@ template <int ThreadMBlocks, int ThreadNBlocks, int ThreadKBlocks,
       reinterpret_cast<const int4*>(input),
       reinterpret_cast<const int4*>(marlin_weight),
       reinterpret_cast<int4*>(output), reinterpret_cast<int4*>(c_tmp),
-      nullptr, nullptr, reinterpret_cast<const int4*>(marlin_scales),
+      reinterpret_cast<const int4*>(residual), nullptr,
+      reinterpret_cast<const int4*>(marlin_scales),
       marlin_global_scale, nullptr, nullptr, input_size / kGroupSize,
       static_cast<int>(token_count), output_size, input_size, input_size, locks,
       false, false, true,
@@ -315,47 +317,53 @@ template <int ThreadMBlocks, int ThreadNBlocks, int ThreadKBlocks,
   return static_cast<int>(cudaPeekAtLastError());
 }
 
+template <bool FusedDownResidual>
 [[nodiscard]] int launch_marlin_segment(
     const std::uint16_t* const input,
     const std::uint8_t* const marlin_weight,
     const std::uint8_t* const marlin_scales,
     const float* const marlin_global_scale, const std::size_t token_count,
     const int output_size, const int input_size, std::uint16_t* const output,
-    float* const c_tmp, std::int32_t* const locks,
+    const std::uint16_t* const residual, float* const c_tmp,
+    std::int32_t* const locks,
     void* const cuda_stream) noexcept {
   if (token_count <= 8U) {
-    return launch_marlin_specialization<1, 8, 8, true>(
+    return launch_marlin_specialization<FusedDownResidual, 1, 8, 8, true>(
         input, marlin_weight, marlin_scales, marlin_global_scale, token_count,
-        output_size, input_size, output, c_tmp, locks, cuda_stream);
+        output_size, input_size, output, residual, c_tmp, locks, cuda_stream);
   }
   if (token_count <= 16U) {
-    return launch_marlin_specialization<1, 8, 8, false>(
+    return launch_marlin_specialization<FusedDownResidual, 1, 8, 8, false>(
         input, marlin_weight, marlin_scales, marlin_global_scale, token_count,
-        output_size, input_size, output, c_tmp, locks, cuda_stream);
+        output_size, input_size, output, residual, c_tmp, locks, cuda_stream);
   }
   if (token_count <= kSm87NvFp4MarlinTailMaximumTokens) {
-    return launch_marlin_specialization<2, 16, 4, false>(
+    return launch_marlin_specialization<FusedDownResidual, 2, 16, 4, false>(
         input, marlin_weight, marlin_scales, marlin_global_scale, token_count,
-        output_size, input_size, output, c_tmp, locks, cuda_stream);
+        output_size, input_size, output, residual, c_tmp, locks, cuda_stream);
   }
-  return launch_marlin_specialization<4, 16, 4, false>(
+  return launch_marlin_specialization<FusedDownResidual, 4, 16, 4, false>(
       input, marlin_weight, marlin_scales, marlin_global_scale, token_count,
-      output_size, input_size, output, c_tmp, locks, cuda_stream);
+      output_size, input_size, output, residual, c_tmp, locks, cuda_stream);
 }
 
+template <bool FusedDownResidual>
 [[nodiscard]] int launch_fixed_marlin(
     const std::uint16_t* const input,
     const std::uint8_t* const marlin_weight,
     const std::uint8_t* const marlin_scales,
     const float* const marlin_global_scale, const std::size_t token_count,
     const int output_size, const int input_size, std::uint16_t* const output,
-    float* const c_tmp, std::int32_t* const locks,
+    const std::uint16_t* const residual, float* const c_tmp,
+    std::int32_t* const locks,
     void* const cuda_stream) noexcept {
   if (!aligned(input, 16U) || !aligned(marlin_weight, 16U) ||
       !aligned(marlin_scales, 16U) ||
       !aligned(marlin_global_scale, alignof(float)) ||
       !aligned(output, 16U) || !aligned(c_tmp, 16U) ||
       !aligned(locks, alignof(std::int32_t)) ||
+      (FusedDownResidual &&
+       (!aligned(residual, 16U) || residual == output)) ||
       !sm87_nvfp4_marlin_supports_token_count(token_count)) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
@@ -366,10 +374,10 @@ template <int ThreadMBlocks, int ThreadNBlocks, int ThreadKBlocks,
 
   const Sm87NvFp4MarlinExecutionPlan plan =
       sm87_nvfp4_marlin_execution_plan(token_count);
-  const int primary_status = launch_marlin_segment(
+  const int primary_status = launch_marlin_segment<FusedDownResidual>(
       input, marlin_weight, marlin_scales, marlin_global_scale,
-      plan.primary_tokens, output_size, input_size, output, c_tmp, locks,
-      cuda_stream);
+      plan.primary_tokens, output_size, input_size, output, residual, c_tmp,
+      locks, cuda_stream);
   if (primary_status != static_cast<int>(cudaSuccess) ||
       plan.remainder_tokens == 0U) {
     return primary_status;
@@ -379,10 +387,12 @@ template <int ThreadMBlocks, int ThreadNBlocks, int ThreadKBlocks,
       plan.primary_tokens * static_cast<std::size_t>(input_size);
   const std::size_t output_offset =
       plan.primary_tokens * static_cast<std::size_t>(output_size);
-  return launch_marlin_segment(
+  return launch_marlin_segment<FusedDownResidual>(
       input + input_offset, marlin_weight, marlin_scales,
       marlin_global_scale, plan.remainder_tokens, output_size, input_size,
-      output + output_offset, c_tmp, locks, cuda_stream);
+      output + output_offset,
+      FusedDownResidual ? residual + output_offset : nullptr, c_tmp, locks,
+      cuda_stream);
 }
 
 }  // namespace
@@ -473,12 +483,12 @@ int launch_sm87_nvfp4_marlin_gate_up_cuda(
     const std::size_t token_count,
     std::uint16_t* const merged_gate_up_output, float* const c_tmp,
     std::int32_t* const locks, void* const cuda_stream) noexcept {
-  return launch_fixed_marlin(
+  return launch_fixed_marlin<false>(
       input, marlin_weight, marlin_scales, marlin_global_scale,
       token_count,
       static_cast<int>(kSm87NvFp4MarlinGateUpOutput),
-      static_cast<int>(kSm87NvFp4MarlinHidden), merged_gate_up_output, c_tmp,
-      locks, cuda_stream);
+      static_cast<int>(kSm87NvFp4MarlinHidden), merged_gate_up_output,
+      nullptr, c_tmp, locks, cuda_stream);
 }
 
 int launch_sm87_nvfp4_marlin_down_cuda(
@@ -489,12 +499,27 @@ int launch_sm87_nvfp4_marlin_down_cuda(
     std::uint16_t* const output, float* const c_tmp,
     std::int32_t* const locks,
     void* const cuda_stream) noexcept {
-  return launch_fixed_marlin(
+  return launch_fixed_marlin<false>(
       input, marlin_weight, marlin_scales, marlin_global_scale,
       token_count,
       static_cast<int>(kSm87NvFp4MarlinHidden),
-      static_cast<int>(kSm87NvFp4MarlinIntermediate), output, c_tmp, locks,
-      cuda_stream);
+      static_cast<int>(kSm87NvFp4MarlinIntermediate), output, nullptr, c_tmp,
+      locks, cuda_stream);
+}
+
+int launch_sm87_nvfp4_marlin_down_residual_cuda(
+    const std::uint16_t* const input,
+    const std::uint8_t* const marlin_weight,
+    const std::uint8_t* const marlin_scales,
+    const float* const marlin_global_scale, const std::size_t token_count,
+    const std::uint16_t* const residual, std::uint16_t* const output,
+    float* const c_tmp, std::int32_t* const locks,
+    void* const cuda_stream) noexcept {
+  return launch_fixed_marlin<true>(
+      input, marlin_weight, marlin_scales, marlin_global_scale, token_count,
+      static_cast<int>(kSm87NvFp4MarlinHidden),
+      static_cast<int>(kSm87NvFp4MarlinIntermediate), output, residual, c_tmp,
+      locks, cuda_stream);
 }
 
 int launch_sm87_nvfp4_marlin_gate_up_silu_cuda(

@@ -54,7 +54,8 @@ template <typename scalar_t,  // compute dtype, half or nv_float16
           const bool has_act_order,  // whether act_order is enabled
           const int group_blocks,    // number of consecutive 16x16 blocks
                                      // with a separate quantization scale
-          const bool is_zp_float     // is zero point of float16 type?
+          const bool is_zp_float,    // is zero point of float16 type?
+          const bool fused_down_residual = false
           >
 __global__ void Marlin(
     const int4* __restrict__ A,  // fp16 input matrix of shape mxk
@@ -238,7 +239,8 @@ template <const vllm::ScalarTypeId a_type_id,  // A ScalarType id
                              // fetch pipeline
           const int group_blocks,  // number of consecutive 16x16 blocks
                                    // with a separate quantization scale
-          const bool is_zp_float   // is zero point of float16 type?
+          const bool is_zp_float,  // is zero point of float16 type?
+          const bool fused_down_residual = false
           >
 __global__ void Marlin(
     const int4* __restrict__ A0,  // fp16 input matrix of shape mxk
@@ -324,6 +326,9 @@ __global__ void Marlin(
   static constexpr auto b_type = vllm::ScalarType::from_id(b_type_id);
   static constexpr auto c_type = vllm::ScalarType::from_id(c_type_id);
   static constexpr auto s_type = vllm::ScalarType::from_id(s_type_id);
+  if constexpr (fused_down_residual) {
+    static_assert(c_type_id == vllm::kBFloat16.id());
+  }
   if constexpr (b_type == vllm::kFE2M1f) {
     static_assert(s_type == vllm::kFE4M3fn && group_blocks == 1 ||
                   s_type == vllm::kFE8M0fnu && group_blocks == 2);
@@ -478,6 +483,9 @@ __global__ void Marlin(
     if (slice_col == n_tiles) {
       A += 16 * thread_m_blocks * lda / (is_a_8bit ? 16 : 8);
       C += 16 * thread_m_blocks * prob_n / 8;
+      if constexpr (fused_down_residual) {
+        b_bias_ptr += 16 * thread_m_blocks * prob_n / 8;
+      }
       slice_col = 0;
       par_id++;
     }
@@ -492,7 +500,12 @@ __global__ void Marlin(
   auto init_part1_slice = [&]() {
     if (part1_mn_iters) {
       part1_mn_iters--;
-      par_id = slice_col_par / n_tiles;
+      const int next_par_id = slice_col_par / n_tiles;
+      if constexpr (fused_down_residual) {
+        b_bias_ptr += 16 * thread_m_blocks / 8 *
+                      (next_par_id - par_id) * prob_n;
+      }
+      par_id = next_par_id;
       slice_col = slice_col_par % n_tiles;
       slice_iters = k_tiles;
       A = A0 + 16 * thread_m_blocks / (is_a_8bit ? 16 : 8) * par_id * lda;
@@ -512,7 +525,13 @@ __global__ void Marlin(
       slice_col_par = (iters * blockIdx.x) / k_tiles;
       slice_row = (iters * blockIdx.x) % k_tiles;
       slice_col = (slice_col_par + global_mn_tiles - part2_mn_tiles) % n_tiles;
-      par_id = (slice_col_par + global_mn_tiles - part2_mn_tiles) / n_tiles;
+      const int next_par_id =
+          (slice_col_par + global_mn_tiles - part2_mn_tiles) / n_tiles;
+      if constexpr (fused_down_residual) {
+        b_bias_ptr += 16 * thread_m_blocks / 8 *
+                      (next_par_id - par_id) * prob_n;
+      }
+      par_id = next_par_id;
       A = A0 + 16 * thread_m_blocks / (is_a_8bit ? 16 : 8) * par_id * lda;
       C = C0 + 16 * thread_m_blocks / 8 * par_id * prob_n;
     }
@@ -1734,6 +1753,29 @@ __global__ void Marlin(
   #pragma unroll
           for (int a = 0; a < 4; a++) {
             atomicAdd(&C_half2[a], sh_red_half2[a]);
+          }
+        } else if constexpr (fused_down_residual) {
+          // The ordinary Marlin epilogue has already rounded each result to
+          // BF16 in sh_red.  Preserve that boundary, then perform the model's
+          // residual add directly in the final global write.  Keep this loop
+          // deliberately rolled: a single packed BF16x2 accumulator avoids
+          // extending eight FP32 live ranges in the already register-bound
+          // large-M specialization.
+          auto* const output_words =
+              reinterpret_cast<unsigned int*>(&C[c_gl_wr]);
+          const auto* const down_words =
+              reinterpret_cast<const unsigned int*>(&sh_red[c_sh_rd]);
+          const auto* const residual_words =
+              reinterpret_cast<const unsigned int*>(&b_bias_ptr[c_gl_wr]);
+  #pragma unroll 1
+          for (int word = 0; word < 4; ++word) {
+            const unsigned int down_word = down_words[word];
+            const unsigned int residual_word = residual_words[word];
+            unsigned int fused_word;
+            asm volatile("add.rn.bf16x2 %0, %1, %2;"
+                         : "=r"(fused_word)
+                         : "r"(residual_word), "r"(down_word));
+            output_words[word] = fused_word;
           }
         } else {
           C[c_gl_wr] = sh_red[c_sh_rd];

@@ -148,6 +148,16 @@ thread_local std::size_t g_gdn_conv_compact_qk_fused_candidate_hits = 0U;
 thread_local bool g_enable_nvfp4_marlin_prefill_admission =
     nvfp4_marlin_prefill_environment_enabled();
 thread_local std::size_t g_nvfp4_marlin_prefill_admission_hits = 0U;
+
+[[nodiscard]] bool
+prefill_marlin_down_residual_environment_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_PREFILL_MARLIN_DOWN_RESIDUAL_ADMISSION");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
+thread_local bool g_enable_prefill_marlin_down_residual_admission =
+    prefill_marlin_down_residual_environment_enabled();
 #endif
 
 #if defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION)
@@ -4000,6 +4010,7 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
       }
     }
     bool marlin_mlp_completed = false;
+    bool marlin_down_residual_completed = false;
 #if defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION)
     const auto* const marlin_gate =
         std::get_if<NvFp4LinearWeight>(&layer_weights.mlp.gate_proj);
@@ -4039,6 +4050,11 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
       auto* const locks =
           reinterpret_cast<std::int32_t*>(views_.projection[3]);
       const auto stream = reinterpret_cast<cudaStream_t>(stream_);
+      const bool use_fused_down_residual =
+          g_enable_prefill_marlin_down_residual_admission &&
+          use_m32_residual_rms_fusion &&
+          kernels::sm87_nvfp4_marlin_tile_config(token_count).thread_m ==
+              kernels::kSm87NvFp4MarlinM64Tokens;
       if (!check_cuda(
               static_cast<int>(cudaMemsetAsync(
                   locks, 0, kernels::kSm87NvFp4MarlinLockBytes, stream)),
@@ -4057,16 +4073,30 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
                   stream_),
               "prefill_marlin_gate_up_silu", layer) ||
           !check_cuda(
-              kernels::launch_sm87_nvfp4_marlin_down_cuda(
-                  views_.projection[2], marlin_down->prefill_marlin_weight,
-                  marlin_down->prefill_marlin_scales,
-                  marlin_down->prefill_marlin_global_scale, token_count,
-                  views_.hidden[1], views_.fp32_scratch, locks, stream_),
-              "prefill_marlin_down", layer)) {
+              use_fused_down_residual
+                  ? kernels::launch_sm87_nvfp4_marlin_down_residual_cuda(
+                        views_.projection[2],
+                        marlin_down->prefill_marlin_weight,
+                        marlin_down->prefill_marlin_scales,
+                        marlin_down->prefill_marlin_global_scale,
+                        token_count, views_.hidden[2], views_.hidden[0],
+                        views_.fp32_scratch, locks, stream_)
+                  : kernels::launch_sm87_nvfp4_marlin_down_cuda(
+                        views_.projection[2],
+                        marlin_down->prefill_marlin_weight,
+                        marlin_down->prefill_marlin_scales,
+                        marlin_down->prefill_marlin_global_scale,
+                        token_count, views_.hidden[1], views_.fp32_scratch,
+                        locks, stream_),
+              use_fused_down_residual
+                  ? "prefill_marlin_down_residual"
+                  : "prefill_marlin_down",
+              layer)) {
         return fail_prefill_tile(launch_failure);
       }
       ++g_nvfp4_marlin_prefill_admission_hits;
       marlin_mlp_completed = true;
+      marlin_down_residual_completed = use_fused_down_residual;
     }
 #endif
 
@@ -4162,7 +4192,24 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
         return fail_prefill_tile(launch_failure);
       }
     }
-    if (use_m32_residual_rms_fusion) {
+    if (marlin_down_residual_completed) {
+      const bool is_final_layer =
+          layer + 1U == kReferenceDecoderLayerCount;
+      const std::uint16_t* const next_norm_weight =
+          is_final_layer
+              ? weights_->final_norm().data
+              : weights_->layer(layer + 1U).input_layernorm.data;
+      const char* const operation =
+          is_final_layer ? "prefill_layer_fused_down_residual_final_norm"
+                         : "prefill_layer_fused_down_residual_next_input_norm";
+      if (!check_cuda(launch_headwise_centered_rms_norm_reference_cuda(
+                          views_.hidden[0], next_norm_weight, token_count,
+                          kReferenceHiddenSize, kRmsEpsilon,
+                          views_.hidden[1], stream_),
+                      operation, layer)) {
+        return fail_prefill_tile(launch_failure);
+      }
+    } else if (use_m32_residual_rms_fusion) {
       const bool is_final_layer =
           layer + 1U == kReferenceDecoderLayerCount;
       const std::uint16_t* const next_norm_weight =

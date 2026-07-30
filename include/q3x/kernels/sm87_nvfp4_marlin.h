@@ -175,6 +175,18 @@ static_assert(sm87_nvfp4_marlin_execution_plan(512U).launch_count == 1U);
     std::size_t token_count, std::uint16_t* output, float* c_tmp,
     std::int32_t* locks, void* cuda_stream = nullptr) noexcept;
 
+// Admission-only large-M Down epilogue for the fixed Qwen3.6 shape. Marlin's
+// ordinary BF16-rounded Down result is added to the BF16 residual and written
+// directly to output, removing the standalone residual-add/intermediate
+// writeback. residual and output must be distinct 16-byte-aligned matrices of
+// shape [token_count,5120].
+[[nodiscard]] int launch_sm87_nvfp4_marlin_down_residual_cuda(
+    const std::uint16_t* input, const std::uint8_t* marlin_weight,
+    const std::uint8_t* marlin_scales, const float* marlin_global_scale,
+    std::size_t token_count, const std::uint16_t* residual,
+    std::uint16_t* output, float* c_tmp, std::int32_t* locks,
+    void* cuda_stream = nullptr) noexcept;
+
 // Converts row-major merged [M,34816] into canonical BF16
 // SiLU(gate)*up [M,17408]. M follows the same C64/C256/C512 contract.
 [[nodiscard]] int launch_sm87_nvfp4_marlin_gate_up_silu_cuda(
