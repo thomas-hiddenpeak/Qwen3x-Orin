@@ -547,6 +547,7 @@ void value_head_recompute_chunk64_kernel(
     const std::uint16_t* const compact_k,
     const float* const cumulative_gate,
     const std::uint16_t* const conv_qkv,
+    const unsigned int token_count,
     const unsigned int chunk_count,
     const std::uint16_t* const transform,
     std::uint16_t* const w, std::uint16_t* const u) {
@@ -620,8 +621,13 @@ void value_head_recompute_chunk64_kernel(
         token * kGdnQkvChannels + kGdnQElements + kGdnKElements +
         static_cast<std::size_t>(value_head) * kDimension +
         vector_in_row * (sizeof(uint4) / sizeof(Bf16));
-    copy_16_async(reinterpret_cast<uint4*>(shared_operand) + vector,
-                  reinterpret_cast<const uint4*>(conv_qkv + source));
+    if (token < token_count) {
+      copy_16_async(reinterpret_cast<uint4*>(shared_operand) + vector,
+                    reinterpret_cast<const uint4*>(conv_qkv + source));
+    } else {
+      reinterpret_cast<uint4*>(shared_operand)[vector] =
+          make_uint4(0U, 0U, 0U, 0U);
+    }
   }
   commit_and_wait_async_copies();
   __syncthreads();
@@ -633,13 +639,17 @@ void value_head_recompute_chunk64_kernel(
     const std::uint16_t* const compact_k,
     const float* const cumulative_gate, const float* const beta,
     const std::uint16_t* const conv_qkv,
-    const std::size_t chunk_count, const float* const raw_gram,
+    const std::size_t token_count, const std::size_t chunk_count,
+    const float* const raw_gram,
     const std::uint16_t* const transform,
     const std::uint16_t* const w, const std::uint16_t* const u) noexcept {
   return compact_k == nullptr || cumulative_gate == nullptr ||
          beta == nullptr || conv_qkv == nullptr || raw_gram == nullptr ||
          transform == nullptr || w == nullptr || u == nullptr ||
-         chunk_count == 0U || chunk_count > kMaximumChunks;
+         token_count == 0U || token_count > kMaximumChunks * kChunk ||
+         chunk_count == 0U || chunk_count > kMaximumChunks ||
+         token_count > chunk_count * kChunk ||
+         token_count <= (chunk_count - 1U) * kChunk;
 }
 
 }  // namespace
@@ -648,6 +658,7 @@ int launch_packless(const std::uint16_t* const compact_k,
                     const float* const cumulative_gate,
                     const float* const beta,
                     const std::uint16_t* const conv_qkv,
+                    const std::size_t token_count,
                     const std::size_t chunk_count,
                     float* const raw_gram_scratch,
                     std::uint16_t* const transform,
@@ -655,7 +666,8 @@ int launch_packless(const std::uint16_t* const compact_k,
                     std::uint16_t* const u,
                     void* const cuda_stream) noexcept {
   if (invalid_arguments(compact_k, cumulative_gate, beta, conv_qkv,
-                        chunk_count, raw_gram_scratch, transform, w, u)) {
+                        token_count, chunk_count, raw_gram_scratch,
+                        transform, w, u)) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
   const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
@@ -683,6 +695,7 @@ int launch_packless(const std::uint16_t* const compact_k,
       static_cast<unsigned int>(chunk_count * kValueHeads),
       kRecomputeThreads, kRecomputeSharedBytes, stream>>>(
       compact_k, cumulative_gate, conv_qkv,
+      static_cast<unsigned int>(token_count),
       static_cast<unsigned int>(chunk_count), transform, w, u);
   return static_cast<int>(cudaGetLastError());
 }

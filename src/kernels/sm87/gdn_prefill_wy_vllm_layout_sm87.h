@@ -16,7 +16,8 @@ namespace q3x::runtime::gdn_prefill_wy_vllm_layout_detail {
 [[nodiscard]] int launch_packless(
     const std::uint16_t* compact_k, const float* cumulative_gate,
     const float* beta, const std::uint16_t* conv_qkv,
-    std::size_t chunk_count, float* raw_gram_scratch,
+    std::size_t token_count, std::size_t chunk_count,
+    float* raw_gram_scratch,
     std::uint16_t* transform, std::uint16_t* w,
     std::uint16_t* u, void* cuda_stream) noexcept;
 
