@@ -54,6 +54,10 @@ option(Q3X_BUILD_SM87_A4W4_GATEUP_PAIR_ADMISSION
   "Build the test-only persistent SM87 A4W4 paired Gate+Up route"
   OFF
 )
+option(Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION
+  "Build the test-only calibrated full-model SM87 A4W4 Prefill route"
+  OFF
+)
 option(Q3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION
   "Build the test-only FlashInfer SM87 Prefill-attention route"
   OFF
@@ -109,6 +113,11 @@ endif()
 if(Q3X_BUILD_SM87_A4W4_GATEUP_PAIR_ADMISSION AND NOT BUILD_TESTING)
   message(FATAL_ERROR
     "Q3X_BUILD_SM87_A4W4_GATEUP_PAIR_ADMISSION is test-only and requires BUILD_TESTING=ON"
+  )
+endif()
+if(Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION AND NOT BUILD_TESTING)
+  message(FATAL_ERROR
+    "Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION is test-only and requires BUILD_TESTING=ON"
   )
 endif()
 if(Q3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION AND NOT BUILD_TESTING)
@@ -315,6 +324,16 @@ if(Q3X_BUILD_BF16_AB_LARGE_M_PREFILL_ADMISSION)
     Q3X_ENABLE_BF16_AB_LARGE_M_PREFILL_ADMISSION=1
   )
 endif()
+if(Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION)
+  target_sources(q3x_kernels PRIVATE
+    src/kernels/sm87/a4w4_prefill_primitive.cu
+    src/kernels/sm87/a4w4_prefill_gemm.cu
+    src/kernels/sm87/a4w4_gateup_paired.cu
+  )
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION=1
+  )
+endif()
 if(Q3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION)
   target_include_directories(q3x_kernels SYSTEM PRIVATE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/third_party/flashinfer/include>
@@ -370,6 +389,11 @@ endif()
 if(Q3X_BUILD_FP8_MARLIN_PREFILL_ADMISSION)
   target_compile_definitions(q3x_engine PRIVATE
     Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION)
+  target_compile_definitions(q3x_engine PRIVATE
+    Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION=1
   )
 endif()
 q3x_enable_warnings(q3x_engine)
