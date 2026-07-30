@@ -130,6 +130,48 @@ struct PrefillA4CalibrationPolicyResult {
   [[nodiscard]] explicit operator bool() const noexcept { return ok(); }
 };
 
+// Writes a source-bound, structurally complete 400-projection calibration
+// policy candidate. The two clip ratios are deliberately required inputs: the
+// generator never infers or defaults either calibration dimension. A uniform
+// activation ratio also makes every shared activation boundary (Gate+Up,
+// linear QKV+Z, and full Q+K+V) consistent by construction.
+//
+// The emitted policy uses the strict production_calibrated policy schema so
+// the ordinary parser and offline converter can consume it. This only means
+// that all numerical inputs to conversion are explicit. The artifact remains
+// a candidate/template until external accuracy and end-to-end performance
+// admission; publication residency eligibility is an authenticated ABI/file
+// property, never a capability conclusion.
+struct PrefillA4PolicyTemplateWriteOptions {
+  std::filesystem::path output_path;
+  double weight_clip_ratio = 0.0;
+  double activation_clip_ratio = 0.0;
+};
+
+struct PrefillA4PolicyTemplateWriteResult {
+  std::optional<PrefillA4CalibrationPolicy> policy;
+  PrefillA4ConverterDiagnostic diagnostic;
+
+  [[nodiscard]] bool ok() const noexcept {
+    return policy.has_value() && diagnostic.ok();
+  }
+  [[nodiscard]] explicit operator bool() const noexcept { return ok(); }
+};
+
+// The manifest overload is useful for contract tests and callers that already
+// own an authenticated source manifest. Publication is atomic and no-replace.
+[[nodiscard]] PrefillA4PolicyTemplateWriteResult
+write_prefill_a4_calibration_policy_template(
+    const PrefillSidecarManifest& manifest,
+    const PrefillA4PolicyTemplateWriteOptions& options);
+
+// Builds the fixed A4-K64 manifest from the pinned Qwen3.6-27B checkpoint
+// metadata in model_directory, then delegates to the no-replace writer above.
+[[nodiscard]] PrefillA4PolicyTemplateWriteResult
+write_pinned_qwen36_27b_prefill_a4_calibration_policy_template(
+    const std::filesystem::path& model_directory,
+    const PrefillA4PolicyTemplateWriteOptions& options);
+
 // Strict JSON schema parser. Unknown/duplicate/missing fields fail closed.
 // A production policy must cover the ordered 400-projection A4-K64 manifest
 // exactly and bind every projection source digest.

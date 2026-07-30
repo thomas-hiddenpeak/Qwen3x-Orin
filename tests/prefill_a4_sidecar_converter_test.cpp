@@ -12,6 +12,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <iterator>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -299,6 +300,81 @@ void test_policy_gate(TestContext& test,
               "double-to-float underflow clip policy fails closed");
 }
 
+void test_policy_template_writer(
+    TestContext& test, const runtime::PrefillSidecarManifest& manifest) {
+  const fs::path directory =
+      fs::temp_directory_path() /
+      ("q3x-a4-policy-template-" + std::to_string(::getpid()));
+  std::error_code ignored;
+  fs::remove_all(directory, ignored);
+  fs::create_directories(directory, ignored);
+  const fs::path output_path = directory / "candidate-policy.json";
+
+  runtime::PrefillA4PolicyTemplateWriteOptions options;
+  options.output_path = output_path;
+  options.weight_clip_ratio = 1.0;
+  options.activation_clip_ratio = 1.0;
+  const runtime::PrefillA4PolicyTemplateWriteResult written =
+      runtime::write_prefill_a4_calibration_policy_template(manifest, options);
+  test.expect(written && written.policy->projections.size() == 400U &&
+                  written.policy->policy_bytes != 0U &&
+                  written.policy->policy_sha256.size() == 64U,
+              "candidate template atomically writes all 400 projections");
+
+  std::string document;
+  {
+    std::ifstream input(output_path, std::ios::binary);
+    document.assign(std::istreambuf_iterator<char>(input),
+                    std::istreambuf_iterator<char>());
+  }
+  const runtime::PrefillA4CalibrationPolicyResult parsed =
+      runtime::parse_prefill_a4_calibration_policy(document, manifest);
+  const bool uniform_explicit_ratios =
+      parsed && std::all_of(
+                    parsed.value->projections.begin(),
+                    parsed.value->projections.end(),
+                    [](const runtime::PrefillA4ProjectionCalibration& entry) {
+                      return entry.weight_clip_ratio == 1.0 &&
+                             entry.activation_clip_ratio == 1.0 &&
+                             entry.activation_scale_group_size == 64U &&
+                             !entry.channel_equalization.has_value();
+                    });
+  test.expect(parsed && uniform_explicit_ratios && written &&
+                  document.size() == written.policy->policy_bytes &&
+                  parsed.value->policy_sha256 ==
+                      written.policy->policy_sha256,
+              "published template strictly reparses with explicit uniform shared-boundary ratios");
+
+  const runtime::PrefillA4PolicyTemplateWriteResult conflict =
+      runtime::write_prefill_a4_calibration_policy_template(manifest, options);
+  test.expect(!conflict &&
+                  conflict.diagnostic.code == runtime::
+                                                  PrefillA4ConverterErrorCode::
+                                                      kPublicationConflict,
+              "policy template publication never replaces an existing target");
+  std::string after_conflict;
+  {
+    std::ifstream input(output_path, std::ios::binary);
+    after_conflict.assign(std::istreambuf_iterator<char>(input),
+                          std::istreambuf_iterator<char>());
+  }
+  test.expect(after_conflict == document,
+              "no-replace conflict leaves the candidate bytes unchanged");
+
+  runtime::PrefillA4PolicyTemplateWriteOptions missing_ratio = options;
+  missing_ratio.output_path = directory / "invalid-policy.json";
+  missing_ratio.activation_clip_ratio = 0.0;
+  const runtime::PrefillA4PolicyTemplateWriteResult rejected =
+      runtime::write_prefill_a4_calibration_policy_template(manifest,
+                                                             missing_ratio);
+  test.expect(!rejected &&
+                  rejected.diagnostic.code ==
+                      runtime::PrefillA4ConverterErrorCode::kInvalidOption &&
+                  !fs::exists(missing_ratio.output_path),
+              "template writer has no implicit activation-ratio default");
+  fs::remove_all(directory, ignored);
+}
+
 void test_consumer_prepack_quantization_and_io(TestContext& test) {
   constexpr std::size_t kRows = 128U;
   constexpr std::size_t kColumns = 128U;
@@ -527,6 +603,7 @@ int main() {
               "valid full-model A4-K64 fixture builds");
   if (manifest.projections.size() == 400U) {
     test_policy_gate(test, manifest);
+    test_policy_template_writer(test, manifest);
     test_publication_gate(test, manifest);
   }
   test_consumer_prepack_quantization_and_io(test);
