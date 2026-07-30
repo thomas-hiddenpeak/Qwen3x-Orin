@@ -66,6 +66,11 @@ inline constexpr std::size_t kNvFp4DownScale6Rows = 5'120U;
 inline constexpr std::size_t kNvFp4DownScale6Columns = 17'408U;
 inline constexpr std::size_t
     kNvFp4DownScale6SidecarBytesPerProjection = 4'177'920U;
+inline constexpr std::size_t
+    kNvFp4DownConsumerOrderWeightBytesPerProjection =
+        kNvFp4DownScale6Rows * kNvFp4DownScale6Columns / 2U;
+static_assert(kNvFp4DownConsumerOrderWeightBytesPerProjection ==
+              44'564'480U);
 
 // One descriptor for an exact C512 linear-attention FP8 QKV Prefill
 // register-feed sidecar. Descriptor fields are copied by the attach call;
@@ -88,6 +93,18 @@ struct NvFp4DownScale6SidecarDescriptor {
   const std::uint8_t* sidecar = nullptr;
   std::size_t bytes = 0U;
   unsigned int scale_base = 0U;
+  std::size_t output_size = 0U;
+  std::size_t input_size = 0U;
+};
+
+// One descriptor for an exact Decode Down consumer-order weight sidecar.
+// Each sidecar is an equal-byte permutation of the canonical packed NVFP4
+// tensor. Descriptor fields are copied by the attach call; the arena must
+// outlive ModelWeights and every queued kernel that consumes the view.
+struct NvFp4DownConsumerOrderSidecarDescriptor {
+  std::size_t layer_index = 0U;
+  const std::uint8_t* sidecar = nullptr;
+  std::size_t bytes = 0U;
   std::size_t output_size = 0U;
   std::size_t input_size = 0U;
 };
@@ -159,6 +176,11 @@ struct NvFp4LinearWeight {
   std::size_t input_size = 0U;
   const std::uint8_t* down_scale6_sidecar = nullptr;
   unsigned int down_scale6_base = 0U;
+  // Test-admission exact [5120,17408] Decode Down weight permutation. One
+  // aligned uint4 contains the four canonical row words consumed by the same
+  // lane and K256 phase. It has no scheduling authority unless the explicit
+  // whole-runner admission is enabled and scale6 is attached as well.
+  const std::uint8_t* down_consumer_order_weight = nullptr;
   // Test-only scheduler-wide Marlin admission. Production scheduling ignores
   // these views unless the dedicated admission build is enabled. Gate and Up
   // bindings point at the same merged N=34816 sidecar; Down points at its own
@@ -416,6 +438,15 @@ class ModelWeights {
   [[nodiscard]] bool attach_nvfp4_down_scale6_sidecars(
       const std::uint8_t* arena, std::size_t arena_bytes,
       const NvFp4DownScale6SidecarDescriptor* descriptors,
+      std::size_t descriptor_count) noexcept;
+
+  // Atomically attaches a sparse set of exact [5120,17408] equal-byte
+  // consumer-order Down weight sidecars. Every target must already own a
+  // valid scale6 sidecar, so the admission can never silently change the
+  // numerical scale path. The canonical null/zero call detaches the set.
+  [[nodiscard]] bool attach_nvfp4_down_consumer_order_sidecars(
+      const std::uint8_t* arena, std::size_t arena_bytes,
+      const NvFp4DownConsumerOrderSidecarDescriptor* descriptors,
       std::size_t descriptor_count) noexcept;
 
   // Transactionally attaches exactly one complete Gate+Up/Down Marlin set

@@ -185,6 +185,7 @@ struct ReferenceEngineLoadStats {
   double request_state_milliseconds = 0.0;
   double fp8_output_sidecar_milliseconds = 0.0;
   double nvfp4_down_scale6_sidecar_milliseconds = 0.0;
+  double nvfp4_down_consumer_order_sidecar_milliseconds = 0.0;
   double fp8_prefill_qkv_sidecar_milliseconds = 0.0;
   double fp8_prefill_supermatrix_sidecar_milliseconds = 0.0;
   double fp8_marlin_prefill_sidecar_milliseconds = 0.0;
@@ -234,6 +235,15 @@ struct ReferenceEngineLoadStats {
   // Empty when the optional SM87 sidecar inventory was attached or was not
   // requested. Admission/allocation failures preserve canonical execution.
   std::string nvfp4_down_scale6_sidecar_fallback_reason;
+  // Explicit same-ELF Decode Down K512 consumer-order admission. The
+  // equal-byte weight arena is attached only to scale6-eligible layers and
+  // is prepared after all production/Prefill sidecars so it cannot displace
+  // them. A requested admission is all-or-nothing and fails engine creation
+  // instead of silently benchmarking the production kernel.
+  bool nvfp4_down_consumer_order_sidecars_requested = false;
+  bool nvfp4_down_consumer_order_sidecars_enabled = false;
+  std::size_t nvfp4_down_consumer_order_sidecar_layers = 0U;
+  std::uint64_t nvfp4_down_consumer_order_sidecar_bytes = 0U;
   // The exact C512 register-feed layout is optional and intentionally
   // co-resident with the canonical 48 linear-attention QKV tensors. A
   // capacity miss preserves the canonical Prefill route; all non-capacity

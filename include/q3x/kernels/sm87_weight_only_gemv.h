@@ -185,10 +185,45 @@ launch_sm87_nvfp4_w4a16_down_residual_norm_scale6_bf16_cuda(
     std::uint16_t* normalized_output,
     void* cuda_stream = nullptr) noexcept;
 
+// Equal-byte exact [5120,17408] canonical-to-consumer-order pack. The output
+// contains [row_quad][K512 tile][K256 phase][lane] uint4 values; uint4 lanes
+// x/y/z/w are the untouched canonical packed words for the four adjacent
+// rows. Input and output must each span 44,564,480 bytes and be disjoint.
+[[nodiscard]] int
+launch_sm87_nvfp4_w4a16_down_consumer_order_pack_test_cuda(
+    const std::uint8_t* canonical_weights,
+    std::uint8_t* consumer_order_weights,
+    std::size_t rows, std::size_t columns,
+    void* cuda_stream = nullptr) noexcept;
+
+// Admission-only exact Decode Down scale6 Function consuming the equal-byte
+// layout above. Numerical/output/alias/Graph contracts match the production
+// scale6 fused Down/residual/RMSNorm launch; only the packed-weight address
+// and load representation changes.
+[[nodiscard]] int
+launch_sm87_nvfp4_w4a16_down_residual_norm_scale6_consumer_order_test_cuda(
+    const std::uint8_t* consumer_order_weights,
+    const std::uint8_t* scale6_sidecar, unsigned int scale_base,
+    float weight_scale_2, const std::uint16_t* activation,
+    const std::uint16_t* residual_left,
+    const std::uint16_t* norm_weight, float epsilon,
+    std::size_t rows, std::size_t columns,
+    std::uint16_t* raw_down_output,
+    std::uint16_t* residual_output,
+    std::uint16_t* normalized_output,
+    void* cuda_stream = nullptr) noexcept;
+
 // Static-resource query for the exact production scale6 Function selected by
 // the launcher above.
 [[nodiscard]] int
 query_sm87_nvfp4_w4a16_m1_down_residual_norm_scale6_resources_cuda(
+    int* registers_per_thread, std::size_t* static_shared_bytes,
+    std::size_t* local_bytes, int* maximum_threads_per_block,
+    int* active_blocks_per_sm) noexcept;
+
+// Static-resource query for the admission-only K512 consumer-order Function.
+[[nodiscard]] int
+query_sm87_nvfp4_w4a16_m1_down_residual_norm_scale6_consumer_order_resources_test_cuda(
     int* registers_per_thread, std::size_t* static_shared_bytes,
     std::size_t* local_bytes, int* maximum_threads_per_block,
     int* active_blocks_per_sm) noexcept;

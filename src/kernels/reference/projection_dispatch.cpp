@@ -10,6 +10,8 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
+#include <cstring>
 #include <limits>
 #include <type_traits>
 #include <variant>
@@ -20,6 +22,16 @@ namespace {
 constexpr std::size_t kMaximumSm87SmallMTokens = 8U;
 constexpr std::size_t kSm87DirectBf16Rows = 48U;
 constexpr std::size_t kSm87DirectBf16Columns = 5120U;
+
+[[nodiscard]] bool
+decode_down_k512_consumer_order_environment_enabled() noexcept {
+  static const bool enabled = []() noexcept {
+    const char* const value = std::getenv(
+        "Q3X_RUN_DECODE_DOWN_K512_CONSUMER_ORDER_ADMISSION");
+    return value != nullptr && std::strcmp(value, "1") == 0;
+  }();
+  return enabled;
+}
 
 [[nodiscard]] bool valid_scale(const float value) noexcept {
   return std::isfinite(value) && value >= 0.0F;
@@ -1598,6 +1610,16 @@ int launch_mlp_down_residual_norm_to_bf16_cuda(
   if (plan.aligned_nvfp4_fusion) {
     const auto& down = std::get<NvFp4LinearWeight>(down_weight);
     if (down.down_scale6_sidecar != nullptr) {
+      if (decode_down_k512_consumer_order_environment_enabled() &&
+          down.down_consumer_order_weight != nullptr) {
+        return kernels::
+            launch_sm87_nvfp4_w4a16_down_residual_norm_scale6_consumer_order_test_cuda(
+                down.down_consumer_order_weight,
+                down.down_scale6_sidecar, down.down_scale6_base,
+                down.weight_scale_2, activation, residual_left, norm_weight,
+                epsilon, down.output_size, down.input_size, raw_down_output,
+                residual_output, normalized_output, cuda_stream);
+      }
       return kernels::
           launch_sm87_nvfp4_w4a16_down_residual_norm_scale6_bf16_cuda(
               down.packed_weight, down.down_scale6_sidecar,
