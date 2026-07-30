@@ -174,7 +174,9 @@ __device__ __forceinline__ void load_n16k16_as_k16n16_pair(
 #if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 750
   // `tile` keeps the canonical [N,K] row-major backing.  That byte layout is
   // also the logical [K,N] column-major B operand expected by mma.row.col.
-  // x4 groups two adjacent N8 panels while retaining that direct backing.
+  // It therefore uses the non-transposing ldmatrix form; applying `.trans`
+  // here would exchange N and K a second time.  x4 groups two adjacent N8
+  // panels while retaining the direct backing.
   const unsigned int row =
       n16 * 16U + (lane & 7U) + ((lane >> 4U) & 1U) * 8U;
   const unsigned int column =
@@ -183,7 +185,7 @@ __device__ __forceinline__ void load_n16k16_as_k16n16_pair(
   const unsigned int shared_address =
       static_cast<unsigned int>(__cvta_generic_to_shared(source));
   asm volatile(
-      "ldmatrix.sync.aligned.m8n8.x4.trans.shared.b16 "
+      "ldmatrix.sync.aligned.m8n8.x4.shared.b16 "
       "{%0, %1, %2, %3}, [%4];"
       : "=r"(first.x0), "=r"(first.x1),
         "=r"(second.x0), "=r"(second.x1)

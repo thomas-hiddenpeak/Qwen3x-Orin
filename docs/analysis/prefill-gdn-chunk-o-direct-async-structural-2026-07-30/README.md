@@ -4,12 +4,13 @@ Date: 2026-07-30
 
 ## Status and authority
 
-This is a **compiled structural candidate**, not a production admission and
-not a performance claim.  It is based on cumulative commit `85f5f01`.  Per the
-GPU-ownership coordination rule, no CUDA executable or profiler was run while
-the other real-model screens were active.  The first runtime gate remains the
-real-checkpoint generation path; synthetic data will only be used for the
-fragment and boundary correctness gates.
+This is a **correctness-screened structural candidate**, not a production
+admission and not a performance claim.  It is based on cumulative commit
+`85f5f01`.  Per the GPU-ownership coordination rule, only the component
+correctness executable was run under `/tmp/q3x-gpu-bench.lock`; no real model
+or profiler was started.  The first performance gate remains the
+real-checkpoint generation path; synthetic data is only a fragment and
+boundary correctness authority.
 
 The comparison source is the installed vLLM/FLA implementation at:
 
@@ -68,10 +69,11 @@ For each BK64 panel:
 1. Q `[M,K]`, K `[N,K]`, and H `[N,K]` are each copied in coalesced 16-byte
    transactions directly to the three swizzled 8 KiB shared tiles.
 2. K/H stay in canonical `[N,K]` row-major storage.  That byte layout is also
-   the logical `[K,N]` column-major MMA B operand, so an `ldmatrix.trans`
-   address map produces B fragments without a transpose boundary.
-3. One `ldmatrix.x4.trans` supplies two adjacent N8 fragments.  The same
-   paired route is used for the final V tile, while Q/A retain the natural
+   the logical `[K,N]` column-major MMA B operand, so the non-transposing
+   `ldmatrix` form produces B fragments without a transpose boundary.  The
+   `.trans` form is reserved for V's true `[K,N]` row-major backing.
+3. One `ldmatrix.x4` supplies two adjacent N8 K/H fragments; one
+   `ldmatrix.x4.trans` does the same for V.  Q/A retain the natural
    `ldmatrix.x4` M16K16 load.
 4. The BK loop is retained in SASS and executes twice.  It has the same
    dynamic tensor-core work as the incumbent, but only one static body.
@@ -109,7 +111,7 @@ while the common full-C64 production path pays no tail predicate cost.
 
 Release CUDA 13.3 SM87 compilation completed for `q3x_kernels` and
 `q3x_gdn_prefill_chunk_o_bv64_component_test`, and the complete native-engine
-E2E executable.  No executable was run.
+E2E executable.
 
 | property | incumbent `85f5f01` | vLLM selected artifact | candidate |
 |:---|---:|---:|---:|
@@ -129,10 +131,32 @@ the 64-site QH/QK body executes for two BK panels and the final 32 sites
 execute once, totaling the same 160 dynamic MMA operations per warp path as
 the incumbent.  The reduction is instruction-cache/control duplication.
 
+## Component correctness
+
+The first x4 draft incorrectly used `.trans` for canonical `[N,K]`, which
+double-transposed the logical B operand.  The expanded B4 sentinel rejected
+all 128 B registers and the QH/QK component cases failed, so no real model was
+run.  After selecting non-transposing x4 for canonical K/H while retaining
+x4.trans for true-row-major V, the locked component run passed:
+
+```text
+GDN_CHUNK_O_BV64_FRAGMENT_A unequal=0 gate=PASS
+GDN_CHUNK_O_BV64_FRAGMENT_B unequal=0 gate=PASS
+GDN_CHUNK_O_BV64_FRAGMENT_MMA unequal=0 gate=PASS
+GDN_CHUNK_O_BV64_KN_TRANSPOSED_QH_RAW unequal=0 gate=PASS
+GDN_CHUNK_O_BV64_KN_TRANSPOSED_QK_V_RAW unequal=0 gate=PASS
+GDN_CHUNK_O_BV64_PARTIAL_QUERY_MASK unequal=0 gate=PASS
+GDN_CHUNK_O_BV64_ROWS8_NORM unequal=0 gate=PASS
+GDN_CHUNK_O_BV64_COMPONENT_RESULT gate=PASS
+```
+
+The fixed SASS now has exactly the selected Triton artifact's B/A fragment
+site split: 44 non-transposing `LDSM.M88.4` and eight transposing
+`LDSM.MT88.4` sites.
+
 The next admissible sequence is:
 
-1. run the fragment sentinel and component exactness test;
-2. run one real P513 incumbent/candidate generation pair in the same ELF;
-3. if positive, run complete real-output exactness and the external first-8
+1. run one real P513 incumbent/candidate generation pair in the same ELF;
+2. if positive, run complete real-output exactness and the external first-8
    EvalScope gate;
-4. only then use NSys/NCU to attribute the retained direction.
+3. only then use NSys/NCU to attribute the retained direction.
