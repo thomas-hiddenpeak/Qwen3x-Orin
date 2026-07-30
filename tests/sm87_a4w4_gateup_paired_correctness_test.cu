@@ -19,16 +19,24 @@ namespace kernels = q3x::kernels;
 
 inline constexpr std::size_t kM = 65U;
 inline constexpr std::size_t kN = 128U;
-inline constexpr std::size_t kK = 192U;
+inline constexpr std::size_t kK = 256U;
 inline constexpr std::size_t kGroups = kK / 64U;
 inline constexpr std::size_t kOutputGroups = kN / 64U;
 inline constexpr std::size_t kPackedInputRowBytes = kK / 2U;
-inline constexpr std::size_t kPackedOutputRowBytes = kN / 2U;
-inline constexpr std::size_t kInputScaleStride = kGroups + 1U;
-inline constexpr std::size_t kWeightScaleStride = kGroups + 1U;
-inline constexpr std::size_t kOutputPackedStride =
-    kPackedOutputRowBytes + 16U;
-inline constexpr std::size_t kOutputScaleStride = kOutputGroups + 2U;
+inline constexpr std::size_t kAPackedBytes =
+    kernels::sm87_a4w4_consumer_packed_capacity_bytes(kM, kK);
+inline constexpr std::size_t kAScaleElements =
+    kernels::sm87_a4w4_consumer_scale_capacity_elements(kM, kK);
+inline constexpr std::size_t kBPackedBytes =
+    kernels::sm87_a4w4_consumer_packed_capacity_bytes(kN, kK);
+inline constexpr std::size_t kBScaleElements =
+    kernels::sm87_a4w4_consumer_scale_capacity_elements(kN, kK);
+inline constexpr std::size_t kOutputPackedBytes =
+    kernels::sm87_a4w4_consumer_packed_capacity_bytes(kM, kN);
+inline constexpr std::size_t kOutputScaleElements =
+    kernels::sm87_a4w4_consumer_scale_capacity_elements(kM, kN);
+inline constexpr std::size_t kPackedGuardBytes = 64U;
+inline constexpr std::size_t kScaleGuardElements = 64U;
 inline constexpr float kOutputClipRatio = 0.9375F;
 
 template <typename T>
@@ -125,11 +133,14 @@ class DeviceBuffer final {
 }
 
 [[nodiscard]] int code_at(const std::vector<std::uint8_t>& packed,
-                          const std::size_t row_stride,
-                          const std::size_t row,
+                          const std::size_t outer,
                           const std::size_t inner) noexcept {
+  const std::size_t group = inner / 64U;
+  const std::size_t byte_in_group = (inner % 64U) / 2U;
   return kernels::sm87_a4w4_unpack_signed(
-      packed[row * row_stride + inner / 2U], inner);
+      packed[kernels::sm87_a4w4_consumer_packed_offset(
+          outer, group, byte_in_group, kGroups)],
+      inner);
 }
 
 struct HostPayload final {
@@ -143,14 +154,14 @@ struct HostPayload final {
 
 [[nodiscard]] HostPayload make_payload() {
   HostPayload payload{
-      std::vector<std::uint8_t>(kM * kPackedInputRowBytes),
-      std::vector<std::uint16_t>(kM * kInputScaleStride,
+      std::vector<std::uint8_t>(kAPackedBytes),
+      std::vector<std::uint16_t>(kAScaleElements,
                                  static_cast<std::uint16_t>(0x7fc1U)),
-      std::vector<std::uint8_t>(kN * kPackedInputRowBytes),
-      std::vector<std::uint16_t>(kN * kWeightScaleStride,
+      std::vector<std::uint8_t>(kBPackedBytes),
+      std::vector<std::uint16_t>(kBScaleElements,
                                  static_cast<std::uint16_t>(0x7fc1U)),
-      std::vector<std::uint8_t>(kN * kPackedInputRowBytes),
-      std::vector<std::uint16_t>(kN * kWeightScaleStride,
+      std::vector<std::uint8_t>(kBPackedBytes),
+      std::vector<std::uint16_t>(kBScaleElements,
                                  static_cast<std::uint16_t>(0x7fc1U))};
 
   for (std::size_t m = 0U; m < kM; ++m) {
@@ -160,11 +171,15 @@ struct HostPayload final {
       const int odd = static_cast<int>(
                           (11U * m + 7U * (2U * byte + 1U) + 1U) % 15U) -
                       7;
-      payload.a[m * kPackedInputRowBytes + byte] =
+      const std::size_t group = byte / 32U;
+      const std::size_t byte_in_group = byte % 32U;
+      payload.a[kernels::sm87_a4w4_consumer_packed_offset(
+          m, group, byte_in_group, kGroups)] =
           kernels::sm87_a4w4_pack_signed_pair(even, odd);
     }
     for (std::size_t group = 0U; group < kGroups; ++group) {
-      payload.a_scales[m * kInputScaleStride + group] = encode_bf16(
+      payload.a_scales[kernels::sm87_a4w4_consumer_scale_offset(
+          m, group, kGroups)] = encode_bf16(
           static_cast<float>(2U + ((m + 3U * group) % 5U)) / 64.0F);
     }
   }
@@ -183,15 +198,21 @@ struct HostPayload final {
                              (17U * n + 5U * (2U * byte + 1U) + 8U) %
                              15U) -
                          7;
-      payload.gate_b[n * kPackedInputRowBytes + byte] =
+      const std::size_t group = byte / 32U;
+      const std::size_t byte_in_group = byte % 32U;
+      payload.gate_b[kernels::sm87_a4w4_consumer_packed_offset(
+          n, group, byte_in_group, kGroups)] =
           kernels::sm87_a4w4_pack_signed_pair(gate_even, gate_odd);
-      payload.up_b[n * kPackedInputRowBytes + byte] =
+      payload.up_b[kernels::sm87_a4w4_consumer_packed_offset(
+          n, group, byte_in_group, kGroups)] =
           kernels::sm87_a4w4_pack_signed_pair(up_even, up_odd);
     }
     for (std::size_t group = 0U; group < kGroups; ++group) {
-      payload.gate_scales[n * kWeightScaleStride + group] = encode_bf16(
+      payload.gate_scales[kernels::sm87_a4w4_consumer_scale_offset(
+          n, group, kGroups)] = encode_bf16(
           static_cast<float>(1U + ((n + group) % 4U)) / 128.0F);
-      payload.up_scales[n * kWeightScaleStride + group] = encode_bf16(
+      payload.up_scales[kernels::sm87_a4w4_consumer_scale_offset(
+          n, group, kGroups)] = encode_bf16(
           static_cast<float>(2U + ((3U * n + group) % 5U)) / 128.0F);
     }
   }
@@ -210,22 +231,24 @@ struct HostPayload final {
         std::int32_t up_integer = 0;
         for (std::size_t inner = 0U; inner < 64U; ++inner) {
           const std::size_t k = group * 64U + inner;
-          const int a = code_at(payload.a, kPackedInputRowBytes, m, k);
-          const int gate_b =
-              code_at(payload.gate_b, kPackedInputRowBytes, n, k);
-          const int up_b =
-              code_at(payload.up_b, kPackedInputRowBytes, n, k);
+          const int a = code_at(payload.a, m, k);
+          const int gate_b = code_at(payload.gate_b, n, k);
+          const int up_b = code_at(payload.up_b, n, k);
           gate_integer += a * gate_b;
           up_integer += a * up_b;
         }
         const float a_scale =
-            decode_bf16(payload.a_scales[m * kInputScaleStride + group]);
+            decode_bf16(payload.a_scales[
+                kernels::sm87_a4w4_consumer_scale_offset(
+                    m, group, kGroups)]);
         gate += static_cast<float>(gate_integer) * a_scale *
                 decode_bf16(payload.gate_scales[
-                    n * kWeightScaleStride + group]);
+                    kernels::sm87_a4w4_consumer_scale_offset(
+                        n, group, kGroups)]);
         up += static_cast<float>(up_integer) * a_scale *
-              decode_bf16(
-                  payload.up_scales[n * kWeightScaleStride + group]);
+              decode_bf16(payload.up_scales[
+                  kernels::sm87_a4w4_consumer_scale_offset(
+                      n, group, kGroups)]);
       }
       products[m * kN + n] = silu_product(gate, up);
     }
@@ -241,8 +264,8 @@ struct QuantizedReference final {
 [[nodiscard]] QuantizedReference quantize_reference(
     const std::vector<float>& products) {
   QuantizedReference reference{
-      std::vector<std::uint8_t>(kM * kPackedOutputRowBytes),
-      std::vector<std::uint16_t>(kM * kOutputGroups)};
+      std::vector<std::uint8_t>(kOutputPackedBytes),
+      std::vector<std::uint16_t>(kOutputScaleElements)};
   for (std::size_t m = 0U; m < kM; ++m) {
     for (std::size_t group = 0U; group < kOutputGroups; ++group) {
       float maximum = 0.0F;
@@ -253,7 +276,8 @@ struct QuantizedReference final {
       const float clipped_maximum = maximum * kOutputClipRatio;
       const float scale =
           clipped_maximum > 0.0F ? clipped_maximum / 7.0F : 1.0F;
-      reference.scales[m * kOutputGroups + group] = encode_bf16(scale);
+      reference.scales[kernels::sm87_a4w4_consumer_scale_offset(
+          m, group, kOutputGroups)] = encode_bf16(scale);
       for (std::size_t byte = 0U; byte < 32U; ++byte) {
         const float even_value = std::max(
             -clipped_maximum,
@@ -263,7 +287,8 @@ struct QuantizedReference final {
             -clipped_maximum,
             std::min(clipped_maximum,
                      products[m * kN + group * 64U + 2U * byte + 1U]));
-        reference.packed[m * kPackedOutputRowBytes + group * 32U + byte] =
+        reference.packed[kernels::sm87_a4w4_consumer_packed_offset(
+            m, group, byte, kOutputGroups)] =
             kernels::sm87_a4w4_pack_signed_pair(
                 round_and_clamp(even_value / scale),
                 round_and_clamp(odd_value / scale));
@@ -286,16 +311,15 @@ struct QuantizedReference final {
   DeviceBuffer<std::uint16_t> device_up_scales;
   DeviceBuffer<std::uint8_t> device_output;
   DeviceBuffer<std::uint16_t> device_output_scales;
-  const std::size_t output_rows_with_guard = kM + 1U;
   if (!device_a.allocate(payload.a.size()) ||
       !device_a_scales.allocate(payload.a_scales.size()) ||
       !device_gate_b.allocate(payload.gate_b.size()) ||
       !device_gate_scales.allocate(payload.gate_scales.size()) ||
       !device_up_b.allocate(payload.up_b.size()) ||
       !device_up_scales.allocate(payload.up_scales.size()) ||
-      !device_output.allocate(output_rows_with_guard * kOutputPackedStride) ||
-      !device_output_scales.allocate(output_rows_with_guard *
-                                     kOutputScaleStride)) {
+      !device_output.allocate(kOutputPackedBytes + kPackedGuardBytes) ||
+      !device_output_scales.allocate(kOutputScaleElements +
+                                     kScaleGuardElements)) {
     std::cerr << "device allocation failed\n";
     return false;
   }
@@ -323,10 +347,10 @@ struct QuantizedReference final {
                           cudaMemcpyHostToDevice),
                "copy Up scales") ||
       !cuda_ok(cudaMemset(device_output.get(), 0xa5,
-                          output_rows_with_guard * kOutputPackedStride),
+                          kOutputPackedBytes + kPackedGuardBytes),
                "initialize packed output guard") ||
       !cuda_ok(cudaMemset(device_output_scales.get(), 0xad,
-                          output_rows_with_guard * kOutputScaleStride *
+                          (kOutputScaleElements + kScaleGuardElements) *
                               sizeof(std::uint16_t)),
                "initialize scale output guard")) {
     return false;
@@ -339,7 +363,7 @@ struct QuantizedReference final {
     return false;
   }
   if (resources.local_bytes != 0U || resources.active_blocks_per_sm < 2 ||
-      resources.static_shared_bytes != 35'968U ||
+      resources.static_shared_bytes != 45'760U ||
       resources.maximum_threads_per_block < 256) {
     std::cerr << "resource contract failed: registers="
               << resources.registers_per_thread
@@ -351,24 +375,24 @@ struct QuantizedReference final {
   }
 
   if (!launch_ok(kernels::launch_sm87_a4w4_gateup_paired_cuda(
-                     device_a.get(), kPackedInputRowBytes,
-                     device_a_scales.get(), kInputScaleStride,
-                     device_gate_b.get(), kPackedInputRowBytes,
-                     device_gate_scales.get(), kWeightScaleStride,
-                     device_up_b.get(), kPackedInputRowBytes,
-                     device_up_scales.get(), kWeightScaleStride, kM, kN, kK,
+                     device_a.get(), kAPackedBytes,
+                     device_a_scales.get(), kAScaleElements,
+                     device_gate_b.get(), kBPackedBytes,
+                     device_gate_scales.get(), kBScaleElements,
+                     device_up_b.get(), kBPackedBytes,
+                     device_up_scales.get(), kBScaleElements, kM, kN, kK,
                      kOutputClipRatio, device_output.get(),
-                     kOutputPackedStride, device_output_scales.get(),
-                     kOutputScaleStride),
+                     kOutputPackedBytes, device_output_scales.get(),
+                     kOutputScaleElements),
                  "launch paired Gate+Up") ||
       !cuda_ok(cudaDeviceSynchronize(), "synchronize paired Gate+Up")) {
     return false;
   }
 
   std::vector<std::uint8_t> actual_packed(
-      output_rows_with_guard * kOutputPackedStride);
+      kOutputPackedBytes + kPackedGuardBytes);
   std::vector<std::uint16_t> actual_scales(
-      output_rows_with_guard * kOutputScaleStride);
+      kOutputScaleElements + kScaleGuardElements);
   if (!cuda_ok(cudaMemcpy(actual_packed.data(), device_output.get(),
                           actual_packed.size(), cudaMemcpyDeviceToHost),
                "copy paired output") ||
@@ -387,11 +411,16 @@ struct QuantizedReference final {
   for (std::size_t m = 0U; m < kM; ++m) {
     for (std::size_t group = 0U; group < kOutputGroups; ++group) {
       const float expected_scale =
-          decode_bf16(reference.scales[m * kOutputGroups + group]);
+          decode_bf16(reference.scales[
+              kernels::sm87_a4w4_consumer_scale_offset(
+                  m, group, kOutputGroups)]);
       const float actual_scale = decode_bf16(
-          actual_scales[m * kOutputScaleStride + group]);
-      if (actual_scales[m * kOutputScaleStride + group] !=
-          reference.scales[m * kOutputGroups + group]) {
+          actual_scales[kernels::sm87_a4w4_consumer_scale_offset(
+              m, group, kOutputGroups)]);
+      if (actual_scales[kernels::sm87_a4w4_consumer_scale_offset(
+              m, group, kOutputGroups)] !=
+          reference.scales[kernels::sm87_a4w4_consumer_scale_offset(
+              m, group, kOutputGroups)]) {
         ++scale_mismatches;
       }
       maximum_scale_relative_error = std::fmax(
@@ -402,9 +431,13 @@ struct QuantizedReference final {
       for (std::size_t inner = 0U; inner < 64U; ++inner) {
         const std::size_t n = group * 64U + inner;
         const int expected_code = kernels::sm87_a4w4_unpack_signed(
-            reference.packed[m * kPackedOutputRowBytes + n / 2U], n);
+            reference.packed[kernels::sm87_a4w4_consumer_packed_offset(
+                m, group, inner / 2U, kOutputGroups)],
+            n);
         const int actual_code = kernels::sm87_a4w4_unpack_signed(
-            actual_packed[m * kOutputPackedStride + n / 2U], n);
+            actual_packed[kernels::sm87_a4w4_consumer_packed_offset(
+                m, group, inner / 2U, kOutputGroups)],
+            n);
         if (actual_code != expected_code) {
           ++code_mismatches;
         }
@@ -417,32 +450,38 @@ struct QuantizedReference final {
         squared_reference += expected_value * expected_value;
       }
     }
-    for (std::size_t byte = kPackedOutputRowBytes;
-         byte < kOutputPackedStride; ++byte) {
-      if (actual_packed[m * kOutputPackedStride + byte] != 0xa5U) {
-        std::cerr << "packed row padding was overwritten at m=" << m
-                  << " byte=" << byte << '\n';
-        return false;
+  }
+  const std::size_t padded_m_end =
+      kernels::sm87_a4w4_consumer_outer_block_count(kM) * 64U;
+  for (std::size_t m = kM; m < padded_m_end; ++m) {
+    for (std::size_t group = 0U; group < kOutputGroups; ++group) {
+      for (std::size_t byte = 0U; byte < 32U; ++byte) {
+        if (actual_packed[kernels::sm87_a4w4_consumer_packed_offset(
+                m, group, byte, kOutputGroups)] != 0xa5U) {
+          std::cerr << "M-tail packed padding was overwritten at m=" << m
+                    << " group=" << group << " byte=" << byte << '\n';
+          return false;
+        }
       }
-    }
-    for (std::size_t group = kOutputGroups;
-         group < kOutputScaleStride; ++group) {
-      if (actual_scales[m * kOutputScaleStride + group] != 0xadadU) {
-        std::cerr << "scale row padding was overwritten at m=" << m
+      if (actual_scales[kernels::sm87_a4w4_consumer_scale_offset(
+              m, group, kOutputGroups)] != 0xadadU) {
+        std::cerr << "M-tail scale padding was overwritten at m=" << m
                   << " group=" << group << '\n';
         return false;
       }
     }
   }
-  for (std::size_t byte = 0U; byte < kOutputPackedStride; ++byte) {
-    if (actual_packed[kM * kOutputPackedStride + byte] != 0xa5U) {
-      std::cerr << "M-tail packed guard row was overwritten\n";
+  for (std::size_t byte = kOutputPackedBytes;
+       byte < actual_packed.size(); ++byte) {
+    if (actual_packed[byte] != 0xa5U) {
+      std::cerr << "packed allocation guard was overwritten\n";
       return false;
     }
   }
-  for (std::size_t group = 0U; group < kOutputScaleStride; ++group) {
-    if (actual_scales[kM * kOutputScaleStride + group] != 0xadadU) {
-      std::cerr << "M-tail scale guard row was overwritten\n";
+  for (std::size_t element = kOutputScaleElements;
+       element < actual_scales.size(); ++element) {
+    if (actual_scales[element] != 0xadadU) {
+      std::cerr << "scale allocation guard was overwritten\n";
       return false;
     }
   }

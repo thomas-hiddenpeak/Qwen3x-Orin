@@ -9,9 +9,9 @@ authority
 
 ## Result
 
-This admission establishes the instruction and byte/fragment contracts needed
-before building a persistent M64/M128 full-model A4W4 Prefill kernel. It does
-not implement, time, or select a complete GEMM.
+This admission establishes the instruction and byte/fragment contracts used
+by the separately gated persistent full-model A4W4 Prefill kernels. It does
+not itself time or select a complete GEMM.
 
 The compile sentinel emits compute-87 PTX and fails the build unless it finds:
 
@@ -30,7 +30,7 @@ zero static shared memory, and zero local memory for the one-warp smoke
 kernel. The runtime resource query additionally reports occupancy, but it was
 not executed in this admission because the task explicitly excluded GPU use.
 
-## Frozen consumer ABI
+## Warp-level canonical ABI
 
 - Signed S4 codes are two's-complement `[-8, 7]`.
 - The even inner coordinate is stored in the low nibble; the odd coordinate
@@ -52,6 +52,25 @@ not executed in this admission because the task explicitly excluded GPU use.
 The K64 group counts cover the model's projection K dimensions directly:
 5120 -> 80, 6144 -> 96, and 17408 -> 272.
 
+## Full-model consumer-prepacked ABI
+
+The persistent consumers additionally use a physical N64/M64 block order:
+
+```text
+packed [ceil(outer/64), K/64, 64, 32]
+scales [ceil(outer/64), K/64, 64]
+```
+
+The header owns overflow-checkable capacity/offset helpers for that layout.
+The host ABI test proves those offsets are bijective across two outer blocks
+and two K64 groups. N64/M64 are artifact-layout units; M32N128 CTAs may combine
+or split them without changing the sidecar ABI.
+
+Shared packed rows use `physical_half = logical_half ^ ((row >> 2) & 1)`.
+The host test proves that the corresponding LDS.u32 instruction visits all 32
+banks exactly once. Global sidecars remain contiguous consumer blocks; the XOR
+mapping exists only in shared memory.
+
 ## Fragment and load contract
 
 The host ABI test exhaustively proves that the lane/value mappings are
@@ -61,8 +80,9 @@ produce the documented four A registers and two B registers for every lane.
 
 The lane mapping was derived from the local CUTLASS/CuTe SM80
 `SM80_16x8x64_S32S4S4S32_TN` traits and then encoded locally without taking a
-CUTLASS runtime or header dependency. A future `cp.async` pipeline may stage
-the same canonical bytes in shared memory and reuse the load/MMA helpers.
+CUTLASS runtime or header dependency. The persistent kernels stage consumer
+blocks with `cp.async`, apply the shared-only XOR mapping, and reuse the same
+MMA fragment ownership.
 
 ## Isolation and fail-closed behavior
 

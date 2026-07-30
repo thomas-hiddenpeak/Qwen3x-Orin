@@ -9,19 +9,24 @@ namespace q3x::kernels {
 // consumer of the native SM87 m16n8k64 primitive; it deliberately owns only
 // the integer projection boundary and does not select itself in the runner.
 //
-// A and B use the canonical signed-nibble ABI shared with
-// sm87_a4w4_prefill_primitive.h:
+// A and B use the signed-nibble consumer-block ABI shared with the calibrated
+// full-model sidecar:
 //
-//   A: [M, K/2] bytes, row-major, dynamically quantized per [row, K64]
-//   B: [N, K/2] bytes, row-major, calibrated offline per [row, K64]
-//   A scales: BF16 [M, K/64]
-//   B scales: BF16 [N, K/64]
+//   A: [ceil(M/64), K/64, 64, 32] bytes
+//   B: [N/64, K/64, 64, 32] bytes
+//   A scales: BF16 [ceil(M/64), K/64, 64]
+//   B scales: BF16 [N/64, K/64, 64]
 //   D: BF16 [M, N]
+//
+// M64/N64 are physical blocks only. The CTA combines one M32 half-block and
+// two adjacent N64 blocks into M32N128, reducing activation rescans while
+// retaining the two-CTA/SM resource contract. Shared packed rows use the
+// primitive's XOR half-row swizzle; global consumer blocks stay contiguous.
 //
 // Every K64 integer partial is dequantized before it is accumulated in FP32;
 // scales from distinct groups are never incorrectly factored across K.
-inline constexpr std::size_t kSm87A4W4PrefillTileM = 64U;
-inline constexpr std::size_t kSm87A4W4PrefillTileN = 64U;
+inline constexpr std::size_t kSm87A4W4PrefillTileM = 32U;
+inline constexpr std::size_t kSm87A4W4PrefillTileN = 128U;
 inline constexpr std::size_t kSm87A4W4PrefillTileK = 64U;
 inline constexpr std::size_t kSm87A4W4PrefillThreads = 256U;
 inline constexpr std::size_t kSm87A4W4PrefillWarps = 8U;
@@ -88,10 +93,10 @@ struct Sm87A4W4PrefillGemmResources final {
 };
 
 // Bring-up activation producer.  Eight warps independently quantize eight
-// [row,K64] groups per CTA.  clip_ratio is a calibration-controlled value in
-// (0,1]; the packed output uses [-7,7] symmetric codes and one BF16 scale per
-// group.  Target fused producers may bypass this launch while preserving the
-// exact same ABI.
+// [row,K64] groups per CTA. clip_ratio is calibration-controlled and must be
+// in (0,1]. The producer writes the consumer-block layout above with an
+// addressable final M64 block; unused tail rows are never consumed. Capacity
+// arguments cover that padded representation and are checked before launch.
 [[nodiscard]] int launch_sm87_a4_quantize_bf16_cuda(
     const std::uint16_t* input_bf16,
     std::size_t input_row_stride_elements,
@@ -99,26 +104,27 @@ struct Sm87A4W4PrefillGemmResources final {
     std::size_t input_size,
     float clip_ratio,
     std::uint8_t* packed_a,
-    std::size_t packed_a_row_stride_bytes,
+    std::size_t packed_a_capacity_bytes,
     std::uint16_t* a_k64_scales_bf16,
-    std::size_t scale_row_stride_elements,
+    std::size_t a_scale_capacity_elements,
     void* cuda_stream = nullptr) noexcept;
 
 [[nodiscard]] int query_sm87_a4w4_prefill_gemm_resources_cuda(
     Sm87A4W4PrefillGemmResources* resources) noexcept;
 
 // Launches one persistent projection.  The current admission accepts arbitrary
-// positive M, all fixed Qwen3.6 projection N values (multiples of 64), and K
+// positive M, all fixed Qwen3.6 projection N values (multiples of 128), and K
 // values divisible by 64.  Tail M rows are zero-filled in the async staging
 // path and never written outside D.
 [[nodiscard]] int launch_sm87_a4w4_prefill_gemm_bf16_cuda(
     const std::uint8_t* packed_a,
-    std::size_t packed_a_row_stride_bytes,
+    std::size_t packed_a_capacity_bytes,
     const std::uint16_t* a_k64_scales_bf16,
-    std::size_t a_scale_row_stride_elements,
+    std::size_t a_scale_capacity_elements,
     const std::uint8_t* packed_b,
-    std::size_t packed_b_row_stride_bytes,
+    std::size_t packed_b_capacity_bytes,
     const std::uint16_t* b_k64_scales_bf16,
+    std::size_t b_scale_capacity_elements,
     std::size_t token_count,
     std::size_t output_size,
     std::size_t input_size,
@@ -134,6 +140,6 @@ static_assert(sm87_a4w4_prefill_gemm_plan(3'847U, 12'288U, 5'120U)
                   .launch_ctas == kSm87A4W4PrefillPersistentCtas);
 static_assert(sm87_a4w4_prefill_gemm_plan(1U, 1'024U, 5'120U)
                   .m_tiles == 1U);
-static_assert(sm87_a4w4_prefill_gemm_plan(0U, 64U, 64U).launch_ctas == 0U);
+static_assert(sm87_a4w4_prefill_gemm_plan(0U, 128U, 64U).launch_ctas == 0U);
 
 }  // namespace q3x::kernels
