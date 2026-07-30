@@ -678,6 +678,48 @@ void write_quoted(std::ostream& output, const std::string_view value) {
   return output.str();
 }
 
+[[nodiscard]] std::string serialize_policy_template(
+    const PrefillSidecarManifest& manifest, const double weight_clip_ratio,
+    const double activation_clip_ratio) {
+  std::ostringstream output;
+  output << std::setprecision(std::numeric_limits<double>::max_digits10);
+  output << "{\n  \"schema\": ";
+  write_quoted(output, kPolicySchema);
+  output << ",\n  \"version\": {\"major\": "
+         << kPrefillA4CalibrationPolicyVersionMajor << ", \"minor\": "
+         << kPrefillA4CalibrationPolicyVersionMinor << "},"
+         << "\n  \"mode\": \"production_calibrated\","
+         << "\n  \"sidecar_kind\": \"a4_k64\","
+         << "\n  \"physical_layout\": ";
+  write_quoted(output, kPrefillA4PhysicalLayout);
+  output << ",\n  \"source_checkpoint_id\": ";
+  write_quoted(output, manifest.source_checkpoint_id);
+  output << ",\n  \"source_config_sha256\": ";
+  write_quoted(output, manifest.source_config_sha256);
+  output << ",\n  \"source_index_sha256\": ";
+  write_quoted(output, manifest.source_index_sha256);
+  output << ",\n  \"manifest_sha256\": ";
+  write_quoted(output, manifest.manifest_sha256);
+  output << ",\n  \"projections\": [\n";
+  for (std::size_t index = 0U; index < manifest.projections.size(); ++index) {
+    const PrefillProjectionSidecarEntry& entry = manifest.projections[index];
+    output << "    {\"ordinal\": " << entry.ordinal
+           << ", \"source_module\": ";
+    write_quoted(output, entry.source_module);
+    output << ", \"source_sha256\": ";
+    write_quoted(output, entry.source_sha256);
+    output << ", \"weight_clip_ratio\": " << weight_clip_ratio
+           << ", \"activation_clip_ratio\": " << activation_clip_ratio
+           << ", \"activation_scale_group_size\": "
+           << kPrefillA4WeightGroupSize
+           << ", \"rounding\": \"nearest_even_v1\", "
+              "\"channel_equalization\": null}";
+    output << (index + 1U == manifest.projections.size() ? "\n" : ",\n");
+  }
+  output << "  ]\n}\n";
+  return output.str();
+}
+
 [[nodiscard]] PrefillA4ConverterDiagnostic verify_regular_fd(
     const int fd, const std::uint64_t expected_size,
     const std::string_view context) {
@@ -1113,6 +1155,214 @@ void remove_if_present(const fs::path& path) noexcept {
 }
 
 }  // namespace
+
+PrefillA4PolicyTemplateWriteResult
+write_prefill_a4_calibration_policy_template(
+    const PrefillSidecarManifest& manifest,
+    const PrefillA4PolicyTemplateWriteOptions& options) {
+  PrefillA4PolicyTemplateWriteResult result;
+  fs::path temporary_path;
+  struct TemporaryCleanup {
+    fs::path* path = nullptr;
+    ~TemporaryCleanup() {
+      if (path != nullptr && !path->empty()) {
+        remove_if_present(*path);
+      }
+    }
+  } cleanup{&temporary_path};
+
+  try {
+    const PrefillContractDiagnostic manifest_diagnostic =
+        validate_prefill_sidecar_manifest(manifest);
+    if (!manifest_diagnostic || manifest.kind != PrefillSidecarKind::kA4K64 ||
+        manifest.projections.size() != kQwen36PrefillProjectionCount) {
+      result.diagnostic = make_diagnostic(
+          PrefillA4ConverterErrorCode::kInvalidManifest, "manifest",
+          "policy template requires a valid 400-entry A4-K64 manifest");
+      return result;
+    }
+    if (options.output_path.empty() ||
+        !valid_clip_ratio(options.weight_clip_ratio) ||
+        !valid_clip_ratio(options.activation_clip_ratio)) {
+      result.diagnostic = make_diagnostic(
+          PrefillA4ConverterErrorCode::kInvalidOption, "policy_template",
+          "output and explicit weight/activation clip ratios are required",
+          "ratios in [1/256,1]");
+      return result;
+    }
+    if (!target_absent(options.output_path, result.diagnostic)) {
+      return result;
+    }
+    const fs::path parent = options.output_path.parent_path().empty()
+                                ? fs::path(".")
+                                : options.output_path.parent_path();
+    std::error_code filesystem_error;
+    const fs::file_status parent_status =
+        fs::symlink_status(parent, filesystem_error);
+    if (filesystem_error || !fs::is_directory(parent_status)) {
+      result.diagnostic = make_diagnostic(
+          PrefillA4ConverterErrorCode::kOpenFailed, parent.string(),
+          "output parent must be an existing non-symlink directory", {},
+          filesystem_error.message());
+      return result;
+    }
+
+    const std::string document = serialize_policy_template(
+        manifest, options.weight_clip_ratio, options.activation_clip_ratio);
+    PrefillA4CalibrationPolicyResult parsed =
+        parse_prefill_a4_calibration_policy(document, manifest);
+    if (!parsed) {
+      result.diagnostic = parsed.diagnostic;
+      result.diagnostic.context = "generated_policy." +
+                                  result.diagnostic.context;
+      return result;
+    }
+
+    UniqueFd output = create_temporary_file_near(
+        options.output_path, "policy", temporary_path, result.diagnostic);
+    if (!output) {
+      return result;
+    }
+    int error = 0;
+    if (!pwrite_exact(output.get(), document.data(), document.size(), 0U,
+                      error) ||
+        ::fsync(output.get()) != 0) {
+      result.diagnostic = make_diagnostic(
+          PrefillA4ConverterErrorCode::kIoFailure, temporary_path.string(),
+          "failed to write and synchronize policy template", {}, {},
+          error != 0 ? error : errno);
+      return result;
+    }
+    const PrefillA4ConverterDiagnostic size_diagnostic = verify_regular_fd(
+        output.get(), document.size(), temporary_path.string());
+    if (!size_diagnostic) {
+      result.diagnostic = size_diagnostic;
+      return result;
+    }
+    std::string written_sha256;
+    result.diagnostic =
+        hash_open_file(output.get(), document.size(), written_sha256);
+    if (!result.diagnostic) {
+      result.diagnostic.context = temporary_path.string();
+      return result;
+    }
+    if (written_sha256 != parsed.value->policy_sha256) {
+      result.diagnostic = make_diagnostic(
+          PrefillA4ConverterErrorCode::kDigestMismatch,
+          temporary_path.string(),
+          "written policy template differs from generated strict JSON",
+          parsed.value->policy_sha256, written_sha256);
+      return result;
+    }
+    if (::fchmod(output.get(), S_IRUSR) != 0 || ::fsync(output.get()) != 0) {
+      result.diagnostic = make_diagnostic(
+          PrefillA4ConverterErrorCode::kIoFailure, temporary_path.string(),
+          "failed to seal policy template read-only", {}, {}, errno);
+      return result;
+    }
+
+    struct stat path_status {};
+    struct stat fd_status {};
+    if (::lstat(temporary_path.c_str(), &path_status) != 0 ||
+        ::fstat(output.get(), &fd_status) != 0 ||
+        !S_ISREG(path_status.st_mode) ||
+        path_status.st_dev != fd_status.st_dev ||
+        path_status.st_ino != fd_status.st_ino || fd_status.st_nlink != 1 ||
+        (fd_status.st_mode & (S_IWUSR | S_IWGRP | S_IWOTH)) != 0) {
+      result.diagnostic = make_diagnostic(
+          PrefillA4ConverterErrorCode::kPublicationConflict,
+          temporary_path.string(),
+          "temporary policy path no longer names its secured descriptor", {},
+          {}, errno);
+      return result;
+    }
+    if (::link(temporary_path.c_str(), options.output_path.c_str()) != 0) {
+      result.diagnostic = make_diagnostic(
+          PrefillA4ConverterErrorCode::kPublicationConflict,
+          options.output_path.string(),
+          "failed to atomically publish policy template without replace", {},
+          {}, errno);
+      return result;
+    }
+    if (::unlink(temporary_path.c_str()) != 0) {
+      const int saved = errno;
+      (void)::unlink(options.output_path.c_str());
+      result.diagnostic = make_diagnostic(
+          PrefillA4ConverterErrorCode::kIoFailure,
+          options.output_path.string(),
+          "temporary policy unlink failed; publication rolled back", {}, {},
+          saved);
+      return result;
+    }
+    temporary_path.clear();
+    UniqueFd directory(
+        ::open(parent.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC));
+    if (!directory || ::fsync(directory.get()) != 0) {
+      const int saved = errno;
+      (void)::unlink(options.output_path.c_str());
+      if (directory) {
+        (void)::fsync(directory.get());
+      }
+      result.diagnostic = make_diagnostic(
+          PrefillA4ConverterErrorCode::kIoFailure, parent.string(),
+          "directory sync failed; policy publication rolled back", {}, {},
+          saved);
+      return result;
+    }
+    result.policy.emplace(std::move(*parsed.value));
+    result.diagnostic = {};
+    return result;
+  } catch (const std::bad_alloc&) {
+    result.diagnostic = make_diagnostic(
+        PrefillA4ConverterErrorCode::kAllocationFailure, "policy_template",
+        "allocation failed while generating policy template");
+    return result;
+  } catch (...) {
+    result.diagnostic = make_diagnostic(
+        PrefillA4ConverterErrorCode::kIoFailure, "policy_template",
+        "unexpected policy template generation failure");
+    return result;
+  }
+}
+
+PrefillA4PolicyTemplateWriteResult
+write_pinned_qwen36_27b_prefill_a4_calibration_policy_template(
+    const fs::path& model_directory,
+    const PrefillA4PolicyTemplateWriteOptions& options) {
+  PrefillA4PolicyTemplateWriteResult result;
+  if (model_directory.empty()) {
+    result.diagnostic = make_diagnostic(
+        PrefillA4ConverterErrorCode::kInvalidOption, "model_directory",
+        "pinned checkpoint directory is required");
+    return result;
+  }
+  const mw::ManifestResult source_manifest =
+      mw::build_qwen36_27b_text_manifest(model_directory);
+  if (!source_manifest) {
+    std::string message = "pinned checkpoint manifest validation failed";
+    if (!source_manifest.diagnostics.empty()) {
+      message += ": " + source_manifest.diagnostics.front().message;
+    }
+    result.diagnostic = make_diagnostic(
+        PrefillA4ConverterErrorCode::kInvalidManifest,
+        model_directory.string(), std::move(message));
+    return result;
+  }
+  PrefillSidecarManifestOptions manifest_options;
+  manifest_options.kind = PrefillSidecarKind::kA4K64;
+  const PrefillSidecarManifestResult built_manifest =
+      build_qwen36_27b_prefill_sidecar_manifest(
+          *source_manifest.value, pinned_qwen36_27b_shards(),
+          manifest_options);
+  if (!built_manifest) {
+    result.diagnostic = make_diagnostic(
+        PrefillA4ConverterErrorCode::kInvalidManifest,
+        built_manifest.diagnostic.context, built_manifest.diagnostic.message);
+    return result;
+  }
+  return write_prefill_a4_calibration_policy_template(*built_manifest.value,
+                                                       options);
+}
 
 PrefillA4CalibrationPolicyResult parse_prefill_a4_calibration_policy(
     const std::string_view document,
