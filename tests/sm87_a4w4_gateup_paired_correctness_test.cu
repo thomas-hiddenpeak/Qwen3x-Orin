@@ -17,8 +17,8 @@ namespace {
 
 namespace kernels = q3x::kernels;
 
-inline constexpr std::size_t kM = 1'024U;
-inline constexpr std::size_t kN = 64U;
+inline constexpr std::size_t kM = 2'048U;
+inline constexpr std::size_t kN = 128U;
 inline constexpr std::size_t kK = 256U;
 inline constexpr std::size_t kGroups = kK / 64U;
 inline constexpr std::size_t kOutputGroups = kN / 64U;
@@ -363,13 +363,13 @@ struct QuantizedReference final {
 
   kernels::Sm87A4W4GateUpPairedResources resources{};
   if (!launch_ok(
-          kernels::query_sm87_a4w4_gateup_paired_large_m_resources_cuda(
+          kernels::query_sm87_a4w4_gateup_paired_wide_large_m_resources_cuda(
               &resources),
-          "query paired Gate+Up large-M resources")) {
+          "query paired Gate+Up wide-large-M resources")) {
     return false;
   }
   if (resources.local_bytes != 0U || resources.active_blocks_per_sm < 2 ||
-      resources.static_shared_bytes != 35'968U ||
+      resources.static_shared_bytes != 43'520U ||
       resources.maximum_threads_per_block < 256) {
     std::cerr << "resource contract failed: registers="
               << resources.registers_per_thread
@@ -406,6 +406,114 @@ struct QuantizedReference final {
                           actual_scales.size() * sizeof(std::uint16_t),
                           cudaMemcpyDeviceToHost),
                "copy paired scales")) {
+    return false;
+  }
+
+  // Establish bit-level equivalence against the retained M64N64 kernel, not
+  // merely against a tolerant CPU reconstruction.  Four P1024/N64 launches
+  // cover the same P2048/N128 tensor, then the host stitches their unchanged
+  // consumer-order blocks into the candidate layout.
+  constexpr std::size_t kBaselineM = 1'024U;
+  constexpr std::size_t kBaselineN = 64U;
+  constexpr std::size_t kBaselineAPackedBytes =
+      kernels::sm87_a4w4_consumer_packed_capacity_bytes(kBaselineM, kK);
+  constexpr std::size_t kBaselineAScaleElements =
+      kernels::sm87_a4w4_consumer_scale_capacity_elements(kBaselineM, kK);
+  constexpr std::size_t kBaselineBPackedBytes =
+      kernels::sm87_a4w4_consumer_packed_capacity_bytes(kBaselineN, kK);
+  constexpr std::size_t kBaselineBScaleElements =
+      kernels::sm87_a4w4_consumer_scale_capacity_elements(kBaselineN, kK);
+  constexpr std::size_t kBaselineOutputPackedBytes =
+      kernels::sm87_a4w4_consumer_packed_capacity_bytes(
+          kBaselineM, kBaselineN);
+  constexpr std::size_t kBaselineOutputScaleElements =
+      kernels::sm87_a4w4_consumer_scale_capacity_elements(
+          kBaselineM, kBaselineN);
+  DeviceBuffer<std::uint8_t> baseline_device_output;
+  DeviceBuffer<std::uint16_t> baseline_device_scales;
+  if (!baseline_device_output.allocate(kBaselineOutputPackedBytes) ||
+      !baseline_device_scales.allocate(kBaselineOutputScaleElements)) {
+    std::cerr << "baseline device allocation failed\n";
+    return false;
+  }
+  std::vector<std::uint8_t> baseline_packed(kOutputPackedBytes);
+  std::vector<std::uint16_t> baseline_scales(kOutputScaleElements);
+  std::vector<std::uint8_t> baseline_chunk_packed(
+      kBaselineOutputPackedBytes);
+  std::vector<std::uint16_t> baseline_chunk_scales(
+      kBaselineOutputScaleElements);
+  for (std::size_t m_chunk = 0U; m_chunk < kM / kBaselineM; ++m_chunk) {
+    for (std::size_t n_chunk = 0U; n_chunk < kN / kBaselineN; ++n_chunk) {
+      if (!launch_ok(kernels::launch_sm87_a4w4_gateup_paired_cuda(
+                         device_a.get() + m_chunk * kBaselineAPackedBytes,
+                         kBaselineAPackedBytes,
+                         device_a_scales.get() +
+                             m_chunk * kBaselineAScaleElements,
+                         kBaselineAScaleElements,
+                         device_gate_b.get() +
+                             n_chunk * kBaselineBPackedBytes,
+                         kBaselineBPackedBytes,
+                         device_gate_scales.get() +
+                             n_chunk * kBaselineBScaleElements,
+                         kBaselineBScaleElements,
+                         device_up_b.get() +
+                             n_chunk * kBaselineBPackedBytes,
+                         kBaselineBPackedBytes,
+                         device_up_scales.get() +
+                             n_chunk * kBaselineBScaleElements,
+                         kBaselineBScaleElements, kBaselineM, kBaselineN,
+                         kK, kOutputClipRatio, baseline_device_output.get(),
+                         kBaselineOutputPackedBytes,
+                         baseline_device_scales.get(),
+                         kBaselineOutputScaleElements),
+                     "launch retained M64N64 baseline") ||
+          !cuda_ok(cudaDeviceSynchronize(),
+                   "synchronize retained M64N64 baseline") ||
+          !cuda_ok(cudaMemcpy(baseline_chunk_packed.data(),
+                              baseline_device_output.get(),
+                              kBaselineOutputPackedBytes,
+                              cudaMemcpyDeviceToHost),
+                   "copy retained M64N64 packed output") ||
+          !cuda_ok(cudaMemcpy(baseline_chunk_scales.data(),
+                              baseline_device_scales.get(),
+                              kBaselineOutputScaleElements *
+                                  sizeof(std::uint16_t),
+                              cudaMemcpyDeviceToHost),
+                   "copy retained M64N64 scale output")) {
+        return false;
+      }
+      for (std::size_t local_m = 0U; local_m < kBaselineM; ++local_m) {
+        const std::size_t global_m = m_chunk * kBaselineM + local_m;
+        for (std::size_t byte = 0U; byte < 32U; ++byte) {
+          baseline_packed[kernels::sm87_a4w4_consumer_packed_offset(
+              global_m, n_chunk, byte, kOutputGroups)] =
+              baseline_chunk_packed[
+                  kernels::sm87_a4w4_consumer_packed_offset(
+                      local_m, 0U, byte, 1U)];
+        }
+        baseline_scales[kernels::sm87_a4w4_consumer_scale_offset(
+            global_m, n_chunk, kOutputGroups)] =
+            baseline_chunk_scales[
+                kernels::sm87_a4w4_consumer_scale_offset(
+                    local_m, 0U, 1U)];
+      }
+    }
+  }
+  std::size_t baseline_code_byte_mismatches = 0U;
+  for (std::size_t index = 0U; index < baseline_packed.size(); ++index) {
+    baseline_code_byte_mismatches +=
+        baseline_packed[index] != actual_packed[index] ? 1U : 0U;
+  }
+  std::size_t baseline_scale_mismatches = 0U;
+  for (std::size_t index = 0U; index < baseline_scales.size(); ++index) {
+    baseline_scale_mismatches +=
+        baseline_scales[index] != actual_scales[index] ? 1U : 0U;
+  }
+  if (baseline_code_byte_mismatches != 0U ||
+      baseline_scale_mismatches != 0U) {
+    std::cerr << "wide-large-M is not bit-exact with M64N64: packed="
+              << baseline_code_byte_mismatches
+              << " scales=" << baseline_scale_mismatches << '\n';
     return false;
   }
 
@@ -511,6 +619,7 @@ struct QuantizedReference final {
             << " N=" << kN << " K=" << kK
             << " code_mismatches=" << code_mismatches
             << " scale_mismatches=" << scale_mismatches
+            << " retained_kernel_bit_mismatches=0"
             << " nrmse=" << nrmse
             << " registers=" << resources.registers_per_thread
             << " active_blocks_per_sm=" << resources.active_blocks_per_sm

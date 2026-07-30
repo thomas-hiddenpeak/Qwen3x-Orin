@@ -1,0 +1,117 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-a4-wide-output-real-api-2026-07-31",
+  "status": "positive_cumulative_baseline_retained_target_not_met",
+  "recorded_at": "2026-07-31T17:05:00+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "base_commit": "0ddae6a",
+    "branch": "codex/a4w4-full-prefill",
+    "run_admission": "Q3X_RUN_LONG_PREFILL_LAYER_MAJOR_ADMISSION=1 with authenticated full-model A4 sidecars",
+    "production_default_changed": false
+  },
+  "measured_binary": {
+    "path_at_measurement": "/tmp/q3x-a4w4-full-prefill/build-a4w4-full-make/qwen3x-eval-server",
+    "bytes": 9214664,
+    "sha256": "d59ec9d7366bf4240fba82fa5a88db9e8d3b83e0fa067104f5569b00827a7c38",
+    "elf_build_id": "07b168757943e62c49569e3dd17a8911a7a1544b",
+    "build_type": "Release",
+    "target_architecture": "sm_87"
+  },
+  "implementation": {
+    "generic": {
+      "selection": "P>=2048, M divisible by 64, N divisible by 256",
+      "tile": "M64N256K64",
+      "warp_tile": "M32N64",
+      "pipeline": "two K128-logical cp.async slots; each contains two independently scaled K64 groups accumulated in original order",
+      "persistent_ctas": 32,
+      "registers_per_thread": 128,
+      "static_shared_bytes": 43520,
+      "local_or_stack_bytes": 0,
+      "active_blocks_per_sm": 2
+    },
+    "paired_gate_up": {
+      "selection": "P>=2048, M divisible by 64, N divisible by 128",
+      "tile": "M64N128K64 for each Gate and Up branch",
+      "warp_tile": "M32N32 per branch",
+      "pipeline": "two K128-logical cp.async slots with pipeline/product shared-memory lifetime union",
+      "persistent_ctas": 32,
+      "registers_per_thread": 128,
+      "static_shared_bytes": 43520,
+      "local_or_stack_bytes": 0,
+      "active_blocks_per_sm": 2
+    },
+    "fallbacks": "P1024 retains M64N64; C512 and nonaligned tails retain M32N128",
+    "mtp_used": false,
+    "cublas_or_cublaslt_production_path_used": false
+  },
+  "real_openai_api_gate": {
+    "authority": "real authenticated model, exact tokenized OpenAI completions, output one, temperature zero",
+    "all_requests": "HTTP 200 with exact usage and generated text Hello",
+    "measurements": [
+      {
+        "prompt_tokens": 1024,
+        "kernel_route": "retained M64N64",
+        "prompt_prefill_ms": [4771.32],
+        "mean_prompt_prefill_ms": 4771.32,
+        "prompt_throughput_tok_s": 214.6158,
+        "prior_mean_prompt_prefill_ms": 4781.82,
+        "prior_speedup": 1.0022
+      },
+      {
+        "prompt_tokens": 2048,
+        "kernel_route": "generic M64N256 plus paired M64N128",
+        "prompt_prefill_ms": [7682.49, 7659.37],
+        "mean_prompt_prefill_ms": 7670.93,
+        "prompt_throughput_tok_s": 266.9820,
+        "prior_m64n64_mean_prompt_prefill_ms": 10320.35,
+        "speedup_over_prior_m64n64": 1.3454,
+        "near_equal_fallback_prompt_tokens": 2047,
+        "near_equal_fallback_prompt_prefill_ms": 12948.4,
+        "normalized_speedup_over_fallback": 1.6888
+      },
+      {
+        "prompt_tokens": 4096,
+        "kernel_route": "generic M64N256 plus paired M64N128",
+        "prompt_prefill_ms": [18733.7, 18742.8],
+        "mean_prompt_prefill_ms": 18738.25,
+        "prompt_throughput_tok_s": 218.5903,
+        "prior_m64n64_mean_prompt_prefill_ms": 23412.05,
+        "speedup_over_prior_m64n64": 1.2494,
+        "near_equal_fallback_prompt_tokens": 4095,
+        "near_equal_fallback_prompt_prefill_ms": 29016.7,
+        "normalized_speedup_over_fallback": 1.5489
+      }
+    ]
+  },
+  "correctness_and_resource_gates": {
+    "generic": "P2048 N256 K192 full output bit-exact, odd K64 tail and stride padding guard pass",
+    "paired": "P2048 N128 K256 output codes/scales exact, NRMSE zero, byte-exact against retained M64N64 block reconstruction",
+    "integrated_tests": "sm87_a4w4_prefill_gemm_correctness, sm87_a4w4_gateup_pair_contract, sm87_a4w4_gateup_pair_correctness, reference_runner_host pass 4/4",
+    "full_targets": "qwen3x-orin and qwen3x-eval-server build pass"
+  },
+  "prior_real_p2048_nsys": {
+    "authority": "retained M64N64 baseline attribution; not the wide-candidate profile",
+    "report": "/tmp/q3x-a4-m64-p2048-real-20260731.nsys-rep",
+    "report_sha256": "2fb2f10bda495c4935b4a964d1bcfccee558bae17b43fc629f5c93a7cfb597f9",
+    "generic_a4_ms": 4076.619,
+    "paired_gate_up_ms": 2846.601,
+    "gdn_ms": 1981.487,
+    "full_attention_ms": 962.234,
+    "device_to_device_copy_ms": 12.809,
+    "finding": "GEMM families were 65.9 percent of kernel time, but GDN plus full attention already approached 3 seconds and become the next hard floor as GEMM improves."
+  },
+  "decision": {
+    "retain_as_cumulative_baseline": true,
+    "prefill_target_tokens_per_second": 2000,
+    "target_met": false,
+    "run_evalscope_matrix_now": false,
+    "reason": "The wider-output skeleton produces a repeatable 24.9 to 34.5 percent gain over the retained M64N64 path while protecting P1024, but absolute P2048/P4096 throughput remains 7.5 to 9.1 times below the first target.",
+    "next_priority": [
+      "Profile the retained wide route on the same real P2048 request",
+      "reduce K64-scale dequantization and FP32 accumulation frequency through a separately calibrated model-specific consumer policy",
+      "replace 6144 C16 GDN launches at P2048 with a whole-span or coarse-block fused update",
+      "then retest P8K through P40K and run the external EvalScope performance gate"
+    ]
+  }
+}

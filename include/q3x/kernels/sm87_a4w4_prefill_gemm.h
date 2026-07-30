@@ -44,10 +44,30 @@ inline constexpr std::size_t kSm87A4W4PrefillLargeMTileM = 64U;
 inline constexpr std::size_t kSm87A4W4PrefillLargeMTileN = 64U;
 inline constexpr std::size_t kSm87A4W4PrefillLargeMMinimumTokens = 1'024U;
 
+// Whole-M wide-N candidate.  Each CTA owns M64N256 and assigns the eight
+// warps as 2x4 M32N64 warp tiles.  Two adjacent K64 groups share one logical
+// pipeline buffer without changing their accumulation order.  The candidate
+// is admitted only for exact M64/N256 shapes at P>=2048; P1024 remains on the
+// M64N64 kernel and C512/tails remain on M32N128.
+inline constexpr std::size_t kSm87A4W4PrefillWideTileM = 64U;
+inline constexpr std::size_t kSm87A4W4PrefillWideTileN = 256U;
+inline constexpr std::size_t kSm87A4W4PrefillWideMinimumTokens = 2'048U;
+inline constexpr std::size_t kSm87A4W4PrefillWideLogicalTileK = 128U;
+inline constexpr std::size_t kSm87A4W4PrefillWidePipelineStages = 2U;
+
 [[nodiscard]] constexpr bool sm87_a4w4_prefill_uses_large_m_candidate(
     const std::size_t token_count) noexcept {
   return token_count >= kSm87A4W4PrefillLargeMMinimumTokens &&
          token_count % kSm87A4W4PrefillLargeMTileM == 0U;
+}
+
+[[nodiscard]] constexpr bool sm87_a4w4_prefill_uses_m64n256_candidate(
+    const std::size_t token_count,
+    const std::size_t output_size) noexcept {
+  return token_count >= kSm87A4W4PrefillWideMinimumTokens &&
+         token_count % kSm87A4W4PrefillWideTileM == 0U &&
+         output_size != 0U &&
+         output_size % kSm87A4W4PrefillWideTileN == 0U;
 }
 
 struct Sm87A4W4PrefillGemmPlan final {
@@ -80,6 +100,37 @@ sm87_a4w4_prefill_gemm_plan(const std::size_t token_count,
   const std::size_t m_tiles =
       sm87_a4w4_ceil_div(token_count, kSm87A4W4PrefillTileM);
   const std::size_t n_tiles = output_size / kSm87A4W4PrefillTileN;
+  if (m_tiles == 0U || n_tiles == 0U ||
+      m_tiles > static_cast<std::size_t>(-1) / n_tiles) {
+    return {};
+  }
+  const std::size_t work_tiles = m_tiles * n_tiles;
+  return {token_count,
+          output_size,
+          input_size,
+          m_tiles,
+          n_tiles,
+          input_size / kSm87A4W4PrefillTileK,
+          work_tiles,
+          work_tiles < kSm87A4W4PrefillPersistentCtas
+              ? work_tiles
+              : kSm87A4W4PrefillPersistentCtas};
+}
+
+// The wide tile changes the number and ordering of persistent work items, so
+// it deliberately owns a separate planner instead of reinterpreting the
+// baseline M32N128 plan in the launcher.
+[[nodiscard]] constexpr Sm87A4W4PrefillGemmPlan
+sm87_a4w4_prefill_gemm_m64n256_plan(
+    const std::size_t token_count,
+    const std::size_t output_size,
+    const std::size_t input_size) noexcept {
+  if (!sm87_a4w4_prefill_uses_m64n256_candidate(token_count, output_size) ||
+      input_size == 0U || input_size % kSm87A4W4PrefillTileK != 0U) {
+    return {};
+  }
+  const std::size_t m_tiles = token_count / kSm87A4W4PrefillWideTileM;
+  const std::size_t n_tiles = output_size / kSm87A4W4PrefillWideTileN;
   if (m_tiles == 0U || n_tiles == 0U ||
       m_tiles > static_cast<std::size_t>(-1) / n_tiles) {
     return {};
@@ -134,6 +185,10 @@ struct Sm87A4W4PrefillGemmResources final {
 [[nodiscard]] int query_sm87_a4w4_prefill_gemm_m64n64_resources_cuda(
     Sm87A4W4PrefillGemmResources* resources) noexcept;
 
+// Queries the independently compiled M64N256/K128-logical candidate.
+[[nodiscard]] int query_sm87_a4w4_prefill_gemm_m64n256_resources_cuda(
+    Sm87A4W4PrefillGemmResources* resources) noexcept;
+
 // Launches one persistent projection.  The current admission accepts arbitrary
 // positive M, all fixed Qwen3.6 projection N values (multiples of 128), and K
 // values divisible by 64.  Tail M rows are zero-filled in the async staging
@@ -168,5 +223,15 @@ static_assert(!sm87_a4w4_prefill_uses_large_m_candidate(1'023U));
 static_assert(sm87_a4w4_prefill_uses_large_m_candidate(1'024U));
 static_assert(sm87_a4w4_prefill_uses_large_m_candidate(4'096U));
 static_assert(!sm87_a4w4_prefill_uses_large_m_candidate(4'097U));
+static_assert(!sm87_a4w4_prefill_uses_m64n256_candidate(1'024U, 5'120U));
+static_assert(sm87_a4w4_prefill_uses_m64n256_candidate(2'048U, 5'120U));
+static_assert(!sm87_a4w4_prefill_uses_m64n256_candidate(2'048U, 5'184U));
+static_assert(!sm87_a4w4_prefill_uses_m64n256_candidate(2'049U, 5'120U));
+static_assert(sm87_a4w4_prefill_gemm_m64n256_plan(
+                  2'048U, 17'408U, 5'120U)
+                  .work_tiles == 2'176U);
+static_assert(sm87_a4w4_prefill_gemm_m64n256_plan(
+                  4'096U, 5'120U, 17'408U)
+                  .work_tiles == 1'280U);
 
 }  // namespace q3x::kernels
