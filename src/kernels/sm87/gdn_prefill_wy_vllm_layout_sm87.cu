@@ -464,83 +464,197 @@ __device__ __forceinline__ uint4 scale_bf16_vector(
                     scale_bf16_pair(packed.w, scale));
 }
 
-__device__ __forceinline__ uint4 encode_bf16_vector(
-    const float* const values) {
-  return make_uint4(encode_bf16_pair(values[0], values[1]),
-                    encode_bf16_pair(values[2], values[3]),
-                    encode_bf16_pair(values[4], values[5]),
-                    encode_bf16_pair(values[6], values[7]));
+struct RecomputeM16K16 final {
+  std::uint32_t x0;
+  std::uint32_t x1;
+  std::uint32_t x2;
+  std::uint32_t x3;
+};
+
+struct RecomputeK16N8 final {
+  std::uint32_t x0;
+  std::uint32_t x1;
+};
+
+struct RecomputeM16N8Accumulator final {
+  float x0;
+  float x1;
+  float x2;
+  float x3;
+};
+
+__device__ __forceinline__ void recompute_zero(
+    RecomputeM16N8Accumulator& accumulator) {
+  accumulator.x0 = 0.0F;
+  accumulator.x1 = 0.0F;
+  accumulator.x2 = 0.0F;
+  accumulator.x3 = 0.0F;
 }
 
-__device__ __forceinline__ void recompute_product(
-    const Bf16* const transform, const Bf16* const operand,
-    Bf16* const output, float* const scratch,
-    const unsigned int warp, const unsigned int lane) {
-  float* const warp_scratch = scratch + warp * kTileElements;
+__device__ __forceinline__ void recompute_mma(
+    RecomputeM16N8Accumulator& accumulator,
+    const RecomputeM16K16& a, const RecomputeK16N8& b) {
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800
+  asm volatile(
+      "mma.sync.aligned.m16n8k16.row.col.f32.bf16.bf16.f32 "
+      "{%0, %1, %2, %3}, {%4, %5, %6, %7}, {%8, %9}, "
+      "{%0, %1, %2, %3};"
+      : "+f"(accumulator.x0), "+f"(accumulator.x1),
+        "+f"(accumulator.x2), "+f"(accumulator.x3)
+      : "r"(a.x0), "r"(a.x1), "r"(a.x2), "r"(a.x3),
+        "r"(b.x0), "r"(b.x1));
+#else
+  (void)accumulator;
+  (void)a;
+  (void)b;
+#endif
+}
+
+// The solve publishes logical A[M,K] in column-major order.  Retain that
+// public boundary and let the architecture-provided WMMA loader form the
+// exact four-register matrix-A fragment directly from the resident tile.
+__device__ __forceinline__ void recompute_load_a_col_major(
+    RecomputeM16K16& packed,
+    const Bf16* const shared_transform,
+    const unsigned int m_panel, const unsigned int k16) {
+  wmma::fragment<wmma::matrix_a, kTile, kTile, kTile, Bf16,
+                 wmma::col_major>
+      fragment;
+  wmma::load_matrix_sync(
+      fragment,
+      shared_transform + m_panel * kTile +
+          k16 * kTile * kChunk,
+      static_cast<int>(kChunk));
+  const auto* const words = reinterpret_cast<const std::uint32_t*>(
+      fragment.x);
+  packed.x0 = words[0];
+  packed.x1 = words[1];
+  packed.x2 = words[2];
+  packed.x3 = words[3];
+}
+
+[[nodiscard]] __device__ __forceinline__ unsigned int
+recompute_swizzled_chunk(const unsigned int row,
+                         const unsigned int logical_chunk) {
+  return logical_chunk ^ (row & 7U);
+}
+
+// The operand is a true row-major [K64,N64] tile.  A row-wise XOR swizzle
+// removes the eight-way ldmatrix bank alias while x2.trans produces the
+// register layout consumed by mma.row.col.
+__device__ __forceinline__ void recompute_load_b(
+    RecomputeK16N8& fragment,
+    const Bf16* const shared_operand,
+    const unsigned int n_panel, const unsigned int k16,
+    const unsigned int lane) {
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 750
+  const unsigned int row =
+      k16 * kTile + (lane & 7U) + ((lane >> 3U) & 1U) * 8U;
+  const unsigned int physical_chunk =
+      recompute_swizzled_chunk(row, n_panel);
+  const auto* const source =
+      shared_operand + row * kChunk + physical_chunk * 8U;
+  const unsigned int shared_address = static_cast<unsigned int>(
+      __cvta_generic_to_shared(source));
+  asm volatile(
+      "ldmatrix.sync.aligned.m8n8.x2.trans.shared.b16 "
+      "{%0, %1}, [%2];"
+      : "=r"(fragment.x0), "=r"(fragment.x1)
+      : "r"(shared_address)
+      : "memory");
+#else
+  (void)fragment;
+  (void)shared_operand;
+  (void)n_panel;
+  (void)k16;
+  (void)lane;
+#endif
+}
+
+__device__ __forceinline__ void recompute_store_product(
+    const RecomputeM16N8Accumulator
+        (&accumulators)[kBlockRows][kBlockRows],
+    Bf16* const output, const unsigned int column_base,
+    const unsigned int lane) {
+  const unsigned int row_in_half = lane >> 2U;
+  const unsigned int column_pair = lane & 3U;
 #pragma unroll
-  for (unsigned int token_block = 0U; token_block < kBlockRows;
-       ++token_block) {
-    Accumulator accumulator;
-    wmma::fill_fragment(accumulator, 0.0F);
+  for (unsigned int m_panel = 0U; m_panel < kBlockRows; ++m_panel) {
+    const unsigned int row0 = m_panel * kTile + row_in_half;
+    const unsigned int row1 = row0 + 8U;
 #pragma unroll
-    for (unsigned int source_block = 0U; source_block < kBlockRows;
-         ++source_block) {
-      wmma::fragment<wmma::matrix_a, kTile, kTile, kTile, Bf16,
-                     wmma::col_major>
-          transform_fragment;
-      wmma::fragment<wmma::matrix_b, kTile, kTile, kTile, Bf16,
-                     wmma::row_major>
-          operand_fragment;
-      wmma::load_matrix_sync(
-          transform_fragment,
-          transform + token_block * kTile +
-              source_block * kTile * kChunk,
-          static_cast<int>(kChunk));
-      wmma::load_matrix_sync(
-          operand_fragment,
-          operand + source_block * kTile * kDimension + warp * kTile,
-          static_cast<int>(kDimension));
-      wmma::mma_sync(accumulator, transform_fragment,
-                     operand_fragment, accumulator);
+    for (unsigned int n_panel = 0U; n_panel < kBlockRows; ++n_panel) {
+      const unsigned int column =
+          column_base + n_panel * 8U + column_pair * 2U;
+      const RecomputeM16N8Accumulator& accumulator =
+          accumulators[m_panel][n_panel];
+      *reinterpret_cast<std::uint32_t*>(
+          output + row0 * kDimension + column) =
+          encode_bf16_pair(accumulator.x0, accumulator.x1);
+      *reinterpret_cast<std::uint32_t*>(
+          output + row1 * kDimension + column) =
+          encode_bf16_pair(accumulator.x2, accumulator.x3);
     }
-    wmma::store_matrix_sync(warp_scratch, accumulator,
-                            static_cast<int>(kTile),
-                            wmma::mem_row_major);
-    __syncwarp();
-    const unsigned int row = lane / 2U;
-    const unsigned int half = lane % 2U;
-    const unsigned int row_offset = row * kTile + half * 8U;
-    const uint4 packed =
-        encode_bf16_vector(warp_scratch + row_offset);
-    auto* const destination = reinterpret_cast<uint4*>(
-        output + (token_block * kTile + row) * kDimension +
-        warp * kTile + half * 8U);
-    *destination = packed;
-    __syncwarp();
   }
 }
 
-// Transform stays resident while the two K/V operand lifetimes reuse one
-// 16 KiB bank.  Eight warps keep every 16-column slab active; all global
-// staging and output publication use 128-bit vectors.
-constexpr unsigned int kRecomputeThreads = 256U;
+__device__ __forceinline__ void recompute_m64n64_product(
+    const Bf16* const shared_transform,
+    const Bf16* const shared_operand, Bf16* const output,
+    const unsigned int warp, const unsigned int lane) {
+  RecomputeM16N8Accumulator accumulators[kBlockRows][kBlockRows];
+#pragma unroll
+  for (unsigned int m_panel = 0U; m_panel < kBlockRows; ++m_panel) {
+#pragma unroll
+    for (unsigned int n_panel = 0U; n_panel < kBlockRows; ++n_panel) {
+      recompute_zero(accumulators[m_panel][n_panel]);
+    }
+  }
+
+#pragma unroll
+  for (unsigned int k16 = 0U; k16 < kBlockRows; ++k16) {
+    RecomputeM16K16 a[kBlockRows];
+    RecomputeK16N8 b[kBlockRows];
+#pragma unroll
+    for (unsigned int m_panel = 0U; m_panel < kBlockRows; ++m_panel) {
+      recompute_load_a_col_major(a[m_panel], shared_transform,
+                                 m_panel, k16);
+    }
+#pragma unroll
+    for (unsigned int n_panel = 0U; n_panel < kBlockRows; ++n_panel) {
+      recompute_load_b(b[n_panel], shared_operand,
+                       warp * kBlockRows + n_panel, k16, lane);
+    }
+#pragma unroll
+    for (unsigned int m_panel = 0U; m_panel < kBlockRows; ++m_panel) {
+#pragma unroll
+      for (unsigned int n_panel = 0U; n_panel < kBlockRows; ++n_panel) {
+        recompute_mma(accumulators[m_panel][n_panel], a[m_panel],
+                      b[n_panel]);
+      }
+    }
+  }
+  recompute_store_product(accumulators, output, warp * 32U, lane);
+}
+
+// One M64N64 owner mirrors the selected vLLM shape: two warps retain the
+// complete FP32 result in registers while transform A stays resident.  Four
+// 64-column operand phases (K0/K1/V0/V1) reuse one swizzled 8 KiB bank.
+constexpr unsigned int kRecomputeThreads = 64U;
 constexpr unsigned int kRecomputeWarps = kRecomputeThreads / 32U;
 constexpr unsigned int kVectorsPerRow =
-    kDimension * sizeof(Bf16) / sizeof(uint4);
+    kChunk * sizeof(Bf16) / sizeof(uint4);
 constexpr unsigned int kVectorCount = kChunk * kVectorsPerRow;
 constexpr std::size_t kTransformBytes =
     kGramElements * sizeof(Bf16);
 constexpr std::size_t kOperandBytes =
-    kVectorElements * sizeof(Bf16);
-constexpr std::size_t kRecomputeScratchBytes =
-    kRecomputeWarps * kTileElements * sizeof(float);
+    kChunk * kChunk * sizeof(Bf16);
 constexpr std::size_t kRecomputeSharedBytes =
-    kTransformBytes + kOperandBytes + kRecomputeScratchBytes +
-    kChunk * sizeof(float);
+    kTransformBytes + kOperandBytes + kChunk * sizeof(float);
 
-static_assert(kRecomputeWarps == kDimension / kTile);
-static_assert(kVectorCount == 1024U);
-static_assert(kRecomputeSharedBytes == 32U * 1024U + 256U);
+static_assert(kRecomputeWarps == 2U);
+static_assert(kVectorCount == 512U);
+static_assert(kRecomputeSharedBytes == 16U * 1024U + 256U);
 
 __global__ __launch_bounds__(kRecomputeThreads)
 void value_head_recompute_chunk64_kernel(
@@ -555,10 +669,8 @@ void value_head_recompute_chunk64_kernel(
   auto* const shared_transform = reinterpret_cast<Bf16*>(shared_raw);
   Bf16* const shared_operand =
       shared_transform + kGramElements;
-  auto* const shared_scratch = reinterpret_cast<float*>(
+  auto* const shared_gate_scale = reinterpret_cast<float*>(
       shared_raw + kTransformBytes + kOperandBytes);
-  float* const shared_gate_scale =
-      shared_scratch + kRecomputeWarps * kTileElements;
   const unsigned int thread = threadIdx.x;
   const unsigned int warp = thread / 32U;
   const unsigned int lane = thread % 32U;
@@ -598,41 +710,60 @@ void value_head_recompute_chunk64_kernel(
   }
   __syncthreads();
 
-  for (unsigned int vector = thread; vector < kVectorCount;
-       vector += kRecomputeThreads) {
-    const unsigned int row = vector / kVectorsPerRow;
-    const uint4 packed =
-        reinterpret_cast<const uint4*>(matrix_k)[vector];
-    reinterpret_cast<uint4*>(shared_operand)[vector] =
-        scale_bf16_vector(packed, shared_gate_scale[row]);
-  }
-  __syncthreads();
-  recompute_product(shared_transform, shared_operand, matrix_w,
-                    shared_scratch, warp, lane);
-  __syncthreads();
-
-  for (unsigned int vector = thread; vector < kVectorCount;
-       vector += kRecomputeThreads) {
-    const unsigned int row = vector / kVectorsPerRow;
-    const unsigned int vector_in_row = vector % kVectorsPerRow;
-    const std::size_t token =
-        static_cast<std::size_t>(chunk) * kChunk + row;
-    const std::size_t source =
-        token * kGdnQkvChannels + kGdnQElements + kGdnKElements +
-        static_cast<std::size_t>(value_head) * kDimension +
-        vector_in_row * (sizeof(uint4) / sizeof(Bf16));
-    if (token < token_count) {
-      copy_16_async(reinterpret_cast<uint4*>(shared_operand) + vector,
-                    reinterpret_cast<const uint4*>(conv_qkv + source));
-    } else {
-      reinterpret_cast<uint4*>(shared_operand)[vector] =
-          make_uint4(0U, 0U, 0U, 0U);
+#pragma unroll
+  for (unsigned int panel = 0U; panel < kDimension / kChunk; ++panel) {
+    for (unsigned int vector = thread; vector < kVectorCount;
+         vector += kRecomputeThreads) {
+      const unsigned int row = vector / kVectorsPerRow;
+      const unsigned int logical_chunk = vector % kVectorsPerRow;
+      const unsigned int physical_chunk =
+          recompute_swizzled_chunk(row, logical_chunk);
+      const unsigned int global_vector =
+          row * (kDimension * sizeof(Bf16) / sizeof(uint4)) +
+          panel * kVectorsPerRow + logical_chunk;
+      const uint4 packed =
+          reinterpret_cast<const uint4*>(matrix_k)[global_vector];
+      reinterpret_cast<uint4*>(shared_operand)
+          [row * kVectorsPerRow + physical_chunk] =
+          scale_bf16_vector(packed, shared_gate_scale[row]);
     }
+    __syncthreads();
+    recompute_m64n64_product(shared_transform, shared_operand,
+                             matrix_w + panel * kChunk, warp, lane);
+    __syncthreads();
   }
-  commit_and_wait_async_copies();
-  __syncthreads();
-  recompute_product(shared_transform, shared_operand, matrix_u,
-                    shared_scratch, warp, lane);
+
+#pragma unroll
+  for (unsigned int panel = 0U; panel < kDimension / kChunk; ++panel) {
+    for (unsigned int vector = thread; vector < kVectorCount;
+         vector += kRecomputeThreads) {
+      const unsigned int row = vector / kVectorsPerRow;
+      const unsigned int logical_chunk = vector % kVectorsPerRow;
+      const unsigned int physical_chunk =
+          recompute_swizzled_chunk(row, logical_chunk);
+      const std::size_t token =
+          static_cast<std::size_t>(chunk) * kChunk + row;
+      const std::size_t source =
+          token * kGdnQkvChannels + kGdnQElements + kGdnKElements +
+          static_cast<std::size_t>(value_head) * kDimension +
+          panel * kChunk + logical_chunk *
+              (sizeof(uint4) / sizeof(Bf16));
+      auto* const destination =
+          reinterpret_cast<uint4*>(shared_operand) +
+          row * kVectorsPerRow + physical_chunk;
+      if (token < token_count) {
+        copy_16_async(destination,
+                      reinterpret_cast<const uint4*>(conv_qkv + source));
+      } else {
+        *destination = make_uint4(0U, 0U, 0U, 0U);
+      }
+    }
+    commit_and_wait_async_copies();
+    __syncthreads();
+    recompute_m64n64_product(shared_transform, shared_operand,
+                             matrix_u + panel * kChunk, warp, lane);
+    __syncthreads();
+  }
 }
 
 [[nodiscard]] bool invalid_arguments(
