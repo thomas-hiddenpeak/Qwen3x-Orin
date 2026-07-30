@@ -615,6 +615,29 @@ int launch(const std::uint16_t* const compact_q,
   return static_cast<int>(cudaGetLastError());
 }
 
+int launch_norm_rows8(const std::uint16_t* const raw_output,
+                      const std::uint16_t* const norm_weight,
+                      const std::uint16_t* const silu_gate,
+                      const std::size_t row_count,
+                      const float norm_epsilon,
+                      std::uint16_t* const output,
+                      void* const cuda_stream) noexcept {
+  if (raw_output == nullptr || norm_weight == nullptr ||
+      silu_gate == nullptr || row_count == 0U ||
+      row_count > kMaximumTokens * kRowsPerToken || output == nullptr ||
+      !std::isfinite(norm_epsilon) || norm_epsilon <= 0.0F) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  const unsigned int rows = static_cast<unsigned int>(row_count);
+  const unsigned int blocks =
+      (rows + kNormRowsPerCta - 1U) / kNormRowsPerCta;
+  (void)cudaGetLastError();
+  rms_norm_silu_rows8_kernel<<<blocks, kNormThreads, 0U, stream>>>(
+      raw_output, norm_weight, silu_gate, rows, norm_epsilon, output);
+  return static_cast<int>(cudaGetLastError());
+}
+
 int query_chunk_o_resources(int* const registers_per_thread,
                             std::size_t* const static_shared_bytes,
                             std::size_t* const local_bytes,

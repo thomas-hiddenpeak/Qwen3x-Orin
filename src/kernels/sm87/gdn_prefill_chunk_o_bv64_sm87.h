@@ -19,6 +19,14 @@ namespace q3x::runtime::gdn_prefill_chunk_o_bv64_detail {
     float norm_epsilon, std::uint16_t* raw_output,
     std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
 
+// Correctness-fixture entry for the independent exact epilogue. row_count
+// rows of D128 BF16 input/gate are normalized without launching chunk-o.
+[[nodiscard]] int launch_norm_rows8(
+    const std::uint16_t* raw_output, const std::uint16_t* norm_weight,
+    const std::uint16_t* silu_gate, std::size_t row_count,
+    float norm_epsilon, std::uint16_t* output,
+    void* cuda_stream = nullptr) noexcept;
+
 // Resource queries are deliberately split: the chunk-o tensor-core kernel
 // and the exact rows-8 epilogue have different launch ownership.
 [[nodiscard]] int query_chunk_o_resources(

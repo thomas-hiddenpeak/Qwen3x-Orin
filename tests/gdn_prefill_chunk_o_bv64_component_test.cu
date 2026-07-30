@@ -1,0 +1,346 @@
+#include "gdn_prefill_chunk_o_bv64_sm87.h"
+
+#include "q3x/runtime/decode_ops.h"
+#include "q3x/runtime/gdn_decode.h"
+
+#include <cuda_runtime.h>
+
+#include <algorithm>
+#include <cstddef>
+#include <cstdint>
+#include <iostream>
+#include <limits>
+#include <string_view>
+
+namespace {
+
+namespace chunk_o = q3x::runtime::gdn_prefill_chunk_o_bv64_detail;
+namespace runtime = q3x::runtime;
+
+constexpr std::size_t kTokens = 64U;
+constexpr std::size_t kQkHeads = runtime::kGdnQkHeadCount;
+constexpr std::size_t kValueHeads = runtime::kGdnValueHeadCount;
+constexpr std::size_t kDimension = runtime::kGdnHeadDimension;
+constexpr std::size_t kCompactElements =
+    kQkHeads * kTokens * kDimension;
+constexpr std::size_t kBoundaryStateElements =
+    kValueHeads * kDimension * kDimension;
+constexpr std::size_t kValueElements =
+    kValueHeads * kTokens * kDimension;
+constexpr std::size_t kGateElements = kValueHeads * kTokens;
+constexpr std::size_t kOutputElements =
+    kTokens * kValueHeads * kDimension;
+constexpr std::uint16_t kZero = 0x0000U;
+constexpr std::uint16_t kOne = 0x3f80U;
+constexpr std::uint16_t kPoison = 0x7fc1U;
+constexpr float kEpsilon = 1.0e-6F;
+
+static_assert(kQkHeads == 16U);
+static_assert(kValueHeads == 48U);
+static_assert(kDimension == 128U);
+
+template <typename T>
+class ManagedBuffer final {
+ public:
+  explicit ManagedBuffer(const std::size_t elements) noexcept
+      : elements_(elements) {
+    status_ = cudaMallocManaged(reinterpret_cast<void**>(&data_),
+                                elements_ * sizeof(T));
+  }
+
+  ~ManagedBuffer() {
+    if (data_ != nullptr) {
+      (void)cudaFree(data_);
+    }
+  }
+
+  ManagedBuffer(const ManagedBuffer&) = delete;
+  ManagedBuffer& operator=(const ManagedBuffer&) = delete;
+
+  [[nodiscard]] bool valid() const noexcept {
+    return status_ == cudaSuccess && data_ != nullptr;
+  }
+  [[nodiscard]] T* data() noexcept { return data_; }
+  [[nodiscard]] const T* data() const noexcept { return data_; }
+  [[nodiscard]] std::size_t size() const noexcept { return elements_; }
+
+ private:
+  T* data_ = nullptr;
+  std::size_t elements_ = 0U;
+  cudaError_t status_ = cudaErrorMemoryAllocation;
+};
+
+class TestContext final {
+ public:
+  void expect(const bool condition, const std::string_view message) {
+    if (!condition) {
+      ++failures_;
+      std::cerr << "FAIL: " << message << '\n';
+    }
+  }
+
+  [[nodiscard]] bool cuda_ok(const int status,
+                             const std::string_view operation) {
+    if (status == static_cast<int>(cudaSuccess)) {
+      return true;
+    }
+    ++failures_;
+    std::cerr << "CUDA FAIL: " << operation << " status=" << status
+              << " message="
+              << cudaGetErrorString(static_cast<cudaError_t>(status)) << '\n';
+    return false;
+  }
+
+  [[nodiscard]] int result() const noexcept {
+    return failures_ == 0U ? 0 : 1;
+  }
+
+ private:
+  std::size_t failures_ = 0U;
+};
+
+struct Buffers final {
+  ManagedBuffer<std::uint16_t> q{kCompactElements};
+  ManagedBuffer<std::uint16_t> k{kCompactElements};
+  ManagedBuffer<std::uint16_t> h{kBoundaryStateElements};
+  ManagedBuffer<std::uint16_t> v{kValueElements};
+  ManagedBuffer<float> gamma{kGateElements};
+  ManagedBuffer<std::uint16_t> weight{kDimension};
+  ManagedBuffer<std::uint16_t> gate{kOutputElements};
+  ManagedBuffer<std::uint16_t> raw{kOutputElements};
+  ManagedBuffer<std::uint16_t> output{kOutputElements};
+  ManagedBuffer<std::uint16_t> reference{kOutputElements};
+
+  [[nodiscard]] bool valid() const noexcept {
+    return q.valid() && k.valid() && h.valid() && v.valid() &&
+           gamma.valid() && weight.valid() && gate.valid() && raw.valid() &&
+           output.valid() && reference.valid();
+  }
+};
+
+void reset(Buffers& buffers) {
+  std::fill_n(buffers.q.data(), buffers.q.size(), kZero);
+  std::fill_n(buffers.k.data(), buffers.k.size(), kZero);
+  std::fill_n(buffers.h.data(), buffers.h.size(), kZero);
+  std::fill_n(buffers.v.data(), buffers.v.size(), kZero);
+  std::fill_n(buffers.gamma.data(), buffers.gamma.size(), 0.0F);
+  std::fill_n(buffers.weight.data(), buffers.weight.size(), kOne);
+  std::fill_n(buffers.gate.data(), buffers.gate.size(), kOne);
+  std::fill_n(buffers.raw.data(), buffers.raw.size(), kPoison);
+  std::fill_n(buffers.output.data(), buffers.output.size(), kPoison);
+  std::fill_n(buffers.reference.data(), buffers.reference.size(), kPoison);
+}
+
+[[nodiscard]] std::size_t compact_index(const std::size_t qk_head,
+                                        const std::size_t token,
+                                        const std::size_t key) noexcept {
+  return (qk_head * kTokens + token) * kDimension + key;
+}
+
+[[nodiscard]] std::size_t state_index(const std::size_t value_head,
+                                      const std::size_t value,
+                                      const std::size_t key) noexcept {
+  return (value_head * kDimension + value) * kDimension + key;
+}
+
+[[nodiscard]] std::size_t value_index(const std::size_t value_head,
+                                      const std::size_t token,
+                                      const std::size_t value) noexcept {
+  return (value_head * kTokens + token) * kDimension + value;
+}
+
+[[nodiscard]] std::size_t output_index(const std::size_t token,
+                                       const std::size_t value_head,
+                                       const std::size_t value) noexcept {
+  return (token * kValueHeads + value_head) * kDimension + value;
+}
+
+[[nodiscard]] bool expect_single_raw(TestContext& test,
+                                     const std::string_view label,
+                                     const std::uint16_t* const raw,
+                                     const std::size_t expected_index) {
+  std::size_t unequal = 0U;
+  std::size_t first = std::numeric_limits<std::size_t>::max();
+  std::uint16_t first_expected = 0U;
+  std::uint16_t first_actual = 0U;
+  for (std::size_t index = 0U; index < kOutputElements; ++index) {
+    const std::uint16_t expected = index == expected_index ? kOne : kZero;
+    if (raw[index] != expected) {
+      if (first == std::numeric_limits<std::size_t>::max()) {
+        first = index;
+        first_expected = expected;
+        first_actual = raw[index];
+      }
+      ++unequal;
+    }
+  }
+  std::cout << label << " unequal=" << unequal
+            << " expected_single_index=" << expected_index
+            << " first_unequal="
+            << (first == std::numeric_limits<std::size_t>::max()
+                    ? kOutputElements
+                    : first)
+            << " first_expected=0x" << std::hex << first_expected
+            << " first_actual=0x" << first_actual << std::dec
+            << " gate=" << (unequal == 0U ? "PASS" : "FAIL") << '\n';
+  test.expect(unequal == 0U, label);
+  return unequal == 0U;
+}
+
+[[nodiscard]] bool expect_equal(TestContext& test,
+                                const std::string_view label,
+                                const std::uint16_t* const expected,
+                                const std::uint16_t* const actual,
+                                const std::size_t elements) {
+  std::size_t unequal = 0U;
+  std::size_t first = std::numeric_limits<std::size_t>::max();
+  for (std::size_t index = 0U; index < elements; ++index) {
+    if (expected[index] != actual[index]) {
+      if (first == std::numeric_limits<std::size_t>::max()) {
+        first = index;
+      }
+      ++unequal;
+    }
+  }
+  std::cout << label << " unequal=" << unequal
+            << " first_unequal="
+            << (first == std::numeric_limits<std::size_t>::max()
+                    ? elements
+                    : first);
+  if (first != std::numeric_limits<std::size_t>::max()) {
+    std::cout << " first_expected=0x" << std::hex << expected[first]
+              << " first_actual=0x" << actual[first] << std::dec;
+  }
+  std::cout << " gate=" << (unequal == 0U ? "PASS" : "FAIL") << '\n';
+  test.expect(unequal == 0U, label);
+  return unequal == 0U;
+}
+
+[[nodiscard]] bool launch_component(Buffers& buffers) {
+  return chunk_o::launch(
+             buffers.q.data(), buffers.k.data(), buffers.h.data(),
+             buffers.v.data(), buffers.gamma.data(), kTokens,
+             buffers.weight.data(), buffers.gate.data(), kEpsilon,
+             buffers.raw.data(), buffers.output.data()) ==
+             static_cast<int>(cudaSuccess) &&
+         cudaDeviceSynchronize() == cudaSuccess;
+}
+
+void check_component_epilogue(TestContext& test, Buffers& buffers,
+                              const std::string_view label) {
+  const int status =
+      runtime::launch_headwise_plain_rms_norm_silu_gate_reference_cuda(
+          buffers.raw.data(), buffers.weight.data(), buffers.gate.data(),
+          kTokens * kValueHeads, kDimension, kEpsilon,
+          buffers.reference.data());
+  const bool ready = test.cuda_ok(status, "launch epilogue reference") &&
+                     test.cuda_ok(static_cast<int>(cudaDeviceSynchronize()),
+                                  "synchronize epilogue reference");
+  if (ready) {
+    (void)expect_equal(test, label, buffers.reference.data(),
+                       buffers.output.data(), kOutputElements);
+  }
+}
+
+void test_state_only(TestContext& test, Buffers& buffers) {
+  reset(buffers);
+  constexpr std::size_t kQkHead = 0U;
+  constexpr std::size_t kToken = 5U;
+  constexpr std::size_t kKey = 7U;
+  constexpr std::size_t kValueHead = 0U;
+  constexpr std::size_t kValue = 9U;
+  buffers.q.data()[compact_index(kQkHead, kToken, kKey)] = kOne;
+  buffers.h.data()[state_index(kValueHead, kValue, kKey)] = kOne;
+  const bool ready = launch_component(buffers);
+  test.expect(ready, "state-only component launch");
+  if (!ready) {
+    return;
+  }
+  (void)expect_single_raw(
+      test, "GDN_CHUNK_O_BV64_QH_RAW", buffers.raw.data(),
+      output_index(kToken, kValueHead, kValue));
+  check_component_epilogue(test, buffers,
+                           "GDN_CHUNK_O_BV64_QH_EPILOGUE");
+}
+
+void test_qk_v_only(TestContext& test, Buffers& buffers) {
+  reset(buffers);
+  constexpr std::size_t kQkHead = 0U;
+  constexpr std::size_t kQuery = 11U;
+  constexpr std::size_t kSource = 2U;
+  constexpr std::size_t kKey = 17U;
+  constexpr std::size_t kValueHead = 2U;
+  constexpr std::size_t kValue = 70U;
+  static_assert(kSource <= kQuery);
+  buffers.q.data()[compact_index(kQkHead, kQuery, kKey)] = kOne;
+  buffers.k.data()[compact_index(kQkHead, kSource, kKey)] = kOne;
+  buffers.v.data()[value_index(kValueHead, kSource, kValue)] = kOne;
+  const bool ready = launch_component(buffers);
+  test.expect(ready, "QK-V-only component launch");
+  if (!ready) {
+    return;
+  }
+  (void)expect_single_raw(
+      test, "GDN_CHUNK_O_BV64_QK_V_RAW", buffers.raw.data(),
+      output_index(kQuery, kValueHead, kValue));
+  check_component_epilogue(test, buffers,
+                           "GDN_CHUNK_O_BV64_QK_V_EPILOGUE");
+}
+
+void test_rows8_norm(TestContext& test, Buffers& buffers) {
+  reset(buffers);
+  constexpr std::size_t kRows = 8U;
+  constexpr std::size_t kElements = kRows * kDimension;
+  for (std::size_t row = 0U; row < kRows; ++row) {
+    buffers.raw.data()[row * kDimension + (3U * row + 1U)] = kOne;
+  }
+  const int candidate_status = chunk_o::launch_norm_rows8(
+      buffers.raw.data(), buffers.weight.data(), buffers.gate.data(), kRows,
+      kEpsilon, buffers.output.data());
+  const int reference_status =
+      runtime::launch_headwise_plain_rms_norm_silu_gate_reference_cuda(
+          buffers.raw.data(), buffers.weight.data(), buffers.gate.data(),
+          kRows, kDimension, kEpsilon, buffers.reference.data());
+  const bool ready = test.cuda_ok(candidate_status, "launch rows8 norm") &&
+                     test.cuda_ok(reference_status,
+                                  "launch rows8 norm reference") &&
+                     test.cuda_ok(static_cast<int>(cudaDeviceSynchronize()),
+                                  "synchronize rows8 norm");
+  if (ready) {
+    (void)expect_equal(test, "GDN_CHUNK_O_BV64_ROWS8_NORM",
+                       buffers.reference.data(), buffers.output.data(),
+                       kElements);
+  }
+}
+
+}  // namespace
+
+int main() {
+  int device_count = 0;
+  if (cudaGetDeviceCount(&device_count) != cudaSuccess || device_count == 0) {
+    std::cout << "SKIP: GDN chunk-o BV64 component basis requires CUDA\n";
+    return 77;
+  }
+  cudaDeviceProp properties{};
+  if (cudaGetDeviceProperties(&properties, 0) != cudaSuccess) {
+    return 1;
+  }
+  if (properties.major != 8 || properties.minor != 7) {
+    std::cout << "SKIP: GDN chunk-o BV64 component basis requires SM87\n";
+    return 77;
+  }
+
+  TestContext test;
+  Buffers buffers;
+  test.expect(buffers.valid(), "allocate component basis buffers");
+  if (!buffers.valid()) {
+    return test.result();
+  }
+  test_state_only(test, buffers);
+  test_qk_v_only(test, buffers);
+  test_rows8_norm(test, buffers);
+  std::cout << "GDN_CHUNK_O_BV64_COMPONENT_RESULT gate="
+            << (test.result() == 0 ? "PASS" : "FAIL")
+            << " authority=SYNTHETIC_CORRECTNESS_ONLY\n";
+  return test.result();
+}
