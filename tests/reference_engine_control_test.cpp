@@ -785,8 +785,8 @@ void test_single_arbitrary_tile_admission(TestContext& test) {
   run_shape(407U, 512U, {407U}, kFull);
   run_shape(481U, 512U, {481U}, kPredicted);
   run_shape(512U, 512U, {512U}, kPredicted);
-  run_shape(513U, 512U, {512U, 1U}, kPredicted);
-  run_shape(1'025U, 512U, {512U, 512U, 1U}, kPredicted);
+  run_shape(513U, 512U, {449U, 64U}, kPredicted);
+  run_shape(1'025U, 512U, {512U, 449U, 64U}, kPredicted);
   run_shape(407U, 320U, {320U, 87U}, kPredicted);
 
   test.expect(
@@ -797,7 +797,7 @@ void test_single_arbitrary_tile_admission(TestContext& test) {
               481U &&
           detail::next_single_arbitrary_prefix_tile_token_count(513U,
                                                                  512U) ==
-              512U &&
+              449U &&
           detail::single_arbitrary_prefix_execution_count(407U, 512U) ==
               1U &&
           detail::single_arbitrary_prefix_execution_count(1'025U, 512U) ==

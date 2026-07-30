@@ -597,8 +597,23 @@ next_single_arbitrary_prefix_tile_token_count(
   if (remaining_tokens == 0U || requested_chunk_size == 0U) {
     return 0U;
   }
-  return remaining_tokens < requested_chunk_size ? remaining_tokens
-                                                 : requested_chunk_size;
+  if (remaining_tokens <= requested_chunk_size) {
+    return remaining_tokens;
+  }
+
+  // Avoid a final sub-C64 public tile when the same number of executions can
+  // keep both projection passes on the large-M path. P513 becomes M449+M64
+  // instead of M512+M1; token order and execution count remain unchanged.
+  if (requested_chunk_size >= kPrefillM64TileTokens &&
+      remaining_tokens <= 2U * requested_chunk_size) {
+    const std::size_t final_tokens =
+        remaining_tokens - requested_chunk_size;
+    if (final_tokens != 0U &&
+        final_tokens < kPrefillM64TileTokens) {
+      return remaining_tokens - kPrefillM64TileTokens;
+    }
+  }
+  return requested_chunk_size;
 }
 
 [[nodiscard]] constexpr std::size_t
