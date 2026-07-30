@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36_27b_decode_gqa_splitkv_tile12_rejection",
+  "recorded_at": "2026-07-30T12:56:18+08:00",
+  "status": "rejected_real_serving_direction",
+  "base": {
+    "commit": "b751e73",
+    "positions_per_tile": 6,
+    "state_registers_per_thread": 72,
+    "state_static_shared_bytes": 12288,
+    "evalscope_result": "/tmp/q3x-evalscope-decode-splitkv-fixed-b751e73-run1/splitkvfixedb751e73/parallel_1_number_8"
+  },
+  "candidate": {
+    "worktree": "/tmp/q3x-decode-gqa-splitkv-tile12",
+    "positions_per_tile": 12,
+    "state_registers_per_thread": 87,
+    "state_static_shared_bytes": 24576,
+    "state_local_bytes": 0,
+    "elf": "/tmp/q3x-decode-gqa-splitkv-tile12-build/qwen3x-eval-server",
+    "elf_sha256": "48aaac04c62b276a2bcccbb9f45edbed1b5c506d5a125c06ab3c48f12ada0519",
+    "evalscope_result": "/tmp/q3x-evalscope-decode-splitkv-tile12-run1/splitkvtile12/parallel_1_number_8"
+  },
+  "real_model_evalscope_first8": {
+    "corpus_sha256": "bd2091cdc0599ac59ab881efc6d1307a03bb149f49e6fd728a99d926ccc67989",
+    "exact_outputs": "8/8",
+    "base_wall_time_seconds": 22.19690640317276,
+    "candidate_wall_time_seconds": 22.291025299811736,
+    "base_mean_ttft_milliseconds": 1167.302413028665,
+    "candidate_mean_ttft_milliseconds": 1173.6156822007615,
+    "base_mean_tpot_milliseconds": 107.13628029140334,
+    "candidate_mean_tpot_milliseconds": 107.49636425171047,
+    "base_prompt_throughput_tokens_per_second": 179.34931686836177,
+    "candidate_prompt_throughput_tokens_per_second": 178.5920542665044,
+    "prompt_throughput_delta_tokens_per_second": -0.7572626018573771,
+    "validator": "/tmp/q3x-evalscope-decode-splitkv-tile12-vs-b751.json"
+  },
+  "decision": {
+    "result": "reject_do_not_merge",
+    "reason": "Halving synchronization frequency did not repay the state-kernel register increase from 72 to 87 and the static-shared increase from 12 to 24 KiB; the whole real serving path regressed while outputs stayed exact.",
+    "production_changed": false,
+    "mtp_used": false
+  }
+}
