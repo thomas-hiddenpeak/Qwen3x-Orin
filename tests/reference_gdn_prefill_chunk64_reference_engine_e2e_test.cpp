@@ -236,6 +236,26 @@ class ScopedResidentStateBaseline {
   bool previous_ = false;
 };
 
+class ScopedChunkOBv64Candidate {
+ public:
+  explicit ScopedChunkOBv64Candidate(const bool enabled) noexcept
+      : previous_(q3x::runtime::gdn_prefill_chunk64_native_detail::
+                      exchange_force_chunk_o_bv64_candidate_for_test(
+                          enabled)) {}
+
+  ~ScopedChunkOBv64Candidate() {
+    (void)q3x::runtime::gdn_prefill_chunk64_native_detail::
+        exchange_force_chunk_o_bv64_candidate_for_test(previous_);
+  }
+
+  ScopedChunkOBv64Candidate(const ScopedChunkOBv64Candidate&) = delete;
+  ScopedChunkOBv64Candidate& operator=(
+      const ScopedChunkOBv64Candidate&) = delete;
+
+ private:
+  bool previous_ = false;
+};
+
 void collect_native_boundaries(
     const std::uint16_t* const transform,
     const std::size_t transform_elements,
@@ -1085,6 +1105,60 @@ void destroy_event(cudaEvent_t& event) noexcept {
   return positive;
 }
 
+[[nodiscard]] bool run_native_chunk_o_bv64_direction(
+    runtime::ReferenceEngine& engine,
+    const std::string& prompt) {
+  Sample baseline;
+  Sample candidate;
+  bool valid = false;
+  {
+    const ScopedFusedKktBaseline kkt_route(false);
+    const ScopedSplitWyBaseline split_route(false);
+    const ScopedPackedQkvBaseline packed_route(false);
+    const ScopedResidentStateBaseline resident_route(false);
+    const ScopedChunkOBv64Candidate route(false);
+    valid = run_sample(engine, prompt, true, "chunk_o_bv64_baseline",
+                       baseline);
+  }
+  {
+    const ScopedFusedKktBaseline kkt_route(false);
+    const ScopedSplitWyBaseline split_route(false);
+    const ScopedPackedQkvBaseline packed_route(false);
+    const ScopedResidentStateBaseline resident_route(false);
+    const ScopedChunkOBv64Candidate route(true);
+    valid = run_sample(engine, prompt, true, "chunk_o_bv64_candidate",
+                       candidate) &&
+            valid;
+  }
+  const bool semantics =
+      baseline.semantic_oracle && candidate.semantic_oracle &&
+      baseline.generated_token == candidate.generated_token &&
+      baseline.generated_text == candidate.generated_text;
+  const double prefix_saved =
+      baseline.prefix_milliseconds - candidate.prefix_milliseconds;
+  const double ttft_saved =
+      baseline.ttft_milliseconds - candidate.ttft_milliseconds;
+  const bool positive = valid && semantics && prefix_saved > 0.0 &&
+                        ttft_saved > 0.0;
+  std::cout << "GDN_CHUNK64_NATIVE_CHUNK_O_BV64_DIRECTION"
+            << " prompt_tokens=" << g_prompt_tokens
+            << " baseline_prefix_ms=" << baseline.prefix_milliseconds
+            << " candidate_prefix_ms=" << candidate.prefix_milliseconds
+            << " prefix_saved_ms=" << prefix_saved
+            << " prefix_speedup="
+            << baseline.prefix_milliseconds / candidate.prefix_milliseconds
+            << " baseline_ttft_ms=" << baseline.ttft_milliseconds
+            << " candidate_ttft_ms=" << candidate.ttft_milliseconds
+            << " ttft_saved_ms=" << ttft_saved
+            << " ttft_speedup="
+            << baseline.ttft_milliseconds / candidate.ttft_milliseconds
+            << " direction=" << (positive ? "POSITIVE" : "NEGATIVE")
+            << " semantic_oracle=" << (semantics ? "PASS" : "FAIL")
+            << " authority=REAL_WEIGHT_SINGLE_B_C"
+            << " production_unchanged=true\n";
+  return positive;
+}
+
 class DeviceBuffer {
  public:
   explicit DeviceBuffer(const std::size_t bytes) noexcept : bytes_(bytes) {
@@ -1441,6 +1515,10 @@ int main(const int argc, char** const argv) {
     return run_native_resident_state_direction(*created.value, prompt)
                ? 0
                : 3;
+  }
+  if (std::getenv(
+          "Q3X_GDN_CHUNK64_RUN_CHUNK_O_BV64_DIRECTION_ONLY") != nullptr) {
+    return run_native_chunk_o_bv64_direction(*created.value, prompt) ? 0 : 3;
   }
 #endif
   Sample baseline_warmup;

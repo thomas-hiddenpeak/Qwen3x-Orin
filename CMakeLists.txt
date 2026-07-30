@@ -239,6 +239,7 @@ if(Q3X_BUILD_GDN_CHUNK64_REFERENCE_ADMISSION OR
    Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION)
   target_sources(q3x_kernels PRIVATE
     src/kernels/reference/gdn_prefill_chunk64_cublas_reference_sm87.cu
+    src/kernels/sm87/gdn_prefill_chunk_o_bv64_sm87.cu
     src/kernels/sm87/gdn_prefill_group_wy_sm87.cu
   )
 endif()

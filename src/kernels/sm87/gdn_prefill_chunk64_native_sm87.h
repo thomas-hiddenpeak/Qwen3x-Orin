@@ -52,6 +52,9 @@ struct WyTimingHook {
 [[nodiscard]] bool exchange_force_resident_state_baseline_for_test(
     bool enabled) noexcept;
 
+[[nodiscard]] bool exchange_force_chunk_o_bv64_candidate_for_test(
+    bool enabled) noexcept;
+
 // Admission-only C64..C512 native SM87 FLA/WY pipeline. The implementation
 // is deliberately fixed to the authenticated model shape (Hg=16, H=48,
 // K=V=128, BT=64). It has no library context and accepts no fallback shape.
