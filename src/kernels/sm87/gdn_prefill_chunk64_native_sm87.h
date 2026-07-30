@@ -82,6 +82,36 @@ exchange_vllm_layout_wy_route_for_test(
     const std::uint16_t* silu_gate, float norm_epsilon,
     std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
 
+// Same-ELF structural candidate boundary.  The first call performs the
+// complete token-parallel causal convolution and writes compact normalized
+// Q/K directly into this launcher's private workspace.  The second consumes
+// those established BF16 boundaries without launching normalize_qk_kernel.
+// They are deliberately separate host calls so the runner can retain its
+// existing error attribution and CUDA stream ordering.
+[[nodiscard]] int launch_fused_conv_compact_qk_preprocess(
+    void* workspace, std::size_t workspace_capacity_bytes,
+    const std::uint16_t* raw_qkv, std::size_t token_count,
+    const std::uint16_t* conv_weight, std::uint16_t* history_in_out,
+    std::uint16_t* conv_qkv_output, float l2_epsilon,
+    void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int launch_qk_preprocessed(
+    void* workspace, std::size_t workspace_capacity_bytes,
+    const std::uint16_t* conv_qkv, std::size_t token_count,
+    const std::uint16_t* a, const std::uint16_t* b,
+    const std::uint16_t* A_log, const std::uint16_t* dt_bias,
+    const std::uint16_t* state_input, std::uint16_t* state_output,
+    float l2_epsilon, const std::uint16_t* norm_weight,
+    const std::uint16_t* silu_gate, float norm_epsilon,
+    std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
+
+// Component oracle used only by the exactness harness: launches the admitted
+// standalone compact normalize producer on an already-convolved tensor.
+[[nodiscard]] int launch_compact_qk_baseline_for_test(
+    const std::uint16_t* conv_qkv, std::size_t token_count,
+    float l2_epsilon, std::uint16_t* compact_q,
+    std::uint16_t* compact_k, void* cuda_stream = nullptr) noexcept;
+
 // Reports the largest-resource native FLA stage selected by the launcher.
 [[nodiscard]] int query_resources(
     int* registers_per_thread, std::size_t* static_shared_bytes,

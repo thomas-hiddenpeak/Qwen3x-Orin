@@ -34,9 +34,31 @@ launch_causal_conv1d_silu_update_token_parallel_exact_cuda(
     std::uint16_t* conv_qkv_output,
     void* cuda_stream = nullptr) noexcept;
 
+// Structural Prefill candidate for the native C64 path.  The C8 channel
+// owner keeps the established convolution BF16 boundary, then uses the two
+// complete 128-wide heads already resident in each Q/K CTA to perform the
+// exact compact-Q/K reduction before those values return to device memory.
+// compact_q and compact_k use [chunk, qk_head, 64, 128] BF16 layout and must
+// be disjoint from every convolution operand.
+[[nodiscard]] int
+launch_causal_conv1d_silu_update_token_parallel_compact_qk_exact_cuda(
+    const std::uint16_t* raw_qkv, std::size_t token_count,
+    const std::uint16_t* conv_weight, std::uint16_t* history_in_out,
+    std::uint16_t* conv_qkv_output, float l2_epsilon,
+    std::uint16_t* compact_q, std::uint16_t* compact_k,
+    void* cuda_stream = nullptr) noexcept;
+
 // Private admission resource query. No kernel is launched.
 [[nodiscard]] int
 query_causal_conv1d_silu_update_whole_span_resources_cuda(
+    int* registers_per_thread, std::size_t* static_shared_bytes,
+    std::size_t* local_bytes, int* maximum_threads_per_block,
+    int* active_blocks_per_sm) noexcept;
+
+// CPU-callable resource query for the fused candidate.  It does not launch a
+// kernel and is used by the static admission gate before real-model timing.
+[[nodiscard]] int
+query_causal_conv1d_silu_update_token_parallel_compact_qk_resources_cuda(
     int* registers_per_thread, std::size_t* static_shared_bytes,
     std::size_t* local_bytes, int* maximum_threads_per_block,
     int* active_blocks_per_sm) noexcept;

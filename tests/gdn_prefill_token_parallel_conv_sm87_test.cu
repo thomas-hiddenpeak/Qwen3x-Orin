@@ -1,4 +1,5 @@
 #include "../src/kernels/reference/gdn_prefill_whole_span_conv_sm87.h"
+#include "../src/kernels/sm87/gdn_prefill_chunk64_native_sm87.h"
 
 #include "q3x/runtime/gdn_decode.h"
 
@@ -18,6 +19,10 @@ namespace {
 
 using q3x::runtime::gdn_prefill_whole_span_conv_detail::
     launch_causal_conv1d_silu_update_token_parallel_exact_cuda;
+using q3x::runtime::gdn_prefill_whole_span_conv_detail::
+    launch_causal_conv1d_silu_update_token_parallel_compact_qk_exact_cuda;
+using q3x::runtime::gdn_prefill_whole_span_conv_detail::
+    query_causal_conv1d_silu_update_token_parallel_compact_qk_resources_cuda;
 using q3x::runtime::gdn_prefill_whole_span_conv_detail::
     launch_causal_conv1d_silu_update_whole_span_exact_cuda;
 
@@ -492,6 +497,112 @@ void test_shape(TestContext& test, cudaStream_t stream,
   std::cout << "token-parallel exact conv passed M=" << token_count << '\n';
 }
 
+void test_fused_compact_qk_candidate(TestContext& test,
+                                     cudaStream_t stream) {
+  constexpr std::size_t kTokenCount = 512U;
+  constexpr std::size_t kCompactElements =
+      kTokenCount * q3x::runtime::kGdnQkHeadCount *
+      q3x::runtime::kGdnHeadDimension;
+  constexpr float kL2Epsilon = 1.0e-6F;
+  ConvBuffers buffers;
+  if (!allocate_and_fill(test, kTokenCount, buffers)) {
+    return;
+  }
+  GuardedManagedBuffer<std::uint16_t> baseline_q;
+  GuardedManagedBuffer<std::uint16_t> baseline_k;
+  GuardedManagedBuffer<std::uint16_t> candidate_q;
+  GuardedManagedBuffer<std::uint16_t> candidate_k;
+  bool ready = test.cuda_ok(baseline_q.allocate(kCompactElements),
+                            "allocate fused baseline Q") &&
+               test.cuda_ok(baseline_k.allocate(kCompactElements),
+                            "allocate fused baseline K") &&
+               test.cuda_ok(candidate_q.allocate(kCompactElements),
+                            "allocate fused candidate Q") &&
+               test.cuda_ok(candidate_k.allocate(kCompactElements),
+                            "allocate fused candidate K");
+  if (!ready) {
+    return;
+  }
+  reset_recurrent_buffers(buffers);
+  ready = test.cuda_ok(
+      static_cast<cudaError_t>(
+          launch_causal_conv1d_silu_update_token_parallel_exact_cuda(
+              buffers.raw.data(), kTokenCount, buffers.weight.data(),
+              buffers.serial_history.data(), buffers.serial_output.data(),
+              static_cast<void*>(stream))),
+      "launch standalone conv baseline");
+  ready = ready && test.cuda_ok(
+                       static_cast<cudaError_t>(q3x::runtime::
+                           gdn_prefill_chunk64_native_detail::
+                               launch_compact_qk_baseline_for_test(
+                                   buffers.serial_output.data(), kTokenCount,
+                                   kL2Epsilon, baseline_q.data(),
+                                   baseline_k.data(),
+                                   static_cast<void*>(stream))),
+                       "launch standalone compact QK baseline");
+  ready = ready && test.cuda_ok(
+                       static_cast<cudaError_t>(
+                           launch_causal_conv1d_silu_update_token_parallel_compact_qk_exact_cuda(
+                               buffers.raw.data(), kTokenCount,
+                               buffers.weight.data(),
+                               buffers.parallel_history.data(),
+                               buffers.parallel_output.data(), kL2Epsilon,
+                               candidate_q.data(), candidate_k.data(),
+                               static_cast<void*>(stream))),
+                       "launch fused conv compact QK candidate");
+  ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                "synchronize fused compact QK candidate");
+  if (!ready) {
+    return;
+  }
+  expect_bitwise_equal(test, buffers.parallel_output.data(),
+                       buffers.serial_output.data(),
+                       buffers.parallel_output.size(),
+                       "fused candidate convolution BF16 boundary");
+  expect_bitwise_equal(test, buffers.parallel_history.data(),
+                       buffers.serial_history.data(),
+                       buffers.parallel_history.size(),
+                       "fused candidate history boundary");
+  expect_bitwise_equal(test, candidate_q.data(), baseline_q.data(),
+                       kCompactElements,
+                       "fused candidate compact Q exact tree");
+  expect_bitwise_equal(test, candidate_k.data(), baseline_k.data(),
+                       kCompactElements,
+                       "fused candidate compact K exact tree");
+  test.expect(baseline_q.guards_intact() && baseline_k.guards_intact() &&
+                  candidate_q.guards_intact() && candidate_k.guards_intact(),
+              "fused compact QK guards remain intact");
+
+  int registers = 0;
+  std::size_t static_shared = 0U;
+  std::size_t local_bytes = 0U;
+  int maximum_threads = 0;
+  int active_blocks = 0;
+  ready = test.cuda_ok(
+      static_cast<cudaError_t>(
+          query_causal_conv1d_silu_update_token_parallel_compact_qk_resources_cuda(
+              &registers, &static_shared, &local_bytes, &maximum_threads,
+              &active_blocks)),
+      "query fused compact QK resources");
+  if (ready) {
+    test.expect(registers <= 40,
+                "fused compact QK uses at most 40 registers/thread");
+    test.expect(static_shared == 4096U,
+                "fused compact QK uses exactly 4 KiB static shared");
+    test.expect(local_bytes == 0U,
+                "fused compact QK has no local-memory spill");
+    test.expect(maximum_threads == 256,
+                "fused compact QK launch bound remains 256 threads");
+    test.expect(active_blocks >= 2,
+                "fused compact QK admits at least two CTAs/SM");
+  }
+  std::cout << "fused conv+compact-QK exact component gate"
+            << " registers=" << registers
+            << " static_shared=" << static_shared
+            << " local=" << local_bytes
+            << " active_blocks_per_sm=" << active_blocks << '\n';
+}
+
 void test_invalid_arguments_and_empty_capture(TestContext& test,
                                               cudaStream_t stream) {
   constexpr std::size_t kRawElements =
@@ -632,6 +743,7 @@ int main() {
   for (const std::size_t token_count : kTokenCounts) {
     test_shape(test, stream, token_count);
   }
+  test_fused_compact_qk_candidate(test, stream);
   (void)test.cuda_ok(cudaStreamDestroy(stream), "destroy test stream");
   if (test.failures() != 0) {
     std::cerr << test.failures()

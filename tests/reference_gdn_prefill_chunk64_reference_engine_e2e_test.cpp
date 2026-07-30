@@ -64,6 +64,11 @@ static_assert(detail::prefill_gdn_chunk64_legacy_tail_token_count(481U) ==
   return detail::exchange_prefill_gdn_chunk64_native_admission_test_hits(hits);
 }
 
+[[nodiscard]] std::size_t exchange_fused_preprocess_hits(
+    const std::size_t hits) noexcept {
+  return detail::exchange_gdn_conv_compact_qk_fused_candidate_test_hits(hits);
+}
+
 [[nodiscard]] SelectedSnapshotHook exchange_snapshot_hook(
     const SelectedSnapshotHook hook) noexcept {
   return detail::exchange_prefill_gdn_chunk64_native_snapshot_hook(hook);
@@ -82,6 +87,11 @@ using SelectedSnapshotHook = detail::PrefillGdnChunk64ReferenceSnapshotHook;
 [[nodiscard]] std::size_t exchange_hits(const std::size_t hits) noexcept {
   return detail::exchange_prefill_gdn_chunk64_reference_admission_test_hits(
       hits);
+}
+
+[[nodiscard]] std::size_t exchange_fused_preprocess_hits(
+    const std::size_t /*hits*/) noexcept {
+  return 0U;
 }
 
 [[nodiscard]] SelectedSnapshotHook exchange_snapshot_hook(
@@ -110,6 +120,7 @@ struct Sample {
   double prefix_milliseconds = 0.0;
   double ttft_milliseconds = 0.0;
   std::size_t route_hits = 0U;
+  std::size_t fused_preprocess_hits = 0U;
   std::uint32_t generated_token = runtime::kReferenceVocabularySize;
   std::string generated_text;
   bool semantic_oracle = false;
@@ -526,6 +537,30 @@ void print_diagnostic(
   return admitted_tiles * runtime::kRequestLinearLayerCount;
 }
 
+[[nodiscard]] std::size_t expected_fused_preprocess_hits() noexcept {
+#if defined(Q3X_GDN_CHUNK64_NATIVE_TEST)
+  const char* const selector =
+      std::getenv("Q3X_RUN_GDN_CONV_COMPACT_QK_FUSED_CANDIDATE");
+  if (selector == nullptr || std::strcmp(selector, "1") != 0) {
+    return 0U;
+  }
+  std::size_t remaining = g_prompt_tokens - 1U;
+  std::size_t admitted_tiles = 0U;
+  while (remaining != 0U) {
+    const std::size_t tile =
+        runtime::reference_engine_detail::next_prefix_tile_token_count(
+            remaining, kPrefillChunkTokens);
+    if (tile >= 64U && tile % 64U == 0U) {
+      ++admitted_tiles;
+    }
+    remaining -= tile;
+  }
+  return admitted_tiles * runtime::kRequestLinearLayerCount;
+#else
+  return 0U;
+#endif
+}
+
 [[nodiscard]] bool validate_native_resources() {
 #if defined(Q3X_GDN_CHUNK64_NATIVE_TEST)
   int registers_per_thread = 0;
@@ -573,12 +608,14 @@ void print_diagnostic(
   options.logits_mode = runtime::ReferenceLogitsMode::kPredictedTokenOnly;
 
   (void)exchange_hits(0U);
+  (void)exchange_fused_preprocess_hits(0U);
   runtime::ReferenceGenerateResult result;
   {
     const ScopedAdmission admission(candidate);
     result = engine.generate(prompt, options);
   }
   sample.route_hits = exchange_hits(0U);
+  sample.fused_preprocess_hits = exchange_fused_preprocess_hits(0U);
   if (!result) {
     std::cerr << kRouteMarker << "_SAMPLE phase=" << phase
               << " route=" << (candidate ? "candidate" : "baseline")
@@ -600,13 +637,16 @@ void print_diagnostic(
   sample.semantic_oracle = expected_generation(*result.value);
   const std::size_t expected_hits =
       candidate ? expected_native_route_hits() : 0U;
+  const std::size_t expected_preprocess_hits =
+      candidate ? expected_fused_preprocess_hits() : 0U;
   const bool structural_oracle =
       result.value->timing.prefix_execution_milliseconds.size() ==
           expected_prefix_executions() &&
       std::isfinite(sample.prefix_milliseconds) &&
       sample.prefix_milliseconds > 0.0 &&
       std::isfinite(sample.ttft_milliseconds) &&
-      sample.ttft_milliseconds > 0.0 && sample.route_hits == expected_hits;
+      sample.ttft_milliseconds > 0.0 && sample.route_hits == expected_hits &&
+      sample.fused_preprocess_hits == expected_preprocess_hits;
 
   const std::string_view route =
       route_label.empty()
@@ -625,6 +665,9 @@ void print_diagnostic(
             << " generated_text=" << result.value->generated_text
             << " route_hits=" << sample.route_hits
             << " expected_hits=" << expected_hits
+            << " fused_preprocess_hits=" << sample.fused_preprocess_hits
+            << " expected_fused_preprocess_hits="
+            << expected_preprocess_hits
             << " structural_oracle="
             << (structural_oracle ? "PASS" : "FAIL")
             << " semantic_oracle="
