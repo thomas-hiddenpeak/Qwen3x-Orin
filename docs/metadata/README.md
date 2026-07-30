@@ -1896,6 +1896,17 @@ The diagnostic Phase 3 records are:
   The retained warp-row C16 experimental incumbent, production, Decode, MTP,
   and cuBLASLt policy remain unchanged. Priority returns to the larger
   real-weight Prefill GEMM intervals.
+- [`qwen36-27b-prefill-nvfp4-marlin-a-ca-evalscope-rejection-2026-07-30.json`](qwen36-27b-prefill-nvfp4-marlin-a-ca-evalscope-rejection-2026-07-30.json),
+  which closes activation-only `cp.async.ca` migration on the unchanged
+  four-stage persistent NVFP4 Marlin skeleton. The candidate ELF statically
+  proves 50 NVFP4 `.ca` A sites and 169 unchanged `.cg` B/scale sites while
+  FP8 stays entirely `.cg`. The frozen real-weight EvalScope run returns 8/8
+  byte-identical outputs, but prompt throughput falls 177.913533 to
+  177.717474 tok/s and mean TTFT rises 1167.935631 to 1171.043035 ms. Every
+  long-prompt bucket regresses, reaching +7.153525 ms at P1025+. The source is
+  withdrawn without a microbenchmark or cache-only follow-up. The next NVFP4
+  work replaces the global dataflow with an accumulator-product-at-most-16K,
+  at-least-two-CTA/SM M64N256 skeleton; B and scales remain `.cg`.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and
