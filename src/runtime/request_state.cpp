@@ -248,6 +248,11 @@ RequestPlanResult build_request_memory_plan(
     if (options.batch_size != 1U || options.max_sequence_length == 0U ||
         options.prefill_chunk_size == 0U ||
         options.prefill_chunk_size > kMaximumRequestPrefillChunkSize ||
+        options.long_prefill_token_capacity >
+            kRequestLongPrefillAdmissionMaximumTokens ||
+        options.long_prefill_token_capacity > options.max_sequence_length ||
+        (options.long_prefill_token_capacity != 0U &&
+         options.prefill_chunk_size != kMaximumRequestPrefillChunkSize) ||
         options.max_arena_bytes == 0U ||
         options.max_arena_bytes > kMaximumConfigurableArenaBytes) {
         return plan_failure(make_diagnostic(
@@ -265,6 +270,7 @@ RequestPlanResult build_request_memory_plan(
     std::uint64_t probability_elements = 0U;
     std::uint64_t rope_elements = 0U;
     std::uint64_t hidden_elements = 0U;
+    std::uint64_t long_prefill_hidden_elements = 0U;
     std::uint64_t projection_elements = 0U;
     std::uint64_t linear_scalar_elements = 0U;
     if (!checked_multiply(kRequestLinearLayerCount,
@@ -293,6 +299,9 @@ RequestPlanResult build_request_memory_plan(
         !checked_multiply(kHiddenElements,
                           options.prefill_chunk_size,
                           hidden_elements) ||
+        !checked_multiply(kHiddenElements,
+                          options.long_prefill_token_capacity,
+                          long_prefill_hidden_elements) ||
         !checked_multiply(kProjectionElements,
                           options.prefill_chunk_size,
                           projection_elements) ||
@@ -317,6 +326,8 @@ RequestPlanResult build_request_memory_plan(
     plan.prefill_chunk_size = options.prefill_chunk_size;
     plan.max_sequence_length =
         static_cast<std::uint32_t>(options.max_sequence_length);
+    plan.long_prefill_token_capacity =
+        options.long_prefill_token_capacity;
     plan.persistent_offset = 0U;
     if (!builder.add(conv_elements, kBf16Bytes, plan.conv_state) ||
         !builder.add(gdn_elements, kBf16Bytes, plan.gdn_state)) {
@@ -381,6 +392,18 @@ RequestPlanResult build_request_memory_plan(
     plan.gqa_probability_scratch = plan.fp32_scratch;
     plan.gqa_probability_scratch.byte_size = probability_elements * kFp32Bytes;
     plan.gqa_probability_scratch.element_capacity = probability_elements;
+    if (long_prefill_hidden_elements != 0U) {
+        for (RequestRegion& hidden : plan.long_prefill_hidden_bf16) {
+            if (!builder.add(long_prefill_hidden_elements,
+                             kBf16Bytes,
+                             hidden)) {
+                return plan_failure(make_diagnostic(
+                    RequestErrorCode::kArithmeticOverflow,
+                    "long-Prefill hidden slab layout overflows uint64",
+                    "long_prefill_hidden_bf16"));
+            }
+        }
+    }
     if (!builder.align()) {
         return plan_failure(make_diagnostic(
             RequestErrorCode::kArithmeticOverflow,
@@ -642,6 +665,23 @@ RequestViewResult RequestState::hidden_buffer(const std::size_t index) noexcept 
     }
     RequestViewResult result;
     result.value.emplace(mutable_view(plan_.hidden_bf16[index]));
+    return result;
+}
+
+RequestViewResult RequestState::long_prefill_hidden_buffer(
+    const std::size_t index) noexcept {
+    if (arena_ == nullptr) {
+        return access_failure(RequestAccessError::kEmptyState);
+    }
+    if (index >= plan_.long_prefill_hidden_bf16.size()) {
+        return access_failure(RequestAccessError::kInvalidBufferIndex);
+    }
+    if (plan_.long_prefill_token_capacity == 0U) {
+        return access_failure(RequestAccessError::kCapacityExceeded);
+    }
+    RequestViewResult result;
+    result.value.emplace(
+        mutable_view(plan_.long_prefill_hidden_bf16[index]));
     return result;
 }
 

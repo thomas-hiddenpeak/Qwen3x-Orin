@@ -54,6 +54,10 @@ option(Q3X_BUILD_FULL_ATTENTION_LONG_CONTEXT_GROUP_Q64_ADMISSION
   "Build the test-only long-context grouped-Q64 Prefill-attention route"
   OFF
 )
+option(Q3X_BUILD_LONG_PREFILL_LAYER_MAJOR_ADMISSION
+  "Build the test-only long-Prefill layer-major executor admission"
+  OFF
+)
 if(Q3X_BUILD_GDN_B8_ADMISSION AND NOT BUILD_TESTING)
   message(FATAL_ERROR
     "Q3X_BUILD_GDN_B8_ADMISSION is test-only and requires BUILD_TESTING=ON"
@@ -98,6 +102,11 @@ if(Q3X_BUILD_FULL_ATTENTION_LONG_CONTEXT_GROUP_Q64_ADMISSION AND
    NOT BUILD_TESTING)
   message(FATAL_ERROR
     "Q3X_BUILD_FULL_ATTENTION_LONG_CONTEXT_GROUP_Q64_ADMISSION is test-only and requires BUILD_TESTING=ON"
+  )
+endif()
+if(Q3X_BUILD_LONG_PREFILL_LAYER_MAJOR_ADMISSION AND NOT BUILD_TESTING)
+  message(FATAL_ERROR
+    "Q3X_BUILD_LONG_PREFILL_LAYER_MAJOR_ADMISSION is test-only and requires BUILD_TESTING=ON"
   )
 endif()
 if((Q3X_BUILD_GDN_B8_ADMISSION AND
@@ -153,6 +162,7 @@ add_library(q3x_core STATIC
   src/model/model_config.cpp
   src/model/weight_manifest.cpp
   src/runtime/model_weights.cpp
+  src/runtime/long_prefill_layer_major.cpp
   src/runtime/reference_oracle.cpp
   src/runtime/resident_weights.cpp
   src/runtime/request_state.cpp
@@ -176,6 +186,11 @@ target_include_directories(q3x_core
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
 target_link_libraries(q3x_core PUBLIC CUDA::cudart Threads::Threads)
+if(Q3X_BUILD_LONG_PREFILL_LAYER_MAJOR_ADMISSION)
+  target_compile_definitions(q3x_core PRIVATE
+    Q3X_ENABLE_LONG_PREFILL_LAYER_MAJOR_ADMISSION=1
+  )
+endif()
 q3x_enable_warnings(q3x_core)
 
 add_library(q3x_text STATIC
@@ -1589,6 +1604,22 @@ if(BUILD_TESTING)
   target_link_libraries(q3x_request_state_plan_test PRIVATE q3x::core)
   q3x_enable_warnings(q3x_request_state_plan_test)
   add_test(NAME request_state_plan COMMAND q3x_request_state_plan_test)
+
+  if(Q3X_BUILD_LONG_PREFILL_LAYER_MAJOR_ADMISSION)
+    add_executable(q3x_long_prefill_layer_major_plan_test
+      tests/long_prefill_layer_major_plan_test.cpp
+    )
+    target_link_libraries(q3x_long_prefill_layer_major_plan_test
+      PRIVATE q3x::core
+    )
+    q3x_enable_warnings(q3x_long_prefill_layer_major_plan_test)
+    add_test(NAME long_prefill_layer_major_plan
+      COMMAND q3x_long_prefill_layer_major_plan_test
+    )
+    set_tests_properties(long_prefill_layer_major_plan PROPERTIES
+      LABELS "host;prefill;architecture;admission"
+    )
+  endif()
 
   add_executable(q3x_request_state_cuda_test
     tests/request_state_cuda_test.cpp

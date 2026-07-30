@@ -21,6 +21,9 @@ inline constexpr std::size_t kRequestLinearLayerCount = 48U;
 inline constexpr std::size_t kRequestFullLayerCount = 16U;
 inline constexpr std::size_t kRequestHiddenBufferCount = 3U;
 inline constexpr std::size_t kRequestProjectionBufferCount = 4U;
+inline constexpr std::size_t kRequestLongPrefillHiddenBufferCount = 2U;
+inline constexpr std::uint32_t kRequestLongPrefillAdmissionMaximumTokens =
+    4'096U;
 inline constexpr std::uint64_t kRequestConvStateBytes = 2'949'120U;
 inline constexpr std::uint64_t kRequestGdnStateBytes = 75'497'472U;
 inline constexpr std::uint64_t kRequestKvBytesPerToken = 65'536U;
@@ -53,6 +56,10 @@ struct RequestMemoryOptions {
     std::uint32_t batch_size = 1U;
     std::uint32_t prefill_chunk_size = kDefaultRequestPrefillChunkSize;
     std::uint64_t max_sequence_length = kDefaultRequestMaxSequenceLength;
+    // Test-only layer-major Prefill admission. Zero preserves the established
+    // tile-major arena. A nonzero value reserves two full-length BF16 hidden
+    // slabs while the existing C512 projection workspace remains shared.
+    std::uint32_t long_prefill_token_capacity = 0U;
     std::uint64_t max_arena_bytes = 2ULL * 1024ULL * 1024ULL * 1024ULL;
     std::uint64_t min_free_bytes_after_create =
         8ULL * 1024ULL * 1024ULL * 1024ULL;
@@ -102,6 +109,7 @@ struct RequestMemoryPlan {
     std::uint32_t batch_size = 1U;
     std::uint32_t prefill_chunk_size = kDefaultRequestPrefillChunkSize;
     std::uint32_t max_sequence_length = 0U;
+    std::uint32_t long_prefill_token_capacity = 0U;
     std::uint64_t arena_bytes = 0U;
     std::uint64_t persistent_offset = 0U;
     std::uint64_t persistent_bytes = 0U;
@@ -118,6 +126,11 @@ struct RequestMemoryPlan {
     std::array<RequestRegion, kRequestFullLayerCount> value_cache;
 
     std::array<RequestRegion, kRequestHiddenBufferCount> hidden_bf16;
+    // Optional full-prompt BF16 ping-pong slabs for the layer-major admission.
+    // The regular hidden/projection regions above remain C512 scratch and are
+    // reused by every layer/tile instead of scaling projection storage by P.
+    std::array<RequestRegion, kRequestLongPrefillHiddenBufferCount>
+        long_prefill_hidden_bf16;
     std::array<RequestRegion, kRequestProjectionBufferCount> projection_bf16;
     RequestRegion linear_a_bf16;  // [48], independent from projection buffers
     RequestRegion linear_b_bf16;  // [48], independent from projection buffers
@@ -247,6 +260,8 @@ class RequestState {
                                                    std::size_t position) noexcept;
 
     [[nodiscard]] RequestViewResult hidden_buffer(std::size_t index) noexcept;
+    [[nodiscard]] RequestViewResult long_prefill_hidden_buffer(
+        std::size_t index) noexcept;
     [[nodiscard]] RequestViewResult projection_buffer(std::size_t index) noexcept;
     [[nodiscard]] RequestViewResult linear_a_buffer() noexcept;
     [[nodiscard]] RequestViewResult linear_b_buffer() noexcept;
