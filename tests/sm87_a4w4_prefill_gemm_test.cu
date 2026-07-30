@@ -497,11 +497,209 @@ class DeviceBuffer final {
   return true;
 }
 
+[[nodiscard]] bool run_wide_m_projection() {
+  constexpr std::size_t kWideM = 2'048U;
+  constexpr std::size_t kWideN = 256U;
+  constexpr std::size_t kWideK = 192U;
+  constexpr std::size_t kWideGroups = kWideK / 64U;
+  constexpr std::size_t kWideOutputStride = kWideN + 16U;
+  constexpr std::size_t kWideAPackedBytes =
+      kernels::sm87_a4w4_consumer_packed_capacity_bytes(kWideM, kWideK);
+  constexpr std::size_t kWideAScaleElements =
+      kernels::sm87_a4w4_consumer_scale_capacity_elements(kWideM, kWideK);
+  constexpr std::size_t kWideBPackedBytes =
+      kernels::sm87_a4w4_consumer_packed_capacity_bytes(kWideN, kWideK);
+  constexpr std::size_t kWideBScaleElements =
+      kernels::sm87_a4w4_consumer_scale_capacity_elements(kWideN, kWideK);
+  static_assert(kernels::sm87_a4w4_prefill_uses_m64n256_candidate(
+      kWideM, kWideN));
+  static_assert(kernels::sm87_a4w4_prefill_gemm_m64n256_plan(
+                    kWideM, kWideN, kWideK)
+                    .work_tiles == 32U);
+
+  std::vector<std::uint8_t> packed_a(kWideAPackedBytes);
+  std::vector<std::uint16_t> a_scales(kWideAScaleElements);
+  for (std::size_t m = 0U; m < kWideM; ++m) {
+    for (std::size_t group = 0U; group < kWideGroups; ++group) {
+      for (std::size_t byte = 0U; byte < 32U; ++byte) {
+        const int even = static_cast<int>(
+                             (7U * m + 11U * group + 5U * byte + 1U) %
+                             15U) -
+                         7;
+        const int odd = static_cast<int>(
+                            (3U * m + 13U * group + 9U * byte + 2U) %
+                            15U) -
+                        7;
+        packed_a[kernels::sm87_a4w4_consumer_packed_offset(
+            m, group, byte, kWideGroups)] =
+            kernels::sm87_a4w4_pack_signed_pair(even, odd);
+      }
+      a_scales[kernels::sm87_a4w4_consumer_scale_offset(
+          m, group, kWideGroups)] =
+          encode_bf16(static_cast<float>(1U + (m + 3U * group) % 7U) /
+                      32.0F);
+    }
+  }
+
+  std::vector<std::uint8_t> packed_b(kWideBPackedBytes);
+  std::vector<std::uint16_t> b_scales(kWideBScaleElements);
+  for (std::size_t n = 0U; n < kWideN; ++n) {
+    for (std::size_t group = 0U; group < kWideGroups; ++group) {
+      for (std::size_t byte = 0U; byte < 32U; ++byte) {
+        const int even = static_cast<int>(
+                             (13U * n + 7U * group + 2U * byte + 3U) %
+                             15U) -
+                         7;
+        const int odd = static_cast<int>(
+                            (5U * n + 11U * group + 7U * byte + 4U) %
+                            15U) -
+                        7;
+        packed_b[kernels::sm87_a4w4_consumer_packed_offset(
+            n, group, byte, kWideGroups)] =
+            kernels::sm87_a4w4_pack_signed_pair(even, odd);
+      }
+      b_scales[kernels::sm87_a4w4_consumer_scale_offset(
+          n, group, kWideGroups)] =
+          encode_bf16(static_cast<float>(1U + (n + 5U * group) % 5U) /
+                      64.0F);
+    }
+  }
+
+  DeviceBuffer<std::uint8_t> device_a;
+  DeviceBuffer<std::uint16_t> device_a_scales;
+  DeviceBuffer<std::uint8_t> device_b;
+  DeviceBuffer<std::uint16_t> device_b_scales;
+  DeviceBuffer<std::uint16_t> device_output;
+  if (!device_a.allocate(packed_a.size()) ||
+      !device_a_scales.allocate(a_scales.size()) ||
+      !device_b.allocate(packed_b.size()) ||
+      !device_b_scales.allocate(b_scales.size()) ||
+      !device_output.allocate(kWideM * kWideOutputStride)) {
+    std::cerr << "wide-M device allocation failed\n";
+    return false;
+  }
+  if (!cuda_ok(cudaMemcpy(device_a.get(), packed_a.data(), packed_a.size(),
+                          cudaMemcpyHostToDevice),
+               "copy wide-M A") ||
+      !cuda_ok(cudaMemcpy(device_a_scales.get(), a_scales.data(),
+                          a_scales.size() * sizeof(a_scales[0]),
+                          cudaMemcpyHostToDevice),
+               "copy wide-M A scales") ||
+      !cuda_ok(cudaMemcpy(device_b.get(), packed_b.data(), packed_b.size(),
+                          cudaMemcpyHostToDevice),
+               "copy wide-M B") ||
+      !cuda_ok(cudaMemcpy(device_b_scales.get(), b_scales.data(),
+                          b_scales.size() * sizeof(b_scales[0]),
+                          cudaMemcpyHostToDevice),
+               "copy wide-M B scales") ||
+      !cuda_ok(cudaMemset(device_output.get(), 0x5a,
+                          kWideM * kWideOutputStride *
+                              sizeof(std::uint16_t)),
+               "initialize wide-M output")) {
+    return false;
+  }
+
+  kernels::Sm87A4W4PrefillGemmResources resources{};
+  if (!launch_ok(
+          kernels::query_sm87_a4w4_prefill_gemm_m64n256_resources_cuda(
+              &resources),
+          "query M64N256 resources")) {
+    return false;
+  }
+  if (resources.active_blocks_per_sm < 2 || resources.local_bytes != 0U ||
+      resources.static_shared_bytes != 43'520U) {
+    std::cerr << "M64N256 resource contract failed: registers="
+              << resources.registers_per_thread
+              << " shared=" << resources.static_shared_bytes
+              << " local=" << resources.local_bytes
+              << " active_blocks=" << resources.active_blocks_per_sm << '\n';
+    return false;
+  }
+
+  if (!launch_ok(kernels::launch_sm87_a4w4_prefill_gemm_bf16_cuda(
+                     device_a.get(), packed_a.size(), device_a_scales.get(),
+                     a_scales.size(), device_b.get(), packed_b.size(),
+                     device_b_scales.get(), b_scales.size(), kWideM, kWideN,
+                     kWideK, device_output.get(), kWideOutputStride),
+                 "M64N256 A4W4 GEMM") ||
+      !cuda_ok(cudaDeviceSynchronize(), "synchronize M64N256 GEMM")) {
+    return false;
+  }
+
+  std::vector<std::uint16_t> output(kWideM * kWideOutputStride);
+  if (!cuda_ok(cudaMemcpy(output.data(), device_output.get(),
+                          output.size() * sizeof(output[0]),
+                          cudaMemcpyDeviceToHost),
+               "copy M64N256 output")) {
+    return false;
+  }
+
+  std::size_t mismatches = 0U;
+  for (std::size_t m = 0U; m < kWideM; ++m) {
+    for (std::size_t n = 0U; n < kWideN; ++n) {
+      float expected = 0.0F;
+      for (std::size_t group = 0U; group < kWideGroups; ++group) {
+        std::int32_t integer_partial = 0;
+        for (std::size_t k = 0U; k < 64U; ++k) {
+          const int a = signed_code(
+              packed_a[kernels::sm87_a4w4_consumer_packed_offset(
+                  m, group, k / 2U, kWideGroups)],
+              k);
+          const int b = signed_code(
+              packed_b[kernels::sm87_a4w4_consumer_packed_offset(
+                  n, group, k / 2U, kWideGroups)],
+              k);
+          integer_partial += a * b;
+        }
+        expected +=
+            static_cast<float>(integer_partial) *
+            decode_bf16(a_scales[kernels::sm87_a4w4_consumer_scale_offset(
+                m, group, kWideGroups)]) *
+            decode_bf16(b_scales[kernels::sm87_a4w4_consumer_scale_offset(
+                n, group, kWideGroups)]);
+      }
+      const std::uint16_t expected_bits = encode_bf16(expected);
+      const std::uint16_t actual_bits =
+          output[m * kWideOutputStride + n];
+      if (actual_bits != expected_bits) {
+        ++mismatches;
+        if (mismatches <= 8U) {
+          std::cerr << "M64N256 mismatch m=" << m << " n=" << n
+                    << " expected=" << decode_bf16(expected_bits)
+                    << " actual=" << decode_bf16(actual_bits) << '\n';
+        }
+      }
+    }
+    for (std::size_t n = kWideN; n < kWideOutputStride; ++n) {
+      if (output[m * kWideOutputStride + n] != 0x5a5aU) {
+        ++mismatches;
+        if (mismatches <= 8U) {
+          std::cerr << "M64N256 padding overwrite m=" << m
+                    << " n=" << n << '\n';
+        }
+      }
+    }
+  }
+  if (mismatches != 0U) {
+    std::cerr << "M64N256 GEMM mismatches=" << mismatches << '\n';
+    return false;
+  }
+  std::cout << "SM87 A4W4 M64N256 GEMM passed: M=" << kWideM
+            << " N=" << kWideN << " K=" << kWideK
+            << " registers=" << resources.registers_per_thread
+            << " active_blocks_per_sm=" << resources.active_blocks_per_sm
+            << '\n';
+  return true;
+}
+
 }  // namespace
 
 int main() {
   if (!device_is_target()) {
     return 77;
   }
-  return run_projection() && run_large_m_projection() ? 0 : 1;
+  return run_projection() && run_large_m_projection() &&
+                 run_wide_m_projection()
+             ? 0
+             : 1;
 }

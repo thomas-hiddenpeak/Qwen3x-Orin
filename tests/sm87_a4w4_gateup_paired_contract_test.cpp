@@ -17,6 +17,8 @@ namespace kernels = q3x::kernels;
       kernels::sm87_a4w4_gateup_paired_plan(3'847U, 17'408U, 5'120U);
   const kernels::Sm87A4W4GateUpPairedPlan p1024 =
       kernels::sm87_a4w4_gateup_paired_plan(1'024U, 17'408U, 5'120U);
+  const kernels::Sm87A4W4GateUpPairedPlan p2048 =
+      kernels::sm87_a4w4_gateup_paired_plan(2'048U, 17'408U, 5'120U);
   const kernels::Sm87A4W4GateUpPairedPlan p4096 =
       kernels::sm87_a4w4_gateup_paired_plan(4'096U, 17'408U, 5'120U);
   return p512.m_tiles == 16U && p512.n_tiles == 136U &&
@@ -36,10 +38,40 @@ namespace kernels = q3x::kernels;
          p1024.tile_n == 64U &&
          p1024.kernel ==
              kernels::Sm87A4W4GateUpPairedKernel::kM64N64K64 &&
-         p4096.m_tiles == 64U && p4096.n_tiles == 272U &&
-         p4096.work_tiles == 17'408U &&
+         p2048.m_tiles == 32U && p2048.n_tiles == 136U &&
+         p2048.work_tiles == 4'352U && p2048.tile_m == 64U &&
+         p2048.tile_n == 128U &&
+         p2048.kernel ==
+             kernels::Sm87A4W4GateUpPairedKernel::kM64N128K64 &&
+         p4096.m_tiles == 64U && p4096.n_tiles == 136U &&
+         p4096.work_tiles == 8'704U &&
          p4096.kernel ==
-             kernels::Sm87A4W4GateUpPairedKernel::kM64N64K64;
+             kernels::Sm87A4W4GateUpPairedKernel::kM64N128K64;
+}
+
+[[nodiscard]] bool check_n_major_work_tile_planner() {
+  const kernels::Sm87A4W4GateUpPairedPlan plan =
+      kernels::sm87_a4w4_gateup_paired_plan(2'048U, 17'408U, 5'120U);
+  const kernels::Sm87A4W4GateUpPairedWorkTile first =
+      kernels::sm87_a4w4_gateup_paired_n_major_work_tile(
+          0U, plan.m_tiles, plan.work_tiles);
+  const kernels::Sm87A4W4GateUpPairedWorkTile last_m =
+      kernels::sm87_a4w4_gateup_paired_n_major_work_tile(
+          31U, plan.m_tiles, plan.work_tiles);
+  const kernels::Sm87A4W4GateUpPairedWorkTile next_n =
+      kernels::sm87_a4w4_gateup_paired_n_major_work_tile(
+          32U, plan.m_tiles, plan.work_tiles);
+  const kernels::Sm87A4W4GateUpPairedWorkTile last =
+      kernels::sm87_a4w4_gateup_paired_n_major_work_tile(
+          plan.work_tiles - 1U, plan.m_tiles, plan.work_tiles);
+  const kernels::Sm87A4W4GateUpPairedWorkTile rejected =
+      kernels::sm87_a4w4_gateup_paired_n_major_work_tile(
+          plan.work_tiles, plan.m_tiles, plan.work_tiles);
+  return first.valid && first.m_tile == 0U && first.n_tile == 0U &&
+         last_m.valid && last_m.m_tile == 31U && last_m.n_tile == 0U &&
+         next_n.valid && next_n.m_tile == 0U && next_n.n_tile == 1U &&
+         last.valid && last.m_tile == 31U && last.n_tile == 135U &&
+         !rejected.valid;
 }
 
 [[nodiscard]] bool check_tail_and_rejection_plans() {
@@ -60,6 +92,8 @@ namespace kernels = q3x::kernels;
   if (kernels::query_sm87_a4w4_gateup_paired_resources_cuda(nullptr) !=
           static_cast<int>(cudaErrorInvalidValue) ||
       kernels::query_sm87_a4w4_gateup_paired_large_m_resources_cuda(
+          nullptr) != static_cast<int>(cudaErrorInvalidValue) ||
+      kernels::query_sm87_a4w4_gateup_paired_wide_large_m_resources_cuda(
           nullptr) != static_cast<int>(cudaErrorInvalidValue)) {
     return false;
   }
@@ -78,8 +112,11 @@ namespace kernels = q3x::kernels;
       &kernels::query_sm87_a4w4_gateup_paired_resources_cuda;
   auto* volatile large_m_query =
       &kernels::query_sm87_a4w4_gateup_paired_large_m_resources_cuda;
+  auto* volatile wide_large_m_query =
+      &kernels::query_sm87_a4w4_gateup_paired_wide_large_m_resources_cuda;
   auto* volatile launch = &kernels::launch_sm87_a4w4_gateup_paired_cuda;
-  return query != nullptr && large_m_query != nullptr && launch != nullptr;
+  return query != nullptr && large_m_query != nullptr &&
+         wide_large_m_query != nullptr && launch != nullptr;
 }
 
 }  // namespace
@@ -91,6 +128,10 @@ int main() {
   }
   if (!check_tail_and_rejection_plans()) {
     std::cerr << "tail/rejection plan contract failed\n";
+    return 1;
+  }
+  if (!check_n_major_work_tile_planner()) {
+    std::cerr << "N-major work-tile planner contract failed\n";
     return 1;
   }
   if (!check_fail_closed_host_surface()) {

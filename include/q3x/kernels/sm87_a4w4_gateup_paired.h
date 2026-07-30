@@ -3,6 +3,12 @@
 #include <cstddef>
 #include <cstdint>
 
+#if defined(__CUDACC__)
+#define Q3X_SM87_A4W4_GATEUP_HOST_DEVICE __host__ __device__
+#else
+#define Q3X_SM87_A4W4_GATEUP_HOST_DEVICE
+#endif
+
 namespace q3x::kernels {
 
 // Test-admission-only paired Gate+Up projection for the Qwen3.6 Prefill
@@ -42,10 +48,42 @@ inline constexpr std::size_t kSm87A4W4GateUpLargeMTileN = 64U;
 inline constexpr std::size_t kSm87A4W4GateUpLargeMTileK = 64U;
 inline constexpr std::size_t kSm87A4W4GateUpLargeMMinimumTokens = 1'024U;
 
+// Whole-M Gate+Up candidate for spans at and above P2048.  Eight warps own a
+// 2x4 array of M32xN32 warp tiles.  Relative to M64N64 this keeps each A K64
+// plane resident while consuming twice as many Gate/Up rows, reducing the
+// work-tile count without changing the consumer-order A4/K64 ABI.
+inline constexpr std::size_t kSm87A4W4GateUpWideLargeMTileM = 64U;
+inline constexpr std::size_t kSm87A4W4GateUpWideLargeMTileN = 128U;
+inline constexpr std::size_t kSm87A4W4GateUpWideLargeMTileK = 64U;
+inline constexpr std::size_t kSm87A4W4GateUpWideLargeMLogicalTileK = 128U;
+inline constexpr std::size_t kSm87A4W4GateUpWideLargeMPipelineSlots = 2U;
+inline constexpr std::size_t kSm87A4W4GateUpWideLargeMMinimumTokens = 2'048U;
+
 enum class Sm87A4W4GateUpPairedKernel : std::uint8_t {
   kM32N128K64 = 0U,
   kM64N64K64 = 1U,
+  kM64N128K64 = 2U,
 };
+
+struct Sm87A4W4GateUpPairedWorkTile final {
+  std::size_t m_tile{};
+  std::size_t n_tile{};
+  bool valid{};
+};
+
+// Persistent CTAs traverse M tiles consecutively inside one N tile.  The
+// mapping is deliberately independent of any kernel body so contract tests
+// can pin the N-major schedule and every candidate consumes the same planner.
+[[nodiscard]] Q3X_SM87_A4W4_GATEUP_HOST_DEVICE constexpr
+Sm87A4W4GateUpPairedWorkTile sm87_a4w4_gateup_paired_n_major_work_tile(
+    const std::size_t work_tile, const std::size_t m_tile_count,
+    const std::size_t work_tile_count) noexcept {
+  if (m_tile_count == 0U || work_tile >= work_tile_count) {
+    return {};
+  }
+  const std::size_t n_tile = work_tile / m_tile_count;
+  return {work_tile - n_tile * m_tile_count, n_tile, true};
+}
 
 struct Sm87A4W4GateUpPairedPlan final {
   std::size_t token_count{};
@@ -75,15 +113,21 @@ struct Sm87A4W4GateUpPairedPlan final {
 sm87_a4w4_gateup_paired_plan(const std::size_t token_count,
                              const std::size_t intermediate_size,
                              const std::size_t input_size) noexcept {
-  const bool use_large_m =
+  const bool use_wide_large_m =
+      token_count >= kSm87A4W4GateUpWideLargeMMinimumTokens &&
+      token_count % kSm87A4W4GateUpWideLargeMTileM == 0U &&
+      intermediate_size % kSm87A4W4GateUpWideLargeMTileN == 0U;
+  const bool use_large_m = !use_wide_large_m &&
       token_count >= kSm87A4W4GateUpLargeMMinimumTokens &&
       token_count % kSm87A4W4GateUpLargeMTileM == 0U;
-  const std::size_t tile_m = use_large_m
-                                 ? kSm87A4W4GateUpLargeMTileM
-                                 : kSm87A4W4GateUpTileM;
-  const std::size_t tile_n = use_large_m
-                                 ? kSm87A4W4GateUpLargeMTileN
-                                 : kSm87A4W4GateUpTileN;
+  const std::size_t tile_m =
+      use_wide_large_m ? kSm87A4W4GateUpWideLargeMTileM
+                       : (use_large_m ? kSm87A4W4GateUpLargeMTileM
+                                      : kSm87A4W4GateUpTileM);
+  const std::size_t tile_n =
+      use_wide_large_m ? kSm87A4W4GateUpWideLargeMTileN
+                       : (use_large_m ? kSm87A4W4GateUpLargeMTileN
+                                      : kSm87A4W4GateUpTileN);
   if (token_count == 0U || intermediate_size == 0U || input_size == 0U ||
       intermediate_size % tile_n != 0U ||
       input_size % kSm87A4W4GateUpTileK != 0U) {
@@ -109,8 +153,11 @@ sm87_a4w4_gateup_paired_plan(const std::size_t token_count,
           intermediate_size / kSm87A4W4GateUpTileK,
           tile_m,
           tile_n,
-          use_large_m ? Sm87A4W4GateUpPairedKernel::kM64N64K64
-                      : Sm87A4W4GateUpPairedKernel::kM32N128K64};
+          use_wide_large_m
+              ? Sm87A4W4GateUpPairedKernel::kM64N128K64
+              : (use_large_m
+                     ? Sm87A4W4GateUpPairedKernel::kM64N64K64
+                     : Sm87A4W4GateUpPairedKernel::kM32N128K64)};
 }
 
 struct Sm87A4W4GateUpPairedResources final {
@@ -134,6 +181,13 @@ struct Sm87A4W4GateUpPairedResources final {
 // requirements as the established path: no local-memory frame/spill and at
 // least two resident 256-thread CTAs per SM87 SM.
 [[nodiscard]] int query_sm87_a4w4_gateup_paired_large_m_resources_cuda(
+    Sm87A4W4GateUpPairedResources* resources) noexcept;
+
+// Independent admission query for the P2048+ M64N128 candidate.  The kernel
+// is rejected unless its compiled image has no local frame/spill and admits
+// two resident 256-thread CTAs per SM87 SM.
+[[nodiscard]] int
+query_sm87_a4w4_gateup_paired_wide_large_m_resources_cuda(
     Sm87A4W4GateUpPairedResources* resources) noexcept;
 
 // output_clip_ratio is calibration-owned and must be in (0, 1].  Quantized
@@ -176,6 +230,21 @@ static_assert(sm87_a4w4_gateup_paired_plan(1'088U, 17'408U, 5'120U)
                   .kernel == Sm87A4W4GateUpPairedKernel::kM64N64K64);
 static_assert(sm87_a4w4_gateup_paired_plan(1'025U, 17'408U, 5'120U)
                   .kernel == Sm87A4W4GateUpPairedKernel::kM32N128K64);
+static_assert(sm87_a4w4_gateup_paired_plan(2'048U, 17'408U, 5'120U)
+                  .kernel == Sm87A4W4GateUpPairedKernel::kM64N128K64);
+static_assert(sm87_a4w4_gateup_paired_plan(2'048U, 17'408U, 5'120U)
+                  .work_tiles == 4'352U);
+static_assert(sm87_a4w4_gateup_paired_plan(2'048U, 17'344U, 5'120U)
+                  .kernel == Sm87A4W4GateUpPairedKernel::kM64N64K64);
+static_assert(sm87_a4w4_gateup_paired_n_major_work_tile(0U, 32U, 4'352U)
+                  .m_tile == 0U);
+static_assert(sm87_a4w4_gateup_paired_n_major_work_tile(31U, 32U, 4'352U)
+                  .n_tile == 0U);
+static_assert(sm87_a4w4_gateup_paired_n_major_work_tile(32U, 32U, 4'352U)
+                  .n_tile == 1U);
+static_assert(!sm87_a4w4_gateup_paired_n_major_work_tile(
+                   4'352U, 32U, 4'352U)
+                   .valid);
 static_assert(sm87_a4w4_gateup_paired_plan(65U, 64U, 192U)
                   .launch_ctas == 0U);
 static_assert(sm87_a4w4_gateup_paired_plan(65U, 128U, 192U)
@@ -186,3 +255,5 @@ static_assert(sm87_a4w4_gateup_paired_plan(0U, 128U, 64U)
                   .launch_ctas == 0U);
 
 }  // namespace q3x::kernels
+
+#undef Q3X_SM87_A4W4_GATEUP_HOST_DEVICE
