@@ -1907,6 +1907,18 @@ The diagnostic Phase 3 records are:
   withdrawn without a microbenchmark or cache-only follow-up. The next NVFP4
   work replaces the global dataflow with an accumulator-product-at-most-16K,
   at-least-two-CTA/SM M64N256 skeleton; B and scales remain `.cg`.
+- [`qwen36-27b-prefill-nvfp4-large-m-pair-evalscope-rejection-2026-07-30.json`](qwen36-27b-prefill-nvfp4-large-m-pair-evalscope-rejection-2026-07-30.json),
+  which closes the first executable M64xphysical-N256 paired Gate-N128/Up-N128
+  skeleton on the real OpenAI/EvalScope path. The ELF meets the hard resource
+  envelope exactly at 128 registers, zero local bytes, 68,608 dynamic plus
+  512 static shared bytes, and two CTAs/SM. Even so, prompt throughput falls
+  177.913533 to 170.705966 tok/s and mean TTFT rises 1167.935631 to
+  1281.558598 ms. The one-/two-C512-chunk buckets regress by about 181.320 and
+  355.736 ms, proving the route was active, and only 7/8 generated outputs are
+  exact. The record also corrects the global traffic model: N128+N128 inside
+  physical N256 retains all 136 A presentations, so the fusion saves only the
+  merged epilogue round trip rather than half the GEMM A traffic. The source is
+  withdrawn without NCU, NSys, or a cache/stage scan.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

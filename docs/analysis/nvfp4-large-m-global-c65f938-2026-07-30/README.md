@@ -2,7 +2,7 @@
 
 Date: 2026-07-30  
 Production baseline: `c65f938`  
-Immediate whole-runner candidate: `fb6a17f`  
+Immediate whole-runner candidates: `fb6a17f`, `50905fd`
 Scope: Qwen3.6-27B-NVFP4 on the fixed 16-SM SM87 Orin target
 
 This is a static architecture audit and an implementation contract.  It does
@@ -35,6 +35,14 @@ wholly unchanged.  The end-to-end EvalScope direction was negative, so this
 cache-policy migration is rejected on the current persistent Marlin skeleton
 and reverted before structural work continues.
 
+The first executable paired Gate/Up skeleton in `50905fd` also passed its
+compile-time residency gate but failed the real runner decisively.  It is
+archived and withdrawn below.  That result corrects one important premise in
+the original traffic model: pairing Gate N128 with Up N128 inside physical
+N256 does **not** reduce A presentation relative to merged Marlin N256.  Both
+still have 136 N work tiles at C512.  The pairing deletes the merged-output
+round trip, but it is not by itself a GEMM reuse breakthrough.
+
 ### A-only `.ca` whole-runner rejection
 
 The frozen eight-request real-weight run returned 8/8 byte-identical outputs,
@@ -54,6 +62,71 @@ noise that warrants a larger harness.  A-only `.ca` remains valid evidence for
 the older independently scheduled custom M64N256 cell, but is not portable to
 the current four-stage persistent Marlin scheduler.  No further cache-only
 Marlin scan is authorized.
+
+### Direct-canonical paired Gate/Up whole-runner rejection
+
+Commit `50905fd` implemented the first complete large-M admission cell rather
+than another parameter scan.  A 256-thread M64xphysical-N256xK64 CTA pairs
+Gate N128 with the matching Up N128, uses three asynchronous operand stages,
+rounds both branches independently to BF16, evaluates the production SiLU
+expression in the owning CTA, and writes only the final N128 intermediate.
+The real runner then uses the unchanged Marlin Down projection.  The
+candidate consumes authenticated canonical weights and scales directly; it
+does not claim that the planned load-time consumer-order sidecars exist.
+
+The final ELF passes the hard resource envelope exactly: 128 registers/thread,
+512 static plus 68,608 dynamic shared bytes, zero local/stack bytes, 256
+threads, and two active CTAs/SM.  Its SASS contains the intended cache split
+(`LDGSTS.E.128` for A and `LDGSTS.E.BYPASS.128` for B/scales).  Nevertheless,
+the frozen real-weight EvalScope screen is strongly negative:
+
+| metric | native `c92a2ef` | candidate `50905fd` | change |
+|---|---:|---:|---:|
+| prompt throughput | 177.913533 tok/s | 170.705966 tok/s | -7.207567 tok/s |
+| mean TTFT | 1167.935631 ms | 1281.558598 ms | +113.622967 ms |
+| p50 TTFT | 1294.804216 ms | 1477.522311 ms | +182.718095 ms |
+| p99 TTFT | 2370.425952 ms | 2726.162066 ms | +355.736114 ms |
+| wall time | 22.376038 s | 23.320802 s | +0.944764 s |
+
+The runtime selector accepts only an exact C512 chunk.  Requests of at most
+512 prompt tokens therefore retain the baseline path and differ by only
++1.198 to +3.446 ms.  The three 513--1024-token requests each execute one
+candidate chunk and regress by +181.319580 ms on average; the 1025-token
+request executes two and regresses by +355.736114 ms.  This near-linear
+one-/two-chunk slope is direct whole-runner evidence that the admission path
+was hit in every eligible layer, not a dormant-switch or dispatch error.
+
+Database integrity, request-manifest matching, completion chunks, metric
+recomputation, and benchmark argument comparability all pass.  Generated
+outputs are exact for 7/8 requests.  The only divergence is the 564-token
+case, where one greedy choice changes after the common prefix.  Thus the
+candidate independently fails both the performance direction and the frozen
+output-identity gate.
+
+The structural loss is consistent with the executable design, without an NCU
+postmortem being needed to decide retention:
+
+- M64xphysical-N256 still produces only 256 branch values per CTA, exactly as
+  merged Marlin N256 does.  It therefore presents the same 680 MiB of logical
+  A traffic per C512 layer, not half as much.
+- The candidate launches 1,088 physical CTAs per layer.  Marlin launches 16
+  persistent CTAs and advances the same logical work inside them.  Across 64
+  MLP layers the candidate repeats CTA prologue, E4M3 codebook publication,
+  and barriers 69,632 times per C512 chunk.
+- Canonical row-major B and byte E4M3 scales are selected, copied, swizzled,
+  and decoded in the hot loop.  Marlin moves its weight/scale permutation and
+  scale preparation to model load and uses a four-stage, high-ILP inner feed.
+  Two-CTA residency cannot compensate for retaining those runtime transforms.
+- Fusing SiLU saves about 68 MiB of logical merged-intermediate traffic per
+  layer, only 4.4% of the corrected Gate/Up presentation.  That bounded saving
+  is smaller than the measured feed and scheduler loss.
+
+The rejection is scoped to direct-canonical, per-logical-tile M64N256 pairing.
+It does not authorize a cache/stage scan of this kernel.  Any successor must
+change the inner feed and physical work scheduling together, and must account
+honestly for the fact that N128+N128 pairing preserves rather than halves A
+presentation.  Two-CTA residency remains a resource check, not evidence of
+throughput by itself.
 
 ## Audited current state
 
@@ -76,7 +149,8 @@ Static resource evidence from the production ELF is:
 | current NVFP4 Marlin | M64 N256 K64, stages 4 | 255 | 166,912 B | one CTA/SM |
 | retained custom BS512 | M64 N256 K64, stages 3 | 128 | 68,608 B + 512 B static | two CTAs/SM |
 | current custom exact-C512 | M128 N256 K128, stages 2 | 247 | 118,784 B + 512 B static | one CTA/SM |
-| target cell | M64 N256 K64, stages 3 | <=128 | 68,608 B, no codebook | two CTAs/SM |
+| rejected direct-canonical pair `50905fd` | M64 physical-N256 K64, stages 3 | 128 | 68,608 B + 512 B static | two CTAs/SM |
+| successor resource ceiling | accumulator product at most 16K, 256 threads | <=128 | <=83,968 B total | at least two CTAs/SM |
 
 The target shared allocation is not speculative arithmetic: it reuses the
 already compiled BS512 envelope.  Three padded `M64xK64` A slots consume
@@ -214,22 +288,27 @@ whole-runner result decides whether that broad interim change survives.  The
 new skeleton must expose the role selector shown above; a Gate result never
 chooses the Down cache policy or pipeline.
 
-### Logical traffic at C512
+### Corrected logical traffic at C512
 
 These are topology presentations, not EMC measurements:
 
 | path | A | packed B | scales | intermediate/output traffic | total |
 |---|---:|---:|---:|---:|---:|
 | current merged M64 Gate+Up + separate SiLU | 680 MiB | 680 MiB | 85 MiB | 34 MiB write + 34 MiB read + 17 MiB write | 1,530 MiB |
-| paired target with exact BF16 scales | 340 MiB | 680 MiB | 170 MiB | 17 MiB write | 1,207 MiB |
+| direct-canonical paired N128+N128 (`50905fd`) | 680 MiB | 680 MiB | 85 MiB | 17 MiB write | 1,462 MiB |
+| paired N128+N128 with exact BF16 scales | 680 MiB | 680 MiB | 170 MiB | 17 MiB write | 1,547 MiB |
 | current M64 Down with byte scales | 340 MiB | 340 MiB | 42.5 MiB | 5 MiB | 727.5 MiB |
 | target M64 Down with exact BF16 scales | 340 MiB | 340 MiB | 85 MiB | 5 MiB | 770 MiB |
 
-The Gate/Up cell removes about 21.1% of logical presentation while deleting a
-whole kernel boundary.  Down deliberately pays 42.5 MiB more logical scale
-traffic to remove indexed shared scale decode; its much longer K traversal and
-smaller grid make this a separate real-path decision rather than a Gate
-inference.
+The original 340-MiB A estimate for paired Gate/Up was wrong.  Physical N256
+contains only 128 columns from each branch, so 136 work tiles remain and A is
+still presented 136 times.  The direct-canonical cell removes about 4.4% of
+logical presentation by deleting the merged output/read and final standalone
+write.  An exact-BF16 scale sidecar increases total logical bytes unless its
+cheaper decode repays the extra traffic.  Down deliberately pays 42.5 MiB more
+logical scale traffic to remove indexed shared scale decode; its much longer K
+traversal and smaller grid make this a separate real-path decision rather than
+a Gate inference.
 
 ## Explicit modification set
 
@@ -237,10 +316,14 @@ inference.
    candidate.  Its frozen eight-request EvalScope direction is negative; the
    source is reverted and no microbenchmark or cache-policy follow-up is run.
    A role-specific cache selector belongs only to the replacement cell.
-2. Add `sm87_nvfp4_large_m.h/.cu` with one feed primitive and two role
-   specializations.  Compile every kernel with `__launch_bounds__(256, 2)`;
-   reject any ELF with more than 128 registers, nonzero local/stack bytes, or
-   fewer than two active CTAs/SM.
+2. `50905fd` proves that the M64 physical-N256 resource envelope is attainable
+   but not competitive when each logical tile is a physical CTA and canonical
+   transforms remain in the hot loop.  Preserve it only in history.  A
+   successor must change consumer layout plus physical scheduling as one
+   architecture; reject another cache, stage, or launch-order scan on this
+   skeleton.  Continue to fail closed above 128 registers, on local/stack
+   bytes, or below two active CTAs/SM, while treating that gate as necessary
+   rather than sufficient.
 3. Add load-time builders for the layouts above.  Builders must be outside all
    timings, preserve every packed E2M1 nibble, exhaustively preserve all scale
    codes, and report exact bytes to the request/model memory audit.

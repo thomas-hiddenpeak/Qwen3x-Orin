@@ -1,0 +1,147 @@
+{
+  "schema_version": 1,
+  "status": "rejected-real-evalscope-direction-and-output-identity",
+  "recorded_at": "2026-07-30",
+  "scope": {
+    "model": "nvidia/Qwen3.6-27B-NVFP4",
+    "hardware": "16-SM SM87 Jetson Orin",
+    "baseline_commit": "c92a2ef",
+    "candidate_base": "e38d728",
+    "candidate_commit": "50905fd",
+    "candidate_branch": "codex/nvfp4-large-m-global",
+    "candidate_change": "exact-C512 native M64xphysical-N256xK64 paired Gate-N128/Up-N128 kernel with fused independent-BF16-rounding SiLU epilogue, followed by unchanged NVFP4 Marlin Down",
+    "production_path": "OpenAI-compatible qwen3x-eval-server",
+    "weights": "authenticated real checkpoint",
+    "synthetic_performance_authority": false,
+    "mtp_enabled": false
+  },
+  "build": {
+    "target": "qwen3x-eval-server",
+    "result": "pass",
+    "elf": "/tmp/q3x-nvfp4-large-m-global-build-make/qwen3x-eval-server",
+    "elf_sha256": "a8a91f3439b15428bea2a33cc684782696410238f51131e0c7d1158115b4ea1e",
+    "elf_bytes": 11955264,
+    "help_exit": 0,
+    "kernel_resources": {
+      "registers_per_thread": 128,
+      "static_shared_bytes": 512,
+      "dynamic_shared_bytes": 68608,
+      "local_bytes": 0,
+      "stack_bytes": 0,
+      "maximum_threads_per_block": 256,
+      "active_blocks_per_sm": 2
+    },
+    "kernel_static_sass_sites": {
+      "LDGSTS.E.128_activation_cache_all": 8,
+      "LDGSTS.E.BYPASS.128_weight_and_scale_cache_global": 14,
+      "HMMA.16816.F32.BF16": 64
+    }
+  },
+  "workload": {
+    "framework": "EvalScope 1.9.1 performance CLI",
+    "requests": 8,
+    "success_requests": 8,
+    "prompt_tokens": 3981,
+    "completion_tokens": 128,
+    "corpus_sha256": "bd2091cdc0599ac59ab881efc6d1307a03bb149f49e6fd728a99d926ccc67989",
+    "prompt_set_sha256": "443d5cb8682c95ac44a109b9767ac127ef4b33bd291ad6b2b082a92674720144",
+    "baseline_output_set_sha256": "262701c931d4f51828217d0e4c71b98ad1e3d7e6d30174f7b3127ea6cba3357e",
+    "candidate_output_set_sha256": "10ace901a0c5230e7c5b81c8e2365567521bf76f753bee56c24ce68e758469da",
+    "exact_outputs": "7/8",
+    "mismatched_case": {
+      "measured_ordinal": 3,
+      "prompt_tokens": 564,
+      "observation": "one greedy token choice diverges after a common generated prefix"
+    }
+  },
+  "metrics": {
+    "baseline": {
+      "prompt_throughput_tok_s": 177.9135330548357,
+      "mean_ttft_ms": 1167.9356306558475,
+      "p50_ttft_ms": 1294.8042161297053,
+      "p99_ttft_ms": 2370.4259521327913,
+      "mean_tpot_ms": 108.587627588228,
+      "wall_time_s": 22.3760381329339
+    },
+    "candidate": {
+      "prompt_throughput_tok_s": 170.70596584583492,
+      "mean_ttft_ms": 1281.5585976350121,
+      "p50_ttft_ms": 1477.522311033681,
+      "p99_ttft_ms": 2726.1620659846812,
+      "mean_tpot_ms": 108.87915609055199,
+      "wall_time_s": 23.320801825961098
+    },
+    "candidate_minus_baseline": {
+      "prompt_throughput_tok_s": -7.207567209000786,
+      "mean_ttft_ms": 113.62296697916463,
+      "p50_ttft_ms": 182.71809490397573,
+      "p99_ttft_ms": 355.73611385188997,
+      "wall_time_s": 0.9447636930271983
+    },
+    "prompt_bucket_candidate_minus_baseline_mean_ttft_ms": {
+      "1-128": 1.198374666273594,
+      "129-512": 3.446065937168896,
+      "513-1024": 181.3195802581807,
+      "1025+": 355.73611385188997
+    }
+  },
+  "path_hit_audit": {
+    "selector_contract": "candidate accepts only token_count=512",
+    "short_request_result": "prompts at or below 512 tokens retain the baseline path and differ by only 1.198 to 3.446 ms by bucket",
+    "one_chunk_result": "the three 513-1024-token prompts each contain one eligible C512 chunk and regress by 181.319580 ms on average",
+    "two_chunk_result": "the 1025-token prompt contains two eligible C512 chunks and regresses by 355.736114 ms",
+    "conclusion": "the near-linear one/two-chunk slope confirms production-path admission; the result is not a dormant-switch measurement"
+  },
+  "structural_accounting": {
+    "current_merged_marlin_n256_work_tiles_per_m64": 136,
+    "candidate_paired_n128_plus_n128_work_tiles_per_m64": 136,
+    "candidate_physical_ctas_per_layer_c512": 1088,
+    "candidate_physical_ctas_across_64_mlp_layers_c512": 69632,
+    "marlin_persistent_ctas_per_layer": 16,
+    "corrected_logical_a_mib_per_layer": 680,
+    "corrected_candidate_total_logical_mib_per_layer": 1462,
+    "current_total_logical_mib_per_layer": 1530,
+    "logical_traffic_reduction_fraction": 0.044444444444444446,
+    "conclusion": "pairing matching Gate/Up N128 slices inside physical N256 removes the merged epilogue round trip but does not reduce A presentation; canonical hot-loop transform/decode and non-persistent CTA turnover dominate the bounded traffic saving"
+  },
+  "artifacts": {
+    "validator": {
+      "path": "/tmp/q3x-evalscope-nvfp4-large-m-pair-50905fd-vs-c92a2ef.json",
+      "sha256": "38ac998a09e8f3d8c0b52958cd1433d8d11e4026e019a07e6cb3f2409565cd3c",
+      "exit_code": 3
+    },
+    "server_log": {
+      "path": "/tmp/q3x-nvfp4-large-m-pair-server.log",
+      "sha256": "f1c9f26b10ab34f99252cb8b50b41c774431b21c633dbc4bb9f665b5f7d4d5b6"
+    },
+    "benchmark_log": {
+      "path": "/tmp/q3x-evalscope-nvfp4-large-m-pair-a8a91f3-run1/largempaira8a91f3/benchmark.log",
+      "sha256": "771c6c280ac684dcd14b6c78d868e2833c5e22ee97e4a74d65063e4bb294991f"
+    },
+    "benchmark_arguments": {
+      "path": "/tmp/q3x-evalscope-nvfp4-large-m-pair-a8a91f3-run1/largempaira8a91f3/parallel_1_number_8/benchmark_args.json",
+      "sha256": "e5d7c8ac9ea68df3acc2f4f015791a80cf4c00ac5e9077e94920f8e82e02d3c9"
+    },
+    "benchmark_summary": {
+      "path": "/tmp/q3x-evalscope-nvfp4-large-m-pair-a8a91f3-run1/largempaira8a91f3/parallel_1_number_8/benchmark_summary.json",
+      "sha256": "f256a9bb1e521cdb801012d34db78e5f13e6ecf21b50637214014bbed6760b13"
+    },
+    "benchmark_database": {
+      "path": "/tmp/q3x-evalscope-nvfp4-large-m-pair-a8a91f3-run1/largempaira8a91f3/parallel_1_number_8/benchmark_data.db",
+      "sha256": "f0950e3b1f64d2b232335825fb0fb4c7490b3dfea74bde6d79e6e49c472fbc4e"
+    }
+  },
+  "decision": {
+    "result": "reject_direction_and_output_identity",
+    "reason": "candidate regresses prompt throughput by 7.207567 tok/s, adds 113.622967 ms mean TTFT, scales to roughly 178 ms loss per eligible C512 chunk, and changes one of eight generated outputs",
+    "closed_scope": "direct-canonical, non-persistent physical-CTA M64xphysical-N256 Gate-N128/Up-N128 pairing with three stages and fused SiLU",
+    "not_run": [
+      "NCU",
+      "NSys",
+      "cache or stage parameter scan",
+      "promotion validation"
+    ],
+    "source_disposition": "preserve candidate commit in history, record the rejection, then revert the admission code",
+    "next": "a successor must change load-time consumer layout and physical work scheduling together; two-CTA residency is a resource gate, not a performance result, and N128+N128 pairing must not claim reduced A presentation"
+  }
+}
