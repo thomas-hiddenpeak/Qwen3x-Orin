@@ -274,12 +274,12 @@ class ScopedChunkOBv64Candidate {
  public:
   explicit ScopedChunkOBv64Candidate(const bool enabled) noexcept
       : previous_(q3x::runtime::gdn_prefill_chunk64_native_detail::
-                      exchange_force_chunk_o_bv64_candidate_for_test(
-                          enabled)) {}
+                      exchange_force_legacy_qk_reconstruct_baseline_for_test(
+                          !enabled)) {}
 
   ~ScopedChunkOBv64Candidate() {
     (void)q3x::runtime::gdn_prefill_chunk64_native_detail::
-        exchange_force_chunk_o_bv64_candidate_for_test(previous_);
+        exchange_force_legacy_qk_reconstruct_baseline_for_test(previous_);
   }
 
   ScopedChunkOBv64Candidate(const ScopedChunkOBv64Candidate&) = delete;
@@ -488,18 +488,22 @@ void print_diagnostic(
 }
 
 [[nodiscard]] std::size_t expected_prefix_executions() noexcept {
-  const bool all_prompt_tokens =
-      std::getenv("Q3X_RUN_PREFILL_ALL_PROMPT_TOKENS_ADMISSION") != nullptr;
+  const char* const all_prompt_value =
+      std::getenv("Q3X_RUN_PREFILL_ALL_PROMPT_TOKENS_ADMISSION");
+  const bool all_prompt =
+      all_prompt_value != nullptr && std::strcmp(all_prompt_value, "1") == 0;
+  const char* const single_arbitrary_value =
+      std::getenv("Q3X_RUN_PREFILL_SINGLE_ARBITRARY_TILE_ADMISSION");
+  const bool single_arbitrary = single_arbitrary_value != nullptr &&
+                                std::strcmp(single_arbitrary_value, "1") == 0;
   const std::size_t prefix_tokens =
-      all_prompt_tokens ? g_prompt_tokens : g_prompt_tokens - 1U;
-  if (std::getenv("Q3X_RUN_PREFILL_SINGLE_ARBITRARY_TILE_ADMISSION") !=
-      nullptr) {
-    return runtime::reference_engine_detail::
-        single_arbitrary_prefix_execution_count(prefix_tokens,
-                                                kPrefillChunkTokens);
-  }
-  return runtime::reference_engine_detail::prefix_execution_count(
-      prefix_tokens, kPrefillChunkTokens);
+      all_prompt ? g_prompt_tokens : g_prompt_tokens - 1U;
+  return single_arbitrary
+             ? runtime::reference_engine_detail::
+                   single_arbitrary_prefix_execution_count(
+                       prefix_tokens, kPrefillChunkTokens)
+              : runtime::reference_engine_detail::prefix_execution_count(
+                    prefix_tokens, kPrefillChunkTokens);
 }
 
 [[nodiscard]] std::size_t expected_native_route_hits() noexcept {
@@ -1225,11 +1229,18 @@ void destroy_event(cudaEvent_t& event) noexcept {
   constexpr std::size_t kOutputElements =
       kNativeTokens * runtime::kGdnVElements;
 
+  StateSnapshot baseline_state;
+  StateSnapshot candidate_state;
   NativeBoundarySnapshot baseline_boundaries;
   NativeBoundarySnapshot candidate_boundaries;
   baseline_boundaries.target_call = 1U;
   candidate_boundaries.target_call = 1U;
   try {
+    const std::size_t request_state_elements =
+        static_cast<std::size_t>(runtime::kRequestGdnStateBytes /
+                                 sizeof(std::uint16_t));
+    baseline_state.values.resize(request_state_elements);
+    candidate_state.values.resize(request_state_elements);
     baseline_boundaries.transform.resize(kTransformElements);
     candidate_boundaries.transform.resize(kTransformElements);
     baseline_boundaries.w.resize(kOutputElements);
@@ -1245,9 +1256,8 @@ void destroy_event(cudaEvent_t& event) noexcept {
     return false;
   }
 
-  Sample baseline;
-  Sample candidate;
-  bool valid = false;
+  std::size_t baseline_hits = 0U;
+  runtime::ReferenceGenerateResult baseline_result;
   {
     const ScopedFusedKktBaseline kkt_route(false);
     const ScopedSplitWyBaseline split_route(false);
@@ -1255,9 +1265,11 @@ void destroy_event(cudaEvent_t& event) noexcept {
     const ScopedResidentStateBaseline resident_route(false);
     const ScopedChunkOBv64Candidate route(false);
     const ScopedNativeInspectionHook hook(baseline_boundaries);
-    valid = run_sample(engine, prompt, true, "chunk_o_bv64_eq_baseline",
-                       baseline);
+    baseline_result = run_snapshot_generation(
+        engine, prompt, true, baseline_state, baseline_hits);
   }
+  std::size_t candidate_hits = 0U;
+  runtime::ReferenceGenerateResult candidate_result;
   {
     const ScopedFusedKktBaseline kkt_route(false);
     const ScopedSplitWyBaseline split_route(false);
@@ -1265,9 +1277,18 @@ void destroy_event(cudaEvent_t& event) noexcept {
     const ScopedResidentStateBaseline resident_route(false);
     const ScopedChunkOBv64Candidate route(true);
     const ScopedNativeInspectionHook hook(candidate_boundaries);
-    valid = run_sample(engine, prompt, true, "chunk_o_bv64_eq_candidate",
-                       candidate) &&
-            valid;
+    candidate_result = run_snapshot_generation(
+        engine, prompt, true, candidate_state, candidate_hits);
+  }
+  if (!baseline_result || !candidate_result) {
+    std::cerr << "chunk-o BV64 equivalence generation failed\n";
+    if (!baseline_result) {
+      print_diagnostic(baseline_result.diagnostic);
+    }
+    if (!candidate_result) {
+      print_diagnostic(candidate_result.diagnostic);
+    }
+    return false;
   }
 
   const DifferenceMetrics transform = compare_bf16(
@@ -1280,6 +1301,8 @@ void destroy_event(cudaEvent_t& event) noexcept {
       baseline_boundaries.state, candidate_boundaries.state);
   const DifferenceMetrics final_layer_output = compare_bf16(
       baseline_boundaries.output, candidate_boundaries.output);
+  const DifferenceMetrics full_request_state = compare_bf16(
+      baseline_state.values, candidate_state.values);
   constexpr std::string_view kSuite =
       "GDN_CHUNK64_NATIVE_CHUNK_O_BV64_EQUIVALENCE";
   print_difference_metrics(kSuite, "transform", transform);
@@ -1287,6 +1310,7 @@ void destroy_event(cudaEvent_t& event) noexcept {
   print_difference_metrics(kSuite, "u", u);
   print_difference_metrics(kSuite, "first_layer_state", final_layer_state);
   print_difference_metrics(kSuite, "first_layer_output", final_layer_output);
+  print_difference_metrics(kSuite, "full_request_state", full_request_state);
 
   if (final_layer_output.first_unequal !=
       std::numeric_limits<std::size_t>::max()) {
@@ -1315,23 +1339,31 @@ void destroy_event(cudaEvent_t& event) noexcept {
       baseline_boundaries.calls == runtime::kRequestLinearLayerCount &&
       candidate_boundaries.calls == runtime::kRequestLinearLayerCount;
   const bool generation_semantics =
-      baseline.semantic_oracle && candidate.semantic_oracle &&
-      baseline.generated_token == candidate.generated_token &&
-      baseline.generated_text == candidate.generated_text;
+      expected_generation(*baseline_result.value) &&
+      expected_generation(*candidate_result.value) &&
+      baseline_result.value->generated_token_ids ==
+          candidate_result.value->generated_token_ids &&
+      baseline_result.value->generated_text ==
+          candidate_result.value->generated_text;
   const bool upstream_exact = exact_metrics(transform) && exact_metrics(w) &&
                               exact_metrics(u) &&
                               exact_metrics(final_layer_state);
-  const bool passed = valid && boundary_contract && upstream_exact &&
-                      exact_metrics(final_layer_output) &&
-                      generation_semantics;
+  const bool passed =
+      valid_snapshot(baseline_state) && valid_snapshot(candidate_state) &&
+      baseline_hits == expected_native_route_hits() &&
+      candidate_hits == expected_native_route_hits() && boundary_contract &&
+      upstream_exact && exact_metrics(final_layer_output) &&
+      exact_metrics(full_request_state) && generation_semantics;
   std::cout << kSuite
+            << " baseline_hits=" << baseline_hits
+            << " candidate_hits=" << candidate_hits
             << " boundary_contract="
             << (boundary_contract ? "PASS" : "FAIL")
             << " upstream_exact=" << (upstream_exact ? "PASS" : "FAIL")
             << " generation_semantics="
             << (generation_semantics ? "PASS" : "FAIL")
             << " gate=" << (passed ? "PASS" : "FAIL")
-            << " authority=REAL_WEIGHT_FIRST_LAYER_OUTPUT\n";
+            << " authority=REAL_WEIGHT_FIRST_LAYER_AND_FULL_REQUEST\n";
   return passed;
 }
 
@@ -1383,8 +1415,10 @@ void destroy_event(cudaEvent_t& event) noexcept {
 [[nodiscard]] bool run_native_chunk_o_bv64_direction(
     runtime::ReferenceEngine& engine,
     const std::string& prompt) {
-  Sample baseline;
-  Sample candidate;
+  Sample baseline_first;
+  Sample candidate_first;
+  Sample candidate_second;
+  Sample baseline_second;
   bool valid = false;
   {
     const ScopedFusedKktBaseline kkt_route(false);
@@ -1392,8 +1426,8 @@ void destroy_event(cudaEvent_t& event) noexcept {
     const ScopedPackedQkvBaseline packed_route(false);
     const ScopedResidentStateBaseline resident_route(false);
     const ScopedChunkOBv64Candidate route(false);
-    valid = run_sample(engine, prompt, true, "chunk_o_bv64_baseline",
-                       baseline);
+    valid = run_sample(engine, prompt, true, "chunk_o_bv64_B1",
+                       baseline_first);
   }
   {
     const ScopedFusedKktBaseline kkt_route(false);
@@ -1401,36 +1435,91 @@ void destroy_event(cudaEvent_t& event) noexcept {
     const ScopedPackedQkvBaseline packed_route(false);
     const ScopedResidentStateBaseline resident_route(false);
     const ScopedChunkOBv64Candidate route(true);
-    valid = run_sample(engine, prompt, true, "chunk_o_bv64_candidate",
-                       candidate) &&
+    valid = run_sample(engine, prompt, true, "chunk_o_bv64_C1",
+                       candidate_first) &&
+            valid;
+  }
+  {
+    const ScopedFusedKktBaseline kkt_route(false);
+    const ScopedSplitWyBaseline split_route(false);
+    const ScopedPackedQkvBaseline packed_route(false);
+    const ScopedResidentStateBaseline resident_route(false);
+    const ScopedChunkOBv64Candidate route(true);
+    valid = run_sample(engine, prompt, true, "chunk_o_bv64_C2",
+                       candidate_second) &&
+            valid;
+  }
+  {
+    const ScopedFusedKktBaseline kkt_route(false);
+    const ScopedSplitWyBaseline split_route(false);
+    const ScopedPackedQkvBaseline packed_route(false);
+    const ScopedResidentStateBaseline resident_route(false);
+    const ScopedChunkOBv64Candidate route(false);
+    valid = run_sample(engine, prompt, true, "chunk_o_bv64_B2",
+                       baseline_second) &&
             valid;
   }
   const bool semantics =
-      baseline.semantic_oracle && candidate.semantic_oracle &&
-      baseline.generated_token == candidate.generated_token &&
-      baseline.generated_text == candidate.generated_text;
-  const double prefix_saved =
-      baseline.prefix_milliseconds - candidate.prefix_milliseconds;
-  const double ttft_saved =
-      baseline.ttft_milliseconds - candidate.ttft_milliseconds;
-  const bool positive = valid && semantics && prefix_saved > 0.0 &&
-                        ttft_saved > 0.0;
+      baseline_first.semantic_oracle && candidate_first.semantic_oracle &&
+      candidate_second.semantic_oracle && baseline_second.semantic_oracle &&
+      baseline_first.generated_token == candidate_first.generated_token &&
+      baseline_first.generated_token == candidate_second.generated_token &&
+      baseline_first.generated_token == baseline_second.generated_token &&
+      baseline_first.generated_text == candidate_first.generated_text &&
+      baseline_first.generated_text == candidate_second.generated_text &&
+      baseline_first.generated_text == baseline_second.generated_text;
+  const double prefix_saved_first = baseline_first.prefix_milliseconds -
+                                    candidate_first.prefix_milliseconds;
+  const double prefix_saved_second = baseline_second.prefix_milliseconds -
+                                     candidate_second.prefix_milliseconds;
+  const double ttft_saved_first =
+      baseline_first.ttft_milliseconds - candidate_first.ttft_milliseconds;
+  const double ttft_saved_second =
+      baseline_second.ttft_milliseconds - candidate_second.ttft_milliseconds;
+  const double baseline_prefix_mean =
+      (baseline_first.prefix_milliseconds +
+       baseline_second.prefix_milliseconds) /
+      2.0;
+  const double candidate_prefix_mean =
+      (candidate_first.prefix_milliseconds +
+       candidate_second.prefix_milliseconds) /
+      2.0;
+  const double baseline_ttft_mean =
+      (baseline_first.ttft_milliseconds + baseline_second.ttft_milliseconds) /
+      2.0;
+  const double candidate_ttft_mean =
+      (candidate_first.ttft_milliseconds +
+       candidate_second.ttft_milliseconds) /
+      2.0;
+  const bool positive = valid && semantics && prefix_saved_first > 0.0 &&
+                        prefix_saved_second > 0.0 &&
+                        ttft_saved_first > 0.0 && ttft_saved_second > 0.0;
   std::cout << "GDN_CHUNK64_NATIVE_CHUNK_O_BV64_DIRECTION"
             << " prompt_tokens=" << g_prompt_tokens
-            << " baseline_prefix_ms=" << baseline.prefix_milliseconds
-            << " candidate_prefix_ms=" << candidate.prefix_milliseconds
-            << " prefix_saved_ms=" << prefix_saved
+            << " B1_prefix_ms=" << baseline_first.prefix_milliseconds
+            << " C1_prefix_ms=" << candidate_first.prefix_milliseconds
+            << " C2_prefix_ms=" << candidate_second.prefix_milliseconds
+            << " B2_prefix_ms=" << baseline_second.prefix_milliseconds
+            << " pair1_prefix_saved_ms=" << prefix_saved_first
+            << " pair2_prefix_saved_ms=" << prefix_saved_second
+            << " baseline_prefix_mean_ms=" << baseline_prefix_mean
+            << " candidate_prefix_mean_ms=" << candidate_prefix_mean
             << " prefix_speedup="
-            << baseline.prefix_milliseconds / candidate.prefix_milliseconds
-            << " baseline_ttft_ms=" << baseline.ttft_milliseconds
-            << " candidate_ttft_ms=" << candidate.ttft_milliseconds
-            << " ttft_saved_ms=" << ttft_saved
+            << baseline_prefix_mean / candidate_prefix_mean
+            << " B1_ttft_ms=" << baseline_first.ttft_milliseconds
+            << " C1_ttft_ms=" << candidate_first.ttft_milliseconds
+            << " C2_ttft_ms=" << candidate_second.ttft_milliseconds
+            << " B2_ttft_ms=" << baseline_second.ttft_milliseconds
+            << " pair1_ttft_saved_ms=" << ttft_saved_first
+            << " pair2_ttft_saved_ms=" << ttft_saved_second
+            << " baseline_ttft_mean_ms=" << baseline_ttft_mean
+            << " candidate_ttft_mean_ms=" << candidate_ttft_mean
             << " ttft_speedup="
-            << baseline.ttft_milliseconds / candidate.ttft_milliseconds
+            << baseline_ttft_mean / candidate_ttft_mean
             << " direction=" << (positive ? "POSITIVE" : "NEGATIVE")
             << " semantic_oracle=" << (semantics ? "PASS" : "FAIL")
-            << " authority=REAL_WEIGHT_SINGLE_B_C"
-            << " production_unchanged=true\n";
+            << " authority=REAL_WEIGHT_SAME_PROCESS_B_C_C_B"
+            << " native_c64_default=chunk_o_bv64\n";
   return positive;
 }
 
@@ -1523,6 +1612,7 @@ class DeviceBuffer {
                        VllmLayoutWyRouteForTest::kVllmLayout
                  : q3x::runtime::gdn_prefill_chunk64_native_detail::
                        VllmLayoutWyRouteForTest::kGroupOwned));
+  const ScopedChunkOBv64Candidate chunk_o_route(true);
   ready = kkt_route.valid() && split_route.valid() &&
           resident_route.valid() && ready;
   auto launch = [&]() {
@@ -1604,6 +1694,7 @@ class DeviceBuffer {
                     ? "production_default_vllm_layout"
                     : (vllm_layout_candidate ? "vllm_layout"
                                              : "group_owned"))
+            << " chunk_o_bv64_candidate=true"
             << " gate=" << (passed ? "PASS" : "FAIL")
             << " authority=CAPTURE_INSTANTIATE_REPLAY_SMOKE\n";
 

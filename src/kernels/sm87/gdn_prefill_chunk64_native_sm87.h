@@ -62,7 +62,7 @@ enum class VllmLayoutWyRouteForTest : std::int8_t {
 exchange_vllm_layout_wy_route_for_test(
     VllmLayoutWyRouteForTest route) noexcept;
 
-[[nodiscard]] bool exchange_force_chunk_o_bv64_candidate_for_test(
+[[nodiscard]] bool exchange_force_legacy_qk_reconstruct_baseline_for_test(
     bool enabled) noexcept;
 
 // Admission-only C64..C512 native SM87 FLA/WY pipeline. The implementation

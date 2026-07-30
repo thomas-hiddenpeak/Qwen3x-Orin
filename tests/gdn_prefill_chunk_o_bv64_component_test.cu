@@ -30,6 +30,10 @@ constexpr std::size_t kValueElements =
 constexpr std::size_t kGateElements = kValueHeads * kTokens;
 constexpr std::size_t kOutputElements =
     kTokens * kValueHeads * kDimension;
+constexpr std::size_t kFragmentMatrixElements = 16U * 16U;
+constexpr std::size_t kFragmentARegisters = 32U * 4U;
+constexpr std::size_t kFragmentBRegisters = 32U * 2U;
+constexpr std::size_t kFragmentAccumulatorRegisters = 32U * 4U;
 constexpr std::uint16_t kZero = 0x0000U;
 constexpr std::uint16_t kOne = 0x3f80U;
 constexpr std::uint16_t kPoison = 0x7fc1U;
@@ -110,11 +114,22 @@ struct Buffers final {
   ManagedBuffer<std::uint16_t> raw{kOutputElements};
   ManagedBuffer<std::uint16_t> output{kOutputElements};
   ManagedBuffer<std::uint16_t> reference{kOutputElements};
+  ManagedBuffer<std::uint16_t> fragment_a{kFragmentMatrixElements};
+  ManagedBuffer<std::uint16_t> fragment_b{kFragmentMatrixElements};
+  ManagedBuffer<std::uint32_t> loaded_a{kFragmentARegisters};
+  ManagedBuffer<std::uint32_t> direct_a{kFragmentARegisters};
+  ManagedBuffer<std::uint32_t> loaded_b{kFragmentBRegisters};
+  ManagedBuffer<std::uint32_t> direct_b{kFragmentBRegisters};
+  ManagedBuffer<float> loaded_accumulator{kFragmentAccumulatorRegisters};
+  ManagedBuffer<float> direct_accumulator{kFragmentAccumulatorRegisters};
 
   [[nodiscard]] bool valid() const noexcept {
     return q.valid() && k.valid() && h.valid() && v.valid() &&
            gamma.valid() && weight.valid() && gate.valid() && raw.valid() &&
-           output.valid() && reference.valid();
+           output.valid() && reference.valid() && fragment_a.valid() &&
+           fragment_b.valid() && loaded_a.valid() && direct_a.valid() &&
+           loaded_b.valid() && direct_b.valid() &&
+           loaded_accumulator.valid() && direct_accumulator.valid();
   }
 };
 
@@ -242,6 +257,85 @@ void check_component_epilogue(TestContext& test, Buffers& buffers,
   }
 }
 
+void test_fragment_lane_mapping(TestContext& test, Buffers& buffers) {
+  for (std::size_t index = 0U; index < kFragmentMatrixElements; ++index) {
+    buffers.fragment_a.data()[index] = static_cast<std::uint16_t>(
+        0x3f00U + (index & 0x007fU));
+    buffers.fragment_b.data()[index] = static_cast<std::uint16_t>(
+        0x3e80U + ((5U * index) & 0x007fU));
+  }
+  const int status = chunk_o::launch_fragment_sentinel(
+      buffers.fragment_a.data(), buffers.fragment_b.data(),
+      buffers.loaded_a.data(), buffers.direct_a.data(),
+      buffers.loaded_b.data(), buffers.direct_b.data(),
+      buffers.loaded_accumulator.data(), buffers.direct_accumulator.data());
+  const bool ready =
+      test.cuda_ok(status, "launch fragment lane sentinel") &&
+      test.cuda_ok(static_cast<int>(cudaDeviceSynchronize()),
+                   "synchronize fragment lane sentinel");
+  if (!ready) {
+    return;
+  }
+
+  const auto check_u32 = [&test](const std::string_view label,
+                                 const std::uint32_t* const direct,
+                                 const std::uint32_t* const loaded,
+                                 const std::size_t elements,
+                                 const std::size_t registers_per_lane) {
+    std::size_t unequal = 0U;
+    std::size_t first = elements;
+    for (std::size_t index = 0U; index < elements; ++index) {
+      if (direct[index] != loaded[index]) {
+        if (first == elements) {
+          first = index;
+        }
+        ++unequal;
+      }
+    }
+    std::cout << label << " unequal=" << unequal
+              << " first_lane="
+              << (first == elements ? 32U : first / registers_per_lane)
+              << " first_register="
+              << (first == elements ? registers_per_lane
+                                    : first % registers_per_lane);
+    if (first != elements) {
+      std::cout << " direct=0x" << std::hex << direct[first]
+                << " loaded=0x" << loaded[first] << std::dec;
+    }
+    std::cout << " gate=" << (unequal == 0U ? "PASS" : "FAIL") << '\n';
+    test.expect(unequal == 0U, label);
+  };
+
+  check_u32("GDN_CHUNK_O_BV64_FRAGMENT_A", buffers.direct_a.data(),
+            buffers.loaded_a.data(), kFragmentARegisters, 4U);
+  check_u32("GDN_CHUNK_O_BV64_FRAGMENT_B", buffers.direct_b.data(),
+            buffers.loaded_b.data(), kFragmentBRegisters, 2U);
+
+  std::size_t unequal = 0U;
+  std::size_t first = kFragmentAccumulatorRegisters;
+  for (std::size_t index = 0U; index < kFragmentAccumulatorRegisters;
+       ++index) {
+    if (buffers.direct_accumulator.data()[index] !=
+        buffers.loaded_accumulator.data()[index]) {
+      if (first == kFragmentAccumulatorRegisters) {
+        first = index;
+      }
+      ++unequal;
+    }
+  }
+  std::cout << "GDN_CHUNK_O_BV64_FRAGMENT_MMA unequal=" << unequal
+            << " first_lane="
+            << (first == kFragmentAccumulatorRegisters ? 32U : first / 4U)
+            << " first_register="
+            << (first == kFragmentAccumulatorRegisters ? 4U : first % 4U);
+  if (first != kFragmentAccumulatorRegisters) {
+    std::cout << " direct=" << buffers.direct_accumulator.data()[first]
+              << " loaded=" << buffers.loaded_accumulator.data()[first];
+  }
+  std::cout << " gate=" << (unequal == 0U ? "PASS" : "FAIL") << '\n';
+  test.expect(unequal == 0U, "GDN_CHUNK_O_BV64_FRAGMENT_MMA");
+}
+
 void test_state_only(TestContext& test, Buffers& buffers) {
   reset(buffers);
   constexpr std::size_t kQkHead = 0U;
@@ -257,10 +351,10 @@ void test_state_only(TestContext& test, Buffers& buffers) {
     return;
   }
   (void)expect_single_raw(
-      test, "GDN_CHUNK_O_BV64_QH_RAW", buffers.raw.data(),
+      test, "GDN_CHUNK_O_BV64_KN_TRANSPOSED_QH_RAW", buffers.raw.data(),
       output_index(kToken, kValueHead, kValue));
   check_component_epilogue(test, buffers,
-                           "GDN_CHUNK_O_BV64_QH_EPILOGUE");
+                           "GDN_CHUNK_O_BV64_KN_TRANSPOSED_QH_EPILOGUE");
 }
 
 void test_qk_v_only(TestContext& test, Buffers& buffers) {
@@ -281,10 +375,10 @@ void test_qk_v_only(TestContext& test, Buffers& buffers) {
     return;
   }
   (void)expect_single_raw(
-      test, "GDN_CHUNK_O_BV64_QK_V_RAW", buffers.raw.data(),
+      test, "GDN_CHUNK_O_BV64_KN_TRANSPOSED_QK_V_RAW", buffers.raw.data(),
       output_index(kQuery, kValueHead, kValue));
   check_component_epilogue(test, buffers,
-                           "GDN_CHUNK_O_BV64_QK_V_EPILOGUE");
+                           "GDN_CHUNK_O_BV64_KN_TRANSPOSED_QK_V_EPILOGUE");
 }
 
 void test_rows8_norm(TestContext& test, Buffers& buffers) {
@@ -336,6 +430,7 @@ int main() {
   if (!buffers.valid()) {
     return test.result();
   }
+  test_fragment_lane_mapping(test, buffers);
   test_state_only(test, buffers);
   test_qk_v_only(test, buffers);
   test_rows8_norm(test, buffers);

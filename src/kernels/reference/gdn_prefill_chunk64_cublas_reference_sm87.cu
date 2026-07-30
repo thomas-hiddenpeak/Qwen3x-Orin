@@ -28,7 +28,7 @@ thread_local bool g_force_resident_state_baseline_for_test = false;
 thread_local VllmLayoutWyRouteForTest
     g_vllm_layout_wy_route_for_test =
         VllmLayoutWyRouteForTest::kProductionDefault;
-thread_local bool g_force_chunk_o_bv64_candidate_for_test = false;
+thread_local bool g_force_legacy_qk_reconstruct_baseline_for_test = false;
 
 }  // namespace
 
@@ -80,10 +80,10 @@ VllmLayoutWyRouteForTest exchange_vllm_layout_wy_route_for_test(
   return previous;
 }
 
-bool exchange_force_chunk_o_bv64_candidate_for_test(
+bool exchange_force_legacy_qk_reconstruct_baseline_for_test(
     const bool enabled) noexcept {
-  const bool previous = g_force_chunk_o_bv64_candidate_for_test;
-  g_force_chunk_o_bv64_candidate_for_test = enabled;
+  const bool previous = g_force_legacy_qk_reconstruct_baseline_for_test;
+  g_force_legacy_qk_reconstruct_baseline_for_test = enabled;
   return previous;
 }
 
@@ -2120,14 +2120,16 @@ void reconstruct_norm_gate_chunk64_kernel(
   return !force_group_owned_baseline;
 }
 
-// Same-ELF structural candidate. The production default remains the frozen
-// compact-QK baseline until the real-model P513 gate promotes this route.
-[[nodiscard]] bool force_chunk_o_bv64_candidate() noexcept {
-  static const bool forced_by_environment =
-      std::getenv("Q3X_GDN_CHUNK64_CHUNK_O_BV64") != nullptr;
-  return forced_by_environment ||
-         gdn_prefill_chunk64_native_detail::
-             g_force_chunk_o_bv64_candidate_for_test;
+// Promoted production route inside the explicitly admitted native C64
+// architecture. The preceding compact-QK plus reconstruct path remains
+// available only as a same-ELF diagnostic baseline.
+[[nodiscard]] bool use_chunk_o_bv64() noexcept {
+  static const bool legacy_baseline_by_environment =
+      std::getenv(
+          "Q3X_GDN_CHUNK64_FORCE_LEGACY_QK_RECONSTRUCT_BASELINE") != nullptr;
+  return !legacy_baseline_by_environment &&
+         !gdn_prefill_chunk64_native_detail::
+               g_force_legacy_qk_reconstruct_baseline_for_test;
 }
 
 [[nodiscard]] bool invalid_arguments(
@@ -2220,8 +2222,8 @@ int launch(void* const context,
   const bool use_packed_qkv_baseline =
       force_packed_qkv_baseline() || use_fused_kkt_baseline ||
       use_split_wy_baseline || use_resident_state_baseline;
-  const bool use_chunk_o_bv64_candidate =
-      force_chunk_o_bv64_candidate() && !use_packed_qkv_baseline;
+  const bool use_chunk_o_bv64_output =
+      use_chunk_o_bv64() && !use_packed_qkv_baseline;
 
   if (use_packed_qkv_baseline) {
     normalize_qk_kernel<false><<<
@@ -2323,7 +2325,7 @@ int launch(void* const context,
     return status;
   }
 
-  if (!use_chunk_o_bv64_candidate) {
+  if (!use_chunk_o_bv64_output) {
     if (use_packed_qkv_baseline) {
       qk_scaled_chunk64_kernel<<<static_cast<unsigned int>(matrix_count),
                                  kQkThreads, kQkSharedBytes, stream>>>(
@@ -2388,7 +2390,7 @@ int launch(void* const context,
     return status;
   }
 
-  if (use_chunk_o_bv64_candidate) {
+  if (use_chunk_o_bv64_output) {
     // Packless WY/state never touch workspace.v. Reuse that exact-size
     // legacy region for the BF16 [T,H,V] boundary between BV64 owners and
     // the independent exact D128 norm/gate epilogue.
@@ -2436,7 +2438,7 @@ int query_native_resources(int* const registers_per_thread,
       active_blocks_per_sm == nullptr) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
-  if (force_chunk_o_bv64_candidate()) {
+  if (use_chunk_o_bv64()) {
     return gdn_prefill_chunk_o_bv64_detail::query_chunk_o_resources(
         registers_per_thread, static_shared_bytes, local_bytes,
         maximum_threads_per_block, active_blocks_per_sm);

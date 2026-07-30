@@ -1,13 +1,13 @@
-# P513 GDN chunk-o BV64 parity candidate (2026-07-30)
+# P513 GDN chunk-o BV64 production admission (2026-07-30)
 
 ## Scope and authority
 
-This is one complete structural candidate for the authenticated Qwen3.6 GDN
-shape on SM87. It replaces the frozen compact-path `qk_scaled` plus
-`reconstruct_norm_gate` output stages only when
-`Q3X_GDN_CHUNK64_CHUNK_O_BV64` (or its same-ELF test selector) is enabled.
-Production remains unchanged until a real-checkpoint P513 direction gate and
-the subsequent correctness suite admit it.
+This is the promoted output stage for the authenticated Qwen3.6 GDN shape on
+SM87. Inside the explicitly admitted native C64 architecture it replaces the
+compact-path `qk_scaled` plus `reconstruct_norm_gate` stages by default. The
+preceding path remains available in the same ELF with
+`Q3X_GDN_CHUNK64_FORCE_LEGACY_QK_RECONSTRUCT_BASELINE=1`. This promotion does
+not change the separate native-C64 admission policy.
 
 The dataflow was derived by inspecting both the vLLM/FLA `chunk_o.py` source
 and the exact Triton artifact selected by vLLM for P513 on this Orin:
@@ -74,25 +74,71 @@ engine E2E executable. `cuobjdump --dump-resource-usage` reports:
 
 | kernel | block | registers/thread | shared | local | stack | static active CTA/SM |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| chunk-o BV64 | 128 | 164 | 24,576 B | 0 | 0 | 3 |
+| chunk-o BV64 | 128 | 168 | 24,576 B | 0 | 0 | 3 |
 | RMSNorm+SiLU rows8 | 256 | 27 | 0 | 0 | 0 | at least 2 |
 
-The chunk kernel is compiled with `__launch_bounds__(128,3)`; 164 registers
-keeps three 128-thread CTAs inside the SM87 65,536-register file. SASS contains
-24 static `LDGSTS.E.BYPASS.128`, 160 BF16 `HMMA.16816`, 16 row-major and 144
-transposed `LDSM` instructions. There is no local-memory or stack spill.
+The chunk kernel is compiled with `__launch_bounds__(128,3)`; 168 registers
+keeps three 128-thread CTAs inside the SM87 65,536-register file. The final
+true-`[K,N]` shared-memory route contains 12 static
+`LDGSTS.E.BYPASS.128`, 160 BF16 `HMMA.16816`, 16 four-matrix A loads and 144
+transposed two-matrix B loads. There is no local-memory or stack spill.
 
-## Gate order
+## Real production-path direction
 
-The next action is intentionally a real-model gate, not a synthetic timing
-screen:
+The same release ELF and real NVFP4 checkpoint ran the canonical P513 request
+with the complete cumulative production environment. Both routes entered the
+native C64 path; only the candidate run selected BV64. Both produced token
+9419 (`Hello`).
 
-1. P513, one real generation, same ELF, frozen compact baseline then BV64
-   candidate; require valid generation semantics and positive prefix/TTFT.
-2. If positive, run exact/characterization boundaries, graph capture/replay,
-   then B-C-C-B timing and NSys attribution.
-3. If negative or invalid, retain the profiler evidence for root-cause
-   analysis and do not build a larger statistical harness around it.
+| route | Prefix ms | TTFT ms |
+|:---|---:|---:|
+| legacy QK + reconstruct | 1,553.118 | 1,666.157 |
+| BV64 chunk-o + rows8 | 1,523.803 | 1,635.637 |
+| saved | **29.315** | **30.520** |
+
+The first attempted profile set only the leaf selector and therefore never
+entered native C64; its zero BV64 hits made that run invalid. The corrected
+profile explicitly enabled the complete native production environment and
+proved 48 BV64 calls. This route check is part of the retained evidence, not
+an inferred attribution.
+
+## NSys attribution
+
+| kernel family | calls | total ms | average us |
+|:---|---:|---:|---:|
+| chunk-o BV64 | 48 | 17.488224 | 364.338 |
+| rows8 RMSNorm + SiLU | 48 | 6.620640 | 137.930 |
+| combined | 96 | **24.108864** | - |
+
+The frozen QK plus reconstruct total was 52.500832 ms. The 28.391968-ms
+kernel reduction explains the independently observed 29.315-ms complete
+Prefix improvement.
+
+## Exactness, Graph, and mirrored direction
+
+The real-weight exact gate compares the first native layer and the complete
+request. Transform (1,572,864 BF16), W and U (3,145,728 each), first-layer
+state (786,432), first-layer output (3,145,728), and complete-request GDN
+state (37,748,736) all have zero unequal words, zero nonfinite values, zero
+NRMSE, and cosine 1. Both routes record 48 native hits and generate the same
+token and text.
+
+CUDA Graph capture contains six kernel nodes, no other node types, and two
+successful replays with the BV64 route selected.
+
+One engine then ran real P513 in `B-C-C-B` order:
+
+| order | Prefix ms | TTFT ms |
+|:---:|---:|---:|
+| B1 | 1,656.035353 | 1,661.180379 |
+| C1 | 1,624.486743 | 1,628.939857 |
+| C2 | 1,625.009201 | 1,629.458122 |
+| B2 | 1,653.133489 | 1,657.590154 |
+
+Both mirrored pairs are positive. Mean Prefix improves from 1,654.584421 to
+1,624.747972 ms (29.836449 ms, 1.018363740x); mean TTFT improves from
+1,659.385267 to 1,629.198990 ms (30.186277 ms, 1.018528293x). Every sample
+has 48 native hits and passes the structural and semantic oracles.
 
 Synthetic inputs remain suitable only for boundary correctness and smoke
 coverage; they are not a performance authority.
