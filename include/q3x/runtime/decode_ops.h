@@ -319,9 +319,9 @@ launch_residual_add_headwise_centered_rms_norm_prefill_5120_cuda(
     std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
 
 // Fixed Qwen3.6 decode-only split-KV GQA path for Q=24, KV=4, D=256.
-// Stage one launches either 16 CTAs (four sequence splits) or 32 CTAs (eight
-// sequence splits).  Each CTA owns one KV head/split and shares each K/V row
-// across the six associated Q warps while retaining a stable online-softmax
+// Stage one uses four sequence splits through length 512 and eight beyond it.
+// Each 192-thread CTA owns one KV head/split; its six Q warps cooperatively
+// pipeline six cache rows at a time while retaining a stable online-softmax
 // (maximum, denominator, FP32 value accumulator) state.  Stage two merges the
 // split states without materializing scores or probabilities, rounds attention
 // to BF16, applies the sigmoid gate, and rounds the final result to BF16.

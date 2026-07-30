@@ -20,6 +20,8 @@ constexpr unsigned int kMergeThreads = kHeadDimension;
 constexpr unsigned int kFourSplits = 4U;
 constexpr unsigned int kEightSplits = 8U;
 constexpr unsigned int kEightSplitThreshold = 512U;
+constexpr unsigned int kPositionsPerTile = kQueriesPerKv;
+constexpr unsigned int kPipelineStages = 2U;
 constexpr unsigned int kStateMaximumOffset = 0U;
 constexpr unsigned int kStateDenominatorOffset = 1U;
 constexpr unsigned int kStateValueOffset = 2U;
@@ -54,10 +56,76 @@ __device__ __forceinline__ std::uint16_t encode_bf16(const float value) {
   return static_cast<std::uint16_t>(bits >> 16U);
 }
 
-// A CTA owns one contiguous sequence split and one KV head.  Its six warps
-// consume the six Q heads in that GQA group.  K and V are decoded once into
-// shared memory per cache row; Q and the FP32 value numerator stay resident in
-// registers for the entire split.
+__device__ __forceinline__ void cp_async_cg_16_zero_fill(
+    void* const shared_destination,
+    const void* const global_source,
+    const bool valid) {
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800
+  const unsigned int shared_address =
+      static_cast<unsigned int>(__cvta_generic_to_shared(shared_destination));
+  const int source_bytes = valid ? 16 : 0;
+  asm volatile(
+      "cp.async.cg.shared.global.L2::128B [%0], [%1], 16, %2;" :
+      : "r"(shared_address), "l"(global_source), "r"(source_bytes)
+      : "memory");
+#else
+  *reinterpret_cast<uint4*>(shared_destination) =
+      valid ? *reinterpret_cast<const uint4*>(global_source)
+            : make_uint4(0U, 0U, 0U, 0U);
+#endif
+}
+
+__device__ __forceinline__ void cp_async_commit() {
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800
+  asm volatile("cp.async.commit_group;" ::: "memory");
+#endif
+}
+
+__device__ __forceinline__ void cp_async_wait_group_3() {
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800
+  asm volatile("cp.async.wait_group 3;" ::: "memory");
+#endif
+}
+
+__device__ __forceinline__ void cp_async_wait_all() {
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800
+  asm volatile("cp.async.wait_group 0;" ::: "memory");
+#endif
+}
+
+struct __align__(16) DecodeGqaPipelineStorage {
+  std::uint16_t key[kPipelineStages][kPositionsPerTile][kHeadDimension];
+  std::uint16_t value[kPipelineStages][kPositionsPerTile][kHeadDimension];
+};
+
+static_assert(sizeof(DecodeGqaPipelineStorage) == 12U * 1024U);
+
+__device__ __forceinline__ void enqueue_cache_tile(
+    std::uint16_t* const shared_tile,
+    const std::uint16_t* const cache,
+    const unsigned int tile_position,
+    const unsigned int chunk_begin,
+    const unsigned int chunk_end,
+    const unsigned int kv_head,
+    const unsigned int warp,
+    const unsigned int lane) {
+  const unsigned int position = tile_position + warp;
+  const bool valid = position < chunk_end;
+  const unsigned int safe_position = valid ? position : chunk_begin;
+  const std::size_t global_offset =
+      (static_cast<std::size_t>(safe_position) * kKvHeads + kv_head) *
+          kHeadDimension +
+      lane * 8U;
+  cp_async_cg_16_zero_fill(
+      shared_tile + (warp * kHeadDimension + lane * 8U),
+      cache + global_offset, valid);
+}
+
+// A CTA owns one contiguous KV chunk and one KV head.  Its six warps are the
+// six Q heads in that GQA group.  In each iteration the warps cooperatively
+// load six different cache positions, then every Q warp consumes all six rows.
+// A two-stage K/V cp.async schedule overlaps the next tile with online-state
+// arithmetic and amortizes synchronization across six positions.
 __global__ __launch_bounds__(kSplitThreads, 2)
 void decode_gqa_splitkv_state_24_4_256_kernel(
     const std::uint16_t* __restrict__ query,
@@ -67,8 +135,7 @@ void decode_gqa_splitkv_state_24_4_256_kernel(
     const float attention_scale,
     const unsigned int split_count,
     float* __restrict__ states) {
-  __shared__ float key_tile[kHeadDimension];
-  __shared__ float value_tile[kHeadDimension];
+  __shared__ DecodeGqaPipelineStorage storage;
 
   const unsigned int task = blockIdx.x;
   const unsigned int kv_head = task / split_count;
@@ -96,74 +163,109 @@ void decode_gqa_splitkv_state_24_4_256_kernel(
   const unsigned int end =
       unclamped_end < sequence_length ? unclamped_end : sequence_length;
 
-  for (unsigned int position = begin; position < end; ++position) {
-    // 128 threads issue naturally aligned 32-bit cache loads.  Decoding in
-    // the loader warps avoids repeating BF16 conversion in all six Q warps.
-    if (threadIdx.x < kHeadDimension / 2U) {
-      const unsigned int pair = threadIdx.x;
-      const unsigned int cache_pair =
-          (position * kKvHeads + kv_head) * (kHeadDimension / 2U) + pair;
-      const std::uint32_t packed_key =
-          reinterpret_cast<const std::uint32_t*>(key_cache)[cache_pair];
-      const std::uint32_t packed_value =
-          reinterpret_cast<const std::uint32_t*>(value_cache)[cache_pair];
-      key_tile[pair * 2U] =
-          decode_bf16(static_cast<std::uint16_t>(packed_key));
-      key_tile[pair * 2U + 1U] =
-          decode_bf16(static_cast<std::uint16_t>(packed_key >> 16U));
-      value_tile[pair * 2U] =
-          decode_bf16(static_cast<std::uint16_t>(packed_value));
-      value_tile[pair * 2U + 1U] =
-          decode_bf16(static_cast<std::uint16_t>(packed_value >> 16U));
-    }
+  // Prime K0,V0,K1,V1 as four independent async groups.  The steady-state
+  // waits below expose K and V independently, allowing their shared slots to
+  // be refilled as soon as their corresponding arithmetic phase completes.
+  enqueue_cache_tile(storage.key[0][0], key_cache, begin, begin, end,
+                     kv_head, warp, lane);
+  cp_async_commit();
+  enqueue_cache_tile(storage.value[0][0], value_cache, begin, begin, end,
+                     kv_head, warp, lane);
+  cp_async_commit();
+  enqueue_cache_tile(storage.key[1][0], key_cache,
+                     begin + kPositionsPerTile, begin, end, kv_head, warp,
+                     lane);
+  cp_async_commit();
+  enqueue_cache_tile(storage.value[1][0], value_cache,
+                     begin + kPositionsPerTile, begin, end, kv_head, warp,
+                     lane);
+  cp_async_commit();
+
+  const unsigned int tile_count =
+      (end - begin + kPositionsPerTile - 1U) / kPositionsPerTile;
+  for (unsigned int tile = 0U; tile < tile_count; ++tile) {
+    const unsigned int stage = tile & 1U;
+    const unsigned int tile_position = begin + tile * kPositionsPerTile;
+    float scores[kPositionsPerTile];
+
+    cp_async_wait_group_3();
     __syncthreads();
+#pragma unroll
+    for (unsigned int row = 0U; row < kPositionsPerTile; ++row) {
+      const std::uint16_t* const key_row = storage.key[stage][row];
 
-    // This construction matches the existing fixed-shape score kernel's
-    // 256-lane reduction tree: 128,64,32,16,8,4,2,1.
-    float score = fmaf(q[0], key_tile[lane], 0.0F);
-    float rhs = fmaf(q[4], key_tile[lane + 128U], 0.0F);
-    score += rhs;
+      // Preserve the production 256-lane score tree exactly: scatter each
+      // lane over dimensions {lane + i*32}, construct the 128/64/32 partials,
+      // then reduce 16,8,4,2,1 with lane-conditional additions.
+      float score = fmaf(q[0], decode_bf16(key_row[lane]), 0.0F);
+      float rhs =
+          fmaf(q[4], decode_bf16(key_row[lane + 128U]), 0.0F);
+      score += rhs;
 
-    float sibling = fmaf(q[2], key_tile[lane + 64U], 0.0F);
-    rhs = fmaf(q[6], key_tile[lane + 192U], 0.0F);
-    sibling += rhs;
-    score += sibling;
+      float sibling =
+          fmaf(q[2], decode_bf16(key_row[lane + 64U]), 0.0F);
+      rhs = fmaf(q[6], decode_bf16(key_row[lane + 192U]), 0.0F);
+      sibling += rhs;
+      score += sibling;
 
-    sibling = fmaf(q[1], key_tile[lane + 32U], 0.0F);
-    rhs = fmaf(q[5], key_tile[lane + 160U], 0.0F);
-    sibling += rhs;
-    float upper = fmaf(q[3], key_tile[lane + 96U], 0.0F);
-    rhs = fmaf(q[7], key_tile[lane + 224U], 0.0F);
-    upper += rhs;
-    sibling += upper;
-    score += sibling;
+      sibling = fmaf(q[1], decode_bf16(key_row[lane + 32U]), 0.0F);
+      rhs = fmaf(q[5], decode_bf16(key_row[lane + 160U]), 0.0F);
+      sibling += rhs;
+      float upper =
+          fmaf(q[3], decode_bf16(key_row[lane + 96U]), 0.0F);
+      rhs = fmaf(q[7], decode_bf16(key_row[lane + 224U]), 0.0F);
+      upper += rhs;
+      sibling += upper;
+      score += sibling;
 
 #pragma unroll
-    for (unsigned int stride = 16U; stride != 0U; stride >>= 1U) {
-      rhs = __shfl_down_sync(0xffff'ffffU, score, stride);
-      if (lane < stride) {
-        score += rhs;
+      for (unsigned int stride = 16U; stride != 0U; stride >>= 1U) {
+        rhs = __shfl_down_sync(0xffff'ffffU, score, stride);
+        if (lane < stride) {
+          score += rhs;
+        }
       }
+      score = __shfl_sync(0xffff'ffffU, score, 0U) * attention_scale;
+      const bool valid = tile_position + row < end;
+      scores[row] = valid ? score : -__int_as_float(0x7f80'0000U);
     }
-    score = __shfl_sync(0xffff'ffffU, score, 0U) * attention_scale;
 
-    const float next_maximum = fmaxf(maximum, score);
-    const float previous_scale =
-        denominator == 0.0F ? 0.0F : expf(maximum - next_maximum);
-    const float current_scale = expf(score - next_maximum);
-    denominator = denominator * previous_scale + current_scale;
-#pragma unroll
-    for (unsigned int index = 0U; index < 8U; ++index) {
-      value_numerator[index] =
-          fmaf(current_scale, value_tile[lane + index * 32U],
-               value_numerator[index] * previous_scale);
-    }
-    maximum = next_maximum;
-
-    // The shared cache row may be overwritten only after all six Q warps have
-    // consumed both K and V.
     __syncthreads();
+    const unsigned int future_position =
+        begin + (tile + kPipelineStages) * kPositionsPerTile;
+    enqueue_cache_tile(storage.key[stage][0], key_cache, future_position,
+                       begin, end, kv_head, warp, lane);
+    cp_async_commit();
+
+    cp_async_wait_group_3();
+    __syncthreads();
+#pragma unroll
+    for (unsigned int row = 0U; row < kPositionsPerTile; ++row) {
+      // Keep the original per-position online update order.  The six-row tile
+      // changes only cache movement/synchronization, not FP32 arithmetic.
+      const float score = scores[row];
+      const float next_maximum = fmaxf(maximum, score);
+      const float previous_scale =
+          denominator == 0.0F ? 0.0F : expf(maximum - next_maximum);
+      const float current_scale = expf(score - next_maximum);
+      denominator = denominator * previous_scale + current_scale;
+#pragma unroll
+      for (unsigned int index = 0U; index < 8U; ++index) {
+        value_numerator[index] = fmaf(
+            current_scale,
+            decode_bf16(storage.value[stage][row][lane + index * 32U]),
+            value_numerator[index] * previous_scale);
+      }
+      maximum = next_maximum;
+    }
+
+    __syncthreads();
+    enqueue_cache_tile(storage.value[stage][0], value_cache, future_position,
+                       begin, end, kv_head, warp, lane);
+    cp_async_commit();
   }
+  cp_async_wait_all();
+  __syncthreads();
 
   const std::size_t state_offset =
       (static_cast<std::size_t>(query_head) * split_count + split) *
