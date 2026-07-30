@@ -21,6 +21,7 @@ namespace q3x::runtime::gdn_prefill_chunk64_native_detail {
 namespace {
 
 thread_local InspectionHook g_inspection_hook{};
+thread_local PreprocessInspectionHook g_preprocess_inspection_hook{};
 thread_local WyTimingHook g_wy_timing_hook{};
 thread_local bool g_force_fused_kkt_baseline_for_test = false;
 thread_local bool g_force_split_wy_baseline_for_test = false;
@@ -36,6 +37,13 @@ thread_local bool g_force_legacy_qk_reconstruct_baseline_for_test = false;
 InspectionHook exchange_inspection_hook(const InspectionHook hook) noexcept {
   const InspectionHook previous = g_inspection_hook;
   g_inspection_hook = hook;
+  return previous;
+}
+
+PreprocessInspectionHook exchange_preprocess_inspection_hook(
+    const PreprocessInspectionHook hook) noexcept {
+  const PreprocessInspectionHook previous = g_preprocess_inspection_hook;
+  g_preprocess_inspection_hook = hook;
   return previous;
 }
 
@@ -105,6 +113,19 @@ void inspect_native_boundaries(
     hook.callback(transform, transform_elements, w, w_elements, u,
                   u_elements, state_output, state_elements, output,
                   output_elements, cuda_stream, hook.context);
+  }
+}
+
+void inspect_preprocess_boundaries(
+    const std::uint16_t* const compact_q,
+    const std::size_t compact_q_elements,
+    const std::uint16_t* const compact_k,
+    const std::size_t compact_k_elements,
+    void* const cuda_stream) noexcept {
+  const PreprocessInspectionHook hook = g_preprocess_inspection_hook;
+  if (hook.callback != nullptr) {
+    hook.callback(compact_q, compact_q_elements, compact_k,
+                  compact_k_elements, cuda_stream, hook.context);
   }
 }
 
@@ -2251,6 +2272,11 @@ int launch_impl(void* const context,
   if (status != static_cast<int>(cudaSuccess)) {
     return status;
   }
+  const std::size_t compact_qk_elements =
+      chunk_count * kQkHeadCount * kChunkSize * kDimension;
+  gdn_prefill_chunk64_native_detail::inspect_preprocess_boundaries(
+      workspace.q, compact_qk_elements, workspace.k,
+      compact_qk_elements, cuda_stream);
   prepare_gate_kernel<<<static_cast<unsigned int>(matrix_count),
                         kChunkThreads, 0U, stream>>>(
       a, b, A_log, dt_bias, workspace.gamma, workspace.beta);
@@ -2603,6 +2629,11 @@ int launch_compact_qk_baseline_for_test(
       gdn_prefill_chunk64_reference_detail::kNormalizeThreads, 0U,
       stream>>>(conv_qkv, l2_epsilon, compact_q, compact_k);
   return gdn_prefill_chunk64_reference_detail::launch_grid_status();
+}
+
+const void* compact_qk_baseline_kernel_handle_for_test() noexcept {
+  return reinterpret_cast<const void*>(
+      gdn_prefill_chunk64_reference_detail::normalize_qk_kernel<true>);
 }
 
 int query_resources(int* const registers_per_thread,
