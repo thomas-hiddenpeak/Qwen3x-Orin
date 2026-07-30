@@ -1270,6 +1270,23 @@ void ingress_worker(
             "127.0.0.1";
     return false;
   }
+  const bool a4_payload = !options.prefill_a4_payload_path.empty();
+  const bool a4_policy =
+      !options.prefill_a4_calibration_policy_path.empty();
+  const bool a4_receipt = !options.prefill_a4_receipt_path.empty();
+  if (a4_payload != a4_policy || (a4_receipt && !a4_payload)) {
+    error = "A4 Prefill payload and policy are required together; receipt "
+            "is optional";
+    return false;
+  }
+  if (a4_payload &&
+      (options.projection_backend !=
+           runtime::ProjectionBackend::kSm87WeightOnly ||
+       options.prefill_chunk_size !=
+           runtime::kMaximumRequestPrefillChunkSize)) {
+    error = "A4 Prefill requires the SM87 backend and a 512-token chunk";
+    return false;
+  }
   return true;
 }
 
@@ -1321,6 +1338,12 @@ int run_evaluation_server(const EvaluationServerOptions& options,
 
   runtime::ReferenceEngineOptions engine_options;
   engine_options.projection_backend = options.projection_backend;
+  engine_options.prefill_a4_payload_path =
+      options.prefill_a4_payload_path;
+  engine_options.prefill_a4_calibration_policy_path =
+      options.prefill_a4_calibration_policy_path;
+  engine_options.prefill_a4_receipt_path =
+      options.prefill_a4_receipt_path;
   engine_options.request_options.batch_size = 1U;
   engine_options.request_options.max_sequence_length =
       options.max_sequence_length;
@@ -1441,7 +1464,16 @@ int run_evaluation_server(const EvaluationServerOptions& options,
             << " nvfp4_down_consumer_order_layers="
             << load.nvfp4_down_consumer_order_sidecar_layers
             << " nvfp4_down_consumer_order_bytes="
-            << load.nvfp4_down_consumer_order_sidecar_bytes << std::endl;
+            << load.nvfp4_down_consumer_order_sidecar_bytes
+            << " prefill_a4_requested="
+            << (load.prefill_a4_sidecars_requested ? 1 : 0)
+            << " prefill_a4_enabled="
+            << (load.prefill_a4_sidecars_enabled ? 1 : 0)
+            << " prefill_a4_projections="
+            << load.prefill_a4_sidecar_projections
+            << " prefill_a4_bytes=" << load.prefill_a4_sidecar_bytes
+            << " prefill_a4_layout=" << load.prefill_a4_physical_layout
+            << std::endl;
 
   bool fatal_accept_error = false;
   while (!stop_requested.load(std::memory_order_relaxed)) {

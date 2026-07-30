@@ -35,6 +35,9 @@ void PrintUsage(std::ostream& output) {
       << "  --max-sequence-length N     Resident request capacity (default 8192)\n"
       << "  --max-output-tokens N       Per-request output ceiling (default 4096)\n"
       << "  --prefill-chunk-size N      Native Prefill chunk 1..512 (default 512)\n"
+      << "  --prefill-a4-payload FILE   Authenticated full-model A4 payload\n"
+      << "  --prefill-a4-policy FILE    Matching 400-projection calibration policy\n"
+      << "  --prefill-a4-receipt FILE   Optional receipt (default payload.receipt.json)\n"
       << "  --queue-capacity N          Bounded inference queue, max 62 (default 8)\n"
       << "  --ingress-threads N         Fixed HTTP threads, queue+2 min (default 10)\n"
       << "  --projection-backend sm87|reference (default sm87)\n"
@@ -119,6 +122,25 @@ template <typename T>
         error = "--prefill-chunk-size must be in [1,512]";
         return false;
       }
+    } else if (argument == "--prefill-a4-payload") {
+      if (!options.prefill_a4_payload_path.empty() || value.empty()) {
+        error = "--prefill-a4-payload requires one non-empty FILE";
+        return false;
+      }
+      options.prefill_a4_payload_path = value;
+    } else if (argument == "--prefill-a4-policy") {
+      if (!options.prefill_a4_calibration_policy_path.empty() ||
+          value.empty()) {
+        error = "--prefill-a4-policy requires one non-empty FILE";
+        return false;
+      }
+      options.prefill_a4_calibration_policy_path = value;
+    } else if (argument == "--prefill-a4-receipt") {
+      if (!options.prefill_a4_receipt_path.empty() || value.empty()) {
+        error = "--prefill-a4-receipt requires one non-empty FILE";
+        return false;
+      }
+      options.prefill_a4_receipt_path = value;
     } else if (argument == "--queue-capacity") {
       if (!ParseUnsigned(value, options.inference_queue_capacity) ||
           options.inference_queue_capacity == 0U) {
@@ -160,6 +182,15 @@ template <typename T>
       error = "unknown option: " + std::string(argument);
       return false;
     }
+  }
+  const bool a4_payload = !options.prefill_a4_payload_path.empty();
+  const bool a4_policy =
+      !options.prefill_a4_calibration_policy_path.empty();
+  const bool a4_receipt = !options.prefill_a4_receipt_path.empty();
+  if (a4_payload != a4_policy || (a4_receipt && !a4_payload)) {
+    error = "--prefill-a4-payload and --prefill-a4-policy are required "
+            "together; receipt is optional";
+    return false;
   }
   return true;
 }

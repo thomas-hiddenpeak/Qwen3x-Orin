@@ -70,11 +70,15 @@ void PrintUsage(std::ostream& output) {
       << "  qwen3x-orin generate MODEL_DIR --prompt TEXT "
          "[--max-tokens N] [--trace] [--nvtx-phase-ranges] "
          "[--prefill-chunk-size N] "
+         "[--prefill-a4-payload FILE --prefill-a4-policy FILE "
+         "[--prefill-a4-receipt FILE]] "
          "[--projection-backend reference|sm87]\n"
       << "  qwen3x-orin benchmark MODEL_DIR --prompt TEXT [--prompt TEXT ...] "
          "[--max-tokens N] [--warmup N] [--iterations N] "
          "[--max-sequence-length N] "
          "[--prefill-chunk-size N] "
+         "[--prefill-a4-payload FILE --prefill-a4-policy FILE "
+         "[--prefill-a4-receipt FILE]] "
          "[--nvtx-phase-ranges] "
          "[--projection-backend reference|sm87]\n"
       << "  qwen3x-orin help       Show this help\n";
@@ -86,6 +90,8 @@ void PrintGenerateUsage(std::ostream& output) {
       << "  qwen3x-orin generate MODEL_DIR --prompt TEXT "
          "[--max-tokens N] [--trace] [--nvtx-phase-ranges] "
          "[--prefill-chunk-size N] "
+         "[--prefill-a4-payload FILE --prefill-a4-policy FILE "
+         "[--prefill-a4-receipt FILE]] "
          "[--projection-backend reference|sm87]\n\n"
       << "Options:\n"
       << "  --prompt TEXT    One user message; thinking is disabled\n"
@@ -101,7 +107,13 @@ void PrintGenerateUsage(std::ostream& output) {
       << kCliDefaultPrefillChunkSize
       << "; trace mode has effective size 1)\n"
       << "  --projection-backend reference|sm87\n"
-      << "                  Projection policy (default reference)\n";
+      << "                  Projection policy (default reference)\n"
+      << "  --prefill-a4-payload FILE\n"
+      << "  --prefill-a4-policy FILE\n"
+      << "                  Authenticated 400-projection A4 Prefill candidate; "
+         "both are required\n"
+      << "  --prefill-a4-receipt FILE\n"
+      << "                  Optional receipt (default FILE.receipt.json)\n";
 }
 
 void PrintBenchmarkUsage(std::ostream& output) {
@@ -111,6 +123,8 @@ void PrintBenchmarkUsage(std::ostream& output) {
          "[--prompt TEXT ...] [--max-tokens N] [--warmup N] "
          "[--iterations N] [--max-sequence-length N] "
          "[--prefill-chunk-size N] "
+         "[--prefill-a4-payload FILE --prefill-a4-policy FILE "
+         "[--prefill-a4-receipt FILE]] "
          "[--nvtx-phase-ranges] "
          "[--projection-backend reference|sm87]\n\n"
       << "Options:\n"
@@ -135,7 +149,12 @@ void PrintBenchmarkUsage(std::ostream& output) {
       << "  --nvtx-phase-ranges       Emit Prefill/Decode NVTX ranges for "
          "profiling\n"
       << "  --projection-backend reference|sm87\n"
-      << "                              Projection policy (default reference)\n";
+      << "                              Projection policy (default reference)\n"
+      << "  --prefill-a4-payload FILE\n"
+      << "  --prefill-a4-policy FILE   Authenticated full-model A4 candidate; "
+         "both are required\n"
+      << "  --prefill-a4-receipt FILE  Optional receipt "
+         "(default FILE.receipt.json)\n";
 }
 
 void PrintEscaped(std::ostream& output, const std::string_view value) {
@@ -272,6 +291,9 @@ void PrintBenchmarkSteps(
 
 struct GenerateCliOptions {
   std::filesystem::path model_directory;
+  std::filesystem::path prefill_a4_payload_path;
+  std::filesystem::path prefill_a4_policy_path;
+  std::filesystem::path prefill_a4_receipt_path;
   std::string prompt;
   std::uint32_t max_tokens = kCliDefaultMaxTokens;
   std::uint32_t prefill_chunk_size = kCliDefaultPrefillChunkSize;
@@ -343,6 +365,9 @@ struct GenerateParseResult {
   bool trace_seen = false;
   bool nvtx_phase_ranges_seen = false;
   bool projection_backend_seen = false;
+  bool prefill_a4_payload_seen = false;
+  bool prefill_a4_policy_seen = false;
+  bool prefill_a4_receipt_seen = false;
   for (int index = 3; index < argc; ++index) {
     const std::string_view argument(argv[index]);
     if (argument == "--prompt") {
@@ -434,11 +459,50 @@ struct GenerateParseResult {
       }
       continue;
     }
+    if (argument == "--prefill-a4-payload" ||
+        argument == "--prefill-a4-policy" ||
+        argument == "--prefill-a4-receipt") {
+      bool* seen = nullptr;
+      std::filesystem::path* path = nullptr;
+      if (argument == "--prefill-a4-payload") {
+        seen = &prefill_a4_payload_seen;
+        path = &options.prefill_a4_payload_path;
+      } else if (argument == "--prefill-a4-policy") {
+        seen = &prefill_a4_policy_seen;
+        path = &options.prefill_a4_policy_path;
+      } else {
+        seen = &prefill_a4_receipt_seen;
+        path = &options.prefill_a4_receipt_path;
+      }
+      if (*seen) {
+        result.error = std::string(argument) +
+                       " may be specified only once";
+        return result;
+      }
+      if (index + 1 >= argc) {
+        result.error = std::string(argument) + " requires FILE";
+        return result;
+      }
+      *seen = true;
+      *path = argv[++index];
+      if (path->empty()) {
+        result.error = std::string(argument) + " FILE must not be empty";
+        return result;
+      }
+      continue;
+    }
     result.error = "unknown generate argument: " + std::string(argument);
     return result;
   }
   if (!prompt_seen) {
     result.error = "missing required --prompt TEXT";
+    return result;
+  }
+  if (prefill_a4_payload_seen != prefill_a4_policy_seen ||
+      (prefill_a4_receipt_seen && !prefill_a4_payload_seen)) {
+    result.error =
+        "--prefill-a4-payload and --prefill-a4-policy are required "
+        "together; receipt is optional";
     return result;
   }
   result.value.emplace(std::move(options));
@@ -447,6 +511,9 @@ struct GenerateParseResult {
 
 struct BenchmarkCliOptions {
   std::filesystem::path model_directory;
+  std::filesystem::path prefill_a4_payload_path;
+  std::filesystem::path prefill_a4_policy_path;
+  std::filesystem::path prefill_a4_receipt_path;
   std::vector<std::string> prompts;
   std::uint32_t max_tokens = kCliDefaultMaxTokens;
   std::uint32_t warmup_rounds = kCliDefaultWarmupRounds;
@@ -485,6 +552,9 @@ struct BenchmarkParseResult {
   bool prefill_chunk_size_seen = false;
   bool nvtx_phase_ranges_seen = false;
   bool projection_backend_seen = false;
+  bool prefill_a4_payload_seen = false;
+  bool prefill_a4_policy_seen = false;
+  bool prefill_a4_receipt_seen = false;
   for (int index = 3; index < argc; ++index) {
     const std::string_view argument(argv[index]);
     if (argument == "--prompt") {
@@ -619,6 +689,38 @@ struct BenchmarkParseResult {
       }
       continue;
     }
+    if (argument == "--prefill-a4-payload" ||
+        argument == "--prefill-a4-policy" ||
+        argument == "--prefill-a4-receipt") {
+      bool* seen = nullptr;
+      std::filesystem::path* path = nullptr;
+      if (argument == "--prefill-a4-payload") {
+        seen = &prefill_a4_payload_seen;
+        path = &options.prefill_a4_payload_path;
+      } else if (argument == "--prefill-a4-policy") {
+        seen = &prefill_a4_policy_seen;
+        path = &options.prefill_a4_policy_path;
+      } else {
+        seen = &prefill_a4_receipt_seen;
+        path = &options.prefill_a4_receipt_path;
+      }
+      if (*seen) {
+        result.error = std::string(argument) +
+                       " may be specified only once";
+        return result;
+      }
+      if (index + 1 >= argc) {
+        result.error = std::string(argument) + " requires FILE";
+        return result;
+      }
+      *seen = true;
+      *path = argv[++index];
+      if (path->empty()) {
+        result.error = std::string(argument) + " FILE must not be empty";
+        return result;
+      }
+      continue;
+    }
     result.error = "unknown benchmark argument: " + std::string(argument);
     return result;
   }
@@ -628,6 +730,13 @@ struct BenchmarkParseResult {
   }
   if (options.max_tokens > options.max_sequence_length) {
     result.error = "--max-tokens must not exceed --max-sequence-length";
+    return result;
+  }
+  if (prefill_a4_payload_seen != prefill_a4_policy_seen ||
+      (prefill_a4_receipt_seen && !prefill_a4_payload_seen)) {
+    result.error =
+        "--prefill-a4-payload and --prefill-a4-policy are required "
+        "together; receipt is optional";
     return result;
   }
   result.value.emplace(std::move(options));
@@ -754,7 +863,9 @@ void PrintBenchmarkDiagnostic(
 void PrintGeneration(
     std::ostream& output,
     const q3x::runtime::ReferenceOneShotGeneration& result,
-    const q3x::runtime::ProjectionBackend projection_backend) {
+    const q3x::runtime::ProjectionBackend projection_backend,
+    const q3x::runtime::reference_runner_detail::
+        A4W4FullPrefillAdmissionHits& a4w4_prefill_route_hits) {
   const auto& load = result.load;
   const auto& generation = result.generation;
   output << std::fixed << std::setprecision(3)
@@ -790,6 +901,8 @@ void PrintGeneration(
          << load.fp8_marlin_prefill_sidecar_milliseconds << '\n'
          << "load.nvfp4_marlin_prefill_sidecar_ms="
          << load.nvfp4_marlin_prefill_sidecar_milliseconds << '\n'
+         << "load.prefill_a4_sidecar_ms="
+         << load.prefill_a4_sidecar_milliseconds << '\n'
          << "load.runner_factory_ms=" << load.runner_factory_milliseconds
          << '\n'
          << "load.fp8_output_sidecars_enabled="
@@ -846,6 +959,16 @@ void PrintGeneration(
          << load.nvfp4_marlin_prefill_sidecar_layers << '\n'
          << "load.nvfp4_marlin_prefill_sidecar_bytes="
          << load.nvfp4_marlin_prefill_sidecar_bytes << '\n'
+         << "load.prefill_a4_sidecars_requested="
+         << (load.prefill_a4_sidecars_requested ? 1 : 0) << '\n'
+         << "load.prefill_a4_sidecars_enabled="
+         << (load.prefill_a4_sidecars_enabled ? 1 : 0) << '\n'
+         << "load.prefill_a4_sidecar_projections="
+         << load.prefill_a4_sidecar_projections << '\n'
+         << "load.prefill_a4_sidecar_bytes="
+         << load.prefill_a4_sidecar_bytes << '\n'
+         << "load.prefill_a4_sidecar_copy_chunks="
+         << load.prefill_a4_sidecar_copy_chunks << '\n'
          << "load.tokenizer_resident_overlap="
          << (load.tokenizer_resident_overlap ? 1 : 0) << '\n'
          << "load.resident.bytes_read=" << load.resident.bytes_read << '\n'
@@ -883,6 +1006,14 @@ void PrintGeneration(
          << load.request_max_sequence_length << '\n'
          << "load.request_prefill_chunk_size="
          << load.request_prefill_chunk_size << '\n';
+  PrintStringField(output, "load.prefill_a4_physical_layout",
+                   load.prefill_a4_physical_layout);
+  PrintStringField(output, "load.prefill_a4_manifest_sha256",
+                   load.prefill_a4_manifest_sha256);
+  PrintStringField(output, "load.prefill_a4_policy_sha256",
+                   load.prefill_a4_policy_sha256);
+  PrintStringField(output, "load.prefill_a4_payload_sha256",
+                   load.prefill_a4_payload_sha256);
   PrintDecodeGraphCacheLoadStats(output, load);
   PrintStringField(output, "prompt.rendered", generation.rendered_prompt);
   output << "prompt.token_count=" << generation.prompt_token_ids.size()
@@ -908,7 +1039,17 @@ void PrintGeneration(
          << "timing.decode_after_first_ms="
          << generation.timing.decode_after_first_milliseconds << '\n'
          << "timing.total_generation_ms="
-         << generation.timing.total_generation_milliseconds << '\n';
+         << generation.timing.total_generation_milliseconds << '\n'
+         << "prefill.a4w4_activation_quantize_hits="
+         << a4w4_prefill_route_hits.activation_quantize_hits << '\n'
+         << "prefill.a4w4_generic_projection_hits="
+         << a4w4_prefill_route_hits.generic_projection_hits << '\n'
+         << "prefill.a4w4_paired_gate_up_hits="
+         << a4w4_prefill_route_hits.paired_gate_up_hits << '\n'
+         << "prefill.a4w4_logical_projection_hits="
+         << a4w4_prefill_route_hits.logical_projection_hits << '\n'
+         << "prefill.a4w4_complete_model_tile_hits="
+         << a4w4_prefill_route_hits.complete_model_tile_hits << '\n';
   PrintTimings(output, "timing.prefix_execution_ms",
                generation.timing.prefix_execution_milliseconds);
   PrintTimings(output, "timing.subsequent_token_ms",
@@ -949,6 +1090,9 @@ int RunGenerate(const int argc, char** const argv) {
     PrintGenerateUsage(std::cerr);
     return 2;
   }
+  static_cast<void>(
+      q3x::runtime::reference_runner_detail::
+          exchange_a4w4_full_prefill_admission_test_hits({}));
 
   q3x::runtime::ReferenceOneShotOptions options;
   options.generation.max_new_tokens = parsed.value->max_tokens;
@@ -959,6 +1103,12 @@ int RunGenerate(const int argc, char** const argv) {
   options.generation.logits_mode =
       q3x::runtime::ReferenceLogitsMode::kPredictedTokenOnly;
   options.projection_backend = parsed.value->projection_backend;
+  options.prefill_a4_payload_path =
+      parsed.value->prefill_a4_payload_path;
+  options.prefill_a4_calibration_policy_path =
+      parsed.value->prefill_a4_policy_path;
+  options.prefill_a4_receipt_path =
+      parsed.value->prefill_a4_receipt_path;
   options.decode_graph_cache_policy =
       DecodeGraphCachePolicyForGeneration(
           options.projection_backend, options.generation.capture_trace,
@@ -987,8 +1137,10 @@ int RunGenerate(const int argc, char** const argv) {
     PrintEngineDiagnostic(std::cerr, generated.diagnostic);
     return EngineFailureExitCode(generated.diagnostic.code);
   }
-  PrintGeneration(std::cout, *generated.value,
-                  parsed.value->projection_backend);
+  PrintGeneration(
+      std::cout, *generated.value, parsed.value->projection_backend,
+      q3x::runtime::reference_runner_detail::
+          exchange_a4w4_full_prefill_admission_test_hits({}));
   return 0;
 }
 
@@ -999,7 +1151,9 @@ void PrintBenchmarkReport(
     const q3x::runtime::ReferenceBenchmarkReport& report,
     const q3x::runtime::ProjectionBackend projection_backend,
     const std::size_t nvfp4_marlin_prefill_route_hits,
-    const std::size_t fp8_marlin_prefill_route_hits) {
+    const std::size_t fp8_marlin_prefill_route_hits,
+    const q3x::runtime::reference_runner_detail::
+        A4W4FullPrefillAdmissionHits& a4w4_prefill_route_hits) {
   output << std::fixed << std::setprecision(3)
          << "status=ok\n"
          << "projection.backend="
@@ -1034,6 +1188,8 @@ void PrintBenchmarkReport(
          << load.fp8_marlin_prefill_sidecar_milliseconds << '\n'
          << "load.nvfp4_marlin_prefill_sidecar_ms="
          << load.nvfp4_marlin_prefill_sidecar_milliseconds << '\n'
+         << "load.prefill_a4_sidecar_ms="
+         << load.prefill_a4_sidecar_milliseconds << '\n'
          << "load.runner_factory_ms=" << load.runner_factory_milliseconds
          << '\n'
          << "load.fp8_output_sidecars_enabled="
@@ -1090,6 +1246,16 @@ void PrintBenchmarkReport(
          << load.nvfp4_marlin_prefill_sidecar_layers << '\n'
          << "load.nvfp4_marlin_prefill_sidecar_bytes="
          << load.nvfp4_marlin_prefill_sidecar_bytes << '\n'
+         << "load.prefill_a4_sidecars_requested="
+         << (load.prefill_a4_sidecars_requested ? 1 : 0) << '\n'
+         << "load.prefill_a4_sidecars_enabled="
+         << (load.prefill_a4_sidecars_enabled ? 1 : 0) << '\n'
+         << "load.prefill_a4_sidecar_projections="
+         << load.prefill_a4_sidecar_projections << '\n'
+         << "load.prefill_a4_sidecar_bytes="
+         << load.prefill_a4_sidecar_bytes << '\n'
+         << "load.prefill_a4_sidecar_copy_chunks="
+         << load.prefill_a4_sidecar_copy_chunks << '\n'
          << "load.tokenizer_resident_overlap="
          << (load.tokenizer_resident_overlap ? 1 : 0) << '\n'
          << "load.resident.sha256_backend="
@@ -1124,7 +1290,25 @@ void PrintBenchmarkReport(
          << "benchmark.nvfp4_marlin_prefill_route_hits="
          << nvfp4_marlin_prefill_route_hits << '\n'
          << "benchmark.fp8_marlin_prefill_route_hits="
-         << fp8_marlin_prefill_route_hits << '\n';
+         << fp8_marlin_prefill_route_hits << '\n'
+         << "benchmark.a4w4_prefill_activation_quantize_hits="
+         << a4w4_prefill_route_hits.activation_quantize_hits << '\n'
+         << "benchmark.a4w4_prefill_generic_projection_hits="
+         << a4w4_prefill_route_hits.generic_projection_hits << '\n'
+         << "benchmark.a4w4_prefill_paired_gate_up_hits="
+         << a4w4_prefill_route_hits.paired_gate_up_hits << '\n'
+         << "benchmark.a4w4_prefill_logical_projection_hits="
+         << a4w4_prefill_route_hits.logical_projection_hits << '\n'
+         << "benchmark.a4w4_prefill_complete_model_tile_hits="
+         << a4w4_prefill_route_hits.complete_model_tile_hits << '\n';
+  PrintStringField(output, "load.prefill_a4_physical_layout",
+                   load.prefill_a4_physical_layout);
+  PrintStringField(output, "load.prefill_a4_manifest_sha256",
+                   load.prefill_a4_manifest_sha256);
+  PrintStringField(output, "load.prefill_a4_policy_sha256",
+                   load.prefill_a4_policy_sha256);
+  PrintStringField(output, "load.prefill_a4_payload_sha256",
+                   load.prefill_a4_payload_sha256);
   PrintDecodeGraphCacheLoadStats(output, load);
   PrintStringField(output, "model.directory", model_directory.string());
   PrintLatencyStatistics(output, "stats.prompt_prefix",
@@ -1235,6 +1419,9 @@ int RunBenchmark(const int argc, char** const argv) {
   static_cast<void>(
       q3x::runtime::reference_runner_detail::
           exchange_fp8_marlin_prefill_admission_test_hits(0U));
+  static_cast<void>(
+      q3x::runtime::reference_runner_detail::
+          exchange_a4w4_full_prefill_admission_test_hits({}));
 
   q3x::runtime::ReferenceBenchmarkOptions benchmark_options;
   benchmark_options.warmup_rounds = parsed.value->warmup_rounds;
@@ -1253,6 +1440,14 @@ int RunBenchmark(const int argc, char** const argv) {
   engine_options.request_options.prefill_chunk_size =
       parsed.value->prefill_chunk_size;
   engine_options.projection_backend = parsed.value->projection_backend;
+  engine_options.prefill_a4_payload_path =
+      parsed.value->prefill_a4_payload_path;
+  engine_options.prefill_a4_calibration_policy_path =
+      parsed.value->prefill_a4_policy_path;
+  engine_options.prefill_a4_receipt_path =
+      parsed.value->prefill_a4_receipt_path;
+  engine_options.request_options.enable_a4_prefill_workspace =
+      !parsed.value->prefill_a4_payload_path.empty();
   engine_options.decode_graph_cache_policy =
       DecodeGraphCachePolicyForGeneration(
           engine_options.projection_backend, false,
@@ -1334,7 +1529,10 @@ int RunBenchmark(const int argc, char** const argv) {
                                0U),
                        q3x::runtime::reference_runner_detail::
                            exchange_fp8_marlin_prefill_admission_test_hits(
-                               0U));
+                               0U),
+                       q3x::runtime::reference_runner_detail::
+                           exchange_a4w4_full_prefill_admission_test_hits(
+                               {}));
   return 0;
 }
 

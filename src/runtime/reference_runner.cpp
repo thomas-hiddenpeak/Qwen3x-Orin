@@ -1,6 +1,11 @@
 #include "q3x/runtime/reference_runner.h"
 
 #include "q3x/kernels/sm87_fp8_prefill_supermatrix.h"
+#if defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
+#include "q3x/kernels/sm87_a4w4_gateup_paired.h"
+#include "q3x/kernels/sm87_a4w4_prefill_gemm.h"
+#include "q3x/kernels/sm87_a4w4_prefill_primitive.h"
+#endif
 #if defined(Q3X_ENABLE_BF16_AB_LARGE_M_PREFILL_ADMISSION)
 #include "q3x/kernels/sm87_bf16_ab_prefill.h"
 #endif
@@ -137,6 +142,19 @@ gdn_conv_compact_qk_fused_candidate_environment_enabled() noexcept {
 thread_local bool g_enable_gdn_conv_compact_qk_fused_candidate =
     gdn_conv_compact_qk_fused_candidate_environment_enabled();
 thread_local std::size_t g_gdn_conv_compact_qk_fused_candidate_hits = 0U;
+
+#if defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
+[[nodiscard]] bool a4w4_full_prefill_environment_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_A4W4_FULL_PREFILL_ADMISSION");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
+thread_local bool g_enable_a4w4_full_prefill_admission =
+    a4w4_full_prefill_environment_enabled();
+thread_local reference_runner_detail::A4W4FullPrefillAdmissionHits
+    g_a4w4_full_prefill_admission_hits{};
+#endif
 
 #if defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION)
 [[nodiscard]] bool nvfp4_marlin_prefill_environment_enabled() noexcept {
@@ -351,6 +369,107 @@ template <std::size_t SpanCount>
       },
       weight);
 }
+
+#if defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
+[[nodiscard]] bool valid_a4w4_prefill_projection(
+    const LinearWeight& weight, const std::size_t output_size,
+    const std::size_t input_size) noexcept {
+  const PrefillA4LinearSidecarView sidecar =
+      prefill_a4_sidecar_view(weight);
+  return sidecar.attached() && sidecar.scale_group_size == 64U &&
+         sidecar.output_size == output_size &&
+         sidecar.input_size == input_size &&
+         output_size % kernels::kSm87A4W4ConsumerOuterBlock == 0U &&
+         input_size % kernels::kSm87A4W4ConsumerKBlock == 0U &&
+         reinterpret_cast<std::uintptr_t>(sidecar.weight) % 16U == 0U &&
+         reinterpret_cast<std::uintptr_t>(sidecar.scales) %
+                 alignof(std::uint16_t) ==
+             0U;
+}
+
+[[nodiscard]] bool same_a4w4_activation_policy(
+    const LinearWeight& first, const LinearWeight& second) noexcept {
+  const PrefillA4LinearSidecarView first_sidecar =
+      prefill_a4_sidecar_view(first);
+  const PrefillA4LinearSidecarView second_sidecar =
+      prefill_a4_sidecar_view(second);
+  return first_sidecar.attached() && second_sidecar.attached() &&
+         first_sidecar.activation_clip_ratio ==
+             second_sidecar.activation_clip_ratio;
+}
+
+[[nodiscard]] bool valid_a4w4_full_prefill_inventory(
+    const ModelWeights& weights) noexcept {
+  std::size_t projection_count = 0U;
+  for (std::size_t layer = 0U; layer < kReferenceDecoderLayerCount; ++layer) {
+    const DecoderLayerWeights& layer_weights = weights.layer(layer);
+    if (!valid_a4w4_prefill_projection(
+            layer_weights.mlp.gate_proj, kReferenceIntermediateSize,
+            kReferenceHiddenSize) ||
+        !valid_a4w4_prefill_projection(
+            layer_weights.mlp.up_proj, kReferenceIntermediateSize,
+            kReferenceHiddenSize) ||
+        !valid_a4w4_prefill_projection(
+            layer_weights.mlp.down_proj, kReferenceHiddenSize,
+            kReferenceIntermediateSize) ||
+        !same_a4w4_activation_policy(layer_weights.mlp.gate_proj,
+                                     layer_weights.mlp.up_proj)) {
+      return false;
+    }
+    projection_count += 3U;
+
+    const model::LayerType expected =
+        reference_runner_detail::expected_reference_layer_type(layer);
+    if (expected == model::LayerType::kLinearAttention) {
+      const auto* const attention =
+          std::get_if<LinearAttentionWeights>(&layer_weights.attention);
+      if (attention == nullptr ||
+          !valid_a4w4_prefill_projection(
+              attention->in_proj_qkv, kLinearQkvElements,
+              kReferenceHiddenSize) ||
+          !valid_a4w4_prefill_projection(
+              attention->in_proj_z, kLinearValueElements,
+              kReferenceHiddenSize) ||
+          !valid_a4w4_prefill_projection(
+              attention->out_proj, kReferenceHiddenSize,
+              kLinearValueElements) ||
+          !same_a4w4_activation_policy(attention->in_proj_qkv,
+                                       attention->in_proj_z)) {
+        return false;
+      }
+      projection_count += 3U;
+      continue;
+    }
+    if (expected == model::LayerType::kFullAttention) {
+      const auto* const attention =
+          std::get_if<FullAttentionWeights>(&layer_weights.attention);
+      if (attention == nullptr ||
+          !valid_a4w4_prefill_projection(
+              attention->q_proj, kFullQGateElements,
+              kReferenceHiddenSize) ||
+          !valid_a4w4_prefill_projection(
+              attention->k_proj, kFullKvElements,
+              kReferenceHiddenSize) ||
+          !valid_a4w4_prefill_projection(
+              attention->v_proj, kFullKvElements,
+              kReferenceHiddenSize) ||
+          !valid_a4w4_prefill_projection(
+              attention->o_proj, kReferenceHiddenSize,
+              kFullQueryElements) ||
+          !same_a4w4_activation_policy(attention->q_proj,
+                                       attention->k_proj) ||
+          !same_a4w4_activation_policy(attention->q_proj,
+                                       attention->v_proj)) {
+        return false;
+      }
+      projection_count += 4U;
+      continue;
+    }
+    return false;
+  }
+  return projection_count == 400U;
+}
+#endif
 
 [[nodiscard]] ReferenceRunnerStatus validate_model_weights(
     const ModelWeights* const weights) noexcept {
@@ -801,6 +920,27 @@ std::size_t exchange_fp8_marlin_prefill_admission_test_hits(
 #else
   (void)hits;
   return 0U;
+#endif
+}
+
+bool exchange_a4w4_full_prefill_admission_test_enabled(
+    const bool enabled) noexcept {
+#if defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
+  return std::exchange(g_enable_a4w4_full_prefill_admission, enabled);
+#else
+  (void)enabled;
+  return false;
+#endif
+}
+
+A4W4FullPrefillAdmissionHits
+exchange_a4w4_full_prefill_admission_test_hits(
+    const A4W4FullPrefillAdmissionHits hits) noexcept {
+#if defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
+  return std::exchange(g_a4w4_full_prefill_admission_hits, hits);
+#else
+  (void)hits;
+  return {};
 #endif
 }
 
@@ -1591,6 +1731,8 @@ ReferenceRunner& ReferenceRunner::operator=(ReferenceRunner&& other) noexcept {
   other.views_ = {};
   projection_backend_ = std::exchange(
       other.projection_backend_, ProjectionBackend::kReference);
+  a4w4_full_prefill_admission_enabled_ = std::exchange(
+      other.a4w4_full_prefill_admission_enabled_, false);
   trace_enabled_ = std::exchange(other.trace_enabled_, false);
   trace_valid_ = std::exchange(other.trace_valid_, false);
   poisoned_ = std::exchange(other.poisoned_, false);
@@ -1688,6 +1830,7 @@ void ReferenceRunner::release() noexcept {
   decode_graph_capture_active_ = false;
   views_ = {};
   projection_backend_ = ProjectionBackend::kReference;
+  a4w4_full_prefill_admission_enabled_ = false;
   trace_enabled_ = false;
   trace_valid_ = false;
   poisoned_ = false;
@@ -3112,7 +3255,61 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
     }
   }
 
-  if (token_count == 1U && layer_tile == nullptr) {
+  bool a4w4_full_prefill_tile_enabled = false;
+#if defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
+  reference_runner_detail::A4W4FullPrefillAdmissionHits
+      a4w4_full_prefill_tile_hits{};
+  if (a4w4_full_prefill_admission_enabled_ ||
+      g_enable_a4w4_full_prefill_admission) {
+    const RequestMemoryPlan& plan = state_->plan();
+    const std::size_t hidden_packed_capacity =
+        kernels::sm87_a4w4_consumer_packed_capacity_bytes(
+            kMaximumRequestPrefillChunkSize, kReferenceHiddenSize);
+    const std::size_t hidden_scale_capacity =
+        kernels::sm87_a4w4_consumer_scale_capacity_elements(
+            kMaximumRequestPrefillChunkSize, kReferenceHiddenSize);
+    const std::size_t intermediate_packed_capacity =
+        kernels::sm87_a4w4_consumer_packed_capacity_bytes(
+            kMaximumRequestPrefillChunkSize, kReferenceIntermediateSize);
+    const std::size_t intermediate_scale_capacity =
+        kernels::sm87_a4w4_consumer_scale_capacity_elements(
+            kMaximumRequestPrefillChunkSize, kReferenceIntermediateSize);
+    if (projection_backend_ != ProjectionBackend::kSm87WeightOnly) {
+      return fail_prefill_tile(runner_status(
+          ReferenceRunnerError::kInvalidDependency,
+          "prefill_a4w4_projection_backend"));
+    }
+    if (plan.prefill_chunk_size != kMaximumRequestPrefillChunkSize ||
+        views_.prefill_a4_hidden_packed == nullptr ||
+        views_.prefill_a4_hidden_scales == nullptr ||
+        views_.prefill_a4_intermediate_packed == nullptr ||
+        views_.prefill_a4_intermediate_scales == nullptr ||
+        plan.prefill_a4_hidden_packed.byte_size < hidden_packed_capacity ||
+        plan.prefill_a4_hidden_scales_bf16.element_capacity <
+            hidden_scale_capacity ||
+        plan.prefill_a4_intermediate_packed.byte_size <
+            intermediate_packed_capacity ||
+        plan.prefill_a4_intermediate_scales_bf16.element_capacity <
+            intermediate_scale_capacity ||
+        reinterpret_cast<std::uintptr_t>(
+            views_.prefill_a4_hidden_packed) % 16U != 0U ||
+        reinterpret_cast<std::uintptr_t>(
+            views_.prefill_a4_intermediate_packed) % 16U != 0U) {
+      return fail_prefill_tile(runner_status(
+          ReferenceRunnerError::kInvalidRequestState,
+          "prefill_a4w4_workspace"));
+    }
+    if (!valid_a4w4_full_prefill_inventory(*weights_)) {
+      return fail_prefill_tile(runner_status(
+          ReferenceRunnerError::kInvalidModelWeights,
+          "prefill_a4w4_inventory"));
+    }
+    a4w4_full_prefill_tile_enabled = true;
+  }
+#endif
+
+  if (token_count == 1U && layer_tile == nullptr &&
+      !a4w4_full_prefill_tile_enabled) {
     ReferenceStepOptions step_options;
     step_options.compute_logits = false;
     step_options.capture_trace = false;
@@ -3175,6 +3372,66 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
                                    operation, layer, status);
     return false;
   };
+#if defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
+  const auto quantize_a4w4_activation =
+      [this, token_count, &check_cuda,
+       &a4w4_full_prefill_tile_hits](
+          const std::uint16_t* const input,
+          const std::size_t input_size, const float clip_ratio,
+          std::uint8_t* const packed,
+          const std::size_t packed_capacity_bytes,
+          std::uint16_t* const scales,
+          const std::size_t scale_capacity_elements,
+          const char* const operation,
+          const std::size_t layer) noexcept {
+        const int status = kernels::launch_sm87_a4_quantize_bf16_cuda(
+            input, input_size, token_count, input_size, clip_ratio,
+            packed, packed_capacity_bytes, scales,
+            scale_capacity_elements, stream_);
+        if (!check_cuda(status, operation, layer)) {
+          return false;
+        }
+        ++a4w4_full_prefill_tile_hits.activation_quantize_hits;
+        ++g_a4w4_full_prefill_admission_hits.activation_quantize_hits;
+        return true;
+      };
+  const auto project_a4w4_from_packed =
+      [this, token_count, &check_cuda,
+       &a4w4_full_prefill_tile_hits](
+          const LinearWeight& weight,
+          const std::uint8_t* const packed_input,
+          const std::size_t packed_input_capacity_bytes,
+          const std::uint16_t* const input_scales,
+          const std::size_t input_scale_capacity_elements,
+          std::uint16_t* const output,
+          const char* const operation,
+          const std::size_t layer) noexcept {
+        const PrefillA4LinearSidecarView sidecar =
+            prefill_a4_sidecar_view(weight);
+        const std::size_t weight_capacity_bytes =
+            kernels::sm87_a4w4_consumer_packed_capacity_bytes(
+                sidecar.output_size, sidecar.input_size);
+        const std::size_t weight_scale_capacity_elements =
+            kernels::sm87_a4w4_consumer_scale_capacity_elements(
+                sidecar.output_size, sidecar.input_size);
+        const int status =
+            kernels::launch_sm87_a4w4_prefill_gemm_bf16_cuda(
+                packed_input, packed_input_capacity_bytes, input_scales,
+                input_scale_capacity_elements, sidecar.weight,
+                weight_capacity_bytes, sidecar.scales,
+                weight_scale_capacity_elements, token_count,
+                sidecar.output_size, sidecar.input_size, output,
+                sidecar.output_size, stream_);
+        if (!check_cuda(status, operation, layer)) {
+          return false;
+        }
+        ++a4w4_full_prefill_tile_hits.generic_projection_hits;
+        ++a4w4_full_prefill_tile_hits.logical_projection_hits;
+        ++g_a4w4_full_prefill_admission_hits.generic_projection_hits;
+        ++g_a4w4_full_prefill_admission_hits.logical_projection_hits;
+        return true;
+      };
+#endif
   bool fp8_marlin_tile_enabled = false;
   std::int32_t* fp8_marlin_locks = nullptr;
 #if defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION)
@@ -3599,8 +3856,51 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
             "prefill_linear_attention_variant", layer));
       }
       bool linear_qkvz_projected = false;
+#if defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
+      if (a4w4_full_prefill_tile_enabled) {
+        const PrefillA4LinearSidecarView qkv_sidecar =
+            prefill_a4_sidecar_view(attention->in_proj_qkv);
+        if (!quantize_a4w4_activation(
+                views_.hidden[1], kReferenceHiddenSize,
+                qkv_sidecar.activation_clip_ratio,
+                views_.prefill_a4_hidden_packed,
+                static_cast<std::size_t>(
+                    state_->plan().prefill_a4_hidden_packed.byte_size),
+                views_.prefill_a4_hidden_scales,
+                static_cast<std::size_t>(state_->plan()
+                                             .prefill_a4_hidden_scales_bf16
+                                             .element_capacity),
+                "prefill_a4w4_linear_qkvz_quantize", layer) ||
+            !project_a4w4_from_packed(
+                attention->in_proj_qkv,
+                views_.prefill_a4_hidden_packed,
+                static_cast<std::size_t>(
+                    state_->plan().prefill_a4_hidden_packed.byte_size),
+                views_.prefill_a4_hidden_scales,
+                static_cast<std::size_t>(state_->plan()
+                                             .prefill_a4_hidden_scales_bf16
+                                             .element_capacity),
+                views_.projection[0],
+                "prefill_a4w4_linear_qkv_projection", layer) ||
+            !project_a4w4_from_packed(
+                attention->in_proj_z,
+                views_.prefill_a4_hidden_packed,
+                static_cast<std::size_t>(
+                    state_->plan().prefill_a4_hidden_packed.byte_size),
+                views_.prefill_a4_hidden_scales,
+                static_cast<std::size_t>(state_->plan()
+                                             .prefill_a4_hidden_scales_bf16
+                                             .element_capacity),
+                views_.projection[1],
+                "prefill_a4w4_linear_z_projection", layer)) {
+          return fail_prefill_tile(launch_failure);
+        }
+        linear_qkvz_projected = true;
+      }
+#endif
       if (has_fp8_prefill_supermatrix_sidecar(attention->in_proj_qkv) &&
-          has_fp8_prefill_supermatrix_sidecar(attention->in_proj_z)) {
+          has_fp8_prefill_supermatrix_sidecar(attention->in_proj_z) &&
+          !linear_qkvz_projected) {
         const LinearWeight* const group_weights[2U] = {
             &attention->in_proj_qkv, &attention->in_proj_z};
         std::uint16_t* const group_outputs[2U] = {
@@ -3899,6 +4199,38 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
               "prefill_linear_output_norm_gate", layer)) {
         return fail_prefill_tile(launch_failure);
       }
+#if defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
+      if (a4w4_full_prefill_tile_enabled) {
+        const PrefillA4LinearSidecarView output_sidecar =
+            prefill_a4_sidecar_view(attention->out_proj);
+        if (!quantize_a4w4_activation(
+                views_.projection[2], kLinearValueElements,
+                output_sidecar.activation_clip_ratio,
+                views_.prefill_a4_intermediate_packed,
+                static_cast<std::size_t>(
+                    state_->plan().prefill_a4_intermediate_packed.byte_size),
+                views_.prefill_a4_intermediate_scales,
+                static_cast<std::size_t>(
+                    state_->plan()
+                        .prefill_a4_intermediate_scales_bf16
+                        .element_capacity),
+                "prefill_a4w4_linear_output_quantize", layer) ||
+            !project_a4w4_from_packed(
+                attention->out_proj,
+                views_.prefill_a4_intermediate_packed,
+                static_cast<std::size_t>(
+                    state_->plan().prefill_a4_intermediate_packed.byte_size),
+                views_.prefill_a4_intermediate_scales,
+                static_cast<std::size_t>(
+                    state_->plan()
+                        .prefill_a4_intermediate_scales_bf16
+                        .element_capacity),
+                views_.hidden[1],
+                "prefill_a4w4_linear_output_projection", layer)) {
+          return fail_prefill_tile(launch_failure);
+        }
+      } else
+#endif
       if (!project_attention_output(
               attention->out_proj, views_.projection[2], views_.hidden[1],
               "prefill_linear_output_projection", layer)) {
@@ -3923,9 +4255,47 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
       const std::size_t rope_first_position =
           static_cast<std::size_t>(first_position);
       bool full_qkv_projected = false;
+#if defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
+      if (a4w4_full_prefill_tile_enabled) {
+        const PrefillA4LinearSidecarView q_sidecar =
+            prefill_a4_sidecar_view(attention->q_proj);
+        const std::size_t hidden_packed_capacity =
+            static_cast<std::size_t>(
+                state_->plan().prefill_a4_hidden_packed.byte_size);
+        const std::size_t hidden_scale_capacity =
+            static_cast<std::size_t>(
+                state_->plan()
+                    .prefill_a4_hidden_scales_bf16.element_capacity);
+        if (!quantize_a4w4_activation(
+                views_.hidden[1], kReferenceHiddenSize,
+                q_sidecar.activation_clip_ratio,
+                views_.prefill_a4_hidden_packed, hidden_packed_capacity,
+                views_.prefill_a4_hidden_scales, hidden_scale_capacity,
+                "prefill_a4w4_full_qkv_quantize", layer) ||
+            !project_a4w4_from_packed(
+                attention->q_proj, views_.prefill_a4_hidden_packed,
+                hidden_packed_capacity, views_.prefill_a4_hidden_scales,
+                hidden_scale_capacity, views_.projection[0],
+                "prefill_a4w4_full_q_gate_projection", layer) ||
+            !project_a4w4_from_packed(
+                attention->k_proj, views_.prefill_a4_hidden_packed,
+                hidden_packed_capacity, views_.prefill_a4_hidden_scales,
+                hidden_scale_capacity, tile_key,
+                "prefill_a4w4_full_k_projection", layer) ||
+            !project_a4w4_from_packed(
+                attention->v_proj, views_.prefill_a4_hidden_packed,
+                hidden_packed_capacity, views_.prefill_a4_hidden_scales,
+                hidden_scale_capacity, tile_value,
+                "prefill_a4w4_full_v_projection", layer)) {
+          return fail_prefill_tile(launch_failure);
+        }
+        full_qkv_projected = true;
+      }
+#endif
       if (has_fp8_prefill_supermatrix_sidecar(attention->q_proj) &&
           has_fp8_prefill_supermatrix_sidecar(attention->k_proj) &&
-          has_fp8_prefill_supermatrix_sidecar(attention->v_proj)) {
+          has_fp8_prefill_supermatrix_sidecar(attention->v_proj) &&
+          !full_qkv_projected) {
         const LinearWeight* const group_weights[3U] = {
             &attention->q_proj, &attention->k_proj, &attention->v_proj};
         std::uint16_t* const group_outputs[3U] = {
@@ -4117,6 +4487,36 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
           return fail_prefill_tile(launch_failure);
         }
       }
+#if defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
+      if (a4w4_full_prefill_tile_enabled) {
+        const PrefillA4LinearSidecarView output_sidecar =
+            prefill_a4_sidecar_view(attention->o_proj);
+        const std::size_t intermediate_packed_capacity =
+            static_cast<std::size_t>(
+                state_->plan().prefill_a4_intermediate_packed.byte_size);
+        const std::size_t intermediate_scale_capacity =
+            static_cast<std::size_t>(
+                state_->plan()
+                    .prefill_a4_intermediate_scales_bf16.element_capacity);
+        if (!quantize_a4w4_activation(
+                views_.projection[1], kFullQueryElements,
+                output_sidecar.activation_clip_ratio,
+                views_.prefill_a4_intermediate_packed,
+                intermediate_packed_capacity,
+                views_.prefill_a4_intermediate_scales,
+                intermediate_scale_capacity,
+                "prefill_a4w4_full_output_quantize", layer) ||
+            !project_a4w4_from_packed(
+                attention->o_proj,
+                views_.prefill_a4_intermediate_packed,
+                intermediate_packed_capacity,
+                views_.prefill_a4_intermediate_scales,
+                intermediate_scale_capacity, views_.hidden[1],
+                "prefill_a4w4_full_output_projection", layer)) {
+          return fail_prefill_tile(launch_failure);
+        }
+      } else
+#endif
       if (!project_attention_output(
               attention->o_proj, views_.projection[1], views_.hidden[1],
               "prefill_full_output_projection", layer)) {
@@ -4153,6 +4553,81 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
         return fail_prefill_tile(launch_failure);
       }
     }
+    bool a4w4_mlp_completed = false;
+#if defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
+    if (a4w4_full_prefill_tile_enabled) {
+      const PrefillA4LinearSidecarView gate_sidecar =
+          prefill_a4_sidecar_view(layer_weights.mlp.gate_proj);
+      const PrefillA4LinearSidecarView up_sidecar =
+          prefill_a4_sidecar_view(layer_weights.mlp.up_proj);
+      const PrefillA4LinearSidecarView down_sidecar =
+          prefill_a4_sidecar_view(layer_weights.mlp.down_proj);
+      const std::size_t hidden_packed_capacity =
+          static_cast<std::size_t>(
+              state_->plan().prefill_a4_hidden_packed.byte_size);
+      const std::size_t hidden_scale_capacity =
+          static_cast<std::size_t>(
+              state_->plan()
+                  .prefill_a4_hidden_scales_bf16.element_capacity);
+      const std::size_t intermediate_packed_capacity =
+          static_cast<std::size_t>(
+              state_->plan().prefill_a4_intermediate_packed.byte_size);
+      const std::size_t intermediate_scale_capacity =
+          static_cast<std::size_t>(
+              state_->plan()
+                  .prefill_a4_intermediate_scales_bf16.element_capacity);
+      const std::size_t gate_weight_capacity =
+          kernels::sm87_a4w4_consumer_packed_capacity_bytes(
+              gate_sidecar.output_size, gate_sidecar.input_size);
+      const std::size_t gate_scale_capacity =
+          kernels::sm87_a4w4_consumer_scale_capacity_elements(
+              gate_sidecar.output_size, gate_sidecar.input_size);
+      const std::size_t up_weight_capacity =
+          kernels::sm87_a4w4_consumer_packed_capacity_bytes(
+              up_sidecar.output_size, up_sidecar.input_size);
+      const std::size_t up_scale_capacity =
+          kernels::sm87_a4w4_consumer_scale_capacity_elements(
+              up_sidecar.output_size, up_sidecar.input_size);
+      if (!quantize_a4w4_activation(
+              views_.hidden[1], kReferenceHiddenSize,
+              gate_sidecar.activation_clip_ratio,
+              views_.prefill_a4_hidden_packed, hidden_packed_capacity,
+              views_.prefill_a4_hidden_scales, hidden_scale_capacity,
+              "prefill_a4w4_mlp_gate_up_quantize", layer)) {
+        return fail_prefill_tile(launch_failure);
+      }
+      const int paired_status = kernels::launch_sm87_a4w4_gateup_paired_cuda(
+          views_.prefill_a4_hidden_packed, hidden_packed_capacity,
+          views_.prefill_a4_hidden_scales, hidden_scale_capacity,
+          gate_sidecar.weight, gate_weight_capacity, gate_sidecar.scales,
+          gate_scale_capacity, up_sidecar.weight, up_weight_capacity,
+          up_sidecar.scales, up_scale_capacity, token_count,
+          kReferenceIntermediateSize, kReferenceHiddenSize,
+          down_sidecar.activation_clip_ratio,
+          views_.prefill_a4_intermediate_packed,
+          intermediate_packed_capacity,
+          views_.prefill_a4_intermediate_scales,
+          intermediate_scale_capacity, stream_);
+      if (!check_cuda(paired_status, "prefill_a4w4_mlp_gate_up_paired",
+                      layer)) {
+        return fail_prefill_tile(launch_failure);
+      }
+      ++a4w4_full_prefill_tile_hits.paired_gate_up_hits;
+      a4w4_full_prefill_tile_hits.logical_projection_hits += 2U;
+      ++g_a4w4_full_prefill_admission_hits.paired_gate_up_hits;
+      g_a4w4_full_prefill_admission_hits.logical_projection_hits += 2U;
+      if (!project_a4w4_from_packed(
+              layer_weights.mlp.down_proj,
+              views_.prefill_a4_intermediate_packed,
+              intermediate_packed_capacity,
+              views_.prefill_a4_intermediate_scales,
+              intermediate_scale_capacity, views_.hidden[1],
+              "prefill_a4w4_mlp_down_projection", layer)) {
+        return fail_prefill_tile(launch_failure);
+      }
+      a4w4_mlp_completed = true;
+    }
+#endif
     bool marlin_mlp_completed = false;
 #if defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION)
     const auto* const marlin_gate =
@@ -4167,6 +4642,7 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
         static_cast<std::size_t>(state_->plan().prefill_chunk_size) *
         kReferenceIntermediateSize;
     const bool use_marlin_mlp =
+        !a4w4_mlp_completed &&
         g_enable_nvfp4_marlin_prefill_admission &&
         kernels::sm87_nvfp4_marlin_supports_token_count(token_count) &&
         projection_backend_ == ProjectionBackend::kSm87WeightOnly &&
@@ -4239,7 +4715,7 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
     }
 #endif
 
-    if (!marlin_mlp_completed) {
+    if (!a4w4_mlp_completed && !marlin_mlp_completed) {
       // Production Prefill is self-hosted only. External-library comparison
       // modules are compiled exclusively into benchmark targets.
       {
@@ -4355,6 +4831,37 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
     }
   }
 
+#if defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
+  if (a4w4_full_prefill_tile_enabled) {
+    std::size_t expected_quantize_hits = 192U;
+    std::size_t expected_generic_hits = 272U;
+    std::size_t expected_paired_hits = 64U;
+    std::size_t expected_logical_hits = 400U;
+    if (layer_tile != nullptr) {
+      const bool linear =
+          layer_tile->item.layer_type == model::LayerType::kLinearAttention;
+      expected_quantize_hits = 3U;
+      expected_generic_hits = linear ? 4U : 5U;
+      expected_paired_hits = 1U;
+      expected_logical_hits = linear ? 6U : 7U;
+    }
+    if (a4w4_full_prefill_tile_hits.activation_quantize_hits !=
+            expected_quantize_hits ||
+        a4w4_full_prefill_tile_hits.generic_projection_hits !=
+            expected_generic_hits ||
+        a4w4_full_prefill_tile_hits.paired_gate_up_hits !=
+            expected_paired_hits ||
+        a4w4_full_prefill_tile_hits.logical_projection_hits !=
+            expected_logical_hits) {
+      return fail_prefill_tile(runner_status(
+          ReferenceRunnerError::kInvalidRunner,
+          "prefill_a4w4_route_accounting",
+          layer_tile == nullptr ? kReferenceNoLayer
+                                : layer_tile->item.layer_index));
+    }
+  }
+#endif
+
   // Match the non-logit step boundary even though this output is not consumed
   // by the following layer-major tile or by persistent state.
   // The M32-prefix plus reference-tail path folded this norm into the final
@@ -4403,6 +4910,12 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
         "prefill_tile_commit", kReferenceNoLayer,
         commit_status.cuda_error));
   }
+#if defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
+  if (a4w4_full_prefill_tile_enabled) {
+    ++a4w4_full_prefill_tile_hits.complete_model_tile_hits;
+    ++g_a4w4_full_prefill_admission_hits.complete_model_tile_hits;
+  }
+#endif
 #if defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
   const auto native_chunk64_snapshot_hook =
       g_prefill_gdn_chunk64_native_snapshot_hook;
@@ -4531,7 +5044,18 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
     ReferenceRunner* runner = nullptr;
     const std::uint32_t* input_token_ids = nullptr;
     ReferenceRunnerStatus failure;
+    bool a4w4_full_prefill_selected = false;
+    std::size_t a4w4_complete_model_tiles = 0U;
+    reference_runner_detail::A4W4FullPrefillAdmissionHits
+        a4w4_hits_before{};
   } context{this, input_token_ids, {}};
+#if defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
+  context.a4w4_full_prefill_selected =
+      a4w4_full_prefill_admission_enabled_ ||
+      g_enable_a4w4_full_prefill_admission;
+  context.a4w4_complete_model_tiles = built.value->tile_count;
+  context.a4w4_hits_before = g_a4w4_full_prefill_admission_hits;
+#endif
 
   LongPrefillLayerMajorCallbacks callbacks;
   callbacks.context = &context;
@@ -4632,6 +5156,34 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
           static_cast<int>(sync_status));
       return false;
     }
+#if defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
+    if (execution.a4w4_full_prefill_selected) {
+      const auto& before = execution.a4w4_hits_before;
+      const auto& after = g_a4w4_full_prefill_admission_hits;
+      const std::size_t tiles = execution.a4w4_complete_model_tiles;
+      const auto exact_delta = [tiles](const std::size_t current,
+                                       const std::size_t initial,
+                                       const std::size_t per_tile) noexcept {
+        return current >= initial &&
+               current - initial == tiles * per_tile;
+      };
+      if (!exact_delta(after.activation_quantize_hits,
+                       before.activation_quantize_hits, 192U) ||
+          !exact_delta(after.generic_projection_hits,
+                       before.generic_projection_hits, 272U) ||
+          !exact_delta(after.paired_gate_up_hits,
+                       before.paired_gate_up_hits, 64U) ||
+          !exact_delta(after.logical_projection_hits,
+                       before.logical_projection_hits, 400U) ||
+          after.complete_model_tile_hits !=
+              before.complete_model_tile_hits) {
+        execution.failure = runner_status(
+            ReferenceRunnerError::kInvalidRunner,
+            "prefill_a4w4_layer_major_aggregate_accounting");
+        return false;
+      }
+    }
+#endif
     const RequestOperationStatus commit =
         runner.state_->set_sequence_length(sequence_length);
     if (!commit) {
@@ -4641,6 +5193,12 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
           commit.cuda_error);
       return false;
     }
+#if defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
+    if (execution.a4w4_full_prefill_selected) {
+      g_a4w4_full_prefill_admission_hits.complete_model_tile_hits +=
+          execution.a4w4_complete_model_tiles;
+    }
+#endif
     runner.retained_prefill_hidden_valid_ = true;
     runner.retained_prefill_position_ = sequence_length - 1U;
     runner.retained_prefill_input_token_ =
@@ -4879,6 +5437,14 @@ ReferenceRunnerFactoryResult create_reference_runner(
         ReferenceRunnerError::kInvalidDependency, "projection_backend");
     return result;
   }
+#if !defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
+  if (options.enable_a4w4_full_prefill_admission) {
+    result.diagnostic = runner_status(
+        ReferenceRunnerError::kInvalidDependency,
+        "a4w4_full_prefill_admission_build");
+    return result;
+  }
+#endif
   const ReferenceRunnerStatus weights_status = validate_model_weights(weights);
   if (!weights_status) {
     result.diagnostic = weights_status;
@@ -4889,6 +5455,8 @@ ReferenceRunnerFactoryResult create_reference_runner(
   runner.weights_ = weights;
   runner.state_ = state;
   runner.projection_backend_ = options.projection_backend;
+  runner.a4w4_full_prefill_admission_enabled_ =
+      options.enable_a4w4_full_prefill_admission;
   const ReferenceRunnerStatus state_status =
       ReferenceRunner::collect_request_views(state, runner.views_);
   if (!state_status) {

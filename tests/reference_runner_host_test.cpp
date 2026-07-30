@@ -1327,6 +1327,35 @@ void test_trace_layout_and_factory_error(TestContext& test) {
               "logits modes and invalid-step diagnostics are stable");
 }
 
+void test_a4w4_full_prefill_admission_controls(TestContext& test) {
+  const bool prior_enabled =
+      detail::exchange_a4w4_full_prefill_admission_test_enabled(true);
+  const bool admission_is_compiled =
+      detail::exchange_a4w4_full_prefill_admission_test_enabled(
+          prior_enabled);
+  const detail::A4W4FullPrefillAdmissionHits fixture{
+      192U, 272U, 64U, 400U, 1U};
+  const detail::A4W4FullPrefillAdmissionHits prior_hits =
+      detail::exchange_a4w4_full_prefill_admission_test_hits(fixture);
+  const detail::A4W4FullPrefillAdmissionHits observed =
+      detail::exchange_a4w4_full_prefill_admission_test_hits(prior_hits);
+  if (admission_is_compiled) {
+    test.expect(observed.activation_quantize_hits == 192U &&
+                    observed.generic_projection_hits == 272U &&
+                    observed.paired_gate_up_hits == 64U &&
+                    observed.logical_projection_hits == 400U &&
+                    observed.complete_model_tile_hits == 1U,
+                "compiled A4W4 admission preserves all route counters");
+  } else {
+    test.expect(observed.activation_quantize_hits == 0U &&
+                    observed.generic_projection_hits == 0U &&
+                    observed.paired_gate_up_hits == 0U &&
+                    observed.logical_projection_hits == 0U &&
+                    observed.complete_model_tile_hits == 0U,
+                "ordinary build exposes inert A4W4 admission controls");
+  }
+}
+
 }  // namespace
 
 int main() {
@@ -1338,6 +1367,7 @@ int main() {
   test_bf16_logits_memo_perf(test);
   test_schedule_and_workspace(test);
   test_fake_linear_weight_validation(test);
+  test_a4w4_full_prefill_admission_controls(test);
   test_trace_layout_and_factory_error(test);
   if (test.failures() != 0) {
     std::cerr << test.failures() << " reference-runner host test(s) failed\n";
