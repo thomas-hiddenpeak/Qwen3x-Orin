@@ -132,6 +132,8 @@ struct NativeBoundarySnapshot {
   std::vector<std::uint16_t> state;
   std::vector<std::uint16_t> output;
   std::size_t calls = 0U;
+  std::size_t target_call = runtime::kRequestLinearLayerCount;
+  bool captured = false;
   int cuda_error = static_cast<int>(cudaSuccess);
   bool contract_error = false;
 };
@@ -274,9 +276,10 @@ void collect_native_boundaries(
     return;
   }
   ++snapshot->calls;
-  if (snapshot->calls != runtime::kRequestLinearLayerCount) {
+  if (snapshot->calls != snapshot->target_call) {
     return;
   }
+  snapshot->captured = true;
   if (transform == nullptr || w == nullptr || u == nullptr ||
       state_output == nullptr || output == nullptr ||
       snapshot->transform.size() != transform_elements ||
@@ -922,6 +925,7 @@ void destroy_event(cudaEvent_t& event) noexcept {
   const bool boundary_contract =
       !baseline_boundaries.contract_error &&
       !candidate_boundaries.contract_error &&
+      baseline_boundaries.captured && candidate_boundaries.captured &&
       baseline_boundaries.cuda_error == static_cast<int>(cudaSuccess) &&
       candidate_boundaries.cuda_error == static_cast<int>(cudaSuccess) &&
       baseline_boundaries.calls == runtime::kRequestLinearLayerCount &&
@@ -1047,6 +1051,7 @@ void destroy_event(cudaEvent_t& event) noexcept {
   const bool boundary_contract =
       !baseline_boundaries.contract_error &&
       !candidate_boundaries.contract_error &&
+      baseline_boundaries.captured && candidate_boundaries.captured &&
       baseline_boundaries.cuda_error == static_cast<int>(cudaSuccess) &&
       candidate_boundaries.cuda_error == static_cast<int>(cudaSuccess) &&
       baseline_boundaries.calls == runtime::kRequestLinearLayerCount &&
@@ -1093,6 +1098,8 @@ void destroy_event(cudaEvent_t& event) noexcept {
 
   NativeBoundarySnapshot baseline_boundaries;
   NativeBoundarySnapshot candidate_boundaries;
+  baseline_boundaries.target_call = 1U;
+  candidate_boundaries.target_call = 1U;
   try {
     baseline_boundaries.transform.resize(kTransformElements);
     candidate_boundaries.transform.resize(kTransformElements);
@@ -1149,8 +1156,8 @@ void destroy_event(cudaEvent_t& event) noexcept {
   print_difference_metrics(kSuite, "transform", transform);
   print_difference_metrics(kSuite, "w", w);
   print_difference_metrics(kSuite, "u", u);
-  print_difference_metrics(kSuite, "final_layer_state", final_layer_state);
-  print_difference_metrics(kSuite, "final_layer_output", final_layer_output);
+  print_difference_metrics(kSuite, "first_layer_state", final_layer_state);
+  print_difference_metrics(kSuite, "first_layer_output", final_layer_output);
 
   if (final_layer_output.first_unequal !=
       std::numeric_limits<std::size_t>::max()) {
@@ -1173,6 +1180,7 @@ void destroy_event(cudaEvent_t& event) noexcept {
   const bool boundary_contract =
       !baseline_boundaries.contract_error &&
       !candidate_boundaries.contract_error &&
+      baseline_boundaries.captured && candidate_boundaries.captured &&
       baseline_boundaries.cuda_error == static_cast<int>(cudaSuccess) &&
       candidate_boundaries.cuda_error == static_cast<int>(cudaSuccess) &&
       baseline_boundaries.calls == runtime::kRequestLinearLayerCount &&
@@ -1194,7 +1202,7 @@ void destroy_event(cudaEvent_t& event) noexcept {
             << " generation_semantics="
             << (generation_semantics ? "PASS" : "FAIL")
             << " gate=" << (passed ? "PASS" : "FAIL")
-            << " authority=REAL_WEIGHT_FINAL_LAYER_OUTPUT\n";
+            << " authority=REAL_WEIGHT_FIRST_LAYER_OUTPUT\n";
   return passed;
 }
 
