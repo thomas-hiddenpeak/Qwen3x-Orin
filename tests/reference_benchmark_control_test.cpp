@@ -131,6 +131,7 @@ struct FakeGenerator {
   bool add_prefix_prediction = false;
   bool c64_partial_prefix = false;
   bool single_arbitrary_prefill = false;
+  bool layer_major_prefill = false;
   std::vector<std::string> prompts;
 };
 
@@ -176,6 +177,12 @@ runtime::ReferenceGenerateResult fake_generate(
     replace_prompt_steps(generation, kPromptTokens);
     generation.all_prompt_tokens_prefilled_by_tiles = true;
     generation.single_arbitrary_prefill_tiles = true;
+  }
+  if (fake.layer_major_prefill) {
+    constexpr std::size_t kPromptTokens = 4'096U;
+    replace_prompt_steps(generation, kPromptTokens);
+    generation.all_prompt_tokens_prefilled_by_tiles = true;
+    generation.layer_major_prefill = true;
   }
   if (options.logits_mode ==
           runtime::ReferenceLogitsMode::kPredictedTokenOnly &&
@@ -678,6 +685,28 @@ void test_single_arbitrary_prefill_timing_cardinality(TestContext& test) {
               "prefix cardinality");
 }
 
+void test_layer_major_prefill_timing_cardinality(TestContext& test) {
+  FakeGenerator generator;
+  generator.expected_prefill_chunk_size = 512U;
+  generator.layer_major_prefill = true;
+  FakeMemory memory;
+  memory.free_bytes = {1'000U, 1'000U};
+  runtime::ReferenceBenchmarkOptions options = benchmark_options();
+  options.warmup_rounds = 0U;
+  options.measured_rounds = 1U;
+  options.prefill_chunk_size = 512U;
+  const auto result = detail::run_benchmark_control(
+      {"alpha"}, options, &generator, fake_generate, &memory, fake_memory);
+  test.expect(
+      result && result.value->samples.size() == 1U &&
+          result.value->all_prompt_tokens_prefilled_by_tiles &&
+          result.value->layer_major_prefill &&
+          !result.value->single_arbitrary_prefill_tiles &&
+          result.value->samples.front()
+                  .timing.prefix_execution_milliseconds.size() == 1U,
+      "benchmark timing accepts one whole P4096 layer-major invocation");
+}
+
 void test_step_comparison(TestContext& test) {
   runtime::ReferenceGeneration expected =
       make_generation("alpha", 1.0, 2.0, {1.0});
@@ -712,6 +741,11 @@ void test_step_comparison(TestContext& test) {
   test.expect(detail::generation_mismatch_field(expected, actual) ==
                   "single_arbitrary_prefill_tiles",
               "single-arbitrary tile policy changes are localized");
+  actual = expected;
+  actual.layer_major_prefill = true;
+  test.expect(detail::generation_mismatch_field(expected, actual) ==
+                  "layer_major_prefill",
+              "whole-prompt layer-major policy changes are localized");
   test.expect(runtime::to_string(
                   runtime::ReferenceBenchmarkError::kRepeatabilityFailure) ==
                   "repeatability_failure",
@@ -731,6 +765,7 @@ int main() {
   test_maximum_prefill_chunk_boundary(test);
   test_c64_partial_prefix_timing_cardinality(test);
   test_single_arbitrary_prefill_timing_cardinality(test);
+  test_layer_major_prefill_timing_cardinality(test);
   test_step_comparison(test);
   if (test.failures() != 0) {
     std::cerr << test.failures() << " benchmark control assertion(s) failed\n";

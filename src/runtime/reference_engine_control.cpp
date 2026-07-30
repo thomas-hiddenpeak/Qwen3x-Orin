@@ -143,6 +143,12 @@ GenerationControlResult run_generation_control_impl(
       !is_valid_reference_logits_mode(options.logits_mode) ||
       (options.prefill_single_arbitrary_tile &&
        !options.prefill_all_prompt_tokens) ||
+      (options.prefill_layer_major_prompt &&
+       (!options.prefill_all_prompt_tokens ||
+        options.prefill_single_arbitrary_tile || options.capture_trace ||
+        options.prefill_chunk_size !=
+            kLongPrefillLayerMajorTileTokens ||
+        prefill_plan.layer_major_prompt == nullptr)) ||
       (options.prefill_all_prompt_tokens &&
        (options.capture_trace || options.prefill_chunk_size <= 1U ||
         prefill_plan.finish_prefill_from_tile == nullptr))) {
@@ -261,12 +267,15 @@ GenerationControlResult run_generation_control_impl(
             : prompt_token_ids.size() - 1U;
     const std::size_t effective_prefill_chunk_size =
         options.capture_trace ? 1U : options.prefill_chunk_size;
-    if (effective_prefill_chunk_size > 1U && prefix_token_count != 0U &&
+    if (!options.prefill_layer_major_prompt &&
+        effective_prefill_chunk_size > 1U && prefix_token_count != 0U &&
         prefill_plan.prefix_tile == nullptr) {
       return failure(GenerationControlError::kInvalidArgument);
     }
     const std::size_t prefix_execution_count =
-        options.prefill_single_arbitrary_tile
+        options.prefill_layer_major_prompt
+            ? 1U
+            : options.prefill_single_arbitrary_tile
             ? reference_engine_detail::
                   single_arbitrary_prefix_execution_count(
                       prefix_token_count, effective_prefill_chunk_size)
@@ -276,7 +285,41 @@ GenerationControlResult run_generation_control_impl(
         prefix_execution_count);
 
     std::size_t prefix_index = 0U;
-    if (effective_prefill_chunk_size > 1U) {
+    if (options.prefill_layer_major_prompt) {
+      const auto invoke_layer_major_prompt = [&]() {
+        return prefill_plan.layer_major_prompt(
+            prefill_plan.context, prompt_token_ids.data(),
+            prompt_token_ids.size(), true);
+      };
+      ReferenceLongPrefillOutcome outcome =
+          invoke_with_optional_nvtx<EmitNvtx>(NvtxRangeName::kPrefixTile,
+                                              invoke_layer_major_prompt);
+      if (!outcome) {
+        return failure(GenerationControlError::kRunnerFailure,
+                       outcome.status);
+      }
+      if (outcome.value->first_position != 0U ||
+          outcome.value->token_count != prompt_token_ids.size() ||
+          !outcome.value->timing.has_value()) {
+        return failure(outcome.value->timing.has_value()
+                           ? GenerationControlError::kUnexpectedStep
+                           : GenerationControlError::kMissingTiming);
+      }
+      const double elapsed =
+          outcome.value->timing->elapsed_milliseconds;
+      if (!std::isfinite(elapsed) || elapsed < 0.0) {
+        return failure(GenerationControlError::kUnexpectedStep);
+      }
+      for (std::size_t token = 0U; token < prompt_token_ids.size(); ++token) {
+        ReferenceStepResult step;
+        step.position = static_cast<std::uint32_t>(token);
+        step.input_token_id = prompt_token_ids[token];
+        control.steps.emplace_back(std::move(step));
+      }
+      control.timing.prefix_execution_milliseconds.push_back(elapsed);
+      control.timing.prompt_prefill_milliseconds = elapsed;
+      prefix_index = prompt_token_ids.size();
+    } else if (effective_prefill_chunk_size > 1U) {
       while (prefix_index < prefix_token_count) {
         const std::size_t tile_token_count =
             options.prefill_single_arbitrary_tile

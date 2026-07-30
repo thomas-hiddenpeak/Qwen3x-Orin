@@ -769,6 +769,8 @@ void PrintGeneration(
          << (generation.all_prompt_tokens_prefilled_by_tiles ? 1 : 0) << '\n'
          << "prefill.single_arbitrary_prefill_tiles="
          << (generation.single_arbitrary_prefill_tiles ? 1 : 0) << '\n'
+         << "prefill.layer_major_prefill="
+         << (generation.layer_major_prefill ? 1 : 0) << '\n'
          << "load.total_ms=" << load.total_milliseconds << '\n'
          << "load.tokenizer_ms=" << load.tokenizer_milliseconds << '\n'
          << "load.resident_ms=" << load.resident_load_milliseconds << '\n'
@@ -1010,6 +1012,8 @@ void PrintBenchmarkReport(
          << (report.all_prompt_tokens_prefilled_by_tiles ? 1 : 0) << '\n'
          << "prefill.single_arbitrary_prefill_tiles="
          << (report.single_arbitrary_prefill_tiles ? 1 : 0) << '\n'
+         << "prefill.layer_major_prefill="
+         << (report.layer_major_prefill ? 1 : 0) << '\n'
          << "load.total_ms=" << load.total_milliseconds << '\n'
          << "load.tokenizer_ms=" << load.tokenizer_milliseconds << '\n'
          << "load.resident_ms=" << load.resident_load_milliseconds << '\n'

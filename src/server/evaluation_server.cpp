@@ -832,6 +832,17 @@ void execute_job(runtime::ReferenceEngine& engine,
     return;
   }
 
+  std::cout << "evaluation request " << job->id
+            << " prompt_tokens="
+            << generated.value->prompt_token_ids.size()
+            << " completion_tokens="
+            << generated.value->generated_token_ids.size()
+            << " layer_major_prefill="
+            << (generated.value->layer_major_prefill ? 1 : 0)
+            << " prompt_prefill_ms="
+            << generated.value->timing.prompt_prefill_milliseconds
+            << '\n';
+
   const OpenAIUsage usage = usage_for(*generated.value);
   if (job->request.stream) {
     if (job->request.include_usage &&
@@ -1313,6 +1324,15 @@ int run_evaluation_server(const EvaluationServerOptions& options,
       options.max_sequence_length;
   engine_options.request_options.prefill_chunk_size =
       options.prefill_chunk_size;
+  if (runtime::long_prefill_layer_major_build_enabled() &&
+      options.prefill_chunk_size ==
+          runtime::kLongPrefillLayerMajorTileTokens &&
+      options.max_sequence_length >
+          runtime::kLongPrefillLayerMajorTileTokens) {
+    engine_options.request_options.long_prefill_token_capacity =
+        std::min(options.max_sequence_length,
+                 runtime::kLongPrefillLayerMajorMaximumTokens);
+  }
   engine_options.request_options.max_arena_bytes =
       options.request_max_arena_bytes;
   engine_options.request_options.min_free_bytes_after_create =
@@ -1369,6 +1389,10 @@ int run_evaluation_server(const EvaluationServerOptions& options,
             << options.port << "/v1 model=" << options.served_model
             << " max_sequence_length=" << options.max_sequence_length
             << " prefill_chunk_size=" << options.prefill_chunk_size
+            << " long_prefill_build_enabled="
+            << (runtime::long_prefill_layer_major_build_enabled() ? 1 : 0)
+            << " long_prefill_hidden_capacity="
+            << engine_options.request_options.long_prefill_token_capacity
             << " inference_workers=1 queue_capacity="
             << options.inference_queue_capacity
             << " fp8_prefill_supermatrix_sidecar_ms="

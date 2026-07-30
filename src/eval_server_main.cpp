@@ -41,6 +41,9 @@ void PrintUsage(std::ostream& output) {
       << "  --request-max-arena-bytes N Request arena hard limit\n"
       << "  --min-free-bytes N          Required free CUDA bytes after arena\n"
       << "  --help                      Show this help\n\n"
+      << "Admission environment:\n"
+      << "  Q3X_RUN_LONG_PREFILL_LAYER_MAJOR_ADMISSION=1\n"
+      << "                              Select P513..P4096 layer-major Prefill\n\n"
       << "The gateway is intentionally batch-one and greedy. Unsupported sampling,\n"
       << "tools, media, and custom stop semantics fail closed. It is an\n"
       << "unauthenticated evaluation surface, not a production serving API.\n";

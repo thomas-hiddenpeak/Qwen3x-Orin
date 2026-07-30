@@ -171,6 +171,9 @@ struct ReferenceGeneration {
   // prefix chunk as one arbitrary 1..512-token layer-major tile instead of
   // decomposing it into canonical C512/C256/C64/C32/tail executions.
   bool single_arbitrary_prefill_tiles = false;
+  // True only when one whole prompt used the build- and runtime-gated
+  // P<=4096 layer-major runner path.
+  bool layer_major_prefill = false;
   ReferenceGenerationTiming timing;
   std::vector<ReferenceStepResult> steps;
   std::vector<ReferenceTraceDigest> traces;
@@ -649,6 +652,9 @@ using StepFunction = ReferenceStepOutcome (*)(
 using PrefillTileFunction = ReferencePrefillTileOutcome (*)(
     void* context, const std::uint32_t* input_token_ids,
     std::size_t token_count, const ReferencePrefillTileOptions& options);
+using LongPrefillFunction = ReferenceLongPrefillOutcome (*)(
+    void* context, const std::uint32_t* input_token_ids,
+    std::size_t token_count, bool measure_timing);
 using CommittedTokenFunction = bool (*)(
     void* context, std::uint32_t token_id, std::size_t token_index,
     double elapsed_milliseconds) noexcept;
@@ -668,6 +674,8 @@ struct PrefillPlan {
   // finalizes logits from the last prompt step already committed by a marked
   // prefix tile; it must not append or commit another model-state step.
   StepFunction finish_prefill_from_tile = nullptr;
+  // Required only for the whole-prompt P<=4096 layer-major admission.
+  LongPrefillFunction layer_major_prompt = nullptr;
 };
 
 struct DecodePlan {
@@ -692,6 +700,9 @@ struct GenerationControlOptions {
   // request-sized chunk is one arbitrary 1..512-token prefix_tile call. It is
   // invalid unless whole-prompt admission is also enabled.
   bool prefill_single_arbitrary_tile = false;
+  // Mutually exclusive with the existing C512 tile schedulers above. The
+  // callback commits all prompt tokens and retains the last normalized row.
+  bool prefill_layer_major_prompt = false;
   void* committed_token_context = nullptr;
   CommittedTokenFunction committed_token = nullptr;
 };

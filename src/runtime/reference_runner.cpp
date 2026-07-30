@@ -551,6 +551,22 @@ ReferenceRunnerStatus ReferenceRunner::collect_request_views(
     views.hidden[index] =
         static_cast<std::uint16_t*>(view.value->device_data);
   }
+  if (state->plan().long_prefill_token_capacity != 0U) {
+    const std::uint64_t long_hidden_elements =
+        static_cast<std::uint64_t>(
+            state->plan().long_prefill_token_capacity) *
+        kReferenceHiddenSize;
+    for (std::size_t index = 0U;
+         index < kRequestLongPrefillHiddenBufferCount; ++index) {
+      RequestViewResult view = state->long_prefill_hidden_buffer(index);
+      if (!valid_view(view, long_hidden_elements, sizeof(std::uint16_t))) {
+        return runner_status(ReferenceRunnerError::kInvalidRequestState,
+                             "long_prefill_hidden_workspace");
+      }
+      views.long_prefill_hidden[index] =
+          static_cast<std::uint16_t*>(view.value->device_data);
+    }
+  }
   for (std::size_t index = 0U; index < 4U; ++index) {
     RequestViewResult view = state->projection_buffer(index);
     if (!valid_view(view, workspace_tokens * kReferenceIntermediateSize,
@@ -1701,6 +1717,23 @@ ReferencePrefillTileOutcome ReferenceRunner::fail_prefill_tile(
   trace_valid_ = false;
   retained_prefill_hidden_valid_ = false;
   ReferencePrefillTileOutcome outcome;
+  outcome.status = status;
+  return outcome;
+}
+
+ReferenceLongPrefillOutcome ReferenceRunner::fail_long_prefill(
+    const ReferenceRunnerStatus status) noexcept {
+  if (stream_ != nullptr) {
+    (void)cudaStreamSynchronize(reinterpret_cast<cudaStream_t>(stream_));
+  }
+  if (prefill_auxiliary_stream_ != nullptr) {
+    (void)cudaStreamSynchronize(
+        reinterpret_cast<cudaStream_t>(prefill_auxiliary_stream_));
+  }
+  poisoned_ = true;
+  trace_valid_ = false;
+  retained_prefill_hidden_valid_ = false;
+  ReferenceLongPrefillOutcome outcome;
   outcome.status = status;
   return outcome;
 }
@@ -2946,6 +2979,15 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
     const std::uint32_t* const input_token_ids,
     const std::size_t token_count,
     const ReferencePrefillTileOptions& options) noexcept {
+  return prefill_prefix_tile_impl(input_token_ids, token_count, options,
+                                  nullptr);
+}
+
+ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
+    const std::uint32_t* const input_token_ids,
+    const std::size_t token_count,
+    const ReferencePrefillTileOptions& options,
+    const LongPrefillLayerTileInvocation* const layer_tile) noexcept {
   using Clock = std::chrono::steady_clock;
   Clock::time_point started{};
   if (options.measure_timing) {
@@ -2985,7 +3027,30 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
                       "prefill_tile_capacity"));
   }
 
-  if (token_count == 1U) {
+  if (layer_tile != nullptr) {
+    const LongPrefillLayerMajorWorkItem& item = layer_tile->item;
+    const std::uint64_t tile_end =
+        static_cast<std::uint64_t>(item.first_position) + item.token_count;
+    if (item.layer_index >= kReferenceDecoderLayerCount ||
+        item.token_count != token_count || item.token_count == 0U ||
+        item.input_hidden_buffer >=
+            kRequestLongPrefillHiddenBufferCount ||
+        item.output_hidden_buffer >=
+            kRequestLongPrefillHiddenBufferCount ||
+        layer_tile->input_hidden == nullptr ||
+        layer_tile->output_hidden == nullptr ||
+        tile_end > state_->plan().long_prefill_token_capacity ||
+        item.layer_type !=
+            reference_runner_detail::expected_reference_layer_type(
+                item.layer_index)) {
+      return fail_prefill_tile(
+          runner_status(ReferenceRunnerError::kInvalidStepOptions,
+                        "prefill_layer_major_tile_contract",
+                        item.layer_index));
+    }
+  }
+
+  if (token_count == 1U && layer_tile == nullptr) {
     ReferenceStepOptions step_options;
     step_options.compute_logits = false;
     step_options.capture_trace = false;
@@ -3011,7 +3076,9 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
     return outcome;
   }
 
-  const std::uint32_t first_position = state_->current_position();
+  const std::uint32_t first_position =
+      layer_tile == nullptr ? state_->current_position()
+                            : layer_tile->item.first_position;
 #if defined(Q3X_ENABLE_GDN_B8_ADMISSION)
   // Snapshot the admission switch once at the tile boundary. Tests may only
   // change it between synchronous public runner calls.
@@ -3395,9 +3462,20 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
         return true;
       };
   const bool use_m32_residual_rms_fusion =
-      residual_rms_m32_schedule.valid();
+      layer_tile == nullptr && residual_rms_m32_schedule.valid();
 
-  if (g_enable_prefill_embedding_prompt_wide_admission) {
+  if (layer_tile != nullptr) {
+    if (!check_cuda(
+            static_cast<int>(cudaMemcpyAsync(
+                views_.hidden[0], layer_tile->input_hidden,
+                token_count * kReferenceHiddenSize * sizeof(std::uint16_t),
+                cudaMemcpyDeviceToDevice,
+                static_cast<cudaStream_t>(stream_))),
+            "prefill_layer_major_stage_input",
+            layer_tile->item.layer_index)) {
+      return fail_prefill_tile(launch_failure);
+    }
+  } else if (g_enable_prefill_embedding_prompt_wide_admission) {
     auto* const device_token_ids =
         reinterpret_cast<std::uint32_t*>(views_.projection[3]);
     if (!check_cuda(
@@ -3429,7 +3507,11 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
     }
   }
 
-  for (std::size_t layer = 0U; layer < kReferenceDecoderLayerCount; ++layer) {
+  const std::size_t first_layer =
+      layer_tile == nullptr ? 0U : layer_tile->item.layer_index;
+  const std::size_t last_layer =
+      layer_tile == nullptr ? kReferenceDecoderLayerCount : first_layer + 1U;
+  for (std::size_t layer = first_layer; layer < last_layer; ++layer) {
     const DecoderLayerWeights& layer_weights = weights_->layer(layer);
     // The M32-prefix plus reference-tail layer-(N-1) MLP boundary already
     // produced layer N's normalized input. Layer 0 still normalizes the
@@ -4215,13 +4297,32 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
   // by the following layer-major tile or by persistent state.
   // The M32-prefix plus reference-tail path folded this norm into the final
   // layer's MLP residual boundary.
-  if (!use_m32_residual_rms_fusion &&
+  const bool completes_final_layer =
+      layer_tile == nullptr ||
+      layer_tile->item.layer_index + 1U == kReferenceDecoderLayerCount;
+  if (!use_m32_residual_rms_fusion && completes_final_layer &&
       !check_cuda(launch_headwise_centered_rms_norm_reference_cuda(
                       views_.hidden[0], weights_->final_norm().data,
                       token_count, kReferenceHiddenSize, kRmsEpsilon,
                       views_.hidden[1], stream_),
                   "prefill_final_norm", kReferenceNoLayer)) {
     return fail_prefill_tile(launch_failure);
+  }
+
+  if (layer_tile != nullptr) {
+    if (!check_cuda(
+            static_cast<int>(cudaMemcpyAsync(
+                layer_tile->output_hidden, views_.hidden[0],
+                token_count * kReferenceHiddenSize * sizeof(std::uint16_t),
+                cudaMemcpyDeviceToDevice,
+                static_cast<cudaStream_t>(stream_))),
+            "prefill_layer_major_publish_output",
+            layer_tile->item.layer_index)) {
+      return fail_prefill_tile(launch_failure);
+    }
+    ReferencePrefillTileOutcome outcome;
+    outcome.value.emplace();
+    return outcome;
   }
 
   const cudaError_t sync_status = cudaStreamSynchronize(stream);
@@ -4289,6 +4390,225 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
   }
   ReferencePrefillTileOutcome outcome;
   outcome.value.emplace(std::move(tile));
+  return outcome;
+}
+
+ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
+    const std::uint32_t* const input_token_ids,
+    const std::size_t token_count,
+    const bool measure_timing) noexcept {
+  using Clock = std::chrono::steady_clock;
+  const Clock::time_point started = Clock::now();
+  retained_prefill_hidden_valid_ = false;
+
+  if (!static_cast<bool>(*this)) {
+    return fail_long_prefill(runner_status(
+        ReferenceRunnerError::kInvalidRunner,
+        "prefill_layer_major_prompt"));
+  }
+  if (poisoned_) {
+    ReferenceLongPrefillOutcome outcome;
+    outcome.status = runner_status(ReferenceRunnerError::kPoisoned,
+                                   "prefill_layer_major_prompt");
+    return outcome;
+  }
+  if (input_token_ids == nullptr || token_count == 0U ||
+      token_count > kLongPrefillLayerMajorMaximumTokens ||
+      token_count > std::numeric_limits<std::uint32_t>::max()) {
+    return fail_long_prefill(runner_status(
+        ReferenceRunnerError::kTokenOutOfRange,
+        "prefill_layer_major_tokens"));
+  }
+  for (std::size_t token = 0U; token < token_count; ++token) {
+    if (input_token_ids[token] >= kReferenceVocabularySize) {
+      return fail_long_prefill(runner_status(
+          ReferenceRunnerError::kTokenOutOfRange,
+          "prefill_layer_major_token"));
+    }
+  }
+
+  const std::uint32_t prompt_token_count =
+      static_cast<std::uint32_t>(token_count);
+  const std::size_t hidden_buffer_count =
+      views_.long_prefill_hidden[0] != nullptr &&
+              views_.long_prefill_hidden[1] != nullptr
+          ? kRequestLongPrefillHiddenBufferCount
+          : 0U;
+  LongPrefillLayerMajorRouteQuery route_query;
+  route_query.runtime_enabled = true;
+  route_query.projection_backend = projection_backend_;
+  route_query.capture_trace = false;
+  route_query.prompt_token_count = prompt_token_count;
+  route_query.prefill_chunk_size = state_->plan().prefill_chunk_size;
+  route_query.hidden_token_capacity =
+      state_->plan().long_prefill_token_capacity;
+  route_query.hidden_buffer_count = hidden_buffer_count;
+  if (state_->current_position() != 0U ||
+      token_count > state_->remaining_capacity() ||
+      select_long_prefill_layer_major_route(route_query) !=
+          LongPrefillLayerMajorRoute::kLayerMajorAdmission) {
+    return fail_long_prefill(runner_status(
+        ReferenceRunnerError::kInvalidStepOptions,
+        "prefill_layer_major_route"));
+  }
+
+  LongPrefillLayerMajorOptions plan_options;
+  plan_options.prompt_token_count = prompt_token_count;
+  plan_options.hidden_token_capacity =
+      state_->plan().long_prefill_token_capacity;
+  plan_options.tile_token_count = kLongPrefillLayerMajorTileTokens;
+  const LongPrefillLayerMajorPlanResult built =
+      build_long_prefill_layer_major_plan(plan_options);
+  if (!built) {
+    return fail_long_prefill(runner_status(
+        ReferenceRunnerError::kInvalidStepOptions,
+        "prefill_layer_major_plan"));
+  }
+
+  struct ExecutionContext {
+    ReferenceRunner* runner = nullptr;
+    const std::uint32_t* input_token_ids = nullptr;
+    ReferenceRunnerStatus failure;
+  } context{this, input_token_ids, {}};
+
+  LongPrefillLayerMajorCallbacks callbacks;
+  callbacks.context = &context;
+  callbacks.prepare_hidden = +[](void* const opaque,
+                                  const std::size_t output_hidden_buffer,
+                                  const std::uint32_t tokens) noexcept {
+    auto& execution = *static_cast<ExecutionContext*>(opaque);
+    ReferenceRunner& runner = *execution.runner;
+    if (output_hidden_buffer >= kRequestLongPrefillHiddenBufferCount ||
+        runner.views_.long_prefill_hidden[output_hidden_buffer] == nullptr ||
+        tokens == 0U) {
+      execution.failure = runner_status(
+          ReferenceRunnerError::kInvalidRequestState,
+          "prefill_layer_major_prepare_hidden");
+      return false;
+    }
+    auto* const device_token_ids =
+        reinterpret_cast<std::uint32_t*>(runner.views_.projection[3]);
+    const auto stream = reinterpret_cast<cudaStream_t>(runner.stream_);
+    for (std::uint32_t first = 0U; first < tokens;
+         first += kLongPrefillLayerMajorTileTokens) {
+      const std::uint32_t remaining = tokens - first;
+      const std::uint32_t tile_tokens =
+          remaining < kLongPrefillLayerMajorTileTokens
+              ? remaining
+              : kLongPrefillLayerMajorTileTokens;
+      cudaError_t status = cudaMemcpyAsync(
+          device_token_ids, execution.input_token_ids + first,
+          static_cast<std::size_t>(tile_tokens) * sizeof(std::uint32_t),
+          cudaMemcpyHostToDevice, stream);
+      if (status == cudaSuccess) {
+        status = static_cast<cudaError_t>(
+            launch_embedding_gather_prompt_reference_cuda(
+                runner.weights_->embed_tokens().weight,
+                kReferenceVocabularySize, kReferenceHiddenSize,
+                device_token_ids, tile_tokens,
+                runner.views_.long_prefill_hidden[output_hidden_buffer] +
+                    static_cast<std::size_t>(first) * kReferenceHiddenSize,
+                runner.stream_));
+      }
+      if (status != cudaSuccess) {
+        execution.failure = runner_status(
+            ReferenceRunnerError::kCudaFailure,
+            "prefill_layer_major_embedding", kReferenceNoLayer,
+            static_cast<int>(status));
+        return false;
+      }
+    }
+    return true;
+  };
+  callbacks.execute_tile = +[](
+                               void* const opaque,
+                               const LongPrefillLayerMajorWorkItem& item)
+      noexcept {
+    auto& execution = *static_cast<ExecutionContext*>(opaque);
+    ReferenceRunner& runner = *execution.runner;
+    const std::size_t element_offset =
+        static_cast<std::size_t>(item.first_position) *
+        kReferenceHiddenSize;
+    LongPrefillLayerTileInvocation invocation;
+    invocation.item = item;
+    invocation.input_hidden =
+        runner.views_.long_prefill_hidden[item.input_hidden_buffer] +
+        element_offset;
+    invocation.output_hidden =
+        runner.views_.long_prefill_hidden[item.output_hidden_buffer] +
+        element_offset;
+    ReferencePrefillTileOutcome outcome =
+        runner.prefill_prefix_tile_impl(
+            execution.input_token_ids + item.first_position,
+            item.token_count, {}, &invocation);
+    if (!outcome) {
+      execution.failure = outcome.status;
+      return false;
+    }
+    return true;
+  };
+  callbacks.finish_prompt = +[](void* const opaque,
+                                 const std::uint32_t sequence_length,
+                                 const std::size_t final_hidden_buffer)
+      noexcept {
+    auto& execution = *static_cast<ExecutionContext*>(opaque);
+    ReferenceRunner& runner = *execution.runner;
+    if (sequence_length == 0U ||
+        final_hidden_buffer >= kRequestLongPrefillHiddenBufferCount ||
+        runner.views_.long_prefill_hidden[final_hidden_buffer] == nullptr) {
+      execution.failure = runner_status(
+          ReferenceRunnerError::kInvalidRequestState,
+          "prefill_layer_major_finish_contract");
+      return false;
+    }
+    const cudaError_t sync_status = cudaStreamSynchronize(
+        reinterpret_cast<cudaStream_t>(runner.stream_));
+    if (sync_status != cudaSuccess) {
+      execution.failure = runner_status(
+          ReferenceRunnerError::kCudaFailure,
+          "prefill_layer_major_synchronize", kReferenceNoLayer,
+          static_cast<int>(sync_status));
+      return false;
+    }
+    const RequestOperationStatus commit =
+        runner.state_->set_sequence_length(sequence_length);
+    if (!commit) {
+      execution.failure = runner_status(
+          ReferenceRunnerError::kStateCommitFailure,
+          "prefill_layer_major_commit", kReferenceNoLayer,
+          commit.cuda_error);
+      return false;
+    }
+    runner.retained_prefill_hidden_valid_ = true;
+    runner.retained_prefill_position_ = sequence_length - 1U;
+    runner.retained_prefill_input_token_ =
+        execution.input_token_ids[sequence_length - 1U];
+    runner.retained_prefill_hidden_row_ =
+        (sequence_length - 1U) % kLongPrefillLayerMajorTileTokens;
+    return true;
+  };
+
+  const LongPrefillLayerMajorExecutionResult executed =
+      run_long_prefill_layer_major(*built.value, callbacks);
+  if (!executed) {
+    if (!context.failure) {
+      context.failure = runner_status(
+          ReferenceRunnerError::kInvalidStepOptions,
+          "prefill_layer_major_execute");
+    }
+    return fail_long_prefill(context.failure);
+  }
+
+  ReferenceLongPrefillResult value;
+  value.first_position = 0U;
+  value.token_count = token_count;
+  if (measure_timing) {
+    const std::chrono::duration<double, std::milli> elapsed =
+        Clock::now() - started;
+    value.timing.emplace(ReferenceStepTiming{elapsed.count()});
+  }
+  ReferenceLongPrefillOutcome outcome;
+  outcome.value.emplace(std::move(value));
   return outcome;
 }
 

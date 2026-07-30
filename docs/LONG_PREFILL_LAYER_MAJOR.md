@@ -1,8 +1,9 @@
 # Long-Prefill layer-major admission
 
-This is a host-only, test-build admission scaffold. It is **not** a production
-route and does not change the existing tile-major runner. It adds no Attention,
-GDN, GEMM, or CUDA kernel and cannot be selected by an ordinary build.
+This is a test-build/runtime-gated real-runner admission. It is **not** the
+default production route and does not change the existing tile-major fallback.
+It adds no Attention, GDN, GEMM, or CUDA kernel and cannot be selected by an
+ordinary build.
 
 The first bounded shape is batch-one `P<=4096`, `C=512`. The request planner
 option `long_prefill_token_capacity` reserves two BF16 `[P,5120]` hidden slabs
@@ -16,15 +17,21 @@ reused by every layer/tile. At P4096 this adds exactly 83,886,080 bytes:
 | Two full hidden slabs | 83,886,080 |
 | Layer-major admission arena | 519,995,392 |
 
-The pure-host executor fills hidden slab 0 once, then emits all prompt tiles of
-layer 0 before any tile of layer 1. A layer reads slab `layer % 2` and writes
-slab `(layer + 1) % 2`. Linear-attention tiles are emitted in increasing global
-position so Conv/GDN recurrent state is updated in sequence. Full-attention
-tiles use the same order, making their K/V append interval identical to their
-global causal positions. The executor itself introduces no per-tile device
-synchronization. Its finish callback publishes the prompt sequence length only
-after all 64 layers have completed, so a real binding must not advance the
-request's global logical position once per layer.
+The runner binding gathers all embeddings into hidden slab 0, then emits all
+prompt tiles of layer 0 before any tile of layer 1. A layer reads slab
+`layer % 2` and writes slab `(layer + 1) % 2`. The existing C512 workspace is
+used as the per-tile staging area, so the initial binding adds one slab-to-C512
+and one C512-to-slab device copy per work item instead of changing any kernel
+ABI. Cross-layer residual/RMS fusion is disabled because its C512 normalized
+scratch cannot survive intervening tiles; the exact unfused kernels are used.
+
+Linear-attention tiles execute in increasing global position so Conv/GDN
+recurrent state is updated in sequence. Full-attention tiles use the same
+order, and their existing projection and Attention APIs receive the explicit
+global `first_position` for K/V and RoPE. There is no successful per-tile
+stream synchronization. The runner synchronizes and publishes the prompt
+sequence length once, after all 64 layers, and retains the final normalized
+row for the existing logits-only finalizer.
 
 Build and run the independent host gate without using a GPU:
 
@@ -33,15 +40,34 @@ cmake -S . -B build/long-prefill-host \
   -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON \
   -DQ3X_BUILD_LONG_PREFILL_LAYER_MAJOR_ADMISSION=ON
 cmake --build build/long-prefill-host \
-  --target q3x_long_prefill_layer_major_plan_test q3x_request_state_plan_test
+  --target qwen3x-eval-server q3x_reference_engine_control_test \
+           q3x_long_prefill_layer_major_plan_test q3x_request_state_plan_test
 ctest --test-dir build/long-prefill-host --output-on-failure \
-  -R 'long_prefill_layer_major_plan|request_state_plan'
+  -R 'reference_engine_control|long_prefill_layer_major_plan|request_state_plan|eval_server_help'
 ```
 
-The device-direction experiment must remain separate. Its first implementation
-should bind the executor callbacks to one real-model runner, compare the
-ordinary tile-major route against layer-major at the same tokenized P4096
-prompt and `max_new_tokens=1`, and require identical final prediction plus
-GDN/KV/position state before timing. Only after this directional run is
-positive should the project add repeated timing, long-context Attention work,
-or raise the 4096-token admission bound toward 40K.
+The build-enabled evaluation server always reserves the bounded slabs when its
+configured C512/max-sequence shape can use them. The environment variable only
+changes request dispatch, so separate invocations of the same binary provide a
+clean route-off/on comparison:
+
+```bash
+# Existing tile-major fallback.
+env -u Q3X_RUN_LONG_PREFILL_LAYER_MAJOR_ADMISSION \
+  build/long-prefill-host/qwen3x-eval-server MODEL_DIR \
+  --prefill-chunk-size 512 --max-sequence-length 4096
+
+# P513..P4096 layer-major candidate.
+Q3X_RUN_LONG_PREFILL_LAYER_MAJOR_ADMISSION=1 \
+  build/long-prefill-host/qwen3x-eval-server MODEL_DIR \
+  --prefill-chunk-size 512 --max-sequence-length 4096
+```
+
+Each successful request log reports `layer_major_prefill=0|1` and the native
+`prompt_prefill_ms`. No GPU execution or real-weight correctness/performance
+claim is part of the host admission commit. The first device-direction run
+must use the same real tokenized P4096 request with `max_new_tokens=1`, compare
+final prediction and persistent Conv/GDN/KV/position state, and only then judge
+timing. A negative direction should be profiled and archived before further
+architecture work; a positive direction graduates to mirrored timing and the
+P1K/P2K/P4K matrix.

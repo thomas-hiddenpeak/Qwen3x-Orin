@@ -1,6 +1,7 @@
 #pragma once
 
 #include "q3x/model/model_config.h"
+#include "q3x/runtime/long_prefill_layer_major.h"
 #include "q3x/runtime/model_weights.h"
 #include "q3x/runtime/request_state.h"
 
@@ -197,6 +198,26 @@ struct ReferencePrefillTileResult {
 
 struct ReferencePrefillTileOutcome {
   std::optional<ReferencePrefillTileResult> value;
+  ReferenceRunnerStatus status;
+
+  [[nodiscard]] bool ok() const noexcept {
+    return value.has_value() && status.ok();
+  }
+  [[nodiscard]] explicit operator bool() const noexcept { return ok(); }
+};
+
+// Whole-prompt layer-major admission result. Unlike the fixed C512 tile
+// transcript above, the runner reports only the committed interval and its
+// aggregate timing; the host generation controller already owns the prompt
+// token ids and materializes their allocation-free step metadata itself.
+struct ReferenceLongPrefillResult {
+  std::uint32_t first_position = 0U;
+  std::size_t token_count = 0U;
+  std::optional<ReferenceStepTiming> timing;
+};
+
+struct ReferenceLongPrefillOutcome {
+  std::optional<ReferenceLongPrefillResult> value;
   ReferenceRunnerStatus status;
 
   [[nodiscard]] bool ok() const noexcept {
@@ -459,6 +480,9 @@ class ReferenceRunner {
   [[nodiscard]] explicit operator bool() const noexcept;
   [[nodiscard]] bool poisoned() const noexcept { return poisoned_; }
   [[nodiscard]] std::uint32_t current_position() const noexcept;
+  [[nodiscard]] ProjectionBackend projection_backend() const noexcept {
+    return projection_backend_;
+  }
 
   [[nodiscard]] ReferenceStepOutcome step(
       std::uint32_t input_token_id,
@@ -516,6 +540,15 @@ class ReferenceRunner {
       const std::uint32_t* input_token_ids, std::size_t token_count,
       const ReferencePrefillTileOptions& options = {}) noexcept;
 
+  // Test-build/runtime-gated P513..P4096 path. Embeddings are gathered once
+  // into the first full hidden slab, then all C512/tail tiles of layer L run
+  // before layer L+1. Existing projection, GDN, and Attention kernel ABIs are
+  // reused with explicit global positions. The prompt owns exactly one
+  // successful stream synchronization and one logical-length commit.
+  [[nodiscard]] ReferenceLongPrefillOutcome prefill_layer_major_prompt(
+      const std::uint32_t* input_token_ids, std::size_t token_count,
+      bool measure_timing = false) noexcept;
+
   // Test-only final-prompt admission boundary. Consumes the retained final
   // normalized hidden row from the immediately preceding marked prefill tile
   // and runs only lm_head/logits analysis. It never gathers an embedding,
@@ -539,6 +572,7 @@ class ReferenceRunner {
 
   struct Views {
     std::uint16_t* hidden[3]{};
+    std::uint16_t* long_prefill_hidden[2]{};
     std::uint16_t* projection[4]{};
     std::uint16_t* linear_a = nullptr;
     std::uint16_t* linear_b = nullptr;
@@ -560,6 +594,18 @@ class ReferenceRunner {
       ReferenceRunnerStatus status) noexcept;
   [[nodiscard]] ReferencePrefillTileOutcome fail_prefill_tile(
       ReferenceRunnerStatus status) noexcept;
+  [[nodiscard]] ReferenceLongPrefillOutcome fail_long_prefill(
+      ReferenceRunnerStatus status) noexcept;
+
+  struct LongPrefillLayerTileInvocation {
+    LongPrefillLayerMajorWorkItem item;
+    const std::uint16_t* input_hidden = nullptr;
+    std::uint16_t* output_hidden = nullptr;
+  };
+  [[nodiscard]] ReferencePrefillTileOutcome prefill_prefix_tile_impl(
+      const std::uint32_t* input_token_ids, std::size_t token_count,
+      const ReferencePrefillTileOptions& options,
+      const LongPrefillLayerTileInvocation* layer_tile) noexcept;
 
   enum class DecodeGraphP1Action : std::uint8_t {
     kDisabled = 0,

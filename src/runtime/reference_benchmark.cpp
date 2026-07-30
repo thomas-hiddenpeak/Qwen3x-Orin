@@ -184,7 +184,9 @@ using reference_benchmark_detail::DeviceMemorySnapshot;
   const std::size_t effective_prefill_chunk_size =
       generation.effective_prefill_chunk_size;
   const std::size_t expected_prefix_execution_count =
-      generation.single_arbitrary_prefill_tiles
+      generation.layer_major_prefill
+          ? 1U
+          : generation.single_arbitrary_prefill_tiles
           ? reference_engine_detail::
                 single_arbitrary_prefix_execution_count(
                     prefix_token_count, effective_prefill_chunk_size)
@@ -332,6 +334,9 @@ std::string generation_mismatch_field(const ReferenceGeneration& expected,
   if (expected.single_arbitrary_prefill_tiles !=
       actual.single_arbitrary_prefill_tiles) {
     return "single_arbitrary_prefill_tiles";
+  }
+  if (expected.layer_major_prefill != actual.layer_major_prefill) {
+    return "layer_major_prefill";
   }
   if (expected.decode_graph_replays != actual.decode_graph_replays) {
     return "decode_graph_replays";
@@ -650,6 +655,8 @@ ReferenceBenchmarkResult run_benchmark_control(
         baselines.front()->all_prompt_tokens_prefilled_by_tiles;
     report.single_arbitrary_prefill_tiles =
         baselines.front()->single_arbitrary_prefill_tiles;
+    report.layer_major_prefill =
+        baselines.front()->layer_major_prefill;
 
     const auto prompt_prefix_stats =
         compute_latency_statistics(all_prompt_prefix);

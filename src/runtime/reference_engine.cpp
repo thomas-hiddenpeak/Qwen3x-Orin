@@ -70,6 +70,16 @@ prefill_single_arbitrary_tile_environment_enabled() noexcept {
   return value != nullptr && std::strcmp(value, "1") == 0;
 }
 
+// Same binary, request-time admission switch for the P<=4096 layer-major
+// runner. The build gate owns code availability and the request arena owns
+// the two full hidden slabs; only the exact value "1" changes dispatch.
+[[nodiscard]] bool
+long_prefill_layer_major_environment_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_LONG_PREFILL_LAYER_MAJOR_ADMISSION");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
 // The fused Marlin Gate/Up epilogue changes the retained sidecar's N ordering,
 // so load-time packing and runner dispatch must use one immutable process-wide
 // selector. The candidate remains absent unless explicitly admitted.
@@ -1148,6 +1158,21 @@ struct EngineStepContext {
   }
   return context.runner->prefill_prefix_tile(input_token_ids, token_count,
                                              options);
+}
+
+[[nodiscard]] ReferenceLongPrefillOutcome prefill_layer_major_prompt(
+    void* const opaque_context,
+    const std::uint32_t* const input_token_ids,
+    const std::size_t token_count,
+    const bool measure_timing) {
+  auto& context = *static_cast<EngineStepContext*>(opaque_context);
+  if (context.capture_trace) {
+    return {{}, {ReferenceRunnerError::kTraceUnavailable, 0,
+                 kReferenceNoLayer,
+                 "engine_layer_major_prefill_trace"}};
+  }
+  return context.runner->prefill_layer_major_prompt(
+      input_token_ids, token_count, measure_timing);
 }
 
 [[nodiscard]] ReferenceStepOutcome finish_prefill_from_retained_tile(
@@ -3761,15 +3786,39 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
     control_options.capture_trace = options.capture_trace;
     control_options.logits_mode = options.logits_mode;
     control_options.emit_nvtx_phase_ranges = options.emit_nvtx_phase_ranges;
+    LongPrefillLayerMajorRouteQuery long_prefill_query;
+    long_prefill_query.runtime_enabled =
+        long_prefill_layer_major_environment_enabled();
+    long_prefill_query.projection_backend =
+        impl_->runner->projection_backend();
+    long_prefill_query.capture_trace = options.capture_trace;
+    long_prefill_query.prompt_token_count =
+        prompt_token_ids.size() <=
+                std::numeric_limits<std::uint32_t>::max()
+            ? static_cast<std::uint32_t>(prompt_token_ids.size())
+            : 0U;
+    long_prefill_query.prefill_chunk_size = options.prefill_chunk_size;
+    long_prefill_query.hidden_token_capacity =
+        impl_->request_state->plan().long_prefill_token_capacity;
+    long_prefill_query.hidden_buffer_count =
+        long_prefill_query.hidden_token_capacity == 0U
+            ? 0U
+            : kRequestLongPrefillHiddenBufferCount;
+    const bool layer_major_prefill =
+        select_long_prefill_layer_major_route(long_prefill_query) ==
+        LongPrefillLayerMajorRoute::kLayerMajorAdmission;
     const bool single_arbitrary_prefill_tile =
-        !options.capture_trace && options.prefill_chunk_size > 1U &&
+        !layer_major_prefill && !options.capture_trace &&
+        options.prefill_chunk_size > 1U &&
         prefill_single_arbitrary_tile_environment_enabled();
     control_options.prefill_all_prompt_tokens =
-        !options.capture_trace && options.prefill_chunk_size > 1U &&
-        (prefill_all_prompt_tokens_environment_enabled() ||
-         single_arbitrary_prefill_tile);
+        layer_major_prefill ||
+        (!options.capture_trace && options.prefill_chunk_size > 1U &&
+         (prefill_all_prompt_tokens_environment_enabled() ||
+          single_arbitrary_prefill_tile));
     control_options.prefill_single_arbitrary_tile =
         single_arbitrary_prefill_tile;
+    control_options.prefill_layer_major_prompt = layer_major_prefill;
 
     EngineTokenObserverContext observer_context;
     if (options.token_observer != nullptr) {
@@ -3789,6 +3838,7 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
     prefill_plan.prefix_tile = prefill_prefix_tile;
     prefill_plan.finish_prefill_from_tile =
         finish_prefill_from_retained_tile;
+    prefill_plan.layer_major_prompt = prefill_layer_major_prompt;
 
     reference_engine_detail::DecodePlan decode_plan;
     decode_plan.context = &step_context;
@@ -3888,6 +3938,8 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
         control_options.prefill_all_prompt_tokens;
     generation.single_arbitrary_prefill_tiles =
         control_options.prefill_single_arbitrary_tile;
+    generation.layer_major_prefill =
+        control_options.prefill_layer_major_prompt;
     generation.timing = std::move(control.value->timing);
     generation.steps = std::move(control.value->steps);
     generation.traces = std::move(traces);

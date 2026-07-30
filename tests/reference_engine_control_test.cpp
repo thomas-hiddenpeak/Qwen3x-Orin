@@ -44,6 +44,7 @@ bool has_consistent_prefill_timing(
 enum class PhaseCall : std::uint8_t {
   kPrefixStep,
   kPrefixTile,
+  kLayerMajorPrompt,
   kFinishPrefill,
   kFinishPrefillFromTile,
   kDecodeStep,
@@ -55,6 +56,7 @@ struct FakeRunner {
   std::vector<runtime::ReferenceStepOptions> options;
   std::vector<std::vector<std::uint32_t>> tile_inputs;
   std::vector<runtime::ReferencePrefillTileOptions> tile_options;
+  std::vector<std::uint32_t> long_prefill_inputs;
   std::vector<PhaseCall> phase_calls;
   std::size_t next_prediction = 0U;
   std::size_t next_position = 0U;
@@ -74,6 +76,10 @@ struct FakeRunner {
   bool tile_wrong_token = false;
   bool tile_add_logits = false;
   double tile_elapsed_milliseconds = 10.0;
+  bool long_prefill_fail = false;
+  bool long_prefill_omit_timing = false;
+  bool long_prefill_wrong_interval = false;
+  double long_prefill_elapsed_milliseconds = 40.0;
 };
 
 struct PhaseContext {
@@ -259,6 +265,34 @@ runtime::ReferencePrefillTileOutcome fake_prefix_tile(
   FakeRunner& fake = *static_cast<PhaseContext*>(context)->runner;
   fake.phase_calls.push_back(PhaseCall::kPrefixTile);
   return fake_prefill_tile(&fake, input_tokens, token_count, options);
+}
+
+runtime::ReferenceLongPrefillOutcome fake_layer_major_prompt(
+    void* const context, const std::uint32_t* const input_tokens,
+    const std::size_t token_count, const bool measure_timing) {
+  FakeRunner& fake = *static_cast<PhaseContext*>(context)->runner;
+  fake.phase_calls.push_back(PhaseCall::kLayerMajorPrompt);
+  fake.long_prefill_inputs.assign(input_tokens,
+                                  input_tokens + token_count);
+  runtime::ReferenceLongPrefillOutcome outcome;
+  if (fake.long_prefill_fail) {
+    outcome.status.error = runtime::ReferenceRunnerError::kPoisoned;
+    outcome.status.layer = 31U;
+    outcome.status.operation = "fake_layer_major_prompt";
+    return outcome;
+  }
+  runtime::ReferenceLongPrefillResult value;
+  value.first_position = static_cast<std::uint32_t>(
+      fake.next_position + (fake.long_prefill_wrong_interval ? 1U : 0U));
+  value.token_count =
+      token_count + (fake.long_prefill_wrong_interval ? 1U : 0U);
+  if (measure_timing && !fake.long_prefill_omit_timing) {
+    value.timing.emplace(runtime::ReferenceStepTiming{
+        fake.long_prefill_elapsed_milliseconds});
+  }
+  fake.next_position += token_count;
+  outcome.value.emplace(std::move(value));
+  return outcome;
 }
 
 detail::GenerationControlOptions options(const std::uint32_t max_new_tokens,
@@ -702,6 +736,128 @@ void test_all_prompt_tile_admission(TestContext& test) {
                   result.error ==
                       detail::GenerationControlError::kInvalidArgument,
               "all-prompt admission rejects incompatible trace capture");
+}
+
+void test_layer_major_prompt_admission(TestContext& test) {
+  const auto run_shape = [&test](
+                             const std::size_t prompt_size,
+                             const runtime::ReferenceLogitsMode logits_mode) {
+    FakeRunner fake;
+    fake.predictions = {runtime::kQwen36ImEndTokenId};
+    PhaseContext context{&fake};
+    detail::PrefillPlan prefill_plan;
+    prefill_plan.context = &context;
+    prefill_plan.prefix_step = fake_prefix_step;
+    prefill_plan.finish_prefill = fake_finish_prefill;
+    prefill_plan.prefix_tile = fake_prefix_tile;
+    prefill_plan.finish_prefill_from_tile =
+        fake_finish_prefill_from_tile;
+    prefill_plan.layer_major_prompt = fake_layer_major_prompt;
+    detail::DecodePlan decode_plan;
+    decode_plan.context = &context;
+    decode_plan.decode_step = fake_decode_step;
+
+    std::vector<std::uint32_t> prompt(prompt_size);
+    for (std::size_t index = 0U; index < prompt.size(); ++index) {
+      prompt[index] = static_cast<std::uint32_t>(3'000U + index);
+    }
+    detail::GenerationControlOptions control_options =
+        options(1U, static_cast<std::uint32_t>(prompt.size()), false,
+                runtime::kLongPrefillLayerMajorTileTokens, logits_mode);
+    control_options.prefill_all_prompt_tokens = true;
+    control_options.prefill_layer_major_prompt = true;
+    const auto result = detail::run_generation_control(
+        prompt, control_options, prefill_plan, decode_plan);
+
+    const bool correct_result_arm =
+        result &&
+        (logits_mode == runtime::ReferenceLogitsMode::kFullStatistics
+             ? result.value->steps.back().logits.has_value() &&
+                   !result.value->steps.back().prediction.has_value()
+             : !result.value->steps.back().logits.has_value() &&
+                   result.value->steps.back().prediction.has_value());
+    test.expect(
+        result && fake.long_prefill_inputs == prompt &&
+            fake.tile_inputs.empty() && fake.inputs.size() == 1U &&
+            fake.inputs.front() == prompt.back() &&
+            fake.next_position == prompt.size() &&
+            fake.phase_calls ==
+                std::vector<PhaseCall>({PhaseCall::kLayerMajorPrompt,
+                                        PhaseCall::kFinishPrefillFromTile}) &&
+            result.value->steps.size() == prompt.size() &&
+            result.value->steps.front().position == 0U &&
+            result.value->steps.back().position == prompt.size() - 1U &&
+            result.value->steps.back().input_token_id == prompt.back() &&
+            result.value->timing.prefix_execution_milliseconds ==
+                std::vector<double>({
+                    fake.long_prefill_elapsed_milliseconds}) &&
+            result.value->timing.finish_prefill_milliseconds == 1.0 &&
+            has_consistent_prefill_timing(result.value->timing) &&
+            correct_result_arm,
+        "layer-major admission submits one whole prompt, materializes its "
+        "ordered transcript, and finalizes the retained last row once");
+  };
+
+  run_shape(513U, runtime::ReferenceLogitsMode::kFullStatistics);
+  run_shape(4'096U, runtime::ReferenceLogitsMode::kPredictedTokenOnly);
+
+  const auto run_invalid = [&test](const bool install_callback,
+                                   const bool all_prompt,
+                                   const bool single_arbitrary,
+                                   const bool capture_trace,
+                                   const std::uint32_t chunk_size,
+                                   const bool fail_callback,
+                                   const bool omit_timing,
+                                   const bool wrong_interval,
+                                   const detail::GenerationControlError
+                                       expected_error) {
+    FakeRunner fake;
+    fake.predictions = {runtime::kQwen36ImEndTokenId};
+    fake.long_prefill_fail = fail_callback;
+    fake.long_prefill_omit_timing = omit_timing;
+    fake.long_prefill_wrong_interval = wrong_interval;
+    PhaseContext context{&fake};
+    detail::PrefillPlan prefill_plan;
+    prefill_plan.context = &context;
+    prefill_plan.prefix_step = fake_prefix_step;
+    prefill_plan.finish_prefill = fake_finish_prefill;
+    prefill_plan.prefix_tile = fake_prefix_tile;
+    prefill_plan.finish_prefill_from_tile =
+        fake_finish_prefill_from_tile;
+    prefill_plan.layer_major_prompt =
+        install_callback ? fake_layer_major_prompt : nullptr;
+    detail::DecodePlan decode_plan;
+    decode_plan.context = &context;
+    decode_plan.decode_step = fake_decode_step;
+    detail::GenerationControlOptions control_options =
+        options(1U, 513U, capture_trace, chunk_size);
+    control_options.prefill_all_prompt_tokens = all_prompt;
+    control_options.prefill_single_arbitrary_tile = single_arbitrary;
+    control_options.prefill_layer_major_prompt = true;
+    const auto result = detail::run_generation_control(
+        std::vector<std::uint32_t>(513U, 7U), control_options,
+        prefill_plan, decode_plan);
+    test.expect(!result && result.error == expected_error,
+                "layer-major admission fails closed on an invalid host "
+                "contract or malformed runner result");
+  };
+
+  run_invalid(false, true, false, false, 512U, false, false, false,
+              detail::GenerationControlError::kInvalidArgument);
+  run_invalid(true, false, false, false, 512U, false, false, false,
+              detail::GenerationControlError::kInvalidArgument);
+  run_invalid(true, true, true, false, 512U, false, false, false,
+              detail::GenerationControlError::kInvalidArgument);
+  run_invalid(true, true, false, true, 512U, false, false, false,
+              detail::GenerationControlError::kInvalidArgument);
+  run_invalid(true, true, false, false, 256U, false, false, false,
+              detail::GenerationControlError::kInvalidArgument);
+  run_invalid(true, true, false, false, 512U, true, false, false,
+              detail::GenerationControlError::kRunnerFailure);
+  run_invalid(true, true, false, false, 512U, false, true, false,
+              detail::GenerationControlError::kMissingTiming);
+  run_invalid(true, true, false, false, 512U, false, false, true,
+              detail::GenerationControlError::kUnexpectedStep);
 }
 
 void test_single_arbitrary_tile_admission(TestContext& test) {
@@ -1536,6 +1692,7 @@ int main() {
   test_prefill_decode_and_stop(test);
   test_explicit_phase_plans(test);
   test_all_prompt_tile_admission(test);
+  test_layer_major_prompt_admission(test);
   test_single_arbitrary_tile_admission(test);
   test_explicit_c512_prefill_schedule(test);
   test_explicit_phase_plan_shape_matrix(test);

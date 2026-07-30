@@ -126,6 +126,7 @@ struct ReferenceBenchmarkReport {
   bool nvtx_phase_ranges_emitted = false;
   bool all_prompt_tokens_prefilled_by_tiles = false;
   bool single_arbitrary_prefill_tiles = false;
+  bool layer_major_prefill = false;
 };
 
 struct ReferenceBenchmarkDiagnostic {
