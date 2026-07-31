@@ -58,6 +58,10 @@ option(Q3X_BUILD_SM87_A4W4_M128_STAGE_MAJOR_ADMISSION
   "Build the test-only M128N256 K128 stage-major Prefill candidate"
   OFF
 )
+option(Q3X_BUILD_SM87_A4W4_DOWN_K128_STAGE_MAJOR_ADMISSION
+  "Build the test-only Down-specific M128N256 shared-K128 route"
+  OFF
+)
 option(Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION
   "Build the calibrated full-model SM87 A4W4 Prefill route"
   ON
@@ -123,6 +127,18 @@ if(Q3X_BUILD_SM87_A4W4_M128_STAGE_MAJOR_ADMISSION AND
    NOT Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION)
   message(FATAL_ERROR
     "Q3X_BUILD_SM87_A4W4_M128_STAGE_MAJOR_ADMISSION requires the established K128 comparison kernel"
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_DOWN_K128_STAGE_MAJOR_ADMISSION AND
+   NOT BUILD_TESTING)
+  message(FATAL_ERROR
+    "Q3X_BUILD_SM87_A4W4_DOWN_K128_STAGE_MAJOR_ADMISSION is test-only and requires BUILD_TESTING=ON"
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_DOWN_K128_STAGE_MAJOR_ADMISSION AND
+   NOT Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION)
+  message(FATAL_ERROR
+    "The Down K128 stage-major admission compares against the existing full-Prefill K128 implementation"
   )
 endif()
 if(Q3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION AND NOT BUILD_TESTING)
@@ -710,6 +726,113 @@ if(BUILD_TESTING)
     )
     add_custom_target(q3x_sm87_a4w4_gateup_ptx_sentinel ALL
       DEPENDS "${_q3x_a4w4_gateup_ptx_stamp}"
+    )
+  endif()
+
+  if(Q3X_BUILD_SM87_A4W4_DOWN_K128_STAGE_MAJOR_ADMISSION)
+    # Isolated Down-shape architecture screen.  The new object is linked only
+    # into its focused tests; runner/engine/production targets cannot select
+    # or even resolve this launch surface.
+    add_library(q3x_test_sm87_a4w4_down_k128_stage_major STATIC
+      src/kernels/sm87/a4w4_down_k128_stage_major.cu
+    )
+    target_compile_features(q3x_test_sm87_a4w4_down_k128_stage_major
+      PUBLIC cxx_std_17 cuda_std_17
+    )
+    target_include_directories(q3x_test_sm87_a4w4_down_k128_stage_major
+      PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    )
+    target_link_libraries(q3x_test_sm87_a4w4_down_k128_stage_major
+      PRIVATE CUDA::cudart
+    )
+    target_compile_options(q3x_test_sm87_a4w4_down_k128_stage_major PRIVATE
+      $<$<COMPILE_LANGUAGE:CUDA>:-Xptxas=-v>
+    )
+    q3x_enable_warnings(q3x_test_sm87_a4w4_down_k128_stage_major)
+
+    add_executable(q3x_sm87_a4w4_down_k128_stage_major_contract_test
+      tests/sm87_a4w4_down_k128_stage_major_contract_test.cpp
+    )
+    target_link_libraries(
+      q3x_sm87_a4w4_down_k128_stage_major_contract_test
+      PRIVATE q3x_test_sm87_a4w4_down_k128_stage_major CUDA::cudart
+    )
+    q3x_enable_warnings(
+      q3x_sm87_a4w4_down_k128_stage_major_contract_test
+    )
+    add_test(NAME sm87_a4w4_down_k128_stage_major_contract
+      COMMAND q3x_sm87_a4w4_down_k128_stage_major_contract_test
+    )
+    set_tests_properties(sm87_a4w4_down_k128_stage_major_contract PROPERTIES
+      LABELS "host;sm87;prefill;down;k128;compile_contract"
+    )
+
+    add_executable(q3x_sm87_a4w4_down_k128_stage_major_correctness_test
+      tests/sm87_a4w4_down_k128_stage_major_correctness_test.cu
+    )
+    target_link_libraries(
+      q3x_sm87_a4w4_down_k128_stage_major_correctness_test
+      PRIVATE
+        q3x_test_sm87_a4w4_down_k128_stage_major
+        q3x::kernels
+        CUDA::cudart
+    )
+    target_compile_options(
+      q3x_sm87_a4w4_down_k128_stage_major_correctness_test PRIVATE
+      $<$<COMPILE_LANGUAGE:CUDA>:-Xptxas=-v>
+    )
+    q3x_enable_warnings(
+      q3x_sm87_a4w4_down_k128_stage_major_correctness_test
+    )
+    add_test(NAME sm87_a4w4_down_k128_stage_major_correctness
+      COMMAND q3x_sm87_a4w4_down_k128_stage_major_correctness_test
+    )
+    set_tests_properties(
+      sm87_a4w4_down_k128_stage_major_correctness PROPERTIES
+      LABELS "cuda;sm87;prefill;down;k128;correctness;synthetic"
+      SKIP_RETURN_CODE 77
+      RESOURCE_LOCK q3x_sm87_gpu
+      TIMEOUT 180
+    )
+
+    set(_q3x_down_k128_ptx_dir
+      "${CMAKE_CURRENT_BINARY_DIR}/sm87_a4w4_down_k128_ptx_sentinel"
+    )
+    set(_q3x_down_k128_ptx
+      "${_q3x_down_k128_ptx_dir}/a4w4_down_k128_stage_major.ptx"
+    )
+    set(_q3x_down_k128_ptx_stamp
+      "${_q3x_down_k128_ptx_dir}/a4w4_down_k128_stage_major.verified"
+    )
+    add_custom_command(
+      OUTPUT "${_q3x_down_k128_ptx}"
+      COMMAND "${CMAKE_COMMAND}" -E make_directory
+              "${_q3x_down_k128_ptx_dir}"
+      COMMAND "${CMAKE_CUDA_COMPILER}"
+              --ptx --std=c++17 --gpu-architecture=compute_87
+              --include-path "${CMAKE_CURRENT_SOURCE_DIR}/include"
+              "${CMAKE_CURRENT_SOURCE_DIR}/src/kernels/sm87/a4w4_down_k128_stage_major.cu"
+              --output-file "${_q3x_down_k128_ptx}"
+      DEPENDS
+        src/kernels/sm87/a4w4_down_k128_stage_major.cu
+        include/q3x/kernels/sm87_a4w4_down_k128_stage_major.h
+        include/q3x/kernels/sm87_a4w4_prefill_primitive.h
+      VERBATIM
+    )
+    add_custom_command(
+      OUTPUT "${_q3x_down_k128_ptx_stamp}"
+      COMMAND "${CMAKE_COMMAND}"
+              "-DQ3X_PTX_FILE=${_q3x_down_k128_ptx}"
+              -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/VerifySm87A4W4GateUpPtx.cmake"
+      COMMAND "${CMAKE_COMMAND}" -E touch
+              "${_q3x_down_k128_ptx_stamp}"
+      DEPENDS
+        "${_q3x_down_k128_ptx}"
+        cmake/VerifySm87A4W4GateUpPtx.cmake
+      VERBATIM
+    )
+    add_custom_target(q3x_sm87_a4w4_down_k128_ptx_sentinel ALL
+      DEPENDS "${_q3x_down_k128_ptx_stamp}"
     )
   endif()
 
