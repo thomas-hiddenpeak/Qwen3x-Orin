@@ -151,6 +151,14 @@ selector, so rejected M128 generic and Down candidates cannot leak into this
 mode. `cumulative-prefill` is an evaluation bundle, not a claim that all three
 mechanisms have been promoted to production defaults.
 
+Use `--mode cumulative-prefill-down` for the next cumulative direction gate.
+It starts from the same three selectors and adds exactly
+`Q3X_RUN_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION=1`.  The complete cell remains
+eligible only for the authenticated K128, fixed Qwen3.6-27B Down shape and an
+internally padded M divisible by 128.  Gate+Up complete-cell, old M128, and
+short-context selectors stay cleared.  This mode records a retained
+experiment; it does not make the Down cell a production default.
+
 Use `--mode cumulative-prefill-short` with the pure-Prefill harness to measure
 the retained short-context direction. It starts from the same three-selector
 `cumulative-prefill` bundle and adds exactly

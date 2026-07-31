@@ -32,6 +32,7 @@ class Fixture:
             "# Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION\n"
             "# Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION\n"
             "# Q3X_RUN_BF16_AB_LARGE_M_PREFILL_ADMISSION\n"
+            "# Q3X_RUN_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION\n"
             "# Q3X_RUN_SHORT_PREFILL_LAYER_MAJOR_ADMISSION\n"
             "exit 0\n",
             encoding="utf-8",
@@ -69,6 +70,7 @@ class Fixture:
         environment["Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION"] = "1"
         environment["Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION"] = "1"
         environment["Q3X_RUN_BF16_AB_LARGE_M_PREFILL_ADMISSION"] = "1"
+        environment["Q3X_RUN_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION"] = "1"
         environment["Q3X_RUN_SHORT_PREFILL_LAYER_MAJOR_ADMISSION"] = "1"
         environment["Q3X_RUN_A4W4_GATEUP_COMPLETE_CELL_V2_ADMISSION"] = "1"
         environment["Q3X_RUN_A4W4_M128_STAGE_MAJOR_ADMISSION"] = "1"
@@ -116,6 +118,9 @@ class PurePrefillEvalScopeHarnessTest(unittest.TestCase):
         )
         self.assertIn(
             "-u Q3X_RUN_BF16_AB_LARGE_M_PREFILL_ADMISSION", result.stdout
+        )
+        self.assertIn(
+            "-u Q3X_RUN_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION", result.stdout
         )
         self.assertIn(
             "-u Q3X_RUN_SHORT_PREFILL_LAYER_MAJOR_ADMISSION", result.stdout
@@ -173,6 +178,45 @@ class PurePrefillEvalScopeHarnessTest(unittest.TestCase):
         self.assertNotIn("Q3X_RUN_A4W4_M128_STAGE_MAJOR_ADMISSION=1", startup)
         self.assertNotIn(
             "Q3X_RUN_A4W4_DOWN_M128_STAGE_MAJOR_ADMISSION=1", startup
+        )
+
+    def test_cumulative_down_mode_adds_only_retained_down_cell(self) -> None:
+        result = self.fixture.run("--mode", "cumulative-prefill-down")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("mode=cumulative-prefill-down", result.stdout)
+        startup = next(
+            line
+            for line in result.stdout.splitlines()
+            if line.startswith("server_startup_command")
+        )
+        self.assertEqual(
+            set(re.findall(r"(Q3X_[A-Z0-9_]+)=1", startup)),
+            {
+                "Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION",
+                "Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION",
+                "Q3X_RUN_BF16_AB_LARGE_M_PREFILL_ADMISSION",
+                "Q3X_RUN_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION",
+            },
+        )
+        self.assertIn("-u Q3X_RUN_A4W4_GATEUP_COMPLETE_CELL_V2_ADMISSION", startup)
+        self.assertIn("-u Q3X_RUN_SHORT_PREFILL_LAYER_MAJOR_ADMISSION", startup)
+        self.assertNotIn("Q3X_RUN_A4W4_GATEUP_COMPLETE_CELL_V2_ADMISSION=1", startup)
+        self.assertNotIn("Q3X_RUN_SHORT_PREFILL_LAYER_MAJOR_ADMISSION=1", startup)
+
+    def test_cumulative_down_requires_compiled_selector(self) -> None:
+        contents = self.fixture.server.read_text(encoding="utf-8")
+        self.fixture.server.write_text(
+            contents.replace(
+                "# Q3X_RUN_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION\n", ""
+            ),
+            encoding="utf-8",
+        )
+        result = self.fixture.run("--mode", "cumulative-prefill-down")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn(
+            "server does not contain the cumulative-prefill-down selector: "
+            "Q3X_RUN_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION",
+            result.stderr,
         )
 
     def test_cumulative_short_mode_adds_short_route_without_cells(self) -> None:
