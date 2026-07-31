@@ -27,11 +27,13 @@ sys.modules[SPEC.name] = GATE
 SPEC.loader.exec_module(GATE)
 
 
-def request_for(prompt: list[int]) -> dict[str, object]:
+def request_for(
+    prompt: list[int], max_tokens: int = 2
+) -> dict[str, object]:
     return {
         "model": "test-model",
         "prompt": prompt,
-        "max_tokens": 2,
+        "max_tokens": max_tokens,
         "temperature": 0.0,
         "seed": 42,
         "stream": True,
@@ -39,7 +41,7 @@ def request_for(prompt: list[int]) -> dict[str, object]:
     }
 
 
-def response_payload(prefix: str) -> str:
+def response_payload(prefix: str, max_tokens: int = 2) -> str:
     messages = [
         {
             "id": "test",
@@ -50,11 +52,13 @@ def response_payload(prefix: str) -> str:
                     "index": 0,
                     "text": prefix,
                     "logprobs": None,
-                    "finish_reason": None,
+                    "finish_reason": "length" if max_tokens == 1 else None,
                 }
             ],
         },
-        {
+    ]
+    if max_tokens == 2:
+        messages.append({
             "id": "test",
             "object": "text_completion",
             "model": "test-model",
@@ -66,8 +70,7 @@ def response_payload(prefix: str) -> str:
                     "finish_reason": "length",
                 }
             ],
-        },
-    ]
+        })
     return base64.b64encode(pickle.dumps(messages)).decode("ascii")
 
 
@@ -75,10 +78,12 @@ def write_json(path: pathlib.Path, value: object) -> None:
     path.write_text(json.dumps(value), encoding="utf-8")
 
 
-def build_manifest(path: pathlib.Path) -> dict[str, object]:
+def build_manifest(
+    path: pathlib.Path, max_tokens: int = 2
+) -> dict[str, object]:
     cases = []
     for ordinal, prompt in enumerate(([100], [101, 102], [103, 104, 105])):
-        request = request_for(list(prompt))
+        request = request_for(list(prompt), max_tokens)
         cases.append(
             {
                 "ordinal": ordinal,
@@ -99,7 +104,7 @@ def build_manifest(path: pathlib.Path) -> dict[str, object]:
         "request_contract": {
             "model": "test-model",
             "endpoint": "/v1/completions",
-            "max_tokens": 2,
+            "max_tokens": max_tokens,
             "temperature": 0.0,
             "seed": 42,
             "stream": True,
@@ -116,6 +121,7 @@ def build_run(
     name: str,
     ttfts: tuple[float, float],
     output_prefixes: tuple[str, str] = ("A", "B"),
+    max_tokens: int = 2,
 ) -> None:
     directory.mkdir(parents=True)
     arguments = {
@@ -129,7 +135,7 @@ def build_run(
         "dataset": "line_by_line",
         "dataset_path": "/tmp/test-corpus.jsonl",
         "data_source": "local",
-        "max_tokens": 2,
+        "max_tokens": max_tokens,
         "temperature": 0.0,
         "seed": 42,
         "stream": True,
@@ -157,20 +163,20 @@ def build_run(
     for index, (prompt, start, ttft, prefix) in enumerate(
         zip(prompts, starts, ttfts, output_prefixes)
     ):
-        tpot = 0.1
+        tpot = 0.0 if max_tokens == 1 else 0.1
         latency = ttft + tpot
         rows.append(
             (
-                json.dumps(request_for(list(prompt))),
+                json.dumps(request_for(list(prompt), max_tokens)),
                 start,
-                json.dumps([tpot]),
+                json.dumps([] if max_tokens == 1 else [tpot]),
                 1,
-                response_payload(prefix),
+                response_payload(prefix, max_tokens),
                 start + latency,
                 latency,
                 ttft,
                 len(prompt),
-                2,
+                max_tokens,
                 0.0,
                 tpot,
                 f"request-{index}",
@@ -182,10 +188,10 @@ def build_run(
     database.commit()
     database.close()
 
-    latencies = [ttft + 0.1 for ttft in ttfts]
+    latencies = [ttft + (0.0 if max_tokens == 1 else 0.1) for ttft in ttfts]
     wall_time = starts[-1] + latencies[-1] - starts[0]
     prompt_tokens = sum(len(prompt) for prompt in prompts)
-    completion_tokens = 4
+    completion_tokens = 2 * max_tokens
     mean_ttft_ms = statistics.fmean(ttfts) * 1000.0
     summary = {
         "Test Duration (s)": wall_time,
@@ -194,10 +200,10 @@ def build_run(
         "Failed Requests": 0,
         "Avg Latency (s)": statistics.fmean(latencies),
         "Avg Input Tokens": prompt_tokens / 2,
-        "Avg Output Tokens": 2.0,
+        "Avg Output Tokens": float(max_tokens),
         "TTFT (ms)": mean_ttft_ms,
-        "TPOT (ms)": 100.0,
-        "ITL (ms)": 100.0,
+        "TPOT (ms)": 0.0 if max_tokens == 1 else 100.0,
+        "ITL (ms)": 0.0 if max_tokens == 1 else 100.0,
         "Total Throughput (tok/s)": (
             prompt_tokens + completion_tokens
         )
@@ -235,17 +241,34 @@ class EvalScopeTripletGateTest(unittest.TestCase):
         candidate_outputs: tuple[str, str] = ("A", "B"),
         allow_output_change: bool = False,
         include_reference: bool = True,
+        max_tokens: int = 2,
+        candidate_tpot_override: float | None = None,
     ) -> tuple[int, dict[str, object]]:
         manifest = root / "manifest.json"
-        build_manifest(manifest)
-        build_run(root / "baseline", "baseline-0", (0.8, 1.2))
+        build_manifest(manifest, max_tokens)
+        build_run(
+            root / "baseline", "baseline-0", (0.8, 1.2),
+            max_tokens=max_tokens,
+        )
         build_run(
             root / "candidate",
             "candidate-1",
             candidate_ttfts,
             candidate_outputs,
+            max_tokens,
         )
-        build_run(root / "reference", "reference-2", (0.4, 0.6))
+        if candidate_tpot_override is not None:
+            database = sqlite3.connect(root / "candidate/benchmark_data.db")
+            database.execute(
+                "UPDATE result SET time_per_output_token = ?",
+                (candidate_tpot_override,),
+            )
+            database.commit()
+            database.close()
+        build_run(
+            root / "reference", "reference-2", (0.4, 0.6),
+            max_tokens=max_tokens,
+        )
         stdout = io.StringIO()
         arguments = [
             "--manifest",
@@ -318,6 +341,35 @@ class EvalScopeTripletGateTest(unittest.TestCase):
         malicious = base64.b64encode(pickle.dumps(eval)).decode("ascii")
         with self.assertRaises(GATE.EvidenceError):
             GATE.decode_response_messages(malicious, "malicious")
+
+    def test_one_token_zero_tpot_and_empty_itl_are_valid(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            status, report = self.run_gate(
+                pathlib.Path(temporary),
+                (0.7, 1.1),
+                max_tokens=1,
+            )
+        self.assertEqual(status, 0)
+        self.assertEqual(
+            report["runs"]["native_candidate"]["metrics"]["mean_tpot_ms"],
+            0.0,
+        )
+        self.assertEqual(
+            report["runs"]["native_candidate"]["metrics"]["mean_itl_ms"],
+            0.0,
+        )
+
+    def test_one_token_nonzero_tpot_is_invalid_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            status, report = self.run_gate(
+                pathlib.Path(temporary),
+                (0.7, 1.1),
+                max_tokens=1,
+                candidate_tpot_override=0.1,
+            )
+        self.assertEqual(status, 1)
+        self.assertEqual(report["decision"]["candidate"], "invalid_evidence")
+        self.assertIn("must have TPOT=0", report["decision"]["reason"])
 
 
 if __name__ == "__main__":

@@ -1,25 +1,118 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -lt 4 || $# -gt 5 ]]; then
-  echo "usage: $0 ELF MODEL_DIR CORPUS_DIR OUTPUT_ROOT [p512|p1k|p2k|p4k]" >&2
-  exit 2
-fi
+usage() {
+  cat >&2 <<'EOF'
+usage: run_native_pure_prefill_matrix.sh \
+  --prefill-a4-payload FILE --prefill-a4-policy FILE \
+  --prefill-a4-receipt FILE [--mode exact|native-gdn] [--dry-run] \
+  ELF MODEL_DIR CORPUS_DIR OUTPUT_ROOT [p512|p1k|p2k|p4k]
+EOF
+}
 
-server=$1
-model_dir=$2
-corpus_dir=$3
-output_root=$4
-only_bucket=${5:-}
+mode=exact
+mode_seen=0
+dry_run=${Q3X_PURE_PREFILL_DRY_RUN:-0}
+prefill_a4_payload=
+prefill_a4_policy=
+prefill_a4_receipt=
+declare -a positional=()
+
+while (($# > 0)); do
+  case "$1" in
+    --prefill-a4-payload|--prefill-a4-policy|--prefill-a4-receipt|--mode)
+      (($# >= 2)) || { echo "missing value for $1" >&2; usage; exit 2; }
+      option=$1
+      value=$2
+      shift 2
+      case "${option}" in
+        --prefill-a4-payload) prefill_a4_payload=${value} ;;
+        --prefill-a4-policy) prefill_a4_policy=${value} ;;
+        --prefill-a4-receipt) prefill_a4_receipt=${value} ;;
+        --mode)
+          ((mode_seen == 0)) || {
+            echo "--mode may be specified only once" >&2
+            exit 2
+          }
+          mode=${value}
+          mode_seen=1
+          ;;
+      esac
+      ;;
+    --dry-run)
+      dry_run=1
+      shift
+      ;;
+    --help|-h)
+      usage
+      exit 0
+      ;;
+    --)
+      shift
+      positional+=("$@")
+      break
+      ;;
+    -*)
+      echo "unknown option: $1" >&2
+      usage
+      exit 2
+      ;;
+    *)
+      positional+=("$1")
+      shift
+      ;;
+  esac
+done
+
+[[ ${#positional[@]} -ge 4 && ${#positional[@]} -le 5 ]] || {
+  usage
+  exit 2
+}
+case "${mode}" in
+  exact|native-gdn) ;;
+  *) echo "--mode must be exact or native-gdn" >&2; exit 2 ;;
+esac
+[[ "${dry_run}" == 0 || "${dry_run}" == 1 ]] || {
+  echo "Q3X_PURE_PREFILL_DRY_RUN must be 0 or 1" >&2
+  exit 2
+}
+
+server=${positional[0]}
+model_dir=${positional[1]}
+corpus_dir=${positional[2]}
+output_root=${positional[3]}
+only_bucket=${positional[4]:-}
 port=${Q3X_EVAL_PORT:-18080}
-server_log="${output_root}.server.log"
 
 [[ -x "${server}" ]] || { echo "missing executable: ${server}" >&2; exit 2; }
 [[ -d "${model_dir}" ]] || { echo "missing model: ${model_dir}" >&2; exit 2; }
+[[ -f "${prefill_a4_payload}" ]] || {
+  echo "missing required Prefill A4 payload: ${prefill_a4_payload:-<unset>}" >&2
+  exit 2
+}
+[[ -f "${prefill_a4_policy}" ]] || {
+  echo "missing required Prefill A4 policy: ${prefill_a4_policy:-<unset>}" >&2
+  exit 2
+}
+[[ -f "${prefill_a4_receipt}" ]] || {
+  echo "missing required Prefill A4 receipt: ${prefill_a4_receipt:-<unset>}" >&2
+  exit 2
+}
 [[ ! -e "${output_root}" ]] || {
   echo "refusing to overwrite output root: ${output_root}" >&2
   exit 2
 }
+[[ "${port}" =~ ^[1-9][0-9]*$ ]] && ((port <= 65535)) || {
+  echo "Q3X_EVAL_PORT must be in [1,65535]" >&2
+  exit 2
+}
+
+if [[ "${mode}" == native-gdn ]] &&
+   ! grep -F 'Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION' \
+       < <(strings -a "${server}") >/dev/null; then
+  echo "server does not contain the native-GDN runtime selector" >&2
+  exit 2
+fi
 
 declare -A corpus_sha=(
   [p512]=ef783790ade41aac3fd91e5c6e8131e2cdf49e1d79508b31aafcd5c700228143
@@ -40,13 +133,64 @@ for bucket in "${buckets[@]}"; do
   corpus="${corpus_dir}/q3x-sharegpt-prefill-${bucket}-5.jsonl"
   [[ -f "${corpus}" ]] || { echo "missing corpus: ${corpus}" >&2; exit 2; }
   actual=$(sha256sum "${corpus}" | awk '{print $1}')
-  [[ "${actual}" == "${corpus_sha[${bucket}]}" ]] || {
+  if [[ "${actual}" != "${corpus_sha[${bucket}]}" && "${dry_run}" == 0 ]]; then
     echo "corpus SHA256 mismatch for ${bucket}: ${actual}" >&2
     exit 2
-  }
+  fi
+  if [[ "${actual}" == "${corpus_sha[${bucket}]}" ]]; then
+    corpus_status=verified
+  else
+    corpus_status=dry-run-unverified
+  fi
+  printf 'pure_prefill_corpus bucket=%s sha256=%s status=%s\n' \
+    "${bucket}" "${actual}" "${corpus_status}"
 done
 
+# Remove inherited experiment selectors generically. The benchmark process gets
+# production defaults plus, for the candidate mode, exactly one explicit GDN
+# selector. Harness-only Q3X_EVAL_* variables are consumed before this point.
+runtime_env=(env)
+sanitized=0
+while IFS= read -r variable; do
+  case "${variable}" in
+    Q3X_RUN_*|Q3X_DISABLE_*|Q3X_GDN_*|Q3X_FULL_ATTENTION_FLASHINFER_DIRECT)
+      runtime_env+=(-u "${variable}")
+      ((sanitized += 1))
+      ;;
+  esac
+done < <(compgen -e)
+runtime_env+=(-u Q3X_DISABLE_OPTIMIZED_PREFILL)
+if [[ "${mode}" == native-gdn ]]; then
+  runtime_env+=(Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION=1)
+fi
+
+server_args=(
+  "${server}" "${model_dir}"
+  --host 127.0.0.1 --port "${port}"
+  --model qwen3.6-27b-nvfp4
+  --max-sequence-length 4096 --max-output-tokens 1
+  --prefill-chunk-size 512 --projection-backend sm87
+  --prefill-a4-payload "${prefill_a4_payload}"
+  --prefill-a4-policy "${prefill_a4_policy}"
+  --prefill-a4-receipt "${prefill_a4_receipt}"
+)
+
+printf 'pure_prefill_matrix mode=%s dry_run=%s sanitized_experiment_env=%s\n' \
+  "${mode}" "${dry_run}" "${sanitized}"
+printf 'server_startup_command'
+printf ' %q' "${runtime_env[@]}" "${server_args[@]}"
+printf '\n'
+printf 'startup_contract required=prefill_a4_authenticated_400_of_400,optimized_prefill_disabled_0\n'
+
+if [[ "${dry_run}" == 1 ]]; then
+  echo "dry_run_complete=1 performance_evidence=0 startup_contract_check=deferred"
+  exit 0
+fi
+
+command -v curl >/dev/null || { echo "curl is required" >&2; exit 2; }
+command -v uvx >/dev/null || { echo "uvx is required" >&2; exit 2; }
 mkdir -p "${output_root}"
+server_log="${output_root}/server.log"
 exec 9>/tmp/q3x-gpu-bench.lock
 flock 9
 
@@ -59,41 +203,19 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-# max_tokens=1 has no Decode step.  Decode-only sidecars and routes are
-# deliberately removed from the inherited environment so this measures the
-# Prefill production candidate without the 6.417-GB Gate/Up Decode duplicate.
-env \
-  -u Q3X_RUN_DECODE_GQA_SPLITKV_ADMISSION \
-  -u Q3X_RUN_DECODE_DOWN_K512_CONSUMER_ORDER_ADMISSION \
-  -u Q3X_RUN_DECODE_GATE_UP_COUPLED_FEED_ADMISSION \
-  Q3X_RUN_PREFILL_ALL_PROMPT_TOKENS_ADMISSION=1 \
-  Q3X_RUN_PREFILL_SINGLE_ARBITRARY_TILE_ADMISSION=1 \
-  Q3X_RUN_NVFP4_MARLIN_PREFILL_ADMISSION=1 \
-  Q3X_RUN_PREFILL_MARLIN_GATE_UP_EPILOGUE_ADMISSION=1 \
-  Q3X_RUN_FP8_MARLIN_PREFILL_ADMISSION=1 \
-  Q3X_RUN_BF16_AB_LARGE_M_PREFILL_ADMISSION=1 \
-  Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION=1 \
-  Q3X_RUN_FULL_ATTENTION_PREPROCESS_PROMPT_WIDE_128_ADMISSION=1 \
-  Q3X_RUN_PREFILL_RESIDUAL_RMS_PROMPT_WIDE_ADMISSION=1 \
-  Q3X_RUN_PREFILL_EMBEDDING_PROMPT_WIDE_ADMISSION=1 \
-  Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION=1 \
-  Q3X_FULL_ATTENTION_FLASHINFER_DIRECT=1 \
-  "${server}" "${model_dir}" \
-    --host 127.0.0.1 --port "${port}" \
-    --model qwen3.6-27b-nvfp4 \
-    --max-sequence-length 4096 --max-output-tokens 1 \
-    --prefill-chunk-size 512 --projection-backend sm87 \
-    >"${server_log}" 2>&1 &
+"${runtime_env[@]}" "${server_args[@]}" >"${server_log}" 2>&1 &
 server_pid=$!
 
 ready=0
-for _ in $(seq 1 300); do
+for _ in $(seq 1 600); do
   if ! kill -0 "${server_pid}" 2>/dev/null; then
     wait "${server_pid}" || true
+    server_pid=
     echo "server exited before readiness; inspect ${server_log}" >&2
     exit 3
   fi
-  if curl -fsS "http://127.0.0.1:${port}/v1/models" >/dev/null 2>&1; then
+  if curl -fsS "http://127.0.0.1:${port}/v1/models" \
+      >"${output_root}/readiness.json" 2>/dev/null; then
     ready=1
     break
   fi
@@ -103,6 +225,23 @@ done
   echo "readiness timeout; inspect ${server_log}" >&2
   exit 4
 }
+if ! grep -Eq \
+    'max_sequence_length=4096 maximum_output_tokens=1 .*prefill_chunk_size=512 readiness_route=/healthz' \
+    "${server_log}"; then
+  echo "server readiness did not echo the pure-Prefill capacity contract" >&2
+  exit 5
+fi
+if ! grep -Eq 'optimized_prefill_disabled=0' "${server_log}"; then
+  echo "server readiness did not prove optimized_prefill_disabled=0" >&2
+  exit 5
+fi
+if ! grep -Eq \
+    'prefill_a4_requested=1 .*prefill_a4_enabled=1 .*prefill_a4_projections=400([[:space:]]|$)' \
+    "${server_log}"; then
+  echo "server readiness did not prove authenticated Prefill A4 400/400" >&2
+  exit 5
+fi
+echo "startup_contract_check=passed prefill_a4_authenticated=400/400 optimized_prefill_disabled=0"
 
 for bucket in "${buckets[@]}"; do
   corpus="${corpus_dir}/q3x-sharegpt-prefill-${bucket}-5.jsonl"
@@ -117,8 +256,8 @@ for bucket in "${buckets[@]}"; do
     --number 4 --parallel 1 --warmup-num 1 --num-workers 1 \
     --max-tokens 1 --temperature 0 --seed 42 \
     --stream --tokenize-prompt --no-test-connection \
-    --outputs-dir "${run_dir}" --name "pure-prefill-${bucket}" --no-timestamp \
-    >"${run_dir}/evalscope.stdout" 2>&1
+    --outputs-dir "${run_dir}" --name "pure-prefill-${bucket}-${mode}" \
+    --no-timestamp >"${run_dir}/evalscope.stdout" 2>&1
   find "${run_dir}" -name benchmark_summary.json -print \
     -exec sed -n '1,220p' {} \;
 done

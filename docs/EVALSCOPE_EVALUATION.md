@@ -33,7 +33,10 @@ build/qwen3x-eval-server MODEL_DIR \
   --host 127.0.0.1 --port 18080 \
   --model qwen3.6-27b-nvfp4 \
   --max-sequence-length 4096 --max-output-tokens 4096 \
-  --prefill-chunk-size 512 --projection-backend sm87
+  --prefill-chunk-size 512 --projection-backend sm87 \
+  --prefill-a4-payload A4_PAYLOAD \
+  --prefill-a4-policy A4_POLICY \
+  --prefill-a4-receipt A4_RECEIPT
 ```
 
 The API is greedy only. Requests must explicitly provide a positive
@@ -105,6 +108,67 @@ counts TTFT from POST start to the first non-empty `choices` event. The native
 gateway emits exactly one such event per committed token, merges finish into
 the last token event, and emits usage separately with `choices: []`; no
 role-only or finish-only event can pollute TTFT or ITL.
+
+## Authenticated pure-Prefill matrix
+
+The length-bucket harness refuses to start without all three authenticated A4
+publication inputs. It passes them to the server explicitly and, after HTTP
+readiness, requires the server log to prove all of the following before an
+EvalScope request is issued:
+
+- `prefill_a4_requested=1`, `prefill_a4_enabled=1`, and
+  `prefill_a4_projections=400` (the engine sets `enabled` only after publication
+  authentication and complete 400-projection attachment);
+- `optimized_prefill_disabled=0`;
+- the requested API capacity contract.
+
+Run the exact-GDN baseline with:
+
+```bash
+tools/evaluation/run_native_pure_prefill_matrix.sh \
+  --prefill-a4-payload A4_PAYLOAD \
+  --prefill-a4-policy A4_POLICY \
+  --prefill-a4-receipt A4_RECEIPT \
+  --mode exact \
+  ELF MODEL_DIR CORPUS_DIR OUTPUT_ROOT p2k
+```
+
+Run the structurally identical native-GDN candidate by changing only
+`--mode native-gdn`. `exact` is the default. The harness removes inherited
+experiment selectors from the server environment; candidate mode adds back
+only `Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION=1`. This prevents an old shell
+session from silently constructing a mixed experimental runtime. The A4,
+native grouped-Q64 attention, and layer-major Prefill production defaults are
+not re-enabled with legacy `Q3X_RUN_*` variables.
+
+`--dry-run` validates required paths and renders the fully quoted startup
+command without starting the server or creating output. Corpus hashes are
+reported as `dry-run-unverified` when a host-only fixture is used; a real run
+still rejects every unpinned corpus. Both pure-Prefill and long-context
+harnesses refuse an output root that already exists, so reruns require a new
+root and cannot overwrite historical evidence.
+
+The one-token workload is a TTFT/Prefill measurement: EvalScope 1.9.1 records
+`TPOT=0`, `ITL=0`, and an empty per-request ITL sequence because there is no
+pair of output tokens. `validate_evalscope_triplet.py` accepts that boundary
+only when the completed request contains exactly one requested token. It still
+rejects an incomplete request, a nonzero one-token TPOT, a nonempty one-token
+ITL sequence, invalid latency, response-chunk mismatch, or summary mismatch.
+
+For the authorized 8K/16K/40K matrix, use the same three A4 options with
+`run_native_long_context_matrix.sh`. A live run no longer depends on a
+FlashInfer marker or environment switch. Its readiness log must instead prove
+the fields the current native runtime actually emits:
+
+- `long_context_group_q64_compiled=1` and
+  `long_context_group_q64_probe_selected=1`;
+- `long_prefill_build_enabled=1`, the requested
+  `long_prefill_hidden_capacity`, and a nonzero
+  `long_prefill_projection_span_capacity`;
+- authenticated A4 400/400 and `optimized_prefill_disabled=0`.
+
+A long-context dry run says that these checks are deferred; it never reports a
+BUILD/RUN admission that it did not observe from a real server readiness log.
 
 ## First external directional result
 
