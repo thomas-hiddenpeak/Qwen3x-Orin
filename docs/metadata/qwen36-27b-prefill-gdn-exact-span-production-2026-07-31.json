@@ -1,0 +1,106 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-gdn-exact-span-production-2026-07-31",
+  "status": "positive_cumulative_baseline_retained_target_not_met",
+  "recorded_at": "2026-07-31T20:05:00+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "implementation_commit": "b03b009",
+    "branch": "codex/a4w4-full-prefill",
+    "run_admission": "Q3X_RUN_LONG_PREFILL_LAYER_MAJOR_ADMISSION=1,Q3X_RUN_GDN_EXACT_SPAN_ADMISSION=1",
+    "production_default_changed": false,
+    "mtp_used": false,
+    "cublas_or_cublaslt_production_path_used": false
+  },
+  "measured_binary": {
+    "path_at_measurement": "/tmp/q3x-a4w4-full-prefill/build-a4w4-full-make/qwen3x-eval-server",
+    "bytes": 9356384,
+    "sha256": "6e22e3576e649dcff2b2d8ffacdf45c602aba1f886126f27c0e66795f37d6e9e",
+    "build_type": "Release",
+    "target_architecture": "sm_87"
+  },
+  "mechanism": {
+    "scope": "whole-M layer-major linear-attention state tiles of exactly C512",
+    "conv": "one exact whole-span causal-conv kernel per layer and C512 tile",
+    "recurrence": "one CTA per value head; two lanes retain a complete BF16 state row and pass one FP32 accumulator after each K8 slice",
+    "numerics": "the K0..K127 FMA order and per-token BF16-RNE state boundary are bit-exact with the retained exact-C16 chain",
+    "epilogue": "existing exact headwise RMSNorm plus SiLU Z gate remains a separate kernel",
+    "fallback": "the existing C16 fused path is unchanged when the explicit run admission is disabled or whole-M selection misses",
+    "p2048_expected_call_change": "48 linear layers times four C512 tiles: exact GDN calls fall from 6144 C16 calls to 192 C512 calls",
+    "new_persistent_allocation_bytes": 0
+  },
+  "resources": {
+    "registers_per_thread": 78,
+    "static_shared_bytes": 1032,
+    "local_or_stack_bytes": 0,
+    "threads_per_block": 256,
+    "active_blocks_per_sm": 3
+  },
+  "real_openai_api_gate": {
+    "authority": "resident real authenticated model, exact token-ID prompts, OpenAI completions, temperature zero, one generated token",
+    "all_requests": "HTTP 200, exact usage, generated text Hello",
+    "measurements": [
+      {
+        "prompt_tokens": 2048,
+        "prompt_prefill_ms": [7175.33, 7172.26],
+        "mean_prompt_prefill_ms": 7173.795,
+        "prompt_throughput_tok_s": 285.483485,
+        "prior_mean_prompt_prefill_ms": 7670.93,
+        "speedup_over_prior": 1.069299,
+        "latency_reduction_percent": 6.480766
+      },
+      {
+        "prompt_tokens": 4096,
+        "prompt_prefill_ms": [17788.3, 17764.2],
+        "mean_prompt_prefill_ms": 17776.25,
+        "prompt_throughput_tok_s": 230.419802,
+        "prior_mean_prompt_prefill_ms": 18738.25,
+        "speedup_over_prior": 1.054117,
+        "latency_reduction_percent": 5.133884
+      }
+    ]
+  },
+  "real_p2048_nsys": {
+    "authority": "interactive collection started after the resident server reported ready; exactly one real P2048 request; startup excluded",
+    "profiled_prompt_prefill_ms": 7199.2,
+    "report": "/tmp/q3x-a4-gdn-exact-span-p2048-real-20260731.nsys-rep",
+    "report_bytes": 765552,
+    "report_sha256": "e612260c15e6cfd662e8c7d9bf8613c40786bb7f2277a23533fc51d5be857614",
+    "sqlite": "/tmp/q3x-a4-gdn-exact-span-p2048-real-20260731.sqlite",
+    "sqlite_bytes": 2289664,
+    "sqlite_sha256": "05733409fdd8bbb63df41adbbd16a688c3b19895602018b8aca50c8d4c20176e",
+    "kernel_totals": {
+      "a4_generic": {"instances": 272, "total_ms": 2015.875712},
+      "a4_paired_gate_up": {"instances": 64, "total_ms": 2045.648064},
+      "gdn_exact_span": {"instances": 192, "total_ms": 1388.287264},
+      "gdn_plain_norm_gate": {"instances": 192, "total_ms": 131.026016},
+      "gdn_whole_span_conv": {"instances": 192, "total_ms": 88.115968},
+      "full_attention_generic_qt2": {"instances": 32, "total_ms": 892.949952},
+      "bf16_a_b_pair": {"instances": 6144, "total_ms": 278.226592},
+      "a4_quantize": {"instances": 192, "total_ms": 92.139392}
+    },
+    "prior_gdn_plus_conv_ms": 2081.489,
+    "candidate_gdn_plus_norm_gate_plus_conv_ms": 1607.429248,
+    "gdn_chain_saved_ms": 474.059752,
+    "gdn_chain_speedup": 1.294918,
+    "finding": "The observed 474.06 ms kernel-chain saving explains nearly all of the 497.14 ms unprofiled P2048 latency reduction, and the exact-span kernel appears exactly 192 times."
+  },
+  "validation": {
+    "component": "C16, C32, and C512 raw output and final state are bitwise equal to the exact-C16 chain",
+    "integrated_component": "C512 convolved QKV, conv history, final GDN state, and normalized gated output are bitwise equal",
+    "independent_integration_review": "no blocker in pointer offsets, state/history continuity, stream order, fallback, or publication",
+    "host_tests": "reference_runner_host, long_prefill_layer_major_plan, and prefill_a4_sidecar_converter pass",
+    "build": "q3x_gdn_prefill_exact_span_component_test and qwen3x-eval-server pass"
+  },
+  "decision": {
+    "retain_as_cumulative_baseline": true,
+    "prefill_target_tokens_per_second": 2000,
+    "target_met": false,
+    "reason": "The exact route is bitwise, profile-confirmed, and repeats a 5.1 to 6.5 percent whole-product latency reduction, but P2048 remains 7.0 times below the first throughput target.",
+    "next_priority": [
+      "combine the already validated native grouped-Q64 long-context attention route with this whole-M A4 baseline",
+      "complete the authenticated K128 sidecar and Generic/GateUp/Down runner vertical path",
+      "then measure P8K through P40K and run the external EvalScope performance gate"
+    ]
+  }
+}
