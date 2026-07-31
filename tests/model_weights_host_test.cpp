@@ -1,7 +1,9 @@
 #include "q3x/runtime/model_weights.h"
 
 #include "q3x/io/safetensors.h"
+#include "q3x/model/checkpoint_metadata.h"
 #include "q3x/model/model_config.h"
+#include "q3x/runtime/prefill_a4_sidecar_converter.h"
 
 #include <algorithm>
 #include <array>
@@ -19,6 +21,8 @@
 
 namespace {
 
+namespace checkpoint = q3x::model::checkpoint;
+namespace model_weights = q3x::model::weights;
 namespace runtime = q3x::runtime;
 namespace st = q3x::io::safetensors;
 
@@ -63,11 +67,13 @@ class SyntheticArena {
       const bool force_fp8_attention_outputs = false,
       const bool force_nvfp4_down_projections = false,
       const bool force_fp8_linear_qkv = false,
-      const bool force_fp8_prefill_supermatrix = false)
+      const bool force_fp8_prefill_supermatrix = false,
+      const bool force_a4_projection_types = false)
       : force_fp8_attention_outputs_(force_fp8_attention_outputs),
         force_nvfp4_down_projections_(force_nvfp4_down_projections),
         force_fp8_linear_qkv_(force_fp8_linear_qkv),
-        force_fp8_prefill_supermatrix_(force_fp8_prefill_supermatrix) {
+        force_fp8_prefill_supermatrix_(force_fp8_prefill_supermatrix),
+        force_a4_projection_types_(force_a4_projection_types) {
     build();
   }
 
@@ -105,6 +111,8 @@ class SyntheticArena {
   [[nodiscard]] std::size_t tensor_count() const noexcept {
     return tensors_.size();
   }
+
+  [[nodiscard]] const auto& tensors() const noexcept { return tensors_; }
 
  private:
   static constexpr std::uintptr_t kBaseAddress = 0x0000010000000000ULL;
@@ -203,14 +211,20 @@ class SyntheticArena {
           {config->hidden_size});
       add(prefix + "post_attention_layernorm.weight", st::DType::kBf16,
           {config->hidden_size});
+      const SyntheticLinearKind gate_kind = next_kind();
+      const SyntheticLinearKind up_kind = next_kind();
       add_linear(prefix + "mlp.gate_proj", config->intermediate_size,
-                 config->hidden_size, next_kind());
+                 config->hidden_size,
+                 force_a4_projection_types_ ? SyntheticLinearKind::kNvFp4
+                                            : gate_kind);
       add_linear(prefix + "mlp.up_proj", config->intermediate_size,
-                 config->hidden_size, next_kind());
+                 config->hidden_size,
+                 force_a4_projection_types_ ? SyntheticLinearKind::kNvFp4
+                                            : up_kind);
       const SyntheticLinearKind down_kind = next_kind();
       add_linear(prefix + "mlp.down_proj", config->hidden_size,
                  config->intermediate_size,
-                 force_nvfp4_down_projections_
+                 force_nvfp4_down_projections_ || force_a4_projection_types_
                      ? SyntheticLinearKind::kNvFp4
                      : down_kind);
 
@@ -218,12 +232,14 @@ class SyntheticArena {
           q3x::model::LayerType::kLinearAttention) {
         add_linear(prefix + "linear_attn.in_proj_qkv",
                    config->linear_qkv_projection_dim(), config->hidden_size,
-                   force_fp8_linear_qkv_ || force_fp8_prefill_supermatrix_
+                   force_fp8_linear_qkv_ || force_fp8_prefill_supermatrix_ ||
+                           force_a4_projection_types_
                        ? SyntheticLinearKind::kFp8
                        : next_kind());
         add_linear(prefix + "linear_attn.in_proj_z",
                    config->linear_value_dim(), config->hidden_size,
-                   force_fp8_prefill_supermatrix_
+                   force_fp8_prefill_supermatrix_ ||
+                           force_a4_projection_types_
                        ? SyntheticLinearKind::kFp8
                        : next_kind());
         add_linear(prefix + "linear_attn.in_proj_a",
@@ -245,30 +261,35 @@ class SyntheticArena {
         add_linear(prefix + "linear_attn.out_proj", config->hidden_size,
                    config->linear_value_dim(),
                    force_fp8_attention_outputs_ ||
-                           force_fp8_prefill_supermatrix_
+                           force_fp8_prefill_supermatrix_ ||
+                           force_a4_projection_types_
                        ? SyntheticLinearKind::kFp8
                        : output_kind);
       } else {
         add_linear(prefix + "self_attn.q_proj", config->q_projection_dim(),
                    config->hidden_size,
-                   force_fp8_prefill_supermatrix_
+                   force_fp8_prefill_supermatrix_ ||
+                           force_a4_projection_types_
                        ? SyntheticLinearKind::kFp8
                        : next_kind());
         add_linear(prefix + "self_attn.k_proj", config->kv_dim(),
                    config->hidden_size,
-                   force_fp8_prefill_supermatrix_
+                   force_fp8_prefill_supermatrix_ ||
+                           force_a4_projection_types_
                        ? SyntheticLinearKind::kFp8
                        : next_kind());
         add_linear(prefix + "self_attn.v_proj", config->kv_dim(),
                    config->hidden_size,
-                   force_fp8_prefill_supermatrix_
+                   force_fp8_prefill_supermatrix_ ||
+                           force_a4_projection_types_
                        ? SyntheticLinearKind::kFp8
                        : next_kind());
         const SyntheticLinearKind output_kind = next_kind();
         add_linear(prefix + "self_attn.o_proj", config->hidden_size,
                    config->q_dim(),
                    force_fp8_attention_outputs_ ||
-                           force_fp8_prefill_supermatrix_
+                           force_fp8_prefill_supermatrix_ ||
+                           force_a4_projection_types_
                        ? SyntheticLinearKind::kFp8
                        : output_kind);
         add(prefix + "self_attn.q_norm.weight", st::DType::kBf16,
@@ -292,7 +313,190 @@ class SyntheticArena {
   bool force_nvfp4_down_projections_ = false;
   bool force_fp8_linear_qkv_ = false;
   bool force_fp8_prefill_supermatrix_ = false;
+  bool force_a4_projection_types_ = false;
 };
+
+struct SyntheticA4ManifestSource {
+  model_weights::WeightManifest manifest;
+  std::vector<runtime::ShardIdentity> shards;
+  bool complete = false;
+};
+
+[[nodiscard]] bool is_a4_projection_component(
+    const std::string_view name) noexcept {
+  constexpr std::array<std::string_view, 10U> kModules = {
+      ".mlp.gate_proj.",       ".mlp.up_proj.",
+      ".mlp.down_proj.",       ".linear_attn.in_proj_qkv.",
+      ".linear_attn.in_proj_z.", ".linear_attn.out_proj.",
+      ".self_attn.q_proj.",    ".self_attn.k_proj.",
+      ".self_attn.v_proj.",    ".self_attn.o_proj."};
+  return std::any_of(kModules.begin(), kModules.end(), [name](const auto part) {
+    return name.find(part) != std::string_view::npos;
+  });
+}
+
+[[nodiscard]] SyntheticA4ManifestSource make_a4_manifest_source(
+    const SyntheticArena& arena) {
+  SyntheticA4ManifestSource source;
+  for (const checkpoint::KnownCheckpointDescriptor& descriptor :
+       checkpoint::known_checkpoint_catalog()) {
+    if (descriptor.model == q3x::model::KnownModel::kQwen36_27B) {
+      source.manifest.checkpoint = descriptor;
+      break;
+    }
+  }
+  source.shards = runtime::pinned_qwen36_27b_shards();
+  std::size_t active_shard = 0U;
+  std::uint64_t next_offset = 4'096U;
+  std::size_t component_count = 0U;
+  for (const auto& [name, view] : arena.tensors()) {
+    if (!is_a4_projection_component(name)) {
+      continue;
+    }
+    next_offset = (next_offset + 255U) & ~255ULL;
+    while (active_shard < source.shards.size() &&
+           (next_offset > source.shards[active_shard].file_size ||
+            view.byte_size >
+                source.shards[active_shard].file_size - next_offset)) {
+      ++active_shard;
+      next_offset = 4'096U;
+    }
+    if (active_shard >= source.shards.size()) {
+      return source;
+    }
+    const runtime::ShardIdentity& shard = source.shards[active_shard];
+    model_weights::TensorLocator locator;
+    locator.category = model_weights::TensorCategory::kText;
+    locator.shard = shard.filename;
+    locator.file = shard.filename;
+    locator.file_begin = next_offset;
+    locator.file_end = next_offset + view.byte_size;
+    locator.byte_size = view.byte_size;
+    locator.dtype = view.dtype;
+    locator.shape = view.shape;
+    source.manifest.tensors.emplace(name, std::move(locator));
+    next_offset += view.byte_size;
+    ++component_count;
+  }
+  source.complete = component_count == 1'392U;
+  return source;
+}
+
+[[nodiscard]] runtime::PrefillA4CalibrationPolicy make_a4_policy(
+    const runtime::PrefillSidecarManifest& manifest) {
+  const bool k128 = manifest.kind == runtime::PrefillSidecarKind::kA4K128;
+  runtime::PrefillA4CalibrationPolicy policy;
+  policy.version_major =
+      k128 ? runtime::kPrefillA4K128CalibrationPolicyVersionMajor
+           : runtime::kPrefillA4CalibrationPolicyVersionMajor;
+  policy.version_minor = 0U;
+  policy.sidecar_kind = manifest.kind;
+  policy.physical_layout =
+      std::string(k128 ? runtime::kPrefillA4K128PhysicalLayout
+                       : runtime::kPrefillA4PhysicalLayout);
+  policy.source_checkpoint_id = manifest.source_checkpoint_id;
+  policy.source_config_sha256 = manifest.source_config_sha256;
+  policy.source_index_sha256 = manifest.source_index_sha256;
+  policy.manifest_sha256 = manifest.manifest_sha256;
+  policy.policy_sha256.assign(64U, k128 ? 'b' : 'a');
+  policy.policy_bytes = 1U;
+  policy.projections.reserve(manifest.projections.size());
+  for (const runtime::PrefillProjectionSidecarEntry& entry :
+       manifest.projections) {
+    runtime::PrefillA4ProjectionCalibration calibration;
+    calibration.ordinal = entry.ordinal;
+    calibration.source_module = entry.source_module;
+    calibration.source_sha256 = entry.source_sha256;
+    calibration.weight_clip_ratio = 1.0;
+    calibration.activation_clip_ratio = 1.0;
+    calibration.activation_scale_group_size = k128 ? 128U : 64U;
+    policy.projections.push_back(std::move(calibration));
+  }
+  return policy;
+}
+
+[[nodiscard]] const runtime::LinearWeight* a4_projection_for(
+    const runtime::ModelWeights& weights,
+    const runtime::PrefillProjectionSidecarEntry& entry) noexcept {
+  if (entry.layer_index >= weights.layers().size()) {
+    return nullptr;
+  }
+  const runtime::DecoderLayerWeights& layer = weights.layer(entry.layer_index);
+  switch (entry.family) {
+    case runtime::PrefillProjectionFamily::kMlpGate:
+      return &layer.mlp.gate_proj;
+    case runtime::PrefillProjectionFamily::kMlpUp:
+      return &layer.mlp.up_proj;
+    case runtime::PrefillProjectionFamily::kMlpDown:
+      return &layer.mlp.down_proj;
+    case runtime::PrefillProjectionFamily::kLinearQkv:
+    case runtime::PrefillProjectionFamily::kLinearZ:
+    case runtime::PrefillProjectionFamily::kLinearO: {
+      const auto* const attention =
+          std::get_if<runtime::LinearAttentionWeights>(&layer.attention);
+      if (attention == nullptr) {
+        return nullptr;
+      }
+      if (entry.family == runtime::PrefillProjectionFamily::kLinearQkv) {
+        return &attention->in_proj_qkv;
+      }
+      return entry.family == runtime::PrefillProjectionFamily::kLinearZ
+                 ? &attention->in_proj_z
+                 : &attention->out_proj;
+    }
+    case runtime::PrefillProjectionFamily::kFullQ:
+    case runtime::PrefillProjectionFamily::kFullK:
+    case runtime::PrefillProjectionFamily::kFullV:
+    case runtime::PrefillProjectionFamily::kFullO: {
+      const auto* const attention =
+          std::get_if<runtime::FullAttentionWeights>(&layer.attention);
+      if (attention == nullptr) {
+        return nullptr;
+      }
+      if (entry.family == runtime::PrefillProjectionFamily::kFullQ) {
+        return &attention->q_proj;
+      }
+      if (entry.family == runtime::PrefillProjectionFamily::kFullK) {
+        return &attention->k_proj;
+      }
+      return entry.family == runtime::PrefillProjectionFamily::kFullV
+                 ? &attention->v_proj
+                 : &attention->o_proj;
+    }
+    case runtime::PrefillProjectionFamily::kCount:
+      return nullptr;
+  }
+  return nullptr;
+}
+
+[[nodiscard]] bool a4_attachments_match(
+    const runtime::ModelWeights& weights,
+    const runtime::PrefillSidecarManifest& manifest,
+    const std::uintptr_t arena_address) noexcept {
+  const bool k128 = manifest.kind == runtime::PrefillSidecarKind::kA4K128;
+  for (const runtime::PrefillProjectionSidecarEntry& entry :
+       manifest.projections) {
+    const runtime::LinearWeight* const binding =
+        a4_projection_for(weights, entry);
+    if (binding == nullptr) {
+      return false;
+    }
+    const runtime::PrefillA4LinearSidecarView view =
+        runtime::prefill_a4_sidecar_view(*binding);
+    if (!view.attached() || view.sidecar_kind != manifest.kind ||
+        view.packed_k_group_size != 64U ||
+        view.scale_group_size != (k128 ? 128U : 64U) ||
+        view.output_size != entry.output_size ||
+        view.input_size != entry.input_size ||
+        reinterpret_cast<std::uintptr_t>(view.weight) !=
+            arena_address + entry.sidecar_offset ||
+        reinterpret_cast<std::uintptr_t>(view.scales) !=
+            arena_address + entry.sidecar_offset + entry.weight_bytes) {
+      return false;
+    }
+  }
+  return true;
+}
 
 [[nodiscard]] runtime::Fp8LinearWeight* mutable_attention_output(
     runtime::ModelWeights& weights, const std::size_t layer_index) {
@@ -1021,6 +1225,121 @@ void test_fp8_prefill_supermatrix_sidecar_attachment(TestContext& test) {
               "canonical empty supermatrix call detaches all 208 views");
 }
 
+void test_prefill_a4_k64_k128_sidecar_attachment(TestContext& test) {
+  SyntheticArena arena(/*force_fp8_attention_outputs=*/false,
+                       /*force_nvfp4_down_projections=*/false,
+                       /*force_fp8_linear_qkv=*/false,
+                       /*force_fp8_prefill_supermatrix=*/false,
+                       /*force_a4_projection_types=*/true);
+  const SyntheticA4ManifestSource source = make_a4_manifest_source(arena);
+  test.expect(source.complete,
+              "synthetic A4 source covers every projection component");
+  if (!source.complete) {
+    return;
+  }
+  runtime::PrefillSidecarManifestOptions k64_options;
+  k64_options.kind = runtime::PrefillSidecarKind::kA4K64;
+  runtime::PrefillSidecarManifestOptions k128_options;
+  k128_options.kind = runtime::PrefillSidecarKind::kA4K128;
+  const runtime::PrefillSidecarManifestResult k64_result =
+      runtime::build_qwen36_27b_prefill_sidecar_manifest(
+          source.manifest, source.shards, k64_options);
+  const runtime::PrefillSidecarManifestResult k128_result =
+      runtime::build_qwen36_27b_prefill_sidecar_manifest(
+          source.manifest, source.shards, k128_options);
+  test.expect(k64_result.ok() && k128_result.ok(),
+              "K64-v1 and K128-v2 A4 manifests build from one source");
+  if (!k64_result || !k128_result) {
+    return;
+  }
+  const runtime::PrefillSidecarManifest& k64_manifest = *k64_result.value;
+  const runtime::PrefillSidecarManifest& k128_manifest = *k128_result.value;
+  const runtime::PrefillA4CalibrationPolicy k64_policy =
+      make_a4_policy(k64_manifest);
+  const runtime::PrefillA4CalibrationPolicy k128_policy =
+      make_a4_policy(k128_manifest);
+
+  runtime::WeightBindResult bound =
+      runtime::bind_qwen36_27b_weights(arena.source());
+  test.expect(bound.ok(), "all-A4 projection target types bind");
+  if (!bound) {
+    return;
+  }
+  runtime::ModelWeights& weights = *bound.value;
+  constexpr std::uintptr_t kK64ArenaAddress = 0x0000080000000000ULL;
+  constexpr std::uintptr_t kK128ArenaAddress = 0x00000c0000000000ULL;
+  const auto* const k64_arena =
+      reinterpret_cast<const std::uint8_t*>(kK64ArenaAddress);
+  const auto* const k128_arena =
+      reinterpret_cast<const std::uint8_t*>(kK128ArenaAddress);
+  const std::size_t k64_bytes =
+      static_cast<std::size_t>(k64_manifest.summary.arena_bytes);
+  const std::size_t k128_bytes =
+      static_cast<std::size_t>(k128_manifest.summary.arena_bytes);
+
+  test.expect(weights.attach_prefill_a4_sidecars(
+                  k64_arena, k64_bytes, &k64_manifest, &k64_policy) &&
+                  a4_attachments_match(weights, k64_manifest,
+                                       kK64ArenaAddress),
+              "complete K64-v1 inventory remains attachable");
+  test.expect(!weights.attach_prefill_a4_sidecars(
+                  k128_arena, k128_bytes, &k128_manifest, &k64_policy) &&
+                  a4_attachments_match(weights, k64_manifest,
+                                       kK64ArenaAddress),
+              "cross-version policy fails closed and preserves K64 views");
+
+  test.expect(weights.attach_prefill_a4_sidecars(
+                  k128_arena, k128_bytes, &k128_manifest, &k128_policy) &&
+                  a4_attachments_match(weights, k128_manifest,
+                                       kK128ArenaAddress),
+              "complete packed-K64/shared-scale-K128-v2 inventory attaches");
+  test.expect(!weights.attach_prefill_a4_sidecars(
+                  k64_arena, k64_bytes, &k64_manifest, &k128_policy) &&
+                  a4_attachments_match(weights, k128_manifest,
+                                       kK128ArenaAddress),
+              "cross-version replacement preserves prior K128 views");
+
+  const runtime::LinearWeight* const first_binding =
+      a4_projection_for(weights, k128_manifest.projections.front());
+  test.expect(first_binding != nullptr,
+              "representative K128 projection binding exists");
+  if (first_binding != nullptr) {
+    runtime::PrefillA4LinearSidecarView invalid =
+        runtime::prefill_a4_sidecar_view(*first_binding);
+    invalid.sidecar_kind = runtime::PrefillSidecarKind::kA4K64;
+    test.expect(!invalid.attached(),
+                "view rejects K64 kind combined with shared K128 scales");
+    invalid = runtime::prefill_a4_sidecar_view(*first_binding);
+    invalid.packed_k_group_size = 128U;
+    test.expect(!invalid.attached(),
+                "view rejects a non-K64 packed-code grouping");
+  }
+
+  test.expect(weights.attach_prefill_a4_sidecars(nullptr, 0U, nullptr,
+                                                  nullptr),
+              "canonical empty A4 call detaches either ABI");
+  bool all_detached = true;
+  for (const runtime::PrefillProjectionSidecarEntry& entry :
+       k128_manifest.projections) {
+    const runtime::LinearWeight* const binding =
+        a4_projection_for(weights, entry);
+    if (binding == nullptr) {
+      all_detached = false;
+      break;
+    }
+    const runtime::PrefillA4LinearSidecarView view =
+        runtime::prefill_a4_sidecar_view(*binding);
+    if (view.attached() || view.weight != nullptr || view.scales != nullptr ||
+        view.sidecar_kind != runtime::PrefillSidecarKind::kExact ||
+        view.packed_k_group_size != 0U || view.scale_group_size != 0U) {
+      all_detached = false;
+      break;
+    }
+  }
+  test.expect(all_detached,
+              "detach clears kind, packed grouping, scale grouping, and views");
+}
+
 void test_nvfp4_down_scale6_sidecar_attachment(TestContext& test) {
   static_assert(runtime::kNvFp4DownScale6Rows == 5'120U);
   static_assert(runtime::kNvFp4DownScale6Columns == 17'408U);
@@ -1710,6 +2029,7 @@ int main() {
   test_fp8_m1_output_projection_sidecar_attachment(test);
   test_fp8_prefill_qkv_register_feed_sidecar_attachment(test);
   test_fp8_prefill_supermatrix_sidecar_attachment(test);
+  test_prefill_a4_k64_k128_sidecar_attachment(test);
   test_nvfp4_down_scale6_sidecar_attachment(test);
   test_projection_pair_eligibility(test);
   test_fp8_qkv_z_projection_pair_eligibility(test);

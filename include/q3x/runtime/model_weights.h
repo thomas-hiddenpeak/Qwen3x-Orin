@@ -1,7 +1,7 @@
 #pragma once
 
 #include "q3x/model/model_config.h"
-#include "q3x/runtime/resident_weights.h"
+#include "q3x/runtime/prefill_quantized_contract.h"
 
 #include <array>
 #include <cstddef>
@@ -13,7 +13,6 @@
 
 namespace q3x::runtime {
 
-struct PrefillSidecarManifest;
 struct PrefillA4CalibrationPolicy;
 
 inline constexpr std::size_t kQwen36DenseLayerCount = 64U;
@@ -184,6 +183,8 @@ struct Fp8LinearWeight {
   const std::uint8_t* prefill_a4_weight = nullptr;
   const std::uint16_t* prefill_a4_scales = nullptr;
   const std::uint8_t* prefill_a4_metadata = nullptr;
+  PrefillSidecarKind prefill_a4_sidecar_kind = PrefillSidecarKind::kExact;
+  std::uint32_t prefill_a4_packed_k_group_size = 0U;
   std::uint32_t prefill_a4_scale_group_size = 0U;
   float prefill_a4_activation_clip_ratio = 0.0F;
 };
@@ -222,6 +223,8 @@ struct NvFp4LinearWeight {
   const std::uint8_t* prefill_a4_weight = nullptr;
   const std::uint16_t* prefill_a4_scales = nullptr;
   const std::uint8_t* prefill_a4_metadata = nullptr;
+  PrefillSidecarKind prefill_a4_sidecar_kind = PrefillSidecarKind::kExact;
+  std::uint32_t prefill_a4_packed_k_group_size = 0U;
   std::uint32_t prefill_a4_scale_group_size = 0U;
   float prefill_a4_activation_clip_ratio = 0.0F;
 };
@@ -235,15 +238,21 @@ struct PrefillA4LinearSidecarView {
   const std::uint8_t* weight = nullptr;
   const std::uint16_t* scales = nullptr;
   const std::uint8_t* metadata = nullptr;
+  PrefillSidecarKind sidecar_kind = PrefillSidecarKind::kExact;
+  std::uint32_t packed_k_group_size = 0U;
   std::uint32_t scale_group_size = 0U;
   float activation_clip_ratio = 0.0F;
   std::size_t output_size = 0U;
   std::size_t input_size = 0U;
 
   [[nodiscard]] bool attached() const noexcept {
-    return weight != nullptr && scales != nullptr &&
-           scale_group_size == 64U && activation_clip_ratio > 0.0F &&
-           activation_clip_ratio <= 1.0F;
+    const bool format_valid =
+        (sidecar_kind == PrefillSidecarKind::kA4K64 &&
+         packed_k_group_size == 64U && scale_group_size == 64U) ||
+        (sidecar_kind == PrefillSidecarKind::kA4K128 &&
+         packed_k_group_size == 64U && scale_group_size == 128U);
+    return weight != nullptr && scales != nullptr && format_valid &&
+           activation_clip_ratio > 0.0F && activation_clip_ratio <= 1.0F;
   }
 };
 
@@ -521,8 +530,9 @@ class ModelWeights {
 
   // Transactionally publishes the complete calibrated 400-projection A4
   // inventory described by manifest. The arena and manifest must represent
-  // the same pinned checkpoint, A4 residency class, offsets, shapes and K64
-  // consumer format. The authenticated policy supplies the per-projection
+  // the same pinned checkpoint, A4 residency class, offsets, shapes and either
+  // the K64-v1 or packed-K64/shared-scale-K128-v2 consumer format. The
+  // authenticated policy supplies the per-projection
   // dynamic-activation clip ratio and must bind the same manifest. Existing
   // exact Prefill sidecars make attachment fail;
   // canonical checkpoint weights and Decode-only sidecars remain untouched.

@@ -3123,28 +3123,6 @@ struct Sm87A4PrefillPreparation final {
     }
     return result;
   }
-  PrefillSidecarManifestOptions manifest_options;
-  manifest_options.kind = PrefillSidecarKind::kA4K64;
-  PrefillSidecarManifestResult built_manifest =
-      build_qwen36_27b_prefill_sidecar_manifest(
-          *source_manifest.value, pinned_qwen36_27b_shards(),
-          manifest_options);
-  if (!built_manifest) {
-    result.message = built_manifest.diagnostic.message;
-    result.context = built_manifest.diagnostic.context;
-    result.dependency_error =
-        static_cast<int>(built_manifest.diagnostic.code);
-    return result;
-  }
-  const PrefillSidecarManifest& manifest = *built_manifest.value;
-  if (manifest.kind != PrefillSidecarKind::kA4K64 ||
-      manifest.residency_class != PrefillSidecarResidencyClass::kA4 ||
-      manifest.projections.size() != kQwen36PrefillProjectionCount) {
-    result.message = "rebuilt sidecar manifest is not the complete A4-K64 ABI";
-    result.context = "prefill_a4.manifest";
-    return result;
-  }
-
   std::string receipt_document;
   int receipt_system_error = 0;
   if (!read_small_regular_file(paths.receipt, 1ULL * 1024ULL * 1024ULL,
@@ -3169,6 +3147,28 @@ struct Sm87A4PrefillPreparation final {
         static_cast<int>(receipt_diagnostic.code);
     return result;
   }
+  PrefillSidecarManifestOptions manifest_options;
+  manifest_options.kind = receipt->sidecar_kind;
+  PrefillSidecarManifestResult built_manifest =
+      build_qwen36_27b_prefill_sidecar_manifest(
+          *source_manifest.value, pinned_qwen36_27b_shards(),
+          manifest_options);
+  if (!built_manifest) {
+    result.message = built_manifest.diagnostic.message;
+    result.context = built_manifest.diagnostic.context;
+    result.dependency_error =
+        static_cast<int>(built_manifest.diagnostic.code);
+    return result;
+  }
+  const PrefillSidecarManifest& manifest = *built_manifest.value;
+  if ((manifest.kind != PrefillSidecarKind::kA4K64 &&
+       manifest.kind != PrefillSidecarKind::kA4K128) ||
+      manifest.residency_class != PrefillSidecarResidencyClass::kA4 ||
+      manifest.projections.size() != kQwen36PrefillProjectionCount) {
+    result.message = "rebuilt sidecar manifest is not a complete A4 ABI";
+    result.context = "prefill_a4.manifest";
+    return result;
+  }
   PrefillA4PublicationAuthenticationResult authenticated =
       authenticate_prefill_a4_publication_for_residency(
           manifest, *receipt, paths.payload, paths.policy);
@@ -3183,14 +3183,22 @@ struct Sm87A4PrefillPreparation final {
   }
   PrefillA4AuthenticatedPublication publication =
       std::move(*authenticated.value);
-  if (publication.receipt().physical_layout != kPrefillA4PhysicalLayout ||
-      publication.policy().physical_layout != kPrefillA4PhysicalLayout ||
-      publication.policy().sidecar_kind != PrefillSidecarKind::kA4K64 ||
+  const bool k64_v1 = manifest.kind == PrefillSidecarKind::kA4K64;
+  const std::string_view expected_layout =
+      k64_v1 ? kPrefillA4PhysicalLayout : kPrefillA4K128PhysicalLayout;
+  const std::uint32_t expected_scale_group = k64_v1 ? 64U : 128U;
+  if (publication.receipt().sidecar_kind != manifest.kind ||
+      publication.receipt().packed_k_group_size != 64U ||
+      publication.receipt().scale_group_size != expected_scale_group ||
+      publication.receipt().physical_layout != expected_layout ||
+      publication.policy().physical_layout != expected_layout ||
+      publication.policy().sidecar_kind != manifest.kind ||
       publication.receipt().payload_bytes != manifest.summary.arena_bytes ||
       publication.receipt().payload_bytes == 0U ||
       publication.receipt().payload_bytes >
           std::numeric_limits<std::size_t>::max()) {
-    result.message = "authenticated publication is not the K64 consumer ABI";
+    result.message =
+        "authenticated publication does not match its selected A4 consumer ABI";
     result.context = "prefill_a4.publication";
     return result;
   }
