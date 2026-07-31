@@ -34,7 +34,21 @@
 #include <utility>
 #include <vector>
 
+#if defined(Q3X_ENABLE_EVAL_SERVER_CUDA_PROFILER_RANGE)
+#include <cuda_profiler_api.h>
+#include <cuda_runtime_api.h>
+#endif
+
 namespace q3x::server {
+
+bool evaluation_server_request_profiling_compiled() noexcept {
+#if defined(Q3X_ENABLE_EVAL_SERVER_CUDA_PROFILER_RANGE)
+  return true;
+#else
+  return false;
+#endif
+}
+
 namespace {
 
 using Clock = std::chrono::steady_clock;
@@ -46,6 +60,82 @@ inline constexpr std::size_t kMaximumBodyBytes = 4U * 1024U * 1024U;
 // ingress thread and inject read-timeout-sized latency into concurrent evals.
 inline constexpr std::size_t kMaximumRequestsPerConnection = 1U;
 inline constexpr std::size_t kMaximumAcceptsPerPoll = 64U;
+
+#if defined(Q3X_ENABLE_EVAL_SERVER_CUDA_PROFILER_RANGE)
+class RequestProfilerRange final {
+ public:
+  RequestProfilerRange(const bool selected,
+                       const std::uint64_t request_index) noexcept
+      : selected_(selected), request_index_(request_index) {}
+
+  RequestProfilerRange(const RequestProfilerRange&) = delete;
+  RequestProfilerRange& operator=(const RequestProfilerRange&) = delete;
+
+  ~RequestProfilerRange() noexcept {
+    if (active_) {
+      const cudaError_t status = cudaProfilerStop();
+      if (status != cudaSuccess) {
+        std::cerr << "CUDA profiler emergency stop failed for completion "
+                  << request_index_ << ": " << cudaGetErrorString(status)
+                  << '\n';
+      }
+    }
+  }
+
+  [[nodiscard]] bool start(std::string& error) {
+    if (!selected_) {
+      return true;
+    }
+    const cudaError_t synchronize_status = cudaDeviceSynchronize();
+    if (synchronize_status != cudaSuccess) {
+      error = "pre-range cudaDeviceSynchronize failed: " +
+              std::string(cudaGetErrorString(synchronize_status));
+      return false;
+    }
+    const cudaError_t status = cudaProfilerStart();
+    if (status != cudaSuccess) {
+      error = "cudaProfilerStart failed: " +
+              std::string(cudaGetErrorString(status));
+      return false;
+    }
+    active_ = true;
+    std::cout << "CUDA profiler range started for /v1/completions request "
+              << request_index_ << '\n';
+    return true;
+  }
+
+  [[nodiscard]] bool synchronize_and_stop(std::string& error) {
+    if (!active_) {
+      return true;
+    }
+    const cudaError_t synchronize_status = cudaDeviceSynchronize();
+    const cudaError_t stop_status = cudaProfilerStop();
+    active_ = false;
+    if (synchronize_status != cudaSuccess || stop_status != cudaSuccess) {
+      if (synchronize_status != cudaSuccess) {
+        error = "cudaDeviceSynchronize failed: " +
+                std::string(cudaGetErrorString(synchronize_status));
+      }
+      if (stop_status != cudaSuccess) {
+        if (!error.empty()) {
+          error += "; ";
+        }
+        error += "cudaProfilerStop failed: " +
+                 std::string(cudaGetErrorString(stop_status));
+      }
+      return false;
+    }
+    std::cout << "CUDA profiler range stopped for /v1/completions request "
+              << request_index_ << '\n';
+    return true;
+  }
+
+ private:
+  bool selected_ = false;
+  bool active_ = false;
+  std::uint64_t request_index_ = 0U;
+};
+#endif
 
 class UniqueFd final {
  public:
@@ -749,7 +839,12 @@ void publish_job_error(const std::shared_ptr<InferenceJob>& job,
 void execute_job(runtime::ReferenceEngine& engine,
                  const std::shared_ptr<InferenceJob>& job,
                  const EvaluationServerOptions& options,
-                 const std::atomic<bool>& stopping) {
+                 const std::atomic<bool>& stopping
+#if defined(Q3X_ENABLE_EVAL_SERVER_CUDA_PROFILER_RANGE)
+                 , std::uint64_t& completion_request_index,
+                 bool& profile_request_consumed
+#endif
+) {
   if (job->cancelled.load(std::memory_order_relaxed) ||
       stopping.load(std::memory_order_relaxed)) {
     publish_job_error(job,
@@ -758,6 +853,23 @@ void execute_job(runtime::ReferenceEngine& engine,
                       stopping);
     return;
   }
+
+#if defined(Q3X_ENABLE_EVAL_SERVER_CUDA_PROFILER_RANGE)
+  std::uint64_t this_completion_request_index = 0U;
+  if (job->request.endpoint == OpenAIEndpoint::kCompletions) {
+    if (completion_request_index !=
+        std::numeric_limits<std::uint64_t>::max()) {
+      ++completion_request_index;
+    }
+    this_completion_request_index = completion_request_index;
+  }
+  const bool profile_this_request =
+      !profile_request_consumed && this_completion_request_index != 0U &&
+      options.profile_request_index == this_completion_request_index;
+  if (profile_this_request) {
+    profile_request_consumed = true;
+  }
+#endif
 
   ObserverContext observer;
   observer.job = job;
@@ -770,6 +882,24 @@ void execute_job(runtime::ReferenceEngine& engine,
       runtime::ReferenceLogitsMode::kPredictedTokenOnly;
   generate_options.token_observer = observe_gateway_token;
   generate_options.token_observer_context = &observer;
+
+#if defined(Q3X_ENABLE_EVAL_SERVER_CUDA_PROFILER_RANGE)
+  RequestProfilerRange profiler_range(profile_this_request,
+                                      this_completion_request_index);
+  std::string profiler_error;
+  if (!profiler_range.start(profiler_error)) {
+    std::cerr << "evaluation request " << job->id
+              << " could not start diagnostic profiler range: "
+              << profiler_error << '\n';
+    publish_job_error(
+        job,
+        simple_error(500, "profiler_error",
+                     "CUDA profiler range could not be started; inspect "
+                     "server logs"),
+        stopping);
+    return;
+  }
+#endif
 
   runtime::ReferenceGenerateResult generated;
   switch (job->request.prompt_kind) {
@@ -786,6 +916,21 @@ void execute_job(runtime::ReferenceEngine& engine,
           job->request.prompt_token_ids, generate_options);
       break;
   }
+
+#if defined(Q3X_ENABLE_EVAL_SERVER_CUDA_PROFILER_RANGE)
+  if (!profiler_range.synchronize_and_stop(profiler_error)) {
+    std::cerr << "evaluation request " << job->id
+              << " could not finish diagnostic profiler range: "
+              << profiler_error << '\n';
+    publish_job_error(
+        job,
+        simple_error(500, "profiler_error",
+                     "CUDA profiler range could not be completed; inspect "
+                     "server logs"),
+        stopping);
+    return;
+  }
+#endif
 
   if (observer.protocol_failure) {
     publish_job_error(
@@ -889,10 +1034,23 @@ void inference_worker(runtime::ReferenceEngine& engine,
                       BoundedQueue<std::shared_ptr<InferenceJob>>& queue,
                       const EvaluationServerOptions& options,
                       const std::atomic<bool>& stopping) {
+#if defined(Q3X_ENABLE_EVAL_SERVER_CUDA_PROFILER_RANGE)
+  // This counter lives exclusively in the sole inference worker. Its order is
+  // exactly worker dequeue/execution order, which is the only total inference
+  // order under concurrent ingress. Health checks, chat requests, parse
+  // failures, cancelled-before-execution jobs, and queue rejections do not
+  // consume an index.
+  std::uint64_t completion_request_index = 0U;
+  bool profile_request_consumed = false;
+#endif
   std::shared_ptr<InferenceJob> job;
   while (queue.pop(job)) {
     try {
-      execute_job(engine, job, options, stopping);
+      execute_job(engine, job, options, stopping
+#if defined(Q3X_ENABLE_EVAL_SERVER_CUDA_PROFILER_RANGE)
+                  , completion_request_index, profile_request_consumed
+#endif
+      );
     } catch (const std::exception& error) {
       std::cerr << "evaluation request " << job->id
                 << " raised an unexpected exception: " << error.what()
@@ -1287,6 +1445,12 @@ void ingress_worker(
     error = "A4 Prefill requires the SM87 backend and a 512-token chunk";
     return false;
   }
+  if (options.profile_request_index != 0U &&
+      !evaluation_server_request_profiling_compiled()) {
+    error = "CUDA request profiling requires a BUILD_TESTING evaluation "
+            "server build";
+    return false;
+  }
   return true;
 }
 
@@ -1411,6 +1575,10 @@ int run_evaluation_server(const EvaluationServerOptions& options,
             << " request_max_arena_bytes="
             << options.request_max_arena_bytes
             << " prefill_chunk_size=" << options.prefill_chunk_size
+            << " profile_request_index="
+            << options.profile_request_index
+            << " request_profiling_compiled="
+            << (evaluation_server_request_profiling_compiled() ? 1 : 0)
             << " readiness_route=/healthz"
             << " long_context_group_q64_compiled="
             << (runtime::

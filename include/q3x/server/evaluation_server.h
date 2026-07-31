@@ -35,9 +35,18 @@ struct EvaluationServerOptions {
       2ULL * 1024ULL * 1024ULL * 1024ULL;
   std::uint64_t request_min_free_bytes_after_create =
       8ULL * 1024ULL * 1024ULL * 1024ULL;
+  // Diagnostic-only, 1-based index among /v1/completions jobs dequeued by
+  // the single inference worker. Zero leaves profiler APIs and synchronization
+  // entirely outside the request path.
+  std::uint64_t profile_request_index = 0U;
   runtime::ProjectionBackend projection_backend =
       runtime::ProjectionBackend::kSm87WeightOnly;
 };
+
+// True only for BUILD_TESTING builds that explicitly link the CUDA profiler
+// API into the evaluation gateway. Non-testing builds reject a nonzero
+// profile_request_index before loading the model.
+[[nodiscard]] bool evaluation_server_request_profiling_compiled() noexcept;
 
 // Loads one resident model, starts a bounded HTTP ingress and exactly one
 // inference worker, and blocks until stop_requested becomes true or a fatal

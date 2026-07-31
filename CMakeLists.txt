@@ -423,6 +423,7 @@ q3x_enable_warnings(q3x_engine)
 # fallback path.
 add_library(q3x_eval_gateway STATIC
   src/server/openai_protocol.cpp
+  src/server/evaluation_server_cli.cpp
   src/server/evaluation_server.cpp
 )
 target_compile_features(q3x_eval_gateway PUBLIC cxx_std_17)
@@ -435,6 +436,15 @@ target_link_libraries(q3x_eval_gateway
   PUBLIC q3x::engine
   PRIVATE q3x::core Threads::Threads
 )
+if(BUILD_TESTING)
+  # Request-scoped CUDA profiler ranges are diagnostic infrastructure only.
+  # Keeping both the implementation define and direct cudart link under
+  # BUILD_TESTING prevents it from becoming an implicit production feature.
+  target_compile_definitions(q3x_eval_gateway PRIVATE
+    Q3X_ENABLE_EVAL_SERVER_CUDA_PROFILER_RANGE=1
+  )
+  target_link_libraries(q3x_eval_gateway PRIVATE CUDA::cudart)
+endif()
 q3x_enable_warnings(q3x_eval_gateway)
 
 add_executable(qwen3x-eval-server src/eval_server_main.cpp)
@@ -1637,6 +1647,20 @@ if(BUILD_TESTING)
   )
   q3x_enable_warnings(q3x_openai_protocol_test)
   add_test(NAME openai_protocol COMMAND q3x_openai_protocol_test)
+
+  add_executable(q3x_evaluation_server_cli_test
+    tests/evaluation_server_cli_test.cpp
+  )
+  target_link_libraries(q3x_evaluation_server_cli_test
+    PRIVATE q3x_eval_gateway
+  )
+  q3x_enable_warnings(q3x_evaluation_server_cli_test)
+  add_test(NAME evaluation_server_cli
+    COMMAND q3x_evaluation_server_cli_test
+  )
+  set_tests_properties(evaluation_server_cli PROPERTIES
+    LABELS "host;server;profiling;compile_contract"
+  )
   add_test(NAME eval_server_help COMMAND qwen3x-eval-server --help)
 
   add_executable(q3x_reference_benchmark_control_test
