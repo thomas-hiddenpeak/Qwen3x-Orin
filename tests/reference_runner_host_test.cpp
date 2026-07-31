@@ -1426,14 +1426,54 @@ void test_a4w4_full_prefill_admission_controls(TestContext& test) {
           detail::a4w4_prefill_consumer_supports_token_count(k128, 4'096U) &&
           detail::a4w4_prefill_consumer_supports_token_count(k128, 40'000U),
       "K128 dispatch admits only complete M64 spans including P40000");
+  test.expect(
+      !detail::a4w4_m128_stage_major_common_route(false, k128, 2'048U) &&
+          !detail::a4w4_m128_stage_major_common_route(true, k64, 2'048U) &&
+          !detail::a4w4_m128_stage_major_common_route(
+              true, Consumer::kUnavailable, 2'048U) &&
+          !detail::a4w4_m128_stage_major_common_route(true, k128, 0U) &&
+          !detail::a4w4_m128_stage_major_common_route(true, k128, 64U) &&
+          detail::a4w4_m128_stage_major_common_route(true, k128, 128U) &&
+          detail::a4w4_m128_stage_major_common_route(true, k128, 2'048U) &&
+          !detail::a4w4_m128_stage_major_common_route(
+              true, k128, 40'000U) &&
+          detail::a4w4_m128_stage_major_common_route(
+              true, k128, 40'960U),
+      "M128 selector requires explicit admission, uniform K128 inventory, "
+      "and complete M128 spans");
+  using GenericRoute = detail::A4W4K128GenericPrefillRoute;
+  test.expect(
+      detail::select_a4w4_k128_generic_prefill_route(
+          true, k128, 2'048U, runtime::kReferenceHiddenSize,
+          runtime::kReferenceIntermediateSize) == GenericRoute::kBaseline &&
+          detail::select_a4w4_k128_generic_prefill_route(
+              true, k128, 2'048U, 10'240U,
+              runtime::kReferenceHiddenSize) ==
+              GenericRoute::kM128StageMajor &&
+          detail::select_a4w4_k128_generic_prefill_route(
+              false, k128, 2'048U, 10'240U,
+              runtime::kReferenceHiddenSize) == GenericRoute::kBaseline &&
+          detail::select_a4w4_k128_generic_prefill_route(
+              true, k64, 2'048U, 10'240U,
+              runtime::kReferenceHiddenSize) == GenericRoute::kBaseline &&
+          detail::select_a4w4_k128_generic_prefill_route(
+              true, k128, 2'048U, 1'024U, 5'121U) ==
+              GenericRoute::kBaseline,
+      "shape-aware M128 generic selector reserves Down and rejects invalid "
+      "N/K shapes");
 
   const bool prior_enabled =
       detail::exchange_a4w4_full_prefill_admission_test_enabled(true);
   const bool admission_is_compiled =
       detail::exchange_a4w4_full_prefill_admission_test_enabled(
           prior_enabled);
+  const bool prior_m128_enabled =
+      detail::exchange_a4w4_m128_stage_major_admission_test_enabled(true);
+  const bool m128_admission_is_compiled =
+      detail::exchange_a4w4_m128_stage_major_admission_test_enabled(
+          prior_m128_enabled);
   const detail::A4W4FullPrefillAdmissionHits fixture{
-      192U, 272U, 64U, 400U, 1U};
+      192U, 272U, 64U, 400U, 1U, 208U, 64U};
   const detail::A4W4FullPrefillAdmissionHits prior_hits =
       detail::exchange_a4w4_full_prefill_admission_test_hits(fixture);
   const detail::A4W4FullPrefillAdmissionHits observed =
@@ -1443,14 +1483,21 @@ void test_a4w4_full_prefill_admission_controls(TestContext& test) {
                     observed.generic_projection_hits == 272U &&
                     observed.paired_gate_up_hits == 64U &&
                     observed.logical_projection_hits == 400U &&
-                    observed.complete_model_tile_hits == 1U,
+                    observed.complete_model_tile_hits == 1U &&
+                    observed.m128_stage_major_generic_projection_hits ==
+                        208U &&
+                    observed.m128_stage_major_paired_gate_up_hits == 64U &&
+                    m128_admission_is_compiled,
                 "compiled A4W4 admission preserves all route counters");
   } else {
     test.expect(observed.activation_quantize_hits == 0U &&
                     observed.generic_projection_hits == 0U &&
                     observed.paired_gate_up_hits == 0U &&
                     observed.logical_projection_hits == 0U &&
-                    observed.complete_model_tile_hits == 0U,
+                    observed.complete_model_tile_hits == 0U &&
+                    observed.m128_stage_major_generic_projection_hits == 0U &&
+                    observed.m128_stage_major_paired_gate_up_hits == 0U &&
+                    !m128_admission_is_compiled,
                 "ordinary build exposes inert A4W4 admission controls");
   }
 }

@@ -370,13 +370,13 @@ struct ProjectionCase final {
 }
 
 [[nodiscard]] bool run_paired_case(const std::size_t m_count,
+                                   const std::size_t n_count,
+                                   const std::size_t k_count,
                                    const bool cpu_reference) {
-  constexpr std::size_t n_count = 128U;
-  constexpr std::size_t k_count = 128U;
-  constexpr std::size_t physical_groups = 2U;
-  constexpr std::size_t k128_groups = 1U;
-  constexpr std::size_t output_physical_groups = 2U;
-  constexpr std::size_t output_k128_groups = 1U;
+  const std::size_t physical_groups = k_count / 64U;
+  const std::size_t k128_groups = k_count / 128U;
+  const std::size_t output_physical_groups = n_count / 64U;
+  const std::size_t output_k128_groups = n_count / 128U;
   constexpr std::size_t packed_guard_bytes = 64U;
   constexpr std::size_t scale_guard_elements = 32U;
   constexpr float output_clip_ratio = 0.9375F;
@@ -385,9 +385,9 @@ struct ProjectionCase final {
   const std::size_t a_scale_elements =
       kernels::sm87_a4w4_consumer_k128_scale_capacity_elements(m_count,
                                                                 k_count);
-  constexpr std::size_t b_bytes =
+  const std::size_t b_bytes =
       kernels::sm87_a4w4_consumer_packed_capacity_bytes(n_count, k_count);
-  constexpr std::size_t b_scale_elements =
+  const std::size_t b_scale_elements =
       kernels::sm87_a4w4_consumer_k128_scale_capacity_elements(n_count,
                                                                 k_count);
   const std::size_t output_bytes =
@@ -651,7 +651,7 @@ struct ProjectionCase final {
     }
   }
 
-  if (m_count == 128U) {
+  if (m_count == 128U && n_count == 128U && k_count == 128U) {
     const int short_scale =
         kernels::launch_sm87_a4w4_m128_stage_major_paired_cuda(
             device_a.get(), a_bytes, device_a_scales.get(),
@@ -760,8 +760,12 @@ int main() {
 
   if (!run_projection_case({128U, 256U, 256U, 272U}, true) ||
       !run_projection_case({2'048U, 256U, 128U, 272U}, false) ||
-      !run_paired_case(128U, true) ||
-      !run_paired_case(2'048U, false)) {
+      !run_projection_case({128U, 256U, 5'120U, 272U}, false) ||
+      !run_projection_case({128U, 1'024U, 128U, 1'040U}, false) ||
+      !run_paired_case(128U, 128U, 128U, true) ||
+      !run_paired_case(2'048U, 128U, 128U, false) ||
+      !run_paired_case(128U, 128U, 5'120U, false) ||
+      !run_paired_case(128U, 512U, 512U, false)) {
     return 1;
   }
 

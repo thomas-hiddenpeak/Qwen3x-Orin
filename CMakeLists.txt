@@ -55,7 +55,7 @@ option(Q3X_BUILD_SM87_A4W4_GATEUP_PAIR_ADMISSION
   OFF
 )
 option(Q3X_BUILD_SM87_A4W4_M128_STAGE_MAJOR_ADMISSION
-  "Build the test-only M128N256 K128 stage-major Prefill candidate"
+  "Build the synthetic correctness test for the M128 K128 stage-major Prefill candidate"
   OFF
 )
 option(Q3X_BUILD_SM87_A4W4_DOWN_K128_STAGE_MAJOR_ADMISSION
@@ -340,6 +340,7 @@ if(Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION)
     src/kernels/sm87/a4w4_prefill_primitive.cu
     src/kernels/sm87/a4w4_prefill_gemm.cu
     src/kernels/sm87/a4w4_gateup_paired.cu
+    src/kernels/sm87/a4w4_prefill_m128_stage_major.cu
     src/kernels/sm87/gdn_prefill_exact_span_sm87.cu
     src/kernels/reference/gdn_prefill_whole_span_conv_sm87.cu
   )
@@ -599,29 +600,13 @@ if(BUILD_TESTING)
   endif()
 
   if(Q3X_BUILD_SM87_A4W4_M128_STAGE_MAJOR_ADMISSION)
-    # Isolated structural candidate: it cannot enter q3x_kernels or any
-    # production selector.  The CUDA test compares its output directly with
-    # the established ordered-K128 implementation from q3x::kernels.
-    add_library(q3x_test_sm87_a4w4_m128_stage_major STATIC
-      src/kernels/sm87/a4w4_prefill_m128_stage_major.cu
-    )
-    target_compile_features(q3x_test_sm87_a4w4_m128_stage_major
-      PUBLIC cxx_std_17 cuda_std_17
-    )
-    target_include_directories(q3x_test_sm87_a4w4_m128_stage_major
-      PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include"
-    )
-    target_link_libraries(q3x_test_sm87_a4w4_m128_stage_major
-      PRIVATE CUDA::cudart
-    )
-    q3x_enable_warnings(q3x_test_sm87_a4w4_m128_stage_major)
-
+    # The implementation is linked by the full-A4 production admission above;
+    # this option only adds its synthetic ABI/correctness test executable.
     add_executable(q3x_sm87_a4w4_m128_stage_major_test
       tests/sm87_a4w4_prefill_m128_stage_major_test.cu
     )
     target_link_libraries(q3x_sm87_a4w4_m128_stage_major_test
       PRIVATE
-        q3x_test_sm87_a4w4_m128_stage_major
         q3x::kernels
         CUDA::cudart
     )

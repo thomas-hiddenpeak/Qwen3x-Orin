@@ -461,12 +461,16 @@ std::size_t exchange_fp8_marlin_prefill_admission_test_hits(
 // logical_projection_hits counts both branches. A complete 64-layer tile is
 // admitted only when the local delta is exactly 192 quantizations, 272
 // generic projections, 64 paired launches, and all 400 logical projections.
+// The final two fields independently prove how many of those launches used
+// the opt-in M128 stage-major implementation.
 struct A4W4FullPrefillAdmissionHits {
   std::size_t activation_quantize_hits = 0U;
   std::size_t generic_projection_hits = 0U;
   std::size_t paired_gate_up_hits = 0U;
   std::size_t logical_projection_hits = 0U;
   std::size_t complete_model_tile_hits = 0U;
+  std::size_t m128_stage_major_generic_projection_hits = 0U;
+  std::size_t m128_stage_major_paired_gate_up_hits = 0U;
 };
 
 // Immutable consumer ABI selected from the complete authenticated A4
@@ -521,6 +525,44 @@ a4w4_prefill_consumer_from_contract(
          selected == candidate;
 }
 
+// The consumer argument is the immutable result of validating all 400 A4
+// projection sidecars at runner creation.  Consequently these selectors
+// cannot admit a partial or mixed K64/K128 publication.  The candidates have
+// no tail kernel: M128 alignment and the explicit worker-local switch are
+// mandatory.
+[[nodiscard]] constexpr bool a4w4_m128_stage_major_common_route(
+    const bool admission_enabled,
+    const A4W4PrefillConsumer inventory_consumer,
+    const std::size_t token_count) noexcept {
+  return admission_enabled && inventory_consumer == A4W4PrefillConsumer::kK128 &&
+         token_count != 0U && token_count % 128U == 0U;
+}
+
+enum class A4W4K128GenericPrefillRoute : std::uint8_t {
+  kBaseline = 0,
+  kM128StageMajor,
+};
+
+// Down is intentionally retained on the incumbent K128 kernel.  Its long-K
+// shape has a separate stage-major candidate, which can be inserted at this
+// single shape-aware dispatch point after its independent gate is complete.
+[[nodiscard]] constexpr A4W4K128GenericPrefillRoute
+select_a4w4_k128_generic_prefill_route(
+    const bool m128_admission_enabled,
+    const A4W4PrefillConsumer inventory_consumer,
+    const std::size_t token_count, const std::size_t output_size,
+    const std::size_t input_size) noexcept {
+  if (!a4w4_m128_stage_major_common_route(
+          m128_admission_enabled, inventory_consumer, token_count) ||
+      output_size == 0U || output_size % 256U != 0U || input_size == 0U ||
+      input_size % 128U != 0U ||
+      (output_size == kReferenceHiddenSize &&
+       input_size == kReferenceIntermediateSize)) {
+    return A4W4K128GenericPrefillRoute::kBaseline;
+  }
+  return A4W4K128GenericPrefillRoute::kM128StageMajor;
+}
+
 // A trace-capable runner retains authenticated A4 residency but must execute
 // the scalar trace path so every requested activation digest is available.
 // The unified comparator likewise changes dispatch only.
@@ -532,6 +574,8 @@ a4w4_prefill_consumer_from_contract(
 }
 
 bool exchange_a4w4_full_prefill_admission_test_enabled(
+    bool enabled) noexcept;
+bool exchange_a4w4_m128_stage_major_admission_test_enabled(
     bool enabled) noexcept;
 A4W4FullPrefillAdmissionHits
 exchange_a4w4_full_prefill_admission_test_hits(

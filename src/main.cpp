@@ -1055,7 +1055,14 @@ void PrintGeneration(
          << "prefill.a4w4_logical_projection_hits="
          << a4w4_prefill_route_hits.logical_projection_hits << '\n'
          << "prefill.a4w4_complete_model_tile_hits="
-         << a4w4_prefill_route_hits.complete_model_tile_hits << '\n';
+         << a4w4_prefill_route_hits.complete_model_tile_hits << '\n'
+         << "prefill.a4w4_m128_stage_major_generic_projection_hits="
+         << a4w4_prefill_route_hits
+                .m128_stage_major_generic_projection_hits
+         << '\n'
+         << "prefill.a4w4_m128_stage_major_paired_gate_up_hits="
+         << a4w4_prefill_route_hits.m128_stage_major_paired_gate_up_hits
+         << '\n';
   PrintTimings(output, "timing.prefix_execution_ms",
                generation.timing.prefix_execution_milliseconds);
   PrintTimings(output, "timing.subsequent_token_ms",
@@ -1312,7 +1319,14 @@ void PrintBenchmarkReport(
          << "benchmark.a4w4_prefill_logical_projection_hits="
          << a4w4_prefill_route_hits.logical_projection_hits << '\n'
          << "benchmark.a4w4_prefill_complete_model_tile_hits="
-         << a4w4_prefill_route_hits.complete_model_tile_hits << '\n';
+         << a4w4_prefill_route_hits.complete_model_tile_hits << '\n'
+         << "benchmark.a4w4_prefill_m128_stage_major_generic_projection_hits="
+         << a4w4_prefill_route_hits
+                .m128_stage_major_generic_projection_hits
+         << '\n'
+         << "benchmark.a4w4_prefill_m128_stage_major_paired_gate_up_hits="
+         << a4w4_prefill_route_hits.m128_stage_major_paired_gate_up_hits
+         << '\n';
   PrintStringField(output, "load.prefill_a4_physical_layout",
                    load.prefill_a4_physical_layout);
   PrintStringField(output, "load.prefill_a4_manifest_sha256",
