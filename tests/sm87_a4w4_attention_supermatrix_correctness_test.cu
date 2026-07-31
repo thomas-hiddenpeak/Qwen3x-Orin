@@ -97,27 +97,40 @@ class DeviceBuffer final {
 }
 
 [[nodiscard]] bool run_resource_gate() {
-  kernels::Sm87A4W4AttentionSupermatrixResources resources{};
-  if (!launch_ok(
-          kernels::query_sm87_a4w4_linear_qkv_z_supermatrix_resources_cuda(
-              &resources),
-          "query Linear QKV+Z supermatrix resources")) {
-    return false;
-  }
-  const bool gate =
-      resources.registers_per_thread <= 128 &&
-      resources.static_shared_bytes == 42'240U &&
-      resources.local_bytes == 0U && resources.active_blocks_per_sm >= 2 &&
-      resources.maximum_threads_per_block >= 256 &&
-      resources.compute_major == 8 && resources.compute_minor == 7;
-  std::cout << "Attention supermatrix resources: registers="
-            << resources.registers_per_thread
-            << " static_shared=" << resources.static_shared_bytes
-            << " dynamic_shared_limit=" << resources.dynamic_shared_bytes
-            << " local=" << resources.local_bytes
-            << " active_blocks_per_sm=" << resources.active_blocks_per_sm
-            << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
-  return gate;
+  const auto query = [](const char* const name, const auto query_function) {
+    kernels::Sm87A4W4AttentionSupermatrixResources resources{};
+    if (!launch_ok(query_function(&resources),
+                   std::string("query ") + name + " resources")) {
+      return false;
+    }
+    const bool gate =
+        resources.registers_per_thread <= 128 &&
+        resources.static_shared_bytes == 42'240U &&
+        resources.local_bytes == 0U &&
+        resources.active_blocks_per_sm >= 2 &&
+        resources.maximum_threads_per_block >= 256 &&
+        resources.compute_major == 8 && resources.compute_minor == 7;
+    std::cout << name << " resources: registers="
+              << resources.registers_per_thread
+              << " static_shared=" << resources.static_shared_bytes
+              << " dynamic_shared_limit="
+              << resources.dynamic_shared_bytes
+              << " local=" << resources.local_bytes
+              << " active_blocks_per_sm="
+              << resources.active_blocks_per_sm
+              << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
+    return gate;
+  };
+  return query(
+             "Linear QKV+Z",
+             kernels::
+                 query_sm87_a4w4_linear_qkv_z_supermatrix_resources_cuda) &&
+         query(
+             "Full Q/K/V",
+             kernels::
+                 query_sm87_a4w4_full_q_k_v_supermatrix_resources_cuda) &&
+         query("Attention O",
+               kernels::query_sm87_a4w4_attention_o_supermatrix_resources_cuda);
 }
 
 void fill_codes(std::vector<std::uint8_t>& packed,
@@ -425,6 +438,337 @@ void fill_scales(std::vector<std::uint16_t>& scales,
   return true;
 }
 
+[[nodiscard]] bool verify_matrix(
+    const char* const name, const std::size_t k_count,
+    const std::size_t m_count, const std::size_t n_count,
+    const std::size_t output_stride,
+    const std::vector<std::uint16_t>& output,
+    const std::vector<std::uint8_t>& packed_a,
+    const std::vector<std::uint16_t>& a_scales,
+    const std::vector<std::uint8_t>& packed_b,
+    const std::vector<std::uint16_t>& b_scales) {
+  std::size_t mismatches = 0U;
+  for (std::size_t m = 0U; m < m_count; ++m) {
+    for (std::size_t n = 0U; n < n_count; ++n) {
+      const std::uint16_t expected =
+          expected_value(packed_a, a_scales, packed_b, b_scales, m, n,
+                         k_count);
+      const std::size_t offset = m * output_stride + n;
+      if (output[offset] != expected) {
+        ++mismatches;
+        if (mismatches <= 8U) {
+          std::cerr << name << " K" << k_count << " mismatch m=" << m
+                    << " n=" << n
+                    << " expected=" << decode_bf16(expected)
+                    << " actual=" << decode_bf16(output[offset]) << '\n';
+        }
+      }
+    }
+    for (std::size_t n = n_count; n < output_stride; ++n) {
+      if (output[m * output_stride + n] != 0x5a5aU) {
+        ++mismatches;
+      }
+    }
+  }
+  if (mismatches != 0U) {
+    std::cerr << name << " K" << k_count
+              << " total mismatches=" << mismatches << '\n';
+  }
+  return mismatches == 0U;
+}
+
+[[nodiscard]] bool run_full_shape(const std::size_t k_count) {
+  constexpr std::size_t m_count = 128U;
+  constexpr std::size_t q_count = 256U;
+  constexpr std::size_t k_output_count = 64U;
+  constexpr std::size_t v_count = 64U;
+  constexpr std::size_t q_stride = q_count + 8U;
+  constexpr std::size_t k_stride = k_output_count + 8U;
+  constexpr std::size_t v_stride = v_count + 8U;
+  const std::size_t a_bytes =
+      kernels::sm87_a4w4_consumer_packed_capacity_bytes(m_count, k_count);
+  const std::size_t q_bytes =
+      kernels::sm87_a4w4_consumer_packed_capacity_bytes(q_count, k_count);
+  const std::size_t k_bytes =
+      kernels::sm87_a4w4_consumer_packed_capacity_bytes(k_output_count,
+                                                        k_count);
+  const std::size_t v_bytes =
+      kernels::sm87_a4w4_consumer_packed_capacity_bytes(v_count, k_count);
+  const std::size_t a_scale_count =
+      kernels::sm87_a4w4_consumer_k128_scale_capacity_elements(m_count,
+                                                               k_count);
+  const std::size_t q_scale_count =
+      kernels::sm87_a4w4_consumer_k128_scale_capacity_elements(q_count,
+                                                               k_count);
+  const std::size_t k_scale_count =
+      kernels::sm87_a4w4_consumer_k128_scale_capacity_elements(
+          k_output_count, k_count);
+  const std::size_t v_scale_count =
+      kernels::sm87_a4w4_consumer_k128_scale_capacity_elements(v_count,
+                                                               k_count);
+  const std::size_t q_elements = m_count * q_stride;
+  const std::size_t k_elements = m_count * k_stride;
+  const std::size_t v_elements = m_count * v_stride;
+
+  std::vector<std::uint8_t> packed_a(a_bytes);
+  std::vector<std::uint8_t> packed_q(q_bytes);
+  std::vector<std::uint8_t> packed_k(k_bytes);
+  std::vector<std::uint8_t> packed_v(v_bytes);
+  std::vector<std::uint16_t> a_scales(a_scale_count);
+  std::vector<std::uint16_t> q_scales(q_scale_count);
+  std::vector<std::uint16_t> k_scales(k_scale_count);
+  std::vector<std::uint16_t> v_scales(v_scale_count);
+  fill_codes(packed_a, m_count, k_count, 1U);
+  fill_codes(packed_q, q_count, k_count, 2U);
+  fill_codes(packed_k, k_output_count, k_count, 3U);
+  fill_codes(packed_v, v_count, k_count, 4U);
+  fill_scales(a_scales, m_count, k_count, 1U);
+  fill_scales(q_scales, q_count, k_count, 2U);
+  fill_scales(k_scales, k_output_count, k_count, 3U);
+  fill_scales(v_scales, v_count, k_count, 4U);
+
+  DeviceBuffer<std::uint8_t> device_a;
+  DeviceBuffer<std::uint8_t> device_q;
+  DeviceBuffer<std::uint8_t> device_k;
+  DeviceBuffer<std::uint8_t> device_v;
+  DeviceBuffer<std::uint16_t> device_a_scales;
+  DeviceBuffer<std::uint16_t> device_q_scales;
+  DeviceBuffer<std::uint16_t> device_k_scales;
+  DeviceBuffer<std::uint16_t> device_v_scales;
+  DeviceBuffer<std::uint16_t> q_output;
+  DeviceBuffer<std::uint16_t> k_output;
+  DeviceBuffer<std::uint16_t> v_output;
+  if (!device_a.allocate(a_bytes) || !device_q.allocate(q_bytes) ||
+      !device_k.allocate(k_bytes) || !device_v.allocate(v_bytes) ||
+      !device_a_scales.allocate(a_scale_count) ||
+      !device_q_scales.allocate(q_scale_count) ||
+      !device_k_scales.allocate(k_scale_count) ||
+      !device_v_scales.allocate(v_scale_count) ||
+      !q_output.allocate(q_elements) || !k_output.allocate(k_elements) ||
+      !v_output.allocate(v_elements)) {
+    std::cerr << "Full K" << k_count << " device allocation failed\n";
+    return false;
+  }
+  const auto copy = [](auto* destination, const auto& source,
+                       const char* operation) {
+    return cuda_ok(cudaMemcpy(destination, source.data(),
+                              source.size() * sizeof(source[0]),
+                              cudaMemcpyHostToDevice),
+                   operation);
+  };
+  if (!copy(device_a.get(), packed_a, "copy Full A") ||
+      !copy(device_q.get(), packed_q, "copy Full Q") ||
+      !copy(device_k.get(), packed_k, "copy Full K") ||
+      !copy(device_v.get(), packed_v, "copy Full V") ||
+      !copy(device_a_scales.get(), a_scales, "copy Full A scales") ||
+      !copy(device_q_scales.get(), q_scales, "copy Full Q scales") ||
+      !copy(device_k_scales.get(), k_scales, "copy Full K scales") ||
+      !copy(device_v_scales.get(), v_scales, "copy Full V scales") ||
+      !cuda_ok(cudaMemset(q_output.get(), 0x5a,
+                          q_elements * sizeof(std::uint16_t)),
+               "initialize Full Q guard") ||
+      !cuda_ok(cudaMemset(k_output.get(), 0x5a,
+                          k_elements * sizeof(std::uint16_t)),
+               "initialize Full K guard") ||
+      !cuda_ok(cudaMemset(v_output.get(), 0x5a,
+                          v_elements * sizeof(std::uint16_t)),
+               "initialize Full V guard")) {
+    return false;
+  }
+
+  const auto launch = [&](const std::size_t tokens,
+                          const std::size_t q_capacity,
+                          const std::size_t k_scale_capacity,
+                          std::uint16_t* q_out,
+                          const std::size_t q_output_stride,
+                          const std::size_t q_output_capacity,
+                          std::uint16_t* k_out) {
+    return kernels::launch_sm87_a4w4_full_q_k_v_supermatrix_test_bf16_cuda(
+        device_a.get(), a_bytes, device_a_scales.get(), a_scale_count,
+        device_q.get(), q_capacity, device_q_scales.get(), q_scale_count,
+        device_k.get(), k_bytes, device_k_scales.get(), k_scale_capacity,
+        device_v.get(), v_bytes, device_v_scales.get(), v_scale_count,
+        tokens, k_count, q_out, q_output_stride, q_output_capacity, k_out,
+        k_stride, k_elements, v_output.get(), v_stride, v_elements);
+  };
+  if (k_count == 128U) {
+    const int short_q =
+        launch(m_count, q_bytes - 1U, k_scale_count, q_output.get(),
+               q_stride, q_elements, k_output.get());
+    const int short_k_scales =
+        launch(m_count, q_bytes, k_scale_count - 1U, q_output.get(),
+               q_stride, q_elements, k_output.get());
+    const int m_tail =
+        launch(64U, q_bytes, k_scale_count, q_output.get(), q_stride,
+               q_elements, k_output.get());
+    const int short_stride =
+        launch(m_count, q_bytes, k_scale_count, q_output.get(),
+               q_count - 1U, q_elements, k_output.get());
+    const int short_output =
+        launch(m_count, q_bytes, k_scale_count, q_output.get(), q_stride,
+               q_elements - 1U, k_output.get());
+    const int output_overlap =
+        launch(m_count, q_bytes, k_scale_count, q_output.get(), q_stride,
+               q_elements, q_output.get());
+    if (short_q != static_cast<int>(cudaErrorInvalidValue) ||
+        short_k_scales != static_cast<int>(cudaErrorInvalidValue) ||
+        m_tail != static_cast<int>(cudaErrorInvalidValue) ||
+        short_stride != static_cast<int>(cudaErrorInvalidValue) ||
+        short_output != static_cast<int>(cudaErrorInvalidValue) ||
+        output_overlap != static_cast<int>(cudaErrorInvalidValue)) {
+      std::cerr << "Full supermatrix invalid calls did not fail closed\n";
+      return false;
+    }
+  }
+
+  if (!launch_ok(
+          launch(m_count, q_bytes, k_scale_count, q_output.get(), q_stride,
+                 q_elements, k_output.get()),
+          "launch Full Q/K/V supermatrix") ||
+      !cuda_ok(cudaDeviceSynchronize(), "synchronize Full supermatrix")) {
+    return false;
+  }
+  std::vector<std::uint16_t> q_host(q_elements);
+  std::vector<std::uint16_t> k_host(k_elements);
+  std::vector<std::uint16_t> v_host(v_elements);
+  if (!cuda_ok(cudaMemcpy(q_host.data(), q_output.get(),
+                          q_host.size() * sizeof(q_host[0]),
+                          cudaMemcpyDeviceToHost),
+               "copy Full Q output") ||
+      !cuda_ok(cudaMemcpy(k_host.data(), k_output.get(),
+                          k_host.size() * sizeof(k_host[0]),
+                          cudaMemcpyDeviceToHost),
+               "copy Full K output") ||
+      !cuda_ok(cudaMemcpy(v_host.data(), v_output.get(),
+                          v_host.size() * sizeof(v_host[0]),
+                          cudaMemcpyDeviceToHost),
+               "copy Full V output")) {
+    return false;
+  }
+  if (!verify_matrix("Full Q", k_count, m_count, q_count, q_stride,
+                     q_host, packed_a, a_scales, packed_q, q_scales) ||
+      !verify_matrix("Full K", k_count, m_count, k_output_count, k_stride,
+                     k_host, packed_a, a_scales, packed_k, k_scales) ||
+      !verify_matrix("Full V", k_count, m_count, v_count, v_stride,
+                     v_host, packed_a, a_scales, packed_v, v_scales)) {
+    return false;
+  }
+  std::cout << "Full Q/K/V supermatrix bitwise case passed: M=" << m_count
+            << " Q=" << q_count << " K/V=" << k_output_count
+            << " inner=" << k_count << '\n';
+  return true;
+}
+
+[[nodiscard]] bool run_o_shape(const std::size_t k_count) {
+  constexpr std::size_t m_count = 128U;
+  constexpr std::size_t n_count = 256U;
+  constexpr std::size_t output_stride = n_count + 8U;
+  const std::size_t a_bytes =
+      kernels::sm87_a4w4_consumer_packed_capacity_bytes(m_count, k_count);
+  const std::size_t b_bytes =
+      kernels::sm87_a4w4_consumer_packed_capacity_bytes(n_count, k_count);
+  const std::size_t a_scale_count =
+      kernels::sm87_a4w4_consumer_k128_scale_capacity_elements(m_count,
+                                                               k_count);
+  const std::size_t b_scale_count =
+      kernels::sm87_a4w4_consumer_k128_scale_capacity_elements(n_count,
+                                                               k_count);
+  const std::size_t output_elements = m_count * output_stride;
+  std::vector<std::uint8_t> packed_a(a_bytes);
+  std::vector<std::uint8_t> packed_b(b_bytes);
+  std::vector<std::uint16_t> a_scales(a_scale_count);
+  std::vector<std::uint16_t> b_scales(b_scale_count);
+  fill_codes(packed_a, m_count, k_count, 1U);
+  fill_codes(packed_b, n_count, k_count, 4U);
+  fill_scales(a_scales, m_count, k_count, 1U);
+  fill_scales(b_scales, n_count, k_count, 4U);
+
+  DeviceBuffer<std::uint8_t> device_a;
+  DeviceBuffer<std::uint8_t> device_b;
+  DeviceBuffer<std::uint16_t> device_a_scales;
+  DeviceBuffer<std::uint16_t> device_b_scales;
+  DeviceBuffer<std::uint16_t> output;
+  if (!device_a.allocate(a_bytes) || !device_b.allocate(b_bytes) ||
+      !device_a_scales.allocate(a_scale_count) ||
+      !device_b_scales.allocate(b_scale_count) ||
+      !output.allocate(output_elements)) {
+    std::cerr << "O K" << k_count << " device allocation failed\n";
+    return false;
+  }
+  if (!cuda_ok(cudaMemcpy(device_a.get(), packed_a.data(), a_bytes,
+                          cudaMemcpyHostToDevice),
+               "copy O A") ||
+      !cuda_ok(cudaMemcpy(device_b.get(), packed_b.data(), b_bytes,
+                          cudaMemcpyHostToDevice),
+               "copy O B") ||
+      !cuda_ok(cudaMemcpy(device_a_scales.get(), a_scales.data(),
+                          a_scales.size() * sizeof(a_scales[0]),
+                          cudaMemcpyHostToDevice),
+               "copy O A scales") ||
+      !cuda_ok(cudaMemcpy(device_b_scales.get(), b_scales.data(),
+                          b_scales.size() * sizeof(b_scales[0]),
+                          cudaMemcpyHostToDevice),
+               "copy O B scales") ||
+      !cuda_ok(cudaMemset(output.get(), 0x5a,
+                          output_elements * sizeof(std::uint16_t)),
+               "initialize O guard")) {
+    return false;
+  }
+  const auto launch = [&](const std::size_t tokens,
+                          const std::size_t b_capacity,
+                          std::uint16_t* output_pointer,
+                          const std::size_t stride,
+                          const std::size_t output_capacity) {
+    return kernels::launch_sm87_a4w4_attention_o_supermatrix_test_bf16_cuda(
+        device_a.get(), a_bytes, device_a_scales.get(), a_scale_count,
+        device_b.get(), b_capacity, device_b_scales.get(), b_scale_count,
+        tokens, k_count, output_pointer, stride, output_capacity);
+  };
+  if (k_count == 128U) {
+    const int short_b = launch(m_count, b_bytes - 1U, output.get(),
+                               output_stride, output_elements);
+    const int m_tail = launch(64U, b_bytes, output.get(), output_stride,
+                              output_elements);
+    const int short_stride = launch(m_count, b_bytes, output.get(),
+                                    n_count - 1U, output_elements);
+    const int short_output = launch(m_count, b_bytes, output.get(),
+                                    output_stride, output_elements - 1U);
+    const int input_overlap = launch(
+        m_count, b_bytes,
+        reinterpret_cast<std::uint16_t*>(device_a.get()), output_stride,
+        output_elements);
+    if (short_b != static_cast<int>(cudaErrorInvalidValue) ||
+        m_tail != static_cast<int>(cudaErrorInvalidValue) ||
+        short_stride != static_cast<int>(cudaErrorInvalidValue) ||
+        short_output != static_cast<int>(cudaErrorInvalidValue) ||
+        input_overlap != static_cast<int>(cudaErrorInvalidValue)) {
+      std::cerr << "O supermatrix invalid calls did not fail closed\n";
+      return false;
+    }
+  }
+  if (!launch_ok(launch(m_count, b_bytes, output.get(), output_stride,
+                        output_elements),
+                 "launch O supermatrix") ||
+      !cuda_ok(cudaDeviceSynchronize(), "synchronize O supermatrix")) {
+    return false;
+  }
+  std::vector<std::uint16_t> host(output_elements);
+  if (!cuda_ok(cudaMemcpy(host.data(), output.get(),
+                          host.size() * sizeof(host[0]),
+                          cudaMemcpyDeviceToHost),
+               "copy O output")) {
+    return false;
+  }
+  if (!verify_matrix("Attention O", k_count, m_count, n_count,
+                     output_stride, host, packed_a, a_scales, packed_b,
+                     b_scales)) {
+    return false;
+  }
+  std::cout << "Attention O supermatrix bitwise case passed: M=" << m_count
+            << " N=" << n_count << " K=" << k_count << '\n';
+  return true;
+}
+
 }  // namespace
 
 int main() {
@@ -436,7 +780,8 @@ int main() {
   }
   constexpr std::array<std::size_t, 4U> kCases{{128U, 256U, 384U, 512U}};
   for (const std::size_t k_count : kCases) {
-    if (!run_shape(k_count)) {
+    if (!run_shape(k_count) || !run_full_shape(k_count) ||
+        !run_o_shape(k_count)) {
       return 1;
     }
   }

@@ -2,13 +2,14 @@
 
 ## Status and boundary
 
-This change is a standalone, test-only admission candidate. It implements the
-Linear Attention QKV+Z input side only. It is not linked into `q3x_kernels`,
-has no runner selector, and is not a production performance result.
+This change is a standalone, test-only admission candidate. It implements
+fixed Linear QKV+Z, Full Q/K/V, and Attention O specializations. It is not
+linked into `q3x_kernels`, has no runner selector, and is not a production
+performance result.
 
 The candidate does not use cuBLASLt, MTP, a generic GEMM wrapper, or a new
 weight layout. It consumes the authenticated signed-A4 K128 sidecar ABI and
-writes the existing independent row-major BF16 QKV and Z outputs.
+writes the existing independent row-major BF16 projection outputs.
 
 ## Why this is the first attention candidate
 
@@ -24,8 +25,8 @@ projections:
 
 The Linear QKV and Z projections have the same A and K=5120. They also cover
 the largest input-side topology: 160 QKV N64 panels and 96 Z N64 panels.
-Consequently this vertical slice tests the reusable dataflow before adding the
-Full Q/K/V and O fixed-shape launchers.
+Consequently Linear was the first vertical slice; Full Q/K/V and O now use the
+same physical cell with their own compile-time topology and ABI.
 
 Source trace: `docs/analysis/prefill-p2048-cumulative-nsys-2026-07-31/README.md`.
 
@@ -67,18 +68,20 @@ There are 2,048 work cells. Thirty-two persistent CTAs preserve one M tile and
 one pair-cell parity per CTA, so every CTA executes exactly 64 cells. No
 atomic scheduler or dynamic partition descriptor appears in the K loop.
 
-## Whole-attention topology that follows this gate
+## Fixed Full and O topologies
 
-The same physical cell can cover all attention projections, but those fixed
-launchers are intentionally not claimed as implemented here:
+Full Q/K/V has 192 Q panels and 16 K/V panels each. Cells 0..15 pair Q with
+K, cells 16..31 pair Q with V, and cells 32..111 pair the remaining Q panels.
+At P2048 that is 1,792 work cells, exactly 56 per persistent CTA. K and V stay
+as separate payload and BF16 output pointers; no physical concatenation or
+dynamic descriptor appears in the K loop.
 
-- Full Q/K/V: Q has 192 N64 panels and K/V have 16 each. The fixed launcher
-  needs 112 pair cells per M tile and three independent BF16 store ABIs.
-- Attention O: N5120 is 40 N128 cells with K6144. It needs a dedicated
-  one-output specialization, not a duplicated virtual output.
+Attention O has 80 N64 panels at K6144. Its dedicated one-output kernel pairs
+adjacent panels into 40 cells per M tile, or 640 P2048 work cells and exactly
+20 cells per CTA.
 
-At P2048 the complete attention family would contain 2,048 Linear input,
-1,792 Full input, and 640 O work cells. The 29.549 TOP attention projection
+At P2048 the complete attention family contains 2,048 Linear input, 1,792
+Full input, and 640 O work cells. The 29.549 TOP attention projection
 arithmetic lower bound at 170.459 TOP/s is 173.352 ms. Therefore attention
 alone cannot reach the project-wide 2K token/s target; it is one structural
 component of the projection-wide rewrite.
@@ -94,7 +97,9 @@ Configured with:
 
 The host contract proves the real P2048 topology, exact panel coverage,
 persistent-CTA balance, final consumer-layout addresses, invalid tails, and a
-null resource-query fast rejection.
+null resource-query fast rejection. Because device row coordinates are
+uint32, every plan also rejects a row count beyond `UINT_MAX+1`; the boundary
+contract covers the first wrapping M128 tile.
 
 The candidate compilation reports:
 
@@ -102,24 +107,29 @@ The candidate compilation reports:
 |---|---:|---:|---:|---:|
 | Test N256+N128 | 123 | 42,240 B | 0 B | 0 B / 0 B |
 | Real Linear QKV+Z | 123 | 42,240 B | 0 B | 0 B / 0 B |
+| Test Full Q256/K64/V64 | 124 | 42,240 B | 0 B | 0 B / 0 B |
+| Real Full Q/K/V | 123 | 42,240 B | 0 B | 0 B / 0 B |
+| Test O N256 | 128 | 42,240 B | 0 B | 0 B / 0 B |
+| Real O N5120/K6144 | 128 | 42,240 B | 0 B | 0 B / 0 B |
 
 The N256+N128 test topology covers both mixed QKV/Z cells and the
-QKV-only remainder cell used by the real specialization. The CUDA test is
-serialized by both CTest `RESOURCE_LOCK` and
+QKV-only remainder cell used by the real specialization. The Full test covers
+Q+K, Q+V, and Q-only cells; O covers two panels of one output. The CUDA test
+hooks deliberately cap their grids at 2/2/1 CTAs, forcing at least one CTA to
+execute multiple cells and reuse the shared pipeline. The test is serialized
+by both CTest `RESOURCE_LOCK` and
 `flock -x /tmp/q3x-gpu-bench.lock`. It checks K={128,256,384,512} against a
-CPU K128 oracle, both outputs bitwise, row guards, short capacities,
+CPU K128 oracle, every output bitwise, row guards, short capacities,
 misalignment, M tails, short/even-stride requirements, output capacity, and
 output aliasing. The runtime resource query additionally requires SM87/16 SM,
 at most 128 registers, zero local bytes, and at least 2 active CTAs/SM.
 
 ## Promotion order
 
-1. Pass the small-K bitwise/guard/resource admission.
-2. Add the fixed Full Q/K/V and O specializations to the same standalone
-   library and repeat their resource/correctness gates.
-3. Add an experimental runner selector and measure the first real P2048 API
+1. Pass the small-K bitwise/guard/resource admission for all three families.
+2. Add an experimental runner selector and measure the first real P2048 API
    request with authenticated model weights.
-4. Keep the selector only for a positive whole-request result; then run the
+3. Keep the selector only for a positive whole-request result; then run the
    repeated real-request and external EvalScope gates before production
    promotion.
 

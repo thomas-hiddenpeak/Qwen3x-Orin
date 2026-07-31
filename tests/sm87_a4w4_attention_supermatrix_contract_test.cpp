@@ -6,6 +6,7 @@
 #include <array>
 #include <cstddef>
 #include <iostream>
+#include <limits>
 
 namespace {
 
@@ -119,27 +120,101 @@ int main() {
     test.expect(count == 64U, "P2048 Linear work is balanced across 32 CTAs");
   }
 
-  // Full Q+K+V reuses this physical cell as Q plus a virtual concatenated
-  // K/V panel space. The eventual three-output launcher splits those 32
-  // panels back into the independent K and V BF16 ABIs at store time.
-  constexpr auto full = kernels::sm87_a4w4_attention_supermatrix_plan(
+  constexpr auto full =
+      kernels::sm87_a4w4_full_attention_supermatrix_plan(
       2'048U, kernels::kQwen36FullQOutputSize,
-      2U * kernels::kQwen36FullKvOutputSize,
+      kernels::kQwen36FullKvOutputSize,
+      kernels::kQwen36FullKvOutputSize,
       kernels::kQwen36AttentionInputSize);
-  test.expect(full.first_panels == 192U && full.second_panels == 32U &&
+  test.expect(full.q_panels == 192U && full.k_panels == 16U &&
+                  full.v_panels == 16U && full.mixed_cells == 32U &&
                   full.pair_cells ==
                       kernels::kQwen36FullAttentionPairCells &&
-                  full.work_cells == 1'792U,
-              "Full Q+K+V global design has 112 cells per M tile");
-  constexpr std::size_t o_n64_panels =
-      kernels::kQwen36AttentionOOutputSize /
-      kernels::kSm87A4W4AttentionCellPanelN;
-  test.expect(o_n64_panels == 80U &&
-                  o_n64_panels /
-                          kernels::kSm87A4W4AttentionCellPanelsPerCell ==
-                      40U &&
-                  kernels::kQwen36AttentionOInputSize == 6'144U,
-              "O shape remains a dedicated one-output 40-N128-cell family");
+                  full.work_cells == 1'792U &&
+                  full.launch_ctas == 32U,
+              "P2048 Full Q+K+V plan fixes 112 cells per M tile");
+  std::array<unsigned int, kernels::kQwen36FullQPanels> q_visits{};
+  std::array<unsigned int, kernels::kQwen36FullKvPanels> k_visits{};
+  std::array<unsigned int, kernels::kQwen36FullKvPanels> v_visits{};
+  for (std::size_t cell = 0U; cell < full.pair_cells; ++cell) {
+    for (std::size_t slot = 0U;
+         slot < kernels::kSm87A4W4AttentionCellPanelsPerCell; ++slot) {
+      const auto panel =
+          kernels::sm87_a4w4_full_attention_supermatrix_panel(
+              full, cell, slot);
+      if (panel.projection == 0U) {
+        test.expect(panel.panel < q_visits.size(),
+                    "Full Q panel index stays in bounds");
+        if (panel.panel < q_visits.size()) {
+          ++q_visits[panel.panel];
+        }
+      } else if (panel.projection == 1U) {
+        test.expect(panel.panel < k_visits.size(),
+                    "Full K panel index stays in bounds");
+        if (panel.panel < k_visits.size()) {
+          ++k_visits[panel.panel];
+        }
+      } else if (panel.projection == 2U) {
+        test.expect(panel.panel < v_visits.size(),
+                    "Full V panel index stays in bounds");
+        if (panel.panel < v_visits.size()) {
+          ++v_visits[panel.panel];
+        }
+      } else {
+        test.expect(false, "valid Full cell maps to Q, K, or V");
+      }
+    }
+  }
+  for (const unsigned int count : q_visits) {
+    test.expect(count == 1U, "every Full Q N64 panel is visited once");
+  }
+  for (const unsigned int count : k_visits) {
+    test.expect(count == 1U, "every Full K N64 panel is visited once");
+  }
+  for (const unsigned int count : v_visits) {
+    test.expect(count == 1U, "every Full V N64 panel is visited once");
+  }
+  std::array<unsigned int, 32U> full_cta_work{};
+  for (std::size_t cta = 0U; cta < full.launch_ctas; ++cta) {
+    for (std::size_t work = cta; work < full.work_cells;
+         work += full.launch_ctas) {
+      ++full_cta_work[cta];
+    }
+  }
+  for (const unsigned int count : full_cta_work) {
+    test.expect(count == 56U, "P2048 Full work is balanced across 32 CTAs");
+  }
+
+  constexpr auto o_plan = kernels::sm87_a4w4_attention_o_supermatrix_plan(
+      2'048U, kernels::kQwen36AttentionOOutputSize,
+      kernels::kQwen36AttentionOInputSize);
+  test.expect(o_plan.m_tiles == 16U && o_plan.n64_panels == 80U &&
+                  o_plan.pair_cells == 40U &&
+                  o_plan.k128_groups == 48U &&
+                  o_plan.physical_k64_groups == 96U &&
+                  o_plan.work_cells == 640U &&
+                  o_plan.launch_ctas == 32U,
+              "P2048 O plan fixes 40 cells per M tile");
+  std::array<unsigned int, 80U> o_panel_visits{};
+  for (std::size_t cell = 0U; cell < o_plan.pair_cells; ++cell) {
+    for (std::size_t slot = 0U;
+         slot < kernels::kSm87A4W4AttentionCellPanelsPerCell; ++slot) {
+      ++o_panel_visits[2U * cell + slot];
+    }
+  }
+  for (const unsigned int count : o_panel_visits) {
+    test.expect(count == 1U, "every O N64 panel is visited once");
+  }
+  std::array<unsigned int, 32U> o_cta_work{};
+  for (std::size_t cta = 0U; cta < o_plan.launch_ctas; ++cta) {
+    for (std::size_t work = cta; work < o_plan.work_cells;
+         work += o_plan.launch_ctas) {
+      ++o_cta_work[cta];
+    }
+  }
+  for (const unsigned int count : o_cta_work) {
+    test.expect(count == 20U, "P2048 O work is balanced across 32 CTAs");
+  }
 
   constexpr std::size_t a_bytes =
       kernels::sm87_a4w4_consumer_packed_capacity_bytes(
@@ -180,9 +255,48 @@ int main() {
                       .launch_ctas == 0U,
               "M/N/K tails and an odd unpaired panel fail closed");
   test.expect(
+      kernels::sm87_a4w4_full_attention_supermatrix_plan(
+          128U, 128U, 128U, 128U, 128U)
+              .launch_ctas == 0U &&
+          kernels::sm87_a4w4_full_attention_supermatrix_plan(
+              128U, 256U, 64U, 64U, 64U)
+                  .launch_ctas == 0U &&
+          kernels::sm87_a4w4_attention_o_supermatrix_plan(
+              128U, 192U, 128U)
+                  .launch_ctas == 0U &&
+          kernels::sm87_a4w4_attention_o_supermatrix_plan(
+              128U, 256U, 64U)
+                  .launch_ctas == 0U,
+      "Full undersubscription and Full/O tails fail closed");
+  constexpr std::size_t maximum_device_rows =
+      static_cast<std::size_t>(
+          std::numeric_limits<unsigned int>::max()) +
+      1U;
+  test.expect(
+      kernels::sm87_a4w4_attention_device_rows_fit(maximum_device_rows) &&
+          !kernels::sm87_a4w4_attention_device_rows_fit(
+              maximum_device_rows + 128U) &&
+          kernels::sm87_a4w4_full_attention_supermatrix_plan(
+              maximum_device_rows + 128U,
+              kernels::kQwen36FullQOutputSize,
+              kernels::kQwen36FullKvOutputSize,
+              kernels::kQwen36FullKvOutputSize,
+              kernels::kQwen36AttentionInputSize)
+                  .launch_ctas == 0U &&
+          kernels::sm87_a4w4_attention_o_supermatrix_plan(
+              maximum_device_rows + 128U,
+              kernels::kQwen36AttentionOOutputSize,
+              kernels::kQwen36AttentionOInputSize)
+                  .launch_ctas == 0U,
+      "device uint32 row coordinates reject the first wrapping row count");
+  test.expect(
       kernels::query_sm87_a4w4_linear_qkv_z_supermatrix_resources_cuda(
-          nullptr) == static_cast<int>(cudaErrorInvalidValue),
-      "resource query rejects null without touching CUDA state");
+          nullptr) == static_cast<int>(cudaErrorInvalidValue) &&
+          kernels::query_sm87_a4w4_full_q_k_v_supermatrix_resources_cuda(
+              nullptr) == static_cast<int>(cudaErrorInvalidValue) &&
+          kernels::query_sm87_a4w4_attention_o_supermatrix_resources_cuda(
+              nullptr) == static_cast<int>(cudaErrorInvalidValue),
+      "all resource queries reject null without touching CUDA state");
 
   if (test.failures == 0) {
     std::cout << "SM87 attention supermatrix host contract passed\n";

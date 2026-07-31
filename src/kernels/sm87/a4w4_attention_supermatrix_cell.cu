@@ -4,6 +4,7 @@
 
 #include <cuda_runtime.h>
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -397,6 +398,38 @@ __device__ __forceinline__ void select_pair(
   }
 }
 
+__device__ __forceinline__ void store_output_panel(
+    const unsigned int panel, const unsigned int slot,
+    const unsigned int m_tile_start,
+    const float (&accumulators)[2U][8U][4U],
+    std::uint16_t* const output, const unsigned int stride) noexcept {
+  const unsigned int lane = threadIdx.x % kSm87A4W4WarpThreads;
+  const unsigned int warp = threadIdx.x / kSm87A4W4WarpThreads;
+#pragma unroll
+  for (unsigned int fragment_n = 0U; fragment_n < 8U; ++fragment_n) {
+#pragma unroll
+    for (unsigned int row_pair = 0U; row_pair < 2U; ++row_pair) {
+      const unsigned int value = 2U * row_pair;
+      const Sm87A4W4AccumulatorCoordinate coordinate =
+          sm87_a4w4_accumulator_coordinate(lane, value);
+      const unsigned int global_m =
+          m_tile_start + warp * 16U + coordinate.m;
+      const unsigned int global_n =
+          panel * kSm87A4W4AttentionCellPanelN +
+          fragment_n * 8U + coordinate.n;
+      const std::uint32_t output_pair =
+          static_cast<std::uint32_t>(
+              encode_bf16(accumulators[slot][fragment_n][value])) |
+          (static_cast<std::uint32_t>(
+               encode_bf16(accumulators[slot][fragment_n][value + 1U]))
+           << 16U);
+      *reinterpret_cast<std::uint32_t*>(
+          output + static_cast<std::size_t>(global_m) * stride + global_n) =
+          output_pair;
+    }
+  }
+}
+
 template <unsigned int FirstPanels, unsigned int SecondPanels>
 __device__ __forceinline__ void store_panel(
     const unsigned int pair_cell, const unsigned int slot,
@@ -423,31 +456,7 @@ __device__ __forceinline__ void store_panel(
   const unsigned int stride = second_projection
                                   ? second_output_row_stride_elements
                                   : first_output_row_stride_elements;
-  const unsigned int lane = threadIdx.x % kSm87A4W4WarpThreads;
-  const unsigned int warp = threadIdx.x / kSm87A4W4WarpThreads;
-#pragma unroll
-  for (unsigned int fragment_n = 0U; fragment_n < 8U; ++fragment_n) {
-#pragma unroll
-    for (unsigned int row_pair = 0U; row_pair < 2U; ++row_pair) {
-      const unsigned int value = 2U * row_pair;
-      const Sm87A4W4AccumulatorCoordinate coordinate =
-          sm87_a4w4_accumulator_coordinate(lane, value);
-      const unsigned int global_m =
-          m_tile_start + warp * 16U + coordinate.m;
-      const unsigned int global_n =
-          panel * kSm87A4W4AttentionCellPanelN +
-          fragment_n * 8U + coordinate.n;
-      const std::uint32_t output_pair =
-          static_cast<std::uint32_t>(
-              encode_bf16(accumulators[slot][fragment_n][value])) |
-          (static_cast<std::uint32_t>(
-               encode_bf16(accumulators[slot][fragment_n][value + 1U]))
-           << 16U);
-      *reinterpret_cast<std::uint32_t*>(
-          output + static_cast<std::size_t>(global_m) * stride + global_n) =
-          output_pair;
-    }
-  }
+  store_output_panel(panel, slot, m_tile_start, accumulators, output, stride);
 }
 
 template <unsigned int FirstPanels, unsigned int SecondPanels>
@@ -548,6 +557,261 @@ void q3x_sm87_a4w4_attention_pair_supermatrix_m128n64x2k128_kernel(
   }
 }
 
+template <unsigned int QPanels, unsigned int KPanels,
+          unsigned int VPanels>
+__device__ __forceinline__ void select_full_pair(
+    const unsigned int pair_cell,
+    const std::uint8_t* const packed_q_b,
+    const std::uint16_t* const q_b_k128_scales_bf16,
+    const std::uint8_t* const packed_k_b,
+    const std::uint16_t* const k_b_k128_scales_bf16,
+    const std::uint8_t* const packed_v_b,
+    const std::uint16_t* const v_b_k128_scales_bf16,
+    const std::uint8_t*& packed_b0,
+    const std::uint16_t*& b0_k128_scales_bf16,
+    unsigned int& panel0,
+    const std::uint8_t*& packed_b1,
+    const std::uint16_t*& b1_k128_scales_bf16,
+    unsigned int& panel1) noexcept {
+  static_assert(QPanels >= KPanels + VPanels);
+  static_assert((QPanels - KPanels - VPanels) % 2U == 0U);
+  packed_b0 = packed_q_b;
+  b0_k128_scales_bf16 = q_b_k128_scales_bf16;
+  if (pair_cell < KPanels) {
+    panel0 = pair_cell;
+    packed_b1 = packed_k_b;
+    b1_k128_scales_bf16 = k_b_k128_scales_bf16;
+    panel1 = pair_cell;
+    return;
+  }
+  if (pair_cell < KPanels + VPanels) {
+    panel0 = pair_cell;
+    packed_b1 = packed_v_b;
+    b1_k128_scales_bf16 = v_b_k128_scales_bf16;
+    panel1 = pair_cell - KPanels;
+    return;
+  }
+  const unsigned int remainder = pair_cell - KPanels - VPanels;
+  panel0 = KPanels + VPanels + 2U * remainder;
+  packed_b1 = packed_q_b;
+  b1_k128_scales_bf16 = q_b_k128_scales_bf16;
+  panel1 = panel0 + 1U;
+}
+
+template <unsigned int QPanels, unsigned int KPanels,
+          unsigned int VPanels>
+__device__ __forceinline__ void store_full_pair(
+    const unsigned int pair_cell, const unsigned int m_tile_start,
+    const float (&accumulators)[2U][8U][4U],
+    std::uint16_t* const q_output_bf16,
+    const unsigned int q_output_row_stride_elements,
+    std::uint16_t* const k_output_bf16,
+    const unsigned int k_output_row_stride_elements,
+    std::uint16_t* const v_output_bf16,
+    const unsigned int v_output_row_stride_elements) noexcept {
+  if (pair_cell < KPanels) {
+    store_output_panel(pair_cell, 0U, m_tile_start, accumulators,
+                       q_output_bf16, q_output_row_stride_elements);
+    store_output_panel(pair_cell, 1U, m_tile_start, accumulators,
+                       k_output_bf16, k_output_row_stride_elements);
+    return;
+  }
+  if (pair_cell < KPanels + VPanels) {
+    store_output_panel(pair_cell, 0U, m_tile_start, accumulators,
+                       q_output_bf16, q_output_row_stride_elements);
+    store_output_panel(pair_cell - KPanels, 1U, m_tile_start, accumulators,
+                       v_output_bf16, v_output_row_stride_elements);
+    return;
+  }
+  const unsigned int remainder = pair_cell - KPanels - VPanels;
+  const unsigned int q_panel = KPanels + VPanels + 2U * remainder;
+  store_output_panel(q_panel, 0U, m_tile_start, accumulators,
+                     q_output_bf16, q_output_row_stride_elements);
+  store_output_panel(q_panel + 1U, 1U, m_tile_start, accumulators,
+                     q_output_bf16, q_output_row_stride_elements);
+}
+
+template <unsigned int QPanels, unsigned int KPanels,
+          unsigned int VPanels>
+__global__ __launch_bounds__(kSm87A4W4AttentionCellThreads,
+                             kSm87A4W4AttentionCellCtasPerSm)
+void q3x_sm87_a4w4_full_q_k_v_supermatrix_m128n64x2k128_kernel(
+    const std::uint8_t* const packed_a,
+    const std::uint16_t* const a_k128_scales_bf16,
+    const std::uint8_t* const packed_q_b,
+    const std::uint16_t* const q_b_k128_scales_bf16,
+    const std::uint8_t* const packed_k_b,
+    const std::uint16_t* const k_b_k128_scales_bf16,
+    const std::uint8_t* const packed_v_b,
+    const std::uint16_t* const v_b_k128_scales_bf16,
+    const unsigned int k128_group_count,
+    const unsigned int physical_k64_group_count,
+    std::uint16_t* const q_output_bf16,
+    const unsigned int q_output_row_stride_elements,
+    std::uint16_t* const k_output_bf16,
+    const unsigned int k_output_row_stride_elements,
+    std::uint16_t* const v_output_bf16,
+    const unsigned int v_output_row_stride_elements,
+    const unsigned int m_tile_count,
+    const unsigned int work_cell_count) {
+  __shared__ Sm87A4W4AttentionShared shared;
+
+  for (unsigned int work_cell = blockIdx.x; work_cell < work_cell_count;
+       work_cell += gridDim.x) {
+    const unsigned int pair_cell = work_cell / m_tile_count;
+    const unsigned int m_tile = work_cell - pair_cell * m_tile_count;
+    const unsigned int m_tile_start =
+        m_tile * kSm87A4W4AttentionCellTileM;
+    const std::uint8_t* packed_b0 = nullptr;
+    const std::uint16_t* b0_scales = nullptr;
+    const std::uint8_t* packed_b1 = nullptr;
+    const std::uint16_t* b1_scales = nullptr;
+    unsigned int panel0 = 0U;
+    unsigned int panel1 = 0U;
+    select_full_pair<QPanels, KPanels, VPanels>(
+        pair_cell, packed_q_b, q_b_k128_scales_bf16, packed_k_b,
+        k_b_k128_scales_bf16, packed_v_b, v_b_k128_scales_bf16,
+        packed_b0, b0_scales, panel0, packed_b1, b1_scales, panel1);
+
+    float accumulators[2U][8U][4U]{};
+    issue_group(shared, packed_a, a_k128_scales_bf16, packed_b0,
+                b0_scales, panel0, packed_b1, b1_scales, panel1,
+                m_tile_start, 0U, physical_k64_group_count,
+                k128_group_count);
+    if (k128_group_count > 1U) {
+      issue_group(shared, packed_a, a_k128_scales_bf16, packed_b0,
+                  b0_scales, panel0, packed_b1, b1_scales, panel1,
+                  m_tile_start, 1U, physical_k64_group_count,
+                  k128_group_count);
+    }
+    if (k128_group_count > 2U) {
+      issue_b_pair_stage(shared.b[2U], packed_b0, b0_scales, panel0,
+                         packed_b1, b1_scales, panel1, 2U,
+                         physical_k64_group_count, k128_group_count);
+      cp_async_commit();
+    }
+
+    for (unsigned int group = 0U; group < k128_group_count; ++group) {
+      wait_for_group(group, k128_group_count);
+      __syncthreads();
+      accumulate_group(shared.a[group % kSm87A4W4AttentionCellAStages],
+                       shared.b[group %
+                                kSm87A4W4AttentionCellBPairStages],
+                       accumulators);
+      __syncthreads();
+      if (group + kSm87A4W4AttentionCellAStages < k128_group_count) {
+        const unsigned int future_a =
+            group + kSm87A4W4AttentionCellAStages;
+        issue_a_stage(
+            shared.a[future_a % kSm87A4W4AttentionCellAStages],
+            packed_a, a_k128_scales_bf16, m_tile_start, future_a,
+            physical_k64_group_count, k128_group_count);
+        cp_async_commit();
+      }
+      if (group + kSm87A4W4AttentionCellBPairStages <
+          k128_group_count) {
+        const unsigned int future_b =
+            group + kSm87A4W4AttentionCellBPairStages;
+        issue_b_pair_stage(
+            shared.b[future_b % kSm87A4W4AttentionCellBPairStages],
+            packed_b0, b0_scales, panel0, packed_b1, b1_scales,
+            panel1, future_b, physical_k64_group_count,
+            k128_group_count);
+        cp_async_commit();
+      }
+    }
+
+    store_full_pair<QPanels, KPanels, VPanels>(
+        pair_cell, m_tile_start, accumulators, q_output_bf16,
+        q_output_row_stride_elements, k_output_bf16,
+        k_output_row_stride_elements, v_output_bf16,
+        v_output_row_stride_elements);
+    __syncthreads();
+  }
+}
+
+template <unsigned int NPanels>
+__global__ __launch_bounds__(kSm87A4W4AttentionCellThreads,
+                             kSm87A4W4AttentionCellCtasPerSm)
+void q3x_sm87_a4w4_attention_o_supermatrix_m128n64x2k128_kernel(
+    const std::uint8_t* const packed_a,
+    const std::uint16_t* const a_k128_scales_bf16,
+    const std::uint8_t* const packed_o_b,
+    const std::uint16_t* const o_b_k128_scales_bf16,
+    const unsigned int k128_group_count,
+    const unsigned int physical_k64_group_count,
+    std::uint16_t* const output_bf16,
+    const unsigned int output_row_stride_elements,
+    const unsigned int m_tile_count,
+    const unsigned int work_cell_count) {
+  static_assert(NPanels % 2U == 0U);
+  __shared__ Sm87A4W4AttentionShared shared;
+
+  for (unsigned int work_cell = blockIdx.x; work_cell < work_cell_count;
+       work_cell += gridDim.x) {
+    const unsigned int pair_cell = work_cell / m_tile_count;
+    const unsigned int m_tile = work_cell - pair_cell * m_tile_count;
+    const unsigned int m_tile_start =
+        m_tile * kSm87A4W4AttentionCellTileM;
+    const unsigned int panel0 = 2U * pair_cell;
+    const unsigned int panel1 = panel0 + 1U;
+    float accumulators[2U][8U][4U]{};
+    issue_group(shared, packed_a, a_k128_scales_bf16, packed_o_b,
+                o_b_k128_scales_bf16, panel0, packed_o_b,
+                o_b_k128_scales_bf16, panel1, m_tile_start, 0U,
+                physical_k64_group_count, k128_group_count);
+    if (k128_group_count > 1U) {
+      issue_group(shared, packed_a, a_k128_scales_bf16, packed_o_b,
+                  o_b_k128_scales_bf16, panel0, packed_o_b,
+                  o_b_k128_scales_bf16, panel1, m_tile_start, 1U,
+                  physical_k64_group_count, k128_group_count);
+    }
+    if (k128_group_count > 2U) {
+      issue_b_pair_stage(shared.b[2U], packed_o_b,
+                         o_b_k128_scales_bf16, panel0, packed_o_b,
+                         o_b_k128_scales_bf16, panel1, 2U,
+                         physical_k64_group_count, k128_group_count);
+      cp_async_commit();
+    }
+
+    for (unsigned int group = 0U; group < k128_group_count; ++group) {
+      wait_for_group(group, k128_group_count);
+      __syncthreads();
+      accumulate_group(shared.a[group % kSm87A4W4AttentionCellAStages],
+                       shared.b[group %
+                                kSm87A4W4AttentionCellBPairStages],
+                       accumulators);
+      __syncthreads();
+      if (group + kSm87A4W4AttentionCellAStages < k128_group_count) {
+        const unsigned int future_a =
+            group + kSm87A4W4AttentionCellAStages;
+        issue_a_stage(
+            shared.a[future_a % kSm87A4W4AttentionCellAStages],
+            packed_a, a_k128_scales_bf16, m_tile_start, future_a,
+            physical_k64_group_count, k128_group_count);
+        cp_async_commit();
+      }
+      if (group + kSm87A4W4AttentionCellBPairStages <
+          k128_group_count) {
+        const unsigned int future_b =
+            group + kSm87A4W4AttentionCellBPairStages;
+        issue_b_pair_stage(
+            shared.b[future_b % kSm87A4W4AttentionCellBPairStages],
+            packed_o_b, o_b_k128_scales_bf16, panel0, packed_o_b,
+            o_b_k128_scales_bf16, panel1, future_b,
+            physical_k64_group_count, k128_group_count);
+        cp_async_commit();
+      }
+    }
+
+    store_output_panel(panel0, 0U, m_tile_start, accumulators,
+                       output_bf16, output_row_stride_elements);
+    store_output_panel(panel1, 1U, m_tile_start, accumulators,
+                       output_bf16, output_row_stride_elements);
+    __syncthreads();
+  }
+}
+
 [[nodiscard]] int validate_sm87(
     cudaDeviceProp* const properties = nullptr) noexcept {
   int device = -1;
@@ -593,6 +857,7 @@ template <unsigned int FirstPanels, unsigned int SecondPanels>
     std::uint16_t* const second_output_bf16,
     const std::size_t second_output_row_stride_elements,
     const std::size_t second_output_capacity_elements,
+    const unsigned int maximum_launch_ctas,
     void* const cuda_stream) noexcept {
   constexpr std::size_t first_output_size =
       static_cast<std::size_t>(FirstPanels) *
@@ -603,7 +868,8 @@ template <unsigned int FirstPanels, unsigned int SecondPanels>
   const Sm87A4W4AttentionSupermatrixPlan plan =
       sm87_a4w4_attention_supermatrix_plan(
           token_count, first_output_size, second_output_size, input_size);
-  if (plan.launch_ctas == 0U || !aligned(packed_a, 16U) ||
+  if (plan.launch_ctas == 0U || maximum_launch_ctas == 0U ||
+      !aligned(packed_a, 16U) ||
       !aligned(a_k128_scales_bf16, 16U) ||
       !aligned(packed_first_b, 16U) ||
       !aligned(first_b_k128_scales_bf16, 16U) ||
@@ -727,9 +993,13 @@ template <unsigned int FirstPanels, unsigned int SecondPanels>
     return target_status;
   }
   const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  const unsigned int launch_ctas =
+      plan.work_cells < maximum_launch_ctas
+          ? static_cast<unsigned int>(plan.work_cells)
+          : maximum_launch_ctas;
   q3x_sm87_a4w4_attention_pair_supermatrix_m128n64x2k128_kernel<
       FirstPanels, SecondPanels>
-      <<<static_cast<unsigned int>(plan.launch_ctas),
+      <<<launch_ctas,
          static_cast<unsigned int>(kSm87A4W4AttentionCellThreads), 0U,
          stream>>>(
           packed_a, a_k128_scales_bf16, packed_first_b,
@@ -746,10 +1016,300 @@ template <unsigned int FirstPanels, unsigned int SecondPanels>
   return static_cast<int>(cudaPeekAtLastError());
 }
 
-}  // namespace
+template <unsigned int QPanels, unsigned int KPanels,
+          unsigned int VPanels>
+[[nodiscard]] int launch_full(
+    const std::uint8_t* const packed_a,
+    const std::size_t packed_a_capacity_bytes,
+    const std::uint16_t* const a_k128_scales_bf16,
+    const std::size_t a_scale_capacity_elements,
+    const std::uint8_t* const packed_q_b,
+    const std::size_t packed_q_b_capacity_bytes,
+    const std::uint16_t* const q_b_k128_scales_bf16,
+    const std::size_t q_b_scale_capacity_elements,
+    const std::uint8_t* const packed_k_b,
+    const std::size_t packed_k_b_capacity_bytes,
+    const std::uint16_t* const k_b_k128_scales_bf16,
+    const std::size_t k_b_scale_capacity_elements,
+    const std::uint8_t* const packed_v_b,
+    const std::size_t packed_v_b_capacity_bytes,
+    const std::uint16_t* const v_b_k128_scales_bf16,
+    const std::size_t v_b_scale_capacity_elements,
+    const std::size_t token_count, const std::size_t input_size,
+    std::uint16_t* const q_output_bf16,
+    const std::size_t q_output_row_stride_elements,
+    const std::size_t q_output_capacity_elements,
+    std::uint16_t* const k_output_bf16,
+    const std::size_t k_output_row_stride_elements,
+    const std::size_t k_output_capacity_elements,
+    std::uint16_t* const v_output_bf16,
+    const std::size_t v_output_row_stride_elements,
+    const std::size_t v_output_capacity_elements,
+    const unsigned int maximum_launch_ctas,
+    void* const cuda_stream) noexcept {
+  constexpr std::size_t q_output_size =
+      static_cast<std::size_t>(QPanels) *
+      kSm87A4W4AttentionCellPanelN;
+  constexpr std::size_t k_output_size =
+      static_cast<std::size_t>(KPanels) *
+      kSm87A4W4AttentionCellPanelN;
+  constexpr std::size_t v_output_size =
+      static_cast<std::size_t>(VPanels) *
+      kSm87A4W4AttentionCellPanelN;
+  const Sm87A4W4FullAttentionPlan plan =
+      sm87_a4w4_full_attention_supermatrix_plan(
+          token_count, q_output_size, k_output_size, v_output_size,
+          input_size);
+  const std::array<const std::uint8_t*, 4U> packed{{
+      packed_a, packed_q_b, packed_k_b, packed_v_b}};
+  const std::array<std::size_t, 4U> packed_capacities{{
+      packed_a_capacity_bytes, packed_q_b_capacity_bytes,
+      packed_k_b_capacity_bytes, packed_v_b_capacity_bytes}};
+  const std::array<const std::uint16_t*, 4U> scales{{
+      a_k128_scales_bf16, q_b_k128_scales_bf16,
+      k_b_k128_scales_bf16, v_b_k128_scales_bf16}};
+  const std::array<std::size_t, 4U> scale_capacities{{
+      a_scale_capacity_elements, q_b_scale_capacity_elements,
+      k_b_scale_capacity_elements, v_b_scale_capacity_elements}};
+  const std::array<std::size_t, 4U> outer_sizes{{
+      token_count, q_output_size, k_output_size, v_output_size}};
+  const std::array<std::uint16_t*, 3U> outputs{{
+      q_output_bf16, k_output_bf16, v_output_bf16}};
+  const std::array<std::size_t, 3U> output_sizes{{
+      q_output_size, k_output_size, v_output_size}};
+  const std::array<std::size_t, 3U> output_strides{{
+      q_output_row_stride_elements, k_output_row_stride_elements,
+      v_output_row_stride_elements}};
+  const std::array<std::size_t, 3U> output_capacities{{
+      q_output_capacity_elements, k_output_capacity_elements,
+      v_output_capacity_elements}};
 
-int query_sm87_a4w4_linear_qkv_z_supermatrix_resources_cuda(
-    Sm87A4W4AttentionSupermatrixResources* const resources) noexcept {
+  if (plan.launch_ctas == 0U || maximum_launch_ctas == 0U ||
+      plan.k128_groups > std::numeric_limits<unsigned int>::max() ||
+      plan.physical_k64_groups >
+          std::numeric_limits<unsigned int>::max() ||
+      plan.m_tiles > std::numeric_limits<unsigned int>::max() ||
+      plan.work_cells > std::numeric_limits<unsigned int>::max()) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  for (std::size_t index = 0U; index < packed.size(); ++index) {
+    if (!aligned(packed[index], 16U) || !aligned(scales[index], 16U) ||
+        !consumer_capacity_fits(outer_sizes[index],
+                                plan.physical_k64_groups) ||
+        !shared_scale_capacity_fits(outer_sizes[index],
+                                    plan.k128_groups)) {
+      return static_cast<int>(cudaErrorInvalidValue);
+    }
+  }
+
+  std::array<std::size_t, 3U> required_output_elements{};
+  std::array<std::size_t, 3U> required_output_bytes{};
+  for (std::size_t index = 0U; index < outputs.size(); ++index) {
+    if (!aligned(outputs[index], alignof(std::uint32_t)) ||
+        output_strides[index] < output_sizes[index] ||
+        output_strides[index] % 2U != 0U ||
+        output_strides[index] >
+            std::numeric_limits<unsigned int>::max() ||
+        !product_fits(token_count, output_strides[index])) {
+      return static_cast<int>(cudaErrorInvalidValue);
+    }
+    required_output_elements[index] =
+        token_count * output_strides[index];
+    if (!product_fits(required_output_elements[index],
+                      sizeof(std::uint16_t)) ||
+        output_capacities[index] < required_output_elements[index]) {
+      return static_cast<int>(cudaErrorInvalidValue);
+    }
+    required_output_bytes[index] =
+        required_output_elements[index] * sizeof(std::uint16_t);
+  }
+  for (std::size_t first = 0U; first < outputs.size(); ++first) {
+    for (std::size_t second = first + 1U; second < outputs.size();
+         ++second) {
+      if (byte_ranges_overlap(outputs[first], required_output_bytes[first],
+                              outputs[second],
+                              required_output_bytes[second])) {
+        return static_cast<int>(cudaErrorInvalidValue);
+      }
+    }
+  }
+
+  std::array<std::size_t, 4U> required_packed_bytes{};
+  std::array<std::size_t, 4U> required_scale_elements{};
+  std::array<std::size_t, 4U> required_scale_bytes{};
+  for (std::size_t index = 0U; index < packed.size(); ++index) {
+    required_packed_bytes[index] =
+        sm87_a4w4_consumer_packed_capacity_bytes(outer_sizes[index],
+                                                 input_size);
+    required_scale_elements[index] =
+        sm87_a4w4_consumer_k128_scale_capacity_elements(
+            outer_sizes[index], input_size);
+    if (required_packed_bytes[index] == 0U ||
+        required_scale_elements[index] == 0U ||
+        packed_capacities[index] < required_packed_bytes[index] ||
+        scale_capacities[index] < required_scale_elements[index] ||
+        !product_fits(required_scale_elements[index],
+                      sizeof(std::uint16_t))) {
+      return static_cast<int>(cudaErrorInvalidValue);
+    }
+    required_scale_bytes[index] =
+        required_scale_elements[index] * sizeof(std::uint16_t);
+  }
+  for (std::size_t output = 0U; output < outputs.size(); ++output) {
+    for (std::size_t input = 0U; input < packed.size(); ++input) {
+      if (byte_ranges_overlap(outputs[output],
+                              required_output_bytes[output],
+                              packed[input],
+                              required_packed_bytes[input]) ||
+          byte_ranges_overlap(outputs[output],
+                              required_output_bytes[output], scales[input],
+                              required_scale_bytes[input])) {
+        return static_cast<int>(cudaErrorInvalidValue);
+      }
+    }
+  }
+
+  const int target_status = validate_sm87();
+  if (target_status != static_cast<int>(cudaSuccess)) {
+    return target_status;
+  }
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  const unsigned int launch_ctas =
+      plan.work_cells < maximum_launch_ctas
+          ? static_cast<unsigned int>(plan.work_cells)
+          : maximum_launch_ctas;
+  q3x_sm87_a4w4_full_q_k_v_supermatrix_m128n64x2k128_kernel<
+      QPanels, KPanels, VPanels>
+      <<<launch_ctas,
+         static_cast<unsigned int>(kSm87A4W4AttentionCellThreads), 0U,
+         stream>>>(
+          packed_a, a_k128_scales_bf16, packed_q_b,
+          q_b_k128_scales_bf16, packed_k_b, k_b_k128_scales_bf16,
+          packed_v_b, v_b_k128_scales_bf16,
+          static_cast<unsigned int>(plan.k128_groups),
+          static_cast<unsigned int>(plan.physical_k64_groups),
+          q_output_bf16,
+          static_cast<unsigned int>(q_output_row_stride_elements),
+          k_output_bf16,
+          static_cast<unsigned int>(k_output_row_stride_elements),
+          v_output_bf16,
+          static_cast<unsigned int>(v_output_row_stride_elements),
+          static_cast<unsigned int>(plan.m_tiles),
+          static_cast<unsigned int>(plan.work_cells));
+  return static_cast<int>(cudaPeekAtLastError());
+}
+
+template <unsigned int NPanels>
+[[nodiscard]] int launch_o(
+    const std::uint8_t* const packed_a,
+    const std::size_t packed_a_capacity_bytes,
+    const std::uint16_t* const a_k128_scales_bf16,
+    const std::size_t a_scale_capacity_elements,
+    const std::uint8_t* const packed_o_b,
+    const std::size_t packed_o_b_capacity_bytes,
+    const std::uint16_t* const o_b_k128_scales_bf16,
+    const std::size_t o_b_scale_capacity_elements,
+    const std::size_t token_count, const std::size_t input_size,
+    std::uint16_t* const output_bf16,
+    const std::size_t output_row_stride_elements,
+    const std::size_t output_capacity_elements,
+    const unsigned int maximum_launch_ctas,
+    void* const cuda_stream) noexcept {
+  constexpr std::size_t output_size =
+      static_cast<std::size_t>(NPanels) *
+      kSm87A4W4AttentionCellPanelN;
+  const Sm87A4W4AttentionOPlan plan =
+      sm87_a4w4_attention_o_supermatrix_plan(token_count, output_size,
+                                             input_size);
+  if (plan.launch_ctas == 0U || maximum_launch_ctas == 0U ||
+      !aligned(packed_a, 16U) ||
+      !aligned(a_k128_scales_bf16, 16U) ||
+      !aligned(packed_o_b, 16U) ||
+      !aligned(o_b_k128_scales_bf16, 16U) ||
+      !aligned(output_bf16, alignof(std::uint32_t)) ||
+      output_row_stride_elements < output_size ||
+      output_row_stride_elements % 2U != 0U ||
+      output_row_stride_elements >
+          std::numeric_limits<unsigned int>::max() ||
+      !product_fits(token_count, output_row_stride_elements) ||
+      !consumer_capacity_fits(token_count, plan.physical_k64_groups) ||
+      !consumer_capacity_fits(output_size, plan.physical_k64_groups) ||
+      !shared_scale_capacity_fits(token_count, plan.k128_groups) ||
+      !shared_scale_capacity_fits(output_size, plan.k128_groups) ||
+      plan.k128_groups > std::numeric_limits<unsigned int>::max() ||
+      plan.physical_k64_groups >
+          std::numeric_limits<unsigned int>::max() ||
+      plan.m_tiles > std::numeric_limits<unsigned int>::max() ||
+      plan.work_cells > std::numeric_limits<unsigned int>::max()) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const std::size_t required_output_elements =
+      token_count * output_row_stride_elements;
+  const std::size_t required_a_bytes =
+      sm87_a4w4_consumer_packed_capacity_bytes(token_count, input_size);
+  const std::size_t required_a_scales =
+      sm87_a4w4_consumer_k128_scale_capacity_elements(token_count,
+                                                       input_size);
+  const std::size_t required_o_bytes =
+      sm87_a4w4_consumer_packed_capacity_bytes(output_size, input_size);
+  const std::size_t required_o_scales =
+      sm87_a4w4_consumer_k128_scale_capacity_elements(output_size,
+                                                       input_size);
+  if (!product_fits(required_output_elements, sizeof(std::uint16_t)) ||
+      !product_fits(required_a_scales, sizeof(std::uint16_t)) ||
+      !product_fits(required_o_scales, sizeof(std::uint16_t)) ||
+      output_capacity_elements < required_output_elements ||
+      required_a_bytes == 0U || required_a_scales == 0U ||
+      required_o_bytes == 0U || required_o_scales == 0U ||
+      packed_a_capacity_bytes < required_a_bytes ||
+      a_scale_capacity_elements < required_a_scales ||
+      packed_o_b_capacity_bytes < required_o_bytes ||
+      o_b_scale_capacity_elements < required_o_scales) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const std::size_t required_output_bytes =
+      required_output_elements * sizeof(std::uint16_t);
+  if (byte_ranges_overlap(output_bf16, required_output_bytes, packed_a,
+                          required_a_bytes) ||
+      byte_ranges_overlap(output_bf16, required_output_bytes,
+                          a_k128_scales_bf16,
+                          required_a_scales * sizeof(std::uint16_t)) ||
+      byte_ranges_overlap(output_bf16, required_output_bytes, packed_o_b,
+                          required_o_bytes) ||
+      byte_ranges_overlap(output_bf16, required_output_bytes,
+                          o_b_k128_scales_bf16,
+                          required_o_scales * sizeof(std::uint16_t))) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+
+  const int target_status = validate_sm87();
+  if (target_status != static_cast<int>(cudaSuccess)) {
+    return target_status;
+  }
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  const unsigned int launch_ctas =
+      plan.work_cells < maximum_launch_ctas
+          ? static_cast<unsigned int>(plan.work_cells)
+          : maximum_launch_ctas;
+  q3x_sm87_a4w4_attention_o_supermatrix_m128n64x2k128_kernel<NPanels>
+      <<<launch_ctas,
+         static_cast<unsigned int>(kSm87A4W4AttentionCellThreads), 0U,
+         stream>>>(
+          packed_a, a_k128_scales_bf16, packed_o_b,
+          o_b_k128_scales_bf16,
+          static_cast<unsigned int>(plan.k128_groups),
+          static_cast<unsigned int>(plan.physical_k64_groups),
+          output_bf16,
+          static_cast<unsigned int>(output_row_stride_elements),
+          static_cast<unsigned int>(plan.m_tiles),
+          static_cast<unsigned int>(plan.work_cells));
+  return static_cast<int>(cudaPeekAtLastError());
+}
+
+template <typename Kernel>
+[[nodiscard]] int query_resources(
+    Sm87A4W4AttentionSupermatrixResources* const resources,
+    const Kernel kernel) noexcept {
   if (resources == nullptr) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
@@ -759,10 +1319,6 @@ int query_sm87_a4w4_linear_qkv_z_supermatrix_resources_cuda(
   if (target_status != static_cast<int>(cudaSuccess)) {
     return target_status;
   }
-  const auto kernel =
-      q3x_sm87_a4w4_attention_pair_supermatrix_m128n64x2k128_kernel<
-          static_cast<unsigned int>(kQwen36LinearQkvPanels),
-          static_cast<unsigned int>(kQwen36LinearZPanels)>;
   cudaFuncAttributes attributes{};
   cudaError_t status = cudaFuncGetAttributes(&attributes, kernel);
   if (status != cudaSuccess) {
@@ -799,6 +1355,36 @@ int query_sm87_a4w4_linear_qkv_z_supermatrix_resources_cuda(
   return static_cast<int>(cudaSuccess);
 }
 
+}  // namespace
+
+int query_sm87_a4w4_linear_qkv_z_supermatrix_resources_cuda(
+    Sm87A4W4AttentionSupermatrixResources* const resources) noexcept {
+  const auto kernel =
+      q3x_sm87_a4w4_attention_pair_supermatrix_m128n64x2k128_kernel<
+          static_cast<unsigned int>(kQwen36LinearQkvPanels),
+          static_cast<unsigned int>(kQwen36LinearZPanels)>;
+  return query_resources(resources, kernel);
+}
+
+int query_sm87_a4w4_full_q_k_v_supermatrix_resources_cuda(
+    Sm87A4W4AttentionSupermatrixResources* const resources) noexcept {
+  const auto kernel =
+      q3x_sm87_a4w4_full_q_k_v_supermatrix_m128n64x2k128_kernel<
+          static_cast<unsigned int>(kQwen36FullQPanels),
+          static_cast<unsigned int>(kQwen36FullKvPanels),
+          static_cast<unsigned int>(kQwen36FullKvPanels)>;
+  return query_resources(resources, kernel);
+}
+
+int query_sm87_a4w4_attention_o_supermatrix_resources_cuda(
+    Sm87A4W4AttentionSupermatrixResources* const resources) noexcept {
+  const auto kernel =
+      q3x_sm87_a4w4_attention_o_supermatrix_m128n64x2k128_kernel<
+          static_cast<unsigned int>(kQwen36AttentionOOutputSize /
+                                    kSm87A4W4AttentionCellPanelN)>;
+  return query_resources(resources, kernel);
+}
+
 int launch_sm87_a4w4_linear_qkv_z_supermatrix_bf16_cuda(
     const std::uint8_t* const packed_a,
     const std::size_t packed_a_capacity_bytes,
@@ -832,7 +1418,9 @@ int launch_sm87_a4w4_linear_qkv_z_supermatrix_bf16_cuda(
       kQwen36AttentionInputSize, qkv_output_bf16,
       qkv_output_row_stride_elements, qkv_output_capacity_elements,
       z_output_bf16, z_output_row_stride_elements,
-      z_output_capacity_elements, cuda_stream);
+      z_output_capacity_elements,
+      static_cast<unsigned int>(kSm87A4W4AttentionCellPersistentCtas),
+      cuda_stream);
 }
 
 int launch_sm87_a4w4_attention_pair_supermatrix_test_bf16_cuda(
@@ -867,7 +1455,146 @@ int launch_sm87_a4w4_attention_pair_supermatrix_test_bf16_cuda(
       first_output_bf16, first_output_row_stride_elements,
       first_output_capacity_elements, second_output_bf16,
       second_output_row_stride_elements, second_output_capacity_elements,
+      2U, cuda_stream);
+}
+
+int launch_sm87_a4w4_full_q_k_v_supermatrix_bf16_cuda(
+    const std::uint8_t* const packed_a,
+    const std::size_t packed_a_capacity_bytes,
+    const std::uint16_t* const a_k128_scales_bf16,
+    const std::size_t a_scale_capacity_elements,
+    const std::uint8_t* const packed_q_b,
+    const std::size_t packed_q_b_capacity_bytes,
+    const std::uint16_t* const q_b_k128_scales_bf16,
+    const std::size_t q_b_scale_capacity_elements,
+    const std::uint8_t* const packed_k_b,
+    const std::size_t packed_k_b_capacity_bytes,
+    const std::uint16_t* const k_b_k128_scales_bf16,
+    const std::size_t k_b_scale_capacity_elements,
+    const std::uint8_t* const packed_v_b,
+    const std::size_t packed_v_b_capacity_bytes,
+    const std::uint16_t* const v_b_k128_scales_bf16,
+    const std::size_t v_b_scale_capacity_elements,
+    const std::size_t token_count,
+    std::uint16_t* const q_output_bf16,
+    const std::size_t q_output_row_stride_elements,
+    const std::size_t q_output_capacity_elements,
+    std::uint16_t* const k_output_bf16,
+    const std::size_t k_output_row_stride_elements,
+    const std::size_t k_output_capacity_elements,
+    std::uint16_t* const v_output_bf16,
+    const std::size_t v_output_row_stride_elements,
+    const std::size_t v_output_capacity_elements,
+    void* const cuda_stream) noexcept {
+  return launch_full<
+      static_cast<unsigned int>(kQwen36FullQPanels),
+      static_cast<unsigned int>(kQwen36FullKvPanels),
+      static_cast<unsigned int>(kQwen36FullKvPanels)>(
+      packed_a, packed_a_capacity_bytes, a_k128_scales_bf16,
+      a_scale_capacity_elements, packed_q_b, packed_q_b_capacity_bytes,
+      q_b_k128_scales_bf16, q_b_scale_capacity_elements, packed_k_b,
+      packed_k_b_capacity_bytes, k_b_k128_scales_bf16,
+      k_b_scale_capacity_elements, packed_v_b,
+      packed_v_b_capacity_bytes, v_b_k128_scales_bf16,
+      v_b_scale_capacity_elements, token_count, kQwen36AttentionInputSize,
+      q_output_bf16, q_output_row_stride_elements,
+      q_output_capacity_elements, k_output_bf16,
+      k_output_row_stride_elements, k_output_capacity_elements,
+      v_output_bf16, v_output_row_stride_elements,
+      v_output_capacity_elements,
+      static_cast<unsigned int>(kSm87A4W4AttentionCellPersistentCtas),
       cuda_stream);
+}
+
+int launch_sm87_a4w4_full_q_k_v_supermatrix_test_bf16_cuda(
+    const std::uint8_t* const packed_a,
+    const std::size_t packed_a_capacity_bytes,
+    const std::uint16_t* const a_k128_scales_bf16,
+    const std::size_t a_scale_capacity_elements,
+    const std::uint8_t* const packed_q_b,
+    const std::size_t packed_q_b_capacity_bytes,
+    const std::uint16_t* const q_b_k128_scales_bf16,
+    const std::size_t q_b_scale_capacity_elements,
+    const std::uint8_t* const packed_k_b,
+    const std::size_t packed_k_b_capacity_bytes,
+    const std::uint16_t* const k_b_k128_scales_bf16,
+    const std::size_t k_b_scale_capacity_elements,
+    const std::uint8_t* const packed_v_b,
+    const std::size_t packed_v_b_capacity_bytes,
+    const std::uint16_t* const v_b_k128_scales_bf16,
+    const std::size_t v_b_scale_capacity_elements,
+    const std::size_t token_count, const std::size_t input_size,
+    std::uint16_t* const q_output_bf16,
+    const std::size_t q_output_row_stride_elements,
+    const std::size_t q_output_capacity_elements,
+    std::uint16_t* const k_output_bf16,
+    const std::size_t k_output_row_stride_elements,
+    const std::size_t k_output_capacity_elements,
+    std::uint16_t* const v_output_bf16,
+    const std::size_t v_output_row_stride_elements,
+    const std::size_t v_output_capacity_elements,
+    void* const cuda_stream) noexcept {
+  return launch_full<4U, 1U, 1U>(
+      packed_a, packed_a_capacity_bytes, a_k128_scales_bf16,
+      a_scale_capacity_elements, packed_q_b, packed_q_b_capacity_bytes,
+      q_b_k128_scales_bf16, q_b_scale_capacity_elements, packed_k_b,
+      packed_k_b_capacity_bytes, k_b_k128_scales_bf16,
+      k_b_scale_capacity_elements, packed_v_b,
+      packed_v_b_capacity_bytes, v_b_k128_scales_bf16,
+      v_b_scale_capacity_elements, token_count, input_size,
+      q_output_bf16, q_output_row_stride_elements,
+      q_output_capacity_elements, k_output_bf16,
+      k_output_row_stride_elements, k_output_capacity_elements,
+      v_output_bf16, v_output_row_stride_elements,
+      v_output_capacity_elements, 2U, cuda_stream);
+}
+
+int launch_sm87_a4w4_attention_o_supermatrix_bf16_cuda(
+    const std::uint8_t* const packed_a,
+    const std::size_t packed_a_capacity_bytes,
+    const std::uint16_t* const a_k128_scales_bf16,
+    const std::size_t a_scale_capacity_elements,
+    const std::uint8_t* const packed_o_b,
+    const std::size_t packed_o_b_capacity_bytes,
+    const std::uint16_t* const o_b_k128_scales_bf16,
+    const std::size_t o_b_scale_capacity_elements,
+    const std::size_t token_count,
+    std::uint16_t* const output_bf16,
+    const std::size_t output_row_stride_elements,
+    const std::size_t output_capacity_elements,
+    void* const cuda_stream) noexcept {
+  return launch_o<static_cast<unsigned int>(
+      kQwen36AttentionOOutputSize /
+      kSm87A4W4AttentionCellPanelN)>(
+      packed_a, packed_a_capacity_bytes, a_k128_scales_bf16,
+      a_scale_capacity_elements, packed_o_b, packed_o_b_capacity_bytes,
+      o_b_k128_scales_bf16, o_b_scale_capacity_elements, token_count,
+      kQwen36AttentionOInputSize, output_bf16,
+      output_row_stride_elements, output_capacity_elements,
+      static_cast<unsigned int>(kSm87A4W4AttentionCellPersistentCtas),
+      cuda_stream);
+}
+
+int launch_sm87_a4w4_attention_o_supermatrix_test_bf16_cuda(
+    const std::uint8_t* const packed_a,
+    const std::size_t packed_a_capacity_bytes,
+    const std::uint16_t* const a_k128_scales_bf16,
+    const std::size_t a_scale_capacity_elements,
+    const std::uint8_t* const packed_o_b,
+    const std::size_t packed_o_b_capacity_bytes,
+    const std::uint16_t* const o_b_k128_scales_bf16,
+    const std::size_t o_b_scale_capacity_elements,
+    const std::size_t token_count, const std::size_t input_size,
+    std::uint16_t* const output_bf16,
+    const std::size_t output_row_stride_elements,
+    const std::size_t output_capacity_elements,
+    void* const cuda_stream) noexcept {
+  return launch_o<4U>(
+      packed_a, packed_a_capacity_bytes, a_k128_scales_bf16,
+      a_scale_capacity_elements, packed_o_b, packed_o_b_capacity_bytes,
+      o_b_k128_scales_bf16, o_b_scale_capacity_elements, token_count,
+      input_size, output_bf16, output_row_stride_elements,
+      output_capacity_elements, 1U, cuda_stream);
 }
 
 }  // namespace q3x::kernels

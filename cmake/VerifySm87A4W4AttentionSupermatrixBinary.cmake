@@ -23,9 +23,9 @@ string(REGEX MATCHALL
   _q3x_resource_lines "${_q3x_resources}"
 )
 list(LENGTH _q3x_resource_lines _q3x_resource_count)
-if(NOT _q3x_resource_count EQUAL 2)
+if(NOT _q3x_resource_count EQUAL 6)
   message(FATAL_ERROR
-    "expected real and small-K attention kernels; found ${_q3x_resource_count}"
+    "expected real and small-K Linear/Full/O kernels; found ${_q3x_resource_count}"
   )
 endif()
 
@@ -45,5 +45,5 @@ foreach(_q3x_line IN LISTS _q3x_resource_lines)
 endforeach()
 
 message(STATUS
-  "Verified attention supermatrix binary: <=128 registers, stack/local 0, shared 42240"
+  "Verified six attention supermatrix kernels: <=128 registers, stack/local 0, shared 42240"
 )
