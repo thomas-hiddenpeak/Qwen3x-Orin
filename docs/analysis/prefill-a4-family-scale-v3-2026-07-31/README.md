@@ -216,9 +216,18 @@ The gates remain:
 
 - exact bounded CPU/CUDA oracle for each admitted `G`, all signed codes, scale
   edge cases, guard/alias/error behavior, and group-correct arbitrary-M tails;
+- compare against the authenticated all-K128 incumbent at explicit family
+  capture points on all 64 natural-order layers: decoded Gate+Up/Down input,
+  Down BF16 output, and post-MLP hidden. Report NRMSE/cosine per family and per
+  layer; no aggregate may hide one bad family or layer;
+- because attention remains K128 in the first profile, its projection outputs
+  must remain bit-identical through the selector refactor. Any attention delta
+  is a routing bug, not an allowed K256 numerical change;
 - zero non-finite layer-boundary values;
-- aggregate hidden-state NRMSE at most 0.01 and cosine at least 0.9999;
-- every layer boundary at most 0.03 NRMSE and at least 0.999 cosine;
+- for each affected MLP family and the post-layer hidden boundary, aggregate
+  NRMSE is at most 0.01 and cosine is at least 0.9999 against all-K128;
+- every affected family/layer boundary is at most 0.03 NRMSE and at least
+  0.999 cosine against all-K128;
 - greedy output agreement is a sentinel, not the capability verdict;
 - no frozen public EvalScope capability score may lose more than one
   percentage point absolute or more than its baseline confidence interval,
@@ -228,45 +237,53 @@ The gates remain:
 
 ## Executable commit sequence
 
-Each numbered item is independently reviewable. Commits 1--4 do not select a
+Each numbered item is independently reviewable. Commits 1--5 do not select a
 new runtime route.
 
-1. **v3 manifest contract, host only.** Add `kA4FamilyV3`, the bounded
+1. **v3 manifest/profile contract, host only.** Add `kA4FamilyV3`, the bounded
    three-field profile, per-family expansion, payload arithmetic, digest
    coverage, and hostile validation tests. Assert that existing K64-v1 and
    K128-v2 manifest bytes/digests are unchanged.
-2. **v3 policy and receipt, host only.** Add version-3 exact-key parsers and
-   serializers. Authenticate the profile, per-entry policy groups, manifest,
-   payload size, and digests. Preserve legacy receipt parsing byte-for-byte.
-3. **generic offline group quantizer.** Generalize the CPU converter to
+2. **v3 policy contract, host only.** Add the version-3 exact-key policy parser
+   and template serializer. Validate every calibration group against its
+   manifest entry and retain the shared-activation-boundary equality checks.
+   Preserve K64-v1/K128-v2 policy bytes and parsing behavior.
+3. **v3 receipt/profile authentication, host only.** Add the version-3
+   exact-key receipt parser/serializer and bounded profile authentication.
+   Rebuild the deterministic manifest from the receipt profile and bind its
+   payload size and digests using temporary host files only. No CUDA,
+   `ModelWeights`, runner selector, or feature flag changes belong here.
+4. **generic offline group quantizer.** Generalize the CPU converter to
    `G={64,128,256,512}` while preserving K64 packed offsets. Add exhaustive
    small-matrix correctness and no-replace/authentication tests. The CLI emits
    one of four named profiles; it does not accept arbitrary unsupported group
    combinations.
-4. **transactional model binding.** Admit v3 views in `ModelWeights`, validate
+5. **transactional model binding.** Admit v3 views in `ModelWeights`, validate
    all 400 family/group/shape bindings, and keep runtime scheduling disabled.
    Existing exact, K64, and K128 attachment tests remain unchanged.
-5. **runner selector refactor with no numerical change.** Replace the global
+6. **runner selector refactor with no numerical change.** Replace the global
    consumer enum with a complete inventory/profile plus per-boundary groups.
    Route current all-K64 and all-K128 publications through the new selectors
-   and require bit-identical behavior before adding K256.
-6. **first vertical kernel slice.** Implement attention-K128 reuse plus K256
+   and require bit-identical projection/layer outputs before adding K256.
+7. **first vertical kernel slice.** Implement attention-K128 reuse plus K256
    Gate/Up input, K256 Gate+Up packed epilogue, and K256 Down. Keep physical
    K64 code stages; apply scales after four MMAs. Add group-correct quantizer,
    paired, Down, and arbitrary-M tail or fail-before-layer-0 contracts.
-7. **earliest real observation.** Generate an authenticated real-weight
+8. **earliest real observation.** Generate an authenticated real-weight
    attention-K128/Gate+Up-K256/Down-K256 artifact. Run one P2048,
    `max_tokens=1`, OpenAI-compatible request against the live all-K128 native
    incumbent. This is the first performance decision; synthetic matrices have
    no authority.
-8. **qualify only a positive route.** If step 7 is positive, run the frozen
-   P2K/P4K EvalScope performance matrix, full numerical/state tests, then NSys
-   and NCU on the positive whole route. Retain only a stable improvement over
-   the current native incumbent.
-9. **Down K512 as a separate candidate.** Change only the Gate+Up output/Down
+9. **qualify only a positive route.** If step 8 is positive, capture all-K128
+   and K256 family/layer boundaries from the same real prompts, apply the
+   family-level NRMSE/cosine gates above, run the frozen P2K/P4K EvalScope
+   performance matrix and final public capability set, then use NSys/NCU to
+   explain the positive whole route. Retain only a stable improvement with all
+   numerical and capability gates passing.
+10. **Down K512 as a separate candidate.** Change only the Gate+Up output/Down
    boundary from K256 to K512 after K256 passes capability. Repeat the real
    P2048 direction test before building its formal harness.
-10. **production promotion.** Require at least 2,000 prompt token/s at both P2K
+11. **production promotion.** Require at least 2,000 prompt token/s at both P2K
     and P4K, confirm 8K/16K/40K scaling and arbitrary lengths, pass public
     capability and Decode non-regression, and keep the exact fallback until
     those gates are complete.
@@ -276,6 +293,9 @@ new runtime route.
 - If the first K256 whole-run request is non-positive, stop before formal
   timing/profile infrastructure. A bounded NCU run may explain the failure but
   cannot retain it.
+- The 35.18% P2048 scale-application reduction is a mechanism estimate only.
+  It cannot retain, qualify, or promote a candidate without the family/layer
+  all-K128 comparisons and final public capability result.
 - If the formal K256 route does not clear the measured noise allowance and at
   least 1.03x whole-Prefill at P2048, do not build K512; scale cadence is not a
   sufficiently large limiter.
