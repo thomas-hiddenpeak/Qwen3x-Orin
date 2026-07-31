@@ -1154,6 +1154,242 @@ class DeviceBuffer final {
   return true;
 }
 
+[[nodiscard]] bool run_k128_padded_m_case(
+    const std::size_t logical_m_count) {
+  constexpr std::size_t n_count = 256U;
+  constexpr std::size_t k_count = 128U;
+  constexpr std::size_t k128_groups = 1U;
+  constexpr std::size_t physical_k64_groups = 2U;
+  constexpr std::size_t output_stride = n_count + 8U;
+  constexpr std::size_t guard_elements = 64U;
+  const std::size_t padded_m_count =
+      (logical_m_count + 63U) / 64U * 64U;
+  const std::size_t prefix_m_count = logical_m_count / 64U * 64U;
+  const std::size_t tail_m_count = logical_m_count - prefix_m_count;
+  const std::size_t packed_row_bytes = k_count / 2U;
+  const std::size_t scale_row_elements = k_count / 128U;
+  const std::size_t a_bytes =
+      kernels::sm87_a4w4_consumer_packed_capacity_bytes(
+          padded_m_count, k_count);
+  const std::size_t a_scale_elements =
+      kernels::sm87_a4w4_consumer_k128_scale_capacity_elements(
+          padded_m_count, k_count);
+  constexpr std::size_t b_bytes =
+      kernels::sm87_a4w4_consumer_packed_capacity_bytes(n_count, k_count);
+  constexpr std::size_t b_scale_elements =
+      kernels::sm87_a4w4_consumer_k128_scale_capacity_elements(n_count,
+                                                               k_count);
+  const std::size_t output_elements =
+      padded_m_count * output_stride + guard_elements;
+  if (logical_m_count == 0U || tail_m_count == 0U ||
+      padded_m_count - logical_m_count >= 64U ||
+      a_bytes != padded_m_count * packed_row_bytes ||
+      a_scale_elements != padded_m_count * scale_row_elements) {
+    std::cerr << "invalid K128 padded-M test shape M=" << logical_m_count
+              << '\n';
+    return false;
+  }
+
+  std::vector<std::uint16_t> input(logical_m_count * k_count);
+  for (std::size_t m = 0U; m < logical_m_count; ++m) {
+    for (std::size_t k = 0U; k < k_count; ++k) {
+      const int centered =
+          static_cast<int>((19U * m + 13U * k + 7U) % 59U) - 29;
+      input[m * k_count + k] =
+          encode_bf16(static_cast<float>(centered) / 16.0F);
+    }
+  }
+  std::vector<std::uint8_t> packed_b(b_bytes, 0U);
+  std::vector<std::uint16_t> b_scales(b_scale_elements, 0U);
+  for (std::size_t n = 0U; n < n_count; ++n) {
+    for (std::size_t k = 0U; k < k_count; k += 2U) {
+      const int even =
+          static_cast<int>((7U * n + 11U * k + 3U) % 15U) - 7;
+      const int odd =
+          static_cast<int>((17U * n + 5U * (k + 1U) + 1U) % 15U) - 7;
+      const std::size_t physical_group = k / 64U;
+      packed_b[kernels::sm87_a4w4_consumer_packed_offset(
+          n, physical_group, (k % 64U) / 2U,
+          physical_k64_groups)] =
+          kernels::sm87_a4w4_pack_signed_pair(even, odd);
+    }
+    b_scales[kernels::sm87_a4w4_consumer_k128_scale_offset(
+        n, 0U, k128_groups)] =
+        encode_bf16(static_cast<float>(1U + n % 7U) / 64.0F);
+  }
+
+  DeviceBuffer<std::uint16_t> device_input;
+  DeviceBuffer<std::uint8_t> device_a;
+  DeviceBuffer<std::uint16_t> device_a_scales;
+  DeviceBuffer<std::uint8_t> device_b;
+  DeviceBuffer<std::uint16_t> device_b_scales;
+  DeviceBuffer<std::uint16_t> padded_output;
+  DeviceBuffer<std::uint16_t> split_output;
+  if (!device_input.allocate(input.size()) || !device_a.allocate(a_bytes) ||
+      !device_a_scales.allocate(a_scale_elements) ||
+      !device_b.allocate(b_bytes) ||
+      !device_b_scales.allocate(b_scale_elements) ||
+      !padded_output.allocate(output_elements) ||
+      !split_output.allocate(output_elements)) {
+    std::cerr << "K128 padded-M allocation failed M=" << logical_m_count
+              << '\n';
+    return false;
+  }
+  if (!cuda_ok(cudaMemcpy(device_input.get(), input.data(),
+                          input.size() * sizeof(input[0]),
+                          cudaMemcpyHostToDevice),
+               "copy K128 padded-M logical BF16 rows") ||
+      !cuda_ok(cudaMemcpy(device_b.get(), packed_b.data(), b_bytes,
+                          cudaMemcpyHostToDevice),
+               "copy K128 padded-M B") ||
+      !cuda_ok(cudaMemcpy(device_b_scales.get(), b_scales.data(),
+                          b_scale_elements * sizeof(std::uint16_t),
+                          cudaMemcpyHostToDevice),
+               "copy K128 padded-M B scales") ||
+      !cuda_ok(cudaMemset(device_a.get(), 0xa5, a_bytes),
+               "initialize K128 padded-M A guard") ||
+      !cuda_ok(cudaMemset(device_a_scales.get(), 0xa5,
+                          a_scale_elements * sizeof(std::uint16_t)),
+               "initialize K128 padded-M A-scale guard") ||
+      !cuda_ok(cudaMemset(padded_output.get(), 0x5a,
+                          output_elements * sizeof(std::uint16_t)),
+               "initialize K128 padded-M output") ||
+      !cuda_ok(cudaMemset(split_output.get(), 0x5a,
+                          output_elements * sizeof(std::uint16_t)),
+               "initialize K128 padded-M split output")) {
+    return false;
+  }
+
+  if (!launch_ok(kernels::launch_sm87_a4_quantize_bf16_k128_cuda(
+                     device_input.get(), k_count, logical_m_count, k_count,
+                     1.0F, device_a.get(), a_bytes,
+                     device_a_scales.get(), a_scale_elements),
+                 "quantize only logical K128 padded-M rows") ||
+      !cuda_ok(cudaMemset(
+                   device_a.get() + logical_m_count * packed_row_bytes, 0,
+                   (padded_m_count - logical_m_count) * packed_row_bytes),
+               "zero K128 padded-M packed tail") ||
+      !cuda_ok(cudaMemset(
+                   device_a_scales.get() +
+                       logical_m_count * scale_row_elements,
+                   0, (padded_m_count - logical_m_count) *
+                          scale_row_elements * sizeof(std::uint16_t)),
+               "zero K128 padded-M scale tail")) {
+    return false;
+  }
+  if (kernels::launch_sm87_a4w4_prefill_gemm_k128_bf16_cuda(
+          device_a.get(), a_bytes - 1U, device_a_scales.get(),
+          a_scale_elements, device_b.get(), b_bytes, device_b_scales.get(),
+          b_scale_elements, padded_m_count, n_count, k_count,
+          padded_output.get(), output_stride) !=
+      static_cast<int>(cudaErrorInvalidValue)) {
+    std::cerr << "K128 padded-M short packed capacity was not rejected M="
+              << logical_m_count << '\n';
+    return false;
+  }
+  if (!launch_ok(kernels::launch_sm87_a4w4_prefill_gemm_k128_bf16_cuda(
+                     device_a.get(), a_bytes, device_a_scales.get(),
+                     a_scale_elements, device_b.get(), b_bytes,
+                     device_b_scales.get(), b_scale_elements, padded_m_count,
+                     n_count, k_count, padded_output.get(), output_stride),
+                 "launch K128 padded-M whole span")) {
+    return false;
+  }
+  if (prefix_m_count != 0U &&
+      !launch_ok(kernels::launch_sm87_a4w4_prefill_gemm_k128_bf16_cuda(
+                     device_a.get(), prefix_m_count * packed_row_bytes,
+                     device_a_scales.get(),
+                     prefix_m_count * scale_row_elements, device_b.get(),
+                     b_bytes, device_b_scales.get(), b_scale_elements,
+                     prefix_m_count, n_count, k_count, split_output.get(),
+                     output_stride),
+                 "launch K128 padded-M aligned prefix")) {
+    return false;
+  }
+  if (!launch_ok(kernels::launch_sm87_a4w4_prefill_gemm_k128_bf16_cuda(
+                     device_a.get() + prefix_m_count * packed_row_bytes,
+                     64U * packed_row_bytes,
+                     device_a_scales.get() +
+                         prefix_m_count * scale_row_elements,
+                     64U * scale_row_elements, device_b.get(), b_bytes,
+                     device_b_scales.get(), b_scale_elements, 64U, n_count,
+                     k_count,
+                     split_output.get() + prefix_m_count * output_stride,
+                     output_stride),
+                 "launch K128 padded-M isolated final block") ||
+      !cuda_ok(cudaDeviceSynchronize(),
+               "synchronize K128 padded-M comparison")) {
+    return false;
+  }
+
+  std::vector<std::uint8_t> packed_a(a_bytes);
+  std::vector<std::uint16_t> a_scales(a_scale_elements);
+  std::vector<std::uint16_t> whole(output_elements);
+  std::vector<std::uint16_t> split(output_elements);
+  if (!cuda_ok(cudaMemcpy(packed_a.data(), device_a.get(), a_bytes,
+                          cudaMemcpyDeviceToHost),
+               "copy K128 padded-M packed A") ||
+      !cuda_ok(cudaMemcpy(a_scales.data(), device_a_scales.get(),
+                          a_scale_elements * sizeof(std::uint16_t),
+                          cudaMemcpyDeviceToHost),
+               "copy K128 padded-M A scales") ||
+      !cuda_ok(cudaMemcpy(whole.data(), padded_output.get(),
+                          output_elements * sizeof(std::uint16_t),
+                          cudaMemcpyDeviceToHost),
+               "copy K128 padded-M whole output") ||
+      !cuda_ok(cudaMemcpy(split.data(), split_output.get(),
+                          output_elements * sizeof(std::uint16_t),
+                          cudaMemcpyDeviceToHost),
+               "copy K128 padded-M split output")) {
+    return false;
+  }
+  for (std::size_t index = logical_m_count * packed_row_bytes;
+       index < a_bytes; ++index) {
+    if (packed_a[index] != 0U) {
+      std::cerr << "K128 padded-M packed tail is nonzero M="
+                << logical_m_count << " byte=" << index << '\n';
+      return false;
+    }
+  }
+  for (std::size_t index = logical_m_count * scale_row_elements;
+       index < a_scale_elements; ++index) {
+    if (a_scales[index] != 0U) {
+      std::cerr << "K128 padded-M scale tail is nonzero M="
+                << logical_m_count << " element=" << index << '\n';
+      return false;
+    }
+  }
+  for (std::size_t index = 0U; index < output_elements; ++index) {
+    if (whole[index] != split[index]) {
+      std::cerr << "K128 padded-M bit mismatch M=" << logical_m_count
+                << " element=" << index << " whole=" << whole[index]
+                << " split=" << split[index] << '\n';
+      return false;
+    }
+  }
+  for (std::size_t index = padded_m_count * output_stride;
+       index < output_elements; ++index) {
+    if (whole[index] != 0x5a5aU || split[index] != 0x5a5aU) {
+      std::cerr << "K128 padded-M output guard was modified M="
+                << logical_m_count << " element=" << index << '\n';
+      return false;
+    }
+  }
+  std::cout << "SM87 A4W4 K128 padded-M bit-exact: logical_M="
+            << logical_m_count << " projected_M=" << padded_m_count << '\n';
+  return true;
+}
+
+[[nodiscard]] bool run_k128_padded_m_projection() {
+  for (const std::size_t logical_m_count :
+       {1'853U, 3'987U, 40'959U}) {
+    if (!run_k128_padded_m_case(logical_m_count)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 }  // namespace
 
 int main() {
@@ -1162,7 +1398,8 @@ int main() {
   }
   return run_projection() && run_large_m_projection() &&
                  run_wide_m_projection() && run_arbitrary_m_composition() &&
-                 run_shared_k128_projection()
+                 run_shared_k128_projection() &&
+                 run_k128_padded_m_projection()
              ? 0
              : 1;
 }

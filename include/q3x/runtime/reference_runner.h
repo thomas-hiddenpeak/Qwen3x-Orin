@@ -530,6 +530,76 @@ a4w4_prefill_consumer_from_contract(
            token_count % 64U == 0U));
 }
 
+// Whole-M projection spans have independent packed/scaled activation and BF16
+// output workspaces whose capacity is a C512 multiple.  A K128 publication can
+// therefore execute a natural prompt tail by quantizing only the logical rows,
+// explicitly zero-filling the packed/scaled rows through the next M64 boundary,
+// and launching the incumbent K128 consumer on that padded M.  Hidden state,
+// attention, recurrent state, residuals, and the retained final row continue to
+// use logical_token_count.  This plan is deliberately unavailable to the C512
+// tile path because that path does not own independent padded output storage.
+struct A4W4ProjectionSpanPaddingPlan final {
+  std::size_t logical_token_count = 0U;
+  std::size_t projection_token_count = 0U;
+  std::size_t padding_token_count = 0U;
+  std::size_t span_capacity = 0U;
+
+  [[nodiscard]] constexpr bool valid() const noexcept {
+    return logical_token_count != 0U &&
+           projection_token_count >= logical_token_count &&
+           projection_token_count <= span_capacity &&
+           padding_token_count ==
+               projection_token_count - logical_token_count;
+  }
+};
+
+[[nodiscard]] constexpr A4W4ProjectionSpanPaddingPlan
+a4w4_projection_span_padding_plan(
+    const A4W4PrefillConsumer consumer,
+    const std::size_t logical_token_count,
+    const std::size_t span_capacity) noexcept {
+  if (consumer == A4W4PrefillConsumer::kUnavailable ||
+      logical_token_count == 0U || logical_token_count > span_capacity) {
+    return {};
+  }
+  if (consumer == A4W4PrefillConsumer::kK64) {
+    return {logical_token_count, logical_token_count, 0U, span_capacity};
+  }
+  constexpr std::size_t kK128MAlignment = 64U;
+  constexpr std::size_t kMaximum = static_cast<std::size_t>(-1);
+  if (logical_token_count > kMaximum - (kK128MAlignment - 1U)) {
+    return {};
+  }
+  const std::size_t projection_token_count =
+      (logical_token_count + kK128MAlignment - 1U) /
+      kK128MAlignment * kK128MAlignment;
+  if (projection_token_count > span_capacity) {
+    return {};
+  }
+  return {logical_token_count, projection_token_count,
+          projection_token_count - logical_token_count, span_capacity};
+}
+
+[[nodiscard]] constexpr bool
+a4w4_prefill_consumer_supports_projection_span_prompt(
+    const A4W4PrefillConsumer consumer,
+    const std::size_t prompt_token_count,
+    const std::size_t span_capacity) noexcept {
+  if (prompt_token_count == 0U || span_capacity == 0U) {
+    return false;
+  }
+  const std::size_t first_span_token_count =
+      prompt_token_count < span_capacity ? prompt_token_count : span_capacity;
+  if (!a4w4_projection_span_padding_plan(
+           consumer, first_span_token_count, span_capacity).valid()) {
+    return false;
+  }
+  const std::size_t tail_token_count = prompt_token_count % span_capacity;
+  return tail_token_count == 0U ||
+         a4w4_projection_span_padding_plan(
+             consumer, tail_token_count, span_capacity).valid();
+}
+
 [[nodiscard]] constexpr bool a4w4_prefill_inventory_consumers_match(
     const A4W4PrefillConsumer selected,
     const A4W4PrefillConsumer candidate) noexcept {

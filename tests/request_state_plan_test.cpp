@@ -950,6 +950,42 @@ void test_long_prefill_projection_span_workspace(TestContext& test) {
     test.expect(aligned_and_ordered && prior_end <= plan.rope_offset,
                 "whole-M owning regions are aligned, ordered, and disjoint");
 
+    runtime::RequestMemoryOptions p40959_options = options;
+    p40959_options.max_sequence_length = 40'959U;
+    p40959_options.long_prefill_token_capacity = 40'959U;
+    p40959_options.long_prefill_projection_span_capacity = 4'096U;
+    p40959_options.max_arena_bytes =
+        5ULL * 1024ULL * 1024ULL * 1024ULL;
+    const auto p40959 =
+        runtime::build_request_memory_plan(p40959_options);
+    test.expect(p40959.ok(),
+                "P40959 keeps exact hidden/KV capacity with S4096 scratch");
+    if (p40959) {
+        const runtime::RequestMemoryPlan& edge = *p40959.value;
+        const std::uint64_t hidden_elements = 40'959ULL * 5'120ULL;
+        test.expect(
+            edge.long_prefill_token_capacity == 40'959U &&
+                edge.long_prefill_projection_span_capacity == 4'096U &&
+                edge.long_prefill_hidden_bf16[0].element_capacity ==
+                    hidden_elements &&
+                edge.long_prefill_hidden_bf16[1].element_capacity ==
+                    hidden_elements &&
+                edge.long_prefill_projection_primary_bf16.element_capacity ==
+                    kPrimaryElements &&
+                edge.long_prefill_projection_secondary_bf16
+                        .element_capacity == kSecondaryElements &&
+                edge.prefill_a4_hidden_packed.byte_size == 10'485'760U &&
+                edge.prefill_a4_intermediate_packed.byte_size == 35'651'584U &&
+                edge.long_prefill_projection_primary_bf16.arena_offset +
+                        edge.long_prefill_projection_primary_bf16.byte_size <=
+                    edge.long_prefill_projection_secondary_bf16.arena_offset &&
+                edge.long_prefill_projection_secondary_bf16.arena_offset +
+                        edge.long_prefill_projection_secondary_bf16.byte_size <=
+                    edge.rope_offset,
+            "P40959 ceil64 tail remains inside the same disjoint S4096 "
+            "projection and A4 strides");
+    }
+
     options.max_arena_bytes = plan.arena_bytes - 1U;
     const auto one_byte_short = runtime::build_request_memory_plan(options);
     test.expect(!one_byte_short &&

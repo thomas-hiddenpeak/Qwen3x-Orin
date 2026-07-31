@@ -316,6 +316,12 @@ static_assert(kLinearValueElements <= kReferenceIntermediateSize);
 static_assert(kFullQGateElements <= kReferenceIntermediateSize);
 static_assert(kFullQueryElements <= kReferenceIntermediateSize);
 static_assert(kFullKvElements <= kReferenceIntermediateSize);
+static_assert(kLinearQkvElements + 2U * kLinearScalarElements <=
+              kRequestLongPrefillPrimaryWidth);
+static_assert(2U * kFullKvElements <=
+              kRequestLongPrefillSecondaryWidth);
+static_assert(kLinearValueElements ==
+              kRequestLongPrefillSecondaryWidth);
 static_assert(kPrefillKernelTileMaximumTokens ==
               kQkRopeTileMaximumTokens);
 static_assert(kFullAttentionPreprocessTileMaximumTokens ==
@@ -5358,14 +5364,17 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
   const RequestMemoryPlan& request_plan = state_->plan();
   const std::size_t span_capacity =
       request_plan.long_prefill_projection_span_capacity;
+  const reference_runner_detail::A4W4ProjectionSpanPaddingPlan
+      projection_padding =
+          reference_runner_detail::a4w4_projection_span_padding_plan(
+              a4w4_prefill_consumer_, item.token_count, span_capacity);
   const bool selected =
       reference_runner_detail::use_a4w4_full_prefill_tile_route(
           a4w4_full_prefill_admission_enabled_ ||
               g_enable_a4w4_full_prefill_admission,
           trace_enabled_, optimized_prefill_dispatch_disabled());
   if (!selected ||
-      !reference_runner_detail::a4w4_prefill_consumer_supports_token_count(
-          a4w4_prefill_consumer_, item.token_count) ||
+      !projection_padding.valid() ||
       projection_backend_ != ProjectionBackend::kSm87WeightOnly ||
       span_capacity != plan.projection_span_token_count ||
       span_capacity < item.token_count ||
@@ -5413,6 +5422,8 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
                          item.layer_index);
   }
 
+  const std::size_t projection_token_count =
+      projection_padding.projection_token_count;
   const auto stream = reinterpret_cast<cudaStream_t>(stream_);
   ReferenceRunnerStatus failure{};
   const auto check_cuda = [&failure, &item](
@@ -5425,6 +5436,60 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
                             item.layer_index, status);
     return false;
   };
+  const auto zero_projection_padding =
+      [this, projection_token_count, &check_cuda, stream](
+          const std::size_t logical_token_count,
+          const std::size_t input_size,
+          std::uint8_t* const packed,
+          const std::size_t packed_capacity,
+          std::uint16_t* const scales,
+          const std::size_t scale_capacity,
+          const char* const operation) noexcept {
+        if (a4w4_prefill_consumer_ !=
+                reference_runner_detail::A4W4PrefillConsumer::kK128 ||
+            logical_token_count == projection_token_count) {
+          return true;
+        }
+        if (logical_token_count == 0U ||
+            logical_token_count > projection_token_count ||
+            input_size == 0U || input_size % 128U != 0U) {
+          return check_cuda(static_cast<int>(cudaErrorInvalidValue),
+                            operation);
+        }
+        const std::size_t logical_packed_bytes =
+            kernels::sm87_a4w4_consumer_packed_capacity_bytes(
+                logical_token_count, input_size);
+        const std::size_t padded_packed_bytes =
+            kernels::sm87_a4w4_consumer_packed_capacity_bytes(
+                projection_token_count, input_size);
+        const std::size_t logical_scale_elements =
+            kernels::sm87_a4w4_consumer_k128_scale_capacity_elements(
+                logical_token_count, input_size);
+        const std::size_t padded_scale_elements =
+            kernels::sm87_a4w4_consumer_k128_scale_capacity_elements(
+                projection_token_count, input_size);
+        if (logical_packed_bytes == 0U ||
+            logical_packed_bytes > padded_packed_bytes ||
+            padded_packed_bytes > packed_capacity ||
+            logical_scale_elements == 0U ||
+            logical_scale_elements > padded_scale_elements ||
+            padded_scale_elements > scale_capacity) {
+          return check_cuda(static_cast<int>(cudaErrorInvalidValue),
+                            operation);
+        }
+        return check_cuda(
+                   static_cast<int>(cudaMemsetAsync(
+                       packed + logical_packed_bytes, 0,
+                       padded_packed_bytes - logical_packed_bytes, stream)),
+                   operation) &&
+               check_cuda(
+                   static_cast<int>(cudaMemsetAsync(
+                       scales + logical_scale_elements, 0,
+                       (padded_scale_elements - logical_scale_elements) *
+                           sizeof(std::uint16_t),
+                       stream)),
+                   operation);
+      };
 #if defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
   // Snapshot admission once for this synchronous projection-span call. The
   // default remains the exact recurrence; an explicitly admitted native
@@ -5443,7 +5508,7 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
 
   reference_runner_detail::A4W4FullPrefillAdmissionHits local_hits{};
   const auto quantize =
-      [this, &check_cuda, &local_hits](
+      [this, &check_cuda, &local_hits, &zero_projection_padding](
           const std::uint16_t* const input,
           const std::size_t input_row_stride,
           const std::size_t token_count,
@@ -5458,7 +5523,10 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
             a4w4_prefill_consumer_, input, input_row_stride, token_count,
             input_size, clip_ratio, packed, packed_capacity, scales,
             scale_capacity, stream_);
-        if (!check_cuda(status, operation)) {
+        if (!check_cuda(status, operation) ||
+            !zero_projection_padding(token_count, input_size, packed,
+                                     packed_capacity, scales,
+                                     scale_capacity, operation)) {
           return false;
         }
         ++local_hits.activation_quantize_hits;
@@ -5611,7 +5679,7 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
     const PrefillA4LinearSidecarView qkv_sidecar =
         prefill_a4_sidecar_view(attention->in_proj_qkv);
     std::uint16_t* const linear_a =
-        primary + token_count * kLinearQkvElements;
+        primary + projection_token_count * kLinearQkvElements;
     std::uint16_t* const linear_b =
         linear_a + token_count * kLinearScalarElements;
     if (!project_linear_pair(
@@ -5626,12 +5694,12 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
         !project(attention->in_proj_qkv,
                  views_.prefill_a4_hidden_packed, hidden_packed_capacity,
                  views_.prefill_a4_hidden_scales, hidden_scale_capacity,
-                 token_count, primary,
+                 projection_token_count, primary,
                  "prefill_projection_span_linear_qkv") ||
         !project(attention->in_proj_z,
                  views_.prefill_a4_hidden_packed, hidden_packed_capacity,
                  views_.prefill_a4_hidden_scales, hidden_scale_capacity,
-                 token_count, secondary,
+                 projection_token_count, secondary,
                  "prefill_projection_span_linear_z")) {
       return failure;
     }
@@ -5854,7 +5922,8 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
                  views_.prefill_a4_intermediate_packed,
                  intermediate_packed_capacity,
                  views_.prefill_a4_intermediate_scales,
-                 intermediate_scale_capacity, token_count, secondary,
+                 intermediate_scale_capacity, projection_token_count,
+                 secondary,
                  "prefill_projection_span_linear_output")) {
       return failure;
     }
@@ -5874,6 +5943,17 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
     std::uint16_t* const span_value =
         views_.value_cache[item.layer_index] +
         static_cast<std::size_t>(item.first_position) * kFullKvElements;
+    // A natural final span may end at the exact KV-cache capacity.  Padded
+    // K128 projection rows must therefore land in span-local storage, never in
+    // the cache.  Only the logical rows are copied into their persistent slots
+    // before attention observes them.
+    const bool pad_full_kv = projection_padding.padding_token_count != 0U;
+    std::uint16_t* const projected_span_key =
+        pad_full_kv ? secondary : span_key;
+    std::uint16_t* const projected_span_value =
+        pad_full_kv
+            ? secondary + projection_token_count * kFullKvElements
+            : span_value;
     if (!quantize(primary, kReferenceHiddenSize, token_count,
                   kReferenceHiddenSize, q_sidecar.activation_clip_ratio,
                   views_.prefill_a4_hidden_packed, hidden_packed_capacity,
@@ -5881,16 +5961,31 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
                   "prefill_projection_span_full_input_quantize") ||
         !project(attention->q_proj, views_.prefill_a4_hidden_packed,
                  hidden_packed_capacity, views_.prefill_a4_hidden_scales,
-                 hidden_scale_capacity, token_count, primary,
+                 hidden_scale_capacity, projection_token_count, primary,
                  "prefill_projection_span_full_q") ||
         !project(attention->k_proj, views_.prefill_a4_hidden_packed,
                  hidden_packed_capacity, views_.prefill_a4_hidden_scales,
-                 hidden_scale_capacity, token_count, span_key,
+                 hidden_scale_capacity, projection_token_count,
+                 projected_span_key,
                  "prefill_projection_span_full_k") ||
         !project(attention->v_proj, views_.prefill_a4_hidden_packed,
                  hidden_packed_capacity, views_.prefill_a4_hidden_scales,
-                 hidden_scale_capacity, token_count, span_value,
-                 "prefill_projection_span_full_v")) {
+                 hidden_scale_capacity, projection_token_count,
+                 projected_span_value,
+                 "prefill_projection_span_full_v") ||
+        (pad_full_kv &&
+         (!check_cuda(
+              static_cast<int>(cudaMemcpyAsync(
+                  span_key, projected_span_key,
+                  token_count * kFullKvElements * sizeof(std::uint16_t),
+                  cudaMemcpyDeviceToDevice, stream)),
+              "prefill_projection_span_full_publish_k") ||
+          !check_cuda(
+              static_cast<int>(cudaMemcpyAsync(
+                  span_value, projected_span_value,
+                  token_count * kFullKvElements * sizeof(std::uint16_t),
+                  cudaMemcpyDeviceToDevice, stream)),
+              "prefill_projection_span_full_publish_v")))) {
       return failure;
     }
 
@@ -6089,7 +6184,8 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
                  views_.prefill_a4_intermediate_packed,
                  intermediate_packed_capacity,
                  views_.prefill_a4_intermediate_scales,
-                 intermediate_scale_capacity, token_count, secondary,
+                 intermediate_scale_capacity, projection_token_count,
+                 secondary,
                  "prefill_projection_span_full_output")) {
       return failure;
     }
@@ -6145,12 +6241,20 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
       hidden_packed_capacity, views_.prefill_a4_hidden_scales,
       hidden_scale_capacity, gate_sidecar, gate_weight_capacity,
       gate_scale_capacity, up_sidecar, up_weight_capacity,
-      up_scale_capacity, token_count, down_sidecar.activation_clip_ratio,
+      up_scale_capacity, projection_token_count,
+      down_sidecar.activation_clip_ratio,
       views_.prefill_a4_intermediate_packed, intermediate_packed_capacity,
       views_.prefill_a4_intermediate_scales, intermediate_scale_capacity,
       stream_);
   if (!check_cuda(paired_status,
-                  "prefill_projection_span_mlp_gate_up_paired")) {
+                  "prefill_projection_span_mlp_gate_up_paired") ||
+      !zero_projection_padding(
+          token_count, kReferenceIntermediateSize,
+          views_.prefill_a4_intermediate_packed,
+          intermediate_packed_capacity,
+          views_.prefill_a4_intermediate_scales,
+          intermediate_scale_capacity,
+          "prefill_projection_span_mlp_gate_up_padding")) {
     return failure;
   }
   ++local_hits.paired_gate_up_hits;
@@ -6159,7 +6263,7 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
   g_a4w4_full_prefill_admission_hits.logical_projection_hits += 2U;
   if (reference_runner_detail::a4w4_m128_stage_major_common_route(
           g_enable_a4w4_m128_stage_major_admission,
-          a4w4_prefill_consumer_, token_count)) {
+          a4w4_prefill_consumer_, projection_token_count)) {
     ++local_hits.m128_stage_major_paired_gate_up_hits;
     ++g_a4w4_full_prefill_admission_hits
           .m128_stage_major_paired_gate_up_hits;
@@ -6168,7 +6272,8 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
                views_.prefill_a4_intermediate_packed,
                intermediate_packed_capacity,
                views_.prefill_a4_intermediate_scales,
-               intermediate_scale_capacity, token_count, secondary,
+               intermediate_scale_capacity, projection_token_count,
+               secondary,
                "prefill_projection_span_mlp_down") ||
       !check_cuda(
           launch_residual_add_reference_cuda(
@@ -6184,11 +6289,11 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
   const bool expect_m128_stage_major =
       reference_runner_detail::a4w4_m128_stage_major_common_route(
           g_enable_a4w4_m128_stage_major_admission,
-          a4w4_prefill_consumer_, token_count);
+          a4w4_prefill_consumer_, projection_token_count);
   const bool expect_down_m128_stage_major =
       reference_runner_detail::a4w4_m128_stage_major_common_route(
           g_enable_a4w4_down_m128_stage_major_admission,
-          a4w4_prefill_consumer_, token_count);
+          a4w4_prefill_consumer_, projection_token_count);
   if (local_hits.activation_quantize_hits != 3U ||
       local_hits.generic_projection_hits != expected_generic ||
       local_hits.paired_gate_up_hits != 1U ||
@@ -6294,19 +6399,23 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
   if (a4_route_requested &&
       a4w4_prefill_consumer_ ==
           reference_runner_detail::A4W4PrefillConsumer::kK128 &&
-      !reference_runner_detail::a4w4_prefill_consumer_supports_token_count(
-          a4w4_prefill_consumer_, prompt_token_count)) {
-    // One runner owns one authenticated A4 publication.  Until a second K64
-    // publication exists, an unaligned request must fail before any layer is
-    // launched rather than mixing K128 scales with a K64 tail consumer.
+      !reference_runner_detail::
+          a4w4_prefill_consumer_supports_projection_span_prompt(
+              a4w4_prefill_consumer_, prompt_token_count,
+              projection_span_capacity)) {
+    // One runner owns one authenticated A4 publication.  Reject before any
+    // layer launch unless every full/final projection span can be represented
+    // by the K128 padded-M contract; never mix in a K64-scale tail consumer.
     return fail_long_prefill(runner_status(
         ReferenceRunnerError::kInvalidStepOptions,
         "prefill_a4w4_k128_token_alignment"));
   }
   const bool a4_inventory_enabled =
       a4_route_requested &&
-      reference_runner_detail::a4w4_prefill_consumer_supports_token_count(
-          a4w4_prefill_consumer_, prompt_token_count);
+      reference_runner_detail::
+          a4w4_prefill_consumer_supports_projection_span_prompt(
+              a4w4_prefill_consumer_, prompt_token_count,
+              projection_span_capacity);
   const bool projection_span_selected =
       use_long_prefill_projection_span_route(
           prompt_token_count, projection_span_capacity,

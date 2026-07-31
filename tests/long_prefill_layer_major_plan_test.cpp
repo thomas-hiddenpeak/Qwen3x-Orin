@@ -561,6 +561,11 @@ void test_projection_span_schedules(TestContext& test) {
       "P1804 uses one arbitrary-M span with an S4096 workspace",
       "P1804 production-span coverage preserves its exact C268 state tail");
   test_projection_span_schedule_case(
+      test, 1'853U, runtime::kLongPrefillProjectionSpanDefaultTokens, 1U, 0U,
+      1'853U, 4U, 3U, 317U,
+      "P1853 uses one natural projection span inside S4096",
+      "P1853 preserves three C512 states plus one exact C317 tail");
+  test_projection_span_schedule_case(
       test, 3'987U, 3'584U, 2U, 1U, 403U, 8U, 7U, 403U,
       "P3987 uses one S3584 span plus an S403 projection tail",
       "P3987 preserves seven C512 states plus one exact C403 tail");
@@ -579,6 +584,11 @@ void test_projection_span_schedules(TestContext& test) {
       10U, 0U, 80U, 80U, 0U,
       "P40960 whole-M plan is ten S4096 spans and 640 layer/span items",
       "P40960 projection/state intervals are ordered, complete, and disjoint");
+  test_projection_span_schedule_case(
+      test, 40'959U, runtime::kLongPrefillProjectionSpanDefaultTokens, 10U,
+      9U, 4'095U, 80U, 79U, 511U,
+      "P40959 ends in one natural S4095 projection span",
+      "P40959 preserves 79 C512 states plus one exact C511 tail");
   test_projection_span_schedule_case(
       test, 40'960U, 2'048U, 20U, 20U, 0U, 80U, 80U, 0U,
       "P40960 accepts configured S2048 projection spans",

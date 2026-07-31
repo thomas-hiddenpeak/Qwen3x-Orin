@@ -1426,6 +1426,45 @@ void test_a4w4_full_prefill_admission_controls(TestContext& test) {
           detail::a4w4_prefill_consumer_supports_token_count(k128, 4'096U) &&
           detail::a4w4_prefill_consumer_supports_token_count(k128, 40'000U),
       "K128 dispatch admits only complete M64 spans including P40000");
+  const auto p1853 =
+      detail::a4w4_projection_span_padding_plan(k128, 1'853U, 4'096U);
+  const auto p3987 =
+      detail::a4w4_projection_span_padding_plan(k128, 3'987U, 4'096U);
+  const auto p40959_tail =
+      detail::a4w4_projection_span_padding_plan(k128, 4'095U, 4'096U);
+  const auto p40960_span =
+      detail::a4w4_projection_span_padding_plan(k128, 4'096U, 4'096U);
+  test.expect(
+      p1853.valid() && p1853.logical_token_count == 1'853U &&
+          p1853.projection_token_count == 1'856U &&
+          p1853.padding_token_count == 3U && p3987.valid() &&
+          p3987.projection_token_count == 4'032U &&
+          p3987.padding_token_count == 45U && p40959_tail.valid() &&
+          p40959_tail.projection_token_count == 4'096U &&
+          p40959_tail.padding_token_count == 1U && p40960_span.valid() &&
+          p40960_span.padding_token_count == 0U,
+      "K128 whole-M padding maps P1853/P3987/P40959 tails inside S4096");
+  test.expect(
+      detail::a4w4_prefill_consumer_supports_projection_span_prompt(
+          k128, 1'853U, 4'096U) &&
+          detail::a4w4_prefill_consumer_supports_projection_span_prompt(
+              k128, 3'987U, 4'096U) &&
+          detail::a4w4_prefill_consumer_supports_projection_span_prompt(
+              k128, 40'959U, 4'096U) &&
+          detail::a4w4_prefill_consumer_supports_projection_span_prompt(
+              k128, 40'960U, 4'096U) &&
+          detail::a4w4_prefill_consumer_supports_projection_span_prompt(
+              k64, 40'959U, 4'096U) &&
+          !detail::a4w4_prefill_consumer_supports_projection_span_prompt(
+              Consumer::kUnavailable, 1'853U, 4'096U) &&
+          !detail::a4w4_prefill_consumer_supports_projection_span_prompt(
+              k128, 1'853U, 1'855U) &&
+          !detail::a4w4_prefill_consumer_supports_projection_span_prompt(
+              k128, 4'097U, 4'095U) &&
+          !detail::a4w4_projection_span_padding_plan(
+               k128, 4'095U, 4'095U).valid(),
+      "K128 natural-prompt route proves every full/tail span fits and fails "
+      "closed when ceil64 exceeds capacity");
   test.expect(
       !detail::a4w4_m128_stage_major_common_route(false, k128, 2'048U) &&
           !detail::a4w4_m128_stage_major_common_route(true, k64, 2'048U) &&
@@ -1479,9 +1518,20 @@ void test_a4w4_full_prefill_admission_controls(TestContext& test) {
           detail::select_a4w4_k128_generic_prefill_route(
               true, false, k128, 2'048U, runtime::kReferenceHiddenSize,
               runtime::kReferenceIntermediateSize - 128U) ==
+              GenericRoute::kM128StageMajor &&
+          detail::select_a4w4_k128_generic_prefill_route(
+              true, true, k128, p1853.projection_token_count, 10'240U,
+              runtime::kReferenceHiddenSize) == GenericRoute::kBaseline &&
+          detail::select_a4w4_k128_generic_prefill_route(
+              true, true, k128, p3987.projection_token_count, 10'240U,
+              runtime::kReferenceHiddenSize) == GenericRoute::kBaseline &&
+          detail::select_a4w4_k128_generic_prefill_route(
+              true, false, k128, p40959_tail.projection_token_count,
+              10'240U, runtime::kReferenceHiddenSize) ==
               GenericRoute::kM128StageMajor,
       "shape-aware M128 selector gives exact Down an independent gate, "
-      "preserves M64 fallback, and rejects invalid N/K shapes");
+      "preserves M64 fallback for natural padded spans, and rejects invalid "
+      "N/K shapes");
 
   const bool prior_enabled =
       detail::exchange_a4w4_full_prefill_admission_test_enabled(true);
