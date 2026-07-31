@@ -1616,7 +1616,7 @@ void test_prefill_admission_gate_orthogonality(TestContext& test) {
   const std::size_t initial_bf16_hits =
       detail::exchange_bf16_ab_large_m_prefill_admission_test_hits(19U);
   const detail::A4W4FullPrefillAdmissionHits a4_fixture{
-      192U, 272U, 64U, 400U, 1U, 208U, 64U};
+      192U, 272U, 64U, 400U, 1U, 208U, 64U, 64U};
   const detail::A4W4FullPrefillAdmissionHits initial_a4_hits =
       detail::exchange_a4w4_full_prefill_admission_test_hits(a4_fixture);
   const std::size_t observed_bf16_hits =
@@ -1639,6 +1639,8 @@ void test_prefill_admission_gate_orthogonality(TestContext& test) {
               (m128_compiled ? 1U : 0U) &&
           observed_a4_hits.m128_stage_major_generic_projection_hits ==
               (m128_compiled ? 208U : 0U) &&
+          observed_a4_hits.m128_stage_major_down_projection_hits ==
+              (m128_compiled ? 64U : 0U) &&
           observed_a4_hits.m128_stage_major_paired_gate_up_hits ==
               (m128_compiled ? 64U : 0U),
       "A4/M128 accounting is unchanged by BF16 hit accounting");
