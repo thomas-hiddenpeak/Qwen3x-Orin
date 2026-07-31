@@ -33,6 +33,7 @@ class Fixture:
             "# Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION\n"
             "# Q3X_RUN_BF16_AB_LARGE_M_PREFILL_ADMISSION\n"
             "# Q3X_RUN_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION\n"
+            "# Q3X_RUN_A4W4_DOWN_COMPLETE_CELL_V3_ADMISSION\n"
             "# Q3X_FULL_ATTENTION_FLASHINFER_DIRECT\n"
             "# Q3X_RUN_A4W4_GATEUP_PROJECTION_V3_ADMISSION\n"
             "# Q3X_RUN_A4W4_ATTENTION_SUPERMATRIX_ADMISSION\n"
@@ -75,6 +76,7 @@ class Fixture:
         environment["Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION"] = "1"
         environment["Q3X_RUN_BF16_AB_LARGE_M_PREFILL_ADMISSION"] = "1"
         environment["Q3X_RUN_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION"] = "1"
+        environment["Q3X_RUN_A4W4_DOWN_COMPLETE_CELL_V3_ADMISSION"] = "1"
         environment["Q3X_FULL_ATTENTION_FLASHINFER_DIRECT"] = "1"
         environment["Q3X_RUN_A4W4_GATEUP_PROJECTION_V3_ADMISSION"] = "1"
         environment["Q3X_RUN_SHORT_PREFILL_LAYER_MAJOR_ADMISSION"] = "1"
@@ -306,7 +308,7 @@ class PurePrefillEvalScopeHarnessTest(unittest.TestCase):
             "Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION",
             "Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION",
             "Q3X_RUN_BF16_AB_LARGE_M_PREFILL_ADMISSION",
-            "Q3X_RUN_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION",
+            "Q3X_RUN_A4W4_DOWN_COMPLETE_CELL_V3_ADMISSION",
             "Q3X_FULL_ATTENTION_FLASHINFER_DIRECT",
             "Q3X_RUN_A4W4_GATEUP_PROJECTION_V3_ADMISSION",
             "Q3X_RUN_A4W4_ATTENTION_SUPERMATRIX_ADMISSION",
@@ -337,6 +339,7 @@ class PurePrefillEvalScopeHarnessTest(unittest.TestCase):
     def test_cumulative_current_best_requires_every_new_selector(self) -> None:
         contents = self.fixture.server.read_text(encoding="utf-8")
         new_selectors = (
+            "Q3X_RUN_A4W4_DOWN_COMPLETE_CELL_V3_ADMISSION",
             "Q3X_RUN_A4W4_GATEUP_PROJECTION_V3_ADMISSION",
             "Q3X_RUN_A4W4_ATTENTION_SUPERMATRIX_ADMISSION",
             "Q3X_RUN_FULL_ATTENTION_PREPROCESS_PROMPT_WIDE_128_ADMISSION",

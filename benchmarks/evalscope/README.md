@@ -85,7 +85,8 @@ For the retained whole-system Prefill candidate, pass
 `--mode cumulative-prefill-current-best`.  Its startup metadata reports an
 exact `selector_count=8` inventory after inherited experiment variables have
 been removed.  The mode is default-off and fail-closed against the measured
-server ELF; see the full evaluation contract for the eight named routes.
+server ELF.  Its Down member is the retained M32N64 warp-reuse v3 cell; see
+the full evaluation contract for the eight named routes.
 
 EvalScope TTFT is the external product metric: POST start through receipt of
 the first non-empty token event.  `prompt_tokens / TTFT` is therefore an

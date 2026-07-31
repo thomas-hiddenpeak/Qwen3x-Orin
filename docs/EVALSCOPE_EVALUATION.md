@@ -168,7 +168,7 @@ system composition rather than a shell-dependent mixture.
 Use `--mode cumulative-prefill-current-best` for the explicit eight-selector
 whole-product bundle retained after the first real Attention-supermatrix
 direction gate.  It contains native C64 GDN, token-parallel GDN convolution,
-whole-span BF16 A/B, Down complete-cell v2, FlashInfer direct Prefill
+whole-span BF16 A/B, Down complete-cell v3, FlashInfer direct Prefill
 attention, Gate+Up projection v3, the Attention projection supermatrix, and
 the Full Attention prompt-wide preprocess route.  The startup summary emits
 `selector_count=8` and the complete ordered selector inventory.  The harness
