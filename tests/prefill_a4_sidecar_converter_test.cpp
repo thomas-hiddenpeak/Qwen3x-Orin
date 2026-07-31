@@ -144,9 +144,11 @@ void add_fp8_projection(SyntheticSource& source, const std::string& module,
 }
 
 [[nodiscard]] runtime::PrefillSidecarManifest build_manifest(
-    const SyntheticSource& source) {
+    const SyntheticSource& source,
+    const runtime::PrefillSidecarKind kind =
+        runtime::PrefillSidecarKind::kA4K64) {
   runtime::PrefillSidecarManifestOptions options;
-  options.kind = runtime::PrefillSidecarKind::kA4K64;
+  options.kind = kind;
   auto result = runtime::build_qwen36_27b_prefill_sidecar_manifest(
       source.manifest, source.shards, options);
   return result ? std::move(*result.value)
@@ -161,12 +163,15 @@ void add_fp8_projection(SyntheticSource& source, const std::string& module,
     const bool corrupt_first_source = false) {
   std::string output;
   output.reserve(256U * projection_count);
+  const bool k128 = manifest.kind == runtime::PrefillSidecarKind::kA4K128;
   output += "{\"schema\":\"q3x.prefill.a4.calibration-policy\","
-            "\"version\":{\"major\":1,\"minor\":0},\"mode\":\"";
+            "\"version\":{\"major\":";
+  output += k128 ? "2" : "1";
+  output += ",\"minor\":0},\"mode\":\"";
   output += mode;
-  output += "\",\"sidecar_kind\":\"a4_k64\","
-            "\"physical_layout\":\"sm87_s4_n64_k64_consumer_v1\","
-            "\"source_checkpoint_id\":\"";
+  output += k128
+                ? "\",\"sidecar_kind\":\"a4_k128\",\"physical_layout\":\"sm87_s4_n64_packed_k64_scale_k128_consumer_v2\",\"source_checkpoint_id\":\""
+                : "\",\"sidecar_kind\":\"a4_k64\",\"physical_layout\":\"sm87_s4_n64_k64_consumer_v1\",\"source_checkpoint_id\":\"";
   output += manifest.source_checkpoint_id;
   output += "\",\"source_config_sha256\":\"";
   output += manifest.source_config_sha256;
@@ -188,7 +193,8 @@ void add_fp8_projection(SyntheticSource& source, const std::string& module,
                   : entry.source_sha256;
     output += "\",\"weight_clip_ratio\":0.9375,"
               "\"activation_clip_ratio\":0.96875,"
-              "\"activation_scale_group_size\":64,"
+              "\"activation_scale_group_size\":" +
+              std::to_string(k128 ? 128U : 64U) + ","
               "\"rounding\":\"nearest_even_v1\","
               "\"channel_equalization\":";
     if (equalize_first && index <= 1U) {
@@ -484,6 +490,165 @@ void test_consumer_prepack_quantization_and_io(TestContext& test) {
   fs::remove_all(directory, ignored);
 }
 
+void test_k128_v2_contract(
+    TestContext& test, const runtime::PrefillSidecarManifest& manifest) {
+  const std::string policy_document = policy_json(manifest);
+  const runtime::PrefillA4CalibrationPolicyResult policy =
+      runtime::parse_prefill_a4_calibration_policy(policy_document, manifest);
+  test.expect(policy && policy.value->version_major == 2U &&
+                  policy.value->sidecar_kind ==
+                      runtime::PrefillSidecarKind::kA4K128 &&
+                  policy.value->physical_layout ==
+                      runtime::kPrefillA4K128PhysicalLayout &&
+                  policy.value->projections.front()
+                          .activation_scale_group_size == 128U,
+              "A4-K128 policy binds independent v2 kind/layout/group");
+
+  constexpr std::size_t kRows = 64U;
+  constexpr std::size_t kColumns = 128U;
+  std::vector<float> source(kRows * kColumns, 0.0F);
+  source[0] = 1.0F;
+  source[64] = 7.0F;
+  runtime::PrefillA4ProjectionCalibration calibration;
+  calibration.weight_clip_ratio = 1.0;
+  calibration.activation_clip_ratio = 1.0;
+  calibration.activation_scale_group_size = 128U;
+  calibration.rounding = runtime::PrefillA4Rounding::kNearestEvenV1;
+  std::vector<std::uint8_t> packed(kRows * kColumns / 2U, 0U);
+  std::vector<std::uint8_t> scales(kRows * kColumns / 128U * 2U, 0U);
+  const runtime::PrefillA4ConverterDiagnostic quantized =
+      runtime::quantize_prefill_a4_k128_consumer_blocks(
+          source.data(), kRows, kColumns, calibration,
+          runtime::PrefillA4ConversionMode::kProductionCalibrated,
+          packed.data(), packed.size(), scales.data(), scales.size());
+  test.expect(quantized.ok() && packed[0] == 0x01U &&
+                  packed[64U * 32U] == 0x07U && scales[0] == 0x80U &&
+                  scales[1] == 0x3fU,
+              "K128 shares one BF16 scale across two packed K64 code blocks");
+  calibration.activation_scale_group_size = 64U;
+  const runtime::PrefillA4ConverterDiagnostic wrong_activation_group =
+      runtime::quantize_prefill_a4_k128_consumer_blocks(
+          source.data(), kRows, kColumns, calibration,
+          runtime::PrefillA4ConversionMode::kProductionCalibrated,
+          packed.data(), packed.size(), scales.data(), scales.size());
+  test.expect(!wrong_activation_group &&
+                  wrong_activation_group.code ==
+                      runtime::PrefillA4ConverterErrorCode::
+                          kUnsupportedCalibration,
+              "K128 production quantizer rejects a K64 activation policy");
+
+  const std::string receipt_json =
+      "{\"schema\":\"q3x.prefill.a4.publication-receipt\","
+      "\"version\":{\"major\":2,\"minor\":0},"
+      "\"mode\":\"production_calibrated\","
+      "\"production_residency_eligible\":true,"
+      "\"sidecar_kind\":\"a4_k128\","
+      "\"packed_k_group_size\":64,\"scale_group_size\":128,"
+      "\"physical_layout\":\"sm87_s4_n64_packed_k64_scale_k128_consumer_v2\","
+      "\"source_checkpoint_id\":\"" +
+      manifest.source_checkpoint_id + "\",\"source_config_sha256\":\"" +
+      manifest.source_config_sha256 + "\",\"source_index_sha256\":\"" +
+      manifest.source_index_sha256 + "\",\"manifest_sha256\":\"" +
+      manifest.manifest_sha256 + "\",\"policy_sha256\":\"" +
+      std::string(64U, 'a') + "\",\"policy_bytes\":123,"
+      "\"payload_sha256\":\"" +
+      std::string(64U, 'b') + "\",\"payload_bytes\":" +
+      std::to_string(manifest.summary.arena_bytes) +
+      ",\"projection_count\":400}";
+  runtime::PrefillA4ConverterDiagnostic receipt_diagnostic;
+  const std::optional<runtime::PrefillA4PublicationReceipt> receipt =
+      runtime::parse_prefill_a4_publication_receipt(receipt_json,
+                                                    receipt_diagnostic);
+  test.expect(receipt && receipt_diagnostic.ok() &&
+                  receipt->sidecar_kind ==
+                      runtime::PrefillSidecarKind::kA4K128 &&
+                  receipt->packed_k_group_size == 64U &&
+                  receipt->scale_group_size == 128U,
+              "v2 receipt strictly binds kind, packed K64, and scale K128");
+
+  if (policy) {
+    const fs::path directory =
+        fs::temp_directory_path() /
+        ("q3x-a4-k128-auth-" + std::to_string(::getpid()));
+    std::error_code ignored;
+    fs::remove_all(directory, ignored);
+    fs::create_directories(directory, ignored);
+    const fs::path policy_path = directory / "policy.json";
+    {
+      std::ofstream output(policy_path, std::ios::binary | std::ios::trunc);
+      output.write(policy_document.data(),
+                   static_cast<std::streamsize>(policy_document.size()));
+    }
+    runtime::PrefillA4PublicationReceipt authentic_receipt;
+    authentic_receipt.version_major = 2U;
+    authentic_receipt.version_minor = 0U;
+    authentic_receipt.mode =
+        runtime::PrefillA4ConversionMode::kProductionCalibrated;
+    authentic_receipt.production_residency_eligible = true;
+    authentic_receipt.sidecar_kind =
+        runtime::PrefillSidecarKind::kA4K128;
+    authentic_receipt.packed_k_group_size = 64U;
+    authentic_receipt.scale_group_size = 128U;
+    authentic_receipt.physical_layout =
+        std::string(runtime::kPrefillA4K128PhysicalLayout);
+    authentic_receipt.source_checkpoint_id = manifest.source_checkpoint_id;
+    authentic_receipt.source_config_sha256 = manifest.source_config_sha256;
+    authentic_receipt.source_index_sha256 = manifest.source_index_sha256;
+    authentic_receipt.manifest_sha256 = manifest.manifest_sha256;
+    authentic_receipt.policy_sha256 = policy.value->policy_sha256;
+    authentic_receipt.policy_bytes = policy.value->policy_bytes;
+    authentic_receipt.payload_sha256.assign(64U, 'b');
+    authentic_receipt.payload_bytes = manifest.summary.arena_bytes;
+    authentic_receipt.projection_count = manifest.summary.projection_count;
+    const runtime::PrefillA4PublicationAuthenticationResult admitted =
+        runtime::authenticate_prefill_a4_publication_for_residency(
+            manifest, authentic_receipt, directory / "missing.bin",
+            policy_path);
+    test.expect(!admitted &&
+                    admitted.diagnostic.code ==
+                        runtime::PrefillA4ConverterErrorCode::kOpenFailed,
+                "valid K128 v2 receipt and policy reach payload authentication");
+
+    runtime::PrefillA4PublicationReceipt wrong_group = authentic_receipt;
+    wrong_group.scale_group_size = 64U;
+    const runtime::PrefillA4PublicationAuthenticationResult rejected_group =
+        runtime::authenticate_prefill_a4_publication_for_residency(
+            manifest, wrong_group, directory / "missing.bin", policy_path);
+    test.expect(!rejected_group &&
+                    rejected_group.diagnostic.code ==
+                        runtime::PrefillA4ConverterErrorCode::
+                            kPublicationRejected,
+                "K128 authentication rejects scale-group drift before payload open");
+
+    runtime::PrefillA4PublicationReceipt wrong_version = authentic_receipt;
+    wrong_version.version_major = 1U;
+    const runtime::PrefillA4PublicationAuthenticationResult rejected_version =
+        runtime::authenticate_prefill_a4_publication_for_residency(
+            manifest, wrong_version, directory / "missing.bin", policy_path);
+    test.expect(!rejected_version &&
+                    rejected_version.diagnostic.code ==
+                        runtime::PrefillA4ConverterErrorCode::
+                            kPublicationRejected,
+                "K128 authentication rejects a v1 receipt before payload open");
+    fs::remove_all(directory, ignored);
+  }
+
+  std::string wrong_scale_receipt = receipt_json;
+  const std::string needle = "\"scale_group_size\":128";
+  const std::size_t scale = wrong_scale_receipt.find(needle);
+  if (scale != std::string::npos) {
+    wrong_scale_receipt.replace(scale, needle.size(),
+                                "\"scale_group_size\":64");
+  }
+  runtime::PrefillA4ConverterDiagnostic wrong_receipt_diagnostic;
+  test.expect(!runtime::parse_prefill_a4_publication_receipt(
+                  wrong_scale_receipt, wrong_receipt_diagnostic) &&
+                  wrong_receipt_diagnostic.code ==
+                      runtime::PrefillA4ConverterErrorCode::
+                          kPublicationRejected,
+              "v2 receipt fails closed when shared-scale K128 binding drifts");
+}
+
 void test_publication_gate(TestContext& test,
                            const runtime::PrefillSidecarManifest& manifest) {
   const std::string experimental_receipt =
@@ -597,6 +762,8 @@ int main() {
   TestContext test;
   const SyntheticSource source = make_source();
   const runtime::PrefillSidecarManifest manifest = build_manifest(source);
+  const runtime::PrefillSidecarManifest k128_manifest = build_manifest(
+      source, runtime::PrefillSidecarKind::kA4K128);
   test.expect(manifest.projections.size() == 400U &&
                   manifest.kind == runtime::PrefillSidecarKind::kA4K64 &&
                   runtime::validate_prefill_sidecar_manifest(manifest).ok(),
@@ -606,12 +773,21 @@ int main() {
     test_policy_template_writer(test, manifest);
     test_publication_gate(test, manifest);
   }
+  test.expect(k128_manifest.projections.size() == 400U &&
+                  k128_manifest.kind ==
+                      runtime::PrefillSidecarKind::kA4K128 &&
+                  runtime::validate_prefill_sidecar_manifest(k128_manifest)
+                      .ok(),
+              "valid full-model A4-K128 fixture builds");
+  if (k128_manifest.projections.size() == 400U) {
+    test_k128_v2_contract(test, k128_manifest);
+  }
   test_consumer_prepack_quantization_and_io(test);
 
   if (test.failures() != 0) {
     std::cerr << test.failures() << " A4 sidecar converter checks failed\n";
     return 1;
   }
-  std::cout << "A4-K64 sidecar converter host contract passed\n";
+  std::cout << "A4-K64 v1/A4-K128 v2 sidecar converter host contract passed\n";
   return 0;
 }

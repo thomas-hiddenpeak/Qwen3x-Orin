@@ -404,6 +404,59 @@ class UniqueFd {
          runtime_value <= 1.0F;
 }
 
+struct A4SidecarFormat final {
+  PrefillSidecarKind kind = PrefillSidecarKind::kA4K64;
+  std::uint32_t policy_version_major = 0U;
+  std::uint32_t policy_version_minor = 0U;
+  std::uint32_t publication_version_major = 0U;
+  std::uint32_t publication_version_minor = 0U;
+  std::uint32_t packed_k_group_size = 0U;
+  std::uint32_t scale_group_size = 0U;
+  std::string_view kind_name;
+  std::string_view physical_layout;
+};
+
+[[nodiscard]] bool a4_sidecar_format(const PrefillSidecarKind kind,
+                                     A4SidecarFormat& output) noexcept {
+  switch (kind) {
+    case PrefillSidecarKind::kA4K64:
+      output = {kind,
+                kPrefillA4CalibrationPolicyVersionMajor,
+                kPrefillA4CalibrationPolicyVersionMinor,
+                kPrefillA4PublicationVersionMajor,
+                kPrefillA4PublicationVersionMinor,
+                kPrefillA4PackedKGroupSize,
+                kPrefillA4WeightGroupSize,
+                "a4_k64",
+                kPrefillA4PhysicalLayout};
+      return true;
+    case PrefillSidecarKind::kA4K128:
+      output = {kind,
+                kPrefillA4K128CalibrationPolicyVersionMajor,
+                kPrefillA4K128CalibrationPolicyVersionMinor,
+                kPrefillA4K128PublicationVersionMajor,
+                kPrefillA4K128PublicationVersionMinor,
+                kPrefillA4PackedKGroupSize,
+                kPrefillA4K128WeightGroupSize,
+                "a4_k128",
+                kPrefillA4K128PhysicalLayout};
+      return true;
+    default:
+      return false;
+  }
+}
+
+[[nodiscard]] bool a4_sidecar_format_from_name(
+    const std::string_view name, A4SidecarFormat& output) noexcept {
+  if (name == "a4_k64") {
+    return a4_sidecar_format(PrefillSidecarKind::kA4K64, output);
+  }
+  if (name == "a4_k128") {
+    return a4_sidecar_format(PrefillSidecarKind::kA4K128, output);
+  }
+  return false;
+}
+
 [[nodiscard]] std::string activation_boundary_key(
     const PrefillProjectionSidecarEntry& entry) {
   const std::string layer = std::to_string(entry.layer_index);
@@ -656,8 +709,15 @@ void write_quoted(std::ostream& output, const std::string_view value) {
          << "\n  \"mode\": ";
   write_quoted(output, to_string(receipt.mode));
   output << ",\n  \"production_residency_eligible\": "
-         << (receipt.production_residency_eligible ? "true" : "false")
-         << ",\n  \"physical_layout\": ";
+         << (receipt.production_residency_eligible ? "true" : "false");
+  if (receipt.version_major == kPrefillA4K128PublicationVersionMajor) {
+    output << ",\n  \"sidecar_kind\": ";
+    write_quoted(output, to_string(receipt.sidecar_kind));
+    output << ",\n  \"packed_k_group_size\": "
+           << receipt.packed_k_group_size
+           << ",\n  \"scale_group_size\": " << receipt.scale_group_size;
+  }
+  output << ",\n  \"physical_layout\": ";
   write_quoted(output, receipt.physical_layout);
   output << ",\n  \"source_checkpoint_id\": ";
   write_quoted(output, receipt.source_checkpoint_id);
@@ -681,17 +741,23 @@ void write_quoted(std::ostream& output, const std::string_view value) {
 [[nodiscard]] std::string serialize_policy_template(
     const PrefillSidecarManifest& manifest, const double weight_clip_ratio,
     const double activation_clip_ratio) {
+  A4SidecarFormat format;
+  if (!a4_sidecar_format(manifest.kind, format)) {
+    return {};
+  }
   std::ostringstream output;
   output << std::setprecision(std::numeric_limits<double>::max_digits10);
   output << "{\n  \"schema\": ";
   write_quoted(output, kPolicySchema);
   output << ",\n  \"version\": {\"major\": "
-         << kPrefillA4CalibrationPolicyVersionMajor << ", \"minor\": "
-         << kPrefillA4CalibrationPolicyVersionMinor << "},"
+         << format.policy_version_major << ", \"minor\": "
+         << format.policy_version_minor << "},"
          << "\n  \"mode\": \"production_calibrated\","
-         << "\n  \"sidecar_kind\": \"a4_k64\","
+         << "\n  \"sidecar_kind\": ";
+  write_quoted(output, format.kind_name);
+  output << ","
          << "\n  \"physical_layout\": ";
-  write_quoted(output, kPrefillA4PhysicalLayout);
+  write_quoted(output, format.physical_layout);
   output << ",\n  \"source_checkpoint_id\": ";
   write_quoted(output, manifest.source_checkpoint_id);
   output << ",\n  \"source_config_sha256\": ";
@@ -711,7 +777,7 @@ void write_quoted(std::ostream& output, const std::string_view value) {
     output << ", \"weight_clip_ratio\": " << weight_clip_ratio
            << ", \"activation_clip_ratio\": " << activation_clip_ratio
            << ", \"activation_scale_group_size\": "
-           << kPrefillA4WeightGroupSize
+           << format.scale_group_size
            << ", \"rounding\": \"nearest_even_v1\", "
               "\"channel_equalization\": null}";
     output << (index + 1U == manifest.projections.size() ? "\n" : ",\n");
@@ -1172,13 +1238,14 @@ write_prefill_a4_calibration_policy_template(
   } cleanup{&temporary_path};
 
   try {
+    A4SidecarFormat format;
     const PrefillContractDiagnostic manifest_diagnostic =
         validate_prefill_sidecar_manifest(manifest);
-    if (!manifest_diagnostic || manifest.kind != PrefillSidecarKind::kA4K64 ||
+    if (!manifest_diagnostic || !a4_sidecar_format(manifest.kind, format) ||
         manifest.projections.size() != kQwen36PrefillProjectionCount) {
       result.diagnostic = make_diagnostic(
           PrefillA4ConverterErrorCode::kInvalidManifest, "manifest",
-          "policy template requires a valid 400-entry A4-K64 manifest");
+          "policy template requires a valid 400-entry A4-K64/A4-K128 manifest");
       return result;
     }
     if (options.output_path.empty() ||
@@ -1349,7 +1416,14 @@ write_pinned_qwen36_27b_prefill_a4_calibration_policy_template(
     return result;
   }
   PrefillSidecarManifestOptions manifest_options;
-  manifest_options.kind = PrefillSidecarKind::kA4K64;
+  manifest_options.kind = options.sidecar_kind;
+  A4SidecarFormat format;
+  if (!a4_sidecar_format(manifest_options.kind, format)) {
+    result.diagnostic = make_diagnostic(
+        PrefillA4ConverterErrorCode::kInvalidOption, "sidecar_kind",
+        "policy template supports only A4-K64 v1 or A4-K128 v2");
+    return result;
+  }
   const PrefillSidecarManifestResult built_manifest =
       build_qwen36_27b_prefill_sidecar_manifest(
           *source_manifest.value, pinned_qwen36_27b_shards(),
@@ -1436,19 +1510,32 @@ PrefillA4CalibrationPolicyResult parse_prefill_a4_calibration_policy(
           "unsupported conversion mode", "production_calibrated", mode);
       return result;
     }
-    if (sidecar_kind != "a4_k64") {
+    A4SidecarFormat format;
+    if (!a4_sidecar_format_from_name(sidecar_kind, format)) {
       result.diagnostic = make_diagnostic(
           PrefillA4ConverterErrorCode::kInvalidPolicy, "policy.sidecar_kind",
-          "only A4-K64 policy is supported", "a4_k64", sidecar_kind);
+          "only A4-K64 v1 or A4-K128 v2 policy is supported",
+          "a4_k64|a4_k128", sidecar_kind);
       return result;
     }
-    policy.sidecar_kind = PrefillSidecarKind::kA4K64;
-    if (policy.physical_layout != kPrefillA4PhysicalLayout) {
+    policy.sidecar_kind = format.kind;
+    if (policy.version_major != format.policy_version_major ||
+        policy.version_minor != format.policy_version_minor) {
+      result.diagnostic = make_diagnostic(
+          PrefillA4ConverterErrorCode::kInvalidPolicy, "policy.version",
+          "policy version does not match selected A4 sidecar kind",
+          std::to_string(format.policy_version_major) + "." +
+              std::to_string(format.policy_version_minor),
+          std::to_string(policy.version_major) + "." +
+              std::to_string(policy.version_minor));
+      return result;
+    }
+    if (policy.physical_layout != format.physical_layout) {
       result.diagnostic = make_diagnostic(
           PrefillA4ConverterErrorCode::kInvalidPolicy,
           "policy.physical_layout",
           "unsupported A4 physical payload layout",
-          std::string(kPrefillA4PhysicalLayout), policy.physical_layout);
+          std::string(format.physical_layout), policy.physical_layout);
       return result;
     }
     const json::Value::Array* const projections =
@@ -1493,18 +1580,19 @@ PrefillA4CalibrationPolicyResult parse_prefill_a4_calibration_policy(
 PrefillA4ConverterDiagnostic validate_prefill_a4_calibration_policy(
     const PrefillA4CalibrationPolicy& policy,
     const PrefillSidecarManifest& manifest) {
+  A4SidecarFormat format;
   const PrefillContractDiagnostic manifest_diagnostic =
       validate_prefill_sidecar_manifest(manifest);
-  if (!manifest_diagnostic || manifest.kind != PrefillSidecarKind::kA4K64 ||
+  if (!manifest_diagnostic || !a4_sidecar_format(manifest.kind, format) ||
       manifest.projections.size() != kQwen36PrefillProjectionCount) {
     return make_diagnostic(PrefillA4ConverterErrorCode::kInvalidManifest,
                            "manifest",
-                           "policy requires a valid 400-entry A4-K64 manifest");
+                           "policy requires a valid 400-entry A4-K64/A4-K128 manifest");
   }
-  if (policy.version_major != kPrefillA4CalibrationPolicyVersionMajor ||
-      policy.version_minor != kPrefillA4CalibrationPolicyVersionMinor ||
-      policy.sidecar_kind != PrefillSidecarKind::kA4K64 ||
-      policy.physical_layout != kPrefillA4PhysicalLayout ||
+  if (policy.version_major != format.policy_version_major ||
+      policy.version_minor != format.policy_version_minor ||
+      policy.sidecar_kind != format.kind ||
+      policy.physical_layout != format.physical_layout ||
       !lowercase_sha256(policy.policy_sha256) || policy.policy_bytes == 0U ||
       policy.policy_bytes > 16ULL * 1024ULL * 1024ULL) {
     return make_diagnostic(PrefillA4ConverterErrorCode::kInvalidPolicy,
@@ -1547,13 +1635,12 @@ PrefillA4ConverterDiagnostic validate_prefill_a4_calibration_policy(
     }
     if (!valid_clip_ratio(calibration.weight_clip_ratio) ||
         !valid_clip_ratio(calibration.activation_clip_ratio) ||
-        calibration.activation_scale_group_size !=
-            kPrefillA4WeightGroupSize ||
+        calibration.activation_scale_group_size != format.scale_group_size ||
         calibration.rounding != PrefillA4Rounding::kNearestEvenV1) {
       return make_diagnostic(
           PrefillA4ConverterErrorCode::kUnsupportedCalibration,
           calibration.source_module,
-          "weight/activation clip, K64 group, or rounding policy is unsupported");
+          "weight/activation clip, scale group, or rounding policy is unsupported");
     }
     if (calibration.channel_equalization.has_value()) {
       const PrefillA4ChannelEqualization& equalization =
@@ -1565,7 +1652,7 @@ PrefillA4ConverterDiagnostic validate_prefill_a4_calibration_policy(
         return make_diagnostic(
             PrefillA4ConverterErrorCode::kUnsupportedCalibration,
             calibration.source_module + ".channel_equalization",
-            "channel equalization metadata differs from projection K64 ABI");
+            "channel equalization metadata differs from projection A4 ABI");
       }
     }
     const std::string boundary = activation_boundary_key(entry);
@@ -1717,8 +1804,143 @@ PrefillA4ConverterDiagnostic quantize_prefill_a4_k64_consumer_blocks(
   return {};
 }
 
+PrefillA4ConverterDiagnostic quantize_prefill_a4_k128_consumer_blocks(
+    const float* const source_rows, const std::size_t row_count,
+    const std::size_t input_size,
+    const PrefillA4ProjectionCalibration& calibration,
+    const PrefillA4ConversionMode mode,
+    std::uint8_t* const packed_signed_w4,
+    const std::size_t packed_signed_w4_bytes,
+    std::uint8_t* const bf16_scales_little_endian,
+    const std::size_t bf16_scale_bytes) {
+  if (row_count == 0U || input_size == 0U || (row_count % 64U) != 0U ||
+      (input_size % kPrefillA4K128WeightGroupSize) != 0U ||
+      source_rows == nullptr || packed_signed_w4 == nullptr ||
+      bf16_scales_little_endian == nullptr) {
+    return make_diagnostic(PrefillA4ConverterErrorCode::kInvalidOption,
+                           "a4_k128_quantize",
+                           "N64 blocks, K128, or buffer arguments are invalid");
+  }
+  if (input_size > std::numeric_limits<std::size_t>::max() / row_count) {
+    return make_diagnostic(PrefillA4ConverterErrorCode::kArithmeticOverflow,
+                           "a4_k128_quantize",
+                           "input matrix element count overflowed");
+  }
+  const std::size_t elements = row_count * input_size;
+  const std::size_t expected_packed_bytes = elements / 2U;
+  const std::size_t expected_scale_bytes =
+      elements / kPrefillA4K128WeightGroupSize * 2U;
+  if (packed_signed_w4_bytes != expected_packed_bytes ||
+      bf16_scale_bytes != expected_scale_bytes) {
+    return make_diagnostic(
+        PrefillA4ConverterErrorCode::kInvalidOption, "a4_k128_quantize",
+        "consumer output buffer lengths differ from packed-K64/shared-K128 ABI",
+        std::to_string(expected_packed_bytes) + ":" +
+            std::to_string(expected_scale_bytes),
+        std::to_string(packed_signed_w4_bytes) + ":" +
+            std::to_string(bf16_scale_bytes));
+  }
+  double clip_ratio = calibration.weight_clip_ratio;
+  switch (mode) {
+    case PrefillA4ConversionMode::kProductionCalibrated:
+      if (!valid_clip_ratio(calibration.activation_clip_ratio) ||
+          calibration.activation_scale_group_size !=
+              kPrefillA4K128WeightGroupSize) {
+        return make_diagnostic(
+            PrefillA4ConverterErrorCode::kUnsupportedCalibration,
+            "a4_k128_quantize",
+            "production quantization requires explicit activation K128 calibration");
+      }
+      break;
+    case PrefillA4ConversionMode::kExperimentalNearestEvenSmoke:
+      if (clip_ratio == 0.0) {
+        clip_ratio = 1.0;
+      }
+      break;
+    default:
+      return make_diagnostic(PrefillA4ConverterErrorCode::kInvalidOption,
+                             "a4_k128_quantize",
+                             "unknown conversion mode");
+  }
+  if (!valid_clip_ratio(clip_ratio) ||
+      calibration.rounding != PrefillA4Rounding::kNearestEvenV1) {
+    return make_diagnostic(PrefillA4ConverterErrorCode::kUnsupportedCalibration,
+                           "a4_k128_quantize",
+                           "explicit clip and nearest-even policy required");
+  }
+
+  const std::size_t n_blocks = row_count / 64U;
+  const std::size_t packed_k_blocks = input_size / 64U;
+  const std::size_t scale_k_blocks = input_size / 128U;
+  for (std::size_t n_block = 0U; n_block < n_blocks; ++n_block) {
+    for (std::size_t scale_k_block = 0U; scale_k_block < scale_k_blocks;
+         ++scale_k_block) {
+      for (std::size_t local_n = 0U; local_n < 64U; ++local_n) {
+        const std::size_t row = n_block * 64U + local_n;
+        const std::size_t begin = scale_k_block * 128U;
+        const float* const input = source_rows + row * input_size;
+        float maximum = 0.0F;
+        for (std::size_t index = 0U;
+             index < kPrefillA4K128WeightGroupSize; ++index) {
+          const float value = input[begin + index];
+          if (!std::isfinite(value)) {
+            return make_diagnostic(
+                PrefillA4ConverterErrorCode::kQuantizationFailure,
+                "a4_k128_quantize", "source contains non-finite value", {},
+                std::to_string(row * input_size + begin + index));
+          }
+          maximum = std::max(maximum, std::fabs(value));
+        }
+        const float threshold = maximum * static_cast<float>(clip_ratio);
+        std::uint16_t scale_bits = float_to_bf16_nearest_even(
+            maximum == 0.0F ? 1.0F : threshold / 7.0F);
+        float stored_scale = bf16_to_float(scale_bits);
+        if (maximum != 0.0F && stored_scale == 0.0F) {
+          scale_bits = 1U;
+          stored_scale = bf16_to_float(scale_bits);
+        }
+        std::uint8_t* const scale =
+            bf16_scales_little_endian +
+            (((n_block * scale_k_blocks + scale_k_block) * 64U + local_n) *
+             2U);
+        write_little_u16(scale_bits, scale);
+
+        for (std::size_t packed_half = 0U; packed_half < 2U;
+             ++packed_half) {
+          const std::size_t packed_k_block = scale_k_block * 2U + packed_half;
+          std::uint8_t* const packed =
+              packed_signed_w4 +
+              (((n_block * packed_k_blocks + packed_k_block) * 64U + local_n) *
+               32U);
+          const std::size_t half_begin = begin + packed_half * 64U;
+          for (std::size_t pair = 0U; pair < 32U; ++pair) {
+            std::uint8_t encoded = 0U;
+            for (std::size_t lane = 0U; lane < 2U; ++lane) {
+              const float value = input[half_begin + pair * 2U + lane];
+              int quantized = 0;
+              if (stored_scale != 0.0F) {
+                const float clipped =
+                    std::max(-threshold, std::min(threshold, value));
+                quantized = round_nearest_even(clipped / stored_scale);
+                quantized = std::max(-7, std::min(7, quantized));
+              }
+              const std::uint8_t nibble =
+                  static_cast<std::uint8_t>(quantized) & 0x0fU;
+              encoded = static_cast<std::uint8_t>(
+                  encoded |
+                  static_cast<std::uint8_t>(nibble << (lane * 4U)));
+            }
+            packed[pair] = encoded;
+          }
+        }
+      }
+    }
+  }
+  return {};
+}
+
 PrefillA4SidecarConversionResult
-convert_pinned_qwen36_27b_prefill_a4_k64_sidecar(
+convert_pinned_qwen36_27b_prefill_a4_sidecar(
     const PrefillA4SidecarConversionOptions& options) {
   PrefillA4SidecarConversionResult result;
   fs::path payload_temp;
@@ -1737,12 +1959,14 @@ convert_pinned_qwen36_27b_prefill_a4_k64_sidecar(
   } cleanup{&payload_temp, &receipt_temp};
 
   try {
+    A4SidecarFormat format;
     if (options.model_directory.empty() ||
         options.calibration_policy_path.empty() || options.output_path.empty() ||
         options.row_chunk_size == 0U || options.row_chunk_size > 256U ||
         (options.row_chunk_size % 64U) != 0U ||
         options.max_policy_bytes == 0U ||
-        options.max_policy_bytes > 16ULL * 1024ULL * 1024ULL) {
+        options.max_policy_bytes > 16ULL * 1024ULL * 1024ULL ||
+        !a4_sidecar_format(options.sidecar_kind, format)) {
       result.diagnostic = make_diagnostic(
           PrefillA4ConverterErrorCode::kInvalidOption, "conversion_options",
           "directory, policy, output, row chunk, or policy bound is invalid");
@@ -1762,7 +1986,7 @@ convert_pinned_qwen36_27b_prefill_a4_k64_sidecar(
       return result;
     }
     PrefillSidecarManifestOptions manifest_options;
-    manifest_options.kind = PrefillSidecarKind::kA4K64;
+    manifest_options.kind = format.kind;
     const PrefillSidecarManifestResult built_manifest =
         build_qwen36_27b_prefill_sidecar_manifest(
             *source_manifest.value, pinned_qwen36_27b_shards(),
@@ -1866,11 +2090,11 @@ convert_pinned_qwen36_27b_prefill_a4_k64_sidecar(
       const PrefillA4ProjectionCalibration& calibration =
           policy.projections[projection_index];
       if ((entry.output_size % 64U) != 0U ||
-          (entry.input_size % 64U) != 0U) {
+          (entry.input_size % format.scale_group_size) != 0U) {
         result.diagnostic = make_diagnostic(
             PrefillA4ConverterErrorCode::kInvalidManifest,
             entry.source_module,
-            "A4 consumer-prepack requires N64 and K64 projection shapes");
+            "A4 consumer-prepack requires N64 and the selected K-group projection shapes");
         return result;
       }
       const bool nvfp4_source =
@@ -1930,7 +2154,8 @@ convert_pinned_qwen36_27b_prefill_a4_k64_sidecar(
       const std::size_t source_scale_stride =
           nvfp4_source ? input_size / 16U : 0U;
       const std::size_t output_weight_stride = input_size / 2U;
-      const std::size_t output_scale_stride = input_size / 64U * 2U;
+      const std::size_t output_scale_stride =
+          input_size / format.scale_group_size * 2U;
       std::vector<std::uint8_t> source_weights(
           maximum_rows * source_weight_stride);
       std::vector<std::uint8_t> source_scales(
@@ -1995,10 +2220,17 @@ convert_pinned_qwen36_27b_prefill_a4_k64_sidecar(
         }
         const std::size_t packed_bytes = rows * output_weight_stride;
         const std::size_t scale_bytes = rows * output_scale_stride;
-        result.diagnostic = quantize_prefill_a4_k64_consumer_blocks(
-            decoded.data(), rows, input_size, calibration,
-            PrefillA4ConversionMode::kProductionCalibrated, packed.data(),
-            packed_bytes, scales.data(), scale_bytes);
+        if (format.kind == PrefillSidecarKind::kA4K64) {
+          result.diagnostic = quantize_prefill_a4_k64_consumer_blocks(
+              decoded.data(), rows, input_size, calibration,
+              PrefillA4ConversionMode::kProductionCalibrated, packed.data(),
+              packed_bytes, scales.data(), scale_bytes);
+        } else {
+          result.diagnostic = quantize_prefill_a4_k128_consumer_blocks(
+              decoded.data(), rows, input_size, calibration,
+              PrefillA4ConversionMode::kProductionCalibrated, packed.data(),
+              packed_bytes, scales.data(), scale_bytes);
+        }
         if (!result.diagnostic) {
           result.diagnostic.context = entry.source_module + ":" +
                                       result.diagnostic.context;
@@ -2074,9 +2306,14 @@ convert_pinned_qwen36_27b_prefill_a4_k64_sidecar(
     }
 
     PrefillA4PublicationReceipt receipt;
+    receipt.version_major = format.publication_version_major;
+    receipt.version_minor = format.publication_version_minor;
     receipt.mode = PrefillA4ConversionMode::kProductionCalibrated;
     receipt.production_residency_eligible = true;
-    receipt.physical_layout = std::string(kPrefillA4PhysicalLayout);
+    receipt.sidecar_kind = format.kind;
+    receipt.packed_k_group_size = format.packed_k_group_size;
+    receipt.scale_group_size = format.scale_group_size;
+    receipt.physical_layout = std::string(format.physical_layout);
     receipt.source_checkpoint_id = manifest.source_checkpoint_id;
     receipt.source_config_sha256 = manifest.source_config_sha256;
     receipt.source_index_sha256 = manifest.source_index_sha256;
@@ -2138,6 +2375,22 @@ convert_pinned_qwen36_27b_prefill_a4_k64_sidecar(
   }
 }
 
+PrefillA4SidecarConversionResult
+convert_pinned_qwen36_27b_prefill_a4_k64_sidecar(
+    const PrefillA4SidecarConversionOptions& options) {
+  PrefillA4SidecarConversionOptions selected = options;
+  selected.sidecar_kind = PrefillSidecarKind::kA4K64;
+  return convert_pinned_qwen36_27b_prefill_a4_sidecar(selected);
+}
+
+PrefillA4SidecarConversionResult
+convert_pinned_qwen36_27b_prefill_a4_k128_sidecar(
+    const PrefillA4SidecarConversionOptions& options) {
+  PrefillA4SidecarConversionOptions selected = options;
+  selected.sidecar_kind = PrefillSidecarKind::kA4K128;
+  return convert_pinned_qwen36_27b_prefill_a4_sidecar(selected);
+}
+
 std::optional<PrefillA4PublicationReceipt>
 parse_prefill_a4_publication_receipt(
     const std::string_view document,
@@ -2158,24 +2411,56 @@ parse_prefill_a4_publication_receipt(
       return std::nullopt;
     }
     const auto* const root = require_object(*parsed.value, "receipt", diagnostic);
-    if (root == nullptr ||
-        !exact_keys(*root,
-                    {"schema", "version", "mode",
-                     "production_residency_eligible", "source_checkpoint_id",
-                     "physical_layout",
-                     "source_config_sha256", "source_index_sha256",
-                     "manifest_sha256", "policy_sha256", "policy_bytes",
-                     "payload_sha256", "payload_bytes", "projection_count"},
-                    "receipt", diagnostic)) {
+    if (root == nullptr) {
       return std::nullopt;
     }
     PrefillA4PublicationReceipt receipt;
+    const auto version = root->find("version");
+    if (version == root->end() ||
+        !parse_version(version->second, receipt.version_major,
+                       receipt.version_minor, "receipt.version", diagnostic)) {
+      return std::nullopt;
+    }
+    const bool version_v1 =
+        receipt.version_major == kPrefillA4PublicationVersionMajor &&
+        receipt.version_minor == kPrefillA4PublicationVersionMinor;
+    const bool version_v2 =
+        receipt.version_major == kPrefillA4K128PublicationVersionMajor &&
+        receipt.version_minor == kPrefillA4K128PublicationVersionMinor;
+    const bool exact_schema =
+        version_v1
+            ? exact_keys(*root,
+                         {"schema", "version", "mode",
+                          "production_residency_eligible",
+                          "source_checkpoint_id", "physical_layout",
+                          "source_config_sha256", "source_index_sha256",
+                          "manifest_sha256", "policy_sha256", "policy_bytes",
+                          "payload_sha256", "payload_bytes",
+                          "projection_count"},
+                         "receipt", diagnostic)
+            : version_v2 &&
+                  exact_keys(*root,
+                             {"schema", "version", "mode",
+                              "production_residency_eligible", "sidecar_kind",
+                              "packed_k_group_size", "scale_group_size",
+                              "source_checkpoint_id", "physical_layout",
+                              "source_config_sha256", "source_index_sha256",
+                              "manifest_sha256", "policy_sha256",
+                              "policy_bytes", "payload_sha256",
+                              "payload_bytes", "projection_count"},
+                             "receipt", diagnostic);
+    if (!exact_schema) {
+      if (diagnostic.ok()) {
+        diagnostic = make_diagnostic(
+            PrefillA4ConverterErrorCode::kPublicationRejected,
+            "receipt.version", "unsupported publication receipt version");
+      }
+      return std::nullopt;
+    }
     std::string schema;
     std::string mode;
     if (!string_member(*root, "schema", schema, "receipt", diagnostic) ||
         schema != kReceiptSchema ||
-        !parse_version(root->at("version"), receipt.version_major,
-                       receipt.version_minor, "receipt.version", diagnostic) ||
         !string_member(*root, "mode", mode, "receipt", diagnostic) ||
         !string_member(*root, "physical_layout", receipt.physical_layout,
                        "receipt", diagnostic) ||
@@ -2205,6 +2490,39 @@ parse_prefill_a4_publication_receipt(
       }
       return std::nullopt;
     }
+    A4SidecarFormat format;
+    if (version_v1) {
+      (void)a4_sidecar_format(PrefillSidecarKind::kA4K64, format);
+      receipt.sidecar_kind = format.kind;
+      receipt.packed_k_group_size = format.packed_k_group_size;
+      receipt.scale_group_size = format.scale_group_size;
+    } else {
+      std::string sidecar_kind;
+      std::uint64_t packed_k_group_size = 0U;
+      std::uint64_t scale_group_size = 0U;
+      if (!string_member(*root, "sidecar_kind", sidecar_kind, "receipt",
+                         diagnostic) ||
+          !a4_sidecar_format_from_name(sidecar_kind, format) ||
+          !uint64_member(*root, "packed_k_group_size", packed_k_group_size,
+                         "receipt", diagnostic) ||
+          !uint64_member(*root, "scale_group_size", scale_group_size,
+                         "receipt", diagnostic) ||
+          format.kind != PrefillSidecarKind::kA4K128 ||
+          packed_k_group_size != format.packed_k_group_size ||
+          scale_group_size != format.scale_group_size) {
+        if (diagnostic.ok()) {
+          diagnostic = make_diagnostic(
+              PrefillA4ConverterErrorCode::kPublicationRejected,
+              "receipt.a4_format",
+              "v2 receipt must bind A4-K128, packed K64, and shared K128 scales");
+        }
+        return std::nullopt;
+      }
+      receipt.sidecar_kind = format.kind;
+      receipt.packed_k_group_size =
+          static_cast<std::uint32_t>(packed_k_group_size);
+      receipt.scale_group_size = static_cast<std::uint32_t>(scale_group_size);
+    }
     const bool* const eligible =
         root->at("production_residency_eligible").as_bool();
     if (eligible == nullptr) {
@@ -2224,12 +2542,12 @@ parse_prefill_a4_publication_receipt(
           "unsupported receipt mode", {}, mode);
       return std::nullopt;
     }
-    if (receipt.physical_layout != kPrefillA4PhysicalLayout) {
+    if (receipt.physical_layout != format.physical_layout) {
       diagnostic = make_diagnostic(
           PrefillA4ConverterErrorCode::kPublicationRejected,
           "receipt.physical_layout",
           "unsupported A4 physical payload layout",
-          std::string(kPrefillA4PhysicalLayout), receipt.physical_layout);
+          std::string(format.physical_layout), receipt.physical_layout);
       return std::nullopt;
     }
     return receipt;
@@ -2329,20 +2647,24 @@ authenticate_prefill_a4_publication_for_residency(
     const fs::path& calibration_policy_path) {
   PrefillA4PublicationAuthenticationResult result;
   try {
+    A4SidecarFormat format;
     const PrefillContractDiagnostic manifest_diagnostic =
         validate_prefill_sidecar_manifest(manifest);
-    if (!manifest_diagnostic || manifest.kind != PrefillSidecarKind::kA4K64) {
+    if (!manifest_diagnostic || !a4_sidecar_format(manifest.kind, format)) {
       result.diagnostic = make_diagnostic(
           PrefillA4ConverterErrorCode::kInvalidManifest,
           "residency.manifest",
-          "publication requires a valid A4-K64 manifest");
+          "publication requires a valid A4-K64 v1 or A4-K128 v2 manifest");
       return result;
     }
-    if (receipt.version_major != kPrefillA4PublicationVersionMajor ||
-        receipt.version_minor != kPrefillA4PublicationVersionMinor ||
+    if (receipt.version_major != format.publication_version_major ||
+        receipt.version_minor != format.publication_version_minor ||
         receipt.mode != PrefillA4ConversionMode::kProductionCalibrated ||
         !receipt.production_residency_eligible ||
-        receipt.physical_layout != kPrefillA4PhysicalLayout) {
+        receipt.sidecar_kind != format.kind ||
+        receipt.packed_k_group_size != format.packed_k_group_size ||
+        receipt.scale_group_size != format.scale_group_size ||
+        receipt.physical_layout != format.physical_layout) {
       result.diagnostic = make_diagnostic(
           PrefillA4ConverterErrorCode::kPublicationRejected,
           "residency.receipt",
