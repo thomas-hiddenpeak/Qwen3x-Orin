@@ -104,7 +104,26 @@ The image reports two CTAs/SM, 118 registers/thread, zero local/stack bytes,
 and exactly 41,728 bytes of shared storage.  Packed output and BF16 scale bits
 are byte-for-byte identical to the established K128 Gate+Up producer at the
 small M64/N128/K512 shape (four logical groups, including ring recycling).
-The real M2048/N17408/K5120 capacity, last-address,
-persistent-grid, and output-plane layout contract also passes.  The candidate
-is not selected by a production runner and has not been model-timed; direction
-timing on real model weights belongs to the parent integration task.
+The real M2048/N17408/K5120 capacity, last-address, persistent-grid, and
+output-plane layout contract also passes.
+
+## Runtime vertical slice
+
+The full-A4 runner contains a default-off, independent selector controlled
+only by the exact value
+`Q3X_RUN_A4W4_GATEUP_COMPLETE_CELL_V2_ADMISSION=1`.  It is evaluated at the
+shared Gate+Up launch boundary used by both C512 tiles and whole-M projection
+spans.  Admission requires the immutable authenticated inventory consumer to
+be K128, both branches to have the exact `[17408,5120]` model shape, the
+runner's internal (possibly padded) M to be a non-zero multiple of 64, and all
+eight packed/scale capacities for A, Gate, Up, and the Down publication to be
+complete.  The logical natural-prompt M never reaches the kernel; the existing
+ceil64 padding and explicit zero publication remain runner-owned.
+
+When admitted, the complete cell writes the existing Down K128 packed/scale
+ABI directly.  A selected launch failure is returned and is never converted
+into a baseline retry.  K64 and every ineligible K128 shape retain the prior
+M128/baseline order unchanged.  The route has its own worker-local enable bit
+and hit counter; neither aliases nor enables the rejected M128 experiment.
+Host selector, short-capacity, environment, and gate-orthogonality tests pass.
+The route remains disabled by default and has not been timed on real weights.

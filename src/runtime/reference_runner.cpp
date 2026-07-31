@@ -3,6 +3,7 @@
 #include "q3x/kernels/sm87_fp8_prefill_supermatrix.h"
 #if defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
 #include "q3x/kernels/sm87_a4w4_down_k128_stage_major.h"
+#include "q3x/kernels/sm87_a4w4_gateup_complete_cell_v2.h"
 #include "q3x/kernels/sm87_a4w4_gateup_paired.h"
 #include "q3x/kernels/sm87_a4w4_prefill_gemm.h"
 #include "q3x/kernels/sm87_a4w4_prefill_m128_stage_major.h"
@@ -161,6 +162,21 @@ thread_local bool g_enable_a4w4_full_prefill_admission =
     a4w4_full_prefill_environment_enabled();
 thread_local reference_runner_detail::A4W4FullPrefillAdmissionHits
     g_a4w4_full_prefill_admission_hits{};
+
+[[nodiscard]] bool
+a4w4_gateup_complete_cell_v2_environment_enabled() noexcept {
+  if (optimized_prefill_dispatch_disabled()) {
+    return false;
+  }
+  const char* const value = std::getenv(
+      "Q3X_RUN_A4W4_GATEUP_COMPLETE_CELL_V2_ADMISSION");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
+thread_local bool g_enable_a4w4_gateup_complete_cell_v2_admission =
+    a4w4_gateup_complete_cell_v2_environment_enabled();
+thread_local std::size_t
+    g_a4w4_gateup_complete_cell_v2_admission_hits = 0U;
 
 [[nodiscard]] bool
 a4w4_m128_stage_major_environment_enabled() noexcept {
@@ -651,8 +667,47 @@ a4w4_full_prefill_inventory_consumer(
     const float output_clip_ratio, std::uint8_t* const packed_output,
     const std::size_t packed_output_capacity,
     std::uint16_t* const output_scales,
-    const std::size_t output_scale_capacity, void* const stream) noexcept {
+    const std::size_t output_scale_capacity, void* const stream,
+    bool* const complete_cell_v2_selected) noexcept {
+  if (complete_cell_v2_selected != nullptr) {
+    *complete_cell_v2_selected = false;
+  }
   if (consumer == reference_runner_detail::A4W4PrefillConsumer::kK128) {
+    reference_runner_detail::A4W4GateUpCompleteCellV2RouteQuery query;
+    query.admission_enabled =
+        g_enable_a4w4_gateup_complete_cell_v2_admission;
+    query.inventory_consumer = consumer;
+    query.projection_token_count = token_count;
+    query.gate_output_size = gate_sidecar.output_size;
+    query.gate_input_size = gate_sidecar.input_size;
+    query.up_output_size = up_sidecar.output_size;
+    query.up_input_size = up_sidecar.input_size;
+    query.packed_input_capacity_bytes = packed_input_capacity;
+    query.input_scale_capacity_elements = input_scale_capacity;
+    query.gate_weight_capacity_bytes = gate_weight_capacity;
+    query.gate_scale_capacity_elements = gate_scale_capacity;
+    query.up_weight_capacity_bytes = up_weight_capacity;
+    query.up_scale_capacity_elements = up_scale_capacity;
+    query.packed_output_capacity_bytes = packed_output_capacity;
+    query.output_scale_capacity_elements = output_scale_capacity;
+    if (reference_runner_detail::
+            use_a4w4_gateup_complete_cell_v2_route(query)) {
+      if (complete_cell_v2_selected != nullptr) {
+        *complete_cell_v2_selected = true;
+      }
+      const int status = kernels::launch_sm87_a4w4_gateup_cell_v2_cuda(
+          packed_input, packed_input_capacity, input_scales,
+          input_scale_capacity, gate_sidecar.weight, gate_weight_capacity,
+          gate_sidecar.scales, gate_scale_capacity, up_sidecar.weight,
+          up_weight_capacity, up_sidecar.scales, up_scale_capacity,
+          token_count, gate_sidecar.output_size, gate_sidecar.input_size,
+          output_clip_ratio, packed_output, packed_output_capacity,
+          output_scales, output_scale_capacity, stream);
+      if (status == static_cast<int>(cudaSuccess)) {
+        ++g_a4w4_gateup_complete_cell_v2_admission_hits;
+      }
+      return status;
+    }
     if (reference_runner_detail::a4w4_m128_stage_major_common_route(
             g_enable_a4w4_m128_stage_major_admission, consumer,
             token_count)) {
@@ -1208,6 +1263,29 @@ bool exchange_a4w4_down_m128_stage_major_admission_test_enabled(
 #else
   (void)enabled;
   return false;
+#endif
+}
+
+bool exchange_a4w4_gateup_complete_cell_v2_admission_test_enabled(
+    const bool enabled) noexcept {
+#if defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
+  return std::exchange(
+      g_enable_a4w4_gateup_complete_cell_v2_admission, enabled);
+#else
+  (void)enabled;
+  return false;
+#endif
+}
+
+std::size_t
+exchange_a4w4_gateup_complete_cell_v2_admission_test_hits(
+    const std::size_t hits) noexcept {
+#if defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
+  return std::exchange(
+      g_a4w4_gateup_complete_cell_v2_admission_hits, hits);
+#else
+  (void)hits;
+  return 0U;
 #endif
 }
 
@@ -3561,6 +3639,7 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
 #if defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
   reference_runner_detail::A4W4FullPrefillAdmissionHits
       a4w4_full_prefill_tile_hits{};
+  std::size_t a4w4_gateup_complete_cell_v2_tile_hits = 0U;
   const bool a4w4_route_requested =
       reference_runner_detail::use_a4w4_full_prefill_tile_route(
           a4w4_full_prefill_admission_enabled_ ||
@@ -4926,6 +5005,7 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
               "prefill_a4w4_mlp_gate_up_quantize", layer)) {
         return fail_prefill_tile(launch_failure);
       }
+      bool complete_cell_v2_selected = false;
       const int paired_status = launch_selected_a4w4_gateup_paired(
           a4w4_prefill_consumer_, views_.prefill_a4_hidden_packed,
           hidden_packed_capacity, views_.prefill_a4_hidden_scales,
@@ -4936,7 +5016,8 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
           views_.prefill_a4_intermediate_packed,
           intermediate_packed_capacity,
           views_.prefill_a4_intermediate_scales,
-          intermediate_scale_capacity, stream_);
+          intermediate_scale_capacity, stream_,
+          &complete_cell_v2_selected);
       if (!check_cuda(paired_status, "prefill_a4w4_mlp_gate_up_paired",
                       layer)) {
         return fail_prefill_tile(launch_failure);
@@ -4945,7 +5026,10 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
       a4w4_full_prefill_tile_hits.logical_projection_hits += 2U;
       ++g_a4w4_full_prefill_admission_hits.paired_gate_up_hits;
       g_a4w4_full_prefill_admission_hits.logical_projection_hits += 2U;
-      if (reference_runner_detail::a4w4_m128_stage_major_common_route(
+      a4w4_gateup_complete_cell_v2_tile_hits +=
+          complete_cell_v2_selected ? 1U : 0U;
+      if (!complete_cell_v2_selected &&
+          reference_runner_detail::a4w4_m128_stage_major_common_route(
               g_enable_a4w4_m128_stage_major_admission,
               a4w4_prefill_consumer_, token_count)) {
         ++a4w4_full_prefill_tile_hits
@@ -5195,7 +5279,12 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
         (layer_tile == nullptr ? kReferenceDecoderLayerCount : 1U);
     const std::size_t expected_m128_down_hits =
         layer_tile == nullptr ? kReferenceDecoderLayerCount : 1U;
-    if (a4w4_full_prefill_tile_hits.activation_quantize_hits !=
+    const bool complete_cell_v2_all =
+        a4w4_gateup_complete_cell_v2_tile_hits == expected_paired_hits;
+    const bool complete_cell_v2_none =
+        a4w4_gateup_complete_cell_v2_tile_hits == 0U;
+    if ((!complete_cell_v2_all && !complete_cell_v2_none) ||
+        a4w4_full_prefill_tile_hits.activation_quantize_hits !=
             expected_quantize_hits ||
         a4w4_full_prefill_tile_hits.generic_projection_hits !=
             expected_generic_hits ||
@@ -5211,7 +5300,9 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
             (expect_down_m128_stage_major ? expected_m128_down_hits : 0U) ||
         a4w4_full_prefill_tile_hits
                 .m128_stage_major_paired_gate_up_hits !=
-            (expect_m128_stage_major ? expected_paired_hits : 0U)) {
+            (expect_m128_stage_major && complete_cell_v2_none
+                 ? expected_paired_hits
+                 : 0U)) {
       return fail_prefill_tile(runner_status(
           ReferenceRunnerError::kInvalidRunner,
           "prefill_a4w4_route_accounting",
@@ -6236,6 +6327,7 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
                 "prefill_projection_span_mlp_input_quantize")) {
     return failure;
   }
+  bool complete_cell_v2_selected = false;
   const int paired_status = launch_selected_a4w4_gateup_paired(
       a4w4_prefill_consumer_, views_.prefill_a4_hidden_packed,
       hidden_packed_capacity, views_.prefill_a4_hidden_scales,
@@ -6245,7 +6337,7 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
       down_sidecar.activation_clip_ratio,
       views_.prefill_a4_intermediate_packed, intermediate_packed_capacity,
       views_.prefill_a4_intermediate_scales, intermediate_scale_capacity,
-      stream_);
+      stream_, &complete_cell_v2_selected);
   if (!check_cuda(paired_status,
                   "prefill_projection_span_mlp_gate_up_paired") ||
       !zero_projection_padding(
@@ -6261,7 +6353,8 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
   local_hits.logical_projection_hits += 2U;
   ++g_a4w4_full_prefill_admission_hits.paired_gate_up_hits;
   g_a4w4_full_prefill_admission_hits.logical_projection_hits += 2U;
-  if (reference_runner_detail::a4w4_m128_stage_major_common_route(
+  if (!complete_cell_v2_selected &&
+      reference_runner_detail::a4w4_m128_stage_major_common_route(
           g_enable_a4w4_m128_stage_major_admission,
           a4w4_prefill_consumer_, projection_token_count)) {
     ++local_hits.m128_stage_major_paired_gate_up_hits;
@@ -6303,7 +6396,8 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
       local_hits.m128_stage_major_down_projection_hits !=
           (expect_down_m128_stage_major ? 1U : 0U) ||
       local_hits.m128_stage_major_paired_gate_up_hits !=
-          (expect_m128_stage_major ? 1U : 0U)) {
+          (expect_m128_stage_major && !complete_cell_v2_selected ? 1U
+                                                                 : 0U)) {
     return runner_status(ReferenceRunnerError::kInvalidRunner,
                          "prefill_projection_span_a4_accounting",
                          item.layer_index);

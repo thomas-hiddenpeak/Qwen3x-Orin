@@ -1472,6 +1472,81 @@ void test_a4w4_full_prefill_admission_controls(TestContext& test) {
                k128, 4'095U, 4'095U).valid(),
       "K128 natural-prompt route proves every full/tail span fits and fails "
       "closed when ceil64 exceeds capacity");
+
+  using CellQuery = detail::A4W4GateUpCompleteCellV2RouteQuery;
+  const auto make_cell_query = [k128](
+                                   const std::size_t projection_tokens,
+                                   const std::size_t workspace_tokens) {
+    CellQuery query;
+    query.admission_enabled = true;
+    query.inventory_consumer = k128;
+    query.projection_token_count = projection_tokens;
+    query.gate_output_size = runtime::kReferenceIntermediateSize;
+    query.gate_input_size = runtime::kReferenceHiddenSize;
+    query.up_output_size = runtime::kReferenceIntermediateSize;
+    query.up_input_size = runtime::kReferenceHiddenSize;
+    query.packed_input_capacity_bytes =
+        workspace_tokens * runtime::kReferenceHiddenSize / 2U;
+    query.input_scale_capacity_elements =
+        workspace_tokens * runtime::kReferenceHiddenSize / 128U;
+    query.gate_weight_capacity_bytes =
+        runtime::kReferenceIntermediateSize *
+        runtime::kReferenceHiddenSize / 2U;
+    query.gate_scale_capacity_elements =
+        runtime::kReferenceIntermediateSize *
+        runtime::kReferenceHiddenSize / 128U;
+    query.up_weight_capacity_bytes = query.gate_weight_capacity_bytes;
+    query.up_scale_capacity_elements = query.gate_scale_capacity_elements;
+    query.packed_output_capacity_bytes =
+        workspace_tokens * runtime::kReferenceIntermediateSize / 2U;
+    query.output_scale_capacity_elements =
+        workspace_tokens * runtime::kReferenceIntermediateSize / 128U;
+    return query;
+  };
+  const CellQuery real_cell = make_cell_query(2'048U, 2'048U);
+  const CellQuery padded_cell =
+      make_cell_query(p1853.projection_token_count, 4'096U);
+  CellQuery disabled_cell = real_cell;
+  disabled_cell.admission_enabled = false;
+  CellQuery k64_cell = real_cell;
+  k64_cell.inventory_consumer = k64;
+  CellQuery logical_tail_cell = padded_cell;
+  logical_tail_cell.projection_token_count = p1853.logical_token_count;
+  CellQuery gate_near_miss = real_cell;
+  gate_near_miss.gate_output_size -= 128U;
+  CellQuery up_near_miss = real_cell;
+  up_near_miss.up_input_size -= 128U;
+  test.expect(
+      detail::use_a4w4_gateup_complete_cell_v2_route(real_cell) &&
+          detail::use_a4w4_gateup_complete_cell_v2_route(padded_cell) &&
+          !detail::use_a4w4_gateup_complete_cell_v2_route(disabled_cell) &&
+          !detail::use_a4w4_gateup_complete_cell_v2_route(k64_cell) &&
+          !detail::use_a4w4_gateup_complete_cell_v2_route(
+              logical_tail_cell) &&
+          !detail::use_a4w4_gateup_complete_cell_v2_route(gate_near_miss) &&
+          !detail::use_a4w4_gateup_complete_cell_v2_route(up_near_miss),
+      "complete-cell v2 selector requires its independent gate, authenticated "
+      "K128, exact Gate/Up shapes, and internally padded M64");
+
+  std::array<CellQuery, 8U> short_capacity_queries{};
+  short_capacity_queries.fill(real_cell);
+  --short_capacity_queries[0U].packed_input_capacity_bytes;
+  --short_capacity_queries[1U].input_scale_capacity_elements;
+  --short_capacity_queries[2U].gate_weight_capacity_bytes;
+  --short_capacity_queries[3U].gate_scale_capacity_elements;
+  --short_capacity_queries[4U].up_weight_capacity_bytes;
+  --short_capacity_queries[5U].up_scale_capacity_elements;
+  --short_capacity_queries[6U].packed_output_capacity_bytes;
+  --short_capacity_queries[7U].output_scale_capacity_elements;
+  const bool all_short_capacities_rejected = std::all_of(
+      short_capacity_queries.begin(), short_capacity_queries.end(),
+      [](const CellQuery& query) {
+        return !detail::use_a4w4_gateup_complete_cell_v2_route(query);
+      });
+  test.expect(all_short_capacities_rejected,
+              "complete-cell v2 selector rejects every independently short "
+              "input/weight/Down-publication capacity");
+
   test.expect(
       !detail::a4w4_m128_stage_major_common_route(false, k128, 2'048U) &&
           !detail::a4w4_m128_stage_major_common_route(true, k64, 2'048U) &&
@@ -1540,6 +1615,26 @@ void test_a4w4_full_prefill_admission_controls(TestContext& test) {
       "preserves M64 fallback for natural padded spans, and rejects invalid "
       "N/K shapes");
 
+  const char* const cell_environment = std::getenv(
+      "Q3X_RUN_A4W4_GATEUP_COMPLETE_CELL_V2_ADMISSION");
+  const bool cell_environment_requested =
+      cell_environment != nullptr &&
+      std::strcmp(cell_environment, "1") == 0 &&
+      !runtime::optimized_prefill_dispatch_disabled();
+  const bool initial_cell_enabled =
+      detail::exchange_a4w4_gateup_complete_cell_v2_admission_test_enabled(
+          false);
+  (void)detail::
+      exchange_a4w4_gateup_complete_cell_v2_admission_test_enabled(true);
+  const bool cell_admission_is_compiled =
+      detail::exchange_a4w4_gateup_complete_cell_v2_admission_test_enabled(
+          false);
+  test.expect(
+      initial_cell_enabled ==
+          (cell_admission_is_compiled && cell_environment_requested),
+      "complete-cell v2 environment gate is exact-value, default-off, and "
+      "independent of code availability");
+
   const bool prior_enabled =
       detail::exchange_a4w4_full_prefill_admission_test_enabled(true);
   const bool admission_is_compiled =
@@ -1561,6 +1656,11 @@ void test_a4w4_full_prefill_admission_controls(TestContext& test) {
       detail::exchange_a4w4_full_prefill_admission_test_hits(fixture);
   const detail::A4W4FullPrefillAdmissionHits observed =
       detail::exchange_a4w4_full_prefill_admission_test_hits(prior_hits);
+  const std::size_t prior_cell_hits =
+      detail::exchange_a4w4_gateup_complete_cell_v2_admission_test_hits(73U);
+  const std::size_t observed_cell_hits =
+      detail::exchange_a4w4_gateup_complete_cell_v2_admission_test_hits(
+          prior_cell_hits);
   if (admission_is_compiled) {
     test.expect(observed.activation_quantize_hits == 192U &&
                     observed.generic_projection_hits == 272U &&
@@ -1572,7 +1672,8 @@ void test_a4w4_full_prefill_admission_controls(TestContext& test) {
                     observed.m128_stage_major_down_projection_hits == 64U &&
                     observed.m128_stage_major_paired_gate_up_hits == 64U &&
                     m128_admission_is_compiled &&
-                    down_m128_admission_is_compiled,
+                    down_m128_admission_is_compiled &&
+                    cell_admission_is_compiled && observed_cell_hits == 73U,
                 "compiled A4W4 admission preserves all route counters");
   } else {
     test.expect(observed.activation_quantize_hits == 0U &&
@@ -1584,9 +1685,14 @@ void test_a4w4_full_prefill_admission_controls(TestContext& test) {
                     observed.m128_stage_major_down_projection_hits == 0U &&
                     observed.m128_stage_major_paired_gate_up_hits == 0U &&
                     !m128_admission_is_compiled &&
-                    !down_m128_admission_is_compiled,
+                    !down_m128_admission_is_compiled &&
+                    !cell_admission_is_compiled &&
+                    observed_cell_hits == 0U,
                 "ordinary build exposes inert A4W4 admission controls");
   }
+  (void)detail::
+      exchange_a4w4_gateup_complete_cell_v2_admission_test_enabled(
+          initial_cell_enabled);
 }
 
 void test_prefill_admission_gate_orthogonality(TestContext& test) {
@@ -1597,12 +1703,20 @@ void test_prefill_admission_gate_orthogonality(TestContext& test) {
       detail::exchange_bf16_ab_large_m_prefill_admission_test_enabled(false);
   const bool initial_m128 =
       detail::exchange_a4w4_m128_stage_major_admission_test_enabled(false);
+  const bool initial_cell =
+      detail::exchange_a4w4_gateup_complete_cell_v2_admission_test_enabled(
+          false);
   (void)detail::exchange_bf16_ab_large_m_prefill_admission_test_enabled(true);
   const bool bf16_compiled =
       detail::exchange_bf16_ab_large_m_prefill_admission_test_enabled(false);
   (void)detail::exchange_a4w4_m128_stage_major_admission_test_enabled(true);
   const bool m128_compiled =
       detail::exchange_a4w4_m128_stage_major_admission_test_enabled(false);
+  (void)detail::
+      exchange_a4w4_gateup_complete_cell_v2_admission_test_enabled(true);
+  const bool cell_compiled =
+      detail::exchange_a4w4_gateup_complete_cell_v2_admission_test_enabled(
+          false);
 
   (void)detail::exchange_bf16_ab_large_m_prefill_admission_test_enabled(true);
   const bool m128_after_bf16 =
@@ -1620,6 +1734,25 @@ void test_prefill_admission_gate_orthogonality(TestContext& test) {
   test.expect(!bf16_after_m128 && m128_after_m128 == m128_compiled,
               "M128 A4 gate does not enable the BF16 whole-span gate");
 
+  (void)detail::
+      exchange_a4w4_gateup_complete_cell_v2_admission_test_enabled(true);
+  const bool m128_after_cell =
+      detail::exchange_a4w4_m128_stage_major_admission_test_enabled(false);
+  const bool cell_after_cell =
+      detail::exchange_a4w4_gateup_complete_cell_v2_admission_test_enabled(
+          false);
+  test.expect(!m128_after_cell && cell_after_cell == cell_compiled,
+              "complete-cell v2 gate does not enable the rejected M128 gate");
+
+  (void)detail::exchange_a4w4_m128_stage_major_admission_test_enabled(true);
+  const bool cell_after_m128 =
+      detail::exchange_a4w4_gateup_complete_cell_v2_admission_test_enabled(
+          false);
+  const bool m128_after_cell_check =
+      detail::exchange_a4w4_m128_stage_major_admission_test_enabled(false);
+  test.expect(!cell_after_m128 && m128_after_cell_check == m128_compiled,
+              "M128 A4 gate does not enable the complete-cell v2 gate");
+
   const std::size_t initial_bf16_hits =
       detail::exchange_bf16_ab_large_m_prefill_admission_test_hits(19U);
   const detail::A4W4FullPrefillAdmissionHits a4_fixture{
@@ -1629,10 +1762,17 @@ void test_prefill_admission_gate_orthogonality(TestContext& test) {
   const std::size_t observed_bf16_hits =
       detail::exchange_bf16_ab_large_m_prefill_admission_test_hits(
           initial_bf16_hits);
+  const std::size_t initial_cell_hits =
+      detail::exchange_a4w4_gateup_complete_cell_v2_admission_test_hits(23U);
+  const std::size_t observed_cell_hits =
+      detail::exchange_a4w4_gateup_complete_cell_v2_admission_test_hits(
+          initial_cell_hits);
   const detail::A4W4FullPrefillAdmissionHits observed_a4_hits =
       detail::exchange_a4w4_full_prefill_admission_test_hits(initial_a4_hits);
   test.expect(observed_bf16_hits == (bf16_compiled ? 19U : 0U),
               "BF16 whole-span hits use independent storage");
+  test.expect(observed_cell_hits == (cell_compiled ? 23U : 0U),
+              "complete-cell v2 hits use storage independent from M128/A4");
   test.expect(
       observed_a4_hits.activation_quantize_hits ==
               (m128_compiled ? 192U : 0U) &&
@@ -1656,6 +1796,9 @@ void test_prefill_admission_gate_orthogonality(TestContext& test) {
       initial_bf16);
   (void)detail::exchange_a4w4_m128_stage_major_admission_test_enabled(
       initial_m128);
+  (void)detail::
+      exchange_a4w4_gateup_complete_cell_v2_admission_test_enabled(
+          initial_cell);
 }
 
 }  // namespace

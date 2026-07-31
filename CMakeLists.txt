@@ -1595,6 +1595,17 @@ if(BUILD_TESTING)
   target_link_libraries(q3x_reference_runner_host_test PRIVATE q3x::kernels)
   q3x_enable_warnings(q3x_reference_runner_host_test)
   add_test(NAME reference_runner_host COMMAND q3x_reference_runner_host_test)
+  if(Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION)
+    add_test(NAME reference_runner_host_gateup_complete_cell_v2_admission
+      COMMAND q3x_reference_runner_host_test
+    )
+    set_tests_properties(
+      reference_runner_host_gateup_complete_cell_v2_admission PROPERTIES
+      ENVIRONMENT
+        "Q3X_DISABLE_OPTIMIZED_PREFILL=0;Q3X_RUN_A4W4_GATEUP_COMPLETE_CELL_V2_ADMISSION=1;Q3X_RUN_A4W4_M128_STAGE_MAJOR_ADMISSION=0;Q3X_RUN_A4W4_DOWN_M128_STAGE_MAJOR_ADMISSION=0"
+      LABELS "host;sm87;prefill;a4w4;k128;admission;environment"
+    )
+  endif()
   if(Q3X_BUILD_FULL_ATTENTION_LONG_CONTEXT_GROUP_Q64_ADMISSION)
     add_test(NAME reference_runner_host_long_context_group_q64_admission
       COMMAND q3x_reference_runner_host_test

@@ -607,6 +607,81 @@ a4w4_prefill_consumer_supports_projection_span_prompt(
          selected == candidate;
 }
 
+// Complete-cell v2 is a model-specific Gate+Up route, not a generic GEMM
+// selector.  The consumer is the immutable result of authenticating the
+// complete 400-projection inventory. projection_token_count is the runner's
+// internal M after ceil64 padding; logical prompt tails never reach this
+// selector directly.  Capacities may exceed the selected M (the whole-span
+// workspace does), but every input, weight, and Down-publication plane must
+// cover the complete selected matrix.
+struct A4W4GateUpCompleteCellV2RouteQuery final {
+  bool admission_enabled = false;
+  A4W4PrefillConsumer inventory_consumer =
+      A4W4PrefillConsumer::kUnavailable;
+  std::size_t projection_token_count = 0U;
+  std::size_t gate_output_size = 0U;
+  std::size_t gate_input_size = 0U;
+  std::size_t up_output_size = 0U;
+  std::size_t up_input_size = 0U;
+  std::size_t packed_input_capacity_bytes = 0U;
+  std::size_t input_scale_capacity_elements = 0U;
+  std::size_t gate_weight_capacity_bytes = 0U;
+  std::size_t gate_scale_capacity_elements = 0U;
+  std::size_t up_weight_capacity_bytes = 0U;
+  std::size_t up_scale_capacity_elements = 0U;
+  std::size_t packed_output_capacity_bytes = 0U;
+  std::size_t output_scale_capacity_elements = 0U;
+};
+
+[[nodiscard]] constexpr bool a4w4_matrix_capacity_covers(
+    const std::size_t capacity, const std::size_t outer,
+    const std::size_t inner, const std::size_t inner_group) noexcept {
+  if (outer == 0U || inner == 0U || inner_group == 0U ||
+      inner % inner_group != 0U) {
+    return false;
+  }
+  const std::size_t groups = inner / inner_group;
+  constexpr std::size_t maximum = static_cast<std::size_t>(-1);
+  return outer <= maximum / groups && capacity >= outer * groups;
+}
+
+[[nodiscard]] constexpr bool use_a4w4_gateup_complete_cell_v2_route(
+    const A4W4GateUpCompleteCellV2RouteQuery& query) noexcept {
+  return query.admission_enabled &&
+         query.inventory_consumer == A4W4PrefillConsumer::kK128 &&
+         query.projection_token_count != 0U &&
+         query.projection_token_count % 64U == 0U &&
+         query.gate_output_size == kReferenceIntermediateSize &&
+         query.gate_input_size == kReferenceHiddenSize &&
+         query.up_output_size == kReferenceIntermediateSize &&
+         query.up_input_size == kReferenceHiddenSize &&
+         a4w4_matrix_capacity_covers(
+             query.packed_input_capacity_bytes,
+             query.projection_token_count, kReferenceHiddenSize, 2U) &&
+         a4w4_matrix_capacity_covers(
+             query.input_scale_capacity_elements,
+             query.projection_token_count, kReferenceHiddenSize, 128U) &&
+         a4w4_matrix_capacity_covers(
+             query.gate_weight_capacity_bytes,
+             kReferenceIntermediateSize, kReferenceHiddenSize, 2U) &&
+         a4w4_matrix_capacity_covers(
+             query.gate_scale_capacity_elements,
+             kReferenceIntermediateSize, kReferenceHiddenSize, 128U) &&
+         a4w4_matrix_capacity_covers(
+             query.up_weight_capacity_bytes,
+             kReferenceIntermediateSize, kReferenceHiddenSize, 2U) &&
+         a4w4_matrix_capacity_covers(
+             query.up_scale_capacity_elements,
+             kReferenceIntermediateSize, kReferenceHiddenSize, 128U) &&
+         a4w4_matrix_capacity_covers(
+             query.packed_output_capacity_bytes,
+             query.projection_token_count, kReferenceIntermediateSize, 2U) &&
+         a4w4_matrix_capacity_covers(
+             query.output_scale_capacity_elements,
+             query.projection_token_count, kReferenceIntermediateSize,
+             128U);
+}
+
 // The consumer argument is the immutable result of validating all 400 A4
 // projection sidecars at runner creation.  Consequently these selectors
 // cannot admit a partial or mixed K64/K128 publication.  The candidates have
@@ -672,6 +747,11 @@ bool exchange_a4w4_m128_stage_major_admission_test_enabled(
     bool enabled) noexcept;
 bool exchange_a4w4_down_m128_stage_major_admission_test_enabled(
     bool enabled) noexcept;
+bool exchange_a4w4_gateup_complete_cell_v2_admission_test_enabled(
+    bool enabled) noexcept;
+std::size_t
+exchange_a4w4_gateup_complete_cell_v2_admission_test_hits(
+    std::size_t hits) noexcept;
 A4W4FullPrefillAdmissionHits
 exchange_a4w4_full_prefill_admission_test_hits(
     A4W4FullPrefillAdmissionHits hits) noexcept;
