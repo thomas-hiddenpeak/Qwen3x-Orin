@@ -6,7 +6,7 @@ usage() {
 usage: run_native_pure_prefill_matrix.sh \
   --prefill-a4-payload FILE --prefill-a4-policy FILE \
   --prefill-a4-receipt FILE \
-  [--mode exact|native-gdn|cumulative-prefill|cumulative-prefill-down|cumulative-prefill-short] \
+  [--mode exact|native-gdn|cumulative-prefill|cumulative-prefill-down|cumulative-prefill-attention-down|cumulative-prefill-short] \
   [--dry-run] \
   ELF MODEL_DIR CORPUS_DIR OUTPUT_ROOT [p512|p1k|p2k|p4k]
 EOF
@@ -71,10 +71,11 @@ done
   exit 2
 }
 case "${mode}" in
-  exact|native-gdn|cumulative-prefill|cumulative-prefill-down|cumulative-prefill-short) ;;
+  exact|native-gdn|cumulative-prefill|cumulative-prefill-down|cumulative-prefill-attention-down|cumulative-prefill-short) ;;
   *)
     echo "--mode must be exact, native-gdn, cumulative-prefill, or" \
-      "cumulative-prefill-down, or cumulative-prefill-short" >&2
+      "cumulative-prefill-down, cumulative-prefill-attention-down, or" \
+      "cumulative-prefill-short" >&2
     exit 2
     ;;
 esac
@@ -134,6 +135,15 @@ case "${mode}" in
       Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION
       Q3X_RUN_BF16_AB_LARGE_M_PREFILL_ADMISSION
       Q3X_RUN_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION
+    )
+    ;;
+  cumulative-prefill-attention-down)
+    candidate_selectors=(
+      Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION
+      Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION
+      Q3X_RUN_BF16_AB_LARGE_M_PREFILL_ADMISSION
+      Q3X_RUN_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION
+      Q3X_FULL_ATTENTION_FLASHINFER_DIRECT
     )
     ;;
   cumulative-prefill-short)

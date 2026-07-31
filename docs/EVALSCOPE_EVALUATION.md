@@ -159,6 +159,12 @@ internally padded M divisible by 128.  Gate+Up complete-cell, old M128, and
 short-context selectors stay cleared.  This mode records a retained
 experiment; it does not make the Down cell a production default.
 
+Use `--mode cumulative-prefill-attention-down` after that direction passes.
+It adds `Q3X_FULL_ATTENTION_FLASHINFER_DIRECT=1` to the cumulative Down bundle
+and nothing else.  The harness first clears inherited FlashInfer, Gate+Up,
+short-context, and archived M128 selectors, so this mode measures one explicit
+system composition rather than a shell-dependent mixture.
+
 Use `--mode cumulative-prefill-short` with the pure-Prefill harness to measure
 the retained short-context direction. It starts from the same three-selector
 `cumulative-prefill` bundle and adds exactly

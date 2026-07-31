@@ -33,6 +33,7 @@ class Fixture:
             "# Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION\n"
             "# Q3X_RUN_BF16_AB_LARGE_M_PREFILL_ADMISSION\n"
             "# Q3X_RUN_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION\n"
+            "# Q3X_FULL_ATTENTION_FLASHINFER_DIRECT\n"
             "# Q3X_RUN_SHORT_PREFILL_LAYER_MAJOR_ADMISSION\n"
             "exit 0\n",
             encoding="utf-8",
@@ -71,6 +72,8 @@ class Fixture:
         environment["Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION"] = "1"
         environment["Q3X_RUN_BF16_AB_LARGE_M_PREFILL_ADMISSION"] = "1"
         environment["Q3X_RUN_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION"] = "1"
+        environment["Q3X_FULL_ATTENTION_FLASHINFER_DIRECT"] = "1"
+        environment["Q3X_RUN_A4W4_GATEUP_PROJECTION_V3_ADMISSION"] = "1"
         environment["Q3X_RUN_SHORT_PREFILL_LAYER_MAJOR_ADMISSION"] = "1"
         environment["Q3X_RUN_A4W4_GATEUP_PROJECTION_V3_ADMISSION"] = "1"
         environment["Q3X_RUN_A4W4_GATEUP_COMPLETE_CELL_V2_ADMISSION"] = "1"
@@ -123,6 +126,7 @@ class PurePrefillEvalScopeHarnessTest(unittest.TestCase):
         self.assertIn(
             "-u Q3X_RUN_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION", result.stdout
         )
+        self.assertIn("-u Q3X_FULL_ATTENTION_FLASHINFER_DIRECT", result.stdout)
         self.assertIn(
             "-u Q3X_RUN_SHORT_PREFILL_LAYER_MAJOR_ADMISSION", result.stdout
         )
@@ -220,6 +224,45 @@ class PurePrefillEvalScopeHarnessTest(unittest.TestCase):
         self.assertIn(
             "server does not contain the cumulative-prefill-down selector: "
             "Q3X_RUN_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION",
+            result.stderr,
+        )
+
+    def test_cumulative_attention_down_mode_is_exact_bundle(self) -> None:
+        result = self.fixture.run(
+            "--mode", "cumulative-prefill-attention-down"
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        startup = next(
+            line
+            for line in result.stdout.splitlines()
+            if line.startswith("server_startup_command")
+        )
+        self.assertEqual(
+            set(re.findall(r"(Q3X_[A-Z0-9_]+)=1", startup)),
+            {
+                "Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION",
+                "Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION",
+                "Q3X_RUN_BF16_AB_LARGE_M_PREFILL_ADMISSION",
+                "Q3X_RUN_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION",
+                "Q3X_FULL_ATTENTION_FLASHINFER_DIRECT",
+            },
+        )
+        self.assertIn("-u Q3X_RUN_A4W4_GATEUP_PROJECTION_V3_ADMISSION", startup)
+        self.assertIn("-u Q3X_RUN_SHORT_PREFILL_LAYER_MAJOR_ADMISSION", startup)
+
+    def test_cumulative_attention_down_requires_flashinfer_direct(self) -> None:
+        contents = self.fixture.server.read_text(encoding="utf-8")
+        self.fixture.server.write_text(
+            contents.replace("# Q3X_FULL_ATTENTION_FLASHINFER_DIRECT\n", ""),
+            encoding="utf-8",
+        )
+        result = self.fixture.run(
+            "--mode", "cumulative-prefill-attention-down"
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn(
+            "server does not contain the cumulative-prefill-attention-down "
+            "selector: Q3X_FULL_ATTENTION_FLASHINFER_DIRECT",
             result.stderr,
         )
 
