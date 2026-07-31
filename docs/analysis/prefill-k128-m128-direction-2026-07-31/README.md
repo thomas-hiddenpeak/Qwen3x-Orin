@@ -69,6 +69,31 @@ The isolated result rejects the one-CTA/SM M128-v1 skeleton for Down as well
 as for Generic/Paired. Down needs a different complete cell and scheduler;
 it must not inherit the Gate configuration.
 
+### Corrected whole-span BF16 A/B result
+
+The BF16 A/B route was tested independently under:
+
+```text
+Q3X_RUN_BF16_AB_LARGE_M_PREFILL_ADMISSION=1
+```
+
+Its ELF SHA-256 was
+`11222de1f542d0dbd911bbe88dba3467642361366a750a4f5b9baa707e969d3c`.
+This is the corrected kernel (`ldmatrix.x2`, not the rejected double-transpose
+loader) and reduces P2048 A/B launches from 6,144 C16 calls to 48 whole-span
+calls.
+
+| Metric | Run 1 | Run 2 | Mean |
+|---|---:|---:|---:|
+| Server-side Prefill | 4871.85 ms | 4870.92 ms | 4871.385 ms |
+| HTTP total | 4.875335 s | 4.874466 s | 4.874900 s |
+
+Against the incumbent K128 HTTP mean, this saves 289.605 ms and improves the
+shape rate from 396.553 to 420.111 tok/s (+5.941%). Both responses retained
+the same generated result. The route passes the real-path direction gate and
+is retained for cumulative testing; its prior exhaustive CUDA correctness,
+tail, canary, and resource gates remain mandatory evidence.
+
 ## Separate K128 observation
 
 The incumbent M64 K128 run is materially below the frozen real P2048 K64
@@ -79,7 +104,8 @@ gate is still required before K128 can be promoted.
 
 ## Next action
 
-1. Test the corrected whole-span BF16 A/B route independently.
+1. Combine the retained K128, native GDN, and corrected whole-span BF16 A/B
+   routes, with both rejected M128-v1 switches disabled.
 2. Replace M128-v1 with a complete Gate/Up cell targeting at least two
    CTAs/SM, a 2--4 stage async pipeline, and a longer useful scale/accumulator
    lifetime; do not continue tile-constant scans on the rejected skeleton.
