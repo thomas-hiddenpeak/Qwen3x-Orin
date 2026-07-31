@@ -136,12 +136,25 @@ full_attention_preprocess_prompt_wide_environment_enabled() noexcept {
   return value != nullptr && std::strcmp(value, "1") == 0;
 }
 
+[[nodiscard]] bool optimized_prefill_dispatch_disabled_environment()
+    noexcept {
+  static const bool disabled = []() noexcept {
+    const char* const value =
+        std::getenv("Q3X_DISABLE_OPTIMIZED_PREFILL");
+    return value != nullptr && std::strcmp(value, "1") == 0;
+  }();
+  return disabled;
+}
+
 #if defined(Q3X_ENABLE_FULL_ATTENTION_LONG_CONTEXT_GROUP_Q64_ADMISSION)
 [[nodiscard]] bool
 full_attention_long_context_group_q64_environment_enabled() noexcept {
+  if (optimized_prefill_dispatch_disabled_environment()) {
+    return false;
+  }
   const char* const value = std::getenv(
       "Q3X_RUN_FULL_ATTENTION_LONG_CONTEXT_GROUP_Q64_ADMISSION");
-  return value != nullptr && std::strcmp(value, "1") == 0;
+  return value == nullptr || std::strcmp(value, "1") == 0;
 }
 #endif
 
@@ -2638,9 +2651,12 @@ int launch_bulk_causal_gqa_sigmoid_gate_24_4_256_cuda(
       kBulkGqaKvHeads, 1U);
   const auto stream = static_cast<cudaStream_t>(cuda_stream);
   (void)cudaGetLastError();
-  if (use_bulk_causal_gqa_group_q64_prefill(first_position, token_count) ||
-      use_bulk_causal_gqa_long_context_group_q64_admission(
-          first_position, token_count)) {
+  const bool optimized_prefill_disabled =
+      optimized_prefill_dispatch_disabled_environment();
+  if (!optimized_prefill_disabled &&
+      (use_bulk_causal_gqa_group_q64_prefill(first_position, token_count) ||
+       use_bulk_causal_gqa_long_context_group_q64_admission(
+           first_position, token_count))) {
     return launch_bulk_causal_gqa_sigmoid_gate_24_4_256_c512_register_pipeline_cuda(
         query, key_cache, value_cache, gate, first_position, token_count,
         output, cuda_stream);

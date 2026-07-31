@@ -573,6 +573,14 @@ void test_schedule_and_workspace(TestContext& test) {
           !runtime::use_bulk_causal_gqa_group_q64_prefill(512U, 513U),
       "grouped-Q64 Tensor Core selector accepts P0/P512 C2..C512");
 
+  test.expect(
+      detail::use_a4w4_full_prefill_tile_route(true, false, false) &&
+          !detail::use_a4w4_full_prefill_tile_route(false, false, false) &&
+          !detail::use_a4w4_full_prefill_tile_route(true, true, false) &&
+          !detail::use_a4w4_full_prefill_tile_route(true, false, true),
+      "A4 Prefill selector retains residency but falls back for tracing and "
+      "the unified comparator");
+
   constexpr std::size_t kLongMaximum =
       runtime::kBulkCausalGqaLongContextGroupQ64MaximumSequenceLength;
   constexpr std::size_t kPackedPositionCapacity =
@@ -602,12 +610,13 @@ void test_schedule_and_workspace(TestContext& test) {
   const char* const long_context_environment = std::getenv(
       "Q3X_RUN_FULL_ATTENTION_LONG_CONTEXT_GROUP_Q64_ADMISSION");
   const bool long_context_run_enabled =
-      long_context_environment != nullptr &&
+      long_context_environment == nullptr ||
       std::strcmp(long_context_environment, "1") == 0;
   const bool long_context_expected =
       runtime::
           bulk_causal_gqa_long_context_group_q64_admission_compiled() &&
-      long_context_run_enabled;
+      long_context_run_enabled &&
+      !runtime::optimized_prefill_dispatch_disabled();
   test.expect(
       runtime::use_bulk_causal_gqa_long_context_group_q64_admission(
           1'024U, 512U) == long_context_expected &&
@@ -615,8 +624,8 @@ void test_schedule_and_workspace(TestContext& test) {
               4'096U, 512U) == long_context_expected &&
           !runtime::use_bulk_causal_gqa_long_context_group_q64_admission(
               kLongMaximum - 511U, 512U),
-      "long-context grouped-Q64 dispatch requires both BUILD and RUN "
-      "admission and preserves the 40K fallback");
+      "long-context grouped-Q64 dispatch defaults on when built, accepts the "
+      "legacy RUN selector, and preserves disable/40K fallbacks");
 
   constexpr std::size_t kMaximum =
       std::numeric_limits<std::size_t>::max();

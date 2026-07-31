@@ -1349,33 +1349,6 @@ int run_evaluation_server(const EvaluationServerOptions& options,
       options.max_sequence_length;
   engine_options.request_options.prefill_chunk_size =
       options.prefill_chunk_size;
-  const char* const long_prefill_value =
-      std::getenv("Q3X_RUN_LONG_PREFILL_LAYER_MAJOR_ADMISSION");
-  const bool long_prefill_requested =
-      long_prefill_value != nullptr &&
-      std::strcmp(long_prefill_value, "1") == 0;
-  if (runtime::long_prefill_layer_major_build_enabled() &&
-      long_prefill_requested &&
-      options.prefill_chunk_size ==
-          runtime::kLongPrefillLayerMajorTileTokens &&
-      options.max_sequence_length >
-          runtime::kLongPrefillLayerMajorTileTokens) {
-    engine_options.request_options.long_prefill_token_capacity =
-        std::min(options.max_sequence_length,
-                 runtime::kLongPrefillLayerMajorMaximumTokens);
-    const bool authenticated_a4_requested =
-        !options.prefill_a4_payload_path.empty() &&
-        !options.prefill_a4_calibration_policy_path.empty();
-    if (authenticated_a4_requested) {
-      const std::uint32_t aligned_capacity =
-          engine_options.request_options.long_prefill_token_capacity /
-          runtime::kLongPrefillLayerMajorTileTokens *
-          runtime::kLongPrefillLayerMajorTileTokens;
-      engine_options.request_options.long_prefill_projection_span_capacity =
-          std::min(runtime::kLongPrefillProjectionSpanDefaultTokens,
-                   aligned_capacity);
-    }
-  }
   engine_options.request_options.max_arena_bytes =
       options.request_max_arena_bytes;
   engine_options.request_options.min_free_bytes_after_create =
@@ -1428,11 +1401,6 @@ int run_evaluation_server(const EvaluationServerOptions& options,
   }
 
   const runtime::ReferenceEngineLoadStats& load = engine.load_stats();
-  const char* const long_context_attention_value = std::getenv(
-      "Q3X_RUN_FULL_ATTENTION_LONG_CONTEXT_GROUP_Q64_ADMISSION");
-  const bool long_context_attention_requested =
-      long_context_attention_value != nullptr &&
-      std::strcmp(long_context_attention_value, "1") == 0;
   const bool long_context_attention_probe_selected =
       runtime::use_bulk_causal_gqa_long_context_group_q64_admission(
           1'024U, 512U);
@@ -1449,19 +1417,16 @@ int run_evaluation_server(const EvaluationServerOptions& options,
                         bulk_causal_gqa_long_context_group_q64_admission_compiled()
                     ? 1
                     : 0)
-            << " long_context_group_q64_run_requested="
-            << (long_context_attention_requested ? 1 : 0)
             << " long_context_group_q64_probe_selected="
             << (long_context_attention_probe_selected ? 1 : 0)
+            << " optimized_prefill_disabled="
+            << (load.optimized_prefill_disabled ? 1 : 0)
             << " long_prefill_build_enabled="
             << (runtime::long_prefill_layer_major_build_enabled() ? 1 : 0)
-            << " long_prefill_run_requested="
-            << (long_prefill_requested ? 1 : 0)
             << " long_prefill_hidden_capacity="
-            << engine_options.request_options.long_prefill_token_capacity
+            << load.request_long_prefill_token_capacity
             << " long_prefill_projection_span_capacity="
-            << engine_options.request_options
-                   .long_prefill_projection_span_capacity
+            << load.request_long_prefill_projection_span_capacity
             << " inference_workers=1 queue_capacity="
             << options.inference_queue_capacity
             << " fp8_prefill_supermatrix_sidecar_ms="
