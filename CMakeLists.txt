@@ -66,6 +66,10 @@ option(Q3X_BUILD_SM87_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION
   "Build the test-only runtime admission and tests for the two-CTA Down M128N128K128 complete cell"
   OFF
 )
+option(Q3X_BUILD_SM87_A4W4_ATTENTION_SUPERMATRIX_ADMISSION
+  "Build standalone tests for the two-CTA attention input supermatrix cell"
+  OFF
+)
 option(Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION
   "Build the calibrated full-model SM87 A4W4 Prefill route"
   ON
@@ -155,6 +159,12 @@ if(Q3X_BUILD_SM87_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION AND
    NOT Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION)
   message(FATAL_ERROR
     "The Down complete-cell v2 admission requires the established K128 comparison kernel"
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_ATTENTION_SUPERMATRIX_ADMISSION AND
+   NOT BUILD_TESTING)
+  message(FATAL_ERROR
+    "Q3X_BUILD_SM87_A4W4_ATTENTION_SUPERMATRIX_ADMISSION is test-only and requires BUILD_TESTING=ON"
   )
 endif()
 if(Q3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION AND NOT BUILD_TESTING)
@@ -1064,6 +1074,81 @@ if(BUILD_TESTING)
     )
     add_custom_target(q3x_sm87_a4w4_down_complete_cell_v2_ptx_sentinel ALL
       DEPENDS "${_q3x_down_cell_v2_ptx_stamp}"
+    )
+  endif()
+
+  if(Q3X_BUILD_SM87_A4W4_ATTENTION_SUPERMATRIX_ADMISSION)
+    # This candidate must remain isolated from q3x_kernels and every runtime
+    # selector until it passes correctness, resource, and real-server gates.
+    add_library(q3x_test_sm87_a4w4_attention_supermatrix STATIC
+      src/kernels/sm87/a4w4_attention_supermatrix_cell.cu
+    )
+    target_compile_features(q3x_test_sm87_a4w4_attention_supermatrix
+      PUBLIC cxx_std_17 cuda_std_17
+    )
+    target_include_directories(q3x_test_sm87_a4w4_attention_supermatrix
+      PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    )
+    target_link_libraries(q3x_test_sm87_a4w4_attention_supermatrix
+      PRIVATE CUDA::cudart
+    )
+    target_compile_options(q3x_test_sm87_a4w4_attention_supermatrix PRIVATE
+      $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr;-Xptxas=-v>
+    )
+    q3x_enable_warnings(q3x_test_sm87_a4w4_attention_supermatrix)
+
+    add_executable(q3x_sm87_a4w4_attention_supermatrix_contract_test
+      tests/sm87_a4w4_attention_supermatrix_contract_test.cpp
+    )
+    target_link_libraries(q3x_sm87_a4w4_attention_supermatrix_contract_test
+      PRIVATE q3x_test_sm87_a4w4_attention_supermatrix CUDA::cudart
+    )
+    q3x_enable_warnings(
+      q3x_sm87_a4w4_attention_supermatrix_contract_test
+    )
+    add_test(NAME sm87_a4w4_attention_supermatrix_contract
+      COMMAND q3x_sm87_a4w4_attention_supermatrix_contract_test
+    )
+    set_tests_properties(sm87_a4w4_attention_supermatrix_contract PROPERTIES
+      LABELS "host;sm87;prefill;attention;k128;supermatrix;compile_contract"
+    )
+
+    find_program(Q3X_CUOBJDUMP_EXECUTABLE cuobjdump
+      HINTS "${CUDAToolkit_BIN_DIR}"
+      REQUIRED
+    )
+    add_test(NAME sm87_a4w4_attention_supermatrix_binary_resources
+      COMMAND "${CMAKE_COMMAND}"
+              "-DQ3X_CUOBJDUMP_EXECUTABLE=${Q3X_CUOBJDUMP_EXECUTABLE}"
+              "-DQ3X_ATTENTION_SUPERMATRIX_BINARY=$<TARGET_FILE:q3x_test_sm87_a4w4_attention_supermatrix>"
+              -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/VerifySm87A4W4AttentionSupermatrixBinary.cmake"
+    )
+    set_tests_properties(
+      sm87_a4w4_attention_supermatrix_binary_resources PROPERTIES
+      LABELS "host;sm87;prefill;attention;k128;supermatrix;binary_resources"
+    )
+
+    add_executable(q3x_sm87_a4w4_attention_supermatrix_correctness_test
+      tests/sm87_a4w4_attention_supermatrix_correctness_test.cu
+    )
+    target_link_libraries(
+      q3x_sm87_a4w4_attention_supermatrix_correctness_test
+      PRIVATE q3x_test_sm87_a4w4_attention_supermatrix CUDA::cudart
+    )
+    q3x_enable_warnings(
+      q3x_sm87_a4w4_attention_supermatrix_correctness_test
+    )
+    find_program(Q3X_FLOCK_EXECUTABLE flock REQUIRED)
+    add_test(NAME sm87_a4w4_attention_supermatrix_correctness
+      COMMAND "${Q3X_FLOCK_EXECUTABLE}" -x /tmp/q3x-gpu-bench.lock
+              $<TARGET_FILE:q3x_sm87_a4w4_attention_supermatrix_correctness_test>
+    )
+    set_tests_properties(
+      sm87_a4w4_attention_supermatrix_correctness PROPERTIES
+      LABELS "cuda;sm87;prefill;attention;k128;supermatrix;correctness;synthetic"
+      SKIP_RETURN_CODE 77
+      RESOURCE_LOCK q3x_sm87_gpu
+      TIMEOUT 180
     )
   endif()
 
