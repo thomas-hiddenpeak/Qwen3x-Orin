@@ -277,7 +277,7 @@ done
   exit 4
 }
 if ! grep -Eq \
-    'max_sequence_length=4096 maximum_output_tokens=1 .*prefill_chunk_size=512 readiness_route=/healthz' \
+    'max_sequence_length=4096 maximum_output_tokens=1 .*prefill_chunk_size=512 .*readiness_route=/healthz' \
     "${server_log}"; then
   echo "server readiness did not echo the pure-Prefill capacity contract" >&2
   exit 5

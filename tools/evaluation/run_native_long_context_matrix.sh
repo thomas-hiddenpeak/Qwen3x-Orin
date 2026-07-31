@@ -388,7 +388,7 @@ for index in "${!selected_runs[@]}"; do
     exit 4
   }
   if ! grep -Eq \
-      "max_sequence_length=${max_sequence_length} maximum_output_tokens=${max_tokens} request_max_arena_bytes=${request_max_arena_bytes} prefill_chunk_size=512 readiness_route=/healthz" \
+      "max_sequence_length=${max_sequence_length} maximum_output_tokens=${max_tokens} request_max_arena_bytes=${request_max_arena_bytes} prefill_chunk_size=512 .*readiness_route=/healthz" \
       "${server_log}"; then
     echo "server readiness did not echo the requested capacity contract" >&2
     exit 5

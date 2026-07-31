@@ -243,6 +243,12 @@ class LongContextEvalScopeHarnessTest(unittest.TestCase):
         self.assertIn("dry_run_complete=1 performance_evidence=0", result.stdout)
         self.assertFalse(self.fixture.output.exists())
 
+    def test_readiness_contract_allows_diagnostic_fields(self) -> None:
+        contents = RUNNER.read_text(encoding="utf-8")
+        self.assertIn(
+            "prefill_chunk_size=512 .*readiness_route=/healthz", contents
+        )
+
     def test_wrong_manifest_hash_is_rejected(self) -> None:
         command = self.fixture.command("p8k", "prefill1")
         manifest_index = command.index(str(self.fixture.manifest))

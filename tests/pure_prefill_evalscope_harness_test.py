@@ -155,6 +155,12 @@ class PurePrefillEvalScopeHarnessTest(unittest.TestCase):
         self.assertIn("performance_evidence=0", result.stdout)
         self.assertFalse(self.fixture.output.exists())
 
+    def test_readiness_contract_allows_diagnostic_fields(self) -> None:
+        contents = RUNNER.read_text(encoding="utf-8")
+        self.assertIn(
+            "prefill_chunk_size=512 .*readiness_route=/healthz", contents
+        )
+
     def test_native_gdn_mode_adds_only_declared_selector(self) -> None:
         result = self.fixture.run("--mode", "native-gdn")
         self.assertEqual(result.returncode, 0, result.stderr)
