@@ -1782,9 +1782,9 @@ void test_optimized_prefill_engine_derivation(TestContext& test) {
   };
   constexpr std::array<Case, 7U> kCases = {{
       {512U, 0U, 0U, 206'438'400U, false, false},
-      {513U, 513U, 512U, 235'885'056U, true, false},
+      {513U, 513U, 512U, 235'885'056U, true, true},
       {2'048U, 2'048U, 2'048U, 443'318'272U, true, true},
-      {4'095U, 4'095U, 3'584U, 694'923'264U, true, false},
+      {4'095U, 4'095U, 3'584U, 694'923'264U, true, true},
       {4'096U, 4'096U, 4'096U, 720'011'264U, true, true},
       {40'960U, 40'960U, 4'096U, 3'903'225'856U, true, true},
       {40'961U, 40'960U, 4'096U, 3'903'292'160U, false, false},
@@ -1844,6 +1844,29 @@ void test_optimized_prefill_engine_derivation(TestContext& test) {
                 derived.long_prefill_projection_span_capacity, true, true),
         "trace and unified-disable comparators retain safe Prefill fallback");
   }
+
+  test.expect(
+      !runtime::use_long_prefill_projection_span_route(
+          512U, 512U, true, false) &&
+          runtime::use_long_prefill_projection_span_route(
+              513U, 512U, true, false) &&
+          runtime::use_long_prefill_projection_span_route(
+              1'804U, 1'536U, true, false) &&
+          runtime::use_long_prefill_projection_span_route(
+              3'987U, 3'584U, true, false) &&
+          runtime::use_long_prefill_projection_span_route(
+              40'960U, 4'096U, true, false) &&
+          !runtime::use_long_prefill_projection_span_route(
+              40'961U, 4'096U, true, false),
+      "whole-M selector admits arbitrary P513..P40960 boundaries");
+  test.expect(
+      !runtime::use_long_prefill_projection_span_route(
+          1'804U, 0U, true, false) &&
+          !runtime::use_long_prefill_projection_span_route(
+              1'804U, 511U, true, false) &&
+          !runtime::use_long_prefill_projection_span_route(
+              1'804U, 513U, true, false),
+      "whole-M selector rejects missing, undersized, and non-C512 spans");
 
   runtime::RequestMemoryOptions ordinary;
   ordinary.max_sequence_length = 4'096U;
