@@ -45,6 +45,15 @@ interactive NSys trace attributes 474.06 ms to the GDN-chain reduction.  It
 is retained behind an explicit run admission as the next cumulative
 whole-M baseline; the 2,000 token/s target is not yet met.
 
+The first combined real-model A4-wide, exact-GDN, and native grouped-Q64
+baseline is recorded in
+[`qwen36-27b-prefill-a4-gdn-groupq64-composition-2026-07-31.json`](qwen36-27b-prefill-a4-gdn-groupq64-composition-2026-07-31.json).
+P2048 reaches 317.69 token/s and P4096 300.24 token/s.  The P2048 profile
+contains zero long-position QT2 calls, covers all 64 full-attention tiles with
+grouped-Q64, and reduces the attention core from 959.84 to 248.24 ms.  This is
+the retained optimized-composition baseline; projection plus exact GDN remain
+the dominant floor and the 2,000 token/s target is not yet met.
+
 The host-only 8K/16K/40K API-runner capacity contract is recorded in
 [`qwen36-27b-long-context-runner-preflight-2026-07-31.json`](qwen36-27b-long-context-runner-preflight-2026-07-31.json).
 It locks the 40,960-position 2,864,349,184-byte arena, explicit 3-GiB cap,
