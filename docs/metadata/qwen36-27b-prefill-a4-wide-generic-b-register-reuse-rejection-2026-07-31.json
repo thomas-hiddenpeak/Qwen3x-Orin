@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-a4-wide-generic-b-register-reuse-rejection-2026-07-31",
+  "status": "rejected_real_path_noise_only",
+  "recorded_at": "2026-07-31T18:20:00+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "base_commit": "5849d35",
+    "branch": "codex/a4w4-full-prefill",
+    "candidate_committed": false
+  },
+  "candidate": {
+    "scope": "M64N256 generic kernel only",
+    "mechanism": "load two M16 A fragments and their scales first, then load each N8 B fragment and B scales once and feed both M panels",
+    "sass_observation": "the same B register fed two adjacent IMMA instructions",
+    "numerical_contract": "unchanged K64 scale association and FP32 accumulation order",
+    "resources": {
+      "registers_per_thread": 128,
+      "static_shared_bytes": 43520,
+      "local_or_stack_bytes": 0,
+      "active_blocks_per_sm": 2
+    }
+  },
+  "validation": {
+    "cuda": "M2048 N256 K192 full output bit-exact including odd K64 tail and output padding guard",
+    "real_path": "authenticated full-model A4 sidecar, OpenAI tokenized completions, P2048, output one, temperature zero",
+    "all_requests": "HTTP 200 and generated text Hello"
+  },
+  "real_api_timing": {
+    "baseline_prompt_prefill_ms": [7682.49, 7659.37],
+    "baseline_mean_prompt_prefill_ms": 7670.93,
+    "candidate_prompt_prefill_ms": [7673.48, 7656.28],
+    "candidate_mean_prompt_prefill_ms": 7664.88,
+    "mean_delta_ms": -6.05,
+    "apparent_improvement_percent": 0.0789,
+    "authority": "direction gate only; delta is below the observed request-level noise floor"
+  },
+  "decision": {
+    "retain_code": false,
+    "update_performance_baseline": false,
+    "run_nsys_or_ncu": false,
+    "reason": "The compiler already retained enough B reuse that the source-level dataflow cleanup produced no material real-serving gain. Further harness or cache tuning on this variant has lower value than changing the K64 dequantization policy.",
+    "next_priority": "authenticated K128 shared-scale vertical slice and exact GDN span dataflow"
+  }
+}
