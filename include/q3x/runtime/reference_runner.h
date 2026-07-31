@@ -1148,6 +1148,17 @@ struct A4W4DownCompleteCellV2RouteQuery final {
              query.projection_token_count, kReferenceHiddenSize, 1U);
 }
 
+// v3 intentionally retains the authenticated v2 storage/capacity contract.
+// Its independent query instance documents that enabling v3 never mutates
+// the v2 switch; only warp ownership inside the selected kernel changes.
+using A4W4DownCompleteCellV3RouteQuery =
+    A4W4DownCompleteCellV2RouteQuery;
+
+[[nodiscard]] constexpr bool use_a4w4_down_complete_cell_v3_route(
+    const A4W4DownCompleteCellV3RouteQuery& query) noexcept {
+  return use_a4w4_down_complete_cell_v2_route(query);
+}
+
 // The consumer argument is the immutable result of validating all 400 A4
 // projection sidecars at runner creation.  Consequently these selectors
 // cannot admit a partial or mixed K64/K128 publication.  The candidates have
@@ -1199,30 +1210,47 @@ select_a4w4_k128_generic_prefill_route(
 
 enum class A4W4K128DownPrefillRoute : std::uint8_t {
   kBaseline = 0,
+  kCompleteCellV3,
   kCompleteCellV2,
   kRejectedM128StageMajor,
 };
 
-// The capacity-aware complete cell is evaluated first. The archived M128
-// Down experiment remains an independent lower-priority diagnostic route;
-// enabling both switches can never cause it to shadow complete-cell v2.
+// v3 is the highest-priority complete cell, followed by v2 and the archived
+// M128 diagnostic. All switches remain independent and default-off.
 [[nodiscard]] constexpr A4W4K128DownPrefillRoute
 select_a4w4_k128_down_prefill_route(
-    const A4W4DownCompleteCellV2RouteQuery& complete_cell_query,
+    const A4W4DownCompleteCellV3RouteQuery& complete_cell_v3_query,
+    const A4W4DownCompleteCellV2RouteQuery& complete_cell_v2_query,
     const bool rejected_m128_admission_enabled) noexcept {
-  if (use_a4w4_down_complete_cell_v2_route(complete_cell_query)) {
+  if (use_a4w4_down_complete_cell_v3_route(complete_cell_v3_query)) {
+    return A4W4K128DownPrefillRoute::kCompleteCellV3;
+  }
+  if (use_a4w4_down_complete_cell_v2_route(complete_cell_v2_query)) {
     return A4W4K128DownPrefillRoute::kCompleteCellV2;
   }
   const A4W4K128GenericPrefillRoute old_route =
       select_a4w4_k128_generic_prefill_route(
           false, rejected_m128_admission_enabled,
-          complete_cell_query.inventory_consumer,
-          complete_cell_query.projection_token_count,
-          complete_cell_query.output_size,
-          complete_cell_query.input_size);
+          complete_cell_v2_query.inventory_consumer,
+          complete_cell_v2_query.projection_token_count,
+          complete_cell_v2_query.output_size,
+          complete_cell_v2_query.input_size);
   return old_route == A4W4K128GenericPrefillRoute::kDownM128StageMajor
              ? A4W4K128DownPrefillRoute::kRejectedM128StageMajor
              : A4W4K128DownPrefillRoute::kBaseline;
+}
+
+// Preserve the established v2-only selector contract for callers that do not
+// build the v3 vertical slice.
+[[nodiscard]] constexpr A4W4K128DownPrefillRoute
+select_a4w4_k128_down_prefill_route(
+    const A4W4DownCompleteCellV2RouteQuery& complete_cell_v2_query,
+    const bool rejected_m128_admission_enabled) noexcept {
+  A4W4DownCompleteCellV3RouteQuery disabled_v3 = complete_cell_v2_query;
+  disabled_v3.admission_enabled = false;
+  return select_a4w4_k128_down_prefill_route(
+      disabled_v3, complete_cell_v2_query,
+      rejected_m128_admission_enabled);
 }
 
 // A trace-capable runner retains authenticated A4 residency but must execute
@@ -1244,6 +1272,10 @@ bool exchange_a4w4_down_m128_stage_major_admission_test_enabled(
 bool exchange_a4w4_down_complete_cell_v2_admission_test_enabled(
     bool enabled) noexcept;
 std::size_t exchange_a4w4_down_complete_cell_v2_admission_test_hits(
+    std::size_t hits) noexcept;
+bool exchange_a4w4_down_complete_cell_v3_admission_test_enabled(
+    bool enabled) noexcept;
+std::size_t exchange_a4w4_down_complete_cell_v3_admission_test_hits(
     std::size_t hits) noexcept;
 bool exchange_a4w4_gateup_complete_cell_v2_admission_test_enabled(
     bool enabled) noexcept;

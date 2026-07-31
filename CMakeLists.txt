@@ -70,6 +70,10 @@ option(Q3X_BUILD_SM87_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION
   "Build the test-only runtime admission and tests for the two-CTA Down M128N128K128 complete cell"
   OFF
 )
+option(Q3X_BUILD_SM87_A4W4_DOWN_COMPLETE_CELL_V3_ADMISSION
+  "Build the default-off runtime admission and tests for the Down M32N64 warp-ownership complete cell"
+  OFF
+)
 option(Q3X_BUILD_SM87_A4W4_ATTENTION_SUPERMATRIX_ADMISSION
   "Build the default-off runtime admission and tests for the Attention supermatrix cell"
   OFF
@@ -175,6 +179,18 @@ if(Q3X_BUILD_SM87_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION AND
    NOT Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION)
   message(FATAL_ERROR
     "The Down complete-cell v2 admission requires the established K128 comparison kernel"
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_DOWN_COMPLETE_CELL_V3_ADMISSION AND
+   NOT BUILD_TESTING)
+  message(FATAL_ERROR
+    "Q3X_BUILD_SM87_A4W4_DOWN_COMPLETE_CELL_V3_ADMISSION is test-only and requires BUILD_TESTING=ON"
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_DOWN_COMPLETE_CELL_V3_ADMISSION AND
+   NOT Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION)
+  message(FATAL_ERROR
+    "The Down complete-cell v3 admission requires the established K128 comparison kernel"
   )
 endif()
 if(Q3X_BUILD_SM87_A4W4_ATTENTION_SUPERMATRIX_ADMISSION AND
@@ -420,6 +436,14 @@ if(Q3X_BUILD_SM87_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION)
   )
   target_compile_definitions(q3x_kernels PRIVATE
     Q3X_ENABLE_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_DOWN_COMPLETE_CELL_V3_ADMISSION)
+  target_sources(q3x_kernels PRIVATE
+    src/kernels/sm87/a4w4_down_complete_cell_v3.cu
+  )
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_A4W4_DOWN_COMPLETE_CELL_V3_ADMISSION=1
   )
 endif()
 if(Q3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION)
@@ -1112,6 +1136,92 @@ if(BUILD_TESTING)
     )
     add_custom_target(q3x_sm87_a4w4_down_complete_cell_v2_ptx_sentinel ALL
       DEPENDS "${_q3x_down_cell_v2_ptx_stamp}"
+    )
+  endif()
+
+  if(Q3X_BUILD_SM87_A4W4_DOWN_COMPLETE_CELL_V3_ADMISSION)
+    # Successor to complete-cell v2. This option builds the independent,
+    # default-off runtime admission plus its isolated contract/tests.
+    add_executable(q3x_sm87_a4w4_down_complete_cell_v3_contract_test
+      tests/sm87_a4w4_down_complete_cell_v3_contract_test.cpp
+    )
+    target_link_libraries(
+      q3x_sm87_a4w4_down_complete_cell_v3_contract_test
+      PRIVATE q3x::kernels CUDA::cudart
+    )
+    q3x_enable_warnings(
+      q3x_sm87_a4w4_down_complete_cell_v3_contract_test
+    )
+    add_test(NAME sm87_a4w4_down_complete_cell_v3_contract
+      COMMAND q3x_sm87_a4w4_down_complete_cell_v3_contract_test
+    )
+    set_tests_properties(sm87_a4w4_down_complete_cell_v3_contract PROPERTIES
+      LABELS "host;sm87;prefill;down;k128;complete_cell;compile_contract"
+    )
+
+    add_executable(q3x_sm87_a4w4_down_complete_cell_v3_correctness_test
+      tests/sm87_a4w4_down_complete_cell_v3_correctness_test.cu
+    )
+    target_link_libraries(
+      q3x_sm87_a4w4_down_complete_cell_v3_correctness_test
+      PRIVATE q3x::kernels CUDA::cudart
+    )
+    target_compile_options(
+      q3x_sm87_a4w4_down_complete_cell_v3_correctness_test PRIVATE
+      $<$<COMPILE_LANGUAGE:CUDA>:-Xptxas=-v>
+    )
+    q3x_enable_warnings(
+      q3x_sm87_a4w4_down_complete_cell_v3_correctness_test
+    )
+    add_test(NAME sm87_a4w4_down_complete_cell_v3_correctness
+      COMMAND q3x_sm87_a4w4_down_complete_cell_v3_correctness_test
+    )
+    set_tests_properties(
+      sm87_a4w4_down_complete_cell_v3_correctness PROPERTIES
+      LABELS "cuda;sm87;prefill;down;k128;complete_cell;correctness;synthetic"
+      SKIP_RETURN_CODE 77
+      RESOURCE_LOCK q3x_sm87_gpu
+      TIMEOUT 180
+    )
+
+    set(_q3x_down_cell_v3_ptx_dir
+      "${CMAKE_CURRENT_BINARY_DIR}/sm87_a4w4_down_complete_cell_v3_ptx_sentinel"
+    )
+    set(_q3x_down_cell_v3_ptx
+      "${_q3x_down_cell_v3_ptx_dir}/a4w4_down_complete_cell_v3.ptx"
+    )
+    set(_q3x_down_cell_v3_ptx_stamp
+      "${_q3x_down_cell_v3_ptx_dir}/a4w4_down_complete_cell_v3.verified"
+    )
+    add_custom_command(
+      OUTPUT "${_q3x_down_cell_v3_ptx}"
+      COMMAND "${CMAKE_COMMAND}" -E make_directory
+              "${_q3x_down_cell_v3_ptx_dir}"
+      COMMAND "${CMAKE_CUDA_COMPILER}"
+              --ptx --std=c++17 --gpu-architecture=compute_87
+              --include-path "${CMAKE_CURRENT_SOURCE_DIR}/include"
+              "${CMAKE_CURRENT_SOURCE_DIR}/src/kernels/sm87/a4w4_down_complete_cell_v3.cu"
+              --output-file "${_q3x_down_cell_v3_ptx}"
+      DEPENDS
+        src/kernels/sm87/a4w4_down_complete_cell_v3.cu
+        include/q3x/kernels/sm87_a4w4_down_complete_cell_v3.h
+        include/q3x/kernels/sm87_a4w4_prefill_primitive.h
+      VERBATIM
+    )
+    add_custom_command(
+      OUTPUT "${_q3x_down_cell_v3_ptx_stamp}"
+      COMMAND "${CMAKE_COMMAND}"
+              "-DQ3X_PTX_FILE=${_q3x_down_cell_v3_ptx}"
+              -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/VerifySm87A4W4GateUpPtx.cmake"
+      COMMAND "${CMAKE_COMMAND}" -E touch
+              "${_q3x_down_cell_v3_ptx_stamp}"
+      DEPENDS
+        "${_q3x_down_cell_v3_ptx}"
+        cmake/VerifySm87A4W4GateUpPtx.cmake
+      VERBATIM
+    )
+    add_custom_target(q3x_sm87_a4w4_down_complete_cell_v3_ptx_sentinel ALL
+      DEPENDS "${_q3x_down_cell_v3_ptx_stamp}"
     )
   endif()
 
@@ -2018,6 +2128,35 @@ if(BUILD_TESTING)
       ENVIRONMENT
         "Q3X_DISABLE_OPTIMIZED_PREFILL=1;Q3X_RUN_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION=1"
       LABELS "host;sm87;prefill;a4w4;k128;down;complete_cell;admission;environment;negative"
+    )
+  endif()
+  if(Q3X_BUILD_SM87_A4W4_DOWN_COMPLETE_CELL_V3_ADMISSION)
+    add_test(NAME reference_runner_host_down_complete_cell_v3_admission
+      COMMAND q3x_reference_runner_host_test
+    )
+    set_tests_properties(
+      reference_runner_host_down_complete_cell_v3_admission PROPERTIES
+      ENVIRONMENT
+        "Q3X_DISABLE_OPTIMIZED_PREFILL=0;Q3X_RUN_A4W4_DOWN_COMPLETE_CELL_V3_ADMISSION=1;Q3X_RUN_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION=1;Q3X_RUN_A4W4_DOWN_M128_STAGE_MAJOR_ADMISSION=1"
+      LABELS "host;sm87;prefill;a4w4;k128;down;complete_cell;v3;admission;environment"
+    )
+    add_test(NAME reference_runner_host_down_complete_cell_v3_nonexact_env
+      COMMAND q3x_reference_runner_host_test
+    )
+    set_tests_properties(
+      reference_runner_host_down_complete_cell_v3_nonexact_env PROPERTIES
+      ENVIRONMENT
+        "Q3X_DISABLE_OPTIMIZED_PREFILL=0;Q3X_RUN_A4W4_DOWN_COMPLETE_CELL_V3_ADMISSION=true"
+      LABELS "host;sm87;prefill;a4w4;k128;down;complete_cell;v3;admission;environment;negative"
+    )
+    add_test(NAME reference_runner_host_down_complete_cell_v3_global_disable
+      COMMAND q3x_reference_runner_host_test
+    )
+    set_tests_properties(
+      reference_runner_host_down_complete_cell_v3_global_disable PROPERTIES
+      ENVIRONMENT
+        "Q3X_DISABLE_OPTIMIZED_PREFILL=1;Q3X_RUN_A4W4_DOWN_COMPLETE_CELL_V3_ADMISSION=1"
+      LABELS "host;sm87;prefill;a4w4;k128;down;complete_cell;v3;admission;environment;negative"
     )
   endif()
   if(Q3X_BUILD_FULL_ATTENTION_LONG_CONTEXT_GROUP_Q64_ADMISSION)

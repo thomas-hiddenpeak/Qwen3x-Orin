@@ -1898,6 +1898,11 @@ void test_a4w4_full_prefill_admission_controls(TestContext& test) {
     return query;
   };
   const DownCellQuery real_down_cell = make_down_cell_query(2'048U);
+  detail::A4W4DownCompleteCellV3RouteQuery real_down_cell_v3 =
+      real_down_cell;
+  detail::A4W4DownCompleteCellV3RouteQuery disabled_down_cell_v3 =
+      real_down_cell_v3;
+  disabled_down_cell_v3.admission_enabled = false;
   DownCellQuery disabled_down_cell = real_down_cell;
   disabled_down_cell.admission_enabled = false;
   DownCellQuery k64_down_cell = real_down_cell;
@@ -1919,6 +1924,12 @@ void test_a4w4_full_prefill_admission_controls(TestContext& test) {
           !detail::use_a4w4_down_complete_cell_v2_route(wrong_down_k),
       "Down complete-cell v2 requires its independent gate, authenticated "
       "K128, exact N5120/K17408, and a complete internal M128 after ceil64");
+  test.expect(
+      detail::use_a4w4_down_complete_cell_v3_route(real_down_cell_v3) &&
+          !detail::use_a4w4_down_complete_cell_v3_route(
+              disabled_down_cell_v3),
+      "Down complete-cell v3 retains the authenticated v2 capacity contract "
+      "behind an independent admission bit");
 
   std::array<DownCellQuery, 5U> short_down_capacities{};
   short_down_capacities.fill(real_down_cell);
@@ -1938,14 +1949,18 @@ void test_a4w4_full_prefill_admission_controls(TestContext& test) {
 
   using DownRoute = detail::A4W4K128DownPrefillRoute;
   test.expect(
-      detail::select_a4w4_k128_down_prefill_route(real_down_cell, true) ==
+      detail::select_a4w4_k128_down_prefill_route(
+          real_down_cell_v3, real_down_cell, true) ==
+              DownRoute::kCompleteCellV3 &&
+          detail::select_a4w4_k128_down_prefill_route(
+              disabled_down_cell_v3, real_down_cell, true) ==
               DownRoute::kCompleteCellV2 &&
           detail::select_a4w4_k128_down_prefill_route(
               disabled_down_cell, true) ==
               DownRoute::kRejectedM128StageMajor &&
           detail::select_a4w4_k128_down_prefill_route(
               disabled_down_cell, false) == DownRoute::kBaseline,
-      "Down complete-cell v2 has strict priority over the independently "
+      "Down complete-cell precedence is v3, v2, then the independently "
       "gated rejected M128 diagnostic route");
 
   test.expect(
@@ -2076,6 +2091,27 @@ void test_a4w4_full_prefill_admission_controls(TestContext& test) {
       "Down complete-cell v2 environment gate is exact-value, default-off, "
       "and independent from the rejected Down M128 switch");
 
+  const char* const down_cell_v3_environment = std::getenv(
+      "Q3X_RUN_A4W4_DOWN_COMPLETE_CELL_V3_ADMISSION");
+  const bool down_cell_v3_environment_requested =
+      down_cell_v3_environment != nullptr &&
+      std::strcmp(down_cell_v3_environment, "1") == 0 &&
+      !runtime::optimized_prefill_dispatch_disabled();
+  const bool initial_down_cell_v3_enabled =
+      detail::exchange_a4w4_down_complete_cell_v3_admission_test_enabled(
+          false);
+  (void)detail::exchange_a4w4_down_complete_cell_v3_admission_test_enabled(
+      true);
+  const bool down_cell_v3_admission_is_compiled =
+      detail::exchange_a4w4_down_complete_cell_v3_admission_test_enabled(
+          false);
+  test.expect(
+      initial_down_cell_v3_enabled ==
+          (down_cell_v3_admission_is_compiled &&
+           down_cell_v3_environment_requested),
+      "Down complete-cell v3 environment gate is exact-value, default-off, "
+      "global-disable aware, and independent from v2");
+
   const char* const attention_supermatrix_environment = std::getenv(
       "Q3X_RUN_A4W4_ATTENTION_SUPERMATRIX_ADMISSION");
   const bool attention_supermatrix_environment_requested =
@@ -2133,6 +2169,11 @@ void test_a4w4_full_prefill_admission_controls(TestContext& test) {
   const std::size_t observed_down_cell_hits =
       detail::exchange_a4w4_down_complete_cell_v2_admission_test_hits(
           prior_down_cell_hits);
+  const std::size_t prior_down_cell_v3_hits =
+      detail::exchange_a4w4_down_complete_cell_v3_admission_test_hits(43U);
+  const std::size_t observed_down_cell_v3_hits =
+      detail::exchange_a4w4_down_complete_cell_v3_admission_test_hits(
+          prior_down_cell_v3_hits);
   const detail::A4W4AttentionSupermatrixAdmissionHits attention_fixture{
       48U, 16U, 64U, 208U};
   const detail::A4W4AttentionSupermatrixAdmissionHits
@@ -2177,6 +2218,11 @@ void test_a4w4_full_prefill_admission_controls(TestContext& test) {
           (down_cell_admission_is_compiled ? 41U : 0U),
       "Down complete-cell v2 exposes dedicated active or inert accounting "
       "independently from full-A4 code availability");
+  test.expect(
+      observed_down_cell_v3_hits ==
+          (down_cell_v3_admission_is_compiled ? 43U : 0U),
+      "Down complete-cell v3 exposes dedicated active or inert success-only "
+      "accounting independently from v2");
   test.expect(observed_v3_hits == (v3_admission_is_compiled ? 83U : 0U),
               "Gate+Up projection v3 exposes dedicated active or inert hit "
               "accounting independently from v2 and full-A4 counters");
@@ -2198,6 +2244,8 @@ void test_a4w4_full_prefill_admission_controls(TestContext& test) {
           initial_cell_enabled);
   (void)detail::exchange_a4w4_down_complete_cell_v2_admission_test_enabled(
       initial_down_cell_enabled);
+  (void)detail::exchange_a4w4_down_complete_cell_v3_admission_test_enabled(
+      initial_down_cell_v3_enabled);
   (void)detail::exchange_a4w4_attention_supermatrix_admission_test_enabled(
       initial_attention_supermatrix_enabled);
 }

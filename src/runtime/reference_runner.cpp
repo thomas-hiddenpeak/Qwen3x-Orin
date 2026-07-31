@@ -9,6 +9,9 @@
 #if defined(Q3X_ENABLE_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION)
 #include "q3x/kernels/sm87_a4w4_down_complete_cell_v2.h"
 #endif
+#if defined(Q3X_ENABLE_A4W4_DOWN_COMPLETE_CELL_V3_ADMISSION)
+#include "q3x/kernels/sm87_a4w4_down_complete_cell_v3.h"
+#endif
 #include "q3x/kernels/sm87_a4w4_gateup_complete_cell_v2.h"
 #if defined(Q3X_ENABLE_A4W4_GATEUP_PROJECTION_V3_ADMISSION)
 #include "q3x/kernels/sm87_a4w4_gateup_projection_v3.h"
@@ -263,6 +266,23 @@ thread_local bool g_enable_a4w4_down_complete_cell_v2_admission =
     a4w4_down_complete_cell_v2_environment_enabled();
 thread_local std::size_t
     g_a4w4_down_complete_cell_v2_admission_hits = 0U;
+#endif
+
+#if defined(Q3X_ENABLE_A4W4_DOWN_COMPLETE_CELL_V3_ADMISSION)
+[[nodiscard]] bool
+a4w4_down_complete_cell_v3_environment_enabled() noexcept {
+  if (optimized_prefill_dispatch_disabled()) {
+    return false;
+  }
+  const char* const value = std::getenv(
+      "Q3X_RUN_A4W4_DOWN_COMPLETE_CELL_V3_ADMISSION");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
+thread_local bool g_enable_a4w4_down_complete_cell_v3_admission =
+    a4w4_down_complete_cell_v3_environment_enabled();
+thread_local std::size_t
+    g_a4w4_down_complete_cell_v3_admission_hits = 0U;
 #endif
 
 // Explicit exact-numerics experiment for the whole-M executor.  This is not
@@ -935,16 +955,14 @@ void record_a4w4_attention_supermatrix_launch(
     const std::size_t weight_scale_capacity,
     const std::size_t token_count, std::uint16_t* const output,
     const std::size_t output_capacity_elements, void* const stream,
+    // Reports either selected complete cell. v3/v2 retain independent global
+    // success counters; this aggregate bit drives common route accounting.
     bool* const down_complete_cell_v2_selected) noexcept {
   if (down_complete_cell_v2_selected != nullptr) {
     *down_complete_cell_v2_selected = false;
   }
   if (consumer == reference_runner_detail::A4W4PrefillConsumer::kK128) {
     reference_runner_detail::A4W4DownCompleteCellV2RouteQuery cell_query;
-#if defined(Q3X_ENABLE_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION)
-    cell_query.admission_enabled =
-        g_enable_a4w4_down_complete_cell_v2_admission;
-#endif
     cell_query.inventory_consumer = consumer;
     cell_query.projection_token_count = token_count;
     cell_query.output_size = sidecar.output_size;
@@ -954,9 +972,41 @@ void record_a4w4_attention_supermatrix_launch(
     cell_query.weight_capacity_bytes = weight_capacity;
     cell_query.weight_scale_capacity_elements = weight_scale_capacity;
     cell_query.output_capacity_elements = output_capacity_elements;
+#if defined(Q3X_ENABLE_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION)
+    cell_query.admission_enabled =
+        g_enable_a4w4_down_complete_cell_v2_admission;
+#endif
+    reference_runner_detail::A4W4DownCompleteCellV3RouteQuery
+        cell_v3_query = cell_query;
+#if defined(Q3X_ENABLE_A4W4_DOWN_COMPLETE_CELL_V3_ADMISSION)
+    cell_v3_query.admission_enabled =
+        g_enable_a4w4_down_complete_cell_v3_admission;
+#else
+    cell_v3_query.admission_enabled = false;
+#endif
     const auto down_route =
         reference_runner_detail::select_a4w4_k128_down_prefill_route(
-            cell_query, g_enable_a4w4_down_m128_stage_major_admission);
+            cell_v3_query, cell_query,
+            g_enable_a4w4_down_m128_stage_major_admission);
+#if defined(Q3X_ENABLE_A4W4_DOWN_COMPLETE_CELL_V3_ADMISSION)
+    if (down_route ==
+        reference_runner_detail::A4W4K128DownPrefillRoute::kCompleteCellV3) {
+      if (down_complete_cell_v2_selected != nullptr) {
+        *down_complete_cell_v2_selected = true;
+      }
+      const int status =
+          kernels::launch_sm87_a4w4_down_complete_cell_v3_bf16_cuda(
+              packed_input, packed_input_capacity, input_scales,
+              input_scale_capacity, sidecar.weight, weight_capacity,
+              sidecar.scales, weight_scale_capacity, token_count,
+              sidecar.output_size, sidecar.input_size, output,
+              sidecar.output_size, stream);
+      if (status == static_cast<int>(cudaSuccess)) {
+        ++g_a4w4_down_complete_cell_v3_admission_hits;
+      }
+      return status;
+    }
+#endif
 #if defined(Q3X_ENABLE_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION)
     if (down_route ==
         reference_runner_detail::A4W4K128DownPrefillRoute::kCompleteCellV2) {
@@ -1689,6 +1739,28 @@ std::size_t exchange_a4w4_down_complete_cell_v2_admission_test_hits(
 #if defined(Q3X_ENABLE_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION)
   return std::exchange(
       g_a4w4_down_complete_cell_v2_admission_hits, hits);
+#else
+  (void)hits;
+  return 0U;
+#endif
+}
+
+bool exchange_a4w4_down_complete_cell_v3_admission_test_enabled(
+    const bool enabled) noexcept {
+#if defined(Q3X_ENABLE_A4W4_DOWN_COMPLETE_CELL_V3_ADMISSION)
+  return std::exchange(
+      g_enable_a4w4_down_complete_cell_v3_admission, enabled);
+#else
+  (void)enabled;
+  return false;
+#endif
+}
+
+std::size_t exchange_a4w4_down_complete_cell_v3_admission_test_hits(
+    const std::size_t hits) noexcept {
+#if defined(Q3X_ENABLE_A4W4_DOWN_COMPLETE_CELL_V3_ADMISSION)
+  return std::exchange(
+      g_a4w4_down_complete_cell_v3_admission_hits, hits);
 #else
   (void)hits;
   return 0U;
@@ -5914,10 +5986,9 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
             g_enable_a4w4_down_m128_stage_major_admission,
             a4w4_prefill_consumer_, token_count);
     bool expect_down_complete_cell_v2 = false;
-#if defined(Q3X_ENABLE_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION)
+#if defined(Q3X_ENABLE_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION) || \
+    defined(Q3X_ENABLE_A4W4_DOWN_COMPLETE_CELL_V3_ADMISSION)
     reference_runner_detail::A4W4DownCompleteCellV2RouteQuery down_cell_query;
-    down_cell_query.admission_enabled =
-        g_enable_a4w4_down_complete_cell_v2_admission;
     down_cell_query.inventory_consumer = a4w4_prefill_consumer_;
     down_cell_query.projection_token_count = token_count;
     down_cell_query.output_size = kReferenceHiddenSize;
@@ -5939,9 +6010,21 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
     down_cell_query.output_capacity_elements =
         static_cast<std::size_t>(
             state_->plan().hidden_bf16[1U].element_capacity);
+#if defined(Q3X_ENABLE_A4W4_DOWN_COMPLETE_CELL_V3_ADMISSION)
+    down_cell_query.admission_enabled =
+        g_enable_a4w4_down_complete_cell_v3_admission;
     expect_down_complete_cell_v2 =
+        reference_runner_detail::use_a4w4_down_complete_cell_v3_route(
+            down_cell_query);
+#endif
+#if defined(Q3X_ENABLE_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION)
+    down_cell_query.admission_enabled =
+        g_enable_a4w4_down_complete_cell_v2_admission;
+    expect_down_complete_cell_v2 =
+        expect_down_complete_cell_v2 ||
         reference_runner_detail::use_a4w4_down_complete_cell_v2_route(
             down_cell_query);
+#endif
 #endif
     const std::size_t expected_m128_generic_hits =
         expected_generic_hits -
@@ -7243,10 +7326,9 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
           g_enable_a4w4_down_m128_stage_major_admission,
           a4w4_prefill_consumer_, projection_token_count);
   bool expect_down_complete_cell_v2 = false;
-#if defined(Q3X_ENABLE_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION)
+#if defined(Q3X_ENABLE_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION) || \
+    defined(Q3X_ENABLE_A4W4_DOWN_COMPLETE_CELL_V3_ADMISSION)
   reference_runner_detail::A4W4DownCompleteCellV2RouteQuery down_cell_query;
-  down_cell_query.admission_enabled =
-      g_enable_a4w4_down_complete_cell_v2_admission;
   down_cell_query.inventory_consumer = a4w4_prefill_consumer_;
   down_cell_query.projection_token_count = projection_token_count;
   down_cell_query.output_size = kReferenceHiddenSize;
@@ -7264,9 +7346,21 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
       static_cast<std::size_t>(
           request_plan.long_prefill_projection_secondary_bf16
               .element_capacity);
+#if defined(Q3X_ENABLE_A4W4_DOWN_COMPLETE_CELL_V3_ADMISSION)
+  down_cell_query.admission_enabled =
+      g_enable_a4w4_down_complete_cell_v3_admission;
   expect_down_complete_cell_v2 =
+      reference_runner_detail::use_a4w4_down_complete_cell_v3_route(
+          down_cell_query);
+#endif
+#if defined(Q3X_ENABLE_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION)
+  down_cell_query.admission_enabled =
+      g_enable_a4w4_down_complete_cell_v2_admission;
+  expect_down_complete_cell_v2 =
+      expect_down_complete_cell_v2 ||
       reference_runner_detail::use_a4w4_down_complete_cell_v2_route(
           down_cell_query);
+#endif
 #endif
   if ((!attention_supermatrix_all && !attention_supermatrix_none) ||
       local_hits.activation_quantize_hits != 3U ||
