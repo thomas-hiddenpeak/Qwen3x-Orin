@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import pathlib
+import re
 import subprocess
 import tempfile
 import unittest
@@ -79,6 +80,7 @@ class Fixture:
             "#!/bin/sh\n"
             "# Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION\n"
             "# Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION\n"
+            "# Q3X_RUN_BF16_AB_LARGE_M_PREFILL_ADMISSION\n"
             + "# " + ("x" * 262_144) + "\n"
             "exit 0\n"
         )
@@ -292,6 +294,39 @@ class LongContextEvalScopeHarnessTest(unittest.TestCase):
         self.assertIn("Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION=1", result.stdout)
         self.assertIn(
             "Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION=1", result.stdout
+        )
+
+    def test_cumulative_prefill_mode_adds_only_declared_bundle(self) -> None:
+        command = self.fixture.command(
+            "--mode", "cumulative-prefill", "p8k", "prefill1"
+        )
+        environment = os.environ.copy()
+        environment["Q3X_LONG_EVAL_DRY_RUN"] = "1"
+        environment["Q3X_RUN_A4W4_M128_STAGE_MAJOR_ADMISSION"] = "1"
+        environment["Q3X_RUN_A4W4_DOWN_M128_STAGE_MAJOR_ADMISSION"] = "1"
+        result = subprocess.run(
+            command, env=environment, check=False, text=True, capture_output=True
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("mode=cumulative-prefill", result.stdout)
+        startup = next(
+            line
+            for line in result.stdout.splitlines()
+            if line.startswith("server_startup_args")
+        )
+        self.assertEqual(
+            set(re.findall(r"(Q3X_[A-Z0-9_]+)=1", startup)),
+            {
+                "Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION",
+                "Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION",
+                "Q3X_RUN_BF16_AB_LARGE_M_PREFILL_ADMISSION",
+            },
+        )
+        self.assertIn("-u Q3X_RUN_A4W4_M128_STAGE_MAJOR_ADMISSION", startup)
+        self.assertIn("-u Q3X_RUN_A4W4_DOWN_M128_STAGE_MAJOR_ADMISSION", startup)
+        self.assertNotIn("Q3X_RUN_A4W4_M128_STAGE_MAJOR_ADMISSION=1", startup)
+        self.assertNotIn(
+            "Q3X_RUN_A4W4_DOWN_M128_STAGE_MAJOR_ADMISSION=1", startup
         )
 
     def test_missing_a4_receipt_is_rejected(self) -> None:

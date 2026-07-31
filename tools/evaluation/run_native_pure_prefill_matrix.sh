@@ -5,7 +5,8 @@ usage() {
   cat >&2 <<'EOF'
 usage: run_native_pure_prefill_matrix.sh \
   --prefill-a4-payload FILE --prefill-a4-policy FILE \
-  --prefill-a4-receipt FILE [--mode exact|native-gdn] [--dry-run] \
+  --prefill-a4-receipt FILE \
+  [--mode exact|native-gdn|cumulative-prefill] [--dry-run] \
   ELF MODEL_DIR CORPUS_DIR OUTPUT_ROOT [p512|p1k|p2k|p4k]
 EOF
 }
@@ -69,8 +70,11 @@ done
   exit 2
 }
 case "${mode}" in
-  exact|native-gdn) ;;
-  *) echo "--mode must be exact or native-gdn" >&2; exit 2 ;;
+  exact|native-gdn|cumulative-prefill) ;;
+  *)
+    echo "--mode must be exact, native-gdn, or cumulative-prefill" >&2
+    exit 2
+    ;;
 esac
 [[ "${dry_run}" == 0 || "${dry_run}" == 1 ]] || {
   echo "Q3X_PURE_PREFILL_DRY_RUN must be 0 or 1" >&2
@@ -107,12 +111,26 @@ port=${Q3X_EVAL_PORT:-18080}
   exit 2
 }
 
-if [[ "${mode}" == native-gdn ]]; then
-  for selector in \
-    Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION \
-    Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION; do
+declare -a candidate_selectors=()
+case "${mode}" in
+  native-gdn)
+    candidate_selectors=(
+      Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION
+      Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION
+    )
+    ;;
+  cumulative-prefill)
+    candidate_selectors=(
+      Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION
+      Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION
+      Q3X_RUN_BF16_AB_LARGE_M_PREFILL_ADMISSION
+    )
+    ;;
+esac
+if ((${#candidate_selectors[@]} > 0)); then
+  for selector in "${candidate_selectors[@]}"; do
     if ! grep -F "${selector}" < <(strings -a "${server}") >/dev/null; then
-      echo "server does not contain the native-GDN selector: ${selector}" >&2
+      echo "server does not contain the ${mode} selector: ${selector}" >&2
       exit 2
     fi
   done
@@ -151,9 +169,9 @@ for bucket in "${buckets[@]}"; do
 done
 
 # Remove inherited experiment selectors generically. The benchmark process gets
-# production defaults plus, for the candidate mode, exactly the two selectors
-# that define the measured native-GDN bundle. Harness-only Q3X_EVAL_* variables
-# are consumed before this point.
+# production defaults plus exactly the selectors declared by the selected
+# candidate bundle. Harness-only Q3X_EVAL_* variables are consumed before this
+# point.
 runtime_env=(env)
 sanitized=0
 while IFS= read -r variable; do
@@ -165,12 +183,9 @@ while IFS= read -r variable; do
   esac
 done < <(compgen -e)
 runtime_env+=(-u Q3X_DISABLE_OPTIMIZED_PREFILL)
-if [[ "${mode}" == native-gdn ]]; then
-  runtime_env+=(
-    Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION=1
-    Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION=1
-  )
-fi
+for selector in "${candidate_selectors[@]}"; do
+  runtime_env+=("${selector}=1")
+done
 
 server_args=(
   "${server}" "${model_dir}"

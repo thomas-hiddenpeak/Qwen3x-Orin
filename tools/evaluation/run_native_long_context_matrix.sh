@@ -5,7 +5,8 @@ usage() {
   cat >&2 <<'EOF'
 usage: run_native_long_context_matrix.sh \
   --prefill-a4-payload FILE --prefill-a4-policy FILE \
-  --prefill-a4-receipt FILE [--mode exact|native-gdn] [--dry-run] \
+  --prefill-a4-receipt FILE \
+  [--mode exact|native-gdn|cumulative-prefill] [--dry-run] \
   ELF MODEL_DIR MANIFEST MANIFEST_SHA256 CORPUS_DIR OUTPUT_ROOT \
   [p8k|p16k|p40k|all] [prefill1|cold16|both]
 EOF
@@ -62,8 +63,11 @@ done
   exit 2
 }
 case "${mode}" in
-  exact|native-gdn) ;;
-  *) echo "--mode must be exact or native-gdn" >&2; exit 2 ;;
+  exact|native-gdn|cumulative-prefill) ;;
+  *)
+    echo "--mode must be exact, native-gdn, or cumulative-prefill" >&2
+    exit 2
+    ;;
 esac
 
 server=${positional[0]}
@@ -79,10 +83,22 @@ readiness_timeout=${Q3X_LONG_EVAL_READINESS_TIMEOUT_SECONDS:-600}
 
 repository=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 validator="${repository}/tools/evaluation/validate_long_prefill_manifest.py"
-native_gdn_selectors=(
-  Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION
-  Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION
-)
+declare -a candidate_selectors=()
+case "${mode}" in
+  native-gdn)
+    candidate_selectors=(
+      Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION
+      Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION
+    )
+    ;;
+  cumulative-prefill)
+    candidate_selectors=(
+      Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION
+      Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION
+      Q3X_RUN_BF16_AB_LARGE_M_PREFILL_ADMISSION
+    )
+    ;;
+esac
 
 positive_integer() {
   [[ $1 =~ ^[1-9][0-9]*$ ]]
@@ -137,10 +153,10 @@ if [[ "${phase_selector}" != prefill1 &&
   exit 2
 fi
 
-if [[ "${mode}" == native-gdn ]]; then
-  for selector in "${native_gdn_selectors[@]}"; do
+if ((${#candidate_selectors[@]} > 0)); then
+  for selector in "${candidate_selectors[@]}"; do
     if ! grep -F "${selector}" < <(strings -a "${server}") >/dev/null; then
-      echo "server does not contain the native-GDN selector: ${selector}" >&2
+      echo "server does not contain the ${mode} selector: ${selector}" >&2
       exit 2
     fi
   done
@@ -211,7 +227,7 @@ server_sha256=$(sha256sum "${server}" | awk '{print $1}')
 manifest_actual_sha256=$(sha256sum "${manifest}" | awk '{print $1}')
 # Keep the child process on production defaults. Remove inherited experiment
 # selectors without maintaining another obsolete per-feature environment list;
-# native-gdn adds back exactly its declared two-selector bundle.
+# the selected candidate adds back exactly its declared selector bundle.
 runtime_env=(env)
 while IFS= read -r variable; do
   case "${variable}" in
@@ -221,12 +237,9 @@ while IFS= read -r variable; do
   esac
 done < <(compgen -e)
 runtime_env+=(-u Q3X_DISABLE_OPTIMIZED_PREFILL)
-if [[ "${mode}" == native-gdn ]]; then
-  runtime_env+=(
-    Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION=1
-    Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION=1
-  )
-fi
+for selector in "${candidate_selectors[@]}"; do
+  runtime_env+=("${selector}=1")
+done
 
 printf 'long_context_matrix server=%q server_sha256=%s manifest=%q manifest_sha256=%s runs=%s mode=%s dry_run=%s\n' \
   "${server}" "${server_sha256}" "${manifest}" "${manifest_actual_sha256}" \

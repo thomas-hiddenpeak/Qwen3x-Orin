@@ -143,6 +143,14 @@ constructing a mixed experimental runtime. The A4,
 native grouped-Q64 attention, and layer-major Prefill production defaults are
 not re-enabled with legacy `Q3X_RUN_*` variables.
 
+Use `--mode cumulative-prefill` to measure the current cumulative positive
+Prefill direction. It adds exactly the two native-GDN selectors above plus
+`Q3X_RUN_BF16_AB_LARGE_M_PREFILL_ADMISSION=1`, which selects the retained
+whole-span BF16 A/B path. The harness first removes every inherited experiment
+selector, so rejected M128 generic and Down candidates cannot leak into this
+mode. `cumulative-prefill` is an evaluation bundle, not a claim that all three
+mechanisms have been promoted to production defaults.
+
 `--dry-run` validates required paths and renders the fully quoted startup
 command without starting the server or creating output. Corpus hashes are
 reported as `dry-run-unverified` when a host-only fixture is used; a real run
@@ -157,7 +165,8 @@ only when the completed request contains exactly one requested token. It still
 rejects an incomplete request, a nonzero one-token TPOT, a nonempty one-token
 ITL sequence, invalid latency, response-chunk mismatch, or summary mismatch.
 
-For the authorized 8K/16K/40K matrix, use the same three A4 options with
+For the authorized 8K/16K/40K matrix, use the same three A4 options and the
+same `exact`, `native-gdn`, or `cumulative-prefill` mode with
 `run_native_long_context_matrix.sh`. A live run no longer depends on a
 FlashInfer marker or environment switch. Its readiness log must instead prove
 the fields the current native runtime actually emits:

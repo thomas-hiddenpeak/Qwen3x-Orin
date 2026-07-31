@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import os
 import pathlib
+import re
 import subprocess
 import tempfile
 import unittest
@@ -30,6 +31,7 @@ class Fixture:
             "#!/bin/sh\n"
             "# Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION\n"
             "# Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION\n"
+            "# Q3X_RUN_BF16_AB_LARGE_M_PREFILL_ADMISSION\n"
             "exit 0\n",
             encoding="utf-8",
         )
@@ -65,6 +67,9 @@ class Fixture:
         environment["Q3X_RUN_PREFILL_ALL_PROMPT_TOKENS_ADMISSION"] = "1"
         environment["Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION"] = "1"
         environment["Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION"] = "1"
+        environment["Q3X_RUN_BF16_AB_LARGE_M_PREFILL_ADMISSION"] = "1"
+        environment["Q3X_RUN_A4W4_M128_STAGE_MAJOR_ADMISSION"] = "1"
+        environment["Q3X_RUN_A4W4_DOWN_M128_STAGE_MAJOR_ADMISSION"] = "1"
         environment["Q3X_GDN_CHUNK64_PROFILE_CANDIDATE"] = "1"
         return subprocess.run(
             self.command(*extra),
@@ -106,9 +111,21 @@ class PurePrefillEvalScopeHarnessTest(unittest.TestCase):
         self.assertIn(
             "-u Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION", result.stdout
         )
+        self.assertIn(
+            "-u Q3X_RUN_BF16_AB_LARGE_M_PREFILL_ADMISSION", result.stdout
+        )
+        self.assertIn(
+            "-u Q3X_RUN_A4W4_M128_STAGE_MAJOR_ADMISSION", result.stdout
+        )
+        self.assertIn(
+            "-u Q3X_RUN_A4W4_DOWN_M128_STAGE_MAJOR_ADMISSION", result.stdout
+        )
         self.assertNotIn("Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION=1", result.stdout)
         self.assertNotIn(
             "Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION=1", result.stdout
+        )
+        self.assertNotIn(
+            "Q3X_RUN_BF16_AB_LARGE_M_PREFILL_ADMISSION=1", result.stdout
         )
         self.assertIn("performance_evidence=0", result.stdout)
         self.assertFalse(self.fixture.output.exists())
@@ -120,6 +137,30 @@ class PurePrefillEvalScopeHarnessTest(unittest.TestCase):
         self.assertIn("Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION=1", result.stdout)
         self.assertIn(
             "Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION=1", result.stdout
+        )
+
+    def test_cumulative_prefill_mode_adds_only_declared_bundle(self) -> None:
+        result = self.fixture.run("--mode", "cumulative-prefill")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("mode=cumulative-prefill", result.stdout)
+        startup = next(
+            line
+            for line in result.stdout.splitlines()
+            if line.startswith("server_startup_command")
+        )
+        self.assertEqual(
+            set(re.findall(r"(Q3X_[A-Z0-9_]+)=1", startup)),
+            {
+                "Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION",
+                "Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION",
+                "Q3X_RUN_BF16_AB_LARGE_M_PREFILL_ADMISSION",
+            },
+        )
+        self.assertIn("-u Q3X_RUN_A4W4_M128_STAGE_MAJOR_ADMISSION", startup)
+        self.assertIn("-u Q3X_RUN_A4W4_DOWN_M128_STAGE_MAJOR_ADMISSION", startup)
+        self.assertNotIn("Q3X_RUN_A4W4_M128_STAGE_MAJOR_ADMISSION=1", startup)
+        self.assertNotIn(
+            "Q3X_RUN_A4W4_DOWN_M128_STAGE_MAJOR_ADMISSION=1", startup
         )
 
     def test_missing_a4_payload_is_rejected(self) -> None:
