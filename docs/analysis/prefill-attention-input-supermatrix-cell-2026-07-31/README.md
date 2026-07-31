@@ -6,8 +6,10 @@ This change now has an independent, default-off runtime admission slice. It
 implements fixed Linear QKV+Z, Full Q/K/V, and Attention O specializations and
 links them into `q3x_kernels` only when
 `Q3X_BUILD_SM87_A4W4_ATTENTION_SUPERMATRIX_ADMISSION=ON`. The exact-value
-runtime selector is `Q3X_RUN_A4W4_ATTENTION_SUPERMATRIX_ADMISSION=1`. This is
-still an experimental runner route, not a production performance result.
+runtime selector is `Q3X_RUN_A4W4_ATTENTION_SUPERMATRIX_ADMISSION=1`. The
+candidate has passed the first real-model whole-request direction gate and is
+retained on the optimization branch. It remains an experimental, default-off
+runner route rather than the production default.
 
 The candidate does not use cuBLASLt, MTP, a generic GEMM wrapper, or a new
 weight layout. It consumes the authenticated signed-A4 K128 sidecar ABI and
@@ -155,3 +157,32 @@ at most 128 registers, zero local bytes, and at least 2 active CTAs/SM.
    promotion.
 
 No synthetic timing is an admission or performance result.
+
+## First real-model whole-request result
+
+The first direction screen used the authenticated Qwen3.6-27B-NVFP4 model,
+the production OpenAI-compatible request route, prompt token counts reported
+by that route, and the complete retained Prefill bundle:
+
+```text
+native GDN + token-parallel Conv + BF16 AB
+Down complete-cell v2 + Gate+Up v3
+FlashInfer direct Prefill attention + Attention projection supermatrix
+```
+
+The measured server ELF SHA256 was
+`933eeda4412d867baeca468ab098824f57484722b015584b7a03bb3e216ad69b`.
+All numbers below are first-token request latency with one output token; model
+load and warmup are outside the interval.
+
+| Prompt | Previous retained bundle | Candidate | Saved | Candidate throughput | Gain |
+|---:|---:|---:|---:|---:|---:|
+| P2048 | 3,198.453 ms (3-run mean) | 2,971.597 ms (3-run mean) | 226.856 ms | 689.192 tok/s | +7.634% |
+| P3840 | 6,262.020 ms | 5,764.190 ms | 497.830 ms | 666.182 tok/s | +8.637% |
+
+The three raw P2048 candidate observations were 2,980.58, 2,967.17, and
+2,967.04 ms. This is a positive result on the real generation path and clears
+the direction gate, so the code is retained. It does **not** clear the final
+2,000 tok/s target: P2048 still needs to fall to at most 1,024 ms, a further
+2.902x latency reduction from this candidate. Request-scoped NSys and NCU are
+therefore the next evidence gates before choosing the next dataflow rewrite.
