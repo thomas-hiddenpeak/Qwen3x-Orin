@@ -36,6 +36,15 @@ EvalScope effective throughput from 304.6 to 450.1 token/s.  It is a retained
 default-off candidate and a new optimized-composition baseline, not yet a
 default production-route promotion.
 
+The exact whole-span GDN production-path candidate is recorded in
+[`qwen36-27b-prefill-gdn-exact-span-production-2026-07-31.json`](qwen36-27b-prefill-gdn-exact-span-production-2026-07-31.json).
+It reduces real P2048 GDN calls from 6,144 to 192 while preserving the
+per-token BF16 state boundary bit-for-bit.  Real OpenAI API P2048 improves
+from 7,670.93 to 7,173.80 ms and P4096 from 18,738.25 to 17,776.25 ms; an
+interactive NSys trace attributes 474.06 ms to the GDN-chain reduction.  It
+is retained behind an explicit run admission as the next cumulative
+whole-M baseline; the 2,000 token/s target is not yet met.
+
 The host-only 8K/16K/40K API-runner capacity contract is recorded in
 [`qwen36-27b-long-context-runner-preflight-2026-07-31.json`](qwen36-27b-long-context-runner-preflight-2026-07-31.json).
 It locks the 40,960-position 2,864,349,184-byte arena, explicit 3-GiB cap,
