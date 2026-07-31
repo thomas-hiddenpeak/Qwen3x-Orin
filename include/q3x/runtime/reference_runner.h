@@ -455,6 +455,16 @@ bool exchange_fp8_marlin_prefill_admission_test_enabled(
 std::size_t exchange_fp8_marlin_prefill_admission_test_hits(
     std::size_t hits) noexcept;
 
+// Test-admission controls for the BF16 A/B M64 whole-span route. The route
+// remains absent from ordinary builds and disabled by default in admission
+// builds. One hit represents one accepted pair launch: a complete layer/span
+// in the whole-span executor, or one legacy C512-or-shorter tile. Each launch
+// includes its exact final M1..M63 tail.
+bool exchange_bf16_ab_large_m_prefill_admission_test_enabled(
+    bool enabled) noexcept;
+std::size_t exchange_bf16_ab_large_m_prefill_admission_test_hits(
+    std::size_t hits) noexcept;
+
 // Scheduler-wide accounting for the gated calibrated A4W4 Prefill plane.
 // generic_projection_hits counts one logical projection per generic GEMM;
 // paired_gate_up_hits counts one fused Gate+Up launch while

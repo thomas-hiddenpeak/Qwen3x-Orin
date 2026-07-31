@@ -5,13 +5,16 @@
 
 namespace q3x::kernels {
 
+inline constexpr std::size_t kSm87Bf16AbLargeMPrefillMaximumTokens =
+    4'096U;
+
 // Test-admission-only Qwen3.6 linear-attention A/B projection. The two
 // canonical BF16 [48, 5120] row-major matrices are treated as one logical
 // N96 matrix, while the public outputs retain their independent token-major
-// [M, 48] layouts. M is accepted in [2, 512]. Complete M64 spans use the
+// [M, 48] layouts. M is accepted in [2, 4096]. Complete M64 spans use the
 // SM87 BF16 Tensor Core pipeline; a final M1..M63 span preserves the existing
-// M16/generic BF16 projection pair boundary. No persistent weight transform,
-// scratch allocation, cuBLAS, or cuBLASLt dependency is introduced.
+// exact M16/generic BF16 projection pair boundary. No persistent weight
+// transform, scratch allocation, cuBLAS, or cuBLASLt dependency is introduced.
 [[nodiscard]] int launch_sm87_bf16_ab_large_m_prefill_cuda(
     const std::uint16_t* first_weights,
     const std::uint16_t* second_weights,

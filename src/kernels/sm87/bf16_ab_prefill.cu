@@ -166,9 +166,12 @@ __device__ __forceinline__ void load_k16n8_weight_fragment(
     const unsigned int n_panel, const unsigned int k16,
     const unsigned int lane) {
 #if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 750
-  // The canonical [N,K] row-major weights are exactly the desired logical
-  // [K,N] column-major matrix. ldmatrix.trans receives one address per
-  // canonical N row for each K8 half and emits the BF16 matrix-B fragment.
+  // The canonical [N,K] row-major weights are already the desired logical
+  // [K,N] column-major matrix-B backing. Load its two adjacent N8xK8
+  // physical matrices without another transpose; x2 then emits the two
+  // registers consumed by mma.row.col. A true [K,N] row-major backing would
+  // require ldmatrix.trans, but applying it here transposes the canonical
+  // checkpoint layout twice.
   const unsigned int row = lane & 7U;
   const unsigned int column = k16 * 16U + ((lane >> 3U) & 1U) * 8U;
   const std::uint16_t* const source =
@@ -177,7 +180,7 @@ __device__ __forceinline__ void load_k16n8_weight_fragment(
   const unsigned int shared_address =
       static_cast<unsigned int>(__cvta_generic_to_shared(source));
   asm volatile(
-      "ldmatrix.sync.aligned.m8n8.x2.trans.shared.b16 "
+      "ldmatrix.sync.aligned.m8n8.x2.shared.b16 "
       "{%0, %1}, [%2];"
       : "=r"(fragment.x0), "=r"(fragment.x1)
       : "r"(shared_address)
@@ -372,7 +375,8 @@ int launch_sm87_bf16_ab_large_m_prefill_cuda(
     std::uint16_t* const first_output,
     std::uint16_t* const second_output,
     void* const cuda_stream) noexcept {
-  if (token_count < 2U || token_count > 512U ||
+  if (token_count < 2U ||
+      token_count > kSm87Bf16AbLargeMPrefillMaximumTokens ||
       !pointer_is_aligned(first_weights, alignof(uint4)) ||
       !pointer_is_aligned(second_weights, alignof(uint4)) ||
       !pointer_is_aligned(input, alignof(uint4)) ||

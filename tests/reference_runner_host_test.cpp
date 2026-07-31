@@ -1532,6 +1532,73 @@ void test_a4w4_full_prefill_admission_controls(TestContext& test) {
   }
 }
 
+void test_prefill_admission_gate_orthogonality(TestContext& test) {
+  // Discover availability by round-tripping each worker-local switch, then
+  // leave both disabled for the cross-gate checks. Ordinary builds expose
+  // inert BF16 controls while the production A4 build still exposes M128.
+  const bool initial_bf16 =
+      detail::exchange_bf16_ab_large_m_prefill_admission_test_enabled(false);
+  const bool initial_m128 =
+      detail::exchange_a4w4_m128_stage_major_admission_test_enabled(false);
+  (void)detail::exchange_bf16_ab_large_m_prefill_admission_test_enabled(true);
+  const bool bf16_compiled =
+      detail::exchange_bf16_ab_large_m_prefill_admission_test_enabled(false);
+  (void)detail::exchange_a4w4_m128_stage_major_admission_test_enabled(true);
+  const bool m128_compiled =
+      detail::exchange_a4w4_m128_stage_major_admission_test_enabled(false);
+
+  (void)detail::exchange_bf16_ab_large_m_prefill_admission_test_enabled(true);
+  const bool m128_after_bf16 =
+      detail::exchange_a4w4_m128_stage_major_admission_test_enabled(false);
+  const bool bf16_after_bf16 =
+      detail::exchange_bf16_ab_large_m_prefill_admission_test_enabled(false);
+  test.expect(!m128_after_bf16 && bf16_after_bf16 == bf16_compiled,
+              "BF16 whole-span gate does not enable the M128 A4 gate");
+
+  (void)detail::exchange_a4w4_m128_stage_major_admission_test_enabled(true);
+  const bool bf16_after_m128 =
+      detail::exchange_bf16_ab_large_m_prefill_admission_test_enabled(false);
+  const bool m128_after_m128 =
+      detail::exchange_a4w4_m128_stage_major_admission_test_enabled(false);
+  test.expect(!bf16_after_m128 && m128_after_m128 == m128_compiled,
+              "M128 A4 gate does not enable the BF16 whole-span gate");
+
+  const std::size_t initial_bf16_hits =
+      detail::exchange_bf16_ab_large_m_prefill_admission_test_hits(19U);
+  const detail::A4W4FullPrefillAdmissionHits a4_fixture{
+      192U, 272U, 64U, 400U, 1U, 208U, 64U};
+  const detail::A4W4FullPrefillAdmissionHits initial_a4_hits =
+      detail::exchange_a4w4_full_prefill_admission_test_hits(a4_fixture);
+  const std::size_t observed_bf16_hits =
+      detail::exchange_bf16_ab_large_m_prefill_admission_test_hits(
+          initial_bf16_hits);
+  const detail::A4W4FullPrefillAdmissionHits observed_a4_hits =
+      detail::exchange_a4w4_full_prefill_admission_test_hits(initial_a4_hits);
+  test.expect(observed_bf16_hits == (bf16_compiled ? 19U : 0U),
+              "BF16 whole-span hits use independent storage");
+  test.expect(
+      observed_a4_hits.activation_quantize_hits ==
+              (m128_compiled ? 192U : 0U) &&
+          observed_a4_hits.generic_projection_hits ==
+              (m128_compiled ? 272U : 0U) &&
+          observed_a4_hits.paired_gate_up_hits ==
+              (m128_compiled ? 64U : 0U) &&
+          observed_a4_hits.logical_projection_hits ==
+              (m128_compiled ? 400U : 0U) &&
+          observed_a4_hits.complete_model_tile_hits ==
+              (m128_compiled ? 1U : 0U) &&
+          observed_a4_hits.m128_stage_major_generic_projection_hits ==
+              (m128_compiled ? 208U : 0U) &&
+          observed_a4_hits.m128_stage_major_paired_gate_up_hits ==
+              (m128_compiled ? 64U : 0U),
+      "A4/M128 accounting is unchanged by BF16 hit accounting");
+
+  (void)detail::exchange_bf16_ab_large_m_prefill_admission_test_enabled(
+      initial_bf16);
+  (void)detail::exchange_a4w4_m128_stage_major_admission_test_enabled(
+      initial_m128);
+}
+
 }  // namespace
 
 int main() {
@@ -1544,6 +1611,7 @@ int main() {
   test_schedule_and_workspace(test);
   test_fake_linear_weight_validation(test);
   test_a4w4_full_prefill_admission_controls(test);
+  test_prefill_admission_gate_orthogonality(test);
   test_trace_layout_and_factory_error(test);
   if (test.failures() != 0) {
     std::cerr << test.failures() << " reference-runner host test(s) failed\n";

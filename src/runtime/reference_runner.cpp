@@ -240,6 +240,9 @@ thread_local std::size_t g_fp8_marlin_prefill_admission_hits = 0U;
 
 #if defined(Q3X_ENABLE_BF16_AB_LARGE_M_PREFILL_ADMISSION)
 [[nodiscard]] bool bf16_ab_large_m_prefill_environment_enabled() noexcept {
+  if (optimized_prefill_dispatch_disabled()) {
+    return false;
+  }
   const char* const value =
       std::getenv("Q3X_RUN_BF16_AB_LARGE_M_PREFILL_ADMISSION");
   return value != nullptr && std::strcmp(value, "1") == 0;
@@ -1146,6 +1149,26 @@ std::size_t exchange_fp8_marlin_prefill_admission_test_hits(
     const std::size_t hits) noexcept {
 #if defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION)
   return std::exchange(g_fp8_marlin_prefill_admission_hits, hits);
+#else
+  (void)hits;
+  return 0U;
+#endif
+}
+
+bool exchange_bf16_ab_large_m_prefill_admission_test_enabled(
+    const bool enabled) noexcept {
+#if defined(Q3X_ENABLE_BF16_AB_LARGE_M_PREFILL_ADMISSION)
+  return std::exchange(g_enable_bf16_ab_large_m_prefill_admission, enabled);
+#else
+  (void)enabled;
+  return false;
+#endif
+}
+
+std::size_t exchange_bf16_ab_large_m_prefill_admission_test_hits(
+    const std::size_t hits) noexcept {
+#if defined(Q3X_ENABLE_BF16_AB_LARGE_M_PREFILL_ADMISSION)
+  return std::exchange(g_bf16_ab_large_m_prefill_admission_hits, hits);
 #else
   (void)hits;
   return 0U;
@@ -5409,6 +5432,14 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
   const bool enable_gdn_chunk64_native_admission =
       g_enable_prefill_gdn_chunk64_native_admission;
 #endif
+#if defined(Q3X_ENABLE_BF16_AB_LARGE_M_PREFILL_ADMISSION)
+  // Snapshot once for this synchronous layer/span. The ordinary build and
+  // default admission build retain the established exact C16 schedule.
+  const bool enable_bf16_ab_large_m_prefill_admission =
+      g_enable_bf16_ab_large_m_prefill_admission;
+#else
+  constexpr bool enable_bf16_ab_large_m_prefill_admission = false;
+#endif
 
   reference_runner_detail::A4W4FullPrefillAdmissionHits local_hits{};
   const auto quantize =
@@ -5486,7 +5517,7 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
         return true;
       };
   const auto project_linear_pair =
-      [this, &check_cuda](
+      [this, &check_cuda, enable_bf16_ab_large_m_prefill_admission](
           const LinearWeight& first_weight,
           const LinearWeight& second_weight,
           const std::uint16_t* const input,
@@ -5497,6 +5528,36 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
         const std::size_t columns = linear_input_size(first_weight);
         const std::size_t first_rows = linear_output_size(first_weight);
         const std::size_t second_rows = linear_output_size(second_weight);
+#if defined(Q3X_ENABLE_BF16_AB_LARGE_M_PREFILL_ADMISSION)
+        if (enable_bf16_ab_large_m_prefill_admission &&
+            token_count >= 2U &&
+            token_count <=
+                kernels::kSm87Bf16AbLargeMPrefillMaximumTokens &&
+            supports_bf16_projection_pair(
+                projection_backend_, first_weight, second_weight)) {
+          const auto* const first =
+              std::get_if<Bf16LinearWeight>(&first_weight);
+          const auto* const second =
+              std::get_if<Bf16LinearWeight>(&second_weight);
+          if (first == nullptr || second == nullptr) {
+            return check_cuda(static_cast<int>(cudaErrorInvalidValue),
+                              operation);
+          }
+          const int status =
+              kernels::launch_sm87_bf16_ab_large_m_prefill_cuda(
+                  first->weight, second->weight, input, token_count,
+                  first_output, second_output, stream_);
+          if (status == static_cast<int>(cudaSuccess)) {
+            // Canonical BF16 A/B are outside the authenticated 400-projection
+            // A4 inventory. Keep this dedicated counter orthogonal to both
+            // generic/paired A4 totals and their M128 implementation subset.
+            ++g_bf16_ab_large_m_prefill_admission_hits;
+          }
+          return check_cuda(status, operation);
+        }
+#else
+        (void)enable_bf16_ab_large_m_prefill_admission;
+#endif
         for (std::size_t offset = 0U; offset < token_count;
              offset += kProductionProjectionSubtileTokens) {
           const std::size_t remaining = token_count - offset;

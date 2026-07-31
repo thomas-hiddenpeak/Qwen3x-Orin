@@ -505,6 +505,25 @@ if(BUILD_TESTING)
     message(FATAL_ERROR "Q3X_REAL_PERF_CPU must be one non-negative CPU id")
   endif()
 
+  if(Q3X_BUILD_BF16_AB_LARGE_M_PREFILL_ADMISSION)
+    add_executable(q3x_sm87_bf16_ab_prefill_test
+      tests/sm87_bf16_ab_prefill_test.cu
+    )
+    target_link_libraries(q3x_sm87_bf16_ab_prefill_test
+      PRIVATE q3x::kernels CUDA::cudart
+    )
+    q3x_enable_warnings(q3x_sm87_bf16_ab_prefill_test)
+    add_test(NAME sm87_bf16_ab_prefill_correctness
+      COMMAND q3x_sm87_bf16_ab_prefill_test
+    )
+    set_tests_properties(sm87_bf16_ab_prefill_correctness PROPERTIES
+      LABELS "cuda;sm87;prefill;correctness;synthetic;smoke;admission"
+      SKIP_RETURN_CODE 77
+      RESOURCE_LOCK q3x_sm87_gpu
+      TIMEOUT 120
+    )
+  endif()
+
   if(Q3X_BUILD_SM87_A4W4_PRIMITIVE_ADMISSION)
     # Isolated prerequisite for the future full-model A4W4 Prefill plane.
     # Neither this source nor its launch surface is linked into q3x_kernels,
