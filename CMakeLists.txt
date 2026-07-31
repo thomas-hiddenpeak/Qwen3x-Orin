@@ -340,6 +340,7 @@ if(Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION)
     src/kernels/sm87/a4w4_prefill_primitive.cu
     src/kernels/sm87/a4w4_prefill_gemm.cu
     src/kernels/sm87/a4w4_gateup_paired.cu
+    src/kernels/sm87/a4w4_gateup_complete_cell_v2.cu
     src/kernels/sm87/a4w4_prefill_m128_stage_major.cu
     src/kernels/sm87/a4w4_down_k128_stage_major.cu
     src/kernels/sm87/gdn_prefill_exact_span_sm87.cu
@@ -647,6 +648,7 @@ if(BUILD_TESTING)
     # before the real-model vertical-slice gate is passed.
     add_library(q3x_test_sm87_a4w4_gateup_pair STATIC
       src/kernels/sm87/a4w4_gateup_paired.cu
+      src/kernels/sm87/a4w4_gateup_complete_cell_v2.cu
     )
     target_compile_features(q3x_test_sm87_a4w4_gateup_pair
       PUBLIC cxx_std_17 cuda_std_17
@@ -685,6 +687,44 @@ if(BUILD_TESTING)
     )
     set_tests_properties(sm87_a4w4_gateup_pair_correctness PROPERTIES
       LABELS "cuda;sm87;prefill;correctness;synthetic;smoke"
+      SKIP_RETURN_CODE 77
+      RESOURCE_LOCK q3x_sm87_gpu
+    )
+
+    add_executable(q3x_sm87_a4w4_gateup_complete_cell_v2_contract_test
+      tests/sm87_a4w4_gateup_complete_cell_v2_contract_test.cpp
+    )
+    target_link_libraries(
+      q3x_sm87_a4w4_gateup_complete_cell_v2_contract_test
+      PRIVATE q3x_test_sm87_a4w4_gateup_pair CUDA::cudart
+    )
+    q3x_enable_warnings(
+      q3x_sm87_a4w4_gateup_complete_cell_v2_contract_test
+    )
+    add_test(NAME sm87_a4w4_gateup_complete_cell_v2_contract
+      COMMAND q3x_sm87_a4w4_gateup_complete_cell_v2_contract_test
+    )
+    set_tests_properties(
+      sm87_a4w4_gateup_complete_cell_v2_contract PROPERTIES
+      LABELS "host;sm87;prefill;correctness;layout;structural_candidate"
+    )
+
+    add_executable(q3x_sm87_a4w4_gateup_complete_cell_v2_correctness_test
+      tests/sm87_a4w4_gateup_complete_cell_v2_correctness_test.cu
+    )
+    target_link_libraries(
+      q3x_sm87_a4w4_gateup_complete_cell_v2_correctness_test
+      PRIVATE q3x_test_sm87_a4w4_gateup_pair CUDA::cudart
+    )
+    q3x_enable_warnings(
+      q3x_sm87_a4w4_gateup_complete_cell_v2_correctness_test
+    )
+    add_test(NAME sm87_a4w4_gateup_complete_cell_v2_correctness
+      COMMAND q3x_sm87_a4w4_gateup_complete_cell_v2_correctness_test
+    )
+    set_tests_properties(
+      sm87_a4w4_gateup_complete_cell_v2_correctness PROPERTIES
+      LABELS "cuda;sm87;prefill;correctness;synthetic;structural_candidate"
       SKIP_RETURN_CODE 77
       RESOURCE_LOCK q3x_sm87_gpu
     )
