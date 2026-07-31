@@ -94,6 +94,39 @@ the same generated result. The route passes the real-path direction gate and
 is retained for cumulative testing; its prior exhaustive CUDA correctness,
 tail, canary, and resource gates remain mandatory evidence.
 
+### Cumulative real-path result
+
+The retained directions were then exercised together in one server process:
+
+```text
+K128 authenticated A4 publication
+Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION=1
+Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION=1
+Q3X_RUN_BF16_AB_LARGE_M_PREFILL_ADMISSION=1
+```
+
+Both rejected M128-v1 selectors remained disabled. The binary was built from
+runtime commit `216688f` and had SHA-256
+`3a6fba2c4ec39af5f080793d9029cdf6d4b6bbc328e626d8e24dc1279956e536`.
+
+| Prompt | Server-side Prefill | HTTP total | Prompt rate |
+|---|---:|---:|---:|
+| P2048 run 1 | 3562.09 ms | 3.565799 s | 575.0 tok/s |
+| P2048 run 2 | 3546.76 ms | 3.550576 s | 577.4 tok/s |
+| P2048 mean | 3554.425 ms | 3.558188 s | 576.18 tok/s |
+| P3840 direction run | 7236.57 ms | 7.240706 s | 530.64 tok/s |
+
+The P2048 cumulative route improves server-side throughput by about 45% over
+the authenticated K128 incumbent's HTTP-derived 396.553 tok/s direction
+number. The metric boundary is stated explicitly, so this is not yet a
+statistical production promotion. It does establish that native GDN/conv and
+whole-span BF16 A/B survive composition in the actual OpenAI generation path.
+
+P3840 loses about 7.9% throughput relative to P2048. The remaining system
+work must therefore cover the length-growing Attention/GDN schedule as well
+as replacing the projection complete cell; projection-only local tuning is
+not a sufficient route to the 2,000 tok/s capability target.
+
 ## Separate K128 observation
 
 The incumbent M64 K128 run is materially below the frozen real P2048 K64
@@ -104,8 +137,9 @@ gate is still required before K128 can be promoted.
 
 ## Next action
 
-1. Combine the retained K128, native GDN, and corrected whole-span BF16 A/B
-   routes, with both rejected M128-v1 switches disabled.
+1. Admit arbitrary natural prompt lengths on the K128 route, then run the
+   short/medium/long OpenAI/EvalScope performance ladder on this cumulative
+   baseline.
 2. Replace M128-v1 with a complete Gate/Up cell targeting at least two
    CTAs/SM, a 2--4 stage async pipeline, and a longer useful scale/accumulator
    lifetime; do not continue tile-constant scans on the rejected skeleton.
