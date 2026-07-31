@@ -59,6 +59,20 @@ inline constexpr std::size_t kSm87A4W4GateUpWideLargeMLogicalTileK = 128U;
 inline constexpr std::size_t kSm87A4W4GateUpWideLargeMPipelineSlots = 2U;
 inline constexpr std::size_t kSm87A4W4GateUpWideLargeMMinimumTokens = 2'048U;
 
+// Independent K128 shared-scale Gate+Up vertical slice.  The packed-code
+// planes retain the two physical K64 blocks per logical K128 group, while
+// A, Gate, Up, and the fused Down-input output each own one BF16 scale per
+// K128 group.  In particular, the epilogue reduces all 128 SiLU(Gate)*Up
+// values before it emits the one scale consumed by the K128 Down GEMM; it
+// does not reuse either of the established per-K64 output scales.
+//
+// This API is additive and is never selected by the K64 planner/launcher.
+inline constexpr std::size_t kSm87A4W4GateUpK128TileM = 64U;
+inline constexpr std::size_t kSm87A4W4GateUpK128TileN = 128U;
+inline constexpr std::size_t kSm87A4W4GateUpK128TileK = 128U;
+inline constexpr std::size_t kSm87A4W4GateUpK128PipelineSlots = 2U;
+inline constexpr std::size_t kSm87A4W4GateUpK128MaximumRegisters = 128U;
+
 enum class Sm87A4W4GateUpPairedKernel : std::uint8_t {
   kM32N128K64 = 0U,
   kM64N64K64 = 1U,
@@ -100,6 +114,20 @@ struct Sm87A4W4GateUpPairedPlan final {
   std::size_t tile_n{};
   Sm87A4W4GateUpPairedKernel kernel{
       Sm87A4W4GateUpPairedKernel::kM32N128K64};
+};
+
+struct Sm87A4W4GateUpPairedK128Plan final {
+  std::size_t token_count{};
+  std::size_t intermediate_size{};
+  std::size_t input_size{};
+  std::size_t m_tiles{};
+  std::size_t n_tiles{};
+  std::size_t k128_groups{};
+  std::size_t physical_k64_groups{};
+  std::size_t work_tiles{};
+  std::size_t launch_ctas{};
+  std::size_t packed_output_row_bytes{};
+  std::size_t output_scale_row_elements{};
 };
 
 [[nodiscard]] constexpr std::size_t sm87_a4w4_gateup_ceil_div(
@@ -160,6 +188,43 @@ sm87_a4w4_gateup_paired_plan(const std::size_t token_count,
                      : Sm87A4W4GateUpPairedKernel::kM32N128K64)};
 }
 
+[[nodiscard]] constexpr Sm87A4W4GateUpPairedK128Plan
+sm87_a4w4_gateup_paired_k128_plan(
+    const std::size_t token_count,
+    const std::size_t intermediate_size,
+    const std::size_t input_size) noexcept {
+  if (token_count == 0U ||
+      token_count % kSm87A4W4GateUpK128TileM != 0U ||
+      intermediate_size == 0U ||
+      intermediate_size % kSm87A4W4GateUpK128TileN != 0U ||
+      input_size == 0U ||
+      input_size % kSm87A4W4GateUpK128TileK != 0U) {
+    return {};
+  }
+  const std::size_t m_tiles =
+      token_count / kSm87A4W4GateUpK128TileM;
+  const std::size_t n_tiles =
+      intermediate_size / kSm87A4W4GateUpK128TileN;
+  constexpr std::size_t maximum = static_cast<std::size_t>(-1);
+  if (m_tiles == 0U || n_tiles == 0U || m_tiles > maximum / n_tiles) {
+    return {};
+  }
+  const std::size_t work_tiles = m_tiles * n_tiles;
+  return {token_count,
+          intermediate_size,
+          input_size,
+          m_tiles,
+          n_tiles,
+          input_size / kSm87A4W4GateUpK128TileK,
+          input_size / kSm87A4W4GateUpTileK,
+          work_tiles,
+          work_tiles < kSm87A4W4GateUpPersistentCtas
+              ? work_tiles
+              : kSm87A4W4GateUpPersistentCtas,
+          intermediate_size / 2U,
+          intermediate_size / kSm87A4W4GateUpK128TileK};
+}
+
 struct Sm87A4W4GateUpPairedResources final {
   int registers_per_thread{};
   std::size_t static_shared_bytes{};
@@ -190,6 +255,12 @@ struct Sm87A4W4GateUpPairedResources final {
 query_sm87_a4w4_gateup_paired_wide_large_m_resources_cuda(
     Sm87A4W4GateUpPairedResources* resources) noexcept;
 
+// Independent admission query for the M64N128 shared-scale K128 kernel.
+// Success requires <=128 registers/thread, <=48 KiB shared memory, no local
+// frame/spill, and at least two resident 256-thread CTAs per SM87 SM.
+[[nodiscard]] int query_sm87_a4w4_gateup_paired_k128_resources_cuda(
+    Sm87A4W4GateUpPairedResources* resources) noexcept;
+
 // output_clip_ratio is calibration-owned and must be in (0, 1].  Quantized
 // output uses symmetric [-7, 7] codes.  M tails are zero-filled during async
 // staging and are never written to the output buffers.
@@ -213,6 +284,37 @@ query_sm87_a4w4_gateup_paired_wide_large_m_resources_cuda(
     std::uint8_t* packed_output,
     std::size_t packed_output_capacity_bytes,
     std::uint16_t* output_k64_scales_bf16,
+    std::size_t output_scale_capacity_elements,
+    void* cuda_stream = nullptr) noexcept;
+
+// M64N128 shared-scale K128 Gate+Up projection and Down-input producer.
+// Packed codes preserve the established physical K64 consumer layout.  A,
+// Gate, and Up scale capacities use
+// sm87_a4w4_consumer_k128_scale_capacity_elements(outer,K); output scale
+// capacity uses the same helper for (M,N).  Each logical K128 contribution
+// performs two native K64 MMAs into one S32 partial followed by one I2F and
+// one scale-product application.  The epilogue publishes one output scale
+// for both adjacent physical K64 blocks, ready for the K128 Down projection.
+[[nodiscard]] int launch_sm87_a4w4_gateup_paired_k128_cuda(
+    const std::uint8_t* packed_a,
+    std::size_t packed_a_capacity_bytes,
+    const std::uint16_t* a_k128_scales_bf16,
+    std::size_t a_scale_capacity_elements,
+    const std::uint8_t* packed_gate_b,
+    std::size_t packed_gate_b_capacity_bytes,
+    const std::uint16_t* gate_b_k128_scales_bf16,
+    std::size_t gate_b_scale_capacity_elements,
+    const std::uint8_t* packed_up_b,
+    std::size_t packed_up_b_capacity_bytes,
+    const std::uint16_t* up_b_k128_scales_bf16,
+    std::size_t up_b_scale_capacity_elements,
+    std::size_t token_count,
+    std::size_t intermediate_size,
+    std::size_t input_size,
+    float output_clip_ratio,
+    std::uint8_t* packed_output,
+    std::size_t packed_output_capacity_bytes,
+    std::uint16_t* output_k128_scales_bf16,
     std::size_t output_scale_capacity_elements,
     void* cuda_stream = nullptr) noexcept;
 
@@ -252,6 +354,19 @@ static_assert(sm87_a4w4_gateup_paired_plan(65U, 128U, 192U)
 static_assert(sm87_a4w4_gateup_paired_plan(1U, 128U, 64U)
                   .launch_ctas == 32U);
 static_assert(sm87_a4w4_gateup_paired_plan(0U, 128U, 64U)
+                  .launch_ctas == 0U);
+static_assert(sm87_a4w4_gateup_paired_k128_plan(64U, 128U, 128U)
+                  .work_tiles == 1U);
+static_assert(sm87_a4w4_gateup_paired_k128_plan(
+                  2'048U, 17'408U, 5'120U)
+                  .k128_groups == 40U);
+static_assert(sm87_a4w4_gateup_paired_k128_plan(
+                  2'048U, 17'408U, 5'120U)
+                  .physical_k64_groups == 80U);
+static_assert(sm87_a4w4_gateup_paired_k128_plan(
+                  2'048U, 17'408U, 5'120U)
+                  .work_tiles == 4'352U);
+static_assert(sm87_a4w4_gateup_paired_k128_plan(65U, 128U, 128U)
                   .launch_ctas == 0U);
 
 }  // namespace q3x::kernels

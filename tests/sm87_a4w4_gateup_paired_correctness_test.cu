@@ -627,11 +627,308 @@ struct QuantizedReference final {
   return true;
 }
 
+[[nodiscard]] bool run_shared_k128_correctness() {
+  constexpr std::size_t m_count = 64U;
+  constexpr std::size_t n_count = 128U;
+  constexpr std::size_t k_count = 128U;
+  constexpr std::size_t physical_k64_groups = k_count / 64U;
+  constexpr std::size_t k128_groups = k_count / 128U;
+  constexpr std::size_t output_physical_groups = n_count / 64U;
+  constexpr std::size_t output_k128_groups = n_count / 128U;
+  constexpr std::size_t a_packed_bytes =
+      kernels::sm87_a4w4_consumer_packed_capacity_bytes(m_count, k_count);
+  constexpr std::size_t a_scale_elements =
+      kernels::sm87_a4w4_consumer_k128_scale_capacity_elements(
+          m_count, k_count);
+  constexpr std::size_t b_packed_bytes =
+      kernels::sm87_a4w4_consumer_packed_capacity_bytes(n_count, k_count);
+  constexpr std::size_t b_scale_elements =
+      kernels::sm87_a4w4_consumer_k128_scale_capacity_elements(
+          n_count, k_count);
+  constexpr std::size_t output_packed_bytes =
+      kernels::sm87_a4w4_consumer_packed_capacity_bytes(m_count, n_count);
+  constexpr std::size_t output_scale_elements =
+      kernels::sm87_a4w4_consumer_k128_scale_capacity_elements(
+          m_count, n_count);
+  static_assert(kernels::sm87_a4w4_gateup_paired_k128_plan(
+                    m_count, n_count, k_count)
+                    .work_tiles == 1U);
+  static_assert(physical_k64_groups == 2U && k128_groups == 1U &&
+                output_physical_groups == 2U &&
+                output_k128_groups == 1U);
+
+  std::vector<std::uint8_t> a(a_packed_bytes);
+  std::vector<std::uint16_t> a_scales(
+      a_scale_elements, encode_bf16(0.25F));
+  std::vector<std::uint8_t> gate_b(b_packed_bytes);
+  std::vector<std::uint16_t> gate_scales(
+      b_scale_elements, encode_bf16(0.25F));
+  std::vector<std::uint8_t> up_b(b_packed_bytes);
+  std::vector<std::uint16_t> up_scales(
+      b_scale_elements, encode_bf16(1.0F / 64.0F));
+
+  // Gate is deliberately large and positive, making SiLU's denominator
+  // exactly one in both host and device FP32.  This removes libm variance
+  // from a bit-exact CPU oracle while the nontrivial Up pattern still covers
+  // both physical K64 halves, every N row, and signed accumulation.
+  for (std::size_t m = 0U; m < m_count; ++m) {
+    for (std::size_t group = 0U; group < physical_k64_groups; ++group) {
+      for (std::size_t byte = 0U; byte < 32U; ++byte) {
+        a[kernels::sm87_a4w4_consumer_packed_offset(
+            m, group, byte, physical_k64_groups)] =
+            kernels::sm87_a4w4_pack_signed_pair(7, 7);
+      }
+    }
+  }
+  for (std::size_t n = 0U; n < n_count; ++n) {
+    for (std::size_t group = 0U; group < physical_k64_groups; ++group) {
+      for (std::size_t byte = 0U; byte < 32U; ++byte) {
+        gate_b[kernels::sm87_a4w4_consumer_packed_offset(
+            n, group, byte, physical_k64_groups)] =
+            kernels::sm87_a4w4_pack_signed_pair(7, 7);
+        const int even =
+            static_cast<int>((n + 3U * group + 2U * byte) % 15U) - 7;
+        const int odd =
+            static_cast<int>((5U * n + group + 2U * byte + 1U) % 15U) -
+            7;
+        up_b[kernels::sm87_a4w4_consumer_packed_offset(
+            n, group, byte, physical_k64_groups)] =
+            kernels::sm87_a4w4_pack_signed_pair(even, odd);
+      }
+    }
+  }
+
+  std::vector<float> products(m_count * n_count);
+  for (std::size_t m = 0U; m < m_count; ++m) {
+    for (std::size_t n = 0U; n < n_count; ++n) {
+      std::int32_t gate_integer = 0;
+      std::int32_t up_integer = 0;
+      for (std::size_t k = 0U; k < k_count; ++k) {
+        const std::size_t group = k / 64U;
+        const std::size_t byte = (k % 64U) / 2U;
+        const int a_code = kernels::sm87_a4w4_unpack_signed(
+            a[kernels::sm87_a4w4_consumer_packed_offset(
+                m, group, byte, physical_k64_groups)],
+            k);
+        const int gate_code = kernels::sm87_a4w4_unpack_signed(
+            gate_b[kernels::sm87_a4w4_consumer_packed_offset(
+                n, group, byte, physical_k64_groups)],
+            k);
+        const int up_code = kernels::sm87_a4w4_unpack_signed(
+            up_b[kernels::sm87_a4w4_consumer_packed_offset(
+                n, group, byte, physical_k64_groups)],
+            k);
+        gate_integer += a_code * gate_code;
+        up_integer += a_code * up_code;
+      }
+      const float a_scale = decode_bf16(
+          a_scales[kernels::sm87_a4w4_consumer_k128_scale_offset(
+              m, 0U, k128_groups)]);
+      const float gate = static_cast<float>(gate_integer) *
+                         (a_scale * decode_bf16(
+                              gate_scales[
+                                  kernels::sm87_a4w4_consumer_k128_scale_offset(
+                                      n, 0U, k128_groups)]));
+      const float up = static_cast<float>(up_integer) *
+                       (a_scale * decode_bf16(
+                            up_scales[
+                                kernels::sm87_a4w4_consumer_k128_scale_offset(
+                                    n, 0U, k128_groups)]));
+      products[m * n_count + n] = silu_product(gate, up);
+    }
+  }
+
+  std::vector<std::uint8_t> expected_packed(output_packed_bytes);
+  std::vector<std::uint16_t> expected_scales(output_scale_elements);
+  for (std::size_t m = 0U; m < m_count; ++m) {
+    float maximum = 0.0F;
+    for (std::size_t n = 0U; n < n_count; ++n) {
+      maximum = std::fmax(
+          maximum, std::fabs(products[m * n_count + n]));
+    }
+    const float clipped_maximum = maximum * kOutputClipRatio;
+    const std::uint16_t scale_bits = encode_bf16(
+        maximum == 0.0F ? 1.0F : clipped_maximum / 7.0F);
+    const float stored_scale = decode_bf16(scale_bits);
+    expected_scales[kernels::sm87_a4w4_consumer_k128_scale_offset(
+        m, 0U, output_k128_groups)] = scale_bits;
+    for (std::size_t n = 0U; n < n_count; n += 2U) {
+      const float even = std::max(
+          -clipped_maximum,
+          std::min(clipped_maximum, products[m * n_count + n]));
+      const float odd = std::max(
+          -clipped_maximum,
+          std::min(clipped_maximum, products[m * n_count + n + 1U]));
+      const std::size_t group = n / 64U;
+      const std::size_t byte = (n % 64U) / 2U;
+      expected_packed[kernels::sm87_a4w4_consumer_packed_offset(
+          m, group, byte, output_physical_groups)] =
+          kernels::sm87_a4w4_pack_signed_pair(
+              round_and_clamp(even / stored_scale),
+              round_and_clamp(odd / stored_scale));
+    }
+  }
+
+  DeviceBuffer<std::uint8_t> device_a;
+  DeviceBuffer<std::uint16_t> device_a_scales;
+  DeviceBuffer<std::uint8_t> device_gate_b;
+  DeviceBuffer<std::uint16_t> device_gate_scales;
+  DeviceBuffer<std::uint8_t> device_up_b;
+  DeviceBuffer<std::uint16_t> device_up_scales;
+  DeviceBuffer<std::uint8_t> device_output;
+  DeviceBuffer<std::uint16_t> device_output_scales;
+  if (!device_a.allocate(a.size()) ||
+      !device_a_scales.allocate(a_scales.size()) ||
+      !device_gate_b.allocate(gate_b.size()) ||
+      !device_gate_scales.allocate(gate_scales.size()) ||
+      !device_up_b.allocate(up_b.size()) ||
+      !device_up_scales.allocate(up_scales.size()) ||
+      !device_output.allocate(output_packed_bytes + kPackedGuardBytes) ||
+      !device_output_scales.allocate(output_scale_elements +
+                                     kScaleGuardElements)) {
+    std::cerr << "shared-K128 device allocation failed\n";
+    return false;
+  }
+  if (!cuda_ok(cudaMemcpy(device_a.get(), a.data(), a.size(),
+                          cudaMemcpyHostToDevice),
+               "copy shared-K128 A") ||
+      !cuda_ok(cudaMemcpy(device_a_scales.get(), a_scales.data(),
+                          a_scales.size() * sizeof(std::uint16_t),
+                          cudaMemcpyHostToDevice),
+               "copy shared-K128 A scales") ||
+      !cuda_ok(cudaMemcpy(device_gate_b.get(), gate_b.data(), gate_b.size(),
+                          cudaMemcpyHostToDevice),
+               "copy shared-K128 Gate B") ||
+      !cuda_ok(cudaMemcpy(device_gate_scales.get(), gate_scales.data(),
+                          gate_scales.size() * sizeof(std::uint16_t),
+                          cudaMemcpyHostToDevice),
+               "copy shared-K128 Gate scales") ||
+      !cuda_ok(cudaMemcpy(device_up_b.get(), up_b.data(), up_b.size(),
+                          cudaMemcpyHostToDevice),
+               "copy shared-K128 Up B") ||
+      !cuda_ok(cudaMemcpy(device_up_scales.get(), up_scales.data(),
+                          up_scales.size() * sizeof(std::uint16_t),
+                          cudaMemcpyHostToDevice),
+               "copy shared-K128 Up scales") ||
+      !cuda_ok(cudaMemset(device_output.get(), 0xa5,
+                          output_packed_bytes + kPackedGuardBytes),
+               "initialize shared-K128 packed guard") ||
+      !cuda_ok(cudaMemset(device_output_scales.get(), 0xad,
+                          (output_scale_elements + kScaleGuardElements) *
+                              sizeof(std::uint16_t)),
+               "initialize shared-K128 scale guard")) {
+    return false;
+  }
+
+  kernels::Sm87A4W4GateUpPairedResources resources{};
+  if (!launch_ok(
+          kernels::query_sm87_a4w4_gateup_paired_k128_resources_cuda(
+              &resources),
+          "query shared-K128 paired Gate+Up resources")) {
+    return false;
+  }
+  if (resources.registers_per_thread > 128 ||
+      resources.static_shared_bytes != 42'240U ||
+      resources.local_bytes != 0U || resources.active_blocks_per_sm < 2 ||
+      resources.maximum_threads_per_block < 256) {
+    std::cerr << "shared-K128 resource contract failed: registers="
+              << resources.registers_per_thread
+              << " shared=" << resources.static_shared_bytes
+              << " local=" << resources.local_bytes
+              << " active_blocks=" << resources.active_blocks_per_sm
+              << '\n';
+    return false;
+  }
+
+  if (kernels::launch_sm87_a4w4_gateup_paired_k128_cuda(
+          device_a.get(), a_packed_bytes, device_a_scales.get(),
+          a_scale_elements, device_gate_b.get(), b_packed_bytes,
+          device_gate_scales.get(), b_scale_elements, device_up_b.get(),
+          b_packed_bytes, device_up_scales.get(), b_scale_elements,
+          m_count, n_count, k_count, kOutputClipRatio, device_output.get(),
+          output_packed_bytes, device_output_scales.get(),
+          output_scale_elements - 1U) !=
+      static_cast<int>(cudaErrorInvalidValue)) {
+    std::cerr << "shared-K128 short output scale capacity was not rejected\n";
+    return false;
+  }
+  if (!launch_ok(kernels::launch_sm87_a4w4_gateup_paired_k128_cuda(
+                     device_a.get(), a_packed_bytes,
+                     device_a_scales.get(), a_scale_elements,
+                     device_gate_b.get(), b_packed_bytes,
+                     device_gate_scales.get(), b_scale_elements,
+                     device_up_b.get(), b_packed_bytes,
+                     device_up_scales.get(), b_scale_elements, m_count,
+                     n_count, k_count, kOutputClipRatio, device_output.get(),
+                     output_packed_bytes, device_output_scales.get(),
+                     output_scale_elements),
+                 "launch shared-K128 paired Gate+Up") ||
+      !cuda_ok(cudaDeviceSynchronize(),
+               "synchronize shared-K128 paired Gate+Up")) {
+    return false;
+  }
+
+  std::vector<std::uint8_t> actual_packed(
+      output_packed_bytes + kPackedGuardBytes);
+  std::vector<std::uint16_t> actual_scales(
+      output_scale_elements + kScaleGuardElements);
+  if (!cuda_ok(cudaMemcpy(actual_packed.data(), device_output.get(),
+                          actual_packed.size(), cudaMemcpyDeviceToHost),
+               "copy shared-K128 packed output") ||
+      !cuda_ok(cudaMemcpy(actual_scales.data(), device_output_scales.get(),
+                          actual_scales.size() * sizeof(std::uint16_t),
+                          cudaMemcpyDeviceToHost),
+               "copy shared-K128 output scales")) {
+    return false;
+  }
+  for (std::size_t index = 0U; index < expected_packed.size(); ++index) {
+    if (actual_packed[index] != expected_packed[index]) {
+      std::cerr << "shared-K128 CPU bit mismatch in packed output at "
+                << index << " expected="
+                << static_cast<unsigned int>(expected_packed[index])
+                << " actual="
+                << static_cast<unsigned int>(actual_packed[index]) << '\n';
+      return false;
+    }
+  }
+  for (std::size_t index = 0U; index < expected_scales.size(); ++index) {
+    if (actual_scales[index] != expected_scales[index]) {
+      std::cerr << "shared-K128 CPU bit mismatch in output scale at "
+                << index << " expected=" << expected_scales[index]
+                << " actual=" << actual_scales[index] << '\n';
+      return false;
+    }
+  }
+  for (std::size_t index = output_packed_bytes;
+       index < actual_packed.size(); ++index) {
+    if (actual_packed[index] != 0xa5U) {
+      std::cerr << "shared-K128 packed guard was overwritten\n";
+      return false;
+    }
+  }
+  for (std::size_t index = output_scale_elements;
+       index < actual_scales.size(); ++index) {
+    if (actual_scales[index] != 0xadadU) {
+      std::cerr << "shared-K128 scale guard was overwritten\n";
+      return false;
+    }
+  }
+
+  std::cout << "SM87 A4W4 paired Gate+Up shared-K128 CPU bit-exact passed: "
+            << "M=" << m_count << " N=" << n_count << " K=" << k_count
+            << " registers=" << resources.registers_per_thread
+            << " shared=" << resources.static_shared_bytes
+            << " local=" << resources.local_bytes
+            << " active_blocks_per_sm=" << resources.active_blocks_per_sm
+            << '\n';
+  return true;
+}
+
 }  // namespace
 
 int main() {
   if (!device_is_target()) {
     return 77;
   }
-  return run_correctness() ? 0 : 1;
+  return run_correctness() && run_shared_k128_correctness() ? 0 : 1;
 }
