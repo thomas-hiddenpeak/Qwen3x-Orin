@@ -798,6 +798,9 @@ void test_layer_major_prompt_admission(TestContext& test) {
         "ordered transcript, and finalizes the retained last row once");
   };
 
+  run_shape(480U, runtime::ReferenceLogitsMode::kPredictedTokenOnly);
+  run_shape(481U, runtime::ReferenceLogitsMode::kFullStatistics);
+  run_shape(512U, runtime::ReferenceLogitsMode::kPredictedTokenOnly);
   run_shape(513U, runtime::ReferenceLogitsMode::kFullStatistics);
   run_shape(4'096U, runtime::ReferenceLogitsMode::kPredictedTokenOnly);
 
@@ -1861,6 +1864,23 @@ void test_optimized_prefill_engine_derivation(TestContext& test) {
       "whole-M selector admits arbitrary P513..P40960 boundaries");
   test.expect(
       !runtime::use_long_prefill_projection_span_route(
+          479U, 512U, true, false, true, true) &&
+          runtime::use_long_prefill_projection_span_route(
+              480U, 512U, true, false, true, true) &&
+          runtime::use_long_prefill_projection_span_route(
+              481U, 512U, true, false, true, true) &&
+          runtime::use_long_prefill_projection_span_route(
+              512U, 512U, true, false, true, true) &&
+          !runtime::use_long_prefill_projection_span_route(
+              512U, 512U, true, false, false, true) &&
+          !runtime::use_long_prefill_projection_span_route(
+              512U, 512U, true, false, true, false) &&
+          !runtime::use_long_prefill_projection_span_route(
+              512U, 512U, true, true, true, true),
+      "short whole-M selector requires P480..P512, explicit admission, "
+      "authenticated K128, and enabled optimized dispatch");
+  test.expect(
+      !runtime::use_long_prefill_projection_span_route(
           1'804U, 0U, true, false) &&
           !runtime::use_long_prefill_projection_span_route(
               1'804U, 511U, true, false) &&
@@ -1881,6 +1901,41 @@ void test_optimized_prefill_engine_derivation(TestContext& test) {
                   preserved.long_prefill_projection_span_capacity == 0U,
               "central derivation leaves non-A4 callers byte-for-byte "
               "unchanged");
+
+  runtime::RequestMemoryOptions short_requested;
+  short_requested.max_sequence_length = 512U;
+  short_requested.prefill_chunk_size =
+      runtime::kLongPrefillLayerMajorTileTokens;
+  short_requested.max_arena_bytes = 8ULL * 1024ULL * 1024ULL * 1024ULL;
+  const runtime::RequestMemoryOptions short_default =
+      detail::derive_optimized_prefill_request_memory_options(
+          short_requested, true, false);
+  const runtime::RequestMemoryOptions short_admitted =
+      detail::derive_optimized_prefill_request_memory_options(
+          short_requested, true, true);
+  const runtime::RequestPlanResult short_default_plan =
+      runtime::build_request_memory_plan(short_default);
+  const runtime::RequestPlanResult short_admitted_plan =
+      runtime::build_request_memory_plan(short_admitted);
+  test.expect(
+      short_default.long_prefill_token_capacity == 0U &&
+          short_default.long_prefill_projection_span_capacity == 0U &&
+          short_admitted.long_prefill_token_capacity == 512U &&
+          short_admitted.long_prefill_projection_span_capacity == 512U &&
+          short_default_plan && short_admitted_plan &&
+          short_admitted_plan.value->arena_bytes >
+              short_default_plan.value->arena_bytes,
+      "short selector alone reserves exact P512 hidden and projection "
+      "capacity while the default arena remains unchanged");
+
+  short_requested.max_sequence_length = 511U;
+  const runtime::RequestMemoryOptions below_short_capacity =
+      detail::derive_optimized_prefill_request_memory_options(
+          short_requested, true, true);
+  test.expect(below_short_capacity.long_prefill_token_capacity == 0U &&
+                  below_short_capacity
+                          .long_prefill_projection_span_capacity == 0U,
+              "max-sequence P511 cannot reserve the padded P512 contract");
 }
 
 }  // namespace

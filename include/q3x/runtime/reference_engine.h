@@ -591,10 +591,13 @@ namespace reference_engine_detail {
 // evaluation-server engines. A4 authentication remains fail-closed later in
 // engine creation; this pure pre-allocation step is deliberately independent
 // of Q3X_DISABLE_OPTIMIZED_PREFILL so same-ELF comparisons retain one arena.
+// The optional short-Prefill selector only changes the exact max-sequence=512
+// boundary; K128 authentication still gates dispatch after runner creation.
 [[nodiscard]] RequestMemoryOptions
 derive_optimized_prefill_request_memory_options(
     const RequestMemoryOptions& requested,
-    bool prefill_a4_requested) noexcept;
+    bool prefill_a4_requested,
+    bool short_prefill_layer_major_requested = false) noexcept;
 
 inline constexpr std::size_t kOptimizedPrefillSubtileTokens = 32U;
 inline constexpr std::size_t kPrefillM64TileTokens = 64U;

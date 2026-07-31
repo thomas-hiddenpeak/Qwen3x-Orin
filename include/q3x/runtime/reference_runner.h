@@ -709,6 +709,15 @@ class ReferenceRunner {
   [[nodiscard]] ProjectionBackend projection_backend() const noexcept {
     return projection_backend_;
   }
+  // True only after runner creation has validated one complete K128 A4
+  // inventory and enabled its full-Prefill dispatch contract.  Host routing
+  // uses this instead of trusting paths, filenames, or environment state.
+  [[nodiscard]] bool authenticated_a4w4_k128_prefill_enabled()
+      const noexcept {
+    return a4w4_full_prefill_admission_enabled_ &&
+           a4w4_prefill_consumer_ ==
+               reference_runner_detail::A4W4PrefillConsumer::kK128;
+  }
 
   [[nodiscard]] ReferenceStepOutcome step(
       std::uint32_t input_token_id,

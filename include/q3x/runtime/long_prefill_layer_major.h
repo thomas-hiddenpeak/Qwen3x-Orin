@@ -14,6 +14,11 @@
 namespace q3x::runtime {
 
 inline constexpr std::uint32_t kLongPrefillLayerMajorTileTokens = 512U;
+// The K128 whole-span executor can safely pad a natural short prompt to its
+// M64 projection contract without exposing the padded rows to recurrent,
+// attention, cache, or residual state.  Keep this deliberately narrow: the
+// ordinary short-prompt schedule remains the default below this boundary.
+inline constexpr std::uint32_t kShortPrefillLayerMajorMinimumTokens = 480U;
 inline constexpr std::uint32_t kLongPrefillProjectionSpanDefaultTokens =
     4'096U;
 inline constexpr std::uint32_t kLongPrefillLayerMajorMaximumTokens =
@@ -32,6 +37,16 @@ inline constexpr std::uint32_t kLongPrefillLayerMajorMaximumTokens =
   return disabled;
 }
 
+// Experimental same-ELF selector for the narrow P480..P512 cliff.  Route
+// selection additionally requires a complete authenticated K128 A4 inventory;
+// setting this variable alone can never admit K64 or a partial publication.
+[[nodiscard]] inline bool
+short_prefill_layer_major_environment_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_SHORT_PREFILL_LAYER_MAJOR_ADMISSION");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
 enum class LongPrefillLayerMajorRoute : std::uint8_t {
   kTileMajorFallback = 0,
   kLayerMajorAdmission,
@@ -42,6 +57,8 @@ enum class LongPrefillLayerMajorRoute : std::uint8_t {
 // backend, shape, and capacity mismatches still fall back safely.
 struct LongPrefillLayerMajorRouteQuery {
   bool runtime_enabled = false;
+  bool short_prompt_admission_enabled = false;
+  bool authenticated_a4_k128 = false;
   ProjectionBackend projection_backend = ProjectionBackend::kReference;
   bool capture_trace = false;
   std::uint32_t prompt_token_count = 0U;
@@ -64,9 +81,17 @@ struct LongPrefillLayerMajorRouteQuery {
     const std::uint32_t prompt_token_count,
     const std::uint32_t projection_span_token_count,
     const bool a4_inventory_enabled,
-    const bool optimized_prefill_disabled) noexcept {
+    const bool optimized_prefill_disabled,
+    const bool short_prompt_admission_enabled = false,
+    const bool authenticated_a4_k128 = false) noexcept {
+  const bool long_prompt =
+      prompt_token_count > kLongPrefillLayerMajorTileTokens;
+  const bool admitted_short_prompt =
+      short_prompt_admission_enabled && authenticated_a4_k128 &&
+      prompt_token_count >= kShortPrefillLayerMajorMinimumTokens &&
+      prompt_token_count <= kLongPrefillLayerMajorTileTokens;
   return !optimized_prefill_disabled && a4_inventory_enabled &&
-         prompt_token_count > kLongPrefillLayerMajorTileTokens &&
+         (long_prompt || admitted_short_prompt) &&
          prompt_token_count <= kLongPrefillLayerMajorMaximumTokens &&
          projection_span_token_count >=
              kLongPrefillLayerMajorTileTokens &&

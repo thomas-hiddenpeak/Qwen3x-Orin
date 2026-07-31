@@ -6372,6 +6372,10 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
           : 0U;
   LongPrefillLayerMajorRouteQuery route_query;
   route_query.runtime_enabled = true;
+  route_query.short_prompt_admission_enabled =
+      short_prefill_layer_major_environment_enabled();
+  route_query.authenticated_a4_k128 =
+      authenticated_a4w4_k128_prefill_enabled();
   route_query.projection_backend = projection_backend_;
   route_query.capture_trace = trace_enabled_;
   route_query.prompt_token_count = prompt_token_count;
@@ -6420,7 +6424,9 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
       use_long_prefill_projection_span_route(
           prompt_token_count, projection_span_capacity,
           a4_inventory_enabled,
-          optimized_prefill_dispatch_disabled());
+          optimized_prefill_dispatch_disabled(),
+          route_query.short_prompt_admission_enabled,
+          route_query.authenticated_a4_k128);
   if (projection_span_selected) {
     LongPrefillProjectionSpanOptions span_options;
     span_options.prompt_token_count = prompt_token_count;

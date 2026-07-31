@@ -93,11 +93,18 @@ bool long_prefill_layer_major_build_enabled() noexcept {
 
 LongPrefillLayerMajorRoute select_long_prefill_layer_major_route(
     const LongPrefillLayerMajorRouteQuery& query) noexcept {
+  const bool long_prompt =
+      query.prompt_token_count > kLongPrefillLayerMajorTileTokens;
+  const bool admitted_short_prompt =
+      query.short_prompt_admission_enabled &&
+      query.authenticated_a4_k128 &&
+      query.prompt_token_count >= kShortPrefillLayerMajorMinimumTokens &&
+      query.prompt_token_count <= kLongPrefillLayerMajorTileTokens;
   const bool selected =
       long_prefill_layer_major_build_enabled() && query.runtime_enabled &&
       query.projection_backend == ProjectionBackend::kSm87WeightOnly &&
       !query.capture_trace &&
-      query.prompt_token_count > kLongPrefillLayerMajorTileTokens &&
+      (long_prompt || admitted_short_prompt) &&
       query.prompt_token_count <= kLongPrefillLayerMajorMaximumTokens &&
       query.prefill_chunk_size == kLongPrefillLayerMajorTileTokens &&
       query.hidden_token_capacity >= query.prompt_token_count &&

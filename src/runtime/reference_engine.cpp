@@ -3351,7 +3351,8 @@ namespace reference_engine_detail {
 
 RequestMemoryOptions derive_optimized_prefill_request_memory_options(
     const RequestMemoryOptions& requested,
-    const bool prefill_a4_requested) noexcept {
+    const bool prefill_a4_requested,
+    const bool short_prefill_layer_major_requested) noexcept {
   RequestMemoryOptions derived = requested;
   if (!prefill_a4_requested) {
     return derived;
@@ -3360,8 +3361,13 @@ RequestMemoryOptions derive_optimized_prefill_request_memory_options(
   derived.enable_a4_prefill_workspace = true;
   derived.long_prefill_token_capacity = 0U;
   derived.long_prefill_projection_span_capacity = 0U;
+  const bool admits_long_prompt =
+      derived.max_sequence_length > kLongPrefillLayerMajorTileTokens;
+  const bool reserves_short_prompt_boundary =
+      short_prefill_layer_major_requested &&
+      derived.max_sequence_length == kLongPrefillLayerMajorTileTokens;
   if (derived.prefill_chunk_size != kLongPrefillLayerMajorTileTokens ||
-      derived.max_sequence_length <= kLongPrefillLayerMajorTileTokens) {
+      (!admits_long_prompt && !reserves_short_prompt_boundary)) {
     return derived;
   }
 
@@ -3499,7 +3505,8 @@ struct ReferenceEngine::Impl {
     const RequestMemoryOptions request_options =
         reference_engine_detail::
             derive_optimized_prefill_request_memory_options(
-                options.request_options, prefill_a4_paths.requested);
+                options.request_options, prefill_a4_paths.requested,
+                short_prefill_layer_major_environment_enabled());
     const Clock::time_point build_begin = Clock::now();
     if (std::optional<ReferenceEngineDiagnostic> diagnostic =
             sm87_device_diagnostic(options.projection_backend)) {
@@ -4440,6 +4447,10 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
     LongPrefillLayerMajorRouteQuery long_prefill_query;
     long_prefill_query.runtime_enabled =
         long_prefill_layer_major_environment_enabled();
+    long_prefill_query.short_prompt_admission_enabled =
+        short_prefill_layer_major_environment_enabled();
+    long_prefill_query.authenticated_a4_k128 =
+        impl_->runner->authenticated_a4w4_k128_prefill_enabled();
     long_prefill_query.projection_backend =
         impl_->runner->projection_backend();
     long_prefill_query.capture_trace = options.capture_trace;

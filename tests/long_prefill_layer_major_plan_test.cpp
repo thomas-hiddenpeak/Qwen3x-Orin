@@ -234,6 +234,26 @@ void test_route_gate(TestContext& test) {
   candidate = query;
   candidate.prompt_token_count = 512U;
   test.expect(falls_back(candidate), "short C512 prompt falls back");
+  candidate.short_prompt_admission_enabled = true;
+  candidate.authenticated_a4_k128 = true;
+  test.expect(!falls_back(candidate),
+              "explicit authenticated K128 short admission selects P512");
+  candidate.prompt_token_count =
+      runtime::kShortPrefillLayerMajorMinimumTokens;
+  test.expect(!falls_back(candidate),
+              "authenticated K128 short admission includes P480");
+  candidate.prompt_token_count =
+      runtime::kShortPrefillLayerMajorMinimumTokens - 1U;
+  test.expect(falls_back(candidate),
+              "authenticated K128 short admission excludes P479");
+  candidate.prompt_token_count = 512U;
+  candidate.authenticated_a4_k128 = false;
+  test.expect(falls_back(candidate),
+              "short admission never selects a non-K128 inventory");
+  candidate.authenticated_a4_k128 = true;
+  candidate.short_prompt_admission_enabled = false;
+  test.expect(falls_back(candidate),
+              "authenticated K128 remains on default short fallback");
   candidate = query;
   candidate.prompt_token_count = 40'961U;
   candidate.hidden_token_capacity = 40'961U;
@@ -377,6 +397,31 @@ void test_tail_and_invalid_plans(TestContext& test) {
                   result.value->work_item_count == 128U &&
                   result.value->tail_token_count == 1U,
               "P513 plan keeps C512 plus an exact one-token tail");
+
+  options.prompt_token_count = 480U;
+  options.hidden_token_capacity = 512U;
+  result = runtime::build_long_prefill_layer_major_plan(options);
+  runtime::LongPrefillLayerMajorWorkItem short_item;
+  const bool has_short_item =
+      result && runtime::long_prefill_layer_major_work_item(
+                    *result.value, 0U, short_item);
+  test.expect(has_short_item && result.value->tile_count == 1U &&
+                  result.value->full_tile_count == 0U &&
+                  result.value->tail_token_count == 480U &&
+                  result.value->work_item_count == 64U &&
+                  short_item.first_position == 0U &&
+                  short_item.token_count == 480U &&
+                  short_item.first_tile_for_layer &&
+                  short_item.last_tile_for_layer,
+              "P480 plan is one exact layer-major state tile");
+
+  options.prompt_token_count = 512U;
+  result = runtime::build_long_prefill_layer_major_plan(options);
+  test.expect(result && result.value->tile_count == 1U &&
+                  result.value->full_tile_count == 1U &&
+                  result.value->tail_token_count == 0U &&
+                  result.value->work_item_count == 64U,
+              "P512 plan is one complete layer-major state tile");
 
   options.prompt_token_count = 0U;
   result = runtime::build_long_prefill_layer_major_plan(options);
@@ -546,6 +591,14 @@ void test_projection_span_schedule_case(
 }
 
 void test_projection_span_schedules(TestContext& test) {
+  test_projection_span_schedule_case(
+      test, 480U, 512U, 1U, 0U, 480U, 1U, 0U, 480U,
+      "P480 short whole-M plan is one natural S480 projection span",
+      "P480 keeps one exact C480 state tile despite padded K128 projection");
+  test_projection_span_schedule_case(
+      test, 512U, 512U, 1U, 1U, 0U, 1U, 1U, 0U,
+      "P512 short whole-M plan is one full projection span",
+      "P512 keeps one exact complete C512 state tile");
   test_projection_span_schedule_case(
       test, 513U, runtime::kLongPrefillProjectionSpanDefaultTokens, 1U, 0U,
       513U, 2U, 1U, 1U,

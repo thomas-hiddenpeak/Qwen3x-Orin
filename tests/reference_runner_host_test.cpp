@@ -1428,6 +1428,8 @@ void test_a4w4_full_prefill_admission_controls(TestContext& test) {
       "K128 dispatch admits only complete M64 spans including P40000");
   const auto p1853 =
       detail::a4w4_projection_span_padding_plan(k128, 1'853U, 4'096U);
+  const auto p481 =
+      detail::a4w4_projection_span_padding_plan(k128, 481U, 512U);
   const auto p3987 =
       detail::a4w4_projection_span_padding_plan(k128, 3'987U, 4'096U);
   const auto p40959_tail =
@@ -1435,7 +1437,10 @@ void test_a4w4_full_prefill_admission_controls(TestContext& test) {
   const auto p40960_span =
       detail::a4w4_projection_span_padding_plan(k128, 4'096U, 4'096U);
   test.expect(
-      p1853.valid() && p1853.logical_token_count == 1'853U &&
+      p481.valid() && p481.logical_token_count == 481U &&
+          p481.projection_token_count == 512U &&
+          p481.padding_token_count == 31U && p1853.valid() &&
+          p1853.logical_token_count == 1'853U &&
           p1853.projection_token_count == 1'856U &&
           p1853.padding_token_count == 3U && p3987.valid() &&
           p3987.projection_token_count == 4'032U &&
@@ -1443,9 +1448,11 @@ void test_a4w4_full_prefill_admission_controls(TestContext& test) {
           p40959_tail.projection_token_count == 4'096U &&
           p40959_tail.padding_token_count == 1U && p40960_span.valid() &&
           p40960_span.padding_token_count == 0U,
-      "K128 whole-M padding maps P1853/P3987/P40959 tails inside S4096");
+      "K128 whole-M padding maps P481/P1853/P3987/P40959 inside capacity");
   test.expect(
       detail::a4w4_prefill_consumer_supports_projection_span_prompt(
+          k128, 481U, 512U) &&
+          detail::a4w4_prefill_consumer_supports_projection_span_prompt(
           k128, 1'853U, 4'096U) &&
           detail::a4w4_prefill_consumer_supports_projection_span_prompt(
               k128, 3'987U, 4'096U) &&
