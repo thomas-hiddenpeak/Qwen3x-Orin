@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <cstring>
 #include <iostream>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -692,6 +693,286 @@ class DeviceBuffer final {
   return true;
 }
 
+[[nodiscard]] bool run_shared_k128_projection() {
+  constexpr std::size_t m_count = 64U;
+  constexpr std::size_t n_count = 256U;
+  constexpr std::size_t k_count = 256U;
+  constexpr std::size_t output_stride = n_count + 8U;
+  constexpr std::size_t k128_groups = k_count / 128U;
+  constexpr std::size_t physical_k64_groups = k_count / 64U;
+  constexpr std::size_t a_bytes =
+      kernels::sm87_a4w4_consumer_packed_capacity_bytes(m_count, k_count);
+  constexpr std::size_t a_scale_elements =
+      kernels::sm87_a4w4_consumer_k128_scale_capacity_elements(m_count,
+                                                               k_count);
+  constexpr std::size_t b_bytes =
+      kernels::sm87_a4w4_consumer_packed_capacity_bytes(n_count, k_count);
+  constexpr std::size_t b_scale_elements =
+      kernels::sm87_a4w4_consumer_k128_scale_capacity_elements(n_count,
+                                                               k_count);
+  static_assert(kernels::sm87_a4w4_prefill_gemm_k128_plan(
+                    m_count, n_count, k_count)
+                    .launch_ctas == 1U);
+  static_assert(k128_groups == 2U && physical_k64_groups == 4U);
+
+  std::vector<std::uint16_t> input(m_count * k_count);
+  for (std::size_t m = 0U; m < m_count; ++m) {
+    for (std::size_t k = 0U; k < k_count; ++k) {
+      const int centered =
+          static_cast<int>((23U * m + 17U * k + 5U) % 61U) - 30;
+      input[m * k_count + k] =
+          encode_bf16(static_cast<float>(centered) / 16.0F);
+    }
+  }
+
+  std::vector<std::uint8_t> packed_b(b_bytes);
+  for (std::size_t n = 0U; n < n_count; ++n) {
+    for (std::size_t k = 0U; k < k_count; k += 2U) {
+      const int even =
+          static_cast<int>((11U * n + 7U * k + 3U) % 15U) - 7;
+      const int odd =
+          static_cast<int>((19U * n + 5U * (k + 1U) + 1U) % 15U) - 7;
+      const std::size_t physical_group = k / 64U;
+      packed_b[kernels::sm87_a4w4_consumer_packed_offset(
+          n, physical_group, (k % 64U) / 2U,
+          physical_k64_groups)] =
+          kernels::sm87_a4w4_pack_signed_pair(even, odd);
+    }
+  }
+  std::vector<std::uint16_t> b_scales(b_scale_elements);
+  for (std::size_t n = 0U; n < n_count; ++n) {
+    for (std::size_t group = 0U; group < k128_groups; ++group) {
+      b_scales[kernels::sm87_a4w4_consumer_k128_scale_offset(
+          n, group, k128_groups)] = encode_bf16(
+          static_cast<float>(1U + ((3U * n + group) % 7U)) / 64.0F);
+    }
+  }
+
+  DeviceBuffer<std::uint16_t> device_input;
+  DeviceBuffer<std::uint8_t> device_a;
+  DeviceBuffer<std::uint16_t> device_a_scales;
+  DeviceBuffer<std::uint8_t> device_b;
+  DeviceBuffer<std::uint16_t> device_b_scales;
+  DeviceBuffer<std::uint16_t> device_output;
+  if (!device_input.allocate(input.size()) ||
+      !device_a.allocate(a_bytes) ||
+      !device_a_scales.allocate(a_scale_elements) ||
+      !device_b.allocate(b_bytes) ||
+      !device_b_scales.allocate(b_scale_elements) ||
+      !device_output.allocate(m_count * output_stride)) {
+    std::cerr << "K128 device allocation failed\n";
+    return false;
+  }
+  if (!cuda_ok(cudaMemcpy(device_input.get(), input.data(),
+                          input.size() * sizeof(input[0]),
+                          cudaMemcpyHostToDevice),
+               "copy K128 input") ||
+      !cuda_ok(cudaMemcpy(device_b.get(), packed_b.data(), packed_b.size(),
+                          cudaMemcpyHostToDevice),
+               "copy K128 B") ||
+      !cuda_ok(cudaMemcpy(device_b_scales.get(), b_scales.data(),
+                          b_scales.size() * sizeof(b_scales[0]),
+                          cudaMemcpyHostToDevice),
+               "copy K128 B scales") ||
+      !cuda_ok(cudaMemset(device_output.get(), 0x5a,
+                          m_count * output_stride *
+                              sizeof(std::uint16_t)),
+               "initialize K128 output guard")) {
+    return false;
+  }
+
+  const int overflow_status =
+      kernels::launch_sm87_a4_quantize_bf16_k128_cuda(
+          device_input.get(), k_count,
+          std::numeric_limits<std::size_t>::max(), k_count, 1.0F,
+          device_a.get(), a_bytes, device_a_scales.get(), a_scale_elements);
+  if (overflow_status != static_cast<int>(cudaErrorInvalidValue)) {
+    std::cerr << "K128 quantizer overflow shape was not rejected\n";
+    return false;
+  }
+  const int short_quant_capacity_status =
+      kernels::launch_sm87_a4_quantize_bf16_k128_cuda(
+          device_input.get(), k_count, m_count, k_count, 1.0F,
+          device_a.get(), a_bytes - 1U, device_a_scales.get(),
+          a_scale_elements);
+  if (short_quant_capacity_status !=
+      static_cast<int>(cudaErrorInvalidValue)) {
+    std::cerr << "K128 quantizer short packed capacity was not rejected\n";
+    return false;
+  }
+  const int short_scale_status =
+      kernels::launch_sm87_a4w4_prefill_gemm_k128_bf16_cuda(
+          device_a.get(), a_bytes, device_a_scales.get(),
+          a_scale_elements - 1U, device_b.get(), b_bytes,
+          device_b_scales.get(), b_scale_elements, m_count, n_count,
+          k_count, device_output.get(), output_stride);
+  if (short_scale_status != static_cast<int>(cudaErrorInvalidValue)) {
+    std::cerr << "K128 projection short scale capacity was not rejected\n";
+    return false;
+  }
+
+  kernels::Sm87A4W4PrefillGemmResources resources{};
+  if (!launch_ok(kernels::query_sm87_a4w4_prefill_gemm_k128_resources_cuda(
+                     &resources),
+                 "query K128 projection resources")) {
+    return false;
+  }
+  if (resources.registers_per_thread > 128 ||
+      resources.active_blocks_per_sm < 2 || resources.local_bytes != 0U ||
+      resources.static_shared_bytes != 42'240U) {
+    std::cerr << "K128 resource contract failed: registers="
+              << resources.registers_per_thread
+              << " shared=" << resources.static_shared_bytes
+              << " local=" << resources.local_bytes
+              << " active_blocks=" << resources.active_blocks_per_sm
+              << '\n';
+    return false;
+  }
+
+  if (!launch_ok(kernels::launch_sm87_a4_quantize_bf16_k128_cuda(
+                     device_input.get(), k_count, m_count, k_count, 1.0F,
+                     device_a.get(), a_bytes, device_a_scales.get(),
+                     a_scale_elements),
+                 "quantize shared-K128 A4") ||
+      !launch_ok(kernels::launch_sm87_a4w4_prefill_gemm_k128_bf16_cuda(
+                     device_a.get(), a_bytes, device_a_scales.get(),
+                     a_scale_elements, device_b.get(), b_bytes,
+                     device_b_scales.get(), b_scale_elements, m_count,
+                     n_count, k_count, device_output.get(), output_stride),
+                 "launch shared-K128 projection") ||
+      !cuda_ok(cudaDeviceSynchronize(),
+               "synchronize shared-K128 projection")) {
+    return false;
+  }
+
+  std::vector<std::uint8_t> packed_a(a_bytes);
+  std::vector<std::uint16_t> a_scales(a_scale_elements);
+  std::vector<std::uint16_t> output(m_count * output_stride);
+  if (!cuda_ok(cudaMemcpy(packed_a.data(), device_a.get(), packed_a.size(),
+                          cudaMemcpyDeviceToHost),
+               "copy K128 packed A") ||
+      !cuda_ok(cudaMemcpy(a_scales.data(), device_a_scales.get(),
+                          a_scales.size() * sizeof(a_scales[0]),
+                          cudaMemcpyDeviceToHost),
+               "copy K128 A scales") ||
+      !cuda_ok(cudaMemcpy(output.data(), device_output.get(),
+                          output.size() * sizeof(output[0]),
+                          cudaMemcpyDeviceToHost),
+               "copy K128 output")) {
+    return false;
+  }
+
+  for (std::size_t m = 0U; m < m_count; ++m) {
+    for (std::size_t group = 0U; group < k128_groups; ++group) {
+      float maximum = 0.0F;
+      for (std::size_t inner = 0U; inner < 128U; ++inner) {
+        maximum = std::fmax(
+            maximum,
+            std::fabs(decode_bf16(
+                input[m * k_count + group * 128U + inner])));
+      }
+      std::uint16_t expected_scale =
+          encode_bf16(maximum == 0.0F ? 1.0F : maximum / 7.0F);
+      float stored_scale = decode_bf16(expected_scale);
+      if (maximum != 0.0F && stored_scale == 0.0F) {
+        expected_scale = 1U;
+        stored_scale = decode_bf16(expected_scale);
+      }
+      const std::size_t scale_offset =
+          kernels::sm87_a4w4_consumer_k128_scale_offset(
+              m, group, k128_groups);
+      if (a_scales[scale_offset] != expected_scale) {
+        std::cerr << "K128 dynamic scale mismatch m=" << m
+                  << " group=" << group << '\n';
+        return false;
+      }
+      for (std::size_t inner = 0U; inner < 128U; ++inner) {
+        const std::size_t k = group * 128U + inner;
+        const float value = decode_bf16(input[m * k_count + k]);
+        const int expected_code = stored_scale == 0.0F
+                                      ? 0
+                                      : std::max(
+                                            -7,
+                                            std::min(
+                                                7,
+                                                static_cast<int>(
+                                                    std::nearbyint(
+                                                        value /
+                                                        stored_scale))));
+        const std::size_t physical_group = k / 64U;
+        const int actual_code = kernels::sm87_a4w4_unpack_signed(
+            packed_a[kernels::sm87_a4w4_consumer_packed_offset(
+                m, physical_group, (k % 64U) / 2U,
+                physical_k64_groups)],
+            k);
+        if (actual_code != expected_code) {
+          std::cerr << "K128 dynamic code mismatch m=" << m
+                    << " k=" << k << '\n';
+          return false;
+        }
+      }
+    }
+  }
+
+  std::size_t mismatches = 0U;
+  for (std::size_t m = 0U; m < m_count; ++m) {
+    for (std::size_t n = 0U; n < n_count; ++n) {
+      float expected = 0.0F;
+      for (std::size_t group = 0U; group < k128_groups; ++group) {
+        std::int32_t integer_partial = 0;
+        for (std::size_t inner = 0U; inner < 128U; ++inner) {
+          const std::size_t k = group * 128U + inner;
+          const std::size_t physical_group = k / 64U;
+          const int a = kernels::sm87_a4w4_unpack_signed(
+              packed_a[kernels::sm87_a4w4_consumer_packed_offset(
+                  m, physical_group, (k % 64U) / 2U,
+                  physical_k64_groups)],
+              k);
+          const int b = kernels::sm87_a4w4_unpack_signed(
+              packed_b[kernels::sm87_a4w4_consumer_packed_offset(
+                  n, physical_group, (k % 64U) / 2U,
+                  physical_k64_groups)],
+              k);
+          integer_partial += a * b;
+        }
+        const float scale_product =
+            decode_bf16(a_scales[
+                kernels::sm87_a4w4_consumer_k128_scale_offset(
+                    m, group, k128_groups)]) *
+            decode_bf16(b_scales[
+                kernels::sm87_a4w4_consumer_k128_scale_offset(
+                    n, group, k128_groups)]);
+        expected += static_cast<float>(integer_partial) * scale_product;
+      }
+      const std::uint16_t expected_bits = encode_bf16(expected);
+      if (output[m * output_stride + n] != expected_bits) {
+        ++mismatches;
+        if (mismatches <= 8U) {
+          std::cerr << "shared-K128 mismatch m=" << m << " n=" << n
+                    << " expected=" << decode_bf16(expected_bits)
+                    << " actual="
+                    << decode_bf16(output[m * output_stride + n]) << '\n';
+        }
+      }
+    }
+    for (std::size_t n = n_count; n < output_stride; ++n) {
+      if (output[m * output_stride + n] != 0x5a5aU) {
+        ++mismatches;
+      }
+    }
+  }
+  if (mismatches != 0U) {
+    std::cerr << "shared-K128 projection mismatches=" << mismatches << '\n';
+    return false;
+  }
+  std::cout << "SM87 A4W4 shared-K128 projection passed: M=" << m_count
+            << " N=" << n_count << " K=" << k_count
+            << " registers=" << resources.registers_per_thread
+            << " active_blocks_per_sm=" << resources.active_blocks_per_sm
+            << '\n';
+  return true;
+}
+
 }  // namespace
 
 int main() {
@@ -699,7 +980,7 @@ int main() {
     return 77;
   }
   return run_projection() && run_large_m_projection() &&
-                 run_wide_m_projection()
+                 run_wide_m_projection() && run_shared_k128_projection()
              ? 0
              : 1;
 }

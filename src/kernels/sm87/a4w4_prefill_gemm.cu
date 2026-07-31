@@ -54,6 +54,17 @@ struct alignas(16) Sm87A4W4M64N256K128Stage final {
   Sm87A4W4M64N256K64Stage group[2U];
 };
 
+// K128 scale-plane stage.  Packed codes remain two independently swizzled
+// K64 planes, but the scale arrays are stored once for the logical pair.
+struct alignas(16) Sm87A4W4M64N256SharedK128Stage final {
+  std::uint8_t a[kSm87A4W4PhysicalK64BlocksPerSharedScale]
+                [kWideStageABytes];
+  std::uint8_t b[kSm87A4W4PhysicalK64BlocksPerSharedScale]
+                [kWideStageBBytes];
+  std::uint16_t a_scales[kSm87A4W4PrefillK128TileM];
+  std::uint16_t b_scales[kSm87A4W4PrefillK128TileN];
+};
+
 static_assert(kStageABytes == 1'024U);
 static_assert(kStageBBytes == 4'096U);
 static_assert(sizeof(Sm87A4W4PipelineStage) == 5'440U);
@@ -64,6 +75,10 @@ static_assert(kWideStageABytes == 2'048U);
 static_assert(kWideStageBBytes == 8'192U);
 static_assert(sizeof(Sm87A4W4M64N256K64Stage) == 10'880U);
 static_assert(sizeof(Sm87A4W4M64N256K128Stage) == 21'760U);
+static_assert(sizeof(Sm87A4W4M64N256SharedK128Stage) == 21'120U);
+static_assert(sizeof(Sm87A4W4M64N256SharedK128Stage) *
+                  kSm87A4W4PrefillK128PipelineSlots <=
+              48U * 1'024U);
 
 [[nodiscard]] constexpr bool aligned(const void* const pointer,
                                      const std::size_t alignment) noexcept {
@@ -89,6 +104,17 @@ static_assert(sizeof(Sm87A4W4M64N256K128Stage) == 21'760U);
          product_fits(outer_blocks * k64_group_count *
                           kSm87A4W4ConsumerOuterBlock,
                       kSm87A4W4ConsumerPackedKBlockBytes);
+}
+
+[[nodiscard]] constexpr bool shared_k128_scale_capacity_fits(
+    const std::size_t outer_count,
+    const std::size_t k128_group_count) noexcept {
+  const std::size_t outer_blocks =
+      sm87_a4w4_consumer_outer_block_count(outer_count);
+  return outer_blocks != 0U && k128_group_count != 0U &&
+         product_fits(outer_blocks, k128_group_count) &&
+         product_fits(outer_blocks * k128_group_count,
+                      kSm87A4W4ConsumerOuterBlock);
 }
 
 [[nodiscard]] __device__ __forceinline__ float decode_bf16(
@@ -159,6 +185,76 @@ void q3x_sm87_a4_quantize_bf16_kernel(
     a_k64_scales_bf16[sm87_a4w4_consumer_scale_offset(
         row, group, k64_group_count)] =
         scale_bits;
+  }
+}
+
+extern "C" __global__ __launch_bounds__(kSm87A4W4PrefillThreads)
+void q3x_sm87_a4_quantize_bf16_k128_kernel(
+    const std::uint16_t* const input_bf16,
+    const std::size_t input_row_stride_elements,
+    const std::size_t k128_group_count,
+    const std::size_t group_count,
+    const float clip_ratio,
+    std::uint8_t* const packed_a,
+    std::uint16_t* const a_k128_scales_bf16) {
+  const unsigned int lane = threadIdx.x % kSm87A4W4WarpThreads;
+  const unsigned int warp = threadIdx.x / kSm87A4W4WarpThreads;
+  const std::size_t group_ordinal =
+      static_cast<std::size_t>(blockIdx.x) * kSm87A4W4PrefillWarps + warp;
+  if (group_ordinal >= group_count) {
+    return;
+  }
+  const std::size_t row = group_ordinal / k128_group_count;
+  const std::size_t group = group_ordinal - row * k128_group_count;
+  const std::size_t input_offset =
+      row * input_row_stride_elements +
+      group * kSm87A4W4PrefillK128TileK + 4U * lane;
+  float values[4U] = {
+      decode_bf16(input_bf16[input_offset]),
+      decode_bf16(input_bf16[input_offset + 1U]),
+      decode_bf16(input_bf16[input_offset + 2U]),
+      decode_bf16(input_bf16[input_offset + 3U])};
+  float maximum = fmaxf(
+      fmaxf(fabsf(values[0U]), fabsf(values[1U])),
+      fmaxf(fabsf(values[2U]), fabsf(values[3U])));
+#pragma unroll
+  for (unsigned int delta = 16U; delta != 0U; delta /= 2U) {
+    maximum =
+        fmaxf(maximum, __shfl_down_sync(0xffffffffU, maximum, delta));
+  }
+  maximum = __shfl_sync(0xffffffffU, maximum, 0U);
+  const float clipped_maximum = maximum * clip_ratio;
+  std::uint16_t scale_bits =
+      encode_bf16(maximum == 0.0F ? 1.0F : clipped_maximum / 7.0F);
+  float stored_scale = decode_bf16(scale_bits);
+  if (maximum != 0.0F && stored_scale == 0.0F) {
+    scale_bits = 1U;
+    stored_scale = decode_bf16(scale_bits);
+  }
+  int codes[4U];
+#pragma unroll
+  for (unsigned int index = 0U; index < 4U; ++index) {
+    const float clipped =
+        fminf(fmaxf(values[index], -clipped_maximum), clipped_maximum);
+    const int rounded = stored_scale == 0.0F
+                            ? 0
+                            : __float2int_rn(clipped / stored_scale);
+    codes[index] = rounded < -7 ? -7 : (rounded > 7 ? 7 : rounded);
+  }
+  const std::size_t physical_k64_group_count =
+      k128_group_count * kSm87A4W4PhysicalK64BlocksPerSharedScale;
+  const std::size_t physical_group =
+      group * kSm87A4W4PhysicalK64BlocksPerSharedScale + lane / 16U;
+  const std::size_t first_byte = 2U * (lane % 16U);
+  packed_a[sm87_a4w4_consumer_packed_offset(
+      row, physical_group, first_byte, physical_k64_group_count)] =
+      sm87_a4w4_pack_signed_pair(codes[0U], codes[1U]);
+  packed_a[sm87_a4w4_consumer_packed_offset(
+      row, physical_group, first_byte + 1U, physical_k64_group_count)] =
+      sm87_a4w4_pack_signed_pair(codes[2U], codes[3U]);
+  if (lane == 0U) {
+    a_k128_scales_bf16[sm87_a4w4_consumer_k128_scale_offset(
+        row, group, k128_group_count)] = scale_bits;
   }
 }
 
@@ -392,6 +488,75 @@ __device__ __forceinline__ void prefetch_m64n256_k128_stage(
                   global_n, k64_group, k64_group_count)]
             : static_cast<std::uint16_t>(0U);
   }
+  cp_async_commit();
+}
+
+__device__ __forceinline__ void prefetch_m64n256_shared_k128_stage(
+    Sm87A4W4M64N256SharedK128Stage& stage,
+    const std::uint8_t* const packed_a,
+    const std::uint16_t* const a_k128_scales_bf16,
+    const std::uint8_t* const packed_b,
+    const std::uint16_t* const b_k128_scales_bf16,
+    const unsigned int m_tile_start,
+    const unsigned int n_tile_start,
+    const unsigned int k128_group,
+    const unsigned int physical_k64_group_count,
+    const unsigned int k128_group_count) noexcept {
+  constexpr std::size_t kVectorsPerPhysicalK64 =
+      (kWideStageABytes + kWideStageBBytes) / 16U;
+  constexpr std::size_t kVectorCount =
+      kSm87A4W4PhysicalK64BlocksPerSharedScale *
+      kVectorsPerPhysicalK64;
+  static_assert(kVectorsPerPhysicalK64 == 640U);
+  static_assert(kVectorCount == 5U * kSm87A4W4PrefillThreads);
+
+  for (std::size_t vector = threadIdx.x; vector < kVectorCount;
+       vector += blockDim.x) {
+    const std::size_t half = vector / kVectorsPerPhysicalK64;
+    const std::size_t group_vector =
+        vector - half * kVectorsPerPhysicalK64;
+    const std::size_t physical_group =
+        static_cast<std::size_t>(k128_group) *
+            kSm87A4W4PhysicalK64BlocksPerSharedScale +
+        half;
+    if (group_vector < kWideStageABytes / 16U) {
+      const std::size_t row = group_vector / 2U;
+      const std::size_t row_vector = group_vector % 2U;
+      const std::uint8_t* const source =
+          packed_a + sm87_a4w4_consumer_packed_offset(
+                         static_cast<std::size_t>(m_tile_start) + row,
+                         physical_group, row_vector * 16U,
+                         physical_k64_group_count);
+      cp_async_16(
+          stage.a[half] + sm87_a4w4_swizzled_k64_byte_offset(
+                              row, row_vector * 16U),
+          source, 16U);
+    } else {
+      const std::size_t b_vector =
+          group_vector - kWideStageABytes / 16U;
+      const std::size_t row = b_vector / 2U;
+      const std::size_t row_vector = b_vector % 2U;
+      const std::uint8_t* const source =
+          packed_b + sm87_a4w4_consumer_packed_offset(
+                         static_cast<std::size_t>(n_tile_start) + row,
+                         physical_group, row_vector * 16U,
+                         physical_k64_group_count);
+      cp_async_16(
+          stage.b[half] + sm87_a4w4_swizzled_k64_byte_offset(
+                              row, row_vector * 16U),
+          source, 16U);
+    }
+  }
+  if (threadIdx.x < kSm87A4W4PrefillK128TileM) {
+    stage.a_scales[threadIdx.x] =
+        a_k128_scales_bf16[sm87_a4w4_consumer_k128_scale_offset(
+            static_cast<std::size_t>(m_tile_start) + threadIdx.x,
+            k128_group, k128_group_count)];
+  }
+  stage.b_scales[threadIdx.x] =
+      b_k128_scales_bf16[sm87_a4w4_consumer_k128_scale_offset(
+          static_cast<std::size_t>(n_tile_start) + threadIdx.x,
+          k128_group, k128_group_count)];
   cp_async_commit();
 }
 
@@ -761,6 +926,134 @@ void q3x_sm87_a4w4_prefill_gemm_m64n256_kernel(
   }
 }
 
+extern "C" __global__
+    __launch_bounds__(kSm87A4W4PrefillThreads,
+                      kSm87A4W4PrefillCtasPerSm)
+void q3x_sm87_a4w4_prefill_gemm_m64n256_shared_k128_kernel(
+    const std::uint8_t* const packed_a,
+    const std::uint16_t* const a_k128_scales_bf16,
+    const std::uint8_t* const packed_b,
+    const std::uint16_t* const b_k128_scales_bf16,
+    const unsigned int k128_group_count,
+    const unsigned int physical_k64_group_count,
+    std::uint16_t* const output_bf16,
+    const unsigned int output_row_stride_elements,
+    const unsigned int m_tile_count,
+    const unsigned int n_tile_count) {
+  __shared__ Sm87A4W4M64N256SharedK128Stage
+      pipeline[kSm87A4W4PrefillK128PipelineSlots];
+
+  const unsigned int lane = threadIdx.x % kSm87A4W4WarpThreads;
+  const unsigned int warp = threadIdx.x / kSm87A4W4WarpThreads;
+  // Four M16 panels by two N128 panels cover M64N256.  Keeping M ownership
+  // to one panel removes a live M-panel selector from the register-saturated
+  // K128 inner loop without changing per-warp output cardinality.
+  const unsigned int warp_m = warp / 2U;
+  const unsigned int warp_n = warp % 2U;
+
+  for (unsigned int n_tile = 0U; n_tile < n_tile_count; ++n_tile) {
+    for (unsigned int m_tile = blockIdx.x; m_tile < m_tile_count;
+         m_tile += gridDim.x) {
+      const unsigned int m_tile_start =
+          m_tile * kSm87A4W4PrefillK128TileM;
+      const unsigned int n_tile_start =
+          n_tile * kSm87A4W4PrefillK128TileN;
+      float accumulators[16U][4U]{};
+
+      prefetch_m64n256_shared_k128_stage(
+          pipeline[0U], packed_a, a_k128_scales_bf16, packed_b,
+          b_k128_scales_bf16, m_tile_start, n_tile_start, 0U,
+          physical_k64_group_count, k128_group_count);
+      cp_async_wait<0>();
+      __syncthreads();
+
+      for (unsigned int group = 0U; group < k128_group_count; ++group) {
+        const bool has_next = group + 1U < k128_group_count;
+        if (has_next) {
+          prefetch_m64n256_shared_k128_stage(
+              pipeline[(group + 1U) %
+                       kSm87A4W4PrefillK128PipelineSlots],
+              packed_a, a_k128_scales_bf16, packed_b,
+              b_k128_scales_bf16, m_tile_start, n_tile_start, group + 1U,
+              physical_k64_group_count, k128_group_count);
+        }
+
+        const Sm87A4W4M64N256SharedK128Stage& stage =
+            pipeline[group % kSm87A4W4PrefillK128PipelineSlots];
+        const unsigned int fragment_m_start = warp_m * 16U;
+#pragma unroll
+        for (unsigned int fragment_n = 0U; fragment_n < 16U;
+             ++fragment_n) {
+            const unsigned int fragment_n_start =
+                warp_n * 128U + fragment_n * 8U;
+            Sm87A4W4Accumulator partial{};
+#pragma unroll
+            for (unsigned int half = 0U;
+                 half < kSm87A4W4PhysicalK64BlocksPerSharedScale;
+                 ++half) {
+              const Sm87A4W4AFragment a =
+                  sm87_a4w4_load_a_fragment_swizzled_shared(
+                      stage.a[half] +
+                          fragment_m_start * kPackedK64Bytes,
+                      lane);
+              const Sm87A4W4BFragment b =
+                  sm87_a4w4_load_b_fragment_swizzled_shared(
+                      stage.b[half] +
+                          fragment_n_start * kPackedK64Bytes,
+                      lane);
+              // The second native K64 MMA consumes the first MMA's S32
+              // result as C. No conversion or scaling occurs between them.
+              sm87_a4w4_mma_m16n8k64(partial, a, b);
+            }
+            const std::int32_t integer_partial[4U] = {
+                partial.x0, partial.x1, partial.x2, partial.x3};
+#pragma unroll
+            for (unsigned int output = 0U; output < 4U; ++output) {
+              const Sm87A4W4AccumulatorCoordinate coordinate =
+                  sm87_a4w4_accumulator_coordinate(lane, output);
+              const unsigned int local_m =
+                  fragment_m_start + coordinate.m;
+              const unsigned int local_n =
+                  fragment_n_start + coordinate.n;
+              const float scale_product =
+                  decode_bf16(stage.a_scales[local_m]) *
+                  decode_bf16(stage.b_scales[local_n]);
+              // Exactly one S32->FP32 conversion follows the paired MMAs.
+              accumulators[fragment_n][output] +=
+                  static_cast<float>(integer_partial[output]) *
+                  scale_product;
+            }
+        }
+        if (has_next) {
+          cp_async_wait<0>();
+        }
+        __syncthreads();
+      }
+
+#pragma unroll
+      for (unsigned int fragment_n = 0U; fragment_n < 16U; ++fragment_n) {
+#pragma unroll
+        for (unsigned int output = 0U; output < 4U; ++output) {
+            const Sm87A4W4AccumulatorCoordinate coordinate =
+                sm87_a4w4_accumulator_coordinate(lane, output);
+            const unsigned int global_m =
+                m_tile_start + warp_m * 16U + coordinate.m;
+            const unsigned int global_n =
+                n_tile_start + warp_n * 128U + fragment_n * 8U +
+                coordinate.n;
+            const std::size_t output_offset =
+                static_cast<std::size_t>(global_m) *
+                    output_row_stride_elements +
+                global_n;
+            output_bf16[output_offset] =
+                encode_bf16(accumulators[fragment_n][output]);
+        }
+      }
+      __syncthreads();
+    }
+  }
+}
+
 [[nodiscard]] int validate_sm87(
     cudaDeviceProp* const properties = nullptr) noexcept {
   int device = -1;
@@ -835,6 +1128,69 @@ int launch_sm87_a4_quantize_bf16_cuda(
       static_cast<unsigned int>(kSm87A4W4PrefillThreads), 0U, stream>>>(
       input_bf16, input_row_stride_elements, k64_groups, group_count,
       clip_ratio, packed_a, a_k64_scales_bf16);
+  return static_cast<int>(cudaPeekAtLastError());
+}
+
+int launch_sm87_a4_quantize_bf16_k128_cuda(
+    const std::uint16_t* const input_bf16,
+    const std::size_t input_row_stride_elements,
+    const std::size_t token_count,
+    const std::size_t input_size,
+    const float clip_ratio,
+    std::uint8_t* const packed_a,
+    const std::size_t packed_a_capacity_bytes,
+    std::uint16_t* const a_k128_scales_bf16,
+    const std::size_t a_scale_capacity_elements,
+    void* const cuda_stream) noexcept {
+  if (token_count == 0U || input_size == 0U ||
+      input_size % kSm87A4W4PrefillK128TileK != 0U ||
+      !(clip_ratio > 0.0F && clip_ratio <= 1.0F) ||
+      !aligned(input_bf16, alignof(std::uint16_t)) ||
+      !aligned(packed_a, 16U) ||
+      !aligned(a_k128_scales_bf16, alignof(std::uint16_t)) ||
+      input_row_stride_elements < input_size ||
+      !product_fits(token_count, input_row_stride_elements)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const std::size_t k128_groups =
+      input_size / kSm87A4W4PrefillK128TileK;
+  if (!product_fits(k128_groups,
+                    kSm87A4W4PhysicalK64BlocksPerSharedScale)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const std::size_t physical_k64_groups =
+      k128_groups * kSm87A4W4PhysicalK64BlocksPerSharedScale;
+  if (!consumer_capacity_fits(token_count, physical_k64_groups) ||
+      !shared_k128_scale_capacity_fits(token_count, k128_groups) ||
+      !product_fits(token_count, k128_groups)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const std::size_t required_packed_bytes =
+      sm87_a4w4_consumer_packed_capacity_bytes(token_count, input_size);
+  const std::size_t required_scale_elements =
+      sm87_a4w4_consumer_k128_scale_capacity_elements(token_count,
+                                                       input_size);
+  if (required_packed_bytes == 0U || required_scale_elements == 0U ||
+      packed_a_capacity_bytes < required_packed_bytes ||
+      a_scale_capacity_elements < required_scale_elements) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const std::size_t group_count = token_count * k128_groups;
+  const std::size_t blocks =
+      sm87_a4w4_ceil_div(group_count, kSm87A4W4PrefillWarps);
+  if (blocks == 0U || blocks > std::numeric_limits<unsigned int>::max()) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const int device_status = validate_sm87();
+  if (device_status != static_cast<int>(cudaSuccess)) {
+    return device_status;
+  }
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  q3x_sm87_a4_quantize_bf16_k128_kernel<<<
+      static_cast<unsigned int>(blocks),
+      static_cast<unsigned int>(kSm87A4W4PrefillThreads), 0U, stream>>>(
+      input_bf16, input_row_stride_elements, k128_groups, group_count,
+      clip_ratio, packed_a, a_k128_scales_bf16);
   return static_cast<int>(cudaPeekAtLastError());
 }
 
@@ -964,6 +1320,135 @@ int query_sm87_a4w4_prefill_gemm_m64n256_resources_cuda(
     return static_cast<int>(cudaErrorLaunchOutOfResources);
   }
   return static_cast<int>(cudaSuccess);
+}
+
+int query_sm87_a4w4_prefill_gemm_k128_resources_cuda(
+    Sm87A4W4PrefillGemmResources* const resources) noexcept {
+  if (resources == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  *resources = Sm87A4W4PrefillGemmResources{};
+  cudaDeviceProp properties{};
+  const int device_status = validate_sm87(&properties);
+  if (device_status != static_cast<int>(cudaSuccess)) {
+    return device_status;
+  }
+  cudaFuncAttributes attributes{};
+  cudaError_t status = cudaFuncGetAttributes(
+      &attributes,
+      q3x_sm87_a4w4_prefill_gemm_m64n256_shared_k128_kernel);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  int active_blocks = 0;
+  status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+      &active_blocks,
+      q3x_sm87_a4w4_prefill_gemm_m64n256_shared_k128_kernel,
+      static_cast<int>(kSm87A4W4PrefillThreads), 0U);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  resources->registers_per_thread = attributes.numRegs;
+  resources->static_shared_bytes = attributes.sharedSizeBytes;
+  resources->dynamic_shared_bytes = attributes.maxDynamicSharedSizeBytes;
+  resources->local_bytes = attributes.localSizeBytes;
+  resources->maximum_threads_per_block = attributes.maxThreadsPerBlock;
+  resources->active_blocks_per_sm = active_blocks;
+  resources->compute_major = properties.major;
+  resources->compute_minor = properties.minor;
+
+  if (resources->registers_per_thread >
+          static_cast<int>(kSm87A4W4PrefillK128MaximumRegisters) ||
+      resources->local_bytes != 0U ||
+      resources->active_blocks_per_sm <
+          static_cast<int>(kSm87A4W4PrefillCtasPerSm) ||
+      resources->maximum_threads_per_block <
+          static_cast<int>(kSm87A4W4PrefillThreads) ||
+      resources->static_shared_bytes !=
+          sizeof(Sm87A4W4M64N256SharedK128Stage) *
+              kSm87A4W4PrefillK128PipelineSlots) {
+    return static_cast<int>(cudaErrorLaunchOutOfResources);
+  }
+  return static_cast<int>(cudaSuccess);
+}
+
+int launch_sm87_a4w4_prefill_gemm_k128_bf16_cuda(
+    const std::uint8_t* const packed_a,
+    const std::size_t packed_a_capacity_bytes,
+    const std::uint16_t* const a_k128_scales_bf16,
+    const std::size_t a_scale_capacity_elements,
+    const std::uint8_t* const packed_b,
+    const std::size_t packed_b_capacity_bytes,
+    const std::uint16_t* const b_k128_scales_bf16,
+    const std::size_t b_scale_capacity_elements,
+    const std::size_t token_count,
+    const std::size_t output_size,
+    const std::size_t input_size,
+    std::uint16_t* const output_bf16,
+    const std::size_t output_row_stride_elements,
+    void* const cuda_stream) noexcept {
+  const Sm87A4W4PrefillK128GemmPlan plan =
+      sm87_a4w4_prefill_gemm_k128_plan(token_count, output_size,
+                                       input_size);
+  if (plan.launch_ctas == 0U || !aligned(packed_a, 16U) ||
+      !aligned(a_k128_scales_bf16, alignof(std::uint16_t)) ||
+      !aligned(packed_b, 16U) ||
+      !aligned(b_k128_scales_bf16, alignof(std::uint16_t)) ||
+      !aligned(output_bf16, alignof(std::uint16_t)) ||
+      output_row_stride_elements < output_size ||
+      !product_fits(token_count, output_row_stride_elements) ||
+      !consumer_capacity_fits(token_count, plan.physical_k64_groups) ||
+      !consumer_capacity_fits(output_size, plan.physical_k64_groups) ||
+      !shared_k128_scale_capacity_fits(token_count, plan.k128_groups) ||
+      !shared_k128_scale_capacity_fits(output_size, plan.k128_groups) ||
+      plan.k128_groups > std::numeric_limits<unsigned int>::max() ||
+      plan.physical_k64_groups >
+          std::numeric_limits<unsigned int>::max() ||
+      output_row_stride_elements >
+          std::numeric_limits<unsigned int>::max() ||
+      plan.m_tiles > std::numeric_limits<unsigned int>::max() ||
+      plan.n_tiles > std::numeric_limits<unsigned int>::max()) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const std::size_t required_a_bytes =
+      sm87_a4w4_consumer_packed_capacity_bytes(token_count, input_size);
+  const std::size_t required_a_scale_elements =
+      sm87_a4w4_consumer_k128_scale_capacity_elements(token_count,
+                                                       input_size);
+  const std::size_t required_b_bytes =
+      sm87_a4w4_consumer_packed_capacity_bytes(output_size, input_size);
+  const std::size_t required_b_scale_elements =
+      sm87_a4w4_consumer_k128_scale_capacity_elements(output_size,
+                                                       input_size);
+  if (required_a_bytes == 0U || required_a_scale_elements == 0U ||
+      required_b_bytes == 0U || required_b_scale_elements == 0U ||
+      packed_a_capacity_bytes < required_a_bytes ||
+      a_scale_capacity_elements < required_a_scale_elements ||
+      packed_b_capacity_bytes < required_b_bytes ||
+      b_scale_capacity_elements < required_b_scale_elements) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const int device_status = validate_sm87();
+  if (device_status != static_cast<int>(cudaSuccess)) {
+    return device_status;
+  }
+  Sm87A4W4PrefillGemmResources resources{};
+  const int resource_status =
+      query_sm87_a4w4_prefill_gemm_k128_resources_cuda(&resources);
+  if (resource_status != static_cast<int>(cudaSuccess)) {
+    return resource_status;
+  }
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  q3x_sm87_a4w4_prefill_gemm_m64n256_shared_k128_kernel<<<
+      static_cast<unsigned int>(plan.launch_ctas),
+      static_cast<unsigned int>(kSm87A4W4PrefillThreads), 0U, stream>>>(
+      packed_a, a_k128_scales_bf16, packed_b, b_k128_scales_bf16,
+      static_cast<unsigned int>(plan.k128_groups),
+      static_cast<unsigned int>(plan.physical_k64_groups), output_bf16,
+      static_cast<unsigned int>(output_row_stride_elements),
+      static_cast<unsigned int>(plan.m_tiles),
+      static_cast<unsigned int>(plan.n_tiles));
+  return static_cast<int>(cudaPeekAtLastError());
 }
 
 int launch_sm87_a4w4_prefill_gemm_bf16_cuda(
