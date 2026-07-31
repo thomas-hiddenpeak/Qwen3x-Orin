@@ -683,6 +683,7 @@ if(BUILD_TESTING)
     add_library(q3x_test_sm87_a4w4_gateup_pair STATIC
       src/kernels/sm87/a4w4_gateup_paired.cu
       src/kernels/sm87/a4w4_gateup_complete_cell_v2.cu
+      src/kernels/sm87/a4w4_gateup_projection_v3.cu
     )
     target_compile_features(q3x_test_sm87_a4w4_gateup_pair
       PUBLIC cxx_std_17 cuda_std_17
@@ -763,6 +764,49 @@ if(BUILD_TESTING)
       RESOURCE_LOCK q3x_sm87_gpu
     )
 
+    add_executable(q3x_sm87_a4w4_gateup_projection_v3_contract_test
+      tests/sm87_a4w4_gateup_projection_v3_contract_test.cpp
+    )
+    target_link_libraries(
+      q3x_sm87_a4w4_gateup_projection_v3_contract_test
+      PRIVATE q3x_test_sm87_a4w4_gateup_pair CUDA::cudart
+    )
+    q3x_enable_warnings(
+      q3x_sm87_a4w4_gateup_projection_v3_contract_test
+    )
+    add_test(NAME sm87_a4w4_gateup_projection_v3_contract
+      COMMAND q3x_sm87_a4w4_gateup_projection_v3_contract_test
+    )
+    set_tests_properties(
+      sm87_a4w4_gateup_projection_v3_contract PROPERTIES
+      LABELS "host;sm87;prefill;correctness;layout;structural_candidate;v3"
+    )
+
+    add_executable(q3x_sm87_a4w4_gateup_projection_v3_correctness_test
+      tests/sm87_a4w4_gateup_projection_v3_correctness_test.cu
+    )
+    target_link_libraries(
+      q3x_sm87_a4w4_gateup_projection_v3_correctness_test
+      PRIVATE q3x_test_sm87_a4w4_gateup_pair CUDA::cudart
+    )
+    target_compile_options(
+      q3x_sm87_a4w4_gateup_projection_v3_correctness_test PRIVATE
+      $<$<COMPILE_LANGUAGE:CUDA>:-Xptxas=-v>
+    )
+    q3x_enable_warnings(
+      q3x_sm87_a4w4_gateup_projection_v3_correctness_test
+    )
+    add_test(NAME sm87_a4w4_gateup_projection_v3_correctness
+      COMMAND q3x_sm87_a4w4_gateup_projection_v3_correctness_test
+    )
+    set_tests_properties(
+      sm87_a4w4_gateup_projection_v3_correctness PROPERTIES
+      LABELS "cuda;sm87;prefill;correctness;synthetic;structural_candidate;v3"
+      SKIP_RETURN_CODE 77
+      RESOURCE_LOCK q3x_sm87_gpu
+      TIMEOUT 180
+    )
+
     # Independently compile the complete kernel to compute_87 PTX and prove
     # that both native S4 MMA and the three-stage cp.async mechanism survive
     # compilation.  Runtime resource admission remains authoritative for
@@ -805,6 +849,46 @@ if(BUILD_TESTING)
     )
     add_custom_target(q3x_sm87_a4w4_gateup_ptx_sentinel ALL
       DEPENDS "${_q3x_a4w4_gateup_ptx_stamp}"
+    )
+
+    set(_q3x_a4w4_gateup_v3_ptx_dir
+      "${CMAKE_CURRENT_BINARY_DIR}/sm87_a4w4_gateup_v3_ptx_sentinel"
+    )
+    set(_q3x_a4w4_gateup_v3_ptx
+      "${_q3x_a4w4_gateup_v3_ptx_dir}/a4w4_gateup_projection_v3.ptx"
+    )
+    set(_q3x_a4w4_gateup_v3_ptx_stamp
+      "${_q3x_a4w4_gateup_v3_ptx_dir}/a4w4_gateup_projection_v3.verified"
+    )
+    add_custom_command(
+      OUTPUT "${_q3x_a4w4_gateup_v3_ptx}"
+      COMMAND "${CMAKE_COMMAND}" -E make_directory
+              "${_q3x_a4w4_gateup_v3_ptx_dir}"
+      COMMAND "${CMAKE_CUDA_COMPILER}"
+              --ptx --std=c++17 --gpu-architecture=compute_87
+              --include-path "${CMAKE_CURRENT_SOURCE_DIR}/include"
+              "${CMAKE_CURRENT_SOURCE_DIR}/src/kernels/sm87/a4w4_gateup_projection_v3.cu"
+              --output-file "${_q3x_a4w4_gateup_v3_ptx}"
+      DEPENDS
+        src/kernels/sm87/a4w4_gateup_projection_v3.cu
+        include/q3x/kernels/sm87_a4w4_gateup_projection_v3.h
+        include/q3x/kernels/sm87_a4w4_prefill_primitive.h
+      VERBATIM
+    )
+    add_custom_command(
+      OUTPUT "${_q3x_a4w4_gateup_v3_ptx_stamp}"
+      COMMAND "${CMAKE_COMMAND}"
+              "-DQ3X_PTX_FILE=${_q3x_a4w4_gateup_v3_ptx}"
+              -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/VerifySm87A4W4GateUpPtx.cmake"
+      COMMAND "${CMAKE_COMMAND}" -E touch
+              "${_q3x_a4w4_gateup_v3_ptx_stamp}"
+      DEPENDS
+        "${_q3x_a4w4_gateup_v3_ptx}"
+        cmake/VerifySm87A4W4GateUpPtx.cmake
+      VERBATIM
+    )
+    add_custom_target(q3x_sm87_a4w4_gateup_v3_ptx_sentinel ALL
+      DEPENDS "${_q3x_a4w4_gateup_v3_ptx_stamp}"
     )
   endif()
 
