@@ -1,4 +1,5 @@
 #include "q3x/kernels/sm87_a4w4_gateup_paired.h"
+#include "q3x/kernels/sm87_a4w4_prefill_gemm.h"
 
 #include <cuda_runtime_api.h>
 
@@ -88,6 +89,65 @@ namespace kernels = q3x::kernels;
                  .launch_ctas == 0U;
 }
 
+[[nodiscard]] bool check_k64_composite_plans() {
+  const auto generic65 =
+      kernels::sm87_a4w4_prefill_gemm_k64_composite_plan(
+          65U, 5'120U, 17'408U);
+  const auto generic1025 =
+      kernels::sm87_a4w4_prefill_gemm_k64_composite_plan(
+          1'025U, 5'120U, 17'408U);
+  const auto generic1804 =
+      kernels::sm87_a4w4_prefill_gemm_k64_composite_plan(
+          1'804U, 5'120U, 17'408U);
+  const auto generic3987 =
+      kernels::sm87_a4w4_prefill_gemm_k64_composite_plan(
+          3'987U, 5'120U, 17'408U);
+  const auto paired65 =
+      kernels::sm87_a4w4_gateup_paired_k64_composite_plan(
+          65U, 17'408U, 5'120U);
+  const auto paired1025 =
+      kernels::sm87_a4w4_gateup_paired_k64_composite_plan(
+          1'025U, 17'408U, 5'120U);
+  const auto paired1804 =
+      kernels::sm87_a4w4_gateup_paired_k64_composite_plan(
+          1'804U, 17'408U, 5'120U);
+  const auto paired3987 =
+      kernels::sm87_a4w4_gateup_paired_k64_composite_plan(
+          3'987U, 17'408U, 5'120U);
+
+  return generic65.valid && generic65.prefix_token_count == 0U &&
+         generic65.tail_token_count == 65U &&
+         generic65.tail_plan.launch_ctas != 0U &&
+         generic1025.prefix_token_count == 1'024U &&
+         generic1025.tail_token_count == 1U &&
+         generic1025.prefix_kernel ==
+             kernels::Sm87A4W4PrefillK64CompositePrefixKernel::kM64N64K64 &&
+         generic1804.prefix_token_count == 1'792U &&
+         generic1804.tail_token_count == 12U &&
+         generic1804.prefix_kernel ==
+             kernels::Sm87A4W4PrefillK64CompositePrefixKernel::kM64N64K64 &&
+         generic3987.prefix_token_count == 3'968U &&
+         generic3987.tail_token_count == 19U &&
+         generic3987.prefix_kernel ==
+             kernels::Sm87A4W4PrefillK64CompositePrefixKernel::kM64N256K64 &&
+         paired65.valid && paired65.prefix_token_count == 0U &&
+         paired65.tail_token_count == 65U &&
+         paired65.tail_plan.kernel ==
+             kernels::Sm87A4W4GateUpPairedKernel::kM32N128K64 &&
+         paired1025.prefix_token_count == 1'024U &&
+         paired1025.tail_token_count == 1U &&
+         paired1025.prefix_plan.kernel ==
+             kernels::Sm87A4W4GateUpPairedKernel::kM64N64K64 &&
+         paired1804.prefix_token_count == 1'792U &&
+         paired1804.tail_token_count == 12U &&
+         paired1804.prefix_plan.kernel ==
+             kernels::Sm87A4W4GateUpPairedKernel::kM64N64K64 &&
+         paired3987.prefix_token_count == 3'968U &&
+         paired3987.tail_token_count == 19U &&
+         paired3987.prefix_plan.kernel ==
+             kernels::Sm87A4W4GateUpPairedKernel::kM64N128K64;
+}
+
 [[nodiscard]] bool check_k128_plans() {
   const kernels::Sm87A4W4GateUpPairedK128Plan tiny =
       kernels::sm87_a4w4_gateup_paired_k128_plan(64U, 128U, 256U);
@@ -171,6 +231,10 @@ int main() {
   }
   if (!check_n_major_work_tile_planner()) {
     std::cerr << "N-major work-tile planner contract failed\n";
+    return 1;
+  }
+  if (!check_k64_composite_plans()) {
+    std::cerr << "K64 composite plan contract failed\n";
     return 1;
   }
   if (!check_k128_plans()) {

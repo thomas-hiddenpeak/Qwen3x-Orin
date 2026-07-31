@@ -1726,7 +1726,10 @@ int launch_sm87_a4w4_gateup_paired_cuda(
   const Sm87A4W4GateUpPairedPlan plan =
       sm87_a4w4_gateup_paired_plan(token_count, intermediate_size,
                                   input_size);
-  if (plan.launch_ctas == 0U ||
+  const Sm87A4W4GateUpPairedK64CompositePlan composite =
+      sm87_a4w4_gateup_paired_k64_composite_plan(
+          token_count, intermediate_size, input_size);
+  if (!composite.valid || plan.launch_ctas == 0U ||
       !(output_clip_ratio > 0.0F && output_clip_ratio <= 1.0F) ||
       !aligned(packed_a, 16U) ||
       !aligned(a_k64_scales_bf16, alignof(std::uint16_t)) ||
@@ -1767,67 +1770,156 @@ int launch_sm87_a4w4_gateup_paired_cuda(
       output_scale_capacity_elements < required_output_scale_elements) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
+  const std::size_t prefix_a_bytes =
+      composite.prefix_token_count == 0U
+          ? 0U
+          : sm87_a4w4_consumer_packed_capacity_bytes(
+                composite.prefix_token_count, input_size);
+  const std::size_t prefix_a_scale_elements =
+      composite.prefix_token_count == 0U
+          ? 0U
+          : sm87_a4w4_consumer_scale_capacity_elements(
+                composite.prefix_token_count, input_size);
+  const std::size_t tail_a_bytes =
+      composite.tail_token_count == 0U
+          ? 0U
+          : sm87_a4w4_consumer_packed_capacity_bytes(
+                composite.tail_token_count, input_size);
+  const std::size_t tail_a_scale_elements =
+      composite.tail_token_count == 0U
+          ? 0U
+          : sm87_a4w4_consumer_scale_capacity_elements(
+                composite.tail_token_count, input_size);
+  const std::size_t prefix_output_bytes =
+      composite.prefix_token_count == 0U
+          ? 0U
+          : sm87_a4w4_consumer_packed_capacity_bytes(
+                composite.prefix_token_count, intermediate_size);
+  const std::size_t prefix_output_scale_elements =
+      composite.prefix_token_count == 0U
+          ? 0U
+          : sm87_a4w4_consumer_scale_capacity_elements(
+                composite.prefix_token_count, intermediate_size);
+  const std::size_t tail_output_bytes =
+      composite.tail_token_count == 0U
+          ? 0U
+          : sm87_a4w4_consumer_packed_capacity_bytes(
+                composite.tail_token_count, intermediate_size);
+  const std::size_t tail_output_scale_elements =
+      composite.tail_token_count == 0U
+          ? 0U
+          : sm87_a4w4_consumer_scale_capacity_elements(
+                composite.tail_token_count, intermediate_size);
+  if (prefix_a_bytes > packed_a_capacity_bytes ||
+      tail_a_bytes > packed_a_capacity_bytes - prefix_a_bytes ||
+      prefix_a_scale_elements > a_scale_capacity_elements ||
+      tail_a_scale_elements >
+          a_scale_capacity_elements - prefix_a_scale_elements ||
+      prefix_output_bytes > packed_output_capacity_bytes ||
+      tail_output_bytes >
+          packed_output_capacity_bytes - prefix_output_bytes ||
+      prefix_output_scale_elements > output_scale_capacity_elements ||
+      tail_output_scale_elements >
+          output_scale_capacity_elements - prefix_output_scale_elements) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
 
   const int device_status = validate_sm87();
   if (device_status != static_cast<int>(cudaSuccess)) {
     return device_status;
   }
-  Sm87A4W4GateUpPairedResources resources{};
-  int resource_status = static_cast<int>(cudaErrorInvalidValue);
-  switch (plan.kernel) {
-    case Sm87A4W4GateUpPairedKernel::kM32N128K64:
-      resource_status =
-          query_sm87_a4w4_gateup_paired_resources_cuda(&resources);
-      break;
-    case Sm87A4W4GateUpPairedKernel::kM64N64K64:
-      resource_status =
-          query_sm87_a4w4_gateup_paired_large_m_resources_cuda(
-              &resources);
-      break;
-    case Sm87A4W4GateUpPairedKernel::kM64N128K64:
-      resource_status =
-          query_sm87_a4w4_gateup_paired_wide_large_m_resources_cuda(
-              &resources);
-      break;
+  if (composite.prefix_token_count != 0U) {
+    Sm87A4W4GateUpPairedResources resources{};
+    int resource_status = static_cast<int>(cudaErrorInvalidValue);
+    switch (composite.prefix_plan.kernel) {
+      case Sm87A4W4GateUpPairedKernel::kM32N128K64:
+        break;
+      case Sm87A4W4GateUpPairedKernel::kM64N64K64:
+        resource_status =
+            query_sm87_a4w4_gateup_paired_large_m_resources_cuda(
+                &resources);
+        break;
+      case Sm87A4W4GateUpPairedKernel::kM64N128K64:
+        resource_status =
+            query_sm87_a4w4_gateup_paired_wide_large_m_resources_cuda(
+                &resources);
+        break;
+    }
+    if (resource_status != static_cast<int>(cudaSuccess)) {
+      return resource_status;
+    }
+    if (resources.active_blocks_per_sm <
+            static_cast<int>(kSm87A4W4GateUpCtasPerSm) ||
+        resources.local_bytes != 0U) {
+      return static_cast<int>(cudaErrorLaunchOutOfResources);
+    }
   }
-  if (resource_status != static_cast<int>(cudaSuccess)) {
-    return resource_status;
+  if (composite.tail_token_count != 0U) {
+    Sm87A4W4GateUpPairedResources resources{};
+    const int resource_status =
+        query_sm87_a4w4_gateup_paired_resources_cuda(&resources);
+    if (resource_status != static_cast<int>(cudaSuccess)) {
+      return resource_status;
+    }
+    if (resources.active_blocks_per_sm <
+            static_cast<int>(kSm87A4W4GateUpCtasPerSm) ||
+        resources.local_bytes != 0U) {
+      return static_cast<int>(cudaErrorLaunchOutOfResources);
+    }
   }
 
   const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
-  if (plan.kernel == Sm87A4W4GateUpPairedKernel::kM64N128K64) {
+  if (composite.prefix_plan.kernel ==
+      Sm87A4W4GateUpPairedKernel::kM64N128K64) {
     q3x_sm87_a4w4_gateup_paired_wide_large_m_kernel<<<
-        static_cast<unsigned int>(kSm87A4W4GateUpPersistentCtas),
+        static_cast<unsigned int>(composite.prefix_plan.launch_ctas),
         static_cast<unsigned int>(kSm87A4W4GateUpThreads), 0U, stream>>>(
         packed_a, a_k64_scales_bf16, packed_gate_b,
         gate_b_k64_scales_bf16, packed_up_b, up_b_k64_scales_bf16,
-        plan.k64_groups, output_clip_ratio, packed_output,
+        composite.prefix_plan.k64_groups, output_clip_ratio, packed_output,
         output_k64_scales_bf16,
-        intermediate_size / kSm87A4W4ConsumerKBlock, plan.m_tiles,
-        plan.work_tiles);
-    return static_cast<int>(cudaPeekAtLastError());
-  }
-  if (plan.kernel == Sm87A4W4GateUpPairedKernel::kM64N64K64) {
+        intermediate_size / kSm87A4W4ConsumerKBlock,
+        composite.prefix_plan.m_tiles,
+        composite.prefix_plan.work_tiles);
+  } else if (composite.prefix_plan.kernel ==
+             Sm87A4W4GateUpPairedKernel::kM64N64K64) {
     q3x_sm87_a4w4_gateup_paired_large_m_kernel<<<
-        static_cast<unsigned int>(kSm87A4W4GateUpPersistentCtas),
+        static_cast<unsigned int>(composite.prefix_plan.launch_ctas),
         static_cast<unsigned int>(kSm87A4W4GateUpThreads), 0U, stream>>>(
         packed_a, a_k64_scales_bf16, packed_gate_b,
         gate_b_k64_scales_bf16, packed_up_b, up_b_k64_scales_bf16,
-        plan.k64_groups, output_clip_ratio, packed_output,
+        composite.prefix_plan.k64_groups, output_clip_ratio, packed_output,
         output_k64_scales_bf16,
-        intermediate_size / kSm87A4W4ConsumerKBlock, plan.m_tiles,
-        plan.work_tiles);
-    return static_cast<int>(cudaPeekAtLastError());
+        intermediate_size / kSm87A4W4ConsumerKBlock,
+        composite.prefix_plan.m_tiles,
+        composite.prefix_plan.work_tiles);
   }
+  if (composite.prefix_token_count != 0U) {
+    const cudaError_t launch_status = cudaPeekAtLastError();
+    if (launch_status != cudaSuccess) {
+      return static_cast<int>(launch_status);
+    }
+  }
+  if (composite.tail_token_count == 0U) {
+    return static_cast<int>(cudaSuccess);
+  }
+
+  const std::uint8_t* const tail_packed_a = packed_a + prefix_a_bytes;
+  const std::uint16_t* const tail_a_scales =
+      a_k64_scales_bf16 + prefix_a_scale_elements;
+  std::uint8_t* const tail_packed_output =
+      packed_output + prefix_output_bytes;
+  std::uint16_t* const tail_output_scales =
+      output_k64_scales_bf16 + prefix_output_scale_elements;
   q3x_sm87_a4w4_gateup_paired_kernel<<<
-      static_cast<unsigned int>(kSm87A4W4GateUpPersistentCtas),
+      static_cast<unsigned int>(composite.tail_plan.launch_ctas),
       static_cast<unsigned int>(kSm87A4W4GateUpThreads), 0U, stream>>>(
-      packed_a, a_k64_scales_bf16, packed_gate_b,
+      tail_packed_a, tail_a_scales, packed_gate_b,
       gate_b_k64_scales_bf16, packed_up_b, up_b_k64_scales_bf16,
-      token_count, plan.k64_groups, output_clip_ratio, packed_output,
-      output_k64_scales_bf16,
+      composite.tail_token_count, composite.tail_plan.k64_groups,
+      output_clip_ratio, tail_packed_output, tail_output_scales,
       intermediate_size / kSm87A4W4ConsumerKBlock,
-      plan.m_tiles, plan.work_tiles);
+      composite.tail_plan.m_tiles, composite.tail_plan.work_tiles);
   return static_cast<int>(cudaPeekAtLastError());
 }
 
