@@ -393,18 +393,36 @@ template <std::size_t SpanCount>
 #if defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
 [[nodiscard]] bool valid_a4w4_prefill_projection(
     const LinearWeight& weight, const std::size_t output_size,
-    const std::size_t input_size) noexcept {
+    const std::size_t input_size,
+    reference_runner_detail::A4W4PrefillConsumer& inventory_consumer)
+    noexcept {
   const PrefillA4LinearSidecarView sidecar =
       prefill_a4_sidecar_view(weight);
-  return sidecar.attached() && sidecar.scale_group_size == 64U &&
-         sidecar.output_size == output_size &&
-         sidecar.input_size == input_size &&
-         output_size % kernels::kSm87A4W4ConsumerOuterBlock == 0U &&
-         input_size % kernels::kSm87A4W4ConsumerKBlock == 0U &&
-         reinterpret_cast<std::uintptr_t>(sidecar.weight) % 16U == 0U &&
-         reinterpret_cast<std::uintptr_t>(sidecar.scales) %
-                 alignof(std::uint16_t) ==
-             0U;
+  const reference_runner_detail::A4W4PrefillConsumer candidate =
+      reference_runner_detail::a4w4_prefill_consumer_from_contract(
+          sidecar.sidecar_kind, sidecar.packed_k_group_size,
+          sidecar.scale_group_size);
+  if (!sidecar.attached() ||
+      candidate ==
+          reference_runner_detail::A4W4PrefillConsumer::kUnavailable ||
+      sidecar.output_size != output_size ||
+      sidecar.input_size != input_size ||
+      input_size % sidecar.scale_group_size != 0U ||
+      output_size % kernels::kSm87A4W4ConsumerOuterBlock != 0U ||
+      input_size % kernels::kSm87A4W4ConsumerKBlock != 0U ||
+      reinterpret_cast<std::uintptr_t>(sidecar.weight) % 16U != 0U ||
+      reinterpret_cast<std::uintptr_t>(sidecar.scales) %
+              alignof(std::uint16_t) !=
+          0U) {
+    return false;
+  }
+  if (inventory_consumer ==
+      reference_runner_detail::A4W4PrefillConsumer::kUnavailable) {
+    inventory_consumer = candidate;
+    return true;
+  }
+  return reference_runner_detail::a4w4_prefill_inventory_consumers_match(
+      inventory_consumer, candidate);
 }
 
 [[nodiscard]] bool same_a4w4_activation_policy(
@@ -418,23 +436,26 @@ template <std::size_t SpanCount>
              second_sidecar.activation_clip_ratio;
 }
 
-[[nodiscard]] bool valid_a4w4_full_prefill_inventory(
+[[nodiscard]] reference_runner_detail::A4W4PrefillConsumer
+a4w4_full_prefill_inventory_consumer(
     const ModelWeights& weights) noexcept {
+  reference_runner_detail::A4W4PrefillConsumer inventory_consumer =
+      reference_runner_detail::A4W4PrefillConsumer::kUnavailable;
   std::size_t projection_count = 0U;
   for (std::size_t layer = 0U; layer < kReferenceDecoderLayerCount; ++layer) {
     const DecoderLayerWeights& layer_weights = weights.layer(layer);
     if (!valid_a4w4_prefill_projection(
             layer_weights.mlp.gate_proj, kReferenceIntermediateSize,
-            kReferenceHiddenSize) ||
+            kReferenceHiddenSize, inventory_consumer) ||
         !valid_a4w4_prefill_projection(
             layer_weights.mlp.up_proj, kReferenceIntermediateSize,
-            kReferenceHiddenSize) ||
+            kReferenceHiddenSize, inventory_consumer) ||
         !valid_a4w4_prefill_projection(
             layer_weights.mlp.down_proj, kReferenceHiddenSize,
-            kReferenceIntermediateSize) ||
+            kReferenceIntermediateSize, inventory_consumer) ||
         !same_a4w4_activation_policy(layer_weights.mlp.gate_proj,
                                      layer_weights.mlp.up_proj)) {
-      return false;
+      return reference_runner_detail::A4W4PrefillConsumer::kUnavailable;
     }
     projection_count += 3U;
 
@@ -446,16 +467,16 @@ template <std::size_t SpanCount>
       if (attention == nullptr ||
           !valid_a4w4_prefill_projection(
               attention->in_proj_qkv, kLinearQkvElements,
-              kReferenceHiddenSize) ||
+              kReferenceHiddenSize, inventory_consumer) ||
           !valid_a4w4_prefill_projection(
               attention->in_proj_z, kLinearValueElements,
-              kReferenceHiddenSize) ||
+              kReferenceHiddenSize, inventory_consumer) ||
           !valid_a4w4_prefill_projection(
               attention->out_proj, kReferenceHiddenSize,
-              kLinearValueElements) ||
+              kLinearValueElements, inventory_consumer) ||
           !same_a4w4_activation_policy(attention->in_proj_qkv,
                                        attention->in_proj_z)) {
-        return false;
+        return reference_runner_detail::A4W4PrefillConsumer::kUnavailable;
       }
       projection_count += 3U;
       continue;
@@ -466,28 +487,132 @@ template <std::size_t SpanCount>
       if (attention == nullptr ||
           !valid_a4w4_prefill_projection(
               attention->q_proj, kFullQGateElements,
-              kReferenceHiddenSize) ||
+              kReferenceHiddenSize, inventory_consumer) ||
           !valid_a4w4_prefill_projection(
               attention->k_proj, kFullKvElements,
-              kReferenceHiddenSize) ||
+              kReferenceHiddenSize, inventory_consumer) ||
           !valid_a4w4_prefill_projection(
               attention->v_proj, kFullKvElements,
-              kReferenceHiddenSize) ||
+              kReferenceHiddenSize, inventory_consumer) ||
           !valid_a4w4_prefill_projection(
               attention->o_proj, kReferenceHiddenSize,
-              kFullQueryElements) ||
+              kFullQueryElements, inventory_consumer) ||
           !same_a4w4_activation_policy(attention->q_proj,
                                        attention->k_proj) ||
           !same_a4w4_activation_policy(attention->q_proj,
                                        attention->v_proj)) {
-        return false;
+        return reference_runner_detail::A4W4PrefillConsumer::kUnavailable;
       }
       projection_count += 4U;
       continue;
     }
-    return false;
+    return reference_runner_detail::A4W4PrefillConsumer::kUnavailable;
   }
-  return projection_count == 400U;
+  return projection_count == 400U
+             ? inventory_consumer
+             : reference_runner_detail::A4W4PrefillConsumer::kUnavailable;
+}
+
+[[nodiscard]] std::size_t a4w4_scale_capacity_elements(
+    const reference_runner_detail::A4W4PrefillConsumer consumer,
+    const std::size_t outer, const std::size_t input_size) noexcept {
+  return consumer == reference_runner_detail::A4W4PrefillConsumer::kK128
+             ? kernels::sm87_a4w4_consumer_k128_scale_capacity_elements(
+                   outer, input_size)
+             : consumer ==
+                       reference_runner_detail::A4W4PrefillConsumer::kK64
+                   ? kernels::sm87_a4w4_consumer_scale_capacity_elements(
+                         outer, input_size)
+                   : 0U;
+}
+
+[[nodiscard]] int launch_selected_a4w4_quantize(
+    const reference_runner_detail::A4W4PrefillConsumer consumer,
+    const std::uint16_t* const input, const std::size_t input_row_stride,
+    const std::size_t token_count, const std::size_t input_size,
+    const float clip_ratio, std::uint8_t* const packed,
+    const std::size_t packed_capacity, std::uint16_t* const scales,
+    const std::size_t scale_capacity, void* const stream) noexcept {
+  if (consumer == reference_runner_detail::A4W4PrefillConsumer::kK128) {
+    return kernels::launch_sm87_a4_quantize_bf16_k128_cuda(
+        input, input_row_stride, token_count, input_size, clip_ratio, packed,
+        packed_capacity, scales, scale_capacity, stream);
+  }
+  if (consumer == reference_runner_detail::A4W4PrefillConsumer::kK64) {
+    return kernels::launch_sm87_a4_quantize_bf16_cuda(
+        input, input_row_stride, token_count, input_size, clip_ratio, packed,
+        packed_capacity, scales, scale_capacity, stream);
+  }
+  return static_cast<int>(cudaErrorInvalidValue);
+}
+
+[[nodiscard]] int launch_selected_a4w4_gemm(
+    const reference_runner_detail::A4W4PrefillConsumer consumer,
+    const std::uint8_t* const packed_input,
+    const std::size_t packed_input_capacity,
+    const std::uint16_t* const input_scales,
+    const std::size_t input_scale_capacity,
+    const PrefillA4LinearSidecarView& sidecar,
+    const std::size_t weight_capacity,
+    const std::size_t weight_scale_capacity,
+    const std::size_t token_count, std::uint16_t* const output,
+    void* const stream) noexcept {
+  if (consumer == reference_runner_detail::A4W4PrefillConsumer::kK128) {
+    return kernels::launch_sm87_a4w4_prefill_gemm_k128_bf16_cuda(
+        packed_input, packed_input_capacity, input_scales,
+        input_scale_capacity, sidecar.weight, weight_capacity,
+        sidecar.scales, weight_scale_capacity, token_count,
+        sidecar.output_size, sidecar.input_size, output, sidecar.output_size,
+        stream);
+  }
+  if (consumer == reference_runner_detail::A4W4PrefillConsumer::kK64) {
+    return kernels::launch_sm87_a4w4_prefill_gemm_bf16_cuda(
+        packed_input, packed_input_capacity, input_scales,
+        input_scale_capacity, sidecar.weight, weight_capacity,
+        sidecar.scales, weight_scale_capacity, token_count,
+        sidecar.output_size, sidecar.input_size, output, sidecar.output_size,
+        stream);
+  }
+  return static_cast<int>(cudaErrorInvalidValue);
+}
+
+[[nodiscard]] int launch_selected_a4w4_gateup_paired(
+    const reference_runner_detail::A4W4PrefillConsumer consumer,
+    const std::uint8_t* const packed_input,
+    const std::size_t packed_input_capacity,
+    const std::uint16_t* const input_scales,
+    const std::size_t input_scale_capacity,
+    const PrefillA4LinearSidecarView& gate_sidecar,
+    const std::size_t gate_weight_capacity,
+    const std::size_t gate_scale_capacity,
+    const PrefillA4LinearSidecarView& up_sidecar,
+    const std::size_t up_weight_capacity,
+    const std::size_t up_scale_capacity, const std::size_t token_count,
+    const float output_clip_ratio, std::uint8_t* const packed_output,
+    const std::size_t packed_output_capacity,
+    std::uint16_t* const output_scales,
+    const std::size_t output_scale_capacity, void* const stream) noexcept {
+  if (consumer == reference_runner_detail::A4W4PrefillConsumer::kK128) {
+    return kernels::launch_sm87_a4w4_gateup_paired_k128_cuda(
+        packed_input, packed_input_capacity, input_scales,
+        input_scale_capacity, gate_sidecar.weight, gate_weight_capacity,
+        gate_sidecar.scales, gate_scale_capacity, up_sidecar.weight,
+        up_weight_capacity, up_sidecar.scales, up_scale_capacity, token_count,
+        kReferenceIntermediateSize, kReferenceHiddenSize, output_clip_ratio,
+        packed_output, packed_output_capacity, output_scales,
+        output_scale_capacity, stream);
+  }
+  if (consumer == reference_runner_detail::A4W4PrefillConsumer::kK64) {
+    return kernels::launch_sm87_a4w4_gateup_paired_cuda(
+        packed_input, packed_input_capacity, input_scales,
+        input_scale_capacity, gate_sidecar.weight, gate_weight_capacity,
+        gate_sidecar.scales, gate_scale_capacity, up_sidecar.weight,
+        up_weight_capacity, up_sidecar.scales, up_scale_capacity, token_count,
+        kReferenceIntermediateSize, kReferenceHiddenSize, output_clip_ratio,
+        packed_output, packed_output_capacity, output_scales,
+        output_scale_capacity, stream);
+  }
+  return static_cast<int>(cudaErrorInvalidValue);
 }
 #endif
 
@@ -1791,6 +1916,9 @@ ReferenceRunner& ReferenceRunner::operator=(ReferenceRunner&& other) noexcept {
   other.views_ = {};
   projection_backend_ = std::exchange(
       other.projection_backend_, ProjectionBackend::kReference);
+  a4w4_prefill_consumer_ = std::exchange(
+      other.a4w4_prefill_consumer_,
+      reference_runner_detail::A4W4PrefillConsumer::kUnavailable);
   a4w4_full_prefill_admission_enabled_ = std::exchange(
       other.a4w4_full_prefill_admission_enabled_, false);
   trace_enabled_ = std::exchange(other.trace_enabled_, false);
@@ -1890,6 +2018,8 @@ void ReferenceRunner::release() noexcept {
   decode_graph_capture_active_ = false;
   views_ = {};
   projection_backend_ = ProjectionBackend::kReference;
+  a4w4_prefill_consumer_ =
+      reference_runner_detail::A4W4PrefillConsumer::kUnavailable;
   a4w4_full_prefill_admission_enabled_ = false;
   trace_enabled_ = false;
   trace_valid_ = false;
@@ -3319,10 +3449,14 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
 #if defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
   reference_runner_detail::A4W4FullPrefillAdmissionHits
       a4w4_full_prefill_tile_hits{};
-  if (reference_runner_detail::use_a4w4_full_prefill_tile_route(
+  const bool a4w4_route_requested =
+      reference_runner_detail::use_a4w4_full_prefill_tile_route(
           a4w4_full_prefill_admission_enabled_ ||
               g_enable_a4w4_full_prefill_admission,
-          trace_enabled_, optimized_prefill_dispatch_disabled())) {
+          trace_enabled_, optimized_prefill_dispatch_disabled());
+  if (a4w4_route_requested &&
+      reference_runner_detail::a4w4_prefill_consumer_supports_token_count(
+          a4w4_prefill_consumer_, token_count)) {
     const RequestMemoryPlan& plan = state_->plan();
     const std::size_t hidden_packed_capacity =
         kernels::sm87_a4w4_consumer_packed_capacity_bytes(
@@ -3361,7 +3495,8 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
           ReferenceRunnerError::kInvalidRequestState,
           "prefill_a4w4_workspace"));
     }
-    if (!valid_a4w4_full_prefill_inventory(*weights_)) {
+    if (a4w4_full_prefill_inventory_consumer(*weights_) !=
+        a4w4_prefill_consumer_) {
       return fail_prefill_tile(runner_status(
           ReferenceRunnerError::kInvalidModelWeights,
           "prefill_a4w4_inventory"));
@@ -3446,9 +3581,9 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
           const std::size_t scale_capacity_elements,
           const char* const operation,
           const std::size_t layer) noexcept {
-        const int status = kernels::launch_sm87_a4_quantize_bf16_cuda(
-            input, input_size, token_count, input_size, clip_ratio,
-            packed, packed_capacity_bytes, scales,
+        const int status = launch_selected_a4w4_quantize(
+            a4w4_prefill_consumer_, input, input_size, token_count,
+            input_size, clip_ratio, packed, packed_capacity_bytes, scales,
             scale_capacity_elements, stream_);
         if (!check_cuda(status, operation, layer)) {
           return false;
@@ -3474,16 +3609,14 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
             kernels::sm87_a4w4_consumer_packed_capacity_bytes(
                 sidecar.output_size, sidecar.input_size);
         const std::size_t weight_scale_capacity_elements =
-            kernels::sm87_a4w4_consumer_scale_capacity_elements(
-                sidecar.output_size, sidecar.input_size);
-        const int status =
-            kernels::launch_sm87_a4w4_prefill_gemm_bf16_cuda(
-                packed_input, packed_input_capacity_bytes, input_scales,
-                input_scale_capacity_elements, sidecar.weight,
-                weight_capacity_bytes, sidecar.scales,
-                weight_scale_capacity_elements, token_count,
-                sidecar.output_size, sidecar.input_size, output,
-                sidecar.output_size, stream_);
+            a4w4_scale_capacity_elements(
+                a4w4_prefill_consumer_, sidecar.output_size,
+                sidecar.input_size);
+        const int status = launch_selected_a4w4_gemm(
+            a4w4_prefill_consumer_, packed_input,
+            packed_input_capacity_bytes, input_scales,
+            input_scale_capacity_elements, sidecar, weight_capacity_bytes,
+            weight_scale_capacity_elements, token_count, output, stream_);
         if (!check_cuda(status, operation, layer)) {
           return false;
         }
@@ -4642,14 +4775,16 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
           kernels::sm87_a4w4_consumer_packed_capacity_bytes(
               gate_sidecar.output_size, gate_sidecar.input_size);
       const std::size_t gate_scale_capacity =
-          kernels::sm87_a4w4_consumer_scale_capacity_elements(
-              gate_sidecar.output_size, gate_sidecar.input_size);
+          a4w4_scale_capacity_elements(
+              a4w4_prefill_consumer_, gate_sidecar.output_size,
+              gate_sidecar.input_size);
       const std::size_t up_weight_capacity =
           kernels::sm87_a4w4_consumer_packed_capacity_bytes(
               up_sidecar.output_size, up_sidecar.input_size);
       const std::size_t up_scale_capacity =
-          kernels::sm87_a4w4_consumer_scale_capacity_elements(
-              up_sidecar.output_size, up_sidecar.input_size);
+          a4w4_scale_capacity_elements(
+              a4w4_prefill_consumer_, up_sidecar.output_size,
+              up_sidecar.input_size);
       if (!quantize_a4w4_activation(
               views_.hidden[1], kReferenceHiddenSize,
               gate_sidecar.activation_clip_ratio,
@@ -4658,13 +4793,12 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
               "prefill_a4w4_mlp_gate_up_quantize", layer)) {
         return fail_prefill_tile(launch_failure);
       }
-      const int paired_status = kernels::launch_sm87_a4w4_gateup_paired_cuda(
-          views_.prefill_a4_hidden_packed, hidden_packed_capacity,
-          views_.prefill_a4_hidden_scales, hidden_scale_capacity,
-          gate_sidecar.weight, gate_weight_capacity, gate_sidecar.scales,
-          gate_scale_capacity, up_sidecar.weight, up_weight_capacity,
-          up_sidecar.scales, up_scale_capacity, token_count,
-          kReferenceIntermediateSize, kReferenceHiddenSize,
+      const int paired_status = launch_selected_a4w4_gateup_paired(
+          a4w4_prefill_consumer_, views_.prefill_a4_hidden_packed,
+          hidden_packed_capacity, views_.prefill_a4_hidden_scales,
+          hidden_scale_capacity, gate_sidecar, gate_weight_capacity,
+          gate_scale_capacity, up_sidecar, up_weight_capacity,
+          up_scale_capacity, token_count,
           down_sidecar.activation_clip_ratio,
           views_.prefill_a4_intermediate_packed,
           intermediate_packed_capacity,
@@ -5073,6 +5207,8 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
               g_enable_a4w4_full_prefill_admission,
           trace_enabled_, optimized_prefill_dispatch_disabled());
   if (!selected ||
+      !reference_runner_detail::a4w4_prefill_consumer_supports_token_count(
+          a4w4_prefill_consumer_, item.token_count) ||
       projection_backend_ != ProjectionBackend::kSm87WeightOnly ||
       span_capacity != plan.projection_span_token_count ||
       span_capacity < item.token_count ||
@@ -5084,7 +5220,8 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
       views_.prefill_a4_hidden_scales == nullptr ||
       views_.prefill_a4_intermediate_packed == nullptr ||
       views_.prefill_a4_intermediate_scales == nullptr ||
-      !valid_a4w4_full_prefill_inventory(*weights_)) {
+      a4w4_full_prefill_inventory_consumer(*weights_) !=
+          a4w4_prefill_consumer_) {
     return runner_status(ReferenceRunnerError::kInvalidRequestState,
                          "prefill_projection_span_workspace",
                          item.layer_index);
@@ -5152,9 +5289,10 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
           std::uint16_t* const scales,
           const std::size_t scale_capacity,
           const char* const operation) noexcept {
-        const int status = kernels::launch_sm87_a4_quantize_bf16_cuda(
-            input, input_row_stride, token_count, input_size, clip_ratio,
-            packed, packed_capacity, scales, scale_capacity, stream_);
+        const int status = launch_selected_a4w4_quantize(
+            a4w4_prefill_consumer_, input, input_row_stride, token_count,
+            input_size, clip_ratio, packed, packed_capacity, scales,
+            scale_capacity, stream_);
         if (!check_cuda(status, operation)) {
           return false;
         }
@@ -5178,14 +5316,13 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
             kernels::sm87_a4w4_consumer_packed_capacity_bytes(
                 sidecar.output_size, sidecar.input_size);
         const std::size_t weight_scale_capacity =
-            kernels::sm87_a4w4_consumer_scale_capacity_elements(
-                sidecar.output_size, sidecar.input_size);
-        const int status = kernels::launch_sm87_a4w4_prefill_gemm_bf16_cuda(
-            packed_input, packed_input_capacity, input_scales,
-            input_scale_capacity, sidecar.weight, weight_capacity,
-            sidecar.scales, weight_scale_capacity, token_count,
-            sidecar.output_size, sidecar.input_size, output,
-            sidecar.output_size, stream_);
+            a4w4_scale_capacity_elements(
+                a4w4_prefill_consumer_, sidecar.output_size,
+                sidecar.input_size);
+        const int status = launch_selected_a4w4_gemm(
+            a4w4_prefill_consumer_, packed_input, packed_input_capacity,
+            input_scales, input_scale_capacity, sidecar, weight_capacity,
+            weight_scale_capacity, token_count, output, stream_);
         if (!check_cuda(status, operation)) {
           return false;
         }
@@ -5772,14 +5909,16 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
       kernels::sm87_a4w4_consumer_packed_capacity_bytes(
           gate_sidecar.output_size, gate_sidecar.input_size);
   const std::size_t gate_scale_capacity =
-      kernels::sm87_a4w4_consumer_scale_capacity_elements(
-          gate_sidecar.output_size, gate_sidecar.input_size);
+      a4w4_scale_capacity_elements(
+          a4w4_prefill_consumer_, gate_sidecar.output_size,
+          gate_sidecar.input_size);
   const std::size_t up_weight_capacity =
       kernels::sm87_a4w4_consumer_packed_capacity_bytes(
           up_sidecar.output_size, up_sidecar.input_size);
   const std::size_t up_scale_capacity =
-      kernels::sm87_a4w4_consumer_scale_capacity_elements(
-          up_sidecar.output_size, up_sidecar.input_size);
+      a4w4_scale_capacity_elements(
+          a4w4_prefill_consumer_, up_sidecar.output_size,
+          up_sidecar.input_size);
   if (!quantize(primary, kReferenceHiddenSize, token_count,
                 kReferenceHiddenSize, gate_sidecar.activation_clip_ratio,
                 views_.prefill_a4_hidden_packed, hidden_packed_capacity,
@@ -5787,18 +5926,15 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
                 "prefill_projection_span_mlp_input_quantize")) {
     return failure;
   }
-  const int paired_status = kernels::launch_sm87_a4w4_gateup_paired_cuda(
-      views_.prefill_a4_hidden_packed, hidden_packed_capacity,
-      views_.prefill_a4_hidden_scales, hidden_scale_capacity,
-      gate_sidecar.weight, gate_weight_capacity, gate_sidecar.scales,
-      gate_scale_capacity, up_sidecar.weight, up_weight_capacity,
-      up_sidecar.scales, up_scale_capacity, token_count,
-      kReferenceIntermediateSize, kReferenceHiddenSize,
-      down_sidecar.activation_clip_ratio,
-      views_.prefill_a4_intermediate_packed,
-      intermediate_packed_capacity,
-      views_.prefill_a4_intermediate_scales,
-      intermediate_scale_capacity, stream_);
+  const int paired_status = launch_selected_a4w4_gateup_paired(
+      a4w4_prefill_consumer_, views_.prefill_a4_hidden_packed,
+      hidden_packed_capacity, views_.prefill_a4_hidden_scales,
+      hidden_scale_capacity, gate_sidecar, gate_weight_capacity,
+      gate_scale_capacity, up_sidecar, up_weight_capacity,
+      up_scale_capacity, token_count, down_sidecar.activation_clip_ratio,
+      views_.prefill_a4_intermediate_packed, intermediate_packed_capacity,
+      views_.prefill_a4_intermediate_scales, intermediate_scale_capacity,
+      stream_);
   if (!check_cuda(paired_status,
                   "prefill_projection_span_mlp_gate_up_paired")) {
     return failure;
@@ -5915,11 +6051,27 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
 #if defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
   const std::uint32_t projection_span_capacity =
       state_->plan().long_prefill_projection_span_capacity;
-  const bool a4_inventory_enabled =
+  const bool a4_route_requested =
       reference_runner_detail::use_a4w4_full_prefill_tile_route(
           a4w4_full_prefill_admission_enabled_ ||
               g_enable_a4w4_full_prefill_admission,
           trace_enabled_, optimized_prefill_dispatch_disabled());
+  if (a4_route_requested &&
+      a4w4_prefill_consumer_ ==
+          reference_runner_detail::A4W4PrefillConsumer::kK128 &&
+      !reference_runner_detail::a4w4_prefill_consumer_supports_token_count(
+          a4w4_prefill_consumer_, prompt_token_count)) {
+    // One runner owns one authenticated A4 publication.  Until a second K64
+    // publication exists, an unaligned request must fail before any layer is
+    // launched rather than mixing K128 scales with a K64 tail consumer.
+    return fail_long_prefill(runner_status(
+        ReferenceRunnerError::kInvalidStepOptions,
+        "prefill_a4w4_k128_token_alignment"));
+  }
+  const bool a4_inventory_enabled =
+      a4_route_requested &&
+      reference_runner_detail::a4w4_prefill_consumer_supports_token_count(
+          a4w4_prefill_consumer_, prompt_token_count);
   const bool projection_span_selected =
       use_long_prefill_projection_span_route(
           prompt_token_count, projection_span_capacity,
@@ -6072,11 +6224,7 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
         a4w4_hits_before{};
   } context{this, input_token_ids, {}};
 #if defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
-  context.a4w4_full_prefill_selected =
-      reference_runner_detail::use_a4w4_full_prefill_tile_route(
-          a4w4_full_prefill_admission_enabled_ ||
-              g_enable_a4w4_full_prefill_admission,
-          trace_enabled_, optimized_prefill_dispatch_disabled());
+  context.a4w4_full_prefill_selected = a4_inventory_enabled;
   context.a4w4_complete_model_tiles = built.value->tile_count;
   context.a4w4_hits_before = g_a4w4_full_prefill_admission_hits;
 #endif
@@ -6479,6 +6627,18 @@ ReferenceRunnerFactoryResult create_reference_runner(
   runner.weights_ = weights;
   runner.state_ = state;
   runner.projection_backend_ = options.projection_backend;
+#if defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
+  runner.a4w4_prefill_consumer_ =
+      a4w4_full_prefill_inventory_consumer(*weights);
+  if (options.enable_a4w4_full_prefill_admission &&
+      runner.a4w4_prefill_consumer_ ==
+          reference_runner_detail::A4W4PrefillConsumer::kUnavailable) {
+    result.diagnostic = runner_status(
+        ReferenceRunnerError::kInvalidModelWeights,
+        "prefill_a4w4_inventory");
+    return result;
+  }
+#endif
   runner.a4w4_full_prefill_admission_enabled_ =
       options.enable_a4w4_full_prefill_admission;
   const ReferenceRunnerStatus state_status =
