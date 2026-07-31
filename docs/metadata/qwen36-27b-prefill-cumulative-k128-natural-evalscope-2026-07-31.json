@@ -1,0 +1,113 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-cumulative-k128-natural-evalscope-2026-07-31",
+  "status": "retained_candidate_baseline_not_production_promoted",
+  "recorded_at": "2026-07-31T11:42:00+08:00",
+  "timezone": "Asia/Shanghai",
+  "policy": {
+    "real_model_weights": true,
+    "openai_api": true,
+    "evalscope_cli": true,
+    "performance_direction_authority": true,
+    "capability_authority": false,
+    "production_promotion_authority": false,
+    "synthetic_performance_authority": false,
+    "mtp_used": false,
+    "cublaslt_production_path": false
+  },
+  "source": {
+    "branch": "codex/prefill-2k-systematic",
+    "runtime_through_commit": "727cce5",
+    "harness_commit": "d860ffb",
+    "performance_elf": {
+      "path": "build/full-positive-direction/qwen3x-eval-server",
+      "bytes": 11249208,
+      "sha256": "059a7e838674d05795b8a00b512873bf6071a7a2765b4e0f9f3acc3bad25c88f",
+      "checked_in": false
+    }
+  },
+  "checkpoint": {
+    "repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "local_path": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4"
+  },
+  "a4_publication": {
+    "path": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4-q3x-a4-k128/weights-a4-k128.bin",
+    "bytes": 12543590400,
+    "sha256": "57bfe2c741f5a22052a48f1ce6a15967f2d1a526a9a32898eb130467879b3660",
+    "policy_sha256": "d3695d84c77c7ed0e235bee2264660a03bccb5c68eb75e3d4d9a7a1bd461ae6c",
+    "authenticated_projections": "400/400",
+    "layout": "sm87_s4_n64_packed_k64_scale_k128_consumer_v2"
+  },
+  "protocol": {
+    "software": "evalscope[perf]==1.9.1",
+    "command_family": "evalscope perf",
+    "api": "openai",
+    "endpoint": "/v1/completions",
+    "candidate_mode": "cumulative-prefill",
+    "parallel": 1,
+    "warmup_requests_per_bucket": 1,
+    "measured_requests_per_bucket": 4,
+    "output_tokens_per_request": 1,
+    "temperature": 0,
+    "seed": 42,
+    "stream": true,
+    "tokenize_prompt": true,
+    "output_root": "/tmp/q3x-evalscope-cumulative-k128-natural-d860ffb-20260731",
+    "server_log_sha256": "746b3351756bad02e2e90557ffb821742a5017f970fc5be7e5ff9676a726dc81"
+  },
+  "results": {
+    "p512": {
+      "success": 4,
+      "failed": 0,
+      "duration_seconds": 13.9553,
+      "mean_input_tokens": 527.25,
+      "mean_ttft_ms": 3488.54,
+      "input_tokens_per_second": 151.1254,
+      "evalscope_total_tokens_per_second": 151.4123,
+      "summary_sha256": "91dd718e956f3b390b5a6ce7fe7d6a835b4aa771582ca06956b2cd18917820eb"
+    },
+    "p1k": {
+      "success": 4,
+      "failed": 0,
+      "duration_seconds": 9.8144,
+      "mean_input_tokens": 1053.75,
+      "mean_ttft_ms": 2453.29,
+      "input_tokens_per_second": 429.4710,
+      "evalscope_total_tokens_per_second": 429.8773,
+      "summary_sha256": "0726fb0c6e00ab2bae7a854cff501c55eed886265377633ed9aecc5de019c1b4"
+    },
+    "p2k": {
+      "success": 4,
+      "failed": 0,
+      "duration_seconds": 14.7875,
+      "mean_input_tokens": 1924.75,
+      "mean_ttft_ms": 3696.51,
+      "input_tokens_per_second": 520.6424,
+      "evalscope_total_tokens_per_second": 520.9112,
+      "summary_sha256": "84b854e2ba5284662706d00f91e133cb35e97d1ff1a0d9a1cea247c44c662c14"
+    },
+    "p4k": {
+      "success": 4,
+      "failed": 0,
+      "duration_seconds": 29.1338,
+      "mean_input_tokens": 3806.75,
+      "mean_ttft_ms": 7282.97,
+      "input_tokens_per_second": 522.6575,
+      "evalscope_total_tokens_per_second": 522.7949,
+      "summary_sha256": "efbdc4a5c6b860dde1c07eb494dba326729d48f2fabbc7179c3a0b2c4d5dae40"
+    }
+  },
+  "decision": {
+    "target_input_tokens_per_second": 2000,
+    "p4k_gap_ratio": 3.8266,
+    "p4k_extrapolated_40k_seconds": 76.532,
+    "retain_as_next_candidate_baseline": true,
+    "production_promote": false,
+    "next": [
+      "two-CTA Gate+Up complete-cell real generation gate",
+      "prompt-span native GDN",
+      "prompt-wide Attention and consumer-boundary collapse"
+    ]
+  }
+}
