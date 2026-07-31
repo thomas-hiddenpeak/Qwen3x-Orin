@@ -2,6 +2,7 @@
 
 #include "q3x/kernels/sm87_fp8_prefill_supermatrix.h"
 #if defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
+#include "q3x/kernels/sm87_a4w4_down_k128_stage_major.h"
 #include "q3x/kernels/sm87_a4w4_gateup_paired.h"
 #include "q3x/kernels/sm87_a4w4_prefill_gemm.h"
 #include "q3x/kernels/sm87_a4w4_prefill_m128_stage_major.h"
@@ -173,6 +174,19 @@ a4w4_m128_stage_major_environment_enabled() noexcept {
 
 thread_local bool g_enable_a4w4_m128_stage_major_admission =
     a4w4_m128_stage_major_environment_enabled();
+
+[[nodiscard]] bool
+a4w4_down_m128_stage_major_environment_enabled() noexcept {
+  if (optimized_prefill_dispatch_disabled()) {
+    return false;
+  }
+  const char* const value =
+      std::getenv("Q3X_RUN_A4W4_DOWN_M128_STAGE_MAJOR_ADMISSION");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
+thread_local bool g_enable_a4w4_down_m128_stage_major_admission =
+    a4w4_down_m128_stage_major_environment_enabled();
 
 // Explicit exact-numerics experiment for the whole-M executor.  This is not
 // the archived C64/WY throughput contract: every token persists BF16 state
@@ -572,11 +586,22 @@ a4w4_full_prefill_inventory_consumer(
     const std::size_t token_count, std::uint16_t* const output,
     void* const stream) noexcept {
   if (consumer == reference_runner_detail::A4W4PrefillConsumer::kK128) {
-    if (reference_runner_detail::select_a4w4_k128_generic_prefill_route(
-            g_enable_a4w4_m128_stage_major_admission, consumer, token_count,
-            sidecar.output_size, sidecar.input_size) ==
-        reference_runner_detail::A4W4K128GenericPrefillRoute::
-            kM128StageMajor) {
+    const auto route =
+        reference_runner_detail::select_a4w4_k128_generic_prefill_route(
+            g_enable_a4w4_m128_stage_major_admission,
+            g_enable_a4w4_down_m128_stage_major_admission, consumer,
+            token_count, sidecar.output_size, sidecar.input_size);
+    if (route == reference_runner_detail::A4W4K128GenericPrefillRoute::
+                     kDownM128StageMajor) {
+      return kernels::launch_sm87_a4w4_down_k128_stage_major_bf16_cuda(
+          packed_input, packed_input_capacity, input_scales,
+          input_scale_capacity, sidecar.weight, weight_capacity,
+          sidecar.scales, weight_scale_capacity, token_count,
+          sidecar.output_size, sidecar.input_size, output,
+          sidecar.output_size, stream);
+    }
+    if (route == reference_runner_detail::A4W4K128GenericPrefillRoute::
+                     kM128StageMajor) {
       return kernels::launch_sm87_a4w4_m128_stage_major_bf16_cuda(
           packed_input, packed_input_capacity, input_scales,
           input_scale_capacity, sidecar.weight, weight_capacity,
@@ -1141,6 +1166,16 @@ bool exchange_a4w4_m128_stage_major_admission_test_enabled(
     const bool enabled) noexcept {
 #if defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
   return std::exchange(g_enable_a4w4_m128_stage_major_admission, enabled);
+#else
+  (void)enabled;
+  return false;
+#endif
+}
+
+bool exchange_a4w4_down_m128_stage_major_admission_test_enabled(
+    const bool enabled) noexcept {
+#if defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
+  return std::exchange(g_enable_a4w4_down_m128_stage_major_admission, enabled);
 #else
   (void)enabled;
   return false;
@@ -3672,16 +3707,26 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
         ++a4w4_full_prefill_tile_hits.logical_projection_hits;
         ++g_a4w4_full_prefill_admission_hits.generic_projection_hits;
         ++g_a4w4_full_prefill_admission_hits.logical_projection_hits;
-        if (reference_runner_detail::select_a4w4_k128_generic_prefill_route(
+        const auto m128_route =
+            reference_runner_detail::select_a4w4_k128_generic_prefill_route(
                 g_enable_a4w4_m128_stage_major_admission,
+                g_enable_a4w4_down_m128_stage_major_admission,
                 a4w4_prefill_consumer_, token_count, sidecar.output_size,
-                sidecar.input_size) ==
+                sidecar.input_size);
+        if (m128_route ==
             reference_runner_detail::A4W4K128GenericPrefillRoute::
                 kM128StageMajor) {
           ++a4w4_full_prefill_tile_hits
                 .m128_stage_major_generic_projection_hits;
           ++g_a4w4_full_prefill_admission_hits
                 .m128_stage_major_generic_projection_hits;
+        } else if (m128_route ==
+                   reference_runner_detail::A4W4K128GenericPrefillRoute::
+                       kDownM128StageMajor) {
+          ++a4w4_full_prefill_tile_hits
+                .m128_stage_major_down_projection_hits;
+          ++g_a4w4_full_prefill_admission_hits
+                .m128_stage_major_down_projection_hits;
         }
         return true;
       };
@@ -5112,9 +5157,15 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
         reference_runner_detail::a4w4_m128_stage_major_common_route(
             g_enable_a4w4_m128_stage_major_admission,
             a4w4_prefill_consumer_, token_count);
+    const bool expect_down_m128_stage_major =
+        reference_runner_detail::a4w4_m128_stage_major_common_route(
+            g_enable_a4w4_down_m128_stage_major_admission,
+            a4w4_prefill_consumer_, token_count);
     const std::size_t expected_m128_generic_hits =
         expected_generic_hits -
         (layer_tile == nullptr ? kReferenceDecoderLayerCount : 1U);
+    const std::size_t expected_m128_down_hits =
+        layer_tile == nullptr ? kReferenceDecoderLayerCount : 1U;
     if (a4w4_full_prefill_tile_hits.activation_quantize_hits !=
             expected_quantize_hits ||
         a4w4_full_prefill_tile_hits.generic_projection_hits !=
@@ -5126,6 +5177,9 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
         a4w4_full_prefill_tile_hits
                 .m128_stage_major_generic_projection_hits !=
             (expect_m128_stage_major ? expected_m128_generic_hits : 0U) ||
+        a4w4_full_prefill_tile_hits
+                .m128_stage_major_down_projection_hits !=
+            (expect_down_m128_stage_major ? expected_m128_down_hits : 0U) ||
         a4w4_full_prefill_tile_hits
                 .m128_stage_major_paired_gate_up_hits !=
             (expect_m128_stage_major ? expected_paired_hits : 0U)) {
@@ -5410,15 +5464,24 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
         ++local_hits.logical_projection_hits;
         ++g_a4w4_full_prefill_admission_hits.generic_projection_hits;
         ++g_a4w4_full_prefill_admission_hits.logical_projection_hits;
-        if (reference_runner_detail::select_a4w4_k128_generic_prefill_route(
+        const auto m128_route =
+            reference_runner_detail::select_a4w4_k128_generic_prefill_route(
                 g_enable_a4w4_m128_stage_major_admission,
+                g_enable_a4w4_down_m128_stage_major_admission,
                 a4w4_prefill_consumer_, token_count, sidecar.output_size,
-                sidecar.input_size) ==
+                sidecar.input_size);
+        if (m128_route ==
             reference_runner_detail::A4W4K128GenericPrefillRoute::
                 kM128StageMajor) {
           ++local_hits.m128_stage_major_generic_projection_hits;
           ++g_a4w4_full_prefill_admission_hits
                 .m128_stage_major_generic_projection_hits;
+        } else if (m128_route ==
+                   reference_runner_detail::A4W4K128GenericPrefillRoute::
+                       kDownM128StageMajor) {
+          ++local_hits.m128_stage_major_down_projection_hits;
+          ++g_a4w4_full_prefill_admission_hits
+                .m128_stage_major_down_projection_hits;
         }
         return true;
       };
@@ -6061,12 +6124,18 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
       reference_runner_detail::a4w4_m128_stage_major_common_route(
           g_enable_a4w4_m128_stage_major_admission,
           a4w4_prefill_consumer_, token_count);
+  const bool expect_down_m128_stage_major =
+      reference_runner_detail::a4w4_m128_stage_major_common_route(
+          g_enable_a4w4_down_m128_stage_major_admission,
+          a4w4_prefill_consumer_, token_count);
   if (local_hits.activation_quantize_hits != 3U ||
       local_hits.generic_projection_hits != expected_generic ||
       local_hits.paired_gate_up_hits != 1U ||
       local_hits.logical_projection_hits != expected_logical ||
       local_hits.m128_stage_major_generic_projection_hits !=
           (expect_m128_stage_major ? expected_generic - 1U : 0U) ||
+      local_hits.m128_stage_major_down_projection_hits !=
+          (expect_down_m128_stage_major ? 1U : 0U) ||
       local_hits.m128_stage_major_paired_gate_up_hits !=
           (expect_m128_stage_major ? 1U : 0U)) {
     return runner_status(ReferenceRunnerError::kInvalidRunner,

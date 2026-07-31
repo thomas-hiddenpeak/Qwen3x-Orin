@@ -461,8 +461,9 @@ std::size_t exchange_fp8_marlin_prefill_admission_test_hits(
 // logical_projection_hits counts both branches. A complete 64-layer tile is
 // admitted only when the local delta is exactly 192 quantizations, 272
 // generic projections, 64 paired launches, and all 400 logical projections.
-// The final two fields independently prove how many of those launches used
-// the opt-in M128 stage-major implementation.
+// The final three fields independently prove how many of those launches used
+// the opt-in M128 stage-major implementations. Down remains separate because
+// its long-K dataflow is not the generic stage-major kernel.
 struct A4W4FullPrefillAdmissionHits {
   std::size_t activation_quantize_hits = 0U;
   std::size_t generic_projection_hits = 0U;
@@ -470,6 +471,7 @@ struct A4W4FullPrefillAdmissionHits {
   std::size_t logical_projection_hits = 0U;
   std::size_t complete_model_tile_hits = 0U;
   std::size_t m128_stage_major_generic_projection_hits = 0U;
+  std::size_t m128_stage_major_down_projection_hits = 0U;
   std::size_t m128_stage_major_paired_gate_up_hits = 0U;
 };
 
@@ -541,26 +543,37 @@ a4w4_prefill_consumer_from_contract(
 enum class A4W4K128GenericPrefillRoute : std::uint8_t {
   kBaseline = 0,
   kM128StageMajor,
+  kDownM128StageMajor,
 };
 
-// Down is intentionally retained on the incumbent K128 kernel.  Its long-K
-// shape has a separate stage-major candidate, which can be inserted at this
-// single shape-aware dispatch point after its independent gate is complete.
+// The exact model-specific Down shape uses its separate long-K stage-major
+// dataflow. Other complete N256/K128 shapes use the generic stage-major
+// kernel. All tails and unsupported shapes remain on the incumbent K128
+// baseline; a selected candidate's launch status is returned directly by the
+// runtime and is never converted into a silent baseline retry.
 [[nodiscard]] constexpr A4W4K128GenericPrefillRoute
 select_a4w4_k128_generic_prefill_route(
     const bool m128_admission_enabled,
+    const bool down_m128_admission_enabled,
     const A4W4PrefillConsumer inventory_consumer,
     const std::size_t token_count, const std::size_t output_size,
     const std::size_t input_size) noexcept {
-  if (!a4w4_m128_stage_major_common_route(
-          m128_admission_enabled, inventory_consumer, token_count) ||
+  const bool generic_route = a4w4_m128_stage_major_common_route(
+      m128_admission_enabled, inventory_consumer, token_count);
+  const bool down_route = a4w4_m128_stage_major_common_route(
+      down_m128_admission_enabled, inventory_consumer, token_count);
+  if ((!generic_route && !down_route) ||
       output_size == 0U || output_size % 256U != 0U || input_size == 0U ||
-      input_size % 128U != 0U ||
-      (output_size == kReferenceHiddenSize &&
-       input_size == kReferenceIntermediateSize)) {
+      input_size % 128U != 0U) {
     return A4W4K128GenericPrefillRoute::kBaseline;
   }
-  return A4W4K128GenericPrefillRoute::kM128StageMajor;
+  if (output_size == kReferenceHiddenSize &&
+      input_size == kReferenceIntermediateSize) {
+    return down_route ? A4W4K128GenericPrefillRoute::kDownM128StageMajor
+                      : A4W4K128GenericPrefillRoute::kBaseline;
+  }
+  return generic_route ? A4W4K128GenericPrefillRoute::kM128StageMajor
+                       : A4W4K128GenericPrefillRoute::kBaseline;
 }
 
 // A trace-capable runner retains authenticated A4 residency but must execute
@@ -576,6 +589,8 @@ select_a4w4_k128_generic_prefill_route(
 bool exchange_a4w4_full_prefill_admission_test_enabled(
     bool enabled) noexcept;
 bool exchange_a4w4_m128_stage_major_admission_test_enabled(
+    bool enabled) noexcept;
+bool exchange_a4w4_down_m128_stage_major_admission_test_enabled(
     bool enabled) noexcept;
 A4W4FullPrefillAdmissionHits
 exchange_a4w4_full_prefill_admission_test_hits(

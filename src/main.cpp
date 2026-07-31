@@ -1060,6 +1060,9 @@ void PrintGeneration(
          << a4w4_prefill_route_hits
                 .m128_stage_major_generic_projection_hits
          << '\n'
+         << "prefill.a4w4_m128_stage_major_down_projection_hits="
+         << a4w4_prefill_route_hits.m128_stage_major_down_projection_hits
+         << '\n'
          << "prefill.a4w4_m128_stage_major_paired_gate_up_hits="
          << a4w4_prefill_route_hits.m128_stage_major_paired_gate_up_hits
          << '\n';
@@ -1323,6 +1326,9 @@ void PrintBenchmarkReport(
          << "benchmark.a4w4_prefill_m128_stage_major_generic_projection_hits="
          << a4w4_prefill_route_hits
                 .m128_stage_major_generic_projection_hits
+         << '\n'
+         << "benchmark.a4w4_prefill_m128_stage_major_down_projection_hits="
+         << a4w4_prefill_route_hits.m128_stage_major_down_projection_hits
          << '\n'
          << "benchmark.a4w4_prefill_m128_stage_major_paired_gate_up_hits="
          << a4w4_prefill_route_hits.m128_stage_major_paired_gate_up_hits

@@ -59,7 +59,7 @@ option(Q3X_BUILD_SM87_A4W4_M128_STAGE_MAJOR_ADMISSION
   OFF
 )
 option(Q3X_BUILD_SM87_A4W4_DOWN_K128_STAGE_MAJOR_ADMISSION
-  "Build the test-only Down-specific M128N256 shared-K128 route"
+  "Build synthetic tests for the Down-specific M128N256 shared-K128 route"
   OFF
 )
 option(Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION
@@ -341,6 +341,7 @@ if(Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION)
     src/kernels/sm87/a4w4_prefill_gemm.cu
     src/kernels/sm87/a4w4_gateup_paired.cu
     src/kernels/sm87/a4w4_prefill_m128_stage_major.cu
+    src/kernels/sm87/a4w4_down_k128_stage_major.cu
     src/kernels/sm87/gdn_prefill_exact_span_sm87.cu
     src/kernels/reference/gdn_prefill_whole_span_conv_sm87.cu
   )
@@ -715,32 +716,15 @@ if(BUILD_TESTING)
   endif()
 
   if(Q3X_BUILD_SM87_A4W4_DOWN_K128_STAGE_MAJOR_ADMISSION)
-    # Isolated Down-shape architecture screen.  The new object is linked only
-    # into its focused tests; runner/engine/production targets cannot select
-    # or even resolve this launch surface.
-    add_library(q3x_test_sm87_a4w4_down_k128_stage_major STATIC
-      src/kernels/sm87/a4w4_down_k128_stage_major.cu
-    )
-    target_compile_features(q3x_test_sm87_a4w4_down_k128_stage_major
-      PUBLIC cxx_std_17 cuda_std_17
-    )
-    target_include_directories(q3x_test_sm87_a4w4_down_k128_stage_major
-      PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include"
-    )
-    target_link_libraries(q3x_test_sm87_a4w4_down_k128_stage_major
-      PRIVATE CUDA::cudart
-    )
-    target_compile_options(q3x_test_sm87_a4w4_down_k128_stage_major PRIVATE
-      $<$<COMPILE_LANGUAGE:CUDA>:-Xptxas=-v>
-    )
-    q3x_enable_warnings(q3x_test_sm87_a4w4_down_k128_stage_major)
+    # The implementation has one production linkage through q3x_kernels;
+    # this option adds only its focused contract, correctness, and PTX tests.
 
     add_executable(q3x_sm87_a4w4_down_k128_stage_major_contract_test
       tests/sm87_a4w4_down_k128_stage_major_contract_test.cpp
     )
     target_link_libraries(
       q3x_sm87_a4w4_down_k128_stage_major_contract_test
-      PRIVATE q3x_test_sm87_a4w4_down_k128_stage_major CUDA::cudart
+      PRIVATE q3x::kernels CUDA::cudart
     )
     q3x_enable_warnings(
       q3x_sm87_a4w4_down_k128_stage_major_contract_test
@@ -758,7 +742,6 @@ if(BUILD_TESTING)
     target_link_libraries(
       q3x_sm87_a4w4_down_k128_stage_major_correctness_test
       PRIVATE
-        q3x_test_sm87_a4w4_down_k128_stage_major
         q3x::kernels
         CUDA::cudart
     )
