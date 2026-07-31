@@ -13,7 +13,43 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "BUILD_TESTING": "ON",
-        "Q3X_CUDA_ARCHITECTURES": "87"
+        "Q3X_CUDA_ARCHITECTURES": "87",
+        "Q3X_BUILD_GDN_B8_ADMISSION": "OFF",
+        "Q3X_BUILD_GDN_C16_NORM_GATE_ADMISSION": "OFF",
+        "Q3X_BUILD_GDN_CHUNK64_REFERENCE_ADMISSION": "OFF",
+        "Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION": "OFF",
+        "Q3X_BUILD_NVFP4_MARLIN_PREFILL_ADMISSION": "OFF",
+        "Q3X_BUILD_FP8_MARLIN_PREFILL_ADMISSION": "OFF",
+        "Q3X_BUILD_BF16_AB_LARGE_M_PREFILL_ADMISSION": "OFF",
+        "Q3X_BUILD_SM87_A4W4_PRIMITIVE_ADMISSION": "OFF",
+        "Q3X_BUILD_SM87_A4W4_GATEUP_PAIR_ADMISSION": "OFF",
+        "Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION": "ON",
+        "Q3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION": "OFF",
+        "Q3X_BUILD_FULL_ATTENTION_LONG_CONTEXT_GROUP_Q64_ADMISSION": "ON",
+        "Q3X_BUILD_LONG_PREFILL_LAYER_MAJOR_ADMISSION": "ON"
+      }
+    },
+    {
+      "name": "orin-production",
+      "displayName": "Jetson Orin Production (sm_87)",
+      "binaryDir": "${sourceDir}/build/orin-production",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "BUILD_TESTING": "OFF",
+        "Q3X_CUDA_ARCHITECTURES": "87",
+        "Q3X_BUILD_GDN_B8_ADMISSION": "OFF",
+        "Q3X_BUILD_GDN_C16_NORM_GATE_ADMISSION": "OFF",
+        "Q3X_BUILD_GDN_CHUNK64_REFERENCE_ADMISSION": "OFF",
+        "Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION": "OFF",
+        "Q3X_BUILD_NVFP4_MARLIN_PREFILL_ADMISSION": "OFF",
+        "Q3X_BUILD_FP8_MARLIN_PREFILL_ADMISSION": "OFF",
+        "Q3X_BUILD_BF16_AB_LARGE_M_PREFILL_ADMISSION": "OFF",
+        "Q3X_BUILD_SM87_A4W4_PRIMITIVE_ADMISSION": "OFF",
+        "Q3X_BUILD_SM87_A4W4_GATEUP_PAIR_ADMISSION": "OFF",
+        "Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION": "ON",
+        "Q3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION": "OFF",
+        "Q3X_BUILD_FULL_ATTENTION_LONG_CONTEXT_GROUP_Q64_ADMISSION": "ON",
+        "Q3X_BUILD_LONG_PREFILL_LAYER_MAJOR_ADMISSION": "ON"
       }
     }
   ],
@@ -21,6 +57,10 @@
     {
       "name": "orin-release",
       "configurePreset": "orin-release"
+    },
+    {
+      "name": "orin-production",
+      "configurePreset": "orin-production"
     }
   ],
   "testPresets": [
