@@ -178,8 +178,39 @@ real-path direction gate and is retained.
 
 This comparison intentionally remains an experiment gate rather than a
 production promotion: the frozen baseline came from an earlier ELF.  A
-same-ELF interleaved baseline/candidate replay, profiler hit proof, natural
-length matrix, and public capability checks are still required before a
-default change.  The gain is useful but not structural enough to alter the
-main priority: the projection plane still needs a new compressed-weight
-consumer architecture to reach the 2,000-token/s system target.
+same-ELF interleaved baseline/candidate replay, natural-length matrix, and
+public capability checks are still required before a default change.  The
+profiler proof below closes only the dispatch/attribution question.  The gain
+is useful but not structural enough to alter the main priority: the projection
+plane still needs a new compressed-weight consumer architecture to reach the
+2,000-token/s system target.
+
+## Request-scoped profiler proof
+
+A subsequent NSys capture used the same real request and candidate process,
+with model loading outside `cudaProfilerStart`/`cudaProfilerStop`.  Profiling
+overhead raised the request's reported Prefill time to `3481.72 ms`; that wall
+number is not used as the performance result.  The kernel trace proves the
+selected route and its exact contribution:
+
+| Kernel family | Calls | Total time |
+|---|---:|---:|
+| Gate+Up K128 paired | 64 | 1316.942 ms |
+| Generic K128 (Attention projections only) | 208 | 866.181 ms |
+| Down complete-cell v2 | 64 | 502.655 ms |
+
+The frozen profile had 272 generic calls totalling `1471.572 ms`, of which the
+same fixed-shape attribution assigned 64 Down calls and `607.355 ms`.  The new
+trace instead has exactly 208 generic calls, so all 64 Down launches moved to
+the complete cell.  Its `104.700-ms` kernel saving matches the `104.142-ms`
+unprofiled wall saving within measurement noise.  Down effective throughput
+therefore rises from `38.469` to approximately `46.483 TOPS` (`1.2083x`).
+
+The complete projection plane is now `2685.778 ms` at approximately
+`37.100 TOPS`, a `1.0382x` improvement over the frozen `2788.393-ms` profile.
+Gate+Up and Attention projections remain the dominant structural targets.
+
+The NSys report SHA-256 is
+`198b1018b5bb54179264754ec42f53abade0af3bbb03a1331a58cf2926e76aad`;
+the exported SQLite SHA-256 is
+`25b7d6c241163a8b336362467ca37f6abd087684e04c51be6924266e4800d066`.
