@@ -1473,6 +1473,8 @@ bool ModelWeights::attach_prefill_a4_sidecars(
       fp8->prefill_a4_weight = nullptr;
       fp8->prefill_a4_scales = nullptr;
       fp8->prefill_a4_metadata = nullptr;
+      fp8->prefill_a4_sidecar_kind = PrefillSidecarKind::kExact;
+      fp8->prefill_a4_packed_k_group_size = 0U;
       fp8->prefill_a4_scale_group_size = 0U;
       fp8->prefill_a4_activation_clip_ratio = 0.0F;
     } else if (auto* const nvfp4 =
@@ -1480,6 +1482,8 @@ bool ModelWeights::attach_prefill_a4_sidecars(
       nvfp4->prefill_a4_weight = nullptr;
       nvfp4->prefill_a4_scales = nullptr;
       nvfp4->prefill_a4_metadata = nullptr;
+      nvfp4->prefill_a4_sidecar_kind = PrefillSidecarKind::kExact;
+      nvfp4->prefill_a4_packed_k_group_size = 0U;
       nvfp4->prefill_a4_scale_group_size = 0U;
       nvfp4->prefill_a4_activation_clip_ratio = 0.0F;
     }
@@ -1519,9 +1523,17 @@ bool ModelWeights::attach_prefill_a4_sidecars(
   } catch (...) {
     return false;
   }
+  const bool k64_v1 =
+      manifest != nullptr && manifest->kind == PrefillSidecarKind::kA4K64;
+  const bool k128_v2 =
+      manifest != nullptr && manifest->kind == PrefillSidecarKind::kA4K128;
+  const std::uint32_t expected_scale_group_size = k128_v2 ? 128U : 64U;
+  const PrefillSidecarLayout expected_layout =
+      k128_v2 ? PrefillSidecarLayout::kSm87S4K128Consumer
+              : PrefillSidecarLayout::kSm87S4K64Consumer;
   if (arena == nullptr || manifest == nullptr || policy == nullptr ||
       manifest->residency_class != PrefillSidecarResidencyClass::kA4 ||
-      manifest->kind != PrefillSidecarKind::kA4K64 ||
+      (!k64_v1 && !k128_v2) ||
       !contracts_valid ||
       manifest->projections.size() != kQwen36PrefillProjectionCount ||
       policy->projections.size() != manifest->projections.size() ||
@@ -1545,6 +1557,8 @@ bool ModelWeights::attach_prefill_a4_sidecars(
     const std::uint8_t* weight = nullptr;
     const std::uint16_t* scales = nullptr;
     const std::uint8_t* metadata = nullptr;
+    PrefillSidecarKind sidecar_kind = PrefillSidecarKind::kExact;
+    std::uint32_t packed_k_group_size = 0U;
     std::uint32_t scale_group_size = 0U;
     float activation_clip_ratio = 0.0F;
   };
@@ -1557,8 +1571,10 @@ bool ModelWeights::attach_prefill_a4_sidecars(
         policy->projections[index];
     if (entry.ordinal != index || entry.layer_index >= layers_.size() ||
         entry.quantization != PrefillWeightQuantization::kSymmetricW4 ||
-        entry.scale_group_size != 64U ||
-        calibration.activation_scale_group_size != 64U ||
+        entry.layout != expected_layout ||
+        entry.scale_group_size != expected_scale_group_size ||
+        calibration.activation_scale_group_size !=
+            expected_scale_group_size ||
         calibration.channel_equalization.has_value() ||
         !std::isfinite(calibration.activation_clip_ratio) ||
         calibration.activation_clip_ratio <= 0.0 ||
@@ -1629,6 +1645,8 @@ bool ModelWeights::attach_prefill_a4_sidecars(
         entry.metadata_bytes == 0U
             ? nullptr
             : reinterpret_cast<const std::uint8_t*>(metadata_address),
+        manifest->kind,
+        64U,
         entry.scale_group_size,
         static_cast<float>(calibration.activation_clip_ratio)};
   }
@@ -1639,6 +1657,8 @@ bool ModelWeights::attach_prefill_a4_sidecars(
       fp8->prefill_a4_weight = entry.weight;
       fp8->prefill_a4_scales = entry.scales;
       fp8->prefill_a4_metadata = entry.metadata;
+      fp8->prefill_a4_sidecar_kind = entry.sidecar_kind;
+      fp8->prefill_a4_packed_k_group_size = entry.packed_k_group_size;
       fp8->prefill_a4_scale_group_size = entry.scale_group_size;
       fp8->prefill_a4_activation_clip_ratio =
           entry.activation_clip_ratio;
@@ -1647,6 +1667,8 @@ bool ModelWeights::attach_prefill_a4_sidecars(
       nvfp4->prefill_a4_weight = entry.weight;
       nvfp4->prefill_a4_scales = entry.scales;
       nvfp4->prefill_a4_metadata = entry.metadata;
+      nvfp4->prefill_a4_sidecar_kind = entry.sidecar_kind;
+      nvfp4->prefill_a4_packed_k_group_size = entry.packed_k_group_size;
       nvfp4->prefill_a4_scale_group_size = entry.scale_group_size;
       nvfp4->prefill_a4_activation_clip_ratio =
           entry.activation_clip_ratio;
@@ -1685,6 +1707,8 @@ PrefillA4LinearSidecarView prefill_a4_sidecar_view(
   if (const auto* const fp8 = std::get_if<Fp8LinearWeight>(&weight)) {
     return {fp8->prefill_a4_weight, fp8->prefill_a4_scales,
             fp8->prefill_a4_metadata,
+            fp8->prefill_a4_sidecar_kind,
+            fp8->prefill_a4_packed_k_group_size,
             fp8->prefill_a4_scale_group_size,
             fp8->prefill_a4_activation_clip_ratio, fp8->output_size,
             fp8->input_size};
@@ -1693,6 +1717,8 @@ PrefillA4LinearSidecarView prefill_a4_sidecar_view(
           std::get_if<NvFp4LinearWeight>(&weight)) {
     return {nvfp4->prefill_a4_weight, nvfp4->prefill_a4_scales,
             nvfp4->prefill_a4_metadata,
+            nvfp4->prefill_a4_sidecar_kind,
+            nvfp4->prefill_a4_packed_k_group_size,
             nvfp4->prefill_a4_scale_group_size,
             nvfp4->prefill_a4_activation_clip_ratio, nvfp4->output_size,
             nvfp4->input_size};
