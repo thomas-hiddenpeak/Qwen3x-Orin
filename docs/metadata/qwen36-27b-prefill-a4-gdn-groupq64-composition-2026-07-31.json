@@ -1,0 +1,117 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-a4-gdn-groupq64-composition-2026-07-31",
+  "status": "positive_cumulative_baseline_retained_target_not_met",
+  "recorded_at": "2026-07-31T21:05:00+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "measured_tree": "e3623a5",
+    "branch": "codex/a4w4-full-prefill",
+    "a4_wide_output_commit": "c64e112",
+    "exact_gdn_commit": "b03b009",
+    "long_context_group_q64_implementation_commit": "a6bb6eebb00acfd32ea1c6b9c318f6ea6584166e",
+    "long_context_group_q64_gate_correction_commit": "660b803c242139de56070038006170d740aaa478",
+    "build_admissions": [
+      "Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION=ON",
+      "Q3X_BUILD_LONG_PREFILL_LAYER_MAJOR_ADMISSION=ON",
+      "Q3X_BUILD_FULL_ATTENTION_LONG_CONTEXT_GROUP_Q64_ADMISSION=ON"
+    ],
+    "run_admissions": [
+      "Q3X_RUN_LONG_PREFILL_LAYER_MAJOR_ADMISSION=1",
+      "Q3X_RUN_GDN_EXACT_SPAN_ADMISSION=1",
+      "Q3X_RUN_FULL_ATTENTION_LONG_CONTEXT_GROUP_Q64_ADMISSION=1"
+    ],
+    "flashinfer_used_in_production_path": false,
+    "mtp_used": false,
+    "cublas_or_cublaslt_production_path_used": false,
+    "production_default_changed": false
+  },
+  "measured_binary": {
+    "path_at_measurement": "/tmp/q3x-a4w4-full-prefill/build-a4w4-full-make/qwen3x-eval-server",
+    "bytes": 9422688,
+    "sha256": "251738dc24333eb454e00e1da87a3b7aba69d3f29a04535f4d1dcb58b5c8ea1d",
+    "build_type": "Release",
+    "target_architecture": "sm_87",
+    "ready_gate": "long_context_group_q64_compiled=1, run_requested=1, probe_selected=1; long_prefill_run_requested=1; A4 400 projections enabled"
+  },
+  "real_openai_api_gate": {
+    "authority": "resident real authenticated model, exact token-ID prompts, OpenAI completions, temperature zero, one generated token",
+    "all_requests": "HTTP 200, exact usage, generated text Hello",
+    "measurements": [
+      {
+        "prompt_tokens": 2048,
+        "prompt_prefill_ms": [6450.88, 6442.01],
+        "mean_prompt_prefill_ms": 6446.445,
+        "prompt_throughput_tok_s": 317.694481,
+        "exact_gdn_only_mean_ms": 7173.795,
+        "speedup_over_exact_gdn_only": 1.112830,
+        "wide_a4_mean_ms": 7670.93,
+        "cumulative_speedup_over_wide_a4": 1.189947,
+        "cumulative_latency_reduction_percent": 15.962667
+      },
+      {
+        "prompt_tokens": 4096,
+        "prompt_prefill_ms": [13643.2, 13641.8],
+        "mean_prompt_prefill_ms": 13642.5,
+        "prompt_throughput_tok_s": 300.238226,
+        "exact_gdn_only_mean_ms": 17776.25,
+        "speedup_over_exact_gdn_only": 1.303005,
+        "wide_a4_mean_ms": 18738.25,
+        "cumulative_speedup_over_wide_a4": 1.373520,
+        "cumulative_latency_reduction_percent": 27.194375
+      }
+    ]
+  },
+  "real_p2048_nsys": {
+    "authority": "interactive collection started only after the resident server reported ready; exactly one real P2048 request; startup excluded",
+    "profiled_prompt_prefill_ms": 6481.45,
+    "report": "/tmp/q3x-a4-gdn-groupq64-p2048-real-20260731.nsys-rep",
+    "report_bytes": 767288,
+    "report_sha256": "0b573ac71e68681b0db5b924e602cdee28922cee0bcd4e5a0b451c1ccfd25bba",
+    "sqlite": "/tmp/q3x-a4-gdn-groupq64-p2048-real-20260731.sqlite",
+    "sqlite_bytes": 2293760,
+    "sqlite_sha256": "c7f04e11a1310bae7b0628d8dbd78b351d7801f444ea97c638997548e11dc134",
+    "kernel_totals": {
+      "a4_generic": {"instances": 272, "total_ms": 2013.566368},
+      "a4_paired_gate_up": {"instances": 64, "total_ms": 2048.797536},
+      "gdn_exact_span": {"instances": 192, "total_ms": 1388.137472},
+      "gdn_plain_norm_gate": {"instances": 192, "total_ms": 131.023104},
+      "gdn_whole_span_conv": {"instances": 192, "total_ms": 88.086592},
+      "attention_group_q64_continuation": {"instances": 48, "total_ms": 228.859264},
+      "attention_group_q64_exact_p0": {"instances": 16, "total_ms": 19.381536},
+      "attention_preprocess": {"instances": 2048, "total_ms": 31.128640},
+      "attention_generic_qt2": {"instances": 0, "total_ms": 0.0},
+      "bf16_a_b_pair": {"instances": 6144, "total_ms": 278.351648},
+      "a4_quantize": {"instances": 192, "total_ms": 92.189248}
+    },
+    "prior_attention_core_ms": 959.840384,
+    "candidate_attention_core_ms": 248.240800,
+    "attention_core_saved_ms": 711.599584,
+    "attention_core_speedup": 3.866576,
+    "finding": "All 32 long-position scalar QT2 calls disappear. Grouped-Q64 covers all 64 full-attention state tiles, and its 711.60 ms core saving explains the measured whole-request improvement over the exact-GDN-only baseline."
+  },
+  "validation": {
+    "reference_runner_host_off_on": "pass 2/2",
+    "decode_ops_cuda": "pass; long-position, fallback, guard, and deterministic replay coverage",
+    "semantic_generation": "four unprofiled requests plus one profiled request all return token 9419/text Hello with exact usage",
+    "route_evidence": "server ready probe selected grouped-Q64 and NSys contains zero generic-QT2 calls"
+  },
+  "current_p2048_floor": {
+    "a4_projection_ms": 4062.363904,
+    "exact_gdn_conv_norm_chain_ms": 1607.247168,
+    "bf16_a_b_pair_ms": 278.351648,
+    "group_q64_attention_plus_preprocess_ms": 279.369440,
+    "interpretation": "Projection plus exact GDN already account for about 5.67 seconds, so K128 projection arithmetic and the remaining exact recurrence are the next structural priorities."
+  },
+  "decision": {
+    "retain_as_cumulative_baseline": true,
+    "prefill_target_tokens_per_second": 2000,
+    "target_met": false,
+    "reason": "The previously validated grouped-Q64 mechanism composes cleanly with real authenticated A4 and exact whole-span GDN, removes the long-position QT2 fallback, and repeats an 11 to 30 percent incremental whole-product gain. Absolute P2048 remains 6.3 times below the first target.",
+    "next_priority": [
+      "promote the validated optimized composition into the ordinary Orin release build and production selector with an explicit disable control",
+      "complete K128 paired Gate+Up and Down-input shared-scale flow, then generate and authenticate one real full-model K128 sidecar",
+      "run P8K and P40K on the optimized whole-M path, then the external EvalScope performance gate"
+    ]
+  }
+}
