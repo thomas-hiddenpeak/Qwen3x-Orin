@@ -55,20 +55,20 @@ option(Q3X_BUILD_SM87_A4W4_GATEUP_PAIR_ADMISSION
   OFF
 )
 option(Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION
-  "Build the test-only calibrated full-model SM87 A4W4 Prefill route"
-  OFF
+  "Build the calibrated full-model SM87 A4W4 Prefill route"
+  ON
 )
 option(Q3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION
   "Build the test-only FlashInfer SM87 Prefill-attention route"
   OFF
 )
 option(Q3X_BUILD_FULL_ATTENTION_LONG_CONTEXT_GROUP_Q64_ADMISSION
-  "Build the test-only long-context grouped-Q64 Prefill-attention route"
-  OFF
+  "Build the long-context grouped-Q64 Prefill-attention route"
+  ON
 )
 option(Q3X_BUILD_LONG_PREFILL_LAYER_MAJOR_ADMISSION
-  "Build the test-only long-Prefill layer-major executor admission"
-  OFF
+  "Build the long-Prefill layer-major executor admission"
+  ON
 )
 if(Q3X_BUILD_GDN_B8_ADMISSION AND NOT BUILD_TESTING)
   message(FATAL_ERROR
@@ -115,25 +115,9 @@ if(Q3X_BUILD_SM87_A4W4_GATEUP_PAIR_ADMISSION AND NOT BUILD_TESTING)
     "Q3X_BUILD_SM87_A4W4_GATEUP_PAIR_ADMISSION is test-only and requires BUILD_TESTING=ON"
   )
 endif()
-if(Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION AND NOT BUILD_TESTING)
-  message(FATAL_ERROR
-    "Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION is test-only and requires BUILD_TESTING=ON"
-  )
-endif()
 if(Q3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION AND NOT BUILD_TESTING)
   message(FATAL_ERROR
     "Q3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION is test-only and requires BUILD_TESTING=ON"
-  )
-endif()
-if(Q3X_BUILD_FULL_ATTENTION_LONG_CONTEXT_GROUP_Q64_ADMISSION AND
-   NOT BUILD_TESTING)
-  message(FATAL_ERROR
-    "Q3X_BUILD_FULL_ATTENTION_LONG_CONTEXT_GROUP_Q64_ADMISSION is test-only and requires BUILD_TESTING=ON"
-  )
-endif()
-if(Q3X_BUILD_LONG_PREFILL_LAYER_MAJOR_ADMISSION AND NOT BUILD_TESTING)
-  message(FATAL_ERROR
-    "Q3X_BUILD_LONG_PREFILL_LAYER_MAJOR_ADMISSION is test-only and requires BUILD_TESTING=ON"
   )
 endif()
 if((Q3X_BUILD_GDN_B8_ADMISSION AND
