@@ -130,6 +130,39 @@ exchange_vllm_layout_wy_route_for_test(
     const std::uint16_t* silu_gate, float norm_epsilon,
     std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
 
+// Prompt-span vertical state/output slice.  W/U, compact Q/K, and cumulative
+// gamma are the unchanged chunk-major WY boundaries.  The fused CTA writes
+// raw_output as padded BF16 [ceil64(T),48,128], publishes only final state,
+// then the established rows-8 norm/gate kernel writes logical T rows.
+// This entry supports C64 correctness fixtures as well as the independently
+// admitted production range; caller-side admission remains default-off.
+[[nodiscard]] int launch_prompt_span_state_o(
+    const std::uint16_t* w, const std::uint16_t* u,
+    const std::uint16_t* compact_q, const std::uint16_t* compact_k,
+    const float* cumulative_gate, const std::uint16_t* state_input,
+    std::uint16_t* state_output, std::size_t token_count,
+    const std::uint16_t* norm_weight, const std::uint16_t* silu_gate,
+    float norm_epsilon, std::uint16_t* raw_output,
+    std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
+
+// Correctness-only two-kernel oracle for one C64..C512 segment.  It exposes
+// the incumbent global Vnew/boundary-state storage to the fixture and has no
+// production dispatch authority.
+[[nodiscard]] int launch_prompt_span_state_o_baseline_for_test(
+    const std::uint16_t* w, const std::uint16_t* u,
+    const std::uint16_t* compact_q, const std::uint16_t* compact_k,
+    const float* cumulative_gate, const std::uint16_t* state_input,
+    std::uint16_t* state_output, std::size_t token_count,
+    std::uint16_t* v_new, std::uint16_t* boundary_state,
+    const std::uint16_t* norm_weight, const std::uint16_t* silu_gate,
+    float norm_epsilon, std::uint16_t* raw_output,
+    std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int query_prompt_span_state_o_resources(
+    int* registers_per_thread, std::size_t* static_shared_bytes,
+    std::size_t* local_bytes, int* maximum_threads_per_block,
+    int* active_blocks_per_sm) noexcept;
+
 // Component oracle used only by the exactness harness: launches the admitted
 // standalone compact normalize producer on an already-convolved tensor.
 [[nodiscard]] int launch_compact_qk_baseline_for_test(

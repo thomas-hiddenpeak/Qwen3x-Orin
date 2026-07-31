@@ -1,4 +1,5 @@
 #include "gdn_prefill_chunk_o_bv64_sm87.h"
+#include "gdn_prefill_chunk64_native_sm87.h"
 
 #include "q3x/runtime/decode_ops.h"
 #include "q3x/runtime/gdn_decode.h"
@@ -15,6 +16,7 @@
 namespace {
 
 namespace chunk_o = q3x::runtime::gdn_prefill_chunk_o_bv64_detail;
+namespace native = q3x::runtime::gdn_prefill_chunk64_native_detail;
 namespace runtime = q3x::runtime;
 
 constexpr std::size_t kTokens = 64U;
@@ -37,6 +39,7 @@ constexpr std::size_t kFragmentAccumulatorRegisters = 32U * 4U;
 constexpr std::uint16_t kZero = 0x0000U;
 constexpr std::uint16_t kOne = 0x3f80U;
 constexpr std::uint16_t kPoison = 0x7fc1U;
+constexpr std::uint16_t kSmall = 0x3c80U;
 constexpr float kEpsilon = 1.0e-6F;
 
 static_assert(kQkHeads == 16U);
@@ -114,6 +117,13 @@ struct Buffers final {
   ManagedBuffer<std::uint16_t> raw{kOutputElements};
   ManagedBuffer<std::uint16_t> output{kOutputElements};
   ManagedBuffer<std::uint16_t> reference{kOutputElements};
+  ManagedBuffer<std::uint16_t> w{kValueElements};
+  ManagedBuffer<std::uint16_t> u{kValueElements};
+  ManagedBuffer<std::uint16_t> initial_state{kBoundaryStateElements};
+  ManagedBuffer<std::uint16_t> baseline_state{kBoundaryStateElements};
+  ManagedBuffer<std::uint16_t> candidate_state{kBoundaryStateElements};
+  ManagedBuffer<std::uint16_t> candidate_raw{kOutputElements};
+  ManagedBuffer<std::uint16_t> candidate_output{kOutputElements};
   ManagedBuffer<std::uint16_t> fragment_a{kFragmentMatrixElements};
   ManagedBuffer<std::uint16_t> fragment_b{kFragmentMatrixElements};
   ManagedBuffer<std::uint32_t> loaded_a{kFragmentARegisters};
@@ -126,7 +136,10 @@ struct Buffers final {
   [[nodiscard]] bool valid() const noexcept {
     return q.valid() && k.valid() && h.valid() && v.valid() &&
            gamma.valid() && weight.valid() && gate.valid() && raw.valid() &&
-           output.valid() && reference.valid() && fragment_a.valid() &&
+           output.valid() && reference.valid() && w.valid() && u.valid() &&
+           initial_state.valid() && baseline_state.valid() &&
+           candidate_state.valid() && candidate_raw.valid() &&
+           candidate_output.valid() && fragment_a.valid() &&
            fragment_b.valid() && loaded_a.valid() && direct_a.valid() &&
            loaded_b.valid() && direct_b.valid() &&
            loaded_accumulator.valid() && direct_accumulator.valid();
@@ -144,6 +157,18 @@ void reset(Buffers& buffers) {
   std::fill_n(buffers.raw.data(), buffers.raw.size(), kPoison);
   std::fill_n(buffers.output.data(), buffers.output.size(), kPoison);
   std::fill_n(buffers.reference.data(), buffers.reference.size(), kPoison);
+  std::fill_n(buffers.w.data(), buffers.w.size(), kZero);
+  std::fill_n(buffers.u.data(), buffers.u.size(), kZero);
+  std::fill_n(buffers.initial_state.data(), buffers.initial_state.size(),
+              kZero);
+  std::fill_n(buffers.baseline_state.data(), buffers.baseline_state.size(),
+              kPoison);
+  std::fill_n(buffers.candidate_state.data(), buffers.candidate_state.size(),
+              kPoison);
+  std::fill_n(buffers.candidate_raw.data(), buffers.candidate_raw.size(),
+              kPoison);
+  std::fill_n(buffers.candidate_output.data(),
+              buffers.candidate_output.size(), kPoison);
 }
 
 [[nodiscard]] std::size_t compact_index(const std::size_t qk_head,
@@ -407,6 +432,102 @@ void test_rows8_norm(TestContext& test, Buffers& buffers) {
   }
 }
 
+void test_prompt_span_vertical_slice_c64(TestContext& test,
+                                         Buffers& buffers) {
+  reset(buffers);
+  for (std::size_t index = 0U; index < buffers.initial_state.size();
+       ++index) {
+    if (index % 4'093U == 17U || index % 8'191U == 31U) {
+      buffers.initial_state.data()[index] = kSmall;
+    }
+  }
+  for (std::size_t index = 0U; index < buffers.w.size(); ++index) {
+    if (index % 1'021U == 7U) {
+      buffers.w.data()[index] = kSmall;
+    }
+    if (index % 769U == 11U) {
+      buffers.u.data()[index] = kSmall;
+    }
+  }
+  for (std::size_t index = 0U; index < buffers.q.size(); ++index) {
+    if (index % 521U == 5U) {
+      buffers.q.data()[index] = kSmall;
+    }
+    if (index % 509U == 3U) {
+      buffers.k.data()[index] = kSmall;
+    }
+  }
+  for (std::size_t value_head = 0U; value_head < kValueHeads;
+       ++value_head) {
+    for (std::size_t token = 0U; token < kTokens; ++token) {
+      buffers.gamma.data()[value_head * kTokens + token] =
+          -0.0078125F * static_cast<float>(token + 1U);
+    }
+  }
+
+  int registers = 0;
+  std::size_t static_shared = 0U;
+  std::size_t local_bytes = 0U;
+  int maximum_threads = 0;
+  int active_blocks = 0;
+  const int resource_status = native::query_prompt_span_state_o_resources(
+      &registers, &static_shared, &local_bytes, &maximum_threads,
+      &active_blocks);
+  test.expect(test.cuda_ok(resource_status,
+                           "query prompt-span state-o resources") &&
+                  registers <= 255 && local_bytes <= 24U &&
+                  maximum_threads >= 128 && active_blocks >= 2,
+              "prompt-span state-o retains two CTA/SM resource contract");
+  std::cout << "GDN_PROMPT_SPAN_STATE_O_RESOURCES regs=" << registers
+            << " static_shared=" << static_shared
+            << " local_bytes=" << local_bytes
+            << " max_threads=" << maximum_threads
+            << " active_blocks_per_sm=" << active_blocks << '\n';
+
+  const int baseline_status =
+      native::launch_prompt_span_state_o_baseline_for_test(
+          buffers.w.data(), buffers.u.data(), buffers.q.data(),
+          buffers.k.data(), buffers.gamma.data(),
+          buffers.initial_state.data(), buffers.baseline_state.data(),
+          kTokens, buffers.v.data(), buffers.h.data(),
+          buffers.weight.data(), buffers.gate.data(), kEpsilon,
+          buffers.raw.data(), buffers.output.data());
+  const int candidate_status = native::launch_prompt_span_state_o(
+      buffers.w.data(), buffers.u.data(), buffers.q.data(),
+      buffers.k.data(), buffers.gamma.data(), buffers.initial_state.data(),
+      buffers.candidate_state.data(), kTokens, buffers.weight.data(),
+      buffers.gate.data(), kEpsilon, buffers.candidate_raw.data(),
+      buffers.candidate_output.data());
+  const bool ready =
+      test.cuda_ok(baseline_status, "launch prompt-span baseline C64") &&
+      test.cuda_ok(candidate_status, "launch prompt-span candidate C64") &&
+      test.cuda_ok(static_cast<int>(cudaDeviceSynchronize()),
+                   "synchronize prompt-span C64");
+  if (!ready) {
+    return;
+  }
+  const std::size_t nonzero_raw = static_cast<std::size_t>(std::count_if(
+      buffers.raw.data(), buffers.raw.data() + kOutputElements,
+      [](const std::uint16_t value) { return value != kZero; }));
+  std::size_t changed_state = 0U;
+  for (std::size_t index = 0U; index < kBoundaryStateElements; ++index) {
+    changed_state += buffers.baseline_state.data()[index] !=
+                             buffers.initial_state.data()[index]
+                         ? 1U
+                         : 0U;
+  }
+  test.expect(nonzero_raw != 0U && changed_state != 0U,
+              "prompt-span fixture exercises nonzero output and state update");
+  (void)expect_equal(test, "GDN_PROMPT_SPAN_STATE_C64",
+                     buffers.baseline_state.data(),
+                     buffers.candidate_state.data(), kBoundaryStateElements);
+  (void)expect_equal(test, "GDN_PROMPT_SPAN_RAW_O_C64", buffers.raw.data(),
+                     buffers.candidate_raw.data(), kOutputElements);
+  (void)expect_equal(test, "GDN_PROMPT_SPAN_NORM_O_C64",
+                     buffers.output.data(), buffers.candidate_output.data(),
+                     kOutputElements);
+}
+
 }  // namespace
 
 int main() {
@@ -434,6 +555,7 @@ int main() {
   test_state_only(test, buffers);
   test_qk_v_only(test, buffers);
   test_rows8_norm(test, buffers);
+  test_prompt_span_vertical_slice_c64(test, buffers);
   std::cout << "GDN_CHUNK_O_BV64_COMPONENT_RESULT gate="
             << (test.result() == 0 ? "PASS" : "FAIL")
             << " authority=SYNTHETIC_CORRECTNESS_ONLY\n";

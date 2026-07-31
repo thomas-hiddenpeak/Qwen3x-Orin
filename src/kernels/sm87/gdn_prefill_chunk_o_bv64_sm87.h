@@ -38,8 +38,9 @@ namespace q3x::runtime::gdn_prefill_chunk_o_bv64_detail {
     float* loaded_accumulator, float* direct_accumulator,
     void* cuda_stream = nullptr) noexcept;
 
-// Correctness-fixture entry for the independent exact epilogue. row_count
-// rows of D128 BF16 input/gate are normalized without launching chunk-o.
+// Independent exact epilogue for up to the bounded P4096 prompt-span route.
+// row_count rows of D128 BF16 input/gate are normalized without launching
+// chunk-o; the C512 component path remains otherwise unchanged.
 [[nodiscard]] int launch_norm_rows8(
     const std::uint16_t* raw_output, const std::uint16_t* norm_weight,
     const std::uint16_t* silu_gate, std::size_t row_count,

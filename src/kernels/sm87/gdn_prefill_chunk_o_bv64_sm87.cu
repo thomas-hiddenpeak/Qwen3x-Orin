@@ -47,6 +47,7 @@ constexpr unsigned int kRowsPerToken = kValueHeads;
 constexpr unsigned int kValuesPerToken =
     kValueHeads * kValueDimension;
 constexpr unsigned int kMaximumTokens = 512U;
+constexpr unsigned int kMaximumNormTokens = 4'096U;
 
 static_assert(kQkHeads * kHeadGroup == kValueHeads);
 static_assert(kChunkWarps == 4U);
@@ -995,7 +996,8 @@ int launch_norm_rows8(const std::uint16_t* const raw_output,
                       void* const cuda_stream) noexcept {
   if (raw_output == nullptr || norm_weight == nullptr ||
       silu_gate == nullptr || row_count == 0U ||
-      row_count > kMaximumTokens * kRowsPerToken || output == nullptr ||
+      row_count > kMaximumNormTokens * kRowsPerToken ||
+      output == nullptr ||
       !std::isfinite(norm_epsilon) || norm_epsilon <= 0.0F) {
     return static_cast<int>(cudaErrorInvalidValue);
   }

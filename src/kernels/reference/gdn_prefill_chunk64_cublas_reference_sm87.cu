@@ -2391,6 +2391,152 @@ __device__ __forceinline__ void faithful_scale_state(
   }
 }
 
+// Inverse of faithful_store_state_bank_shared.  Prompt-span ownership uses
+// this only at virtual C512 boundaries: the CTA rounds its FP32 resident
+// state through the incumbent BF16 layout, reloads it, and then continues
+// without publishing/re-reading the state through global memory.
+__device__ __forceinline__ void faithful_load_state_bank_shared(
+    FaithfulM16N8Accumulator
+        (&state)[kFaithfulKeyBanks][kFaithfulValuePanels],
+    const std::uint16_t* const shared_state,
+    const unsigned int bank,
+    const unsigned int warp,
+    const unsigned int lane) {
+  const unsigned int group = lane >> 2U;
+  const unsigned int pair = lane & 3U;
+  const unsigned int key0 = warp * 16U + group;
+  const unsigned int key1 = key0 + 8U;
+#pragma unroll
+  for (unsigned int panel = 0U; panel < kFaithfulValuePanels; ++panel) {
+    const unsigned int value0 = panel * 8U + pair * 2U;
+    const unsigned int value1 = value0 + 1U;
+    const unsigned int chunk00 =
+        faithful_swizzled_chunk(value0, key0 / 8U);
+    const unsigned int chunk01 =
+        faithful_swizzled_chunk(value0, key1 / 8U);
+    const unsigned int chunk10 =
+        faithful_swizzled_chunk(value1, key0 / 8U);
+    const unsigned int chunk11 =
+        faithful_swizzled_chunk(value1, key1 / 8U);
+    state[bank][panel].x0 = decode_bf16_device(
+        shared_state[value0 * kFaithfulPanelColumns + chunk00 * 8U +
+                     key0 % 8U]);
+    state[bank][panel].x1 = decode_bf16_device(
+        shared_state[value1 * kFaithfulPanelColumns + chunk10 * 8U +
+                     key0 % 8U]);
+    state[bank][panel].x2 = decode_bf16_device(
+        shared_state[value0 * kFaithfulPanelColumns + chunk01 * 8U +
+                     key1 % 8U]);
+    state[bank][panel].x3 = decode_bf16_device(
+        shared_state[value1 * kFaithfulPanelColumns + chunk11 * 8U +
+                     key1 % 8U]);
+  }
+}
+
+__device__ __forceinline__ void faithful_store_fp32_accumulator(
+    float* const destination,
+    const FaithfulM16N8Accumulator& accumulator,
+    const unsigned int m_panel,
+    const unsigned int n_panel,
+    const unsigned int lane) {
+  const unsigned int row0 = m_panel * 16U + lane / 4U;
+  const unsigned int row1 = row0 + 8U;
+  const unsigned int column = n_panel * 8U + 2U * (lane & 3U);
+  *reinterpret_cast<float2*>(
+      destination + row0 * kChunkSize + column) =
+      make_float2(accumulator.x0, accumulator.x1);
+  *reinterpret_cast<float2*>(
+      destination + row1 * kChunkSize + column) =
+      make_float2(accumulator.x2, accumulator.x3);
+}
+
+__device__ __forceinline__ void faithful_load_fp32_accumulator(
+    FaithfulM16N8Accumulator& accumulator,
+    const float* const source,
+    const unsigned int m_panel,
+    const unsigned int n_panel,
+    const unsigned int lane) {
+  const unsigned int row0 = m_panel * 16U + lane / 4U;
+  const unsigned int row1 = row0 + 8U;
+  const unsigned int column = n_panel * 8U + 2U * (lane & 3U);
+  const float2 low =
+      *reinterpret_cast<const float2*>(source + row0 * kChunkSize + column);
+  const float2 high =
+      *reinterpret_cast<const float2*>(source + row1 * kChunkSize + column);
+  accumulator = {low.x, low.y, high.x, high.y};
+}
+
+[[nodiscard]] __device__ __forceinline__ std::uint16_t
+faithful_gated_score(const float raw,
+                     const unsigned int query,
+                     const unsigned int source,
+                     const float* const gamma) {
+  return source <= query
+             ? encode_bf16_device(
+                   raw * expf(gamma[query] - gamma[source]))
+             : 0U;
+}
+
+__device__ __forceinline__ void faithful_store_gated_score_accumulator(
+    std::uint16_t* const destination,
+    const FaithfulM16N8Accumulator& accumulator,
+    const unsigned int m_panel,
+    const unsigned int n_panel,
+    const unsigned int lane,
+    const float* const gamma) {
+  const unsigned int query0 = m_panel * 16U + lane / 4U;
+  const unsigned int query1 = query0 + 8U;
+  const unsigned int source0 = n_panel * 8U + 2U * (lane & 3U);
+  const unsigned int source1 = source0 + 1U;
+  const unsigned int chunk00 =
+      faithful_swizzled_chunk(query0, source0 / 8U);
+  const unsigned int chunk10 =
+      faithful_swizzled_chunk(query1, source0 / 8U);
+  *reinterpret_cast<std::uint32_t*>(
+      destination + query0 * kFaithfulPanelColumns + chunk00 * 8U +
+      source0 % 8U) =
+      static_cast<std::uint32_t>(
+          faithful_gated_score(accumulator.x0, query0, source0, gamma)) |
+      (static_cast<std::uint32_t>(
+           faithful_gated_score(accumulator.x1, query0, source1, gamma))
+       << 16U);
+  *reinterpret_cast<std::uint32_t*>(
+      destination + query1 * kFaithfulPanelColumns + chunk10 * 8U +
+      source0 % 8U) =
+      static_cast<std::uint32_t>(
+          faithful_gated_score(accumulator.x2, query1, source0, gamma)) |
+      (static_cast<std::uint32_t>(
+           faithful_gated_score(accumulator.x3, query1, source1, gamma))
+       << 16U);
+}
+
+__device__ __forceinline__ void faithful_store_raw_output_accumulator(
+    std::uint16_t* const raw_output,
+    const FaithfulM16N8Accumulator& accumulator,
+    const unsigned int token_base,
+    const unsigned int value_head,
+    const unsigned int value_base,
+    const unsigned int m_panel,
+    const unsigned int n_panel,
+    const unsigned int lane) {
+  const unsigned int query0 = m_panel * 16U + lane / 4U;
+  const unsigned int query1 = query0 + 8U;
+  const unsigned int value =
+      value_base + n_panel * 8U + 2U * (lane & 3U);
+  constexpr std::size_t kValuesPerToken =
+      kValueHeadCount * kDimension;
+  *reinterpret_cast<std::uint32_t*>(
+      raw_output +
+      static_cast<std::size_t>(token_base + query0) * kValuesPerToken +
+      value_head * kDimension + value) =
+      faithful_pack_pair(accumulator.x0, accumulator.x1);
+  *reinterpret_cast<std::uint32_t*>(
+      raw_output +
+      static_cast<std::size_t>(token_base + query1) * kValuesPerToken +
+      value_head * kDimension + value) =
+      faithful_pack_pair(accumulator.x2, accumulator.x3);
+}
+
 template <bool Diagnostic>
 __global__ __launch_bounds__(kFusedSolveThreads, 2)
 void persistent_state_chunk64_vllm_faithful_kernel(
@@ -2667,6 +2813,369 @@ void persistent_state_chunk64_vllm_faithful_kernel(
               value_half, bank, thread);
           __syncthreads();
         }
+      }
+    }
+  }
+}
+
+// Prompt-span vertical slice: one (value_head,value_half) CTA retains its
+// FP32 state registers across every C64 chunk, consumes the rounded state and
+// Vnew boundaries locally with the established BV64 ownership, and publishes
+// only raw O plus the final persistent state.  W/U/K/Q/gamma keep the exact
+// existing BF16/FP32 contracts; conv, WY, and norm remain separate kernels.
+__global__ __launch_bounds__(kFusedSolveThreads, 2)
+void prompt_span_persistent_state_o_bv64_kernel(
+    const std::uint16_t* const w,
+    const std::uint16_t* const u,
+    const std::uint16_t* const compact_q,
+    const std::uint16_t* const compact_k,
+    const float* const gamma,
+    const std::uint16_t* const state_input,
+    std::uint16_t* const state_output,
+    const unsigned int chunk_count,
+    std::uint16_t* const raw_output) {
+  extern __shared__ __align__(16) unsigned char shared_raw[];
+  auto* const shared_w0 = reinterpret_cast<std::uint16_t*>(
+      shared_raw + kFaithfulW0Offset);
+  auto* const shared_w1 = reinterpret_cast<std::uint16_t*>(
+      shared_raw + kFaithfulW1Offset);
+  auto* const shared_u = reinterpret_cast<std::uint16_t*>(
+      shared_raw + kFaithfulUOffset);
+  auto* const shared_k0 = reinterpret_cast<std::uint16_t*>(
+      shared_raw + kFaithfulK0Offset);
+  auto* const shared_k1 = reinterpret_cast<std::uint16_t*>(
+      shared_raw + kFaithfulK1Offset);
+  auto* const shared_transient = reinterpret_cast<std::uint16_t*>(
+      shared_raw + kFaithfulTransientOffset);
+  auto* const shared_gamma = reinterpret_cast<float*>(
+      shared_raw + kFaithfulGammaOffset);
+
+  const unsigned int thread = threadIdx.x;
+  const unsigned int warp = thread / 32U;
+  const unsigned int lane = thread % 32U;
+  const unsigned int value_head = blockIdx.x / 2U;
+  const unsigned int value_half = blockIdx.x % 2U;
+  const unsigned int value_base = value_half * 64U;
+  const unsigned int qk_head = value_head / 3U;
+  const std::size_t head_state_base =
+      static_cast<std::size_t>(value_head) * kDimension * kDimension;
+
+  FaithfulM16N8Accumulator
+      state[kFaithfulKeyBanks][kFaithfulValuePanels];
+  faithful_load_initial_state(state, state_input, head_state_base,
+                              value_half, warp, lane);
+
+  // Retain the incumbent's extra publication iteration so final state uses
+  // exactly the same packed BF16 conversion as every local state operand.
+  for (unsigned int chunk_index = 0U;; ++chunk_index) {
+    const bool has_chunk = chunk_index < chunk_count;
+    const std::size_t matrix =
+        static_cast<std::size_t>(chunk_index) * kValueHeadCount +
+        value_head;
+    const std::size_t compact_matrix =
+        static_cast<std::size_t>(chunk_index) * kQkHeadCount + qk_head;
+
+    const std::uint16_t* matrix_w = nullptr;
+    const std::uint16_t* matrix_u = nullptr;
+    const std::uint16_t* matrix_q = nullptr;
+    const std::uint16_t* matrix_k = nullptr;
+    const float* matrix_gamma = nullptr;
+    if (has_chunk) {
+      matrix_w = w + matrix * kChunkSize * kDimension;
+      matrix_u = u + matrix * kChunkSize * kDimension;
+      matrix_q = compact_q +
+                 compact_matrix * kChunkSize * kDimension;
+      matrix_k = compact_k +
+                 compact_matrix * kChunkSize * kDimension;
+      matrix_gamma = gamma + matrix * kChunkSize;
+      faithful_stage_chunk(matrix_w, matrix_u, matrix_k, matrix_gamma,
+                           value_half, shared_w0, shared_w1, shared_u,
+                           shared_k0, shared_k1, shared_gamma, thread);
+    }
+
+    FaithfulM16N8Accumulator products[kFaithfulValuePanels];
+    FaithfulM16N8Accumulator qh[kFaithfulValuePanels];
+    FaithfulM16N8Accumulator score[kFaithfulValuePanels];
+#pragma unroll
+    for (unsigned int panel = 0U; panel < kFaithfulValuePanels;
+         ++panel) {
+      faithful_zero(products[panel]);
+      faithful_zero(qh[panel]);
+      faithful_zero(score[panel]);
+    }
+
+#pragma unroll
+    for (unsigned int bank = 0U; bank < kFaithfulKeyBanks; ++bank) {
+      faithful_store_state_bank_shared(state, shared_transient, bank,
+                                       warp, lane);
+      __syncthreads();
+      if (!has_chunk) {
+        faithful_copy_state_bank_global(
+            shared_transient, state_output + head_state_base,
+            value_half, bank, thread);
+        __syncthreads();
+        continue;
+      }
+      if (bank == 0U) {
+        resident_state_cp_async_wait_all();
+      }
+      __syncthreads();
+
+      // W @ rounded(H) is the established Vnew correction.  Once this bank
+      // is consumed its W panel becomes Q staging storage for QH and QK.
+      std::uint16_t* const selected_w =
+          bank == 0U ? shared_w0 : shared_w1;
+      const std::uint16_t* const selected_k =
+          bank == 0U ? shared_k0 : shared_k1;
+#pragma unroll
+      for (unsigned int key_pair = 0U; key_pair < 2U; ++key_pair) {
+        FaithfulM16K16 w_fragment0{};
+        FaithfulM16K16 w_fragment1{};
+        faithful_load_a(w_fragment0, selected_w, warp,
+                        key_pair * 2U, lane);
+        faithful_load_a(w_fragment1, selected_w, warp,
+                        key_pair * 2U + 1U, lane);
+#pragma unroll
+        for (unsigned int panel = 0U;
+             panel < kFaithfulValuePanels; ++panel) {
+          FaithfulK16N8 state_fragment0{};
+          FaithfulK16N8 state_fragment1{};
+          faithful_load_b_pair_transposed(
+              state_fragment0, state_fragment1, shared_transient,
+              panel, key_pair, lane);
+          faithful_mma(products[panel], w_fragment0,
+                       state_fragment0);
+          faithful_mma(products[panel], w_fragment1,
+                       state_fragment1);
+        }
+      }
+      __syncthreads();
+
+      faithful_stage_panel(matrix_q, kDimension, bank * 64U,
+                           selected_w, thread);
+      resident_state_cp_async_wait_all();
+      __syncthreads();
+#pragma unroll
+      for (unsigned int key_pair = 0U; key_pair < 2U; ++key_pair) {
+        FaithfulM16K16 q_fragment0{};
+        FaithfulM16K16 q_fragment1{};
+        faithful_load_a(q_fragment0, selected_w, warp,
+                        key_pair * 2U, lane);
+        faithful_load_a(q_fragment1, selected_w, warp,
+                        key_pair * 2U + 1U, lane);
+#pragma unroll
+        for (unsigned int panel = 0U;
+             panel < kFaithfulValuePanels; ++panel) {
+          FaithfulK16N8 state_fragment0{};
+          FaithfulK16N8 state_fragment1{};
+          FaithfulK16N8 key_fragment0{};
+          FaithfulK16N8 key_fragment1{};
+          faithful_load_b_pair_transposed(
+              state_fragment0, state_fragment1, shared_transient,
+              panel, key_pair, lane);
+          faithful_load_b_pair_transposed(
+              key_fragment0, key_fragment1, selected_k, panel,
+              key_pair, lane);
+          faithful_mma(qh[panel], q_fragment0, state_fragment0);
+          faithful_mma(qh[panel], q_fragment1, state_fragment1);
+          faithful_mma(score[panel], q_fragment0, key_fragment0);
+          faithful_mma(score[panel], q_fragment1, key_fragment1);
+        }
+      }
+      __syncthreads();
+    }
+
+    if (!has_chunk) {
+      return;
+    }
+
+    // Form the exact rounded Vnew tile directly in the shared [V,T]
+    // backing consumed by both the BV64 output MMA and the state update MMA.
+    const unsigned int group = lane >> 2U;
+    const unsigned int pair = lane & 3U;
+    const unsigned int token0 = warp * 16U + group;
+    const unsigned int token1 = token0 + 8U;
+#pragma unroll
+    for (unsigned int panel = 0U; panel < kFaithfulValuePanels;
+         ++panel) {
+      const std::uint32_t u0 = faithful_load_shared_pair(
+          shared_u, token0, panel, pair);
+      const std::uint32_t u1 = faithful_load_shared_pair(
+          shared_u, token1, panel, pair);
+      const std::uint32_t rounded0 = faithful_pack_pair(
+          decode_bf16_device(static_cast<std::uint16_t>(u0)) -
+              products[panel].x0,
+          decode_bf16_device(static_cast<std::uint16_t>(u0 >> 16U)) -
+              products[panel].x1);
+      const std::uint32_t rounded1 = faithful_pack_pair(
+          decode_bf16_device(static_cast<std::uint16_t>(u1)) -
+              products[panel].x2,
+          decode_bf16_device(static_cast<std::uint16_t>(u1 >> 16U)) -
+              products[panel].x3);
+      const unsigned int value0 = panel * 8U + pair * 2U;
+      const unsigned int value1 = value0 + 1U;
+      faithful_store_v_transposed(
+          shared_transient, value0, token0,
+          static_cast<std::uint16_t>(rounded0));
+      faithful_store_v_transposed(
+          shared_transient, value1, token0,
+          static_cast<std::uint16_t>(rounded0 >> 16U));
+      faithful_store_v_transposed(
+          shared_transient, value0, token1,
+          static_cast<std::uint16_t>(rounded1));
+      faithful_store_v_transposed(
+          shared_transient, value1, token1,
+          static_cast<std::uint16_t>(rounded1 >> 16U));
+    }
+    __syncthreads();
+
+    // Phase 1 of BV64: scale QH in FP32, then exchange the 64x64 tile so
+    // each warp owns Q32xV32 for the in-place A@V accumulation.
+    auto* const shared_qh = reinterpret_cast<float*>(shared_w0);
+    const float gate0 = expf(shared_gamma[token0]);
+    const float gate1 = expf(shared_gamma[token1]);
+#pragma unroll
+    for (unsigned int panel = 0U; panel < kFaithfulValuePanels;
+         ++panel) {
+      qh[panel].x0 *= gate0;
+      qh[panel].x1 *= gate0;
+      qh[panel].x2 *= gate1;
+      qh[panel].x3 *= gate1;
+      faithful_store_fp32_accumulator(shared_qh, qh[panel], warp,
+                                       panel, lane);
+    }
+    __syncthreads();
+
+    const unsigned int query_group = warp >> 1U;
+    const unsigned int value_group = warp & 1U;
+#pragma unroll
+    for (unsigned int m = 0U; m < 2U; ++m) {
+#pragma unroll
+      for (unsigned int n = 0U; n < 4U; ++n) {
+        faithful_load_fp32_accumulator(
+            qh[m * 4U + n], shared_qh, query_group * 2U + m,
+            value_group * 4U + n, lane);
+      }
+    }
+    __syncthreads();
+
+    // Q/K/H and U are dead.  Reuse U's swizzled 8-KiB panel for the exact
+    // BF16 causal score boundary, while shared_transient retains Vnew.
+#pragma unroll
+    for (unsigned int panel = 0U; panel < kFaithfulValuePanels;
+         ++panel) {
+      faithful_store_gated_score_accumulator(
+          shared_u, score[panel], warp, panel, lane, shared_gamma);
+    }
+    __syncthreads();
+
+#pragma unroll
+    for (unsigned int source_pair = 0U; source_pair < 2U;
+         ++source_pair) {
+      FaithfulK16N8 value_fragment0[kFaithfulValuePanels / 2U];
+      FaithfulK16N8 value_fragment1[kFaithfulValuePanels / 2U];
+#pragma unroll
+      for (unsigned int n = 0U; n < kFaithfulValuePanels / 2U; ++n) {
+        faithful_load_b_pair_transposed(
+            value_fragment0[n], value_fragment1[n], shared_transient,
+            value_group * 4U + n, source_pair, lane);
+      }
+#pragma unroll
+      for (unsigned int m = 0U; m < 2U; ++m) {
+        FaithfulM16K16 score_fragment0{};
+        FaithfulM16K16 score_fragment1{};
+        faithful_load_a(score_fragment0, shared_u,
+                        query_group * 2U + m, source_pair * 2U, lane);
+        faithful_load_a(score_fragment1, shared_u,
+                        query_group * 2U + m,
+                        source_pair * 2U + 1U, lane);
+#pragma unroll
+        for (unsigned int n = 0U; n < kFaithfulValuePanels / 2U; ++n) {
+          faithful_mma(qh[m * 4U + n], score_fragment0,
+                       value_fragment0[n]);
+          faithful_mma(qh[m * 4U + n], score_fragment1,
+                       value_fragment1[n]);
+        }
+      }
+    }
+
+#pragma unroll
+    for (unsigned int m = 0U; m < 2U; ++m) {
+#pragma unroll
+      for (unsigned int n = 0U; n < 4U; ++n) {
+        faithful_store_raw_output_accumulator(
+            raw_output, qh[m * 4U + n], chunk_index * kChunkSize,
+            value_head, value_base, query_group * 2U + m,
+            value_group * 4U + n, lane);
+      }
+    }
+    __syncthreads();
+
+    // Preserve the project's rounded end-decayed-K state update exactly.
+    // shared W/QH and U/A are dead before these aliases are reused.
+    auto* const shared_raw_last = reinterpret_cast<float*>(shared_u);
+    if (thread == 0U) {
+      shared_raw_last[0] = shared_gamma[kChunkSize - 1U];
+    }
+    __syncthreads();
+    const float raw_last = shared_raw_last[0];
+    if (thread < kChunkSize) {
+      shared_gamma[thread] =
+          expf(raw_last - shared_gamma[thread]);
+      if (thread == 0U) {
+        shared_gamma[kChunkSize] = expf(raw_last);
+      }
+    }
+    __syncthreads();
+    faithful_form_decayed_k_transpose(
+        shared_k0, shared_k1, shared_gamma, shared_w0, shared_w1,
+        thread);
+    faithful_scale_state(state, shared_gamma[kChunkSize]);
+    __syncthreads();
+
+#pragma unroll
+    for (unsigned int bank = 0U; bank < kFaithfulKeyBanks; ++bank) {
+      const std::uint16_t* const selected_k =
+          bank == 0U ? shared_w0 : shared_w1;
+#pragma unroll
+      for (unsigned int token_pair = 0U; token_pair < 2U;
+           ++token_pair) {
+        FaithfulM16K16 k_fragment0{};
+        FaithfulM16K16 k_fragment1{};
+        faithful_load_a(k_fragment0, selected_k, warp,
+                        token_pair * 2U, lane);
+        faithful_load_a(k_fragment1, selected_k, warp,
+                        token_pair * 2U + 1U, lane);
+#pragma unroll
+        for (unsigned int panel = 0U;
+             panel < kFaithfulValuePanels; ++panel) {
+          FaithfulK16N8 v_fragment0{};
+          FaithfulK16N8 v_fragment1{};
+          faithful_load_b_pair_transposed(
+              v_fragment0, v_fragment1, shared_transient, panel,
+              token_pair, lane);
+          faithful_mma(state[bank][panel], k_fragment0, v_fragment0);
+          faithful_mma(state[bank][panel], k_fragment1, v_fragment1);
+        }
+      }
+    }
+    __syncthreads();
+
+    // A separate C512 launch publishes BF16 state and the next launch reads
+    // it back.  Reproduce that numerical boundary locally after chunks 8,
+    // 16, ... while preserving CTA ownership across the complete prompt.
+    const bool round_reload_state =
+        (chunk_index + 1U) % 8U == 0U &&
+        chunk_index + 1U < chunk_count;
+    if (round_reload_state) {
+#pragma unroll
+      for (unsigned int bank = 0U; bank < kFaithfulKeyBanks; ++bank) {
+        faithful_store_state_bank_shared(state, shared_transient, bank,
+                                         warp, lane);
+        __syncthreads();
+        faithful_load_state_bank_shared(state, shared_transient, bank,
+                                        warp, lane);
+        __syncthreads();
       }
     }
   }
@@ -3351,6 +3860,121 @@ int query_native_resources(int* const registers_per_thread,
   return static_cast<int>(cudaSuccess);
 }
 
+int launch_prompt_span_state_o_core(
+    const std::uint16_t* const w,
+    const std::uint16_t* const u,
+    const std::uint16_t* const compact_q,
+    const std::uint16_t* const compact_k,
+    const float* const cumulative_gate,
+    const std::uint16_t* const state_input,
+    std::uint16_t* const state_output,
+    const std::size_t token_count,
+    std::uint16_t* const raw_output,
+    void* const cuda_stream) noexcept {
+  if (w == nullptr || u == nullptr || compact_q == nullptr ||
+      compact_k == nullptr || cumulative_gate == nullptr ||
+      state_input == nullptr || state_output == nullptr ||
+      token_count == 0U || token_count > 4'096U ||
+      raw_output == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  static const int attribute_status = static_cast<int>(
+      cudaFuncSetAttribute(
+          prompt_span_persistent_state_o_bv64_kernel,
+          cudaFuncAttributeMaxDynamicSharedMemorySize,
+          static_cast<int>(kFaithfulStateSharedBytes)));
+  if (attribute_status != static_cast<int>(cudaSuccess)) {
+    return attribute_status;
+  }
+  const unsigned int chunk_count = static_cast<unsigned int>(
+      (token_count + kChunkSize - 1U) / kChunkSize);
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  prompt_span_persistent_state_o_bv64_kernel<<<
+      static_cast<unsigned int>(kValueHeadCount * 2U),
+      kFusedSolveThreads, kFaithfulStateSharedBytes, stream>>>(
+      w, u, compact_q, compact_k, cumulative_gate, state_input,
+      state_output, chunk_count, raw_output);
+  return static_cast<int>(cudaGetLastError());
+}
+
+int launch_prompt_span_state_o_baseline_core_for_test(
+    const std::uint16_t* const w,
+    const std::uint16_t* const u,
+    const std::uint16_t* const compact_k,
+    const float* const cumulative_gate,
+    const std::uint16_t* const state_input,
+    std::uint16_t* const state_output,
+    const std::size_t token_count,
+    std::uint16_t* const v_new,
+    std::uint16_t* const boundary_state,
+    void* const cuda_stream) noexcept {
+  if (w == nullptr || u == nullptr || compact_k == nullptr ||
+      cumulative_gate == nullptr || state_input == nullptr ||
+      state_output == nullptr || token_count == 0U ||
+      token_count > 512U || v_new == nullptr ||
+      boundary_state == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  static const int attribute_status = static_cast<int>(
+      cudaFuncSetAttribute(
+          persistent_state_chunk64_vllm_faithful_kernel<false>,
+          cudaFuncAttributeMaxDynamicSharedMemorySize,
+          static_cast<int>(kFaithfulStateSharedBytes)));
+  if (attribute_status != static_cast<int>(cudaSuccess)) {
+    return attribute_status;
+  }
+  const unsigned int chunk_count = static_cast<unsigned int>(
+      (token_count + kChunkSize - 1U) / kChunkSize);
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  persistent_state_chunk64_vllm_faithful_kernel<false><<<
+      static_cast<unsigned int>(kValueHeadCount * 2U),
+      kFusedSolveThreads, kFaithfulStateSharedBytes, stream>>>(
+      w, u, compact_k, cumulative_gate, state_input, state_output,
+      chunk_count, v_new, boundary_state, nullptr, nullptr);
+  return static_cast<int>(cudaGetLastError());
+}
+
+int query_prompt_span_state_o_resources(
+    int* const registers_per_thread,
+    std::size_t* const static_shared_bytes,
+    std::size_t* const local_bytes,
+    int* const maximum_threads_per_block,
+    int* const active_blocks_per_sm) noexcept {
+  if (registers_per_thread == nullptr || static_shared_bytes == nullptr ||
+      local_bytes == nullptr || maximum_threads_per_block == nullptr ||
+      active_blocks_per_sm == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  cudaError_t status = cudaFuncSetAttribute(
+      prompt_span_persistent_state_o_bv64_kernel,
+      cudaFuncAttributeMaxDynamicSharedMemorySize,
+      static_cast<int>(kFaithfulStateSharedBytes));
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  cudaFuncAttributes attributes{};
+  status = cudaFuncGetAttributes(
+      &attributes, prompt_span_persistent_state_o_bv64_kernel);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  int active = 0;
+  status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+      &active, prompt_span_persistent_state_o_bv64_kernel,
+      static_cast<int>(kFusedSolveThreads), kFaithfulStateSharedBytes);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  *registers_per_thread = attributes.numRegs;
+  *static_shared_bytes = attributes.sharedSizeBytes;
+  *local_bytes = attributes.localSizeBytes;
+  *maximum_threads_per_block = attributes.maxThreadsPerBlock;
+  *active_blocks_per_sm = active;
+  return static_cast<int>(cudaSuccess);
+}
+
 }  // namespace q3x::runtime::gdn_prefill_chunk64_reference_detail
 
 namespace q3x::runtime::gdn_prefill_chunk64_native_detail {
@@ -3431,6 +4055,86 @@ int launch_qk_preprocessed(
       nullptr, workspace, workspace_capacity_bytes, token_count, conv_qkv, a,
       b, A_log, dt_bias, state_input, state_output, l2_epsilon, norm_weight,
       silu_gate, norm_epsilon, output, cuda_stream, true);
+}
+
+int launch_prompt_span_state_o(
+    const std::uint16_t* const w,
+    const std::uint16_t* const u,
+    const std::uint16_t* const compact_q,
+    const std::uint16_t* const compact_k,
+    const float* const cumulative_gate,
+    const std::uint16_t* const state_input,
+    std::uint16_t* const state_output,
+    const std::size_t token_count,
+    const std::uint16_t* const norm_weight,
+    const std::uint16_t* const silu_gate,
+    const float norm_epsilon,
+    std::uint16_t* const raw_output,
+    std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  if (norm_weight == nullptr || silu_gate == nullptr ||
+      raw_output == nullptr || output == nullptr ||
+      !std::isfinite(norm_epsilon) || norm_epsilon <= 0.0F) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  int status = gdn_prefill_chunk64_reference_detail::
+      launch_prompt_span_state_o_core(
+          w, u, compact_q, compact_k, cumulative_gate, state_input,
+          state_output, token_count, raw_output, cuda_stream);
+  if (status != static_cast<int>(cudaSuccess)) {
+    return status;
+  }
+  return gdn_prefill_chunk_o_bv64_detail::launch_norm_rows8(
+      raw_output, norm_weight, silu_gate,
+      token_count * kGdnValueHeadCount, norm_epsilon, output,
+      cuda_stream);
+}
+
+int launch_prompt_span_state_o_baseline_for_test(
+    const std::uint16_t* const w,
+    const std::uint16_t* const u,
+    const std::uint16_t* const compact_q,
+    const std::uint16_t* const compact_k,
+    const float* const cumulative_gate,
+    const std::uint16_t* const state_input,
+    std::uint16_t* const state_output,
+    const std::size_t token_count,
+    std::uint16_t* const v_new,
+    std::uint16_t* const boundary_state,
+    const std::uint16_t* const norm_weight,
+    const std::uint16_t* const silu_gate,
+    const float norm_epsilon,
+    std::uint16_t* const raw_output,
+    std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  if (compact_q == nullptr || norm_weight == nullptr ||
+      silu_gate == nullptr || raw_output == nullptr || output == nullptr ||
+      !std::isfinite(norm_epsilon) || norm_epsilon <= 0.0F) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  int status = gdn_prefill_chunk64_reference_detail::
+      launch_prompt_span_state_o_baseline_core_for_test(
+          w, u, compact_k, cumulative_gate, state_input, state_output,
+          token_count, v_new, boundary_state, cuda_stream);
+  if (status != static_cast<int>(cudaSuccess)) {
+    return status;
+  }
+  return gdn_prefill_chunk_o_bv64_detail::launch(
+      compact_q, compact_k, boundary_state, v_new, cumulative_gate,
+      token_count, norm_weight, silu_gate, norm_epsilon, raw_output,
+      output, cuda_stream);
+}
+
+int query_prompt_span_state_o_resources(
+    int* const registers_per_thread,
+    std::size_t* const static_shared_bytes,
+    std::size_t* const local_bytes,
+    int* const maximum_threads_per_block,
+    int* const active_blocks_per_sm) noexcept {
+  return gdn_prefill_chunk64_reference_detail::
+      query_prompt_span_state_o_resources(
+          registers_per_thread, static_shared_bytes, local_bytes,
+          maximum_threads_per_block, active_blocks_per_sm);
 }
 
 int launch_compact_qk_baseline_for_test(
