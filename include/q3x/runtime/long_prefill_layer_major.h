@@ -6,6 +6,8 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
+#include <cstring>
 #include <optional>
 #include <string_view>
 
@@ -17,14 +19,27 @@ inline constexpr std::uint32_t kLongPrefillProjectionSpanDefaultTokens =
 inline constexpr std::uint32_t kLongPrefillLayerMajorMaximumTokens =
     kRequestLongPrefillAdmissionMaximumTokens;
 
+// Production comparator switch. This intentionally controls dispatch only:
+// callers must still authenticate and retain optimized weights and reserve
+// the identical request arena so enabled/disabled measurements use one ELF
+// and one lifetime topology.
+[[nodiscard]] inline bool optimized_prefill_dispatch_disabled() noexcept {
+  static const bool disabled = []() noexcept {
+    const char* const value =
+        std::getenv("Q3X_DISABLE_OPTIMIZED_PREFILL");
+    return value != nullptr && std::strcmp(value, "1") == 0;
+  }();
+  return disabled;
+}
+
 enum class LongPrefillLayerMajorRoute : std::uint8_t {
   kTileMajorFallback = 0,
   kLayerMajorAdmission,
 };
 
-// Runtime selection remains a separate explicit gate from the test-only build
-// option. Ordinary binaries and ordinary calls therefore retain the existing
-// tile-major path even when the admission implementation is present.
+// Runtime selection remains separate from code availability. Production
+// callers enable this by default after reserving the required arena; trace,
+// backend, shape, and capacity mismatches still fall back safely.
 struct LongPrefillLayerMajorRouteQuery {
   bool runtime_enabled = false;
   ProjectionBackend projection_backend = ProjectionBackend::kReference;
@@ -39,6 +54,25 @@ struct LongPrefillLayerMajorRouteQuery {
 
 [[nodiscard]] LongPrefillLayerMajorRoute select_long_prefill_layer_major_route(
     const LongPrefillLayerMajorRouteQuery& query) noexcept;
+
+// Pure selector for the whole-M A4 projection-span executor. The enclosing
+// layer-major selector owns backend/workspace validation; this helper keeps
+// aligned, non-aligned, disabled, and out-of-range boundaries host-testable.
+[[nodiscard]] constexpr bool use_long_prefill_projection_span_route(
+    const std::uint32_t prompt_token_count,
+    const std::uint32_t projection_span_token_count,
+    const bool a4_inventory_enabled,
+    const bool optimized_prefill_disabled) noexcept {
+  return !optimized_prefill_disabled && a4_inventory_enabled &&
+         prompt_token_count > kLongPrefillLayerMajorTileTokens &&
+         prompt_token_count <= kLongPrefillLayerMajorMaximumTokens &&
+         prompt_token_count % kLongPrefillLayerMajorTileTokens == 0U &&
+         projection_span_token_count >=
+             kLongPrefillLayerMajorTileTokens &&
+         projection_span_token_count %
+                 kLongPrefillLayerMajorTileTokens ==
+             0U;
+}
 
 enum class LongPrefillLayerMajorPlanError : std::uint8_t {
   kNone = 0,

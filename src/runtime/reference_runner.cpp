@@ -147,6 +147,9 @@ thread_local std::size_t g_gdn_conv_compact_qk_fused_candidate_hits = 0U;
 
 #if defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
 [[nodiscard]] bool a4w4_full_prefill_environment_enabled() noexcept {
+  if (optimized_prefill_dispatch_disabled()) {
+    return false;
+  }
   const char* const value =
       std::getenv("Q3X_RUN_A4W4_FULL_PREFILL_ADMISSION");
   return value != nullptr && std::strcmp(value, "1") == 0;
@@ -161,9 +164,12 @@ thread_local reference_runner_detail::A4W4FullPrefillAdmissionHits
 // the archived C64/WY throughput contract: every token persists BF16 state
 // and every K dot retains the incumbent left-to-right FMA order.
 [[nodiscard]] bool gdn_exact_span_environment_enabled() noexcept {
+  if (optimized_prefill_dispatch_disabled()) {
+    return false;
+  }
   const char* const value =
       std::getenv("Q3X_RUN_GDN_EXACT_SPAN_ADMISSION");
-  return value != nullptr && std::strcmp(value, "1") == 0;
+  return value == nullptr || std::strcmp(value, "1") == 0;
 }
 
 thread_local bool g_enable_gdn_exact_span_admission =
@@ -3313,8 +3319,10 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
 #if defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
   reference_runner_detail::A4W4FullPrefillAdmissionHits
       a4w4_full_prefill_tile_hits{};
-  if (a4w4_full_prefill_admission_enabled_ ||
-      g_enable_a4w4_full_prefill_admission) {
+  if (reference_runner_detail::use_a4w4_full_prefill_tile_route(
+          a4w4_full_prefill_admission_enabled_ ||
+              g_enable_a4w4_full_prefill_admission,
+          trace_enabled_, optimized_prefill_dispatch_disabled())) {
     const RequestMemoryPlan& plan = state_->plan();
     const std::size_t hidden_packed_capacity =
         kernels::sm87_a4w4_consumer_packed_capacity_bytes(
@@ -5060,8 +5068,11 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
   const RequestMemoryPlan& request_plan = state_->plan();
   const std::size_t span_capacity =
       request_plan.long_prefill_projection_span_capacity;
-  const bool selected = a4w4_full_prefill_admission_enabled_ ||
-                        g_enable_a4w4_full_prefill_admission;
+  const bool selected =
+      reference_runner_detail::use_a4w4_full_prefill_tile_route(
+          a4w4_full_prefill_admission_enabled_ ||
+              g_enable_a4w4_full_prefill_admission,
+          trace_enabled_, optimized_prefill_dispatch_disabled());
   if (!selected ||
       projection_backend_ != ProjectionBackend::kSm87WeightOnly ||
       span_capacity != plan.projection_span_token_count ||
@@ -5765,7 +5776,7 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
   LongPrefillLayerMajorRouteQuery route_query;
   route_query.runtime_enabled = true;
   route_query.projection_backend = projection_backend_;
-  route_query.capture_trace = false;
+  route_query.capture_trace = trace_enabled_;
   route_query.prompt_token_count = prompt_token_count;
   route_query.prefill_chunk_size = state_->plan().prefill_chunk_size;
   route_query.hidden_token_capacity =
@@ -5783,11 +5794,16 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
 #if defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
   const std::uint32_t projection_span_capacity =
       state_->plan().long_prefill_projection_span_capacity;
+  const bool a4_inventory_enabled =
+      reference_runner_detail::use_a4w4_full_prefill_tile_route(
+          a4w4_full_prefill_admission_enabled_ ||
+              g_enable_a4w4_full_prefill_admission,
+          trace_enabled_, optimized_prefill_dispatch_disabled());
   const bool projection_span_selected =
-      projection_span_capacity != 0U &&
-      prompt_token_count % kLongPrefillLayerMajorTileTokens == 0U &&
-      (a4w4_full_prefill_admission_enabled_ ||
-       g_enable_a4w4_full_prefill_admission);
+      use_long_prefill_projection_span_route(
+          prompt_token_count, projection_span_capacity,
+          a4_inventory_enabled,
+          optimized_prefill_dispatch_disabled());
   if (projection_span_selected) {
     LongPrefillProjectionSpanOptions span_options;
     span_options.prompt_token_count = prompt_token_count;
@@ -5936,8 +5952,10 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
   } context{this, input_token_ids, {}};
 #if defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
   context.a4w4_full_prefill_selected =
-      a4w4_full_prefill_admission_enabled_ ||
-      g_enable_a4w4_full_prefill_admission;
+      reference_runner_detail::use_a4w4_full_prefill_tile_route(
+          a4w4_full_prefill_admission_enabled_ ||
+              g_enable_a4w4_full_prefill_admission,
+          trace_enabled_, optimized_prefill_dispatch_disabled());
   context.a4w4_complete_model_tiles = built.value->tile_count;
   context.a4w4_hits_before = g_a4w4_full_prefill_admission_hits;
 #endif

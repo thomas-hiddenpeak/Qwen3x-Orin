@@ -1753,39 +1753,6 @@ void test_engine_backend_validation(TestContext& test) {
                       "one_shot_options",
               "one-shot rejects a non-C512 A4 request before asset I/O");
 
-  runtime::ReferenceEngineOptions trace_a4;
-  trace_a4.projection_backend =
-      runtime::ProjectionBackend::kSm87WeightOnly;
-  trace_a4.prefill_a4_payload_path = "payload.a4";
-  trace_a4.prefill_a4_calibration_policy_path = "policy.json";
-  trace_a4.request_options.prefill_chunk_size = 512U;
-  trace_a4.enable_trace = true;
-  const runtime::ReferenceEngineCreateResult trace_created =
-      runtime::create_reference_engine("unused-model-directory", trace_a4);
-  test.expect(!trace_created &&
-                  trace_created.diagnostic.code ==
-                      runtime::ReferenceEngineError::kInvalidArgument &&
-                  trace_created.diagnostic.stage ==
-                      "prefill_a4_sidecar_options",
-              "engine rejects A4 plus tracing before model I/O");
-
-  runtime::ReferenceOneShotOptions trace_one_shot_a4;
-  trace_one_shot_a4.projection_backend =
-      runtime::ProjectionBackend::kSm87WeightOnly;
-  trace_one_shot_a4.prefill_a4_payload_path = "payload.a4";
-  trace_one_shot_a4.prefill_a4_calibration_policy_path = "policy.json";
-  trace_one_shot_a4.generation.prefill_chunk_size = 512U;
-  trace_one_shot_a4.generation.capture_trace = true;
-  const runtime::ReferenceOneShotResult trace_one_shot =
-      runtime::generate_reference("unused-model-directory", "prompt",
-                                  trace_one_shot_a4);
-  test.expect(!trace_one_shot &&
-                  trace_one_shot.diagnostic.code ==
-                      runtime::ReferenceEngineError::kInvalidArgument &&
-                  trace_one_shot.diagnostic.stage ==
-                      "one_shot_options",
-              "one-shot rejects A4 plus tracing before asset I/O");
-
   const runtime::ReferenceEngineLoadStats empty_load;
   test.expect(!empty_load.prefill_a4_sidecars_requested &&
                   !empty_load.prefill_a4_sidecars_enabled &&
@@ -1795,8 +1762,102 @@ void test_engine_backend_validation(TestContext& test) {
                   empty_load.prefill_a4_physical_layout.empty() &&
                   empty_load.prefill_a4_manifest_sha256.empty() &&
                   empty_load.prefill_a4_policy_sha256.empty() &&
-                  empty_load.prefill_a4_payload_sha256.empty(),
+                  empty_load.prefill_a4_payload_sha256.empty() &&
+                  empty_load.request_long_prefill_token_capacity == 0U &&
+                  empty_load
+                          .request_long_prefill_projection_span_capacity ==
+                      0U &&
+                  !empty_load.optimized_prefill_disabled,
               "A4 load statistics default to an unrequested empty route");
+}
+
+void test_optimized_prefill_engine_derivation(TestContext& test) {
+  struct Case {
+    std::uint32_t max_sequence_length;
+    std::uint32_t expected_long_capacity;
+    std::uint32_t expected_span_capacity;
+    std::uint64_t expected_arena_bytes;
+    bool expected_layer_major;
+    bool expected_projection_span;
+  };
+  constexpr std::array<Case, 7U> kCases = {{
+      {512U, 0U, 0U, 206'438'400U, false, false},
+      {513U, 513U, 512U, 235'885'056U, true, false},
+      {2'048U, 2'048U, 2'048U, 443'318'272U, true, true},
+      {4'095U, 4'095U, 3'584U, 694'923'264U, true, false},
+      {4'096U, 4'096U, 4'096U, 720'011'264U, true, true},
+      {40'960U, 40'960U, 4'096U, 3'903'225'856U, true, true},
+      {40'961U, 40'960U, 4'096U, 3'903'292'160U, false, false},
+  }};
+
+  for (const Case& item : kCases) {
+    runtime::RequestMemoryOptions requested;
+    requested.max_sequence_length = item.max_sequence_length;
+    requested.prefill_chunk_size =
+        runtime::kLongPrefillLayerMajorTileTokens;
+    requested.max_arena_bytes = 8ULL * 1024ULL * 1024ULL * 1024ULL;
+    const runtime::RequestMemoryOptions derived =
+        detail::derive_optimized_prefill_request_memory_options(
+            requested, true);
+    const runtime::RequestPlanResult plan =
+        runtime::build_request_memory_plan(derived);
+
+    runtime::LongPrefillLayerMajorRouteQuery query;
+    query.runtime_enabled = true;
+    query.projection_backend =
+        runtime::ProjectionBackend::kSm87WeightOnly;
+    query.prompt_token_count = item.max_sequence_length;
+    query.prefill_chunk_size = derived.prefill_chunk_size;
+    query.hidden_token_capacity = derived.long_prefill_token_capacity;
+    query.hidden_buffer_count =
+        derived.long_prefill_token_capacity == 0U
+            ? 0U
+            : runtime::kRequestLongPrefillHiddenBufferCount;
+    const bool layer_major =
+        runtime::select_long_prefill_layer_major_route(query) ==
+        runtime::LongPrefillLayerMajorRoute::kLayerMajorAdmission;
+    const bool projection_span =
+        runtime::use_long_prefill_projection_span_route(
+            item.max_sequence_length,
+            derived.long_prefill_projection_span_capacity, true, false);
+
+    test.expect(
+        derived.enable_a4_prefill_workspace &&
+            derived.long_prefill_token_capacity ==
+                item.expected_long_capacity &&
+            derived.long_prefill_projection_span_capacity ==
+                item.expected_span_capacity &&
+            plan && plan.value->arena_bytes == item.expected_arena_bytes &&
+            layer_major ==
+                (item.expected_layer_major &&
+                 runtime::long_prefill_layer_major_build_enabled()) &&
+            projection_span == item.expected_projection_span,
+        "central A4 Prefill derivation preserves exact boundary capacities, "
+        "arena bytes, and safe route selection");
+
+    query.capture_trace = true;
+    test.expect(
+        runtime::select_long_prefill_layer_major_route(query) ==
+                runtime::LongPrefillLayerMajorRoute::kTileMajorFallback &&
+            !runtime::use_long_prefill_projection_span_route(
+                item.max_sequence_length,
+                derived.long_prefill_projection_span_capacity, true, true),
+        "trace and unified-disable comparators retain safe Prefill fallback");
+  }
+
+  runtime::RequestMemoryOptions ordinary;
+  ordinary.max_sequence_length = 4'096U;
+  ordinary.prefill_chunk_size =
+      runtime::kLongPrefillLayerMajorTileTokens;
+  ordinary.long_prefill_token_capacity = 777U;
+  const runtime::RequestMemoryOptions preserved =
+      detail::derive_optimized_prefill_request_memory_options(
+          ordinary, false);
+  test.expect(!preserved.enable_a4_prefill_workspace &&
+                  preserved.long_prefill_token_capacity == 777U &&
+                  preserved.long_prefill_projection_span_capacity == 0U,
+              "central derivation leaves non-A4 callers byte-for-byte "
+              "unchanged");
 }
 
 }  // namespace
@@ -1821,6 +1882,7 @@ int main() {
   test_generated_text_stop_semantics(test);
   test_committed_token_observer_and_cancellation(test);
   test_engine_backend_validation(test);
+  test_optimized_prefill_engine_derivation(test);
   if (test.failures() != 0) {
     std::cerr << test.failures() << " reference engine control test(s) failed\n";
     return 1;

@@ -231,6 +231,9 @@ struct ReferenceEngineLoadStats {
   std::uint32_t request_max_sequence_length = 0U;
   std::uint32_t request_prefill_chunk_size =
       kDefaultRequestPrefillChunkSize;
+  std::uint32_t request_long_prefill_token_capacity = 0U;
+  std::uint32_t request_long_prefill_projection_span_capacity = 0U;
+  bool optimized_prefill_disabled = false;
   bool fp8_output_sidecars_enabled = false;
   std::size_t fp8_output_sidecar_layers = 0U;
   std::uint64_t fp8_output_sidecar_bytes = 0U;
@@ -583,6 +586,15 @@ struct ReferenceOneShotResult {
 [[nodiscard]] std::string_view to_string(ReferenceStopReason reason) noexcept;
 
 namespace reference_engine_detail {
+
+// Central production derivation used by persistent, one-shot, benchmark, and
+// evaluation-server engines. A4 authentication remains fail-closed later in
+// engine creation; this pure pre-allocation step is deliberately independent
+// of Q3X_DISABLE_OPTIMIZED_PREFILL so same-ELF comparisons retain one arena.
+[[nodiscard]] RequestMemoryOptions
+derive_optimized_prefill_request_memory_options(
+    const RequestMemoryOptions& requested,
+    bool prefill_a4_requested) noexcept;
 
 inline constexpr std::size_t kOptimizedPrefillSubtileTokens = 32U;
 inline constexpr std::size_t kPrefillM64TileTokens = 64U;

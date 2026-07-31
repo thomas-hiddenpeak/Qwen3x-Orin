@@ -80,14 +80,17 @@ prefill_single_arbitrary_tile_environment_enabled() noexcept {
   return value != nullptr && std::strcmp(value, "1") == 0;
 }
 
-// Same binary, request-time admission switch for the P<=40960 layer-major
-// runner. The build gate owns code availability and the request arena owns
-// the two full hidden slabs; only the exact value "1" changes dispatch.
+// The optimized P<=40960 layer-major runner is the production default. The
+// legacy RUN=1 value remains accepted; an explicit legacy non-1 value still
+// opts out, while the unified disable switch has final authority.
 [[nodiscard]] bool
 long_prefill_layer_major_environment_enabled() noexcept {
+  if (optimized_prefill_dispatch_disabled()) {
+    return false;
+  }
   const char* const value =
       std::getenv("Q3X_RUN_LONG_PREFILL_LAYER_MAJOR_ADMISSION");
-  return value != nullptr && std::strcmp(value, "1") == 0;
+  return value == nullptr || std::strcmp(value, "1") == 0;
 }
 
 // The fused Marlin Gate/Up epilogue changes the retained sidecar's N ordering,
@@ -3342,6 +3345,39 @@ struct Sm87A4PrefillPreparation final {
 
 }  // namespace
 
+namespace reference_engine_detail {
+
+RequestMemoryOptions derive_optimized_prefill_request_memory_options(
+    const RequestMemoryOptions& requested,
+    const bool prefill_a4_requested) noexcept {
+  RequestMemoryOptions derived = requested;
+  if (!prefill_a4_requested) {
+    return derived;
+  }
+
+  derived.enable_a4_prefill_workspace = true;
+  derived.long_prefill_token_capacity = 0U;
+  derived.long_prefill_projection_span_capacity = 0U;
+  if (derived.prefill_chunk_size != kLongPrefillLayerMajorTileTokens ||
+      derived.max_sequence_length <= kLongPrefillLayerMajorTileTokens) {
+    return derived;
+  }
+
+  derived.long_prefill_token_capacity = static_cast<std::uint32_t>(
+      std::min<std::uint64_t>(derived.max_sequence_length,
+                              kLongPrefillLayerMajorMaximumTokens));
+  const std::uint32_t aligned_capacity =
+      derived.long_prefill_token_capacity /
+      kLongPrefillLayerMajorTileTokens *
+      kLongPrefillLayerMajorTileTokens;
+  derived.long_prefill_projection_span_capacity =
+      std::min(kLongPrefillProjectionSpanDefaultTokens,
+               aligned_capacity);
+  return derived;
+}
+
+}  // namespace reference_engine_detail
+
 namespace reference_runner_detail {
 
 ReferenceEngineGenerateReturnSnapshotHook
@@ -3449,13 +3485,6 @@ struct ReferenceEngine::Impl {
           "A4 Prefill admission requires a 512-token Prefill chunk");
       return result;
     }
-    if (prefill_a4_paths.requested && options.enable_trace) {
-      result.diagnostic = engine_diagnostic(
-          ReferenceEngineError::kInvalidArgument,
-          "prefill_a4_sidecar_options",
-          "A4 Prefill admission is incompatible with activation tracing");
-      return result;
-    }
 #if !defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
     if (prefill_a4_paths.requested) {
       result.diagnostic = engine_diagnostic(
@@ -3465,10 +3494,10 @@ struct ReferenceEngine::Impl {
       return result;
     }
 #endif
-    RequestMemoryOptions request_options = options.request_options;
-    if (prefill_a4_paths.requested) {
-      request_options.enable_a4_prefill_workspace = true;
-    }
+    const RequestMemoryOptions request_options =
+        reference_engine_detail::
+            derive_optimized_prefill_request_memory_options(
+                options.request_options, prefill_a4_paths.requested);
     const Clock::time_point build_begin = Clock::now();
     if (std::optional<ReferenceEngineDiagnostic> diagnostic =
             sm87_device_diagnostic(options.projection_backend)) {
@@ -3483,6 +3512,8 @@ struct ReferenceEngine::Impl {
       impl->trace_enabled = options.enable_trace;
       impl->load.prefill_a4_sidecars_requested =
           prefill_a4_paths.requested;
+      impl->load.optimized_prefill_disabled =
+          optimized_prefill_dispatch_disabled();
       impl->load.decode_graph_cache_requested_policy =
           options.decode_graph_cache_policy;
       if (prepared_tokenizer != nullptr) {
@@ -3551,6 +3582,11 @@ struct ReferenceEngine::Impl {
             impl->request_state->max_sequence_length();
         impl->load.request_prefill_chunk_size =
             impl->request_state->plan().prefill_chunk_size;
+        impl->load.request_long_prefill_token_capacity =
+            impl->request_state->plan().long_prefill_token_capacity;
+        impl->load.request_long_prefill_projection_span_capacity =
+            impl->request_state->plan()
+                .long_prefill_projection_span_capacity;
       }
 
 #if defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
@@ -5879,13 +5915,6 @@ ReferenceOneShotResult generate_reference(
     result.diagnostic = engine_diagnostic(
         ReferenceEngineError::kInvalidArgument, "one_shot_options",
         "A4 Prefill admission requires a 512-token Prefill chunk");
-    return result;
-  }
-  if (a4_preflight_paths.requested &&
-      options.generation.capture_trace) {
-    result.diagnostic = engine_diagnostic(
-        ReferenceEngineError::kInvalidArgument, "one_shot_options",
-        "A4 Prefill admission is incompatible with activation tracing");
     return result;
   }
 #if !defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)

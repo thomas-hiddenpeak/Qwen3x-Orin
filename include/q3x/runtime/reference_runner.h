@@ -469,6 +469,16 @@ struct A4W4FullPrefillAdmissionHits {
   std::size_t complete_model_tile_hits = 0U;
 };
 
+// A trace-capable runner retains authenticated A4 residency but must execute
+// the scalar trace path so every requested activation digest is available.
+// The unified comparator likewise changes dispatch only.
+[[nodiscard]] constexpr bool use_a4w4_full_prefill_tile_route(
+    const bool a4_inventory_enabled, const bool trace_enabled,
+    const bool optimized_prefill_disabled) noexcept {
+  return a4_inventory_enabled && !trace_enabled &&
+         !optimized_prefill_disabled;
+}
+
 bool exchange_a4w4_full_prefill_admission_test_enabled(
     bool enabled) noexcept;
 A4W4FullPrefillAdmissionHits

@@ -1005,7 +1005,13 @@ void PrintGeneration(
          << "load.request_max_sequence_length="
          << load.request_max_sequence_length << '\n'
          << "load.request_prefill_chunk_size="
-         << load.request_prefill_chunk_size << '\n';
+         << load.request_prefill_chunk_size << '\n'
+         << "load.request_long_prefill_token_capacity="
+         << load.request_long_prefill_token_capacity << '\n'
+         << "load.request_long_prefill_projection_span_capacity="
+         << load.request_long_prefill_projection_span_capacity << '\n'
+         << "load.optimized_prefill_disabled="
+         << (load.optimized_prefill_disabled ? 1 : 0) << '\n';
   PrintStringField(output, "load.prefill_a4_physical_layout",
                    load.prefill_a4_physical_layout);
   PrintStringField(output, "load.prefill_a4_manifest_sha256",
@@ -1269,6 +1275,12 @@ void PrintBenchmarkReport(
          << load.request_max_sequence_length << '\n'
          << "load.request_prefill_chunk_size="
          << load.request_prefill_chunk_size << '\n'
+         << "load.request_long_prefill_token_capacity="
+         << load.request_long_prefill_token_capacity << '\n'
+         << "load.request_long_prefill_projection_span_capacity="
+         << load.request_long_prefill_projection_span_capacity << '\n'
+         << "load.optimized_prefill_disabled="
+         << (load.optimized_prefill_disabled ? 1 : 0) << '\n'
          << "benchmark.prompt_count=" << report.prompts.size() << '\n'
          << "benchmark.warmup_rounds=" << report.warmup_rounds << '\n'
          << "benchmark.measured_rounds=" << report.measured_rounds << '\n'
