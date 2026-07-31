@@ -1,0 +1,144 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-cumulative-attention-down-evalscope-2026-07-31",
+  "status": "retained_performance_candidate_capability_gate_pending",
+  "recorded_at": "2026-07-31T13:34:55+08:00",
+  "timezone": "Asia/Shanghai",
+  "policy": {
+    "real_model_weights": true,
+    "openai_api": true,
+    "evalscope_cli": true,
+    "synthetic_performance_authority": false,
+    "mtp_used": false,
+    "cublaslt_production_path": false,
+    "production_default_changed": false
+  },
+  "source": {
+    "branch": "codex/prefill-2k-systematic",
+    "runtime_through_commit": "3ae4af0",
+    "readiness_harness_commit": "53c44b8",
+    "performance_elf": {
+      "path": "build/full-positive-direction/qwen3x-eval-server",
+      "sha256": "8b9128b9700030ff787d15fe5f07c048a97764dd1e1daa5b00831445ef1507ec",
+      "checked_in": false
+    }
+  },
+  "checkpoint": {
+    "repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "local_path": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4"
+  },
+  "a4_publication": {
+    "path": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4-q3x-a4-k128/weights-a4-k128.bin",
+    "bytes": 12543590400,
+    "sha256": "57bfe2c741f5a22052a48f1ce6a15967f2d1a526a9a32898eb130467879b3660",
+    "policy_sha256": "d3695d84c77c7ed0e235bee2264660a03bccb5c68eb75e3d4d9a7a1bd461ae6c",
+    "authenticated_projections": "400/400",
+    "layout": "sm87_s4_n64_packed_k64_scale_k128_consumer_v2"
+  },
+  "composition": [
+    "Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION=1",
+    "Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION=1",
+    "Q3X_RUN_BF16_AB_LARGE_M_PREFILL_ADMISSION=1",
+    "Q3X_RUN_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION=1",
+    "Q3X_FULL_ATTENTION_FLASHINFER_DIRECT=1"
+  ],
+  "protocol": {
+    "software": "evalscope[perf]==1.9.1",
+    "command_family": "evalscope perf",
+    "api": "openai",
+    "endpoint": "/v1/completions",
+    "candidate_mode": "cumulative-prefill-attention-down",
+    "parallel": 1,
+    "warmup_requests_per_bucket": 1,
+    "measured_requests_per_bucket": 4,
+    "output_tokens_per_request": 1,
+    "temperature": 0,
+    "seed": 42,
+    "stream": true,
+    "tokenize_prompt": true,
+    "output_root": "/tmp/q3x-evalscope-cumulative-attention-down-53c44b8-20260731",
+    "server_log_sha256": "9bc3fa58da80b1eb71425ad0409f38392cdb57b10c0d90a02b6a9aa270616f54"
+  },
+  "same_elf_direction": {
+    "p2048": {
+      "native_ms": 3448.06,
+      "flashinfer_direct_ms": 3247.80,
+      "saved_ms": 200.26,
+      "throughput_gain_percent": 6.166
+    },
+    "p3840": {
+      "native_mean_ms": 6988.770,
+      "flashinfer_direct_mean_ms": 6297.835,
+      "saved_ms": 690.935,
+      "throughput_gain_percent": 10.971
+    }
+  },
+  "results": {
+    "p512": {
+      "success": 4,
+      "failed": 0,
+      "mean_input_tokens": 527.25,
+      "mean_ttft_ms": 3262.65,
+      "input_tokens_per_second": 161.6018,
+      "evalscope_total_tokens_per_second": 161.8946,
+      "gain_vs_frozen_total_percent": 6.923,
+      "summary_sha256": "5c9d303b0230581a4a0fdfb76bbd025adfcbf1f0b4bca2cd5566f52edc7fb439"
+    },
+    "p1k": {
+      "success": 4,
+      "failed": 0,
+      "mean_input_tokens": 1053.75,
+      "mean_ttft_ms": 2227.00,
+      "input_tokens_per_second": 473.1702,
+      "evalscope_total_tokens_per_second": 473.5538,
+      "gain_vs_frozen_total_percent": 10.160,
+      "summary_sha256": "c687c4416a4252f3eda327790c21826cb45adbc4210b7617489f295fdb5b41ef"
+    },
+    "p2k": {
+      "success": 4,
+      "failed": 0,
+      "mean_input_tokens": 1924.75,
+      "mean_ttft_ms": 3313.18,
+      "input_tokens_per_second": 580.9373,
+      "evalscope_total_tokens_per_second": 581.1726,
+      "gain_vs_frozen_total_percent": 11.568,
+      "summary_sha256": "f40fb2b827ccbda39d19a6041d94e79d5c8fa90ea11b4b6f6adfa005daab45cf"
+    },
+    "p4k": {
+      "success": 4,
+      "failed": 0,
+      "mean_input_tokens": 3806.75,
+      "mean_ttft_ms": 6516.91,
+      "input_tokens_per_second": 584.1342,
+      "evalscope_total_tokens_per_second": 584.2445,
+      "gain_vs_frozen_total_percent": 11.754,
+      "summary_sha256": "ba5e62808f6e3f21ab65c09e532e8af9e5c885671a40ed6608ec72801816b661"
+    }
+  },
+  "capability_observation": {
+    "same_tokenized_prompts": "16/16",
+    "first_token_text_equal": "10/16",
+    "first_token_text_different": "6/16",
+    "bucket_equal_counts": {
+      "p512": "3/4",
+      "p1k": "1/4",
+      "p2k": "3/4",
+      "p4k": "3/4"
+    },
+    "public_task_score_gate": "not_yet_run",
+    "production_capability_gate": "pending"
+  },
+  "decision": {
+    "target_input_tokens_per_second": 2000,
+    "p4k_gap_ratio": 3.424,
+    "p4k_extrapolated_40k_seconds": 68.477,
+    "retain_performance_candidate": true,
+    "production_promote": false,
+    "next": [
+      "real-path Gate+Up v3 direction gate",
+      "real-path three-family Attention projection supermatrix gate",
+      "public task-level capability matrix before default promotion"
+    ]
+  }
+}
