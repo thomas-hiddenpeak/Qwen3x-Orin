@@ -5,6 +5,8 @@
 #include "q3x/kernels/sm87_a4w4_gateup_paired.h"
 #include "q3x/kernels/sm87_a4w4_prefill_gemm.h"
 #include "q3x/kernels/sm87_a4w4_prefill_primitive.h"
+#include "../kernels/reference/gdn_prefill_whole_span_conv_sm87.h"
+#include "../kernels/sm87/gdn_prefill_exact_span_sm87.h"
 #endif
 #if defined(Q3X_ENABLE_BF16_AB_LARGE_M_PREFILL_ADMISSION)
 #include "q3x/kernels/sm87_bf16_ab_prefill.h"
@@ -154,6 +156,18 @@ thread_local bool g_enable_a4w4_full_prefill_admission =
     a4w4_full_prefill_environment_enabled();
 thread_local reference_runner_detail::A4W4FullPrefillAdmissionHits
     g_a4w4_full_prefill_admission_hits{};
+
+// Explicit exact-numerics experiment for the whole-M executor.  This is not
+// the archived C64/WY throughput contract: every token persists BF16 state
+// and every K dot retains the incumbent left-to-right FMA order.
+[[nodiscard]] bool gdn_exact_span_environment_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_GDN_EXACT_SPAN_ADMISSION");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
+thread_local bool g_enable_gdn_exact_span_admission =
+    gdn_exact_span_environment_enabled();
 #endif
 
 #if defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION)
@@ -5271,34 +5285,63 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
           primary + local_first * kLinearQkvElements;
       const std::uint16_t* const z =
           secondary + local_first * kLinearValueElements;
-      for (std::size_t offset = 0U; offset < tile.token_count;
-           offset += kPrefillKernelTileMaximumTokens) {
+      if (g_enable_gdn_exact_span_admission) {
         if (!check_cuda(
-                launch_causal_conv1d_silu_update_tile_reference_cuda(
-                    qkv + offset * kLinearQkvElements,
-                    kPrefillKernelTileMaximumTokens,
-                    attention->conv1d.data,
-                    views_.conv_state[item.layer_index],
-                    qkv + offset * kLinearQkvElements, {}, stream_),
-                "prefill_projection_span_linear_conv") ||
+                gdn_prefill_whole_span_conv_detail::
+                    launch_causal_conv1d_silu_update_whole_span_exact_cuda(
+                        qkv, tile.token_count, attention->conv1d.data,
+                        views_.conv_state[item.layer_index], qkv, stream_),
+                "prefill_projection_span_linear_conv_exact_span") ||
             !check_cuda(
-                gdn_prefill_c16_norm_gate_detail::launch_shared_boundary(
-                    qkv + offset * kLinearQkvElements,
-                    kPrefillKernelTileMaximumTokens,
-                    linear_a + (local_first + offset) *
-                                   kLinearScalarElements,
-                    linear_b + (local_first + offset) *
-                                   kLinearScalarElements,
-                    attention->a_log.data, attention->dt_bias.data,
-                    views_.gdn_state[item.layer_index],
-                    views_.gdn_state[item.layer_index], kRmsEpsilon,
-                    attention->norm.data,
-                    z + offset * kLinearValueElements, kRmsEpsilon,
-                    views_.projection[2] +
-                        offset * kLinearValueElements,
-                    stream_),
-                "prefill_projection_span_linear_gdn_norm_gate")) {
+                gdn_prefill_exact_span_detail::
+                    launch_row16_register_baton(
+                        qkv, tile.token_count,
+                        linear_a + local_first * kLinearScalarElements,
+                        linear_b + local_first * kLinearScalarElements,
+                        attention->a_log.data, attention->dt_bias.data,
+                        views_.gdn_state[item.layer_index],
+                        views_.gdn_state[item.layer_index], kRmsEpsilon,
+                        views_.projection[2], stream_),
+                "prefill_projection_span_linear_gdn_exact_span") ||
+            !check_cuda(
+                launch_headwise_plain_rms_norm_silu_gate_reference_cuda(
+                    views_.projection[2], attention->norm.data, z,
+                    tile.token_count * kGdnValueHeadCount,
+                    kGdnHeadDimension, kRmsEpsilon,
+                    views_.projection[2], stream_),
+                "prefill_projection_span_linear_gdn_exact_span_norm_gate")) {
           return failure;
+        }
+      } else {
+        for (std::size_t offset = 0U; offset < tile.token_count;
+             offset += kPrefillKernelTileMaximumTokens) {
+          if (!check_cuda(
+                  launch_causal_conv1d_silu_update_tile_reference_cuda(
+                      qkv + offset * kLinearQkvElements,
+                      kPrefillKernelTileMaximumTokens,
+                      attention->conv1d.data,
+                      views_.conv_state[item.layer_index],
+                      qkv + offset * kLinearQkvElements, {}, stream_),
+                  "prefill_projection_span_linear_conv") ||
+              !check_cuda(
+                  gdn_prefill_c16_norm_gate_detail::launch_shared_boundary(
+                      qkv + offset * kLinearQkvElements,
+                      kPrefillKernelTileMaximumTokens,
+                      linear_a + (local_first + offset) *
+                                     kLinearScalarElements,
+                      linear_b + (local_first + offset) *
+                                     kLinearScalarElements,
+                      attention->a_log.data, attention->dt_bias.data,
+                      views_.gdn_state[item.layer_index],
+                      views_.gdn_state[item.layer_index], kRmsEpsilon,
+                      attention->norm.data,
+                      z + offset * kLinearValueElements, kRmsEpsilon,
+                      views_.projection[2] +
+                          offset * kLinearValueElements,
+                      stream_),
+                  "prefill_projection_span_linear_gdn_norm_gate")) {
+            return failure;
+          }
         }
       }
       if (!check_cuda(

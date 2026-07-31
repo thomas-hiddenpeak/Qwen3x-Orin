@@ -330,6 +330,8 @@ if(Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION)
     src/kernels/sm87/a4w4_prefill_primitive.cu
     src/kernels/sm87/a4w4_prefill_gemm.cu
     src/kernels/sm87/a4w4_gateup_paired.cu
+    src/kernels/sm87/gdn_prefill_exact_span_sm87.cu
+    src/kernels/reference/gdn_prefill_whole_span_conv_sm87.cu
   )
   target_compile_definitions(q3x_kernels PRIVATE
     Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION=1
@@ -348,10 +350,13 @@ if(Q3X_BUILD_FULL_ATTENTION_LONG_CONTEXT_GROUP_Q64_ADMISSION)
     Q3X_ENABLE_FULL_ATTENTION_LONG_CONTEXT_GROUP_Q64_ADMISSION=1
   )
 endif()
-if(Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION)
+if(Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION AND
+   NOT Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION)
   target_sources(q3x_kernels PRIVATE
     src/kernels/reference/gdn_prefill_whole_span_conv_sm87.cu
   )
+endif()
+if(Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION)
   target_compile_definitions(q3x_kernels PRIVATE
     Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION=1
   )
@@ -673,6 +678,29 @@ if(BUILD_TESTING)
     )
     add_custom_target(q3x_sm87_a4w4_gateup_ptx_sentinel ALL
       DEPENDS "${_q3x_a4w4_gateup_ptx_stamp}"
+    )
+  endif()
+
+  if(Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION)
+    add_executable(q3x_gdn_prefill_exact_span_component_test
+      tests/gdn_prefill_exact_span_component_test.cu
+    )
+    target_include_directories(q3x_gdn_prefill_exact_span_component_test
+      PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/kernels/sm87"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/kernels/reference"
+    )
+    target_link_libraries(q3x_gdn_prefill_exact_span_component_test
+      PRIVATE q3x::kernels CUDA::cudart
+    )
+    q3x_enable_warnings(q3x_gdn_prefill_exact_span_component_test)
+    add_test(NAME gdn_prefill_exact_span_component
+      COMMAND q3x_gdn_prefill_exact_span_component_test
+    )
+    set_tests_properties(gdn_prefill_exact_span_component PROPERTIES
+      LABELS "cuda;sm87;prefill;gdn;correctness;synthetic;component"
+      SKIP_RETURN_CODE 77
+      RESOURCE_LOCK q3x_sm87_gpu
     )
   endif()
 
