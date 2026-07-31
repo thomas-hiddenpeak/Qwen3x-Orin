@@ -126,4 +126,33 @@ into a baseline retry.  K64 and every ineligible K128 shape retain the prior
 M128/baseline order unchanged.  The route has its own worker-local enable bit
 and hit counter; neither aliases nor enables the rejected M128 experiment.
 Host selector, short-capacity, environment, and gate-orthogonality tests pass.
-The route remains disabled by default and has not been timed on real weights.
+The route remains disabled by default.
+
+## Real-path direction result
+
+The complete cell was measured with the retained K128, native-GDN/conv, and
+whole-span BF16 A/B directions in the same server. Both rejected M128
+selectors remained disabled. The exact candidate ELF had SHA-256
+`81b0ad05dbf01cef1be8262eaf1643733ebc8a965745d1f69d084ec9fea6697f`.
+
+| Prompt | Server-side Prefill | HTTP total | Prompt rate |
+|---|---:|---:|---:|
+| P2048 run 1 | 3504.53 ms | 3.508089 s | 584.39 tok/s |
+| P2048 run 2 | 3501.78 ms | 3.505383 s | 584.85 tok/s |
+| P2048 mean | 3503.155 ms | 3.506736 s | 584.616 tok/s |
+| P3840 direction | 7233.39 ms | 7.237619 s | 530.871 tok/s |
+
+Against the prior cumulative P2048 server-side mean of 3554.425 ms, the cell
+saves 51.270 ms and improves throughput by 1.464%. This is a repeat-positive
+experiment result, so the mechanism remains available as the next opt-in
+incumbent. It is not a production promotion: the gain is small enough to
+require a same-ELF baseline/candidate replay and profiler hit proof before any
+default change.
+
+P3840 improves by only 3.18 ms against its prior single direction run. The
+cell therefore does not satisfy the structural projection-plane objective.
+Its recovered two-CTA residence is useful, but the extra A load and remaining
+compressed-B decode/product traffic leave the dominant gap intact. Work must
+continue on the Down and Attention projection shape families and on a more
+direct compressed-weight consumer layout; this result is not a reason to
+resume tile-constant scans.
