@@ -3063,6 +3063,7 @@ struct Sm87A4PrefillSidecars final {
 struct Sm87A4PrefillPreparation final {
   bool enabled = false;
   std::size_t projections = 0U;
+  PrefillSidecarKind sidecar_kind = PrefillSidecarKind::kExact;
   std::uint64_t bytes = 0U;
   std::uint64_t copy_chunks = 0U;
   int cuda_error = 0;
@@ -3334,6 +3335,7 @@ struct Sm87A4PrefillPreparation final {
   owner.bytes = payload_bytes;
   result.enabled = true;
   result.projections = manifest.projections.size();
+  result.sidecar_kind = manifest.kind;
   result.bytes = publication.receipt().payload_bytes;
   result.physical_layout = publication.receipt().physical_layout;
   result.manifest_sha256 = manifest.manifest_sha256;
@@ -3759,11 +3761,15 @@ struct ReferenceEngine::Impl {
                   *impl->model_weights, impl->prefill_a4_sidecars);
           impl->load.prefill_a4_sidecar_milliseconds =
               elapsed_milliseconds(prefill_a4_begin);
+          const std::uint64_t expected_prefill_a4_bytes =
+              reference_runner_detail::
+                  authenticated_a4_payload_bytes_for_kind(
+                      prefill_a4_preparation.sidecar_kind);
           if (!prefill_a4_preparation.enabled ||
               prefill_a4_preparation.projections !=
                   kQwen36PrefillProjectionCount ||
-              prefill_a4_preparation.bytes !=
-                  kPrefillA4K64SidecarPayloadBytes) {
+              expected_prefill_a4_bytes == 0U ||
+              prefill_a4_preparation.bytes != expected_prefill_a4_bytes) {
             result.diagnostic = engine_diagnostic(
                 ReferenceEngineError::kRunnerFactoryFailure,
                 "prefill_a4_sidecar_prepare",

@@ -469,6 +469,58 @@ struct A4W4FullPrefillAdmissionHits {
   std::size_t complete_model_tile_hits = 0U;
 };
 
+// Immutable consumer ABI selected from the complete authenticated A4
+// inventory when the runner is created.  K128 keeps the physical packed-K64
+// code layout, but its activation and weight scales describe pairs of K64
+// blocks and therefore must never reach a K64-scale launcher.
+enum class A4W4PrefillConsumer : std::uint8_t {
+  kUnavailable = 0,
+  kK64,
+  kK128,
+};
+
+[[nodiscard]] constexpr std::uint64_t
+authenticated_a4_payload_bytes_for_kind(
+    const PrefillSidecarKind kind) noexcept {
+  return kind == PrefillSidecarKind::kA4K64
+             ? kPrefillA4K64SidecarPayloadBytes
+             : kind == PrefillSidecarKind::kA4K128
+                   ? kPrefillA4K128SidecarPayloadBytes
+                   : 0U;
+}
+
+[[nodiscard]] constexpr A4W4PrefillConsumer
+a4w4_prefill_consumer_from_contract(
+    const PrefillSidecarKind kind,
+    const std::uint32_t packed_k_group_size,
+    const std::uint32_t scale_group_size) noexcept {
+  if (kind == PrefillSidecarKind::kA4K64 &&
+      packed_k_group_size == 64U && scale_group_size == 64U) {
+    return A4W4PrefillConsumer::kK64;
+  }
+  if (kind == PrefillSidecarKind::kA4K128 &&
+      packed_k_group_size == 64U && scale_group_size == 128U) {
+    return A4W4PrefillConsumer::kK128;
+  }
+  return A4W4PrefillConsumer::kUnavailable;
+}
+
+[[nodiscard]] constexpr bool a4w4_prefill_consumer_supports_token_count(
+    const A4W4PrefillConsumer consumer,
+    const std::size_t token_count) noexcept {
+  return token_count != 0U &&
+         (consumer == A4W4PrefillConsumer::kK64 ||
+          (consumer == A4W4PrefillConsumer::kK128 &&
+           token_count % 64U == 0U));
+}
+
+[[nodiscard]] constexpr bool a4w4_prefill_inventory_consumers_match(
+    const A4W4PrefillConsumer selected,
+    const A4W4PrefillConsumer candidate) noexcept {
+  return selected != A4W4PrefillConsumer::kUnavailable &&
+         selected == candidate;
+}
+
 // A trace-capable runner retains authenticated A4 residency but must execute
 // the scalar trace path so every requested activation digest is available.
 // The unified comparator likewise changes dispatch only.
@@ -700,6 +752,8 @@ class ReferenceRunner {
   bool decode_graph_capture_active_ = false;
   Views views_{};
   ProjectionBackend projection_backend_ = ProjectionBackend::kReference;
+  reference_runner_detail::A4W4PrefillConsumer a4w4_prefill_consumer_ =
+      reference_runner_detail::A4W4PrefillConsumer::kUnavailable;
   bool a4w4_full_prefill_admission_enabled_ = false;
   bool trace_enabled_ = false;
   bool trace_valid_ = false;

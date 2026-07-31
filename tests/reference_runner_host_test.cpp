@@ -1387,6 +1387,46 @@ void test_trace_layout_and_factory_error(TestContext& test) {
 }
 
 void test_a4w4_full_prefill_admission_controls(TestContext& test) {
+  using Consumer = detail::A4W4PrefillConsumer;
+  const Consumer k64 = detail::a4w4_prefill_consumer_from_contract(
+      runtime::PrefillSidecarKind::kA4K64, 64U, 64U);
+  const Consumer k128 = detail::a4w4_prefill_consumer_from_contract(
+      runtime::PrefillSidecarKind::kA4K128, 64U, 128U);
+  test.expect(
+      detail::authenticated_a4_payload_bytes_for_kind(
+          runtime::PrefillSidecarKind::kA4K64) ==
+              runtime::kPrefillA4K64SidecarPayloadBytes &&
+          detail::authenticated_a4_payload_bytes_for_kind(
+              runtime::PrefillSidecarKind::kA4K128) ==
+              runtime::kPrefillA4K128SidecarPayloadBytes &&
+          detail::authenticated_a4_payload_bytes_for_kind(
+              runtime::PrefillSidecarKind::kExact) == 0U,
+      "engine A4 payload gate selects K64 and K128 receipt byte identities");
+  test.expect(
+      k64 == Consumer::kK64 && k128 == Consumer::kK128 &&
+          detail::a4w4_prefill_consumer_from_contract(
+              runtime::PrefillSidecarKind::kA4K64, 64U, 128U) ==
+              Consumer::kUnavailable &&
+          detail::a4w4_prefill_consumer_from_contract(
+              runtime::PrefillSidecarKind::kA4K128, 128U, 128U) ==
+              Consumer::kUnavailable,
+      "A4 consumer selector binds kind, packed layout, and scale group");
+  test.expect(
+      detail::a4w4_prefill_inventory_consumers_match(k64, k64) &&
+          detail::a4w4_prefill_inventory_consumers_match(k128, k128) &&
+          !detail::a4w4_prefill_inventory_consumers_match(k64, k128) &&
+          !detail::a4w4_prefill_inventory_consumers_match(k128, k64),
+      "mixed K64/K128 inventories fail the immutable consumer selector");
+  test.expect(
+      detail::a4w4_prefill_consumer_supports_token_count(k64, 1U) &&
+          detail::a4w4_prefill_consumer_supports_token_count(k64, 513U) &&
+          !detail::a4w4_prefill_consumer_supports_token_count(k128, 63U) &&
+          detail::a4w4_prefill_consumer_supports_token_count(k128, 64U) &&
+          !detail::a4w4_prefill_consumer_supports_token_count(k128, 513U) &&
+          detail::a4w4_prefill_consumer_supports_token_count(k128, 4'096U) &&
+          detail::a4w4_prefill_consumer_supports_token_count(k128, 40'000U),
+      "K128 dispatch admits only complete M64 spans including P40000");
+
   const bool prior_enabled =
       detail::exchange_a4w4_full_prefill_admission_test_enabled(true);
   const bool admission_is_compiled =
