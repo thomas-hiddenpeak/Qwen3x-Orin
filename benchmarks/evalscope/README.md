@@ -81,6 +81,12 @@ measured requests, streaming token-ID completions, the SM87 backend, a C512
 Prefill chunk, no Prefix cache, and no MTP.  It deliberately removes every
 Decode-only environment gate; there is no Decode step after the first token.
 
+For the retained whole-system Prefill candidate, pass
+`--mode cumulative-prefill-current-best`.  Its startup metadata reports an
+exact `selector_count=8` inventory after inherited experiment variables have
+been removed.  The mode is default-off and fail-closed against the measured
+server ELF; see the full evaluation contract for the eight named routes.
+
 EvalScope TTFT is the external product metric: POST start through receipt of
 the first non-empty token event.  `prompt_tokens / TTFT` is therefore an
 effective end-to-end Prefill rate, not a kernel rate.  The runtime's

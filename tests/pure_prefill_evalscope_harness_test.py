@@ -34,6 +34,9 @@ class Fixture:
             "# Q3X_RUN_BF16_AB_LARGE_M_PREFILL_ADMISSION\n"
             "# Q3X_RUN_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION\n"
             "# Q3X_FULL_ATTENTION_FLASHINFER_DIRECT\n"
+            "# Q3X_RUN_A4W4_GATEUP_PROJECTION_V3_ADMISSION\n"
+            "# Q3X_RUN_A4W4_ATTENTION_SUPERMATRIX_ADMISSION\n"
+            "# Q3X_RUN_FULL_ATTENTION_PREPROCESS_PROMPT_WIDE_128_ADMISSION\n"
             "# Q3X_RUN_SHORT_PREFILL_LAYER_MAJOR_ADMISSION\n"
             "exit 0\n",
             encoding="utf-8",
@@ -80,6 +83,9 @@ class Fixture:
         environment["Q3X_RUN_A4W4_M128_STAGE_MAJOR_ADMISSION"] = "1"
         environment["Q3X_RUN_A4W4_DOWN_M128_STAGE_MAJOR_ADMISSION"] = "1"
         environment["Q3X_RUN_A4W4_ATTENTION_SUPERMATRIX_ADMISSION"] = "1"
+        environment[
+            "Q3X_RUN_FULL_ATTENTION_PREPROCESS_PROMPT_WIDE_128_ADMISSION"
+        ] = "1"
         environment["Q3X_GDN_CHUNK64_PROFILE_CANDIDATE"] = "1"
         return subprocess.run(
             self.command(*extra),
@@ -145,6 +151,10 @@ class PurePrefillEvalScopeHarnessTest(unittest.TestCase):
         )
         self.assertIn(
             "-u Q3X_RUN_A4W4_ATTENTION_SUPERMATRIX_ADMISSION", result.stdout
+        )
+        self.assertIn(
+            "-u Q3X_RUN_FULL_ATTENTION_PREPROCESS_PROMPT_WIDE_128_ADMISSION",
+            result.stdout,
         )
         self.assertNotIn("Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION=1", result.stdout)
         self.assertNotIn(
@@ -275,6 +285,77 @@ class PurePrefillEvalScopeHarnessTest(unittest.TestCase):
             "selector: Q3X_FULL_ATTENTION_FLASHINFER_DIRECT",
             result.stderr,
         )
+
+    def test_cumulative_current_best_mode_is_exact_eight_selector_bundle(
+        self,
+    ) -> None:
+        result = self.fixture.run(
+            "--mode", "cumulative-prefill-current-best"
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(
+            "mode=cumulative-prefill-current-best dry_run=1", result.stdout
+        )
+        self.assertIn("selector_count=8", result.stdout)
+        startup = next(
+            line
+            for line in result.stdout.splitlines()
+            if line.startswith("server_startup_command")
+        )
+        expected = {
+            "Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION",
+            "Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION",
+            "Q3X_RUN_BF16_AB_LARGE_M_PREFILL_ADMISSION",
+            "Q3X_RUN_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION",
+            "Q3X_FULL_ATTENTION_FLASHINFER_DIRECT",
+            "Q3X_RUN_A4W4_GATEUP_PROJECTION_V3_ADMISSION",
+            "Q3X_RUN_A4W4_ATTENTION_SUPERMATRIX_ADMISSION",
+            "Q3X_RUN_FULL_ATTENTION_PREPROCESS_PROMPT_WIDE_128_ADMISSION",
+        }
+        self.assertEqual(
+            set(re.findall(r"(Q3X_[A-Z0-9_]+)=1", startup)), expected
+        )
+        metadata = next(
+            line
+            for line in result.stdout.splitlines()
+            if line.startswith("selector_metadata")
+        )
+        self.assertIn("selector_count=8", metadata)
+        self.assertEqual(
+            set(re.findall(r"Q3X_[A-Z0-9_]+", metadata)), expected
+        )
+        for rejected in (
+            "Q3X_RUN_SHORT_PREFILL_LAYER_MAJOR_ADMISSION",
+            "Q3X_RUN_A4W4_GATEUP_COMPLETE_CELL_V2_ADMISSION",
+            "Q3X_RUN_A4W4_M128_STAGE_MAJOR_ADMISSION",
+            "Q3X_RUN_A4W4_DOWN_M128_STAGE_MAJOR_ADMISSION",
+            "Q3X_GDN_CHUNK64_PROFILE_CANDIDATE",
+        ):
+            self.assertIn(f"-u {rejected}", startup)
+            self.assertNotIn(f"{rejected}=1", startup)
+
+    def test_cumulative_current_best_requires_every_new_selector(self) -> None:
+        contents = self.fixture.server.read_text(encoding="utf-8")
+        new_selectors = (
+            "Q3X_RUN_A4W4_GATEUP_PROJECTION_V3_ADMISSION",
+            "Q3X_RUN_A4W4_ATTENTION_SUPERMATRIX_ADMISSION",
+            "Q3X_RUN_FULL_ATTENTION_PREPROCESS_PROMPT_WIDE_128_ADMISSION",
+        )
+        for selector in new_selectors:
+            with self.subTest(selector=selector):
+                self.fixture.server.write_text(
+                    contents.replace(f"# {selector}\n", ""), encoding="utf-8"
+                )
+                result = self.fixture.run(
+                    "--mode", "cumulative-prefill-current-best"
+                )
+                self.assertEqual(result.returncode, 2)
+                self.assertIn(
+                    "server does not contain the "
+                    f"cumulative-prefill-current-best selector: {selector}",
+                    result.stderr,
+                )
+        self.fixture.server.write_text(contents, encoding="utf-8")
 
     def test_cumulative_short_mode_adds_short_route_without_cells(self) -> None:
         result = self.fixture.run("--mode", "cumulative-prefill-short")

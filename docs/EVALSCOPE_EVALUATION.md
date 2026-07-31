@@ -165,6 +165,17 @@ and nothing else.  The harness first clears inherited FlashInfer, Gate+Up,
 short-context, and archived M128 selectors, so this mode measures one explicit
 system composition rather than a shell-dependent mixture.
 
+Use `--mode cumulative-prefill-current-best` for the explicit eight-selector
+whole-product bundle retained after the first real Attention-supermatrix
+direction gate.  It contains native C64 GDN, token-parallel GDN convolution,
+whole-span BF16 A/B, Down complete-cell v2, FlashInfer direct Prefill
+attention, Gate+Up projection v3, the Attention projection supermatrix, and
+the Full Attention prompt-wide preprocess route.  The startup summary emits
+`selector_count=8` and the complete ordered selector inventory.  The harness
+still removes every inherited experiment selector before adding this exact
+set, and fails closed if the server ELF lacks any member.  This mode is a
+reproducible cumulative experiment; it does not change production defaults.
+
 Use `--mode cumulative-prefill-short` with the pure-Prefill harness to measure
 the retained short-context direction. It starts from the same three-selector
 `cumulative-prefill` bundle and adds exactly
