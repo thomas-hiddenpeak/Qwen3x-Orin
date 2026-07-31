@@ -47,6 +47,28 @@ reuse did not compensate for the lost residency and register/shared-memory
 pressure. The implementation remains opt-in as an attribution/reference
 candidate; it is not enabled by default.
 
+### Isolated Down result
+
+The Down-specific M128N256K128 kernel was then admitted under its own switch
+while Generic and Paired stayed on the incumbent K128 path:
+
+```text
+Q3X_RUN_A4W4_DOWN_M128_STAGE_MAJOR_ADMISSION=1
+```
+
+Its production ELF SHA-256 was
+`fddc146997ed2f117ae68df65101bba65536425f458f4f5fe2284c87b2bcbb4e`.
+The first real request reported `prompt_prefill_ms=5671.21` and HTTP total
+`5.674725 s`. Against the incumbent two-run HTTP mean this is a 510.220 ms
+latency regression (`1.098794x`) and an estimated throughput drop from
+396.553 to 360.899 tok/s (-8.991%). Per the direction-first policy, the
+negative route stopped after this request and did not build a statistical
+harness.
+
+The isolated result rejects the one-CTA/SM M128-v1 skeleton for Down as well
+as for Generic/Paired. Down needs a different complete cell and scheduler;
+it must not inherit the Gate configuration.
+
 ## Separate K128 observation
 
 The incumbent M64 K128 run is materially below the frozen real P2048 K64
@@ -57,9 +79,9 @@ gate is still required before K128 can be promoted.
 
 ## Next action
 
-1. Test the Down-specific M128 kernel behind an independent gate while
-   Generic/Paired stay on the K128 incumbent.
-2. Test the corrected whole-span BF16 A/B route independently.
-3. Replace M128-v1 with a complete Gate/Up cell targeting at least two
+1. Test the corrected whole-span BF16 A/B route independently.
+2. Replace M128-v1 with a complete Gate/Up cell targeting at least two
    CTAs/SM, a 2--4 stage async pipeline, and a longer useful scale/accumulator
    lifetime; do not continue tile-constant scans on the rejected skeleton.
+3. Give Down its own B-stationary complete cell and keep its admission
+   independent from Gate/Up.
