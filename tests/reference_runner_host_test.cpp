@@ -1649,6 +1649,96 @@ void test_a4w4_full_prefill_admission_controls(TestContext& test) {
               "complete-cell v2 selector rejects every independently short "
               "input/weight/Down-publication capacity");
 
+  using V3Query = detail::A4W4GateUpProjectionV3RouteQuery;
+  const auto make_v3_query = [k128](
+                                 const std::size_t projection_tokens,
+                                 const std::size_t workspace_tokens) {
+    V3Query query;
+    query.admission_enabled = true;
+    query.inventory_consumer = k128;
+    query.projection_token_count = projection_tokens;
+    query.gate_output_size = runtime::kReferenceIntermediateSize;
+    query.gate_input_size = runtime::kReferenceHiddenSize;
+    query.up_output_size = runtime::kReferenceIntermediateSize;
+    query.up_input_size = runtime::kReferenceHiddenSize;
+    query.packed_input_capacity_bytes =
+        workspace_tokens * runtime::kReferenceHiddenSize / 2U;
+    query.input_scale_capacity_elements =
+        workspace_tokens * runtime::kReferenceHiddenSize / 128U;
+    query.gate_weight_capacity_bytes =
+        runtime::kReferenceIntermediateSize *
+        runtime::kReferenceHiddenSize / 2U;
+    query.gate_scale_capacity_elements =
+        runtime::kReferenceIntermediateSize *
+        runtime::kReferenceHiddenSize / 128U;
+    query.up_weight_capacity_bytes = query.gate_weight_capacity_bytes;
+    query.up_scale_capacity_elements = query.gate_scale_capacity_elements;
+    query.packed_output_capacity_bytes =
+        workspace_tokens * runtime::kReferenceIntermediateSize / 2U;
+    query.output_scale_capacity_elements =
+        workspace_tokens * runtime::kReferenceIntermediateSize / 128U;
+    return query;
+  };
+  const V3Query real_v3 = make_v3_query(2'048U, 2'048U);
+  const V3Query padded_v3 =
+      make_v3_query(p1853.projection_token_count, 4'096U);
+  V3Query disabled_v3 = real_v3;
+  disabled_v3.admission_enabled = false;
+  V3Query k64_v3 = real_v3;
+  k64_v3.inventory_consumer = k64;
+  V3Query logical_tail_v3 = padded_v3;
+  logical_tail_v3.projection_token_count = p1853.logical_token_count;
+  V3Query gate_near_miss_v3 = real_v3;
+  --gate_near_miss_v3.gate_output_size;
+  V3Query up_near_miss_v3 = real_v3;
+  --up_near_miss_v3.up_input_size;
+  test.expect(
+      detail::use_a4w4_gateup_projection_v3_route(real_v3) &&
+          detail::use_a4w4_gateup_projection_v3_route(padded_v3) &&
+          !detail::use_a4w4_gateup_projection_v3_route(disabled_v3) &&
+          !detail::use_a4w4_gateup_projection_v3_route(k64_v3) &&
+          !detail::use_a4w4_gateup_projection_v3_route(logical_tail_v3) &&
+          !detail::use_a4w4_gateup_projection_v3_route(
+              gate_near_miss_v3) &&
+          !detail::use_a4w4_gateup_projection_v3_route(up_near_miss_v3),
+      "Gate+Up projection v3 requires its independent gate, authenticated "
+      "K128, exact model shapes, and the internal ceil64 projection M");
+
+  std::array<V3Query, 8U> short_v3_capacities{};
+  short_v3_capacities.fill(real_v3);
+  --short_v3_capacities[0U].packed_input_capacity_bytes;
+  --short_v3_capacities[1U].input_scale_capacity_elements;
+  --short_v3_capacities[2U].gate_weight_capacity_bytes;
+  --short_v3_capacities[3U].gate_scale_capacity_elements;
+  --short_v3_capacities[4U].up_weight_capacity_bytes;
+  --short_v3_capacities[5U].up_scale_capacity_elements;
+  --short_v3_capacities[6U].packed_output_capacity_bytes;
+  --short_v3_capacities[7U].output_scale_capacity_elements;
+  test.expect(
+      std::all_of(
+          short_v3_capacities.begin(), short_v3_capacities.end(),
+          [](const V3Query& query) {
+            return !detail::use_a4w4_gateup_projection_v3_route(query);
+          }),
+      "Gate+Up projection v3 rejects every independently short "
+      "input/weight/Down-publication capacity");
+
+  using GateUpRoute = detail::A4W4K128GateUpPrefillRoute;
+  test.expect(
+      detail::select_a4w4_k128_gateup_prefill_route(
+          real_v3, real_cell, true) == GateUpRoute::kProjectionV3 &&
+          detail::select_a4w4_k128_gateup_prefill_route(
+              disabled_v3, real_cell, true) ==
+              GateUpRoute::kCompleteCellV2 &&
+          detail::select_a4w4_k128_gateup_prefill_route(
+              disabled_v3, disabled_cell, true) ==
+              GateUpRoute::kRejectedM128StageMajor &&
+          detail::select_a4w4_k128_gateup_prefill_route(
+              disabled_v3, disabled_cell, false) ==
+              GateUpRoute::kBaseline,
+      "Gate+Up v3, complete-cell v2, and rejected M128 retain strict "
+      "independent priority without enabling one another");
+
   using DownCellQuery = detail::A4W4DownCompleteCellV2RouteQuery;
   const auto make_down_cell_query = [k128](
                                           const std::size_t projection_tokens) {
@@ -1791,6 +1881,25 @@ void test_a4w4_full_prefill_admission_controls(TestContext& test) {
       "preserves M64 fallback for natural padded spans, and rejects invalid "
       "N/K shapes");
 
+  const char* const v3_environment = std::getenv(
+      "Q3X_RUN_A4W4_GATEUP_PROJECTION_V3_ADMISSION");
+  const bool v3_environment_requested =
+      v3_environment != nullptr && std::strcmp(v3_environment, "1") == 0 &&
+      !runtime::optimized_prefill_dispatch_disabled();
+  const bool initial_v3_enabled =
+      detail::exchange_a4w4_gateup_projection_v3_admission_test_enabled(
+          false);
+  (void)detail::exchange_a4w4_gateup_projection_v3_admission_test_enabled(
+      true);
+  const bool v3_admission_is_compiled =
+      detail::exchange_a4w4_gateup_projection_v3_admission_test_enabled(
+          false);
+  test.expect(
+      initial_v3_enabled ==
+          (v3_admission_is_compiled && v3_environment_requested),
+      "Gate+Up projection v3 environment gate is exact-value, default-off, "
+      "and independent from v2 and rejected M128");
+
   const char* const cell_environment = std::getenv(
       "Q3X_RUN_A4W4_GATEUP_COMPLETE_CELL_V2_ADMISSION");
   const bool cell_environment_requested =
@@ -1858,6 +1967,11 @@ void test_a4w4_full_prefill_admission_controls(TestContext& test) {
   const std::size_t observed_cell_hits =
       detail::exchange_a4w4_gateup_complete_cell_v2_admission_test_hits(
           prior_cell_hits);
+  const std::size_t prior_v3_hits =
+      detail::exchange_a4w4_gateup_projection_v3_admission_test_hits(83U);
+  const std::size_t observed_v3_hits =
+      detail::exchange_a4w4_gateup_projection_v3_admission_test_hits(
+          prior_v3_hits);
   const std::size_t prior_down_cell_hits =
       detail::exchange_a4w4_down_complete_cell_v2_admission_test_hits(41U);
   const std::size_t observed_down_cell_hits =
@@ -1897,6 +2011,11 @@ void test_a4w4_full_prefill_admission_controls(TestContext& test) {
           (down_cell_admission_is_compiled ? 41U : 0U),
       "Down complete-cell v2 exposes dedicated active or inert accounting "
       "independently from full-A4 code availability");
+  test.expect(observed_v3_hits == (v3_admission_is_compiled ? 83U : 0U),
+              "Gate+Up projection v3 exposes dedicated active or inert hit "
+              "accounting independently from v2 and full-A4 counters");
+  (void)detail::exchange_a4w4_gateup_projection_v3_admission_test_enabled(
+      initial_v3_enabled);
   (void)detail::
       exchange_a4w4_gateup_complete_cell_v2_admission_test_enabled(
           initial_cell_enabled);
@@ -1915,6 +2034,9 @@ void test_prefill_admission_gate_orthogonality(TestContext& test) {
   const bool initial_cell =
       detail::exchange_a4w4_gateup_complete_cell_v2_admission_test_enabled(
           false);
+  const bool initial_v3 =
+      detail::exchange_a4w4_gateup_projection_v3_admission_test_enabled(
+          false);
   const bool initial_down_cell =
       detail::exchange_a4w4_down_complete_cell_v2_admission_test_enabled(
           false);
@@ -1931,6 +2053,11 @@ void test_prefill_admission_gate_orthogonality(TestContext& test) {
       exchange_a4w4_gateup_complete_cell_v2_admission_test_enabled(true);
   const bool cell_compiled =
       detail::exchange_a4w4_gateup_complete_cell_v2_admission_test_enabled(
+          false);
+  (void)detail::exchange_a4w4_gateup_projection_v3_admission_test_enabled(
+      true);
+  const bool v3_compiled =
+      detail::exchange_a4w4_gateup_projection_v3_admission_test_enabled(
           false);
   (void)detail::exchange_a4w4_down_complete_cell_v2_admission_test_enabled(
       true);
@@ -1978,6 +2105,32 @@ void test_prefill_admission_gate_orthogonality(TestContext& test) {
   test.expect(!cell_after_m128 && m128_after_cell_check == m128_compiled,
               "M128 A4 gate does not enable the complete-cell v2 gate");
 
+  (void)detail::exchange_a4w4_gateup_projection_v3_admission_test_enabled(
+      true);
+  const bool cell_after_v3 =
+      detail::exchange_a4w4_gateup_complete_cell_v2_admission_test_enabled(
+          false);
+  const bool m128_after_v3 =
+      detail::exchange_a4w4_m128_stage_major_admission_test_enabled(false);
+  const bool v3_after_v3 =
+      detail::exchange_a4w4_gateup_projection_v3_admission_test_enabled(
+          false);
+  test.expect(!cell_after_v3 && !m128_after_v3 &&
+                  v3_after_v3 == v3_compiled,
+              "Gate+Up projection v3 gate does not enable v2 or rejected "
+              "M128");
+
+  (void)detail::
+      exchange_a4w4_gateup_complete_cell_v2_admission_test_enabled(true);
+  const bool v3_after_cell =
+      detail::exchange_a4w4_gateup_projection_v3_admission_test_enabled(
+          false);
+  const bool cell_after_v3_check =
+      detail::exchange_a4w4_gateup_complete_cell_v2_admission_test_enabled(
+          false);
+  test.expect(!v3_after_cell && cell_after_v3_check == cell_compiled,
+              "complete-cell v2 gate does not enable Gate+Up projection v3");
+
   (void)detail::exchange_a4w4_down_complete_cell_v2_admission_test_enabled(
       true);
   const bool down_m128_after_down_cell =
@@ -2018,6 +2171,11 @@ void test_prefill_admission_gate_orthogonality(TestContext& test) {
   const std::size_t observed_cell_hits =
       detail::exchange_a4w4_gateup_complete_cell_v2_admission_test_hits(
           initial_cell_hits);
+  const std::size_t initial_v3_hits =
+      detail::exchange_a4w4_gateup_projection_v3_admission_test_hits(31U);
+  const std::size_t observed_v3_hits =
+      detail::exchange_a4w4_gateup_projection_v3_admission_test_hits(
+          initial_v3_hits);
   const std::size_t initial_down_cell_hits =
       detail::exchange_a4w4_down_complete_cell_v2_admission_test_hits(29U);
   const std::size_t observed_down_cell_hits =
@@ -2029,6 +2187,9 @@ void test_prefill_admission_gate_orthogonality(TestContext& test) {
               "BF16 whole-span hits use independent storage");
   test.expect(observed_cell_hits == (cell_compiled ? 23U : 0U),
               "complete-cell v2 hits use storage independent from M128/A4");
+  test.expect(observed_v3_hits == (v3_compiled ? 31U : 0U),
+              "Gate+Up projection v3 hits use storage independent from "
+              "v2/M128/A4");
   test.expect(
       observed_down_cell_hits == (down_cell_compiled ? 29U : 0U),
       "Down complete-cell v2 hits use independent storage from all old gates");
@@ -2058,6 +2219,8 @@ void test_prefill_admission_gate_orthogonality(TestContext& test) {
   (void)detail::
       exchange_a4w4_gateup_complete_cell_v2_admission_test_enabled(
           initial_cell);
+  (void)detail::exchange_a4w4_gateup_projection_v3_admission_test_enabled(
+      initial_v3);
   (void)detail::exchange_a4w4_down_complete_cell_v2_admission_test_enabled(
       initial_down_cell);
   (void)detail::exchange_a4w4_down_m128_stage_major_admission_test_enabled(

@@ -72,6 +72,7 @@ class Fixture:
         environment["Q3X_RUN_BF16_AB_LARGE_M_PREFILL_ADMISSION"] = "1"
         environment["Q3X_RUN_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION"] = "1"
         environment["Q3X_RUN_SHORT_PREFILL_LAYER_MAJOR_ADMISSION"] = "1"
+        environment["Q3X_RUN_A4W4_GATEUP_PROJECTION_V3_ADMISSION"] = "1"
         environment["Q3X_RUN_A4W4_GATEUP_COMPLETE_CELL_V2_ADMISSION"] = "1"
         environment["Q3X_RUN_A4W4_M128_STAGE_MAJOR_ADMISSION"] = "1"
         environment["Q3X_RUN_A4W4_DOWN_M128_STAGE_MAJOR_ADMISSION"] = "1"
@@ -124,6 +125,9 @@ class PurePrefillEvalScopeHarnessTest(unittest.TestCase):
         )
         self.assertIn(
             "-u Q3X_RUN_SHORT_PREFILL_LAYER_MAJOR_ADMISSION", result.stdout
+        )
+        self.assertIn(
+            "-u Q3X_RUN_A4W4_GATEUP_PROJECTION_V3_ADMISSION", result.stdout
         )
         self.assertIn(
             "-u Q3X_RUN_A4W4_GATEUP_COMPLETE_CELL_V2_ADMISSION", result.stdout

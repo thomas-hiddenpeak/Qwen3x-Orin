@@ -832,6 +832,31 @@ struct A4W4GateUpCompleteCellV2RouteQuery final {
   std::size_t output_scale_capacity_elements = 0U;
 };
 
+// Projection v3 is an independent default-off successor candidate.  It owns
+// the same external M64/N128/K128 ABI as complete-cell v2, but its runtime
+// gate is deliberately separate so compiling or enabling either experiment
+// cannot silently enable the other.  projection_token_count is the runner's
+// internal ceil64 M; the authenticated inventory and every exact capacity are
+// mandatory before the new warp-specialized kernel may be selected.
+struct A4W4GateUpProjectionV3RouteQuery final {
+  bool admission_enabled = false;
+  A4W4PrefillConsumer inventory_consumer =
+      A4W4PrefillConsumer::kUnavailable;
+  std::size_t projection_token_count = 0U;
+  std::size_t gate_output_size = 0U;
+  std::size_t gate_input_size = 0U;
+  std::size_t up_output_size = 0U;
+  std::size_t up_input_size = 0U;
+  std::size_t packed_input_capacity_bytes = 0U;
+  std::size_t input_scale_capacity_elements = 0U;
+  std::size_t gate_weight_capacity_bytes = 0U;
+  std::size_t gate_scale_capacity_elements = 0U;
+  std::size_t up_weight_capacity_bytes = 0U;
+  std::size_t up_scale_capacity_elements = 0U;
+  std::size_t packed_output_capacity_bytes = 0U;
+  std::size_t output_scale_capacity_elements = 0U;
+};
+
 [[nodiscard]] constexpr bool a4w4_matrix_capacity_covers(
     const std::size_t capacity, const std::size_t outer,
     const std::size_t inner, const std::size_t inner_group) noexcept {
@@ -879,6 +904,74 @@ struct A4W4GateUpCompleteCellV2RouteQuery final {
              query.output_scale_capacity_elements,
              query.projection_token_count, kReferenceIntermediateSize,
              128U);
+}
+
+[[nodiscard]] constexpr bool use_a4w4_gateup_projection_v3_route(
+    const A4W4GateUpProjectionV3RouteQuery& query) noexcept {
+  return query.admission_enabled &&
+         query.inventory_consumer == A4W4PrefillConsumer::kK128 &&
+         query.projection_token_count != 0U &&
+         query.projection_token_count % 64U == 0U &&
+         query.gate_output_size == kReferenceIntermediateSize &&
+         query.gate_input_size == kReferenceHiddenSize &&
+         query.up_output_size == kReferenceIntermediateSize &&
+         query.up_input_size == kReferenceHiddenSize &&
+         a4w4_matrix_capacity_covers(
+             query.packed_input_capacity_bytes,
+             query.projection_token_count, kReferenceHiddenSize, 2U) &&
+         a4w4_matrix_capacity_covers(
+             query.input_scale_capacity_elements,
+             query.projection_token_count, kReferenceHiddenSize, 128U) &&
+         a4w4_matrix_capacity_covers(
+             query.gate_weight_capacity_bytes,
+             kReferenceIntermediateSize, kReferenceHiddenSize, 2U) &&
+         a4w4_matrix_capacity_covers(
+             query.gate_scale_capacity_elements,
+             kReferenceIntermediateSize, kReferenceHiddenSize, 128U) &&
+         a4w4_matrix_capacity_covers(
+             query.up_weight_capacity_bytes,
+             kReferenceIntermediateSize, kReferenceHiddenSize, 2U) &&
+         a4w4_matrix_capacity_covers(
+             query.up_scale_capacity_elements,
+             kReferenceIntermediateSize, kReferenceHiddenSize, 128U) &&
+         a4w4_matrix_capacity_covers(
+             query.packed_output_capacity_bytes,
+             query.projection_token_count, kReferenceIntermediateSize, 2U) &&
+         a4w4_matrix_capacity_covers(
+             query.output_scale_capacity_elements,
+             query.projection_token_count, kReferenceIntermediateSize,
+             128U);
+}
+
+enum class A4W4K128GateUpPrefillRoute : std::uint8_t {
+  kBaseline = 0,
+  kProjectionV3,
+  kCompleteCellV2,
+  kRejectedM128StageMajor,
+};
+
+// Both structural experiments remain independently gated.  If an operator
+// explicitly enables both, v3 owns the one launch; v2 is the lower-priority
+// structural incumbent, followed by the archived M128 diagnostic.  A launch
+// failure after selection is returned directly by the runtime.
+[[nodiscard]] constexpr A4W4K128GateUpPrefillRoute
+select_a4w4_k128_gateup_prefill_route(
+    const A4W4GateUpProjectionV3RouteQuery& projection_v3_query,
+    const A4W4GateUpCompleteCellV2RouteQuery& complete_cell_v2_query,
+    const bool rejected_m128_admission_enabled) noexcept {
+  if (use_a4w4_gateup_projection_v3_route(projection_v3_query)) {
+    return A4W4K128GateUpPrefillRoute::kProjectionV3;
+  }
+  if (use_a4w4_gateup_complete_cell_v2_route(complete_cell_v2_query)) {
+    return A4W4K128GateUpPrefillRoute::kCompleteCellV2;
+  }
+  return rejected_m128_admission_enabled &&
+                 complete_cell_v2_query.inventory_consumer ==
+                     A4W4PrefillConsumer::kK128 &&
+                 complete_cell_v2_query.projection_token_count != 0U &&
+                 complete_cell_v2_query.projection_token_count % 128U == 0U
+             ? A4W4K128GateUpPrefillRoute::kRejectedM128StageMajor
+             : A4W4K128GateUpPrefillRoute::kBaseline;
 }
 
 // Down complete-cell v2 owns only the authenticated model-specific Down
@@ -1027,6 +1120,10 @@ bool exchange_a4w4_gateup_complete_cell_v2_admission_test_enabled(
     bool enabled) noexcept;
 std::size_t
 exchange_a4w4_gateup_complete_cell_v2_admission_test_hits(
+    std::size_t hits) noexcept;
+bool exchange_a4w4_gateup_projection_v3_admission_test_enabled(
+    bool enabled) noexcept;
+std::size_t exchange_a4w4_gateup_projection_v3_admission_test_hits(
     std::size_t hits) noexcept;
 A4W4FullPrefillAdmissionHits
 exchange_a4w4_full_prefill_admission_test_hits(

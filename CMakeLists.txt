@@ -54,6 +54,10 @@ option(Q3X_BUILD_SM87_A4W4_GATEUP_PAIR_ADMISSION
   "Build the test-only persistent SM87 A4W4 paired Gate+Up route"
   OFF
 )
+option(Q3X_BUILD_SM87_A4W4_GATEUP_PROJECTION_V3_ADMISSION
+  "Build the default-off runtime slice for the warp-specialized Gate+Up v3 cell"
+  OFF
+)
 option(Q3X_BUILD_SM87_A4W4_M128_STAGE_MAJOR_ADMISSION
   "Build the synthetic correctness test for the M128 K128 stage-major Prefill candidate"
   OFF
@@ -124,6 +128,18 @@ endif()
 if(Q3X_BUILD_SM87_A4W4_GATEUP_PAIR_ADMISSION AND NOT BUILD_TESTING)
   message(FATAL_ERROR
     "Q3X_BUILD_SM87_A4W4_GATEUP_PAIR_ADMISSION is test-only and requires BUILD_TESTING=ON"
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_GATEUP_PROJECTION_V3_ADMISSION AND
+   NOT BUILD_TESTING)
+  message(FATAL_ERROR
+    "Q3X_BUILD_SM87_A4W4_GATEUP_PROJECTION_V3_ADMISSION is test-only and requires BUILD_TESTING=ON"
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_GATEUP_PROJECTION_V3_ADMISSION AND
+   NOT Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION)
+  message(FATAL_ERROR
+    "The Gate+Up projection v3 runtime slice requires the authenticated full-A4 Prefill route"
   )
 endif()
 if(Q3X_BUILD_SM87_A4W4_M128_STAGE_MAJOR_ADMISSION AND NOT BUILD_TESTING)
@@ -374,6 +390,14 @@ if(Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION)
   )
   target_compile_definitions(q3x_kernels PRIVATE
     Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_GATEUP_PROJECTION_V3_ADMISSION)
+  target_sources(q3x_kernels PRIVATE
+    src/kernels/sm87/a4w4_gateup_projection_v3.cu
+  )
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_A4W4_GATEUP_PROJECTION_V3_ADMISSION=1
   )
 endif()
 if(Q3X_BUILD_SM87_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION)
@@ -1892,6 +1916,35 @@ if(BUILD_TESTING)
       ENVIRONMENT
         "Q3X_DISABLE_OPTIMIZED_PREFILL=0;Q3X_RUN_A4W4_GATEUP_COMPLETE_CELL_V2_ADMISSION=1;Q3X_RUN_A4W4_M128_STAGE_MAJOR_ADMISSION=0;Q3X_RUN_A4W4_DOWN_M128_STAGE_MAJOR_ADMISSION=0"
       LABELS "host;sm87;prefill;a4w4;k128;admission;environment"
+    )
+  endif()
+  if(Q3X_BUILD_SM87_A4W4_GATEUP_PROJECTION_V3_ADMISSION)
+    add_test(NAME reference_runner_host_gateup_projection_v3_admission
+      COMMAND q3x_reference_runner_host_test
+    )
+    set_tests_properties(
+      reference_runner_host_gateup_projection_v3_admission PROPERTIES
+      ENVIRONMENT
+        "Q3X_DISABLE_OPTIMIZED_PREFILL=0;Q3X_RUN_A4W4_GATEUP_PROJECTION_V3_ADMISSION=1;Q3X_RUN_A4W4_GATEUP_COMPLETE_CELL_V2_ADMISSION=1;Q3X_RUN_A4W4_M128_STAGE_MAJOR_ADMISSION=1"
+      LABELS "host;sm87;prefill;a4w4;k128;gateup;v3;admission;environment"
+    )
+    add_test(NAME reference_runner_host_gateup_projection_v3_nonexact_env
+      COMMAND q3x_reference_runner_host_test
+    )
+    set_tests_properties(
+      reference_runner_host_gateup_projection_v3_nonexact_env PROPERTIES
+      ENVIRONMENT
+        "Q3X_DISABLE_OPTIMIZED_PREFILL=0;Q3X_RUN_A4W4_GATEUP_PROJECTION_V3_ADMISSION=true"
+      LABELS "host;sm87;prefill;a4w4;k128;gateup;v3;admission;environment;negative"
+    )
+    add_test(NAME reference_runner_host_gateup_projection_v3_global_disable
+      COMMAND q3x_reference_runner_host_test
+    )
+    set_tests_properties(
+      reference_runner_host_gateup_projection_v3_global_disable PROPERTIES
+      ENVIRONMENT
+        "Q3X_DISABLE_OPTIMIZED_PREFILL=1;Q3X_RUN_A4W4_GATEUP_PROJECTION_V3_ADMISSION=1"
+      LABELS "host;sm87;prefill;a4w4;k128;gateup;v3;admission;environment;negative"
     )
   endif()
   if(Q3X_BUILD_SM87_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION)
