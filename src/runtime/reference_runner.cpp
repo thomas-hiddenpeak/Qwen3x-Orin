@@ -2,6 +2,9 @@
 
 #include "q3x/kernels/sm87_fp8_prefill_supermatrix.h"
 #if defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
+#if defined(Q3X_ENABLE_A4W4_ATTENTION_SUPERMATRIX_ADMISSION)
+#include "q3x/kernels/sm87_a4w4_attention_supermatrix_cell.h"
+#endif
 #include "q3x/kernels/sm87_a4w4_down_k128_stage_major.h"
 #if defined(Q3X_ENABLE_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION)
 #include "q3x/kernels/sm87_a4w4_down_complete_cell_v2.h"
@@ -168,6 +171,24 @@ thread_local bool g_enable_a4w4_full_prefill_admission =
     a4w4_full_prefill_environment_enabled();
 thread_local reference_runner_detail::A4W4FullPrefillAdmissionHits
     g_a4w4_full_prefill_admission_hits{};
+
+#if defined(Q3X_ENABLE_A4W4_ATTENTION_SUPERMATRIX_ADMISSION)
+[[nodiscard]] bool
+a4w4_attention_supermatrix_environment_enabled() noexcept {
+  if (optimized_prefill_dispatch_disabled()) {
+    return false;
+  }
+  const char* const value = std::getenv(
+      "Q3X_RUN_A4W4_ATTENTION_SUPERMATRIX_ADMISSION");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
+thread_local bool g_enable_a4w4_attention_supermatrix_admission =
+    a4w4_attention_supermatrix_environment_enabled();
+thread_local reference_runner_detail::
+    A4W4AttentionSupermatrixAdmissionHits
+        g_a4w4_attention_supermatrix_admission_hits{};
+#endif
 
 [[nodiscard]] bool
 a4w4_gateup_complete_cell_v2_environment_enabled() noexcept {
@@ -618,6 +639,270 @@ a4w4_full_prefill_inventory_consumer(
                          outer, input_size)
                    : 0U;
 }
+
+#if defined(Q3X_ENABLE_A4W4_ATTENTION_SUPERMATRIX_ADMISSION)
+[[nodiscard]] reference_runner_detail::
+    A4W4AttentionSupermatrixProjectionPlane
+make_a4w4_attention_supermatrix_plane(
+    const reference_runner_detail::A4W4PrefillConsumer consumer,
+    const PrefillA4LinearSidecarView& sidecar,
+    const std::size_t output_capacity_elements) noexcept {
+  reference_runner_detail::A4W4AttentionSupermatrixProjectionPlane plane;
+  plane.output_size = sidecar.output_size;
+  plane.input_size = sidecar.input_size;
+  plane.weight_capacity_bytes =
+      kernels::sm87_a4w4_consumer_packed_capacity_bytes(
+          sidecar.output_size, sidecar.input_size);
+  plane.weight_scale_capacity_elements = a4w4_scale_capacity_elements(
+      consumer, sidecar.output_size, sidecar.input_size);
+  plane.output_row_stride_elements = sidecar.output_size;
+  plane.output_capacity_elements = output_capacity_elements;
+  return plane;
+}
+
+void record_a4w4_attention_supermatrix_launch(
+    const reference_runner_detail::A4W4AttentionSupermatrixFamily family,
+    reference_runner_detail::A4W4FullPrefillAdmissionHits& local_full_hits,
+    reference_runner_detail::A4W4AttentionSupermatrixAdmissionHits&
+        local_attention_hits) noexcept {
+  std::size_t logical = 0U;
+  switch (family) {
+    case reference_runner_detail::A4W4AttentionSupermatrixFamily::
+        kLinearInput:
+      ++local_attention_hits.linear_input_launch_hits;
+      ++g_a4w4_attention_supermatrix_admission_hits
+            .linear_input_launch_hits;
+      logical = 2U;
+      break;
+    case reference_runner_detail::A4W4AttentionSupermatrixFamily::kFullInput:
+      ++local_attention_hits.full_input_launch_hits;
+      ++g_a4w4_attention_supermatrix_admission_hits.full_input_launch_hits;
+      logical = 3U;
+      break;
+    case reference_runner_detail::A4W4AttentionSupermatrixFamily::kOutput:
+      ++local_attention_hits.output_launch_hits;
+      ++g_a4w4_attention_supermatrix_admission_hits.output_launch_hits;
+      logical = 1U;
+      break;
+  }
+  local_attention_hits.logical_projection_hits += logical;
+  g_a4w4_attention_supermatrix_admission_hits.logical_projection_hits +=
+      logical;
+  local_full_hits.logical_projection_hits += logical;
+  g_a4w4_full_prefill_admission_hits.logical_projection_hits += logical;
+}
+
+[[nodiscard]] bool a4w4_attention_supermatrix_aggregate_delta(
+    const reference_runner_detail::A4W4AttentionSupermatrixAdmissionHits&
+        before,
+    const reference_runner_detail::A4W4AttentionSupermatrixAdmissionHits&
+        after,
+    const std::size_t complete_model_units,
+    std::size_t& logical_projection_delta) noexcept {
+  logical_projection_delta = 0U;
+  if (after.linear_input_launch_hits < before.linear_input_launch_hits ||
+      after.full_input_launch_hits < before.full_input_launch_hits ||
+      after.output_launch_hits < before.output_launch_hits ||
+      after.logical_projection_hits < before.logical_projection_hits) {
+    return false;
+  }
+  const std::size_t linear =
+      after.linear_input_launch_hits - before.linear_input_launch_hits;
+  const std::size_t full =
+      after.full_input_launch_hits - before.full_input_launch_hits;
+  const std::size_t output =
+      after.output_launch_hits - before.output_launch_hits;
+  const std::size_t logical =
+      after.logical_projection_hits - before.logical_projection_hits;
+  if (linear % 48U != 0U) {
+    return false;
+  }
+  const std::size_t selected_units = linear / 48U;
+  if (selected_units > complete_model_units || full != selected_units * 16U ||
+      output != selected_units * 64U ||
+      logical != selected_units * 208U) {
+    return false;
+  }
+  logical_projection_delta = logical;
+  return true;
+}
+
+[[nodiscard]] int launch_selected_a4w4_linear_attention_supermatrix(
+    const reference_runner_detail::A4W4PrefillConsumer consumer,
+    const std::uint8_t* const packed_input,
+    const std::size_t packed_input_capacity,
+    const std::uint16_t* const input_scales,
+    const std::size_t input_scale_capacity,
+    const PrefillA4LinearSidecarView& qkv_sidecar,
+    const PrefillA4LinearSidecarView& z_sidecar,
+    const std::size_t token_count, std::uint16_t* const qkv_output,
+    const std::size_t qkv_output_capacity,
+    std::uint16_t* const z_output,
+    const std::size_t z_output_capacity, void* const stream,
+    reference_runner_detail::A4W4FullPrefillAdmissionHits& local_full_hits,
+    reference_runner_detail::A4W4AttentionSupermatrixAdmissionHits&
+        local_attention_hits,
+    bool* const selected) noexcept {
+  if (selected != nullptr) {
+    *selected = false;
+  }
+  reference_runner_detail::A4W4AttentionSupermatrixRouteQuery query;
+  query.admission_enabled =
+      g_enable_a4w4_attention_supermatrix_admission;
+  query.inventory_consumer = consumer;
+  query.family = reference_runner_detail::A4W4AttentionSupermatrixFamily::
+      kLinearInput;
+  query.projection_token_count = token_count;
+  query.packed_input_capacity_bytes = packed_input_capacity;
+  query.input_scale_capacity_elements = input_scale_capacity;
+  query.projections[0U] = make_a4w4_attention_supermatrix_plane(
+      consumer, qkv_sidecar, qkv_output_capacity);
+  query.projections[1U] = make_a4w4_attention_supermatrix_plane(
+      consumer, z_sidecar, z_output_capacity);
+  if (!reference_runner_detail::use_a4w4_attention_supermatrix_route(query)) {
+    return static_cast<int>(cudaSuccess);
+  }
+  if (selected != nullptr) {
+    *selected = true;
+  }
+  const auto& qkv = query.projections[0U];
+  const auto& z = query.projections[1U];
+  const int status =
+      kernels::launch_sm87_a4w4_linear_qkv_z_supermatrix_bf16_cuda(
+          packed_input, packed_input_capacity, input_scales,
+          input_scale_capacity, qkv_sidecar.weight,
+          qkv.weight_capacity_bytes, qkv_sidecar.scales,
+          qkv.weight_scale_capacity_elements, z_sidecar.weight,
+          z.weight_capacity_bytes, z_sidecar.scales,
+          z.weight_scale_capacity_elements, token_count, qkv_output,
+          qkv.output_row_stride_elements,
+          token_count * qkv.output_row_stride_elements, z_output,
+          z.output_row_stride_elements,
+          token_count * z.output_row_stride_elements, stream);
+  if (status == static_cast<int>(cudaSuccess)) {
+    record_a4w4_attention_supermatrix_launch(
+        query.family, local_full_hits, local_attention_hits);
+  }
+  return status;
+}
+
+[[nodiscard]] int launch_selected_a4w4_full_attention_supermatrix(
+    const reference_runner_detail::A4W4PrefillConsumer consumer,
+    const std::uint8_t* const packed_input,
+    const std::size_t packed_input_capacity,
+    const std::uint16_t* const input_scales,
+    const std::size_t input_scale_capacity,
+    const PrefillA4LinearSidecarView& q_sidecar,
+    const PrefillA4LinearSidecarView& k_sidecar,
+    const PrefillA4LinearSidecarView& v_sidecar,
+    const std::size_t token_count, std::uint16_t* const q_output,
+    const std::size_t q_output_capacity,
+    std::uint16_t* const k_output,
+    const std::size_t k_output_capacity,
+    std::uint16_t* const v_output,
+    const std::size_t v_output_capacity, void* const stream,
+    reference_runner_detail::A4W4FullPrefillAdmissionHits& local_full_hits,
+    reference_runner_detail::A4W4AttentionSupermatrixAdmissionHits&
+        local_attention_hits,
+    bool* const selected) noexcept {
+  if (selected != nullptr) {
+    *selected = false;
+  }
+  reference_runner_detail::A4W4AttentionSupermatrixRouteQuery query;
+  query.admission_enabled =
+      g_enable_a4w4_attention_supermatrix_admission;
+  query.inventory_consumer = consumer;
+  query.family = reference_runner_detail::A4W4AttentionSupermatrixFamily::
+      kFullInput;
+  query.projection_token_count = token_count;
+  query.packed_input_capacity_bytes = packed_input_capacity;
+  query.input_scale_capacity_elements = input_scale_capacity;
+  query.projections[0U] = make_a4w4_attention_supermatrix_plane(
+      consumer, q_sidecar, q_output_capacity);
+  query.projections[1U] = make_a4w4_attention_supermatrix_plane(
+      consumer, k_sidecar, k_output_capacity);
+  query.projections[2U] = make_a4w4_attention_supermatrix_plane(
+      consumer, v_sidecar, v_output_capacity);
+  if (!reference_runner_detail::use_a4w4_attention_supermatrix_route(query)) {
+    return static_cast<int>(cudaSuccess);
+  }
+  if (selected != nullptr) {
+    *selected = true;
+  }
+  const auto& q = query.projections[0U];
+  const auto& k = query.projections[1U];
+  const auto& v = query.projections[2U];
+  const int status =
+      kernels::launch_sm87_a4w4_full_q_k_v_supermatrix_bf16_cuda(
+          packed_input, packed_input_capacity, input_scales,
+          input_scale_capacity, q_sidecar.weight, q.weight_capacity_bytes,
+          q_sidecar.scales, q.weight_scale_capacity_elements,
+          k_sidecar.weight, k.weight_capacity_bytes, k_sidecar.scales,
+          k.weight_scale_capacity_elements, v_sidecar.weight,
+          v.weight_capacity_bytes, v_sidecar.scales,
+          v.weight_scale_capacity_elements, token_count, q_output,
+          q.output_row_stride_elements,
+          token_count * q.output_row_stride_elements, k_output,
+          k.output_row_stride_elements,
+          token_count * k.output_row_stride_elements, v_output,
+          v.output_row_stride_elements,
+          token_count * v.output_row_stride_elements, stream);
+  if (status == static_cast<int>(cudaSuccess)) {
+    record_a4w4_attention_supermatrix_launch(
+        query.family, local_full_hits, local_attention_hits);
+  }
+  return status;
+}
+
+[[nodiscard]] int launch_selected_a4w4_attention_o_supermatrix(
+    const reference_runner_detail::A4W4PrefillConsumer consumer,
+    const std::uint8_t* const packed_input,
+    const std::size_t packed_input_capacity,
+    const std::uint16_t* const input_scales,
+    const std::size_t input_scale_capacity,
+    const PrefillA4LinearSidecarView& output_sidecar,
+    const std::size_t token_count, std::uint16_t* const output,
+    const std::size_t output_capacity, void* const stream,
+    reference_runner_detail::A4W4FullPrefillAdmissionHits& local_full_hits,
+    reference_runner_detail::A4W4AttentionSupermatrixAdmissionHits&
+        local_attention_hits,
+    bool* const selected) noexcept {
+  if (selected != nullptr) {
+    *selected = false;
+  }
+  reference_runner_detail::A4W4AttentionSupermatrixRouteQuery query;
+  query.admission_enabled =
+      g_enable_a4w4_attention_supermatrix_admission;
+  query.inventory_consumer = consumer;
+  query.family =
+      reference_runner_detail::A4W4AttentionSupermatrixFamily::kOutput;
+  query.projection_token_count = token_count;
+  query.packed_input_capacity_bytes = packed_input_capacity;
+  query.input_scale_capacity_elements = input_scale_capacity;
+  query.projections[0U] = make_a4w4_attention_supermatrix_plane(
+      consumer, output_sidecar, output_capacity);
+  if (!reference_runner_detail::use_a4w4_attention_supermatrix_route(query)) {
+    return static_cast<int>(cudaSuccess);
+  }
+  if (selected != nullptr) {
+    *selected = true;
+  }
+  const auto& plane = query.projections[0U];
+  const int status =
+      kernels::launch_sm87_a4w4_attention_o_supermatrix_bf16_cuda(
+          packed_input, packed_input_capacity, input_scales,
+          input_scale_capacity, output_sidecar.weight,
+          plane.weight_capacity_bytes, output_sidecar.scales,
+          plane.weight_scale_capacity_elements, token_count, output,
+          plane.output_row_stride_elements,
+          token_count * plane.output_row_stride_elements, stream);
+  if (status == static_cast<int>(cudaSuccess)) {
+    record_a4w4_attention_supermatrix_launch(
+        query.family, local_full_hits, local_attention_hits);
+  }
+  return status;
+}
+#endif
 
 [[nodiscard]] int launch_selected_a4w4_quantize(
     const reference_runner_detail::A4W4PrefillConsumer consumer,
@@ -1452,6 +1737,29 @@ std::size_t exchange_a4w4_gateup_projection_v3_admission_test_hits(
 #else
   (void)hits;
   return 0U;
+#endif
+}
+
+bool exchange_a4w4_attention_supermatrix_admission_test_enabled(
+    const bool enabled) noexcept {
+#if defined(Q3X_ENABLE_A4W4_ATTENTION_SUPERMATRIX_ADMISSION)
+  return std::exchange(
+      g_enable_a4w4_attention_supermatrix_admission, enabled);
+#else
+  (void)enabled;
+  return false;
+#endif
+}
+
+A4W4AttentionSupermatrixAdmissionHits
+exchange_a4w4_attention_supermatrix_admission_test_hits(
+    const A4W4AttentionSupermatrixAdmissionHits hits) noexcept {
+#if defined(Q3X_ENABLE_A4W4_ATTENTION_SUPERMATRIX_ADMISSION)
+  return std::exchange(
+      g_a4w4_attention_supermatrix_admission_hits, hits);
+#else
+  (void)hits;
+  return {};
 #endif
 }
 
@@ -3805,6 +4113,10 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
 #if defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
   reference_runner_detail::A4W4FullPrefillAdmissionHits
       a4w4_full_prefill_tile_hits{};
+#if defined(Q3X_ENABLE_A4W4_ATTENTION_SUPERMATRIX_ADMISSION)
+  reference_runner_detail::A4W4AttentionSupermatrixAdmissionHits
+      a4w4_attention_supermatrix_tile_hits{};
+#endif
   std::size_t a4w4_gateup_projection_v3_tile_hits = 0U;
   std::size_t a4w4_gateup_complete_cell_v2_tile_hits = 0U;
   std::size_t a4w4_down_complete_cell_v2_tile_hits = 0U;
@@ -4461,39 +4773,60 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
       if (a4w4_full_prefill_tile_enabled) {
         const PrefillA4LinearSidecarView qkv_sidecar =
             prefill_a4_sidecar_view(attention->in_proj_qkv);
+        [[maybe_unused]] const PrefillA4LinearSidecarView z_sidecar =
+            prefill_a4_sidecar_view(attention->in_proj_z);
+        const std::size_t hidden_packed_capacity =
+            static_cast<std::size_t>(
+                state_->plan().prefill_a4_hidden_packed.byte_size);
+        const std::size_t hidden_scale_capacity =
+            static_cast<std::size_t>(
+                state_->plan()
+                    .prefill_a4_hidden_scales_bf16.element_capacity);
         if (!quantize_a4w4_activation(
                 views_.hidden[1], kReferenceHiddenSize,
                 qkv_sidecar.activation_clip_ratio,
                 views_.prefill_a4_hidden_packed,
-                static_cast<std::size_t>(
-                    state_->plan().prefill_a4_hidden_packed.byte_size),
+                hidden_packed_capacity,
                 views_.prefill_a4_hidden_scales,
-                static_cast<std::size_t>(state_->plan()
-                                             .prefill_a4_hidden_scales_bf16
-                                             .element_capacity),
-                "prefill_a4w4_linear_qkvz_quantize", layer) ||
-            !project_a4w4_from_packed(
-                attention->in_proj_qkv,
-                views_.prefill_a4_hidden_packed,
-                static_cast<std::size_t>(
-                    state_->plan().prefill_a4_hidden_packed.byte_size),
-                views_.prefill_a4_hidden_scales,
-                static_cast<std::size_t>(state_->plan()
-                                             .prefill_a4_hidden_scales_bf16
-                                             .element_capacity),
-                views_.projection[0],
-                "prefill_a4w4_linear_qkv_projection", layer) ||
-            !project_a4w4_from_packed(
-                attention->in_proj_z,
-                views_.prefill_a4_hidden_packed,
-                static_cast<std::size_t>(
-                    state_->plan().prefill_a4_hidden_packed.byte_size),
-                views_.prefill_a4_hidden_scales,
-                static_cast<std::size_t>(state_->plan()
-                                             .prefill_a4_hidden_scales_bf16
-                                             .element_capacity),
-                views_.projection[1],
-                "prefill_a4w4_linear_z_projection", layer)) {
+                hidden_scale_capacity,
+                "prefill_a4w4_linear_qkvz_quantize", layer)) {
+          return fail_prefill_tile(launch_failure);
+        }
+        bool attention_supermatrix_selected = false;
+#if defined(Q3X_ENABLE_A4W4_ATTENTION_SUPERMATRIX_ADMISSION)
+        if (!check_cuda(
+                launch_selected_a4w4_linear_attention_supermatrix(
+                    a4w4_prefill_consumer_,
+                    views_.prefill_a4_hidden_packed,
+                    hidden_packed_capacity,
+                    views_.prefill_a4_hidden_scales,
+                    hidden_scale_capacity, qkv_sidecar, z_sidecar,
+                    token_count, views_.projection[0],
+                    static_cast<std::size_t>(
+                        state_->plan().projection_bf16[0U].element_capacity),
+                    views_.projection[1],
+                    static_cast<std::size_t>(
+                        state_->plan().projection_bf16[1U].element_capacity),
+                    stream_, a4w4_full_prefill_tile_hits,
+                    a4w4_attention_supermatrix_tile_hits,
+                    &attention_supermatrix_selected),
+                "prefill_a4w4_linear_qkv_z_supermatrix", layer)) {
+          return fail_prefill_tile(launch_failure);
+        }
+#endif
+        if (!attention_supermatrix_selected &&
+            (!project_a4w4_from_packed(
+                 attention->in_proj_qkv,
+                 views_.prefill_a4_hidden_packed, hidden_packed_capacity,
+                 views_.prefill_a4_hidden_scales, hidden_scale_capacity,
+                 views_.projection[0],
+                 "prefill_a4w4_linear_qkv_projection", layer) ||
+             !project_a4w4_from_packed(
+                 attention->in_proj_z,
+                 views_.prefill_a4_hidden_packed, hidden_packed_capacity,
+                 views_.prefill_a4_hidden_scales, hidden_scale_capacity,
+                 views_.projection[1],
+                 "prefill_a4w4_linear_z_projection", layer))) {
           return fail_prefill_tile(launch_failure);
         }
         linear_qkvz_projected = true;
@@ -4804,29 +5137,49 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
       if (a4w4_full_prefill_tile_enabled) {
         const PrefillA4LinearSidecarView output_sidecar =
             prefill_a4_sidecar_view(attention->out_proj);
+        const std::size_t intermediate_packed_capacity =
+            static_cast<std::size_t>(
+                state_->plan().prefill_a4_intermediate_packed.byte_size);
+        const std::size_t intermediate_scale_capacity =
+            static_cast<std::size_t>(
+                state_->plan()
+                    .prefill_a4_intermediate_scales_bf16.element_capacity);
         if (!quantize_a4w4_activation(
                 views_.projection[2], kLinearValueElements,
                 output_sidecar.activation_clip_ratio,
                 views_.prefill_a4_intermediate_packed,
-                static_cast<std::size_t>(
-                    state_->plan().prefill_a4_intermediate_packed.byte_size),
+                intermediate_packed_capacity,
                 views_.prefill_a4_intermediate_scales,
-                static_cast<std::size_t>(
-                    state_->plan()
-                        .prefill_a4_intermediate_scales_bf16
-                        .element_capacity),
-                "prefill_a4w4_linear_output_quantize", layer) ||
+                intermediate_scale_capacity,
+                "prefill_a4w4_linear_output_quantize", layer)) {
+          return fail_prefill_tile(launch_failure);
+        }
+        bool attention_supermatrix_selected = false;
+#if defined(Q3X_ENABLE_A4W4_ATTENTION_SUPERMATRIX_ADMISSION)
+        if (!check_cuda(
+                launch_selected_a4w4_attention_o_supermatrix(
+                    a4w4_prefill_consumer_,
+                    views_.prefill_a4_intermediate_packed,
+                    intermediate_packed_capacity,
+                    views_.prefill_a4_intermediate_scales,
+                    intermediate_scale_capacity, output_sidecar, token_count,
+                    views_.hidden[1],
+                    static_cast<std::size_t>(
+                        state_->plan().hidden_bf16[1U].element_capacity),
+                    stream_, a4w4_full_prefill_tile_hits,
+                    a4w4_attention_supermatrix_tile_hits,
+                    &attention_supermatrix_selected),
+                "prefill_a4w4_linear_output_supermatrix", layer)) {
+          return fail_prefill_tile(launch_failure);
+        }
+#endif
+        if (!attention_supermatrix_selected &&
             !project_a4w4_from_packed(
                 attention->out_proj,
                 views_.prefill_a4_intermediate_packed,
-                static_cast<std::size_t>(
-                    state_->plan().prefill_a4_intermediate_packed.byte_size),
+                intermediate_packed_capacity,
                 views_.prefill_a4_intermediate_scales,
-                static_cast<std::size_t>(
-                    state_->plan()
-                        .prefill_a4_intermediate_scales_bf16
-                        .element_capacity),
-                views_.hidden[1],
+                intermediate_scale_capacity, views_.hidden[1],
                 "prefill_a4w4_linear_output_projection", layer)) {
           return fail_prefill_tile(launch_failure);
         }
@@ -4860,6 +5213,10 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
       if (a4w4_full_prefill_tile_enabled) {
         const PrefillA4LinearSidecarView q_sidecar =
             prefill_a4_sidecar_view(attention->q_proj);
+        [[maybe_unused]] const PrefillA4LinearSidecarView k_sidecar =
+            prefill_a4_sidecar_view(attention->k_proj);
+        [[maybe_unused]] const PrefillA4LinearSidecarView v_sidecar =
+            prefill_a4_sidecar_view(attention->v_proj);
         const std::size_t hidden_packed_capacity =
             static_cast<std::size_t>(
                 state_->plan().prefill_a4_hidden_packed.byte_size);
@@ -4872,22 +5229,46 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
                 q_sidecar.activation_clip_ratio,
                 views_.prefill_a4_hidden_packed, hidden_packed_capacity,
                 views_.prefill_a4_hidden_scales, hidden_scale_capacity,
-                "prefill_a4w4_full_qkv_quantize", layer) ||
-            !project_a4w4_from_packed(
-                attention->q_proj, views_.prefill_a4_hidden_packed,
-                hidden_packed_capacity, views_.prefill_a4_hidden_scales,
-                hidden_scale_capacity, views_.projection[0],
-                "prefill_a4w4_full_q_gate_projection", layer) ||
-            !project_a4w4_from_packed(
-                attention->k_proj, views_.prefill_a4_hidden_packed,
-                hidden_packed_capacity, views_.prefill_a4_hidden_scales,
-                hidden_scale_capacity, tile_key,
-                "prefill_a4w4_full_k_projection", layer) ||
-            !project_a4w4_from_packed(
-                attention->v_proj, views_.prefill_a4_hidden_packed,
-                hidden_packed_capacity, views_.prefill_a4_hidden_scales,
-                hidden_scale_capacity, tile_value,
-                "prefill_a4w4_full_v_projection", layer)) {
+                "prefill_a4w4_full_qkv_quantize", layer)) {
+          return fail_prefill_tile(launch_failure);
+        }
+        bool attention_supermatrix_selected = false;
+#if defined(Q3X_ENABLE_A4W4_ATTENTION_SUPERMATRIX_ADMISSION)
+        if (!check_cuda(
+                launch_selected_a4w4_full_attention_supermatrix(
+                    a4w4_prefill_consumer_,
+                    views_.prefill_a4_hidden_packed,
+                    hidden_packed_capacity,
+                    views_.prefill_a4_hidden_scales,
+                    hidden_scale_capacity, q_sidecar, k_sidecar, v_sidecar,
+                    token_count, views_.projection[0],
+                    static_cast<std::size_t>(
+                        state_->plan().projection_bf16[0U].element_capacity),
+                    tile_key, token_count * kFullKvElements, tile_value,
+                    token_count * kFullKvElements, stream_,
+                    a4w4_full_prefill_tile_hits,
+                    a4w4_attention_supermatrix_tile_hits,
+                    &attention_supermatrix_selected),
+                "prefill_a4w4_full_q_k_v_supermatrix", layer)) {
+          return fail_prefill_tile(launch_failure);
+        }
+#endif
+        if (!attention_supermatrix_selected &&
+            (!project_a4w4_from_packed(
+                 attention->q_proj, views_.prefill_a4_hidden_packed,
+                 hidden_packed_capacity, views_.prefill_a4_hidden_scales,
+                 hidden_scale_capacity, views_.projection[0],
+                 "prefill_a4w4_full_q_gate_projection", layer) ||
+             !project_a4w4_from_packed(
+                 attention->k_proj, views_.prefill_a4_hidden_packed,
+                 hidden_packed_capacity, views_.prefill_a4_hidden_scales,
+                 hidden_scale_capacity, tile_key,
+                 "prefill_a4w4_full_k_projection", layer) ||
+             !project_a4w4_from_packed(
+                 attention->v_proj, views_.prefill_a4_hidden_packed,
+                 hidden_packed_capacity, views_.prefill_a4_hidden_scales,
+                 hidden_scale_capacity, tile_value,
+                 "prefill_a4w4_full_v_projection", layer))) {
           return fail_prefill_tile(launch_failure);
         }
         full_qkv_projected = true;
@@ -5106,7 +5487,29 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
                 intermediate_packed_capacity,
                 views_.prefill_a4_intermediate_scales,
                 intermediate_scale_capacity,
-                "prefill_a4w4_full_output_quantize", layer) ||
+                "prefill_a4w4_full_output_quantize", layer)) {
+          return fail_prefill_tile(launch_failure);
+        }
+        bool attention_supermatrix_selected = false;
+#if defined(Q3X_ENABLE_A4W4_ATTENTION_SUPERMATRIX_ADMISSION)
+        if (!check_cuda(
+                launch_selected_a4w4_attention_o_supermatrix(
+                    a4w4_prefill_consumer_,
+                    views_.prefill_a4_intermediate_packed,
+                    intermediate_packed_capacity,
+                    views_.prefill_a4_intermediate_scales,
+                    intermediate_scale_capacity, output_sidecar, token_count,
+                    views_.hidden[1],
+                    static_cast<std::size_t>(
+                        state_->plan().hidden_bf16[1U].element_capacity),
+                    stream_, a4w4_full_prefill_tile_hits,
+                    a4w4_attention_supermatrix_tile_hits,
+                    &attention_supermatrix_selected),
+                "prefill_a4w4_full_output_supermatrix", layer)) {
+          return fail_prefill_tile(launch_failure);
+        }
+#endif
+        if (!attention_supermatrix_selected &&
             !project_a4w4_from_packed(
                 attention->o_proj,
                 views_.prefill_a4_intermediate_packed,
@@ -5463,6 +5866,45 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
       expected_paired_hits = 1U;
       expected_logical_hits = linear ? 6U : 7U;
     }
+    const bool linear_layer =
+        layer_tile != nullptr &&
+        layer_tile->item.layer_type == model::LayerType::kLinearAttention;
+    const std::size_t expected_attention_linear_hits =
+        layer_tile == nullptr ? 48U : (linear_layer ? 1U : 0U);
+    const std::size_t expected_attention_full_hits =
+        layer_tile == nullptr ? 16U : (linear_layer ? 0U : 1U);
+    const std::size_t expected_attention_output_hits =
+        layer_tile == nullptr ? 64U : 1U;
+    const std::size_t expected_attention_logical_hits =
+        2U * expected_attention_linear_hits +
+        3U * expected_attention_full_hits + expected_attention_output_hits;
+    std::size_t observed_attention_linear_hits = 0U;
+    std::size_t observed_attention_full_hits = 0U;
+    std::size_t observed_attention_output_hits = 0U;
+    std::size_t observed_attention_logical_hits = 0U;
+#if defined(Q3X_ENABLE_A4W4_ATTENTION_SUPERMATRIX_ADMISSION)
+    observed_attention_linear_hits =
+        a4w4_attention_supermatrix_tile_hits.linear_input_launch_hits;
+    observed_attention_full_hits =
+        a4w4_attention_supermatrix_tile_hits.full_input_launch_hits;
+    observed_attention_output_hits =
+        a4w4_attention_supermatrix_tile_hits.output_launch_hits;
+    observed_attention_logical_hits =
+        a4w4_attention_supermatrix_tile_hits.logical_projection_hits;
+#endif
+    const bool attention_supermatrix_all =
+        observed_attention_linear_hits == expected_attention_linear_hits &&
+        observed_attention_full_hits == expected_attention_full_hits &&
+        observed_attention_output_hits == expected_attention_output_hits &&
+        observed_attention_logical_hits == expected_attention_logical_hits;
+    const bool attention_supermatrix_none =
+        observed_attention_linear_hits == 0U &&
+        observed_attention_full_hits == 0U &&
+        observed_attention_output_hits == 0U &&
+        observed_attention_logical_hits == 0U;
+    if (attention_supermatrix_all) {
+      expected_generic_hits -= expected_attention_logical_hits;
+    }
     const bool expect_m128_stage_major =
         reference_runner_detail::a4w4_m128_stage_major_common_route(
             g_enable_a4w4_m128_stage_major_admission,
@@ -5514,7 +5956,8 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
         a4w4_gateup_complete_cell_v2_tile_hits == expected_paired_hits;
     const bool complete_cell_v2_none =
         a4w4_gateup_complete_cell_v2_tile_hits == 0U;
-    if ((!projection_v3_all && !projection_v3_none) ||
+    if ((!attention_supermatrix_all && !attention_supermatrix_none) ||
+        (!projection_v3_all && !projection_v3_none) ||
         (!complete_cell_v2_all && !complete_cell_v2_none) ||
         (!projection_v3_none && !complete_cell_v2_none) ||
         a4w4_down_complete_cell_v2_tile_hits !=
@@ -5851,6 +6294,10 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
 #endif
 
   reference_runner_detail::A4W4FullPrefillAdmissionHits local_hits{};
+#if defined(Q3X_ENABLE_A4W4_ATTENTION_SUPERMATRIX_ADMISSION)
+  reference_runner_detail::A4W4AttentionSupermatrixAdmissionHits
+      local_attention_supermatrix_hits{};
+#endif
   std::size_t down_complete_cell_v2_hits = 0U;
   const auto quantize =
       [this, &check_cuda, &local_hits, &zero_projection_padding](
@@ -6032,6 +6479,8 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
     }
     const PrefillA4LinearSidecarView qkv_sidecar =
         prefill_a4_sidecar_view(attention->in_proj_qkv);
+    [[maybe_unused]] const PrefillA4LinearSidecarView z_sidecar =
+        prefill_a4_sidecar_view(attention->in_proj_z);
     std::uint16_t* const linear_a =
         primary + projection_token_count * kLinearQkvElements;
     std::uint16_t* const linear_b =
@@ -6044,17 +6493,41 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
                   kReferenceHiddenSize, qkv_sidecar.activation_clip_ratio,
                   views_.prefill_a4_hidden_packed, hidden_packed_capacity,
                   views_.prefill_a4_hidden_scales, hidden_scale_capacity,
-                  "prefill_projection_span_linear_input_quantize") ||
-        !project(attention->in_proj_qkv,
-                 views_.prefill_a4_hidden_packed, hidden_packed_capacity,
-                 views_.prefill_a4_hidden_scales, hidden_scale_capacity,
-                 projection_token_count, primary,
-                 "prefill_projection_span_linear_qkv") ||
-        !project(attention->in_proj_z,
-                 views_.prefill_a4_hidden_packed, hidden_packed_capacity,
-                 views_.prefill_a4_hidden_scales, hidden_scale_capacity,
-                 projection_token_count, secondary,
-                 "prefill_projection_span_linear_z")) {
+                  "prefill_projection_span_linear_input_quantize")) {
+      return failure;
+    }
+    bool attention_supermatrix_selected = false;
+#if defined(Q3X_ENABLE_A4W4_ATTENTION_SUPERMATRIX_ADMISSION)
+    if (!check_cuda(
+            launch_selected_a4w4_linear_attention_supermatrix(
+                a4w4_prefill_consumer_, views_.prefill_a4_hidden_packed,
+                hidden_packed_capacity, views_.prefill_a4_hidden_scales,
+                hidden_scale_capacity, qkv_sidecar, z_sidecar,
+                projection_token_count, primary,
+                static_cast<std::size_t>(
+                    request_plan.long_prefill_projection_primary_bf16
+                        .element_capacity),
+                secondary,
+                static_cast<std::size_t>(
+                    request_plan.long_prefill_projection_secondary_bf16
+                        .element_capacity),
+                stream_, local_hits, local_attention_supermatrix_hits,
+                &attention_supermatrix_selected),
+            "prefill_projection_span_linear_qkv_z_supermatrix")) {
+      return failure;
+    }
+#endif
+    if (!attention_supermatrix_selected &&
+        (!project(attention->in_proj_qkv,
+                  views_.prefill_a4_hidden_packed, hidden_packed_capacity,
+                  views_.prefill_a4_hidden_scales, hidden_scale_capacity,
+                  projection_token_count, primary,
+                  "prefill_projection_span_linear_qkv") ||
+         !project(attention->in_proj_z,
+                  views_.prefill_a4_hidden_packed, hidden_packed_capacity,
+                  views_.prefill_a4_hidden_scales, hidden_scale_capacity,
+                  projection_token_count, secondary,
+                  "prefill_projection_span_linear_z"))) {
       return failure;
     }
 
@@ -6271,7 +6744,29 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
                   intermediate_packed_capacity,
                   views_.prefill_a4_intermediate_scales,
                   intermediate_scale_capacity,
-                  "prefill_projection_span_linear_output_quantize") ||
+                  "prefill_projection_span_linear_output_quantize")) {
+      return failure;
+    }
+    bool attention_output_supermatrix_selected = false;
+#if defined(Q3X_ENABLE_A4W4_ATTENTION_SUPERMATRIX_ADMISSION)
+    if (!check_cuda(
+            launch_selected_a4w4_attention_o_supermatrix(
+                a4w4_prefill_consumer_,
+                views_.prefill_a4_intermediate_packed,
+                intermediate_packed_capacity,
+                views_.prefill_a4_intermediate_scales,
+                intermediate_scale_capacity, output_sidecar,
+                projection_token_count, secondary,
+                static_cast<std::size_t>(
+                    request_plan.long_prefill_projection_secondary_bf16
+                        .element_capacity),
+                stream_, local_hits, local_attention_supermatrix_hits,
+                &attention_output_supermatrix_selected),
+            "prefill_projection_span_linear_output_supermatrix")) {
+      return failure;
+    }
+#endif
+    if (!attention_output_supermatrix_selected &&
         !project(attention->out_proj,
                  views_.prefill_a4_intermediate_packed,
                  intermediate_packed_capacity,
@@ -6291,6 +6786,10 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
     }
     const PrefillA4LinearSidecarView q_sidecar =
         prefill_a4_sidecar_view(attention->q_proj);
+    [[maybe_unused]] const PrefillA4LinearSidecarView k_sidecar =
+        prefill_a4_sidecar_view(attention->k_proj);
+    [[maybe_unused]] const PrefillA4LinearSidecarView v_sidecar =
+        prefill_a4_sidecar_view(attention->v_proj);
     std::uint16_t* const span_key =
         views_.key_cache[item.layer_index] +
         static_cast<std::size_t>(item.first_position) * kFullKvElements;
@@ -6308,26 +6807,67 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
         pad_full_kv
             ? secondary + projection_token_count * kFullKvElements
             : span_value;
+    const std::size_t secondary_output_capacity =
+        static_cast<std::size_t>(
+            request_plan.long_prefill_projection_secondary_bf16
+                .element_capacity);
+    [[maybe_unused]] const std::size_t projected_span_key_capacity =
+        pad_full_kv ? secondary_output_capacity
+                    : projection_token_count * kFullKvElements;
+    const std::size_t value_offset_elements =
+        projection_token_count * kFullKvElements;
+    if (pad_full_kv && secondary_output_capacity < 2U * value_offset_elements) {
+      return runner_status(ReferenceRunnerError::kInvalidRequestState,
+                           "prefill_projection_span_full_kv_capacity",
+                           item.layer_index);
+    }
+    [[maybe_unused]] const std::size_t projected_span_value_capacity =
+        pad_full_kv ? secondary_output_capacity - value_offset_elements
+                    : projection_token_count * kFullKvElements;
     if (!quantize(primary, kReferenceHiddenSize, token_count,
                   kReferenceHiddenSize, q_sidecar.activation_clip_ratio,
                   views_.prefill_a4_hidden_packed, hidden_packed_capacity,
                   views_.prefill_a4_hidden_scales, hidden_scale_capacity,
-                  "prefill_projection_span_full_input_quantize") ||
-        !project(attention->q_proj, views_.prefill_a4_hidden_packed,
-                 hidden_packed_capacity, views_.prefill_a4_hidden_scales,
-                 hidden_scale_capacity, projection_token_count, primary,
-                 "prefill_projection_span_full_q") ||
-        !project(attention->k_proj, views_.prefill_a4_hidden_packed,
-                 hidden_packed_capacity, views_.prefill_a4_hidden_scales,
-                 hidden_scale_capacity, projection_token_count,
-                 projected_span_key,
-                 "prefill_projection_span_full_k") ||
-        !project(attention->v_proj, views_.prefill_a4_hidden_packed,
-                 hidden_packed_capacity, views_.prefill_a4_hidden_scales,
-                 hidden_scale_capacity, projection_token_count,
-                 projected_span_value,
-                 "prefill_projection_span_full_v") ||
-        (pad_full_kv &&
+                  "prefill_projection_span_full_input_quantize")) {
+      return failure;
+    }
+    bool attention_supermatrix_selected = false;
+#if defined(Q3X_ENABLE_A4W4_ATTENTION_SUPERMATRIX_ADMISSION)
+    if (!check_cuda(
+            launch_selected_a4w4_full_attention_supermatrix(
+                a4w4_prefill_consumer_, views_.prefill_a4_hidden_packed,
+                hidden_packed_capacity, views_.prefill_a4_hidden_scales,
+                hidden_scale_capacity, q_sidecar, k_sidecar, v_sidecar,
+                projection_token_count, primary,
+                static_cast<std::size_t>(
+                    request_plan.long_prefill_projection_primary_bf16
+                        .element_capacity),
+                projected_span_key, projected_span_key_capacity,
+                projected_span_value, projected_span_value_capacity, stream_,
+                local_hits, local_attention_supermatrix_hits,
+                &attention_supermatrix_selected),
+            "prefill_projection_span_full_q_k_v_supermatrix")) {
+      return failure;
+    }
+#endif
+    if (!attention_supermatrix_selected &&
+        (!project(attention->q_proj, views_.prefill_a4_hidden_packed,
+                  hidden_packed_capacity, views_.prefill_a4_hidden_scales,
+                  hidden_scale_capacity, projection_token_count, primary,
+                  "prefill_projection_span_full_q") ||
+         !project(attention->k_proj, views_.prefill_a4_hidden_packed,
+                  hidden_packed_capacity, views_.prefill_a4_hidden_scales,
+                  hidden_scale_capacity, projection_token_count,
+                  projected_span_key,
+                  "prefill_projection_span_full_k") ||
+         !project(attention->v_proj, views_.prefill_a4_hidden_packed,
+                  hidden_packed_capacity, views_.prefill_a4_hidden_scales,
+                  hidden_scale_capacity, projection_token_count,
+                  projected_span_value,
+                  "prefill_projection_span_full_v"))) {
+      return failure;
+    }
+    if (pad_full_kv &&
          (!check_cuda(
               static_cast<int>(cudaMemcpyAsync(
                   span_key, projected_span_key,
@@ -6339,7 +6879,7 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
                   span_value, projected_span_value,
                   token_count * kFullKvElements * sizeof(std::uint16_t),
                   cudaMemcpyDeviceToDevice, stream)),
-              "prefill_projection_span_full_publish_v")))) {
+              "prefill_projection_span_full_publish_v"))) {
       return failure;
     }
 
@@ -6533,7 +7073,29 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
                   intermediate_packed_capacity,
                   views_.prefill_a4_intermediate_scales,
                   intermediate_scale_capacity,
-                  "prefill_projection_span_full_output_quantize") ||
+                  "prefill_projection_span_full_output_quantize")) {
+      return failure;
+    }
+    bool attention_output_supermatrix_selected = false;
+#if defined(Q3X_ENABLE_A4W4_ATTENTION_SUPERMATRIX_ADMISSION)
+    if (!check_cuda(
+            launch_selected_a4w4_attention_o_supermatrix(
+                a4w4_prefill_consumer_,
+                views_.prefill_a4_intermediate_packed,
+                intermediate_packed_capacity,
+                views_.prefill_a4_intermediate_scales,
+                intermediate_scale_capacity, output_sidecar,
+                projection_token_count, secondary,
+                static_cast<std::size_t>(
+                    request_plan.long_prefill_projection_secondary_bf16
+                        .element_capacity),
+                stream_, local_hits, local_attention_supermatrix_hits,
+                &attention_output_supermatrix_selected),
+            "prefill_projection_span_full_output_supermatrix")) {
+      return failure;
+    }
+#endif
+    if (!attention_output_supermatrix_selected &&
         !project(attention->o_proj,
                  views_.prefill_a4_intermediate_packed,
                  intermediate_packed_capacity,
@@ -6641,8 +7203,37 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
   }
 
   const bool linear = layer_type == model::LayerType::kLinearAttention;
-  const std::size_t expected_generic = linear ? 4U : 5U;
+  std::size_t expected_generic = linear ? 4U : 5U;
   const std::size_t expected_logical = linear ? 6U : 7U;
+  const std::size_t expected_attention_linear = linear ? 1U : 0U;
+  const std::size_t expected_attention_full = linear ? 0U : 1U;
+  const std::size_t expected_attention_output = 1U;
+  const std::size_t expected_attention_logical = linear ? 3U : 4U;
+  std::size_t observed_attention_linear = 0U;
+  std::size_t observed_attention_full = 0U;
+  std::size_t observed_attention_output = 0U;
+  std::size_t observed_attention_logical = 0U;
+#if defined(Q3X_ENABLE_A4W4_ATTENTION_SUPERMATRIX_ADMISSION)
+  observed_attention_linear =
+      local_attention_supermatrix_hits.linear_input_launch_hits;
+  observed_attention_full =
+      local_attention_supermatrix_hits.full_input_launch_hits;
+  observed_attention_output =
+      local_attention_supermatrix_hits.output_launch_hits;
+  observed_attention_logical =
+      local_attention_supermatrix_hits.logical_projection_hits;
+#endif
+  const bool attention_supermatrix_all =
+      observed_attention_linear == expected_attention_linear &&
+      observed_attention_full == expected_attention_full &&
+      observed_attention_output == expected_attention_output &&
+      observed_attention_logical == expected_attention_logical;
+  const bool attention_supermatrix_none =
+      observed_attention_linear == 0U && observed_attention_full == 0U &&
+      observed_attention_output == 0U && observed_attention_logical == 0U;
+  if (attention_supermatrix_all) {
+    expected_generic -= expected_attention_logical;
+  }
   const bool expect_m128_stage_major =
       reference_runner_detail::a4w4_m128_stage_major_common_route(
           g_enable_a4w4_m128_stage_major_admission,
@@ -6677,7 +7268,8 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
       reference_runner_detail::use_a4w4_down_complete_cell_v2_route(
           down_cell_query);
 #endif
-  if (local_hits.activation_quantize_hits != 3U ||
+  if ((!attention_supermatrix_all && !attention_supermatrix_none) ||
+      local_hits.activation_quantize_hits != 3U ||
       local_hits.generic_projection_hits != expected_generic ||
       local_hits.paired_gate_up_hits != 1U ||
       local_hits.logical_projection_hits != expected_logical ||
@@ -6835,6 +7427,10 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
     }
 
     const auto hits_before = g_a4w4_full_prefill_admission_hits;
+#if defined(Q3X_ENABLE_A4W4_ATTENTION_SUPERMATRIX_ADMISSION)
+    const auto attention_hits_before =
+        g_a4w4_attention_supermatrix_admission_hits;
+#endif
     auto* const device_token_ids =
         reinterpret_cast<std::uint32_t*>(views_.projection[3]);
     const auto stream = reinterpret_cast<cudaStream_t>(stream_);
@@ -6898,10 +7494,25 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
       return current >= initial &&
              current - initial == spans * per_span;
     };
+    std::size_t attention_logical_delta = 0U;
+    bool attention_accounting_valid = true;
+#if defined(Q3X_ENABLE_A4W4_ATTENTION_SUPERMATRIX_ADMISSION)
+    attention_accounting_valid =
+        a4w4_attention_supermatrix_aggregate_delta(
+            attention_hits_before,
+            g_a4w4_attention_supermatrix_admission_hits, spans,
+            attention_logical_delta);
+#endif
+    const bool generic_accounting_valid =
+        hits_after.generic_projection_hits >=
+            hits_before.generic_projection_hits &&
+        hits_after.generic_projection_hits -
+                    hits_before.generic_projection_hits +
+                attention_logical_delta ==
+            spans * 272U;
     if (!exact_delta(hits_after.activation_quantize_hits,
                      hits_before.activation_quantize_hits, 192U) ||
-        !exact_delta(hits_after.generic_projection_hits,
-                     hits_before.generic_projection_hits, 272U) ||
+        !attention_accounting_valid || !generic_accounting_valid ||
         !exact_delta(hits_after.paired_gate_up_hits,
                      hits_before.paired_gate_up_hits, 64U) ||
         !exact_delta(hits_after.logical_projection_hits,
@@ -6963,11 +7574,17 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
     std::size_t a4w4_complete_model_tiles = 0U;
     reference_runner_detail::A4W4FullPrefillAdmissionHits
         a4w4_hits_before{};
+    reference_runner_detail::A4W4AttentionSupermatrixAdmissionHits
+        a4w4_attention_hits_before{};
   } context{this, input_token_ids, {}};
 #if defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
   context.a4w4_full_prefill_selected = a4_inventory_enabled;
   context.a4w4_complete_model_tiles = built.value->tile_count;
   context.a4w4_hits_before = g_a4w4_full_prefill_admission_hits;
+#if defined(Q3X_ENABLE_A4W4_ATTENTION_SUPERMATRIX_ADMISSION)
+  context.a4w4_attention_hits_before =
+      g_a4w4_attention_supermatrix_admission_hits;
+#endif
 #endif
 
   LongPrefillLayerMajorCallbacks callbacks;
@@ -7080,10 +7697,23 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
         return current >= initial &&
                current - initial == tiles * per_tile;
       };
+      std::size_t attention_logical_delta = 0U;
+      bool attention_accounting_valid = true;
+#if defined(Q3X_ENABLE_A4W4_ATTENTION_SUPERMATRIX_ADMISSION)
+      attention_accounting_valid =
+          a4w4_attention_supermatrix_aggregate_delta(
+              execution.a4w4_attention_hits_before,
+              g_a4w4_attention_supermatrix_admission_hits, tiles,
+              attention_logical_delta);
+#endif
+      const bool generic_accounting_valid =
+          after.generic_projection_hits >= before.generic_projection_hits &&
+          after.generic_projection_hits - before.generic_projection_hits +
+                  attention_logical_delta ==
+              tiles * 272U;
       if (!exact_delta(after.activation_quantize_hits,
                        before.activation_quantize_hits, 192U) ||
-          !exact_delta(after.generic_projection_hits,
-                       before.generic_projection_hits, 272U) ||
+          !attention_accounting_valid || !generic_accounting_valid ||
           !exact_delta(after.paired_gate_up_hits,
                        before.paired_gate_up_hits, 64U) ||
           !exact_delta(after.logical_projection_hits,

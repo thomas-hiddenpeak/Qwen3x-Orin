@@ -8,6 +8,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <optional>
 
 namespace q3x::runtime {
@@ -684,6 +685,19 @@ struct A4W4FullPrefillAdmissionHits {
   std::size_t m128_stage_major_paired_gate_up_hits = 0U;
 };
 
+// Independent success-only accounting for the default-off Attention
+// supermatrix runtime slice.  Input launches count one physical launcher even
+// though they cover two (Linear QKV+Z) or three (Full Q/K/V) logical
+// projections.  output_launch_hits covers both Linear and Full Attention O.
+// logical_projection_hits is therefore exactly
+// 2*linear + 3*full + output for every accepted execution.
+struct A4W4AttentionSupermatrixAdmissionHits final {
+  std::size_t linear_input_launch_hits = 0U;
+  std::size_t full_input_launch_hits = 0U;
+  std::size_t output_launch_hits = 0U;
+  std::size_t logical_projection_hits = 0U;
+};
+
 // Immutable consumer ABI selected from the complete authenticated A4
 // inventory when the runner is created.  K128 keeps the physical packed-K64
 // code layout, but its activation and weight scales describe pairs of K64
@@ -867,6 +881,121 @@ struct A4W4GateUpProjectionV3RouteQuery final {
   const std::size_t groups = inner / inner_group;
   constexpr std::size_t maximum = static_cast<std::size_t>(-1);
   return outer <= maximum / groups && capacity >= outer * groups;
+}
+
+enum class A4W4AttentionSupermatrixFamily : std::uint8_t {
+  kLinearInput = 0,
+  kFullInput,
+  kOutput,
+};
+
+struct A4W4AttentionSupermatrixProjectionPlane final {
+  std::size_t output_size = 0U;
+  std::size_t input_size = 0U;
+  std::size_t weight_capacity_bytes = 0U;
+  std::size_t weight_scale_capacity_elements = 0U;
+  std::size_t output_row_stride_elements = 0U;
+  std::size_t output_capacity_elements = 0U;
+};
+
+// A capacity-aware, model-specific selector for the three Attention complete
+// cells.  projection_token_count is the internal M after any ceil64 padding;
+// the candidate has no M64 tail and therefore requires a complete M128 tile.
+// inventory_consumer is authenticated once from all 400 sidecars, so a mixed
+// or partially published K128 plane can never enter this selector.
+struct A4W4AttentionSupermatrixRouteQuery final {
+  bool admission_enabled = false;
+  A4W4PrefillConsumer inventory_consumer =
+      A4W4PrefillConsumer::kUnavailable;
+  A4W4AttentionSupermatrixFamily family =
+      A4W4AttentionSupermatrixFamily::kLinearInput;
+  std::size_t projection_token_count = 0U;
+  std::size_t packed_input_capacity_bytes = 0U;
+  std::size_t input_scale_capacity_elements = 0U;
+  std::array<A4W4AttentionSupermatrixProjectionPlane, 3U> projections{};
+};
+
+[[nodiscard]] constexpr bool use_a4w4_attention_supermatrix_route(
+    const A4W4AttentionSupermatrixRouteQuery& query) noexcept {
+  constexpr std::size_t kLinearQkvOutputSize = 10'240U;
+  constexpr std::size_t kLinearZOutputSize = 6'144U;
+  constexpr std::size_t kFullQOutputSize = 12'288U;
+  constexpr std::size_t kFullKvOutputSize = 1'024U;
+  constexpr std::size_t kAttentionOInputSize = 6'144U;
+  constexpr std::size_t kAttentionOOutputSize = 5'120U;
+  if (!query.admission_enabled ||
+      query.inventory_consumer != A4W4PrefillConsumer::kK128 ||
+      query.projection_token_count == 0U ||
+      query.projection_token_count % 128U != 0U ||
+      query.projection_token_count - 1U >
+          static_cast<std::size_t>(
+              std::numeric_limits<std::uint32_t>::max())) {
+    return false;
+  }
+
+  std::array<std::size_t, 3U> expected_outputs{};
+  std::size_t expected_input = 0U;
+  std::size_t projection_count = 0U;
+  switch (query.family) {
+    case A4W4AttentionSupermatrixFamily::kLinearInput:
+      expected_outputs = {kLinearQkvOutputSize, kLinearZOutputSize, 0U};
+      expected_input = kReferenceHiddenSize;
+      projection_count = 2U;
+      break;
+    case A4W4AttentionSupermatrixFamily::kFullInput:
+      expected_outputs = {
+          kFullQOutputSize, kFullKvOutputSize, kFullKvOutputSize};
+      expected_input = kReferenceHiddenSize;
+      projection_count = 3U;
+      break;
+    case A4W4AttentionSupermatrixFamily::kOutput:
+      expected_outputs = {kAttentionOOutputSize, 0U, 0U};
+      expected_input = kAttentionOInputSize;
+      projection_count = 1U;
+      break;
+    default:
+      return false;
+  }
+
+  if (!a4w4_matrix_capacity_covers(
+          query.packed_input_capacity_bytes,
+          query.projection_token_count, expected_input, 2U) ||
+      !a4w4_matrix_capacity_covers(
+          query.input_scale_capacity_elements,
+          query.projection_token_count, expected_input, 128U)) {
+    return false;
+  }
+  for (std::size_t index = 0U; index < projection_count; ++index) {
+    const A4W4AttentionSupermatrixProjectionPlane& plane =
+        query.projections[index];
+    if (plane.output_size != expected_outputs[index] ||
+        plane.input_size != expected_input ||
+        plane.output_row_stride_elements != expected_outputs[index] ||
+        !a4w4_matrix_capacity_covers(
+            plane.weight_capacity_bytes, expected_outputs[index],
+            expected_input, 2U) ||
+        !a4w4_matrix_capacity_covers(
+            plane.weight_scale_capacity_elements, expected_outputs[index],
+            expected_input, 128U) ||
+        !a4w4_matrix_capacity_covers(
+            plane.output_capacity_elements, query.projection_token_count,
+            expected_outputs[index], 1U)) {
+      return false;
+    }
+  }
+  for (std::size_t index = projection_count;
+       index < query.projections.size(); ++index) {
+    const A4W4AttentionSupermatrixProjectionPlane& plane =
+        query.projections[index];
+    if (plane.output_size != 0U || plane.input_size != 0U ||
+        plane.weight_capacity_bytes != 0U ||
+        plane.weight_scale_capacity_elements != 0U ||
+        plane.output_row_stride_elements != 0U ||
+        plane.output_capacity_elements != 0U) {
+      return false;
+    }
+  }
+  return true;
 }
 
 [[nodiscard]] constexpr bool use_a4w4_gateup_complete_cell_v2_route(
@@ -1125,6 +1254,11 @@ bool exchange_a4w4_gateup_projection_v3_admission_test_enabled(
     bool enabled) noexcept;
 std::size_t exchange_a4w4_gateup_projection_v3_admission_test_hits(
     std::size_t hits) noexcept;
+bool exchange_a4w4_attention_supermatrix_admission_test_enabled(
+    bool enabled) noexcept;
+A4W4AttentionSupermatrixAdmissionHits
+exchange_a4w4_attention_supermatrix_admission_test_hits(
+    A4W4AttentionSupermatrixAdmissionHits hits) noexcept;
 A4W4FullPrefillAdmissionHits
 exchange_a4w4_full_prefill_admission_test_hits(
     A4W4FullPrefillAdmissionHits hits) noexcept;

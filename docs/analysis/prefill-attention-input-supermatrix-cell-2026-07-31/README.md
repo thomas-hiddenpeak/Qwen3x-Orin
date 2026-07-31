@@ -2,10 +2,12 @@
 
 ## Status and boundary
 
-This change is a standalone, test-only admission candidate. It implements
-fixed Linear QKV+Z, Full Q/K/V, and Attention O specializations. It is not
-linked into `q3x_kernels`, has no runner selector, and is not a production
-performance result.
+This change now has an independent, default-off runtime admission slice. It
+implements fixed Linear QKV+Z, Full Q/K/V, and Attention O specializations and
+links them into `q3x_kernels` only when
+`Q3X_BUILD_SM87_A4W4_ATTENTION_SUPERMATRIX_ADMISSION=ON`. The exact-value
+runtime selector is `Q3X_RUN_A4W4_ATTENTION_SUPERMATRIX_ADMISSION=1`. This is
+still an experimental runner route, not a production performance result.
 
 The candidate does not use cuBLASLt, MTP, a generic GEMM wrapper, or a new
 weight layout. It consumes the authenticated signed-A4 K128 sidecar ABI and
@@ -95,6 +97,25 @@ Configured with:
 -DQ3X_BUILD_SM87_A4W4_ATTENTION_SUPERMATRIX_ADMISSION=ON
 ```
 
+At runtime the route remains disabled unless the exact selector is present:
+
+```text
+Q3X_RUN_A4W4_ATTENTION_SUPERMATRIX_ADMISSION=1
+```
+
+The selector requires an authenticated all-400-projection K128 inventory,
+complete M128 projection spans, the exact Qwen3.6 projection shapes, and every
+A/weight/scale/output capacity. An ineligible shape remains on the incumbent
+route. Once a candidate launcher is selected, any CUDA error is returned
+directly; there is no silent retry through the incumbent implementation.
+
+Linear QKV+Z and Full Q/K/V each reuse the one A quantization already owned by
+their layer. Attention O reuses its existing post-attention quantization. A
+fully selected 64-layer execution therefore preserves 192 A quantizations and
+replaces 208 logical generic projections with exactly 48 Linear-input, 16
+Full-input, and 64 O physical launches. Independent success-only counters
+enforce that 48/16/64/208 ratio.
+
 The host contract proves the real P2048 topology, exact panel coverage,
 persistent-CTA balance, final consumer-layout addresses, invalid tails, and a
 null resource-query fast rejection. Because device row coordinates are
@@ -127,8 +148,8 @@ at most 128 registers, zero local bytes, and at least 2 active CTAs/SM.
 ## Promotion order
 
 1. Pass the small-K bitwise/guard/resource admission for all three families.
-2. Add an experimental runner selector and measure the first real P2048 API
-   request with authenticated model weights.
+2. Exercise the experimental runner selector and measure the first real P2048
+   API request with authenticated model weights.
 3. Keep the selector only for a positive whole-request result; then run the
    repeated real-request and external EvalScope gates before production
    promotion.

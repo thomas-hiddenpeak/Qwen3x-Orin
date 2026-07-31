@@ -71,7 +71,7 @@ option(Q3X_BUILD_SM87_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION
   OFF
 )
 option(Q3X_BUILD_SM87_A4W4_ATTENTION_SUPERMATRIX_ADMISSION
-  "Build standalone tests for the two-CTA attention input supermatrix cell"
+  "Build the default-off runtime admission and tests for the Attention supermatrix cell"
   OFF
 )
 option(Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION
@@ -180,7 +180,13 @@ endif()
 if(Q3X_BUILD_SM87_A4W4_ATTENTION_SUPERMATRIX_ADMISSION AND
    NOT BUILD_TESTING)
   message(FATAL_ERROR
-    "Q3X_BUILD_SM87_A4W4_ATTENTION_SUPERMATRIX_ADMISSION is test-only and requires BUILD_TESTING=ON"
+    "Q3X_BUILD_SM87_A4W4_ATTENTION_SUPERMATRIX_ADMISSION requires BUILD_TESTING=ON for its mandatory runtime-admission validation"
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_ATTENTION_SUPERMATRIX_ADMISSION AND
+   NOT Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION)
+  message(FATAL_ERROR
+    "The Attention supermatrix runtime slice requires the authenticated full-A4 Prefill route"
   )
 endif()
 if(Q3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION AND NOT BUILD_TESTING)
@@ -390,6 +396,14 @@ if(Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION)
   )
   target_compile_definitions(q3x_kernels PRIVATE
     Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_ATTENTION_SUPERMATRIX_ADMISSION)
+  target_sources(q3x_kernels PRIVATE
+    src/kernels/sm87/a4w4_attention_supermatrix_cell.cu
+  )
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_A4W4_ATTENTION_SUPERMATRIX_ADMISSION=1
   )
 endif()
 if(Q3X_BUILD_SM87_A4W4_GATEUP_PROJECTION_V3_ADMISSION)
@@ -1102,8 +1116,9 @@ if(BUILD_TESTING)
   endif()
 
   if(Q3X_BUILD_SM87_A4W4_ATTENTION_SUPERMATRIX_ADMISSION)
-    # This candidate must remain isolated from q3x_kernels and every runtime
-    # selector until it passes correctness, resource, and real-server gates.
+    # Keep the structural binary isolated so resource/correctness audits cover
+    # only the candidate symbols. The same source is also linked into
+    # q3x_kernels behind the independent default-off runtime selector.
     add_library(q3x_test_sm87_a4w4_attention_supermatrix STATIC
       src/kernels/sm87/a4w4_attention_supermatrix_cell.cu
     )
@@ -1945,6 +1960,35 @@ if(BUILD_TESTING)
       ENVIRONMENT
         "Q3X_DISABLE_OPTIMIZED_PREFILL=1;Q3X_RUN_A4W4_GATEUP_PROJECTION_V3_ADMISSION=1"
       LABELS "host;sm87;prefill;a4w4;k128;gateup;v3;admission;environment;negative"
+    )
+  endif()
+  if(Q3X_BUILD_SM87_A4W4_ATTENTION_SUPERMATRIX_ADMISSION)
+    add_test(NAME reference_runner_host_attention_supermatrix_admission
+      COMMAND q3x_reference_runner_host_test
+    )
+    set_tests_properties(
+      reference_runner_host_attention_supermatrix_admission PROPERTIES
+      ENVIRONMENT
+        "Q3X_DISABLE_OPTIMIZED_PREFILL=0;Q3X_RUN_A4W4_ATTENTION_SUPERMATRIX_ADMISSION=1;Q3X_RUN_A4W4_M128_STAGE_MAJOR_ADMISSION=1"
+      LABELS "host;sm87;prefill;a4w4;k128;attention;supermatrix;admission;environment"
+    )
+    add_test(NAME reference_runner_host_attention_supermatrix_nonexact_env
+      COMMAND q3x_reference_runner_host_test
+    )
+    set_tests_properties(
+      reference_runner_host_attention_supermatrix_nonexact_env PROPERTIES
+      ENVIRONMENT
+        "Q3X_DISABLE_OPTIMIZED_PREFILL=0;Q3X_RUN_A4W4_ATTENTION_SUPERMATRIX_ADMISSION=true"
+      LABELS "host;sm87;prefill;a4w4;k128;attention;supermatrix;admission;environment;negative"
+    )
+    add_test(NAME reference_runner_host_attention_supermatrix_global_disable
+      COMMAND q3x_reference_runner_host_test
+    )
+    set_tests_properties(
+      reference_runner_host_attention_supermatrix_global_disable PROPERTIES
+      ENVIRONMENT
+        "Q3X_DISABLE_OPTIMIZED_PREFILL=1;Q3X_RUN_A4W4_ATTENTION_SUPERMATRIX_ADMISSION=1"
+      LABELS "host;sm87;prefill;a4w4;k128;attention;supermatrix;admission;environment;negative"
     )
   endif()
   if(Q3X_BUILD_SM87_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION)

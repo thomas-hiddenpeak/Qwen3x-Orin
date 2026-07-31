@@ -1739,6 +1739,141 @@ void test_a4w4_full_prefill_admission_controls(TestContext& test) {
       "Gate+Up v3, complete-cell v2, and rejected M128 retain strict "
       "independent priority without enabling one another");
 
+  using AttentionFamily = detail::A4W4AttentionSupermatrixFamily;
+  using AttentionQuery = detail::A4W4AttentionSupermatrixRouteQuery;
+  const auto make_attention_query = [k128](
+                                        const AttentionFamily family,
+                                        const std::size_t projection_tokens,
+                                        const std::size_t workspace_tokens) {
+    AttentionQuery query;
+    query.admission_enabled = true;
+    query.inventory_consumer = k128;
+    query.family = family;
+    query.projection_token_count = projection_tokens;
+    const std::size_t input_size =
+        family == AttentionFamily::kOutput ? 6'144U
+                                           : runtime::kReferenceHiddenSize;
+    query.packed_input_capacity_bytes = workspace_tokens * input_size / 2U;
+    query.input_scale_capacity_elements =
+        workspace_tokens * input_size / 128U;
+    std::array<std::size_t, 3U> outputs{};
+    std::size_t count = 0U;
+    if (family == AttentionFamily::kLinearInput) {
+      outputs = {10'240U, 6'144U, 0U};
+      count = 2U;
+    } else if (family == AttentionFamily::kFullInput) {
+      outputs = {12'288U, 1'024U, 1'024U};
+      count = 3U;
+    } else {
+      outputs = {runtime::kReferenceHiddenSize, 0U, 0U};
+      count = 1U;
+    }
+    for (std::size_t index = 0U; index < count; ++index) {
+      auto& plane = query.projections[index];
+      plane.output_size = outputs[index];
+      plane.input_size = input_size;
+      plane.weight_capacity_bytes = outputs[index] * input_size / 2U;
+      plane.weight_scale_capacity_elements =
+          outputs[index] * input_size / 128U;
+      plane.output_row_stride_elements = outputs[index];
+      plane.output_capacity_elements = workspace_tokens * outputs[index];
+    }
+    return query;
+  };
+  const AttentionQuery linear_attention = make_attention_query(
+      AttentionFamily::kLinearInput, 2'048U, 2'048U);
+  const AttentionQuery full_attention = make_attention_query(
+      AttentionFamily::kFullInput, 2'048U, 2'048U);
+  const AttentionQuery output_attention = make_attention_query(
+      AttentionFamily::kOutput, 2'048U, 2'048U);
+  AttentionQuery disabled_attention = linear_attention;
+  disabled_attention.admission_enabled = false;
+  AttentionQuery k64_attention = linear_attention;
+  k64_attention.inventory_consumer = k64;
+  AttentionQuery m64_attention = make_attention_query(
+      AttentionFamily::kLinearInput, 64U, 128U);
+  AttentionQuery linear_shape_miss = linear_attention;
+  --linear_shape_miss.projections[1U].output_size;
+  AttentionQuery full_shape_miss = full_attention;
+  --full_shape_miss.projections[2U].input_size;
+  AttentionQuery output_stride_miss = output_attention;
+  --output_stride_miss.projections[0U].output_row_stride_elements;
+  AttentionQuery dirty_unused_plane = output_attention;
+  dirty_unused_plane.projections[1U].output_size = 64U;
+  AttentionQuery invalid_family = linear_attention;
+  invalid_family.family = static_cast<AttentionFamily>(255U);
+  AttentionQuery wrapped_device_rows = linear_attention;
+  wrapped_device_rows.projection_token_count =
+      static_cast<std::size_t>(std::numeric_limits<std::uint32_t>::max()) +
+      2U;
+  test.expect(
+      detail::use_a4w4_attention_supermatrix_route(linear_attention) &&
+          detail::use_a4w4_attention_supermatrix_route(full_attention) &&
+          detail::use_a4w4_attention_supermatrix_route(output_attention) &&
+          !detail::use_a4w4_attention_supermatrix_route(disabled_attention) &&
+          !detail::use_a4w4_attention_supermatrix_route(k64_attention) &&
+          !detail::use_a4w4_attention_supermatrix_route(m64_attention) &&
+          !detail::use_a4w4_attention_supermatrix_route(linear_shape_miss) &&
+          !detail::use_a4w4_attention_supermatrix_route(full_shape_miss) &&
+          !detail::use_a4w4_attention_supermatrix_route(output_stride_miss) &&
+          !detail::use_a4w4_attention_supermatrix_route(dirty_unused_plane) &&
+          !detail::use_a4w4_attention_supermatrix_route(invalid_family) &&
+          !detail::use_a4w4_attention_supermatrix_route(wrapped_device_rows),
+      "Attention supermatrix selector requires its independent gate, complete "
+      "authenticated K128 M128, fixed Qwen3.6 family shapes, clean unused "
+      "planes, and device-row-safe coordinates");
+
+  std::array<AttentionQuery, 8U> short_linear_attention{};
+  short_linear_attention.fill(linear_attention);
+  --short_linear_attention[0U].packed_input_capacity_bytes;
+  --short_linear_attention[1U].input_scale_capacity_elements;
+  --short_linear_attention[2U].projections[0U].weight_capacity_bytes;
+  --short_linear_attention[3U]
+        .projections[0U]
+        .weight_scale_capacity_elements;
+  --short_linear_attention[4U].projections[0U].output_capacity_elements;
+  --short_linear_attention[5U].projections[1U].weight_capacity_bytes;
+  --short_linear_attention[6U]
+        .projections[1U]
+        .weight_scale_capacity_elements;
+  --short_linear_attention[7U].projections[1U].output_capacity_elements;
+  std::array<AttentionQuery, 11U> short_full_attention{};
+  short_full_attention.fill(full_attention);
+  --short_full_attention[0U].packed_input_capacity_bytes;
+  --short_full_attention[1U].input_scale_capacity_elements;
+  for (std::size_t projection = 0U; projection < 3U; ++projection) {
+    --short_full_attention[2U + projection * 3U]
+          .projections[projection]
+          .weight_capacity_bytes;
+    --short_full_attention[3U + projection * 3U]
+          .projections[projection]
+          .weight_scale_capacity_elements;
+    --short_full_attention[4U + projection * 3U]
+          .projections[projection]
+          .output_capacity_elements;
+  }
+  std::array<AttentionQuery, 5U> short_output_attention{};
+  short_output_attention.fill(output_attention);
+  --short_output_attention[0U].packed_input_capacity_bytes;
+  --short_output_attention[1U].input_scale_capacity_elements;
+  --short_output_attention[2U].projections[0U].weight_capacity_bytes;
+  --short_output_attention[3U]
+        .projections[0U]
+        .weight_scale_capacity_elements;
+  --short_output_attention[4U].projections[0U].output_capacity_elements;
+  const auto rejects_attention_query = [](const AttentionQuery& query) {
+    return !detail::use_a4w4_attention_supermatrix_route(query);
+  };
+  test.expect(
+      std::all_of(short_linear_attention.begin(),
+                  short_linear_attention.end(), rejects_attention_query) &&
+          std::all_of(short_full_attention.begin(), short_full_attention.end(),
+                      rejects_attention_query) &&
+          std::all_of(short_output_attention.begin(),
+                      short_output_attention.end(), rejects_attention_query),
+      "Attention supermatrix selector rejects every independently short A, "
+      "weight, scale, and BF16 output capacity for Linear, Full, and O");
+
   using DownCellQuery = detail::A4W4DownCompleteCellV2RouteQuery;
   const auto make_down_cell_query = [k128](
                                           const std::size_t projection_tokens) {
@@ -1941,6 +2076,27 @@ void test_a4w4_full_prefill_admission_controls(TestContext& test) {
       "Down complete-cell v2 environment gate is exact-value, default-off, "
       "and independent from the rejected Down M128 switch");
 
+  const char* const attention_supermatrix_environment = std::getenv(
+      "Q3X_RUN_A4W4_ATTENTION_SUPERMATRIX_ADMISSION");
+  const bool attention_supermatrix_environment_requested =
+      attention_supermatrix_environment != nullptr &&
+      std::strcmp(attention_supermatrix_environment, "1") == 0 &&
+      !runtime::optimized_prefill_dispatch_disabled();
+  const bool initial_attention_supermatrix_enabled =
+      detail::exchange_a4w4_attention_supermatrix_admission_test_enabled(
+          false);
+  (void)detail::exchange_a4w4_attention_supermatrix_admission_test_enabled(
+      true);
+  const bool attention_supermatrix_admission_is_compiled =
+      detail::exchange_a4w4_attention_supermatrix_admission_test_enabled(
+          false);
+  test.expect(
+      initial_attention_supermatrix_enabled ==
+          (attention_supermatrix_admission_is_compiled &&
+           attention_supermatrix_environment_requested),
+      "Attention supermatrix environment gate is exact-value, default-off, "
+      "global-disable aware, and independent from code availability");
+
   const bool prior_enabled =
       detail::exchange_a4w4_full_prefill_admission_test_enabled(true);
   const bool admission_is_compiled =
@@ -1977,6 +2133,16 @@ void test_a4w4_full_prefill_admission_controls(TestContext& test) {
   const std::size_t observed_down_cell_hits =
       detail::exchange_a4w4_down_complete_cell_v2_admission_test_hits(
           prior_down_cell_hits);
+  const detail::A4W4AttentionSupermatrixAdmissionHits attention_fixture{
+      48U, 16U, 64U, 208U};
+  const detail::A4W4AttentionSupermatrixAdmissionHits
+      prior_attention_supermatrix_hits =
+          detail::exchange_a4w4_attention_supermatrix_admission_test_hits(
+              attention_fixture);
+  const detail::A4W4AttentionSupermatrixAdmissionHits
+      observed_attention_supermatrix_hits =
+          detail::exchange_a4w4_attention_supermatrix_admission_test_hits(
+              prior_attention_supermatrix_hits);
   if (admission_is_compiled) {
     test.expect(observed.activation_quantize_hits == 192U &&
                     observed.generic_projection_hits == 272U &&
@@ -2014,6 +2180,17 @@ void test_a4w4_full_prefill_admission_controls(TestContext& test) {
   test.expect(observed_v3_hits == (v3_admission_is_compiled ? 83U : 0U),
               "Gate+Up projection v3 exposes dedicated active or inert hit "
               "accounting independently from v2 and full-A4 counters");
+  test.expect(
+      observed_attention_supermatrix_hits.linear_input_launch_hits ==
+              (attention_supermatrix_admission_is_compiled ? 48U : 0U) &&
+          observed_attention_supermatrix_hits.full_input_launch_hits ==
+              (attention_supermatrix_admission_is_compiled ? 16U : 0U) &&
+          observed_attention_supermatrix_hits.output_launch_hits ==
+              (attention_supermatrix_admission_is_compiled ? 64U : 0U) &&
+          observed_attention_supermatrix_hits.logical_projection_hits ==
+              (attention_supermatrix_admission_is_compiled ? 208U : 0U),
+      "Attention supermatrix exposes independent active or inert success-only "
+      "accounting");
   (void)detail::exchange_a4w4_gateup_projection_v3_admission_test_enabled(
       initial_v3_enabled);
   (void)detail::
@@ -2021,6 +2198,8 @@ void test_a4w4_full_prefill_admission_controls(TestContext& test) {
           initial_cell_enabled);
   (void)detail::exchange_a4w4_down_complete_cell_v2_admission_test_enabled(
       initial_down_cell_enabled);
+  (void)detail::exchange_a4w4_attention_supermatrix_admission_test_enabled(
+      initial_attention_supermatrix_enabled);
 }
 
 void test_prefill_admission_gate_orthogonality(TestContext& test) {
@@ -2042,6 +2221,9 @@ void test_prefill_admission_gate_orthogonality(TestContext& test) {
           false);
   const bool initial_down_m128 =
       detail::exchange_a4w4_down_m128_stage_major_admission_test_enabled(
+          false);
+  const bool initial_attention_supermatrix =
+      detail::exchange_a4w4_attention_supermatrix_admission_test_enabled(
           false);
   (void)detail::exchange_bf16_ab_large_m_prefill_admission_test_enabled(true);
   const bool bf16_compiled =
@@ -2068,6 +2250,11 @@ void test_prefill_admission_gate_orthogonality(TestContext& test) {
       true);
   const bool down_m128_compiled =
       detail::exchange_a4w4_down_m128_stage_major_admission_test_enabled(
+          false);
+  (void)detail::exchange_a4w4_attention_supermatrix_admission_test_enabled(
+      true);
+  const bool attention_supermatrix_compiled =
+      detail::exchange_a4w4_attention_supermatrix_admission_test_enabled(
           false);
 
   (void)detail::exchange_bf16_ab_large_m_prefill_admission_test_enabled(true);
@@ -2131,6 +2318,36 @@ void test_prefill_admission_gate_orthogonality(TestContext& test) {
   test.expect(!v3_after_cell && cell_after_v3_check == cell_compiled,
               "complete-cell v2 gate does not enable Gate+Up projection v3");
 
+  (void)detail::exchange_a4w4_attention_supermatrix_admission_test_enabled(
+      true);
+  const bool m128_after_attention_supermatrix =
+      detail::exchange_a4w4_m128_stage_major_admission_test_enabled(false);
+  const bool v3_after_attention_supermatrix =
+      detail::exchange_a4w4_gateup_projection_v3_admission_test_enabled(
+          false);
+  const bool attention_supermatrix_after_attention_supermatrix =
+      detail::exchange_a4w4_attention_supermatrix_admission_test_enabled(
+          false);
+  test.expect(
+      !m128_after_attention_supermatrix && !v3_after_attention_supermatrix &&
+          attention_supermatrix_after_attention_supermatrix ==
+              attention_supermatrix_compiled,
+      "Attention supermatrix gate does not enable the M128 or Gate+Up v3 "
+      "experiments");
+
+  (void)detail::exchange_a4w4_gateup_projection_v3_admission_test_enabled(
+      true);
+  const bool attention_supermatrix_after_v3 =
+      detail::exchange_a4w4_attention_supermatrix_admission_test_enabled(
+          false);
+  const bool v3_after_attention_supermatrix_check =
+      detail::exchange_a4w4_gateup_projection_v3_admission_test_enabled(
+          false);
+  test.expect(
+      !attention_supermatrix_after_v3 &&
+          v3_after_attention_supermatrix_check == v3_compiled,
+      "Gate+Up projection v3 does not enable Attention supermatrix");
+
   (void)detail::exchange_a4w4_down_complete_cell_v2_admission_test_enabled(
       true);
   const bool down_m128_after_down_cell =
@@ -2183,6 +2400,16 @@ void test_prefill_admission_gate_orthogonality(TestContext& test) {
           initial_down_cell_hits);
   const detail::A4W4FullPrefillAdmissionHits observed_a4_hits =
       detail::exchange_a4w4_full_prefill_admission_test_hits(initial_a4_hits);
+  const detail::A4W4AttentionSupermatrixAdmissionHits attention_fixture{
+      48U, 16U, 64U, 208U};
+  const detail::A4W4AttentionSupermatrixAdmissionHits
+      initial_attention_supermatrix_hits =
+          detail::exchange_a4w4_attention_supermatrix_admission_test_hits(
+              attention_fixture);
+  const detail::A4W4AttentionSupermatrixAdmissionHits
+      observed_attention_supermatrix_hits =
+          detail::exchange_a4w4_attention_supermatrix_admission_test_hits(
+              initial_attention_supermatrix_hits);
   test.expect(observed_bf16_hits == (bf16_compiled ? 19U : 0U),
               "BF16 whole-span hits use independent storage");
   test.expect(observed_cell_hits == (cell_compiled ? 23U : 0U),
@@ -2193,6 +2420,17 @@ void test_prefill_admission_gate_orthogonality(TestContext& test) {
   test.expect(
       observed_down_cell_hits == (down_cell_compiled ? 29U : 0U),
       "Down complete-cell v2 hits use independent storage from all old gates");
+  test.expect(
+      observed_attention_supermatrix_hits.linear_input_launch_hits ==
+              (attention_supermatrix_compiled ? 48U : 0U) &&
+          observed_attention_supermatrix_hits.full_input_launch_hits ==
+              (attention_supermatrix_compiled ? 16U : 0U) &&
+          observed_attention_supermatrix_hits.output_launch_hits ==
+              (attention_supermatrix_compiled ? 64U : 0U) &&
+          observed_attention_supermatrix_hits.logical_projection_hits ==
+              (attention_supermatrix_compiled ? 208U : 0U),
+      "Attention supermatrix hits use storage independent from every older "
+      "Prefill gate");
   test.expect(
       observed_a4_hits.activation_quantize_hits ==
               (m128_compiled ? 192U : 0U) &&
@@ -2225,6 +2463,8 @@ void test_prefill_admission_gate_orthogonality(TestContext& test) {
       initial_down_cell);
   (void)detail::exchange_a4w4_down_m128_stage_major_admission_test_enabled(
       initial_down_m128);
+  (void)detail::exchange_a4w4_attention_supermatrix_admission_test_enabled(
+      initial_attention_supermatrix);
 }
 
 }  // namespace
