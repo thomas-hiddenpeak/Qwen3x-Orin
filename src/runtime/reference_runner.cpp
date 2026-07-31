@@ -5052,7 +5052,6 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
       expected_item.output_hidden_buffer != item.output_hidden_buffer ||
       item.layer_index >= kReferenceDecoderLayerCount ||
       item.token_count == 0U ||
-      item.token_count % kLongPrefillLayerMajorTileTokens != 0U ||
       item.token_count > plan.projection_span_token_count ||
       item_end > plan.prompt_token_count ||
       item.input_hidden_buffer >= kRequestLongPrefillHiddenBufferCount ||
@@ -5290,8 +5289,7 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
          tile_index < item.state_tile_count; ++tile_index) {
       LongPrefillProjectionSpanStateTile tile;
       if (!long_prefill_projection_span_state_tile(
-              plan, item.ordinal, tile_index, tile) ||
-          tile.token_count != kLongPrefillLayerMajorTileTokens) {
+              plan, item.ordinal, tile_index, tile)) {
         return runner_status(ReferenceRunnerError::kInvalidStepOptions,
                              "prefill_projection_span_linear_state_tile",
                              item.layer_index);
@@ -5378,7 +5376,49 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
         }
       } else
 #endif
-      if (g_enable_gdn_exact_span_admission) {
+      if (tile.token_count < kLongPrefillLayerMajorTileTokens) {
+        // A final short state tile stays on the established exact recurrence
+        // by default.  Never round the launch count up to C16: every pointer
+        // and state transition is bounded by the true remaining token count.
+        for (std::size_t offset = 0U; offset < tile.token_count;
+             offset += kPrefillKernelTileMaximumTokens) {
+          const std::size_t remaining = tile.token_count - offset;
+          const std::size_t count =
+              std::min(remaining, kPrefillKernelTileMaximumTokens);
+          if (!check_cuda(
+                  launch_causal_conv1d_silu_update_tile_reference_cuda(
+                      qkv + offset * kLinearQkvElements, count,
+                      attention->conv1d.data,
+                      views_.conv_state[item.layer_index],
+                      qkv + offset * kLinearQkvElements, {}, stream_),
+                  "prefill_projection_span_linear_conv_tail_exact") ||
+              !check_cuda(
+                  launch_gated_delta_net_update_tile_warp_parallel_cuda(
+                      qkv + offset * kLinearQkvElements, count,
+                      linear_a + (local_first + offset) *
+                                     kLinearScalarElements,
+                      linear_b + (local_first + offset) *
+                                     kLinearScalarElements,
+                      attention->a_log.data, attention->dt_bias.data,
+                      views_.gdn_state[item.layer_index],
+                      views_.gdn_state[item.layer_index], kRmsEpsilon,
+                      views_.projection[2] +
+                          offset * kLinearValueElements,
+                      {}, stream_),
+                  "prefill_projection_span_linear_gdn_tail_exact")) {
+            return failure;
+          }
+        }
+        if (!check_cuda(
+                launch_headwise_plain_rms_norm_silu_gate_reference_cuda(
+                    views_.projection[2], attention->norm.data, z,
+                    tile.token_count * kGdnValueHeadCount,
+                    kGdnHeadDimension, kRmsEpsilon,
+                    views_.projection[2], stream_),
+                "prefill_projection_span_linear_tail_exact_norm_gate")) {
+          return failure;
+        }
+      } else if (g_enable_gdn_exact_span_admission) {
         if (!check_cuda(
                 gdn_prefill_whole_span_conv_detail::
                     launch_causal_conv1d_silu_update_whole_span_exact_cuda(
@@ -5507,8 +5547,7 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
          tile_index < item.state_tile_count; ++tile_index) {
       LongPrefillProjectionSpanStateTile tile;
       if (!long_prefill_projection_span_state_tile(
-              plan, item.ordinal, tile_index, tile) ||
-          tile.token_count != kLongPrefillLayerMajorTileTokens) {
+              plan, item.ordinal, tile_index, tile)) {
         return runner_status(ReferenceRunnerError::kInvalidStepOptions,
                              "prefill_projection_span_full_state_tile",
                              item.layer_index);

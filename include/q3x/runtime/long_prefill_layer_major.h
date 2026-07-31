@@ -58,6 +58,8 @@ struct LongPrefillLayerMajorRouteQuery {
 // Pure selector for the whole-M A4 projection-span executor. The enclosing
 // layer-major selector owns backend/workspace validation; this helper keeps
 // aligned, non-aligned, disabled, and out-of-range boundaries host-testable.
+// The workspace span remains a C512 multiple, but the prompt itself need not
+// be: the plan owns a final short projection span/state tile.
 [[nodiscard]] constexpr bool use_long_prefill_projection_span_route(
     const std::uint32_t prompt_token_count,
     const std::uint32_t projection_span_token_count,
@@ -66,7 +68,6 @@ struct LongPrefillLayerMajorRouteQuery {
   return !optimized_prefill_disabled && a4_inventory_enabled &&
          prompt_token_count > kLongPrefillLayerMajorTileTokens &&
          prompt_token_count <= kLongPrefillLayerMajorMaximumTokens &&
-         prompt_token_count % kLongPrefillLayerMajorTileTokens == 0U &&
          projection_span_token_count >=
              kLongPrefillLayerMajorTileTokens &&
          projection_span_token_count %
