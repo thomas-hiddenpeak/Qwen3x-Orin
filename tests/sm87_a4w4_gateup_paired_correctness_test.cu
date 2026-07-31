@@ -627,6 +627,267 @@ struct QuantizedReference final {
   return true;
 }
 
+[[nodiscard]] bool run_arbitrary_m_composition_case(
+    const std::size_t m_count) {
+  constexpr std::size_t n_count = 128U;
+  constexpr std::size_t k_count = 64U;
+  constexpr std::size_t k64_groups = 1U;
+  constexpr std::size_t output_k64_groups = n_count / 64U;
+  constexpr std::size_t packed_guard_bytes = 64U;
+  constexpr std::size_t scale_guard_elements = 64U;
+  const std::size_t a_packed_bytes =
+      kernels::sm87_a4w4_consumer_packed_capacity_bytes(
+          m_count, k_count);
+  const std::size_t a_scale_elements =
+      kernels::sm87_a4w4_consumer_scale_capacity_elements(
+          m_count, k_count);
+  constexpr std::size_t b_packed_bytes =
+      kernels::sm87_a4w4_consumer_packed_capacity_bytes(
+          n_count, k_count);
+  constexpr std::size_t b_scale_elements =
+      kernels::sm87_a4w4_consumer_scale_capacity_elements(
+          n_count, k_count);
+  const std::size_t output_packed_bytes =
+      kernels::sm87_a4w4_consumer_packed_capacity_bytes(
+          m_count, n_count);
+  const std::size_t output_scale_elements =
+      kernels::sm87_a4w4_consumer_scale_capacity_elements(
+          m_count, n_count);
+
+  std::vector<std::uint8_t> packed_a(a_packed_bytes, 0U);
+  std::vector<std::uint16_t> a_scales(a_scale_elements, 0U);
+  for (std::size_t m = 0U; m < m_count; ++m) {
+    for (std::size_t byte = 0U; byte < 32U; ++byte) {
+      const int even =
+          static_cast<int>((7U * m + 3U * byte + 1U) % 15U) - 7;
+      const int odd =
+          static_cast<int>((11U * m + 5U * byte + 2U) % 15U) - 7;
+      packed_a[kernels::sm87_a4w4_consumer_packed_offset(
+          m, 0U, byte, k64_groups)] =
+          kernels::sm87_a4w4_pack_signed_pair(even, odd);
+    }
+    a_scales[kernels::sm87_a4w4_consumer_scale_offset(
+        m, 0U, k64_groups)] =
+        encode_bf16(static_cast<float>(1U + m % 5U) / 32.0F);
+  }
+  std::vector<std::uint8_t> gate_b(b_packed_bytes, 0U);
+  std::vector<std::uint16_t> gate_scales(b_scale_elements, 0U);
+  std::vector<std::uint8_t> up_b(b_packed_bytes, 0U);
+  std::vector<std::uint16_t> up_scales(b_scale_elements, 0U);
+  for (std::size_t n = 0U; n < n_count; ++n) {
+    for (std::size_t byte = 0U; byte < 32U; ++byte) {
+      const int gate_even =
+          static_cast<int>((13U * n + 2U * byte + 3U) % 15U) - 7;
+      const int gate_odd =
+          static_cast<int>((3U * n + 7U * byte + 4U) % 15U) - 7;
+      const int up_even =
+          static_cast<int>((5U * n + 11U * byte + 2U) % 15U) - 7;
+      const int up_odd =
+          static_cast<int>((9U * n + 3U * byte + 1U) % 15U) - 7;
+      gate_b[kernels::sm87_a4w4_consumer_packed_offset(
+          n, 0U, byte, k64_groups)] =
+          kernels::sm87_a4w4_pack_signed_pair(gate_even, gate_odd);
+      up_b[kernels::sm87_a4w4_consumer_packed_offset(
+          n, 0U, byte, k64_groups)] =
+          kernels::sm87_a4w4_pack_signed_pair(up_even, up_odd);
+    }
+    gate_scales[kernels::sm87_a4w4_consumer_scale_offset(
+        n, 0U, k64_groups)] =
+        encode_bf16(static_cast<float>(1U + n % 3U) / 64.0F);
+    up_scales[kernels::sm87_a4w4_consumer_scale_offset(
+        n, 0U, k64_groups)] =
+        encode_bf16(static_cast<float>(1U + n % 7U) / 128.0F);
+  }
+
+  DeviceBuffer<std::uint8_t> device_a;
+  DeviceBuffer<std::uint16_t> device_a_scales;
+  DeviceBuffer<std::uint8_t> device_gate_b;
+  DeviceBuffer<std::uint16_t> device_gate_scales;
+  DeviceBuffer<std::uint8_t> device_up_b;
+  DeviceBuffer<std::uint16_t> device_up_scales;
+  DeviceBuffer<std::uint8_t> candidate_output;
+  DeviceBuffer<std::uint16_t> candidate_output_scales;
+  DeviceBuffer<std::uint8_t> baseline_output;
+  DeviceBuffer<std::uint16_t> baseline_output_scales;
+  if (!device_a.allocate(a_packed_bytes) ||
+      !device_a_scales.allocate(a_scale_elements) ||
+      !device_gate_b.allocate(b_packed_bytes) ||
+      !device_gate_scales.allocate(b_scale_elements) ||
+      !device_up_b.allocate(b_packed_bytes) ||
+      !device_up_scales.allocate(b_scale_elements) ||
+      !candidate_output.allocate(output_packed_bytes + packed_guard_bytes) ||
+      !candidate_output_scales.allocate(output_scale_elements +
+                                        scale_guard_elements) ||
+      !baseline_output.allocate(output_packed_bytes + packed_guard_bytes) ||
+      !baseline_output_scales.allocate(output_scale_elements +
+                                       scale_guard_elements)) {
+    std::cerr << "arbitrary-M paired allocation failed\n";
+    return false;
+  }
+  if (!cuda_ok(cudaMemcpy(device_a.get(), packed_a.data(),
+                          a_packed_bytes, cudaMemcpyHostToDevice),
+               "copy arbitrary-M paired A") ||
+      !cuda_ok(cudaMemcpy(device_a_scales.get(), a_scales.data(),
+                          a_scale_elements * sizeof(std::uint16_t),
+                          cudaMemcpyHostToDevice),
+               "copy arbitrary-M paired A scales") ||
+      !cuda_ok(cudaMemcpy(device_gate_b.get(), gate_b.data(),
+                          b_packed_bytes, cudaMemcpyHostToDevice),
+               "copy arbitrary-M paired Gate B") ||
+      !cuda_ok(cudaMemcpy(device_gate_scales.get(), gate_scales.data(),
+                          b_scale_elements * sizeof(std::uint16_t),
+                          cudaMemcpyHostToDevice),
+               "copy arbitrary-M paired Gate scales") ||
+      !cuda_ok(cudaMemcpy(device_up_b.get(), up_b.data(),
+                          b_packed_bytes, cudaMemcpyHostToDevice),
+               "copy arbitrary-M paired Up B") ||
+      !cuda_ok(cudaMemcpy(device_up_scales.get(), up_scales.data(),
+                          b_scale_elements * sizeof(std::uint16_t),
+                          cudaMemcpyHostToDevice),
+               "copy arbitrary-M paired Up scales") ||
+      !cuda_ok(cudaMemset(candidate_output.get(), 0xa5,
+                          output_packed_bytes + packed_guard_bytes),
+               "initialize arbitrary-M paired candidate output") ||
+      !cuda_ok(cudaMemset(candidate_output_scales.get(), 0xad,
+                          (output_scale_elements + scale_guard_elements) *
+                              sizeof(std::uint16_t)),
+               "initialize arbitrary-M paired candidate scales") ||
+      !cuda_ok(cudaMemset(baseline_output.get(), 0xa5,
+                          output_packed_bytes + packed_guard_bytes),
+               "initialize arbitrary-M paired baseline output") ||
+      !cuda_ok(cudaMemset(baseline_output_scales.get(), 0xad,
+                          (output_scale_elements + scale_guard_elements) *
+                              sizeof(std::uint16_t)),
+               "initialize arbitrary-M paired baseline scales")) {
+    return false;
+  }
+
+  if (m_count == 3'987U &&
+      kernels::launch_sm87_a4w4_gateup_paired_cuda(
+          device_a.get(), a_packed_bytes, device_a_scales.get(),
+          a_scale_elements, device_gate_b.get(), b_packed_bytes,
+          device_gate_scales.get(), b_scale_elements, device_up_b.get(),
+          b_packed_bytes, device_up_scales.get(), b_scale_elements,
+          m_count, n_count, k_count, kOutputClipRatio,
+          candidate_output.get(), output_packed_bytes - 1U,
+          candidate_output_scales.get(), output_scale_elements) !=
+          static_cast<int>(cudaErrorInvalidValue)) {
+    std::cerr << "arbitrary-M paired short output capacity was not rejected\n";
+    return false;
+  }
+  if (!launch_ok(kernels::launch_sm87_a4w4_gateup_paired_cuda(
+                     device_a.get(), a_packed_bytes,
+                     device_a_scales.get(), a_scale_elements,
+                     device_gate_b.get(), b_packed_bytes,
+                     device_gate_scales.get(), b_scale_elements,
+                     device_up_b.get(), b_packed_bytes,
+                     device_up_scales.get(), b_scale_elements,
+                     m_count, n_count, k_count, kOutputClipRatio,
+                     candidate_output.get(), output_packed_bytes,
+                     candidate_output_scales.get(), output_scale_elements),
+                 "launch arbitrary-M paired candidate")) {
+    return false;
+  }
+
+  std::size_t first_m = 0U;
+  while (first_m < m_count) {
+    std::size_t chunk_m = std::min<std::size_t>(512U, m_count - first_m);
+    if (m_count == 65U && first_m == 0U) {
+      chunk_m = 64U;
+    }
+    const std::size_t a_byte_offset = first_m * (k_count / 2U);
+    const std::size_t a_scale_offset = first_m * k64_groups;
+    const std::size_t output_byte_offset = first_m * (n_count / 2U);
+    const std::size_t output_scale_offset =
+        first_m * output_k64_groups;
+    const std::size_t chunk_a_bytes =
+        kernels::sm87_a4w4_consumer_packed_capacity_bytes(
+            chunk_m, k_count);
+    const std::size_t chunk_a_scales =
+        kernels::sm87_a4w4_consumer_scale_capacity_elements(
+            chunk_m, k_count);
+    const std::size_t chunk_output_bytes =
+        kernels::sm87_a4w4_consumer_packed_capacity_bytes(
+            chunk_m, n_count);
+    const std::size_t chunk_output_scales =
+        kernels::sm87_a4w4_consumer_scale_capacity_elements(
+            chunk_m, n_count);
+    if (!launch_ok(kernels::launch_sm87_a4w4_gateup_paired_cuda(
+                       device_a.get() + a_byte_offset, chunk_a_bytes,
+                       device_a_scales.get() + a_scale_offset,
+                       chunk_a_scales, device_gate_b.get(), b_packed_bytes,
+                       device_gate_scales.get(), b_scale_elements,
+                       device_up_b.get(), b_packed_bytes,
+                       device_up_scales.get(), b_scale_elements,
+                       chunk_m, n_count, k_count, kOutputClipRatio,
+                       baseline_output.get() + output_byte_offset,
+                       chunk_output_bytes,
+                       baseline_output_scales.get() + output_scale_offset,
+                       chunk_output_scales),
+                   "launch arbitrary-M paired retained baseline")) {
+      return false;
+    }
+    first_m += chunk_m;
+  }
+  if (!cuda_ok(cudaDeviceSynchronize(),
+               "synchronize arbitrary-M paired comparison")) {
+    return false;
+  }
+
+  std::vector<std::uint8_t> candidate_packed(
+      output_packed_bytes + packed_guard_bytes);
+  std::vector<std::uint8_t> baseline_packed(
+      output_packed_bytes + packed_guard_bytes);
+  std::vector<std::uint16_t> candidate_scales(
+      output_scale_elements + scale_guard_elements);
+  std::vector<std::uint16_t> baseline_scales(
+      output_scale_elements + scale_guard_elements);
+  if (!cuda_ok(cudaMemcpy(candidate_packed.data(), candidate_output.get(),
+                          candidate_packed.size(), cudaMemcpyDeviceToHost),
+               "copy arbitrary-M paired candidate output") ||
+      !cuda_ok(cudaMemcpy(baseline_packed.data(), baseline_output.get(),
+                          baseline_packed.size(), cudaMemcpyDeviceToHost),
+               "copy arbitrary-M paired baseline output") ||
+      !cuda_ok(cudaMemcpy(candidate_scales.data(),
+                          candidate_output_scales.get(),
+                          candidate_scales.size() * sizeof(std::uint16_t),
+                          cudaMemcpyDeviceToHost),
+               "copy arbitrary-M paired candidate scales") ||
+      !cuda_ok(cudaMemcpy(baseline_scales.data(),
+                          baseline_output_scales.get(),
+                          baseline_scales.size() * sizeof(std::uint16_t),
+                          cudaMemcpyDeviceToHost),
+               "copy arbitrary-M paired baseline scales")) {
+    return false;
+  }
+  for (std::size_t index = 0U; index < candidate_packed.size(); ++index) {
+    if (candidate_packed[index] != baseline_packed[index]) {
+      std::cerr << "arbitrary-M paired packed bit mismatch: M=" << m_count
+                << " byte=" << index << '\n';
+      return false;
+    }
+  }
+  for (std::size_t index = 0U; index < candidate_scales.size(); ++index) {
+    if (candidate_scales[index] != baseline_scales[index]) {
+      std::cerr << "arbitrary-M paired scale bit mismatch: M=" << m_count
+                << " element=" << index << '\n';
+      return false;
+    }
+  }
+  std::cout << "SM87 A4W4 paired arbitrary-M composition bit-exact: M="
+            << m_count << '\n';
+  return true;
+}
+
+[[nodiscard]] bool run_arbitrary_m_composition() {
+  for (const std::size_t m_count : {65U, 1'025U, 1'804U, 3'987U}) {
+    if (!run_arbitrary_m_composition_case(m_count)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 [[nodiscard]] bool run_shared_k128_correctness() {
   constexpr std::size_t m_count = 64U;
   constexpr std::size_t n_count = 128U;
@@ -930,5 +1191,8 @@ int main() {
   if (!device_is_target()) {
     return 77;
   }
-  return run_correctness() && run_shared_k128_correctness() ? 0 : 1;
+  return run_correctness() && run_arbitrary_m_composition() &&
+                 run_shared_k128_correctness()
+             ? 0
+             : 1;
 }

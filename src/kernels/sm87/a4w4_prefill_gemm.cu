@@ -1468,7 +1468,11 @@ int launch_sm87_a4w4_prefill_gemm_bf16_cuda(
     void* const cuda_stream) noexcept {
   const Sm87A4W4PrefillGemmPlan plan =
       sm87_a4w4_prefill_gemm_plan(token_count, output_size, input_size);
-  if (plan.launch_ctas == 0U || !aligned(packed_a, 16U) ||
+  const Sm87A4W4PrefillK64CompositePlan composite =
+      sm87_a4w4_prefill_gemm_k64_composite_plan(
+          token_count, output_size, input_size);
+  if (!composite.valid || plan.launch_ctas == 0U ||
+      !aligned(packed_a, 16U) ||
       !aligned(packed_b, 16U) ||
       !aligned(a_k64_scales_bf16, alignof(std::uint16_t)) ||
       !aligned(b_k64_scales_bf16, alignof(std::uint16_t)) ||
@@ -1476,7 +1480,8 @@ int launch_sm87_a4w4_prefill_gemm_bf16_cuda(
       !product_fits(plan.k64_groups, kPackedK64Bytes) ||
       !consumer_capacity_fits(token_count, plan.k64_groups) ||
       !consumer_capacity_fits(output_size, plan.k64_groups) ||
-      output_row_stride_elements < output_size) {
+      output_row_stride_elements < output_size ||
+      !product_fits(token_count, output_row_stride_elements)) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
   const std::size_t required_a_bytes =
@@ -1493,72 +1498,131 @@ int launch_sm87_a4w4_prefill_gemm_bf16_cuda(
       b_scale_capacity_elements < required_b_scale_elements) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
+  const std::size_t prefix_a_bytes =
+      composite.prefix_token_count == 0U
+          ? 0U
+          : sm87_a4w4_consumer_packed_capacity_bytes(
+                composite.prefix_token_count, input_size);
+  const std::size_t prefix_a_scale_elements =
+      composite.prefix_token_count == 0U
+          ? 0U
+          : sm87_a4w4_consumer_scale_capacity_elements(
+                composite.prefix_token_count, input_size);
+  const std::size_t tail_a_bytes =
+      composite.tail_token_count == 0U
+          ? 0U
+          : sm87_a4w4_consumer_packed_capacity_bytes(
+                composite.tail_token_count, input_size);
+  const std::size_t tail_a_scale_elements =
+      composite.tail_token_count == 0U
+          ? 0U
+          : sm87_a4w4_consumer_scale_capacity_elements(
+                composite.tail_token_count, input_size);
+  if (prefix_a_bytes > packed_a_capacity_bytes ||
+      tail_a_bytes > packed_a_capacity_bytes - prefix_a_bytes ||
+      prefix_a_scale_elements > a_scale_capacity_elements ||
+      tail_a_scale_elements >
+          a_scale_capacity_elements - prefix_a_scale_elements) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
   const int device_status = validate_sm87();
   if (device_status != static_cast<int>(cudaSuccess)) {
     return device_status;
   }
-  const Sm87A4W4PrefillGemmPlan wide_plan =
-      sm87_a4w4_prefill_gemm_m64n256_plan(
-          token_count, output_size, input_size);
-  const bool use_m64n256 = wide_plan.launch_ctas != 0U;
+  const bool use_m64n256 =
+      composite.prefix_kernel ==
+      Sm87A4W4PrefillK64CompositePrefixKernel::kM64N256K64;
   if (use_m64n256 &&
-      (wide_plan.k64_groups >
+      (composite.prefix_plan.k64_groups >
            std::numeric_limits<unsigned int>::max() ||
        output_row_stride_elements >
            std::numeric_limits<unsigned int>::max() ||
-       wide_plan.m_tiles > std::numeric_limits<unsigned int>::max() ||
-       wide_plan.n_tiles > std::numeric_limits<unsigned int>::max())) {
+       composite.prefix_plan.m_tiles >
+           std::numeric_limits<unsigned int>::max() ||
+       composite.prefix_plan.n_tiles >
+           std::numeric_limits<unsigned int>::max())) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
   const bool use_large_m =
-      !use_m64n256 &&
-      sm87_a4w4_prefill_uses_large_m_candidate(token_count);
-  Sm87A4W4PrefillGemmResources resources{};
-  const int resource_status =
-      use_m64n256
-          ? query_sm87_a4w4_prefill_gemm_m64n256_resources_cuda(&resources)
-          : (use_large_m
-                 ? query_sm87_a4w4_prefill_gemm_m64n64_resources_cuda(
-                       &resources)
-                 : query_sm87_a4w4_prefill_gemm_resources_cuda(&resources));
-  if (resource_status != static_cast<int>(cudaSuccess)) {
-    return resource_status;
+      composite.prefix_kernel ==
+      Sm87A4W4PrefillK64CompositePrefixKernel::kM64N64K64;
+  if (composite.prefix_token_count != 0U) {
+    Sm87A4W4PrefillGemmResources resources{};
+    const int resource_status =
+        use_m64n256
+            ? query_sm87_a4w4_prefill_gemm_m64n256_resources_cuda(
+                  &resources)
+            : query_sm87_a4w4_prefill_gemm_m64n64_resources_cuda(
+                  &resources);
+    if (resource_status != static_cast<int>(cudaSuccess)) {
+      return resource_status;
+    }
+    if (resources.active_blocks_per_sm <
+            static_cast<int>(kSm87A4W4PrefillCtasPerSm) ||
+        resources.local_bytes != 0U) {
+      return static_cast<int>(cudaErrorLaunchOutOfResources);
+    }
   }
-  if (resources.active_blocks_per_sm <
-          static_cast<int>(kSm87A4W4PrefillCtasPerSm) ||
-      resources.local_bytes != 0U) {
-    return static_cast<int>(cudaErrorLaunchOutOfResources);
+  if (composite.tail_token_count != 0U) {
+    Sm87A4W4PrefillGemmResources resources{};
+    const int resource_status =
+        query_sm87_a4w4_prefill_gemm_resources_cuda(&resources);
+    if (resource_status != static_cast<int>(cudaSuccess)) {
+      return resource_status;
+    }
+    if (resources.active_blocks_per_sm <
+            static_cast<int>(kSm87A4W4PrefillCtasPerSm) ||
+        resources.local_bytes != 0U) {
+      return static_cast<int>(cudaErrorLaunchOutOfResources);
+    }
   }
 
   const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
   if (use_m64n256) {
     q3x_sm87_a4w4_prefill_gemm_m64n256_kernel<<<
-        static_cast<unsigned int>(wide_plan.launch_ctas),
+        static_cast<unsigned int>(composite.prefix_plan.launch_ctas),
         static_cast<unsigned int>(kSm87A4W4PrefillThreads), 0U, stream>>>(
         packed_a, a_k64_scales_bf16, packed_b, b_k64_scales_bf16,
-        static_cast<unsigned int>(wide_plan.k64_groups), output_bf16,
+        static_cast<unsigned int>(composite.prefix_plan.k64_groups),
+        output_bf16,
         static_cast<unsigned int>(output_row_stride_elements),
-        static_cast<unsigned int>(wide_plan.m_tiles),
-        static_cast<unsigned int>(wide_plan.n_tiles));
-    return static_cast<int>(cudaPeekAtLastError());
-  }
-  if (use_large_m) {
+        static_cast<unsigned int>(composite.prefix_plan.m_tiles),
+        static_cast<unsigned int>(composite.prefix_plan.n_tiles));
+  } else if (use_large_m) {
     const std::size_t m64_tiles =
-        token_count / kSm87A4W4PrefillLargeMTileM;
+        composite.prefix_token_count / kSm87A4W4PrefillLargeMTileM;
     q3x_sm87_a4w4_prefill_gemm_m64n64_kernel<<<
-        static_cast<unsigned int>(plan.launch_ctas),
+        static_cast<unsigned int>(composite.prefix_plan.launch_ctas),
         static_cast<unsigned int>(kSm87A4W4PrefillThreads), 0U, stream>>>(
         packed_a, a_k64_scales_bf16, packed_b, b_k64_scales_bf16,
-        plan.k64_groups, output_bf16, output_row_stride_elements, m64_tiles,
-        plan.work_tiles);
-    return static_cast<int>(cudaPeekAtLastError());
+        composite.prefix_plan.k64_groups, output_bf16,
+        output_row_stride_elements, m64_tiles,
+        composite.prefix_plan.work_tiles);
   }
+  if (composite.prefix_token_count != 0U) {
+    const cudaError_t launch_status = cudaPeekAtLastError();
+    if (launch_status != cudaSuccess) {
+      return static_cast<int>(launch_status);
+    }
+  }
+  if (composite.tail_token_count == 0U) {
+    return static_cast<int>(cudaSuccess);
+  }
+
+  const std::uint8_t* const tail_packed_a = packed_a + prefix_a_bytes;
+  const std::uint16_t* const tail_a_scales =
+      a_k64_scales_bf16 + prefix_a_scale_elements;
+  std::uint16_t* const tail_output =
+      output_bf16 + composite.prefix_token_count *
+                        output_row_stride_elements;
   q3x_sm87_a4w4_prefill_gemm_kernel<<<
-      static_cast<unsigned int>(plan.launch_ctas),
+      static_cast<unsigned int>(composite.tail_plan.launch_ctas),
       static_cast<unsigned int>(kSm87A4W4PrefillThreads), 0U, stream>>>(
-      packed_a, a_k64_scales_bf16, packed_b, b_k64_scales_bf16,
-      token_count, output_size, plan.k64_groups, output_bf16,
-      output_row_stride_elements, plan.m_tiles, plan.work_tiles);
+      tail_packed_a, tail_a_scales, packed_b, b_k64_scales_bf16,
+      composite.tail_token_count, output_size,
+      composite.tail_plan.k64_groups, tail_output,
+      output_row_stride_elements, composite.tail_plan.m_tiles,
+      composite.tail_plan.work_tiles);
   return static_cast<int>(cudaPeekAtLastError());
 }
 

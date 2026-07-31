@@ -41,8 +41,8 @@ inline constexpr std::size_t kSm87A4W4GateUpPackedOutputTileRowBytes =
 // Large-M candidate.  Keep the per-warp M16xN32 ownership and accumulator
 // footprint unchanged while exchanging CTA-level N reuse for twice as much M
 // reuse of each staged Gate/Up row.  The launcher admits this shape only for
-// complete M64 spans of at least 1024 tokens; C512 and all tails stay on the
-// established M32N128 kernel.
+// complete M64 prefixes of at least 1024 tokens; any residual 1..63 rows stay
+// on the established M32N128 kernel in the same public launch.
 inline constexpr std::size_t kSm87A4W4GateUpLargeMTileM = 64U;
 inline constexpr std::size_t kSm87A4W4GateUpLargeMTileN = 64U;
 inline constexpr std::size_t kSm87A4W4GateUpLargeMTileK = 64U;
@@ -116,6 +116,15 @@ struct Sm87A4W4GateUpPairedPlan final {
       Sm87A4W4GateUpPairedKernel::kM32N128K64};
 };
 
+struct Sm87A4W4GateUpPairedK64CompositePlan final {
+  bool valid{};
+  std::size_t token_count{};
+  std::size_t prefix_token_count{};
+  std::size_t tail_token_count{};
+  Sm87A4W4GateUpPairedPlan prefix_plan{};
+  Sm87A4W4GateUpPairedPlan tail_plan{};
+};
+
 struct Sm87A4W4GateUpPairedK128Plan final {
   std::size_t token_count{};
   std::size_t intermediate_size{};
@@ -186,6 +195,53 @@ sm87_a4w4_gateup_paired_plan(const std::size_t token_count,
               : (use_large_m
                      ? Sm87A4W4GateUpPairedKernel::kM64N64K64
                      : Sm87A4W4GateUpPairedKernel::kM32N128K64)};
+}
+
+// K64-only composition plan.  The largest threshold-qualified M64 prefix
+// retains the existing M64N128 or M64N64 kernel selected by its exact plan;
+// the residual consumer block uses the existing M32N128 tail kernel.
+[[nodiscard]] constexpr Sm87A4W4GateUpPairedK64CompositePlan
+sm87_a4w4_gateup_paired_k64_composite_plan(
+    const std::size_t token_count,
+    const std::size_t intermediate_size,
+    const std::size_t input_size) noexcept {
+  Sm87A4W4GateUpPairedK64CompositePlan result{};
+  const Sm87A4W4GateUpPairedPlan full_plan =
+      sm87_a4w4_gateup_paired_plan(token_count, intermediate_size,
+                                  input_size);
+  if (full_plan.launch_ctas == 0U) {
+    return result;
+  }
+
+  result.valid = true;
+  result.token_count = token_count;
+  const std::size_t maximum_m64_prefix =
+      token_count / kSm87A4W4GateUpLargeMTileM *
+      kSm87A4W4GateUpLargeMTileM;
+  if (maximum_m64_prefix >= kSm87A4W4GateUpLargeMMinimumTokens) {
+    result.prefix_plan = sm87_a4w4_gateup_paired_plan(
+        maximum_m64_prefix, intermediate_size, input_size);
+    if (result.prefix_plan.launch_ctas != 0U &&
+        result.prefix_plan.tile_m == kSm87A4W4GateUpLargeMTileM) {
+      result.prefix_token_count = maximum_m64_prefix;
+      result.tail_token_count = token_count - maximum_m64_prefix;
+    }
+  }
+  if (result.prefix_token_count == 0U) {
+    result.tail_token_count = token_count;
+    result.tail_plan = full_plan;
+    return result;
+  }
+  if (result.tail_token_count != 0U) {
+    result.tail_plan = sm87_a4w4_gateup_paired_plan(
+        result.tail_token_count, intermediate_size, input_size);
+    if (result.tail_plan.launch_ctas == 0U ||
+        result.tail_plan.kernel !=
+            Sm87A4W4GateUpPairedKernel::kM32N128K64) {
+      return {};
+    }
+  }
+  return result;
 }
 
 [[nodiscard]] constexpr Sm87A4W4GateUpPairedK128Plan
@@ -332,6 +388,20 @@ static_assert(sm87_a4w4_gateup_paired_plan(1'088U, 17'408U, 5'120U)
                   .kernel == Sm87A4W4GateUpPairedKernel::kM64N64K64);
 static_assert(sm87_a4w4_gateup_paired_plan(1'025U, 17'408U, 5'120U)
                   .kernel == Sm87A4W4GateUpPairedKernel::kM32N128K64);
+static_assert(sm87_a4w4_gateup_paired_k64_composite_plan(
+                  1'025U, 17'408U, 5'120U)
+                  .prefix_plan.kernel ==
+              Sm87A4W4GateUpPairedKernel::kM64N64K64);
+static_assert(sm87_a4w4_gateup_paired_k64_composite_plan(
+                  2'049U, 17'408U, 5'120U)
+                  .prefix_plan.kernel ==
+              Sm87A4W4GateUpPairedKernel::kM64N128K64);
+static_assert(sm87_a4w4_gateup_paired_k64_composite_plan(
+                  3'987U, 17'408U, 5'120U)
+                  .prefix_token_count == 3'968U);
+static_assert(sm87_a4w4_gateup_paired_k64_composite_plan(
+                  3'987U, 17'408U, 5'120U)
+                  .tail_token_count == 19U);
 static_assert(sm87_a4w4_gateup_paired_plan(2'048U, 17'408U, 5'120U)
                   .kernel == Sm87A4W4GateUpPairedKernel::kM64N128K64);
 static_assert(sm87_a4w4_gateup_paired_plan(2'048U, 17'408U, 5'120U)

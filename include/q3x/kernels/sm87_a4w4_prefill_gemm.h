@@ -38,8 +38,8 @@ inline constexpr std::size_t kSm87A4W4PrefillCtasPerSm = 2U;
 // and the 256-thread persistent launch contract, but assigns the eight warps
 // as 4x2 M16N32 warp tiles.  Relative to M32N128, M64N64 halves packed-B and
 // B-scale staging per output while accepting the corresponding A rescan.  It
-// is deliberately selected only for exact M64 spans: C512 and all tails stay
-// on the established M32N128 kernel.
+// is selected for every complete large-M M64 prefix. Any residual 1..63 rows
+// stay on the established M32N128 kernel in the same public launch.
 inline constexpr std::size_t kSm87A4W4PrefillLargeMTileM = 64U;
 inline constexpr std::size_t kSm87A4W4PrefillLargeMTileN = 64U;
 inline constexpr std::size_t kSm87A4W4PrefillLargeMMinimumTokens = 1'024U;
@@ -47,8 +47,8 @@ inline constexpr std::size_t kSm87A4W4PrefillLargeMMinimumTokens = 1'024U;
 // Whole-M wide-N candidate.  Each CTA owns M64N256 and assigns the eight
 // warps as 2x4 M32N64 warp tiles.  Two adjacent K64 groups share one logical
 // pipeline buffer without changing their accumulation order.  The candidate
-// is admitted only for exact M64/N256 shapes at P>=2048; P1024 remains on the
-// M64N64 kernel and C512/tails remain on M32N128.
+// is admitted for the complete M64/N256 prefix at P>=2048; P1024 remains on
+// M64N64 and any residual 1..63 rows remain on M32N128.
 inline constexpr std::size_t kSm87A4W4PrefillWideTileM = 64U;
 inline constexpr std::size_t kSm87A4W4PrefillWideTileN = 256U;
 inline constexpr std::size_t kSm87A4W4PrefillWideMinimumTokens = 2'048U;
@@ -89,6 +89,27 @@ struct Sm87A4W4PrefillGemmPlan final {
   std::size_t k64_groups{};
   std::size_t work_tiles{};
   std::size_t launch_ctas{};
+};
+
+enum class Sm87A4W4PrefillK64CompositePrefixKernel : std::uint8_t {
+  kNone = 0U,
+  kM64N64K64,
+  kM64N256K64,
+};
+
+// One public K64 call may compose a complete M64 prefix with one canonical
+// M32 fallback launch for the final partial consumer block. prefix_plan and
+// tail_plan retain the exact launch cardinalities used by each existing
+// kernel; no K128 layout is represented by this plan.
+struct Sm87A4W4PrefillK64CompositePlan final {
+  bool valid{};
+  std::size_t token_count{};
+  std::size_t prefix_token_count{};
+  std::size_t tail_token_count{};
+  Sm87A4W4PrefillK64CompositePrefixKernel prefix_kernel{
+      Sm87A4W4PrefillK64CompositePrefixKernel::kNone};
+  Sm87A4W4PrefillGemmPlan prefix_plan{};
+  Sm87A4W4PrefillGemmPlan tail_plan{};
 };
 
 struct Sm87A4W4PrefillK128GemmPlan final {
@@ -168,6 +189,60 @@ sm87_a4w4_prefill_gemm_m64n256_plan(
           work_tiles < kSm87A4W4PrefillPersistentCtas
               ? work_tiles
               : kSm87A4W4PrefillPersistentCtas};
+}
+
+[[nodiscard]] constexpr Sm87A4W4PrefillK64CompositePlan
+sm87_a4w4_prefill_gemm_k64_composite_plan(
+    const std::size_t token_count,
+    const std::size_t output_size,
+    const std::size_t input_size) noexcept {
+  Sm87A4W4PrefillK64CompositePlan result{};
+  const Sm87A4W4PrefillGemmPlan full_plan =
+      sm87_a4w4_prefill_gemm_plan(token_count, output_size, input_size);
+  if (full_plan.launch_ctas == 0U) {
+    return result;
+  }
+
+  result.valid = true;
+  result.token_count = token_count;
+  const std::size_t maximum_m64_prefix =
+      token_count / kSm87A4W4PrefillLargeMTileM *
+      kSm87A4W4PrefillLargeMTileM;
+  if (maximum_m64_prefix >= kSm87A4W4PrefillWideMinimumTokens &&
+      output_size % kSm87A4W4PrefillWideTileN == 0U) {
+    result.prefix_plan = sm87_a4w4_prefill_gemm_m64n256_plan(
+        maximum_m64_prefix, output_size, input_size);
+    if (result.prefix_plan.launch_ctas != 0U) {
+      result.prefix_token_count = maximum_m64_prefix;
+      result.tail_token_count = token_count - maximum_m64_prefix;
+      result.prefix_kernel =
+          Sm87A4W4PrefillK64CompositePrefixKernel::kM64N256K64;
+    }
+  }
+  if (result.prefix_token_count == 0U &&
+      maximum_m64_prefix >= kSm87A4W4PrefillLargeMMinimumTokens) {
+    result.prefix_plan = sm87_a4w4_prefill_gemm_plan(
+        maximum_m64_prefix, output_size, input_size);
+    if (result.prefix_plan.launch_ctas != 0U) {
+      result.prefix_token_count = maximum_m64_prefix;
+      result.tail_token_count = token_count - maximum_m64_prefix;
+      result.prefix_kernel =
+          Sm87A4W4PrefillK64CompositePrefixKernel::kM64N64K64;
+    }
+  }
+  if (result.prefix_token_count == 0U) {
+    result.tail_token_count = token_count;
+    result.tail_plan = full_plan;
+    return result;
+  }
+  if (result.tail_token_count != 0U) {
+    result.tail_plan = sm87_a4w4_prefill_gemm_plan(
+        result.tail_token_count, output_size, input_size);
+    if (result.tail_plan.launch_ctas == 0U) {
+      return {};
+    }
+  }
+  return result;
 }
 
 [[nodiscard]] constexpr Sm87A4W4PrefillK128GemmPlan
@@ -322,6 +397,26 @@ static_assert(!sm87_a4w4_prefill_uses_m64n256_candidate(1'024U, 5'120U));
 static_assert(sm87_a4w4_prefill_uses_m64n256_candidate(2'048U, 5'120U));
 static_assert(!sm87_a4w4_prefill_uses_m64n256_candidate(2'048U, 5'184U));
 static_assert(!sm87_a4w4_prefill_uses_m64n256_candidate(2'049U, 5'120U));
+static_assert(sm87_a4w4_prefill_gemm_k64_composite_plan(
+                  1'023U, 5'120U, 17'408U)
+                  .prefix_token_count == 0U);
+static_assert(sm87_a4w4_prefill_gemm_k64_composite_plan(
+                  1'025U, 5'120U, 17'408U)
+                  .prefix_kernel ==
+              Sm87A4W4PrefillK64CompositePrefixKernel::kM64N64K64);
+static_assert(sm87_a4w4_prefill_gemm_k64_composite_plan(
+                  1'025U, 5'120U, 17'408U)
+                  .tail_token_count == 1U);
+static_assert(sm87_a4w4_prefill_gemm_k64_composite_plan(
+                  2'049U, 5'120U, 17'408U)
+                  .prefix_kernel ==
+              Sm87A4W4PrefillK64CompositePrefixKernel::kM64N256K64);
+static_assert(sm87_a4w4_prefill_gemm_k64_composite_plan(
+                  3'987U, 5'120U, 17'408U)
+                  .prefix_token_count == 3'968U);
+static_assert(sm87_a4w4_prefill_gemm_k64_composite_plan(
+                  3'987U, 5'120U, 17'408U)
+                  .tail_token_count == 19U);
 static_assert(sm87_a4w4_prefill_gemm_m64n256_plan(
                   2'048U, 17'408U, 5'120U)
                   .work_tiles == 2'176U);

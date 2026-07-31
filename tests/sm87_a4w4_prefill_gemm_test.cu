@@ -693,6 +693,187 @@ class DeviceBuffer final {
   return true;
 }
 
+[[nodiscard]] bool run_arbitrary_m_composition_case(
+    const std::size_t m_count) {
+  constexpr std::size_t n_count = 256U;
+  constexpr std::size_t k_count = 64U;
+  constexpr std::size_t k64_groups = 1U;
+  constexpr std::size_t output_stride = n_count + 16U;
+  constexpr std::size_t guard_elements = 64U;
+  const std::size_t a_packed_bytes =
+      kernels::sm87_a4w4_consumer_packed_capacity_bytes(
+          m_count, k_count);
+  const std::size_t a_scale_elements =
+      kernels::sm87_a4w4_consumer_scale_capacity_elements(
+          m_count, k_count);
+  constexpr std::size_t b_packed_bytes =
+      kernels::sm87_a4w4_consumer_packed_capacity_bytes(
+          n_count, k_count);
+  constexpr std::size_t b_scale_elements =
+      kernels::sm87_a4w4_consumer_scale_capacity_elements(
+          n_count, k_count);
+  const std::size_t output_elements =
+      m_count * output_stride + guard_elements;
+
+  std::vector<std::uint8_t> packed_a(a_packed_bytes, 0U);
+  std::vector<std::uint16_t> a_scales(a_scale_elements, 0U);
+  for (std::size_t m = 0U; m < m_count; ++m) {
+    for (std::size_t byte = 0U; byte < 32U; ++byte) {
+      const int even =
+          static_cast<int>((7U * m + 3U * byte + 1U) % 15U) - 7;
+      const int odd =
+          static_cast<int>((11U * m + 5U * byte + 2U) % 15U) - 7;
+      packed_a[kernels::sm87_a4w4_consumer_packed_offset(
+          m, 0U, byte, k64_groups)] =
+          kernels::sm87_a4w4_pack_signed_pair(even, odd);
+    }
+    a_scales[kernels::sm87_a4w4_consumer_scale_offset(
+        m, 0U, k64_groups)] =
+        encode_bf16(static_cast<float>(1U + m % 5U) / 32.0F);
+  }
+  std::vector<std::uint8_t> packed_b(b_packed_bytes, 0U);
+  std::vector<std::uint16_t> b_scales(b_scale_elements, 0U);
+  for (std::size_t n = 0U; n < n_count; ++n) {
+    for (std::size_t byte = 0U; byte < 32U; ++byte) {
+      const int even =
+          static_cast<int>((13U * n + 2U * byte + 3U) % 15U) - 7;
+      const int odd =
+          static_cast<int>((3U * n + 7U * byte + 4U) % 15U) - 7;
+      packed_b[kernels::sm87_a4w4_consumer_packed_offset(
+          n, 0U, byte, k64_groups)] =
+          kernels::sm87_a4w4_pack_signed_pair(even, odd);
+    }
+    b_scales[kernels::sm87_a4w4_consumer_scale_offset(
+        n, 0U, k64_groups)] =
+        encode_bf16(static_cast<float>(1U + n % 3U) / 64.0F);
+  }
+
+  DeviceBuffer<std::uint8_t> device_a;
+  DeviceBuffer<std::uint16_t> device_a_scales;
+  DeviceBuffer<std::uint8_t> device_b;
+  DeviceBuffer<std::uint16_t> device_b_scales;
+  DeviceBuffer<std::uint16_t> candidate_output;
+  DeviceBuffer<std::uint16_t> baseline_output;
+  if (!device_a.allocate(a_packed_bytes) ||
+      !device_a_scales.allocate(a_scale_elements) ||
+      !device_b.allocate(b_packed_bytes) ||
+      !device_b_scales.allocate(b_scale_elements) ||
+      !candidate_output.allocate(output_elements) ||
+      !baseline_output.allocate(output_elements)) {
+    std::cerr << "arbitrary-M generic allocation failed\n";
+    return false;
+  }
+  if (!cuda_ok(cudaMemcpy(device_a.get(), packed_a.data(),
+                          a_packed_bytes, cudaMemcpyHostToDevice),
+               "copy arbitrary-M generic A") ||
+      !cuda_ok(cudaMemcpy(device_a_scales.get(), a_scales.data(),
+                          a_scale_elements * sizeof(std::uint16_t),
+                          cudaMemcpyHostToDevice),
+               "copy arbitrary-M generic A scales") ||
+      !cuda_ok(cudaMemcpy(device_b.get(), packed_b.data(),
+                          b_packed_bytes, cudaMemcpyHostToDevice),
+               "copy arbitrary-M generic B") ||
+      !cuda_ok(cudaMemcpy(device_b_scales.get(), b_scales.data(),
+                          b_scale_elements * sizeof(std::uint16_t),
+                          cudaMemcpyHostToDevice),
+               "copy arbitrary-M generic B scales") ||
+      !cuda_ok(cudaMemset(candidate_output.get(), 0x5a,
+                          output_elements * sizeof(std::uint16_t)),
+               "initialize arbitrary-M candidate") ||
+      !cuda_ok(cudaMemset(baseline_output.get(), 0x5a,
+                          output_elements * sizeof(std::uint16_t)),
+               "initialize arbitrary-M baseline")) {
+    return false;
+  }
+
+  if (m_count == 3'987U &&
+      kernels::launch_sm87_a4w4_prefill_gemm_bf16_cuda(
+          device_a.get(), a_packed_bytes - 1U, device_a_scales.get(),
+          a_scale_elements, device_b.get(), b_packed_bytes,
+          device_b_scales.get(), b_scale_elements, m_count, n_count,
+          k_count, candidate_output.get(), output_stride) !=
+          static_cast<int>(cudaErrorInvalidValue)) {
+    std::cerr << "arbitrary-M generic short A capacity was not rejected\n";
+    return false;
+  }
+  if (!launch_ok(kernels::launch_sm87_a4w4_prefill_gemm_bf16_cuda(
+                     device_a.get(), a_packed_bytes,
+                     device_a_scales.get(), a_scale_elements,
+                     device_b.get(), b_packed_bytes,
+                     device_b_scales.get(), b_scale_elements,
+                     m_count, n_count, k_count, candidate_output.get(),
+                     output_stride),
+                 "launch arbitrary-M generic candidate")) {
+    return false;
+  }
+
+  std::size_t first_m = 0U;
+  while (first_m < m_count) {
+    std::size_t chunk_m = std::min<std::size_t>(512U, m_count - first_m);
+    if (m_count == 65U && first_m == 0U) {
+      chunk_m = 64U;
+    }
+    const std::size_t a_byte_offset = first_m * (k_count / 2U);
+    const std::size_t a_scale_offset = first_m * k64_groups;
+    const std::size_t chunk_a_bytes =
+        kernels::sm87_a4w4_consumer_packed_capacity_bytes(
+            chunk_m, k_count);
+    const std::size_t chunk_a_scales =
+        kernels::sm87_a4w4_consumer_scale_capacity_elements(
+            chunk_m, k_count);
+    if (!launch_ok(kernels::launch_sm87_a4w4_prefill_gemm_bf16_cuda(
+                       device_a.get() + a_byte_offset, chunk_a_bytes,
+                       device_a_scales.get() + a_scale_offset,
+                       chunk_a_scales, device_b.get(), b_packed_bytes,
+                       device_b_scales.get(), b_scale_elements,
+                       chunk_m, n_count, k_count,
+                       baseline_output.get() + first_m * output_stride,
+                       output_stride),
+                   "launch arbitrary-M generic retained baseline")) {
+      return false;
+    }
+    first_m += chunk_m;
+  }
+  if (!cuda_ok(cudaDeviceSynchronize(),
+               "synchronize arbitrary-M generic comparison")) {
+    return false;
+  }
+
+  std::vector<std::uint16_t> candidate(output_elements);
+  std::vector<std::uint16_t> baseline(output_elements);
+  if (!cuda_ok(cudaMemcpy(candidate.data(), candidate_output.get(),
+                          output_elements * sizeof(std::uint16_t),
+                          cudaMemcpyDeviceToHost),
+               "copy arbitrary-M generic candidate") ||
+      !cuda_ok(cudaMemcpy(baseline.data(), baseline_output.get(),
+                          output_elements * sizeof(std::uint16_t),
+                          cudaMemcpyDeviceToHost),
+               "copy arbitrary-M generic baseline")) {
+    return false;
+  }
+  for (std::size_t index = 0U; index < output_elements; ++index) {
+    if (candidate[index] != baseline[index]) {
+      std::cerr << "arbitrary-M generic bit mismatch: M=" << m_count
+                << " element=" << index
+                << " candidate=" << candidate[index]
+                << " baseline=" << baseline[index] << '\n';
+      return false;
+    }
+  }
+  std::cout << "SM87 A4W4 generic arbitrary-M composition bit-exact: M="
+            << m_count << '\n';
+  return true;
+}
+
+[[nodiscard]] bool run_arbitrary_m_composition() {
+  for (const std::size_t m_count : {65U, 1'025U, 1'804U, 3'987U}) {
+    if (!run_arbitrary_m_composition_case(m_count)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 [[nodiscard]] bool run_shared_k128_projection() {
   constexpr std::size_t m_count = 64U;
   constexpr std::size_t n_count = 256U;
@@ -980,7 +1161,8 @@ int main() {
     return 77;
   }
   return run_projection() && run_large_m_projection() &&
-                 run_wide_m_projection() && run_shared_k128_projection()
+                 run_wide_m_projection() && run_arbitrary_m_composition() &&
+                 run_shared_k128_projection()
              ? 0
              : 1;
 }
