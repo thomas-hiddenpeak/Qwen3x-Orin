@@ -65,8 +65,9 @@ second A traversal.
 
 ## Static and runtime gates
 
-The kernel is linked only by the test-only Gate+Up admission library.  It has
-no runner selector or production dispatch.
+The standalone kernel is compiled and linked only by an explicit test
+admission.  The default-off runner slice described below uses that same
+object; ordinary and production builds still contain no v3 dispatch.
 
 Direct `ptxas` and `cuobjdump --dump-resource-usage` report:
 
@@ -123,11 +124,31 @@ disabled by default.
 
 ## Promotion boundary
 
-This result establishes a viable new skeleton and a gated real-path vehicle,
-not a performance promotion.
 Synthetic inputs are used only for bitwise and guard coverage and are not a
-performance judge.  The next useful action is one real-weight P2048
-generation-path comparison against the current cumulative incumbent.  If
-that first real request is negative, profile and archive the mechanism; if it
-is positive, repeat the real request and then run the normal
-statistical/capability gates.
+performance judge.  The runtime slice was therefore measured with the real
+pinned checkpoint, authenticated K128 sidecar, a natural request truncated to
+2,048 token IDs, and the OpenAI-compatible generation path.  The process also
+enabled the retained native GDN/conv, whole-span BF16 A/B, Down v2, and
+FlashInfer-direct Attention composition.  Gate+Up v3 was the only new switch.
+
+The exact candidate ELF SHA-256 was
+`8b9128b9700030ff787d15fe5f07c048a97764dd1e1daa5b00831445ef1507ec`.
+
+| Prompt | Run 1 | Run 2 | Run 3 / direction | Mean / rate |
+|---|---:|---:|---:|---:|
+| P2048 | 3206.87 ms | 3193.74 ms | 3194.75 ms | 3198.453 ms / 640.309 tok/s |
+| P3840 | - | - | 6262.02 ms | 613.221 tok/s |
+
+The current cumulative FlashInfer-direct plus Down comparator reported
+`3247.80 ms` at P2048 and a two-run mean of `6297.835 ms` at P3840.  V3
+therefore saves `49.347 ms` and improves P2048 throughput by `1.543%`; the
+single P3840 direction run improves throughput by only `0.572%`.
+
+All three P2048 requests are positive, so v3 passes the real-path experiment
+gate and remains available in the cumulative candidate.  The effect is still
+far too small for production promotion or for the 2,000-token/s system goal.
+Its structural A reuse and synchronization reduction are real, but the result
+reinforces that compressed-weight scale/conversion issue and the other
+projection families dominate.  A same-ELF off/on statistical replay and
+public capability suite remain pending; the next higher-priority action is
+the three-family Attention projection supermatrix real gate.
