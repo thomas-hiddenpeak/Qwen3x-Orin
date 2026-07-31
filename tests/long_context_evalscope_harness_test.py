@@ -58,8 +58,14 @@ class Fixture:
         self.manifest = root / "manifest.json"
         self.server = root / "fake-server"
         self.output = root / "output"
+        self.prefill_a4_payload = root / "weights-a4-k64.bin"
+        self.prefill_a4_policy = root / "policy-1p0.json"
+        self.prefill_a4_receipt = root / "weights-a4-k64.bin.receipt.json"
         self.model_dir.mkdir()
         self.corpus_dir.mkdir()
+        self.prefill_a4_payload.write_bytes(b"host-only payload fixture\n")
+        self.prefill_a4_policy.write_text("{}\n", encoding="utf-8")
+        self.prefill_a4_receipt.write_text("{}\n", encoding="utf-8")
         tokenizer_hashes: dict[str, str] = {}
         for key, filename in (
             ("tokenizer_json_sha256", "tokenizer.json"),
@@ -71,9 +77,7 @@ class Fixture:
             tokenizer_hashes[key] = file_sha256(path)
         fake_server = (
             "#!/bin/sh\n"
-            "# Q3X_RUN_FULL_ATTENTION_LONG_CONTEXT_GROUP_Q64_ADMISSION\n"
-            "# Q3X_FULL_ATTENTION_FLASHINFER_DIRECT\n"
-            "# Q3X_RUN_LONG_PREFILL_LAYER_MAJOR_ADMISSION\n"
+            "# Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION\n"
             + "# " + ("x" * 262_144) + "\n"
             "exit 0\n"
         )
@@ -170,6 +174,12 @@ class Fixture:
     def command(self, *selectors: str) -> list[str]:
         return [
             str(RUNNER),
+            "--prefill-a4-payload",
+            str(self.prefill_a4_payload),
+            "--prefill-a4-policy",
+            str(self.prefill_a4_policy),
+            "--prefill-a4-receipt",
+            str(self.prefill_a4_receipt),
             str(self.server),
             str(self.model_dir),
             str(self.manifest),
@@ -213,7 +223,7 @@ class LongContextEvalScopeHarnessTest(unittest.TestCase):
         self.assertEqual(syntax.returncode, 0, syntax.stderr)
         result = self.fixture.run("all", "both")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("runs=4 dry_run=1", result.stdout)
+        self.assertIn("runs=4 mode=exact dry_run=1", result.stdout)
         self.assertIn("--max-sequence-length 8192", result.stdout)
         self.assertIn("--request-max-arena-bytes 873365504", result.stdout)
         self.assertIn("--max-sequence-length 16384", result.stdout)
@@ -222,13 +232,18 @@ class LongContextEvalScopeHarnessTest(unittest.TestCase):
         self.assertEqual(result.stdout.count("--request-max-arena-bytes 3703209984"), 2)
         self.assertIn("phase=cold16", result.stdout)
         self.assertIn("--max-output-tokens 16", result.stdout)
+        self.assertEqual(result.stdout.count("--prefill-a4-payload"), 4)
+        self.assertEqual(result.stdout.count("--prefill-a4-policy"), 4)
+        self.assertEqual(result.stdout.count("--prefill-a4-receipt"), 4)
+        self.assertIn("verification=readiness_log", result.stdout)
         self.assertIn("server_readiness_route=http://127.0.0.1:", result.stdout)
         self.assertIn("dry_run_complete=1 performance_evidence=0", result.stdout)
         self.assertFalse(self.fixture.output.exists())
 
     def test_wrong_manifest_hash_is_rejected(self) -> None:
         command = self.fixture.command("p8k", "prefill1")
-        command[4] = "0" * 64
+        manifest_index = command.index(str(self.fixture.manifest))
+        command[manifest_index + 1] = "0" * 64
         environment = os.environ.copy()
         environment["Q3X_LONG_EVAL_DRY_RUN"] = "1"
         result = subprocess.run(
@@ -256,12 +271,19 @@ class LongContextEvalScopeHarnessTest(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn("cold16 is defined only for p40k", result.stderr)
 
-    def test_binary_without_attention_build_marker_is_rejected(self) -> None:
+    def test_dry_run_does_not_claim_unobserved_runtime_admission(self) -> None:
         self.fixture.server.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
         self.fixture.server.chmod(0o755)
         result = self.fixture.run("p8k", "prefill1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("verification=readiness_log", result.stdout)
+        self.assertIn("startup_contract_check=deferred", result.stdout)
+
+    def test_missing_a4_receipt_is_rejected(self) -> None:
+        self.fixture.prefill_a4_receipt.unlink()
+        result = self.fixture.run("p8k", "prefill1")
         self.assertEqual(result.returncode, 2)
-        self.assertIn("long-context attention BUILD admission", result.stderr)
+        self.assertIn("missing required Prefill A4 receipt", result.stderr)
 
 
 if __name__ == "__main__":

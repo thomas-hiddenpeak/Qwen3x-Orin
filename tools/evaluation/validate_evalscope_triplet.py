@@ -400,8 +400,15 @@ def validate_run(
         latency = require_number(row[6], f"{label} latency")
         ttft = require_number(row[7], f"{label} first_chunk_latency")
         tpot = require_number(row[10], f"{label} time_per_output_token")
-        if not (0 < ttft <= latency and 0 < tpot <= latency):
+        if not (0 < ttft <= latency):
             raise EvidenceError(f"{label} has invalid latency components")
+        if completion_tokens == 1:
+            if tpot != 0.0 or itls:
+                raise EvidenceError(
+                    f"{label} one-token result must have TPOT=0 and no ITL"
+                )
+        elif not (0 < tpot <= latency):
+            raise EvidenceError(f"{label} has invalid TPOT")
         assert_close(
             completed_time - start_time,
             latency,
@@ -450,7 +457,11 @@ def validate_run(
         "p50_ttft_ms": nearest_observed(ttfts_ms, 50.0),
         "p99_ttft_ms": nearest_observed(ttfts_ms, 99.0),
         "mean_tpot_ms": statistics.fmean(tpots_ms),
-        "mean_itl_ms": statistics.fmean(itls_ms),
+        # EvalScope correctly has no inter-token interval for a one-token
+        # completion and reports both TPOT and ITL as zero. Preserve that
+        # defined boundary rather than rejecting the row or averaging an empty
+        # sequence.
+        "mean_itl_ms": statistics.fmean(itls_ms) if itls_ms else 0.0,
         "prompt_throughput_tok_s": prompt_tokens_total / wall_time,
         "completion_throughput_tok_s": completion_tokens_total / wall_time,
         "total_throughput_tok_s": (
