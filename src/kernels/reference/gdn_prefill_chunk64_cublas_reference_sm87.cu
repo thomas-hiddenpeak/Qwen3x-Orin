@@ -2893,75 +2893,147 @@ void prompt_span_persistent_state_o_bv64_kernel(
                            shared_k0, shared_k1, shared_gamma, thread);
     }
 
-    FaithfulM16N8Accumulator products[kFaithfulValuePanels];
+    {
+      FaithfulM16N8Accumulator products[kFaithfulValuePanels];
+#pragma unroll
+      for (unsigned int panel = 0U; panel < kFaithfulValuePanels;
+           ++panel) {
+        faithful_zero(products[panel]);
+      }
+
+#pragma unroll
+      for (unsigned int bank = 0U; bank < kFaithfulKeyBanks; ++bank) {
+        faithful_store_state_bank_shared(state, shared_transient, bank,
+                                         warp, lane);
+        __syncthreads();
+        if (!has_chunk) {
+          faithful_copy_state_bank_global(
+              shared_transient, state_output + head_state_base,
+              value_half, bank, thread);
+          __syncthreads();
+          continue;
+        }
+        if (bank == 0U) {
+          resident_state_cp_async_wait_all();
+        }
+        __syncthreads();
+
+        // First pass owns only W @ rounded(H), so its accumulator lifetime
+        // ends before the independent QH/QK accumulator set begins.
+        const std::uint16_t* const selected_w =
+            bank == 0U ? shared_w0 : shared_w1;
+#pragma unroll
+        for (unsigned int key_pair = 0U; key_pair < 2U; ++key_pair) {
+          FaithfulM16K16 w_fragment0{};
+          FaithfulM16K16 w_fragment1{};
+          faithful_load_a(w_fragment0, selected_w, warp,
+                          key_pair * 2U, lane);
+          faithful_load_a(w_fragment1, selected_w, warp,
+                          key_pair * 2U + 1U, lane);
+#pragma unroll
+          for (unsigned int panel = 0U;
+               panel < kFaithfulValuePanels; ++panel) {
+            FaithfulK16N8 state_fragment0{};
+            FaithfulK16N8 state_fragment1{};
+            faithful_load_b_pair_transposed(
+                state_fragment0, state_fragment1, shared_transient,
+                panel, key_pair, lane);
+            faithful_mma(products[panel], w_fragment0,
+                         state_fragment0);
+            faithful_mma(products[panel], w_fragment1,
+                         state_fragment1);
+          }
+        }
+        __syncthreads();
+      }
+
+      if (!has_chunk) {
+        return;
+      }
+
+      // Form the exact rounded Vnew tile directly in the shared [V,T]
+      // backing consumed by both the BV64 output MMA and the state update MMA.
+      const unsigned int group = lane >> 2U;
+      const unsigned int pair = lane & 3U;
+      const unsigned int token0 = warp * 16U + group;
+      const unsigned int token1 = token0 + 8U;
+#pragma unroll
+      for (unsigned int panel = 0U; panel < kFaithfulValuePanels;
+           ++panel) {
+        const std::uint32_t u0 = faithful_load_shared_pair(
+            shared_u, token0, panel, pair);
+        const std::uint32_t u1 = faithful_load_shared_pair(
+            shared_u, token1, panel, pair);
+        const std::uint32_t rounded0 = faithful_pack_pair(
+            decode_bf16_device(static_cast<std::uint16_t>(u0)) -
+                products[panel].x0,
+            decode_bf16_device(static_cast<std::uint16_t>(u0 >> 16U)) -
+                products[panel].x1);
+        const std::uint32_t rounded1 = faithful_pack_pair(
+            decode_bf16_device(static_cast<std::uint16_t>(u1)) -
+                products[panel].x2,
+            decode_bf16_device(static_cast<std::uint16_t>(u1 >> 16U)) -
+                products[panel].x3);
+        const unsigned int value0 = panel * 8U + pair * 2U;
+        const unsigned int value1 = value0 + 1U;
+        faithful_store_v_transposed(
+            shared_transient, value0, token0,
+            static_cast<std::uint16_t>(rounded0));
+        faithful_store_v_transposed(
+            shared_transient, value1, token0,
+            static_cast<std::uint16_t>(rounded0 >> 16U));
+        faithful_store_v_transposed(
+            shared_transient, value0, token1,
+            static_cast<std::uint16_t>(rounded1));
+        faithful_store_v_transposed(
+            shared_transient, value1, token1,
+            static_cast<std::uint16_t>(rounded1 >> 16U));
+      }
+      __syncthreads();
+
+      // U is dead after Vnew. Preserve the exact rounded [V,T] tile there so
+      // the second state-publication pass may reuse transient for rounded H.
+      constexpr unsigned int kFaithfulPanelVectors =
+          kFaithfulPanelBytes / sizeof(uint4);
+      for (unsigned int vector = thread; vector < kFaithfulPanelVectors;
+           vector += kFusedSolveThreads) {
+        reinterpret_cast<uint4*>(shared_u)[vector] =
+            reinterpret_cast<const uint4*>(shared_transient)[vector];
+      }
+      __syncthreads();
+    }
+
     FaithfulM16N8Accumulator qh[kFaithfulValuePanels];
     FaithfulM16N8Accumulator score[kFaithfulValuePanels];
 #pragma unroll
     for (unsigned int panel = 0U; panel < kFaithfulValuePanels;
          ++panel) {
-      faithful_zero(products[panel]);
       faithful_zero(qh[panel]);
       faithful_zero(score[panel]);
     }
 
+    // The second bank pass recomputes only the rounded-H publication. W is
+    // already dead and becomes Q staging; raw K remains in its original bank.
 #pragma unroll
     for (unsigned int bank = 0U; bank < kFaithfulKeyBanks; ++bank) {
       faithful_store_state_bank_shared(state, shared_transient, bank,
                                        warp, lane);
       __syncthreads();
-      if (!has_chunk) {
-        faithful_copy_state_bank_global(
-            shared_transient, state_output + head_state_base,
-            value_half, bank, thread);
-        __syncthreads();
-        continue;
-      }
-      if (bank == 0U) {
-        resident_state_cp_async_wait_all();
-      }
-      __syncthreads();
-
-      // W @ rounded(H) is the established Vnew correction.  Once this bank
-      // is consumed its W panel becomes Q staging storage for QH and QK.
-      std::uint16_t* const selected_w =
+      std::uint16_t* const selected_q =
           bank == 0U ? shared_w0 : shared_w1;
       const std::uint16_t* const selected_k =
           bank == 0U ? shared_k0 : shared_k1;
-#pragma unroll
-      for (unsigned int key_pair = 0U; key_pair < 2U; ++key_pair) {
-        FaithfulM16K16 w_fragment0{};
-        FaithfulM16K16 w_fragment1{};
-        faithful_load_a(w_fragment0, selected_w, warp,
-                        key_pair * 2U, lane);
-        faithful_load_a(w_fragment1, selected_w, warp,
-                        key_pair * 2U + 1U, lane);
-#pragma unroll
-        for (unsigned int panel = 0U;
-             panel < kFaithfulValuePanels; ++panel) {
-          FaithfulK16N8 state_fragment0{};
-          FaithfulK16N8 state_fragment1{};
-          faithful_load_b_pair_transposed(
-              state_fragment0, state_fragment1, shared_transient,
-              panel, key_pair, lane);
-          faithful_mma(products[panel], w_fragment0,
-                       state_fragment0);
-          faithful_mma(products[panel], w_fragment1,
-                       state_fragment1);
-        }
-      }
-      __syncthreads();
-
       faithful_stage_panel(matrix_q, kDimension, bank * 64U,
-                           selected_w, thread);
+                           selected_q, thread);
       resident_state_cp_async_wait_all();
       __syncthreads();
 #pragma unroll
       for (unsigned int key_pair = 0U; key_pair < 2U; ++key_pair) {
         FaithfulM16K16 q_fragment0{};
         FaithfulM16K16 q_fragment1{};
-        faithful_load_a(q_fragment0, selected_w, warp,
+        faithful_load_a(q_fragment0, selected_q, warp,
                         key_pair * 2U, lane);
-        faithful_load_a(q_fragment1, selected_w, warp,
+        faithful_load_a(q_fragment1, selected_q, warp,
                         key_pair * 2U + 1U, lane);
 #pragma unroll
         for (unsigned int panel = 0U;
@@ -2985,53 +3057,11 @@ void prompt_span_persistent_state_o_bv64_kernel(
       __syncthreads();
     }
 
-    if (!has_chunk) {
-      return;
-    }
-
-    // Form the exact rounded Vnew tile directly in the shared [V,T]
-    // backing consumed by both the BV64 output MMA and the state update MMA.
-    const unsigned int group = lane >> 2U;
-    const unsigned int pair = lane & 3U;
-    const unsigned int token0 = warp * 16U + group;
-    const unsigned int token1 = token0 + 8U;
-#pragma unroll
-    for (unsigned int panel = 0U; panel < kFaithfulValuePanels;
-         ++panel) {
-      const std::uint32_t u0 = faithful_load_shared_pair(
-          shared_u, token0, panel, pair);
-      const std::uint32_t u1 = faithful_load_shared_pair(
-          shared_u, token1, panel, pair);
-      const std::uint32_t rounded0 = faithful_pack_pair(
-          decode_bf16_device(static_cast<std::uint16_t>(u0)) -
-              products[panel].x0,
-          decode_bf16_device(static_cast<std::uint16_t>(u0 >> 16U)) -
-              products[panel].x1);
-      const std::uint32_t rounded1 = faithful_pack_pair(
-          decode_bf16_device(static_cast<std::uint16_t>(u1)) -
-              products[panel].x2,
-          decode_bf16_device(static_cast<std::uint16_t>(u1 >> 16U)) -
-              products[panel].x3);
-      const unsigned int value0 = panel * 8U + pair * 2U;
-      const unsigned int value1 = value0 + 1U;
-      faithful_store_v_transposed(
-          shared_transient, value0, token0,
-          static_cast<std::uint16_t>(rounded0));
-      faithful_store_v_transposed(
-          shared_transient, value1, token0,
-          static_cast<std::uint16_t>(rounded0 >> 16U));
-      faithful_store_v_transposed(
-          shared_transient, value0, token1,
-          static_cast<std::uint16_t>(rounded1));
-      faithful_store_v_transposed(
-          shared_transient, value1, token1,
-          static_cast<std::uint16_t>(rounded1 >> 16U));
-    }
-    __syncthreads();
-
     // Phase 1 of BV64: scale QH in FP32, then exchange the 64x64 tile so
     // each warp owns Q32xV32 for the in-place A@V accumulation.
     auto* const shared_qh = reinterpret_cast<float*>(shared_w0);
+    const unsigned int token0 = warp * 16U + (lane >> 2U);
+    const unsigned int token1 = token0 + 8U;
     const float gate0 = expf(shared_gamma[token0]);
     const float gate1 = expf(shared_gamma[token1]);
 #pragma unroll
@@ -3059,13 +3089,14 @@ void prompt_span_persistent_state_o_bv64_kernel(
     }
     __syncthreads();
 
-    // Q/K/H and U are dead.  Reuse U's swizzled 8-KiB panel for the exact
-    // BF16 causal score boundary, while shared_transient retains Vnew.
+    // Rounded H is dead. Reuse transient for the exact BF16 causal score
+    // boundary; U retains the copied rounded Vnew tile.
 #pragma unroll
     for (unsigned int panel = 0U; panel < kFaithfulValuePanels;
          ++panel) {
       faithful_store_gated_score_accumulator(
-          shared_u, score[panel], warp, panel, lane, shared_gamma);
+          shared_transient, score[panel], warp, panel, lane,
+          shared_gamma);
     }
     __syncthreads();
 
@@ -3077,16 +3108,16 @@ void prompt_span_persistent_state_o_bv64_kernel(
 #pragma unroll
       for (unsigned int n = 0U; n < kFaithfulValuePanels / 2U; ++n) {
         faithful_load_b_pair_transposed(
-            value_fragment0[n], value_fragment1[n], shared_transient,
+            value_fragment0[n], value_fragment1[n], shared_u,
             value_group * 4U + n, source_pair, lane);
       }
 #pragma unroll
       for (unsigned int m = 0U; m < 2U; ++m) {
         FaithfulM16K16 score_fragment0{};
         FaithfulM16K16 score_fragment1{};
-        faithful_load_a(score_fragment0, shared_u,
+        faithful_load_a(score_fragment0, shared_transient,
                         query_group * 2U + m, source_pair * 2U, lane);
-        faithful_load_a(score_fragment1, shared_u,
+        faithful_load_a(score_fragment1, shared_transient,
                         query_group * 2U + m,
                         source_pair * 2U + 1U, lane);
 #pragma unroll
@@ -3112,8 +3143,8 @@ void prompt_span_persistent_state_o_bv64_kernel(
     __syncthreads();
 
     // Preserve the project's rounded end-decayed-K state update exactly.
-    // shared W/QH and U/A are dead before these aliases are reused.
-    auto* const shared_raw_last = reinterpret_cast<float*>(shared_u);
+    // shared W/QH and transient/A are dead before these aliases are reused.
+    auto* const shared_raw_last = reinterpret_cast<float*>(shared_transient);
     if (thread == 0U) {
       shared_raw_last[0] = shared_gamma[kChunkSize - 1U];
     }
@@ -3152,7 +3183,7 @@ void prompt_span_persistent_state_o_bv64_kernel(
           FaithfulK16N8 v_fragment0{};
           FaithfulK16N8 v_fragment1{};
           faithful_load_b_pair_transposed(
-              v_fragment0, v_fragment1, shared_transient, panel,
+              v_fragment0, v_fragment1, shared_u, panel,
               token_pair, lane);
           faithful_mma(state[bank][panel], k_fragment0, v_fragment0);
           faithful_mma(state[bank][panel], k_fragment1, v_fragment1);

@@ -475,7 +475,7 @@ void test_prompt_span_vertical_slice_c64(TestContext& test,
       &active_blocks);
   test.expect(test.cuda_ok(resource_status,
                            "query prompt-span state-o resources") &&
-                  registers <= 255 && local_bytes <= 24U &&
+                  registers <= 255 && local_bytes == 0U &&
                   maximum_threads >= 128 && active_blocks >= 2,
               "prompt-span state-o retains two CTA/SM resource contract");
   std::cout << "GDN_PROMPT_SPAN_STATE_O_RESOURCES regs=" << registers
@@ -516,6 +516,12 @@ void test_prompt_span_vertical_slice_c64(TestContext& test,
                          ? 1U
                          : 0U;
   }
+  std::cout << "GDN_PROMPT_SPAN_NONEMPTY raw_nonzero=" << nonzero_raw
+            << " changed_state=" << changed_state
+            << " gate="
+            << (nonzero_raw != 0U && changed_state != 0U ? "PASS"
+                                                         : "FAIL")
+            << '\n';
   test.expect(nonzero_raw != 0U && changed_state != 0U,
               "prompt-span fixture exercises nonzero output and state update");
   (void)expect_equal(test, "GDN_PROMPT_SPAN_STATE_C64",

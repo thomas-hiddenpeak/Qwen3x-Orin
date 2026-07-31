@@ -2,13 +2,18 @@
 
 Date: 2026-07-31 (Asia/Shanghai)
 
-Base: `d0352eb5a8df464b9fe3c4356a91e96997b5ef35`
+Design base: `d0352eb5a8df464b9fe3c4356a91e96997b5ef35`
 
-Status: design closed; CUDA implementation intentionally not started in this
-bounded audit because the apparently small launcher extension is neither a
-safe memory change nor capable of the required real-path saving.  This note
-defines the first implementation slice and its stop-loss.  It does not change
-the production default, start a model server, or make a performance claim.
+Standalone implementation base: `6eccbbd`
+
+Status: the bounded fused state/output mechanism is implemented and retained
+as a standalone component, but runner admission and the 217.5-MiB workspace
+expansion are intentionally frozen.  A newer cumulative P2048 NSys profile
+invalidated the original GDN time budget: the complete GDN core is now only
+274.473 ms, so the old 400-ms request-saving gate is impossible.  Projection
+optimization has priority.  This note records the mechanism, its exact
+resource/correctness evidence, and the revised stop-loss; it does not change
+the production default or make a real-model speed claim.
 
 ## Result of the real runner audit
 
@@ -63,6 +68,33 @@ comparison boundary:
 These values come from
 `docs/analysis/prefill-k128-m128-direction-2026-07-31/README.md`; they are
 direction evidence, not a publication-quality distribution.
+
+### New cumulative P2048 kernel profile supersedes the old GDN budget
+
+A later request-level P2048 NSys capture on the current cumulative route
+measured the complete GDN core at **274.473 ms**.  Its top-level attribution
+is:
+
+| GDN stage | P2048 total |
+|---|---:|
+| chunk-o BV64 | 69.581 ms |
+| persistent state | 59.402 ms |
+| convolution | 39.599 ms |
+| W/U recompute | 37.804 ms |
+| solve | 32.444 ms |
+| rows-8 norm/gate | 26.613 ms |
+| compact Gram | 6.820 ms |
+| gate preparation | 2.211 ms |
+| **complete GDN core** | **274.473 ms** |
+
+The two stages targeted by the vertical fusion total only **128.983 ms**.
+That number is an absolute elimination ceiling, not an achievable saving:
+the fused kernel must still execute both algebraic stages and now performs an
+extra shared-state publication plus a shared Vnew copy to keep register
+lifetimes spill-free.  Consequently the earlier `>=400 ms` request gate and
+the claim that this slice could supply such a saving are withdrawn.  No
+runner integration or large workspace allocation is justified by this
+profile alone.
 
 ## Why a token-limit extension is rejected before implementation
 
@@ -184,7 +216,7 @@ prompt_span_bytes(capacity))`; legacy misses partition only their established
 prefix.  The default environment continues to allocate exactly the current
 legacy size.  No new persistent request-state region is required.
 
-## Concrete implementation map
+## Concrete implementation map (frozen after the standalone mechanism)
 
 1. `src/kernels/reference/gdn_prefill_whole_span_conv_sm87.{h,cu}`
    - add a prompt-span launcher that writes compact Q/K and contiguous
@@ -219,6 +251,12 @@ legacy size.  No new persistent request-state region is required.
 
 Production default, Decode, MTP, and cuBLASLt remain unchanged.
 
+Only item 3's fused state/output ownership and the pure host workspace/shape
+contract were completed in this bounded round.  Items 1, 2, and 4--6 are
+deferred; in particular, the runtime selector and 217.5-MiB allocation were
+not added.  Reopening them requires projection work to finish and the revised
+real-path gate below to remain economically relevant.
+
 ## Correctness gate before any model timing
 
 Synthetic data is permitted only here.
@@ -239,33 +277,47 @@ Synthetic data is permitted only here.
 Every GPU test must take `/tmp/q3x-gpu-bench.lock` with `flock`.  It must not
 start a model server or run while an EvalScope/server process owns the lock.
 
-## First real-path stop-loss
+### Standalone mechanism evidence
 
-After the CUDA and host gates pass, use one same-ELF real-model OpenAI
-generation comparison with the authenticated K128 publication and all
-current cumulative selectors.  The only delta is
-`Q3X_RUN_GDN_PROMPT_SPAN_NATIVE_ADMISSION=1`.
+The first fused C64 fixture compares the incumbent faithful-state plus
+separate BV64 output sequence against the fused 96-CTA mechanism.  It checks
+that the fixture produces nonzero raw output and changes recurrent state, then
+requires complete final-state, raw-output, and normalized-output tensors to
+be bitwise equal.  Offline cubin/SASS audit after shortening the product and
+QH/QK lifetimes reports:
 
-First request: the frozen natural P2048 token array, batch one, temperature
-zero, one generated token.  Record server `prompt_prefill_ms`, HTTP total,
-generated token/text, prompt usage, route hits, and peak allocation.
+```text
+threads/CTA: 128
+CTA count: 96 (48 value heads x 2 value halves)
+registers/thread: 248
+stack bytes/thread: 0
+local bytes/thread: 0
+LDL/STL instructions: 0
+active blocks/SM: 2
+```
 
-The candidate advances only if all of the following hold on that first
-direction request:
+The shared BF16 round/reload after every eighth C64 remains in the kernel.
+Long-span C1024/C2048 and real-model timing are deliberately not claimed by
+the standalone C64 fixture.
 
-- generated token/text and usage match;
-- exactly 48 prompt-span hits and zero native C512 hits for the 48 linear
-  layers;
-- server Prefill saves **at least 400 ms** versus the same-ELF incumbent;
-- no allocation failure and no fallback.
+## Revised real-path stop-loss and priority
 
-Against the current 3,554.425-ms directional mean, the numerical stop line is
-3,154.425 ms or lower (at least 649.24 prompt token/s).  A saving between zero
-and 400 ms is positive but insufficient for this system architecture and is
-withdrawn rather than accumulated as another local optimum.  A negative
-first request stops immediately; NSys/NCU may be collected only for failure
-attribution.
+Projection optimization now precedes any prompt-span GDN runner work.  If the
+standalone mechanism is revisited, first complete its C1024/C2048 boundary
+fixture without allocating runner workspace.  Only then may one same-ELF
+real-model OpenAI generation comparison add a temporary admission route.  The
+first request remains the frozen natural P2048 token array, batch one,
+temperature zero, one generated token.
 
-Only after P2048 passes should the same resident process run the natural P4K
-request, then repeated/statistical and capability gates.  No EvalScope matrix
-is justified before those two simple real requests pass.
+The revised first direction gate is a request-level Prefill saving of **at
+least 50 ms**, with identical generated token/text and usage, exactly 48
+prompt-span hits, zero incumbent native-C512 hits for the linear layers, and
+no allocation failure/fallback.  Fifty milliseconds is already 38.8% of the
+128.983-ms absolute state-plus-chunk-o elimination ceiling.  A smaller saving
+does not justify a 217.5-MiB opt-in workspace or further runtime complexity
+and the standalone mechanism remains archived.  A negative first request
+stops immediately; NSys/NCU is permitted only for attribution.
+
+Only a passing P2048 direction may proceed to natural P4K and repeated
+statistics.  No EvalScope matrix is justified before those two simple real
+requests pass.
