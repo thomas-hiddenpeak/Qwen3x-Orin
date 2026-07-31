@@ -1,8 +1,9 @@
 # SM87 NVFP4 Down complete-cell v2 design
 
-Status: standalone structural admission passed and a default-off runtime
-vertical slice is wired.  The production default is unchanged; real-weight
-timing has not yet been run and no performance claim is made here.
+Status: standalone structural admission passed, a default-off runtime vertical
+slice is wired, and the first real-weight generation gate is repeat-positive.
+The production default is unchanged; the candidate is retained for cumulative
+work but has not passed the same-ELF statistical or EvalScope promotion gates.
 
 ## Pinned shape and contract
 
@@ -139,3 +140,46 @@ calls also passed.  The PTX sentinel found the required SM87 S4 MMA and
 features are disabled on this target configuration; the executable itself
 still completed all four exactness cases during that invocation.  This is an
 environmental coverage limitation, not a sanitizer pass.
+
+## Real-generation direction gate
+
+The runtime slice was measured with the pinned real
+`nvidia/Qwen3.6-27B-NVFP4@0893e160` checkpoint, authenticated full-model K128
+publication, a natural ShareGPT P4K request truncated to exactly 2,048 token
+IDs, and the OpenAI-compatible `/v1/completions` path with one generated token.
+Synthetic matrices were not used for this performance decision.
+
+The same candidate process enabled only the retained cumulative bundle plus
+the new Down selector:
+
+```text
+Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION=1
+Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION=1
+Q3X_RUN_BF16_AB_LARGE_M_PREFILL_ADMISSION=1
+Q3X_RUN_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION=1
+```
+
+Gate+Up complete-cell, old M128, and short-Prefill selectors remained off.
+The measured ELF SHA-256 was
+`3c75e0ea9614fff42651da25bbae9ca5cf02dd2b079cc7596aa04a71b556666b`.
+
+| P2048 request | Server-side Prefill | Prompt rate | HTTP total |
+|---|---:|---:|---:|
+| run 1 | 3458.01 ms | 592.25 tok/s | 3.461642 s |
+| run 2 | 3446.27 ms | 594.26 tok/s | 3.454676 s |
+| run 3 | 3446.57 ms | 594.21 tok/s | 3.451667 s |
+| mean | 3450.283 ms | 593.574 tok/s | 3.456 s |
+
+Against the frozen cumulative server-side baseline mean of `3554.425 ms`
+(`576.18 tok/s`), the candidate saves `104.142 ms`, reduces Prefill latency by
+`2.930%`, and improves prompt throughput by `3.018%`.  All three requests were
+positive against the frozen mean, so the mechanism passes the requested
+real-path direction gate and is retained.
+
+This comparison intentionally remains an experiment gate rather than a
+production promotion: the frozen baseline came from an earlier ELF.  A
+same-ELF interleaved baseline/candidate replay, profiler hit proof, natural
+length matrix, and public capability checks are still required before a
+default change.  The gain is useful but not structural enough to alter the
+main priority: the projection plane still needs a new compressed-weight
+consumer architecture to reach the 2,000-token/s system target.
