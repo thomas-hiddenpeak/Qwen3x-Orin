@@ -125,7 +125,7 @@ namespace kernels = q3x::kernels;
          generic1804.prefix_token_count == 1'792U &&
          generic1804.tail_token_count == 12U &&
          generic1804.prefix_kernel ==
-             kernels::Sm87A4W4PrefillK64CompositePrefixKernel::kM64N64K64 &&
+             kernels::Sm87A4W4PrefillK64CompositePrefixKernel::kM64N256K64 &&
          generic3987.prefix_token_count == 3'968U &&
          generic3987.tail_token_count == 19U &&
          generic3987.prefix_kernel ==
@@ -141,7 +141,7 @@ namespace kernels = q3x::kernels;
          paired1804.prefix_token_count == 1'792U &&
          paired1804.tail_token_count == 12U &&
          paired1804.prefix_plan.kernel ==
-             kernels::Sm87A4W4GateUpPairedKernel::kM64N64K64 &&
+             kernels::Sm87A4W4GateUpPairedKernel::kM64N128K64 &&
          paired3987.prefix_token_count == 3'968U &&
          paired3987.tail_token_count == 19U &&
          paired3987.prefix_plan.kernel ==

@@ -47,11 +47,13 @@ inline constexpr std::size_t kSm87A4W4PrefillLargeMMinimumTokens = 1'024U;
 // Whole-M wide-N candidate.  Each CTA owns M64N256 and assigns the eight
 // warps as 2x4 M32N64 warp tiles.  Two adjacent K64 groups share one logical
 // pipeline buffer without changing their accumulation order.  The candidate
-// is admitted for the complete M64/N256 prefix at P>=2048; P1024 remains on
-// M64N64 and any residual 1..63 rows remain on M32N128.
+// is admitted for a complete M64/N256 prefix at P>=1536. P1024 remains on
+// M64N64, while the natural P2K bucket no longer falls back merely because
+// its aligned prefix is slightly below 2048. Any residual 1..63 rows remain
+// on M32N128.
 inline constexpr std::size_t kSm87A4W4PrefillWideTileM = 64U;
 inline constexpr std::size_t kSm87A4W4PrefillWideTileN = 256U;
-inline constexpr std::size_t kSm87A4W4PrefillWideMinimumTokens = 2'048U;
+inline constexpr std::size_t kSm87A4W4PrefillWideMinimumTokens = 1'536U;
 inline constexpr std::size_t kSm87A4W4PrefillWideLogicalTileK = 128U;
 inline constexpr std::size_t kSm87A4W4PrefillWidePipelineStages = 2U;
 
@@ -394,6 +396,8 @@ static_assert(sm87_a4w4_prefill_uses_large_m_candidate(1'024U));
 static_assert(sm87_a4w4_prefill_uses_large_m_candidate(4'096U));
 static_assert(!sm87_a4w4_prefill_uses_large_m_candidate(4'097U));
 static_assert(!sm87_a4w4_prefill_uses_m64n256_candidate(1'024U, 5'120U));
+static_assert(!sm87_a4w4_prefill_uses_m64n256_candidate(1'472U, 5'120U));
+static_assert(sm87_a4w4_prefill_uses_m64n256_candidate(1'536U, 5'120U));
 static_assert(sm87_a4w4_prefill_uses_m64n256_candidate(2'048U, 5'120U));
 static_assert(!sm87_a4w4_prefill_uses_m64n256_candidate(2'048U, 5'184U));
 static_assert(!sm87_a4w4_prefill_uses_m64n256_candidate(2'049U, 5'120U));
@@ -407,6 +411,10 @@ static_assert(sm87_a4w4_prefill_gemm_k64_composite_plan(
 static_assert(sm87_a4w4_prefill_gemm_k64_composite_plan(
                   1'025U, 5'120U, 17'408U)
                   .tail_token_count == 1U);
+static_assert(sm87_a4w4_prefill_gemm_k64_composite_plan(
+                  1'804U, 5'120U, 17'408U)
+                  .prefix_kernel ==
+              Sm87A4W4PrefillK64CompositePrefixKernel::kM64N256K64);
 static_assert(sm87_a4w4_prefill_gemm_k64_composite_plan(
                   2'049U, 5'120U, 17'408U)
                   .prefix_kernel ==

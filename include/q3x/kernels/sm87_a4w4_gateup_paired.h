@@ -48,16 +48,17 @@ inline constexpr std::size_t kSm87A4W4GateUpLargeMTileN = 64U;
 inline constexpr std::size_t kSm87A4W4GateUpLargeMTileK = 64U;
 inline constexpr std::size_t kSm87A4W4GateUpLargeMMinimumTokens = 1'024U;
 
-// Whole-M Gate+Up candidate for spans at and above P2048.  Eight warps own a
-// 2x4 array of M32xN32 warp tiles.  Relative to M64N64 this keeps each A K64
-// plane resident while consuming twice as many Gate/Up rows, reducing the
-// work-tile count without changing the consumer-order A4/K64 ABI.
+// Whole-M Gate+Up candidate for aligned prefixes at and above P1536. Eight
+// warps own a 2x4 array of M32xN32 warp tiles. Relative to M64N64 this keeps
+// each A K64 plane resident while consuming twice as many Gate/Up rows,
+// reducing the work-tile count without changing the consumer-order A4/K64
+// ABI. P1024 remains protected on M64N64.
 inline constexpr std::size_t kSm87A4W4GateUpWideLargeMTileM = 64U;
 inline constexpr std::size_t kSm87A4W4GateUpWideLargeMTileN = 128U;
 inline constexpr std::size_t kSm87A4W4GateUpWideLargeMTileK = 64U;
 inline constexpr std::size_t kSm87A4W4GateUpWideLargeMLogicalTileK = 128U;
 inline constexpr std::size_t kSm87A4W4GateUpWideLargeMPipelineSlots = 2U;
-inline constexpr std::size_t kSm87A4W4GateUpWideLargeMMinimumTokens = 2'048U;
+inline constexpr std::size_t kSm87A4W4GateUpWideLargeMMinimumTokens = 1'536U;
 
 // Independent K128 shared-scale Gate+Up vertical slice.  The packed-code
 // planes retain the two physical K64 blocks per logical K128 group, while
@@ -386,12 +387,20 @@ static_assert(sm87_a4w4_gateup_paired_plan(1'024U, 17'408U, 5'120U)
                   .n_tiles == 272U);
 static_assert(sm87_a4w4_gateup_paired_plan(1'088U, 17'408U, 5'120U)
                   .kernel == Sm87A4W4GateUpPairedKernel::kM64N64K64);
+static_assert(sm87_a4w4_gateup_paired_plan(1'472U, 17'408U, 5'120U)
+                  .kernel == Sm87A4W4GateUpPairedKernel::kM64N64K64);
+static_assert(sm87_a4w4_gateup_paired_plan(1'536U, 17'408U, 5'120U)
+                  .kernel == Sm87A4W4GateUpPairedKernel::kM64N128K64);
 static_assert(sm87_a4w4_gateup_paired_plan(1'025U, 17'408U, 5'120U)
                   .kernel == Sm87A4W4GateUpPairedKernel::kM32N128K64);
 static_assert(sm87_a4w4_gateup_paired_k64_composite_plan(
                   1'025U, 17'408U, 5'120U)
                   .prefix_plan.kernel ==
               Sm87A4W4GateUpPairedKernel::kM64N64K64);
+static_assert(sm87_a4w4_gateup_paired_k64_composite_plan(
+                  1'804U, 17'408U, 5'120U)
+                  .prefix_plan.kernel ==
+              Sm87A4W4GateUpPairedKernel::kM64N128K64);
 static_assert(sm87_a4w4_gateup_paired_k64_composite_plan(
                   2'049U, 17'408U, 5'120U)
                   .prefix_plan.kernel ==
