@@ -460,6 +460,108 @@ void test_bf16_logits_memo_perf(TestContext& test) {
               "memoized packed-logits analyzer clears the B-C-C-B gate");
 }
 
+void test_gdn_prompt_span_plan(TestContext& test) {
+  constexpr detail::GdnPromptSpanWorkspacePlan maximum_workspace =
+      detail::gdn_prompt_span_workspace_plan(4'096U);
+  static_assert(maximum_workspace.valid());
+  static_assert(maximum_workspace.total_bytes == 228'065'280U);
+  static_assert(maximum_workspace.compact_q.size_bytes == 16U << 20U);
+  static_assert(maximum_workspace.compact_k.size_bytes == 16U << 20U);
+  static_assert(maximum_workspace.convolved_v.size_bytes == 48U << 20U);
+  static_assert(maximum_workspace.transform.size_bytes == 24U << 20U);
+  static_assert(maximum_workspace.w.size_bytes == 48U << 20U);
+  static_assert(maximum_workspace.u.size_bytes == 48U << 20U);
+  static_assert(maximum_workspace.raw_gram.size_bytes == 16U << 20U);
+  static_assert(maximum_workspace.gamma.size_bytes == 786'432U);
+  static_assert(maximum_workspace.beta.size_bytes == 786'432U);
+
+  constexpr detail::GdnPromptSpanWorkspacePlan p2048_workspace =
+      detail::gdn_prompt_span_workspace_plan(2'048U);
+  constexpr detail::GdnPromptSpanWorkspacePlan p544_workspace =
+      detail::gdn_prompt_span_workspace_plan(544U);
+  test.expect(
+      maximum_workspace.valid() && maximum_workspace.chunk_count == 64U &&
+          p2048_workspace.valid() &&
+          p2048_workspace.total_bytes == 114'032'640U &&
+          p544_workspace.valid() && p544_workspace.chunk_count == 9U &&
+          p544_workspace.padded_token_capacity == 576U &&
+          p544_workspace.total_bytes == 32'071'680U &&
+          !detail::gdn_prompt_span_workspace_plan(512U).valid() &&
+          !detail::gdn_prompt_span_workspace_plan(4'097U).valid(),
+      "prompt-span GDN workspace scales by C64 and caps exactly at 217.5 MiB");
+
+  constexpr detail::GdnPromptSpanNativePlan p544 =
+      detail::gdn_prompt_span_native_plan(544U);
+  constexpr detail::GdnPromptSpanNativePlan p1024 =
+      detail::gdn_prompt_span_native_plan(1'024U);
+  constexpr detail::GdnPromptSpanNativePlan p2048 =
+      detail::gdn_prompt_span_native_plan(2'048U);
+  constexpr detail::GdnPromptSpanNativePlan p4096 =
+      detail::gdn_prompt_span_native_plan(4'096U);
+  test.expect(
+      p544.valid() && p544.chunk_count == 9U &&
+          p544.virtual_c512_tile_count == 2U &&
+          p544.intermediate_bf16_state_boundaries == 1U &&
+          p1024.valid() && p1024.chunk_count == 16U &&
+          p1024.intermediate_bf16_state_boundaries == 1U &&
+          p2048.valid() && p2048.chunk_count == 32U &&
+          p2048.intermediate_bf16_state_boundaries == 3U &&
+          p4096.valid() && p4096.chunk_count == 64U &&
+          p4096.virtual_c512_tile_count == 8U &&
+          p4096.intermediate_bf16_state_boundaries == 7U &&
+          !detail::gdn_prompt_span_native_plan(513U).valid() &&
+          !detail::gdn_prompt_span_native_plan(1'025U).valid() &&
+          detail::gdn_prompt_span_native_plan(1'056U).valid() &&
+          !detail::gdn_prompt_span_native_plan(4'097U).valid(),
+      "prompt-span GDN plan preserves each intermediate C512 BF16 boundary "
+      "and rejects the incumbent exact tail");
+
+  const auto selected = [&](const bool admission_enabled,
+                            const bool kernel_available,
+                            const runtime::ProjectionBackend backend,
+                            const q3x::model::LayerType layer_type,
+                            const bool capture_trace,
+                            const bool optimized_disabled,
+                            const std::size_t workspace_bytes) {
+    return detail::use_gdn_prompt_span_native_prefill(
+        admission_enabled, kernel_available, backend, layer_type,
+        capture_trace, optimized_disabled, 2'048U, workspace_bytes);
+  };
+  test.expect(
+      selected(true, true, runtime::ProjectionBackend::kSm87WeightOnly,
+               q3x::model::LayerType::kLinearAttention, false, false,
+               p2048.workspace_bytes) &&
+          !selected(false, true,
+                    runtime::ProjectionBackend::kSm87WeightOnly,
+                    q3x::model::LayerType::kLinearAttention, false, false,
+                    p2048.workspace_bytes) &&
+          !selected(true, false,
+                    runtime::ProjectionBackend::kSm87WeightOnly,
+                    q3x::model::LayerType::kLinearAttention, false, false,
+                    p2048.workspace_bytes) &&
+          !selected(true, true, runtime::ProjectionBackend::kReference,
+                    q3x::model::LayerType::kLinearAttention, false, false,
+                    p2048.workspace_bytes) &&
+          !selected(true, true,
+                    runtime::ProjectionBackend::kSm87WeightOnly,
+                    q3x::model::LayerType::kFullAttention, false, false,
+                    p2048.workspace_bytes) &&
+          !selected(true, true,
+                    runtime::ProjectionBackend::kSm87WeightOnly,
+                    q3x::model::LayerType::kLinearAttention, true, false,
+                    p2048.workspace_bytes) &&
+          !selected(true, true,
+                    runtime::ProjectionBackend::kSm87WeightOnly,
+                    q3x::model::LayerType::kLinearAttention, false, true,
+                    p2048.workspace_bytes) &&
+          !selected(true, true,
+                    runtime::ProjectionBackend::kSm87WeightOnly,
+                    q3x::model::LayerType::kLinearAttention, false, false,
+                    p2048.workspace_bytes - 1U),
+      "prompt-span GDN selector is independently opt-in and preserves all "
+      "fallback contracts");
+}
+
 void test_schedule_and_workspace(TestContext& test) {
   std::size_t linear = 0U;
   std::size_t full = 0U;
@@ -1810,6 +1912,7 @@ int main() {
   test_bf16_argmax_analysis(test);
   test_bf16_logits_bits_analysis(test);
   test_bf16_logits_memo_perf(test);
+  test_gdn_prompt_span_plan(test);
   test_schedule_and_workspace(test);
   test_fake_linear_weight_validation(test);
   test_a4w4_full_prefill_admission_controls(test);

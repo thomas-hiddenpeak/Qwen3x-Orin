@@ -263,6 +263,205 @@ struct ReferenceTraceView {
 
 namespace reference_runner_detail {
 
+// Prompt-span native GDN is a model-specific, independently admitted route.
+// It keeps the existing C64 algebra and the existing C512 BF16 state boundary,
+// but one CTA owns a (value head, value half) pair across all chunks in the
+// span.  These constants are part of the host/device allocation contract; the
+// route is never allowed to silently grow the legacy C512 workspace.
+inline constexpr std::size_t kGdnPromptSpanChunkTokens = 64U;
+inline constexpr std::size_t kGdnPromptSpanStateBoundaryChunks = 8U;
+inline constexpr std::size_t kGdnPromptSpanMinimumTokens = 513U;
+inline constexpr std::size_t kGdnPromptSpanMaximumTokens = 4'096U;
+inline constexpr std::size_t kGdnPromptSpanWorkspaceAlignment = 256U;
+inline constexpr std::size_t kGdnPromptSpanMaximumWorkspaceBytes =
+    228'065'280U;  // 217.5 MiB at M=4096.
+
+struct GdnPromptSpanWorkspaceRegion final {
+  std::size_t offset_bytes = 0U;
+  std::size_t size_bytes = 0U;
+
+  [[nodiscard]] constexpr std::size_t end_bytes() const noexcept {
+    return offset_bytes + size_bytes;
+  }
+};
+
+// The large-M route deliberately materializes only the arrays required by
+// the unchanged conv/WY/norm stages.  In particular, boundary_state and
+// v_new are absent: the fused persistent-state + BV64 consumer retains both
+// inside the owning CTA.
+struct GdnPromptSpanWorkspacePlan final {
+  std::size_t logical_token_capacity = 0U;
+  std::size_t padded_token_capacity = 0U;
+  std::size_t chunk_count = 0U;
+  GdnPromptSpanWorkspaceRegion compact_q{};
+  GdnPromptSpanWorkspaceRegion compact_k{};
+  GdnPromptSpanWorkspaceRegion convolved_v{};
+  GdnPromptSpanWorkspaceRegion transform{};
+  GdnPromptSpanWorkspaceRegion w{};
+  GdnPromptSpanWorkspaceRegion u{};
+  GdnPromptSpanWorkspaceRegion raw_gram{};
+  GdnPromptSpanWorkspaceRegion gamma{};
+  GdnPromptSpanWorkspaceRegion beta{};
+  std::size_t total_bytes = 0U;
+
+  [[nodiscard]] constexpr bool valid() const noexcept {
+    return logical_token_capacity >= kGdnPromptSpanMinimumTokens &&
+           logical_token_capacity <= kGdnPromptSpanMaximumTokens &&
+           padded_token_capacity ==
+               chunk_count * kGdnPromptSpanChunkTokens &&
+           padded_token_capacity >= logical_token_capacity &&
+           compact_q.end_bytes() <= compact_k.offset_bytes &&
+           compact_k.end_bytes() <= convolved_v.offset_bytes &&
+           convolved_v.end_bytes() <= transform.offset_bytes &&
+           transform.end_bytes() <= w.offset_bytes &&
+           w.end_bytes() <= u.offset_bytes &&
+           u.end_bytes() <= raw_gram.offset_bytes &&
+           raw_gram.end_bytes() <= gamma.offset_bytes &&
+           gamma.end_bytes() <= beta.offset_bytes &&
+           beta.end_bytes() == total_bytes &&
+           total_bytes <= kGdnPromptSpanMaximumWorkspaceBytes;
+  }
+};
+
+[[nodiscard]] constexpr std::size_t gdn_prompt_span_align_workspace(
+    const std::size_t byte_count) noexcept {
+  return (byte_count + kGdnPromptSpanWorkspaceAlignment - 1U) /
+         kGdnPromptSpanWorkspaceAlignment *
+         kGdnPromptSpanWorkspaceAlignment;
+}
+
+[[nodiscard]] constexpr GdnPromptSpanWorkspaceRegion
+gdn_prompt_span_workspace_region(
+    const std::size_t previous_end,
+    const std::size_t byte_count) noexcept {
+  return {gdn_prompt_span_align_workspace(previous_end), byte_count};
+}
+
+[[nodiscard]] constexpr GdnPromptSpanWorkspacePlan
+gdn_prompt_span_workspace_plan(
+    const std::size_t logical_token_capacity) noexcept {
+  if (logical_token_capacity < kGdnPromptSpanMinimumTokens ||
+      logical_token_capacity > kGdnPromptSpanMaximumTokens) {
+    return {};
+  }
+
+  constexpr std::size_t kBf16Bytes = 2U;
+  constexpr std::size_t kFp32Bytes = 4U;
+  constexpr std::size_t kQueryKeyHeads = 16U;
+  constexpr std::size_t kValueHeads = 48U;
+  constexpr std::size_t kHeadDimension = 128U;
+  constexpr std::size_t kWyRank = 64U;
+  const std::size_t chunk_count =
+      (logical_token_capacity + kGdnPromptSpanChunkTokens - 1U) /
+      kGdnPromptSpanChunkTokens;
+  const std::size_t padded_token_capacity =
+      chunk_count * kGdnPromptSpanChunkTokens;
+
+  GdnPromptSpanWorkspacePlan plan;
+  plan.logical_token_capacity = logical_token_capacity;
+  plan.padded_token_capacity = padded_token_capacity;
+  plan.chunk_count = chunk_count;
+  plan.compact_q = gdn_prompt_span_workspace_region(
+      0U, padded_token_capacity * kQueryKeyHeads * kHeadDimension *
+              kBf16Bytes);
+  plan.compact_k = gdn_prompt_span_workspace_region(
+      plan.compact_q.end_bytes(),
+      padded_token_capacity * kQueryKeyHeads * kHeadDimension *
+          kBf16Bytes);
+  plan.convolved_v = gdn_prompt_span_workspace_region(
+      plan.compact_k.end_bytes(),
+      padded_token_capacity * kValueHeads * kHeadDimension * kBf16Bytes);
+  plan.transform = gdn_prompt_span_workspace_region(
+      plan.convolved_v.end_bytes(),
+      chunk_count * kValueHeads * kWyRank * kWyRank * kBf16Bytes);
+  plan.w = gdn_prompt_span_workspace_region(
+      plan.transform.end_bytes(),
+      chunk_count * kValueHeads * kWyRank * kHeadDimension * kBf16Bytes);
+  plan.u = gdn_prompt_span_workspace_region(
+      plan.w.end_bytes(),
+      chunk_count * kValueHeads * kWyRank * kHeadDimension * kBf16Bytes);
+  plan.raw_gram = gdn_prompt_span_workspace_region(
+      plan.u.end_bytes(),
+      chunk_count * kQueryKeyHeads * kWyRank * kWyRank * kFp32Bytes);
+  plan.gamma = gdn_prompt_span_workspace_region(
+      plan.raw_gram.end_bytes(),
+      chunk_count * kValueHeads * kWyRank * kFp32Bytes);
+  plan.beta = gdn_prompt_span_workspace_region(
+      plan.gamma.end_bytes(),
+      chunk_count * kValueHeads * kWyRank * kFp32Bytes);
+  plan.total_bytes = plan.beta.end_bytes();
+  return plan.valid() ? plan : GdnPromptSpanWorkspacePlan{};
+}
+
+struct GdnPromptSpanNativePlan final {
+  std::size_t logical_token_count = 0U;
+  std::size_t padded_token_count = 0U;
+  std::size_t chunk_count = 0U;
+  std::size_t virtual_c512_tile_count = 0U;
+  std::size_t intermediate_bf16_state_boundaries = 0U;
+  std::size_t workspace_bytes = 0U;
+
+  [[nodiscard]] constexpr bool valid() const noexcept {
+    return logical_token_count >= kGdnPromptSpanMinimumTokens &&
+           logical_token_count <= kGdnPromptSpanMaximumTokens &&
+           padded_token_count == chunk_count * kGdnPromptSpanChunkTokens &&
+           virtual_c512_tile_count ==
+               (logical_token_count + 511U) / 512U &&
+           workspace_bytes != 0U &&
+           workspace_bytes <= kGdnPromptSpanMaximumWorkspaceBytes;
+  }
+};
+
+// The incumbent sends a final C512 remainder of 1..31 tokens through the
+// exact recurrent tail.  Until a bit-exact tail is part of this route, those
+// shapes must remain on the incumbent path.  Every eighth C64 chunk performs
+// an in-CTA BF16 round/reload before continuing, preserving the incumbent's
+// C512 state boundary without surrendering CTA ownership.
+[[nodiscard]] constexpr GdnPromptSpanNativePlan gdn_prompt_span_native_plan(
+    const std::size_t logical_token_count) noexcept {
+  const std::size_t c512_tail = logical_token_count % 512U;
+  if (logical_token_count < kGdnPromptSpanMinimumTokens ||
+      logical_token_count > kGdnPromptSpanMaximumTokens ||
+      (c512_tail != 0U && c512_tail < 32U)) {
+    return {};
+  }
+  const GdnPromptSpanWorkspacePlan workspace =
+      gdn_prompt_span_workspace_plan(logical_token_count);
+  if (!workspace.valid()) {
+    return {};
+  }
+  const std::size_t intermediate_boundaries =
+      (workspace.chunk_count - 1U) /
+      kGdnPromptSpanStateBoundaryChunks;
+  return {logical_token_count,
+          workspace.padded_token_capacity,
+          workspace.chunk_count,
+          (logical_token_count + 511U) / 512U,
+          intermediate_boundaries,
+          workspace.total_bytes};
+}
+
+// Pure-host production admission contract. prompt_span_admission_enabled is
+// supplied only by the route's own exact-value environment/runner setting and
+// therefore defaults false independently of the legacy native-C512 selector.
+[[nodiscard]] constexpr bool use_gdn_prompt_span_native_prefill(
+    const bool prompt_span_admission_enabled,
+    const bool native_kernel_available,
+    const ProjectionBackend backend,
+    const model::LayerType layer_type,
+    const bool capture_trace,
+    const bool optimized_prefill_disabled,
+    const std::size_t logical_token_count,
+    const std::size_t workspace_capacity_bytes) noexcept {
+  const GdnPromptSpanNativePlan plan =
+      gdn_prompt_span_native_plan(logical_token_count);
+  return prompt_span_admission_enabled && native_kernel_available &&
+         backend == ProjectionBackend::kSm87WeightOnly &&
+         layer_type == model::LayerType::kLinearAttention &&
+         !capture_trace && !optimized_prefill_disabled && plan.valid() &&
+         workspace_capacity_bytes >= plan.workspace_bytes;
+}
+
 // Public, allocation-free test/oracle helpers. The logits analyzer first
 // rounds every value in-place to BF16 RNE and expands it back to FP32, matching
 // the vLLM BF16 logits boundary. Any NaN or infinity is rejected. Argmax ties
