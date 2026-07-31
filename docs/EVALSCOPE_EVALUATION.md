@@ -151,6 +151,20 @@ selector, so rejected M128 generic and Down candidates cannot leak into this
 mode. `cumulative-prefill` is an evaluation bundle, not a claim that all three
 mechanisms have been promoted to production defaults.
 
+Use `--mode cumulative-prefill-short` with the pure-Prefill harness to measure
+the retained short-context direction. It starts from the same three-selector
+`cumulative-prefill` bundle and adds exactly
+`Q3X_RUN_SHORT_PREFILL_LAYER_MAJOR_ADMISSION=1`. The harness sanitizes all
+inherited experiment variables before adding those four selectors, so the
+Gate+Up complete-cell selector and the generic/Down M128 selectors remain
+cleared. The short selector itself is eligible only for authenticated K128
+P480--P512 requests; it does not change longer prompts or imply production
+promotion.
+
+This short-only mode is intentionally absent from
+`run_native_long_context_matrix.sh`. The 8K/16K/40K harness continues to
+accept only `exact`, `native-gdn`, and `cumulative-prefill`.
+
 `--dry-run` validates required paths and renders the fully quoted startup
 command without starting the server or creating output. Corpus hashes are
 reported as `dry-run-unverified` when a host-only fixture is used; a real run
