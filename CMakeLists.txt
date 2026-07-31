@@ -54,6 +54,10 @@ option(Q3X_BUILD_SM87_A4W4_GATEUP_PAIR_ADMISSION
   "Build the test-only persistent SM87 A4W4 paired Gate+Up route"
   OFF
 )
+option(Q3X_BUILD_SM87_A4W4_M128_STAGE_MAJOR_ADMISSION
+  "Build the test-only M128N256 K128 stage-major Prefill candidate"
+  OFF
+)
 option(Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION
   "Build the calibrated full-model SM87 A4W4 Prefill route"
   ON
@@ -108,6 +112,17 @@ endif()
 if(Q3X_BUILD_SM87_A4W4_GATEUP_PAIR_ADMISSION AND NOT BUILD_TESTING)
   message(FATAL_ERROR
     "Q3X_BUILD_SM87_A4W4_GATEUP_PAIR_ADMISSION is test-only and requires BUILD_TESTING=ON"
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_M128_STAGE_MAJOR_ADMISSION AND NOT BUILD_TESTING)
+  message(FATAL_ERROR
+    "Q3X_BUILD_SM87_A4W4_M128_STAGE_MAJOR_ADMISSION is test-only and requires BUILD_TESTING=ON"
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_M128_STAGE_MAJOR_ADMISSION AND
+   NOT Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION)
+  message(FATAL_ERROR
+    "Q3X_BUILD_SM87_A4W4_M128_STAGE_MAJOR_ADMISSION requires the established K128 comparison kernel"
   )
 endif()
 if(Q3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION AND NOT BUILD_TESTING)
@@ -564,6 +579,44 @@ if(BUILD_TESTING)
     )
     add_custom_target(q3x_sm87_a4w4_mma_ptx_sentinel ALL
       DEPENDS "${_q3x_a4w4_ptx_stamp}"
+    )
+  endif()
+
+  if(Q3X_BUILD_SM87_A4W4_M128_STAGE_MAJOR_ADMISSION)
+    # Isolated structural candidate: it cannot enter q3x_kernels or any
+    # production selector.  The CUDA test compares its output directly with
+    # the established ordered-K128 implementation from q3x::kernels.
+    add_library(q3x_test_sm87_a4w4_m128_stage_major STATIC
+      src/kernels/sm87/a4w4_prefill_m128_stage_major.cu
+    )
+    target_compile_features(q3x_test_sm87_a4w4_m128_stage_major
+      PUBLIC cxx_std_17 cuda_std_17
+    )
+    target_include_directories(q3x_test_sm87_a4w4_m128_stage_major
+      PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    )
+    target_link_libraries(q3x_test_sm87_a4w4_m128_stage_major
+      PRIVATE CUDA::cudart
+    )
+    q3x_enable_warnings(q3x_test_sm87_a4w4_m128_stage_major)
+
+    add_executable(q3x_sm87_a4w4_m128_stage_major_test
+      tests/sm87_a4w4_prefill_m128_stage_major_test.cu
+    )
+    target_link_libraries(q3x_sm87_a4w4_m128_stage_major_test
+      PRIVATE
+        q3x_test_sm87_a4w4_m128_stage_major
+        q3x::kernels
+        CUDA::cudart
+    )
+    q3x_enable_warnings(q3x_sm87_a4w4_m128_stage_major_test)
+    add_test(NAME sm87_a4w4_m128_stage_major_correctness
+      COMMAND q3x_sm87_a4w4_m128_stage_major_test
+    )
+    set_tests_properties(sm87_a4w4_m128_stage_major_correctness PROPERTIES
+      LABELS "cuda;sm87;prefill;correctness;synthetic;structural_candidate"
+      SKIP_RETURN_CODE 77
+      RESOURCE_LOCK q3x_sm87_gpu
     )
   endif()
 
