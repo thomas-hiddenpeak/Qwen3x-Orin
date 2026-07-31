@@ -230,9 +230,9 @@ thread_local bool g_enable_prefill_gdn_b8_admission = false;
 thread_local std::size_t g_prefill_gdn_b8_admission_hits = 0U;
 #endif
 #if defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
-// Native C64/WY architecture admission. This build remains test-only and the
+// Native C64/WY architecture admission. This build remains opt-in and the
 // worker-local route is enabled only by the exact value "1". It has no
-// external-library context, workspace, fallback, or default-route authority.
+// external-library context, fallback, or default-route authority.
 [[nodiscard]] bool gdn_chunk64_native_environment_enabled() noexcept {
   const char* const value =
       std::getenv("Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION");
@@ -5132,6 +5132,13 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
                             item.layer_index, status);
     return false;
   };
+#if defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
+  // Snapshot admission once for this synchronous projection-span call. The
+  // default remains the exact recurrence; an explicitly admitted native
+  // route owns every complete C512 state tile in this work item.
+  const bool enable_gdn_chunk64_native_admission =
+      g_enable_prefill_gdn_chunk64_native_admission;
+#endif
 
   reference_runner_detail::A4W4FullPrefillAdmissionHits local_hits{};
   const auto quantize =
@@ -5296,6 +5303,81 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
           primary + local_first * kLinearQkvElements;
       const std::uint16_t* const z =
           secondary + local_first * kLinearValueElements;
+#if defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
+      const bool use_gdn_chunk64_native =
+          use_prefill_gdn_chunk64_native_admission(
+              enable_gdn_chunk64_native_admission, projection_backend_,
+              tile.first_position, tile.token_count,
+              prefill_gdn_chunk64_native_workspace_,
+              prefill_gdn_chunk64_native_workspace_bytes_);
+      if (use_gdn_chunk64_native) {
+        const bool use_token_parallel_conv =
+            g_enable_gdn_conv_token_parallel_admission;
+        const bool use_conv_compact_qk_fused_candidate =
+            g_enable_gdn_conv_compact_qk_fused_candidate &&
+            use_token_parallel_conv;
+        std::uint16_t* const conv_qkv =
+            use_token_parallel_conv ? views_.projection[3] : qkv;
+        int conv_status = static_cast<int>(cudaErrorInvalidValue);
+        if (use_conv_compact_qk_fused_candidate) {
+          conv_status = gdn_prefill_chunk64_native_detail::
+              launch_fused_conv_compact_qk_preprocess(
+                  prefill_gdn_chunk64_native_workspace_,
+                  prefill_gdn_chunk64_native_workspace_bytes_, qkv,
+                  tile.token_count, attention->conv1d.data,
+                  views_.conv_state[item.layer_index], conv_qkv,
+                  kRmsEpsilon, stream_);
+        } else if (use_token_parallel_conv) {
+          conv_status = gdn_prefill_whole_span_conv_detail::
+              launch_causal_conv1d_silu_update_token_parallel_exact_cuda(
+                  qkv, tile.token_count, attention->conv1d.data,
+                  views_.conv_state[item.layer_index], conv_qkv, stream_);
+        } else {
+          conv_status = gdn_prefill_whole_span_conv_detail::
+              launch_causal_conv1d_silu_update_whole_span_exact_cuda(
+                  qkv, tile.token_count, attention->conv1d.data,
+                  views_.conv_state[item.layer_index], conv_qkv, stream_);
+        }
+        if (!check_cuda(
+                conv_status,
+                "prefill_projection_span_linear_conv_chunk64_native")) {
+          return failure;
+        }
+        if (use_conv_compact_qk_fused_candidate) {
+          ++g_gdn_conv_compact_qk_fused_candidate_hits;
+        }
+        ++g_prefill_gdn_chunk64_native_admission_hits;
+        const int native_status =
+            use_conv_compact_qk_fused_candidate
+                ? gdn_prefill_chunk64_native_detail::launch_qk_preprocessed(
+                      prefill_gdn_chunk64_native_workspace_,
+                      prefill_gdn_chunk64_native_workspace_bytes_, conv_qkv,
+                      tile.token_count,
+                      linear_a + local_first * kLinearScalarElements,
+                      linear_b + local_first * kLinearScalarElements,
+                      attention->a_log.data, attention->dt_bias.data,
+                      views_.gdn_state[item.layer_index],
+                      views_.gdn_state[item.layer_index], kRmsEpsilon,
+                      attention->norm.data, z, kRmsEpsilon,
+                      views_.projection[2], stream_)
+                : gdn_prefill_chunk64_native_detail::launch(
+                      prefill_gdn_chunk64_native_workspace_,
+                      prefill_gdn_chunk64_native_workspace_bytes_, conv_qkv,
+                      tile.token_count,
+                      linear_a + local_first * kLinearScalarElements,
+                      linear_b + local_first * kLinearScalarElements,
+                      attention->a_log.data, attention->dt_bias.data,
+                      views_.gdn_state[item.layer_index],
+                      views_.gdn_state[item.layer_index], kRmsEpsilon,
+                      attention->norm.data, z, kRmsEpsilon,
+                      views_.projection[2], stream_);
+        if (!check_cuda(
+                native_status,
+                "prefill_projection_span_linear_gdn_chunk64_native")) {
+          return failure;
+        }
+      } else
+#endif
       if (g_enable_gdn_exact_span_admission) {
         if (!check_cuda(
                 gdn_prefill_whole_span_conv_detail::
