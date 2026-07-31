@@ -55,6 +55,16 @@ inline constexpr std::size_t kSm87A4W4PrefillWideMinimumTokens = 2'048U;
 inline constexpr std::size_t kSm87A4W4PrefillWideLogicalTileK = 128U;
 inline constexpr std::size_t kSm87A4W4PrefillWidePipelineStages = 2U;
 
+// Independent K128 shared-scale vertical slice.  Codes remain in two
+// adjacent physical K64 consumer blocks, while A/B expose one BF16 scale per
+// logical K128 group.  This surface is intentionally not selected by the
+// K64 launcher or the runner.
+inline constexpr std::size_t kSm87A4W4PrefillK128TileM = 64U;
+inline constexpr std::size_t kSm87A4W4PrefillK128TileN = 256U;
+inline constexpr std::size_t kSm87A4W4PrefillK128TileK = 128U;
+inline constexpr std::size_t kSm87A4W4PrefillK128PipelineSlots = 2U;
+inline constexpr std::size_t kSm87A4W4PrefillK128MaximumRegisters = 128U;
+
 [[nodiscard]] constexpr bool sm87_a4w4_prefill_uses_large_m_candidate(
     const std::size_t token_count) noexcept {
   return token_count >= kSm87A4W4PrefillLargeMMinimumTokens &&
@@ -77,6 +87,18 @@ struct Sm87A4W4PrefillGemmPlan final {
   std::size_t m_tiles{};
   std::size_t n_tiles{};
   std::size_t k64_groups{};
+  std::size_t work_tiles{};
+  std::size_t launch_ctas{};
+};
+
+struct Sm87A4W4PrefillK128GemmPlan final {
+  std::size_t token_count{};
+  std::size_t output_size{};
+  std::size_t input_size{};
+  std::size_t m_tiles{};
+  std::size_t n_tiles{};
+  std::size_t k128_groups{};
+  std::size_t physical_k64_groups{};
   std::size_t work_tiles{};
   std::size_t launch_ctas{};
 };
@@ -148,6 +170,41 @@ sm87_a4w4_prefill_gemm_m64n256_plan(
               : kSm87A4W4PrefillPersistentCtas};
 }
 
+[[nodiscard]] constexpr Sm87A4W4PrefillK128GemmPlan
+sm87_a4w4_prefill_gemm_k128_plan(
+    const std::size_t token_count,
+    const std::size_t output_size,
+    const std::size_t input_size) noexcept {
+  if (token_count == 0U ||
+      token_count % kSm87A4W4PrefillK128TileM != 0U ||
+      output_size == 0U ||
+      output_size % kSm87A4W4PrefillK128TileN != 0U ||
+      input_size == 0U ||
+      input_size % kSm87A4W4PrefillK128TileK != 0U) {
+    return {};
+  }
+  const std::size_t m_tiles =
+      token_count / kSm87A4W4PrefillK128TileM;
+  const std::size_t n_tiles =
+      output_size / kSm87A4W4PrefillK128TileN;
+  constexpr std::size_t maximum = static_cast<std::size_t>(-1);
+  if (m_tiles == 0U || n_tiles == 0U || m_tiles > maximum / n_tiles) {
+    return {};
+  }
+  const std::size_t work_tiles = m_tiles * n_tiles;
+  return {token_count,
+          output_size,
+          input_size,
+          m_tiles,
+          n_tiles,
+          input_size / kSm87A4W4PrefillK128TileK,
+          input_size / kSm87A4W4PrefillTileK,
+          work_tiles,
+          work_tiles < kSm87A4W4PrefillPersistentCtas
+              ? work_tiles
+              : kSm87A4W4PrefillPersistentCtas};
+}
+
 struct Sm87A4W4PrefillGemmResources final {
   int registers_per_thread{};
   std::size_t static_shared_bytes{};
@@ -176,6 +233,21 @@ struct Sm87A4W4PrefillGemmResources final {
     std::size_t a_scale_capacity_elements,
     void* cuda_stream = nullptr) noexcept;
 
+// K128 activation producer. One warp quantizes one [row,K128] group using a
+// shared BF16 scale, then publishes its 64 packed bytes into the unchanged
+// pair of physical K64 consumer blocks.
+[[nodiscard]] int launch_sm87_a4_quantize_bf16_k128_cuda(
+    const std::uint16_t* input_bf16,
+    std::size_t input_row_stride_elements,
+    std::size_t token_count,
+    std::size_t input_size,
+    float clip_ratio,
+    std::uint8_t* packed_a,
+    std::size_t packed_a_capacity_bytes,
+    std::uint16_t* a_k128_scales_bf16,
+    std::size_t a_scale_capacity_elements,
+    void* cuda_stream = nullptr) noexcept;
+
 [[nodiscard]] int query_sm87_a4w4_prefill_gemm_resources_cuda(
     Sm87A4W4PrefillGemmResources* resources) noexcept;
 
@@ -187,6 +259,9 @@ struct Sm87A4W4PrefillGemmResources final {
 
 // Queries the independently compiled M64N256/K128-logical candidate.
 [[nodiscard]] int query_sm87_a4w4_prefill_gemm_m64n256_resources_cuda(
+    Sm87A4W4PrefillGemmResources* resources) noexcept;
+
+[[nodiscard]] int query_sm87_a4w4_prefill_gemm_k128_resources_cuda(
     Sm87A4W4PrefillGemmResources* resources) noexcept;
 
 // Launches one persistent projection.  The current admission accepts arbitrary
@@ -201,6 +276,26 @@ struct Sm87A4W4PrefillGemmResources final {
     const std::uint8_t* packed_b,
     std::size_t packed_b_capacity_bytes,
     const std::uint16_t* b_k64_scales_bf16,
+    std::size_t b_scale_capacity_elements,
+    std::size_t token_count,
+    std::size_t output_size,
+    std::size_t input_size,
+    std::uint16_t* output_bf16,
+    std::size_t output_row_stride_elements,
+    void* cuda_stream = nullptr) noexcept;
+
+// M64N256 K128 shared-scale projection.  Each pair of native
+// m16n8k64 instructions accumulates into one S32 fragment; the kernel then
+// performs exactly one S32->FP32 conversion and one A_scale*B_scale
+// application for that logical K128 contribution.
+[[nodiscard]] int launch_sm87_a4w4_prefill_gemm_k128_bf16_cuda(
+    const std::uint8_t* packed_a,
+    std::size_t packed_a_capacity_bytes,
+    const std::uint16_t* a_k128_scales_bf16,
+    std::size_t a_scale_capacity_elements,
+    const std::uint8_t* packed_b,
+    std::size_t packed_b_capacity_bytes,
+    const std::uint16_t* b_k128_scales_bf16,
     std::size_t b_scale_capacity_elements,
     std::size_t token_count,
     std::size_t output_size,
@@ -233,5 +328,26 @@ static_assert(sm87_a4w4_prefill_gemm_m64n256_plan(
 static_assert(sm87_a4w4_prefill_gemm_m64n256_plan(
                   4'096U, 5'120U, 17'408U)
                   .work_tiles == 1'280U);
+static_assert(sm87_a4w4_prefill_gemm_k128_plan(
+                  64U, 256U, 128U)
+                  .work_tiles == 1U);
+static_assert(sm87_a4w4_prefill_gemm_k128_plan(
+                  4'096U, 5'120U, 17'408U)
+                  .k128_groups == 136U);
+static_assert(sm87_a4w4_prefill_gemm_k128_plan(
+                  4'096U, 5'120U, 17'408U)
+                  .physical_k64_groups == 272U);
+static_assert(sm87_a4w4_prefill_gemm_k128_plan(
+                  4'096U, 5'120U, 17'408U)
+                  .work_tiles == 1'280U);
+static_assert(sm87_a4w4_prefill_gemm_k128_plan(
+                  65U, 256U, 128U)
+                  .launch_ctas == 0U);
+inline constexpr std::size_t kSm87A4W4PrefillK128OverflowProbe =
+    static_cast<std::size_t>(-1) & ~static_cast<std::size_t>(255U);
+static_assert(sm87_a4w4_prefill_gemm_k128_plan(
+                  kSm87A4W4PrefillK128OverflowProbe,
+                  kSm87A4W4PrefillK128OverflowProbe, 128U)
+                  .launch_ctas == 0U);
 
 }  // namespace q3x::kernels

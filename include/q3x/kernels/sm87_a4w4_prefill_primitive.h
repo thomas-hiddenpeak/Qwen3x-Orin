@@ -38,9 +38,14 @@ inline constexpr std::size_t kSm87A4W4AccumulatorRegistersPerThread = 4U;
 inline constexpr std::size_t kSm87A4W4NibblesPerRegister = 8U;
 inline constexpr std::size_t kSm87A4W4ConsumerOuterBlock = 64U;
 inline constexpr std::size_t kSm87A4W4ConsumerKBlock = 64U;
+inline constexpr std::size_t kSm87A4W4ConsumerSharedScaleKBlock = 128U;
+inline constexpr std::size_t kSm87A4W4PhysicalK64BlocksPerSharedScale = 2U;
 inline constexpr std::size_t kSm87A4W4ConsumerPackedKBlockBytes = 32U;
 inline constexpr std::int32_t kSm87A4W4MaximumK64Partial =
     static_cast<std::int32_t>(kSm87A4W4MmaK * 8U * 8U);
+inline constexpr std::int32_t kSm87A4W4MaximumK128Partial =
+    static_cast<std::int32_t>(
+        kSm87A4W4ConsumerSharedScaleKBlock * 8U * 8U);
 inline constexpr int kSm87A4W4RequiredComputeMajor = 8;
 inline constexpr int kSm87A4W4RequiredComputeMinor = 7;
 
@@ -90,6 +95,17 @@ sm87_a4w4_k64_group_count(
     const std::size_t logical_k) noexcept {
   return logical_k % kSm87A4W4MmaK == 0U
              ? logical_k / kSm87A4W4MmaK
+             : 0U;
+}
+
+// K128 shared-scale ABI. Packed codes deliberately retain the established
+// two physical K64 consumer blocks; only the scale plane is coarsened.  A
+// logical group therefore consumes physical groups 2*g and 2*g+1 and owns
+// one BF16 scale for each outer row.
+[[nodiscard]] Q3X_SM87_A4W4_HOST_DEVICE constexpr std::size_t
+sm87_a4w4_k128_group_count(const std::size_t logical_k) noexcept {
+  return logical_k % kSm87A4W4ConsumerSharedScaleKBlock == 0U
+             ? logical_k / kSm87A4W4ConsumerSharedScaleKBlock
              : 0U;
 }
 
@@ -153,6 +169,33 @@ sm87_a4w4_consumer_scale_offset(
   return ((outer_coordinate / kSm87A4W4ConsumerOuterBlock) *
               k64_group_count +
           k64_group) *
+             kSm87A4W4ConsumerOuterBlock +
+         outer_coordinate % kSm87A4W4ConsumerOuterBlock;
+}
+
+[[nodiscard]] Q3X_SM87_A4W4_HOST_DEVICE constexpr std::size_t
+sm87_a4w4_consumer_k128_scale_capacity_elements(
+    const std::size_t outer_count, const std::size_t logical_k) noexcept {
+  const std::size_t groups = sm87_a4w4_k128_group_count(logical_k);
+  const std::size_t blocks =
+      sm87_a4w4_consumer_outer_block_count(outer_count);
+  constexpr std::size_t maximum = static_cast<std::size_t>(-1);
+  if (groups == 0U || blocks == 0U || blocks > maximum / groups) {
+    return 0U;
+  }
+  const std::size_t block_groups = blocks * groups;
+  return block_groups > maximum / kSm87A4W4ConsumerOuterBlock
+             ? 0U
+             : block_groups * kSm87A4W4ConsumerOuterBlock;
+}
+
+[[nodiscard]] Q3X_SM87_A4W4_HOST_DEVICE constexpr std::size_t
+sm87_a4w4_consumer_k128_scale_offset(
+    const std::size_t outer_coordinate, const std::size_t k128_group,
+    const std::size_t k128_group_count) noexcept {
+  return ((outer_coordinate / kSm87A4W4ConsumerOuterBlock) *
+              k128_group_count +
+          k128_group) *
              kSm87A4W4ConsumerOuterBlock +
          outer_coordinate % kSm87A4W4ConsumerOuterBlock;
 }
@@ -284,9 +327,16 @@ static_assert(sizeof(Sm87A4W4Accumulator) == 16U);
 static_assert(kSm87A4W4PackedABytes == 512U);
 static_assert(kSm87A4W4PackedBBytes == 256U);
 static_assert(kSm87A4W4MaximumK64Partial == 4'096);
+static_assert(kSm87A4W4MaximumK128Partial == 8'192);
+static_assert(kSm87A4W4MaximumK128Partial <
+              static_cast<std::int32_t>(0x7fff'ffff));
 static_assert(sm87_a4w4_k64_group_count(5'120U) == 80U);
 static_assert(sm87_a4w4_k64_group_count(6'144U) == 96U);
 static_assert(sm87_a4w4_k64_group_count(17'408U) == 272U);
+static_assert(sm87_a4w4_k128_group_count(5'120U) == 40U);
+static_assert(sm87_a4w4_k128_group_count(17'408U) == 136U);
+static_assert(sm87_a4w4_consumer_k128_scale_capacity_elements(
+                  65U, 256U) == 256U);
 static_assert(sm87_a4w4_a_fragment_coordinate(0U, 0U) ==
               Sm87A4W4FragmentCoordinate{0U, 0U});
 static_assert(sm87_a4w4_a_fragment_coordinate(31U, 31U) ==
