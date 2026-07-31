@@ -5,8 +5,8 @@
 
 namespace q3x::kernels {
 
-// Standalone Down-specific complete cell for the authenticated K128 consumer
-// ABI.  This surface is deliberately absent from the runtime selector.
+// Down-specific complete cell for the authenticated K128 consumer ABI.  Its
+// runtime vertical slice is build-time optional and remains default-off.
 //
 // One 256-thread CTA owns M128N128.  Its eight warps own independent M16N128
 // output strips, keeping 64 FP32 accumulators/thread for the complete K loop.

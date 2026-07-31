@@ -1,8 +1,8 @@
 # SM87 NVFP4 Down complete-cell v2 design
 
-Status: standalone structural admission passed.  No runtime selector or
-production dispatch is changed by this work; real-weight timing has not yet
-been run and no performance claim is made here.
+Status: standalone structural admission passed and a default-off runtime
+vertical slice is wired.  The production default is unchanged; real-weight
+timing has not yet been run and no performance claim is made here.
 
 ## Pinned shape and contract
 
@@ -69,8 +69,42 @@ mapping is explicit and does not rely on launch order for correctness.
    performance fixture.
 5. Invalid alignment, capacity, and non-tile-multiple shapes fail closed.
 
-Only after these gates pass may a later change wire an explicit runtime
-admission selector and perform the required real-weight generation timing.
+These gates permit the narrow runtime admission below.  They do not admit the
+candidate as a production default; that decision requires real-weight
+generation timing.
+
+## Default-off runtime vertical slice
+
+The build option
+`Q3X_BUILD_SM87_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION=ON` compiles the
+candidate and its runtime selector.  The selector remains disabled unless
+`Q3X_RUN_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION=1` is present and optimized
+Prefill dispatch is enabled.
+
+Admission is deliberately model-specific and fail-closed.  A launch requires:
+
+- the immutable full-model inventory result to be authenticated K128;
+- exact Down `N=5120,K=17408`;
+- the runner's internal ceil64-padded projection M to be a nonzero multiple
+  of 128 (for example P2048); and
+- complete packed-A, A-scale, packed-weight, weight-scale, and BF16-output
+  capacities.
+
+The logical prompt length is not passed to the selector.  An internal padded
+span such as P1853 -> M1856 therefore remains on the established K128 route;
+M64 tail handling is outside this slice.  When both experimental environment
+switches are present, complete-cell v2 has priority over the archived Down
+M128 stage-major route.  Once selected, any launch failure is returned to the
+runner directly and cannot silently fall back.  K64 and all ineligible K128
+shapes retain their existing paths.
+
+Dedicated enable and successful-launch counters keep this experiment
+independent from the old Down M128 and aggregate full-A4 accounting.  Host
+tests cover the exact positive shape, each negative shape/capacity dimension,
+environment parsing, selector priority, switch orthogonality, and both
+candidate-off and candidate-on builds.  The four small-K GPU cases and PTX
+resource sentinel remain mandatory.  These checks establish dispatch safety,
+not a speed result.
 
 ## Measured structural result
 

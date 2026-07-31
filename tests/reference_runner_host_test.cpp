@@ -1649,6 +1649,80 @@ void test_a4w4_full_prefill_admission_controls(TestContext& test) {
               "complete-cell v2 selector rejects every independently short "
               "input/weight/Down-publication capacity");
 
+  using DownCellQuery = detail::A4W4DownCompleteCellV2RouteQuery;
+  const auto make_down_cell_query = [k128](
+                                          const std::size_t projection_tokens) {
+    DownCellQuery query;
+    query.admission_enabled = true;
+    query.inventory_consumer = k128;
+    query.projection_token_count = projection_tokens;
+    query.output_size = runtime::kReferenceHiddenSize;
+    query.input_size = runtime::kReferenceIntermediateSize;
+    query.packed_input_capacity_bytes =
+        projection_tokens * runtime::kReferenceIntermediateSize / 2U;
+    query.input_scale_capacity_elements =
+        projection_tokens * runtime::kReferenceIntermediateSize / 128U;
+    query.weight_capacity_bytes =
+        runtime::kReferenceHiddenSize *
+        runtime::kReferenceIntermediateSize / 2U;
+    query.weight_scale_capacity_elements =
+        runtime::kReferenceHiddenSize *
+        runtime::kReferenceIntermediateSize / 128U;
+    query.output_capacity_elements =
+        projection_tokens * runtime::kReferenceHiddenSize;
+    return query;
+  };
+  const DownCellQuery real_down_cell = make_down_cell_query(2'048U);
+  DownCellQuery disabled_down_cell = real_down_cell;
+  disabled_down_cell.admission_enabled = false;
+  DownCellQuery k64_down_cell = real_down_cell;
+  k64_down_cell.inventory_consumer = k64;
+  DownCellQuery ceil64_not_m128 = make_down_cell_query(
+      p1853.projection_token_count);
+  DownCellQuery wrong_down_n = real_down_cell;
+  --wrong_down_n.output_size;
+  DownCellQuery wrong_down_k = real_down_cell;
+  wrong_down_k.input_size -= 128U;
+  test.expect(
+      detail::use_a4w4_down_complete_cell_v2_route(real_down_cell) &&
+          !detail::use_a4w4_down_complete_cell_v2_route(
+              disabled_down_cell) &&
+          !detail::use_a4w4_down_complete_cell_v2_route(k64_down_cell) &&
+          !detail::use_a4w4_down_complete_cell_v2_route(
+              ceil64_not_m128) &&
+          !detail::use_a4w4_down_complete_cell_v2_route(wrong_down_n) &&
+          !detail::use_a4w4_down_complete_cell_v2_route(wrong_down_k),
+      "Down complete-cell v2 requires its independent gate, authenticated "
+      "K128, exact N5120/K17408, and a complete internal M128 after ceil64");
+
+  std::array<DownCellQuery, 5U> short_down_capacities{};
+  short_down_capacities.fill(real_down_cell);
+  --short_down_capacities[0U].packed_input_capacity_bytes;
+  --short_down_capacities[1U].input_scale_capacity_elements;
+  --short_down_capacities[2U].weight_capacity_bytes;
+  --short_down_capacities[3U].weight_scale_capacity_elements;
+  --short_down_capacities[4U].output_capacity_elements;
+  test.expect(
+      std::all_of(
+          short_down_capacities.begin(), short_down_capacities.end(),
+          [](const DownCellQuery& query) {
+            return !detail::use_a4w4_down_complete_cell_v2_route(query);
+          }),
+      "Down complete-cell v2 rejects each independently short A4 input, "
+      "weight, scale, and BF16 output capacity");
+
+  using DownRoute = detail::A4W4K128DownPrefillRoute;
+  test.expect(
+      detail::select_a4w4_k128_down_prefill_route(real_down_cell, true) ==
+              DownRoute::kCompleteCellV2 &&
+          detail::select_a4w4_k128_down_prefill_route(
+              disabled_down_cell, true) ==
+              DownRoute::kRejectedM128StageMajor &&
+          detail::select_a4w4_k128_down_prefill_route(
+              disabled_down_cell, false) == DownRoute::kBaseline,
+      "Down complete-cell v2 has strict priority over the independently "
+      "gated rejected M128 diagnostic route");
+
   test.expect(
       !detail::a4w4_m128_stage_major_common_route(false, k128, 2'048U) &&
           !detail::a4w4_m128_stage_major_common_route(true, k64, 2'048U) &&
@@ -1737,6 +1811,27 @@ void test_a4w4_full_prefill_admission_controls(TestContext& test) {
       "complete-cell v2 environment gate is exact-value, default-off, and "
       "independent of code availability");
 
+  const char* const down_cell_environment = std::getenv(
+      "Q3X_RUN_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION");
+  const bool down_cell_environment_requested =
+      down_cell_environment != nullptr &&
+      std::strcmp(down_cell_environment, "1") == 0 &&
+      !runtime::optimized_prefill_dispatch_disabled();
+  const bool initial_down_cell_enabled =
+      detail::exchange_a4w4_down_complete_cell_v2_admission_test_enabled(
+          false);
+  (void)detail::exchange_a4w4_down_complete_cell_v2_admission_test_enabled(
+      true);
+  const bool down_cell_admission_is_compiled =
+      detail::exchange_a4w4_down_complete_cell_v2_admission_test_enabled(
+          false);
+  test.expect(
+      initial_down_cell_enabled ==
+          (down_cell_admission_is_compiled &&
+           down_cell_environment_requested),
+      "Down complete-cell v2 environment gate is exact-value, default-off, "
+      "and independent from the rejected Down M128 switch");
+
   const bool prior_enabled =
       detail::exchange_a4w4_full_prefill_admission_test_enabled(true);
   const bool admission_is_compiled =
@@ -1763,6 +1858,11 @@ void test_a4w4_full_prefill_admission_controls(TestContext& test) {
   const std::size_t observed_cell_hits =
       detail::exchange_a4w4_gateup_complete_cell_v2_admission_test_hits(
           prior_cell_hits);
+  const std::size_t prior_down_cell_hits =
+      detail::exchange_a4w4_down_complete_cell_v2_admission_test_hits(41U);
+  const std::size_t observed_down_cell_hits =
+      detail::exchange_a4w4_down_complete_cell_v2_admission_test_hits(
+          prior_down_cell_hits);
   if (admission_is_compiled) {
     test.expect(observed.activation_quantize_hits == 192U &&
                     observed.generic_projection_hits == 272U &&
@@ -1792,9 +1892,16 @@ void test_a4w4_full_prefill_admission_controls(TestContext& test) {
                     observed_cell_hits == 0U,
                 "ordinary build exposes inert A4W4 admission controls");
   }
+  test.expect(
+      observed_down_cell_hits ==
+          (down_cell_admission_is_compiled ? 41U : 0U),
+      "Down complete-cell v2 exposes dedicated active or inert accounting "
+      "independently from full-A4 code availability");
   (void)detail::
       exchange_a4w4_gateup_complete_cell_v2_admission_test_enabled(
           initial_cell_enabled);
+  (void)detail::exchange_a4w4_down_complete_cell_v2_admission_test_enabled(
+      initial_down_cell_enabled);
 }
 
 void test_prefill_admission_gate_orthogonality(TestContext& test) {
@@ -1808,6 +1915,12 @@ void test_prefill_admission_gate_orthogonality(TestContext& test) {
   const bool initial_cell =
       detail::exchange_a4w4_gateup_complete_cell_v2_admission_test_enabled(
           false);
+  const bool initial_down_cell =
+      detail::exchange_a4w4_down_complete_cell_v2_admission_test_enabled(
+          false);
+  const bool initial_down_m128 =
+      detail::exchange_a4w4_down_m128_stage_major_admission_test_enabled(
+          false);
   (void)detail::exchange_bf16_ab_large_m_prefill_admission_test_enabled(true);
   const bool bf16_compiled =
       detail::exchange_bf16_ab_large_m_prefill_admission_test_enabled(false);
@@ -1818,6 +1931,16 @@ void test_prefill_admission_gate_orthogonality(TestContext& test) {
       exchange_a4w4_gateup_complete_cell_v2_admission_test_enabled(true);
   const bool cell_compiled =
       detail::exchange_a4w4_gateup_complete_cell_v2_admission_test_enabled(
+          false);
+  (void)detail::exchange_a4w4_down_complete_cell_v2_admission_test_enabled(
+      true);
+  const bool down_cell_compiled =
+      detail::exchange_a4w4_down_complete_cell_v2_admission_test_enabled(
+          false);
+  (void)detail::exchange_a4w4_down_m128_stage_major_admission_test_enabled(
+      true);
+  const bool down_m128_compiled =
+      detail::exchange_a4w4_down_m128_stage_major_admission_test_enabled(
           false);
 
   (void)detail::exchange_bf16_ab_large_m_prefill_admission_test_enabled(true);
@@ -1855,6 +1978,32 @@ void test_prefill_admission_gate_orthogonality(TestContext& test) {
   test.expect(!cell_after_m128 && m128_after_cell_check == m128_compiled,
               "M128 A4 gate does not enable the complete-cell v2 gate");
 
+  (void)detail::exchange_a4w4_down_complete_cell_v2_admission_test_enabled(
+      true);
+  const bool down_m128_after_down_cell =
+      detail::exchange_a4w4_down_m128_stage_major_admission_test_enabled(
+          false);
+  const bool down_cell_after_down_cell =
+      detail::exchange_a4w4_down_complete_cell_v2_admission_test_enabled(
+          false);
+  test.expect(
+      !down_m128_after_down_cell &&
+          down_cell_after_down_cell == down_cell_compiled,
+      "Down complete-cell v2 gate does not enable rejected Down M128");
+
+  (void)detail::exchange_a4w4_down_m128_stage_major_admission_test_enabled(
+      true);
+  const bool down_cell_after_down_m128 =
+      detail::exchange_a4w4_down_complete_cell_v2_admission_test_enabled(
+          false);
+  const bool down_m128_after_down_m128 =
+      detail::exchange_a4w4_down_m128_stage_major_admission_test_enabled(
+          false);
+  test.expect(
+      !down_cell_after_down_m128 &&
+          down_m128_after_down_m128 == down_m128_compiled,
+      "rejected Down M128 gate does not enable Down complete-cell v2");
+
   const std::size_t initial_bf16_hits =
       detail::exchange_bf16_ab_large_m_prefill_admission_test_hits(19U);
   const detail::A4W4FullPrefillAdmissionHits a4_fixture{
@@ -1869,12 +2018,20 @@ void test_prefill_admission_gate_orthogonality(TestContext& test) {
   const std::size_t observed_cell_hits =
       detail::exchange_a4w4_gateup_complete_cell_v2_admission_test_hits(
           initial_cell_hits);
+  const std::size_t initial_down_cell_hits =
+      detail::exchange_a4w4_down_complete_cell_v2_admission_test_hits(29U);
+  const std::size_t observed_down_cell_hits =
+      detail::exchange_a4w4_down_complete_cell_v2_admission_test_hits(
+          initial_down_cell_hits);
   const detail::A4W4FullPrefillAdmissionHits observed_a4_hits =
       detail::exchange_a4w4_full_prefill_admission_test_hits(initial_a4_hits);
   test.expect(observed_bf16_hits == (bf16_compiled ? 19U : 0U),
               "BF16 whole-span hits use independent storage");
   test.expect(observed_cell_hits == (cell_compiled ? 23U : 0U),
               "complete-cell v2 hits use storage independent from M128/A4");
+  test.expect(
+      observed_down_cell_hits == (down_cell_compiled ? 29U : 0U),
+      "Down complete-cell v2 hits use independent storage from all old gates");
   test.expect(
       observed_a4_hits.activation_quantize_hits ==
               (m128_compiled ? 192U : 0U) &&
@@ -1901,6 +2058,10 @@ void test_prefill_admission_gate_orthogonality(TestContext& test) {
   (void)detail::
       exchange_a4w4_gateup_complete_cell_v2_admission_test_enabled(
           initial_cell);
+  (void)detail::exchange_a4w4_down_complete_cell_v2_admission_test_enabled(
+      initial_down_cell);
+  (void)detail::exchange_a4w4_down_m128_stage_major_admission_test_enabled(
+      initial_down_m128);
 }
 
 }  // namespace

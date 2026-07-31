@@ -63,7 +63,7 @@ option(Q3X_BUILD_SM87_A4W4_DOWN_K128_STAGE_MAJOR_ADMISSION
   OFF
 )
 option(Q3X_BUILD_SM87_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION
-  "Build standalone tests for the two-CTA Down M128N128K128 complete cell"
+  "Build the test-only runtime admission and tests for the two-CTA Down M128N128K128 complete cell"
   OFF
 )
 option(Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION
@@ -369,6 +369,9 @@ endif()
 if(Q3X_BUILD_SM87_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION)
   target_sources(q3x_kernels PRIVATE
     src/kernels/sm87/a4w4_down_complete_cell_v2.cu
+  )
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION=1
   )
 endif()
 if(Q3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION)
@@ -895,9 +898,8 @@ if(BUILD_TESTING)
   endif()
 
   if(Q3X_BUILD_SM87_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION)
-    # Standalone successor to the rejected M128N256/one-CTA skeleton.  The
-    # source links with q3x_kernels, but this option adds tests only and does
-    # not add a runtime selector.
+    # Successor to the rejected M128N256/one-CTA skeleton. This option builds
+    # the default-off runtime admission plus its isolated contract/tests.
     add_executable(q3x_sm87_a4w4_down_complete_cell_v2_contract_test
       tests/sm87_a4w4_down_complete_cell_v2_contract_test.cpp
     )
@@ -1003,7 +1005,6 @@ if(BUILD_TESTING)
       RESOURCE_LOCK q3x_sm87_gpu
     )
   endif()
-
   add_library(q3x_test_pinned_checkpoint STATIC
     tests/support/pinned_checkpoint.cpp
   )
@@ -1722,6 +1723,35 @@ if(BUILD_TESTING)
       ENVIRONMENT
         "Q3X_DISABLE_OPTIMIZED_PREFILL=0;Q3X_RUN_A4W4_GATEUP_COMPLETE_CELL_V2_ADMISSION=1;Q3X_RUN_A4W4_M128_STAGE_MAJOR_ADMISSION=0;Q3X_RUN_A4W4_DOWN_M128_STAGE_MAJOR_ADMISSION=0"
       LABELS "host;sm87;prefill;a4w4;k128;admission;environment"
+    )
+  endif()
+  if(Q3X_BUILD_SM87_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION)
+    add_test(NAME reference_runner_host_down_complete_cell_v2_admission
+      COMMAND q3x_reference_runner_host_test
+    )
+    set_tests_properties(
+      reference_runner_host_down_complete_cell_v2_admission PROPERTIES
+      ENVIRONMENT
+        "Q3X_DISABLE_OPTIMIZED_PREFILL=0;Q3X_RUN_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION=1;Q3X_RUN_A4W4_DOWN_M128_STAGE_MAJOR_ADMISSION=1"
+      LABELS "host;sm87;prefill;a4w4;k128;down;complete_cell;admission;environment"
+    )
+    add_test(NAME reference_runner_host_down_complete_cell_v2_nonexact_env
+      COMMAND q3x_reference_runner_host_test
+    )
+    set_tests_properties(
+      reference_runner_host_down_complete_cell_v2_nonexact_env PROPERTIES
+      ENVIRONMENT
+        "Q3X_DISABLE_OPTIMIZED_PREFILL=0;Q3X_RUN_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION=true"
+      LABELS "host;sm87;prefill;a4w4;k128;down;complete_cell;admission;environment;negative"
+    )
+    add_test(NAME reference_runner_host_down_complete_cell_v2_global_disable
+      COMMAND q3x_reference_runner_host_test
+    )
+    set_tests_properties(
+      reference_runner_host_down_complete_cell_v2_global_disable PROPERTIES
+      ENVIRONMENT
+        "Q3X_DISABLE_OPTIMIZED_PREFILL=1;Q3X_RUN_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION=1"
+      LABELS "host;sm87;prefill;a4w4;k128;down;complete_cell;admission;environment;negative"
     )
   endif()
   if(Q3X_BUILD_FULL_ATTENTION_LONG_CONTEXT_GROUP_Q64_ADMISSION)

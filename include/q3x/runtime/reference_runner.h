@@ -881,6 +881,51 @@ struct A4W4GateUpCompleteCellV2RouteQuery final {
              128U);
 }
 
+// Down complete-cell v2 owns only the authenticated model-specific Down
+// projection. projection_token_count is the runner's internal ceil64-padded
+// M, never the logical prompt length. This first runtime slice additionally
+// requires a complete M128 tile; ceil64 values such as P1853 -> M1856 remain
+// on the incumbent K128 route until a separate tail admission is proved.
+struct A4W4DownCompleteCellV2RouteQuery final {
+  bool admission_enabled = false;
+  A4W4PrefillConsumer inventory_consumer =
+      A4W4PrefillConsumer::kUnavailable;
+  std::size_t projection_token_count = 0U;
+  std::size_t output_size = 0U;
+  std::size_t input_size = 0U;
+  std::size_t packed_input_capacity_bytes = 0U;
+  std::size_t input_scale_capacity_elements = 0U;
+  std::size_t weight_capacity_bytes = 0U;
+  std::size_t weight_scale_capacity_elements = 0U;
+  std::size_t output_capacity_elements = 0U;
+};
+
+[[nodiscard]] constexpr bool use_a4w4_down_complete_cell_v2_route(
+    const A4W4DownCompleteCellV2RouteQuery& query) noexcept {
+  return query.admission_enabled &&
+         query.inventory_consumer == A4W4PrefillConsumer::kK128 &&
+         query.projection_token_count != 0U &&
+         query.projection_token_count % 128U == 0U &&
+         query.output_size == kReferenceHiddenSize &&
+         query.input_size == kReferenceIntermediateSize &&
+         a4w4_matrix_capacity_covers(
+             query.packed_input_capacity_bytes,
+             query.projection_token_count, kReferenceIntermediateSize, 2U) &&
+         a4w4_matrix_capacity_covers(
+             query.input_scale_capacity_elements,
+             query.projection_token_count, kReferenceIntermediateSize,
+             128U) &&
+         a4w4_matrix_capacity_covers(
+             query.weight_capacity_bytes, kReferenceHiddenSize,
+             kReferenceIntermediateSize, 2U) &&
+         a4w4_matrix_capacity_covers(
+             query.weight_scale_capacity_elements, kReferenceHiddenSize,
+             kReferenceIntermediateSize, 128U) &&
+         a4w4_matrix_capacity_covers(
+             query.output_capacity_elements,
+             query.projection_token_count, kReferenceHiddenSize, 1U);
+}
+
 // The consumer argument is the immutable result of validating all 400 A4
 // projection sidecars at runner creation.  Consequently these selectors
 // cannot admit a partial or mixed K64/K128 publication.  The candidates have
@@ -930,6 +975,34 @@ select_a4w4_k128_generic_prefill_route(
                        : A4W4K128GenericPrefillRoute::kBaseline;
 }
 
+enum class A4W4K128DownPrefillRoute : std::uint8_t {
+  kBaseline = 0,
+  kCompleteCellV2,
+  kRejectedM128StageMajor,
+};
+
+// The capacity-aware complete cell is evaluated first. The archived M128
+// Down experiment remains an independent lower-priority diagnostic route;
+// enabling both switches can never cause it to shadow complete-cell v2.
+[[nodiscard]] constexpr A4W4K128DownPrefillRoute
+select_a4w4_k128_down_prefill_route(
+    const A4W4DownCompleteCellV2RouteQuery& complete_cell_query,
+    const bool rejected_m128_admission_enabled) noexcept {
+  if (use_a4w4_down_complete_cell_v2_route(complete_cell_query)) {
+    return A4W4K128DownPrefillRoute::kCompleteCellV2;
+  }
+  const A4W4K128GenericPrefillRoute old_route =
+      select_a4w4_k128_generic_prefill_route(
+          false, rejected_m128_admission_enabled,
+          complete_cell_query.inventory_consumer,
+          complete_cell_query.projection_token_count,
+          complete_cell_query.output_size,
+          complete_cell_query.input_size);
+  return old_route == A4W4K128GenericPrefillRoute::kDownM128StageMajor
+             ? A4W4K128DownPrefillRoute::kRejectedM128StageMajor
+             : A4W4K128DownPrefillRoute::kBaseline;
+}
+
 // A trace-capable runner retains authenticated A4 residency but must execute
 // the scalar trace path so every requested activation digest is available.
 // The unified comparator likewise changes dispatch only.
@@ -946,6 +1019,10 @@ bool exchange_a4w4_m128_stage_major_admission_test_enabled(
     bool enabled) noexcept;
 bool exchange_a4w4_down_m128_stage_major_admission_test_enabled(
     bool enabled) noexcept;
+bool exchange_a4w4_down_complete_cell_v2_admission_test_enabled(
+    bool enabled) noexcept;
+std::size_t exchange_a4w4_down_complete_cell_v2_admission_test_hits(
+    std::size_t hits) noexcept;
 bool exchange_a4w4_gateup_complete_cell_v2_admission_test_enabled(
     bool enabled) noexcept;
 std::size_t
