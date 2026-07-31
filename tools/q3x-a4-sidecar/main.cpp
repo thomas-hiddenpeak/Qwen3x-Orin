@@ -15,11 +15,13 @@ namespace runtime = q3x::runtime;
 
 void print_usage(std::ostream& output) {
   output
-      << "qwen3x-a4-sidecar: authenticated offline A4-K64 converter\n\n"
+      << "qwen3x-a4-sidecar: authenticated offline A4 sidecar converter\n\n"
       << "Usage:\n"
       << "  qwen3x-a4-sidecar policy-template MODEL_DIR OUTPUT"
-         " --weight-clip R --activation-clip R\n"
+         " --weight-clip R --activation-clip R"
+         " [--sidecar-kind a4-k64|a4-k128]\n"
       << "  qwen3x-a4-sidecar convert MODEL_DIR POLICY.json OUTPUT"
+         " [--sidecar-kind a4-k64|a4-k128]"
          " [--row-chunk N] [--no-preallocate]\n"
       << "  qwen3x-a4-sidecar help\n\n"
       << "The convert command accepts only the pinned Qwen3.6-27B-NVFP4 "
@@ -27,10 +29,12 @@ void print_usage(std::ostream& output) {
          "all 400 projections. It authenticates all source shards, streams "
          "bounded row chunks, and atomically publishes OUTPUT plus "
          "OUTPUT.receipt.json. Existing targets are never replaced.\n\n"
-      << "policy-template builds the fixed A4-K64 400-projection manifest and "
+      << "policy-template builds the selected 400-projection manifest and "
          "atomically writes a no-replace candidate policy. Both clip ratios "
          "are mandatory; there are no defaults. Template status is not an "
          "accuracy, performance, or capability decision.\n\n"
+      << "A4-K64 is the unchanged v1 default. A4-K128 selects the separate "
+         "v2 packed-K64/shared-scale-K128 layout.\n\n"
       << "--row-chunk must be 64, 128, 192, or 256; N64 is the physical "
          "consumer block, not a fixed kernel CTA tile.\n\n"
       << "Experimental nearest-even is exposed only through the bounded host "
@@ -68,6 +72,23 @@ void print_usage(std::ostream& output) {
   return true;
 }
 
+[[nodiscard]] bool parse_sidecar_kind(
+    const char* text, runtime::PrefillSidecarKind& output) {
+  if (text == nullptr) {
+    return false;
+  }
+  const std::string_view value(text);
+  if (value == "a4-k64" || value == "a4_k64") {
+    output = runtime::PrefillSidecarKind::kA4K64;
+    return true;
+  }
+  if (value == "a4-k128" || value == "a4_k128") {
+    output = runtime::PrefillSidecarKind::kA4K128;
+    return true;
+  }
+  return false;
+}
+
 void print_diagnostic(const runtime::PrefillA4ConverterDiagnostic& diagnostic) {
   std::cerr << "error.code=" << runtime::to_string(diagnostic.code)
             << "\nerror.context=" << diagnostic.context
@@ -102,13 +123,19 @@ int run_convert(const int argc, char** argv) {
       }
     } else if (argument == "--no-preallocate") {
       options.preallocate_output = false;
+    } else if (argument == "--sidecar-kind") {
+      if (++index >= argc ||
+          !parse_sidecar_kind(argv[index], options.sidecar_kind)) {
+        std::cerr << "invalid --sidecar-kind value\n";
+        return 2;
+      }
     } else {
       std::cerr << "unknown argument: " << argument << '\n';
       return 2;
     }
   }
   const runtime::PrefillA4SidecarConversionResult result =
-      runtime::convert_pinned_qwen36_27b_prefill_a4_k64_sidecar(options);
+      runtime::convert_pinned_qwen36_27b_prefill_a4_sidecar(options);
   if (!result) {
     print_diagnostic(result.diagnostic);
     return 1;
@@ -118,6 +145,9 @@ int run_convert(const int argc, char** argv) {
             << "\nmode=" << runtime::to_string(receipt.mode)
             << "\nproduction_residency_eligible="
             << (receipt.production_residency_eligible ? "true" : "false")
+            << "\nsidecar_kind=" << runtime::to_string(receipt.sidecar_kind)
+            << "\npacked_k_group_size=" << receipt.packed_k_group_size
+            << "\nscale_group_size=" << receipt.scale_group_size
             << "\nphysical_layout=" << receipt.physical_layout
             << "\nmanifest_sha256=" << receipt.manifest_sha256
             << "\npolicy_sha256=" << receipt.policy_sha256
@@ -159,6 +189,12 @@ int run_policy_template(const int argc, char** argv) {
         return 2;
       }
       have_activation_clip = true;
+    } else if (argument == "--sidecar-kind") {
+      if (++index >= argc ||
+          !parse_sidecar_kind(argv[index], options.sidecar_kind)) {
+        std::cerr << "invalid --sidecar-kind value\n";
+        return 2;
+      }
     } else {
       std::cerr << "unknown argument: " << argument << '\n';
       return 2;
@@ -183,6 +219,7 @@ int run_policy_template(const int argc, char** argv) {
       << "\nproduction_residency_eligible=not_evaluated"
       << "\nproduction_residency_eligible_scope="
          "authenticated_abi_only_not_accuracy_performance_or_capability"
+      << "\nsidecar_kind=" << runtime::to_string(policy.sidecar_kind)
       << "\nphysical_layout=" << policy.physical_layout
       << "\nmanifest_sha256=" << policy.manifest_sha256
       << "\npolicy_sha256=" << policy.policy_sha256
