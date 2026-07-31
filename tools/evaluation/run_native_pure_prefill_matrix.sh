@@ -107,11 +107,15 @@ port=${Q3X_EVAL_PORT:-18080}
   exit 2
 }
 
-if [[ "${mode}" == native-gdn ]] &&
-   ! grep -F 'Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION' \
-       < <(strings -a "${server}") >/dev/null; then
-  echo "server does not contain the native-GDN runtime selector" >&2
-  exit 2
+if [[ "${mode}" == native-gdn ]]; then
+  for selector in \
+    Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION \
+    Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION; do
+    if ! grep -F "${selector}" < <(strings -a "${server}") >/dev/null; then
+      echo "server does not contain the native-GDN selector: ${selector}" >&2
+      exit 2
+    fi
+  done
 fi
 
 declare -A corpus_sha=(
@@ -147,8 +151,9 @@ for bucket in "${buckets[@]}"; do
 done
 
 # Remove inherited experiment selectors generically. The benchmark process gets
-# production defaults plus, for the candidate mode, exactly one explicit GDN
-# selector. Harness-only Q3X_EVAL_* variables are consumed before this point.
+# production defaults plus, for the candidate mode, exactly the two selectors
+# that define the measured native-GDN bundle. Harness-only Q3X_EVAL_* variables
+# are consumed before this point.
 runtime_env=(env)
 sanitized=0
 while IFS= read -r variable; do
@@ -161,7 +166,10 @@ while IFS= read -r variable; do
 done < <(compgen -e)
 runtime_env+=(-u Q3X_DISABLE_OPTIMIZED_PREFILL)
 if [[ "${mode}" == native-gdn ]]; then
-  runtime_env+=(Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION=1)
+  runtime_env+=(
+    Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION=1
+    Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION=1
+  )
 fi
 
 server_args=(

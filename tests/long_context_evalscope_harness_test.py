@@ -78,6 +78,7 @@ class Fixture:
         fake_server = (
             "#!/bin/sh\n"
             "# Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION\n"
+            "# Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION\n"
             + "# " + ("x" * 262_144) + "\n"
             "exit 0\n"
         )
@@ -278,6 +279,20 @@ class LongContextEvalScopeHarnessTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("verification=readiness_log", result.stdout)
         self.assertIn("startup_contract_check=deferred", result.stdout)
+
+    def test_native_gdn_mode_adds_declared_bundle(self) -> None:
+        command = self.fixture.command("--mode", "native-gdn", "p8k", "prefill1")
+        environment = os.environ.copy()
+        environment["Q3X_LONG_EVAL_DRY_RUN"] = "1"
+        result = subprocess.run(
+            command, env=environment, check=False, text=True, capture_output=True
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("mode=native-gdn", result.stdout)
+        self.assertIn("Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION=1", result.stdout)
+        self.assertIn(
+            "Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION=1", result.stdout
+        )
 
     def test_missing_a4_receipt_is_rejected(self) -> None:
         self.fixture.prefill_a4_receipt.unlink()

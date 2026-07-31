@@ -29,6 +29,7 @@ class Fixture:
         self.server.write_text(
             "#!/bin/sh\n"
             "# Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION\n"
+            "# Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION\n"
             "exit 0\n",
             encoding="utf-8",
         )
@@ -63,6 +64,7 @@ class Fixture:
         environment = os.environ.copy()
         environment["Q3X_RUN_PREFILL_ALL_PROMPT_TOKENS_ADMISSION"] = "1"
         environment["Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION"] = "1"
+        environment["Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION"] = "1"
         environment["Q3X_GDN_CHUNK64_PROFILE_CANDIDATE"] = "1"
         return subprocess.run(
             self.command(*extra),
@@ -101,7 +103,13 @@ class PurePrefillEvalScopeHarnessTest(unittest.TestCase):
         self.assertIn(
             "-u Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION", result.stdout
         )
+        self.assertIn(
+            "-u Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION", result.stdout
+        )
         self.assertNotIn("Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION=1", result.stdout)
+        self.assertNotIn(
+            "Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION=1", result.stdout
+        )
         self.assertIn("performance_evidence=0", result.stdout)
         self.assertFalse(self.fixture.output.exists())
 
@@ -110,6 +118,9 @@ class PurePrefillEvalScopeHarnessTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("mode=native-gdn", result.stdout)
         self.assertIn("Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION=1", result.stdout)
+        self.assertIn(
+            "Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION=1", result.stdout
+        )
 
     def test_missing_a4_payload_is_rejected(self) -> None:
         self.fixture.payload.unlink()

@@ -79,7 +79,10 @@ readiness_timeout=${Q3X_LONG_EVAL_READINESS_TIMEOUT_SECONDS:-600}
 
 repository=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 validator="${repository}/tools/evaluation/validate_long_prefill_manifest.py"
-native_gdn_selector=Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION
+native_gdn_selectors=(
+  Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION
+  Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION
+)
 
 positive_integer() {
   [[ $1 =~ ^[1-9][0-9]*$ ]]
@@ -134,10 +137,13 @@ if [[ "${phase_selector}" != prefill1 &&
   exit 2
 fi
 
-if [[ "${mode}" == native-gdn ]] &&
-   ! grep -F "${native_gdn_selector}" < <(strings -a "${server}") >/dev/null; then
-  echo "server does not contain the native-GDN runtime selector" >&2
-  exit 2
+if [[ "${mode}" == native-gdn ]]; then
+  for selector in "${native_gdn_selectors[@]}"; do
+    if ! grep -F "${selector}" < <(strings -a "${server}") >/dev/null; then
+      echo "server does not contain the native-GDN selector: ${selector}" >&2
+      exit 2
+    fi
+  done
 fi
 if [[ "${dry_run}" == 0 ]] && ! readelf -h "${server}" >/dev/null 2>&1; then
   echo "performance execution requires an ELF server binary" >&2
@@ -205,7 +211,7 @@ server_sha256=$(sha256sum "${server}" | awk '{print $1}')
 manifest_actual_sha256=$(sha256sum "${manifest}" | awk '{print $1}')
 # Keep the child process on production defaults. Remove inherited experiment
 # selectors without maintaining another obsolete per-feature environment list;
-# native-gdn adds back exactly its declared selector.
+# native-gdn adds back exactly its declared two-selector bundle.
 runtime_env=(env)
 while IFS= read -r variable; do
   case "${variable}" in
@@ -216,7 +222,10 @@ while IFS= read -r variable; do
 done < <(compgen -e)
 runtime_env+=(-u Q3X_DISABLE_OPTIMIZED_PREFILL)
 if [[ "${mode}" == native-gdn ]]; then
-  runtime_env+=(Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION=1)
+  runtime_env+=(
+    Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION=1
+    Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION=1
+  )
 fi
 
 printf 'long_context_matrix server=%q server_sha256=%s manifest=%q manifest_sha256=%s runs=%s mode=%s dry_run=%s\n' \

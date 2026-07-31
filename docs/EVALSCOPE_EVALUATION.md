@@ -136,8 +136,10 @@ tools/evaluation/run_native_pure_prefill_matrix.sh \
 Run the structurally identical native-GDN candidate by changing only
 `--mode native-gdn`. `exact` is the default. The harness removes inherited
 experiment selectors from the server environment; candidate mode adds back
-only `Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION=1`. This prevents an old shell
-session from silently constructing a mixed experimental runtime. The A4,
+exactly `Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION=1` and
+`Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION=1`, matching the measured
+native-GDN bundle. This prevents an old shell session from silently
+constructing a mixed experimental runtime. The A4,
 native grouped-Q64 attention, and layer-major Prefill production defaults are
 not re-enabled with legacy `Q3X_RUN_*` variables.
 
