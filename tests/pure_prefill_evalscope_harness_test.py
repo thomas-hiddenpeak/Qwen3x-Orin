@@ -25,6 +25,9 @@ class Fixture:
         self.payload = root / "weights-a4-k64.bin"
         self.policy = root / "policy-1p0.json"
         self.receipt = root / "weights-a4-k64.bin.receipt.json"
+        self.k512_payload = root / "attention-o-k512.bin"
+        self.k512_policy = root / "attention-o-k512-policy.json"
+        self.k512_receipt = root / "attention-o-k512.bin.receipt.json"
         self.model_dir.mkdir()
         self.corpus_dir.mkdir()
         self.server.write_text(
@@ -38,6 +41,7 @@ class Fixture:
             "# Q3X_RUN_A4W4_GATEUP_PROJECTION_V3_ADMISSION\n"
             "# Q3X_RUN_A4W4_ATTENTION_SUPERMATRIX_ADMISSION\n"
             "# Q3X_RUN_FULL_ATTENTION_PREPROCESS_PROMPT_WIDE_128_ADMISSION\n"
+            "# Q3X_RUN_A4W4_ATTENTION_O_K512_ADMISSION\n"
             "# Q3X_RUN_SHORT_PREFILL_LAYER_MAJOR_ADMISSION\n"
             "exit 0\n",
             encoding="utf-8",
@@ -46,6 +50,9 @@ class Fixture:
         self.payload.write_bytes(b"host-only payload fixture\n")
         self.policy.write_text("{}\n", encoding="utf-8")
         self.receipt.write_text("{}\n", encoding="utf-8")
+        self.k512_payload.write_bytes(b"host-only K512 payload fixture\n")
+        self.k512_policy.write_text("{}\n", encoding="utf-8")
+        self.k512_receipt.write_text("{}\n", encoding="utf-8")
         for bucket in ("p512", "p1k", "p2k", "p4k"):
             (self.corpus_dir / f"q3x-sharegpt-prefill-{bucket}-5.jsonl").write_text(
                 '{"host_only":true}\n', encoding="utf-8"
@@ -88,6 +95,7 @@ class Fixture:
         environment[
             "Q3X_RUN_FULL_ATTENTION_PREPROCESS_PROMPT_WIDE_128_ADMISSION"
         ] = "1"
+        environment["Q3X_RUN_A4W4_ATTENTION_O_K512_ADMISSION"] = "1"
         environment["Q3X_GDN_CHUNK64_PROFILE_CANDIDATE"] = "1"
         return subprocess.run(
             self.command(*extra),
@@ -95,6 +103,19 @@ class Fixture:
             check=False,
             text=True,
             capture_output=True,
+        )
+
+    def run_k512(self, *extra: str) -> subprocess.CompletedProcess[str]:
+        return self.run(
+            "--prefill-attention-o-k512-payload",
+            str(self.k512_payload),
+            "--prefill-attention-o-k512-policy",
+            str(self.k512_policy),
+            "--prefill-attention-o-k512-receipt",
+            str(self.k512_receipt),
+            "--mode",
+            "cumulative-prefill-current-best-k512",
+            *extra,
         )
 
 
@@ -157,6 +178,9 @@ class PurePrefillEvalScopeHarnessTest(unittest.TestCase):
         self.assertIn(
             "-u Q3X_RUN_FULL_ATTENTION_PREPROCESS_PROMPT_WIDE_128_ADMISSION",
             result.stdout,
+        )
+        self.assertIn(
+            "-u Q3X_RUN_A4W4_ATTENTION_O_K512_ADMISSION", result.stdout
         )
         self.assertNotIn("Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION=1", result.stdout)
         self.assertNotIn(
@@ -359,6 +383,100 @@ class PurePrefillEvalScopeHarnessTest(unittest.TestCase):
                     result.stderr,
                 )
         self.fixture.server.write_text(contents, encoding="utf-8")
+
+    def test_cumulative_current_best_k512_is_exact_nine_selector_bundle(
+        self,
+    ) -> None:
+        result = self.fixture.run_k512()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(
+            "mode=cumulative-prefill-current-best-k512 dry_run=1",
+            result.stdout,
+        )
+        self.assertIn("selector_count=9", result.stdout)
+        startup = next(
+            line
+            for line in result.stdout.splitlines()
+            if line.startswith("server_startup_command")
+        )
+        expected = {
+            "Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION",
+            "Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION",
+            "Q3X_RUN_BF16_AB_LARGE_M_PREFILL_ADMISSION",
+            "Q3X_RUN_A4W4_DOWN_COMPLETE_CELL_V3_ADMISSION",
+            "Q3X_FULL_ATTENTION_FLASHINFER_DIRECT",
+            "Q3X_RUN_A4W4_GATEUP_PROJECTION_V3_ADMISSION",
+            "Q3X_RUN_A4W4_ATTENTION_SUPERMATRIX_ADMISSION",
+            "Q3X_RUN_FULL_ATTENTION_PREPROCESS_PROMPT_WIDE_128_ADMISSION",
+            "Q3X_RUN_A4W4_ATTENTION_O_K512_ADMISSION",
+        }
+        self.assertEqual(
+            set(re.findall(r"(Q3X_[A-Z0-9_]+)=1", startup)), expected
+        )
+        self.assertIn("--prefill-attention-o-k512-payload", startup)
+        self.assertIn(str(self.fixture.k512_payload), startup)
+        self.assertIn("--prefill-attention-o-k512-policy", startup)
+        self.assertIn(str(self.fixture.k512_policy), startup)
+        self.assertIn("--prefill-attention-o-k512-receipt", startup)
+        self.assertIn(str(self.fixture.k512_receipt), startup)
+        self.assertIn(
+            "prefill_attention_o_k512_authenticated_64_of_64",
+            result.stdout,
+        )
+        self.assertIn(
+            "prefill_attention_o_k512_payload_sha256", result.stdout
+        )
+
+    def test_cumulative_current_best_k512_requires_all_overlay_paths(
+        self,
+    ) -> None:
+        result = self.fixture.run(
+            "--prefill-attention-o-k512-payload",
+            str(self.fixture.k512_payload),
+            "--prefill-attention-o-k512-policy",
+            str(self.fixture.k512_policy),
+            "--mode",
+            "cumulative-prefill-current-best-k512",
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn(
+            "missing required Prefill Attention-O K512 receipt", result.stderr
+        )
+        self.assertFalse(self.fixture.output.exists())
+
+    def test_cumulative_current_best_k512_requires_compiled_selector(
+        self,
+    ) -> None:
+        contents = self.fixture.server.read_text(encoding="utf-8")
+        self.fixture.server.write_text(
+            contents.replace(
+                "# Q3X_RUN_A4W4_ATTENTION_O_K512_ADMISSION\n", ""
+            ),
+            encoding="utf-8",
+        )
+        result = self.fixture.run_k512()
+        self.assertEqual(result.returncode, 2)
+        self.assertIn(
+            "server does not contain the "
+            "cumulative-prefill-current-best-k512 selector: "
+            "Q3X_RUN_A4W4_ATTENTION_O_K512_ADMISSION",
+            result.stderr,
+        )
+
+    def test_k512_readiness_contract_proves_overlay_and_payload_digest(
+        self,
+    ) -> None:
+        contents = RUNNER.read_text(encoding="utf-8")
+        self.assertIn(
+            "prefill_attention_o_k512_requested=1 .*"
+            "prefill_attention_o_k512_enabled=1 .*"
+            "prefill_attention_o_k512_projections=64",
+            contents,
+        )
+        self.assertIn(
+            "prefill_attention_o_k512_payload_sha256=[0-9a-f]{64}",
+            contents,
+        )
 
     def test_cumulative_short_mode_adds_short_route_without_cells(self) -> None:
         result = self.fixture.run("--mode", "cumulative-prefill-short")

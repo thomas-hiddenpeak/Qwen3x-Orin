@@ -6,7 +6,10 @@ usage() {
 usage: run_native_pure_prefill_matrix.sh \
   --prefill-a4-payload FILE --prefill-a4-policy FILE \
   --prefill-a4-receipt FILE \
-  [--mode exact|native-gdn|cumulative-prefill|cumulative-prefill-down|cumulative-prefill-attention-down|cumulative-prefill-current-best|cumulative-prefill-short] \
+  [--prefill-attention-o-k512-payload FILE \
+   --prefill-attention-o-k512-policy FILE \
+   --prefill-attention-o-k512-receipt FILE] \
+  [--mode exact|native-gdn|cumulative-prefill|cumulative-prefill-down|cumulative-prefill-attention-down|cumulative-prefill-current-best|cumulative-prefill-current-best-k512|cumulative-prefill-short] \
   [--dry-run] \
   ELF MODEL_DIR CORPUS_DIR OUTPUT_ROOT [p512|p1k|p2k|p4k]
 EOF
@@ -18,11 +21,16 @@ dry_run=${Q3X_PURE_PREFILL_DRY_RUN:-0}
 prefill_a4_payload=
 prefill_a4_policy=
 prefill_a4_receipt=
+prefill_attention_o_k512_payload=
+prefill_attention_o_k512_policy=
+prefill_attention_o_k512_receipt=
 declare -a positional=()
 
 while (($# > 0)); do
   case "$1" in
-    --prefill-a4-payload|--prefill-a4-policy|--prefill-a4-receipt|--mode)
+    --prefill-a4-payload|--prefill-a4-policy|--prefill-a4-receipt|\
+    --prefill-attention-o-k512-payload|--prefill-attention-o-k512-policy|\
+    --prefill-attention-o-k512-receipt|--mode)
       (($# >= 2)) || { echo "missing value for $1" >&2; usage; exit 2; }
       option=$1
       value=$2
@@ -31,6 +39,15 @@ while (($# > 0)); do
         --prefill-a4-payload) prefill_a4_payload=${value} ;;
         --prefill-a4-policy) prefill_a4_policy=${value} ;;
         --prefill-a4-receipt) prefill_a4_receipt=${value} ;;
+        --prefill-attention-o-k512-payload)
+          prefill_attention_o_k512_payload=${value}
+          ;;
+        --prefill-attention-o-k512-policy)
+          prefill_attention_o_k512_policy=${value}
+          ;;
+        --prefill-attention-o-k512-receipt)
+          prefill_attention_o_k512_receipt=${value}
+          ;;
         --mode)
           ((mode_seen == 0)) || {
             echo "--mode may be specified only once" >&2
@@ -71,11 +88,12 @@ done
   exit 2
 }
 case "${mode}" in
-  exact|native-gdn|cumulative-prefill|cumulative-prefill-down|cumulative-prefill-attention-down|cumulative-prefill-current-best|cumulative-prefill-short) ;;
+  exact|native-gdn|cumulative-prefill|cumulative-prefill-down|cumulative-prefill-attention-down|cumulative-prefill-current-best|cumulative-prefill-current-best-k512|cumulative-prefill-short) ;;
   *)
     echo "--mode must be exact, native-gdn, cumulative-prefill, or" \
       "cumulative-prefill-down, cumulative-prefill-attention-down, or" \
-      "cumulative-prefill-current-best, or cumulative-prefill-short" >&2
+      "cumulative-prefill-current-best, cumulative-prefill-current-best-k512," \
+      "or cumulative-prefill-short" >&2
     exit 2
     ;;
 esac
@@ -105,6 +123,22 @@ port=${Q3X_EVAL_PORT:-18080}
   echo "missing required Prefill A4 receipt: ${prefill_a4_receipt:-<unset>}" >&2
   exit 2
 }
+k512_mode=0
+if [[ "${mode}" == cumulative-prefill-current-best-k512 ]]; then
+  k512_mode=1
+  [[ -f "${prefill_attention_o_k512_payload}" ]] || {
+    echo "missing required Prefill Attention-O K512 payload: ${prefill_attention_o_k512_payload:-<unset>}" >&2
+    exit 2
+  }
+  [[ -f "${prefill_attention_o_k512_policy}" ]] || {
+    echo "missing required Prefill Attention-O K512 policy: ${prefill_attention_o_k512_policy:-<unset>}" >&2
+    exit 2
+  }
+  [[ -f "${prefill_attention_o_k512_receipt}" ]] || {
+    echo "missing required Prefill Attention-O K512 receipt: ${prefill_attention_o_k512_receipt:-<unset>}" >&2
+    exit 2
+  }
+fi
 [[ ! -e "${output_root}" ]] || {
   echo "refusing to overwrite output root: ${output_root}" >&2
   exit 2
@@ -156,6 +190,19 @@ case "${mode}" in
       Q3X_RUN_A4W4_GATEUP_PROJECTION_V3_ADMISSION
       Q3X_RUN_A4W4_ATTENTION_SUPERMATRIX_ADMISSION
       Q3X_RUN_FULL_ATTENTION_PREPROCESS_PROMPT_WIDE_128_ADMISSION
+    )
+    ;;
+  cumulative-prefill-current-best-k512)
+    candidate_selectors=(
+      Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION
+      Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION
+      Q3X_RUN_BF16_AB_LARGE_M_PREFILL_ADMISSION
+      Q3X_RUN_A4W4_DOWN_COMPLETE_CELL_V3_ADMISSION
+      Q3X_FULL_ATTENTION_FLASHINFER_DIRECT
+      Q3X_RUN_A4W4_GATEUP_PROJECTION_V3_ADMISSION
+      Q3X_RUN_A4W4_ATTENTION_SUPERMATRIX_ADMISSION
+      Q3X_RUN_FULL_ATTENTION_PREPROCESS_PROMPT_WIDE_128_ADMISSION
+      Q3X_RUN_A4W4_ATTENTION_O_K512_ADMISSION
     )
     ;;
   cumulative-prefill-short)
@@ -237,6 +284,16 @@ server_args=(
   --prefill-a4-policy "${prefill_a4_policy}"
   --prefill-a4-receipt "${prefill_a4_receipt}"
 )
+if [[ "${k512_mode}" == 1 ]]; then
+  server_args+=(
+    --prefill-attention-o-k512-payload \
+      "${prefill_attention_o_k512_payload}"
+    --prefill-attention-o-k512-policy \
+      "${prefill_attention_o_k512_policy}"
+    --prefill-attention-o-k512-receipt \
+      "${prefill_attention_o_k512_receipt}"
+  )
+fi
 
 printf 'pure_prefill_matrix mode=%s dry_run=%s sanitized_experiment_env=%s selector_count=%s\n' \
   "${mode}" "${dry_run}" "${sanitized}" "${#candidate_selectors[@]}"
@@ -249,7 +306,11 @@ printf '\n'
 printf 'server_startup_command'
 printf ' %q' "${runtime_env[@]}" "${server_args[@]}"
 printf '\n'
-printf 'startup_contract required=prefill_a4_authenticated_400_of_400,optimized_prefill_disabled_0\n'
+printf 'startup_contract required=prefill_a4_authenticated_400_of_400,optimized_prefill_disabled_0'
+if [[ "${k512_mode}" == 1 ]]; then
+  printf ',prefill_attention_o_k512_authenticated_64_of_64,prefill_attention_o_k512_payload_sha256'
+fi
+printf '\n'
 
 if [[ "${dry_run}" == 1 ]]; then
   echo "dry_run_complete=1 performance_evidence=0 startup_contract_check=deferred"
@@ -310,7 +371,25 @@ if ! grep -Eq \
   echo "server readiness did not prove authenticated Prefill A4 400/400" >&2
   exit 5
 fi
-echo "startup_contract_check=passed prefill_a4_authenticated=400/400 optimized_prefill_disabled=0"
+if [[ "${k512_mode}" == 1 ]]; then
+  if ! grep -Eq \
+      'prefill_attention_o_k512_requested=1 .*prefill_attention_o_k512_enabled=1 .*prefill_attention_o_k512_projections=64([[:space:]]|$)' \
+      "${server_log}"; then
+    echo "server readiness did not prove authenticated Prefill Attention-O K512 64/64" >&2
+    exit 5
+  fi
+  if ! grep -Eq \
+      'prefill_attention_o_k512_payload_sha256=[0-9a-f]{64}([[:space:]]|$)' \
+      "${server_log}"; then
+    echo "server readiness did not prove the Prefill Attention-O K512 payload SHA-256" >&2
+    exit 5
+  fi
+fi
+printf 'startup_contract_check=passed prefill_a4_authenticated=400/400 optimized_prefill_disabled=0'
+if [[ "${k512_mode}" == 1 ]]; then
+  printf ' prefill_attention_o_k512_authenticated=64/64 prefill_attention_o_k512_payload_sha256=verified'
+fi
+printf '\n'
 
 for bucket in "${buckets[@]}"; do
   corpus="${corpus_dir}/q3x-sharegpt-prefill-${bucket}-5.jsonl"
