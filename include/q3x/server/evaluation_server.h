@@ -21,6 +21,12 @@ struct EvaluationServerOptions {
   std::filesystem::path prefill_attention_o_k512_payload_path;
   std::filesystem::path prefill_attention_o_k512_policy_path;
   std::filesystem::path prefill_attention_o_k512_receipt_path;
+  // Authenticated K512 MLP overlay for every Gate, Up, and Down projection.
+  // As with Attention-O, the evaluation surface admits only a complete
+  // payload/policy/receipt publication on top of the explicit K128 A4 base.
+  std::filesystem::path prefill_mlp_k512_payload_path;
+  std::filesystem::path prefill_mlp_k512_policy_path;
+  std::filesystem::path prefill_mlp_k512_receipt_path;
   std::string bind_address = "127.0.0.1";
   std::uint16_t port = 8000U;
   std::string served_model = "qwen3.6-27b-nvfp4";

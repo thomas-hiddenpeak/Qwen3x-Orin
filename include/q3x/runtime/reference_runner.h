@@ -746,7 +746,7 @@ a4w4_prefill_consumer_from_contract(
 // Whole-M projection spans have independent packed/scaled activation and BF16
 // output workspaces whose capacity is a C512 multiple.  A K128 publication can
 // therefore execute a natural prompt tail by quantizing only the logical rows,
-// explicitly zero-filling the packed/scaled rows through the next M64 boundary,
+// explicitly zero-filling the packed/scaled rows through the next M128 boundary,
 // and launching the incumbent K128 consumer on that padded M.  Hidden state,
 // attention, recurrent state, residuals, and the retained final row continue to
 // use logical_token_count.  This plan is deliberately unavailable to the C512
@@ -778,7 +778,7 @@ a4w4_projection_span_padding_plan(
   if (consumer == A4W4PrefillConsumer::kK64) {
     return {logical_token_count, logical_token_count, 0U, span_capacity};
   }
-  constexpr std::size_t kK128MAlignment = 64U;
+  constexpr std::size_t kK128MAlignment = 128U;
   constexpr std::size_t kMaximum = static_cast<std::size_t>(-1);
   if (logical_token_count > kMaximum - (kK128MAlignment - 1U)) {
     return {};
@@ -823,7 +823,7 @@ a4w4_prefill_consumer_supports_projection_span_prompt(
 // Complete-cell v2 is a model-specific Gate+Up route, not a generic GEMM
 // selector.  The consumer is the immutable result of authenticating the
 // complete 400-projection inventory. projection_token_count is the runner's
-// internal M after ceil64 padding; logical prompt tails never reach this
+// internal M after ceil128 padding; logical prompt tails never reach this
 // selector directly.  Capacities may exceed the selected M (the whole-span
 // workspace does), but every input, weight, and Down-publication plane must
 // cover the complete selected matrix.
@@ -850,7 +850,7 @@ struct A4W4GateUpCompleteCellV2RouteQuery final {
 // the same external M64/N128/K128 ABI as complete-cell v2, but its runtime
 // gate is deliberately separate so compiling or enabling either experiment
 // cannot silently enable the other.  projection_token_count is the runner's
-// internal ceil64 M; the authenticated inventory and every exact capacity are
+// internal ceil128 M; the authenticated inventory and every exact capacity are
 // mandatory before the new warp-specialized kernel may be selected.
 struct A4W4GateUpProjectionV3RouteQuery final {
   bool admission_enabled = false;
@@ -899,8 +899,8 @@ struct A4W4AttentionSupermatrixProjectionPlane final {
 };
 
 // A capacity-aware, model-specific selector for the three Attention complete
-// cells.  projection_token_count is the internal M after any ceil64 padding;
-// the candidate has no M64 tail and therefore requires a complete M128 tile.
+// cells.  projection_token_count is the internal M after K128 whole-span
+// ceil128 padding, so the candidate always receives a complete M128 tile.
 // inventory_consumer is authenticated once from all 400 sidecars, so a mixed
 // or partially published K128 plane can never enter this selector.
 struct A4W4AttentionSupermatrixRouteQuery final {
@@ -1104,10 +1104,9 @@ select_a4w4_k128_gateup_prefill_route(
 }
 
 // Down complete-cell v2 owns only the authenticated model-specific Down
-// projection. projection_token_count is the runner's internal ceil64-padded
-// M, never the logical prompt length. This first runtime slice additionally
-// requires a complete M128 tile; ceil64 values such as P1853 -> M1856 remain
-// on the incumbent K128 route until a separate tail admission is proved.
+// projection. projection_token_count is the runner's internal ceil128-padded
+// M, never the logical prompt length. Natural spans such as P1853 -> M1920
+// therefore reach this complete-M128 route without a separate tail kernel.
 struct A4W4DownCompleteCellV2RouteQuery final {
   bool admission_enabled = false;
   A4W4PrefillConsumer inventory_consumer =

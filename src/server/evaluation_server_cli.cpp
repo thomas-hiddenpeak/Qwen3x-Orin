@@ -126,6 +126,24 @@ bool parse_evaluation_server_arguments(
         return false;
       }
       options.prefill_attention_o_k512_receipt_path = value;
+    } else if (argument == "--prefill-mlp-k512-payload") {
+      if (!options.prefill_mlp_k512_payload_path.empty() || value.empty()) {
+        error = "--prefill-mlp-k512-payload requires one non-empty FILE";
+        return false;
+      }
+      options.prefill_mlp_k512_payload_path = value;
+    } else if (argument == "--prefill-mlp-k512-policy") {
+      if (!options.prefill_mlp_k512_policy_path.empty() || value.empty()) {
+        error = "--prefill-mlp-k512-policy requires one non-empty FILE";
+        return false;
+      }
+      options.prefill_mlp_k512_policy_path = value;
+    } else if (argument == "--prefill-mlp-k512-receipt") {
+      if (!options.prefill_mlp_k512_receipt_path.empty() || value.empty()) {
+        error = "--prefill-mlp-k512-receipt requires one non-empty FILE";
+        return false;
+      }
+      options.prefill_mlp_k512_receipt_path = value;
     } else if (argument == "--queue-capacity") {
       if (!parse_unsigned(value, options.inference_queue_capacity) ||
           options.inference_queue_capacity == 0U) {
@@ -183,21 +201,39 @@ bool parse_evaluation_server_arguments(
             "together; receipt is optional";
     return false;
   }
-  const bool k512_payload =
+  const bool attention_k512_payload =
       !options.prefill_attention_o_k512_payload_path.empty();
-  const bool k512_policy =
+  const bool attention_k512_policy =
       !options.prefill_attention_o_k512_policy_path.empty();
-  const bool k512_receipt =
+  const bool attention_k512_receipt =
       !options.prefill_attention_o_k512_receipt_path.empty();
-  if (k512_payload != k512_policy || k512_payload != k512_receipt) {
+  if (attention_k512_payload != attention_k512_policy ||
+      attention_k512_payload != attention_k512_receipt) {
     error = "--prefill-attention-o-k512-payload, "
             "--prefill-attention-o-k512-policy, and "
             "--prefill-attention-o-k512-receipt are required together";
     return false;
   }
-  if (k512_payload && !a4_payload) {
+  if (attention_k512_payload && !a4_payload) {
     error = "the K512 Attention-O overlay requires the explicit K128 A4 "
             "payload and policy";
+    return false;
+  }
+  const bool mlp_k512_payload =
+      !options.prefill_mlp_k512_payload_path.empty();
+  const bool mlp_k512_policy =
+      !options.prefill_mlp_k512_policy_path.empty();
+  const bool mlp_k512_receipt =
+      !options.prefill_mlp_k512_receipt_path.empty();
+  if (mlp_k512_payload != mlp_k512_policy ||
+      mlp_k512_payload != mlp_k512_receipt) {
+    error = "--prefill-mlp-k512-payload, --prefill-mlp-k512-policy, and "
+            "--prefill-mlp-k512-receipt are required together";
+    return false;
+  }
+  if (mlp_k512_payload && !a4_payload) {
+    error = "the K512 MLP overlay requires the explicit K128 A4 payload "
+            "and policy";
     return false;
   }
   error.clear();

@@ -114,6 +114,64 @@ void test_invalid_indices(TestContext& test) {
   }
 }
 
+void test_mlp_k512_publication(TestContext& test) {
+  const char* const valid[] = {
+      "qwen3x-eval-server",
+      "/model",
+      "--prefill-a4-payload",
+      "/publication/a4.bin",
+      "--prefill-a4-policy",
+      "/publication/a4-policy.json",
+      "--prefill-mlp-k512-payload",
+      "/publication/mlp-k512.bin",
+      "--prefill-mlp-k512-policy",
+      "/publication/mlp-k512-policy.json",
+      "--prefill-mlp-k512-receipt",
+      "/publication/mlp-k512-receipt.json"};
+  server::EvaluationServerOptions options;
+  std::string error;
+  test.expect(parse(valid, options, error) && error.empty() &&
+                  options.prefill_mlp_k512_payload_path ==
+                      "/publication/mlp-k512.bin" &&
+                  options.prefill_mlp_k512_policy_path ==
+                      "/publication/mlp-k512-policy.json" &&
+                  options.prefill_mlp_k512_receipt_path ==
+                      "/publication/mlp-k512-receipt.json",
+              "a complete authenticated MLP K512 publication parses");
+
+  const char* const incomplete[] = {
+      "qwen3x-eval-server",
+      "/model",
+      "--prefill-a4-payload",
+      "/publication/a4.bin",
+      "--prefill-a4-policy",
+      "/publication/a4-policy.json",
+      "--prefill-mlp-k512-payload",
+      "/publication/mlp-k512.bin",
+      "--prefill-mlp-k512-policy",
+      "/publication/mlp-k512-policy.json"};
+  options = {};
+  error.clear();
+  test.expect(!parse(incomplete, options, error) &&
+                  error.find("required together") != std::string::npos,
+              "an incomplete MLP K512 publication is rejected");
+
+  const char* const missing_base[] = {
+      "qwen3x-eval-server",
+      "/model",
+      "--prefill-mlp-k512-payload",
+      "/publication/mlp-k512.bin",
+      "--prefill-mlp-k512-policy",
+      "/publication/mlp-k512-policy.json",
+      "--prefill-mlp-k512-receipt",
+      "/publication/mlp-k512-receipt.json"};
+  options = {};
+  error.clear();
+  test.expect(!parse(missing_base, options, error) &&
+                  error.find("explicit K128 A4") != std::string::npos,
+              "MLP K512 cannot be admitted without the K128 A4 base");
+}
+
 }  // namespace
 
 int main() {
@@ -121,6 +179,7 @@ int main() {
   test_disabled_default(test);
   test_valid_index(test);
   test_invalid_indices(test);
+  test_mlp_k512_publication(test);
   if (test.failures() != 0) {
     std::cerr << test.failures()
               << " evaluation server CLI test(s) failed\n";

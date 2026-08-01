@@ -9,7 +9,10 @@ usage: run_native_pure_prefill_matrix.sh \
   [--prefill-attention-o-k512-payload FILE \
    --prefill-attention-o-k512-policy FILE \
    --prefill-attention-o-k512-receipt FILE] \
-  [--mode exact|native-gdn|cumulative-prefill|cumulative-prefill-down|cumulative-prefill-attention-down|cumulative-prefill-current-best|cumulative-prefill-current-best-k512|cumulative-prefill-short] \
+  [--prefill-mlp-k512-payload FILE \
+   --prefill-mlp-k512-policy FILE \
+   --prefill-mlp-k512-receipt FILE] \
+  [--mode exact|native-gdn|cumulative-prefill|cumulative-prefill-down|cumulative-prefill-attention-down|cumulative-prefill-current-best|cumulative-prefill-current-best-k512|cumulative-prefill-current-best-mlp-k512|cumulative-prefill-short] \
   [--dry-run] \
   ELF MODEL_DIR CORPUS_DIR OUTPUT_ROOT [p512|p1k|p2k|p4k]
 EOF
@@ -18,19 +21,25 @@ EOF
 mode=exact
 mode_seen=0
 dry_run=${Q3X_PURE_PREFILL_DRY_RUN:-0}
+profile_request_index=${Q3X_EVAL_PROFILE_REQUEST_INDEX:-0}
+nsys_output=${Q3X_EVAL_NSYS_OUTPUT:-}
 prefill_a4_payload=
 prefill_a4_policy=
 prefill_a4_receipt=
 prefill_attention_o_k512_payload=
 prefill_attention_o_k512_policy=
 prefill_attention_o_k512_receipt=
+prefill_mlp_k512_payload=
+prefill_mlp_k512_policy=
+prefill_mlp_k512_receipt=
 declare -a positional=()
 
 while (($# > 0)); do
   case "$1" in
     --prefill-a4-payload|--prefill-a4-policy|--prefill-a4-receipt|\
     --prefill-attention-o-k512-payload|--prefill-attention-o-k512-policy|\
-    --prefill-attention-o-k512-receipt|--mode)
+    --prefill-attention-o-k512-receipt|--prefill-mlp-k512-payload|\
+    --prefill-mlp-k512-policy|--prefill-mlp-k512-receipt|--mode)
       (($# >= 2)) || { echo "missing value for $1" >&2; usage; exit 2; }
       option=$1
       value=$2
@@ -47,6 +56,15 @@ while (($# > 0)); do
           ;;
         --prefill-attention-o-k512-receipt)
           prefill_attention_o_k512_receipt=${value}
+          ;;
+        --prefill-mlp-k512-payload)
+          prefill_mlp_k512_payload=${value}
+          ;;
+        --prefill-mlp-k512-policy)
+          prefill_mlp_k512_policy=${value}
+          ;;
+        --prefill-mlp-k512-receipt)
+          prefill_mlp_k512_receipt=${value}
           ;;
         --mode)
           ((mode_seen == 0)) || {
@@ -88,12 +106,12 @@ done
   exit 2
 }
 case "${mode}" in
-  exact|native-gdn|cumulative-prefill|cumulative-prefill-down|cumulative-prefill-attention-down|cumulative-prefill-current-best|cumulative-prefill-current-best-k512|cumulative-prefill-short) ;;
+  exact|native-gdn|cumulative-prefill|cumulative-prefill-down|cumulative-prefill-attention-down|cumulative-prefill-current-best|cumulative-prefill-current-best-k512|cumulative-prefill-current-best-mlp-k512|cumulative-prefill-short) ;;
   *)
     echo "--mode must be exact, native-gdn, cumulative-prefill, or" \
       "cumulative-prefill-down, cumulative-prefill-attention-down, or" \
       "cumulative-prefill-current-best, cumulative-prefill-current-best-k512," \
-      "or cumulative-prefill-short" >&2
+      "cumulative-prefill-current-best-mlp-k512, or cumulative-prefill-short" >&2
     exit 2
     ;;
 esac
@@ -101,6 +119,23 @@ esac
   echo "Q3X_PURE_PREFILL_DRY_RUN must be 0 or 1" >&2
   exit 2
 }
+[[ "${profile_request_index}" =~ ^[0-9]+$ ]] || {
+  echo "Q3X_EVAL_PROFILE_REQUEST_INDEX must be a non-negative integer" >&2
+  exit 2
+}
+if [[ -n "${nsys_output}" ]]; then
+  ((profile_request_index > 0)) || {
+    echo "Q3X_EVAL_NSYS_OUTPUT requires Q3X_EVAL_PROFILE_REQUEST_INDEX > 0" >&2
+    exit 2
+  }
+  command -v nsys >/dev/null || {
+    echo "Q3X_EVAL_NSYS_OUTPUT requires nsys" >&2
+    exit 2
+  }
+elif ((profile_request_index > 0)); then
+  echo "Q3X_EVAL_PROFILE_REQUEST_INDEX > 0 requires Q3X_EVAL_NSYS_OUTPUT" >&2
+  exit 2
+fi
 
 server=${positional[0]}
 model_dir=${positional[1]}
@@ -136,6 +171,22 @@ if [[ "${mode}" == cumulative-prefill-current-best-k512 ]]; then
   }
   [[ -f "${prefill_attention_o_k512_receipt}" ]] || {
     echo "missing required Prefill Attention-O K512 receipt: ${prefill_attention_o_k512_receipt:-<unset>}" >&2
+    exit 2
+  }
+fi
+mlp_k512_mode=0
+if [[ "${mode}" == cumulative-prefill-current-best-mlp-k512 ]]; then
+  mlp_k512_mode=1
+  [[ -f "${prefill_mlp_k512_payload}" ]] || {
+    echo "missing required Prefill MLP K512 payload: ${prefill_mlp_k512_payload:-<unset>}" >&2
+    exit 2
+  }
+  [[ -f "${prefill_mlp_k512_policy}" ]] || {
+    echo "missing required Prefill MLP K512 policy: ${prefill_mlp_k512_policy:-<unset>}" >&2
+    exit 2
+  }
+  [[ -f "${prefill_mlp_k512_receipt}" ]] || {
+    echo "missing required Prefill MLP K512 receipt: ${prefill_mlp_k512_receipt:-<unset>}" >&2
     exit 2
   }
 fi
@@ -205,6 +256,17 @@ case "${mode}" in
       Q3X_RUN_A4W4_ATTENTION_O_K512_ADMISSION
     )
     ;;
+  cumulative-prefill-current-best-mlp-k512)
+    candidate_selectors=(
+      Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION
+      Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION
+      Q3X_RUN_BF16_AB_LARGE_M_PREFILL_ADMISSION
+      Q3X_FULL_ATTENTION_FLASHINFER_DIRECT
+      Q3X_RUN_A4W4_ATTENTION_SUPERMATRIX_ADMISSION
+      Q3X_RUN_FULL_ATTENTION_PREPROCESS_PROMPT_WIDE_128_ADMISSION
+      Q3X_RUN_A4W4_MLP_K512_ADMISSION
+    )
+    ;;
   cumulative-prefill-short)
     candidate_selectors=(
       Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION
@@ -236,6 +298,14 @@ if [[ -n "${only_bucket}" ]]; then
     exit 2
   }
   buckets=("${only_bucket}")
+fi
+if [[ "${mlp_k512_mode}" == 1 ]]; then
+  for bucket in "${buckets[@]}"; do
+    if [[ "${bucket}" == p512 ]]; then
+      echo "Prefill MLP K512 is not admissible for p512; select p1k, p2k, or p4k explicitly" >&2
+      exit 2
+    fi
+  done
 fi
 
 for bucket in "${buckets[@]}"; do
@@ -294,9 +364,32 @@ if [[ "${k512_mode}" == 1 ]]; then
       "${prefill_attention_o_k512_receipt}"
   )
 fi
+if [[ "${mlp_k512_mode}" == 1 ]]; then
+  server_args+=(
+    --prefill-mlp-k512-payload "${prefill_mlp_k512_payload}"
+    --prefill-mlp-k512-policy "${prefill_mlp_k512_policy}"
+    --prefill-mlp-k512-receipt "${prefill_mlp_k512_receipt}"
+  )
+fi
+declare -a profiler_prefix=()
+if [[ -n "${nsys_output}" ]]; then
+  profiler_prefix=(
+    nsys profile
+    --trace=cuda,nvtx --sample=none --cpuctxsw=none --stats=false
+    --capture-range=cudaProfilerApi --capture-range-end=stop
+    --force-overwrite=true --output "${nsys_output}"
+  )
+  server_args+=(--profile-request-index "${profile_request_index}")
+fi
 
 printf 'pure_prefill_matrix mode=%s dry_run=%s sanitized_experiment_env=%s selector_count=%s\n' \
   "${mode}" "${dry_run}" "${sanitized}" "${#candidate_selectors[@]}"
+server_elf_sha256=$(sha256sum "${server}" | awk '{print $1}')
+printf 'server_metadata elf_sha256=%s evalscope_version=1.9.1\n' \
+  "${server_elf_sha256}"
+printf 'profile_metadata enabled=%s request_index=%s nsys_output=%q trace=cuda,nvtx capture_range=cudaProfilerApi\n' \
+  "$([[ -n "${nsys_output}" ]] && printf 1 || printf 0)" \
+  "${profile_request_index}" "${nsys_output}"
 printf 'selector_metadata mode=%s selector_count=%s' \
   "${mode}" "${#candidate_selectors[@]}"
 for selector in "${candidate_selectors[@]}"; do
@@ -304,11 +397,14 @@ for selector in "${candidate_selectors[@]}"; do
 done
 printf '\n'
 printf 'server_startup_command'
-printf ' %q' "${runtime_env[@]}" "${server_args[@]}"
+printf ' %q' "${runtime_env[@]}" "${profiler_prefix[@]}" "${server_args[@]}"
 printf '\n'
 printf 'startup_contract required=prefill_a4_authenticated_400_of_400,optimized_prefill_disabled_0'
 if [[ "${k512_mode}" == 1 ]]; then
   printf ',prefill_attention_o_k512_authenticated_64_of_64,prefill_attention_o_k512_payload_sha256'
+fi
+if [[ "${mlp_k512_mode}" == 1 ]]; then
+  printf ',prefill_mlp_k512_authenticated_192_of_192,prefill_mlp_k512_payload_sha256'
 fi
 printf '\n'
 
@@ -320,6 +416,20 @@ fi
 command -v curl >/dev/null || { echo "curl is required" >&2; exit 2; }
 command -v uvx >/dev/null || { echo "uvx is required" >&2; exit 2; }
 mkdir -p "${output_root}"
+{
+  printf 'mode=%s\n' "${mode}"
+  printf 'server_elf_sha256=%s\n' "${server_elf_sha256}"
+  printf 'evalscope_version=1.9.1\n'
+  printf 'profile_request_index=%s\n' "${profile_request_index}"
+  printf 'nsys_output=%s\n' "${nsys_output}"
+  printf 'selectors='
+  printf '%s ' "${candidate_selectors[@]}"
+  printf '\n'
+  for bucket in "${buckets[@]}"; do
+    printf 'corpus_%s_sha256=%s\n' \
+      "${bucket}" "${corpus_sha[${bucket}]}"
+  done
+} >"${output_root}/provenance.txt"
 server_log="${output_root}/server.log"
 exec 9>/tmp/q3x-gpu-bench.lock
 flock 9
@@ -333,7 +443,8 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-"${runtime_env[@]}" "${server_args[@]}" >"${server_log}" 2>&1 &
+"${runtime_env[@]}" "${profiler_prefix[@]}" "${server_args[@]}" \
+  >"${server_log}" 2>&1 &
 server_pid=$!
 
 ready=0
@@ -385,9 +496,26 @@ if [[ "${k512_mode}" == 1 ]]; then
     exit 5
   fi
 fi
+if [[ "${mlp_k512_mode}" == 1 ]]; then
+  if ! grep -Eq \
+      'prefill_mlp_k512_requested=1 .*prefill_mlp_k512_enabled=1 .*prefill_mlp_k512_projections=192([[:space:]]|$)' \
+      "${server_log}"; then
+    echo "server readiness did not prove authenticated Prefill MLP K512 192/192" >&2
+    exit 5
+  fi
+  if ! grep -Eq \
+      'prefill_mlp_k512_payload_sha256=[0-9a-f]{64}([[:space:]]|$)' \
+      "${server_log}"; then
+    echo "server readiness did not prove the Prefill MLP K512 payload SHA-256" >&2
+    exit 5
+  fi
+fi
 printf 'startup_contract_check=passed prefill_a4_authenticated=400/400 optimized_prefill_disabled=0'
 if [[ "${k512_mode}" == 1 ]]; then
   printf ' prefill_attention_o_k512_authenticated=64/64 prefill_attention_o_k512_payload_sha256=verified'
+fi
+if [[ "${mlp_k512_mode}" == 1 ]]; then
+  printf ' prefill_mlp_k512_authenticated=192/192 prefill_mlp_k512_payload_sha256=verified'
 fi
 printf '\n'
 

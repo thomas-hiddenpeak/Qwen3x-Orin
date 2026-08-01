@@ -16,6 +16,8 @@ namespace q3x::runtime {
 struct PrefillA4CalibrationPolicy;
 struct PrefillAttentionOK512OverlayManifest;
 struct PrefillAttentionOK512OverlayPolicy;
+struct PrefillMLPK512OverlayManifest;
+struct PrefillMLPK512OverlayPolicy;
 
 inline constexpr std::size_t kQwen36DenseLayerCount = 64U;
 inline constexpr std::size_t kQwen36LinearAttentionLayerCount = 48U;
@@ -236,6 +238,13 @@ struct NvFp4LinearWeight {
   std::uint32_t prefill_a4_packed_k_group_size = 0U;
   std::uint32_t prefill_a4_scale_group_size = 0U;
   float prefill_a4_activation_clip_ratio = 0.0F;
+  // Independent large-M MLP plane.  This K512 ABI overlays only Gate, Up,
+  // and Down and is valid only while the complete authenticated K128 A4
+  // inventory remains attached.  Canonical NVFP4 and Decode views are
+  // unchanged.
+  const std::uint8_t* prefill_mlp_k512_weight = nullptr;
+  const std::uint16_t* prefill_mlp_k512_scales = nullptr;
+  float prefill_mlp_k512_activation_clip_ratio = 0.0F;
 };
 
 // The active alternative is selected strictly from the payload weight dtype:
@@ -280,6 +289,22 @@ struct PrefillAttentionOK512LinearSidecarView {
   }
 };
 
+struct PrefillMLPK512LinearSidecarView {
+  const std::uint8_t* weight = nullptr;
+  const std::uint16_t* scales = nullptr;
+  float activation_clip_ratio = 0.0F;
+  std::size_t output_size = 0U;
+  std::size_t input_size = 0U;
+
+  [[nodiscard]] bool attached() const noexcept {
+    const bool gate_or_up = output_size == 17'408U && input_size == 5'120U;
+    const bool down = output_size == 5'120U && input_size == 17'408U;
+    return weight != nullptr && scales != nullptr &&
+           activation_clip_ratio > 0.0F && activation_clip_ratio <= 1.0F &&
+           (gate_or_up || down);
+  }
+};
+
 enum class LinearWeightKind : std::uint8_t {
   kBf16,
   kFp8,
@@ -319,6 +344,8 @@ inline constexpr std::size_t kMaximumProjectionTileTokenCount = 64U;
 [[nodiscard]] PrefillAttentionOK512LinearSidecarView
 prefill_attention_o_k512_sidecar_view(
     const LinearWeight& weight) noexcept;
+[[nodiscard]] PrefillMLPK512LinearSidecarView
+prefill_mlp_k512_sidecar_view(const LinearWeight& weight) noexcept;
 
 // True only for the production fused linear-attention A/B projection ABI:
 // the explicitly selected SM87 backend and two valid BF16 [48, 5120]
@@ -579,6 +606,17 @@ class ModelWeights {
       const std::uint8_t* arena, std::size_t arena_bytes,
       const PrefillAttentionOK512OverlayManifest* manifest,
       const PrefillAttentionOK512OverlayPolicy* policy) noexcept;
+
+  // Transactionally overlays exactly the 192 Gate/Up/Down projections on an
+  // already-authenticated K128 A4 inventory.  All manifest, policy, base,
+  // binding, shape, range, and alignment checks complete before any existing
+  // MLP K512 view changes.  The arena is non-owning and must outlive
+  // ModelWeights and every queued K512 launch.  A canonical null/zero call
+  // detaches only this overlay.
+  [[nodiscard]] bool attach_prefill_mlp_k512_sidecars(
+      const std::uint8_t* arena, std::size_t arena_bytes,
+      const PrefillMLPK512OverlayManifest* manifest,
+      const PrefillMLPK512OverlayPolicy* policy) noexcept;
 
  private:
   friend class ModelWeightBinder;

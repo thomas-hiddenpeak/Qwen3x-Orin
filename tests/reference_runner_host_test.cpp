@@ -1538,24 +1538,34 @@ void test_a4w4_full_prefill_admission_controls(TestContext& test) {
       detail::a4w4_projection_span_padding_plan(k128, 4'095U, 4'096U);
   const auto p40960_span =
       detail::a4w4_projection_span_padding_plan(k128, 4'096U, 4'096U);
+  const auto p1853_k64 =
+      detail::a4w4_projection_span_padding_plan(k64, 1'853U, 4'096U);
   test.expect(
       p481.valid() && p481.logical_token_count == 481U &&
           p481.projection_token_count == 512U &&
           p481.padding_token_count == 31U && p1853.valid() &&
           p1853.logical_token_count == 1'853U &&
-          p1853.projection_token_count == 1'856U &&
-          p1853.padding_token_count == 3U && p3987.valid() &&
-          p3987.projection_token_count == 4'032U &&
-          p3987.padding_token_count == 45U && p40959_tail.valid() &&
+          p1853.projection_token_count == 1'920U &&
+          p1853.padding_token_count == 67U &&
+          p1853.projection_token_count % 128U == 0U && p3987.valid() &&
+          p3987.projection_token_count == 4'096U &&
+          p3987.padding_token_count == 109U &&
+          p3987.projection_token_count % 128U == 0U &&
+          p40959_tail.valid() &&
           p40959_tail.projection_token_count == 4'096U &&
           p40959_tail.padding_token_count == 1U && p40960_span.valid() &&
-          p40960_span.padding_token_count == 0U,
-      "K128 whole-M padding maps P481/P1853/P3987/P40959 inside capacity");
+          p40960_span.padding_token_count == 0U && p1853_k64.valid() &&
+          p1853_k64.projection_token_count == 1'853U &&
+          p1853_k64.padding_token_count == 0U,
+      "K128 whole-M padding maps natural prompts to M128 while K64 remains "
+      "unpadded");
   test.expect(
       detail::a4w4_prefill_consumer_supports_projection_span_prompt(
           k128, 481U, 512U) &&
           detail::a4w4_prefill_consumer_supports_projection_span_prompt(
-          k128, 1'853U, 4'096U) &&
+              k128, 1'853U, 4'096U) &&
+          detail::a4w4_prefill_consumer_supports_projection_span_prompt(
+              k128, 1'853U, 1'920U) &&
           detail::a4w4_prefill_consumer_supports_projection_span_prompt(
               k128, 3'987U, 4'096U) &&
           detail::a4w4_prefill_consumer_supports_projection_span_prompt(
@@ -1567,13 +1577,13 @@ void test_a4w4_full_prefill_admission_controls(TestContext& test) {
           !detail::a4w4_prefill_consumer_supports_projection_span_prompt(
               Consumer::kUnavailable, 1'853U, 4'096U) &&
           !detail::a4w4_prefill_consumer_supports_projection_span_prompt(
-              k128, 1'853U, 1'855U) &&
+              k128, 1'853U, 1'919U) &&
           !detail::a4w4_prefill_consumer_supports_projection_span_prompt(
               k128, 4'097U, 4'095U) &&
           !detail::a4w4_projection_span_padding_plan(
                k128, 4'095U, 4'095U).valid(),
       "K128 natural-prompt route proves every full/tail span fits and fails "
-      "closed when ceil64 exceeds capacity");
+      "closed when ceil128 exceeds capacity");
 
   using CellQuery = detail::A4W4GateUpCompleteCellV2RouteQuery;
   const auto make_cell_query = [k128](
@@ -1628,7 +1638,7 @@ void test_a4w4_full_prefill_admission_controls(TestContext& test) {
           !detail::use_a4w4_gateup_complete_cell_v2_route(gate_near_miss) &&
           !detail::use_a4w4_gateup_complete_cell_v2_route(up_near_miss),
       "complete-cell v2 selector requires its independent gate, authenticated "
-      "K128, exact Gate/Up shapes, and internally padded M64");
+      "K128, exact Gate/Up shapes, and the internally padded M128");
 
   std::array<CellQuery, 8U> short_capacity_queries{};
   short_capacity_queries.fill(real_cell);
@@ -1702,7 +1712,7 @@ void test_a4w4_full_prefill_admission_controls(TestContext& test) {
               gate_near_miss_v3) &&
           !detail::use_a4w4_gateup_projection_v3_route(up_near_miss_v3),
       "Gate+Up projection v3 requires its independent gate, authenticated "
-      "K128, exact model shapes, and the internal ceil64 projection M");
+      "K128, exact model shapes, and the internal ceil128 projection M");
 
   std::array<V3Query, 8U> short_v3_capacities{};
   short_v3_capacities.fill(real_v3);
@@ -1786,6 +1796,10 @@ void test_a4w4_full_prefill_admission_controls(TestContext& test) {
       AttentionFamily::kFullInput, 2'048U, 2'048U);
   const AttentionQuery output_attention = make_attention_query(
       AttentionFamily::kOutput, 2'048U, 2'048U);
+  const AttentionQuery natural_p1853_linear_attention = make_attention_query(
+      AttentionFamily::kLinearInput, p1853.projection_token_count, 4'096U);
+  const AttentionQuery natural_p3987_output_attention = make_attention_query(
+      AttentionFamily::kOutput, p3987.projection_token_count, 4'096U);
   AttentionQuery disabled_attention = linear_attention;
   disabled_attention.admission_enabled = false;
   AttentionQuery k64_attention = linear_attention;
@@ -1810,6 +1824,10 @@ void test_a4w4_full_prefill_admission_controls(TestContext& test) {
       detail::use_a4w4_attention_supermatrix_route(linear_attention) &&
           detail::use_a4w4_attention_supermatrix_route(full_attention) &&
           detail::use_a4w4_attention_supermatrix_route(output_attention) &&
+          detail::use_a4w4_attention_supermatrix_route(
+              natural_p1853_linear_attention) &&
+          detail::use_a4w4_attention_supermatrix_route(
+              natural_p3987_output_attention) &&
           !detail::use_a4w4_attention_supermatrix_route(disabled_attention) &&
           !detail::use_a4w4_attention_supermatrix_route(k64_attention) &&
           !detail::use_a4w4_attention_supermatrix_route(m64_attention) &&
@@ -1820,8 +1838,9 @@ void test_a4w4_full_prefill_admission_controls(TestContext& test) {
           !detail::use_a4w4_attention_supermatrix_route(invalid_family) &&
           !detail::use_a4w4_attention_supermatrix_route(wrapped_device_rows),
       "Attention supermatrix selector requires its independent gate, complete "
-      "authenticated K128 M128, fixed Qwen3.6 family shapes, clean unused "
-      "planes, and device-row-safe coordinates");
+      "authenticated K128 M128 including natural padded prompts, fixed "
+      "Qwen3.6 family shapes, clean unused planes, and device-row-safe "
+      "coordinates");
 
   std::array<AttentionQuery, 8U> short_linear_attention{};
   short_linear_attention.fill(linear_attention);
@@ -1907,23 +1926,26 @@ void test_a4w4_full_prefill_admission_controls(TestContext& test) {
   disabled_down_cell.admission_enabled = false;
   DownCellQuery k64_down_cell = real_down_cell;
   k64_down_cell.inventory_consumer = k64;
-  DownCellQuery ceil64_not_m128 = make_down_cell_query(
+  DownCellQuery natural_p1853_down_cell = make_down_cell_query(
       p1853.projection_token_count);
+  DownCellQuery explicit_m64_not_m128 = make_down_cell_query(1'856U);
   DownCellQuery wrong_down_n = real_down_cell;
   --wrong_down_n.output_size;
   DownCellQuery wrong_down_k = real_down_cell;
   wrong_down_k.input_size -= 128U;
   test.expect(
       detail::use_a4w4_down_complete_cell_v2_route(real_down_cell) &&
+          detail::use_a4w4_down_complete_cell_v2_route(
+              natural_p1853_down_cell) &&
           !detail::use_a4w4_down_complete_cell_v2_route(
               disabled_down_cell) &&
           !detail::use_a4w4_down_complete_cell_v2_route(k64_down_cell) &&
           !detail::use_a4w4_down_complete_cell_v2_route(
-              ceil64_not_m128) &&
+              explicit_m64_not_m128) &&
           !detail::use_a4w4_down_complete_cell_v2_route(wrong_down_n) &&
           !detail::use_a4w4_down_complete_cell_v2_route(wrong_down_k),
       "Down complete-cell v2 requires its independent gate, authenticated "
-      "K128, exact N5120/K17408, and a complete internal M128 after ceil64");
+      "K128, exact N5120/K17408, and a complete internal M128 after ceil128");
   test.expect(
       detail::use_a4w4_down_complete_cell_v3_route(real_down_cell_v3) &&
           !detail::use_a4w4_down_complete_cell_v3_route(
@@ -2019,17 +2041,19 @@ void test_a4w4_full_prefill_admission_controls(TestContext& test) {
               GenericRoute::kM128StageMajor &&
           detail::select_a4w4_k128_generic_prefill_route(
               true, true, k128, p1853.projection_token_count, 10'240U,
-              runtime::kReferenceHiddenSize) == GenericRoute::kBaseline &&
+              runtime::kReferenceHiddenSize) ==
+              GenericRoute::kM128StageMajor &&
           detail::select_a4w4_k128_generic_prefill_route(
               true, true, k128, p3987.projection_token_count, 10'240U,
-              runtime::kReferenceHiddenSize) == GenericRoute::kBaseline &&
+              runtime::kReferenceHiddenSize) ==
+              GenericRoute::kM128StageMajor &&
           detail::select_a4w4_k128_generic_prefill_route(
               true, false, k128, p40959_tail.projection_token_count,
               10'240U, runtime::kReferenceHiddenSize) ==
               GenericRoute::kM128StageMajor,
       "shape-aware M128 selector gives exact Down an independent gate, "
-      "preserves M64 fallback for natural padded spans, and rejects invalid "
-      "N/K shapes");
+      "admits natural prompts after ceil128 padding, and rejects invalid N/K "
+      "shapes");
 
   const char* const v3_environment = std::getenv(
       "Q3X_RUN_A4W4_GATEUP_PROJECTION_V3_ADMISSION");

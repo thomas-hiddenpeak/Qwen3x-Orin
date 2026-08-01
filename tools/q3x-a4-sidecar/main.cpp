@@ -1,5 +1,6 @@
 #include "q3x/runtime/prefill_a4_sidecar_converter.h"
 #include "q3x/runtime/prefill_attention_o_k512_overlay.h"
+#include "q3x/runtime/prefill_mlp_k512_overlay.h"
 
 #include <cerrno>
 #include <cmath>
@@ -30,6 +31,11 @@ void print_usage(std::ostream& output) {
       << "  qwen3x-a4-sidecar attention-o-k512-convert"
          " MODEL_DIR POLICY.json OUTPUT"
          " [--row-chunk N] [--no-preallocate]\n"
+      << "  qwen3x-a4-sidecar mlp-k512-policy-template"
+         " MODEL_DIR BASE_K128_RECEIPT OUTPUT_POLICY"
+         " WEIGHT_CLIP ACTIVATION_CLIP\n"
+      << "  qwen3x-a4-sidecar mlp-k512-convert"
+         " MODEL_DIR POLICY.json OUTPUT_PAYLOAD [ROW_CHUNK]\n"
       << "  qwen3x-a4-sidecar help\n\n"
       << "The convert command accepts only the pinned Qwen3.6-27B-NVFP4 "
          "checkpoint and a versioned production_calibrated policy covering "
@@ -51,7 +57,12 @@ void print_usage(std::ostream& output) {
          "overlay. They read the original authenticated FP8 checkpoint "
          "weights, never the K128 sidecar. The policy binds the exact base "
          "K128 receipt and requires independent explicit weight and "
-         "activation clip ratios.\n";
+         "activation clip ratios.\n\n"
+      << "The MLP K512 commands create a separate 192-projection Gate/Up/Down "
+         "overlay from the original authenticated checkpoint weights. Its "
+         "policy also binds the exact base K128 receipt. The MLP command "
+         "arguments are positional; both clip ratios are mandatory and "
+         "ROW_CHUNK, when present, must be a positive supported row chunk.\n";
 }
 
 [[nodiscard]] bool parse_ratio(const char* text, double& output) {
@@ -132,6 +143,119 @@ void print_diagnostic(
     std::cerr << "\nerror.errno=" << diagnostic.system_error;
   }
   std::cerr << '\n';
+}
+
+void print_diagnostic(
+    const runtime::PrefillMLPK512OverlayDiagnostic& diagnostic) {
+  std::cerr << "error.code=" << runtime::to_string(diagnostic.code)
+            << "\nerror.context=" << diagnostic.context
+            << "\nerror.message=" << diagnostic.message;
+  if (!diagnostic.expected.empty()) {
+    std::cerr << "\nerror.expected=" << diagnostic.expected;
+  }
+  if (!diagnostic.actual.empty()) {
+    std::cerr << "\nerror.actual=" << diagnostic.actual;
+  }
+  if (diagnostic.system_error != 0) {
+    std::cerr << "\nerror.errno=" << diagnostic.system_error;
+  }
+  std::cerr << '\n';
+}
+
+int run_mlp_k512_convert(const int argc, char** argv) {
+  if (argc != 5 && argc != 6) {
+    print_usage(std::cerr);
+    return 2;
+  }
+  runtime::PrefillMLPK512OverlayConversionOptions options;
+  options.model_directory = argv[2];
+  options.calibration_policy_path = argv[3];
+  options.output_path = argv[4];
+  if (argc == 6 && !parse_size(argv[5], options.row_chunk_size)) {
+    std::cerr << "invalid ROW_CHUNK value\n";
+    return 2;
+  }
+  const auto result =
+      runtime::convert_pinned_qwen36_27b_prefill_mlp_k512_overlay(options);
+  if (!result) {
+    print_diagnostic(result.diagnostic);
+    return 1;
+  }
+  const auto& receipt = *result.receipt;
+  std::cout << "status=published"
+            << "\noverlay=mlp_k512"
+            << "\nproduction_residency_eligible="
+            << (receipt.production_residency_eligible ? "true" : "false")
+            << "\nphysical_layout=" << receipt.physical_layout
+            << "\nsource_checkpoint_id=" << receipt.source_checkpoint_id
+            << "\nsource_config_sha256=" << receipt.source_config_sha256
+            << "\nsource_index_sha256=" << receipt.source_index_sha256
+            << "\nbase_physical_layout="
+            << receipt.required_base.physical_layout
+            << "\nbase_manifest_sha256="
+            << receipt.required_base.manifest_sha256
+            << "\nbase_policy_sha256=" << receipt.required_base.policy_sha256
+            << "\nbase_payload_sha256=" << receipt.required_base.payload_sha256
+            << "\nmanifest_sha256=" << receipt.manifest_sha256
+            << "\npolicy_sha256=" << receipt.policy_sha256
+            << "\npayload_sha256=" << receipt.payload_sha256
+            << "\npayload_bytes=" << receipt.payload_bytes
+            << "\nprojections=" << result.stats.projections_converted
+            << "\nrows=" << result.stats.rows_converted
+            << "\nsource_bytes_read=" << result.stats.source_bytes_read
+            << "\noutput_bytes_written=" << result.stats.output_bytes_written
+            << "\npeak_working_bytes=" << result.stats.peak_working_bytes
+            << '\n';
+  return 0;
+}
+
+int run_mlp_k512_policy_template(const int argc, char** argv) {
+  if (argc != 7) {
+    print_usage(std::cerr);
+    return 2;
+  }
+  runtime::PrefillMLPK512OverlayPolicyTemplateOptions options;
+  options.model_directory = argv[2];
+  options.base_k128_receipt_path = argv[3];
+  options.output_path = argv[4];
+  if (!parse_ratio(argv[5], options.weight_clip_ratio)) {
+    std::cerr << "invalid WEIGHT_CLIP value\n";
+    return 2;
+  }
+  if (!parse_ratio(argv[6], options.activation_clip_ratio)) {
+    std::cerr << "invalid ACTIVATION_CLIP value\n";
+    return 2;
+  }
+  const auto result =
+      runtime::write_qwen36_27b_prefill_mlp_k512_overlay_policy_template(
+          options);
+  if (!result) {
+    print_diagnostic(result.diagnostic);
+    return 1;
+  }
+  const auto& policy = *result.value;
+  std::cout << "status=candidate_template"
+            << "\noverlay=mlp_k512"
+            << "\nproduction_residency_eligible=not_evaluated"
+            << "\nphysical_layout=" << policy.physical_layout
+            << "\nsource_checkpoint_id=" << policy.source_checkpoint_id
+            << "\nsource_config_sha256=" << policy.source_config_sha256
+            << "\nsource_index_sha256=" << policy.source_index_sha256
+            << "\nbase_physical_layout="
+            << policy.required_base.physical_layout
+            << "\nbase_manifest_sha256="
+            << policy.required_base.manifest_sha256
+            << "\nbase_policy_sha256=" << policy.required_base.policy_sha256
+            << "\nbase_payload_sha256=" << policy.required_base.payload_sha256
+            << "\nmanifest_sha256=" << policy.manifest_sha256
+            << "\npolicy_sha256=" << policy.policy_sha256
+            << "\npolicy_bytes=" << policy.policy_bytes
+            << "\nprojections=" << policy.projections.size()
+            << "\nweight_clip_ratio="
+            << policy.projections.front().weight_clip_ratio
+            << "\nactivation_clip_ratio="
+            << policy.projections.front().activation_clip_ratio << '\n';
+  return 0;
 }
 
 int run_attention_o_k512_convert(const int argc, char** argv) {
@@ -385,6 +509,13 @@ int main(const int argc, char** argv) {
   if (argc >= 2 &&
       std::string_view(argv[1]) == "attention-o-k512-convert") {
     return run_attention_o_k512_convert(argc, argv);
+  }
+  if (argc >= 2 &&
+      std::string_view(argv[1]) == "mlp-k512-policy-template") {
+    return run_mlp_k512_policy_template(argc, argv);
+  }
+  if (argc >= 2 && std::string_view(argv[1]) == "mlp-k512-convert") {
+    return run_mlp_k512_convert(argc, argv);
   }
   print_usage(std::cerr);
   return 2;

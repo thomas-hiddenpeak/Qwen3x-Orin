@@ -85,6 +85,12 @@ struct ReferenceEngineOptions {
   std::filesystem::path prefill_attention_o_k512_payload_path;
   std::filesystem::path prefill_attention_o_k512_policy_path;
   std::filesystem::path prefill_attention_o_k512_receipt_path;
+  // Optional authenticated 192-projection K512 MLP overlay. This is
+  // additive to, and may only be requested with, the complete K128 A4 base.
+  // The three paths are an all-or-none admission contract.
+  std::filesystem::path prefill_mlp_k512_payload_path;
+  std::filesystem::path prefill_mlp_k512_policy_path;
+  std::filesystem::path prefill_mlp_k512_receipt_path;
 };
 
 // Text-only messages accepted by the pinned Qwen 3.6 chat formatter. The
@@ -211,6 +217,7 @@ struct ReferenceEngineLoadStats {
   double nvfp4_marlin_prefill_sidecar_milliseconds = 0.0;
   double prefill_a4_sidecar_milliseconds = 0.0;
   double prefill_attention_o_k512_overlay_milliseconds = 0.0;
+  double prefill_mlp_k512_overlay_milliseconds = 0.0;
   double runner_factory_milliseconds = 0.0;
   ReferenceDecodeGraphCachePolicy decode_graph_cache_requested_policy =
       ReferenceDecodeGraphCachePolicy::kDisabled;
@@ -325,6 +332,15 @@ struct ReferenceEngineLoadStats {
   std::string prefill_attention_o_k512_overlay_manifest_sha256;
   std::string prefill_attention_o_k512_overlay_policy_sha256;
   std::string prefill_attention_o_k512_overlay_payload_sha256;
+  bool prefill_mlp_k512_overlay_requested = false;
+  bool prefill_mlp_k512_overlay_enabled = false;
+  std::size_t prefill_mlp_k512_overlay_projections = 0U;
+  std::uint64_t prefill_mlp_k512_overlay_bytes = 0U;
+  std::uint64_t prefill_mlp_k512_overlay_copy_chunks = 0U;
+  std::string prefill_mlp_k512_overlay_layout;
+  std::string prefill_mlp_k512_overlay_manifest_sha256;
+  std::string prefill_mlp_k512_overlay_policy_sha256;
+  std::string prefill_mlp_k512_overlay_payload_sha256;
   // True only when tokenizer parsing and resident loading actually executed
   // concurrently. When true, total_milliseconds is wall time and phase
   // timings intentionally overlap.
@@ -567,14 +583,18 @@ struct ReferenceOneShotOptions {
   // initialization of the pre-existing surface remains source-compatible.
   ReferenceDecodeGraphCachePolicy decode_graph_cache_policy =
       ReferenceDecodeGraphCachePolicy::kDisabled;
-  // Mirrors ReferenceEngineOptions for one-shot callers. Receipt may be
-  // omitted to select `<payload>.receipt.json`.
+  // Mirrors ReferenceEngineOptions for one-shot callers. A4/Attention-O
+  // receipts may be omitted to select `<payload>.receipt.json`; the MLP K512
+  // triplet remains all-or-none.
   std::filesystem::path prefill_a4_payload_path;
   std::filesystem::path prefill_a4_calibration_policy_path;
   std::filesystem::path prefill_a4_receipt_path;
   std::filesystem::path prefill_attention_o_k512_payload_path;
   std::filesystem::path prefill_attention_o_k512_policy_path;
   std::filesystem::path prefill_attention_o_k512_receipt_path;
+  std::filesystem::path prefill_mlp_k512_payload_path;
+  std::filesystem::path prefill_mlp_k512_policy_path;
+  std::filesystem::path prefill_mlp_k512_receipt_path;
 };
 
 struct ReferenceOneShotGeneration {

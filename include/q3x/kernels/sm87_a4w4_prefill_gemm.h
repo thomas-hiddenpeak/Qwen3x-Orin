@@ -407,6 +407,28 @@ struct Sm87A4W4PrefillGemmResources final {
     std::size_t a_scale_capacity_elements,
     void* cuda_stream = nullptr) noexcept;
 
+// K512 activation producer for a logical row split across two BF16 planes.
+// The split must fall on a K512 boundary, so every quantization group belongs
+// to exactly one plane and the published packed/scales ABI is bit-identical to
+// first concatenating both planes row-wise and calling the contiguous entry
+// above. This is the MLP hand-off used by the whole-M route: [M,12288] plus
+// the first [M,5120] columns of an independently-strided [M,6144] slab.
+[[nodiscard]] int launch_sm87_a4_quantize_bf16_k512_split_cuda(
+    const std::uint16_t* primary_bf16,
+    std::size_t primary_row_stride_elements,
+    std::size_t primary_size,
+    const std::uint16_t* secondary_bf16,
+    std::size_t secondary_row_stride_elements,
+    std::size_t secondary_size,
+    std::size_t logical_token_count,
+    std::size_t launch_token_count,
+    float clip_ratio,
+    std::uint8_t* packed_a,
+    std::size_t packed_a_capacity_bytes,
+    std::uint16_t* a_k512_scales_bf16,
+    std::size_t a_scale_capacity_elements,
+    void* cuda_stream = nullptr) noexcept;
+
 [[nodiscard]] int query_sm87_a4w4_prefill_gemm_resources_cuda(
     Sm87A4W4PrefillGemmResources* resources) noexcept;
 
