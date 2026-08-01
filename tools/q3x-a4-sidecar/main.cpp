@@ -1,5 +1,6 @@
 #include "q3x/runtime/prefill_a4_sidecar_converter.h"
 #include "q3x/runtime/prefill_attention_o_k512_overlay.h"
+#include "q3x/runtime/prefill_mlp_k512_fragment_native_overlay.h"
 #include "q3x/runtime/prefill_mlp_k512_overlay.h"
 
 #include <cerrno>
@@ -36,6 +37,9 @@ void print_usage(std::ostream& output) {
          " WEIGHT_CLIP ACTIVATION_CLIP\n"
       << "  qwen3x-a4-sidecar mlp-k512-convert"
          " MODEL_DIR POLICY.json OUTPUT_PAYLOAD [ROW_CHUNK]\n"
+      << "  qwen3x-a4-sidecar mlp-k512-fragment-native-convert"
+         " SOURCE_PAYLOAD SOURCE_RECEIPT SOURCE_POLICY"
+         " EXPECTED_RECEIPT_SHA OUTPUT [ROWS]\n"
       << "  qwen3x-a4-sidecar help\n\n"
       << "The convert command accepts only the pinned Qwen3.6-27B-NVFP4 "
          "checkpoint and a versioned production_calibrated policy covering "
@@ -62,7 +66,11 @@ void print_usage(std::ostream& output) {
          "overlay from the original authenticated checkpoint weights. Its "
          "policy also binds the exact base K128 receipt. The MLP command "
          "arguments are positional; both clip ratios are mandatory and "
-         "ROW_CHUNK, when present, must be a positive supported row chunk.\n";
+         "ROW_CHUNK, when present, must be a positive supported row chunk.\n\n"
+      << "The fragment-native command performs a lossless offline v1-to-v2 "
+         "permutation. EXPECTED_RECEIPT_SHA is mandatory and must be the "
+         "explicit lowercase SHA-256 of SOURCE_RECEIPT; the command never "
+         "trusts a discovered receipt implicitly. ROWS may be 512 or 1024.\n";
 }
 
 [[nodiscard]] bool parse_ratio(const char* text, double& output) {
@@ -92,6 +100,22 @@ void print_usage(std::ostream& output) {
     return false;
   }
   output = static_cast<std::size_t>(value);
+  return true;
+}
+
+[[nodiscard]] bool parse_lower_sha256(const char* text,
+                                      std::string& output) {
+  if (text == nullptr || std::char_traits<char>::length(text) != 64U) {
+    return false;
+  }
+  for (std::size_t index = 0U; index < 64U; ++index) {
+    const char value = text[index];
+    if (!((value >= '0' && value <= '9') ||
+          (value >= 'a' && value <= 'f'))) {
+      return false;
+    }
+  }
+  output = text;
   return true;
 }
 
@@ -206,6 +230,66 @@ int run_mlp_k512_convert(const int argc, char** argv) {
             << "\noutput_bytes_written=" << result.stats.output_bytes_written
             << "\npeak_working_bytes=" << result.stats.peak_working_bytes
             << '\n';
+  return 0;
+}
+
+int run_mlp_k512_fragment_native_convert(const int argc, char** argv) {
+  if (argc != 7 && argc != 8) {
+    print_usage(std::cerr);
+    return 2;
+  }
+  runtime::PrefillMLPK512FragmentNativeConversionOptions options;
+  options.source_v1_payload_path = argv[2];
+  options.source_v1_receipt_path = argv[3];
+  options.source_v1_policy_path = argv[4];
+  if (!parse_lower_sha256(argv[5],
+                          options.expected_source_v1_receipt_sha256)) {
+    std::cerr << "EXPECTED_RECEIPT_SHA must be one explicit lowercase "
+                 "SHA-256\n";
+    return 2;
+  }
+  options.output_path = argv[6];
+  if (argc == 8 &&
+      (!parse_size(argv[7], options.outer_chunk_rows) ||
+       (options.outer_chunk_rows != 512U &&
+        options.outer_chunk_rows != 1'024U))) {
+    std::cerr << "ROWS must be 512 or 1024\n";
+    return 2;
+  }
+  const auto result =
+      runtime::convert_authenticated_prefill_mlp_k512_to_fragment_native(
+          options);
+  if (!result) {
+    print_diagnostic(result.diagnostic);
+    return 1;
+  }
+  const auto& receipt = *result.receipt;
+  std::cout << "status=published"
+            << "\noverlay=mlp_k512_fragment_native"
+            << "\nproduction_residency_eligible="
+            << (receipt.production_residency_eligible ? "true" : "false")
+            << "\nphysical_layout=" << receipt.physical_layout
+            << "\nsource_checkpoint_id=" << receipt.source_checkpoint_id
+            << "\nsource_config_sha256=" << receipt.source_config_sha256
+            << "\nsource_index_sha256=" << receipt.source_index_sha256
+            << "\nsource_v1_physical_layout="
+            << receipt.source_v1.physical_layout
+            << "\nsource_v1_receipt_sha256="
+            << receipt.source_v1.receipt_sha256
+            << "\nsource_v1_manifest_sha256="
+            << receipt.source_v1.manifest_sha256
+            << "\nsource_v1_policy_sha256="
+            << receipt.source_v1.policy_sha256
+            << "\nsource_v1_payload_sha256="
+            << receipt.source_v1.payload_sha256
+            << "\nmanifest_sha256=" << receipt.manifest_sha256
+            << "\npayload_sha256=" << receipt.payload_sha256
+            << "\npayload_bytes=" << receipt.payload_bytes
+            << "\nlayers=" << receipt.layer_count
+            << "\nsource_bytes_read=" << result.stats.source_bytes_read
+            << "\noutput_bytes_written=" << result.stats.output_bytes_written
+            << "\npeak_working_bytes=" << result.stats.peak_working_bytes
+            << "\nlayers_permuted=" << result.stats.layers_permuted << '\n';
   return 0;
 }
 
@@ -516,6 +600,11 @@ int main(const int argc, char** argv) {
   }
   if (argc >= 2 && std::string_view(argv[1]) == "mlp-k512-convert") {
     return run_mlp_k512_convert(argc, argv);
+  }
+  if (argc >= 2 &&
+      std::string_view(argv[1]) ==
+          "mlp-k512-fragment-native-convert") {
+    return run_mlp_k512_fragment_native_convert(argc, argv);
   }
   print_usage(std::cerr);
   return 2;

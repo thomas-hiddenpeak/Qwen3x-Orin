@@ -91,6 +91,13 @@ struct ReferenceEngineOptions {
   std::filesystem::path prefill_mlp_k512_payload_path;
   std::filesystem::path prefill_mlp_k512_policy_path;
   std::filesystem::path prefill_mlp_k512_receipt_path;
+  // Optional authenticated fragment-native MLP K512 v2 publication.  This
+  // is a lossless byte permutation of one explicitly authenticated v1
+  // publication and remains mutually exclusive with the v1 triplet above.
+  // All three paths are required together.
+  std::filesystem::path prefill_mlp_k512_fragment_native_payload_path;
+  std::filesystem::path prefill_mlp_k512_fragment_native_policy_path;
+  std::filesystem::path prefill_mlp_k512_fragment_native_receipt_path;
 };
 
 // Text-only messages accepted by the pinned Qwen 3.6 chat formatter. The
@@ -218,6 +225,7 @@ struct ReferenceEngineLoadStats {
   double prefill_a4_sidecar_milliseconds = 0.0;
   double prefill_attention_o_k512_overlay_milliseconds = 0.0;
   double prefill_mlp_k512_overlay_milliseconds = 0.0;
+  double prefill_mlp_k512_fragment_native_overlay_milliseconds = 0.0;
   double runner_factory_milliseconds = 0.0;
   ReferenceDecodeGraphCachePolicy decode_graph_cache_requested_policy =
       ReferenceDecodeGraphCachePolicy::kDisabled;
@@ -341,6 +349,20 @@ struct ReferenceEngineLoadStats {
   std::string prefill_mlp_k512_overlay_manifest_sha256;
   std::string prefill_mlp_k512_overlay_policy_sha256;
   std::string prefill_mlp_k512_overlay_payload_sha256;
+  // Kept separate from the v1 192-projection fields so readiness cannot
+  // accidentally prove the old physical layout while the v2 selector runs.
+  bool prefill_mlp_k512_fragment_native_overlay_requested = false;
+  bool prefill_mlp_k512_fragment_native_overlay_enabled = false;
+  std::size_t prefill_mlp_k512_fragment_native_overlay_layers = 0U;
+  std::uint64_t prefill_mlp_k512_fragment_native_overlay_bytes = 0U;
+  std::uint64_t prefill_mlp_k512_fragment_native_overlay_copy_chunks = 0U;
+  std::string prefill_mlp_k512_fragment_native_overlay_layout;
+  std::string prefill_mlp_k512_fragment_native_overlay_manifest_sha256;
+  std::string prefill_mlp_k512_fragment_native_overlay_policy_sha256;
+  std::string prefill_mlp_k512_fragment_native_overlay_payload_sha256;
+  std::string prefill_mlp_k512_fragment_native_overlay_receipt_sha256;
+  std::string
+      prefill_mlp_k512_fragment_native_overlay_source_v1_receipt_sha256;
   // True only when tokenizer parsing and resident loading actually executed
   // concurrently. When true, total_milliseconds is wall time and phase
   // timings intentionally overlap.
@@ -595,6 +617,9 @@ struct ReferenceOneShotOptions {
   std::filesystem::path prefill_mlp_k512_payload_path;
   std::filesystem::path prefill_mlp_k512_policy_path;
   std::filesystem::path prefill_mlp_k512_receipt_path;
+  std::filesystem::path prefill_mlp_k512_fragment_native_payload_path;
+  std::filesystem::path prefill_mlp_k512_fragment_native_policy_path;
+  std::filesystem::path prefill_mlp_k512_fragment_native_receipt_path;
 };
 
 struct ReferenceOneShotGeneration {

@@ -27,6 +27,12 @@ struct EvaluationServerOptions {
   std::filesystem::path prefill_mlp_k512_payload_path;
   std::filesystem::path prefill_mlp_k512_policy_path;
   std::filesystem::path prefill_mlp_k512_receipt_path;
+  // Authenticated fragment-native K512 MLP v2 publication.  Its policy is
+  // the exact source-v1 policy bound by the v2 receipt.  The triplet is
+  // all-or-none and mutually exclusive with the v1 triplet above.
+  std::filesystem::path prefill_mlp_k512_fragment_native_payload_path;
+  std::filesystem::path prefill_mlp_k512_fragment_native_policy_path;
+  std::filesystem::path prefill_mlp_k512_fragment_native_receipt_path;
   std::string bind_address = "127.0.0.1";
   std::uint16_t port = 8000U;
   std::string served_model = "qwen3.6-27b-nvfp4";

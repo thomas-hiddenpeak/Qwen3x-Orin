@@ -12,7 +12,10 @@ usage: run_native_pure_prefill_matrix.sh \
   [--prefill-mlp-k512-payload FILE \
    --prefill-mlp-k512-policy FILE \
    --prefill-mlp-k512-receipt FILE] \
-  [--mode exact|native-gdn|cumulative-prefill|cumulative-prefill-down|cumulative-prefill-attention-down|cumulative-prefill-current-best|cumulative-prefill-current-best-k512|cumulative-prefill-current-best-mlp-k512|cumulative-prefill-short] \
+  [--prefill-mlp-k512-fragment-native-payload FILE \
+   --prefill-mlp-k512-fragment-native-policy FILE \
+   --prefill-mlp-k512-fragment-native-receipt FILE] \
+  [--mode exact|native-gdn|cumulative-prefill|cumulative-prefill-down|cumulative-prefill-attention-down|cumulative-prefill-current-best|cumulative-prefill-current-best-k512|cumulative-prefill-current-best-mlp-k512|cumulative-prefill-current-best-mlp-k512-fragment-native|cumulative-prefill-short] \
   [--dry-run] \
   ELF MODEL_DIR CORPUS_DIR OUTPUT_ROOT [p512|p1k|p2k|p4k]
 EOF
@@ -32,6 +35,9 @@ prefill_attention_o_k512_receipt=
 prefill_mlp_k512_payload=
 prefill_mlp_k512_policy=
 prefill_mlp_k512_receipt=
+prefill_mlp_k512_fragment_native_payload=
+prefill_mlp_k512_fragment_native_policy=
+prefill_mlp_k512_fragment_native_receipt=
 declare -a positional=()
 
 while (($# > 0)); do
@@ -39,7 +45,10 @@ while (($# > 0)); do
     --prefill-a4-payload|--prefill-a4-policy|--prefill-a4-receipt|\
     --prefill-attention-o-k512-payload|--prefill-attention-o-k512-policy|\
     --prefill-attention-o-k512-receipt|--prefill-mlp-k512-payload|\
-    --prefill-mlp-k512-policy|--prefill-mlp-k512-receipt|--mode)
+    --prefill-mlp-k512-policy|--prefill-mlp-k512-receipt|\
+    --prefill-mlp-k512-fragment-native-payload|\
+    --prefill-mlp-k512-fragment-native-policy|\
+    --prefill-mlp-k512-fragment-native-receipt|--mode)
       (($# >= 2)) || { echo "missing value for $1" >&2; usage; exit 2; }
       option=$1
       value=$2
@@ -65,6 +74,15 @@ while (($# > 0)); do
           ;;
         --prefill-mlp-k512-receipt)
           prefill_mlp_k512_receipt=${value}
+          ;;
+        --prefill-mlp-k512-fragment-native-payload)
+          prefill_mlp_k512_fragment_native_payload=${value}
+          ;;
+        --prefill-mlp-k512-fragment-native-policy)
+          prefill_mlp_k512_fragment_native_policy=${value}
+          ;;
+        --prefill-mlp-k512-fragment-native-receipt)
+          prefill_mlp_k512_fragment_native_receipt=${value}
           ;;
         --mode)
           ((mode_seen == 0)) || {
@@ -106,12 +124,14 @@ done
   exit 2
 }
 case "${mode}" in
-  exact|native-gdn|cumulative-prefill|cumulative-prefill-down|cumulative-prefill-attention-down|cumulative-prefill-current-best|cumulative-prefill-current-best-k512|cumulative-prefill-current-best-mlp-k512|cumulative-prefill-short) ;;
+  exact|native-gdn|cumulative-prefill|cumulative-prefill-down|cumulative-prefill-attention-down|cumulative-prefill-current-best|cumulative-prefill-current-best-k512|cumulative-prefill-current-best-mlp-k512|cumulative-prefill-current-best-mlp-k512-fragment-native|cumulative-prefill-short) ;;
   *)
     echo "--mode must be exact, native-gdn, cumulative-prefill, or" \
       "cumulative-prefill-down, cumulative-prefill-attention-down, or" \
       "cumulative-prefill-current-best, cumulative-prefill-current-best-k512," \
-      "cumulative-prefill-current-best-mlp-k512, or cumulative-prefill-short" >&2
+      "cumulative-prefill-current-best-mlp-k512," \
+      "cumulative-prefill-current-best-mlp-k512-fragment-native, or" \
+      "cumulative-prefill-short" >&2
     exit 2
     ;;
 esac
@@ -190,6 +210,73 @@ if [[ "${mode}" == cumulative-prefill-current-best-mlp-k512 ]]; then
     exit 2
   }
 fi
+mlp_k512_args=0
+if [[ -n "${prefill_mlp_k512_payload}" ]]; then
+  ((mlp_k512_args += 1))
+fi
+if [[ -n "${prefill_mlp_k512_policy}" ]]; then
+  ((mlp_k512_args += 1))
+fi
+if [[ -n "${prefill_mlp_k512_receipt}" ]]; then
+  ((mlp_k512_args += 1))
+fi
+((mlp_k512_args == 0 || mlp_k512_args == 3)) || {
+  echo "Prefill MLP K512 v1 payload, policy, and receipt are required together" >&2
+  exit 2
+}
+mlp_k512_fragment_native_args=0
+if [[ -n "${prefill_mlp_k512_fragment_native_payload}" ]]; then
+  ((mlp_k512_fragment_native_args += 1))
+fi
+if [[ -n "${prefill_mlp_k512_fragment_native_policy}" ]]; then
+  ((mlp_k512_fragment_native_args += 1))
+fi
+if [[ -n "${prefill_mlp_k512_fragment_native_receipt}" ]]; then
+  ((mlp_k512_fragment_native_args += 1))
+fi
+((mlp_k512_fragment_native_args == 0 ||
+  mlp_k512_fragment_native_args == 3)) || {
+  echo "Prefill fragment-native MLP K512 payload, policy, and receipt are required together" >&2
+  exit 2
+}
+if ((mlp_k512_args != 0 && mlp_k512_fragment_native_args != 0)); then
+  echo "Prefill MLP K512 v1 and fragment-native v2 are mutually exclusive" >&2
+  exit 2
+fi
+mlp_k512_fragment_native_mode=0
+mlp_k512_fragment_native_layout=sm87_s4_gateup_n64_paired_down_n128_fragment_native_scale_k512_mlp_v2
+mlp_k512_fragment_native_payload_bytes=8623226880
+mlp_k512_fragment_native_payload_sha256=
+mlp_k512_fragment_native_policy_sha256=
+mlp_k512_fragment_native_receipt_sha256=
+if [[ "${mode}" == cumulative-prefill-current-best-mlp-k512-fragment-native ]]; then
+  mlp_k512_fragment_native_mode=1
+  [[ -f "${prefill_mlp_k512_fragment_native_payload}" ]] || {
+    echo "missing required fragment-native MLP K512 payload: ${prefill_mlp_k512_fragment_native_payload:-<unset>}" >&2
+    exit 2
+  }
+  [[ -f "${prefill_mlp_k512_fragment_native_policy}" ]] || {
+    echo "missing required fragment-native MLP K512 policy: ${prefill_mlp_k512_fragment_native_policy:-<unset>}" >&2
+    exit 2
+  }
+  [[ -f "${prefill_mlp_k512_fragment_native_receipt}" ]] || {
+    echo "missing required fragment-native MLP K512 receipt: ${prefill_mlp_k512_fragment_native_receipt:-<unset>}" >&2
+    exit 2
+  }
+  [[ $(stat -c '%s' "${prefill_mlp_k512_fragment_native_payload}") == "${mlp_k512_fragment_native_payload_bytes}" ]] || {
+    echo "fragment-native MLP K512 payload is not exactly ${mlp_k512_fragment_native_payload_bytes} bytes" >&2
+    exit 2
+  }
+  mlp_k512_fragment_native_payload_sha256=$(
+    sha256sum "${prefill_mlp_k512_fragment_native_payload}" | awk '{print $1}'
+  )
+  mlp_k512_fragment_native_policy_sha256=$(
+    sha256sum "${prefill_mlp_k512_fragment_native_policy}" | awk '{print $1}'
+  )
+  mlp_k512_fragment_native_receipt_sha256=$(
+    sha256sum "${prefill_mlp_k512_fragment_native_receipt}" | awk '{print $1}'
+  )
+fi
 [[ ! -e "${output_root}" ]] || {
   echo "refusing to overwrite output root: ${output_root}" >&2
   exit 2
@@ -267,6 +354,17 @@ case "${mode}" in
       Q3X_RUN_A4W4_MLP_K512_ADMISSION
     )
     ;;
+  cumulative-prefill-current-best-mlp-k512-fragment-native)
+    candidate_selectors=(
+      Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION
+      Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION
+      Q3X_RUN_BF16_AB_LARGE_M_PREFILL_ADMISSION
+      Q3X_FULL_ATTENTION_FLASHINFER_DIRECT
+      Q3X_RUN_A4W4_ATTENTION_SUPERMATRIX_ADMISSION
+      Q3X_RUN_FULL_ATTENTION_PREPROCESS_PROMPT_WIDE_128_ADMISSION
+      Q3X_RUN_A4W4_MLP_K512_FRAGMENT_NATIVE_ADMISSION
+    )
+    ;;
   cumulative-prefill-short)
     candidate_selectors=(
       Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION
@@ -299,7 +397,8 @@ if [[ -n "${only_bucket}" ]]; then
   }
   buckets=("${only_bucket}")
 fi
-if [[ "${mlp_k512_mode}" == 1 ]]; then
+if [[ "${mlp_k512_mode}" == 1 ||
+      "${mlp_k512_fragment_native_mode}" == 1 ]]; then
   for bucket in "${buckets[@]}"; do
     if [[ "${bucket}" == p512 ]]; then
       echo "Prefill MLP K512 is not admissible for p512; select p1k, p2k, or p4k explicitly" >&2
@@ -371,6 +470,16 @@ if [[ "${mlp_k512_mode}" == 1 ]]; then
     --prefill-mlp-k512-receipt "${prefill_mlp_k512_receipt}"
   )
 fi
+if [[ "${mlp_k512_fragment_native_mode}" == 1 ]]; then
+  server_args+=(
+    --prefill-mlp-k512-fragment-native-payload \
+      "${prefill_mlp_k512_fragment_native_payload}"
+    --prefill-mlp-k512-fragment-native-policy \
+      "${prefill_mlp_k512_fragment_native_policy}"
+    --prefill-mlp-k512-fragment-native-receipt \
+      "${prefill_mlp_k512_fragment_native_receipt}"
+  )
+fi
 declare -a profiler_prefix=()
 if [[ -n "${nsys_output}" ]]; then
   profiler_prefix=(
@@ -387,6 +496,14 @@ printf 'pure_prefill_matrix mode=%s dry_run=%s sanitized_experiment_env=%s selec
 server_elf_sha256=$(sha256sum "${server}" | awk '{print $1}')
 printf 'server_metadata elf_sha256=%s evalscope_version=1.9.1\n' \
   "${server_elf_sha256}"
+if [[ "${mlp_k512_fragment_native_mode}" == 1 ]]; then
+  printf 'fragment_native_publication_metadata layout=%s payload_bytes=%s payload_sha256=%s policy_sha256=%s receipt_sha256=%s\n' \
+    "${mlp_k512_fragment_native_layout}" \
+    "${mlp_k512_fragment_native_payload_bytes}" \
+    "${mlp_k512_fragment_native_payload_sha256}" \
+    "${mlp_k512_fragment_native_policy_sha256}" \
+    "${mlp_k512_fragment_native_receipt_sha256}"
+fi
 printf 'profile_metadata enabled=%s request_index=%s nsys_output=%q trace=cuda,nvtx capture_range=cudaProfilerApi\n' \
   "$([[ -n "${nsys_output}" ]] && printf 1 || printf 0)" \
   "${profile_request_index}" "${nsys_output}"
@@ -405,6 +522,9 @@ if [[ "${k512_mode}" == 1 ]]; then
 fi
 if [[ "${mlp_k512_mode}" == 1 ]]; then
   printf ',prefill_mlp_k512_authenticated_192_of_192,prefill_mlp_k512_payload_sha256'
+fi
+if [[ "${mlp_k512_fragment_native_mode}" == 1 ]]; then
+  printf ',prefill_mlp_k512_fragment_native_authenticated_64_of_64,prefill_mlp_k512_fragment_native_layout,prefill_mlp_k512_fragment_native_payload_sha256,prefill_mlp_k512_fragment_native_policy_sha256,prefill_mlp_k512_fragment_native_receipt_sha256'
 fi
 printf '\n'
 
@@ -425,6 +545,18 @@ mkdir -p "${output_root}"
   printf 'selectors='
   printf '%s ' "${candidate_selectors[@]}"
   printf '\n'
+  if [[ "${mlp_k512_fragment_native_mode}" == 1 ]]; then
+    printf 'prefill_mlp_k512_fragment_native_layout=%s\n' \
+      "${mlp_k512_fragment_native_layout}"
+    printf 'prefill_mlp_k512_fragment_native_payload_bytes=%s\n' \
+      "${mlp_k512_fragment_native_payload_bytes}"
+    printf 'prefill_mlp_k512_fragment_native_payload_sha256=%s\n' \
+      "${mlp_k512_fragment_native_payload_sha256}"
+    printf 'prefill_mlp_k512_fragment_native_policy_sha256=%s\n' \
+      "${mlp_k512_fragment_native_policy_sha256}"
+    printf 'prefill_mlp_k512_fragment_native_receipt_sha256=%s\n' \
+      "${mlp_k512_fragment_native_receipt_sha256}"
+  fi
   for bucket in "${buckets[@]}"; do
     printf 'corpus_%s_sha256=%s\n' \
       "${bucket}" "${corpus_sha[${bucket}]}"
@@ -510,12 +642,53 @@ if [[ "${mlp_k512_mode}" == 1 ]]; then
     exit 5
   fi
 fi
+if [[ "${mlp_k512_fragment_native_mode}" == 1 ]]; then
+  if ! grep -Eq \
+      'prefill_mlp_k512_fragment_native_requested=1 .*prefill_mlp_k512_fragment_native_enabled=1 .*prefill_mlp_k512_fragment_native_layers=64 prefill_mlp_k512_fragment_native_bytes=8623226880([[:space:]]|$)' \
+      "${server_log}"; then
+    echo "server readiness did not prove authenticated fragment-native MLP K512 64/64" >&2
+    exit 5
+  fi
+  if ! grep -F \
+      " prefill_mlp_k512_fragment_native_layout=${mlp_k512_fragment_native_layout} " \
+      "${server_log}" >/dev/null; then
+    echo "server readiness did not prove the exact fragment-native MLP K512 layout" >&2
+    exit 5
+  fi
+  if ! grep -F \
+      " prefill_mlp_k512_fragment_native_payload_sha256=${mlp_k512_fragment_native_payload_sha256} " \
+      "${server_log}" >/dev/null; then
+    echo "server readiness payload SHA-256 does not match the real fragment-native file" >&2
+    exit 5
+  fi
+  if ! grep -F \
+      " prefill_mlp_k512_fragment_native_policy_sha256=${mlp_k512_fragment_native_policy_sha256} " \
+      "${server_log}" >/dev/null; then
+    echo "server readiness policy SHA-256 does not match the real source-v1 policy file" >&2
+    exit 5
+  fi
+  if ! grep -F \
+      " prefill_mlp_k512_fragment_native_receipt_sha256=${mlp_k512_fragment_native_receipt_sha256} " \
+      "${server_log}" >/dev/null; then
+    echo "server readiness receipt SHA-256 does not match the real v2 receipt file" >&2
+    exit 5
+  fi
+  if ! grep -Eq \
+      'prefill_mlp_k512_fragment_native_manifest_sha256=[0-9a-f]{64} .*prefill_mlp_k512_fragment_native_policy_sha256=[0-9a-f]{64} .*prefill_mlp_k512_fragment_native_payload_sha256=[0-9a-f]{64} .*prefill_mlp_k512_fragment_native_receipt_sha256=[0-9a-f]{64} .*prefill_mlp_k512_fragment_native_source_v1_receipt_sha256=[0-9a-f]{64}([[:space:]]|$)' \
+      "${server_log}"; then
+    echo "server readiness did not prove the complete fragment-native SHA binding chain" >&2
+    exit 5
+  fi
+fi
 printf 'startup_contract_check=passed prefill_a4_authenticated=400/400 optimized_prefill_disabled=0'
 if [[ "${k512_mode}" == 1 ]]; then
   printf ' prefill_attention_o_k512_authenticated=64/64 prefill_attention_o_k512_payload_sha256=verified'
 fi
 if [[ "${mlp_k512_mode}" == 1 ]]; then
   printf ' prefill_mlp_k512_authenticated=192/192 prefill_mlp_k512_payload_sha256=verified'
+fi
+if [[ "${mlp_k512_fragment_native_mode}" == 1 ]]; then
+  printf ' prefill_mlp_k512_fragment_native_authenticated=64/64 prefill_mlp_k512_fragment_native_layout=verified prefill_mlp_k512_fragment_native_payload_sha256=verified prefill_mlp_k512_fragment_native_policy_sha256=verified prefill_mlp_k512_fragment_native_receipt_sha256=verified'
 fi
 printf '\n'
 

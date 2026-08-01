@@ -12,6 +12,9 @@
 #if defined(Q3X_ENABLE_A4W4_MLP_K512_ADMISSION)
 #include "q3x/runtime/prefill_mlp_k512_overlay.h"
 #endif
+#if defined(Q3X_ENABLE_A4W4_MLP_K512_FRAGMENT_NATIVE_ADMISSION)
+#include "q3x/runtime/prefill_mlp_k512_fragment_native_overlay.h"
+#endif
 #include "q3x/kernels/sm87_fp8_prefill_supermatrix.h"
 #if defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION)
 #include "q3x/kernels/sm87_fp8_marlin_w8a16.h"
@@ -152,6 +155,16 @@ prefill_attention_o_k512_environment_enabled() noexcept {
   return value != nullptr && std::strcmp(value, "1") == 0;
 }
 
+[[nodiscard]] bool
+prefill_mlp_k512_fragment_native_environment_enabled() noexcept {
+  if (optimized_prefill_dispatch_disabled()) {
+    return false;
+  }
+  const char* const value = std::getenv(
+      "Q3X_RUN_A4W4_MLP_K512_FRAGMENT_NATIVE_ADMISSION");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
 struct PrefillA4EnginePaths final {
   bool requested = false;
   std::filesystem::path payload;
@@ -167,6 +180,13 @@ struct PrefillAttentionOK512EnginePaths final {
 };
 
 struct PrefillMLPK512EnginePaths final {
+  bool requested = false;
+  std::filesystem::path payload;
+  std::filesystem::path policy;
+  std::filesystem::path receipt;
+};
+
+struct PrefillMLPK512FragmentNativeEnginePaths final {
   bool requested = false;
   std::filesystem::path payload;
   std::filesystem::path policy;
@@ -259,6 +279,36 @@ struct PrefillMLPK512EnginePaths final {
   if (paths.payload == paths.policy || paths.payload == paths.receipt ||
       paths.policy == paths.receipt) {
     error = "K512 MLP payload, policy, and receipt must be distinct paths";
+    return false;
+  }
+  return true;
+}
+
+[[nodiscard]] bool resolve_prefill_mlp_k512_fragment_native_engine_paths(
+    const ReferenceEngineOptions& options,
+    PrefillMLPK512FragmentNativeEnginePaths& paths, std::string& error) {
+  const bool has_payload =
+      !options.prefill_mlp_k512_fragment_native_payload_path.empty();
+  const bool has_policy =
+      !options.prefill_mlp_k512_fragment_native_policy_path.empty();
+  const bool has_receipt =
+      !options.prefill_mlp_k512_fragment_native_receipt_path.empty();
+  paths.requested = has_payload || has_policy || has_receipt;
+  if (!paths.requested) {
+    return true;
+  }
+  if (!has_payload || !has_policy || !has_receipt) {
+    error = "fragment-native K512 MLP payload, source-v1 policy, and "
+            "receipt are required together";
+    return false;
+  }
+  paths.payload = options.prefill_mlp_k512_fragment_native_payload_path;
+  paths.policy = options.prefill_mlp_k512_fragment_native_policy_path;
+  paths.receipt = options.prefill_mlp_k512_fragment_native_receipt_path;
+  if (paths.payload == paths.policy || paths.payload == paths.receipt ||
+      paths.policy == paths.receipt) {
+    error = "fragment-native K512 MLP payload, source-v1 policy, and "
+            "receipt must be distinct paths";
     return false;
   }
   return true;
@@ -3212,7 +3262,8 @@ struct Sm87AttentionOK512Preparation final {
 };
 #endif
 
-#if defined(Q3X_ENABLE_A4W4_MLP_K512_ADMISSION)
+#if defined(Q3X_ENABLE_A4W4_MLP_K512_ADMISSION) || \
+    defined(Q3X_ENABLE_A4W4_MLP_K512_FRAGMENT_NATIVE_ADMISSION)
 struct Sm87MLPK512Overlay final {
   std::uint8_t* data = nullptr;
   std::size_t bytes = 0U;
@@ -3231,6 +3282,8 @@ struct Sm87MLPK512Overlay final {
   }
 };
 
+#if defined(Q3X_ENABLE_A4W4_MLP_K512_ADMISSION)
+
 struct Sm87MLPK512Preparation final {
   bool enabled = false;
   std::size_t projections = 0U;
@@ -3245,6 +3298,26 @@ struct Sm87MLPK512Preparation final {
   std::string policy_sha256;
   std::string payload_sha256;
 };
+#endif
+
+#if defined(Q3X_ENABLE_A4W4_MLP_K512_FRAGMENT_NATIVE_ADMISSION)
+struct Sm87MLPK512FragmentNativePreparation final {
+  bool enabled = false;
+  std::size_t layers = 0U;
+  std::uint64_t bytes = 0U;
+  std::uint64_t copy_chunks = 0U;
+  int cuda_error = 0;
+  int dependency_error = 0;
+  std::string message;
+  std::string context;
+  std::string physical_layout;
+  std::string manifest_sha256;
+  std::string policy_sha256;
+  std::string payload_sha256;
+  std::string receipt_sha256;
+  std::string source_v1_receipt_sha256;
+};
+#endif
 #endif
 
 [[nodiscard]] bool resident_matches_pinned_identity(
@@ -3819,7 +3892,8 @@ prepare_sm87_attention_o_k512_overlay(
 }
 #endif
 
-#if defined(Q3X_ENABLE_A4W4_MLP_K512_ADMISSION)
+#if defined(Q3X_ENABLE_A4W4_MLP_K512_ADMISSION) || \
+    defined(Q3X_ENABLE_A4W4_MLP_K512_FRAGMENT_NATIVE_ADMISSION)
 [[nodiscard]] bool same_mlp_k512_base_binding(
     const PrefillMLPK512BaseBinding& first,
     const PrefillMLPK512BaseBinding& second) noexcept {
@@ -3828,7 +3902,9 @@ prepare_sm87_attention_o_k512_overlay(
          first.policy_sha256 == second.policy_sha256 &&
          first.payload_sha256 == second.payload_sha256;
 }
+#endif
 
+#if defined(Q3X_ENABLE_A4W4_MLP_K512_ADMISSION)
 [[nodiscard]] Sm87MLPK512Preparation
 prepare_sm87_mlp_k512_overlay(
     const std::filesystem::path& model_directory,
@@ -4120,6 +4196,398 @@ prepare_sm87_mlp_k512_overlay(
   return result;
 }
 #endif
+
+#if defined(Q3X_ENABLE_A4W4_MLP_K512_FRAGMENT_NATIVE_ADMISSION)
+[[nodiscard]] Sm87MLPK512FragmentNativePreparation
+prepare_sm87_mlp_k512_fragment_native_overlay(
+    const std::filesystem::path& model_directory,
+    const PrefillMLPK512FragmentNativeEnginePaths& paths,
+    const ResidentWeights& resident, const Sm87A4PrefillPreparation& base,
+    const std::uint64_t minimum_free_bytes_after_prepare,
+    ModelWeights& model_weights, Sm87MLPK512Overlay& owner) {
+  Sm87MLPK512FragmentNativePreparation result;
+  if (!paths.requested || owner.data != nullptr || owner.bytes != 0U) {
+    result.message =
+        "invalid fragment-native K512 MLP preparation state";
+    result.context = "prefill_mlp_k512_fragment_native.prepare";
+    return result;
+  }
+
+  const PrefillMLPK512BaseBinding actual_base{
+      base.physical_layout, base.manifest_sha256, base.policy_sha256,
+      base.payload_sha256};
+  if (!base.enabled || base.sidecar_kind != PrefillSidecarKind::kA4K128 ||
+      base.projections != kQwen36PrefillProjectionCount ||
+      actual_base.physical_layout != kPrefillA4K128PhysicalLayout ||
+      !resident_matches_pinned_identity(resident)) {
+    result.message =
+        "fragment-native K512 MLP requires the authenticated K128 base "
+        "inventory";
+    result.context = "prefill_mlp_k512_fragment_native.base";
+    return result;
+  }
+
+  const model::weights::ManifestResult checkpoint_manifest =
+      model::weights::build_qwen36_27b_text_manifest(model_directory);
+  if (!checkpoint_manifest) {
+    result.message = "could not rebuild the pinned checkpoint manifest";
+    if (!checkpoint_manifest.diagnostics.empty()) {
+      result.message +=
+          ": " + checkpoint_manifest.diagnostics.front().message;
+      result.context = checkpoint_manifest.diagnostics.front().context;
+    }
+    return result;
+  }
+
+  std::string receipt_document;
+  int system_error = 0;
+  if (!read_small_regular_file(paths.receipt, 1ULL * 1024ULL * 1024ULL,
+                               receipt_document, result.message,
+                               system_error)) {
+    result.context = paths.receipt.string();
+    result.dependency_error = system_error;
+    return result;
+  }
+  PrefillMLPK512OverlayDiagnostic receipt_diagnostic;
+  const std::optional<PrefillMLPK512FragmentNativeReceipt> receipt =
+      parse_prefill_mlp_k512_fragment_native_receipt(
+          receipt_document, receipt_diagnostic);
+  if (!receipt.has_value() || !receipt_diagnostic) {
+    result.message = receipt_diagnostic.message.empty()
+                         ? "strict fragment-native K512 receipt parse failed"
+                         : receipt_diagnostic.message;
+    result.context = receipt_diagnostic.context.empty()
+                         ? paths.receipt.string()
+                         : receipt_diagnostic.context;
+    result.dependency_error = receipt_diagnostic.system_error != 0
+                                  ? receipt_diagnostic.system_error
+                                  : static_cast<int>(
+                                        receipt_diagnostic.code);
+    return result;
+  }
+  if (!same_mlp_k512_base_binding(receipt->required_base, actual_base)) {
+    result.message =
+        "fragment-native K512 receipt does not bind the loaded K128 base";
+    result.context =
+        "prefill_mlp_k512_fragment_native.required_base";
+    return result;
+  }
+
+  PrefillMLPK512OverlayManifestResult source_v1_manifest_result =
+      build_qwen36_27b_prefill_mlp_k512_overlay_manifest(
+          *checkpoint_manifest.value, pinned_qwen36_27b_shards(),
+          actual_base);
+  if (!source_v1_manifest_result) {
+    result.message = source_v1_manifest_result.diagnostic.message;
+    result.context = source_v1_manifest_result.diagnostic.context;
+    result.dependency_error =
+        static_cast<int>(source_v1_manifest_result.diagnostic.code);
+    return result;
+  }
+  const PrefillMLPK512OverlayManifest& source_v1_manifest =
+      *source_v1_manifest_result.value;
+  if (receipt->source_checkpoint_id !=
+          source_v1_manifest.source_checkpoint_id ||
+      receipt->source_config_sha256 !=
+          source_v1_manifest.source_config_sha256 ||
+      receipt->source_index_sha256 != source_v1_manifest.source_index_sha256 ||
+      receipt->source_v1.physical_layout !=
+          source_v1_manifest.physical_layout ||
+      receipt->source_v1.manifest_sha256 !=
+          source_v1_manifest.manifest_sha256 ||
+      receipt->source_v1.payload_bytes !=
+          kPrefillMLPK512OverlayPayloadBytes) {
+    result.message =
+        "fragment-native receipt source-v1 binding does not match the "
+        "rebuilt real-model manifest";
+    result.context = "prefill_mlp_k512_fragment_native.source_v1";
+    return result;
+  }
+
+  std::string policy_document;
+  system_error = 0;
+  if (!read_small_regular_file(paths.policy, 4ULL * 1024ULL * 1024ULL,
+                               policy_document, result.message,
+                               system_error)) {
+    result.context = paths.policy.string();
+    result.dependency_error = system_error;
+    return result;
+  }
+  PrefillMLPK512OverlayPolicyResult source_v1_policy_result =
+      parse_prefill_mlp_k512_overlay_policy(policy_document,
+                                            source_v1_manifest);
+  if (!source_v1_policy_result ||
+      source_v1_policy_result.value->policy_sha256 !=
+          receipt->source_v1.policy_sha256 ||
+      source_v1_policy_result.value->policy_bytes !=
+          receipt->source_v1.policy_bytes ||
+      !same_mlp_k512_base_binding(
+          source_v1_policy_result.value->required_base, actual_base)) {
+    result.message = source_v1_policy_result.diagnostic.message.empty()
+                         ? "source-v1 policy does not match the "
+                           "fragment-native receipt"
+                         : source_v1_policy_result.diagnostic.message;
+    result.context = source_v1_policy_result.diagnostic.context.empty()
+                         ? paths.policy.string()
+                         : source_v1_policy_result.diagnostic.context;
+    result.dependency_error =
+        static_cast<int>(source_v1_policy_result.diagnostic.code);
+    return result;
+  }
+
+  PrefillMLPK512OverlayReceipt source_v1_receipt;
+  source_v1_receipt.production_residency_eligible = true;
+  source_v1_receipt.physical_layout = source_v1_manifest.physical_layout;
+  source_v1_receipt.source_checkpoint_id =
+      source_v1_manifest.source_checkpoint_id;
+  source_v1_receipt.source_config_sha256 =
+      source_v1_manifest.source_config_sha256;
+  source_v1_receipt.source_index_sha256 =
+      source_v1_manifest.source_index_sha256;
+  source_v1_receipt.manifest_sha256 = source_v1_manifest.manifest_sha256;
+  source_v1_receipt.policy_sha256 =
+      source_v1_policy_result.value->policy_sha256;
+  source_v1_receipt.policy_bytes =
+      source_v1_policy_result.value->policy_bytes;
+  source_v1_receipt.required_base = actual_base;
+  source_v1_receipt.payload_sha256 = receipt->source_v1.payload_sha256;
+  source_v1_receipt.payload_bytes = receipt->source_v1.payload_bytes;
+  source_v1_receipt.projection_count =
+      kPrefillMLPK512OverlayProjectionCount;
+  PrefillMLPK512FragmentNativeManifestResult v2_manifest_result =
+      build_prefill_mlp_k512_fragment_native_manifest(
+          source_v1_receipt, receipt->source_v1.receipt_sha256);
+  if (!v2_manifest_result ||
+      v2_manifest_result.value->physical_layout !=
+          receipt->physical_layout ||
+      v2_manifest_result.value->source_checkpoint_id !=
+          receipt->source_checkpoint_id ||
+      v2_manifest_result.value->source_config_sha256 !=
+          receipt->source_config_sha256 ||
+      v2_manifest_result.value->source_index_sha256 !=
+          receipt->source_index_sha256 ||
+      v2_manifest_result.value->manifest_sha256 !=
+          receipt->manifest_sha256 ||
+      v2_manifest_result.value->payload_bytes != receipt->payload_bytes ||
+      v2_manifest_result.value->layer_count != receipt->layer_count) {
+    result.message = v2_manifest_result.diagnostic.message.empty()
+                         ? "fragment-native receipt does not match the "
+                           "rebuilt v2 manifest"
+                         : v2_manifest_result.diagnostic.message;
+    result.context = v2_manifest_result.diagnostic.context.empty()
+                         ? "prefill_mlp_k512_fragment_native.manifest"
+                         : v2_manifest_result.diagnostic.context;
+    result.dependency_error =
+        static_cast<int>(v2_manifest_result.diagnostic.code);
+    return result;
+  }
+  const PrefillMLPK512FragmentNativeManifest& v2_manifest =
+      *v2_manifest_result.value;
+
+  // Populate strings before publishing pointers into ModelWeights.  The
+  // final attach is then the only operation that can mutate runtime-visible
+  // state, and everything after it is scalar/noexcept.
+  result.physical_layout = receipt->physical_layout;
+  result.manifest_sha256 = v2_manifest.manifest_sha256;
+  result.policy_sha256 = source_v1_policy_result.value->policy_sha256;
+  result.payload_sha256 = receipt->payload_sha256;
+  result.receipt_sha256 = receipt->receipt_sha256;
+  result.source_v1_receipt_sha256 =
+      receipt->source_v1.receipt_sha256;
+
+  const int payload_fd =
+      ::open(paths.payload.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+  if (payload_fd < 0) {
+    result.message =
+        "failed to open the fragment-native K512 payload as a regular file";
+    result.context = paths.payload.string();
+    result.dependency_error = errno;
+    return result;
+  }
+  struct FdGuard final {
+    int fd = -1;
+    ~FdGuard() {
+      if (fd >= 0) {
+        (void)::close(fd);
+      }
+    }
+  } payload_guard{payload_fd};
+  if (::flock(payload_fd, LOCK_SH | LOCK_NB) != 0) {
+    result.message =
+        "fragment-native K512 payload is locked for publication mutation";
+    result.context = paths.payload.string();
+    result.dependency_error = errno;
+    return result;
+  }
+  struct stat before {};
+  if (::fstat(payload_fd, &before) != 0) {
+    result.message = "fragment-native K512 payload fstat failed";
+    result.context = paths.payload.string();
+    result.dependency_error = errno;
+    return result;
+  }
+  if (!S_ISREG(before.st_mode) || before.st_size < 0 ||
+      static_cast<std::uint64_t>(before.st_size) !=
+          receipt->payload_bytes ||
+      receipt->payload_bytes !=
+          kPrefillMLPK512FragmentNativePayloadBytes ||
+      receipt->payload_bytes > std::numeric_limits<std::size_t>::max()) {
+    result.message =
+        "fragment-native K512 payload identity or byte length is invalid";
+    result.context = paths.payload.string();
+    return result;
+  }
+  if ((before.st_mode & (S_IWUSR | S_IWGRP | S_IWOTH)) != 0 ||
+      before.st_uid != ::geteuid() || before.st_nlink != 1) {
+    result.message = "fragment-native K512 payload must be owner-held, "
+                     "read-only, and singly linked";
+    result.context = paths.payload.string();
+    return result;
+  }
+
+  std::size_t free_bytes = 0U;
+  std::size_t total_bytes = 0U;
+  cudaError_t cuda_status = cudaMemGetInfo(&free_bytes, &total_bytes);
+  (void)total_bytes;
+  if (cuda_status != cudaSuccess) {
+    result.message =
+        "cudaMemGetInfo failed before fragment-native K512 residency";
+    result.context =
+        "prefill_mlp_k512_fragment_native.cudaMemGetInfo_before";
+    result.cuda_error = static_cast<int>(cuda_status);
+    return result;
+  }
+  const std::uint64_t free_u64 = static_cast<std::uint64_t>(free_bytes);
+  if (receipt->payload_bytes > free_u64 ||
+      minimum_free_bytes_after_prepare > free_u64 - receipt->payload_bytes) {
+    result.message =
+        "insufficient device memory for fragment-native K512 residency";
+    result.context = "prefill_mlp_k512_fragment_native.memory_gate";
+    return result;
+  }
+
+  const std::size_t payload_bytes =
+      static_cast<std::size_t>(receipt->payload_bytes);
+  cuda_status =
+      cudaMalloc(reinterpret_cast<void**>(&owner.data), payload_bytes);
+  if (cuda_status != cudaSuccess) {
+    result.message = "cudaMalloc failed for fragment-native K512 overlay";
+    result.context = "prefill_mlp_k512_fragment_native.cudaMalloc";
+    result.cuda_error = static_cast<int>(cuda_status);
+    return result;
+  }
+  constexpr std::size_t kCopyChunkBytes = 32U * 1024U * 1024U;
+  const std::size_t staging_bytes = std::min(payload_bytes, kCopyChunkBytes);
+  void* staging = nullptr;
+  cuda_status = cudaHostAlloc(&staging, staging_bytes, cudaHostAllocDefault);
+  if (cuda_status != cudaSuccess) {
+    result.message =
+        "cudaHostAlloc failed for fragment-native K512 staging";
+    result.context = "prefill_mlp_k512_fragment_native.cudaHostAlloc";
+    result.cuda_error = static_cast<int>(cuda_status);
+    owner.release();
+    return result;
+  }
+  struct PinnedGuard final {
+    void* data = nullptr;
+    ~PinnedGuard() {
+      if (data != nullptr) {
+        (void)cudaFreeHost(data);
+      }
+    }
+  } pinned{staging};
+
+  core::Sha256 copied_hash;
+  std::uint64_t offset = 0U;
+  while (offset < receipt->payload_bytes) {
+    const std::size_t count = static_cast<std::size_t>(
+        std::min<std::uint64_t>(staging_bytes,
+                                receipt->payload_bytes - offset));
+    system_error = 0;
+    if (!pread_exact_engine(payload_fd, staging, count, offset,
+                            system_error)) {
+      result.message =
+          "failed to read the held fragment-native K512 payload";
+      result.context = "prefill_mlp_k512_fragment_native.payload_copy";
+      result.dependency_error = system_error;
+      owner.release();
+      return result;
+    }
+    if (!copied_hash.update(staging, count)) {
+      result.message = "fragment-native K512 payload SHA-256 overflowed";
+      result.context = "prefill_mlp_k512_fragment_native.payload_sha256";
+      owner.release();
+      return result;
+    }
+    cuda_status = cudaMemcpy(owner.data + static_cast<std::size_t>(offset),
+                             staging, count, cudaMemcpyHostToDevice);
+    if (cuda_status != cudaSuccess) {
+      result.message = "fragment-native K512 payload H2D copy failed";
+      result.context = "prefill_mlp_k512_fragment_native.cudaMemcpy";
+      result.cuda_error = static_cast<int>(cuda_status);
+      owner.release();
+      return result;
+    }
+    offset += count;
+    ++result.copy_chunks;
+  }
+
+  const std::string copied_digest = copied_hash.finalize().hex();
+  struct stat after {};
+  if (::fstat(payload_fd, &after) != 0) {
+    result.message =
+        "fragment-native K512 payload second fstat failed";
+    result.context = "prefill_mlp_k512_fragment_native.payload_sha256";
+    result.dependency_error = errno;
+    owner.release();
+    return result;
+  }
+  if (copied_digest != receipt->payload_sha256 ||
+      before.st_dev != after.st_dev || before.st_ino != after.st_ino ||
+      before.st_mode != after.st_mode || before.st_uid != after.st_uid ||
+      before.st_nlink != after.st_nlink || before.st_size != after.st_size ||
+      before.st_mtim.tv_sec != after.st_mtim.tv_sec ||
+      before.st_mtim.tv_nsec != after.st_mtim.tv_nsec ||
+      before.st_ctim.tv_sec != after.st_ctim.tv_sec ||
+      before.st_ctim.tv_nsec != after.st_ctim.tv_nsec) {
+    result.message =
+        "fragment-native K512 payload changed or failed receipt SHA-256";
+    result.context = "prefill_mlp_k512_fragment_native.payload_sha256";
+    owner.release();
+    return result;
+  }
+
+  cuda_status = cudaMemGetInfo(&free_bytes, &total_bytes);
+  if (cuda_status != cudaSuccess ||
+      static_cast<std::uint64_t>(free_bytes) <
+          minimum_free_bytes_after_prepare) {
+    result.message =
+        "fragment-native K512 residency did not preserve memory reserve";
+    result.context =
+        "prefill_mlp_k512_fragment_native.cudaMemGetInfo_after";
+    result.cuda_error = cuda_status == cudaSuccess
+                            ? 0
+                            : static_cast<int>(cuda_status);
+    owner.release();
+    return result;
+  }
+
+  if (!model_weights.attach_prefill_mlp_k512_fragment_native_sidecars(
+          owner.data, payload_bytes, &v2_manifest, &source_v1_manifest,
+          &*source_v1_policy_result.value)) {
+    result.message =
+        "ModelWeights rejected the fragment-native K512 inventory";
+    result.context = "prefill_mlp_k512_fragment_native.attach";
+    owner.release();
+    return result;
+  }
+  owner.bytes = payload_bytes;
+  result.enabled = true;
+  result.layers = static_cast<std::size_t>(v2_manifest.layer_count);
+  result.bytes = receipt->payload_bytes;
+  return result;
+}
+#endif
 #endif
 
 }  // namespace
@@ -4199,7 +4667,8 @@ struct ReferenceEngine::Impl {
 #if defined(Q3X_ENABLE_A4W4_ATTENTION_O_K512_ADMISSION)
   Sm87AttentionOK512Overlay prefill_attention_o_k512_overlay;
 #endif
-#if defined(Q3X_ENABLE_A4W4_MLP_K512_ADMISSION)
+#if defined(Q3X_ENABLE_A4W4_MLP_K512_ADMISSION) || \
+    defined(Q3X_ENABLE_A4W4_MLP_K512_FRAGMENT_NATIVE_ADMISSION)
   Sm87MLPK512Overlay prefill_mlp_k512_overlay;
 #endif
   Sm87NvFp4DownConsumerOrderSidecars
@@ -4331,6 +4800,66 @@ struct ReferenceEngine::Impl {
       return result;
     }
 #endif
+    PrefillMLPK512FragmentNativeEnginePaths
+        prefill_mlp_k512_fragment_native_paths;
+    std::string prefill_mlp_k512_fragment_native_path_error;
+    if (!resolve_prefill_mlp_k512_fragment_native_engine_paths(
+            options, prefill_mlp_k512_fragment_native_paths,
+            prefill_mlp_k512_fragment_native_path_error)) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kInvalidArgument,
+          "prefill_mlp_k512_fragment_native_options",
+          prefill_mlp_k512_fragment_native_path_error);
+      return result;
+    }
+    const bool prefill_mlp_k512_selected =
+        prefill_mlp_k512_environment_enabled();
+    const bool prefill_mlp_k512_fragment_native_selected =
+        prefill_mlp_k512_fragment_native_environment_enabled();
+    if (prefill_mlp_k512_fragment_native_paths.requested &&
+        !prefill_a4_paths.requested) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kInvalidArgument,
+          "prefill_mlp_k512_fragment_native_options",
+          "the fragment-native K512 MLP overlay requires an explicit "
+          "complete K128 A4 base");
+      return result;
+    }
+    if (prefill_mlp_k512_fragment_native_selected &&
+        !prefill_mlp_k512_fragment_native_paths.requested) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kInvalidArgument,
+          "prefill_mlp_k512_fragment_native_options",
+          "the fragment-native K512 runtime selector requires its "
+          "authenticated v2 overlay");
+      return result;
+    }
+    if ((prefill_mlp_k512_paths.requested &&
+         prefill_mlp_k512_fragment_native_paths.requested) ||
+        (prefill_mlp_k512_selected &&
+         prefill_mlp_k512_fragment_native_selected) ||
+        (prefill_mlp_k512_paths.requested &&
+         prefill_mlp_k512_fragment_native_selected) ||
+        (prefill_mlp_k512_fragment_native_paths.requested &&
+         prefill_mlp_k512_selected)) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kInvalidArgument,
+          "prefill_mlp_k512_overlay_options",
+          "MLP K512 v1 and fragment-native v2 publications/selectors are "
+          "strictly mutually exclusive");
+      return result;
+    }
+#if !defined(Q3X_ENABLE_A4W4_MLP_K512_FRAGMENT_NATIVE_ADMISSION)
+    if (prefill_mlp_k512_fragment_native_paths.requested ||
+        prefill_mlp_k512_fragment_native_selected) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kInvalidArgument,
+          "prefill_mlp_k512_fragment_native_options",
+          "this binary does not contain the fragment-native K512 MLP "
+          "admission");
+      return result;
+    }
+#endif
     if (prefill_a4_paths.requested &&
         options.projection_backend != ProjectionBackend::kSm87WeightOnly) {
       result.diagnostic = engine_diagnostic(
@@ -4380,6 +4909,8 @@ struct ReferenceEngine::Impl {
           prefill_attention_o_k512_paths.requested;
       impl->load.prefill_mlp_k512_overlay_requested =
           prefill_mlp_k512_paths.requested;
+      impl->load.prefill_mlp_k512_fragment_native_overlay_requested =
+          prefill_mlp_k512_fragment_native_paths.requested;
       impl->load.optimized_prefill_disabled =
           optimized_prefill_dispatch_disabled();
       impl->load.decode_graph_cache_requested_policy =
@@ -4759,6 +5290,64 @@ struct ReferenceEngine::Impl {
               k512_preparation.policy_sha256;
           impl->load.prefill_mlp_k512_overlay_payload_sha256 =
               k512_preparation.payload_sha256;
+        }
+#endif
+
+#if defined(Q3X_ENABLE_A4W4_MLP_K512_FRAGMENT_NATIVE_ADMISSION)
+        if (prefill_mlp_k512_fragment_native_paths.requested) {
+          const Clock::time_point fragment_native_begin = Clock::now();
+          const Sm87MLPK512FragmentNativePreparation preparation =
+              prepare_sm87_mlp_k512_fragment_native_overlay(
+                  model_directory,
+                  prefill_mlp_k512_fragment_native_paths,
+                  *impl->resident_weights, prefill_a4_preparation,
+                  request_options.min_free_bytes_after_create,
+                  *impl->model_weights, impl->prefill_mlp_k512_overlay);
+          impl->load
+              .prefill_mlp_k512_fragment_native_overlay_milliseconds =
+              elapsed_milliseconds(fragment_native_begin);
+          if (!preparation.enabled ||
+              preparation.layers !=
+                  kPrefillMLPK512FragmentNativeLayerCount ||
+              preparation.bytes !=
+                  kPrefillMLPK512FragmentNativePayloadBytes) {
+            result.diagnostic = engine_diagnostic(
+                ReferenceEngineError::kRunnerFactoryFailure,
+                "prefill_mlp_k512_fragment_native_prepare",
+                preparation.message.empty()
+                    ? "the authenticated fragment-native K512 overlay did "
+                      "not attach all 64 MLP layers"
+                    : preparation.message,
+                preparation.context);
+            result.diagnostic.cuda_error = preparation.cuda_error;
+            result.diagnostic.dependency_error =
+                preparation.dependency_error;
+            return result;
+          }
+          impl->load.prefill_mlp_k512_fragment_native_overlay_enabled = true;
+          impl->load.prefill_mlp_k512_fragment_native_overlay_layers =
+              preparation.layers;
+          impl->load.prefill_mlp_k512_fragment_native_overlay_bytes =
+              preparation.bytes;
+          impl->load.prefill_mlp_k512_fragment_native_overlay_copy_chunks =
+              preparation.copy_chunks;
+          impl->load.prefill_mlp_k512_fragment_native_overlay_layout =
+              preparation.physical_layout;
+          impl->load
+              .prefill_mlp_k512_fragment_native_overlay_manifest_sha256 =
+              preparation.manifest_sha256;
+          impl->load
+              .prefill_mlp_k512_fragment_native_overlay_policy_sha256 =
+              preparation.policy_sha256;
+          impl->load
+              .prefill_mlp_k512_fragment_native_overlay_payload_sha256 =
+              preparation.payload_sha256;
+          impl->load
+              .prefill_mlp_k512_fragment_native_overlay_receipt_sha256 =
+              preparation.receipt_sha256;
+          impl->load
+              .prefill_mlp_k512_fragment_native_overlay_source_v1_receipt_sha256 =
+              preparation.source_v1_receipt_sha256;
         }
 #endif
 
@@ -6877,6 +7466,12 @@ ReferenceOneShotResult generate_reference(
       options.prefill_mlp_k512_policy_path;
   a4_preflight_options.prefill_mlp_k512_receipt_path =
       options.prefill_mlp_k512_receipt_path;
+  a4_preflight_options.prefill_mlp_k512_fragment_native_payload_path =
+      options.prefill_mlp_k512_fragment_native_payload_path;
+  a4_preflight_options.prefill_mlp_k512_fragment_native_policy_path =
+      options.prefill_mlp_k512_fragment_native_policy_path;
+  a4_preflight_options.prefill_mlp_k512_fragment_native_receipt_path =
+      options.prefill_mlp_k512_fragment_native_receipt_path;
   PrefillA4EnginePaths a4_preflight_paths;
   std::string a4_preflight_error;
   if (!resolve_prefill_a4_engine_paths(a4_preflight_options,
@@ -6948,6 +7543,49 @@ ReferenceOneShotResult generate_reference(
     result.diagnostic = engine_diagnostic(
         ReferenceEngineError::kInvalidArgument, "one_shot_options",
         "this binary does not contain the K512 MLP admission");
+    return result;
+  }
+#endif
+  PrefillMLPK512FragmentNativeEnginePaths
+      mlp_k512_fragment_native_preflight_paths;
+  std::string mlp_k512_fragment_native_preflight_error;
+  if (!resolve_prefill_mlp_k512_fragment_native_engine_paths(
+          a4_preflight_options,
+          mlp_k512_fragment_native_preflight_paths,
+          mlp_k512_fragment_native_preflight_error) ||
+      (mlp_k512_fragment_native_preflight_paths.requested &&
+       !a4_preflight_paths.requested) ||
+      (prefill_mlp_k512_fragment_native_environment_enabled() &&
+       !mlp_k512_fragment_native_preflight_paths.requested)) {
+    result.diagnostic = engine_diagnostic(
+        ReferenceEngineError::kInvalidArgument, "one_shot_options",
+        mlp_k512_fragment_native_preflight_error.empty()
+            ? "fragment-native K512 MLP requires its authenticated v2 "
+              "overlay and the explicit complete K128 A4 base"
+            : mlp_k512_fragment_native_preflight_error);
+    return result;
+  }
+  if ((mlp_k512_preflight_paths.requested &&
+       mlp_k512_fragment_native_preflight_paths.requested) ||
+      (prefill_mlp_k512_environment_enabled() &&
+       prefill_mlp_k512_fragment_native_environment_enabled()) ||
+      (mlp_k512_preflight_paths.requested &&
+       prefill_mlp_k512_fragment_native_environment_enabled()) ||
+      (mlp_k512_fragment_native_preflight_paths.requested &&
+       prefill_mlp_k512_environment_enabled())) {
+    result.diagnostic = engine_diagnostic(
+        ReferenceEngineError::kInvalidArgument, "one_shot_options",
+        "MLP K512 v1 and fragment-native v2 publications/selectors are "
+        "strictly mutually exclusive");
+    return result;
+  }
+#if !defined(Q3X_ENABLE_A4W4_MLP_K512_FRAGMENT_NATIVE_ADMISSION)
+  if (mlp_k512_fragment_native_preflight_paths.requested ||
+      prefill_mlp_k512_fragment_native_environment_enabled()) {
+    result.diagnostic = engine_diagnostic(
+        ReferenceEngineError::kInvalidArgument, "one_shot_options",
+        "this binary does not contain the fragment-native K512 MLP "
+        "admission");
     return result;
   }
 #endif
@@ -7086,6 +7724,12 @@ ReferenceOneShotResult generate_reference(
         options.prefill_mlp_k512_policy_path;
     engine_options.prefill_mlp_k512_receipt_path =
         options.prefill_mlp_k512_receipt_path;
+    engine_options.prefill_mlp_k512_fragment_native_payload_path =
+        options.prefill_mlp_k512_fragment_native_payload_path;
+    engine_options.prefill_mlp_k512_fragment_native_policy_path =
+        options.prefill_mlp_k512_fragment_native_policy_path;
+    engine_options.prefill_mlp_k512_fragment_native_receipt_path =
+        options.prefill_mlp_k512_fragment_native_receipt_path;
 
     ReferenceEngine::Impl::BuildResult built;
     if (resident_future.has_value()) {

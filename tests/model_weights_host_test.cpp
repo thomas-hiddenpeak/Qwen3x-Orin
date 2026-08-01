@@ -4,6 +4,8 @@
 #include "q3x/model/checkpoint_metadata.h"
 #include "q3x/model/model_config.h"
 #include "q3x/runtime/prefill_a4_sidecar_converter.h"
+#include "q3x/runtime/prefill_mlp_k512_fragment_native_overlay.h"
+#include "q3x/runtime/prefill_mlp_k512_overlay.h"
 
 #include <algorithm>
 #include <array>
@@ -415,6 +417,39 @@ struct SyntheticA4ManifestSource {
   return policy;
 }
 
+[[nodiscard]] runtime::PrefillMLPK512OverlayPolicy make_mlp_k512_policy(
+    const runtime::PrefillMLPK512OverlayManifest& manifest,
+    const double gateup_activation_clip = 0.875,
+    const double down_activation_clip = 0.75) {
+  runtime::PrefillMLPK512OverlayPolicy policy;
+  policy.version_major = manifest.version_major;
+  policy.version_minor = manifest.version_minor;
+  policy.physical_layout = manifest.physical_layout;
+  policy.source_checkpoint_id = manifest.source_checkpoint_id;
+  policy.source_config_sha256 = manifest.source_config_sha256;
+  policy.source_index_sha256 = manifest.source_index_sha256;
+  policy.manifest_sha256 = manifest.manifest_sha256;
+  policy.required_base = manifest.required_base;
+  policy.policy_sha256.assign(64U, 'd');
+  policy.policy_bytes = 1U;
+  policy.projections.reserve(manifest.projections.size());
+  for (const runtime::PrefillMLPK512OverlayEntry& entry :
+       manifest.projections) {
+    runtime::PrefillMLPK512OverlayCalibration calibration;
+    calibration.ordinal = entry.ordinal;
+    calibration.source_module = entry.source_module;
+    calibration.source_sha256 = entry.source_sha256;
+    calibration.weight_clip_ratio = 1.0;
+    calibration.activation_clip_ratio =
+        entry.family == "down" ? down_activation_clip
+                                : gateup_activation_clip;
+    calibration.activation_scale_group_size =
+        runtime::kPrefillMLPK512OverlayScaleK;
+    policy.projections.emplace_back(std::move(calibration));
+  }
+  return policy;
+}
+
 [[nodiscard]] const runtime::LinearWeight* a4_projection_for(
     const runtime::ModelWeights& weights,
     const runtime::PrefillProjectionSidecarEntry& entry) noexcept {
@@ -668,6 +703,71 @@ fp8_prefill_supermatrix_attachment_snapshot(
   auto& layer =
       const_cast<runtime::DecoderLayerWeights&>(weights.layer(layer_index));
   return std::get_if<runtime::NvFp4LinearWeight>(&layer.mlp.down_proj);
+}
+
+[[nodiscard]] bool fragment_native_mlp_attachments_match(
+    const runtime::ModelWeights& weights,
+    const std::uintptr_t arena_address,
+    const float gateup_activation_clip = 0.875F,
+    const float down_activation_clip = 0.75F) noexcept {
+  for (std::size_t layer_index = 0U;
+       layer_index < runtime::kQwen36DenseLayerCount; ++layer_index) {
+    const runtime::PrefillMLPK512FragmentNativeLayerView layout =
+        runtime::prefill_mlp_k512_fragment_native_layer_view(layer_index);
+    const runtime::PrefillMLPK512FragmentNativeCompositeView& view =
+        weights.layer(layer_index).prefill_mlp_k512_fragment_native;
+    if (!layout.valid || !view.attached() ||
+        reinterpret_cast<std::uintptr_t>(view.gateup_codes) !=
+            arena_address + layout.gateup_code_offset ||
+        reinterpret_cast<std::uintptr_t>(view.gateup_scales) !=
+            arena_address + layout.gateup_scale_offset ||
+        reinterpret_cast<std::uintptr_t>(view.down_codes) !=
+            arena_address + layout.down_code_offset ||
+        reinterpret_cast<std::uintptr_t>(view.down_scales) !=
+            arena_address + layout.down_scale_offset ||
+        view.gateup_code_capacity_bytes !=
+            runtime::kPrefillMLPK512FragmentNativeGateUpCodeBytes ||
+        view.gateup_scale_capacity_elements !=
+            runtime::kPrefillMLPK512FragmentNativeGateUpScaleBytes /
+                sizeof(std::uint16_t) ||
+        view.down_code_capacity_bytes !=
+            runtime::kPrefillMLPK512FragmentNativeDownCodeBytes ||
+        view.down_scale_capacity_elements !=
+            runtime::kPrefillMLPK512FragmentNativeDownScaleBytes /
+                sizeof(std::uint16_t) ||
+        view.gateup_activation_clip_ratio != gateup_activation_clip ||
+        view.down_activation_clip_ratio != down_activation_clip) {
+      return false;
+    }
+  }
+  return true;
+}
+
+[[nodiscard]] bool fragment_native_mlp_attachments_empty(
+    const runtime::ModelWeights& weights) noexcept {
+  return std::all_of(
+      weights.layers().begin(), weights.layers().end(),
+      [](const runtime::DecoderLayerWeights& layer) {
+        return layer.prefill_mlp_k512_fragment_native.empty();
+      });
+}
+
+[[nodiscard]] bool canonical_mlp_k512_attachments_empty(
+    const runtime::ModelWeights& weights) noexcept {
+  for (const runtime::DecoderLayerWeights& layer : weights.layers()) {
+    for (const runtime::LinearWeight* const projection :
+         {&layer.mlp.gate_proj, &layer.mlp.up_proj,
+          &layer.mlp.down_proj}) {
+      const auto* const nvfp4 =
+          std::get_if<runtime::NvFp4LinearWeight>(projection);
+      if (nvfp4 == nullptr || nvfp4->prefill_mlp_k512_weight != nullptr ||
+          nvfp4->prefill_mlp_k512_scales != nullptr ||
+          nvfp4->prefill_mlp_k512_activation_clip_ratio != 0.0F) {
+        return false;
+      }
+    }
+  }
+  return true;
 }
 
 [[nodiscard]] bool down_scale6_attachments_match(
@@ -1338,6 +1438,232 @@ void test_prefill_a4_k64_k128_sidecar_attachment(TestContext& test) {
   }
   test.expect(all_detached,
               "detach clears kind, packed grouping, scale grouping, and views");
+}
+
+void test_prefill_mlp_k512_fragment_native_attachment(TestContext& test) {
+  SyntheticArena arena(/*force_fp8_attention_outputs=*/false,
+                       /*force_nvfp4_down_projections=*/false,
+                       /*force_fp8_linear_qkv=*/false,
+                       /*force_fp8_prefill_supermatrix=*/false,
+                       /*force_a4_projection_types=*/true);
+  const SyntheticA4ManifestSource source = make_a4_manifest_source(arena);
+  test.expect(source.complete,
+              "fragment-native test source covers every projection");
+  if (!source.complete) {
+    return;
+  }
+
+  runtime::PrefillSidecarManifestOptions base_options;
+  base_options.kind = runtime::PrefillSidecarKind::kA4K128;
+  const runtime::PrefillSidecarManifestResult base_result =
+      runtime::build_qwen36_27b_prefill_sidecar_manifest(
+          source.manifest, source.shards, base_options);
+  test.expect(base_result.ok(),
+              "fragment-native authenticated K128 base manifest builds");
+  if (!base_result) {
+    return;
+  }
+  const runtime::PrefillSidecarManifest& base_manifest = *base_result.value;
+  const runtime::PrefillA4CalibrationPolicy base_policy =
+      make_a4_policy(base_manifest);
+  const std::string base_payload_sha256(64U, 'c');
+  runtime::PrefillMLPK512BaseBinding required_base;
+  required_base.physical_layout =
+      std::string(runtime::kPrefillA4K128PhysicalLayout);
+  required_base.manifest_sha256 = base_manifest.manifest_sha256;
+  required_base.policy_sha256 = base_policy.policy_sha256;
+  required_base.payload_sha256 = base_payload_sha256;
+
+  const runtime::PrefillMLPK512OverlayManifestResult v1_result =
+      runtime::build_qwen36_27b_prefill_mlp_k512_overlay_manifest(
+          source.manifest, source.shards, required_base);
+  test.expect(static_cast<bool>(v1_result),
+              "source MLP K512 v1 manifest builds for v2 binding");
+  if (!v1_result) {
+    return;
+  }
+  const runtime::PrefillMLPK512OverlayManifest& v1_manifest =
+      *v1_result.value;
+  const runtime::PrefillMLPK512OverlayPolicy v1_policy =
+      make_mlp_k512_policy(v1_manifest);
+  runtime::PrefillMLPK512OverlayReceipt v1_receipt;
+  v1_receipt.production_residency_eligible = true;
+  v1_receipt.physical_layout = v1_manifest.physical_layout;
+  v1_receipt.source_checkpoint_id = v1_manifest.source_checkpoint_id;
+  v1_receipt.source_config_sha256 = v1_manifest.source_config_sha256;
+  v1_receipt.source_index_sha256 = v1_manifest.source_index_sha256;
+  v1_receipt.manifest_sha256 = v1_manifest.manifest_sha256;
+  v1_receipt.policy_sha256 = v1_policy.policy_sha256;
+  v1_receipt.policy_bytes = v1_policy.policy_bytes;
+  v1_receipt.required_base = required_base;
+  v1_receipt.payload_sha256.assign(64U, 'e');
+  v1_receipt.payload_bytes = runtime::kPrefillMLPK512OverlayPayloadBytes;
+  v1_receipt.projection_count =
+      runtime::kPrefillMLPK512OverlayProjectionCount;
+  const runtime::PrefillMLPK512FragmentNativeManifestResult v2_result =
+      runtime::build_prefill_mlp_k512_fragment_native_manifest(
+          v1_receipt, std::string(64U, 'f'));
+  test.expect(static_cast<bool>(v2_result),
+              "fragment-native v2 manifest binds authenticated v1 source");
+  if (!v2_result) {
+    return;
+  }
+  const runtime::PrefillMLPK512FragmentNativeManifest& v2_manifest =
+      *v2_result.value;
+
+  runtime::WeightBindResult bound =
+      runtime::bind_qwen36_27b_weights(arena.source());
+  test.expect(bound.ok(), "fragment-native all-NVFP4 targets bind");
+  if (!bound) {
+    return;
+  }
+  runtime::ModelWeights& weights = *bound.value;
+  constexpr std::uintptr_t kBaseArenaAddress = 0x0000100000000000ULL;
+  constexpr std::uintptr_t kFirstV2ArenaAddress = 0x0000140000000000ULL;
+  constexpr std::uintptr_t kSecondV2ArenaAddress = 0x0000180000000000ULL;
+  constexpr std::uintptr_t kV1ArenaAddress = 0x00001c0000000000ULL;
+  const auto pointer = [](const std::uintptr_t address) {
+    return reinterpret_cast<const std::uint8_t*>(address);
+  };
+  const auto* const base_arena = pointer(kBaseArenaAddress);
+  const auto* const first_v2_arena = pointer(kFirstV2ArenaAddress);
+  const auto* const second_v2_arena = pointer(kSecondV2ArenaAddress);
+  const auto* const v1_arena = pointer(kV1ArenaAddress);
+  const std::size_t base_bytes =
+      static_cast<std::size_t>(base_manifest.summary.arena_bytes);
+  const std::size_t v2_bytes = static_cast<std::size_t>(
+      runtime::kPrefillMLPK512FragmentNativePayloadBytes);
+  const std::size_t v1_bytes =
+      static_cast<std::size_t>(runtime::kPrefillMLPK512OverlayPayloadBytes);
+  test.expect(weights.attach_prefill_a4_sidecars(
+                  base_arena, base_bytes, &base_manifest, &base_policy,
+                  base_payload_sha256),
+              "fragment-native path starts from authenticated K128 base");
+
+  runtime::PrefillMLPK512FragmentNativeCompositeView malformed_view;
+  malformed_view.gateup_code_capacity_bytes = 1U;
+  test.expect(!malformed_view.empty() && !malformed_view.attached(),
+              "composite empty/attached state includes explicit capacities");
+  const auto last_layout =
+      runtime::prefill_mlp_k512_fragment_native_layer_view(
+          runtime::kQwen36DenseLayerCount - 1U);
+  test.expect(last_layout.valid &&
+                  last_layout.down_scale_offset +
+                          last_layout.down_scale_bytes ==
+                      runtime::kPrefillMLPK512FragmentNativePayloadBytes,
+              "last composite range exactly closes the authenticated arena");
+
+  test.expect(
+      !weights.attach_prefill_mlp_k512_fragment_native_sidecars(
+          pointer(kFirstV2ArenaAddress + 1U), v2_bytes, &v2_manifest,
+          &v1_manifest, &v1_policy) &&
+          fragment_native_mlp_attachments_empty(weights),
+      "misaligned v2 arena fails before any layer is published");
+  test.expect(
+      !weights.attach_prefill_mlp_k512_fragment_native_sidecars(
+          first_v2_arena, v2_bytes - 1U, &v2_manifest, &v1_manifest,
+          &v1_policy) &&
+          fragment_native_mlp_attachments_empty(weights),
+      "wrong v2 capacity fails before any layer is published");
+
+  test.expect(weights.attach_prefill_mlp_k512_fragment_native_sidecars(
+                  first_v2_arena, v2_bytes, &v2_manifest, &v1_manifest,
+                  &v1_policy) &&
+                  fragment_native_mlp_attachments_match(
+                      weights, kFirstV2ArenaAddress) &&
+                  canonical_mlp_k512_attachments_empty(weights),
+              "complete v2 arena publishes 64 exact composite views");
+  test.expect(
+      !weights.attach_prefill_mlp_k512_fragment_native_sidecars(
+          nullptr, 0U, nullptr, nullptr, &v1_policy) &&
+          fragment_native_mlp_attachments_match(weights,
+                                                kFirstV2ArenaAddress),
+      "noncanonical v2 detach is rejected transactionally");
+
+  runtime::PrefillMLPK512OverlayManifest bad_offsets = v1_manifest;
+  ++bad_offsets.projections.back().sidecar_offset;
+  test.expect(
+      !weights.attach_prefill_mlp_k512_fragment_native_sidecars(
+          second_v2_arena, v2_bytes, &v2_manifest, &bad_offsets,
+          &v1_policy) &&
+          fragment_native_mlp_attachments_match(weights,
+                                                kFirstV2ArenaAddress),
+      "source offset corruption preserves the prior v2 publication");
+  runtime::PrefillMLPK512OverlayPolicy unequal_gate_up = v1_policy;
+  unequal_gate_up.projections[1U].activation_clip_ratio = 0.8125;
+  test.expect(
+      !weights.attach_prefill_mlp_k512_fragment_native_sidecars(
+          second_v2_arena, v2_bytes, &v2_manifest, &v1_manifest,
+          &unequal_gate_up) &&
+          fragment_native_mlp_attachments_match(weights,
+                                                kFirstV2ArenaAddress),
+      "unequal Gate/Up activation clips fail closed");
+
+  runtime::NvFp4LinearWeight* const last_down =
+      mutable_nvfp4_down(weights, runtime::kQwen36DenseLayerCount - 1U);
+  test.expect(last_down != nullptr,
+              "late real Down target exists for transaction test");
+  if (last_down != nullptr) {
+    const std::size_t original_input_size = last_down->input_size;
+    --last_down->input_size;
+    test.expect(
+        !weights.attach_prefill_mlp_k512_fragment_native_sidecars(
+            second_v2_arena, v2_bytes, &v2_manifest, &v1_manifest,
+            &v1_policy) &&
+            fragment_native_mlp_attachments_match(weights,
+                                                  kFirstV2ArenaAddress),
+        "late real-shape failure preserves all prior composite views");
+    last_down->input_size = original_input_size;
+  }
+
+  test.expect(!weights.attach_prefill_mlp_k512_sidecars(
+                  v1_arena, v1_bytes, &v1_manifest, &v1_policy) &&
+                  fragment_native_mlp_attachments_match(
+                      weights, kFirstV2ArenaAddress) &&
+                  canonical_mlp_k512_attachments_empty(weights),
+              "v1 attach is rejected while any v2 composite is resident");
+  test.expect(weights.attach_prefill_mlp_k512_fragment_native_sidecars(
+                  nullptr, 0U, nullptr, nullptr, nullptr) &&
+                  fragment_native_mlp_attachments_empty(weights),
+              "canonical null/zero call explicitly detaches v2");
+
+  test.expect(weights.attach_prefill_mlp_k512_sidecars(
+                  v1_arena, v1_bytes, &v1_manifest, &v1_policy),
+              "v1 remains attachable after explicit v2 detach");
+  const auto* const first_gate = std::get_if<runtime::NvFp4LinearWeight>(
+      &weights.layer(0U).mlp.gate_proj);
+  const std::uint8_t* const first_v1_weight =
+      first_gate == nullptr ? nullptr : first_gate->prefill_mlp_k512_weight;
+  test.expect(
+      first_v1_weight != nullptr &&
+          !weights.attach_prefill_mlp_k512_fragment_native_sidecars(
+              second_v2_arena, v2_bytes, &v2_manifest, &v1_manifest,
+              &v1_policy) &&
+          first_gate->prefill_mlp_k512_weight == first_v1_weight &&
+          fragment_native_mlp_attachments_empty(weights),
+      "v2 attach is rejected while v1 is resident and preserves v1");
+  test.expect(weights.attach_prefill_mlp_k512_sidecars(
+                  nullptr, 0U, nullptr, nullptr) &&
+                  canonical_mlp_k512_attachments_empty(weights),
+              "canonical null/zero call explicitly detaches v1");
+
+  test.expect(weights.attach_prefill_mlp_k512_fragment_native_sidecars(
+                  second_v2_arena, v2_bytes, &v2_manifest, &v1_manifest,
+                  &v1_policy) &&
+                  fragment_native_mlp_attachments_match(
+                      weights, kSecondV2ArenaAddress),
+              "v2 can attach again after explicit v1 detach");
+  test.expect(weights.attach_prefill_a4_sidecars(nullptr, 0U, nullptr,
+                                                  nullptr) &&
+                  fragment_native_mlp_attachments_empty(weights) &&
+                  canonical_mlp_k512_attachments_empty(weights),
+              "detaching the K128 base clears both K512 layouts");
+  test.expect(
+      !weights.attach_prefill_mlp_k512_fragment_native_sidecars(
+          first_v2_arena, v2_bytes, &v2_manifest, &v1_manifest,
+          &v1_policy) &&
+          fragment_native_mlp_attachments_empty(weights),
+      "v2 cannot attach after its authenticated K128 base is detached");
 }
 
 void test_nvfp4_down_scale6_sidecar_attachment(TestContext& test) {
@@ -2030,6 +2356,7 @@ int main() {
   test_fp8_prefill_qkv_register_feed_sidecar_attachment(test);
   test_fp8_prefill_supermatrix_sidecar_attachment(test);
   test_prefill_a4_k64_k128_sidecar_attachment(test);
+  test_prefill_mlp_k512_fragment_native_attachment(test);
   test_nvfp4_down_scale6_sidecar_attachment(test);
   test_projection_pair_eligibility(test);
   test_fp8_qkv_z_projection_pair_eligibility(test);

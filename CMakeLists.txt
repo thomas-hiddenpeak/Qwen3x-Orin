@@ -318,6 +318,7 @@ add_library(q3x_core STATIC
   src/runtime/long_prefill_layer_major.cpp
   src/runtime/prefill_a4_sidecar_converter.cpp
   src/runtime/prefill_attention_o_k512_overlay.cpp
+  src/runtime/prefill_mlp_k512_fragment_native_overlay.cpp
   src/runtime/prefill_mlp_k512_overlay.cpp
   src/runtime/prefill_quantized_contract.cpp
   src/runtime/reference_oracle.cpp
@@ -504,6 +505,9 @@ if(Q3X_BUILD_SM87_A4W4_MLP_K512_FRAGMENT_NATIVE_EXPERIMENT)
     src/kernels/sm87/a4w4_gateup_k512_fragment_native.cu
     src/kernels/sm87/a4w4_down_k512_fragment_native.cu
   )
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_A4W4_MLP_K512_FRAGMENT_NATIVE_ADMISSION=1
+  )
 endif()
 if(Q3X_BUILD_SM87_A4W4_GATEUP_PROJECTION_V3_ADMISSION)
   target_sources(q3x_kernels PRIVATE
@@ -602,6 +606,11 @@ endif()
 if(Q3X_BUILD_SM87_A4W4_MLP_K512_ADMISSION)
   target_compile_definitions(q3x_engine PRIVATE
     Q3X_ENABLE_A4W4_MLP_K512_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_MLP_K512_FRAGMENT_NATIVE_EXPERIMENT)
+  target_compile_definitions(q3x_engine PRIVATE
+    Q3X_ENABLE_A4W4_MLP_K512_FRAGMENT_NATIVE_ADMISSION=1
   )
 endif()
 q3x_enable_warnings(q3x_engine)
@@ -1595,6 +1604,24 @@ if(BUILD_TESTING)
     endif()
 
     if(Q3X_BUILD_SM87_A4W4_MLP_K512_FRAGMENT_NATIVE_EXPERIMENT)
+      add_executable(q3x_prefill_mlp_k512_fragment_native_overlay_test
+        tests/prefill_mlp_k512_fragment_native_overlay_test.cpp
+      )
+      target_link_libraries(
+        q3x_prefill_mlp_k512_fragment_native_overlay_test
+        PRIVATE q3x::core
+      )
+      q3x_enable_warnings(
+        q3x_prefill_mlp_k512_fragment_native_overlay_test
+      )
+      add_test(NAME prefill_mlp_k512_fragment_native_overlay
+        COMMAND q3x_prefill_mlp_k512_fragment_native_overlay_test
+      )
+      set_tests_properties(
+        prefill_mlp_k512_fragment_native_overlay PROPERTIES
+        LABELS "host;prefill;mlp;a4w4;k512;fragment-native;sidecar;io"
+      )
+
       add_executable(q3x_sm87_a4w4_gateup_k512_fragment_native_contract_test
         tests/sm87_a4w4_gateup_k512_fragment_native_contract_test.cpp
       )

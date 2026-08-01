@@ -12,6 +12,11 @@
 #include "q3x/kernels/sm87_a4w4_down_k512_macrocell.h"
 #include "q3x/kernels/sm87_a4w4_gateup_k512_macrocell.h"
 #endif
+#if defined(Q3X_ENABLE_A4W4_MLP_K512_FRAGMENT_NATIVE_ADMISSION)
+#include "q3x/kernels/sm87_a4w4_down_k512_fragment_native.h"
+#include "q3x/kernels/sm87_a4w4_gateup_k512_fragment_native.h"
+#include "q3x/runtime/prefill_mlp_k512_fragment_native_overlay.h"
+#endif
 #include "q3x/kernels/sm87_a4w4_down_k128_stage_major.h"
 #if defined(Q3X_ENABLE_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION)
 #include "q3x/kernels/sm87_a4w4_down_complete_cell_v2.h"
@@ -211,6 +216,23 @@ thread_local std::size_t g_a4w4_attention_o_k512_admission_hits = 0U;
 thread_local bool g_enable_a4w4_mlp_k512_admission =
     a4w4_mlp_k512_environment_enabled();
 thread_local std::size_t g_a4w4_mlp_k512_admission_hits = 0U;
+#endif
+
+#if defined(Q3X_ENABLE_A4W4_MLP_K512_FRAGMENT_NATIVE_ADMISSION)
+[[nodiscard]] bool
+a4w4_mlp_k512_fragment_native_environment_enabled() noexcept {
+  if (optimized_prefill_dispatch_disabled()) {
+    return false;
+  }
+  const char* const value = std::getenv(
+      "Q3X_RUN_A4W4_MLP_K512_FRAGMENT_NATIVE_ADMISSION");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
+thread_local bool g_enable_a4w4_mlp_k512_fragment_native_admission =
+    a4w4_mlp_k512_fragment_native_environment_enabled();
+thread_local std::size_t
+    g_a4w4_mlp_k512_fragment_native_admission_hits = 0U;
 #endif
 
 #if defined(Q3X_ENABLE_A4W4_ATTENTION_SUPERMATRIX_ADMISSION)
@@ -7485,6 +7507,18 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
 #else
   constexpr bool mlp_k512_requested = false;
 #endif
+#if defined(Q3X_ENABLE_A4W4_MLP_K512_FRAGMENT_NATIVE_ADMISSION)
+  const bool mlp_k512_fragment_native_requested =
+      g_enable_a4w4_mlp_k512_fragment_native_admission;
+#else
+  constexpr bool mlp_k512_fragment_native_requested = false;
+#endif
+  if (mlp_k512_requested && mlp_k512_fragment_native_requested) {
+    return runner_status(
+        ReferenceRunnerError::kInvalidRunner,
+        "prefill_projection_span_mlp_k512_selector_conflict",
+        item.layer_index);
+  }
   const std::size_t gate_weight_capacity =
       kernels::sm87_a4w4_consumer_packed_capacity_bytes(
           gate_sidecar.output_size, gate_sidecar.input_size);
@@ -7502,8 +7536,148 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
   bool projection_v3_selected = false;
   bool complete_cell_v2_selected = false;
   bool mlp_k512_selected = false;
+#if defined(Q3X_ENABLE_A4W4_MLP_K512_FRAGMENT_NATIVE_ADMISSION)
+  if (mlp_k512_fragment_native_requested) {
+    const PrefillMLPK512FragmentNativeCompositeView& fragment =
+        layer_weights.prefill_mlp_k512_fragment_native;
+    constexpr std::size_t kPrimaryProductColumns =
+        kRequestLongPrefillPrimaryWidth;
+    constexpr std::size_t kSecondaryProductColumns =
+        kReferenceIntermediateSize - kPrimaryProductColumns;
+    const std::size_t primary_capacity =
+        static_cast<std::size_t>(
+            request_plan.long_prefill_projection_primary_bf16
+                .element_capacity);
+    const std::size_t secondary_capacity =
+        static_cast<std::size_t>(
+            request_plan.long_prefill_projection_secondary_bf16
+                .element_capacity);
+    const std::size_t mlp_launch_token_count =
+        kernels::sm87_a4w4_prefill_k512_launch_token_count(token_count);
+    const auto gateup_primary =
+        kernels::sm87_a4w4_gateup_k512_fragment_native_plan(
+            mlp_launch_token_count, kReferenceIntermediateSize,
+            kReferenceHiddenSize, 0U, kPrimaryProductColumns);
+    const auto gateup_secondary =
+        kernels::sm87_a4w4_gateup_k512_fragment_native_plan(
+            mlp_launch_token_count, kReferenceIntermediateSize,
+            kReferenceHiddenSize, kPrimaryProductColumns,
+            kSecondaryProductColumns);
+    const auto down = kernels::sm87_a4w4_down_k512_fragment_native_plan(
+        mlp_launch_token_count, kReferenceHiddenSize,
+        kReferenceIntermediateSize);
+    if (!fragment.attached() ||
+        fragment.gateup_code_capacity_bytes !=
+            kPrefillMLPK512FragmentNativeGateUpCodeBytes ||
+        fragment.gateup_scale_capacity_elements !=
+            kPrefillMLPK512FragmentNativeGateUpScaleBytes /
+                sizeof(std::uint16_t) ||
+        fragment.down_code_capacity_bytes !=
+            kPrefillMLPK512FragmentNativeDownCodeBytes ||
+        fragment.down_scale_capacity_elements !=
+            kPrefillMLPK512FragmentNativeDownScaleBytes /
+                sizeof(std::uint16_t) ||
+        mlp_launch_token_count == 0U ||
+        mlp_launch_token_count != projection_token_count ||
+        mlp_launch_token_count > span_capacity ||
+        gateup_primary.launch_ctas == 0U ||
+        gateup_secondary.launch_ctas == 0U || down.launch_ctas == 0U ||
+        primary_capacity <
+            mlp_launch_token_count * kPrimaryProductColumns ||
+        secondary_capacity <
+            mlp_launch_token_count * kRequestLongPrefillSecondaryWidth ||
+        hidden_packed_capacity <
+            kernels::sm87_a4w4_consumer_packed_capacity_bytes(
+                mlp_launch_token_count, kReferenceHiddenSize) ||
+        hidden_scale_capacity <
+            kernels::sm87_a4w4_prefill_k512_scale_capacity_elements(
+                mlp_launch_token_count, kReferenceHiddenSize) ||
+        intermediate_packed_capacity <
+            kernels::sm87_a4w4_consumer_packed_capacity_bytes(
+                mlp_launch_token_count, kReferenceIntermediateSize) ||
+        intermediate_scale_capacity <
+            kernels::sm87_a4w4_prefill_k512_scale_capacity_elements(
+                mlp_launch_token_count, kReferenceIntermediateSize)) {
+      return runner_status(
+          ReferenceRunnerError::kInvalidRequestState,
+          "prefill_projection_span_mlp_k512_fragment_native_contract",
+          item.layer_index);
+    }
+    if (!check_cuda(
+            kernels::launch_sm87_a4_quantize_bf16_k512_cuda(
+                primary, kReferenceHiddenSize, token_count,
+                mlp_launch_token_count, kReferenceHiddenSize,
+                fragment.gateup_activation_clip_ratio,
+                views_.prefill_a4_hidden_packed, hidden_packed_capacity,
+                views_.prefill_a4_hidden_scales, hidden_scale_capacity,
+                stream_),
+            "prefill_projection_span_mlp_k512_fragment_native_input_quantize") ||
+        !check_cuda(
+            kernels::launch_sm87_a4w4_gateup_k512_fragment_native_bf16_cuda(
+                views_.prefill_a4_hidden_packed, hidden_packed_capacity,
+                views_.prefill_a4_hidden_scales, hidden_scale_capacity,
+                fragment.gateup_codes,
+                fragment.gateup_code_capacity_bytes,
+                fragment.gateup_scales,
+                fragment.gateup_scale_capacity_elements,
+                mlp_launch_token_count, kReferenceIntermediateSize,
+                kReferenceHiddenSize, 0U, kPrimaryProductColumns, primary,
+                kPrimaryProductColumns, primary_capacity, stream_),
+            "prefill_projection_span_mlp_k512_fragment_native_gateup_primary") ||
+        !check_cuda(
+            kernels::launch_sm87_a4w4_gateup_k512_fragment_native_bf16_cuda(
+                views_.prefill_a4_hidden_packed, hidden_packed_capacity,
+                views_.prefill_a4_hidden_scales, hidden_scale_capacity,
+                fragment.gateup_codes,
+                fragment.gateup_code_capacity_bytes,
+                fragment.gateup_scales,
+                fragment.gateup_scale_capacity_elements,
+                mlp_launch_token_count, kReferenceIntermediateSize,
+                kReferenceHiddenSize, kPrimaryProductColumns,
+                kSecondaryProductColumns, secondary,
+                kRequestLongPrefillSecondaryWidth, secondary_capacity,
+                stream_),
+            "prefill_projection_span_mlp_k512_fragment_native_gateup_secondary") ||
+        !check_cuda(
+            kernels::launch_sm87_a4_quantize_bf16_k512_split_cuda(
+                primary, kPrimaryProductColumns, kPrimaryProductColumns,
+                secondary, kRequestLongPrefillSecondaryWidth,
+                kSecondaryProductColumns, token_count,
+                mlp_launch_token_count,
+                fragment.down_activation_clip_ratio,
+                views_.prefill_a4_intermediate_packed,
+                intermediate_packed_capacity,
+                views_.prefill_a4_intermediate_scales,
+                intermediate_scale_capacity, stream_),
+            "prefill_projection_span_mlp_k512_fragment_native_product_quantize") ||
+        !check_cuda(
+            kernels::launch_sm87_a4w4_down_k512_fragment_native_bf16_cuda(
+                views_.prefill_a4_intermediate_packed,
+                intermediate_packed_capacity,
+                views_.prefill_a4_intermediate_scales,
+                intermediate_scale_capacity, fragment.down_codes,
+                fragment.down_code_capacity_bytes, fragment.down_scales,
+                fragment.down_scale_capacity_elements,
+                mlp_launch_token_count, kReferenceHiddenSize,
+                kReferenceIntermediateSize, secondary,
+                kReferenceHiddenSize, secondary_capacity, stream_),
+            "prefill_projection_span_mlp_k512_fragment_native_down")) {
+      return failure;
+    }
+    local_hits.activation_quantize_hits += 2U;
+    g_a4w4_full_prefill_admission_hits.activation_quantize_hits += 2U;
+    ++local_hits.paired_gate_up_hits;
+    ++local_hits.generic_projection_hits;
+    local_hits.logical_projection_hits += 3U;
+    ++g_a4w4_full_prefill_admission_hits.paired_gate_up_hits;
+    ++g_a4w4_full_prefill_admission_hits.generic_projection_hits;
+    g_a4w4_full_prefill_admission_hits.logical_projection_hits += 3U;
+    ++g_a4w4_mlp_k512_fragment_native_admission_hits;
+    mlp_k512_selected = true;
+  }
+#endif
 #if defined(Q3X_ENABLE_A4W4_MLP_K512_ADMISSION)
-  if (mlp_k512_requested) {
+  if (!mlp_k512_selected && mlp_k512_requested) {
     const PrefillMLPK512LinearSidecarView gate_k512 =
         prefill_mlp_k512_sidecar_view(layer_weights.mlp.gate_proj);
     const PrefillMLPK512LinearSidecarView up_k512 =
@@ -7988,6 +8162,10 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
     const std::size_t mlp_k512_hits_before =
         g_a4w4_mlp_k512_admission_hits;
 #endif
+#if defined(Q3X_ENABLE_A4W4_MLP_K512_FRAGMENT_NATIVE_ADMISSION)
+    const std::size_t mlp_k512_fragment_native_hits_before =
+        g_a4w4_mlp_k512_fragment_native_admission_hits;
+#endif
 #if defined(Q3X_ENABLE_A4W4_ATTENTION_SUPERMATRIX_ADMISSION)
     const auto attention_hits_before =
         g_a4w4_attention_supermatrix_admission_hits;
@@ -8087,19 +8265,45 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
          attention_o_k512_delta == 0U);
     attention_logical_delta += attention_o_k512_delta;
 #if defined(Q3X_ENABLE_A4W4_MLP_K512_ADMISSION)
-    const std::size_t mlp_k512_delta =
+    const std::size_t mlp_k512_v1_delta =
         g_a4w4_mlp_k512_admission_hits >= mlp_k512_hits_before
             ? g_a4w4_mlp_k512_admission_hits - mlp_k512_hits_before
             : 0U;
-    const bool mlp_k512_accounting_valid =
+    const bool mlp_k512_v1_accounting_valid =
         g_a4w4_mlp_k512_admission_hits >= mlp_k512_hits_before &&
-        (mlp_k512_delta == 0U || mlp_k512_delta == spans * 64U) &&
+        (mlp_k512_v1_delta == 0U ||
+         mlp_k512_v1_delta == spans * 64U) &&
         (!g_enable_a4w4_mlp_k512_admission ||
-         mlp_k512_delta == spans * 64U);
+         mlp_k512_v1_delta == spans * 64U);
 #else
-    constexpr std::size_t mlp_k512_delta = 0U;
-    constexpr bool mlp_k512_accounting_valid = true;
+    constexpr std::size_t mlp_k512_v1_delta = 0U;
+    constexpr bool mlp_k512_v1_accounting_valid = true;
 #endif
+#if defined(Q3X_ENABLE_A4W4_MLP_K512_FRAGMENT_NATIVE_ADMISSION)
+    const std::size_t mlp_k512_fragment_native_delta =
+        g_a4w4_mlp_k512_fragment_native_admission_hits >=
+                mlp_k512_fragment_native_hits_before
+            ? g_a4w4_mlp_k512_fragment_native_admission_hits -
+                  mlp_k512_fragment_native_hits_before
+            : 0U;
+    const bool mlp_k512_fragment_native_accounting_valid =
+        g_a4w4_mlp_k512_fragment_native_admission_hits >=
+            mlp_k512_fragment_native_hits_before &&
+        (mlp_k512_fragment_native_delta == 0U ||
+         mlp_k512_fragment_native_delta == spans * 64U) &&
+        (!g_enable_a4w4_mlp_k512_fragment_native_admission ||
+         mlp_k512_fragment_native_delta == spans * 64U);
+#else
+    constexpr std::size_t mlp_k512_fragment_native_delta = 0U;
+    constexpr bool mlp_k512_fragment_native_accounting_valid = true;
+#endif
+    const std::size_t mlp_k512_delta =
+        mlp_k512_v1_delta + mlp_k512_fragment_native_delta;
+    const bool mlp_k512_accounting_valid =
+        mlp_k512_v1_accounting_valid &&
+        mlp_k512_fragment_native_accounting_valid &&
+        (mlp_k512_v1_delta == 0U ||
+         mlp_k512_fragment_native_delta == 0U);
     const bool activation_accounting_valid =
         hits_after.activation_quantize_hits >=
             hits_before.activation_quantize_hits &&
@@ -8164,6 +8368,15 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
     return fail_long_prefill(runner_status(
         ReferenceRunnerError::kInvalidRunner,
         "prefill_mlp_k512_requires_projection_span"));
+  }
+#endif
+#if defined(Q3X_ENABLE_A4W4_MLP_K512_FRAGMENT_NATIVE_ADMISSION)
+  // The fragment-native route has the same whole-M ownership contract.  A
+  // requested selector may not silently enter the legacy tiled executor.
+  if (g_enable_a4w4_mlp_k512_fragment_native_admission) {
+    return fail_long_prefill(runner_status(
+        ReferenceRunnerError::kInvalidRunner,
+        "prefill_mlp_k512_fragment_native_requires_projection_span"));
   }
 #endif
 

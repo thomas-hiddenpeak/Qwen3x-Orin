@@ -1469,6 +1469,30 @@ void ingress_worker(
     error = "K512 MLP requires the explicit K128 A4 base payload and policy";
     return false;
   }
+  const bool mlp_k512_fragment_native_payload =
+      !options.prefill_mlp_k512_fragment_native_payload_path.empty();
+  const bool mlp_k512_fragment_native_policy =
+      !options.prefill_mlp_k512_fragment_native_policy_path.empty();
+  const bool mlp_k512_fragment_native_receipt =
+      !options.prefill_mlp_k512_fragment_native_receipt_path.empty();
+  if (mlp_k512_fragment_native_payload !=
+          mlp_k512_fragment_native_policy ||
+      mlp_k512_fragment_native_payload !=
+          mlp_k512_fragment_native_receipt) {
+    error = "fragment-native K512 MLP payload, policy, and receipt are "
+            "required together";
+    return false;
+  }
+  if (mlp_k512_fragment_native_payload && !a4_payload) {
+    error = "fragment-native K512 MLP requires the explicit K128 A4 base "
+            "payload and policy";
+    return false;
+  }
+  if (mlp_k512_payload && mlp_k512_fragment_native_payload) {
+    error = "K512 MLP v1 and fragment-native v2 publications are mutually "
+            "exclusive";
+    return false;
+  }
   if (a4_payload &&
       (options.projection_backend !=
            runtime::ProjectionBackend::kSm87WeightOnly ||
@@ -1552,6 +1576,12 @@ int run_evaluation_server(const EvaluationServerOptions& options,
       options.prefill_mlp_k512_policy_path;
   engine_options.prefill_mlp_k512_receipt_path =
       options.prefill_mlp_k512_receipt_path;
+  engine_options.prefill_mlp_k512_fragment_native_payload_path =
+      options.prefill_mlp_k512_fragment_native_payload_path;
+  engine_options.prefill_mlp_k512_fragment_native_policy_path =
+      options.prefill_mlp_k512_fragment_native_policy_path;
+  engine_options.prefill_mlp_k512_fragment_native_receipt_path =
+      options.prefill_mlp_k512_fragment_native_receipt_path;
   engine_options.request_options.batch_size = 1U;
   engine_options.request_options.max_sequence_length =
       options.max_sequence_length;
@@ -1705,6 +1735,34 @@ int run_evaluation_server(const EvaluationServerOptions& options,
             << load.prefill_mlp_k512_overlay_policy_sha256
             << " prefill_mlp_k512_payload_sha256="
             << load.prefill_mlp_k512_overlay_payload_sha256
+            << " prefill_mlp_k512_fragment_native_ms="
+            << load.prefill_mlp_k512_fragment_native_overlay_milliseconds
+            << " prefill_mlp_k512_fragment_native_requested="
+            << (load.prefill_mlp_k512_fragment_native_overlay_requested
+                    ? 1
+                    : 0)
+            << " prefill_mlp_k512_fragment_native_enabled="
+            << (load.prefill_mlp_k512_fragment_native_overlay_enabled ? 1
+                                                                      : 0)
+            << " prefill_mlp_k512_fragment_native_layers="
+            << load.prefill_mlp_k512_fragment_native_overlay_layers
+            << " prefill_mlp_k512_fragment_native_bytes="
+            << load.prefill_mlp_k512_fragment_native_overlay_bytes
+            << " prefill_mlp_k512_fragment_native_copy_chunks="
+            << load.prefill_mlp_k512_fragment_native_overlay_copy_chunks
+            << " prefill_mlp_k512_fragment_native_layout="
+            << load.prefill_mlp_k512_fragment_native_overlay_layout
+            << " prefill_mlp_k512_fragment_native_manifest_sha256="
+            << load.prefill_mlp_k512_fragment_native_overlay_manifest_sha256
+            << " prefill_mlp_k512_fragment_native_policy_sha256="
+            << load.prefill_mlp_k512_fragment_native_overlay_policy_sha256
+            << " prefill_mlp_k512_fragment_native_payload_sha256="
+            << load.prefill_mlp_k512_fragment_native_overlay_payload_sha256
+            << " prefill_mlp_k512_fragment_native_receipt_sha256="
+            << load.prefill_mlp_k512_fragment_native_overlay_receipt_sha256
+            << " prefill_mlp_k512_fragment_native_source_v1_receipt_sha256="
+            << load
+                   .prefill_mlp_k512_fragment_native_overlay_source_v1_receipt_sha256
             << std::endl;
 
   bool fatal_accept_error = false;

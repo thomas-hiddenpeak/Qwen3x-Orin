@@ -15,12 +15,16 @@ The external EvalScope/OpenAI result on the fixed natural P2K corpus is:
 | MLP K512 candidate | 4/4 | 2,782.6 ms | 691.62 tok/s | 691.9824 tok/s |
 | MLP K512 + natural ceil128 | 4/4 | 2,720.5 ms | 707.40 tok/s | 707.7676 tok/s |
 | Shared global-flow experiment | 4/4 | 3,004.7 ms | 640.58 tok/s | 640.8404 tok/s |
-| Cumulative change | - | -452.9 ms (-14.27%) | +16.65% | +16.65% |
+| Fragment-native v2 production candidate | 4/4 | 3,304.3 ms | 582.43 tok/s | 582.7297 tok/s |
+| Retained v1 + ceil128 cumulative change | - | -452.9 ms (-14.27%) | +16.65% | +16.65% |
 
-The candidate therefore passes the experiment gate against the incumbent,
-but remains 2.83x below 2,000 prompt token/s.  The ceil128 route change is
-itself +2.28% over the first K512 result.  No synthetic timing is used in this
-decision.
+The retained v1 plus ceil128 candidate therefore passes the experiment gate
+against the incumbent, but remains 2.83x below 2,000 prompt token/s.  The
+ceil128 route change is itself +2.28% over the first K512 result.  No synthetic
+timing is used in this decision.  The fragment-native v2 route later reached
+the complete real-model OpenAI path, but its first external EvalScope result
+was negative.  It is therefore **rejected** and is not enabled in the
+production default.
 
 ## Real publication and production-shaped route
 
@@ -192,10 +196,10 @@ result falsifies the idea that occupancy plus a different shared tile is
 sufficient; the next candidate must remove B's shared-memory round trip via
 an equal-byte fragment-native publication.
 
-## Fragment-native kernel admission
+## Fragment-native v2 production-candidate verdict
 
-The stronger replacement has passed kernel-level admission but has not yet
-been used for a performance claim.  Both consumers keep exact K512 numerical
+The stronger replacement passed kernel-level admission and was then integrated
+as a production-shaped candidate.  Both consumers keep exact K512 numerical
 semantics and change only the offline byte permutation of B:
 
 | Consumer | CTA / warp ownership | Registers | Dynamic shared | Active CTA/SM | Local spill |
@@ -210,10 +214,82 @@ in MMA lane order and never enters shared memory; SASS contains direct
 `LDG.E.128` plus `IMMA.16864`, while LDS is confined to runtime A.  Contract,
 equal-byte bijection, K512/K1024, and model-K correctness tests pass bitwise.
 
-The next gate is deliberately end to end: convert the authenticated v1 MLP
-payload into one same-size 8,623,226,880-byte composite v2 publication, attach
-it transactionally, then run the external OpenAI/EvalScope P2K command.  No
-synthetic kernel timing can promote this candidate.
+The offline converter produced and authenticated one same-size
+8,623,226,880-byte composite publication.  Its receipt binds the source v1
+receipt, manifest, policy, payload, checkpoint identity, and required K128 base
+publication.  The candidate is attached transactionally and selected only by
+the explicit fragment-native admission selector.
+
+```text
+physical layout       sm87_s4_gateup_n64_paired_down_n128_fragment_native_scale_k512_mlp_v2
+payload bytes         8623226880
+payload SHA256        e3946d020ff44b454f7fbf31aacfdab4af8e593b2eb25ba58ddecb461893bd36
+receipt SHA256        559f18d48b3acbedd569692bc89a64495f96dc00e8ef42ddeb8a2796110a0b25
+manifest SHA256       e5aaf9ab1897c2b05d3dcf1760b1daf1d14e86e92b34464513ab0e7ae4cfb536
+source-v1 receipt     e39795f13d15f83a93bd8152d9ef581975893baf1c42884af6632e0272aa57de
+source-v1 policy      5e4b31d0e93cd1ae13d1aebd66a9fd75151e6d3fb5ab448c1f7650ac127ef8e5
+```
+
+The first performance verdict used the real publication, real checkpoint,
+OpenAI `/v1/completions`, and external EvalScope 1.9.1 on the same natural P2K
+corpus.  Four of four serial requests succeeded:
+
+```text
+test duration          13.2188 s
+average input          1924.75 tokens
+mean TTFT              3304.33 ms
+prompt throughput      582.4281 token/s
+total throughput       582.7297 token/s
+vs 707.7676 baseline   -17.6665% throughput
+vs 2720.5 ms baseline  +21.4604% TTFT
+```
+
+This is an unambiguous **REJECT**.  The selector does not enter the production
+default and the v1 K512 plus natural-ceil128 route remains the retained
+baseline.  Synthetic inputs were used only for correctness and smoke testing;
+none of their timings contributed to the verdict.
+
+```text
+server ELF SHA256      6f2c84240e6b84d925e386f1c0269398449cd612849513b27a5f0abf41c6966f
+server log SHA256      5cf765826fa94a7b47f26880d4d261c47dda375babeaa48b16c2f8d078d11458
+summary SHA256         65a3b48fca4d09ed8d384035a8cc9eaf4df04ad046f509a3acc22600ead19e71
+provenance SHA256      3148cb21c94312e45e89f4c7132023ddca3a3169eec5f9b0a1d261462aba38e1
+```
+
+### Fragment-native real-API NSys evidence
+
+A request-scoped NSys capture through the same real OpenAI API route isolates
+the regression in the MLP path.  The comparison below uses the same natural
+P2K request as the retained natural-M128 profile:
+
+| Kernel family | Natural-M128 baseline | Fragment-native v2 | Change |
+|---|---:|---:|---:|
+| Gate+Up | 888.941 ms (128 calls) | 1,278.063 ms (128 calls) | +43.77% |
+| Down | 523.248 ms (64 calls) | 540.490 ms (64 calls) | +3.30% |
+| MLP total | 1,412.189 ms | 1,818.553 ms | +28.78% (+406.364 ms) |
+
+The non-MLP families are essentially unchanged: the GDN Attention pair moves
+from 336.135 to 336.719 ms, Attention-O from 165.631 to 165.897 ms,
+Full-Attention Q/K/V from 98.187 to 98.339 ms, and split K512 activation
+quantization from 67.154 to 67.275 ms.  This isolates the measured regression
+to MLP, and overwhelmingly to Gate+Up, rather than the API, corpus, Attention,
+or quantization route.
+
+```text
+server ELF SHA256      6f2c84240e6b84d925e386f1c0269398449cd612849513b27a5f0abf41c6966f
+NSys report SHA256     1584de510f7d30419c7c05e228d8bc8cc967ee5621b1e9dfa2b1cbd1f9899d73
+SQLite SHA256          82dd4306ea91558fc40cb1a1018e57c177de5b498f4a1b1ae2c7a1cb8cfeb1e2
+kernel CSV SHA256      6a6fc2529512334cbc4a80eca6421ba2918a04dc00f27553e6e16d817793ce59
+```
+
+The M64 Gate ownership launches twice as many M-axis CTAs as M128 ownership;
+therefore each N tile must fetch the fragment-native B weights twice across
+the same span.  That doubled B-read explanation is a structural inference
+consistent with the +43.77% Gate timing, not an NCU-proven traffic
+measurement.  The next candidate keeps the authenticated v2 payload and its
+direct-B lane order, but restores balanced M128 ownership so those B fragments
+can be reused across the larger M tile without introducing a publication
+variable.
 
 Evidence directories:
 
@@ -228,4 +304,10 @@ Evidence directories:
 - natural-M128 request trace:
   `/home/rm01/q3x-mlp-k512-nsys-p2048-natural-m128-request2.nsys-rep`;
 - rejected shared global-flow run:
-  `/home/rm01/q3x-mlp-k512-evalscope-p2048-global-flow`.
+  `/home/rm01/q3x-mlp-k512-evalscope-p2048-global-flow`;
+- rejected fragment-native v2 run:
+  `/home/rm01/q3x-mlp-k512-evalscope-p2048-fragment-native`;
+- fragment-native v2 request trace:
+  `/home/rm01/q3x-mlp-k512-fragment-native-nsys-p2048-request2.nsys-rep`;
+- fragment-native v2 publication:
+  `/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4-q3x-mlp-k512-fragment-native/weights-mlp-k512-fragment-native.bin`.

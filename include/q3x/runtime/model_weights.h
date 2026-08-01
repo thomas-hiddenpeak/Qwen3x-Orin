@@ -18,6 +18,7 @@ struct PrefillAttentionOK512OverlayManifest;
 struct PrefillAttentionOK512OverlayPolicy;
 struct PrefillMLPK512OverlayManifest;
 struct PrefillMLPK512OverlayPolicy;
+struct PrefillMLPK512FragmentNativeManifest;
 
 inline constexpr std::size_t kQwen36DenseLayerCount = 64U;
 inline constexpr std::size_t kQwen36LinearAttentionLayerCount = 48U;
@@ -419,6 +420,48 @@ struct DenseMlpWeights {
   LinearWeight down_proj;
 };
 
+// One complete layer-local view of the fragment-native MLP K512 v2 arena.
+// Gate and Up are deliberately represented as one paired operand because the
+// consumer owns both fragments in the same warp.  Down remains an independent
+// projection.  The view is published only as part of a validated all-64-layer
+// inventory; partial views have no scheduling authority.
+struct PrefillMLPK512FragmentNativeCompositeView {
+  const std::uint8_t* gateup_codes = nullptr;
+  const std::uint16_t* gateup_scales = nullptr;
+  const std::uint8_t* down_codes = nullptr;
+  const std::uint16_t* down_scales = nullptr;
+  std::size_t gateup_code_capacity_bytes = 0U;
+  std::size_t gateup_scale_capacity_elements = 0U;
+  std::size_t down_code_capacity_bytes = 0U;
+  std::size_t down_scale_capacity_elements = 0U;
+  float gateup_activation_clip_ratio = 0.0F;
+  float down_activation_clip_ratio = 0.0F;
+
+  [[nodiscard]] bool attached() const noexcept {
+    return gateup_codes != nullptr && gateup_scales != nullptr &&
+           down_codes != nullptr && down_scales != nullptr &&
+           gateup_code_capacity_bytes != 0U &&
+           gateup_scale_capacity_elements != 0U &&
+           down_code_capacity_bytes != 0U &&
+           down_scale_capacity_elements != 0U &&
+           gateup_activation_clip_ratio > 0.0F &&
+           gateup_activation_clip_ratio <= 1.0F &&
+           down_activation_clip_ratio > 0.0F &&
+           down_activation_clip_ratio <= 1.0F;
+  }
+
+  [[nodiscard]] bool empty() const noexcept {
+    return gateup_codes == nullptr && gateup_scales == nullptr &&
+           down_codes == nullptr && down_scales == nullptr &&
+           gateup_code_capacity_bytes == 0U &&
+           gateup_scale_capacity_elements == 0U &&
+           down_code_capacity_bytes == 0U &&
+           down_scale_capacity_elements == 0U &&
+           gateup_activation_clip_ratio == 0.0F &&
+           down_activation_clip_ratio == 0.0F;
+  }
+};
+
 struct LinearAttentionWeights {
   LinearWeight in_proj_qkv;
   LinearWeight in_proj_z;
@@ -448,6 +491,8 @@ struct DecoderLayerWeights {
   Bf16VectorWeight post_attention_layernorm;
   DenseMlpWeights mlp;
   AttentionWeights attention;
+  PrefillMLPK512FragmentNativeCompositeView
+      prefill_mlp_k512_fragment_native;
 };
 
 struct WeightBindingStats {
@@ -617,6 +662,20 @@ class ModelWeights {
       const std::uint8_t* arena, std::size_t arena_bytes,
       const PrefillMLPK512OverlayManifest* manifest,
       const PrefillMLPK512OverlayPolicy* policy) noexcept;
+
+  // Transactionally publishes the complete 64-layer fragment-native MLP
+  // K512 v2 arena.  The v2 manifest authenticates the byte permutation while
+  // the source-v1 manifest and policy retain the projection shapes, source
+  // identities, and activation clips.  Every check completes before a layer
+  // view changes.  v1 and v2 are strictly mutually exclusive: callers must
+  // explicitly detach one layout before attaching the other.  The canonical
+  // all-null/zero call detaches v2 only; detaching the K128 A4 base clears
+  // both layouts.
+  [[nodiscard]] bool attach_prefill_mlp_k512_fragment_native_sidecars(
+      const std::uint8_t* arena, std::size_t arena_bytes,
+      const PrefillMLPK512FragmentNativeManifest* manifest,
+      const PrefillMLPK512OverlayManifest* source_v1_manifest,
+      const PrefillMLPK512OverlayPolicy* source_v1_policy) noexcept;
 
  private:
   friend class ModelWeightBinder;

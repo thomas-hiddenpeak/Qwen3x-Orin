@@ -144,6 +144,33 @@ bool parse_evaluation_server_arguments(
         return false;
       }
       options.prefill_mlp_k512_receipt_path = value;
+    } else if (argument ==
+               "--prefill-mlp-k512-fragment-native-payload") {
+      if (!options.prefill_mlp_k512_fragment_native_payload_path.empty() ||
+          value.empty()) {
+        error = "--prefill-mlp-k512-fragment-native-payload requires one "
+                "non-empty FILE";
+        return false;
+      }
+      options.prefill_mlp_k512_fragment_native_payload_path = value;
+    } else if (argument ==
+               "--prefill-mlp-k512-fragment-native-policy") {
+      if (!options.prefill_mlp_k512_fragment_native_policy_path.empty() ||
+          value.empty()) {
+        error = "--prefill-mlp-k512-fragment-native-policy requires one "
+                "non-empty FILE";
+        return false;
+      }
+      options.prefill_mlp_k512_fragment_native_policy_path = value;
+    } else if (argument ==
+               "--prefill-mlp-k512-fragment-native-receipt") {
+      if (!options.prefill_mlp_k512_fragment_native_receipt_path.empty() ||
+          value.empty()) {
+        error = "--prefill-mlp-k512-fragment-native-receipt requires one "
+                "non-empty FILE";
+        return false;
+      }
+      options.prefill_mlp_k512_fragment_native_receipt_path = value;
     } else if (argument == "--queue-capacity") {
       if (!parse_unsigned(value, options.inference_queue_capacity) ||
           options.inference_queue_capacity == 0U) {
@@ -234,6 +261,32 @@ bool parse_evaluation_server_arguments(
   if (mlp_k512_payload && !a4_payload) {
     error = "the K512 MLP overlay requires the explicit K128 A4 payload "
             "and policy";
+    return false;
+  }
+  const bool mlp_k512_fragment_native_payload =
+      !options.prefill_mlp_k512_fragment_native_payload_path.empty();
+  const bool mlp_k512_fragment_native_policy =
+      !options.prefill_mlp_k512_fragment_native_policy_path.empty();
+  const bool mlp_k512_fragment_native_receipt =
+      !options.prefill_mlp_k512_fragment_native_receipt_path.empty();
+  if (mlp_k512_fragment_native_payload !=
+          mlp_k512_fragment_native_policy ||
+      mlp_k512_fragment_native_payload !=
+          mlp_k512_fragment_native_receipt) {
+    error = "--prefill-mlp-k512-fragment-native-payload, "
+            "--prefill-mlp-k512-fragment-native-policy, and "
+            "--prefill-mlp-k512-fragment-native-receipt are required "
+            "together";
+    return false;
+  }
+  if (mlp_k512_fragment_native_payload && !a4_payload) {
+    error = "the fragment-native K512 MLP overlay requires the explicit "
+            "K128 A4 payload and policy";
+    return false;
+  }
+  if (mlp_k512_payload && mlp_k512_fragment_native_payload) {
+    error = "the K512 MLP v1 and fragment-native v2 publications are "
+            "mutually exclusive";
     return false;
   }
   error.clear();
