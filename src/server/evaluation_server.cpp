@@ -1437,6 +1437,22 @@ void ingress_worker(
             "is optional";
     return false;
   }
+  const bool k512_payload =
+      !options.prefill_attention_o_k512_payload_path.empty();
+  const bool k512_policy =
+      !options.prefill_attention_o_k512_policy_path.empty();
+  const bool k512_receipt =
+      !options.prefill_attention_o_k512_receipt_path.empty();
+  if (k512_payload != k512_policy || k512_payload != k512_receipt) {
+    error = "K512 Attention-O payload, policy, and receipt are required "
+            "together";
+    return false;
+  }
+  if (k512_payload && !a4_payload) {
+    error = "K512 Attention-O requires the explicit K128 A4 base payload "
+            "and policy";
+    return false;
+  }
   if (a4_payload &&
       (options.projection_backend !=
            runtime::ProjectionBackend::kSm87WeightOnly ||
@@ -1508,6 +1524,12 @@ int run_evaluation_server(const EvaluationServerOptions& options,
       options.prefill_a4_calibration_policy_path;
   engine_options.prefill_a4_receipt_path =
       options.prefill_a4_receipt_path;
+  engine_options.prefill_attention_o_k512_payload_path =
+      options.prefill_attention_o_k512_payload_path;
+  engine_options.prefill_attention_o_k512_policy_path =
+      options.prefill_attention_o_k512_policy_path;
+  engine_options.prefill_attention_o_k512_receipt_path =
+      options.prefill_attention_o_k512_receipt_path;
   engine_options.request_options.batch_size = 1U;
   engine_options.request_options.max_sequence_length =
       options.max_sequence_length;
@@ -1621,6 +1643,26 @@ int run_evaluation_server(const EvaluationServerOptions& options,
             << load.prefill_a4_sidecar_projections
             << " prefill_a4_bytes=" << load.prefill_a4_sidecar_bytes
             << " prefill_a4_layout=" << load.prefill_a4_physical_layout
+            << " prefill_attention_o_k512_ms="
+            << load.prefill_attention_o_k512_overlay_milliseconds
+            << " prefill_attention_o_k512_requested="
+            << (load.prefill_attention_o_k512_overlay_requested ? 1 : 0)
+            << " prefill_attention_o_k512_enabled="
+            << (load.prefill_attention_o_k512_overlay_enabled ? 1 : 0)
+            << " prefill_attention_o_k512_projections="
+            << load.prefill_attention_o_k512_overlay_projections
+            << " prefill_attention_o_k512_bytes="
+            << load.prefill_attention_o_k512_overlay_bytes
+            << " prefill_attention_o_k512_copy_chunks="
+            << load.prefill_attention_o_k512_overlay_copy_chunks
+            << " prefill_attention_o_k512_layout="
+            << load.prefill_attention_o_k512_overlay_layout
+            << " prefill_attention_o_k512_manifest_sha256="
+            << load.prefill_attention_o_k512_overlay_manifest_sha256
+            << " prefill_attention_o_k512_policy_sha256="
+            << load.prefill_attention_o_k512_overlay_policy_sha256
+            << " prefill_attention_o_k512_payload_sha256="
+            << load.prefill_attention_o_k512_overlay_payload_sha256
             << std::endl;
 
   bool fatal_accept_error = false;

@@ -15,6 +15,12 @@ struct EvaluationServerOptions {
   std::filesystem::path prefill_a4_payload_path;
   std::filesystem::path prefill_a4_calibration_policy_path;
   std::filesystem::path prefill_a4_receipt_path;
+  // Authenticated K512 Attention-O overlay. The evaluation surface requires
+  // an explicit payload, policy, and receipt as one inseparable publication;
+  // it is valid only on top of the complete K128 A4 base above.
+  std::filesystem::path prefill_attention_o_k512_payload_path;
+  std::filesystem::path prefill_attention_o_k512_policy_path;
+  std::filesystem::path prefill_attention_o_k512_receipt_path;
   std::string bind_address = "127.0.0.1";
   std::uint16_t port = 8000U;
   std::string served_model = "qwen3.6-27b-nvfp4";

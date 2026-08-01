@@ -2,6 +2,7 @@
 
 #include "q3x/io/safetensors.h"
 #include "q3x/runtime/prefill_a4_sidecar_converter.h"
+#include "q3x/runtime/prefill_attention_o_k512_overlay.h"
 #include "q3x/runtime/prefill_quantized_contract.h"
 
 #include <cuda_runtime.h>
@@ -1416,7 +1417,8 @@ bool ModelWeights::attach_nvfp4_marlin_prefill_sidecars(
 bool ModelWeights::attach_prefill_a4_sidecars(
     const std::uint8_t* const arena, const std::size_t arena_bytes,
     const PrefillSidecarManifest* const manifest,
-    const PrefillA4CalibrationPolicy* const policy) noexcept {
+    const PrefillA4CalibrationPolicy* const policy,
+    const std::string_view authenticated_payload_sha256) noexcept {
   const auto projection_for = [](DecoderLayerWeights& layer,
                                  const PrefillProjectionFamily family)
       noexcept -> LinearWeight* {
@@ -1477,6 +1479,9 @@ bool ModelWeights::attach_prefill_a4_sidecars(
       fp8->prefill_a4_packed_k_group_size = 0U;
       fp8->prefill_a4_scale_group_size = 0U;
       fp8->prefill_a4_activation_clip_ratio = 0.0F;
+      fp8->prefill_attention_o_k512_weight = nullptr;
+      fp8->prefill_attention_o_k512_scales = nullptr;
+      fp8->prefill_attention_o_k512_activation_clip_ratio = 0.0F;
     } else if (auto* const nvfp4 =
                    std::get_if<NvFp4LinearWeight>(&binding)) {
       nvfp4->prefill_a4_weight = nullptr;
@@ -1506,6 +1511,10 @@ bool ModelWeights::attach_prefill_a4_sidecars(
         clear_weight(full->o_proj);
       }
     }
+    prefill_a4_attachment_complete_ = false;
+    prefill_a4_attachment_manifest_sha256_.fill('\0');
+    prefill_a4_attachment_policy_sha256_.fill('\0');
+    prefill_a4_attachment_payload_sha256_.fill('\0');
   };
 
   if (arena == nullptr && arena_bytes == 0U && manifest == nullptr &&
@@ -1521,6 +1530,22 @@ bool ModelWeights::attach_prefill_a4_sidecars(
                           *policy, *manifest)
                           .ok();
   } catch (...) {
+    return false;
+  }
+  const auto lower_sha256 = [](const std::string_view value) noexcept {
+    if (value.size() != 64U) {
+      return false;
+    }
+    for (const char character : value) {
+      if (!((character >= '0' && character <= '9') ||
+            (character >= 'a' && character <= 'f'))) {
+        return false;
+      }
+    }
+    return true;
+  };
+  if (!authenticated_payload_sha256.empty() &&
+      !lower_sha256(authenticated_payload_sha256)) {
     return false;
   }
   const bool k64_v1 =
@@ -1677,6 +1702,217 @@ bool ModelWeights::attach_prefill_a4_sidecars(
       return false;
     }
   }
+  if (!authenticated_payload_sha256.empty()) {
+    prefill_a4_attachment_complete_ = true;
+    std::copy(manifest->manifest_sha256.begin(),
+              manifest->manifest_sha256.end(),
+              prefill_a4_attachment_manifest_sha256_.begin());
+    std::copy(policy->policy_sha256.begin(), policy->policy_sha256.end(),
+              prefill_a4_attachment_policy_sha256_.begin());
+    std::copy(authenticated_payload_sha256.begin(),
+              authenticated_payload_sha256.end(),
+              prefill_a4_attachment_payload_sha256_.begin());
+  }
+  return true;
+}
+
+bool ModelWeights::attach_prefill_attention_o_k512_sidecars(
+    const std::uint8_t* const arena, const std::size_t arena_bytes,
+    const PrefillAttentionOK512OverlayManifest* const manifest,
+    const PrefillAttentionOK512OverlayPolicy* const policy) noexcept {
+  const auto clear_all = [this]() noexcept {
+    for (DecoderLayerWeights& layer : layers_) {
+      LinearWeight* output = nullptr;
+      if (auto* const linear =
+              std::get_if<LinearAttentionWeights>(&layer.attention)) {
+        output = &linear->out_proj;
+      } else if (auto* const full =
+                     std::get_if<FullAttentionWeights>(&layer.attention)) {
+        output = &full->o_proj;
+      }
+      if (output != nullptr) {
+        if (auto* const fp8 = std::get_if<Fp8LinearWeight>(output)) {
+          fp8->prefill_attention_o_k512_weight = nullptr;
+          fp8->prefill_attention_o_k512_scales = nullptr;
+          fp8->prefill_attention_o_k512_activation_clip_ratio = 0.0F;
+        }
+      }
+    }
+  };
+
+  if (arena == nullptr && arena_bytes == 0U && manifest == nullptr &&
+      policy == nullptr) {
+    clear_all();
+    return true;
+  }
+  if (arena == nullptr || manifest == nullptr || policy == nullptr ||
+      arena_bytes != kPrefillAttentionOK512OverlayPayloadBytes ||
+      manifest->payload_bytes != arena_bytes ||
+      manifest->projections.size() !=
+          kPrefillAttentionOK512OverlayProjectionCount ||
+      policy->projections.size() != manifest->projections.size()) {
+    return false;
+  }
+  const auto lower_sha256 = [](const std::string_view value) noexcept {
+    if (value.size() != 64U) {
+      return false;
+    }
+    for (const char character : value) {
+      if (!((character >= '0' && character <= '9') ||
+            (character >= 'a' && character <= 'f'))) {
+        return false;
+      }
+    }
+    return true;
+  };
+  try {
+    if (!validate_prefill_attention_o_k512_overlay_manifest(*manifest) ||
+        policy->version_major != manifest->version_major ||
+        policy->version_minor != manifest->version_minor ||
+        policy->physical_layout != manifest->physical_layout ||
+        policy->source_checkpoint_id != manifest->source_checkpoint_id ||
+        policy->source_config_sha256 != manifest->source_config_sha256 ||
+        policy->source_index_sha256 != manifest->source_index_sha256 ||
+        policy->manifest_sha256 != manifest->manifest_sha256 ||
+        policy->required_base.physical_layout !=
+            manifest->required_base.physical_layout ||
+        policy->required_base.manifest_sha256 !=
+            manifest->required_base.manifest_sha256 ||
+        policy->required_base.policy_sha256 !=
+            manifest->required_base.policy_sha256 ||
+        policy->required_base.payload_sha256 !=
+            manifest->required_base.payload_sha256 ||
+        !lower_sha256(policy->policy_sha256) || policy->policy_bytes == 0U ||
+        !prefill_a4_attachment_complete_ ||
+        std::string_view(prefill_a4_attachment_manifest_sha256_.data(),
+                         prefill_a4_attachment_manifest_sha256_.size()) !=
+            manifest->required_base.manifest_sha256 ||
+        std::string_view(prefill_a4_attachment_policy_sha256_.data(),
+                         prefill_a4_attachment_policy_sha256_.size()) !=
+            manifest->required_base.policy_sha256 ||
+        std::string_view(prefill_a4_attachment_payload_sha256_.data(),
+                         prefill_a4_attachment_payload_sha256_.size()) !=
+            manifest->required_base.payload_sha256) {
+      return false;
+    }
+  } catch (...) {
+    return false;
+  }
+
+  constexpr auto kPointerMaximum =
+      std::numeric_limits<std::uintptr_t>::max();
+  const std::uintptr_t arena_address =
+      reinterpret_cast<std::uintptr_t>(arena);
+  if (arena_address % 256U != 0U || arena_bytes > kPointerMaximum ||
+      arena_address > kPointerMaximum - arena_bytes) {
+    return false;
+  }
+  const std::uintptr_t arena_end = arena_address + arena_bytes;
+
+  struct ValidatedBinding final {
+    Fp8LinearWeight* binding = nullptr;
+    const std::uint8_t* weight = nullptr;
+    const std::uint16_t* scales = nullptr;
+    float activation_clip_ratio = 0.0F;
+  };
+  std::array<ValidatedBinding,
+             kPrefillAttentionOK512OverlayProjectionCount>
+      validated{};
+  std::array<bool, kQwen36DenseLayerCount> seen{};
+  for (std::size_t index = 0U; index < manifest->projections.size();
+       ++index) {
+    const PrefillAttentionOK512OverlayEntry& entry =
+        manifest->projections[index];
+    const PrefillAttentionOK512OverlayCalibration& calibration =
+        policy->projections[index];
+    if (entry.ordinal != index || entry.layer_index >= layers_.size() ||
+        seen[entry.layer_index] ||
+        entry.output_size != kFp8M1OutputProjectionRows ||
+        entry.input_size != kFp8M1OutputProjectionColumns ||
+        entry.weight_bytes !=
+            kPrefillAttentionOK512OverlayProjectionWeightBytes ||
+        entry.scale_bytes !=
+            kPrefillAttentionOK512OverlayProjectionScaleBytes ||
+        entry.sidecar_offset > arena_bytes ||
+        entry.weight_bytes > arena_bytes - entry.sidecar_offset ||
+        entry.scale_bytes >
+            arena_bytes - entry.sidecar_offset - entry.weight_bytes ||
+        calibration.ordinal != entry.ordinal ||
+        calibration.source_module != entry.source_module ||
+        calibration.source_sha256 != entry.source_sha256 ||
+        calibration.activation_scale_group_size !=
+            kPrefillAttentionOK512OverlayScaleK ||
+        !std::isfinite(calibration.weight_clip_ratio) ||
+        calibration.weight_clip_ratio < kPrefillA4MinimumClipRatio ||
+        calibration.weight_clip_ratio > 1.0 ||
+        !std::isfinite(calibration.activation_clip_ratio) ||
+        calibration.activation_clip_ratio < kPrefillA4MinimumClipRatio ||
+        calibration.activation_clip_ratio > 1.0 ||
+        static_cast<float>(calibration.activation_clip_ratio) <
+            static_cast<float>(kPrefillA4MinimumClipRatio) ||
+        static_cast<float>(calibration.activation_clip_ratio) > 1.0F) {
+      return false;
+    }
+
+    DecoderLayerWeights& layer = layers_[entry.layer_index];
+    LinearWeight* output = nullptr;
+    if (entry.family == "linear_o") {
+      auto* const linear =
+          std::get_if<LinearAttentionWeights>(&layer.attention);
+      if (linear != nullptr) {
+        output = &linear->out_proj;
+      }
+    } else if (entry.family == "full_o") {
+      auto* const full =
+          std::get_if<FullAttentionWeights>(&layer.attention);
+      if (full != nullptr) {
+        output = &full->o_proj;
+      }
+    }
+    auto* const fp8 =
+        output == nullptr ? nullptr : std::get_if<Fp8LinearWeight>(output);
+    if (!has_valid_fp8_payload(fp8) ||
+        fp8->output_size != entry.output_size ||
+        fp8->input_size != entry.input_size) {
+      return false;
+    }
+    const PrefillA4LinearSidecarView base =
+        prefill_a4_sidecar_view(*output);
+    if (!base.attached() ||
+        base.sidecar_kind != PrefillSidecarKind::kA4K128 ||
+        base.packed_k_group_size != 64U || base.scale_group_size != 128U) {
+      return false;
+    }
+
+    const std::uintptr_t weight_address =
+        arena_address + entry.sidecar_offset;
+    const std::uintptr_t scale_address =
+        weight_address + entry.weight_bytes;
+    if (weight_address >= arena_end || weight_address % 16U != 0U ||
+        scale_address >= arena_end ||
+        scale_address % alignof(std::uint16_t) != 0U ||
+        entry.scale_bytes > arena_end - scale_address) {
+      return false;
+    }
+    seen[entry.layer_index] = true;
+    validated[index] = {
+        fp8, reinterpret_cast<const std::uint8_t*>(weight_address),
+        reinterpret_cast<const std::uint16_t*>(scale_address),
+        static_cast<float>(calibration.activation_clip_ratio)};
+  }
+  if (std::any_of(seen.begin(), seen.end(), [](const bool value) {
+        return !value;
+      })) {
+    return false;
+  }
+
+  clear_all();
+  for (const ValidatedBinding& entry : validated) {
+    entry.binding->prefill_attention_o_k512_weight = entry.weight;
+    entry.binding->prefill_attention_o_k512_scales = entry.scales;
+    entry.binding->prefill_attention_o_k512_activation_clip_ratio =
+        entry.activation_clip_ratio;
+  }
   return true;
 }
 
@@ -1724,6 +1960,19 @@ PrefillA4LinearSidecarView prefill_a4_sidecar_view(
             nvfp4->input_size};
   }
   return {};
+}
+
+PrefillAttentionOK512LinearSidecarView
+prefill_attention_o_k512_sidecar_view(
+    const LinearWeight& weight) noexcept {
+  const auto* const fp8 = std::get_if<Fp8LinearWeight>(&weight);
+  if (fp8 == nullptr) {
+    return {};
+  }
+  return {fp8->prefill_attention_o_k512_weight,
+          fp8->prefill_attention_o_k512_scales,
+          fp8->prefill_attention_o_k512_activation_clip_ratio,
+          fp8->output_size, fp8->input_size};
 }
 
 bool supports_bf16_projection_pair(

@@ -6,6 +6,9 @@
 #include "q3x/runtime/prefill_a4_sidecar_converter.h"
 #include "q3x/runtime/prefill_quantized_contract.h"
 #endif
+#if defined(Q3X_ENABLE_A4W4_ATTENTION_O_K512_ADMISSION)
+#include "q3x/runtime/prefill_attention_o_k512_overlay.h"
+#endif
 #include "q3x/kernels/sm87_fp8_prefill_supermatrix.h"
 #if defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION)
 #include "q3x/kernels/sm87_fp8_marlin_w8a16.h"
@@ -38,6 +41,7 @@
 #include <string_view>
 #include <system_error>
 #include <sys/stat.h>
+#include <sys/file.h>
 #include <sys/types.h>
 #include <unistd.h>
 #include <utility>
@@ -126,7 +130,24 @@ decode_gate_up_coupled_feed_environment_enabled() noexcept {
   return value != nullptr && std::strcmp(value, "1") == 0;
 }
 
+[[nodiscard]] bool
+prefill_attention_o_k512_environment_enabled() noexcept {
+  if (optimized_prefill_dispatch_disabled()) {
+    return false;
+  }
+  const char* const value = std::getenv(
+      "Q3X_RUN_A4W4_ATTENTION_O_K512_ADMISSION");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
 struct PrefillA4EnginePaths final {
+  bool requested = false;
+  std::filesystem::path payload;
+  std::filesystem::path policy;
+  std::filesystem::path receipt;
+};
+
+struct PrefillAttentionOK512EnginePaths final {
   bool requested = false;
   std::filesystem::path payload;
   std::filesystem::path policy;
@@ -159,6 +180,41 @@ struct PrefillA4EnginePaths final {
   if (paths.payload == paths.policy || paths.payload == paths.receipt ||
       paths.policy == paths.receipt) {
     error = "A4 payload, policy, and receipt must be distinct paths";
+    return false;
+  }
+  return true;
+}
+
+[[nodiscard]] bool resolve_prefill_attention_o_k512_engine_paths(
+    const ReferenceEngineOptions& options,
+    PrefillAttentionOK512EnginePaths& paths, std::string& error) {
+  const bool has_payload =
+      !options.prefill_attention_o_k512_payload_path.empty();
+  const bool has_policy =
+      !options.prefill_attention_o_k512_policy_path.empty();
+  const bool has_receipt =
+      !options.prefill_attention_o_k512_receipt_path.empty();
+  paths.requested = has_payload || has_policy || has_receipt;
+  if (!paths.requested) {
+    return true;
+  }
+  if (!has_payload || !has_policy) {
+    error = "K512 Attention-O admission requires both payload and policy "
+            "paths; receipt alone is not an admission";
+    return false;
+  }
+  paths.payload = options.prefill_attention_o_k512_payload_path;
+  paths.policy = options.prefill_attention_o_k512_policy_path;
+  paths.receipt =
+      has_receipt
+          ? options.prefill_attention_o_k512_receipt_path
+          : std::filesystem::path(
+                options.prefill_attention_o_k512_payload_path.string() +
+                ".receipt.json");
+  if (paths.payload == paths.policy || paths.payload == paths.receipt ||
+      paths.policy == paths.receipt) {
+    error = "K512 Attention-O payload, policy, and receipt must be distinct "
+            "paths";
     return false;
   }
   return true;
@@ -3076,6 +3132,42 @@ struct Sm87A4PrefillPreparation final {
   std::string payload_sha256;
 };
 
+#if defined(Q3X_ENABLE_A4W4_ATTENTION_O_K512_ADMISSION)
+struct Sm87AttentionOK512Overlay final {
+  std::uint8_t* data = nullptr;
+  std::size_t bytes = 0U;
+
+  Sm87AttentionOK512Overlay() noexcept = default;
+  Sm87AttentionOK512Overlay(const Sm87AttentionOK512Overlay&) = delete;
+  Sm87AttentionOK512Overlay& operator=(const Sm87AttentionOK512Overlay&) =
+      delete;
+  ~Sm87AttentionOK512Overlay() { release(); }
+
+  void release() noexcept {
+    if (data != nullptr) {
+      (void)cudaFree(data);
+    }
+    data = nullptr;
+    bytes = 0U;
+  }
+};
+
+struct Sm87AttentionOK512Preparation final {
+  bool enabled = false;
+  std::size_t projections = 0U;
+  std::uint64_t bytes = 0U;
+  std::uint64_t copy_chunks = 0U;
+  int cuda_error = 0;
+  int dependency_error = 0;
+  std::string message;
+  std::string context;
+  std::string physical_layout;
+  std::string manifest_sha256;
+  std::string policy_sha256;
+  std::string payload_sha256;
+};
+#endif
+
 [[nodiscard]] bool resident_matches_pinned_identity(
     const ResidentWeights& resident) {
   const std::vector<ShardIdentity>& pinned = pinned_qwen36_27b_shards();
@@ -3325,7 +3417,8 @@ struct Sm87A4PrefillPreparation final {
   }
 
   if (!model_weights.attach_prefill_a4_sidecars(
-          owner.data, payload_bytes, &manifest, &publication.policy())) {
+          owner.data, payload_bytes, &manifest, &publication.policy(),
+          publication.receipt().payload_sha256)) {
     result.message =
         "ModelWeights rejected the authenticated A4 sidecar inventory";
     result.context = "prefill_a4.attach";
@@ -3343,6 +3436,309 @@ struct Sm87A4PrefillPreparation final {
   result.payload_sha256 = publication.receipt().payload_sha256;
   return result;
 }
+
+#if defined(Q3X_ENABLE_A4W4_ATTENTION_O_K512_ADMISSION)
+[[nodiscard]] bool same_k512_base_binding(
+    const PrefillAttentionOK512BaseBinding& first,
+    const PrefillAttentionOK512BaseBinding& second) noexcept {
+  return first.physical_layout == second.physical_layout &&
+         first.manifest_sha256 == second.manifest_sha256 &&
+         first.policy_sha256 == second.policy_sha256 &&
+         first.payload_sha256 == second.payload_sha256;
+}
+
+[[nodiscard]] Sm87AttentionOK512Preparation
+prepare_sm87_attention_o_k512_overlay(
+    const std::filesystem::path& model_directory,
+    const PrefillAttentionOK512EnginePaths& paths,
+    const ResidentWeights& resident,
+    const Sm87A4PrefillPreparation& base,
+    const std::uint64_t minimum_free_bytes_after_prepare,
+    ModelWeights& model_weights, Sm87AttentionOK512Overlay& owner) {
+  Sm87AttentionOK512Preparation result;
+  if (!paths.requested || owner.data != nullptr || owner.bytes != 0U) {
+    result.message = "invalid K512 Attention-O preparation state";
+    result.context = "prefill_attention_o_k512.prepare";
+    return result;
+  }
+  const PrefillAttentionOK512BaseBinding actual_base{
+      base.physical_layout, base.manifest_sha256, base.policy_sha256,
+      base.payload_sha256};
+  if (!base.enabled ||
+      base.sidecar_kind != PrefillSidecarKind::kA4K128 ||
+      base.projections != kQwen36PrefillProjectionCount ||
+      actual_base.physical_layout != kPrefillA4K128PhysicalLayout ||
+      !resident_matches_pinned_identity(resident)) {
+    result.message =
+        "K512 Attention-O requires the authenticated K128 base inventory";
+    result.context = "prefill_attention_o_k512.base";
+    return result;
+  }
+
+  const model::weights::ManifestResult source_manifest =
+      model::weights::build_qwen36_27b_text_manifest(model_directory);
+  if (!source_manifest) {
+    result.message = "could not rebuild the pinned checkpoint manifest";
+    if (!source_manifest.diagnostics.empty()) {
+      result.message += ": " + source_manifest.diagnostics.front().message;
+      result.context = source_manifest.diagnostics.front().context;
+    }
+    return result;
+  }
+
+  std::string receipt_document;
+  int system_error = 0;
+  if (!read_small_regular_file(paths.receipt, 1ULL * 1024ULL * 1024ULL,
+                               receipt_document, result.message,
+                               system_error)) {
+    result.context = paths.receipt.string();
+    result.dependency_error = system_error;
+    return result;
+  }
+  PrefillAttentionOK512OverlayDiagnostic receipt_diagnostic;
+  const std::optional<PrefillAttentionOK512OverlayReceipt> receipt =
+      parse_prefill_attention_o_k512_overlay_receipt(receipt_document,
+                                                     receipt_diagnostic);
+  if (!receipt.has_value() || !receipt_diagnostic) {
+    result.message = receipt_diagnostic.message.empty()
+                         ? "strict K512 receipt parse failed"
+                         : receipt_diagnostic.message;
+    result.context = receipt_diagnostic.context.empty()
+                         ? paths.receipt.string()
+                         : receipt_diagnostic.context;
+    result.dependency_error = receipt_diagnostic.system_error != 0
+                                  ? receipt_diagnostic.system_error
+                                  : static_cast<int>(receipt_diagnostic.code);
+    return result;
+  }
+  if (!same_k512_base_binding(receipt->required_base, actual_base)) {
+    result.message = "K512 receipt does not bind the loaded K128 base";
+    result.context = "prefill_attention_o_k512.required_base";
+    return result;
+  }
+
+  PrefillAttentionOK512OverlayManifestResult manifest_result =
+      build_qwen36_27b_prefill_attention_o_k512_overlay_manifest(
+          *source_manifest.value, pinned_qwen36_27b_shards(), actual_base);
+  if (!manifest_result) {
+    result.message = manifest_result.diagnostic.message;
+    result.context = manifest_result.diagnostic.context;
+    result.dependency_error =
+        static_cast<int>(manifest_result.diagnostic.code);
+    return result;
+  }
+  const PrefillAttentionOK512OverlayManifest& manifest =
+      *manifest_result.value;
+  if (receipt->physical_layout != manifest.physical_layout ||
+      receipt->source_checkpoint_id != manifest.source_checkpoint_id ||
+      receipt->source_config_sha256 != manifest.source_config_sha256 ||
+      receipt->source_index_sha256 != manifest.source_index_sha256 ||
+      receipt->manifest_sha256 != manifest.manifest_sha256 ||
+      receipt->payload_bytes != manifest.payload_bytes ||
+      receipt->projection_count != manifest.projections.size()) {
+    result.message =
+        "K512 receipt does not match the rebuilt 64-projection manifest";
+    result.context = "prefill_attention_o_k512.manifest";
+    return result;
+  }
+
+  std::string policy_document;
+  system_error = 0;
+  if (!read_small_regular_file(paths.policy, 4ULL * 1024ULL * 1024ULL,
+                               policy_document, result.message,
+                               system_error)) {
+    result.context = paths.policy.string();
+    result.dependency_error = system_error;
+    return result;
+  }
+  PrefillAttentionOK512OverlayPolicyResult policy_result =
+      parse_prefill_attention_o_k512_overlay_policy(policy_document,
+                                                    manifest);
+  if (!policy_result ||
+      policy_result.value->policy_sha256 != receipt->policy_sha256 ||
+      policy_result.value->policy_bytes != receipt->policy_bytes ||
+      !same_k512_base_binding(policy_result.value->required_base,
+                              actual_base)) {
+    result.message = policy_result.diagnostic.message.empty()
+                         ? "K512 policy does not match its receipt"
+                         : policy_result.diagnostic.message;
+    result.context = policy_result.diagnostic.context.empty()
+                         ? paths.policy.string()
+                         : policy_result.diagnostic.context;
+    result.dependency_error =
+        static_cast<int>(policy_result.diagnostic.code);
+    return result;
+  }
+
+  const int payload_fd =
+      ::open(paths.payload.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+  if (payload_fd < 0) {
+    result.message = "failed to open the K512 payload as a regular file";
+    result.context = paths.payload.string();
+    result.dependency_error = errno;
+    return result;
+  }
+  struct FdGuard final {
+    int fd = -1;
+    ~FdGuard() {
+      if (fd >= 0) {
+        (void)::close(fd);
+      }
+    }
+  } payload_guard{payload_fd};
+  if (::flock(payload_fd, LOCK_SH | LOCK_NB) != 0) {
+    result.message =
+        "K512 payload is concurrently locked for publication mutation";
+    result.context = paths.payload.string();
+    result.dependency_error = errno;
+    return result;
+  }
+  struct stat before {};
+  if (::fstat(payload_fd, &before) != 0 || !S_ISREG(before.st_mode) ||
+      before.st_size < 0 ||
+      static_cast<std::uint64_t>(before.st_size) !=
+          receipt->payload_bytes ||
+      receipt->payload_bytes != kPrefillAttentionOK512OverlayPayloadBytes ||
+      receipt->payload_bytes > std::numeric_limits<std::size_t>::max()) {
+    result.message = "K512 payload file identity or byte length is invalid";
+    result.context = paths.payload.string();
+    result.dependency_error = errno;
+    return result;
+  }
+  if ((before.st_mode & (S_IWUSR | S_IWGRP | S_IWOTH)) != 0 ||
+      before.st_uid != ::geteuid() || before.st_nlink != 1) {
+    result.message =
+        "K512 payload must be owner-held, read-only, and singly linked";
+    result.context = paths.payload.string();
+    return result;
+  }
+
+  std::size_t free_bytes = 0U;
+  std::size_t total_bytes = 0U;
+  cudaError_t cuda_status = cudaMemGetInfo(&free_bytes, &total_bytes);
+  (void)total_bytes;
+  if (cuda_status != cudaSuccess) {
+    result.message = "cudaMemGetInfo failed before K512 residency";
+    result.context = "prefill_attention_o_k512.cudaMemGetInfo_before";
+    result.cuda_error = static_cast<int>(cuda_status);
+    return result;
+  }
+  const std::uint64_t free_u64 = static_cast<std::uint64_t>(free_bytes);
+  if (receipt->payload_bytes > free_u64 ||
+      minimum_free_bytes_after_prepare > free_u64 - receipt->payload_bytes) {
+    result.message = "insufficient device memory for the K512 overlay";
+    result.context = "prefill_attention_o_k512.memory_gate";
+    return result;
+  }
+
+  const std::size_t payload_bytes =
+      static_cast<std::size_t>(receipt->payload_bytes);
+  cuda_status = cudaMalloc(reinterpret_cast<void**>(&owner.data),
+                           payload_bytes);
+  if (cuda_status != cudaSuccess) {
+    result.message = "cudaMalloc failed for the K512 overlay";
+    result.context = "prefill_attention_o_k512.cudaMalloc";
+    result.cuda_error = static_cast<int>(cuda_status);
+    return result;
+  }
+  constexpr std::size_t kCopyChunkBytes = 32U * 1024U * 1024U;
+  const std::size_t staging_bytes =
+      std::min(payload_bytes, kCopyChunkBytes);
+  void* staging = nullptr;
+  cuda_status = cudaHostAlloc(&staging, staging_bytes, cudaHostAllocDefault);
+  if (cuda_status != cudaSuccess) {
+    result.message = "cudaHostAlloc failed for K512 staging";
+    result.context = "prefill_attention_o_k512.cudaHostAlloc";
+    result.cuda_error = static_cast<int>(cuda_status);
+    owner.release();
+    return result;
+  }
+  struct PinnedGuard final {
+    void* data = nullptr;
+    ~PinnedGuard() {
+      if (data != nullptr) {
+        (void)cudaFreeHost(data);
+      }
+    }
+  } pinned{staging};
+
+  core::Sha256 copied_hash;
+  std::uint64_t offset = 0U;
+  while (offset < receipt->payload_bytes) {
+    const std::size_t count = static_cast<std::size_t>(
+        std::min<std::uint64_t>(staging_bytes,
+                                receipt->payload_bytes - offset));
+    system_error = 0;
+    if (!pread_exact_engine(payload_fd, staging, count, offset,
+                            system_error)) {
+      result.message = "failed to read the held K512 payload descriptor";
+      result.context = "prefill_attention_o_k512.payload_copy";
+      result.dependency_error = system_error;
+      owner.release();
+      return result;
+    }
+    if (!copied_hash.update(staging, count)) {
+      result.message = "K512 payload SHA-256 length overflowed";
+      result.context = "prefill_attention_o_k512.payload_sha256";
+      owner.release();
+      return result;
+    }
+    cuda_status = cudaMemcpy(owner.data + static_cast<std::size_t>(offset),
+                             staging, count, cudaMemcpyHostToDevice);
+    if (cuda_status != cudaSuccess) {
+      result.message = "K512 payload H2D copy failed";
+      result.context = "prefill_attention_o_k512.cudaMemcpy";
+      result.cuda_error = static_cast<int>(cuda_status);
+      owner.release();
+      return result;
+    }
+    offset += count;
+    ++result.copy_chunks;
+  }
+  const std::string copied_digest = copied_hash.finalize().hex();
+  struct stat after {};
+  if (copied_digest != receipt->payload_sha256 ||
+      ::fstat(payload_fd, &after) != 0 || before.st_dev != after.st_dev ||
+      before.st_ino != after.st_ino || before.st_size != after.st_size ||
+      before.st_mtim.tv_sec != after.st_mtim.tv_sec ||
+      before.st_mtim.tv_nsec != after.st_mtim.tv_nsec ||
+      before.st_ctim.tv_sec != after.st_ctim.tv_sec ||
+      before.st_ctim.tv_nsec != after.st_ctim.tv_nsec) {
+    result.message = "K512 payload changed or failed receipt SHA-256";
+    result.context = "prefill_attention_o_k512.payload_sha256";
+    owner.release();
+    return result;
+  }
+  cuda_status = cudaMemGetInfo(&free_bytes, &total_bytes);
+  if (cuda_status != cudaSuccess ||
+      static_cast<std::uint64_t>(free_bytes) <
+          minimum_free_bytes_after_prepare) {
+    result.message = "K512 residency did not preserve the memory reserve";
+    result.context = "prefill_attention_o_k512.cudaMemGetInfo_after";
+    result.cuda_error = cuda_status == cudaSuccess
+                            ? 0
+                            : static_cast<int>(cuda_status);
+    owner.release();
+    return result;
+  }
+  if (!model_weights.attach_prefill_attention_o_k512_sidecars(
+          owner.data, payload_bytes, &manifest, &*policy_result.value)) {
+    result.message = "ModelWeights rejected the K512 overlay inventory";
+    result.context = "prefill_attention_o_k512.attach";
+    owner.release();
+    return result;
+  }
+  owner.bytes = payload_bytes;
+  result.enabled = true;
+  result.projections = manifest.projections.size();
+  result.bytes = receipt->payload_bytes;
+  result.physical_layout = receipt->physical_layout;
+  result.manifest_sha256 = manifest.manifest_sha256;
+  result.policy_sha256 = policy_result.value->policy_sha256;
+  result.payload_sha256 = receipt->payload_sha256;
+  return result;
+}
+#endif
 #endif
 
 }  // namespace
@@ -3419,6 +3815,9 @@ struct ReferenceEngine::Impl {
 #if defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
   Sm87A4PrefillSidecars prefill_a4_sidecars;
 #endif
+#if defined(Q3X_ENABLE_A4W4_ATTENTION_O_K512_ADMISSION)
+  Sm87AttentionOK512Overlay prefill_attention_o_k512_overlay;
+#endif
   Sm87NvFp4DownConsumerOrderSidecars
       nvfp4_down_consumer_order_sidecars;
   std::optional<ModelWeights> model_weights;
@@ -3476,6 +3875,43 @@ struct ReferenceEngine::Impl {
           "prefill_a4_sidecar_options", prefill_a4_path_error);
       return result;
     }
+    PrefillAttentionOK512EnginePaths prefill_attention_o_k512_paths;
+    std::string prefill_attention_o_k512_path_error;
+    if (!resolve_prefill_attention_o_k512_engine_paths(
+            options, prefill_attention_o_k512_paths,
+            prefill_attention_o_k512_path_error)) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kInvalidArgument,
+          "prefill_attention_o_k512_options",
+          prefill_attention_o_k512_path_error);
+      return result;
+    }
+    if (prefill_attention_o_k512_paths.requested &&
+        !prefill_a4_paths.requested) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kInvalidArgument,
+          "prefill_attention_o_k512_options",
+          "the K512 Attention-O overlay requires an explicit K128 A4 base");
+      return result;
+    }
+    if (prefill_attention_o_k512_environment_enabled() &&
+        !prefill_attention_o_k512_paths.requested) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kInvalidArgument,
+          "prefill_attention_o_k512_options",
+          "the K512 runtime selector requires an authenticated overlay");
+      return result;
+    }
+#if !defined(Q3X_ENABLE_A4W4_ATTENTION_O_K512_ADMISSION)
+    if (prefill_attention_o_k512_paths.requested ||
+        prefill_attention_o_k512_environment_enabled()) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kInvalidArgument,
+          "prefill_attention_o_k512_options",
+          "this binary does not contain the K512 Attention-O admission");
+      return result;
+    }
+#endif
     if (prefill_a4_paths.requested &&
         options.projection_backend != ProjectionBackend::kSm87WeightOnly) {
       result.diagnostic = engine_diagnostic(
@@ -3521,6 +3957,8 @@ struct ReferenceEngine::Impl {
       impl->trace_enabled = options.enable_trace;
       impl->load.prefill_a4_sidecars_requested =
           prefill_a4_paths.requested;
+      impl->load.prefill_attention_o_k512_overlay_requested =
+          prefill_attention_o_k512_paths.requested;
       impl->load.optimized_prefill_disabled =
           optimized_prefill_dispatch_disabled();
       impl->load.decode_graph_cache_requested_policy =
@@ -3758,14 +4196,14 @@ struct ReferenceEngine::Impl {
         }
 
 #if defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
+        Sm87A4PrefillPreparation prefill_a4_preparation;
         if (prefill_a4_paths.requested) {
           const Clock::time_point prefill_a4_begin = Clock::now();
-          const Sm87A4PrefillPreparation prefill_a4_preparation =
-              prepare_sm87_a4_prefill_sidecars(
-                  model_directory, prefill_a4_paths,
-                  *impl->resident_weights,
-                  request_options.min_free_bytes_after_create,
-                  *impl->model_weights, impl->prefill_a4_sidecars);
+          prefill_a4_preparation = prepare_sm87_a4_prefill_sidecars(
+              model_directory, prefill_a4_paths,
+              *impl->resident_weights,
+              request_options.min_free_bytes_after_create,
+              *impl->model_weights, impl->prefill_a4_sidecars);
           impl->load.prefill_a4_sidecar_milliseconds =
               elapsed_milliseconds(prefill_a4_begin);
           const std::uint64_t expected_prefill_a4_bytes =
@@ -3806,6 +4244,54 @@ struct ReferenceEngine::Impl {
               prefill_a4_preparation.policy_sha256;
           impl->load.prefill_a4_payload_sha256 =
               prefill_a4_preparation.payload_sha256;
+        }
+#endif
+
+#if defined(Q3X_ENABLE_A4W4_ATTENTION_O_K512_ADMISSION)
+        if (prefill_attention_o_k512_paths.requested) {
+          const Clock::time_point k512_begin = Clock::now();
+          const Sm87AttentionOK512Preparation k512_preparation =
+              prepare_sm87_attention_o_k512_overlay(
+                  model_directory, prefill_attention_o_k512_paths,
+                  *impl->resident_weights, prefill_a4_preparation,
+                  request_options.min_free_bytes_after_create,
+                  *impl->model_weights,
+                  impl->prefill_attention_o_k512_overlay);
+          impl->load.prefill_attention_o_k512_overlay_milliseconds =
+              elapsed_milliseconds(k512_begin);
+          if (!k512_preparation.enabled ||
+              k512_preparation.projections !=
+                  kPrefillAttentionOK512OverlayProjectionCount ||
+              k512_preparation.bytes !=
+                  kPrefillAttentionOK512OverlayPayloadBytes) {
+            result.diagnostic = engine_diagnostic(
+                ReferenceEngineError::kRunnerFactoryFailure,
+                "prefill_attention_o_k512_prepare",
+                k512_preparation.message.empty()
+                    ? "the authenticated K512 overlay did not attach all "
+                      "64 Attention-O projections"
+                    : k512_preparation.message,
+                k512_preparation.context);
+            result.diagnostic.cuda_error = k512_preparation.cuda_error;
+            result.diagnostic.dependency_error =
+                k512_preparation.dependency_error;
+            return result;
+          }
+          impl->load.prefill_attention_o_k512_overlay_enabled = true;
+          impl->load.prefill_attention_o_k512_overlay_projections =
+              k512_preparation.projections;
+          impl->load.prefill_attention_o_k512_overlay_bytes =
+              k512_preparation.bytes;
+          impl->load.prefill_attention_o_k512_overlay_copy_chunks =
+              k512_preparation.copy_chunks;
+          impl->load.prefill_attention_o_k512_overlay_layout =
+              k512_preparation.physical_layout;
+          impl->load.prefill_attention_o_k512_overlay_manifest_sha256 =
+              k512_preparation.manifest_sha256;
+          impl->load.prefill_attention_o_k512_overlay_policy_sha256 =
+              k512_preparation.policy_sha256;
+          impl->load.prefill_attention_o_k512_overlay_payload_sha256 =
+              k512_preparation.payload_sha256;
         }
 #endif
 
@@ -5912,6 +6398,12 @@ ReferenceOneShotResult generate_reference(
       options.prefill_a4_calibration_policy_path;
   a4_preflight_options.prefill_a4_receipt_path =
       options.prefill_a4_receipt_path;
+  a4_preflight_options.prefill_attention_o_k512_payload_path =
+      options.prefill_attention_o_k512_payload_path;
+  a4_preflight_options.prefill_attention_o_k512_policy_path =
+      options.prefill_attention_o_k512_policy_path;
+  a4_preflight_options.prefill_attention_o_k512_receipt_path =
+      options.prefill_attention_o_k512_receipt_path;
   PrefillA4EnginePaths a4_preflight_paths;
   std::string a4_preflight_error;
   if (!resolve_prefill_a4_engine_paths(a4_preflight_options,
@@ -5934,6 +6426,32 @@ ReferenceOneShotResult generate_reference(
         "A4 Prefill admission requires a 512-token Prefill chunk");
     return result;
   }
+  PrefillAttentionOK512EnginePaths k512_preflight_paths;
+  std::string k512_preflight_error;
+  if (!resolve_prefill_attention_o_k512_engine_paths(
+          a4_preflight_options, k512_preflight_paths,
+          k512_preflight_error) ||
+      (k512_preflight_paths.requested &&
+       !a4_preflight_paths.requested) ||
+      (prefill_attention_o_k512_environment_enabled() &&
+       !k512_preflight_paths.requested)) {
+    result.diagnostic = engine_diagnostic(
+        ReferenceEngineError::kInvalidArgument, "one_shot_options",
+        k512_preflight_error.empty()
+            ? "K512 Attention-O requires its authenticated overlay and "
+              "the explicit K128 A4 base"
+            : k512_preflight_error);
+    return result;
+  }
+#if !defined(Q3X_ENABLE_A4W4_ATTENTION_O_K512_ADMISSION)
+  if (k512_preflight_paths.requested ||
+      prefill_attention_o_k512_environment_enabled()) {
+    result.diagnostic = engine_diagnostic(
+        ReferenceEngineError::kInvalidArgument, "one_shot_options",
+        "this binary does not contain the K512 Attention-O admission");
+    return result;
+  }
+#endif
 #if !defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
   if (a4_preflight_paths.requested) {
     result.diagnostic = engine_diagnostic(
@@ -6057,6 +6575,12 @@ ReferenceOneShotResult generate_reference(
         options.prefill_a4_calibration_policy_path;
     engine_options.prefill_a4_receipt_path =
         options.prefill_a4_receipt_path;
+    engine_options.prefill_attention_o_k512_payload_path =
+        options.prefill_attention_o_k512_payload_path;
+    engine_options.prefill_attention_o_k512_policy_path =
+        options.prefill_attention_o_k512_policy_path;
+    engine_options.prefill_attention_o_k512_receipt_path =
+        options.prefill_attention_o_k512_receipt_path;
 
     ReferenceEngine::Impl::BuildResult built;
     if (resident_future.has_value()) {

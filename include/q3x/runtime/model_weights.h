@@ -14,6 +14,8 @@
 namespace q3x::runtime {
 
 struct PrefillA4CalibrationPolicy;
+struct PrefillAttentionOK512OverlayManifest;
+struct PrefillAttentionOK512OverlayPolicy;
 
 inline constexpr std::size_t kQwen36DenseLayerCount = 64U;
 inline constexpr std::size_t kQwen36LinearAttentionLayerCount = 48U;
@@ -187,6 +189,13 @@ struct Fp8LinearWeight {
   std::uint32_t prefill_a4_packed_k_group_size = 0U;
   std::uint32_t prefill_a4_scale_group_size = 0U;
   float prefill_a4_activation_clip_ratio = 0.0F;
+  // Independent large-M Attention-O plane.  This K512 ABI overlays only the
+  // 64 output projections and is valid only while the complete authenticated
+  // K128 A4 inventory remains attached.  Canonical FP8 and Decode views are
+  // unchanged.
+  const std::uint8_t* prefill_attention_o_k512_weight = nullptr;
+  const std::uint16_t* prefill_attention_o_k512_scales = nullptr;
+  float prefill_attention_o_k512_activation_clip_ratio = 0.0F;
 };
 
 struct NvFp4LinearWeight {
@@ -256,6 +265,21 @@ struct PrefillA4LinearSidecarView {
   }
 };
 
+struct PrefillAttentionOK512LinearSidecarView {
+  const std::uint8_t* weight = nullptr;
+  const std::uint16_t* scales = nullptr;
+  float activation_clip_ratio = 0.0F;
+  std::size_t output_size = 0U;
+  std::size_t input_size = 0U;
+
+  [[nodiscard]] bool attached() const noexcept {
+    return weight != nullptr && scales != nullptr &&
+           activation_clip_ratio > 0.0F && activation_clip_ratio <= 1.0F &&
+           output_size == kFp8M1OutputProjectionRows &&
+           input_size == kFp8M1OutputProjectionColumns;
+  }
+};
+
 enum class LinearWeightKind : std::uint8_t {
   kBf16,
   kFp8,
@@ -291,6 +315,9 @@ inline constexpr std::size_t kMaximumProjectionTileTokenCount = 64U;
 [[nodiscard]] std::size_t linear_input_size(
     const LinearWeight& weight) noexcept;
 [[nodiscard]] PrefillA4LinearSidecarView prefill_a4_sidecar_view(
+    const LinearWeight& weight) noexcept;
+[[nodiscard]] PrefillAttentionOK512LinearSidecarView
+prefill_attention_o_k512_sidecar_view(
     const LinearWeight& weight) noexcept;
 
 // True only for the production fused linear-attention A/B projection ABI:
@@ -541,7 +568,17 @@ class ModelWeights {
   [[nodiscard]] bool attach_prefill_a4_sidecars(
       const std::uint8_t* arena, std::size_t arena_bytes,
       const PrefillSidecarManifest* manifest,
-      const PrefillA4CalibrationPolicy* policy) noexcept;
+      const PrefillA4CalibrationPolicy* policy,
+      std::string_view authenticated_payload_sha256 = {}) noexcept;
+
+  // Transactionally overlays exactly the 64 Attention-O projections on an
+  // already-authenticated K128 A4 inventory.  The arena is non-owning and
+  // must outlive ModelWeights and every queued K512 launch.  A canonical
+  // null/zero call detaches only this overlay.
+  [[nodiscard]] bool attach_prefill_attention_o_k512_sidecars(
+      const std::uint8_t* arena, std::size_t arena_bytes,
+      const PrefillAttentionOK512OverlayManifest* manifest,
+      const PrefillAttentionOK512OverlayPolicy* policy) noexcept;
 
  private:
   friend class ModelWeightBinder;
@@ -556,6 +593,10 @@ class ModelWeights {
   LinearWeight lm_head_;
   std::array<DecoderLayerWeights, kQwen36DenseLayerCount> layers_{};
   WeightBindingStats stats_;
+  bool prefill_a4_attachment_complete_ = false;
+  std::array<char, 64U> prefill_a4_attachment_manifest_sha256_{};
+  std::array<char, 64U> prefill_a4_attachment_policy_sha256_{};
+  std::array<char, 64U> prefill_a4_attachment_payload_sha256_{};
 };
 
 enum class WeightBindErrorCode : std::uint8_t {

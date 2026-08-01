@@ -79,6 +79,12 @@ struct ReferenceEngineOptions {
   std::filesystem::path prefill_a4_payload_path;
   std::filesystem::path prefill_a4_calibration_policy_path;
   std::filesystem::path prefill_a4_receipt_path;
+  // Optional authenticated 64-projection K512 Attention-O overlay.  This is
+  // additive to, and may only be requested with, the complete K128 A4 base.
+  // Receipt defaults to `<payload>.receipt.json`.
+  std::filesystem::path prefill_attention_o_k512_payload_path;
+  std::filesystem::path prefill_attention_o_k512_policy_path;
+  std::filesystem::path prefill_attention_o_k512_receipt_path;
 };
 
 // Text-only messages accepted by the pinned Qwen 3.6 chat formatter. The
@@ -204,6 +210,7 @@ struct ReferenceEngineLoadStats {
   double fp8_marlin_prefill_sidecar_milliseconds = 0.0;
   double nvfp4_marlin_prefill_sidecar_milliseconds = 0.0;
   double prefill_a4_sidecar_milliseconds = 0.0;
+  double prefill_attention_o_k512_overlay_milliseconds = 0.0;
   double runner_factory_milliseconds = 0.0;
   ReferenceDecodeGraphCachePolicy decode_graph_cache_requested_policy =
       ReferenceDecodeGraphCachePolicy::kDisabled;
@@ -309,6 +316,15 @@ struct ReferenceEngineLoadStats {
   std::string prefill_a4_manifest_sha256;
   std::string prefill_a4_policy_sha256;
   std::string prefill_a4_payload_sha256;
+  bool prefill_attention_o_k512_overlay_requested = false;
+  bool prefill_attention_o_k512_overlay_enabled = false;
+  std::size_t prefill_attention_o_k512_overlay_projections = 0U;
+  std::uint64_t prefill_attention_o_k512_overlay_bytes = 0U;
+  std::uint64_t prefill_attention_o_k512_overlay_copy_chunks = 0U;
+  std::string prefill_attention_o_k512_overlay_layout;
+  std::string prefill_attention_o_k512_overlay_manifest_sha256;
+  std::string prefill_attention_o_k512_overlay_policy_sha256;
+  std::string prefill_attention_o_k512_overlay_payload_sha256;
   // True only when tokenizer parsing and resident loading actually executed
   // concurrently. When true, total_milliseconds is wall time and phase
   // timings intentionally overlap.
@@ -556,6 +572,9 @@ struct ReferenceOneShotOptions {
   std::filesystem::path prefill_a4_payload_path;
   std::filesystem::path prefill_a4_calibration_policy_path;
   std::filesystem::path prefill_a4_receipt_path;
+  std::filesystem::path prefill_attention_o_k512_payload_path;
+  std::filesystem::path prefill_attention_o_k512_policy_path;
+  std::filesystem::path prefill_attention_o_k512_receipt_path;
 };
 
 struct ReferenceOneShotGeneration {

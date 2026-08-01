@@ -78,6 +78,10 @@ option(Q3X_BUILD_SM87_A4W4_ATTENTION_SUPERMATRIX_ADMISSION
   "Build the default-off runtime admission and tests for the Attention supermatrix cell"
   OFF
 )
+option(Q3X_BUILD_SM87_A4W4_ATTENTION_O_K512_ADMISSION
+  "Build the default-off authenticated K512 Attention-O Prefill route"
+  OFF
+)
 option(Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION
   "Build the calibrated full-model SM87 A4W4 Prefill route"
   ON
@@ -205,6 +209,18 @@ if(Q3X_BUILD_SM87_A4W4_ATTENTION_SUPERMATRIX_ADMISSION AND
     "The Attention supermatrix runtime slice requires the authenticated full-A4 Prefill route"
   )
 endif()
+if(Q3X_BUILD_SM87_A4W4_ATTENTION_O_K512_ADMISSION AND
+   NOT BUILD_TESTING)
+  message(FATAL_ERROR
+    "Q3X_BUILD_SM87_A4W4_ATTENTION_O_K512_ADMISSION requires BUILD_TESTING=ON for mandatory bitwise validation"
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_ATTENTION_O_K512_ADMISSION AND
+   NOT Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION)
+  message(FATAL_ERROR
+    "The K512 Attention-O overlay requires the authenticated full-A4 K128 Prefill route"
+  )
+endif()
 if(Q3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION AND NOT BUILD_TESTING)
   message(FATAL_ERROR
     "Q3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION is test-only and requires BUILD_TESTING=ON"
@@ -265,6 +281,7 @@ add_library(q3x_core STATIC
   src/runtime/model_weights.cpp
   src/runtime/long_prefill_layer_major.cpp
   src/runtime/prefill_a4_sidecar_converter.cpp
+  src/runtime/prefill_attention_o_k512_overlay.cpp
   src/runtime/prefill_quantized_contract.cpp
   src/runtime/reference_oracle.cpp
   src/runtime/resident_weights.cpp
@@ -422,6 +439,14 @@ if(Q3X_BUILD_SM87_A4W4_ATTENTION_SUPERMATRIX_ADMISSION)
     Q3X_ENABLE_A4W4_ATTENTION_SUPERMATRIX_ADMISSION=1
   )
 endif()
+if(Q3X_BUILD_SM87_A4W4_ATTENTION_O_K512_ADMISSION)
+  target_sources(q3x_kernels PRIVATE
+    src/kernels/sm87/a4w4_attention_o_k512_cell.cu
+  )
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_A4W4_ATTENTION_O_K512_ADMISSION=1
+  )
+endif()
 if(Q3X_BUILD_SM87_A4W4_GATEUP_PROJECTION_V3_ADMISSION)
   target_sources(q3x_kernels PRIVATE
     src/kernels/sm87/a4w4_gateup_projection_v3.cu
@@ -509,6 +534,11 @@ endif()
 if(Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION)
   target_compile_definitions(q3x_engine PRIVATE
     Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_ATTENTION_O_K512_ADMISSION)
+  target_compile_definitions(q3x_engine PRIVATE
+    Q3X_ENABLE_A4W4_ATTENTION_O_K512_ADMISSION=1
   )
 endif()
 q3x_enable_warnings(q3x_engine)
@@ -1298,6 +1328,79 @@ if(BUILD_TESTING)
       SKIP_RETURN_CODE 77
       RESOURCE_LOCK q3x_sm87_gpu
       TIMEOUT 180
+    )
+  endif()
+
+  if(Q3X_BUILD_SM87_A4W4_ATTENTION_O_K512_ADMISSION)
+    add_executable(q3x_sm87_a4w4_attention_o_k512_contract_test
+      tests/sm87_a4w4_attention_o_k512_contract_test.cpp
+    )
+    target_link_libraries(q3x_sm87_a4w4_attention_o_k512_contract_test
+      PRIVATE q3x::kernels CUDA::cudart
+    )
+    q3x_enable_warnings(q3x_sm87_a4w4_attention_o_k512_contract_test)
+    add_test(NAME sm87_a4w4_attention_o_k512_contract
+      COMMAND q3x_sm87_a4w4_attention_o_k512_contract_test
+    )
+    set_tests_properties(sm87_a4w4_attention_o_k512_contract PROPERTIES
+      LABELS "host;sm87;prefill;attention;a4w4;k512;compile_contract"
+    )
+
+    add_executable(q3x_prefill_attention_o_k512_overlay_test
+      tests/prefill_attention_o_k512_overlay_test.cpp
+    )
+    target_link_libraries(q3x_prefill_attention_o_k512_overlay_test
+      PRIVATE q3x::core
+    )
+    q3x_enable_warnings(q3x_prefill_attention_o_k512_overlay_test)
+    add_test(NAME prefill_attention_o_k512_overlay
+      COMMAND q3x_prefill_attention_o_k512_overlay_test
+    )
+    set_tests_properties(prefill_attention_o_k512_overlay PROPERTIES
+      LABELS "host;prefill;attention;a4w4;k512;quantization;sidecar;io"
+    )
+
+    add_executable(q3x_sm87_a4w4_attention_o_k512_correctness_test
+      tests/sm87_a4w4_attention_o_k512_correctness_test.cu
+    )
+    target_link_libraries(q3x_sm87_a4w4_attention_o_k512_correctness_test
+      PRIVATE q3x::kernels CUDA::cudart
+    )
+    q3x_enable_warnings(q3x_sm87_a4w4_attention_o_k512_correctness_test)
+
+    add_executable(q3x_sm87_a4_quantize_bf16_k512_correctness_test
+      tests/sm87_a4_quantize_bf16_k512_correctness_test.cu
+    )
+    target_link_libraries(
+      q3x_sm87_a4_quantize_bf16_k512_correctness_test
+      PRIVATE q3x::kernels CUDA::cudart
+    )
+    q3x_enable_warnings(
+      q3x_sm87_a4_quantize_bf16_k512_correctness_test
+    )
+
+    find_program(Q3X_FLOCK_EXECUTABLE flock REQUIRED)
+    add_test(NAME sm87_a4w4_attention_o_k512_correctness
+      COMMAND "${Q3X_FLOCK_EXECUTABLE}" -x /tmp/q3x-gpu-bench.lock
+              $<TARGET_FILE:q3x_sm87_a4w4_attention_o_k512_correctness_test>
+    )
+    set_tests_properties(sm87_a4w4_attention_o_k512_correctness PROPERTIES
+      LABELS "cuda;sm87;prefill;attention;a4w4;k512;correctness;synthetic"
+      SKIP_RETURN_CODE 77
+      RESOURCE_LOCK q3x_sm87_gpu
+      TIMEOUT 300
+    )
+
+    add_test(NAME sm87_a4_quantize_bf16_k512_correctness
+      COMMAND "${Q3X_FLOCK_EXECUTABLE}" -x /tmp/q3x-gpu-bench.lock
+              $<TARGET_FILE:q3x_sm87_a4_quantize_bf16_k512_correctness_test>
+    )
+    set_tests_properties(
+      sm87_a4_quantize_bf16_k512_correctness PROPERTIES
+      LABELS "cuda;sm87;prefill;attention;a4w4;k512;quantization;correctness;synthetic"
+      SKIP_RETURN_CODE 77
+      RESOURCE_LOCK q3x_sm87_gpu
+      TIMEOUT 300
     )
   endif()
 
