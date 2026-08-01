@@ -18,6 +18,7 @@ The external EvalScope/OpenAI result on the fixed natural P2K corpus is:
 | Fragment-native v2 production candidate | 4/4 | 3,304.3 ms | 582.43 tok/s | 582.7297 tok/s |
 | Fragment-native M128N32 L1 experiment | 4/4 | 3,527.4 ms | 545.60 tok/s | 545.8841 tok/s |
 | Fragment-native direct M128N64 one-CTA | 4/4 | 2,736.2 ms | 703.35 tok/s | 703.7168 tok/s |
+| Direct M128N64 + Down M128N256 one-CTA | 4/4 | 2,807.8 ms | 685.42 tok/s | 685.7787 tok/s |
 | Retained v1 + ceil128 cumulative change | - | -452.9 ms (-14.27%) | +16.65% | +16.65% |
 
 The retained v1 plus ceil128 candidate therefore passes the experiment gate
@@ -419,6 +420,78 @@ kernel CSV SHA256      321019a3d585d4f8e3c45fc5d48562c5fb3744c9cac60c4ebb4693a91
 profile log SHA256     ecb936f20eacdc77aed01026d74e0778fd798b85ed13a790b01a91e4184a6b66
 ```
 
+## Rejected fragment-native Down M128N256 one-CTA cell
+
+The next complete structural cell doubled both axes of the v2 Down consumer.
+One 256-thread CTA owns M128N256; each warp owns M128N32 in two N16 phases,
+and one 128-bit B record feeds eight M16 panels.  A uses a two-stage M128K512
+`cp.async` ring.  The candidate retains the authenticated v2 payload byte ABI
+and has no synthetic performance gate.
+
+Resource and correctness admission passed before runtime integration:
+
+```text
+registers/thread       255
+dynamic shared         67,072 bytes
+active CTA/SM          1
+stack/local/spill      0 / 0 / 0
+SASS                    16 B LDG.E.128, 256 IMMA, 20 LDGSTS, 0 STS/LDL/STL
+correctness             bit exact at K512 and K1024
+model-shape differential M128 x N5120 x K17408, 655,360 BF16 outputs exact
+```
+
+The first timing verdict then used the real checkpoint, authenticated payload,
+OpenAI `/v1/completions`, and external EvalScope 1.9.1.  Four of four natural
+P2K requests succeeded:
+
+```text
+test duration          11.2325 s
+average input          1924.75 tokens
+mean TTFT              2807.75 ms
+prompt throughput      685.4225 token/s
+total throughput       685.7787 token/s
+vs direct-M128 baseline -2.5491% throughput, +71.58 ms TTFT
+```
+
+This is a real-API **REJECT**.  The candidate remains default-off and does not
+replace either the fragment-native M128 development baseline or the faster v1
+production route.  Synthetic payloads were used only for bitwise admission.
+
+The per-request log also exposed a structural natural-length failure.  M14 and
+M15 spans were roughly flat, while the 2,148-token request pads to M2176, or
+17 M128 tiles.  Sixteen resident owner CTAs leave one CTA responsible for two
+tiles on every N stripe, so that CTA executes 40 cells while the other fifteen
+execute 20.  The request regressed by about 300 ms.  A rotated tail-owner
+schedule could remove this imbalance, but it is not pursued because the
+aligned P1853 request profile proves that the cell itself is only a small
+improvement:
+
+| Kernel family | Direct M128 baseline | Down M128N256 | Change |
+|---|---:|---:|---:|
+| Gate+Up | 969.944 ms | 970.464 ms | +0.520 ms (+0.05%) |
+| Down | 543.331 ms | 526.767 ms | -16.564 ms (-3.05%) |
+| Attention pair | 335.867 ms | 336.005 ms | +0.138 ms (+0.04%) |
+| Attention-O | 165.610 ms | 165.611 ms | +0.001 ms |
+| Full-Attention Q/K/V | 98.069 ms | 98.075 ms | +0.005 ms |
+
+Only 16.6 ms is recoverable on an already aligned natural request, far below
+the 100-ms structural continuation gate.  Correcting its long-tail schedule
+would turn a negative result into at most another local increment, not the
+qualitative transition needed to reach 2,000 prompt token/s.  Work therefore
+returns to the dominant 970-ms Gate+Up architecture rather than tuning this
+Down cell.
+
+```text
+server ELF SHA256      0247e1c2b421d32ff0767e0c1d31025cafbfc95c725b729c247f7d9fe0eeee40
+server log SHA256      587a0d175dc5f5e3717abb2de777bcb814c5292ee4389672b1934697b4a43940
+summary SHA256         22e4114222299218c1dfddacb02b9986b34fce0741b540ef44c8111d0dba38cb
+provenance SHA256      b5f9e4fed5610068a027a965c93328cb1c5e162127ac9384ca24406b67525a0d
+NSys report SHA256     e16bfc16f6d90ea17ddf053feb79dfd68adbc2019a316cd8ea82e44d2f21bb1b
+SQLite SHA256          35079ff7b116f1c86d9b8fa9ad4c2900788119bcbe05c0bc2ca129e21af6268a
+kernel CSV SHA256      de30c91417f832a4c8906481124120fc2b7ae3ea7ad918777993e9b2c132a8e7
+profile log SHA256     a597da35915677e6cc6f45f7f2178cb4fc71102adf964bd40f4204fc3217e1a1
+```
+
 Evidence directories:
 
 - comparator: `/home/rm01/q3x-k512-evalscope-p2048-baseline-4a90d1f`;
@@ -443,5 +516,11 @@ Evidence directories:
   `/home/rm01/q3x-mlp-k512-fragment-native-m128n64-1cta-evalscope-p2048`;
 - fragment-native M128N64 request trace:
   `/home/rm01/q3x-mlp-k512-fragment-native-m128n64-1cta-request2.nsys-rep`;
+- rejected fragment-native Down M128N256 one-CTA run:
+  `/home/rm01/q3x-mlp-k512-fragment-native-m128n64-1cta-down-m128n256-1cta-evalscope-p2048`;
+- profiled fragment-native Down M128N256 EvalScope run:
+  `/home/rm01/q3x-mlp-k512-fragment-native-m128n64-1cta-down-m128n256-1cta-nsys-p2048`;
+- fragment-native Down M128N256 request trace:
+  `/home/rm01/q3x-mlp-k512-fragment-native-m128n64-1cta-down-m128n256-1cta-request2.nsys-rep`;
 - fragment-native v2 publication:
   `/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4-q3x-mlp-k512-fragment-native/weights-mlp-k512-fragment-native.bin`.

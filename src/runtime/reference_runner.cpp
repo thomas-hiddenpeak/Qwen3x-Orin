@@ -14,6 +14,9 @@
 #endif
 #if defined(Q3X_ENABLE_A4W4_MLP_K512_FRAGMENT_NATIVE_ADMISSION)
 #include "q3x/kernels/sm87_a4w4_down_k512_fragment_native.h"
+#if defined(Q3X_ENABLE_A4W4_DOWN_K512_FRAGMENT_NATIVE_M128N256_1CTA_ADMISSION)
+#include "q3x/kernels/sm87_a4w4_down_k512_fragment_native_m128n256_1cta.h"
+#endif
 #include "q3x/kernels/sm87_a4w4_gateup_k512_fragment_native.h"
 #if defined(Q3X_ENABLE_A4W4_GATEUP_K512_FRAGMENT_NATIVE_M128_ADMISSION)
 #include "q3x/kernels/sm87_a4w4_gateup_k512_fragment_native_m128.h"
@@ -7593,9 +7596,16 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
             kReferenceHiddenSize, kPrimaryProductColumns,
             kSecondaryProductColumns);
 #endif
+#if defined(Q3X_ENABLE_A4W4_DOWN_K512_FRAGMENT_NATIVE_M128N256_1CTA_ADMISSION)
+    const auto down =
+        kernels::sm87_a4w4_down_k512_fragment_native_m128n256_1cta_plan(
+            mlp_launch_token_count, kReferenceHiddenSize,
+            kReferenceIntermediateSize);
+#else
     const auto down = kernels::sm87_a4w4_down_k512_fragment_native_plan(
         mlp_launch_token_count, kReferenceHiddenSize,
         kReferenceIntermediateSize);
+#endif
     if (!fragment.attached() ||
         fragment.gateup_code_capacity_bytes !=
             kPrefillMLPK512FragmentNativeGateUpCodeBytes ||
@@ -7698,6 +7708,38 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
     constexpr const char* kGateupSecondaryStage =
         "prefill_projection_span_mlp_k512_fragment_native_gateup_secondary";
 #endif
+    const auto launch_fragment_down = [&]() noexcept {
+#if defined(Q3X_ENABLE_A4W4_DOWN_K512_FRAGMENT_NATIVE_M128N256_1CTA_ADMISSION)
+      return kernels::
+          launch_sm87_a4w4_down_k512_fragment_native_m128n256_1cta_bf16_cuda(
+              views_.prefill_a4_intermediate_packed,
+              intermediate_packed_capacity,
+              views_.prefill_a4_intermediate_scales,
+              intermediate_scale_capacity, fragment.down_codes,
+              fragment.down_code_capacity_bytes, fragment.down_scales,
+              fragment.down_scale_capacity_elements,
+              mlp_launch_token_count, kReferenceHiddenSize,
+              kReferenceIntermediateSize, secondary,
+              kReferenceHiddenSize, secondary_capacity, stream_);
+#else
+      return kernels::launch_sm87_a4w4_down_k512_fragment_native_bf16_cuda(
+          views_.prefill_a4_intermediate_packed,
+          intermediate_packed_capacity,
+          views_.prefill_a4_intermediate_scales,
+          intermediate_scale_capacity, fragment.down_codes,
+          fragment.down_code_capacity_bytes, fragment.down_scales,
+          fragment.down_scale_capacity_elements, mlp_launch_token_count,
+          kReferenceHiddenSize, kReferenceIntermediateSize, secondary,
+          kReferenceHiddenSize, secondary_capacity, stream_);
+#endif
+    };
+#if defined(Q3X_ENABLE_A4W4_DOWN_K512_FRAGMENT_NATIVE_M128N256_1CTA_ADMISSION)
+    constexpr const char* kDownStage =
+        "prefill_projection_span_mlp_k512_fragment_native_m128n256_1cta_down";
+#else
+    constexpr const char* kDownStage =
+        "prefill_projection_span_mlp_k512_fragment_native_down";
+#endif
     if (!check_cuda(
             kernels::launch_sm87_a4_quantize_bf16_k512_cuda(
                 primary, kReferenceHiddenSize, token_count,
@@ -7730,18 +7772,7 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
                 views_.prefill_a4_intermediate_scales,
                 intermediate_scale_capacity, stream_),
             "prefill_projection_span_mlp_k512_fragment_native_product_quantize") ||
-        !check_cuda(
-            kernels::launch_sm87_a4w4_down_k512_fragment_native_bf16_cuda(
-                views_.prefill_a4_intermediate_packed,
-                intermediate_packed_capacity,
-                views_.prefill_a4_intermediate_scales,
-                intermediate_scale_capacity, fragment.down_codes,
-                fragment.down_code_capacity_bytes, fragment.down_scales,
-                fragment.down_scale_capacity_elements,
-                mlp_launch_token_count, kReferenceHiddenSize,
-                kReferenceIntermediateSize, secondary,
-                kReferenceHiddenSize, secondary_capacity, stream_),
-            "prefill_projection_span_mlp_k512_fragment_native_down")) {
+        !check_cuda(launch_fragment_down(), kDownStage)) {
       return failure;
     }
     local_hits.activation_quantize_hits += 2U;

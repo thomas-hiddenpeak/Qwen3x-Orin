@@ -15,7 +15,7 @@ usage: run_native_pure_prefill_matrix.sh \
   [--prefill-mlp-k512-fragment-native-payload FILE \
    --prefill-mlp-k512-fragment-native-policy FILE \
    --prefill-mlp-k512-fragment-native-receipt FILE] \
-  [--mode exact|native-gdn|cumulative-prefill|cumulative-prefill-down|cumulative-prefill-attention-down|cumulative-prefill-current-best|cumulative-prefill-current-best-k512|cumulative-prefill-current-best-mlp-k512|cumulative-prefill-current-best-mlp-k512-fragment-native|cumulative-prefill-current-best-mlp-k512-fragment-native-m128|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta|cumulative-prefill-short] \
+  [--mode exact|native-gdn|cumulative-prefill|cumulative-prefill-down|cumulative-prefill-attention-down|cumulative-prefill-current-best|cumulative-prefill-current-best-k512|cumulative-prefill-current-best-mlp-k512|cumulative-prefill-current-best-mlp-k512-fragment-native|cumulative-prefill-current-best-mlp-k512-fragment-native-m128|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta-down-m128n256-1cta|cumulative-prefill-short] \
   [--dry-run] \
   ELF MODEL_DIR CORPUS_DIR OUTPUT_ROOT [p512|p1k|p2k|p4k]
 EOF
@@ -124,7 +124,7 @@ done
   exit 2
 }
 case "${mode}" in
-  exact|native-gdn|cumulative-prefill|cumulative-prefill-down|cumulative-prefill-attention-down|cumulative-prefill-current-best|cumulative-prefill-current-best-k512|cumulative-prefill-current-best-mlp-k512|cumulative-prefill-current-best-mlp-k512-fragment-native|cumulative-prefill-current-best-mlp-k512-fragment-native-m128|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta|cumulative-prefill-short) ;;
+  exact|native-gdn|cumulative-prefill|cumulative-prefill-down|cumulative-prefill-attention-down|cumulative-prefill-current-best|cumulative-prefill-current-best-k512|cumulative-prefill-current-best-mlp-k512|cumulative-prefill-current-best-mlp-k512-fragment-native|cumulative-prefill-current-best-mlp-k512-fragment-native-m128|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta-down-m128n256-1cta|cumulative-prefill-short) ;;
   *)
     echo "--mode must be exact, native-gdn, cumulative-prefill, or" \
       "cumulative-prefill-down, cumulative-prefill-attention-down, or" \
@@ -132,7 +132,8 @@ case "${mode}" in
       "cumulative-prefill-current-best-mlp-k512," \
       "cumulative-prefill-current-best-mlp-k512-fragment-native," \
       "cumulative-prefill-current-best-mlp-k512-fragment-native-m128," \
-      "cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta, or" \
+      "cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta," \
+      "cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta-down-m128n256-1cta, or" \
       "cumulative-prefill-short" >&2
     exit 2
     ;;
@@ -247,6 +248,7 @@ if ((mlp_k512_args != 0 && mlp_k512_fragment_native_args != 0)); then
 fi
 mlp_k512_fragment_native_mode=0
 mlp_k512_fragment_native_gateup_variant=none
+mlp_k512_fragment_native_down_variant=none
 mlp_k512_fragment_native_layout=sm87_s4_gateup_n64_paired_down_n128_fragment_native_scale_k512_mlp_v2
 mlp_k512_fragment_native_payload_bytes=8623226880
 mlp_k512_fragment_native_payload_sha256=
@@ -254,14 +256,20 @@ mlp_k512_fragment_native_policy_sha256=
 mlp_k512_fragment_native_receipt_sha256=
 if [[ "${mode}" == cumulative-prefill-current-best-mlp-k512-fragment-native ||
       "${mode}" == cumulative-prefill-current-best-mlp-k512-fragment-native-m128 ||
-      "${mode}" == cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta ]]; then
+      "${mode}" == cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta ||
+      "${mode}" == cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta-down-m128n256-1cta ]]; then
   mlp_k512_fragment_native_mode=1
+  mlp_k512_fragment_native_down_variant=m64n128
   if [[ "${mode}" == cumulative-prefill-current-best-mlp-k512-fragment-native-m128 ]]; then
     mlp_k512_fragment_native_gateup_variant=m128n32
-  elif [[ "${mode}" == cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta ]]; then
+  elif [[ "${mode}" == cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta ||
+          "${mode}" == cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta-down-m128n256-1cta ]]; then
     mlp_k512_fragment_native_gateup_variant=m128n64_1cta
   else
     mlp_k512_fragment_native_gateup_variant=m64n64
+  fi
+  if [[ "${mode}" == cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta-down-m128n256-1cta ]]; then
+    mlp_k512_fragment_native_down_variant=m128n256_1cta
   fi
   [[ -f "${prefill_mlp_k512_fragment_native_payload}" ]] || {
     echo "missing required fragment-native MLP K512 payload: ${prefill_mlp_k512_fragment_native_payload:-<unset>}" >&2
@@ -368,7 +376,8 @@ case "${mode}" in
     ;;
   cumulative-prefill-current-best-mlp-k512-fragment-native|\
   cumulative-prefill-current-best-mlp-k512-fragment-native-m128|\
-  cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta)
+  cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta|\
+  cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta-down-m128n256-1cta)
     candidate_selectors=(
       Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION
       Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION
@@ -440,6 +449,38 @@ if [[ "${mlp_k512_fragment_native_mode}" == 1 ]]; then
   for marker in "${fragment_gateup_rejected_markers[@]}"; do
     if grep -Fx "${marker}" < <(strings -a "${server}") >/dev/null; then
       echo "server contains the mutually exclusive fragment-native Gate+Up variant: ${marker}" >&2
+      exit 2
+    fi
+  done
+  declare -a fragment_down_markers=()
+  declare -a fragment_down_rejected_markers=()
+  case "${mlp_k512_fragment_native_down_variant}" in
+    m128n256_1cta)
+      fragment_down_markers=(
+        prefill_projection_span_mlp_k512_fragment_native_m128n256_1cta_down
+      )
+      fragment_down_rejected_markers=(
+        prefill_projection_span_mlp_k512_fragment_native_down
+      )
+      ;;
+    m64n128)
+      fragment_down_markers=(
+        prefill_projection_span_mlp_k512_fragment_native_down
+      )
+      fragment_down_rejected_markers=(
+        prefill_projection_span_mlp_k512_fragment_native_m128n256_1cta_down
+      )
+      ;;
+  esac
+  for marker in "${fragment_down_markers[@]}"; do
+    if ! grep -Fx "${marker}" < <(strings -a "${server}") >/dev/null; then
+      echo "server does not prove the ${mlp_k512_fragment_native_down_variant} Down variant: ${marker}" >&2
+      exit 2
+    fi
+  done
+  for marker in "${fragment_down_rejected_markers[@]}"; do
+    if grep -Fx "${marker}" < <(strings -a "${server}") >/dev/null; then
+      echo "server contains the mutually exclusive fragment-native Down variant: ${marker}" >&2
       exit 2
     fi
   done
@@ -559,13 +600,14 @@ server_elf_sha256=$(sha256sum "${server}" | awk '{print $1}')
 printf 'server_metadata elf_sha256=%s evalscope_version=1.9.1\n' \
   "${server_elf_sha256}"
 if [[ "${mlp_k512_fragment_native_mode}" == 1 ]]; then
-  printf 'fragment_native_publication_metadata layout=%s payload_bytes=%s payload_sha256=%s policy_sha256=%s receipt_sha256=%s gateup_variant=%s\n' \
+  printf 'fragment_native_publication_metadata layout=%s payload_bytes=%s payload_sha256=%s policy_sha256=%s receipt_sha256=%s gateup_variant=%s down_variant=%s\n' \
     "${mlp_k512_fragment_native_layout}" \
     "${mlp_k512_fragment_native_payload_bytes}" \
     "${mlp_k512_fragment_native_payload_sha256}" \
     "${mlp_k512_fragment_native_policy_sha256}" \
     "${mlp_k512_fragment_native_receipt_sha256}" \
-    "${mlp_k512_fragment_native_gateup_variant}"
+    "${mlp_k512_fragment_native_gateup_variant}" \
+    "${mlp_k512_fragment_native_down_variant}"
 fi
 printf 'profile_metadata enabled=%s request_index=%s nsys_output=%q trace=cuda,nvtx capture_range=cudaProfilerApi\n' \
   "$([[ -n "${nsys_output}" ]] && printf 1 || printf 0)" \
@@ -587,8 +629,9 @@ if [[ "${mlp_k512_mode}" == 1 ]]; then
   printf ',prefill_mlp_k512_authenticated_192_of_192,prefill_mlp_k512_payload_sha256'
 fi
 if [[ "${mlp_k512_fragment_native_mode}" == 1 ]]; then
-  printf ',prefill_mlp_k512_fragment_native_authenticated_64_of_64,prefill_mlp_k512_fragment_native_gateup_variant_%s,prefill_mlp_k512_fragment_native_layout,prefill_mlp_k512_fragment_native_payload_sha256,prefill_mlp_k512_fragment_native_policy_sha256,prefill_mlp_k512_fragment_native_receipt_sha256' \
-    "${mlp_k512_fragment_native_gateup_variant}"
+  printf ',prefill_mlp_k512_fragment_native_authenticated_64_of_64,prefill_mlp_k512_fragment_native_gateup_variant_%s,prefill_mlp_k512_fragment_native_down_variant_%s,prefill_mlp_k512_fragment_native_layout,prefill_mlp_k512_fragment_native_payload_sha256,prefill_mlp_k512_fragment_native_policy_sha256,prefill_mlp_k512_fragment_native_receipt_sha256' \
+    "${mlp_k512_fragment_native_gateup_variant}" \
+    "${mlp_k512_fragment_native_down_variant}"
 fi
 printf '\n'
 
@@ -612,6 +655,8 @@ mkdir -p "${output_root}"
   if [[ "${mlp_k512_fragment_native_mode}" == 1 ]]; then
     printf 'prefill_mlp_k512_fragment_native_gateup_variant=%s\n' \
       "${mlp_k512_fragment_native_gateup_variant}"
+    printf 'prefill_mlp_k512_fragment_native_down_variant=%s\n' \
+      "${mlp_k512_fragment_native_down_variant}"
     printf 'prefill_mlp_k512_fragment_native_layout=%s\n' \
       "${mlp_k512_fragment_native_layout}"
     printf 'prefill_mlp_k512_fragment_native_payload_bytes=%s\n' \
@@ -754,8 +799,9 @@ if [[ "${mlp_k512_mode}" == 1 ]]; then
   printf ' prefill_mlp_k512_authenticated=192/192 prefill_mlp_k512_payload_sha256=verified'
 fi
 if [[ "${mlp_k512_fragment_native_mode}" == 1 ]]; then
-  printf ' prefill_mlp_k512_fragment_native_authenticated=64/64 prefill_mlp_k512_fragment_native_gateup_variant=%s prefill_mlp_k512_fragment_native_layout=verified prefill_mlp_k512_fragment_native_payload_sha256=verified prefill_mlp_k512_fragment_native_policy_sha256=verified prefill_mlp_k512_fragment_native_receipt_sha256=verified' \
-    "${mlp_k512_fragment_native_gateup_variant}"
+  printf ' prefill_mlp_k512_fragment_native_authenticated=64/64 prefill_mlp_k512_fragment_native_gateup_variant=%s prefill_mlp_k512_fragment_native_down_variant=%s prefill_mlp_k512_fragment_native_layout=verified prefill_mlp_k512_fragment_native_payload_sha256=verified prefill_mlp_k512_fragment_native_policy_sha256=verified prefill_mlp_k512_fragment_native_receipt_sha256=verified' \
+    "${mlp_k512_fragment_native_gateup_variant}" \
+    "${mlp_k512_fragment_native_down_variant}"
 fi
 printf '\n'
 
