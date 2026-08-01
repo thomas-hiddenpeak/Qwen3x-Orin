@@ -86,6 +86,14 @@ option(Q3X_BUILD_SM87_A4W4_MLP_K512_ADMISSION
   "Build the default-off authenticated K512 Gate+Up and Down Prefill route"
   OFF
 )
+option(Q3X_BUILD_SM87_A4W4_MLP_K512_GLOBAL_FLOW_EXPERIMENT
+  "Build the rejected shared-memory MLP K512 global-flow experiment"
+  OFF
+)
+option(Q3X_BUILD_SM87_A4W4_MLP_K512_FRAGMENT_NATIVE_EXPERIMENT
+  "Build the equal-byte fragment-native MLP K512 kernel experiment"
+  OFF
+)
 option(Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION
   "Build the calibrated full-model SM87 A4W4 Prefill route"
   ON
@@ -234,6 +242,19 @@ if(Q3X_BUILD_SM87_A4W4_MLP_K512_ADMISSION AND
    NOT Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION)
   message(FATAL_ERROR
     "The K512 MLP overlay requires the authenticated full-A4 K128 Prefill route"
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_MLP_K512_GLOBAL_FLOW_EXPERIMENT AND
+   (NOT BUILD_TESTING OR NOT Q3X_BUILD_SM87_A4W4_MLP_K512_ADMISSION))
+  message(FATAL_ERROR
+    "The MLP K512 global-flow experiment requires BUILD_TESTING=ON and the authenticated MLP K512 route"
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_MLP_K512_FRAGMENT_NATIVE_EXPERIMENT AND
+   (NOT BUILD_TESTING OR NOT Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION OR
+    NOT Q3X_BUILD_SM87_A4W4_MLP_K512_ADMISSION))
+  message(FATAL_ERROR
+    "The MLP K512 fragment-native experiment requires BUILD_TESTING=ON and the authenticated full-A4 route"
   )
 endif()
 if(Q3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION AND NOT BUILD_TESTING)
@@ -470,6 +491,18 @@ if(Q3X_BUILD_SM87_A4W4_MLP_K512_ADMISSION)
   )
   target_compile_definitions(q3x_kernels PRIVATE
     Q3X_ENABLE_A4W4_MLP_K512_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_MLP_K512_GLOBAL_FLOW_EXPERIMENT)
+  target_sources(q3x_kernels PRIVATE
+    src/kernels/sm87/a4w4_gateup_k512_m128n64_global_flow.cu
+    src/kernels/sm87/a4w4_down_k512_bstationary.cu
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_MLP_K512_FRAGMENT_NATIVE_EXPERIMENT)
+  target_sources(q3x_kernels PRIVATE
+    src/kernels/sm87/a4w4_gateup_k512_fragment_native.cu
+    src/kernels/sm87/a4w4_down_k512_fragment_native.cu
   )
 endif()
 if(Q3X_BUILD_SM87_A4W4_GATEUP_PROJECTION_V3_ADMISSION)
@@ -1518,6 +1551,109 @@ if(BUILD_TESTING)
       q3x_sm87_a4w4_down_k512_macrocell_correctness_test
     )
 
+    if(Q3X_BUILD_SM87_A4W4_MLP_K512_GLOBAL_FLOW_EXPERIMENT)
+      add_executable(
+      q3x_sm87_a4w4_gateup_k512_m128n64_global_flow_correctness_test
+      tests/sm87_a4w4_gateup_k512_m128n64_global_flow_correctness_test.cu
+      )
+      target_link_libraries(
+        q3x_sm87_a4w4_gateup_k512_m128n64_global_flow_correctness_test
+        PRIVATE q3x::kernels CUDA::cudart
+      )
+      q3x_enable_warnings(
+        q3x_sm87_a4w4_gateup_k512_m128n64_global_flow_correctness_test
+      )
+
+      add_executable(q3x_sm87_a4w4_down_k512_bstationary_contract_test
+        tests/sm87_a4w4_down_k512_bstationary_contract_test.cpp
+      )
+      target_link_libraries(
+        q3x_sm87_a4w4_down_k512_bstationary_contract_test
+        PRIVATE q3x::kernels CUDA::cudart
+      )
+      q3x_enable_warnings(
+        q3x_sm87_a4w4_down_k512_bstationary_contract_test
+      )
+      add_test(NAME sm87_a4w4_down_k512_bstationary_contract
+        COMMAND q3x_sm87_a4w4_down_k512_bstationary_contract_test
+      )
+      set_tests_properties(
+        sm87_a4w4_down_k512_bstationary_contract PROPERTIES
+        LABELS "host;sm87;prefill;mlp;a4w4;k512;down;bstationary;contract"
+      )
+
+      add_executable(q3x_sm87_a4w4_down_k512_bstationary_correctness_test
+        tests/sm87_a4w4_down_k512_bstationary_correctness_test.cu
+      )
+      target_link_libraries(
+        q3x_sm87_a4w4_down_k512_bstationary_correctness_test
+        PRIVATE q3x::kernels CUDA::cudart
+      )
+      q3x_enable_warnings(
+        q3x_sm87_a4w4_down_k512_bstationary_correctness_test
+      )
+    endif()
+
+    if(Q3X_BUILD_SM87_A4W4_MLP_K512_FRAGMENT_NATIVE_EXPERIMENT)
+      add_executable(q3x_sm87_a4w4_gateup_k512_fragment_native_contract_test
+        tests/sm87_a4w4_gateup_k512_fragment_native_contract_test.cpp
+      )
+      target_link_libraries(
+        q3x_sm87_a4w4_gateup_k512_fragment_native_contract_test
+        PRIVATE q3x::kernels CUDA::cudart
+      )
+      q3x_enable_warnings(
+        q3x_sm87_a4w4_gateup_k512_fragment_native_contract_test
+      )
+      add_test(NAME sm87_a4w4_gateup_k512_fragment_native_contract
+        COMMAND q3x_sm87_a4w4_gateup_k512_fragment_native_contract_test
+      )
+      set_tests_properties(
+        sm87_a4w4_gateup_k512_fragment_native_contract PROPERTIES
+        LABELS "host;sm87;prefill;mlp;a4w4;k512;gateup;fragment-native;contract"
+      )
+
+      add_executable(q3x_sm87_a4w4_gateup_k512_fragment_native_correctness_test
+        tests/sm87_a4w4_gateup_k512_fragment_native_correctness_test.cu
+      )
+      target_link_libraries(
+        q3x_sm87_a4w4_gateup_k512_fragment_native_correctness_test
+        PRIVATE q3x::kernels CUDA::cudart
+      )
+      q3x_enable_warnings(
+        q3x_sm87_a4w4_gateup_k512_fragment_native_correctness_test
+      )
+
+      add_executable(q3x_sm87_a4w4_down_k512_fragment_native_contract_test
+        tests/sm87_a4w4_down_k512_fragment_native_contract_test.cpp
+      )
+      target_link_libraries(
+        q3x_sm87_a4w4_down_k512_fragment_native_contract_test
+        PRIVATE q3x::kernels CUDA::cudart
+      )
+      q3x_enable_warnings(
+        q3x_sm87_a4w4_down_k512_fragment_native_contract_test
+      )
+      add_test(NAME sm87_a4w4_down_k512_fragment_native_contract
+        COMMAND q3x_sm87_a4w4_down_k512_fragment_native_contract_test
+      )
+      set_tests_properties(
+        sm87_a4w4_down_k512_fragment_native_contract PROPERTIES
+        LABELS "host;sm87;prefill;mlp;a4w4;k512;down;fragment-native;contract"
+      )
+
+      add_executable(q3x_sm87_a4w4_down_k512_fragment_native_correctness_test
+        tests/sm87_a4w4_down_k512_fragment_native_correctness_test.cu
+      )
+      target_link_libraries(
+        q3x_sm87_a4w4_down_k512_fragment_native_correctness_test
+        PRIVATE q3x::kernels CUDA::cudart
+      )
+      q3x_enable_warnings(
+        q3x_sm87_a4w4_down_k512_fragment_native_correctness_test
+      )
+    endif()
+
     find_program(Q3X_FLOCK_EXECUTABLE flock REQUIRED)
     add_test(NAME sm87_a4_quantize_bf16_k512_split_correctness
       COMMAND "${Q3X_FLOCK_EXECUTABLE}" -x /tmp/q3x-gpu-bench.lock
@@ -1553,6 +1689,54 @@ if(BUILD_TESTING)
       RESOURCE_LOCK q3x_sm87_gpu
       TIMEOUT 300
     )
+    if(Q3X_BUILD_SM87_A4W4_MLP_K512_GLOBAL_FLOW_EXPERIMENT)
+      add_test(NAME sm87_a4w4_gateup_k512_m128n64_global_flow_correctness
+        COMMAND "${Q3X_FLOCK_EXECUTABLE}" -x /tmp/q3x-gpu-bench.lock
+                $<TARGET_FILE:q3x_sm87_a4w4_gateup_k512_m128n64_global_flow_correctness_test>
+      )
+      set_tests_properties(
+        sm87_a4w4_gateup_k512_m128n64_global_flow_correctness PROPERTIES
+        LABELS "cuda;sm87;prefill;mlp;a4w4;k512;gateup;global-flow;correctness;synthetic"
+        SKIP_RETURN_CODE 77
+        RESOURCE_LOCK q3x_sm87_gpu
+        TIMEOUT 300
+      )
+      add_test(NAME sm87_a4w4_down_k512_bstationary_correctness
+        COMMAND "${Q3X_FLOCK_EXECUTABLE}" -x /tmp/q3x-gpu-bench.lock
+                $<TARGET_FILE:q3x_sm87_a4w4_down_k512_bstationary_correctness_test>
+      )
+      set_tests_properties(
+        sm87_a4w4_down_k512_bstationary_correctness PROPERTIES
+        LABELS "cuda;sm87;prefill;mlp;a4w4;k512;down;bstationary;correctness;synthetic"
+        SKIP_RETURN_CODE 77
+        RESOURCE_LOCK q3x_sm87_gpu
+        TIMEOUT 300
+      )
+    endif()
+    if(Q3X_BUILD_SM87_A4W4_MLP_K512_FRAGMENT_NATIVE_EXPERIMENT)
+      add_test(NAME sm87_a4w4_gateup_k512_fragment_native_correctness
+        COMMAND "${Q3X_FLOCK_EXECUTABLE}" -x /tmp/q3x-gpu-bench.lock
+                $<TARGET_FILE:q3x_sm87_a4w4_gateup_k512_fragment_native_correctness_test>
+      )
+      set_tests_properties(
+        sm87_a4w4_gateup_k512_fragment_native_correctness PROPERTIES
+        LABELS "cuda;sm87;prefill;mlp;a4w4;k512;gateup;fragment-native;correctness;synthetic"
+        SKIP_RETURN_CODE 77
+        RESOURCE_LOCK q3x_sm87_gpu
+        TIMEOUT 300
+      )
+      add_test(NAME sm87_a4w4_down_k512_fragment_native_correctness
+        COMMAND "${Q3X_FLOCK_EXECUTABLE}" -x /tmp/q3x-gpu-bench.lock
+                $<TARGET_FILE:q3x_sm87_a4w4_down_k512_fragment_native_correctness_test>
+      )
+      set_tests_properties(
+        sm87_a4w4_down_k512_fragment_native_correctness PROPERTIES
+        LABELS "cuda;sm87;prefill;mlp;a4w4;k512;down;fragment-native;correctness;synthetic"
+        SKIP_RETURN_CODE 77
+        RESOURCE_LOCK q3x_sm87_gpu
+        TIMEOUT 300
+      )
+    endif()
   endif()
 
   if(Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION)

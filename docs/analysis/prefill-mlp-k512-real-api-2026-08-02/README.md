@@ -14,6 +14,7 @@ The external EvalScope/OpenAI result on the fixed natural P2K corpus is:
 | K128 current-best comparator | 4/4 | 3,173.4 ms | 606.45 tok/s | 606.7634 tok/s |
 | MLP K512 candidate | 4/4 | 2,782.6 ms | 691.62 tok/s | 691.9824 tok/s |
 | MLP K512 + natural ceil128 | 4/4 | 2,720.5 ms | 707.40 tok/s | 707.7676 tok/s |
+| Shared global-flow experiment | 4/4 | 3,004.7 ms | 640.58 tok/s | 640.8404 tok/s |
 | Cumulative change | - | -452.9 ms (-14.27%) | +16.65% | +16.65% |
 
 The candidate therefore passes the experiment gate against the incumbent,
@@ -111,23 +112,108 @@ essentially unchanged.  This explains why a large per-affected-request route
 repair becomes +2.28% over the four-request matrix rather than a universal
 gain.
 
+## Natural-M128 request profile
+
+The same 1,853-token OpenAI request was captured again after ceil128 became
+the whole-span K128 contract.  The request reported 2,601.43 ms while being
+profiled.  Profiler-perturbed EvalScope throughput is not a performance
+decision; this capture is used only for kernel attribution.
+
+```text
+server ELF SHA256  60d2d6f78ec5b87c4423b121baea20472b943a214c915b1f42af0d2b44aea85d
+NSys report SHA256 594864599ec8b7e919a30477acd4ee5fbfa59beefb4901e378bf415486e8b614
+SQLite SHA256      fb81cec54655c7265d126951e0da7b9392a8fd95d1941765e6d91152a771d91c
+kernel CSV SHA256  67b8f3cc4056a75b655bd1c19e43716a48b0fa618f9dd06acb1196201dd0ab7d
+```
+
+The repaired projection inventory is:
+
+| Projection family | Calls | Total ms | Share |
+|---|---:|---:|---:|
+| Gate+Up K512 | 128 | 888.941 | 34.4% |
+| Down K512 | 64 | 523.248 | 20.3% |
+| GDN Attention pair supermatrix | 48 | 336.135 | 13.0% |
+| Attention-O supermatrix | 64 | 165.631 | 6.4% |
+| Full-Attention Q/K/V supermatrix | 16 | 98.187 | 3.8% |
+
+The old 208-call generic K128 family is absent.  The five projection families
+now consume 2,012.142 ms, about 77.9% of captured GPU time.  Attention
+supermatrices therefore worked as intended, but Gate+Up, Down, and Attention
+projection architecture still dominate the route.
+
 ## Next structural replacement
 
-The v1 K512 cells reduce scale application frequency but spend 83--128 KiB
-of shared memory and run at one CTA/SM.  The retained K128 projection cells
-run at two CTAs/SM.  The next implementation is not a stage-count scan:
+The v1 K512 cells reduce scale application frequency but keep B in a large
+shared-memory round trip.  Gate+Up uses 83,200 bytes and 16 warps; Down uses
+128 KiB, only eight warps, and a P2048-specific persistent phase relationship.
+The next work is a structural package rather than a stage-count scan:
 
-1. Gate+Up becomes M64N64 with four Gate and four Up warps.  A K64/K128 copy
-   ring remains below the two-CTA shared-memory budget; S32 partials accumulate
-   through one K512 scale group before a single FP32 scale application.
-2. Down becomes shape-specific M128N64 with per-warp M32N32 ownership.  The
-   smaller ownership keeps the simultaneous S32 and FP32 accumulator sets
-   below 128 registers/thread while preserving two CTAs/SM.
-3. Natural prompt spans now use ceil128 internal projection rows so Attention
-   supermatrices remain active on the affected EvalScope requests.
-4. The next promotion decision is again OpenAI API plus external EvalScope.
-   NCU is diagnostic only and must confirm two CTAs/SM, zero spill, tensor-pipe
-   activity, issue activity, bank conflicts, and scoreboard stalls.
+1. Gate+Up first keeps global-flow ownership at M128 by processing N64 phases,
+   so B fragments are reused across two M16 rows without increasing the
+   incumbent B presentation.  In parallel, a stronger paired publication puts
+   Gate and Up directly in MMA lane order so B can bypass shared memory and the
+   same warp can finish SwiGLU without a cross-warp exchange.
+2. Down keeps M128N128 but moves from eight M32N64 warps to sixteen M16N64
+   warps.  A rolling K256 pipeline targets 16 active warps, at most 128
+   registers/thread, zero local spill, and an explicit B-stationary owner
+   schedule for every natural M rather than only M=2048.
+3. A candidate reaches the production selector only after bitwise and resource
+   admission.  Its first performance verdict is one real-model OpenAI request
+   through external EvalScope; a negative direction stops the architecture.
+4. Even a large MLP gain cannot by itself close 707.4 to 2,000 prompt token/s.
+   Once the MLP structural package is measured, the same fragment-native
+   treatment must cover the remaining 599.95 ms of Attention projections.
+   NCU remains diagnostic for candidates that first show real-API benefit.
+
+## Rejected shared global-flow experiment
+
+Before changing the publication, one complete structural package was tested
+with the existing authenticated v1 weights.  Gate+Up used logical M128N128
+ownership with two N64 phases; Down used M128N128, 512 threads, 16 warps, and
+a three-slot K256 ring.  Both kernels were bitwise exact, had zero local spill,
+and used tail-balanced N-major scheduling on natural uneven M.
+
+The real OpenAI/EvalScope result was negative:
+
+```text
+server ELF SHA256       74cf9232a2b1aedf615c61be0224c5e99cf7ed33ea0e860bb761e5db78eca042
+success                 4/4
+mean TTFT               3,004.66 ms
+prompt throughput       640.58 token/s
+total throughput        640.8404 token/s
+change vs current best  -9.46% throughput, +10.44% TTFT
+summary SHA256          0afa1af40099cef4527d5b4b26fb4b8dc81506ee8fe935dda4213a7c69de9047
+provenance SHA256       9d5aeba4cdc93dd860c3049c898b2e188f57a9ba9c3bfc20e19d1263fc2a19d1
+```
+
+Every measured natural length was slower, so no additional noise harness or
+NCU promotion work is justified.  The runtime selector was removed.  The
+result falsifies the idea that occupancy plus a different shared tile is
+sufficient; the next candidate must remove B's shared-memory round trip via
+an equal-byte fragment-native publication.
+
+## Fragment-native kernel admission
+
+The stronger replacement has passed kernel-level admission but has not yet
+been used for a performance claim.  Both consumers keep exact K512 numerical
+semantics and change only the offline byte permutation of B:
+
+| Consumer | CTA / warp ownership | Registers | Dynamic shared | Active CTA/SM | Local spill |
+|---|---|---:|---:|---:|---:|
+| Gate+Up paired | M64N64, 8 warps each owning M64N8 for both projections | 124 | 12,288 B | 2 | 0 B |
+| Down | M64N128, 8 warps each owning M64N16 | 128 | 24,960 B | 2 | 0 B |
+
+Gate and Up are computed in the same warp and finish SwiGLU directly from
+registers.  Down loads two adjacent N8 fragments per warp and reuses them
+across four M16 rows.  In both kernels B uses an aligned 128-bit global load
+in MMA lane order and never enters shared memory; SASS contains direct
+`LDG.E.128` plus `IMMA.16864`, while LDS is confined to runtime A.  Contract,
+equal-byte bijection, K512/K1024, and model-K correctness tests pass bitwise.
+
+The next gate is deliberately end to end: convert the authenticated v1 MLP
+payload into one same-size 8,623,226,880-byte composite v2 publication, attach
+it transactionally, then run the external OpenAI/EvalScope P2K command.  No
+synthetic kernel timing can promote this candidate.
 
 Evidence directories:
 
@@ -138,4 +224,8 @@ Evidence directories:
 - profiled EvalScope run:
   `/home/rm01/q3x-mlp-k512-evalscope-p2048-systematic-profile`;
 - request trace:
-  `/home/rm01/q3x-mlp-k512-nsys-p2048-systematic-request2.nsys-rep`.
+  `/home/rm01/q3x-mlp-k512-nsys-p2048-systematic-request2.nsys-rep`;
+- natural-M128 request trace:
+  `/home/rm01/q3x-mlp-k512-nsys-p2048-natural-m128-request2.nsys-rep`;
+- rejected shared global-flow run:
+  `/home/rm01/q3x-mlp-k512-evalscope-p2048-global-flow`.
