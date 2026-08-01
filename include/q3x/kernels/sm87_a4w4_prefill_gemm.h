@@ -3,6 +3,12 @@
 #include <cstddef>
 #include <cstdint>
 
+#if defined(__CUDACC__)
+#define Q3X_SM87_A4W4_PREFILL_HOST_DEVICE __host__ __device__
+#else
+#define Q3X_SM87_A4W4_PREFILL_HOST_DEVICE
+#endif
+
 namespace q3x::kernels {
 
 // Experimental full-tile A4W4 Prefill GEMM.  This is the first complete
@@ -66,6 +72,15 @@ inline constexpr std::size_t kSm87A4W4PrefillK128TileN = 256U;
 inline constexpr std::size_t kSm87A4W4PrefillK128TileK = 128U;
 inline constexpr std::size_t kSm87A4W4PrefillK128PipelineSlots = 2U;
 inline constexpr std::size_t kSm87A4W4PrefillK128MaximumRegisters = 128U;
+
+// Independent Attention-O activation ABI.  Logical rows are rounded to an
+// exact M128 launch surface before quantization so the K512 consumer never
+// observes an implicit tail.  Codes retain the physical K64 transport layout
+// while one BF16 scale covers each logical K512 group.
+inline constexpr std::size_t kSm87A4W4PrefillK512ScaleK = 512U;
+inline constexpr std::size_t kSm87A4W4PrefillK512LaunchMAlignment = 128U;
+inline constexpr std::size_t
+    kSm87A4W4PrefillK512PhysicalK64BlocksPerScale = 8U;
 
 [[nodiscard]] constexpr bool sm87_a4w4_prefill_uses_large_m_candidate(
     const std::size_t token_count) noexcept {
@@ -131,6 +146,55 @@ struct Sm87A4W4PrefillK128GemmPlan final {
   return denominator == 0U || numerator == 0U
              ? 0U
              : 1U + (numerator - 1U) / denominator;
+}
+
+[[nodiscard]] constexpr std::size_t
+sm87_a4w4_prefill_k512_launch_token_count(
+    const std::size_t logical_token_count) noexcept {
+  const std::size_t tiles = sm87_a4w4_ceil_div(
+      logical_token_count, kSm87A4W4PrefillK512LaunchMAlignment);
+  constexpr std::size_t maximum = static_cast<std::size_t>(-1);
+  return tiles == 0U ||
+                 tiles > maximum / kSm87A4W4PrefillK512LaunchMAlignment
+             ? 0U
+             : tiles * kSm87A4W4PrefillK512LaunchMAlignment;
+}
+
+[[nodiscard]] constexpr std::size_t
+sm87_a4w4_prefill_k512_group_count(
+    const std::size_t logical_k) noexcept {
+  return logical_k % kSm87A4W4PrefillK512ScaleK == 0U
+             ? logical_k / kSm87A4W4PrefillK512ScaleK
+             : 0U;
+}
+
+// Scale capacity follows [ceil(launch_M/64), K/512, 64].  The launcher
+// requires launch_M to equal ceil128(logical_M), but keeping this helper
+// overflow-safe makes the public buffer contract independently auditable.
+[[nodiscard]] constexpr std::size_t
+sm87_a4w4_prefill_k512_scale_capacity_elements(
+    const std::size_t launch_token_count,
+    const std::size_t logical_k) noexcept {
+  const std::size_t outer_blocks =
+      sm87_a4w4_ceil_div(launch_token_count, 64U);
+  const std::size_t groups =
+      sm87_a4w4_prefill_k512_group_count(logical_k);
+  constexpr std::size_t maximum = static_cast<std::size_t>(-1);
+  if (outer_blocks == 0U || groups == 0U ||
+      outer_blocks > maximum / groups) {
+    return 0U;
+  }
+  const std::size_t block_groups = outer_blocks * groups;
+  return block_groups > maximum / 64U ? 0U : block_groups * 64U;
+}
+
+[[nodiscard]] Q3X_SM87_A4W4_PREFILL_HOST_DEVICE constexpr std::size_t
+sm87_a4w4_prefill_k512_scale_offset(
+    const std::size_t outer_coordinate,
+    const std::size_t k512_group,
+    const std::size_t k512_group_count) noexcept {
+  return ((outer_coordinate / 64U) * k512_group_count + k512_group) * 64U +
+         outer_coordinate % 64U;
 }
 
 [[nodiscard]] constexpr Sm87A4W4PrefillGemmPlan
@@ -325,6 +389,24 @@ struct Sm87A4W4PrefillGemmResources final {
     std::size_t a_scale_capacity_elements,
     void* cuda_stream = nullptr) noexcept;
 
+// K512 activation producer for the independent Attention-O cell.  The caller
+// supplies both the number of real input rows and the exact physical launch
+// extent, which must be ceil128(logical_token_count).  Every padded row is
+// explicitly published as zero packed codes with a BF16 scale of one; the
+// kernel never reads input storage for those rows.
+[[nodiscard]] int launch_sm87_a4_quantize_bf16_k512_cuda(
+    const std::uint16_t* input_bf16,
+    std::size_t input_row_stride_elements,
+    std::size_t logical_token_count,
+    std::size_t launch_token_count,
+    std::size_t input_size,
+    float clip_ratio,
+    std::uint8_t* packed_a,
+    std::size_t packed_a_capacity_bytes,
+    std::uint16_t* a_k512_scales_bf16,
+    std::size_t a_scale_capacity_elements,
+    void* cuda_stream = nullptr) noexcept;
+
 [[nodiscard]] int query_sm87_a4w4_prefill_gemm_resources_cuda(
     Sm87A4W4PrefillGemmResources* resources) noexcept;
 
@@ -446,6 +528,12 @@ static_assert(sm87_a4w4_prefill_gemm_k128_plan(
 static_assert(sm87_a4w4_prefill_gemm_k128_plan(
                   65U, 256U, 128U)
                   .launch_ctas == 0U);
+static_assert(sm87_a4w4_prefill_k512_launch_token_count(1U) == 128U);
+static_assert(sm87_a4w4_prefill_k512_launch_token_count(128U) == 128U);
+static_assert(sm87_a4w4_prefill_k512_launch_token_count(129U) == 256U);
+static_assert(sm87_a4w4_prefill_k512_group_count(6'144U) == 12U);
+static_assert(sm87_a4w4_prefill_k512_scale_capacity_elements(
+                  256U, 6'144U) == 3'072U);
 inline constexpr std::size_t kSm87A4W4PrefillK128OverflowProbe =
     static_cast<std::size_t>(-1) & ~static_cast<std::size_t>(255U);
 static_assert(sm87_a4w4_prefill_gemm_k128_plan(
@@ -454,3 +542,5 @@ static_assert(sm87_a4w4_prefill_gemm_k128_plan(
                   .launch_ctas == 0U);
 
 }  // namespace q3x::kernels
+
+#undef Q3X_SM87_A4W4_PREFILL_HOST_DEVICE

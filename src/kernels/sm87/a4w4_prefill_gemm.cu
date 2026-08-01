@@ -1,5 +1,6 @@
 #include "q3x/kernels/sm87_a4w4_prefill_gemm.h"
 
+#include "q3x/kernels/sm87_a4w4_attention_o_k512_cell.h"
 #include "q3x/kernels/sm87_a4w4_prefill_primitive.h"
 
 #include <cuda_runtime.h>
@@ -79,6 +80,20 @@ static_assert(sizeof(Sm87A4W4M64N256SharedK128Stage) == 21'120U);
 static_assert(sizeof(Sm87A4W4M64N256SharedK128Stage) *
                   kSm87A4W4PrefillK128PipelineSlots <=
               48U * 1'024U);
+static_assert(kSm87A4W4PrefillK512PhysicalK64BlocksPerScale *
+                  kSm87A4W4PrefillTileK ==
+              kSm87A4W4PrefillK512ScaleK);
+static_assert(kSm87A4W4PrefillK512ScaleK ==
+                  kSm87A4W4AttentionOK512ScaleK &&
+              kSm87A4W4PrefillK512LaunchMAlignment ==
+                  kSm87A4W4AttentionOK512TileM &&
+              kSm87A4W4PrefillK512PhysicalK64BlocksPerScale ==
+                  kSm87A4W4AttentionOK512ScaleK /
+                      kSm87A4W4AttentionOK512PhysicalK64);
+static_assert(sm87_a4w4_prefill_k512_scale_capacity_elements(
+                  256U, 6'144U) ==
+              sm87_a4w4_attention_o_k512_scale_capacity_elements(
+                  256U, 6'144U));
 
 [[nodiscard]] constexpr bool aligned(const void* const pointer,
                                      const std::size_t alignment) noexcept {
@@ -255,6 +270,96 @@ void q3x_sm87_a4_quantize_bf16_k128_kernel(
   if (lane == 0U) {
     a_k128_scales_bf16[sm87_a4w4_consumer_k128_scale_offset(
         row, group, k128_group_count)] = scale_bits;
+  }
+}
+
+extern "C" __global__ __launch_bounds__(kSm87A4W4PrefillThreads)
+void q3x_sm87_a4_quantize_bf16_k512_kernel(
+    const std::uint16_t* const input_bf16,
+    const std::size_t input_row_stride_elements,
+    const std::size_t logical_token_count,
+    const std::size_t k512_group_count,
+    const std::size_t group_count,
+    const float clip_ratio,
+    std::uint8_t* const packed_a,
+    std::uint16_t* const a_k512_scales_bf16) {
+  const unsigned int lane = threadIdx.x % kSm87A4W4WarpThreads;
+  const unsigned int warp = threadIdx.x / kSm87A4W4WarpThreads;
+  const std::size_t group_ordinal =
+      static_cast<std::size_t>(blockIdx.x) * kSm87A4W4PrefillWarps + warp;
+  if (group_ordinal >= group_count) {
+    return;
+  }
+
+  const std::size_t row = group_ordinal / k512_group_count;
+  const std::size_t group = group_ordinal - row * k512_group_count;
+  const bool valid_row = row < logical_token_count;
+  float values[16U];
+  float maximum = 0.0F;
+  if (valid_row) {
+    const std::size_t input_offset =
+        row * input_row_stride_elements +
+        group * kSm87A4W4PrefillK512ScaleK + 16U * lane;
+#pragma unroll
+    for (unsigned int index = 0U; index < 16U; ++index) {
+      values[index] = decode_bf16(input_bf16[input_offset + index]);
+      maximum = fmaxf(maximum, fabsf(values[index]));
+    }
+  } else {
+#pragma unroll
+    for (unsigned int index = 0U; index < 16U; ++index) {
+      values[index] = 0.0F;
+    }
+  }
+
+#pragma unroll
+  for (unsigned int delta = 16U; delta != 0U; delta /= 2U) {
+    maximum =
+        fmaxf(maximum, __shfl_down_sync(0xffffffffU, maximum, delta));
+  }
+  maximum = __shfl_sync(0xffffffffU, maximum, 0U);
+  const float clipped_maximum = maximum * clip_ratio;
+  std::uint16_t scale_bits =
+      encode_bf16(maximum == 0.0F ? 1.0F : clipped_maximum / 7.0F);
+  float stored_scale = decode_bf16(scale_bits);
+  if (maximum != 0.0F && stored_scale == 0.0F) {
+    scale_bits = 1U;
+    stored_scale = decode_bf16(scale_bits);
+  }
+
+  const std::size_t physical_k64_group_count =
+      k512_group_count * kSm87A4W4PrefillK512PhysicalK64BlocksPerScale;
+  const std::size_t physical_group =
+      group * kSm87A4W4PrefillK512PhysicalK64BlocksPerScale + lane / 4U;
+  const std::size_t first_byte = 8U * (lane % 4U);
+#pragma unroll
+  for (unsigned int pair = 0U; pair < 8U; ++pair) {
+    const unsigned int even_index = 2U * pair;
+    const unsigned int odd_index = even_index + 1U;
+    const float even = fminf(fmaxf(values[even_index], -clipped_maximum),
+                             clipped_maximum);
+    const float odd = fminf(fmaxf(values[odd_index], -clipped_maximum),
+                            clipped_maximum);
+    const int even_rounded = stored_scale == 0.0F
+                                 ? 0
+                                 : __float2int_rn(even / stored_scale);
+    const int odd_rounded = stored_scale == 0.0F
+                                ? 0
+                                : __float2int_rn(odd / stored_scale);
+    const int even_code = even_rounded < -7
+                              ? -7
+                              : (even_rounded > 7 ? 7 : even_rounded);
+    const int odd_code = odd_rounded < -7
+                             ? -7
+                             : (odd_rounded > 7 ? 7 : odd_rounded);
+    packed_a[sm87_a4w4_consumer_packed_offset(
+        row, physical_group, first_byte + pair,
+        physical_k64_group_count)] =
+        sm87_a4w4_pack_signed_pair(even_code, odd_code);
+  }
+  if (lane == 0U) {
+    a_k512_scales_bf16[sm87_a4w4_prefill_k512_scale_offset(
+        row, group, k512_group_count)] = scale_bits;
   }
 }
 
@@ -1191,6 +1296,79 @@ int launch_sm87_a4_quantize_bf16_k128_cuda(
       static_cast<unsigned int>(kSm87A4W4PrefillThreads), 0U, stream>>>(
       input_bf16, input_row_stride_elements, k128_groups, group_count,
       clip_ratio, packed_a, a_k128_scales_bf16);
+  return static_cast<int>(cudaPeekAtLastError());
+}
+
+int launch_sm87_a4_quantize_bf16_k512_cuda(
+    const std::uint16_t* const input_bf16,
+    const std::size_t input_row_stride_elements,
+    const std::size_t logical_token_count,
+    const std::size_t launch_token_count,
+    const std::size_t input_size,
+    const float clip_ratio,
+    std::uint8_t* const packed_a,
+    const std::size_t packed_a_capacity_bytes,
+    std::uint16_t* const a_k512_scales_bf16,
+    const std::size_t a_scale_capacity_elements,
+    void* const cuda_stream) noexcept {
+  const std::size_t expected_launch_token_count =
+      sm87_a4w4_prefill_k512_launch_token_count(logical_token_count);
+  if (logical_token_count == 0U || expected_launch_token_count == 0U ||
+      launch_token_count != expected_launch_token_count ||
+      input_size == 0U ||
+      input_size % kSm87A4W4PrefillK512ScaleK != 0U ||
+      !(clip_ratio > 0.0F && clip_ratio <= 1.0F) ||
+      !aligned(input_bf16, alignof(std::uint16_t)) ||
+      !aligned(packed_a, 16U) ||
+      !aligned(a_k512_scales_bf16, alignof(std::uint16_t)) ||
+      input_row_stride_elements < input_size ||
+      !product_fits(logical_token_count, input_row_stride_elements)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+
+  const std::size_t k512_groups =
+      input_size / kSm87A4W4PrefillK512ScaleK;
+  if (!product_fits(
+          k512_groups,
+          kSm87A4W4PrefillK512PhysicalK64BlocksPerScale)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const std::size_t physical_k64_groups =
+      k512_groups * kSm87A4W4PrefillK512PhysicalK64BlocksPerScale;
+  if (!consumer_capacity_fits(launch_token_count, physical_k64_groups) ||
+      !product_fits(launch_token_count, k512_groups)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+
+  const std::size_t required_packed_bytes =
+      sm87_a4w4_consumer_packed_capacity_bytes(launch_token_count,
+                                               input_size);
+  const std::size_t required_scale_elements =
+      sm87_a4w4_prefill_k512_scale_capacity_elements(launch_token_count,
+                                                     input_size);
+  if (required_packed_bytes == 0U || required_scale_elements == 0U ||
+      packed_a_capacity_bytes < required_packed_bytes ||
+      a_scale_capacity_elements < required_scale_elements) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+
+  const std::size_t group_count = launch_token_count * k512_groups;
+  const std::size_t blocks =
+      sm87_a4w4_ceil_div(group_count, kSm87A4W4PrefillWarps);
+  if (blocks == 0U || blocks > std::numeric_limits<unsigned int>::max()) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const int device_status = validate_sm87();
+  if (device_status != static_cast<int>(cudaSuccess)) {
+    return device_status;
+  }
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  q3x_sm87_a4_quantize_bf16_k512_kernel<<<
+      static_cast<unsigned int>(blocks),
+      static_cast<unsigned int>(kSm87A4W4PrefillThreads), 0U, stream>>>(
+      input_bf16, input_row_stride_elements, logical_token_count,
+      k512_groups, group_count, clip_ratio, packed_a,
+      a_k512_scales_bf16);
   return static_cast<int>(cudaPeekAtLastError());
 }
 
