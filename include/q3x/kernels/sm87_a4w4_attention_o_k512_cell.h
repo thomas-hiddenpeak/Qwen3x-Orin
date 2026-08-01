@@ -12,9 +12,10 @@
 
 namespace q3x::kernels {
 
-// Experimental, correctness-only Attention-O complete cell for an independent
-// K512 quantization contract.  It is deliberately not ABI-compatible with the
-// authenticated K128 production path and is not a production selector.
+// Attention-O complete cell for an independent K512 quantization contract.
+// It is deliberately not ABI-compatible with the authenticated K128 path:
+// both packed operands and both scale planes must be generated under this
+// header's ABI.  Runtime selection remains explicit and fail-closed.
 //
 // One 256-thread CTA owns M128N64.  Its eight warps each retain M16N64:
 // 32 FP32 output accumulators/thread and 32 S32 partials/thread.  A physical
@@ -217,9 +218,33 @@ struct Sm87A4W4AttentionOK512Resources final {
 [[nodiscard]] int query_sm87_a4w4_attention_o_k512_resources_cuda(
     Sm87A4W4AttentionOK512Resources* resources) noexcept;
 
-// Synthetic correctness-only entry point.  Both packed-code buffers and both
-// K512 scale planes must be independently generated under this header's ABI.
-// The kernel has no tails; row-stride padding is allowed only for output.
+// Production launcher for independently generated K512 A and B operands.
+// The kernel has no tails: M, N, and K must satisfy the complete-cell plan,
+// and row-stride padding is allowed only for output.  Capacities are expressed
+// in bytes for packed S4 codes and in elements for BF16 scales/output.  The
+// output range must not alias any input range.  Invalid arguments are rejected
+// before querying the active device or enqueueing work; non-SM87/non-16-SM
+// targets return cudaErrorNotSupported represented as int.
+[[nodiscard]] int launch_sm87_a4w4_attention_o_k512_bf16_cuda(
+    const std::uint8_t* packed_a,
+    std::size_t packed_a_capacity_bytes,
+    const std::uint16_t* a_k512_scales_bf16,
+    std::size_t a_scale_capacity_elements,
+    const std::uint8_t* packed_b,
+    std::size_t packed_b_capacity_bytes,
+    const std::uint16_t* b_k512_scales_bf16,
+    std::size_t b_scale_capacity_elements,
+    std::size_t token_count,
+    std::size_t output_size,
+    std::size_t input_size,
+    std::uint16_t* output_bf16,
+    std::size_t output_row_stride_elements,
+    std::size_t output_capacity_elements,
+    void* cuda_stream = nullptr) noexcept;
+
+// Correctness-only entry point exposing a smaller persistent-CTA cap.  Its
+// data, shape, capacity, target, and alias contract is otherwise identical to
+// the production launcher.
 [[nodiscard]] int launch_sm87_a4w4_attention_o_k512_test_bf16_cuda(
     const std::uint8_t* packed_a,
     std::size_t packed_a_capacity_bytes,

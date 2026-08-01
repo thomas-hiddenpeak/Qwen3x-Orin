@@ -49,6 +49,24 @@ static_assert(sizeof(Sm87A4W4FloatAccumulator) == 16U);
          reinterpret_cast<std::uintptr_t>(pointer) % alignment == 0U;
 }
 
+[[nodiscard]] bool byte_ranges_overlap(
+    const void* const first, const std::size_t first_bytes,
+    const void* const second, const std::size_t second_bytes) noexcept {
+  const std::uintptr_t first_begin =
+      reinterpret_cast<std::uintptr_t>(first);
+  const std::uintptr_t second_begin =
+      reinterpret_cast<std::uintptr_t>(second);
+  constexpr std::uintptr_t maximum =
+      std::numeric_limits<std::uintptr_t>::max();
+  if (first_bytes > maximum - first_begin ||
+      second_bytes > maximum - second_begin) {
+    return true;
+  }
+  const std::uintptr_t first_end = first_begin + first_bytes;
+  const std::uintptr_t second_end = second_begin + second_bytes;
+  return first_begin < second_end && second_begin < first_end;
+}
+
 [[nodiscard]] __device__ __forceinline__ float decode_bf16(
     const std::uint16_t bits) noexcept {
   return __uint_as_float(static_cast<unsigned int>(bits) << 16U);
@@ -441,7 +459,9 @@ int query_sm87_a4w4_attention_o_k512_resources_cuda(
   return static_cast<int>(cudaSuccess);
 }
 
-int launch_sm87_a4w4_attention_o_k512_test_bf16_cuda(
+namespace {
+
+[[nodiscard]] int launch_sm87_a4w4_attention_o_k512_impl(
     const std::uint8_t* const packed_a,
     const std::size_t packed_a_capacity_bytes,
     const std::uint16_t* const a_k512_scales_bf16,
@@ -500,11 +520,35 @@ int launch_sm87_a4w4_attention_o_k512_test_bf16_cuda(
       token_count * output_row_stride_elements;
   if (required_a_bytes == 0U || required_b_bytes == 0U ||
       required_a_scales == 0U || required_b_scales == 0U ||
+      !sm87_a4w4_attention_o_k512_product_fits(
+          required_a_scales, sizeof(std::uint16_t)) ||
+      !sm87_a4w4_attention_o_k512_product_fits(
+          required_b_scales, sizeof(std::uint16_t)) ||
+      !sm87_a4w4_attention_o_k512_product_fits(
+          required_output_elements, sizeof(std::uint16_t)) ||
       packed_a_capacity_bytes < required_a_bytes ||
       packed_b_capacity_bytes < required_b_bytes ||
       a_scale_capacity_elements < required_a_scales ||
       b_scale_capacity_elements < required_b_scales ||
       output_capacity_elements < required_output_elements) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const std::size_t required_a_scale_bytes =
+      required_a_scales * sizeof(std::uint16_t);
+  const std::size_t required_b_scale_bytes =
+      required_b_scales * sizeof(std::uint16_t);
+  const std::size_t required_output_bytes =
+      required_output_elements * sizeof(std::uint16_t);
+  if (byte_ranges_overlap(output_bf16, required_output_bytes, packed_a,
+                          required_a_bytes) ||
+      byte_ranges_overlap(output_bf16, required_output_bytes,
+                          a_k512_scales_bf16,
+                          required_a_scale_bytes) ||
+      byte_ranges_overlap(output_bf16, required_output_bytes, packed_b,
+                          required_b_bytes) ||
+      byte_ranges_overlap(output_bf16, required_output_bytes,
+                          b_k512_scales_bf16,
+                          required_b_scale_bytes)) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
 
@@ -519,6 +563,7 @@ int launch_sm87_a4w4_attention_o_k512_test_bf16_cuda(
           ? persistent_ctas
           : maximum_launch_ctas;
   const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
   q3x_sm87_a4w4_attention_o_k512_m128n64k512_kernel
       <<<launch_ctas,
          static_cast<unsigned int>(kSm87A4W4AttentionOK512Threads), 0U,
@@ -532,6 +577,61 @@ int launch_sm87_a4w4_attention_o_k512_test_bf16_cuda(
                    static_cast<unsigned int>(plan.m_tiles),
                    static_cast<unsigned int>(plan.work_tiles));
   return static_cast<int>(cudaPeekAtLastError());
+}
+
+}  // namespace
+
+int launch_sm87_a4w4_attention_o_k512_bf16_cuda(
+    const std::uint8_t* const packed_a,
+    const std::size_t packed_a_capacity_bytes,
+    const std::uint16_t* const a_k512_scales_bf16,
+    const std::size_t a_scale_capacity_elements,
+    const std::uint8_t* const packed_b,
+    const std::size_t packed_b_capacity_bytes,
+    const std::uint16_t* const b_k512_scales_bf16,
+    const std::size_t b_scale_capacity_elements,
+    const std::size_t token_count,
+    const std::size_t output_size,
+    const std::size_t input_size,
+    std::uint16_t* const output_bf16,
+    const std::size_t output_row_stride_elements,
+    const std::size_t output_capacity_elements,
+    void* const cuda_stream) noexcept {
+  return launch_sm87_a4w4_attention_o_k512_impl(
+      packed_a, packed_a_capacity_bytes, a_k512_scales_bf16,
+      a_scale_capacity_elements, packed_b, packed_b_capacity_bytes,
+      b_k512_scales_bf16, b_scale_capacity_elements, token_count,
+      output_size, input_size, output_bf16,
+      output_row_stride_elements, output_capacity_elements,
+      static_cast<unsigned int>(
+          kSm87A4W4AttentionOK512PersistentCtas),
+      cuda_stream);
+}
+
+int launch_sm87_a4w4_attention_o_k512_test_bf16_cuda(
+    const std::uint8_t* const packed_a,
+    const std::size_t packed_a_capacity_bytes,
+    const std::uint16_t* const a_k512_scales_bf16,
+    const std::size_t a_scale_capacity_elements,
+    const std::uint8_t* const packed_b,
+    const std::size_t packed_b_capacity_bytes,
+    const std::uint16_t* const b_k512_scales_bf16,
+    const std::size_t b_scale_capacity_elements,
+    const std::size_t token_count,
+    const std::size_t output_size,
+    const std::size_t input_size,
+    std::uint16_t* const output_bf16,
+    const std::size_t output_row_stride_elements,
+    const std::size_t output_capacity_elements,
+    const unsigned int maximum_launch_ctas,
+    void* const cuda_stream) noexcept {
+  return launch_sm87_a4w4_attention_o_k512_impl(
+      packed_a, packed_a_capacity_bytes, a_k512_scales_bf16,
+      a_scale_capacity_elements, packed_b, packed_b_capacity_bytes,
+      b_k512_scales_bf16, b_scale_capacity_elements, token_count,
+      output_size, input_size, output_bf16,
+      output_row_stride_elements, output_capacity_elements,
+      maximum_launch_ctas, cuda_stream);
 }
 
 }  // namespace q3x::kernels

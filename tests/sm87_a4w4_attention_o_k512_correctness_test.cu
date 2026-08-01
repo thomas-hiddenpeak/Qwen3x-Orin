@@ -98,7 +98,8 @@ struct DeviceBuffers final {
                             const std::size_t m_count,
                             const std::size_t n_count,
                             const std::size_t k_count,
-                            const unsigned int maximum_launch_ctas) {
+                            const unsigned int maximum_launch_ctas,
+                            const bool use_production_launcher) {
   using namespace q3x::kernels;
   const Sm87A4W4AttentionOK512Plan plan =
       sm87_a4w4_attention_o_k512_plan(m_count, n_count, k_count);
@@ -260,12 +261,56 @@ struct DeviceBuffers final {
     return false;
   }
 
-  const int launch_status =
-      launch_sm87_a4w4_attention_o_k512_test_bf16_cuda(
-          device.a, a_bytes, device.a_scales, a_scale_count, device.b,
-          b_bytes, device.b_scales, b_scale_count, m_count, n_count,
-          k_count, device.output, output_stride, output_count,
-          maximum_launch_ctas);
+  if (use_production_launcher) {
+    const int tail_status =
+        launch_sm87_a4w4_attention_o_k512_bf16_cuda(
+            device.a, a_bytes, device.a_scales, a_scale_count, device.b,
+            b_bytes, device.b_scales, b_scale_count, m_count - 1U,
+            n_count, k_count, device.output, output_stride, output_count);
+    if (tail_status != static_cast<int>(cudaErrorInvalidValue)) {
+      std::cerr << label
+                << ": production launcher accepted an M-tail shape\n";
+      return false;
+    }
+    const int capacity_status =
+        launch_sm87_a4w4_attention_o_k512_bf16_cuda(
+            device.a, a_bytes - 1U, device.a_scales, a_scale_count,
+            device.b, b_bytes, device.b_scales, b_scale_count, m_count,
+            n_count, k_count, device.output, output_stride,
+            output_count);
+    if (capacity_status != static_cast<int>(cudaErrorInvalidValue)) {
+      std::cerr << label
+                << ": production launcher accepted undersized A storage\n";
+      return false;
+    }
+    const int alias_status =
+        launch_sm87_a4w4_attention_o_k512_bf16_cuda(
+            device.a, a_bytes, device.a_scales, a_scale_count, device.b,
+            b_bytes, device.b_scales, b_scale_count, m_count, n_count,
+            k_count, reinterpret_cast<std::uint16_t*>(device.a),
+            output_stride, output_count);
+    if (alias_status != static_cast<int>(cudaErrorInvalidValue)) {
+      std::cerr << label
+                << ": production launcher accepted output/input aliasing\n";
+      return false;
+    }
+  }
+
+  const int launch_status = use_production_launcher
+                                ? launch_sm87_a4w4_attention_o_k512_bf16_cuda(
+                                      device.a, a_bytes, device.a_scales,
+                                      a_scale_count, device.b, b_bytes,
+                                      device.b_scales, b_scale_count,
+                                      m_count, n_count, k_count,
+                                      device.output, output_stride,
+                                      output_count)
+                                : launch_sm87_a4w4_attention_o_k512_test_bf16_cuda(
+                                      device.a, a_bytes, device.a_scales,
+                                      a_scale_count, device.b, b_bytes,
+                                      device.b_scales, b_scale_count,
+                                      m_count, n_count, k_count,
+                                      device.output, output_stride,
+                                      output_count, maximum_launch_ctas);
   if (launch_status != static_cast<int>(cudaSuccess)) {
     std::cerr << label << ": launch failed: "
               << cudaGetErrorString(static_cast<cudaError_t>(launch_status))
@@ -323,11 +368,11 @@ int main() {
             << ", local=" << resources.local_bytes
             << ", active_blocks_per_sm=" << resources.active_blocks_per_sm
             << '\n';
-  return run_case("single K512 macro", 128U, 64U, 512U, 1U) &&
+  return run_case("single K512 macro", 128U, 64U, 512U, 1U, true) &&
                  run_case("persistent two-macro grid", 256U, 128U,
-                          1'024U, 2U) &&
+                          1'024U, 2U, false) &&
                  run_case("real Attention-O K depth", 128U, 64U,
-                          6'144U, 1U)
+                          6'144U, 1U, true)
              ? 0
              : 1;
 }
