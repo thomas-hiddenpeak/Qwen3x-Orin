@@ -17,6 +17,7 @@ The external EvalScope/OpenAI result on the fixed natural P2K corpus is:
 | Shared global-flow experiment | 4/4 | 3,004.7 ms | 640.58 tok/s | 640.8404 tok/s |
 | Fragment-native v2 production candidate | 4/4 | 3,304.3 ms | 582.43 tok/s | 582.7297 tok/s |
 | Fragment-native M128N32 L1 experiment | 4/4 | 3,527.4 ms | 545.60 tok/s | 545.8841 tok/s |
+| Fragment-native direct M128N64 one-CTA | 4/4 | 2,736.2 ms | 703.35 tok/s | 703.7168 tok/s |
 | Retained v1 + ceil128 cumulative change | - | -452.9 ms (-14.27%) | +16.65% | +16.65% |
 
 The retained v1 plus ceil128 candidate therefore passes the experiment gate
@@ -336,6 +337,88 @@ panels.  The experiment admits lower occupancy only if compilation proves zero
 stack/spill; its first performance authority remains the same real API and
 external EvalScope P2K gate.
 
+## Retained fragment-native M128N64 one-CTA development baseline
+
+The direct follow-up implements the mechanism that M128N32 did not.  One
+256-thread CTA owns M128N64, and warp `w` owns M128N8.  Each warp loads one
+paired Gate/Up B record per K64 plane and feeds that record across eight M16
+panels.  Relative to the v2 M64N64 consumer, B record loads, K512 B-scale
+handling, and fragment feed are halved for the same logical output.  A uses a
+two-stage K512 `cp.async` ring; B remains a direct register operand and never
+enters shared memory.
+
+The resource and instruction gates are:
+
+```text
+threads / ownership     256 / 8 warps x M128N8
+registers               224 per thread
+dynamic shared          66,560 bytes
+active CTA/SM            1
+local stack / spill      0 / 0 bytes
+static B LDG.E.128       8 (16 in the rejected duplicate-M-owner draft)
+static IMMA.16864        128
+static LDGSTS            20
+separate STS             0
+```
+
+Contract validation and four BF16 bit-exact cases pass, including K5120 and
+M1920 persistent-stride coverage.  The first performance authority was again
+the real checkpoint, authenticated v2 publication, OpenAI API, and external
+EvalScope 1.9.1 fixed natural P2K corpus:
+
+```text
+success                 4/4
+test duration           10.9462 s
+average input           1924.75 tokens
+mean TTFT               2736.17 ms
+prompt throughput       703.3514 token/s
+total throughput        703.7168 token/s
+vs fragment-native v2   +20.7619% prompt throughput, -17.1944% TTFT
+vs retained v1          -0.5723% prompt throughput, +0.5760% TTFT
+```
+
+This is **retained as the fragment-native development baseline** because it
+is a large cumulative improvement over its v2 parent.  It is **not promoted
+to production** because the retained v1 K512 plus natural-ceil128 route still
+wins the whole-product comparison, albeit by only 0.57%.  This applies the
+separate experiment and production gates: a strong intermediate mechanism is
+preserved without displacing a faster production route.
+
+```text
+server ELF SHA256      3309dfb51ebbfcdd0d59e0ebd9c40ea20f659a18a36fbb365b94e45ad3483882
+server log SHA256      1da417b4d5a56b621ac0359c2f175d2a9c16faa416f6c8c0b60014089844f115
+summary SHA256         5e6e701c2eecf374dc32ca00359925bb61bbac4252935e3a5881708e9e0391bb
+provenance SHA256      41b8c643cb83cdd8ccac175ca667516a0069c22a46a4b0c42f476346146e6f5c
+```
+
+### Request-level structural attribution
+
+NSys captured only the second real EvalScope/OpenAI request.  Its timing is
+diagnostic, not a throughput verdict:
+
+| Kernel family | Retained v1 | Fragment-native v2 | Direct M128N64 | Direct vs v2 | Direct vs v1 |
+|---|---:|---:|---:|---:|---:|
+| Gate+Up | 888.941 ms | 1,278.063 ms | 969.944 ms | -308.119 ms (-24.11%) | +81.003 ms (+9.11%) |
+| Down | 523.248 ms | 540.490 ms | 543.331 ms | +2.841 ms (+0.53%) | +20.083 ms (+3.84%) |
+| MLP total | 1,412.189 ms | 1,818.553 ms | 1,513.275 ms | -305.278 ms (-16.79%) | +101.086 ms (+7.16%) |
+
+The direct M128 Gate kernel appears exactly 128 times and accounts for
+969.944 ms; the unchanged Down kernel appears 64 times and accounts for
+543.331 ms.  The next three projection families remain Attention pair at
+335.867 ms, Attention-O at 165.610 ms, and full-QKV at 98.069 ms.  This
+confirms that real M reuse, rather than L1 timing, caused the recovered Gate
+performance.  It also shows that a Gate-only cleanup cannot provide the next
+100-ms whole-P2K transition: the next complete cell must reduce another
+projection family's logical operand/feed work while preserving this Gate
+mechanism.
+
+```text
+NSys report SHA256     10219abb8746426d888bcc924dca692c3c5bbf380d23107a87f53f771eb593d4
+SQLite SHA256          38ff16d1f9637faf7146e0447a119534fb8af948be675814252922834ed1df5f
+kernel CSV SHA256      321019a3d585d4f8e3c45fc5d48562c5fb3744c9cac60c4ebb4693a912b8ba55
+profile log SHA256     ecb936f20eacdc77aed01026d74e0778fd798b85ed13a790b01a91e4184a6b66
+```
+
 Evidence directories:
 
 - comparator: `/home/rm01/q3x-k512-evalscope-p2048-baseline-4a90d1f`;
@@ -356,5 +439,9 @@ Evidence directories:
   `/home/rm01/q3x-mlp-k512-fragment-native-nsys-p2048-request2.nsys-rep`;
 - rejected fragment-native M128N32 run:
   `/home/rm01/q3x-mlp-k512-fragment-native-m128n32-evalscope-p2048`;
+- retained fragment-native M128N64 one-CTA run:
+  `/home/rm01/q3x-mlp-k512-fragment-native-m128n64-1cta-evalscope-p2048`;
+- fragment-native M128N64 request trace:
+  `/home/rm01/q3x-mlp-k512-fragment-native-m128n64-1cta-request2.nsys-rep`;
 - fragment-native v2 publication:
   `/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4-q3x-mlp-k512-fragment-native/weights-mlp-k512-fragment-native.bin`.

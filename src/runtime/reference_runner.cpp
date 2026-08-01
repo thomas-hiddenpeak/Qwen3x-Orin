@@ -18,6 +18,9 @@
 #if defined(Q3X_ENABLE_A4W4_GATEUP_K512_FRAGMENT_NATIVE_M128_ADMISSION)
 #include "q3x/kernels/sm87_a4w4_gateup_k512_fragment_native_m128.h"
 #endif
+#if defined(Q3X_ENABLE_A4W4_GATEUP_K512_FRAGMENT_NATIVE_M128N64_1CTA_ADMISSION)
+#include "q3x/kernels/sm87_a4w4_gateup_k512_fragment_native_m128n64_1cta.h"
+#endif
 #include "q3x/runtime/prefill_mlp_k512_fragment_native_overlay.h"
 #endif
 #include "q3x/kernels/sm87_a4w4_down_k128_stage_major.h"
@@ -7557,7 +7560,19 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
                 .element_capacity);
     const std::size_t mlp_launch_token_count =
         kernels::sm87_a4w4_prefill_k512_launch_token_count(token_count);
-#if defined(Q3X_ENABLE_A4W4_GATEUP_K512_FRAGMENT_NATIVE_M128_ADMISSION)
+#if defined(Q3X_ENABLE_A4W4_GATEUP_K512_FRAGMENT_NATIVE_M128N64_1CTA_ADMISSION)
+    const auto gateup_primary =
+        kernels::
+            sm87_a4w4_gateup_k512_fragment_native_m128n64_1cta_plan(
+                mlp_launch_token_count, kReferenceIntermediateSize,
+                kReferenceHiddenSize, 0U, kPrimaryProductColumns);
+    const auto gateup_secondary =
+        kernels::
+            sm87_a4w4_gateup_k512_fragment_native_m128n64_1cta_plan(
+                mlp_launch_token_count, kReferenceIntermediateSize,
+                kReferenceHiddenSize, kPrimaryProductColumns,
+                kSecondaryProductColumns);
+#elif defined(Q3X_ENABLE_A4W4_GATEUP_K512_FRAGMENT_NATIVE_M128_ADMISSION)
     const auto gateup_primary =
         kernels::sm87_a4w4_gateup_k512_fragment_native_m128_plan(
             mlp_launch_token_count, kReferenceIntermediateSize,
@@ -7623,7 +7638,21 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
             std::uint16_t* const output,
             const std::size_t output_row_stride_elements,
             const std::size_t output_capacity_elements) noexcept {
-#if defined(Q3X_ENABLE_A4W4_GATEUP_K512_FRAGMENT_NATIVE_M128_ADMISSION)
+#if defined(Q3X_ENABLE_A4W4_GATEUP_K512_FRAGMENT_NATIVE_M128N64_1CTA_ADMISSION)
+          return kernels::
+              launch_sm87_a4w4_gateup_k512_fragment_native_m128n64_1cta_bf16_cuda(
+                  views_.prefill_a4_hidden_packed,
+                  hidden_packed_capacity,
+                  views_.prefill_a4_hidden_scales,
+                  hidden_scale_capacity, fragment.gateup_codes,
+                  fragment.gateup_code_capacity_bytes,
+                  fragment.gateup_scales,
+                  fragment.gateup_scale_capacity_elements,
+                  mlp_launch_token_count, kReferenceIntermediateSize,
+                  kReferenceHiddenSize, n_start, n_count, output,
+                  output_row_stride_elements, output_capacity_elements,
+                  stream_);
+#elif defined(Q3X_ENABLE_A4W4_GATEUP_K512_FRAGMENT_NATIVE_M128_ADMISSION)
           return kernels::
               launch_sm87_a4w4_gateup_k512_fragment_native_m128_bf16_cuda(
                   views_.prefill_a4_hidden_packed,
@@ -7653,7 +7682,12 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
                   stream_);
 #endif
         };
-#if defined(Q3X_ENABLE_A4W4_GATEUP_K512_FRAGMENT_NATIVE_M128_ADMISSION)
+#if defined(Q3X_ENABLE_A4W4_GATEUP_K512_FRAGMENT_NATIVE_M128N64_1CTA_ADMISSION)
+    constexpr const char* kGateupPrimaryStage =
+        "prefill_projection_span_mlp_k512_fragment_native_m128n64_1cta_gateup_primary";
+    constexpr const char* kGateupSecondaryStage =
+        "prefill_projection_span_mlp_k512_fragment_native_m128n64_1cta_gateup_secondary";
+#elif defined(Q3X_ENABLE_A4W4_GATEUP_K512_FRAGMENT_NATIVE_M128_ADMISSION)
     constexpr const char* kGateupPrimaryStage =
         "prefill_projection_span_mlp_k512_fragment_native_m128_gateup_primary";
     constexpr const char* kGateupSecondaryStage =
