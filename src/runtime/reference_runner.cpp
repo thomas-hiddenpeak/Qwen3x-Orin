@@ -15,6 +15,9 @@
 #if defined(Q3X_ENABLE_A4W4_MLP_K512_FRAGMENT_NATIVE_ADMISSION)
 #include "q3x/kernels/sm87_a4w4_down_k512_fragment_native.h"
 #include "q3x/kernels/sm87_a4w4_gateup_k512_fragment_native.h"
+#if defined(Q3X_ENABLE_A4W4_GATEUP_K512_FRAGMENT_NATIVE_M128_ADMISSION)
+#include "q3x/kernels/sm87_a4w4_gateup_k512_fragment_native_m128.h"
+#endif
 #include "q3x/runtime/prefill_mlp_k512_fragment_native_overlay.h"
 #endif
 #include "q3x/kernels/sm87_a4w4_down_k128_stage_major.h"
@@ -7554,6 +7557,17 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
                 .element_capacity);
     const std::size_t mlp_launch_token_count =
         kernels::sm87_a4w4_prefill_k512_launch_token_count(token_count);
+#if defined(Q3X_ENABLE_A4W4_GATEUP_K512_FRAGMENT_NATIVE_M128_ADMISSION)
+    const auto gateup_primary =
+        kernels::sm87_a4w4_gateup_k512_fragment_native_m128_plan(
+            mlp_launch_token_count, kReferenceIntermediateSize,
+            kReferenceHiddenSize, 0U, kPrimaryProductColumns);
+    const auto gateup_secondary =
+        kernels::sm87_a4w4_gateup_k512_fragment_native_m128_plan(
+            mlp_launch_token_count, kReferenceIntermediateSize,
+            kReferenceHiddenSize, kPrimaryProductColumns,
+            kSecondaryProductColumns);
+#else
     const auto gateup_primary =
         kernels::sm87_a4w4_gateup_k512_fragment_native_plan(
             mlp_launch_token_count, kReferenceIntermediateSize,
@@ -7563,6 +7577,7 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
             mlp_launch_token_count, kReferenceIntermediateSize,
             kReferenceHiddenSize, kPrimaryProductColumns,
             kSecondaryProductColumns);
+#endif
     const auto down = kernels::sm87_a4w4_down_k512_fragment_native_plan(
         mlp_launch_token_count, kReferenceHiddenSize,
         kReferenceIntermediateSize);
@@ -7603,6 +7618,52 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
           "prefill_projection_span_mlp_k512_fragment_native_contract",
           item.layer_index);
     }
+    const auto launch_fragment_gateup =
+        [&](const std::size_t n_start, const std::size_t n_count,
+            std::uint16_t* const output,
+            const std::size_t output_row_stride_elements,
+            const std::size_t output_capacity_elements) noexcept {
+#if defined(Q3X_ENABLE_A4W4_GATEUP_K512_FRAGMENT_NATIVE_M128_ADMISSION)
+          return kernels::
+              launch_sm87_a4w4_gateup_k512_fragment_native_m128_bf16_cuda(
+                  views_.prefill_a4_hidden_packed,
+                  hidden_packed_capacity,
+                  views_.prefill_a4_hidden_scales,
+                  hidden_scale_capacity, fragment.gateup_codes,
+                  fragment.gateup_code_capacity_bytes,
+                  fragment.gateup_scales,
+                  fragment.gateup_scale_capacity_elements,
+                  mlp_launch_token_count, kReferenceIntermediateSize,
+                  kReferenceHiddenSize, n_start, n_count, output,
+                  output_row_stride_elements, output_capacity_elements,
+                  stream_);
+#else
+          return kernels::
+              launch_sm87_a4w4_gateup_k512_fragment_native_bf16_cuda(
+                  views_.prefill_a4_hidden_packed,
+                  hidden_packed_capacity,
+                  views_.prefill_a4_hidden_scales,
+                  hidden_scale_capacity, fragment.gateup_codes,
+                  fragment.gateup_code_capacity_bytes,
+                  fragment.gateup_scales,
+                  fragment.gateup_scale_capacity_elements,
+                  mlp_launch_token_count, kReferenceIntermediateSize,
+                  kReferenceHiddenSize, n_start, n_count, output,
+                  output_row_stride_elements, output_capacity_elements,
+                  stream_);
+#endif
+        };
+#if defined(Q3X_ENABLE_A4W4_GATEUP_K512_FRAGMENT_NATIVE_M128_ADMISSION)
+    constexpr const char* kGateupPrimaryStage =
+        "prefill_projection_span_mlp_k512_fragment_native_m128_gateup_primary";
+    constexpr const char* kGateupSecondaryStage =
+        "prefill_projection_span_mlp_k512_fragment_native_m128_gateup_secondary";
+#else
+    constexpr const char* kGateupPrimaryStage =
+        "prefill_projection_span_mlp_k512_fragment_native_gateup_primary";
+    constexpr const char* kGateupSecondaryStage =
+        "prefill_projection_span_mlp_k512_fragment_native_gateup_secondary";
+#endif
     if (!check_cuda(
             kernels::launch_sm87_a4_quantize_bf16_k512_cuda(
                 primary, kReferenceHiddenSize, token_count,
@@ -7613,31 +7674,16 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
                 stream_),
             "prefill_projection_span_mlp_k512_fragment_native_input_quantize") ||
         !check_cuda(
-            kernels::launch_sm87_a4w4_gateup_k512_fragment_native_bf16_cuda(
-                views_.prefill_a4_hidden_packed, hidden_packed_capacity,
-                views_.prefill_a4_hidden_scales, hidden_scale_capacity,
-                fragment.gateup_codes,
-                fragment.gateup_code_capacity_bytes,
-                fragment.gateup_scales,
-                fragment.gateup_scale_capacity_elements,
-                mlp_launch_token_count, kReferenceIntermediateSize,
-                kReferenceHiddenSize, 0U, kPrimaryProductColumns, primary,
-                kPrimaryProductColumns, primary_capacity, stream_),
-            "prefill_projection_span_mlp_k512_fragment_native_gateup_primary") ||
+            launch_fragment_gateup(
+                0U, kPrimaryProductColumns, primary,
+                kPrimaryProductColumns, primary_capacity),
+            kGateupPrimaryStage) ||
         !check_cuda(
-            kernels::launch_sm87_a4w4_gateup_k512_fragment_native_bf16_cuda(
-                views_.prefill_a4_hidden_packed, hidden_packed_capacity,
-                views_.prefill_a4_hidden_scales, hidden_scale_capacity,
-                fragment.gateup_codes,
-                fragment.gateup_code_capacity_bytes,
-                fragment.gateup_scales,
-                fragment.gateup_scale_capacity_elements,
-                mlp_launch_token_count, kReferenceIntermediateSize,
-                kReferenceHiddenSize, kPrimaryProductColumns,
-                kSecondaryProductColumns, secondary,
-                kRequestLongPrefillSecondaryWidth, secondary_capacity,
-                stream_),
-            "prefill_projection_span_mlp_k512_fragment_native_gateup_secondary") ||
+            launch_fragment_gateup(
+                kPrimaryProductColumns, kSecondaryProductColumns,
+                secondary, kRequestLongPrefillSecondaryWidth,
+                secondary_capacity),
+            kGateupSecondaryStage) ||
         !check_cuda(
             kernels::launch_sm87_a4_quantize_bf16_k512_split_cuda(
                 primary, kPrimaryProductColumns, kPrimaryProductColumns,

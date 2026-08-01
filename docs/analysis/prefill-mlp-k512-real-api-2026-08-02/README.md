@@ -16,6 +16,7 @@ The external EvalScope/OpenAI result on the fixed natural P2K corpus is:
 | MLP K512 + natural ceil128 | 4/4 | 2,720.5 ms | 707.40 tok/s | 707.7676 tok/s |
 | Shared global-flow experiment | 4/4 | 3,004.7 ms | 640.58 tok/s | 640.8404 tok/s |
 | Fragment-native v2 production candidate | 4/4 | 3,304.3 ms | 582.43 tok/s | 582.7297 tok/s |
+| Fragment-native M128N32 L1 experiment | 4/4 | 3,527.4 ms | 545.60 tok/s | 545.8841 tok/s |
 | Retained v1 + ceil128 cumulative change | - | -452.9 ms (-14.27%) | +16.65% | +16.65% |
 
 The retained v1 plus ceil128 candidate therefore passes the experiment gate
@@ -291,6 +292,50 @@ direct-B lane order, but restores balanced M128 ownership so those B fragments
 can be reused across the larger M tile without introducing a publication
 variable.
 
+## Rejected M128N32 same-CTA L1 experiment
+
+The first M128 follow-up deliberately answered one bounded structural
+question: can two adjacent M64 warp owners make the second direct-B load cheap
+enough through same-CTA `.ca` reuse while preserving two active CTAs per SM?
+The kernel uses an M128N32 CTA, 256 threads, a three-slot K128 A-only ring,
+119 registers/thread, 24,576 bytes of dynamic shared memory, two active
+CTAs/SM, and no local stack or spill.  Its K512/K1024 and model-K5120
+correctness cases are bitwise exact.
+
+It then ran through the authenticated v2 publication, the real checkpoint,
+OpenAI `/v1/completions`, and external EvalScope 1.9.1 on the fixed natural
+P2K corpus.  Four of four requests succeeded:
+
+```text
+test duration          14.1111 s
+average input          1924.75 tokens
+mean TTFT              3527.39 ms
+prompt throughput      545.5989 token/s
+total throughput       545.8841 token/s
+vs fragment-native v2  -6.3234% prompt throughput, +6.7505% TTFT
+vs retained v1         -22.8727% prompt throughput, +29.6596% TTFT
+```
+
+This is a hard **REJECT** and is not production eligible.  Covering the same
+M128N64 output region requires two N32 CTAs: B load/scale/feed instructions
+are not removed, while A presentation doubles.  The real result therefore
+rejects L1 timing plus two-CTA residency as the missing qualitative mechanism.
+No stage-count or cache-hint scan follows this failure.
+
+```text
+server ELF SHA256      c2a44a47ce98d6aac21d33081640a9382ba36868566f6edab5175d21603ba665
+server log SHA256      536df54215fb181ed8ba7c0c3defd7ec9e20a8d1f1e797e3ecd06df65095f5bc
+summary SHA256         4d90c1b702ea08c96547539ffc6a4d720d83a617eb2ec7a1488df7a72a49f247
+provenance SHA256      37c0da68e63e447b36e58c0618c358133da98ae5fa8e70427b5d5ff0020edfaa
+```
+
+The next qualitative Gate+Up candidate is direct M128N64 with one high-register
+persistent CTA per SM.  Relative to M64N64 it can actually halve B loads,
+scale handling, and fragment feed by reusing each B record across eight M16
+panels.  The experiment admits lower occupancy only if compilation proves zero
+stack/spill; its first performance authority remains the same real API and
+external EvalScope P2K gate.
+
 Evidence directories:
 
 - comparator: `/home/rm01/q3x-k512-evalscope-p2048-baseline-4a90d1f`;
@@ -309,5 +354,7 @@ Evidence directories:
   `/home/rm01/q3x-mlp-k512-evalscope-p2048-fragment-native`;
 - fragment-native v2 request trace:
   `/home/rm01/q3x-mlp-k512-fragment-native-nsys-p2048-request2.nsys-rep`;
+- rejected fragment-native M128N32 run:
+  `/home/rm01/q3x-mlp-k512-fragment-native-m128n32-evalscope-p2048`;
 - fragment-native v2 publication:
   `/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4-q3x-mlp-k512-fragment-native/weights-mlp-k512-fragment-native.bin`.
