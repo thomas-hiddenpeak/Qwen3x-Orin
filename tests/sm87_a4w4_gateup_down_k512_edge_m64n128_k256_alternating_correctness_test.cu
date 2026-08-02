@@ -637,7 +637,7 @@ int main() {
   }
 
   const bool ok =
-      run_case(64U, 128U, 512U, 1'536U, 2U, false, false) &&
+      run_case(64U, 128U, 512U, 2'048U, 2U, false, false) &&
       run_case(65U, 128U, 1'024U, 1'536U, 3U, true, false) &&
       run_case(129U, 256U, 1'024U, 1'536U, 3U, false, true);
   if (!ok) {
