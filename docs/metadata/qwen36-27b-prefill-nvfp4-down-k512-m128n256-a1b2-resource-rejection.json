@@ -1,0 +1,110 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-nvfp4-down-k512-m128n256-a1b2-resource-rejection",
+  "status": "resource-hard-rejected-before-correctness-or-performance",
+  "recorded_at": "2026-08-02T12:28:00+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "experiment_base_head": "6a0658d5e66ecf71fafec1763e095ea55525b01c",
+    "experiment_base_tree": "8b9fb71093e47ac173082ea59136a4c25becd3f0",
+    "candidate_scope": [
+      "include/q3x/kernels/sm87_a4w4_down_k512_m128n256.h",
+      "src/kernels/sm87/a4w4_down_k512_m128n256.cu"
+    ],
+    "candidate_code_retained": false,
+    "candidate_cleanup": "transient kernel, CMake, runner, and EvalScope wiring removed after the resource hard gate",
+    "production_dispatch_changed": false,
+    "current_best_alias_changed": false,
+    "decode_changed": false,
+    "mtp_used": false,
+    "transient_source_sha256": "915df44da061d5c62fa1ac53d5cea5067e44fd01f59c89b1a5eaddb7a3318cd1",
+    "transient_header_sha256": "7a4bbb51924480ea0def0a9305ed02c8ab87283687a50a6c4bd53867e1355488",
+    "final_sm87_object": {
+      "path": "/tmp/q3x-down-m128n256-standalone/a4w4_down_k512_m128n256-direct.o",
+      "bytes": 213200,
+      "sha256": "a0acc3e41d029af344bc4c04fcdb9036630c3e5147ac4dae5653bd7b6f0fbabf",
+      "target": "sm_87",
+      "build_type": "standalone optimized resource audit"
+    }
+  },
+  "experiment": {
+    "role": "Qwen3.6-27B NVFP4 Prefill Down projection",
+    "production_shape": {
+      "natural_padded_token_counts": [1792, 1920, 2176],
+      "output_size": 5120,
+      "input_size": 17408,
+      "weight_format": "canonical NVFP4 E2M1 with inherited K512 BF16 scales",
+      "output_format": "BF16 after one ordered FP32 accumulation"
+    },
+    "candidate": {
+      "tile": "M128N256",
+      "threads_per_cta": 512,
+      "warps_per_cta": 16,
+      "warp_ownership": "M128N16",
+      "shared_pipeline": "one 32-KiB A slot plus two 64-KiB B slots",
+      "dynamic_shared_bytes": 163840,
+      "schedule": "flat N-major persistent grid capped at 16 CTAs",
+      "logical_code_traffic_change_vs_two_m128n128_cells": "-25%",
+      "bit_order_requirement": "eight ordered K64 S32 MMAs followed by exactly one ordered K512 scale/FMA"
+    },
+    "resource_gate": {
+      "maximum_registers_per_thread": 128,
+      "required_stack_bytes": 0,
+      "required_spill_store_bytes": 0,
+      "required_spill_load_bytes": 0,
+      "required_local_bytes": 0,
+      "required_active_blocks_per_sm": 1
+    }
+  },
+  "compile_audit": {
+    "aggregate_output_form": {
+      "registers_per_thread": 128,
+      "stack_bytes": 328,
+      "spill_store_bytes": 844,
+      "spill_load_bytes": 612
+    },
+    "named_scalars_but_reference_parameters": {
+      "registers_per_thread": 128,
+      "stack_bytes": 328,
+      "spill_store_bytes": 844,
+      "spill_load_bytes": 612,
+      "interpretation": "not a valid final lifetime test because output scalar addresses still escaped through float references"
+    },
+    "direct_no_address_expansion": {
+      "registers_per_thread": 128,
+      "stack_bytes": 304,
+      "spill_store_bytes": 812,
+      "spill_load_bytes": 556,
+      "constant_bytes": 412,
+      "sass_ldl_instructions": 138,
+      "sass_stl_instructions": 202,
+      "result": "hard_gate_failed"
+    }
+  },
+  "correctness": {
+    "result": "not_run",
+    "reason": "resource admission is a prerequisite; no GPU kernel was launched"
+  },
+  "performance": {
+    "result": "not_run",
+    "openai_api_used": false,
+    "evalscope_used": false,
+    "claim": "no performance direction is inferred from a resource-rejected binary"
+  },
+  "decision": {
+    "rejected_mechanism": "single-kernel exact M128N256, 512-thread, 16-warp Down cell with persistent M128N16 FP32 output ownership",
+    "reason": "the fully direct form still requires a 304-byte stack and 812/556 bytes of spill traffic at the physical 128-register ceiling",
+    "closed_followups": [
+      "stage-count or cache-operator scans of this tile",
+      "global FP32 accumulator workspace",
+      "repeated-B split-output variants",
+      "reordered or lower-precision K512 accumulation"
+    ],
+    "next_priority": "a structural replacement for the approximately 600-ms Attention projection family, followed by GDN prompt-span fusion"
+  },
+  "limitations": [
+    "This rejects only the exact ownership and live-range skeleton above, not every possible M128N256 implementation.",
+    "The transient candidate never entered the production runner.",
+    "Synthetic matrices and real model weights were not timed because the resource prerequisite failed."
+  ]
+}

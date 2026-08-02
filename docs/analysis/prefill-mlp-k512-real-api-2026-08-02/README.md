@@ -850,6 +850,59 @@ provenance SHA256      ea318886b468ee661ce0072676fcea48f13ee312a56528955b3abd1e7
 server log SHA256      239205f7581b00b74d49e165efe859f7909e3039fbca3462cd0c983d68bf2ea8
 ```
 
+## Resource-rejected canonical Down M128N256 A1+B2 skeleton
+
+The next Down-only structural candidate kept the authenticated canonical
+K512 payload and changed the complete-cell ownership to M128N256.  Sixteen
+warps each owned M128N16, a flat N-major persistent schedule balanced all
+natural P2K work over sixteen SMs, and the 160-KiB shared layout devoted one
+32-KiB slot to A and two 64-KiB slots to B.  This is the correct operand
+pipeline for this aspect ratio: B[next] transfers while the current K512
+group computes, and the smaller A plane is replaced only after all readers
+leave it.
+
+Relative to two retained M128N128 cells, one M128N256 cell requests 96 KiB
+instead of 128 KiB of packed codes per K512 group.  The 25% logical-traffic
+reduction gives an absolute ideal Down ceiling of about 128 ms over the
+513.577-ms P1853 baseline, so this was a bounded structural probe rather than
+a tile-parameter scan.
+
+The candidate stopped at the mandatory compile-time resource gate.  The
+first aggregate form and an incompletely scalarized form both compiled to
+128 registers/thread, a 328-byte stack, 844 bytes of spill stores, and 612
+bytes of spill loads.  The final form directly expanded every ordered
+M16N16 update so that all 64 persistent FP32 outputs were named scalars and
+never had their addresses taken.  It still produced:
+
+```text
+registers/thread       128
+dynamic shared         163,840 bytes
+stack frame            304 bytes
+spill stores           812 bytes
+spill loads            556 bytes
+SASS local traffic     138 LDL + 202 STL instructions
+```
+
+Only 24 stack bytes and a small part of the spill traffic came from C++
+addressability.  The remaining live set is structural: 64 persistent FP32
+outputs plus two S32 MMA partials, A/B fragments, scales, addresses, and the
+pipeline state cannot satisfy the SM87 128-register ceiling with zero local
+traffic.  Shrinking that live set would require changing ownership, adding
+a global FP32 workspace, repeating operand flow, or changing the exact K512
+accumulation order; none is the same candidate.
+
+This is therefore a resource **HARD REJECT**.  No GPU kernel was launched,
+synthetic correctness was not run after the failed prerequisite, and no
+OpenAI API or EvalScope performance claim exists.  The transient source and
+all runtime/evaluation wiring were removed, so production remains the
+retained M64N128 GateUp edge plus v1 Down.  Work moves to the roughly 600-ms
+Attention projection family instead of scanning this Down tile.
+
+```text
+final transient source SHA256  915df44da061d5c62fa1ac53d5cea5067e44fd01f59c89b1a5eaddb7a3318cd1
+final SM87 object SHA256        a0acc3e41d029af344bc4c04fcdb9036630c3e5147ac4dae5653bd7b6f0fbabf
+```
+
 Evidence directories:
 
 - comparator: `/home/rm01/q3x-k512-evalscope-p2048-baseline-4a90d1f`;
