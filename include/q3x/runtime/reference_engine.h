@@ -108,6 +108,16 @@ struct ReferenceEngineOptions {
       prefill_mlp_k512_paired_gateup_canonical_down_policy_path;
   std::filesystem::path
       prefill_mlp_k512_paired_gateup_canonical_down_receipt_path;
+  // Authenticated projection-major Gate+Up v3 plus canonical-v1 Down
+  // publication.  This independent triplet is consumed only by the
+  // register-pipeline Gate+Up route and is mutually exclusive with every
+  // other K512 MLP publication.  All three paths are required together.
+  std::filesystem::path
+      prefill_mlp_k512_projection_major_gateup_canonical_down_payload_path;
+  std::filesystem::path
+      prefill_mlp_k512_projection_major_gateup_canonical_down_policy_path;
+  std::filesystem::path
+      prefill_mlp_k512_projection_major_gateup_canonical_down_receipt_path;
 };
 
 // Text-only messages accepted by the pinned Qwen 3.6 chat formatter. The
@@ -199,6 +209,9 @@ struct ReferenceGenerationTiming {
   // Request-local proof for the hybrid paired-GateUp/canonical-Down route.
   // A fully admitted Qwen3.6 request reports one hit per decoder layer.
   std::size_t gateup_m128n512_paired_ldmatrix_launch_hits = 0U;
+  // Independent proof for the projection-major register-pipeline Gate+Up
+  // route. A fully admitted Qwen3.6 request reports one hit per layer.
+  std::size_t gateup_m64n128_register_pipeline_launch_hits = 0U;
   // Independent proof for the optional pair-ring Down route.  Gate-only
   // hybrid admission deliberately leaves this at zero.
   std::size_t down_m128n128_ldmatrix_pairring_launch_hits = 0U;
@@ -272,6 +285,9 @@ struct ReferenceEngineLoadStats {
   double prefill_mlp_k512_fragment_native_overlay_milliseconds = 0.0;
   double
       prefill_mlp_k512_paired_gateup_canonical_down_overlay_milliseconds =
+          0.0;
+  double
+      prefill_mlp_k512_projection_major_gateup_canonical_down_overlay_milliseconds =
           0.0;
   double runner_factory_milliseconds = 0.0;
   ReferenceDecodeGraphCachePolicy decode_graph_cache_requested_policy =
@@ -433,6 +449,36 @@ struct ReferenceEngineLoadStats {
       prefill_mlp_k512_paired_gateup_canonical_down_overlay_receipt_sha256;
   std::string
       prefill_mlp_k512_paired_gateup_canonical_down_overlay_source_v1_receipt_sha256;
+  // Independent readiness proof for the projection-major Gate+Up v3 plus
+  // canonical-v1 Down ABI.  These fields never alias the old hybrid or
+  // fragment-native publication identities.
+  bool
+      prefill_mlp_k512_projection_major_gateup_canonical_down_overlay_requested =
+          false;
+  bool
+      prefill_mlp_k512_projection_major_gateup_canonical_down_overlay_enabled =
+          false;
+  std::size_t
+      prefill_mlp_k512_projection_major_gateup_canonical_down_overlay_layers =
+          0U;
+  std::uint64_t
+      prefill_mlp_k512_projection_major_gateup_canonical_down_overlay_bytes =
+          0U;
+  std::uint64_t
+      prefill_mlp_k512_projection_major_gateup_canonical_down_overlay_copy_chunks =
+          0U;
+  std::string
+      prefill_mlp_k512_projection_major_gateup_canonical_down_overlay_layout;
+  std::string
+      prefill_mlp_k512_projection_major_gateup_canonical_down_overlay_manifest_sha256;
+  std::string
+      prefill_mlp_k512_projection_major_gateup_canonical_down_overlay_policy_sha256;
+  std::string
+      prefill_mlp_k512_projection_major_gateup_canonical_down_overlay_payload_sha256;
+  std::string
+      prefill_mlp_k512_projection_major_gateup_canonical_down_overlay_receipt_sha256;
+  std::string
+      prefill_mlp_k512_projection_major_gateup_canonical_down_overlay_source_v1_receipt_sha256;
   // True only when tokenizer parsing and resident loading actually executed
   // concurrently. When true, total_milliseconds is wall time and phase
   // timings intentionally overlap.
@@ -696,6 +742,12 @@ struct ReferenceOneShotOptions {
       prefill_mlp_k512_paired_gateup_canonical_down_policy_path;
   std::filesystem::path
       prefill_mlp_k512_paired_gateup_canonical_down_receipt_path;
+  std::filesystem::path
+      prefill_mlp_k512_projection_major_gateup_canonical_down_payload_path;
+  std::filesystem::path
+      prefill_mlp_k512_projection_major_gateup_canonical_down_policy_path;
+  std::filesystem::path
+      prefill_mlp_k512_projection_major_gateup_canonical_down_receipt_path;
 };
 
 struct ReferenceOneShotGeneration {

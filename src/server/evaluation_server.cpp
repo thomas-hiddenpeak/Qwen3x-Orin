@@ -1013,6 +1013,9 @@ void execute_job(runtime::ReferenceEngine& engine,
             << " gateup_m128n512_paired_ldmatrix_launch_hits="
             << generated.value->timing
                    .gateup_m128n512_paired_ldmatrix_launch_hits
+            << " gateup_m64n128_register_pipeline_launch_hits="
+            << generated.value->timing
+                   .gateup_m64n128_register_pipeline_launch_hits
             << " down_m128n128_ldmatrix_pairring_launch_hits="
             << generated.value->timing
                    .down_m128n128_ldmatrix_pairring_launch_hits
@@ -1550,13 +1553,40 @@ void ingress_worker(
             "K256 A4 base payload and policy";
     return false;
   }
+  const bool mlp_k512_projection_major_payload =
+      !options
+           .prefill_mlp_k512_projection_major_gateup_canonical_down_payload_path
+           .empty();
+  const bool mlp_k512_projection_major_policy =
+      !options
+           .prefill_mlp_k512_projection_major_gateup_canonical_down_policy_path
+           .empty();
+  const bool mlp_k512_projection_major_receipt =
+      !options
+           .prefill_mlp_k512_projection_major_gateup_canonical_down_receipt_path
+           .empty();
+  if (mlp_k512_projection_major_payload !=
+          mlp_k512_projection_major_policy ||
+      mlp_k512_projection_major_payload !=
+          mlp_k512_projection_major_receipt) {
+    error = "projection-major-GateUp/canonical-Down K512 MLP payload, "
+            "source-v1 policy, and receipt are required together";
+    return false;
+  }
+  if (mlp_k512_projection_major_payload && !a4_payload) {
+    error = "projection-major-GateUp/canonical-Down K512 MLP requires the "
+            "explicit K256 A4 base payload and policy";
+    return false;
+  }
   const unsigned mlp_k512_publications =
       static_cast<unsigned>(mlp_k512_payload) +
       static_cast<unsigned>(mlp_k512_fragment_native_payload) +
-      static_cast<unsigned>(mlp_k512_hybrid_payload);
+      static_cast<unsigned>(mlp_k512_hybrid_payload) +
+      static_cast<unsigned>(mlp_k512_projection_major_payload);
   if (mlp_k512_publications > 1U) {
-    error = "K512 MLP v1, fragment-native v2, and paired-GateUp/"
-            "canonical-Down hybrid publications are mutually exclusive";
+    error = "K512 MLP v1, fragment-native v2, paired-GateUp/canonical-Down "
+            "hybrid, and projection-major-GateUp/canonical-Down "
+            "publications are mutually exclusive";
     return false;
   }
   if (a4_payload &&
@@ -1657,6 +1687,18 @@ int run_evaluation_server(const EvaluationServerOptions& options,
   engine_options
       .prefill_mlp_k512_paired_gateup_canonical_down_receipt_path =
       options.prefill_mlp_k512_paired_gateup_canonical_down_receipt_path;
+  engine_options
+      .prefill_mlp_k512_projection_major_gateup_canonical_down_payload_path =
+      options
+          .prefill_mlp_k512_projection_major_gateup_canonical_down_payload_path;
+  engine_options
+      .prefill_mlp_k512_projection_major_gateup_canonical_down_policy_path =
+      options
+          .prefill_mlp_k512_projection_major_gateup_canonical_down_policy_path;
+  engine_options
+      .prefill_mlp_k512_projection_major_gateup_canonical_down_receipt_path =
+      options
+          .prefill_mlp_k512_projection_major_gateup_canonical_down_receipt_path;
   engine_options.request_options.batch_size = 1U;
   engine_options.request_options.max_sequence_length =
       options.max_sequence_length;
@@ -1884,6 +1926,46 @@ int run_evaluation_server(const EvaluationServerOptions& options,
             << " prefill_mlp_k512_paired_gateup_canonical_down_source_v1_receipt_sha256="
             << load
                    .prefill_mlp_k512_paired_gateup_canonical_down_overlay_source_v1_receipt_sha256
+            << " prefill_mlp_k512_projection_major_gateup_canonical_down_ms="
+            << load
+                   .prefill_mlp_k512_projection_major_gateup_canonical_down_overlay_milliseconds
+            << " prefill_mlp_k512_projection_major_gateup_canonical_down_requested="
+            << (load
+                        .prefill_mlp_k512_projection_major_gateup_canonical_down_overlay_requested
+                    ? 1
+                    : 0)
+            << " prefill_mlp_k512_projection_major_gateup_canonical_down_enabled="
+            << (load
+                        .prefill_mlp_k512_projection_major_gateup_canonical_down_overlay_enabled
+                    ? 1
+                    : 0)
+            << " prefill_mlp_k512_projection_major_gateup_canonical_down_layers="
+            << load
+                   .prefill_mlp_k512_projection_major_gateup_canonical_down_overlay_layers
+            << " prefill_mlp_k512_projection_major_gateup_canonical_down_bytes="
+            << load
+                   .prefill_mlp_k512_projection_major_gateup_canonical_down_overlay_bytes
+            << " prefill_mlp_k512_projection_major_gateup_canonical_down_copy_chunks="
+            << load
+                   .prefill_mlp_k512_projection_major_gateup_canonical_down_overlay_copy_chunks
+            << " prefill_mlp_k512_projection_major_gateup_canonical_down_layout="
+            << load
+                   .prefill_mlp_k512_projection_major_gateup_canonical_down_overlay_layout
+            << " prefill_mlp_k512_projection_major_gateup_canonical_down_manifest_sha256="
+            << load
+                   .prefill_mlp_k512_projection_major_gateup_canonical_down_overlay_manifest_sha256
+            << " prefill_mlp_k512_projection_major_gateup_canonical_down_policy_sha256="
+            << load
+                   .prefill_mlp_k512_projection_major_gateup_canonical_down_overlay_policy_sha256
+            << " prefill_mlp_k512_projection_major_gateup_canonical_down_payload_sha256="
+            << load
+                   .prefill_mlp_k512_projection_major_gateup_canonical_down_overlay_payload_sha256
+            << " prefill_mlp_k512_projection_major_gateup_canonical_down_receipt_sha256="
+            << load
+                   .prefill_mlp_k512_projection_major_gateup_canonical_down_overlay_receipt_sha256
+            << " prefill_mlp_k512_projection_major_gateup_canonical_down_source_v1_receipt_sha256="
+            << load
+                   .prefill_mlp_k512_projection_major_gateup_canonical_down_overlay_source_v1_receipt_sha256
             << std::endl;
 
   bool fatal_accept_error = false;

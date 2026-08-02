@@ -40,7 +40,16 @@ void test_disabled_default(TestContext& test) {
   std::string error;
   test.expect(parse(arguments, options, error) && error.empty() &&
                   options.model_directory == "/model" &&
-                  options.profile_request_index == 0U,
+                  options.profile_request_index == 0U &&
+                  options
+                      .prefill_mlp_k512_projection_major_gateup_canonical_down_payload_path
+                      .empty() &&
+                  options
+                      .prefill_mlp_k512_projection_major_gateup_canonical_down_policy_path
+                      .empty() &&
+                  options
+                      .prefill_mlp_k512_projection_major_gateup_canonical_down_receipt_path
+                      .empty(),
               "omitting the diagnostic switch leaves profiling disabled");
 
   const char* const explicit_zero[] = {
@@ -409,6 +418,107 @@ void test_mlp_k512_paired_gateup_canonical_down_publication(
               "hybrid K512 never aliases the fragment-native v2 triplet");
 }
 
+void test_mlp_k512_projection_major_gateup_canonical_down_publication(
+    TestContext& test) {
+  const char* const valid[] = {
+      "qwen3x-eval-server",
+      "/model",
+      "--prefill-a4-payload",
+      "/publication/a4-k256.bin",
+      "--prefill-a4-policy",
+      "/publication/a4-k256-policy.json",
+      "--prefill-mlp-k512-projection-major-gateup-canonical-down-payload",
+      "/publication/mlp-k512-projection-major.bin",
+      "--prefill-mlp-k512-projection-major-gateup-canonical-down-policy",
+      "/publication/mlp-k512-v1-policy.json",
+      "--prefill-mlp-k512-projection-major-gateup-canonical-down-receipt",
+      "/publication/mlp-k512-projection-major-receipt.json"};
+  server::EvaluationServerOptions options;
+  std::string error;
+  test.expect(
+      parse(valid, options, error) && error.empty() &&
+          options
+                  .prefill_mlp_k512_projection_major_gateup_canonical_down_payload_path ==
+              "/publication/mlp-k512-projection-major.bin" &&
+          options
+                  .prefill_mlp_k512_projection_major_gateup_canonical_down_policy_path ==
+              "/publication/mlp-k512-v1-policy.json" &&
+          options
+                  .prefill_mlp_k512_projection_major_gateup_canonical_down_receipt_path ==
+              "/publication/mlp-k512-projection-major-receipt.json",
+      "a complete projection-major-GateUp/canonical-Down publication parses "
+      "as its own triplet");
+
+  const char* const incomplete[] = {
+      "qwen3x-eval-server",
+      "/model",
+      "--prefill-a4-payload",
+      "/publication/a4-k256.bin",
+      "--prefill-a4-policy",
+      "/publication/a4-k256-policy.json",
+      "--prefill-mlp-k512-projection-major-gateup-canonical-down-payload",
+      "/publication/mlp-k512-projection-major.bin",
+      "--prefill-mlp-k512-projection-major-gateup-canonical-down-policy",
+      "/publication/mlp-k512-v1-policy.json"};
+  options = {};
+  error.clear();
+  test.expect(!parse(incomplete, options, error) &&
+                  error.find("required together") != std::string::npos,
+              "an incomplete projection-major K512 publication is rejected");
+
+  const char* const missing_base[] = {
+      "qwen3x-eval-server",
+      "/model",
+      "--prefill-mlp-k512-projection-major-gateup-canonical-down-payload",
+      "/publication/mlp-k512-projection-major.bin",
+      "--prefill-mlp-k512-projection-major-gateup-canonical-down-policy",
+      "/publication/mlp-k512-v1-policy.json",
+      "--prefill-mlp-k512-projection-major-gateup-canonical-down-receipt",
+      "/publication/mlp-k512-projection-major-receipt.json"};
+  options = {};
+  error.clear();
+  test.expect(!parse(missing_base, options, error) &&
+                  error.find("explicit K256 A4") != std::string::npos,
+              "projection-major K512 requires the explicit K256 A4 base");
+
+  const char* const all_four_layouts[] = {
+      "qwen3x-eval-server",
+      "/model",
+      "--prefill-a4-payload",
+      "/publication/a4-k256.bin",
+      "--prefill-a4-policy",
+      "/publication/a4-k256-policy.json",
+      "--prefill-mlp-k512-payload",
+      "/publication/mlp-k512-v1.bin",
+      "--prefill-mlp-k512-policy",
+      "/publication/mlp-k512-v1-policy.json",
+      "--prefill-mlp-k512-receipt",
+      "/publication/mlp-k512-v1-receipt.json",
+      "--prefill-mlp-k512-fragment-native-payload",
+      "/publication/mlp-k512-v2.bin",
+      "--prefill-mlp-k512-fragment-native-policy",
+      "/publication/mlp-k512-v1-policy.json",
+      "--prefill-mlp-k512-fragment-native-receipt",
+      "/publication/mlp-k512-v2-receipt.json",
+      "--prefill-mlp-k512-paired-gateup-canonical-down-payload",
+      "/publication/mlp-k512-hybrid.bin",
+      "--prefill-mlp-k512-paired-gateup-canonical-down-policy",
+      "/publication/mlp-k512-v1-policy.json",
+      "--prefill-mlp-k512-paired-gateup-canonical-down-receipt",
+      "/publication/mlp-k512-hybrid-receipt.json",
+      "--prefill-mlp-k512-projection-major-gateup-canonical-down-payload",
+      "/publication/mlp-k512-projection-major.bin",
+      "--prefill-mlp-k512-projection-major-gateup-canonical-down-policy",
+      "/publication/mlp-k512-v1-policy.json",
+      "--prefill-mlp-k512-projection-major-gateup-canonical-down-receipt",
+      "/publication/mlp-k512-projection-major-receipt.json"};
+  options = {};
+  error.clear();
+  test.expect(!parse(all_four_layouts, options, error) &&
+                  error.find("mutually exclusive") != std::string::npos,
+              "all four K512 MLP publications are mutually exclusive");
+}
+
 }  // namespace
 
 int main() {
@@ -419,6 +529,7 @@ int main() {
   test_mlp_k512_publication(test);
   test_mlp_k512_fragment_native_publication(test);
   test_mlp_k512_paired_gateup_canonical_down_publication(test);
+  test_mlp_k512_projection_major_gateup_canonical_down_publication(test);
   if (test.failures() != 0) {
     std::cerr << test.failures()
               << " evaluation server CLI test(s) failed\n";

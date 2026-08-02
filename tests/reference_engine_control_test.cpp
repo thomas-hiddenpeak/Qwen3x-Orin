@@ -92,6 +92,7 @@ struct FakeRunner {
   std::size_t long_prefill_gateup_ldmatrix_pairfeed_launch_hits = 0U;
   std::size_t long_prefill_gateup_m128n512_fused_quantize_launch_hits = 64U;
   std::size_t long_prefill_gateup_m128n512_paired_ldmatrix_launch_hits = 64U;
+  std::size_t long_prefill_gateup_m64n128_register_pipeline_launch_hits = 64U;
   std::size_t long_prefill_down_m128n128_ldmatrix_pairring_launch_hits = 64U;
   std::size_t long_prefill_gdn_chunk64_native_launch_hits = 192U;
   std::size_t long_prefill_gdn_chunk64_native_logical_token_hits = 88'944U;
@@ -319,6 +320,8 @@ runtime::ReferenceLongPrefillOutcome fake_layer_major_prompt(
       fake.long_prefill_gateup_m128n512_fused_quantize_launch_hits;
   value.gateup_m128n512_paired_ldmatrix_launch_hits =
       fake.long_prefill_gateup_m128n512_paired_ldmatrix_launch_hits;
+  value.gateup_m64n128_register_pipeline_launch_hits =
+      fake.long_prefill_gateup_m64n128_register_pipeline_launch_hits;
   value.down_m128n128_ldmatrix_pairring_launch_hits =
       fake.long_prefill_down_m128n128_ldmatrix_pairring_launch_hits;
   value.gdn_chunk64_native_launch_hits =
@@ -856,6 +859,9 @@ void test_layer_major_prompt_admission(TestContext& test) {
             result.value->timing
                     .gateup_m128n512_paired_ldmatrix_launch_hits ==
                 fake.long_prefill_gateup_m128n512_paired_ldmatrix_launch_hits &&
+            result.value->timing
+                    .gateup_m64n128_register_pipeline_launch_hits ==
+                fake.long_prefill_gateup_m64n128_register_pipeline_launch_hits &&
             result.value->timing
                     .down_m128n128_ldmatrix_pairring_launch_hits ==
                 fake.long_prefill_down_m128n128_ldmatrix_pairring_launch_hits &&
@@ -1884,6 +1890,250 @@ void test_engine_backend_validation(TestContext& test) {
       "one-shot complete hybrid publication fails before resident loading "
       "when its runtime master selector is absent");
 
+  runtime::ReferenceEngineOptions partial_projection_major;
+  partial_projection_major
+      .prefill_mlp_k512_projection_major_gateup_canonical_down_payload_path =
+      "projection-major.bin";
+  const runtime::ReferenceEngineCreateResult partial_projection_major_created =
+      runtime::create_reference_engine("unused-model-directory",
+                                       partial_projection_major);
+  test.expect(
+      !partial_projection_major_created &&
+          partial_projection_major_created.diagnostic.code ==
+              runtime::ReferenceEngineError::kInvalidArgument &&
+          partial_projection_major_created.diagnostic.stage ==
+              "prefill_mlp_k512_projection_major_gateup_canonical_down_options",
+      "engine rejects a partial projection-major publication before asset "
+      "I/O");
+
+  runtime::ReferenceOneShotOptions partial_one_shot_projection_major;
+  partial_one_shot_projection_major
+      .prefill_mlp_k512_projection_major_gateup_canonical_down_receipt_path =
+      "projection-major.receipt.json";
+  const runtime::ReferenceOneShotResult partial_projection_major_one_shot =
+      runtime::generate_reference("unused-model-directory", "prompt",
+                                  partial_one_shot_projection_major);
+  test.expect(!partial_projection_major_one_shot &&
+                  partial_projection_major_one_shot.diagnostic.code ==
+                      runtime::ReferenceEngineError::kInvalidArgument &&
+                  partial_projection_major_one_shot.diagnostic.stage ==
+                      "one_shot_options",
+              "one-shot rejects a partial projection-major publication "
+              "before asset I/O");
+
+  constexpr const char* kProjectionMajorSelector =
+      "Q3X_RUN_A4W4_MLP_K512_PROJECTION_MAJOR_GATEUP_CANONICAL_DOWN_ADMISSION";
+  constexpr const char* kRegisterPipelineSelector =
+      "Q3X_RUN_A4W4_GATEUP_K512_M64N128_REGISTER_PIPELINE_ADMISSION";
+  (void)::setenv(kProjectionMajorSelector, "1", 1);
+  (void)::setenv(kRegisterPipelineSelector, "1", 1);
+  const runtime::ReferenceEngineCreateResult missing_projection_major_paths =
+      runtime::create_reference_engine("unused-model-directory", {});
+  (void)::unsetenv(kRegisterPipelineSelector);
+  (void)::unsetenv(kProjectionMajorSelector);
+  test.expect(
+      !missing_projection_major_paths &&
+          missing_projection_major_paths.diagnostic.code ==
+              runtime::ReferenceEngineError::kInvalidArgument &&
+          missing_projection_major_paths.diagnostic.stage ==
+              "prefill_mlp_k512_projection_major_gateup_canonical_down_options",
+      "projection-major runtime selectors fail closed when their triplet "
+      "is absent");
+
+  runtime::ReferenceEngineOptions missing_projection_major_selector;
+  missing_projection_major_selector.projection_backend =
+      runtime::ProjectionBackend::kSm87WeightOnly;
+  missing_projection_major_selector.prefill_a4_payload_path = "base.bin";
+  missing_projection_major_selector.prefill_a4_calibration_policy_path =
+      "base.json";
+  missing_projection_major_selector.prefill_a4_receipt_path =
+      "base.receipt.json";
+  missing_projection_major_selector
+      .prefill_mlp_k512_projection_major_gateup_canonical_down_payload_path =
+      "projection-major.bin";
+  missing_projection_major_selector
+      .prefill_mlp_k512_projection_major_gateup_canonical_down_policy_path =
+      "projection-major.policy.json";
+  missing_projection_major_selector
+      .prefill_mlp_k512_projection_major_gateup_canonical_down_receipt_path =
+      "projection-major.receipt.json";
+  const runtime::ReferenceEngineCreateResult missing_projection_major_master =
+      runtime::create_reference_engine("unused-model-directory",
+                                       missing_projection_major_selector);
+  test.expect(
+      !missing_projection_major_master &&
+          missing_projection_major_master.diagnostic.code ==
+              runtime::ReferenceEngineError::kInvalidArgument &&
+          missing_projection_major_master.diagnostic.stage ==
+              "prefill_mlp_k512_projection_major_gateup_canonical_down_options",
+      "complete projection-major publication fails before asset I/O when "
+      "its runtime selectors are absent");
+
+  runtime::ReferenceEngineOptions aliased_projection_major_paths =
+      missing_projection_major_selector;
+  aliased_projection_major_paths
+      .prefill_mlp_k512_projection_major_gateup_canonical_down_payload_path =
+      "projection-major.same";
+  aliased_projection_major_paths
+      .prefill_mlp_k512_projection_major_gateup_canonical_down_policy_path =
+      "projection-major.same";
+  aliased_projection_major_paths
+      .prefill_mlp_k512_projection_major_gateup_canonical_down_receipt_path =
+      "projection-major.same";
+  const runtime::ReferenceEngineCreateResult aliased_projection_major =
+      runtime::create_reference_engine("unused-model-directory",
+                                       aliased_projection_major_paths);
+  test.expect(
+      !aliased_projection_major &&
+          aliased_projection_major.diagnostic.code ==
+              runtime::ReferenceEngineError::kInvalidArgument &&
+          aliased_projection_major.diagnostic.stage ==
+              "prefill_mlp_k512_projection_major_gateup_canonical_down_options",
+      "projection-major payload, policy, and receipt paths must remain "
+      "distinct");
+
+  (void)::setenv(kProjectionMajorSelector, "1", 1);
+  const runtime::ReferenceEngineCreateResult missing_register_pipeline_leaf =
+      runtime::create_reference_engine("unused-model-directory",
+                                       missing_projection_major_selector);
+  (void)::unsetenv(kProjectionMajorSelector);
+  test.expect(!missing_register_pipeline_leaf &&
+                  missing_register_pipeline_leaf.diagnostic.code ==
+                      runtime::ReferenceEngineError::kInvalidArgument &&
+                  missing_register_pipeline_leaf.diagnostic.stage ==
+                      "prefill_mlp_k512_leaf_selectors",
+              "projection-major master cannot run without the independent "
+              "register-pipeline leaf selector");
+
+  runtime::ReferenceOneShotOptions
+      missing_one_shot_projection_major_selector;
+  missing_one_shot_projection_major_selector.projection_backend =
+      runtime::ProjectionBackend::kSm87WeightOnly;
+  missing_one_shot_projection_major_selector.prefill_a4_payload_path =
+      "base.bin";
+  missing_one_shot_projection_major_selector
+      .prefill_a4_calibration_policy_path = "base.json";
+  missing_one_shot_projection_major_selector.prefill_a4_receipt_path =
+      "base.receipt.json";
+  missing_one_shot_projection_major_selector
+      .prefill_mlp_k512_projection_major_gateup_canonical_down_payload_path =
+      "projection-major.bin";
+  missing_one_shot_projection_major_selector
+      .prefill_mlp_k512_projection_major_gateup_canonical_down_policy_path =
+      "projection-major.policy.json";
+  missing_one_shot_projection_major_selector
+      .prefill_mlp_k512_projection_major_gateup_canonical_down_receipt_path =
+      "projection-major.receipt.json";
+  const runtime::ReferenceOneShotResult
+      missing_one_shot_projection_major_master =
+          runtime::generate_reference(
+              "unused-model-directory", "prompt",
+              missing_one_shot_projection_major_selector);
+  test.expect(
+      !missing_one_shot_projection_major_master &&
+          missing_one_shot_projection_major_master.diagnostic.code ==
+              runtime::ReferenceEngineError::kInvalidArgument &&
+          missing_one_shot_projection_major_master.diagnostic.stage ==
+              "one_shot_options",
+      "one-shot complete projection-major publication fails before resident "
+      "loading when its runtime selectors are absent");
+
+  runtime::ReferenceOneShotOptions one_shot_projection_major_without_base;
+  one_shot_projection_major_without_base.projection_backend =
+      runtime::ProjectionBackend::kSm87WeightOnly;
+  one_shot_projection_major_without_base
+      .prefill_mlp_k512_projection_major_gateup_canonical_down_payload_path =
+      "projection-major.bin";
+  one_shot_projection_major_without_base
+      .prefill_mlp_k512_projection_major_gateup_canonical_down_policy_path =
+      "projection-major.policy.json";
+  one_shot_projection_major_without_base
+      .prefill_mlp_k512_projection_major_gateup_canonical_down_receipt_path =
+      "projection-major.receipt.json";
+  (void)::setenv(kProjectionMajorSelector, "1", 1);
+  (void)::setenv(kRegisterPipelineSelector, "1", 1);
+  const runtime::ReferenceOneShotResult
+      one_shot_projection_major_missing_base = runtime::generate_reference(
+          "unused-model-directory", "prompt",
+          one_shot_projection_major_without_base);
+  (void)::unsetenv(kRegisterPipelineSelector);
+  (void)::unsetenv(kProjectionMajorSelector);
+  test.expect(!one_shot_projection_major_missing_base &&
+                  one_shot_projection_major_missing_base.diagnostic.code ==
+                      runtime::ReferenceEngineError::kInvalidArgument &&
+                  one_shot_projection_major_missing_base.diagnostic.stage ==
+                      "one_shot_options",
+              "one-shot projection-major publication requires the explicit "
+              "K256 A4 base before asset loading");
+
+  (void)::setenv(kRegisterPipelineSelector, "1", 1);
+  const runtime::ReferenceEngineCreateResult orphan_register_pipeline =
+      runtime::create_reference_engine("unused-model-directory", {});
+  (void)::unsetenv(kRegisterPipelineSelector);
+  test.expect(!orphan_register_pipeline &&
+                  orphan_register_pipeline.diagnostic.code ==
+                      runtime::ReferenceEngineError::kInvalidArgument &&
+                  orphan_register_pipeline.diagnostic.stage ==
+                      "prefill_mlp_k512_leaf_selectors",
+              "register-pipeline leaf selector cannot run without its "
+              "projection-major publication master");
+
+  (void)::setenv(kProjectionMajorSelector, "1", 1);
+  (void)::setenv(kRegisterPipelineSelector, "1", 1);
+  runtime::ReferenceEngineOptions projection_major_without_base_options;
+  projection_major_without_base_options.projection_backend =
+      runtime::ProjectionBackend::kSm87WeightOnly;
+  projection_major_without_base_options
+      .prefill_mlp_k512_projection_major_gateup_canonical_down_payload_path =
+      "projection-major.bin";
+  projection_major_without_base_options
+      .prefill_mlp_k512_projection_major_gateup_canonical_down_policy_path =
+      "projection-major.policy.json";
+  projection_major_without_base_options
+      .prefill_mlp_k512_projection_major_gateup_canonical_down_receipt_path =
+      "projection-major.receipt.json";
+  const runtime::ReferenceEngineCreateResult projection_major_without_base =
+      runtime::create_reference_engine("unused-model-directory",
+                                       projection_major_without_base_options);
+  (void)::unsetenv(kRegisterPipelineSelector);
+  (void)::unsetenv(kProjectionMajorSelector);
+  test.expect(
+      !projection_major_without_base &&
+          projection_major_without_base.diagnostic.code ==
+              runtime::ReferenceEngineError::kInvalidArgument &&
+          projection_major_without_base.diagnostic.stage ==
+              "prefill_mlp_k512_projection_major_gateup_canonical_down_options",
+      "projection-major publication requires an explicit K256 A4 base "
+      "before model I/O");
+
+  runtime::ReferenceEngineOptions conflicting_projection_publications =
+      missing_projection_major_selector;
+  conflicting_projection_publications.prefill_mlp_k512_payload_path =
+      "v1.bin";
+  conflicting_projection_publications.prefill_mlp_k512_policy_path =
+      "v1.policy.json";
+  conflicting_projection_publications.prefill_mlp_k512_receipt_path =
+      "v1.receipt.json";
+  (void)::setenv(kProjectionMajorSelector, "1", 1);
+  (void)::setenv(kRegisterPipelineSelector, "1", 1);
+  (void)::setenv("Q3X_RUN_A4W4_MLP_K512_ADMISSION", "1", 1);
+  const runtime::ReferenceEngineCreateResult conflicting_projection_layouts =
+      runtime::create_reference_engine("unused-model-directory",
+                                       conflicting_projection_publications);
+  (void)::unsetenv("Q3X_RUN_A4W4_MLP_K512_ADMISSION");
+  (void)::unsetenv(kRegisterPipelineSelector);
+  (void)::unsetenv(kProjectionMajorSelector);
+  test.expect(
+      !conflicting_projection_layouts &&
+          conflicting_projection_layouts.diagnostic.code ==
+              runtime::ReferenceEngineError::kInvalidArgument &&
+          (conflicting_projection_layouts.diagnostic.stage ==
+               "prefill_mlp_k512_leaf_selectors" ||
+           conflicting_projection_layouts.diagnostic.stage ==
+               "prefill_mlp_k512_overlay_options"),
+      "projection-major and v1 K512 MLP publications are mutually "
+      "exclusive before model I/O");
+
   constexpr const char* kPairringSelector =
       "Q3X_RUN_A4W4_DOWN_K512_M128N128_LDMATRIX_PAIRRING_ADMISSION";
   constexpr const char* kMlpK512V1Selector =
@@ -2154,6 +2404,40 @@ void test_engine_backend_validation(TestContext& test) {
                   empty_load
                       .prefill_mlp_k512_paired_gateup_canonical_down_overlay_receipt_sha256
                       .empty() &&
+                  !empty_load
+                       .prefill_mlp_k512_projection_major_gateup_canonical_down_overlay_requested &&
+                  !empty_load
+                       .prefill_mlp_k512_projection_major_gateup_canonical_down_overlay_enabled &&
+                  empty_load
+                          .prefill_mlp_k512_projection_major_gateup_canonical_down_overlay_layers ==
+                      0U &&
+                  empty_load
+                          .prefill_mlp_k512_projection_major_gateup_canonical_down_overlay_bytes ==
+                      0U &&
+                  empty_load
+                          .prefill_mlp_k512_projection_major_gateup_canonical_down_overlay_copy_chunks ==
+                      0U &&
+                  empty_load
+                      .prefill_mlp_k512_projection_major_gateup_canonical_down_overlay_layout
+                      .empty() &&
+                  empty_load
+                      .prefill_mlp_k512_projection_major_gateup_canonical_down_overlay_manifest_sha256
+                      .empty() &&
+                  empty_load
+                      .prefill_mlp_k512_projection_major_gateup_canonical_down_overlay_policy_sha256
+                      .empty() &&
+                  empty_load
+                      .prefill_mlp_k512_projection_major_gateup_canonical_down_overlay_payload_sha256
+                      .empty() &&
+                  empty_load
+                      .prefill_mlp_k512_projection_major_gateup_canonical_down_overlay_receipt_sha256
+                      .empty() &&
+                  empty_load
+                      .prefill_mlp_k512_projection_major_gateup_canonical_down_overlay_source_v1_receipt_sha256
+                      .empty() &&
+                  empty_load
+                          .prefill_mlp_k512_projection_major_gateup_canonical_down_overlay_milliseconds ==
+                      0.0 &&
                   empty_load.request_long_prefill_token_capacity == 0U &&
                   empty_load
                           .request_long_prefill_projection_span_capacity ==

@@ -2708,6 +2708,108 @@ void test_paired_gateup_canonical_down_selector_and_accounting(
       "new request-local telemetry is zero for every unselected route");
 }
 
+void test_projection_major_gateup_canonical_down_selector_and_accounting(
+    TestContext& test) {
+  using Query =
+      detail::A4W4ProjectionMajorGateUpCanonicalDownSelectorQuery;
+  using Route = detail::A4W4ProjectionMajorGateUpCanonicalDownRoute;
+
+  Query query;
+  query.projection_span = true;
+  test.expect(
+      detail::select_a4w4_projection_major_gateup_canonical_down_route(
+          query) == Route::kDisabled,
+      "projection-major GateUp route is default-off");
+
+  query.master_requested = true;
+  test.expect(
+      detail::select_a4w4_projection_major_gateup_canonical_down_route(
+          query) == Route::kInvalid,
+      "projection-major master requires its fused Gate selector");
+  query = Query{};
+  query.gate_requested = true;
+  query.projection_span = true;
+  test.expect(
+      detail::select_a4w4_projection_major_gateup_canonical_down_route(
+          query) == Route::kInvalid,
+      "projection-major Gate selector requires its publication master");
+  query = Query{};
+  query.down_requested = true;
+  query.projection_span = true;
+  test.expect(
+      detail::select_a4w4_projection_major_gateup_canonical_down_route(
+          query) == Route::kInvalid,
+      "projection-major Down selector cannot run without fused GateUp");
+
+  query = Query{};
+  query.master_requested = true;
+  query.gate_requested = true;
+  query.projection_span = true;
+  test.expect(
+      detail::select_a4w4_projection_major_gateup_canonical_down_route(
+          query) == Route::kGateOnly,
+      "projection-major Gate route keeps canonical Down independently selectable");
+  query.down_requested = true;
+  test.expect(
+      detail::select_a4w4_projection_major_gateup_canonical_down_route(
+          query) == Route::kGateAndDown,
+      "projection-major route can select the independent Down successor");
+
+  Query conflict = query;
+  conflict.legacy_publication_requested = true;
+  const bool publication_rejected =
+      detail::select_a4w4_projection_major_gateup_canonical_down_route(
+          conflict) == Route::kInvalid;
+  conflict = query;
+  conflict.legacy_gate_requested = true;
+  const bool gate_rejected =
+      detail::select_a4w4_projection_major_gateup_canonical_down_route(
+          conflict) == Route::kInvalid;
+  conflict = query;
+  conflict.legacy_down_requested = true;
+  const bool down_rejected =
+      detail::select_a4w4_projection_major_gateup_canonical_down_route(
+          conflict) == Route::kInvalid;
+  conflict = query;
+  conflict.projection_span = false;
+  const bool non_span_rejected =
+      detail::select_a4w4_projection_major_gateup_canonical_down_route(
+          conflict) == Route::kInvalid;
+  test.expect(publication_rejected && gate_rejected && down_rejected &&
+                  non_span_rejected,
+              "projection-major route rejects every old publication/leaf family and non-span dispatch");
+
+  constexpr std::size_t kBeforeGate = 13U;
+  constexpr std::size_t kBeforeDown = 5U;
+  constexpr std::size_t kTwoSpanHits =
+      2U * runtime::kReferenceDecoderLayerCount;
+  test.expect(
+      detail::a4w4_projection_major_gateup_canonical_down_accounting_valid(
+          Route::kDisabled, 2U, kBeforeGate, kBeforeGate, kBeforeDown,
+          kBeforeDown) &&
+          detail::a4w4_projection_major_gateup_canonical_down_accounting_valid(
+              Route::kGateOnly, 2U, kBeforeGate,
+              kBeforeGate + kTwoSpanHits, kBeforeDown, kBeforeDown) &&
+          detail::a4w4_projection_major_gateup_canonical_down_accounting_valid(
+              Route::kGateAndDown, 2U, kBeforeGate,
+              kBeforeGate + kTwoSpanHits, kBeforeDown,
+              kBeforeDown + kTwoSpanHits),
+      "projection-major accounting requires exactly spans times 64 independent Gate/Down hits");
+  test.expect(
+      !detail::a4w4_projection_major_gateup_canonical_down_accounting_valid(
+          Route::kGateOnly, 2U, kBeforeGate,
+          kBeforeGate + kTwoSpanHits - 1U, kBeforeDown, kBeforeDown) &&
+          !detail::a4w4_projection_major_gateup_canonical_down_accounting_valid(
+              Route::kGateAndDown, 2U, kBeforeGate,
+              kBeforeGate + kTwoSpanHits, kBeforeDown,
+              kBeforeDown + kTwoSpanHits - 1U),
+      "projection-major accounting rejects partial Gate or Down ownership");
+
+  const runtime::ReferenceLongPrefillResult result;
+  test.expect(result.gateup_m64n128_register_pipeline_launch_hits == 0U,
+              "projection-major request telemetry defaults to zero");
+}
+
 void test_down_m128n128_ldmatrix_pairring_v1_selector_and_accounting(
     TestContext& test) {
   using Query =
@@ -2982,6 +3084,7 @@ int main() {
   test_a4w4_full_prefill_admission_controls(test);
   test_prefill_admission_gate_orthogonality(test);
   test_paired_gateup_canonical_down_selector_and_accounting(test);
+  test_projection_major_gateup_canonical_down_selector_and_accounting(test);
   test_down_m128n128_ldmatrix_pairring_v1_selector_and_accounting(test);
   test_down_m128n128_16warp_pairring_v1_selector_and_accounting(test);
   test_attention_k256_a_exchange_b4_selector_and_accounting(test);

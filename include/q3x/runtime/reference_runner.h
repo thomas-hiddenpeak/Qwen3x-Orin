@@ -251,6 +251,11 @@ struct ReferenceLongPrefillResult {
   // launched its M128N512 Gate+Up kernel once for every decoder layer and
   // projection span.  It remains zero for every other route.
   std::size_t gateup_m128n512_paired_ldmatrix_launch_hits = 0U;
+  // Request-local proof that the projection-major publication launched the
+  // fused M64N512 Gate+Up -> signed-A4/K512 edge once for every decoder
+  // layer and projection span.  It never aliases the older paired-layout
+  // counter even though both routes consume a composite MLP publication.
+  std::size_t gateup_m64n128_register_pipeline_launch_hits = 0U;
   // The optional pair-ring Down selector has an independent request-local
   // proof.  Gate-only admission deliberately leaves this at zero.
   std::size_t down_m128n128_ldmatrix_pairring_launch_hits = 0U;
@@ -1433,6 +1438,79 @@ a4w4_paired_gateup_canonical_down_accounting_valid(
   return false;
 }
 
+// The projection-major-GateUp/canonical-Down publication owns a physically
+// distinct production route.  Keep its selector and accounting independent
+// from the older paired-layout route so API telemetry proves the exact
+// weight layout and kernel that executed.
+enum class A4W4ProjectionMajorGateUpCanonicalDownRoute : std::uint8_t {
+  kDisabled = 0,
+  kInvalid,
+  kGateOnly,
+  kGateAndDown,
+};
+
+struct A4W4ProjectionMajorGateUpCanonicalDownSelectorQuery final {
+  bool master_requested = false;
+  bool gate_requested = false;
+  bool down_requested = false;
+  bool legacy_publication_requested = false;
+  bool legacy_gate_requested = false;
+  bool legacy_down_requested = false;
+  bool projection_span = false;
+};
+
+[[nodiscard]] constexpr A4W4ProjectionMajorGateUpCanonicalDownRoute
+select_a4w4_projection_major_gateup_canonical_down_route(
+    const A4W4ProjectionMajorGateUpCanonicalDownSelectorQuery& query)
+    noexcept {
+  const bool any_new_selector =
+      query.master_requested || query.gate_requested || query.down_requested;
+  if (!any_new_selector) {
+    return A4W4ProjectionMajorGateUpCanonicalDownRoute::kDisabled;
+  }
+  if (!query.master_requested || !query.gate_requested ||
+      !query.projection_span || query.legacy_publication_requested ||
+      query.legacy_gate_requested || query.legacy_down_requested) {
+    return A4W4ProjectionMajorGateUpCanonicalDownRoute::kInvalid;
+  }
+  return query.down_requested
+             ? A4W4ProjectionMajorGateUpCanonicalDownRoute::kGateAndDown
+             : A4W4ProjectionMajorGateUpCanonicalDownRoute::kGateOnly;
+}
+
+[[nodiscard]] constexpr bool
+a4w4_projection_major_gateup_canonical_down_accounting_valid(
+    const A4W4ProjectionMajorGateUpCanonicalDownRoute route,
+    const std::size_t projection_span_count,
+    const std::size_t gate_hits_before,
+    const std::size_t gate_hits_after,
+    const std::size_t down_hits_before,
+    const std::size_t down_hits_after) noexcept {
+  if (route == A4W4ProjectionMajorGateUpCanonicalDownRoute::kInvalid ||
+      gate_hits_after < gate_hits_before ||
+      down_hits_after < down_hits_before ||
+      projection_span_count >
+          std::numeric_limits<std::size_t>::max() /
+              kReferenceDecoderLayerCount) {
+    return false;
+  }
+  const std::size_t expected =
+      projection_span_count * kReferenceDecoderLayerCount;
+  const std::size_t gate_delta = gate_hits_after - gate_hits_before;
+  const std::size_t down_delta = down_hits_after - down_hits_before;
+  switch (route) {
+    case A4W4ProjectionMajorGateUpCanonicalDownRoute::kDisabled:
+      return gate_delta == 0U && down_delta == 0U;
+    case A4W4ProjectionMajorGateUpCanonicalDownRoute::kGateOnly:
+      return gate_delta == expected && down_delta == 0U;
+    case A4W4ProjectionMajorGateUpCanonicalDownRoute::kGateAndDown:
+      return gate_delta == expected && down_delta == expected;
+    case A4W4ProjectionMajorGateUpCanonicalDownRoute::kInvalid:
+      return false;
+  }
+  return false;
+}
+
 // The pair-ring Down kernel is also an independent leaf replacement for the
 // authenticated v1 K512 MLP publication.  Gate+Up ownership is deliberately
 // absent from this selector: the retained edge, alternating edge, or the v1
@@ -1831,6 +1909,13 @@ class ReferenceRunner {
   ProjectionBackend projection_backend_ = ProjectionBackend::kReference;
   reference_runner_detail::A4W4PrefillConsumer a4w4_prefill_consumer_ =
       reference_runner_detail::A4W4PrefillConsumer::kUnavailable;
+  // Factory-authenticated immutable route decision. Long-Prefill execution
+  // must never re-read thread-local environment selectors and silently pick
+  // a different publication or kernel on a worker thread.
+  reference_runner_detail::A4W4ProjectionMajorGateUpCanonicalDownRoute
+      a4w4_projection_major_gateup_canonical_down_route_ =
+          reference_runner_detail::
+              A4W4ProjectionMajorGateUpCanonicalDownRoute::kDisabled;
   bool a4w4_full_prefill_admission_enabled_ = false;
   bool trace_enabled_ = false;
   bool trace_valid_ = false;

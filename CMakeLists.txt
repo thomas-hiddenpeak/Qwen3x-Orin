@@ -162,6 +162,10 @@ option(Q3X_BUILD_SM87_A4W4_MLP_K512_FRAGMENT_NATIVE_EXPERIMENT
   "Build the equal-byte fragment-native MLP K512 kernel experiment"
   OFF
 )
+option(Q3X_BUILD_SM87_A4W4_GATEUP_K512_M64N128_REGISTER_PIPELINE_EXPERIMENT
+  "Build the default-off M64N128 projection-major register-pipeline fused-edge experiment"
+  OFF
+)
 option(Q3X_BUILD_SM87_A4W4_GATEUP_K512_FRAGMENT_NATIVE_M128_EXPERIMENT
   "Build the M128-balanced Gate+Up consumer over the fragment-native payload"
   OFF
@@ -472,6 +476,13 @@ if(Q3X_BUILD_SM87_A4W4_MLP_K512_FRAGMENT_NATIVE_EXPERIMENT AND
     NOT Q3X_BUILD_SM87_A4W4_MLP_K512_ADMISSION))
   message(FATAL_ERROR
     "The MLP K512 fragment-native experiment requires BUILD_TESTING=ON and the authenticated full-A4 route"
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_GATEUP_K512_M64N128_REGISTER_PIPELINE_EXPERIMENT AND
+   (NOT BUILD_TESTING OR NOT Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION OR
+    NOT Q3X_BUILD_SM87_A4W4_MLP_K512_ADMISSION))
+  message(FATAL_ERROR
+    "The M64N128 projection-major Gate+Up experiment requires BUILD_TESTING=ON and the authenticated full-A4 K512 MLP route"
   )
 endif()
 if(Q3X_BUILD_SM87_A4W4_GATEUP_K512_FRAGMENT_NATIVE_M128_EXPERIMENT AND
@@ -976,6 +987,18 @@ if(Q3X_BUILD_SM87_A4W4_MLP_K512_FRAGMENT_NATIVE_EXPERIMENT)
     )
   endif()
 endif()
+if(Q3X_BUILD_SM87_A4W4_GATEUP_K512_M64N128_REGISTER_PIPELINE_EXPERIMENT)
+  target_sources(q3x_kernels PRIVATE
+    src/kernels/sm87/a4w4_gateup_k512_m64n128_register_pipeline.cu
+  )
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_A4W4_GATEUP_K512_M64N128_REGISTER_PIPELINE_ADMISSION=1
+  )
+  set_source_files_properties(
+    src/kernels/sm87/a4w4_gateup_k512_m64n128_register_pipeline.cu
+    PROPERTIES COMPILE_OPTIONS "--maxrregcount=128;-Xptxas=-v;-Xptxas=-warn-spills"
+  )
+endif()
 if(Q3X_BUILD_SM87_A4W4_GATEUP_PROJECTION_V3_ADMISSION)
   target_sources(q3x_kernels PRIVATE
     src/kernels/sm87/a4w4_gateup_projection_v3.cu
@@ -1121,6 +1144,11 @@ endif()
 if(Q3X_BUILD_SM87_A4W4_GATEUP_K512_M128N512_FUSED_QUANTIZE_EXPERIMENT)
   target_compile_definitions(q3x_engine PRIVATE
     Q3X_ENABLE_A4W4_GATEUP_K512_M128N512_FUSED_QUANTIZE_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_GATEUP_K512_M64N128_REGISTER_PIPELINE_EXPERIMENT)
+  target_compile_definitions(q3x_engine PRIVATE
+    Q3X_ENABLE_A4W4_GATEUP_K512_M64N128_REGISTER_PIPELINE_ADMISSION=1
   )
 endif()
 if(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M128N512_PAIRED_LDMATRIX_ADMISSION)
@@ -2212,6 +2240,24 @@ if(BUILD_TESTING)
       q3x_sm87_a4w4_gateup_k512_macrocell_correctness_test
     )
 
+    if(Q3X_BUILD_SM87_A4W4_GATEUP_K512_M64N128_REGISTER_PIPELINE_EXPERIMENT)
+      add_executable(
+        q3x_sm87_a4w4_gateup_k512_m64n128_register_pipeline_correctness_test
+        tests/sm87_a4w4_gateup_k512_m64n128_register_pipeline_correctness_test.cu
+      )
+      target_link_libraries(
+        q3x_sm87_a4w4_gateup_k512_m64n128_register_pipeline_correctness_test
+        PRIVATE q3x::kernels CUDA::cudart
+      )
+      target_compile_options(
+        q3x_sm87_a4w4_gateup_k512_m64n128_register_pipeline_correctness_test
+        PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>
+      )
+      q3x_enable_warnings(
+        q3x_sm87_a4w4_gateup_k512_m64n128_register_pipeline_correctness_test
+      )
+    endif()
+
     if(Q3X_BUILD_SM87_A4W4_GATEUP_K512_M128N128_PROJECTION_SERIAL_EXPERIMENT)
       add_executable(
         q3x_sm87_a4w4_gateup_k512_m128n128_projection_serial_contract_test
@@ -2944,6 +2990,21 @@ if(BUILD_TESTING)
       RESOURCE_LOCK q3x_sm87_gpu
       TIMEOUT 300
     )
+    if(Q3X_BUILD_SM87_A4W4_GATEUP_K512_M64N128_REGISTER_PIPELINE_EXPERIMENT)
+      add_test(
+        NAME sm87_a4w4_gateup_k512_m64n128_register_pipeline_correctness
+        COMMAND "${Q3X_FLOCK_EXECUTABLE}" -x /tmp/q3x-gpu-bench.lock
+                $<TARGET_FILE:q3x_sm87_a4w4_gateup_k512_m64n128_register_pipeline_correctness_test>
+      )
+      set_tests_properties(
+        sm87_a4w4_gateup_k512_m64n128_register_pipeline_correctness
+        PROPERTIES
+        LABELS "cuda;sm87;prefill;mlp;a4w4;k512;gateup;m64n128;projection-major;register-pipeline;fused-edge;correctness;resources;scalar;canary;graph;synthetic"
+        SKIP_RETURN_CODE 77
+        RESOURCE_LOCK q3x_sm87_gpu
+        TIMEOUT 1200
+      )
+    endif()
     if(Q3X_BUILD_SM87_A4W4_GATEUP_K512_M128N128_PROJECTION_SERIAL_EXPERIMENT)
       add_test(
         NAME sm87_a4w4_gateup_k512_m128n128_projection_serial_correctness
