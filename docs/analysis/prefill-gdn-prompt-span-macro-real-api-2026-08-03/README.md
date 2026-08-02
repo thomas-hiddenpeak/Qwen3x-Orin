@@ -107,19 +107,65 @@ reference_engine_control                        PASS
 pure_prefill_evalscope_harness_test              63/63 PASS
 ```
 
-## Next attribution step
+## Request-scoped NSys attribution
 
-The negative result is large enough that no statistical closure or local
-parameter sweep is justified. Request-scoped NSys attribution should compare
-the candidate against the existing promoted A-exchange/B4 P1853 profile and
-separate:
+The promoted baseline and candidate were captured on the natural P1853 API
+request with the same server ELF and request-index profiler contract. The
+profiled server Prefill spans were 1,951.12 ms and 2,066.46 ms respectively.
+EvalScope reported 2,432.98 ms candidate TTFT because its client-visible timer
+also observed profiler capture/export synchronization; that number is not used
+as a performance result. The non-profiled real-API table above remains the
+decision authority.
 
-1. sliced token-parallel Conv+compact-Q/K and D2D publication;
-2. prompt-span gate and raw-Gram producers;
-3. the persistent macro itself;
-4. all unchanged GEMM and Attention families.
+| GPU family | Baseline | Candidate | Change |
+|---|---:|---:|---:|
+| Five replaced state/output families | 205.469888 ms | 0 | -205.469888 ms |
+| `c64_macro_kernel` | 0 | 312.026912 ms | **+312.026912 ms** |
+| Replacement net | 205.469888 ms | 312.026912 ms | **+106.557024 ms** |
+| Conv + compact Q/K | 35.496480 ms | 36.136224 ms | +0.639744 ms |
+| Gate producer | 2.032928 ms | 1.301472 ms | -0.731456 ms |
+| Compact lower Gram | 6.354688 ms | 5.336896 ms | -1.017792 ms |
+| All CUDA kernels | 1,933.605536 ms | 2,042.087744 ms | **+108.482208 ms** |
+| Device-to-device copies | 13.455456 ms | 21.699808 ms | **+8.244352 ms** |
 
-Only an attribution that points to a different global dataflow (for example,
-a true full-span fused preprocess plus a lower-cost state consumer) can reopen
-this direction. The current implementation must not be promoted or
-incrementally micro-tuned.
+The candidate moved 1,943,011,328 D2D bytes versus 1,214,382,080 bytes in the
+baseline, a net increase of 728,629,248 bytes. Kernel time plus D2D time grew by
+116.726560 ms, which closes the profiled server-span regression to within
+1.39 ms. The sliced Conv itself accounts for only 0.64 ms; it is not the
+primary failure.
+
+The rejected macro reduced the whole model to 48 giant CTAs. Each CTA uses 256
+threads, 210 registers/thread and 115,200 bytes of dynamic shared memory, so it
+runs at one CTA/SM while serially carrying the full prompt recurrence. That
+lost parallelism makes the fused macro 51.86% slower than the five kernels it
+replaced. This confirms that the current skeleton must not be incrementally
+micro-tuned.
+
+Evidence:
+
+```text
+baseline SQLite       /tmp/q3x-attention-aexchange-a61d-profile.sqlite
+candidate NSys        /tmp/q3x-gdn-prompt-span-macro-p1853-profile.nsys-rep
+candidate SQLite      /tmp/q3x-gdn-prompt-span-macro-p1853-profile.sqlite
+candidate EvalScope   /tmp/q3x-gdn-prompt-span-macro-profile-p2k1
+baseline SQLite SHA   d1a0d2b84115d1a6d345c5f4f0ba74f092a3222ae6a498865f07cac3b8a17541
+candidate NSys SHA    5497a4c480190f3b4b84688c8b8625cae1831c806041ae15254330fe63c252b6
+candidate SQLite SHA  49607c325ba83aec6a4df8e64d214b8d237e005efef5db761e54d9b3f2b1e141
+candidate summary SHA a82b4bd03d3de1fbc3beac8ab80de160132dbf01633f24b5ce1cd56be064bcf3
+candidate provenance  fa66ce53fa539aa5ac9b3aefdeb4248aef020582cb6155fce6fde946bf954dcd
+```
+
+## Next structural direction
+
+Any GDN revisit must restore chunk/head parallelism for WY work and avoid the
+giant one-CTA-per-head full-prompt loop. A viable design must also remove the
+net D2D traffic with a true full-span Conv+compact-Q/K/V producer and use a
+lower-resource state/output consumer. This is a new dataflow, not a parameter
+variant of the rejected macro.
+
+The production profile also sets the global priority: Gate/Up consumes
+746.902656 ms, Down consumes 285.900544 ms, and the broad Attention plane
+consumes 489.183328 ms. Even eliminating GDN entirely would not reach the
+2,000-token/s target, so the next primary implementation target is a structural
+large-M Gate/Up dataflow; GDN work proceeds only when its replacement design
+preserves enough parallelism to predict a material whole-runner gain.
