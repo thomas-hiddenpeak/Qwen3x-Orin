@@ -1789,13 +1789,13 @@ void test_optimized_prefill_engine_derivation(TestContext& test) {
     bool expected_projection_span;
   };
   constexpr std::array<Case, 7U> kCases = {{
-      {512U, 0U, 0U, 206'438'400U, false, false},
-      {513U, 513U, 512U, 235'885'056U, true, true},
-      {2'048U, 2'048U, 2'048U, 443'318'272U, true, true},
-      {4'095U, 4'095U, 3'584U, 694'923'264U, true, true},
-      {4'096U, 4'096U, 4'096U, 720'011'264U, true, true},
-      {40'960U, 40'960U, 4'096U, 3'903'225'856U, true, true},
-      {40'961U, 40'960U, 4'096U, 3'903'292'160U, false, false},
+      {512U, 0U, 0U, 207'486'976U, false, false},
+      {513U, 513U, 512U, 236'933'632U, true, true},
+      {2'048U, 2'048U, 2'048U, 444'366'848U, true, true},
+      {4'095U, 4'095U, 3'584U, 695'971'840U, true, true},
+      {4'096U, 4'096U, 4'096U, 721'059'840U, true, true},
+      {40'960U, 40'960U, 4'096U, 3'904'274'432U, true, true},
+      {40'961U, 40'960U, 4'096U, 3'904'340'736U, false, false},
   }};
 
   for (const Case& item : kCases) {

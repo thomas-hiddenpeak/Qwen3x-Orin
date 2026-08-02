@@ -837,7 +837,11 @@ void test_a4_prefill_workspace(TestContext& test) {
                     plan.prefill_a4_intermediate_packed.byte_size ==
                         4'456'448U &&
                     plan.prefill_a4_intermediate_scales_bf16.byte_size ==
-                        278'528U,
+                        278'528U &&
+                    plan.prefill_a4_gateup_cta_scratch.byte_size ==
+                        runtime::kRequestA4GateUpCtaScratchBytes &&
+                    plan.prefill_a4_gateup_cta_scratch.element_size_bytes ==
+                        1U,
                 "A4 C512 hidden/intermediate packed and K64 scale bytes are exact");
     test.expect(plan.long_prefill_projection_span_capacity == 0U &&
                     plan.long_prefill_projection_primary_bf16.byte_size ==
@@ -845,11 +849,12 @@ void test_a4_prefill_workspace(TestContext& test) {
                     plan.long_prefill_projection_secondary_bf16.byte_size ==
                         0U,
                 "legacy A4 C512 route reserves no whole-M span workspace");
-    const std::array<const runtime::RequestRegion*, 4U> regions = {
+    const std::array<const runtime::RequestRegion*, 5U> regions = {
         &plan.prefill_a4_hidden_packed,
         &plan.prefill_a4_hidden_scales_bf16,
         &plan.prefill_a4_intermediate_packed,
         &plan.prefill_a4_intermediate_scales_bf16,
+        &plan.prefill_a4_gateup_cta_scratch,
     };
     bool ordered = true;
     std::uint64_t prior_end = 0U;
@@ -873,6 +878,8 @@ void test_a4_prefill_workspace(TestContext& test) {
     test.expect(ordinary &&
                     ordinary.value->prefill_a4_hidden_packed.byte_size == 0U &&
                     ordinary.value->prefill_a4_intermediate_packed.byte_size ==
+                        0U &&
+                    ordinary.value->prefill_a4_gateup_cta_scratch.byte_size ==
                         0U &&
                     ordinary.value->arena_bytes ==
                         runtime::kDefaultRequestArenaBytes,
@@ -898,9 +905,9 @@ void test_long_prefill_projection_span_workspace(TestContext& test) {
     test.expect(plan.long_prefill_token_capacity == 4'096U &&
                     plan.long_prefill_projection_span_capacity == 4'096U &&
                     plan.persistent_bytes == 346'882'048U &&
-                    plan.workspace_bytes == 372'080'640U &&
+                    plan.workspace_bytes == 373'129'216U &&
                     plan.rope_bytes == 1'048'576U &&
-                    plan.arena_bytes == 720'011'264U,
+                    plan.arena_bytes == 721'059'840U,
                 "P4096/S4096 whole-M arena budget is byte-exact");
     test.expect(
         plan.long_prefill_projection_primary_bf16.arena_offset ==
@@ -925,10 +932,12 @@ void test_long_prefill_projection_span_workspace(TestContext& test) {
                     plan.prefill_a4_intermediate_packed.byte_size ==
                         35'651'584U &&
                     plan.prefill_a4_intermediate_scales_bf16.byte_size ==
-                        2'228'224U,
+                        2'228'224U &&
+                    plan.prefill_a4_gateup_cta_scratch.byte_size ==
+                        runtime::kRequestA4GateUpCtaScratchBytes,
                 "A4 hidden and intermediate workspaces scale from C512 to S4096");
 
-    const std::array<const runtime::RequestRegion*, 8U> span_regions = {
+    const std::array<const runtime::RequestRegion*, 9U> span_regions = {
         &plan.prefill_a4_hidden_packed,
         &plan.prefill_a4_hidden_scales_bf16,
         &plan.prefill_a4_intermediate_packed,
@@ -937,6 +946,7 @@ void test_long_prefill_projection_span_workspace(TestContext& test) {
         &plan.long_prefill_hidden_bf16[1],
         &plan.long_prefill_projection_primary_bf16,
         &plan.long_prefill_projection_secondary_bf16,
+        &plan.prefill_a4_gateup_cta_scratch,
     };
     bool aligned_and_ordered = true;
     std::uint64_t prior_end = 0U;

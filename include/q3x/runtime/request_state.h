@@ -23,6 +23,8 @@ inline constexpr std::size_t kRequestHiddenBufferCount = 3U;
 inline constexpr std::size_t kRequestProjectionBufferCount = 4U;
 inline constexpr std::size_t kRequestLongPrefillHiddenBufferCount = 2U;
 inline constexpr std::size_t kRequestA4PrefillScaleGroupSize = 64U;
+inline constexpr std::uint64_t kRequestA4GateUpCtaScratchBytes =
+    16ULL * 64ULL * 1024ULL;
 inline constexpr std::uint32_t kRequestLongPrefillProjectionSpanAlignment =
     kMaximumRequestPrefillChunkSize;
 inline constexpr std::uint32_t kRequestLongPrefillAdmissionMaximumTokens =
@@ -161,6 +163,10 @@ struct RequestMemoryPlan {
     RequestRegion prefill_a4_hidden_scales_bf16;  // [T, 5120/64]
     RequestRegion prefill_a4_intermediate_packed;  // [T, 17408/2] U8
     RequestRegion prefill_a4_intermediate_scales_bf16;  // [T, 17408/64]
+    // Stable per-request backing for at most 16 paired-Gate CTAs. It is
+    // reserved with every A4 Prefill workspace so baseline and candidate use
+    // the same arena and CUDA Graph capture never observes a lazy allocation.
+    RequestRegion prefill_a4_gateup_cta_scratch;  // [16, 64 KiB] U8
     RequestRegion linear_a_bf16;  // [48], independent from projection buffers
     RequestRegion linear_b_bf16;  // [48], independent from projection buffers
     RequestRegion fp32_scratch;
@@ -300,6 +306,7 @@ class RequestState {
     [[nodiscard]] RequestViewResult prefill_a4_hidden_scales() noexcept;
     [[nodiscard]] RequestViewResult prefill_a4_intermediate_packed() noexcept;
     [[nodiscard]] RequestViewResult prefill_a4_intermediate_scales() noexcept;
+    [[nodiscard]] RequestViewResult prefill_a4_gateup_cta_scratch() noexcept;
     [[nodiscard]] RequestViewResult linear_a_buffer() noexcept;
     [[nodiscard]] RequestViewResult linear_b_buffer() noexcept;
     [[nodiscard]] RequestViewResult fp32_scratch() noexcept;

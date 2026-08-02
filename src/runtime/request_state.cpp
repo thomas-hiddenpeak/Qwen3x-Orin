@@ -473,6 +473,14 @@ RequestPlanResult build_request_memory_plan(
             "long-Prefill projection span layout overflows uint64",
             "long_prefill_projection_span_bf16"));
     }
+    if (options.enable_a4_prefill_workspace &&
+        !builder.add(kRequestA4GateUpCtaScratchBytes, 1U,
+                     plan.prefill_a4_gateup_cta_scratch)) {
+        return plan_failure(make_diagnostic(
+            RequestErrorCode::kArithmeticOverflow,
+            "paired-Gate CTA scratch layout overflows uint64",
+            "prefill_a4_gateup_cta_scratch"));
+    }
     if (!builder.align()) {
         return plan_failure(make_diagnostic(
             RequestErrorCode::kArithmeticOverflow,
@@ -841,6 +849,18 @@ RequestViewResult RequestState::prefill_a4_intermediate_scales() noexcept {
     RequestViewResult result;
     result.value.emplace(
         mutable_view(plan_.prefill_a4_intermediate_scales_bf16));
+    return result;
+}
+
+RequestViewResult RequestState::prefill_a4_gateup_cta_scratch() noexcept {
+    if (arena_ == nullptr) {
+        return access_failure(RequestAccessError::kEmptyState);
+    }
+    if (plan_.prefill_a4_gateup_cta_scratch.byte_size == 0U) {
+        return access_failure(RequestAccessError::kCapacityExceeded);
+    }
+    RequestViewResult result;
+    result.value.emplace(mutable_view(plan_.prefill_a4_gateup_cta_scratch));
     return result;
 }
 
