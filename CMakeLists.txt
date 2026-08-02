@@ -98,6 +98,10 @@ option(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M32N128_PAIR_EXPERIMENT
   "Build the default-off cooperative M32N128 Gate/Up v1 direct-B edge candidate"
   OFF
 )
+option(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M32N128_PAIR_SHARED_ACCUM_EXPERIMENT
+  "Build the default-off cooperative M32N128 Gate/Up shared-accumulator resource experiment"
+  OFF
+)
 option(Q3X_BUILD_SM87_A4W4_DOWN_K512_M16N64_V2_EXPERIMENT
   "Build the default-off 512-thread M16N64 Down K512 candidate"
   OFF
@@ -309,6 +313,13 @@ if(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M32N128_PAIR_EXPERIMENT AND
     NOT Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION))
   message(FATAL_ERROR
     "The cooperative M32N128 Gate/Up edge experiment requires BUILD_TESTING=ON and the authenticated full-A4 K512 MLP route"
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M32N128_PAIR_SHARED_ACCUM_EXPERIMENT AND
+   (NOT BUILD_TESTING OR NOT Q3X_BUILD_SM87_A4W4_MLP_K512_ADMISSION OR
+    NOT Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION))
+  message(FATAL_ERROR
+    "The cooperative M32N128 shared-accumulator experiment requires BUILD_TESTING=ON and the authenticated full-A4 K512 MLP route"
   )
 endif()
 if(Q3X_BUILD_SM87_A4W4_DOWN_K512_M16N64_V2_EXPERIMENT AND
@@ -649,6 +660,18 @@ if(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M32N128_PAIR_EXPERIMENT)
   )
   set_source_files_properties(
     src/kernels/sm87/a4w4_gateup_down_k512_edge_m32n128_pair.cu
+    PROPERTIES COMPILE_OPTIONS "--maxrregcount=128;-Xptxas=-warn-spills"
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M32N128_PAIR_SHARED_ACCUM_EXPERIMENT)
+  target_sources(q3x_kernels PRIVATE
+    src/kernels/sm87/a4w4_gateup_down_k512_edge_m32n128_pair_shared_accum.cu
+  )
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M32N128_PAIR_SHARED_ACCUM_ADMISSION=1
+  )
+  set_source_files_properties(
+    src/kernels/sm87/a4w4_gateup_down_k512_edge_m32n128_pair_shared_accum.cu
     PROPERTIES COMPILE_OPTIONS "--maxrregcount=128;-Xptxas=-warn-spills"
   )
 endif()
