@@ -615,6 +615,9 @@ int main() {
 
   const bool ok =
       run_case(128U, 128U, 512U, 512U, 1U, false, false) &&
+      // Seventeen M128 tiles over the production 16-CTA grid exercise one
+      // complete base wave followed by a residual M tile in the same launch.
+      run_case(2'049U, 2'176U, 512U, 512U, 16U, false, false) &&
       // Exercise the exact production K=5120 depth: ten K512 groups cover
       // repeated odd/even stage reuse instead of only the first hand-off.
       run_case(129U, 256U, 1'024U, 5'120U, 3U, true, true);
