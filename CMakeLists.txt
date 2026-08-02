@@ -86,6 +86,10 @@ option(Q3X_BUILD_SM87_A4W4_MLP_K512_ADMISSION
   "Build the default-off authenticated K512 Gate+Up and Down Prefill route"
   OFF
 )
+option(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M128N64_EXPERIMENT
+  "Build the default-off producer-owned M128N64 Gate+Up K512 edge candidate"
+  OFF
+)
 option(Q3X_BUILD_SM87_A4W4_DOWN_K512_M16N64_V2_EXPERIMENT
   "Build the default-off 512-thread M16N64 Down K512 candidate"
   OFF
@@ -266,6 +270,12 @@ if(Q3X_BUILD_SM87_A4W4_MLP_K512_ADMISSION AND
    NOT Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION)
   message(FATAL_ERROR
     "The K512 MLP overlay requires the authenticated full-A4 K128 Prefill route"
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M128N64_EXPERIMENT AND
+   (NOT BUILD_TESTING OR NOT Q3X_BUILD_SM87_A4W4_MLP_K512_ADMISSION))
+  message(FATAL_ERROR
+    "The M128N64 Gate+Up K512 edge experiment requires BUILD_TESTING=ON and the authenticated MLP K512 route"
   )
 endif()
 if(Q3X_BUILD_SM87_A4W4_DOWN_K512_M16N64_V2_EXPERIMENT AND
@@ -577,6 +587,14 @@ if(Q3X_BUILD_SM87_A4W4_MLP_K512_ADMISSION)
     Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_ADMISSION=1
   )
 endif()
+if(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M128N64_EXPERIMENT)
+  target_sources(q3x_kernels PRIVATE
+    src/kernels/sm87/a4w4_gateup_down_k512_edge_m128n64.cu
+  )
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M128N64_ADMISSION=1
+  )
+endif()
 if(Q3X_BUILD_SM87_A4W4_DOWN_K512_M16N64_V2_EXPERIMENT)
   target_sources(q3x_kernels PRIVATE
     src/kernels/sm87/a4w4_down_k512_m16n64_v2.cu
@@ -735,6 +753,11 @@ if(Q3X_BUILD_SM87_A4W4_MLP_K512_ADMISSION)
   target_compile_definitions(q3x_engine PRIVATE
     Q3X_ENABLE_A4W4_MLP_K512_ADMISSION=1
     Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M128N64_EXPERIMENT)
+  target_compile_definitions(q3x_engine PRIVATE
+    Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M128N64_ADMISSION=1
   )
 endif()
 if(Q3X_BUILD_SM87_A4W4_DOWN_K512_M16N64_V2_EXPERIMENT)
@@ -1748,6 +1771,39 @@ if(BUILD_TESTING)
       q3x_sm87_a4w4_gateup_down_k512_edge_correctness_test
     )
 
+    if(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M128N64_EXPERIMENT)
+      add_executable(
+        q3x_sm87_a4w4_gateup_down_k512_edge_m128n64_contract_test
+        tests/sm87_a4w4_gateup_down_k512_edge_m128n64_contract_test.cpp
+      )
+      target_link_libraries(
+        q3x_sm87_a4w4_gateup_down_k512_edge_m128n64_contract_test
+        PRIVATE q3x::kernels CUDA::cudart
+      )
+      q3x_enable_warnings(
+        q3x_sm87_a4w4_gateup_down_k512_edge_m128n64_contract_test
+      )
+      add_test(NAME sm87_a4w4_gateup_down_k512_edge_m128n64_contract
+        COMMAND q3x_sm87_a4w4_gateup_down_k512_edge_m128n64_contract_test
+      )
+      set_tests_properties(
+        sm87_a4w4_gateup_down_k512_edge_m128n64_contract PROPERTIES
+        LABELS "host;sm87;prefill;mlp;a4w4;k512;gateup;down;edge;m128n64;contract"
+      )
+
+      add_executable(
+        q3x_sm87_a4w4_gateup_down_k512_edge_m128n64_correctness_test
+        tests/sm87_a4w4_gateup_down_k512_edge_m128n64_correctness_test.cu
+      )
+      target_link_libraries(
+        q3x_sm87_a4w4_gateup_down_k512_edge_m128n64_correctness_test
+        PRIVATE q3x::kernels CUDA::cudart
+      )
+      q3x_enable_warnings(
+        q3x_sm87_a4w4_gateup_down_k512_edge_m128n64_correctness_test
+      )
+    endif()
+
     if(Q3X_BUILD_SM87_A4W4_DOWN_K512_M16N64_V2_EXPERIMENT)
       add_executable(q3x_sm87_a4w4_down_k512_m16n64_v2_contract_test
         tests/sm87_a4w4_down_k512_m16n64_v2_contract_test.cpp
@@ -2111,6 +2167,19 @@ if(BUILD_TESTING)
       RESOURCE_LOCK q3x_sm87_gpu
       TIMEOUT 300
     )
+    if(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M128N64_EXPERIMENT)
+      add_test(NAME sm87_a4w4_gateup_down_k512_edge_m128n64_correctness
+        COMMAND "${Q3X_FLOCK_EXECUTABLE}" -x /tmp/q3x-gpu-bench.lock
+                $<TARGET_FILE:q3x_sm87_a4w4_gateup_down_k512_edge_m128n64_correctness_test>
+      )
+      set_tests_properties(
+        sm87_a4w4_gateup_down_k512_edge_m128n64_correctness PROPERTIES
+        LABELS "cuda;sm87;prefill;mlp;a4w4;k512;gateup;down;edge;m128n64;correctness;resources;synthetic"
+        SKIP_RETURN_CODE 77
+        RESOURCE_LOCK q3x_sm87_gpu
+        TIMEOUT 300
+      )
+    endif()
     if(Q3X_BUILD_SM87_A4W4_DOWN_K512_M16N64_V2_EXPERIMENT)
       add_test(NAME sm87_a4w4_down_k512_m16n64_v2_correctness
         COMMAND "${Q3X_FLOCK_EXECUTABLE}" -x /tmp/q3x-gpu-bench.lock

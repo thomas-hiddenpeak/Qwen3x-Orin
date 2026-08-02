@@ -793,6 +793,63 @@ provenance SHA256      868475b60e10af60801f4b353dc71725ab04a05b174b1375d56e6c5da
 server log SHA256      5539850e94c1663d925706c78e2f579c0326efdacaad93211fc7b838997befea
 ```
 
+## Rejected M128N64 producer-owned K512 edge
+
+The next structural candidate doubled Gate+Up M ownership while retaining the
+complete producer-owned N512 quantization boundary.  A 512-thread CTA uses an
+8-by-2 warp grid of M16N32 tiles, processes eight N64 strips, and keeps four
+K64 `cp.async` stages resident beside the M128N512 BF16 product plane.  For the
+same M128N512 work, requested operand bytes fall from 6,637,824 for two retained
+M64 edge cells to 5,316,864 bytes, a 19.9% reduction.  Production still uses
+the unchanged K512 input quantizer and retained v1 Down kernel.
+
+Admission passed before real timing:
+
+```text
+registers/thread       128
+dynamic shared         164,864 bytes
+active CTA/SM          1
+stack/local/spill      0 / 0 / 0
+packed codes/scales    bit exact vs retained edge at K1536
+Down BF16 output       bit exact through unchanged v1 Down
+```
+
+The authoritative first verdict used the real checkpoint and authenticated
+sidecars through OpenAI `/v1/completions` and external EvalScope 1.9.1.  Four
+of four natural P2K requests completed successfully:
+
+```text
+test duration          10.1290 s
+average input          1924.75 tokens
+mean TTFT              2531.90 ms
+prompt throughput      760.0912 token/s
+total throughput       760.4861 token/s
+vs retained edge       -3.3000% prompt throughput, +83.56 ms TTFT
+distance to 2K         2.631x
+```
+
+Every measured request regressed: P1853 by 80.33 ms, P1792 by 71.79 ms,
+P2148 by 105.38 ms, and P1906 by 76.76 ms.  The direction is therefore not a
+single-length tail or measurement outlier.  Static schedule audit found about
+1,280 CTA barriers per M128 edge versus about 320 for the two retained M64
+edges that cover the same output, roughly 3.9 times the synchronization
+density.  That pressure is consistent with the real result overwhelming the
+19.9% requested-byte reduction.
+
+This is a hard **REJECT**.  The independent experiment mode remains
+default-off, the current-best alias continues to select the retained M64N128
+edge, and no stage-count or tile-constant scan follows.  The next bounded
+replacement is the shape-specific Down M128N256/512-thread data flow, which
+halves repeated A traffic and keeps all sixteen SMs occupied on the natural
+P2K shapes.
+
+```text
+server ELF SHA256      c07b7745c1c51474cd30df883cf50dcead14e564c2da9536e83f4d9008da40ca
+summary SHA256         35fa80b7d97cde4ef91e3a0c7358dc317e5615c0d233869b80f331d3de2530ac
+provenance SHA256      ea318886b468ee661ce0072676fcea48f13ee312a56528955b3abd1e7e837030
+server log SHA256      239205f7581b00b74d49e165efe859f7909e3039fbca3462cd0c983d68bf2ea8
+```
+
 Evidence directories:
 
 - comparator: `/home/rm01/q3x-k512-evalscope-p2048-baseline-4a90d1f`;
@@ -843,5 +900,7 @@ Evidence directories:
   `/home/rm01/q3x-mlp-k512-edge-request2.nsys-rep`;
 - rejected Down K512 M16N64 v2 run:
   `/home/rm01/q3x-mlp-k512-down-m16n64-v2-evalscope-p2048`;
+- rejected M128N64 producer-owned K512 edge run:
+  `/home/rm01/q3x-mlp-k512-edge-m128n64-evalscope-p2048`;
 - fragment-native v2 publication:
   `/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4-q3x-mlp-k512-fragment-native/weights-mlp-k512-fragment-native.bin`.

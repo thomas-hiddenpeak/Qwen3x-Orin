@@ -20,11 +20,17 @@ FRAGMENT_NATIVE_PAYLOAD_BYTES = 8_623_226_880
 MLP_K512_CURRENT_MODE = "cumulative-prefill-current-best-mlp-k512"
 MLP_K512_V1_MODE = "cumulative-prefill-current-best-mlp-k512-v1"
 MLP_K512_EDGE_MODE = "cumulative-prefill-current-best-mlp-k512-edge"
+MLP_K512_EDGE_M128N64_MODE = (
+    "cumulative-prefill-current-best-mlp-k512-edge-m128n64"
+)
 MLP_K512_DOWN_M16N64_V2_MODE = (
     "cumulative-prefill-current-best-mlp-k512-down-m16n64-v2"
 )
 MLP_K512_EDGE_MARKER = (
     "prefill_projection_span_mlp_k512_gateup_down_edge"
+)
+MLP_K512_EDGE_M128N64_MARKER = (
+    "prefill_projection_span_mlp_k512_gateup_down_edge_m128n64"
 )
 MLP_K512_DOWN_M16N64_V2_MARKER = (
     "prefill_projection_span_mlp_k512_down_m16n64_v2"
@@ -96,8 +102,10 @@ class Fixture:
             "# Q3X_RUN_A4W4_ATTENTION_O_K512_ADMISSION\n"
             "# Q3X_RUN_A4W4_MLP_K512_ADMISSION\n"
             "# Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_ADMISSION\n"
+            "# Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M128N64_ADMISSION\n"
             "# Q3X_RUN_A4W4_DOWN_K512_M16N64_V2_ADMISSION\n"
             f"{MLP_K512_EDGE_MARKER}\n"
+            f"{MLP_K512_EDGE_M128N64_MARKER}\n"
             f"{MLP_K512_DOWN_M16N64_V2_MARKER}\n"
             "# Q3X_RUN_SHORT_PREFILL_LAYER_MAJOR_ADMISSION\n"
             "exit 0\n",
@@ -202,6 +210,9 @@ class Fixture:
             "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_ADMISSION"
         ] = "1"
         environment[
+            "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M128N64_ADMISSION"
+        ] = "1"
+        environment[
             "Q3X_RUN_A4W4_DOWN_K512_M16N64_V2_ADMISSION"
         ] = "1"
         environment["Q3X_GDN_CHUNK64_PROFILE_CANDIDATE"] = "1"
@@ -248,6 +259,11 @@ class Fixture:
         self, *extra: str
     ) -> subprocess.CompletedProcess[str]:
         return self.run_mlp_k512(MLP_K512_EDGE_MODE, *extra)
+
+    def run_mlp_k512_edge_m128n64(
+        self, *extra: str
+    ) -> subprocess.CompletedProcess[str]:
+        return self.run_mlp_k512(MLP_K512_EDGE_M128N64_MODE, *extra)
 
     def enable_fragment_native_m64n128_1cta(
         self, *extra_stage_markers: str
@@ -736,6 +752,83 @@ class PurePrefillEvalScopeHarnessTest(unittest.TestCase):
         )
         self.assertFalse(self.fixture.output.exists())
 
+    def test_mlp_k512_edge_m128n64_uses_exact_real_api_bundle(self) -> None:
+        result = self.fixture.run_mlp_k512_edge_m128n64()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(
+            f"mode={MLP_K512_EDGE_M128N64_MODE} dry_run=1",
+            result.stdout,
+        )
+        self.assertIn("selector_count=8", result.stdout)
+        startup = next(
+            line
+            for line in result.stdout.splitlines()
+            if line.startswith("server_startup_command")
+        )
+        self.assertEqual(
+            set(re.findall(r"(Q3X_[A-Z0-9_]+)=1", startup)),
+            {
+                "Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION",
+                "Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION",
+                "Q3X_RUN_BF16_AB_LARGE_M_PREFILL_ADMISSION",
+                "Q3X_FULL_ATTENTION_FLASHINFER_DIRECT",
+                "Q3X_RUN_A4W4_ATTENTION_SUPERMATRIX_ADMISSION",
+                "Q3X_RUN_FULL_ATTENTION_PREPROCESS_PROMPT_WIDE_128_ADMISSION",
+                "Q3X_RUN_A4W4_MLP_K512_ADMISSION",
+                "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M128N64_ADMISSION",
+            },
+        )
+        self.assertNotIn(
+            "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_ADMISSION=1", startup
+        )
+        self.assertNotIn(
+            "Q3X_RUN_A4W4_DOWN_K512_M16N64_V2_ADMISSION=1", startup
+        )
+        stage_contracts = [
+            line
+            for line in result.stdout.splitlines()
+            if line.startswith("stage_contract")
+        ]
+        self.assertEqual(len(stage_contracts), 1)
+        stage_contract = stage_contracts[0]
+        self.assertIn(
+            f"required={MLP_K512_EDGE_M128N64_MARKER}", stage_contract
+        )
+        for excluded in (
+            MLP_K512_EDGE_MARKER,
+            "prefill_projection_span_mlp_k512_gate_up_primary",
+            "prefill_projection_span_mlp_k512_gate_up_secondary",
+            "prefill_projection_span_mlp_k512_product_quantize",
+            MLP_K512_DOWN_M16N64_V2_MARKER,
+        ):
+            self.assertIn(excluded, stage_contract)
+        self.assertIn(
+            "retained=prefill_projection_span_mlp_k512_input_quantize,"
+            "prefill_projection_span_mlp_k512_down",
+            stage_contract,
+        )
+        self.assertIn("legacy_edge_stage_excluded", result.stdout)
+        self.assertIn("down_m16n64_v2_stage_excluded", result.stdout)
+        self.assertIn("performance_evidence=0", result.stdout)
+        self.assertFalse(self.fixture.output.exists())
+
+    def test_mlp_k512_edge_m128n64_requires_compiled_stage_marker(
+        self,
+    ) -> None:
+        original = self.fixture.server.read_text(encoding="utf-8")
+        self.fixture.server.write_text(
+            original.replace(f"{MLP_K512_EDGE_M128N64_MARKER}\n", ""),
+            encoding="utf-8",
+        )
+        result = self.fixture.run_mlp_k512_edge_m128n64()
+        self.assertEqual(result.returncode, 2)
+        self.assertIn(
+            "server does not prove the M128N64 Gate+Up-to-Down K512 "
+            f"edge stage: {MLP_K512_EDGE_M128N64_MARKER}",
+            result.stderr,
+        )
+        self.assertFalse(self.fixture.output.exists())
+
     def test_mlp_k512_current_best_promotes_edge_stage(self) -> None:
         result = self.fixture.run_mlp_k512(MLP_K512_CURRENT_MODE)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -750,6 +843,10 @@ class PurePrefillEvalScopeHarnessTest(unittest.TestCase):
         )
         self.assertIn(
             "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_ADMISSION=1", startup
+        )
+        self.assertNotIn(
+            "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M128N64_ADMISSION=1",
+            startup,
         )
         self.assertIn(
             f"stage_contract required={MLP_K512_EDGE_MARKER}",
