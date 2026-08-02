@@ -126,6 +126,10 @@ option(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_ALTERNATING_EXPERI
   "Build the default-off retained-paired M64N128 alternating-K256 resource experiment"
   OFF
 )
+option(Q3X_BUILD_SM87_A4W4_GATEUP_K512_M128N128_PROJECTION_SERIAL_EXPERIMENT
+  "Build the default-off M128N128 full-projection-serial Gate+Up experiment"
+  OFF
+)
 option(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M128N512_LDMATRIX_ADMISSION
   "Build the default-off M128N512 direct-B LDSM Gate+Up edge admission"
   OFF
@@ -401,6 +405,13 @@ if(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_ALTERNATING_EXPERIMENT
     NOT Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION))
   message(FATAL_ERROR
     "The retained-paired M64N128 alternating-K256 experiment requires BUILD_TESTING=ON and the authenticated full-A4 K512 MLP route"
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_GATEUP_K512_M128N128_PROJECTION_SERIAL_EXPERIMENT AND
+   (NOT BUILD_TESTING OR NOT Q3X_BUILD_SM87_A4W4_MLP_K512_ADMISSION OR
+    NOT Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION))
+  message(FATAL_ERROR
+    "The M128N128 projection-serial Gate+Up experiment requires BUILD_TESTING=ON and the authenticated full-A4 K512 MLP route"
   )
 endif()
 if(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M128N512_LDMATRIX_ADMISSION AND
@@ -822,6 +833,18 @@ if(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_ALTERNATING_EXPERIMENT
     PROPERTIES COMPILE_OPTIONS "--maxrregcount=128;-Xptxas=-warn-spills"
   )
 endif()
+if(Q3X_BUILD_SM87_A4W4_GATEUP_K512_M128N128_PROJECTION_SERIAL_EXPERIMENT)
+  target_sources(q3x_kernels PRIVATE
+    src/kernels/sm87/a4w4_gateup_k512_m128n128_projection_serial.cu
+  )
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_A4W4_GATEUP_K512_M128N128_PROJECTION_SERIAL_ADMISSION=1
+  )
+  set_source_files_properties(
+    src/kernels/sm87/a4w4_gateup_k512_m128n128_projection_serial.cu
+    PROPERTIES COMPILE_OPTIONS "--maxrregcount=128;-Xptxas=-v;-Xptxas=-warn-spills"
+  )
+endif()
 if(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M128N512_LDMATRIX_ADMISSION)
   target_sources(q3x_kernels PRIVATE
     src/kernels/sm87/a4w4_gateup_down_k512_edge_m128n512_ldmatrix.cu
@@ -1065,6 +1088,11 @@ endif()
 if(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_ALTERNATING_EXPERIMENT)
   target_compile_definitions(q3x_engine PRIVATE
     Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_ALTERNATING_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_GATEUP_K512_M128N128_PROJECTION_SERIAL_EXPERIMENT)
+  target_compile_definitions(q3x_engine PRIVATE
+    Q3X_ENABLE_A4W4_GATEUP_K512_M128N128_PROJECTION_SERIAL_ADMISSION=1
   )
 endif()
 if(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M128N512_PAIRED_LDMATRIX_ADMISSION)
@@ -2156,6 +2184,45 @@ if(BUILD_TESTING)
       q3x_sm87_a4w4_gateup_k512_macrocell_correctness_test
     )
 
+    if(Q3X_BUILD_SM87_A4W4_GATEUP_K512_M128N128_PROJECTION_SERIAL_EXPERIMENT)
+      add_executable(
+        q3x_sm87_a4w4_gateup_k512_m128n128_projection_serial_contract_test
+        tests/sm87_a4w4_gateup_k512_m128n128_projection_serial_contract_test.cpp
+      )
+      target_link_libraries(
+        q3x_sm87_a4w4_gateup_k512_m128n128_projection_serial_contract_test
+        PRIVATE q3x::kernels CUDA::cudart
+      )
+      q3x_enable_warnings(
+        q3x_sm87_a4w4_gateup_k512_m128n128_projection_serial_contract_test
+      )
+      add_test(
+        NAME sm87_a4w4_gateup_k512_m128n128_projection_serial_contract
+        COMMAND q3x_sm87_a4w4_gateup_k512_m128n128_projection_serial_contract_test
+      )
+      set_tests_properties(
+        sm87_a4w4_gateup_k512_m128n128_projection_serial_contract
+        PROPERTIES
+        LABELS "host;sm87;prefill;mlp;a4w4;k512;gateup;m128n128;projection-serial;contract"
+      )
+
+      add_executable(
+        q3x_sm87_a4w4_gateup_k512_m128n128_projection_serial_correctness_test
+        tests/sm87_a4w4_gateup_k512_macrocell_correctness_test.cu
+      )
+      target_compile_definitions(
+        q3x_sm87_a4w4_gateup_k512_m128n128_projection_serial_correctness_test
+        PRIVATE Q3X_TEST_GATEUP_M128N128_PROJECTION_SERIAL=1
+      )
+      target_link_libraries(
+        q3x_sm87_a4w4_gateup_k512_m128n128_projection_serial_correctness_test
+        PRIVATE q3x::kernels CUDA::cudart
+      )
+      q3x_enable_warnings(
+        q3x_sm87_a4w4_gateup_k512_m128n128_projection_serial_correctness_test
+      )
+    endif()
+
     add_executable(q3x_sm87_a4w4_down_k512_macrocell_contract_test
       tests/sm87_a4w4_down_k512_macrocell_contract_test.cpp
     )
@@ -2794,6 +2861,21 @@ if(BUILD_TESTING)
       RESOURCE_LOCK q3x_sm87_gpu
       TIMEOUT 300
     )
+    if(Q3X_BUILD_SM87_A4W4_GATEUP_K512_M128N128_PROJECTION_SERIAL_EXPERIMENT)
+      add_test(
+        NAME sm87_a4w4_gateup_k512_m128n128_projection_serial_correctness
+        COMMAND "${Q3X_FLOCK_EXECUTABLE}" -x /tmp/q3x-gpu-bench.lock
+                $<TARGET_FILE:q3x_sm87_a4w4_gateup_k512_m128n128_projection_serial_correctness_test>
+      )
+      set_tests_properties(
+        sm87_a4w4_gateup_k512_m128n128_projection_serial_correctness
+        PROPERTIES
+        LABELS "cuda;sm87;prefill;mlp;a4w4;k512;gateup;m128n128;projection-serial;correctness;synthetic"
+        SKIP_RETURN_CODE 77
+        RESOURCE_LOCK q3x_sm87_gpu
+        TIMEOUT 300
+      )
+    endif()
     add_test(NAME sm87_a4w4_down_k512_macrocell_correctness
       COMMAND "${Q3X_FLOCK_EXECUTABLE}" -x /tmp/q3x-gpu-bench.lock
               $<TARGET_FILE:q3x_sm87_a4w4_down_k512_macrocell_correctness_test>

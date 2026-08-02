@@ -240,6 +240,9 @@ struct ReferenceLongPrefillResult {
   // owned every decoder layer.  This is independent from the alternating
   // incumbent counter so production API evidence proves an actual B/C swap.
   std::size_t gateup_ldmatrix_pairfeed_launch_hits = 0U;
+  // Request-local proof that the default-off full-projection-serial
+  // M128N128 Gate+Up route owned every decoder layer.
+  std::size_t gateup_m128n128_projection_serial_launch_hits = 0U;
   // Request-local proof that the paired-GateUp/canonical-Down admission
   // launched its M128N512 Gate+Up kernel once for every decoder layer and
   // projection span.  It remains zero for every other route.

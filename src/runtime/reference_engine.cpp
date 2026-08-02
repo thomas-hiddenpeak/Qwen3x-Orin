@@ -402,6 +402,48 @@ struct PrefillMLPK512PairedGateUpCanonicalDownEnginePaths final {
   const bool ldmatrix_pairfeed_gate_selected =
       exact_environment_selector_enabled(
           "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_LDMATRIX_PAIRFEED_ADMISSION");
+  const bool projection_serial_gate_selected =
+      exact_environment_selector_enabled(
+          "Q3X_RUN_A4W4_GATEUP_K512_M128N128_PROJECTION_SERIAL_ADMISSION");
+
+#if !defined(Q3X_ENABLE_A4W4_GATEUP_K512_M128N128_PROJECTION_SERIAL_ADMISSION)
+  if (projection_serial_gate_selected) {
+    error = "this binary does not contain the M128N128 projection-serial "
+            "Gate+Up admission";
+    return false;
+  }
+#endif
+  if (projection_serial_gate_selected) {
+    if (optimized_prefill_dispatch_disabled()) {
+      error = "the M128N128 projection-serial Gate+Up admission cannot run "
+              "while optimized Prefill dispatch is disabled";
+      return false;
+    }
+    if (!mlp_k512_v1_publication_requested || !mlp_k512_v1_selected ||
+        fragment_native_publication_requested || fragment_native_selected ||
+        hybrid_publication_requested || hybrid_selected ||
+        paired_gate_selected) {
+      error = "the M128N128 projection-serial Gate+Up admission requires "
+              "the authenticated v1 K512 MLP publication and runtime master";
+      return false;
+    }
+    constexpr std::array<const char*, 7U> kConflictingGateSelectors = {
+        "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_ADMISSION",
+        "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M128N64_ADMISSION",
+        "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_ALTERNATING_ADMISSION",
+        "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_LDMATRIX_PAIRFEED_ADMISSION",
+        "Q3X_RUN_A4W4_GATEUP_COMPLETE_CELL_V2_ADMISSION",
+        "Q3X_RUN_A4W4_M128_STAGE_MAJOR_ADMISSION",
+        "Q3X_RUN_A4W4_GATEUP_PROJECTION_V3_ADMISSION",
+    };
+    for (const char* const selector : kConflictingGateSelectors) {
+      if (exact_environment_selector_enabled(selector)) {
+        error = "the M128N128 projection-serial Gate+Up admission conflicts "
+                "with every other Prefill Gate+Up selector";
+        return false;
+      }
+    }
+  }
 
   if (alternating_gate_selected && ldmatrix_pairfeed_gate_selected) {
     error = "the alternating and LDSM pair-feed K256 Gate+Up selectors are "

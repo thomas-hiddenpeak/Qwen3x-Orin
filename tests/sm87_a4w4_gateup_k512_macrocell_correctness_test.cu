@@ -1,4 +1,8 @@
+#if defined(Q3X_TEST_GATEUP_M128N128_PROJECTION_SERIAL)
+#include "q3x/kernels/sm87_a4w4_gateup_k512_m128n128_projection_serial.h"
+#else
 #include "q3x/kernels/sm87_a4w4_gateup_k512_macrocell.h"
+#endif
 #include "q3x/kernels/sm87_a4w4_prefill_primitive.h"
 
 #include <cuda_runtime.h>
@@ -13,6 +17,63 @@
 namespace {
 
 namespace kernels = q3x::kernels;
+
+#if defined(Q3X_TEST_GATEUP_M128N128_PROJECTION_SERIAL)
+using TestPlan =
+    kernels::Sm87A4W4GateUpK512M128N128ProjectionSerialPlan;
+using TestResources =
+    kernels::Sm87A4W4GateUpK512M128N128ProjectionSerialResources;
+
+[[nodiscard]] constexpr TestPlan test_plan(
+    const std::size_t logical_m, const std::size_t launch_m,
+    const std::size_t full_n, const std::size_t k,
+    const std::size_t n_start, const std::size_t n_count) noexcept {
+  return kernels::
+      sm87_a4w4_gateup_k512_m128n128_projection_serial_plan(
+          logical_m, launch_m, full_n, k, n_start, n_count);
+}
+
+[[nodiscard]] constexpr std::size_t scale_capacity(
+    const std::size_t outer, const std::size_t k) noexcept {
+  return kernels::
+      sm87_a4w4_gateup_k512_m128n128_projection_serial_scale_capacity(
+          outer, k);
+}
+
+[[nodiscard]] __host__ __device__ constexpr std::size_t scale_offset(
+    const std::size_t outer, const std::size_t group,
+    const std::size_t groups) noexcept {
+  return kernels::
+      sm87_a4w4_gateup_k512_m128n128_projection_serial_scale_offset(
+          outer, group, groups);
+}
+#else
+using TestPlan = kernels::Sm87A4W4GateUpK512MacroPlan;
+using TestResources = kernels::Sm87A4W4GateUpK512MacroResources;
+
+[[nodiscard]] constexpr TestPlan test_plan(
+    const std::size_t logical_m, const std::size_t launch_m,
+    const std::size_t full_n, const std::size_t k,
+    const std::size_t n_start, const std::size_t n_count) noexcept {
+  return logical_m == launch_m
+             ? kernels::sm87_a4w4_gateup_k512_macro_plan(
+                   logical_m, full_n, k, n_start, n_count)
+             : TestPlan{};
+}
+
+[[nodiscard]] constexpr std::size_t scale_capacity(
+    const std::size_t outer, const std::size_t k) noexcept {
+  return kernels::sm87_a4w4_gateup_k512_macro_scale_capacity_elements(
+      outer, k);
+}
+
+[[nodiscard]] __host__ __device__ constexpr std::size_t scale_offset(
+    const std::size_t outer, const std::size_t group,
+    const std::size_t groups) noexcept {
+  return kernels::sm87_a4w4_gateup_k512_macro_scale_offset(
+      outer, group, groups);
+}
+#endif
 
 inline constexpr std::size_t kGuardElements = 64U;
 inline constexpr std::uint16_t kSentinel = 0x7fc1U;
@@ -142,20 +203,17 @@ struct Payload final {
           kernels::sm87_a4w4_consumer_packed_capacity_bytes(m_count,
                                                              k_count)),
       std::vector<std::uint16_t>(
-          kernels::sm87_a4w4_gateup_k512_macro_scale_capacity_elements(
-              m_count, k_count)),
+          scale_capacity(m_count, k_count)),
       std::vector<std::uint8_t>(
           kernels::sm87_a4w4_consumer_packed_capacity_bytes(full_n_count,
                                                              k_count)),
       std::vector<std::uint16_t>(
-          kernels::sm87_a4w4_gateup_k512_macro_scale_capacity_elements(
-              full_n_count, k_count)),
+          scale_capacity(full_n_count, k_count)),
       std::vector<std::uint8_t>(
           kernels::sm87_a4w4_consumer_packed_capacity_bytes(full_n_count,
                                                              k_count)),
       std::vector<std::uint16_t>(
-          kernels::sm87_a4w4_gateup_k512_macro_scale_capacity_elements(
-              full_n_count, k_count))};
+          scale_capacity(full_n_count, k_count))};
 
   for (std::size_t m = 0U; m < m_count; ++m) {
     for (std::size_t group = 0U; group < physical_groups; ++group) {
@@ -169,8 +227,7 @@ struct Payload final {
     }
     for (std::size_t group = 0U; group < k512_groups; ++group) {
       result.a_scales[
-          kernels::sm87_a4w4_gateup_k512_macro_scale_offset(
-              m, group, k512_groups)] =
+          scale_offset(m, group, k512_groups)] =
           encode_bf16(
               0.0021F *
               static_cast<float>(5U + (3U * m + group) % 17U));
@@ -192,8 +249,7 @@ struct Payload final {
     }
     for (std::size_t group = 0U; group < k512_groups; ++group) {
       const std::size_t offset =
-          kernels::sm87_a4w4_gateup_k512_macro_scale_offset(
-              n, group, k512_groups);
+          scale_offset(n, group, k512_groups);
       result.gate_scales[offset] = encode_bf16(
           0.0017F *
           static_cast<float>(7U + (5U * n + 3U * group) % 19U));
@@ -279,15 +335,12 @@ __global__ void gateup_k512_scalar_oracle(
                                                nibble);
     }
     const float a_scale = decode_bf16_device(
-        a_scales[kernels::sm87_a4w4_gateup_k512_macro_scale_offset(
-            m, group, k512_groups)]);
+        a_scales[scale_offset(m, group, k512_groups)]);
     const float gate_scale = decode_bf16_device(
         gate_scales[
-            kernels::sm87_a4w4_gateup_k512_macro_scale_offset(
-                absolute_n, group, k512_groups)]);
+            scale_offset(absolute_n, group, k512_groups)]);
     const float up_scale = decode_bf16_device(
-        up_scales[kernels::sm87_a4w4_gateup_k512_macro_scale_offset(
-            absolute_n, group, k512_groups)]);
+        up_scales[scale_offset(absolute_n, group, k512_groups)]);
     gate_accumulator = __fmaf_rn(
         static_cast<float>(gate_partial),
         __fmul_rn(a_scale, gate_scale), gate_accumulator);
@@ -301,22 +354,24 @@ __global__ void gateup_k512_scalar_oracle(
 }
 
 [[nodiscard]] bool run_case(const std::string& label,
-                            const std::size_t m_count,
+                            const std::size_t logical_m_count,
+                            const std::size_t launch_m_count,
                             const std::size_t full_n_count,
                             const std::size_t n_start,
                             const std::size_t n_count,
                             const std::size_t k_count,
                             const unsigned int maximum_launch_ctas) {
-  const kernels::Sm87A4W4GateUpK512MacroPlan plan =
-      kernels::sm87_a4w4_gateup_k512_macro_plan(
-          m_count, full_n_count, k_count, n_start, n_count);
+  const TestPlan plan =
+      test_plan(logical_m_count, launch_m_count, full_n_count, k_count,
+                n_start, n_count);
   if (plan.launch_ctas == 0U) {
     std::cerr << label << ": invalid test plan\n";
     return false;
   }
-  const Payload payload = make_payload(m_count, full_n_count, k_count);
+  const Payload payload =
+      make_payload(launch_m_count, full_n_count, k_count);
   const std::size_t output_stride = n_count + 8U;
-  const std::size_t output_elements = m_count * output_stride;
+  const std::size_t output_elements = logical_m_count * output_stride;
 
   DeviceBuffer<std::uint8_t> a;
   DeviceBuffer<std::uint16_t> a_scales;
@@ -368,53 +423,62 @@ __global__ void gateup_k512_scalar_oracle(
     return false;
   }
 
+  const auto launch_candidate =
+      [&](const std::size_t gate_capacity,
+          std::uint16_t* const output,
+          const std::size_t output_capacity) noexcept {
+#if defined(Q3X_TEST_GATEUP_M128N128_PROJECTION_SERIAL)
+        return kernels::
+            launch_sm87_a4w4_gateup_k512_m128n128_projection_serial_test_bf16_cuda(
+                a.get(), payload.a.size(), a_scales.get(),
+                payload.a_scales.size(), gate.get(), gate_capacity,
+                gate_scales.get(), payload.gate_scales.size(), up.get(),
+                payload.up.size(), up_scales.get(),
+                payload.up_scales.size(), logical_m_count,
+                launch_m_count, full_n_count, k_count, n_start,
+                n_count, output, output_stride, output_capacity,
+                maximum_launch_ctas);
+#else
+        return kernels::launch_sm87_a4w4_gateup_k512_macrocell_test_bf16_cuda(
+            a.get(), payload.a.size(), a_scales.get(),
+            payload.a_scales.size(), gate.get(), gate_capacity,
+            gate_scales.get(), payload.gate_scales.size(), up.get(),
+            payload.up.size(), up_scales.get(), payload.up_scales.size(),
+            logical_m_count, full_n_count, k_count, n_start, n_count,
+            output, output_stride, output_capacity, maximum_launch_ctas);
+#endif
+      };
+
   const int short_capacity_status =
-      kernels::launch_sm87_a4w4_gateup_k512_macrocell_test_bf16_cuda(
-          a.get(), payload.a.size(), a_scales.get(),
-          payload.a_scales.size(), gate.get(), payload.gate.size() - 1U,
-          gate_scales.get(), payload.gate_scales.size(), up.get(),
-          payload.up.size(), up_scales.get(), payload.up_scales.size(),
-          m_count, full_n_count, k_count, n_start, n_count,
-          candidate.get(), output_stride, output_elements,
-          maximum_launch_ctas);
+      launch_candidate(payload.gate.size() - 1U, candidate.get(),
+                       output_elements);
   if (short_capacity_status != static_cast<int>(cudaErrorInvalidValue)) {
     std::cerr << label << ": short full-weight capacity was accepted\n";
     return false;
   }
   const int alias_status =
-      kernels::launch_sm87_a4w4_gateup_k512_macrocell_test_bf16_cuda(
-          a.get(), payload.a.size(), a_scales.get(),
-          payload.a_scales.size(), gate.get(), payload.gate.size(),
-          gate_scales.get(), payload.gate_scales.size(), up.get(),
-          payload.up.size(), up_scales.get(), payload.up_scales.size(),
-          m_count, full_n_count, k_count, n_start, n_count,
-          reinterpret_cast<std::uint16_t*>(a.get()), output_stride,
-          output_elements, maximum_launch_ctas);
+      launch_candidate(payload.gate.size(),
+                       reinterpret_cast<std::uint16_t*>(a.get()),
+                       output_elements);
   if (alias_status != static_cast<int>(cudaErrorInvalidValue)) {
     std::cerr << label << ": output/input alias was accepted\n";
     return false;
   }
 
   if (!launch_ok(
-          kernels::launch_sm87_a4w4_gateup_k512_macrocell_test_bf16_cuda(
-              a.get(), payload.a.size(), a_scales.get(),
-              payload.a_scales.size(), gate.get(), payload.gate.size(),
-              gate_scales.get(), payload.gate_scales.size(), up.get(),
-              payload.up.size(), up_scales.get(), payload.up_scales.size(),
-              m_count, full_n_count, k_count, n_start, n_count,
-              candidate.get(), output_stride, output_elements,
-              maximum_launch_ctas),
+          launch_candidate(payload.gate.size(), candidate.get(),
+                           output_elements),
           label + " candidate launch")) {
     return false;
   }
 
   constexpr unsigned int threads = 128U;
   const unsigned int logical_outputs =
-      static_cast<unsigned int>(m_count * n_count);
+      static_cast<unsigned int>(logical_m_count * n_count);
   const unsigned int blocks = (logical_outputs + threads - 1U) / threads;
   gateup_k512_scalar_oracle<<<blocks, threads>>>(
       a.get(), a_scales.get(), gate.get(), gate_scales.get(), up.get(),
-      up_scales.get(), static_cast<unsigned int>(m_count),
+      up_scales.get(), static_cast<unsigned int>(logical_m_count),
       static_cast<unsigned int>(n_start),
       static_cast<unsigned int>(n_count),
       static_cast<unsigned int>(plan.k512_groups),
@@ -456,10 +520,11 @@ __global__ void gateup_k512_scalar_oracle(
     return false;
   }
 
-  std::cout << label << " bit-exact: M=" << m_count
+  std::cout << label << " bit-exact: logicalM=" << logical_m_count
+            << " launchM=" << launch_m_count
             << " fullN=" << full_n_count << " window=[" << n_start
             << ',' << n_start + n_count << ") K=" << k_count
-            << " work_cells=" << plan.work_cells << '\n';
+            << " work_cells=" << plan.m_tiles * plan.n_tiles << '\n';
   return true;
 }
 
@@ -471,15 +536,26 @@ int main() {
     return target;
   }
 
-  kernels::Sm87A4W4GateUpK512MacroResources resources{};
+  TestResources resources{};
+#if defined(Q3X_TEST_GATEUP_M128N128_PROJECTION_SERIAL)
+  const int resource_status =
+      kernels::
+          query_sm87_a4w4_gateup_k512_m128n128_projection_serial_resources_cuda(
+              &resources);
+  constexpr std::size_t kExpectedShared = 165'376U;
+#else
+  const int resource_status =
+      kernels::query_sm87_a4w4_gateup_k512_macrocell_resources_cuda(
+          &resources);
+  constexpr std::size_t kExpectedShared = 83'200U;
+#endif
   if (!launch_ok(
-          kernels::query_sm87_a4w4_gateup_k512_macrocell_resources_cuda(
-              &resources),
+          resource_status,
           "query K512 macrocell resources") ||
       resources.registers_per_thread <= 0 ||
       resources.registers_per_thread > 128 ||
       resources.static_shared_bytes != 0U ||
-      resources.dynamic_shared_bytes != 83'200U ||
+      resources.dynamic_shared_bytes != kExpectedShared ||
       resources.local_bytes != 0U ||
       resources.maximum_threads_per_block < 512 ||
       resources.active_blocks_per_sm < 1) {
@@ -492,13 +568,17 @@ int main() {
     return 1;
   }
 
-  // The first case proves absolute weight-row addressing at nonzero n_start.
-  // The second rotates both raw stages and both scale slots, spans two N128
-  // output tiles, and exercises two M-owner CTAs.
-  if (!run_case("nonzero-N window", 64U, 256U, 128U, 128U, 512U,
-                1U) ||
-      !run_case("two-stage/two-scale rotation", 128U, 384U, 128U,
-                256U, 1'024U, 2U)) {
+#if defined(Q3X_TEST_GATEUP_M128N128_PROJECTION_SERIAL)
+  // One focused gate: nonzero N addressing, a logical-M tail, all three ring
+  // slots across three exact K512 groups, output padding, and end guards.
+  if (!run_case("projection-serial K1536/tail", 117U, 128U, 256U,
+                128U, 128U, 1'536U, 1U)) {
+#else
+  if (!run_case("nonzero-N window", 64U, 64U, 256U, 128U, 128U,
+                512U, 1U) ||
+      !run_case("two-stage/two-scale rotation", 128U, 128U, 384U,
+                128U, 256U, 1'024U, 2U)) {
+#endif
     return 1;
   }
 

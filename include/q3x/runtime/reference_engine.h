@@ -190,6 +190,9 @@ struct ReferenceGenerationTiming {
   // Propagated request-local runtime proof for the default-off LDSM
   // pair-feed K256 Gate+Up admission.
   std::size_t gateup_ldmatrix_pairfeed_launch_hits = 0U;
+  // Propagated request-local runtime proof for the default-off full-
+  // projection-serial M128N128 Gate+Up admission.
+  std::size_t gateup_m128n128_projection_serial_launch_hits = 0U;
   // Request-local proof for the hybrid paired-GateUp/canonical-Down route.
   // A fully admitted Qwen3.6 request reports one hit per decoder layer.
   std::size_t gateup_m128n512_paired_ldmatrix_launch_hits = 0U;

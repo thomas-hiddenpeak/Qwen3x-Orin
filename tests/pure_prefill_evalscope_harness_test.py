@@ -43,6 +43,10 @@ ATTENTION_K256_LDMATRIX_PAIRFEED_MODE = (
     "cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-"
     "ldmatrix-pairfeed-down-16warp-pairring-attention-k256-a-exchange-b4"
 )
+ATTENTION_K256_M128N128_PROJECTION_SERIAL_MODE = (
+    "cumulative-prefill-current-best-mlp-k512-m128n128-projection-serial-"
+    "down-16warp-pairring-attention-k256-a-exchange-b4"
+)
 GDN_PROMPT_SPAN_MACRO_MODE = (
     f"{ATTENTION_K256_A_EXCHANGE_B4_MODE}-gdn-prompt-span-macro"
 )
@@ -68,6 +72,9 @@ MLP_K512_EDGE_M64N128_K256_ALTERNATING_SELECTOR = (
 MLP_K512_EDGE_M64N128_K256_LDMATRIX_PAIRFEED_SELECTOR = (
     "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_"
     "LDMATRIX_PAIRFEED_ADMISSION"
+)
+MLP_K512_M128N128_PROJECTION_SERIAL_SELECTOR = (
+    "Q3X_RUN_A4W4_GATEUP_K512_M128N128_PROJECTION_SERIAL_ADMISSION"
 )
 ATTENTION_K256_MARKERS = (
     "prefill_projection_span_linear_qkv_z_k256_m128n256",
@@ -97,6 +104,17 @@ MLP_K512_EDGE_M64N128_K256_ALTERNATING_MARKER = (
 MLP_K512_EDGE_M64N128_K256_LDMATRIX_PAIRFEED_MARKER = (
     "prefill_projection_span_mlp_k512_gateup_down_edge_"
     "m64n128_k256_ldmatrix_pairfeed"
+)
+MLP_K512_M128N128_PROJECTION_SERIAL_PRIMARY = (
+    "prefill_projection_span_mlp_k512_gateup_m128n128_"
+    "projection_serial_primary"
+)
+MLP_K512_M128N128_PROJECTION_SERIAL_SECONDARY = (
+    "prefill_projection_span_mlp_k512_gateup_m128n128_"
+    "projection_serial_secondary"
+)
+MLP_K512_PRODUCT_QUANTIZE_MARKER = (
+    "prefill_projection_span_mlp_k512_product_quantize"
 )
 MLP_K512_EDGE_M128N64_MARKER = (
     "prefill_projection_span_mlp_k512_gateup_down_edge_m128n64"
@@ -225,6 +243,7 @@ class Fixture:
             "ALTERNATING_ADMISSION\n"
             "# Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_"
             "LDMATRIX_PAIRFEED_ADMISSION\n"
+            f"# {MLP_K512_M128N128_PROJECTION_SERIAL_SELECTOR}\n"
             "# Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M128N64_ADMISSION\n"
             "# Q3X_RUN_A4W4_DOWN_K512_M16N64_V2_ADMISSION\n"
             "# Q3X_RUN_A4W4_MLP_K512_PAIRED_GATEUP_CANONICAL_DOWN_"
@@ -238,6 +257,9 @@ class Fixture:
             f"{MLP_K512_EDGE_MARKER}\n"
             f"{MLP_K512_EDGE_M64N128_K256_ALTERNATING_MARKER}\n"
             f"{MLP_K512_EDGE_M64N128_K256_LDMATRIX_PAIRFEED_MARKER}\n"
+            f"{MLP_K512_M128N128_PROJECTION_SERIAL_PRIMARY}\n"
+            f"{MLP_K512_M128N128_PROJECTION_SERIAL_SECONDARY}\n"
+            f"{MLP_K512_PRODUCT_QUANTIZE_MARKER}\n"
             f"{MLP_K512_EDGE_M128N64_MARKER}\n"
             f"{MLP_K512_DOWN_M16N64_V2_MARKER}\n"
             + "".join(f"{marker}\n" for marker in ATTENTION_K256_MARKERS)
@@ -500,6 +522,7 @@ class Fixture:
             "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_"
             "LDMATRIX_PAIRFEED_ADMISSION"
         ] = "1"
+        environment[MLP_K512_M128N128_PROJECTION_SERIAL_SELECTOR] = "1"
         environment[
             "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M128N64_ADMISSION"
         ] = "1"
@@ -628,6 +651,14 @@ class Fixture:
         return self.run_attention_k256(
             bucket=bucket,
             mode=ATTENTION_K256_LDMATRIX_PAIRFEED_MODE,
+        )
+
+    def run_attention_k256_m128n128_projection_serial(
+        self, *, bucket: str = "p2k"
+    ) -> subprocess.CompletedProcess[str]:
+        return self.run_attention_k256(
+            bucket=bucket,
+            mode=ATTENTION_K256_M128N128_PROJECTION_SERIAL_MODE,
         )
 
     def run_gdn_prompt_span_macro(
@@ -1838,6 +1869,177 @@ class PurePrefillEvalScopeHarnessTest(unittest.TestCase):
             "Gate+Up production stage: "
             f"{MLP_K512_EDGE_M64N128_K256_LDMATRIX_PAIRFEED_MARKER}",
             missing_marker.stderr,
+        )
+
+    def test_m128n128_projection_serial_replaces_only_pairfeed_gate(
+        self,
+    ) -> None:
+        help_result = subprocess.run(
+            [str(RUNNER), "--help"],
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+        self.assertEqual(help_result.returncode, 0, help_result.stderr)
+        self.assertIn(
+            ATTENTION_K256_M128N128_PROJECTION_SERIAL_MODE,
+            help_result.stderr,
+        )
+
+        baseline = self.fixture.run_attention_k256_ldmatrix_pairfeed()
+        candidate = (
+            self.fixture.run_attention_k256_m128n128_projection_serial()
+        )
+        self.assertEqual(baseline.returncode, 0, baseline.stderr)
+        self.assertEqual(candidate.returncode, 0, candidate.stderr)
+        self.assertIn(
+            f"mode={ATTENTION_K256_M128N128_PROJECTION_SERIAL_MODE} "
+            "dry_run=1",
+            candidate.stdout,
+        )
+        self.assertIn("selector_count=10", candidate.stdout)
+
+        baseline_startup = next(
+            line
+            for line in baseline.stdout.splitlines()
+            if line.startswith("server_startup_command")
+        )
+        candidate_startup = next(
+            line
+            for line in candidate.stdout.splitlines()
+            if line.startswith("server_startup_command")
+        )
+        baseline_selectors = set(
+            re.findall(r"(Q3X_[A-Z0-9_]+)=1", baseline_startup)
+        )
+        candidate_selectors = set(
+            re.findall(r"(Q3X_[A-Z0-9_]+)=1", candidate_startup)
+        )
+        self.assertEqual(
+            baseline_selectors - candidate_selectors,
+            {MLP_K512_EDGE_M64N128_K256_LDMATRIX_PAIRFEED_SELECTOR},
+        )
+        self.assertEqual(
+            candidate_selectors - baseline_selectors,
+            {MLP_K512_M128N128_PROJECTION_SERIAL_SELECTOR},
+        )
+        self.assertNotIn(
+            f"{MLP_K512_EDGE_M64N128_K256_ALTERNATING_SELECTOR}=1",
+            candidate_startup,
+        )
+        self.assertNotIn(
+            f"{MLP_K512_EDGE_M64N128_K256_LDMATRIX_PAIRFEED_SELECTOR}=1",
+            candidate_startup,
+        )
+
+        delta = next(
+            line
+            for line in candidate.stdout.splitlines()
+            if line.startswith("candidate_delta")
+        )
+        self.assertIn(
+            f"baseline_mode={ATTENTION_K256_LDMATRIX_PAIRFEED_MODE}",
+            delta,
+        )
+        self.assertIn(
+            "removed_selector="
+            f"{MLP_K512_EDGE_M64N128_K256_LDMATRIX_PAIRFEED_SELECTOR}",
+            delta,
+        )
+        self.assertIn(
+            "added_selector="
+            f"{MLP_K512_M128N128_PROJECTION_SERIAL_SELECTOR}",
+            delta,
+        )
+
+        contract = next(
+            line
+            for line in candidate.stdout.splitlines()
+            if line.startswith("stage_contract")
+            and MLP_K512_M128N128_PROJECTION_SERIAL_PRIMARY in line
+        )
+        for required in (
+            MLP_K512_M128N128_PROJECTION_SERIAL_PRIMARY,
+            MLP_K512_M128N128_PROJECTION_SERIAL_SECONDARY,
+            MLP_K512_PRODUCT_QUANTIZE_MARKER,
+            DOWN_16WARP_PAIRRING_MARKER,
+        ):
+            self.assertIn(required, contract)
+        self.assertIn(
+            f"excluded={MLP_K512_EDGE_M64N128_K256_LDMATRIX_PAIRFEED_MARKER},",
+            contract,
+        )
+        self.assertIn(
+            "expected_request_launch_hits=gate_alternating:0,"
+            "gate_pairfeed:0,gate_candidate:64,down_incumbent:0,"
+            "down_candidate:64",
+            contract,
+        )
+        self.assertIn(
+            "gateup_m128n128_projection_serial_launch_hits_64_per_request",
+            candidate.stdout,
+        )
+        self.assertIn("performance_evidence=0", candidate.stdout)
+        self.assertFalse(self.fixture.output.exists())
+
+    def test_m128n128_projection_serial_fails_closed_and_accounts_requests(
+        self,
+    ) -> None:
+        original = self.fixture.server.read_text(encoding="utf-8")
+        removals = (
+            (
+                f"# {MLP_K512_M128N128_PROJECTION_SERIAL_SELECTOR}\n",
+                "server does not contain the "
+                f"{ATTENTION_K256_M128N128_PROJECTION_SERIAL_MODE} "
+                "selector: "
+                f"{MLP_K512_M128N128_PROJECTION_SERIAL_SELECTOR}",
+            ),
+            (
+                f"{MLP_K512_M128N128_PROJECTION_SERIAL_PRIMARY}\n",
+                "server does not prove the M128N128 projection-serial "
+                "Gate+Up production stage: "
+                f"{MLP_K512_M128N128_PROJECTION_SERIAL_PRIMARY}",
+            ),
+            (
+                f"{MLP_K512_M128N128_PROJECTION_SERIAL_SECONDARY}\n",
+                "server does not prove the M128N128 projection-serial "
+                "Gate+Up production stage: "
+                f"{MLP_K512_M128N128_PROJECTION_SERIAL_SECONDARY}",
+            ),
+            (
+                f"{MLP_K512_PRODUCT_QUANTIZE_MARKER}\n",
+                "server does not prove the M128N128 projection-serial "
+                "Gate+Up production stage: "
+                f"{MLP_K512_PRODUCT_QUANTIZE_MARKER}",
+            ),
+        )
+        for removed, error in removals:
+            with self.subTest(removed=removed):
+                self.fixture.server.write_text(
+                    original.replace(removed, ""), encoding="utf-8"
+                )
+                result = (
+                    self.fixture.run_attention_k256_m128n128_projection_serial()
+                )
+                self.assertEqual(result.returncode, 2)
+                self.assertIn(error, result.stderr)
+
+        contents = RUNNER.read_text(encoding="utf-8")
+        self.assertIn(
+            "gateup_m128n128_projection_serial_expected_hits=64", contents
+        )
+        self.assertIn(
+            "gateup_m128n128_projection_serial_expected_hits=0", contents
+        )
+        self.assertIn(
+            "gateup_m128n128_projection_serial_launch_hits="
+            "${gateup_m128n128_projection_serial_expected_hits}",
+            contents,
+        )
+        self.assertIn(
+            "gateup_m128n128_projection_serial_runtime_contract "
+            "bucket=%s requests=%s launch_hits_per_request=%s status=passed",
+            contents,
         )
 
     def test_attention_k256_a_exchange_b4_fails_closed(

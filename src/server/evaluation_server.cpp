@@ -1004,6 +1004,9 @@ void execute_job(runtime::ReferenceEngine& engine,
             << generated.value->timing.gateup_alternating_launch_hits
             << " gateup_ldmatrix_pairfeed_launch_hits="
             << generated.value->timing.gateup_ldmatrix_pairfeed_launch_hits
+            << " gateup_m128n128_projection_serial_launch_hits="
+            << generated.value->timing
+                   .gateup_m128n128_projection_serial_launch_hits
             << " gateup_m128n512_paired_ldmatrix_launch_hits="
             << generated.value->timing
                    .gateup_m128n512_paired_ldmatrix_launch_hits
