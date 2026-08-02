@@ -714,6 +714,14 @@ The old 128-call GateUp family and 64-call split quantizer are replaced by one
 and no Attention family moves materially.  Profiler-perturbed EvalScope
 throughput is not used as a performance decision.
 
+This route is now the default
+`cumulative-prefill-current-best-mlp-k512` production candidate.  The explicit
+`cumulative-prefill-current-best-mlp-k512-edge` name remains as a compatible
+alias for archived commands, while
+`cumulative-prefill-current-best-mlp-k512-v1` freezes the 707.40 token/s
+pre-edge comparator.  Promotion changes only selection and build defaults;
+the authenticated v1 K512 payload and Down consumer stay unchanged.
+
 ```text
 server ELF SHA256      6ceba4fa140f21c32169801a55adb622860e1772dd5f1516562ee79fa55cf43d
 summary SHA256         37c091aee533dd8e74be932cc067bbd8a593fa0ab89960c733c5d6386f91db68

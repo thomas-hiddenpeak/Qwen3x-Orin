@@ -17,6 +17,8 @@ import unittest
 REPOSITORY = pathlib.Path(__file__).resolve().parents[1]
 RUNNER = REPOSITORY / "tools/evaluation/run_native_pure_prefill_matrix.sh"
 FRAGMENT_NATIVE_PAYLOAD_BYTES = 8_623_226_880
+MLP_K512_CURRENT_MODE = "cumulative-prefill-current-best-mlp-k512"
+MLP_K512_V1_MODE = "cumulative-prefill-current-best-mlp-k512-v1"
 MLP_K512_EDGE_MODE = "cumulative-prefill-current-best-mlp-k512-edge"
 MLP_K512_EDGE_MARKER = (
     "prefill_projection_span_mlp_k512_gateup_down_edge"
@@ -216,8 +218,8 @@ class Fixture:
             *extra,
         )
 
-    def run_mlp_k512_edge(
-        self, *extra: str
+    def run_mlp_k512(
+        self, mode: str, *extra: str
     ) -> subprocess.CompletedProcess[str]:
         return self.run(
             "--prefill-mlp-k512-payload",
@@ -227,9 +229,14 @@ class Fixture:
             "--prefill-mlp-k512-receipt",
             str(self.mlp_k512_receipt),
             "--mode",
-            MLP_K512_EDGE_MODE,
+            mode,
             *extra,
         )
+
+    def run_mlp_k512_edge(
+        self, *extra: str
+    ) -> subprocess.CompletedProcess[str]:
+        return self.run_mlp_k512(MLP_K512_EDGE_MODE, *extra)
 
     def enable_fragment_native_m64n128_1cta(
         self, *extra_stage_markers: str
@@ -717,6 +724,44 @@ class PurePrefillEvalScopeHarnessTest(unittest.TestCase):
             result.stderr,
         )
         self.assertFalse(self.fixture.output.exists())
+
+    def test_mlp_k512_current_best_promotes_edge_stage(self) -> None:
+        result = self.fixture.run_mlp_k512(MLP_K512_CURRENT_MODE)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(
+            f"mode={MLP_K512_CURRENT_MODE} dry_run=1", result.stdout
+        )
+        self.assertIn("selector_count=8", result.stdout)
+        startup = next(
+            line
+            for line in result.stdout.splitlines()
+            if line.startswith("server_startup_command")
+        )
+        self.assertIn(
+            "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_ADMISSION=1", startup
+        )
+        self.assertIn(
+            f"stage_contract required={MLP_K512_EDGE_MARKER}",
+            result.stdout,
+        )
+
+    def test_mlp_k512_v1_mode_freezes_pre_edge_comparator(self) -> None:
+        result = self.fixture.run_mlp_k512(MLP_K512_V1_MODE)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f"mode={MLP_K512_V1_MODE} dry_run=1", result.stdout)
+        self.assertIn("selector_count=7", result.stdout)
+        startup = next(
+            line
+            for line in result.stdout.splitlines()
+            if line.startswith("server_startup_command")
+        )
+        self.assertNotIn(
+            "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_ADMISSION=1", startup
+        )
+        self.assertIn(
+            "-u Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_ADMISSION", startup
+        )
+        self.assertNotIn("stage_contract", result.stdout)
 
     def test_fragment_native_m64n128_1cta_mode_uses_authenticated_real_route(
         self,
