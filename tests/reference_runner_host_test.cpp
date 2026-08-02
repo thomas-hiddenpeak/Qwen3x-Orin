@@ -2698,7 +2698,8 @@ void test_paired_gateup_canonical_down_selector_and_accounting(
   const runtime::ReferenceLongPrefillResult result;
   test.expect(
       result.gateup_m128n512_paired_ldmatrix_launch_hits == 0U &&
-          result.down_m128n128_ldmatrix_pairring_launch_hits == 0U,
+          result.down_m128n128_ldmatrix_pairring_launch_hits == 0U &&
+          result.down_m128n128_16warp_pairring_launch_hits == 0U,
       "new request-local telemetry is zero for every unselected route");
 }
 
@@ -2775,6 +2776,84 @@ void test_down_m128n128_ldmatrix_pairring_v1_selector_and_accounting(
       "v1 pair-ring accounting rejects MLP mismatch and partial coverage");
 }
 
+void test_down_m128n128_16warp_pairring_v1_selector_and_accounting(
+    TestContext& test) {
+  using Query =
+      detail::A4W4DownK512M128N128Pairring16V1SelectorQuery;
+  using Route = detail::A4W4DownK512M128N128Pairring16V1Route;
+
+  Query query;
+  query.projection_span = true;
+  test.expect(
+      detail::select_a4w4_down_k512_m128n128_16warp_pairring_v1_route(
+          query) == Route::kDisabled,
+      "16-warp pair-ring Down route is default-off");
+
+  query.requested = true;
+  test.expect(
+      detail::select_a4w4_down_k512_m128n128_16warp_pairring_v1_route(
+          query) == Route::kInvalid,
+      "16-warp pair-ring Down cannot run without v1 K512 MLP");
+  query.mlp_k512_v1_requested = true;
+  test.expect(
+      detail::select_a4w4_down_k512_m128n128_16warp_pairring_v1_route(
+          query) == Route::kEnabled,
+      "16-warp pair-ring Down independently composes with v1 GateUp");
+
+  Query conflict = query;
+  conflict.fragment_native_requested = true;
+  const bool fragment_rejected =
+      detail::select_a4w4_down_k512_m128n128_16warp_pairring_v1_route(
+          conflict) == Route::kInvalid;
+  conflict = query;
+  conflict.hybrid_requested = true;
+  const bool hybrid_rejected =
+      detail::select_a4w4_down_k512_m128n128_16warp_pairring_v1_route(
+          conflict) == Route::kInvalid;
+  conflict = query;
+  conflict.incumbent_pairring_requested = true;
+  const bool incumbent_rejected =
+      detail::select_a4w4_down_k512_m128n128_16warp_pairring_v1_route(
+          conflict) == Route::kInvalid;
+  conflict = query;
+  conflict.conflicting_down_requested = true;
+  const bool down_conflict_rejected =
+      detail::select_a4w4_down_k512_m128n128_16warp_pairring_v1_route(
+          conflict) == Route::kInvalid;
+  conflict = query;
+  conflict.projection_span = false;
+  const bool non_span_rejected =
+      detail::select_a4w4_down_k512_m128n128_16warp_pairring_v1_route(
+          conflict) == Route::kInvalid;
+  test.expect(fragment_rejected && hybrid_rejected && incumbent_rejected &&
+                  down_conflict_rejected && non_span_rejected,
+              "16-warp pair-ring Down rejects other publications, the "
+              "incumbent, every Down selector, and non-span dispatch");
+
+  constexpr std::size_t kBefore = 17U;
+  constexpr std::size_t kTwoSpanHits =
+      2U * runtime::kReferenceDecoderLayerCount;
+  test.expect(
+      detail::
+          a4w4_down_k512_m128n128_16warp_pairring_v1_accounting_valid(
+              Route::kDisabled, 2U, kTwoSpanHits, kBefore, kBefore) &&
+          detail::
+              a4w4_down_k512_m128n128_16warp_pairring_v1_accounting_valid(
+                  Route::kEnabled, 2U, kTwoSpanHits, kBefore,
+                  kBefore + kTwoSpanHits),
+      "16-warp pair-ring accounting accepts exact zero or spans times 64 hits");
+  test.expect(
+      !detail::
+           a4w4_down_k512_m128n128_16warp_pairring_v1_accounting_valid(
+               Route::kEnabled, 2U, kTwoSpanHits - 1U, kBefore,
+               kBefore + kTwoSpanHits) &&
+          !detail::
+               a4w4_down_k512_m128n128_16warp_pairring_v1_accounting_valid(
+                   Route::kEnabled, 2U, kTwoSpanHits, kBefore,
+                   kBefore + kTwoSpanHits - 1U),
+      "16-warp pair-ring accounting rejects MLP mismatch and partial coverage");
+}
+
 }  // namespace
 
 int main() {
@@ -2791,6 +2870,7 @@ int main() {
   test_prefill_admission_gate_orthogonality(test);
   test_paired_gateup_canonical_down_selector_and_accounting(test);
   test_down_m128n128_ldmatrix_pairring_v1_selector_and_accounting(test);
+  test_down_m128n128_16warp_pairring_v1_selector_and_accounting(test);
   test_trace_layout_and_factory_error(test);
   if (test.failures() != 0) {
     std::cerr << test.failures() << " reference-runner host test(s) failed\n";

@@ -230,6 +230,10 @@ struct ReferenceLongPrefillResult {
   // The optional pair-ring Down selector has an independent request-local
   // proof.  Gate-only admission deliberately leaves this at zero.
   std::size_t down_m128n128_ldmatrix_pairring_launch_hits = 0U;
+  // Request-local proof for the independent 16-warp pair-ring successor.
+  // It is never aliased with the incumbent pair-ring counter, so an external
+  // real-API run can prove exactly which Down implementation owned the span.
+  std::size_t down_m128n128_16warp_pairring_launch_hits = 0U;
   std::optional<ReferenceStepTiming> timing;
 };
 
@@ -1422,6 +1426,65 @@ a4w4_down_k512_m128n128_ldmatrix_pairring_v1_accounting_valid(
   const std::size_t down_delta = down_hits_after - down_hits_before;
   if (route ==
       A4W4DownK512M128N128LdmatrixPairringV1Route::kDisabled) {
+    return down_delta == 0U;
+  }
+  const std::size_t expected =
+      projection_span_count * kReferenceDecoderLayerCount;
+  return down_delta == expected && down_delta == mlp_k512_v1_delta;
+}
+
+// Independent 16-warp successor to the incumbent pair-ring Down leaf.  The
+// route is valid only under the authenticated v1 K512 MLP publication and a
+// projection span.  It cannot be selected together with the incumbent
+// pair-ring, hybrid publication, fragment-native publication, or any other
+// Down replacement.  Exact logical/ceil128 padding is revalidated by the
+// production launcher at every invocation.
+enum class A4W4DownK512M128N128Pairring16V1Route : std::uint8_t {
+  kDisabled = 0,
+  kInvalid,
+  kEnabled,
+};
+
+struct A4W4DownK512M128N128Pairring16V1SelectorQuery final {
+  bool requested = false;
+  bool mlp_k512_v1_requested = false;
+  bool fragment_native_requested = false;
+  bool hybrid_requested = false;
+  bool incumbent_pairring_requested = false;
+  bool conflicting_down_requested = false;
+  bool projection_span = false;
+};
+
+[[nodiscard]] constexpr A4W4DownK512M128N128Pairring16V1Route
+select_a4w4_down_k512_m128n128_16warp_pairring_v1_route(
+    const A4W4DownK512M128N128Pairring16V1SelectorQuery& query) noexcept {
+  if (!query.requested) {
+    return A4W4DownK512M128N128Pairring16V1Route::kDisabled;
+  }
+  if (!query.mlp_k512_v1_requested || query.fragment_native_requested ||
+      query.hybrid_requested || query.incumbent_pairring_requested ||
+      query.conflicting_down_requested || !query.projection_span) {
+    return A4W4DownK512M128N128Pairring16V1Route::kInvalid;
+  }
+  return A4W4DownK512M128N128Pairring16V1Route::kEnabled;
+}
+
+[[nodiscard]] constexpr bool
+a4w4_down_k512_m128n128_16warp_pairring_v1_accounting_valid(
+    const A4W4DownK512M128N128Pairring16V1Route route,
+    const std::size_t projection_span_count,
+    const std::size_t mlp_k512_v1_delta,
+    const std::size_t down_hits_before,
+    const std::size_t down_hits_after) noexcept {
+  if (route == A4W4DownK512M128N128Pairring16V1Route::kInvalid ||
+      down_hits_after < down_hits_before ||
+      projection_span_count >
+          std::numeric_limits<std::size_t>::max() /
+              kReferenceDecoderLayerCount) {
+    return false;
+  }
+  const std::size_t down_delta = down_hits_after - down_hits_before;
+  if (route == A4W4DownK512M128N128Pairring16V1Route::kDisabled) {
     return down_delta == 0U;
   }
   const std::size_t expected =

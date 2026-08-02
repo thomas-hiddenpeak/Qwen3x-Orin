@@ -198,6 +198,16 @@ prefill_down_k512_m128n128_ldmatrix_pairring_environment_enabled() noexcept {
 }
 
 [[nodiscard]] bool
+prefill_down_k512_m128n128_16warp_pairring_environment_enabled() noexcept {
+  if (optimized_prefill_dispatch_disabled()) {
+    return false;
+  }
+  const char* const value = std::getenv(
+      "Q3X_RUN_A4W4_DOWN_K512_M128N128_16WARP_PAIRRING_ADMISSION");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
+[[nodiscard]] bool
 prefill_down_k512_m16n64_v2_environment_enabled() noexcept {
   if (optimized_prefill_dispatch_disabled()) {
     return false;
@@ -273,6 +283,8 @@ struct PrefillMLPK512PairedGateUpCanonicalDownEnginePaths final {
       prefill_gateup_down_k512_edge_m128n512_paired_ldmatrix_environment_enabled();
   const bool pairring_selected =
       prefill_down_k512_m128n128_ldmatrix_pairring_environment_enabled();
+  const bool pairring16_selected =
+      prefill_down_k512_m128n128_16warp_pairring_environment_enabled();
 
   if (paired_gate_selected != hybrid_selected) {
     error =
@@ -288,21 +300,35 @@ struct PrefillMLPK512PairedGateUpCanonicalDownEnginePaths final {
     return false;
   }
 #endif
-  if (!pairring_selected) {
+  if (!pairring_selected && !pairring16_selected) {
     return true;
   }
 #if !defined(Q3X_ENABLE_A4W4_DOWN_K512_M128N128_LDMATRIX_PAIRRING_ADMISSION)
-  error = "this binary does not contain the M128N128 LDSM pair-ring Down "
-          "candidate";
-  return false;
-#endif
-  if (prefill_down_k512_m16n64_v2_environment_enabled() ||
-      prefill_legacy_down_selector_environment_enabled()) {
-    error = "the M128N128 LDSM pair-ring Down selector conflicts with every "
-            "other Prefill Down selector";
+  if (pairring_selected) {
+    error = "this binary does not contain the M128N128 LDSM pair-ring Down "
+            "candidate";
     return false;
   }
-  if (hybrid_selected) {
+#endif
+#if !defined(Q3X_ENABLE_A4W4_DOWN_K512_M128N128_16WARP_PAIRRING_ADMISSION)
+  if (pairring16_selected) {
+    error = "this binary does not contain the M128N128 16-warp pair-ring "
+            "Down candidate";
+    return false;
+  }
+#endif
+  if (pairring_selected && pairring16_selected) {
+    error = "the incumbent and 16-warp M128N128 pair-ring Down selectors "
+            "are mutually exclusive";
+    return false;
+  }
+  if (prefill_down_k512_m16n64_v2_environment_enabled() ||
+      prefill_legacy_down_selector_environment_enabled()) {
+    error = "the selected M128N128 pair-ring Down candidate conflicts with "
+            "every other Prefill Down selector";
+    return false;
+  }
+  if (pairring_selected && hybrid_selected) {
     if (!hybrid_publication_requested || !paired_gate_selected) {
       error = "the M128N128 LDSM pair-ring Down selector on the hybrid route "
               "requires the authenticated hybrid publication and paired "
@@ -311,11 +337,23 @@ struct PrefillMLPK512PairedGateUpCanonicalDownEnginePaths final {
     }
     return true;
   }
+  if (pairring16_selected &&
+      (hybrid_selected || hybrid_publication_requested ||
+       paired_gate_selected)) {
+    error = "the independent M128N128 16-warp pair-ring Down selector "
+            "cannot be combined with the hybrid publication";
+    return false;
+  }
   if (!mlp_k512_v1_selected || !mlp_k512_v1_publication_requested ||
       fragment_native_selected || fragment_native_publication_requested ||
       hybrid_publication_requested) {
-    error = "the independent M128N128 LDSM pair-ring Down selector requires "
-            "the authenticated v1 K512 MLP publication and runtime master";
+    error = pairring16_selected
+                ? "the independent M128N128 16-warp pair-ring Down selector "
+                  "requires the authenticated v1 K512 MLP publication and "
+                  "runtime master"
+                : "the independent M128N128 LDSM pair-ring Down selector "
+                  "requires the authenticated v1 K512 MLP publication and "
+                  "runtime master";
     return false;
   }
   return true;

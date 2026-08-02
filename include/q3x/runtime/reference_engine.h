@@ -185,6 +185,8 @@ struct ReferenceGenerationTiming {
   // Independent proof for the optional pair-ring Down route.  Gate-only
   // hybrid admission deliberately leaves this at zero.
   std::size_t down_m128n128_ldmatrix_pairring_launch_hits = 0U;
+  // Independent proof for the default-off 16-warp pair-ring successor.
+  std::size_t down_m128n128_16warp_pairring_launch_hits = 0U;
   std::vector<double> subsequent_token_milliseconds;
   double decode_after_first_milliseconds = 0.0;
   double total_generation_milliseconds = 0.0;

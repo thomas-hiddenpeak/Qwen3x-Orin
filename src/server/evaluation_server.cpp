@@ -996,6 +996,9 @@ void execute_job(runtime::ReferenceEngine& engine,
             << " down_m128n128_ldmatrix_pairring_launch_hits="
             << generated.value->timing
                    .down_m128n128_ldmatrix_pairring_launch_hits
+            << " down_m128n128_16warp_pairring_launch_hits="
+            << generated.value->timing
+                   .down_m128n128_16warp_pairring_launch_hits
             << '\n'
             << std::flush;
 
