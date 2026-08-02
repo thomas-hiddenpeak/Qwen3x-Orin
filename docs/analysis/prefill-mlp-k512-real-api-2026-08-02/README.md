@@ -20,6 +20,7 @@ The external EvalScope/OpenAI result on the fixed natural P2K corpus is:
 | Fragment-native direct M128N64 one-CTA | 4/4 | 2,736.2 ms | 703.35 tok/s | 703.7168 tok/s |
 | Direct M128N64 + Down M128N256 one-CTA | 4/4 | 2,807.8 ms | 685.42 tok/s | 685.7787 tok/s |
 | Fragment-native M64N128 16-warp one-CTA | 4/4 | 3,236.2 ms | 594.69 tok/s | 594.9980 tok/s |
+| Fragment-native M128N64 staged paired-B | 4/4 | 2,744.8 ms | 701.15 tok/s | 701.5126 tok/s |
 | Retained v1 + ceil128 cumulative change | - | -452.9 ms (-14.27%) | +16.65% | +16.65% |
 
 The retained v1 plus ceil128 candidate therefore passes the experiment gate
@@ -544,12 +545,16 @@ The new Gate kernel alone regressed 583.077 ms (+65.59%) against production
 and 193.955 ms (+15.18%) against the M64N64 direct-B consumer.  Down and the
 sequence path stayed approximately unchanged.  Therefore the end-to-end loss
 is localized to Gate+Up.  The comparison shows that 16 resident warps are not
-an adequate design target by themselves: collapsing two independently
-scheduled 256-thread CTAs into one 512-thread barrier domain removed CTA-level
-latency-hiding freedom, while the saved A traffic was too small to compensate.
-The next architecture must reduce the dominant B presentation, preserve exact
-SwiGLU, and account for independent producer/consumer progress; it must not
-repeat a wider one-CTA merge whose only structural saving is A.
+an adequate design target by themselves.  Both this kernel and the faster
+production macrocell are 512-thread, 16-warp, one-CTA/SM kernels and present
+the same total code bytes per M64N128 cell.  The actual structural regression
+is that direct B performs a synchronous global load immediately before use,
+uses an 81-barrier K128 ring instead of the production kernel's 42-barrier
+K256 A+B pipeline, and abandons fixed-M-owner scheduling.  It did not reduce
+total operand presentation; it exposed B latency and doubled synchronization.
+The next architecture must combine M128 B reuse with staged paired-B loads,
+exact same-warp SwiGLU, a K256 ping-pong pipeline, and fixed-M ownership.  It
+must not repeat direct-B or linear-cell scheduling.
 
 The real run also exposed a harness fail-fast gap: the first launch was given
 the base A4 policy instead of the K512 policy and the server discovered the
@@ -566,6 +571,80 @@ provenance SHA256      16fa10750cd05ac20d75b125345e21528522b3f60a1293c547566a726
 NSys report SHA256     b89903be3a57f034b8f750aaba93c066feb3b60d53c3b1a6ed26762bb0d4c5fc
 SQLite SHA256          8b693e0945baba84eef580c73ae610636b5dc6380d38cd3ab154def55022053a
 kernel CSV SHA256      d0b810d764897b37793895dc4f6e7ef6d0179bb437ce91c2bcf8a252c4b508e7
+```
+
+## Rejected fragment-native M128N64 staged paired-B skeleton
+
+The next Gate+Up replacement combined the mechanisms that the M64N128
+failure had separated incorrectly.  One 512-thread CTA owns M128N64.  The
+upper and lower eight-warp crews reuse one paired Gate+Up B fragment, keep
+same-warp SwiGLU, stage A and B with a two-stage K256 `cp.async` pipeline,
+and use fixed M owners so all SMs traverse the same N64 weight stream.
+
+Independent resource and correctness admission passed before any timing:
+
+```text
+registers/thread       128
+dynamic shared         66,560 bytes
+active CTA/SM          1
+stack/local/spill      0 / 0 / 0
+correctness             BF16 bit exact at K512, K1024, M1920/N128,
+                        and model K5120
+SASS                    20 LDGSTS, 154 LDS, 64 IMMA, no LDG.E.128
+synchronization         41 CTA barriers per model-shape cell
+```
+
+The first performance verdict again used only the real checkpoint,
+authenticated v2 publication, OpenAI `/v1/completions`, and external
+EvalScope 1.9.1.  Four of four measured natural P2K requests succeeded:
+
+```text
+test duration          10.9806 s
+average input          1924.75 tokens
+mean TTFT              2744.78 ms
+prompt throughput      701.1483 token/s
+total throughput       701.5126 token/s
+vs production v1      -0.8838% throughput, +24.27 ms TTFT
+```
+
+This is an end-to-end **REJECT**.  It did not meet the structural continuation
+gate of at least 100 ms TTFT reduction, so it remains default-off and does not
+replace the v1 production route.  No parameter sweep follows.
+
+The result is nevertheless useful because the request-scoped P1853 NSys
+capture proves that paired-B staging closed a material part of the Gate gap:
+
+| Kernel family | Production v1 | M128N64 staged | Change |
+|---|---:|---:|---:|
+| Gate+Up | 888.941 ms | 802.911 ms | -86.030 ms (-9.68%) |
+| Down | 523.248 ms | 541.481 ms | +18.233 ms (+3.48%) |
+| Attention pair | 336.135 ms | 335.992 ms | -0.142 ms |
+| Attention-O | 165.631 ms | 165.630 ms | -0.001 ms |
+| Full-Attention Q/K/V | 98.187 ms | 98.134 ms | -0.053 ms |
+
+The end-to-end reversal comes from the natural prompt-length schedule, not
+from the aligned M128N64 cell.  Against the retained v1 route, prompt-prefill
+time improved by 47--79 ms at 1,792, 1,853, and 1,906 tokens, but the
+2,148-token request regressed from 3,235.39 to 3,528.26 ms.  That request
+contains 17 M128 tiles.  With 16 fixed owner CTAs, one owner serially executes
+two complete M tiles across every N64 stripe while the other 15 execute one.
+The resulting long tail costs the four-request matrix roughly 73 ms on
+average and masks the aligned-cell gain.
+
+The evidence freezes two requirements for the next structural candidate:
+distribute the 17th M tile without abandoning synchronized N traversal, and
+retain the faster v1 Down consumer instead of paying the v2 Down regression.
+Together these are an architectural composition problem, not a request to
+scan tile constants.
+
+```text
+server log SHA256      3e4edc7373e3f78118a0b571a971d16d6eef296ad43f53bc1898766894351ecf
+summary SHA256         68e7cb0b02984245f1f3b47417d6d787ee7cbdffc3bec6c7e67fc3792ced3931
+provenance SHA256      00d620ecdb06926b0347fa3075a90ba32478813a69ce01deca83631039afa11c
+NSys report SHA256     4cc50314110a5111797d5cee2e3c999681945dd0d62fc29836defad8bb8ccd0c
+SQLite SHA256          bb1332942100a5fb9524c49aad6e8e03813f581034e9ab3d3273cb0158ee69bd
+kernel CSV SHA256      dfee6b3c6579226091c6c52b2471e593c069fc71a533fbabadf9120631a5e8c0
+profile log SHA256     6c2cd2c910b77d95479cf5adb24189a679b15a2e0e34c6f27c2efecf9ea5a801
 ```
 
 Evidence directories:
@@ -604,5 +683,11 @@ Evidence directories:
   `/home/rm01/q3x-mlp-k512-fragment-native-m64n128-1cta-nsys-p2048`;
 - fragment-native M64N128 request trace:
   `/home/rm01/q3x-mlp-k512-fragment-native-m64n128-1cta-request2.nsys-rep`;
+- rejected fragment-native M128N64 staged run:
+  `/home/rm01/q3x-mlp-k512-fragment-native-m128n64-staged-evalscope-p2048`;
+- profiled fragment-native M128N64 staged EvalScope run:
+  `/home/rm01/q3x-mlp-k512-fragment-native-m128n64-staged-nsys-p2048`;
+- fragment-native M128N64 staged request trace:
+  `/home/rm01/q3x-mlp-k512-fragment-native-m128n64-staged-request2.nsys-rep`;
 - fragment-native v2 publication:
   `/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4-q3x-mlp-k512-fragment-native/weights-mlp-k512-fragment-native.bin`.

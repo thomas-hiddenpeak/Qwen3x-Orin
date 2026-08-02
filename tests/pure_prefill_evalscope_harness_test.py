@@ -29,6 +29,18 @@ FRAGMENT_NATIVE_M64N128_1CTA_SECONDARY = (
     "prefill_projection_span_mlp_k512_fragment_native_"
     "m64n128_1cta_gateup_secondary"
 )
+FRAGMENT_NATIVE_M128N64_STAGED_MODE = (
+    "cumulative-prefill-current-best-mlp-k512-fragment-native-"
+    "m128n64-staged"
+)
+FRAGMENT_NATIVE_M128N64_STAGED_PRIMARY = (
+    "prefill_projection_span_mlp_k512_fragment_native_"
+    "m128n64_staged_gateup_primary"
+)
+FRAGMENT_NATIVE_M128N64_STAGED_SECONDARY = (
+    "prefill_projection_span_mlp_k512_fragment_native_"
+    "m128n64_staged_gateup_secondary"
+)
 
 
 class Fixture:
@@ -213,6 +225,37 @@ class Fixture:
             str(self.fragment_native_receipt),
             "--mode",
             FRAGMENT_NATIVE_M64N128_1CTA_MODE,
+            *extra,
+        )
+
+    def enable_fragment_native_m128n64_staged(
+        self, *extra_stage_markers: str
+    ) -> None:
+        with self.server.open("a", encoding="utf-8") as stream:
+            stream.write("Q3X_RUN_A4W4_MLP_K512_FRAGMENT_NATIVE_ADMISSION\n")
+            stream.write(f"{FRAGMENT_NATIVE_M128N64_STAGED_PRIMARY}\n")
+            stream.write(f"{FRAGMENT_NATIVE_M128N64_STAGED_SECONDARY}\n")
+            stream.write(
+                "prefill_projection_span_mlp_k512_fragment_native_down\n"
+            )
+            for marker in extra_stage_markers:
+                stream.write(f"{marker}\n")
+
+    def run_fragment_native_m128n64_staged(
+        self,
+        *extra: str,
+        extra_stage_markers: tuple[str, ...] = (),
+    ) -> subprocess.CompletedProcess[str]:
+        self.enable_fragment_native_m128n64_staged(*extra_stage_markers)
+        return self.run(
+            "--prefill-mlp-k512-fragment-native-payload",
+            str(self.fragment_native_payload),
+            "--prefill-mlp-k512-fragment-native-policy",
+            str(self.fragment_native_policy),
+            "--prefill-mlp-k512-fragment-native-receipt",
+            str(self.fragment_native_receipt),
+            "--mode",
+            FRAGMENT_NATIVE_M128N64_STAGED_MODE,
             *extra,
         )
 
@@ -643,6 +686,83 @@ class PurePrefillEvalScopeHarnessTest(unittest.TestCase):
         )
         self.assertFalse(self.fixture.output.exists())
 
+    def test_fragment_native_m128n64_staged_mode_uses_authenticated_real_route(
+        self,
+    ) -> None:
+        result = self.fixture.run_fragment_native_m128n64_staged()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(
+            f"mode={FRAGMENT_NATIVE_M128N64_STAGED_MODE} dry_run=1",
+            result.stdout,
+        )
+        startup = next(
+            line
+            for line in result.stdout.splitlines()
+            if line.startswith("server_startup_command")
+        )
+        self.assertEqual(
+            set(re.findall(r"(Q3X_[A-Z0-9_]+)=1", startup)),
+            {
+                "Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION",
+                "Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION",
+                "Q3X_RUN_BF16_AB_LARGE_M_PREFILL_ADMISSION",
+                "Q3X_FULL_ATTENTION_FLASHINFER_DIRECT",
+                "Q3X_RUN_A4W4_ATTENTION_SUPERMATRIX_ADMISSION",
+                "Q3X_RUN_FULL_ATTENTION_PREPROCESS_PROMPT_WIDE_128_ADMISSION",
+                "Q3X_RUN_A4W4_MLP_K512_FRAGMENT_NATIVE_ADMISSION",
+            },
+        )
+        self.assertIn(
+            "--prefill-mlp-k512-fragment-native-payload", startup
+        )
+        self.assertIn(str(self.fixture.fragment_native_payload), startup)
+        self.assertIn(
+            "--prefill-mlp-k512-fragment-native-policy", startup
+        )
+        self.assertIn(str(self.fixture.fragment_native_policy), startup)
+        self.assertIn(
+            "--prefill-mlp-k512-fragment-native-receipt", startup
+        )
+        self.assertIn(str(self.fixture.fragment_native_receipt), startup)
+        self.assertIn(
+            "gateup_variant=m128n64_staged down_variant=m64n128",
+            result.stdout,
+        )
+        self.assertIn(
+            "prefill_mlp_k512_fragment_native_gateup_variant_"
+            "m128n64_staged",
+            result.stdout,
+        )
+        self.assertIn("performance_evidence=0", result.stdout)
+        self.assertFalse(self.fixture.output.exists())
+
+    def test_fragment_native_m128n64_staged_rejects_other_gateup_markers(
+        self,
+    ) -> None:
+        rejected_markers = (
+            "prefill_projection_span_mlp_k512_fragment_native_"
+            "gateup_primary",
+            "prefill_projection_span_mlp_k512_fragment_native_"
+            "m128_gateup_primary",
+            "prefill_projection_span_mlp_k512_fragment_native_"
+            "m128n64_1cta_gateup_primary",
+            "prefill_projection_span_mlp_k512_fragment_native_"
+            "m64n128_1cta_gateup_primary",
+        )
+        for marker in rejected_markers:
+            with self.subTest(marker=marker):
+                with tempfile.TemporaryDirectory() as root:
+                    fixture = Fixture(pathlib.Path(root))
+                    result = fixture.run_fragment_native_m128n64_staged(
+                        extra_stage_markers=(marker,)
+                    )
+                    self.assertEqual(result.returncode, 2)
+                    self.assertIn(
+                        "server contains the mutually exclusive "
+                        f"fragment-native Gate+Up variant: {marker}",
+                        result.stderr,
+                    )
+
     def test_fragment_native_m64n128_1cta_rejects_all_old_gateup_markers(
         self,
     ) -> None:
@@ -652,6 +772,7 @@ class PurePrefillEvalScopeHarnessTest(unittest.TestCase):
             "m128_gateup_primary",
             "prefill_projection_span_mlp_k512_fragment_native_"
             "m128n64_1cta_gateup_primary",
+            FRAGMENT_NATIVE_M128N64_STAGED_PRIMARY,
         )
         for marker in rejected_markers:
             with self.subTest(marker=marker):

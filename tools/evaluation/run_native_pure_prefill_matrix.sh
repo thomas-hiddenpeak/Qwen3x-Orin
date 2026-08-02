@@ -15,7 +15,7 @@ usage: run_native_pure_prefill_matrix.sh \
   [--prefill-mlp-k512-fragment-native-payload FILE \
    --prefill-mlp-k512-fragment-native-policy FILE \
    --prefill-mlp-k512-fragment-native-receipt FILE] \
-  [--mode exact|native-gdn|cumulative-prefill|cumulative-prefill-down|cumulative-prefill-attention-down|cumulative-prefill-current-best|cumulative-prefill-current-best-k512|cumulative-prefill-current-best-mlp-k512|cumulative-prefill-current-best-mlp-k512-fragment-native|cumulative-prefill-current-best-mlp-k512-fragment-native-m128|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta|cumulative-prefill-current-best-mlp-k512-fragment-native-m64n128-1cta|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta-down-m128n256-1cta|cumulative-prefill-short] \
+  [--mode exact|native-gdn|cumulative-prefill|cumulative-prefill-down|cumulative-prefill-attention-down|cumulative-prefill-current-best|cumulative-prefill-current-best-k512|cumulative-prefill-current-best-mlp-k512|cumulative-prefill-current-best-mlp-k512-fragment-native|cumulative-prefill-current-best-mlp-k512-fragment-native-m128|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-staged|cumulative-prefill-current-best-mlp-k512-fragment-native-m64n128-1cta|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta-down-m128n256-1cta|cumulative-prefill-short] \
   [--dry-run] \
   ELF MODEL_DIR CORPUS_DIR OUTPUT_ROOT [p512|p1k|p2k|p4k]
 EOF
@@ -124,7 +124,7 @@ done
   exit 2
 }
 case "${mode}" in
-  exact|native-gdn|cumulative-prefill|cumulative-prefill-down|cumulative-prefill-attention-down|cumulative-prefill-current-best|cumulative-prefill-current-best-k512|cumulative-prefill-current-best-mlp-k512|cumulative-prefill-current-best-mlp-k512-fragment-native|cumulative-prefill-current-best-mlp-k512-fragment-native-m128|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta|cumulative-prefill-current-best-mlp-k512-fragment-native-m64n128-1cta|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta-down-m128n256-1cta|cumulative-prefill-short) ;;
+  exact|native-gdn|cumulative-prefill|cumulative-prefill-down|cumulative-prefill-attention-down|cumulative-prefill-current-best|cumulative-prefill-current-best-k512|cumulative-prefill-current-best-mlp-k512|cumulative-prefill-current-best-mlp-k512-fragment-native|cumulative-prefill-current-best-mlp-k512-fragment-native-m128|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-staged|cumulative-prefill-current-best-mlp-k512-fragment-native-m64n128-1cta|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta-down-m128n256-1cta|cumulative-prefill-short) ;;
   *)
     echo "--mode must be exact, native-gdn, cumulative-prefill, or" \
       "cumulative-prefill-down, cumulative-prefill-attention-down, or" \
@@ -133,6 +133,7 @@ case "${mode}" in
       "cumulative-prefill-current-best-mlp-k512-fragment-native," \
       "cumulative-prefill-current-best-mlp-k512-fragment-native-m128," \
       "cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta," \
+      "cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-staged," \
       "cumulative-prefill-current-best-mlp-k512-fragment-native-m64n128-1cta," \
       "cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta-down-m128n256-1cta, or" \
       "cumulative-prefill-short" >&2
@@ -258,12 +259,15 @@ mlp_k512_fragment_native_receipt_sha256=
 if [[ "${mode}" == cumulative-prefill-current-best-mlp-k512-fragment-native ||
       "${mode}" == cumulative-prefill-current-best-mlp-k512-fragment-native-m128 ||
       "${mode}" == cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta ||
+      "${mode}" == cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-staged ||
       "${mode}" == cumulative-prefill-current-best-mlp-k512-fragment-native-m64n128-1cta ||
       "${mode}" == cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta-down-m128n256-1cta ]]; then
   mlp_k512_fragment_native_mode=1
   mlp_k512_fragment_native_down_variant=m64n128
   if [[ "${mode}" == cumulative-prefill-current-best-mlp-k512-fragment-native-m128 ]]; then
     mlp_k512_fragment_native_gateup_variant=m128n32
+  elif [[ "${mode}" == cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-staged ]]; then
+    mlp_k512_fragment_native_gateup_variant=m128n64_staged
   elif [[ "${mode}" == cumulative-prefill-current-best-mlp-k512-fragment-native-m64n128-1cta ]]; then
     mlp_k512_fragment_native_gateup_variant=m64n128_1cta
   elif [[ "${mode}" == cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta ||
@@ -429,6 +433,7 @@ case "${mode}" in
   cumulative-prefill-current-best-mlp-k512-fragment-native|\
   cumulative-prefill-current-best-mlp-k512-fragment-native-m128|\
   cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta|\
+  cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-staged|\
   cumulative-prefill-current-best-mlp-k512-fragment-native-m64n128-1cta|\
   cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta-down-m128n256-1cta)
     candidate_selectors=(
@@ -471,6 +476,19 @@ if [[ "${mlp_k512_fragment_native_mode}" == 1 ]]; then
         prefill_projection_span_mlp_k512_fragment_native_gateup_primary
         prefill_projection_span_mlp_k512_fragment_native_m128_gateup_primary
         prefill_projection_span_mlp_k512_fragment_native_m128n64_1cta_gateup_primary
+        prefill_projection_span_mlp_k512_fragment_native_m128n64_staged_gateup_primary
+      )
+      ;;
+    m128n64_staged)
+      fragment_gateup_markers=(
+        prefill_projection_span_mlp_k512_fragment_native_m128n64_staged_gateup_primary
+        prefill_projection_span_mlp_k512_fragment_native_m128n64_staged_gateup_secondary
+      )
+      fragment_gateup_rejected_markers=(
+        prefill_projection_span_mlp_k512_fragment_native_gateup_primary
+        prefill_projection_span_mlp_k512_fragment_native_m128_gateup_primary
+        prefill_projection_span_mlp_k512_fragment_native_m128n64_1cta_gateup_primary
+        prefill_projection_span_mlp_k512_fragment_native_m64n128_1cta_gateup_primary
       )
       ;;
     m128n64_1cta)
@@ -482,6 +500,7 @@ if [[ "${mlp_k512_fragment_native_mode}" == 1 ]]; then
         prefill_projection_span_mlp_k512_fragment_native_gateup_primary
         prefill_projection_span_mlp_k512_fragment_native_m128_gateup_primary
         prefill_projection_span_mlp_k512_fragment_native_m64n128_1cta_gateup_primary
+        prefill_projection_span_mlp_k512_fragment_native_m128n64_staged_gateup_primary
       )
       ;;
     m128n32)
@@ -493,6 +512,7 @@ if [[ "${mlp_k512_fragment_native_mode}" == 1 ]]; then
         prefill_projection_span_mlp_k512_fragment_native_gateup_primary
         prefill_projection_span_mlp_k512_fragment_native_m128n64_1cta_gateup_primary
         prefill_projection_span_mlp_k512_fragment_native_m64n128_1cta_gateup_primary
+        prefill_projection_span_mlp_k512_fragment_native_m128n64_staged_gateup_primary
       )
       ;;
     m64n64)
@@ -504,6 +524,7 @@ if [[ "${mlp_k512_fragment_native_mode}" == 1 ]]; then
         prefill_projection_span_mlp_k512_fragment_native_m128_gateup_primary
         prefill_projection_span_mlp_k512_fragment_native_m128n64_1cta_gateup_primary
         prefill_projection_span_mlp_k512_fragment_native_m64n128_1cta_gateup_primary
+        prefill_projection_span_mlp_k512_fragment_native_m128n64_staged_gateup_primary
       )
       ;;
   esac
