@@ -15,7 +15,7 @@ usage: run_native_pure_prefill_matrix.sh \
   [--prefill-mlp-k512-fragment-native-payload FILE \
    --prefill-mlp-k512-fragment-native-policy FILE \
    --prefill-mlp-k512-fragment-native-receipt FILE] \
-  [--mode exact|native-gdn|cumulative-prefill|cumulative-prefill-down|cumulative-prefill-attention-down|cumulative-prefill-current-best|cumulative-prefill-current-best-k512|cumulative-prefill-current-best-mlp-k512|cumulative-prefill-current-best-mlp-k512-v1|cumulative-prefill-current-best-mlp-k512-edge|cumulative-prefill-current-best-mlp-k512-fragment-native|cumulative-prefill-current-best-mlp-k512-fragment-native-m128|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-staged|cumulative-prefill-current-best-mlp-k512-fragment-native-m64n128-1cta|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta-down-m128n256-1cta|cumulative-prefill-short] \
+  [--mode exact|native-gdn|cumulative-prefill|cumulative-prefill-down|cumulative-prefill-attention-down|cumulative-prefill-current-best|cumulative-prefill-current-best-k512|cumulative-prefill-current-best-mlp-k512|cumulative-prefill-current-best-mlp-k512-v1|cumulative-prefill-current-best-mlp-k512-edge|cumulative-prefill-current-best-mlp-k512-down-m16n64-v2|cumulative-prefill-current-best-mlp-k512-fragment-native|cumulative-prefill-current-best-mlp-k512-fragment-native-m128|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-staged|cumulative-prefill-current-best-mlp-k512-fragment-native-m64n128-1cta|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta-down-m128n256-1cta|cumulative-prefill-short] \
   [--dry-run] \
   ELF MODEL_DIR CORPUS_DIR OUTPUT_ROOT [p512|p1k|p2k|p4k]
 EOF
@@ -124,7 +124,7 @@ done
   exit 2
 }
 case "${mode}" in
-  exact|native-gdn|cumulative-prefill|cumulative-prefill-down|cumulative-prefill-attention-down|cumulative-prefill-current-best|cumulative-prefill-current-best-k512|cumulative-prefill-current-best-mlp-k512|cumulative-prefill-current-best-mlp-k512-v1|cumulative-prefill-current-best-mlp-k512-edge|cumulative-prefill-current-best-mlp-k512-fragment-native|cumulative-prefill-current-best-mlp-k512-fragment-native-m128|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-staged|cumulative-prefill-current-best-mlp-k512-fragment-native-m64n128-1cta|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta-down-m128n256-1cta|cumulative-prefill-short) ;;
+  exact|native-gdn|cumulative-prefill|cumulative-prefill-down|cumulative-prefill-attention-down|cumulative-prefill-current-best|cumulative-prefill-current-best-k512|cumulative-prefill-current-best-mlp-k512|cumulative-prefill-current-best-mlp-k512-v1|cumulative-prefill-current-best-mlp-k512-edge|cumulative-prefill-current-best-mlp-k512-down-m16n64-v2|cumulative-prefill-current-best-mlp-k512-fragment-native|cumulative-prefill-current-best-mlp-k512-fragment-native-m128|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-staged|cumulative-prefill-current-best-mlp-k512-fragment-native-m64n128-1cta|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta-down-m128n256-1cta|cumulative-prefill-short) ;;
   *)
     echo "--mode must be exact, native-gdn, cumulative-prefill, or" \
       "cumulative-prefill-down, cumulative-prefill-attention-down, or" \
@@ -132,6 +132,7 @@ case "${mode}" in
       "cumulative-prefill-current-best-mlp-k512," \
       "cumulative-prefill-current-best-mlp-k512-v1," \
       "cumulative-prefill-current-best-mlp-k512-edge," \
+      "cumulative-prefill-current-best-mlp-k512-down-m16n64-v2," \
       "cumulative-prefill-current-best-mlp-k512-fragment-native," \
       "cumulative-prefill-current-best-mlp-k512-fragment-native-m128," \
       "cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta," \
@@ -203,13 +204,19 @@ if [[ "${mode}" == cumulative-prefill-current-best-k512 ]]; then
 fi
 mlp_k512_mode=0
 mlp_k512_edge_mode=0
+mlp_k512_down_m16n64_v2_mode=0
 if [[ "${mode}" == cumulative-prefill-current-best-mlp-k512 ||
       "${mode}" == cumulative-prefill-current-best-mlp-k512-v1 ||
-      "${mode}" == cumulative-prefill-current-best-mlp-k512-edge ]]; then
+      "${mode}" == cumulative-prefill-current-best-mlp-k512-edge ||
+      "${mode}" == cumulative-prefill-current-best-mlp-k512-down-m16n64-v2 ]]; then
   mlp_k512_mode=1
   if [[ "${mode}" == cumulative-prefill-current-best-mlp-k512 ||
-        "${mode}" == cumulative-prefill-current-best-mlp-k512-edge ]]; then
+        "${mode}" == cumulative-prefill-current-best-mlp-k512-edge ||
+        "${mode}" == cumulative-prefill-current-best-mlp-k512-down-m16n64-v2 ]]; then
     mlp_k512_edge_mode=1
+  fi
+  if [[ "${mode}" == cumulative-prefill-current-best-mlp-k512-down-m16n64-v2 ]]; then
+    mlp_k512_down_m16n64_v2_mode=1
   fi
   [[ -f "${prefill_mlp_k512_payload}" ]] || {
     echo "missing required Prefill MLP K512 payload: ${prefill_mlp_k512_payload:-<unset>}" >&2
@@ -452,6 +459,19 @@ case "${mode}" in
       Q3X_RUN_A4W4_MLP_K512_ADMISSION
     )
     ;;
+  cumulative-prefill-current-best-mlp-k512-down-m16n64-v2)
+    candidate_selectors=(
+      Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION
+      Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION
+      Q3X_RUN_BF16_AB_LARGE_M_PREFILL_ADMISSION
+      Q3X_FULL_ATTENTION_FLASHINFER_DIRECT
+      Q3X_RUN_A4W4_ATTENTION_SUPERMATRIX_ADMISSION
+      Q3X_RUN_FULL_ATTENTION_PREPROCESS_PROMPT_WIDE_128_ADMISSION
+      Q3X_RUN_A4W4_MLP_K512_ADMISSION
+      Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_ADMISSION
+      Q3X_RUN_A4W4_DOWN_K512_M16N64_V2_ADMISSION
+    )
+    ;;
   cumulative-prefill-current-best-mlp-k512-fragment-native|\
   cumulative-prefill-current-best-mlp-k512-fragment-native-m128|\
   cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta|\
@@ -489,6 +509,13 @@ if [[ "${mlp_k512_edge_mode}" == 1 ]]; then
   edge_marker=prefill_projection_span_mlp_k512_gateup_down_edge
   if ! grep -Fx "${edge_marker}" < <(strings -a "${server}") >/dev/null; then
     echo "server does not prove the Gate+Up-to-Down K512 edge stage: ${edge_marker}" >&2
+    exit 2
+  fi
+fi
+if [[ "${mlp_k512_down_m16n64_v2_mode}" == 1 ]]; then
+  down_m16n64_v2_marker=prefill_projection_span_mlp_k512_down_m16n64_v2
+  if ! grep -Fx "${down_m16n64_v2_marker}" < <(strings -a "${server}") >/dev/null; then
+    echo "server does not prove the Down K512 M16N64 v2 stage: ${down_m16n64_v2_marker}" >&2
     exit 2
   fi
 fi
@@ -735,8 +762,12 @@ for selector in "${candidate_selectors[@]}"; do
   printf ' %s' "${selector}"
 done
 printf '\n'
-if [[ "${mlp_k512_edge_mode}" == 1 ]]; then
+if [[ "${mlp_k512_edge_mode}" == 1 &&
+      "${mlp_k512_down_m16n64_v2_mode}" == 0 ]]; then
   printf 'stage_contract required=prefill_projection_span_mlp_k512_gateup_down_edge excluded=prefill_projection_span_mlp_k512_gate_up_primary,prefill_projection_span_mlp_k512_gate_up_secondary,prefill_projection_span_mlp_k512_product_quantize retained=prefill_projection_span_mlp_k512_input_quantize,prefill_projection_span_mlp_k512_down\n'
+fi
+if [[ "${mlp_k512_down_m16n64_v2_mode}" == 1 ]]; then
+  printf 'stage_contract required=prefill_projection_span_mlp_k512_gateup_down_edge,prefill_projection_span_mlp_k512_down_m16n64_v2 excluded=prefill_projection_span_mlp_k512_down,prefill_projection_span_mlp_k512_gate_up_primary,prefill_projection_span_mlp_k512_gate_up_secondary,prefill_projection_span_mlp_k512_product_quantize retained=prefill_projection_span_mlp_k512_input_quantize\n'
 fi
 printf 'server_startup_command'
 printf ' %q' "${runtime_env[@]}" "${profiler_prefix[@]}" "${server_args[@]}"
@@ -750,6 +781,9 @@ if [[ "${mlp_k512_mode}" == 1 ]]; then
 fi
 if [[ "${mlp_k512_edge_mode}" == 1 ]]; then
   printf ',prefill_projection_span_mlp_k512_gateup_down_edge,old_gateup_split_stages_excluded'
+fi
+if [[ "${mlp_k512_down_m16n64_v2_mode}" == 1 ]]; then
+  printf ',prefill_projection_span_mlp_k512_down_m16n64_v2,v1_down_stage_excluded'
 fi
 if [[ "${mlp_k512_fragment_native_mode}" == 1 ]]; then
   printf ',prefill_mlp_k512_fragment_native_authenticated_64_of_64,prefill_mlp_k512_fragment_native_gateup_variant_%s,prefill_mlp_k512_fragment_native_down_variant_%s,prefill_mlp_k512_fragment_native_layout,prefill_mlp_k512_fragment_native_payload_sha256,prefill_mlp_k512_fragment_native_policy_sha256,prefill_mlp_k512_fragment_native_receipt_sha256' \
@@ -775,9 +809,14 @@ mkdir -p "${output_root}"
   printf 'selectors='
   printf '%s ' "${candidate_selectors[@]}"
   printf '\n'
-  if [[ "${mlp_k512_edge_mode}" == 1 ]]; then
+  if [[ "${mlp_k512_edge_mode}" == 1 &&
+        "${mlp_k512_down_m16n64_v2_mode}" == 0 ]]; then
     printf 'required_runtime_stage=prefill_projection_span_mlp_k512_gateup_down_edge\n'
     printf 'excluded_runtime_stages=prefill_projection_span_mlp_k512_gate_up_primary,prefill_projection_span_mlp_k512_gate_up_secondary,prefill_projection_span_mlp_k512_product_quantize\n'
+  fi
+  if [[ "${mlp_k512_down_m16n64_v2_mode}" == 1 ]]; then
+    printf 'required_runtime_stages=prefill_projection_span_mlp_k512_gateup_down_edge,prefill_projection_span_mlp_k512_down_m16n64_v2\n'
+    printf 'excluded_runtime_stages=prefill_projection_span_mlp_k512_down,prefill_projection_span_mlp_k512_gate_up_primary,prefill_projection_span_mlp_k512_gate_up_secondary,prefill_projection_span_mlp_k512_product_quantize\n'
   fi
   if [[ "${mlp_k512_fragment_native_mode}" == 1 ]]; then
     printf 'prefill_mlp_k512_fragment_native_gateup_variant=%s\n' \
@@ -947,6 +986,31 @@ for bucket in "${buckets[@]}"; do
     --stream --tokenize-prompt --no-test-connection \
     --outputs-dir "${run_dir}" --name "pure-prefill-${bucket}-${mode}" \
     --no-timestamp >"${run_dir}/evalscope.stdout" 2>&1
-  find "${run_dir}" -name benchmark_summary.json -print \
-    -exec sed -n '1,220p' {} \;
+  mapfile -t summary_files < <(
+    find "${run_dir}" -name benchmark_summary.json -type f -print
+  )
+  [[ ${#summary_files[@]} == 1 ]] || {
+    echo "expected exactly one EvalScope benchmark_summary.json under ${run_dir}" >&2
+    exit 6
+  }
+  summary_file=${summary_files[0]}
+  python3 - "${summary_file}" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as stream:
+    summary = json.load(stream)
+total = summary.get("Total Requests")
+success = summary.get("Success Requests")
+failed = summary.get("Failed Requests")
+if total != 4 or success != 4 or failed != 0:
+    raise SystemExit(
+        f"EvalScope request contract failed: total={total} "
+        f"success={success} failed={failed}"
+    )
+PY
+  printf 'evalscope_request_contract bucket=%s total=4 success=4 failed=0 summary=%q\n' \
+    "${bucket}" "${summary_file}"
+  printf '%s\n' "${summary_file}"
+  sed -n '1,220p' "${summary_file}"
 done

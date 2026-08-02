@@ -13,6 +13,9 @@
 #if defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_ADMISSION)
 #include "q3x/kernels/sm87_a4w4_gateup_down_k512_edge.h"
 #endif
+#if defined(Q3X_ENABLE_A4W4_DOWN_K512_M16N64_V2_ADMISSION)
+#include "q3x/kernels/sm87_a4w4_down_k512_m16n64_v2.h"
+#endif
 #include "q3x/kernels/sm87_a4w4_gateup_k512_macrocell.h"
 #endif
 #if defined(Q3X_ENABLE_A4W4_MLP_K512_FRAGMENT_NATIVE_ADMISSION)
@@ -250,6 +253,23 @@ thread_local bool g_enable_a4w4_gateup_down_k512_edge_admission =
     a4w4_gateup_down_k512_edge_environment_enabled();
 thread_local std::size_t
     g_a4w4_gateup_down_k512_edge_admission_hits = 0U;
+#endif
+
+#if defined(Q3X_ENABLE_A4W4_DOWN_K512_M16N64_V2_ADMISSION)
+[[nodiscard]] bool
+a4w4_down_k512_m16n64_v2_environment_enabled() noexcept {
+  if (optimized_prefill_dispatch_disabled()) {
+    return false;
+  }
+  const char* const value = std::getenv(
+      "Q3X_RUN_A4W4_DOWN_K512_M16N64_V2_ADMISSION");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
+thread_local bool g_enable_a4w4_down_k512_m16n64_v2_admission =
+    a4w4_down_k512_m16n64_v2_environment_enabled();
+thread_local std::size_t
+    g_a4w4_down_k512_m16n64_v2_admission_hits = 0U;
 #endif
 #endif
 
@@ -7548,6 +7568,12 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
 #else
   constexpr bool gateup_down_k512_edge_requested = false;
 #endif
+#if defined(Q3X_ENABLE_A4W4_DOWN_K512_M16N64_V2_ADMISSION)
+  const bool down_k512_m16n64_v2_requested =
+      g_enable_a4w4_down_k512_m16n64_v2_admission;
+#else
+  constexpr bool down_k512_m16n64_v2_requested = false;
+#endif
 #if defined(Q3X_ENABLE_A4W4_MLP_K512_FRAGMENT_NATIVE_ADMISSION)
   const bool mlp_k512_fragment_native_requested =
       g_enable_a4w4_mlp_k512_fragment_native_admission;
@@ -7564,6 +7590,12 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
     return runner_status(
         ReferenceRunnerError::kInvalidRunner,
         "prefill_projection_span_mlp_k512_gateup_down_edge_requires_v1",
+        item.layer_index);
+  }
+  if (down_k512_m16n64_v2_requested && !mlp_k512_requested) {
+    return runner_status(
+        ReferenceRunnerError::kInvalidRunner,
+        "prefill_projection_span_down_k512_m16n64_v2_requires_v1",
         item.layer_index);
   }
   const std::size_t gate_weight_capacity =
@@ -7933,6 +7965,12 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
             token_count, mlp_launch_token_count,
             kReferenceIntermediateSize, kReferenceHiddenSize);
 #endif
+#if defined(Q3X_ENABLE_A4W4_DOWN_K512_M16N64_V2_ADMISSION)
+    const auto down_m16n64_v2_plan =
+        kernels::sm87_a4w4_down_k512_m16n64_v2_plan(
+            mlp_launch_token_count, kReferenceHiddenSize,
+            kReferenceIntermediateSize);
+#endif
     if (!gate_k512.attached() || !up_k512.attached() ||
         !down_k512.attached() ||
         gate_k512.activation_clip_ratio !=
@@ -7945,6 +7983,10 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
 #if defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_ADMISSION)
         (gateup_down_k512_edge_requested &&
          gateup_down_edge_plan.launch_ctas == 0U) ||
+#endif
+#if defined(Q3X_ENABLE_A4W4_DOWN_K512_M16N64_V2_ADMISSION)
+        (down_k512_m16n64_v2_requested &&
+         down_m16n64_v2_plan.launch_ctas == 0U) ||
 #endif
         primary_capacity <
             mlp_launch_token_count * kPrimaryProductColumns ||
@@ -8048,8 +8090,28 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
         return failure;
       }
     }
-    if (!check_cuda(
-            kernels::launch_sm87_a4w4_down_k512_macrocell_bf16_cuda(
+    int down_status = static_cast<int>(cudaErrorInvalidValue);
+    const char* down_stage = nullptr;
+#if defined(Q3X_ENABLE_A4W4_DOWN_K512_M16N64_V2_ADMISSION)
+    if (down_k512_m16n64_v2_requested) {
+      down_status =
+          kernels::launch_sm87_a4w4_down_k512_m16n64_v2_bf16_cuda(
+              views_.prefill_a4_intermediate_packed,
+              intermediate_packed_capacity,
+              views_.prefill_a4_intermediate_scales,
+              intermediate_scale_capacity, down_k512.weight,
+              down_k512_weight_capacity, down_k512.scales,
+              down_k512_scale_capacity, mlp_launch_token_count,
+              kReferenceHiddenSize, kReferenceIntermediateSize,
+              secondary, kReferenceHiddenSize, secondary_capacity,
+              stream_);
+      down_stage =
+          "prefill_projection_span_mlp_k512_down_m16n64_v2";
+    } else
+#endif
+    {
+      down_status =
+          kernels::launch_sm87_a4w4_down_k512_macrocell_bf16_cuda(
                 views_.prefill_a4_intermediate_packed,
                 intermediate_packed_capacity,
                 views_.prefill_a4_intermediate_scales,
@@ -8058,10 +8120,17 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
                 down_k512_scale_capacity, mlp_launch_token_count,
                 kReferenceHiddenSize, kReferenceIntermediateSize,
                 secondary, kReferenceHiddenSize, secondary_capacity,
-                stream_),
-            "prefill_projection_span_mlp_k512_down")) {
+                stream_);
+      down_stage = "prefill_projection_span_mlp_k512_down";
+    }
+    if (!check_cuda(down_status, down_stage)) {
       return failure;
     }
+#if defined(Q3X_ENABLE_A4W4_DOWN_K512_M16N64_V2_ADMISSION)
+    if (down_k512_m16n64_v2_requested) {
+      ++g_a4w4_down_k512_m16n64_v2_admission_hits;
+    }
+#endif
     local_hits.activation_quantize_hits += 2U;
     g_a4w4_full_prefill_admission_hits.activation_quantize_hits += 2U;
     ++local_hits.paired_gate_up_hits;
@@ -8422,6 +8491,10 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
     const std::size_t gateup_down_k512_edge_hits_before =
         g_a4w4_gateup_down_k512_edge_admission_hits;
 #endif
+#if defined(Q3X_ENABLE_A4W4_DOWN_K512_M16N64_V2_ADMISSION)
+    const std::size_t down_k512_m16n64_v2_hits_before =
+        g_a4w4_down_k512_m16n64_v2_admission_hits;
+#endif
 #if defined(Q3X_ENABLE_A4W4_MLP_K512_FRAGMENT_NATIVE_ADMISSION)
     const std::size_t mlp_k512_fragment_native_hits_before =
         g_a4w4_mlp_k512_fragment_native_admission_hits;
@@ -8558,6 +8631,25 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
 #else
     constexpr bool gateup_down_k512_edge_accounting_valid = true;
 #endif
+#if defined(Q3X_ENABLE_A4W4_DOWN_K512_M16N64_V2_ADMISSION)
+    const std::size_t down_k512_m16n64_v2_delta =
+        g_a4w4_down_k512_m16n64_v2_admission_hits >=
+                down_k512_m16n64_v2_hits_before
+            ? g_a4w4_down_k512_m16n64_v2_admission_hits -
+                  down_k512_m16n64_v2_hits_before
+            : 0U;
+    const bool down_k512_m16n64_v2_accounting_valid =
+        g_a4w4_down_k512_m16n64_v2_admission_hits >=
+            down_k512_m16n64_v2_hits_before &&
+        (down_k512_m16n64_v2_delta == 0U ||
+         down_k512_m16n64_v2_delta == spans * 64U) &&
+        (!g_enable_a4w4_down_k512_m16n64_v2_admission ||
+         down_k512_m16n64_v2_delta == spans * 64U) &&
+        (down_k512_m16n64_v2_delta == 0U ||
+         down_k512_m16n64_v2_delta == mlp_k512_v1_delta);
+#else
+    constexpr bool down_k512_m16n64_v2_accounting_valid = true;
+#endif
 #if defined(Q3X_ENABLE_A4W4_MLP_K512_FRAGMENT_NATIVE_ADMISSION)
     const std::size_t mlp_k512_fragment_native_delta =
         g_a4w4_mlp_k512_fragment_native_admission_hits >=
@@ -8581,6 +8673,7 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
     const bool mlp_k512_accounting_valid =
         mlp_k512_v1_accounting_valid &&
         gateup_down_k512_edge_accounting_valid &&
+        down_k512_m16n64_v2_accounting_valid &&
         mlp_k512_fragment_native_accounting_valid &&
         (mlp_k512_v1_delta == 0U ||
          mlp_k512_fragment_native_delta == 0U);
@@ -8648,6 +8741,13 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
     return fail_long_prefill(runner_status(
         ReferenceRunnerError::kInvalidRunner,
         "prefill_mlp_k512_gateup_down_edge_requires_projection_span"));
+  }
+#endif
+#if defined(Q3X_ENABLE_A4W4_DOWN_K512_M16N64_V2_ADMISSION)
+  if (g_enable_a4w4_down_k512_m16n64_v2_admission) {
+    return fail_long_prefill(runner_status(
+        ReferenceRunnerError::kInvalidRunner,
+        "prefill_down_k512_m16n64_v2_requires_projection_span"));
   }
 #endif
 #if defined(Q3X_ENABLE_A4W4_MLP_K512_ADMISSION)

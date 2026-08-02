@@ -24,6 +24,7 @@ The external EvalScope/OpenAI result on the fixed natural P2K corpus is:
 | Direct M128N64 + Down M128N256 one-CTA | 4/4 | 2,807.8 ms | 685.42 tok/s | 685.7787 tok/s |
 | Fragment-native M64N128 16-warp one-CTA | 4/4 | 3,236.2 ms | 594.69 tok/s | 594.9980 tok/s |
 | Fragment-native M128N64 staged paired-B | 4/4 | 2,744.8 ms | 701.15 tok/s | 701.5126 tok/s |
+| Edge + Down M16N64 resource rebalance | 4/4 | 2,695.2 ms | 714.05 tok/s | 714.4256 tok/s |
 | Retained v1 + ceil128 cumulative change | - | -452.9 ms (-14.27%) | +16.65% | +16.65% |
 | K512 edge change vs retained v1 | - | -272.17 ms (-10.00%) | +11.12% | +11.12% |
 
@@ -732,6 +733,66 @@ SQLite SHA256          0ede8ee3e5d9593cdf2adce63fd57a628efa03d7982b7723816f94491
 kernel CSV SHA256      7907dde6f7c37eec4ab9fa9edea0af748d03fcd43db01ce4348f29db010dc627
 ```
 
+## Rejected 1024-thread K512 edge skeleton
+
+The first post-edge Gate+Up replacement attempted to make all 32 warps in a
+1024-thread CTA participate in a four-stage K256 pipeline and to keep the
+producer-owned quantization epilogue in registers.  It was stopped before any
+timing because the SM87 resource gate failed after the one permitted structural
+register-lifetime rewrite:
+
+```text
+registers/thread       64
+stack frame            136 bytes
+spill stores           756 bytes
+spill loads            628 bytes
+```
+
+The sixteen product values plus sixteen FP32 Gate/Up accumulators and live MMA
+pipeline/address state cannot coexist under the physical 64-register limit for
+1024 threads.  Correctness and performance were therefore not run, and this
+skeleton never entered the runtime path.  A larger CTA is not a viable route to
+the next qualitative transition unless the epilogue ownership or accumulator
+lifetime is changed, rather than merely expressed differently in C++.
+
+## Rejected Down K512 M16N64 resource-rebalance candidate
+
+The next bounded experiment kept the retained producer-owned Gate+Up edge and
+changed only Down.  One 512-thread CTA owns M128 and uses sixteen M16N64 warps
+with a four-stage K256 pipeline.  The candidate was bit exact, used 90
+registers/thread, 128 KiB dynamic shared memory, one CTA/SM, and zero local
+spill.  Its fixed-M scheduler launches at most sixteen CTAs and traverses the
+N dimension inside each owner.
+
+The first performance verdict used the real checkpoint and authenticated v1
+K512 sidecar through the OpenAI API and external EvalScope 1.9.1.  Four of four
+natural P2K requests completed successfully:
+
+```text
+test duration          10.7821 s
+average input          1924.75 tokens
+mean TTFT              2695.15 ms
+prompt throughput      714.0546 token/s
+total throughput       714.4256 token/s
+vs retained edge       -9.1568% prompt throughput, +246.81 ms TTFT
+distance to 2K         2.801x
+```
+
+Every measured request regressed by 234--276 ms.  The production M1792 and
+M1920 shapes launch only fourteen and fifteen owner CTAs, respectively, so
+one or two of Orin's sixteen SMs are idle for the full Down traversal.  M16
+ownership also doubles B fragment and scale presentation relative to the
+retained eight-warp M32N64 consumer without reducing global operand bytes.
+This is therefore a hard **REJECT**: it is resource redistribution, not a new
+data flow, and no noise matrix or parameter sweep follows.
+
+```text
+server ELF SHA256      ab7ecc494874c9fe57c5d03b384f7b068fd50b20759f48a69d9d508813b92ab3
+summary SHA256         a3e73cf5c644741980ce5d2037d300d1e0790f9f837113822c927c886019ef96
+provenance SHA256      868475b60e10af60801f4b353dc71725ab04a05b174b1375d56e6c5da4d57fe5
+server log SHA256      5539850e94c1663d925706c78e2f579c0326efdacaad93211fc7b838997befea
+```
+
 Evidence directories:
 
 - comparator: `/home/rm01/q3x-k512-evalscope-p2048-baseline-4a90d1f`;
@@ -780,5 +841,7 @@ Evidence directories:
   `/home/rm01/q3x-mlp-k512-edge-nsys-p2048`;
 - producer-owned K512 edge request trace:
   `/home/rm01/q3x-mlp-k512-edge-request2.nsys-rep`;
+- rejected Down K512 M16N64 v2 run:
+  `/home/rm01/q3x-mlp-k512-down-m16n64-v2-evalscope-p2048`;
 - fragment-native v2 publication:
   `/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4-q3x-mlp-k512-fragment-native/weights-mlp-k512-fragment-native.bin`.

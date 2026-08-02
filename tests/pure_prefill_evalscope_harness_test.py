@@ -20,8 +20,14 @@ FRAGMENT_NATIVE_PAYLOAD_BYTES = 8_623_226_880
 MLP_K512_CURRENT_MODE = "cumulative-prefill-current-best-mlp-k512"
 MLP_K512_V1_MODE = "cumulative-prefill-current-best-mlp-k512-v1"
 MLP_K512_EDGE_MODE = "cumulative-prefill-current-best-mlp-k512-edge"
+MLP_K512_DOWN_M16N64_V2_MODE = (
+    "cumulative-prefill-current-best-mlp-k512-down-m16n64-v2"
+)
 MLP_K512_EDGE_MARKER = (
     "prefill_projection_span_mlp_k512_gateup_down_edge"
+)
+MLP_K512_DOWN_M16N64_V2_MARKER = (
+    "prefill_projection_span_mlp_k512_down_m16n64_v2"
 )
 FRAGMENT_NATIVE_M64N128_1CTA_MODE = (
     "cumulative-prefill-current-best-mlp-k512-fragment-native-"
@@ -90,7 +96,9 @@ class Fixture:
             "# Q3X_RUN_A4W4_ATTENTION_O_K512_ADMISSION\n"
             "# Q3X_RUN_A4W4_MLP_K512_ADMISSION\n"
             "# Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_ADMISSION\n"
+            "# Q3X_RUN_A4W4_DOWN_K512_M16N64_V2_ADMISSION\n"
             f"{MLP_K512_EDGE_MARKER}\n"
+            f"{MLP_K512_DOWN_M16N64_V2_MARKER}\n"
             "# Q3X_RUN_SHORT_PREFILL_LAYER_MAJOR_ADMISSION\n"
             "exit 0\n",
             encoding="utf-8",
@@ -192,6 +200,9 @@ class Fixture:
         environment["Q3X_RUN_A4W4_MLP_K512_ADMISSION"] = "1"
         environment[
             "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_ADMISSION"
+        ] = "1"
+        environment[
+            "Q3X_RUN_A4W4_DOWN_K512_M16N64_V2_ADMISSION"
         ] = "1"
         environment["Q3X_GDN_CHUNK64_PROFILE_CANDIDATE"] = "1"
         environment["PATH"] = (
@@ -762,6 +773,77 @@ class PurePrefillEvalScopeHarnessTest(unittest.TestCase):
             "-u Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_ADMISSION", startup
         )
         self.assertNotIn("stage_contract", result.stdout)
+
+    def test_mlp_k512_down_m16n64_v2_keeps_retained_edge(self) -> None:
+        result = self.fixture.run_mlp_k512(
+            MLP_K512_DOWN_M16N64_V2_MODE
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(
+            f"mode={MLP_K512_DOWN_M16N64_V2_MODE} dry_run=1",
+            result.stdout,
+        )
+        self.assertIn("selector_count=9", result.stdout)
+        startup = next(
+            line
+            for line in result.stdout.splitlines()
+            if line.startswith("server_startup_command")
+        )
+        self.assertIn(
+            "Q3X_RUN_A4W4_DOWN_K512_M16N64_V2_ADMISSION=1",
+            startup,
+        )
+        self.assertIn(
+            "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_ADMISSION=1", startup
+        )
+        self.assertIn(
+            f"required={MLP_K512_EDGE_MARKER},"
+            f"{MLP_K512_DOWN_M16N64_V2_MARKER}",
+            result.stdout,
+        )
+        self.assertIn(
+            "excluded=prefill_projection_span_mlp_k512_down,",
+            result.stdout,
+        )
+        stage_contracts = [
+            line
+            for line in result.stdout.splitlines()
+            if line.startswith("stage_contract")
+        ]
+        self.assertEqual(len(stage_contracts), 1)
+        self.assertNotIn(
+            "retained=prefill_projection_span_mlp_k512_input_quantize,"
+            "prefill_projection_span_mlp_k512_down",
+            stage_contracts[0],
+        )
+
+    def test_mlp_k512_down_m16n64_v2_requires_stage_marker(
+        self,
+    ) -> None:
+        original = self.fixture.server.read_text(encoding="utf-8")
+        self.fixture.server.write_text(
+            original.replace(f"{MLP_K512_DOWN_M16N64_V2_MARKER}\n", ""),
+            encoding="utf-8",
+        )
+        result = self.fixture.run_mlp_k512(
+            MLP_K512_DOWN_M16N64_V2_MODE
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn(
+            "server does not prove the Down K512 M16N64 v2 stage: "
+            f"{MLP_K512_DOWN_M16N64_V2_MARKER}",
+            result.stderr,
+        )
+        self.fixture.server.write_text(original, encoding="utf-8")
+
+    def test_real_run_rejects_partial_evalscope_success(self) -> None:
+        contents = RUNNER.read_text(encoding="utf-8")
+        self.assertIn('summary.get("Total Requests")', contents)
+        self.assertIn('summary.get("Success Requests")', contents)
+        self.assertIn('summary.get("Failed Requests")', contents)
+        self.assertIn(
+            "if total != 4 or success != 4 or failed != 0:", contents
+        )
 
     def test_fragment_native_m64n128_1cta_mode_uses_authenticated_real_route(
         self,
