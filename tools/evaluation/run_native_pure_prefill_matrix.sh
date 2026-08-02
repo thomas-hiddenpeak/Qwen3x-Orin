@@ -18,13 +18,15 @@ usage: run_native_pure_prefill_matrix.sh \
   [--prefill-mlp-k512-paired-gateup-canonical-down-payload FILE \
    --prefill-mlp-k512-paired-gateup-canonical-down-policy FILE \
    --prefill-mlp-k512-paired-gateup-canonical-down-receipt FILE] \
-  [--mode exact|native-gdn|cumulative-prefill|cumulative-prefill-down|cumulative-prefill-attention-down|cumulative-prefill-current-best|cumulative-prefill-current-best-k512|cumulative-prefill-current-best-mlp-k512|cumulative-prefill-current-best-mlp-k512-v1|cumulative-prefill-current-best-mlp-k512-edge|cumulative-prefill-current-best-mlp-k512-edge-attention-k256|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-attention-k256|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-pairring-attention-k256|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256-a-exchange-b4|cumulative-prefill-current-best-mlp-k512-edge-m128n64|cumulative-prefill-current-best-mlp-k512-down-m16n64-v2|cumulative-prefill-current-best-mlp-k512-fragment-native|cumulative-prefill-current-best-mlp-k512-fragment-native-m128|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-staged|cumulative-prefill-current-best-mlp-k512-fragment-native-m64n128-1cta|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta-down-m128n256-1cta|cumulative-prefill-current-best-mlp-k512-hybrid-gate-attention-k256|cumulative-prefill-current-best-mlp-k512-hybrid-gate-down-pairring-attention-k256|cumulative-prefill-short] \
+  [--mode exact|native-gdn|cumulative-prefill|cumulative-prefill-down|cumulative-prefill-attention-down|cumulative-prefill-current-best|cumulative-prefill-current-best-k512|cumulative-prefill-current-best-mlp-k512|cumulative-prefill-current-best-mlp-k512-v1|cumulative-prefill-current-best-mlp-k512-edge|cumulative-prefill-current-best-mlp-k512-edge-attention-k256|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-attention-k256|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-pairring-attention-k256|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256-a-exchange-b4|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256-a-exchange-b4-gdn-prompt-span-macro|cumulative-prefill-current-best-mlp-k512-edge-m128n64|cumulative-prefill-current-best-mlp-k512-down-m16n64-v2|cumulative-prefill-current-best-mlp-k512-fragment-native|cumulative-prefill-current-best-mlp-k512-fragment-native-m128|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-staged|cumulative-prefill-current-best-mlp-k512-fragment-native-m64n128-1cta|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta-down-m128n256-1cta|cumulative-prefill-current-best-mlp-k512-hybrid-gate-attention-k256|cumulative-prefill-current-best-mlp-k512-hybrid-gate-down-pairring-attention-k256|cumulative-prefill-short] \
   [--dry-run] \
   ELF MODEL_DIR CORPUS_DIR OUTPUT_ROOT [p512|p1k|p2k|p4k]
 EOF
 }
 
 mode=exact
+gdn_prompt_span_baseline_mode=cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256-a-exchange-b4
+gdn_prompt_span_candidate_mode=${gdn_prompt_span_baseline_mode}-gdn-prompt-span-macro
 mode_seen=0
 dry_run=${Q3X_PURE_PREFILL_DRY_RUN:-0}
 profile_request_index=${Q3X_EVAL_PROFILE_REQUEST_INDEX:-0}
@@ -143,7 +145,7 @@ done
   exit 2
 }
 case "${mode}" in
-  exact|native-gdn|cumulative-prefill|cumulative-prefill-down|cumulative-prefill-attention-down|cumulative-prefill-current-best|cumulative-prefill-current-best-k512|cumulative-prefill-current-best-mlp-k512|cumulative-prefill-current-best-mlp-k512-v1|cumulative-prefill-current-best-mlp-k512-edge|cumulative-prefill-current-best-mlp-k512-edge-attention-k256|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-attention-k256|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-pairring-attention-k256|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256-a-exchange-b4|cumulative-prefill-current-best-mlp-k512-edge-m128n64|cumulative-prefill-current-best-mlp-k512-down-m16n64-v2|cumulative-prefill-current-best-mlp-k512-fragment-native|cumulative-prefill-current-best-mlp-k512-fragment-native-m128|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-staged|cumulative-prefill-current-best-mlp-k512-fragment-native-m64n128-1cta|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta-down-m128n256-1cta|cumulative-prefill-current-best-mlp-k512-hybrid-gate-attention-k256|cumulative-prefill-current-best-mlp-k512-hybrid-gate-down-pairring-attention-k256|cumulative-prefill-short) ;;
+  exact|native-gdn|cumulative-prefill|cumulative-prefill-down|cumulative-prefill-attention-down|cumulative-prefill-current-best|cumulative-prefill-current-best-k512|cumulative-prefill-current-best-mlp-k512|cumulative-prefill-current-best-mlp-k512-v1|cumulative-prefill-current-best-mlp-k512-edge|cumulative-prefill-current-best-mlp-k512-edge-attention-k256|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-attention-k256|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-pairring-attention-k256|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256-a-exchange-b4|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256-a-exchange-b4-gdn-prompt-span-macro|cumulative-prefill-current-best-mlp-k512-edge-m128n64|cumulative-prefill-current-best-mlp-k512-down-m16n64-v2|cumulative-prefill-current-best-mlp-k512-fragment-native|cumulative-prefill-current-best-mlp-k512-fragment-native-m128|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-staged|cumulative-prefill-current-best-mlp-k512-fragment-native-m64n128-1cta|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta-down-m128n256-1cta|cumulative-prefill-current-best-mlp-k512-hybrid-gate-attention-k256|cumulative-prefill-current-best-mlp-k512-hybrid-gate-down-pairring-attention-k256|cumulative-prefill-short) ;;
   *)
     echo "--mode must be exact, native-gdn, cumulative-prefill, or" \
       "cumulative-prefill-down, cumulative-prefill-attention-down, or" \
@@ -156,6 +158,7 @@ case "${mode}" in
       "cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-pairring-attention-k256," \
       "cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256," \
       "cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256-a-exchange-b4," \
+      "cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256-a-exchange-b4-gdn-prompt-span-macro," \
       "cumulative-prefill-current-best-mlp-k512-edge-m128n64," \
       "cumulative-prefill-current-best-mlp-k512-down-m16n64-v2," \
       "cumulative-prefill-current-best-mlp-k512-fragment-native," \
@@ -245,8 +248,17 @@ mlp_k512_edge_m128n64_mode=0
 mlp_k512_down_m16n64_v2_mode=0
 attention_k256_mode=0
 attention_k256_a_exchange_b4_mode=0
+gdn_prompt_span_accounting_mode=0
+gdn_prompt_span_macro_mode=0
 mlp_k512_hybrid_mode=0
 mlp_k512_hybrid_down_pairring_mode=0
+if [[ "${mode}" == "${gdn_prompt_span_baseline_mode}" ||
+      "${mode}" == "${gdn_prompt_span_candidate_mode}" ]]; then
+  gdn_prompt_span_accounting_mode=1
+  if [[ "${mode}" == "${gdn_prompt_span_candidate_mode}" ]]; then
+    gdn_prompt_span_macro_mode=1
+  fi
+fi
 if [[ "${mode}" == \
         cumulative-prefill-current-best-mlp-k512-hybrid-gate-attention-k256 ||
       "${mode}" == \
@@ -266,6 +278,7 @@ if [[ "${mode}" == cumulative-prefill-current-best-mlp-k512 ||
       "${mode}" == cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-pairring-attention-k256 ||
       "${mode}" == cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256 ||
       "${mode}" == cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256-a-exchange-b4 ||
+      "${mode}" == "${gdn_prompt_span_candidate_mode}" ||
       "${mode}" == cumulative-prefill-current-best-mlp-k512-edge-m128n64 ||
       "${mode}" == cumulative-prefill-current-best-mlp-k512-down-m16n64-v2 ]]; then
   mlp_k512_mode=1
@@ -285,23 +298,27 @@ if [[ "${mode}" == cumulative-prefill-current-best-mlp-k512 ||
         "${mode}" == cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-attention-k256 ||
         "${mode}" == cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-pairring-attention-k256 ||
         "${mode}" == cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256 ||
-        "${mode}" == cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256-a-exchange-b4 ]]; then
+        "${mode}" == cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256-a-exchange-b4 ||
+        "${mode}" == "${gdn_prompt_span_candidate_mode}" ]]; then
     attention_k256_mode=1
   fi
   if [[ "${mode}" == cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-attention-k256 ||
         "${mode}" == cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-pairring-attention-k256 ||
         "${mode}" == cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256 ||
-        "${mode}" == cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256-a-exchange-b4 ]]; then
+        "${mode}" == cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256-a-exchange-b4 ||
+        "${mode}" == "${gdn_prompt_span_candidate_mode}" ]]; then
     mlp_k512_edge_m64n128_k256_alternating_mode=1
   fi
   if [[ "${mode}" == cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-pairring-attention-k256 ]]; then
     mlp_k512_v1_down_pairring_mode=1
   fi
   if [[ "${mode}" == cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256 ||
-        "${mode}" == cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256-a-exchange-b4 ]]; then
+        "${mode}" == cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256-a-exchange-b4 ||
+        "${mode}" == "${gdn_prompt_span_candidate_mode}" ]]; then
     mlp_k512_v1_down_16warp_pairring_mode=1
   fi
-  if [[ "${mode}" == cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256-a-exchange-b4 ]]; then
+  if [[ "${mode}" == cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256-a-exchange-b4 ||
+        "${mode}" == "${gdn_prompt_span_candidate_mode}" ]]; then
     attention_k256_a_exchange_b4_mode=1
   fi
   [[ -f "${prefill_mlp_k512_payload}" ]] || {
@@ -961,6 +978,21 @@ case "${mode}" in
       Q3X_RUN_A4W4_DOWN_K512_M128N128_16WARP_PAIRRING_ADMISSION
     )
     ;;
+  cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256-a-exchange-b4-gdn-prompt-span-macro)
+    candidate_selectors=(
+      Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION
+      Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION
+      Q3X_RUN_BF16_AB_LARGE_M_PREFILL_ADMISSION
+      Q3X_FULL_ATTENTION_FLASHINFER_DIRECT
+      Q3X_RUN_FULL_ATTENTION_PREPROCESS_PROMPT_WIDE_128_ADMISSION
+      Q3X_RUN_SHORT_PREFILL_LAYER_MAJOR_ADMISSION
+      Q3X_RUN_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_ADMISSION
+      Q3X_RUN_A4W4_MLP_K512_ADMISSION
+      Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_ALTERNATING_ADMISSION
+      Q3X_RUN_A4W4_DOWN_K512_M128N128_16WARP_PAIRRING_ADMISSION
+      Q3X_RUN_GDN_PREFILL_PROMPT_SPAN_MACRO_ADMISSION
+    )
+    ;;
   cumulative-prefill-current-best-mlp-k512-edge-m128n64)
     candidate_selectors=(
       Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION
@@ -1045,6 +1077,13 @@ if ((${#candidate_selectors[@]} > 0)); then
       exit 2
     fi
   done
+fi
+gdn_prompt_span_macro_marker=prefill_projection_span_linear_gdn_prompt_span_macro
+if [[ "${gdn_prompt_span_macro_mode}" == 1 ]] &&
+   ! grep -Fx "${gdn_prompt_span_macro_marker}" \
+      < <(strings -a "${server}") >/dev/null; then
+  echo "server does not prove the GDN prompt-span macro production stage: ${gdn_prompt_span_macro_marker}" >&2
+  exit 2
 fi
 if [[ "${attention_k256_mode}" == 1 ]]; then
   attention_k256_incumbent_markers=(
@@ -1372,6 +1411,22 @@ attention_k256_incumbent_expected_launch_hits=
 attention_k256_incumbent_expected_logical_hits=
 attention_k256_a_exchange_b4_expected_launch_hits=
 attention_k256_a_exchange_b4_expected_logical_hits=
+gdn_chunk64_native_expected_launch_formula=
+gdn_chunk64_native_expected_logical_formula=
+gdn_prompt_span_macro_expected_launch_formula=
+gdn_prompt_span_macro_expected_logical_formula=
+if [[ "${gdn_prompt_span_accounting_mode}" == 1 ]]; then
+  gdn_chunk64_native_expected_launch_formula='48*ceil(prompt_tokens/512)'
+  gdn_chunk64_native_expected_logical_formula='48*prompt_tokens'
+  gdn_prompt_span_macro_expected_launch_formula=0
+  gdn_prompt_span_macro_expected_logical_formula=0
+  if [[ "${gdn_prompt_span_macro_mode}" == 1 ]]; then
+    gdn_chunk64_native_expected_launch_formula=0
+    gdn_chunk64_native_expected_logical_formula=0
+    gdn_prompt_span_macro_expected_launch_formula=48
+    gdn_prompt_span_macro_expected_logical_formula='48*prompt_tokens'
+  fi
+fi
 if [[ "${attention_k256_mode}" == 1 ]]; then
   attention_k256_incumbent_expected_launch_hits=128
   attention_k256_incumbent_expected_logical_hits=208
@@ -1413,6 +1468,15 @@ printf 'evalscope_request_plan measured=%s warmup=1 result_leaf=parallel_1_numbe
 server_elf_sha256=$(sha256sum "${server}" | awk '{print $1}')
 printf 'server_metadata elf_sha256=%s evalscope_version=1.9.1\n' \
   "${server_elf_sha256}"
+if [[ "${gdn_prompt_span_accounting_mode}" == 1 ]]; then
+  printf 'gdn_prompt_span_accounting_metadata route=%s native_launch_formula=%s native_logical_token_formula=%s macro_launch_formula=%s macro_logical_token_formula=%s\n' \
+    "$([[ "${gdn_prompt_span_macro_mode}" == 1 ]] && \
+       printf prompt-span-macro || printf native-c512)" \
+    "${gdn_chunk64_native_expected_launch_formula}" \
+    "${gdn_chunk64_native_expected_logical_formula}" \
+    "${gdn_prompt_span_macro_expected_launch_formula}" \
+    "${gdn_prompt_span_macro_expected_logical_formula}"
+fi
 if [[ "${attention_k256_mode}" == 1 ]]; then
   printf 'attention_k256_publication_metadata layout=%s payload_bytes=%s payload_sha256=%s policy_sha256=%s receipt_sha256=%s manifest_sha256=%s incumbent_expected_launch_hits=%s incumbent_expected_logical_projections=%s a_exchange_b4_expected_launch_hits=%s a_exchange_b4_expected_logical_projections=%s\n' \
     "${attention_k256_layout}" "${attention_k256_payload_bytes}" \
@@ -1464,10 +1528,21 @@ for selector in "${candidate_selectors[@]}"; do
   printf ' %s' "${selector}"
 done
 printf '\n'
-if [[ "${attention_k256_a_exchange_b4_mode}" == 1 ]]; then
+if [[ "${gdn_prompt_span_macro_mode}" == 1 ]]; then
+  printf 'candidate_delta baseline_mode=%s retained_selector=Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION added_selector=Q3X_RUN_GDN_PREFILL_PROMPT_SPAN_MACRO_ADMISSION\n' \
+    "${gdn_prompt_span_baseline_mode}"
+elif [[ "${attention_k256_a_exchange_b4_mode}" == 1 ]]; then
   printf 'candidate_delta baseline_mode=cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256 removed_selector=Q3X_RUN_A4W4_ATTENTION_K256_M128N256_ADMISSION added_selector=Q3X_RUN_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_ADMISSION\n'
 elif [[ "${mlp_k512_v1_down_16warp_pairring_mode}" == 1 ]]; then
   printf 'candidate_delta baseline_mode=cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-pairring-attention-k256 removed_selector=Q3X_RUN_A4W4_DOWN_K512_M128N128_LDMATRIX_PAIRRING_ADMISSION added_selector=Q3X_RUN_A4W4_DOWN_K512_M128N128_16WARP_PAIRRING_ADMISSION\n'
+fi
+if [[ "${gdn_prompt_span_accounting_mode}" == 1 ]]; then
+  if [[ "${gdn_prompt_span_macro_mode}" == 1 ]]; then
+    printf 'stage_contract required=%s retained=gdn-token-parallel-conv,gdn-native-preprocess expected_request_launch_hits=native:0,macro:48 expected_request_logical_tokens=native:0,macro:48*prompt_tokens\n' \
+      "${gdn_prompt_span_macro_marker}"
+  else
+    printf 'stage_contract retained=gdn-native-c512 expected_request_launch_hits=native:48*ceil(prompt_tokens/512),macro:0 expected_request_logical_tokens=native:48*prompt_tokens,macro:0\n'
+  fi
 fi
 if [[ "${attention_k256_mode}" == 1 ]]; then
   if [[ "${attention_k256_a_exchange_b4_mode}" == 1 ]]; then
@@ -1538,6 +1613,15 @@ fi
 if [[ "${mlp_k512_v1_down_16warp_pairring_mode}" == 1 ]]; then
   printf ',prefill_projection_span_mlp_k512_down_m128n128_16warp_pairring,v1_down_stage_excluded,incumbent_pairring_stage_excluded,down_m128n128_ldmatrix_pairring_launch_hits_0_per_request,down_m128n128_16warp_pairring_launch_hits_64_per_request'
 fi
+if [[ "${gdn_prompt_span_accounting_mode}" == 1 ]]; then
+  printf ',gdn_request_accounting_dynamic_by_prompt_tokens'
+  if [[ "${gdn_prompt_span_macro_mode}" == 1 ]]; then
+    printf ',%s,gdn_chunk64_native_launch_hits_0_per_request,gdn_prompt_span_macro_launch_hits_48_per_request' \
+      "${gdn_prompt_span_macro_marker}"
+  else
+    printf ',gdn_chunk64_native_launch_hits_48_times_ceil_prompt_tokens_div_512,gdn_prompt_span_macro_launch_hits_0_per_request'
+  fi
+fi
 if [[ "${mlp_k512_edge_m128n64_mode}" == 1 ]]; then
   printf ',prefill_projection_span_mlp_k512_gateup_down_edge_m128n64,legacy_edge_stage_excluded,old_gateup_split_stages_excluded,down_m16n64_v2_stage_excluded'
 fi
@@ -1575,6 +1659,27 @@ mkdir -p "${output_root}"
   printf 'selectors='
   printf '%s ' "${candidate_selectors[@]}"
   printf '\n'
+  if [[ "${gdn_prompt_span_accounting_mode}" == 1 ]]; then
+    printf 'gdn_prompt_span_route=%s\n' \
+      "$([[ "${gdn_prompt_span_macro_mode}" == 1 ]] && \
+         printf prompt-span-macro || printf native-c512)"
+    printf 'gdn_chunk64_native_expected_launch_formula=%s\n' \
+      "${gdn_chunk64_native_expected_launch_formula}"
+    printf 'gdn_chunk64_native_expected_logical_token_formula=%s\n' \
+      "${gdn_chunk64_native_expected_logical_formula}"
+    printf 'gdn_prompt_span_macro_expected_launch_formula=%s\n' \
+      "${gdn_prompt_span_macro_expected_launch_formula}"
+    printf 'gdn_prompt_span_macro_expected_logical_token_formula=%s\n' \
+      "${gdn_prompt_span_macro_expected_logical_formula}"
+    if [[ "${gdn_prompt_span_macro_mode}" == 1 ]]; then
+      printf 'experiment_baseline_mode=%s\n' \
+        "${gdn_prompt_span_baseline_mode}"
+      printf 'experiment_retained_selector=Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION\n'
+      printf 'experiment_added_selector=Q3X_RUN_GDN_PREFILL_PROMPT_SPAN_MACRO_ADMISSION\n'
+      printf 'required_runtime_stage=%s\n' \
+        "${gdn_prompt_span_macro_marker}"
+    fi
+  fi
   if [[ "${attention_k256_mode}" == 1 ]]; then
     printf 'prefill_a4_k256_layout=%s\n' "${attention_k256_layout}"
     printf 'prefill_a4_k256_payload_bytes=%s\n' \
@@ -1630,7 +1735,9 @@ mkdir -p "${output_root}"
   if [[ "${mlp_k512_edge_m64n128_k256_alternating_mode}" == 1 ]]; then
     printf 'required_runtime_stage=prefill_projection_span_mlp_k512_gateup_down_edge_m64n128_k256_alternating\n'
     if [[ "${mlp_k512_v1_down_16warp_pairring_mode}" == 1 ]]; then
-      if [[ "${attention_k256_a_exchange_b4_mode}" == 1 ]]; then
+      if [[ "${gdn_prompt_span_macro_mode}" == 1 ]]; then
+        : # The GDN-only experiment provenance was recorded above.
+      elif [[ "${attention_k256_a_exchange_b4_mode}" == 1 ]]; then
         printf 'experiment_baseline_mode=cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256\n'
         printf 'experiment_removed_selector=Q3X_RUN_A4W4_ATTENTION_K256_M128N256_ADMISSION\n'
         printf 'experiment_added_selector=Q3X_RUN_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_ADMISSION\n'
@@ -2022,6 +2129,57 @@ for bucket in "${buckets[@]}"; do
       "${attention_k256_incumbent_expected_logical_hits}" \
       "${attention_k256_a_exchange_b4_expected_launch_hits}" \
       "${attention_k256_a_exchange_b4_expected_logical_hits}"
+  fi
+  if [[ "${gdn_prompt_span_accounting_mode}" == 1 ]]; then
+    mapfile -t gdn_request_logs < <(
+      awk -v skip="${request_log_before}" '
+        /^evaluation request .* prompt_tokens=/ {
+          successes += 1
+          if (successes > skip) {
+            print
+          }
+        }
+      ' "${server_log}"
+    )
+    expected_request_logs=$((eval_number + 1))
+    if [[ ${#gdn_request_logs[@]} -ne ${expected_request_logs} ]]; then
+      echo "expected exactly ${expected_request_logs} successful API request logs for ${bucket}, found ${#gdn_request_logs[@]}" >&2
+      exit 6
+    fi
+    for request_log in "${gdn_request_logs[@]}"; do
+      if [[ ! "${request_log}" =~ (^|[[:space:]])prompt_tokens=([0-9]+)([[:space:]]|$) ]]; then
+        echo "GDN request accounting could not parse prompt_tokens: ${request_log}" >&2
+        exit 6
+      fi
+      prompt_tokens=${BASH_REMATCH[2]}
+      expected_gdn_logical_token_hits=$((48 * prompt_tokens))
+      expected_gdn_native_launch_hits=$((48 * ((prompt_tokens + 511) / 512)))
+      expected_gdn_native_logical_token_hits=${expected_gdn_logical_token_hits}
+      expected_gdn_macro_launch_hits=0
+      expected_gdn_macro_logical_token_hits=0
+      if [[ "${gdn_prompt_span_macro_mode}" == 1 ]]; then
+        expected_gdn_native_launch_hits=0
+        expected_gdn_native_logical_token_hits=0
+        expected_gdn_macro_launch_hits=48
+        expected_gdn_macro_logical_token_hits=${expected_gdn_logical_token_hits}
+      fi
+      gdn_runtime_contract=(
+        "gdn_chunk64_native_launch_hits=${expected_gdn_native_launch_hits}"
+        "gdn_chunk64_native_logical_token_hits=${expected_gdn_native_logical_token_hits}"
+        "gdn_prompt_span_macro_launch_hits=${expected_gdn_macro_launch_hits}"
+        "gdn_prompt_span_macro_logical_token_hits=${expected_gdn_macro_logical_token_hits}"
+      )
+      for binding in "${gdn_runtime_contract[@]}"; do
+        if ! grep -Eq " ${binding}([[:space:]]|$)" <<<"${request_log}"; then
+          echo "request did not prove ${binding}: ${request_log}" >&2
+          exit 6
+        fi
+      done
+    done
+    printf 'gdn_prompt_span_runtime_contract bucket=%s requests=%s route=%s dynamic_prompt_token_accounting=passed status=passed\n' \
+      "${bucket}" "${expected_request_logs}" \
+      "$([[ "${gdn_prompt_span_macro_mode}" == 1 ]] && \
+         printf prompt-span-macro || printf native-c512)"
   fi
   if [[ -n "${gateup_m128n512_paired_ldmatrix_expected_hits}" ]]; then
     mapfile -t new_request_logs < <(

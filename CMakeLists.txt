@@ -38,6 +38,10 @@ option(Q3X_BUILD_GDN_PREFILL_PROMPT_SPAN_MACRO_EXPERIMENT
   "Build the isolated SM87 C64 GDN prompt-span macro correctness experiment"
   OFF
 )
+option(Q3X_BUILD_GDN_PREFILL_PROMPT_SPAN_MACRO_ADMISSION
+  "Build the default-off production GDN prompt-span macro route"
+  OFF
+)
 option(Q3X_BUILD_NVFP4_MARLIN_PREFILL_ADMISSION
   "Build the test-only scheduler-wide vLLM-Marlin NVFP4 Prefill route"
   OFF
@@ -205,6 +209,13 @@ if(Q3X_BUILD_GDN_PREFILL_PROMPT_SPAN_MACRO_EXPERIMENT AND
    (NOT BUILD_TESTING OR NOT Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION))
   message(FATAL_ERROR
     "The GDN prompt-span macro experiment requires BUILD_TESTING=ON and the authenticated native C64/WY correctness oracle"
+  )
+endif()
+if(Q3X_BUILD_GDN_PREFILL_PROMPT_SPAN_MACRO_ADMISSION AND
+   (NOT Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION OR
+    NOT Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION))
+  message(FATAL_ERROR
+    "The production GDN prompt-span macro requires the native C64 preprocessing route and the A4 whole-prompt runner"
   )
 endif()
 if(Q3X_BUILD_NVFP4_MARLIN_PREFILL_ADMISSION AND NOT BUILD_TESTING)
@@ -967,6 +978,18 @@ if(Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION)
     Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION=1
   )
 endif()
+if(Q3X_BUILD_GDN_PREFILL_PROMPT_SPAN_MACRO_ADMISSION)
+  target_sources(q3x_kernels PRIVATE
+    src/kernels/sm87/gdn_prefill_prompt_span_macro_sm87.cu
+  )
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_GDN_PREFILL_PROMPT_SPAN_MACRO_ADMISSION=1
+  )
+  set_source_files_properties(
+    src/kernels/sm87/gdn_prefill_prompt_span_macro_sm87.cu
+    PROPERTIES COMPILE_OPTIONS "-Xptxas=-warn-spills"
+  )
+endif()
 q3x_enable_warnings(q3x_kernels)
 
 add_library(q3x_engine STATIC
@@ -1006,6 +1029,11 @@ endif()
 if(Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION)
   target_compile_definitions(q3x_engine PRIVATE
     Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_GDN_PREFILL_PROMPT_SPAN_MACRO_ADMISSION)
+  target_compile_definitions(q3x_engine PRIVATE
+    Q3X_ENABLE_GDN_PREFILL_PROMPT_SPAN_MACRO_ADMISSION=1
   )
 endif()
 if(Q3X_BUILD_SM87_A4W4_ATTENTION_K256_M128N256_ADMISSION)
@@ -3012,14 +3040,18 @@ if(BUILD_TESTING)
     )
   endif()
 
-  # Strictly isolated SM87 prompt-span macro experiment.  The candidate
-  # translation unit is owned only by this synthetic correctness/resource
-  # target; it is never linked into q3x_kernels, q3x_engine, or either runner.
+  # The synthetic correctness/resource target can own the candidate TU in an
+  # isolated build or consume the same production-linked TU in an admission
+  # build, but never compiles a duplicate definition into one executable.
   if(Q3X_BUILD_GDN_PREFILL_PROMPT_SPAN_MACRO_EXPERIMENT)
     add_executable(q3x_gdn_prefill_prompt_span_macro_c64_component_test
       tests/gdn_prefill_prompt_span_macro_c64_component_test.cu
-      src/kernels/sm87/gdn_prefill_prompt_span_macro_sm87.cu
     )
+    if(NOT Q3X_BUILD_GDN_PREFILL_PROMPT_SPAN_MACRO_ADMISSION)
+      target_sources(q3x_gdn_prefill_prompt_span_macro_c64_component_test
+        PRIVATE src/kernels/sm87/gdn_prefill_prompt_span_macro_sm87.cu
+      )
+    endif()
     target_compile_features(
       q3x_gdn_prefill_prompt_span_macro_c64_component_test
       PRIVATE cxx_std_17 cuda_std_17

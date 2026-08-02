@@ -2699,7 +2699,11 @@ void test_paired_gateup_canonical_down_selector_and_accounting(
   test.expect(
       result.gateup_m128n512_paired_ldmatrix_launch_hits == 0U &&
           result.down_m128n128_ldmatrix_pairring_launch_hits == 0U &&
-          result.down_m128n128_16warp_pairring_launch_hits == 0U,
+          result.down_m128n128_16warp_pairring_launch_hits == 0U &&
+          result.gdn_chunk64_native_launch_hits == 0U &&
+          result.gdn_chunk64_native_logical_token_hits == 0U &&
+          result.gdn_prompt_span_macro_launch_hits == 0U &&
+          result.gdn_prompt_span_macro_logical_token_hits == 0U,
       "new request-local telemetry is zero for every unselected route");
 }
 

@@ -100,6 +100,10 @@
 #include "../kernels/sm87/gdn_prefill_chunk64_native_sm87.h"
 #include "reference_runner_gdn_chunk64_native_admission.h"
 #endif
+#if defined(Q3X_ENABLE_GDN_PREFILL_PROMPT_SPAN_MACRO_ADMISSION)
+#include "../kernels/sm87/gdn_prefill_prompt_span_macro_sm87.h"
+#include "../kernels/sm87/gdn_prefill_wy_vllm_layout_sm87.h"
+#endif
 #include "../kernels/reference/gdn_prefill_c16_norm_gate_sm87.h"
 #if defined(Q3X_ENABLE_GDN_C16_NORM_GATE_ADMISSION)
 #include "reference_runner_gdn_c16_norm_gate_admission.h"
@@ -788,11 +792,30 @@ thread_local std::size_t g_prefill_gdn_b8_admission_hits = 0U;
 thread_local bool g_enable_prefill_gdn_chunk64_native_admission =
     gdn_chunk64_native_environment_enabled();
 thread_local std::size_t g_prefill_gdn_chunk64_native_admission_hits = 0U;
+thread_local std::size_t
+    g_prefill_gdn_chunk64_native_admission_logical_token_hits = 0U;
 thread_local reference_runner_detail::PrefillGdnChunk64NativeSnapshotHook
     g_prefill_gdn_chunk64_native_snapshot_hook{};
 thread_local reference_runner_detail::
     PrefillGdnChunk64NativeFinalSnapshotHook
         g_prefill_gdn_chunk64_native_final_snapshot_hook{};
+#endif
+#if defined(Q3X_ENABLE_GDN_PREFILL_PROMPT_SPAN_MACRO_ADMISSION)
+[[nodiscard]] bool gdn_prefill_prompt_span_macro_environment_enabled()
+    noexcept {
+  if (optimized_prefill_dispatch_disabled()) {
+    return false;
+  }
+  const char* const value = std::getenv(
+      "Q3X_RUN_GDN_PREFILL_PROMPT_SPAN_MACRO_ADMISSION");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
+thread_local bool g_enable_gdn_prefill_prompt_span_macro_admission =
+    gdn_prefill_prompt_span_macro_environment_enabled();
+thread_local std::size_t g_gdn_prefill_prompt_span_macro_launch_hits = 0U;
+thread_local std::size_t
+    g_gdn_prefill_prompt_span_macro_logical_token_hits = 0U;
 #endif
 #if defined(Q3X_ENABLE_GDN_CHUNK64_REFERENCE_ADMISSION)
 // Compile-time-isolated architecture switch. It stays false unless the
@@ -2045,6 +2068,35 @@ void record_a4w4_attention_supermatrix_launch(
          workspace != nullptr &&
          workspace_bytes >=
              gdn_prefill_chunk64_native_detail::workspace_bytes();
+}
+#endif
+#if defined(Q3X_ENABLE_GDN_PREFILL_PROMPT_SPAN_MACRO_ADMISSION)
+struct GdnPromptSpanWorkspaceView final {
+  std::uint16_t* compact_q = nullptr;
+  std::uint16_t* compact_k = nullptr;
+  float* raw_gram = nullptr;
+  float* gamma = nullptr;
+  float* beta = nullptr;
+};
+
+[[nodiscard]] bool partition_gdn_prompt_span_workspace(
+    void* const workspace, const std::size_t workspace_capacity_bytes,
+    const reference_runner_detail::GdnPromptSpanWorkspacePlan& plan,
+    GdnPromptSpanWorkspaceView& view) noexcept {
+  if (workspace == nullptr || !plan.valid() ||
+      workspace_capacity_bytes < plan.total_bytes) {
+    return false;
+  }
+  auto* const base = static_cast<std::uint8_t*>(workspace);
+  view.compact_q = reinterpret_cast<std::uint16_t*>(
+      base + plan.compact_q.offset_bytes);
+  view.compact_k = reinterpret_cast<std::uint16_t*>(
+      base + plan.compact_k.offset_bytes);
+  view.raw_gram = reinterpret_cast<float*>(
+      base + plan.raw_gram.offset_bytes);
+  view.gamma = reinterpret_cast<float*>(base + plan.gamma.offset_bytes);
+  view.beta = reinterpret_cast<float*>(base + plan.beta.offset_bytes);
+  return true;
 }
 #endif
 #if defined(Q3X_ENABLE_GDN_CHUNK64_REFERENCE_ADMISSION)
@@ -5792,6 +5844,8 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
           ++g_gdn_conv_compact_qk_fused_candidate_hits;
         }
         ++g_prefill_gdn_chunk64_native_admission_hits;
+        g_prefill_gdn_chunk64_native_admission_logical_token_hits +=
+            token_count;
         const int native_status =
             use_conv_compact_qk_fused_candidate
                 ? gdn_prefill_chunk64_native_detail::launch_qk_preprocessed(
@@ -7261,6 +7315,21 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
   const bool enable_gdn_chunk64_native_admission =
       g_enable_prefill_gdn_chunk64_native_admission;
 #endif
+#if defined(Q3X_ENABLE_GDN_PREFILL_PROMPT_SPAN_MACRO_ADMISSION)
+  const bool request_gdn_prefill_prompt_span_macro_admission =
+      g_enable_gdn_prefill_prompt_span_macro_admission;
+  const bool enable_gdn_prefill_prompt_span_macro_admission =
+      request_gdn_prefill_prompt_span_macro_admission &&
+      g_enable_prefill_gdn_chunk64_native_admission &&
+      g_enable_gdn_conv_token_parallel_admission;
+  if (request_gdn_prefill_prompt_span_macro_admission &&
+      !enable_gdn_prefill_prompt_span_macro_admission) {
+    return runner_status(
+        ReferenceRunnerError::kInvalidRunner,
+        "prefill_projection_span_linear_gdn_prompt_span_dependencies",
+        item.layer_index);
+  }
+#endif
 #if defined(Q3X_ENABLE_BF16_AB_LARGE_M_PREFILL_ADMISSION)
   // Snapshot once for this synchronous layer/span. The ordinary build and
   // default admission build retain the established exact C16 schedule.
@@ -7560,8 +7629,104 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
       return failure;
     }
 
-    for (std::uint32_t tile_index = 0U;
-         tile_index < item.state_tile_count; ++tile_index) {
+    bool gdn_prompt_span_macro_selected = false;
+#if defined(Q3X_ENABLE_GDN_PREFILL_PROMPT_SPAN_MACRO_ADMISSION)
+    gdn_prompt_span_macro_selected =
+        reference_runner_detail::use_gdn_prompt_span_native_prefill(
+            enable_gdn_prefill_prompt_span_macro_admission, true,
+            projection_backend_, layer_type, trace_enabled_,
+            optimized_prefill_dispatch_disabled(), token_count,
+            prefill_gdn_chunk64_native_workspace_bytes_);
+    if (request_gdn_prefill_prompt_span_macro_admission &&
+        !gdn_prompt_span_macro_selected) {
+      return runner_status(
+          ReferenceRunnerError::kInvalidRunner,
+          "prefill_projection_span_linear_gdn_prompt_span_contract",
+          item.layer_index);
+    }
+    if (gdn_prompt_span_macro_selected) {
+      const reference_runner_detail::GdnPromptSpanWorkspacePlan
+          workspace_plan =
+              reference_runner_detail::gdn_prompt_span_workspace_plan(
+                  token_count);
+      GdnPromptSpanWorkspaceView workspace;
+      if (!partition_gdn_prompt_span_workspace(
+              prefill_gdn_chunk64_native_workspace_,
+              prefill_gdn_chunk64_native_workspace_bytes_, workspace_plan,
+              workspace)) {
+        return runner_status(
+            ReferenceRunnerError::kInvalidRequestState,
+            "prefill_projection_span_linear_gdn_prompt_span_workspace",
+            item.layer_index);
+      }
+
+      constexpr std::size_t kCompactChunkElements =
+          kGdnQkHeadCount * reference_runner_detail::kGdnPromptSpanChunkTokens *
+          kGdnHeadDimension;
+      for (std::size_t local_first = 0U; local_first < token_count;
+           local_first += kMaximumRequestPrefillChunkSize) {
+        const std::size_t tile_token_count = std::min(
+            token_count - local_first,
+            static_cast<std::size_t>(kMaximumRequestPrefillChunkSize));
+        const std::size_t chunk_offset =
+            local_first /
+            reference_runner_detail::kGdnPromptSpanChunkTokens;
+        std::uint16_t* const conv_qkv = views_.projection[3];
+        if (!check_cuda(
+                gdn_prefill_whole_span_conv_detail::
+                    launch_causal_conv1d_silu_update_token_parallel_compact_qk_exact_cuda(
+                        primary + local_first * kLinearQkvElements,
+                        tile_token_count, attention->conv1d.data,
+                        views_.conv_state[item.layer_index], conv_qkv,
+                        kRmsEpsilon,
+                        workspace.compact_q +
+                            chunk_offset * kCompactChunkElements,
+                        workspace.compact_k +
+                            chunk_offset * kCompactChunkElements,
+                        stream_),
+                "prefill_projection_span_linear_gdn_prompt_span_conv_qk") ||
+            !check_cuda(
+                static_cast<int>(cudaMemcpyAsync(
+                    primary + local_first * kLinearQkvElements, conv_qkv,
+                    tile_token_count * kLinearQkvElements *
+                        sizeof(std::uint16_t),
+                    cudaMemcpyDeviceToDevice, stream)),
+                "prefill_projection_span_linear_gdn_prompt_span_conv_publish")) {
+          return failure;
+        }
+        ++g_gdn_conv_compact_qk_fused_candidate_hits;
+      }
+
+      if (!check_cuda(
+              gdn_prefill_chunk64_native_detail::
+                  launch_prompt_span_gate_producer(
+                      linear_a, linear_b, attention->a_log.data,
+                      attention->dt_bias.data, token_count, workspace.gamma,
+                      workspace.beta, stream_),
+              "prefill_projection_span_linear_gdn_prompt_span_gate") ||
+          !check_cuda(
+              gdn_prefill_wy_vllm_layout_detail::launch_raw_gram(
+                  workspace.compact_k, token_count,
+                  workspace_plan.chunk_count, workspace.raw_gram, stream_),
+              "prefill_projection_span_linear_gdn_prompt_span_raw_gram") ||
+          !check_cuda(
+              gdn_prefill_prompt_span_macro_detail::launch_c64(
+                  workspace.raw_gram, workspace.gamma, workspace.beta,
+                  workspace.compact_q, workspace.compact_k, primary,
+                  token_count, views_.gdn_state[item.layer_index],
+                  views_.gdn_state[item.layer_index], attention->norm.data,
+                  secondary, kRmsEpsilon, secondary, stream_),
+              "prefill_projection_span_linear_gdn_prompt_span_macro")) {
+        return failure;
+      }
+      ++g_gdn_prefill_prompt_span_macro_launch_hits;
+      g_gdn_prefill_prompt_span_macro_logical_token_hits += token_count;
+    }
+#endif
+
+    if (!gdn_prompt_span_macro_selected) {
+      for (std::uint32_t tile_index = 0U;
+           tile_index < item.state_tile_count; ++tile_index) {
       LongPrefillProjectionSpanStateTile tile;
       if (!long_prefill_projection_span_state_tile(
               plan, item.ordinal, tile_index, tile)) {
@@ -7620,6 +7785,8 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
           ++g_gdn_conv_compact_qk_fused_candidate_hits;
         }
         ++g_prefill_gdn_chunk64_native_admission_hits;
+        g_prefill_gdn_chunk64_native_admission_logical_token_hits +=
+            tile.token_count;
         const int native_status =
             use_conv_compact_qk_fused_candidate
                 ? gdn_prefill_chunk64_native_detail::launch_qk_preprocessed(
@@ -7761,6 +7928,7 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
                   cudaMemcpyDeviceToDevice, stream)),
               "prefill_projection_span_linear_publish_output")) {
         return failure;
+      }
       }
     }
 
@@ -9811,6 +9979,18 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
           optimized_prefill_dispatch_disabled(),
           route_query.short_prompt_admission_enabled,
           route_query.authenticated_a4_prefill);
+#if defined(Q3X_ENABLE_GDN_PREFILL_PROMPT_SPAN_MACRO_ADMISSION)
+  const bool gdn_prompt_span_macro_requested =
+      g_enable_gdn_prefill_prompt_span_macro_admission;
+  if (gdn_prompt_span_macro_requested &&
+      (!g_enable_prefill_gdn_chunk64_native_admission ||
+       !g_enable_gdn_conv_token_parallel_admission ||
+       !projection_span_selected)) {
+    return fail_long_prefill(runner_status(
+        ReferenceRunnerError::kInvalidRunner,
+        "prefill_gdn_prompt_span_request_dependencies"));
+  }
+#endif
   if (projection_span_selected) {
     LongPrefillProjectionSpanOptions span_options;
     span_options.prompt_token_count = prompt_token_count;
@@ -9826,6 +10006,27 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
           ReferenceRunnerError::kInvalidStepOptions,
           "prefill_projection_span_plan"));
     }
+#if defined(Q3X_ENABLE_GDN_PREFILL_PROMPT_SPAN_MACRO_ADMISSION)
+    if (gdn_prompt_span_macro_requested) {
+      for (std::size_t ordinal = 0U;
+           ordinal < span_plan.value->work_item_count; ++ordinal) {
+        LongPrefillProjectionSpanWorkItem candidate_item;
+        if (!long_prefill_projection_span_work_item(
+                *span_plan.value, ordinal, candidate_item) ||
+            (candidate_item.layer_type ==
+                 model::LayerType::kLinearAttention &&
+             !reference_runner_detail::use_gdn_prompt_span_native_prefill(
+                 true, true, projection_backend_, candidate_item.layer_type,
+                 trace_enabled_, optimized_prefill_dispatch_disabled(),
+                 candidate_item.token_count,
+                 prefill_gdn_chunk64_native_workspace_bytes_))) {
+          return fail_long_prefill(runner_status(
+              ReferenceRunnerError::kInvalidStepOptions,
+              "prefill_gdn_prompt_span_request_shape"));
+        }
+      }
+    }
+#endif
 
     const auto hits_before = g_a4w4_full_prefill_admission_hits;
 #if defined(Q3X_ENABLE_A4W4_ATTENTION_O_K512_ADMISSION)
@@ -9895,6 +10096,18 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
     const auto attention_k256_a_exchange_b4_hits_before =
         g_a4w4_attention_k256_m128n256_a_exchange_b4_admission_hits;
 #endif
+#if defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
+    const std::size_t gdn_chunk64_native_launch_hits_before =
+        g_prefill_gdn_chunk64_native_admission_hits;
+    const std::size_t gdn_chunk64_native_logical_token_hits_before =
+        g_prefill_gdn_chunk64_native_admission_logical_token_hits;
+#endif
+#if defined(Q3X_ENABLE_GDN_PREFILL_PROMPT_SPAN_MACRO_ADMISSION)
+    const std::size_t gdn_prompt_span_macro_launch_hits_before =
+        g_gdn_prefill_prompt_span_macro_launch_hits;
+    const std::size_t gdn_prompt_span_macro_logical_token_hits_before =
+        g_gdn_prefill_prompt_span_macro_logical_token_hits;
+#endif
     auto* const device_token_ids =
         reinterpret_cast<std::uint32_t*>(views_.projection[3]);
     const auto stream = reinterpret_cast<cudaStream_t>(stream_);
@@ -9951,6 +10164,65 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
     }
     const auto& hits_after = g_a4w4_full_prefill_admission_hits;
     const std::size_t spans = span_plan.value->projection_span_count;
+    std::size_t gdn_chunk64_native_launch_delta = 0U;
+    std::size_t gdn_chunk64_native_logical_token_delta = 0U;
+    std::size_t gdn_prompt_span_macro_launch_delta = 0U;
+    std::size_t gdn_prompt_span_macro_logical_token_delta = 0U;
+    bool gdn_accounting_valid = true;
+#if defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
+    gdn_accounting_valid =
+        g_prefill_gdn_chunk64_native_admission_hits >=
+            gdn_chunk64_native_launch_hits_before &&
+        g_prefill_gdn_chunk64_native_admission_logical_token_hits >=
+            gdn_chunk64_native_logical_token_hits_before;
+    if (gdn_accounting_valid) {
+      gdn_chunk64_native_launch_delta =
+          g_prefill_gdn_chunk64_native_admission_hits -
+          gdn_chunk64_native_launch_hits_before;
+      gdn_chunk64_native_logical_token_delta =
+          g_prefill_gdn_chunk64_native_admission_logical_token_hits -
+          gdn_chunk64_native_logical_token_hits_before;
+    }
+#endif
+#if defined(Q3X_ENABLE_GDN_PREFILL_PROMPT_SPAN_MACRO_ADMISSION)
+    gdn_accounting_valid =
+        gdn_accounting_valid &&
+        g_gdn_prefill_prompt_span_macro_launch_hits >=
+            gdn_prompt_span_macro_launch_hits_before &&
+        g_gdn_prefill_prompt_span_macro_logical_token_hits >=
+            gdn_prompt_span_macro_logical_token_hits_before;
+    if (gdn_accounting_valid) {
+      gdn_prompt_span_macro_launch_delta =
+          g_gdn_prefill_prompt_span_macro_launch_hits -
+          gdn_prompt_span_macro_launch_hits_before;
+      gdn_prompt_span_macro_logical_token_delta =
+          g_gdn_prefill_prompt_span_macro_logical_token_hits -
+          gdn_prompt_span_macro_logical_token_hits_before;
+    }
+    const bool gdn_prompt_span_macro_requested =
+        g_enable_gdn_prefill_prompt_span_macro_admission &&
+        g_enable_prefill_gdn_chunk64_native_admission &&
+        g_enable_gdn_conv_token_parallel_admission;
+    const std::size_t expected_macro_launch_hits =
+        spans * kQwen36LinearAttentionLayerCount;
+    const std::size_t expected_macro_logical_token_hits =
+        prompt_token_count * kQwen36LinearAttentionLayerCount;
+    gdn_accounting_valid =
+        gdn_accounting_valid &&
+        (!gdn_prompt_span_macro_requested ||
+         (gdn_prompt_span_macro_launch_delta == expected_macro_launch_hits &&
+          gdn_prompt_span_macro_logical_token_delta ==
+              expected_macro_logical_token_hits &&
+          gdn_chunk64_native_launch_delta == 0U &&
+          gdn_chunk64_native_logical_token_delta == 0U)) &&
+        (gdn_prompt_span_macro_requested ||
+         (gdn_prompt_span_macro_launch_delta == 0U &&
+          gdn_prompt_span_macro_logical_token_delta == 0U));
+#endif
+    gdn_accounting_valid =
+        gdn_accounting_valid &&
+        (gdn_chunk64_native_logical_token_delta == 0U ||
+         gdn_prompt_span_macro_logical_token_delta == 0U);
     const auto exact_delta = [spans](
                                  const std::size_t current,
                                  const std::size_t initial,
@@ -10253,7 +10525,7 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
             spans * 272U;
     if (!activation_accounting_valid ||
         !attention_accounting_valid || !mlp_k512_accounting_valid ||
-        !generic_accounting_valid ||
+        !generic_accounting_valid || !gdn_accounting_valid ||
         !exact_delta(hits_after.paired_gate_up_hits,
                      hits_before.paired_gate_up_hits, 64U) ||
         !exact_delta(hits_after.logical_projection_hits,
@@ -10299,6 +10571,14 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
         down_m128n128_ldmatrix_pairring_delta;
     value.down_m128n128_16warp_pairring_launch_hits =
         down_m128n128_16warp_pairring_delta;
+    value.gdn_chunk64_native_launch_hits =
+        gdn_chunk64_native_launch_delta;
+    value.gdn_chunk64_native_logical_token_hits =
+        gdn_chunk64_native_logical_token_delta;
+    value.gdn_prompt_span_macro_launch_hits =
+        gdn_prompt_span_macro_launch_delta;
+    value.gdn_prompt_span_macro_logical_token_hits =
+        gdn_prompt_span_macro_logical_token_delta;
     if (measure_timing) {
       const std::chrono::duration<double, std::milli> elapsed =
           Clock::now() - started;
@@ -11197,6 +11477,11 @@ ReferenceRunnerFactoryResult create_reference_runner(
 #if defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
   runner.prefill_gdn_chunk64_native_workspace_bytes_ =
       gdn_prefill_chunk64_native_detail::workspace_bytes();
+#if defined(Q3X_ENABLE_GDN_PREFILL_PROMPT_SPAN_MACRO_ADMISSION)
+  runner.prefill_gdn_chunk64_native_workspace_bytes_ = std::max(
+      runner.prefill_gdn_chunk64_native_workspace_bytes_,
+      reference_runner_detail::kGdnPromptSpanMaximumWorkspaceBytes);
+#endif
   status = cudaMalloc(
       &runner.prefill_gdn_chunk64_native_workspace_,
       runner.prefill_gdn_chunk64_native_workspace_bytes_);

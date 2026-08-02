@@ -238,6 +238,45 @@ prefill_down_k512_m16n64_v2_environment_enabled() noexcept {
   return value != nullptr && std::strcmp(value, "1") == 0;
 }
 
+[[nodiscard]] bool exact_environment_selector_enabled(
+    const char* const name) noexcept {
+  const char* const value = std::getenv(name);
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
+[[nodiscard]] bool validate_gdn_prompt_span_macro_selector(
+    const bool a4_publication_requested, std::string& error) noexcept {
+  const bool selected = exact_environment_selector_enabled(
+      "Q3X_RUN_GDN_PREFILL_PROMPT_SPAN_MACRO_ADMISSION");
+  if (!selected) {
+    return true;
+  }
+#if !defined(Q3X_ENABLE_GDN_PREFILL_PROMPT_SPAN_MACRO_ADMISSION)
+  error = "this binary does not contain the GDN prompt-span macro admission";
+  return false;
+#else
+  if (!a4_publication_requested) {
+    error = "the GDN prompt-span macro requires the authenticated A4 "
+            "whole-prompt publication";
+    return false;
+  }
+  if (!exact_environment_selector_enabled(
+          "Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION") ||
+      !exact_environment_selector_enabled(
+          "Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION")) {
+    error = "the GDN prompt-span macro requires both the native C64 and "
+            "token-parallel Conv selectors";
+    return false;
+  }
+  if (optimized_prefill_dispatch_disabled()) {
+    error = "the GDN prompt-span macro cannot run while optimized Prefill "
+            "dispatch is disabled";
+    return false;
+  }
+  return true;
+#endif
+}
+
 [[nodiscard]] bool prefill_legacy_down_selector_environment_enabled()
     noexcept {
   if (optimized_prefill_dispatch_disabled()) {
@@ -5432,6 +5471,16 @@ struct ReferenceEngine::Impl {
           "prefill_a4_sidecar_options", prefill_a4_path_error);
       return result;
     }
+    std::string gdn_prompt_span_macro_selector_error;
+    if (!validate_gdn_prompt_span_macro_selector(
+            prefill_a4_paths.requested,
+            gdn_prompt_span_macro_selector_error)) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kInvalidArgument,
+          "gdn_prompt_span_macro_selector",
+          gdn_prompt_span_macro_selector_error);
+      return result;
+    }
     PrefillAttentionOK512EnginePaths prefill_attention_o_k512_paths;
     std::string prefill_attention_o_k512_path_error;
     if (!resolve_prefill_attention_o_k512_engine_paths(
@@ -8358,6 +8407,15 @@ ReferenceOneShotResult generate_reference(
         a4_preflight_error.empty()
             ? "A4 Prefill admission requires the SM87 projection backend"
             : a4_preflight_error);
+    return result;
+  }
+  std::string gdn_prompt_span_macro_preflight_error;
+  if (!validate_gdn_prompt_span_macro_selector(
+          a4_preflight_paths.requested,
+          gdn_prompt_span_macro_preflight_error)) {
+    result.diagnostic = engine_diagnostic(
+        ReferenceEngineError::kInvalidArgument, "one_shot_options",
+        gdn_prompt_span_macro_preflight_error);
     return result;
   }
   if (a4_preflight_paths.requested &&

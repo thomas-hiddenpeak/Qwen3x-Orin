@@ -130,6 +130,17 @@ exchange_vllm_layout_wy_route_for_test(
     const std::uint16_t* silu_gate, float norm_epsilon,
     std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
 
+// Prompt-span gate producer shared by the fixed-shape WY and state/output
+// consumers. The outputs are FP32 chunk-major tensors laid out as
+// [ceil(T / 64), 48, 64]. Tail gamma lanes preserve the final real cumulative
+// gate while tail beta lanes are zero, matching the established C64 boundary.
+// The authenticated prompt span is 1..4096 tokens.
+[[nodiscard]] int launch_prompt_span_gate_producer(
+    const std::uint16_t* a, const std::uint16_t* b,
+    const std::uint16_t* A_log, const std::uint16_t* dt_bias,
+    std::size_t token_count, float* cumulative_gate, float* beta,
+    void* cuda_stream = nullptr) noexcept;
+
 // Prompt-span vertical state/output slice.  W/U, compact Q/K, and cumulative
 // gamma are the unchanged chunk-major WY boundaries.  The fused CTA writes
 // raw_output as padded BF16 [ceil64(T),48,128], publishes only final state,

@@ -4088,6 +4088,35 @@ int launch_qk_preprocessed(
       silu_gate, norm_epsilon, output, cuda_stream, true);
 }
 
+int launch_prompt_span_gate_producer(
+    const std::uint16_t* const a,
+    const std::uint16_t* const b,
+    const std::uint16_t* const A_log,
+    const std::uint16_t* const dt_bias,
+    const std::size_t token_count,
+    float* const cumulative_gate,
+    float* const beta,
+    void* const cuda_stream) noexcept {
+  if (a == nullptr || b == nullptr || A_log == nullptr ||
+      dt_bias == nullptr || cumulative_gate == nullptr || beta == nullptr ||
+      token_count == 0U || token_count > 4'096U) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const std::size_t chunk_count =
+      (token_count +
+       gdn_prefill_chunk64_reference_detail::kChunkSize - 1U) /
+      gdn_prefill_chunk64_reference_detail::kChunkSize;
+  const std::size_t matrix_count =
+      chunk_count * gdn_prefill_chunk64_reference_detail::kValueHeadCount;
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  gdn_prefill_chunk64_reference_detail::prepare_gate_kernel<<<
+      static_cast<unsigned int>(matrix_count),
+      gdn_prefill_chunk64_reference_detail::kChunkThreads, 0U, stream>>>(
+      a, b, A_log, dt_bias, token_count, cumulative_gate, beta);
+  return gdn_prefill_chunk64_reference_detail::launch_grid_status();
+}
+
 int launch_prompt_span_state_o(
     const std::uint16_t* const w,
     const std::uint16_t* const u,

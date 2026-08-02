@@ -1011,6 +1011,16 @@ void execute_job(runtime::ReferenceEngine& engine,
             << " down_m128n128_16warp_pairring_launch_hits="
             << generated.value->timing
                    .down_m128n128_16warp_pairring_launch_hits
+            << " gdn_chunk64_native_launch_hits="
+            << generated.value->timing.gdn_chunk64_native_launch_hits
+            << " gdn_chunk64_native_logical_token_hits="
+            << generated.value->timing
+                   .gdn_chunk64_native_logical_token_hits
+            << " gdn_prompt_span_macro_launch_hits="
+            << generated.value->timing.gdn_prompt_span_macro_launch_hits
+            << " gdn_prompt_span_macro_logical_token_hits="
+            << generated.value->timing
+                   .gdn_prompt_span_macro_logical_token_hits
             << '\n'
             << std::flush;
 

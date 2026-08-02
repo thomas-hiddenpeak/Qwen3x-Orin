@@ -91,6 +91,10 @@ struct FakeRunner {
   std::size_t long_prefill_gateup_alternating_launch_hits = 64U;
   std::size_t long_prefill_gateup_m128n512_paired_ldmatrix_launch_hits = 64U;
   std::size_t long_prefill_down_m128n128_ldmatrix_pairring_launch_hits = 64U;
+  std::size_t long_prefill_gdn_chunk64_native_launch_hits = 192U;
+  std::size_t long_prefill_gdn_chunk64_native_logical_token_hits = 88'944U;
+  std::size_t long_prefill_gdn_prompt_span_macro_launch_hits = 48U;
+  std::size_t long_prefill_gdn_prompt_span_macro_logical_token_hits = 88'944U;
 };
 
 struct PhaseContext {
@@ -311,6 +315,14 @@ runtime::ReferenceLongPrefillOutcome fake_layer_major_prompt(
       fake.long_prefill_gateup_m128n512_paired_ldmatrix_launch_hits;
   value.down_m128n128_ldmatrix_pairring_launch_hits =
       fake.long_prefill_down_m128n128_ldmatrix_pairring_launch_hits;
+  value.gdn_chunk64_native_launch_hits =
+      fake.long_prefill_gdn_chunk64_native_launch_hits;
+  value.gdn_chunk64_native_logical_token_hits =
+      fake.long_prefill_gdn_chunk64_native_logical_token_hits;
+  value.gdn_prompt_span_macro_launch_hits =
+      fake.long_prefill_gdn_prompt_span_macro_launch_hits;
+  value.gdn_prompt_span_macro_logical_token_hits =
+      fake.long_prefill_gdn_prompt_span_macro_logical_token_hits;
   if (measure_timing && !fake.long_prefill_omit_timing) {
     value.timing.emplace(runtime::ReferenceStepTiming{
         fake.long_prefill_elapsed_milliseconds});
@@ -837,6 +849,14 @@ void test_layer_major_prompt_admission(TestContext& test) {
             result.value->timing
                     .down_m128n128_ldmatrix_pairring_launch_hits ==
                 fake.long_prefill_down_m128n128_ldmatrix_pairring_launch_hits &&
+            result.value->timing.gdn_chunk64_native_launch_hits ==
+                fake.long_prefill_gdn_chunk64_native_launch_hits &&
+            result.value->timing.gdn_chunk64_native_logical_token_hits ==
+                fake.long_prefill_gdn_chunk64_native_logical_token_hits &&
+            result.value->timing.gdn_prompt_span_macro_launch_hits ==
+                fake.long_prefill_gdn_prompt_span_macro_launch_hits &&
+            result.value->timing.gdn_prompt_span_macro_logical_token_hits ==
+                fake.long_prefill_gdn_prompt_span_macro_logical_token_hits &&
             has_consistent_prefill_timing(result.value->timing) &&
             correct_result_arm,
         "layer-major admission submits one whole prompt, materializes its "

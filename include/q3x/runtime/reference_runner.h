@@ -247,6 +247,13 @@ struct ReferenceLongPrefillResult {
   // It is never aliased with the incumbent pair-ring counter, so an external
   // real-API run can prove exactly which Down implementation owned the span.
   std::size_t down_m128n128_16warp_pairring_launch_hits = 0U;
+  // Mutually exclusive request-local proof for the incumbent C512 native GDN
+  // route and its full-prompt persistent-state successor. Logical-token hits
+  // count one token for each Linear-Attention layer that consumed it.
+  std::size_t gdn_chunk64_native_launch_hits = 0U;
+  std::size_t gdn_chunk64_native_logical_token_hits = 0U;
+  std::size_t gdn_prompt_span_macro_launch_hits = 0U;
+  std::size_t gdn_prompt_span_macro_logical_token_hits = 0U;
   std::optional<ReferenceStepTiming> timing;
 };
 

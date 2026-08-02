@@ -23,6 +23,7 @@ constexpr unsigned int kBlockRows = kChunk / kTile;
 constexpr unsigned int kPackedBlocks =
     kBlockRows * (kBlockRows + 1U) / 2U;
 constexpr unsigned int kMaximumChunks = 8U;
+constexpr unsigned int kMaximumRawGramChunks = 64U;
 
 constexpr std::size_t kVectorElements = kChunk * kDimension;
 constexpr std::size_t kGramElements = kChunk * kChunk;
@@ -783,7 +784,35 @@ void value_head_recompute_chunk64_kernel(
          token_count <= (chunk_count - 1U) * kChunk;
 }
 
+[[nodiscard]] bool invalid_raw_gram_arguments(
+    const std::uint16_t* const compact_k,
+    const std::size_t token_count, const std::size_t chunk_count,
+    const float* const raw_gram) noexcept {
+  return compact_k == nullptr || raw_gram == nullptr ||
+         token_count == 0U ||
+         token_count > kMaximumRawGramChunks * kChunk ||
+         chunk_count == 0U || chunk_count > kMaximumRawGramChunks ||
+         chunk_count != (token_count + kChunk - 1U) / kChunk;
+}
+
 }  // namespace
+
+int launch_raw_gram(const std::uint16_t* const compact_k,
+                    const std::size_t token_count,
+                    const std::size_t chunk_count,
+                    float* const raw_gram,
+                    void* const cuda_stream) noexcept {
+  if (invalid_raw_gram_arguments(compact_k, token_count, chunk_count,
+                                 raw_gram)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  compact_lower_gram_chunk64_kernel<<<
+      static_cast<unsigned int>(chunk_count * kQkHeads), kGramThreads,
+      kGramSharedBytes, stream>>>(
+      compact_k, static_cast<unsigned int>(chunk_count), raw_gram);
+  return static_cast<int>(cudaGetLastError());
+}
 
 int launch_packless(const std::uint16_t* const compact_k,
                     const float* const cumulative_gate,

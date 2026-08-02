@@ -39,6 +39,15 @@ ATTENTION_K256_A_EXCHANGE_B4_MODE = (
     "cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-"
     "alternating-down-16warp-pairring-attention-k256-a-exchange-b4"
 )
+GDN_PROMPT_SPAN_MACRO_MODE = (
+    f"{ATTENTION_K256_A_EXCHANGE_B4_MODE}-gdn-prompt-span-macro"
+)
+GDN_PROMPT_SPAN_MACRO_SELECTOR = (
+    "Q3X_RUN_GDN_PREFILL_PROMPT_SPAN_MACRO_ADMISSION"
+)
+GDN_PROMPT_SPAN_MACRO_MARKER = (
+    "prefill_projection_span_linear_gdn_prompt_span_macro"
+)
 ATTENTION_K256_LAYOUT = (
     "sm87_s4_n64_packed_k64_scale_k256_consumer_v3"
 )
@@ -182,6 +191,7 @@ class Fixture:
             "#!/bin/sh\n"
             "# Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION\n"
             "# Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION\n"
+            f"# {GDN_PROMPT_SPAN_MACRO_SELECTOR}\n"
             "# Q3X_RUN_BF16_AB_LARGE_M_PREFILL_ADMISSION\n"
             "# Q3X_RUN_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION\n"
             "# Q3X_RUN_A4W4_DOWN_COMPLETE_CELL_V3_ADMISSION\n"
@@ -220,6 +230,7 @@ class Fixture:
             + f"{HYBRID_CANONICAL_DOWN_MARKER}\n"
             + f"{HYBRID_PAIRRING_DOWN_MARKER}\n"
             + f"{DOWN_16WARP_PAIRRING_MARKER}\n"
+            + f"{GDN_PROMPT_SPAN_MACRO_MARKER}\n"
             + "# Q3X_RUN_SHORT_PREFILL_LAYER_MAJOR_ADMISSION\n"
             + "exit 0\n",
             encoding="utf-8",
@@ -436,6 +447,7 @@ class Fixture:
         environment["Q3X_RUN_PREFILL_ALL_PROMPT_TOKENS_ADMISSION"] = "1"
         environment["Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION"] = "1"
         environment["Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION"] = "1"
+        environment[GDN_PROMPT_SPAN_MACRO_SELECTOR] = "1"
         environment["Q3X_RUN_BF16_AB_LARGE_M_PREFILL_ADMISSION"] = "1"
         environment["Q3X_RUN_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION"] = "1"
         environment["Q3X_RUN_A4W4_DOWN_COMPLETE_CELL_V3_ADMISSION"] = "1"
@@ -585,6 +597,14 @@ class Fixture:
         return self.run_attention_k256(
             bucket=bucket,
             mode=ATTENTION_K256_A_EXCHANGE_B4_MODE,
+        )
+
+    def run_gdn_prompt_span_macro(
+        self, *, bucket: str = "p2k"
+    ) -> subprocess.CompletedProcess[str]:
+        return self.run_attention_k256(
+            bucket=bucket,
+            mode=GDN_PROMPT_SPAN_MACRO_MODE,
         )
 
     def run_mlp_k512_edge_m128n64(
@@ -1719,6 +1739,193 @@ class PurePrefillEvalScopeHarnessTest(unittest.TestCase):
             f"{ATTENTION_K256_A_EXCHANGE_B4_SELECTOR}",
             contents,
         )
+
+    def test_gdn_prompt_span_macro_is_one_selector_delta_from_current_best(
+        self,
+    ) -> None:
+        help_result = subprocess.run(
+            [str(RUNNER), "--help"],
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+        self.assertEqual(help_result.returncode, 0, help_result.stderr)
+        self.assertIn(GDN_PROMPT_SPAN_MACRO_MODE, help_result.stderr)
+
+        baseline = self.fixture.run_attention_k256_a_exchange_b4()
+        candidate = self.fixture.run_gdn_prompt_span_macro()
+        self.assertEqual(baseline.returncode, 0, baseline.stderr)
+        self.assertEqual(candidate.returncode, 0, candidate.stderr)
+        self.assertIn(
+            f"mode={GDN_PROMPT_SPAN_MACRO_MODE} dry_run=1",
+            candidate.stdout,
+        )
+        self.assertIn("selector_count=11", candidate.stdout)
+
+        baseline_startup = next(
+            line
+            for line in baseline.stdout.splitlines()
+            if line.startswith("server_startup_command")
+        )
+        candidate_startup = next(
+            line
+            for line in candidate.stdout.splitlines()
+            if line.startswith("server_startup_command")
+        )
+        baseline_selectors = set(
+            re.findall(r"(Q3X_[A-Z0-9_]+)=1", baseline_startup)
+        )
+        candidate_selectors = set(
+            re.findall(r"(Q3X_[A-Z0-9_]+)=1", candidate_startup)
+        )
+        self.assertEqual(baseline_selectors - candidate_selectors, set())
+        self.assertEqual(
+            candidate_selectors - baseline_selectors,
+            {GDN_PROMPT_SPAN_MACRO_SELECTOR},
+        )
+        self.assertIn(
+            f"-u {GDN_PROMPT_SPAN_MACRO_SELECTOR}", baseline_startup
+        )
+        self.assertNotIn(
+            f"{GDN_PROMPT_SPAN_MACRO_SELECTOR}=1", baseline_startup
+        )
+        self.assertIn(
+            f"-u {GDN_PROMPT_SPAN_MACRO_SELECTOR}", candidate_startup
+        )
+        self.assertIn(
+            f"{GDN_PROMPT_SPAN_MACRO_SELECTOR}=1", candidate_startup
+        )
+
+        delta = next(
+            line
+            for line in candidate.stdout.splitlines()
+            if line.startswith("candidate_delta")
+        )
+        self.assertIn(
+            f"baseline_mode={ATTENTION_K256_A_EXCHANGE_B4_MODE}", delta
+        )
+        self.assertIn(
+            "retained_selector=Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION",
+            delta,
+        )
+        self.assertIn(
+            f"added_selector={GDN_PROMPT_SPAN_MACRO_SELECTOR}", delta
+        )
+        gdn_contract = next(
+            line
+            for line in candidate.stdout.splitlines()
+            if line.startswith("stage_contract")
+            and GDN_PROMPT_SPAN_MACRO_MARKER in line
+        )
+        self.assertIn(
+            f"required={GDN_PROMPT_SPAN_MACRO_MARKER}", gdn_contract
+        )
+        self.assertIn(
+            "expected_request_launch_hits=native:0,macro:48", gdn_contract
+        )
+        self.assertIn(
+            "expected_request_logical_tokens=native:0,"
+            "macro:48*prompt_tokens",
+            gdn_contract,
+        )
+        baseline_metadata = next(
+            line
+            for line in baseline.stdout.splitlines()
+            if line.startswith("gdn_prompt_span_accounting_metadata")
+        )
+        candidate_metadata = next(
+            line
+            for line in candidate.stdout.splitlines()
+            if line.startswith("gdn_prompt_span_accounting_metadata")
+        )
+        self.assertIn("route=native-c512", baseline_metadata)
+        self.assertIn(
+            "native_launch_formula=48*ceil(prompt_tokens/512)",
+            baseline_metadata,
+        )
+        self.assertIn("macro_launch_formula=0", baseline_metadata)
+        self.assertIn("route=prompt-span-macro", candidate_metadata)
+        self.assertIn("native_launch_formula=0", candidate_metadata)
+        self.assertIn("macro_launch_formula=48", candidate_metadata)
+        self.assertIn("performance_evidence=0", candidate.stdout)
+        self.assertFalse(self.fixture.output.exists())
+
+    def test_gdn_prompt_span_macro_fails_closed_on_selector_or_stage(
+        self,
+    ) -> None:
+        original = self.fixture.server.read_text(encoding="utf-8")
+        self.fixture.server.write_text(
+            original.replace(f"# {GDN_PROMPT_SPAN_MACRO_SELECTOR}\n", ""),
+            encoding="utf-8",
+        )
+        missing_selector = self.fixture.run_gdn_prompt_span_macro()
+        self.assertEqual(missing_selector.returncode, 2)
+        self.assertIn(
+            "server does not contain the "
+            f"{GDN_PROMPT_SPAN_MACRO_MODE} selector: "
+            f"{GDN_PROMPT_SPAN_MACRO_SELECTOR}",
+            missing_selector.stderr,
+        )
+
+        self.fixture.server.write_text(
+            original.replace(f"{GDN_PROMPT_SPAN_MACRO_MARKER}\n", ""),
+            encoding="utf-8",
+        )
+        missing_marker = self.fixture.run_gdn_prompt_span_macro()
+        self.assertEqual(missing_marker.returncode, 2)
+        self.assertIn(
+            "server does not prove the GDN prompt-span macro production "
+            f"stage: {GDN_PROMPT_SPAN_MACRO_MARKER}",
+            missing_marker.stderr,
+        )
+
+    def test_gdn_prompt_span_runtime_contract_is_dynamic_and_provenanced(
+        self,
+    ) -> None:
+        contents = RUNNER.read_text(encoding="utf-8")
+        for field in (
+            "gdn_chunk64_native_launch_hits",
+            "gdn_chunk64_native_logical_token_hits",
+            "gdn_prompt_span_macro_launch_hits",
+            "gdn_prompt_span_macro_logical_token_hits",
+        ):
+            self.assertIn(field, contents)
+        self.assertIn(
+            "expected_gdn_logical_token_hits=$((48 * prompt_tokens))",
+            contents,
+        )
+        self.assertIn(
+            "expected_gdn_native_launch_hits=$((48 * "
+            "((prompt_tokens + 511) / 512)))",
+            contents,
+        )
+        self.assertIn("expected_gdn_macro_launch_hits=48", contents)
+        self.assertIn(
+            "gdn_prompt_span_runtime_contract bucket=%s requests=%s "
+            "route=%s dynamic_prompt_token_accounting=passed status=passed",
+            contents,
+        )
+        self.assertIn(
+            "gdn_chunk64_native_expected_launch_formula=%s", contents
+        )
+        self.assertIn(
+            "gdn_prompt_span_macro_expected_logical_token_formula=%s",
+            contents,
+        )
+
+        expected = {
+            1804: (192, 86_592),
+            1853: (192, 88_944),
+            1792: (192, 86_016),
+            2148: (240, 103_104),
+            1906: (192, 91_488),
+        }
+        for prompt_tokens, (native_launches, logical_tokens) in expected.items():
+            with self.subTest(prompt_tokens=prompt_tokens):
+                self.assertEqual(
+                    48 * ((prompt_tokens + 511) // 512), native_launches
+                )
+                self.assertEqual(48 * prompt_tokens, logical_tokens)
 
     def test_attention_k256_request_window_preserves_four_independent_counts(
         self,
