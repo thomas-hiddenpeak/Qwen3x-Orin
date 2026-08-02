@@ -50,6 +50,10 @@ option(Q3X_BUILD_SM87_A4W4_PRIMITIVE_ADMISSION
   "Build the test-only native SM87 S4xS4 Tensor Core primitive"
   OFF
 )
+option(Q3X_BUILD_SM87_A4W4_LDMATRIX_OPERAND_PROBE
+  "Build the isolated scalar-LDS versus ldmatrix S4 operand-feed probe"
+  OFF
+)
 option(Q3X_BUILD_SM87_A4W4_GATEUP_PAIR_ADMISSION
   "Build the test-only persistent SM87 A4W4 paired Gate+Up route"
   OFF
@@ -191,6 +195,11 @@ endif()
 if(Q3X_BUILD_SM87_A4W4_PRIMITIVE_ADMISSION AND NOT BUILD_TESTING)
   message(FATAL_ERROR
     "Q3X_BUILD_SM87_A4W4_PRIMITIVE_ADMISSION is test-only and requires BUILD_TESTING=ON"
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_LDMATRIX_OPERAND_PROBE AND NOT BUILD_TESTING)
+  message(FATAL_ERROR
+    "Q3X_BUILD_SM87_A4W4_LDMATRIX_OPERAND_PROBE is test-only and requires BUILD_TESTING=ON"
   )
 endif()
 if(Q3X_BUILD_SM87_A4W4_GATEUP_PAIR_ADMISSION AND NOT BUILD_TESTING)
@@ -1138,6 +1147,57 @@ if(BUILD_TESTING)
     )
     add_custom_target(q3x_sm87_a4w4_mma_ptx_sentinel ALL
       DEPENDS "${_q3x_a4w4_ptx_stamp}"
+    )
+  endif()
+
+  if(Q3X_BUILD_SM87_A4W4_LDMATRIX_OPERAND_PROBE)
+    # Single-warp P0 only: this executable owns four kernels and the host
+    # harness. No source is linked into q3x_kernels or any production runner.
+    add_executable(q3x_sm87_a4w4_ldmatrix_operand_probe_test
+      src/kernels/sm87/a4w4_ldmatrix_operand_probe.cu
+      tests/sm87_a4w4_ldmatrix_operand_probe_correctness_test.cu
+    )
+    target_include_directories(q3x_sm87_a4w4_ldmatrix_operand_probe_test
+      PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    )
+    target_link_libraries(q3x_sm87_a4w4_ldmatrix_operand_probe_test
+      PRIVATE CUDA::cudart
+    )
+    target_compile_features(q3x_sm87_a4w4_ldmatrix_operand_probe_test
+      PRIVATE cxx_std_17 cuda_std_17
+    )
+    target_compile_options(q3x_sm87_a4w4_ldmatrix_operand_probe_test PRIVATE
+      $<$<COMPILE_LANGUAGE:CUDA>:-Xptxas=-v;-Xptxas=-warn-spills>
+    )
+    q3x_enable_warnings(q3x_sm87_a4w4_ldmatrix_operand_probe_test)
+
+    find_program(Q3X_CUOBJDUMP_EXECUTABLE cuobjdump
+      HINTS "${CUDAToolkit_BIN_DIR}"
+      REQUIRED
+    )
+    add_test(NAME sm87_a4w4_ldmatrix_operand_probe_binary_contract
+      COMMAND "${CMAKE_COMMAND}"
+              "-DQ3X_CUOBJDUMP_EXECUTABLE=${Q3X_CUOBJDUMP_EXECUTABLE}"
+              "-DQ3X_LDMATRIX_OPERAND_PROBE_BINARY=$<TARGET_FILE:q3x_sm87_a4w4_ldmatrix_operand_probe_test>"
+              "-DQ3X_LDMATRIX_OPERAND_PROBE_AUDIT_DIR=${CMAKE_CURRENT_BINARY_DIR}/sm87_a4w4_ldmatrix_operand_probe_audit"
+              -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/VerifySm87A4W4LdmatrixOperandProbeBinary.cmake"
+    )
+    set_tests_properties(
+      sm87_a4w4_ldmatrix_operand_probe_binary_contract PROPERTIES
+      LABELS "host;sm87;prefill;a4w4;ldmatrix;binary_contract;resources"
+    )
+
+    find_program(Q3X_FLOCK_EXECUTABLE flock REQUIRED)
+    add_test(NAME sm87_a4w4_ldmatrix_operand_probe_correctness
+      COMMAND "${Q3X_FLOCK_EXECUTABLE}" -x /tmp/q3x-gpu-bench.lock
+              $<TARGET_FILE:q3x_sm87_a4w4_ldmatrix_operand_probe_test>
+    )
+    set_tests_properties(
+      sm87_a4w4_ldmatrix_operand_probe_correctness PROPERTIES
+      LABELS "cuda;sm87;prefill;a4w4;ldmatrix;correctness;synthetic;structural_probe"
+      SKIP_RETURN_CODE 77
+      RESOURCE_LOCK q3x_sm87_gpu
+      TIMEOUT 120
     )
   endif()
 
