@@ -223,6 +223,13 @@ struct ReferenceLongPrefillResult {
   // owned every decoder layer.  The runner leaves this at zero for every
   // other route; consumers must not infer selection from the environment.
   std::size_t gateup_alternating_launch_hits = 0U;
+  // Request-local proof that the paired-GateUp/canonical-Down admission
+  // launched its M128N512 Gate+Up kernel once for every decoder layer and
+  // projection span.  It remains zero for every other route.
+  std::size_t gateup_m128n512_paired_ldmatrix_launch_hits = 0U;
+  // The optional pair-ring Down selector has an independent request-local
+  // proof.  Gate-only admission deliberately leaves this at zero.
+  std::size_t down_m128n128_ldmatrix_pairring_launch_hits = 0U;
   std::optional<ReferenceStepTiming> timing;
 };
 
@@ -1286,6 +1293,79 @@ select_a4w4_k128_down_prefill_route(
     const bool optimized_prefill_disabled) noexcept {
   return a4_inventory_enabled && !trace_enabled &&
          !optimized_prefill_disabled;
+}
+
+// The paired-GateUp/canonical-Down publication is a complete production
+// route, not a leaf-kernel override.  Its master publication selector and
+// Gate selector must be enabled together.  Down is independently optional,
+// while every older MLP/Gate/Down selector is mutually exclusive.  The
+// explicit projection_span flag lets non-span entry points fail closed.
+enum class A4W4PairedGateUpCanonicalDownRoute : std::uint8_t {
+  kDisabled = 0,
+  kInvalid,
+  kGateOnly,
+  kGateAndDown,
+};
+
+struct A4W4PairedGateUpCanonicalDownSelectorQuery final {
+  bool master_requested = false;
+  bool gate_requested = false;
+  bool down_requested = false;
+  bool legacy_mlp_requested = false;
+  bool legacy_gate_requested = false;
+  bool legacy_down_requested = false;
+  bool projection_span = false;
+};
+
+[[nodiscard]] constexpr A4W4PairedGateUpCanonicalDownRoute
+select_a4w4_paired_gateup_canonical_down_route(
+    const A4W4PairedGateUpCanonicalDownSelectorQuery& query) noexcept {
+  const bool any_new_selector =
+      query.master_requested || query.gate_requested || query.down_requested;
+  if (!any_new_selector) {
+    return A4W4PairedGateUpCanonicalDownRoute::kDisabled;
+  }
+  if (!query.master_requested || !query.gate_requested ||
+      !query.projection_span || query.legacy_mlp_requested ||
+      query.legacy_gate_requested || query.legacy_down_requested) {
+    return A4W4PairedGateUpCanonicalDownRoute::kInvalid;
+  }
+  return query.down_requested
+             ? A4W4PairedGateUpCanonicalDownRoute::kGateAndDown
+             : A4W4PairedGateUpCanonicalDownRoute::kGateOnly;
+}
+
+[[nodiscard]] constexpr bool
+a4w4_paired_gateup_canonical_down_accounting_valid(
+    const A4W4PairedGateUpCanonicalDownRoute route,
+    const std::size_t projection_span_count,
+    const std::size_t gate_hits_before,
+    const std::size_t gate_hits_after,
+    const std::size_t down_hits_before,
+    const std::size_t down_hits_after) noexcept {
+  if (route == A4W4PairedGateUpCanonicalDownRoute::kInvalid ||
+      gate_hits_after < gate_hits_before ||
+      down_hits_after < down_hits_before ||
+      projection_span_count >
+          std::numeric_limits<std::size_t>::max() /
+              kReferenceDecoderLayerCount) {
+    return false;
+  }
+  const std::size_t expected =
+      projection_span_count * kReferenceDecoderLayerCount;
+  const std::size_t gate_delta = gate_hits_after - gate_hits_before;
+  const std::size_t down_delta = down_hits_after - down_hits_before;
+  switch (route) {
+    case A4W4PairedGateUpCanonicalDownRoute::kDisabled:
+      return gate_delta == 0U && down_delta == 0U;
+    case A4W4PairedGateUpCanonicalDownRoute::kGateOnly:
+      return gate_delta == expected && down_delta == 0U;
+    case A4W4PairedGateUpCanonicalDownRoute::kGateAndDown:
+      return gate_delta == expected && down_delta == expected;
+    case A4W4PairedGateUpCanonicalDownRoute::kInvalid:
+      return false;
+  }
+  return false;
 }
 
 bool exchange_a4w4_full_prefill_admission_test_enabled(

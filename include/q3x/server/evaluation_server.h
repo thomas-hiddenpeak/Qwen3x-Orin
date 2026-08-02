@@ -33,6 +33,14 @@ struct EvaluationServerOptions {
   std::filesystem::path prefill_mlp_k512_fragment_native_payload_path;
   std::filesystem::path prefill_mlp_k512_fragment_native_policy_path;
   std::filesystem::path prefill_mlp_k512_fragment_native_receipt_path;
+  // Authenticated paired-GateUp/canonical-v1-Down hybrid publication.  This
+  // is a distinct all-or-none triplet and never impersonates v2.
+  std::filesystem::path
+      prefill_mlp_k512_paired_gateup_canonical_down_payload_path;
+  std::filesystem::path
+      prefill_mlp_k512_paired_gateup_canonical_down_policy_path;
+  std::filesystem::path
+      prefill_mlp_k512_paired_gateup_canonical_down_receipt_path;
   std::string bind_address = "127.0.0.1";
   std::uint16_t port = 8000U;
   std::string served_model = "qwen3.6-27b-nvfp4";

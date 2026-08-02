@@ -171,6 +171,42 @@ bool parse_evaluation_server_arguments(
         return false;
       }
       options.prefill_mlp_k512_fragment_native_receipt_path = value;
+    } else if (argument ==
+               "--prefill-mlp-k512-paired-gateup-canonical-down-payload") {
+      if (!options
+               .prefill_mlp_k512_paired_gateup_canonical_down_payload_path
+               .empty() ||
+          value.empty()) {
+        error = "--prefill-mlp-k512-paired-gateup-canonical-down-payload "
+                "requires one non-empty FILE";
+        return false;
+      }
+      options.prefill_mlp_k512_paired_gateup_canonical_down_payload_path =
+          value;
+    } else if (argument ==
+               "--prefill-mlp-k512-paired-gateup-canonical-down-policy") {
+      if (!options
+               .prefill_mlp_k512_paired_gateup_canonical_down_policy_path
+               .empty() ||
+          value.empty()) {
+        error = "--prefill-mlp-k512-paired-gateup-canonical-down-policy "
+                "requires one non-empty FILE";
+        return false;
+      }
+      options.prefill_mlp_k512_paired_gateup_canonical_down_policy_path =
+          value;
+    } else if (argument ==
+               "--prefill-mlp-k512-paired-gateup-canonical-down-receipt") {
+      if (!options
+               .prefill_mlp_k512_paired_gateup_canonical_down_receipt_path
+               .empty() ||
+          value.empty()) {
+        error = "--prefill-mlp-k512-paired-gateup-canonical-down-receipt "
+                "requires one non-empty FILE";
+        return false;
+      }
+      options.prefill_mlp_k512_paired_gateup_canonical_down_receipt_path =
+          value;
     } else if (argument == "--queue-capacity") {
       if (!parse_unsigned(value, options.inference_queue_capacity) ||
           options.inference_queue_capacity == 0U) {
@@ -284,9 +320,36 @@ bool parse_evaluation_server_arguments(
             "K128 A4 payload and policy";
     return false;
   }
-  if (mlp_k512_payload && mlp_k512_fragment_native_payload) {
-    error = "the K512 MLP v1 and fragment-native v2 publications are "
-            "mutually exclusive";
+  const bool mlp_k512_hybrid_payload =
+      !options.prefill_mlp_k512_paired_gateup_canonical_down_payload_path
+           .empty();
+  const bool mlp_k512_hybrid_policy =
+      !options.prefill_mlp_k512_paired_gateup_canonical_down_policy_path
+           .empty();
+  const bool mlp_k512_hybrid_receipt =
+      !options.prefill_mlp_k512_paired_gateup_canonical_down_receipt_path
+           .empty();
+  if (mlp_k512_hybrid_payload != mlp_k512_hybrid_policy ||
+      mlp_k512_hybrid_payload != mlp_k512_hybrid_receipt) {
+    error = "--prefill-mlp-k512-paired-gateup-canonical-down-payload, "
+            "--prefill-mlp-k512-paired-gateup-canonical-down-policy, and "
+            "--prefill-mlp-k512-paired-gateup-canonical-down-receipt are "
+            "required together";
+    return false;
+  }
+  if (mlp_k512_hybrid_payload && !a4_payload) {
+    error = "the paired-GateUp/canonical-Down K512 MLP overlay requires "
+            "the explicit K256 A4 payload and policy";
+    return false;
+  }
+  const unsigned mlp_k512_publications =
+      static_cast<unsigned>(mlp_k512_payload) +
+      static_cast<unsigned>(mlp_k512_fragment_native_payload) +
+      static_cast<unsigned>(mlp_k512_hybrid_payload);
+  if (mlp_k512_publications > 1U) {
+    error = "the K512 MLP v1, fragment-native v2, and "
+            "paired-GateUp/canonical-Down hybrid publications are mutually "
+            "exclusive";
     return false;
   }
   error.clear();

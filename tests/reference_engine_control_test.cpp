@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <iostream>
 #include <limits>
 #include <utility>
@@ -81,6 +82,8 @@ struct FakeRunner {
   bool long_prefill_wrong_interval = false;
   double long_prefill_elapsed_milliseconds = 40.0;
   std::size_t long_prefill_gateup_alternating_launch_hits = 64U;
+  std::size_t long_prefill_gateup_m128n512_paired_ldmatrix_launch_hits = 64U;
+  std::size_t long_prefill_down_m128n128_ldmatrix_pairring_launch_hits = 64U;
 };
 
 struct PhaseContext {
@@ -289,6 +292,10 @@ runtime::ReferenceLongPrefillOutcome fake_layer_major_prompt(
       token_count + (fake.long_prefill_wrong_interval ? 1U : 0U);
   value.gateup_alternating_launch_hits =
       fake.long_prefill_gateup_alternating_launch_hits;
+  value.gateup_m128n512_paired_ldmatrix_launch_hits =
+      fake.long_prefill_gateup_m128n512_paired_ldmatrix_launch_hits;
+  value.down_m128n128_ldmatrix_pairring_launch_hits =
+      fake.long_prefill_down_m128n128_ldmatrix_pairring_launch_hits;
   if (measure_timing && !fake.long_prefill_omit_timing) {
     value.timing.emplace(runtime::ReferenceStepTiming{
         fake.long_prefill_elapsed_milliseconds});
@@ -797,6 +804,12 @@ void test_layer_major_prompt_admission(TestContext& test) {
             result.value->timing.finish_prefill_milliseconds == 1.0 &&
             result.value->timing.gateup_alternating_launch_hits ==
                 fake.long_prefill_gateup_alternating_launch_hits &&
+            result.value->timing
+                    .gateup_m128n512_paired_ldmatrix_launch_hits ==
+                fake.long_prefill_gateup_m128n512_paired_ldmatrix_launch_hits &&
+            result.value->timing
+                    .down_m128n128_ldmatrix_pairring_launch_hits ==
+                fake.long_prefill_down_m128n128_ldmatrix_pairring_launch_hits &&
             has_consistent_prefill_timing(result.value->timing) &&
             correct_result_arm,
         "layer-major admission submits one whole prompt, materializes its "
@@ -1714,6 +1727,106 @@ void test_engine_backend_validation(TestContext& test) {
                   partial_one_shot.diagnostic.stage == "one_shot_options",
               "one-shot rejects a partial A4 publication before asset I/O");
 
+  runtime::ReferenceEngineOptions partial_hybrid;
+  partial_hybrid
+      .prefill_mlp_k512_paired_gateup_canonical_down_payload_path =
+      "hybrid.bin";
+  const runtime::ReferenceEngineCreateResult partial_hybrid_created =
+      runtime::create_reference_engine("unused-model-directory",
+                                       partial_hybrid);
+  test.expect(
+      !partial_hybrid_created &&
+          partial_hybrid_created.diagnostic.code ==
+              runtime::ReferenceEngineError::kInvalidArgument &&
+          partial_hybrid_created.diagnostic.stage ==
+              "prefill_mlp_k512_paired_gateup_canonical_down_options",
+      "engine rejects a partial hybrid publication before asset I/O");
+
+  runtime::ReferenceOneShotOptions partial_one_shot_hybrid;
+  partial_one_shot_hybrid
+      .prefill_mlp_k512_paired_gateup_canonical_down_receipt_path =
+      "hybrid.receipt.json";
+  const runtime::ReferenceOneShotResult partial_hybrid_one_shot =
+      runtime::generate_reference("unused-model-directory", "prompt",
+                                  partial_one_shot_hybrid);
+  test.expect(!partial_hybrid_one_shot &&
+                  partial_hybrid_one_shot.diagnostic.code ==
+                      runtime::ReferenceEngineError::kInvalidArgument &&
+                  partial_hybrid_one_shot.diagnostic.stage ==
+                      "one_shot_options",
+              "one-shot rejects a partial hybrid publication before asset "
+              "I/O");
+
+  constexpr const char* kHybridSelector =
+      "Q3X_RUN_A4W4_MLP_K512_PAIRED_GATEUP_CANONICAL_DOWN_ADMISSION";
+  (void)::setenv(kHybridSelector, "1", 1);
+  const runtime::ReferenceEngineCreateResult missing_hybrid_paths =
+      runtime::create_reference_engine("unused-model-directory", {});
+  (void)::unsetenv(kHybridSelector);
+  test.expect(
+      !missing_hybrid_paths &&
+          missing_hybrid_paths.diagnostic.code ==
+              runtime::ReferenceEngineError::kInvalidArgument &&
+          missing_hybrid_paths.diagnostic.stage ==
+              "prefill_mlp_k512_paired_gateup_canonical_down_options",
+      "hybrid runtime selector fails closed when its triplet is absent");
+
+  runtime::ReferenceEngineOptions missing_hybrid_selector;
+  missing_hybrid_selector.projection_backend =
+      runtime::ProjectionBackend::kSm87WeightOnly;
+  missing_hybrid_selector.prefill_a4_payload_path = "base.bin";
+  missing_hybrid_selector.prefill_a4_calibration_policy_path = "base.json";
+  missing_hybrid_selector.prefill_a4_receipt_path = "base.receipt.json";
+  missing_hybrid_selector
+      .prefill_mlp_k512_paired_gateup_canonical_down_payload_path =
+      "hybrid.bin";
+  missing_hybrid_selector
+      .prefill_mlp_k512_paired_gateup_canonical_down_policy_path =
+      "hybrid.policy.json";
+  missing_hybrid_selector
+      .prefill_mlp_k512_paired_gateup_canonical_down_receipt_path =
+      "hybrid.receipt.json";
+  const runtime::ReferenceEngineCreateResult missing_hybrid_master =
+      runtime::create_reference_engine("unused-model-directory",
+                                       missing_hybrid_selector);
+  test.expect(
+      !missing_hybrid_master &&
+          missing_hybrid_master.diagnostic.code ==
+              runtime::ReferenceEngineError::kInvalidArgument &&
+          missing_hybrid_master.diagnostic.stage ==
+              "prefill_mlp_k512_paired_gateup_canonical_down_options",
+      "complete hybrid publication fails before asset I/O when its runtime "
+      "master selector is absent");
+
+  runtime::ReferenceOneShotOptions missing_one_shot_hybrid_selector;
+  missing_one_shot_hybrid_selector.projection_backend =
+      runtime::ProjectionBackend::kSm87WeightOnly;
+  missing_one_shot_hybrid_selector.prefill_a4_payload_path = "base.bin";
+  missing_one_shot_hybrid_selector.prefill_a4_calibration_policy_path =
+      "base.json";
+  missing_one_shot_hybrid_selector.prefill_a4_receipt_path =
+      "base.receipt.json";
+  missing_one_shot_hybrid_selector
+      .prefill_mlp_k512_paired_gateup_canonical_down_payload_path =
+      "hybrid.bin";
+  missing_one_shot_hybrid_selector
+      .prefill_mlp_k512_paired_gateup_canonical_down_policy_path =
+      "hybrid.policy.json";
+  missing_one_shot_hybrid_selector
+      .prefill_mlp_k512_paired_gateup_canonical_down_receipt_path =
+      "hybrid.receipt.json";
+  const runtime::ReferenceOneShotResult missing_one_shot_hybrid_master =
+      runtime::generate_reference("unused-model-directory", "prompt",
+                                  missing_one_shot_hybrid_selector);
+  test.expect(
+      !missing_one_shot_hybrid_master &&
+          missing_one_shot_hybrid_master.diagnostic.code ==
+              runtime::ReferenceEngineError::kInvalidArgument &&
+          missing_one_shot_hybrid_master.diagnostic.stage ==
+              "one_shot_options",
+      "one-shot complete hybrid publication fails before resident loading "
+      "when its runtime master selector is absent");
+
   runtime::ReferenceEngineOptions wrong_backend_a4;
   wrong_backend_a4.prefill_a4_payload_path = "payload.a4";
   wrong_backend_a4.prefill_a4_calibration_policy_path = "policy.json";
@@ -1771,6 +1884,19 @@ void test_engine_backend_validation(TestContext& test) {
                   empty_load.prefill_a4_manifest_sha256.empty() &&
                   empty_load.prefill_a4_policy_sha256.empty() &&
                   empty_load.prefill_a4_payload_sha256.empty() &&
+                  !empty_load
+                       .prefill_mlp_k512_paired_gateup_canonical_down_overlay_requested &&
+                  !empty_load
+                       .prefill_mlp_k512_paired_gateup_canonical_down_overlay_enabled &&
+                  empty_load
+                          .prefill_mlp_k512_paired_gateup_canonical_down_overlay_layers ==
+                      0U &&
+                  empty_load
+                      .prefill_mlp_k512_paired_gateup_canonical_down_overlay_layout
+                      .empty() &&
+                  empty_load
+                      .prefill_mlp_k512_paired_gateup_canonical_down_overlay_receipt_sha256
+                      .empty() &&
                   empty_load.request_long_prefill_token_capacity == 0U &&
                   empty_load
                           .request_long_prefill_projection_span_capacity ==

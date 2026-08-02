@@ -98,6 +98,16 @@ struct ReferenceEngineOptions {
   std::filesystem::path prefill_mlp_k512_fragment_native_payload_path;
   std::filesystem::path prefill_mlp_k512_fragment_native_policy_path;
   std::filesystem::path prefill_mlp_k512_fragment_native_receipt_path;
+  // Authenticated single-arena hybrid publication: paired Gate+Up records
+  // and canonical-v1 Down records.  Its policy is the source-v1 policy bound
+  // by the hybrid receipt.  This independent triplet never aliases the v2
+  // fragment-native admission and is mutually exclusive with both v1/v2.
+  std::filesystem::path
+      prefill_mlp_k512_paired_gateup_canonical_down_payload_path;
+  std::filesystem::path
+      prefill_mlp_k512_paired_gateup_canonical_down_policy_path;
+  std::filesystem::path
+      prefill_mlp_k512_paired_gateup_canonical_down_receipt_path;
 };
 
 // Text-only messages accepted by the pinned Qwen 3.6 chat formatter. The
@@ -169,6 +179,12 @@ struct ReferenceGenerationTiming {
   // Propagated request-local runtime proof for the default-off alternating
   // K256 Gate+Up admission.  Zero means the route did not own this request.
   std::size_t gateup_alternating_launch_hits = 0U;
+  // Request-local proof for the hybrid paired-GateUp/canonical-Down route.
+  // A fully admitted Qwen3.6 request reports one hit per decoder layer.
+  std::size_t gateup_m128n512_paired_ldmatrix_launch_hits = 0U;
+  // Independent proof for the optional pair-ring Down route.  Gate-only
+  // hybrid admission deliberately leaves this at zero.
+  std::size_t down_m128n128_ldmatrix_pairring_launch_hits = 0U;
   std::vector<double> subsequent_token_milliseconds;
   double decode_after_first_milliseconds = 0.0;
   double total_generation_milliseconds = 0.0;
@@ -229,6 +245,9 @@ struct ReferenceEngineLoadStats {
   double prefill_attention_o_k512_overlay_milliseconds = 0.0;
   double prefill_mlp_k512_overlay_milliseconds = 0.0;
   double prefill_mlp_k512_fragment_native_overlay_milliseconds = 0.0;
+  double
+      prefill_mlp_k512_paired_gateup_canonical_down_overlay_milliseconds =
+          0.0;
   double runner_factory_milliseconds = 0.0;
   ReferenceDecodeGraphCachePolicy decode_graph_cache_requested_policy =
       ReferenceDecodeGraphCachePolicy::kDisabled;
@@ -366,6 +385,29 @@ struct ReferenceEngineLoadStats {
   std::string prefill_mlp_k512_fragment_native_overlay_receipt_sha256;
   std::string
       prefill_mlp_k512_fragment_native_overlay_source_v1_receipt_sha256;
+  // Kept independent from both v1 and v2 so startup readiness proves the
+  // exact hybrid ABI selected by the paired-GateUp/canonical-Down route.
+  bool prefill_mlp_k512_paired_gateup_canonical_down_overlay_requested =
+      false;
+  bool prefill_mlp_k512_paired_gateup_canonical_down_overlay_enabled = false;
+  std::size_t
+      prefill_mlp_k512_paired_gateup_canonical_down_overlay_layers = 0U;
+  std::uint64_t
+      prefill_mlp_k512_paired_gateup_canonical_down_overlay_bytes = 0U;
+  std::uint64_t
+      prefill_mlp_k512_paired_gateup_canonical_down_overlay_copy_chunks = 0U;
+  std::string
+      prefill_mlp_k512_paired_gateup_canonical_down_overlay_layout;
+  std::string
+      prefill_mlp_k512_paired_gateup_canonical_down_overlay_manifest_sha256;
+  std::string
+      prefill_mlp_k512_paired_gateup_canonical_down_overlay_policy_sha256;
+  std::string
+      prefill_mlp_k512_paired_gateup_canonical_down_overlay_payload_sha256;
+  std::string
+      prefill_mlp_k512_paired_gateup_canonical_down_overlay_receipt_sha256;
+  std::string
+      prefill_mlp_k512_paired_gateup_canonical_down_overlay_source_v1_receipt_sha256;
   // True only when tokenizer parsing and resident loading actually executed
   // concurrently. When true, total_milliseconds is wall time and phase
   // timings intentionally overlap.
@@ -623,6 +665,12 @@ struct ReferenceOneShotOptions {
   std::filesystem::path prefill_mlp_k512_fragment_native_payload_path;
   std::filesystem::path prefill_mlp_k512_fragment_native_policy_path;
   std::filesystem::path prefill_mlp_k512_fragment_native_receipt_path;
+  std::filesystem::path
+      prefill_mlp_k512_paired_gateup_canonical_down_payload_path;
+  std::filesystem::path
+      prefill_mlp_k512_paired_gateup_canonical_down_policy_path;
+  std::filesystem::path
+      prefill_mlp_k512_paired_gateup_canonical_down_receipt_path;
 };
 
 struct ReferenceOneShotGeneration {

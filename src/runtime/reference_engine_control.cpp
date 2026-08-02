@@ -320,6 +320,10 @@ GenerationControlResult run_generation_control_impl(
       control.timing.prompt_prefill_milliseconds = elapsed;
       control.timing.gateup_alternating_launch_hits =
           outcome.value->gateup_alternating_launch_hits;
+      control.timing.gateup_m128n512_paired_ldmatrix_launch_hits =
+          outcome.value->gateup_m128n512_paired_ldmatrix_launch_hits;
+      control.timing.down_m128n128_ldmatrix_pairring_launch_hits =
+          outcome.value->down_m128n128_ldmatrix_pairring_launch_hits;
       prefix_index = prompt_token_ids.size();
     } else if (effective_prefill_chunk_size > 1U) {
       while (prefix_index < prefix_token_count) {

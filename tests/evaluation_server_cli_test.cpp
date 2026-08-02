@@ -320,6 +320,95 @@ void test_mlp_k512_fragment_native_publication(TestContext& test) {
               "a duplicate fragment-native receipt flag is rejected");
 }
 
+void test_mlp_k512_paired_gateup_canonical_down_publication(
+    TestContext& test) {
+  const char* const valid[] = {
+      "qwen3x-eval-server",
+      "/model",
+      "--prefill-a4-payload",
+      "/publication/a4-k256.bin",
+      "--prefill-a4-policy",
+      "/publication/a4-k256-policy.json",
+      "--prefill-mlp-k512-paired-gateup-canonical-down-payload",
+      "/publication/mlp-k512-hybrid.bin",
+      "--prefill-mlp-k512-paired-gateup-canonical-down-policy",
+      "/publication/mlp-k512-v1-policy.json",
+      "--prefill-mlp-k512-paired-gateup-canonical-down-receipt",
+      "/publication/mlp-k512-hybrid-receipt.json"};
+  server::EvaluationServerOptions options;
+  std::string error;
+  test.expect(
+      parse(valid, options, error) && error.empty() &&
+          options
+                  .prefill_mlp_k512_paired_gateup_canonical_down_payload_path ==
+              "/publication/mlp-k512-hybrid.bin" &&
+          options
+                  .prefill_mlp_k512_paired_gateup_canonical_down_policy_path ==
+              "/publication/mlp-k512-v1-policy.json" &&
+          options
+                  .prefill_mlp_k512_paired_gateup_canonical_down_receipt_path ==
+              "/publication/mlp-k512-hybrid-receipt.json",
+      "a complete paired-GateUp/canonical-Down publication parses as its "
+      "own triplet");
+
+  const char* const incomplete[] = {
+      "qwen3x-eval-server",
+      "/model",
+      "--prefill-a4-payload",
+      "/publication/a4-k256.bin",
+      "--prefill-a4-policy",
+      "/publication/a4-k256-policy.json",
+      "--prefill-mlp-k512-paired-gateup-canonical-down-payload",
+      "/publication/mlp-k512-hybrid.bin",
+      "--prefill-mlp-k512-paired-gateup-canonical-down-policy",
+      "/publication/mlp-k512-v1-policy.json"};
+  options = {};
+  error.clear();
+  test.expect(!parse(incomplete, options, error) &&
+                  error.find("required together") != std::string::npos,
+              "an incomplete hybrid K512 publication is rejected");
+
+  const char* const missing_base[] = {
+      "qwen3x-eval-server",
+      "/model",
+      "--prefill-mlp-k512-paired-gateup-canonical-down-payload",
+      "/publication/mlp-k512-hybrid.bin",
+      "--prefill-mlp-k512-paired-gateup-canonical-down-policy",
+      "/publication/mlp-k512-v1-policy.json",
+      "--prefill-mlp-k512-paired-gateup-canonical-down-receipt",
+      "/publication/mlp-k512-hybrid-receipt.json"};
+  options = {};
+  error.clear();
+  test.expect(!parse(missing_base, options, error) &&
+                  error.find("explicit K256 A4") != std::string::npos,
+              "hybrid K512 cannot be admitted without an explicit A4 base");
+
+  const char* const hybrid_and_v2[] = {
+      "qwen3x-eval-server",
+      "/model",
+      "--prefill-a4-payload",
+      "/publication/a4-k256.bin",
+      "--prefill-a4-policy",
+      "/publication/a4-k256-policy.json",
+      "--prefill-mlp-k512-fragment-native-payload",
+      "/publication/mlp-k512-v2.bin",
+      "--prefill-mlp-k512-fragment-native-policy",
+      "/publication/mlp-k512-v1-policy.json",
+      "--prefill-mlp-k512-fragment-native-receipt",
+      "/publication/mlp-k512-v2-receipt.json",
+      "--prefill-mlp-k512-paired-gateup-canonical-down-payload",
+      "/publication/mlp-k512-hybrid.bin",
+      "--prefill-mlp-k512-paired-gateup-canonical-down-policy",
+      "/publication/mlp-k512-v1-policy.json",
+      "--prefill-mlp-k512-paired-gateup-canonical-down-receipt",
+      "/publication/mlp-k512-hybrid-receipt.json"};
+  options = {};
+  error.clear();
+  test.expect(!parse(hybrid_and_v2, options, error) &&
+                  error.find("mutually exclusive") != std::string::npos,
+              "hybrid K512 never aliases the fragment-native v2 triplet");
+}
+
 }  // namespace
 
 int main() {
@@ -329,6 +418,7 @@ int main() {
   test_invalid_indices(test);
   test_mlp_k512_publication(test);
   test_mlp_k512_fragment_native_publication(test);
+  test_mlp_k512_paired_gateup_canonical_down_publication(test);
   if (test.failures() != 0) {
     std::cerr << test.failures()
               << " evaluation server CLI test(s) failed\n";

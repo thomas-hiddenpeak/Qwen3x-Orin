@@ -990,6 +990,12 @@ void execute_job(runtime::ReferenceEngine& engine,
             << generated.value->timing.prompt_prefill_milliseconds
             << " gateup_alternating_launch_hits="
             << generated.value->timing.gateup_alternating_launch_hits
+            << " gateup_m128n512_paired_ldmatrix_launch_hits="
+            << generated.value->timing
+                   .gateup_m128n512_paired_ldmatrix_launch_hits
+            << " down_m128n128_ldmatrix_pairring_launch_hits="
+            << generated.value->timing
+                   .down_m128n128_ldmatrix_pairring_launch_hits
             << '\n'
             << std::flush;
 
@@ -1491,9 +1497,33 @@ void ingress_worker(
             "payload and policy";
     return false;
   }
-  if (mlp_k512_payload && mlp_k512_fragment_native_payload) {
-    error = "K512 MLP v1 and fragment-native v2 publications are mutually "
-            "exclusive";
+  const bool mlp_k512_hybrid_payload =
+      !options.prefill_mlp_k512_paired_gateup_canonical_down_payload_path
+           .empty();
+  const bool mlp_k512_hybrid_policy =
+      !options.prefill_mlp_k512_paired_gateup_canonical_down_policy_path
+           .empty();
+  const bool mlp_k512_hybrid_receipt =
+      !options.prefill_mlp_k512_paired_gateup_canonical_down_receipt_path
+           .empty();
+  if (mlp_k512_hybrid_payload != mlp_k512_hybrid_policy ||
+      mlp_k512_hybrid_payload != mlp_k512_hybrid_receipt) {
+    error = "paired-GateUp/canonical-Down K512 MLP payload, source-v1 "
+            "policy, and receipt are required together";
+    return false;
+  }
+  if (mlp_k512_hybrid_payload && !a4_payload) {
+    error = "paired-GateUp/canonical-Down K512 MLP requires the explicit "
+            "K256 A4 base payload and policy";
+    return false;
+  }
+  const unsigned mlp_k512_publications =
+      static_cast<unsigned>(mlp_k512_payload) +
+      static_cast<unsigned>(mlp_k512_fragment_native_payload) +
+      static_cast<unsigned>(mlp_k512_hybrid_payload);
+  if (mlp_k512_publications > 1U) {
+    error = "K512 MLP v1, fragment-native v2, and paired-GateUp/"
+            "canonical-Down hybrid publications are mutually exclusive";
     return false;
   }
   if (a4_payload &&
@@ -1585,6 +1615,15 @@ int run_evaluation_server(const EvaluationServerOptions& options,
       options.prefill_mlp_k512_fragment_native_policy_path;
   engine_options.prefill_mlp_k512_fragment_native_receipt_path =
       options.prefill_mlp_k512_fragment_native_receipt_path;
+  engine_options
+      .prefill_mlp_k512_paired_gateup_canonical_down_payload_path =
+      options.prefill_mlp_k512_paired_gateup_canonical_down_payload_path;
+  engine_options
+      .prefill_mlp_k512_paired_gateup_canonical_down_policy_path =
+      options.prefill_mlp_k512_paired_gateup_canonical_down_policy_path;
+  engine_options
+      .prefill_mlp_k512_paired_gateup_canonical_down_receipt_path =
+      options.prefill_mlp_k512_paired_gateup_canonical_down_receipt_path;
   engine_options.request_options.batch_size = 1U;
   engine_options.request_options.max_sequence_length =
       options.max_sequence_length;
@@ -1772,6 +1811,46 @@ int run_evaluation_server(const EvaluationServerOptions& options,
             << " prefill_mlp_k512_fragment_native_source_v1_receipt_sha256="
             << load
                    .prefill_mlp_k512_fragment_native_overlay_source_v1_receipt_sha256
+            << " prefill_mlp_k512_paired_gateup_canonical_down_ms="
+            << load
+                   .prefill_mlp_k512_paired_gateup_canonical_down_overlay_milliseconds
+            << " prefill_mlp_k512_paired_gateup_canonical_down_requested="
+            << (load
+                        .prefill_mlp_k512_paired_gateup_canonical_down_overlay_requested
+                    ? 1
+                    : 0)
+            << " prefill_mlp_k512_paired_gateup_canonical_down_enabled="
+            << (load
+                        .prefill_mlp_k512_paired_gateup_canonical_down_overlay_enabled
+                    ? 1
+                    : 0)
+            << " prefill_mlp_k512_paired_gateup_canonical_down_layers="
+            << load
+                   .prefill_mlp_k512_paired_gateup_canonical_down_overlay_layers
+            << " prefill_mlp_k512_paired_gateup_canonical_down_bytes="
+            << load
+                   .prefill_mlp_k512_paired_gateup_canonical_down_overlay_bytes
+            << " prefill_mlp_k512_paired_gateup_canonical_down_copy_chunks="
+            << load
+                   .prefill_mlp_k512_paired_gateup_canonical_down_overlay_copy_chunks
+            << " prefill_mlp_k512_paired_gateup_canonical_down_layout="
+            << load
+                   .prefill_mlp_k512_paired_gateup_canonical_down_overlay_layout
+            << " prefill_mlp_k512_paired_gateup_canonical_down_manifest_sha256="
+            << load
+                   .prefill_mlp_k512_paired_gateup_canonical_down_overlay_manifest_sha256
+            << " prefill_mlp_k512_paired_gateup_canonical_down_policy_sha256="
+            << load
+                   .prefill_mlp_k512_paired_gateup_canonical_down_overlay_policy_sha256
+            << " prefill_mlp_k512_paired_gateup_canonical_down_payload_sha256="
+            << load
+                   .prefill_mlp_k512_paired_gateup_canonical_down_overlay_payload_sha256
+            << " prefill_mlp_k512_paired_gateup_canonical_down_receipt_sha256="
+            << load
+                   .prefill_mlp_k512_paired_gateup_canonical_down_overlay_receipt_sha256
+            << " prefill_mlp_k512_paired_gateup_canonical_down_source_v1_receipt_sha256="
+            << load
+                   .prefill_mlp_k512_paired_gateup_canonical_down_overlay_source_v1_receipt_sha256
             << std::endl;
 
   bool fatal_accept_error = false;
