@@ -2,10 +2,12 @@
 
 ## Decision
 
-The first complete MLP K512 route is **directionally retained but not
-promoted**.  It is a real whole-runner improvement and a useful structural
-baseline, but it is not the qualitative jump required by the 2,000 prompt
-token/s target.
+The producer-owned GateUp-to-Down K512 edge is **retained**.  It is the first
+post-baseline MLP architecture in this series to pass the structural
+continuation gate on the real runner: at least 250 ms mean P2K TTFT reduction.
+It removes the full BF16 product seam and the separate split quantizer while
+preserving the authenticated v1 weights and the existing Down consumer ABI.
+It is still only one step toward the 2,000 prompt token/s target.
 
 The external EvalScope/OpenAI result on the fixed natural P2K corpus is:
 
@@ -14,6 +16,7 @@ The external EvalScope/OpenAI result on the fixed natural P2K corpus is:
 | K128 current-best comparator | 4/4 | 3,173.4 ms | 606.45 tok/s | 606.7634 tok/s |
 | MLP K512 candidate | 4/4 | 2,782.6 ms | 691.62 tok/s | 691.9824 tok/s |
 | MLP K512 + natural ceil128 | 4/4 | 2,720.5 ms | 707.40 tok/s | 707.7676 tok/s |
+| Producer-owned GateUp-to-Down K512 edge | 4/4 | 2,448.3 ms | 786.03 tok/s | 786.4375 tok/s |
 | Shared global-flow experiment | 4/4 | 3,004.7 ms | 640.58 tok/s | 640.8404 tok/s |
 | Fragment-native v2 production candidate | 4/4 | 3,304.3 ms | 582.43 tok/s | 582.7297 tok/s |
 | Fragment-native M128N32 L1 experiment | 4/4 | 3,527.4 ms | 545.60 tok/s | 545.8841 tok/s |
@@ -22,14 +25,12 @@ The external EvalScope/OpenAI result on the fixed natural P2K corpus is:
 | Fragment-native M64N128 16-warp one-CTA | 4/4 | 3,236.2 ms | 594.69 tok/s | 594.9980 tok/s |
 | Fragment-native M128N64 staged paired-B | 4/4 | 2,744.8 ms | 701.15 tok/s | 701.5126 tok/s |
 | Retained v1 + ceil128 cumulative change | - | -452.9 ms (-14.27%) | +16.65% | +16.65% |
+| K512 edge change vs retained v1 | - | -272.17 ms (-10.00%) | +11.12% | +11.12% |
 
-The retained v1 plus ceil128 candidate therefore passes the experiment gate
-against the incumbent, but remains 2.83x below 2,000 prompt token/s.  The
-ceil128 route change is itself +2.28% over the first K512 result.  No synthetic
-timing is used in this decision.  The fragment-native v2 route later reached
-the complete real-model OpenAI path, but its first external EvalScope result
-was negative.  It is therefore **rejected** and is not enabled in the
-production default.
+The K512 edge is 2.54x below 2,000 prompt token/s, so it does not end the
+Prefill program.  No synthetic timing is used in this decision.  The
+fragment-native v2 route and its later local cells remain rejected; the edge
+uses the faster canonical v1 publication and unchanged v1 Down consumer.
 
 ## Real publication and production-shaped route
 
@@ -647,6 +648,82 @@ kernel CSV SHA256      dfee6b3c6579226091c6c52b2471e593c069fc71a533fbabadf912063
 profile log SHA256     6c2cd2c910b77d95479cf5adb24189a679b15a2e0e34c6f27c2efecf9ea5a801
 ```
 
+## Retained producer-owned GateUp-to-Down K512 edge
+
+The next candidate changes the boundary instead of scanning another Gate
+tile.  One M64N128, 512-thread CTA uses a 4-by-4 warp grid of paired M16N32
+Gate/Up tiles.  Four adjacent N128 cells are completed by one CTA and become
+one Down K512 activation group.  The candidate first rounds
+`SiLU(Gate) * Up` to the exact production BF16 seam, decodes those BF16 bits,
+and then reproduces the existing max/clip/scale/round/pack order.  It writes
+the existing compact A4 codes and K512 scales directly, so the full BF16
+product write/read and the independent split quantizer disappear.  The v1
+Down kernel and all authenticated real-model weights are unchanged.
+
+Complete M64-by-K512 edge cells are the scheduling unit.  Full 16-CTA M waves
+retain synchronized B traversal; residual cells are distributed N-major over
+all 16 CTAs.  Short prompts select the CTA count from total edge-cell work,
+not only M tiles, so P512 also occupies all 16 SMs.  This removes the P2148
+fixed-owner tail that invalidated the staged fragment-native candidate.
+
+Admission passed before timing:
+
+```text
+registers/thread       125
+dynamic shared         148,736 bytes
+active CTA/SM          1
+stack/local/spill      0 / 0 / 0
+packed codes           bit exact vs v1 macrocell + split quantizer
+K512 scales            bit exact vs v1 macrocell + split quantizer
+Down BF16 output       bit exact through unchanged v1 Down
+```
+
+The authoritative first verdict used the real checkpoint, authenticated K128
+and v1 K512 sidecars, OpenAI `/v1/completions`, and external EvalScope 1.9.1.
+The fixed natural P2K corpus completed four of four measured requests:
+
+```text
+test duration          9.7948 s
+average input          1924.75 tokens
+mean TTFT              2448.34 ms
+prompt throughput      786.03 token/s
+total throughput       786.4375 token/s
+vs production v1      +11.115% throughput, -272.17 ms TTFT
+distance to 2K         2.544x
+```
+
+Every real request improved.  The warm-up P1804 request saved 179.39 ms; the
+measured P1853, P1792, P2148, and P1906 requests saved 183.02, 198.31,
+509.54, and 189.97 ms respectively.  The much larger P2148 result is the
+expected residual-wave repair rather than an aligned-tile anomaly.
+
+The request-scoped P1853 NSys capture confirms that the retired stages are
+absent and that the gain stays in the projection path:
+
+| Kernel family | Production v1 | K512 edge | Change |
+|---|---:|---:|---:|
+| GateUp plus product quantization | 956.087 ms / 192 calls | 773.870 ms / 64 calls | -182.217 ms (-19.06%) |
+| Down K512 | 523.248 ms / 64 calls | 513.577 ms / 64 calls | -9.671 ms (-1.85%) |
+| Attention pair | 336.135 ms | 336.301 ms | +0.166 ms |
+| Attention-O | 165.631 ms | 165.631 ms | 0.000 ms |
+| Full-Attention Q/K/V | 98.187 ms | 98.303 ms | +0.116 ms |
+| All GPU kernels | 2603.405 ms | 2392.549 ms | -210.856 ms (-8.10%) |
+
+The old 128-call GateUp family and 64-call split quantizer are replaced by one
+64-call edge family.  The retained input K512 quantizer remains at 64 calls,
+and no Attention family moves materially.  Profiler-perturbed EvalScope
+throughput is not used as a performance decision.
+
+```text
+server ELF SHA256      6ceba4fa140f21c32169801a55adb622860e1772dd5f1516562ee79fa55cf43d
+summary SHA256         37c091aee533dd8e74be932cc067bbd8a593fa0ab89960c733c5d6386f91db68
+provenance SHA256      a4b8ddbbf82e2062ea21df7f2c559a543dfa1dd05675e59cef077a5c3ac761a8
+server log SHA256      6469c4e6230402dd3480c38d48034e82b458932259bfa02d5143678fcd1f0319
+NSys report SHA256     8b72bb7412090fece5bfe6128a5d21b67249729f485be67c2c21554a4490a885
+SQLite SHA256          0ede8ee3e5d9593cdf2adce63fd57a628efa03d7982b7723816f94491a3ef516
+kernel CSV SHA256      7907dde6f7c37eec4ab9fa9edea0af748d03fcd43db01ce4348f29db010dc627
+```
+
 Evidence directories:
 
 - comparator: `/home/rm01/q3x-k512-evalscope-p2048-baseline-4a90d1f`;
@@ -689,5 +766,11 @@ Evidence directories:
   `/home/rm01/q3x-mlp-k512-fragment-native-m128n64-staged-nsys-p2048`;
 - fragment-native M128N64 staged request trace:
   `/home/rm01/q3x-mlp-k512-fragment-native-m128n64-staged-request2.nsys-rep`;
+- retained producer-owned K512 edge run:
+  `/home/rm01/q3x-mlp-k512-edge-evalscope-p2048`;
+- profiled producer-owned K512 edge run:
+  `/home/rm01/q3x-mlp-k512-edge-nsys-p2048`;
+- producer-owned K512 edge request trace:
+  `/home/rm01/q3x-mlp-k512-edge-request2.nsys-rep`;
 - fragment-native v2 publication:
   `/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4-q3x-mlp-k512-fragment-native/weights-mlp-k512-fragment-native.bin`.

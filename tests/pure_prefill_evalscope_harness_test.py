@@ -17,6 +17,10 @@ import unittest
 REPOSITORY = pathlib.Path(__file__).resolve().parents[1]
 RUNNER = REPOSITORY / "tools/evaluation/run_native_pure_prefill_matrix.sh"
 FRAGMENT_NATIVE_PAYLOAD_BYTES = 8_623_226_880
+MLP_K512_EDGE_MODE = "cumulative-prefill-current-best-mlp-k512-edge"
+MLP_K512_EDGE_MARKER = (
+    "prefill_projection_span_mlp_k512_gateup_down_edge"
+)
 FRAGMENT_NATIVE_M64N128_1CTA_MODE = (
     "cumulative-prefill-current-best-mlp-k512-fragment-native-"
     "m64n128-1cta"
@@ -56,6 +60,9 @@ class Fixture:
         self.k512_payload = root / "attention-o-k512.bin"
         self.k512_policy = root / "attention-o-k512-policy.json"
         self.k512_receipt = root / "attention-o-k512.bin.receipt.json"
+        self.mlp_k512_payload = root / "mlp-k512.bin"
+        self.mlp_k512_policy = root / "mlp-k512-policy.json"
+        self.mlp_k512_receipt = root / "mlp-k512.bin.receipt.json"
         self.fragment_native_payload = root / "mlp-k512-fragment-native.bin"
         self.fragment_native_policy = (
             root / "mlp-k512-fragment-native-policy.json"
@@ -79,6 +86,9 @@ class Fixture:
             "# Q3X_RUN_A4W4_ATTENTION_SUPERMATRIX_ADMISSION\n"
             "# Q3X_RUN_FULL_ATTENTION_PREPROCESS_PROMPT_WIDE_128_ADMISSION\n"
             "# Q3X_RUN_A4W4_ATTENTION_O_K512_ADMISSION\n"
+            "# Q3X_RUN_A4W4_MLP_K512_ADMISSION\n"
+            "# Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_ADMISSION\n"
+            f"{MLP_K512_EDGE_MARKER}\n"
             "# Q3X_RUN_SHORT_PREFILL_LAYER_MAJOR_ADMISSION\n"
             "exit 0\n",
             encoding="utf-8",
@@ -90,6 +100,11 @@ class Fixture:
         self.k512_payload.write_bytes(b"host-only K512 payload fixture\n")
         self.k512_policy.write_text("{}\n", encoding="utf-8")
         self.k512_receipt.write_text("{}\n", encoding="utf-8")
+        self.mlp_k512_payload.write_bytes(
+            b"host-only MLP K512 payload fixture\n"
+        )
+        self.mlp_k512_policy.write_text("{}\n", encoding="utf-8")
+        self.mlp_k512_receipt.write_text("{}\n", encoding="utf-8")
         with self.fragment_native_payload.open("wb") as stream:
             stream.truncate(FRAGMENT_NATIVE_PAYLOAD_BYTES)
         self.fragment_native_policy.write_text("{}\n", encoding="utf-8")
@@ -172,6 +187,10 @@ class Fixture:
             "Q3X_RUN_FULL_ATTENTION_PREPROCESS_PROMPT_WIDE_128_ADMISSION"
         ] = "1"
         environment["Q3X_RUN_A4W4_ATTENTION_O_K512_ADMISSION"] = "1"
+        environment["Q3X_RUN_A4W4_MLP_K512_ADMISSION"] = "1"
+        environment[
+            "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_ADMISSION"
+        ] = "1"
         environment["Q3X_GDN_CHUNK64_PROFILE_CANDIDATE"] = "1"
         environment["PATH"] = (
             f"{self.fake_bin}{os.pathsep}{environment['PATH']}"
@@ -194,6 +213,21 @@ class Fixture:
             str(self.k512_receipt),
             "--mode",
             "cumulative-prefill-current-best-k512",
+            *extra,
+        )
+
+    def run_mlp_k512_edge(
+        self, *extra: str
+    ) -> subprocess.CompletedProcess[str]:
+        return self.run(
+            "--prefill-mlp-k512-payload",
+            str(self.mlp_k512_payload),
+            "--prefill-mlp-k512-policy",
+            str(self.mlp_k512_policy),
+            "--prefill-mlp-k512-receipt",
+            str(self.mlp_k512_receipt),
+            "--mode",
+            MLP_K512_EDGE_MODE,
             *extra,
         )
 
@@ -618,6 +652,71 @@ class PurePrefillEvalScopeHarnessTest(unittest.TestCase):
             "prefill_attention_o_k512_payload_sha256=[0-9a-f]{64}",
             contents,
         )
+
+    def test_mlp_k512_edge_mode_uses_v1_payload_and_exact_stage_bundle(
+        self,
+    ) -> None:
+        result = self.fixture.run_mlp_k512_edge()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f"mode={MLP_K512_EDGE_MODE} dry_run=1", result.stdout)
+        self.assertIn("selector_count=8", result.stdout)
+        startup = next(
+            line
+            for line in result.stdout.splitlines()
+            if line.startswith("server_startup_command")
+        )
+        self.assertEqual(
+            set(re.findall(r"(Q3X_[A-Z0-9_]+)=1", startup)),
+            {
+                "Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION",
+                "Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION",
+                "Q3X_RUN_BF16_AB_LARGE_M_PREFILL_ADMISSION",
+                "Q3X_FULL_ATTENTION_FLASHINFER_DIRECT",
+                "Q3X_RUN_A4W4_ATTENTION_SUPERMATRIX_ADMISSION",
+                "Q3X_RUN_FULL_ATTENTION_PREPROCESS_PROMPT_WIDE_128_ADMISSION",
+                "Q3X_RUN_A4W4_MLP_K512_ADMISSION",
+                "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_ADMISSION",
+            },
+        )
+        self.assertIn("--prefill-mlp-k512-payload", startup)
+        self.assertIn(str(self.fixture.mlp_k512_payload), startup)
+        self.assertIn("--prefill-mlp-k512-policy", startup)
+        self.assertIn(str(self.fixture.mlp_k512_policy), startup)
+        self.assertIn("--prefill-mlp-k512-receipt", startup)
+        self.assertIn(str(self.fixture.mlp_k512_receipt), startup)
+        stage_contract = next(
+            line
+            for line in result.stdout.splitlines()
+            if line.startswith("stage_contract")
+        )
+        self.assertIn(f"required={MLP_K512_EDGE_MARKER}", stage_contract)
+        for excluded in (
+            "prefill_projection_span_mlp_k512_gate_up_primary",
+            "prefill_projection_span_mlp_k512_gate_up_secondary",
+            "prefill_projection_span_mlp_k512_product_quantize",
+        ):
+            self.assertIn(excluded, stage_contract)
+        self.assertIn(
+            "prefill_mlp_k512_authenticated_192_of_192", result.stdout
+        )
+        self.assertIn("old_gateup_split_stages_excluded", result.stdout)
+        self.assertIn("performance_evidence=0", result.stdout)
+        self.assertFalse(self.fixture.output.exists())
+
+    def test_mlp_k512_edge_mode_requires_compiled_stage_marker(self) -> None:
+        contents = self.fixture.server.read_text(encoding="utf-8")
+        self.fixture.server.write_text(
+            contents.replace(f"{MLP_K512_EDGE_MARKER}\n", ""),
+            encoding="utf-8",
+        )
+        result = self.fixture.run_mlp_k512_edge()
+        self.assertEqual(result.returncode, 2)
+        self.assertIn(
+            "server does not prove the Gate+Up-to-Down K512 edge stage: "
+            f"{MLP_K512_EDGE_MARKER}",
+            result.stderr,
+        )
+        self.assertFalse(self.fixture.output.exists())
 
     def test_fragment_native_m64n128_1cta_mode_uses_authenticated_real_route(
         self,
