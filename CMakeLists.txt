@@ -94,6 +94,10 @@ option(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M128N64_EXPERIMENT
   "Build the default-off producer-owned M128N64 Gate+Up K512 edge candidate"
   OFF
 )
+option(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M32N128_PAIR_EXPERIMENT
+  "Build the default-off cooperative M32N128 Gate/Up v1 direct-B edge candidate"
+  OFF
+)
 option(Q3X_BUILD_SM87_A4W4_DOWN_K512_M16N64_V2_EXPERIMENT
   "Build the default-off 512-thread M16N64 Down K512 candidate"
   OFF
@@ -298,6 +302,13 @@ if(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M128N64_EXPERIMENT AND
    (NOT BUILD_TESTING OR NOT Q3X_BUILD_SM87_A4W4_MLP_K512_ADMISSION))
   message(FATAL_ERROR
     "The M128N64 Gate+Up K512 edge experiment requires BUILD_TESTING=ON and the authenticated MLP K512 route"
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M32N128_PAIR_EXPERIMENT AND
+   (NOT BUILD_TESTING OR NOT Q3X_BUILD_SM87_A4W4_MLP_K512_ADMISSION OR
+    NOT Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION))
+  message(FATAL_ERROR
+    "The cooperative M32N128 Gate/Up edge experiment requires BUILD_TESTING=ON and the authenticated full-A4 K512 MLP route"
   )
 endif()
 if(Q3X_BUILD_SM87_A4W4_DOWN_K512_M16N64_V2_EXPERIMENT AND
@@ -627,6 +638,18 @@ if(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M128N64_EXPERIMENT)
   )
   target_compile_definitions(q3x_kernels PRIVATE
     Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M128N64_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M32N128_PAIR_EXPERIMENT)
+  target_sources(q3x_kernels PRIVATE
+    src/kernels/sm87/a4w4_gateup_down_k512_edge_m32n128_pair.cu
+  )
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M32N128_PAIR_ADMISSION=1
+  )
+  set_source_files_properties(
+    src/kernels/sm87/a4w4_gateup_down_k512_edge_m32n128_pair.cu
+    PROPERTIES COMPILE_OPTIONS "--maxrregcount=128;-Xptxas=-warn-spills"
   )
 endif()
 if(Q3X_BUILD_SM87_A4W4_DOWN_K512_M16N64_V2_EXPERIMENT)
