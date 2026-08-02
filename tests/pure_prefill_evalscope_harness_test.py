@@ -270,8 +270,13 @@ class Fixture:
         prefill_payload: pathlib.Path | None = None,
         prefill_policy: pathlib.Path | None = None,
         prefill_receipt: pathlib.Path | None = None,
+        eval_number: str | None = None,
     ) -> subprocess.CompletedProcess[str]:
         environment = os.environ.copy()
+        if eval_number is None:
+            environment.pop("Q3X_EVAL_NUMBER", None)
+        else:
+            environment["Q3X_EVAL_NUMBER"] = eval_number
         environment["Q3X_RUN_PREFILL_ALL_PROMPT_TOKENS_ADMISSION"] = "1"
         environment["Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION"] = "1"
         environment["Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION"] = "1"
@@ -515,6 +520,57 @@ class PurePrefillEvalScopeHarnessTest(unittest.TestCase):
         )
         self.assertIn("performance_evidence=0", result.stdout)
         self.assertFalse(self.fixture.output.exists())
+
+    def test_eval_number_defaults_to_four(self) -> None:
+        result = self.fixture.run()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("eval_number=4", result.stdout)
+        self.assertIn(
+            "evalscope_request_plan measured=4 warmup=1 "
+            "result_leaf=parallel_1_number_4",
+            result.stdout,
+        )
+
+    def test_eval_number_one_is_accepted_for_direction_gate(self) -> None:
+        result = self.fixture.run(eval_number="1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("eval_number=1", result.stdout)
+        self.assertIn(
+            "evalscope_request_plan measured=1 warmup=1 "
+            "result_leaf=parallel_1_number_1",
+            result.stdout,
+        )
+
+    def test_eval_number_rejects_every_value_except_one_or_four(self) -> None:
+        for value in ("", "0", "2", "04", "four"):
+            with self.subTest(value=value):
+                result = self.fixture.run(eval_number=value)
+                self.assertEqual(result.returncode, 2)
+                self.assertIn(
+                    "Q3X_EVAL_NUMBER must be exactly 1 or 4",
+                    result.stderr,
+                )
+                self.assertFalse(self.fixture.output.exists())
+
+    def test_evalscope_command_remains_external_openai_api(self) -> None:
+        contents = RUNNER.read_text(encoding="utf-8")
+        self.assertIn(
+            "uvx --from 'evalscope[perf]==1.9.1' evalscope perf",
+            contents,
+        )
+        self.assertIn("--model qwen3.6-27b-nvfp4 --api openai", contents)
+        self.assertIn('/v1/completions"', contents)
+        self.assertIn('--number "${eval_number}" --parallel 1', contents)
+        self.assertIn("--warmup-num 1 --num-workers 1", contents)
+        self.assertIn(
+            'result_leaf="${run_dir}/${result_name}/'
+            'parallel_1_number_${eval_number}"',
+            contents,
+        )
+        self.assertIn(
+            "printf 'evalscope_measured_requests=%s\\n'",
+            contents,
+        )
 
     def test_readiness_contract_allows_diagnostic_fields(self) -> None:
         contents = RUNNER.read_text(encoding="utf-8")
@@ -1199,7 +1255,11 @@ class PurePrefillEvalScopeHarnessTest(unittest.TestCase):
         self.assertIn('summary.get("Success Requests")', contents)
         self.assertIn('summary.get("Failed Requests")', contents)
         self.assertIn(
-            "if total != 4 or success != 4 or failed != 0:", contents
+            "expected = int(sys.argv[2])", contents
+        )
+        self.assertIn(
+            "if total != expected or success != expected or failed != 0:",
+            contents,
         )
 
     def test_fragment_native_m64n128_1cta_mode_uses_authenticated_real_route(

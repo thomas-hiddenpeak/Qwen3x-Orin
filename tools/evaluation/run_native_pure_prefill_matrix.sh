@@ -26,6 +26,7 @@ mode_seen=0
 dry_run=${Q3X_PURE_PREFILL_DRY_RUN:-0}
 profile_request_index=${Q3X_EVAL_PROFILE_REQUEST_INDEX:-0}
 nsys_output=${Q3X_EVAL_NSYS_OUTPUT:-}
+eval_number=${Q3X_EVAL_NUMBER-4}
 prefill_a4_payload=
 prefill_a4_policy=
 prefill_a4_receipt=
@@ -149,6 +150,13 @@ esac
   echo "Q3X_PURE_PREFILL_DRY_RUN must be 0 or 1" >&2
   exit 2
 }
+case "${eval_number}" in
+  1|4) ;;
+  *)
+    echo "Q3X_EVAL_NUMBER must be exactly 1 or 4" >&2
+    exit 2
+    ;;
+esac
 [[ "${profile_request_index}" =~ ^[0-9]+$ ]] || {
   echo "Q3X_EVAL_PROFILE_REQUEST_INDEX must be a non-negative integer" >&2
   exit 2
@@ -922,8 +930,11 @@ if [[ -n "${nsys_output}" ]]; then
   server_args+=(--profile-request-index "${profile_request_index}")
 fi
 
-printf 'pure_prefill_matrix mode=%s dry_run=%s sanitized_experiment_env=%s selector_count=%s\n' \
-  "${mode}" "${dry_run}" "${sanitized}" "${#candidate_selectors[@]}"
+printf 'pure_prefill_matrix mode=%s dry_run=%s sanitized_experiment_env=%s selector_count=%s eval_number=%s\n' \
+  "${mode}" "${dry_run}" "${sanitized}" "${#candidate_selectors[@]}" \
+  "${eval_number}"
+printf 'evalscope_request_plan measured=%s warmup=1 result_leaf=parallel_1_number_%s\n' \
+  "${eval_number}" "${eval_number}"
 server_elf_sha256=$(sha256sum "${server}" | awk '{print $1}')
 printf 'server_metadata elf_sha256=%s evalscope_version=1.9.1\n' \
   "${server_elf_sha256}"
@@ -1014,6 +1025,9 @@ mkdir -p "${output_root}"
   printf 'mode=%s\n' "${mode}"
   printf 'server_elf_sha256=%s\n' "${server_elf_sha256}"
   printf 'evalscope_version=1.9.1\n'
+  printf 'evalscope_measured_requests=%s\n' "${eval_number}"
+  printf 'evalscope_warmup_requests=1\n'
+  printf 'evalscope_result_leaf=parallel_1_number_%s\n' "${eval_number}"
   printf 'profile_request_index=%s\n' "${profile_request_index}"
   printf 'nsys_output=%s\n' "${nsys_output}"
   printf 'selectors='
@@ -1239,6 +1253,8 @@ printf '\n'
 for bucket in "${buckets[@]}"; do
   corpus="${corpus_dir}/q3x-sharegpt-prefill-${bucket}-5.jsonl"
   run_dir="${output_root}/${bucket}"
+  result_name="pure-prefill-${bucket}-${mode}"
+  result_leaf="${run_dir}/${result_name}/parallel_1_number_${eval_number}"
   mkdir -p "${run_dir}"
   uvx --from 'evalscope[perf]==1.9.1' evalscope perf \
     --model qwen3.6-27b-nvfp4 --api openai \
@@ -1246,36 +1262,43 @@ for bucket in "${buckets[@]}"; do
     --tokenizer-path "${model_dir}" \
     --dataset line_by_line --data-source local \
     --dataset-path "${corpus}" \
-    --number 4 --parallel 1 --warmup-num 1 --num-workers 1 \
+    --number "${eval_number}" --parallel 1 --warmup-num 1 --num-workers 1 \
     --max-tokens 1 --temperature 0 --seed 42 \
     --stream --tokenize-prompt --no-test-connection \
-    --outputs-dir "${run_dir}" --name "pure-prefill-${bucket}-${mode}" \
+    --outputs-dir "${run_dir}" --name "${result_name}" \
     --no-timestamp >"${run_dir}/evalscope.stdout" 2>&1
   mapfile -t summary_files < <(
     find "${run_dir}" -name benchmark_summary.json -type f -print
   )
-  [[ ${#summary_files[@]} == 1 ]] || {
-    echo "expected exactly one EvalScope benchmark_summary.json under ${run_dir}" >&2
+  expected_summary="${result_leaf}/benchmark_summary.json"
+  [[ ${#summary_files[@]} == 1 &&
+     "${summary_files[0]}" == "${expected_summary}" ]] || {
+    echo "expected exactly the EvalScope result leaf ${expected_summary}" >&2
+    if ((${#summary_files[@]} > 0)); then
+      printf 'found EvalScope summary: %s\n' "${summary_files[@]}" >&2
+    fi
     exit 6
   }
-  summary_file=${summary_files[0]}
-  python3 - "${summary_file}" <<'PY'
+  summary_file=${expected_summary}
+  python3 - "${summary_file}" "${eval_number}" <<'PY'
 import json
 import sys
 
 with open(sys.argv[1], encoding="utf-8") as stream:
     summary = json.load(stream)
+expected = int(sys.argv[2])
 total = summary.get("Total Requests")
 success = summary.get("Success Requests")
 failed = summary.get("Failed Requests")
-if total != 4 or success != 4 or failed != 0:
+if total != expected or success != expected or failed != 0:
     raise SystemExit(
-        f"EvalScope request contract failed: total={total} "
+        f"EvalScope request contract failed: expected={expected} total={total} "
         f"success={success} failed={failed}"
     )
 PY
-  printf 'evalscope_request_contract bucket=%s total=4 success=4 failed=0 summary=%q\n' \
-    "${bucket}" "${summary_file}"
+  printf 'evalscope_request_contract bucket=%s total=%s success=%s failed=0 result_leaf=%q summary=%q\n' \
+    "${bucket}" "${eval_number}" "${eval_number}" "${result_leaf}" \
+    "${summary_file}"
   printf '%s\n' "${summary_file}"
   sed -n '1,220p' "${summary_file}"
 done
