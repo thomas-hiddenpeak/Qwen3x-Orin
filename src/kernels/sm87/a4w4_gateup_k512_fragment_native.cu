@@ -1,4 +1,5 @@
 #include "q3x/kernels/sm87_a4w4_gateup_k512_fragment_native.h"
+#include "q3x/kernels/sm87_a4w4_gateup_k512_fragment_native_m64n128_1cta.h"
 
 #include "q3x/kernels/sm87_a4w4_prefill_primitive.h"
 
@@ -151,6 +152,10 @@ __device__ __forceinline__ void issue_a_k128(
       kPackedK64Bytes / 16U;
   static_assert(2U * kVectorsPerPlane ==
                 kSm87A4W4GateUpK512FragmentNativeThreads);
+  if (threadIdx.x >=
+      kSm87A4W4GateUpK512FragmentNativeThreads) {
+    return;
+  }
   const unsigned int vector = threadIdx.x;
   const unsigned int plane = vector / kVectorsPerPlane;
   const unsigned int vector_in_plane =
@@ -487,6 +492,134 @@ void q3x_sm87_a4w4_gateup_k512_fragment_native_kernel(
   }
 }
 
+extern "C" __global__
+    __launch_bounds__(
+        kSm87A4W4GateUpK512FragmentNativeM64N1281CtaThreads,
+        kSm87A4W4GateUpK512FragmentNativeM64N1281CtaCtasPerSm)
+void q3x_sm87_a4w4_gateup_k512_fragment_native_m64n128_1cta_kernel(
+    const std::uint8_t* const packed_a,
+    const std::uint16_t* const a_k512_scales_bf16,
+    const std::uint8_t* const paired_b_codes,
+    const std::uint16_t* const paired_b_scales_bf16,
+    const unsigned int k512_group_count,
+    const unsigned int physical_k64_group_count,
+    const unsigned int absolute_n_start,
+    const unsigned int n_tile_count,
+    std::uint16_t* const output_bf16,
+    const unsigned int output_row_stride_elements,
+    const unsigned int m_tile_count) {
+  extern __shared__ __align__(16) unsigned char dynamic_shared[];
+  auto& shared =
+      *reinterpret_cast<FragmentNativeShared*>(dynamic_shared);
+  const unsigned int warp = threadIdx.x >> 5U;
+  const unsigned int lane = threadIdx.x & 31U;
+  const unsigned int total_k128_groups = 4U * k512_group_count;
+  const unsigned int work_cell_count = m_tile_count * n_tile_count;
+
+  // A cell is M64 x N128.  Sixteen persistent CTAs stride the linear cell
+  // space so natural prompt tails cannot collapse to a two-SM final phase.
+  // Each of the sixteen warps consumes one paired M64 x N8 fragment and
+  // therefore keeps Gate and Up in the same registers through SwiGLU.
+  for (unsigned int cell = blockIdx.x; cell < work_cell_count;
+       cell += gridDim.x) {
+    const unsigned int n_tile = cell / m_tile_count;
+    const unsigned int m_tile = cell - n_tile * m_tile_count;
+    const unsigned int absolute_n_tile_start =
+        absolute_n_start +
+        n_tile *
+            kSm87A4W4GateUpK512FragmentNativeM64N1281CtaTileN;
+    const unsigned int output_n_tile_start =
+        n_tile *
+        kSm87A4W4GateUpK512FragmentNativeM64N1281CtaTileN;
+    const unsigned int m_tile_start =
+        m_tile *
+        kSm87A4W4GateUpK512FragmentNativeM64N1281CtaTileM;
+    Float4 gate_accumulator[4U]{};
+    Float4 up_accumulator[4U]{};
+    Sm87A4W4Accumulator gate_partial[4U]{};
+    Sm87A4W4Accumulator up_partial[4U]{};
+
+    const unsigned int initial_stages =
+        total_k128_groups <
+                kSm87A4W4GateUpK512FragmentNativeAStages
+            ? total_k128_groups
+            : kSm87A4W4GateUpK512FragmentNativeAStages;
+    for (unsigned int stage = 0U; stage < initial_stages; ++stage) {
+      issue_a_k128(shared.stage[stage], packed_a, m_tile_start,
+                   stage, physical_k64_group_count);
+      cp_async_commit();
+    }
+    if (initial_stages == 3U) {
+      cp_async_wait<2U>();
+    } else if (initial_stages == 2U) {
+      cp_async_wait<1U>();
+    } else {
+      cp_async_wait<0U>();
+    }
+    __syncthreads();
+
+    for (unsigned int physical_k128 = 0U;
+         physical_k128 < total_k128_groups; ++physical_k128) {
+      const unsigned int ring =
+          physical_k128 %
+          kSm87A4W4GateUpK512FragmentNativeAStages;
+      const unsigned int group = physical_k128 / 4U;
+      const unsigned int first_k64_phase =
+          2U * (physical_k128 & 3U);
+#pragma unroll
+      for (unsigned int plane = 0U; plane < 2U; ++plane) {
+        const std::size_t slot_offset =
+            sm87_a4w4_gateup_k512_fragment_native_code_slot_offset(
+                absolute_n_tile_start + warp * 8U, group,
+                first_k64_phase + plane, lane,
+                k512_group_count);
+        const PairedBFragment b = load_paired_b_fragment_cg(
+            paired_b_codes + slot_offset);
+        accumulate_k64(shared.stage[ring], plane, b,
+                       gate_partial, up_partial);
+      }
+
+      if ((physical_k128 & 3U) == 3U) {
+        apply_k512_group(
+            gate_accumulator, up_accumulator, gate_partial,
+            up_partial, a_k512_scales_bf16,
+            paired_b_scales_bf16, m_tile_start,
+            absolute_n_tile_start, group, k512_group_count);
+        if (group + 1U < k512_group_count) {
+          clear_partials(gate_partial, up_partial);
+        }
+      }
+
+      __syncthreads();
+      const unsigned int next_k128 =
+          physical_k128 +
+          kSm87A4W4GateUpK512FragmentNativeAStages;
+      if (next_k128 < total_k128_groups) {
+        issue_a_k128(shared.stage[ring], packed_a, m_tile_start,
+                     next_k128, physical_k64_group_count);
+        cp_async_commit();
+      }
+      const unsigned int future =
+          total_k128_groups - physical_k128 - 1U;
+      if (future >= 3U) {
+        cp_async_wait<2U>();
+      } else if (future == 2U) {
+        cp_async_wait<1U>();
+      } else if (future == 1U) {
+        cp_async_wait<0U>();
+      }
+      if (future != 0U) {
+        __syncthreads();
+      }
+    }
+
+    store_product(gate_accumulator, up_accumulator, m_tile_start,
+                  output_n_tile_start, output_bf16,
+                  output_row_stride_elements);
+    __syncthreads();
+  }
+}
+
 namespace {
 
 [[nodiscard]] int validate_sm87(
@@ -531,14 +664,23 @@ namespace {
     const std::size_t output_capacity_elements,
     const unsigned int maximum_launch_ctas,
     const bool model_only,
+    const bool m64n128_1cta,
     void* const cuda_stream) noexcept {
   const Sm87A4W4GateUpK512FragmentNativePlan plan =
-      sm87_a4w4_gateup_k512_fragment_native_plan(
-          token_count, intermediate_size, input_size, n_start,
-          n_count);
+      m64n128_1cta
+          ? sm87_a4w4_gateup_k512_fragment_native_m64n128_1cta_plan(
+                token_count, intermediate_size, input_size, n_start,
+                n_count)
+          : sm87_a4w4_gateup_k512_fragment_native_plan(
+                token_count, intermediate_size, input_size, n_start,
+                n_count);
   if (plan.launch_ctas == 0U || maximum_launch_ctas == 0U ||
       (model_only &&
-       !sm87_a4w4_gateup_k512_fragment_native_is_model_plan(plan))) {
+       !(m64n128_1cta
+             ? sm87_a4w4_gateup_k512_fragment_native_m64n128_1cta_is_model_plan(
+                   plan)
+             : sm87_a4w4_gateup_k512_fragment_native_is_model_plan(
+                   plan)))) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
   if (!aligned(packed_a, 16U) || !aligned(a_k512_scales_bf16, 2U) ||
@@ -588,19 +730,35 @@ namespace {
   }
   const cudaStream_t stream =
       reinterpret_cast<cudaStream_t>(cuda_stream);
-  q3x_sm87_a4w4_gateup_k512_fragment_native_kernel
-      <<<launch_ctas,
-         kSm87A4W4GateUpK512FragmentNativeThreads,
-         kSm87A4W4GateUpK512FragmentNativeSharedBytes,
-         stream>>>(
-          packed_a, a_k512_scales_bf16, paired_b_codes,
-          paired_b_scales_bf16,
-          static_cast<unsigned int>(plan.k512_groups),
-          static_cast<unsigned int>(plan.physical_k64_groups),
-          static_cast<unsigned int>(plan.n_start),
-          static_cast<unsigned int>(plan.n_tiles), output_bf16,
-          static_cast<unsigned int>(output_row_stride_elements),
-          static_cast<unsigned int>(plan.m_tiles));
+  if (m64n128_1cta) {
+    q3x_sm87_a4w4_gateup_k512_fragment_native_m64n128_1cta_kernel
+        <<<launch_ctas,
+           kSm87A4W4GateUpK512FragmentNativeM64N1281CtaThreads,
+           kSm87A4W4GateUpK512FragmentNativeM64N1281CtaSharedBytes,
+           stream>>>(
+            packed_a, a_k512_scales_bf16, paired_b_codes,
+            paired_b_scales_bf16,
+            static_cast<unsigned int>(plan.k512_groups),
+            static_cast<unsigned int>(plan.physical_k64_groups),
+            static_cast<unsigned int>(plan.n_start),
+            static_cast<unsigned int>(plan.n_tiles), output_bf16,
+            static_cast<unsigned int>(output_row_stride_elements),
+            static_cast<unsigned int>(plan.m_tiles));
+  } else {
+    q3x_sm87_a4w4_gateup_k512_fragment_native_kernel
+        <<<launch_ctas,
+           kSm87A4W4GateUpK512FragmentNativeThreads,
+           kSm87A4W4GateUpK512FragmentNativeSharedBytes,
+           stream>>>(
+            packed_a, a_k512_scales_bf16, paired_b_codes,
+            paired_b_scales_bf16,
+            static_cast<unsigned int>(plan.k512_groups),
+            static_cast<unsigned int>(plan.physical_k64_groups),
+            static_cast<unsigned int>(plan.n_start),
+            static_cast<unsigned int>(plan.n_tiles), output_bf16,
+            static_cast<unsigned int>(output_row_stride_elements),
+            static_cast<unsigned int>(plan.m_tiles));
+  }
   return static_cast<int>(cudaPeekAtLastError());
 }
 
@@ -689,7 +847,7 @@ int launch_sm87_a4w4_gateup_k512_fragment_native_bf16_cuda(
       output_row_stride_elements, output_capacity_elements,
       static_cast<unsigned int>(
           kSm87A4W4GateUpK512FragmentNativePersistentCtas),
-      true, cuda_stream);
+      true, false, cuda_stream);
 }
 
 int launch_sm87_a4w4_gateup_k512_fragment_native_test_bf16_cuda(
@@ -718,7 +876,125 @@ int launch_sm87_a4w4_gateup_k512_fragment_native_test_bf16_cuda(
       paired_b_scale_capacity, token_count, intermediate_size,
       input_size, n_start, n_count, output_bf16,
       output_row_stride_elements, output_capacity_elements,
-      maximum_launch_ctas, false, cuda_stream);
+      maximum_launch_ctas, false, false, cuda_stream);
+}
+
+int query_sm87_a4w4_gateup_k512_fragment_native_m64n128_1cta_resources_cuda(
+    Sm87A4W4GateUpK512FragmentNativeM64N1281CtaResources* const
+        resources) noexcept {
+  if (resources == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  *resources =
+      Sm87A4W4GateUpK512FragmentNativeM64N1281CtaResources{};
+  cudaDeviceProp properties{};
+  const int target_status = validate_sm87(&properties);
+  if (target_status != static_cast<int>(cudaSuccess)) {
+    return target_status;
+  }
+  cudaFuncAttributes attributes{};
+  cudaError_t status = cudaFuncGetAttributes(
+      &attributes,
+      q3x_sm87_a4w4_gateup_k512_fragment_native_m64n128_1cta_kernel);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  int active_blocks = 0;
+  status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+      &active_blocks,
+      q3x_sm87_a4w4_gateup_k512_fragment_native_m64n128_1cta_kernel,
+      static_cast<int>(
+          kSm87A4W4GateUpK512FragmentNativeM64N1281CtaThreads),
+      kSm87A4W4GateUpK512FragmentNativeM64N1281CtaSharedBytes);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  resources->registers_per_thread = attributes.numRegs;
+  resources->static_shared_bytes = attributes.sharedSizeBytes;
+  resources->dynamic_shared_bytes =
+      kSm87A4W4GateUpK512FragmentNativeM64N1281CtaSharedBytes;
+  resources->local_bytes = attributes.localSizeBytes;
+  resources->maximum_threads_per_block = attributes.maxThreadsPerBlock;
+  resources->active_blocks_per_sm = active_blocks;
+  resources->compute_major = properties.major;
+  resources->compute_minor = properties.minor;
+  if (resources->registers_per_thread <= 0 ||
+      resources->registers_per_thread >
+          static_cast<int>(
+              kSm87A4W4GateUpK512FragmentNativeM64N1281CtaMaximumRegisters) ||
+      resources->static_shared_bytes != 0U ||
+      attributes.maxDynamicSharedSizeBytes <
+          static_cast<int>(
+              kSm87A4W4GateUpK512FragmentNativeM64N1281CtaSharedBytes) ||
+      resources->local_bytes != 0U ||
+      resources->maximum_threads_per_block <
+          static_cast<int>(
+              kSm87A4W4GateUpK512FragmentNativeM64N1281CtaThreads) ||
+      resources->active_blocks_per_sm <
+          static_cast<int>(
+              kSm87A4W4GateUpK512FragmentNativeM64N1281CtaCtasPerSm)) {
+    return static_cast<int>(cudaErrorLaunchOutOfResources);
+  }
+  return static_cast<int>(cudaSuccess);
+}
+
+int launch_sm87_a4w4_gateup_k512_fragment_native_m64n128_1cta_bf16_cuda(
+    const std::uint8_t* const packed_a,
+    const std::size_t packed_a_capacity_bytes,
+    const std::uint16_t* const a_k512_scales_bf16,
+    const std::size_t a_scale_capacity,
+    const std::uint8_t* const paired_b_codes,
+    const std::size_t paired_b_code_capacity_bytes,
+    const std::uint16_t* const paired_b_scales_bf16,
+    const std::size_t paired_b_scale_capacity,
+    const std::size_t token_count,
+    const std::size_t intermediate_size,
+    const std::size_t input_size,
+    const std::size_t n_start,
+    const std::size_t n_count,
+    std::uint16_t* const output_bf16,
+    const std::size_t output_row_stride_elements,
+    const std::size_t output_capacity_elements,
+    void* const cuda_stream) noexcept {
+  return launch_impl(
+      packed_a, packed_a_capacity_bytes, a_k512_scales_bf16,
+      a_scale_capacity, paired_b_codes,
+      paired_b_code_capacity_bytes, paired_b_scales_bf16,
+      paired_b_scale_capacity, token_count, intermediate_size,
+      input_size, n_start, n_count, output_bf16,
+      output_row_stride_elements, output_capacity_elements,
+      static_cast<unsigned int>(
+          kSm87A4W4GateUpK512FragmentNativeM64N1281CtaPersistentCtas),
+      true, true, cuda_stream);
+}
+
+int launch_sm87_a4w4_gateup_k512_fragment_native_m64n128_1cta_test_bf16_cuda(
+    const std::uint8_t* const packed_a,
+    const std::size_t packed_a_capacity_bytes,
+    const std::uint16_t* const a_k512_scales_bf16,
+    const std::size_t a_scale_capacity,
+    const std::uint8_t* const paired_b_codes,
+    const std::size_t paired_b_code_capacity_bytes,
+    const std::uint16_t* const paired_b_scales_bf16,
+    const std::size_t paired_b_scale_capacity,
+    const std::size_t token_count,
+    const std::size_t intermediate_size,
+    const std::size_t input_size,
+    const std::size_t n_start,
+    const std::size_t n_count,
+    std::uint16_t* const output_bf16,
+    const std::size_t output_row_stride_elements,
+    const std::size_t output_capacity_elements,
+    const unsigned int maximum_launch_ctas,
+    void* const cuda_stream) noexcept {
+  return launch_impl(
+      packed_a, packed_a_capacity_bytes, a_k512_scales_bf16,
+      a_scale_capacity, paired_b_codes,
+      paired_b_code_capacity_bytes, paired_b_scales_bf16,
+      paired_b_scale_capacity, token_count, intermediate_size,
+      input_size, n_start, n_count, output_bf16,
+      output_row_stride_elements, output_capacity_elements,
+      maximum_launch_ctas, false, true, cuda_stream);
 }
 
 }  // namespace q3x::kernels

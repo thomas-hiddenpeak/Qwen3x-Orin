@@ -19,6 +19,7 @@ The external EvalScope/OpenAI result on the fixed natural P2K corpus is:
 | Fragment-native M128N32 L1 experiment | 4/4 | 3,527.4 ms | 545.60 tok/s | 545.8841 tok/s |
 | Fragment-native direct M128N64 one-CTA | 4/4 | 2,736.2 ms | 703.35 tok/s | 703.7168 tok/s |
 | Direct M128N64 + Down M128N256 one-CTA | 4/4 | 2,807.8 ms | 685.42 tok/s | 685.7787 tok/s |
+| Fragment-native M64N128 16-warp one-CTA | 4/4 | 3,236.2 ms | 594.69 tok/s | 594.9980 tok/s |
 | Retained v1 + ceil128 cumulative change | - | -452.9 ms (-14.27%) | +16.65% | +16.65% |
 
 The retained v1 plus ceil128 candidate therefore passes the experiment gate
@@ -492,6 +493,81 @@ kernel CSV SHA256      de30c91417f832a4c8906481124120fc2b7ae3ea7ad918777993e9b2c
 profile log SHA256     a597da35915677e6cc6f45f7f2178cb4fc71102adf964bd40f4204fc3217e1a1
 ```
 
+## Rejected fragment-native M64N128 16-warp one-CTA skeleton
+
+The first Gate+Up replacement after the Down stop was intentionally a whole
+execution skeleton rather than another tile-variable scan.  A 512-thread CTA
+owns M64N128.  Its 16 warps each retain the existing paired M64N8 Gate+Up
+fragment and exact same-warp SwiGLU, while only the first 256 threads issue the
+shared M64K128 `cp.async` ring.  Sixteen persistent CTAs stride a linear cell
+space, so the implementation consumes two adjacent authenticated v2 N64
+payload blocks without adding a weight format or workspace.
+
+Resource and correctness admission passed:
+
+```text
+registers/thread       120
+dynamic shared         12,288 bytes
+active CTA/SM          1
+local bytes            0
+correctness             BF16 bit exact at K512, K1024, persistent M1088,
+                        and model K5120
+```
+
+The authoritative first timing was the real checkpoint through the OpenAI
+API and external EvalScope 1.9.1.  Four of four measured natural P2K requests
+succeeded:
+
+```text
+test duration          12.9463 s
+average input          1924.75 tokens
+mean TTFT              3236.20 ms
+prompt throughput      594.6890 token/s
+total throughput       594.9980 token/s
+vs production v1      -15.9331% throughput, +515.70 ms TTFT
+P1853 prompt prefill    3223.74 ms vs 2584.91 ms (+638.83 ms)
+```
+
+This is a hard **REJECT**.  It missed the required 100-ms improvement by more
+than 600 ms in the opposite direction, so no parameter sweep follows and the
+production v1 route remains locked.
+
+A request-scoped NSys capture explains why reducing A presentation was the
+wrong structural objective:
+
+| Kernel family | Production v1 | M64N64 v2 | Direct M128N64 | M64N128 16-warp |
+|---|---:|---:|---:|---:|
+| Gate+Up | 888.941 ms | 1,278.063 ms | 969.944 ms | 1,472.018 ms |
+| Down | 523.248 ms | 540.490 ms | 543.331 ms | 541.856 ms |
+
+The new Gate kernel alone regressed 583.077 ms (+65.59%) against production
+and 193.955 ms (+15.18%) against the M64N64 direct-B consumer.  Down and the
+sequence path stayed approximately unchanged.  Therefore the end-to-end loss
+is localized to Gate+Up.  The comparison shows that 16 resident warps are not
+an adequate design target by themselves: collapsing two independently
+scheduled 256-thread CTAs into one 512-thread barrier domain removed CTA-level
+latency-hiding freedom, while the saved A traffic was too small to compensate.
+The next architecture must reduce the dominant B presentation, preserve exact
+SwiGLU, and account for independent producer/consumer progress; it must not
+repeat a wider one-CTA merge whose only structural saving is A.
+
+The real run also exposed a harness fail-fast gap: the first launch was given
+the base A4 policy instead of the K512 policy and the server discovered the
+schema mismatch only after model loading.  The harness now validates the v2
+receipt schema/layout/size plus its source-v1 policy SHA and payload SHA before
+starting the server.  This is an evaluation-infrastructure correction, not a
+performance result.
+
+```text
+server ELF SHA256      79c6de407d9de44b010e9196958f0f3ee55037b232d33fa7a9c4418d96d90be1
+server log SHA256      75734addac598ed946b85ddc192d297da804c34febbb7db8d44d392731783960
+summary SHA256         f1877016908b7b7f72f5167aee385b50ae39b21af32268740056247f17752fd6
+provenance SHA256      16fa10750cd05ac20d75b125345e21528522b3f60a1293c547566a726c71f331
+NSys report SHA256     b89903be3a57f034b8f750aaba93c066feb3b60d53c3b1a6ed26762bb0d4c5fc
+SQLite SHA256          8b693e0945baba84eef580c73ae610636b5dc6380d38cd3ab154def55022053a
+kernel CSV SHA256      d0b810d764897b37793895dc4f6e7ef6d0179bb437ce91c2bcf8a252c4b508e7
+```
+
 Evidence directories:
 
 - comparator: `/home/rm01/q3x-k512-evalscope-p2048-baseline-4a90d1f`;
@@ -522,5 +598,11 @@ Evidence directories:
   `/home/rm01/q3x-mlp-k512-fragment-native-m128n64-1cta-down-m128n256-1cta-nsys-p2048`;
 - fragment-native Down M128N256 request trace:
   `/home/rm01/q3x-mlp-k512-fragment-native-m128n64-1cta-down-m128n256-1cta-request2.nsys-rep`;
+- rejected fragment-native M64N128 16-warp run:
+  `/home/rm01/q3x-mlp-k512-fragment-native-m64n128-1cta-evalscope-p2048-v2`;
+- profiled fragment-native M64N128 EvalScope run:
+  `/home/rm01/q3x-mlp-k512-fragment-native-m64n128-1cta-nsys-p2048`;
+- fragment-native M64N128 request trace:
+  `/home/rm01/q3x-mlp-k512-fragment-native-m64n128-1cta-request2.nsys-rep`;
 - fragment-native v2 publication:
   `/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4-q3x-mlp-k512-fragment-native/weights-mlp-k512-fragment-native.bin`.

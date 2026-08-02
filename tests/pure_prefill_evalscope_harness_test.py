@@ -3,9 +3,12 @@
 
 from __future__ import annotations
 
+import json
 import os
 import pathlib
 import re
+import shlex
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -13,6 +16,19 @@ import unittest
 
 REPOSITORY = pathlib.Path(__file__).resolve().parents[1]
 RUNNER = REPOSITORY / "tools/evaluation/run_native_pure_prefill_matrix.sh"
+FRAGMENT_NATIVE_PAYLOAD_BYTES = 8_623_226_880
+FRAGMENT_NATIVE_M64N128_1CTA_MODE = (
+    "cumulative-prefill-current-best-mlp-k512-fragment-native-"
+    "m64n128-1cta"
+)
+FRAGMENT_NATIVE_M64N128_1CTA_PRIMARY = (
+    "prefill_projection_span_mlp_k512_fragment_native_"
+    "m64n128_1cta_gateup_primary"
+)
+FRAGMENT_NATIVE_M64N128_1CTA_SECONDARY = (
+    "prefill_projection_span_mlp_k512_fragment_native_"
+    "m64n128_1cta_gateup_secondary"
+)
 
 
 class Fixture:
@@ -28,8 +44,17 @@ class Fixture:
         self.k512_payload = root / "attention-o-k512.bin"
         self.k512_policy = root / "attention-o-k512-policy.json"
         self.k512_receipt = root / "attention-o-k512.bin.receipt.json"
+        self.fragment_native_payload = root / "mlp-k512-fragment-native.bin"
+        self.fragment_native_policy = (
+            root / "mlp-k512-fragment-native-policy.json"
+        )
+        self.fragment_native_receipt = (
+            root / "mlp-k512-fragment-native.bin.receipt.json"
+        )
+        self.fake_bin = root / "fake-bin"
         self.model_dir.mkdir()
         self.corpus_dir.mkdir()
+        self.fake_bin.mkdir()
         self.server.write_text(
             "#!/bin/sh\n"
             "# Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION\n"
@@ -53,6 +78,45 @@ class Fixture:
         self.k512_payload.write_bytes(b"host-only K512 payload fixture\n")
         self.k512_policy.write_text("{}\n", encoding="utf-8")
         self.k512_receipt.write_text("{}\n", encoding="utf-8")
+        with self.fragment_native_payload.open("wb") as stream:
+            stream.truncate(FRAGMENT_NATIVE_PAYLOAD_BYTES)
+        self.fragment_native_policy.write_text("{}\n", encoding="utf-8")
+        zero_sha = "0" * 64
+        self.fragment_native_receipt.write_text(
+            json.dumps(
+                {
+                    "schema": (
+                        "q3x.prefill.mlp-k512.fragment-native."
+                        "publication-receipt"
+                    ),
+                    "physical_layout": (
+                        "sm87_s4_gateup_n64_paired_down_n128_"
+                        "fragment_native_scale_k512_mlp_v2"
+                    ),
+                    "payload_bytes": FRAGMENT_NATIVE_PAYLOAD_BYTES,
+                    "payload_sha256": zero_sha,
+                    "source_v1": {"policy_sha256": zero_sha},
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        real_sha256sum = shutil.which("sha256sum")
+        if real_sha256sum is None:
+            raise RuntimeError("sha256sum is required by the harness tests")
+        fake_sha256sum = self.fake_bin / "sha256sum"
+        fake_sha256sum.write_text(
+            "#!/bin/sh\n"
+            "case \"$1\" in\n"
+            "  *mlp-k512-fragment-native*)\n"
+            "    printf '%064d  %s\\n' 0 \"$1\"\n"
+            "    exit 0\n"
+            "    ;;\n"
+            "esac\n"
+            f"exec {shlex.quote(real_sha256sum)} \"$@\"\n",
+            encoding="utf-8",
+        )
+        fake_sha256sum.chmod(0o755)
         for bucket in ("p512", "p1k", "p2k", "p4k"):
             (self.corpus_dir / f"q3x-sharegpt-prefill-{bucket}-5.jsonl").write_text(
                 '{"host_only":true}\n', encoding="utf-8"
@@ -97,6 +161,9 @@ class Fixture:
         ] = "1"
         environment["Q3X_RUN_A4W4_ATTENTION_O_K512_ADMISSION"] = "1"
         environment["Q3X_GDN_CHUNK64_PROFILE_CANDIDATE"] = "1"
+        environment["PATH"] = (
+            f"{self.fake_bin}{os.pathsep}{environment['PATH']}"
+        )
         return subprocess.run(
             self.command(*extra),
             env=environment,
@@ -115,6 +182,37 @@ class Fixture:
             str(self.k512_receipt),
             "--mode",
             "cumulative-prefill-current-best-k512",
+            *extra,
+        )
+
+    def enable_fragment_native_m64n128_1cta(
+        self, *extra_stage_markers: str
+    ) -> None:
+        with self.server.open("a", encoding="utf-8") as stream:
+            stream.write("Q3X_RUN_A4W4_MLP_K512_FRAGMENT_NATIVE_ADMISSION\n")
+            stream.write(f"{FRAGMENT_NATIVE_M64N128_1CTA_PRIMARY}\n")
+            stream.write(f"{FRAGMENT_NATIVE_M64N128_1CTA_SECONDARY}\n")
+            stream.write(
+                "prefill_projection_span_mlp_k512_fragment_native_down\n"
+            )
+            for marker in extra_stage_markers:
+                stream.write(f"{marker}\n")
+
+    def run_fragment_native_m64n128_1cta(
+        self,
+        *extra: str,
+        extra_stage_markers: tuple[str, ...] = (),
+    ) -> subprocess.CompletedProcess[str]:
+        self.enable_fragment_native_m64n128_1cta(*extra_stage_markers)
+        return self.run(
+            "--prefill-mlp-k512-fragment-native-payload",
+            str(self.fragment_native_payload),
+            "--prefill-mlp-k512-fragment-native-policy",
+            str(self.fragment_native_policy),
+            "--prefill-mlp-k512-fragment-native-receipt",
+            str(self.fragment_native_receipt),
+            "--mode",
+            FRAGMENT_NATIVE_M64N128_1CTA_MODE,
             *extra,
         )
 
@@ -477,6 +575,97 @@ class PurePrefillEvalScopeHarnessTest(unittest.TestCase):
             "prefill_attention_o_k512_payload_sha256=[0-9a-f]{64}",
             contents,
         )
+
+    def test_fragment_native_m64n128_1cta_mode_uses_authenticated_real_route(
+        self,
+    ) -> None:
+        result = self.fixture.run_fragment_native_m64n128_1cta()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(
+            f"mode={FRAGMENT_NATIVE_M64N128_1CTA_MODE} dry_run=1",
+            result.stdout,
+        )
+        startup = next(
+            line
+            for line in result.stdout.splitlines()
+            if line.startswith("server_startup_command")
+        )
+        self.assertEqual(
+            set(re.findall(r"(Q3X_[A-Z0-9_]+)=1", startup)),
+            {
+                "Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION",
+                "Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION",
+                "Q3X_RUN_BF16_AB_LARGE_M_PREFILL_ADMISSION",
+                "Q3X_FULL_ATTENTION_FLASHINFER_DIRECT",
+                "Q3X_RUN_A4W4_ATTENTION_SUPERMATRIX_ADMISSION",
+                "Q3X_RUN_FULL_ATTENTION_PREPROCESS_PROMPT_WIDE_128_ADMISSION",
+                "Q3X_RUN_A4W4_MLP_K512_FRAGMENT_NATIVE_ADMISSION",
+            },
+        )
+        self.assertIn(
+            "--prefill-mlp-k512-fragment-native-payload", startup
+        )
+        self.assertIn(str(self.fixture.fragment_native_payload), startup)
+        self.assertIn(
+            "--prefill-mlp-k512-fragment-native-policy", startup
+        )
+        self.assertIn(str(self.fixture.fragment_native_policy), startup)
+        self.assertIn(
+            "--prefill-mlp-k512-fragment-native-receipt", startup
+        )
+        self.assertIn(str(self.fixture.fragment_native_receipt), startup)
+        self.assertIn(
+            "gateup_variant=m64n128_1cta down_variant=m64n128",
+            result.stdout,
+        )
+        self.assertIn(
+            "prefill_mlp_k512_fragment_native_gateup_variant_m64n128_1cta",
+            result.stdout,
+        )
+        self.assertIn("performance_evidence=0", result.stdout)
+        self.assertFalse(self.fixture.output.exists())
+
+    def test_fragment_native_policy_must_match_publication_receipt(
+        self,
+    ) -> None:
+        receipt = json.loads(
+            self.fixture.fragment_native_receipt.read_text(encoding="utf-8")
+        )
+        receipt["source_v1"]["policy_sha256"] = "f" * 64
+        self.fixture.fragment_native_receipt.write_text(
+            json.dumps(receipt) + "\n", encoding="utf-8"
+        )
+        result = self.fixture.run_fragment_native_m64n128_1cta()
+        self.assertEqual(result.returncode, 2)
+        self.assertIn(
+            "fragment-native policy SHA256 does not match source_v1 receipt",
+            result.stderr,
+        )
+        self.assertFalse(self.fixture.output.exists())
+
+    def test_fragment_native_m64n128_1cta_rejects_all_old_gateup_markers(
+        self,
+    ) -> None:
+        rejected_markers = (
+            "prefill_projection_span_mlp_k512_fragment_native_gateup_primary",
+            "prefill_projection_span_mlp_k512_fragment_native_"
+            "m128_gateup_primary",
+            "prefill_projection_span_mlp_k512_fragment_native_"
+            "m128n64_1cta_gateup_primary",
+        )
+        for marker in rejected_markers:
+            with self.subTest(marker=marker):
+                with tempfile.TemporaryDirectory() as root:
+                    fixture = Fixture(pathlib.Path(root))
+                    result = fixture.run_fragment_native_m64n128_1cta(
+                        extra_stage_markers=(marker,)
+                    )
+                    self.assertEqual(result.returncode, 2)
+                    self.assertIn(
+                        "server contains the mutually exclusive "
+                        f"fragment-native Gate+Up variant: {marker}",
+                        result.stderr,
+                    )
 
     def test_cumulative_short_mode_adds_short_route_without_cells(self) -> None:
         result = self.fixture.run("--mode", "cumulative-prefill-short")

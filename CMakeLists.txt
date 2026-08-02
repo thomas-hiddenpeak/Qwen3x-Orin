@@ -102,6 +102,10 @@ option(Q3X_BUILD_SM87_A4W4_GATEUP_K512_FRAGMENT_NATIVE_M128N64_1CTA_EXPERIMENT
   "Build the direct M128N64 one-CTA Gate+Up consumer over the fragment-native payload"
   OFF
 )
+option(Q3X_BUILD_SM87_A4W4_GATEUP_K512_FRAGMENT_NATIVE_M64N128_1CTA_EXPERIMENT
+  "Build the direct M64N128 16-warp Gate+Up consumer over the fragment-native payload"
+  OFF
+)
 option(Q3X_BUILD_SM87_A4W4_DOWN_K512_FRAGMENT_NATIVE_M128N256_1CTA_EXPERIMENT
   "Build the direct M128N256 one-CTA Down consumer over the fragment-native payload"
   OFF
@@ -281,10 +285,23 @@ if(Q3X_BUILD_SM87_A4W4_GATEUP_K512_FRAGMENT_NATIVE_M128N64_1CTA_EXPERIMENT AND
     "The M128N64 one-CTA Gate+Up experiment requires the authenticated fragment-native MLP route"
   )
 endif()
+if(Q3X_BUILD_SM87_A4W4_GATEUP_K512_FRAGMENT_NATIVE_M64N128_1CTA_EXPERIMENT AND
+   NOT Q3X_BUILD_SM87_A4W4_MLP_K512_FRAGMENT_NATIVE_EXPERIMENT)
+  message(FATAL_ERROR
+    "The M64N128 one-CTA Gate+Up experiment requires the authenticated fragment-native MLP route"
+  )
+endif()
 if(Q3X_BUILD_SM87_A4W4_GATEUP_K512_FRAGMENT_NATIVE_M128_EXPERIMENT AND
    Q3X_BUILD_SM87_A4W4_GATEUP_K512_FRAGMENT_NATIVE_M128N64_1CTA_EXPERIMENT)
   message(FATAL_ERROR
     "The M128N32 and M128N64 one-CTA fragment-native Gate+Up experiments are mutually exclusive"
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_GATEUP_K512_FRAGMENT_NATIVE_M64N128_1CTA_EXPERIMENT AND
+   (Q3X_BUILD_SM87_A4W4_GATEUP_K512_FRAGMENT_NATIVE_M128_EXPERIMENT OR
+    Q3X_BUILD_SM87_A4W4_GATEUP_K512_FRAGMENT_NATIVE_M128N64_1CTA_EXPERIMENT))
+  message(FATAL_ERROR
+    "The M64N128 one-CTA and prior fragment-native Gate+Up experiments are mutually exclusive"
   )
 endif()
 if(Q3X_BUILD_SM87_A4W4_DOWN_K512_FRAGMENT_NATIVE_M128N256_1CTA_EXPERIMENT AND
@@ -560,6 +577,11 @@ if(Q3X_BUILD_SM87_A4W4_MLP_K512_FRAGMENT_NATIVE_EXPERIMENT)
       Q3X_ENABLE_A4W4_GATEUP_K512_FRAGMENT_NATIVE_M128N64_1CTA_ADMISSION=1
     )
   endif()
+  if(Q3X_BUILD_SM87_A4W4_GATEUP_K512_FRAGMENT_NATIVE_M64N128_1CTA_EXPERIMENT)
+    target_compile_definitions(q3x_kernels PRIVATE
+      Q3X_ENABLE_A4W4_GATEUP_K512_FRAGMENT_NATIVE_M64N128_1CTA_ADMISSION=1
+    )
+  endif()
   if(Q3X_BUILD_SM87_A4W4_DOWN_K512_FRAGMENT_NATIVE_M128N256_1CTA_EXPERIMENT)
     target_sources(q3x_kernels PRIVATE
       src/kernels/sm87/a4w4_down_k512_fragment_native_m128n256_1cta.cu
@@ -680,6 +702,11 @@ if(Q3X_BUILD_SM87_A4W4_MLP_K512_FRAGMENT_NATIVE_EXPERIMENT)
   if(Q3X_BUILD_SM87_A4W4_GATEUP_K512_FRAGMENT_NATIVE_M128N64_1CTA_EXPERIMENT)
     target_compile_definitions(q3x_engine PRIVATE
       Q3X_ENABLE_A4W4_GATEUP_K512_FRAGMENT_NATIVE_M128N64_1CTA_ADMISSION=1
+    )
+  endif()
+  if(Q3X_BUILD_SM87_A4W4_GATEUP_K512_FRAGMENT_NATIVE_M64N128_1CTA_EXPERIMENT)
+    target_compile_definitions(q3x_engine PRIVATE
+      Q3X_ENABLE_A4W4_GATEUP_K512_FRAGMENT_NATIVE_M64N128_1CTA_ADMISSION=1
     )
   endif()
   if(Q3X_BUILD_SM87_A4W4_DOWN_K512_FRAGMENT_NATIVE_M128N256_1CTA_EXPERIMENT)
@@ -1792,6 +1819,39 @@ if(BUILD_TESTING)
         )
       endif()
 
+      if(Q3X_BUILD_SM87_A4W4_GATEUP_K512_FRAGMENT_NATIVE_M64N128_1CTA_EXPERIMENT)
+        add_executable(
+          q3x_sm87_a4w4_gateup_k512_fragment_native_m64n128_1cta_contract_test
+          tests/sm87_a4w4_gateup_k512_fragment_native_m64n128_1cta_contract_test.cpp
+        )
+        target_link_libraries(
+          q3x_sm87_a4w4_gateup_k512_fragment_native_m64n128_1cta_contract_test
+          PRIVATE q3x::kernels CUDA::cudart
+        )
+        q3x_enable_warnings(
+          q3x_sm87_a4w4_gateup_k512_fragment_native_m64n128_1cta_contract_test
+        )
+        add_test(NAME sm87_a4w4_gateup_k512_fragment_native_m64n128_1cta_contract
+          COMMAND q3x_sm87_a4w4_gateup_k512_fragment_native_m64n128_1cta_contract_test
+        )
+        set_tests_properties(
+          sm87_a4w4_gateup_k512_fragment_native_m64n128_1cta_contract PROPERTIES
+          LABELS "host;sm87;prefill;mlp;a4w4;k512;gateup;fragment-native;m64;n128;one-cta;contract"
+        )
+
+        add_executable(
+          q3x_sm87_a4w4_gateup_k512_fragment_native_m64n128_1cta_correctness_test
+          tests/sm87_a4w4_gateup_k512_fragment_native_m64n128_1cta_correctness_test.cu
+        )
+        target_link_libraries(
+          q3x_sm87_a4w4_gateup_k512_fragment_native_m64n128_1cta_correctness_test
+          PRIVATE q3x::kernels CUDA::cudart
+        )
+        q3x_enable_warnings(
+          q3x_sm87_a4w4_gateup_k512_fragment_native_m64n128_1cta_correctness_test
+        )
+      endif()
+
       if(Q3X_BUILD_SM87_A4W4_DOWN_K512_FRAGMENT_NATIVE_M128N256_1CTA_EXPERIMENT)
         add_executable(
           q3x_sm87_a4w4_down_k512_fragment_native_m128n256_1cta_contract_test
@@ -1947,6 +2007,19 @@ if(BUILD_TESTING)
         set_tests_properties(
           sm87_a4w4_gateup_k512_fragment_native_m128n64_1cta_correctness PROPERTIES
           LABELS "cuda;sm87;prefill;mlp;a4w4;k512;gateup;fragment-native;m128;n64;one-cta;correctness;resources;synthetic"
+          SKIP_RETURN_CODE 77
+          RESOURCE_LOCK q3x_sm87_gpu
+          TIMEOUT 300
+        )
+      endif()
+      if(Q3X_BUILD_SM87_A4W4_GATEUP_K512_FRAGMENT_NATIVE_M64N128_1CTA_EXPERIMENT)
+        add_test(NAME sm87_a4w4_gateup_k512_fragment_native_m64n128_1cta_correctness
+          COMMAND "${Q3X_FLOCK_EXECUTABLE}" -x /tmp/q3x-gpu-bench.lock
+                  $<TARGET_FILE:q3x_sm87_a4w4_gateup_k512_fragment_native_m64n128_1cta_correctness_test>
+        )
+        set_tests_properties(
+          sm87_a4w4_gateup_k512_fragment_native_m64n128_1cta_correctness PROPERTIES
+          LABELS "cuda;sm87;prefill;mlp;a4w4;k512;gateup;fragment-native;m64;n128;one-cta;correctness;resources;synthetic"
           SKIP_RETURN_CODE 77
           RESOURCE_LOCK q3x_sm87_gpu
           TIMEOUT 300
