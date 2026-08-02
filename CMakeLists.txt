@@ -34,6 +34,10 @@ option(Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION
   "Build the opt-in native SM87 C64/WY GDN architecture route"
   OFF
 )
+option(Q3X_BUILD_GDN_PREFILL_PROMPT_SPAN_MACRO_EXPERIMENT
+  "Build the isolated SM87 C64 GDN prompt-span macro correctness experiment"
+  OFF
+)
 option(Q3X_BUILD_NVFP4_MARLIN_PREFILL_ADMISSION
   "Build the test-only scheduler-wide vLLM-Marlin NVFP4 Prefill route"
   OFF
@@ -195,6 +199,12 @@ endif()
 if(Q3X_BUILD_GDN_CHUNK64_REFERENCE_ADMISSION AND NOT BUILD_TESTING)
   message(FATAL_ERROR
     "Q3X_BUILD_GDN_CHUNK64_REFERENCE_ADMISSION is test-only and requires BUILD_TESTING=ON"
+  )
+endif()
+if(Q3X_BUILD_GDN_PREFILL_PROMPT_SPAN_MACRO_EXPERIMENT AND
+   (NOT BUILD_TESTING OR NOT Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION))
+  message(FATAL_ERROR
+    "The GDN prompt-span macro experiment requires BUILD_TESTING=ON and the authenticated native C64/WY correctness oracle"
   )
 endif()
 if(Q3X_BUILD_NVFP4_MARLIN_PREFILL_ADMISSION AND NOT BUILD_TESTING)
@@ -2999,6 +3009,49 @@ if(BUILD_TESTING)
       LABELS "cuda;sm87;prefill;gdn;correctness;synthetic;component"
       SKIP_RETURN_CODE 77
       RESOURCE_LOCK q3x_sm87_gpu
+    )
+  endif()
+
+  # Strictly isolated SM87 prompt-span macro experiment.  The candidate
+  # translation unit is owned only by this synthetic correctness/resource
+  # target; it is never linked into q3x_kernels, q3x_engine, or either runner.
+  if(Q3X_BUILD_GDN_PREFILL_PROMPT_SPAN_MACRO_EXPERIMENT)
+    add_executable(q3x_gdn_prefill_prompt_span_macro_c64_component_test
+      tests/gdn_prefill_prompt_span_macro_c64_component_test.cu
+      src/kernels/sm87/gdn_prefill_prompt_span_macro_sm87.cu
+    )
+    target_compile_features(
+      q3x_gdn_prefill_prompt_span_macro_c64_component_test
+      PRIVATE cxx_std_17 cuda_std_17
+    )
+    target_include_directories(
+      q3x_gdn_prefill_prompt_span_macro_c64_component_test
+      PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/kernels/sm87"
+    )
+    target_link_libraries(
+      q3x_gdn_prefill_prompt_span_macro_c64_component_test
+      PRIVATE q3x::kernels CUDA::cudart
+    )
+    set_target_properties(
+      q3x_gdn_prefill_prompt_span_macro_c64_component_test
+      PROPERTIES CUDA_ARCHITECTURES 87
+    )
+    target_compile_options(
+      q3x_gdn_prefill_prompt_span_macro_c64_component_test PRIVATE
+      $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr;-Xptxas=-v;-Xptxas=-warn-spills>
+    )
+    q3x_enable_warnings(
+      q3x_gdn_prefill_prompt_span_macro_c64_component_test
+    )
+    add_test(NAME gdn_prefill_prompt_span_macro_c64_component
+      COMMAND $<TARGET_FILE:q3x_gdn_prefill_prompt_span_macro_c64_component_test>
+    )
+    set_tests_properties(
+      gdn_prefill_prompt_span_macro_c64_component PROPERTIES
+      LABELS "synthetic;correctness;resources;gdn;prefill;sm87;cuda"
+      SKIP_RETURN_CODE 77
+      RESOURCE_LOCK q3x_sm87_gpu
+      TIMEOUT 300
     )
   endif()
   add_library(q3x_test_pinned_checkpoint STATIC
