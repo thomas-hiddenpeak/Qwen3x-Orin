@@ -243,6 +243,10 @@ struct ReferenceLongPrefillResult {
   // Request-local proof that the default-off full-projection-serial
   // M128N128 Gate+Up route owned every decoder layer.
   std::size_t gateup_m128n128_projection_serial_launch_hits = 0U;
+  // Request-local proof that the default-off M128N512 Gate+Up route fused
+  // the canonical K512 intermediate publication once for every decoder
+  // layer.  This never aliases any older Gate+Up selector's counter.
+  std::size_t gateup_m128n512_fused_quantize_launch_hits = 0U;
   // Request-local proof that the paired-GateUp/canonical-Down admission
   // launched its M128N512 Gate+Up kernel once for every decoder layer and
   // projection span.  It remains zero for every other route.

@@ -90,6 +90,7 @@ struct FakeRunner {
           209U;
   std::size_t long_prefill_gateup_alternating_launch_hits = 64U;
   std::size_t long_prefill_gateup_ldmatrix_pairfeed_launch_hits = 0U;
+  std::size_t long_prefill_gateup_m128n512_fused_quantize_launch_hits = 64U;
   std::size_t long_prefill_gateup_m128n512_paired_ldmatrix_launch_hits = 64U;
   std::size_t long_prefill_down_m128n128_ldmatrix_pairring_launch_hits = 64U;
   std::size_t long_prefill_gdn_chunk64_native_launch_hits = 192U;
@@ -314,6 +315,8 @@ runtime::ReferenceLongPrefillOutcome fake_layer_major_prompt(
       fake.long_prefill_gateup_alternating_launch_hits;
   value.gateup_ldmatrix_pairfeed_launch_hits =
       fake.long_prefill_gateup_ldmatrix_pairfeed_launch_hits;
+  value.gateup_m128n512_fused_quantize_launch_hits =
+      fake.long_prefill_gateup_m128n512_fused_quantize_launch_hits;
   value.gateup_m128n512_paired_ldmatrix_launch_hits =
       fake.long_prefill_gateup_m128n512_paired_ldmatrix_launch_hits;
   value.down_m128n128_ldmatrix_pairring_launch_hits =
@@ -848,6 +851,8 @@ void test_layer_major_prompt_admission(TestContext& test) {
                 fake.long_prefill_gateup_alternating_launch_hits &&
             result.value->timing.gateup_ldmatrix_pairfeed_launch_hits ==
                 fake.long_prefill_gateup_ldmatrix_pairfeed_launch_hits &&
+            result.value->timing.gateup_m128n512_fused_quantize_launch_hits ==
+                fake.long_prefill_gateup_m128n512_fused_quantize_launch_hits &&
             result.value->timing
                     .gateup_m128n512_paired_ldmatrix_launch_hits ==
                 fake.long_prefill_gateup_m128n512_paired_ldmatrix_launch_hits &&
@@ -1957,6 +1962,8 @@ void test_engine_backend_validation(TestContext& test) {
       "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_ALTERNATING_ADMISSION";
   constexpr const char* kGateupLdmatrixPairfeedSelector =
       "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_LDMATRIX_PAIRFEED_ADMISSION";
+  constexpr const char* kGateupM128N512FusedQuantizeSelector =
+      "Q3X_RUN_A4W4_GATEUP_K512_M128N512_FUSED_QUANTIZE_ADMISSION";
   (void)::setenv(kGateupLdmatrixPairfeedSelector, "1", 1);
   const runtime::ReferenceEngineCreateResult missing_pairfeed_v1_master =
       runtime::create_reference_engine("unused-model-directory",
@@ -1970,6 +1977,38 @@ void test_engine_backend_validation(TestContext& test) {
               "prefill_mlp_k512_leaf_selectors",
       "LDSM pair-feed Gate+Up rejects a complete v1 triplet without the "
       "v1 runtime master before model I/O");
+
+  (void)::setenv(kGateupM128N512FusedQuantizeSelector, "1", 1);
+  const runtime::ReferenceEngineCreateResult missing_fused_quantize_v1_master =
+      runtime::create_reference_engine("unused-model-directory",
+                                       pairring_without_v1);
+  (void)::unsetenv(kGateupM128N512FusedQuantizeSelector);
+  test.expect(
+      !missing_fused_quantize_v1_master &&
+          missing_fused_quantize_v1_master.diagnostic.code ==
+              runtime::ReferenceEngineError::kInvalidArgument &&
+          missing_fused_quantize_v1_master.diagnostic.stage ==
+              "prefill_mlp_k512_leaf_selectors",
+      "M128N512 fused-quantize Gate+Up rejects a missing v1 runtime master "
+      "before model I/O");
+
+  (void)::setenv(kMlpK512V1Selector, "1", 1);
+  (void)::setenv(kGateupLdmatrixPairfeedSelector, "1", 1);
+  (void)::setenv(kGateupM128N512FusedQuantizeSelector, "1", 1);
+  const runtime::ReferenceEngineCreateResult conflicting_fused_quantize_gate =
+      runtime::create_reference_engine("unused-model-directory",
+                                       pairring_without_v1);
+  (void)::unsetenv(kGateupM128N512FusedQuantizeSelector);
+  (void)::unsetenv(kGateupLdmatrixPairfeedSelector);
+  (void)::unsetenv(kMlpK512V1Selector);
+  test.expect(
+      !conflicting_fused_quantize_gate &&
+          conflicting_fused_quantize_gate.diagnostic.code ==
+              runtime::ReferenceEngineError::kInvalidArgument &&
+          conflicting_fused_quantize_gate.diagnostic.stage ==
+              "prefill_mlp_k512_leaf_selectors",
+      "M128N512 fused-quantize and pair-feed Gate+Up selectors conflict "
+      "before model I/O");
 
   (void)::setenv(kGateupAlternatingSelector, "1", 1);
   (void)::setenv(kGateupLdmatrixPairfeedSelector, "1", 1);
