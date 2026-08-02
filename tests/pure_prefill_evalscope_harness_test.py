@@ -18,6 +18,7 @@ import unittest
 REPOSITORY = pathlib.Path(__file__).resolve().parents[1]
 RUNNER = REPOSITORY / "tools/evaluation/run_native_pure_prefill_matrix.sh"
 FRAGMENT_NATIVE_PAYLOAD_BYTES = 8_623_226_880
+HYBRID_PAYLOAD_BYTES = 8_623_226_880
 ATTENTION_K256_PAYLOAD_BYTES = 12_353_536_000
 ATTENTION_K256_MODE = (
     "cumulative-prefill-current-best-mlp-k512-edge-attention-k256"
@@ -81,6 +82,31 @@ FRAGMENT_NATIVE_M128N64_STAGED_SECONDARY = (
     "prefill_projection_span_mlp_k512_fragment_native_"
     "m128n64_staged_gateup_secondary"
 )
+HYBRID_GATE_MODE = (
+    "cumulative-prefill-current-best-mlp-k512-hybrid-gate-attention-k256"
+)
+HYBRID_GATE_DOWN_PAIRRING_MODE = (
+    "cumulative-prefill-current-best-mlp-k512-hybrid-gate-down-pairring-"
+    "attention-k256"
+)
+HYBRID_LAYOUT = (
+    "sm87_s4_gateup_n64_paired_down_n64_canonical_scale_k512_"
+    "mlp_hybrid_v1"
+)
+HYBRID_INPUT_MARKER = (
+    "prefill_projection_span_mlp_k512_paired_gateup_canonical_down_"
+    "input_quantize"
+)
+HYBRID_GATE_MARKER = (
+    "prefill_projection_span_mlp_k512_gateup_down_edge_m128n512_"
+    "paired_ldmatrix"
+)
+HYBRID_CANONICAL_DOWN_MARKER = (
+    "prefill_projection_span_mlp_k512_paired_gateup_canonical_down_down"
+)
+HYBRID_PAIRRING_DOWN_MARKER = (
+    "prefill_projection_span_mlp_k512_down_m128n128_ldmatrix_pairring"
+)
 
 
 class Fixture:
@@ -109,6 +135,15 @@ class Fixture:
         self.fragment_native_receipt = (
             root / "mlp-k512-fragment-native.bin.receipt.json"
         )
+        self.hybrid_payload = (
+            root / "mlp-k512-paired-gateup-canonical-down.bin"
+        )
+        self.hybrid_policy = (
+            root / "mlp-k512-paired-gateup-canonical-down-policy.json"
+        )
+        self.hybrid_receipt = (
+            root / "mlp-k512-paired-gateup-canonical-down.bin.receipt.json"
+        )
         self.fake_bin = root / "fake-bin"
         self.model_dir.mkdir()
         self.corpus_dir.mkdir()
@@ -132,11 +167,21 @@ class Fixture:
             "ALTERNATING_ADMISSION\n"
             "# Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M128N64_ADMISSION\n"
             "# Q3X_RUN_A4W4_DOWN_K512_M16N64_V2_ADMISSION\n"
+            "# Q3X_RUN_A4W4_MLP_K512_PAIRED_GATEUP_CANONICAL_DOWN_"
+            "ADMISSION\n"
+            "# Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M128N512_PAIRED_"
+            "LDMATRIX_ADMISSION\n"
+            "# Q3X_RUN_A4W4_DOWN_K512_M128N128_LDMATRIX_PAIRRING_"
+            "ADMISSION\n"
             f"{MLP_K512_EDGE_MARKER}\n"
             f"{MLP_K512_EDGE_M64N128_K256_ALTERNATING_MARKER}\n"
             f"{MLP_K512_EDGE_M128N64_MARKER}\n"
             f"{MLP_K512_DOWN_M16N64_V2_MARKER}\n"
             + "".join(f"{marker}\n" for marker in ATTENTION_K256_MARKERS)
+            + f"{HYBRID_INPUT_MARKER}\n"
+            + f"{HYBRID_GATE_MARKER}\n"
+            + f"{HYBRID_CANONICAL_DOWN_MARKER}\n"
+            + f"{HYBRID_PAIRRING_DOWN_MARKER}\n"
             + "# Q3X_RUN_SHORT_PREFILL_LAYER_MAJOR_ADMISSION\n"
             + "exit 0\n",
             encoding="utf-8",
@@ -155,14 +200,21 @@ class Fixture:
             json.dumps(
                 {
                     "schema": "q3x.prefill.a4.publication-receipt",
+                    "version": {"major": 3, "minor": 0},
+                    "mode": "production_calibrated",
+                    "production_residency_eligible": True,
                     "sidecar_kind": "a4_k256",
                     "packed_k_group_size": 64,
                     "scale_group_size": 256,
                     "physical_layout": ATTENTION_K256_LAYOUT,
+                    "source_checkpoint_id": "host-checkpoint",
+                    "source_config_sha256": "a" * 64,
+                    "source_index_sha256": "b" * 64,
                     "payload_bytes": ATTENTION_K256_PAYLOAD_BYTES,
                     "projection_count": 400,
                     "manifest_sha256": one_sha,
                     "policy_sha256": k256_policy_sha,
+                    "policy_bytes": len(b"{}\n"),
                     "payload_sha256": zero_sha,
                 }
             )
@@ -224,6 +276,57 @@ class Fixture:
             + "\n",
             encoding="utf-8",
         )
+        with self.hybrid_payload.open("wb") as stream:
+            stream.truncate(HYBRID_PAYLOAD_BYTES)
+        self.hybrid_policy.write_text("{}\n", encoding="utf-8")
+        hybrid_policy_sha = hashlib.sha256(b"{}\n").hexdigest()
+        self.hybrid_receipt.write_text(
+            json.dumps(
+                {
+                    "schema": (
+                        "q3x.prefill.mlp-k512.paired-gateup-canonical-down."
+                        "publication-receipt"
+                    ),
+                    "version": {"major": 1, "minor": 0},
+                    "mode": "lossless_gateup_permutation_down_passthrough",
+                    "production_residency_eligible": True,
+                    "physical_layout": HYBRID_LAYOUT,
+                    "gateup_physical_layout": (
+                        "sm87_s4_gateup_n64_paired_fragment_register_v1"
+                    ),
+                    "down_physical_layout": (
+                        "sm87_s4_n64_packed_k64_scale_k512_mlp_v1"
+                    ),
+                    "source_checkpoint_id": "host-checkpoint",
+                    "source_config_sha256": "a" * 64,
+                    "source_index_sha256": "b" * 64,
+                    "required_base": {
+                        "sidecar_kind": "a4_k256",
+                        "physical_layout": ATTENTION_K256_LAYOUT,
+                        "manifest_sha256": one_sha,
+                        "policy_sha256": k256_policy_sha,
+                        "payload_sha256": zero_sha,
+                    },
+                    "source_v1": {
+                        "physical_layout": (
+                            "sm87_s4_n64_packed_k64_scale_k512_mlp_v1"
+                        ),
+                        "receipt_sha256": "c" * 64,
+                        "manifest_sha256": "d" * 64,
+                        "policy_sha256": hybrid_policy_sha,
+                        "policy_bytes": len(b"{}\n"),
+                        "payload_sha256": "e" * 64,
+                        "payload_bytes": HYBRID_PAYLOAD_BYTES,
+                    },
+                    "manifest_sha256": "f" * 64,
+                    "payload_sha256": zero_sha,
+                    "payload_bytes": HYBRID_PAYLOAD_BYTES,
+                    "layer_count": 64,
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
         real_sha256sum = shutil.which("sha256sum")
         if real_sha256sum is None:
             raise RuntimeError("sha256sum is required by the harness tests")
@@ -236,6 +339,10 @@ class Fixture:
             "    exit 0\n"
             "    ;;\n"
             "  *mlp-k512-fragment-native*)\n"
+            "    printf '%064d  %s\\n' 0 \"$1\"\n"
+            "    exit 0\n"
+            "    ;;\n"
+            "  *mlp-k512-paired-gateup-canonical-down.bin)\n"
             "    printf '%064d  %s\\n' 0 \"$1\"\n"
             "    exit 0\n"
             "    ;;\n"
@@ -323,6 +430,16 @@ class Fixture:
         environment[
             "Q3X_RUN_A4W4_DOWN_K512_M16N64_V2_ADMISSION"
         ] = "1"
+        environment[
+            "Q3X_RUN_A4W4_MLP_K512_PAIRED_GATEUP_CANONICAL_DOWN_ADMISSION"
+        ] = "1"
+        environment[
+            "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M128N512_PAIRED_"
+            "LDMATRIX_ADMISSION"
+        ] = "1"
+        environment[
+            "Q3X_RUN_A4W4_DOWN_K512_M128N128_LDMATRIX_PAIRRING_ADMISSION"
+        ] = "1"
         environment["Q3X_GDN_CHUNK64_PROFILE_CANDIDATE"] = "1"
         environment["PATH"] = (
             f"{self.fake_bin}{os.pathsep}{environment['PATH']}"
@@ -406,6 +523,31 @@ class Fixture:
         self, *extra: str
     ) -> subprocess.CompletedProcess[str]:
         return self.run_mlp_k512(MLP_K512_EDGE_M128N64_MODE, *extra)
+
+    def run_hybrid(
+        self,
+        *,
+        down_pairring: bool = False,
+        bucket: str = "p2k",
+    ) -> subprocess.CompletedProcess[str]:
+        return self.run(
+            "--prefill-mlp-k512-paired-gateup-canonical-down-payload",
+            str(self.hybrid_payload),
+            "--prefill-mlp-k512-paired-gateup-canonical-down-policy",
+            str(self.hybrid_policy),
+            "--prefill-mlp-k512-paired-gateup-canonical-down-receipt",
+            str(self.hybrid_receipt),
+            "--mode",
+            (
+                HYBRID_GATE_DOWN_PAIRRING_MODE
+                if down_pairring
+                else HYBRID_GATE_MODE
+            ),
+            bucket=bucket,
+            prefill_payload=self.k256_payload,
+            prefill_policy=self.k256_policy,
+            prefill_receipt=self.k256_receipt,
+        )
 
     def enable_fragment_native_m64n128_1cta(
         self, *extra_stage_markers: str
@@ -1401,6 +1543,267 @@ class PurePrefillEvalScopeHarnessTest(unittest.TestCase):
             "if total != expected or success != expected or failed != 0:",
             contents,
         )
+
+    def test_hybrid_gate_mode_uses_exact_authenticated_real_api_route(
+        self,
+    ) -> None:
+        result = self.fixture.run_hybrid()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f"mode={HYBRID_GATE_MODE} dry_run=1", result.stdout)
+        startup = next(
+            line
+            for line in result.stdout.splitlines()
+            if line.startswith("server_startup_command")
+        )
+        self.assertEqual(
+            set(re.findall(r"(Q3X_[A-Z0-9_]+)=1", startup)),
+            {
+                "Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION",
+                "Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION",
+                "Q3X_RUN_BF16_AB_LARGE_M_PREFILL_ADMISSION",
+                "Q3X_FULL_ATTENTION_FLASHINFER_DIRECT",
+                "Q3X_RUN_FULL_ATTENTION_PREPROCESS_PROMPT_WIDE_128_ADMISSION",
+                "Q3X_RUN_SHORT_PREFILL_LAYER_MAJOR_ADMISSION",
+                "Q3X_RUN_A4W4_ATTENTION_K256_M128N256_ADMISSION",
+                "Q3X_RUN_A4W4_MLP_K512_PAIRED_GATEUP_CANONICAL_DOWN_"
+                "ADMISSION",
+                "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M128N512_PAIRED_"
+                "LDMATRIX_ADMISSION",
+            },
+        )
+        self.assertIn(
+            "--prefill-mlp-k512-paired-gateup-canonical-down-payload",
+            startup,
+        )
+        self.assertIn(str(self.fixture.hybrid_payload), startup)
+        self.assertIn(
+            "--prefill-mlp-k512-paired-gateup-canonical-down-policy",
+            startup,
+        )
+        self.assertIn(str(self.fixture.hybrid_policy), startup)
+        self.assertIn(
+            "--prefill-mlp-k512-paired-gateup-canonical-down-receipt",
+            startup,
+        )
+        self.assertIn(str(self.fixture.hybrid_receipt), startup)
+        stage_contract = next(
+            line
+            for line in result.stdout.splitlines()
+            if line.startswith("stage_contract")
+            and HYBRID_INPUT_MARKER in line
+        )
+        self.assertIn(f"required={HYBRID_INPUT_MARKER},{HYBRID_GATE_MARKER}", stage_contract)
+        self.assertIn(f"retained={HYBRID_CANONICAL_DOWN_MARKER}", stage_contract)
+        self.assertIn(f"excluded={HYBRID_PAIRRING_DOWN_MARKER},", stage_contract)
+        for old_stage in (
+            "prefill_projection_span_mlp_k512_input_quantize",
+            "prefill_projection_span_mlp_k512_gate_up_primary",
+            "prefill_projection_span_mlp_k512_gateup_down_edge",
+            "prefill_projection_span_mlp_k512_down",
+            "prefill_projection_span_mlp_k512_fragment_native_input_quantize",
+            "prefill_projection_span_mlp_k512_fragment_native_down",
+        ):
+            self.assertIn(old_stage, stage_contract)
+        self.assertIn("expected_request_launch_hits=gate:64,down:0", stage_contract)
+        self.assertIn(f"layout={HYBRID_LAYOUT}", result.stdout)
+        self.assertIn("complete_sha_chain", result.stdout)
+        self.assertIn("performance_evidence=0", result.stdout)
+        self.assertFalse(self.fixture.output.exists())
+
+    def test_hybrid_gate_down_pairring_mode_changes_only_down_route(
+        self,
+    ) -> None:
+        result = self.fixture.run_hybrid(down_pairring=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(
+            f"mode={HYBRID_GATE_DOWN_PAIRRING_MODE} dry_run=1",
+            result.stdout,
+        )
+        startup = next(
+            line
+            for line in result.stdout.splitlines()
+            if line.startswith("server_startup_command")
+        )
+        selectors = set(re.findall(r"(Q3X_[A-Z0-9_]+)=1", startup))
+        self.assertIn(
+            "Q3X_RUN_A4W4_DOWN_K512_M128N128_LDMATRIX_PAIRRING_ADMISSION",
+            selectors,
+        )
+        self.assertEqual(len(selectors), 10)
+        stage_contract = next(
+            line
+            for line in result.stdout.splitlines()
+            if line.startswith("stage_contract")
+            and HYBRID_INPUT_MARKER in line
+        )
+        self.assertIn(
+            f"required={HYBRID_INPUT_MARKER},{HYBRID_GATE_MARKER},"
+            f"{HYBRID_PAIRRING_DOWN_MARKER}",
+            stage_contract,
+        )
+        self.assertIn(f"excluded={HYBRID_CANONICAL_DOWN_MARKER},", stage_contract)
+        self.assertNotIn(" retained=", stage_contract)
+        self.assertIn("expected_request_launch_hits=gate:64,down:64", stage_contract)
+
+    def test_hybrid_triplet_and_complete_receipt_chain_fail_closed(self) -> None:
+        partial = self.fixture.run(
+            "--prefill-mlp-k512-paired-gateup-canonical-down-payload",
+            str(self.fixture.hybrid_payload),
+            "--prefill-mlp-k512-paired-gateup-canonical-down-policy",
+            str(self.fixture.hybrid_policy),
+            "--mode",
+            HYBRID_GATE_MODE,
+            prefill_payload=self.fixture.k256_payload,
+            prefill_policy=self.fixture.k256_policy,
+            prefill_receipt=self.fixture.k256_receipt,
+        )
+        self.assertEqual(partial.returncode, 2)
+        self.assertIn(
+            "paired-GateUp/canonical-Down MLP K512 payload, policy, and "
+            "receipt are required together",
+            partial.stderr,
+        )
+
+        original = json.loads(
+            self.fixture.hybrid_receipt.read_text(encoding="utf-8")
+        )
+        mutations = (
+            lambda receipt: receipt.__setitem__("physical_layout", "wrong"),
+            lambda receipt: receipt.__setitem__("payload_sha256", "1" * 64),
+            lambda receipt: receipt["source_v1"].__setitem__(
+                "policy_sha256", "2" * 64
+            ),
+            lambda receipt: receipt["required_base"].__setitem__(
+                "manifest_sha256", "3" * 64
+            ),
+            lambda receipt: receipt.__setitem__("unexpected", True),
+        )
+        for index, mutate in enumerate(mutations):
+            with self.subTest(index=index):
+                selected = json.loads(json.dumps(original))
+                mutate(selected)
+                self.fixture.hybrid_receipt.write_text(
+                    json.dumps(selected) + "\n", encoding="utf-8"
+                )
+                result = self.fixture.run_hybrid()
+                self.assertEqual(result.returncode, 2)
+                self.assertIn(
+                    "invalid paired-GateUp/canonical-Down K512 "
+                    "publication chain",
+                    result.stderr,
+                )
+        self.fixture.hybrid_receipt.write_text(
+            json.dumps(original) + "\n", encoding="utf-8"
+        )
+
+    def test_hybrid_modes_require_new_compiled_selector_and_stage(self) -> None:
+        original = self.fixture.server.read_text(encoding="utf-8")
+        self.fixture.server.write_text(
+            original.replace(
+                "# Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M128N512_PAIRED_"
+                "LDMATRIX_ADMISSION\n",
+                "",
+            ),
+            encoding="utf-8",
+        )
+        missing_selector = self.fixture.run_hybrid()
+        self.assertEqual(missing_selector.returncode, 2)
+        self.assertIn(
+            "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M128N512_PAIRED_"
+            "LDMATRIX_ADMISSION",
+            missing_selector.stderr,
+        )
+        self.fixture.server.write_text(
+            original.replace(f"{HYBRID_PAIRRING_DOWN_MARKER}\n", ""),
+            encoding="utf-8",
+        )
+        missing_stage = self.fixture.run_hybrid(down_pairring=True)
+        self.assertEqual(missing_stage.returncode, 2)
+        self.assertIn(
+            "server does not prove the paired-GateUp/canonical-Down "
+            f"production stage: {HYBRID_PAIRRING_DOWN_MARKER}",
+            missing_stage.stderr,
+        )
+
+    def test_hybrid_modes_enforce_request_local_gate_and_down_hits(self) -> None:
+        contents = RUNNER.read_text(encoding="utf-8")
+        self.assertIn("gateup_m128n512_paired_ldmatrix_expected_hits=64", contents)
+        self.assertIn("down_m128n128_ldmatrix_pairring_expected_hits=0", contents)
+        self.assertIn("down_m128n128_ldmatrix_pairring_expected_hits=64", contents)
+        self.assertIn(
+            "gateup_m128n512_paired_ldmatrix_launch_hits="
+            "${gateup_m128n512_paired_ldmatrix_expected_hits}",
+            contents,
+        )
+        self.assertIn(
+            "down_m128n128_ldmatrix_pairring_launch_hits="
+            "${down_m128n128_ldmatrix_pairring_expected_hits}",
+            contents,
+        )
+        self.assertIn(
+            "hybrid_mlp_runtime_contract bucket=%s requests=%s "
+            "gate_launch_hits_per_request=%s "
+            "down_pairring_launch_hits_per_request=%s status=passed",
+            contents,
+        )
+
+    def test_hybrid_request_window_skips_history_and_includes_warmup(
+        self,
+    ) -> None:
+        awk_program = """
+            /^evaluation request .* prompt_tokens=/ {
+              successes += 1
+              if (successes > skip) {
+                print
+              }
+            }
+        """
+        for down_hits in (0, 64):
+            with self.subTest(down_hits=down_hits):
+                historical = [
+                    "evaluation request 1 prompt_tokens=100 "
+                    "gateup_m128n512_paired_ldmatrix_launch_hits=0 "
+                    "down_m128n128_ldmatrix_pairring_launch_hits=0",
+                    "evaluation request 2 prompt_tokens=200 "
+                    "gateup_m128n512_paired_ldmatrix_launch_hits=0 "
+                    "down_m128n128_ldmatrix_pairring_launch_hits=0",
+                ]
+                current = [
+                    "evaluation request warmup prompt_tokens=1804 "
+                    "gateup_m128n512_paired_ldmatrix_launch_hits=64 "
+                    f"down_m128n128_ldmatrix_pairring_launch_hits={down_hits}",
+                    *[
+                        f"evaluation request measured-{index} "
+                        "prompt_tokens=1853 "
+                        "gateup_m128n512_paired_ldmatrix_launch_hits=64 "
+                        "down_m128n128_ldmatrix_pairring_launch_hits="
+                        f"{down_hits}"
+                        for index in range(4)
+                    ],
+                ]
+                log = "\n".join(
+                    [*historical, "evaluation request failed", *current]
+                )
+                selected = subprocess.run(
+                    ["awk", "-v", "skip=2", awk_program],
+                    input=log + "\n",
+                    text=True,
+                    capture_output=True,
+                    check=True,
+                ).stdout.splitlines()
+                self.assertEqual(selected, current)
+                self.assertEqual(len(selected), 5)
+                for request in selected:
+                    self.assertRegex(
+                        request,
+                        r" gateup_m128n512_paired_ldmatrix_launch_hits=64$|"
+                        r" gateup_m128n512_paired_ldmatrix_launch_hits=64 ",
+                    )
+                    self.assertRegex(
+                        request,
+                        rf" down_m128n128_ldmatrix_pairring_launch_hits="
+                        rf"{down_hits}$",
+                    )
 
     def test_fragment_native_m64n128_1cta_mode_uses_authenticated_real_route(
         self,
