@@ -81,6 +81,13 @@ struct FakeRunner {
   bool long_prefill_omit_timing = false;
   bool long_prefill_wrong_interval = false;
   double long_prefill_elapsed_milliseconds = 40.0;
+  std::size_t long_prefill_attention_k256_incumbent_launch_hits = 128U;
+  std::size_t
+      long_prefill_attention_k256_incumbent_logical_projection_hits = 208U;
+  std::size_t long_prefill_attention_k256_a_exchange_b4_launch_hits = 129U;
+  std::size_t
+      long_prefill_attention_k256_a_exchange_b4_logical_projection_hits =
+          209U;
   std::size_t long_prefill_gateup_alternating_launch_hits = 64U;
   std::size_t long_prefill_gateup_m128n512_paired_ldmatrix_launch_hits = 64U;
   std::size_t long_prefill_down_m128n128_ldmatrix_pairring_launch_hits = 64U;
@@ -290,6 +297,14 @@ runtime::ReferenceLongPrefillOutcome fake_layer_major_prompt(
       fake.next_position + (fake.long_prefill_wrong_interval ? 1U : 0U));
   value.token_count =
       token_count + (fake.long_prefill_wrong_interval ? 1U : 0U);
+  value.attention_k256_m128n256_incumbent_launch_hits =
+      fake.long_prefill_attention_k256_incumbent_launch_hits;
+  value.attention_k256_m128n256_incumbent_logical_projection_hits =
+      fake.long_prefill_attention_k256_incumbent_logical_projection_hits;
+  value.attention_k256_m128n256_a_exchange_b4_launch_hits =
+      fake.long_prefill_attention_k256_a_exchange_b4_launch_hits;
+  value.attention_k256_m128n256_a_exchange_b4_logical_projection_hits =
+      fake.long_prefill_attention_k256_a_exchange_b4_logical_projection_hits;
   value.gateup_alternating_launch_hits =
       fake.long_prefill_gateup_alternating_launch_hits;
   value.gateup_m128n512_paired_ldmatrix_launch_hits =
@@ -802,6 +817,18 @@ void test_layer_major_prompt_admission(TestContext& test) {
                 std::vector<double>({
                     fake.long_prefill_elapsed_milliseconds}) &&
             result.value->timing.finish_prefill_milliseconds == 1.0 &&
+            result.value->timing
+                    .attention_k256_m128n256_incumbent_launch_hits ==
+                fake.long_prefill_attention_k256_incumbent_launch_hits &&
+            result.value->timing
+                    .attention_k256_m128n256_incumbent_logical_projection_hits ==
+                fake.long_prefill_attention_k256_incumbent_logical_projection_hits &&
+            result.value->timing
+                    .attention_k256_m128n256_a_exchange_b4_launch_hits ==
+                fake.long_prefill_attention_k256_a_exchange_b4_launch_hits &&
+            result.value->timing
+                    .attention_k256_m128n256_a_exchange_b4_logical_projection_hits ==
+                fake.long_prefill_attention_k256_a_exchange_b4_logical_projection_hits &&
             result.value->timing.gateup_alternating_launch_hits ==
                 fake.long_prefill_gateup_alternating_launch_hits &&
             result.value->timing
@@ -1900,6 +1927,65 @@ void test_engine_backend_validation(TestContext& test) {
           conflicting_pairring_down.diagnostic.stage ==
               "prefill_mlp_k512_leaf_selectors",
       "pair-ring and M16N64 v2 Down selectors conflict before model I/O");
+
+  constexpr const char* kAttentionK256IncumbentSelector =
+      "Q3X_RUN_A4W4_ATTENTION_K256_M128N256_ADMISSION";
+  constexpr const char* kAttentionK256AExchangeB4Selector =
+      "Q3X_RUN_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_ADMISSION";
+  (void)::setenv(kAttentionK256IncumbentSelector, "1", 1);
+  (void)::setenv(kAttentionK256AExchangeB4Selector, "1", 1);
+  const runtime::ReferenceEngineCreateResult conflicting_attention_k256 =
+      runtime::create_reference_engine("unused-model-directory", {});
+  (void)::unsetenv(kAttentionK256AExchangeB4Selector);
+  (void)::unsetenv(kAttentionK256IncumbentSelector);
+  test.expect(
+      !conflicting_attention_k256 &&
+          conflicting_attention_k256.diagnostic.code ==
+              runtime::ReferenceEngineError::kInvalidArgument &&
+          conflicting_attention_k256.diagnostic.stage ==
+              "prefill_attention_k256_leaf_selectors",
+      "incumbent and A-exchange/B4 Attention selectors conflict before "
+      "model I/O");
+
+  runtime::ReferenceEngineOptions attention_k256_without_consumer;
+  attention_k256_without_consumer.projection_backend =
+      runtime::ProjectionBackend::kSm87WeightOnly;
+  attention_k256_without_consumer.prefill_a4_payload_path = "base.bin";
+  attention_k256_without_consumer.prefill_a4_calibration_policy_path =
+      "base.policy.json";
+  attention_k256_without_consumer.prefill_a4_receipt_path =
+      "base.receipt.json";
+  (void)::setenv(kAttentionK256AExchangeB4Selector, "1", 1);
+  const runtime::ReferenceEngineCreateResult missing_attention_consumer =
+      runtime::create_reference_engine("unused-model-directory",
+                                       attention_k256_without_consumer);
+  (void)::unsetenv(kAttentionK256AExchangeB4Selector);
+  test.expect(
+      !missing_attention_consumer &&
+          missing_attention_consumer.diagnostic.code ==
+              runtime::ReferenceEngineError::kInvalidArgument &&
+          missing_attention_consumer.diagnostic.stage ==
+              "prefill_attention_k256_leaf_selectors" &&
+          missing_attention_consumer.diagnostic.message.find(
+              "complete K256 consumer contract") != std::string::npos,
+      "A-exchange/B4 Attention rejects an incomplete K256 consumer "
+      "contract before model I/O");
+
+  (void)::setenv(kAttentionK256IncumbentSelector, "1", 1);
+  (void)::setenv(kAttentionK256AExchangeB4Selector, "1", 1);
+  const runtime::ReferenceOneShotResult
+      conflicting_one_shot_attention_k256 = runtime::generate_reference(
+          "unused-model-directory", "prompt", {});
+  (void)::unsetenv(kAttentionK256AExchangeB4Selector);
+  (void)::unsetenv(kAttentionK256IncumbentSelector);
+  test.expect(
+      !conflicting_one_shot_attention_k256 &&
+          conflicting_one_shot_attention_k256.diagnostic.code ==
+              runtime::ReferenceEngineError::kInvalidArgument &&
+          conflicting_one_shot_attention_k256.diagnostic.stage ==
+              "one_shot_options",
+      "one-shot Attention selector conflict fails before tokenizer or "
+      "overlapped resident loading");
 
   runtime::ReferenceEngineOptions wrong_backend_a4;
   wrong_backend_a4.prefill_a4_payload_path = "payload.a4";

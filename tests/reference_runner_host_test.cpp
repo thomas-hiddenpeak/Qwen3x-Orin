@@ -2854,6 +2854,114 @@ void test_down_m128n128_16warp_pairring_v1_selector_and_accounting(
       "16-warp pair-ring accounting rejects MLP mismatch and partial coverage");
 }
 
+void test_attention_k256_a_exchange_b4_selector_and_accounting(
+    TestContext& test) {
+  using Implementation =
+      detail::A4W4AttentionK256M128N256Implementation;
+  using Query = detail::A4W4AttentionK256M128N256ImplementationQuery;
+
+  Query query;
+  const bool disabled =
+      detail::select_a4w4_attention_k256_m128n256_implementation(query) ==
+      Implementation::kDisabled;
+  query.incumbent_requested = true;
+  const bool incumbent =
+      detail::select_a4w4_attention_k256_m128n256_implementation(query) ==
+      Implementation::kIncumbent;
+  query.incumbent_requested = false;
+  query.a_exchange_b4_requested = true;
+  const bool candidate =
+      detail::select_a4w4_attention_k256_m128n256_implementation(query) ==
+      Implementation::kAExchangeB4;
+  query.incumbent_requested = true;
+  const bool conflict =
+      detail::select_a4w4_attention_k256_m128n256_implementation(query) ==
+      Implementation::kInvalid;
+  test.expect(disabled && incumbent && candidate && conflict,
+              "K256 Attention implementation selector is default-off and "
+              "makes incumbent/A-exchange-B4 exactly mutually exclusive");
+
+  const char* const incumbent_environment = std::getenv(
+      "Q3X_RUN_A4W4_ATTENTION_K256_M128N256_ADMISSION");
+  const bool incumbent_environment_requested =
+      incumbent_environment != nullptr &&
+      std::strcmp(incumbent_environment, "1") == 0 &&
+      !runtime::optimized_prefill_dispatch_disabled();
+  const char* const candidate_environment = std::getenv(
+      "Q3X_RUN_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_ADMISSION");
+  const bool candidate_environment_requested =
+      candidate_environment != nullptr &&
+      std::strcmp(candidate_environment, "1") == 0 &&
+      !runtime::optimized_prefill_dispatch_disabled();
+
+  const bool initial_incumbent =
+      detail::exchange_a4w4_attention_k256_m128n256_admission_test_enabled(
+          false);
+  (void)detail::
+      exchange_a4w4_attention_k256_m128n256_admission_test_enabled(true);
+  const bool incumbent_compiled =
+      detail::exchange_a4w4_attention_k256_m128n256_admission_test_enabled(
+          false);
+  const bool initial_candidate = detail::
+      exchange_a4w4_attention_k256_m128n256_a_exchange_b4_admission_test_enabled(
+          false);
+  (void)detail::
+      exchange_a4w4_attention_k256_m128n256_a_exchange_b4_admission_test_enabled(
+          true);
+  const bool candidate_compiled = detail::
+      exchange_a4w4_attention_k256_m128n256_a_exchange_b4_admission_test_enabled(
+          false);
+  test.expect(
+      initial_incumbent ==
+              (incumbent_compiled && incumbent_environment_requested) &&
+          initial_candidate ==
+              (candidate_compiled && candidate_environment_requested),
+      "K256 Attention implementation gates are exact-value, default-off, "
+      "global-disable aware, and independently initialized");
+
+  const detail::A4W4AttentionSupermatrixAdmissionHits incumbent_fixture{
+      48U, 16U, 64U, 208U};
+  const detail::A4W4AttentionSupermatrixAdmissionHits candidate_fixture{
+      96U, 32U, 128U, 416U};
+  const auto incumbent_hits_before =
+      detail::exchange_a4w4_attention_k256_m128n256_admission_test_hits(
+          incumbent_fixture);
+  const auto candidate_hits_before = detail::
+      exchange_a4w4_attention_k256_m128n256_a_exchange_b4_admission_test_hits(
+          candidate_fixture);
+  const auto observed_incumbent =
+      detail::exchange_a4w4_attention_k256_m128n256_admission_test_hits(
+          incumbent_hits_before);
+  const auto observed_candidate = detail::
+      exchange_a4w4_attention_k256_m128n256_a_exchange_b4_admission_test_hits(
+          candidate_hits_before);
+  test.expect(
+      observed_incumbent.linear_input_launch_hits ==
+              (incumbent_compiled ? 48U : 0U) &&
+          observed_incumbent.full_input_launch_hits ==
+              (incumbent_compiled ? 16U : 0U) &&
+          observed_incumbent.output_launch_hits ==
+              (incumbent_compiled ? 64U : 0U) &&
+          observed_incumbent.logical_projection_hits ==
+              (incumbent_compiled ? 208U : 0U) &&
+          observed_candidate.linear_input_launch_hits ==
+              (candidate_compiled ? 96U : 0U) &&
+          observed_candidate.full_input_launch_hits ==
+              (candidate_compiled ? 32U : 0U) &&
+          observed_candidate.output_launch_hits ==
+              (candidate_compiled ? 128U : 0U) &&
+          observed_candidate.logical_projection_hits ==
+              (candidate_compiled ? 416U : 0U),
+      "incumbent and A-exchange/B4 K256 Attention hit storage is independent");
+
+  (void)detail::
+      exchange_a4w4_attention_k256_m128n256_admission_test_enabled(
+          initial_incumbent);
+  (void)detail::
+      exchange_a4w4_attention_k256_m128n256_a_exchange_b4_admission_test_enabled(
+          initial_candidate);
+}
+
 }  // namespace
 
 int main() {
@@ -2871,6 +2979,7 @@ int main() {
   test_paired_gateup_canonical_down_selector_and_accounting(test);
   test_down_m128n128_ldmatrix_pairring_v1_selector_and_accounting(test);
   test_down_m128n128_16warp_pairring_v1_selector_and_accounting(test);
+  test_attention_k256_a_exchange_b4_selector_and_accounting(test);
   test_trace_layout_and_factory_error(test);
   if (test.failures() != 0) {
     std::cerr << test.failures() << " reference-runner host test(s) failed\n";

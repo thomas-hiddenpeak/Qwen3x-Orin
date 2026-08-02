@@ -219,6 +219,19 @@ struct ReferencePrefillTileOutcome {
 struct ReferenceLongPrefillResult {
   std::uint32_t first_position = 0U;
   std::size_t token_count = 0U;
+  // Independent request-local proof for the incumbent K256 Attention
+  // projection implementation.  The physical count is one launch per
+  // Linear input, Full input, or Attention-O topology; the logical count
+  // expands the fused input topologies back to their two or three planes.
+  std::size_t attention_k256_m128n256_incumbent_launch_hits = 0U;
+  std::size_t
+      attention_k256_m128n256_incumbent_logical_projection_hits = 0U;
+  // The A-exchange/B4 successor never aliases the incumbent counters.  This
+  // lets a real API request prove a single-selector replacement rather than
+  // merely proving that some K256 Attention implementation ran.
+  std::size_t attention_k256_m128n256_a_exchange_b4_launch_hits = 0U;
+  std::size_t
+      attention_k256_m128n256_a_exchange_b4_logical_projection_hits = 0U;
   // Request-local proof that the default-off alternating K256 Gate+Up route
   // owned every decoder layer.  The runner leaves this at zero for every
   // other route; consumers must not infer selection from the environment.
@@ -1035,6 +1048,36 @@ struct A4W4AttentionSupermatrixRouteQuery final {
       query, A4W4PrefillConsumer::kK256, 256U);
 }
 
+// Exactly one implementation selector may own the authenticated K256
+// Attention projection route.  The payload/shape selector above remains the
+// shared ABI authority; this selector only chooses the consumer dataflow.
+enum class A4W4AttentionK256M128N256Implementation : std::uint8_t {
+  kDisabled = 0,
+  kIncumbent,
+  kAExchangeB4,
+  kInvalid,
+};
+
+struct A4W4AttentionK256M128N256ImplementationQuery final {
+  bool incumbent_requested = false;
+  bool a_exchange_b4_requested = false;
+};
+
+[[nodiscard]] constexpr A4W4AttentionK256M128N256Implementation
+select_a4w4_attention_k256_m128n256_implementation(
+    const A4W4AttentionK256M128N256ImplementationQuery& query) noexcept {
+  if (query.incumbent_requested && query.a_exchange_b4_requested) {
+    return A4W4AttentionK256M128N256Implementation::kInvalid;
+  }
+  if (query.a_exchange_b4_requested) {
+    return A4W4AttentionK256M128N256Implementation::kAExchangeB4;
+  }
+  if (query.incumbent_requested) {
+    return A4W4AttentionK256M128N256Implementation::kIncumbent;
+  }
+  return A4W4AttentionK256M128N256Implementation::kDisabled;
+}
+
 [[nodiscard]] constexpr bool use_a4w4_gateup_complete_cell_v2_route(
     const A4W4GateUpCompleteCellV2RouteQuery& query) noexcept {
   return query.admission_enabled &&
@@ -1519,6 +1562,17 @@ bool exchange_a4w4_attention_supermatrix_admission_test_enabled(
     bool enabled) noexcept;
 A4W4AttentionSupermatrixAdmissionHits
 exchange_a4w4_attention_supermatrix_admission_test_hits(
+    A4W4AttentionSupermatrixAdmissionHits hits) noexcept;
+bool exchange_a4w4_attention_k256_m128n256_admission_test_enabled(
+    bool enabled) noexcept;
+A4W4AttentionSupermatrixAdmissionHits
+exchange_a4w4_attention_k256_m128n256_admission_test_hits(
+    A4W4AttentionSupermatrixAdmissionHits hits) noexcept;
+bool
+exchange_a4w4_attention_k256_m128n256_a_exchange_b4_admission_test_enabled(
+    bool enabled) noexcept;
+A4W4AttentionSupermatrixAdmissionHits
+exchange_a4w4_attention_k256_m128n256_a_exchange_b4_admission_test_hits(
     A4W4AttentionSupermatrixAdmissionHits hits) noexcept;
 A4W4FullPrefillAdmissionHits
 exchange_a4w4_full_prefill_admission_test_hits(

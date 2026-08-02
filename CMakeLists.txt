@@ -998,6 +998,16 @@ if(Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION)
     Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION=1
   )
 endif()
+if(Q3X_BUILD_SM87_A4W4_ATTENTION_K256_M128N256_ADMISSION)
+  target_compile_definitions(q3x_engine PRIVATE
+    Q3X_ENABLE_A4W4_ATTENTION_K256_M128N256_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_EXPERIMENT)
+  target_compile_definitions(q3x_engine PRIVATE
+    Q3X_ENABLE_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_EXPERIMENT=1
+  )
+endif()
 if(Q3X_BUILD_SM87_A4W4_ATTENTION_O_K512_ADMISSION)
   target_compile_definitions(q3x_engine PRIVATE
     Q3X_ENABLE_A4W4_ATTENTION_O_K512_ADMISSION=1
@@ -3767,6 +3777,40 @@ if(BUILD_TESTING)
       ENVIRONMENT
         "Q3X_DISABLE_OPTIMIZED_PREFILL=1;Q3X_RUN_A4W4_ATTENTION_SUPERMATRIX_ADMISSION=1"
       LABELS "host;sm87;prefill;a4w4;k128;attention;supermatrix;admission;environment;negative"
+    )
+  endif()
+  if(Q3X_BUILD_SM87_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_EXPERIMENT)
+    add_test(
+      NAME reference_runner_host_attention_k256_a_exchange_b4_admission
+      COMMAND q3x_reference_runner_host_test
+    )
+    set_tests_properties(
+      reference_runner_host_attention_k256_a_exchange_b4_admission PROPERTIES
+      ENVIRONMENT
+        "Q3X_DISABLE_OPTIMIZED_PREFILL=0;Q3X_RUN_A4W4_ATTENTION_K256_M128N256_ADMISSION=0;Q3X_RUN_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_ADMISSION=1"
+      LABELS "host;sm87;prefill;a4w4;k256;attention;a_exchange_b4;admission;environment"
+    )
+    add_test(
+      NAME reference_runner_host_attention_k256_a_exchange_b4_nonexact_env
+      COMMAND q3x_reference_runner_host_test
+    )
+    set_tests_properties(
+      reference_runner_host_attention_k256_a_exchange_b4_nonexact_env
+      PROPERTIES
+      ENVIRONMENT
+        "Q3X_DISABLE_OPTIMIZED_PREFILL=0;Q3X_RUN_A4W4_ATTENTION_K256_M128N256_ADMISSION=0;Q3X_RUN_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_ADMISSION=true"
+      LABELS "host;sm87;prefill;a4w4;k256;attention;a_exchange_b4;admission;environment;negative"
+    )
+    add_test(
+      NAME reference_runner_host_attention_k256_a_exchange_b4_global_disable
+      COMMAND q3x_reference_runner_host_test
+    )
+    set_tests_properties(
+      reference_runner_host_attention_k256_a_exchange_b4_global_disable
+      PROPERTIES
+      ENVIRONMENT
+        "Q3X_DISABLE_OPTIMIZED_PREFILL=1;Q3X_RUN_A4W4_ATTENTION_K256_M128N256_ADMISSION=0;Q3X_RUN_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_ADMISSION=1"
+      LABELS "host;sm87;prefill;a4w4;k256;attention;a_exchange_b4;admission;environment;negative"
     )
   endif()
   if(Q3X_BUILD_SM87_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION)

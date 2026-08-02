@@ -318,6 +318,18 @@ GenerationControlResult run_generation_control_impl(
       }
       control.timing.prefix_execution_milliseconds.push_back(elapsed);
       control.timing.prompt_prefill_milliseconds = elapsed;
+      control.timing.attention_k256_m128n256_incumbent_launch_hits =
+          outcome.value->attention_k256_m128n256_incumbent_launch_hits;
+      control.timing
+          .attention_k256_m128n256_incumbent_logical_projection_hits =
+          outcome.value
+              ->attention_k256_m128n256_incumbent_logical_projection_hits;
+      control.timing.attention_k256_m128n256_a_exchange_b4_launch_hits =
+          outcome.value->attention_k256_m128n256_a_exchange_b4_launch_hits;
+      control.timing
+          .attention_k256_m128n256_a_exchange_b4_logical_projection_hits =
+          outcome.value
+              ->attention_k256_m128n256_a_exchange_b4_logical_projection_hits;
       control.timing.gateup_alternating_launch_hits =
           outcome.value->gateup_alternating_launch_hits;
       control.timing.gateup_m128n512_paired_ldmatrix_launch_hits =

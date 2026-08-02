@@ -8,6 +8,9 @@
 #if defined(Q3X_ENABLE_A4W4_ATTENTION_K256_M128N256_ADMISSION)
 #include "q3x/kernels/sm87_a4w4_attention_k256_m128n256.h"
 #endif
+#if defined(Q3X_ENABLE_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_EXPERIMENT)
+#include "q3x/kernels/sm87_a4w4_attention_k256_m128n256_a_exchange_b4.h"
+#endif
 #if defined(Q3X_ENABLE_A4W4_ATTENTION_O_K512_ADMISSION)
 #include "q3x/kernels/sm87_a4w4_attention_o_k512_cell.h"
 #endif
@@ -440,6 +443,28 @@ thread_local bool g_enable_a4w4_attention_k256_m128n256_admission =
 thread_local reference_runner_detail::
     A4W4AttentionSupermatrixAdmissionHits
         g_a4w4_attention_k256_m128n256_admission_hits{};
+#endif
+
+#if defined(Q3X_ENABLE_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_EXPERIMENT)
+[[nodiscard]] bool
+a4w4_attention_k256_m128n256_a_exchange_b4_environment_enabled() noexcept {
+  if (optimized_prefill_dispatch_disabled()) {
+    return false;
+  }
+  const char* const value = std::getenv(
+      "Q3X_RUN_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_ADMISSION");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
+thread_local bool
+    g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_admission =
+        a4w4_attention_k256_m128n256_a_exchange_b4_environment_enabled();
+thread_local reference_runner_detail::
+    A4W4AttentionSupermatrixAdmissionHits
+        g_a4w4_attention_k256_m128n256_a_exchange_b4_admission_hits{};
+#else
+constexpr bool
+    g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_admission = false;
 #endif
 
 [[nodiscard]] bool
@@ -1176,8 +1201,10 @@ void record_a4w4_attention_supermatrix_launch(
     const reference_runner_detail::A4W4AttentionSupermatrixAdmissionHits&
         after,
     const std::size_t complete_model_units,
+    std::size_t& physical_launch_delta,
     std::size_t& logical_projection_delta,
     std::size_t& output_projection_delta) noexcept {
+  physical_launch_delta = 0U;
   logical_projection_delta = 0U;
   output_projection_delta = 0U;
   if (after.linear_input_launch_hits < before.linear_input_launch_hits ||
@@ -1205,6 +1232,7 @@ void record_a4w4_attention_supermatrix_launch(
       logical != 2U * linear + 3U * full + output) {
     return false;
   }
+  physical_launch_delta = linear + full + output;
   logical_projection_delta = logical;
   output_projection_delta = output;
   return true;
@@ -1410,8 +1438,13 @@ void record_a4w4_attention_supermatrix_launch(
     void* const stream,
     reference_runner_detail::A4W4FullPrefillAdmissionHits& local_full_hits,
     reference_runner_detail::A4W4AttentionSupermatrixAdmissionHits&
-        local_attention_hits,
+        local_incumbent_attention_hits,
+    reference_runner_detail::A4W4AttentionSupermatrixAdmissionHits&
+        local_a_exchange_b4_attention_hits,
     bool* const selected) noexcept {
+#if !defined(Q3X_ENABLE_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_EXPERIMENT)
+  (void)local_a_exchange_b4_attention_hits;
+#endif
   if (selected != nullptr) {
     *selected = false;
   }
@@ -1433,9 +1466,23 @@ void record_a4w4_attention_supermatrix_launch(
     return static_cast<int>(cudaErrorInvalidValue);
   }
 
+  const reference_runner_detail::
+      A4W4AttentionK256M128N256Implementation implementation =
+          reference_runner_detail::
+              select_a4w4_attention_k256_m128n256_implementation(
+                  {g_enable_a4w4_attention_k256_m128n256_admission,
+                   g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_admission});
+  if (implementation == reference_runner_detail::
+                            A4W4AttentionK256M128N256Implementation::
+                                kInvalid) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+
   reference_runner_detail::A4W4AttentionSupermatrixRouteQuery query;
   query.admission_enabled =
-      g_enable_a4w4_attention_k256_m128n256_admission;
+      implementation != reference_runner_detail::
+                            A4W4AttentionK256M128N256Implementation::
+                                kDisabled;
   query.inventory_consumer = consumer;
   query.family = family;
   query.projection_token_count = token_count;
@@ -1467,15 +1514,42 @@ void record_a4w4_attention_supermatrix_launch(
         plane.output_row_stride_elements,
         plane.output_capacity_elements};
   }
-  const int status =
-      kernels::launch_sm87_a4w4_attention_k256_m128n256_bf16_cuda(
-          topology, packed_input, packed_input_capacity, input_scales,
-          input_scale_capacity, token_count, projection_views.data(),
-          projection_count, stream);
+  int status = static_cast<int>(cudaErrorInvalidValue);
+#if defined(Q3X_ENABLE_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_EXPERIMENT)
+  if (implementation ==
+      reference_runner_detail::
+          A4W4AttentionK256M128N256Implementation::kAExchangeB4) {
+    status = kernels::
+        launch_sm87_a4w4_attention_k256_m128n256_a_exchange_b4_bf16_cuda(
+            topology, packed_input, packed_input_capacity, input_scales,
+            input_scale_capacity, token_count, projection_views.data(),
+            projection_count, stream);
+  } else
+#endif
+      if (implementation ==
+          reference_runner_detail::
+              A4W4AttentionK256M128N256Implementation::kIncumbent) {
+    status = kernels::launch_sm87_a4w4_attention_k256_m128n256_bf16_cuda(
+        topology, packed_input, packed_input_capacity, input_scales,
+        input_scale_capacity, token_count, projection_views.data(),
+        projection_count, stream);
+  }
   if (status == static_cast<int>(cudaSuccess)) {
-    record_a4w4_attention_supermatrix_launch(
-        family, local_full_hits, local_attention_hits,
-        g_a4w4_attention_k256_m128n256_admission_hits);
+    if (implementation ==
+        reference_runner_detail::
+            A4W4AttentionK256M128N256Implementation::kIncumbent) {
+      record_a4w4_attention_supermatrix_launch(
+          family, local_full_hits, local_incumbent_attention_hits,
+          g_a4w4_attention_k256_m128n256_admission_hits);
+#if defined(Q3X_ENABLE_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_EXPERIMENT)
+    } else if (implementation ==
+               reference_runner_detail::
+                   A4W4AttentionK256M128N256Implementation::kAExchangeB4) {
+      record_a4w4_attention_supermatrix_launch(
+          family, local_full_hits, local_a_exchange_b4_attention_hits,
+          g_a4w4_attention_k256_m128n256_a_exchange_b4_admission_hits);
+#endif
+    }
   }
   return status;
 }
@@ -2466,6 +2540,54 @@ exchange_a4w4_attention_supermatrix_admission_test_hits(
 #if defined(Q3X_ENABLE_A4W4_ATTENTION_SUPERMATRIX_ADMISSION)
   return std::exchange(
       g_a4w4_attention_supermatrix_admission_hits, hits);
+#else
+  (void)hits;
+  return {};
+#endif
+}
+
+bool exchange_a4w4_attention_k256_m128n256_admission_test_enabled(
+    const bool enabled) noexcept {
+#if defined(Q3X_ENABLE_A4W4_ATTENTION_K256_M128N256_ADMISSION)
+  return std::exchange(
+      g_enable_a4w4_attention_k256_m128n256_admission, enabled);
+#else
+  (void)enabled;
+  return false;
+#endif
+}
+
+A4W4AttentionSupermatrixAdmissionHits
+exchange_a4w4_attention_k256_m128n256_admission_test_hits(
+    const A4W4AttentionSupermatrixAdmissionHits hits) noexcept {
+#if defined(Q3X_ENABLE_A4W4_ATTENTION_K256_M128N256_ADMISSION)
+  return std::exchange(
+      g_a4w4_attention_k256_m128n256_admission_hits, hits);
+#else
+  (void)hits;
+  return {};
+#endif
+}
+
+bool
+exchange_a4w4_attention_k256_m128n256_a_exchange_b4_admission_test_enabled(
+    const bool enabled) noexcept {
+#if defined(Q3X_ENABLE_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_EXPERIMENT)
+  return std::exchange(
+      g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_admission,
+      enabled);
+#else
+  (void)enabled;
+  return false;
+#endif
+}
+
+A4W4AttentionSupermatrixAdmissionHits
+exchange_a4w4_attention_k256_m128n256_a_exchange_b4_admission_test_hits(
+    const A4W4AttentionSupermatrixAdmissionHits hits) noexcept {
+#if defined(Q3X_ENABLE_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_EXPERIMENT)
+  return std::exchange(
+      g_a4w4_attention_k256_m128n256_a_exchange_b4_admission_hits, hits);
 #else
   (void)hits;
   return {};
@@ -7156,6 +7278,8 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
 #if defined(Q3X_ENABLE_A4W4_ATTENTION_K256_M128N256_ADMISSION)
   reference_runner_detail::A4W4AttentionSupermatrixAdmissionHits
       local_attention_k256_hits{};
+  reference_runner_detail::A4W4AttentionSupermatrixAdmissionHits
+      local_attention_k256_a_exchange_b4_hits{};
 #endif
   std::size_t attention_o_k512_hits = 0U;
   std::size_t down_complete_cell_v2_hits = 0U;
@@ -7401,18 +7525,24 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
                   hidden_scale_capacity, sidecars.data(), outputs,
                   output_capacities, sidecars.size(), projection_token_count,
                   stream_, local_hits, local_attention_k256_hits,
+                  local_attention_k256_a_exchange_b4_hits,
                   &attention_supermatrix_selected),
-              "prefill_projection_span_linear_qkv_z_k256_m128n256")) {
+              g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_admission
+                  ? "prefill_projection_span_linear_qkv_z_k256_m128n256_a_exchange_b4"
+                  : "prefill_projection_span_linear_qkv_z_k256_m128n256")) {
         return failure;
       }
     }
-    if (g_enable_a4w4_attention_k256_m128n256_admission &&
+    if ((g_enable_a4w4_attention_k256_m128n256_admission ||
+         g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_admission) &&
         a4w4_prefill_consumer_ ==
             reference_runner_detail::A4W4PrefillConsumer::kK256 &&
         !attention_supermatrix_selected) {
       return runner_status(
           ReferenceRunnerError::kInvalidRequestState,
-          "prefill_projection_span_linear_qkv_z_k256_contract",
+          g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_admission
+              ? "prefill_projection_span_linear_qkv_z_k256_a_exchange_b4_contract"
+              : "prefill_projection_span_linear_qkv_z_k256_contract",
           item.layer_index);
     }
 #endif
@@ -7716,18 +7846,24 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
                   intermediate_scale_capacity, sidecars.data(), outputs,
                   output_capacities, sidecars.size(), projection_token_count,
                   stream_, local_hits, local_attention_k256_hits,
+                  local_attention_k256_a_exchange_b4_hits,
                   &attention_output_supermatrix_selected),
-              "prefill_projection_span_linear_output_k256_m128n256")) {
+              g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_admission
+                  ? "prefill_projection_span_linear_output_k256_m128n256_a_exchange_b4"
+                  : "prefill_projection_span_linear_output_k256_m128n256")) {
         return failure;
       }
     }
-    if (g_enable_a4w4_attention_k256_m128n256_admission &&
+    if ((g_enable_a4w4_attention_k256_m128n256_admission ||
+         g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_admission) &&
         a4w4_prefill_consumer_ ==
             reference_runner_detail::A4W4PrefillConsumer::kK256 &&
         !attention_output_supermatrix_selected) {
       return runner_status(
           ReferenceRunnerError::kInvalidRequestState,
-          "prefill_projection_span_linear_output_k256_contract",
+          g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_admission
+              ? "prefill_projection_span_linear_output_k256_a_exchange_b4_contract"
+              : "prefill_projection_span_linear_output_k256_contract",
           item.layer_index);
     }
 #endif
@@ -7838,18 +7974,24 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
                   hidden_scale_capacity, sidecars.data(), outputs,
                   output_capacities, sidecars.size(), projection_token_count,
                   stream_, local_hits, local_attention_k256_hits,
+                  local_attention_k256_a_exchange_b4_hits,
                   &attention_supermatrix_selected),
-              "prefill_projection_span_full_q_k_v_k256_m128n256")) {
+              g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_admission
+                  ? "prefill_projection_span_full_q_k_v_k256_m128n256_a_exchange_b4"
+                  : "prefill_projection_span_full_q_k_v_k256_m128n256")) {
         return failure;
       }
     }
-    if (g_enable_a4w4_attention_k256_m128n256_admission &&
+    if ((g_enable_a4w4_attention_k256_m128n256_admission ||
+         g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_admission) &&
         a4w4_prefill_consumer_ ==
             reference_runner_detail::A4W4PrefillConsumer::kK256 &&
         !attention_supermatrix_selected) {
       return runner_status(
           ReferenceRunnerError::kInvalidRequestState,
-          "prefill_projection_span_full_q_k_v_k256_contract",
+          g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_admission
+              ? "prefill_projection_span_full_q_k_v_k256_a_exchange_b4_contract"
+              : "prefill_projection_span_full_q_k_v_k256_contract",
           item.layer_index);
     }
 #endif
@@ -8149,18 +8291,24 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
                   intermediate_scale_capacity, sidecars.data(), outputs,
                   output_capacities, sidecars.size(), projection_token_count,
                   stream_, local_hits, local_attention_k256_hits,
+                  local_attention_k256_a_exchange_b4_hits,
                   &attention_output_supermatrix_selected),
-              "prefill_projection_span_full_output_k256_m128n256")) {
+              g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_admission
+                  ? "prefill_projection_span_full_output_k256_m128n256_a_exchange_b4"
+                  : "prefill_projection_span_full_output_k256_m128n256")) {
         return failure;
       }
     }
-    if (g_enable_a4w4_attention_k256_m128n256_admission &&
+    if ((g_enable_a4w4_attention_k256_m128n256_admission ||
+         g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_admission) &&
         a4w4_prefill_consumer_ ==
             reference_runner_detail::A4W4PrefillConsumer::kK256 &&
         !attention_output_supermatrix_selected) {
       return runner_status(
           ReferenceRunnerError::kInvalidRequestState,
-          "prefill_projection_span_full_output_k256_contract",
+          g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_admission
+              ? "prefill_projection_span_full_output_k256_a_exchange_b4_contract"
+              : "prefill_projection_span_full_output_k256_contract",
           item.layer_index);
     }
 #endif
@@ -9355,6 +9503,14 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
       local_attention_k256_hits.output_launch_hits;
   observed_attention_logical +=
       local_attention_k256_hits.logical_projection_hits;
+  observed_attention_linear +=
+      local_attention_k256_a_exchange_b4_hits.linear_input_launch_hits;
+  observed_attention_full +=
+      local_attention_k256_a_exchange_b4_hits.full_input_launch_hits;
+  observed_attention_output +=
+      local_attention_k256_a_exchange_b4_hits.output_launch_hits;
+  observed_attention_logical +=
+      local_attention_k256_a_exchange_b4_hits.logical_projection_hits;
 #endif
   const bool attention_supermatrix_inputs_all =
       observed_attention_linear == expected_attention_linear &&
@@ -9407,9 +9563,38 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
   const bool k256_attention_output_all =
       local_attention_k256_hits.output_launch_hits ==
       expected_attention_output;
+  const bool k256_attention_none =
+      local_attention_k256_hits.linear_input_launch_hits == 0U &&
+      local_attention_k256_hits.full_input_launch_hits == 0U &&
+      local_attention_k256_hits.output_launch_hits == 0U &&
+      local_attention_k256_hits.logical_projection_hits == 0U;
+  const bool k256_a_exchange_b4_attention_inputs_all =
+      local_attention_k256_a_exchange_b4_hits.linear_input_launch_hits ==
+          expected_attention_linear &&
+      local_attention_k256_a_exchange_b4_hits.full_input_launch_hits ==
+          expected_attention_full &&
+      local_attention_k256_a_exchange_b4_hits.logical_projection_hits ==
+          expected_attention_input_logical +
+              local_attention_k256_a_exchange_b4_hits.output_launch_hits;
+  const bool k256_a_exchange_b4_attention_output_all =
+      local_attention_k256_a_exchange_b4_hits.output_launch_hits ==
+      expected_attention_output;
+  const bool k256_a_exchange_b4_attention_none =
+      local_attention_k256_a_exchange_b4_hits.linear_input_launch_hits ==
+          0U &&
+      local_attention_k256_a_exchange_b4_hits.full_input_launch_hits == 0U &&
+      local_attention_k256_a_exchange_b4_hits.output_launch_hits == 0U &&
+      local_attention_k256_a_exchange_b4_hits.logical_projection_hits == 0U;
   const bool requested_attention_k256_selected =
-      !g_enable_a4w4_attention_k256_m128n256_admission ||
-      (k256_attention_inputs_all && k256_attention_output_all);
+      (g_enable_a4w4_attention_k256_m128n256_admission
+           ? k256_attention_inputs_all && k256_attention_output_all &&
+                 k256_a_exchange_b4_attention_none
+           : k256_attention_none) &&
+      (g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_admission
+           ? k256_a_exchange_b4_attention_inputs_all &&
+                 k256_a_exchange_b4_attention_output_all &&
+                 k256_attention_none
+           : k256_a_exchange_b4_attention_none);
 #else
   constexpr bool requested_attention_k256_selected = true;
 #endif
@@ -9706,6 +9891,10 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
     const auto attention_k256_hits_before =
         g_a4w4_attention_k256_m128n256_admission_hits;
 #endif
+#if defined(Q3X_ENABLE_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_EXPERIMENT)
+    const auto attention_k256_a_exchange_b4_hits_before =
+        g_a4w4_attention_k256_m128n256_a_exchange_b4_admission_hits;
+#endif
     auto* const device_token_ids =
         reinterpret_cast<std::uint32_t*>(views_.projection[3]);
     const auto stream = reinterpret_cast<cudaStream_t>(stream_);
@@ -9769,29 +9958,54 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
       return current >= initial &&
              current - initial == spans * per_span;
     };
+    [[maybe_unused]] std::size_t attention_supermatrix_launch_delta = 0U;
     std::size_t attention_logical_delta = 0U;
     std::size_t attention_supermatrix_output_delta = 0U;
+    std::size_t attention_k256_incumbent_launch_delta = 0U;
+    std::size_t attention_k256_incumbent_logical_delta = 0U;
+    std::size_t attention_k256_a_exchange_b4_launch_delta = 0U;
+    std::size_t attention_k256_a_exchange_b4_logical_delta = 0U;
     bool attention_accounting_valid = true;
 #if defined(Q3X_ENABLE_A4W4_ATTENTION_SUPERMATRIX_ADMISSION)
     attention_accounting_valid =
         a4w4_attention_supermatrix_aggregate_delta(
             attention_hits_before,
             g_a4w4_attention_supermatrix_admission_hits, spans,
-            attention_logical_delta,
+            attention_supermatrix_launch_delta, attention_logical_delta,
             attention_supermatrix_output_delta);
 #endif
 #if defined(Q3X_ENABLE_A4W4_ATTENTION_K256_M128N256_ADMISSION)
-    std::size_t attention_k256_logical_delta = 0U;
     std::size_t attention_k256_output_delta = 0U;
     attention_accounting_valid =
         attention_accounting_valid &&
         a4w4_attention_supermatrix_aggregate_delta(
             attention_k256_hits_before,
             g_a4w4_attention_k256_m128n256_admission_hits, spans,
-            attention_k256_logical_delta, attention_k256_output_delta);
-    attention_logical_delta += attention_k256_logical_delta;
+            attention_k256_incumbent_launch_delta,
+            attention_k256_incumbent_logical_delta,
+            attention_k256_output_delta);
+    attention_logical_delta += attention_k256_incumbent_logical_delta;
     attention_supermatrix_output_delta += attention_k256_output_delta;
 #endif
+#if defined(Q3X_ENABLE_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_EXPERIMENT)
+    std::size_t attention_k256_a_exchange_b4_output_delta = 0U;
+    attention_accounting_valid =
+        attention_accounting_valid &&
+        a4w4_attention_supermatrix_aggregate_delta(
+            attention_k256_a_exchange_b4_hits_before,
+            g_a4w4_attention_k256_m128n256_a_exchange_b4_admission_hits,
+            spans, attention_k256_a_exchange_b4_launch_delta,
+            attention_k256_a_exchange_b4_logical_delta,
+            attention_k256_a_exchange_b4_output_delta);
+    attention_logical_delta +=
+        attention_k256_a_exchange_b4_logical_delta;
+    attention_supermatrix_output_delta +=
+        attention_k256_a_exchange_b4_output_delta;
+#endif
+    attention_accounting_valid =
+        attention_accounting_valid &&
+        (attention_k256_incumbent_logical_delta == 0U ||
+         attention_k256_a_exchange_b4_logical_delta == 0U);
     std::size_t attention_o_k512_delta = 0U;
 #if defined(Q3X_ENABLE_A4W4_ATTENTION_O_K512_ADMISSION)
     if (g_a4w4_attention_o_k512_admission_hits <
@@ -10069,6 +10283,14 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
     ReferenceLongPrefillResult value;
     value.first_position = 0U;
     value.token_count = token_count;
+    value.attention_k256_m128n256_incumbent_launch_hits =
+        attention_k256_incumbent_launch_delta;
+    value.attention_k256_m128n256_incumbent_logical_projection_hits =
+        attention_k256_incumbent_logical_delta;
+    value.attention_k256_m128n256_a_exchange_b4_launch_hits =
+        attention_k256_a_exchange_b4_launch_delta;
+    value.attention_k256_m128n256_a_exchange_b4_logical_projection_hits =
+        attention_k256_a_exchange_b4_logical_delta;
     value.gateup_alternating_launch_hits =
         gateup_down_k512_edge_m64n128_k256_alternating_delta;
     value.gateup_m128n512_paired_ldmatrix_launch_hits =
@@ -10200,6 +10422,8 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
         a4w4_attention_hits_before{};
     reference_runner_detail::A4W4AttentionSupermatrixAdmissionHits
         a4w4_attention_k256_hits_before{};
+    reference_runner_detail::A4W4AttentionSupermatrixAdmissionHits
+        a4w4_attention_k256_a_exchange_b4_hits_before{};
   } context{this, input_token_ids, {}};
 #if defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
   context.a4w4_full_prefill_selected = a4_inventory_enabled;
@@ -10216,6 +10440,10 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
 #if defined(Q3X_ENABLE_A4W4_ATTENTION_K256_M128N256_ADMISSION)
   context.a4w4_attention_k256_hits_before =
       g_a4w4_attention_k256_m128n256_admission_hits;
+#endif
+#if defined(Q3X_ENABLE_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_EXPERIMENT)
+  context.a4w4_attention_k256_a_exchange_b4_hits_before =
+      g_a4w4_attention_k256_m128n256_a_exchange_b4_admission_hits;
 #endif
 #endif
 
@@ -10329,29 +10557,54 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
         return current >= initial &&
                current - initial == tiles * per_tile;
       };
+      [[maybe_unused]] std::size_t attention_supermatrix_launch_delta = 0U;
       std::size_t attention_logical_delta = 0U;
       std::size_t attention_supermatrix_output_delta = 0U;
+      std::size_t attention_k256_incumbent_launch_delta = 0U;
+      std::size_t attention_k256_incumbent_logical_delta = 0U;
+      std::size_t attention_k256_a_exchange_b4_launch_delta = 0U;
+      std::size_t attention_k256_a_exchange_b4_logical_delta = 0U;
       bool attention_accounting_valid = true;
 #if defined(Q3X_ENABLE_A4W4_ATTENTION_SUPERMATRIX_ADMISSION)
       attention_accounting_valid =
           a4w4_attention_supermatrix_aggregate_delta(
               execution.a4w4_attention_hits_before,
               g_a4w4_attention_supermatrix_admission_hits, tiles,
-              attention_logical_delta,
+              attention_supermatrix_launch_delta, attention_logical_delta,
               attention_supermatrix_output_delta);
 #endif
 #if defined(Q3X_ENABLE_A4W4_ATTENTION_K256_M128N256_ADMISSION)
-      std::size_t attention_k256_logical_delta = 0U;
       std::size_t attention_k256_output_delta = 0U;
       attention_accounting_valid =
           attention_accounting_valid &&
           a4w4_attention_supermatrix_aggregate_delta(
               execution.a4w4_attention_k256_hits_before,
               g_a4w4_attention_k256_m128n256_admission_hits, tiles,
-              attention_k256_logical_delta, attention_k256_output_delta);
-      attention_logical_delta += attention_k256_logical_delta;
+              attention_k256_incumbent_launch_delta,
+              attention_k256_incumbent_logical_delta,
+              attention_k256_output_delta);
+      attention_logical_delta += attention_k256_incumbent_logical_delta;
       attention_supermatrix_output_delta += attention_k256_output_delta;
 #endif
+#if defined(Q3X_ENABLE_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_EXPERIMENT)
+      std::size_t attention_k256_a_exchange_b4_output_delta = 0U;
+      attention_accounting_valid =
+          attention_accounting_valid &&
+          a4w4_attention_supermatrix_aggregate_delta(
+              execution.a4w4_attention_k256_a_exchange_b4_hits_before,
+              g_a4w4_attention_k256_m128n256_a_exchange_b4_admission_hits,
+              tiles, attention_k256_a_exchange_b4_launch_delta,
+              attention_k256_a_exchange_b4_logical_delta,
+              attention_k256_a_exchange_b4_output_delta);
+      attention_logical_delta +=
+          attention_k256_a_exchange_b4_logical_delta;
+      attention_supermatrix_output_delta +=
+          attention_k256_a_exchange_b4_output_delta;
+#endif
+      attention_accounting_valid =
+          attention_accounting_valid &&
+          (attention_k256_incumbent_logical_delta == 0U ||
+           attention_k256_a_exchange_b4_logical_delta == 0U);
       std::size_t attention_o_k512_delta = 0U;
 #if defined(Q3X_ENABLE_A4W4_ATTENTION_O_K512_ADMISSION)
       if (g_a4w4_attention_o_k512_admission_hits <
@@ -10818,10 +11071,38 @@ ReferenceRunnerFactoryResult create_reference_runner(
   }
 #endif
 #if defined(Q3X_ENABLE_A4W4_ATTENTION_K256_M128N256_ADMISSION)
+  const reference_runner_detail::
+      A4W4AttentionK256M128N256Implementation attention_k256_implementation =
+          reference_runner_detail::
+              select_a4w4_attention_k256_m128n256_implementation(
+                  {g_enable_a4w4_attention_k256_m128n256_admission,
+                   g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_admission});
+  if (options.enable_a4w4_full_prefill_admission &&
+      attention_k256_implementation ==
+          reference_runner_detail::
+              A4W4AttentionK256M128N256Implementation::kInvalid) {
+    result.diagnostic = runner_status(
+        ReferenceRunnerError::kInvalidDependency,
+        "prefill_a4w4_attention_k256_implementation_conflict");
+    return result;
+  }
+  if (options.enable_a4w4_full_prefill_admission &&
+      attention_k256_implementation !=
+          reference_runner_detail::
+              A4W4AttentionK256M128N256Implementation::kDisabled &&
+      runner.a4w4_prefill_consumer_ !=
+          reference_runner_detail::A4W4PrefillConsumer::kK256) {
+    result.diagnostic = runner_status(
+        ReferenceRunnerError::kInvalidDependency,
+        "prefill_a4w4_attention_k256_consumer_contract");
+    return result;
+  }
 #if defined(Q3X_ENABLE_A4W4_ATTENTION_SUPERMATRIX_ADMISSION)
   if (options.enable_a4w4_full_prefill_admission &&
       g_enable_a4w4_attention_supermatrix_admission &&
-      g_enable_a4w4_attention_k256_m128n256_admission) {
+      attention_k256_implementation !=
+          reference_runner_detail::
+              A4W4AttentionK256M128N256Implementation::kDisabled) {
     result.diagnostic = runner_status(
         ReferenceRunnerError::kInvalidDependency,
         "prefill_a4w4_attention_selector_conflict");
@@ -10853,7 +11134,9 @@ ReferenceRunnerFactoryResult create_reference_runner(
   if (options.enable_a4w4_full_prefill_admission &&
       runner.a4w4_prefill_consumer_ ==
           reference_runner_detail::A4W4PrefillConsumer::kK256 &&
-      !g_enable_a4w4_attention_k256_m128n256_admission) {
+      attention_k256_implementation ==
+          reference_runner_detail::
+              A4W4AttentionK256M128N256Implementation::kDisabled) {
     result.diagnostic = runner_status(
         ReferenceRunnerError::kInvalidDependency,
         "prefill_a4w4_attention_k256_selector");

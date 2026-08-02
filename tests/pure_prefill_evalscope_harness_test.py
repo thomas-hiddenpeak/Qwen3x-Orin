@@ -35,14 +35,27 @@ ATTENTION_K256_ALTERNATING_DOWN_16WARP_PAIRRING_MODE = (
     "cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-"
     "alternating-down-16warp-pairring-attention-k256"
 )
+ATTENTION_K256_A_EXCHANGE_B4_MODE = (
+    "cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-"
+    "alternating-down-16warp-pairring-attention-k256-a-exchange-b4"
+)
 ATTENTION_K256_LAYOUT = (
     "sm87_s4_n64_packed_k64_scale_k256_consumer_v3"
+)
+ATTENTION_K256_INCUMBENT_SELECTOR = (
+    "Q3X_RUN_A4W4_ATTENTION_K256_M128N256_ADMISSION"
+)
+ATTENTION_K256_A_EXCHANGE_B4_SELECTOR = (
+    "Q3X_RUN_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_ADMISSION"
 )
 ATTENTION_K256_MARKERS = (
     "prefill_projection_span_linear_qkv_z_k256_m128n256",
     "prefill_projection_span_linear_output_k256_m128n256",
     "prefill_projection_span_full_q_k_v_k256_m128n256",
     "prefill_projection_span_full_output_k256_m128n256",
+)
+ATTENTION_K256_A_EXCHANGE_B4_MARKERS = tuple(
+    f"{marker}_a_exchange_b4" for marker in ATTENTION_K256_MARKERS
 )
 MLP_K512_CURRENT_MODE = "cumulative-prefill-current-best-mlp-k512"
 MLP_K512_V1_MODE = "cumulative-prefill-current-best-mlp-k512-v1"
@@ -178,6 +191,8 @@ class Fixture:
             "# Q3X_RUN_FULL_ATTENTION_PREPROCESS_PROMPT_WIDE_128_ADMISSION\n"
             "# Q3X_RUN_A4W4_ATTENTION_O_K512_ADMISSION\n"
             "# Q3X_RUN_A4W4_ATTENTION_K256_M128N256_ADMISSION\n"
+            "# Q3X_RUN_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_"
+            "ADMISSION\n"
             "# Q3X_RUN_A4W4_MLP_K512_ADMISSION\n"
             "# Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_ADMISSION\n"
             "# Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_"
@@ -197,6 +212,9 @@ class Fixture:
             f"{MLP_K512_EDGE_M128N64_MARKER}\n"
             f"{MLP_K512_DOWN_M16N64_V2_MARKER}\n"
             + "".join(f"{marker}\n" for marker in ATTENTION_K256_MARKERS)
+            + "".join(
+                f"{marker}\n" for marker in ATTENTION_K256_A_EXCHANGE_B4_MARKERS
+            )
             + f"{HYBRID_INPUT_MARKER}\n"
             + f"{HYBRID_GATE_MARKER}\n"
             + f"{HYBRID_CANONICAL_DOWN_MARKER}\n"
@@ -436,6 +454,9 @@ class Fixture:
         environment[
             "Q3X_RUN_A4W4_ATTENTION_K256_M128N256_ADMISSION"
         ] = "1"
+        environment[
+            "Q3X_RUN_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_ADMISSION"
+        ] = "1"
         environment["Q3X_RUN_A4W4_MLP_K512_ADMISSION"] = "1"
         environment[
             "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_ADMISSION"
@@ -556,6 +577,14 @@ class Fixture:
         return self.run_attention_k256(
             bucket=bucket,
             mode=ATTENTION_K256_ALTERNATING_DOWN_16WARP_PAIRRING_MODE,
+        )
+
+    def run_attention_k256_a_exchange_b4(
+        self, *, bucket: str = "p2k"
+    ) -> subprocess.CompletedProcess[str]:
+        return self.run_attention_k256(
+            bucket=bucket,
+            mode=ATTENTION_K256_A_EXCHANGE_B4_MODE,
         )
 
     def run_mlp_k512_edge_m128n64(
@@ -1452,6 +1481,298 @@ class PurePrefillEvalScopeHarnessTest(unittest.TestCase):
             f"required_runtime_stage={DOWN_16WARP_PAIRRING_MARKER}",
             contents,
         )
+
+    def test_attention_k256_a_exchange_b4_is_one_attention_selector_delta(
+        self,
+    ) -> None:
+        help_result = subprocess.run(
+            [str(RUNNER), "--help"],
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+        self.assertEqual(help_result.returncode, 0, help_result.stderr)
+        self.assertIn(ATTENTION_K256_A_EXCHANGE_B4_MODE, help_result.stderr)
+
+        baseline = (
+            self.fixture.run_attention_k256_alternating_down_16warp_pairring()
+        )
+        candidate = self.fixture.run_attention_k256_a_exchange_b4()
+        self.assertEqual(baseline.returncode, 0, baseline.stderr)
+        self.assertEqual(candidate.returncode, 0, candidate.stderr)
+        self.assertIn(
+            f"mode={ATTENTION_K256_A_EXCHANGE_B4_MODE} dry_run=1",
+            candidate.stdout,
+        )
+        self.assertIn("selector_count=10", candidate.stdout)
+
+        baseline_startup = next(
+            line
+            for line in baseline.stdout.splitlines()
+            if line.startswith("server_startup_command")
+        )
+        candidate_startup = next(
+            line
+            for line in candidate.stdout.splitlines()
+            if line.startswith("server_startup_command")
+        )
+        baseline_selectors = set(
+            re.findall(r"(Q3X_[A-Z0-9_]+)=1", baseline_startup)
+        )
+        candidate_selectors = set(
+            re.findall(r"(Q3X_[A-Z0-9_]+)=1", candidate_startup)
+        )
+        self.assertEqual(
+            baseline_selectors - candidate_selectors,
+            {ATTENTION_K256_INCUMBENT_SELECTOR},
+        )
+        self.assertEqual(
+            candidate_selectors - baseline_selectors,
+            {ATTENTION_K256_A_EXCHANGE_B4_SELECTOR},
+        )
+        self.assertIn(
+            f"-u {ATTENTION_K256_A_EXCHANGE_B4_SELECTOR}",
+            baseline_startup,
+        )
+        self.assertNotIn(
+            f"{ATTENTION_K256_A_EXCHANGE_B4_SELECTOR}=1", baseline_startup
+        )
+        self.assertIn(
+            f"-u {ATTENTION_K256_INCUMBENT_SELECTOR}", candidate_startup
+        )
+        self.assertIn(
+            f"-u {ATTENTION_K256_A_EXCHANGE_B4_SELECTOR}",
+            candidate_startup,
+        )
+        self.assertNotIn(
+            f"{ATTENTION_K256_INCUMBENT_SELECTOR}=1", candidate_startup
+        )
+        self.assertIn(
+            f"{ATTENTION_K256_A_EXCHANGE_B4_SELECTOR}=1",
+            candidate_startup,
+        )
+        self.assertIn(
+            f"{DOWN_16WARP_PAIRRING_SELECTOR}=1", candidate_startup
+        )
+
+        delta = next(
+            line
+            for line in candidate.stdout.splitlines()
+            if line.startswith("candidate_delta")
+        )
+        self.assertIn(
+            "baseline_mode="
+            f"{ATTENTION_K256_ALTERNATING_DOWN_16WARP_PAIRRING_MODE}",
+            delta,
+        )
+        self.assertIn(
+            f"removed_selector={ATTENTION_K256_INCUMBENT_SELECTOR}", delta
+        )
+        self.assertIn(
+            f"added_selector={ATTENTION_K256_A_EXCHANGE_B4_SELECTOR}",
+            delta,
+        )
+
+        attention_contract = next(
+            line
+            for line in candidate.stdout.splitlines()
+            if line.startswith("stage_contract")
+            and ATTENTION_K256_A_EXCHANGE_B4_MARKERS[0] in line
+        )
+        self.assertIn(
+            f"required={','.join(ATTENTION_K256_A_EXCHANGE_B4_MARKERS)}",
+            attention_contract,
+        )
+        self.assertIn(
+            f"excluded={','.join(ATTENTION_K256_MARKERS)},",
+            attention_contract,
+        )
+        self.assertIn(
+            "expected_request_launch_hits=attention_incumbent:0,"
+            "attention_candidate:128",
+            attention_contract,
+        )
+        self.assertIn(
+            "expected_request_logical_projections=attention_incumbent:0,"
+            "attention_candidate:208",
+            attention_contract,
+        )
+
+        candidate_metadata = next(
+            line
+            for line in candidate.stdout.splitlines()
+            if line.startswith("attention_k256_publication_metadata")
+        )
+        self.assertIn("incumbent_expected_launch_hits=0", candidate_metadata)
+        self.assertIn(
+            "incumbent_expected_logical_projections=0", candidate_metadata
+        )
+        self.assertIn(
+            "a_exchange_b4_expected_launch_hits=128", candidate_metadata
+        )
+        self.assertIn(
+            "a_exchange_b4_expected_logical_projections=208",
+            candidate_metadata,
+        )
+        baseline_metadata = next(
+            line
+            for line in baseline.stdout.splitlines()
+            if line.startswith("attention_k256_publication_metadata")
+        )
+        self.assertIn("incumbent_expected_launch_hits=128", baseline_metadata)
+        self.assertIn(
+            "incumbent_expected_logical_projections=208", baseline_metadata
+        )
+        self.assertIn(
+            "a_exchange_b4_expected_launch_hits=0", baseline_metadata
+        )
+        self.assertIn(
+            "a_exchange_b4_expected_logical_projections=0", baseline_metadata
+        )
+
+        down_contract = next(
+            line
+            for line in candidate.stdout.splitlines()
+            if line.startswith("stage_contract")
+            and DOWN_16WARP_PAIRRING_MARKER in line
+        )
+        self.assertIn(
+            "expected_request_launch_hits=gate:64,down_incumbent:0,"
+            "down_candidate:64",
+            down_contract,
+        )
+        self.assertIn("performance_evidence=0", candidate.stdout)
+        self.assertFalse(self.fixture.output.exists())
+
+    def test_attention_k256_a_exchange_b4_fails_closed(
+        self,
+    ) -> None:
+        original = self.fixture.server.read_text(encoding="utf-8")
+        self.fixture.server.write_text(
+            original.replace(
+                f"# {ATTENTION_K256_A_EXCHANGE_B4_SELECTOR}\n", ""
+            ),
+            encoding="utf-8",
+        )
+        missing_selector = self.fixture.run_attention_k256_a_exchange_b4()
+        self.assertEqual(missing_selector.returncode, 2)
+        self.assertIn(
+            "server does not contain the "
+            f"{ATTENTION_K256_A_EXCHANGE_B4_MODE} selector: "
+            f"{ATTENTION_K256_A_EXCHANGE_B4_SELECTOR}",
+            missing_selector.stderr,
+        )
+
+        self.fixture.server.write_text(
+            original.replace(
+                f"{ATTENTION_K256_A_EXCHANGE_B4_MARKERS[-1]}\n", ""
+            ),
+            encoding="utf-8",
+        )
+        missing_marker = self.fixture.run_attention_k256_a_exchange_b4()
+        self.assertEqual(missing_marker.returncode, 2)
+        self.assertIn(
+            "server does not prove the K256 Attention production stage: "
+            f"{ATTENTION_K256_A_EXCHANGE_B4_MARKERS[-1]}",
+            missing_marker.stderr,
+        )
+
+    def test_attention_k256_a_exchange_b4_records_independent_runtime_proof(
+        self,
+    ) -> None:
+        contents = RUNNER.read_text(encoding="utf-8")
+        expected_variables = (
+            "attention_k256_incumbent_expected_launch_hits",
+            "attention_k256_incumbent_expected_logical_hits",
+            "attention_k256_a_exchange_b4_expected_launch_hits",
+            "attention_k256_a_exchange_b4_expected_logical_hits",
+        )
+        for variable in expected_variables:
+            self.assertIn(variable, contents)
+        request_fields = (
+            "attention_k256_m128n256_incumbent_launch_hits",
+            "attention_k256_m128n256_incumbent_logical_projection_hits",
+            "attention_k256_m128n256_a_exchange_b4_launch_hits",
+            "attention_k256_m128n256_a_exchange_b4_logical_projection_hits",
+        )
+        for field in request_fields:
+            self.assertIn(field, contents)
+        self.assertIn(
+            "attention_k256_runtime_contract bucket=%s requests=%s "
+            "incumbent_launch_hits_per_request=%s "
+            "incumbent_logical_projections_per_request=%s "
+            "candidate_launch_hits_per_request=%s "
+            "candidate_logical_projections_per_request=%s status=passed",
+            contents,
+        )
+        self.assertIn(
+            "experiment_baseline_mode="
+            f"{ATTENTION_K256_ALTERNATING_DOWN_16WARP_PAIRRING_MODE}",
+            contents,
+        )
+        self.assertIn(
+            f"experiment_removed_selector={ATTENTION_K256_INCUMBENT_SELECTOR}",
+            contents,
+        )
+        self.assertIn(
+            "experiment_added_selector="
+            f"{ATTENTION_K256_A_EXCHANGE_B4_SELECTOR}",
+            contents,
+        )
+
+    def test_attention_k256_request_window_preserves_four_independent_counts(
+        self,
+    ) -> None:
+        awk_program = """
+            /^evaluation request .* prompt_tokens=/ {
+              successes += 1
+              if (successes > skip) {
+                print
+              }
+            }
+        """
+        historical = [
+            "evaluation request old prompt_tokens=512 "
+            "attention_k256_m128n256_incumbent_launch_hits=128 "
+            "attention_k256_m128n256_incumbent_logical_projection_hits=208 "
+            "attention_k256_m128n256_a_exchange_b4_launch_hits=0 "
+            "attention_k256_m128n256_a_exchange_b4_logical_projection_hits=0"
+        ]
+        current = [
+            f"evaluation request {kind} prompt_tokens=2048 "
+            "attention_k256_m128n256_incumbent_launch_hits=0 "
+            "attention_k256_m128n256_incumbent_logical_projection_hits=0 "
+            "attention_k256_m128n256_a_exchange_b4_launch_hits=128 "
+            "attention_k256_m128n256_a_exchange_b4_logical_projection_hits=208"
+            for kind in ("warmup", "measured-1", "measured-2")
+        ]
+        log = "\n".join([*historical, "evaluation request failed", *current])
+        selected = subprocess.run(
+            ["awk", "-v", "skip=1", awk_program],
+            input=log + "\n",
+            text=True,
+            capture_output=True,
+            check=True,
+        ).stdout.splitlines()
+        self.assertEqual(selected, current)
+        for request in selected:
+            self.assertRegex(
+                request,
+                r" attention_k256_m128n256_incumbent_launch_hits=0 ",
+            )
+            self.assertRegex(
+                request,
+                r" attention_k256_m128n256_incumbent_logical_projection_hits=0 ",
+            )
+            self.assertRegex(
+                request,
+                r" attention_k256_m128n256_a_exchange_b4_launch_hits=128 ",
+            )
+            self.assertRegex(
+                request,
+                r" attention_k256_m128n256_a_exchange_b4_"
+                r"logical_projection_hits=208$",
+            )
 
     def test_attention_k256_alternating_mode_requires_stage_marker(
         self,

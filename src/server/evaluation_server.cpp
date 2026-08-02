@@ -988,6 +988,18 @@ void execute_job(runtime::ReferenceEngine& engine,
             << (generated.value->layer_major_prefill ? 1 : 0)
             << " prompt_prefill_ms="
             << generated.value->timing.prompt_prefill_milliseconds
+            << " attention_k256_m128n256_incumbent_launch_hits="
+            << generated.value->timing
+                   .attention_k256_m128n256_incumbent_launch_hits
+            << " attention_k256_m128n256_incumbent_logical_projection_hits="
+            << generated.value->timing
+                   .attention_k256_m128n256_incumbent_logical_projection_hits
+            << " attention_k256_m128n256_a_exchange_b4_launch_hits="
+            << generated.value->timing
+                   .attention_k256_m128n256_a_exchange_b4_launch_hits
+            << " attention_k256_m128n256_a_exchange_b4_logical_projection_hits="
+            << generated.value->timing
+                   .attention_k256_m128n256_a_exchange_b4_logical_projection_hits
             << " gateup_alternating_launch_hits="
             << generated.value->timing.gateup_alternating_launch_hits
             << " gateup_m128n512_paired_ldmatrix_launch_hits="

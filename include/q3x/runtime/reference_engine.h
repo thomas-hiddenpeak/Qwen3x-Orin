@@ -176,6 +176,14 @@ struct ReferenceGenerationTiming {
   double finish_prefill_milliseconds = 0.0;
   double prompt_prefill_milliseconds = 0.0;
   double time_to_first_token_milliseconds = 0.0;
+  // Request-local proof for the mutually exclusive incumbent and
+  // A-exchange/B4 K256 Attention projection implementations.
+  std::size_t attention_k256_m128n256_incumbent_launch_hits = 0U;
+  std::size_t
+      attention_k256_m128n256_incumbent_logical_projection_hits = 0U;
+  std::size_t attention_k256_m128n256_a_exchange_b4_launch_hits = 0U;
+  std::size_t
+      attention_k256_m128n256_a_exchange_b4_logical_projection_hits = 0U;
   // Propagated request-local runtime proof for the default-off alternating
   // K256 Gate+Up admission.  Zero means the route did not own this request.
   std::size_t gateup_alternating_launch_hits = 0U;
