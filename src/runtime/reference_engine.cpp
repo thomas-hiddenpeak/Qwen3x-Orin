@@ -3410,7 +3410,8 @@ struct Sm87MLPK512FragmentNativePreparation final {
   }
   const PrefillSidecarManifest& manifest = *built_manifest.value;
   if ((manifest.kind != PrefillSidecarKind::kA4K64 &&
-       manifest.kind != PrefillSidecarKind::kA4K128) ||
+       manifest.kind != PrefillSidecarKind::kA4K128 &&
+       manifest.kind != PrefillSidecarKind::kA4K256) ||
       manifest.residency_class != PrefillSidecarResidencyClass::kA4 ||
       manifest.projections.size() != kQwen36PrefillProjectionCount) {
     result.message = "rebuilt sidecar manifest is not a complete A4 ABI";
@@ -3432,9 +3433,13 @@ struct Sm87MLPK512FragmentNativePreparation final {
   PrefillA4AuthenticatedPublication publication =
       std::move(*authenticated.value);
   const bool k64_v1 = manifest.kind == PrefillSidecarKind::kA4K64;
+  const bool k256_v3 = manifest.kind == PrefillSidecarKind::kA4K256;
   const std::string_view expected_layout =
-      k64_v1 ? kPrefillA4PhysicalLayout : kPrefillA4K128PhysicalLayout;
-  const std::uint32_t expected_scale_group = k64_v1 ? 64U : 128U;
+      k64_v1 ? kPrefillA4PhysicalLayout
+             : k256_v3 ? kPrefillA4K256PhysicalLayout
+                       : kPrefillA4K128PhysicalLayout;
+  const std::uint32_t expected_scale_group =
+      k64_v1 ? 64U : k256_v3 ? 256U : 128U;
   if (publication.receipt().sidecar_kind != manifest.kind ||
       publication.receipt().packed_k_group_size != 64U ||
       publication.receipt().scale_group_size != expected_scale_group ||
@@ -3922,13 +3927,16 @@ prepare_sm87_mlp_k512_overlay(
   const PrefillMLPK512BaseBinding actual_base{
       base.physical_layout, base.manifest_sha256, base.policy_sha256,
       base.payload_sha256};
-  if (!base.enabled ||
-      base.sidecar_kind != PrefillSidecarKind::kA4K128 ||
+  const bool supported_base =
+      (base.sidecar_kind == PrefillSidecarKind::kA4K128 &&
+       actual_base.physical_layout == kPrefillA4K128PhysicalLayout) ||
+      (base.sidecar_kind == PrefillSidecarKind::kA4K256 &&
+       actual_base.physical_layout == kPrefillA4K256PhysicalLayout);
+  if (!base.enabled || !supported_base ||
       base.projections != kQwen36PrefillProjectionCount ||
-      actual_base.physical_layout != kPrefillA4K128PhysicalLayout ||
       !resident_matches_pinned_identity(resident)) {
     result.message =
-        "K512 MLP requires the authenticated K128 base inventory";
+        "K512 MLP requires an authenticated K128 or K256 base inventory";
     result.context = "prefill_mlp_k512.base";
     return result;
   }
@@ -4779,7 +4787,7 @@ struct ReferenceEngine::Impl {
       result.diagnostic = engine_diagnostic(
           ReferenceEngineError::kInvalidArgument,
           "prefill_mlp_k512_options",
-          "the K512 MLP overlay requires an explicit K128 A4 base");
+          "the K512 MLP overlay requires an explicit authenticated A4 base");
       return result;
     }
     if (prefill_mlp_k512_environment_enabled() &&
@@ -5179,6 +5187,17 @@ struct ReferenceEngine::Impl {
                 prefill_a4_preparation.cuda_error;
             result.diagnostic.dependency_error =
                 prefill_a4_preparation.dependency_error;
+            return result;
+          }
+          if (prefill_a4_preparation.sidecar_kind ==
+                  PrefillSidecarKind::kA4K256 &&
+              (!prefill_mlp_k512_paths.requested ||
+               !prefill_mlp_k512_selected)) {
+            result.diagnostic = engine_diagnostic(
+                ReferenceEngineError::kRunnerFactoryFailure,
+                "prefill_a4_k256_mlp_contract",
+                "the K256 Attention base requires both the authenticated "
+                "192-projection K512 MLP overlay and its runtime selector");
             return result;
           }
           impl->load.prefill_a4_sidecars_enabled = true;
@@ -5991,8 +6010,8 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
         long_prefill_layer_major_environment_enabled();
     long_prefill_query.short_prompt_admission_enabled =
         short_prefill_layer_major_environment_enabled();
-    long_prefill_query.authenticated_a4_k128 =
-        impl_->runner->authenticated_a4w4_k128_prefill_enabled();
+    long_prefill_query.authenticated_a4_prefill =
+        impl_->runner->authenticated_a4w4_prefill_enabled();
     long_prefill_query.projection_backend =
         impl_->runner->projection_backend();
     long_prefill_query.capture_trace = options.capture_trace;

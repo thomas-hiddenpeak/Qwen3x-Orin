@@ -269,7 +269,9 @@ struct PrefillA4LinearSidecarView {
         (sidecar_kind == PrefillSidecarKind::kA4K64 &&
          packed_k_group_size == 64U && scale_group_size == 64U) ||
         (sidecar_kind == PrefillSidecarKind::kA4K128 &&
-         packed_k_group_size == 64U && scale_group_size == 128U);
+         packed_k_group_size == 64U && scale_group_size == 128U) ||
+        (sidecar_kind == PrefillSidecarKind::kA4K256 &&
+         packed_k_group_size == 64U && scale_group_size == 256U);
     return weight != nullptr && scales != nullptr && format_valid &&
            activation_clip_ratio > 0.0F && activation_clip_ratio <= 1.0F;
   }
@@ -630,7 +632,8 @@ class ModelWeights {
   // Transactionally publishes the complete calibrated 400-projection A4
   // inventory described by manifest. The arena and manifest must represent
   // the same pinned checkpoint, A4 residency class, offsets, shapes and either
-  // the K64-v1 or packed-K64/shared-scale-K128-v2 consumer format. The
+  // the K64-v1, packed-K64/shared-scale-K128-v2, or
+  // packed-K64/shared-scale-K256-v3 consumer format. The
   // authenticated policy supplies the per-projection
   // dynamic-activation clip ratio and must bind the same manifest. Existing
   // exact Prefill sidecars make attachment fail;
@@ -653,7 +656,7 @@ class ModelWeights {
       const PrefillAttentionOK512OverlayPolicy* policy) noexcept;
 
   // Transactionally overlays exactly the 192 Gate/Up/Down projections on an
-  // already-authenticated K128 A4 inventory.  All manifest, policy, base,
+  // already-authenticated K128 or K256 A4 inventory.  All manifest, policy, base,
   // binding, shape, range, and alignment checks complete before any existing
   // MLP K512 view changes.  The arena is non-owning and must outlive
   // ModelWeights and every queued K512 launch.  A canonical null/zero call

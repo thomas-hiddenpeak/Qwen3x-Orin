@@ -1695,6 +1695,12 @@ int run_evaluation_server(const EvaluationServerOptions& options,
             << load.prefill_a4_sidecar_projections
             << " prefill_a4_bytes=" << load.prefill_a4_sidecar_bytes
             << " prefill_a4_layout=" << load.prefill_a4_physical_layout
+            << " prefill_a4_manifest_sha256="
+            << load.prefill_a4_manifest_sha256
+            << " prefill_a4_policy_sha256="
+            << load.prefill_a4_policy_sha256
+            << " prefill_a4_payload_sha256="
+            << load.prefill_a4_payload_sha256
             << " prefill_attention_o_k512_ms="
             << load.prefill_attention_o_k512_overlay_milliseconds
             << " prefill_attention_o_k512_requested="

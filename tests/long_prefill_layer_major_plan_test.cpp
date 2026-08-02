@@ -235,25 +235,25 @@ void test_route_gate(TestContext& test) {
   candidate.prompt_token_count = 512U;
   test.expect(falls_back(candidate), "short C512 prompt falls back");
   candidate.short_prompt_admission_enabled = true;
-  candidate.authenticated_a4_k128 = true;
+  candidate.authenticated_a4_prefill = true;
   test.expect(!falls_back(candidate),
-              "explicit authenticated K128 short admission selects P512");
+              "explicit authenticated A4 short admission selects P512");
   candidate.prompt_token_count =
       runtime::kShortPrefillLayerMajorMinimumTokens;
   test.expect(!falls_back(candidate),
-              "authenticated K128 short admission includes P480");
+              "authenticated A4 short admission includes P480");
   candidate.prompt_token_count =
       runtime::kShortPrefillLayerMajorMinimumTokens - 1U;
   test.expect(falls_back(candidate),
-              "authenticated K128 short admission excludes P479");
+              "authenticated A4 short admission excludes P479");
   candidate.prompt_token_count = 512U;
-  candidate.authenticated_a4_k128 = false;
+  candidate.authenticated_a4_prefill = false;
   test.expect(falls_back(candidate),
-              "short admission never selects a non-K128 inventory");
-  candidate.authenticated_a4_k128 = true;
+              "short admission never selects an unauthenticated inventory");
+  candidate.authenticated_a4_prefill = true;
   candidate.short_prompt_admission_enabled = false;
   test.expect(falls_back(candidate),
-              "authenticated K128 remains on default short fallback");
+              "authenticated A4 remains on default short fallback");
   candidate = query;
   candidate.prompt_token_count = 40'961U;
   candidate.hidden_token_capacity = 40'961U;

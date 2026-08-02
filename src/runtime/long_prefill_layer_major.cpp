@@ -97,7 +97,7 @@ LongPrefillLayerMajorRoute select_long_prefill_layer_major_route(
       query.prompt_token_count > kLongPrefillLayerMajorTileTokens;
   const bool admitted_short_prompt =
       query.short_prompt_admission_enabled &&
-      query.authenticated_a4_k128 &&
+      query.authenticated_a4_prefill &&
       query.prompt_token_count >= kShortPrefillLayerMajorMinimumTokens &&
       query.prompt_token_count <= kLongPrefillLayerMajorTileTokens;
   const bool selected =

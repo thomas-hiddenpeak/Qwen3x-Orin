@@ -158,7 +158,7 @@ void test_manifest_inventory_and_budgets(TestContext& test,
     std::uint64_t payload;
     std::uint64_t arena;
   };
-  const std::array<Expected, 5U> expected = {{
+  const std::array<Expected, 6U> expected = {{
       {runtime::PrefillSidecarKind::kExact,
        runtime::PrefillSidecarResidencyClass::kExact,
        runtime::kPrefillExactSidecarPayloadBytes, 16'840'232'960ULL},
@@ -177,12 +177,16 @@ void test_manifest_inventory_and_budgets(TestContext& test,
        runtime::PrefillSidecarResidencyClass::kA4,
        runtime::kPrefillA4K128SidecarPayloadBytes,
        runtime::kPrefillA4K128SidecarPayloadBytes},
+      {runtime::PrefillSidecarKind::kA4K256,
+       runtime::PrefillSidecarResidencyClass::kA4,
+       runtime::kPrefillA4K256SidecarPayloadBytes,
+       runtime::kPrefillA4K256SidecarPayloadBytes},
   }};
 
   for (const Expected& item : expected) {
     const runtime::PrefillSidecarManifestResult built =
         build_manifest(source, item.kind);
-    test.expect(built.ok(), "all five sidecar manifests build");
+    test.expect(built.ok(), "all six sidecar manifests build");
     if (!built) {
       std::cerr << "manifest error: "
                 << runtime::to_string(built.diagnostic.code) << " "
@@ -231,6 +235,9 @@ void test_manifest_inventory_and_budgets(TestContext& test,
 
     bool offsets_valid = true;
     std::uint64_t prior_end = 0U;
+    std::uint64_t weight_bytes = 0U;
+    std::uint64_t scale_bytes = 0U;
+    std::uint64_t metadata_bytes = 0U;
     for (const runtime::PrefillProjectionSidecarEntry& entry :
          manifest.projections) {
       offsets_valid = offsets_valid && entry.source_sha256.size() == 64U &&
@@ -241,11 +248,29 @@ void test_manifest_inventory_and_budgets(TestContext& test,
                           entry.weight_bytes + entry.scale_bytes +
                               entry.metadata_bytes;
       prior_end = entry.sidecar_offset + entry.sidecar_byte_size;
+      weight_bytes += entry.weight_bytes;
+      scale_bytes += entry.scale_bytes;
+      metadata_bytes += entry.metadata_bytes;
     }
     test.expect(offsets_valid && prior_end <= manifest.summary.arena_bytes,
                 "all 400 offsets are aligned, disjoint, and source-bound");
     test.expect(runtime::validate_prefill_sidecar_manifest(manifest).ok(),
                 "fresh sidecar manifest revalidates");
+    if (item.kind == runtime::PrefillSidecarKind::kA4K256) {
+      const bool exact_v3_encoding = std::all_of(
+          manifest.projections.begin(), manifest.projections.end(),
+          [](const runtime::PrefillProjectionSidecarEntry& entry) {
+            return entry.scale_group_size == 256U &&
+                   entry.layout ==
+                       runtime::PrefillSidecarLayout::kSm87S4K256Consumer;
+          });
+      test.expect(weight_bytes == 12'163'481'600ULL &&
+                      scale_bytes == 190'054'400ULL && metadata_bytes == 0U &&
+                      weight_bytes + scale_bytes ==
+                          runtime::kPrefillA4K256SidecarPayloadBytes &&
+                      exact_v3_encoding,
+                  "A4-K256 v3 has exact packed-weight/shared-scale payload arithmetic");
+    }
   }
 }
 
@@ -417,6 +442,17 @@ void test_prompt_arena_sizes(TestContext& test) {
                   built.value->intermediate_scales_bf16.byte_size ==
                       10'880'000U,
               "P40K A4-K128 packed staging and scale budget is exact");
+
+  options.activation_scale_group_size = 256U;
+  built = runtime::build_prefill_prompt_arena_plan(options);
+  test.expect(built && built.value->arena_bytes == 2'751'520'000ULL &&
+                  built.value->hidden_quantized.byte_size == 102'400'000U &&
+                  built.value->hidden_scales_bf16.byte_size == 1'600'000U &&
+                  built.value->attention_output_input_scales_bf16.byte_size ==
+                      1'920'000U &&
+                  built.value->intermediate_scales_bf16.byte_size ==
+                      5'440'000U,
+              "P40K A4-K256 packed staging and scale budget is exact");
 
   options.activation = runtime::PrefillPromptActivation::kA8;
   options.activation_scale_group_size = 128U;

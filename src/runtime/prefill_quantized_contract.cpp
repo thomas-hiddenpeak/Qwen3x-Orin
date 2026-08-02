@@ -115,6 +115,7 @@ struct SourceComponent {
     case PrefillSidecarKind::kA8Compact:
     case PrefillSidecarKind::kA4K64:
     case PrefillSidecarKind::kA4K128:
+    case PrefillSidecarKind::kA4K256:
       return true;
   }
   return false;
@@ -232,6 +233,13 @@ struct SourceComponent {
       encoding.weight_bytes = elements / 2U;
       encoding.scale_bytes = (elements / 128U) * sizeof(std::uint16_t);
       break;
+    case PrefillSidecarKind::kA4K256:
+      encoding.quantization = PrefillWeightQuantization::kSymmetricW4;
+      encoding.scale_group_size = 256U;
+      encoding.layout = PrefillSidecarLayout::kSm87S4K256Consumer;
+      encoding.weight_bytes = elements / 2U;
+      encoding.scale_bytes = (elements / 256U) * sizeof(std::uint16_t);
+      break;
   }
   std::uint64_t bytes = 0U;
   if (projection.input_size != 0U &&
@@ -260,6 +268,8 @@ struct SourceComponent {
       return kPrefillA4K64SidecarPayloadBytes;
     case PrefillSidecarKind::kA4K128:
       return kPrefillA4K128SidecarPayloadBytes;
+    case PrefillSidecarKind::kA4K256:
+      return kPrefillA4K256SidecarPayloadBytes;
   }
   return 0U;
 }
@@ -538,6 +548,7 @@ PrefillSidecarResidencyClass residency_class_for(
       return PrefillSidecarResidencyClass::kA8;
     case PrefillSidecarKind::kA4K64:
     case PrefillSidecarKind::kA4K128:
+    case PrefillSidecarKind::kA4K256:
       return PrefillSidecarResidencyClass::kA4;
   }
   return PrefillSidecarResidencyClass::kExact;
@@ -882,11 +893,12 @@ PrefillPromptArenaPlanResult build_prefill_prompt_arena_plan(
         break;
       case PrefillPromptActivation::kA4:
         if (options.activation_scale_group_size != 64U &&
-            options.activation_scale_group_size != 128U) {
+            options.activation_scale_group_size != 128U &&
+            options.activation_scale_group_size != 256U) {
           result.diagnostic = make_diagnostic(
               PrefillContractErrorCode::kInvalidOption,
               "activation_scale_group_size",
-              "A4 staging requires K64 or K128");
+              "A4 staging requires K64, K128, or K256");
           return result;
         }
         activation_bits = 4U;
@@ -1218,6 +1230,8 @@ std::string_view to_string(const PrefillSidecarKind kind) noexcept {
       return "a4_k64";
     case PrefillSidecarKind::kA4K128:
       return "a4_k128";
+    case PrefillSidecarKind::kA4K256:
+      return "a4_k256";
   }
   return "invalid";
 }
@@ -1264,6 +1278,8 @@ std::string_view to_string(const PrefillSidecarLayout layout) noexcept {
       return "sm87_s4_k64_consumer";
     case PrefillSidecarLayout::kSm87S4K128Consumer:
       return "sm87_s4_k128_consumer";
+    case PrefillSidecarLayout::kSm87S4K256Consumer:
+      return "sm87_s4_k256_consumer";
   }
   return "invalid";
 }

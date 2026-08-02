@@ -22,18 +22,18 @@ void print_usage(std::ostream& output) {
       << "Usage:\n"
       << "  qwen3x-a4-sidecar policy-template MODEL_DIR OUTPUT"
          " --weight-clip R --activation-clip R"
-         " [--sidecar-kind a4-k64|a4-k128]\n"
+         " [--sidecar-kind a4-k64|a4-k128|a4-k256]\n"
       << "  qwen3x-a4-sidecar convert MODEL_DIR POLICY.json OUTPUT"
-         " [--sidecar-kind a4-k64|a4-k128]"
+         " [--sidecar-kind a4-k64|a4-k128|a4-k256]"
          " [--row-chunk N] [--no-preallocate]\n"
       << "  qwen3x-a4-sidecar attention-o-k512-policy-template"
-         " MODEL_DIR BASE_K128_RECEIPT OUTPUT"
+         " MODEL_DIR BASE_A4_RECEIPT OUTPUT"
          " --weight-clip R --activation-clip R\n"
       << "  qwen3x-a4-sidecar attention-o-k512-convert"
          " MODEL_DIR POLICY.json OUTPUT"
          " [--row-chunk N] [--no-preallocate]\n"
       << "  qwen3x-a4-sidecar mlp-k512-policy-template"
-         " MODEL_DIR BASE_K128_RECEIPT OUTPUT_POLICY"
+         " MODEL_DIR BASE_A4_RECEIPT OUTPUT_POLICY"
          " WEIGHT_CLIP ACTIVATION_CLIP\n"
       << "  qwen3x-a4-sidecar mlp-k512-convert"
          " MODEL_DIR POLICY.json OUTPUT_PAYLOAD [ROW_CHUNK]\n"
@@ -50,8 +50,8 @@ void print_usage(std::ostream& output) {
          "atomically writes a no-replace candidate policy. Both clip ratios "
          "are mandatory; there are no defaults. Template status is not an "
          "accuracy, performance, or capability decision.\n\n"
-      << "A4-K64 is the unchanged v1 default. A4-K128 selects the separate "
-         "v2 packed-K64/shared-scale-K128 layout.\n\n"
+      << "A4-K64 is the unchanged v1 default. A4-K128 and A4-K256 select "
+         "separate v2/v3 packed-K64 shared-scale layouts.\n\n"
       << "--row-chunk must be 64, 128, 192, or 256; N64 is the physical "
          "consumer block, not a fixed kernel CTA tile.\n\n"
       << "Experimental nearest-even is exposed only through the bounded host "
@@ -59,12 +59,12 @@ void print_usage(std::ostream& output) {
          "production receipt.\n\n"
       << "The Attention-O K512 commands create a separate 64-projection "
          "overlay. They read the original authenticated FP8 checkpoint "
-         "weights, never the K128 sidecar. The policy binds the exact base "
-         "K128 receipt and requires independent explicit weight and "
+         "weights, never the base sidecar. The policy binds the exact base "
+         "A4 receipt and requires independent explicit weight and "
          "activation clip ratios.\n\n"
       << "The MLP K512 commands create a separate 192-projection Gate/Up/Down "
          "overlay from the original authenticated checkpoint weights. Its "
-         "policy also binds the exact base K128 receipt. The MLP command "
+         "policy also binds the exact base A4-K128/K256 receipt. The MLP command "
          "arguments are positional; both clip ratios are mandatory and "
          "ROW_CHUNK, when present, must be a positive supported row chunk.\n\n"
       << "The fragment-native command performs a lossless offline v1-to-v2 "
@@ -131,6 +131,10 @@ void print_usage(std::ostream& output) {
   }
   if (value == "a4-k128" || value == "a4_k128") {
     output = runtime::PrefillSidecarKind::kA4K128;
+    return true;
+  }
+  if (value == "a4-k256" || value == "a4_k256") {
+    output = runtime::PrefillSidecarKind::kA4K256;
     return true;
   }
   return false;

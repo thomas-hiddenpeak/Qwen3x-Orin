@@ -1494,6 +1494,8 @@ void test_a4w4_full_prefill_admission_controls(TestContext& test) {
       runtime::PrefillSidecarKind::kA4K64, 64U, 64U);
   const Consumer k128 = detail::a4w4_prefill_consumer_from_contract(
       runtime::PrefillSidecarKind::kA4K128, 64U, 128U);
+  const Consumer k256 = detail::a4w4_prefill_consumer_from_contract(
+      runtime::PrefillSidecarKind::kA4K256, 64U, 256U);
   test.expect(
       detail::authenticated_a4_payload_bytes_for_kind(
           runtime::PrefillSidecarKind::kA4K64) ==
@@ -1502,23 +1504,31 @@ void test_a4w4_full_prefill_admission_controls(TestContext& test) {
               runtime::PrefillSidecarKind::kA4K128) ==
               runtime::kPrefillA4K128SidecarPayloadBytes &&
           detail::authenticated_a4_payload_bytes_for_kind(
+              runtime::PrefillSidecarKind::kA4K256) ==
+              runtime::kPrefillA4K256SidecarPayloadBytes &&
+          detail::authenticated_a4_payload_bytes_for_kind(
               runtime::PrefillSidecarKind::kExact) == 0U,
-      "engine A4 payload gate selects K64 and K128 receipt byte identities");
+      "engine A4 payload gate selects all authenticated A4 receipt byte identities");
   test.expect(
       k64 == Consumer::kK64 && k128 == Consumer::kK128 &&
+          k256 == Consumer::kK256 &&
           detail::a4w4_prefill_consumer_from_contract(
               runtime::PrefillSidecarKind::kA4K64, 64U, 128U) ==
               Consumer::kUnavailable &&
           detail::a4w4_prefill_consumer_from_contract(
               runtime::PrefillSidecarKind::kA4K128, 128U, 128U) ==
+              Consumer::kUnavailable &&
+          detail::a4w4_prefill_consumer_from_contract(
+              runtime::PrefillSidecarKind::kA4K256, 64U, 128U) ==
               Consumer::kUnavailable,
       "A4 consumer selector binds kind, packed layout, and scale group");
   test.expect(
       detail::a4w4_prefill_inventory_consumers_match(k64, k64) &&
           detail::a4w4_prefill_inventory_consumers_match(k128, k128) &&
+          detail::a4w4_prefill_inventory_consumers_match(k256, k256) &&
           !detail::a4w4_prefill_inventory_consumers_match(k64, k128) &&
-          !detail::a4w4_prefill_inventory_consumers_match(k128, k64),
-      "mixed K64/K128 inventories fail the immutable consumer selector");
+          !detail::a4w4_prefill_inventory_consumers_match(k128, k256),
+      "mixed K64/K128/K256 inventories fail the immutable consumer selector");
   test.expect(
       detail::a4w4_prefill_consumer_supports_token_count(k64, 1U) &&
           detail::a4w4_prefill_consumer_supports_token_count(k64, 513U) &&
@@ -1526,8 +1536,12 @@ void test_a4w4_full_prefill_admission_controls(TestContext& test) {
           detail::a4w4_prefill_consumer_supports_token_count(k128, 64U) &&
           !detail::a4w4_prefill_consumer_supports_token_count(k128, 513U) &&
           detail::a4w4_prefill_consumer_supports_token_count(k128, 4'096U) &&
-          detail::a4w4_prefill_consumer_supports_token_count(k128, 40'000U),
-      "K128 dispatch admits only complete M64 spans including P40000");
+          detail::a4w4_prefill_consumer_supports_token_count(k128, 40'000U) &&
+          !detail::a4w4_prefill_consumer_supports_token_count(k256, 64U) &&
+          !detail::a4w4_prefill_consumer_supports_token_count(k256, 128U) &&
+          !detail::a4w4_prefill_consumer_supports_token_count(k256, 4'096U),
+      "K256 remains projection-span-only while K64/K128 preserve their "
+      "complete-M tile contracts");
   const auto p1853 =
       detail::a4w4_projection_span_padding_plan(k128, 1'853U, 4'096U);
   const auto p481 =
@@ -1540,6 +1554,8 @@ void test_a4w4_full_prefill_admission_controls(TestContext& test) {
       detail::a4w4_projection_span_padding_plan(k128, 4'096U, 4'096U);
   const auto p1853_k64 =
       detail::a4w4_projection_span_padding_plan(k64, 1'853U, 4'096U);
+  const auto p1853_k256 =
+      detail::a4w4_projection_span_padding_plan(k256, 1'853U, 4'096U);
   test.expect(
       p481.valid() && p481.logical_token_count == 481U &&
           p481.projection_token_count == 512U &&
@@ -1556,8 +1572,10 @@ void test_a4w4_full_prefill_admission_controls(TestContext& test) {
           p40959_tail.padding_token_count == 1U && p40960_span.valid() &&
           p40960_span.padding_token_count == 0U && p1853_k64.valid() &&
           p1853_k64.projection_token_count == 1'853U &&
-          p1853_k64.padding_token_count == 0U,
-      "K128 whole-M padding maps natural prompts to M128 while K64 remains "
+          p1853_k64.padding_token_count == 0U && p1853_k256.valid() &&
+          p1853_k256.projection_token_count == 1'920U &&
+          p1853_k256.padding_token_count == 67U,
+      "K128/K256 whole-M padding maps natural prompts to M128 while K64 remains "
       "unpadded");
   test.expect(
       detail::a4w4_prefill_consumer_supports_projection_span_prompt(
@@ -1800,6 +1818,25 @@ void test_a4w4_full_prefill_admission_controls(TestContext& test) {
       AttentionFamily::kLinearInput, p1853.projection_token_count, 4'096U);
   const AttentionQuery natural_p3987_output_attention = make_attention_query(
       AttentionFamily::kOutput, p3987.projection_token_count, 4'096U);
+  const auto make_attention_k256_query =
+      [make_attention_query, k256](const AttentionFamily family,
+                                   const std::size_t projection_tokens,
+                                   const std::size_t workspace_tokens) {
+        AttentionQuery query = make_attention_query(
+            family, projection_tokens, workspace_tokens);
+        query.inventory_consumer = k256;
+        query.input_scale_capacity_elements /= 2U;
+        for (auto& plane : query.projections) {
+          plane.weight_scale_capacity_elements /= 2U;
+        }
+        return query;
+      };
+  const AttentionQuery linear_attention_k256 = make_attention_k256_query(
+      AttentionFamily::kLinearInput, 2'048U, 2'048U);
+  const AttentionQuery full_attention_k256 = make_attention_k256_query(
+      AttentionFamily::kFullInput, 2'048U, 2'048U);
+  const AttentionQuery output_attention_k256 = make_attention_k256_query(
+      AttentionFamily::kOutput, p1853_k256.projection_token_count, 4'096U);
   AttentionQuery disabled_attention = linear_attention;
   disabled_attention.admission_enabled = false;
   AttentionQuery k64_attention = linear_attention;
@@ -1841,6 +1878,22 @@ void test_a4w4_full_prefill_admission_controls(TestContext& test) {
       "authenticated K128 M128 including natural padded prompts, fixed "
       "Qwen3.6 family shapes, clean unused planes, and device-row-safe "
       "coordinates");
+  AttentionQuery short_k256_scale = linear_attention_k256;
+  --short_k256_scale.projections[0U].weight_scale_capacity_elements;
+  test.expect(
+      detail::use_a4w4_attention_k256_m128n256_route(
+          linear_attention_k256) &&
+          detail::use_a4w4_attention_k256_m128n256_route(
+              full_attention_k256) &&
+          detail::use_a4w4_attention_k256_m128n256_route(
+              output_attention_k256) &&
+          !detail::use_a4w4_attention_k256_m128n256_route(
+              linear_attention) &&
+          !detail::use_a4w4_attention_supermatrix_route(
+              linear_attention_k256) &&
+          !detail::use_a4w4_attention_k256_m128n256_route(
+              short_k256_scale),
+      "K256 Attention selector is ABI-exclusive and checks K256 scale capacity");
 
   std::array<AttentionQuery, 8U> short_linear_attention{};
   short_linear_attention.fill(linear_attention);

@@ -22,14 +22,23 @@ inline constexpr std::uint32_t kPrefillA4K128CalibrationPolicyVersionMinor =
     0U;
 inline constexpr std::uint32_t kPrefillA4K128PublicationVersionMajor = 2U;
 inline constexpr std::uint32_t kPrefillA4K128PublicationVersionMinor = 0U;
+inline constexpr std::uint32_t kPrefillA4K256CalibrationPolicyVersionMajor =
+    3U;
+inline constexpr std::uint32_t kPrefillA4K256CalibrationPolicyVersionMinor =
+    0U;
+inline constexpr std::uint32_t kPrefillA4K256PublicationVersionMajor = 3U;
+inline constexpr std::uint32_t kPrefillA4K256PublicationVersionMinor = 0U;
 inline constexpr std::uint32_t kPrefillA4WeightGroupSize = 64U;
 inline constexpr std::uint32_t kPrefillA4PackedKGroupSize = 64U;
 inline constexpr std::uint32_t kPrefillA4K128WeightGroupSize = 128U;
+inline constexpr std::uint32_t kPrefillA4K256WeightGroupSize = 256U;
 inline constexpr double kPrefillA4MinimumClipRatio = 1.0 / 256.0;
 inline constexpr std::string_view kPrefillA4PhysicalLayout =
     "sm87_s4_n64_k64_consumer_v1";
 inline constexpr std::string_view kPrefillA4K128PhysicalLayout =
     "sm87_s4_n64_packed_k64_scale_k128_consumer_v2";
+inline constexpr std::string_view kPrefillA4K256PhysicalLayout =
+    "sm87_s4_n64_packed_k64_scale_k256_consumer_v3";
 
 enum class PrefillA4ConversionMode : std::uint8_t {
   // The only mode eligible for a production residency admission. Every one
@@ -155,7 +164,7 @@ struct PrefillA4CalibrationPolicyResult {
 struct PrefillA4PolicyTemplateWriteOptions {
   std::filesystem::path output_path;
   // K64 retains the original v1 policy and physical layout byte-for-byte.
-  // K128 selects the independent v2 shared-scale contract.
+  // K128/K256 select the independent v2/v3 shared-scale contracts.
   PrefillSidecarKind sidecar_kind = PrefillSidecarKind::kA4K64;
   double weight_clip_ratio = 0.0;
   double activation_clip_ratio = 0.0;
@@ -178,17 +187,17 @@ write_prefill_a4_calibration_policy_template(
     const PrefillSidecarManifest& manifest,
     const PrefillA4PolicyTemplateWriteOptions& options);
 
-// Builds the selected A4-K64 v1 or A4-K128 v2 manifest from the pinned
-// Qwen3.6-27B checkpoint metadata in model_directory, then delegates to the
-// no-replace writer above.
+// Builds the selected A4-K64 v1, A4-K128 v2, or A4-K256 v3 manifest from the
+// pinned Qwen3.6-27B checkpoint metadata in model_directory, then delegates
+// to the no-replace writer above.
 [[nodiscard]] PrefillA4PolicyTemplateWriteResult
 write_pinned_qwen36_27b_prefill_a4_calibration_policy_template(
     const std::filesystem::path& model_directory,
     const PrefillA4PolicyTemplateWriteOptions& options);
 
 // Strict JSON schema parser. Unknown/duplicate/missing fields fail closed.
-// A production policy must cover the ordered 400-projection A4-K64 manifest
-// exactly and bind every projection source digest.
+// A production policy must cover the ordered 400-projection selected A4
+// manifest exactly and bind every projection source digest.
 [[nodiscard]] PrefillA4CalibrationPolicyResult
 parse_prefill_a4_calibration_policy(
     std::string_view json,
@@ -242,6 +251,22 @@ quantize_prefill_a4_k128_consumer_blocks(
     std::uint8_t* bf16_scales_little_endian,
     std::size_t bf16_scale_bytes);
 
+// Quantizes the independent A4-K256 v3 shared-scale layout. Packed codes keep
+// the exact v1 consumer order [N/64][K/64][64][32], while one BF16 scale is
+// shared across each adjacent group of four packed K64 blocks and stored as
+// [N/64][K/256][64]. N and K must be multiples of 64 and 256 respectively.
+[[nodiscard]] PrefillA4ConverterDiagnostic
+quantize_prefill_a4_k256_consumer_blocks(
+    const float* source_rows,
+    std::size_t row_count,
+    std::size_t input_size,
+    const PrefillA4ProjectionCalibration& calibration,
+    PrefillA4ConversionMode mode,
+    std::uint8_t* packed_signed_w4,
+    std::size_t packed_signed_w4_bytes,
+    std::uint8_t* bf16_scales_little_endian,
+    std::size_t bf16_scale_bytes);
+
 struct PrefillA4SidecarConversionOptions {
   std::filesystem::path model_directory;
   std::filesystem::path calibration_policy_path;
@@ -262,7 +287,7 @@ struct PrefillA4PublicationReceipt {
   // capability verdict; those gates act on the bound policy SHA separately.
   bool production_residency_eligible = false;
   // v1 receipts omit these three fields on disk and decode to the fixed K64
-  // values below. v2 receipts require and authenticate them explicitly.
+  // values below. v2/v3 receipts require and authenticate them explicitly.
   PrefillSidecarKind sidecar_kind = PrefillSidecarKind::kA4K64;
   std::uint32_t packed_k_group_size = kPrefillA4PackedKGroupSize;
   std::uint32_t scale_group_size = kPrefillA4WeightGroupSize;
@@ -307,13 +332,17 @@ convert_pinned_qwen36_27b_prefill_a4_k64_sidecar(
     const PrefillA4SidecarConversionOptions& options);
 
 // Generic selected-kind entry used by the CLI. K64 invokes the unchanged v1
-// publication contract; K128 invokes the distinct v2 shared-scale contract.
+// publication contract; K128/K256 invoke distinct v2/v3 shared-scale contracts.
 [[nodiscard]] PrefillA4SidecarConversionResult
 convert_pinned_qwen36_27b_prefill_a4_sidecar(
     const PrefillA4SidecarConversionOptions& options);
 
 [[nodiscard]] PrefillA4SidecarConversionResult
 convert_pinned_qwen36_27b_prefill_a4_k128_sidecar(
+    const PrefillA4SidecarConversionOptions& options);
+
+[[nodiscard]] PrefillA4SidecarConversionResult
+convert_pinned_qwen36_27b_prefill_a4_k256_sidecar(
     const PrefillA4SidecarConversionOptions& options);
 
 // Strictly parses a converter publication receipt.

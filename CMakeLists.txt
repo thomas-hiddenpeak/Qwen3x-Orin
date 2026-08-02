@@ -78,6 +78,10 @@ option(Q3X_BUILD_SM87_A4W4_ATTENTION_SUPERMATRIX_ADMISSION
   "Build the default-off runtime admission and tests for the Attention supermatrix cell"
   OFF
 )
+option(Q3X_BUILD_SM87_A4W4_ATTENTION_K256_M128N256_ADMISSION
+  "Build the default-off K256 M128N256 Attention projection cell"
+  OFF
+)
 option(Q3X_BUILD_SM87_A4W4_ATTENTION_O_K512_ADMISSION
   "Build the default-off authenticated K512 Attention-O Prefill route"
   OFF
@@ -247,6 +251,24 @@ if(Q3X_BUILD_SM87_A4W4_ATTENTION_SUPERMATRIX_ADMISSION AND
    NOT Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION)
   message(FATAL_ERROR
     "The Attention supermatrix runtime slice requires the authenticated full-A4 Prefill route"
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_ATTENTION_K256_M128N256_ADMISSION AND
+   NOT BUILD_TESTING)
+  message(FATAL_ERROR
+    "Q3X_BUILD_SM87_A4W4_ATTENTION_K256_M128N256_ADMISSION requires BUILD_TESTING=ON for mandatory resource and correctness validation"
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_ATTENTION_K256_M128N256_ADMISSION AND
+   NOT Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION)
+  message(FATAL_ERROR
+    "The K256 Attention projection cell requires the authenticated full-A4 Prefill route"
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_ATTENTION_K256_M128N256_ADMISSION AND
+   NOT Q3X_BUILD_SM87_A4W4_MLP_K512_ADMISSION)
+  message(FATAL_ERROR
+    "The K256 Attention projection cell requires the complete K512 MLP overlay route because the K256 base has no generic MLP consumer"
   )
 endif()
 if(Q3X_BUILD_SM87_A4W4_ATTENTION_O_K512_ADMISSION AND
@@ -566,6 +588,18 @@ if(Q3X_BUILD_SM87_A4W4_ATTENTION_SUPERMATRIX_ADMISSION)
   )
   target_compile_definitions(q3x_kernels PRIVATE
     Q3X_ENABLE_A4W4_ATTENTION_SUPERMATRIX_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_ATTENTION_K256_M128N256_ADMISSION)
+  target_sources(q3x_kernels PRIVATE
+    src/kernels/sm87/a4w4_attention_k256_m128n256.cu
+  )
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_A4W4_ATTENTION_K256_M128N256_ADMISSION=1
+  )
+  set_source_files_properties(
+    src/kernels/sm87/a4w4_attention_k256_m128n256.cu
+    PROPERTIES COMPILE_OPTIONS "--maxrregcount=128;-Xptxas=-warn-spills"
   )
 endif()
 if(Q3X_BUILD_SM87_A4W4_ATTENTION_O_K512_ADMISSION)
@@ -1582,6 +1616,49 @@ if(BUILD_TESTING)
       SKIP_RETURN_CODE 77
       RESOURCE_LOCK q3x_sm87_gpu
       TIMEOUT 180
+    )
+  endif()
+
+  if(Q3X_BUILD_SM87_A4W4_ATTENTION_K256_M128N256_ADMISSION)
+    add_executable(q3x_sm87_a4w4_attention_k256_m128n256_contract_test
+      tests/sm87_a4w4_attention_k256_m128n256_contract_test.cpp
+    )
+    target_link_libraries(
+      q3x_sm87_a4w4_attention_k256_m128n256_contract_test
+      PRIVATE q3x::kernels CUDA::cudart
+    )
+    q3x_enable_warnings(
+      q3x_sm87_a4w4_attention_k256_m128n256_contract_test
+    )
+    add_test(NAME sm87_a4w4_attention_k256_m128n256_contract
+      COMMAND q3x_sm87_a4w4_attention_k256_m128n256_contract_test
+    )
+    set_tests_properties(
+      sm87_a4w4_attention_k256_m128n256_contract PROPERTIES
+      LABELS "host;sm87;prefill;attention;k256;m128n256;compile_contract"
+    )
+
+    add_executable(q3x_sm87_a4w4_attention_k256_m128n256_correctness_test
+      tests/sm87_a4w4_attention_k256_m128n256_correctness_test.cu
+    )
+    target_link_libraries(
+      q3x_sm87_a4w4_attention_k256_m128n256_correctness_test
+      PRIVATE q3x::kernels CUDA::cudart
+    )
+    q3x_enable_warnings(
+      q3x_sm87_a4w4_attention_k256_m128n256_correctness_test
+    )
+    find_program(Q3X_FLOCK_EXECUTABLE flock REQUIRED)
+    add_test(NAME sm87_a4w4_attention_k256_m128n256_correctness
+      COMMAND "${Q3X_FLOCK_EXECUTABLE}" -x /tmp/q3x-gpu-bench.lock
+              $<TARGET_FILE:q3x_sm87_a4w4_attention_k256_m128n256_correctness_test>
+    )
+    set_tests_properties(
+      sm87_a4w4_attention_k256_m128n256_correctness PROPERTIES
+      LABELS "cuda;sm87;prefill;attention;k256;m128n256;correctness;synthetic"
+      SKIP_RETURN_CODE 77
+      RESOURCE_LOCK q3x_sm87_gpu
+      TIMEOUT 240
     )
   endif()
 

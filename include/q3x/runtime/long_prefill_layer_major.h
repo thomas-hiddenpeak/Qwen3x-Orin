@@ -58,7 +58,7 @@ enum class LongPrefillLayerMajorRoute : std::uint8_t {
 struct LongPrefillLayerMajorRouteQuery {
   bool runtime_enabled = false;
   bool short_prompt_admission_enabled = false;
-  bool authenticated_a4_k128 = false;
+  bool authenticated_a4_prefill = false;
   ProjectionBackend projection_backend = ProjectionBackend::kReference;
   bool capture_trace = false;
   std::uint32_t prompt_token_count = 0U;
@@ -83,11 +83,11 @@ struct LongPrefillLayerMajorRouteQuery {
     const bool a4_inventory_enabled,
     const bool optimized_prefill_disabled,
     const bool short_prompt_admission_enabled = false,
-    const bool authenticated_a4_k128 = false) noexcept {
+    const bool authenticated_a4_prefill = false) noexcept {
   const bool long_prompt =
       prompt_token_count > kLongPrefillLayerMajorTileTokens;
   const bool admitted_short_prompt =
-      short_prompt_admission_enabled && authenticated_a4_k128 &&
+      short_prompt_admission_enabled && authenticated_a4_prefill &&
       prompt_token_count >= kShortPrefillLayerMajorMinimumTokens &&
       prompt_token_count <= kLongPrefillLayerMajorTileTokens;
   return !optimized_prefill_disabled && a4_inventory_enabled &&

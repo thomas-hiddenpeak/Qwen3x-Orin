@@ -86,7 +86,7 @@ struct PrefillMLPK512OverlayDiagnostic {
   [[nodiscard]] explicit operator bool() const noexcept { return ok(); }
 };
 
-// The overlay is deliberately tied to the exact authenticated K128
+// The overlay is deliberately tied to the exact authenticated K128 or K256
 // publication used for every non-MLP projection. This prevents a benchmark
 // from silently pairing the K512 MLP plane with a different calibration
 // bundle.
@@ -96,6 +96,20 @@ struct PrefillMLPK512BaseBinding {
   std::string policy_sha256;
   std::string payload_sha256;
 };
+
+[[nodiscard]] constexpr bool prefill_mlp_k512_base_layout_matches_contract(
+    const std::string_view physical_layout,
+    const PrefillSidecarKind sidecar_kind,
+    const std::uint32_t packed_k_group_size,
+    const std::uint32_t scale_group_size) noexcept {
+  return packed_k_group_size == kPrefillMLPK512OverlayPackedK &&
+         ((physical_layout == kPrefillA4K128PhysicalLayout &&
+           sidecar_kind == PrefillSidecarKind::kA4K128 &&
+           scale_group_size == 128U) ||
+          (physical_layout == kPrefillA4K256PhysicalLayout &&
+           sidecar_kind == PrefillSidecarKind::kA4K256 &&
+           scale_group_size == 256U));
+}
 
 struct PrefillMLPK512OverlayEntry {
   std::uint32_t ordinal = 0U;
@@ -196,7 +210,7 @@ write_qwen36_27b_prefill_mlp_k512_overlay_policy_template(
     const PrefillMLPK512OverlayPolicyTemplateOptions& options);
 
 // Host quantizer for one or more complete N64 blocks.  Input is the decoded
-// original checkpoint matrix, never K128 codes/scales.  Packed codes use
+// original checkpoint matrix, never base-sidecar codes/scales.  Packed codes use
 // [N/64][K/64][64][32], while BF16 scales use [N/64][K/512][64].
 [[nodiscard]] PrefillMLPK512OverlayDiagnostic
 quantize_prefill_mlp_k512_consumer_blocks(

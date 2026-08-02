@@ -15,7 +15,7 @@ usage: run_native_pure_prefill_matrix.sh \
   [--prefill-mlp-k512-fragment-native-payload FILE \
    --prefill-mlp-k512-fragment-native-policy FILE \
    --prefill-mlp-k512-fragment-native-receipt FILE] \
-  [--mode exact|native-gdn|cumulative-prefill|cumulative-prefill-down|cumulative-prefill-attention-down|cumulative-prefill-current-best|cumulative-prefill-current-best-k512|cumulative-prefill-current-best-mlp-k512|cumulative-prefill-current-best-mlp-k512-v1|cumulative-prefill-current-best-mlp-k512-edge|cumulative-prefill-current-best-mlp-k512-edge-m128n64|cumulative-prefill-current-best-mlp-k512-down-m16n64-v2|cumulative-prefill-current-best-mlp-k512-fragment-native|cumulative-prefill-current-best-mlp-k512-fragment-native-m128|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-staged|cumulative-prefill-current-best-mlp-k512-fragment-native-m64n128-1cta|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta-down-m128n256-1cta|cumulative-prefill-short] \
+  [--mode exact|native-gdn|cumulative-prefill|cumulative-prefill-down|cumulative-prefill-attention-down|cumulative-prefill-current-best|cumulative-prefill-current-best-k512|cumulative-prefill-current-best-mlp-k512|cumulative-prefill-current-best-mlp-k512-v1|cumulative-prefill-current-best-mlp-k512-edge|cumulative-prefill-current-best-mlp-k512-edge-attention-k256|cumulative-prefill-current-best-mlp-k512-edge-m128n64|cumulative-prefill-current-best-mlp-k512-down-m16n64-v2|cumulative-prefill-current-best-mlp-k512-fragment-native|cumulative-prefill-current-best-mlp-k512-fragment-native-m128|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-staged|cumulative-prefill-current-best-mlp-k512-fragment-native-m64n128-1cta|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta-down-m128n256-1cta|cumulative-prefill-short] \
   [--dry-run] \
   ELF MODEL_DIR CORPUS_DIR OUTPUT_ROOT [p512|p1k|p2k|p4k]
 EOF
@@ -124,7 +124,7 @@ done
   exit 2
 }
 case "${mode}" in
-  exact|native-gdn|cumulative-prefill|cumulative-prefill-down|cumulative-prefill-attention-down|cumulative-prefill-current-best|cumulative-prefill-current-best-k512|cumulative-prefill-current-best-mlp-k512|cumulative-prefill-current-best-mlp-k512-v1|cumulative-prefill-current-best-mlp-k512-edge|cumulative-prefill-current-best-mlp-k512-edge-m128n64|cumulative-prefill-current-best-mlp-k512-down-m16n64-v2|cumulative-prefill-current-best-mlp-k512-fragment-native|cumulative-prefill-current-best-mlp-k512-fragment-native-m128|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-staged|cumulative-prefill-current-best-mlp-k512-fragment-native-m64n128-1cta|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta-down-m128n256-1cta|cumulative-prefill-short) ;;
+  exact|native-gdn|cumulative-prefill|cumulative-prefill-down|cumulative-prefill-attention-down|cumulative-prefill-current-best|cumulative-prefill-current-best-k512|cumulative-prefill-current-best-mlp-k512|cumulative-prefill-current-best-mlp-k512-v1|cumulative-prefill-current-best-mlp-k512-edge|cumulative-prefill-current-best-mlp-k512-edge-attention-k256|cumulative-prefill-current-best-mlp-k512-edge-m128n64|cumulative-prefill-current-best-mlp-k512-down-m16n64-v2|cumulative-prefill-current-best-mlp-k512-fragment-native|cumulative-prefill-current-best-mlp-k512-fragment-native-m128|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-staged|cumulative-prefill-current-best-mlp-k512-fragment-native-m64n128-1cta|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta-down-m128n256-1cta|cumulative-prefill-short) ;;
   *)
     echo "--mode must be exact, native-gdn, cumulative-prefill, or" \
       "cumulative-prefill-down, cumulative-prefill-attention-down, or" \
@@ -132,6 +132,7 @@ case "${mode}" in
       "cumulative-prefill-current-best-mlp-k512," \
       "cumulative-prefill-current-best-mlp-k512-v1," \
       "cumulative-prefill-current-best-mlp-k512-edge," \
+      "cumulative-prefill-current-best-mlp-k512-edge-attention-k256," \
       "cumulative-prefill-current-best-mlp-k512-edge-m128n64," \
       "cumulative-prefill-current-best-mlp-k512-down-m16n64-v2," \
       "cumulative-prefill-current-best-mlp-k512-fragment-native," \
@@ -207,14 +208,17 @@ mlp_k512_mode=0
 mlp_k512_edge_mode=0
 mlp_k512_edge_m128n64_mode=0
 mlp_k512_down_m16n64_v2_mode=0
+attention_k256_mode=0
 if [[ "${mode}" == cumulative-prefill-current-best-mlp-k512 ||
       "${mode}" == cumulative-prefill-current-best-mlp-k512-v1 ||
       "${mode}" == cumulative-prefill-current-best-mlp-k512-edge ||
+      "${mode}" == cumulative-prefill-current-best-mlp-k512-edge-attention-k256 ||
       "${mode}" == cumulative-prefill-current-best-mlp-k512-edge-m128n64 ||
       "${mode}" == cumulative-prefill-current-best-mlp-k512-down-m16n64-v2 ]]; then
   mlp_k512_mode=1
   if [[ "${mode}" == cumulative-prefill-current-best-mlp-k512 ||
         "${mode}" == cumulative-prefill-current-best-mlp-k512-edge ||
+        "${mode}" == cumulative-prefill-current-best-mlp-k512-edge-attention-k256 ||
         "${mode}" == cumulative-prefill-current-best-mlp-k512-down-m16n64-v2 ]]; then
     mlp_k512_edge_mode=1
   fi
@@ -223,6 +227,9 @@ if [[ "${mode}" == cumulative-prefill-current-best-mlp-k512 ||
   fi
   if [[ "${mode}" == cumulative-prefill-current-best-mlp-k512-edge-m128n64 ]]; then
     mlp_k512_edge_m128n64_mode=1
+  fi
+  if [[ "${mode}" == cumulative-prefill-current-best-mlp-k512-edge-attention-k256 ]]; then
+    attention_k256_mode=1
   fi
   [[ -f "${prefill_mlp_k512_payload}" ]] || {
     echo "missing required Prefill MLP K512 payload: ${prefill_mlp_k512_payload:-<unset>}" >&2
@@ -234,6 +241,131 @@ if [[ "${mode}" == cumulative-prefill-current-best-mlp-k512 ||
   }
   [[ -f "${prefill_mlp_k512_receipt}" ]] || {
     echo "missing required Prefill MLP K512 receipt: ${prefill_mlp_k512_receipt:-<unset>}" >&2
+    exit 2
+  }
+fi
+attention_k256_layout=sm87_s4_n64_packed_k64_scale_k256_consumer_v3
+attention_k256_payload_bytes=12353536000
+attention_k256_payload_sha256=
+attention_k256_policy_sha256=
+attention_k256_receipt_sha256=
+attention_k256_manifest_sha256=
+attention_k256_overlay_layout=
+attention_k256_overlay_payload_bytes=
+attention_k256_overlay_manifest_sha256=
+attention_k256_overlay_policy_sha256=
+attention_k256_overlay_payload_sha256=
+if [[ "${attention_k256_mode}" == 1 ]]; then
+  [[ $(stat -c '%s' "${prefill_a4_payload}") == \
+      "${attention_k256_payload_bytes}" ]] || {
+    echo "K256 Prefill A4 payload is not exactly ${attention_k256_payload_bytes} bytes" >&2
+    exit 2
+  }
+  command -v python3 >/dev/null || {
+    echo "python3 is required to validate the K256 publication receipts" >&2
+    exit 2
+  }
+  attention_k256_payload_sha256=$(
+    sha256sum "${prefill_a4_payload}" | awk '{print $1}'
+  )
+  attention_k256_policy_sha256=$(
+    sha256sum "${prefill_a4_policy}" | awk '{print $1}'
+  )
+  attention_k256_receipt_sha256=$(
+    sha256sum "${prefill_a4_receipt}" | awk '{print $1}'
+  )
+  attention_k256_receipt_contract=$(
+    python3 - "${prefill_a4_receipt}" "${prefill_mlp_k512_receipt}" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as stream:
+    base = json.load(stream)
+with open(sys.argv[2], encoding="utf-8") as stream:
+    overlay = json.load(stream)
+values = (
+    base["schema"],
+    base["sidecar_kind"],
+    str(base["packed_k_group_size"]),
+    str(base["scale_group_size"]),
+    base["physical_layout"],
+    str(base["payload_bytes"]),
+    str(base["projection_count"]),
+    base["manifest_sha256"],
+    base["policy_sha256"],
+    base["payload_sha256"],
+    overlay["required_base"]["sidecar_kind"],
+    overlay["required_base"]["physical_layout"],
+    overlay["required_base"]["manifest_sha256"],
+    overlay["required_base"]["policy_sha256"],
+    overlay["required_base"]["payload_sha256"],
+    overlay["schema"],
+    overlay["physical_layout"],
+    str(overlay["payload_bytes"]),
+    str(overlay["projection_count"]),
+    overlay["manifest_sha256"],
+    overlay["policy_sha256"],
+    overlay["payload_sha256"],
+)
+if any("\t" in value or "\n" in value for value in values):
+    raise ValueError("receipt contract values must be scalar")
+print("\t".join(values))
+PY
+  ) || {
+    echo "invalid K256 base or K512 overlay publication receipt JSON" >&2
+    exit 2
+  }
+  IFS=$'\t' read -r attention_k256_receipt_schema \
+    attention_k256_receipt_kind attention_k256_receipt_packed_k \
+    attention_k256_receipt_scale_k attention_k256_receipt_layout \
+    attention_k256_receipt_payload_bytes \
+    attention_k256_receipt_projection_count \
+    attention_k256_manifest_sha256 \
+    attention_k256_receipt_policy_sha256 \
+    attention_k256_receipt_payload_sha256 overlay_base_kind \
+    overlay_base_layout overlay_base_manifest_sha256 \
+    overlay_base_policy_sha256 overlay_base_payload_sha256 \
+    attention_k256_overlay_schema attention_k256_overlay_layout \
+    attention_k256_overlay_payload_bytes \
+    attention_k256_overlay_projection_count \
+    attention_k256_overlay_manifest_sha256 \
+    attention_k256_overlay_policy_sha256 \
+    attention_k256_overlay_payload_sha256 \
+    <<<"${attention_k256_receipt_contract}"
+  [[ "${attention_k256_receipt_schema}" == \
+        q3x.prefill.a4.publication-receipt &&
+     "${attention_k256_receipt_kind}" == a4_k256 &&
+     "${attention_k256_receipt_packed_k}" == 64 &&
+     "${attention_k256_receipt_scale_k}" == 256 &&
+     "${attention_k256_receipt_layout}" == "${attention_k256_layout}" &&
+     "${attention_k256_receipt_payload_bytes}" == \
+        "${attention_k256_payload_bytes}" &&
+     "${attention_k256_receipt_projection_count}" == 400 &&
+     "${attention_k256_receipt_policy_sha256}" == \
+        "${attention_k256_policy_sha256}" &&
+     "${attention_k256_receipt_payload_sha256}" == \
+        "${attention_k256_payload_sha256}" ]] || {
+    echo "K256 Prefill A4 publication receipt does not match the real files" >&2
+    exit 2
+  }
+  [[ "${overlay_base_kind}" == a4_k256 &&
+     "${overlay_base_layout}" == "${attention_k256_layout}" &&
+     "${overlay_base_manifest_sha256}" == \
+        "${attention_k256_manifest_sha256}" &&
+     "${overlay_base_policy_sha256}" == \
+        "${attention_k256_policy_sha256}" &&
+     "${overlay_base_payload_sha256}" == \
+        "${attention_k256_payload_sha256}" ]] || {
+    echo "K512 MLP overlay receipt is not bound to the selected K256 base" >&2
+    exit 2
+  }
+  [[ "${attention_k256_overlay_schema}" == \
+        q3x.prefill.mlp-k512.publication-receipt &&
+     "${attention_k256_overlay_layout}" == \
+        sm87_s4_n64_packed_k64_scale_k512_mlp_v1 &&
+     "${attention_k256_overlay_payload_bytes}" == 8623226880 &&
+     "${attention_k256_overlay_projection_count}" == 192 ]] || {
+    echo "K512 MLP overlay receipt has the wrong production contract" >&2
     exit 2
   }
 fi
@@ -465,6 +597,19 @@ case "${mode}" in
       Q3X_RUN_A4W4_MLP_K512_ADMISSION
     )
     ;;
+  cumulative-prefill-current-best-mlp-k512-edge-attention-k256)
+    candidate_selectors=(
+      Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION
+      Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION
+      Q3X_RUN_BF16_AB_LARGE_M_PREFILL_ADMISSION
+      Q3X_FULL_ATTENTION_FLASHINFER_DIRECT
+      Q3X_RUN_FULL_ATTENTION_PREPROCESS_PROMPT_WIDE_128_ADMISSION
+      Q3X_RUN_SHORT_PREFILL_LAYER_MAJOR_ADMISSION
+      Q3X_RUN_A4W4_ATTENTION_K256_M128N256_ADMISSION
+      Q3X_RUN_A4W4_MLP_K512_ADMISSION
+      Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_ADMISSION
+    )
+    ;;
   cumulative-prefill-current-best-mlp-k512-edge-m128n64)
     candidate_selectors=(
       Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION
@@ -519,6 +664,20 @@ if ((${#candidate_selectors[@]} > 0)); then
   for selector in "${candidate_selectors[@]}"; do
     if ! grep -F "${selector}" < <(strings -a "${server}") >/dev/null; then
       echo "server does not contain the ${mode} selector: ${selector}" >&2
+      exit 2
+    fi
+  done
+fi
+if [[ "${attention_k256_mode}" == 1 ]]; then
+  attention_k256_markers=(
+    prefill_projection_span_linear_qkv_z_k256_m128n256
+    prefill_projection_span_linear_output_k256_m128n256
+    prefill_projection_span_full_q_k_v_k256_m128n256
+    prefill_projection_span_full_output_k256_m128n256
+  )
+  for marker in "${attention_k256_markers[@]}"; do
+    if ! grep -Fx "${marker}" < <(strings -a "${server}") >/dev/null; then
+      echo "server does not prove the K256 Attention production stage: ${marker}" >&2
       exit 2
     fi
   done
@@ -669,7 +828,7 @@ if [[ -n "${only_bucket}" ]]; then
   }
   buckets=("${only_bucket}")
 fi
-if [[ "${mlp_k512_mode}" == 1 ||
+if [[ ("${mlp_k512_mode}" == 1 && "${attention_k256_mode}" == 0) ||
       "${mlp_k512_fragment_native_mode}" == 1 ]]; then
   for bucket in "${buckets[@]}"; do
     if [[ "${bucket}" == p512 ]]; then
@@ -692,8 +851,8 @@ for bucket in "${buckets[@]}"; do
   else
     corpus_status=dry-run-unverified
   fi
-  printf 'pure_prefill_corpus bucket=%s sha256=%s status=%s\n' \
-    "${bucket}" "${actual}" "${corpus_status}"
+  printf 'pure_prefill_corpus bucket=%s sha256=%s status=%s path=%q\n' \
+    "${bucket}" "${actual}" "${corpus_status}" "${corpus}"
 done
 
 # Remove inherited experiment selectors generically. The benchmark process gets
@@ -768,6 +927,20 @@ printf 'pure_prefill_matrix mode=%s dry_run=%s sanitized_experiment_env=%s selec
 server_elf_sha256=$(sha256sum "${server}" | awk '{print $1}')
 printf 'server_metadata elf_sha256=%s evalscope_version=1.9.1\n' \
   "${server_elf_sha256}"
+if [[ "${attention_k256_mode}" == 1 ]]; then
+  printf 'attention_k256_publication_metadata layout=%s payload_bytes=%s payload_sha256=%s policy_sha256=%s receipt_sha256=%s manifest_sha256=%s expected_launch_hits=128 expected_logical_projections=208\n' \
+    "${attention_k256_layout}" "${attention_k256_payload_bytes}" \
+    "${attention_k256_payload_sha256}" \
+    "${attention_k256_policy_sha256}" \
+    "${attention_k256_receipt_sha256}" \
+    "${attention_k256_manifest_sha256}"
+  printf 'attention_k256_mlp_binding_metadata layout=%s payload_bytes=%s manifest_sha256=%s policy_sha256=%s payload_sha256=%s\n' \
+    "${attention_k256_overlay_layout}" \
+    "${attention_k256_overlay_payload_bytes}" \
+    "${attention_k256_overlay_manifest_sha256}" \
+    "${attention_k256_overlay_policy_sha256}" \
+    "${attention_k256_overlay_payload_sha256}"
+fi
 if [[ "${mlp_k512_fragment_native_mode}" == 1 ]]; then
   printf 'fragment_native_publication_metadata layout=%s payload_bytes=%s payload_sha256=%s policy_sha256=%s receipt_sha256=%s gateup_variant=%s down_variant=%s\n' \
     "${mlp_k512_fragment_native_layout}" \
@@ -787,6 +960,9 @@ for selector in "${candidate_selectors[@]}"; do
   printf ' %s' "${selector}"
 done
 printf '\n'
+if [[ "${attention_k256_mode}" == 1 ]]; then
+  printf 'stage_contract required=prefill_projection_span_linear_qkv_z_k256_m128n256,prefill_projection_span_linear_output_k256_m128n256,prefill_projection_span_full_q_k_v_k256_m128n256,prefill_projection_span_full_output_k256_m128n256 excluded=prefill_projection_span_linear_qkv_z_supermatrix,prefill_projection_span_linear_output_supermatrix,prefill_projection_span_full_q_k_v_supermatrix,prefill_projection_span_full_output_supermatrix\n'
+fi
 if [[ "${mlp_k512_edge_mode}" == 1 &&
       "${mlp_k512_down_m16n64_v2_mode}" == 0 ]]; then
   printf 'stage_contract required=prefill_projection_span_mlp_k512_gateup_down_edge excluded=prefill_projection_span_mlp_k512_gate_up_primary,prefill_projection_span_mlp_k512_gate_up_secondary,prefill_projection_span_mlp_k512_product_quantize retained=prefill_projection_span_mlp_k512_input_quantize,prefill_projection_span_mlp_k512_down\n'
@@ -806,6 +982,9 @@ if [[ "${k512_mode}" == 1 ]]; then
 fi
 if [[ "${mlp_k512_mode}" == 1 ]]; then
   printf ',prefill_mlp_k512_authenticated_192_of_192,prefill_mlp_k512_payload_sha256'
+fi
+if [[ "${attention_k256_mode}" == 1 ]]; then
+  printf ',prefill_a4_k256_authenticated_400_of_400,attention_k256_expected_launch_hits_128,attention_k256_expected_logical_projections_208'
 fi
 if [[ "${mlp_k512_edge_mode}" == 1 ]]; then
   printf ',prefill_projection_span_mlp_k512_gateup_down_edge,old_gateup_split_stages_excluded'
@@ -840,6 +1019,31 @@ mkdir -p "${output_root}"
   printf 'selectors='
   printf '%s ' "${candidate_selectors[@]}"
   printf '\n'
+  if [[ "${attention_k256_mode}" == 1 ]]; then
+    printf 'prefill_a4_k256_layout=%s\n' "${attention_k256_layout}"
+    printf 'prefill_a4_k256_payload_bytes=%s\n' \
+      "${attention_k256_payload_bytes}"
+    printf 'prefill_a4_k256_payload_sha256=%s\n' \
+      "${attention_k256_payload_sha256}"
+    printf 'prefill_a4_k256_policy_sha256=%s\n' \
+      "${attention_k256_policy_sha256}"
+    printf 'prefill_a4_k256_receipt_sha256=%s\n' \
+      "${attention_k256_receipt_sha256}"
+    printf 'prefill_a4_k256_manifest_sha256=%s\n' \
+      "${attention_k256_manifest_sha256}"
+    printf 'prefill_attention_k256_expected_launch_hits=128\n'
+    printf 'prefill_attention_k256_expected_logical_projections=208\n'
+    printf 'prefill_mlp_k512_k256_base_layout=%s\n' \
+      "${attention_k256_overlay_layout}"
+    printf 'prefill_mlp_k512_k256_base_payload_bytes=%s\n' \
+      "${attention_k256_overlay_payload_bytes}"
+    printf 'prefill_mlp_k512_k256_base_manifest_sha256=%s\n' \
+      "${attention_k256_overlay_manifest_sha256}"
+    printf 'prefill_mlp_k512_k256_base_policy_sha256=%s\n' \
+      "${attention_k256_overlay_policy_sha256}"
+    printf 'prefill_mlp_k512_k256_base_payload_sha256=%s\n' \
+      "${attention_k256_overlay_payload_sha256}"
+  fi
   if [[ "${mlp_k512_edge_mode}" == 1 &&
         "${mlp_k512_down_m16n64_v2_mode}" == 0 ]]; then
     printf 'required_runtime_stage=prefill_projection_span_mlp_k512_gateup_down_edge\n'
@@ -927,6 +1131,14 @@ if ! grep -Eq \
   echo "server readiness did not prove authenticated Prefill A4 400/400" >&2
   exit 5
 fi
+if [[ "${attention_k256_mode}" == 1 ]]; then
+  if ! grep -F \
+      "prefill_a4_bytes=${attention_k256_payload_bytes} prefill_a4_layout=${attention_k256_layout} prefill_a4_manifest_sha256=${attention_k256_manifest_sha256} prefill_a4_policy_sha256=${attention_k256_policy_sha256} prefill_a4_payload_sha256=${attention_k256_payload_sha256}" \
+      "${server_log}" >/dev/null; then
+    echo "server readiness did not prove the exact authenticated K256 publication" >&2
+    exit 5
+  fi
+fi
 if [[ "${k512_mode}" == 1 ]]; then
   if ! grep -Eq \
       'prefill_attention_o_k512_requested=1 .*prefill_attention_o_k512_enabled=1 .*prefill_attention_o_k512_projections=64([[:space:]]|$)' \
@@ -952,6 +1164,20 @@ if [[ "${mlp_k512_mode}" == 1 ]]; then
       'prefill_mlp_k512_payload_sha256=[0-9a-f]{64}([[:space:]]|$)' \
       "${server_log}"; then
     echo "server readiness did not prove the Prefill MLP K512 payload SHA-256" >&2
+    exit 5
+  fi
+  if [[ "${attention_k256_mode}" == 1 ]] &&
+     ! grep -F \
+       "prefill_mlp_k512_bytes=${attention_k256_overlay_payload_bytes} prefill_mlp_k512_copy_chunks=" \
+       "${server_log}" >/dev/null; then
+    echo "server readiness did not prove the K256-bound K512 MLP payload size" >&2
+    exit 5
+  fi
+  if [[ "${attention_k256_mode}" == 1 ]] &&
+     ! grep -F \
+       "prefill_mlp_k512_layout=${attention_k256_overlay_layout} prefill_mlp_k512_manifest_sha256=${attention_k256_overlay_manifest_sha256} prefill_mlp_k512_policy_sha256=${attention_k256_overlay_policy_sha256} prefill_mlp_k512_payload_sha256=${attention_k256_overlay_payload_sha256}" \
+       "${server_log}" >/dev/null; then
+    echo "server readiness did not prove the exact K256-bound K512 MLP SHA chain" >&2
     exit 5
   fi
 fi
@@ -994,6 +1220,9 @@ if [[ "${mlp_k512_fragment_native_mode}" == 1 ]]; then
   fi
 fi
 printf 'startup_contract_check=passed prefill_a4_authenticated=400/400 optimized_prefill_disabled=0'
+if [[ "${attention_k256_mode}" == 1 ]]; then
+  printf ' prefill_a4_k256_layout=verified prefill_a4_k256_bytes=verified prefill_a4_k256_sha_chain=verified prefill_attention_k256_runtime_accounting=required'
+fi
 if [[ "${k512_mode}" == 1 ]]; then
   printf ' prefill_attention_o_k512_authenticated=64/64 prefill_attention_o_k512_payload_sha256=verified'
 fi

@@ -268,7 +268,13 @@ void write_quoted(std::ostream& output, const std::string_view value) {
 
 void write_base(std::ostream& output,
                 const PrefillMLPK512BaseBinding& base) {
-  output << "{\"sidecar_kind\":\"a4_k128\",\"physical_layout\":";
+  const std::string_view sidecar_kind =
+      base.physical_layout == kPrefillA4K256PhysicalLayout
+          ? "a4_k256"
+          : "a4_k128";
+  output << "{\"sidecar_kind\":";
+  write_quoted(output, sidecar_kind);
+  output << ",\"physical_layout\":";
   write_quoted(output, base.physical_layout);
   output << ",\"manifest_sha256\":";
   write_quoted(output, base.manifest_sha256);
@@ -281,7 +287,8 @@ void write_base(std::ostream& output,
 
 [[nodiscard]] bool valid_base(
     const PrefillMLPK512BaseBinding& base) noexcept {
-  return base.physical_layout == kPrefillA4K128PhysicalLayout &&
+  return (base.physical_layout == kPrefillA4K128PhysicalLayout ||
+          base.physical_layout == kPrefillA4K256PhysicalLayout) &&
          lower_sha256(base.manifest_sha256) &&
          lower_sha256(base.policy_sha256) &&
          lower_sha256(base.payload_sha256);
@@ -445,16 +452,22 @@ void write_little_u16(const std::uint16_t value,
                               PrefillMLPK512BaseBinding& base) {
   const auto* object = value.as_object();
   std::string kind;
-  return object != nullptr &&
-         exact_keys(*object,
-                    {"sidecar_kind", "physical_layout", "manifest_sha256",
-                     "policy_sha256", "payload_sha256"}) &&
-         json_string(*object, "sidecar_kind", kind) && kind == "a4_k128" &&
-         json_string(*object, "physical_layout", base.physical_layout) &&
-         json_string(*object, "manifest_sha256", base.manifest_sha256) &&
-         json_string(*object, "policy_sha256", base.policy_sha256) &&
-         json_string(*object, "payload_sha256", base.payload_sha256) &&
-         valid_base(base);
+  if (object == nullptr ||
+      !exact_keys(*object,
+                  {"sidecar_kind", "physical_layout", "manifest_sha256",
+                   "policy_sha256", "payload_sha256"}) ||
+      !json_string(*object, "sidecar_kind", kind) ||
+      !json_string(*object, "physical_layout", base.physical_layout) ||
+      !json_string(*object, "manifest_sha256", base.manifest_sha256) ||
+      !json_string(*object, "policy_sha256", base.policy_sha256) ||
+      !json_string(*object, "payload_sha256", base.payload_sha256) ||
+      !valid_base(base)) {
+    return false;
+  }
+  return (kind == "a4_k128" &&
+          base.physical_layout == kPrefillA4K128PhysicalLayout) ||
+         (kind == "a4_k256" &&
+          base.physical_layout == kPrefillA4K256PhysicalLayout);
 }
 
 [[nodiscard]] bool same_base(
@@ -517,11 +530,14 @@ build_qwen36_27b_prefill_mlp_k512_overlay_manifest(
   if (!valid_base(required_base)) {
     result.diagnostic = make_diagnostic(
         PrefillMLPK512OverlayErrorCode::kInvalidManifest,
-        "required_base", "valid authenticated A4-K128 binding is required");
+        "required_base",
+        "valid authenticated A4-K128 or A4-K256 binding is required");
     return result;
   }
   PrefillSidecarManifestOptions options;
-  options.kind = PrefillSidecarKind::kA4K128;
+  options.kind = required_base.physical_layout == kPrefillA4K256PhysicalLayout
+                     ? PrefillSidecarKind::kA4K256
+                     : PrefillSidecarKind::kA4K128;
   const PrefillSidecarManifestResult full =
       build_qwen36_27b_prefill_sidecar_manifest(source_manifest,
                                                  authenticated_shards,
@@ -536,7 +552,7 @@ build_qwen36_27b_prefill_mlp_k512_overlay_manifest(
     result.diagnostic = make_diagnostic(
         PrefillMLPK512OverlayErrorCode::kInvalidManifest,
         "required_base.manifest_sha256",
-        "base K128 manifest is not the one rebuilt from the original checkpoint",
+        "base A4 manifest is not the one rebuilt from the original checkpoint",
         full.value->manifest_sha256, required_base.manifest_sha256);
     return result;
   }
@@ -1060,16 +1076,21 @@ write_qwen36_27b_prefill_mlp_k512_overlay_policy_template(
   PrefillA4ConverterDiagnostic base_diagnostic;
   const std::optional<PrefillA4PublicationReceipt> base_receipt =
       parse_prefill_a4_publication_receipt(base_document, base_diagnostic);
+  const bool supported_base =
+      base_receipt.has_value() &&
+      ((base_receipt->sidecar_kind == PrefillSidecarKind::kA4K128 &&
+        base_receipt->scale_group_size == 128U &&
+        base_receipt->physical_layout == kPrefillA4K128PhysicalLayout) ||
+       (base_receipt->sidecar_kind == PrefillSidecarKind::kA4K256 &&
+        base_receipt->scale_group_size == 256U &&
+        base_receipt->physical_layout == kPrefillA4K256PhysicalLayout));
   if (!base_receipt.has_value() || !base_diagnostic ||
-      !base_receipt->production_residency_eligible ||
-      base_receipt->sidecar_kind != PrefillSidecarKind::kA4K128 ||
-      base_receipt->packed_k_group_size != 64U ||
-      base_receipt->scale_group_size != 128U ||
-      base_receipt->physical_layout != kPrefillA4K128PhysicalLayout) {
+      !base_receipt->production_residency_eligible || !supported_base ||
+      base_receipt->packed_k_group_size != 64U) {
     result.diagnostic = make_diagnostic(
         PrefillMLPK512OverlayErrorCode::kInvalidReceipt,
         options.base_k128_receipt_path.string(),
-        "base receipt is not an authenticated production A4-K128 ABI");
+        "base receipt is not an authenticated production A4-K128/K256 ABI");
     return result;
   }
   PrefillMLPK512BaseBinding base;
@@ -1151,7 +1172,8 @@ namespace {
   if (found == root->end() || !parse_base(found->second, base)) {
     diagnostic = make_diagnostic(
         PrefillMLPK512OverlayErrorCode::kInvalidPolicy,
-        "policy.required_base", "valid A4-K128 base binding is required");
+        "policy.required_base",
+        "valid A4-K128 or A4-K256 base binding is required");
     return false;
   }
   return true;

@@ -706,6 +706,7 @@ enum class A4W4PrefillConsumer : std::uint8_t {
   kUnavailable = 0,
   kK64,
   kK128,
+  kK256,
 };
 
 [[nodiscard]] constexpr std::uint64_t
@@ -715,7 +716,9 @@ authenticated_a4_payload_bytes_for_kind(
              ? kPrefillA4K64SidecarPayloadBytes
              : kind == PrefillSidecarKind::kA4K128
                    ? kPrefillA4K128SidecarPayloadBytes
-                   : 0U;
+                   : kind == PrefillSidecarKind::kA4K256
+                         ? kPrefillA4K256SidecarPayloadBytes
+                         : 0U;
 }
 
 [[nodiscard]] constexpr A4W4PrefillConsumer
@@ -730,6 +733,10 @@ a4w4_prefill_consumer_from_contract(
   if (kind == PrefillSidecarKind::kA4K128 &&
       packed_k_group_size == 64U && scale_group_size == 128U) {
     return A4W4PrefillConsumer::kK128;
+  }
+  if (kind == PrefillSidecarKind::kA4K256 &&
+      packed_k_group_size == 64U && scale_group_size == 256U) {
+    return A4W4PrefillConsumer::kK256;
   }
   return A4W4PrefillConsumer::kUnavailable;
 }
@@ -778,14 +785,14 @@ a4w4_projection_span_padding_plan(
   if (consumer == A4W4PrefillConsumer::kK64) {
     return {logical_token_count, logical_token_count, 0U, span_capacity};
   }
-  constexpr std::size_t kK128MAlignment = 128U;
+  constexpr std::size_t kSharedScaleMAlignment = 128U;
   constexpr std::size_t kMaximum = static_cast<std::size_t>(-1);
-  if (logical_token_count > kMaximum - (kK128MAlignment - 1U)) {
+  if (logical_token_count > kMaximum - (kSharedScaleMAlignment - 1U)) {
     return {};
   }
   const std::size_t projection_token_count =
-      (logical_token_count + kK128MAlignment - 1U) /
-      kK128MAlignment * kK128MAlignment;
+      (logical_token_count + kSharedScaleMAlignment - 1U) /
+      kSharedScaleMAlignment * kSharedScaleMAlignment;
   if (projection_token_count > span_capacity) {
     return {};
   }
@@ -915,8 +922,10 @@ struct A4W4AttentionSupermatrixRouteQuery final {
   std::array<A4W4AttentionSupermatrixProjectionPlane, 3U> projections{};
 };
 
-[[nodiscard]] constexpr bool use_a4w4_attention_supermatrix_route(
-    const A4W4AttentionSupermatrixRouteQuery& query) noexcept {
+[[nodiscard]] constexpr bool use_a4w4_attention_projection_cell_route(
+    const A4W4AttentionSupermatrixRouteQuery& query,
+    const A4W4PrefillConsumer required_consumer,
+    const std::size_t scale_group_size) noexcept {
   constexpr std::size_t kLinearQkvOutputSize = 10'240U;
   constexpr std::size_t kLinearZOutputSize = 6'144U;
   constexpr std::size_t kFullQOutputSize = 12'288U;
@@ -924,7 +933,8 @@ struct A4W4AttentionSupermatrixRouteQuery final {
   constexpr std::size_t kAttentionOInputSize = 6'144U;
   constexpr std::size_t kAttentionOOutputSize = 5'120U;
   if (!query.admission_enabled ||
-      query.inventory_consumer != A4W4PrefillConsumer::kK128 ||
+      query.inventory_consumer != required_consumer ||
+      (scale_group_size != 128U && scale_group_size != 256U) ||
       query.projection_token_count == 0U ||
       query.projection_token_count % 128U != 0U ||
       query.projection_token_count - 1U >
@@ -962,7 +972,7 @@ struct A4W4AttentionSupermatrixRouteQuery final {
           query.projection_token_count, expected_input, 2U) ||
       !a4w4_matrix_capacity_covers(
           query.input_scale_capacity_elements,
-          query.projection_token_count, expected_input, 128U)) {
+          query.projection_token_count, expected_input, scale_group_size)) {
     return false;
   }
   for (std::size_t index = 0U; index < projection_count; ++index) {
@@ -976,7 +986,7 @@ struct A4W4AttentionSupermatrixRouteQuery final {
             expected_input, 2U) ||
         !a4w4_matrix_capacity_covers(
             plane.weight_scale_capacity_elements, expected_outputs[index],
-            expected_input, 128U) ||
+            expected_input, scale_group_size) ||
         !a4w4_matrix_capacity_covers(
             plane.output_capacity_elements, query.projection_token_count,
             expected_outputs[index], 1U)) {
@@ -996,6 +1006,18 @@ struct A4W4AttentionSupermatrixRouteQuery final {
     }
   }
   return true;
+}
+
+[[nodiscard]] constexpr bool use_a4w4_attention_supermatrix_route(
+    const A4W4AttentionSupermatrixRouteQuery& query) noexcept {
+  return use_a4w4_attention_projection_cell_route(
+      query, A4W4PrefillConsumer::kK128, 128U);
+}
+
+[[nodiscard]] constexpr bool use_a4w4_attention_k256_m128n256_route(
+    const A4W4AttentionSupermatrixRouteQuery& query) noexcept {
+  return use_a4w4_attention_projection_cell_route(
+      query, A4W4PrefillConsumer::kK256, 256U);
 }
 
 [[nodiscard]] constexpr bool use_a4w4_gateup_complete_cell_v2_route(
@@ -1335,6 +1357,13 @@ class ReferenceRunner {
     return a4w4_full_prefill_admission_enabled_ &&
            a4w4_prefill_consumer_ ==
                reference_runner_detail::A4W4PrefillConsumer::kK128;
+  }
+  [[nodiscard]] bool authenticated_a4w4_prefill_enabled() const noexcept {
+    return a4w4_full_prefill_admission_enabled_ &&
+           (a4w4_prefill_consumer_ ==
+                reference_runner_detail::A4W4PrefillConsumer::kK128 ||
+            a4w4_prefill_consumer_ ==
+                reference_runner_detail::A4W4PrefillConsumer::kK256);
   }
 
   [[nodiscard]] ReferenceStepOutcome step(

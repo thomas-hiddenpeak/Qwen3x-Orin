@@ -38,6 +38,8 @@ inline constexpr std::uint64_t kPrefillA4K64SidecarPayloadBytes =
     12'923'699'200ULL;
 inline constexpr std::uint64_t kPrefillA4K128SidecarPayloadBytes =
     12'543'590'400ULL;
+inline constexpr std::uint64_t kPrefillA4K256SidecarPayloadBytes =
+    12'353'536'000ULL;
 
 enum class PrefillProjectionFamily : std::uint8_t {
   kMlpGate = 0,
@@ -59,6 +61,7 @@ enum class PrefillSidecarKind : std::uint8_t {
   kA8Compact,
   kA4K64,
   kA4K128,
+  kA4K256,
 };
 
 enum class PrefillSidecarResidencyClass : std::uint8_t {
@@ -81,6 +84,7 @@ enum class PrefillSidecarLayout : std::uint8_t {
   kSm87U4B8K32Consumer,
   kSm87S4K64Consumer,
   kSm87S4K128Consumer,
+  kSm87S4K256Consumer,
 };
 
 enum class PrefillContractErrorCode : std::uint8_t {
@@ -218,7 +222,7 @@ struct PrefillPromptArenaRegion {
 struct PrefillPromptArenaOptions {
   std::uint64_t prompt_token_count = 0U;
   PrefillPromptActivation activation = PrefillPromptActivation::kA8;
-  // A8 requires K128. A4 accepts K64 or K128.
+  // A8 requires K128. A4 accepts K64, K128, or K256.
   std::uint32_t activation_scale_group_size = 128U;
   // Zero means prompt_token_count. A smaller nonzero value is the layer-local
   // microspan fallback; the two BF16 hidden slabs always span the full prompt.

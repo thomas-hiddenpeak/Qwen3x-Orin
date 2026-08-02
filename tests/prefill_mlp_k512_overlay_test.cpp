@@ -132,11 +132,14 @@ void add_fp8(SyntheticSource& source, const std::string& module,
 }
 
 [[nodiscard]] runtime::PrefillMLPK512BaseBinding make_base(
-    const SyntheticSource& source) {
+    const SyntheticSource& source, const bool k256 = false) {
   runtime::PrefillMLPK512BaseBinding base;
-  base.physical_layout = std::string(runtime::kPrefillA4K128PhysicalLayout);
+  base.physical_layout = std::string(
+      k256 ? runtime::kPrefillA4K256PhysicalLayout
+           : runtime::kPrefillA4K128PhysicalLayout);
   runtime::PrefillSidecarManifestOptions options;
-  options.kind = runtime::PrefillSidecarKind::kA4K128;
+  options.kind = k256 ? runtime::PrefillSidecarKind::kA4K256
+                      : runtime::PrefillSidecarKind::kA4K128;
   const auto full = runtime::build_qwen36_27b_prefill_sidecar_manifest(
       source.manifest, source.shards, options);
   base.manifest_sha256 =
@@ -333,6 +336,11 @@ void test_policy_publication(
 void test_receipt_parser(
     Test& test,
     const runtime::PrefillMLPK512OverlayManifest& manifest) {
+  const std::string_view base_kind =
+      manifest.required_base.physical_layout ==
+              runtime::kPrefillA4K256PhysicalLayout
+          ? "a4_k256"
+          : "a4_k128";
   std::string document =
       "{\"schema\":\"q3x.prefill.mlp-k512.publication-receipt\","
       "\"version\":{\"major\":1,\"minor\":0},"
@@ -347,7 +355,8 @@ void test_receipt_parser(
       "\",\"manifest_sha256\":\"" + manifest.manifest_sha256 +
       "\",\"policy_sha256\":\"" + std::string(64U, '4') +
       "\",\"policy_bytes\":1234,\"required_base\":{"
-      "\"sidecar_kind\":\"a4_k128\",\"physical_layout\":\"" +
+      "\"sidecar_kind\":\"" + std::string(base_kind) +
+      "\",\"physical_layout\":\"" +
       manifest.required_base.physical_layout +
       "\",\"manifest_sha256\":\"" +
       manifest.required_base.manifest_sha256 +
@@ -362,7 +371,7 @@ void test_receipt_parser(
   test.expect(receipt.has_value() && diagnostic.ok() &&
                   receipt->required_base.payload_sha256 ==
                       manifest.required_base.payload_sha256,
-              "strict receipt retains the exact base K128 binding");
+              "strict receipt retains the exact authenticated base binding");
   document.insert(document.size() - 2U, ",\"unknown\":0");
   test.expect(!runtime::parse_prefill_mlp_k512_overlay_receipt(
                   document, diagnostic),
@@ -389,6 +398,32 @@ int main() {
   test_quantizer(test);
   test_policy_publication(test, *built.value);
   test_receipt_parser(test, *built.value);
+  const auto built_k256 =
+      runtime::build_qwen36_27b_prefill_mlp_k512_overlay_manifest(
+          source.manifest, source.shards, make_base(source, true));
+  test.expect(
+      static_cast<bool>(built_k256) &&
+          built_k256.value->required_base.physical_layout ==
+              runtime::kPrefillA4K256PhysicalLayout &&
+          built_k256.value->projections.size() == 192U,
+      "K512 MLP overlay binds an authenticated K256 base without changing payload ABI");
+  if (built_k256) {
+    test_receipt_parser(test, *built_k256.value);
+  }
+  test.expect(
+      runtime::prefill_mlp_k512_base_layout_matches_contract(
+          runtime::kPrefillA4K128PhysicalLayout,
+          runtime::PrefillSidecarKind::kA4K128, 64U, 128U) &&
+          runtime::prefill_mlp_k512_base_layout_matches_contract(
+              runtime::kPrefillA4K256PhysicalLayout,
+              runtime::PrefillSidecarKind::kA4K256, 64U, 256U) &&
+          !runtime::prefill_mlp_k512_base_layout_matches_contract(
+              runtime::kPrefillA4K128PhysicalLayout,
+              runtime::PrefillSidecarKind::kA4K256, 64U, 256U) &&
+          !runtime::prefill_mlp_k512_base_layout_matches_contract(
+              runtime::kPrefillA4K256PhysicalLayout,
+              runtime::PrefillSidecarKind::kA4K128, 64U, 128U),
+      "K128 and K256 base layouts cannot cross-bind the same digest tuple");
   if (test.result() == 0) {
     std::cout << "MLP K512 overlay host contract passed\n";
   }

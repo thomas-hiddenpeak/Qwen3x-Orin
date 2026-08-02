@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import pathlib
@@ -17,6 +18,19 @@ import unittest
 REPOSITORY = pathlib.Path(__file__).resolve().parents[1]
 RUNNER = REPOSITORY / "tools/evaluation/run_native_pure_prefill_matrix.sh"
 FRAGMENT_NATIVE_PAYLOAD_BYTES = 8_623_226_880
+ATTENTION_K256_PAYLOAD_BYTES = 12_353_536_000
+ATTENTION_K256_MODE = (
+    "cumulative-prefill-current-best-mlp-k512-edge-attention-k256"
+)
+ATTENTION_K256_LAYOUT = (
+    "sm87_s4_n64_packed_k64_scale_k256_consumer_v3"
+)
+ATTENTION_K256_MARKERS = (
+    "prefill_projection_span_linear_qkv_z_k256_m128n256",
+    "prefill_projection_span_linear_output_k256_m128n256",
+    "prefill_projection_span_full_q_k_v_k256_m128n256",
+    "prefill_projection_span_full_output_k256_m128n256",
+)
 MLP_K512_CURRENT_MODE = "cumulative-prefill-current-best-mlp-k512"
 MLP_K512_V1_MODE = "cumulative-prefill-current-best-mlp-k512-v1"
 MLP_K512_EDGE_MODE = "cumulative-prefill-current-best-mlp-k512-edge"
@@ -71,6 +85,9 @@ class Fixture:
         self.payload = root / "weights-a4-k64.bin"
         self.policy = root / "policy-1p0.json"
         self.receipt = root / "weights-a4-k64.bin.receipt.json"
+        self.k256_payload = root / "weights-a4-k256.bin"
+        self.k256_policy = root / "policy-k256-v3.json"
+        self.k256_receipt = root / "weights-a4-k256.bin.receipt.json"
         self.k512_payload = root / "attention-o-k512.bin"
         self.k512_policy = root / "attention-o-k512-policy.json"
         self.k512_receipt = root / "attention-o-k512.bin.receipt.json"
@@ -100,6 +117,7 @@ class Fixture:
             "# Q3X_RUN_A4W4_ATTENTION_SUPERMATRIX_ADMISSION\n"
             "# Q3X_RUN_FULL_ATTENTION_PREPROCESS_PROMPT_WIDE_128_ADMISSION\n"
             "# Q3X_RUN_A4W4_ATTENTION_O_K512_ADMISSION\n"
+            "# Q3X_RUN_A4W4_ATTENTION_K256_M128N256_ADMISSION\n"
             "# Q3X_RUN_A4W4_MLP_K512_ADMISSION\n"
             "# Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_ADMISSION\n"
             "# Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M128N64_ADMISSION\n"
@@ -107,14 +125,39 @@ class Fixture:
             f"{MLP_K512_EDGE_MARKER}\n"
             f"{MLP_K512_EDGE_M128N64_MARKER}\n"
             f"{MLP_K512_DOWN_M16N64_V2_MARKER}\n"
-            "# Q3X_RUN_SHORT_PREFILL_LAYER_MAJOR_ADMISSION\n"
-            "exit 0\n",
+            + "".join(f"{marker}\n" for marker in ATTENTION_K256_MARKERS)
+            + "# Q3X_RUN_SHORT_PREFILL_LAYER_MAJOR_ADMISSION\n"
+            + "exit 0\n",
             encoding="utf-8",
         )
         self.server.chmod(0o755)
         self.payload.write_bytes(b"host-only payload fixture\n")
         self.policy.write_text("{}\n", encoding="utf-8")
         self.receipt.write_text("{}\n", encoding="utf-8")
+        with self.k256_payload.open("wb") as stream:
+            stream.truncate(ATTENTION_K256_PAYLOAD_BYTES)
+        self.k256_policy.write_text("{}\n", encoding="utf-8")
+        k256_policy_sha = hashlib.sha256(b"{}\n").hexdigest()
+        zero_sha = "0" * 64
+        one_sha = "1" * 64
+        self.k256_receipt.write_text(
+            json.dumps(
+                {
+                    "schema": "q3x.prefill.a4.publication-receipt",
+                    "sidecar_kind": "a4_k256",
+                    "packed_k_group_size": 64,
+                    "scale_group_size": 256,
+                    "physical_layout": ATTENTION_K256_LAYOUT,
+                    "payload_bytes": ATTENTION_K256_PAYLOAD_BYTES,
+                    "projection_count": 400,
+                    "manifest_sha256": one_sha,
+                    "policy_sha256": k256_policy_sha,
+                    "payload_sha256": zero_sha,
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
         self.k512_payload.write_bytes(b"host-only K512 payload fixture\n")
         self.k512_policy.write_text("{}\n", encoding="utf-8")
         self.k512_receipt.write_text("{}\n", encoding="utf-8")
@@ -122,11 +165,35 @@ class Fixture:
             b"host-only MLP K512 payload fixture\n"
         )
         self.mlp_k512_policy.write_text("{}\n", encoding="utf-8")
-        self.mlp_k512_receipt.write_text("{}\n", encoding="utf-8")
+        self.mlp_k512_receipt.write_text(
+            json.dumps(
+                {
+                    "schema": (
+                        "q3x.prefill.mlp-k512.publication-receipt"
+                    ),
+                    "physical_layout": (
+                        "sm87_s4_n64_packed_k64_scale_k512_mlp_v1"
+                    ),
+                    "payload_bytes": 8_623_226_880,
+                    "projection_count": 192,
+                    "manifest_sha256": "2" * 64,
+                    "policy_sha256": "3" * 64,
+                    "payload_sha256": "4" * 64,
+                    "required_base": {
+                        "sidecar_kind": "a4_k256",
+                        "physical_layout": ATTENTION_K256_LAYOUT,
+                        "manifest_sha256": one_sha,
+                        "policy_sha256": k256_policy_sha,
+                        "payload_sha256": zero_sha,
+                    },
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
         with self.fragment_native_payload.open("wb") as stream:
             stream.truncate(FRAGMENT_NATIVE_PAYLOAD_BYTES)
         self.fragment_native_policy.write_text("{}\n", encoding="utf-8")
-        zero_sha = "0" * 64
         self.fragment_native_receipt.write_text(
             json.dumps(
                 {
@@ -153,6 +220,10 @@ class Fixture:
         fake_sha256sum.write_text(
             "#!/bin/sh\n"
             "case \"$1\" in\n"
+            "  *weights-a4-k256.bin)\n"
+            "    printf '%064d  %s\\n' 0 \"$1\"\n"
+            "    exit 0\n"
+            "    ;;\n"
             "  *mlp-k512-fragment-native*)\n"
             "    printf '%064d  %s\\n' 0 \"$1\"\n"
             "    exit 0\n"
@@ -167,25 +238,39 @@ class Fixture:
                 '{"host_only":true}\n', encoding="utf-8"
             )
 
-    def command(self, *extra: str) -> list[str]:
+    def command(
+        self,
+        *extra: str,
+        bucket: str = "p2k",
+        prefill_payload: pathlib.Path | None = None,
+        prefill_policy: pathlib.Path | None = None,
+        prefill_receipt: pathlib.Path | None = None,
+    ) -> list[str]:
         return [
             str(RUNNER),
             "--dry-run",
             "--prefill-a4-payload",
-            str(self.payload),
+            str(prefill_payload or self.payload),
             "--prefill-a4-policy",
-            str(self.policy),
+            str(prefill_policy or self.policy),
             "--prefill-a4-receipt",
-            str(self.receipt),
+            str(prefill_receipt or self.receipt),
             *extra,
             str(self.server),
             str(self.model_dir),
             str(self.corpus_dir),
             str(self.output),
-            "p2k",
+            bucket,
         ]
 
-    def run(self, *extra: str) -> subprocess.CompletedProcess[str]:
+    def run(
+        self,
+        *extra: str,
+        bucket: str = "p2k",
+        prefill_payload: pathlib.Path | None = None,
+        prefill_policy: pathlib.Path | None = None,
+        prefill_receipt: pathlib.Path | None = None,
+    ) -> subprocess.CompletedProcess[str]:
         environment = os.environ.copy()
         environment["Q3X_RUN_PREFILL_ALL_PROMPT_TOKENS_ADMISSION"] = "1"
         environment["Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION"] = "1"
@@ -205,6 +290,9 @@ class Fixture:
             "Q3X_RUN_FULL_ATTENTION_PREPROCESS_PROMPT_WIDE_128_ADMISSION"
         ] = "1"
         environment["Q3X_RUN_A4W4_ATTENTION_O_K512_ADMISSION"] = "1"
+        environment[
+            "Q3X_RUN_A4W4_ATTENTION_K256_M128N256_ADMISSION"
+        ] = "1"
         environment["Q3X_RUN_A4W4_MLP_K512_ADMISSION"] = "1"
         environment[
             "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_ADMISSION"
@@ -220,7 +308,13 @@ class Fixture:
             f"{self.fake_bin}{os.pathsep}{environment['PATH']}"
         )
         return subprocess.run(
-            self.command(*extra),
+            self.command(
+                *extra,
+                bucket=bucket,
+                prefill_payload=prefill_payload,
+                prefill_policy=prefill_policy,
+                prefill_receipt=prefill_receipt,
+            ),
             env=environment,
             check=False,
             text=True,
@@ -259,6 +353,24 @@ class Fixture:
         self, *extra: str
     ) -> subprocess.CompletedProcess[str]:
         return self.run_mlp_k512(MLP_K512_EDGE_MODE, *extra)
+
+    def run_attention_k256(
+        self, *, bucket: str = "p2k"
+    ) -> subprocess.CompletedProcess[str]:
+        return self.run(
+            "--prefill-mlp-k512-payload",
+            str(self.mlp_k512_payload),
+            "--prefill-mlp-k512-policy",
+            str(self.mlp_k512_policy),
+            "--prefill-mlp-k512-receipt",
+            str(self.mlp_k512_receipt),
+            "--mode",
+            ATTENTION_K256_MODE,
+            bucket=bucket,
+            prefill_payload=self.k256_payload,
+            prefill_policy=self.k256_policy,
+            prefill_receipt=self.k256_receipt,
+        )
 
     def run_mlp_k512_edge_m128n64(
         self, *extra: str
@@ -684,6 +796,154 @@ class PurePrefillEvalScopeHarnessTest(unittest.TestCase):
         )
         self.assertIn(
             "prefill_attention_o_k512_payload_sha256=[0-9a-f]{64}",
+            contents,
+        )
+
+    def test_attention_k256_mode_uses_exact_authenticated_bundle(self) -> None:
+        result = self.fixture.run_attention_k256()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f"mode={ATTENTION_K256_MODE} dry_run=1", result.stdout)
+        self.assertIn("selector_count=9", result.stdout)
+        startup = next(
+            line
+            for line in result.stdout.splitlines()
+            if line.startswith("server_startup_command")
+        )
+        self.assertEqual(
+            set(re.findall(r"(Q3X_[A-Z0-9_]+)=1", startup)),
+            {
+                "Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION",
+                "Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION",
+                "Q3X_RUN_BF16_AB_LARGE_M_PREFILL_ADMISSION",
+                "Q3X_FULL_ATTENTION_FLASHINFER_DIRECT",
+                "Q3X_RUN_FULL_ATTENTION_PREPROCESS_PROMPT_WIDE_128_ADMISSION",
+                "Q3X_RUN_SHORT_PREFILL_LAYER_MAJOR_ADMISSION",
+                "Q3X_RUN_A4W4_ATTENTION_K256_M128N256_ADMISSION",
+                "Q3X_RUN_A4W4_MLP_K512_ADMISSION",
+                "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_ADMISSION",
+            },
+        )
+        self.assertIn(str(self.fixture.k256_payload), startup)
+        self.assertIn(str(self.fixture.k256_policy), startup)
+        self.assertIn(str(self.fixture.k256_receipt), startup)
+        self.assertIn("-u Q3X_RUN_A4W4_ATTENTION_SUPERMATRIX_ADMISSION", startup)
+        self.assertIn("-u Q3X_RUN_A4W4_ATTENTION_O_K512_ADMISSION", startup)
+        self.assertNotIn("Q3X_RUN_A4W4_ATTENTION_SUPERMATRIX_ADMISSION=1", startup)
+        self.assertNotIn("Q3X_RUN_A4W4_ATTENTION_O_K512_ADMISSION=1", startup)
+        self.assertIn(
+            f"layout={ATTENTION_K256_LAYOUT} "
+            f"payload_bytes={ATTENTION_K256_PAYLOAD_BYTES}",
+            result.stdout,
+        )
+        self.assertIn("expected_launch_hits=128", result.stdout)
+        self.assertIn("expected_logical_projections=208", result.stdout)
+        for marker in ATTENTION_K256_MARKERS:
+            self.assertIn(marker, result.stdout)
+
+    def test_attention_k256_mode_admits_external_p512_bucket(self) -> None:
+        result = self.fixture.run_attention_k256(bucket="p512")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(
+            "pure_prefill_corpus bucket=p512", result.stdout
+        )
+        self.assertIn(
+            str(
+                self.fixture.corpus_dir
+                / "q3x-sharegpt-prefill-p512-5.jsonl"
+            ),
+            result.stdout,
+        )
+
+    def test_attention_k256_receipt_and_overlay_binding_fail_closed(
+        self,
+    ) -> None:
+        base_receipt = json.loads(
+            self.fixture.k256_receipt.read_text(encoding="utf-8")
+        )
+        overlay_receipt = json.loads(
+            self.fixture.mlp_k512_receipt.read_text(encoding="utf-8")
+        )
+        mutations = (
+            (
+                "wrong base layout",
+                lambda base, overlay: base.__setitem__(
+                    "physical_layout",
+                    "sm87_s4_n64_packed_k64_scale_k128_consumer_v2",
+                ),
+                "K256 Prefill A4 publication receipt does not match",
+            ),
+            (
+                "wrong payload digest",
+                lambda base, overlay: base.__setitem__(
+                    "payload_sha256", "f" * 64
+                ),
+                "K256 Prefill A4 publication receipt does not match",
+            ),
+            (
+                "wrong policy digest",
+                lambda base, overlay: base.__setitem__(
+                    "policy_sha256", "f" * 64
+                ),
+                "K256 Prefill A4 publication receipt does not match",
+            ),
+            (
+                "K128-bound MLP overlay",
+                lambda base, overlay: overlay["required_base"].update(
+                    {
+                        "sidecar_kind": "a4_k128",
+                        "physical_layout": (
+                            "sm87_s4_n64_packed_k64_scale_k128_consumer_v2"
+                        ),
+                    }
+                ),
+                "K512 MLP overlay receipt is not bound",
+            ),
+        )
+        for label, mutate, expected in mutations:
+            with self.subTest(label=label):
+                selected_base = json.loads(json.dumps(base_receipt))
+                selected_overlay = json.loads(json.dumps(overlay_receipt))
+                mutate(selected_base, selected_overlay)
+                self.fixture.k256_receipt.write_text(
+                    json.dumps(selected_base) + "\n", encoding="utf-8"
+                )
+                self.fixture.mlp_k512_receipt.write_text(
+                    json.dumps(selected_overlay) + "\n", encoding="utf-8"
+                )
+                result = self.fixture.run_attention_k256()
+                self.assertEqual(result.returncode, 2)
+                self.assertIn(expected, result.stderr)
+        self.fixture.k256_receipt.write_text(
+            json.dumps(base_receipt) + "\n", encoding="utf-8"
+        )
+        self.fixture.mlp_k512_receipt.write_text(
+            json.dumps(overlay_receipt) + "\n", encoding="utf-8"
+        )
+
+    def test_attention_k256_requires_every_compiled_stage_marker(self) -> None:
+        contents = self.fixture.server.read_text(encoding="utf-8")
+        self.fixture.server.write_text(
+            contents.replace(f"{ATTENTION_K256_MARKERS[-1]}\n", ""),
+            encoding="utf-8",
+        )
+        result = self.fixture.run_attention_k256()
+        self.assertEqual(result.returncode, 2)
+        self.assertIn(
+            "server does not prove the K256 Attention production stage: "
+            f"{ATTENTION_K256_MARKERS[-1]}",
+            result.stderr,
+        )
+
+    def test_attention_k256_readiness_checks_exact_publications(self) -> None:
+        contents = RUNNER.read_text(encoding="utf-8")
+        self.assertIn(
+            "server readiness did not prove the exact authenticated K256 "
+            "publication",
+            contents,
+        )
+        self.assertIn(
+            "server readiness did not prove the exact K256-bound K512 MLP "
+            "SHA chain",
             contents,
         )
 

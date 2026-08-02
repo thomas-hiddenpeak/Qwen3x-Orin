@@ -1558,13 +1558,17 @@ bool ModelWeights::attach_prefill_a4_sidecars(
       manifest != nullptr && manifest->kind == PrefillSidecarKind::kA4K64;
   const bool k128_v2 =
       manifest != nullptr && manifest->kind == PrefillSidecarKind::kA4K128;
-  const std::uint32_t expected_scale_group_size = k128_v2 ? 128U : 64U;
+  const bool k256_v3 =
+      manifest != nullptr && manifest->kind == PrefillSidecarKind::kA4K256;
+  const std::uint32_t expected_scale_group_size =
+      k256_v3 ? 256U : k128_v2 ? 128U : 64U;
   const PrefillSidecarLayout expected_layout =
-      k128_v2 ? PrefillSidecarLayout::kSm87S4K128Consumer
-              : PrefillSidecarLayout::kSm87S4K64Consumer;
+      k256_v3 ? PrefillSidecarLayout::kSm87S4K256Consumer
+              : k128_v2 ? PrefillSidecarLayout::kSm87S4K128Consumer
+                        : PrefillSidecarLayout::kSm87S4K64Consumer;
   if (arena == nullptr || manifest == nullptr || policy == nullptr ||
       manifest->residency_class != PrefillSidecarResidencyClass::kA4 ||
-      (!k64_v1 && !k128_v2) ||
+      (!k64_v1 && !k128_v2 && !k256_v3) ||
       !contracts_valid ||
       manifest->projections.size() != kQwen36PrefillProjectionCount ||
       policy->projections.size() != manifest->projections.size() ||
@@ -2017,6 +2021,13 @@ bool ModelWeights::attach_prefill_mlp_k512_sidecars(
     }
   }
 
+  if (manifest->required_base.physical_layout !=
+          kPrefillA4K128PhysicalLayout &&
+      manifest->required_base.physical_layout !=
+          kPrefillA4K256PhysicalLayout) {
+    return false;
+  }
+
   constexpr auto kPointerMaximum =
       std::numeric_limits<std::uintptr_t>::max();
   const std::uintptr_t arena_address =
@@ -2095,10 +2106,12 @@ bool ModelWeights::attach_prefill_mlp_k512_sidecars(
     }
     const PrefillA4LinearSidecarView base =
         prefill_a4_sidecar_view(*target);
-    if (!base.attached() ||
-        base.sidecar_kind != PrefillSidecarKind::kA4K128 ||
-        base.packed_k_group_size != kPrefillMLPK512OverlayPackedK ||
-        base.scale_group_size != 128U) {
+    const bool supported_base =
+        prefill_mlp_k512_base_layout_matches_contract(
+            manifest->required_base.physical_layout, base.sidecar_kind,
+            base.packed_k_group_size, base.scale_group_size);
+    if (!base.attached() || !supported_base ||
+        base.scale_group_size == 0U) {
       return false;
     }
 
