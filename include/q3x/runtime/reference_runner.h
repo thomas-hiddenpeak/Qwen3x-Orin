@@ -1368,6 +1368,67 @@ a4w4_paired_gateup_canonical_down_accounting_valid(
   return false;
 }
 
+// The pair-ring Down kernel is also an independent leaf replacement for the
+// authenticated v1 K512 MLP publication.  Gate+Up ownership is deliberately
+// absent from this selector: the retained edge, alternating edge, or the v1
+// split Gate+Up route may all feed the same authenticated intermediate A4
+// layout.  Only another Down selector conflicts with it.
+enum class A4W4DownK512M128N128LdmatrixPairringV1Route : std::uint8_t {
+  kDisabled = 0,
+  kInvalid,
+  kEnabled,
+};
+
+struct A4W4DownK512M128N128LdmatrixPairringV1SelectorQuery final {
+  bool requested = false;
+  bool mlp_k512_v1_requested = false;
+  bool fragment_native_requested = false;
+  bool hybrid_requested = false;
+  bool conflicting_down_requested = false;
+  bool projection_span = false;
+};
+
+[[nodiscard]] constexpr
+    A4W4DownK512M128N128LdmatrixPairringV1Route
+    select_a4w4_down_k512_m128n128_ldmatrix_pairring_v1_route(
+        const A4W4DownK512M128N128LdmatrixPairringV1SelectorQuery&
+            query) noexcept {
+  if (!query.requested) {
+    return A4W4DownK512M128N128LdmatrixPairringV1Route::kDisabled;
+  }
+  if (!query.mlp_k512_v1_requested || query.fragment_native_requested ||
+      query.hybrid_requested || query.conflicting_down_requested ||
+      !query.projection_span) {
+    return A4W4DownK512M128N128LdmatrixPairringV1Route::kInvalid;
+  }
+  return A4W4DownK512M128N128LdmatrixPairringV1Route::kEnabled;
+}
+
+[[nodiscard]] constexpr bool
+a4w4_down_k512_m128n128_ldmatrix_pairring_v1_accounting_valid(
+    const A4W4DownK512M128N128LdmatrixPairringV1Route route,
+    const std::size_t projection_span_count,
+    const std::size_t mlp_k512_v1_delta,
+    const std::size_t down_hits_before,
+    const std::size_t down_hits_after) noexcept {
+  if (route ==
+          A4W4DownK512M128N128LdmatrixPairringV1Route::kInvalid ||
+      down_hits_after < down_hits_before ||
+      projection_span_count >
+          std::numeric_limits<std::size_t>::max() /
+              kReferenceDecoderLayerCount) {
+    return false;
+  }
+  const std::size_t down_delta = down_hits_after - down_hits_before;
+  if (route ==
+      A4W4DownK512M128N128LdmatrixPairringV1Route::kDisabled) {
+    return down_delta == 0U;
+  }
+  const std::size_t expected =
+      projection_span_count * kReferenceDecoderLayerCount;
+  return down_delta == expected && down_delta == mlp_k512_v1_delta;
+}
+
 bool exchange_a4w4_full_prefill_admission_test_enabled(
     bool enabled) noexcept;
 bool exchange_a4w4_m128_stage_major_admission_test_enabled(

@@ -27,6 +27,10 @@ ATTENTION_K256_ALTERNATING_MODE = (
     "cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-"
     "alternating-attention-k256"
 )
+ATTENTION_K256_ALTERNATING_DOWN_PAIRRING_MODE = (
+    "cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-"
+    "alternating-down-pairring-attention-k256"
+)
 ATTENTION_K256_LAYOUT = (
     "sm87_s4_n64_packed_k64_scale_k256_consumer_v3"
 )
@@ -517,6 +521,14 @@ class Fixture:
     ) -> subprocess.CompletedProcess[str]:
         return self.run_attention_k256(
             bucket=bucket, mode=ATTENTION_K256_ALTERNATING_MODE
+        )
+
+    def run_attention_k256_alternating_down_pairring(
+        self, *, bucket: str = "p2k"
+    ) -> subprocess.CompletedProcess[str]:
+        return self.run_attention_k256(
+            bucket=bucket,
+            mode=ATTENTION_K256_ALTERNATING_DOWN_PAIRRING_MODE,
         )
 
     def run_mlp_k512_edge_m128n64(
@@ -1156,6 +1168,77 @@ class PurePrefillEvalScopeHarnessTest(unittest.TestCase):
             "ALTERNATING_ADMISSION",
             result.stderr,
         )
+
+    def test_attention_k256_alternating_down_pairring_uses_v1_triplet(
+        self,
+    ) -> None:
+        result = self.fixture.run_attention_k256_alternating_down_pairring()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(
+            f"mode={ATTENTION_K256_ALTERNATING_DOWN_PAIRRING_MODE} "
+            "dry_run=1",
+            result.stdout,
+        )
+        self.assertIn("selector_count=10", result.stdout)
+        startup = next(
+            line
+            for line in result.stdout.splitlines()
+            if line.startswith("server_startup_command")
+        )
+        selectors = set(re.findall(r"(Q3X_[A-Z0-9_]+)=1", startup))
+        self.assertIn(
+            "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_"
+            "ALTERNATING_ADMISSION",
+            selectors,
+        )
+        self.assertIn(
+            "Q3X_RUN_A4W4_DOWN_K512_M128N128_LDMATRIX_PAIRRING_ADMISSION",
+            selectors,
+        )
+        self.assertIn("--prefill-mlp-k512-payload", startup)
+        self.assertIn(str(self.fixture.mlp_k512_payload), startup)
+        self.assertNotIn(
+            "--prefill-mlp-k512-paired-gateup-canonical-down-payload",
+            startup,
+        )
+        self.assertNotIn(
+            "Q3X_RUN_A4W4_MLP_K512_PAIRED_GATEUP_CANONICAL_DOWN_"
+            "ADMISSION=1",
+            startup,
+        )
+        stage_contract = next(
+            line
+            for line in result.stdout.splitlines()
+            if line.startswith("stage_contract")
+            and MLP_K512_EDGE_M64N128_K256_ALTERNATING_MARKER in line
+            and HYBRID_PAIRRING_DOWN_MARKER in line
+        )
+        self.assertIn(
+            f"required={MLP_K512_EDGE_M64N128_K256_ALTERNATING_MARKER},"
+            f"{HYBRID_PAIRRING_DOWN_MARKER}",
+            stage_contract,
+        )
+        self.assertIn(
+            "excluded=prefill_projection_span_mlp_k512_gateup_down_edge,",
+            stage_contract,
+        )
+        self.assertIn(
+            "prefill_projection_span_mlp_k512_down,", stage_contract
+        )
+        self.assertIn(
+            "retained=prefill_projection_span_mlp_k512_input_quantize",
+            stage_contract,
+        )
+        self.assertIn(
+            "expected_request_launch_hits=gate:64,down:64",
+            stage_contract,
+        )
+        self.assertIn(
+            "down_m128n128_ldmatrix_pairring_launch_hits_64_per_request",
+            result.stdout,
+        )
+        self.assertIn("performance_evidence=0", result.stdout)
+        self.assertFalse(self.fixture.output.exists())
 
     def test_attention_k256_alternating_mode_requires_stage_marker(
         self,

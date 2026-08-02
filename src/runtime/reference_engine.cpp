@@ -27,6 +27,7 @@
 #include <cuda_runtime_api.h>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
@@ -175,6 +176,56 @@ prefill_mlp_k512_paired_gateup_canonical_down_environment_enabled() noexcept {
   return value != nullptr && std::strcmp(value, "1") == 0;
 }
 
+[[nodiscard]] bool
+prefill_gateup_down_k512_edge_m128n512_paired_ldmatrix_environment_enabled()
+    noexcept {
+  if (optimized_prefill_dispatch_disabled()) {
+    return false;
+  }
+  const char* const value = std::getenv(
+      "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M128N512_PAIRED_LDMATRIX_ADMISSION");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
+[[nodiscard]] bool
+prefill_down_k512_m128n128_ldmatrix_pairring_environment_enabled() noexcept {
+  if (optimized_prefill_dispatch_disabled()) {
+    return false;
+  }
+  const char* const value = std::getenv(
+      "Q3X_RUN_A4W4_DOWN_K512_M128N128_LDMATRIX_PAIRRING_ADMISSION");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
+[[nodiscard]] bool
+prefill_down_k512_m16n64_v2_environment_enabled() noexcept {
+  if (optimized_prefill_dispatch_disabled()) {
+    return false;
+  }
+  const char* const value = std::getenv(
+      "Q3X_RUN_A4W4_DOWN_K512_M16N64_V2_ADMISSION");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
+[[nodiscard]] bool prefill_legacy_down_selector_environment_enabled()
+    noexcept {
+  if (optimized_prefill_dispatch_disabled()) {
+    return false;
+  }
+  constexpr std::array<const char*, 3U> kSelectors = {
+      "Q3X_RUN_A4W4_DOWN_M128_STAGE_MAJOR_ADMISSION",
+      "Q3X_RUN_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION",
+      "Q3X_RUN_A4W4_DOWN_COMPLETE_CELL_V3_ADMISSION",
+  };
+  for (const char* const selector : kSelectors) {
+    const char* const value = std::getenv(selector);
+    if (value != nullptr && std::strcmp(value, "1") == 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
 struct PrefillA4EnginePaths final {
   bool requested = false;
   std::filesystem::path payload;
@@ -209,6 +260,66 @@ struct PrefillMLPK512PairedGateUpCanonicalDownEnginePaths final {
   std::filesystem::path policy;
   std::filesystem::path receipt;
 };
+
+[[nodiscard]] bool validate_prefill_mlp_k512_leaf_selectors(
+    const bool mlp_k512_v1_publication_requested,
+    const bool mlp_k512_v1_selected,
+    const bool fragment_native_publication_requested,
+    const bool fragment_native_selected,
+    const bool hybrid_publication_requested,
+    const bool hybrid_selected,
+    std::string& error) noexcept {
+  const bool paired_gate_selected =
+      prefill_gateup_down_k512_edge_m128n512_paired_ldmatrix_environment_enabled();
+  const bool pairring_selected =
+      prefill_down_k512_m128n128_ldmatrix_pairring_environment_enabled();
+
+  if (paired_gate_selected != hybrid_selected) {
+    error =
+        "the paired-LDSM GateUp selector and paired-GateUp/canonical-Down "
+        "publication master must be enabled together";
+    return false;
+  }
+#if !defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M128N512_PAIRED_LDMATRIX_ADMISSION)
+  if (paired_gate_selected || hybrid_selected ||
+      hybrid_publication_requested) {
+    error =
+        "this binary does not contain the paired-LDSM GateUp candidate";
+    return false;
+  }
+#endif
+  if (!pairring_selected) {
+    return true;
+  }
+#if !defined(Q3X_ENABLE_A4W4_DOWN_K512_M128N128_LDMATRIX_PAIRRING_ADMISSION)
+  error = "this binary does not contain the M128N128 LDSM pair-ring Down "
+          "candidate";
+  return false;
+#endif
+  if (prefill_down_k512_m16n64_v2_environment_enabled() ||
+      prefill_legacy_down_selector_environment_enabled()) {
+    error = "the M128N128 LDSM pair-ring Down selector conflicts with every "
+            "other Prefill Down selector";
+    return false;
+  }
+  if (hybrid_selected) {
+    if (!hybrid_publication_requested || !paired_gate_selected) {
+      error = "the M128N128 LDSM pair-ring Down selector on the hybrid route "
+              "requires the authenticated hybrid publication and paired "
+              "Gate selector";
+      return false;
+    }
+    return true;
+  }
+  if (!mlp_k512_v1_selected || !mlp_k512_v1_publication_requested ||
+      fragment_native_selected || fragment_native_publication_requested ||
+      hybrid_publication_requested) {
+    error = "the independent M128N128 LDSM pair-ring Down selector requires "
+            "the authenticated v1 K512 MLP publication and runtime master";
+    return false;
+  }
+  return true;
+}
 
 [[nodiscard]] bool resolve_prefill_a4_engine_paths(
     const ReferenceEngineOptions& options, PrefillA4EnginePaths& paths,
@@ -5357,6 +5468,21 @@ struct ReferenceEngine::Impl {
           "overlay requires its runtime master selector");
       return result;
     }
+    std::string prefill_mlp_k512_leaf_selector_error;
+    if (!validate_prefill_mlp_k512_leaf_selectors(
+            prefill_mlp_k512_paths.requested,
+            prefill_mlp_k512_selected,
+            prefill_mlp_k512_fragment_native_paths.requested,
+            prefill_mlp_k512_fragment_native_selected,
+            prefill_mlp_k512_hybrid_paths.requested,
+            prefill_mlp_k512_hybrid_selected,
+            prefill_mlp_k512_leaf_selector_error)) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kInvalidArgument,
+          "prefill_mlp_k512_leaf_selectors",
+          prefill_mlp_k512_leaf_selector_error);
+      return result;
+    }
     const unsigned selected_mlp_k512_layouts =
         static_cast<unsigned>(prefill_mlp_k512_paths.requested ||
                               prefill_mlp_k512_selected) +
@@ -8207,6 +8333,20 @@ ReferenceOneShotResult generate_reference(
               "authenticated hybrid overlay and the explicit complete "
               "K256 A4 base"
             : mlp_k512_hybrid_preflight_error);
+    return result;
+  }
+  std::string mlp_k512_leaf_selector_preflight_error;
+  if (!validate_prefill_mlp_k512_leaf_selectors(
+          mlp_k512_preflight_paths.requested,
+          prefill_mlp_k512_environment_enabled(),
+          mlp_k512_fragment_native_preflight_paths.requested,
+          prefill_mlp_k512_fragment_native_environment_enabled(),
+          mlp_k512_hybrid_preflight_paths.requested,
+          prefill_mlp_k512_paired_gateup_canonical_down_environment_enabled(),
+          mlp_k512_leaf_selector_preflight_error)) {
+    result.diagnostic = engine_diagnostic(
+        ReferenceEngineError::kInvalidArgument, "one_shot_options",
+        mlp_k512_leaf_selector_preflight_error);
     return result;
   }
   const unsigned selected_mlp_k512_layouts =

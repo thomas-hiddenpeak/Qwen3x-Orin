@@ -2702,6 +2702,79 @@ void test_paired_gateup_canonical_down_selector_and_accounting(
       "new request-local telemetry is zero for every unselected route");
 }
 
+void test_down_m128n128_ldmatrix_pairring_v1_selector_and_accounting(
+    TestContext& test) {
+  using Query =
+      detail::A4W4DownK512M128N128LdmatrixPairringV1SelectorQuery;
+  using Route =
+      detail::A4W4DownK512M128N128LdmatrixPairringV1Route;
+
+  Query query;
+  query.projection_span = true;
+  test.expect(
+      detail::select_a4w4_down_k512_m128n128_ldmatrix_pairring_v1_route(
+          query) == Route::kDisabled,
+      "v1 pair-ring Down route is default-off");
+
+  query.requested = true;
+  test.expect(
+      detail::select_a4w4_down_k512_m128n128_ldmatrix_pairring_v1_route(
+          query) == Route::kInvalid,
+      "independent pair-ring Down cannot run without v1 K512 MLP");
+  query.mlp_k512_v1_requested = true;
+  test.expect(
+      detail::select_a4w4_down_k512_m128n128_ldmatrix_pairring_v1_route(
+          query) == Route::kEnabled,
+      "pair-ring Down independently composes with a v1 GateUp selector");
+
+  Query conflict = query;
+  conflict.fragment_native_requested = true;
+  const bool fragment_rejected =
+      detail::select_a4w4_down_k512_m128n128_ldmatrix_pairring_v1_route(
+          conflict) == Route::kInvalid;
+  conflict = query;
+  conflict.hybrid_requested = true;
+  const bool hybrid_rejected =
+      detail::select_a4w4_down_k512_m128n128_ldmatrix_pairring_v1_route(
+          conflict) == Route::kInvalid;
+  conflict = query;
+  conflict.conflicting_down_requested = true;
+  const bool down_conflict_rejected =
+      detail::select_a4w4_down_k512_m128n128_ldmatrix_pairring_v1_route(
+          conflict) == Route::kInvalid;
+  conflict = query;
+  conflict.projection_span = false;
+  const bool non_span_rejected =
+      detail::select_a4w4_down_k512_m128n128_ldmatrix_pairring_v1_route(
+          conflict) == Route::kInvalid;
+  test.expect(fragment_rejected && hybrid_rejected &&
+                  down_conflict_rejected && non_span_rejected,
+              "v1 pair-ring Down rejects other publications, Down "
+              "selectors, and non-span dispatch");
+
+  constexpr std::size_t kBefore = 13U;
+  constexpr std::size_t kTwoSpanHits =
+      2U * runtime::kReferenceDecoderLayerCount;
+  test.expect(
+      detail::a4w4_down_k512_m128n128_ldmatrix_pairring_v1_accounting_valid(
+          Route::kDisabled, 2U, kTwoSpanHits, kBefore, kBefore) &&
+          detail::
+              a4w4_down_k512_m128n128_ldmatrix_pairring_v1_accounting_valid(
+                  Route::kEnabled, 2U, kTwoSpanHits, kBefore,
+                  kBefore + kTwoSpanHits),
+      "v1 pair-ring accounting accepts exact zero or spans times 64 hits");
+  test.expect(
+      !detail::
+           a4w4_down_k512_m128n128_ldmatrix_pairring_v1_accounting_valid(
+               Route::kEnabled, 2U, kTwoSpanHits - 1U, kBefore,
+               kBefore + kTwoSpanHits) &&
+          !detail::
+               a4w4_down_k512_m128n128_ldmatrix_pairring_v1_accounting_valid(
+                   Route::kEnabled, 2U, kTwoSpanHits, kBefore,
+                   kBefore + kTwoSpanHits - 1U),
+      "v1 pair-ring accounting rejects MLP mismatch and partial coverage");
+}
+
 }  // namespace
 
 int main() {
@@ -2717,6 +2790,7 @@ int main() {
   test_a4w4_full_prefill_admission_controls(test);
   test_prefill_admission_gate_orthogonality(test);
   test_paired_gateup_canonical_down_selector_and_accounting(test);
+  test_down_m128n128_ldmatrix_pairring_v1_selector_and_accounting(test);
   test_trace_layout_and_factory_error(test);
   if (test.failures() != 0) {
     std::cerr << test.failures() << " reference-runner host test(s) failed\n";

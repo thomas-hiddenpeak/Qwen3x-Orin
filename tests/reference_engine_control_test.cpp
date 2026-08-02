@@ -1827,6 +1827,80 @@ void test_engine_backend_validation(TestContext& test) {
       "one-shot complete hybrid publication fails before resident loading "
       "when its runtime master selector is absent");
 
+  constexpr const char* kPairringSelector =
+      "Q3X_RUN_A4W4_DOWN_K512_M128N128_LDMATRIX_PAIRRING_ADMISSION";
+  constexpr const char* kMlpK512V1Selector =
+      "Q3X_RUN_A4W4_MLP_K512_ADMISSION";
+  constexpr const char* kDownM16N64V2Selector =
+      "Q3X_RUN_A4W4_DOWN_K512_M16N64_V2_ADMISSION";
+  runtime::ReferenceEngineOptions pairring_without_v1;
+  pairring_without_v1.projection_backend =
+      runtime::ProjectionBackend::kSm87WeightOnly;
+  pairring_without_v1.prefill_a4_payload_path = "base.bin";
+  pairring_without_v1.prefill_a4_calibration_policy_path = "base.json";
+  pairring_without_v1.prefill_a4_receipt_path = "base.receipt.json";
+  pairring_without_v1.prefill_mlp_k512_payload_path = "mlp.bin";
+  pairring_without_v1.prefill_mlp_k512_policy_path = "mlp.policy.json";
+  pairring_without_v1.prefill_mlp_k512_receipt_path =
+      "mlp.receipt.json";
+  (void)::setenv(kPairringSelector, "1", 1);
+  const runtime::ReferenceEngineCreateResult missing_pairring_v1_master =
+      runtime::create_reference_engine("unused-model-directory",
+                                       pairring_without_v1);
+  (void)::unsetenv(kPairringSelector);
+  test.expect(
+      !missing_pairring_v1_master &&
+          missing_pairring_v1_master.diagnostic.code ==
+              runtime::ReferenceEngineError::kInvalidArgument &&
+          missing_pairring_v1_master.diagnostic.stage ==
+              "prefill_mlp_k512_leaf_selectors",
+      "independent pair-ring Down rejects a complete v1 triplet without "
+      "the v1 runtime master before model I/O");
+
+  runtime::ReferenceOneShotOptions one_shot_pairring_without_v1;
+  one_shot_pairring_without_v1.projection_backend =
+      runtime::ProjectionBackend::kSm87WeightOnly;
+  one_shot_pairring_without_v1.prefill_a4_payload_path = "base.bin";
+  one_shot_pairring_without_v1.prefill_a4_calibration_policy_path =
+      "base.json";
+  one_shot_pairring_without_v1.prefill_a4_receipt_path =
+      "base.receipt.json";
+  one_shot_pairring_without_v1.prefill_mlp_k512_payload_path = "mlp.bin";
+  one_shot_pairring_without_v1.prefill_mlp_k512_policy_path =
+      "mlp.policy.json";
+  one_shot_pairring_without_v1.prefill_mlp_k512_receipt_path =
+      "mlp.receipt.json";
+  (void)::setenv(kPairringSelector, "1", 1);
+  const runtime::ReferenceOneShotResult one_shot_missing_pairring_v1_master =
+      runtime::generate_reference("unused-model-directory", "prompt",
+                                  one_shot_pairring_without_v1);
+  (void)::unsetenv(kPairringSelector);
+  test.expect(
+      !one_shot_missing_pairring_v1_master &&
+          one_shot_missing_pairring_v1_master.diagnostic.code ==
+              runtime::ReferenceEngineError::kInvalidArgument &&
+          one_shot_missing_pairring_v1_master.diagnostic.stage ==
+              "one_shot_options",
+      "one-shot independent pair-ring Down rejects a missing v1 master "
+      "before tokenizer or resident loading");
+
+  (void)::setenv(kPairringSelector, "1", 1);
+  (void)::setenv(kMlpK512V1Selector, "1", 1);
+  (void)::setenv(kDownM16N64V2Selector, "1", 1);
+  const runtime::ReferenceEngineCreateResult conflicting_pairring_down =
+      runtime::create_reference_engine("unused-model-directory",
+                                       pairring_without_v1);
+  (void)::unsetenv(kDownM16N64V2Selector);
+  (void)::unsetenv(kMlpK512V1Selector);
+  (void)::unsetenv(kPairringSelector);
+  test.expect(
+      !conflicting_pairring_down &&
+          conflicting_pairring_down.diagnostic.code ==
+              runtime::ReferenceEngineError::kInvalidArgument &&
+          conflicting_pairring_down.diagnostic.stage ==
+              "prefill_mlp_k512_leaf_selectors",
+      "pair-ring and M16N64 v2 Down selectors conflict before model I/O");
+
   runtime::ReferenceEngineOptions wrong_backend_a4;
   wrong_backend_a4.prefill_a4_payload_path = "payload.a4";
   wrong_backend_a4.prefill_a4_calibration_policy_path = "policy.json";
