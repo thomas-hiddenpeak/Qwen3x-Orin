@@ -20,6 +20,7 @@ struct PrefillMLPK512OverlayManifest;
 struct PrefillMLPK512OverlayPolicy;
 struct PrefillMLPK512FragmentNativeManifest;
 struct PrefillMLPK512PairedGateUpCanonicalDownManifest;
+struct PrefillMLPK512ProjectionMajorGateUpCanonicalDownManifest;
 
 inline constexpr std::size_t kQwen36DenseLayerCount = 64U;
 inline constexpr std::size_t kQwen36LinearAttentionLayerCount = 48U;
@@ -432,6 +433,7 @@ enum class PrefillMLPK512CompositeLayout : std::uint8_t {
   kNone = 0,
   kPairedGateUpFragmentNativeDown,
   kPairedGateUpCanonicalV1Down,
+  kProjectionMajorGateUpCanonicalV1Down,
 };
 
 struct PrefillMLPK512FragmentNativeCompositeView {
@@ -701,6 +703,19 @@ class ModelWeights {
   attach_prefill_mlp_k512_paired_gateup_canonical_down_sidecars(
       const std::uint8_t* arena, std::size_t arena_bytes,
       const PrefillMLPK512PairedGateUpCanonicalDownManifest* manifest,
+      const PrefillMLPK512OverlayManifest* source_v1_manifest,
+      const PrefillMLPK512OverlayPolicy* source_v1_policy) noexcept;
+
+  // Transactionally publishes the projection-major-GateUp/canonical-v1-Down
+  // arena.  Its manifest and physical-layout discriminator are independent
+  // from the older paired-GateUp hybrid even though both expose four
+  // equal-sized layer ranges.  v1, fragment-v2, paired-hybrid-v1, and this
+  // publication are strictly mutually exclusive.  The canonical
+  // all-null/zero call detaches only this layout.
+  [[nodiscard]] bool
+  attach_prefill_mlp_k512_projection_major_gateup_canonical_down_sidecars(
+      const std::uint8_t* arena, std::size_t arena_bytes,
+      const PrefillMLPK512ProjectionMajorGateUpCanonicalDownManifest* manifest,
       const PrefillMLPK512OverlayManifest* source_v1_manifest,
       const PrefillMLPK512OverlayPolicy* source_v1_policy) noexcept;
 

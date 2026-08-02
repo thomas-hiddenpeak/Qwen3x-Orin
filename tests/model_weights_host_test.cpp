@@ -1901,6 +1901,281 @@ void test_prefill_mlp_k512_paired_gateup_canonical_down_attachment(
               "detaching the K256 base clears every K512 publication");
 }
 
+void test_prefill_mlp_k512_projection_major_gateup_canonical_down_attachment(
+    TestContext& test) {
+  SyntheticArena arena(/*force_fp8_attention_outputs=*/false,
+                       /*force_nvfp4_down_projections=*/false,
+                       /*force_fp8_linear_qkv=*/false,
+                       /*force_fp8_prefill_supermatrix=*/false,
+                       /*force_a4_projection_types=*/true);
+  const SyntheticA4ManifestSource source = make_a4_manifest_source(arena);
+  test.expect(source.complete,
+              "projection-major test source covers every projection");
+  if (!source.complete) {
+    return;
+  }
+
+  runtime::PrefillSidecarManifestOptions base_options;
+  base_options.kind = runtime::PrefillSidecarKind::kA4K256;
+  const runtime::PrefillSidecarManifestResult base_result =
+      runtime::build_qwen36_27b_prefill_sidecar_manifest(
+          source.manifest, source.shards, base_options);
+  test.expect(base_result.ok(),
+              "projection-major authenticated K256 base manifest builds");
+  if (!base_result) {
+    return;
+  }
+  const runtime::PrefillSidecarManifest& base_manifest = *base_result.value;
+  const runtime::PrefillA4CalibrationPolicy base_policy =
+      make_a4_policy(base_manifest);
+  const std::string base_payload_sha256(64U, '2');
+  runtime::PrefillMLPK512BaseBinding required_base;
+  required_base.physical_layout =
+      std::string(runtime::kPrefillA4K256PhysicalLayout);
+  required_base.manifest_sha256 = base_manifest.manifest_sha256;
+  required_base.policy_sha256 = base_policy.policy_sha256;
+  required_base.payload_sha256 = base_payload_sha256;
+
+  const runtime::PrefillMLPK512OverlayManifestResult v1_result =
+      runtime::build_qwen36_27b_prefill_mlp_k512_overlay_manifest(
+          source.manifest, source.shards, required_base);
+  test.expect(static_cast<bool>(v1_result),
+              "projection-major source-v1 manifest builds");
+  if (!v1_result) {
+    return;
+  }
+  const runtime::PrefillMLPK512OverlayManifest& v1_manifest =
+      *v1_result.value;
+  const runtime::PrefillMLPK512OverlayPolicy v1_policy =
+      make_mlp_k512_policy(v1_manifest);
+  runtime::PrefillMLPK512OverlayReceipt v1_receipt;
+  v1_receipt.production_residency_eligible = true;
+  v1_receipt.physical_layout = v1_manifest.physical_layout;
+  v1_receipt.source_checkpoint_id = v1_manifest.source_checkpoint_id;
+  v1_receipt.source_config_sha256 = v1_manifest.source_config_sha256;
+  v1_receipt.source_index_sha256 = v1_manifest.source_index_sha256;
+  v1_receipt.manifest_sha256 = v1_manifest.manifest_sha256;
+  v1_receipt.policy_sha256 = v1_policy.policy_sha256;
+  v1_receipt.policy_bytes = v1_policy.policy_bytes;
+  v1_receipt.required_base = required_base;
+  v1_receipt.payload_sha256.assign(64U, '3');
+  v1_receipt.payload_bytes = runtime::kPrefillMLPK512OverlayPayloadBytes;
+  v1_receipt.projection_count =
+      runtime::kPrefillMLPK512OverlayProjectionCount;
+  const auto projection_major_result =
+      runtime::
+          build_prefill_mlp_k512_projection_major_gateup_canonical_down_manifest(
+              v1_receipt, std::string(64U, '4'));
+  test.expect(static_cast<bool>(projection_major_result),
+              "projection-major manifest binds the source receipt identity");
+  if (!projection_major_result) {
+    return;
+  }
+  const auto& projection_major_manifest = *projection_major_result.value;
+  const auto paired_result =
+      runtime::build_prefill_mlp_k512_paired_gateup_canonical_down_manifest(
+          v1_receipt, std::string(64U, '4'));
+  test.expect(static_cast<bool>(paired_result),
+              "old paired manifest builds for mutual-exclusion coverage");
+  if (!paired_result) {
+    return;
+  }
+
+  runtime::WeightBindResult bound =
+      runtime::bind_qwen36_27b_weights(arena.source());
+  test.expect(bound.ok(), "projection-major all-NVFP4 targets bind");
+  if (!bound) {
+    return;
+  }
+  runtime::ModelWeights& weights = *bound.value;
+  constexpr std::uintptr_t kBaseArenaAddress = 0x0000340000000000ULL;
+  constexpr std::uintptr_t kFirstArenaAddress = 0x0000380000000000ULL;
+  constexpr std::uintptr_t kSecondArenaAddress = 0x00003c0000000000ULL;
+  constexpr std::uintptr_t kV1ArenaAddress = 0x0000400000000000ULL;
+  constexpr std::uintptr_t kOldV2ArenaAddress = 0x0000440000000000ULL;
+  constexpr std::uintptr_t kOldHybridArenaAddress =
+      0x0000480000000000ULL;
+  const auto pointer = [](const std::uintptr_t address) {
+    return reinterpret_cast<const std::uint8_t*>(address);
+  };
+  const auto* const base_arena = pointer(kBaseArenaAddress);
+  const auto* const first_arena = pointer(kFirstArenaAddress);
+  const auto* const second_arena = pointer(kSecondArenaAddress);
+  const std::size_t base_bytes =
+      static_cast<std::size_t>(base_manifest.summary.arena_bytes);
+  const std::size_t composite_bytes = static_cast<std::size_t>(
+      runtime::kPrefillMLPK512FragmentNativePayloadBytes);
+  const std::size_t v1_bytes =
+      static_cast<std::size_t>(runtime::kPrefillMLPK512OverlayPayloadBytes);
+  test.expect(weights.attach_prefill_a4_sidecars(
+                  base_arena, base_bytes, &base_manifest, &base_policy,
+                  base_payload_sha256) &&
+                  a4_attachments_match(weights, base_manifest,
+                                       kBaseArenaAddress),
+              "projection-major path starts from authenticated K256 base");
+
+  const auto expect_empty_rejection = [&](const std::uint8_t* candidate_arena,
+                                          const std::size_t candidate_bytes,
+                                          const auto* candidate_manifest,
+                                          const std::string_view label) {
+    test.expect(
+        !weights
+             .attach_prefill_mlp_k512_projection_major_gateup_canonical_down_sidecars(
+                 candidate_arena, candidate_bytes, candidate_manifest,
+                 &v1_manifest, &v1_policy) &&
+            fragment_native_mlp_attachments_empty(weights),
+        label);
+  };
+  expect_empty_rejection(pointer(kFirstArenaAddress + 1U), composite_bytes,
+                         &projection_major_manifest,
+                         "misaligned projection-major arena is atomic");
+  expect_empty_rejection(first_arena, composite_bytes - 1U,
+                         &projection_major_manifest,
+                         "short projection-major arena is atomic");
+  constexpr std::uintptr_t kOverflowingArenaAddress =
+      std::numeric_limits<std::uintptr_t>::max() - 255U;
+  expect_empty_rejection(pointer(kOverflowingArenaAddress), composite_bytes,
+                         &projection_major_manifest,
+                         "overflowing projection-major arena range is atomic");
+  runtime::PrefillMLPK512ProjectionMajorGateUpCanonicalDownManifest
+      wrong_layout = projection_major_manifest;
+  wrong_layout.physical_layout =
+      std::string(runtime::kPrefillMLPK512PairedGateUpCanonicalDownLayout);
+  expect_empty_rejection(first_arena, composite_bytes, &wrong_layout,
+                         "old hybrid layout identity is rejected");
+  auto wrong_source_receipt = projection_major_manifest;
+  wrong_source_receipt.source_v1.receipt_sha256.assign(64U, '5');
+  expect_empty_rejection(first_arena, composite_bytes,
+                         &wrong_source_receipt,
+                         "tampered source receipt identity is rejected");
+
+  constexpr auto kProjectionMajorLayout =
+      runtime::PrefillMLPK512CompositeLayout::
+          kProjectionMajorGateUpCanonicalV1Down;
+  test.expect(
+      weights
+              .attach_prefill_mlp_k512_projection_major_gateup_canonical_down_sidecars(
+                  first_arena, composite_bytes, &projection_major_manifest,
+                  &v1_manifest, &v1_policy) &&
+          fragment_native_mlp_attachments_match(
+              weights, kFirstArenaAddress, kProjectionMajorLayout) &&
+          canonical_mlp_k512_attachments_empty(weights),
+      "complete projection-major arena atomically publishes 64/64 views");
+  test.expect(
+      weights
+              .attach_prefill_mlp_k512_projection_major_gateup_canonical_down_sidecars(
+                  first_arena, composite_bytes, &projection_major_manifest,
+                  &v1_manifest, &v1_policy) &&
+          fragment_native_mlp_attachments_match(
+              weights, kFirstArenaAddress, kProjectionMajorLayout),
+      "identical projection-major publication can be revalidated");
+  test.expect(
+      !weights
+           .attach_prefill_mlp_k512_projection_major_gateup_canonical_down_sidecars(
+               nullptr, 0U, nullptr, nullptr, &v1_policy) &&
+          fragment_native_mlp_attachments_match(
+              weights, kFirstArenaAddress, kProjectionMajorLayout),
+      "noncanonical detach preserves all projection-major views");
+
+  runtime::NvFp4LinearWeight* const last_down =
+      mutable_nvfp4_down(weights, runtime::kQwen36DenseLayerCount - 1U);
+  test.expect(last_down != nullptr,
+              "late projection-major Down target exists");
+  if (last_down != nullptr) {
+    const std::size_t original_input_size = last_down->input_size;
+    --last_down->input_size;
+    test.expect(
+        !weights
+             .attach_prefill_mlp_k512_projection_major_gateup_canonical_down_sidecars(
+                 second_arena, composite_bytes, &projection_major_manifest,
+                 &v1_manifest, &v1_policy) &&
+            fragment_native_mlp_attachments_match(
+                weights, kFirstArenaAddress, kProjectionMajorLayout),
+        "late layer-63 shape failure preserves the 64-view inventory");
+    last_down->input_size = original_input_size;
+  }
+  test.expect(
+      weights
+              .attach_prefill_mlp_k512_projection_major_gateup_canonical_down_sidecars(
+                  second_arena, composite_bytes, &projection_major_manifest,
+                  &v1_manifest, &v1_policy) &&
+          fragment_native_mlp_attachments_match(
+              weights, kSecondArenaAddress, kProjectionMajorLayout),
+      "complete projection-major inventory can replace itself atomically");
+
+  runtime::PrefillMLPK512FragmentNativeManifest untrusted_old_v2;
+  test.expect(
+      !weights.attach_prefill_mlp_k512_fragment_native_sidecars(
+          pointer(kOldV2ArenaAddress), composite_bytes, &untrusted_old_v2,
+          &v1_manifest, &v1_policy) &&
+          fragment_native_mlp_attachments_match(
+              weights, kSecondArenaAddress, kProjectionMajorLayout),
+      "old fragment-v2 API rejects a resident projection-major layout");
+  test.expect(
+      !weights.attach_prefill_mlp_k512_paired_gateup_canonical_down_sidecars(
+          pointer(kOldHybridArenaAddress), composite_bytes,
+          &*paired_result.value, &v1_manifest, &v1_policy) &&
+          fragment_native_mlp_attachments_match(
+              weights, kSecondArenaAddress, kProjectionMajorLayout),
+      "old paired-hybrid API never accepts a resident projection-major layout");
+  test.expect(
+      !weights.attach_prefill_mlp_k512_sidecars(
+          pointer(kV1ArenaAddress), v1_bytes, &v1_manifest, &v1_policy) &&
+          fragment_native_mlp_attachments_match(
+              weights, kSecondArenaAddress, kProjectionMajorLayout) &&
+          canonical_mlp_k512_attachments_empty(weights),
+      "canonical v1 conflicts with projection-major publication");
+
+  test.expect(
+      weights
+              .attach_prefill_mlp_k512_projection_major_gateup_canonical_down_sidecars(
+                  nullptr, 0U, nullptr, nullptr, nullptr) &&
+          fragment_native_mlp_attachments_empty(weights),
+      "canonical null call detaches only projection-major publication");
+  test.expect(
+      weights.attach_prefill_mlp_k512_paired_gateup_canonical_down_sidecars(
+          pointer(kOldHybridArenaAddress), composite_bytes,
+          &*paired_result.value, &v1_manifest, &v1_policy),
+      "old paired hybrid attaches after projection-major detach");
+  test.expect(
+      !weights
+           .attach_prefill_mlp_k512_projection_major_gateup_canonical_down_sidecars(
+               first_arena, composite_bytes, &projection_major_manifest,
+               &v1_manifest, &v1_policy) &&
+          fragment_native_mlp_attachments_match(
+              weights, kOldHybridArenaAddress,
+              runtime::PrefillMLPK512CompositeLayout::
+                  kPairedGateUpCanonicalV1Down),
+      "projection-major attach rejects and preserves old paired hybrid");
+  test.expect(
+      weights.attach_prefill_mlp_k512_paired_gateup_canonical_down_sidecars(
+          nullptr, 0U, nullptr, nullptr, nullptr) &&
+          fragment_native_mlp_attachments_empty(weights),
+      "old paired hybrid detaches explicitly");
+  test.expect(weights.attach_prefill_mlp_k512_sidecars(
+                  pointer(kV1ArenaAddress), v1_bytes, &v1_manifest,
+                  &v1_policy),
+              "canonical v1 attaches after composite detach");
+  const auto* const first_gate = std::get_if<runtime::NvFp4LinearWeight>(
+      &weights.layer(0U).mlp.gate_proj);
+  const std::uint8_t* const first_v1_weight =
+      first_gate == nullptr ? nullptr : first_gate->prefill_mlp_k512_weight;
+  test.expect(
+      first_v1_weight != nullptr &&
+          !weights
+               .attach_prefill_mlp_k512_projection_major_gateup_canonical_down_sidecars(
+                   first_arena, composite_bytes, &projection_major_manifest,
+                   &v1_manifest, &v1_policy) &&
+          first_gate->prefill_mlp_k512_weight == first_v1_weight &&
+          fragment_native_mlp_attachments_empty(weights),
+      "projection-major attach rejects and preserves canonical v1");
+  test.expect(weights.attach_prefill_a4_sidecars(nullptr, 0U, nullptr,
+                                                  nullptr) &&
+                  fragment_native_mlp_attachments_empty(weights) &&
+                  canonical_mlp_k512_attachments_empty(weights),
+              "detaching K256 base clears all K512 publications");
+}
+
 void test_nvfp4_down_scale6_sidecar_attachment(TestContext& test) {
   static_assert(runtime::kNvFp4DownScale6Rows == 5'120U);
   static_assert(runtime::kNvFp4DownScale6Columns == 17'408U);
@@ -2593,6 +2868,8 @@ int main() {
   test_prefill_a4_k64_k128_sidecar_attachment(test);
   test_prefill_mlp_k512_fragment_native_attachment(test);
   test_prefill_mlp_k512_paired_gateup_canonical_down_attachment(test);
+  test_prefill_mlp_k512_projection_major_gateup_canonical_down_attachment(
+      test);
   test_nvfp4_down_scale6_sidecar_attachment(test);
   test_projection_pair_eligibility(test);
   test_fp8_qkv_z_projection_pair_eligibility(test);

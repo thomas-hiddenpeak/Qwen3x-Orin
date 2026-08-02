@@ -2699,6 +2699,290 @@ attach_prefill_mlp_k512_paired_gateup_canonical_down_sidecars(
   return true;
 }
 
+bool ModelWeights::
+attach_prefill_mlp_k512_projection_major_gateup_canonical_down_sidecars(
+    const std::uint8_t* const arena, const std::size_t arena_bytes,
+    const PrefillMLPK512ProjectionMajorGateUpCanonicalDownManifest* const
+        manifest,
+    const PrefillMLPK512OverlayManifest* const source_v1_manifest,
+    const PrefillMLPK512OverlayPolicy* const source_v1_policy) noexcept {
+  const auto clear_all = [this]() noexcept {
+    for (DecoderLayerWeights& layer : layers_) {
+      layer.prefill_mlp_k512_fragment_native = {};
+    }
+  };
+  if (arena == nullptr && arena_bytes == 0U && manifest == nullptr &&
+      source_v1_manifest == nullptr && source_v1_policy == nullptr) {
+    clear_all();
+    return true;
+  }
+
+  for (const DecoderLayerWeights& layer : layers_) {
+    const auto& composite = layer.prefill_mlp_k512_fragment_native;
+    if (!composite.empty() &&
+        composite.physical_layout !=
+            PrefillMLPK512CompositeLayout::
+                kProjectionMajorGateUpCanonicalV1Down) {
+      return false;
+    }
+  }
+  const auto v1_projection_attached = [](const NvFp4LinearWeight* const value)
+      noexcept {
+    return value != nullptr &&
+           (value->prefill_mlp_k512_weight != nullptr ||
+            value->prefill_mlp_k512_scales != nullptr ||
+            value->prefill_mlp_k512_activation_clip_ratio != 0.0F);
+  };
+  for (DecoderLayerWeights& layer : layers_) {
+    if (v1_projection_attached(nvfp4_gate_projection(layer)) ||
+        v1_projection_attached(nvfp4_up_projection(layer)) ||
+        v1_projection_attached(nvfp4_down_projection(layer))) {
+      return false;
+    }
+  }
+  if (arena == nullptr || manifest == nullptr ||
+      source_v1_manifest == nullptr || source_v1_policy == nullptr ||
+      arena_bytes != kPrefillMLPK512FragmentNativePayloadBytes ||
+      manifest->payload_bytes != arena_bytes ||
+      manifest->layer_count != kPrefillMLPK512FragmentNativeLayerCount ||
+      source_v1_manifest->payload_bytes !=
+          kPrefillMLPK512OverlayPayloadBytes ||
+      source_v1_manifest->projections.size() !=
+          kPrefillMLPK512OverlayProjectionCount ||
+      source_v1_policy->projections.size() !=
+          source_v1_manifest->projections.size()) {
+    return false;
+  }
+
+  const auto same_base_local = [](
+                                   const PrefillMLPK512BaseBinding& first,
+                                   const PrefillMLPK512BaseBinding& second)
+      noexcept {
+    return first.physical_layout == second.physical_layout &&
+           first.manifest_sha256 == second.manifest_sha256 &&
+           first.policy_sha256 == second.policy_sha256 &&
+           first.payload_sha256 == second.payload_sha256;
+  };
+  const auto lower_sha256_local = [](const std::string_view value) noexcept {
+    return value.size() == 64U &&
+           std::all_of(value.begin(), value.end(), [](const char character) {
+             return (character >= '0' && character <= '9') ||
+                    (character >= 'a' && character <= 'f');
+           });
+  };
+  try {
+    if (!validate_prefill_mlp_k512_projection_major_gateup_canonical_down_manifest(
+            *manifest) ||
+        !validate_prefill_mlp_k512_overlay_manifest(*source_v1_manifest) ||
+        manifest->source_checkpoint_id !=
+            source_v1_manifest->source_checkpoint_id ||
+        manifest->source_config_sha256 !=
+            source_v1_manifest->source_config_sha256 ||
+        manifest->source_index_sha256 !=
+            source_v1_manifest->source_index_sha256 ||
+        !same_base_local(manifest->required_base,
+                         source_v1_manifest->required_base) ||
+        manifest->source_v1.physical_layout !=
+            source_v1_manifest->physical_layout ||
+        manifest->source_v1.manifest_sha256 !=
+            source_v1_manifest->manifest_sha256 ||
+        manifest->source_v1.payload_bytes !=
+            source_v1_manifest->payload_bytes ||
+        source_v1_policy->version_major !=
+            source_v1_manifest->version_major ||
+        source_v1_policy->version_minor !=
+            source_v1_manifest->version_minor ||
+        source_v1_policy->physical_layout !=
+            source_v1_manifest->physical_layout ||
+        source_v1_policy->source_checkpoint_id !=
+            source_v1_manifest->source_checkpoint_id ||
+        source_v1_policy->source_config_sha256 !=
+            source_v1_manifest->source_config_sha256 ||
+        source_v1_policy->source_index_sha256 !=
+            source_v1_manifest->source_index_sha256 ||
+        source_v1_policy->manifest_sha256 !=
+            source_v1_manifest->manifest_sha256 ||
+        !same_base_local(source_v1_policy->required_base,
+                         source_v1_manifest->required_base) ||
+        !lower_sha256_local(source_v1_policy->policy_sha256) ||
+        source_v1_policy->policy_bytes == 0U ||
+        manifest->source_v1.policy_sha256 !=
+            source_v1_policy->policy_sha256 ||
+        manifest->source_v1.policy_bytes != source_v1_policy->policy_bytes ||
+        !prefill_a4_attachment_complete_ ||
+        std::string_view(prefill_a4_attachment_manifest_sha256_.data(),
+                         prefill_a4_attachment_manifest_sha256_.size()) !=
+            manifest->required_base.manifest_sha256 ||
+        std::string_view(prefill_a4_attachment_policy_sha256_.data(),
+                         prefill_a4_attachment_policy_sha256_.size()) !=
+            manifest->required_base.policy_sha256 ||
+        std::string_view(prefill_a4_attachment_payload_sha256_.data(),
+                         prefill_a4_attachment_payload_sha256_.size()) !=
+            manifest->required_base.payload_sha256) {
+      return false;
+    }
+  } catch (...) {
+    return false;
+  }
+
+  constexpr std::uintptr_t kPointerMaximum =
+      std::numeric_limits<std::uintptr_t>::max();
+  const std::uintptr_t arena_address =
+      reinterpret_cast<std::uintptr_t>(arena);
+  if (arena_address % 256U != 0U || arena_bytes > kPointerMaximum ||
+      arena_address > kPointerMaximum - arena_bytes) {
+    return false;
+  }
+  const std::uintptr_t arena_end = arena_address + arena_bytes;
+  std::array<PrefillMLPK512FragmentNativeCompositeView,
+             kPrefillMLPK512FragmentNativeLayerCount>
+      validated{};
+  for (std::size_t layer_index = 0U;
+       layer_index < kPrefillMLPK512FragmentNativeLayerCount;
+       ++layer_index) {
+    const std::size_t gate_index = 3U * layer_index;
+    const std::size_t up_index = gate_index + 1U;
+    const std::size_t down_index = gate_index + 2U;
+    const PrefillMLPK512OverlayEntry& gate_entry =
+        source_v1_manifest->projections[gate_index];
+    const PrefillMLPK512OverlayEntry& up_entry =
+        source_v1_manifest->projections[up_index];
+    const PrefillMLPK512OverlayEntry& down_entry =
+        source_v1_manifest->projections[down_index];
+    const PrefillMLPK512OverlayCalibration& gate_calibration =
+        source_v1_policy->projections[gate_index];
+    const PrefillMLPK512OverlayCalibration& up_calibration =
+        source_v1_policy->projections[up_index];
+    const PrefillMLPK512OverlayCalibration& down_calibration =
+        source_v1_policy->projections[down_index];
+    const auto calibration_valid = [](
+                                       const PrefillMLPK512OverlayEntry& entry,
+                                       const PrefillMLPK512OverlayCalibration&
+                                           calibration) noexcept {
+      return calibration.ordinal == entry.ordinal &&
+             calibration.source_module == entry.source_module &&
+             calibration.source_sha256 == entry.source_sha256 &&
+             calibration.activation_scale_group_size ==
+                 kPrefillMLPK512OverlayScaleK &&
+             std::isfinite(calibration.weight_clip_ratio) &&
+             calibration.weight_clip_ratio >= kPrefillA4MinimumClipRatio &&
+             calibration.weight_clip_ratio <= 1.0 &&
+             std::isfinite(calibration.activation_clip_ratio) &&
+             calibration.activation_clip_ratio >=
+                 kPrefillA4MinimumClipRatio &&
+             calibration.activation_clip_ratio <= 1.0;
+    };
+    if (!calibration_valid(gate_entry, gate_calibration) ||
+        !calibration_valid(up_entry, up_calibration) ||
+        !calibration_valid(down_entry, down_calibration) ||
+        static_cast<float>(gate_calibration.activation_clip_ratio) !=
+            static_cast<float>(up_calibration.activation_clip_ratio)) {
+      return false;
+    }
+
+    DecoderLayerWeights& layer = layers_[layer_index];
+    NvFp4LinearWeight* const gate = nvfp4_gate_projection(layer);
+    NvFp4LinearWeight* const up = nvfp4_up_projection(layer);
+    NvFp4LinearWeight* const down = nvfp4_down_projection(layer);
+    const auto projection_valid = [manifest](
+                                      const NvFp4LinearWeight* const weight,
+                                      const std::size_t output_size,
+                                      const std::size_t input_size) noexcept {
+      if (!has_valid_nvfp4_payload(weight) ||
+          weight->output_size != output_size ||
+          weight->input_size != input_size ||
+          weight->prefill_marlin_weight != nullptr ||
+          weight->prefill_marlin_scales != nullptr ||
+          weight->prefill_marlin_global_scale != nullptr) {
+        return false;
+      }
+      return weight->prefill_a4_weight != nullptr &&
+             weight->prefill_a4_scales != nullptr &&
+             prefill_mlp_k512_base_layout_matches_contract(
+                 manifest->required_base.physical_layout,
+                 weight->prefill_a4_sidecar_kind,
+                 weight->prefill_a4_packed_k_group_size,
+                 weight->prefill_a4_scale_group_size) &&
+             weight->prefill_a4_activation_clip_ratio > 0.0F &&
+             weight->prefill_a4_activation_clip_ratio <= 1.0F;
+    };
+    if (!projection_valid(gate, kPrefillMLPK512OverlayGateUpOutputSize,
+                          kPrefillMLPK512OverlayGateUpInputSize) ||
+        !projection_valid(up, kPrefillMLPK512OverlayGateUpOutputSize,
+                          kPrefillMLPK512OverlayGateUpInputSize) ||
+        !projection_valid(down, kPrefillMLPK512OverlayDownOutputSize,
+                          kPrefillMLPK512OverlayDownInputSize)) {
+      return false;
+    }
+
+    const PrefillMLPK512FragmentNativeLayerView layout =
+        prefill_mlp_k512_fragment_native_layer_view(layer_index);
+    const auto range_valid = [arena_bytes](const std::uint64_t offset,
+                                           const std::uint64_t bytes) noexcept {
+      return offset < arena_bytes && bytes <= arena_bytes - offset;
+    };
+    if (!layout.valid || layout.layer_index != layer_index ||
+        layout.gateup_code_bytes !=
+            kPrefillMLPK512FragmentNativeGateUpCodeBytes ||
+        layout.gateup_scale_bytes !=
+            kPrefillMLPK512FragmentNativeGateUpScaleBytes ||
+        layout.down_code_bytes !=
+            kPrefillMLPK512FragmentNativeDownCodeBytes ||
+        layout.down_scale_bytes !=
+            kPrefillMLPK512FragmentNativeDownScaleBytes ||
+        !range_valid(layout.gateup_code_offset, layout.gateup_code_bytes) ||
+        !range_valid(layout.gateup_scale_offset,
+                     layout.gateup_scale_bytes) ||
+        !range_valid(layout.down_code_offset, layout.down_code_bytes) ||
+        !range_valid(layout.down_scale_offset, layout.down_scale_bytes)) {
+      return false;
+    }
+    const std::uintptr_t gateup_code_address =
+        arena_address + layout.gateup_code_offset;
+    const std::uintptr_t gateup_scale_address =
+        arena_address + layout.gateup_scale_offset;
+    const std::uintptr_t down_code_address =
+        arena_address + layout.down_code_offset;
+    const std::uintptr_t down_scale_address =
+        arena_address + layout.down_scale_offset;
+    if (gateup_code_address >= arena_end ||
+        gateup_code_address % 16U != 0U ||
+        gateup_scale_address >= arena_end ||
+        gateup_scale_address % alignof(std::uint16_t) != 0U ||
+        down_code_address >= arena_end || down_code_address % 16U != 0U ||
+        down_scale_address >= arena_end ||
+        down_scale_address % alignof(std::uint16_t) != 0U) {
+      return false;
+    }
+    validated[layer_index] = {
+        reinterpret_cast<const std::uint8_t*>(gateup_code_address),
+        reinterpret_cast<const std::uint16_t*>(gateup_scale_address),
+        reinterpret_cast<const std::uint8_t*>(down_code_address),
+        reinterpret_cast<const std::uint16_t*>(down_scale_address),
+        static_cast<std::size_t>(layout.gateup_code_bytes),
+        static_cast<std::size_t>(layout.gateup_scale_bytes /
+                                 sizeof(std::uint16_t)),
+        static_cast<std::size_t>(layout.down_code_bytes),
+        static_cast<std::size_t>(layout.down_scale_bytes /
+                                 sizeof(std::uint16_t)),
+        static_cast<float>(gate_calibration.activation_clip_ratio),
+        static_cast<float>(down_calibration.activation_clip_ratio),
+        PrefillMLPK512CompositeLayout::
+            kProjectionMajorGateUpCanonicalV1Down};
+    if (!validated[layer_index].attached()) {
+      return false;
+    }
+  }
+
+  clear_all();
+  for (std::size_t layer_index = 0U; layer_index < layers_.size();
+       ++layer_index) {
+    layers_[layer_index].prefill_mlp_k512_fragment_native =
+        validated[layer_index];
+  }
+  return true;
+}
+
 LinearWeightKind linear_weight_kind(const LinearWeight& weight) noexcept {
   if (std::holds_alternative<Bf16LinearWeight>(weight)) {
     return LinearWeightKind::kBf16;
