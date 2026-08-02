@@ -118,6 +118,10 @@ option(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M128N512_LDMATRIX_ADMISSION
   "Build the default-off M128N512 direct-B LDSM Gate+Up edge admission"
   OFF
 )
+option(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M128N512_PAIRED_LDMATRIX_ADMISSION
+  "Build the default-off M128N512 paired-B LDSM Gate+Up edge admission"
+  OFF
+)
 option(Q3X_BUILD_SM87_A4W4_DOWN_K512_M128N128_LDMATRIX_PAIRRING_ADMISSION
   "Build the default-off M128N128 LDSM whole-K512 pair-ring Down admission"
   OFF
@@ -366,6 +370,15 @@ if(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M128N512_LDMATRIX_ADMISSION AND
     NOT Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION))
   message(FATAL_ERROR
     "The M128N512 LDSM Gate+Up edge admission requires BUILD_TESTING=ON and the authenticated full-A4 K512 MLP route"
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M128N512_PAIRED_LDMATRIX_ADMISSION AND
+   (NOT BUILD_TESTING OR NOT Q3X_BUILD_SM87_A4W4_MLP_K512_ADMISSION OR
+    NOT Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION OR
+    NOT Q3X_BUILD_SM87_A4W4_MLP_K512_FRAGMENT_NATIVE_EXPERIMENT OR
+    NOT Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M128N512_LDMATRIX_ADMISSION))
+  message(FATAL_ERROR
+    "The paired-B M128N512 LDSM Gate+Up edge admission requires BUILD_TESTING=ON, the authenticated full-A4 K512 MLP route, the composite-layout publication, and the direct-B oracle used by its correctness test"
   )
 endif()
 if(Q3X_BUILD_SM87_A4W4_DOWN_K512_M128N128_LDMATRIX_PAIRRING_ADMISSION AND
@@ -761,6 +774,18 @@ if(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M128N512_LDMATRIX_ADMISSION)
   set_source_files_properties(
     src/kernels/sm87/a4w4_gateup_down_k512_edge_m128n512_ldmatrix.cu
     PROPERTIES COMPILE_OPTIONS "-Xptxas=-v;-Xptxas=-warn-spills"
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M128N512_PAIRED_LDMATRIX_ADMISSION)
+  target_sources(q3x_kernels PRIVATE
+    src/kernels/sm87/a4w4_gateup_down_k512_edge_m128n512_paired_ldmatrix.cu
+  )
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M128N512_PAIRED_LDMATRIX_ADMISSION=1
+  )
+  set_source_files_properties(
+    src/kernels/sm87/a4w4_gateup_down_k512_edge_m128n512_paired_ldmatrix.cu
+    PROPERTIES COMPILE_OPTIONS "--maxrregcount=128;-Xptxas=-v;-Xptxas=-warn-spills"
   )
 endif()
 if(Q3X_BUILD_SM87_A4W4_DOWN_K512_M128N128_LDMATRIX_PAIRRING_ADMISSION)
@@ -2136,6 +2161,39 @@ if(BUILD_TESTING)
       )
     endif()
 
+    if(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M128N512_PAIRED_LDMATRIX_ADMISSION)
+      add_executable(
+        q3x_sm87_a4w4_gateup_down_k512_edge_m128n512_paired_ldmatrix_correctness_test
+        tests/sm87_a4w4_gateup_down_k512_edge_m128n512_paired_ldmatrix_correctness_test.cu
+      )
+      target_link_libraries(
+        q3x_sm87_a4w4_gateup_down_k512_edge_m128n512_paired_ldmatrix_correctness_test
+        PRIVATE q3x::kernels CUDA::cudart
+      )
+      q3x_enable_warnings(
+        q3x_sm87_a4w4_gateup_down_k512_edge_m128n512_paired_ldmatrix_correctness_test
+      )
+
+      find_program(Q3X_CUOBJDUMP_EXECUTABLE cuobjdump
+        HINTS "${CUDAToolkit_BIN_DIR}"
+        REQUIRED
+      )
+      add_test(
+        NAME sm87_a4w4_gateup_down_k512_edge_m128n512_paired_ldmatrix_binary_contract
+        COMMAND "${CMAKE_COMMAND}"
+                "-DQ3X_CUOBJDUMP_EXECUTABLE=${Q3X_CUOBJDUMP_EXECUTABLE}"
+                "-DQ3X_M128N512_PAIRED_LDMATRIX_BINARY=$<TARGET_FILE:q3x_sm87_a4w4_gateup_down_k512_edge_m128n512_paired_ldmatrix_correctness_test>"
+                "-DQ3X_M128N512_PAIRED_LDMATRIX_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/src/kernels/sm87/a4w4_gateup_down_k512_edge_m128n512_paired_ldmatrix.cu"
+                "-DQ3X_M128N512_PAIRED_LDMATRIX_AUDIT_DIR=${CMAKE_CURRENT_BINARY_DIR}/sm87_a4w4_gateup_down_k512_edge_m128n512_paired_ldmatrix_audit"
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/VerifySm87A4W4GateUpM128N512PairedLdmatrixBinary.cmake"
+      )
+      set_tests_properties(
+        sm87_a4w4_gateup_down_k512_edge_m128n512_paired_ldmatrix_binary_contract
+        PROPERTIES
+        LABELS "host;sm87;prefill;mlp;a4w4;k512;gateup;edge;m128n512;paired;ldmatrix;binary_contract;resources"
+      )
+    endif()
+
     if(Q3X_BUILD_SM87_A4W4_DOWN_K512_M128N128_LDMATRIX_PAIRRING_ADMISSION)
       add_executable(
         q3x_sm87_a4w4_down_k512_m128n128_ldmatrix_pairring_contract_test
@@ -2610,6 +2668,21 @@ if(BUILD_TESTING)
         sm87_a4w4_gateup_down_k512_edge_m128n512_ldmatrix_correctness
         PROPERTIES
         LABELS "cuda;sm87;prefill;mlp;a4w4;k512;gateup;down;edge;m128n512;ldmatrix;correctness;resources;graph;scratch;synthetic"
+        SKIP_RETURN_CODE 77
+        RESOURCE_LOCK q3x_sm87_gpu
+        TIMEOUT 300
+      )
+    endif()
+    if(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M128N512_PAIRED_LDMATRIX_ADMISSION)
+      add_test(
+        NAME sm87_a4w4_gateup_down_k512_edge_m128n512_paired_ldmatrix_correctness
+        COMMAND "${Q3X_FLOCK_EXECUTABLE}" -x /tmp/q3x-gpu-bench.lock
+                $<TARGET_FILE:q3x_sm87_a4w4_gateup_down_k512_edge_m128n512_paired_ldmatrix_correctness_test>
+      )
+      set_tests_properties(
+        sm87_a4w4_gateup_down_k512_edge_m128n512_paired_ldmatrix_correctness
+        PROPERTIES
+        LABELS "cuda;sm87;prefill;mlp;a4w4;k512;gateup;down;edge;m128n512;paired;ldmatrix;correctness;resources;graph;scratch;synthetic"
         SKIP_RETURN_CODE 77
         RESOURCE_LOCK q3x_sm87_gpu
         TIMEOUT 300
