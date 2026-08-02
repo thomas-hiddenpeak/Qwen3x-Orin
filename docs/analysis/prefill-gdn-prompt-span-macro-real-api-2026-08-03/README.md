@@ -110,12 +110,19 @@ pure_prefill_evalscope_harness_test              63/63 PASS
 ## Request-scoped NSys attribution
 
 The promoted baseline and candidate were captured on the natural P1853 API
-request with the same server ELF and request-index profiler contract. The
-profiled server Prefill spans were 1,951.12 ms and 2,066.46 ms respectively.
+request with the same request-index profiler contract, but not the same
+server ELF. The reused A-exchange/B4 baseline profile used ELF
+`33dc63590ea3b920373c6122e2f20b8285341056bd687d57ae8b6876c5879169`;
+the macro profile used ELF
+`d6a09cbbbcb7f383c5d0ccf00043d52bbd073cdc524c0845c25e79fb97f3afc5`.
+Their profiled server Prefill spans were 1,951.12 ms and 2,066.46 ms
+respectively. This cross-ELF comparison is attribution evidence, not a
+performance gate. All unchanged major kernel families remain within about
+0.6%, which makes the family attribution useful, while the same-ELF
+non-profiled API table above remains the decision authority.
 EvalScope reported 2,432.98 ms candidate TTFT because its client-visible timer
 also observed profiler capture/export synchronization; that number is not used
-as a performance result. The non-profiled real-API table above remains the
-decision authority.
+as a performance result.
 
 | GPU family | Baseline | Candidate | Change |
 |---|---:|---:|---:|
@@ -130,16 +137,16 @@ decision authority.
 
 The candidate moved 1,943,011,328 D2D bytes versus 1,214,382,080 bytes in the
 baseline, a net increase of 728,629,248 bytes. Kernel time plus D2D time grew by
-116.726560 ms, which closes the profiled server-span regression to within
-1.39 ms. The sliced Conv itself accounts for only 0.64 ms; it is not the
-primary failure.
+116.726560 ms, within 1.39 ms of the cross-ELF profiled-span difference and
+within 5.07 ms of the authoritative same-ELF non-profiled regression. The
+sliced Conv itself accounts for only 0.64 ms; it is not the primary failure.
 
-The rejected macro reduced the whole model to 48 giant CTAs. Each CTA uses 256
-threads, 210 registers/thread and 115,200 bytes of dynamic shared memory, so it
-runs at one CTA/SM while serially carrying the full prompt recurrence. That
-lost parallelism makes the fused macro 51.86% slower than the five kernels it
-replaced. This confirms that the current skeleton must not be incrementally
-micro-tuned.
+The rejected macro issued 48 layer launches, each with 48 value-head CTAs.
+Each CTA uses 256 threads, 210 registers/thread and 115,200 bytes of dynamic
+shared memory, so it runs at one CTA/SM while serially carrying all 29 C64
+chunks of the P1853 recurrence. The lost chunk-axis parallelism makes the
+fused macro 51.86% slower than the five kernels it replaced. This confirms
+that the current skeleton must not be incrementally micro-tuned.
 
 Evidence:
 
