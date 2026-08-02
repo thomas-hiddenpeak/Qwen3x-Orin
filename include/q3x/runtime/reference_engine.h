@@ -166,6 +166,9 @@ struct ReferenceGenerationTiming {
   double finish_prefill_milliseconds = 0.0;
   double prompt_prefill_milliseconds = 0.0;
   double time_to_first_token_milliseconds = 0.0;
+  // Propagated request-local runtime proof for the default-off alternating
+  // K256 Gate+Up admission.  Zero means the route did not own this request.
+  std::size_t gateup_alternating_launch_hits = 0U;
   std::vector<double> subsequent_token_milliseconds;
   double decode_after_first_milliseconds = 0.0;
   double total_generation_milliseconds = 0.0;

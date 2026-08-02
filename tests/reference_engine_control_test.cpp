@@ -80,6 +80,7 @@ struct FakeRunner {
   bool long_prefill_omit_timing = false;
   bool long_prefill_wrong_interval = false;
   double long_prefill_elapsed_milliseconds = 40.0;
+  std::size_t long_prefill_gateup_alternating_launch_hits = 64U;
 };
 
 struct PhaseContext {
@@ -286,6 +287,8 @@ runtime::ReferenceLongPrefillOutcome fake_layer_major_prompt(
       fake.next_position + (fake.long_prefill_wrong_interval ? 1U : 0U));
   value.token_count =
       token_count + (fake.long_prefill_wrong_interval ? 1U : 0U);
+  value.gateup_alternating_launch_hits =
+      fake.long_prefill_gateup_alternating_launch_hits;
   if (measure_timing && !fake.long_prefill_omit_timing) {
     value.timing.emplace(runtime::ReferenceStepTiming{
         fake.long_prefill_elapsed_milliseconds});
@@ -792,6 +795,8 @@ void test_layer_major_prompt_admission(TestContext& test) {
                 std::vector<double>({
                     fake.long_prefill_elapsed_milliseconds}) &&
             result.value->timing.finish_prefill_milliseconds == 1.0 &&
+            result.value->timing.gateup_alternating_launch_hits ==
+                fake.long_prefill_gateup_alternating_launch_hits &&
             has_consistent_prefill_timing(result.value->timing) &&
             correct_result_arm,
         "layer-major admission submits one whole prompt, materializes its "

@@ -18,8 +18,9 @@ namespace q3x::kernels {
 // the retained edge: two 40,960-byte A+GateB+UpB K256 stages, two 640-byte
 // scale slots, and one 65,536-byte M64K512 BF16 product plane.
 //
-// This first slice deliberately exposes no launcher.  Linking it cannot alter
-// runtime selection; only the resource query below is public.
+// Linking this candidate cannot alter runtime selection.  The launchers below
+// are isolated, default-off admission surfaces with the incumbent edge's
+// planner, capacity, alias, and stream contract.
 inline constexpr std::size_t
     kSm87A4W4GateUpDownEdgeM64N128K256AlternatingThreads = 512U;
 inline constexpr std::size_t
@@ -57,6 +58,57 @@ struct Sm87A4W4GateUpDownEdgeM64N128K256AlternatingResources final {
 query_sm87_a4w4_gateup_down_k512_edge_m64n128_k256_alternating_resources_cuda(
     Sm87A4W4GateUpDownEdgeM64N128K256AlternatingResources* resources)
     noexcept;
+
+[[nodiscard]] int
+launch_sm87_a4w4_gateup_down_k512_edge_m64n128_k256_alternating_cuda(
+    const std::uint8_t* packed_a,
+    std::size_t packed_a_capacity_bytes,
+    const std::uint16_t* a_k512_scales_bf16,
+    std::size_t a_scale_capacity_elements,
+    const std::uint8_t* packed_gate_b,
+    std::size_t packed_gate_b_capacity_bytes,
+    const std::uint16_t* gate_b_k512_scales_bf16,
+    std::size_t gate_b_scale_capacity_elements,
+    const std::uint8_t* packed_up_b,
+    std::size_t packed_up_b_capacity_bytes,
+    const std::uint16_t* up_b_k512_scales_bf16,
+    std::size_t up_b_scale_capacity_elements,
+    std::size_t logical_token_count,
+    std::size_t launch_token_count,
+    std::size_t intermediate_size,
+    std::size_t input_size,
+    float output_clip_ratio,
+    std::uint8_t* packed_output,
+    std::size_t packed_output_capacity_bytes,
+    std::uint16_t* output_k512_scales_bf16,
+    std::size_t output_scale_capacity_elements,
+    void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
+launch_sm87_a4w4_gateup_down_k512_edge_m64n128_k256_alternating_test_cuda(
+    const std::uint8_t* packed_a,
+    std::size_t packed_a_capacity_bytes,
+    const std::uint16_t* a_k512_scales_bf16,
+    std::size_t a_scale_capacity_elements,
+    const std::uint8_t* packed_gate_b,
+    std::size_t packed_gate_b_capacity_bytes,
+    const std::uint16_t* gate_b_k512_scales_bf16,
+    std::size_t gate_b_scale_capacity_elements,
+    const std::uint8_t* packed_up_b,
+    std::size_t packed_up_b_capacity_bytes,
+    const std::uint16_t* up_b_k512_scales_bf16,
+    std::size_t up_b_scale_capacity_elements,
+    std::size_t logical_token_count,
+    std::size_t launch_token_count,
+    std::size_t intermediate_size,
+    std::size_t input_size,
+    float output_clip_ratio,
+    std::uint8_t* packed_output,
+    std::size_t packed_output_capacity_bytes,
+    std::uint16_t* output_k512_scales_bf16,
+    std::size_t output_scale_capacity_elements,
+    unsigned int maximum_launch_ctas,
+    void* cuda_stream = nullptr) noexcept;
 
 static_assert(
     kSm87A4W4GateUpDownEdgeM64N128K256AlternatingDynamicSharedBytes ==

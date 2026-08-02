@@ -16,6 +16,9 @@
 #if defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_ADMISSION)
 #include "q3x/kernels/sm87_a4w4_gateup_down_k512_edge.h"
 #endif
+#if defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_ALTERNATING_ADMISSION)
+#include "q3x/kernels/sm87_a4w4_gateup_down_k512_edge_m64n128_k256_alternating.h"
+#endif
 #if defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M128N64_ADMISSION)
 #include "q3x/kernels/sm87_a4w4_gateup_down_k512_edge_m128n64.h"
 #endif
@@ -259,6 +262,26 @@ thread_local bool g_enable_a4w4_gateup_down_k512_edge_admission =
     a4w4_gateup_down_k512_edge_environment_enabled();
 thread_local std::size_t
     g_a4w4_gateup_down_k512_edge_admission_hits = 0U;
+#endif
+
+#if defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_ALTERNATING_ADMISSION)
+[[nodiscard]] bool
+a4w4_gateup_down_k512_edge_m64n128_k256_alternating_environment_enabled()
+    noexcept {
+  if (optimized_prefill_dispatch_disabled()) {
+    return false;
+  }
+  const char* const value = std::getenv(
+      "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_ALTERNATING_ADMISSION");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
+thread_local bool
+    g_enable_a4w4_gateup_down_k512_edge_m64n128_k256_alternating_admission =
+        a4w4_gateup_down_k512_edge_m64n128_k256_alternating_environment_enabled();
+thread_local std::size_t
+    g_a4w4_gateup_down_k512_edge_m64n128_k256_alternating_admission_hits =
+        0U;
 #endif
 
 #if defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M128N64_ADMISSION)
@@ -7897,6 +7920,13 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
 #else
   constexpr bool gateup_down_k512_edge_requested = false;
 #endif
+#if defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_ALTERNATING_ADMISSION)
+  const bool gateup_down_k512_edge_m64n128_k256_alternating_requested =
+      g_enable_a4w4_gateup_down_k512_edge_m64n128_k256_alternating_admission;
+#else
+  constexpr bool gateup_down_k512_edge_m64n128_k256_alternating_requested =
+      false;
+#endif
 #if defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M128N64_ADMISSION)
   const bool gateup_down_k512_edge_m128n64_requested =
       g_enable_a4w4_gateup_down_k512_edge_m128n64_admission;
@@ -7927,6 +7957,13 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
         "prefill_projection_span_mlp_k512_gateup_down_edge_requires_v1",
         item.layer_index);
   }
+  if (gateup_down_k512_edge_m64n128_k256_alternating_requested &&
+      !mlp_k512_requested) {
+    return runner_status(
+        ReferenceRunnerError::kInvalidRunner,
+        "prefill_projection_span_mlp_k512_gateup_down_edge_m64n128_k256_alternating_requires_v1",
+        item.layer_index);
+  }
   if (gateup_down_k512_edge_m128n64_requested && !mlp_k512_requested) {
     return runner_status(
         ReferenceRunnerError::kInvalidRunner,
@@ -7938,6 +7975,33 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
     return runner_status(
         ReferenceRunnerError::kInvalidRunner,
         "prefill_projection_span_mlp_k512_gateup_down_edge_selector_conflict",
+        item.layer_index);
+  }
+  if (gateup_down_k512_edge_m64n128_k256_alternating_requested &&
+      (gateup_down_k512_edge_requested ||
+       gateup_down_k512_edge_m128n64_requested)) {
+    return runner_status(
+        ReferenceRunnerError::kInvalidRunner,
+        "prefill_projection_span_mlp_k512_gateup_down_edge_m64n128_k256_alternating_selector_conflict",
+        item.layer_index);
+  }
+  if (gateup_down_k512_edge_m64n128_k256_alternating_requested &&
+      (g_enable_a4w4_gateup_complete_cell_v2_admission ||
+       g_enable_a4w4_m128_stage_major_admission
+#if defined(Q3X_ENABLE_A4W4_GATEUP_PROJECTION_V3_ADMISSION)
+       || g_enable_a4w4_gateup_projection_v3_admission
+#endif
+       )) {
+    return runner_status(
+        ReferenceRunnerError::kInvalidRunner,
+        "prefill_projection_span_mlp_k512_gateup_down_edge_m64n128_k256_alternating_gateup_selector_conflict",
+        item.layer_index);
+  }
+  if (gateup_down_k512_edge_m64n128_k256_alternating_requested &&
+      down_k512_m16n64_v2_requested) {
+    return runner_status(
+        ReferenceRunnerError::kInvalidRunner,
+        "prefill_projection_span_mlp_k512_gateup_down_edge_m64n128_k256_alternating_down_v2_selector_conflict",
         item.layer_index);
   }
   if (gateup_down_k512_edge_m128n64_requested &&
@@ -8320,6 +8384,12 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
             token_count, mlp_launch_token_count,
             kReferenceIntermediateSize, kReferenceHiddenSize);
 #endif
+#if defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_ALTERNATING_ADMISSION)
+    const auto gateup_down_edge_m64n128_k256_alternating_plan =
+        kernels::sm87_a4w4_gateup_down_edge_plan(
+            token_count, mlp_launch_token_count,
+            kReferenceIntermediateSize, kReferenceHiddenSize);
+#endif
 #if defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M128N64_ADMISSION)
     const auto gateup_down_edge_m128n64_plan =
         kernels::sm87_a4w4_gateup_down_edge_m128n64_plan(
@@ -8344,6 +8414,10 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
 #if defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_ADMISSION)
         (gateup_down_k512_edge_requested &&
          gateup_down_edge_plan.launch_ctas == 0U) ||
+#endif
+#if defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_ALTERNATING_ADMISSION)
+        (gateup_down_k512_edge_m64n128_k256_alternating_requested &&
+         gateup_down_edge_m64n128_k256_alternating_plan.launch_ctas == 0U) ||
 #endif
 #if defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M128N64_ADMISSION)
         (gateup_down_k512_edge_m128n64_requested &&
@@ -8384,6 +8458,31 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
             "prefill_projection_span_mlp_k512_input_quantize")) {
       return failure;
     }
+#if defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_ALTERNATING_ADMISSION)
+    if (gateup_down_k512_edge_m64n128_k256_alternating_requested) {
+      if (!check_cuda(
+              kernels::launch_sm87_a4w4_gateup_down_k512_edge_m64n128_k256_alternating_cuda(
+                  views_.prefill_a4_hidden_packed,
+                  hidden_packed_capacity,
+                  views_.prefill_a4_hidden_scales,
+                  hidden_scale_capacity, gate_k512.weight,
+                  gate_k512_weight_capacity, gate_k512.scales,
+                  gate_k512_scale_capacity, up_k512.weight,
+                  up_k512_weight_capacity, up_k512.scales,
+                  up_k512_scale_capacity, token_count,
+                  mlp_launch_token_count, kReferenceIntermediateSize,
+                  kReferenceHiddenSize,
+                  down_k512.activation_clip_ratio,
+                  views_.prefill_a4_intermediate_packed,
+                  intermediate_packed_capacity,
+                  views_.prefill_a4_intermediate_scales,
+                  intermediate_scale_capacity, stream_),
+              "prefill_projection_span_mlp_k512_gateup_down_edge_m64n128_k256_alternating")) {
+        return failure;
+      }
+      ++g_a4w4_gateup_down_k512_edge_m64n128_k256_alternating_admission_hits;
+    } else
+#endif
 #if defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M128N64_ADMISSION)
     if (gateup_down_k512_edge_m128n64_requested) {
       if (!check_cuda(
@@ -8923,6 +9022,11 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
     const std::size_t gateup_down_k512_edge_hits_before =
         g_a4w4_gateup_down_k512_edge_admission_hits;
 #endif
+#if defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_ALTERNATING_ADMISSION)
+    const std::size_t
+        gateup_down_k512_edge_m64n128_k256_alternating_hits_before =
+            g_a4w4_gateup_down_k512_edge_m64n128_k256_alternating_admission_hits;
+#endif
 #if defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M128N64_ADMISSION)
     const std::size_t gateup_down_k512_edge_m128n64_hits_before =
         g_a4w4_gateup_down_k512_edge_m128n64_admission_hits;
@@ -9084,6 +9188,34 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
     constexpr std::size_t gateup_down_k512_edge_delta = 0U;
     constexpr bool gateup_down_k512_edge_accounting_valid = true;
 #endif
+#if defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_ALTERNATING_ADMISSION)
+    const std::size_t
+        gateup_down_k512_edge_m64n128_k256_alternating_delta =
+            g_a4w4_gateup_down_k512_edge_m64n128_k256_alternating_admission_hits >=
+                    gateup_down_k512_edge_m64n128_k256_alternating_hits_before
+                ? g_a4w4_gateup_down_k512_edge_m64n128_k256_alternating_admission_hits -
+                      gateup_down_k512_edge_m64n128_k256_alternating_hits_before
+                : 0U;
+    const bool
+        gateup_down_k512_edge_m64n128_k256_alternating_accounting_valid =
+            g_a4w4_gateup_down_k512_edge_m64n128_k256_alternating_admission_hits >=
+                gateup_down_k512_edge_m64n128_k256_alternating_hits_before &&
+            (gateup_down_k512_edge_m64n128_k256_alternating_delta == 0U ||
+             gateup_down_k512_edge_m64n128_k256_alternating_delta ==
+                 spans * 64U) &&
+            (!g_enable_a4w4_gateup_down_k512_edge_m64n128_k256_alternating_admission ||
+             gateup_down_k512_edge_m64n128_k256_alternating_delta ==
+                 spans * 64U) &&
+            (gateup_down_k512_edge_m64n128_k256_alternating_delta == 0U ||
+             gateup_down_k512_edge_m64n128_k256_alternating_delta ==
+                 mlp_k512_v1_delta);
+#else
+    constexpr std::size_t
+        gateup_down_k512_edge_m64n128_k256_alternating_delta = 0U;
+    constexpr bool
+        gateup_down_k512_edge_m64n128_k256_alternating_accounting_valid =
+            true;
+#endif
 #if defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M128N64_ADMISSION)
     const std::size_t gateup_down_k512_edge_m128n64_delta =
         g_a4w4_gateup_down_k512_edge_m128n64_admission_hits >=
@@ -9146,10 +9278,15 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
     const bool mlp_k512_accounting_valid =
         mlp_k512_v1_accounting_valid &&
         gateup_down_k512_edge_accounting_valid &&
+        gateup_down_k512_edge_m64n128_k256_alternating_accounting_valid &&
         gateup_down_k512_edge_m128n64_accounting_valid &&
         down_k512_m16n64_v2_accounting_valid &&
         mlp_k512_fragment_native_accounting_valid &&
         (gateup_down_k512_edge_delta == 0U ||
+         gateup_down_k512_edge_m128n64_delta == 0U) &&
+        (gateup_down_k512_edge_m64n128_k256_alternating_delta == 0U ||
+         gateup_down_k512_edge_delta == 0U) &&
+        (gateup_down_k512_edge_m64n128_k256_alternating_delta == 0U ||
          gateup_down_k512_edge_m128n64_delta == 0U) &&
         (mlp_k512_v1_delta == 0U ||
          mlp_k512_fragment_native_delta == 0U);
@@ -9198,6 +9335,8 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
     ReferenceLongPrefillResult value;
     value.first_position = 0U;
     value.token_count = token_count;
+    value.gateup_alternating_launch_hits =
+        gateup_down_k512_edge_m64n128_k256_alternating_delta;
     if (measure_timing) {
       const std::chrono::duration<double, std::milli> elapsed =
           Clock::now() - started;
@@ -9209,6 +9348,16 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
   }
 #endif
 
+#if defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_ALTERNATING_ADMISSION)
+  // The alternating edge candidate owns only the authenticated whole-M K512
+  // projection-span executor.  Never accept its selector and then fall back
+  // to a tiled or K128 route.
+  if (g_enable_a4w4_gateup_down_k512_edge_m64n128_k256_alternating_admission) {
+    return fail_long_prefill(runner_status(
+        ReferenceRunnerError::kInvalidRunner,
+        "prefill_mlp_k512_gateup_down_edge_m64n128_k256_alternating_requires_projection_span"));
+  }
+#endif
 #if defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M128N64_ADMISSION)
   // The structural edge candidate is admitted only by the authenticated
   // whole-M projection-span executor.  Never silently fall back to K128.

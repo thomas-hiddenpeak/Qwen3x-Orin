@@ -4,8 +4,10 @@
 
 #include <cuda_runtime.h>
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 
 namespace q3x::kernels {
 namespace {
@@ -13,6 +15,7 @@ namespace {
 inline constexpr int kRequiredSmCount = 16;
 inline constexpr unsigned int kPackedK64Bytes =
     static_cast<unsigned int>(kSm87A4W4GateUpDownEdgePackedK64Bytes);
+std::atomic<bool> g_alternating_resources_ready{false};
 
 struct alignas(16) Sm87A4W4GateUpDownEdgeStage final {
   std::uint8_t a[kSm87A4W4GateUpDownEdgeK64PerCopy]
@@ -58,6 +61,30 @@ struct alignas(16) Sm87A4W4GateUpDownEdgeFloat4 final {
   float x2{};
   float x3{};
 };
+
+[[nodiscard]] constexpr bool aligned(const void* const pointer,
+                                     const std::size_t alignment) noexcept {
+  return pointer != nullptr &&
+         reinterpret_cast<std::uintptr_t>(pointer) % alignment == 0U;
+}
+
+[[nodiscard]] bool byte_ranges_overlap(
+    const void* const first, const std::size_t first_bytes,
+    const void* const second, const std::size_t second_bytes) noexcept {
+  const std::uintptr_t first_begin =
+      reinterpret_cast<std::uintptr_t>(first);
+  const std::uintptr_t second_begin =
+      reinterpret_cast<std::uintptr_t>(second);
+  constexpr std::uintptr_t maximum =
+      std::numeric_limits<std::uintptr_t>::max();
+  if (first_bytes > maximum - first_begin ||
+      second_bytes > maximum - second_begin) {
+    return true;
+  }
+  const std::uintptr_t first_end = first_begin + first_bytes;
+  const std::uintptr_t second_end = second_begin + second_bytes;
+  return first_begin < second_end && second_begin < first_end;
+}
 
 static_assert(sizeof(Sm87A4W4GateUpDownEdgeStage) ==
               kSm87A4W4GateUpDownEdgeStageBytes);
@@ -799,6 +826,163 @@ namespace {
           kSm87A4W4GateUpDownEdgeM64N128K256AlternatingDynamicSharedBytes));
 }
 
+[[nodiscard]] int launch_impl(
+    const std::uint8_t* const packed_a,
+    const std::size_t packed_a_capacity_bytes,
+    const std::uint16_t* const a_k512_scales_bf16,
+    const std::size_t a_scale_capacity_elements,
+    const std::uint8_t* const packed_gate_b,
+    const std::size_t packed_gate_b_capacity_bytes,
+    const std::uint16_t* const gate_b_k512_scales_bf16,
+    const std::size_t gate_b_scale_capacity_elements,
+    const std::uint8_t* const packed_up_b,
+    const std::size_t packed_up_b_capacity_bytes,
+    const std::uint16_t* const up_b_k512_scales_bf16,
+    const std::size_t up_b_scale_capacity_elements,
+    const std::size_t logical_token_count,
+    const std::size_t launch_token_count,
+    const std::size_t intermediate_size,
+    const std::size_t input_size,
+    const float output_clip_ratio,
+    std::uint8_t* const packed_output,
+    const std::size_t packed_output_capacity_bytes,
+    std::uint16_t* const output_k512_scales_bf16,
+    const std::size_t output_scale_capacity_elements,
+    const unsigned int maximum_launch_ctas,
+    const bool require_model_shape,
+    void* const cuda_stream) noexcept {
+  const Sm87A4W4GateUpDownEdgePlan plan =
+      require_model_shape
+          ? sm87_a4w4_gateup_down_edge_plan(
+                logical_token_count, launch_token_count,
+                intermediate_size, input_size)
+          : sm87_a4w4_gateup_down_edge_test_plan(
+                logical_token_count, launch_token_count,
+                intermediate_size, input_size, maximum_launch_ctas);
+  if (plan.launch_ctas == 0U ||
+      !(output_clip_ratio > 0.0F && output_clip_ratio <= 1.0F) ||
+      !aligned(packed_a, 16U) ||
+      !aligned(a_k512_scales_bf16, 16U) ||
+      !aligned(packed_gate_b, 16U) ||
+      !aligned(gate_b_k512_scales_bf16, 16U) ||
+      !aligned(packed_up_b, 16U) ||
+      !aligned(up_b_k512_scales_bf16, 16U) ||
+      !aligned(packed_output, 16U) ||
+      !aligned(output_k512_scales_bf16, 16U) ||
+      plan.logical_token_count > std::numeric_limits<unsigned int>::max() ||
+      plan.m_tiles > std::numeric_limits<unsigned int>::max() ||
+      plan.edge_groups > std::numeric_limits<unsigned int>::max() ||
+      plan.input_k512_groups > std::numeric_limits<unsigned int>::max() ||
+      plan.input_physical_k64_groups >
+          std::numeric_limits<unsigned int>::max() ||
+      plan.output_physical_k64_groups >
+          std::numeric_limits<unsigned int>::max()) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+
+  const std::size_t required_a_bytes =
+      sm87_a4w4_gateup_down_edge_packed_capacity_bytes(
+          launch_token_count, input_size);
+  const std::size_t required_a_scales =
+      sm87_a4w4_gateup_down_edge_scale_capacity_elements(
+          launch_token_count, input_size);
+  const std::size_t required_b_bytes =
+      sm87_a4w4_gateup_down_edge_packed_capacity_bytes(
+          intermediate_size, input_size);
+  const std::size_t required_b_scales =
+      sm87_a4w4_gateup_down_edge_scale_capacity_elements(
+          intermediate_size, input_size);
+  const std::size_t required_output_bytes =
+      sm87_a4w4_gateup_down_edge_packed_capacity_bytes(
+          launch_token_count, intermediate_size);
+  const std::size_t required_output_scales =
+      sm87_a4w4_gateup_down_edge_scale_capacity_elements(
+          launch_token_count, intermediate_size);
+  if (required_a_bytes == 0U || required_a_scales == 0U ||
+      required_b_bytes == 0U || required_b_scales == 0U ||
+      required_output_bytes == 0U || required_output_scales == 0U ||
+      packed_a_capacity_bytes < required_a_bytes ||
+      a_scale_capacity_elements < required_a_scales ||
+      packed_gate_b_capacity_bytes < required_b_bytes ||
+      gate_b_scale_capacity_elements < required_b_scales ||
+      packed_up_b_capacity_bytes < required_b_bytes ||
+      up_b_scale_capacity_elements < required_b_scales ||
+      packed_output_capacity_bytes < required_output_bytes ||
+      output_scale_capacity_elements < required_output_scales ||
+      !sm87_a4w4_gateup_down_edge_product_fits(
+          required_a_scales, sizeof(std::uint16_t)) ||
+      !sm87_a4w4_gateup_down_edge_product_fits(
+          required_b_scales, sizeof(std::uint16_t)) ||
+      !sm87_a4w4_gateup_down_edge_product_fits(
+          required_output_scales, sizeof(std::uint16_t))) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+
+  const std::size_t required_a_scale_bytes =
+      required_a_scales * sizeof(std::uint16_t);
+  const std::size_t required_b_scale_bytes =
+      required_b_scales * sizeof(std::uint16_t);
+  const std::size_t required_output_scale_bytes =
+      required_output_scales * sizeof(std::uint16_t);
+  const auto output_overlaps = [&](const void* const input,
+                                   const std::size_t input_bytes) noexcept {
+    return byte_ranges_overlap(packed_output, required_output_bytes,
+                               input, input_bytes) ||
+           byte_ranges_overlap(output_k512_scales_bf16,
+                               required_output_scale_bytes,
+                               input, input_bytes);
+  };
+  if (output_overlaps(packed_a, required_a_bytes) ||
+      output_overlaps(a_k512_scales_bf16, required_a_scale_bytes) ||
+      output_overlaps(packed_gate_b, required_b_bytes) ||
+      output_overlaps(gate_b_k512_scales_bf16, required_b_scale_bytes) ||
+      output_overlaps(packed_up_b, required_b_bytes) ||
+      output_overlaps(up_b_k512_scales_bf16, required_b_scale_bytes) ||
+      byte_ranges_overlap(packed_output, required_output_bytes,
+                          output_k512_scales_bf16,
+                          required_output_scale_bytes)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  cudaStreamCaptureStatus capture_status = cudaStreamCaptureStatusNone;
+  if (stream != nullptr) {
+    const cudaError_t status = cudaStreamIsCapturing(stream, &capture_status);
+    if (status != cudaSuccess) {
+      return static_cast<int>(status);
+    }
+  }
+  if (capture_status != cudaStreamCaptureStatusNone) {
+    if (!g_alternating_resources_ready.load(std::memory_order_acquire)) {
+      return static_cast<int>(cudaErrorNotReady);
+    }
+  } else {
+    Sm87A4W4GateUpDownEdgeM64N128K256AlternatingResources resources{};
+    const int resource_status =
+        query_sm87_a4w4_gateup_down_k512_edge_m64n128_k256_alternating_resources_cuda(
+            &resources);
+    if (resource_status != static_cast<int>(cudaSuccess)) {
+      return resource_status;
+    }
+  }
+
+  (void)cudaGetLastError();
+  q3x_sm87_a4w4_gateup_down_k512_edge_m64n128_k256_alternating_kernel<<<
+      static_cast<unsigned int>(plan.launch_ctas),
+      static_cast<unsigned int>(
+          kSm87A4W4GateUpDownEdgeM64N128K256AlternatingThreads),
+      kSm87A4W4GateUpDownEdgeM64N128K256AlternatingDynamicSharedBytes,
+      stream>>>(
+      packed_a, a_k512_scales_bf16, packed_gate_b,
+      gate_b_k512_scales_bf16, packed_up_b, up_b_k512_scales_bf16,
+      static_cast<unsigned int>(plan.logical_token_count),
+      static_cast<unsigned int>(plan.m_tiles),
+      static_cast<unsigned int>(plan.edge_groups),
+      static_cast<unsigned int>(plan.input_k512_groups),
+      output_clip_ratio, packed_output, output_k512_scales_bf16);
+  return static_cast<int>(cudaPeekAtLastError());
+}
+
 }  // namespace
 
 int query_sm87_a4w4_gateup_down_k512_edge_m64n128_k256_alternating_resources_cuda(
@@ -871,7 +1055,82 @@ int query_sm87_a4w4_gateup_down_k512_edge_m64n128_k256_alternating_resources_cud
               kSm87A4W4GateUpDownEdgeM64N128K256AlternatingCtasPerSm)) {
     return static_cast<int>(cudaErrorLaunchOutOfResources);
   }
+  g_alternating_resources_ready.store(true, std::memory_order_release);
   return static_cast<int>(cudaSuccess);
+}
+
+int launch_sm87_a4w4_gateup_down_k512_edge_m64n128_k256_alternating_cuda(
+    const std::uint8_t* const packed_a,
+    const std::size_t packed_a_capacity_bytes,
+    const std::uint16_t* const a_k512_scales_bf16,
+    const std::size_t a_scale_capacity_elements,
+    const std::uint8_t* const packed_gate_b,
+    const std::size_t packed_gate_b_capacity_bytes,
+    const std::uint16_t* const gate_b_k512_scales_bf16,
+    const std::size_t gate_b_scale_capacity_elements,
+    const std::uint8_t* const packed_up_b,
+    const std::size_t packed_up_b_capacity_bytes,
+    const std::uint16_t* const up_b_k512_scales_bf16,
+    const std::size_t up_b_scale_capacity_elements,
+    const std::size_t logical_token_count,
+    const std::size_t launch_token_count,
+    const std::size_t intermediate_size,
+    const std::size_t input_size,
+    const float output_clip_ratio,
+    std::uint8_t* const packed_output,
+    const std::size_t packed_output_capacity_bytes,
+    std::uint16_t* const output_k512_scales_bf16,
+    const std::size_t output_scale_capacity_elements,
+    void* const cuda_stream) noexcept {
+  return launch_impl(
+      packed_a, packed_a_capacity_bytes, a_k512_scales_bf16,
+      a_scale_capacity_elements, packed_gate_b,
+      packed_gate_b_capacity_bytes, gate_b_k512_scales_bf16,
+      gate_b_scale_capacity_elements, packed_up_b,
+      packed_up_b_capacity_bytes, up_b_k512_scales_bf16,
+      up_b_scale_capacity_elements, logical_token_count,
+      launch_token_count, intermediate_size, input_size,
+      output_clip_ratio, packed_output, packed_output_capacity_bytes,
+      output_k512_scales_bf16, output_scale_capacity_elements,
+      static_cast<unsigned int>(kSm87A4W4GateUpDownEdgePersistentCtas),
+      true, cuda_stream);
+}
+
+int launch_sm87_a4w4_gateup_down_k512_edge_m64n128_k256_alternating_test_cuda(
+    const std::uint8_t* const packed_a,
+    const std::size_t packed_a_capacity_bytes,
+    const std::uint16_t* const a_k512_scales_bf16,
+    const std::size_t a_scale_capacity_elements,
+    const std::uint8_t* const packed_gate_b,
+    const std::size_t packed_gate_b_capacity_bytes,
+    const std::uint16_t* const gate_b_k512_scales_bf16,
+    const std::size_t gate_b_scale_capacity_elements,
+    const std::uint8_t* const packed_up_b,
+    const std::size_t packed_up_b_capacity_bytes,
+    const std::uint16_t* const up_b_k512_scales_bf16,
+    const std::size_t up_b_scale_capacity_elements,
+    const std::size_t logical_token_count,
+    const std::size_t launch_token_count,
+    const std::size_t intermediate_size,
+    const std::size_t input_size,
+    const float output_clip_ratio,
+    std::uint8_t* const packed_output,
+    const std::size_t packed_output_capacity_bytes,
+    std::uint16_t* const output_k512_scales_bf16,
+    const std::size_t output_scale_capacity_elements,
+    const unsigned int maximum_launch_ctas,
+    void* const cuda_stream) noexcept {
+  return launch_impl(
+      packed_a, packed_a_capacity_bytes, a_k512_scales_bf16,
+      a_scale_capacity_elements, packed_gate_b,
+      packed_gate_b_capacity_bytes, gate_b_k512_scales_bf16,
+      gate_b_scale_capacity_elements, packed_up_b,
+      packed_up_b_capacity_bytes, up_b_k512_scales_bf16,
+      up_b_scale_capacity_elements, logical_token_count,
+      launch_token_count, intermediate_size, input_size,
+      output_clip_ratio, packed_output, packed_output_capacity_bytes,
+      output_k512_scales_bf16, output_scale_capacity_elements,
+      maximum_launch_ctas, false, cuda_stream);
 }
 
 }  // namespace q3x::kernels

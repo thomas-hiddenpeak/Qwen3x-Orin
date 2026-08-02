@@ -318,6 +318,8 @@ GenerationControlResult run_generation_control_impl(
       }
       control.timing.prefix_execution_milliseconds.push_back(elapsed);
       control.timing.prompt_prefill_milliseconds = elapsed;
+      control.timing.gateup_alternating_launch_hits =
+          outcome.value->gateup_alternating_launch_hits;
       prefix_index = prompt_token_ids.size();
     } else if (effective_prefill_chunk_size > 1U) {
       while (prefix_index < prefix_token_count) {

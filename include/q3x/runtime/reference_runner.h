@@ -219,6 +219,10 @@ struct ReferencePrefillTileOutcome {
 struct ReferenceLongPrefillResult {
   std::uint32_t first_position = 0U;
   std::size_t token_count = 0U;
+  // Request-local proof that the default-off alternating K256 Gate+Up route
+  // owned every decoder layer.  The runner leaves this at zero for every
+  // other route; consumers must not infer selection from the environment.
+  std::size_t gateup_alternating_launch_hits = 0U;
   std::optional<ReferenceStepTiming> timing;
 };
 

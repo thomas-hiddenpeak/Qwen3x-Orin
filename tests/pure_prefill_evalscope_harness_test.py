@@ -22,6 +22,10 @@ ATTENTION_K256_PAYLOAD_BYTES = 12_353_536_000
 ATTENTION_K256_MODE = (
     "cumulative-prefill-current-best-mlp-k512-edge-attention-k256"
 )
+ATTENTION_K256_ALTERNATING_MODE = (
+    "cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-"
+    "alternating-attention-k256"
+)
 ATTENTION_K256_LAYOUT = (
     "sm87_s4_n64_packed_k64_scale_k256_consumer_v3"
 )
@@ -42,6 +46,10 @@ MLP_K512_DOWN_M16N64_V2_MODE = (
 )
 MLP_K512_EDGE_MARKER = (
     "prefill_projection_span_mlp_k512_gateup_down_edge"
+)
+MLP_K512_EDGE_M64N128_K256_ALTERNATING_MARKER = (
+    "prefill_projection_span_mlp_k512_gateup_down_edge_"
+    "m64n128_k256_alternating"
 )
 MLP_K512_EDGE_M128N64_MARKER = (
     "prefill_projection_span_mlp_k512_gateup_down_edge_m128n64"
@@ -120,9 +128,12 @@ class Fixture:
             "# Q3X_RUN_A4W4_ATTENTION_K256_M128N256_ADMISSION\n"
             "# Q3X_RUN_A4W4_MLP_K512_ADMISSION\n"
             "# Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_ADMISSION\n"
+            "# Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_"
+            "ALTERNATING_ADMISSION\n"
             "# Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M128N64_ADMISSION\n"
             "# Q3X_RUN_A4W4_DOWN_K512_M16N64_V2_ADMISSION\n"
             f"{MLP_K512_EDGE_MARKER}\n"
+            f"{MLP_K512_EDGE_M64N128_K256_ALTERNATING_MARKER}\n"
             f"{MLP_K512_EDGE_M128N64_MARKER}\n"
             f"{MLP_K512_DOWN_M16N64_V2_MARKER}\n"
             + "".join(f"{marker}\n" for marker in ATTENTION_K256_MARKERS)
@@ -303,6 +314,10 @@ class Fixture:
             "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_ADMISSION"
         ] = "1"
         environment[
+            "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_"
+            "ALTERNATING_ADMISSION"
+        ] = "1"
+        environment[
             "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M128N64_ADMISSION"
         ] = "1"
         environment[
@@ -360,7 +375,10 @@ class Fixture:
         return self.run_mlp_k512(MLP_K512_EDGE_MODE, *extra)
 
     def run_attention_k256(
-        self, *, bucket: str = "p2k"
+        self,
+        *,
+        bucket: str = "p2k",
+        mode: str = ATTENTION_K256_MODE,
     ) -> subprocess.CompletedProcess[str]:
         return self.run(
             "--prefill-mlp-k512-payload",
@@ -370,11 +388,18 @@ class Fixture:
             "--prefill-mlp-k512-receipt",
             str(self.mlp_k512_receipt),
             "--mode",
-            ATTENTION_K256_MODE,
+            mode,
             bucket=bucket,
             prefill_payload=self.k256_payload,
             prefill_policy=self.k256_policy,
             prefill_receipt=self.k256_receipt,
+        )
+
+    def run_attention_k256_alternating(
+        self, *, bucket: str = "p2k"
+    ) -> subprocess.CompletedProcess[str]:
+        return self.run_attention_k256(
+            bucket=bucket, mode=ATTENTION_K256_ALTERNATING_MODE
         )
 
     def run_mlp_k512_edge_m128n64(
@@ -908,6 +933,121 @@ class PurePrefillEvalScopeHarnessTest(unittest.TestCase):
                 / "q3x-sharegpt-prefill-p512-5.jsonl"
             ),
             result.stdout,
+        )
+
+    def test_attention_k256_alternating_mode_replaces_only_gateup_edge(
+        self,
+    ) -> None:
+        result = self.fixture.run_attention_k256_alternating()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(
+            f"mode={ATTENTION_K256_ALTERNATING_MODE} dry_run=1",
+            result.stdout,
+        )
+        self.assertIn("selector_count=9", result.stdout)
+        startup = next(
+            line
+            for line in result.stdout.splitlines()
+            if line.startswith("server_startup_command")
+        )
+        self.assertEqual(
+            set(re.findall(r"(Q3X_[A-Z0-9_]+)=1", startup)),
+            {
+                "Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION",
+                "Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION",
+                "Q3X_RUN_BF16_AB_LARGE_M_PREFILL_ADMISSION",
+                "Q3X_FULL_ATTENTION_FLASHINFER_DIRECT",
+                "Q3X_RUN_FULL_ATTENTION_PREPROCESS_PROMPT_WIDE_128_ADMISSION",
+                "Q3X_RUN_SHORT_PREFILL_LAYER_MAJOR_ADMISSION",
+                "Q3X_RUN_A4W4_ATTENTION_K256_M128N256_ADMISSION",
+                "Q3X_RUN_A4W4_MLP_K512_ADMISSION",
+                (
+                    "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_"
+                    "ALTERNATING_ADMISSION"
+                ),
+            },
+        )
+        self.assertNotIn(
+            "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_ADMISSION=1", startup
+        )
+        self.assertIn(
+            "-u Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_ADMISSION", startup
+        )
+        stage_contract = next(
+            line
+            for line in result.stdout.splitlines()
+            if line.startswith("stage_contract")
+            and MLP_K512_EDGE_M64N128_K256_ALTERNATING_MARKER in line
+        )
+        self.assertIn(
+            f"required={MLP_K512_EDGE_M64N128_K256_ALTERNATING_MARKER}",
+            stage_contract,
+        )
+        self.assertIn(f"excluded={MLP_K512_EDGE_MARKER},", stage_contract)
+        self.assertIn(
+            "retained=prefill_projection_span_mlp_k512_input_quantize,"
+            "prefill_projection_span_mlp_k512_down",
+            stage_contract,
+        )
+        self.assertIn("expected_request_launch_hits=64", stage_contract)
+        self.assertIn(
+            "gateup_alternating_launch_hits_64_per_request", result.stdout
+        )
+        self.assertIn("performance_evidence=0", result.stdout)
+        self.assertFalse(self.fixture.output.exists())
+
+    def test_attention_k256_alternating_mode_requires_selector(self) -> None:
+        contents = self.fixture.server.read_text(encoding="utf-8")
+        selector = (
+            "# Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_"
+            "ALTERNATING_ADMISSION\n"
+        )
+        self.fixture.server.write_text(
+            contents.replace(selector, ""), encoding="utf-8"
+        )
+        result = self.fixture.run_attention_k256_alternating()
+        self.assertEqual(result.returncode, 2)
+        self.assertIn(
+            "server does not contain the "
+            f"{ATTENTION_K256_ALTERNATING_MODE} selector: "
+            "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_"
+            "ALTERNATING_ADMISSION",
+            result.stderr,
+        )
+
+    def test_attention_k256_alternating_mode_requires_stage_marker(
+        self,
+    ) -> None:
+        contents = self.fixture.server.read_text(encoding="utf-8")
+        self.fixture.server.write_text(
+            contents.replace(
+                f"{MLP_K512_EDGE_M64N128_K256_ALTERNATING_MARKER}\n", ""
+            ),
+            encoding="utf-8",
+        )
+        result = self.fixture.run_attention_k256_alternating()
+        self.assertEqual(result.returncode, 2)
+        self.assertIn(
+            "server does not prove the alternating M64N128 K256 Gate+Up "
+            f"stage: {MLP_K512_EDGE_M64N128_K256_ALTERNATING_MARKER}",
+            result.stderr,
+        )
+
+    def test_attention_modes_require_request_local_gateup_hit_proof(
+        self,
+    ) -> None:
+        contents = RUNNER.read_text(encoding="utf-8")
+        self.assertIn("gateup_alternating_expected_hits=64", contents)
+        self.assertIn("gateup_alternating_expected_hits=0", contents)
+        self.assertIn("expected_request_logs=$((eval_number + 1))", contents)
+        self.assertIn(
+            "gateup_alternating_launch_hits=${gateup_alternating_expected_hits}",
+            contents,
+        )
+        self.assertIn(
+            "gateup_alternating_runtime_contract bucket=%s requests=%s "
+            "launch_hits_per_request=%s status=passed",
+            contents,
         )
 
     def test_attention_k256_receipt_and_overlay_binding_fail_closed(

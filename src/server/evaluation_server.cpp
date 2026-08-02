@@ -988,7 +988,10 @@ void execute_job(runtime::ReferenceEngine& engine,
             << (generated.value->layer_major_prefill ? 1 : 0)
             << " prompt_prefill_ms="
             << generated.value->timing.prompt_prefill_milliseconds
-            << '\n';
+            << " gateup_alternating_launch_hits="
+            << generated.value->timing.gateup_alternating_launch_hits
+            << '\n'
+            << std::flush;
 
   const OpenAIUsage usage = usage_for(*generated.value);
   if (job->request.stream) {
