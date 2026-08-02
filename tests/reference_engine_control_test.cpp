@@ -89,6 +89,7 @@ struct FakeRunner {
       long_prefill_attention_k256_a_exchange_b4_logical_projection_hits =
           209U;
   std::size_t long_prefill_gateup_alternating_launch_hits = 64U;
+  std::size_t long_prefill_gateup_ldmatrix_pairfeed_launch_hits = 0U;
   std::size_t long_prefill_gateup_m128n512_paired_ldmatrix_launch_hits = 64U;
   std::size_t long_prefill_down_m128n128_ldmatrix_pairring_launch_hits = 64U;
   std::size_t long_prefill_gdn_chunk64_native_launch_hits = 192U;
@@ -311,6 +312,8 @@ runtime::ReferenceLongPrefillOutcome fake_layer_major_prompt(
       fake.long_prefill_attention_k256_a_exchange_b4_logical_projection_hits;
   value.gateup_alternating_launch_hits =
       fake.long_prefill_gateup_alternating_launch_hits;
+  value.gateup_ldmatrix_pairfeed_launch_hits =
+      fake.long_prefill_gateup_ldmatrix_pairfeed_launch_hits;
   value.gateup_m128n512_paired_ldmatrix_launch_hits =
       fake.long_prefill_gateup_m128n512_paired_ldmatrix_launch_hits;
   value.down_m128n128_ldmatrix_pairring_launch_hits =
@@ -843,6 +846,8 @@ void test_layer_major_prompt_admission(TestContext& test) {
                 fake.long_prefill_attention_k256_a_exchange_b4_logical_projection_hits &&
             result.value->timing.gateup_alternating_launch_hits ==
                 fake.long_prefill_gateup_alternating_launch_hits &&
+            result.value->timing.gateup_ldmatrix_pairfeed_launch_hits ==
+                fake.long_prefill_gateup_ldmatrix_pairfeed_launch_hits &&
             result.value->timing
                     .gateup_m128n512_paired_ldmatrix_launch_hits ==
                 fake.long_prefill_gateup_m128n512_paired_ldmatrix_launch_hits &&
@@ -1947,6 +1952,39 @@ void test_engine_backend_validation(TestContext& test) {
           conflicting_pairring_down.diagnostic.stage ==
               "prefill_mlp_k512_leaf_selectors",
       "pair-ring and M16N64 v2 Down selectors conflict before model I/O");
+
+  constexpr const char* kGateupAlternatingSelector =
+      "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_ALTERNATING_ADMISSION";
+  constexpr const char* kGateupLdmatrixPairfeedSelector =
+      "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_LDMATRIX_PAIRFEED_ADMISSION";
+  (void)::setenv(kGateupLdmatrixPairfeedSelector, "1", 1);
+  const runtime::ReferenceEngineCreateResult missing_pairfeed_v1_master =
+      runtime::create_reference_engine("unused-model-directory",
+                                       pairring_without_v1);
+  (void)::unsetenv(kGateupLdmatrixPairfeedSelector);
+  test.expect(
+      !missing_pairfeed_v1_master &&
+          missing_pairfeed_v1_master.diagnostic.code ==
+              runtime::ReferenceEngineError::kInvalidArgument &&
+          missing_pairfeed_v1_master.diagnostic.stage ==
+              "prefill_mlp_k512_leaf_selectors",
+      "LDSM pair-feed Gate+Up rejects a complete v1 triplet without the "
+      "v1 runtime master before model I/O");
+
+  (void)::setenv(kGateupAlternatingSelector, "1", 1);
+  (void)::setenv(kGateupLdmatrixPairfeedSelector, "1", 1);
+  const runtime::ReferenceEngineCreateResult conflicting_gateup_k256 =
+      runtime::create_reference_engine("unused-model-directory", {});
+  (void)::unsetenv(kGateupLdmatrixPairfeedSelector);
+  (void)::unsetenv(kGateupAlternatingSelector);
+  test.expect(
+      !conflicting_gateup_k256 &&
+          conflicting_gateup_k256.diagnostic.code ==
+              runtime::ReferenceEngineError::kInvalidArgument &&
+          conflicting_gateup_k256.diagnostic.stage ==
+              "prefill_mlp_k512_leaf_selectors",
+      "alternating and LDSM pair-feed Gate+Up selectors conflict before "
+      "model I/O");
 
   constexpr const char* kAttentionK256IncumbentSelector =
       "Q3X_RUN_A4W4_ATTENTION_K256_M128N256_ADMISSION";

@@ -54,9 +54,22 @@ struct Sm87A4W4GateUpDownEdgeM64N128K256AlternatingResources final {
   int compute_minor{};
 };
 
+// Default-off whole-feed successor.  It preserves the alternating kernel's
+// tile, scheduler, K512 arithmetic boundary, shared footprint, output ABI and
+// authenticated v1 payload.  The complete operand-consumer cell changes as a
+// unit: A uses ldmatrix.x4, each independent Gate/Up B fragment uses
+// ldmatrix.x2, and scale ownership is warp-shuffle distributed.
+using Sm87A4W4GateUpDownEdgeM64N128K256LdmatrixPairfeedResources =
+    Sm87A4W4GateUpDownEdgeM64N128K256AlternatingResources;
+
 [[nodiscard]] int
 query_sm87_a4w4_gateup_down_k512_edge_m64n128_k256_alternating_resources_cuda(
     Sm87A4W4GateUpDownEdgeM64N128K256AlternatingResources* resources)
+    noexcept;
+
+[[nodiscard]] int
+query_sm87_a4w4_gateup_down_k512_edge_m64n128_k256_ldmatrix_pairfeed_resources_cuda(
+    Sm87A4W4GateUpDownEdgeM64N128K256LdmatrixPairfeedResources* resources)
     noexcept;
 
 [[nodiscard]] int
@@ -86,6 +99,57 @@ launch_sm87_a4w4_gateup_down_k512_edge_m64n128_k256_alternating_cuda(
 
 [[nodiscard]] int
 launch_sm87_a4w4_gateup_down_k512_edge_m64n128_k256_alternating_test_cuda(
+    const std::uint8_t* packed_a,
+    std::size_t packed_a_capacity_bytes,
+    const std::uint16_t* a_k512_scales_bf16,
+    std::size_t a_scale_capacity_elements,
+    const std::uint8_t* packed_gate_b,
+    std::size_t packed_gate_b_capacity_bytes,
+    const std::uint16_t* gate_b_k512_scales_bf16,
+    std::size_t gate_b_scale_capacity_elements,
+    const std::uint8_t* packed_up_b,
+    std::size_t packed_up_b_capacity_bytes,
+    const std::uint16_t* up_b_k512_scales_bf16,
+    std::size_t up_b_scale_capacity_elements,
+    std::size_t logical_token_count,
+    std::size_t launch_token_count,
+    std::size_t intermediate_size,
+    std::size_t input_size,
+    float output_clip_ratio,
+    std::uint8_t* packed_output,
+    std::size_t packed_output_capacity_bytes,
+    std::uint16_t* output_k512_scales_bf16,
+    std::size_t output_scale_capacity_elements,
+    unsigned int maximum_launch_ctas,
+    void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
+launch_sm87_a4w4_gateup_down_k512_edge_m64n128_k256_ldmatrix_pairfeed_cuda(
+    const std::uint8_t* packed_a,
+    std::size_t packed_a_capacity_bytes,
+    const std::uint16_t* a_k512_scales_bf16,
+    std::size_t a_scale_capacity_elements,
+    const std::uint8_t* packed_gate_b,
+    std::size_t packed_gate_b_capacity_bytes,
+    const std::uint16_t* gate_b_k512_scales_bf16,
+    std::size_t gate_b_scale_capacity_elements,
+    const std::uint8_t* packed_up_b,
+    std::size_t packed_up_b_capacity_bytes,
+    const std::uint16_t* up_b_k512_scales_bf16,
+    std::size_t up_b_scale_capacity_elements,
+    std::size_t logical_token_count,
+    std::size_t launch_token_count,
+    std::size_t intermediate_size,
+    std::size_t input_size,
+    float output_clip_ratio,
+    std::uint8_t* packed_output,
+    std::size_t packed_output_capacity_bytes,
+    std::uint16_t* output_k512_scales_bf16,
+    std::size_t output_scale_capacity_elements,
+    void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
+launch_sm87_a4w4_gateup_down_k512_edge_m64n128_k256_ldmatrix_pairfeed_test_cuda(
     const std::uint8_t* packed_a,
     std::size_t packed_a_capacity_bytes,
     const std::uint16_t* a_k512_scales_bf16,

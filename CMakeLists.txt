@@ -2247,6 +2247,22 @@ if(BUILD_TESTING)
       q3x_enable_warnings(
         q3x_sm87_a4w4_gateup_down_k512_edge_m64n128_k256_alternating_correctness_test
       )
+
+      add_executable(
+        q3x_sm87_a4w4_gateup_down_k512_edge_m64n128_k256_ldmatrix_pairfeed_correctness_test
+        tests/sm87_a4w4_gateup_down_k512_edge_m64n128_k256_alternating_correctness_test.cu
+      )
+      target_compile_definitions(
+        q3x_sm87_a4w4_gateup_down_k512_edge_m64n128_k256_ldmatrix_pairfeed_correctness_test
+        PRIVATE Q3X_TEST_GATEUP_LDMATRIX_PAIRFEED=1
+      )
+      target_link_libraries(
+        q3x_sm87_a4w4_gateup_down_k512_edge_m64n128_k256_ldmatrix_pairfeed_correctness_test
+        PRIVATE q3x::kernels CUDA::cudart
+      )
+      q3x_enable_warnings(
+        q3x_sm87_a4w4_gateup_down_k512_edge_m64n128_k256_ldmatrix_pairfeed_correctness_test
+      )
     endif()
 
     if(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M128N512_LDMATRIX_ADMISSION)
@@ -2810,6 +2826,19 @@ if(BUILD_TESTING)
         sm87_a4w4_gateup_down_k512_edge_m64n128_k256_alternating_correctness
         PROPERTIES
         LABELS "cuda;sm87;prefill;mlp;a4w4;k512;gateup;down;edge;alternating;k256;correctness;resources;graph;synthetic"
+        SKIP_RETURN_CODE 77
+        RESOURCE_LOCK q3x_sm87_gpu
+        TIMEOUT 300
+      )
+      add_test(
+        NAME sm87_a4w4_gateup_down_k512_edge_m64n128_k256_ldmatrix_pairfeed_correctness
+        COMMAND "${Q3X_FLOCK_EXECUTABLE}" -x /tmp/q3x-gpu-bench.lock
+                $<TARGET_FILE:q3x_sm87_a4w4_gateup_down_k512_edge_m64n128_k256_ldmatrix_pairfeed_correctness_test>
+      )
+      set_tests_properties(
+        sm87_a4w4_gateup_down_k512_edge_m64n128_k256_ldmatrix_pairfeed_correctness
+        PROPERTIES
+        LABELS "cuda;sm87;prefill;mlp;a4w4;k512;gateup;down;edge;ldmatrix;pairfeed;correctness;resources;graph;synthetic"
         SKIP_RETURN_CODE 77
         RESOURCE_LOCK q3x_sm87_gpu
         TIMEOUT 300

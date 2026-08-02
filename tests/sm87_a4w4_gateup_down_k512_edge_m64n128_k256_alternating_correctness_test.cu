@@ -17,6 +17,24 @@ namespace {
 
 namespace kernels = q3x::kernels;
 
+#if defined(Q3X_TEST_GATEUP_LDMATRIX_PAIRFEED)
+#define Q3X_GATEUP_TEST_LAUNCH \
+  launch_sm87_a4w4_gateup_down_k512_edge_m64n128_k256_ldmatrix_pairfeed_test_cuda
+#define Q3X_GATEUP_TEST_QUERY \
+  query_sm87_a4w4_gateup_down_k512_edge_m64n128_k256_ldmatrix_pairfeed_resources_cuda
+using CandidateResources =
+    kernels::Sm87A4W4GateUpDownEdgeM64N128K256LdmatrixPairfeedResources;
+inline constexpr const char* kCandidateLabel = "ldmatrix-pairfeed";
+#else
+#define Q3X_GATEUP_TEST_LAUNCH \
+  launch_sm87_a4w4_gateup_down_k512_edge_m64n128_k256_alternating_test_cuda
+#define Q3X_GATEUP_TEST_QUERY \
+  query_sm87_a4w4_gateup_down_k512_edge_m64n128_k256_alternating_resources_cuda
+using CandidateResources =
+    kernels::Sm87A4W4GateUpDownEdgeM64N128K256AlternatingResources;
+inline constexpr const char* kCandidateLabel = "alternating";
+#endif
+
 inline constexpr float kClipRatio = 0.9375F;
 inline constexpr std::size_t kGuardBytes = 64U;
 inline constexpr std::size_t kGuardWords = 32U;
@@ -349,7 +367,7 @@ struct DownPayload final {
                     "begin alternating graph capture");
   if (ok) {
     ok = launch_ok(
-             kernels::launch_sm87_a4w4_gateup_down_k512_edge_m64n128_k256_alternating_test_cuda(
+             kernels::Q3X_GATEUP_TEST_LAUNCH(
                  a.payload(), a.payload_count(), a_scales.payload(),
                  a_scales.payload_count(), gate.payload(),
                  gate.payload_count(), gate_scales.payload(),
@@ -443,7 +461,7 @@ struct DownPayload final {
   }
 
   const int short_output =
-      kernels::launch_sm87_a4w4_gateup_down_k512_edge_m64n128_k256_alternating_test_cuda(
+      kernels::Q3X_GATEUP_TEST_LAUNCH(
           a.payload(), a.payload_count(), a_scales.payload(),
           a_scales.payload_count(), gate.payload(), gate.payload_count(),
           gate_scales.payload(), gate_scales.payload_count(), up.payload(),
@@ -457,7 +475,7 @@ struct DownPayload final {
   }
 
   const int aliased_output =
-      kernels::launch_sm87_a4w4_gateup_down_k512_edge_m64n128_k256_alternating_test_cuda(
+      kernels::Q3X_GATEUP_TEST_LAUNCH(
           a.payload(), a.payload_count(), a_scales.payload(),
           a_scales.payload_count(), gate.payload(), gate.payload_count(),
           gate_scales.payload(), gate_scales.payload_count(), up.payload(),
@@ -480,7 +498,7 @@ struct DownPayload final {
               baseline_scales.payload(), output_scales, maximum_ctas),
           "launch incumbent " + shape) ||
       !launch_ok(
-          kernels::launch_sm87_a4w4_gateup_down_k512_edge_m64n128_k256_alternating_test_cuda(
+          kernels::Q3X_GATEUP_TEST_LAUNCH(
               a.payload(), a.payload_count(), a_scales.payload(),
               a_scales.payload_count(), gate.payload(), gate.payload_count(),
               gate_scales.payload(), gate_scales.payload_count(), up.payload(),
@@ -605,7 +623,7 @@ struct DownPayload final {
       !up_scales.unchanged("Up scales")) {
     return false;
   }
-  std::cout << "PASS: alternating bit-exact " << shape
+  std::cout << "PASS: " << kCandidateLabel << " bit-exact " << shape
             << (graph_replay ? " graphx2" : "")
             << (downstream ? " Down-BF16" : "") << '\n';
   return true;
@@ -618,11 +636,11 @@ int main() {
   if (target != 0) {
     return target;
   }
-  kernels::Sm87A4W4GateUpDownEdgeM64N128K256AlternatingResources resources{};
+  CandidateResources resources{};
   if (!launch_ok(
-          kernels::query_sm87_a4w4_gateup_down_k512_edge_m64n128_k256_alternating_resources_cuda(
+          kernels::Q3X_GATEUP_TEST_QUERY(
               &resources),
-          "query alternating resources") ||
+          std::string("query ") + kCandidateLabel + " resources") ||
       resources.registers_per_thread <= 0 ||
       resources.registers_per_thread > 128 ||
       resources.static_shared_bytes != 0U ||
@@ -632,7 +650,7 @@ int main() {
       resources.local_bytes != 0U ||
       resources.maximum_threads_per_block < 512 ||
       resources.active_blocks_per_sm != 1) {
-    std::cerr << "alternating resource gate failed\n";
+    std::cerr << kCandidateLabel << " resource gate failed\n";
     return 1;
   }
 
@@ -643,7 +661,7 @@ int main() {
   if (!ok) {
     return 1;
   }
-  std::cout << "alternating K256 GateUp correctness passed: regs="
+  std::cout << kCandidateLabel << " K256 GateUp correctness passed: regs="
             << resources.registers_per_thread
             << " dynamic_shared=" << resources.dynamic_shared_bytes
             << " active_blocks_per_sm=" << resources.active_blocks_per_sm

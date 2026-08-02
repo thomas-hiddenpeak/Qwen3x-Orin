@@ -332,6 +332,8 @@ GenerationControlResult run_generation_control_impl(
               ->attention_k256_m128n256_a_exchange_b4_logical_projection_hits;
       control.timing.gateup_alternating_launch_hits =
           outcome.value->gateup_alternating_launch_hits;
+      control.timing.gateup_ldmatrix_pairfeed_launch_hits =
+          outcome.value->gateup_ldmatrix_pairfeed_launch_hits;
       control.timing.gateup_m128n512_paired_ldmatrix_launch_hits =
           outcome.value->gateup_m128n512_paired_ldmatrix_launch_hits;
       control.timing.down_m128n128_ldmatrix_pairring_launch_hits =
