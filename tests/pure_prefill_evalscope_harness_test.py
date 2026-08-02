@@ -19,6 +19,7 @@ REPOSITORY = pathlib.Path(__file__).resolve().parents[1]
 RUNNER = REPOSITORY / "tools/evaluation/run_native_pure_prefill_matrix.sh"
 FRAGMENT_NATIVE_PAYLOAD_BYTES = 8_623_226_880
 HYBRID_PAYLOAD_BYTES = 8_623_226_880
+PROJECTION_MAJOR_PAYLOAD_BYTES = 8_623_226_880
 ATTENTION_K256_PAYLOAD_BYTES = 12_353_536_000
 ATTENTION_K256_MODE = (
     "cumulative-prefill-current-best-mlp-k512-edge-attention-k256"
@@ -42,6 +43,10 @@ ATTENTION_K256_A_EXCHANGE_B4_MODE = (
 ATTENTION_K256_LDMATRIX_PAIRFEED_MODE = (
     "cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-"
     "ldmatrix-pairfeed-down-16warp-pairring-attention-k256-a-exchange-b4"
+)
+PROJECTION_MAJOR_MODE = (
+    "cumulative-prefill-current-best-mlp-k512-projection-major-gateup-"
+    "down-16warp-pairring-attention-k256-a-exchange-b4"
 )
 ATTENTION_K256_M128N128_PROJECTION_SERIAL_MODE = (
     "cumulative-prefill-current-best-mlp-k512-m128n128-projection-serial-"
@@ -82,6 +87,12 @@ MLP_K512_M128N128_PROJECTION_SERIAL_SELECTOR = (
 )
 MLP_K512_M128N512_FUSED_QUANTIZE_SELECTOR = (
     "Q3X_RUN_A4W4_GATEUP_K512_M128N512_FUSED_QUANTIZE_ADMISSION"
+)
+MLP_K512_PROJECTION_MAJOR_SELECTOR = (
+    "Q3X_RUN_A4W4_MLP_K512_PROJECTION_MAJOR_GATEUP_CANONICAL_DOWN_ADMISSION"
+)
+MLP_K512_REGISTER_PIPELINE_SELECTOR = (
+    "Q3X_RUN_A4W4_GATEUP_K512_M64N128_REGISTER_PIPELINE_ADMISSION"
 )
 ATTENTION_K256_MARKERS = (
     "prefill_projection_span_linear_qkv_z_k256_m128n256",
@@ -190,6 +201,20 @@ DOWN_PAIRRING_SELECTOR = (
 DOWN_16WARP_PAIRRING_SELECTOR = (
     "Q3X_RUN_A4W4_DOWN_K512_M128N128_16WARP_PAIRRING_ADMISSION"
 )
+PROJECTION_MAJOR_LAYOUT = (
+    "sm87_s4_gateup_n64_projection_major_down_n64_canonical_scale_k512_"
+    "mlp_hybrid_v2"
+)
+PROJECTION_MAJOR_INPUT_MARKER = (
+    "prefill_projection_span_mlp_k512_projection_major_input_quantize"
+)
+PROJECTION_MAJOR_GATE_MARKER = (
+    "prefill_projection_span_mlp_k512_gateup_m64n128_register_pipeline"
+)
+PROJECTION_MAJOR_DOWN_16WARP_MARKER = (
+    "prefill_projection_span_mlp_k512_projection_major_down_m128n128_"
+    "16warp_pairring"
+)
 
 
 class Fixture:
@@ -227,6 +252,16 @@ class Fixture:
         self.hybrid_receipt = (
             root / "mlp-k512-paired-gateup-canonical-down.bin.receipt.json"
         )
+        self.projection_major_payload = (
+            root / "mlp-k512-projection-major-gateup-canonical-down.bin"
+        )
+        self.projection_major_policy = (
+            root / "mlp-k512-projection-major-gateup-canonical-down-policy.json"
+        )
+        self.projection_major_receipt = (
+            root
+            / "mlp-k512-projection-major-gateup-canonical-down.bin.receipt.json"
+        )
         self.fake_bin = root / "fake-bin"
         self.model_dir.mkdir()
         self.corpus_dir.mkdir()
@@ -261,6 +296,8 @@ class Fixture:
             "ADMISSION\n"
             "# Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M128N512_PAIRED_"
             "LDMATRIX_ADMISSION\n"
+            f"# {MLP_K512_PROJECTION_MAJOR_SELECTOR}\n"
+            f"# {MLP_K512_REGISTER_PIPELINE_SELECTOR}\n"
             "# Q3X_RUN_A4W4_DOWN_K512_M128N128_LDMATRIX_PAIRRING_"
             "ADMISSION\n"
             "# Q3X_RUN_A4W4_DOWN_K512_M128N128_16WARP_PAIRRING_"
@@ -283,6 +320,9 @@ class Fixture:
             + f"{HYBRID_CANONICAL_DOWN_MARKER}\n"
             + f"{HYBRID_PAIRRING_DOWN_MARKER}\n"
             + f"{DOWN_16WARP_PAIRRING_MARKER}\n"
+            + f"{PROJECTION_MAJOR_INPUT_MARKER}\n"
+            + f"{PROJECTION_MAJOR_GATE_MARKER}\n"
+            + f"{PROJECTION_MAJOR_DOWN_16WARP_MARKER}\n"
             + f"{GDN_PROMPT_SPAN_MACRO_MARKER}\n"
             + "# Q3X_RUN_SHORT_PREFILL_LAYER_MAJOR_ADMISSION\n"
             + "exit 0\n",
@@ -429,6 +469,61 @@ class Fixture:
             + "\n",
             encoding="utf-8",
         )
+        with self.projection_major_payload.open("wb") as stream:
+            stream.truncate(PROJECTION_MAJOR_PAYLOAD_BYTES)
+        self.projection_major_policy.write_text("{}\n", encoding="utf-8")
+        projection_major_policy_sha = hashlib.sha256(b"{}\n").hexdigest()
+        self.projection_major_receipt.write_text(
+            json.dumps(
+                {
+                    "schema": (
+                        "q3x.prefill.mlp-k512.projection-major-gateup-"
+                        "canonical-down.publication-receipt"
+                    ),
+                    "version": {"major": 2, "minor": 0},
+                    "mode": (
+                        "lossless_projection_major_gateup_permutation_"
+                        "down_passthrough"
+                    ),
+                    "production_residency_eligible": True,
+                    "physical_layout": PROJECTION_MAJOR_LAYOUT,
+                    "gateup_physical_layout": (
+                        "sm87_s4_gateup_n64_projection_major_fragment_"
+                        "register_v3"
+                    ),
+                    "down_physical_layout": (
+                        "sm87_s4_n64_packed_k64_scale_k512_mlp_v1"
+                    ),
+                    "source_checkpoint_id": "host-checkpoint",
+                    "source_config_sha256": "a" * 64,
+                    "source_index_sha256": "b" * 64,
+                    "required_base": {
+                        "sidecar_kind": "a4_k256",
+                        "physical_layout": ATTENTION_K256_LAYOUT,
+                        "manifest_sha256": one_sha,
+                        "policy_sha256": k256_policy_sha,
+                        "payload_sha256": zero_sha,
+                    },
+                    "source_v1": {
+                        "physical_layout": (
+                            "sm87_s4_n64_packed_k64_scale_k512_mlp_v1"
+                        ),
+                        "receipt_sha256": "5" * 64,
+                        "manifest_sha256": "6" * 64,
+                        "policy_sha256": projection_major_policy_sha,
+                        "policy_bytes": len(b"{}\n"),
+                        "payload_sha256": "7" * 64,
+                        "payload_bytes": PROJECTION_MAJOR_PAYLOAD_BYTES,
+                    },
+                    "manifest_sha256": "8" * 64,
+                    "payload_sha256": zero_sha,
+                    "payload_bytes": PROJECTION_MAJOR_PAYLOAD_BYTES,
+                    "layer_count": 64,
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
         real_sha256sum = shutil.which("sha256sum")
         if real_sha256sum is None:
             raise RuntimeError("sha256sum is required by the harness tests")
@@ -445,6 +540,10 @@ class Fixture:
             "    exit 0\n"
             "    ;;\n"
             "  *mlp-k512-paired-gateup-canonical-down.bin)\n"
+            "    printf '%064d  %s\\n' 0 \"$1\"\n"
+            "    exit 0\n"
+            "    ;;\n"
+            "  *mlp-k512-projection-major-gateup-canonical-down.bin)\n"
             "    printf '%064d  %s\\n' 0 \"$1\"\n"
             "    exit 0\n"
             "    ;;\n"
@@ -549,6 +648,8 @@ class Fixture:
             "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M128N512_PAIRED_"
             "LDMATRIX_ADMISSION"
         ] = "1"
+        environment[MLP_K512_PROJECTION_MAJOR_SELECTOR] = "1"
+        environment[MLP_K512_REGISTER_PIPELINE_SELECTOR] = "1"
         environment[
             "Q3X_RUN_A4W4_DOWN_K512_M128N128_LDMATRIX_PAIRRING_ADMISSION"
         ] = "1"
@@ -714,6 +815,25 @@ class Fixture:
                 if down_pairring
                 else HYBRID_GATE_MODE
             ),
+            bucket=bucket,
+            prefill_payload=self.k256_payload,
+            prefill_policy=self.k256_policy,
+            prefill_receipt=self.k256_receipt,
+        )
+
+    def run_projection_major(
+        self, *extra: str, bucket: str = "p2k"
+    ) -> subprocess.CompletedProcess[str]:
+        return self.run(
+            "--prefill-mlp-k512-projection-major-gateup-canonical-down-payload",
+            str(self.projection_major_payload),
+            "--prefill-mlp-k512-projection-major-gateup-canonical-down-policy",
+            str(self.projection_major_policy),
+            "--prefill-mlp-k512-projection-major-gateup-canonical-down-receipt",
+            str(self.projection_major_receipt),
+            "--mode",
+            PROJECTION_MAJOR_MODE,
+            *extra,
             bucket=bucket,
             prefill_payload=self.k256_payload,
             prefill_policy=self.k256_policy,
@@ -3376,6 +3496,311 @@ class PurePrefillEvalScopeHarnessTest(unittest.TestCase):
                         f"fragment-native Gate+Up variant: {marker}",
                         result.stderr,
                     )
+
+    def test_projection_major_mode_replaces_only_the_mlp_publication_and_gate(
+        self,
+    ) -> None:
+        help_result = subprocess.run(
+            [str(RUNNER), "--help"],
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+        self.assertEqual(help_result.returncode, 0, help_result.stderr)
+        self.assertIn(PROJECTION_MAJOR_MODE, help_result.stderr)
+        self.assertIn(
+            "--prefill-mlp-k512-projection-major-gateup-canonical-down-"
+            "payload",
+            help_result.stderr,
+        )
+
+        result = self.fixture.run_projection_major()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(
+            f"mode={PROJECTION_MAJOR_MODE} dry_run=1", result.stdout
+        )
+        self.assertIn("selector_count=10", result.stdout)
+        startup = next(
+            line
+            for line in result.stdout.splitlines()
+            if line.startswith("server_startup_command")
+        )
+        selectors = set(re.findall(r"(Q3X_[A-Z0-9_]+)=1", startup))
+        self.assertEqual(
+            selectors,
+            {
+                "Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION",
+                "Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION",
+                "Q3X_RUN_BF16_AB_LARGE_M_PREFILL_ADMISSION",
+                "Q3X_FULL_ATTENTION_FLASHINFER_DIRECT",
+                "Q3X_RUN_FULL_ATTENTION_PREPROCESS_PROMPT_WIDE_128_ADMISSION",
+                "Q3X_RUN_SHORT_PREFILL_LAYER_MAJOR_ADMISSION",
+                ATTENTION_K256_A_EXCHANGE_B4_SELECTOR,
+                MLP_K512_PROJECTION_MAJOR_SELECTOR,
+                MLP_K512_REGISTER_PIPELINE_SELECTOR,
+                DOWN_16WARP_PAIRRING_SELECTOR,
+            },
+        )
+        for removed in (
+            "Q3X_RUN_A4W4_MLP_K512_ADMISSION",
+            MLP_K512_EDGE_M64N128_K256_LDMATRIX_PAIRFEED_SELECTOR,
+        ):
+            self.assertIn(f"-u {removed}", startup)
+            self.assertNotIn(f"{removed}=1", startup)
+        for flag, path in (
+            (
+                "--prefill-mlp-k512-projection-major-gateup-canonical-"
+                "down-payload",
+                self.fixture.projection_major_payload,
+            ),
+            (
+                "--prefill-mlp-k512-projection-major-gateup-canonical-"
+                "down-policy",
+                self.fixture.projection_major_policy,
+            ),
+            (
+                "--prefill-mlp-k512-projection-major-gateup-canonical-"
+                "down-receipt",
+                self.fixture.projection_major_receipt,
+            ),
+        ):
+            self.assertIn(flag, startup)
+            self.assertIn(str(path), startup)
+        self.assertNotIn("--prefill-mlp-k512-payload", startup)
+
+        delta = next(
+            line
+            for line in result.stdout.splitlines()
+            if line.startswith("candidate_delta")
+        )
+        self.assertIn(
+            f"baseline_mode={ATTENTION_K256_LDMATRIX_PAIRFEED_MODE}", delta
+        )
+        self.assertIn(MLP_K512_PROJECTION_MAJOR_SELECTOR, delta)
+        self.assertIn(MLP_K512_REGISTER_PIPELINE_SELECTOR, delta)
+        self.assertIn(
+            MLP_K512_EDGE_M64N128_K256_LDMATRIX_PAIRFEED_SELECTOR, delta
+        )
+
+        stage_contract = next(
+            line
+            for line in result.stdout.splitlines()
+            if line.startswith("stage_contract")
+            and PROJECTION_MAJOR_GATE_MARKER in line
+        )
+        self.assertIn(
+            f"required={PROJECTION_MAJOR_INPUT_MARKER},"
+            f"{PROJECTION_MAJOR_GATE_MARKER},"
+            f"{PROJECTION_MAJOR_DOWN_16WARP_MARKER}",
+            stage_contract,
+        )
+        self.assertIn(
+            MLP_K512_EDGE_M64N128_K256_LDMATRIX_PAIRFEED_MARKER,
+            stage_contract,
+        )
+        self.assertIn(
+            "expected_request_launch_hits=gate_incumbent:0,"
+            "gate_candidate:64,down_incumbent:0,down_candidate:64",
+            stage_contract,
+        )
+        self.assertIn(f"layout={PROJECTION_MAJOR_LAYOUT}", result.stdout)
+        self.assertIn(
+            "gateup_m64n128_register_pipeline_launch_hits_64_per_request",
+            result.stdout,
+        )
+        self.assertIn(
+            "gateup_ldmatrix_pairfeed_launch_hits_0_per_request",
+            result.stdout,
+        )
+        self.assertIn(
+            "down_m128n128_16warp_pairring_launch_hits_64_per_request",
+            result.stdout,
+        )
+        self.assertIn("performance_evidence=0", result.stdout)
+        self.assertFalse(self.fixture.output.exists())
+
+    def test_projection_major_paths_and_publications_fail_closed(self) -> None:
+        partial = self.fixture.run(
+            "--prefill-mlp-k512-projection-major-gateup-canonical-down-payload",
+            str(self.fixture.projection_major_payload),
+            "--prefill-mlp-k512-projection-major-gateup-canonical-down-policy",
+            str(self.fixture.projection_major_policy),
+            "--mode",
+            PROJECTION_MAJOR_MODE,
+            prefill_payload=self.fixture.k256_payload,
+            prefill_policy=self.fixture.k256_policy,
+            prefill_receipt=self.fixture.k256_receipt,
+        )
+        self.assertEqual(partial.returncode, 2)
+        self.assertIn(
+            "projection-major-GateUp/canonical-Down MLP K512 payload, policy, "
+            "and receipt are required together",
+            partial.stderr,
+        )
+
+        missing = self.fixture.root / "missing-projection-major.bin"
+        missing_path = self.fixture.run(
+            "--prefill-mlp-k512-projection-major-gateup-canonical-down-payload",
+            str(missing),
+            "--prefill-mlp-k512-projection-major-gateup-canonical-down-policy",
+            str(self.fixture.projection_major_policy),
+            "--prefill-mlp-k512-projection-major-gateup-canonical-down-receipt",
+            str(self.fixture.projection_major_receipt),
+            "--mode",
+            PROJECTION_MAJOR_MODE,
+            prefill_payload=self.fixture.k256_payload,
+            prefill_policy=self.fixture.k256_policy,
+            prefill_receipt=self.fixture.k256_receipt,
+        )
+        self.assertEqual(missing_path.returncode, 2)
+        self.assertIn(
+            "missing required projection-major-GateUp/canonical-Down MLP "
+            "K512 payload",
+            missing_path.stderr,
+        )
+
+        alias = self.fixture.run(
+            "--prefill-mlp-k512-projection-major-gateup-canonical-down-payload",
+            str(self.fixture.projection_major_payload),
+            "--prefill-mlp-k512-projection-major-gateup-canonical-down-policy",
+            str(self.fixture.projection_major_receipt),
+            "--prefill-mlp-k512-projection-major-gateup-canonical-down-receipt",
+            str(self.fixture.projection_major_receipt),
+            "--mode",
+            PROJECTION_MAJOR_MODE,
+            prefill_payload=self.fixture.k256_payload,
+            prefill_policy=self.fixture.k256_policy,
+            prefill_receipt=self.fixture.k256_receipt,
+        )
+        self.assertEqual(alias.returncode, 2)
+        self.assertIn("must be distinct files", alias.stderr)
+
+        conflict = self.fixture.run_projection_major(
+            "--prefill-mlp-k512-payload",
+            str(self.fixture.mlp_k512_payload),
+            "--prefill-mlp-k512-policy",
+            str(self.fixture.mlp_k512_policy),
+            "--prefill-mlp-k512-receipt",
+            str(self.fixture.mlp_k512_receipt),
+        )
+        self.assertEqual(conflict.returncode, 2)
+        self.assertIn("are mutually exclusive", conflict.stderr)
+
+    def test_projection_major_receipt_identity_is_strict(self) -> None:
+        original = json.loads(
+            self.fixture.projection_major_receipt.read_text(encoding="utf-8")
+        )
+        mutations = (
+            lambda receipt: receipt.__setitem__("version", {"major": 1, "minor": 0}),
+            lambda receipt: receipt.__setitem__("physical_layout", "wrong"),
+            lambda receipt: receipt.__setitem__("payload_sha256", "9" * 64),
+            lambda receipt: receipt["required_base"].__setitem__(
+                "manifest_sha256", "9" * 64
+            ),
+            lambda receipt: receipt.__setitem__("unexpected", True),
+        )
+        for index, mutate in enumerate(mutations):
+            with self.subTest(index=index):
+                selected = json.loads(json.dumps(original))
+                mutate(selected)
+                self.fixture.projection_major_receipt.write_text(
+                    json.dumps(selected) + "\n", encoding="utf-8"
+                )
+                result = self.fixture.run_projection_major()
+                self.assertEqual(result.returncode, 2)
+                self.assertIn(
+                    "invalid projection-major-GateUp/canonical-Down K512 "
+                    "publication chain",
+                    result.stderr,
+                )
+        self.fixture.projection_major_receipt.write_text(
+            json.dumps(original) + "\n", encoding="utf-8"
+        )
+
+    def test_projection_major_requires_both_selectors_and_every_stage(self) -> None:
+        original = self.fixture.server.read_text(encoding="utf-8")
+        for selector in (
+            MLP_K512_PROJECTION_MAJOR_SELECTOR,
+            MLP_K512_REGISTER_PIPELINE_SELECTOR,
+        ):
+            with self.subTest(selector=selector):
+                self.fixture.server.write_text(
+                    original.replace(f"# {selector}\n", ""),
+                    encoding="utf-8",
+                )
+                result = self.fixture.run_projection_major()
+                self.assertEqual(result.returncode, 2)
+                self.assertIn(
+                    f"server does not contain the {PROJECTION_MAJOR_MODE} "
+                    f"selector: {selector}",
+                    result.stderr,
+                )
+        for marker in (
+            PROJECTION_MAJOR_INPUT_MARKER,
+            PROJECTION_MAJOR_GATE_MARKER,
+            PROJECTION_MAJOR_DOWN_16WARP_MARKER,
+        ):
+            with self.subTest(marker=marker):
+                self.fixture.server.write_text(
+                    original.replace(f"{marker}\n", ""), encoding="utf-8"
+                )
+                result = self.fixture.run_projection_major()
+                self.assertEqual(result.returncode, 2)
+                self.assertIn(
+                    "server does not prove the projection-major-GateUp "
+                    f"production stage: {marker}",
+                    result.stderr,
+                )
+        self.fixture.server.write_text(original, encoding="utf-8")
+
+    def test_projection_major_readiness_and_request_hits_are_hard_gates(
+        self,
+    ) -> None:
+        contents = RUNNER.read_text(encoding="utf-8")
+        self.assertIn(
+            "prefill_mlp_k512_projection_major_gateup_canonical_down_"
+            "requested=1 .*prefill_mlp_k512_projection_major_gateup_"
+            "canonical_down_enabled=1 .*prefill_mlp_k512_projection_major_"
+            "gateup_canonical_down_layers=64 .*prefill_mlp_k512_projection_"
+            "major_gateup_canonical_down_bytes=8623226880",
+            contents,
+        )
+        for identity in (
+            "layout",
+            "manifest_sha256",
+            "policy_sha256",
+            "payload_sha256",
+            "receipt_sha256",
+            "source_v1_receipt_sha256",
+        ):
+            self.assertIn(
+                "prefill_mlp_k512_projection_major_gateup_canonical_down_"
+                f"{identity}=",
+                contents,
+            )
+        self.assertIn(
+            "gateup_m64n128_register_pipeline_launch_hits="
+            "${gateup_m64n128_register_pipeline_expected_hits}",
+            contents,
+        )
+        self.assertIn(
+            "gateup_ldmatrix_pairfeed_launch_hits="
+            "${gateup_ldmatrix_pairfeed_expected_hits}",
+            contents,
+        )
+        self.assertIn(
+            "down_m128n128_16warp_pairring_launch_hits="
+            "${down_m128n128_16warp_pairring_expected_hits}",
+            contents,
+        )
+        self.assertIn(
+            "projection_major_mlp_runtime_contract bucket=%s requests=%s "
+            "old_gate_launch_hits_per_request=%s "
+            "gate_launch_hits_per_request=%s "
+            "down_incumbent_launch_hits_per_request=%s "
+            "down_candidate_launch_hits_per_request=%s status=passed",
+            contents,
+        )
 
     def test_cumulative_short_mode_adds_short_route_without_cells(self) -> None:
         result = self.fixture.run("--mode", "cumulative-prefill-short")

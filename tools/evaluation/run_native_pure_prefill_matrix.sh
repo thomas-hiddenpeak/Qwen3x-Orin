@@ -18,7 +18,10 @@ usage: run_native_pure_prefill_matrix.sh \
   [--prefill-mlp-k512-paired-gateup-canonical-down-payload FILE \
    --prefill-mlp-k512-paired-gateup-canonical-down-policy FILE \
    --prefill-mlp-k512-paired-gateup-canonical-down-receipt FILE] \
-  [--mode exact|native-gdn|cumulative-prefill|cumulative-prefill-down|cumulative-prefill-attention-down|cumulative-prefill-current-best|cumulative-prefill-current-best-k512|cumulative-prefill-current-best-mlp-k512|cumulative-prefill-current-best-mlp-k512-v1|cumulative-prefill-current-best-mlp-k512-edge|cumulative-prefill-current-best-mlp-k512-edge-attention-k256|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-attention-k256|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-pairring-attention-k256|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256-a-exchange-b4|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-ldmatrix-pairfeed-down-16warp-pairring-attention-k256-a-exchange-b4|cumulative-prefill-current-best-mlp-k512-m128n128-projection-serial-down-16warp-pairring-attention-k256-a-exchange-b4|cumulative-prefill-current-best-mlp-k512-m128n512-fused-quantize-down-16warp-pairring-attention-k256-a-exchange-b4|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256-a-exchange-b4-gdn-prompt-span-macro|cumulative-prefill-current-best-mlp-k512-edge-m128n64|cumulative-prefill-current-best-mlp-k512-down-m16n64-v2|cumulative-prefill-current-best-mlp-k512-fragment-native|cumulative-prefill-current-best-mlp-k512-fragment-native-m128|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-staged|cumulative-prefill-current-best-mlp-k512-fragment-native-m64n128-1cta|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta-down-m128n256-1cta|cumulative-prefill-current-best-mlp-k512-hybrid-gate-attention-k256|cumulative-prefill-current-best-mlp-k512-hybrid-gate-down-pairring-attention-k256|cumulative-prefill-short] \
+  [--prefill-mlp-k512-projection-major-gateup-canonical-down-payload FILE \
+   --prefill-mlp-k512-projection-major-gateup-canonical-down-policy FILE \
+   --prefill-mlp-k512-projection-major-gateup-canonical-down-receipt FILE] \
+  [--mode exact|native-gdn|cumulative-prefill|cumulative-prefill-down|cumulative-prefill-attention-down|cumulative-prefill-current-best|cumulative-prefill-current-best-k512|cumulative-prefill-current-best-mlp-k512|cumulative-prefill-current-best-mlp-k512-v1|cumulative-prefill-current-best-mlp-k512-edge|cumulative-prefill-current-best-mlp-k512-edge-attention-k256|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-attention-k256|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-pairring-attention-k256|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256-a-exchange-b4|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-ldmatrix-pairfeed-down-16warp-pairring-attention-k256-a-exchange-b4|cumulative-prefill-current-best-mlp-k512-projection-major-gateup-down-16warp-pairring-attention-k256-a-exchange-b4|cumulative-prefill-current-best-mlp-k512-m128n128-projection-serial-down-16warp-pairring-attention-k256-a-exchange-b4|cumulative-prefill-current-best-mlp-k512-m128n512-fused-quantize-down-16warp-pairring-attention-k256-a-exchange-b4|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256-a-exchange-b4-gdn-prompt-span-macro|cumulative-prefill-current-best-mlp-k512-edge-m128n64|cumulative-prefill-current-best-mlp-k512-down-m16n64-v2|cumulative-prefill-current-best-mlp-k512-fragment-native|cumulative-prefill-current-best-mlp-k512-fragment-native-m128|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-staged|cumulative-prefill-current-best-mlp-k512-fragment-native-m64n128-1cta|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta-down-m128n256-1cta|cumulative-prefill-current-best-mlp-k512-hybrid-gate-attention-k256|cumulative-prefill-current-best-mlp-k512-hybrid-gate-down-pairring-attention-k256|cumulative-prefill-short] \
   [--dry-run] \
   ELF MODEL_DIR CORPUS_DIR OUTPUT_ROOT [p512|p1k|p2k|p4k]
 EOF
@@ -27,6 +30,8 @@ EOF
 mode=exact
 ldmatrix_pairfeed_baseline_mode=cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256-a-exchange-b4
 ldmatrix_pairfeed_candidate_mode=cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-ldmatrix-pairfeed-down-16warp-pairring-attention-k256-a-exchange-b4
+projection_major_candidate_mode=cumulative-prefill-current-best-mlp-k512-projection-major-gateup-down-16warp-pairring-attention-k256-a-exchange-b4
+projection_major_baseline_mode=${ldmatrix_pairfeed_candidate_mode}
 projection_serial_baseline_mode=${ldmatrix_pairfeed_candidate_mode}
 projection_serial_candidate_mode=cumulative-prefill-current-best-mlp-k512-m128n128-projection-serial-down-16warp-pairring-attention-k256-a-exchange-b4
 fused_quantize_baseline_mode=${ldmatrix_pairfeed_candidate_mode}
@@ -53,6 +58,9 @@ prefill_mlp_k512_fragment_native_receipt=
 prefill_mlp_k512_paired_gateup_canonical_down_payload=
 prefill_mlp_k512_paired_gateup_canonical_down_policy=
 prefill_mlp_k512_paired_gateup_canonical_down_receipt=
+prefill_mlp_k512_projection_major_gateup_canonical_down_payload=
+prefill_mlp_k512_projection_major_gateup_canonical_down_policy=
+prefill_mlp_k512_projection_major_gateup_canonical_down_receipt=
 declare -a positional=()
 
 while (($# > 0)); do
@@ -66,7 +74,10 @@ while (($# > 0)); do
     --prefill-mlp-k512-fragment-native-receipt|\
     --prefill-mlp-k512-paired-gateup-canonical-down-payload|\
     --prefill-mlp-k512-paired-gateup-canonical-down-policy|\
-    --prefill-mlp-k512-paired-gateup-canonical-down-receipt|--mode)
+    --prefill-mlp-k512-paired-gateup-canonical-down-receipt|\
+    --prefill-mlp-k512-projection-major-gateup-canonical-down-payload|\
+    --prefill-mlp-k512-projection-major-gateup-canonical-down-policy|\
+    --prefill-mlp-k512-projection-major-gateup-canonical-down-receipt|--mode)
       (($# >= 2)) || { echo "missing value for $1" >&2; usage; exit 2; }
       option=$1
       value=$2
@@ -111,6 +122,15 @@ while (($# > 0)); do
         --prefill-mlp-k512-paired-gateup-canonical-down-receipt)
           prefill_mlp_k512_paired_gateup_canonical_down_receipt=${value}
           ;;
+        --prefill-mlp-k512-projection-major-gateup-canonical-down-payload)
+          prefill_mlp_k512_projection_major_gateup_canonical_down_payload=${value}
+          ;;
+        --prefill-mlp-k512-projection-major-gateup-canonical-down-policy)
+          prefill_mlp_k512_projection_major_gateup_canonical_down_policy=${value}
+          ;;
+        --prefill-mlp-k512-projection-major-gateup-canonical-down-receipt)
+          prefill_mlp_k512_projection_major_gateup_canonical_down_receipt=${value}
+          ;;
         --mode)
           ((mode_seen == 0)) || {
             echo "--mode may be specified only once" >&2
@@ -151,7 +171,7 @@ done
   exit 2
 }
 case "${mode}" in
-  exact|native-gdn|cumulative-prefill|cumulative-prefill-down|cumulative-prefill-attention-down|cumulative-prefill-current-best|cumulative-prefill-current-best-k512|cumulative-prefill-current-best-mlp-k512|cumulative-prefill-current-best-mlp-k512-v1|cumulative-prefill-current-best-mlp-k512-edge|cumulative-prefill-current-best-mlp-k512-edge-attention-k256|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-attention-k256|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-pairring-attention-k256|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256-a-exchange-b4|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-ldmatrix-pairfeed-down-16warp-pairring-attention-k256-a-exchange-b4|cumulative-prefill-current-best-mlp-k512-m128n128-projection-serial-down-16warp-pairring-attention-k256-a-exchange-b4|cumulative-prefill-current-best-mlp-k512-m128n512-fused-quantize-down-16warp-pairring-attention-k256-a-exchange-b4|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256-a-exchange-b4-gdn-prompt-span-macro|cumulative-prefill-current-best-mlp-k512-edge-m128n64|cumulative-prefill-current-best-mlp-k512-down-m16n64-v2|cumulative-prefill-current-best-mlp-k512-fragment-native|cumulative-prefill-current-best-mlp-k512-fragment-native-m128|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-staged|cumulative-prefill-current-best-mlp-k512-fragment-native-m64n128-1cta|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta-down-m128n256-1cta|cumulative-prefill-current-best-mlp-k512-hybrid-gate-attention-k256|cumulative-prefill-current-best-mlp-k512-hybrid-gate-down-pairring-attention-k256|cumulative-prefill-short) ;;
+  exact|native-gdn|cumulative-prefill|cumulative-prefill-down|cumulative-prefill-attention-down|cumulative-prefill-current-best|cumulative-prefill-current-best-k512|cumulative-prefill-current-best-mlp-k512|cumulative-prefill-current-best-mlp-k512-v1|cumulative-prefill-current-best-mlp-k512-edge|cumulative-prefill-current-best-mlp-k512-edge-attention-k256|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-attention-k256|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-pairring-attention-k256|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256-a-exchange-b4|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-ldmatrix-pairfeed-down-16warp-pairring-attention-k256-a-exchange-b4|cumulative-prefill-current-best-mlp-k512-projection-major-gateup-down-16warp-pairring-attention-k256-a-exchange-b4|cumulative-prefill-current-best-mlp-k512-m128n128-projection-serial-down-16warp-pairring-attention-k256-a-exchange-b4|cumulative-prefill-current-best-mlp-k512-m128n512-fused-quantize-down-16warp-pairring-attention-k256-a-exchange-b4|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256-a-exchange-b4-gdn-prompt-span-macro|cumulative-prefill-current-best-mlp-k512-edge-m128n64|cumulative-prefill-current-best-mlp-k512-down-m16n64-v2|cumulative-prefill-current-best-mlp-k512-fragment-native|cumulative-prefill-current-best-mlp-k512-fragment-native-m128|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-staged|cumulative-prefill-current-best-mlp-k512-fragment-native-m64n128-1cta|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta-down-m128n256-1cta|cumulative-prefill-current-best-mlp-k512-hybrid-gate-attention-k256|cumulative-prefill-current-best-mlp-k512-hybrid-gate-down-pairring-attention-k256|cumulative-prefill-short) ;;
   *)
     echo "--mode must be exact, native-gdn, cumulative-prefill, or" \
       "cumulative-prefill-down, cumulative-prefill-attention-down, or" \
@@ -165,6 +185,7 @@ case "${mode}" in
       "cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256," \
       "cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256-a-exchange-b4," \
       "cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-ldmatrix-pairfeed-down-16warp-pairring-attention-k256-a-exchange-b4," \
+      "cumulative-prefill-current-best-mlp-k512-projection-major-gateup-down-16warp-pairring-attention-k256-a-exchange-b4," \
       "cumulative-prefill-current-best-mlp-k512-m128n128-projection-serial-down-16warp-pairring-attention-k256-a-exchange-b4," \
       "cumulative-prefill-current-best-mlp-k512-m128n512-fused-quantize-down-16warp-pairring-attention-k256-a-exchange-b4," \
       "cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256-a-exchange-b4-gdn-prompt-span-macro," \
@@ -264,7 +285,9 @@ gdn_prompt_span_accounting_mode=0
 gdn_prompt_span_macro_mode=0
 mlp_k512_hybrid_mode=0
 mlp_k512_hybrid_down_pairring_mode=0
+mlp_k512_projection_major_mode=0
 if [[ "${mode}" == "${ldmatrix_pairfeed_candidate_mode}" ||
+      "${mode}" == "${projection_major_candidate_mode}" ||
       "${mode}" == "${projection_serial_candidate_mode}" ||
       "${mode}" == "${fused_quantize_candidate_mode}" ||
       "${mode}" == "${gdn_prompt_span_baseline_mode}" ||
@@ -273,6 +296,11 @@ if [[ "${mode}" == "${ldmatrix_pairfeed_candidate_mode}" ||
   if [[ "${mode}" == "${gdn_prompt_span_candidate_mode}" ]]; then
     gdn_prompt_span_macro_mode=1
   fi
+fi
+if [[ "${mode}" == "${projection_major_candidate_mode}" ]]; then
+  mlp_k512_projection_major_mode=1
+  attention_k256_mode=1
+  attention_k256_a_exchange_b4_mode=1
 fi
 if [[ "${mode}" == \
         cumulative-prefill-current-best-mlp-k512-hybrid-gate-attention-k256 ||
@@ -401,7 +429,8 @@ if [[ "${attention_k256_mode}" == 1 ]]; then
   attention_k256_receipt_sha256=$(
     sha256sum "${prefill_a4_receipt}" | awk '{print $1}'
   )
-  if [[ "${mlp_k512_hybrid_mode}" == 0 ]]; then
+  if [[ "${mlp_k512_hybrid_mode}" == 0 &&
+        "${mlp_k512_projection_major_mode}" == 0 ]]; then
     attention_k256_receipt_contract=$(
     python3 - "${prefill_a4_receipt}" "${prefill_mlp_k512_receipt}" <<'PY'
 import json
@@ -541,13 +570,30 @@ fi
   echo "Prefill paired-GateUp/canonical-Down MLP K512 payload, policy, and receipt are required together" >&2
   exit 2
 }
+mlp_k512_projection_major_args=0
+if [[ -n "${prefill_mlp_k512_projection_major_gateup_canonical_down_payload}" ]]; then
+  ((mlp_k512_projection_major_args += 1))
+fi
+if [[ -n "${prefill_mlp_k512_projection_major_gateup_canonical_down_policy}" ]]; then
+  ((mlp_k512_projection_major_args += 1))
+fi
+if [[ -n "${prefill_mlp_k512_projection_major_gateup_canonical_down_receipt}" ]]; then
+  ((mlp_k512_projection_major_args += 1))
+fi
+((mlp_k512_projection_major_args == 0 ||
+  mlp_k512_projection_major_args == 3)) || {
+  echo "Prefill projection-major-GateUp/canonical-Down MLP K512 payload, policy, and receipt are required together" >&2
+  exit 2
+}
 selected_mlp_k512_publications=0
 ((mlp_k512_args == 0)) || ((selected_mlp_k512_publications += 1))
 ((mlp_k512_fragment_native_args == 0)) || \
   ((selected_mlp_k512_publications += 1))
 ((mlp_k512_hybrid_args == 0)) || ((selected_mlp_k512_publications += 1))
+((mlp_k512_projection_major_args == 0)) || \
+  ((selected_mlp_k512_publications += 1))
 if ((selected_mlp_k512_publications > 1)); then
-  echo "Prefill MLP K512 v1, fragment-native v2, and paired-GateUp/canonical-Down hybrid are mutually exclusive" >&2
+  echo "Prefill MLP K512 v1, fragment-native v2, paired-GateUp hybrid, and projection-major-GateUp hybrid are mutually exclusive" >&2
   exit 2
 fi
 mlp_k512_fragment_native_mode=0
@@ -856,6 +902,213 @@ PY
   attention_k256_overlay_policy_sha256=${mlp_k512_hybrid_policy_sha256}
   attention_k256_overlay_payload_sha256=${mlp_k512_hybrid_payload_sha256}
 fi
+mlp_k512_projection_major_layout=sm87_s4_gateup_n64_projection_major_down_n64_canonical_scale_k512_mlp_hybrid_v2
+mlp_k512_projection_major_payload_bytes=8623226880
+mlp_k512_projection_major_payload_sha256=
+mlp_k512_projection_major_policy_sha256=
+mlp_k512_projection_major_receipt_sha256=
+mlp_k512_projection_major_manifest_sha256=
+mlp_k512_projection_major_source_v1_receipt_sha256=
+mlp_k512_projection_major_source_v1_manifest_sha256=
+mlp_k512_projection_major_source_v1_payload_sha256=
+if [[ "${mlp_k512_projection_major_mode}" == 1 ]]; then
+  [[ -f "${prefill_mlp_k512_projection_major_gateup_canonical_down_payload}" ]] || {
+    echo "missing required projection-major-GateUp/canonical-Down MLP K512 payload: ${prefill_mlp_k512_projection_major_gateup_canonical_down_payload:-<unset>}" >&2
+    exit 2
+  }
+  [[ -f "${prefill_mlp_k512_projection_major_gateup_canonical_down_policy}" ]] || {
+    echo "missing required projection-major-GateUp/canonical-Down MLP K512 policy: ${prefill_mlp_k512_projection_major_gateup_canonical_down_policy:-<unset>}" >&2
+    exit 2
+  }
+  [[ -f "${prefill_mlp_k512_projection_major_gateup_canonical_down_receipt}" ]] || {
+    echo "missing required projection-major-GateUp/canonical-Down MLP K512 receipt: ${prefill_mlp_k512_projection_major_gateup_canonical_down_receipt:-<unset>}" >&2
+    exit 2
+  }
+  projection_major_payload_identity=$(stat -Lc '%d:%i' \
+    "${prefill_mlp_k512_projection_major_gateup_canonical_down_payload}")
+  projection_major_policy_identity=$(stat -Lc '%d:%i' \
+    "${prefill_mlp_k512_projection_major_gateup_canonical_down_policy}")
+  projection_major_receipt_identity=$(stat -Lc '%d:%i' \
+    "${prefill_mlp_k512_projection_major_gateup_canonical_down_receipt}")
+  if [[ "${projection_major_payload_identity}" == "${projection_major_policy_identity}" ||
+        "${projection_major_payload_identity}" == "${projection_major_receipt_identity}" ||
+        "${projection_major_policy_identity}" == "${projection_major_receipt_identity}" ]]; then
+    echo "projection-major-GateUp/canonical-Down MLP K512 payload, policy, and receipt must be distinct files" >&2
+    exit 2
+  fi
+  [[ $(stat -c '%s' \
+      "${prefill_mlp_k512_projection_major_gateup_canonical_down_payload}") == \
+      "${mlp_k512_projection_major_payload_bytes}" ]] || {
+    echo "projection-major-GateUp/canonical-Down MLP K512 payload is not exactly ${mlp_k512_projection_major_payload_bytes} bytes" >&2
+    exit 2
+  }
+  mlp_k512_projection_major_payload_sha256=$(sha256sum \
+    "${prefill_mlp_k512_projection_major_gateup_canonical_down_payload}" |
+    awk '{print $1}')
+  mlp_k512_projection_major_policy_sha256=$(sha256sum \
+    "${prefill_mlp_k512_projection_major_gateup_canonical_down_policy}" |
+    awk '{print $1}')
+  mlp_k512_projection_major_receipt_sha256=$(sha256sum \
+    "${prefill_mlp_k512_projection_major_gateup_canonical_down_receipt}" |
+    awk '{print $1}')
+  mlp_k512_projection_major_policy_bytes=$(stat -c '%s' \
+    "${prefill_mlp_k512_projection_major_gateup_canonical_down_policy}")
+  projection_major_receipt_contract=$(
+    python3 - \
+      "${prefill_a4_receipt}" \
+      "${prefill_mlp_k512_projection_major_gateup_canonical_down_receipt}" \
+      "${attention_k256_payload_sha256}" \
+      "${attention_k256_policy_sha256}" \
+      "${attention_k256_policy_bytes}" \
+      "${mlp_k512_projection_major_payload_sha256}" \
+      "${mlp_k512_projection_major_policy_sha256}" \
+      "${mlp_k512_projection_major_policy_bytes}" <<'PY'
+import json
+import re
+import sys
+
+(
+    base_path,
+    publication_path,
+    base_payload_sha256,
+    base_policy_sha256,
+    base_policy_bytes_text,
+    publication_payload_sha256,
+    publication_policy_sha256,
+    publication_policy_bytes_text,
+) = sys.argv[1:]
+base_policy_bytes = int(base_policy_bytes_text)
+publication_policy_bytes = int(publication_policy_bytes_text)
+with open(base_path, encoding="utf-8") as stream:
+    base = json.load(stream)
+with open(publication_path, encoding="utf-8") as stream:
+    publication = json.load(stream)
+
+sha256 = re.compile(r"[0-9a-f]{64}").fullmatch
+
+
+def exact_keys(value, keys, label):
+    if not isinstance(value, dict) or set(value) != set(keys):
+        raise ValueError(f"{label} has the wrong strict JSON fields")
+
+
+base_keys = (
+    "schema", "version", "mode", "production_residency_eligible",
+    "sidecar_kind", "packed_k_group_size", "scale_group_size",
+    "physical_layout", "source_checkpoint_id", "source_config_sha256",
+    "source_index_sha256", "manifest_sha256", "policy_sha256",
+    "policy_bytes", "payload_sha256", "payload_bytes", "projection_count",
+)
+publication_keys = (
+    "schema", "version", "mode", "production_residency_eligible",
+    "physical_layout", "gateup_physical_layout", "down_physical_layout",
+    "source_checkpoint_id", "source_config_sha256", "source_index_sha256",
+    "required_base", "source_v1", "manifest_sha256", "payload_sha256",
+    "payload_bytes", "layer_count",
+)
+version_keys = ("major", "minor")
+base_binding_keys = (
+    "sidecar_kind", "physical_layout", "manifest_sha256",
+    "policy_sha256", "payload_sha256",
+)
+source_keys = (
+    "physical_layout", "receipt_sha256", "manifest_sha256",
+    "policy_sha256", "policy_bytes", "payload_sha256", "payload_bytes",
+)
+exact_keys(base, base_keys, "K256 base receipt")
+exact_keys(publication, publication_keys, "projection-major receipt")
+exact_keys(base["version"], version_keys, "K256 base version")
+exact_keys(publication["version"], version_keys, "publication version")
+exact_keys(publication["required_base"], base_binding_keys, "required_base")
+exact_keys(publication["source_v1"], source_keys, "source_v1")
+
+if not (
+    base["schema"] == "q3x.prefill.a4.publication-receipt"
+    and base["version"] == {"major": 3, "minor": 0}
+    and base["mode"] == "production_calibrated"
+    and base["production_residency_eligible"] is True
+    and base["sidecar_kind"] == "a4_k256"
+    and base["packed_k_group_size"] == 64
+    and base["scale_group_size"] == 256
+    and base["physical_layout"]
+        == "sm87_s4_n64_packed_k64_scale_k256_consumer_v3"
+    and isinstance(base["source_checkpoint_id"], str)
+    and bool(base["source_checkpoint_id"])
+    and sha256(base["source_config_sha256"])
+    and sha256(base["source_index_sha256"])
+    and sha256(base["manifest_sha256"])
+    and base["policy_sha256"] == base_policy_sha256
+    and base["policy_bytes"] == base_policy_bytes
+    and base["payload_sha256"] == base_payload_sha256
+    and base["payload_bytes"] == 12_353_536_000
+    and base["projection_count"] == 400
+):
+    raise ValueError("K256 base receipt does not bind the selected real files")
+
+required_base = publication["required_base"]
+source_v1 = publication["source_v1"]
+if not (
+    publication["schema"]
+        == "q3x.prefill.mlp-k512.projection-major-gateup-canonical-down."
+           "publication-receipt"
+    and publication["version"] == {"major": 2, "minor": 0}
+    and publication["mode"]
+        == "lossless_projection_major_gateup_permutation_down_passthrough"
+    and publication["production_residency_eligible"] is True
+    and publication["physical_layout"]
+        == "sm87_s4_gateup_n64_projection_major_down_n64_canonical_"
+           "scale_k512_mlp_hybrid_v2"
+    and publication["gateup_physical_layout"]
+        == "sm87_s4_gateup_n64_projection_major_fragment_register_v3"
+    and publication["down_physical_layout"]
+        == "sm87_s4_n64_packed_k64_scale_k512_mlp_v1"
+    and publication["source_checkpoint_id"] == base["source_checkpoint_id"]
+    and publication["source_config_sha256"] == base["source_config_sha256"]
+    and publication["source_index_sha256"] == base["source_index_sha256"]
+    and required_base["sidecar_kind"] == base["sidecar_kind"]
+    and required_base["physical_layout"] == base["physical_layout"]
+    and required_base["manifest_sha256"] == base["manifest_sha256"]
+    and required_base["policy_sha256"] == base["policy_sha256"]
+    and required_base["payload_sha256"] == base["payload_sha256"]
+    and source_v1["physical_layout"]
+        == "sm87_s4_n64_packed_k64_scale_k512_mlp_v1"
+    and sha256(source_v1["receipt_sha256"])
+    and sha256(source_v1["manifest_sha256"])
+    and source_v1["policy_sha256"] == publication_policy_sha256
+    and source_v1["policy_bytes"] == publication_policy_bytes
+    and sha256(source_v1["payload_sha256"])
+    and source_v1["payload_bytes"] == 8_623_226_880
+    and sha256(publication["manifest_sha256"])
+    and publication["payload_sha256"] == publication_payload_sha256
+    and publication["payload_bytes"] == 8_623_226_880
+    and publication["layer_count"] == 64
+):
+    raise ValueError("projection-major receipt does not bind the real-file chain")
+
+print("\t".join((
+    base["manifest_sha256"],
+    publication["manifest_sha256"],
+    source_v1["receipt_sha256"],
+    source_v1["manifest_sha256"],
+    source_v1["payload_sha256"],
+)))
+PY
+  ) || {
+    echo "invalid projection-major-GateUp/canonical-Down K512 publication chain" >&2
+    exit 2
+  }
+  IFS=$'\t' read -r attention_k256_manifest_sha256 \
+    mlp_k512_projection_major_manifest_sha256 \
+    mlp_k512_projection_major_source_v1_receipt_sha256 \
+    mlp_k512_projection_major_source_v1_manifest_sha256 \
+    mlp_k512_projection_major_source_v1_payload_sha256 \
+    <<<"${projection_major_receipt_contract}"
+  attention_k256_overlay_layout=${mlp_k512_projection_major_layout}
+  attention_k256_overlay_payload_bytes=${mlp_k512_projection_major_payload_bytes}
+  attention_k256_overlay_manifest_sha256=${mlp_k512_projection_major_manifest_sha256}
+  attention_k256_overlay_policy_sha256=${mlp_k512_projection_major_policy_sha256}
+  attention_k256_overlay_payload_sha256=${mlp_k512_projection_major_payload_sha256}
+fi
 [[ ! -e "${output_root}" ]] || {
   echo "refusing to overwrite output root: ${output_root}" >&2
   exit 2
@@ -1025,6 +1278,20 @@ case "${mode}" in
       Q3X_RUN_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_ADMISSION
       Q3X_RUN_A4W4_MLP_K512_ADMISSION
       Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_LDMATRIX_PAIRFEED_ADMISSION
+      Q3X_RUN_A4W4_DOWN_K512_M128N128_16WARP_PAIRRING_ADMISSION
+    )
+    ;;
+  cumulative-prefill-current-best-mlp-k512-projection-major-gateup-down-16warp-pairring-attention-k256-a-exchange-b4)
+    candidate_selectors=(
+      Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION
+      Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION
+      Q3X_RUN_BF16_AB_LARGE_M_PREFILL_ADMISSION
+      Q3X_FULL_ATTENTION_FLASHINFER_DIRECT
+      Q3X_RUN_FULL_ATTENTION_PREPROCESS_PROMPT_WIDE_128_ADMISSION
+      Q3X_RUN_SHORT_PREFILL_LAYER_MAJOR_ADMISSION
+      Q3X_RUN_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_ADMISSION
+      Q3X_RUN_A4W4_MLP_K512_PROJECTION_MAJOR_GATEUP_CANONICAL_DOWN_ADMISSION
+      Q3X_RUN_A4W4_GATEUP_K512_M64N128_REGISTER_PIPELINE_ADMISSION
       Q3X_RUN_A4W4_DOWN_K512_M128N128_16WARP_PAIRRING_ADMISSION
     )
     ;;
@@ -1210,6 +1477,22 @@ if [[ "${mlp_k512_edge_m64n128_k256_ldmatrix_pairfeed_mode}" == 1 ]] &&
       < <(strings -a "${server}") >/dev/null; then
   echo "server does not prove the LDSM pair-feed M64N128 K256 Gate+Up production stage: ${ldmatrix_pairfeed_marker}" >&2
   exit 2
+fi
+projection_major_input_marker=prefill_projection_span_mlp_k512_projection_major_input_quantize
+projection_major_gate_marker=prefill_projection_span_mlp_k512_gateup_m64n128_register_pipeline
+projection_major_down_16warp_marker=prefill_projection_span_mlp_k512_projection_major_down_m128n128_16warp_pairring
+if [[ "${mlp_k512_projection_major_mode}" == 1 ]]; then
+  projection_major_required_markers=(
+    "${projection_major_input_marker}"
+    "${projection_major_gate_marker}"
+    "${projection_major_down_16warp_marker}"
+  )
+  for marker in "${projection_major_required_markers[@]}"; do
+    if ! grep -Fx "${marker}" < <(strings -a "${server}") >/dev/null; then
+      echo "server does not prove the projection-major-GateUp production stage: ${marker}" >&2
+      exit 2
+    fi
+  done
 fi
 projection_serial_primary_marker=prefill_projection_span_mlp_k512_gateup_m128n128_projection_serial_primary
 projection_serial_secondary_marker=prefill_projection_span_mlp_k512_gateup_m128n128_projection_serial_secondary
@@ -1484,6 +1767,16 @@ if [[ "${mlp_k512_hybrid_mode}" == 1 ]]; then
       "${prefill_mlp_k512_paired_gateup_canonical_down_receipt}"
   )
 fi
+if [[ "${mlp_k512_projection_major_mode}" == 1 ]]; then
+  server_args+=(
+    --prefill-mlp-k512-projection-major-gateup-canonical-down-payload \
+      "${prefill_mlp_k512_projection_major_gateup_canonical_down_payload}"
+    --prefill-mlp-k512-projection-major-gateup-canonical-down-policy \
+      "${prefill_mlp_k512_projection_major_gateup_canonical_down_policy}"
+    --prefill-mlp-k512-projection-major-gateup-canonical-down-receipt \
+      "${prefill_mlp_k512_projection_major_gateup_canonical_down_receipt}"
+  )
+fi
 if [[ "${mlp_k512_mode}" == 1 ]]; then
   server_args+=(
     --prefill-mlp-k512-payload "${prefill_mlp_k512_payload}"
@@ -1516,6 +1809,7 @@ gateup_ldmatrix_pairfeed_expected_hits=
 gateup_m128n128_projection_serial_expected_hits=
 gateup_m128n512_fused_quantize_expected_hits=
 gateup_m128n512_paired_ldmatrix_expected_hits=
+gateup_m64n128_register_pipeline_expected_hits=
 down_m128n128_ldmatrix_pairring_expected_hits=
 down_m128n128_16warp_pairring_expected_hits=
 attention_k256_incumbent_expected_launch_hits=
@@ -1550,7 +1844,15 @@ if [[ "${attention_k256_mode}" == 1 ]]; then
     attention_k256_a_exchange_b4_expected_logical_hits=208
   fi
 fi
-if [[ "${mlp_k512_m128n512_fused_quantize_mode}" == 1 ]]; then
+if [[ "${mlp_k512_projection_major_mode}" == 1 ]]; then
+  gateup_alternating_expected_hits=0
+  gateup_ldmatrix_pairfeed_expected_hits=0
+  gateup_m128n128_projection_serial_expected_hits=0
+  gateup_m128n512_fused_quantize_expected_hits=0
+  gateup_m64n128_register_pipeline_expected_hits=64
+  down_m128n128_ldmatrix_pairring_expected_hits=0
+  down_m128n128_16warp_pairring_expected_hits=64
+elif [[ "${mlp_k512_m128n512_fused_quantize_mode}" == 1 ]]; then
   gateup_alternating_expected_hits=0
   gateup_ldmatrix_pairfeed_expected_hits=0
   gateup_m128n128_projection_serial_expected_hits=0
@@ -1648,6 +1950,18 @@ if [[ "${mlp_k512_hybrid_mode}" == 1 ]]; then
     "$([[ "${mlp_k512_hybrid_down_pairring_mode}" == 1 ]] && \
        printf pairring || printf canonical)"
 fi
+if [[ "${mlp_k512_projection_major_mode}" == 1 ]]; then
+  printf 'projection_major_publication_metadata layout=%s payload_bytes=%s payload_sha256=%s policy_sha256=%s receipt_sha256=%s manifest_sha256=%s source_v1_receipt_sha256=%s source_v1_manifest_sha256=%s source_v1_payload_sha256=%s\n' \
+    "${mlp_k512_projection_major_layout}" \
+    "${mlp_k512_projection_major_payload_bytes}" \
+    "${mlp_k512_projection_major_payload_sha256}" \
+    "${mlp_k512_projection_major_policy_sha256}" \
+    "${mlp_k512_projection_major_receipt_sha256}" \
+    "${mlp_k512_projection_major_manifest_sha256}" \
+    "${mlp_k512_projection_major_source_v1_receipt_sha256}" \
+    "${mlp_k512_projection_major_source_v1_manifest_sha256}" \
+    "${mlp_k512_projection_major_source_v1_payload_sha256}"
+fi
 printf 'profile_metadata enabled=%s request_index=%s nsys_output=%q trace=cuda,nvtx capture_range=cudaProfilerApi\n' \
   "$([[ -n "${nsys_output}" ]] && printf 1 || printf 0)" \
   "${profile_request_index}" "${nsys_output}"
@@ -1657,7 +1971,10 @@ for selector in "${candidate_selectors[@]}"; do
   printf ' %s' "${selector}"
 done
 printf '\n'
-if [[ "${gdn_prompt_span_macro_mode}" == 1 ]]; then
+if [[ "${mlp_k512_projection_major_mode}" == 1 ]]; then
+  printf 'candidate_delta baseline_mode=%s removed_selectors=Q3X_RUN_A4W4_MLP_K512_ADMISSION,Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_LDMATRIX_PAIRFEED_ADMISSION added_selectors=Q3X_RUN_A4W4_MLP_K512_PROJECTION_MAJOR_GATEUP_CANONICAL_DOWN_ADMISSION,Q3X_RUN_A4W4_GATEUP_K512_M64N128_REGISTER_PIPELINE_ADMISSION retained_selector=Q3X_RUN_A4W4_DOWN_K512_M128N128_16WARP_PAIRRING_ADMISSION\n' \
+    "${projection_major_baseline_mode}"
+elif [[ "${gdn_prompt_span_macro_mode}" == 1 ]]; then
   printf 'candidate_delta baseline_mode=%s retained_selector=Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION added_selector=Q3X_RUN_GDN_PREFILL_PROMPT_SPAN_MACRO_ADMISSION\n' \
     "${gdn_prompt_span_baseline_mode}"
 elif [[ "${mlp_k512_m128n512_fused_quantize_mode}" == 1 ]]; then
@@ -1704,6 +2021,13 @@ if [[ "${mlp_k512_edge_m64n128_k256_alternating_mode}" == 1 ]]; then
 fi
 if [[ "${mlp_k512_edge_m64n128_k256_ldmatrix_pairfeed_mode}" == 1 ]]; then
   printf 'stage_contract required=%s,prefill_projection_span_mlp_k512_down_m128n128_16warp_pairring excluded=prefill_projection_span_mlp_k512_gateup_down_edge_m64n128_k256_alternating,prefill_projection_span_mlp_k512_gateup_down_edge,prefill_projection_span_mlp_k512_gate_up_primary,prefill_projection_span_mlp_k512_gate_up_secondary,prefill_projection_span_mlp_k512_product_quantize,prefill_projection_span_mlp_k512_down,prefill_projection_span_mlp_k512_down_m16n64_v2,prefill_projection_span_mlp_k512_down_m128n128_ldmatrix_pairring retained=prefill_projection_span_mlp_k512_input_quantize expected_request_launch_hits=gate_incumbent:0,gate_candidate:64,down_incumbent:0,down_candidate:64\n' \
+    "${ldmatrix_pairfeed_marker}"
+fi
+if [[ "${mlp_k512_projection_major_mode}" == 1 ]]; then
+  printf 'stage_contract required=%s,%s,%s excluded=%s,prefill_projection_span_mlp_k512_input_quantize,prefill_projection_span_mlp_k512_gateup_down_edge_m64n128_k256_alternating,prefill_projection_span_mlp_k512_gateup_down_edge,prefill_projection_span_mlp_k512_gate_up_primary,prefill_projection_span_mlp_k512_gate_up_secondary,prefill_projection_span_mlp_k512_product_quantize,prefill_projection_span_mlp_k512_down,prefill_projection_span_mlp_k512_down_m128n128_16warp_pairring,prefill_projection_span_mlp_k512_down_m128n128_ldmatrix_pairring expected_request_launch_hits=gate_incumbent:0,gate_candidate:64,down_incumbent:0,down_candidate:64\n' \
+    "${projection_major_input_marker}" \
+    "${projection_major_gate_marker}" \
+    "${projection_major_down_16warp_marker}" \
     "${ldmatrix_pairfeed_marker}"
 fi
 if [[ "${mlp_k512_m128n128_projection_serial_mode}" == 1 ]]; then
@@ -1810,6 +2134,12 @@ fi
 if [[ "${mlp_k512_hybrid_mode}" == 1 ]]; then
   printf ',prefill_mlp_k512_paired_gateup_canonical_down_authenticated_64_of_64,prefill_mlp_k512_paired_gateup_canonical_down_layout,prefill_mlp_k512_paired_gateup_canonical_down_payload_sha256,prefill_mlp_k512_paired_gateup_canonical_down_policy_sha256,prefill_mlp_k512_paired_gateup_canonical_down_receipt_sha256,prefill_mlp_k512_paired_gateup_canonical_down_complete_sha_chain,gateup_m128n512_paired_ldmatrix_launch_hits_64_per_request,down_m128n128_ldmatrix_pairring_launch_hits_%s_per_request' \
     "${down_m128n128_ldmatrix_pairring_expected_hits}"
+fi
+if [[ "${mlp_k512_projection_major_mode}" == 1 ]]; then
+  printf ',prefill_mlp_k512_projection_major_gateup_canonical_down_authenticated_64_of_64,prefill_mlp_k512_projection_major_gateup_canonical_down_layout,prefill_mlp_k512_projection_major_gateup_canonical_down_complete_sha_chain,%s,%s,%s,gateup_ldmatrix_pairfeed_launch_hits_0_per_request,gateup_m64n128_register_pipeline_launch_hits_64_per_request,down_m128n128_ldmatrix_pairring_launch_hits_0_per_request,down_m128n128_16warp_pairring_launch_hits_64_per_request' \
+    "${projection_major_input_marker}" \
+    "${projection_major_gate_marker}" \
+    "${projection_major_down_16warp_marker}"
 fi
 printf '\n'
 
@@ -1971,7 +2301,8 @@ mkdir -p "${output_root}"
   if [[ -n "${gateup_alternating_expected_hits}" ||
         -n "${gateup_ldmatrix_pairfeed_expected_hits}" ||
         -n "${gateup_m128n128_projection_serial_expected_hits}" ||
-        -n "${gateup_m128n512_fused_quantize_expected_hits}" ]]; then
+        -n "${gateup_m128n512_fused_quantize_expected_hits}" ||
+        -n "${gateup_m64n128_register_pipeline_expected_hits}" ]]; then
     printf 'gateup_alternating_expected_launch_hits_per_request=%s\n' \
       "${gateup_alternating_expected_hits}"
   fi
@@ -1987,11 +2318,16 @@ mkdir -p "${output_root}"
     printf 'gateup_m128n512_fused_quantize_expected_launch_hits_per_request=%s\n' \
       "${gateup_m128n512_fused_quantize_expected_hits}"
   fi
+  if [[ -n "${gateup_m64n128_register_pipeline_expected_hits}" ]]; then
+    printf 'gateup_m64n128_register_pipeline_expected_launch_hits_per_request=%s\n' \
+      "${gateup_m64n128_register_pipeline_expected_hits}"
+  fi
   if [[ "${mlp_k512_v1_down_pairring_mode}" == 1 ]]; then
     printf 'down_m128n128_ldmatrix_pairring_expected_launch_hits_per_request=%s\n' \
       "${down_m128n128_ldmatrix_pairring_expected_hits}"
   fi
-  if [[ "${mlp_k512_v1_down_16warp_pairring_mode}" == 1 ]]; then
+  if [[ "${mlp_k512_v1_down_16warp_pairring_mode}" == 1 ||
+        "${mlp_k512_projection_major_mode}" == 1 ]]; then
     printf 'down_m128n128_ldmatrix_pairring_expected_launch_hits_per_request=%s\n' \
       "${down_m128n128_ldmatrix_pairring_expected_hits}"
     printf 'down_m128n128_16warp_pairring_expected_launch_hits_per_request=%s\n' \
@@ -2057,6 +2393,31 @@ mkdir -p "${output_root}"
       "${gateup_m128n512_paired_ldmatrix_expected_hits}"
     printf 'down_m128n128_ldmatrix_pairring_expected_launch_hits_per_request=%s\n' \
       "${down_m128n128_ldmatrix_pairring_expected_hits}"
+  fi
+  if [[ "${mlp_k512_projection_major_mode}" == 1 ]]; then
+    printf 'experiment_baseline_mode=%s\n' "${projection_major_baseline_mode}"
+    printf 'experiment_removed_selectors=Q3X_RUN_A4W4_MLP_K512_ADMISSION,Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_LDMATRIX_PAIRFEED_ADMISSION\n'
+    printf 'experiment_added_selectors=Q3X_RUN_A4W4_MLP_K512_PROJECTION_MAJOR_GATEUP_CANONICAL_DOWN_ADMISSION,Q3X_RUN_A4W4_GATEUP_K512_M64N128_REGISTER_PIPELINE_ADMISSION\n'
+    printf 'prefill_mlp_k512_projection_major_gateup_canonical_down_layout=%s\n' \
+      "${mlp_k512_projection_major_layout}"
+    printf 'prefill_mlp_k512_projection_major_gateup_canonical_down_payload_bytes=%s\n' \
+      "${mlp_k512_projection_major_payload_bytes}"
+    printf 'prefill_mlp_k512_projection_major_gateup_canonical_down_payload_sha256=%s\n' \
+      "${mlp_k512_projection_major_payload_sha256}"
+    printf 'prefill_mlp_k512_projection_major_gateup_canonical_down_policy_sha256=%s\n' \
+      "${mlp_k512_projection_major_policy_sha256}"
+    printf 'prefill_mlp_k512_projection_major_gateup_canonical_down_receipt_sha256=%s\n' \
+      "${mlp_k512_projection_major_receipt_sha256}"
+    printf 'prefill_mlp_k512_projection_major_gateup_canonical_down_manifest_sha256=%s\n' \
+      "${mlp_k512_projection_major_manifest_sha256}"
+    printf 'prefill_mlp_k512_projection_major_gateup_canonical_down_source_v1_receipt_sha256=%s\n' \
+      "${mlp_k512_projection_major_source_v1_receipt_sha256}"
+    printf 'required_runtime_stages=%s,%s,%s\n' \
+      "${projection_major_input_marker}" \
+      "${projection_major_gate_marker}" \
+      "${projection_major_down_16warp_marker}"
+    printf 'excluded_runtime_stages=%s,prefill_projection_span_mlp_k512_input_quantize,prefill_projection_span_mlp_k512_down_m128n128_16warp_pairring\n' \
+      "${ldmatrix_pairfeed_marker}"
   fi
   for bucket in "${buckets[@]}"; do
     printf 'corpus_%s_sha256=%s\n' \
@@ -2225,6 +2586,28 @@ if [[ "${mlp_k512_hybrid_mode}" == 1 ]]; then
     fi
   done
 fi
+if [[ "${mlp_k512_projection_major_mode}" == 1 ]]; then
+  if ! grep -Eq \
+      'prefill_mlp_k512_projection_major_gateup_canonical_down_requested=1 .*prefill_mlp_k512_projection_major_gateup_canonical_down_enabled=1 .*prefill_mlp_k512_projection_major_gateup_canonical_down_layers=64 .*prefill_mlp_k512_projection_major_gateup_canonical_down_bytes=8623226880([[:space:]]|$)' \
+      "${server_log}"; then
+    echo "server readiness did not prove authenticated projection-major-GateUp/canonical-Down MLP K512 64/64" >&2
+    exit 5
+  fi
+  projection_major_readiness_bindings=(
+    "prefill_mlp_k512_projection_major_gateup_canonical_down_layout=${mlp_k512_projection_major_layout}"
+    "prefill_mlp_k512_projection_major_gateup_canonical_down_manifest_sha256=${mlp_k512_projection_major_manifest_sha256}"
+    "prefill_mlp_k512_projection_major_gateup_canonical_down_policy_sha256=${mlp_k512_projection_major_policy_sha256}"
+    "prefill_mlp_k512_projection_major_gateup_canonical_down_payload_sha256=${mlp_k512_projection_major_payload_sha256}"
+    "prefill_mlp_k512_projection_major_gateup_canonical_down_receipt_sha256=${mlp_k512_projection_major_receipt_sha256}"
+    "prefill_mlp_k512_projection_major_gateup_canonical_down_source_v1_receipt_sha256=${mlp_k512_projection_major_source_v1_receipt_sha256}"
+  )
+  for binding in "${projection_major_readiness_bindings[@]}"; do
+    if ! grep -F " ${binding}" "${server_log}" >/dev/null; then
+      echo "server readiness did not prove the exact projection-major publication binding: ${binding}" >&2
+      exit 5
+    fi
+  done
+fi
 printf 'startup_contract_check=passed prefill_a4_authenticated=400/400 optimized_prefill_disabled=0'
 if [[ "${attention_k256_mode}" == 1 ]]; then
   printf ' prefill_a4_k256_layout=verified prefill_a4_k256_bytes=verified prefill_a4_k256_sha_chain=verified prefill_attention_k256_runtime_accounting=required'
@@ -2242,6 +2625,9 @@ if [[ "${mlp_k512_fragment_native_mode}" == 1 ]]; then
 fi
 if [[ "${mlp_k512_hybrid_mode}" == 1 ]]; then
   printf ' prefill_mlp_k512_paired_gateup_canonical_down_authenticated=64/64 prefill_mlp_k512_paired_gateup_canonical_down_layout=verified prefill_mlp_k512_paired_gateup_canonical_down_payload_sha256=verified prefill_mlp_k512_paired_gateup_canonical_down_policy_sha256=verified prefill_mlp_k512_paired_gateup_canonical_down_receipt_sha256=verified prefill_mlp_k512_paired_gateup_canonical_down_complete_sha_chain=verified'
+fi
+if [[ "${mlp_k512_projection_major_mode}" == 1 ]]; then
+  printf ' prefill_mlp_k512_projection_major_gateup_canonical_down_authenticated=64/64 prefill_mlp_k512_projection_major_gateup_canonical_down_layout=verified prefill_mlp_k512_projection_major_gateup_canonical_down_payload_sha256=verified prefill_mlp_k512_projection_major_gateup_canonical_down_policy_sha256=verified prefill_mlp_k512_projection_major_gateup_canonical_down_receipt_sha256=verified prefill_mlp_k512_projection_major_gateup_canonical_down_complete_sha_chain=verified'
 fi
 printf '\n'
 
@@ -2267,7 +2653,8 @@ for bucket in "${buckets[@]}"; do
   if [[ -n "${gateup_alternating_expected_hits}" ||
         -n "${gateup_ldmatrix_pairfeed_expected_hits}" ||
         -n "${gateup_m128n128_projection_serial_expected_hits}" ||
-        -n "${gateup_m128n512_fused_quantize_expected_hits}" ]]; then
+        -n "${gateup_m128n512_fused_quantize_expected_hits}" ||
+        -n "${gateup_m64n128_register_pipeline_expected_hits}" ]]; then
     mapfile -t new_request_logs < <(
       awk -v skip="${request_log_before}" '
         /^evaluation request .* prompt_tokens=/ {
@@ -2311,15 +2698,24 @@ for bucket in "${buckets[@]}"; do
         echo "request did not prove gateup_m128n512_fused_quantize_launch_hits=${gateup_m128n512_fused_quantize_expected_hits}: ${request_log}" >&2
         exit 6
       fi
+      if [[ -n "${gateup_m64n128_register_pipeline_expected_hits}" ]] &&
+         ! grep -Eq \
+           " gateup_m64n128_register_pipeline_launch_hits=${gateup_m64n128_register_pipeline_expected_hits}([[:space:]]|$)" \
+           <<<"${request_log}"; then
+        echo "request did not prove gateup_m64n128_register_pipeline_launch_hits=${gateup_m64n128_register_pipeline_expected_hits}: ${request_log}" >&2
+        exit 6
+      fi
       if [[ "${mlp_k512_v1_down_pairring_mode}" == 1 ||
-            "${mlp_k512_v1_down_16warp_pairring_mode}" == 1 ]] &&
+            "${mlp_k512_v1_down_16warp_pairring_mode}" == 1 ||
+            "${mlp_k512_projection_major_mode}" == 1 ]] &&
          ! grep -Eq \
            " down_m128n128_ldmatrix_pairring_launch_hits=${down_m128n128_ldmatrix_pairring_expected_hits}([[:space:]]|$)" \
            <<<"${request_log}"; then
         echo "request did not prove down_m128n128_ldmatrix_pairring_launch_hits=${down_m128n128_ldmatrix_pairring_expected_hits}: ${request_log}" >&2
         exit 6
       fi
-      if [[ "${mlp_k512_v1_down_16warp_pairring_mode}" == 1 ]] &&
+      if [[ "${mlp_k512_v1_down_16warp_pairring_mode}" == 1 ||
+            "${mlp_k512_projection_major_mode}" == 1 ]] &&
          ! grep -Eq \
            " down_m128n128_16warp_pairring_launch_hits=${down_m128n128_16warp_pairring_expected_hits}([[:space:]]|$)" \
            <<<"${request_log}"; then
@@ -2344,6 +2740,14 @@ for bucket in "${buckets[@]}"; do
       printf 'gateup_m128n512_fused_quantize_runtime_contract bucket=%s requests=%s launch_hits_per_request=%s status=passed\n' \
         "${bucket}" "${expected_request_logs}" \
         "${gateup_m128n512_fused_quantize_expected_hits}"
+    fi
+    if [[ -n "${gateup_m64n128_register_pipeline_expected_hits}" ]]; then
+      printf 'projection_major_mlp_runtime_contract bucket=%s requests=%s old_gate_launch_hits_per_request=%s gate_launch_hits_per_request=%s down_incumbent_launch_hits_per_request=%s down_candidate_launch_hits_per_request=%s status=passed\n' \
+        "${bucket}" "${expected_request_logs}" \
+        "${gateup_ldmatrix_pairfeed_expected_hits}" \
+        "${gateup_m64n128_register_pipeline_expected_hits}" \
+        "${down_m128n128_ldmatrix_pairring_expected_hits}" \
+        "${down_m128n128_16warp_pairring_expected_hits}"
     fi
     if [[ "${mlp_k512_v1_down_pairring_mode}" == 1 ]]; then
       printf 'v1_pairring_down_runtime_contract bucket=%s requests=%s launch_hits_per_request=%s status=passed\n' \
