@@ -77,6 +77,19 @@ void fill_pattern(std::vector<std::uint8_t>& values,
   return receipt;
 }
 
+[[nodiscard]] runtime::PrefillMLPK512OverlayReceipt make_k256_v1_receipt() {
+  runtime::PrefillMLPK512OverlayReceipt receipt = make_v1_receipt();
+  receipt.required_base.physical_layout =
+      std::string(runtime::kPrefillA4K256PhysicalLayout);
+  receipt.required_base.manifest_sha256 = std::string(64U, '9');
+  receipt.required_base.policy_sha256 = std::string(64U, 'a');
+  receipt.required_base.payload_sha256 = std::string(64U, 'b');
+  receipt.manifest_sha256 = std::string(64U, 'c');
+  receipt.policy_sha256 = std::string(64U, 'd');
+  receipt.payload_sha256 = std::string(64U, 'e');
+  return receipt;
+}
+
 [[nodiscard]] runtime::PrefillMLPK512FragmentNativeReceipt make_v2_receipt(
     const runtime::PrefillMLPK512FragmentNativeManifest& manifest) {
   runtime::PrefillMLPK512FragmentNativeReceipt receipt;
@@ -89,6 +102,24 @@ void fill_pattern(std::vector<std::uint8_t>& values,
   receipt.source_v1 = manifest.source_v1;
   receipt.manifest_sha256 = manifest.manifest_sha256;
   receipt.payload_sha256 = std::string(64U, '8');
+  receipt.payload_bytes = manifest.payload_bytes;
+  receipt.layer_count = manifest.layer_count;
+  return receipt;
+}
+
+[[nodiscard]] runtime::PrefillMLPK512PairedGateUpCanonicalDownReceipt
+make_hybrid_receipt(
+    const runtime::PrefillMLPK512PairedGateUpCanonicalDownManifest& manifest) {
+  runtime::PrefillMLPK512PairedGateUpCanonicalDownReceipt receipt;
+  receipt.production_residency_eligible = true;
+  receipt.physical_layout = manifest.physical_layout;
+  receipt.source_checkpoint_id = manifest.source_checkpoint_id;
+  receipt.source_config_sha256 = manifest.source_config_sha256;
+  receipt.source_index_sha256 = manifest.source_index_sha256;
+  receipt.required_base = manifest.required_base;
+  receipt.source_v1 = manifest.source_v1;
+  receipt.manifest_sha256 = manifest.manifest_sha256;
+  receipt.payload_sha256 = std::string(64U, 'f');
   receipt.payload_bytes = manifest.payload_bytes;
   receipt.layer_count = manifest.layer_count;
   return receipt;
@@ -311,6 +342,108 @@ void test_receipt(Test& test,
   fs::remove(path, ignored);
 }
 
+void test_hybrid_publication_contract(
+    Test& test,
+    const runtime::PrefillMLPK512PairedGateUpCanonicalDownManifest& manifest) {
+  test.expect(
+      manifest.physical_layout ==
+              runtime::kPrefillMLPK512PairedGateUpCanonicalDownLayout &&
+          manifest.required_base.physical_layout ==
+              runtime::kPrefillA4K256PhysicalLayout &&
+          manifest.payload_bytes == 8'623'226'880ULL &&
+          manifest.layer_count == 64U &&
+          runtime::validate_prefill_mlp_k512_paired_gateup_canonical_down_manifest(
+              manifest)
+              .ok(),
+      "hybrid manifest is independently identified and K256-bound");
+  test.expect(
+      runtime::kPrefillMLPK512FragmentNativeGateUpRecordBytes * 64U ==
+              5'748'817'920ULL &&
+          runtime::kPrefillMLPK512FragmentNativeDownCodeBytes * 64U ==
+              2'852'126'720ULL &&
+          runtime::kPrefillMLPK512FragmentNativeDownScaleBytes * 64U ==
+              22'282'240ULL,
+      "hybrid equal-byte inventory partitions exact reusable and canonical ranges");
+
+  const fs::path path =
+      fs::temp_directory_path() /
+      ("q3x-mlp-k512-hybrid-receipt-" + std::to_string(::getpid()) +
+       ".json");
+  std::error_code ignored;
+  fs::remove(path, ignored);
+  const auto receipt = make_hybrid_receipt(manifest);
+  const auto first =
+      runtime::write_prefill_mlp_k512_paired_gateup_canonical_down_receipt_no_replace(
+          receipt, path);
+  struct stat status {};
+  test.expect(first.ok() && ::lstat(path.c_str(), &status) == 0 &&
+                  (status.st_mode & (S_IWUSR | S_IWGRP | S_IWOTH)) == 0,
+              "hybrid receipt publishes atomically and read-only");
+  const auto second =
+      runtime::write_prefill_mlp_k512_paired_gateup_canonical_down_receipt_no_replace(
+          receipt, path);
+  test.expect(second.code ==
+                  runtime::PrefillMLPK512OverlayErrorCode::
+                      kPublicationConflict,
+              "hybrid receipt never replaces an existing target");
+  const std::string document = read_file(path);
+  runtime::PrefillMLPK512OverlayDiagnostic diagnostic;
+  const auto parsed =
+      runtime::parse_prefill_mlp_k512_paired_gateup_canonical_down_receipt(
+          document, diagnostic);
+  test.expect(parsed.has_value() && diagnostic.ok() &&
+                  parsed->physical_layout ==
+                      runtime::kPrefillMLPK512PairedGateUpCanonicalDownLayout &&
+                  parsed->required_base.physical_layout ==
+                      runtime::kPrefillA4K256PhysicalLayout,
+              "strict hybrid receipt retains layout and K256 trust chain");
+  std::string wrong_down = document;
+  const std::string canonical_down(
+      runtime::kPrefillMLPK512CanonicalDownComponentLayout);
+  const std::size_t down_position = wrong_down.find(canonical_down);
+  if (down_position != std::string::npos) {
+    wrong_down[down_position] = 'x';
+  }
+  test.expect(
+      down_position != std::string::npos &&
+          !runtime::parse_prefill_mlp_k512_paired_gateup_canonical_down_receipt(
+              wrong_down, diagnostic),
+      "hybrid receipt rejects a Down-layout discriminator change");
+  fs::remove(path, ignored);
+
+  runtime::PrefillMLPK512PairedGateUpCanonicalDownCompositionOptions invalid;
+  const auto incomplete =
+      runtime::compose_authenticated_prefill_mlp_k512_paired_gateup_canonical_down(
+          invalid);
+  test.expect(
+      incomplete.diagnostic.code ==
+          runtime::PrefillMLPK512OverlayErrorCode::kInvalidOption,
+      "hybrid composer rejects incomplete source trust roots before I/O");
+
+  const fs::path occupied =
+      fs::temp_directory_path() /
+      ("q3x-mlp-k512-hybrid-occupied-" + std::to_string(::getpid()));
+  fs::remove(occupied, ignored);
+  {
+    std::ofstream output(occupied, std::ios::binary);
+    output << 'x';
+  }
+  runtime::PrefillMLPK512PairedGateUpCanonicalDownCompositionOptions conflict;
+  conflict.source_v1_payload_path = occupied.string() + ".source";
+  conflict.source_v1_receipt_path = occupied.string() + ".receipt";
+  conflict.source_v1_policy_path = occupied.string() + ".policy";
+  conflict.expected_source_v1_receipt_sha256.assign(64U, 'a');
+  conflict.output_path = occupied;
+  const auto conflict_result =
+      runtime::compose_authenticated_prefill_mlp_k512_paired_gateup_canonical_down(
+          conflict);
+  test.expect(
+      conflict_result.diagnostic.code ==
+          runtime::PrefillMLPK512OverlayErrorCode::kPublicationConflict,
+      "hybrid composer fails closed before replacing an occupied payload");
+  fs::remove(occupied, ignored);
+}
+
 }  // namespace
 
 int main() {
@@ -329,6 +462,19 @@ int main() {
   test_gateup_bijection(test);
   test_down_bijection(test);
   test_receipt(test, *manifest.value);
+  const auto hybrid =
+      runtime::build_prefill_mlp_k512_paired_gateup_canonical_down_manifest(
+          make_k256_v1_receipt(), std::string(64U, '7'));
+  test.expect(static_cast<bool>(hybrid),
+              "valid K256-bound v1 builds an independent hybrid manifest");
+  if (hybrid) {
+    test_hybrid_publication_contract(test, *hybrid.value);
+  }
+  const auto wrong_base =
+      runtime::build_prefill_mlp_k512_paired_gateup_canonical_down_manifest(
+          make_v1_receipt(), std::string(64U, '7'));
+  test.expect(!wrong_base,
+              "hybrid manifest rejects the historical K128-bound v1 root");
   if (test.result() == 0) {
     std::cout << "MLP K512 fragment-native overlay host contract passed\n";
   }

@@ -387,20 +387,23 @@ struct SyntheticA4ManifestSource {
 [[nodiscard]] runtime::PrefillA4CalibrationPolicy make_a4_policy(
     const runtime::PrefillSidecarManifest& manifest) {
   const bool k128 = manifest.kind == runtime::PrefillSidecarKind::kA4K128;
+  const bool k256 = manifest.kind == runtime::PrefillSidecarKind::kA4K256;
   runtime::PrefillA4CalibrationPolicy policy;
   policy.version_major =
-      k128 ? runtime::kPrefillA4K128CalibrationPolicyVersionMajor
-           : runtime::kPrefillA4CalibrationPolicyVersionMajor;
+      k256 ? runtime::kPrefillA4K256CalibrationPolicyVersionMajor
+           : k128 ? runtime::kPrefillA4K128CalibrationPolicyVersionMajor
+                  : runtime::kPrefillA4CalibrationPolicyVersionMajor;
   policy.version_minor = 0U;
   policy.sidecar_kind = manifest.kind;
   policy.physical_layout =
-      std::string(k128 ? runtime::kPrefillA4K128PhysicalLayout
-                       : runtime::kPrefillA4PhysicalLayout);
+      std::string(k256 ? runtime::kPrefillA4K256PhysicalLayout
+                       : k128 ? runtime::kPrefillA4K128PhysicalLayout
+                              : runtime::kPrefillA4PhysicalLayout);
   policy.source_checkpoint_id = manifest.source_checkpoint_id;
   policy.source_config_sha256 = manifest.source_config_sha256;
   policy.source_index_sha256 = manifest.source_index_sha256;
   policy.manifest_sha256 = manifest.manifest_sha256;
-  policy.policy_sha256.assign(64U, k128 ? 'b' : 'a');
+  policy.policy_sha256.assign(64U, k256 ? 'c' : k128 ? 'b' : 'a');
   policy.policy_bytes = 1U;
   policy.projections.reserve(manifest.projections.size());
   for (const runtime::PrefillProjectionSidecarEntry& entry :
@@ -411,7 +414,10 @@ struct SyntheticA4ManifestSource {
     calibration.source_sha256 = entry.source_sha256;
     calibration.weight_clip_ratio = 1.0;
     calibration.activation_clip_ratio = 1.0;
-    calibration.activation_scale_group_size = k128 ? 128U : 64U;
+    calibration.activation_scale_group_size =
+        k256 ? runtime::kPrefillA4K256WeightGroupSize
+             : k128 ? runtime::kPrefillA4K128WeightGroupSize
+                    : runtime::kPrefillA4WeightGroupSize;
     policy.projections.push_back(std::move(calibration));
   }
   return policy;
@@ -508,7 +514,6 @@ struct SyntheticA4ManifestSource {
     const runtime::ModelWeights& weights,
     const runtime::PrefillSidecarManifest& manifest,
     const std::uintptr_t arena_address) noexcept {
-  const bool k128 = manifest.kind == runtime::PrefillSidecarKind::kA4K128;
   for (const runtime::PrefillProjectionSidecarEntry& entry :
        manifest.projections) {
     const runtime::LinearWeight* const binding =
@@ -520,7 +525,7 @@ struct SyntheticA4ManifestSource {
         runtime::prefill_a4_sidecar_view(*binding);
     if (!view.attached() || view.sidecar_kind != manifest.kind ||
         view.packed_k_group_size != 64U ||
-        view.scale_group_size != (k128 ? 128U : 64U) ||
+        view.scale_group_size != entry.scale_group_size ||
         view.output_size != entry.output_size ||
         view.input_size != entry.input_size ||
         reinterpret_cast<std::uintptr_t>(view.weight) !=
@@ -708,6 +713,9 @@ fp8_prefill_supermatrix_attachment_snapshot(
 [[nodiscard]] bool fragment_native_mlp_attachments_match(
     const runtime::ModelWeights& weights,
     const std::uintptr_t arena_address,
+    const runtime::PrefillMLPK512CompositeLayout expected_layout =
+        runtime::PrefillMLPK512CompositeLayout::
+            kPairedGateUpFragmentNativeDown,
     const float gateup_activation_clip = 0.875F,
     const float down_activation_clip = 0.75F) noexcept {
   for (std::size_t layer_index = 0U;
@@ -717,6 +725,7 @@ fp8_prefill_supermatrix_attachment_snapshot(
     const runtime::PrefillMLPK512FragmentNativeCompositeView& view =
         weights.layer(layer_index).prefill_mlp_k512_fragment_native;
     if (!layout.valid || !view.attached() ||
+        view.physical_layout != expected_layout ||
         reinterpret_cast<std::uintptr_t>(view.gateup_codes) !=
             arena_address + layout.gateup_code_offset ||
         reinterpret_cast<std::uintptr_t>(view.gateup_scales) !=
@@ -1666,6 +1675,232 @@ void test_prefill_mlp_k512_fragment_native_attachment(TestContext& test) {
       "v2 cannot attach after its authenticated K128 base is detached");
 }
 
+void test_prefill_mlp_k512_paired_gateup_canonical_down_attachment(
+    TestContext& test) {
+  SyntheticArena arena(/*force_fp8_attention_outputs=*/false,
+                       /*force_nvfp4_down_projections=*/false,
+                       /*force_fp8_linear_qkv=*/false,
+                       /*force_fp8_prefill_supermatrix=*/false,
+                       /*force_a4_projection_types=*/true);
+  const SyntheticA4ManifestSource source = make_a4_manifest_source(arena);
+  test.expect(source.complete,
+              "hybrid test source covers every projection");
+  if (!source.complete) {
+    return;
+  }
+
+  runtime::PrefillSidecarManifestOptions base_options;
+  base_options.kind = runtime::PrefillSidecarKind::kA4K256;
+  const runtime::PrefillSidecarManifestResult base_result =
+      runtime::build_qwen36_27b_prefill_sidecar_manifest(
+          source.manifest, source.shards, base_options);
+  test.expect(base_result.ok(),
+              "hybrid authenticated K256 base manifest builds");
+  if (!base_result) {
+    return;
+  }
+  const runtime::PrefillSidecarManifest& base_manifest = *base_result.value;
+  const runtime::PrefillA4CalibrationPolicy base_policy =
+      make_a4_policy(base_manifest);
+  const std::string base_payload_sha256(64U, '7');
+  runtime::PrefillMLPK512BaseBinding required_base;
+  required_base.physical_layout =
+      std::string(runtime::kPrefillA4K256PhysicalLayout);
+  required_base.manifest_sha256 = base_manifest.manifest_sha256;
+  required_base.policy_sha256 = base_policy.policy_sha256;
+  required_base.payload_sha256 = base_payload_sha256;
+
+  const runtime::PrefillMLPK512OverlayManifestResult v1_result =
+      runtime::build_qwen36_27b_prefill_mlp_k512_overlay_manifest(
+          source.manifest, source.shards, required_base);
+  test.expect(static_cast<bool>(v1_result),
+              "hybrid canonical v1 manifest builds over K256 base");
+  if (!v1_result) {
+    return;
+  }
+  const runtime::PrefillMLPK512OverlayManifest& v1_manifest =
+      *v1_result.value;
+  const runtime::PrefillMLPK512OverlayPolicy v1_policy =
+      make_mlp_k512_policy(v1_manifest);
+  runtime::PrefillMLPK512OverlayReceipt v1_receipt;
+  v1_receipt.production_residency_eligible = true;
+  v1_receipt.physical_layout = v1_manifest.physical_layout;
+  v1_receipt.source_checkpoint_id = v1_manifest.source_checkpoint_id;
+  v1_receipt.source_config_sha256 = v1_manifest.source_config_sha256;
+  v1_receipt.source_index_sha256 = v1_manifest.source_index_sha256;
+  v1_receipt.manifest_sha256 = v1_manifest.manifest_sha256;
+  v1_receipt.policy_sha256 = v1_policy.policy_sha256;
+  v1_receipt.policy_bytes = v1_policy.policy_bytes;
+  v1_receipt.required_base = required_base;
+  v1_receipt.payload_sha256.assign(64U, '8');
+  v1_receipt.payload_bytes = runtime::kPrefillMLPK512OverlayPayloadBytes;
+  v1_receipt.projection_count =
+      runtime::kPrefillMLPK512OverlayProjectionCount;
+  const runtime::PrefillMLPK512PairedGateUpCanonicalDownManifestResult
+      hybrid_result =
+          runtime::build_prefill_mlp_k512_paired_gateup_canonical_down_manifest(
+              v1_receipt, std::string(64U, '9'));
+  test.expect(static_cast<bool>(hybrid_result),
+              "hybrid manifest binds the authenticated K256 v1 root");
+  if (!hybrid_result) {
+    return;
+  }
+  const runtime::PrefillMLPK512PairedGateUpCanonicalDownManifest&
+      hybrid_manifest = *hybrid_result.value;
+
+  runtime::WeightBindResult bound =
+      runtime::bind_qwen36_27b_weights(arena.source());
+  test.expect(bound.ok(), "hybrid all-NVFP4 targets bind");
+  if (!bound) {
+    return;
+  }
+  runtime::ModelWeights& weights = *bound.value;
+  constexpr std::uintptr_t kBaseArenaAddress = 0x0000200000000000ULL;
+  constexpr std::uintptr_t kFirstHybridArenaAddress =
+      0x0000240000000000ULL;
+  constexpr std::uintptr_t kSecondHybridArenaAddress =
+      0x0000280000000000ULL;
+  constexpr std::uintptr_t kV1ArenaAddress = 0x00002c0000000000ULL;
+  constexpr std::uintptr_t kOldV2ArenaAddress = 0x0000300000000000ULL;
+  const auto pointer = [](const std::uintptr_t address) {
+    return reinterpret_cast<const std::uint8_t*>(address);
+  };
+  const auto* const base_arena = pointer(kBaseArenaAddress);
+  const auto* const first_hybrid_arena =
+      pointer(kFirstHybridArenaAddress);
+  const auto* const second_hybrid_arena =
+      pointer(kSecondHybridArenaAddress);
+  const auto* const v1_arena = pointer(kV1ArenaAddress);
+  const auto* const old_v2_arena = pointer(kOldV2ArenaAddress);
+  const std::size_t base_bytes =
+      static_cast<std::size_t>(base_manifest.summary.arena_bytes);
+  const std::size_t hybrid_bytes = static_cast<std::size_t>(
+      runtime::kPrefillMLPK512FragmentNativePayloadBytes);
+  const std::size_t v1_bytes =
+      static_cast<std::size_t>(runtime::kPrefillMLPK512OverlayPayloadBytes);
+  test.expect(weights.attach_prefill_a4_sidecars(
+                  base_arena, base_bytes, &base_manifest, &base_policy,
+                  base_payload_sha256) &&
+                  a4_attachments_match(weights, base_manifest,
+                                       kBaseArenaAddress),
+              "hybrid path starts from authenticated K256 base");
+
+  test.expect(
+      !weights.attach_prefill_mlp_k512_paired_gateup_canonical_down_sidecars(
+          pointer(kFirstHybridArenaAddress + 1U), hybrid_bytes,
+          &hybrid_manifest, &v1_manifest, &v1_policy) &&
+          fragment_native_mlp_attachments_empty(weights),
+      "misaligned hybrid arena fails before publishing any layer");
+  test.expect(
+      !weights.attach_prefill_mlp_k512_paired_gateup_canonical_down_sidecars(
+          first_hybrid_arena, hybrid_bytes - 1U, &hybrid_manifest,
+          &v1_manifest, &v1_policy) &&
+          fragment_native_mlp_attachments_empty(weights),
+      "short hybrid arena fails before publishing any layer");
+
+  constexpr auto kHybridLayout =
+      runtime::PrefillMLPK512CompositeLayout::
+          kPairedGateUpCanonicalV1Down;
+  test.expect(
+      weights.attach_prefill_mlp_k512_paired_gateup_canonical_down_sidecars(
+          first_hybrid_arena, hybrid_bytes, &hybrid_manifest, &v1_manifest,
+          &v1_policy) &&
+          fragment_native_mlp_attachments_match(
+              weights, kFirstHybridArenaAddress, kHybridLayout) &&
+          canonical_mlp_k512_attachments_empty(weights),
+      "complete hybrid arena atomically publishes 64 discriminated views");
+
+  test.expect(
+      !weights.attach_prefill_mlp_k512_paired_gateup_canonical_down_sidecars(
+          nullptr, 0U, nullptr, nullptr, &v1_policy) &&
+          fragment_native_mlp_attachments_match(
+              weights, kFirstHybridArenaAddress, kHybridLayout),
+      "noncanonical hybrid detach preserves the prior publication");
+
+  runtime::PrefillMLPK512PairedGateUpCanonicalDownManifest bad_manifest =
+      hybrid_manifest;
+  bad_manifest.source_v1.payload_sha256.assign(64U, 'a');
+  test.expect(
+      !weights.attach_prefill_mlp_k512_paired_gateup_canonical_down_sidecars(
+          second_hybrid_arena, hybrid_bytes, &bad_manifest, &v1_manifest,
+          &v1_policy) &&
+          fragment_native_mlp_attachments_match(
+              weights, kFirstHybridArenaAddress, kHybridLayout),
+      "tampered hybrid trust binding preserves the prior publication");
+
+  runtime::NvFp4LinearWeight* const last_down =
+      mutable_nvfp4_down(weights, runtime::kQwen36DenseLayerCount - 1U);
+  test.expect(last_down != nullptr,
+              "late hybrid Down target exists for transaction test");
+  if (last_down != nullptr) {
+    const std::size_t original_input_size = last_down->input_size;
+    --last_down->input_size;
+    test.expect(
+        !weights
+             .attach_prefill_mlp_k512_paired_gateup_canonical_down_sidecars(
+                 second_hybrid_arena, hybrid_bytes, &hybrid_manifest,
+                 &v1_manifest, &v1_policy) &&
+            fragment_native_mlp_attachments_match(
+                weights, kFirstHybridArenaAddress, kHybridLayout),
+        "late hybrid Down shape failure preserves all prior layer views");
+    last_down->input_size = original_input_size;
+  }
+
+  runtime::PrefillMLPK512FragmentNativeManifest untrusted_old_v2;
+  test.expect(
+      !weights.attach_prefill_mlp_k512_fragment_native_sidecars(
+          old_v2_arena, hybrid_bytes, &untrusted_old_v2, &v1_manifest,
+          &v1_policy) &&
+          fragment_native_mlp_attachments_match(
+              weights, kFirstHybridArenaAddress, kHybridLayout),
+      "old-v2 API rejects a resident hybrid before inspecting its Down ABI");
+  test.expect(
+      !weights.attach_prefill_mlp_k512_sidecars(
+          v1_arena, v1_bytes, &v1_manifest, &v1_policy) &&
+          fragment_native_mlp_attachments_match(
+              weights, kFirstHybridArenaAddress, kHybridLayout) &&
+          canonical_mlp_k512_attachments_empty(weights),
+      "canonical v1 attach is rejected while hybrid is resident");
+
+  test.expect(
+      weights.attach_prefill_mlp_k512_paired_gateup_canonical_down_sidecars(
+          nullptr, 0U, nullptr, nullptr, nullptr) &&
+          fragment_native_mlp_attachments_empty(weights),
+      "canonical null call explicitly detaches the hybrid layout");
+  test.expect(weights.attach_prefill_mlp_k512_sidecars(
+                  v1_arena, v1_bytes, &v1_manifest, &v1_policy),
+              "canonical v1 attaches after explicit hybrid detach");
+  const auto* const first_gate = std::get_if<runtime::NvFp4LinearWeight>(
+      &weights.layer(0U).mlp.gate_proj);
+  const std::uint8_t* const first_v1_weight =
+      first_gate == nullptr ? nullptr : first_gate->prefill_mlp_k512_weight;
+  test.expect(
+      first_v1_weight != nullptr &&
+          !weights
+               .attach_prefill_mlp_k512_paired_gateup_canonical_down_sidecars(
+                   second_hybrid_arena, hybrid_bytes, &hybrid_manifest,
+                   &v1_manifest, &v1_policy) &&
+          first_gate->prefill_mlp_k512_weight == first_v1_weight &&
+          fragment_native_mlp_attachments_empty(weights),
+      "hybrid attach is rejected while v1 is resident and preserves v1");
+  test.expect(weights.attach_prefill_mlp_k512_sidecars(
+                  nullptr, 0U, nullptr, nullptr) &&
+                  canonical_mlp_k512_attachments_empty(weights),
+              "explicit v1 detach permits a later hybrid attach");
+  test.expect(
+      weights.attach_prefill_mlp_k512_paired_gateup_canonical_down_sidecars(
+          second_hybrid_arena, hybrid_bytes, &hybrid_manifest, &v1_manifest,
+          &v1_policy) &&
+          fragment_native_mlp_attachments_match(
+              weights, kSecondHybridArenaAddress, kHybridLayout),
+      "hybrid can replace itself after complete revalidation");
+  test.expect(weights.attach_prefill_a4_sidecars(nullptr, 0U, nullptr,
+                                                  nullptr) &&
+                  fragment_native_mlp_attachments_empty(weights) &&
+                  canonical_mlp_k512_attachments_empty(weights),
+              "detaching the K256 base clears every K512 publication");
+}
+
 void test_nvfp4_down_scale6_sidecar_attachment(TestContext& test) {
   static_assert(runtime::kNvFp4DownScale6Rows == 5'120U);
   static_assert(runtime::kNvFp4DownScale6Columns == 17'408U);
@@ -2357,6 +2592,7 @@ int main() {
   test_fp8_prefill_supermatrix_sidecar_attachment(test);
   test_prefill_a4_k64_k128_sidecar_attachment(test);
   test_prefill_mlp_k512_fragment_native_attachment(test);
+  test_prefill_mlp_k512_paired_gateup_canonical_down_attachment(test);
   test_nvfp4_down_scale6_sidecar_attachment(test);
   test_projection_pair_eligibility(test);
   test_fp8_qkv_z_projection_pair_eligibility(test);

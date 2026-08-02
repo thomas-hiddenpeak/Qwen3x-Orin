@@ -1831,6 +1831,8 @@ ReferenceRunnerStatus ReferenceRunner::collect_request_views(
         state->prefill_a4_intermediate_packed();
     RequestViewResult intermediate_scales =
         state->prefill_a4_intermediate_scales();
+    RequestViewResult gateup_cta_scratch =
+        state->prefill_a4_gateup_cta_scratch();
     if (!valid_view(hidden_packed,
                     workspace_tokens * kReferenceHiddenSize / 2U, 1U) ||
         !valid_view(hidden_scales,
@@ -1843,7 +1845,9 @@ ReferenceRunnerStatus ReferenceRunner::collect_request_views(
         !valid_view(intermediate_scales,
                     workspace_tokens * kReferenceIntermediateSize /
                         kRequestA4PrefillScaleGroupSize,
-                    sizeof(std::uint16_t))) {
+                    sizeof(std::uint16_t)) ||
+        !valid_view(gateup_cta_scratch,
+                    kRequestA4GateUpCtaScratchBytes, 1U)) {
       return runner_status(ReferenceRunnerError::kInvalidRequestState,
                            "prefill_a4_workspace");
     }
@@ -1855,6 +1859,10 @@ ReferenceRunnerStatus ReferenceRunner::collect_request_views(
         static_cast<std::uint8_t*>(intermediate_packed.value->device_data);
     views.prefill_a4_intermediate_scales =
         static_cast<std::uint16_t*>(intermediate_scales.value->device_data);
+    views.prefill_a4_gateup_cta_scratch = static_cast<std::uint8_t*>(
+        gateup_cta_scratch.value->device_data);
+    views.prefill_a4_gateup_cta_scratch_bytes =
+        static_cast<std::size_t>(gateup_cta_scratch.value->byte_size);
   }
 
   RequestViewResult linear_a = state->linear_a_buffer();
@@ -2898,7 +2906,8 @@ ReferenceRunnerError validate_reference_workspace_plan(
       plan.prefill_a4_hidden_packed.byte_size != 0U ||
       plan.prefill_a4_hidden_scales_bf16.byte_size != 0U ||
       plan.prefill_a4_intermediate_packed.byte_size != 0U ||
-      plan.prefill_a4_intermediate_scales_bf16.byte_size != 0U;
+      plan.prefill_a4_intermediate_scales_bf16.byte_size != 0U ||
+      plan.prefill_a4_gateup_cta_scratch.byte_size != 0U;
   const std::uint64_t a4_workspace_tokens =
       plan.long_prefill_projection_span_capacity == 0U
           ? plan.prefill_chunk_size
@@ -2920,7 +2929,9 @@ ReferenceRunnerError validate_reference_workspace_plan(
            plan.prefill_a4_intermediate_scales_bf16,
            a4_workspace_tokens *
                kReferenceIntermediateSize /
-               kRequestA4PrefillScaleGroupSize))) {
+               kRequestA4PrefillScaleGroupSize) ||
+       !byte_region_at_least(plan.prefill_a4_gateup_cta_scratch,
+                             kRequestA4GateUpCtaScratchBytes))) {
     return ReferenceRunnerError::kInvalidRequestState;
   }
   if (!bf16_region_at_least(
@@ -8120,6 +8131,9 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
         kReferenceIntermediateSize);
 #endif
     if (!fragment.attached() ||
+        fragment.physical_layout !=
+            PrefillMLPK512CompositeLayout::
+                kPairedGateUpFragmentNativeDown ||
         fragment.gateup_code_capacity_bytes !=
             kPrefillMLPK512FragmentNativeGateUpCodeBytes ||
         fragment.gateup_scale_capacity_elements !=

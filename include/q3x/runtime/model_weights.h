@@ -19,6 +19,7 @@ struct PrefillAttentionOK512OverlayPolicy;
 struct PrefillMLPK512OverlayManifest;
 struct PrefillMLPK512OverlayPolicy;
 struct PrefillMLPK512FragmentNativeManifest;
+struct PrefillMLPK512PairedGateUpCanonicalDownManifest;
 
 inline constexpr std::size_t kQwen36DenseLayerCount = 64U;
 inline constexpr std::size_t kQwen36LinearAttentionLayerCount = 48U;
@@ -427,6 +428,12 @@ struct DenseMlpWeights {
 // consumer owns both fragments in the same warp.  Down remains an independent
 // projection.  The view is published only as part of a validated all-64-layer
 // inventory; partial views have no scheduling authority.
+enum class PrefillMLPK512CompositeLayout : std::uint8_t {
+  kNone = 0,
+  kPairedGateUpFragmentNativeDown,
+  kPairedGateUpCanonicalV1Down,
+};
+
 struct PrefillMLPK512FragmentNativeCompositeView {
   const std::uint8_t* gateup_codes = nullptr;
   const std::uint16_t* gateup_scales = nullptr;
@@ -438,6 +445,8 @@ struct PrefillMLPK512FragmentNativeCompositeView {
   std::size_t down_scale_capacity_elements = 0U;
   float gateup_activation_clip_ratio = 0.0F;
   float down_activation_clip_ratio = 0.0F;
+  PrefillMLPK512CompositeLayout physical_layout =
+      PrefillMLPK512CompositeLayout::kNone;
 
   [[nodiscard]] bool attached() const noexcept {
     return gateup_codes != nullptr && gateup_scales != nullptr &&
@@ -449,7 +458,8 @@ struct PrefillMLPK512FragmentNativeCompositeView {
            gateup_activation_clip_ratio > 0.0F &&
            gateup_activation_clip_ratio <= 1.0F &&
            down_activation_clip_ratio > 0.0F &&
-           down_activation_clip_ratio <= 1.0F;
+           down_activation_clip_ratio <= 1.0F &&
+           physical_layout != PrefillMLPK512CompositeLayout::kNone;
   }
 
   [[nodiscard]] bool empty() const noexcept {
@@ -460,7 +470,8 @@ struct PrefillMLPK512FragmentNativeCompositeView {
            down_code_capacity_bytes == 0U &&
            down_scale_capacity_elements == 0U &&
            gateup_activation_clip_ratio == 0.0F &&
-           down_activation_clip_ratio == 0.0F;
+           down_activation_clip_ratio == 0.0F &&
+           physical_layout == PrefillMLPK512CompositeLayout::kNone;
   }
 };
 
@@ -677,6 +688,19 @@ class ModelWeights {
   [[nodiscard]] bool attach_prefill_mlp_k512_fragment_native_sidecars(
       const std::uint8_t* arena, std::size_t arena_bytes,
       const PrefillMLPK512FragmentNativeManifest* manifest,
+      const PrefillMLPK512OverlayManifest* source_v1_manifest,
+      const PrefillMLPK512OverlayPolicy* source_v1_policy) noexcept;
+
+  // Transactionally publishes the hybrid paired-GateUp/canonical-v1-Down
+  // arena.  The explicit physical-layout discriminator is part of every
+  // layer view, so the old v2 fragment-native Down bytes cannot be passed to
+  // a canonical consumer.  v1, v2, and hybrid attachments are mutually
+  // exclusive; the canonical all-null/zero call detaches only this composite
+  // attachment (whether v2 or hybrid).
+  [[nodiscard]] bool
+  attach_prefill_mlp_k512_paired_gateup_canonical_down_sidecars(
+      const std::uint8_t* arena, std::size_t arena_bytes,
+      const PrefillMLPK512PairedGateUpCanonicalDownManifest* manifest,
       const PrefillMLPK512OverlayManifest* source_v1_manifest,
       const PrefillMLPK512OverlayPolicy* source_v1_policy) noexcept;
 

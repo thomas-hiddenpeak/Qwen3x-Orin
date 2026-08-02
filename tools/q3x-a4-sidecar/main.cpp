@@ -40,6 +40,11 @@ void print_usage(std::ostream& output) {
       << "  qwen3x-a4-sidecar mlp-k512-fragment-native-convert"
          " SOURCE_PAYLOAD SOURCE_RECEIPT SOURCE_POLICY"
          " EXPECTED_RECEIPT_SHA OUTPUT [ROWS]\n"
+      << "  qwen3x-a4-sidecar mlp-k512-paired-gateup-canonical-down-compose"
+         " SOURCE_V1_PAYLOAD SOURCE_V1_RECEIPT SOURCE_V1_POLICY"
+         " EXPECTED_V1_RECEIPT_SHA"
+         " [SOURCE_V2_PAYLOAD SOURCE_V2_RECEIPT EXPECTED_V2_RECEIPT_SHA]"
+         " OUTPUT [ROWS]\n"
       << "  qwen3x-a4-sidecar help\n\n"
       << "The convert command accepts only the pinned Qwen3.6-27B-NVFP4 "
          "checkpoint and a versioned production_calibrated policy covering "
@@ -70,7 +75,12 @@ void print_usage(std::ostream& output) {
       << "The fragment-native command performs a lossless offline v1-to-v2 "
          "permutation. EXPECTED_RECEIPT_SHA is mandatory and must be the "
          "explicit lowercase SHA-256 of SOURCE_RECEIPT; the command never "
-         "trusts a discovered receipt implicitly. ROWS may be 512 or 1024.\n";
+         "trusts a discovered receipt implicitly. ROWS may be 512 or 1024.\n\n"
+      << "The paired-GateUp/canonical-Down command publishes one same-size "
+         "hybrid arena bound only to the explicit K256-base v1 trust root. "
+         "The optional authenticated v2 triple accelerates GateUp copying; "
+         "it must derive from the exact v1 payload and never changes the "
+         "resulting manifest identity. Existing targets are never replaced.\n";
 }
 
 [[nodiscard]] bool parse_ratio(const char* text, double& output) {
@@ -294,6 +304,83 @@ int run_mlp_k512_fragment_native_convert(const int argc, char** argv) {
             << "\noutput_bytes_written=" << result.stats.output_bytes_written
             << "\npeak_working_bytes=" << result.stats.peak_working_bytes
             << "\nlayers_permuted=" << result.stats.layers_permuted << '\n';
+  return 0;
+}
+
+int run_mlp_k512_paired_gateup_canonical_down_compose(
+    const int argc, char** argv) {
+  const bool with_v2 = argc == 10 || argc == 11;
+  if ((!with_v2 && argc != 7 && argc != 8) ||
+      (with_v2 && argc != 10 && argc != 11)) {
+    print_usage(std::cerr);
+    return 2;
+  }
+  runtime::PrefillMLPK512PairedGateUpCanonicalDownCompositionOptions options;
+  options.source_v1_payload_path = argv[2];
+  options.source_v1_receipt_path = argv[3];
+  options.source_v1_policy_path = argv[4];
+  if (!parse_lower_sha256(argv[5],
+                          options.expected_source_v1_receipt_sha256)) {
+    std::cerr << "EXPECTED_V1_RECEIPT_SHA must be one explicit lowercase "
+                 "SHA-256\n";
+    return 2;
+  }
+  int output_index = 6;
+  if (with_v2) {
+    options.source_v2_payload_path = argv[6];
+    options.source_v2_receipt_path = argv[7];
+    if (!parse_lower_sha256(argv[8],
+                            options.expected_source_v2_receipt_sha256)) {
+      std::cerr << "EXPECTED_V2_RECEIPT_SHA must be one explicit lowercase "
+                   "SHA-256\n";
+      return 2;
+    }
+    output_index = 9;
+  }
+  options.output_path = argv[output_index];
+  if (argc == output_index + 2 &&
+      (!parse_size(argv[output_index + 1], options.outer_chunk_rows) ||
+       (options.outer_chunk_rows != 512U &&
+        options.outer_chunk_rows != 1'024U))) {
+    std::cerr << "ROWS must be 512 or 1024\n";
+    return 2;
+  }
+  const auto result =
+      runtime::compose_authenticated_prefill_mlp_k512_paired_gateup_canonical_down(
+          options);
+  if (!result) {
+    print_diagnostic(result.diagnostic);
+    return 1;
+  }
+  const auto& receipt = *result.receipt;
+  std::cout << "status=published"
+            << "\noverlay=mlp_k512_paired_gateup_canonical_down"
+            << "\nproduction_residency_eligible="
+            << (receipt.production_residency_eligible ? "true" : "false")
+            << "\nphysical_layout=" << receipt.physical_layout
+            << "\nsource_checkpoint_id=" << receipt.source_checkpoint_id
+            << "\nsource_v1_receipt_sha256="
+            << receipt.source_v1.receipt_sha256
+            << "\nsource_v1_manifest_sha256="
+            << receipt.source_v1.manifest_sha256
+            << "\nsource_v1_policy_sha256="
+            << receipt.source_v1.policy_sha256
+            << "\nsource_v1_payload_sha256="
+            << receipt.source_v1.payload_sha256
+            << "\nmanifest_sha256=" << receipt.manifest_sha256
+            << "\npayload_sha256=" << receipt.payload_sha256
+            << "\npayload_bytes=" << receipt.payload_bytes
+            << "\nlayers=" << receipt.layer_count
+            << "\nused_authenticated_v2_gateup="
+            << (result.stats.used_authenticated_v2_gateup ? "true" : "false")
+            << "\nsource_v1_bytes_read="
+            << result.stats.source_v1_bytes_read
+            << "\nsource_v2_bytes_read="
+            << result.stats.source_v2_bytes_read
+            << "\noutput_bytes_written="
+            << result.stats.output_bytes_written
+            << "\npeak_working_bytes=" << result.stats.peak_working_bytes
+            << "\nlayers_composed=" << result.stats.layers_composed << '\n';
   return 0;
 }
 
@@ -609,6 +696,11 @@ int main(const int argc, char** argv) {
       std::string_view(argv[1]) ==
           "mlp-k512-fragment-native-convert") {
     return run_mlp_k512_fragment_native_convert(argc, argv);
+  }
+  if (argc >= 2 &&
+      std::string_view(argv[1]) ==
+          "mlp-k512-paired-gateup-canonical-down-compose") {
+    return run_mlp_k512_paired_gateup_canonical_down_compose(argc, argv);
   }
   print_usage(std::cerr);
   return 2;

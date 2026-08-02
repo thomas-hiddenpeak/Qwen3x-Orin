@@ -888,6 +888,9 @@ void test_schedule_and_workspace(TestContext& test) {
         &runtime::RequestMemoryPlan::prefill_a4_intermediate_scales_bf16,
         "S4096 A4 intermediate scales span one byte below capacity is "
         "rejected");
+    expect_one_byte_short(
+        &runtime::RequestMemoryPlan::prefill_a4_gateup_cta_scratch,
+        "paired-Gate CTA scratch one byte below capacity is rejected");
   }
 
   plan.prefill_chunk_size = runtime::kMaximumRequestPrefillChunkSize;
