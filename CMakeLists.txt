@@ -86,6 +86,10 @@ option(Q3X_BUILD_SM87_A4W4_ATTENTION_K256_M128N256_ADMISSION
   "Build the default-off K256 M128N256 Attention projection cell"
   OFF
 )
+option(Q3X_BUILD_SM87_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_EXPERIMENT
+  "Build the default-off 256-thread Attention K256 register-A/B4-ring resource experiment"
+  OFF
+)
 option(Q3X_BUILD_SM87_A4W4_ATTENTION_O_K512_ADMISSION
   "Build the default-off authenticated K512 Attention-O Prefill route"
   OFF
@@ -124,6 +128,10 @@ option(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M128N512_PAIRED_LDMATRIX_ADMISS
 )
 option(Q3X_BUILD_SM87_A4W4_DOWN_K512_M128N128_LDMATRIX_PAIRRING_ADMISSION
   "Build the default-off M128N128 LDSM whole-K512 pair-ring Down admission"
+  OFF
+)
+option(Q3X_BUILD_SM87_A4W4_DOWN_K512_M128N128_16WARP_PAIRRING_EXPERIMENT
+  "Build the default-off 512-thread M128N128 whole-K512 pair-ring Down experiment"
   OFF
 )
 option(Q3X_BUILD_SM87_A4W4_DOWN_K512_M16N64_V2_EXPERIMENT
@@ -308,6 +316,15 @@ if(Q3X_BUILD_SM87_A4W4_ATTENTION_K256_M128N256_ADMISSION AND
     "The K256 Attention projection cell requires the complete K512 MLP overlay route because the K256 base has no generic MLP consumer"
   )
 endif()
+if(Q3X_BUILD_SM87_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_EXPERIMENT AND
+   (NOT BUILD_TESTING OR
+    NOT Q3X_BUILD_SM87_A4W4_ATTENTION_K256_M128N256_ADMISSION OR
+    NOT Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION OR
+    NOT Q3X_BUILD_SM87_A4W4_MLP_K512_ADMISSION))
+  message(FATAL_ERROR
+    "The Attention A-exchange/B4 experiment requires BUILD_TESTING plus the authenticated K256 Attention, full-A4, and K512 MLP routes"
+  )
+endif()
 if(Q3X_BUILD_SM87_A4W4_ATTENTION_O_K512_ADMISSION AND
    NOT BUILD_TESTING)
   message(FATAL_ERROR
@@ -385,6 +402,14 @@ if(Q3X_BUILD_SM87_A4W4_DOWN_K512_M128N128_LDMATRIX_PAIRRING_ADMISSION AND
    (NOT BUILD_TESTING OR NOT Q3X_BUILD_SM87_A4W4_MLP_K512_ADMISSION))
   message(FATAL_ERROR
     "The M128N128 LDSM pair-ring Down admission requires BUILD_TESTING=ON and the authenticated MLP K512 route"
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_DOWN_K512_M128N128_16WARP_PAIRRING_EXPERIMENT AND
+   (NOT BUILD_TESTING OR NOT Q3X_BUILD_SM87_A4W4_MLP_K512_ADMISSION OR
+    NOT Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION OR
+    NOT Q3X_BUILD_SM87_A4W4_DOWN_K512_M128N128_LDMATRIX_PAIRRING_ADMISSION))
+  message(FATAL_ERROR
+    "The 16-warp M128N128 pair-ring Down experiment requires BUILD_TESTING=ON, the authenticated full-A4 K512 MLP route, and the incumbent pair-ring oracle"
   )
 endif()
 if(Q3X_BUILD_SM87_A4W4_DOWN_K512_M16N64_V2_EXPERIMENT AND
@@ -689,6 +714,18 @@ if(Q3X_BUILD_SM87_A4W4_ATTENTION_K256_M128N256_ADMISSION)
     PROPERTIES COMPILE_OPTIONS "--maxrregcount=128;-Xptxas=-warn-spills"
   )
 endif()
+if(Q3X_BUILD_SM87_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_EXPERIMENT)
+  target_sources(q3x_kernels PRIVATE
+    src/kernels/sm87/a4w4_attention_k256_m128n256_a_exchange_b4.cu
+  )
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_EXPERIMENT=1
+  )
+  set_source_files_properties(
+    src/kernels/sm87/a4w4_attention_k256_m128n256_a_exchange_b4.cu
+    PROPERTIES COMPILE_OPTIONS "--maxrregcount=255;-Xptxas=-warn-spills"
+  )
+endif()
 if(Q3X_BUILD_SM87_A4W4_ATTENTION_O_K512_ADMISSION)
   target_sources(q3x_kernels PRIVATE
     src/kernels/sm87/a4w4_attention_o_k512_cell.cu
@@ -798,6 +835,18 @@ if(Q3X_BUILD_SM87_A4W4_DOWN_K512_M128N128_LDMATRIX_PAIRRING_ADMISSION)
   set_source_files_properties(
     src/kernels/sm87/a4w4_down_k512_m128n128_ldmatrix_pairring.cu
     PROPERTIES COMPILE_OPTIONS "-Xptxas=-v;-Xptxas=-warn-spills"
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_DOWN_K512_M128N128_16WARP_PAIRRING_EXPERIMENT)
+  target_sources(q3x_kernels PRIVATE
+    src/kernels/sm87/a4w4_down_k512_m128n128_16warp_pairring.cu
+  )
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_A4W4_DOWN_K512_M128N128_16WARP_PAIRRING_ADMISSION=1
+  )
+  set_source_files_properties(
+    src/kernels/sm87/a4w4_down_k512_m128n128_16warp_pairring.cu
+    PROPERTIES COMPILE_OPTIONS "--maxrregcount=128;-Xptxas=-v;-Xptxas=-warn-spills"
   )
 endif()
 if(Q3X_BUILD_SM87_A4W4_DOWN_K512_M16N64_V2_EXPERIMENT)
@@ -978,6 +1027,11 @@ endif()
 if(Q3X_BUILD_SM87_A4W4_DOWN_K512_M128N128_LDMATRIX_PAIRRING_ADMISSION)
   target_compile_definitions(q3x_engine PRIVATE
     Q3X_ENABLE_A4W4_DOWN_K512_M128N128_LDMATRIX_PAIRRING_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_DOWN_K512_M128N128_16WARP_PAIRRING_EXPERIMENT)
+  target_compile_definitions(q3x_engine PRIVATE
+    Q3X_ENABLE_A4W4_DOWN_K512_M128N128_16WARP_PAIRRING_ADMISSION=1
   )
 endif()
 if(Q3X_BUILD_SM87_A4W4_DOWN_K512_M16N64_V2_EXPERIMENT)
@@ -1897,6 +1951,33 @@ if(BUILD_TESTING)
       RESOURCE_LOCK q3x_sm87_gpu
       TIMEOUT 240
     )
+
+    if(Q3X_BUILD_SM87_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_EXPERIMENT)
+      add_executable(
+        q3x_sm87_a4w4_attention_k256_m128n256_a_exchange_b4_correctness_test
+        tests/sm87_a4w4_attention_k256_m128n256_a_exchange_b4_correctness_test.cu
+      )
+      target_link_libraries(
+        q3x_sm87_a4w4_attention_k256_m128n256_a_exchange_b4_correctness_test
+        PRIVATE q3x::kernels CUDA::cudart
+      )
+      q3x_enable_warnings(
+        q3x_sm87_a4w4_attention_k256_m128n256_a_exchange_b4_correctness_test
+      )
+      add_test(
+        NAME sm87_a4w4_attention_k256_m128n256_a_exchange_b4_correctness
+        COMMAND "${Q3X_FLOCK_EXECUTABLE}" -x /tmp/q3x-gpu-bench.lock
+                $<TARGET_FILE:q3x_sm87_a4w4_attention_k256_m128n256_a_exchange_b4_correctness_test>
+      )
+      set_tests_properties(
+        sm87_a4w4_attention_k256_m128n256_a_exchange_b4_correctness
+        PROPERTIES
+          LABELS "cuda;sm87;prefill;attention;k256;m128n256;structural;correctness;graph"
+          SKIP_RETURN_CODE 77
+          RESOURCE_LOCK q3x_sm87_gpu
+          TIMEOUT 600
+      )
+    endif()
   endif()
 
   if(Q3X_BUILD_SM87_A4W4_ATTENTION_O_K512_ADMISSION)
@@ -2257,6 +2338,21 @@ if(BUILD_TESTING)
         sm87_a4w4_down_k512_m128n128_ldmatrix_pairring_binary_contract
         PROPERTIES
         LABELS "host;sm87;prefill;mlp;a4w4;k512;down;m128n128;ldmatrix;pairring;binary_contract;resources"
+      )
+    endif()
+
+    if(Q3X_BUILD_SM87_A4W4_DOWN_K512_M128N128_16WARP_PAIRRING_EXPERIMENT AND
+       Q3X_BUILD_SM87_A4W4_DOWN_K512_M128N128_LDMATRIX_PAIRRING_ADMISSION)
+      add_executable(
+        q3x_sm87_a4w4_down_k512_m128n128_16warp_pairring_correctness_test
+        tests/sm87_a4w4_down_k512_m128n128_16warp_pairring_correctness_test.cu
+      )
+      target_link_libraries(
+        q3x_sm87_a4w4_down_k512_m128n128_16warp_pairring_correctness_test
+        PRIVATE q3x::kernels CUDA::cudart
+      )
+      q3x_enable_warnings(
+        q3x_sm87_a4w4_down_k512_m128n128_16warp_pairring_correctness_test
       )
     endif()
 
@@ -2714,6 +2810,22 @@ if(BUILD_TESTING)
         SKIP_RETURN_CODE 77
         RESOURCE_LOCK q3x_sm87_gpu
         TIMEOUT 300
+      )
+    endif()
+    if(Q3X_BUILD_SM87_A4W4_DOWN_K512_M128N128_16WARP_PAIRRING_EXPERIMENT AND
+       Q3X_BUILD_SM87_A4W4_DOWN_K512_M128N128_LDMATRIX_PAIRRING_ADMISSION)
+      add_test(
+        NAME sm87_a4w4_down_k512_m128n128_16warp_pairring_correctness
+        COMMAND "${Q3X_FLOCK_EXECUTABLE}" -x /tmp/q3x-gpu-bench.lock
+                $<TARGET_FILE:q3x_sm87_a4w4_down_k512_m128n128_16warp_pairring_correctness_test>
+      )
+      set_tests_properties(
+        sm87_a4w4_down_k512_m128n128_16warp_pairring_correctness
+        PROPERTIES
+        LABELS "cuda;sm87;prefill;mlp;a4w4;k512;down;m128n128;16warp;pairring;correctness;resources;graph;synthetic"
+        SKIP_RETURN_CODE 77
+        RESOURCE_LOCK q3x_sm87_gpu
+        TIMEOUT 600
       )
     endif()
     if(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M128N64_EXPERIMENT)
