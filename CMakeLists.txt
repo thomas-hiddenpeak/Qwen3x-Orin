@@ -106,6 +106,10 @@ option(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_STAGED_EXPERIMENT
   "Build the default-off M64N128 split-projection K256 staged resource experiment"
   OFF
 )
+option(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_ALTERNATING_EXPERIMENT
+  "Build the default-off retained-paired M64N128 alternating-K256 resource experiment"
+  OFF
+)
 option(Q3X_BUILD_SM87_A4W4_DOWN_K512_M16N64_V2_EXPERIMENT
   "Build the default-off 512-thread M16N64 Down K512 candidate"
   OFF
@@ -331,6 +335,13 @@ if(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_STAGED_EXPERIMENT AND
     NOT Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION))
   message(FATAL_ERROR
     "The M64N128 split-projection K256 staged experiment requires BUILD_TESTING=ON and the authenticated full-A4 K512 MLP route"
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_ALTERNATING_EXPERIMENT AND
+   (NOT BUILD_TESTING OR NOT Q3X_BUILD_SM87_A4W4_MLP_K512_ADMISSION OR
+    NOT Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION))
+  message(FATAL_ERROR
+    "The retained-paired M64N128 alternating-K256 experiment requires BUILD_TESTING=ON and the authenticated full-A4 K512 MLP route"
   )
 endif()
 if(Q3X_BUILD_SM87_A4W4_DOWN_K512_M16N64_V2_EXPERIMENT AND
@@ -695,6 +706,18 @@ if(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_STAGED_EXPERIMENT)
   )
   set_source_files_properties(
     src/kernels/sm87/a4w4_gateup_down_k512_edge_m64n128_k256_staged.cu
+    PROPERTIES COMPILE_OPTIONS "--maxrregcount=128;-Xptxas=-warn-spills"
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_ALTERNATING_EXPERIMENT)
+  target_sources(q3x_kernels PRIVATE
+    src/kernels/sm87/a4w4_gateup_down_k512_edge_m64n128_k256_alternating.cu
+  )
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_ALTERNATING_ADMISSION=1
+  )
+  set_source_files_properties(
+    src/kernels/sm87/a4w4_gateup_down_k512_edge_m64n128_k256_alternating.cu
     PROPERTIES COMPILE_OPTIONS "--maxrregcount=128;-Xptxas=-warn-spills"
   )
 endif()
