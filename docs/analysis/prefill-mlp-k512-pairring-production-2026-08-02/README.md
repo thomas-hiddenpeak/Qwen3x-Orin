@@ -101,6 +101,36 @@ Bit-exact tests cover K512, K1024, and the real K17408 Down shape, including
 natural padded-M scheduling.  The production selector launches this kernel
 directly and has no internal fallback.
 
+## Promoted-route NSys budget
+
+A request-scoped NSys capture then profiled the promoted v1 composition on the
+same natural P1853 OpenAI request.  The request reported 2,108.37 ms server
+Prefill while profiled.  Profiler-perturbed EvalScope throughput is not a
+performance verdict.
+
+| Kernel family | Calls | Total time | Request share |
+|---|---:|---:|---:|
+| Alternating Gate/Up + K512 publication | 64 | 748.269 ms | 35.8% |
+| Pair-ring Down | 64 | 399.490 ms | 19.1% |
+| Linear-attention QKV+Z projections | 48 | 249.412 ms | 11.9% |
+| Attention-O projections | 64 | 124.358 ms | 5.9% |
+| Full-attention Q/K/V projections | 16 | 73.410 ms | 3.5% |
+| All GPU kernels | - | 2,090.784 ms | 100% |
+
+The pair-ring kernel is 113.721 ms (-22.16%) below the retained canonical Down
+profile of 513.211 ms.  This closes the earlier request-level inference with a
+direct kernel measurement.  Gate/Up plus Down still consume 1,147.759 ms, or
+54.9% of all captured GPU time; the three Attention projection families add
+447.179 ms.  The next qualitative steps therefore remain Gate/Up dataflow and
+then the grouped Attention projection plane, not the already-small 32.593 ms
+FlashInfer attention core.
+
+```text
+NSys report SHA256  5a0a55544ac93c8b332400374c7c9f02434ba9af69d6dc573337c24a9343abe5
+SQLite SHA256       91c49499e4e6fb3b80807421e6bc5fe6d4451052da88428d1f20052bf2296eab
+kernel CSV SHA256   fd387475d832afc4349b788f82f62ac51c6fff7cc29756d0e94ac00fa50da596
+```
+
 ## Rejected paired Gate skeleton
 
 The paired M128N512 Gate candidate is not promoted even though its publication
