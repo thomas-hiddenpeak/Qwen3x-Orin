@@ -71,6 +71,30 @@ inline constexpr std::size_t
     kSm87A4W4GateUpK512FragmentNativePairSlotBytes = 16U;
 inline constexpr std::size_t
     kSm87A4W4GateUpK512FragmentNativeLanes = 32U;
+// Projection-major v3 is a second, equal-byte code ABI.  Unlike the v2
+// AoS16 slot above, one complete (N8,K64) record stores every Gate lane
+// before every Up lane:
+//
+//   [Gate lane 0..31, 8 bytes each][Up lane 0..31, 8 bytes each]
+//
+// Record order is N64 block / N8 fragment, K512 group, then K64 phase.
+// These constants and helpers are intentionally independent from the v2
+// helpers so the deployed AoS16 interpretation cannot change by accident.
+inline constexpr std::size_t
+    kSm87A4W4GateUpK512ProjectionMajorLaneBytes = 8U;
+inline constexpr std::size_t
+    kSm87A4W4GateUpK512ProjectionMajorProjectionBytes = 256U;
+inline constexpr std::size_t
+    kSm87A4W4GateUpK512ProjectionMajorRecordBytes = 512U;
+inline constexpr std::size_t
+    kSm87A4W4GateUpK512ProjectionMajorGate = 0U;
+inline constexpr std::size_t
+    kSm87A4W4GateUpK512ProjectionMajorUp = 1U;
+static_assert(kSm87A4W4GateUpK512FragmentNativeLanes *
+                      kSm87A4W4GateUpK512ProjectionMajorLaneBytes ==
+                  kSm87A4W4GateUpK512ProjectionMajorProjectionBytes &&
+              2U * kSm87A4W4GateUpK512ProjectionMajorProjectionBytes ==
+                  kSm87A4W4GateUpK512ProjectionMajorRecordBytes);
 inline constexpr std::size_t
     kSm87A4W4GateUpK512FragmentNativeMaximumRegisters = 128U;
 inline constexpr std::size_t
@@ -145,6 +169,65 @@ sm87_a4w4_gateup_k512_fragment_native_code_slot_offset(
                 kSm87A4W4GateUpK512FragmentNativeLanes +
             lane) *
            kSm87A4W4GateUpK512FragmentNativePairSlotBytes);
+}
+
+// Projection-major v3 remains an equal-byte permutation of the two
+// canonical N x K/2 payloads.  It deliberately has its own capacity helper
+// even though the answer equals v2.
+[[nodiscard]] constexpr std::size_t
+sm87_a4w4_gateup_k512_projection_major_code_capacity_bytes(
+    const std::size_t outer_count, const std::size_t logical_k) noexcept {
+  if (outer_count == 0U ||
+      outer_count % kSm87A4W4GateUpK512FragmentNativeTileN != 0U ||
+      sm87_a4w4_gateup_k512_fragment_native_scale_groups(logical_k) == 0U ||
+      !sm87_a4w4_gateup_k512_fragment_native_product_fits(
+          outer_count, logical_k)) {
+    return 0U;
+  }
+  return outer_count * logical_k;
+}
+
+// Returns the first byte of a projection-major (N8,K64) record.
+[[nodiscard]] Q3X_SM87_A4W4_GATEUP_K512_FRAGMENT_NATIVE_HOST_DEVICE
+constexpr std::size_t
+sm87_a4w4_gateup_k512_projection_major_code_record_offset(
+    const std::size_t outer_coordinate,
+    const std::size_t k512_group,
+    const std::size_t k64_phase,
+    const std::size_t k512_group_count) noexcept {
+  const std::size_t outer_block =
+      outer_coordinate /
+      kSm87A4W4GateUpK512FragmentNativeTileN;
+  const std::size_t n8_fragment =
+      (outer_coordinate %
+       kSm87A4W4GateUpK512FragmentNativeTileN) /
+      kSm87A4W4GateUpK512FragmentNativeWarpN;
+  return ((((outer_block * kSm87A4W4GateUpK512FragmentNativeWarps +
+             n8_fragment) *
+                k512_group_count +
+            k512_group) *
+               kSm87A4W4GateUpK512FragmentNativeK64PerScale +
+           k64_phase) *
+          kSm87A4W4GateUpK512ProjectionMajorRecordBytes);
+}
+
+// Returns the first byte of one lane's two-u32 fragment.  projection is
+// kSm87A4W4GateUpK512ProjectionMajorGate or ...Up.
+[[nodiscard]] Q3X_SM87_A4W4_GATEUP_K512_FRAGMENT_NATIVE_HOST_DEVICE
+constexpr std::size_t
+sm87_a4w4_gateup_k512_projection_major_code_lane_offset(
+    const std::size_t outer_coordinate,
+    const std::size_t k512_group,
+    const std::size_t k64_phase,
+    const std::size_t projection,
+    const std::size_t lane,
+    const std::size_t k512_group_count) noexcept {
+  return sm87_a4w4_gateup_k512_projection_major_code_record_offset(
+             outer_coordinate, k512_group, k64_phase,
+             k512_group_count) +
+         projection *
+             kSm87A4W4GateUpK512ProjectionMajorProjectionBytes +
+         lane * kSm87A4W4GateUpK512ProjectionMajorLaneBytes;
 }
 
 [[nodiscard]] constexpr std::size_t

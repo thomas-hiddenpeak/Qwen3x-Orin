@@ -58,9 +58,26 @@ inline constexpr std::string_view
 inline constexpr std::string_view
     kPrefillMLPK512PairedGateUpComponentLayout =
         "sm87_s4_gateup_n64_paired_fragment_register_v1";
+// Gate+Up v3 component identity.  Each N8/K64 record contains 256 contiguous
+// Gate bytes followed by 256 contiguous Up bytes; scales retain the
+// established paired v2 layout.
+inline constexpr std::string_view
+    kPrefillMLPK512GateUpProjectionMajorComponentLayout =
+        "sm87_s4_gateup_n64_projection_major_fragment_register_v3";
 inline constexpr std::string_view
     kPrefillMLPK512CanonicalDownComponentLayout =
         kPrefillMLPK512OverlayLayout;
+
+// Independent publication identity for projection-major Gate+Up with the
+// canonical-v1 Down record.  These version and layout discriminators are not
+// accepted by the older paired-GateUp hybrid receipt parser.
+inline constexpr std::uint32_t
+    kPrefillMLPK512ProjectionMajorGateUpCanonicalDownVersionMajor = 2U;
+inline constexpr std::uint32_t
+    kPrefillMLPK512ProjectionMajorGateUpCanonicalDownVersionMinor = 0U;
+inline constexpr std::string_view
+    kPrefillMLPK512ProjectionMajorGateUpCanonicalDownLayout =
+        "sm87_s4_gateup_n64_projection_major_down_n64_canonical_scale_k512_mlp_hybrid_v2";
 
 static_assert(kPrefillMLPK512FragmentNativeGateUpCodeBytes ==
               2U * kPrefillMLPK512OverlayProjectionWeightBytes);
@@ -176,6 +193,32 @@ permute_prefill_mlp_k512_gateup_fragment_native(
 [[nodiscard]] PrefillMLPK512OverlayDiagnostic
 unpermute_prefill_mlp_k512_gateup_fragment_native(
     const std::uint8_t* paired_codes, std::size_t paired_code_bytes,
+    const std::uint8_t* paired_scales, std::size_t paired_scale_bytes,
+    std::size_t output_size, std::size_t input_size,
+    std::uint8_t* gate_codes, std::size_t gate_code_bytes,
+    std::uint8_t* gate_scales, std::size_t gate_scale_bytes,
+    std::uint8_t* up_codes, std::size_t up_code_bytes,
+    std::uint8_t* up_scales, std::size_t up_scale_bytes);
+
+// Projection-major Gate+Up v3 transforms.  Canonical source bytes and the
+// paired scale ABI are identical to the v2 transforms above; only code-byte
+// placement changes from per-lane AoS16 to a 256-byte Gate plane followed by
+// a 256-byte Up plane in every N8/K64 record.
+[[nodiscard]] PrefillMLPK512OverlayDiagnostic
+permute_prefill_mlp_k512_gateup_projection_major_fragment_native(
+    const std::uint8_t* gate_codes, std::size_t gate_code_bytes,
+    const std::uint8_t* gate_scales, std::size_t gate_scale_bytes,
+    const std::uint8_t* up_codes, std::size_t up_code_bytes,
+    const std::uint8_t* up_scales, std::size_t up_scale_bytes,
+    std::size_t output_size, std::size_t input_size,
+    std::uint8_t* projection_major_codes,
+    std::size_t projection_major_code_bytes,
+    std::uint8_t* paired_scales, std::size_t paired_scale_bytes);
+
+[[nodiscard]] PrefillMLPK512OverlayDiagnostic
+unpermute_prefill_mlp_k512_gateup_projection_major_fragment_native(
+    const std::uint8_t* projection_major_codes,
+    std::size_t projection_major_code_bytes,
     const std::uint8_t* paired_scales, std::size_t paired_scale_bytes,
     std::size_t output_size, std::size_t input_size,
     std::uint8_t* gate_codes, std::size_t gate_code_bytes,
@@ -373,5 +416,108 @@ struct PrefillMLPK512PairedGateUpCanonicalDownCompositionResult final {
 [[nodiscard]] PrefillMLPK512PairedGateUpCanonicalDownCompositionResult
 compose_authenticated_prefill_mlp_k512_paired_gateup_canonical_down(
     const PrefillMLPK512PairedGateUpCanonicalDownCompositionOptions& options);
+
+// Standalone projection-major GateUp + canonical-v1 Down publication.  It
+// intentionally has separate types and receipt schema from the deployed
+// paired-GateUp hybrid, even though both use the same equal-byte layer view.
+struct PrefillMLPK512ProjectionMajorGateUpCanonicalDownManifest final {
+  std::uint32_t version_major =
+      kPrefillMLPK512ProjectionMajorGateUpCanonicalDownVersionMajor;
+  std::uint32_t version_minor =
+      kPrefillMLPK512ProjectionMajorGateUpCanonicalDownVersionMinor;
+  std::string physical_layout;
+  std::string source_checkpoint_id;
+  std::string source_config_sha256;
+  std::string source_index_sha256;
+  PrefillMLPK512BaseBinding required_base;
+  PrefillMLPK512FragmentNativeSourceBinding source_v1;
+  std::uint64_t payload_bytes = 0U;
+  std::uint64_t layer_count = 0U;
+  std::string manifest_sha256;
+};
+
+struct PrefillMLPK512ProjectionMajorGateUpCanonicalDownManifestResult final {
+  std::optional<PrefillMLPK512ProjectionMajorGateUpCanonicalDownManifest>
+      value;
+  PrefillMLPK512OverlayDiagnostic diagnostic;
+  [[nodiscard]] explicit operator bool() const noexcept {
+    return value.has_value() && diagnostic.ok();
+  }
+};
+
+[[nodiscard]]
+PrefillMLPK512ProjectionMajorGateUpCanonicalDownManifestResult
+build_prefill_mlp_k512_projection_major_gateup_canonical_down_manifest(
+    const PrefillMLPK512OverlayReceipt& source_v1_receipt,
+    std::string_view source_v1_receipt_sha256);
+
+[[nodiscard]] PrefillMLPK512OverlayDiagnostic
+validate_prefill_mlp_k512_projection_major_gateup_canonical_down_manifest(
+    const PrefillMLPK512ProjectionMajorGateUpCanonicalDownManifest& manifest);
+
+struct PrefillMLPK512ProjectionMajorGateUpCanonicalDownReceipt final {
+  std::uint32_t version_major =
+      kPrefillMLPK512ProjectionMajorGateUpCanonicalDownVersionMajor;
+  std::uint32_t version_minor =
+      kPrefillMLPK512ProjectionMajorGateUpCanonicalDownVersionMinor;
+  bool production_residency_eligible = false;
+  std::string physical_layout;
+  std::string source_checkpoint_id;
+  std::string source_config_sha256;
+  std::string source_index_sha256;
+  PrefillMLPK512BaseBinding required_base;
+  PrefillMLPK512FragmentNativeSourceBinding source_v1;
+  std::string manifest_sha256;
+  std::string payload_sha256;
+  std::uint64_t payload_bytes = 0U;
+  std::uint64_t layer_count = 0U;
+  std::string receipt_sha256;
+};
+
+[[nodiscard]] std::optional<
+    PrefillMLPK512ProjectionMajorGateUpCanonicalDownReceipt>
+parse_prefill_mlp_k512_projection_major_gateup_canonical_down_receipt(
+    std::string_view json, PrefillMLPK512OverlayDiagnostic& diagnostic);
+
+[[nodiscard]] PrefillMLPK512OverlayDiagnostic
+write_prefill_mlp_k512_projection_major_gateup_canonical_down_receipt_no_replace(
+    const PrefillMLPK512ProjectionMajorGateUpCanonicalDownReceipt& receipt,
+    const std::filesystem::path& output_path);
+
+struct PrefillMLPK512ProjectionMajorGateUpCanonicalDownCompositionOptions
+    final {
+  std::filesystem::path source_v1_payload_path;
+  std::filesystem::path source_v1_receipt_path;
+  std::filesystem::path source_v1_policy_path;
+  std::string expected_source_v1_receipt_sha256;
+  std::filesystem::path output_path;
+  std::size_t outer_chunk_rows = 512U;
+  std::uint64_t max_receipt_bytes = 1ULL * 1024ULL * 1024ULL;
+  std::uint64_t max_policy_bytes = 4ULL * 1024ULL * 1024ULL;
+  bool preallocate_output = true;
+};
+
+struct PrefillMLPK512ProjectionMajorGateUpCanonicalDownCompositionStats final {
+  std::uint64_t source_v1_bytes_read = 0U;
+  std::uint64_t output_bytes_written = 0U;
+  std::uint64_t peak_working_bytes = 0U;
+  std::uint64_t layers_composed = 0U;
+};
+
+struct PrefillMLPK512ProjectionMajorGateUpCanonicalDownCompositionResult final {
+  std::optional<PrefillMLPK512ProjectionMajorGateUpCanonicalDownReceipt>
+      receipt;
+  PrefillMLPK512ProjectionMajorGateUpCanonicalDownCompositionStats stats;
+  PrefillMLPK512OverlayDiagnostic diagnostic;
+  [[nodiscard]] explicit operator bool() const noexcept {
+    return receipt.has_value() && diagnostic.ok();
+  }
+};
+
+[[nodiscard]]
+PrefillMLPK512ProjectionMajorGateUpCanonicalDownCompositionResult
+compose_authenticated_prefill_mlp_k512_projection_major_gateup_canonical_down(
+    const PrefillMLPK512ProjectionMajorGateUpCanonicalDownCompositionOptions&
+        options);
 
 }  // namespace q3x::runtime

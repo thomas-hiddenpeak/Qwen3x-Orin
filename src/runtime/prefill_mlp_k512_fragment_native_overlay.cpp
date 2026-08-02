@@ -37,6 +37,9 @@ constexpr std::string_view kReceiptSchema =
     "q3x.prefill.mlp-k512.fragment-native.publication-receipt";
 constexpr std::string_view kPairedGateUpCanonicalDownReceiptSchema =
     "q3x.prefill.mlp-k512.paired-gateup-canonical-down.publication-receipt";
+constexpr std::string_view
+    kProjectionMajorGateUpCanonicalDownReceiptSchema =
+        "q3x.prefill.mlp-k512.projection-major-gateup-canonical-down.publication-receipt";
 
 [[nodiscard]] PrefillMLPK512OverlayDiagnostic make_diagnostic(
     const PrefillMLPK512OverlayErrorCode code, std::string context,
@@ -329,6 +332,46 @@ void write_source(std::ostream& output,
   return output.str();
 }
 
+[[nodiscard]] std::string
+projection_major_gateup_canonical_down_manifest_body(
+    const PrefillMLPK512ProjectionMajorGateUpCanonicalDownManifest&
+        manifest) {
+  std::ostringstream output;
+  output
+      << "schema=q3x.prefill.mlp-k512.projection-major-gateup-canonical-down-manifest\nversion="
+      << manifest.version_major << '.' << manifest.version_minor
+      << "\nlayout=" << manifest.physical_layout
+      << "\ngateup_layout="
+      << kPrefillMLPK512GateUpProjectionMajorComponentLayout
+      << "\ndown_layout=" << kPrefillMLPK512CanonicalDownComponentLayout
+      << "\ncheckpoint=" << manifest.source_checkpoint_id
+      << "\nconfig=" << manifest.source_config_sha256
+      << "\nindex=" << manifest.source_index_sha256 << "\nbase="
+      << manifest.required_base.physical_layout << ':'
+      << manifest.required_base.manifest_sha256 << ':'
+      << manifest.required_base.policy_sha256 << ':'
+      << manifest.required_base.payload_sha256 << "\nsource_v1="
+      << manifest.source_v1.physical_layout << ':'
+      << manifest.source_v1.receipt_sha256 << ':'
+      << manifest.source_v1.manifest_sha256 << ':'
+      << manifest.source_v1.policy_sha256 << ':'
+      << manifest.source_v1.policy_bytes << ':'
+      << manifest.source_v1.payload_sha256 << ':'
+      << manifest.source_v1.payload_bytes << "\npayload="
+      << manifest.payload_bytes << "\nlayers=" << manifest.layer_count
+      << '\n';
+  for (std::size_t layer = 0U;
+       layer < kPrefillMLPK512FragmentNativeLayerCount; ++layer) {
+    const auto view = prefill_mlp_k512_fragment_native_layer_view(layer);
+    output << view.layer_index << ':' << view.layer_offset << ':'
+           << view.gateup_code_offset << ':' << view.gateup_code_bytes << ':'
+           << view.gateup_scale_offset << ':' << view.gateup_scale_bytes << ':'
+           << view.down_code_offset << ':' << view.down_code_bytes << ':'
+           << view.down_scale_offset << ':' << view.down_scale_bytes << '\n';
+  }
+  return output.str();
+}
+
 [[nodiscard]] std::string serialize_receipt(
     const PrefillMLPK512FragmentNativeReceipt& receipt) {
   std::ostringstream output;
@@ -368,6 +411,40 @@ void write_source(std::ostream& output,
   write_quoted(output, receipt.physical_layout);
   output << ",\"gateup_physical_layout\":";
   write_quoted(output, kPrefillMLPK512PairedGateUpComponentLayout);
+  output << ",\"down_physical_layout\":";
+  write_quoted(output, kPrefillMLPK512CanonicalDownComponentLayout);
+  output << ",\"source_checkpoint_id\":";
+  write_quoted(output, receipt.source_checkpoint_id);
+  output << ",\"source_config_sha256\":";
+  write_quoted(output, receipt.source_config_sha256);
+  output << ",\"source_index_sha256\":";
+  write_quoted(output, receipt.source_index_sha256);
+  output << ",\"required_base\":";
+  write_k256_base(output, receipt.required_base);
+  output << ",\"source_v1\":";
+  write_source(output, receipt.source_v1);
+  output << ",\"manifest_sha256\":";
+  write_quoted(output, receipt.manifest_sha256);
+  output << ",\"payload_sha256\":";
+  write_quoted(output, receipt.payload_sha256);
+  output << ",\"payload_bytes\":" << receipt.payload_bytes
+         << ",\"layer_count\":" << receipt.layer_count << "}\n";
+  return output.str();
+}
+
+[[nodiscard]] std::string
+serialize_projection_major_gateup_canonical_down_receipt(
+    const PrefillMLPK512ProjectionMajorGateUpCanonicalDownReceipt& receipt) {
+  std::ostringstream output;
+  output << "{\"schema\":\""
+         << kProjectionMajorGateUpCanonicalDownReceiptSchema
+         << "\",\"version\":{\"major\":2,\"minor\":0},"
+            "\"mode\":\"lossless_projection_major_gateup_permutation_down_passthrough\","
+            "\"production_residency_eligible\":true,"
+            "\"physical_layout\":";
+  write_quoted(output, receipt.physical_layout);
+  output << ",\"gateup_physical_layout\":";
+  write_quoted(output, kPrefillMLPK512GateUpProjectionMajorComponentLayout);
   output << ",\"down_physical_layout\":";
   write_quoted(output, kPrefillMLPK512CanonicalDownComponentLayout);
   output << ",\"source_checkpoint_id\":";
@@ -1011,6 +1088,125 @@ validate_prefill_mlp_k512_paired_gateup_canonical_down_manifest(
   return {};
 }
 
+PrefillMLPK512ProjectionMajorGateUpCanonicalDownManifestResult
+build_prefill_mlp_k512_projection_major_gateup_canonical_down_manifest(
+    const PrefillMLPK512OverlayReceipt& source,
+    const std::string_view source_receipt_sha256) {
+  PrefillMLPK512ProjectionMajorGateUpCanonicalDownManifestResult result;
+  if (source.version_major != kPrefillMLPK512OverlayVersionMajor ||
+      source.version_minor != kPrefillMLPK512OverlayVersionMinor ||
+      !source.production_residency_eligible ||
+      source.physical_layout != kPrefillMLPK512OverlayLayout ||
+      source.source_checkpoint_id.empty() ||
+      !lower_sha256(source.source_config_sha256) ||
+      !lower_sha256(source.source_index_sha256) ||
+      !lower_sha256(source.manifest_sha256) ||
+      !lower_sha256(source.policy_sha256) || source.policy_bytes == 0U ||
+      !valid_k256_base(source.required_base) ||
+      !lower_sha256(source.payload_sha256) ||
+      source.payload_bytes != kPrefillMLPK512OverlayPayloadBytes ||
+      source.projection_count != kPrefillMLPK512OverlayProjectionCount ||
+      !lower_sha256(source_receipt_sha256)) {
+    result.diagnostic = make_diagnostic(
+        PrefillMLPK512OverlayErrorCode::kInvalidReceipt, "source_v1",
+        "source is not a complete authenticated K256-bound canonical-v1 MLP K512 publication");
+    return result;
+  }
+  PrefillMLPK512ProjectionMajorGateUpCanonicalDownManifest manifest;
+  manifest.physical_layout =
+      std::string(kPrefillMLPK512ProjectionMajorGateUpCanonicalDownLayout);
+  manifest.source_checkpoint_id = source.source_checkpoint_id;
+  manifest.source_config_sha256 = source.source_config_sha256;
+  manifest.source_index_sha256 = source.source_index_sha256;
+  manifest.required_base = source.required_base;
+  manifest.source_v1.physical_layout = source.physical_layout;
+  manifest.source_v1.receipt_sha256 = std::string(source_receipt_sha256);
+  manifest.source_v1.manifest_sha256 = source.manifest_sha256;
+  manifest.source_v1.policy_sha256 = source.policy_sha256;
+  manifest.source_v1.policy_bytes = source.policy_bytes;
+  manifest.source_v1.payload_sha256 = source.payload_sha256;
+  manifest.source_v1.payload_bytes = source.payload_bytes;
+  manifest.payload_bytes = kPrefillMLPK512FragmentNativePayloadBytes;
+  manifest.layer_count = kPrefillMLPK512FragmentNativeLayerCount;
+  manifest.manifest_sha256 = sha256_text(
+      projection_major_gateup_canonical_down_manifest_body(manifest));
+  result.diagnostic =
+      validate_prefill_mlp_k512_projection_major_gateup_canonical_down_manifest(
+          manifest);
+  if (!result.diagnostic) {
+    return result;
+  }
+  result.value.emplace(std::move(manifest));
+  return result;
+}
+
+PrefillMLPK512OverlayDiagnostic
+validate_prefill_mlp_k512_projection_major_gateup_canonical_down_manifest(
+    const PrefillMLPK512ProjectionMajorGateUpCanonicalDownManifest&
+        manifest) {
+  if (manifest.version_major !=
+          kPrefillMLPK512ProjectionMajorGateUpCanonicalDownVersionMajor ||
+      manifest.version_minor !=
+          kPrefillMLPK512ProjectionMajorGateUpCanonicalDownVersionMinor ||
+      manifest.physical_layout !=
+          kPrefillMLPK512ProjectionMajorGateUpCanonicalDownLayout ||
+      manifest.source_checkpoint_id.empty() ||
+      !lower_sha256(manifest.source_config_sha256) ||
+      !lower_sha256(manifest.source_index_sha256) ||
+      !valid_k256_base(manifest.required_base) ||
+      !valid_source_binding(manifest.source_v1) ||
+      manifest.payload_bytes != kPrefillMLPK512FragmentNativePayloadBytes ||
+      manifest.layer_count != kPrefillMLPK512FragmentNativeLayerCount ||
+      !lower_sha256(manifest.manifest_sha256)) {
+    return make_diagnostic(
+        PrefillMLPK512OverlayErrorCode::kInvalidManifest, "manifest",
+        "projection-major-GateUp/canonical-Down MLP K512 manifest header is invalid");
+  }
+  std::uint64_t expected_offset = 0U;
+  for (std::size_t layer = 0U;
+       layer < kPrefillMLPK512FragmentNativeLayerCount; ++layer) {
+    const auto view = prefill_mlp_k512_fragment_native_layer_view(layer);
+    if (!view.valid || view.layer_index != layer ||
+        view.layer_offset != expected_offset ||
+        view.gateup_code_offset != expected_offset ||
+        view.gateup_code_bytes !=
+            kPrefillMLPK512FragmentNativeGateUpCodeBytes ||
+        view.gateup_scale_offset !=
+            view.gateup_code_offset + view.gateup_code_bytes ||
+        view.gateup_scale_bytes !=
+            kPrefillMLPK512FragmentNativeGateUpScaleBytes ||
+        view.down_code_offset !=
+            view.gateup_scale_offset + view.gateup_scale_bytes ||
+        view.down_code_bytes !=
+            kPrefillMLPK512FragmentNativeDownCodeBytes ||
+        view.down_scale_offset !=
+            view.down_code_offset + view.down_code_bytes ||
+        view.down_scale_bytes !=
+            kPrefillMLPK512FragmentNativeDownScaleBytes) {
+      return make_diagnostic(
+          PrefillMLPK512OverlayErrorCode::kInvalidManifest,
+          "manifest.layers[" + std::to_string(layer) + "]",
+          "projection-major hybrid layer-major offsets are not contiguous");
+    }
+    expected_offset += kPrefillMLPK512FragmentNativeLayerBytes;
+  }
+  if (expected_offset != manifest.payload_bytes) {
+    return make_diagnostic(
+        PrefillMLPK512OverlayErrorCode::kInvalidManifest, "manifest.layers",
+        "projection-major hybrid inventory does not span the complete payload");
+  }
+  const std::string digest = sha256_text(
+      projection_major_gateup_canonical_down_manifest_body(manifest));
+  if (digest != manifest.manifest_sha256) {
+    return make_diagnostic(
+        PrefillMLPK512OverlayErrorCode::kDigestMismatch,
+        "manifest.manifest_sha256",
+        "projection-major hybrid manifest digest mismatch",
+        manifest.manifest_sha256, digest);
+  }
+  return {};
+}
+
 PrefillMLPK512OverlayDiagnostic
 permute_prefill_mlp_k512_gateup_fragment_native(
     const std::uint8_t* const gate_codes,
@@ -1159,6 +1355,203 @@ unpermute_prefill_mlp_k512_gateup_fragment_native(
           }
         }
       }
+      for (std::size_t row = block * 64U; row < (block + 1U) * 64U;
+           ++row) {
+        const std::size_t destination =
+            canonical_scale_byte_offset(row, group, k512_groups);
+        const std::size_t source =
+            2U * kernels::
+                       sm87_a4w4_gateup_k512_fragment_native_scale_pair_offset(
+                           row, group, k512_groups);
+        std::memcpy(gate_scales + destination, paired_scales + source, 2U);
+        std::memcpy(up_scales + destination, paired_scales + source + 2U, 2U);
+      }
+    }
+  }
+  return {};
+}
+
+PrefillMLPK512OverlayDiagnostic
+permute_prefill_mlp_k512_gateup_projection_major_fragment_native(
+    const std::uint8_t* const gate_codes,
+    const std::size_t gate_code_bytes,
+    const std::uint8_t* const gate_scales,
+    const std::size_t gate_scale_bytes,
+    const std::uint8_t* const up_codes, const std::size_t up_code_bytes,
+    const std::uint8_t* const up_scales,
+    const std::size_t up_scale_bytes, const std::size_t output_size,
+    const std::size_t input_size,
+    std::uint8_t* const projection_major_codes,
+    const std::size_t projection_major_code_bytes,
+    std::uint8_t* const paired_scales,
+    const std::size_t paired_scale_bytes) {
+  if (gate_codes == nullptr || gate_scales == nullptr || up_codes == nullptr ||
+      up_scales == nullptr || projection_major_codes == nullptr ||
+      paired_scales == nullptr || output_size == 0U ||
+      output_size % 64U != 0U || input_size == 0U ||
+      input_size % 512U != 0U || !product_fits(output_size, input_size)) {
+    return make_diagnostic(
+        PrefillMLPK512OverlayErrorCode::kInvalidOption,
+        "gateup_projection_major_permute",
+        "complete N64/K512 buffers are required");
+  }
+  const std::size_t elements = output_size * input_size;
+  const std::size_t projection_codes = elements / 2U;
+  const std::size_t projection_scales = elements / 512U * 2U;
+  const std::size_t required_projection_major_codes =
+      kernels::sm87_a4w4_gateup_k512_projection_major_code_capacity_bytes(
+          output_size, input_size);
+  if (gate_code_bytes != projection_codes ||
+      up_code_bytes != projection_codes ||
+      gate_scale_bytes != projection_scales ||
+      up_scale_bytes != projection_scales ||
+      projection_major_code_bytes != required_projection_major_codes ||
+      paired_scale_bytes != 2U * projection_scales ||
+      !gateup_ranges_are_disjoint(
+          gate_codes, gate_code_bytes, gate_scales, gate_scale_bytes, up_codes,
+          up_code_bytes, up_scales, up_scale_bytes, projection_major_codes,
+          projection_major_code_bytes, paired_scales, paired_scale_bytes)) {
+    return make_diagnostic(
+        PrefillMLPK512OverlayErrorCode::kInvalidOption,
+        "gateup_projection_major_permute",
+        "capacities differ from equal-byte ABI or ranges overlap");
+  }
+  const std::size_t k512_groups = input_size / 512U;
+  const std::size_t k64_groups = input_size / 64U;
+  for (std::size_t block = 0U; block < output_size / 64U; ++block) {
+    for (std::size_t fragment = 0U; fragment < 8U; ++fragment) {
+      const std::size_t fragment_n = block * 64U + fragment * 8U;
+      for (std::size_t group = 0U; group < k512_groups; ++group) {
+        for (std::size_t phase = 0U; phase < 8U; ++phase) {
+          for (std::size_t lane = 0U; lane < 32U; ++lane) {
+            const std::size_t row = fragment_n + lane / 4U;
+            const std::size_t source0 = canonical_code_offset(
+                row, group * 8U + phase, 4U * (lane % 4U), k64_groups);
+            const std::size_t source1 = canonical_code_offset(
+                row, group * 8U + phase, 16U + 4U * (lane % 4U),
+                k64_groups);
+            const std::size_t gate_destination =
+                kernels::
+                    sm87_a4w4_gateup_k512_projection_major_code_lane_offset(
+                        fragment_n, group, phase,
+                        kernels::kSm87A4W4GateUpK512ProjectionMajorGate,
+                        lane, k512_groups);
+            const std::size_t up_destination =
+                kernels::
+                    sm87_a4w4_gateup_k512_projection_major_code_lane_offset(
+                        fragment_n, group, phase,
+                        kernels::kSm87A4W4GateUpK512ProjectionMajorUp, lane,
+                        k512_groups);
+            std::memcpy(projection_major_codes + gate_destination,
+                        gate_codes + source0, 4U);
+            std::memcpy(projection_major_codes + gate_destination + 4U,
+                        gate_codes + source1, 4U);
+            std::memcpy(projection_major_codes + up_destination,
+                        up_codes + source0, 4U);
+            std::memcpy(projection_major_codes + up_destination + 4U,
+                        up_codes + source1, 4U);
+          }
+        }
+      }
+    }
+    for (std::size_t group = 0U; group < k512_groups; ++group) {
+      for (std::size_t row = block * 64U; row < (block + 1U) * 64U;
+           ++row) {
+        const std::size_t source =
+            canonical_scale_byte_offset(row, group, k512_groups);
+        const std::size_t destination =
+            2U * kernels::
+                       sm87_a4w4_gateup_k512_fragment_native_scale_pair_offset(
+                           row, group, k512_groups);
+        std::memcpy(paired_scales + destination, gate_scales + source, 2U);
+        std::memcpy(paired_scales + destination + 2U, up_scales + source, 2U);
+      }
+    }
+  }
+  return {};
+}
+
+PrefillMLPK512OverlayDiagnostic
+unpermute_prefill_mlp_k512_gateup_projection_major_fragment_native(
+    const std::uint8_t* const projection_major_codes,
+    const std::size_t projection_major_code_bytes,
+    const std::uint8_t* const paired_scales,
+    const std::size_t paired_scale_bytes, const std::size_t output_size,
+    const std::size_t input_size, std::uint8_t* const gate_codes,
+    const std::size_t gate_code_bytes, std::uint8_t* const gate_scales,
+    const std::size_t gate_scale_bytes, std::uint8_t* const up_codes,
+    const std::size_t up_code_bytes, std::uint8_t* const up_scales,
+    const std::size_t up_scale_bytes) {
+  if (gate_codes == nullptr || gate_scales == nullptr || up_codes == nullptr ||
+      up_scales == nullptr || projection_major_codes == nullptr ||
+      paired_scales == nullptr || output_size == 0U ||
+      output_size % 64U != 0U || input_size == 0U ||
+      input_size % 512U != 0U || !product_fits(output_size, input_size)) {
+    return make_diagnostic(
+        PrefillMLPK512OverlayErrorCode::kInvalidOption,
+        "gateup_projection_major_unpermute",
+        "complete N64/K512 buffers are required");
+  }
+  const std::size_t elements = output_size * input_size;
+  const std::size_t projection_codes = elements / 2U;
+  const std::size_t projection_scales = elements / 512U * 2U;
+  const std::size_t required_projection_major_codes =
+      kernels::sm87_a4w4_gateup_k512_projection_major_code_capacity_bytes(
+          output_size, input_size);
+  if (gate_code_bytes != projection_codes ||
+      up_code_bytes != projection_codes ||
+      gate_scale_bytes != projection_scales ||
+      up_scale_bytes != projection_scales ||
+      projection_major_code_bytes != required_projection_major_codes ||
+      paired_scale_bytes != 2U * projection_scales ||
+      !gateup_ranges_are_disjoint(
+          gate_codes, gate_code_bytes, gate_scales, gate_scale_bytes, up_codes,
+          up_code_bytes, up_scales, up_scale_bytes, projection_major_codes,
+          projection_major_code_bytes, paired_scales, paired_scale_bytes)) {
+    return make_diagnostic(
+        PrefillMLPK512OverlayErrorCode::kInvalidOption,
+        "gateup_projection_major_unpermute",
+        "capacities differ from equal-byte ABI or ranges overlap");
+  }
+  const std::size_t k512_groups = input_size / 512U;
+  const std::size_t k64_groups = input_size / 64U;
+  for (std::size_t block = 0U; block < output_size / 64U; ++block) {
+    for (std::size_t fragment = 0U; fragment < 8U; ++fragment) {
+      const std::size_t fragment_n = block * 64U + fragment * 8U;
+      for (std::size_t group = 0U; group < k512_groups; ++group) {
+        for (std::size_t phase = 0U; phase < 8U; ++phase) {
+          for (std::size_t lane = 0U; lane < 32U; ++lane) {
+            const std::size_t row = fragment_n + lane / 4U;
+            const std::size_t destination0 = canonical_code_offset(
+                row, group * 8U + phase, 4U * (lane % 4U), k64_groups);
+            const std::size_t destination1 = canonical_code_offset(
+                row, group * 8U + phase, 16U + 4U * (lane % 4U),
+                k64_groups);
+            const std::size_t gate_source =
+                kernels::
+                    sm87_a4w4_gateup_k512_projection_major_code_lane_offset(
+                        fragment_n, group, phase,
+                        kernels::kSm87A4W4GateUpK512ProjectionMajorGate,
+                        lane, k512_groups);
+            const std::size_t up_source =
+                kernels::
+                    sm87_a4w4_gateup_k512_projection_major_code_lane_offset(
+                        fragment_n, group, phase,
+                        kernels::kSm87A4W4GateUpK512ProjectionMajorUp, lane,
+                        k512_groups);
+            std::memcpy(gate_codes + destination0,
+                        projection_major_codes + gate_source, 4U);
+            std::memcpy(gate_codes + destination1,
+                        projection_major_codes + gate_source + 4U, 4U);
+            std::memcpy(up_codes + destination0,
+                        projection_major_codes + up_source, 4U);
+            std::memcpy(up_codes + destination1,
+                        projection_major_codes + up_source + 4U, 4U);
+          }
+        }
+      }
+    }
+    for (std::size_t group = 0U; group < k512_groups; ++group) {
       for (std::size_t row = block * 64U; row < (block + 1U) * 64U;
            ++row) {
         const std::size_t destination =
@@ -1632,6 +2025,179 @@ write_prefill_mlp_k512_paired_gateup_canonical_down_receipt_no_replace(
                ? make_diagnostic(
                      PrefillMLPK512OverlayErrorCode::kInvalidReceipt,
                      "receipt", "hybrid receipt failed canonical round trip")
+               : diagnostic;
+  }
+  return publish_document_no_replace(output_path, document);
+}
+
+std::optional<PrefillMLPK512ProjectionMajorGateUpCanonicalDownReceipt>
+parse_prefill_mlp_k512_projection_major_gateup_canonical_down_receipt(
+    const std::string_view document,
+    PrefillMLPK512OverlayDiagnostic& diagnostic) {
+  diagnostic = {};
+  try {
+    json::ParseOptions options;
+    options.max_input_bytes = 1U * 1024U * 1024U;
+    options.max_nesting_depth = 8U;
+    options.max_values = 160U;
+    options.max_container_items = 160U;
+    const json::ParseResult parsed = json::parse(document, options);
+    const auto* root = parsed ? parsed.value->as_object() : nullptr;
+    if (root == nullptr ||
+        !exact_keys(
+            *root,
+            {"schema", "version", "mode",
+             "production_residency_eligible", "physical_layout",
+             "gateup_physical_layout", "down_physical_layout",
+             "source_checkpoint_id", "source_config_sha256",
+             "source_index_sha256", "required_base", "source_v1",
+             "manifest_sha256", "payload_sha256", "payload_bytes",
+             "layer_count"})) {
+      diagnostic = make_diagnostic(
+          PrefillMLPK512OverlayErrorCode::kInvalidReceipt, "receipt",
+          "strict projection-major-GateUp/canonical-Down receipt JSON schema mismatch");
+      return std::nullopt;
+    }
+    PrefillMLPK512ProjectionMajorGateUpCanonicalDownReceipt receipt;
+    std::string schema;
+    std::string mode;
+    std::string gateup_layout;
+    std::string down_layout;
+    const bool* eligible =
+        root->at("production_residency_eligible").as_bool();
+    if (!json_string(*root, "schema", schema) ||
+        schema != kProjectionMajorGateUpCanonicalDownReceiptSchema ||
+        !parse_version(root->at("version"), receipt.version_major,
+                       receipt.version_minor) ||
+        receipt.version_major !=
+            kPrefillMLPK512ProjectionMajorGateUpCanonicalDownVersionMajor ||
+        receipt.version_minor !=
+            kPrefillMLPK512ProjectionMajorGateUpCanonicalDownVersionMinor ||
+        !json_string(*root, "mode", mode) ||
+        mode !=
+            "lossless_projection_major_gateup_permutation_down_passthrough" ||
+        eligible == nullptr || !*eligible ||
+        !json_string(*root, "physical_layout", receipt.physical_layout) ||
+        receipt.physical_layout !=
+            kPrefillMLPK512ProjectionMajorGateUpCanonicalDownLayout ||
+        !json_string(*root, "gateup_physical_layout", gateup_layout) ||
+        gateup_layout !=
+            kPrefillMLPK512GateUpProjectionMajorComponentLayout ||
+        !json_string(*root, "down_physical_layout", down_layout) ||
+        down_layout != kPrefillMLPK512CanonicalDownComponentLayout ||
+        !json_string(*root, "source_checkpoint_id",
+                     receipt.source_checkpoint_id) ||
+        receipt.source_checkpoint_id.empty() ||
+        !json_string(*root, "source_config_sha256",
+                     receipt.source_config_sha256) ||
+        !lower_sha256(receipt.source_config_sha256) ||
+        !json_string(*root, "source_index_sha256",
+                     receipt.source_index_sha256) ||
+        !lower_sha256(receipt.source_index_sha256) ||
+        !parse_k256_base(root->at("required_base"), receipt.required_base) ||
+        !parse_source(root->at("source_v1"), receipt.source_v1) ||
+        !json_string(*root, "manifest_sha256", receipt.manifest_sha256) ||
+        !lower_sha256(receipt.manifest_sha256) ||
+        !json_string(*root, "payload_sha256", receipt.payload_sha256) ||
+        !lower_sha256(receipt.payload_sha256) ||
+        !json_uint(*root, "payload_bytes", receipt.payload_bytes) ||
+        receipt.payload_bytes != kPrefillMLPK512FragmentNativePayloadBytes ||
+        !json_uint(*root, "layer_count", receipt.layer_count) ||
+        receipt.layer_count != kPrefillMLPK512FragmentNativeLayerCount) {
+      diagnostic = make_diagnostic(
+          PrefillMLPK512OverlayErrorCode::kInvalidReceipt, "receipt",
+          "projection-major-GateUp/canonical-Down receipt identity or fixed ABI is invalid");
+      return std::nullopt;
+    }
+    PrefillMLPK512OverlayReceipt source;
+    source.production_residency_eligible = true;
+    source.physical_layout = receipt.source_v1.physical_layout;
+    source.source_checkpoint_id = receipt.source_checkpoint_id;
+    source.source_config_sha256 = receipt.source_config_sha256;
+    source.source_index_sha256 = receipt.source_index_sha256;
+    source.manifest_sha256 = receipt.source_v1.manifest_sha256;
+    source.policy_sha256 = receipt.source_v1.policy_sha256;
+    source.policy_bytes = receipt.source_v1.policy_bytes;
+    source.required_base = receipt.required_base;
+    source.payload_sha256 = receipt.source_v1.payload_sha256;
+    source.payload_bytes = receipt.source_v1.payload_bytes;
+    source.projection_count = kPrefillMLPK512OverlayProjectionCount;
+    const auto manifest =
+        build_prefill_mlp_k512_projection_major_gateup_canonical_down_manifest(
+            source, receipt.source_v1.receipt_sha256);
+    if (!manifest ||
+        manifest.value->manifest_sha256 != receipt.manifest_sha256 ||
+        !same_base(manifest.value->required_base, receipt.required_base)) {
+      diagnostic = make_diagnostic(
+          PrefillMLPK512OverlayErrorCode::kInvalidReceipt,
+          "receipt.manifest_sha256",
+          "receipt does not bind the deterministic projection-major hybrid manifest",
+          manifest ? manifest.value->manifest_sha256 : std::string{},
+          receipt.manifest_sha256);
+      return std::nullopt;
+    }
+    receipt.production_residency_eligible = true;
+    receipt.receipt_sha256 = sha256_text(document);
+    return receipt;
+  } catch (const std::bad_alloc&) {
+    diagnostic = make_diagnostic(
+        PrefillMLPK512OverlayErrorCode::kAllocationFailure, "receipt",
+        "projection-major hybrid receipt allocation failed");
+    return std::nullopt;
+  } catch (...) {
+    diagnostic = make_diagnostic(
+        PrefillMLPK512OverlayErrorCode::kInvalidReceipt, "receipt",
+        "unexpected projection-major hybrid receipt parse failure");
+    return std::nullopt;
+  }
+}
+
+PrefillMLPK512OverlayDiagnostic
+write_prefill_mlp_k512_projection_major_gateup_canonical_down_receipt_no_replace(
+    const PrefillMLPK512ProjectionMajorGateUpCanonicalDownReceipt& receipt,
+    const fs::path& output_path) {
+  if (receipt.version_major !=
+          kPrefillMLPK512ProjectionMajorGateUpCanonicalDownVersionMajor ||
+      receipt.version_minor !=
+          kPrefillMLPK512ProjectionMajorGateUpCanonicalDownVersionMinor ||
+      !receipt.production_residency_eligible ||
+      receipt.physical_layout !=
+          kPrefillMLPK512ProjectionMajorGateUpCanonicalDownLayout ||
+      receipt.source_checkpoint_id.empty() ||
+      !lower_sha256(receipt.source_config_sha256) ||
+      !lower_sha256(receipt.source_index_sha256) ||
+      !valid_k256_base(receipt.required_base) ||
+      !valid_source_binding(receipt.source_v1) ||
+      !lower_sha256(receipt.manifest_sha256) ||
+      !lower_sha256(receipt.payload_sha256) ||
+      receipt.payload_bytes != kPrefillMLPK512FragmentNativePayloadBytes ||
+      receipt.layer_count != kPrefillMLPK512FragmentNativeLayerCount) {
+    return make_diagnostic(
+        PrefillMLPK512OverlayErrorCode::kInvalidReceipt, "receipt",
+        "projection-major hybrid receipt object is not eligible for publication");
+  }
+  const std::string document =
+      serialize_projection_major_gateup_canonical_down_receipt(receipt);
+  PrefillMLPK512OverlayDiagnostic diagnostic;
+  const auto parsed =
+      parse_prefill_mlp_k512_projection_major_gateup_canonical_down_receipt(
+          document, diagnostic);
+  if (!parsed || parsed->source_checkpoint_id != receipt.source_checkpoint_id ||
+      parsed->source_config_sha256 != receipt.source_config_sha256 ||
+      parsed->source_index_sha256 != receipt.source_index_sha256 ||
+      !same_base(parsed->required_base, receipt.required_base) ||
+      parsed->source_v1.receipt_sha256 != receipt.source_v1.receipt_sha256 ||
+      parsed->source_v1.manifest_sha256 != receipt.source_v1.manifest_sha256 ||
+      parsed->source_v1.policy_sha256 != receipt.source_v1.policy_sha256 ||
+      parsed->source_v1.policy_bytes != receipt.source_v1.policy_bytes ||
+      parsed->source_v1.payload_sha256 != receipt.source_v1.payload_sha256 ||
+      parsed->manifest_sha256 != receipt.manifest_sha256 ||
+      parsed->payload_sha256 != receipt.payload_sha256) {
+    return diagnostic.ok()
+               ? make_diagnostic(
+                     PrefillMLPK512OverlayErrorCode::kInvalidReceipt,
+                     "receipt",
+                     "projection-major hybrid receipt failed canonical round trip")
                : diagnostic;
   }
   return publish_document_no_replace(output_path, document);
@@ -2800,6 +3366,501 @@ compose_authenticated_prefill_mlp_k512_paired_gateup_canonical_down(
     result.diagnostic = make_diagnostic(
         PrefillMLPK512OverlayErrorCode::kIoFailure, "compose",
         "unexpected hybrid composition failure");
+    return result;
+  }
+}
+
+PrefillMLPK512ProjectionMajorGateUpCanonicalDownCompositionResult
+compose_authenticated_prefill_mlp_k512_projection_major_gateup_canonical_down(
+    const PrefillMLPK512ProjectionMajorGateUpCanonicalDownCompositionOptions&
+        options) {
+  PrefillMLPK512ProjectionMajorGateUpCanonicalDownCompositionResult result;
+  fs::path payload_temporary;
+  fs::path receipt_temporary;
+  struct Cleanup final {
+    fs::path* payload;
+    fs::path* receipt;
+    ~Cleanup() {
+      if (payload != nullptr && !payload->empty()) {
+        (void)::unlink(payload->c_str());
+      }
+      if (receipt != nullptr && !receipt->empty()) {
+        (void)::unlink(receipt->c_str());
+      }
+    }
+  } cleanup{&payload_temporary, &receipt_temporary};
+
+  try {
+    if (options.source_v1_payload_path.empty() ||
+        options.source_v1_receipt_path.empty() ||
+        options.source_v1_policy_path.empty() || options.output_path.empty() ||
+        !lower_sha256(options.expected_source_v1_receipt_sha256) ||
+        options.outer_chunk_rows == 0U ||
+        options.outer_chunk_rows % 512U != 0U ||
+        options.outer_chunk_rows > 1'024U ||
+        options.max_receipt_bytes == 0U ||
+        options.max_policy_bytes == 0U ||
+        options.output_path == options.source_v1_payload_path) {
+      result.diagnostic = make_diagnostic(
+          PrefillMLPK512OverlayErrorCode::kInvalidOption, "compose",
+          "an authenticated K256-bound canonical-v1 source, a distinct output, and bounded N512 chunks are required");
+      return result;
+    }
+
+    const fs::path output_receipt_path =
+        fs::path(options.output_path.string() + ".receipt.json");
+    struct stat path_status {};
+    errno = 0;
+    if (::lstat(options.output_path.c_str(), &path_status) == 0 ||
+        errno != ENOENT) {
+      result.diagnostic = make_diagnostic(
+          PrefillMLPK512OverlayErrorCode::kPublicationConflict,
+          options.output_path.string(),
+          "projection-major hybrid payload target already exists", {}, {},
+          errno);
+      return result;
+    }
+    errno = 0;
+    if (::lstat(output_receipt_path.c_str(), &path_status) == 0 ||
+        errno != ENOENT) {
+      result.diagnostic = make_diagnostic(
+          PrefillMLPK512OverlayErrorCode::kPublicationConflict,
+          output_receipt_path.string(),
+          "projection-major hybrid receipt target already exists", {}, {},
+          errno);
+      return result;
+    }
+
+    std::string source_v1_receipt_document;
+    std::uint64_t receipt_bytes = 0U;
+    result.diagnostic = read_bounded_file(
+        options.source_v1_receipt_path, options.max_receipt_bytes,
+        source_v1_receipt_document, &receipt_bytes);
+    result.stats.source_v1_bytes_read += receipt_bytes;
+    if (!result.diagnostic) {
+      return result;
+    }
+    const std::string source_v1_receipt_sha256 =
+        sha256_text(source_v1_receipt_document);
+    if (source_v1_receipt_sha256 !=
+        options.expected_source_v1_receipt_sha256) {
+      result.diagnostic = make_diagnostic(
+          PrefillMLPK512OverlayErrorCode::kDigestMismatch,
+          options.source_v1_receipt_path.string(),
+          "canonical-v1 receipt digest differs from the required trust anchor",
+          options.expected_source_v1_receipt_sha256,
+          source_v1_receipt_sha256);
+      return result;
+    }
+    PrefillMLPK512OverlayDiagnostic source_v1_receipt_diagnostic;
+    const auto source_v1_receipt = parse_prefill_mlp_k512_overlay_receipt(
+        source_v1_receipt_document, source_v1_receipt_diagnostic);
+    if (!source_v1_receipt) {
+      result.diagnostic = source_v1_receipt_diagnostic;
+      return result;
+    }
+    const auto manifest =
+        build_prefill_mlp_k512_projection_major_gateup_canonical_down_manifest(
+            *source_v1_receipt, source_v1_receipt_sha256);
+    if (!manifest) {
+      result.diagnostic = manifest.diagnostic;
+      return result;
+    }
+
+    int error = 0;
+    UniqueFd policy(::open(options.source_v1_policy_path.c_str(),
+                           O_RDONLY | O_CLOEXEC | O_NOFOLLOW));
+    FileSnapshot policy_snapshot;
+    if (!policy || !snapshot_fd(policy.get(), policy_snapshot, error) ||
+        policy_snapshot.size < 0 ||
+        static_cast<std::uint64_t>(policy_snapshot.size) !=
+            source_v1_receipt->policy_bytes ||
+        static_cast<std::uint64_t>(policy_snapshot.size) >
+            options.max_policy_bytes) {
+      result.diagnostic = make_diagnostic(
+          PrefillMLPK512OverlayErrorCode::kSourceAuthenticationFailed,
+          options.source_v1_policy_path.string(),
+          "canonical-v1 policy is not the exact bounded receipt-bound file",
+          {}, {}, error);
+      return result;
+    }
+    std::string policy_sha256;
+    std::uint64_t policy_bytes = 0U;
+    result.diagnostic = hash_fd(
+        policy.get(), static_cast<std::uint64_t>(policy_snapshot.size),
+        policy_sha256, &policy_bytes);
+    result.stats.source_v1_bytes_read += policy_bytes;
+    FileSnapshot policy_after;
+    if (!result.diagnostic ||
+        policy_sha256 != source_v1_receipt->policy_sha256 ||
+        !snapshot_fd(policy.get(), policy_after, error) ||
+        !same_snapshot(policy_snapshot, policy_after)) {
+      if (result.diagnostic) {
+        result.diagnostic = make_diagnostic(
+            PrefillMLPK512OverlayErrorCode::kSourceAuthenticationFailed,
+            options.source_v1_policy_path.string(),
+            "canonical-v1 policy digest or immutable snapshot differs from receipt",
+            source_v1_receipt->policy_sha256, policy_sha256, error);
+      }
+      return result;
+    }
+
+    UniqueFd source_v1_payload(
+        ::open(options.source_v1_payload_path.c_str(),
+               O_RDONLY | O_CLOEXEC | O_NOFOLLOW));
+    FileSnapshot source_v1_snapshot;
+    if (!source_v1_payload ||
+        !snapshot_fd(source_v1_payload.get(), source_v1_snapshot, error) ||
+        source_v1_snapshot.size < 0 ||
+        static_cast<std::uint64_t>(source_v1_snapshot.size) !=
+            kPrefillMLPK512OverlayPayloadBytes) {
+      result.diagnostic = make_diagnostic(
+          PrefillMLPK512OverlayErrorCode::kSourceAuthenticationFailed,
+          options.source_v1_payload_path.string(),
+          "canonical-v1 payload is not the exact regular-file ABI", {}, {},
+          error);
+      return result;
+    }
+    std::string source_v1_payload_sha256;
+    std::uint64_t initial_payload_hash_bytes = 0U;
+    result.diagnostic = hash_fd(
+        source_v1_payload.get(), kPrefillMLPK512OverlayPayloadBytes,
+        source_v1_payload_sha256, &initial_payload_hash_bytes);
+    result.stats.source_v1_bytes_read += initial_payload_hash_bytes;
+    FileSnapshot source_v1_after_hash;
+    if (!result.diagnostic ||
+        source_v1_payload_sha256 != source_v1_receipt->payload_sha256 ||
+        !snapshot_fd(source_v1_payload.get(), source_v1_after_hash, error) ||
+        !same_snapshot(source_v1_snapshot, source_v1_after_hash)) {
+      if (result.diagnostic) {
+        result.diagnostic = make_diagnostic(
+            PrefillMLPK512OverlayErrorCode::kSourceAuthenticationFailed,
+            options.source_v1_payload_path.string(),
+            "canonical-v1 payload digest or immutable snapshot differs from receipt",
+            source_v1_receipt->payload_sha256, source_v1_payload_sha256,
+            error);
+      }
+      return result;
+    }
+
+    const fs::path parent = options.output_path.parent_path().empty()
+                                ? fs::path(".")
+                                : options.output_path.parent_path();
+    payload_temporary = fs::path(options.output_path.string() + ".tmp." +
+                                 std::to_string(::getpid()));
+    receipt_temporary = fs::path(output_receipt_path.string() + ".tmp." +
+                                 std::to_string(::getpid()));
+    UniqueFd output(::open(payload_temporary.c_str(),
+                           O_RDWR | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW,
+                           S_IRUSR | S_IWUSR));
+    if (!output ||
+        kPrefillMLPK512FragmentNativePayloadBytes >
+            static_cast<std::uint64_t>(std::numeric_limits<off_t>::max()) ||
+        ::ftruncate(
+            output.get(),
+            static_cast<off_t>(kPrefillMLPK512FragmentNativePayloadBytes)) !=
+            0) {
+      result.diagnostic = make_diagnostic(
+          PrefillMLPK512OverlayErrorCode::kIoFailure,
+          payload_temporary.string(),
+          "failed to create or size temporary projection-major hybrid payload",
+          {}, {}, errno);
+      return result;
+    }
+    if (options.preallocate_output) {
+      const int allocation_error = ::posix_fallocate(
+          output.get(), 0,
+          static_cast<off_t>(kPrefillMLPK512FragmentNativePayloadBytes));
+      if (allocation_error != 0) {
+        result.diagnostic = make_diagnostic(
+            PrefillMLPK512OverlayErrorCode::kIoFailure,
+            payload_temporary.string(),
+            "projection-major hybrid payload preallocation failed", {}, {},
+            allocation_error);
+        return result;
+      }
+    }
+
+    auto read_source = [&](void* destination, const std::size_t bytes,
+                           const std::uint64_t offset,
+                           const std::string_view context) -> bool {
+      int io_error = 0;
+      if (!pread_exact(source_v1_payload.get(), destination, bytes, offset,
+                       io_error)) {
+        result.diagnostic = make_diagnostic(
+            PrefillMLPK512OverlayErrorCode::kIoFailure,
+            std::string(context), "canonical-v1 payload chunk read failed",
+            {}, {}, io_error);
+        return false;
+      }
+      result.stats.source_v1_bytes_read += bytes;
+      return true;
+    };
+    auto write_output = [&](const void* source, const std::size_t bytes,
+                            const std::uint64_t offset,
+                            const std::string_view context) -> bool {
+      int io_error = 0;
+      if (!pwrite_exact(output.get(), source, bytes, offset, io_error)) {
+        result.diagnostic = make_diagnostic(
+            PrefillMLPK512OverlayErrorCode::kIoFailure,
+            std::string(context),
+            "projection-major hybrid payload chunk write failed", {}, {},
+            io_error);
+        return false;
+      }
+      result.stats.output_bytes_written += bytes;
+      return true;
+    };
+
+    constexpr std::size_t kCopyChunkBytes = 32U * 1024U * 1024U;
+    std::vector<std::uint8_t> copy_buffer(kCopyChunkBytes);
+    auto copy_range = [&](const std::uint64_t source_offset,
+                          const std::uint64_t output_offset,
+                          const std::uint64_t bytes,
+                          const std::string_view context) -> bool {
+      std::uint64_t complete = 0U;
+      while (complete < bytes) {
+        const std::size_t count = static_cast<std::size_t>(
+            std::min<std::uint64_t>(copy_buffer.size(), bytes - complete));
+        if (!read_source(copy_buffer.data(), count, source_offset + complete,
+                         context) ||
+            !write_output(copy_buffer.data(), count, output_offset + complete,
+                          context)) {
+          return false;
+        }
+        complete += count;
+      }
+      return true;
+    };
+
+    const std::size_t gateup_rows = options.outer_chunk_rows;
+    const std::size_t gateup_k =
+        static_cast<std::size_t>(kPrefillMLPK512OverlayGateUpInputSize);
+    const std::size_t projection_code_bytes = gateup_rows * gateup_k / 2U;
+    const std::size_t projection_scale_bytes =
+        gateup_rows * (gateup_k / 512U) * 2U;
+    std::vector<std::uint8_t> gate_codes(projection_code_bytes);
+    std::vector<std::uint8_t> gate_scales(projection_scale_bytes);
+    std::vector<std::uint8_t> up_codes(projection_code_bytes);
+    std::vector<std::uint8_t> up_scales(projection_scale_bytes);
+    std::vector<std::uint8_t> projection_major_codes(
+        2U * projection_code_bytes);
+    std::vector<std::uint8_t> paired_scales(2U * projection_scale_bytes);
+    result.stats.peak_working_bytes =
+        copy_buffer.capacity() + gate_codes.capacity() +
+        gate_scales.capacity() + up_codes.capacity() + up_scales.capacity() +
+        projection_major_codes.capacity() + paired_scales.capacity();
+
+    for (std::size_t layer = 0U;
+         layer < kPrefillMLPK512FragmentNativeLayerCount; ++layer) {
+      const std::uint64_t gate_v1_offset =
+          (3U * layer) * kPrefillMLPK512OverlayProjectionBytes;
+      const std::uint64_t up_v1_offset =
+          gate_v1_offset + kPrefillMLPK512OverlayProjectionBytes;
+      const std::uint64_t down_v1_offset =
+          up_v1_offset + kPrefillMLPK512OverlayProjectionBytes;
+      const auto view = prefill_mlp_k512_fragment_native_layer_view(layer);
+      for (std::size_t row = 0U;
+           row < kPrefillMLPK512OverlayGateUpOutputSize;
+           row += gateup_rows) {
+        const std::uint64_t code_delta = row * gateup_k / 2U;
+        const std::uint64_t scale_delta =
+            row * (gateup_k / 512U) * 2U;
+        if (!read_source(gate_codes.data(), gate_codes.size(),
+                         gate_v1_offset + code_delta, "gate_codes") ||
+            !read_source(
+                gate_scales.data(), gate_scales.size(),
+                gate_v1_offset +
+                    kPrefillMLPK512OverlayProjectionWeightBytes + scale_delta,
+                "gate_scales") ||
+            !read_source(up_codes.data(), up_codes.size(),
+                         up_v1_offset + code_delta, "up_codes") ||
+            !read_source(
+                up_scales.data(), up_scales.size(),
+                up_v1_offset +
+                    kPrefillMLPK512OverlayProjectionWeightBytes + scale_delta,
+                "up_scales")) {
+          return result;
+        }
+        result.diagnostic =
+            permute_prefill_mlp_k512_gateup_projection_major_fragment_native(
+                gate_codes.data(), gate_codes.size(), gate_scales.data(),
+                gate_scales.size(), up_codes.data(), up_codes.size(),
+                up_scales.data(), up_scales.size(), gateup_rows, gateup_k,
+                projection_major_codes.data(),
+                projection_major_codes.size(), paired_scales.data(),
+                paired_scales.size());
+        if (!result.diagnostic) {
+          result.diagnostic.context =
+              "layer[" + std::to_string(layer) + "]:" +
+              result.diagnostic.context;
+          return result;
+        }
+        if (!write_output(projection_major_codes.data(),
+                          projection_major_codes.size(),
+                          view.gateup_code_offset + row * gateup_k,
+                          "projection_major_gateup_codes") ||
+            !write_output(
+                paired_scales.data(), paired_scales.size(),
+                view.gateup_scale_offset + row * (gateup_k / 512U) * 4U,
+                "projection_major_gateup_scales")) {
+          return result;
+        }
+      }
+      if (!copy_range(down_v1_offset, view.down_code_offset,
+                      kPrefillMLPK512OverlayProjectionBytes,
+                      "canonical_down_v1")) {
+        return result;
+      }
+      ++result.stats.layers_composed;
+    }
+
+    if (result.stats.layers_composed !=
+            kPrefillMLPK512FragmentNativeLayerCount ||
+        result.stats.output_bytes_written !=
+            kPrefillMLPK512FragmentNativePayloadBytes ||
+        ::fsync(output.get()) != 0) {
+      result.diagnostic = make_diagnostic(
+          PrefillMLPK512OverlayErrorCode::kIoFailure,
+          payload_temporary.string(),
+          "projection-major hybrid composition did not write and sync the complete payload",
+          std::to_string(kPrefillMLPK512FragmentNativePayloadBytes),
+          std::to_string(result.stats.output_bytes_written), errno);
+      return result;
+    }
+
+    std::string final_v1_sha256;
+    std::uint64_t final_v1_hash_bytes = 0U;
+    result.diagnostic = hash_fd(
+        source_v1_payload.get(), kPrefillMLPK512OverlayPayloadBytes,
+        final_v1_sha256, &final_v1_hash_bytes);
+    result.stats.source_v1_bytes_read += final_v1_hash_bytes;
+    FileSnapshot source_v1_final;
+    if (!result.diagnostic ||
+        final_v1_sha256 != source_v1_receipt->payload_sha256 ||
+        !snapshot_fd(source_v1_payload.get(), source_v1_final, error) ||
+        !same_snapshot(source_v1_snapshot, source_v1_final)) {
+      if (result.diagnostic) {
+        result.diagnostic = make_diagnostic(
+            PrefillMLPK512OverlayErrorCode::kSourceAuthenticationFailed,
+            options.source_v1_payload_path.string(),
+            "canonical-v1 payload changed during projection-major hybrid composition",
+            source_v1_receipt->payload_sha256, final_v1_sha256, error);
+      }
+      return result;
+    }
+
+    std::string output_payload_sha256;
+    result.diagnostic = hash_fd(
+        output.get(), kPrefillMLPK512FragmentNativePayloadBytes,
+        output_payload_sha256);
+    if (!result.diagnostic || ::fchmod(output.get(), S_IRUSR) != 0 ||
+        ::fsync(output.get()) != 0) {
+      if (result.diagnostic) {
+        result.diagnostic = make_diagnostic(
+            PrefillMLPK512OverlayErrorCode::kIoFailure,
+            payload_temporary.string(),
+            "failed to hash and seal projection-major hybrid payload read-only",
+            {}, {}, errno);
+      }
+      return result;
+    }
+
+    PrefillMLPK512ProjectionMajorGateUpCanonicalDownReceipt receipt;
+    receipt.production_residency_eligible = true;
+    receipt.physical_layout = manifest.value->physical_layout;
+    receipt.source_checkpoint_id = manifest.value->source_checkpoint_id;
+    receipt.source_config_sha256 = manifest.value->source_config_sha256;
+    receipt.source_index_sha256 = manifest.value->source_index_sha256;
+    receipt.required_base = manifest.value->required_base;
+    receipt.source_v1 = manifest.value->source_v1;
+    receipt.manifest_sha256 = manifest.value->manifest_sha256;
+    receipt.payload_sha256 = output_payload_sha256;
+    receipt.payload_bytes = kPrefillMLPK512FragmentNativePayloadBytes;
+    receipt.layer_count = kPrefillMLPK512FragmentNativeLayerCount;
+    const std::string receipt_document =
+        serialize_projection_major_gateup_canonical_down_receipt(receipt);
+    PrefillMLPK512OverlayDiagnostic receipt_diagnostic;
+    const auto parsed_receipt =
+        parse_prefill_mlp_k512_projection_major_gateup_canonical_down_receipt(
+            receipt_document, receipt_diagnostic);
+    if (!parsed_receipt) {
+      result.diagnostic = receipt_diagnostic;
+      return result;
+    }
+    UniqueFd receipt_output(::open(
+        receipt_temporary.c_str(),
+        O_RDWR | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW,
+        S_IRUSR | S_IWUSR));
+    int receipt_error = 0;
+    if (!receipt_output ||
+        !pwrite_exact(receipt_output.get(), receipt_document.data(),
+                      receipt_document.size(), 0U, receipt_error) ||
+        ::fchmod(receipt_output.get(), S_IRUSR) != 0 ||
+        ::fsync(receipt_output.get()) != 0) {
+      result.diagnostic = make_diagnostic(
+          PrefillMLPK512OverlayErrorCode::kIoFailure,
+          receipt_temporary.string(),
+          "failed to create and seal temporary projection-major hybrid receipt",
+          {}, {}, receipt_error != 0 ? receipt_error : errno);
+      return result;
+    }
+
+    if (::link(payload_temporary.c_str(), options.output_path.c_str()) != 0) {
+      result.diagnostic = make_diagnostic(
+          PrefillMLPK512OverlayErrorCode::kPublicationConflict,
+          options.output_path.string(),
+          "projection-major hybrid payload no-replace link failed", {}, {},
+          errno);
+      return result;
+    }
+    if (::link(receipt_temporary.c_str(), output_receipt_path.c_str()) != 0) {
+      const int saved = errno;
+      (void)::unlink(options.output_path.c_str());
+      result.diagnostic = make_diagnostic(
+          PrefillMLPK512OverlayErrorCode::kPublicationConflict,
+          output_receipt_path.string(),
+          "projection-major hybrid receipt no-replace link failed; rolled back",
+          {}, {}, saved);
+      return result;
+    }
+    if (::unlink(payload_temporary.c_str()) != 0 ||
+        ::unlink(receipt_temporary.c_str()) != 0) {
+      const int saved = errno;
+      (void)::unlink(output_receipt_path.c_str());
+      (void)::unlink(options.output_path.c_str());
+      result.diagnostic = make_diagnostic(
+          PrefillMLPK512OverlayErrorCode::kIoFailure, parent.string(),
+          "projection-major hybrid temporary cleanup failed; publication rolled back",
+          {}, {}, saved);
+      return result;
+    }
+    payload_temporary.clear();
+    receipt_temporary.clear();
+    UniqueFd directory(::open(parent.c_str(), O_RDONLY | O_DIRECTORY |
+                                                  O_CLOEXEC | O_NOFOLLOW));
+    if (!directory || ::fsync(directory.get()) != 0) {
+      const int saved = errno;
+      (void)::unlink(output_receipt_path.c_str());
+      (void)::unlink(options.output_path.c_str());
+      result.diagnostic = make_diagnostic(
+          PrefillMLPK512OverlayErrorCode::kIoFailure, parent.string(),
+          "projection-major hybrid publication directory sync failed; rolled back",
+          {}, {}, saved);
+      return result;
+    }
+    result.receipt.emplace(*parsed_receipt);
+    result.diagnostic = {};
+    return result;
+  } catch (const std::bad_alloc&) {
+    result.diagnostic = make_diagnostic(
+        PrefillMLPK512OverlayErrorCode::kAllocationFailure, "compose",
+        "projection-major hybrid composition allocation failed");
+    return result;
+  } catch (...) {
+    result.diagnostic = make_diagnostic(
+        PrefillMLPK512OverlayErrorCode::kIoFailure, "compose",
+        "unexpected projection-major hybrid composition failure");
     return result;
   }
 }

@@ -45,6 +45,9 @@ void print_usage(std::ostream& output) {
          " EXPECTED_V1_RECEIPT_SHA"
          " [SOURCE_V2_PAYLOAD SOURCE_V2_RECEIPT EXPECTED_V2_RECEIPT_SHA]"
          " OUTPUT [ROWS]\n"
+      << "  qwen3x-a4-sidecar mlp-k512-projection-major-gateup-canonical-down-compose"
+         " SOURCE_V1_PAYLOAD SOURCE_V1_RECEIPT SOURCE_V1_POLICY"
+         " EXPECTED_V1_RECEIPT_SHA OUTPUT [ROWS]\n"
       << "  qwen3x-a4-sidecar help\n\n"
       << "The convert command accepts only the pinned Qwen3.6-27B-NVFP4 "
          "checkpoint and a versioned production_calibrated policy covering "
@@ -80,7 +83,11 @@ void print_usage(std::ostream& output) {
          "hybrid arena bound only to the explicit K256-base v1 trust root. "
          "The optional authenticated v2 triple accelerates GateUp copying; "
          "it must derive from the exact v1 payload and never changes the "
-         "resulting manifest identity. Existing targets are never replaced.\n";
+         "resulting manifest identity. Existing targets are never replaced.\n\n"
+      << "The projection-major-GateUp/canonical-Down command accepts only "
+         "the explicitly authenticated canonical-v1 source. It publishes a "
+         "separately identified same-size arena and never accepts an older "
+         "hybrid receipt as its trust root.\n";
 }
 
 [[nodiscard]] bool parse_ratio(const char* text, double& output) {
@@ -377,6 +384,67 @@ int run_mlp_k512_paired_gateup_canonical_down_compose(
             << result.stats.source_v1_bytes_read
             << "\nsource_v2_bytes_read="
             << result.stats.source_v2_bytes_read
+            << "\noutput_bytes_written="
+            << result.stats.output_bytes_written
+            << "\npeak_working_bytes=" << result.stats.peak_working_bytes
+            << "\nlayers_composed=" << result.stats.layers_composed << '\n';
+  return 0;
+}
+
+int run_mlp_k512_projection_major_gateup_canonical_down_compose(
+    const int argc, char** argv) {
+  if (argc != 7 && argc != 8) {
+    print_usage(std::cerr);
+    return 2;
+  }
+  runtime::
+      PrefillMLPK512ProjectionMajorGateUpCanonicalDownCompositionOptions
+          options;
+  options.source_v1_payload_path = argv[2];
+  options.source_v1_receipt_path = argv[3];
+  options.source_v1_policy_path = argv[4];
+  if (!parse_lower_sha256(argv[5],
+                          options.expected_source_v1_receipt_sha256)) {
+    std::cerr << "EXPECTED_V1_RECEIPT_SHA must be one explicit lowercase "
+                 "SHA-256\n";
+    return 2;
+  }
+  options.output_path = argv[6];
+  if (argc == 8 &&
+      (!parse_size(argv[7], options.outer_chunk_rows) ||
+       (options.outer_chunk_rows != 512U &&
+        options.outer_chunk_rows != 1'024U))) {
+    std::cerr << "ROWS must be 512 or 1024\n";
+    return 2;
+  }
+  const auto result = runtime::
+      compose_authenticated_prefill_mlp_k512_projection_major_gateup_canonical_down(
+          options);
+  if (!result) {
+    print_diagnostic(result.diagnostic);
+    return 1;
+  }
+  const auto& receipt = *result.receipt;
+  std::cout << "status=published"
+            << "\noverlay=mlp_k512_projection_major_gateup_canonical_down"
+            << "\nproduction_residency_eligible="
+            << (receipt.production_residency_eligible ? "true" : "false")
+            << "\nphysical_layout=" << receipt.physical_layout
+            << "\nsource_checkpoint_id=" << receipt.source_checkpoint_id
+            << "\nsource_v1_receipt_sha256="
+            << receipt.source_v1.receipt_sha256
+            << "\nsource_v1_manifest_sha256="
+            << receipt.source_v1.manifest_sha256
+            << "\nsource_v1_policy_sha256="
+            << receipt.source_v1.policy_sha256
+            << "\nsource_v1_payload_sha256="
+            << receipt.source_v1.payload_sha256
+            << "\nmanifest_sha256=" << receipt.manifest_sha256
+            << "\npayload_sha256=" << receipt.payload_sha256
+            << "\npayload_bytes=" << receipt.payload_bytes
+            << "\nlayers=" << receipt.layer_count
+            << "\nsource_v1_bytes_read="
+            << result.stats.source_v1_bytes_read
             << "\noutput_bytes_written="
             << result.stats.output_bytes_written
             << "\npeak_working_bytes=" << result.stats.peak_working_bytes
@@ -701,6 +769,12 @@ int main(const int argc, char** argv) {
       std::string_view(argv[1]) ==
           "mlp-k512-paired-gateup-canonical-down-compose") {
     return run_mlp_k512_paired_gateup_canonical_down_compose(argc, argv);
+  }
+  if (argc >= 2 &&
+      std::string_view(argv[1]) ==
+          "mlp-k512-projection-major-gateup-canonical-down-compose") {
+    return run_mlp_k512_projection_major_gateup_canonical_down_compose(argc,
+                                                                       argv);
   }
   print_usage(std::cerr);
   return 2;
