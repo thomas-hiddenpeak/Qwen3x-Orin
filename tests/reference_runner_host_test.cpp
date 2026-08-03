@@ -851,6 +851,16 @@ void test_schedule_and_workspace(TestContext& test) {
   const runtime::RequestPlanResult whole_m_built =
       runtime::build_request_memory_plan(whole_m_options);
   test.expect(whole_m_built &&
+                  whole_m_built.value
+                          ->prefill_a4_gateup_r1_product_partial_max_fp32
+                          .element_capacity ==
+                      4'096ULL *
+                          runtime::
+                              kRequestA4GateUpR1ProductPartialMaximaPerToken &&
+                  whole_m_built.value
+                          ->prefill_a4_gateup_r1_product_partial_max_fp32
+                          .byte_size ==
+                      4'096ULL * 136ULL * sizeof(float) &&
                   detail::validate_reference_workspace_plan(
                       *whole_m_built.value) ==
                       runtime::ReferenceRunnerError::kNone,
@@ -891,6 +901,11 @@ void test_schedule_and_workspace(TestContext& test) {
     expect_one_byte_short(
         &runtime::RequestMemoryPlan::prefill_a4_gateup_cta_scratch,
         "paired-Gate CTA scratch one byte below capacity is rejected");
+    expect_one_byte_short(
+        &runtime::RequestMemoryPlan::
+            prefill_a4_gateup_r1_product_partial_max_fp32,
+        "R1 Gate product partial maxima one byte below S4096 capacity are "
+        "rejected");
   }
 
   plan.prefill_chunk_size = runtime::kMaximumRequestPrefillChunkSize;

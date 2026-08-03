@@ -2079,6 +2079,8 @@ class ReferenceRunner {
     std::uint16_t* prefill_a4_intermediate_scales = nullptr;
     std::uint8_t* prefill_a4_gateup_cta_scratch = nullptr;
     std::size_t prefill_a4_gateup_cta_scratch_bytes = 0U;
+    float* prefill_a4_gateup_r1_product_partial_max = nullptr;
+    std::size_t prefill_a4_gateup_r1_product_partial_max_elements = 0U;
     std::uint16_t* linear_a = nullptr;
     std::uint16_t* linear_b = nullptr;
     float* fp32_scratch = nullptr;

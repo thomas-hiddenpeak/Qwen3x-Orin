@@ -1,6 +1,7 @@
 #include "gdn_prefill_chunk_o_bv64_sm87.h"
 #include "gdn_prefill_chunk64_native_sm87.h"
 
+#include "q3x/kernels/sm87_a4w4_attention_k256_m128n256.h"
 #include "q3x/runtime/decode_ops.h"
 #include "q3x/runtime/gdn_decode.h"
 
@@ -11,11 +12,13 @@
 #include <cstdint>
 #include <iostream>
 #include <limits>
+#include <string>
 #include <string_view>
 
 namespace {
 
 namespace chunk_o = q3x::runtime::gdn_prefill_chunk_o_bv64_detail;
+namespace kernels = q3x::kernels;
 namespace native = q3x::runtime::gdn_prefill_chunk64_native_detail;
 namespace runtime = q3x::runtime;
 
@@ -41,10 +44,21 @@ constexpr std::uint16_t kOne = 0x3f80U;
 constexpr std::uint16_t kPoison = 0x7fc1U;
 constexpr std::uint16_t kSmall = 0x3c80U;
 constexpr float kEpsilon = 1.0e-6F;
+constexpr std::size_t kK256InputSize = kValueHeads * kDimension;
+constexpr std::size_t kK256Groups = kK256InputSize / 256U;
+constexpr std::size_t kK256PhysicalGroups = kK256InputSize / 64U;
+constexpr std::size_t kPackedGuardBytes = 64U;
+constexpr std::size_t kScaleGuardElements = 16U;
+constexpr std::uint8_t kPackedSentinel = 0xa5U;
+constexpr std::uint16_t kScaleSentinel = 0x5aa5U;
+constexpr float kK256ClipRatio = 0.875F;
 
 static_assert(kQkHeads == 16U);
 static_assert(kValueHeads == 48U);
 static_assert(kDimension == 128U);
+static_assert(kK256InputSize == 6'144U);
+static_assert(kK256Groups == 24U);
+static_assert(kK256PhysicalGroups == 96U);
 
 template <typename T>
 class ManagedBuffer final {
@@ -75,6 +89,31 @@ class ManagedBuffer final {
   T* data_ = nullptr;
   std::size_t elements_ = 0U;
   cudaError_t status_ = cudaErrorMemoryAllocation;
+};
+
+class NonBlockingStream final {
+ public:
+  NonBlockingStream() noexcept {
+    status_ = cudaStreamCreateWithFlags(&stream_, cudaStreamNonBlocking);
+  }
+
+  ~NonBlockingStream() {
+    if (stream_ != nullptr) {
+      (void)cudaStreamDestroy(stream_);
+    }
+  }
+
+  NonBlockingStream(const NonBlockingStream&) = delete;
+  NonBlockingStream& operator=(const NonBlockingStream&) = delete;
+
+  [[nodiscard]] bool valid() const noexcept {
+    return status_ == cudaSuccess && stream_ != nullptr;
+  }
+  [[nodiscard]] cudaStream_t get() const noexcept { return stream_; }
+
+ private:
+  cudaStream_t stream_ = nullptr;
+  cudaError_t status_ = cudaErrorInitializationError;
 };
 
 class TestContext final {
@@ -254,6 +293,50 @@ void reset(Buffers& buffers) {
   std::cout << " gate=" << (unequal == 0U ? "PASS" : "FAIL") << '\n';
   test.expect(unequal == 0U, label);
   return unequal == 0U;
+}
+
+[[nodiscard]] bool expect_equal_bytes(TestContext& test,
+                                      const std::string_view label,
+                                      const std::uint8_t* const expected,
+                                      const std::uint8_t* const actual,
+                                      const std::size_t elements) {
+  std::size_t unequal = 0U;
+  std::size_t first = std::numeric_limits<std::size_t>::max();
+  for (std::size_t index = 0U; index < elements; ++index) {
+    if (expected[index] != actual[index]) {
+      if (first == std::numeric_limits<std::size_t>::max()) {
+        first = index;
+      }
+      ++unequal;
+    }
+  }
+  std::cout << label << " unequal=" << unequal
+            << " first_unequal="
+            << (first == std::numeric_limits<std::size_t>::max()
+                    ? elements
+                    : first);
+  if (first != std::numeric_limits<std::size_t>::max()) {
+    std::cout << " first_expected=0x" << std::hex
+              << static_cast<unsigned int>(expected[first])
+              << " first_actual=0x"
+              << static_cast<unsigned int>(actual[first]) << std::dec;
+  }
+  std::cout << " gate=" << (unequal == 0U ? "PASS" : "FAIL") << '\n';
+  test.expect(unequal == 0U, label);
+  return unequal == 0U;
+}
+
+template <typename T>
+[[nodiscard]] bool guards_are_sentinel(
+    const T* const allocation, const std::size_t prefix_elements,
+    const std::size_t payload_elements, const std::size_t suffix_elements,
+    const T sentinel) {
+  return std::all_of(allocation, allocation + prefix_elements,
+                     [sentinel](const T value) { return value == sentinel; }) &&
+         std::all_of(allocation + prefix_elements + payload_elements,
+                     allocation + prefix_elements + payload_elements +
+                         suffix_elements,
+                     [sentinel](const T value) { return value == sentinel; });
 }
 
 [[nodiscard]] bool launch_component(Buffers& buffers) {
@@ -534,6 +617,342 @@ void test_prompt_span_vertical_slice_c64(TestContext& test,
                      kOutputElements);
 }
 
+struct K256PublishCase final {
+  std::string_view name;
+  std::size_t tile_logical_tokens;
+  std::size_t destination_first_token;
+};
+
+void fill_k256_publish_inputs(std::uint16_t* const raw,
+                              std::uint16_t* const gate,
+                              std::uint16_t* const weight,
+                              const std::size_t tokens) {
+  constexpr std::uint16_t kRawPatterns[] = {
+      0x0000U, 0x3d80U, 0xbd80U, 0x3e80U, 0xbe00U,
+      0x3f00U, 0xbf40U, 0x4000U, 0xc020U};
+  constexpr std::uint16_t kGatePatterns[] = {
+      0x0000U, 0x3e00U, 0xbe80U, 0x3f00U,
+      0xbf80U, 0x3fc0U, 0xc000U};
+  constexpr std::uint16_t kWeightPatterns[] = {
+      0x3f80U, 0x3f40U, 0x3fc0U, 0xbf00U, 0x3e80U};
+  constexpr std::size_t kRawPatternCount =
+      sizeof(kRawPatterns) / sizeof(kRawPatterns[0]);
+  constexpr std::size_t kGatePatternCount =
+      sizeof(kGatePatterns) / sizeof(kGatePatterns[0]);
+  constexpr std::size_t kWeightPatternCount =
+      sizeof(kWeightPatterns) / sizeof(kWeightPatterns[0]);
+
+  for (std::size_t value = 0U; value < kDimension; ++value) {
+    weight[value] = kWeightPatterns[(3U * value + 1U) % kWeightPatternCount];
+  }
+  for (std::size_t token = 0U; token < tokens; ++token) {
+    for (std::size_t head = 0U; head < kValueHeads; ++head) {
+      const std::size_t base =
+          (token * kValueHeads + head) * kDimension;
+      for (std::size_t value = 0U; value < kDimension; ++value) {
+        raw[base + value] =
+            kRawPatterns[(13U * token + 7U * head + 3U * value) %
+                         kRawPatternCount];
+        gate[base + value] =
+            kGatePatterns[(5U * token + 11U * head + value) %
+                          kGatePatternCount];
+      }
+    }
+  }
+}
+
+[[nodiscard]] bool k256_padding_is_zero_one(
+    const std::uint8_t* const packed,
+    const std::uint16_t* const scales,
+    const std::size_t first_padding_token,
+    const std::size_t launch_token_count) {
+  for (std::size_t token = first_padding_token;
+       token < launch_token_count; ++token) {
+    for (std::size_t group = 0U; group < kK256Groups; ++group) {
+      if (scales[kernels::sm87_a4w4_attention_k256_scale_offset(
+              token, group, kK256Groups)] != kOne) {
+        return false;
+      }
+    }
+    for (std::size_t group = 0U; group < kK256PhysicalGroups; ++group) {
+      for (std::size_t byte = 0U; byte < 32U; ++byte) {
+        if (packed[kernels::sm87_a4w4_attention_k256_packed_offset(
+                token, group, byte, kK256PhysicalGroups)] != 0U) {
+          return false;
+        }
+      }
+    }
+  }
+  return true;
+}
+
+void test_norm_k256_a4_resources(TestContext& test) {
+  int registers = 0;
+  std::size_t static_shared = 0U;
+  std::size_t local_bytes = 0U;
+  int maximum_threads = 0;
+  int active_blocks = 0;
+  const int status = chunk_o::query_norm_k256_a4_resources(
+      &registers, &static_shared, &local_bytes, &maximum_threads,
+      &active_blocks);
+  const bool admitted =
+      test.cuda_ok(status, "query direct norm K256 A4 resources") &&
+      registers > 0 && registers <= 128 && static_shared == 32U &&
+      local_bytes == 0U && maximum_threads >= 256 && active_blocks >= 2;
+  test.expect(admitted,
+              "direct norm K256 A4 retains two CTA/SM resource contract");
+  std::cout << "GDN_CHUNK_O_BV64_NORM_K256_A4_RESOURCES regs=" << registers
+            << " static_shared=" << static_shared
+            << " local_bytes=" << local_bytes
+            << " max_threads=" << maximum_threads
+            << " active_blocks_per_sm=" << active_blocks
+            << " gate=" << (admitted ? "PASS" : "FAIL") << '\n';
+}
+
+void test_norm_rows8_k256_a4_case(TestContext& test,
+                                  const K256PublishCase& spec) {
+  constexpr std::size_t kWholeLogicalTokens = 1'853U;
+  constexpr std::size_t kWholeLaunchTokens = 1'920U;
+  static_assert(
+      kernels::sm87_a4w4_attention_k256_launch_token_count(
+          kWholeLogicalTokens) == kWholeLaunchTokens);
+
+  const std::size_t local_launch_tokens =
+      kernels::sm87_a4w4_attention_k256_launch_token_count(
+          spec.tile_logical_tokens);
+  const std::size_t input_elements =
+      spec.tile_logical_tokens * kK256InputSize;
+  const std::size_t whole_packed_bytes =
+      kernels::sm87_a4w4_attention_k256_packed_capacity_bytes(
+          kWholeLaunchTokens, kK256InputSize);
+  const std::size_t whole_scale_elements =
+      kernels::sm87_a4w4_attention_k256_scale_capacity_elements(
+          kWholeLaunchTokens, kK256InputSize);
+  const std::size_t local_packed_bytes =
+      kernels::sm87_a4w4_attention_k256_packed_capacity_bytes(
+          local_launch_tokens, kK256InputSize);
+  const std::size_t local_scale_elements =
+      kernels::sm87_a4w4_attention_k256_scale_capacity_elements(
+          local_launch_tokens, kK256InputSize);
+  const bool capacities_valid =
+      local_launch_tokens != 0U && input_elements != 0U &&
+      whole_packed_bytes != 0U && whole_scale_elements != 0U &&
+      local_packed_bytes != 0U && local_scale_elements != 0U;
+  test.expect(capacities_valid,
+              std::string(spec.name) + " direct K256 capacities");
+  if (!capacities_valid) {
+    return;
+  }
+
+  ManagedBuffer<std::uint16_t> raw(input_elements);
+  ManagedBuffer<std::uint16_t> gate(input_elements);
+  ManagedBuffer<std::uint16_t> weight(kDimension);
+  ManagedBuffer<std::uint16_t> normalized(input_elements);
+  ManagedBuffer<std::uint8_t> incumbent_packed(
+      local_packed_bytes + 2U * kPackedGuardBytes);
+  ManagedBuffer<std::uint16_t> incumbent_scales(
+      local_scale_elements + 2U * kScaleGuardElements);
+  ManagedBuffer<std::uint8_t> expected_packed(
+      whole_packed_bytes + 2U * kPackedGuardBytes);
+  ManagedBuffer<std::uint16_t> expected_scales(
+      whole_scale_elements + 2U * kScaleGuardElements);
+  ManagedBuffer<std::uint8_t> candidate_packed(
+      whole_packed_bytes + 2U * kPackedGuardBytes);
+  ManagedBuffer<std::uint16_t> candidate_scales(
+      whole_scale_elements + 2U * kScaleGuardElements);
+  NonBlockingStream stream;
+  const bool allocated =
+      raw.valid() && gate.valid() && weight.valid() && normalized.valid() &&
+      incumbent_packed.valid() && incumbent_scales.valid() &&
+      expected_packed.valid() && expected_scales.valid() &&
+      candidate_packed.valid() && candidate_scales.valid() && stream.valid();
+  test.expect(allocated,
+              std::string(spec.name) +
+                  " allocate direct K256 byte-for-byte fixture");
+  test.expect(stream.valid() && stream.get() != nullptr,
+              std::string(spec.name) + " uses a nondefault CUDA stream");
+  if (!allocated) {
+    return;
+  }
+
+  fill_k256_publish_inputs(raw.data(), gate.data(), weight.data(),
+                           spec.tile_logical_tokens);
+  std::fill_n(normalized.data(), normalized.size(), kPoison);
+  std::fill_n(incumbent_packed.data(), incumbent_packed.size(),
+              kPackedSentinel);
+  std::fill_n(incumbent_scales.data(), incumbent_scales.size(),
+              kScaleSentinel);
+  std::fill_n(expected_packed.data(), expected_packed.size(),
+              kPackedSentinel);
+  std::fill_n(expected_scales.data(), expected_scales.size(),
+              kScaleSentinel);
+  std::fill_n(candidate_packed.data(), candidate_packed.size(),
+              kPackedSentinel);
+  std::fill_n(candidate_scales.data(), candidate_scales.size(),
+              kScaleSentinel);
+
+  std::uint8_t* const incumbent_packed_payload =
+      incumbent_packed.data() + kPackedGuardBytes;
+  std::uint16_t* const incumbent_scale_payload =
+      incumbent_scales.data() + kScaleGuardElements;
+  std::uint8_t* const expected_packed_payload =
+      expected_packed.data() + kPackedGuardBytes;
+  std::uint16_t* const expected_scale_payload =
+      expected_scales.data() + kScaleGuardElements;
+  std::uint8_t* const candidate_packed_payload =
+      candidate_packed.data() + kPackedGuardBytes;
+  std::uint16_t* const candidate_scale_payload =
+      candidate_scales.data() + kScaleGuardElements;
+
+  const int rejected_status = chunk_o::launch_norm_rows8_k256_a4(
+      raw.data(), weight.data(), gate.data(), spec.tile_logical_tokens,
+      kEpsilon, spec.destination_first_token, kWholeLogicalTokens,
+      kWholeLaunchTokens, kK256ClipRatio, candidate_packed_payload,
+      whole_packed_bytes - 1U, candidate_scale_payload,
+      whole_scale_elements, stream.get());
+  test.expect(rejected_status == static_cast<int>(cudaErrorInvalidValue),
+              std::string(spec.name) +
+                  " rejects one-byte-short packed capacity");
+  const bool rejected_untouched =
+      std::all_of(candidate_packed.data(),
+                  candidate_packed.data() + candidate_packed.size(),
+                  [](const std::uint8_t value) {
+                    return value == kPackedSentinel;
+                  }) &&
+      std::all_of(candidate_scales.data(),
+                  candidate_scales.data() + candidate_scales.size(),
+                  [](const std::uint16_t value) {
+                    return value == kScaleSentinel;
+                  });
+  test.expect(rejected_untouched,
+              std::string(spec.name) +
+                  " rejected launch leaves payload and guards untouched");
+
+  const int norm_status = chunk_o::launch_norm_rows8(
+      raw.data(), weight.data(), gate.data(),
+      spec.tile_logical_tokens * kValueHeads, kEpsilon, normalized.data(),
+      stream.get());
+  const int incumbent_status =
+      kernels::launch_sm87_a4_quantize_bf16_k256_cuda(
+          normalized.data(), kK256InputSize, spec.tile_logical_tokens,
+          local_launch_tokens, kK256InputSize, kK256ClipRatio,
+          incumbent_packed_payload, local_packed_bytes,
+          incumbent_scale_payload, local_scale_elements, stream.get());
+  const int candidate_status = chunk_o::launch_norm_rows8_k256_a4(
+      raw.data(), weight.data(), gate.data(), spec.tile_logical_tokens,
+      kEpsilon, spec.destination_first_token, kWholeLogicalTokens,
+      kWholeLaunchTokens, kK256ClipRatio, candidate_packed_payload,
+      whole_packed_bytes, candidate_scale_payload, whole_scale_elements,
+      stream.get());
+  const bool launched =
+      test.cuda_ok(norm_status, std::string(spec.name) +
+                                    " launch incumbent BF16 norm") &&
+      test.cuda_ok(incumbent_status, std::string(spec.name) +
+                                         " launch incumbent K256 quantize") &&
+      test.cuda_ok(candidate_status, std::string(spec.name) +
+                                         " launch direct K256 publisher") &&
+      test.cuda_ok(static_cast<int>(cudaStreamSynchronize(stream.get())),
+                   std::string(spec.name) +
+                       " synchronize nondefault CUDA stream");
+  if (!launched) {
+    return;
+  }
+
+  const bool final_slice =
+      spec.destination_first_token + spec.tile_logical_tokens ==
+      kWholeLogicalTokens;
+  const std::size_t padding_tokens =
+      final_slice ? kWholeLaunchTokens - kWholeLogicalTokens : 0U;
+  const std::size_t publish_tokens =
+      spec.tile_logical_tokens + padding_tokens;
+  test.expect(publish_tokens <= local_launch_tokens,
+              std::string(spec.name) +
+                  " incumbent oracle covers direct publish rows");
+  if (publish_tokens > local_launch_tokens) {
+    return;
+  }
+
+  for (std::size_t local_token = 0U; local_token < publish_tokens;
+       ++local_token) {
+    const std::size_t destination_token =
+        spec.destination_first_token + local_token;
+    for (std::size_t group = 0U; group < kK256PhysicalGroups; ++group) {
+      for (std::size_t byte = 0U; byte < 32U; ++byte) {
+        expected_packed_payload[
+            kernels::sm87_a4w4_attention_k256_packed_offset(
+                destination_token, group, byte, kK256PhysicalGroups)] =
+            incumbent_packed_payload[
+                kernels::sm87_a4w4_attention_k256_packed_offset(
+                    local_token, group, byte, kK256PhysicalGroups)];
+      }
+    }
+    for (std::size_t group = 0U; group < kK256Groups; ++group) {
+      expected_scale_payload[
+          kernels::sm87_a4w4_attention_k256_scale_offset(
+              destination_token, group, kK256Groups)] =
+          incumbent_scale_payload[
+              kernels::sm87_a4w4_attention_k256_scale_offset(
+                  local_token, group, kK256Groups)];
+    }
+  }
+
+  const std::string label_prefix =
+      "GDN_CHUNK_O_BV64_NORM_K256_A4_" + std::string(spec.name);
+  (void)expect_equal_bytes(
+      test, label_prefix + "_PACKED_DEST_SLICE_AND_GUARDS",
+      expected_packed.data(), candidate_packed.data(),
+      candidate_packed.size());
+  (void)expect_equal(test, label_prefix + "_SCALES_DEST_SLICE_AND_GUARDS",
+                     expected_scales.data(), candidate_scales.data(),
+                     candidate_scales.size());
+
+  const bool incumbent_guards =
+      guards_are_sentinel(incumbent_packed.data(), kPackedGuardBytes,
+                          local_packed_bytes, kPackedGuardBytes,
+                          kPackedSentinel) &&
+      guards_are_sentinel(incumbent_scales.data(), kScaleGuardElements,
+                          local_scale_elements, kScaleGuardElements,
+                          kScaleSentinel);
+  const bool candidate_guards =
+      guards_are_sentinel(candidate_packed.data(), kPackedGuardBytes,
+                          whole_packed_bytes, kPackedGuardBytes,
+                          kPackedSentinel) &&
+      guards_are_sentinel(candidate_scales.data(), kScaleGuardElements,
+                          whole_scale_elements, kScaleGuardElements,
+                          kScaleSentinel);
+  test.expect(incumbent_guards,
+              label_prefix + " incumbent quantizer guards intact");
+  test.expect(candidate_guards,
+              label_prefix + " direct publisher guards intact");
+
+  if (final_slice) {
+    const bool padding_ok = k256_padding_is_zero_one(
+        candidate_packed_payload, candidate_scale_payload,
+        kWholeLogicalTokens, kWholeLaunchTokens);
+    test.expect(padding_ok, label_prefix + " final P1920 padding zero/one");
+    std::cout << label_prefix << "_FINAL_PADDING first="
+              << kWholeLogicalTokens << " end=" << kWholeLaunchTokens
+              << " gate=" << (padding_ok ? "PASS" : "FAIL") << '\n';
+  }
+}
+
+void test_norm_rows8_k256_a4(TestContext& test) {
+  // All cases publish into the same production-sized P1853/P1920 ABI.  The
+  // short cases are final slices, proving that C1..C31 can own the tail and
+  // its padding; C512 proves that an interior destination slice does not
+  // disturb any other row.
+  constexpr K256PublishCase kCases[] = {
+      {"C1_FINAL_P1853", 1U, 1'852U},
+      {"C31_FINAL_P1853", 31U, 1'822U},
+      {"C317_FINAL_P1853", 317U, 1'536U},
+      {"C512_INTERIOR_P1853", 512U, 1'024U},
+  };
+  test_norm_k256_a4_resources(test);
+  for (const K256PublishCase& spec : kCases) {
+    test_norm_rows8_k256_a4_case(test, spec);
+  }
+}
+
 }  // namespace
 
 int main() {
@@ -562,6 +981,7 @@ int main() {
   test_qk_v_only(test, buffers);
   test_rows8_norm(test, buffers);
   test_prompt_span_vertical_slice_c64(test, buffers);
+  test_norm_rows8_k256_a4(test);
   std::cout << "GDN_CHUNK_O_BV64_COMPONENT_RESULT gate="
             << (test.result() == 0 ? "PASS" : "FAIL")
             << " authority=SYNTHETIC_CORRECTNESS_ONLY\n";

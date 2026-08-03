@@ -2765,12 +2765,17 @@ void record_a4w4_attention_supermatrix_launch(
     const bool enabled, const ProjectionBackend backend,
     const std::uint32_t /*first_position*/,
     const std::size_t token_count, const void* const workspace,
-    const std::size_t workspace_bytes) noexcept {
+    const std::size_t workspace_bytes,
+    const bool require_direct_k256_handoff = false) noexcept {
   // The fixed C64 hierarchy can pad any C1..C512 tile. Production admission
   // starts at C32: the real scheduler keeps an isolated C1 seed/tail on its
   // scalar path, while exact C32/C52/C481 runner screens prove the bulk route.
+  // The R1 handoff cannot leave such a tile unpublished, so its stronger
+  // contract admits the independently verified exact C1..C31 path as well.
   return enabled && backend == ProjectionBackend::kSm87WeightOnly &&
-         token_count >= 32U && token_count <= 512U &&
+         reference_runner_detail::
+             prefill_gdn_chunk64_native_token_count_supported(
+                 token_count, require_direct_k256_handoff) &&
          workspace != nullptr &&
          workspace_bytes >=
              gdn_prefill_chunk64_native_detail::workspace_bytes();
@@ -2916,6 +2921,12 @@ ReferenceRunnerStatus ReferenceRunner::collect_request_views(
         state->prefill_a4_intermediate_scales();
     RequestViewResult gateup_cta_scratch =
         state->prefill_a4_gateup_cta_scratch();
+    RequestViewResult gateup_r1_product_partial_max =
+        state->prefill_a4_gateup_r1_product_partial_max();
+    const std::uint64_t a4_workspace_tokens =
+        state->plan().long_prefill_projection_span_capacity == 0U
+            ? state->plan().prefill_chunk_size
+            : state->plan().long_prefill_projection_span_capacity;
     if (!valid_view(hidden_packed,
                     workspace_tokens * kReferenceHiddenSize / 2U, 1U) ||
         !valid_view(hidden_scales,
@@ -2930,7 +2941,12 @@ ReferenceRunnerStatus ReferenceRunner::collect_request_views(
                         kRequestA4PrefillScaleGroupSize,
                     sizeof(std::uint16_t)) ||
         !valid_view(gateup_cta_scratch,
-                    kRequestA4GateUpCtaScratchBytes, 1U)) {
+                    kRequestA4GateUpCtaScratchBytes, 1U) ||
+        !valid_view(
+            gateup_r1_product_partial_max,
+            a4_workspace_tokens *
+                kRequestA4GateUpR1ProductPartialMaximaPerToken,
+            sizeof(float))) {
       return runner_status(ReferenceRunnerError::kInvalidRequestState,
                            "prefill_a4_workspace");
     }
@@ -2946,6 +2962,11 @@ ReferenceRunnerStatus ReferenceRunner::collect_request_views(
         gateup_cta_scratch.value->device_data);
     views.prefill_a4_gateup_cta_scratch_bytes =
         static_cast<std::size_t>(gateup_cta_scratch.value->byte_size);
+    views.prefill_a4_gateup_r1_product_partial_max = static_cast<float*>(
+        gateup_r1_product_partial_max.value->device_data);
+    views.prefill_a4_gateup_r1_product_partial_max_elements =
+        static_cast<std::size_t>(
+            gateup_r1_product_partial_max.value->element_capacity);
   }
 
   RequestViewResult linear_a = state->linear_a_buffer();
@@ -4063,7 +4084,8 @@ ReferenceRunnerError validate_reference_workspace_plan(
       plan.prefill_a4_hidden_scales_bf16.byte_size != 0U ||
       plan.prefill_a4_intermediate_packed.byte_size != 0U ||
       plan.prefill_a4_intermediate_scales_bf16.byte_size != 0U ||
-      plan.prefill_a4_gateup_cta_scratch.byte_size != 0U;
+      plan.prefill_a4_gateup_cta_scratch.byte_size != 0U ||
+      plan.prefill_a4_gateup_r1_product_partial_max_fp32.byte_size != 0U;
   const std::uint64_t a4_workspace_tokens =
       plan.long_prefill_projection_span_capacity == 0U
           ? plan.prefill_chunk_size
@@ -4087,7 +4109,11 @@ ReferenceRunnerError validate_reference_workspace_plan(
                kReferenceIntermediateSize /
                kRequestA4PrefillScaleGroupSize) ||
        !byte_region_at_least(plan.prefill_a4_gateup_cta_scratch,
-                             kRequestA4GateUpCtaScratchBytes))) {
+                             kRequestA4GateUpCtaScratchBytes) ||
+       !fp32_region_at_least(
+           plan.prefill_a4_gateup_r1_product_partial_max_fp32,
+           a4_workspace_tokens *
+               kRequestA4GateUpR1ProductPartialMaximaPerToken))) {
     return ReferenceRunnerError::kInvalidRequestState;
   }
   if (!bf16_region_at_least(
@@ -8545,7 +8571,7 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
                 enable_gdn_chunk64_native_admission, projection_backend_,
                 tile.first_position, tile.token_count,
                 prefill_gdn_chunk64_native_workspace_,
-                prefill_gdn_chunk64_native_workspace_bytes_);
+                prefill_gdn_chunk64_native_workspace_bytes_, true);
       }
       if (!gdn_k256_direct_pack_selected) {
         return runner_status(
@@ -8586,7 +8612,8 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
               enable_gdn_chunk64_native_admission, projection_backend_,
               tile.first_position, tile.token_count,
               prefill_gdn_chunk64_native_workspace_,
-              prefill_gdn_chunk64_native_workspace_bytes_);
+              prefill_gdn_chunk64_native_workspace_bytes_,
+              gdn_k256_direct_pack_selected);
       if (use_gdn_chunk64_native) {
         const bool use_token_parallel_conv =
             g_enable_gdn_conv_token_parallel_admission;
@@ -9762,14 +9789,13 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
          (!product_finalize_plan ||
           product_finalize_plan.gate_launch_token_count !=
               gate_launch_token_count ||
-          views_.prefill_a4_gateup_cta_scratch == nullptr ||
+          views_.prefill_a4_gateup_r1_product_partial_max == nullptr ||
           reinterpret_cast<std::uintptr_t>(
-              views_.prefill_a4_gateup_cta_scratch) %
+              views_.prefill_a4_gateup_r1_product_partial_max) %
                   alignof(float) !=
               0U ||
-          views_.prefill_a4_gateup_cta_scratch_bytes <
-              product_finalize_plan.partial_capacity_elements *
-                  sizeof(float))) ||
+          views_.prefill_a4_gateup_r1_product_partial_max_elements <
+              product_finalize_plan.partial_capacity_elements)) ||
         gate_a_bytes == 0U || gate_a_scales == 0U ||
         down_a_bytes == 0U || down_a_scales == 0U ||
         hidden_packed_capacity < gate_a_bytes ||
@@ -9827,10 +9853,9 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
                           secondary_capacity,
                           factorized.down.inverse_alpha,
                           factorized.down.inverse_alpha_capacity_elements,
-                          reinterpret_cast<float*>(
-                              views_.prefill_a4_gateup_cta_scratch),
-                          views_.prefill_a4_gateup_cta_scratch_bytes /
-                              sizeof(float),
+                          views_.prefill_a4_gateup_r1_product_partial_max,
+                          views_
+                              .prefill_a4_gateup_r1_product_partial_max_elements,
                           stream_)
                 : kernels::launch_sm87_a4w4_gateup_factorized_lane_bf16_cuda(
                       views_.prefill_a4_hidden_packed,
@@ -9864,10 +9889,9 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
                       kernels::kSm87A4W4GateUpFactorizedSecondaryStride,
                       secondary_capacity, factorized.down.inverse_alpha,
                       factorized.down.inverse_alpha_capacity_elements,
-                      reinterpret_cast<const float*>(
-                          views_.prefill_a4_gateup_cta_scratch),
-                      views_.prefill_a4_gateup_cta_scratch_bytes /
-                          sizeof(float),
+                      views_.prefill_a4_gateup_r1_product_partial_max,
+                      views_
+                          .prefill_a4_gateup_r1_product_partial_max_elements,
                       token_count, down_launch_token_count,
                       factorized.down.activation_clip_ratio,
                       views_.prefill_a4_intermediate_packed,
@@ -14081,6 +14105,15 @@ ReferenceRunnerFactoryResult create_reference_runner(
         "factorized_lane_r1_handoff_requires_r1_master");
     return result;
   }
+#if defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R1_ADMISSION) && \
+    !defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
+  if (options.enable_factorized_lane_r1_handoff_prefill_admission) {
+    result.diagnostic = runner_status(
+        ReferenceRunnerError::kInvalidDependency,
+        "factorized_lane_r1_handoff_requires_gdn_chunk64_native_build");
+    return result;
+  }
+#endif
 #if !defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R4_ADMISSION)
   if (options.enable_factorized_lane_r4_prefill_admission) {
     result.diagnostic = runner_status(

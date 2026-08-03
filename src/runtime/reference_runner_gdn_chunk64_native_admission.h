@@ -8,6 +8,19 @@ class RequestState;
 
 namespace reference_runner_detail {
 
+// Ordinary native-GDN admission keeps the established C32 lower bound so an
+// isolated short seed/tail remains on the exact scalar route.  The R1 handoff
+// has a stronger contract: every state tile must publish the next K256 A4
+// operand, and the fixed native hierarchy plus its direct publisher support
+// every true C1..C512 tile without rounding the logical extent.
+[[nodiscard]] constexpr bool
+prefill_gdn_chunk64_native_token_count_supported(
+    const std::size_t token_count,
+    const bool require_direct_k256_handoff) noexcept {
+  const std::size_t minimum = require_direct_k256_handoff ? 1U : 32U;
+  return token_count >= minimum && token_count <= 512U;
+}
+
 [[nodiscard]] constexpr std::size_t
 prefill_gdn_chunk64_native_prefix_token_count(
     const std::size_t token_count) noexcept {

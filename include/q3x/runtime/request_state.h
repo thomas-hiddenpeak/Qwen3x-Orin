@@ -25,6 +25,10 @@ inline constexpr std::size_t kRequestLongPrefillHiddenBufferCount = 2U;
 inline constexpr std::size_t kRequestA4PrefillScaleGroupSize = 64U;
 inline constexpr std::uint64_t kRequestA4GateUpCtaScratchBytes =
     16ULL * 64ULL * 1024ULL;
+// Gate/Up R1 handoff publishes one FP32 product maximum per K128 output tile
+// and padded token row. Qwen3.6's 17,408-wide intermediate has 136 tiles.
+inline constexpr std::uint64_t
+    kRequestA4GateUpR1ProductPartialMaximaPerToken = 136U;
 inline constexpr std::uint32_t kRequestLongPrefillProjectionSpanAlignment =
     kMaximumRequestPrefillChunkSize;
 inline constexpr std::uint32_t kRequestLongPrefillAdmissionMaximumTokens =
@@ -167,6 +171,10 @@ struct RequestMemoryPlan {
     // reserved with every A4 Prefill workspace so baseline and candidate use
     // the same arena and CUDA Graph capture never observes a lazy allocation.
     RequestRegion prefill_a4_gateup_cta_scratch;  // [16, 64 KiB] U8
+    // Dedicated R1 Gate-product reduction backing. This must scale with the
+    // admitted whole-M span; the fixed CTA scratch above remains unchanged for
+    // K512 users whose scratch ABI is exactly 1 MiB.
+    RequestRegion prefill_a4_gateup_r1_product_partial_max_fp32;  // [T, 136]
     RequestRegion linear_a_bf16;  // [48], independent from projection buffers
     RequestRegion linear_b_bf16;  // [48], independent from projection buffers
     RequestRegion fp32_scratch;
@@ -307,6 +315,8 @@ class RequestState {
     [[nodiscard]] RequestViewResult prefill_a4_intermediate_packed() noexcept;
     [[nodiscard]] RequestViewResult prefill_a4_intermediate_scales() noexcept;
     [[nodiscard]] RequestViewResult prefill_a4_gateup_cta_scratch() noexcept;
+    [[nodiscard]] RequestViewResult
+    prefill_a4_gateup_r1_product_partial_max() noexcept;
     [[nodiscard]] RequestViewResult linear_a_buffer() noexcept;
     [[nodiscard]] RequestViewResult linear_b_buffer() noexcept;
     [[nodiscard]] RequestViewResult fp32_scratch() noexcept;

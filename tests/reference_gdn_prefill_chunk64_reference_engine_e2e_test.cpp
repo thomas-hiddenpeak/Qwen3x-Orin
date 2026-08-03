@@ -54,6 +54,20 @@ static_assert(detail::prefill_gdn_chunk64_legacy_tail_token_count(127U) ==
               63U);
 static_assert(detail::prefill_gdn_chunk64_legacy_tail_token_count(481U) ==
               33U);
+static_assert(!detail::prefill_gdn_chunk64_native_token_count_supported(
+    1U, false));
+static_assert(!detail::prefill_gdn_chunk64_native_token_count_supported(
+    31U, false));
+static_assert(detail::prefill_gdn_chunk64_native_token_count_supported(
+    32U, false));
+static_assert(detail::prefill_gdn_chunk64_native_token_count_supported(
+    1U, true));
+static_assert(detail::prefill_gdn_chunk64_native_token_count_supported(
+    31U, true));
+static_assert(detail::prefill_gdn_chunk64_native_token_count_supported(
+    512U, true));
+static_assert(!detail::prefill_gdn_chunk64_native_token_count_supported(
+    513U, true));
 
 [[nodiscard]] bool exchange_admission(const bool enabled) noexcept {
   return detail::exchange_prefill_gdn_chunk64_native_admission_test_enabled(

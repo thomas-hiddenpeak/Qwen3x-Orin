@@ -289,6 +289,7 @@ RequestPlanResult build_request_memory_plan(
     std::uint64_t a4_hidden_scale_elements = 0U;
     std::uint64_t a4_intermediate_packed_bytes = 0U;
     std::uint64_t a4_intermediate_scale_elements = 0U;
+    std::uint64_t a4_gateup_r1_product_partial_max_elements = 0U;
     std::uint64_t linear_scalar_elements = 0U;
     const std::uint64_t a4_workspace_token_capacity =
         options.long_prefill_projection_span_capacity == 0U
@@ -346,6 +347,11 @@ RequestPlanResult build_request_memory_plan(
                               kRequestA4PrefillScaleGroupSize,
                           a4_workspace_token_capacity,
                           a4_intermediate_scale_elements) ||
+        (options.enable_a4_prefill_workspace &&
+         !checked_multiply(
+             a4_workspace_token_capacity,
+             kRequestA4GateUpR1ProductPartialMaximaPerToken,
+             a4_gateup_r1_product_partial_max_elements)) ||
         !checked_multiply(kLinearScalarElements,
                           options.prefill_chunk_size,
                           linear_scalar_elements)) {
@@ -474,12 +480,16 @@ RequestPlanResult build_request_memory_plan(
             "long_prefill_projection_span_bf16"));
     }
     if (options.enable_a4_prefill_workspace &&
-        !builder.add(kRequestA4GateUpCtaScratchBytes, 1U,
-                     plan.prefill_a4_gateup_cta_scratch)) {
+        (!builder.add(kRequestA4GateUpCtaScratchBytes, 1U,
+                      plan.prefill_a4_gateup_cta_scratch) ||
+         !builder.add(
+             a4_gateup_r1_product_partial_max_elements,
+             kFp32Bytes,
+             plan.prefill_a4_gateup_r1_product_partial_max_fp32))) {
         return plan_failure(make_diagnostic(
             RequestErrorCode::kArithmeticOverflow,
-            "paired-Gate CTA scratch layout overflows uint64",
-            "prefill_a4_gateup_cta_scratch"));
+            "A4 Gate scratch layout overflows uint64",
+            "prefill_a4_gateup_scratch"));
     }
     if (!builder.align()) {
         return plan_failure(make_diagnostic(
@@ -861,6 +871,20 @@ RequestViewResult RequestState::prefill_a4_gateup_cta_scratch() noexcept {
     }
     RequestViewResult result;
     result.value.emplace(mutable_view(plan_.prefill_a4_gateup_cta_scratch));
+    return result;
+}
+
+RequestViewResult
+RequestState::prefill_a4_gateup_r1_product_partial_max() noexcept {
+    if (arena_ == nullptr) {
+        return access_failure(RequestAccessError::kEmptyState);
+    }
+    if (plan_.prefill_a4_gateup_r1_product_partial_max_fp32.byte_size == 0U) {
+        return access_failure(RequestAccessError::kCapacityExceeded);
+    }
+    RequestViewResult result;
+    result.value.emplace(mutable_view(
+        plan_.prefill_a4_gateup_r1_product_partial_max_fp32));
     return result;
 }
 

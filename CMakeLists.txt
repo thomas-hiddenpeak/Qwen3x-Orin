@@ -1841,6 +1841,18 @@ if(BUILD_TESTING)
       q3x_enable_warnings(
         q3x_sm87_a4w4_prefill_handoff_correctness_test
       )
+
+      add_executable(
+        q3x_sm87_a4w4_gateup_r1_product_finalize_correctness_test
+        tests/sm87_a4w4_gateup_r1_product_finalize_correctness_test.cu
+      )
+      target_link_libraries(
+        q3x_sm87_a4w4_gateup_r1_product_finalize_correctness_test
+        PRIVATE q3x::kernels CUDA::cudart
+      )
+      q3x_enable_warnings(
+        q3x_sm87_a4w4_gateup_r1_product_finalize_correctness_test
+      )
     endif()
 
     add_executable(q3x_sm87_a4w4_gateup_factorized_lane_correctness_test
@@ -1911,6 +1923,19 @@ if(BUILD_TESTING)
       set_tests_properties(
         sm87_a4w4_prefill_handoff_correctness PROPERTIES
         LABELS "cuda;sm87;prefill;handoff;mlp;attention;a4w4;factorized-lane;r1;correctness;resources;guard;stream;graph;synthetic"
+        SKIP_RETURN_CODE 77
+        RESOURCE_LOCK q3x_sm87_gpu
+        TIMEOUT 1200
+      )
+
+      add_test(NAME sm87_a4w4_gateup_r1_product_finalize_correctness
+        COMMAND "${Q3X_FACTORIZED_LANE_FLOCK_EXECUTABLE}"
+                -x /tmp/q3x-gpu-bench.lock
+                $<TARGET_FILE:q3x_sm87_a4w4_gateup_r1_product_finalize_correctness_test>
+      )
+      set_tests_properties(
+        sm87_a4w4_gateup_r1_product_finalize_correctness PROPERTIES
+        LABELS "cuda;sm87;prefill;mlp;a4w4;factorized-lane;r1;gateup;handoff;finalizer;correctness;resources;guard;stream;synthetic"
         SKIP_RETURN_CODE 77
         RESOURCE_LOCK q3x_sm87_gpu
         TIMEOUT 1200
