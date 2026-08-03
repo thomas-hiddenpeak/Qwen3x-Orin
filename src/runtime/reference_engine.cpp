@@ -514,6 +514,9 @@ struct PrefillMLPK512ProjectionMajorGateUpCanonicalDownEnginePaths final {
   const bool m32n512_owner_gate_selected =
       exact_environment_selector_enabled(
           "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M32N512_OWNER_ADMISSION");
+  const bool shape_separated_marlin_package_selected =
+      exact_environment_selector_enabled(
+          "Q3X_RUN_A4W4_MLP_K512_SHAPE_SEPARATED_MARLIN_PACKAGE_ADMISSION");
   const bool projection_serial_gate_selected =
       exact_environment_selector_enabled(
           "Q3X_RUN_A4W4_GATEUP_K512_M128N128_PROJECTION_SERIAL_ADMISSION");
@@ -548,6 +551,54 @@ struct PrefillMLPK512ProjectionMajorGateUpCanonicalDownEnginePaths final {
     error = "the M32N512 Gate+Up edge-owner selector conflicts with the "
             "cross-CTA L2 macro modifiers";
     return false;
+  }
+
+#if !defined(Q3X_ENABLE_A4W4_MLP_K512_SHAPE_SEPARATED_MARLIN_PACKAGE_ADMISSION)
+  if (shape_separated_marlin_package_selected) {
+    error = "this binary does not contain the shape-separated high-register "
+            "MLP package admission";
+    return false;
+  }
+#endif
+  if (shape_separated_marlin_package_selected) {
+    if (optimized_prefill_dispatch_disabled()) {
+      error = "the shape-separated high-register MLP package cannot run "
+              "while optimized Prefill dispatch is disabled";
+      return false;
+    }
+    if (!mlp_k512_v1_publication_requested || !mlp_k512_v1_selected ||
+        fragment_native_publication_requested || fragment_native_selected ||
+        hybrid_publication_requested || hybrid_selected ||
+        any_projection_major_selector || !ldmatrix_pairfeed_gate_selected ||
+        !pairring16_selected) {
+      error = "the shape-separated high-register MLP package requires the "
+              "authenticated v1 K512 master plus the production LDSM "
+              "pair-feed and Down16 parent selectors";
+      return false;
+    }
+    if (paired_ldmatrix_gate_selected || paired_warp_gate_selected ||
+        pairring_selected || pairring16_l2_macro4x4_selected ||
+        alternating_gate_selected || m32n512_owner_gate_selected ||
+        projection_serial_gate_selected || same_cta_gate_selected ||
+        fused_quantize_gate_selected ||
+        prefill_down_k512_m16n64_v2_environment_enabled() ||
+        prefill_legacy_down_selector_environment_enabled() ||
+        exact_environment_selector_enabled(
+            "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_ADMISSION") ||
+        exact_environment_selector_enabled(
+            "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M128N64_ADMISSION") ||
+        exact_environment_selector_enabled(
+            "Q3X_RUN_A4W4_GATEUP_COMPLETE_CELL_V2_ADMISSION") ||
+        exact_environment_selector_enabled(
+            "Q3X_RUN_A4W4_M128_STAGE_MAJOR_ADMISSION") ||
+        exact_environment_selector_enabled(
+            "Q3X_RUN_A4W4_GATEUP_PROJECTION_V3_ADMISSION") ||
+        exact_environment_selector_enabled(
+            "Q3X_RUN_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_L2_MACRO4X4_ADMISSION")) {
+      error = "the shape-separated high-register MLP package conflicts with "
+              "every sibling Gate/Down route and cross-CTA L2 modifier";
+      return false;
+    }
   }
 
   if (register_pipeline_gate_selected != projection_major_selected) {

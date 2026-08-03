@@ -122,6 +122,10 @@ option(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M32N512_OWNER_EXPERIMENT
   "Build the default-off M32N512 Gate+Up edge-owner experiment"
   OFF
 )
+option(Q3X_BUILD_SM87_A4W4_MLP_K512_SHAPE_SEPARATED_MARLIN_PACKAGE_EXPERIMENT
+  "Build the default-off high-register M64N256 Gate+Up and 16-warp M64N256 Down package"
+  OFF
+)
 option(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_STAGED_EXPERIMENT
   "Build the default-off M64N128 split-projection K256 staged resource experiment"
   OFF
@@ -419,6 +423,15 @@ if(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M32N512_OWNER_EXPERIMENT AND
     NOT Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_ALTERNATING_EXPERIMENT))
   message(FATAL_ERROR
     "The M32N512 Gate+Up edge-owner experiment requires BUILD_TESTING=ON, the authenticated full-A4 K512 MLP route, and its M64N128 K256 pair-feed parent package"
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_MLP_K512_SHAPE_SEPARATED_MARLIN_PACKAGE_EXPERIMENT AND
+   (NOT BUILD_TESTING OR NOT Q3X_BUILD_SM87_A4W4_MLP_K512_ADMISSION OR
+    NOT Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION OR
+    NOT Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_ALTERNATING_EXPERIMENT OR
+    NOT Q3X_BUILD_SM87_A4W4_DOWN_K512_M128N128_16WARP_PAIRRING_EXPERIMENT))
+  message(FATAL_ERROR
+    "The shape-separated high-register MLP package requires BUILD_TESTING, the authenticated full-A4 K512 MLP route, and the production pair-feed/Down16 parent packages"
   )
 endif()
 if(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_STAGED_EXPERIMENT AND
@@ -883,6 +896,23 @@ if(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M32N512_OWNER_EXPERIMENT)
     PROPERTIES COMPILE_OPTIONS "--maxrregcount=128;-Xptxas=-v;-Xptxas=-warn-spills"
   )
 endif()
+if(Q3X_BUILD_SM87_A4W4_MLP_K512_SHAPE_SEPARATED_MARLIN_PACKAGE_EXPERIMENT)
+  target_sources(q3x_kernels PRIVATE
+    src/kernels/sm87/a4w4_gateup_down_k512_edge_m64n256_marlin.cu
+    src/kernels/sm87/a4w4_down_k512_m64n256_16warp_pairring.cu
+  )
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_A4W4_MLP_K512_SHAPE_SEPARATED_MARLIN_PACKAGE_ADMISSION=1
+  )
+  set_source_files_properties(
+    src/kernels/sm87/a4w4_gateup_down_k512_edge_m64n256_marlin.cu
+    PROPERTIES COMPILE_OPTIONS "--maxrregcount=255;-Xptxas=-v;-Xptxas=-warn-spills"
+  )
+  set_source_files_properties(
+    src/kernels/sm87/a4w4_down_k512_m64n256_16warp_pairring.cu
+    PROPERTIES COMPILE_OPTIONS "--maxrregcount=128;-Xptxas=-v;-Xptxas=-warn-spills"
+  )
+endif()
 if(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_STAGED_EXPERIMENT)
   target_sources(q3x_kernels PRIVATE
     src/kernels/sm87/a4w4_gateup_down_k512_edge_m64n128_k256_staged.cu
@@ -1210,6 +1240,11 @@ endif()
 if(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M32N512_OWNER_EXPERIMENT)
   target_compile_definitions(q3x_engine PRIVATE
     Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M32N512_OWNER_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_MLP_K512_SHAPE_SEPARATED_MARLIN_PACKAGE_EXPERIMENT)
+  target_compile_definitions(q3x_engine PRIVATE
+    Q3X_ENABLE_A4W4_MLP_K512_SHAPE_SEPARATED_MARLIN_PACKAGE_ADMISSION=1
   )
 endif()
 if(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_ALTERNATING_EXPERIMENT)
@@ -2900,6 +2935,33 @@ if(BUILD_TESTING)
       )
     endif()
 
+    if(Q3X_BUILD_SM87_A4W4_MLP_K512_SHAPE_SEPARATED_MARLIN_PACKAGE_EXPERIMENT AND
+       Q3X_BUILD_SM87_A4W4_DOWN_K512_M128N128_LDMATRIX_PAIRRING_ADMISSION)
+      add_executable(
+        q3x_sm87_a4w4_gateup_down_k512_edge_m64n256_marlin_correctness_test
+        tests/sm87_a4w4_gateup_down_k512_edge_m64n256_marlin_correctness_test.cu
+      )
+      target_link_libraries(
+        q3x_sm87_a4w4_gateup_down_k512_edge_m64n256_marlin_correctness_test
+        PRIVATE q3x::kernels CUDA::cudart
+      )
+      q3x_enable_warnings(
+        q3x_sm87_a4w4_gateup_down_k512_edge_m64n256_marlin_correctness_test
+      )
+
+      add_executable(
+        q3x_sm87_a4w4_down_k512_m64n256_16warp_pairring_correctness_test
+        tests/sm87_a4w4_down_k512_m64n256_16warp_pairring_correctness_test.cu
+      )
+      target_link_libraries(
+        q3x_sm87_a4w4_down_k512_m64n256_16warp_pairring_correctness_test
+        PRIVATE q3x::kernels CUDA::cudart
+      )
+      q3x_enable_warnings(
+        q3x_sm87_a4w4_down_k512_m64n256_16warp_pairring_correctness_test
+      )
+    endif()
+
     if(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M128N64_EXPERIMENT)
       add_executable(
         q3x_sm87_a4w4_gateup_down_k512_edge_m128n64_contract_test
@@ -3494,6 +3556,36 @@ if(BUILD_TESTING)
         sm87_a4w4_down_k512_m128n128_16warp_pairring_correctness
         PROPERTIES
         LABELS "cuda;sm87;prefill;mlp;a4w4;k512;down;m128n128;16warp;pairring;correctness;resources;graph;synthetic"
+        SKIP_RETURN_CODE 77
+        RESOURCE_LOCK q3x_sm87_gpu
+        TIMEOUT 600
+      )
+    endif()
+    if(Q3X_BUILD_SM87_A4W4_MLP_K512_SHAPE_SEPARATED_MARLIN_PACKAGE_EXPERIMENT AND
+       Q3X_BUILD_SM87_A4W4_DOWN_K512_M128N128_LDMATRIX_PAIRRING_ADMISSION)
+      add_test(
+        NAME sm87_a4w4_gateup_down_k512_edge_m64n256_marlin_correctness
+        COMMAND "${Q3X_FLOCK_EXECUTABLE}" -x /tmp/q3x-gpu-bench.lock
+                $<TARGET_FILE:q3x_sm87_a4w4_gateup_down_k512_edge_m64n256_marlin_correctness_test>
+      )
+      set_tests_properties(
+        sm87_a4w4_gateup_down_k512_edge_m64n256_marlin_correctness
+        PROPERTIES
+        LABELS "cuda;sm87;prefill;mlp;a4w4;k512;gateup;m64n256;marlin;correctness;resources;synthetic"
+        SKIP_RETURN_CODE 77
+        RESOURCE_LOCK q3x_sm87_gpu
+        TIMEOUT 600
+      )
+
+      add_test(
+        NAME sm87_a4w4_down_k512_m64n256_16warp_pairring_correctness
+        COMMAND "${Q3X_FLOCK_EXECUTABLE}" -x /tmp/q3x-gpu-bench.lock
+                $<TARGET_FILE:q3x_sm87_a4w4_down_k512_m64n256_16warp_pairring_correctness_test>
+      )
+      set_tests_properties(
+        sm87_a4w4_down_k512_m64n256_16warp_pairring_correctness
+        PROPERTIES
+        LABELS "cuda;sm87;prefill;mlp;a4w4;k512;down;m64n256;16warp;pairring;correctness;resources;synthetic"
         SKIP_RETURN_CODE 77
         RESOURCE_LOCK q3x_sm87_gpu
         TIMEOUT 600

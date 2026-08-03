@@ -48,6 +48,10 @@ ATTENTION_K256_M32N512_OWNER_MODE = (
     "cumulative-prefill-current-best-mlp-k512-edge-m32n512-owner-k128-b4-"
     "down-16warp-pairring-attention-k256-a-exchange-b4"
 )
+ATTENTION_K256_SHAPE_SEPARATED_MARLIN_MODE = (
+    "cumulative-prefill-current-best-mlp-k512-shape-separated-marlin-"
+    "package-attention-k256-a-exchange-b4"
+)
 ATTENTION_K256_M128N128_A_EXCHANGE_B3_MODE = (
     "cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-"
     "ldmatrix-pairfeed-down-16warp-pairring-attention-k256-"
@@ -104,6 +108,9 @@ MLP_K512_EDGE_M64N128_K256_LDMATRIX_PAIRFEED_SELECTOR = (
 )
 MLP_K512_M32N512_OWNER_SELECTOR = (
     "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M32N512_OWNER_ADMISSION"
+)
+MLP_K512_SHAPE_SEPARATED_MARLIN_SELECTOR = (
+    "Q3X_RUN_A4W4_MLP_K512_SHAPE_SEPARATED_MARLIN_PACKAGE_ADMISSION"
 )
 MLP_K512_M128N128_PROJECTION_SERIAL_SELECTOR = (
     "Q3X_RUN_A4W4_GATEUP_K512_M128N128_PROJECTION_SERIAL_ADMISSION"
@@ -164,6 +171,13 @@ MLP_K512_EDGE_M64N128_K256_LDMATRIX_PAIRFEED_MARKER = (
 MLP_K512_M32N512_OWNER_MARKER = (
     "prefill_projection_span_mlp_k512_gateup_down_edge_"
     "m32n512_owner_k128_b4"
+)
+MLP_K512_SHAPE_SEPARATED_MARLIN_GATE_MARKER = (
+    "prefill_projection_span_mlp_k512_gateup_down_edge_"
+    "m64n256_marlin_k64_b3"
+)
+MLP_K512_SHAPE_SEPARATED_MARLIN_DOWN_MARKER = (
+    "prefill_projection_span_mlp_k512_down_m64n256_16warp_pairring"
 )
 MLP_K512_M128N128_PROJECTION_SERIAL_PRIMARY = (
     "prefill_projection_span_mlp_k512_gateup_m128n128_"
@@ -346,6 +360,7 @@ class Fixture:
             "# Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_"
             "LDMATRIX_PAIRFEED_ADMISSION\n"
             f"# {MLP_K512_M32N512_OWNER_SELECTOR}\n"
+            f"# {MLP_K512_SHAPE_SEPARATED_MARLIN_SELECTOR}\n"
             f"# {MLP_K512_M128N128_PROJECTION_SERIAL_SELECTOR}\n"
             f"# {MLP_K512_M128N64_SAME_CTA_SELECTOR}\n"
             f"# {MLP_K512_M128N512_FUSED_QUANTIZE_SELECTOR}\n"
@@ -365,6 +380,8 @@ class Fixture:
             f"{MLP_K512_EDGE_M64N128_K256_ALTERNATING_MARKER}\n"
             f"{MLP_K512_EDGE_M64N128_K256_LDMATRIX_PAIRFEED_MARKER}\n"
             f"{MLP_K512_M32N512_OWNER_MARKER}\n"
+            f"{MLP_K512_SHAPE_SEPARATED_MARLIN_GATE_MARKER}\n"
+            f"{MLP_K512_SHAPE_SEPARATED_MARLIN_DOWN_MARKER}\n"
             f"{MLP_K512_M128N128_PROJECTION_SERIAL_PRIMARY}\n"
             f"{MLP_K512_M128N128_PROJECTION_SERIAL_SECONDARY}\n"
             f"{MLP_K512_M128N64_SAME_CTA_PRIMARY}\n"
@@ -703,6 +720,7 @@ class Fixture:
             "LDMATRIX_PAIRFEED_ADMISSION"
         ] = "1"
         environment[MLP_K512_M32N512_OWNER_SELECTOR] = "1"
+        environment[MLP_K512_SHAPE_SEPARATED_MARLIN_SELECTOR] = "1"
         environment[MLP_K512_M128N128_PROJECTION_SERIAL_SELECTOR] = "1"
         environment[MLP_K512_M128N64_SAME_CTA_SELECTOR] = "1"
         environment[MLP_K512_M128N512_FUSED_QUANTIZE_SELECTOR] = "1"
@@ -845,6 +863,14 @@ class Fixture:
         return self.run_attention_k256(
             bucket=bucket,
             mode=ATTENTION_K256_M32N512_OWNER_MODE,
+        )
+
+    def run_attention_k256_shape_separated_marlin(
+        self, *, bucket: str = "p2k"
+    ) -> subprocess.CompletedProcess[str]:
+        return self.run_attention_k256(
+            bucket=bucket,
+            mode=ATTENTION_K256_SHAPE_SEPARATED_MARLIN_MODE,
         )
 
     def run_attention_k256_m128n128_a_exchange_b3(
@@ -2265,6 +2291,133 @@ class PurePrefillEvalScopeHarnessTest(unittest.TestCase):
         self.assertIn(
             "server does not prove the M32N512 owner K128/B4 Gate+Up "
             f"production stage: {MLP_K512_M32N512_OWNER_MARKER}",
+            missing_marker.stderr,
+        )
+        self.fixture.server.write_text(original, encoding="utf-8")
+
+    def test_shape_separated_marlin_is_one_package_selector_delta(self) -> None:
+        help_result = subprocess.run(
+            [str(RUNNER), "--help"],
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+        self.assertEqual(help_result.returncode, 0, help_result.stderr)
+        self.assertIn(
+            ATTENTION_K256_SHAPE_SEPARATED_MARLIN_MODE,
+            help_result.stderr,
+        )
+
+        baseline = self.fixture.run_attention_k256_ldmatrix_pairfeed()
+        candidate = self.fixture.run_attention_k256_shape_separated_marlin()
+        self.assertEqual(baseline.returncode, 0, baseline.stderr)
+        self.assertEqual(candidate.returncode, 0, candidate.stderr)
+        self.assertIn(
+            f"mode={ATTENTION_K256_SHAPE_SEPARATED_MARLIN_MODE} dry_run=1",
+            candidate.stdout,
+        )
+        self.assertIn("selector_count=11", candidate.stdout)
+
+        baseline_startup = next(
+            line
+            for line in baseline.stdout.splitlines()
+            if line.startswith("server_startup_command")
+        )
+        candidate_startup = next(
+            line
+            for line in candidate.stdout.splitlines()
+            if line.startswith("server_startup_command")
+        )
+        baseline_selectors = set(
+            re.findall(r"(Q3X_[A-Z0-9_]+)=1", baseline_startup)
+        )
+        candidate_selectors = set(
+            re.findall(r"(Q3X_[A-Z0-9_]+)=1", candidate_startup)
+        )
+        self.assertEqual(baseline_selectors - candidate_selectors, set())
+        self.assertEqual(
+            candidate_selectors - baseline_selectors,
+            {MLP_K512_SHAPE_SEPARATED_MARLIN_SELECTOR},
+        )
+        for retained in (
+            MLP_K512_EDGE_M64N128_K256_LDMATRIX_PAIRFEED_SELECTOR,
+            DOWN_16WARP_PAIRRING_SELECTOR,
+        ):
+            self.assertIn(f"{retained}=1", candidate_startup)
+
+        delta = next(
+            line
+            for line in candidate.stdout.splitlines()
+            if line.startswith("candidate_delta")
+        )
+        self.assertIn(
+            f"baseline_mode={ATTENTION_K256_LDMATRIX_PAIRFEED_MODE}",
+            delta,
+        )
+        self.assertIn(
+            f"added_selector={MLP_K512_SHAPE_SEPARATED_MARLIN_SELECTOR}",
+            delta,
+        )
+        gate_contract = next(
+            line
+            for line in candidate.stdout.splitlines()
+            if line.startswith("stage_contract")
+            and MLP_K512_SHAPE_SEPARATED_MARLIN_GATE_MARKER in line
+        )
+        self.assertIn(
+            "required="
+            f"{MLP_K512_SHAPE_SEPARATED_MARLIN_GATE_MARKER},"
+            f"{MLP_K512_SHAPE_SEPARATED_MARLIN_DOWN_MARKER}",
+            gate_contract,
+        )
+        self.assertIn(
+            "excluded="
+            f"{MLP_K512_EDGE_M64N128_K256_LDMATRIX_PAIRFEED_MARKER},"
+            f"{DOWN_16WARP_PAIRRING_MARKER},",
+            gate_contract,
+        )
+        self.assertIn(
+            "expected_request_launch_hits=gate_incumbent:0,"
+            "gate_candidate:64,down_incumbent:0,down_candidate:64",
+            gate_contract,
+        )
+        for binding in (
+            "prefill_mlp_k512_implementation=shape_separated_marlin",
+            "prefill_mlp_k512_gateup_implementation=m64n256_marlin_k64_b3",
+            "prefill_mlp_k512_down_implementation=m64n256_16warp_pairring",
+            "gateup_ldmatrix_pairfeed_launch_hits_64_per_request",
+            "down_m128n128_16warp_pairring_launch_hits_64_per_request",
+            "performance_evidence=0",
+        ):
+            self.assertIn(binding, candidate.stdout)
+
+        original = self.fixture.server.read_text(encoding="utf-8")
+        self.fixture.server.write_text(
+            original.replace(
+                f"# {MLP_K512_SHAPE_SEPARATED_MARLIN_SELECTOR}\n", ""
+            ),
+            encoding="utf-8",
+        )
+        missing_selector = (
+            self.fixture.run_attention_k256_shape_separated_marlin()
+        )
+        self.assertEqual(missing_selector.returncode, 2)
+        self.assertIn(
+            f"selector: {MLP_K512_SHAPE_SEPARATED_MARLIN_SELECTOR}",
+            missing_selector.stderr,
+        )
+
+        self.fixture.server.write_text(
+            original.replace(
+                f"{MLP_K512_SHAPE_SEPARATED_MARLIN_DOWN_MARKER}\n", ""
+            ),
+            encoding="utf-8",
+        )
+        missing_marker = self.fixture.run_attention_k256_shape_separated_marlin()
+        self.assertEqual(missing_marker.returncode, 2)
+        self.assertIn(
+            "shape-separated Marlin MLP package stage: "
+            f"{MLP_K512_SHAPE_SEPARATED_MARLIN_DOWN_MARKER}",
             missing_marker.stderr,
         )
         self.fixture.server.write_text(original, encoding="utf-8")
