@@ -392,3 +392,49 @@ The P1853 2K budget remains 926.50 ms.  The measured 1,697.08-ms profiled
 request therefore requires a further 1.832x whole-request improvement.  The
 MLP, Attention-projection and GDN changes must be treated as one system budget;
 none can close the target alone.
+
+## K256 M240N64 strip resource closure
+
+The first quality-preserving K256-semantics strip engine was closed at its
+resource gate before correctness, runner integration, or timing.  Its fixed
+P1920 topology used sixteen cooperative CTAs arranged as eight M240 owners and
+two N lanes.  Each lane owned two N64 cells of every N256 edge.  This reduced
+Gate/Up B presentation from fifteen M owners to eight while retaining the
+current K256 scale epochs and exact BF16 product seam.
+
+The resource audit corrected an important SM87 limit.  A 480-thread block has
+fifteen logical warps, but register allocation across the four SM
+subpartitions rounds that block to sixteen warps.  The launchable ceiling is
+therefore 128 registers/thread, not 136: `4096 * 16 == 65536` registers per
+SM.  Two independently compiled lifetime forms failed the zero-local gate:
+
+| Partial lifetime | Registers | Stack/thread | Spill stores | Spill loads |
+| --- | ---: | ---: | ---: | ---: |
+| paired N32 retire | 128 | 392 B | 948 B | 868 B |
+| paired N8 retire | 128 | 296 B | 688 B | 632 B |
+
+Replacing nested aggregates, reference-returning fragment accessors and
+runtime-looking arrays with explicitly named `Float4` outputs and named N8
+partials did not change the second result.  The blocker is therefore the
+complete N64 Gate/Up FP32 cross-K256 state plus address, fragment and control
+state under the 128-register ceiling, not an accidental C++ aggregate alone.
+The local-memory gate was not weakened.
+
+Static review found no coverage, K256-order, M240 canonical-gather,
+split-plane store, three-stage pipeline, or uniform-grid-barrier defect.  The
+architecture nevertheless offered only a bounded traffic change: packed
+operand traffic fell by 23.33% because A presentation was unchanged, and the
+estimated edge traffic improvement fell to about 18.3% after the BF16 product
+and split quantizer were counted.  N8 retirement also repeated shared-A
+`ldmatrix` work.  No correctness harness, selector, OpenAI API route, or
+performance claim was created for this failed skeleton.
+
+This closure removes the K256 M240N64 paired strip from the active route.  The
+next Gate/Up implementation changes the resource model instead of shrinking
+another lifetime inside the same block: the predeclared calibrated R4 plane
+uses a lower-thread paired M128N64 Gate/Up cell and an independent M192N128
+Down cell.  Its four scale lanes are generated directly from the original
+checkpoint with real-prompt equalization statistics, never by recoding R1 or
+the current K256 sidecar.  It must first prove a positive complete-request
+direction through the real OpenAI API and external EvalScope; only then does
+it earn the longer performance and capability matrices.
