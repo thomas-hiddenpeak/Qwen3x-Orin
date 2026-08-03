@@ -44,6 +44,10 @@ ATTENTION_K256_LDMATRIX_PAIRFEED_MODE = (
     "cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-"
     "ldmatrix-pairfeed-down-16warp-pairring-attention-k256-a-exchange-b4"
 )
+ATTENTION_K256_M32N512_OWNER_MODE = (
+    "cumulative-prefill-current-best-mlp-k512-edge-m32n512-owner-k128-b4-"
+    "down-16warp-pairring-attention-k256-a-exchange-b4"
+)
 ATTENTION_K256_M128N128_A_EXCHANGE_B3_MODE = (
     "cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-"
     "ldmatrix-pairfeed-down-16warp-pairring-attention-k256-"
@@ -97,6 +101,9 @@ MLP_K512_EDGE_M64N128_K256_ALTERNATING_SELECTOR = (
 MLP_K512_EDGE_M64N128_K256_LDMATRIX_PAIRFEED_SELECTOR = (
     "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_"
     "LDMATRIX_PAIRFEED_ADMISSION"
+)
+MLP_K512_M32N512_OWNER_SELECTOR = (
+    "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M32N512_OWNER_ADMISSION"
 )
 MLP_K512_M128N128_PROJECTION_SERIAL_SELECTOR = (
     "Q3X_RUN_A4W4_GATEUP_K512_M128N128_PROJECTION_SERIAL_ADMISSION"
@@ -153,6 +160,10 @@ MLP_K512_EDGE_M64N128_K256_ALTERNATING_MARKER = (
 MLP_K512_EDGE_M64N128_K256_LDMATRIX_PAIRFEED_MARKER = (
     "prefill_projection_span_mlp_k512_gateup_down_edge_"
     "m64n128_k256_ldmatrix_pairfeed"
+)
+MLP_K512_M32N512_OWNER_MARKER = (
+    "prefill_projection_span_mlp_k512_gateup_down_edge_"
+    "m32n512_owner_k128_b4"
 )
 MLP_K512_M128N128_PROJECTION_SERIAL_PRIMARY = (
     "prefill_projection_span_mlp_k512_gateup_m128n128_"
@@ -334,6 +345,7 @@ class Fixture:
             "ALTERNATING_ADMISSION\n"
             "# Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_"
             "LDMATRIX_PAIRFEED_ADMISSION\n"
+            f"# {MLP_K512_M32N512_OWNER_SELECTOR}\n"
             f"# {MLP_K512_M128N128_PROJECTION_SERIAL_SELECTOR}\n"
             f"# {MLP_K512_M128N64_SAME_CTA_SELECTOR}\n"
             f"# {MLP_K512_M128N512_FUSED_QUANTIZE_SELECTOR}\n"
@@ -352,6 +364,7 @@ class Fixture:
             f"{MLP_K512_EDGE_MARKER}\n"
             f"{MLP_K512_EDGE_M64N128_K256_ALTERNATING_MARKER}\n"
             f"{MLP_K512_EDGE_M64N128_K256_LDMATRIX_PAIRFEED_MARKER}\n"
+            f"{MLP_K512_M32N512_OWNER_MARKER}\n"
             f"{MLP_K512_M128N128_PROJECTION_SERIAL_PRIMARY}\n"
             f"{MLP_K512_M128N128_PROJECTION_SERIAL_SECONDARY}\n"
             f"{MLP_K512_M128N64_SAME_CTA_PRIMARY}\n"
@@ -689,6 +702,7 @@ class Fixture:
             "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_"
             "LDMATRIX_PAIRFEED_ADMISSION"
         ] = "1"
+        environment[MLP_K512_M32N512_OWNER_SELECTOR] = "1"
         environment[MLP_K512_M128N128_PROJECTION_SERIAL_SELECTOR] = "1"
         environment[MLP_K512_M128N64_SAME_CTA_SELECTOR] = "1"
         environment[MLP_K512_M128N512_FUSED_QUANTIZE_SELECTOR] = "1"
@@ -823,6 +837,14 @@ class Fixture:
         return self.run_attention_k256(
             bucket=bucket,
             mode=ATTENTION_K256_LDMATRIX_PAIRFEED_MODE,
+        )
+
+    def run_attention_k256_m32n512_owner(
+        self, *, bucket: str = "p2k"
+    ) -> subprocess.CompletedProcess[str]:
+        return self.run_attention_k256(
+            bucket=bucket,
+            mode=ATTENTION_K256_M32N512_OWNER_MODE,
         )
 
     def run_attention_k256_m128n128_a_exchange_b3(
@@ -1673,11 +1695,13 @@ class PurePrefillEvalScopeHarnessTest(unittest.TestCase):
             f"{DOWN_16WARP_PAIRRING_SELECTOR}=1", candidate_startup
         )
 
-        delta = next(
+        deltas = [
             line
             for line in candidate.stdout.splitlines()
             if line.startswith("candidate_delta")
-        )
+        ]
+        self.assertEqual(len(deltas), 1, deltas)
+        delta = deltas[0]
         self.assertIn(
             f"baseline_mode={ATTENTION_K256_ALTERNATING_DOWN_PAIRRING_MODE}",
             delta,
@@ -2068,6 +2092,182 @@ class PurePrefillEvalScopeHarnessTest(unittest.TestCase):
         )
         self.assertIn("performance_evidence=0", candidate.stdout)
         self.assertFalse(self.fixture.output.exists())
+
+    def test_m32n512_owner_is_one_child_selector_delta(self) -> None:
+        help_result = subprocess.run(
+            [str(RUNNER), "--help"],
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+        self.assertEqual(help_result.returncode, 0, help_result.stderr)
+        self.assertIn(ATTENTION_K256_M32N512_OWNER_MODE, help_result.stderr)
+
+        baseline = self.fixture.run_attention_k256_ldmatrix_pairfeed()
+        candidate = self.fixture.run_attention_k256_m32n512_owner()
+        self.assertEqual(baseline.returncode, 0, baseline.stderr)
+        self.assertEqual(candidate.returncode, 0, candidate.stderr)
+        self.assertIn(
+            f"mode={ATTENTION_K256_M32N512_OWNER_MODE} dry_run=1",
+            candidate.stdout,
+        )
+        self.assertIn("selector_count=11", candidate.stdout)
+
+        baseline_startup = next(
+            line
+            for line in baseline.stdout.splitlines()
+            if line.startswith("server_startup_command")
+        )
+        candidate_startup = next(
+            line
+            for line in candidate.stdout.splitlines()
+            if line.startswith("server_startup_command")
+        )
+        baseline_selectors = set(
+            re.findall(r"(Q3X_[A-Z0-9_]+)=1", baseline_startup)
+        )
+        candidate_selectors = set(
+            re.findall(r"(Q3X_[A-Z0-9_]+)=1", candidate_startup)
+        )
+        self.assertEqual(baseline_selectors - candidate_selectors, set())
+        self.assertEqual(
+            candidate_selectors - baseline_selectors,
+            {MLP_K512_M32N512_OWNER_SELECTOR},
+        )
+        self.assertIn(
+            f"{MLP_K512_EDGE_M64N128_K256_LDMATRIX_PAIRFEED_SELECTOR}=1",
+            candidate_startup,
+        )
+        self.assertIn(
+            f"{MLP_K512_M32N512_OWNER_SELECTOR}=1", candidate_startup
+        )
+
+        deltas = [
+            line
+            for line in candidate.stdout.splitlines()
+            if line.startswith("candidate_delta")
+        ]
+        self.assertEqual(len(deltas), 1, deltas)
+        delta = deltas[0]
+        self.assertIn(
+            f"baseline_mode={ATTENTION_K256_LDMATRIX_PAIRFEED_MODE}",
+            delta,
+        )
+        self.assertIn(
+            "retained_selectors="
+            f"{MLP_K512_EDGE_M64N128_K256_LDMATRIX_PAIRFEED_SELECTOR},"
+            f"{DOWN_16WARP_PAIRRING_SELECTOR}",
+            delta,
+        )
+        self.assertIn(
+            f"added_selector={MLP_K512_M32N512_OWNER_SELECTOR}", delta
+        )
+
+        gate_contract = next(
+            line
+            for line in candidate.stdout.splitlines()
+            if line.startswith("stage_contract")
+            and MLP_K512_M32N512_OWNER_MARKER in line
+        )
+        self.assertIn(
+            "required="
+            f"{MLP_K512_M32N512_OWNER_MARKER},"
+            f"{DOWN_16WARP_PAIRRING_MARKER}",
+            gate_contract,
+        )
+        self.assertIn(
+            f"excluded={MLP_K512_EDGE_M64N128_K256_LDMATRIX_PAIRFEED_MARKER},",
+            gate_contract,
+        )
+        self.assertIn(
+            "prefill_projection_span_mlp_k512_gateup_down_edge_m128n64,",
+            gate_contract,
+        )
+        self.assertIn(
+            "expected_request_launch_hits=gate_incumbent:0,"
+            "gate_candidate:64,down_incumbent:0,down_candidate:64",
+            gate_contract,
+        )
+        for launch_contract in (
+            "gateup_alternating_launch_hits_0_per_request",
+            "gateup_ldmatrix_pairfeed_launch_hits_64_per_request",
+            "gateup_m128n128_projection_serial_launch_hits_0_per_request",
+            "gateup_m128n64_same_cta_launch_hits_0_per_request",
+            "gateup_m128n512_fused_quantize_launch_hits_0_per_request",
+            "gateup_m128n512_paired_ldmatrix_launch_hits_0_per_request",
+            "gateup_m64n128_register_pipeline_launch_hits_0_per_request",
+            "gateup_m64n8_paired_warp_register_pipeline_launch_hits_0_per_request",
+            "down_m128n128_ldmatrix_pairring_launch_hits_0_per_request",
+            "down_m128n128_16warp_pairring_launch_hits_64_per_request",
+        ):
+            self.assertIn(launch_contract, candidate.stdout)
+        runner_contents = RUNNER.read_text(encoding="utf-8")
+        owner_accounting = re.search(
+            r'elif \[\[ "\$\{mlp_k512_m32n512_owner_mode\}" == 1 '
+            r'\]\]; then\n(?P<body>.*?)'
+            r'elif \[\[ "\$\{mlp_k512_edge_m64n128_k256_'
+            r'ldmatrix_pairfeed_mode\}" == 1 \]\]; then',
+            runner_contents,
+            flags=re.DOTALL,
+        )
+        self.assertIsNotNone(owner_accounting)
+        assert owner_accounting is not None
+        for expected_assignment in (
+            "gateup_alternating_expected_hits=0",
+            "gateup_ldmatrix_pairfeed_expected_hits=64",
+            "gateup_m128n128_projection_serial_expected_hits=0",
+            "gateup_m128n64_same_cta_expected_hits=0",
+            "gateup_m128n512_fused_quantize_expected_hits=0",
+            "gateup_m128n512_paired_ldmatrix_expected_hits=0",
+            "gateup_m64n128_register_pipeline_expected_hits=0",
+            "gateup_m64n8_paired_warp_register_pipeline_expected_hits=0",
+        ):
+            self.assertIn(expected_assignment, owner_accounting.group("body"))
+        self.assertIn(
+            'if [[ -n "${gateup_alternating_expected_hits}" ||',
+            runner_contents,
+        )
+        self.assertIn(
+            '" gateup_ldmatrix_pairfeed_launch_hits='
+            '${gateup_ldmatrix_pairfeed_expected_hits}',
+            runner_contents,
+        )
+        self.assertIn(
+            "prefill_mlp_k512_gateup_implementation="
+            "m32n512_owner_k128_b4",
+            candidate.stdout,
+        )
+        self.assertIn("performance_evidence=0", candidate.stdout)
+        self.assertFalse(self.fixture.output.exists())
+
+        original = self.fixture.server.read_text(encoding="utf-8")
+        self.fixture.server.write_text(
+            original.replace(
+                f"# {MLP_K512_M32N512_OWNER_SELECTOR}\n", ""
+            ),
+            encoding="utf-8",
+        )
+        missing_selector = self.fixture.run_attention_k256_m32n512_owner()
+        self.assertEqual(missing_selector.returncode, 2)
+        self.assertIn(
+            "server does not contain the "
+            f"{ATTENTION_K256_M32N512_OWNER_MODE} selector: "
+            f"{MLP_K512_M32N512_OWNER_SELECTOR}",
+            missing_selector.stderr,
+        )
+
+        self.fixture.server.write_text(
+            original.replace(f"{MLP_K512_M32N512_OWNER_MARKER}\n", ""),
+            encoding="utf-8",
+        )
+        missing_marker = self.fixture.run_attention_k256_m32n512_owner()
+        self.assertEqual(missing_marker.returncode, 2)
+        self.assertIn(
+            "server does not prove the M32N512 owner K128/B4 Gate+Up "
+            f"production stage: {MLP_K512_M32N512_OWNER_MARKER}",
+            missing_marker.stderr,
+        )
+        self.fixture.server.write_text(original, encoding="utf-8")
 
     def test_attention_k256_m128n128_a_exchange_b3_is_one_modifier_delta(
         self,

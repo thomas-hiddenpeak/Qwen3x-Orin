@@ -119,7 +119,7 @@ option(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M32N128_PAIR_SHARED_ACCUM_EXPER
   OFF
 )
 option(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M32N512_OWNER_EXPERIMENT
-  "Build the default-off M32N512 Gate+Up edge-owner resource experiment"
+  "Build the default-off M32N512 Gate+Up edge-owner experiment"
   OFF
 )
 option(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_STAGED_EXPERIMENT
@@ -415,9 +415,10 @@ if(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M32N128_PAIR_SHARED_ACCUM_EXPERIMEN
 endif()
 if(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M32N512_OWNER_EXPERIMENT AND
    (NOT BUILD_TESTING OR NOT Q3X_BUILD_SM87_A4W4_MLP_K512_ADMISSION OR
-    NOT Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION))
+    NOT Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION OR
+    NOT Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_ALTERNATING_EXPERIMENT))
   message(FATAL_ERROR
-    "The M32N512 Gate+Up edge-owner resource experiment requires BUILD_TESTING=ON and the authenticated full-A4 K512 MLP route"
+    "The M32N512 Gate+Up edge-owner experiment requires BUILD_TESTING=ON, the authenticated full-A4 K512 MLP route, and its M64N128 K256 pair-feed parent package"
   )
 endif()
 if(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_STAGED_EXPERIMENT AND
@@ -1204,6 +1205,11 @@ endif()
 if(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M128N64_EXPERIMENT)
   target_compile_definitions(q3x_engine PRIVATE
     Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M128N64_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M32N512_OWNER_EXPERIMENT)
+  target_compile_definitions(q3x_engine PRIVATE
+    Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M32N512_OWNER_ADMISSION=1
   )
 endif()
 if(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_ALTERNATING_EXPERIMENT)
@@ -2448,6 +2454,37 @@ if(BUILD_TESTING)
         RESOURCE_LOCK q3x_sm87_gpu
         TIMEOUT 300
       )
+
+      if(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_ALTERNATING_EXPERIMENT)
+        add_executable(
+          q3x_sm87_a4w4_gateup_down_k512_edge_m32n512_owner_correctness_test
+          tests/sm87_a4w4_gateup_down_k512_edge_m32n512_owner_correctness_test.cu
+        )
+        target_link_libraries(
+          q3x_sm87_a4w4_gateup_down_k512_edge_m32n512_owner_correctness_test
+          PRIVATE q3x::kernels CUDA::cudart
+        )
+        target_compile_options(
+          q3x_sm87_a4w4_gateup_down_k512_edge_m32n512_owner_correctness_test
+          PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>
+        )
+        q3x_enable_warnings(
+          q3x_sm87_a4w4_gateup_down_k512_edge_m32n512_owner_correctness_test
+        )
+        add_test(
+          NAME sm87_a4w4_gateup_down_k512_edge_m32n512_owner_correctness
+          COMMAND "${Q3X_FLOCK_EXECUTABLE}" -x /tmp/q3x-gpu-bench.lock
+                  $<TARGET_FILE:q3x_sm87_a4w4_gateup_down_k512_edge_m32n512_owner_correctness_test>
+        )
+        set_tests_properties(
+          sm87_a4w4_gateup_down_k512_edge_m32n512_owner_correctness
+          PROPERTIES
+          LABELS "cuda;sm87;prefill;mlp;a4w4;k512;gateup;edge;m32n512;owner;correctness;bit-exact;graph"
+          SKIP_RETURN_CODE 77
+          RESOURCE_LOCK q3x_sm87_gpu
+          TIMEOUT 600
+        )
+      endif()
     endif()
 
     if(Q3X_BUILD_SM87_A4W4_GATEUP_K512_M128N128_PROJECTION_SERIAL_EXPERIMENT)

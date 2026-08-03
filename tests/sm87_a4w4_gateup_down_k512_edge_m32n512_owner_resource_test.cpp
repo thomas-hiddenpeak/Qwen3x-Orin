@@ -54,12 +54,29 @@ int main() {
       kernels::kSm87A4W4GateUpDownEdgeM32N512OwnerScaleSlots == 2U &&
       kernels::kSm87A4W4GateUpDownEdgeM32N512OwnerThreads == 256U &&
       kernels::kSm87A4W4GateUpDownEdgeM32N512OwnerWarps == 8U &&
+      kernels::kSm87A4W4GateUpDownEdgeM32N512OwnerPersistentCtas == 32U &&
+      kernels::kSm87A4W4GateUpDownEdgeM32N512OwnerTeams == 16U &&
       kernels::kSm87A4W4GateUpDownEdgeM32N512OwnerCtasPerSm == 2U &&
       kernels::kSm87A4W4GateUpDownEdgeM32N512OwnerStageBytes == 10'240U &&
       kernels::kSm87A4W4GateUpDownEdgeM32N512OwnerPipelineBytes == 41'600U &&
       kernels::kSm87A4W4GateUpDownEdgeM32N512OwnerEdgePlaneBytes == 32'768U &&
       kernels::kSm87A4W4GateUpDownEdgeM32N512OwnerDynamicSharedBytes ==
           74'368U &&
+      kernels::sm87_a4w4_gateup_down_k512_edge_m32n512_owner_test_plan(
+          117U, 128U, 512U, 512U)
+              .launch_ctas == 32U &&
+      kernels::sm87_a4w4_gateup_down_k512_edge_m32n512_owner_test_plan(
+          117U, 128U, 1'024U, 1'536U)
+              .residual_edge_cells == 4U &&
+      kernels::sm87_a4w4_gateup_down_k512_edge_m32n512_owner_test_plan(
+          117U, 256U, 512U, 512U)
+              .launch_ctas == 0U &&
+      kernels::sm87_a4w4_gateup_down_k512_edge_m32n512_owner_plan(
+          117U, 128U, 1'024U, 1'536U)
+              .launch_ctas == 0U &&
+      kernels::sm87_a4w4_gateup_down_k512_edge_m32n512_owner_plan(
+          512U, 512U, 17'408U, 5'120U)
+              .launch_ctas == 32U &&
       kernels::
               query_sm87_a4w4_gateup_down_k512_edge_m32n512_owner_resources_cuda(
                   nullptr) == static_cast<int>(cudaErrorInvalidValue);

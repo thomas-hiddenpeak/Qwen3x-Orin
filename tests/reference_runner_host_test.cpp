@@ -3157,6 +3157,78 @@ void test_attention_k256_a_exchange_b4_selector_and_accounting(
           initial_b3);
 }
 
+void test_gateup_m32n512_owner_child_selector(TestContext& test) {
+  using Implementation =
+      detail::A4W4GateUpK512PairfeedImplementation;
+  using Query = detail::A4W4GateUpK512PairfeedImplementationQuery;
+
+  Query query;
+  query.projection_span = true;
+  const bool default_off =
+      detail::select_a4w4_gateup_k512_pairfeed_implementation(query) ==
+      Implementation::kDisabled;
+  query.parent_pairfeed_requested = true;
+  const bool parent =
+      detail::select_a4w4_gateup_k512_pairfeed_implementation(query) ==
+      Implementation::kM64N128K256LdmatrixPairfeed;
+  query.m32n512_owner_requested = true;
+  const bool child =
+      detail::select_a4w4_gateup_k512_pairfeed_implementation(query) ==
+      Implementation::kM32N512Owner;
+
+  Query invalid;
+  invalid.projection_span = true;
+  invalid.m32n512_owner_requested = true;
+  const bool orphan_rejected =
+      detail::select_a4w4_gateup_k512_pairfeed_implementation(invalid) ==
+      Implementation::kInvalid;
+  invalid.parent_pairfeed_requested = true;
+  invalid.conflicting_gate_sibling_requested = true;
+  const bool sibling_rejected =
+      detail::select_a4w4_gateup_k512_pairfeed_implementation(invalid) ==
+      Implementation::kInvalid;
+  invalid.conflicting_gate_sibling_requested = false;
+  invalid.conflicting_macro_requested = true;
+  const bool macro_rejected =
+      detail::select_a4w4_gateup_k512_pairfeed_implementation(invalid) ==
+      Implementation::kInvalid;
+  invalid.conflicting_macro_requested = false;
+  invalid.projection_span = false;
+  const bool non_span_child_rejected =
+      detail::select_a4w4_gateup_k512_pairfeed_implementation(invalid) ==
+      Implementation::kInvalid;
+  invalid.m32n512_owner_requested = false;
+  const bool non_span_parent_rejected =
+      detail::select_a4w4_gateup_k512_pairfeed_implementation(invalid) ==
+      Implementation::kInvalid;
+  test.expect(default_off && parent && child && orphan_rejected &&
+                  sibling_rejected && macro_rejected &&
+                  non_span_child_rejected && non_span_parent_rejected,
+              "M32N512 owner is a default-off pair-feed child and rejects "
+              "orphans, sibling/macro conflicts, and non-span dispatch");
+
+  const char* const environment = std::getenv(
+      "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M32N512_OWNER_ADMISSION");
+  const bool environment_requested =
+      environment != nullptr && std::strcmp(environment, "1") == 0 &&
+      !runtime::optimized_prefill_dispatch_disabled();
+  const bool initial = detail::
+      exchange_a4w4_gateup_down_k512_edge_m32n512_owner_admission_test_enabled(
+          false);
+  (void)detail::
+      exchange_a4w4_gateup_down_k512_edge_m32n512_owner_admission_test_enabled(
+          true);
+  const bool compiled = detail::
+      exchange_a4w4_gateup_down_k512_edge_m32n512_owner_admission_test_enabled(
+          false);
+  test.expect(initial == (compiled && environment_requested),
+              "M32N512 owner gate is exact-value, default-off, global-disable "
+              "aware, and compile-time isolated");
+  (void)detail::
+      exchange_a4w4_gateup_down_k512_edge_m32n512_owner_admission_test_enabled(
+          initial);
+}
+
 }  // namespace
 
 int main() {
@@ -3176,6 +3248,7 @@ int main() {
   test_down_m128n128_ldmatrix_pairring_v1_selector_and_accounting(test);
   test_down_m128n128_16warp_pairring_v1_selector_and_accounting(test);
   test_attention_k256_a_exchange_b4_selector_and_accounting(test);
+  test_gateup_m32n512_owner_child_selector(test);
   test_trace_layout_and_factory_error(test);
   if (test.failures() != 0) {
     std::cerr << test.failures() << " reference-runner host test(s) failed\n";

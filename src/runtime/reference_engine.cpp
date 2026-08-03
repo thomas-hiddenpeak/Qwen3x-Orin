@@ -511,6 +511,9 @@ struct PrefillMLPK512ProjectionMajorGateUpCanonicalDownEnginePaths final {
   const bool ldmatrix_pairfeed_gate_selected =
       exact_environment_selector_enabled(
           "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_LDMATRIX_PAIRFEED_ADMISSION");
+  const bool m32n512_owner_gate_selected =
+      exact_environment_selector_enabled(
+          "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M32N512_OWNER_ADMISSION");
   const bool projection_serial_gate_selected =
       exact_environment_selector_enabled(
           "Q3X_RUN_A4W4_GATEUP_K512_M128N128_PROJECTION_SERIAL_ADMISSION");
@@ -524,6 +527,28 @@ struct PrefillMLPK512ProjectionMajorGateUpCanonicalDownEnginePaths final {
   const bool any_projection_major_selector =
       projection_major_publication_requested || projection_major_selected ||
       register_pipeline_gate_selected;
+
+  if (m32n512_owner_gate_selected && !ldmatrix_pairfeed_gate_selected) {
+    error = "the M32N512 Gate+Up edge-owner selector requires the M64N128 "
+            "K256 LDSM pair-feed parent selector";
+    return false;
+  }
+#if !defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M32N512_OWNER_ADMISSION)
+  if (m32n512_owner_gate_selected) {
+    error = "this binary does not contain the M32N512 Gate+Up edge-owner "
+            "admission";
+    return false;
+  }
+#endif
+  if (m32n512_owner_gate_selected &&
+      (exact_environment_selector_enabled(
+           "Q3X_RUN_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_L2_MACRO4X4_ADMISSION") ||
+       exact_environment_selector_enabled(
+           "Q3X_RUN_A4W4_DOWN_K512_M128N128_16WARP_PAIRRING_L2_MACRO4X4_ADMISSION"))) {
+    error = "the M32N512 Gate+Up edge-owner selector conflicts with the "
+            "cross-CTA L2 macro modifiers";
+    return false;
+  }
 
   if (register_pipeline_gate_selected != projection_major_selected) {
     error = "the M64N128 register-pipeline GateUp selector and "

@@ -1117,6 +1117,48 @@ select_a4w4_attention_k256_m128n256_implementation(
   return A4W4AttentionK256M128N256Implementation::kDisabled;
 }
 
+// The M32N512 edge owner is deliberately a child modifier of the proven
+// M64N128/K256 LDSM pair-feed route.  Keeping the parent selected preserves
+// the authenticated K512 publication and its request-local accounting while
+// this selector proves that an orphan child, a non-span dispatch, or a mixed
+// experimental schedule can never silently fall back to the parent kernel.
+enum class A4W4GateUpK512PairfeedImplementation : std::uint8_t {
+  kDisabled = 0,
+  kM64N128K256LdmatrixPairfeed,
+  kM32N512Owner,
+  kInvalid,
+};
+
+struct A4W4GateUpK512PairfeedImplementationQuery final {
+  bool parent_pairfeed_requested = false;
+  bool m32n512_owner_requested = false;
+  bool conflicting_gate_sibling_requested = false;
+  bool conflicting_macro_requested = false;
+  bool projection_span = false;
+};
+
+[[nodiscard]] constexpr A4W4GateUpK512PairfeedImplementation
+select_a4w4_gateup_k512_pairfeed_implementation(
+    const A4W4GateUpK512PairfeedImplementationQuery& query) noexcept {
+  if ((query.m32n512_owner_requested &&
+       !query.parent_pairfeed_requested) ||
+      (query.m32n512_owner_requested &&
+       (query.conflicting_gate_sibling_requested ||
+        query.conflicting_macro_requested)) ||
+      ((query.parent_pairfeed_requested || query.m32n512_owner_requested) &&
+       !query.projection_span)) {
+    return A4W4GateUpK512PairfeedImplementation::kInvalid;
+  }
+  if (query.m32n512_owner_requested) {
+    return A4W4GateUpK512PairfeedImplementation::kM32N512Owner;
+  }
+  if (query.parent_pairfeed_requested) {
+    return A4W4GateUpK512PairfeedImplementation::
+        kM64N128K256LdmatrixPairfeed;
+  }
+  return A4W4GateUpK512PairfeedImplementation::kDisabled;
+}
+
 [[nodiscard]] constexpr bool use_a4w4_gateup_complete_cell_v2_route(
     const A4W4GateUpCompleteCellV2RouteQuery& query) noexcept {
   return query.admission_enabled &&
@@ -1733,6 +1775,8 @@ bool
 exchange_a4w4_attention_k256_m128n256_a_exchange_b4_admission_test_enabled(
     bool enabled) noexcept;
 bool exchange_a4w4_attention_k256_m128n128_a_exchange_b3_admission_test_enabled(
+    bool enabled) noexcept;
+bool exchange_a4w4_gateup_down_k512_edge_m32n512_owner_admission_test_enabled(
     bool enabled) noexcept;
 A4W4AttentionSupermatrixAdmissionHits
 exchange_a4w4_attention_k256_m128n256_a_exchange_b4_admission_test_hits(
