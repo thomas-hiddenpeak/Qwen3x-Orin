@@ -180,6 +180,17 @@ prefill_attention_k256_m128n256_a_exchange_b4_l2_macro4x4_environment_enabled()
   return value != nullptr && std::strcmp(value, "1") == 0;
 }
 
+[[nodiscard]] bool
+prefill_attention_k256_m128n128_a_exchange_b3_environment_enabled()
+    noexcept {
+  if (optimized_prefill_dispatch_disabled()) {
+    return false;
+  }
+  const char* const value = std::getenv(
+      "Q3X_RUN_A4W4_ATTENTION_K256_M128N128_A_EXCHANGE_B3_ADMISSION");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
 [[nodiscard]] bool prefill_mlp_k512_environment_enabled() noexcept {
   if (optimized_prefill_dispatch_disabled()) {
     return false;
@@ -408,6 +419,8 @@ struct PrefillMLPK512ProjectionMajorGateUpCanonicalDownEnginePaths final {
       prefill_attention_k256_m128n256_a_exchange_b4_environment_enabled();
   const bool a_exchange_b4_l2_macro4x4_selected =
       prefill_attention_k256_m128n256_a_exchange_b4_l2_macro4x4_environment_enabled();
+  const bool a_exchange_b3_m128n128_selected =
+      prefill_attention_k256_m128n128_a_exchange_b3_environment_enabled();
 
   if (incumbent_selected && a_exchange_b4_selected) {
     error = "the incumbent and A-exchange/B4 K256 Attention selectors are "
@@ -417,6 +430,17 @@ struct PrefillMLPK512ProjectionMajorGateUpCanonicalDownEnginePaths final {
   if (a_exchange_b4_l2_macro4x4_selected && !a_exchange_b4_selected) {
     error = "the Attention L2 macro4x4 selector requires the "
             "A-exchange/B4 implementation selector";
+    return false;
+  }
+  if (a_exchange_b3_m128n128_selected && !a_exchange_b4_selected) {
+    error = "the Attention M128N128 A-exchange/B3 selector requires the "
+            "A-exchange/B4 implementation selector";
+    return false;
+  }
+  if (a_exchange_b3_m128n128_selected &&
+      a_exchange_b4_l2_macro4x4_selected) {
+    error = "the Attention M128N128 A-exchange/B3 and L2 macro4x4 "
+            "modifiers are mutually exclusive";
     return false;
   }
 #if !defined(Q3X_ENABLE_A4W4_ATTENTION_K256_M128N256_ADMISSION)

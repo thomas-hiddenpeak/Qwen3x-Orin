@@ -9,6 +9,7 @@
 #include "q3x/kernels/sm87_a4w4_attention_k256_m128n256.h"
 #endif
 #if defined(Q3X_ENABLE_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_EXPERIMENT)
+#include "q3x/kernels/sm87_a4w4_attention_k256_m128n128_a_exchange_b3.h"
 #include "q3x/kernels/sm87_a4w4_attention_k256_m128n256_a_exchange_b4.h"
 #endif
 #if defined(Q3X_ENABLE_A4W4_ATTENTION_O_K512_ADMISSION)
@@ -659,12 +660,25 @@ a4w4_attention_k256_m128n256_a_exchange_b4_l2_macro4x4_environment_enabled()
   return value != nullptr && std::strcmp(value, "1") == 0;
 }
 
+[[nodiscard]] bool
+a4w4_attention_k256_m128n128_a_exchange_b3_environment_enabled() noexcept {
+  if (optimized_prefill_dispatch_disabled()) {
+    return false;
+  }
+  const char* const value = std::getenv(
+      "Q3X_RUN_A4W4_ATTENTION_K256_M128N128_A_EXCHANGE_B3_ADMISSION");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
 thread_local bool
     g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_admission =
         a4w4_attention_k256_m128n256_a_exchange_b4_environment_enabled();
 thread_local bool
     g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_l2_macro4x4_admission =
         a4w4_attention_k256_m128n256_a_exchange_b4_l2_macro4x4_environment_enabled();
+thread_local bool
+    g_enable_a4w4_attention_k256_m128n128_a_exchange_b3_admission =
+        a4w4_attention_k256_m128n128_a_exchange_b3_environment_enabled();
 thread_local reference_runner_detail::
     A4W4AttentionSupermatrixAdmissionHits
         g_a4w4_attention_k256_m128n256_a_exchange_b4_admission_hits{};
@@ -674,6 +688,8 @@ constexpr bool
 constexpr bool
     g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_l2_macro4x4_admission =
         false;
+constexpr bool
+    g_enable_a4w4_attention_k256_m128n128_a_exchange_b3_admission = false;
 #endif
 
 [[nodiscard]] bool
@@ -1872,7 +1888,8 @@ void record_a4w4_attention_supermatrix_launch(
               select_a4w4_attention_k256_m128n256_implementation(
                   {g_enable_a4w4_attention_k256_m128n256_admission,
                    g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_admission,
-                   g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_l2_macro4x4_admission});
+                   g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_l2_macro4x4_admission,
+                   g_enable_a4w4_attention_k256_m128n128_a_exchange_b3_admission});
   if (implementation == reference_runner_detail::
                             A4W4AttentionK256M128N256Implementation::
                                 kInvalid) {
@@ -1920,7 +1937,13 @@ void record_a4w4_attention_supermatrix_launch(
   if (implementation ==
       reference_runner_detail::
           A4W4AttentionK256M128N256Implementation::kAExchangeB4) {
-    if (g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_l2_macro4x4_admission) {
+    if (g_enable_a4w4_attention_k256_m128n128_a_exchange_b3_admission) {
+      status = kernels::
+          launch_sm87_a4w4_attention_k256_m128n128_a_exchange_b3_bf16_cuda(
+              topology, packed_input, packed_input_capacity, input_scales,
+              input_scale_capacity, token_count, projection_views.data(),
+              projection_count, stream);
+    } else if (g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_l2_macro4x4_admission) {
       status = kernels::
           launch_sm87_a4w4_attention_k256_m128n256_a_exchange_b4_l2_macro4x4_bf16_cuda(
               topology, packed_input, packed_input_capacity, input_scales,
@@ -3013,6 +3036,19 @@ exchange_a4w4_attention_k256_m128n256_a_exchange_b4_admission_test_enabled(
 #if defined(Q3X_ENABLE_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_EXPERIMENT)
   return std::exchange(
       g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_admission,
+      enabled);
+#else
+  (void)enabled;
+  return false;
+#endif
+}
+
+bool
+exchange_a4w4_attention_k256_m128n128_a_exchange_b3_admission_test_enabled(
+    const bool enabled) noexcept {
+#if defined(Q3X_ENABLE_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_EXPERIMENT)
+  return std::exchange(
+      g_enable_a4w4_attention_k256_m128n128_a_exchange_b3_admission,
       enabled);
 #else
   (void)enabled;
@@ -8003,7 +8039,9 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
                   stream_, local_hits, local_attention_k256_hits,
                   local_attention_k256_a_exchange_b4_hits,
                   &attention_supermatrix_selected),
-              g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_l2_macro4x4_admission
+              g_enable_a4w4_attention_k256_m128n128_a_exchange_b3_admission
+                  ? "prefill_projection_span_linear_qkv_z_k256_m128n128_a_exchange_b3"
+              : g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_l2_macro4x4_admission
                   ? "prefill_projection_span_linear_qkv_z_k256_m128n256_a_exchange_b4_l2_macro4x4"
               : g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_admission
                   ? "prefill_projection_span_linear_qkv_z_k256_m128n256_a_exchange_b4"
@@ -8425,7 +8463,9 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
                   stream_, local_hits, local_attention_k256_hits,
                   local_attention_k256_a_exchange_b4_hits,
                   &attention_output_supermatrix_selected),
-              g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_l2_macro4x4_admission
+              g_enable_a4w4_attention_k256_m128n128_a_exchange_b3_admission
+                  ? "prefill_projection_span_linear_output_k256_m128n128_a_exchange_b3"
+              : g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_l2_macro4x4_admission
                   ? "prefill_projection_span_linear_output_k256_m128n256_a_exchange_b4_l2_macro4x4"
               : g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_admission
                   ? "prefill_projection_span_linear_output_k256_m128n256_a_exchange_b4"
@@ -8555,7 +8595,9 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
                   stream_, local_hits, local_attention_k256_hits,
                   local_attention_k256_a_exchange_b4_hits,
                   &attention_supermatrix_selected),
-              g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_l2_macro4x4_admission
+              g_enable_a4w4_attention_k256_m128n128_a_exchange_b3_admission
+                  ? "prefill_projection_span_full_q_k_v_k256_m128n128_a_exchange_b3"
+              : g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_l2_macro4x4_admission
                   ? "prefill_projection_span_full_q_k_v_k256_m128n256_a_exchange_b4_l2_macro4x4"
               : g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_admission
                   ? "prefill_projection_span_full_q_k_v_k256_m128n256_a_exchange_b4"
@@ -8874,7 +8916,9 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
                   stream_, local_hits, local_attention_k256_hits,
                   local_attention_k256_a_exchange_b4_hits,
                   &attention_output_supermatrix_selected),
-              g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_l2_macro4x4_admission
+              g_enable_a4w4_attention_k256_m128n128_a_exchange_b3_admission
+                  ? "prefill_projection_span_full_output_k256_m128n128_a_exchange_b3"
+              : g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_l2_macro4x4_admission
                   ? "prefill_projection_span_full_output_k256_m128n256_a_exchange_b4_l2_macro4x4"
               : g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_admission
                   ? "prefill_projection_span_full_output_k256_m128n256_a_exchange_b4"

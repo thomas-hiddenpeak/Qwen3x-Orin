@@ -794,6 +794,7 @@ endif()
 if(Q3X_BUILD_SM87_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_EXPERIMENT)
   target_sources(q3x_kernels PRIVATE
     src/kernels/sm87/a4w4_attention_k256_m128n256_a_exchange_b4.cu
+    src/kernels/sm87/a4w4_attention_k256_m128n128_a_exchange_b3.cu
   )
   target_compile_definitions(q3x_kernels PRIVATE
     Q3X_ENABLE_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_EXPERIMENT=1
@@ -801,6 +802,10 @@ if(Q3X_BUILD_SM87_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_EXPERIMENT)
   set_source_files_properties(
     src/kernels/sm87/a4w4_attention_k256_m128n256_a_exchange_b4.cu
     PROPERTIES COMPILE_OPTIONS "--maxrregcount=255;-Xptxas=-warn-spills"
+  )
+  set_source_files_properties(
+    src/kernels/sm87/a4w4_attention_k256_m128n128_a_exchange_b3.cu
+    PROPERTIES COMPILE_OPTIONS "--maxrregcount=128;-Xptxas=-warn-spills"
   )
 endif()
 if(Q3X_BUILD_SM87_A4W4_ATTENTION_O_K512_ADMISSION)
@@ -2162,6 +2167,31 @@ if(BUILD_TESTING)
         sm87_a4w4_attention_k256_m128n256_a_exchange_b4_correctness
         PROPERTIES
           LABELS "cuda;sm87;prefill;attention;k256;m128n256;structural;correctness;graph"
+          SKIP_RETURN_CODE 77
+          RESOURCE_LOCK q3x_sm87_gpu
+          TIMEOUT 600
+      )
+
+      add_executable(
+        q3x_sm87_a4w4_attention_k256_m128n128_a_exchange_b3_correctness_test
+        tests/sm87_a4w4_attention_k256_m128n128_a_exchange_b3_correctness_test.cu
+      )
+      target_link_libraries(
+        q3x_sm87_a4w4_attention_k256_m128n128_a_exchange_b3_correctness_test
+        PRIVATE q3x::kernels CUDA::cudart
+      )
+      q3x_enable_warnings(
+        q3x_sm87_a4w4_attention_k256_m128n128_a_exchange_b3_correctness_test
+      )
+      add_test(
+        NAME sm87_a4w4_attention_k256_m128n128_a_exchange_b3_correctness
+        COMMAND "${Q3X_FLOCK_EXECUTABLE}" -x /tmp/q3x-gpu-bench.lock
+                $<TARGET_FILE:q3x_sm87_a4w4_attention_k256_m128n128_a_exchange_b3_correctness_test>
+      )
+      set_tests_properties(
+        sm87_a4w4_attention_k256_m128n128_a_exchange_b3_correctness
+        PROPERTIES
+          LABELS "cuda;sm87;prefill;attention;k256;m128n128;structural;correctness;graph"
           SKIP_RETURN_CODE 77
           RESOURCE_LOCK q3x_sm87_gpu
           TIMEOUT 600

@@ -1093,6 +1093,7 @@ struct A4W4AttentionK256M128N256ImplementationQuery final {
   bool incumbent_requested = false;
   bool a_exchange_b4_requested = false;
   bool a_exchange_b4_l2_macro4x4_requested = false;
+  bool a_exchange_b3_m128n128_requested = false;
 };
 
 [[nodiscard]] constexpr A4W4AttentionK256M128N256Implementation
@@ -1100,7 +1101,11 @@ select_a4w4_attention_k256_m128n256_implementation(
     const A4W4AttentionK256M128N256ImplementationQuery& query) noexcept {
   if ((query.incumbent_requested && query.a_exchange_b4_requested) ||
       (query.a_exchange_b4_l2_macro4x4_requested &&
-       !query.a_exchange_b4_requested)) {
+       !query.a_exchange_b4_requested) ||
+      (query.a_exchange_b3_m128n128_requested &&
+       !query.a_exchange_b4_requested) ||
+      (query.a_exchange_b3_m128n128_requested &&
+       query.a_exchange_b4_l2_macro4x4_requested)) {
     return A4W4AttentionK256M128N256Implementation::kInvalid;
   }
   if (query.a_exchange_b4_requested) {
@@ -1726,6 +1731,8 @@ exchange_a4w4_attention_k256_m128n256_admission_test_hits(
     A4W4AttentionSupermatrixAdmissionHits hits) noexcept;
 bool
 exchange_a4w4_attention_k256_m128n256_a_exchange_b4_admission_test_enabled(
+    bool enabled) noexcept;
+bool exchange_a4w4_attention_k256_m128n128_a_exchange_b3_admission_test_enabled(
     bool enabled) noexcept;
 A4W4AttentionSupermatrixAdmissionHits
 exchange_a4w4_attention_k256_m128n256_a_exchange_b4_admission_test_hits(

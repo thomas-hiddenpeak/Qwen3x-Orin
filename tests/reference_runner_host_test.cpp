@@ -3036,11 +3036,27 @@ void test_attention_k256_a_exchange_b4_selector_and_accounting(
   const bool nested_l2_macro4x4 =
       detail::select_a4w4_attention_k256_m128n256_implementation(query) ==
       Implementation::kAExchangeB4;
+  query = Query{};
+  query.a_exchange_b3_m128n128_requested = true;
+  const bool orphan_b3_m128n128 =
+      detail::select_a4w4_attention_k256_m128n256_implementation(query) ==
+      Implementation::kInvalid;
+  query.a_exchange_b4_requested = true;
+  const bool nested_b3_m128n128 =
+      detail::select_a4w4_attention_k256_m128n256_implementation(query) ==
+      Implementation::kAExchangeB4;
+  query.a_exchange_b4_l2_macro4x4_requested = true;
+  const bool modifier_conflict =
+      detail::select_a4w4_attention_k256_m128n256_implementation(query) ==
+      Implementation::kInvalid;
   test.expect(disabled && incumbent && candidate && conflict &&
-                  orphan_l2_macro4x4 && nested_l2_macro4x4,
+                  orphan_l2_macro4x4 && nested_l2_macro4x4 &&
+                  orphan_b3_m128n128 && nested_b3_m128n128 &&
+                  modifier_conflict,
               "K256 Attention implementation selector is default-off and "
               "makes incumbent/A-exchange-B4 exactly mutually exclusive; "
-              "the L2 macro4x4 modifier cannot orphan its parent");
+              "the L2 macro4x4 and M128N128/B3 modifiers cannot orphan "
+              "their parent or coexist");
 
   const char* const incumbent_environment = std::getenv(
       "Q3X_RUN_A4W4_ATTENTION_K256_M128N256_ADMISSION");
@@ -3053,6 +3069,11 @@ void test_attention_k256_a_exchange_b4_selector_and_accounting(
   const bool candidate_environment_requested =
       candidate_environment != nullptr &&
       std::strcmp(candidate_environment, "1") == 0 &&
+      !runtime::optimized_prefill_dispatch_disabled();
+  const char* const b3_environment = std::getenv(
+      "Q3X_RUN_A4W4_ATTENTION_K256_M128N128_A_EXCHANGE_B3_ADMISSION");
+  const bool b3_environment_requested =
+      b3_environment != nullptr && std::strcmp(b3_environment, "1") == 0 &&
       !runtime::optimized_prefill_dispatch_disabled();
 
   const bool initial_incumbent =
@@ -3072,11 +3093,21 @@ void test_attention_k256_a_exchange_b4_selector_and_accounting(
   const bool candidate_compiled = detail::
       exchange_a4w4_attention_k256_m128n256_a_exchange_b4_admission_test_enabled(
           false);
+  const bool initial_b3 = detail::
+      exchange_a4w4_attention_k256_m128n128_a_exchange_b3_admission_test_enabled(
+          false);
+  (void)detail::
+      exchange_a4w4_attention_k256_m128n128_a_exchange_b3_admission_test_enabled(
+          true);
+  const bool b3_compiled = detail::
+      exchange_a4w4_attention_k256_m128n128_a_exchange_b3_admission_test_enabled(
+          false);
   test.expect(
       initial_incumbent ==
               (incumbent_compiled && incumbent_environment_requested) &&
           initial_candidate ==
-              (candidate_compiled && candidate_environment_requested),
+              (candidate_compiled && candidate_environment_requested) &&
+          initial_b3 == (b3_compiled && b3_environment_requested),
       "K256 Attention implementation gates are exact-value, default-off, "
       "global-disable aware, and independently initialized");
 
@@ -3121,6 +3152,9 @@ void test_attention_k256_a_exchange_b4_selector_and_accounting(
   (void)detail::
       exchange_a4w4_attention_k256_m128n256_a_exchange_b4_admission_test_enabled(
           initial_candidate);
+  (void)detail::
+      exchange_a4w4_attention_k256_m128n128_a_exchange_b3_admission_test_enabled(
+          initial_b3);
 }
 
 }  // namespace

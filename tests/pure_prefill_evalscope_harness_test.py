@@ -44,6 +44,11 @@ ATTENTION_K256_LDMATRIX_PAIRFEED_MODE = (
     "cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-"
     "ldmatrix-pairfeed-down-16warp-pairring-attention-k256-a-exchange-b4"
 )
+ATTENTION_K256_M128N128_A_EXCHANGE_B3_MODE = (
+    "cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-"
+    "ldmatrix-pairfeed-down-16warp-pairring-attention-k256-"
+    "m128n128-a-exchange-b3"
+)
 PROJECTION_MAJOR_MODE = (
     "cumulative-prefill-current-best-mlp-k512-projection-major-gateup-"
     "down-16warp-pairring-attention-k256-a-exchange-b4"
@@ -82,6 +87,9 @@ ATTENTION_K256_INCUMBENT_SELECTOR = (
 ATTENTION_K256_A_EXCHANGE_B4_SELECTOR = (
     "Q3X_RUN_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_ADMISSION"
 )
+ATTENTION_K256_M128N128_A_EXCHANGE_B3_SELECTOR = (
+    "Q3X_RUN_A4W4_ATTENTION_K256_M128N128_A_EXCHANGE_B3_ADMISSION"
+)
 MLP_K512_EDGE_M64N128_K256_ALTERNATING_SELECTOR = (
     "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_"
     "ALTERNATING_ADMISSION"
@@ -119,6 +127,12 @@ ATTENTION_K256_MARKERS = (
 )
 ATTENTION_K256_A_EXCHANGE_B4_MARKERS = tuple(
     f"{marker}_a_exchange_b4" for marker in ATTENTION_K256_MARKERS
+)
+ATTENTION_K256_M128N128_A_EXCHANGE_B3_MARKERS = (
+    "prefill_projection_span_linear_qkv_z_k256_m128n128_a_exchange_b3",
+    "prefill_projection_span_linear_output_k256_m128n128_a_exchange_b3",
+    "prefill_projection_span_full_q_k_v_k256_m128n128_a_exchange_b3",
+    "prefill_projection_span_full_output_k256_m128n128_a_exchange_b3",
 )
 MLP_K512_CURRENT_MODE = "cumulative-prefill-current-best-mlp-k512"
 MLP_K512_V1_MODE = "cumulative-prefill-current-best-mlp-k512-v1"
@@ -313,6 +327,7 @@ class Fixture:
             "# Q3X_RUN_A4W4_ATTENTION_K256_M128N256_ADMISSION\n"
             "# Q3X_RUN_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_"
             "ADMISSION\n"
+            f"# {ATTENTION_K256_M128N128_A_EXCHANGE_B3_SELECTOR}\n"
             "# Q3X_RUN_A4W4_MLP_K512_ADMISSION\n"
             "# Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_ADMISSION\n"
             "# Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_"
@@ -348,6 +363,10 @@ class Fixture:
             + "".join(f"{marker}\n" for marker in ATTENTION_K256_MARKERS)
             + "".join(
                 f"{marker}\n" for marker in ATTENTION_K256_A_EXCHANGE_B4_MARKERS
+            )
+            + "".join(
+                f"{marker}\n"
+                for marker in ATTENTION_K256_M128N128_A_EXCHANGE_B3_MARKERS
             )
             + f"{HYBRID_INPUT_MARKER}\n"
             + f"{HYBRID_GATE_MARKER}\n"
@@ -657,6 +676,7 @@ class Fixture:
         environment[
             "Q3X_RUN_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_ADMISSION"
         ] = "1"
+        environment[ATTENTION_K256_M128N128_A_EXCHANGE_B3_SELECTOR] = "1"
         environment["Q3X_RUN_A4W4_MLP_K512_ADMISSION"] = "1"
         environment[
             "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_ADMISSION"
@@ -803,6 +823,14 @@ class Fixture:
         return self.run_attention_k256(
             bucket=bucket,
             mode=ATTENTION_K256_LDMATRIX_PAIRFEED_MODE,
+        )
+
+    def run_attention_k256_m128n128_a_exchange_b3(
+        self, *, bucket: str = "p2k"
+    ) -> subprocess.CompletedProcess[str]:
+        return self.run_attention_k256(
+            bucket=bucket,
+            mode=ATTENTION_K256_M128N128_A_EXCHANGE_B3_MODE,
         )
 
     def run_attention_k256_m128n128_projection_serial(
@@ -2040,6 +2068,173 @@ class PurePrefillEvalScopeHarnessTest(unittest.TestCase):
         )
         self.assertIn("performance_evidence=0", candidate.stdout)
         self.assertFalse(self.fixture.output.exists())
+
+    def test_attention_k256_m128n128_a_exchange_b3_is_one_modifier_delta(
+        self,
+    ) -> None:
+        help_result = subprocess.run(
+            [str(RUNNER), "--help"],
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+        self.assertEqual(help_result.returncode, 0, help_result.stderr)
+        self.assertIn(
+            ATTENTION_K256_M128N128_A_EXCHANGE_B3_MODE,
+            help_result.stderr,
+        )
+
+        baseline = self.fixture.run_attention_k256_ldmatrix_pairfeed()
+        candidate = (
+            self.fixture.run_attention_k256_m128n128_a_exchange_b3()
+        )
+        self.assertEqual(baseline.returncode, 0, baseline.stderr)
+        self.assertEqual(candidate.returncode, 0, candidate.stderr)
+        self.assertIn(
+            f"mode={ATTENTION_K256_M128N128_A_EXCHANGE_B3_MODE} "
+            "dry_run=1",
+            candidate.stdout,
+        )
+        self.assertIn("selector_count=11", candidate.stdout)
+
+        baseline_startup = next(
+            line
+            for line in baseline.stdout.splitlines()
+            if line.startswith("server_startup_command")
+        )
+        candidate_startup = next(
+            line
+            for line in candidate.stdout.splitlines()
+            if line.startswith("server_startup_command")
+        )
+        baseline_selectors = set(
+            re.findall(r"(Q3X_[A-Z0-9_]+)=1", baseline_startup)
+        )
+        candidate_selectors = set(
+            re.findall(r"(Q3X_[A-Z0-9_]+)=1", candidate_startup)
+        )
+        self.assertEqual(baseline_selectors - candidate_selectors, set())
+        self.assertEqual(
+            candidate_selectors - baseline_selectors,
+            {ATTENTION_K256_M128N128_A_EXCHANGE_B3_SELECTOR},
+        )
+        self.assertIn(
+            f"{ATTENTION_K256_A_EXCHANGE_B4_SELECTOR}=1",
+            baseline_startup,
+        )
+        self.assertIn(
+            f"{ATTENTION_K256_A_EXCHANGE_B4_SELECTOR}=1",
+            candidate_startup,
+        )
+        self.assertIn(
+            f"{ATTENTION_K256_M128N128_A_EXCHANGE_B3_SELECTOR}=1",
+            candidate_startup,
+        )
+
+        delta = next(
+            line
+            for line in candidate.stdout.splitlines()
+            if line.startswith("candidate_delta")
+        )
+        self.assertIn(
+            f"baseline_mode={ATTENTION_K256_LDMATRIX_PAIRFEED_MODE}",
+            delta,
+        )
+        self.assertIn(
+            f"retained_selector={ATTENTION_K256_A_EXCHANGE_B4_SELECTOR}",
+            delta,
+        )
+        self.assertIn(
+            "added_selector="
+            f"{ATTENTION_K256_M128N128_A_EXCHANGE_B3_SELECTOR}",
+            delta,
+        )
+
+        attention_contract = next(
+            line
+            for line in candidate.stdout.splitlines()
+            if line.startswith("stage_contract")
+            and ATTENTION_K256_M128N128_A_EXCHANGE_B3_MARKERS[0] in line
+        )
+        self.assertIn(
+            "required="
+            f"{','.join(ATTENTION_K256_M128N128_A_EXCHANGE_B3_MARKERS)}",
+            attention_contract,
+        )
+        self.assertIn(
+            f"excluded={','.join(ATTENTION_K256_MARKERS)},",
+            attention_contract,
+        )
+        self.assertIn(
+            f",{','.join(ATTENTION_K256_A_EXCHANGE_B4_MARKERS)},",
+            attention_contract,
+        )
+        self.assertIn(
+            "expected_request_launch_hits=attention_incumbent:0,"
+            "attention_candidate:128",
+            attention_contract,
+        )
+        self.assertIn(
+            "expected_request_logical_projections=attention_incumbent:0,"
+            "attention_candidate:208",
+            attention_contract,
+        )
+
+        down_contract = next(
+            line
+            for line in candidate.stdout.splitlines()
+            if line.startswith("stage_contract")
+            and DOWN_16WARP_PAIRRING_MARKER in line
+        )
+        self.assertIn(
+            "expected_request_launch_hits=gate_incumbent:0,"
+            "gate_candidate:64,down_incumbent:0,down_candidate:64",
+            down_contract,
+        )
+        self.assertIn(
+            "prefill_attention_k256_implementation="
+            "a_exchange_b3_m128n128",
+            RUNNER.read_text(encoding="utf-8"),
+        )
+        self.assertIn("performance_evidence=0", candidate.stdout)
+        self.assertFalse(self.fixture.output.exists())
+
+        original = self.fixture.server.read_text(encoding="utf-8")
+        self.fixture.server.write_text(
+            original.replace(
+                f"# {ATTENTION_K256_M128N128_A_EXCHANGE_B3_SELECTOR}\n",
+                "",
+            ),
+            encoding="utf-8",
+        )
+        missing_selector = (
+            self.fixture.run_attention_k256_m128n128_a_exchange_b3()
+        )
+        self.assertEqual(missing_selector.returncode, 2)
+        self.assertIn(
+            "server does not contain the "
+            f"{ATTENTION_K256_M128N128_A_EXCHANGE_B3_MODE} selector: "
+            f"{ATTENTION_K256_M128N128_A_EXCHANGE_B3_SELECTOR}",
+            missing_selector.stderr,
+        )
+
+        self.fixture.server.write_text(
+            original.replace(
+                f"{ATTENTION_K256_M128N128_A_EXCHANGE_B3_MARKERS[-1]}\n",
+                "",
+            ),
+            encoding="utf-8",
+        )
+        missing_marker = (
+            self.fixture.run_attention_k256_m128n128_a_exchange_b3()
+        )
+        self.assertEqual(missing_marker.returncode, 2)
+        self.assertIn(
+            "server does not prove the K256 Attention production stage: "
+            f"{ATTENTION_K256_M128N128_A_EXCHANGE_B3_MARKERS[-1]}",
+            missing_marker.stderr,
+        )
+        self.fixture.server.write_text(original, encoding="utf-8")
 
     def test_ldmatrix_pairfeed_fails_closed_on_selector_or_marker(self) -> None:
         original = self.fixture.server.read_text(encoding="utf-8")
