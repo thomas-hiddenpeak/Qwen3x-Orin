@@ -438,3 +438,35 @@ checkpoint with real-prompt equalization statistics, never by recoding R1 or
 the current K256 sidecar.  It must first prove a positive complete-request
 direction through the real OpenAI API and external EvalScope; only then does
 it earn the longer performance and capability matrices.
+
+## R4 resource-plane closure
+
+The first paired R4 Gate/Up implementation tried to share the Down cell's
+`M192N64`, 384-thread ownership.  Even after moving three paired N8 S32
+fragments to shared memory, the final device image used 168 registers/thread,
+8 bytes of stack, 12 bytes of spill stores and 16 bytes of spill loads.  It
+therefore failed the zero-local hard gate.  That source is not retained as a
+runtime candidate and receives no correctness or performance credit.
+
+The shape-separated resource plane now consists of:
+
+| Consumer | Cell | Threads | Pipeline | Dynamic shared | Registers | Local/spill | Orin residency |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| paired Gate+Up | `M128N64` | 256 | 4 stages | 163,840 B | 242 | 0 B / 0 B | 1 CTA/SM, 16 grid CTAs resident |
+| Down | `M192N128` | 384 | 3 stages | 122,880 B | 168 | 0 B / 0 B | 1 CTA/SM, 16 grid CTAs resident |
+
+Gate and Up share every staged A tile and publish the BF16-RNE
+`SiLU(Gate) * Up` product once.  The complete current-lane S32 state remains
+in registers; four paired N8 cross-lane FP32 fragments live in a field-major
+shared tail which is touched only at the four lane folds and the epilogue.
+Down keeps 64 current-lane S32 plus 64 cross-lane FP32 values per thread.  At
+P1920 its ten M owners reduce Down B presentation from fifteen to ten without
+split-K, a grid barrier, or a global FP32 partial.
+
+These numbers close only the compile/device resource gate.  They are not a
+Prefill throughput result and do not authorize a selector.  The next ordered
+gates remain full release-shape bitwise CUDA correctness, a direct publication
+from the pinned original NVFP4 checkpoint, and then one real P1853 request
+through the OpenAI-compatible API driven by external EvalScope.  A negative
+whole-request direction closes the R4 cell before any microbenchmark campaign;
+a positive direction unlocks the prompt matrix and profiler attribution.

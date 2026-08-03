@@ -6,6 +6,7 @@
 #include "q3x/runtime/prefill_mlp_k512_fragment_native_overlay.h"
 #include "q3x/runtime/prefill_mlp_k512_overlay.h"
 #include "q3x/runtime/prefill_mlp_factorized_lane_converter.h"
+#include "q3x/runtime/prefill_mlp_factorized_lane_r4_publication.h"
 #include "q3x/runtime/prefill_quantized_contract.h"
 
 #include <cuda_runtime.h>
@@ -1953,7 +1954,8 @@ bool ModelWeights::attach_prefill_mlp_k512_sidecars(
   }
   if (std::any_of(
           layers_.begin(), layers_.end(), [](const DecoderLayerWeights& layer) {
-            return !layer.prefill_mlp_factorized_lane_r1.empty();
+            return !layer.prefill_mlp_factorized_lane_r1.empty() ||
+                   !layer.prefill_mlp_factorized_lane_r4.empty();
           })) {
     return false;
   }
@@ -2166,7 +2168,8 @@ bool ModelWeights::attach_prefill_mlp_k512_fragment_native_sidecars(
   }
   if (std::any_of(
           layers_.begin(), layers_.end(), [](const DecoderLayerWeights& layer) {
-            return !layer.prefill_mlp_factorized_lane_r1.empty();
+            return !layer.prefill_mlp_factorized_lane_r1.empty() ||
+                   !layer.prefill_mlp_factorized_lane_r4.empty();
           })) {
     return false;
   }
@@ -2458,7 +2461,8 @@ attach_prefill_mlp_k512_paired_gateup_canonical_down_sidecars(
   }
   if (std::any_of(
           layers_.begin(), layers_.end(), [](const DecoderLayerWeights& layer) {
-            return !layer.prefill_mlp_factorized_lane_r1.empty();
+            return !layer.prefill_mlp_factorized_lane_r1.empty() ||
+                   !layer.prefill_mlp_factorized_lane_r4.empty();
           })) {
     return false;
   }
@@ -2738,7 +2742,8 @@ attach_prefill_mlp_k512_projection_major_gateup_canonical_down_sidecars(
   }
   if (std::any_of(
           layers_.begin(), layers_.end(), [](const DecoderLayerWeights& layer) {
-            return !layer.prefill_mlp_factorized_lane_r1.empty();
+            return !layer.prefill_mlp_factorized_lane_r1.empty() ||
+                   !layer.prefill_mlp_factorized_lane_r4.empty();
           })) {
     return false;
   }
@@ -3024,6 +3029,13 @@ bool ModelWeights::attach_prefill_mlp_factorized_lane_r1_sidecars(
     return true;
   }
 
+  if (std::any_of(
+          layers_.begin(), layers_.end(), [](const DecoderLayerWeights& layer) {
+            return !layer.prefill_mlp_factorized_lane_r4.empty();
+          })) {
+    return false;
+  }
+
   // No factorized view may coexist with any canonical or composite MLP K512
   // publication.  Count malformed/partial legacy views as attached too: a
   // caller must explicitly detach the conflicting layout before R1 can be
@@ -3278,6 +3290,225 @@ bool ModelWeights::attach_prefill_mlp_factorized_lane_r1_sidecars(
   for (std::size_t layer_index = 0U; layer_index < layers_.size();
        ++layer_index) {
     layers_[layer_index].prefill_mlp_factorized_lane_r1 =
+        validated[layer_index];
+  }
+  return true;
+}
+
+bool ModelWeights::attach_prefill_mlp_factorized_lane_r4_sidecars(
+    const std::uint8_t* const arena, const std::size_t arena_bytes,
+    const PrefillMLPFactorizedLaneR4Manifest* const manifest,
+    const PrefillMLPFactorizedLaneR4Policy* const policy) noexcept {
+  const auto clear_all = [this]() noexcept {
+    for (DecoderLayerWeights& layer : layers_) {
+      layer.prefill_mlp_factorized_lane_r4 = {};
+    }
+  };
+  if (arena == nullptr && arena_bytes == 0U && manifest == nullptr &&
+      policy == nullptr) {
+    clear_all();
+    return true;
+  }
+
+  // Partial legacy publications are conflicts too.  A caller must explicitly
+  // detach R1/K512 before replacing the independent R4 view family.
+  for (const DecoderLayerWeights& layer : layers_) {
+    if (!layer.prefill_mlp_factorized_lane_r1.empty() ||
+        !layer.prefill_mlp_k512_fragment_native.empty()) {
+      return false;
+    }
+    for (const LinearWeight* const binding :
+         {&layer.mlp.gate_proj, &layer.mlp.up_proj,
+          &layer.mlp.down_proj}) {
+      const auto* const projection =
+          std::get_if<NvFp4LinearWeight>(binding);
+      if (projection == nullptr ||
+          projection->prefill_mlp_k512_weight != nullptr ||
+          projection->prefill_mlp_k512_scales != nullptr ||
+          projection->prefill_mlp_k512_activation_clip_ratio != 0.0F) {
+        return false;
+      }
+    }
+  }
+
+  const auto plan = prefill_mlp_factorized_lane_overlay_layout_plan(
+      kPrefillMLPFactorizedLaneR4PublicationLaneCount);
+  if (arena == nullptr || manifest == nullptr || policy == nullptr || !plan ||
+      arena_bytes !=
+          kPrefillMLPFactorizedLaneR4PublicationPayloadBytes ||
+      arena_bytes != plan.payload_bytes ||
+      manifest->payload_bytes != arena_bytes ||
+      manifest->lane_count !=
+          kPrefillMLPFactorizedLaneR4PublicationLaneCount ||
+      manifest->projections.size() !=
+          kPrefillMLPFactorizedLaneProjectionCount ||
+      policy->lane_count !=
+          kPrefillMLPFactorizedLaneR4PublicationLaneCount ||
+      policy->projections.size() != manifest->projections.size()) {
+    return false;
+  }
+  try {
+    if (!validate_prefill_mlp_factorized_lane_r4_policy_binding(
+             *policy, *manifest)) {
+      return false;
+    }
+  } catch (...) {
+    return false;
+  }
+
+  constexpr auto kPointerMaximum =
+      std::numeric_limits<std::uintptr_t>::max();
+  const std::uintptr_t arena_address =
+      reinterpret_cast<std::uintptr_t>(arena);
+  if (arena_address % kPrefillA4FactorizedLaneMinimumAlignment != 0U ||
+      arena_bytes > kPointerMaximum ||
+      arena_address > kPointerMaximum - arena_bytes) {
+    return false;
+  }
+  const std::uintptr_t arena_end = arena_address + arena_bytes;
+  const auto valid_clip = [](const double value) noexcept {
+    return std::isfinite(value) &&
+           value >=
+               kPrefillMLPFactorizedLaneR4PublicationMinimumClipRatio &&
+           value <= 1.0 &&
+           static_cast<float>(value) >=
+               static_cast<float>(
+                   kPrefillMLPFactorizedLaneR4PublicationMinimumClipRatio) &&
+           static_cast<float>(value) <= 1.0F;
+  };
+  const auto same_factor = [](
+                               const PrefillMLPFactorizedLaneR4ProjectionPolicyBinding&
+                                   left,
+                               const PrefillMLPFactorizedLaneR4ProjectionPolicyBinding&
+                                   right) noexcept {
+    return left.factor_scheme == right.factor_scheme &&
+           left.factor_path == right.factor_path &&
+           left.factor_sha256 == right.factor_sha256 &&
+           left.factor_element_count == right.factor_element_count;
+  };
+
+  std::array<PrefillMLPFactorizedLaneR4LayerView,
+             kPrefillMLPFactorizedLaneLayerCount>
+      validated{};
+  for (std::size_t index = 0U; index < manifest->projections.size();
+       ++index) {
+    const PrefillMLPFactorizedLaneManifestProjection& entry =
+        manifest->projections[index];
+    const PrefillMLPFactorizedLaneR4ProjectionPolicyBinding& calibration =
+        policy->projections[index];
+    const auto expected_family =
+        static_cast<PrefillMLPFactorizedLaneProjectionFamily>(index % 3U);
+    const std::uint32_t expected_layer =
+        static_cast<std::uint32_t>(index / 3U);
+    const PrefillA4FactorizedLaneProjectionLayoutPlan& projection_plan =
+        entry.family == PrefillMLPFactorizedLaneProjectionFamily::kDown
+            ? plan.down
+            : entry.family == PrefillMLPFactorizedLaneProjectionFamily::kUp
+                  ? plan.up
+                  : plan.gate;
+    const std::uint64_t expected_offset =
+        prefill_mlp_factorized_lane_projection_absolute_offset(
+            plan, expected_layer, expected_family);
+    if (entry.ordinal != index || entry.layer_index != expected_layer ||
+        entry.family != expected_family ||
+        entry.payload_offset != expected_offset ||
+        entry.payload_offset > arena_bytes ||
+        entry.payload_bytes > arena_bytes - entry.payload_offset ||
+        entry.payload_bytes != projection_plan.projection_bytes ||
+        calibration.ordinal != entry.ordinal ||
+        calibration.source_module != entry.source_module ||
+        calibration.source_sha256 != entry.source_sha256 ||
+        !valid_clip(calibration.weight_clip_ratio) ||
+        !valid_clip(calibration.activation_clip_ratio) ||
+        calibration.factor_scheme !=
+            kPrefillMLPFactorizedLaneR4PublicationFactorScheme ||
+        calibration.factor_element_count != entry.input_size) {
+      return false;
+    }
+
+    DecoderLayerWeights& layer = layers_[entry.layer_index];
+    LinearWeight* target = nullptr;
+    PrefillMLPFactorizedLaneR4LinearSidecarView* destination = nullptr;
+    switch (entry.family) {
+      case PrefillMLPFactorizedLaneProjectionFamily::kGate:
+        target = &layer.mlp.gate_proj;
+        destination = &validated[entry.layer_index].gate;
+        break;
+      case PrefillMLPFactorizedLaneProjectionFamily::kUp:
+        target = &layer.mlp.up_proj;
+        destination = &validated[entry.layer_index].up;
+        break;
+      case PrefillMLPFactorizedLaneProjectionFamily::kDown:
+        target = &layer.mlp.down_proj;
+        destination = &validated[entry.layer_index].down;
+        break;
+      default:
+        return false;
+    }
+    const auto* const nvfp4 = std::get_if<NvFp4LinearWeight>(target);
+    if (destination == nullptr || !has_valid_nvfp4_payload(nvfp4) ||
+        nvfp4->output_size != entry.output_size ||
+        nvfp4->input_size != entry.input_size) {
+      return false;
+    }
+
+    const std::uintptr_t projection_address =
+        arena_address + entry.payload_offset;
+    const std::uintptr_t weight_address =
+        projection_address + projection_plan.packed_weight_offset;
+    const std::uintptr_t scale_address =
+        projection_address + projection_plan.weight_scale_offset;
+    const std::uintptr_t inverse_alpha_address =
+        projection_address + projection_plan.inverse_alpha_offset;
+    const auto range_valid = [arena_end](const std::uintptr_t address,
+                                         const std::uint64_t bytes) noexcept {
+      return address < arena_end && bytes <= arena_end - address;
+    };
+    if (weight_address % 16U != 0U || scale_address % 16U != 0U ||
+        inverse_alpha_address % 16U != 0U ||
+        !range_valid(weight_address, projection_plan.packed_weight_bytes) ||
+        !range_valid(scale_address, projection_plan.weight_scale_bytes) ||
+        !range_valid(inverse_alpha_address,
+                     projection_plan.inverse_alpha_bytes) ||
+        projection_plan.packed_weight_bytes >
+            std::numeric_limits<std::size_t>::max() ||
+        projection_plan.weight_scale_elements >
+            std::numeric_limits<std::size_t>::max() ||
+        projection_plan.inverse_alpha_elements >
+            std::numeric_limits<std::size_t>::max()) {
+      return false;
+    }
+    *destination = {
+        reinterpret_cast<const std::uint8_t*>(weight_address),
+        static_cast<std::size_t>(projection_plan.packed_weight_bytes),
+        reinterpret_cast<const std::uint16_t*>(scale_address),
+        static_cast<std::size_t>(projection_plan.weight_scale_elements),
+        reinterpret_cast<const float*>(inverse_alpha_address),
+        static_cast<std::size_t>(projection_plan.inverse_alpha_elements),
+        static_cast<std::size_t>(entry.output_size),
+        static_cast<std::size_t>(entry.input_size),
+        kPrefillMLPFactorizedLaneR4PublicationLaneCount,
+        static_cast<float>(calibration.activation_clip_ratio)};
+    if (!destination->attached()) {
+      return false;
+    }
+  }
+
+  for (std::size_t layer_index = 0U; layer_index < validated.size();
+       ++layer_index) {
+    const auto& gate = policy->projections[layer_index * 3U];
+    const auto& up = policy->projections[layer_index * 3U + 1U];
+    if (!same_factor(gate, up) ||
+        gate.activation_clip_ratio != up.activation_clip_ratio ||
+        !validated[layer_index].attached()) {
+      return false;
+    }
+  }
+
+  clear_all();
+  for (std::size_t layer_index = 0U; layer_index < layers_.size();
+       ++layer_index) {
+    layers_[layer_index].prefill_mlp_factorized_lane_r4 =
         validated[layer_index];
   }
   return true;

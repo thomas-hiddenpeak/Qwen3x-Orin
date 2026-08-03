@@ -23,6 +23,8 @@ struct PrefillMLPK512PairedGateUpCanonicalDownManifest;
 struct PrefillMLPK512ProjectionMajorGateUpCanonicalDownManifest;
 struct PrefillMLPFactorizedLaneOverlayManifestBinding;
 struct PrefillMLPFactorizedLaneOverlayPolicyBinding;
+struct PrefillMLPFactorizedLaneR4Manifest;
+struct PrefillMLPFactorizedLaneR4Policy;
 
 inline constexpr std::size_t kQwen36DenseLayerCount = 64U;
 inline constexpr std::size_t kQwen36LinearAttentionLayerCount = 48U;
@@ -544,6 +546,66 @@ struct PrefillMLPFactorizedLaneLayerView {
   }
 };
 
+// R4 uses an independent view type so an R1 selector can never start
+// accepting lane_count=4 merely because the common physical payload format
+// is similar.  Every capacity describes exactly one authenticated projection
+// range in the direct-checkpoint R4 publication.
+struct PrefillMLPFactorizedLaneR4LinearSidecarView {
+  const std::uint8_t* packed_weight = nullptr;
+  std::size_t packed_weight_capacity_bytes = 0U;
+  const std::uint16_t* lane_scales = nullptr;
+  std::size_t lane_scale_capacity_elements = 0U;
+  const float* inverse_alpha = nullptr;
+  std::size_t inverse_alpha_capacity_elements = 0U;
+  std::size_t output_size = 0U;
+  std::size_t input_size = 0U;
+  std::uint32_t lane_count = 0U;
+  float activation_clip_ratio = 0.0F;
+
+  [[nodiscard]] bool attached() const noexcept {
+    const bool gate_or_up =
+        output_size == 17'408U && input_size == 5'120U;
+    const bool down = output_size == 5'120U && input_size == 17'408U;
+    const std::size_t expected_weight_bytes =
+        output_size * input_size / 2U;
+    return packed_weight != nullptr && lane_scales != nullptr &&
+           inverse_alpha != nullptr && lane_count == 4U &&
+           (gate_or_up || down) &&
+           packed_weight_capacity_bytes == expected_weight_bytes &&
+           lane_scale_capacity_elements == output_size * 4U &&
+           inverse_alpha_capacity_elements == input_size &&
+           activation_clip_ratio > 0.0F &&
+           activation_clip_ratio <= 1.0F;
+  }
+
+  [[nodiscard]] bool empty() const noexcept {
+    return packed_weight == nullptr &&
+           packed_weight_capacity_bytes == 0U && lane_scales == nullptr &&
+           lane_scale_capacity_elements == 0U && inverse_alpha == nullptr &&
+           inverse_alpha_capacity_elements == 0U && output_size == 0U &&
+           input_size == 0U && lane_count == 0U &&
+           activation_clip_ratio == 0.0F;
+  }
+};
+
+struct PrefillMLPFactorizedLaneR4LayerView {
+  PrefillMLPFactorizedLaneR4LinearSidecarView gate;
+  PrefillMLPFactorizedLaneR4LinearSidecarView up;
+  PrefillMLPFactorizedLaneR4LinearSidecarView down;
+
+  [[nodiscard]] bool attached() const noexcept {
+    return gate.attached() && up.attached() && down.attached() &&
+           gate.output_size == up.output_size &&
+           gate.input_size == up.input_size &&
+           gate.lane_count == up.lane_count &&
+           gate.activation_clip_ratio == up.activation_clip_ratio;
+  }
+
+  [[nodiscard]] bool empty() const noexcept {
+    return gate.empty() && up.empty() && down.empty();
+  }
+};
+
 struct LinearAttentionWeights {
   LinearWeight in_proj_qkv;
   LinearWeight in_proj_z;
@@ -576,6 +638,7 @@ struct DecoderLayerWeights {
   PrefillMLPK512FragmentNativeCompositeView
       prefill_mlp_k512_fragment_native;
   PrefillMLPFactorizedLaneLayerView prefill_mlp_factorized_lane_r1;
+  PrefillMLPFactorizedLaneR4LayerView prefill_mlp_factorized_lane_r4;
 };
 
 struct WeightBindingStats {
@@ -800,6 +863,17 @@ class ModelWeights {
       const std::uint8_t* arena, std::size_t arena_bytes,
       const PrefillMLPFactorizedLaneOverlayManifestBinding* manifest,
       const PrefillMLPFactorizedLaneOverlayPolicyBinding* policy) noexcept;
+
+  // Transactionally publishes the direct-checkpoint R4 factorized-lane
+  // payload as a separate 64-layer view family.  Strict-parser manifest and
+  // policy outputs are rechecked for lane4, fixed inventory/layout/ranges,
+  // calibrated alpha identity, and Gate/Up sharing before any resident view
+  // changes.  R4 is mutually exclusive with R1 and every MLP K512 layout.
+  // A canonical all-null/zero call detaches R4 only.
+  [[nodiscard]] bool attach_prefill_mlp_factorized_lane_r4_sidecars(
+      const std::uint8_t* arena, std::size_t arena_bytes,
+      const PrefillMLPFactorizedLaneR4Manifest* manifest,
+      const PrefillMLPFactorizedLaneR4Policy* policy) noexcept;
 
  private:
   friend class ModelWeightBinder;

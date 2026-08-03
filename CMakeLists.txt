@@ -711,6 +711,8 @@ if(Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_MLP_EXPERIMENT)
   target_sources(q3x_core PRIVATE
     src/runtime/prefill_mlp_factorized_lane_overlay.cpp
     src/runtime/prefill_mlp_factorized_lane_converter.cpp
+    src/runtime/prefill_mlp_factorized_lane_r4_converter.cpp
+    src/runtime/prefill_mlp_factorized_lane_r4_publication.cpp
   )
 endif()
 if(Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_R1_ADMISSION)
@@ -1077,6 +1079,8 @@ if(Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_MLP_EXPERIMENT)
     src/kernels/sm87/a4w4_factorized_lane_quantize.cu
     src/kernels/sm87/a4w4_gateup_factorized_lane.cu
     src/kernels/sm87/a4w4_down_factorized_lane.cu
+    src/kernels/sm87/a4w4_gateup_factorized_r4_m128n64.cu
+    src/kernels/sm87/a4w4_down_factorized_r4_m192n128.cu
   )
   target_compile_definitions(q3x_kernels PRIVATE
     Q3X_ENABLE_A4W4_FACTORIZED_LANE_MLP_EXPERIMENT=1
@@ -1086,6 +1090,11 @@ if(Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_MLP_EXPERIMENT)
     src/kernels/sm87/a4w4_gateup_factorized_lane.cu
     src/kernels/sm87/a4w4_down_factorized_lane.cu
     PROPERTIES COMPILE_OPTIONS "--maxrregcount=128;-Xptxas=-v;-Xptxas=-warn-spills"
+  )
+  set_source_files_properties(
+    src/kernels/sm87/a4w4_gateup_factorized_r4_m128n64.cu
+    src/kernels/sm87/a4w4_down_factorized_r4_m192n128.cu
+    PROPERTIES COMPILE_OPTIONS "-Xptxas=-v;-Xptxas=-warn-spills;-Xptxas=-warn-lmem-usage"
   )
 endif()
 if(Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_R1_ADMISSION)
@@ -1512,6 +1521,44 @@ if(BUILD_TESTING)
       TIMEOUT 600
     )
 
+    add_executable(q3x_prefill_mlp_factorized_lane_r4_converter_test
+      tests/prefill_mlp_factorized_lane_r4_converter_test.cpp
+    )
+    target_link_libraries(
+      q3x_prefill_mlp_factorized_lane_r4_converter_test
+      PRIVATE q3x::core
+    )
+    q3x_enable_warnings(
+      q3x_prefill_mlp_factorized_lane_r4_converter_test
+    )
+    add_test(NAME prefill_mlp_factorized_lane_r4_converter
+      COMMAND q3x_prefill_mlp_factorized_lane_r4_converter_test
+    )
+    set_tests_properties(
+      prefill_mlp_factorized_lane_r4_converter PROPERTIES
+      LABELS "host;prefill;mlp;a4w4;factorized-lane;r4;direct-checkpoint;converter;correctness"
+      TIMEOUT 600
+    )
+
+    add_executable(q3x_prefill_mlp_factorized_lane_r4_publication_test
+      tests/prefill_mlp_factorized_lane_r4_publication_test.cpp
+    )
+    target_link_libraries(
+      q3x_prefill_mlp_factorized_lane_r4_publication_test
+      PRIVATE q3x::core
+    )
+    q3x_enable_warnings(
+      q3x_prefill_mlp_factorized_lane_r4_publication_test
+    )
+    add_test(NAME prefill_mlp_factorized_lane_r4_publication
+      COMMAND q3x_prefill_mlp_factorized_lane_r4_publication_test
+    )
+    set_tests_properties(
+      prefill_mlp_factorized_lane_r4_publication PROPERTIES
+      LABELS "host;prefill;mlp;a4w4;factorized-lane;r4;direct-checkpoint;publication;correctness"
+      TIMEOUT 600
+    )
+
     add_executable(q3x_model_weights_prefill_mlp_factorized_lane_r1_test
       tests/model_weights_prefill_mlp_factorized_lane_r1_test.cpp
     )
@@ -1528,6 +1575,25 @@ if(BUILD_TESTING)
     set_tests_properties(
       model_weights_prefill_mlp_factorized_lane_r1 PROPERTIES
       LABELS "host;prefill;mlp;a4w4;factorized-lane;r1;model-weights;sidecar;transaction;correctness"
+      TIMEOUT 600
+    )
+
+    add_executable(q3x_model_weights_prefill_mlp_factorized_lane_r4_test
+      tests/model_weights_prefill_mlp_factorized_lane_r4_test.cpp
+    )
+    target_link_libraries(
+      q3x_model_weights_prefill_mlp_factorized_lane_r4_test
+      PRIVATE q3x::core
+    )
+    q3x_enable_warnings(
+      q3x_model_weights_prefill_mlp_factorized_lane_r4_test
+    )
+    add_test(NAME model_weights_prefill_mlp_factorized_lane_r4
+      COMMAND q3x_model_weights_prefill_mlp_factorized_lane_r4_test
+    )
+    set_tests_properties(
+      model_weights_prefill_mlp_factorized_lane_r4 PROPERTIES
+      LABELS "host;prefill;mlp;a4w4;factorized-lane;r4;direct-checkpoint;model-weights;sidecar;transaction;correctness"
       TIMEOUT 600
     )
 
@@ -1564,6 +1630,30 @@ if(BUILD_TESTING)
       q3x_sm87_a4w4_down_factorized_lane_correctness_test
     )
 
+    add_executable(
+      q3x_sm87_a4w4_gateup_factorized_r4_m128n64_correctness_test
+      tests/sm87_a4w4_gateup_factorized_r4_m128n64_correctness_test.cu
+    )
+    target_link_libraries(
+      q3x_sm87_a4w4_gateup_factorized_r4_m128n64_correctness_test
+      PRIVATE q3x::kernels CUDA::cudart
+    )
+    q3x_enable_warnings(
+      q3x_sm87_a4w4_gateup_factorized_r4_m128n64_correctness_test
+    )
+
+    add_executable(
+      q3x_sm87_a4w4_down_factorized_r4_m192n128_correctness_test
+      tests/sm87_a4w4_down_factorized_r4_m192n128_correctness_test.cu
+    )
+    target_link_libraries(
+      q3x_sm87_a4w4_down_factorized_r4_m192n128_correctness_test
+      PRIVATE q3x::kernels CUDA::cudart
+    )
+    q3x_enable_warnings(
+      q3x_sm87_a4w4_down_factorized_r4_m192n128_correctness_test
+    )
+
     find_program(Q3X_FACTORIZED_LANE_FLOCK_EXECUTABLE flock REQUIRED)
     add_test(NAME sm87_a4w4_factorized_lane_quantize_correctness
       COMMAND "${Q3X_FACTORIZED_LANE_FLOCK_EXECUTABLE}"
@@ -1597,6 +1687,32 @@ if(BUILD_TESTING)
     set_tests_properties(
       sm87_a4w4_down_factorized_lane_correctness PROPERTIES
       LABELS "cuda;sm87;prefill;mlp;a4w4;factorized-lane;r1;down;correctness;resources;stream;graph;synthetic"
+      SKIP_RETURN_CODE 77
+      RESOURCE_LOCK q3x_sm87_gpu
+      TIMEOUT 600
+    )
+
+    add_test(NAME sm87_a4w4_gateup_factorized_r4_m128n64_correctness
+      COMMAND "${Q3X_FACTORIZED_LANE_FLOCK_EXECUTABLE}"
+              -x /tmp/q3x-gpu-bench.lock
+              $<TARGET_FILE:q3x_sm87_a4w4_gateup_factorized_r4_m128n64_correctness_test>
+    )
+    set_tests_properties(
+      sm87_a4w4_gateup_factorized_r4_m128n64_correctness PROPERTIES
+      LABELS "cuda;sm87;prefill;mlp;a4w4;factorized-lane;r4;gateup;correctness;resources;stream;synthetic"
+      SKIP_RETURN_CODE 77
+      RESOURCE_LOCK q3x_sm87_gpu
+      TIMEOUT 600
+    )
+
+    add_test(NAME sm87_a4w4_down_factorized_r4_m192n128_correctness
+      COMMAND "${Q3X_FACTORIZED_LANE_FLOCK_EXECUTABLE}"
+              -x /tmp/q3x-gpu-bench.lock
+              $<TARGET_FILE:q3x_sm87_a4w4_down_factorized_r4_m192n128_correctness_test>
+    )
+    set_tests_properties(
+      sm87_a4w4_down_factorized_r4_m192n128_correctness PROPERTIES
+      LABELS "cuda;sm87;prefill;mlp;a4w4;factorized-lane;r4;down;correctness;resources;stream;synthetic"
       SKIP_RETURN_CODE 77
       RESOURCE_LOCK q3x_sm87_gpu
       TIMEOUT 600
