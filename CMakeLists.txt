@@ -162,6 +162,10 @@ option(Q3X_BUILD_SM87_A4W4_DOWN_K512_M128N128_16WARP_PAIRRING_EXPERIMENT
   "Build the default-off 512-thread M128N128 whole-K512 pair-ring Down experiment"
   OFF
 )
+option(Q3X_BUILD_SM87_A4W4_DOWN_K512_M256N128_K512RESIDENT_EXPERIMENT
+  "Build the default-off 512-thread M256N128 K512-resident Down experiment"
+  OFF
+)
 option(Q3X_BUILD_SM87_A4W4_DOWN_K512_M16N64_V2_EXPERIMENT
   "Build the default-off 512-thread M16N64 Down K512 candidate"
   OFF
@@ -1018,6 +1022,15 @@ if(Q3X_BUILD_SM87_A4W4_DOWN_K512_M128N128_16WARP_PAIRRING_EXPERIMENT)
   )
   set_source_files_properties(
     src/kernels/sm87/a4w4_down_k512_m128n128_16warp_pairring.cu
+    PROPERTIES COMPILE_OPTIONS "--maxrregcount=128;-Xptxas=-v;-Xptxas=-warn-spills"
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_DOWN_K512_M256N128_K512RESIDENT_EXPERIMENT)
+  target_sources(q3x_kernels PRIVATE
+    src/kernels/sm87/a4w4_down_k512_m256n128_k512resident.cu
+  )
+  set_source_files_properties(
+    src/kernels/sm87/a4w4_down_k512_m256n128_k512resident.cu
     PROPERTIES COMPILE_OPTIONS "--maxrregcount=128;-Xptxas=-v;-Xptxas=-warn-spills"
   )
 endif()
@@ -2935,6 +2948,21 @@ if(BUILD_TESTING)
       )
     endif()
 
+    if(Q3X_BUILD_SM87_A4W4_DOWN_K512_M256N128_K512RESIDENT_EXPERIMENT AND
+       Q3X_BUILD_SM87_A4W4_DOWN_K512_M128N128_16WARP_PAIRRING_EXPERIMENT)
+      add_executable(
+        q3x_sm87_a4w4_down_k512_m256n128_k512resident_correctness_test
+        tests/sm87_a4w4_down_k512_m256n128_k512resident_correctness_test.cu
+      )
+      target_link_libraries(
+        q3x_sm87_a4w4_down_k512_m256n128_k512resident_correctness_test
+        PRIVATE q3x::kernels CUDA::cudart
+      )
+      q3x_enable_warnings(
+        q3x_sm87_a4w4_down_k512_m256n128_k512resident_correctness_test
+      )
+    endif()
+
     if(Q3X_BUILD_SM87_A4W4_MLP_K512_SHAPE_SEPARATED_MARLIN_PACKAGE_EXPERIMENT AND
        Q3X_BUILD_SM87_A4W4_DOWN_K512_M128N128_LDMATRIX_PAIRRING_ADMISSION)
       add_executable(
@@ -3556,6 +3584,22 @@ if(BUILD_TESTING)
         sm87_a4w4_down_k512_m128n128_16warp_pairring_correctness
         PROPERTIES
         LABELS "cuda;sm87;prefill;mlp;a4w4;k512;down;m128n128;16warp;pairring;correctness;resources;graph;synthetic"
+        SKIP_RETURN_CODE 77
+        RESOURCE_LOCK q3x_sm87_gpu
+        TIMEOUT 600
+      )
+    endif()
+    if(Q3X_BUILD_SM87_A4W4_DOWN_K512_M256N128_K512RESIDENT_EXPERIMENT AND
+       Q3X_BUILD_SM87_A4W4_DOWN_K512_M128N128_16WARP_PAIRRING_EXPERIMENT)
+      add_test(
+        NAME sm87_a4w4_down_k512_m256n128_k512resident_resource_gate
+        COMMAND "${Q3X_FLOCK_EXECUTABLE}" -x /tmp/q3x-gpu-bench.lock
+                $<TARGET_FILE:q3x_sm87_a4w4_down_k512_m256n128_k512resident_correctness_test>
+      )
+      set_tests_properties(
+        sm87_a4w4_down_k512_m256n128_k512resident_resource_gate
+        PROPERTIES
+        LABELS "cuda;sm87;prefill;mlp;a4w4;k512;down;m256n128;k512resident;resources;rejection;synthetic"
         SKIP_RETURN_CODE 77
         RESOURCE_LOCK q3x_sm87_gpu
         TIMEOUT 600

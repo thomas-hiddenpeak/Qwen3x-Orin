@@ -9,9 +9,9 @@ itself.
 Keep the locked production route unchanged while building one new dense-A4
 projection plane.  The implementation has two coupled parts:
 
-1. shape-specific operand-resident kernels, starting with a Down
-   `M256N128` cell that presents each complete B panel to two adjacent M128
-   token panels without a grid barrier or cross-CTA partials; and
+1. shape-specific operand-resident kernels, starting with a factorized-lane
+   Down `M256N128` cell that presents each complete B panel to two adjacent
+   M128 token panels without a grid barrier or cross-CTA partials; and
 2. a separately versioned, equalized scale-lane sidecar which can remove the
    repeated K512/K256 FP32 scale epochs without dropping any weight values.
 
@@ -100,27 +100,42 @@ mainline.
 
 ## Dense projection dataflow
 
-### Down: first structural component
+### Down: direct K512 skeleton closed; coupled implementation required
 
 Current Down is `M128N128`, 512 threads, 16 warps, 128 registers/thread and
 one CTA/SM.  At P1853 it has 15 M tiles and 40 N tiles.  Every N panel therefore
 presents the complete B matrix 15 times; NCU reports about 79% DRAM activity.
 
-The new cell is `M256N128`, 256 threads and eight warps.  A CTA owns two
-adjacent M128 panels for one N128 panel and traverses complete K.  B is shared
-by both token panels, reducing logical B presentation from 15 to 8 times while
-leaving A presentation unchanged.  The target has:
+The first direct-K512 skeleton made one CTA own two adjacent M128 panels for
+one N128 panel.  It verified the traffic arithmetic: B presentation falls
+from 15 to 8 while A presentation is unchanged, reducing requested packed
+operand and scale traffic from 1,347,379,200 to 1,032,990,720 bytes per layer
+at P1853 (23.33%).
+
+It also closed the idea of treating M enlargement as an independent change.
+The final 512-thread/16-warp implementation still compiled to 128
+registers/thread plus 144 bytes of local memory/thread and 392/268 bytes of
+spill stores/loads after explicit named scalarization.  Its 99,072-byte full
+K512 shared cell was necessarily single buffered.  The zero-local resource
+gate rejected it before bitwise correctness and before any API performance
+run.  The complete evidence is recorded in
+[`../prefill-down-m256n128-k512resident-resource-rejection-2026-08-03/README.md`](../prefill-down-m256n128-k512resident-resource-rejection-2026-08-03/README.md).
+
+The successor therefore keeps the same operand-reuse goal but changes the
+scale and output lifecycle with it.  It must have:
 
 - no `grid.sync`, split-K, global FP32 partial, or inter-CTA wait;
 - one owner and one final BF16 write for every output element;
-- exact existing K512 group order in the compatibility specialization;
+- factorized scale lanes so a repeated K512 FP32-output/S32-partial pair is not
+  simultaneously live across 34 Down epochs;
 - at most one CTA/SM, no spill/local memory, and enough independent MMA chains
-  for eight warps to issue continuously;
-- a maximum three-stage A/B pipeline only when the compiled shared-memory and
-  register contracts fit the actual 164-KiB SM87 limit.
+  for the compiled warp ownership to issue continuously;
+- an overlapped A/B pipeline whose compiled shared-memory and register
+  contracts fit the actual SM87 per-block limits.
 
-The traffic-bound planning target is 220--225 ms versus 288.796640 ms.  That
-is a required component, not a claim that Down alone closes the whole request.
+No 220--225 ms credit is retained from the rejected skeleton.  Only a
+zero-local factorized-lane cell that reaches the real OpenAI API/EvalScope
+direction gate may establish a new Down timing.
 
 ### Gate/Up and Attention
 
