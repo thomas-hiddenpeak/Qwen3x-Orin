@@ -166,6 +166,8 @@ struct Payload final {
   std::vector<std::uint16_t> gate_scales;
   std::vector<std::uint8_t> up;
   std::vector<std::uint16_t> up_scales;
+  std::vector<std::uint8_t> paired_b_codes;
+  std::vector<std::uint16_t> paired_b_scales;
 };
 
 [[nodiscard]] Payload make_payload(const std::size_t launch_m,
@@ -186,7 +188,15 @@ struct Payload final {
       std::vector<std::uint8_t>(
           kernels::sm87_a4w4_gateup_factorized_packed_capacity_bytes(n, k)),
       std::vector<std::uint16_t>(
-          kernels::sm87_a4w4_gateup_factorized_scale_capacity_elements(n))};
+          kernels::sm87_a4w4_gateup_factorized_scale_capacity_elements(n)),
+      std::vector<std::uint8_t>(
+          kernels::
+              sm87_a4w4_gateup_factorized_v2_paired_code_capacity_bytes(
+                  n, k)),
+      std::vector<std::uint16_t>(
+          kernels::
+              sm87_a4w4_gateup_factorized_v2_paired_scale_capacity_elements(
+                  n))};
 
   for (std::size_t row = 0U; row < launch_m; ++row) {
     payload.a_scales[kernels::sm87_a4w4_gateup_factorized_scale_offset(row)] =
@@ -209,6 +219,16 @@ struct Payload final {
     payload.up_scales[
         kernels::sm87_a4w4_gateup_factorized_scale_offset(row)] =
         encode_bf16((row & 4U) == 0U ? 0.03125F : 0.015625F);
+    payload.paired_b_scales[
+        kernels::sm87_a4w4_gateup_factorized_v2_paired_scale_offset(
+            row, 0U)] =
+        payload.gate_scales[
+            kernels::sm87_a4w4_gateup_factorized_scale_offset(row)];
+    payload.paired_b_scales[
+        kernels::sm87_a4w4_gateup_factorized_v2_paired_scale_offset(
+            row, 1U)] =
+        payload.up_scales[
+            kernels::sm87_a4w4_gateup_factorized_scale_offset(row)];
     for (std::size_t group = 0U; group < physical_groups; ++group) {
       for (std::size_t byte = 0U; byte < 32U; ++byte) {
         const std::size_t inner = 64U * group + 2U * byte;
@@ -222,6 +242,34 @@ struct Payload final {
             kernels::sm87_a4w4_pack_signed_pair(
                 code(row, inner, 0xcdefU),
                 code(row, inner + 1U, 0xcdefU));
+      }
+    }
+  }
+
+  for (std::size_t fragment_n = 0U; fragment_n < n;
+       fragment_n += kernels::kSm87A4W4GateUpFactorizedV2N8) {
+    for (std::size_t group = 0U; group < physical_groups; ++group) {
+      for (std::size_t lane = 0U;
+           lane < kernels::kSm87A4W4GateUpFactorizedV2FragmentLanes;
+           ++lane) {
+        const std::size_t row = fragment_n + lane / 4U;
+        const std::size_t source0 =
+            kernels::sm87_a4w4_gateup_factorized_packed_offset(
+                row, group, 4U * (lane % 4U), physical_groups);
+        const std::size_t source1 =
+            kernels::sm87_a4w4_gateup_factorized_packed_offset(
+                row, group, 16U + 4U * (lane % 4U), physical_groups);
+        const std::size_t destination =
+            kernels::sm87_a4w4_gateup_factorized_v2_paired_code_offset(
+                fragment_n, group, lane, physical_groups);
+        std::memcpy(payload.paired_b_codes.data() + destination,
+                    payload.gate.data() + source0, 4U);
+        std::memcpy(payload.paired_b_codes.data() + destination + 4U,
+                    payload.gate.data() + source1, 4U);
+        std::memcpy(payload.paired_b_codes.data() + destination + 8U,
+                    payload.up.data() + source0, 4U);
+        std::memcpy(payload.paired_b_codes.data() + destination + 12U,
+                    payload.up.data() + source1, 4U);
       }
     }
   }
@@ -303,6 +351,10 @@ struct LaunchArguments final {
   std::size_t up_capacity{};
   const std::uint16_t* up_scales{};
   std::size_t up_scale_capacity{};
+  const std::uint8_t* paired_b_codes{};
+  std::size_t paired_b_code_capacity{};
+  const std::uint16_t* paired_b_scales{};
+  std::size_t paired_b_scale_capacity{};
   std::size_t logical_m{};
   std::size_t launch_m{};
   std::size_t n{};
@@ -329,8 +381,21 @@ struct LaunchArguments final {
       args.secondary_capacity, args.maximum_ctas, args.stream);
 }
 
+[[nodiscard]] int launch_v2(const LaunchArguments& args) noexcept {
+  return kernels::
+      launch_sm87_a4w4_gateup_factorized_lane_r1_v2_test_bf16_cuda(
+          args.a, args.a_capacity, args.a_scales, args.a_scale_capacity,
+          args.paired_b_codes, args.paired_b_code_capacity,
+          args.paired_b_scales, args.paired_b_scale_capacity,
+          args.logical_m, args.launch_m, args.n, args.k,
+          args.primary_width, args.primary, args.primary_stride,
+          args.primary_capacity, args.secondary, args.secondary_stride,
+          args.secondary_capacity, args.maximum_ctas, args.stream);
+}
+
 [[nodiscard]] bool capture_and_replay(const LaunchArguments& arguments,
-                                      const std::string& shape) {
+                                      const std::string& shape,
+                                      const bool v2) {
   cudaGraph_t graph{};
   cudaGraphExec_t executable{};
   bool ok = cuda_ok(
@@ -338,7 +403,8 @@ struct LaunchArguments final {
                              cudaStreamCaptureModeThreadLocal),
       "begin graph " + shape);
   if (ok) {
-    ok = cuda_ok(static_cast<cudaError_t>(launch(arguments)),
+    ok = cuda_ok(static_cast<cudaError_t>(
+                     v2 ? launch_v2(arguments) : launch(arguments)),
                  "capture launch " + shape) &&
          cuda_ok(cudaStreamEndCapture(arguments.stream, &graph),
                  "end graph " + shape) &&
@@ -403,7 +469,8 @@ struct LaunchArguments final {
                             const std::size_t n,
                             const std::size_t k,
                             const std::size_t primary_width,
-                            const bool graph_replay) {
+                            const bool graph_replay,
+                            const bool check_cpu_oracle = true) {
   const std::string shape = "M" + std::to_string(logical_m) + "/P" +
                             std::to_string(launch_m) + " N" +
                             std::to_string(n) + " K" + std::to_string(k) +
@@ -418,8 +485,12 @@ struct LaunchArguments final {
   GuardedDevice<std::uint16_t> gate_scales;
   GuardedDevice<std::uint8_t> up;
   GuardedDevice<std::uint16_t> up_scales;
+  GuardedDevice<std::uint8_t> paired_b_codes;
+  GuardedDevice<std::uint16_t> paired_b_scales;
   GuardedDevice<std::uint16_t> primary;
   GuardedDevice<std::uint16_t> secondary;
+  GuardedDevice<std::uint16_t> primary_v2;
+  GuardedDevice<std::uint16_t> secondary_v2;
   if (!a.initialize(payload.a, kByteGuards, kByteSentinel, "A " + shape) ||
       !a_scales.initialize(payload.a_scales, kWordGuards, kWordSentinel,
                            "A scales " + shape) ||
@@ -431,6 +502,12 @@ struct LaunchArguments final {
                      "Up " + shape) ||
       !up_scales.initialize(payload.up_scales, kWordGuards, kWordSentinel,
                             "Up scales " + shape) ||
+      !paired_b_codes.initialize(payload.paired_b_codes, kByteGuards,
+                                 kByteSentinel,
+                                 "paired B codes " + shape) ||
+      !paired_b_scales.initialize(payload.paired_b_scales, kWordGuards,
+                                  kWordSentinel,
+                                  "paired B scales " + shape) ||
       !primary.initialize(
           std::vector<std::uint16_t>(launch_m * primary_stride,
                                      kOutputSentinel),
@@ -438,7 +515,15 @@ struct LaunchArguments final {
       !secondary.initialize(
           std::vector<std::uint16_t>(launch_m * secondary_stride,
                                      kOutputSentinel),
-          kWordGuards, kOutputSentinel, "secondary " + shape)) {
+          kWordGuards, kOutputSentinel, "secondary " + shape) ||
+      !primary_v2.initialize(
+          std::vector<std::uint16_t>(launch_m * primary_stride,
+                                     kOutputSentinel),
+          kWordGuards, kOutputSentinel, "primary v2 " + shape) ||
+      !secondary_v2.initialize(
+          std::vector<std::uint16_t>(launch_m * secondary_stride,
+                                     kOutputSentinel),
+          kWordGuards, kOutputSentinel, "secondary v2 " + shape)) {
     return false;
   }
 
@@ -460,6 +545,10 @@ struct LaunchArguments final {
       up.payload_count(),
       up_scales.payload(),
       up_scales.payload_count(),
+      paired_b_codes.payload(),
+      paired_b_codes.payload_count(),
+      paired_b_scales.payload(),
+      paired_b_scales.payload_count(),
       logical_m,
       launch_m,
       n,
@@ -473,24 +562,45 @@ struct LaunchArguments final {
       secondary.payload_count(),
       16U,
       stream};
+  LaunchArguments v2_args = args;
+  v2_args.primary = primary_v2.payload();
+  v2_args.primary_capacity = primary_v2.payload_count();
+  v2_args.secondary = secondary_v2.payload();
+  v2_args.secondary_capacity = secondary_v2.payload_count();
   bool ok = cuda_ok(static_cast<cudaError_t>(launch(args)),
                     "launch " + shape) &&
+            cuda_ok(static_cast<cudaError_t>(launch_v2(v2_args)),
+                    "launch v2 " + shape) &&
             cuda_ok(cudaStreamSynchronize(stream), "sync " + shape);
   if (ok && graph_replay) {
-    ok = capture_and_replay(args, shape);
+    ok = capture_and_replay(args, shape + " v1", false) &&
+         capture_and_replay(v2_args, shape + " v2", true);
   }
 
   std::vector<std::uint16_t> primary_host;
   std::vector<std::uint16_t> secondary_host;
+  std::vector<std::uint16_t> primary_v2_host;
+  std::vector<std::uint16_t> secondary_v2_host;
   if (ok) {
     ok = primary.copy(primary_host, "primary " + shape) &&
          secondary.copy(secondary_host, "secondary " + shape) &&
+         primary_v2.copy(primary_v2_host, "primary v2 " + shape) &&
+         secondary_v2.copy(secondary_v2_host, "secondary v2 " + shape) &&
          primary.guards_intact(primary_host, "primary " + shape) &&
          secondary.guards_intact(secondary_host,
-                                 "secondary " + shape);
+                                 "secondary " + shape) &&
+         primary_v2.guards_intact(primary_v2_host,
+                                  "primary v2 " + shape) &&
+         secondary_v2.guards_intact(secondary_v2_host,
+                                    "secondary v2 " + shape);
+  }
+  if (ok && (primary_host != primary_v2_host ||
+             secondary_host != secondary_v2_host)) {
+    std::cerr << "v1/v2 output mismatch " << shape << '\n';
+    ok = false;
   }
   std::size_t one_ulp_count = 0U;
-  if (ok) {
+  if (ok && check_cpu_oracle) {
     ok = compare_plane(primary_host, primary, payload, logical_m, launch_m,
                        0U, primary_width, primary_stride, k,
                        "primary " + shape, one_ulp_count) &&
@@ -505,12 +615,17 @@ struct LaunchArguments final {
          gate.unchanged("Gate " + shape) &&
          gate_scales.unchanged("Gate scales " + shape) &&
          up.unchanged("Up " + shape) &&
-         up_scales.unchanged("Up scales " + shape);
+         up_scales.unchanged("Up scales " + shape) &&
+         paired_b_codes.unchanged("paired B codes " + shape) &&
+         paired_b_scales.unchanged("paired B scales " + shape);
   }
   (void)cudaStreamDestroy(stream);
   if (ok) {
-    std::cout << "PASS: whole-K S32 CPU oracle " << shape
-              << " BF16_ulp<=1 one_ulp=" << one_ulp_count
+    std::cout << "PASS: v1/v2 bit-exact whole-K S32 " << shape
+              << (check_cpu_oracle
+                      ? " CPU-oracle BF16_ulp<=1 one_ulp=" +
+                            std::to_string(one_ulp_count)
+                      : "")
               << (graph_replay ? " graphx2" : "") << '\n';
   }
   return ok;
@@ -533,6 +648,8 @@ __global__ void stale_error_probe() {}
   GuardedDevice<std::uint16_t> gate_scales;
   GuardedDevice<std::uint8_t> up;
   GuardedDevice<std::uint16_t> up_scales;
+  GuardedDevice<std::uint8_t> paired_b_codes;
+  GuardedDevice<std::uint16_t> paired_b_scales;
   GuardedDevice<std::uint16_t> primary;
   GuardedDevice<std::uint16_t> secondary;
   if (!a.initialize(payload.a, kByteGuards, kByteSentinel, "invalid A") ||
@@ -546,6 +663,11 @@ __global__ void stale_error_probe() {}
                      "invalid Up") ||
       !up_scales.initialize(payload.up_scales, kWordGuards, kWordSentinel,
                             "invalid Up scales") ||
+      !paired_b_codes.initialize(payload.paired_b_codes, kByteGuards,
+                                 kByteSentinel, "invalid paired B codes") ||
+      !paired_b_scales.initialize(payload.paired_b_scales, kWordGuards,
+                                  kWordSentinel,
+                                  "invalid paired B scales") ||
       !primary.initialize(
           std::vector<std::uint16_t>(kLaunchM * kPrimaryStride,
                                      kOutputSentinel),
@@ -570,6 +692,10 @@ __global__ void stale_error_probe() {}
       up.payload_count(),
       up_scales.payload(),
       up_scales.payload_count(),
+      paired_b_codes.payload(),
+      paired_b_codes.payload_count(),
+      paired_b_scales.payload(),
+      paired_b_scales.payload_count(),
       kLogicalM,
       kLaunchM,
       kN,
@@ -588,6 +714,18 @@ __global__ void stale_error_probe() {}
         LaunchArguments candidate = base;
         mutate(candidate);
         const int status = launch(candidate);
+        if (status == static_cast<int>(cudaErrorInvalidValue)) {
+          return true;
+        }
+        std::cerr << label << " did not fail with cudaErrorInvalidValue: "
+                  << status << '\n';
+        return false;
+      };
+  const auto expect_invalid_v2 =
+      [&](const char* const label, const auto& mutate) {
+        LaunchArguments candidate = base;
+        mutate(candidate);
+        const int status = launch_v2(candidate);
         if (status == static_cast<int>(cudaErrorInvalidValue)) {
           return true;
         }
@@ -660,6 +798,19 @@ __global__ void stale_error_probe() {}
             expect_invalid("zero grid", [](LaunchArguments& x) {
               x.maximum_ctas = 0U;
             });
+  if (ok) {
+    ok = cuda_ok(static_cast<cudaError_t>(launch_v2(base)),
+                 "valid v2 contract control") &&
+         cuda_ok(cudaDeviceSynchronize(), "sync valid v2 contract") &&
+         expect_invalid_v2("short v2 paired codes", [](LaunchArguments& x) {
+           --x.paired_b_code_capacity;
+         }) &&
+         expect_invalid_v2("short v2 paired scales", [](LaunchArguments& x) {
+           --x.paired_b_scale_capacity;
+         }) &&
+         expect_invalid_v2("misaligned v2 paired codes",
+                           [](LaunchArguments& x) { ++x.paired_b_codes; });
+  }
   if (!ok) {
     return false;
   }
@@ -740,11 +891,48 @@ int main() {
     return 1;
   }
 
+  kernels::Sm87A4W4GateUpFactorizedLaneResources v2_resources{};
+  const auto v2_resource_status = static_cast<cudaError_t>(
+      kernels::
+          query_sm87_a4w4_gateup_factorized_lane_r1_v2_resources_cuda(
+              &v2_resources));
+  std::cout << "v2 resources regs=" << v2_resources.registers_per_thread
+            << " static_shared=" << v2_resources.static_shared_bytes
+            << " dynamic_shared=" << v2_resources.dynamic_shared_bytes
+            << " local=" << v2_resources.local_bytes
+            << " max_threads=" << v2_resources.maximum_threads_per_block
+            << " active_blocks_per_sm="
+            << v2_resources.active_blocks_per_sm << '\n';
+  if (!cuda_ok(v2_resource_status, "Gate+Up R1-v2 resource hard gate") ||
+      v2_resources.registers_per_thread > 128 ||
+      v2_resources.static_shared_bytes != 0U ||
+      v2_resources.dynamic_shared_bytes != 99'072U ||
+      v2_resources.local_bytes != 0U ||
+      v2_resources.maximum_threads_per_block < 512 ||
+      v2_resources.active_blocks_per_sm < 1) {
+    std::cerr << "v2 resource query failed the <=128-reg/zero-local gate\n";
+    return 1;
+  }
+
+  if (kernels::
+          sm87_a4w4_gateup_factorized_v2_paired_code_capacity_bytes(
+              17'408U, 5'120U) !=
+          17'408U * 5'120U ||
+      kernels::
+          sm87_a4w4_gateup_factorized_v2_paired_scale_capacity_elements(
+              17'408U) !=
+          2U * 17'408U) {
+    std::cerr << "v2 equal-byte publication contract failed\n";
+    return 1;
+  }
+
   if (!invalid_contracts() ||
       !run_case(1U, 128U, 256U, 256U, 128U, true) ||
       !run_case(129U, 256U, 256U, 256U, 128U, false) ||
       !run_case(5U, 128U, 512U, 512U, 256U, false) ||
-      !run_case(3U, 128U, 256U, 5'120U, 128U, false)) {
+      !run_case(3U, 128U, 256U, 5'120U, 128U, false) ||
+      !run_case(1'853U, 1'920U, 17'408U, 5'120U, 12'288U, false,
+                false)) {
     return 1;
   }
   std::cout << "PASS\n";

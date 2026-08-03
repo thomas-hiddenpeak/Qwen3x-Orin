@@ -45,6 +45,67 @@ inline constexpr std::size_t
     kSm87A4W4AttentionFactorizedLaneR1PersistentCtas = 16U;
 inline constexpr std::size_t
     kSm87A4W4AttentionFactorizedLaneR1CtasPerSm = 1U;
+inline constexpr std::size_t
+    kSm87A4W4AttentionFactorizedLaneR1V2MaximumRegisters = 252U;
+inline constexpr std::size_t
+    kSm87A4W4AttentionFactorizedLaneR1V2PairN = 16U;
+inline constexpr std::size_t
+    kSm87A4W4AttentionFactorizedLaneR1V2OuterBlock = 128U;
+inline constexpr std::size_t
+    kSm87A4W4AttentionFactorizedLaneR1V2PairLanes = 32U;
+inline constexpr std::size_t
+    kSm87A4W4AttentionFactorizedLaneR1V2PairBytes = 16U;
+
+// Equal-byte v2 B publication.  One aligned lane slot owns two adjacent N8
+// IMMA fragments: {first.x0, first.x1, second.x0, second.x1}.  The complete
+// layout is [N128][K64][N16][lane32][16B], shared with Down, so its capacity
+// remains N*K/2.
+[[nodiscard]] Q3X_SM87_A4W4_ATTENTION_R1_HOST_DEVICE constexpr std::size_t
+sm87_a4w4_attention_factorized_lane_r1_v2_b_pair_offset(
+    const std::size_t outer_coordinate,
+    const std::size_t k64_group,
+    const std::size_t lane,
+    const std::size_t k64_group_count) noexcept {
+  const std::size_t outer_block =
+      outer_coordinate / kSm87A4W4AttentionFactorizedLaneR1V2OuterBlock;
+  const std::size_t n16 =
+      (outer_coordinate %
+       kSm87A4W4AttentionFactorizedLaneR1V2OuterBlock) /
+      kSm87A4W4AttentionFactorizedLaneR1V2PairN;
+  return (((outer_block * k64_group_count + k64_group) *
+               (kSm87A4W4AttentionFactorizedLaneR1V2OuterBlock /
+                kSm87A4W4AttentionFactorizedLaneR1V2PairN) +
+           n16) *
+              kSm87A4W4AttentionFactorizedLaneR1V2PairLanes +
+          lane) *
+         kSm87A4W4AttentionFactorizedLaneR1V2PairBytes;
+}
+
+struct Sm87A4W4AttentionFactorizedLaneR1V2BWordCoordinate final {
+  std::size_t outer{};
+  std::size_t byte_in_k64{};
+  bool valid{};
+};
+
+// Logical canonical source coordinate for one u32 in a v2 pair slot.
+[[nodiscard]] constexpr
+    Sm87A4W4AttentionFactorizedLaneR1V2BWordCoordinate
+sm87_a4w4_attention_factorized_lane_r1_v2_b_word_coordinate(
+    const std::size_t outer_panel,
+    const std::size_t n16,
+    const std::size_t lane,
+    const std::size_t word) noexcept {
+  if (n16 >= kSm87A4W4AttentionFactorizedLaneR1V2OuterBlock /
+                   kSm87A4W4AttentionFactorizedLaneR1V2PairN ||
+      lane >= kSm87A4W4AttentionFactorizedLaneR1V2PairLanes ||
+      word >= 4U) {
+    return {};
+  }
+  return {outer_panel * kSm87A4W4AttentionFactorizedLaneR1V2OuterBlock +
+              n16 * kSm87A4W4AttentionFactorizedLaneR1V2PairN +
+              (word / 2U) * 8U + lane / 4U,
+          (word % 2U) * 16U + 4U * (lane % 4U), true};
+}
 
 [[nodiscard]] constexpr std::size_t
 sm87_a4w4_attention_factorized_lane_r1_scale_capacity_elements(
@@ -107,8 +168,28 @@ struct Sm87A4W4AttentionFactorizedLaneR1Resources final {
 query_sm87_a4w4_attention_factorized_lane_r1_m128n256_resources_cuda(
     Sm87A4W4AttentionFactorizedLaneR1Resources* resources) noexcept;
 
+// v2 consumes only the equal-byte adjacent-N8 paired B publication.  It is a
+// separate symbol and cannot silently reinterpret a v1/v4 payload.
+[[nodiscard]] int
+query_sm87_a4w4_attention_factorized_lane_r1_v2_m128n256_resources_cuda(
+    Sm87A4W4AttentionFactorizedLaneR1Resources* resources) noexcept;
+
 [[nodiscard]] int
 launch_sm87_a4w4_attention_factorized_lane_r1_m128n256_bf16_cuda(
+    Sm87A4W4AttentionK256Topology topology,
+    const std::uint8_t* packed_a,
+    std::size_t packed_a_capacity_bytes,
+    const std::uint16_t* a_lane_scales_bf16,
+    std::size_t a_scale_capacity_elements,
+    std::size_t token_count,
+    const Sm87A4W4AttentionFactorizedLaneR1ProjectionView* projections,
+    std::size_t projection_count,
+    Sm87A4W4AttentionFactorizedLaneR1EpilogueMode epilogue_mode =
+        Sm87A4W4AttentionFactorizedLaneR1EpilogueMode::kTopologyBf16,
+    void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
+launch_sm87_a4w4_attention_factorized_lane_r1_v2_m128n256_bf16_cuda(
     Sm87A4W4AttentionK256Topology topology,
     const std::uint8_t* packed_a,
     std::size_t packed_a_capacity_bytes,
@@ -141,12 +222,35 @@ launch_sm87_a4w4_attention_factorized_lane_r1_m128n256_test_bf16_cuda(
             kSm87A4W4AttentionFactorizedLaneR1PersistentCtas),
     void* cuda_stream = nullptr) noexcept;
 
+[[nodiscard]] int
+launch_sm87_a4w4_attention_factorized_lane_r1_v2_m128n256_test_bf16_cuda(
+    const std::uint8_t* packed_a,
+    std::size_t packed_a_capacity_bytes,
+    const std::uint16_t* a_lane_scales_bf16,
+    std::size_t a_scale_capacity_elements,
+    std::size_t token_count,
+    std::size_t input_size,
+    const Sm87A4W4AttentionFactorizedLaneR1ProjectionView* projection,
+    std::size_t macro_cells,
+    Sm87A4W4AttentionFactorizedLaneR1EpilogueMode epilogue_mode =
+        Sm87A4W4AttentionFactorizedLaneR1EpilogueMode::kTopologyBf16,
+    unsigned int maximum_launch_ctas =
+        static_cast<unsigned int>(
+            kSm87A4W4AttentionFactorizedLaneR1PersistentCtas),
+    void* cuda_stream = nullptr) noexcept;
+
 static_assert(kSm87A4W4AttentionFactorizedLaneR1TileM ==
               kSm87A4W4AttentionK256TileM);
 static_assert(kSm87A4W4AttentionFactorizedLaneR1TileN ==
               kSm87A4W4AttentionK256TileN);
 static_assert(kSm87A4W4AttentionFactorizedLaneR1Threads == 256U);
 static_assert(kSm87A4W4AttentionFactorizedLaneR1Warps == 8U);
+static_assert(kSm87A4W4AttentionFactorizedLaneR1V2OuterBlock %
+                      kSm87A4W4AttentionFactorizedLaneR1V2PairN ==
+                  0U &&
+              kSm87A4W4AttentionFactorizedLaneR1V2PairLanes *
+                      kSm87A4W4AttentionFactorizedLaneR1V2PairBytes ==
+                  512U);
 static_assert(kSm87A4W4AttentionFactorizedLaneR1Stages *
                       kSm87A4W4AttentionFactorizedLaneR1StageBytes +
                   kSm87A4W4AttentionFactorizedLaneR1ScaleBytes ==

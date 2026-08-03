@@ -38,7 +38,12 @@ struct alignas(16) AExchangeSlot final {
 };
 
 struct alignas(16) BRingSlot final {
-  std::uint8_t code[kK64PerGroup][kTileN * kPackedK64Bytes];
+  union {
+    std::uint8_t code[kK64PerGroup][kTileN * kPackedK64Bytes];
+    std::uint32_t pair[kK64PerGroup][kTileN /
+                                         kSm87A4W4AttentionFactorizedLaneR1V2PairN]
+                      [kSm87A4W4AttentionFactorizedLaneR1V2PairLanes][4U];
+  };
 };
 
 struct alignas(16) SharedStorage final {
@@ -60,6 +65,11 @@ struct ResidentA final {
   Sm87A4W4AFragment p2_m1;
   Sm87A4W4AFragment p3_m0;
   Sm87A4W4AFragment p3_m1;
+};
+
+struct ResidentBPair final {
+  Sm87A4W4BFragment first;
+  Sm87A4W4BFragment second;
 };
 
 static_assert(kThreads ==
@@ -168,6 +178,24 @@ load_b_ldmatrix_x2(const std::uint8_t* const shared_b,
   asm volatile("trap;");
 #endif
   return fragment;
+}
+
+[[nodiscard]] __device__ __forceinline__ ResidentBPair
+load_b_pair_lds128(const std::uint32_t* const shared_pair) noexcept {
+  const unsigned int shared_address =
+      static_cast<unsigned int>(__cvta_generic_to_shared(shared_pair));
+  ResidentBPair pair{};
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ == 870
+  asm volatile(
+      "ld.shared.v4.u32 {%0, %1, %2, %3}, [%4];"
+      : "=r"(pair.first.x0), "=r"(pair.first.x1),
+        "=r"(pair.second.x0), "=r"(pair.second.x1)
+      : "r"(shared_address)
+      : "memory");
+#else
+  asm volatile("trap;");
+#endif
+  return pair;
 }
 
 template <KernelTopology Topology>
@@ -351,6 +379,48 @@ __device__ __forceinline__ void issue_b_ring_slot(
   cp_async_commit();
 }
 
+template <KernelTopology Topology>
+__device__ __forceinline__ void issue_b_ring_slot_v2(
+    BRingSlot& slot,
+    const std::uint8_t* const packed_b0,
+    const std::uint8_t* const packed_b1,
+    const std::uint8_t* const packed_b2,
+    const unsigned int macro_cell,
+    const unsigned int k256_group,
+    const unsigned int physical_k64_group_count) noexcept {
+  const unsigned int panel_slot = threadIdx.x >> 6U;
+  const unsigned int thread_in_panel = threadIdx.x & 63U;
+  const unsigned int descriptor =
+      fixed_descriptor<Topology>(macro_cell, panel_slot);
+  const unsigned int projection =
+      descriptor >> kDescriptorProjectionShift;
+  const unsigned int panel = descriptor & kDescriptorPanelMask;
+  const std::uint8_t* const selected_b = select_packed_projection(
+      projection, packed_b0, packed_b1, packed_b2);
+#pragma unroll
+  for (unsigned int plane = 0U; plane < kK64PerGroup; ++plane) {
+#pragma unroll
+    for (unsigned int vector_in_thread = 0U; vector_in_thread < 2U;
+         ++vector_in_thread) {
+      const unsigned int panel_vector =
+          thread_in_panel + 64U * vector_in_thread;
+      const unsigned int n16 = panel_vector >> 5U;
+      const unsigned int lane = panel_vector & 31U;
+      const unsigned int shared_n16 = panel_slot * 4U + n16;
+      const unsigned int k64 = k256_group * kK64PerGroup + plane;
+      cp_async_16(
+          slot.pair[plane][shared_n16][lane],
+          selected_b +
+              sm87_a4w4_attention_factorized_lane_r1_v2_b_pair_offset(
+                  static_cast<std::size_t>(panel) * 64U +
+                      n16 *
+                          kSm87A4W4AttentionFactorizedLaneR1V2PairN,
+                  k64, lane, physical_k64_group_count));
+    }
+  }
+  cp_async_commit();
+}
+
 [[nodiscard]] __device__ __forceinline__ ResidentA load_resident_a(
     const AExchangeSlot& slot) noexcept {
   const unsigned int lane = threadIdx.x & 31U;
@@ -433,6 +503,61 @@ __device__ __forceinline__ void accumulate_group(
   Q3X_ACCUMULATE_N8(14U);
   Q3X_ACCUMULATE_N8(15U);
 #undef Q3X_ACCUMULATE_N8
+}
+
+template <unsigned int PairN>
+__device__ __forceinline__ void accumulate_n16_v2(
+    const ResidentA& a,
+    const BRingSlot& b_slot,
+    Sm87A4W4Accumulator& output_first_m0,
+    Sm87A4W4Accumulator& output_first_m1,
+    Sm87A4W4Accumulator& output_second_m0,
+    Sm87A4W4Accumulator& output_second_m1) noexcept {
+  static_assert(PairN < 8U);
+  const unsigned int lane = threadIdx.x & 31U;
+  const unsigned int warp = threadIdx.x >> 5U;
+  const unsigned int n128_half = warp >> 2U;
+  const unsigned int local_pair = n128_half * 8U + PairN;
+
+#define Q3X_ACCUMULATE_PAIR(plane)                                      \
+  do {                                                                  \
+    const ResidentBPair pair =                                          \
+        load_b_pair_lds128(b_slot.pair[plane][local_pair][lane]);       \
+    sm87_a4w4_mma_m16n8k64(output_first_m0, a.p##plane##_m0,            \
+                           pair.first);                                 \
+    sm87_a4w4_mma_m16n8k64(output_first_m1, a.p##plane##_m1,            \
+                           pair.first);                                 \
+    sm87_a4w4_mma_m16n8k64(output_second_m0, a.p##plane##_m0,           \
+                           pair.second);                                \
+    sm87_a4w4_mma_m16n8k64(output_second_m1, a.p##plane##_m1,           \
+                           pair.second);                                \
+  } while (false)
+  Q3X_ACCUMULATE_PAIR(0);
+  Q3X_ACCUMULATE_PAIR(1);
+  Q3X_ACCUMULATE_PAIR(2);
+  Q3X_ACCUMULATE_PAIR(3);
+#undef Q3X_ACCUMULATE_PAIR
+}
+
+__device__ __forceinline__ void accumulate_group_v2(
+    const ResidentA& a,
+    const BRingSlot& b,
+    Sm87A4W4Accumulator (&output_m0)[16U],
+    Sm87A4W4Accumulator (&output_m1)[16U]) noexcept {
+#define Q3X_ACCUMULATE_N16(pair)                                        \
+  accumulate_n16_v2<pair>(a, b, output_m0[2U * pair],                  \
+                          output_m1[2U * pair],                         \
+                          output_m0[2U * pair + 1U],                    \
+                          output_m1[2U * pair + 1U])
+  Q3X_ACCUMULATE_N16(0U);
+  Q3X_ACCUMULATE_N16(1U);
+  Q3X_ACCUMULATE_N16(2U);
+  Q3X_ACCUMULATE_N16(3U);
+  Q3X_ACCUMULATE_N16(4U);
+  Q3X_ACCUMULATE_N16(5U);
+  Q3X_ACCUMULATE_N16(6U);
+  Q3X_ACCUMULATE_N16(7U);
+#undef Q3X_ACCUMULATE_N16
 }
 
 [[nodiscard]] __device__ __forceinline__ float scaled_output(
@@ -573,7 +698,7 @@ __device__ __forceinline__ void publish_topology_bf16(
 #undef Q3X_PUBLISH_N8
 }
 
-template <KernelTopology Topology>
+template <KernelTopology Topology, bool PairedB>
 __device__ __forceinline__ void run_cell_kernel(
     SharedStorage& shared,
     const std::uint8_t* const packed_a,
@@ -610,23 +735,47 @@ __device__ __forceinline__ void run_cell_kernel(
     // scheduler; only arithmetic and scale lifetime have changed.
     issue_a_exchange(shared.a, packed_a, m_tile_start, 0U,
                      physical_k64_group_count);
-    issue_b_ring_slot<Topology>(
-        shared.b[0U], packed_b0, packed_b1, packed_b2, macro_cell, 0U,
-        physical_k64_group_count);
-    if (k256_group_count > 1U) {
-      issue_b_ring_slot<Topology>(
-          shared.b[1U], packed_b0, packed_b1, packed_b2, macro_cell, 1U,
+    if constexpr (PairedB) {
+      issue_b_ring_slot_v2<Topology>(
+          shared.b[0U], packed_b0, packed_b1, packed_b2, macro_cell, 0U,
           physical_k64_group_count);
+    } else {
+      issue_b_ring_slot<Topology>(
+          shared.b[0U], packed_b0, packed_b1, packed_b2, macro_cell, 0U,
+          physical_k64_group_count);
+    }
+    if (k256_group_count > 1U) {
+      if constexpr (PairedB) {
+        issue_b_ring_slot_v2<Topology>(
+            shared.b[1U], packed_b0, packed_b1, packed_b2, macro_cell, 1U,
+            physical_k64_group_count);
+      } else {
+        issue_b_ring_slot<Topology>(
+            shared.b[1U], packed_b0, packed_b1, packed_b2, macro_cell, 1U,
+            physical_k64_group_count);
+      }
     }
     if (k256_group_count > 2U) {
-      issue_b_ring_slot<Topology>(
-          shared.b[2U], packed_b0, packed_b1, packed_b2, macro_cell, 2U,
-          physical_k64_group_count);
+      if constexpr (PairedB) {
+        issue_b_ring_slot_v2<Topology>(
+            shared.b[2U], packed_b0, packed_b1, packed_b2, macro_cell, 2U,
+            physical_k64_group_count);
+      } else {
+        issue_b_ring_slot<Topology>(
+            shared.b[2U], packed_b0, packed_b1, packed_b2, macro_cell, 2U,
+            physical_k64_group_count);
+      }
     }
     if (k256_group_count > 3U) {
-      issue_b_ring_slot<Topology>(
-          shared.b[3U], packed_b0, packed_b1, packed_b2, macro_cell, 3U,
-          physical_k64_group_count);
+      if constexpr (PairedB) {
+        issue_b_ring_slot_v2<Topology>(
+            shared.b[3U], packed_b0, packed_b1, packed_b2, macro_cell, 3U,
+            physical_k64_group_count);
+      } else {
+        issue_b_ring_slot<Topology>(
+            shared.b[3U], packed_b0, packed_b1, packed_b2, macro_cell, 3U,
+            physical_k64_group_count);
+      }
       cp_async_wait<3U>();
     } else if (k256_group_count > 2U) {
       cp_async_wait<2U>();
@@ -646,14 +795,25 @@ __device__ __forceinline__ void run_cell_kernel(
                          physical_k64_group_count);
       }
 
-      accumulate_group(resident, shared.b[group & 3U], output_m0,
-                       output_m1);
+      if constexpr (PairedB) {
+        accumulate_group_v2(resident, shared.b[group & 3U], output_m0,
+                            output_m1);
+      } else {
+        accumulate_group(resident, shared.b[group & 3U], output_m0,
+                         output_m1);
+      }
       __syncthreads();  // release consumed B code slot
 
       if (group + kBSlots < k256_group_count) {
-        issue_b_ring_slot<Topology>(
-            shared.b[group & 3U], packed_b0, packed_b1, packed_b2,
-            macro_cell, group + kBSlots, physical_k64_group_count);
+        if constexpr (PairedB) {
+          issue_b_ring_slot_v2<Topology>(
+              shared.b[group & 3U], packed_b0, packed_b1, packed_b2,
+              macro_cell, group + kBSlots, physical_k64_group_count);
+        } else {
+          issue_b_ring_slot<Topology>(
+              shared.b[group & 3U], packed_b0, packed_b1, packed_b2,
+              macro_cell, group + kBSlots, physical_k64_group_count);
+        }
         cp_async_wait<1U>();
       } else {
         cp_async_wait<0U>();
@@ -691,7 +851,37 @@ void q3x_sm87_a4w4_attention_factorized_lane_r1_m128n256_kernel(
     const unsigned int work_cell_count) {
   extern __shared__ __align__(16) unsigned char dynamic_shared[];
   auto& shared = *reinterpret_cast<SharedStorage*>(dynamic_shared);
-  run_cell_kernel<Topology>(
+  run_cell_kernel<Topology, false>(
+      shared, packed_a, a_scales, packed_b0, b_scales0, packed_b1,
+      b_scales1, packed_b2, b_scales2, k256_group_count,
+      physical_k64_group_count, output0, stride0, output1, stride1,
+      output2, stride2, m_tile_count, work_cell_count);
+}
+
+template <KernelTopology Topology>
+__global__ __launch_bounds__(kThreads, 1)
+void q3x_sm87_a4w4_attention_factorized_lane_r1_v2_m128n256_kernel(
+    const std::uint8_t* const packed_a,
+    const std::uint16_t* const a_scales,
+    const std::uint8_t* const packed_b0,
+    const std::uint16_t* const b_scales0,
+    const std::uint8_t* const packed_b1,
+    const std::uint16_t* const b_scales1,
+    const std::uint8_t* const packed_b2,
+    const std::uint16_t* const b_scales2,
+    const unsigned int k256_group_count,
+    const unsigned int physical_k64_group_count,
+    std::uint16_t* const output0,
+    const unsigned int stride0,
+    std::uint16_t* const output1,
+    const unsigned int stride1,
+    std::uint16_t* const output2,
+    const unsigned int stride2,
+    const unsigned int m_tile_count,
+    const unsigned int work_cell_count) {
+  extern __shared__ __align__(16) unsigned char dynamic_shared[];
+  auto& shared = *reinterpret_cast<SharedStorage*>(dynamic_shared);
+  run_cell_kernel<Topology, true>(
       shared, packed_a, a_scales, packed_b0, b_scales0, packed_b1,
       b_scales1, packed_b2, b_scales2, k256_group_count,
       physical_k64_group_count, output0, stride0, output1, stride1,
@@ -764,6 +954,23 @@ template <KernelTopology Topology>
       cudaFuncAttributePreferredSharedMemoryCarveout, 100);
 }
 
+template <KernelTopology Topology>
+[[nodiscard]] cudaError_t configure_v2_kernel() noexcept {
+  cudaError_t status = cudaFuncSetAttribute(
+      q3x_sm87_a4w4_attention_factorized_lane_r1_v2_m128n256_kernel<
+          Topology>,
+      cudaFuncAttributeMaxDynamicSharedMemorySize,
+      static_cast<int>(
+          kSm87A4W4AttentionFactorizedLaneR1SharedBytes));
+  if (status != cudaSuccess) {
+    return status;
+  }
+  return cudaFuncSetAttribute(
+      q3x_sm87_a4w4_attention_factorized_lane_r1_v2_m128n256_kernel<
+          Topology>,
+      cudaFuncAttributePreferredSharedMemoryCarveout, 100);
+}
+
 [[nodiscard]] cudaError_t configure_topology(
     const Sm87A4W4AttentionK256Topology topology) noexcept {
   if (topology == Sm87A4W4AttentionK256Topology::kLinearQkvZ) {
@@ -774,6 +981,20 @@ template <KernelTopology Topology>
   }
   if (topology == Sm87A4W4AttentionK256Topology::kAttentionO) {
     return configure_kernel<KernelTopology::kAttentionO>();
+  }
+  return cudaErrorInvalidValue;
+}
+
+[[nodiscard]] cudaError_t configure_v2_topology(
+    const Sm87A4W4AttentionK256Topology topology) noexcept {
+  if (topology == Sm87A4W4AttentionK256Topology::kLinearQkvZ) {
+    return configure_v2_kernel<KernelTopology::kLinearQkvZ>();
+  }
+  if (topology == Sm87A4W4AttentionK256Topology::kFullQkv) {
+    return configure_v2_kernel<KernelTopology::kFullQkv>();
+  }
+  if (topology == Sm87A4W4AttentionK256Topology::kAttentionO) {
+    return configure_v2_kernel<KernelTopology::kAttentionO>();
   }
   return cudaErrorInvalidValue;
 }
@@ -798,6 +1019,55 @@ template <KernelTopology Topology>
   status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
       &active_blocks,
       q3x_sm87_a4w4_attention_factorized_lane_r1_m128n256_kernel<
+          Topology>,
+      static_cast<int>(kThreads),
+      kSm87A4W4AttentionFactorizedLaneR1SharedBytes);
+  if (status != cudaSuccess) {
+    return status;
+  }
+  if (attributes.numRegs > *maximum_registers) {
+    *maximum_registers = attributes.numRegs;
+  }
+  if (attributes.sharedSizeBytes > *maximum_static_shared) {
+    *maximum_static_shared = attributes.sharedSizeBytes;
+  }
+  if (attributes.localSizeBytes > *maximum_local) {
+    *maximum_local = attributes.localSizeBytes;
+  }
+  if (attributes.maxThreadsPerBlock < *minimum_maximum_threads) {
+    *minimum_maximum_threads = attributes.maxThreadsPerBlock;
+  }
+  if (active_blocks < *minimum_active_blocks) {
+    *minimum_active_blocks = active_blocks;
+  }
+  if (static_cast<std::size_t>(attributes.maxDynamicSharedSizeBytes) <
+      *minimum_dynamic_limit) {
+    *minimum_dynamic_limit =
+        static_cast<std::size_t>(attributes.maxDynamicSharedSizeBytes);
+  }
+  return cudaSuccess;
+}
+
+template <KernelTopology Topology>
+[[nodiscard]] cudaError_t merge_v2_resources(
+    int* const maximum_registers,
+    std::size_t* const maximum_static_shared,
+    std::size_t* const maximum_local,
+    int* const minimum_maximum_threads,
+    int* const minimum_active_blocks,
+    std::size_t* const minimum_dynamic_limit) noexcept {
+  cudaFuncAttributes attributes{};
+  cudaError_t status = cudaFuncGetAttributes(
+      &attributes,
+      q3x_sm87_a4w4_attention_factorized_lane_r1_v2_m128n256_kernel<
+          Topology>);
+  if (status != cudaSuccess) {
+    return status;
+  }
+  int active_blocks = 0;
+  status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+      &active_blocks,
+      q3x_sm87_a4w4_attention_factorized_lane_r1_v2_m128n256_kernel<
           Topology>,
       static_cast<int>(kThreads),
       kSm87A4W4AttentionFactorizedLaneR1SharedBytes);
@@ -987,6 +1257,34 @@ void launch_specialization(
           static_cast<unsigned int>(plan.work_cells));
 }
 
+template <KernelTopology Topology>
+void launch_v2_specialization(
+    const dim3 grid,
+    const cudaStream_t stream,
+    const std::uint8_t* const packed_a,
+    const std::uint16_t* const a_scales,
+    const Sm87A4W4AttentionFactorizedLaneR1ProjectionView& p0,
+    const Sm87A4W4AttentionFactorizedLaneR1ProjectionView& p1,
+    const Sm87A4W4AttentionFactorizedLaneR1ProjectionView& p2,
+    const Sm87A4W4AttentionK256Plan& plan) noexcept {
+  q3x_sm87_a4w4_attention_factorized_lane_r1_v2_m128n256_kernel<Topology>
+      <<<grid, dim3(kThreads),
+         kSm87A4W4AttentionFactorizedLaneR1SharedBytes, stream>>>(
+          packed_a, a_scales, p0.packed_b, p0.lane_scales_bf16,
+          p1.packed_b, p1.lane_scales_bf16, p2.packed_b,
+          p2.lane_scales_bf16,
+          static_cast<unsigned int>(plan.k256_groups),
+          static_cast<unsigned int>(plan.physical_k64_groups),
+          p0.output_bf16,
+          static_cast<unsigned int>(p0.output_row_stride_elements),
+          p1.output_bf16,
+          static_cast<unsigned int>(p1.output_row_stride_elements),
+          p2.output_bf16,
+          static_cast<unsigned int>(p2.output_row_stride_elements),
+          static_cast<unsigned int>(plan.m_tiles),
+          static_cast<unsigned int>(plan.work_cells));
+}
+
 }  // namespace
 
 int query_sm87_a4w4_attention_factorized_lane_r1_m128n256_resources_cuda(
@@ -1073,6 +1371,90 @@ int query_sm87_a4w4_attention_factorized_lane_r1_m128n256_resources_cuda(
   return static_cast<int>(cudaSuccess);
 }
 
+int query_sm87_a4w4_attention_factorized_lane_r1_v2_m128n256_resources_cuda(
+    Sm87A4W4AttentionFactorizedLaneR1Resources* const resources) noexcept {
+  if (resources == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  *resources = Sm87A4W4AttentionFactorizedLaneR1Resources{};
+  cudaDeviceProp properties{};
+  const int device_status = validate_sm87(&properties);
+  if (device_status != static_cast<int>(cudaSuccess)) {
+    return device_status;
+  }
+  cudaError_t status = configure_v2_kernel<KernelTopology::kLinearQkvZ>();
+  if (status == cudaSuccess) {
+    status = configure_v2_kernel<KernelTopology::kFullQkv>();
+  }
+  if (status == cudaSuccess) {
+    status = configure_v2_kernel<KernelTopology::kAttentionO>();
+  }
+  if (status == cudaSuccess) {
+    status = configure_v2_kernel<KernelTopology::kContiguousTest>();
+  }
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+
+  int maximum_registers = 0;
+  std::size_t maximum_static_shared = 0U;
+  std::size_t maximum_local = 0U;
+  int minimum_maximum_threads = std::numeric_limits<int>::max();
+  int minimum_active_blocks = std::numeric_limits<int>::max();
+  std::size_t minimum_dynamic_limit =
+      std::numeric_limits<std::size_t>::max();
+#define Q3X_MERGE_V2_SPECIALIZATION(topology)                           \
+  do {                                                                  \
+    status = merge_v2_resources<topology>(                              \
+        &maximum_registers, &maximum_static_shared, &maximum_local,      \
+        &minimum_maximum_threads, &minimum_active_blocks,                \
+        &minimum_dynamic_limit);                                        \
+    if (status != cudaSuccess) {                                        \
+      return static_cast<int>(status);                                  \
+    }                                                                   \
+  } while (false)
+  Q3X_MERGE_V2_SPECIALIZATION(KernelTopology::kLinearQkvZ);
+  Q3X_MERGE_V2_SPECIALIZATION(KernelTopology::kFullQkv);
+  Q3X_MERGE_V2_SPECIALIZATION(KernelTopology::kAttentionO);
+  Q3X_MERGE_V2_SPECIALIZATION(KernelTopology::kContiguousTest);
+#undef Q3X_MERGE_V2_SPECIALIZATION
+
+  resources->registers_per_thread = maximum_registers;
+  resources->static_shared_bytes = maximum_static_shared;
+  resources->dynamic_shared_bytes =
+      kSm87A4W4AttentionFactorizedLaneR1SharedBytes;
+  resources->configured_dynamic_shared_limit_bytes =
+      minimum_dynamic_limit;
+  resources->device_optin_shared_limit_bytes =
+      properties.sharedMemPerBlockOptin;
+  resources->local_bytes = maximum_local;
+  resources->maximum_threads_per_block = minimum_maximum_threads;
+  resources->active_blocks_per_sm = minimum_active_blocks;
+  resources->compute_major = properties.major;
+  resources->compute_minor = properties.minor;
+  resources->multiprocessor_count = properties.multiProcessorCount;
+  if (resources->registers_per_thread <= 0 ||
+      resources->registers_per_thread >
+          static_cast<int>(
+              kSm87A4W4AttentionFactorizedLaneR1V2MaximumRegisters) ||
+      resources->static_shared_bytes != 0U ||
+      resources->dynamic_shared_bytes !=
+          kSm87A4W4AttentionFactorizedLaneR1SharedBytes ||
+      resources->configured_dynamic_shared_limit_bytes <
+          kSm87A4W4AttentionFactorizedLaneR1SharedBytes ||
+      resources->device_optin_shared_limit_bytes <
+          kSm87A4W4AttentionFactorizedLaneR1SharedBytes ||
+      resources->local_bytes != 0U ||
+      resources->maximum_threads_per_block < static_cast<int>(kThreads) ||
+      resources->active_blocks_per_sm != 1 ||
+      resources->compute_major != kSm87A4W4RequiredComputeMajor ||
+      resources->compute_minor != kSm87A4W4RequiredComputeMinor ||
+      resources->multiprocessor_count != kRequiredSmCount) {
+    return static_cast<int>(cudaErrorLaunchOutOfResources);
+  }
+  return static_cast<int>(cudaSuccess);
+}
+
 int launch_sm87_a4w4_attention_factorized_lane_r1_m128n256_bf16_cuda(
     const Sm87A4W4AttentionK256Topology topology,
     const std::uint8_t* const packed_a,
@@ -1139,6 +1521,72 @@ int launch_sm87_a4w4_attention_factorized_lane_r1_m128n256_bf16_cuda(
   return static_cast<int>(cudaPeekAtLastError());
 }
 
+int launch_sm87_a4w4_attention_factorized_lane_r1_v2_m128n256_bf16_cuda(
+    const Sm87A4W4AttentionK256Topology topology,
+    const std::uint8_t* const packed_a,
+    const std::size_t packed_a_capacity_bytes,
+    const std::uint16_t* const a_lane_scales_bf16,
+    const std::size_t a_scale_capacity_elements,
+    const std::size_t token_count,
+    const Sm87A4W4AttentionFactorizedLaneR1ProjectionView* const
+        projections,
+    const std::size_t projection_count,
+    const Sm87A4W4AttentionFactorizedLaneR1EpilogueMode epilogue_mode,
+    void* const cuda_stream) noexcept {
+  const Sm87A4W4AttentionK256Plan plan =
+      sm87_a4w4_attention_k256_fixed_plan(topology, token_count);
+  if (projections == nullptr ||
+      projection_count !=
+          sm87_a4w4_attention_k256_fixed_projection_count(topology)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  for (std::size_t projection = 0U; projection < projection_count;
+       ++projection) {
+    if (projections[projection].output_size !=
+        sm87_a4w4_attention_k256_fixed_projection_panels(
+            topology, projection) *
+            kSm87A4W4AttentionK256PanelN) {
+      return static_cast<int>(cudaErrorInvalidValue);
+    }
+  }
+  const int common_status = validate_common(
+      packed_a, packed_a_capacity_bytes, a_lane_scales_bf16,
+      a_scale_capacity_elements, plan, projections, projection_count,
+      epilogue_mode);
+  if (common_status != static_cast<int>(cudaSuccess)) {
+    return common_status;
+  }
+  const int device_status = validate_sm87();
+  if (device_status != static_cast<int>(cudaSuccess)) {
+    return device_status;
+  }
+  const cudaError_t configure_status = configure_v2_topology(topology);
+  if (configure_status != cudaSuccess) {
+    return static_cast<int>(configure_status);
+  }
+
+  const auto& p0 = projections[0U];
+  const Sm87A4W4AttentionFactorizedLaneR1ProjectionView empty{};
+  const auto& p1 = projection_count > 1U ? projections[1U] : empty;
+  const auto& p2 = projection_count > 2U ? projections[2U] : empty;
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  const dim3 grid(static_cast<unsigned int>(plan.launch_ctas));
+  (void)cudaGetLastError();
+  if (topology == Sm87A4W4AttentionK256Topology::kLinearQkvZ) {
+    launch_v2_specialization<KernelTopology::kLinearQkvZ>(
+        grid, stream, packed_a, a_lane_scales_bf16, p0, p1, p2, plan);
+  } else if (topology == Sm87A4W4AttentionK256Topology::kFullQkv) {
+    launch_v2_specialization<KernelTopology::kFullQkv>(
+        grid, stream, packed_a, a_lane_scales_bf16, p0, p1, p2, plan);
+  } else if (topology == Sm87A4W4AttentionK256Topology::kAttentionO) {
+    launch_v2_specialization<KernelTopology::kAttentionO>(
+        grid, stream, packed_a, a_lane_scales_bf16, p0, p1, p2, plan);
+  } else {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  return static_cast<int>(cudaPeekAtLastError());
+}
+
 int launch_sm87_a4w4_attention_factorized_lane_r1_m128n256_test_bf16_cuda(
     const std::uint8_t* const packed_a,
     const std::size_t packed_a_capacity_bytes,
@@ -1186,6 +1634,58 @@ int launch_sm87_a4w4_attention_factorized_lane_r1_m128n256_test_bf16_cuda(
   const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
   (void)cudaGetLastError();
   launch_specialization<KernelTopology::kContiguousTest>(
+      dim3(launch_ctas), stream, packed_a, a_lane_scales_bf16,
+      *projection, empty, empty, plan);
+  return static_cast<int>(cudaPeekAtLastError());
+}
+
+int launch_sm87_a4w4_attention_factorized_lane_r1_v2_m128n256_test_bf16_cuda(
+    const std::uint8_t* const packed_a,
+    const std::size_t packed_a_capacity_bytes,
+    const std::uint16_t* const a_lane_scales_bf16,
+    const std::size_t a_scale_capacity_elements,
+    const std::size_t token_count,
+    const std::size_t input_size,
+    const Sm87A4W4AttentionFactorizedLaneR1ProjectionView* const
+        projection,
+    const std::size_t macro_cells,
+    const Sm87A4W4AttentionFactorizedLaneR1EpilogueMode epilogue_mode,
+    const unsigned int maximum_launch_ctas,
+    void* const cuda_stream) noexcept {
+  const Sm87A4W4AttentionK256Plan plan =
+      sm87_a4w4_attention_k256_test_plan(token_count, input_size,
+                                         macro_cells);
+  if (projection == nullptr || maximum_launch_ctas == 0U ||
+      !sm87_a4w4_attention_k256_product_fits(
+          macro_cells, kSm87A4W4AttentionK256TileN) ||
+      projection->output_size !=
+          macro_cells * kSm87A4W4AttentionK256TileN) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const int common_status = validate_common(
+      packed_a, packed_a_capacity_bytes, a_lane_scales_bf16,
+      a_scale_capacity_elements, plan, projection, 1U, epilogue_mode);
+  if (common_status != static_cast<int>(cudaSuccess)) {
+    return common_status;
+  }
+  const int device_status = validate_sm87();
+  if (device_status != static_cast<int>(cudaSuccess)) {
+    return device_status;
+  }
+  const cudaError_t configure_status =
+      configure_v2_kernel<KernelTopology::kContiguousTest>();
+  if (configure_status != cudaSuccess) {
+    return static_cast<int>(configure_status);
+  }
+  const Sm87A4W4AttentionFactorizedLaneR1ProjectionView empty{};
+  const unsigned int planned_ctas =
+      static_cast<unsigned int>(plan.launch_ctas);
+  const unsigned int launch_ctas =
+      planned_ctas < maximum_launch_ctas ? planned_ctas
+                                         : maximum_launch_ctas;
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  launch_v2_specialization<KernelTopology::kContiguousTest>(
       dim3(launch_ctas), stream, packed_a, a_lane_scales_bf16,
       *projection, empty, empty, plan);
   return static_cast<int>(cudaPeekAtLastError());

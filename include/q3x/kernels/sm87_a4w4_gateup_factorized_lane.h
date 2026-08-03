@@ -44,6 +44,16 @@ inline constexpr std::size_t kSm87A4W4GateUpFactorizedPrimaryWidth = 12'288U;
 inline constexpr std::size_t kSm87A4W4GateUpFactorizedPrimaryStride = 12'288U;
 inline constexpr std::size_t kSm87A4W4GateUpFactorizedSecondaryWidth = 5'120U;
 inline constexpr std::size_t kSm87A4W4GateUpFactorizedSecondaryStride = 6'144U;
+// R1 projection-plane v2 keeps the exact Gate/Up tensor byte count while
+// publishing one consumer-native 16-byte B pair per (N8,K64,lane): Gate's
+// two-u32 fragment followed by Up's two-u32 fragment.  The layout is
+// [N64 block][physical K64][N8 fragment][lane][16 bytes].  Scales are the
+// equal-element interleave [N64 block][row][Gate,Up].
+inline constexpr std::size_t kSm87A4W4GateUpFactorizedV2N8 = 8U;
+inline constexpr std::size_t kSm87A4W4GateUpFactorizedV2N8PerN64 = 8U;
+inline constexpr std::size_t kSm87A4W4GateUpFactorizedV2FragmentLanes = 32U;
+inline constexpr std::size_t kSm87A4W4GateUpFactorizedV2PairBytes = 16U;
+inline constexpr std::size_t kSm87A4W4GateUpFactorizedV2ScalePlanes = 2U;
 inline constexpr std::size_t
     kSm87A4W4GateUpFactorizedR1ProductPartialTiles =
         kSm87A4W4GateUpFactorizedModelIntermediate /
@@ -168,6 +178,61 @@ sm87_a4w4_gateup_factorized_scale_offset(
   return (outer_coordinate / kSm87A4W4ConsumerOuterBlock) *
              kSm87A4W4ConsumerOuterBlock +
          outer_coordinate % kSm87A4W4ConsumerOuterBlock;
+}
+
+[[nodiscard]] constexpr std::size_t
+sm87_a4w4_gateup_factorized_v2_paired_code_capacity_bytes(
+    const std::size_t outer_count, const std::size_t logical_k) noexcept {
+  return outer_count == 0U ||
+                 outer_count % kSm87A4W4ConsumerOuterBlock != 0U ||
+                 sm87_a4w4_gateup_factorized_k64_groups(logical_k) == 0U ||
+                 !sm87_a4w4_gateup_factorized_product_fits(outer_count,
+                                                           logical_k)
+             ? 0U
+             : outer_count * logical_k;
+}
+
+[[nodiscard]] Q3X_SM87_A4W4_GATEUP_FACTOR_HOST_DEVICE constexpr std::size_t
+sm87_a4w4_gateup_factorized_v2_paired_code_offset(
+    const std::size_t outer_coordinate,
+    const std::size_t physical_k64_group,
+    const std::size_t lane,
+    const std::size_t physical_k64_group_count) noexcept {
+  const std::size_t outer_block =
+      outer_coordinate / kSm87A4W4ConsumerOuterBlock;
+  const std::size_t n8_fragment =
+      (outer_coordinate % kSm87A4W4ConsumerOuterBlock) /
+      kSm87A4W4GateUpFactorizedV2N8;
+  return ((((outer_block * physical_k64_group_count +
+             physical_k64_group) *
+                kSm87A4W4GateUpFactorizedV2N8PerN64 +
+            n8_fragment) *
+               kSm87A4W4GateUpFactorizedV2FragmentLanes +
+           lane) *
+          kSm87A4W4GateUpFactorizedV2PairBytes);
+}
+
+[[nodiscard]] constexpr std::size_t
+sm87_a4w4_gateup_factorized_v2_paired_scale_capacity_elements(
+    const std::size_t outer_count) noexcept {
+  return outer_count == 0U ||
+                 outer_count % kSm87A4W4ConsumerOuterBlock != 0U ||
+                 !sm87_a4w4_gateup_factorized_product_fits(
+                     outer_count,
+                     kSm87A4W4GateUpFactorizedV2ScalePlanes)
+             ? 0U
+             : outer_count * kSm87A4W4GateUpFactorizedV2ScalePlanes;
+}
+
+[[nodiscard]] Q3X_SM87_A4W4_GATEUP_FACTOR_HOST_DEVICE constexpr std::size_t
+sm87_a4w4_gateup_factorized_v2_paired_scale_offset(
+    const std::size_t outer_coordinate,
+    const std::size_t projection) noexcept {
+  return ((outer_coordinate / kSm87A4W4ConsumerOuterBlock) *
+              kSm87A4W4ConsumerOuterBlock +
+          outer_coordinate % kSm87A4W4ConsumerOuterBlock) *
+             kSm87A4W4GateUpFactorizedV2ScalePlanes +
+         projection;
 }
 
 // Candidate-only GateUp -> Down R1 handoff.  One FP32 maximum is published
@@ -343,6 +408,47 @@ launch_sm87_a4w4_gateup_factorized_lane_r1_tile_max_bf16_cuda(
 query_sm87_a4w4_gateup_factorized_lane_r1_tile_max_resources_cuda(
     Sm87A4W4GateUpFactorizedLaneResources* resources) noexcept;
 
+// Isolated projection-plane-v2 API.  No runner selector references these
+// symbols until the complete weight publication and full-model gate are
+// wired.  A remains in the incumbent R1 consumer order.  `paired_b_codes`
+// and `paired_b_lane_scales_bf16` use the exact equal-byte helpers above.
+[[nodiscard]] int
+query_sm87_a4w4_gateup_factorized_lane_r1_v2_resources_cuda(
+    Sm87A4W4GateUpFactorizedLaneResources* resources) noexcept;
+
+#define Q3X_SM87_A4W4_GATEUP_FACTORIZED_V2_INPUT_ARGUMENTS               \
+  const std::uint8_t* packed_a, std::size_t packed_a_capacity_bytes,      \
+      const std::uint16_t* a_lane_scales_bf16,                           \
+      std::size_t a_scale_capacity_elements,                             \
+      const std::uint8_t* paired_b_codes,                                \
+      std::size_t paired_b_code_capacity_bytes,                          \
+      const std::uint16_t* paired_b_lane_scales_bf16,                    \
+      std::size_t paired_b_scale_capacity_elements
+
+[[nodiscard]] int
+launch_sm87_a4w4_gateup_factorized_lane_r1_v2_tile_max_bf16_cuda(
+    Q3X_SM87_A4W4_GATEUP_FACTORIZED_V2_INPUT_ARGUMENTS,
+    std::size_t logical_token_count, std::size_t launch_token_count,
+    std::size_t intermediate_size, std::size_t input_size,
+    Q3X_SM87_A4W4_GATEUP_FACTORIZED_OUTPUT_ARGUMENTS,
+    const float* authenticated_down_inverse_alpha_fp32,
+    std::size_t down_inverse_alpha_capacity_elements,
+    float* r1_product_tile_maxima_fp32,
+    std::size_t r1_product_tile_maxima_capacity_elements,
+    void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
+launch_sm87_a4w4_gateup_factorized_lane_r1_v2_test_bf16_cuda(
+    Q3X_SM87_A4W4_GATEUP_FACTORIZED_V2_INPUT_ARGUMENTS,
+    std::size_t logical_token_count, std::size_t launch_token_count,
+    std::size_t intermediate_size, std::size_t input_size,
+    std::size_t primary_width,
+    Q3X_SM87_A4W4_GATEUP_FACTORIZED_OUTPUT_ARGUMENTS,
+    unsigned int maximum_launch_ctas,
+    void* cuda_stream = nullptr) noexcept;
+
+#undef Q3X_SM87_A4W4_GATEUP_FACTORIZED_V2_INPUT_ARGUMENTS
+
 [[nodiscard]] int launch_sm87_a4w4_gateup_factorized_lane_test_bf16_cuda(
     Q3X_SM87_A4W4_GATEUP_FACTORIZED_INPUT_ARGUMENTS,
     std::size_t logical_token_count, std::size_t launch_token_count,
@@ -361,6 +467,18 @@ static_assert(sm87_a4w4_gateup_factorized_lane_plan(
 static_assert(sm87_a4w4_gateup_factorized_lane_test_plan(
                   129U, 256U, 256U, 256U, 128U)
                       .m_tiles == 2U);
+static_assert(
+    sm87_a4w4_gateup_factorized_v2_paired_code_capacity_bytes(
+        kSm87A4W4GateUpFactorizedModelIntermediate,
+        kSm87A4W4GateUpFactorizedModelInput) ==
+    2U * sm87_a4w4_gateup_factorized_packed_capacity_bytes(
+             kSm87A4W4GateUpFactorizedModelIntermediate,
+             kSm87A4W4GateUpFactorizedModelInput));
+static_assert(
+    sm87_a4w4_gateup_factorized_v2_paired_scale_capacity_elements(
+        kSm87A4W4GateUpFactorizedModelIntermediate) ==
+    2U * sm87_a4w4_gateup_factorized_scale_capacity_elements(
+             kSm87A4W4GateUpFactorizedModelIntermediate));
 
 }  // namespace q3x::kernels
 

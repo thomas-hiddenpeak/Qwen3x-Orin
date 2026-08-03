@@ -40,6 +40,25 @@ struct alignas(16) SharedStorage final {
   FactorizedScales scales;
 };
 
+struct alignas(16) PairedBFragment final {
+  Sm87A4W4BFragment even_n8;
+  Sm87A4W4BFragment odd_n8;
+};
+
+struct alignas(16) V2PairedBStage final {
+  PairedBFragment
+      pair[kK64PerStage]
+          [kSm87A4W4DownFactorizedV2N16PerPanel]
+          [kSm87A4W4DownFactorizedV2FragmentLanes];
+};
+
+struct alignas(16) V2SharedStorage final {
+  PackedK256Stage<kTileM>
+      a[kSm87A4W4DownFactorizedAStages];
+  V2PairedBStage b[kSm87A4W4DownFactorizedBStages];
+  FactorizedScales scales;
+};
+
 // One warp owns M64N32.  Keeping all 16 fragments as named fields prevents
 // an address-taken runtime array from silently turning the whole-K S32 state
 // into local memory.
@@ -69,6 +88,12 @@ static_assert(sizeof(PackedK256Stage<kTileN>) ==
 static_assert(sizeof(FactorizedScales) ==
               kSm87A4W4DownFactorizedScaleBytes);
 static_assert(sizeof(SharedStorage) ==
+              kSm87A4W4DownFactorizedDynamicSharedBytes);
+static_assert(sizeof(PairedBFragment) ==
+              kSm87A4W4DownFactorizedV2PairBytes);
+static_assert(sizeof(V2PairedBStage) ==
+              kSm87A4W4DownFactorizedStageBBytes);
+static_assert(sizeof(V2SharedStorage) ==
               kSm87A4W4DownFactorizedDynamicSharedBytes);
 static_assert(sizeof(Accumulators) == 64U * sizeof(std::int32_t));
 
@@ -182,6 +207,44 @@ __device__ __forceinline__ void issue_packed_stage(
   cp_async_commit();
 }
 
+__device__ __forceinline__ void issue_v2_paired_b_stage(
+    V2PairedBStage& destination,
+    const std::uint8_t* const paired_b_codes,
+    const unsigned int n_tile_start,
+    const unsigned int k256_stage,
+    const unsigned int physical_k64_group_count) noexcept {
+  constexpr unsigned int kRecordsPerPlane =
+      kSm87A4W4DownFactorizedV2N16PerPanel *
+      kSm87A4W4DownFactorizedV2FragmentLanes;
+  constexpr unsigned int kRecords = kK64PerStage * kRecordsPerPlane;
+  constexpr unsigned int kIterations = kRecords / kThreads;
+  static_assert(kRecordsPerPlane == 256U && kIterations == 2U);
+#pragma unroll
+  for (unsigned int iteration = 0U; iteration < kIterations;
+       ++iteration) {
+    const unsigned int record = threadIdx.x + iteration * kThreads;
+    const unsigned int plane = record / kRecordsPerPlane;
+    const unsigned int record_in_plane =
+        record - plane * kRecordsPerPlane;
+    const unsigned int n16 =
+        record_in_plane /
+        kSm87A4W4DownFactorizedV2FragmentLanes;
+    const unsigned int lane =
+        record_in_plane -
+        n16 * kSm87A4W4DownFactorizedV2FragmentLanes;
+    const unsigned int physical_k64_group =
+        kK64PerStage * k256_stage + plane;
+    const std::size_t source_offset =
+        sm87_a4w4_down_factorized_v2_paired_code_offset(
+            static_cast<std::size_t>(n_tile_start) +
+                n16 * kSm87A4W4DownFactorizedV2N16,
+            physical_k64_group, lane, physical_k64_group_count);
+    cp_async_cg_16(&destination.pair[plane][n16][lane],
+                   paired_b_codes + source_offset);
+  }
+  cp_async_commit();
+}
+
 __device__ __forceinline__ void issue_scales(
     FactorizedScales& destination,
     const std::uint16_t* const a_lane_scales_bf16,
@@ -256,6 +319,24 @@ load_b_ldmatrix_x2(const std::uint8_t* const shared_b,
   return fragment;
 }
 
+[[nodiscard]] __device__ __forceinline__ PairedBFragment
+load_v2_paired_b_shared(const PairedBFragment* const pointer) noexcept {
+  const unsigned int shared_address =
+      static_cast<unsigned int>(__cvta_generic_to_shared(pointer));
+  PairedBFragment fragment{};
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ == 870
+  asm volatile(
+      "ld.shared.v4.u32 {%0, %1, %2, %3}, [%4];"
+      : "=r"(fragment.even_n8.x0), "=r"(fragment.even_n8.x1),
+        "=r"(fragment.odd_n8.x0), "=r"(fragment.odd_n8.x1)
+      : "r"(shared_address)
+      : "memory");
+#else
+  asm volatile("trap;");
+#endif
+  return fragment;
+}
+
 __device__ __forceinline__ void accumulate_k256_stage(
     const PackedK256Stage<kTileM>& a,
     const PackedK256Stage<kTileN>& b,
@@ -303,6 +384,46 @@ __device__ __forceinline__ void accumulate_k256_stage(
     sm87_a4w4_mma_m16n8k64(accumulators.m3n1, a3, b1);
     sm87_a4w4_mma_m16n8k64(accumulators.m3n2, a3, b2);
     sm87_a4w4_mma_m16n8k64(accumulators.m3n3, a3, b3);
+  }
+}
+
+__device__ __forceinline__ void accumulate_v2_k256_stage(
+    const PackedK256Stage<kTileM>& a,
+    const V2PairedBStage& b,
+    const unsigned int warp_m64,
+    const unsigned int warp_n32,
+    Accumulators& accumulators) noexcept {
+  const unsigned int lane = threadIdx.x & 31U;
+  const unsigned int local_m = warp_m64 * 64U;
+  const unsigned int n16_start = warp_n32 * 2U;
+
+#pragma unroll
+  for (unsigned int plane = 0U; plane < kK64PerStage; ++plane) {
+    const PairedBFragment b01 = load_v2_paired_b_shared(
+        &b.pair[plane][n16_start + 0U][lane]);
+    const PairedBFragment b23 = load_v2_paired_b_shared(
+        &b.pair[plane][n16_start + 1U][lane]);
+
+#define Q3X_ACCUMULATE_V2_A(M)                                          \
+    do {                                                                \
+      const Sm87A4W4AFragment a_fragment = load_a_ldmatrix_x4(           \
+          a.plane[plane] +                                               \
+              (local_m + M##U * 16U) * kPackedK64Bytes,                  \
+          lane);                                                         \
+      sm87_a4w4_mma_m16n8k64(accumulators.m##M##n0, a_fragment,         \
+                             b01.even_n8);                               \
+      sm87_a4w4_mma_m16n8k64(accumulators.m##M##n1, a_fragment,         \
+                             b01.odd_n8);                                \
+      sm87_a4w4_mma_m16n8k64(accumulators.m##M##n2, a_fragment,         \
+                             b23.even_n8);                               \
+      sm87_a4w4_mma_m16n8k64(accumulators.m##M##n3, a_fragment,         \
+                             b23.odd_n8);                                \
+    } while (false)
+    Q3X_ACCUMULATE_V2_A(0);
+    Q3X_ACCUMULATE_V2_A(1);
+    Q3X_ACCUMULATE_V2_A(2);
+    Q3X_ACCUMULATE_V2_A(3);
+#undef Q3X_ACCUMULATE_V2_A
   }
 }
 
@@ -463,6 +584,73 @@ void q3x_sm87_a4w4_down_factorized_lane_kernel(
   }
 }
 
+extern "C" __global__
+    __launch_bounds__(kSm87A4W4DownFactorizedThreads,
+                      kSm87A4W4DownFactorizedCtasPerSm)
+void q3x_sm87_a4w4_down_factorized_lane_r1_v2_kernel(
+    const std::uint8_t* const packed_a,
+    const std::uint16_t* const a_lane_scales_bf16,
+    const std::uint8_t* const paired_b_codes,
+    const std::uint16_t* const b_lane_scales_bf16,
+    const unsigned int logical_token_count,
+    const unsigned int physical_k64_group_count,
+    const unsigned int k256_stage_count,
+    const unsigned int m_tile_count,
+    const unsigned int work_tile_count,
+    std::uint16_t* const output_bf16,
+    const unsigned int output_row_stride_elements) {
+  extern __shared__ __align__(16) unsigned char dynamic_storage[];
+  auto& shared = *reinterpret_cast<V2SharedStorage*>(dynamic_storage);
+  const unsigned int warp = threadIdx.x >> 5U;
+  const unsigned int warp_m64 = warp & 3U;
+  const unsigned int warp_n32 = warp >> 2U;
+
+  for (unsigned int work = blockIdx.x; work < work_tile_count;
+       work += gridDim.x) {
+    const unsigned int n_tile = work / m_tile_count;
+    const unsigned int m_tile = work - n_tile * m_tile_count;
+    const unsigned int m_tile_start = m_tile * kTileM;
+    const unsigned int n_tile_start = n_tile * kTileN;
+    Accumulators accumulators{};
+
+    issue_scales(shared.scales, a_lane_scales_bf16,
+                 b_lane_scales_bf16, m_tile_start, n_tile_start);
+    issue_packed_stage(shared.a[0], packed_a, m_tile_start, 0U,
+                       physical_k64_group_count);
+    issue_v2_paired_b_stage(shared.b[0], paired_b_codes, n_tile_start,
+                            0U, physical_k64_group_count);
+    cp_async_wait_all();
+    __syncthreads();
+
+    for (unsigned int stage = 0U; stage < k256_stage_count; ++stage) {
+      const unsigned int current_slot = stage & 1U;
+      const unsigned int next_stage = stage + 1U;
+      if (next_stage < k256_stage_count) {
+        const unsigned int next_slot = next_stage & 1U;
+        issue_packed_stage(shared.a[next_slot], packed_a, m_tile_start,
+                           next_stage, physical_k64_group_count);
+        issue_v2_paired_b_stage(shared.b[next_slot], paired_b_codes,
+                                n_tile_start, next_stage,
+                                physical_k64_group_count);
+      }
+
+      accumulate_v2_k256_stage(shared.a[current_slot],
+                               shared.b[current_slot], warp_m64,
+                               warp_n32, accumulators);
+      if (next_stage < k256_stage_count) {
+        cp_async_wait_all();
+        __syncthreads();
+      }
+    }
+
+    store_accumulators(accumulators, shared.scales,
+                       logical_token_count, m_tile_start, n_tile_start,
+                       warp_m64, warp_n32, output_bf16,
+                       output_row_stride_elements);
+    __syncthreads();
+  }
+}
+
 namespace {
 
 [[nodiscard]] int validate_target(
@@ -500,6 +688,19 @@ namespace {
   }
   return cudaFuncSetAttribute(
       q3x_sm87_a4w4_down_factorized_lane_kernel,
+      cudaFuncAttributePreferredSharedMemoryCarveout, 100);
+}
+
+[[nodiscard]] cudaError_t configure_v2_kernel() noexcept {
+  cudaError_t status = cudaFuncSetAttribute(
+      q3x_sm87_a4w4_down_factorized_lane_r1_v2_kernel,
+      cudaFuncAttributeMaxDynamicSharedMemorySize,
+      static_cast<int>(kSm87A4W4DownFactorizedDynamicSharedBytes));
+  if (status != cudaSuccess) {
+    return status;
+  }
+  return cudaFuncSetAttribute(
+      q3x_sm87_a4w4_down_factorized_lane_r1_v2_kernel,
       cudaFuncAttributePreferredSharedMemoryCarveout, 100);
 }
 
@@ -581,6 +782,77 @@ struct ResourceCache final {
   return cache;
 }
 
+[[nodiscard]] ResourceCache build_v2_resource_cache() noexcept {
+  ResourceCache cache{};
+  cudaDeviceProp properties{};
+  cache.status = validate_target(&properties);
+  if (cache.status != static_cast<int>(cudaSuccess)) {
+    return cache;
+  }
+  const cudaError_t configure_status = configure_v2_kernel();
+  if (configure_status != cudaSuccess) {
+    cache.status = static_cast<int>(configure_status);
+    return cache;
+  }
+
+  cudaFuncAttributes attributes{};
+  cudaError_t status = cudaFuncGetAttributes(
+      &attributes, q3x_sm87_a4w4_down_factorized_lane_r1_v2_kernel);
+  if (status != cudaSuccess) {
+    cache.status = static_cast<int>(status);
+    return cache;
+  }
+  int active_blocks = 0;
+  status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+      &active_blocks, q3x_sm87_a4w4_down_factorized_lane_r1_v2_kernel,
+      static_cast<int>(kThreads),
+      kSm87A4W4DownFactorizedDynamicSharedBytes);
+  if (status != cudaSuccess) {
+    cache.status = static_cast<int>(status);
+    return cache;
+  }
+
+  cache.resources.registers_per_thread = attributes.numRegs;
+  cache.resources.static_shared_bytes = attributes.sharedSizeBytes;
+  cache.resources.dynamic_shared_bytes =
+      kSm87A4W4DownFactorizedDynamicSharedBytes;
+  cache.resources.configured_dynamic_shared_limit_bytes =
+      attributes.maxDynamicSharedSizeBytes;
+  cache.resources.device_optin_shared_limit_bytes =
+      properties.sharedMemPerBlockOptin;
+  cache.resources.local_bytes = attributes.localSizeBytes;
+  cache.resources.maximum_threads_per_block = attributes.maxThreadsPerBlock;
+  cache.resources.active_blocks_per_sm = active_blocks;
+  cache.resources.compute_major = properties.major;
+  cache.resources.compute_minor = properties.minor;
+  cache.status =
+      cache.resources.registers_per_thread <= 0 ||
+              cache.resources.registers_per_thread >
+                  static_cast<int>(
+                      kSm87A4W4DownFactorizedMaximumRegisters) ||
+              cache.resources.static_shared_bytes != 0U ||
+              cache.resources.dynamic_shared_bytes !=
+                  kSm87A4W4DownFactorizedDynamicSharedBytes ||
+              cache.resources.configured_dynamic_shared_limit_bytes <
+                  kSm87A4W4DownFactorizedDynamicSharedBytes ||
+              cache.resources.device_optin_shared_limit_bytes <
+                  kSm87A4W4DownFactorizedDynamicSharedBytes ||
+              cache.resources.local_bytes != 0U ||
+              cache.resources.maximum_threads_per_block <
+                  static_cast<int>(kThreads) ||
+              cache.resources.active_blocks_per_sm <
+                  static_cast<int>(
+                      kSm87A4W4DownFactorizedCtasPerSm)
+          ? static_cast<int>(cudaErrorLaunchOutOfResources)
+          : static_cast<int>(cudaSuccess);
+  return cache;
+}
+
+[[nodiscard]] const ResourceCache& v2_resource_cache() noexcept {
+  static const ResourceCache cache = build_v2_resource_cache();
+  return cache;
+}
+
 [[nodiscard]] int launch_impl(
     const std::uint8_t* const packed_a,
     const std::size_t packed_a_capacity_bytes,
@@ -599,6 +871,7 @@ struct ResourceCache final {
     const std::size_t output_capacity_elements,
     const unsigned int maximum_launch_ctas,
     const bool production_shape,
+    const bool paired_v2,
     void* const cuda_stream) noexcept {
   const Sm87A4W4DownFactorizedLanePlan plan =
       production_shape
@@ -634,8 +907,11 @@ struct ResourceCache final {
       sm87_a4w4_down_factorized_packed_capacity_bytes(
           launch_token_count, input_size);
   const std::size_t required_b_bytes =
-      sm87_a4w4_down_factorized_packed_capacity_bytes(output_size,
-                                                       input_size);
+      paired_v2
+          ? sm87_a4w4_down_factorized_v2_paired_code_capacity_bytes(
+                output_size, input_size)
+          : sm87_a4w4_down_factorized_packed_capacity_bytes(output_size,
+                                                             input_size);
   const std::size_t required_a_scales =
       sm87_a4w4_down_factorized_scale_capacity_elements(
           launch_token_count);
@@ -678,7 +954,8 @@ struct ResourceCache final {
     return static_cast<int>(cudaErrorInvalidValue);
   }
 
-  const ResourceCache& cache = resource_cache();
+  const ResourceCache& cache =
+      paired_v2 ? v2_resource_cache() : resource_cache();
   if (cache.status != static_cast<int>(cudaSuccess)) {
     return cache.status;
   }
@@ -690,17 +967,31 @@ struct ResourceCache final {
                                          : maximum_launch_ctas;
   const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
   (void)cudaGetLastError();
-  q3x_sm87_a4w4_down_factorized_lane_kernel
-      <<<launch_ctas, kThreads,
-         kSm87A4W4DownFactorizedDynamicSharedBytes, stream>>>(
-          packed_a, a_lane_scales_bf16, packed_b,
-          b_lane_scales_bf16,
-          static_cast<unsigned int>(plan.logical_token_count),
-          static_cast<unsigned int>(plan.physical_k64_groups),
-          static_cast<unsigned int>(plan.k256_stages),
-          static_cast<unsigned int>(plan.m_tiles),
-          static_cast<unsigned int>(plan.work_tiles), output_bf16,
-          static_cast<unsigned int>(output_row_stride_elements));
+  if (paired_v2) {
+    q3x_sm87_a4w4_down_factorized_lane_r1_v2_kernel
+        <<<launch_ctas, kThreads,
+           kSm87A4W4DownFactorizedDynamicSharedBytes, stream>>>(
+            packed_a, a_lane_scales_bf16, packed_b,
+            b_lane_scales_bf16,
+            static_cast<unsigned int>(plan.logical_token_count),
+            static_cast<unsigned int>(plan.physical_k64_groups),
+            static_cast<unsigned int>(plan.k256_stages),
+            static_cast<unsigned int>(plan.m_tiles),
+            static_cast<unsigned int>(plan.work_tiles), output_bf16,
+            static_cast<unsigned int>(output_row_stride_elements));
+  } else {
+    q3x_sm87_a4w4_down_factorized_lane_kernel
+        <<<launch_ctas, kThreads,
+           kSm87A4W4DownFactorizedDynamicSharedBytes, stream>>>(
+            packed_a, a_lane_scales_bf16, packed_b,
+            b_lane_scales_bf16,
+            static_cast<unsigned int>(plan.logical_token_count),
+            static_cast<unsigned int>(plan.physical_k64_groups),
+            static_cast<unsigned int>(plan.k256_stages),
+            static_cast<unsigned int>(plan.m_tiles),
+            static_cast<unsigned int>(plan.work_tiles), output_bf16,
+            static_cast<unsigned int>(output_row_stride_elements));
+  }
   return static_cast<int>(cudaPeekAtLastError());
 }
 
@@ -712,6 +1003,16 @@ int query_sm87_a4w4_down_factorized_lane_resources_cuda(
     return static_cast<int>(cudaErrorInvalidValue);
   }
   const ResourceCache& cache = resource_cache();
+  *resources = cache.resources;
+  return cache.status;
+}
+
+int query_sm87_a4w4_down_factorized_lane_r1_v2_resources_cuda(
+    Sm87A4W4DownFactorizedLaneResources* const resources) noexcept {
+  if (resources == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const ResourceCache& cache = v2_resource_cache();
   *resources = cache.resources;
   return cache.status;
 }
@@ -741,7 +1042,7 @@ int launch_sm87_a4w4_down_factorized_lane_bf16_cuda(
       output_bf16, output_row_stride_elements, output_capacity_elements,
       static_cast<unsigned int>(
           kSm87A4W4DownFactorizedPersistentCtas),
-      true, cuda_stream);
+      true, false, cuda_stream);
 }
 
 int launch_sm87_a4w4_down_factorized_lane_test_bf16_cuda(
@@ -768,7 +1069,64 @@ int launch_sm87_a4w4_down_factorized_lane_test_bf16_cuda(
       b_lane_scales_bf16, b_scale_capacity_elements,
       logical_token_count, launch_token_count, output_size, input_size,
       output_bf16, output_row_stride_elements, output_capacity_elements,
-      maximum_launch_ctas, false, cuda_stream);
+      maximum_launch_ctas, false, false, cuda_stream);
+}
+
+int launch_sm87_a4w4_down_factorized_lane_r1_v2_bf16_cuda(
+    const std::uint8_t* const packed_a,
+    const std::size_t packed_a_capacity_bytes,
+    const std::uint16_t* const a_lane_scales_bf16,
+    const std::size_t a_scale_capacity_elements,
+    const std::uint8_t* const paired_b_codes,
+    const std::size_t paired_b_code_capacity_bytes,
+    const std::uint16_t* const b_lane_scales_bf16,
+    const std::size_t b_scale_capacity_elements,
+    const std::size_t logical_token_count,
+    const std::size_t launch_token_count,
+    const std::size_t output_size,
+    const std::size_t input_size,
+    std::uint16_t* const output_bf16,
+    const std::size_t output_row_stride_elements,
+    const std::size_t output_capacity_elements,
+    void* const cuda_stream) noexcept {
+  return launch_impl(
+      packed_a, packed_a_capacity_bytes, a_lane_scales_bf16,
+      a_scale_capacity_elements, paired_b_codes,
+      paired_b_code_capacity_bytes, b_lane_scales_bf16,
+      b_scale_capacity_elements, logical_token_count, launch_token_count,
+      output_size, input_size, output_bf16,
+      output_row_stride_elements, output_capacity_elements,
+      static_cast<unsigned int>(
+          kSm87A4W4DownFactorizedPersistentCtas),
+      true, true, cuda_stream);
+}
+
+int launch_sm87_a4w4_down_factorized_lane_r1_v2_test_bf16_cuda(
+    const std::uint8_t* const packed_a,
+    const std::size_t packed_a_capacity_bytes,
+    const std::uint16_t* const a_lane_scales_bf16,
+    const std::size_t a_scale_capacity_elements,
+    const std::uint8_t* const paired_b_codes,
+    const std::size_t paired_b_code_capacity_bytes,
+    const std::uint16_t* const b_lane_scales_bf16,
+    const std::size_t b_scale_capacity_elements,
+    const std::size_t logical_token_count,
+    const std::size_t launch_token_count,
+    const std::size_t output_size,
+    const std::size_t input_size,
+    std::uint16_t* const output_bf16,
+    const std::size_t output_row_stride_elements,
+    const std::size_t output_capacity_elements,
+    const unsigned int maximum_launch_ctas,
+    void* const cuda_stream) noexcept {
+  return launch_impl(
+      packed_a, packed_a_capacity_bytes, a_lane_scales_bf16,
+      a_scale_capacity_elements, paired_b_codes,
+      paired_b_code_capacity_bytes, b_lane_scales_bf16,
+      b_scale_capacity_elements, logical_token_count, launch_token_count,
+      output_size, input_size, output_bf16,
+      output_row_stride_elements, output_capacity_elements,
+      maximum_launch_ctas, false, true, cuda_stream);
 }
 
 }  // namespace q3x::kernels

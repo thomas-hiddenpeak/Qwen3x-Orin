@@ -54,6 +54,16 @@ inline constexpr std::size_t kSm87A4W4DownFactorizedMaximumRegisters = 128U;
 inline constexpr std::size_t kSm87A4W4DownFactorizedMaximumTokens = 4'096U;
 inline constexpr std::size_t kSm87A4W4DownFactorizedModelOutput = 5'120U;
 inline constexpr std::size_t kSm87A4W4DownFactorizedModelInput = 17'408U;
+// R1 projection-plane v2 publishes adjacent N8 B fragments as one LDS.128
+// record without changing tensor bytes.  One record is
+// [even-N8 two-u32 fragment][odd-N8 two-u32 fragment], and records are
+// [N128 panel][physical K64][N16 warp][lane][16 bytes].  The R1 scale plane
+// remains the incumbent canonical [N64 block][row] payload.
+inline constexpr std::size_t kSm87A4W4DownFactorizedV2PanelN = 128U;
+inline constexpr std::size_t kSm87A4W4DownFactorizedV2N16 = 16U;
+inline constexpr std::size_t kSm87A4W4DownFactorizedV2N16PerPanel = 8U;
+inline constexpr std::size_t kSm87A4W4DownFactorizedV2FragmentLanes = 32U;
+inline constexpr std::size_t kSm87A4W4DownFactorizedV2PairBytes = 16U;
 inline constexpr std::int32_t kSm87A4W4DownFactorizedMaximumS32 =
     static_cast<std::int32_t>(
         7U * 7U * kSm87A4W4DownFactorizedModelInput);
@@ -155,6 +165,38 @@ sm87_a4w4_down_factorized_scale_offset(
 }
 
 [[nodiscard]] constexpr std::size_t
+sm87_a4w4_down_factorized_v2_paired_code_capacity_bytes(
+    const std::size_t outer_count, const std::size_t logical_k) noexcept {
+  if (outer_count == 0U ||
+      outer_count % kSm87A4W4DownFactorizedV2PanelN != 0U ||
+      sm87_a4w4_down_factorized_k64_groups(logical_k) == 0U ||
+      !sm87_a4w4_down_factorized_product_fits(outer_count, logical_k)) {
+    return 0U;
+  }
+  const std::size_t elements = outer_count * logical_k;
+  return elements / 2U;
+}
+
+[[nodiscard]] Q3X_SM87_A4W4_DOWN_FACTOR_HOST_DEVICE constexpr std::size_t
+sm87_a4w4_down_factorized_v2_paired_code_offset(
+    const std::size_t outer_coordinate,
+    const std::size_t physical_k64_group,
+    const std::size_t lane,
+    const std::size_t physical_k64_group_count) noexcept {
+  const std::size_t panel =
+      outer_coordinate / kSm87A4W4DownFactorizedV2PanelN;
+  const std::size_t n16 =
+      (outer_coordinate % kSm87A4W4DownFactorizedV2PanelN) /
+      kSm87A4W4DownFactorizedV2N16;
+  return ((((panel * physical_k64_group_count + physical_k64_group) *
+                kSm87A4W4DownFactorizedV2N16PerPanel +
+            n16) *
+               kSm87A4W4DownFactorizedV2FragmentLanes +
+           lane) *
+          kSm87A4W4DownFactorizedV2PairBytes);
+}
+
+[[nodiscard]] constexpr std::size_t
 sm87_a4w4_down_factorized_launch_token_count(
     const std::size_t logical_token_count) noexcept {
   if (logical_token_count == 0U ||
@@ -253,6 +295,10 @@ struct Sm87A4W4DownFactorizedLaneResources final {
 query_sm87_a4w4_down_factorized_lane_resources_cuda(
     Sm87A4W4DownFactorizedLaneResources* resources) noexcept;
 
+[[nodiscard]] int
+query_sm87_a4w4_down_factorized_lane_r1_v2_resources_cuda(
+    Sm87A4W4DownFactorizedLaneResources* resources) noexcept;
+
 [[nodiscard]] int launch_sm87_a4w4_down_factorized_lane_bf16_cuda(
     const std::uint8_t* packed_a, std::size_t packed_a_capacity_bytes,
     const std::uint16_t* a_lane_scales_bf16,
@@ -281,12 +327,52 @@ query_sm87_a4w4_down_factorized_lane_resources_cuda(
     std::size_t output_capacity_elements, unsigned int maximum_launch_ctas,
     void* cuda_stream = nullptr) noexcept;
 
+// Isolated projection-plane-v2 API.  A and scales retain the incumbent R1
+// contract; only B codes use the adjacent-N8 equal-byte permutation above.
+[[nodiscard]] int launch_sm87_a4w4_down_factorized_lane_r1_v2_bf16_cuda(
+    const std::uint8_t* packed_a, std::size_t packed_a_capacity_bytes,
+    const std::uint16_t* a_lane_scales_bf16,
+    std::size_t a_scale_capacity_elements,
+    const std::uint8_t* paired_b_codes,
+    std::size_t paired_b_code_capacity_bytes,
+    const std::uint16_t* b_lane_scales_bf16,
+    std::size_t b_scale_capacity_elements,
+    std::size_t logical_token_count, std::size_t launch_token_count,
+    std::size_t output_size, std::size_t input_size,
+    std::uint16_t* output_bf16,
+    std::size_t output_row_stride_elements,
+    std::size_t output_capacity_elements,
+    void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
+launch_sm87_a4w4_down_factorized_lane_r1_v2_test_bf16_cuda(
+    const std::uint8_t* packed_a, std::size_t packed_a_capacity_bytes,
+    const std::uint16_t* a_lane_scales_bf16,
+    std::size_t a_scale_capacity_elements,
+    const std::uint8_t* paired_b_codes,
+    std::size_t paired_b_code_capacity_bytes,
+    const std::uint16_t* b_lane_scales_bf16,
+    std::size_t b_scale_capacity_elements,
+    std::size_t logical_token_count, std::size_t launch_token_count,
+    std::size_t output_size, std::size_t input_size,
+    std::uint16_t* output_bf16,
+    std::size_t output_row_stride_elements,
+    std::size_t output_capacity_elements, unsigned int maximum_launch_ctas,
+    void* cuda_stream = nullptr) noexcept;
+
 static_assert(sm87_a4w4_down_factorized_lane_plan(
                   1'853U, 2'048U, 5'120U, 17'408U)
                       .work_tiles == 320U);
 static_assert(sm87_a4w4_down_factorized_lane_test_plan(
                   257U, 512U, 128U, 256U)
                       .m_tiles == 2U);
+static_assert(
+    sm87_a4w4_down_factorized_v2_paired_code_capacity_bytes(
+        kSm87A4W4DownFactorizedModelOutput,
+        kSm87A4W4DownFactorizedModelInput) ==
+    sm87_a4w4_down_factorized_packed_capacity_bytes(
+        kSm87A4W4DownFactorizedModelOutput,
+        kSm87A4W4DownFactorizedModelInput));
 
 }  // namespace q3x::kernels
 

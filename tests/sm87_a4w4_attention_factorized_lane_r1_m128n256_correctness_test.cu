@@ -202,6 +202,54 @@ class GuardedDevice final {
   return result;
 }
 
+[[nodiscard]] std::vector<std::uint8_t> make_v2_paired_codes(
+    const std::vector<std::uint8_t>& canonical,
+    const std::size_t outer_count) {
+  const std::size_t outer_panels =
+      (outer_count +
+       kernels::kSm87A4W4AttentionFactorizedLaneR1V2OuterBlock - 1U) /
+      kernels::kSm87A4W4AttentionFactorizedLaneR1V2OuterBlock;
+  const std::size_t physical_groups = kK / 64U;
+  std::vector<std::uint8_t> result(canonical.size());
+  for (std::size_t outer_panel = 0U; outer_panel < outer_panels;
+       ++outer_panel) {
+    for (std::size_t group = 0U; group < physical_groups; ++group) {
+      for (std::size_t n16 = 0U; n16 < 8U; ++n16) {
+        for (std::size_t lane = 0U;
+             lane <
+             kernels::kSm87A4W4AttentionFactorizedLaneR1V2PairLanes;
+             ++lane) {
+          const std::size_t pair_offset =
+              kernels::
+                  sm87_a4w4_attention_factorized_lane_r1_v2_b_pair_offset(
+                      outer_panel * 128U + n16 * 16U, group, lane,
+                      physical_groups);
+          for (std::size_t word = 0U; word < 4U; ++word) {
+            const auto coordinate =
+                kernels::
+                    sm87_a4w4_attention_factorized_lane_r1_v2_b_word_coordinate(
+                        outer_panel, n16, lane, word);
+            if (!coordinate.valid || coordinate.outer >= outer_count) {
+              continue;
+            }
+            const std::size_t source_offset =
+                kernels::sm87_a4w4_attention_k256_packed_offset(
+                    coordinate.outer, group, coordinate.byte_in_k64,
+                    physical_groups);
+            std::copy_n(canonical.begin() +
+                            static_cast<std::ptrdiff_t>(source_offset),
+                        sizeof(std::uint32_t),
+                        result.begin() + static_cast<std::ptrdiff_t>(
+                                             pair_offset +
+                                             word * sizeof(std::uint32_t)));
+          }
+        }
+      }
+    }
+  }
+  return result;
+}
+
 [[nodiscard]] std::int8_t unpack(
     const std::vector<std::uint8_t>& packed,
     const std::size_t outer,
@@ -296,8 +344,32 @@ int main() {
     return 1;
   }
 
+  kernels::Sm87A4W4AttentionFactorizedLaneR1Resources v2_resources{};
+  if (!cuda_ok(
+          static_cast<cudaError_t>(
+              kernels::
+                  query_sm87_a4w4_attention_factorized_lane_r1_v2_m128n256_resources_cuda(
+                      &v2_resources)),
+          "v2 resource admission")) {
+    return 1;
+  }
+  std::cout << "v2 resources regs=" << v2_resources.registers_per_thread
+            << " dynamic_shared=" << v2_resources.dynamic_shared_bytes
+            << " local=" << v2_resources.local_bytes
+            << " active_cta=" << v2_resources.active_blocks_per_sm << '\n';
+  if (v2_resources.registers_per_thread > 252 ||
+      v2_resources.dynamic_shared_bytes != 148'224U ||
+      v2_resources.local_bytes != 0U ||
+      v2_resources.maximum_threads_per_block < 256 ||
+      v2_resources.active_blocks_per_sm != 1) {
+    std::cerr << "v2 resource query escaped hard gate\n";
+    return 1;
+  }
+
   const std::vector<std::uint8_t> host_a = make_codes(kM, 0x1234U);
   const std::vector<std::uint8_t> host_b = make_codes(kN, 0x89abU);
+  const std::vector<std::uint8_t> host_b_v2 =
+      make_v2_paired_codes(host_b, kN);
   std::vector<std::uint16_t> host_a_scales(
       kernels::
           sm87_a4w4_attention_factorized_lane_r1_scale_capacity_elements(
@@ -320,17 +392,23 @@ int main() {
   GuardedDevice<std::uint8_t> a;
   GuardedDevice<std::uint16_t> a_scales;
   GuardedDevice<std::uint8_t> b;
+  GuardedDevice<std::uint8_t> b_v2;
   GuardedDevice<std::uint16_t> b_scales;
   GuardedDevice<std::uint16_t> output;
+  GuardedDevice<std::uint16_t> output_v2;
   if (!a.initialize(host_a, kByteGuard, kByteSentinel, "A") ||
       !a_scales.initialize(host_a_scales, kWordGuard, kWordSentinel,
                            "A scales") ||
       !b.initialize(host_b, kByteGuard, kByteSentinel, "B") ||
+      !b_v2.initialize(host_b_v2, kByteGuard, kByteSentinel, "B v2") ||
       !b_scales.initialize(host_b_scales, kWordGuard, kWordSentinel,
                            "B scales") ||
       !output.initialize(
           std::vector<std::uint16_t>(kM * kStride, kOutputSentinel),
-          kWordGuard, kOutputSentinel, "output")) {
+          kWordGuard, kOutputSentinel, "output") ||
+      !output_v2.initialize(
+          std::vector<std::uint16_t>(kM * kStride, kOutputSentinel),
+          kWordGuard, kOutputSentinel, "output v2")) {
     return 1;
   }
 
@@ -343,6 +421,10 @@ int main() {
       b.payload(), b.payload_size(), b_scales.payload(),
       b_scales.payload_size(), kN, output.payload(), kStride,
       output.payload_size()};
+  const kernels::Sm87A4W4AttentionFactorizedLaneR1ProjectionView v2_view{
+      b_v2.payload(), b_v2.payload_size(), b_scales.payload(),
+      b_scales.payload_size(), kN, output_v2.payload(), kStride,
+      output_v2.payload_size()};
   const int launch_status =
       kernels::
           launch_sm87_a4w4_attention_factorized_lane_r1_m128n256_test_bf16_cuda(
@@ -353,6 +435,18 @@ int main() {
               16U, stream);
   bool ok = cuda_ok(static_cast<cudaError_t>(launch_status), "launch") &&
             cuda_ok(cudaStreamSynchronize(stream), "stream sync");
+  if (ok) {
+    const int v2_launch_status =
+        kernels::
+            launch_sm87_a4w4_attention_factorized_lane_r1_v2_m128n256_test_bf16_cuda(
+                a.payload(), a.payload_size(), a_scales.payload(),
+                a_scales.payload_size(), kM, kK, &v2_view, 1U,
+                kernels::Sm87A4W4AttentionFactorizedLaneR1EpilogueMode::
+                    kTopologyBf16,
+                16U, stream);
+    ok = cuda_ok(static_cast<cudaError_t>(v2_launch_status), "v2 launch") &&
+         cuda_ok(cudaStreamSynchronize(stream), "v2 stream sync");
+  }
 
   cudaGraph_t graph{};
   cudaGraphExec_t graph_exec{};
@@ -370,8 +464,18 @@ int main() {
                 kernels::Sm87A4W4AttentionFactorizedLaneR1EpilogueMode::
                     kTopologyBf16,
                 16U, stream);
+    const int v2_capture_status =
+        kernels::
+            launch_sm87_a4w4_attention_factorized_lane_r1_v2_m128n256_test_bf16_cuda(
+                a.payload(), a.payload_size(), a_scales.payload(),
+                a_scales.payload_size(), kM, kK, &v2_view, 1U,
+                kernels::Sm87A4W4AttentionFactorizedLaneR1EpilogueMode::
+                    kTopologyBf16,
+                16U, stream);
     ok = cuda_ok(static_cast<cudaError_t>(capture_status),
                  "capture launch") &&
+         cuda_ok(static_cast<cudaError_t>(v2_capture_status),
+                 "v2 capture launch") &&
          cuda_ok(cudaStreamEndCapture(stream, &graph),
                  "end graph capture") &&
          cuda_ok(cudaGraphInstantiate(&graph_exec, graph, nullptr,
@@ -382,9 +486,12 @@ int main() {
   }
 
   std::vector<std::uint16_t> actual;
+  std::vector<std::uint16_t> actual_v2;
   if (ok) {
     ok = output.download(&actual, "output") &&
-         output.guards_intact(actual, "output");
+         output.guards_intact(actual, "output") &&
+         output_v2.download(&actual_v2, "output v2") &&
+         output_v2.guards_intact(actual_v2, "output v2");
   }
   if (ok) {
     for (std::size_t m = 0U; m < kM && ok; ++m) {
@@ -402,12 +509,23 @@ int main() {
           ok = false;
           break;
         }
+        const std::uint16_t observed_v2 =
+            actual_v2[output_v2.guard() + m * kStride + n];
+        if (observed_v2 != expected || observed_v2 != observed) {
+          std::cerr << "v2 bit mismatch at (" << m << ',' << n
+                    << "): expected=0x" << std::hex << expected
+                    << " v1=0x" << observed << " v2=0x" << observed_v2
+                    << std::dec << '\n';
+          ok = false;
+          break;
+        }
       }
     }
   }
   if (ok) {
     ok = a.unchanged("A") && a_scales.unchanged("A scales") &&
-         b.unchanged("B") && b_scales.unchanged("B scales");
+         b.unchanged("B") && b_v2.unchanged("B v2") &&
+         b_scales.unchanged("B scales");
   }
 
   const int invalid_mode_status =
@@ -423,6 +541,19 @@ int main() {
     std::cerr << "unknown epilogue mode was not rejected\n";
     ok = false;
   }
+  const int v2_invalid_mode_status =
+      kernels::
+          launch_sm87_a4w4_attention_factorized_lane_r1_v2_m128n256_test_bf16_cuda(
+              a.payload(), a.payload_size(), a_scales.payload(),
+              a_scales.payload_size(), kM, kK, &v2_view, 1U,
+              static_cast<
+                  kernels::Sm87A4W4AttentionFactorizedLaneR1EpilogueMode>(
+                  0xffU),
+              16U, stream);
+  if (v2_invalid_mode_status != static_cast<int>(cudaErrorInvalidValue)) {
+    std::cerr << "v2 unknown epilogue mode was not rejected\n";
+    ok = false;
+  }
   if (graph_exec != nullptr) {
     (void)cudaGraphExecDestroy(graph_exec);
   }
@@ -433,8 +564,8 @@ int main() {
   if (!ok) {
     return 1;
   }
-  std::cout << "PASS: M128N256 K512 full-K S32 is bit-exact; topology "
-               "padding, guards, immutable inputs, graph replay, explicit "
-               "epilogue, and resource admission hold\n";
+  std::cout << "PASS: M128N256 K512 v1 and equal-byte paired-B v2 are "
+               "bit-exact; topology padding, guards, immutable inputs, graph "
+               "replay, explicit epilogue, and resource admission hold\n";
   return 0;
 }

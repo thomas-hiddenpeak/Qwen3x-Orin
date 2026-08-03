@@ -35,9 +35,36 @@ struct alignas(16) FactorizedScales final {
   std::uint16_t up[kTileN];
 };
 
+struct alignas(16) V2FactorizedScales final {
+  std::uint16_t a[kTileM];
+  std::uint16_t paired_b[kTileN][2U];
+};
+
 struct alignas(16) SharedStorage final {
   PackedStage stage[kSm87A4W4GateUpFactorizedStages];
   FactorizedScales scales;
+};
+
+struct alignas(16) PairedBFragment final {
+  Sm87A4W4BFragment gate;
+  Sm87A4W4BFragment up;
+};
+
+// Projection-plane v2 changes only the B publication.  The total staged A/B
+// bytes are identical to v1: 16 KiB A plus 32 KiB paired Gate/Up B per K256
+// slot.  The fragment-native records can therefore replace the two decoded-B
+// planes without changing M128N128, the ping-pong depth, or shared residency.
+struct alignas(16) V2PackedStage final {
+  std::uint8_t a[kK64PerStage][kTileM * kPackedK64Bytes];
+  PairedBFragment
+      paired_b[kK64PerStage]
+              [kTileN / kSm87A4W4GateUpFactorizedV2N8]
+              [kSm87A4W4GateUpFactorizedV2FragmentLanes];
+};
+
+struct alignas(16) V2SharedStorage final {
+  V2PackedStage stage[kSm87A4W4GateUpFactorizedStages];
+  V2FactorizedScales scales;
 };
 
 // One M32N32 warp owns eight m16n8 fragments per projection.  Gate and Up
@@ -62,7 +89,15 @@ static_assert(sizeof(PackedStage) ==
               kSm87A4W4GateUpFactorizedStageBytes);
 static_assert(sizeof(FactorizedScales) ==
               kSm87A4W4GateUpFactorizedScaleBytes);
+static_assert(sizeof(V2FactorizedScales) ==
+              kSm87A4W4GateUpFactorizedScaleBytes);
 static_assert(sizeof(SharedStorage) ==
+              kSm87A4W4GateUpFactorizedDynamicSharedBytes);
+static_assert(sizeof(PairedBFragment) ==
+              kSm87A4W4GateUpFactorizedV2PairBytes);
+static_assert(sizeof(V2PackedStage) ==
+              kSm87A4W4GateUpFactorizedStageBytes);
+static_assert(sizeof(V2SharedStorage) ==
               kSm87A4W4GateUpFactorizedDynamicSharedBytes);
 static_assert(sizeof(ProjectionAccumulators) ==
               32U * sizeof(std::int32_t));
@@ -235,6 +270,96 @@ __device__ __forceinline__ void issue_scales(
   cp_async_commit();
 }
 
+__device__ __forceinline__ void issue_v2_stage(
+    V2PackedStage& destination,
+    const std::uint8_t* const packed_a,
+    const std::uint8_t* const paired_b_codes,
+    const unsigned int m_tile_start,
+    const unsigned int n_tile_start,
+    const unsigned int k256_stage,
+    const unsigned int physical_k64_group_count) noexcept {
+  constexpr unsigned int kAVectorsPerPlane =
+      kTileM * kPackedK64Bytes / 16U;
+  constexpr unsigned int kAIterations =
+      kK64PerStage * kAVectorsPerPlane / kThreads;
+  constexpr unsigned int kBRecordsPerPlane =
+      (kTileN / kSm87A4W4GateUpFactorizedV2N8) *
+      kSm87A4W4GateUpFactorizedV2FragmentLanes;
+  constexpr unsigned int kBIterations =
+      kK64PerStage * kBRecordsPerPlane / kThreads;
+  static_assert(kAVectorsPerPlane == 256U && kAIterations == 2U);
+  static_assert(kBRecordsPerPlane == 512U && kBIterations == 4U);
+
+#pragma unroll
+  for (unsigned int iteration = 0U; iteration < kAIterations;
+       ++iteration) {
+    const unsigned int vector = threadIdx.x + iteration * kThreads;
+    const unsigned int plane = vector / kAVectorsPerPlane;
+    const unsigned int vector_in_plane =
+        vector - plane * kAVectorsPerPlane;
+    const unsigned int row = vector_in_plane >> 1U;
+    const unsigned int row_vector = vector_in_plane & 1U;
+    const unsigned int physical_k64_group =
+        kK64PerStage * k256_stage + plane;
+    const unsigned int byte_in_row = 16U * row_vector;
+    cp_async_cg_16(
+        destination.a[plane] +
+            sm87_a4w4_swizzled_k64_byte_offset(row, byte_in_row),
+        packed_a + sm87_a4w4_gateup_factorized_packed_offset(
+                       m_tile_start + row, physical_k64_group,
+                       byte_in_row, physical_k64_group_count));
+  }
+
+#pragma unroll
+  for (unsigned int iteration = 0U; iteration < kBIterations;
+       ++iteration) {
+    const unsigned int record = threadIdx.x + iteration * kThreads;
+    const unsigned int plane = record / kBRecordsPerPlane;
+    const unsigned int record_in_plane =
+        record - plane * kBRecordsPerPlane;
+    const unsigned int n8 =
+        record_in_plane /
+        kSm87A4W4GateUpFactorizedV2FragmentLanes;
+    const unsigned int lane =
+        record_in_plane -
+        n8 * kSm87A4W4GateUpFactorizedV2FragmentLanes;
+    const unsigned int physical_k64_group =
+        kK64PerStage * k256_stage + plane;
+    const std::size_t source_offset =
+        sm87_a4w4_gateup_factorized_v2_paired_code_offset(
+            static_cast<std::size_t>(n_tile_start) +
+                n8 * kSm87A4W4GateUpFactorizedV2N8,
+            physical_k64_group, lane, physical_k64_group_count);
+    cp_async_cg_16(&destination.paired_b[plane][n8][lane],
+                   paired_b_codes + source_offset);
+  }
+  cp_async_commit();
+}
+
+__device__ __forceinline__ void issue_v2_scales(
+    V2FactorizedScales& destination,
+    const std::uint16_t* const a_lane_scales_bf16,
+    const std::uint16_t* const paired_b_lane_scales_bf16,
+    const unsigned int m_tile_start,
+    const unsigned int n_tile_start) noexcept {
+  if (threadIdx.x < 16U) {
+    const unsigned int row = 8U * threadIdx.x;
+    cp_async_ca_16(
+        destination.a + row,
+        a_lane_scales_bf16 +
+            sm87_a4w4_gateup_factorized_scale_offset(m_tile_start + row));
+  }
+  if (threadIdx.x >= 16U && threadIdx.x < 48U) {
+    const unsigned int row = 4U * (threadIdx.x - 16U);
+    const std::size_t source_offset =
+        sm87_a4w4_gateup_factorized_v2_paired_scale_offset(
+            static_cast<std::size_t>(n_tile_start) + row, 0U);
+    cp_async_ca_16(destination.paired_b[row],
+                   paired_b_lane_scales_bf16 + source_offset);
+  }
+  cp_async_commit();
+}
+
 [[nodiscard]] __device__ __forceinline__ Sm87A4W4AFragment
 load_a_ldmatrix_x4(const std::uint8_t* const shared_a,
                    const unsigned int lane) noexcept {
@@ -278,6 +403,24 @@ load_b_ldmatrix_x2(const std::uint8_t* const shared_b,
   asm volatile(
       "ldmatrix.sync.aligned.m8n8.x2.shared.b16 {%0, %1}, [%2];"
       : "=r"(fragment.x0), "=r"(fragment.x1)
+      : "r"(shared_address)
+      : "memory");
+#else
+  asm volatile("trap;");
+#endif
+  return fragment;
+}
+
+[[nodiscard]] __device__ __forceinline__ PairedBFragment
+load_v2_paired_b_shared(const PairedBFragment* const pointer) noexcept {
+  const unsigned int shared_address =
+      static_cast<unsigned int>(__cvta_generic_to_shared(pointer));
+  PairedBFragment fragment{};
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ == 870
+  asm volatile(
+      "ld.shared.v4.u32 {%0, %1, %2, %3}, [%4];"
+      : "=r"(fragment.gate.x0), "=r"(fragment.gate.x1),
+        "=r"(fragment.up.x0), "=r"(fragment.up.x1)
       : "r"(shared_address)
       : "memory");
 #else
@@ -339,12 +482,81 @@ __device__ __forceinline__ void accumulate_k256_stage(
   }
 }
 
+__device__ __forceinline__ void accumulate_v2_k256_stage(
+    const V2PackedStage& stage,
+    const unsigned int warp_m32,
+    const unsigned int warp_n32,
+    PairedAccumulators& accumulators) noexcept {
+  const unsigned int lane = threadIdx.x & 31U;
+  const unsigned int local_m = warp_m32 * 32U;
+  const unsigned int n8_start = warp_n32 * 4U;
+
+#pragma unroll
+  for (unsigned int plane = 0U; plane < kK64PerStage; ++plane) {
+    const Sm87A4W4AFragment a0 = load_a_ldmatrix_x4(
+        stage.a[plane] + (local_m + 0U) * kPackedK64Bytes, lane);
+    const Sm87A4W4AFragment a1 = load_a_ldmatrix_x4(
+        stage.a[plane] + (local_m + 16U) * kPackedK64Bytes, lane);
+
+#define Q3X_ACCUMULATE_V2_B(N)                                          \
+    do {                                                                \
+      const PairedBFragment b = load_v2_paired_b_shared(                \
+          &stage.paired_b[plane][n8_start + N##U][lane]);               \
+      sm87_a4w4_mma_m16n8k64(accumulators.gate.m0n##N, a0, b.gate);     \
+      sm87_a4w4_mma_m16n8k64(accumulators.gate.m1n##N, a1, b.gate);     \
+      sm87_a4w4_mma_m16n8k64(accumulators.up.m0n##N, a0, b.up);         \
+      sm87_a4w4_mma_m16n8k64(accumulators.up.m1n##N, a1, b.up);         \
+    } while (false)
+    Q3X_ACCUMULATE_V2_B(0);
+    Q3X_ACCUMULATE_V2_B(1);
+    Q3X_ACCUMULATE_V2_B(2);
+    Q3X_ACCUMULATE_V2_B(3);
+#undef Q3X_ACCUMULATE_V2_B
+  }
+}
+
+[[nodiscard]] __device__ __forceinline__ std::uint16_t
+load_a_scale_bits(const FactorizedScales& scales,
+                  const unsigned int row) noexcept {
+  return scales.a[row];
+}
+
+[[nodiscard]] __device__ __forceinline__ std::uint16_t
+load_gate_scale_bits(const FactorizedScales& scales,
+                     const unsigned int row) noexcept {
+  return scales.gate[row];
+}
+
+[[nodiscard]] __device__ __forceinline__ std::uint16_t
+load_up_scale_bits(const FactorizedScales& scales,
+                   const unsigned int row) noexcept {
+  return scales.up[row];
+}
+
+[[nodiscard]] __device__ __forceinline__ std::uint16_t
+load_a_scale_bits(const V2FactorizedScales& scales,
+                  const unsigned int row) noexcept {
+  return scales.a[row];
+}
+
+[[nodiscard]] __device__ __forceinline__ std::uint16_t
+load_gate_scale_bits(const V2FactorizedScales& scales,
+                     const unsigned int row) noexcept {
+  return scales.paired_b[row][0U];
+}
+
+[[nodiscard]] __device__ __forceinline__ std::uint16_t
+load_up_scale_bits(const V2FactorizedScales& scales,
+                   const unsigned int row) noexcept {
+  return scales.paired_b[row][1U];
+}
+
 template <unsigned int MFragment, unsigned int NFragment,
-          bool TrackR1TileMaximum>
+          bool TrackR1TileMaximum, typename ScaleStorage>
 __device__ __forceinline__ void store_fragment(
     const Sm87A4W4Accumulator& gate,
     const Sm87A4W4Accumulator& up,
-    const FactorizedScales& scales,
+    const ScaleStorage& scales,
     const unsigned int logical_token_count,
     const unsigned int m_tile_start,
     const unsigned int output_n_tile_start,
@@ -369,12 +581,18 @@ __device__ __forceinline__ void store_fragment(
   const unsigned int base_m = m_tile_start + local_m;
   const unsigned int base_n = output_n_tile_start + local_n;
   const unsigned int global_n = global_n_tile_start + local_n;
-  const float a0 = decode_bf16(scales.a[local_m + row0]);
-  const float a1 = decode_bf16(scales.a[local_m + row1]);
-  const float gate_b0 = decode_bf16(scales.gate[local_n + column0]);
-  const float gate_b1 = decode_bf16(scales.gate[local_n + column1]);
-  const float up_b0 = decode_bf16(scales.up[local_n + column0]);
-  const float up_b1 = decode_bf16(scales.up[local_n + column1]);
+  const float a0 =
+      decode_bf16(load_a_scale_bits(scales, local_m + row0));
+  const float a1 =
+      decode_bf16(load_a_scale_bits(scales, local_m + row1));
+  const float gate_b0 =
+      decode_bf16(load_gate_scale_bits(scales, local_n + column0));
+  const float gate_b1 =
+      decode_bf16(load_gate_scale_bits(scales, local_n + column1));
+  const float up_b0 =
+      decode_bf16(load_up_scale_bits(scales, local_n + column0));
+  const float up_b1 =
+      decode_bf16(load_up_scale_bits(scales, local_n + column1));
 
   float maximum0 = 0.0F;
   float maximum1 = 0.0F;
@@ -470,10 +688,10 @@ __device__ __forceinline__ void store_fragment(
   }
 }
 
-template <bool TrackR1TileMaximum>
+template <bool TrackR1TileMaximum, typename ScaleStorage>
 __device__ __forceinline__ void store_accumulators(
     const PairedAccumulators& accumulators,
-    const FactorizedScales& scales,
+    const ScaleStorage& scales,
     const unsigned int logical_token_count,
     const unsigned int m_tile_start,
     const unsigned int output_n_tile_start,
@@ -613,6 +831,106 @@ __device__ __forceinline__ void gateup_factorized_lane_body(
   }
 }
 
+template <bool TrackR1TileMaximum>
+__device__ __forceinline__ void gateup_factorized_lane_v2_body(
+    V2SharedStorage& shared,
+    const std::uint8_t* const packed_a,
+    const std::uint16_t* const a_lane_scales_bf16,
+    const std::uint8_t* const paired_b_codes,
+    const std::uint16_t* const paired_b_lane_scales_bf16,
+    const unsigned int logical_token_count,
+    const unsigned int primary_width,
+    const unsigned int physical_k64_group_count,
+    const unsigned int k256_stage_count,
+    const unsigned int m_tile_count,
+    const unsigned int work_tile_count,
+    std::uint16_t* const primary_output_bf16,
+    const unsigned int primary_output_row_stride_elements,
+    std::uint16_t* const secondary_output_bf16,
+    const unsigned int secondary_output_row_stride_elements,
+    const float* const down_inverse_alpha_fp32,
+    float* const r1_product_tile_maxima_fp32) noexcept {
+  const unsigned int warp = threadIdx.x >> 5U;
+  const unsigned int warp_m32 = warp & 3U;
+  const unsigned int warp_n32 = warp >> 2U;
+
+  for (unsigned int work = blockIdx.x; work < work_tile_count;
+       work += gridDim.x) {
+    const unsigned int n_tile = work / m_tile_count;
+    const unsigned int m_tile = work - n_tile * m_tile_count;
+    const unsigned int m_tile_start = m_tile * kTileM;
+    const unsigned int n_tile_start = n_tile * kTileN;
+    PairedAccumulators accumulators{};
+
+    issue_v2_scales(shared.scales, a_lane_scales_bf16,
+                    paired_b_lane_scales_bf16, m_tile_start,
+                    n_tile_start);
+    issue_v2_stage(shared.stage[0], packed_a, paired_b_codes,
+                   m_tile_start, n_tile_start, 0U,
+                   physical_k64_group_count);
+    cp_async_wait_all();
+    __syncthreads();
+
+    for (unsigned int stage = 0U; stage < k256_stage_count; ++stage) {
+      const unsigned int current_slot = stage & 1U;
+      const unsigned int next_stage = stage + 1U;
+      if (next_stage < k256_stage_count) {
+        issue_v2_stage(shared.stage[next_stage & 1U], packed_a,
+                       paired_b_codes, m_tile_start, n_tile_start,
+                       next_stage, physical_k64_group_count);
+      }
+      accumulate_v2_k256_stage(shared.stage[current_slot], warp_m32,
+                               warp_n32, accumulators);
+      if (next_stage < k256_stage_count) {
+        cp_async_wait_all();
+        __syncthreads();
+      }
+    }
+
+    const bool primary = n_tile_start < primary_width;
+    std::uint16_t* const output =
+        primary ? primary_output_bf16 : secondary_output_bf16;
+    const unsigned int output_stride =
+        primary ? primary_output_row_stride_elements
+                : secondary_output_row_stride_elements;
+    const unsigned int output_n_tile_start =
+        primary ? n_tile_start : n_tile_start - primary_width;
+    float* warp_tile_maxima = nullptr;
+    if constexpr (TrackR1TileMaximum) {
+      __syncthreads();
+      warp_tile_maxima = reinterpret_cast<float*>(shared.stage);
+      static_assert(kThreads ==
+                    kSm87A4W4GateUpFactorizedWarpColumns * kTileM);
+      warp_tile_maxima[threadIdx.x] = 0.0F;
+      __syncthreads();
+    }
+    store_accumulators<TrackR1TileMaximum>(
+        accumulators, shared.scales, logical_token_count, m_tile_start,
+        output_n_tile_start, n_tile_start, warp_m32, warp_n32, output,
+        output_stride, down_inverse_alpha_fp32, warp_tile_maxima);
+    if constexpr (TrackR1TileMaximum) {
+      __syncthreads();
+      if (warp_n32 == 0U) {
+        const unsigned int local_row =
+            warp_m32 * 32U + (threadIdx.x & 31U);
+        float maximum = warp_tile_maxima[local_row];
+#pragma unroll
+        for (unsigned int warp_n = 1U;
+             warp_n < kSm87A4W4GateUpFactorizedWarpColumns; ++warp_n) {
+          maximum = fmaxf(
+              maximum, warp_tile_maxima[warp_n * kTileM + local_row]);
+        }
+        const unsigned int global_row = m_tile_start + local_row;
+        r1_product_tile_maxima_fp32[
+            static_cast<std::size_t>(global_row) *
+                kSm87A4W4GateUpFactorizedR1ProductPartialTiles +
+            n_tile] = maximum;
+      }
+    }
+    __syncthreads();
+  }
+}
+
 }  // namespace
 
 extern "C" __global__
@@ -681,6 +999,67 @@ void q3x_sm87_a4w4_gateup_factorized_lane_r1_tile_max_kernel(
       down_inverse_alpha_fp32, r1_product_tile_maxima_fp32);
 }
 
+extern "C" __global__
+    __launch_bounds__(kSm87A4W4GateUpFactorizedThreads,
+                      kSm87A4W4GateUpFactorizedCtasPerSm)
+void q3x_sm87_a4w4_gateup_factorized_lane_r1_v2_kernel(
+    const std::uint8_t* const packed_a,
+    const std::uint16_t* const a_lane_scales_bf16,
+    const std::uint8_t* const paired_b_codes,
+    const std::uint16_t* const paired_b_lane_scales_bf16,
+    const unsigned int logical_token_count,
+    const unsigned int primary_width,
+    const unsigned int physical_k64_group_count,
+    const unsigned int k256_stage_count,
+    const unsigned int m_tile_count,
+    const unsigned int work_tile_count,
+    std::uint16_t* const primary_output_bf16,
+    const unsigned int primary_output_row_stride_elements,
+    std::uint16_t* const secondary_output_bf16,
+    const unsigned int secondary_output_row_stride_elements) {
+  extern __shared__ __align__(16) unsigned char dynamic_storage[];
+  auto& shared = *reinterpret_cast<V2SharedStorage*>(dynamic_storage);
+  gateup_factorized_lane_v2_body<false>(
+      shared, packed_a, a_lane_scales_bf16, paired_b_codes,
+      paired_b_lane_scales_bf16, logical_token_count, primary_width,
+      physical_k64_group_count, k256_stage_count, m_tile_count,
+      work_tile_count, primary_output_bf16,
+      primary_output_row_stride_elements, secondary_output_bf16,
+      secondary_output_row_stride_elements, nullptr, nullptr);
+}
+
+extern "C" __global__
+    __launch_bounds__(kSm87A4W4GateUpFactorizedThreads,
+                      kSm87A4W4GateUpFactorizedCtasPerSm)
+void q3x_sm87_a4w4_gateup_factorized_lane_r1_v2_tile_max_kernel(
+    const std::uint8_t* const packed_a,
+    const std::uint16_t* const a_lane_scales_bf16,
+    const std::uint8_t* const paired_b_codes,
+    const std::uint16_t* const paired_b_lane_scales_bf16,
+    const unsigned int logical_token_count,
+    const unsigned int primary_width,
+    const unsigned int physical_k64_group_count,
+    const unsigned int k256_stage_count,
+    const unsigned int m_tile_count,
+    const unsigned int work_tile_count,
+    std::uint16_t* const primary_output_bf16,
+    const unsigned int primary_output_row_stride_elements,
+    std::uint16_t* const secondary_output_bf16,
+    const unsigned int secondary_output_row_stride_elements,
+    const float* const down_inverse_alpha_fp32,
+    float* const r1_product_tile_maxima_fp32) {
+  extern __shared__ __align__(16) unsigned char dynamic_storage[];
+  auto& shared = *reinterpret_cast<V2SharedStorage*>(dynamic_storage);
+  gateup_factorized_lane_v2_body<true>(
+      shared, packed_a, a_lane_scales_bf16, paired_b_codes,
+      paired_b_lane_scales_bf16, logical_token_count, primary_width,
+      physical_k64_group_count, k256_stage_count, m_tile_count,
+      work_tile_count, primary_output_bf16,
+      primary_output_row_stride_elements, secondary_output_bf16,
+      secondary_output_row_stride_elements, down_inverse_alpha_fp32,
+      r1_product_tile_maxima_fp32);
+}
+
 namespace {
 
 [[nodiscard]] int validate_target(
@@ -731,6 +1110,32 @@ namespace {
   }
   return cudaFuncSetAttribute(
       q3x_sm87_a4w4_gateup_factorized_lane_r1_tile_max_kernel,
+      cudaFuncAttributePreferredSharedMemoryCarveout, 100);
+}
+
+[[nodiscard]] cudaError_t configure_r1_v2_kernels() noexcept {
+  cudaError_t status = cudaFuncSetAttribute(
+      q3x_sm87_a4w4_gateup_factorized_lane_r1_v2_kernel,
+      cudaFuncAttributeMaxDynamicSharedMemorySize,
+      static_cast<int>(kSm87A4W4GateUpFactorizedDynamicSharedBytes));
+  if (status != cudaSuccess) {
+    return status;
+  }
+  status = cudaFuncSetAttribute(
+      q3x_sm87_a4w4_gateup_factorized_lane_r1_v2_kernel,
+      cudaFuncAttributePreferredSharedMemoryCarveout, 100);
+  if (status != cudaSuccess) {
+    return status;
+  }
+  status = cudaFuncSetAttribute(
+      q3x_sm87_a4w4_gateup_factorized_lane_r1_v2_tile_max_kernel,
+      cudaFuncAttributeMaxDynamicSharedMemorySize,
+      static_cast<int>(kSm87A4W4GateUpFactorizedDynamicSharedBytes));
+  if (status != cudaSuccess) {
+    return status;
+  }
+  return cudaFuncSetAttribute(
+      q3x_sm87_a4w4_gateup_factorized_lane_r1_v2_tile_max_kernel,
       cudaFuncAttributePreferredSharedMemoryCarveout, 100);
 }
 
@@ -886,6 +1291,114 @@ struct ResourceCache final {
 }
 
 std::atomic<bool> g_r1_tile_max_resources_ready{false};
+
+[[nodiscard]] ResourceCache build_r1_v2_resource_cache() noexcept {
+  ResourceCache cache{};
+  cudaDeviceProp properties{};
+  cache.status = validate_target(&properties);
+  if (cache.status != static_cast<int>(cudaSuccess)) {
+    return cache;
+  }
+  const cudaError_t configure_status = configure_r1_v2_kernels();
+  if (configure_status != cudaSuccess) {
+    cache.status = static_cast<int>(configure_status);
+    return cache;
+  }
+
+  cudaFuncAttributes test_attributes{};
+  cudaFuncAttributes production_attributes{};
+  cudaError_t status = cudaFuncGetAttributes(
+      &test_attributes,
+      q3x_sm87_a4w4_gateup_factorized_lane_r1_v2_kernel);
+  if (status == cudaSuccess) {
+    status = cudaFuncGetAttributes(
+        &production_attributes,
+        q3x_sm87_a4w4_gateup_factorized_lane_r1_v2_tile_max_kernel);
+  }
+  if (status != cudaSuccess) {
+    cache.status = static_cast<int>(status);
+    return cache;
+  }
+  int test_active_blocks = 0;
+  int production_active_blocks = 0;
+  status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+      &test_active_blocks,
+      q3x_sm87_a4w4_gateup_factorized_lane_r1_v2_kernel,
+      static_cast<int>(kThreads),
+      kSm87A4W4GateUpFactorizedDynamicSharedBytes);
+  if (status == cudaSuccess) {
+    status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+        &production_active_blocks,
+        q3x_sm87_a4w4_gateup_factorized_lane_r1_v2_tile_max_kernel,
+        static_cast<int>(kThreads),
+        kSm87A4W4GateUpFactorizedDynamicSharedBytes);
+  }
+  if (status != cudaSuccess) {
+    cache.status = static_cast<int>(status);
+    return cache;
+  }
+
+  cache.resources.registers_per_thread =
+      test_attributes.numRegs > production_attributes.numRegs
+          ? test_attributes.numRegs
+          : production_attributes.numRegs;
+  cache.resources.static_shared_bytes =
+      test_attributes.sharedSizeBytes > production_attributes.sharedSizeBytes
+          ? test_attributes.sharedSizeBytes
+          : production_attributes.sharedSizeBytes;
+  cache.resources.dynamic_shared_bytes =
+      kSm87A4W4GateUpFactorizedDynamicSharedBytes;
+  cache.resources.configured_dynamic_shared_limit_bytes =
+      test_attributes.maxDynamicSharedSizeBytes <
+              production_attributes.maxDynamicSharedSizeBytes
+          ? test_attributes.maxDynamicSharedSizeBytes
+          : production_attributes.maxDynamicSharedSizeBytes;
+  cache.resources.device_optin_shared_limit_bytes =
+      properties.sharedMemPerBlockOptin;
+  cache.resources.local_bytes =
+      test_attributes.localSizeBytes > production_attributes.localSizeBytes
+          ? test_attributes.localSizeBytes
+          : production_attributes.localSizeBytes;
+  cache.resources.maximum_threads_per_block =
+      test_attributes.maxThreadsPerBlock <
+              production_attributes.maxThreadsPerBlock
+          ? test_attributes.maxThreadsPerBlock
+          : production_attributes.maxThreadsPerBlock;
+  cache.resources.active_blocks_per_sm =
+      test_active_blocks < production_active_blocks
+          ? test_active_blocks
+          : production_active_blocks;
+  cache.resources.compute_major = properties.major;
+  cache.resources.compute_minor = properties.minor;
+  cache.status =
+      cache.resources.registers_per_thread <= 0 ||
+              cache.resources.registers_per_thread >
+                  static_cast<int>(
+                      kSm87A4W4GateUpFactorizedMaximumRegisters) ||
+              cache.resources.static_shared_bytes != 0U ||
+              cache.resources.dynamic_shared_bytes !=
+                  kSm87A4W4GateUpFactorizedDynamicSharedBytes ||
+              cache.resources.configured_dynamic_shared_limit_bytes <
+                  kSm87A4W4GateUpFactorizedDynamicSharedBytes ||
+              cache.resources.device_optin_shared_limit_bytes <
+                  kSm87A4W4GateUpFactorizedDynamicSharedBytes ||
+              cache.resources.local_bytes != 0U ||
+              cache.resources.maximum_threads_per_block <
+                  static_cast<int>(kThreads) ||
+              cache.resources.active_blocks_per_sm <
+                  static_cast<int>(
+                      kSm87A4W4GateUpFactorizedCtasPerSm)
+          ? static_cast<int>(cudaErrorLaunchOutOfResources)
+          : static_cast<int>(cudaSuccess);
+  return cache;
+}
+
+[[nodiscard]] const ResourceCache& r1_v2_resource_cache() noexcept {
+  static const ResourceCache cache = build_r1_v2_resource_cache();
+  return cache;
+}
+
+std::atomic<bool> g_r1_v2_resources_ready{false};
 
 [[nodiscard]] bool output_overlaps_input(
     const void* const output, const std::size_t output_bytes,
@@ -1192,6 +1705,272 @@ std::atomic<bool> g_r1_tile_max_resources_ready{false};
   return static_cast<int>(cudaPeekAtLastError());
 }
 
+[[nodiscard]] bool v2_output_overlaps_input(
+    const void* const output,
+    const std::size_t output_bytes,
+    const std::uint8_t* const packed_a,
+    const std::size_t packed_a_bytes,
+    const std::uint16_t* const a_scales,
+    const std::size_t a_scale_bytes,
+    const std::uint8_t* const paired_b_codes,
+    const std::size_t paired_b_code_bytes,
+    const std::uint16_t* const paired_b_scales,
+    const std::size_t paired_b_scale_bytes) noexcept {
+  return byte_ranges_overlap(output, output_bytes, packed_a,
+                             packed_a_bytes) ||
+         byte_ranges_overlap(output, output_bytes, a_scales,
+                             a_scale_bytes) ||
+         byte_ranges_overlap(output, output_bytes, paired_b_codes,
+                             paired_b_code_bytes) ||
+         byte_ranges_overlap(output, output_bytes, paired_b_scales,
+                             paired_b_scale_bytes);
+}
+
+[[nodiscard]] int launch_v2_impl(
+    const std::uint8_t* const packed_a,
+    const std::size_t packed_a_capacity_bytes,
+    const std::uint16_t* const a_lane_scales_bf16,
+    const std::size_t a_scale_capacity_elements,
+    const std::uint8_t* const paired_b_codes,
+    const std::size_t paired_b_code_capacity_bytes,
+    const std::uint16_t* const paired_b_lane_scales_bf16,
+    const std::size_t paired_b_scale_capacity_elements,
+    const std::size_t logical_token_count,
+    const std::size_t launch_token_count,
+    const std::size_t intermediate_size,
+    const std::size_t input_size,
+    const std::size_t primary_width,
+    std::uint16_t* const primary_output_bf16,
+    const std::size_t primary_output_row_stride_elements,
+    const std::size_t primary_output_capacity_elements,
+    std::uint16_t* const secondary_output_bf16,
+    const std::size_t secondary_output_row_stride_elements,
+    const std::size_t secondary_output_capacity_elements,
+    const unsigned int maximum_launch_ctas,
+    const bool production_shape,
+    const bool publish_r1_tile_maxima,
+    const float* const authenticated_down_inverse_alpha_fp32,
+    const std::size_t down_inverse_alpha_capacity_elements,
+    float* const r1_product_tile_maxima_fp32,
+    const std::size_t r1_product_tile_maxima_capacity_elements,
+    void* const cuda_stream) noexcept {
+  const Sm87A4W4GateUpFactorizedLanePlan plan =
+      production_shape
+          ? sm87_a4w4_gateup_factorized_lane_plan(
+                logical_token_count, launch_token_count,
+                intermediate_size, input_size)
+          : sm87_a4w4_gateup_factorized_lane_test_plan(
+                logical_token_count, launch_token_count,
+                intermediate_size, input_size, primary_width);
+  if (plan.launch_ctas == 0U || maximum_launch_ctas == 0U ||
+      (production_shape &&
+       (primary_width != kSm87A4W4GateUpFactorizedPrimaryWidth ||
+        primary_output_row_stride_elements !=
+            kSm87A4W4GateUpFactorizedPrimaryStride ||
+        secondary_output_row_stride_elements !=
+            kSm87A4W4GateUpFactorizedSecondaryStride)) ||
+      (publish_r1_tile_maxima && !production_shape) ||
+      (publish_r1_tile_maxima &&
+       (!aligned(authenticated_down_inverse_alpha_fp32, 16U) ||
+        !aligned(r1_product_tile_maxima_fp32, 16U))) ||
+      !aligned(packed_a, 16U) ||
+      !aligned(a_lane_scales_bf16, 16U) ||
+      !aligned(paired_b_codes, 16U) ||
+      !aligned(paired_b_lane_scales_bf16, 16U) ||
+      !aligned(primary_output_bf16, 16U) ||
+      !aligned(secondary_output_bf16, 16U) ||
+      primary_output_row_stride_elements < plan.primary_width ||
+      secondary_output_row_stride_elements < plan.secondary_width ||
+      primary_output_row_stride_elements % 2U != 0U ||
+      secondary_output_row_stride_elements % 2U != 0U ||
+      primary_output_row_stride_elements >
+          std::numeric_limits<unsigned int>::max() ||
+      secondary_output_row_stride_elements >
+          std::numeric_limits<unsigned int>::max() ||
+      plan.logical_token_count >
+          std::numeric_limits<unsigned int>::max() ||
+      plan.primary_width > std::numeric_limits<unsigned int>::max() ||
+      plan.physical_k64_groups >
+          std::numeric_limits<unsigned int>::max() ||
+      plan.k256_stages > std::numeric_limits<unsigned int>::max() ||
+      plan.m_tiles > std::numeric_limits<unsigned int>::max() ||
+      plan.work_tiles > std::numeric_limits<unsigned int>::max() ||
+      !sm87_a4w4_gateup_factorized_product_fits(
+          logical_token_count, primary_output_row_stride_elements) ||
+      !sm87_a4w4_gateup_factorized_product_fits(
+          logical_token_count, secondary_output_row_stride_elements)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+
+  const std::size_t required_a_bytes =
+      sm87_a4w4_gateup_factorized_packed_capacity_bytes(
+          launch_token_count, input_size);
+  const std::size_t required_paired_b_bytes =
+      sm87_a4w4_gateup_factorized_v2_paired_code_capacity_bytes(
+          intermediate_size, input_size);
+  const std::size_t required_a_scales =
+      sm87_a4w4_gateup_factorized_scale_capacity_elements(
+          launch_token_count);
+  const std::size_t required_paired_b_scales =
+      sm87_a4w4_gateup_factorized_v2_paired_scale_capacity_elements(
+          intermediate_size);
+  const std::size_t required_primary_elements =
+      logical_token_count * primary_output_row_stride_elements;
+  const std::size_t required_secondary_elements =
+      logical_token_count * secondary_output_row_stride_elements;
+  const std::size_t required_r1_tile_maxima_elements =
+      publish_r1_tile_maxima
+          ? sm87_a4w4_gateup_factorized_r1_product_partial_capacity_elements(
+                launch_token_count)
+          : 0U;
+  if (required_a_bytes == 0U || required_paired_b_bytes == 0U ||
+      required_a_scales == 0U || required_paired_b_scales == 0U ||
+      packed_a_capacity_bytes < required_a_bytes ||
+      paired_b_code_capacity_bytes < required_paired_b_bytes ||
+      a_scale_capacity_elements < required_a_scales ||
+      paired_b_scale_capacity_elements < required_paired_b_scales ||
+      primary_output_capacity_elements < required_primary_elements ||
+      secondary_output_capacity_elements < required_secondary_elements ||
+      (publish_r1_tile_maxima &&
+       (down_inverse_alpha_capacity_elements < intermediate_size ||
+        required_r1_tile_maxima_elements == 0U ||
+        r1_product_tile_maxima_capacity_elements <
+            required_r1_tile_maxima_elements)) ||
+      !sm87_a4w4_gateup_factorized_product_fits(
+          required_a_scales, sizeof(std::uint16_t)) ||
+      !sm87_a4w4_gateup_factorized_product_fits(
+          required_paired_b_scales, sizeof(std::uint16_t)) ||
+      !sm87_a4w4_gateup_factorized_product_fits(
+          required_primary_elements, sizeof(std::uint16_t)) ||
+      !sm87_a4w4_gateup_factorized_product_fits(
+          required_secondary_elements, sizeof(std::uint16_t))) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+
+  const std::size_t required_a_scale_bytes =
+      required_a_scales * sizeof(std::uint16_t);
+  const std::size_t required_paired_b_scale_bytes =
+      required_paired_b_scales * sizeof(std::uint16_t);
+  const std::size_t required_primary_bytes =
+      required_primary_elements * sizeof(std::uint16_t);
+  const std::size_t required_secondary_bytes =
+      required_secondary_elements * sizeof(std::uint16_t);
+  const std::size_t required_down_inverse_alpha_bytes =
+      publish_r1_tile_maxima ? intermediate_size * sizeof(float) : 0U;
+  const std::size_t required_r1_tile_maxima_bytes =
+      publish_r1_tile_maxima
+          ? required_r1_tile_maxima_elements * sizeof(float)
+          : 0U;
+  if (v2_output_overlaps_input(
+          primary_output_bf16, required_primary_bytes, packed_a,
+          required_a_bytes, a_lane_scales_bf16, required_a_scale_bytes,
+          paired_b_codes, required_paired_b_bytes,
+          paired_b_lane_scales_bf16, required_paired_b_scale_bytes) ||
+      v2_output_overlaps_input(
+          secondary_output_bf16, required_secondary_bytes, packed_a,
+          required_a_bytes, a_lane_scales_bf16, required_a_scale_bytes,
+          paired_b_codes, required_paired_b_bytes,
+          paired_b_lane_scales_bf16, required_paired_b_scale_bytes) ||
+      byte_ranges_overlap(primary_output_bf16, required_primary_bytes,
+                          secondary_output_bf16,
+                          required_secondary_bytes) ||
+      (publish_r1_tile_maxima &&
+       (v2_output_overlaps_input(
+            r1_product_tile_maxima_fp32, required_r1_tile_maxima_bytes,
+            packed_a, required_a_bytes, a_lane_scales_bf16,
+            required_a_scale_bytes, paired_b_codes,
+            required_paired_b_bytes, paired_b_lane_scales_bf16,
+            required_paired_b_scale_bytes) ||
+        byte_ranges_overlap(r1_product_tile_maxima_fp32,
+                            required_r1_tile_maxima_bytes,
+                            primary_output_bf16,
+                            required_primary_bytes) ||
+        byte_ranges_overlap(r1_product_tile_maxima_fp32,
+                            required_r1_tile_maxima_bytes,
+                            secondary_output_bf16,
+                            required_secondary_bytes) ||
+        byte_ranges_overlap(r1_product_tile_maxima_fp32,
+                            required_r1_tile_maxima_bytes,
+                            authenticated_down_inverse_alpha_fp32,
+                            required_down_inverse_alpha_bytes) ||
+        byte_ranges_overlap(authenticated_down_inverse_alpha_fp32,
+                            required_down_inverse_alpha_bytes,
+                            primary_output_bf16,
+                            required_primary_bytes) ||
+        byte_ranges_overlap(authenticated_down_inverse_alpha_fp32,
+                            required_down_inverse_alpha_bytes,
+                            secondary_output_bf16,
+                            required_secondary_bytes)))) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  cudaStreamCaptureStatus capture_status = cudaStreamCaptureStatusNone;
+  if (stream != nullptr) {
+    const cudaError_t capture_query =
+        cudaStreamIsCapturing(stream, &capture_status);
+    if (capture_query != cudaSuccess) {
+      return static_cast<int>(capture_query);
+    }
+  }
+  if (capture_status != cudaStreamCaptureStatusNone &&
+      !g_r1_v2_resources_ready.load(std::memory_order_acquire)) {
+    return static_cast<int>(cudaErrorNotReady);
+  }
+  if (!g_r1_v2_resources_ready.load(std::memory_order_acquire)) {
+    Sm87A4W4GateUpFactorizedLaneResources resources{};
+    const int status =
+        query_sm87_a4w4_gateup_factorized_lane_r1_v2_resources_cuda(
+            &resources);
+    if (status != static_cast<int>(cudaSuccess)) {
+      return status;
+    }
+  }
+
+  const unsigned int planned_ctas =
+      static_cast<unsigned int>(plan.launch_ctas);
+  const unsigned int launch_ctas =
+      planned_ctas < maximum_launch_ctas ? planned_ctas
+                                         : maximum_launch_ctas;
+  (void)cudaGetLastError();
+  if (publish_r1_tile_maxima) {
+    q3x_sm87_a4w4_gateup_factorized_lane_r1_v2_tile_max_kernel
+        <<<launch_ctas, kThreads,
+           kSm87A4W4GateUpFactorizedDynamicSharedBytes, stream>>>(
+            packed_a, a_lane_scales_bf16, paired_b_codes,
+            paired_b_lane_scales_bf16,
+            static_cast<unsigned int>(plan.logical_token_count),
+            static_cast<unsigned int>(plan.primary_width),
+            static_cast<unsigned int>(plan.physical_k64_groups),
+            static_cast<unsigned int>(plan.k256_stages),
+            static_cast<unsigned int>(plan.m_tiles),
+            static_cast<unsigned int>(plan.work_tiles),
+            primary_output_bf16,
+            static_cast<unsigned int>(primary_output_row_stride_elements),
+            secondary_output_bf16,
+            static_cast<unsigned int>(secondary_output_row_stride_elements),
+            authenticated_down_inverse_alpha_fp32,
+            r1_product_tile_maxima_fp32);
+  } else {
+    q3x_sm87_a4w4_gateup_factorized_lane_r1_v2_kernel
+        <<<launch_ctas, kThreads,
+           kSm87A4W4GateUpFactorizedDynamicSharedBytes, stream>>>(
+            packed_a, a_lane_scales_bf16, paired_b_codes,
+            paired_b_lane_scales_bf16,
+            static_cast<unsigned int>(plan.logical_token_count),
+            static_cast<unsigned int>(plan.primary_width),
+            static_cast<unsigned int>(plan.physical_k64_groups),
+            static_cast<unsigned int>(plan.k256_stages),
+            static_cast<unsigned int>(plan.m_tiles),
+            static_cast<unsigned int>(plan.work_tiles),
+            primary_output_bf16,
+            static_cast<unsigned int>(primary_output_row_stride_elements),
+            secondary_output_bf16,
+            static_cast<unsigned int>(secondary_output_row_stride_elements));
+  }
+  return static_cast<int>(cudaPeekAtLastError());
+}
+
 }  // namespace
 
 int query_sm87_a4w4_gateup_factorized_lane_resources_cuda(
@@ -1213,6 +1992,19 @@ int query_sm87_a4w4_gateup_factorized_lane_r1_tile_max_resources_cuda(
   *resources = cache.resources;
   if (cache.status == static_cast<int>(cudaSuccess)) {
     g_r1_tile_max_resources_ready.store(true, std::memory_order_release);
+  }
+  return cache.status;
+}
+
+int query_sm87_a4w4_gateup_factorized_lane_r1_v2_resources_cuda(
+    Sm87A4W4GateUpFactorizedLaneResources* const resources) noexcept {
+  if (resources == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const ResourceCache& cache = r1_v2_resource_cache();
+  *resources = cache.resources;
+  if (cache.status == static_cast<int>(cudaSuccess)) {
+    g_r1_v2_resources_ready.store(true, std::memory_order_release);
   }
   return cache.status;
 }
@@ -1305,6 +2097,46 @@ int launch_sm87_a4w4_gateup_factorized_lane_r1_tile_max_bf16_cuda(
       r1_product_tile_maxima_capacity_elements, cuda_stream);
 }
 
+int launch_sm87_a4w4_gateup_factorized_lane_r1_v2_tile_max_bf16_cuda(
+    const std::uint8_t* const packed_a,
+    const std::size_t packed_a_capacity_bytes,
+    const std::uint16_t* const a_lane_scales_bf16,
+    const std::size_t a_scale_capacity_elements,
+    const std::uint8_t* const paired_b_codes,
+    const std::size_t paired_b_code_capacity_bytes,
+    const std::uint16_t* const paired_b_lane_scales_bf16,
+    const std::size_t paired_b_scale_capacity_elements,
+    const std::size_t logical_token_count,
+    const std::size_t launch_token_count,
+    const std::size_t intermediate_size,
+    const std::size_t input_size,
+    std::uint16_t* const primary_output_bf16,
+    const std::size_t primary_output_row_stride_elements,
+    const std::size_t primary_output_capacity_elements,
+    std::uint16_t* const secondary_output_bf16,
+    const std::size_t secondary_output_row_stride_elements,
+    const std::size_t secondary_output_capacity_elements,
+    const float* const authenticated_down_inverse_alpha_fp32,
+    const std::size_t down_inverse_alpha_capacity_elements,
+    float* const r1_product_tile_maxima_fp32,
+    const std::size_t r1_product_tile_maxima_capacity_elements,
+    void* const cuda_stream) noexcept {
+  return launch_v2_impl(
+      packed_a, packed_a_capacity_bytes, a_lane_scales_bf16,
+      a_scale_capacity_elements, paired_b_codes,
+      paired_b_code_capacity_bytes, paired_b_lane_scales_bf16,
+      paired_b_scale_capacity_elements, logical_token_count,
+      launch_token_count, intermediate_size, input_size,
+      kSm87A4W4GateUpFactorizedPrimaryWidth, primary_output_bf16,
+      primary_output_row_stride_elements, primary_output_capacity_elements,
+      secondary_output_bf16, secondary_output_row_stride_elements,
+      secondary_output_capacity_elements,
+      static_cast<unsigned int>(kSm87A4W4GateUpFactorizedPersistentCtas),
+      true, true, authenticated_down_inverse_alpha_fp32,
+      down_inverse_alpha_capacity_elements, r1_product_tile_maxima_fp32,
+      r1_product_tile_maxima_capacity_elements, cuda_stream);
+}
+
 int launch_sm87_a4w4_gateup_factorized_lane_test_bf16_cuda(
     const std::uint8_t* const packed_a,
     const std::size_t packed_a_capacity_bytes,
@@ -1338,6 +2170,41 @@ int launch_sm87_a4w4_gateup_factorized_lane_test_bf16_cuda(
       gate_b_scale_capacity_elements, packed_up_b,
       packed_up_b_capacity_bytes, up_b_lane_scales_bf16,
       up_b_scale_capacity_elements, logical_token_count,
+      launch_token_count, intermediate_size, input_size, primary_width,
+      primary_output_bf16, primary_output_row_stride_elements,
+      primary_output_capacity_elements, secondary_output_bf16,
+      secondary_output_row_stride_elements,
+      secondary_output_capacity_elements, maximum_launch_ctas, false,
+      false, nullptr, 0U, nullptr, 0U, cuda_stream);
+}
+
+int launch_sm87_a4w4_gateup_factorized_lane_r1_v2_test_bf16_cuda(
+    const std::uint8_t* const packed_a,
+    const std::size_t packed_a_capacity_bytes,
+    const std::uint16_t* const a_lane_scales_bf16,
+    const std::size_t a_scale_capacity_elements,
+    const std::uint8_t* const paired_b_codes,
+    const std::size_t paired_b_code_capacity_bytes,
+    const std::uint16_t* const paired_b_lane_scales_bf16,
+    const std::size_t paired_b_scale_capacity_elements,
+    const std::size_t logical_token_count,
+    const std::size_t launch_token_count,
+    const std::size_t intermediate_size,
+    const std::size_t input_size,
+    const std::size_t primary_width,
+    std::uint16_t* const primary_output_bf16,
+    const std::size_t primary_output_row_stride_elements,
+    const std::size_t primary_output_capacity_elements,
+    std::uint16_t* const secondary_output_bf16,
+    const std::size_t secondary_output_row_stride_elements,
+    const std::size_t secondary_output_capacity_elements,
+    const unsigned int maximum_launch_ctas,
+    void* const cuda_stream) noexcept {
+  return launch_v2_impl(
+      packed_a, packed_a_capacity_bytes, a_lane_scales_bf16,
+      a_scale_capacity_elements, paired_b_codes,
+      paired_b_code_capacity_bytes, paired_b_lane_scales_bf16,
+      paired_b_scale_capacity_elements, logical_token_count,
       launch_token_count, intermediate_size, input_size, primary_width,
       primary_output_bf16, primary_output_row_stride_elements,
       primary_output_capacity_elements, secondary_output_bf16,
