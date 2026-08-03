@@ -118,6 +118,14 @@ option(Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_R4_ADMISSION
   "Build the default-off direct-checkpoint whole-M factorized-lane R4 API experiment"
   OFF
 )
+option(Q3X_BUILD_SM87_A4W4_DOWN_FACTORIZED_R4_M128N64_2CTA_EXPERIMENT
+  "Build the default-off resource-first R4 Down M128N64 two-CTA/SM experiment"
+  OFF
+)
+option(Q3X_BUILD_SM87_A4W4_GATEUP_FACTORIZED_R4_M64N64_2CTA_EXPERIMENT
+  "Build the default-off resource-first R4 Gate+Up M64N64 two-CTA/SM experiment"
+  OFF
+)
 option(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M128N64_EXPERIMENT
   "Build the default-off producer-owned M128N64 Gate+Up K512 edge candidate"
   OFF
@@ -1120,6 +1128,24 @@ if(Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_MLP_EXPERIMENT)
     PROPERTIES COMPILE_OPTIONS "-Xptxas=-v;-Xptxas=-warn-spills;-Xptxas=-warn-lmem-usage"
   )
 endif()
+if(Q3X_BUILD_SM87_A4W4_DOWN_FACTORIZED_R4_M128N64_2CTA_EXPERIMENT)
+  target_sources(q3x_kernels PRIVATE
+    src/kernels/sm87/a4w4_down_factorized_r4_m128n64_2cta.cu
+  )
+  set_source_files_properties(
+    src/kernels/sm87/a4w4_down_factorized_r4_m128n64_2cta.cu
+    PROPERTIES COMPILE_OPTIONS "--maxrregcount=128;-Xptxas=-v;-Xptxas=-warn-spills;-Xptxas=-warn-lmem-usage"
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_GATEUP_FACTORIZED_R4_M64N64_2CTA_EXPERIMENT)
+  target_sources(q3x_kernels PRIVATE
+    src/kernels/sm87/a4w4_gateup_factorized_r4_m64n64_2cta.cu
+  )
+  set_source_files_properties(
+    src/kernels/sm87/a4w4_gateup_factorized_r4_m64n64_2cta.cu
+    PROPERTIES COMPILE_OPTIONS "--maxrregcount=128;-Xptxas=-v;-Xptxas=-warn-spills;-Xptxas=-warn-lmem-usage"
+  )
+endif()
 if(Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_R1_ADMISSION)
   target_compile_definitions(q3x_kernels PRIVATE
     Q3X_ENABLE_A4W4_FACTORIZED_LANE_R1_ADMISSION=1
@@ -1526,6 +1552,110 @@ if(BUILD_TESTING)
     )
     set_tests_properties(long_context_evalscope_harness PROPERTIES
       LABELS "evaluation;host"
+    )
+  endif()
+
+  if(Q3X_BUILD_SM87_A4W4_DOWN_FACTORIZED_R4_M128N64_2CTA_EXPERIMENT)
+    add_executable(
+      q3x_sm87_a4w4_down_factorized_r4_m128n64_2cta_resource_test
+      tests/sm87_a4w4_down_factorized_r4_m128n64_2cta_resource_test.cpp
+    )
+    target_link_libraries(
+      q3x_sm87_a4w4_down_factorized_r4_m128n64_2cta_resource_test
+      PRIVATE q3x::kernels CUDA::cudart
+    )
+    q3x_enable_warnings(
+      q3x_sm87_a4w4_down_factorized_r4_m128n64_2cta_resource_test
+    )
+    find_program(Q3X_R4_DOWN_M128N64_2CTA_FLOCK_EXECUTABLE flock REQUIRED)
+    add_test(
+      NAME sm87_a4w4_down_factorized_r4_m128n64_2cta_resources
+      COMMAND "${Q3X_R4_DOWN_M128N64_2CTA_FLOCK_EXECUTABLE}"
+              -x /tmp/q3x-gpu-bench.lock
+              $<TARGET_FILE:q3x_sm87_a4w4_down_factorized_r4_m128n64_2cta_resource_test>
+    )
+    set_tests_properties(
+      sm87_a4w4_down_factorized_r4_m128n64_2cta_resources PROPERTIES
+      LABELS "cuda;sm87;prefill;mlp;a4w4;factorized-lane;r4;down;m128n64;two-cta;resources;structural"
+      SKIP_RETURN_CODE 77
+      RESOURCE_LOCK q3x_sm87_gpu
+      TIMEOUT 300
+    )
+    add_executable(
+      q3x_sm87_a4w4_down_factorized_r4_m128n64_2cta_correctness_test
+      tests/sm87_a4w4_down_factorized_r4_m128n64_2cta_correctness_test.cu
+    )
+    target_link_libraries(
+      q3x_sm87_a4w4_down_factorized_r4_m128n64_2cta_correctness_test
+      PRIVATE q3x::kernels CUDA::cudart
+    )
+    q3x_enable_warnings(
+      q3x_sm87_a4w4_down_factorized_r4_m128n64_2cta_correctness_test
+    )
+    add_test(
+      NAME sm87_a4w4_down_factorized_r4_m128n64_2cta_correctness
+      COMMAND "${Q3X_R4_DOWN_M128N64_2CTA_FLOCK_EXECUTABLE}"
+              -x /tmp/q3x-gpu-bench.lock
+              $<TARGET_FILE:q3x_sm87_a4w4_down_factorized_r4_m128n64_2cta_correctness_test>
+    )
+    set_tests_properties(
+      sm87_a4w4_down_factorized_r4_m128n64_2cta_correctness PROPERTIES
+      LABELS "cuda;sm87;prefill;mlp;a4w4;factorized-lane;r4;down;m128n64;two-cta;correctness;resources;guard;stream;graph;synthetic"
+      SKIP_RETURN_CODE 77
+      RESOURCE_LOCK q3x_sm87_gpu
+      TIMEOUT 1200
+    )
+  endif()
+
+  if(Q3X_BUILD_SM87_A4W4_GATEUP_FACTORIZED_R4_M64N64_2CTA_EXPERIMENT)
+    add_executable(
+      q3x_sm87_a4w4_gateup_factorized_r4_m64n64_2cta_resource_test
+      tests/sm87_a4w4_gateup_factorized_r4_m64n64_2cta_resource_test.cpp
+    )
+    target_link_libraries(
+      q3x_sm87_a4w4_gateup_factorized_r4_m64n64_2cta_resource_test
+      PRIVATE q3x::kernels CUDA::cudart
+    )
+    q3x_enable_warnings(
+      q3x_sm87_a4w4_gateup_factorized_r4_m64n64_2cta_resource_test
+    )
+    find_program(Q3X_R4_GATEUP_M64N64_2CTA_FLOCK_EXECUTABLE flock REQUIRED)
+    add_test(
+      NAME sm87_a4w4_gateup_factorized_r4_m64n64_2cta_resources
+      COMMAND "${Q3X_R4_GATEUP_M64N64_2CTA_FLOCK_EXECUTABLE}"
+              -x /tmp/q3x-gpu-bench.lock
+              $<TARGET_FILE:q3x_sm87_a4w4_gateup_factorized_r4_m64n64_2cta_resource_test>
+    )
+    set_tests_properties(
+      sm87_a4w4_gateup_factorized_r4_m64n64_2cta_resources PROPERTIES
+      LABELS "cuda;sm87;prefill;mlp;a4w4;factorized-lane;r4;gateup;m64n64;two-cta;resources;structural"
+      SKIP_RETURN_CODE 77
+      RESOURCE_LOCK q3x_sm87_gpu
+      TIMEOUT 300
+    )
+    add_executable(
+      q3x_sm87_a4w4_gateup_factorized_r4_m64n64_2cta_correctness_test
+      tests/sm87_a4w4_gateup_factorized_r4_m64n64_2cta_correctness_test.cu
+    )
+    target_link_libraries(
+      q3x_sm87_a4w4_gateup_factorized_r4_m64n64_2cta_correctness_test
+      PRIVATE q3x::kernels CUDA::cudart
+    )
+    q3x_enable_warnings(
+      q3x_sm87_a4w4_gateup_factorized_r4_m64n64_2cta_correctness_test
+    )
+    add_test(
+      NAME sm87_a4w4_gateup_factorized_r4_m64n64_2cta_correctness
+      COMMAND "${Q3X_R4_GATEUP_M64N64_2CTA_FLOCK_EXECUTABLE}"
+              -x /tmp/q3x-gpu-bench.lock
+              $<TARGET_FILE:q3x_sm87_a4w4_gateup_factorized_r4_m64n64_2cta_correctness_test>
+    )
+    set_tests_properties(
+      sm87_a4w4_gateup_factorized_r4_m64n64_2cta_correctness PROPERTIES
+      LABELS "cuda;sm87;prefill;mlp;a4w4;factorized-lane;r4;gateup;m64n64;two-cta;correctness;resources;guard;stream;graph;synthetic"
+      SKIP_RETURN_CODE 77
+      RESOURCE_LOCK q3x_sm87_gpu
+      TIMEOUT 1200
     )
   endif()
 
