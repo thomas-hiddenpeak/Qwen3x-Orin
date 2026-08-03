@@ -1,0 +1,150 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-r1-projection-plane-v3-m160-resource-rejection-2026-08-04",
+  "status": "resource-rejected-and-skeletons-cleaned",
+  "recorded_at": "2026-08-04",
+  "timezone": "Asia/Shanghai",
+  "scope": {
+    "phase": "Prefill",
+    "model_family": "Qwen3.6-27B-NVFP4",
+    "hardware": "NVIDIA Jetson AGX Orin",
+    "compute_capability": "sm_87",
+    "candidate_family": "R1 projection-plane v3 M160/320-thread resource feasibility",
+    "resource_screen_only": true,
+    "performance_screen": false
+  },
+  "source_state": {
+    "candidate_committed": false,
+    "candidate_skeletons_retained": false,
+    "all_candidate_skeletons_cleaned": true,
+    "launcher_implemented": false,
+    "correctness_harness_implemented": false,
+    "runtime_dispatch_implemented": false,
+    "production_path_changed": false
+  },
+  "shared_design": {
+    "cta_tile_m": 160,
+    "threads_per_cta": 320,
+    "logical_warps_per_cta": 10,
+    "persistent_ctas": 16,
+    "whole_k_s32_required": true,
+    "mathematical_order_changed": false,
+    "rounding_order_changed": false,
+    "gate_up": {
+      "cta_tile": "M160N128",
+      "warp_tile": "M32N64",
+      "paired_gate_up_accumulator_registers_per_thread": 128,
+      "weight_publication": "canonical v1 packed B plus ldmatrix",
+      "pipeline": "A2+B3 asymmetric K256 cp.async",
+      "dynamic_shared_bytes": 140096,
+      "dynamic_shared_breakdown_bytes": {
+        "a_two_slots": 40960,
+        "b_three_slots": 98304,
+        "scales": 832
+      }
+    },
+    "down": {
+      "cta_tile": "M160N256"
+    },
+    "attention": {
+      "cta_tile": "M160N256"
+    }
+  },
+  "hard_resource_gate": {
+    "maximum_registers_per_thread": 200,
+    "required_stack_frame_bytes": 0,
+    "required_local_bytes": 0,
+    "required_spill_store_bytes": 0,
+    "required_spill_load_bytes": 0,
+    "required_active_ctas_per_sm": 1,
+    "result": "FAIL"
+  },
+  "common_root_cause": {
+    "sm87_register_allocation_rule": "The 10-warp CTA is allocated at a 12-warp register-allocation granularity on SM87.",
+    "requested_logical_warps": 10,
+    "allocated_warp_granularity": 12,
+    "compiled_entry_register_cap_per_thread": 168,
+    "consequence": "The entry cap is 168 registers rather than the nominal <=200 design budget, so one or more kernels spill and the zero-local hard gate cannot be satisfied."
+  },
+  "ptxas_resource_results": {
+    "gate_up_m160n128": {
+      "threads_per_cta": 320,
+      "registers_per_thread": 168,
+      "test_entry": {
+        "stack_frame_bytes": 408,
+        "spill_store_bytes": 412,
+        "spill_load_bytes": 676,
+        "zero_local_gate": "FAIL"
+      },
+      "tile_max_entry": {
+        "stack_frame_bytes": 376,
+        "spill_store_bytes": 376,
+        "spill_load_bytes": 656,
+        "zero_local_gate": "FAIL"
+      },
+      "result": "REJECT"
+    },
+    "down_m160n256": {
+      "threads_per_cta": 320,
+      "registers_per_thread": 168,
+      "stack_frame_bytes": 176,
+      "spill_store_bytes": 176,
+      "spill_load_bytes": 188,
+      "zero_local_gate": "FAIL",
+      "result": "REJECT"
+    },
+    "attention_m160n256": {
+      "threads_per_cta": 320,
+      "full_o_contiguous_entries": {
+        "registers_per_thread": 168,
+        "stack_frame_bytes": 0,
+        "spill_store_bytes": 0,
+        "spill_load_bytes": 0,
+        "zero_local_gate": "PASS"
+      },
+      "linear_qkv_z_entries": {
+        "registers_per_thread": 168,
+        "stack_frame_bytes": 8,
+        "spill_store_bytes": 8,
+        "spill_load_bytes": 8,
+        "zero_local_gate": "FAIL"
+      },
+      "plane_wide_result": "REJECT",
+      "plane_wide_reason": "Projection-plane promotion requires every selected attention entry to pass; linear QKV/Z violates the zero-local gate."
+    }
+  },
+  "admission_sequence": {
+    "resource_compile_completed": true,
+    "resource_gate_passed": false,
+    "launcher_stage_reached": false,
+    "correctness_stage_reached": false,
+    "runtime_stage_reached": false,
+    "real_api_evalscope_stage_reached": false,
+    "reason_for_stop": "The compile-time resource gate failed before any later admission stage was authorized."
+  },
+  "evidence": {
+    "gate_up": "/home/rm01/q3x-build-v3-gate-m160",
+    "down": "/home/rm01/q3x-build-v3-down-make",
+    "attention": "/home/rm01/q3x-build-v3-attention-m160",
+    "evidence_directories_retained": true,
+    "candidate_source_retained": false
+  },
+  "decision": {
+    "result": "REJECT_RESOURCE_NEGATIVE_SAMPLE",
+    "reason": "Gate+Up, Down, and linear Attention QKV/Z fail the mandatory zero-stack/local/spill resource gate under the SM87 12-warp allocation granularity.",
+    "production_changed": false,
+    "development_baseline_changed": false,
+    "launcher_created": false,
+    "correctness_run": false,
+    "real_model_performance_run": false,
+    "variant_scan_allowed": false,
+    "next_action": "Do not scan neighboring M160 configurations; choose a structurally different projection-plane skeleton only after deriving its SM87 allocation feasibility."
+  },
+  "claim_limits": [
+    "This record is a compile-time resource negative sample, not a performance result.",
+    "No latency, throughput, TTFT, or tokens-per-second conclusion may be inferred from this rejection.",
+    "No launcher, correctness test, runtime selector, real-model API request, or external EvalScope measurement was performed.",
+    "The M160 skeletons were removed after rejection; only the retained build evidence directories and this metadata record remain.",
+    "No follow-on M160 variant scan is authorized by this record."
+  ]
+}
