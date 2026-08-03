@@ -1023,6 +1023,27 @@ void execute_job(runtime::ReferenceEngine& engine,
             << " factorized_lane_r1_cross_layer_handoff_launch_hits="
             << generated.value->timing
                    .factorized_lane_r1_cross_layer_handoff_launch_hits
+            << " prefill_r1_projection_plane_v2_layer_package_launch_hits="
+            << generated.value->timing
+                   .prefill_r1_projection_plane_v2_layer_package_launch_hits
+            << " prefill_r1_projection_plane_v2_gateup_launch_hits="
+            << generated.value->timing
+                   .prefill_r1_projection_plane_v2_gateup_launch_hits
+            << " prefill_r1_projection_plane_v2_down_launch_hits="
+            << generated.value->timing
+                   .prefill_r1_projection_plane_v2_down_launch_hits
+            << " prefill_r1_projection_plane_v2_attention_physical_launch_hits="
+            << generated.value->timing
+                   .prefill_r1_projection_plane_v2_attention_physical_launch_hits
+            << " prefill_r1_projection_plane_v2_logical_projection_hits="
+            << generated.value->timing
+                   .prefill_r1_projection_plane_v2_logical_projection_hits
+            << " prefill_r1_projection_plane_v2_handoff_package_launch_hits="
+            << generated.value->timing
+                   .prefill_r1_projection_plane_v2_handoff_package_launch_hits
+            << " prefill_r1_projection_plane_v2_cross_layer_handoff_launch_hits="
+            << generated.value->timing
+                   .prefill_r1_projection_plane_v2_cross_layer_handoff_launch_hits
             << " factorized_lane_r4_package_launch_hits="
             << generated.value->timing
                    .factorized_lane_r4_package_launch_hits
@@ -1062,6 +1083,12 @@ void execute_job(runtime::ReferenceEngine& engine,
             << " gdn_factorized_lane_r1_direct_pack_launch_hits="
             << generated.value->timing
                    .gdn_factorized_lane_r1_direct_pack_launch_hits
+            << " gdn_state_o_bv64_fused_launch_hits="
+            << generated.value->timing
+                   .gdn_state_o_bv64_fused_launch_hits
+            << " gdn_state_o_bv64_fused_logical_token_hits="
+            << generated.value->timing
+                   .gdn_state_o_bv64_fused_logical_token_hits
             << " gdn_prompt_span_macro_launch_hits="
             << generated.value->timing.gdn_prompt_span_macro_launch_hits
             << " gdn_prompt_span_macro_logical_token_hits="
@@ -1648,6 +1675,33 @@ void ingress_worker(
             "base payload, policy, and receipt";
     return false;
   }
+  const bool projection_plane_v2_payload =
+      !options.prefill_r1_projection_plane_v2_payload_path.empty();
+  const bool projection_plane_v2_manifest =
+      !options.prefill_r1_projection_plane_v2_manifest_path.empty();
+  const bool projection_plane_v2_policy =
+      !options.prefill_r1_projection_plane_v2_policy_path.empty();
+  const bool projection_plane_v2_receipt =
+      !options.prefill_r1_projection_plane_v2_receipt_path.empty();
+  if (projection_plane_v2_payload != projection_plane_v2_manifest ||
+      projection_plane_v2_payload != projection_plane_v2_policy ||
+      projection_plane_v2_payload != projection_plane_v2_receipt) {
+    error = "R1 projection-plane v2 payload, manifest, policy, and receipt "
+            "are required together";
+    return false;
+  }
+  if (projection_plane_v2_payload &&
+      (!a4_payload || !a4_policy || !a4_receipt)) {
+    error = "R1 projection-plane v2 requires the explicit K256 A4 base "
+            "payload, policy, and receipt";
+    return false;
+  }
+  if (projection_plane_v2_payload &&
+      (attention_k512_payload || attention_factorized_r1_payload)) {
+    error = "R1 projection-plane v2 is mutually exclusive with legacy "
+            "Attention overlays";
+    return false;
+  }
   const bool mlp_factorized_r4_payload =
       !options.prefill_mlp_factorized_lane_r4_payload_path.empty();
   const bool mlp_factorized_r4_policy =
@@ -1671,11 +1725,13 @@ void ingress_worker(
       static_cast<unsigned>(mlp_k512_hybrid_payload) +
       static_cast<unsigned>(mlp_k512_projection_major_payload) +
       static_cast<unsigned>(mlp_factorized_r1_payload) +
-      static_cast<unsigned>(mlp_factorized_r4_payload);
+      static_cast<unsigned>(mlp_factorized_r4_payload) +
+      static_cast<unsigned>(projection_plane_v2_payload);
   if (mlp_k512_publications > 1U) {
     error = "K512 MLP v1, fragment-native v2, paired-GateUp/canonical-Down "
             "hybrid, projection-major-GateUp/canonical-Down, and "
-            "factorized-lane R1/R4 publications are mutually exclusive";
+            "factorized-lane R1/R4 and unified R1 projection-plane v2 "
+            "publications are mutually exclusive";
     return false;
   }
   if (a4_payload &&
@@ -1800,6 +1856,14 @@ int run_evaluation_server(const EvaluationServerOptions& options,
       options.prefill_attention_factorized_lane_r1_policy_path;
   engine_options.prefill_attention_factorized_lane_r1_receipt_path =
       options.prefill_attention_factorized_lane_r1_receipt_path;
+  engine_options.prefill_r1_projection_plane_v2_payload_path =
+      options.prefill_r1_projection_plane_v2_payload_path;
+  engine_options.prefill_r1_projection_plane_v2_manifest_path =
+      options.prefill_r1_projection_plane_v2_manifest_path;
+  engine_options.prefill_r1_projection_plane_v2_policy_path =
+      options.prefill_r1_projection_plane_v2_policy_path;
+  engine_options.prefill_r1_projection_plane_v2_receipt_path =
+      options.prefill_r1_projection_plane_v2_receipt_path;
   engine_options.prefill_mlp_factorized_lane_r4_payload_path =
       options.prefill_mlp_factorized_lane_r4_payload_path;
   engine_options.prefill_mlp_factorized_lane_r4_policy_path =
@@ -2037,6 +2101,44 @@ int run_evaluation_server(const EvaluationServerOptions& options,
             << " prefill_attention_factorized_lane_r1_production_residency_eligible=false"
             << " prefill_attention_factorized_lane_r1_quality_production_eligible=false"
             << " prefill_attention_factorized_lane_r1_performance_upper_bound_only=true"
+            << " prefill_r1_projection_plane_v2_ms="
+            << load.prefill_r1_projection_plane_v2_milliseconds
+            << " prefill_r1_projection_plane_v2_requested="
+            << (load.prefill_r1_projection_plane_v2_requested ? 1 : 0)
+            << " prefill_r1_projection_plane_v2_enabled="
+            << (load.prefill_r1_projection_plane_v2_enabled ? 1 : 0)
+            << " prefill_r1_projection_plane_v2_logical_projections="
+            << load.prefill_r1_projection_plane_v2_logical_projections
+            << " prefill_r1_projection_plane_v2_physical_projections="
+            << load.prefill_r1_projection_plane_v2_physical_projections
+            << " prefill_r1_projection_plane_v2_bytes="
+            << load.prefill_r1_projection_plane_v2_bytes
+            << " prefill_r1_projection_plane_v2_copy_chunks="
+            << load.prefill_r1_projection_plane_v2_copy_chunks
+            << " prefill_r1_projection_plane_v2_layout="
+            << load.prefill_r1_projection_plane_v2_layout
+            << " prefill_r1_projection_plane_v2_manifest_sha256="
+            << load.prefill_r1_projection_plane_v2_manifest_sha256
+            << " prefill_r1_projection_plane_v2_policy_sha256="
+            << load.prefill_r1_projection_plane_v2_policy_sha256
+            << " prefill_r1_projection_plane_v2_payload_sha256="
+            << load.prefill_r1_projection_plane_v2_payload_sha256
+            << " prefill_r1_projection_plane_v2_receipt_sha256="
+            << load.prefill_r1_projection_plane_v2_receipt_sha256
+            << " prefill_r1_projection_plane_v2_base_receipt_sha256="
+            << load.prefill_r1_projection_plane_v2_base_receipt_sha256
+            << " prefill_r1_projection_plane_v2_performance_upper_bound_only="
+            << (load.prefill_r1_projection_plane_v2_performance_upper_bound_only
+                    ? 1
+                    : 0)
+            << " prefill_r1_projection_plane_v2_production_residency_eligible="
+            << (load.prefill_r1_projection_plane_v2_production_residency_eligible
+                    ? 1
+                    : 0)
+            << " prefill_r1_projection_plane_v2_quality_production_eligible="
+            << (load.prefill_r1_projection_plane_v2_quality_production_eligible
+                    ? 1
+                    : 0)
             << " prefill_mlp_factorized_lane_r4_ms="
             << load.prefill_mlp_factorized_lane_r4_overlay_milliseconds
             << " prefill_mlp_factorized_lane_r4_requested="

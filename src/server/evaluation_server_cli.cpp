@@ -304,6 +304,42 @@ bool parse_evaluation_server_arguments(
       }
       options.prefill_attention_factorized_lane_r1_receipt_path = value;
     } else if (argument ==
+               "--prefill-r1-projection-plane-v2-payload") {
+      if (!options.prefill_r1_projection_plane_v2_payload_path.empty() ||
+          value.empty()) {
+        error = "--prefill-r1-projection-plane-v2-payload requires one "
+                "non-empty FILE";
+        return false;
+      }
+      options.prefill_r1_projection_plane_v2_payload_path = value;
+    } else if (argument ==
+               "--prefill-r1-projection-plane-v2-manifest") {
+      if (!options.prefill_r1_projection_plane_v2_manifest_path.empty() ||
+          value.empty()) {
+        error = "--prefill-r1-projection-plane-v2-manifest requires one "
+                "non-empty FILE";
+        return false;
+      }
+      options.prefill_r1_projection_plane_v2_manifest_path = value;
+    } else if (argument ==
+               "--prefill-r1-projection-plane-v2-policy") {
+      if (!options.prefill_r1_projection_plane_v2_policy_path.empty() ||
+          value.empty()) {
+        error = "--prefill-r1-projection-plane-v2-policy requires one "
+                "non-empty FILE";
+        return false;
+      }
+      options.prefill_r1_projection_plane_v2_policy_path = value;
+    } else if (argument ==
+               "--prefill-r1-projection-plane-v2-receipt") {
+      if (!options.prefill_r1_projection_plane_v2_receipt_path.empty() ||
+          value.empty()) {
+        error = "--prefill-r1-projection-plane-v2-receipt requires one "
+                "non-empty FILE";
+        return false;
+      }
+      options.prefill_r1_projection_plane_v2_receipt_path = value;
+    } else if (argument ==
                "--prefill-mlp-factorized-lane-r4-payload") {
       if (!options.prefill_mlp_factorized_lane_r4_payload_path.empty() ||
           value.empty()) {
@@ -530,6 +566,33 @@ bool parse_evaluation_server_arguments(
             "explicit K256 A4 payload, policy, and receipt";
     return false;
   }
+  const bool projection_plane_v2_payload =
+      !options.prefill_r1_projection_plane_v2_payload_path.empty();
+  const bool projection_plane_v2_manifest =
+      !options.prefill_r1_projection_plane_v2_manifest_path.empty();
+  const bool projection_plane_v2_policy =
+      !options.prefill_r1_projection_plane_v2_policy_path.empty();
+  const bool projection_plane_v2_receipt =
+      !options.prefill_r1_projection_plane_v2_receipt_path.empty();
+  if (projection_plane_v2_payload != projection_plane_v2_manifest ||
+      projection_plane_v2_payload != projection_plane_v2_policy ||
+      projection_plane_v2_payload != projection_plane_v2_receipt) {
+    error = "--prefill-r1-projection-plane-v2-payload, manifest, policy, "
+            "and receipt are required together";
+    return false;
+  }
+  if (projection_plane_v2_payload &&
+      (!a4_payload || !a4_policy || !a4_receipt)) {
+    error = "the R1 projection-plane v2 package requires the explicit "
+            "K256 A4 payload, policy, and receipt";
+    return false;
+  }
+  if (projection_plane_v2_payload &&
+      (attention_k512_payload || attention_factorized_r1_payload)) {
+    error = "the unified R1 projection-plane v2 package is mutually "
+            "exclusive with legacy Attention overlays";
+    return false;
+  }
   const bool mlp_factorized_r4_payload =
       !options.prefill_mlp_factorized_lane_r4_payload_path.empty();
   const bool mlp_factorized_r4_policy =
@@ -555,12 +618,13 @@ bool parse_evaluation_server_arguments(
       static_cast<unsigned>(mlp_k512_hybrid_payload) +
       static_cast<unsigned>(mlp_k512_projection_major_payload) +
       static_cast<unsigned>(mlp_factorized_r1_payload) +
-      static_cast<unsigned>(mlp_factorized_r4_payload);
+      static_cast<unsigned>(mlp_factorized_r4_payload) +
+      static_cast<unsigned>(projection_plane_v2_payload);
   if (mlp_k512_publications > 1U) {
     error = "the K512 MLP v1, fragment-native v2, "
             "paired-GateUp/canonical-Down hybrid and projection-major-"
-            "GateUp/canonical-Down publications and factorized-lane R1/R4 "
-            "are mutually exclusive";
+            "GateUp/canonical-Down publications, factorized-lane R1/R4, "
+            "and unified R1 projection-plane v2 are mutually exclusive";
     return false;
   }
   error.clear();

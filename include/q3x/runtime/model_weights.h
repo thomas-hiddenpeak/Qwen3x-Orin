@@ -6,6 +6,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -27,6 +28,7 @@ struct PrefillMLPFactorizedLaneR4Manifest;
 struct PrefillMLPFactorizedLaneR4Policy;
 struct PrefillAttentionFactorizedLaneOverlayManifestBinding;
 struct PrefillAttentionFactorizedLaneOverlayPolicyBinding;
+struct PrefillR1ProjectionPlaneV2Installation;
 
 inline constexpr std::size_t kQwen36DenseLayerCount = 64U;
 inline constexpr std::size_t kQwen36LinearAttentionLayerCount = 48U;
@@ -712,6 +714,263 @@ struct PrefillAttentionFactorizedLaneR1LayerView {
   }
 };
 
+// The unified R1 v2 publication is a physical launch plane rather than a set
+// of legacy projection sidecars.  In particular, Gate and Up share one
+// fragment-paired code/scale operand and therefore must never be surfaced as
+// two independently addressable packed-weight views.
+enum class PrefillR1ProjectionPlaneV2ViewLayout : std::uint8_t {
+  kNone = 0,
+  kAdjacentN8,
+  kPairedGateUp,
+};
+
+enum class PrefillR1ProjectionPlaneV2LogicalIdentity : std::uint8_t {
+  kNone = 0,
+  kLinearQkv,
+  kLinearZ,
+  kLinearO,
+  kFullQ,
+  kFullK,
+  kFullV,
+  kFullO,
+  kMlpGate,
+  kMlpUp,
+  kMlpDown,
+};
+
+inline constexpr std::uint32_t
+    kPrefillR1ProjectionPlaneV2InvalidViewOrdinal =
+        std::numeric_limits<std::uint32_t>::max();
+inline constexpr std::size_t
+    kPrefillR1ProjectionPlaneV2ViewLogicalProjectionCount = 400U;
+inline constexpr std::size_t
+    kPrefillR1ProjectionPlaneV2ViewPhysicalProjectionCount = 336U;
+inline constexpr std::size_t kPrefillR1ProjectionPlaneV2ViewPayloadBytes =
+    12'182'982'656ULL;
+
+// One logical calibration copied out of the authenticated 400-entry policy.
+// inverse_alpha addresses the logical projection's own metadata range.  Gate
+// and Up keep distinct instances even though their codes and scales are one
+// physical operand.  Fixed-size digests make the attachment independent of
+// the caller's temporary manifest/policy vectors without allocating.
+struct PrefillR1ProjectionPlaneV2LogicalCalibrationView {
+  const float* inverse_alpha = nullptr;
+  std::size_t inverse_alpha_capacity_elements = 0U;
+  std::size_t output_size = 0U;
+  std::size_t input_size = 0U;
+  std::uint32_t logical_ordinal =
+      kPrefillR1ProjectionPlaneV2InvalidViewOrdinal;
+  std::uint32_t physical_ordinal =
+      kPrefillR1ProjectionPlaneV2InvalidViewOrdinal;
+  std::uint32_t source_ordinal =
+      kPrefillR1ProjectionPlaneV2InvalidViewOrdinal;
+  PrefillR1ProjectionPlaneV2LogicalIdentity identity =
+      PrefillR1ProjectionPlaneV2LogicalIdentity::kNone;
+  double weight_clip_ratio = 0.0;
+  double activation_clip_ratio = 0.0;
+  std::array<char, 64U> source_sha256{};
+  std::array<char, 64U> factor_sha256{};
+
+  [[nodiscard]] bool attached() const noexcept {
+    return inverse_alpha != nullptr &&
+           inverse_alpha_capacity_elements == input_size &&
+           output_size != 0U && input_size != 0U &&
+           logical_ordinal != kPrefillR1ProjectionPlaneV2InvalidViewOrdinal &&
+           physical_ordinal !=
+               kPrefillR1ProjectionPlaneV2InvalidViewOrdinal &&
+           source_ordinal != kPrefillR1ProjectionPlaneV2InvalidViewOrdinal &&
+           identity != PrefillR1ProjectionPlaneV2LogicalIdentity::kNone &&
+           weight_clip_ratio > 0.0 && weight_clip_ratio <= 1.0 &&
+           activation_clip_ratio > 0.0 && activation_clip_ratio <= 1.0;
+  }
+
+  [[nodiscard]] bool empty() const noexcept {
+    return inverse_alpha == nullptr &&
+           inverse_alpha_capacity_elements == 0U && output_size == 0U &&
+           input_size == 0U &&
+           logical_ordinal == kPrefillR1ProjectionPlaneV2InvalidViewOrdinal &&
+           physical_ordinal ==
+               kPrefillR1ProjectionPlaneV2InvalidViewOrdinal &&
+           source_ordinal == kPrefillR1ProjectionPlaneV2InvalidViewOrdinal &&
+           identity == PrefillR1ProjectionPlaneV2LogicalIdentity::kNone &&
+           weight_clip_ratio == 0.0 && activation_clip_ratio == 0.0 &&
+           source_sha256 == std::array<char, 64U>{} &&
+           factor_sha256 == std::array<char, 64U>{};
+  }
+};
+
+// One of the 336 physical launch operands.  Adjacent-N8 entries own one
+// logical calibration.  Paired Gate+Up owns two while exposing only one code
+// and one interleaved-scale pointer.
+struct PrefillR1ProjectionPlaneV2PhysicalView {
+  const std::uint8_t* codes = nullptr;
+  std::size_t code_capacity_bytes = 0U;
+  const std::uint16_t* scales = nullptr;
+  std::size_t scale_capacity_elements = 0U;
+  std::size_t output_size = 0U;
+  std::size_t input_size = 0U;
+  std::uint32_t physical_ordinal =
+      kPrefillR1ProjectionPlaneV2InvalidViewOrdinal;
+  std::uint32_t logical_projection_count = 0U;
+  PrefillR1ProjectionPlaneV2ViewLayout physical_layout =
+      PrefillR1ProjectionPlaneV2ViewLayout::kNone;
+  PrefillR1ProjectionPlaneV2LogicalCalibrationView primary;
+  PrefillR1ProjectionPlaneV2LogicalCalibrationView secondary;
+
+  [[nodiscard]] bool attached() const noexcept {
+    const bool adjacent =
+        physical_layout == PrefillR1ProjectionPlaneV2ViewLayout::kAdjacentN8 &&
+        logical_projection_count == 1U && secondary.empty() &&
+        code_capacity_bytes == output_size * input_size / 2U &&
+        scale_capacity_elements == output_size;
+    const bool paired =
+        physical_layout == PrefillR1ProjectionPlaneV2ViewLayout::kPairedGateUp &&
+        logical_projection_count == 2U && secondary.attached() &&
+        code_capacity_bytes == output_size * input_size &&
+        scale_capacity_elements == output_size * 2U;
+    return codes != nullptr && scales != nullptr &&
+           output_size != 0U && input_size != 0U &&
+           physical_ordinal !=
+               kPrefillR1ProjectionPlaneV2InvalidViewOrdinal &&
+           primary.attached() &&
+           primary.output_size == output_size &&
+           primary.input_size == input_size &&
+           primary.physical_ordinal == physical_ordinal &&
+           (!paired ||
+            (secondary.output_size == output_size &&
+             secondary.input_size == input_size &&
+             secondary.physical_ordinal == physical_ordinal)) &&
+           (adjacent || paired);
+  }
+
+  [[nodiscard]] bool empty() const noexcept {
+    return codes == nullptr && code_capacity_bytes == 0U &&
+           scales == nullptr && scale_capacity_elements == 0U &&
+           output_size == 0U &&
+           input_size == 0U &&
+           physical_ordinal ==
+               kPrefillR1ProjectionPlaneV2InvalidViewOrdinal &&
+           logical_projection_count == 0U &&
+           physical_layout == PrefillR1ProjectionPlaneV2ViewLayout::kNone &&
+           primary.empty() && secondary.empty();
+  }
+};
+
+// Exactly one Attention topology plus both MLP operands is populated for each
+// decoder layer.  This represents all 336 physical and 400 logical entries
+// when every layer view is attached.
+struct PrefillR1ProjectionPlaneV2LayerView {
+  PrefillR1ProjectionPlaneV2PhysicalView linear_qkv;
+  PrefillR1ProjectionPlaneV2PhysicalView linear_z;
+  PrefillR1ProjectionPlaneV2PhysicalView linear_o;
+  PrefillR1ProjectionPlaneV2PhysicalView full_q;
+  PrefillR1ProjectionPlaneV2PhysicalView full_k;
+  PrefillR1ProjectionPlaneV2PhysicalView full_v;
+  PrefillR1ProjectionPlaneV2PhysicalView full_o;
+  PrefillR1ProjectionPlaneV2PhysicalView mlp_gate_up;
+  PrefillR1ProjectionPlaneV2PhysicalView mlp_down;
+
+  [[nodiscard]] bool linear_attached() const noexcept {
+    const auto exact = [](const PrefillR1ProjectionPlaneV2PhysicalView& view,
+                          const PrefillR1ProjectionPlaneV2LogicalIdentity
+                              identity) noexcept {
+      return view.attached() &&
+             view.physical_layout ==
+                 PrefillR1ProjectionPlaneV2ViewLayout::kAdjacentN8 &&
+             view.logical_projection_count == 1U &&
+             view.primary.identity == identity;
+    };
+    return exact(linear_qkv,
+                 PrefillR1ProjectionPlaneV2LogicalIdentity::kLinearQkv) &&
+           exact(linear_z,
+                 PrefillR1ProjectionPlaneV2LogicalIdentity::kLinearZ) &&
+           exact(linear_o,
+                 PrefillR1ProjectionPlaneV2LogicalIdentity::kLinearO) &&
+           full_q.empty() && full_k.empty() && full_v.empty() &&
+           full_o.empty();
+  }
+
+  [[nodiscard]] bool full_attached() const noexcept {
+    const auto exact = [](const PrefillR1ProjectionPlaneV2PhysicalView& view,
+                          const PrefillR1ProjectionPlaneV2LogicalIdentity
+                              identity) noexcept {
+      return view.attached() &&
+             view.physical_layout ==
+                 PrefillR1ProjectionPlaneV2ViewLayout::kAdjacentN8 &&
+             view.logical_projection_count == 1U &&
+             view.primary.identity == identity;
+    };
+    return exact(full_q,
+                 PrefillR1ProjectionPlaneV2LogicalIdentity::kFullQ) &&
+           exact(full_k,
+                 PrefillR1ProjectionPlaneV2LogicalIdentity::kFullK) &&
+           exact(full_v,
+                 PrefillR1ProjectionPlaneV2LogicalIdentity::kFullV) &&
+           exact(full_o,
+                 PrefillR1ProjectionPlaneV2LogicalIdentity::kFullO) &&
+           linear_qkv.empty() && linear_z.empty() && linear_o.empty();
+  }
+
+  [[nodiscard]] bool attached() const noexcept {
+    return (linear_attached() || full_attached()) &&
+           mlp_gate_up.attached() && mlp_down.attached() &&
+           mlp_gate_up.physical_layout ==
+               PrefillR1ProjectionPlaneV2ViewLayout::kPairedGateUp &&
+           mlp_gate_up.primary.identity ==
+               PrefillR1ProjectionPlaneV2LogicalIdentity::kMlpGate &&
+           mlp_gate_up.secondary.identity ==
+               PrefillR1ProjectionPlaneV2LogicalIdentity::kMlpUp &&
+           mlp_down.physical_layout ==
+               PrefillR1ProjectionPlaneV2ViewLayout::kAdjacentN8 &&
+           mlp_down.primary.identity ==
+               PrefillR1ProjectionPlaneV2LogicalIdentity::kMlpDown;
+  }
+
+  [[nodiscard]] bool empty() const noexcept {
+    return linear_qkv.empty() && linear_z.empty() && linear_o.empty() &&
+           full_q.empty() && full_k.empty() && full_v.empty() &&
+           full_o.empty() && mlp_gate_up.empty() && mlp_down.empty();
+  }
+};
+
+struct PrefillR1ProjectionPlaneV2AttachmentView {
+  const std::uint8_t* payload = nullptr;
+  std::size_t payload_bytes = 0U;
+  std::size_t logical_projection_count = 0U;
+  std::size_t physical_projection_count = 0U;
+  std::array<char, 64U> manifest_sha256{};
+  std::array<char, 64U> policy_sha256{};
+  std::array<char, 64U> payload_sha256{};
+  std::array<char, 64U> receipt_sha256{};
+  std::array<char, 64U> base_manifest_sha256{};
+  std::array<char, 64U> base_policy_sha256{};
+  std::array<char, 64U> base_payload_sha256{};
+  std::array<char, 64U> base_receipt_sha256{};
+
+  [[nodiscard]] bool attached() const noexcept {
+    return payload != nullptr &&
+           payload_bytes == kPrefillR1ProjectionPlaneV2ViewPayloadBytes &&
+           logical_projection_count ==
+               kPrefillR1ProjectionPlaneV2ViewLogicalProjectionCount &&
+           physical_projection_count ==
+               kPrefillR1ProjectionPlaneV2ViewPhysicalProjectionCount;
+  }
+
+  [[nodiscard]] bool empty() const noexcept {
+    return payload == nullptr && payload_bytes == 0U &&
+           logical_projection_count == 0U &&
+           physical_projection_count == 0U &&
+           manifest_sha256 == std::array<char, 64U>{} &&
+           policy_sha256 == std::array<char, 64U>{} &&
+           payload_sha256 == std::array<char, 64U>{} &&
+           receipt_sha256 == std::array<char, 64U>{} &&
+           base_manifest_sha256 == std::array<char, 64U>{} &&
+           base_policy_sha256 == std::array<char, 64U>{} &&
+           base_payload_sha256 == std::array<char, 64U>{} &&
+           base_receipt_sha256 == std::array<char, 64U>{};
+  }
+};
+
 struct LinearAttentionWeights {
   LinearWeight in_proj_qkv;
   LinearWeight in_proj_z;
@@ -747,6 +1006,7 @@ struct DecoderLayerWeights {
   PrefillMLPFactorizedLaneR4LayerView prefill_mlp_factorized_lane_r4;
   PrefillAttentionFactorizedLaneR1LayerView
       prefill_attention_factorized_lane_r1;
+  PrefillR1ProjectionPlaneV2LayerView prefill_r1_projection_plane_v2;
 };
 
 struct WeightBindingStats {
@@ -797,6 +1057,10 @@ class ModelWeights {
   }
   [[nodiscard]] const WeightBindingStats& stats() const noexcept {
     return stats_;
+  }
+  [[nodiscard]] const PrefillR1ProjectionPlaneV2AttachmentView&
+  prefill_r1_projection_plane_v2() const noexcept {
+    return prefill_r1_projection_plane_v2_;
   }
 
   // Attaches one contiguous, 16-byte-aligned, non-owning AoSoA4 sidecar view
@@ -890,13 +1154,16 @@ class ModelWeights {
   // dynamic-activation clip ratio and must bind the same manifest. Existing
   // exact Prefill sidecars make attachment fail;
   // canonical checkpoint weights and Decode-only sidecars remain untouched.
+  // The optional authenticated receipt digest is retained independently from
+  // the payload digest; unified R1 v2 requires all four K256 identities.
   // Passing all null/zero detaches A4 views. The arena must outlive every
   // runner and queued kernel that consumes it.
   [[nodiscard]] bool attach_prefill_a4_sidecars(
       const std::uint8_t* arena, std::size_t arena_bytes,
       const PrefillSidecarManifest* manifest,
       const PrefillA4CalibrationPolicy* policy,
-      std::string_view authenticated_payload_sha256 = {}) noexcept;
+      std::string_view authenticated_payload_sha256 = {},
+      std::string_view authenticated_receipt_sha256 = {}) noexcept;
 
   // Transactionally overlays exactly the 64 Attention-O projections on an
   // already-authenticated K128 A4 inventory.  The arena is non-owning and
@@ -998,6 +1265,16 @@ class ModelWeights {
       const PrefillAttentionFactorizedLaneOverlayPolicyBinding* policy)
       noexcept;
 
+  // Atomically publishes the indivisible R1 projection-plane v2 package.
+  // The Installation pointer is consumed only for this call: all 336 physical
+  // payload views, all 400 logical calibration identities, and the package
+  // digests are copied before return.  Payload bytes remain non-owning and
+  // must outlive every consumer.  nullptr is the sole detach spelling.
+  // Unified v2 cannot coexist with either split R1 view, R4, or any Attention
+  // or MLP K512 overlay.  The exact authenticated K256 base remains required.
+  [[nodiscard]] bool attach_prefill_r1_projection_plane_v2(
+      const PrefillR1ProjectionPlaneV2Installation* installation) noexcept;
+
  private:
   friend class ModelWeightBinder;
   friend struct WeightBindResult;
@@ -1005,6 +1282,19 @@ class ModelWeights {
       const WeightBindingSource&);
 
   ModelWeights() = default;
+
+  [[nodiscard]] bool has_prefill_r1_projection_plane_v2_state()
+      const noexcept {
+    if (!prefill_r1_projection_plane_v2_.empty()) {
+      return true;
+    }
+    for (const DecoderLayerWeights& layer : layers_) {
+      if (!layer.prefill_r1_projection_plane_v2.empty()) {
+        return true;
+      }
+    }
+    return false;
+  }
 
   Bf16LinearWeight embed_tokens_;
   Bf16VectorWeight final_norm_;
@@ -1015,6 +1305,9 @@ class ModelWeights {
   std::array<char, 64U> prefill_a4_attachment_manifest_sha256_{};
   std::array<char, 64U> prefill_a4_attachment_policy_sha256_{};
   std::array<char, 64U> prefill_a4_attachment_payload_sha256_{};
+  std::array<char, 64U> prefill_a4_attachment_receipt_sha256_{};
+  PrefillR1ProjectionPlaneV2AttachmentView
+      prefill_r1_projection_plane_v2_{};
 };
 
 enum class WeightBindErrorCode : std::uint8_t {

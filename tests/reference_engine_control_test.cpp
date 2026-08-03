@@ -101,6 +101,20 @@ struct FakeRunner {
       64U;
   std::size_t
       long_prefill_factorized_lane_r1_cross_layer_handoff_launch_hits = 63U;
+  std::size_t
+      long_prefill_r1_projection_plane_v2_layer_package_launch_hits = 64U;
+  std::size_t long_prefill_r1_projection_plane_v2_gateup_launch_hits = 65U;
+  std::size_t long_prefill_r1_projection_plane_v2_down_launch_hits = 66U;
+  std::size_t
+      long_prefill_r1_projection_plane_v2_attention_physical_launch_hits =
+          128U;
+  std::size_t
+      long_prefill_r1_projection_plane_v2_logical_projection_hits = 400U;
+  std::size_t
+      long_prefill_r1_projection_plane_v2_handoff_package_launch_hits = 67U;
+  std::size_t
+      long_prefill_r1_projection_plane_v2_cross_layer_handoff_launch_hits =
+          63U;
   std::size_t long_prefill_factorized_lane_r4_package_launch_hits = 63U;
   std::size_t long_prefill_factorized_lane_r4_2cta_package_launch_hits = 62U;
   std::size_t long_prefill_gateup_m128n64_same_cta_launch_hits = 64U;
@@ -116,6 +130,9 @@ struct FakeRunner {
   std::size_t long_prefill_gdn_k256_direct_pack_launch_hits = 192U;
   std::size_t long_prefill_gdn_factorized_lane_r1_direct_pack_launch_hits =
       191U;
+  std::size_t long_prefill_gdn_state_o_bv64_fused_launch_hits = 192U;
+  std::size_t long_prefill_gdn_state_o_bv64_fused_logical_token_hits =
+      88'944U;
   std::size_t long_prefill_gdn_prompt_span_macro_launch_hits = 48U;
   std::size_t long_prefill_gdn_prompt_span_macro_logical_token_hits = 88'944U;
 };
@@ -342,6 +359,20 @@ runtime::ReferenceLongPrefillOutcome fake_layer_major_prompt(
       fake.long_prefill_factorized_lane_r1_handoff_package_launch_hits;
   value.factorized_lane_r1_cross_layer_handoff_launch_hits =
       fake.long_prefill_factorized_lane_r1_cross_layer_handoff_launch_hits;
+  value.prefill_r1_projection_plane_v2_layer_package_launch_hits =
+      fake.long_prefill_r1_projection_plane_v2_layer_package_launch_hits;
+  value.prefill_r1_projection_plane_v2_gateup_launch_hits =
+      fake.long_prefill_r1_projection_plane_v2_gateup_launch_hits;
+  value.prefill_r1_projection_plane_v2_down_launch_hits =
+      fake.long_prefill_r1_projection_plane_v2_down_launch_hits;
+  value.prefill_r1_projection_plane_v2_attention_physical_launch_hits =
+      fake.long_prefill_r1_projection_plane_v2_attention_physical_launch_hits;
+  value.prefill_r1_projection_plane_v2_logical_projection_hits =
+      fake.long_prefill_r1_projection_plane_v2_logical_projection_hits;
+  value.prefill_r1_projection_plane_v2_handoff_package_launch_hits =
+      fake.long_prefill_r1_projection_plane_v2_handoff_package_launch_hits;
+  value.prefill_r1_projection_plane_v2_cross_layer_handoff_launch_hits =
+      fake.long_prefill_r1_projection_plane_v2_cross_layer_handoff_launch_hits;
   value.factorized_lane_r4_package_launch_hits =
       fake.long_prefill_factorized_lane_r4_package_launch_hits;
   value.factorized_lane_r4_2cta_package_launch_hits =
@@ -366,6 +397,10 @@ runtime::ReferenceLongPrefillOutcome fake_layer_major_prompt(
       fake.long_prefill_gdn_k256_direct_pack_launch_hits;
   value.gdn_factorized_lane_r1_direct_pack_launch_hits =
       fake.long_prefill_gdn_factorized_lane_r1_direct_pack_launch_hits;
+  value.gdn_state_o_bv64_fused_launch_hits =
+      fake.long_prefill_gdn_state_o_bv64_fused_launch_hits;
+  value.gdn_state_o_bv64_fused_logical_token_hits =
+      fake.long_prefill_gdn_state_o_bv64_fused_logical_token_hits;
   value.gdn_prompt_span_macro_launch_hits =
       fake.long_prefill_gdn_prompt_span_macro_launch_hits;
   value.gdn_prompt_span_macro_logical_token_hits =
@@ -900,6 +935,27 @@ void test_layer_major_prompt_admission(TestContext& test) {
             result.value->timing
                     .factorized_lane_r1_cross_layer_handoff_launch_hits ==
                 fake.long_prefill_factorized_lane_r1_cross_layer_handoff_launch_hits &&
+            result.value->timing
+                    .prefill_r1_projection_plane_v2_layer_package_launch_hits ==
+                fake.long_prefill_r1_projection_plane_v2_layer_package_launch_hits &&
+            result.value->timing
+                    .prefill_r1_projection_plane_v2_gateup_launch_hits ==
+                fake.long_prefill_r1_projection_plane_v2_gateup_launch_hits &&
+            result.value->timing
+                    .prefill_r1_projection_plane_v2_down_launch_hits ==
+                fake.long_prefill_r1_projection_plane_v2_down_launch_hits &&
+            result.value->timing
+                    .prefill_r1_projection_plane_v2_attention_physical_launch_hits ==
+                fake.long_prefill_r1_projection_plane_v2_attention_physical_launch_hits &&
+            result.value->timing
+                    .prefill_r1_projection_plane_v2_logical_projection_hits ==
+                fake.long_prefill_r1_projection_plane_v2_logical_projection_hits &&
+            result.value->timing
+                    .prefill_r1_projection_plane_v2_handoff_package_launch_hits ==
+                fake.long_prefill_r1_projection_plane_v2_handoff_package_launch_hits &&
+            result.value->timing
+                    .prefill_r1_projection_plane_v2_cross_layer_handoff_launch_hits ==
+                fake.long_prefill_r1_projection_plane_v2_cross_layer_handoff_launch_hits &&
             result.value->timing.factorized_lane_r4_package_launch_hits ==
                 fake.long_prefill_factorized_lane_r4_package_launch_hits &&
             result.value->timing
@@ -930,6 +986,11 @@ void test_layer_major_prompt_admission(TestContext& test) {
             result.value->timing
                     .gdn_factorized_lane_r1_direct_pack_launch_hits ==
                 fake.long_prefill_gdn_factorized_lane_r1_direct_pack_launch_hits &&
+            result.value->timing.gdn_state_o_bv64_fused_launch_hits ==
+                fake.long_prefill_gdn_state_o_bv64_fused_launch_hits &&
+            result.value->timing
+                    .gdn_state_o_bv64_fused_logical_token_hits ==
+                fake.long_prefill_gdn_state_o_bv64_fused_logical_token_hits &&
             result.value->timing.gdn_prompt_span_macro_launch_hits ==
                 fake.long_prefill_gdn_prompt_span_macro_launch_hits &&
             result.value->timing.gdn_prompt_span_macro_logical_token_hits ==
@@ -1850,6 +1911,56 @@ void test_engine_backend_validation(TestContext& test) {
                       runtime::ReferenceEngineError::kInvalidArgument &&
                   partial_one_shot.diagnostic.stage == "one_shot_options",
               "one-shot rejects a partial A4 publication before asset I/O");
+
+  runtime::ReferenceEngineOptions partial_projection_plane_v2;
+  partial_projection_plane_v2.prefill_r1_projection_plane_v2_manifest_path =
+      "projection-plane-v2.manifest.json";
+  const runtime::ReferenceEngineCreateResult partial_projection_plane_created =
+      runtime::create_reference_engine("unused-model-directory",
+                                       partial_projection_plane_v2);
+  test.expect(
+      !partial_projection_plane_created &&
+          partial_projection_plane_created.diagnostic.code ==
+              runtime::ReferenceEngineError::kInvalidArgument &&
+          partial_projection_plane_created.diagnostic.stage ==
+              "prefill_r1_projection_plane_v2_options",
+      "engine rejects a partial R1 projection-plane v2 publication before I/O");
+
+  runtime::ReferenceOneShotOptions partial_one_shot_projection_plane_v2;
+  partial_one_shot_projection_plane_v2
+      .prefill_r1_projection_plane_v2_receipt_path =
+      "projection-plane-v2.receipt.json";
+  const runtime::ReferenceOneShotResult
+      partial_one_shot_projection_plane_result = runtime::generate_reference(
+          "unused-model-directory", "prompt",
+          partial_one_shot_projection_plane_v2);
+  test.expect(
+      !partial_one_shot_projection_plane_result &&
+          partial_one_shot_projection_plane_result.diagnostic.code ==
+              runtime::ReferenceEngineError::kInvalidArgument &&
+          partial_one_shot_projection_plane_result.diagnostic.stage ==
+              "one_shot_options",
+      "one-shot rejects a partial R1 projection-plane v2 publication before asset I/O");
+
+  runtime::ReferenceEngineOptions aliased_projection_plane_v2;
+  aliased_projection_plane_v2.prefill_r1_projection_plane_v2_payload_path =
+      "projection-plane-v2.bin";
+  aliased_projection_plane_v2.prefill_r1_projection_plane_v2_manifest_path =
+      "projection-plane-v2.bin";
+  aliased_projection_plane_v2.prefill_r1_projection_plane_v2_policy_path =
+      "projection-plane-v2.policy.json";
+  aliased_projection_plane_v2.prefill_r1_projection_plane_v2_receipt_path =
+      "projection-plane-v2.receipt.json";
+  const runtime::ReferenceEngineCreateResult aliased_projection_plane_created =
+      runtime::create_reference_engine("unused-model-directory",
+                                       aliased_projection_plane_v2);
+  test.expect(
+      !aliased_projection_plane_created &&
+          aliased_projection_plane_created.diagnostic.code ==
+              runtime::ReferenceEngineError::kInvalidArgument &&
+          aliased_projection_plane_created.diagnostic.stage ==
+              "prefill_r1_projection_plane_v2_options",
+      "engine rejects aliased R1 projection-plane v2 paths before I/O");
 
   runtime::ReferenceEngineOptions partial_hybrid;
   partial_hybrid

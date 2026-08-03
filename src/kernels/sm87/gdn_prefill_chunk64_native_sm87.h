@@ -130,7 +130,9 @@ exchange_vllm_layout_wy_route_for_test(
 
 // Whole-K6144 factorized-lane-R1 counterpart to launch_k256_a4().  The
 // authenticated inverse-alpha belongs to the selected Linear-O projection;
-// exactly one span-wide BF16 scale is published per token.
+// exactly one span-wide BF16 scale is published per token. The final flag is
+// accepted only in a fusion-admission build and replaces the faithful-state
+// plus launch_raw pair with the existing persistent state/BV64-O owner.
 [[nodiscard]] int launch_factorized_lane_r1_a4(
     void* workspace, std::size_t workspace_capacity_bytes,
     const std::uint16_t* conv_qkv, std::size_t token_count,
@@ -146,7 +148,8 @@ exchange_vllm_layout_wy_route_for_test(
     std::size_t launch_token_count, float clip_ratio,
     std::uint8_t* packed_a, std::size_t packed_a_capacity_bytes,
     std::uint16_t* scales_bf16, std::size_t scale_capacity_elements,
-    void* cuda_stream = nullptr) noexcept;
+    void* cuda_stream = nullptr,
+    bool use_prompt_span_state_o_bv64_fusion = false) noexcept;
 
 // Same-ELF structural candidate boundary.  The first call performs the
 // complete token-parallel causal convolution and writes compact normalized
@@ -204,7 +207,8 @@ exchange_vllm_layout_wy_route_for_test(
     std::size_t launch_token_count, float clip_ratio,
     std::uint8_t* packed_a, std::size_t packed_a_capacity_bytes,
     std::uint16_t* scales_bf16, std::size_t scale_capacity_elements,
-    void* cuda_stream = nullptr) noexcept;
+    void* cuda_stream = nullptr,
+    bool use_prompt_span_state_o_bv64_fusion = false) noexcept;
 
 // Prompt-span gate producer shared by the fixed-shape WY and state/output
 // consumers. The outputs are FP32 chunk-major tensors laid out as
@@ -231,6 +235,30 @@ exchange_vllm_layout_wy_route_for_test(
     const std::uint16_t* norm_weight, const std::uint16_t* silu_gate,
     float norm_epsilon, std::uint16_t* raw_output,
     std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
+
+#if defined(Q3X_ENABLE_GDN_STATE_O_BV64_FUSION_ADMISSION)
+// Production-probe composition of the persistent state/BV64 raw-O owner and
+// the existing direct factorized-lane-R1 publisher.  All capacities and
+// aliases are preflighted before recurrent state can be modified.  The
+// production runner uses the same composition internally after WY; this
+// standalone boundary exists for focused component verification.
+[[nodiscard]] int launch_prompt_span_state_o_factorized_lane_r1_a4(
+    const std::uint16_t* w, const std::uint16_t* u,
+    const std::uint16_t* compact_q, const std::uint16_t* compact_k,
+    const float* cumulative_gate, std::uint16_t* state_in_out,
+    std::size_t token_count, const std::uint16_t* norm_weight,
+    const std::uint16_t* silu_gate, float norm_epsilon,
+    const float* authenticated_inverse_alpha_fp32,
+    std::size_t inverse_alpha_capacity_elements,
+    std::size_t destination_first_token,
+    std::size_t whole_logical_token_count,
+    std::size_t launch_token_count, float clip_ratio,
+    std::uint16_t* raw_output, std::uint8_t* packed_a,
+    std::size_t packed_a_capacity_bytes,
+    std::uint16_t* scales_bf16,
+    std::size_t scale_capacity_elements,
+    void* cuda_stream = nullptr) noexcept;
+#endif
 
 // Correctness-only two-kernel oracle for one C64..C512 segment.  It exposes
 // the incumbent global Vnew/boundary-state storage to the fixture and has no

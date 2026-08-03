@@ -2722,6 +2722,8 @@ void test_factorized_lane_r4_prefill_route(TestContext& test) {
   request_hits.factorized_lane_r1_cross_layer_handoff_launch_hits = 31U;
   request_hits.gdn_k256_direct_pack_launch_hits = 37U;
   request_hits.gdn_factorized_lane_r1_direct_pack_launch_hits = 41U;
+  request_hits.gdn_state_o_bv64_fused_launch_hits = 43U;
+  request_hits.gdn_state_o_bv64_fused_logical_token_hits = 47U;
   request_hits.factorized_lane_r4_package_launch_hits = 17U;
   request_hits.factorized_lane_r4_2cta_package_launch_hits = 9U;
   test.expect(
@@ -2739,11 +2741,211 @@ void test_factorized_lane_r4_prefill_route(TestContext& test) {
           request_hits.gdn_k256_direct_pack_launch_hits == 37U &&
           request_hits.gdn_factorized_lane_r1_direct_pack_launch_hits ==
               41U &&
+          request_hits.gdn_state_o_bv64_fused_launch_hits == 43U &&
+          request_hits.gdn_state_o_bv64_fused_logical_token_hits == 47U &&
           request_hits.factorized_lane_r4_package_launch_hits == 17U &&
           request_hits.factorized_lane_r4_2cta_package_launch_hits == 9U,
       "R1 MLP, handoff, cross-layer, K256/R1 GDN-direct-pack, R4 master, and "
       "subordinate R4 two-CTA proofs remain independent in aggregate and "
       "request-local accounting");
+
+  test.expect(
+      detail::gdn_state_o_bv64_fusion_accounting_valid(
+          false, 192U, 88'944U, 0U, 0U) &&
+          detail::gdn_state_o_bv64_fusion_accounting_valid(
+              true, 192U, 88'944U, 192U, 88'944U) &&
+          !detail::gdn_state_o_bv64_fusion_accounting_valid(
+              true, 192U, 88'944U, 191U, 88'944U) &&
+          !detail::gdn_state_o_bv64_fusion_accounting_valid(
+              true, 192U, 88'944U, 192U, 88'943U) &&
+          !detail::gdn_state_o_bv64_fusion_accounting_valid(
+              false, 192U, 88'944U, 1U, 512U),
+      "GDN state+BV64-O request accounting proves baseline zero and exact "
+      "P1853 candidate coverage");
+}
+
+void test_prefill_r1_projection_plane_v2_selector_and_accounting(
+    TestContext& test) {
+  using Route = detail::PrefillR1ProjectionPlaneV2Route;
+  using Query = detail::PrefillR1ProjectionPlaneV2RouteQuery;
+  using Hits = detail::PrefillR1ProjectionPlaneV2AdmissionHits;
+
+  Query disabled;
+  test.expect(
+      detail::select_prefill_r1_projection_plane_v2_route(disabled) ==
+          Route::kDisabled,
+      "R1 projection-plane v2 is independently default-off");
+
+  Query enabled;
+  enabled.requested = true;
+  enabled.full_a4_prefill_enabled = true;
+  enabled.sm87_weight_only = true;
+  enabled.k256_inventory = true;
+  enabled.complete_attachment = true;
+  enabled.projection_span = true;
+  test.expect(
+      detail::select_prefill_r1_projection_plane_v2_route(enabled) ==
+          Route::kEnabled,
+      "R1 projection-plane v2 admits only the complete production route");
+
+  const auto invalid = [](const Query& query) noexcept {
+    return detail::select_prefill_r1_projection_plane_v2_route(query) ==
+           Route::kInvalid;
+  };
+  Query candidate = enabled;
+  candidate.full_a4_prefill_enabled = false;
+  bool dependencies_fail_closed = invalid(candidate);
+  candidate = enabled;
+  candidate.sm87_weight_only = false;
+  dependencies_fail_closed = dependencies_fail_closed && invalid(candidate);
+  candidate = enabled;
+  candidate.trace_enabled = true;
+  dependencies_fail_closed = dependencies_fail_closed && invalid(candidate);
+  candidate = enabled;
+  candidate.optimized_dispatch_disabled = true;
+  dependencies_fail_closed = dependencies_fail_closed && invalid(candidate);
+  candidate = enabled;
+  candidate.k256_inventory = false;
+  dependencies_fail_closed = dependencies_fail_closed && invalid(candidate);
+  candidate = enabled;
+  candidate.complete_attachment = false;
+  dependencies_fail_closed = dependencies_fail_closed && invalid(candidate);
+  candidate = enabled;
+  candidate.projection_span = false;
+  dependencies_fail_closed = dependencies_fail_closed && invalid(candidate);
+  candidate = enabled;
+  candidate.graph_capture = true;
+  dependencies_fail_closed = dependencies_fail_closed && invalid(candidate);
+  candidate = enabled;
+  candidate.legacy_r1_requested = true;
+  dependencies_fail_closed = dependencies_fail_closed && invalid(candidate);
+  candidate = enabled;
+  candidate.r4_requested = true;
+  dependencies_fail_closed = dependencies_fail_closed && invalid(candidate);
+  candidate = enabled;
+  candidate.legacy_mlp_selector_conflict = true;
+  dependencies_fail_closed = dependencies_fail_closed && invalid(candidate);
+  candidate = enabled;
+  candidate.legacy_attention_selector_conflict = true;
+  dependencies_fail_closed = dependencies_fail_closed && invalid(candidate);
+  test.expect(
+      dependencies_fail_closed,
+      "R1 projection-plane v2 rejects every missing dependency, graph route, "
+      "and legacy selector conflict");
+
+  const Hits p1853{64U, 64U, 64U, 128U, 400U, 64U, 63U};
+  Hits partial = p1853;
+  --partial.layer_package_launch_hits;
+  bool partial_rejected =
+      !detail::prefill_r1_projection_plane_v2_accounting_valid(
+          Route::kEnabled, 1U, partial);
+  partial = p1853;
+  --partial.gateup_launch_hits;
+  partial_rejected =
+      partial_rejected &&
+      !detail::prefill_r1_projection_plane_v2_accounting_valid(
+          Route::kEnabled, 1U, partial);
+  partial = p1853;
+  --partial.down_launch_hits;
+  partial_rejected =
+      partial_rejected &&
+      !detail::prefill_r1_projection_plane_v2_accounting_valid(
+          Route::kEnabled, 1U, partial);
+  partial = p1853;
+  --partial.attention_physical_launch_hits;
+  partial_rejected =
+      partial_rejected &&
+      !detail::prefill_r1_projection_plane_v2_accounting_valid(
+          Route::kEnabled, 1U, partial);
+  partial = p1853;
+  --partial.logical_projection_hits;
+  partial_rejected =
+      partial_rejected &&
+      !detail::prefill_r1_projection_plane_v2_accounting_valid(
+          Route::kEnabled, 1U, partial);
+  partial = p1853;
+  --partial.handoff_package_launch_hits;
+  partial_rejected =
+      partial_rejected &&
+      !detail::prefill_r1_projection_plane_v2_accounting_valid(
+          Route::kEnabled, 1U, partial);
+  partial = p1853;
+  --partial.cross_layer_handoff_launch_hits;
+  partial_rejected =
+      partial_rejected &&
+      !detail::prefill_r1_projection_plane_v2_accounting_valid(
+          Route::kEnabled, 1U, partial);
+  test.expect(
+      detail::prefill_r1_projection_plane_v2_accounting_valid(
+          Route::kEnabled, 1U, p1853) &&
+          partial_rejected &&
+          detail::prefill_r1_projection_plane_v2_accounting_valid(
+              Route::kDisabled, 0U, Hits{}) &&
+          !detail::prefill_r1_projection_plane_v2_accounting_valid(
+              Route::kDisabled, 0U, p1853) &&
+          !detail::prefill_r1_projection_plane_v2_accounting_valid(
+              Route::kInvalid, 1U, p1853),
+      "R1 projection-plane v2 requires the exact P1853 64/64/64/128/400/64/63 "
+      "success proof and exposes no partial counters");
+
+  const runtime::ReferenceRunnerOptions default_options;
+  const runtime::ReferenceLongPrefillResult default_result;
+  test.expect(
+      !default_options.enable_prefill_r1_projection_plane_v2_admission &&
+          default_result
+                  .prefill_r1_projection_plane_v2_layer_package_launch_hits ==
+              0U &&
+          default_result.prefill_r1_projection_plane_v2_gateup_launch_hits ==
+              0U &&
+          default_result.prefill_r1_projection_plane_v2_down_launch_hits ==
+              0U &&
+          default_result
+                  .prefill_r1_projection_plane_v2_attention_physical_launch_hits ==
+              0U &&
+          default_result
+                  .prefill_r1_projection_plane_v2_logical_projection_hits ==
+              0U &&
+          default_result
+                  .prefill_r1_projection_plane_v2_handoff_package_launch_hits ==
+              0U &&
+          default_result
+                  .prefill_r1_projection_plane_v2_cross_layer_handoff_launch_hits ==
+              0U &&
+          default_result.attention_factorized_lane_r1_launch_hits == 0U &&
+          default_result.factorized_lane_r1_package_launch_hits == 0U &&
+          default_result.factorized_lane_r1_handoff_package_launch_hits ==
+              0U &&
+          default_result.factorized_lane_r1_cross_layer_handoff_launch_hits ==
+              0U &&
+          default_result.factorized_lane_r4_package_launch_hits == 0U &&
+          default_result.factorized_lane_r4_2cta_package_launch_hits == 0U &&
+          default_result.mlp_k256_m128n256_pairfeed_package_launch_hits ==
+              0U &&
+          default_result.gateup_alternating_launch_hits == 0U &&
+          default_result.gateup_ldmatrix_pairfeed_launch_hits == 0U &&
+          default_result.gateup_m128n128_projection_serial_launch_hits ==
+              0U &&
+          default_result.gateup_m128n64_same_cta_launch_hits == 0U &&
+          default_result.gateup_m128n512_fused_quantize_launch_hits == 0U &&
+          default_result.gateup_m128n512_paired_ldmatrix_launch_hits == 0U &&
+          default_result.gateup_m64n128_register_pipeline_launch_hits == 0U &&
+          default_result
+                  .gateup_m64n8_paired_warp_register_pipeline_launch_hits ==
+              0U &&
+          default_result.down_m128n128_ldmatrix_pairring_launch_hits == 0U &&
+          default_result.down_m128n128_16warp_pairring_launch_hits == 0U,
+      "v2 and every legacy R1/R4/K512 proof are independently zero by "
+      "default");
+
+  runtime::ReferenceRunnerOptions factory_options;
+  factory_options.enable_a4w4_full_prefill_admission = true;
+  factory_options.projection_backend =
+      runtime::ProjectionBackend::kSm87WeightOnly;
+  factory_options.enable_prefill_r1_projection_plane_v2_admission = true;
+  const runtime::ReferenceRunnerFactoryResult rejected =
+      runtime::create_reference_runner(nullptr, nullptr, factory_options);
+  test.expect(!rejected && !rejected.value.has_value(),
+              "v2 factory failures publish no partially admitted runner");
 }
 
 void test_paired_gateup_canonical_down_selector_and_accounting(
@@ -2901,6 +3103,8 @@ void test_paired_gateup_canonical_down_selector_and_accounting(
           result.factorized_lane_r1_cross_layer_handoff_launch_hits == 0U &&
           result.gdn_k256_direct_pack_launch_hits == 0U &&
           result.gdn_factorized_lane_r1_direct_pack_launch_hits == 0U &&
+          result.gdn_state_o_bv64_fused_launch_hits == 0U &&
+          result.gdn_state_o_bv64_fused_logical_token_hits == 0U &&
           result.gdn_prompt_span_macro_launch_hits == 0U &&
           result.gdn_prompt_span_macro_logical_token_hits == 0U,
       "new request-local telemetry is zero for every unselected route");
@@ -3399,6 +3603,7 @@ int main() {
   test_a4w4_full_prefill_admission_controls(test);
   test_prefill_admission_gate_orthogonality(test);
   test_factorized_lane_r4_prefill_route(test);
+  test_prefill_r1_projection_plane_v2_selector_and_accounting(test);
   test_paired_gateup_canonical_down_selector_and_accounting(test);
   test_projection_major_gateup_canonical_down_selector_and_accounting(test);
   test_down_m128n128_ldmatrix_pairring_v1_selector_and_accounting(test);

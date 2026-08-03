@@ -1293,6 +1293,157 @@ void test_norm_rows8_factorized_lane_r1_a4(TestContext& test) {
   }
 }
 
+#if defined(Q3X_ENABLE_GDN_STATE_O_BV64_FUSION_ADMISSION)
+void test_prompt_span_state_o_factorized_lane_r1_a4(
+    TestContext& test, Buffers& buffers) {
+  reset(buffers);
+  for (std::size_t index = 0U; index < buffers.initial_state.size();
+       ++index) {
+    if (index % 4'093U == 17U || index % 8'191U == 31U) {
+      buffers.initial_state.data()[index] = kSmall;
+    }
+  }
+  for (std::size_t index = 0U; index < buffers.w.size(); ++index) {
+    if (index % 1'021U == 7U) {
+      buffers.w.data()[index] = kSmall;
+    }
+    if (index % 769U == 11U) {
+      buffers.u.data()[index] = kSmall;
+    }
+  }
+  for (std::size_t index = 0U; index < buffers.q.size(); ++index) {
+    if (index % 521U == 5U) {
+      buffers.q.data()[index] = kSmall;
+    }
+    if (index % 509U == 3U) {
+      buffers.k.data()[index] = kSmall;
+    }
+  }
+  for (std::size_t value_head = 0U; value_head < kValueHeads;
+       ++value_head) {
+    for (std::size_t token = 0U; token < kTokens; ++token) {
+      buffers.gamma.data()[value_head * kTokens + token] =
+          -0.0078125F * static_cast<float>(token + 1U);
+    }
+  }
+  std::copy_n(buffers.initial_state.data(), kBoundaryStateElements,
+              buffers.candidate_state.data());
+  std::fill_n(buffers.candidate_raw.data(), kOutputElements, kPoison);
+
+  constexpr std::size_t kWholeLogicalTokens = kTokens;
+  const std::size_t whole_launch_tokens =
+      kernels::sm87_a4w4_attention_k256_launch_token_count(
+          kWholeLogicalTokens);
+  const auto plan = kernels::sm87_a4w4_factorized_lane_quantize_plan(
+      kWholeLogicalTokens, whole_launch_tokens, kK256InputSize,
+      kFactorizedLaneR1ScaleGroups);
+  ManagedBuffer<float> inverse_alpha(kK256InputSize);
+  ManagedBuffer<std::uint8_t> expected_packed(plan.packed_capacity_bytes);
+  ManagedBuffer<std::uint8_t> candidate_packed(plan.packed_capacity_bytes);
+  ManagedBuffer<std::uint16_t> expected_scales(
+      plan.scale_capacity_elements);
+  ManagedBuffer<std::uint16_t> candidate_scales(
+      plan.scale_capacity_elements);
+  const bool allocated = plan.valid() && inverse_alpha.valid() &&
+                         expected_packed.valid() && candidate_packed.valid() &&
+                         expected_scales.valid() && candidate_scales.valid();
+  test.expect(allocated,
+              "allocate prompt-span state+O direct-R1 composition fixture");
+  if (!allocated) {
+    return;
+  }
+  fill_factorized_lane_r1_inverse_alpha(inverse_alpha.data());
+  std::fill_n(expected_packed.data(), expected_packed.size(),
+              kPackedSentinel);
+  std::fill_n(candidate_packed.data(), candidate_packed.size(),
+              kPackedSentinel);
+  std::fill_n(expected_scales.data(), expected_scales.size(),
+              kScaleSentinel);
+  std::fill_n(candidate_scales.data(), candidate_scales.size(),
+              kScaleSentinel);
+
+  // raw_output and packed_a deliberately alias. The complete composition
+  // must reject this before modifying either the in-place state or raw-O.
+  const int alias_status =
+      native::launch_prompt_span_state_o_factorized_lane_r1_a4(
+          buffers.w.data(), buffers.u.data(), buffers.q.data(),
+          buffers.k.data(), buffers.gamma.data(),
+          buffers.candidate_state.data(), kTokens, buffers.weight.data(),
+          buffers.gate.data(), kEpsilon, inverse_alpha.data(),
+          inverse_alpha.size(), 0U, kWholeLogicalTokens,
+          whole_launch_tokens, kFactorizedLaneR1ClipRatio,
+          buffers.candidate_raw.data(),
+          reinterpret_cast<std::uint8_t*>(buffers.candidate_raw.data()),
+          plan.packed_capacity_bytes, candidate_scales.data(),
+          plan.scale_capacity_elements);
+  const bool alias_untouched =
+      std::equal(buffers.candidate_state.data(),
+                 buffers.candidate_state.data() + kBoundaryStateElements,
+                 buffers.initial_state.data()) &&
+      std::all_of(buffers.candidate_raw.data(),
+                  buffers.candidate_raw.data() + kOutputElements,
+                  [](const std::uint16_t value) {
+                    return value == kPoison;
+                  });
+  test.expect(alias_status == static_cast<int>(cudaErrorInvalidValue) &&
+                  alias_untouched,
+              "prompt-span state+O direct-R1 alias preflight is launch-free");
+
+  const int baseline_status =
+      native::launch_prompt_span_state_o_baseline_for_test(
+          buffers.w.data(), buffers.u.data(), buffers.q.data(),
+          buffers.k.data(), buffers.gamma.data(),
+          buffers.initial_state.data(), buffers.baseline_state.data(),
+          kTokens, buffers.v.data(), buffers.h.data(),
+          buffers.weight.data(), buffers.gate.data(), kEpsilon,
+          buffers.raw.data(), buffers.output.data());
+  const int expected_publish_status =
+      chunk_o::launch_norm_rows8_factorized_lane_r1_a4(
+          buffers.raw.data(), buffers.weight.data(), buffers.gate.data(),
+          kTokens, kEpsilon, inverse_alpha.data(), inverse_alpha.size(), 0U,
+          kWholeLogicalTokens, whole_launch_tokens,
+          kFactorizedLaneR1ClipRatio, expected_packed.data(),
+          plan.packed_capacity_bytes, expected_scales.data(),
+          plan.scale_capacity_elements);
+  const int candidate_status =
+      native::launch_prompt_span_state_o_factorized_lane_r1_a4(
+          buffers.w.data(), buffers.u.data(), buffers.q.data(),
+          buffers.k.data(), buffers.gamma.data(),
+          buffers.candidate_state.data(), kTokens, buffers.weight.data(),
+          buffers.gate.data(), kEpsilon, inverse_alpha.data(),
+          inverse_alpha.size(), 0U, kWholeLogicalTokens,
+          whole_launch_tokens, kFactorizedLaneR1ClipRatio,
+          buffers.candidate_raw.data(), candidate_packed.data(),
+          plan.packed_capacity_bytes, candidate_scales.data(),
+          plan.scale_capacity_elements);
+  const bool ready =
+      test.cuda_ok(baseline_status,
+                   "launch prompt-span state+O direct-R1 baseline") &&
+      test.cuda_ok(expected_publish_status,
+                   "launch prompt-span expected direct-R1 publisher") &&
+      test.cuda_ok(candidate_status,
+                   "launch prompt-span fused state+O direct-R1 candidate") &&
+      test.cuda_ok(static_cast<int>(cudaDeviceSynchronize()),
+                   "synchronize prompt-span fused state+O direct-R1");
+  if (!ready) {
+    return;
+  }
+  (void)expect_equal(test, "GDN_STATE_O_R1_FUSED_STATE_C64",
+                     buffers.baseline_state.data(),
+                     buffers.candidate_state.data(),
+                     kBoundaryStateElements);
+  (void)expect_equal(test, "GDN_STATE_O_R1_FUSED_RAW_C64",
+                     buffers.raw.data(), buffers.candidate_raw.data(),
+                     kOutputElements);
+  (void)expect_equal_bytes(test, "GDN_STATE_O_R1_FUSED_PACKED_C64",
+                           expected_packed.data(), candidate_packed.data(),
+                           plan.packed_capacity_bytes);
+  (void)expect_equal(test, "GDN_STATE_O_R1_FUSED_SCALES_C64",
+                     expected_scales.data(), candidate_scales.data(),
+                     plan.scale_capacity_elements);
+}
+#endif
+
 void test_native_factorized_lane_r1_alias_preflight(TestContext& test) {
   constexpr std::size_t kWholeLogicalTokens = kTokens;
   constexpr std::size_t kWholeLaunchTokens = 128U;
@@ -1400,6 +1551,9 @@ int main() {
   test_prompt_span_vertical_slice_c64(test, buffers);
   test_norm_rows8_k256_a4(test);
   test_norm_rows8_factorized_lane_r1_a4(test);
+#if defined(Q3X_ENABLE_GDN_STATE_O_BV64_FUSION_ADMISSION)
+  test_prompt_span_state_o_factorized_lane_r1_a4(test, buffers);
+#endif
   test_native_factorized_lane_r1_alias_preflight(test);
   std::cout << "GDN_CHUNK_O_BV64_COMPONENT_RESULT gate="
             << (test.result() == 0 ? "PASS" : "FAIL")

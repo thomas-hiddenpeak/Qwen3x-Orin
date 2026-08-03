@@ -2,10 +2,12 @@
 
 #include "q3x/kernels/sm87_fp8_prefill_supermatrix.h"
 #if defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R1_ADMISSION) || \
+    defined(Q3X_ENABLE_PREFILL_R1_PROJECTION_PLANE_V2_ADMISSION) || \
     defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R4_ADMISSION)
 #include "q3x/kernels/sm87_a4w4_factorized_lane_quantize.h"
 #endif
-#if defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R1_ADMISSION)
+#if defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R1_ADMISSION) || \
+    defined(Q3X_ENABLE_PREFILL_R1_PROJECTION_PLANE_V2_ADMISSION)
 #include "q3x/kernels/sm87_a4w4_down_factorized_lane.h"
 #include "q3x/kernels/sm87_a4w4_gateup_factorized_lane.h"
 #include "q3x/kernels/sm87_a4w4_gateup_r1_product_finalize.h"
@@ -26,7 +28,8 @@
 #if defined(Q3X_ENABLE_A4W4_ATTENTION_K256_M128N256_ADMISSION)
 #include "q3x/kernels/sm87_a4w4_attention_k256_m128n256.h"
 #endif
-#if defined(Q3X_ENABLE_A4W4_ATTENTION_FACTORIZED_LANE_R1_EXPERIMENT)
+#if defined(Q3X_ENABLE_A4W4_ATTENTION_FACTORIZED_LANE_R1_EXPERIMENT) || \
+    defined(Q3X_ENABLE_PREFILL_R1_PROJECTION_PLANE_V2_ADMISSION)
 #include "q3x/kernels/sm87_a4w4_attention_factorized_lane_r1_m128n256.h"
 #endif
 #if defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_ALTERNATING_ADMISSION) && \
@@ -164,6 +167,7 @@
 
 #include <cuda_runtime.h>
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cmath>
@@ -1262,6 +1266,19 @@ thread_local std::size_t
 thread_local std::size_t g_gdn_k256_direct_pack_launch_hits = 0U;
 thread_local std::size_t
     g_gdn_factorized_lane_r1_direct_pack_launch_hits = 0U;
+#if defined(Q3X_ENABLE_GDN_STATE_O_BV64_FUSION_ADMISSION)
+[[nodiscard]] bool gdn_state_o_bv64_fusion_environment_enabled() noexcept {
+  const char* const value = std::getenv(
+      "Q3X_RUN_GDN_STATE_O_BV64_FUSION_ADMISSION");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
+thread_local bool g_enable_gdn_state_o_bv64_fusion_admission =
+    gdn_state_o_bv64_fusion_environment_enabled();
+thread_local std::size_t g_gdn_state_o_bv64_fused_launch_hits = 0U;
+thread_local std::size_t
+    g_gdn_state_o_bv64_fused_logical_token_hits = 0U;
+#endif
 thread_local reference_runner_detail::PrefillGdnChunk64NativeSnapshotHook
     g_prefill_gdn_chunk64_native_snapshot_hook{};
 thread_local reference_runner_detail::
@@ -1669,6 +1686,202 @@ a4w4_full_prefill_inventory_consumer(
 }
 #endif
 
+#if defined(Q3X_ENABLE_PREFILL_R1_PROJECTION_PLANE_V2_ADMISSION)
+[[nodiscard]] bool prefill_r1_projection_plane_v2_range_within_payload(
+    const PrefillR1ProjectionPlaneV2AttachmentView& attachment,
+    const void* const pointer, const std::size_t bytes) noexcept {
+  if (pointer == nullptr || bytes == 0U || !attachment.attached()) {
+    return false;
+  }
+  const std::uintptr_t begin =
+      reinterpret_cast<std::uintptr_t>(attachment.payload);
+  const std::uintptr_t address = reinterpret_cast<std::uintptr_t>(pointer);
+  if (begin > std::numeric_limits<std::uintptr_t>::max() -
+                  attachment.payload_bytes ||
+      address > std::numeric_limits<std::uintptr_t>::max() - bytes) {
+    return false;
+  }
+  const std::uintptr_t end = begin + attachment.payload_bytes;
+  return address >= begin && address + bytes <= end;
+}
+
+[[nodiscard]] bool valid_prefill_r1_projection_plane_v2_logical(
+    const PrefillR1ProjectionPlaneV2AttachmentView& attachment,
+    const PrefillR1ProjectionPlaneV2LogicalCalibrationView& logical,
+    const PrefillR1ProjectionPlaneV2LogicalIdentity identity,
+    const std::size_t output_size, const std::size_t input_size,
+    const std::uint32_t physical_ordinal,
+    std::array<bool,
+               kPrefillR1ProjectionPlaneV2ViewLogicalProjectionCount>&
+        logical_ordinals) noexcept {
+  if (!logical.attached() || logical.identity != identity ||
+      logical.output_size != output_size || logical.input_size != input_size ||
+      logical.physical_ordinal != physical_ordinal ||
+      logical.logical_ordinal >= logical_ordinals.size() ||
+      logical_ordinals[logical.logical_ordinal] ||
+      reinterpret_cast<std::uintptr_t>(logical.inverse_alpha) %
+              alignof(float) !=
+          0U ||
+      !prefill_r1_projection_plane_v2_range_within_payload(
+          attachment, logical.inverse_alpha,
+          logical.inverse_alpha_capacity_elements * sizeof(float))) {
+    return false;
+  }
+  logical_ordinals[logical.logical_ordinal] = true;
+  return true;
+}
+
+[[nodiscard]] bool valid_prefill_r1_projection_plane_v2_physical(
+    const PrefillR1ProjectionPlaneV2AttachmentView& attachment,
+    const PrefillR1ProjectionPlaneV2PhysicalView& physical,
+    const PrefillR1ProjectionPlaneV2ViewLayout layout,
+    const PrefillR1ProjectionPlaneV2LogicalIdentity primary_identity,
+    const PrefillR1ProjectionPlaneV2LogicalIdentity secondary_identity,
+    const std::size_t output_size, const std::size_t input_size,
+    std::array<bool,
+               kPrefillR1ProjectionPlaneV2ViewPhysicalProjectionCount>&
+        physical_ordinals,
+    std::array<bool,
+               kPrefillR1ProjectionPlaneV2ViewLogicalProjectionCount>&
+        logical_ordinals,
+    std::size_t& physical_count, std::size_t& logical_count) noexcept {
+  const bool paired =
+      layout == PrefillR1ProjectionPlaneV2ViewLayout::kPairedGateUp;
+  if (!physical.attached() || physical.physical_layout != layout ||
+      physical.output_size != output_size || physical.input_size != input_size ||
+      physical.logical_projection_count != (paired ? 2U : 1U) ||
+      physical.physical_ordinal >= physical_ordinals.size() ||
+      physical_ordinals[physical.physical_ordinal] ||
+      reinterpret_cast<std::uintptr_t>(physical.codes) % 16U != 0U ||
+      reinterpret_cast<std::uintptr_t>(physical.scales) % 16U != 0U ||
+      !prefill_r1_projection_plane_v2_range_within_payload(
+          attachment, physical.codes, physical.code_capacity_bytes) ||
+      !prefill_r1_projection_plane_v2_range_within_payload(
+          attachment, physical.scales,
+          physical.scale_capacity_elements * sizeof(std::uint16_t)) ||
+      !valid_prefill_r1_projection_plane_v2_logical(
+          attachment, physical.primary, primary_identity, output_size,
+          input_size, physical.physical_ordinal, logical_ordinals) ||
+      (paired &&
+       !valid_prefill_r1_projection_plane_v2_logical(
+           attachment, physical.secondary, secondary_identity, output_size,
+           input_size, physical.physical_ordinal, logical_ordinals)) ||
+      (!paired && !physical.secondary.empty())) {
+    return false;
+  }
+  physical_ordinals[physical.physical_ordinal] = true;
+  ++physical_count;
+  logical_count += paired ? 2U : 1U;
+  return true;
+}
+
+// ModelWeights already authenticates the publication transaction. The runner
+// repeats the complete device-view proof because it is the last boundary
+// before launches: every ordinal must appear once, all 336 physical operands
+// and 400 logical calibrations must match the fixed Qwen3.6 topology, and all
+// referenced ranges must stay inside the one authenticated payload.
+[[nodiscard]] bool complete_prefill_r1_projection_plane_v2_attached(
+    const ModelWeights& weights) noexcept {
+  const PrefillR1ProjectionPlaneV2AttachmentView& attachment =
+      weights.prefill_r1_projection_plane_v2();
+  if (!attachment.attached() ||
+      reinterpret_cast<std::uintptr_t>(attachment.payload) % 256U != 0U) {
+    return false;
+  }
+  std::array<bool,
+             kPrefillR1ProjectionPlaneV2ViewPhysicalProjectionCount>
+      physical_ordinals{};
+  std::array<bool,
+             kPrefillR1ProjectionPlaneV2ViewLogicalProjectionCount>
+      logical_ordinals{};
+  std::size_t physical_count = 0U;
+  std::size_t logical_count = 0U;
+  const auto validate = [&](const PrefillR1ProjectionPlaneV2PhysicalView& view,
+                            const PrefillR1ProjectionPlaneV2ViewLayout layout,
+                            const PrefillR1ProjectionPlaneV2LogicalIdentity
+                                primary_identity,
+                            const PrefillR1ProjectionPlaneV2LogicalIdentity
+                                secondary_identity,
+                            const std::size_t output_size,
+                            const std::size_t input_size) noexcept {
+    return valid_prefill_r1_projection_plane_v2_physical(
+        attachment, view, layout, primary_identity, secondary_identity,
+        output_size, input_size, physical_ordinals, logical_ordinals,
+        physical_count, logical_count);
+  };
+  for (std::size_t layer = 0U; layer < kReferenceDecoderLayerCount; ++layer) {
+    const PrefillR1ProjectionPlaneV2LayerView& view =
+        weights.layer(layer).prefill_r1_projection_plane_v2;
+    const model::LayerType expected =
+        reference_runner_detail::expected_reference_layer_type(layer);
+    bool attention_valid = false;
+    if (expected == model::LayerType::kLinearAttention) {
+      attention_valid =
+          view.linear_attached() &&
+          validate(view.linear_qkv,
+                   PrefillR1ProjectionPlaneV2ViewLayout::kAdjacentN8,
+                   PrefillR1ProjectionPlaneV2LogicalIdentity::kLinearQkv,
+                   PrefillR1ProjectionPlaneV2LogicalIdentity::kNone,
+                   kLinearQkvElements, kReferenceHiddenSize) &&
+          validate(view.linear_z,
+                   PrefillR1ProjectionPlaneV2ViewLayout::kAdjacentN8,
+                   PrefillR1ProjectionPlaneV2LogicalIdentity::kLinearZ,
+                   PrefillR1ProjectionPlaneV2LogicalIdentity::kNone,
+                   kLinearValueElements, kReferenceHiddenSize) &&
+          validate(view.linear_o,
+                   PrefillR1ProjectionPlaneV2ViewLayout::kAdjacentN8,
+                   PrefillR1ProjectionPlaneV2LogicalIdentity::kLinearO,
+                   PrefillR1ProjectionPlaneV2LogicalIdentity::kNone,
+                   kReferenceHiddenSize, kLinearValueElements);
+    } else if (expected == model::LayerType::kFullAttention) {
+      attention_valid =
+          view.full_attached() &&
+          validate(view.full_q,
+                   PrefillR1ProjectionPlaneV2ViewLayout::kAdjacentN8,
+                   PrefillR1ProjectionPlaneV2LogicalIdentity::kFullQ,
+                   PrefillR1ProjectionPlaneV2LogicalIdentity::kNone,
+                   kFullQGateElements, kReferenceHiddenSize) &&
+          validate(view.full_k,
+                   PrefillR1ProjectionPlaneV2ViewLayout::kAdjacentN8,
+                   PrefillR1ProjectionPlaneV2LogicalIdentity::kFullK,
+                   PrefillR1ProjectionPlaneV2LogicalIdentity::kNone,
+                   kFullKvElements, kReferenceHiddenSize) &&
+          validate(view.full_v,
+                   PrefillR1ProjectionPlaneV2ViewLayout::kAdjacentN8,
+                   PrefillR1ProjectionPlaneV2LogicalIdentity::kFullV,
+                   PrefillR1ProjectionPlaneV2LogicalIdentity::kNone,
+                   kFullKvElements, kReferenceHiddenSize) &&
+          validate(view.full_o,
+                   PrefillR1ProjectionPlaneV2ViewLayout::kAdjacentN8,
+                   PrefillR1ProjectionPlaneV2LogicalIdentity::kFullO,
+                   PrefillR1ProjectionPlaneV2LogicalIdentity::kNone,
+                   kReferenceHiddenSize, kFullQueryElements);
+    }
+    if (!attention_valid || !view.attached() ||
+        !validate(view.mlp_gate_up,
+                  PrefillR1ProjectionPlaneV2ViewLayout::kPairedGateUp,
+                  PrefillR1ProjectionPlaneV2LogicalIdentity::kMlpGate,
+                  PrefillR1ProjectionPlaneV2LogicalIdentity::kMlpUp,
+                  kReferenceIntermediateSize, kReferenceHiddenSize) ||
+        !validate(view.mlp_down,
+                  PrefillR1ProjectionPlaneV2ViewLayout::kAdjacentN8,
+                  PrefillR1ProjectionPlaneV2LogicalIdentity::kMlpDown,
+                  PrefillR1ProjectionPlaneV2LogicalIdentity::kNone,
+                  kReferenceHiddenSize, kReferenceIntermediateSize)) {
+      return false;
+    }
+  }
+  return physical_count ==
+             kPrefillR1ProjectionPlaneV2ViewPhysicalProjectionCount &&
+         logical_count ==
+             kPrefillR1ProjectionPlaneV2ViewLogicalProjectionCount &&
+         std::all_of(physical_ordinals.begin(), physical_ordinals.end(),
+                     [](const bool seen) { return seen; }) &&
+         std::all_of(logical_ordinals.begin(), logical_ordinals.end(),
+                     [](const bool seen) { return seen; });
+}
+#endif
+
 #if defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R4_ADMISSION)
 [[nodiscard]] bool valid_factorized_lane_r4_projection(
     const PrefillMLPFactorizedLaneR4LinearSidecarView& view,
@@ -1729,6 +1942,7 @@ a4w4_full_prefill_inventory_consumer(
 // selectors are deliberately absent: authenticated K256 Attention remains the
 // independent companion plane for R1/R4 and is not an R4 payload source.
 #if defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R1_ADMISSION) || \
+    defined(Q3X_ENABLE_PREFILL_R1_PROJECTION_PLANE_V2_ADMISSION) || \
     defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R4_ADMISSION)
 [[nodiscard]] bool factorized_lane_mlp_selector_conflict() noexcept {
   bool conflict = false;
@@ -2435,6 +2649,111 @@ void record_a4w4_attention_supermatrix_launch(
         family, local_full_hits, local_attention_hits,
         g_a4w4_attention_factorized_lane_r1_admission_hits);
   }
+  return status;
+}
+#endif
+
+#if defined(Q3X_ENABLE_PREFILL_R1_PROJECTION_PLANE_V2_ADMISSION)
+[[nodiscard]] int launch_selected_prefill_r1_projection_plane_v2_attention(
+    const bool admission_enabled,
+    const kernels::Sm87A4W4AttentionK256Topology topology,
+    const reference_runner_detail::A4W4AttentionSupermatrixFamily family,
+    const std::uint8_t* const packed_input,
+    const std::size_t packed_input_capacity,
+    const std::uint16_t* const input_scales,
+    const std::size_t input_scale_capacity,
+    const PrefillR1ProjectionPlaneV2PhysicalView* const physical_views,
+    std::uint16_t* const* const outputs,
+    const std::size_t* const output_capacities,
+    const std::size_t projection_count, const std::size_t token_count,
+    void* const stream,
+    reference_runner_detail::A4W4FullPrefillAdmissionHits& local_full_hits,
+    reference_runner_detail::A4W4AttentionSupermatrixAdmissionHits&
+        local_attention_hits,
+    reference_runner_detail::PrefillR1ProjectionPlaneV2AdmissionHits&
+        local_v2_hits,
+    bool* const selected) noexcept {
+  if (selected != nullptr) {
+    *selected = false;
+  }
+  if (!admission_enabled) {
+    return static_cast<int>(cudaSuccess);
+  }
+  const bool topology_matches =
+      (topology == kernels::Sm87A4W4AttentionK256Topology::kLinearQkvZ &&
+       family == reference_runner_detail::A4W4AttentionSupermatrixFamily::
+                     kLinearInput &&
+       projection_count == 2U) ||
+      (topology == kernels::Sm87A4W4AttentionK256Topology::kFullQkv &&
+       family == reference_runner_detail::A4W4AttentionSupermatrixFamily::
+                     kFullInput &&
+       projection_count == 3U) ||
+      (topology == kernels::Sm87A4W4AttentionK256Topology::kAttentionO &&
+       family == reference_runner_detail::A4W4AttentionSupermatrixFamily::
+                     kOutput &&
+       projection_count == 1U);
+  if (!topology_matches || physical_views == nullptr || outputs == nullptr ||
+      output_capacities == nullptr || packed_input == nullptr ||
+      input_scales == nullptr || token_count == 0U) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  std::array<
+      kernels::Sm87A4W4AttentionFactorizedLaneR1ProjectionView, 3U>
+      projections{};
+  for (std::size_t index = 0U; index < projection_count; ++index) {
+    const PrefillR1ProjectionPlaneV2PhysicalView& physical =
+        physical_views[index];
+    if (!physical.attached() ||
+        physical.physical_layout !=
+            PrefillR1ProjectionPlaneV2ViewLayout::kAdjacentN8 ||
+        physical.logical_projection_count != 1U || outputs[index] == nullptr) {
+      return static_cast<int>(cudaErrorInvalidValue);
+    }
+    projections[index] = {
+        physical.codes,
+        physical.code_capacity_bytes,
+        physical.scales,
+        physical.scale_capacity_elements,
+        physical.output_size,
+        outputs[index],
+        physical.output_size,
+        output_capacities[index]};
+  }
+  if (selected != nullptr) {
+    *selected = true;
+  }
+  const int status = kernels::
+      launch_sm87_a4w4_attention_factorized_lane_r1_v2_m128n256_bf16_cuda(
+          topology, packed_input, packed_input_capacity, input_scales,
+          input_scale_capacity, token_count, projections.data(),
+          projection_count,
+          kernels::Sm87A4W4AttentionFactorizedLaneR1EpilogueMode::
+              kTopologyBf16,
+          stream);
+  if (status != static_cast<int>(cudaSuccess)) {
+    return status;
+  }
+  std::size_t logical = 0U;
+  switch (family) {
+    case reference_runner_detail::A4W4AttentionSupermatrixFamily::
+        kLinearInput:
+      ++local_attention_hits.linear_input_launch_hits;
+      logical = 2U;
+      break;
+    case reference_runner_detail::A4W4AttentionSupermatrixFamily::kFullInput:
+      ++local_attention_hits.full_input_launch_hits;
+      logical = 3U;
+      break;
+    case reference_runner_detail::A4W4AttentionSupermatrixFamily::kOutput:
+      ++local_attention_hits.output_launch_hits;
+      logical = 1U;
+      break;
+  }
+  local_attention_hits.logical_projection_hits += logical;
+  local_full_hits.logical_projection_hits += logical;
+  g_a4w4_full_prefill_admission_hits.logical_projection_hits += logical;
+  ++local_v2_hits.attention_physical_launch_hits;
+  local_v2_hits.logical_projection_hits += logical;
   return status;
 }
 #endif
@@ -4397,6 +4716,10 @@ ReferenceRunner& ReferenceRunner::operator=(ReferenceRunner&& other) noexcept {
       other.factorized_lane_r1_handoff_prefill_admission_enabled_, false);
   attention_factorized_lane_r1_prefill_admission_enabled_ = std::exchange(
       other.attention_factorized_lane_r1_prefill_admission_enabled_, false);
+  prefill_r1_projection_plane_v2_admission_enabled_ = std::exchange(
+      other.prefill_r1_projection_plane_v2_admission_enabled_, false);
+  prefill_r1_projection_plane_v2_request_hits_ = std::exchange(
+      other.prefill_r1_projection_plane_v2_request_hits_, {});
   factorized_lane_r4_prefill_admission_enabled_ = std::exchange(
       other.factorized_lane_r4_prefill_admission_enabled_, false);
   factorized_lane_r4_2cta_prefill_admission_enabled_ = std::exchange(
@@ -4510,6 +4833,8 @@ void ReferenceRunner::release() noexcept {
   factorized_lane_r1_prefill_admission_enabled_ = false;
   factorized_lane_r1_handoff_prefill_admission_enabled_ = false;
   attention_factorized_lane_r1_prefill_admission_enabled_ = false;
+  prefill_r1_projection_plane_v2_admission_enabled_ = false;
+  prefill_r1_projection_plane_v2_request_hits_ = {};
   factorized_lane_r4_prefill_admission_enabled_ = false;
   factorized_lane_r4_2cta_prefill_admission_enabled_ = false;
   trace_enabled_ = false;
@@ -4619,6 +4944,7 @@ ReferenceLongPrefillOutcome ReferenceRunner::fail_long_prefill(
   poisoned_ = true;
   trace_valid_ = false;
   retained_prefill_hidden_valid_ = false;
+  prefill_r1_projection_plane_v2_request_hits_ = {};
   ReferenceLongPrefillOutcome outcome;
   outcome.status = status;
   return outcome;
@@ -8273,6 +8599,13 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
   // route owns every complete C512 state tile in this work item.
   const bool enable_gdn_chunk64_native_admission =
       g_enable_prefill_gdn_chunk64_native_admission;
+#if defined(Q3X_ENABLE_GDN_STATE_O_BV64_FUSION_ADMISSION)
+  const bool enable_gdn_state_o_bv64_fusion_admission =
+      g_enable_gdn_state_o_bv64_fusion_admission;
+#else
+  [[maybe_unused]] constexpr bool
+      enable_gdn_state_o_bv64_fusion_admission = false;
+#endif
 #endif
 #if defined(Q3X_ENABLE_GDN_PREFILL_PROMPT_SPAN_MACRO_ADMISSION)
   const bool request_gdn_prefill_prompt_span_macro_admission =
@@ -8313,6 +8646,12 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
   reference_runner_detail::A4W4AttentionSupermatrixAdmissionHits
       local_attention_factorized_lane_r1_hits{};
 #endif
+#if defined(Q3X_ENABLE_PREFILL_R1_PROJECTION_PLANE_V2_ADMISSION)
+  reference_runner_detail::A4W4AttentionSupermatrixAdmissionHits
+      local_prefill_r1_projection_plane_v2_attention_hits{};
+#endif
+  reference_runner_detail::PrefillR1ProjectionPlaneV2AdmissionHits
+      local_prefill_r1_projection_plane_v2_hits{};
   std::size_t attention_o_k512_hits = 0U;
   std::size_t down_complete_cell_v2_hits = 0U;
   const auto quantize =
@@ -8367,6 +8706,44 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
                 logical_token_count, projection_token_count,
                 sidecar.input_size, 1U, sidecar.activation_clip_ratio,
                 packed, packed_capacity, scales, scale_capacity, stream_);
+        if (!check_cuda(status, operation)) {
+          return false;
+        }
+        ++local_hits.activation_quantize_hits;
+        ++g_a4w4_full_prefill_admission_hits.activation_quantize_hits;
+        return true;
+      };
+#endif
+#if defined(Q3X_ENABLE_PREFILL_R1_PROJECTION_PLANE_V2_ADMISSION)
+  const auto quantize_prefill_r1_projection_plane_v2 =
+      [this, &check_cuda, &local_hits, projection_token_count](
+          const std::uint16_t* const input,
+          const std::size_t input_row_stride,
+          const std::size_t logical_token_count,
+          const PrefillR1ProjectionPlaneV2PhysicalView& physical,
+          std::uint8_t* const packed, const std::size_t packed_capacity,
+          std::uint16_t* const scales, const std::size_t scale_capacity,
+          const char* const operation) noexcept {
+        const auto& logical = physical.primary;
+        if (!physical.attached() ||
+            physical.physical_layout !=
+                PrefillR1ProjectionPlaneV2ViewLayout::kAdjacentN8 ||
+            !logical.attached() || input == nullptr ||
+            logical_token_count == 0U ||
+            input_row_stride < physical.input_size) {
+          return check_cuda(static_cast<int>(cudaErrorInvalidValue),
+                            operation);
+        }
+        const int status =
+            kernels::launch_sm87_a4w4_factorized_lane_quantize_bf16_cuda(
+                input, input_row_stride,
+                logical_token_count * input_row_stride,
+                logical.inverse_alpha,
+                logical.inverse_alpha_capacity_elements,
+                logical_token_count, projection_token_count,
+                physical.input_size, 1U,
+                static_cast<float>(logical.activation_clip_ratio), packed,
+                packed_capacity, scales, scale_capacity, stream_);
         if (!check_cuda(status, operation)) {
           return false;
         }
@@ -8517,9 +8894,22 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
 #else
   constexpr bool attention_factorized_lane_r1_selected = false;
 #endif
-#if defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R1_ADMISSION)
+#if defined(Q3X_ENABLE_PREFILL_R1_PROJECTION_PLANE_V2_ADMISSION)
+  const bool prefill_r1_projection_plane_v2_selected =
+      prefill_r1_projection_plane_v2_admission_enabled_;
+  const PrefillR1ProjectionPlaneV2LayerView& attention_v2 =
+      layer_weights.prefill_r1_projection_plane_v2;
+#else
+  constexpr bool prefill_r1_projection_plane_v2_selected = false;
+#endif
+  const bool attention_factorized_lane_any_selected =
+      attention_factorized_lane_r1_selected ||
+      prefill_r1_projection_plane_v2_selected;
+#if defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R1_ADMISSION) || \
+    defined(Q3X_ENABLE_PREFILL_R1_PROJECTION_PLANE_V2_ADMISSION)
   const bool factorized_lane_r1_handoff_selected =
-      factorized_lane_r1_handoff_prefill_admission_enabled_;
+      factorized_lane_r1_handoff_prefill_admission_enabled_ ||
+      prefill_r1_projection_plane_v2_selected;
   const bool factorized_lane_r1_cross_layer_handoff_selected =
       factorized_lane_r1_handoff_selected &&
       plan.projection_span_count == 1U;
@@ -8564,6 +8954,17 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
         linear_a, linear_b, "prefill_projection_span_linear_ab");
     bool attention_input_quantized = true;
     if (linear_ab_projected && !attention_input_handoff_ready) {
+#if defined(Q3X_ENABLE_PREFILL_R1_PROJECTION_PLANE_V2_ADMISSION)
+      if (prefill_r1_projection_plane_v2_selected) {
+        attention_input_quantized =
+            quantize_prefill_r1_projection_plane_v2(
+                primary, kReferenceHiddenSize, token_count,
+                attention_v2.linear_qkv, views_.prefill_a4_hidden_packed,
+                hidden_packed_capacity, views_.prefill_a4_hidden_scales,
+                hidden_scale_capacity,
+                "prefill_projection_span_linear_input_r1_v2_quantize");
+      } else
+#endif
 #if defined(Q3X_ENABLE_A4W4_ATTENTION_FACTORIZED_LANE_R1_EXPERIMENT)
       if (attention_factorized_lane_r1_selected) {
         attention_input_quantized = quantize_attention_r1(
@@ -8591,8 +8992,40 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
       ++g_a4w4_full_prefill_admission_hits.activation_quantize_hits;
     }
     bool attention_supermatrix_selected = false;
+#if defined(Q3X_ENABLE_PREFILL_R1_PROJECTION_PLANE_V2_ADMISSION)
+    if (prefill_r1_projection_plane_v2_selected) {
+      const std::array<PrefillR1ProjectionPlaneV2PhysicalView, 2U>
+          physical_views{attention_v2.linear_qkv, attention_v2.linear_z};
+      std::uint16_t* const outputs[2U] = {primary, secondary};
+      const std::size_t output_capacities[2U] = {
+          static_cast<std::size_t>(
+              request_plan.long_prefill_projection_primary_bf16
+                  .element_capacity),
+          static_cast<std::size_t>(
+              request_plan.long_prefill_projection_secondary_bf16
+                  .element_capacity)};
+      if (!check_cuda(
+              launch_selected_prefill_r1_projection_plane_v2_attention(
+                  true,
+                  kernels::Sm87A4W4AttentionK256Topology::kLinearQkvZ,
+                  reference_runner_detail::A4W4AttentionSupermatrixFamily::
+                      kLinearInput,
+                  views_.prefill_a4_hidden_packed, hidden_packed_capacity,
+                  views_.prefill_a4_hidden_scales, hidden_scale_capacity,
+                  physical_views.data(), outputs, output_capacities,
+                  physical_views.size(), projection_token_count, stream_,
+                  local_hits,
+                  local_prefill_r1_projection_plane_v2_attention_hits,
+                  local_prefill_r1_projection_plane_v2_hits,
+                  &attention_supermatrix_selected),
+              "prefill_projection_span_linear_qkv_z_r1_v2")) {
+        return failure;
+      }
+    }
+#endif
 #if defined(Q3X_ENABLE_A4W4_ATTENTION_FACTORIZED_LANE_R1_EXPERIMENT)
-    if (attention_factorized_lane_r1_selected) {
+    if (!attention_supermatrix_selected &&
+        attention_factorized_lane_r1_selected) {
       const std::array<PrefillAttentionFactorizedLaneR1LinearSidecarView, 2U>
           sidecars{attention_r1.linear_qkv, attention_r1.linear_z};
       std::uint16_t* const outputs[2U] = {primary, secondary};
@@ -8799,19 +9232,20 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
 
     bool gdn_k256_direct_pack_selected = false;
     bool gdn_factorized_lane_r1_direct_pack_selected = false;
-#if defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R1_ADMISSION) && \
+#if (defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R1_ADMISSION) || \
+     defined(Q3X_ENABLE_PREFILL_R1_PROJECTION_PLANE_V2_ADMISSION)) && \
     defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
     if (factorized_lane_r1_handoff_selected) {
       gdn_k256_direct_pack_selected =
           !gdn_prompt_span_macro_selected &&
           a4w4_prefill_consumer_ ==
               reference_runner_detail::A4W4PrefillConsumer::kK256 &&
-          !attention_factorized_lane_r1_selected;
+          !attention_factorized_lane_any_selected;
       gdn_factorized_lane_r1_direct_pack_selected =
           !gdn_prompt_span_macro_selected &&
           a4w4_prefill_consumer_ ==
               reference_runner_detail::A4W4PrefillConsumer::kK256 &&
-          attention_factorized_lane_r1_selected;
+          attention_factorized_lane_any_selected;
       for (std::uint32_t tile_index = 0U;
            (gdn_k256_direct_pack_selected ||
             gdn_factorized_lane_r1_direct_pack_selected) &&
@@ -8840,18 +9274,30 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
           !gdn_factorized_lane_r1_direct_pack_selected) {
         return runner_status(
             ReferenceRunnerError::kInvalidRequestState,
-            attention_factorized_lane_r1_selected
+            attention_factorized_lane_any_selected
                 ? "prefill_projection_span_linear_gdn_r1_handoff_contract"
                 : "prefill_projection_span_linear_gdn_k256_handoff_contract",
             item.layer_index);
       }
     }
-#elif defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R1_ADMISSION)
+#elif defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R1_ADMISSION) || \
+    defined(Q3X_ENABLE_PREFILL_R1_PROJECTION_PLANE_V2_ADMISSION)
     if (factorized_lane_r1_handoff_selected &&
-        !attention_factorized_lane_r1_selected) {
+        !attention_factorized_lane_any_selected) {
       return runner_status(
           ReferenceRunnerError::kInvalidRequestState,
           "prefill_projection_span_linear_gdn_k256_handoff_unavailable",
+          item.layer_index);
+    }
+#endif
+
+#if defined(Q3X_ENABLE_GDN_STATE_O_BV64_FUSION_ADMISSION)
+    if (enable_gdn_state_o_bv64_fusion_admission &&
+        (gdn_prompt_span_macro_selected ||
+         !gdn_factorized_lane_r1_direct_pack_selected)) {
+      return runner_status(
+          ReferenceRunnerError::kInvalidRequestState,
+          "prefill_projection_span_linear_gdn_state_o_bv64_fusion_contract",
           item.layer_index);
     }
 #endif
@@ -8921,6 +9367,31 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
         ++g_prefill_gdn_chunk64_native_admission_hits;
         g_prefill_gdn_chunk64_native_admission_logical_token_hits +=
             tile.token_count;
+#if defined(Q3X_ENABLE_A4W4_ATTENTION_FACTORIZED_LANE_R1_EXPERIMENT) || \
+    defined(Q3X_ENABLE_PREFILL_R1_PROJECTION_PLANE_V2_ADMISSION)
+        const float* direct_r1_inverse_alpha = nullptr;
+        std::size_t direct_r1_inverse_alpha_capacity = 0U;
+        float direct_r1_activation_clip_ratio = 0.0F;
+#if defined(Q3X_ENABLE_PREFILL_R1_PROJECTION_PLANE_V2_ADMISSION)
+        if (prefill_r1_projection_plane_v2_selected) {
+          direct_r1_inverse_alpha =
+              attention_v2.linear_o.primary.inverse_alpha;
+          direct_r1_inverse_alpha_capacity =
+              attention_v2.linear_o.primary.inverse_alpha_capacity_elements;
+          direct_r1_activation_clip_ratio = static_cast<float>(
+              attention_v2.linear_o.primary.activation_clip_ratio);
+        }
+#endif
+#if defined(Q3X_ENABLE_A4W4_ATTENTION_FACTORIZED_LANE_R1_EXPERIMENT)
+        if (attention_factorized_lane_r1_selected) {
+          direct_r1_inverse_alpha = attention_r1.linear_o.inverse_alpha;
+          direct_r1_inverse_alpha_capacity =
+              attention_r1.linear_o.inverse_alpha_capacity_elements;
+          direct_r1_activation_clip_ratio =
+              attention_r1.linear_o.activation_clip_ratio;
+        }
+#endif
+#endif
         int native_status = static_cast<int>(cudaErrorInvalidValue);
         if (gdn_k256_direct_pack_selected) {
           native_status =
@@ -8958,7 +9429,8 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
                         intermediate_packed_capacity,
                         views_.prefill_a4_intermediate_scales,
                         intermediate_scale_capacity, stream_);
-#if defined(Q3X_ENABLE_A4W4_ATTENTION_FACTORIZED_LANE_R1_EXPERIMENT)
+#if defined(Q3X_ENABLE_A4W4_ATTENTION_FACTORIZED_LANE_R1_EXPERIMENT) || \
+    defined(Q3X_ENABLE_PREFILL_R1_PROJECTION_PLANE_V2_ADMISSION)
         } else if (gdn_factorized_lane_r1_direct_pack_selected) {
           native_status =
               use_conv_compact_qk_fused_candidate
@@ -8973,15 +9445,16 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
                             views_.gdn_state[item.layer_index],
                             views_.gdn_state[item.layer_index], kRmsEpsilon,
                             attention->norm.data, z, kRmsEpsilon,
-                            attention_r1.linear_o.inverse_alpha,
-                            attention_r1.linear_o
-                                .inverse_alpha_capacity_elements,
+                            direct_r1_inverse_alpha,
+                            direct_r1_inverse_alpha_capacity,
                             local_first, token_count, projection_token_count,
-                            attention_r1.linear_o.activation_clip_ratio,
+                            direct_r1_activation_clip_ratio,
                             views_.prefill_a4_intermediate_packed,
                             intermediate_packed_capacity,
                             views_.prefill_a4_intermediate_scales,
-                            intermediate_scale_capacity, stream_)
+                            intermediate_scale_capacity, stream_,
+                            enable_gdn_state_o_bv64_fusion_admission &&
+                                !prefill_r1_projection_plane_v2_selected)
                   : gdn_prefill_chunk64_native_detail::
                         launch_factorized_lane_r1_a4(
                             prefill_gdn_chunk64_native_workspace_,
@@ -8993,15 +9466,16 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
                             views_.gdn_state[item.layer_index],
                             views_.gdn_state[item.layer_index], kRmsEpsilon,
                             attention->norm.data, z, kRmsEpsilon,
-                            attention_r1.linear_o.inverse_alpha,
-                            attention_r1.linear_o
-                                .inverse_alpha_capacity_elements,
+                            direct_r1_inverse_alpha,
+                            direct_r1_inverse_alpha_capacity,
                             local_first, token_count, projection_token_count,
-                            attention_r1.linear_o.activation_clip_ratio,
+                            direct_r1_activation_clip_ratio,
                             views_.prefill_a4_intermediate_packed,
                             intermediate_packed_capacity,
                             views_.prefill_a4_intermediate_scales,
-                            intermediate_scale_capacity, stream_);
+                            intermediate_scale_capacity, stream_,
+                            enable_gdn_state_o_bv64_fusion_admission &&
+                                !prefill_r1_projection_plane_v2_selected);
 #endif
         } else {
           native_status =
@@ -9037,7 +9511,17 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
         if (gdn_k256_direct_pack_selected) {
           ++g_gdn_k256_direct_pack_launch_hits;
         } else if (gdn_factorized_lane_r1_direct_pack_selected) {
-          ++g_gdn_factorized_lane_r1_direct_pack_launch_hits;
+          if (!prefill_r1_projection_plane_v2_selected) {
+            ++g_gdn_factorized_lane_r1_direct_pack_launch_hits;
+          }
+#if defined(Q3X_ENABLE_GDN_STATE_O_BV64_FUSION_ADMISSION)
+          if (enable_gdn_state_o_bv64_fusion_admission &&
+              !prefill_r1_projection_plane_v2_selected) {
+            ++g_gdn_state_o_bv64_fused_launch_hits;
+            g_gdn_state_o_bv64_fused_logical_token_hits +=
+                tile.token_count;
+          }
+#endif
         }
       } else
 #endif
@@ -9158,7 +9642,7 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
 
     bool attention_o_k512_selected = false;
 #if defined(Q3X_ENABLE_A4W4_ATTENTION_O_K512_ADMISSION)
-    if (!attention_factorized_lane_r1_selected && !check_cuda(
+    if (!attention_factorized_lane_any_selected && !check_cuda(
             launch_selected_a4w4_attention_o_k512(
                 a4w4_prefill_consumer_, attention->out_proj, secondary,
                 kLinearValueElements, token_count,
@@ -9192,6 +9676,20 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
     if (!gdn_k256_direct_pack_selected &&
         !gdn_factorized_lane_r1_direct_pack_selected &&
         !attention_o_k512_selected) {
+#if defined(Q3X_ENABLE_PREFILL_R1_PROJECTION_PLANE_V2_ADMISSION)
+      if (prefill_r1_projection_plane_v2_selected) {
+        if (!quantize_prefill_r1_projection_plane_v2(
+                secondary, kLinearValueElements, token_count,
+                attention_v2.linear_o,
+                views_.prefill_a4_intermediate_packed,
+                intermediate_packed_capacity,
+                views_.prefill_a4_intermediate_scales,
+                intermediate_scale_capacity,
+                "prefill_projection_span_linear_output_r1_v2_quantize")) {
+          return failure;
+        }
+      } else
+#endif
 #if defined(Q3X_ENABLE_A4W4_ATTENTION_FACTORIZED_LANE_R1_EXPERIMENT)
       if (attention_factorized_lane_r1_selected) {
         if (!quantize_attention_r1(
@@ -9218,8 +9716,38 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
       }
     }
     bool attention_output_supermatrix_selected = false;
+#if defined(Q3X_ENABLE_PREFILL_R1_PROJECTION_PLANE_V2_ADMISSION)
+    if (prefill_r1_projection_plane_v2_selected) {
+      const std::array<PrefillR1ProjectionPlaneV2PhysicalView, 1U>
+          physical_views{attention_v2.linear_o};
+      std::uint16_t* const outputs[1U] = {secondary};
+      const std::size_t output_capacities[1U] = {
+          static_cast<std::size_t>(
+              request_plan.long_prefill_projection_secondary_bf16
+                  .element_capacity)};
+      if (!check_cuda(
+              launch_selected_prefill_r1_projection_plane_v2_attention(
+                  true,
+                  kernels::Sm87A4W4AttentionK256Topology::kAttentionO,
+                  reference_runner_detail::A4W4AttentionSupermatrixFamily::
+                      kOutput,
+                  views_.prefill_a4_intermediate_packed,
+                  intermediate_packed_capacity,
+                  views_.prefill_a4_intermediate_scales,
+                  intermediate_scale_capacity, physical_views.data(),
+                  outputs, output_capacities, physical_views.size(),
+                  projection_token_count, stream_, local_hits,
+                  local_prefill_r1_projection_plane_v2_attention_hits,
+                  local_prefill_r1_projection_plane_v2_hits,
+                  &attention_output_supermatrix_selected),
+              "prefill_projection_span_linear_output_r1_v2")) {
+        return failure;
+      }
+    }
+#endif
 #if defined(Q3X_ENABLE_A4W4_ATTENTION_FACTORIZED_LANE_R1_EXPERIMENT)
-    if (attention_factorized_lane_r1_selected) {
+    if (!attention_output_supermatrix_selected &&
+        attention_factorized_lane_r1_selected) {
       const std::array<PrefillAttentionFactorizedLaneR1LinearSidecarView, 1U>
           sidecars{attention_r1.linear_o};
       std::uint16_t* const outputs[1U] = {secondary};
@@ -9372,6 +9900,18 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
         pad_full_kv ? secondary_output_capacity - value_offset_elements
                     : projection_token_count * kFullKvElements;
     if (!attention_input_handoff_ready) {
+#if defined(Q3X_ENABLE_PREFILL_R1_PROJECTION_PLANE_V2_ADMISSION)
+      if (prefill_r1_projection_plane_v2_selected) {
+        if (!quantize_prefill_r1_projection_plane_v2(
+                primary, kReferenceHiddenSize, token_count,
+                attention_v2.full_q, views_.prefill_a4_hidden_packed,
+                hidden_packed_capacity, views_.prefill_a4_hidden_scales,
+                hidden_scale_capacity,
+                "prefill_projection_span_full_input_r1_v2_quantize")) {
+          return failure;
+        }
+      } else
+#endif
 #if defined(Q3X_ENABLE_A4W4_ATTENTION_FACTORIZED_LANE_R1_EXPERIMENT)
       if (attention_factorized_lane_r1_selected) {
         if (!quantize_attention_r1(
@@ -9397,8 +9937,39 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
       ++g_a4w4_full_prefill_admission_hits.activation_quantize_hits;
     }
     bool attention_supermatrix_selected = false;
+#if defined(Q3X_ENABLE_PREFILL_R1_PROJECTION_PLANE_V2_ADMISSION)
+    if (prefill_r1_projection_plane_v2_selected) {
+      const std::array<PrefillR1ProjectionPlaneV2PhysicalView, 3U>
+          physical_views{attention_v2.full_q, attention_v2.full_k,
+                         attention_v2.full_v};
+      std::uint16_t* const outputs[3U] = {
+          primary, projected_span_key, projected_span_value};
+      const std::size_t output_capacities[3U] = {
+          static_cast<std::size_t>(
+              request_plan.long_prefill_projection_primary_bf16
+                  .element_capacity),
+          projected_span_key_capacity, projected_span_value_capacity};
+      if (!check_cuda(
+              launch_selected_prefill_r1_projection_plane_v2_attention(
+                  true, kernels::Sm87A4W4AttentionK256Topology::kFullQkv,
+                  reference_runner_detail::A4W4AttentionSupermatrixFamily::
+                      kFullInput,
+                  views_.prefill_a4_hidden_packed, hidden_packed_capacity,
+                  views_.prefill_a4_hidden_scales, hidden_scale_capacity,
+                  physical_views.data(), outputs, output_capacities,
+                  physical_views.size(), projection_token_count, stream_,
+                  local_hits,
+                  local_prefill_r1_projection_plane_v2_attention_hits,
+                  local_prefill_r1_projection_plane_v2_hits,
+                  &attention_supermatrix_selected),
+              "prefill_projection_span_full_q_k_v_r1_v2")) {
+        return failure;
+      }
+    }
+#endif
 #if defined(Q3X_ENABLE_A4W4_ATTENTION_FACTORIZED_LANE_R1_EXPERIMENT)
-    if (attention_factorized_lane_r1_selected) {
+    if (!attention_supermatrix_selected &&
+        attention_factorized_lane_r1_selected) {
       const std::array<PrefillAttentionFactorizedLaneR1LinearSidecarView, 3U>
           sidecars{attention_r1.full_q, attention_r1.full_k,
                    attention_r1.full_v};
@@ -9708,7 +10279,7 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
         prefill_a4_sidecar_view(attention->o_proj);
     bool attention_o_k512_selected = false;
 #if defined(Q3X_ENABLE_A4W4_ATTENTION_O_K512_ADMISSION)
-    if (!attention_factorized_lane_r1_selected && !check_cuda(
+    if (!attention_factorized_lane_any_selected && !check_cuda(
             launch_selected_a4w4_attention_o_k512(
                 a4w4_prefill_consumer_, attention->o_proj, secondary,
                 kFullQueryElements, token_count,
@@ -9735,6 +10306,20 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
       ++g_a4w4_full_prefill_admission_hits.logical_projection_hits;
     }
     if (!attention_o_k512_selected) {
+#if defined(Q3X_ENABLE_PREFILL_R1_PROJECTION_PLANE_V2_ADMISSION)
+      if (prefill_r1_projection_plane_v2_selected) {
+        if (!quantize_prefill_r1_projection_plane_v2(
+                secondary, kFullQueryElements, token_count,
+                attention_v2.full_o,
+                views_.prefill_a4_intermediate_packed,
+                intermediate_packed_capacity,
+                views_.prefill_a4_intermediate_scales,
+                intermediate_scale_capacity,
+                "prefill_projection_span_full_output_r1_v2_quantize")) {
+          return failure;
+        }
+      } else
+#endif
 #if defined(Q3X_ENABLE_A4W4_ATTENTION_FACTORIZED_LANE_R1_EXPERIMENT)
       if (attention_factorized_lane_r1_selected) {
         if (!quantize_attention_r1(
@@ -9761,8 +10346,38 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
       }
     }
     bool attention_output_supermatrix_selected = false;
+#if defined(Q3X_ENABLE_PREFILL_R1_PROJECTION_PLANE_V2_ADMISSION)
+    if (prefill_r1_projection_plane_v2_selected) {
+      const std::array<PrefillR1ProjectionPlaneV2PhysicalView, 1U>
+          physical_views{attention_v2.full_o};
+      std::uint16_t* const outputs[1U] = {secondary};
+      const std::size_t output_capacities[1U] = {
+          static_cast<std::size_t>(
+              request_plan.long_prefill_projection_secondary_bf16
+                  .element_capacity)};
+      if (!check_cuda(
+              launch_selected_prefill_r1_projection_plane_v2_attention(
+                  true,
+                  kernels::Sm87A4W4AttentionK256Topology::kAttentionO,
+                  reference_runner_detail::A4W4AttentionSupermatrixFamily::
+                      kOutput,
+                  views_.prefill_a4_intermediate_packed,
+                  intermediate_packed_capacity,
+                  views_.prefill_a4_intermediate_scales,
+                  intermediate_scale_capacity, physical_views.data(),
+                  outputs, output_capacities, physical_views.size(),
+                  projection_token_count, stream_, local_hits,
+                  local_prefill_r1_projection_plane_v2_attention_hits,
+                  local_prefill_r1_projection_plane_v2_hits,
+                  &attention_output_supermatrix_selected),
+              "prefill_projection_span_full_output_r1_v2")) {
+        return failure;
+      }
+    }
+#endif
 #if defined(Q3X_ENABLE_A4W4_ATTENTION_FACTORIZED_LANE_R1_EXPERIMENT)
-    if (attention_factorized_lane_r1_selected) {
+    if (!attention_output_supermatrix_selected &&
+        attention_factorized_lane_r1_selected) {
       const std::array<PrefillAttentionFactorizedLaneR1LinearSidecarView, 1U>
           sidecars{attention_r1.full_o};
       std::uint16_t* const outputs[1U] = {secondary};
@@ -9873,15 +10488,21 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
   }
 
   bool factorized_lane_r1_gate_input_handoff_ready = false;
-#if defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R1_ADMISSION)
+#if defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R1_ADMISSION) || \
+    defined(Q3X_ENABLE_PREFILL_R1_PROJECTION_PLANE_V2_ADMISSION)
   if (factorized_lane_r1_handoff_selected) {
     const PrefillMLPFactorizedLaneLayerView& factorized =
         layer_weights.prefill_mlp_factorized_lane_r1;
+    const PrefillR1ProjectionPlaneV2PhysicalView& v2_gate_up =
+        layer_weights.prefill_r1_projection_plane_v2.mlp_gate_up;
     const std::size_t gate_launch_token_count =
         kernels::sm87_a4w4_gateup_factorized_launch_token_count(token_count);
-    if (!factorized_lane_r1_prefill_admission_enabled_ ||
+    if (!(factorized_lane_r1_prefill_admission_enabled_ ||
+          prefill_r1_projection_plane_v2_selected) ||
         gate_launch_token_count != projection_token_count ||
-        !factorized.attached()) {
+        (prefill_r1_projection_plane_v2_selected
+             ? !v2_gate_up.attached()
+             : !factorized.attached())) {
       return runner_status(
           ReferenceRunnerError::kInvalidRequestState,
           "prefill_projection_span_r1_attention_to_gate_handoff_contract",
@@ -9892,16 +10513,26 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
                 launch_sm87_a4w4_attention_residual_post_norm_r1_quantize_cuda(
                     input_hidden, secondary,
                     layer_weights.post_attention_layernorm.data,
-                    factorized.gate.inverse_alpha,
-                    factorized.gate.inverse_alpha_capacity_elements,
+                    prefill_r1_projection_plane_v2_selected
+                        ? v2_gate_up.primary.inverse_alpha
+                        : factorized.gate.inverse_alpha,
+                    prefill_r1_projection_plane_v2_selected
+                        ? v2_gate_up.primary.inverse_alpha_capacity_elements
+                        : factorized.gate.inverse_alpha_capacity_elements,
                     token_count, gate_launch_token_count, kRmsEpsilon,
-                    factorized.gate.activation_clip_ratio, output_hidden,
+                    prefill_r1_projection_plane_v2_selected
+                        ? static_cast<float>(
+                              v2_gate_up.primary.activation_clip_ratio)
+                        : factorized.gate.activation_clip_ratio,
+                    output_hidden,
                     token_count * kReferenceHiddenSize,
                     views_.prefill_a4_hidden_packed,
                     hidden_packed_capacity,
                     views_.prefill_a4_hidden_scales,
                     hidden_scale_capacity, stream_),
-            "prefill_projection_span_r1_attention_to_gate_handoff")) {
+            prefill_r1_projection_plane_v2_selected
+                ? "prefill_projection_span_r1_v2_attention_to_gate_handoff"
+                : "prefill_projection_span_r1_attention_to_gate_handoff")) {
       return failure;
     }
     ++local_hits.activation_quantize_hits;
@@ -9931,6 +10562,7 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
   const PrefillA4LinearSidecarView down_sidecar =
       prefill_a4_sidecar_view(layer_weights.mlp.down_proj);
   bool factorized_lane_r1_selected = false;
+  bool prefill_r1_projection_plane_v2_mlp_selected = false;
   bool factorized_lane_r4_selected = false;
 #if defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R4_ADMISSION)
   if (factorized_lane_r4_prefill_admission_enabled_) {
@@ -10176,6 +10808,148 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
     factorized_lane_r4_selected = true;
   }
 #endif
+#if defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R1_ADMISSION) || \
+    defined(Q3X_ENABLE_PREFILL_R1_PROJECTION_PLANE_V2_ADMISSION)
+#if defined(Q3X_ENABLE_PREFILL_R1_PROJECTION_PLANE_V2_ADMISSION)
+  if (prefill_r1_projection_plane_v2_selected) {
+    const PrefillR1ProjectionPlaneV2LayerView& v2 =
+        layer_weights.prefill_r1_projection_plane_v2;
+    const PrefillR1ProjectionPlaneV2PhysicalView& gate_up = v2.mlp_gate_up;
+    const PrefillR1ProjectionPlaneV2PhysicalView& down = v2.mlp_down;
+    const std::size_t gate_launch_token_count =
+        kernels::sm87_a4w4_gateup_factorized_launch_token_count(token_count);
+    const std::size_t down_launch_token_count =
+        kernels::sm87_a4w4_down_factorized_launch_token_count(token_count);
+    const auto gate_plan = kernels::sm87_a4w4_gateup_factorized_lane_plan(
+        token_count, gate_launch_token_count, kReferenceIntermediateSize,
+        kReferenceHiddenSize);
+    const auto down_plan = kernels::sm87_a4w4_down_factorized_lane_plan(
+        token_count, down_launch_token_count, kReferenceHiddenSize,
+        kReferenceIntermediateSize);
+    const auto product_finalize_plan =
+        kernels::sm87_a4w4_gateup_r1_product_finalize_plan(
+            token_count, down_launch_token_count);
+    const std::size_t primary_capacity = static_cast<std::size_t>(
+        request_plan.long_prefill_projection_primary_bf16.element_capacity);
+    const std::size_t secondary_capacity = static_cast<std::size_t>(
+        request_plan.long_prefill_projection_secondary_bf16.element_capacity);
+    const std::size_t gate_a_bytes =
+        kernels::sm87_a4w4_gateup_factorized_packed_capacity_bytes(
+            gate_launch_token_count, kReferenceHiddenSize);
+    const std::size_t gate_a_scales =
+        kernels::sm87_a4w4_gateup_factorized_scale_capacity_elements(
+            gate_launch_token_count);
+    const std::size_t down_a_bytes =
+        kernels::sm87_a4w4_down_factorized_packed_capacity_bytes(
+            down_launch_token_count, kReferenceIntermediateSize);
+    const std::size_t down_a_scales =
+        kernels::sm87_a4w4_down_factorized_scale_capacity_elements(
+            down_launch_token_count);
+    if (!v2.attached() || !gate_up.attached() || !down.attached() ||
+        gate_up.physical_layout !=
+            PrefillR1ProjectionPlaneV2ViewLayout::kPairedGateUp ||
+        down.physical_layout !=
+            PrefillR1ProjectionPlaneV2ViewLayout::kAdjacentN8 ||
+        gate_up.output_size != kReferenceIntermediateSize ||
+        gate_up.input_size != kReferenceHiddenSize ||
+        down.output_size != kReferenceHiddenSize ||
+        down.input_size != kReferenceIntermediateSize ||
+        !factorized_lane_r1_gate_input_handoff_ready ||
+        factorized_lane_mlp_selector_conflict() ||
+        a4w4_prefill_consumer_ !=
+            reference_runner_detail::A4W4PrefillConsumer::kK256 ||
+        projection_backend_ != ProjectionBackend::kSm87WeightOnly ||
+        gate_launch_token_count != projection_token_count ||
+        down_launch_token_count == 0U ||
+        down_launch_token_count > span_capacity || gate_plan.launch_ctas == 0U ||
+        down_plan.launch_ctas == 0U || !product_finalize_plan ||
+        product_finalize_plan.gate_launch_token_count !=
+            gate_launch_token_count ||
+        views_.prefill_a4_gateup_r1_product_partial_max == nullptr ||
+        reinterpret_cast<std::uintptr_t>(
+            views_.prefill_a4_gateup_r1_product_partial_max) %
+                alignof(float) !=
+            0U ||
+        views_.prefill_a4_gateup_r1_product_partial_max_elements <
+            product_finalize_plan.partial_capacity_elements ||
+        gate_a_bytes == 0U || gate_a_scales == 0U || down_a_bytes == 0U ||
+        down_a_scales == 0U || hidden_packed_capacity < gate_a_bytes ||
+        hidden_scale_capacity < gate_a_scales ||
+        intermediate_packed_capacity < down_a_bytes ||
+        intermediate_scale_capacity < down_a_scales ||
+        primary_capacity <
+            token_count * kernels::kSm87A4W4GateUpFactorizedPrimaryStride ||
+        secondary_capacity <
+            token_count * kernels::kSm87A4W4GateUpFactorizedSecondaryStride ||
+        secondary_capacity < token_count * kReferenceHiddenSize) {
+      return runner_status(
+          ReferenceRunnerError::kInvalidRequestState,
+          "prefill_projection_span_r1_projection_plane_v2_mlp_contract",
+          item.layer_index);
+    }
+    if (!check_cuda(
+            kernels::
+                launch_sm87_a4w4_gateup_factorized_lane_r1_v2_tile_max_bf16_cuda(
+                    views_.prefill_a4_hidden_packed, hidden_packed_capacity,
+                    views_.prefill_a4_hidden_scales, hidden_scale_capacity,
+                    gate_up.codes, gate_up.code_capacity_bytes,
+                    gate_up.scales, gate_up.scale_capacity_elements,
+                    token_count, gate_launch_token_count,
+                    kReferenceIntermediateSize, kReferenceHiddenSize, primary,
+                    kernels::kSm87A4W4GateUpFactorizedPrimaryStride,
+                    primary_capacity, secondary,
+                    kernels::kSm87A4W4GateUpFactorizedSecondaryStride,
+                    secondary_capacity, down.primary.inverse_alpha,
+                    down.primary.inverse_alpha_capacity_elements,
+                    views_.prefill_a4_gateup_r1_product_partial_max,
+                    views_.prefill_a4_gateup_r1_product_partial_max_elements,
+                    stream_),
+            "prefill_projection_span_r1_projection_plane_v2_gateup") ||
+        !check_cuda(
+            kernels::launch_sm87_a4w4_gateup_r1_product_finalize_cuda(
+                primary, kernels::kSm87A4W4GateUpFactorizedPrimaryStride,
+                primary_capacity, secondary,
+                kernels::kSm87A4W4GateUpFactorizedSecondaryStride,
+                secondary_capacity, down.primary.inverse_alpha,
+                down.primary.inverse_alpha_capacity_elements,
+                views_.prefill_a4_gateup_r1_product_partial_max,
+                views_.prefill_a4_gateup_r1_product_partial_max_elements,
+                token_count, down_launch_token_count,
+                static_cast<float>(down.primary.activation_clip_ratio),
+                views_.prefill_a4_intermediate_packed,
+                intermediate_packed_capacity,
+                views_.prefill_a4_intermediate_scales,
+                intermediate_scale_capacity, stream_),
+            "prefill_projection_span_r1_projection_plane_v2_product_finalize") ||
+        !check_cuda(
+            kernels::launch_sm87_a4w4_down_factorized_lane_r1_v2_bf16_cuda(
+                views_.prefill_a4_intermediate_packed,
+                intermediate_packed_capacity,
+                views_.prefill_a4_intermediate_scales,
+                intermediate_scale_capacity, down.codes,
+                down.code_capacity_bytes, down.scales,
+                down.scale_capacity_elements, token_count,
+                down_launch_token_count, kReferenceHiddenSize,
+                kReferenceIntermediateSize, secondary, kReferenceHiddenSize,
+                secondary_capacity, stream_),
+            "prefill_projection_span_r1_projection_plane_v2_down")) {
+      return failure;
+    }
+    ++local_hits.activation_quantize_hits;
+    ++local_hits.paired_gate_up_hits;
+    ++local_hits.generic_projection_hits;
+    local_hits.logical_projection_hits += 3U;
+    ++g_a4w4_full_prefill_admission_hits.activation_quantize_hits;
+    ++g_a4w4_full_prefill_admission_hits.paired_gate_up_hits;
+    ++g_a4w4_full_prefill_admission_hits.generic_projection_hits;
+    g_a4w4_full_prefill_admission_hits.logical_projection_hits += 3U;
+    ++local_prefill_r1_projection_plane_v2_hits.gateup_launch_hits;
+    ++local_prefill_r1_projection_plane_v2_hits.down_launch_hits;
+    local_prefill_r1_projection_plane_v2_hits.logical_projection_hits += 3U;
+    prefill_r1_projection_plane_v2_mlp_selected = true;
+  }
+#endif
+
 #if defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R1_ADMISSION)
   if (factorized_lane_r1_prefill_admission_enabled_) {
     const PrefillMLPFactorizedLaneLayerView& factorized =
@@ -10400,6 +11174,7 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
           .factorized_lane_r1_package_launch_hits;
     factorized_lane_r1_selected = true;
   }
+#endif
 #endif
 #if defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_ALTERNATING_ADMISSION) && \
     defined(Q3X_ENABLE_A4W4_DOWN_K512_M128N128_16WARP_PAIRRING_ADMISSION)
@@ -12386,7 +13161,8 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
     mlp_k512_selected = true;
   }
 #endif
-  if (!factorized_lane_r1_selected && !factorized_lane_r4_selected &&
+  if (!prefill_r1_projection_plane_v2_mlp_selected &&
+      !factorized_lane_r1_selected && !factorized_lane_r4_selected &&
       !mlp_k512_selected &&
       !mlp_k256_package_selected) {
     if (!quantize(primary, kReferenceHiddenSize, token_count,
@@ -12441,20 +13217,38 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
     }
   }
   bool next_attention_input_handoff_published = false;
-#if defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R1_ADMISSION)
+#if defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R1_ADMISSION) || \
+    defined(Q3X_ENABLE_PREFILL_R1_PROJECTION_PLANE_V2_ADMISSION)
   if (factorized_lane_r1_cross_layer_handoff_selected &&
       item.layer_index + 1U < kReferenceDecoderLayerCount) {
     const DecoderLayerWeights& next_layer_weights =
         weights_->layer(item.layer_index + 1U);
     float next_attention_clip_ratio = 0.0F;
-#if defined(Q3X_ENABLE_A4W4_ATTENTION_FACTORIZED_LANE_R1_EXPERIMENT)
+#if defined(Q3X_ENABLE_A4W4_ATTENTION_FACTORIZED_LANE_R1_EXPERIMENT) || \
+    defined(Q3X_ENABLE_PREFILL_R1_PROJECTION_PLANE_V2_ADMISSION)
     const float* next_attention_inverse_alpha = nullptr;
     std::size_t next_attention_inverse_alpha_capacity = 0U;
 #endif
     if (const auto* const next_linear =
             std::get_if<LinearAttentionWeights>(
                 &next_layer_weights.attention)) {
-      if (attention_factorized_lane_r1_selected) {
+      if (prefill_r1_projection_plane_v2_selected) {
+#if defined(Q3X_ENABLE_PREFILL_R1_PROJECTION_PLANE_V2_ADMISSION)
+        const auto& next_v2 =
+            next_layer_weights.prefill_r1_projection_plane_v2.linear_qkv;
+        if (!next_v2.attached()) {
+          return runner_status(
+              ReferenceRunnerError::kInvalidRequestState,
+              "prefill_projection_span_r1_v2_next_linear_attention_contract",
+              item.layer_index);
+        }
+        next_attention_clip_ratio = static_cast<float>(
+            next_v2.primary.activation_clip_ratio);
+        next_attention_inverse_alpha = next_v2.primary.inverse_alpha;
+        next_attention_inverse_alpha_capacity =
+            next_v2.primary.inverse_alpha_capacity_elements;
+#endif
+      } else if (attention_factorized_lane_r1_selected) {
 #if defined(Q3X_ENABLE_A4W4_ATTENTION_FACTORIZED_LANE_R1_EXPERIMENT)
         const auto& next_r1 = next_layer_weights
                                   .prefill_attention_factorized_lane_r1
@@ -12478,7 +13272,23 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
     } else if (const auto* const next_full =
                    std::get_if<FullAttentionWeights>(
                        &next_layer_weights.attention)) {
-      if (attention_factorized_lane_r1_selected) {
+      if (prefill_r1_projection_plane_v2_selected) {
+#if defined(Q3X_ENABLE_PREFILL_R1_PROJECTION_PLANE_V2_ADMISSION)
+        const auto& next_v2 =
+            next_layer_weights.prefill_r1_projection_plane_v2.full_q;
+        if (!next_v2.attached()) {
+          return runner_status(
+              ReferenceRunnerError::kInvalidRequestState,
+              "prefill_projection_span_r1_v2_next_full_attention_contract",
+              item.layer_index);
+        }
+        next_attention_clip_ratio = static_cast<float>(
+            next_v2.primary.activation_clip_ratio);
+        next_attention_inverse_alpha = next_v2.primary.inverse_alpha;
+        next_attention_inverse_alpha_capacity =
+            next_v2.primary.inverse_alpha_capacity_elements;
+#endif
+      } else if (attention_factorized_lane_r1_selected) {
 #if defined(Q3X_ENABLE_A4W4_ATTENTION_FACTORIZED_LANE_R1_EXPERIMENT)
         const auto& next_r1 =
             next_layer_weights.prefill_attention_factorized_lane_r1.full_q;
@@ -12511,8 +13321,9 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
     int handoff_status = static_cast<int>(cudaErrorInvalidValue);
     const char* handoff_operation =
         "prefill_projection_span_r1_mlp_to_next_attention_handoff";
-#if defined(Q3X_ENABLE_A4W4_ATTENTION_FACTORIZED_LANE_R1_EXPERIMENT)
-    if (attention_factorized_lane_r1_selected) {
+#if defined(Q3X_ENABLE_A4W4_ATTENTION_FACTORIZED_LANE_R1_EXPERIMENT) || \
+    defined(Q3X_ENABLE_PREFILL_R1_PROJECTION_PLANE_V2_ADMISSION)
+    if (attention_factorized_lane_any_selected) {
       handoff_status = kernels::
           launch_sm87_a4w4_mlp_residual_next_norm_attention_r1_quantize_cuda(
               output_hidden, secondary,
@@ -12527,8 +13338,9 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
               views_.prefill_a4_hidden_packed, hidden_packed_capacity,
               views_.prefill_a4_hidden_scales, hidden_scale_capacity,
               stream_);
-      handoff_operation =
-          "prefill_projection_span_r1_mlp_to_next_attention_r1_handoff";
+      handoff_operation = prefill_r1_projection_plane_v2_selected
+                              ? "prefill_projection_span_r1_v2_mlp_to_next_attention_handoff"
+                              : "prefill_projection_span_r1_mlp_to_next_attention_r1_handoff";
     } else
 #endif
     {
@@ -12557,15 +13369,25 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
           "prefill_projection_span_mlp_residual")) {
     return failure;
   }
-#if defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R1_ADMISSION)
+#if defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R1_ADMISSION) || \
+    defined(Q3X_ENABLE_PREFILL_R1_PROJECTION_PLANE_V2_ADMISSION)
   if (factorized_lane_r1_handoff_selected) {
-    ++local_hits.factorized_lane_r1_handoff_package_launch_hits;
-    ++g_a4w4_full_prefill_admission_hits
-          .factorized_lane_r1_handoff_package_launch_hits;
-    if (next_attention_input_handoff_published) {
-      ++local_hits.factorized_lane_r1_cross_layer_handoff_launch_hits;
+    if (prefill_r1_projection_plane_v2_selected) {
+      ++local_prefill_r1_projection_plane_v2_hits
+            .handoff_package_launch_hits;
+      if (next_attention_input_handoff_published) {
+        ++local_prefill_r1_projection_plane_v2_hits
+              .cross_layer_handoff_launch_hits;
+      }
+    } else {
+      ++local_hits.factorized_lane_r1_handoff_package_launch_hits;
       ++g_a4w4_full_prefill_admission_hits
-            .factorized_lane_r1_cross_layer_handoff_launch_hits;
+            .factorized_lane_r1_handoff_package_launch_hits;
+      if (next_attention_input_handoff_published) {
+        ++local_hits.factorized_lane_r1_cross_layer_handoff_launch_hits;
+        ++g_a4w4_full_prefill_admission_hits
+              .factorized_lane_r1_cross_layer_handoff_launch_hits;
+      }
     }
   }
 #endif
@@ -12619,6 +13441,19 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
   observed_attention_logical +=
       local_attention_factorized_lane_r1_hits.logical_projection_hits;
 #endif
+#if defined(Q3X_ENABLE_PREFILL_R1_PROJECTION_PLANE_V2_ADMISSION)
+  observed_attention_linear +=
+      local_prefill_r1_projection_plane_v2_attention_hits
+          .linear_input_launch_hits;
+  observed_attention_full +=
+      local_prefill_r1_projection_plane_v2_attention_hits
+          .full_input_launch_hits;
+  observed_attention_output +=
+      local_prefill_r1_projection_plane_v2_attention_hits.output_launch_hits;
+  observed_attention_logical +=
+      local_prefill_r1_projection_plane_v2_attention_hits
+          .logical_projection_hits;
+#endif
   const bool attention_supermatrix_inputs_all =
       observed_attention_linear == expected_attention_linear &&
       observed_attention_full == expected_attention_full &&
@@ -12651,7 +13486,7 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
       local_attention_supermatrix_hits.output_launch_hits == 0U &&
       local_attention_supermatrix_hits.logical_projection_hits == 0U;
   const bool requested_attention_supermatrix_selected =
-      attention_factorized_lane_r1_selected
+      attention_factorized_lane_any_selected
           ? incumbent_attention_none
           : (!g_enable_a4w4_attention_supermatrix_admission ||
              (incumbent_attention_inputs_all &&
@@ -12700,7 +13535,7 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
       local_attention_k256_a_exchange_b4_hits.output_launch_hits == 0U &&
       local_attention_k256_a_exchange_b4_hits.logical_projection_hits == 0U;
   const bool requested_attention_k256_selected =
-      attention_factorized_lane_r1_selected
+      attention_factorized_lane_any_selected
           ? k256_attention_none && k256_a_exchange_b4_attention_none
           : (g_enable_a4w4_attention_k256_m128n256_admission
                  ? k256_attention_inputs_all && k256_attention_output_all &&
@@ -12716,7 +13551,7 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
 #endif
 #if defined(Q3X_ENABLE_A4W4_ATTENTION_O_K512_ADMISSION)
   const bool requested_attention_o_k512_selected =
-      attention_factorized_lane_r1_selected
+      attention_factorized_lane_any_selected
           ? attention_o_k512_none
           : !g_enable_a4w4_attention_o_k512_admission ||
                 attention_o_k512_all;
@@ -12746,6 +13581,36 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
           : attention_r1_none;
 #else
   constexpr bool requested_attention_r1_selected = true;
+#endif
+#if defined(Q3X_ENABLE_PREFILL_R1_PROJECTION_PLANE_V2_ADMISSION)
+  const bool attention_v2_inputs_all =
+      local_prefill_r1_projection_plane_v2_attention_hits
+              .linear_input_launch_hits == expected_attention_linear &&
+      local_prefill_r1_projection_plane_v2_attention_hits
+              .full_input_launch_hits == expected_attention_full &&
+      local_prefill_r1_projection_plane_v2_attention_hits
+              .logical_projection_hits ==
+          expected_attention_input_logical +
+              local_prefill_r1_projection_plane_v2_attention_hits
+                  .output_launch_hits;
+  const bool attention_v2_output_all =
+      local_prefill_r1_projection_plane_v2_attention_hits.output_launch_hits ==
+      expected_attention_output;
+  const bool attention_v2_none =
+      local_prefill_r1_projection_plane_v2_attention_hits
+              .linear_input_launch_hits == 0U &&
+      local_prefill_r1_projection_plane_v2_attention_hits
+              .full_input_launch_hits == 0U &&
+      local_prefill_r1_projection_plane_v2_attention_hits
+              .output_launch_hits == 0U &&
+      local_prefill_r1_projection_plane_v2_attention_hits
+              .logical_projection_hits == 0U;
+  const bool requested_attention_v2_selected =
+      prefill_r1_projection_plane_v2_selected
+          ? attention_v2_inputs_all && attention_v2_output_all
+          : attention_v2_none;
+#else
+  constexpr bool requested_attention_v2_selected = true;
 #endif
   if (attention_supermatrix_inputs_all) {
     expected_generic -= expected_attention_input_logical;
@@ -12785,6 +13650,7 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
 #if defined(Q3X_ENABLE_A4W4_DOWN_COMPLETE_CELL_V3_ADMISSION)
   down_cell_query.admission_enabled =
       g_enable_a4w4_down_complete_cell_v3_admission &&
+      !prefill_r1_projection_plane_v2_mlp_selected &&
       !factorized_lane_r1_selected && !factorized_lane_r4_selected &&
       !mlp_k512_selected &&
       !mlp_k256_package_selected;
@@ -12795,6 +13661,7 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
 #if defined(Q3X_ENABLE_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION)
   down_cell_query.admission_enabled =
       g_enable_a4w4_down_complete_cell_v2_admission &&
+      !prefill_r1_projection_plane_v2_mlp_selected &&
       !factorized_lane_r1_selected && !factorized_lane_r4_selected &&
       !mlp_k512_selected &&
       !mlp_k256_package_selected;
@@ -12804,10 +13671,50 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
           down_cell_query);
 #endif
 #endif
+  if (prefill_r1_projection_plane_v2_selected) {
+    ++local_prefill_r1_projection_plane_v2_hits.layer_package_launch_hits;
+  }
+  const bool prefill_r1_projection_plane_v2_layer_accounting_valid =
+      prefill_r1_projection_plane_v2_selected
+          ? local_prefill_r1_projection_plane_v2_hits
+                    .layer_package_launch_hits == 1U &&
+                local_prefill_r1_projection_plane_v2_hits
+                        .gateup_launch_hits == 1U &&
+                local_prefill_r1_projection_plane_v2_hits.down_launch_hits ==
+                    1U &&
+                local_prefill_r1_projection_plane_v2_hits
+                        .attention_physical_launch_hits == 2U &&
+                local_prefill_r1_projection_plane_v2_hits
+                        .logical_projection_hits == expected_logical &&
+                local_prefill_r1_projection_plane_v2_hits
+                        .handoff_package_launch_hits == 1U &&
+                local_prefill_r1_projection_plane_v2_hits
+                        .cross_layer_handoff_launch_hits ==
+                    (factorized_lane_r1_cross_layer_handoff_selected &&
+                             item.layer_index + 1U <
+                                 kReferenceDecoderLayerCount
+                         ? 1U
+                         : 0U)
+          : local_prefill_r1_projection_plane_v2_hits
+                        .layer_package_launch_hits == 0U &&
+                local_prefill_r1_projection_plane_v2_hits
+                        .gateup_launch_hits == 0U &&
+                local_prefill_r1_projection_plane_v2_hits.down_launch_hits ==
+                    0U &&
+                local_prefill_r1_projection_plane_v2_hits
+                        .attention_physical_launch_hits == 0U &&
+                local_prefill_r1_projection_plane_v2_hits
+                        .logical_projection_hits == 0U &&
+                local_prefill_r1_projection_plane_v2_hits
+                        .handoff_package_launch_hits == 0U &&
+                local_prefill_r1_projection_plane_v2_hits
+                        .cross_layer_handoff_launch_hits == 0U;
   if (!requested_attention_supermatrix_selected ||
       !requested_attention_k256_selected ||
       !requested_attention_o_k512_selected ||
       !requested_attention_r1_selected ||
+      !requested_attention_v2_selected ||
+      !prefill_r1_projection_plane_v2_layer_accounting_valid ||
       (!attention_supermatrix_inputs_all &&
        !attention_supermatrix_inputs_none) ||
       (!attention_supermatrix_output_all &&
@@ -12815,7 +13722,8 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
       (!attention_o_k512_all && !attention_o_k512_none) ||
       (attention_supermatrix_output_all && attention_o_k512_all) ||
       local_hits.activation_quantize_hits !=
-          (factorized_lane_r1_selected || factorized_lane_r4_selected ||
+          (prefill_r1_projection_plane_v2_mlp_selected ||
+                   factorized_lane_r1_selected || factorized_lane_r4_selected ||
                    mlp_k512_selected || mlp_k256_package_selected
                ? 4U
                : 3U) ||
@@ -12825,9 +13733,10 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
       local_hits.factorized_lane_r1_package_launch_hits !=
           (factorized_lane_r1_selected ? 1U : 0U) ||
       local_hits.factorized_lane_r1_handoff_package_launch_hits !=
-          (factorized_lane_r1_handoff_selected ? 1U : 0U) ||
+          (factorized_lane_r1_handoff_prefill_admission_enabled_ ? 1U : 0U) ||
       local_hits.factorized_lane_r1_cross_layer_handoff_launch_hits !=
-          (factorized_lane_r1_cross_layer_handoff_selected &&
+          (factorized_lane_r1_handoff_prefill_admission_enabled_ &&
+                   plan.projection_span_count == 1U &&
                    item.layer_index + 1U < kReferenceDecoderLayerCount
                ? 1U
                : 0U) ||
@@ -12843,14 +13752,18 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
       local_hits.m128_stage_major_generic_projection_hits !=
           (expect_m128_stage_major ? expected_generic - 1U : 0U) ||
       local_hits.m128_stage_major_down_projection_hits !=
-          (expect_down_m128_stage_major && !factorized_lane_r1_selected &&
+          (expect_down_m128_stage_major &&
+                   !prefill_r1_projection_plane_v2_mlp_selected &&
+                   !factorized_lane_r1_selected &&
                    !factorized_lane_r4_selected &&
                    !mlp_k512_selected && !mlp_k256_package_selected &&
                    !expect_down_complete_cell_v2
                ? 1U
                : 0U) ||
       local_hits.m128_stage_major_paired_gate_up_hits !=
-          (expect_m128_stage_major && !factorized_lane_r1_selected &&
+          (expect_m128_stage_major &&
+                   !prefill_r1_projection_plane_v2_mlp_selected &&
+                   !factorized_lane_r1_selected &&
                    !factorized_lane_r4_selected &&
                    !mlp_k512_selected && !mlp_k256_package_selected &&
                    !projection_v3_selected &&
@@ -12878,6 +13791,25 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
       return failure;
     }
   }
+  if (prefill_r1_projection_plane_v2_selected) {
+    auto& request_hits = prefill_r1_projection_plane_v2_request_hits_;
+    request_hits.layer_package_launch_hits +=
+        local_prefill_r1_projection_plane_v2_hits.layer_package_launch_hits;
+    request_hits.gateup_launch_hits +=
+        local_prefill_r1_projection_plane_v2_hits.gateup_launch_hits;
+    request_hits.down_launch_hits +=
+        local_prefill_r1_projection_plane_v2_hits.down_launch_hits;
+    request_hits.attention_physical_launch_hits +=
+        local_prefill_r1_projection_plane_v2_hits
+            .attention_physical_launch_hits;
+    request_hits.logical_projection_hits +=
+        local_prefill_r1_projection_plane_v2_hits.logical_projection_hits;
+    request_hits.handoff_package_launch_hits +=
+        local_prefill_r1_projection_plane_v2_hits.handoff_package_launch_hits;
+    request_hits.cross_layer_handoff_launch_hits +=
+        local_prefill_r1_projection_plane_v2_hits
+            .cross_layer_handoff_launch_hits;
+  }
   return {};
 #endif
 }
@@ -12889,6 +13821,7 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
   using Clock = std::chrono::steady_clock;
   const Clock::time_point started = Clock::now();
   retained_prefill_hidden_valid_ = false;
+  prefill_r1_projection_plane_v2_request_hits_ = {};
 
   if (!static_cast<bool>(*this)) {
     return fail_long_prefill(runner_status(
@@ -12992,6 +13925,12 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
     return fail_long_prefill(runner_status(
         ReferenceRunnerError::kInvalidStepOptions,
         "factorized_lane_r1_requires_whole_m_projection_span"));
+  }
+  if (prefill_r1_projection_plane_v2_admission_enabled_ &&
+      !projection_span_selected) {
+    return fail_long_prefill(runner_status(
+        ReferenceRunnerError::kInvalidStepOptions,
+        "prefill_r1_projection_plane_v2_requires_whole_m_projection_span"));
   }
   if (factorized_lane_r4_prefill_admission_enabled_ &&
       (!projection_span_selected ||
@@ -13162,6 +14101,12 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
     const std::size_t
         gdn_factorized_lane_r1_direct_pack_launch_hits_before =
             g_gdn_factorized_lane_r1_direct_pack_launch_hits;
+#if defined(Q3X_ENABLE_GDN_STATE_O_BV64_FUSION_ADMISSION)
+    const std::size_t gdn_state_o_bv64_fused_launch_hits_before =
+        g_gdn_state_o_bv64_fused_launch_hits;
+    const std::size_t gdn_state_o_bv64_fused_logical_token_hits_before =
+        g_gdn_state_o_bv64_fused_logical_token_hits;
+#endif
 #endif
 #if defined(Q3X_ENABLE_GDN_PREFILL_PROMPT_SPAN_MACRO_ADMISSION)
     const std::size_t gdn_prompt_span_macro_launch_hits_before =
@@ -13229,6 +14174,8 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
     std::size_t gdn_chunk64_native_logical_token_delta = 0U;
     std::size_t gdn_k256_direct_pack_launch_delta = 0U;
     std::size_t gdn_factorized_lane_r1_direct_pack_launch_delta = 0U;
+    std::size_t gdn_state_o_bv64_fused_launch_delta = 0U;
+    std::size_t gdn_state_o_bv64_fused_logical_token_delta = 0U;
     std::size_t gdn_prompt_span_macro_launch_delta = 0U;
     std::size_t gdn_prompt_span_macro_logical_token_delta = 0U;
     bool gdn_accounting_valid = true;
@@ -13242,6 +14189,14 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
             gdn_k256_direct_pack_launch_hits_before &&
         g_gdn_factorized_lane_r1_direct_pack_launch_hits >=
             gdn_factorized_lane_r1_direct_pack_launch_hits_before;
+#if defined(Q3X_ENABLE_GDN_STATE_O_BV64_FUSION_ADMISSION)
+    gdn_accounting_valid =
+        gdn_accounting_valid &&
+        g_gdn_state_o_bv64_fused_launch_hits >=
+            gdn_state_o_bv64_fused_launch_hits_before &&
+        g_gdn_state_o_bv64_fused_logical_token_hits >=
+            gdn_state_o_bv64_fused_logical_token_hits_before;
+#endif
     if (gdn_accounting_valid) {
       gdn_chunk64_native_launch_delta =
           g_prefill_gdn_chunk64_native_admission_hits -
@@ -13255,6 +14210,14 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
       gdn_factorized_lane_r1_direct_pack_launch_delta =
           g_gdn_factorized_lane_r1_direct_pack_launch_hits -
           gdn_factorized_lane_r1_direct_pack_launch_hits_before;
+#if defined(Q3X_ENABLE_GDN_STATE_O_BV64_FUSION_ADMISSION)
+      gdn_state_o_bv64_fused_launch_delta =
+          g_gdn_state_o_bv64_fused_launch_hits -
+          gdn_state_o_bv64_fused_launch_hits_before;
+      gdn_state_o_bv64_fused_logical_token_delta =
+          g_gdn_state_o_bv64_fused_logical_token_hits -
+          gdn_state_o_bv64_fused_logical_token_hits_before;
+#endif
     }
     gdn_accounting_valid =
         gdn_accounting_valid &&
@@ -13268,6 +14231,18 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
                      attention_factorized_lane_r1_prefill_admission_enabled_
                  ? gdn_chunk64_native_launch_delta
                  : 0U);
+#if defined(Q3X_ENABLE_GDN_STATE_O_BV64_FUSION_ADMISSION)
+    gdn_accounting_valid =
+        gdn_accounting_valid &&
+        reference_runner_detail::
+            gdn_state_o_bv64_fusion_accounting_valid(
+                g_enable_gdn_state_o_bv64_fusion_admission &&
+                    !prefill_r1_projection_plane_v2_admission_enabled_,
+                gdn_chunk64_native_launch_delta,
+                gdn_chunk64_native_logical_token_delta,
+                gdn_state_o_bv64_fused_launch_delta,
+                gdn_state_o_bv64_fused_logical_token_delta);
+#endif
 #endif
 #if defined(Q3X_ENABLE_GDN_PREFILL_PROMPT_SPAN_MACRO_ADMISSION)
     gdn_accounting_valid =
@@ -13375,6 +14350,35 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
     attention_supermatrix_output_delta +=
         attention_factorized_lane_r1_output_delta;
 #endif
+    const std::size_t prefill_r1_projection_plane_v2_attention_physical_delta =
+        prefill_r1_projection_plane_v2_request_hits_
+            .attention_physical_launch_hits;
+    const std::size_t prefill_r1_projection_plane_v2_mlp_logical_delta =
+        3U * prefill_r1_projection_plane_v2_request_hits_
+                 .layer_package_launch_hits;
+    const bool prefill_r1_projection_plane_v2_attention_logical_valid =
+        prefill_r1_projection_plane_v2_request_hits_.logical_projection_hits >=
+        prefill_r1_projection_plane_v2_mlp_logical_delta;
+    const std::size_t prefill_r1_projection_plane_v2_attention_logical_delta =
+        prefill_r1_projection_plane_v2_attention_logical_valid
+            ? prefill_r1_projection_plane_v2_request_hits_
+                      .logical_projection_hits -
+                  prefill_r1_projection_plane_v2_mlp_logical_delta
+            : 0U;
+    attention_accounting_valid =
+        attention_accounting_valid &&
+        prefill_r1_projection_plane_v2_attention_logical_valid &&
+        (prefill_r1_projection_plane_v2_admission_enabled_
+             ? prefill_r1_projection_plane_v2_attention_physical_delta ==
+                       spans * 128U &&
+                   prefill_r1_projection_plane_v2_attention_logical_delta ==
+                       spans * 208U
+             : prefill_r1_projection_plane_v2_attention_physical_delta ==
+                       0U &&
+                   prefill_r1_projection_plane_v2_attention_logical_delta ==
+                       0U);
+    attention_logical_delta +=
+        prefill_r1_projection_plane_v2_attention_logical_delta;
     attention_accounting_valid =
         attention_accounting_valid &&
         (attention_k256_incumbent_logical_delta == 0U ||
@@ -13382,7 +14386,10 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
         ((attention_supermatrix_launch_delta != 0U ? 1U : 0U) +
              (attention_k256_incumbent_launch_delta != 0U ? 1U : 0U) +
              (attention_k256_a_exchange_b4_launch_delta != 0U ? 1U : 0U) +
-             (attention_factorized_lane_r1_launch_delta != 0U ? 1U : 0U) <=
+             (attention_factorized_lane_r1_launch_delta != 0U ? 1U : 0U) +
+             (prefill_r1_projection_plane_v2_attention_physical_delta != 0U
+                  ? 1U
+                  : 0U) <=
          1U);
     std::size_t attention_o_k512_delta = 0U;
 #if defined(Q3X_ENABLE_A4W4_ATTENTION_O_K512_ADMISSION)
@@ -13913,6 +14920,20 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
           gateup_m128n128_projection_serial_delta == 0U &&
           gateup_m128n512_fused_quantize_delta == 0U &&
           gateup_down_k512_edge_m128n64_delta == 0U));
+    const auto prefill_r1_projection_plane_v2_route =
+        prefill_r1_projection_plane_v2_admission_enabled_
+            ? reference_runner_detail::PrefillR1ProjectionPlaneV2Route::
+                  kEnabled
+            : reference_runner_detail::PrefillR1ProjectionPlaneV2Route::
+                  kDisabled;
+    const bool prefill_r1_projection_plane_v2_accounting_valid =
+        reference_runner_detail::
+            prefill_r1_projection_plane_v2_accounting_valid(
+                prefill_r1_projection_plane_v2_route, spans,
+                prefill_r1_projection_plane_v2_request_hits_);
+    const std::size_t prefill_r1_projection_plane_v2_package_delta =
+        prefill_r1_projection_plane_v2_request_hits_
+            .layer_package_launch_hits;
     const bool activation_accounting_valid =
         hits_after.activation_quantize_hits >=
             hits_before.activation_quantize_hits &&
@@ -13921,7 +14942,8 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
             spans * 192U + mlp_k512_delta +
                 mlp_k256_m128n256_pairfeed_package_delta +
                 factorized_lane_r1_package_delta +
-                factorized_lane_r4_package_delta;
+                factorized_lane_r4_package_delta +
+                prefill_r1_projection_plane_v2_package_delta;
     const bool generic_accounting_valid =
         hits_after.generic_projection_hits >=
             hits_before.generic_projection_hits &&
@@ -13935,12 +14957,14 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
         !factorized_lane_r1_package_accounting_valid ||
         !factorized_lane_r1_handoff_package_accounting_valid ||
         !factorized_lane_r1_cross_layer_handoff_accounting_valid ||
+        !prefill_r1_projection_plane_v2_accounting_valid ||
         !factorized_lane_r4_package_accounting_valid ||
         !factorized_lane_r4_2cta_package_accounting_valid ||
         ((mlp_k512_delta != 0U ? 1U : 0U) +
              (mlp_k256_m128n256_pairfeed_package_delta != 0U ? 1U : 0U) +
              (factorized_lane_r1_package_delta != 0U ? 1U : 0U) +
-             (factorized_lane_r4_package_delta != 0U ? 1U : 0U) >
+             (factorized_lane_r4_package_delta != 0U ? 1U : 0U) +
+             (prefill_r1_projection_plane_v2_package_delta != 0U ? 1U : 0U) >
          1U) ||
         !generic_accounting_valid || !gdn_accounting_valid ||
         !exact_delta(hits_after.paired_gate_up_hits,
@@ -13992,6 +15016,25 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
         factorized_lane_r1_handoff_package_delta;
     value.factorized_lane_r1_cross_layer_handoff_launch_hits =
         factorized_lane_r1_cross_layer_handoff_delta;
+    value.prefill_r1_projection_plane_v2_layer_package_launch_hits =
+        prefill_r1_projection_plane_v2_request_hits_
+            .layer_package_launch_hits;
+    value.prefill_r1_projection_plane_v2_gateup_launch_hits =
+        prefill_r1_projection_plane_v2_request_hits_.gateup_launch_hits;
+    value.prefill_r1_projection_plane_v2_down_launch_hits =
+        prefill_r1_projection_plane_v2_request_hits_.down_launch_hits;
+    value.prefill_r1_projection_plane_v2_attention_physical_launch_hits =
+        prefill_r1_projection_plane_v2_request_hits_
+            .attention_physical_launch_hits;
+    value.prefill_r1_projection_plane_v2_logical_projection_hits =
+        prefill_r1_projection_plane_v2_request_hits_
+            .logical_projection_hits;
+    value.prefill_r1_projection_plane_v2_handoff_package_launch_hits =
+        prefill_r1_projection_plane_v2_request_hits_
+            .handoff_package_launch_hits;
+    value.prefill_r1_projection_plane_v2_cross_layer_handoff_launch_hits =
+        prefill_r1_projection_plane_v2_request_hits_
+            .cross_layer_handoff_launch_hits;
     value.factorized_lane_r4_package_launch_hits =
         factorized_lane_r4_package_delta;
     value.factorized_lane_r4_2cta_package_launch_hits =
@@ -14024,6 +15067,10 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
         gdn_k256_direct_pack_launch_delta;
     value.gdn_factorized_lane_r1_direct_pack_launch_hits =
         gdn_factorized_lane_r1_direct_pack_launch_delta;
+    value.gdn_state_o_bv64_fused_launch_hits =
+        gdn_state_o_bv64_fused_launch_delta;
+    value.gdn_state_o_bv64_fused_logical_token_hits =
+        gdn_state_o_bv64_fused_logical_token_delta;
     value.gdn_prompt_span_macro_launch_hits =
         gdn_prompt_span_macro_launch_delta;
     value.gdn_prompt_span_macro_logical_token_hits =
@@ -14035,6 +15082,7 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
     }
     ReferenceLongPrefillOutcome outcome;
     outcome.value.emplace(std::move(value));
+    prefill_r1_projection_plane_v2_request_hits_ = {};
     return outcome;
   }
 #endif
@@ -14720,6 +15768,43 @@ ReferenceRunnerFactoryResult create_reference_runner(
     return result;
   }
 #endif
+#if !defined(Q3X_ENABLE_PREFILL_R1_PROJECTION_PLANE_V2_ADMISSION)
+  if (options.enable_prefill_r1_projection_plane_v2_admission) {
+    result.diagnostic = runner_status(
+        ReferenceRunnerError::kInvalidDependency,
+        "prefill_r1_projection_plane_v2_admission_build");
+    return result;
+  }
+#endif
+#if defined(Q3X_ENABLE_PREFILL_R1_PROJECTION_PLANE_V2_ADMISSION) && \
+    !defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
+  if (options.enable_prefill_r1_projection_plane_v2_admission) {
+    result.diagnostic = runner_status(
+        ReferenceRunnerError::kInvalidDependency,
+        "prefill_r1_projection_plane_v2_requires_gdn_chunk64_native_build");
+    return result;
+  }
+#endif
+  if (options.enable_prefill_r1_projection_plane_v2_admission &&
+      (options.enable_factorized_lane_r1_prefill_admission ||
+       options.enable_factorized_lane_r1_handoff_prefill_admission ||
+       options.enable_attention_factorized_lane_r1_prefill_admission ||
+       options.enable_factorized_lane_r4_prefill_admission ||
+       options.enable_factorized_lane_r4_2cta_prefill_admission)) {
+    result.diagnostic = runner_status(
+        ReferenceRunnerError::kInvalidDependency,
+        "prefill_r1_projection_plane_v2_legacy_route_conflict");
+    return result;
+  }
+  if (options.enable_prefill_r1_projection_plane_v2_admission &&
+      (!options.enable_a4w4_full_prefill_admission ||
+       options.projection_backend != ProjectionBackend::kSm87WeightOnly ||
+       options.enable_trace || optimized_prefill_dispatch_disabled())) {
+    result.diagnostic = runner_status(
+        ReferenceRunnerError::kInvalidDependency,
+        "prefill_r1_projection_plane_v2_dependencies");
+    return result;
+  }
   if (options.enable_attention_factorized_lane_r1_prefill_admission &&
       (!options.enable_factorized_lane_r1_prefill_admission ||
        !options.enable_factorized_lane_r1_handoff_prefill_admission)) {
@@ -14809,6 +15894,130 @@ ReferenceRunnerFactoryResult create_reference_runner(
         "prefill_a4w4_inventory");
     return result;
   }
+#if defined(Q3X_ENABLE_PREFILL_R1_PROJECTION_PLANE_V2_ADMISSION)
+  if (options.enable_prefill_r1_projection_plane_v2_admission) {
+    const bool complete_attachment =
+        complete_prefill_r1_projection_plane_v2_attached(*weights);
+    reference_runner_detail::PrefillR1ProjectionPlaneV2RouteQuery query;
+    query.requested = true;
+    query.full_a4_prefill_enabled =
+        options.enable_a4w4_full_prefill_admission;
+    query.sm87_weight_only =
+        options.projection_backend == ProjectionBackend::kSm87WeightOnly;
+    query.trace_enabled = options.enable_trace;
+    query.optimized_dispatch_disabled = optimized_prefill_dispatch_disabled();
+    query.k256_inventory =
+        runner.a4w4_prefill_consumer_ ==
+        reference_runner_detail::A4W4PrefillConsumer::kK256;
+    query.complete_attachment = complete_attachment;
+    query.projection_span = true;
+    query.graph_capture = false;
+    query.legacy_r1_requested =
+        options.enable_factorized_lane_r1_prefill_admission ||
+        options.enable_factorized_lane_r1_handoff_prefill_admission ||
+        options.enable_attention_factorized_lane_r1_prefill_admission;
+    query.r4_requested =
+        options.enable_factorized_lane_r4_prefill_admission ||
+        options.enable_factorized_lane_r4_2cta_prefill_admission;
+    query.legacy_mlp_selector_conflict =
+        factorized_lane_mlp_selector_conflict();
+    query.legacy_attention_selector_conflict =
+        options.enable_attention_factorized_lane_r1_prefill_admission;
+    if (reference_runner_detail::select_prefill_r1_projection_plane_v2_route(
+            query) != reference_runner_detail::
+                          PrefillR1ProjectionPlaneV2Route::kEnabled) {
+      result.diagnostic = runner_status(
+          complete_attachment ? ReferenceRunnerError::kInvalidDependency
+                              : ReferenceRunnerError::kInvalidModelWeights,
+          "prefill_r1_projection_plane_v2_contract");
+      return result;
+    }
+    kernels::Sm87A4W4FactorizedLaneQuantizeResources quantize_resources{};
+    int resource_status =
+        kernels::query_sm87_a4w4_factorized_lane_quantize_resources_cuda(
+            &quantize_resources);
+    if (resource_status != static_cast<int>(cudaSuccess)) {
+      result.diagnostic = runner_status(
+          ReferenceRunnerError::kInvalidDependency,
+          "prefill_r1_projection_plane_v2_quantize_resource_gate",
+          kReferenceNoLayer, resource_status);
+      return result;
+    }
+    kernels::Sm87A4W4GateUpFactorizedLaneResources gateup_resources{};
+    resource_status = kernels::
+        query_sm87_a4w4_gateup_factorized_lane_r1_v2_resources_cuda(
+            &gateup_resources);
+    if (resource_status != static_cast<int>(cudaSuccess)) {
+      result.diagnostic = runner_status(
+          ReferenceRunnerError::kInvalidDependency,
+          "prefill_r1_projection_plane_v2_gateup_resource_gate",
+          kReferenceNoLayer, resource_status);
+      return result;
+    }
+    kernels::Sm87A4W4GateUpR1ProductFinalizeResources finalize_resources{};
+    resource_status =
+        kernels::query_sm87_a4w4_gateup_r1_product_finalize_resources_cuda(
+            &finalize_resources);
+    if (resource_status != static_cast<int>(cudaSuccess)) {
+      result.diagnostic = runner_status(
+          ReferenceRunnerError::kInvalidDependency,
+          "prefill_r1_projection_plane_v2_finalize_resource_gate",
+          kReferenceNoLayer, resource_status);
+      return result;
+    }
+    kernels::Sm87A4W4DownFactorizedLaneResources down_resources{};
+    resource_status = kernels::
+        query_sm87_a4w4_down_factorized_lane_r1_v2_resources_cuda(
+            &down_resources);
+    if (resource_status != static_cast<int>(cudaSuccess)) {
+      result.diagnostic = runner_status(
+          ReferenceRunnerError::kInvalidDependency,
+          "prefill_r1_projection_plane_v2_down_resource_gate",
+          kReferenceNoLayer, resource_status);
+      return result;
+    }
+    kernels::Sm87A4W4AttentionFactorizedLaneR1Resources
+        attention_resources{};
+    resource_status = kernels::
+        query_sm87_a4w4_attention_factorized_lane_r1_v2_m128n256_resources_cuda(
+            &attention_resources);
+    if (resource_status != static_cast<int>(cudaSuccess)) {
+      result.diagnostic = runner_status(
+          ReferenceRunnerError::kInvalidDependency,
+          "prefill_r1_projection_plane_v2_attention_resource_gate",
+          kReferenceNoLayer, resource_status);
+      return result;
+    }
+    kernels::Sm87A4W4PrefillHandoffResources handoff_resources{};
+    resource_status = kernels::query_sm87_a4w4_prefill_handoff_resources_cuda(
+        &handoff_resources);
+    if (resource_status != static_cast<int>(cudaSuccess)) {
+      result.diagnostic = runner_status(
+          ReferenceRunnerError::kInvalidDependency,
+          "prefill_r1_projection_plane_v2_handoff_resource_gate",
+          kReferenceNoLayer, resource_status);
+      return result;
+    }
+#if defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
+    int registers_per_thread = 0;
+    std::size_t static_shared_bytes = 0U;
+    std::size_t local_bytes = 0U;
+    int maximum_threads_per_block = 0;
+    int active_blocks_per_sm = 0;
+    resource_status = gdn_prefill_chunk_o_bv64_detail::
+        query_norm_factorized_lane_r1_a4_resources(
+            &registers_per_thread, &static_shared_bytes, &local_bytes,
+            &maximum_threads_per_block, &active_blocks_per_sm);
+    if (resource_status != static_cast<int>(cudaSuccess)) {
+      result.diagnostic = runner_status(
+          ReferenceRunnerError::kInvalidDependency,
+          "prefill_r1_projection_plane_v2_gdn_direct_resource_gate",
+          kReferenceNoLayer, resource_status);
+      return result;
+    }
+#endif
+  }
+#endif
 #if defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R1_ADMISSION)
   if (options.enable_factorized_lane_r1_prefill_admission) {
     if (!options.enable_a4w4_full_prefill_admission ||
@@ -15448,7 +16657,8 @@ ReferenceRunnerFactoryResult create_reference_runner(
 #if !defined(Q3X_ENABLE_A4W4_ATTENTION_K256_M128N256_ADMISSION)
   if (options.enable_a4w4_full_prefill_admission &&
       runner.a4w4_prefill_consumer_ ==
-          reference_runner_detail::A4W4PrefillConsumer::kK256) {
+          reference_runner_detail::A4W4PrefillConsumer::kK256 &&
+      !options.enable_prefill_r1_projection_plane_v2_admission) {
     result.diagnostic = runner_status(
         ReferenceRunnerError::kInvalidDependency,
         "prefill_a4w4_attention_k256_build");
@@ -15464,6 +16674,7 @@ ReferenceRunnerFactoryResult create_reference_runner(
                    g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_admission,
                    g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_l2_macro4x4_admission});
   if (options.enable_a4w4_full_prefill_admission &&
+      !options.enable_prefill_r1_projection_plane_v2_admission &&
       attention_k256_implementation ==
           reference_runner_detail::
               A4W4AttentionK256M128N256Implementation::kInvalid) {
@@ -15485,6 +16696,7 @@ ReferenceRunnerFactoryResult create_reference_runner(
   }
 #if defined(Q3X_ENABLE_A4W4_ATTENTION_SUPERMATRIX_ADMISSION)
   if (options.enable_a4w4_full_prefill_admission &&
+      !options.enable_prefill_r1_projection_plane_v2_admission &&
       g_enable_a4w4_attention_supermatrix_admission &&
       attention_k256_implementation !=
           reference_runner_detail::
@@ -15522,6 +16734,7 @@ ReferenceRunnerFactoryResult create_reference_runner(
       runner.a4w4_prefill_consumer_ ==
           reference_runner_detail::A4W4PrefillConsumer::kK256 &&
       !options.enable_attention_factorized_lane_r1_prefill_admission &&
+      !options.enable_prefill_r1_projection_plane_v2_admission &&
       attention_k256_implementation ==
           reference_runner_detail::
               A4W4AttentionK256M128N256Implementation::kDisabled) {
@@ -15535,6 +16748,7 @@ ReferenceRunnerFactoryResult create_reference_runner(
       runner.a4w4_prefill_consumer_ ==
           reference_runner_detail::A4W4PrefillConsumer::kK256 &&
       !options.enable_factorized_lane_r1_prefill_admission &&
+      !options.enable_prefill_r1_projection_plane_v2_admission &&
       !options.enable_factorized_lane_r4_prefill_admission) {
     result.diagnostic = runner_status(
         ReferenceRunnerError::kInvalidDependency,
@@ -15546,6 +16760,10 @@ ReferenceRunnerFactoryResult create_reference_runner(
       runner.a4w4_prefill_consumer_ ==
           reference_runner_detail::A4W4PrefillConsumer::kK256 &&
       !(
+#if defined(Q3X_ENABLE_PREFILL_R1_PROJECTION_PLANE_V2_ADMISSION)
+        (options.enable_prefill_r1_projection_plane_v2_admission &&
+         complete_prefill_r1_projection_plane_v2_attached(*weights)) ||
+#endif
 #if defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R1_ADMISSION)
         (options.enable_factorized_lane_r1_prefill_admission &&
          complete_factorized_lane_r1_mlp_attached(*weights)) ||
@@ -15593,6 +16811,8 @@ ReferenceRunnerFactoryResult create_reference_runner(
       options.enable_factorized_lane_r1_handoff_prefill_admission;
   runner.attention_factorized_lane_r1_prefill_admission_enabled_ =
       options.enable_attention_factorized_lane_r1_prefill_admission;
+  runner.prefill_r1_projection_plane_v2_admission_enabled_ =
+      options.enable_prefill_r1_projection_plane_v2_admission;
   runner.factorized_lane_r4_prefill_admission_enabled_ =
       options.enable_factorized_lane_r4_prefill_admission;
   runner.factorized_lane_r4_2cta_prefill_admission_enabled_ =
@@ -15603,8 +16823,10 @@ ReferenceRunnerFactoryResult create_reference_runner(
     result.diagnostic = state_status;
     return result;
   }
-#if defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R1_ADMISSION)
-  if (options.enable_factorized_lane_r1_prefill_admission) {
+#if defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R1_ADMISSION) || \
+    defined(Q3X_ENABLE_PREFILL_R1_PROJECTION_PLANE_V2_ADMISSION)
+  if (options.enable_factorized_lane_r1_prefill_admission ||
+      options.enable_prefill_r1_projection_plane_v2_admission) {
     const RequestMemoryPlan& plan = state->plan();
     const std::size_t span_capacity =
         plan.long_prefill_projection_span_capacity;
@@ -15618,6 +16840,11 @@ ReferenceRunnerFactoryResult create_reference_runner(
     const std::size_t intermediate_scale_capacity =
         static_cast<std::size_t>(
             plan.prefill_a4_intermediate_scales_bf16.element_capacity);
+    const std::size_t down_launch_token_count =
+        kernels::sm87_a4w4_down_factorized_launch_token_count(span_capacity);
+    const auto product_finalize_plan =
+        kernels::sm87_a4w4_gateup_r1_product_finalize_plan(
+            span_capacity, down_launch_token_count);
     if (plan.long_prefill_token_capacity == 0U || span_capacity == 0U ||
         span_capacity %
                 kernels::kSm87A4W4DownFactorizedTileM !=
@@ -15643,16 +16870,25 @@ ReferenceRunnerFactoryResult create_reference_runner(
         runner.views_.prefill_a4_hidden_packed == nullptr ||
         runner.views_.prefill_a4_hidden_scales == nullptr ||
         runner.views_.prefill_a4_intermediate_packed == nullptr ||
-        runner.views_.prefill_a4_intermediate_scales == nullptr) {
+        runner.views_.prefill_a4_intermediate_scales == nullptr ||
+        (options.enable_prefill_r1_projection_plane_v2_admission &&
+         (!product_finalize_plan ||
+          runner.views_.prefill_a4_gateup_r1_product_partial_max == nullptr ||
+          runner.views_.prefill_a4_gateup_r1_product_partial_max_elements <
+              product_finalize_plan.partial_capacity_elements))) {
       result.diagnostic = runner_status(
           ReferenceRunnerError::kInvalidRequestState,
-          "factorized_lane_r1_whole_m_workspace_contract");
+          options.enable_prefill_r1_projection_plane_v2_admission
+              ? "prefill_r1_projection_plane_v2_whole_m_workspace_contract"
+              : "factorized_lane_r1_whole_m_workspace_contract");
       return result;
     }
   }
 #endif
-#if defined(Q3X_ENABLE_A4W4_ATTENTION_FACTORIZED_LANE_R1_EXPERIMENT)
-  if (options.enable_attention_factorized_lane_r1_prefill_admission) {
+#if defined(Q3X_ENABLE_A4W4_ATTENTION_FACTORIZED_LANE_R1_EXPERIMENT) || \
+    defined(Q3X_ENABLE_PREFILL_R1_PROJECTION_PLANE_V2_ADMISSION)
+  if (options.enable_attention_factorized_lane_r1_prefill_admission ||
+      options.enable_prefill_r1_projection_plane_v2_admission) {
     const RequestMemoryPlan& plan = state->plan();
     const std::size_t span_capacity =
         plan.long_prefill_projection_span_capacity;
@@ -15701,7 +16937,9 @@ ReferenceRunnerFactoryResult create_reference_runner(
         runner.views_.prefill_a4_intermediate_scales == nullptr) {
       result.diagnostic = runner_status(
           ReferenceRunnerError::kInvalidRequestState,
-          "attention_factorized_lane_r1_whole_m_workspace_contract");
+          options.enable_prefill_r1_projection_plane_v2_admission
+              ? "prefill_r1_projection_plane_v2_attention_workspace_contract"
+              : "attention_factorized_lane_r1_whole_m_workspace_contract");
       return result;
     }
   }

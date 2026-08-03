@@ -6,6 +6,7 @@
 #include "q3x/runtime/prefill_a4_sidecar_converter.h"
 #include "q3x/runtime/prefill_mlp_k512_fragment_native_overlay.h"
 #include "q3x/runtime/prefill_mlp_k512_overlay.h"
+#include "q3x/runtime/prefill_r1_projection_plane_v2.h"
 
 #include <algorithm>
 #include <array>
@@ -1449,6 +1450,325 @@ void test_prefill_a4_k64_k128_sidecar_attachment(TestContext& test) {
               "detach clears kind, packed grouping, scale grouping, and views");
 }
 
+void test_prefill_r1_projection_plane_v2_attachment(TestContext& test) {
+  SyntheticArena arena(/*force_fp8_attention_outputs=*/false,
+                       /*force_nvfp4_down_projections=*/false,
+                       /*force_fp8_linear_qkv=*/false,
+                       /*force_fp8_prefill_supermatrix=*/false,
+                       /*force_a4_projection_types=*/true);
+  const SyntheticA4ManifestSource source = make_a4_manifest_source(arena);
+  test.expect(source.complete,
+              "R1 v2 source covers the complete model inventory");
+  if (!source.complete) {
+    return;
+  }
+
+  runtime::PrefillSidecarManifestOptions options;
+  options.kind = runtime::PrefillSidecarKind::kA4K256;
+  const runtime::PrefillSidecarManifestResult base_result =
+      runtime::build_qwen36_27b_prefill_sidecar_manifest(
+          source.manifest, source.shards, options);
+  test.expect(base_result.ok(), "R1 v2 authenticated K256 base builds");
+  if (!base_result) {
+    return;
+  }
+  const runtime::PrefillSidecarManifest& base_manifest = *base_result.value;
+  const runtime::PrefillA4CalibrationPolicy base_policy =
+      make_a4_policy(base_manifest);
+  const std::string base_payload_sha256(64U, '7');
+  const std::string base_receipt_sha256(64U, '8');
+
+  runtime::PrefillA4PublicationReceipt base_receipt;
+  base_receipt.version_major = runtime::kPrefillA4K256PublicationVersionMajor;
+  base_receipt.version_minor = runtime::kPrefillA4K256PublicationVersionMinor;
+  base_receipt.mode = runtime::PrefillA4ConversionMode::kProductionCalibrated;
+  base_receipt.production_residency_eligible = true;
+  base_receipt.sidecar_kind = runtime::PrefillSidecarKind::kA4K256;
+  base_receipt.packed_k_group_size =
+      runtime::kPrefillMLPFactorizedLaneRequiredBasePackedK;
+  base_receipt.scale_group_size =
+      runtime::kPrefillMLPFactorizedLaneRequiredBaseScaleK;
+  base_receipt.physical_layout = std::string(
+      runtime::kPrefillMLPFactorizedLaneRequiredBaseK256Layout);
+  base_receipt.source_checkpoint_id = base_manifest.source_checkpoint_id;
+  base_receipt.source_config_sha256 = base_manifest.source_config_sha256;
+  base_receipt.source_index_sha256 = base_manifest.source_index_sha256;
+  base_receipt.manifest_sha256 = base_manifest.manifest_sha256;
+  base_receipt.policy_sha256 = base_policy.policy_sha256;
+  base_receipt.policy_bytes = base_policy.policy_bytes;
+  base_receipt.payload_sha256 = base_payload_sha256;
+  base_receipt.payload_bytes = base_manifest.summary.arena_bytes;
+  base_receipt.projection_count = base_manifest.summary.projection_count;
+
+  const auto mlp_manifest_result =
+      runtime::build_prefill_mlp_factorized_lane_r1_manifest(
+          base_manifest, base_receipt, base_receipt_sha256);
+  const auto attention_manifest_result =
+      runtime::build_prefill_attention_factorized_lane_r1_manifest(
+          base_manifest, base_receipt, base_receipt_sha256);
+  test.expect(mlp_manifest_result && attention_manifest_result,
+              "both authenticated split-R1 source manifests build");
+  if (!mlp_manifest_result || !attention_manifest_result) {
+    return;
+  }
+  const auto& mlp_manifest = *mlp_manifest_result.value;
+  const auto& attention_manifest = *attention_manifest_result.value;
+  const auto mlp_policy_result =
+      runtime::build_prefill_mlp_factorized_lane_r1_policy(
+          mlp_manifest, 0.75, 0.875);
+  const auto attention_policy_result =
+      runtime::build_prefill_attention_factorized_lane_r1_policy(
+          attention_manifest, 0.875, 0.9375);
+  test.expect(mlp_policy_result && attention_policy_result,
+              "both 400-calibration source policies build");
+  if (!mlp_policy_result || !attention_policy_result) {
+    return;
+  }
+
+  const auto source_payload = [](const auto& manifest,
+                                 const std::string& policy_sha256,
+                                 const std::uintptr_t address,
+                                 const char payload_digit,
+                                 const char receipt_digit) {
+    runtime::PrefillR1ProjectionPlaneV2AuthenticatedPayloadView view;
+    view.data = reinterpret_cast<const std::uint8_t*>(address);
+    view.bytes = manifest.payload_bytes;
+    view.version_major = manifest.version_major;
+    view.version_minor = manifest.version_minor;
+    view.physical_layout = manifest.physical_layout;
+    view.manifest_sha256 = manifest.manifest_sha256;
+    view.policy_sha256 = policy_sha256;
+    view.payload_sha256.assign(64U, payload_digit);
+    view.receipt_sha256.assign(64U, receipt_digit);
+    view.authenticated = true;
+    return view;
+  };
+  auto mlp_payload = source_payload(
+      mlp_manifest, mlp_policy_result.value->binding.policy_sha256,
+      0x0000200000000000ULL, '9', 'a');
+  auto attention_payload = source_payload(
+      attention_manifest,
+      attention_policy_result.value->binding.policy_sha256,
+      0x0000240000000000ULL, 'b', 'c');
+  const auto manifest_result =
+      runtime::build_prefill_r1_projection_plane_v2_manifest(
+          mlp_manifest, mlp_payload, attention_manifest, attention_payload);
+  test.expect(manifest_result &&
+                  manifest_result.value->projections.size() == 336U &&
+                  manifest_result.value->logical_projections.size() == 400U,
+              "unified R1 v2 manifest preserves 336 physical/400 logical");
+  if (!manifest_result) {
+    return;
+  }
+  const auto policy_result =
+      runtime::build_prefill_r1_projection_plane_v2_policy(
+          *manifest_result.value, *mlp_policy_result.value,
+          *attention_policy_result.value);
+  const auto receipt_result =
+      policy_result
+          ? runtime::build_prefill_r1_projection_plane_v2_receipt(
+                *manifest_result.value, *policy_result.value,
+                std::string(64U, 'd'))
+          : runtime::PrefillR1ProjectionPlaneV2ReceiptResult{};
+  test.expect(policy_result && receipt_result,
+              "unified R1 v2 policy and receipt build");
+  if (!policy_result || !receipt_result) {
+    return;
+  }
+
+  runtime::WeightBindResult bound =
+      runtime::bind_qwen36_27b_weights(arena.source());
+  test.expect(bound.ok(), "R1 v2 exact FP8/NVFP4 target types bind");
+  if (!bound) {
+    return;
+  }
+  runtime::ModelWeights& weights = *bound.value;
+  constexpr std::uintptr_t kBaseAddress = 0x0000100000000000ULL;
+  constexpr std::uintptr_t kFirstAddress = 0x0000300000000000ULL;
+  constexpr std::uintptr_t kSecondAddress = 0x0000340000000000ULL;
+  const auto pointer = [](const std::uintptr_t address) {
+    return reinterpret_cast<const std::uint8_t*>(address);
+  };
+  const std::size_t base_bytes =
+      static_cast<std::size_t>(base_manifest.summary.arena_bytes);
+
+  runtime::PrefillR1ProjectionPlaneV2AuthenticatedPayloadView output_payload;
+  output_payload.data = pointer(kFirstAddress);
+  output_payload.bytes = manifest_result.value->payload_bytes;
+  output_payload.version_major =
+      runtime::kPrefillR1ProjectionPlaneV2VersionMajor;
+  output_payload.version_minor =
+      runtime::kPrefillR1ProjectionPlaneV2VersionMinor;
+  output_payload.physical_layout =
+      std::string(runtime::kPrefillR1ProjectionPlaneV2Layout);
+  output_payload.manifest_sha256 = manifest_result.value->manifest_sha256;
+  output_payload.policy_sha256 = policy_result.value->policy_sha256;
+  output_payload.payload_sha256 = receipt_result.value->payload_sha256;
+  output_payload.receipt_sha256 = receipt_result.canonical_sha256;
+  output_payload.authenticated = true;
+  runtime::PrefillR1ProjectionPlaneV2Installation installation{
+      &*manifest_result.value, &*policy_result.value, &*receipt_result.value,
+      &output_payload, false, false};
+
+  test.expect(weights.attach_prefill_a4_sidecars(
+                  pointer(kBaseAddress), base_bytes, &base_manifest,
+                  &base_policy, base_payload_sha256) &&
+                  !weights.attach_prefill_r1_projection_plane_v2(
+                      &installation) &&
+                  weights.prefill_r1_projection_plane_v2().empty(),
+              "v2 rejects a K256 base lacking exact receipt identity");
+  test.expect(weights.attach_prefill_a4_sidecars(
+                  pointer(kBaseAddress), base_bytes, &base_manifest,
+                  &base_policy, base_payload_sha256,
+                  base_receipt_sha256),
+              "K256 base stores all four authenticated identities");
+
+  const auto& first_source_policy = mlp_policy_result.value->binding;
+  test.expect(weights.attach_prefill_r1_projection_plane_v2(&installation),
+              "one installation atomically publishes unified R1 v2");
+  const auto complete_inventory = [&weights]() {
+    std::size_t physical = 0U;
+    std::size_t logical = 0U;
+    for (const runtime::DecoderLayerWeights& layer : weights.layers()) {
+      if (!layer.prefill_r1_projection_plane_v2.attached()) {
+        return false;
+      }
+      const auto count = [&physical, &logical](const auto& view) {
+        if (view.attached()) {
+          ++physical;
+          logical += view.logical_projection_count;
+        }
+      };
+      const auto& view = layer.prefill_r1_projection_plane_v2;
+      count(view.linear_qkv);
+      count(view.linear_z);
+      count(view.linear_o);
+      count(view.full_q);
+      count(view.full_k);
+      count(view.full_v);
+      count(view.full_o);
+      count(view.mlp_gate_up);
+      count(view.mlp_down);
+    }
+    return physical == 336U && logical == 400U;
+  };
+  const auto& layer0 = weights.layer(0U).prefill_r1_projection_plane_v2;
+  const auto& gate_up_entry = manifest_result.value->projections[3U];
+  test.expect(weights.prefill_r1_projection_plane_v2().attached() &&
+                  complete_inventory() && layer0.mlp_gate_up.attached() &&
+                  layer0.mlp_gate_up.physical_layout ==
+                      runtime::PrefillR1ProjectionPlaneV2ViewLayout::
+                          kPairedGateUp &&
+                  layer0.mlp_gate_up.logical_projection_count == 2U &&
+                  reinterpret_cast<std::uintptr_t>(
+                      layer0.mlp_gate_up.codes) ==
+                      kFirstAddress + gate_up_entry.payload_offset +
+                          gate_up_entry.packed_weight_offset &&
+                  layer0.mlp_gate_up.primary.inverse_alpha !=
+                      layer0.mlp_gate_up.secondary.inverse_alpha &&
+                  layer0.mlp_gate_up.primary.source_ordinal !=
+                      layer0.mlp_gate_up.secondary.source_ordinal &&
+                  layer0.mlp_gate_up.primary.activation_clip_ratio ==
+                      first_source_policy.projections[0U]
+                          .activation_clip_ratio &&
+                  layer0.mlp_gate_up.secondary.activation_clip_ratio ==
+                      first_source_policy.projections[1U]
+                          .activation_clip_ratio,
+              "Gate+Up is one physical operand with two exact logical "
+              "identities and calibrations");
+  test.expect(
+      weights.layer(0U).prefill_mlp_factorized_lane_r1.empty() &&
+          weights.layer(0U).prefill_attention_factorized_lane_r1.empty() &&
+          weights.layer(0U).prefill_mlp_factorized_lane_r4.empty() &&
+          weights.layer(0U).prefill_mlp_k512_fragment_native.empty(),
+      "unified v2 never aliases its composite bytes into legacy views");
+
+  const std::uintptr_t first_gate_up = reinterpret_cast<std::uintptr_t>(
+      layer0.mlp_gate_up.codes);
+  auto misaligned_payload = output_payload;
+  misaligned_payload.data = pointer(kSecondAddress + 1U);
+  auto invalid_installation = installation;
+  invalid_installation.payload = &misaligned_payload;
+  test.expect(!weights.attach_prefill_r1_projection_plane_v2(
+                  &invalid_installation) &&
+                  reinterpret_cast<std::uintptr_t>(
+                      weights.layer(0U)
+                          .prefill_r1_projection_plane_v2.mlp_gate_up
+                          .codes) == first_gate_up,
+              "late alignment failure preserves the complete old plane");
+
+  output_payload.data = pointer(kSecondAddress);
+  test.expect(weights.attach_prefill_r1_projection_plane_v2(&installation) &&
+                  weights.prefill_r1_projection_plane_v2().payload ==
+                      pointer(kSecondAddress),
+              "valid replacement updates the whole plane transactionally");
+  test.expect(
+      !weights.attach_prefill_mlp_factorized_lane_r1_sidecars(
+          pointer(0x0000380000000000ULL),
+          static_cast<std::size_t>(mlp_manifest.payload_bytes),
+          &mlp_manifest, &mlp_policy_result.value->binding),
+      "split MLP R1 cannot be attached over unified v2");
+
+  test.expect(weights.attach_prefill_r1_projection_plane_v2(nullptr) &&
+                  weights.prefill_r1_projection_plane_v2().empty() &&
+                  std::all_of(
+                      weights.layers().begin(), weights.layers().end(),
+                      [](const runtime::DecoderLayerWeights& layer) {
+                        return layer.prefill_r1_projection_plane_v2.empty();
+                      }),
+              "nullptr atomically detaches all v2 identity and layer views");
+  test.expect(weights.attach_prefill_mlp_factorized_lane_r1_sidecars(
+                  pointer(0x0000380000000000ULL),
+                  static_cast<std::size_t>(mlp_manifest.payload_bytes),
+                  &mlp_manifest, &mlp_policy_result.value->binding) &&
+                  !weights.attach_prefill_r1_projection_plane_v2(
+                      &installation),
+              "unified v2 rejects an already-installed split R1 plane");
+  test.expect(weights.attach_prefill_mlp_factorized_lane_r1_sidecars(
+                  nullptr, 0U, nullptr, nullptr) &&
+                  weights.attach_prefill_r1_projection_plane_v2(
+                      &installation),
+              "explicit split-R1 detach permits unified v2 again");
+
+  test.expect(weights.attach_prefill_r1_projection_plane_v2(nullptr),
+              "v2 detaches before independent conflict probes");
+  auto& mutable_layer0 = const_cast<runtime::DecoderLayerWeights&>(
+      weights.layer(0U));
+  mutable_layer0.prefill_mlp_factorized_lane_r4.gate.lane_count = 4U;
+  test.expect(!weights.attach_prefill_r1_projection_plane_v2(&installation),
+              "even a partial R4 view blocks unified v2");
+  mutable_layer0.prefill_mlp_factorized_lane_r4 = {};
+  mutable_layer0.prefill_mlp_k512_fragment_native
+      .gateup_code_capacity_bytes = 1U;
+  test.expect(!weights.attach_prefill_r1_projection_plane_v2(&installation),
+              "even a partial MLP K512 view blocks unified v2");
+  mutable_layer0.prefill_mlp_k512_fragment_native = {};
+  runtime::Fp8LinearWeight* const attention_output =
+      mutable_attention_output(weights, 0U);
+  test.expect(attention_output != nullptr,
+              "R1 v2 conflict probe finds layer-0 Attention-O");
+  if (attention_output != nullptr) {
+    attention_output->prefill_attention_o_k512_weight =
+        pointer(0x00003c0000000000ULL);
+    test.expect(
+        !weights.attach_prefill_r1_projection_plane_v2(&installation),
+        "even a partial Attention-O K512 view blocks unified v2");
+    attention_output->prefill_attention_o_k512_weight = nullptr;
+  }
+  test.expect(weights.attach_prefill_r1_projection_plane_v2(&installation),
+              "v2 attaches after every R4/K512 conflict is detached");
+
+  test.expect(weights.attach_prefill_a4_sidecars(nullptr, 0U, nullptr,
+                                                  nullptr) &&
+                  weights.prefill_r1_projection_plane_v2().empty() &&
+                  std::all_of(
+                      weights.layers().begin(), weights.layers().end(),
+                      [](const runtime::DecoderLayerWeights& layer) {
+                        return layer.prefill_r1_projection_plane_v2.empty();
+                      }),
+              "K256 detach atomically clears every dependent v2 view");
+}
+
 void test_prefill_mlp_k512_fragment_native_attachment(TestContext& test) {
   SyntheticArena arena(/*force_fp8_attention_outputs=*/false,
                        /*force_nvfp4_down_projections=*/false,
@@ -2866,6 +3186,7 @@ int main() {
   test_fp8_prefill_qkv_register_feed_sidecar_attachment(test);
   test_fp8_prefill_supermatrix_sidecar_attachment(test);
   test_prefill_a4_k64_k128_sidecar_attachment(test);
+  test_prefill_r1_projection_plane_v2_attachment(test);
   test_prefill_mlp_k512_fragment_native_attachment(test);
   test_prefill_mlp_k512_paired_gateup_canonical_down_attachment(test);
   test_prefill_mlp_k512_projection_major_gateup_canonical_down_attachment(

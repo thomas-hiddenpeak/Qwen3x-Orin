@@ -63,6 +63,13 @@ struct EvaluationServerOptions {
   std::filesystem::path prefill_attention_factorized_lane_r1_payload_path;
   std::filesystem::path prefill_attention_factorized_lane_r1_policy_path;
   std::filesystem::path prefill_attention_factorized_lane_r1_receipt_path;
+  // Indivisible whole-model R1 v2 publication. Unlike the two legacy R1
+  // overlays, this surface accepts one payload plus its own manifest, policy,
+  // and receipt and routes all 400 logical projections through one arena.
+  std::filesystem::path prefill_r1_projection_plane_v2_payload_path;
+  std::filesystem::path prefill_r1_projection_plane_v2_manifest_path;
+  std::filesystem::path prefill_r1_projection_plane_v2_policy_path;
+  std::filesystem::path prefill_r1_projection_plane_v2_receipt_path;
   // Direct-checkpoint R4 performance candidate.  The publication identity is
   // independent from the K256 inventory; the latter is still required by the
   // first real-API bundle as the companion Attention plane.

@@ -3568,6 +3568,46 @@ struct ByteRange final {
   return true;
 }
 
+// The fusion probe writes workspace.v as its raw-O boundary while retaining
+// state in place.  Prove that the complete workspace is disjoint from every
+// immutable input and from recurrent state before WY or state mutation.  The
+// direct publisher's output ranges are checked separately by
+// factorized_lane_r1_publish_ranges_disjoint().
+[[nodiscard]] bool prompt_span_state_o_bv64_ranges_disjoint(
+    void* const workspace,
+    const std::size_t token_count,
+    const std::uint16_t* const conv_qkv,
+    const std::uint16_t* const a,
+    const std::uint16_t* const b,
+    const std::uint16_t* const A_log,
+    const std::uint16_t* const dt_bias,
+    const std::uint16_t* const state_input,
+    const std::uint16_t* const state_output,
+    const std::uint16_t* const norm_weight,
+    const std::uint16_t* const silu_gate,
+    const FactorizedLaneR1A4Publish& publish) noexcept {
+  if (state_input != state_output) {
+    return false;
+  }
+  const ByteRange workspace_range{workspace, required_workspace_bytes()};
+  const ByteRange protected_ranges[] = {
+      {conv_qkv, token_count * kGdnQkvChannels * sizeof(std::uint16_t)},
+      {a, token_count * kValueHeadCount * sizeof(std::uint16_t)},
+      {b, token_count * kValueHeadCount * sizeof(std::uint16_t)},
+      {A_log, kValueHeadCount * sizeof(std::uint16_t)},
+      {dt_bias, kValueHeadCount * sizeof(std::uint16_t)},
+      {state_input, kGdnStateElements * sizeof(std::uint16_t)},
+      {norm_weight, kDimension * sizeof(std::uint16_t)},
+      {silu_gate, token_count * kGdnVElements * sizeof(std::uint16_t)},
+      {publish.inverse_alpha_fp32, kGdnVElements * sizeof(float)}};
+  for (const ByteRange& protected_range : protected_ranges) {
+    if (byte_ranges_overlap(workspace_range, protected_range)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 [[nodiscard]] bool invalid_arguments(
     void* const /*context*/,
     void* const workspace,
@@ -3609,6 +3649,13 @@ struct ByteRange final {
 
 std::size_t workspace_bytes() noexcept { return required_workspace_bytes(); }
 
+int launch_prompt_span_state_o_core(
+    const std::uint16_t* w, const std::uint16_t* u,
+    const std::uint16_t* compact_q, const std::uint16_t* compact_k,
+    const float* cumulative_gate, const std::uint16_t* state_input,
+    std::uint16_t* state_output, std::size_t token_count,
+    std::uint16_t* raw_output, void* cuda_stream) noexcept;
+
 int create_context(void** const context) noexcept {
   if (context == nullptr) {
     return static_cast<int>(cudaErrorInvalidValue);
@@ -3641,7 +3688,8 @@ int launch_impl(void* const context,
                 void* const cuda_stream,
                 const bool qk_preprocessed,
                 const K256A4Publish* const k256_a4_publish,
-                const FactorizedLaneR1A4Publish* const r1_a4_publish) noexcept {
+                const FactorizedLaneR1A4Publish* const r1_a4_publish,
+                const bool use_prompt_span_state_o_bv64_fusion) noexcept {
   if (invalid_arguments(context, workspace_raw, workspace_capacity_bytes,
                         token_count, conv_qkv, a, b, A_log, dt_bias,
                         state_input, state_output, l2_epsilon, norm_weight,
@@ -3681,6 +3729,27 @@ int launch_impl(void* const context,
       use_split_wy_baseline || use_resident_state_baseline;
   const bool use_chunk_o_bv64_output =
       use_chunk_o_bv64() && !use_packed_qkv_baseline;
+
+  if (use_prompt_span_state_o_bv64_fusion) {
+#if !defined(Q3X_ENABLE_GDN_STATE_O_BV64_FUSION_ADMISSION)
+    return static_cast<int>(cudaErrorInvalidValue);
+#else
+    // The candidate is intentionally narrower than the reusable component
+    // kernel: it replaces only the authenticated faithful-state + BV64-O +
+    // direct-R1 production sequence.  Diagnostic state routes and other
+    // publishers fail before any CUDA launch or recurrent-state mutation.
+    if (r1_a4_publish == nullptr || !use_chunk_o_bv64_output ||
+        !use_vllm_faithful_state_candidate ||
+        gdn_prefill_chunk64_native_detail::g_inspection_hook.callback !=
+            nullptr ||
+        !prompt_span_state_o_bv64_ranges_disjoint(
+            workspace_raw, token_count, conv_qkv, a, b, A_log, dt_bias,
+            state_input, state_output, norm_weight, silu_gate,
+            *r1_a4_publish)) {
+      return static_cast<int>(cudaErrorInvalidValue);
+    }
+#endif
+  }
 
   // A preprocessed workspace is layout-compatible only with the production
   // compact route. Diagnostic packed baselines must remain fully self-owned.
@@ -3881,7 +3950,12 @@ int launch_impl(void* const context,
     return status;
   }
 
-  if (use_resident_state_baseline) {
+  if (use_prompt_span_state_o_bv64_fusion) {
+    status = launch_prompt_span_state_o_core(
+        workspace.w, workspace.u, workspace.q, workspace.k,
+        workspace.gamma, state_input, state_output, token_count,
+        workspace.v, cuda_stream);
+  } else if (use_resident_state_baseline) {
     constexpr std::size_t persistent_state_baseline_shared_bytes =
         64U * kDimension * (sizeof(float) + sizeof(Bf16));
     persistent_state_chunk64_baseline_kernel<<<
@@ -3947,7 +4021,9 @@ int launch_impl(void* const context,
         state_input, state_output, static_cast<unsigned int>(chunk_count),
         workspace.v_new, workspace.boundary_state);
   }
-  status = launch_grid_status();
+  if (!use_prompt_span_state_o_bv64_fusion) {
+    status = launch_grid_status();
+  }
   if (status != static_cast<int>(cudaSuccess)) {
     return status;
   }
@@ -3955,15 +4031,18 @@ int launch_impl(void* const context,
   if (use_chunk_o_bv64_output) {
     // Packless WY/state never touch workspace.v. Reuse that exact-size
     // legacy region for the BF16 [T,H,V] boundary between BV64 owners and
-    // exactly one independent epilogue.  The old BF16 publisher and the
-    // direct span-wide K256 A4 publisher are mutually exclusive by the
-    // launch_impl input contract.
-    status = gdn_prefill_chunk_o_bv64_detail::launch_raw(
-        workspace.q, workspace.k, workspace.boundary_state,
-        workspace.v_new, workspace.gamma, token_count, workspace.v,
-        cuda_stream);
-    if (status != static_cast<int>(cudaSuccess)) {
-      return status;
+    // exactly one independent epilogue. The BF16, direct-K256, and
+    // direct-factorized-R1 publishers are mutually exclusive by the
+    // launch_impl input contract. The fusion candidate has already produced
+    // this same raw boundary and therefore skips only launch_raw().
+    if (!use_prompt_span_state_o_bv64_fusion) {
+      status = gdn_prefill_chunk_o_bv64_detail::launch_raw(
+          workspace.q, workspace.k, workspace.boundary_state,
+          workspace.v_new, workspace.gamma, token_count, workspace.v,
+          cuda_stream);
+      if (status != static_cast<int>(cudaSuccess)) {
+        return status;
+      }
     }
     if (k256_a4_publish != nullptr) {
       status = gdn_prefill_chunk_o_bv64_detail::
@@ -4053,7 +4132,7 @@ int launch(void* const context,
                      token_count, conv_qkv, a, b, A_log, dt_bias,
                      state_input, state_output, l2_epsilon, norm_weight,
                      silu_gate, norm_epsilon, output, cuda_stream, false,
-                     nullptr, nullptr);
+                     nullptr, nullptr, false);
 }
 
 int launch_k256_a4_impl(
@@ -4089,7 +4168,7 @@ int launch_k256_a4_impl(
       nullptr, workspace_raw, workspace_capacity_bytes, token_count,
       conv_qkv, a, b, A_log, dt_bias, state_input, state_output,
       l2_epsilon, norm_weight, silu_gate, norm_epsilon, nullptr,
-      cuda_stream, qk_preprocessed, &publish, nullptr);
+      cuda_stream, qk_preprocessed, &publish, nullptr, false);
 }
 
 int launch_factorized_lane_r1_a4_impl(
@@ -4118,7 +4197,8 @@ int launch_factorized_lane_r1_a4_impl(
     std::uint16_t* const scales_bf16,
     const std::size_t scale_capacity_elements,
     void* const cuda_stream,
-    const bool qk_preprocessed) noexcept {
+    const bool qk_preprocessed,
+    const bool use_prompt_span_state_o_bv64_fusion) noexcept {
   const FactorizedLaneR1A4Publish publish{
       inverse_alpha_fp32,
       inverse_alpha_capacity_elements,
@@ -4134,7 +4214,8 @@ int launch_factorized_lane_r1_a4_impl(
       nullptr, workspace_raw, workspace_capacity_bytes, token_count,
       conv_qkv, a, b, A_log, dt_bias, state_input, state_output,
       l2_epsilon, norm_weight, silu_gate, norm_epsilon, nullptr,
-      cuda_stream, qk_preprocessed, nullptr, &publish);
+      cuda_stream, qk_preprocessed, nullptr, &publish,
+      use_prompt_span_state_o_bv64_fusion);
 }
 
 int query_native_resources(int* const registers_per_thread,
@@ -4383,7 +4464,8 @@ int launch_factorized_lane_r1_a4(
     const std::size_t packed_a_capacity_bytes,
     std::uint16_t* const scales_bf16,
     const std::size_t scale_capacity_elements,
-    void* const cuda_stream) noexcept {
+    void* const cuda_stream,
+    const bool use_prompt_span_state_o_bv64_fusion) noexcept {
   if (token_count == 0U || token_count > 512U) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
@@ -4395,7 +4477,7 @@ int launch_factorized_lane_r1_a4(
           inverse_alpha_capacity_elements, destination_first_token,
           whole_logical_token_count, launch_token_count, clip_ratio, packed_a,
           packed_a_capacity_bytes, scales_bf16, scale_capacity_elements,
-          cuda_stream, false);
+          cuda_stream, false, use_prompt_span_state_o_bv64_fusion);
 }
 
 int launch_fused_conv_compact_qk_preprocess(
@@ -4444,7 +4526,8 @@ int launch_qk_preprocessed(
   return gdn_prefill_chunk64_reference_detail::launch_impl(
       nullptr, workspace, workspace_capacity_bytes, token_count, conv_qkv, a,
       b, A_log, dt_bias, state_input, state_output, l2_epsilon, norm_weight,
-      silu_gate, norm_epsilon, output, cuda_stream, true, nullptr, nullptr);
+      silu_gate, norm_epsilon, output, cuda_stream, true, nullptr, nullptr,
+      false);
 }
 
 int launch_qk_preprocessed_k256_a4(
@@ -4508,7 +4591,8 @@ int launch_qk_preprocessed_factorized_lane_r1_a4(
     const std::size_t packed_a_capacity_bytes,
     std::uint16_t* const scales_bf16,
     const std::size_t scale_capacity_elements,
-    void* const cuda_stream) noexcept {
+    void* const cuda_stream,
+    const bool use_prompt_span_state_o_bv64_fusion) noexcept {
   if (token_count == 0U || token_count > 512U) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
@@ -4520,7 +4604,7 @@ int launch_qk_preprocessed_factorized_lane_r1_a4(
           inverse_alpha_capacity_elements, destination_first_token,
           whole_logical_token_count, launch_token_count, clip_ratio, packed_a,
           packed_a_capacity_bytes, scales_bf16, scale_capacity_elements,
-          cuda_stream, true);
+          cuda_stream, true, use_prompt_span_state_o_bv64_fusion);
 }
 
 int launch_prompt_span_gate_producer(
@@ -4584,6 +4668,136 @@ int launch_prompt_span_state_o(
       token_count * kGdnValueHeadCount, norm_epsilon, output,
       cuda_stream);
 }
+
+#if defined(Q3X_ENABLE_GDN_STATE_O_BV64_FUSION_ADMISSION)
+int launch_prompt_span_state_o_factorized_lane_r1_a4(
+    const std::uint16_t* const w,
+    const std::uint16_t* const u,
+    const std::uint16_t* const compact_q,
+    const std::uint16_t* const compact_k,
+    const float* const cumulative_gate,
+    std::uint16_t* const state_in_out,
+    const std::size_t token_count,
+    const std::uint16_t* const norm_weight,
+    const std::uint16_t* const silu_gate,
+    const float norm_epsilon,
+    const float* const authenticated_inverse_alpha_fp32,
+    const std::size_t inverse_alpha_capacity_elements,
+    const std::size_t destination_first_token,
+    const std::size_t whole_logical_token_count,
+    const std::size_t launch_token_count,
+    const float clip_ratio,
+    std::uint16_t* const raw_output,
+    std::uint8_t* const packed_a,
+    const std::size_t packed_a_capacity_bytes,
+    std::uint16_t* const scales_bf16,
+    const std::size_t scale_capacity_elements,
+    void* const cuda_stream) noexcept {
+  const int publish_validation =
+      gdn_prefill_chunk_o_bv64_detail::
+          validate_norm_rows8_factorized_lane_r1_a4(
+              raw_output, norm_weight, silu_gate, token_count,
+              norm_epsilon, authenticated_inverse_alpha_fp32,
+              inverse_alpha_capacity_elements, destination_first_token,
+              whole_logical_token_count, launch_token_count, clip_ratio,
+              packed_a, packed_a_capacity_bytes, scales_bf16,
+              scale_capacity_elements);
+  if (publish_validation != static_cast<int>(cudaSuccess) ||
+      w == nullptr || u == nullptr || compact_q == nullptr ||
+      compact_k == nullptr || cumulative_gate == nullptr ||
+      state_in_out == nullptr || token_count == 0U ||
+      token_count > 4'096U) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+
+  struct Range final {
+    const void* pointer;
+    std::size_t bytes;
+  };
+  const auto overlaps = [](const Range& first, const Range& second) noexcept {
+    if (first.pointer == nullptr || second.pointer == nullptr ||
+        first.bytes == 0U || second.bytes == 0U) {
+      return true;
+    }
+    const std::uintptr_t first_begin =
+        reinterpret_cast<std::uintptr_t>(first.pointer);
+    const std::uintptr_t second_begin =
+        reinterpret_cast<std::uintptr_t>(second.pointer);
+    constexpr std::uintptr_t maximum =
+        std::numeric_limits<std::uintptr_t>::max();
+    if (first.bytes > maximum - first_begin ||
+        second.bytes > maximum - second_begin) {
+      return true;
+    }
+    return first_begin < second_begin + second.bytes &&
+           second_begin < first_begin + first.bytes;
+  };
+
+  constexpr std::size_t kPromptSpanChunkSize = 64U;
+  const std::size_t chunk_count =
+      (token_count + kPromptSpanChunkSize - 1U) /
+      kPromptSpanChunkSize;
+  const std::size_t value_head_token_elements =
+      chunk_count * kGdnValueHeadCount * kPromptSpanChunkSize *
+      kGdnHeadDimension;
+  const std::size_t compact_head_token_elements =
+      chunk_count * kGdnQkHeadCount * kPromptSpanChunkSize *
+      kGdnHeadDimension;
+  const auto publish_plan =
+      q3x::kernels::sm87_a4w4_factorized_lane_quantize_plan(
+          whole_logical_token_count, launch_token_count, kGdnVElements,
+          1U);
+  if (!publish_plan.valid()) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const Range mutable_ranges[] = {
+      {state_in_out, kGdnStateElements * sizeof(std::uint16_t)},
+      {raw_output, value_head_token_elements * sizeof(std::uint16_t)},
+      {packed_a, publish_plan.packed_capacity_bytes},
+      {scales_bf16,
+       publish_plan.scale_capacity_elements * sizeof(std::uint16_t)}};
+  const Range immutable_ranges[] = {
+      {w, value_head_token_elements * sizeof(std::uint16_t)},
+      {u, value_head_token_elements * sizeof(std::uint16_t)},
+      {compact_q, compact_head_token_elements * sizeof(std::uint16_t)},
+      {compact_k, compact_head_token_elements * sizeof(std::uint16_t)},
+      {cumulative_gate,
+       chunk_count * kGdnValueHeadCount * kPromptSpanChunkSize *
+           sizeof(float)},
+      {norm_weight, kGdnHeadDimension * sizeof(std::uint16_t)},
+      {silu_gate, token_count * kGdnVElements * sizeof(std::uint16_t)},
+      {authenticated_inverse_alpha_fp32,
+       kGdnVElements * sizeof(float)}};
+  for (std::size_t first = 0U; first < 4U; ++first) {
+    for (std::size_t second = first + 1U; second < 4U; ++second) {
+      if (overlaps(mutable_ranges[first], mutable_ranges[second])) {
+        return static_cast<int>(cudaErrorInvalidValue);
+      }
+    }
+    for (const Range& immutable_range : immutable_ranges) {
+      if (overlaps(mutable_ranges[first], immutable_range)) {
+        return static_cast<int>(cudaErrorInvalidValue);
+      }
+    }
+  }
+
+  int status = gdn_prefill_chunk64_reference_detail::
+      launch_prompt_span_state_o_core(
+          w, u, compact_q, compact_k, cumulative_gate, state_in_out,
+          state_in_out, token_count, raw_output, cuda_stream);
+  if (status != static_cast<int>(cudaSuccess)) {
+    return status;
+  }
+  return gdn_prefill_chunk_o_bv64_detail::
+      launch_norm_rows8_factorized_lane_r1_a4(
+          raw_output, norm_weight, silu_gate, token_count, norm_epsilon,
+          authenticated_inverse_alpha_fp32,
+          inverse_alpha_capacity_elements, destination_first_token,
+          whole_logical_token_count, launch_token_count, clip_ratio,
+          packed_a, packed_a_capacity_bytes, scales_bf16,
+          scale_capacity_elements, cuda_stream);
+}
+#endif
 
 int launch_prompt_span_state_o_baseline_for_test(
     const std::uint16_t* const w,

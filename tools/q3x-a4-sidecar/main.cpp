@@ -7,6 +7,9 @@
 #include "q3x/runtime/prefill_mlp_factorized_lane_r4_candidate_converter.h"
 #include "q3x/runtime/prefill_mlp_k512_fragment_native_overlay.h"
 #include "q3x/runtime/prefill_mlp_k512_overlay.h"
+#if defined(Q3X_ENABLE_PREFILL_R1_PROJECTION_PLANE_V2_COMPOSER)
+#include "q3x/runtime/prefill_r1_projection_plane_v2.h"
+#endif
 
 #include <cerrno>
 #include <cmath>
@@ -50,6 +53,13 @@ void print_usage(std::ostream& output) {
          " MODEL_DIR BASE_K256_PAYLOAD BASE_K256_POLICY BASE_K256_RECEIPT"
          " OUTPUT --weight-clip R --activation-clip R"
          " [--no-preallocate]\n"
+#if defined(Q3X_ENABLE_PREFILL_R1_PROJECTION_PLANE_V2_COMPOSER)
+      << "  qwen3x-a4-sidecar r1-projection-plane-v2-compose"
+         " MODEL_DIR BASE_K256_PAYLOAD BASE_K256_POLICY BASE_K256_RECEIPT"
+         " MLP_R1_PAYLOAD MLP_R1_POLICY MLP_R1_RECEIPT"
+         " ATTENTION_R1_PAYLOAD ATTENTION_R1_POLICY ATTENTION_R1_RECEIPT"
+         " OUTPUT [--no-preallocate]\n"
+#endif
       << "  qwen3x-a4-sidecar mlp-factorized-r4-identity-convert"
          " MODEL_DIR OUTPUT --weight-clip R --activation-clip R"
          " [--row-chunk 64|128|192|256] [--no-preallocate]\n"
@@ -294,6 +304,80 @@ void print_diagnostic(
   }
   std::cerr << '\n';
 }
+
+#if defined(Q3X_ENABLE_PREFILL_R1_PROJECTION_PLANE_V2_COMPOSER)
+void print_diagnostic(
+    const runtime::PrefillR1ProjectionPlaneV2Diagnostic& diagnostic) {
+  std::cerr << "error.code=" << runtime::to_string(diagnostic.code)
+            << "\nerror.context=" << diagnostic.context
+            << "\nerror.message=" << diagnostic.message;
+  if (!diagnostic.expected.empty()) {
+    std::cerr << "\nerror.expected=" << diagnostic.expected;
+  }
+  if (!diagnostic.actual.empty()) {
+    std::cerr << "\nerror.actual=" << diagnostic.actual;
+  }
+  if (diagnostic.system_error != 0) {
+    std::cerr << "\nerror.errno=" << diagnostic.system_error;
+  }
+  std::cerr << '\n';
+}
+
+int run_r1_projection_plane_v2_compose(const int argc, char** argv) {
+  if (argc != 13 && argc != 14) {
+    print_usage(std::cerr);
+    return 2;
+  }
+  runtime::PrefillR1ProjectionPlaneV2FileConversionOptions options;
+  options.model_directory = argv[2];
+  options.base_k256_payload_path = argv[3];
+  options.base_k256_policy_path = argv[4];
+  options.base_k256_receipt_path = argv[5];
+  options.mlp_r1_payload_path = argv[6];
+  options.mlp_r1_policy_path = argv[7];
+  options.mlp_r1_receipt_path = argv[8];
+  options.attention_r1_payload_path = argv[9];
+  options.attention_r1_policy_path = argv[10];
+  options.attention_r1_receipt_path = argv[11];
+  options.output_path = argv[12];
+  if (argc == 14) {
+    if (std::string_view(argv[13]) != "--no-preallocate") {
+      std::cerr << "only optional --no-preallocate is accepted\n";
+      return 2;
+    }
+    options.preallocate_output = false;
+  }
+  const auto result =
+      runtime::convert_authenticated_prefill_r1_projection_plane_v2_files(
+          options);
+  if (!result) {
+    print_diagnostic(result.diagnostic);
+    return 1;
+  }
+  std::cout << "status=published"
+            << "\noverlay=r1_projection_plane_v2"
+            << "\nlogical_projections="
+            << result.stats.logical_projections_written
+            << "\nphysical_projections="
+            << result.stats.physical_projections_written
+            << "\npayload_bytes=" << result.stats.output_bytes_written
+            << "\nmanifest_sha256=" << result.manifest_sha256
+            << "\npolicy_sha256=" << result.policy_sha256
+            << "\npayload_sha256=" << result.payload_sha256
+            << "\nreceipt_sha256=" << result.receipt_sha256
+            << "\nmlp_source_payload_sha256="
+            << result.mlp_source_payload_sha256
+            << "\nmlp_source_receipt_sha256="
+            << result.mlp_source_receipt_sha256
+            << "\nattention_source_payload_sha256="
+            << result.attention_source_payload_sha256
+            << "\nattention_source_receipt_sha256="
+            << result.attention_source_receipt_sha256
+            << "\nsource_bytes_hashed="
+            << result.stats.source_bytes_hashed << '\n';
+  return 0;
+}
+#endif
 
 int run_mlp_factorized_r1_convert(const int argc, char** argv) {
   if (argc < 10) {
@@ -1146,6 +1230,12 @@ int main(const int argc, char** argv) {
   if (argc >= 2 &&
       std::string_view(argv[1]) == "attention-factorized-r1-convert") {
     return run_attention_factorized_r1_convert(argc, argv);
+  }
+#endif
+#if defined(Q3X_ENABLE_PREFILL_R1_PROJECTION_PLANE_V2_COMPOSER)
+  if (argc >= 2 &&
+      std::string_view(argv[1]) == "r1-projection-plane-v2-compose") {
+    return run_r1_projection_plane_v2_compose(argc, argv);
   }
 #endif
   if (argc >= 2 &&

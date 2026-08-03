@@ -11,6 +11,7 @@
 #include "q3x/runtime/prefill_mlp_factorized_lane_r4_publication.h"
 #include "q3x/runtime/prefill_mlp_factorized_lane_r4_candidate_converter.h"
 #include "q3x/runtime/prefill_quantized_contract.h"
+#include "q3x/runtime/prefill_r1_projection_plane_v2.h"
 
 #include <cuda_runtime.h>
 
@@ -1598,7 +1599,8 @@ bool ModelWeights::attach_prefill_a4_sidecars(
     const std::uint8_t* const arena, const std::size_t arena_bytes,
     const PrefillSidecarManifest* const manifest,
     const PrefillA4CalibrationPolicy* const policy,
-    const std::string_view authenticated_payload_sha256) noexcept {
+    const std::string_view authenticated_payload_sha256,
+    const std::string_view authenticated_receipt_sha256) noexcept {
   const auto projection_for = [](DecoderLayerWeights& layer,
                                  const PrefillProjectionFamily family)
       noexcept -> LinearWeight* {
@@ -1681,6 +1683,7 @@ bool ModelWeights::attach_prefill_a4_sidecars(
       layer.prefill_mlp_k512_fragment_native = {};
       layer.prefill_mlp_factorized_lane_r1 = {};
       layer.prefill_attention_factorized_lane_r1 = {};
+      layer.prefill_r1_projection_plane_v2 = {};
       clear_weight(layer.mlp.gate_proj);
       clear_weight(layer.mlp.up_proj);
       clear_weight(layer.mlp.down_proj);
@@ -1701,6 +1704,8 @@ bool ModelWeights::attach_prefill_a4_sidecars(
     prefill_a4_attachment_manifest_sha256_.fill('\0');
     prefill_a4_attachment_policy_sha256_.fill('\0');
     prefill_a4_attachment_payload_sha256_.fill('\0');
+    prefill_a4_attachment_receipt_sha256_.fill('\0');
+    prefill_r1_projection_plane_v2_ = {};
   };
 
   if (arena == nullptr && arena_bytes == 0U && manifest == nullptr &&
@@ -1732,6 +1737,10 @@ bool ModelWeights::attach_prefill_a4_sidecars(
   };
   if (!authenticated_payload_sha256.empty() &&
       !lower_sha256(authenticated_payload_sha256)) {
+    return false;
+  }
+  if (!authenticated_receipt_sha256.empty() &&
+      !lower_sha256(authenticated_receipt_sha256)) {
     return false;
   }
   const bool k64_v1 =
@@ -1902,6 +1911,11 @@ bool ModelWeights::attach_prefill_a4_sidecars(
     std::copy(authenticated_payload_sha256.begin(),
               authenticated_payload_sha256.end(),
               prefill_a4_attachment_payload_sha256_.begin());
+    if (!authenticated_receipt_sha256.empty()) {
+      std::copy(authenticated_receipt_sha256.begin(),
+                authenticated_receipt_sha256.end(),
+                prefill_a4_attachment_receipt_sha256_.begin());
+    }
   }
   return true;
 }
@@ -1934,6 +1948,9 @@ bool ModelWeights::attach_prefill_attention_o_k512_sidecars(
       policy == nullptr) {
     clear_all();
     return true;
+  }
+  if (has_prefill_r1_projection_plane_v2_state()) {
+    return false;
   }
   if (std::any_of(
           layers_.begin(), layers_.end(), [](const DecoderLayerWeights& layer) {
@@ -2134,6 +2151,9 @@ bool ModelWeights::attach_prefill_mlp_k512_sidecars(
       policy == nullptr) {
     clear_all();
     return true;
+  }
+  if (has_prefill_r1_projection_plane_v2_state()) {
+    return false;
   }
   if (std::any_of(
           layers_.begin(), layers_.end(), [](const DecoderLayerWeights& layer) {
@@ -2348,6 +2368,9 @@ bool ModelWeights::attach_prefill_mlp_k512_fragment_native_sidecars(
       source_v1_manifest == nullptr && source_v1_policy == nullptr) {
     clear_all();
     return true;
+  }
+  if (has_prefill_r1_projection_plane_v2_state()) {
+    return false;
   }
   if (std::any_of(
           layers_.begin(), layers_.end(), [](const DecoderLayerWeights& layer) {
@@ -2642,6 +2665,9 @@ attach_prefill_mlp_k512_paired_gateup_canonical_down_sidecars(
     clear_all();
     return true;
   }
+  if (has_prefill_r1_projection_plane_v2_state()) {
+    return false;
+  }
   if (std::any_of(
           layers_.begin(), layers_.end(), [](const DecoderLayerWeights& layer) {
             return !layer.prefill_mlp_factorized_lane_r1.empty() ||
@@ -2922,6 +2948,9 @@ attach_prefill_mlp_k512_projection_major_gateup_canonical_down_sidecars(
       source_v1_manifest == nullptr && source_v1_policy == nullptr) {
     clear_all();
     return true;
+  }
+  if (has_prefill_r1_projection_plane_v2_state()) {
+    return false;
   }
   if (std::any_of(
           layers_.begin(), layers_.end(), [](const DecoderLayerWeights& layer) {
@@ -3212,6 +3241,10 @@ bool ModelWeights::attach_prefill_mlp_factorized_lane_r1_sidecars(
     return true;
   }
 
+  if (has_prefill_r1_projection_plane_v2_state()) {
+    return false;
+  }
+
   if (std::any_of(
           layers_.begin(), layers_.end(), [](const DecoderLayerWeights& layer) {
             return !layer.prefill_mlp_factorized_lane_r4.empty();
@@ -3493,6 +3526,10 @@ bool ModelWeights::attach_prefill_mlp_factorized_lane_r4_sidecars(
     return true;
   }
 
+  if (has_prefill_r1_projection_plane_v2_state()) {
+    return false;
+  }
+
   // Partial legacy publications are conflicts too.  A caller must explicitly
   // detach R1/K512 before replacing the independent R4 view family.
   for (const DecoderLayerWeights& layer : layers_) {
@@ -3727,6 +3764,10 @@ bool ModelWeights::attach_prefill_attention_factorized_lane_r1_sidecars(
       policy == nullptr) {
     clear_all();
     return true;
+  }
+
+  if (has_prefill_r1_projection_plane_v2_state()) {
+    return false;
   }
 
   // The older Attention-O K512 plane and the all-projection R1 plane expose
@@ -4128,6 +4169,499 @@ bool ModelWeights::attach_prefill_attention_factorized_lane_r1_sidecars(
     layers_[layer_index].prefill_attention_factorized_lane_r1 =
         validated[layer_index];
   }
+  return true;
+}
+
+bool ModelWeights::attach_prefill_r1_projection_plane_v2(
+    const PrefillR1ProjectionPlaneV2Installation* const installation)
+    noexcept {
+  const auto clear_all = [this]() noexcept {
+    for (DecoderLayerWeights& layer : layers_) {
+      layer.prefill_r1_projection_plane_v2 = {};
+    }
+    prefill_r1_projection_plane_v2_ = {};
+  };
+  if (installation == nullptr) {
+    clear_all();
+    return true;
+  }
+
+  // A malformed partial legacy attachment is a conflict too.  Requiring an
+  // explicit detach prevents a physical v2 operand from being selected while
+  // any split-R1, R4, or K512 interpretation is still reachable.
+  const auto mlp_k512_attached = [](const LinearWeight& binding) noexcept {
+    const auto* const projection =
+        std::get_if<NvFp4LinearWeight>(&binding);
+    return projection == nullptr ||
+           projection->prefill_mlp_k512_weight != nullptr ||
+           projection->prefill_mlp_k512_scales != nullptr ||
+           projection->prefill_mlp_k512_activation_clip_ratio != 0.0F;
+  };
+  const auto attention_o_k512_attached = [](const LinearWeight& binding)
+      noexcept {
+    const auto* const projection = std::get_if<Fp8LinearWeight>(&binding);
+    return projection == nullptr ||
+           projection->prefill_attention_o_k512_weight != nullptr ||
+           projection->prefill_attention_o_k512_scales != nullptr ||
+           projection->prefill_attention_o_k512_activation_clip_ratio !=
+               0.0F;
+  };
+  for (const DecoderLayerWeights& layer : layers_) {
+    if (!layer.prefill_mlp_factorized_lane_r1.empty() ||
+        !layer.prefill_attention_factorized_lane_r1.empty() ||
+        !layer.prefill_mlp_factorized_lane_r4.empty() ||
+        !layer.prefill_mlp_k512_fragment_native.empty() ||
+        mlp_k512_attached(layer.mlp.gate_proj) ||
+        mlp_k512_attached(layer.mlp.up_proj) ||
+        mlp_k512_attached(layer.mlp.down_proj)) {
+      return false;
+    }
+    const LinearWeight* output = nullptr;
+    if (const auto* const linear =
+            std::get_if<LinearAttentionWeights>(&layer.attention)) {
+      output = &linear->out_proj;
+    } else if (const auto* const full =
+                   std::get_if<FullAttentionWeights>(&layer.attention)) {
+      output = &full->o_proj;
+    }
+    if (output == nullptr || attention_o_k512_attached(*output)) {
+      return false;
+    }
+  }
+
+  try {
+    if (!validate_prefill_r1_projection_plane_v2_atomic_installation(
+            *installation)) {
+      return false;
+    }
+  } catch (...) {
+    return false;
+  }
+  const PrefillR1ProjectionPlaneV2Manifest& manifest =
+      *installation->manifest;
+  const PrefillR1ProjectionPlaneV2Policy& policy = *installation->policy;
+  const PrefillR1ProjectionPlaneV2AuthenticatedPayloadView& payload =
+      *installation->payload;
+
+  const auto bound_digest = [](const std::array<char, 64U>& digest) noexcept {
+    return std::string_view(digest.data(), digest.size());
+  };
+  const PrefillR1ProjectionPlaneV2BaseK256Binding& required_base =
+      manifest.required_base_k256;
+  if (!prefill_a4_attachment_complete_ ||
+      required_base.physical_layout !=
+          kPrefillMLPFactorizedLaneRequiredBaseK256Layout ||
+      required_base.packed_k_group_size !=
+          kPrefillMLPFactorizedLaneRequiredBasePackedK ||
+      required_base.scale_group_size !=
+          kPrefillMLPFactorizedLaneRequiredBaseScaleK ||
+      bound_digest(prefill_a4_attachment_manifest_sha256_) !=
+          required_base.manifest_sha256 ||
+      bound_digest(prefill_a4_attachment_policy_sha256_) !=
+          required_base.policy_sha256 ||
+      bound_digest(prefill_a4_attachment_payload_sha256_) !=
+          required_base.payload_sha256 ||
+      bound_digest(prefill_a4_attachment_receipt_sha256_) !=
+          required_base.receipt_sha256) {
+    return false;
+  }
+
+  constexpr auto kPointerMaximum =
+      std::numeric_limits<std::uintptr_t>::max();
+  if (payload.data == nullptr ||
+      payload.bytes != kPrefillR1ProjectionPlaneV2PayloadBytes ||
+      payload.bytes > std::numeric_limits<std::size_t>::max() ||
+      payload.bytes > kPointerMaximum) {
+    return false;
+  }
+  const std::uintptr_t arena_address =
+      reinterpret_cast<std::uintptr_t>(payload.data);
+  if (arena_address % kPrefillR1ProjectionPlaneV2Alignment != 0U ||
+      arena_address > kPointerMaximum - payload.bytes) {
+    return false;
+  }
+  const std::uintptr_t arena_end = arena_address + payload.bytes;
+
+  const auto expected_identity = [](
+                                     const PrefillR1ProjectionPlaneV2LogicalFamily
+                                         family) noexcept {
+    switch (family) {
+      case PrefillR1ProjectionPlaneV2LogicalFamily::kLinearQkv:
+        return PrefillR1ProjectionPlaneV2LogicalIdentity::kLinearQkv;
+      case PrefillR1ProjectionPlaneV2LogicalFamily::kLinearZ:
+        return PrefillR1ProjectionPlaneV2LogicalIdentity::kLinearZ;
+      case PrefillR1ProjectionPlaneV2LogicalFamily::kLinearO:
+        return PrefillR1ProjectionPlaneV2LogicalIdentity::kLinearO;
+      case PrefillR1ProjectionPlaneV2LogicalFamily::kFullQ:
+        return PrefillR1ProjectionPlaneV2LogicalIdentity::kFullQ;
+      case PrefillR1ProjectionPlaneV2LogicalFamily::kFullK:
+        return PrefillR1ProjectionPlaneV2LogicalIdentity::kFullK;
+      case PrefillR1ProjectionPlaneV2LogicalFamily::kFullV:
+        return PrefillR1ProjectionPlaneV2LogicalIdentity::kFullV;
+      case PrefillR1ProjectionPlaneV2LogicalFamily::kFullO:
+        return PrefillR1ProjectionPlaneV2LogicalIdentity::kFullO;
+      case PrefillR1ProjectionPlaneV2LogicalFamily::kMlpGate:
+        return PrefillR1ProjectionPlaneV2LogicalIdentity::kMlpGate;
+      case PrefillR1ProjectionPlaneV2LogicalFamily::kMlpUp:
+        return PrefillR1ProjectionPlaneV2LogicalIdentity::kMlpUp;
+      case PrefillR1ProjectionPlaneV2LogicalFamily::kMlpDown:
+        return PrefillR1ProjectionPlaneV2LogicalIdentity::kMlpDown;
+    }
+    return PrefillR1ProjectionPlaneV2LogicalIdentity::kNone;
+  };
+  const auto copy_digest = [](const std::string_view source,
+                              std::array<char, 64U>& destination) noexcept {
+    if (source.size() != destination.size()) {
+      return false;
+    }
+    std::copy(source.begin(), source.end(), destination.begin());
+    return true;
+  };
+  const auto base_valid = [](const LinearWeight& target,
+                             const std::size_t output_size,
+                             const std::size_t input_size,
+                             const bool require_nvfp4) noexcept {
+    const bool payload_valid =
+        require_nvfp4
+            ? has_valid_nvfp4_payload(
+                  std::get_if<NvFp4LinearWeight>(&target))
+            : has_valid_fp8_payload(std::get_if<Fp8LinearWeight>(&target));
+    const PrefillA4LinearSidecarView base =
+        prefill_a4_sidecar_view(target);
+    return payload_valid && linear_output_size(target) == output_size &&
+           linear_input_size(target) == input_size && base.attached() &&
+           base.sidecar_kind == PrefillSidecarKind::kA4K256 &&
+           base.packed_k_group_size ==
+               kPrefillMLPFactorizedLaneRequiredBasePackedK &&
+           base.scale_group_size ==
+               kPrefillMLPFactorizedLaneRequiredBaseScaleK;
+  };
+
+  std::array<PrefillR1ProjectionPlaneV2LayerView,
+             kQwen36DenseLayerCount>
+      validated{};
+  std::size_t logical_index = 0U;
+  for (std::size_t physical_index = 0U;
+       physical_index < manifest.projections.size(); ++physical_index) {
+    const PrefillR1ProjectionPlaneV2PhysicalProjection& entry =
+        manifest.projections[physical_index];
+    if (entry.layer_index >= layers_.size() ||
+        entry.physical_ordinal != physical_index ||
+        entry.output_size > std::numeric_limits<std::size_t>::max() ||
+        entry.input_size > std::numeric_limits<std::size_t>::max() ||
+        entry.packed_weight_bytes >
+            std::numeric_limits<std::size_t>::max() ||
+        entry.weight_scale_bytes % sizeof(std::uint16_t) != 0U ||
+        entry.weight_scale_bytes / sizeof(std::uint16_t) >
+            std::numeric_limits<std::size_t>::max() ||
+        entry.primary_metadata_bytes % sizeof(float) != 0U ||
+        entry.primary_metadata_bytes / sizeof(float) >
+            std::numeric_limits<std::size_t>::max() ||
+        entry.secondary_metadata_bytes % sizeof(float) != 0U ||
+        entry.secondary_metadata_bytes / sizeof(float) >
+            std::numeric_limits<std::size_t>::max()) {
+      return false;
+    }
+    const auto range_in_projection = [&entry](
+                                         const std::uint64_t offset,
+                                         const std::uint64_t bytes) noexcept {
+      return offset <= entry.payload_bytes &&
+             bytes <= entry.payload_bytes - offset;
+    };
+    if (entry.payload_offset > payload.bytes ||
+        entry.payload_bytes > payload.bytes - entry.payload_offset ||
+        !range_in_projection(entry.packed_weight_offset,
+                             entry.packed_weight_bytes) ||
+        !range_in_projection(entry.weight_scale_offset,
+                             entry.weight_scale_bytes) ||
+        !range_in_projection(entry.primary_metadata_offset,
+                             entry.primary_metadata_bytes) ||
+        !range_in_projection(entry.secondary_metadata_offset,
+                             entry.secondary_metadata_bytes)) {
+      return false;
+    }
+    const std::uintptr_t projection_address =
+        arena_address + entry.payload_offset;
+    const std::uintptr_t weight_address =
+        projection_address + entry.packed_weight_offset;
+    const std::uintptr_t scale_address =
+        projection_address + entry.weight_scale_offset;
+    const std::uintptr_t primary_metadata_address =
+        projection_address + entry.primary_metadata_offset;
+    const std::uintptr_t secondary_metadata_address =
+        projection_address + entry.secondary_metadata_offset;
+    const auto address_range_valid = [arena_end](
+                                         const std::uintptr_t address,
+                                         const std::uint64_t bytes) noexcept {
+      return address < arena_end && bytes <= arena_end - address;
+    };
+    if (projection_address % kPrefillR1ProjectionPlaneV2Alignment != 0U ||
+        weight_address % 16U != 0U || scale_address % 16U != 0U ||
+        primary_metadata_address % 16U != 0U ||
+        !address_range_valid(weight_address, entry.packed_weight_bytes) ||
+        !address_range_valid(scale_address, entry.weight_scale_bytes) ||
+        !address_range_valid(primary_metadata_address,
+                             entry.primary_metadata_bytes) ||
+        (entry.secondary_metadata_bytes != 0U &&
+         (secondary_metadata_address % 16U != 0U ||
+          !address_range_valid(secondary_metadata_address,
+                               entry.secondary_metadata_bytes)))) {
+      return false;
+    }
+
+    DecoderLayerWeights& layer = layers_[entry.layer_index];
+    PrefillR1ProjectionPlaneV2PhysicalView* destination = nullptr;
+    LinearWeight* primary_target = nullptr;
+    LinearWeight* secondary_target = nullptr;
+    bool nvfp4 = false;
+    PrefillR1ProjectionPlaneV2ViewLayout view_layout =
+        PrefillR1ProjectionPlaneV2ViewLayout::kAdjacentN8;
+    switch (entry.family) {
+      case PrefillR1ProjectionPlaneV2PhysicalFamily::kLinearQkv: {
+        auto* const attention =
+            std::get_if<LinearAttentionWeights>(&layer.attention);
+        if (attention != nullptr) {
+          primary_target = &attention->in_proj_qkv;
+          destination = &validated[entry.layer_index].linear_qkv;
+        }
+        break;
+      }
+      case PrefillR1ProjectionPlaneV2PhysicalFamily::kLinearZ: {
+        auto* const attention =
+            std::get_if<LinearAttentionWeights>(&layer.attention);
+        if (attention != nullptr) {
+          primary_target = &attention->in_proj_z;
+          destination = &validated[entry.layer_index].linear_z;
+        }
+        break;
+      }
+      case PrefillR1ProjectionPlaneV2PhysicalFamily::kLinearO: {
+        auto* const attention =
+            std::get_if<LinearAttentionWeights>(&layer.attention);
+        if (attention != nullptr) {
+          primary_target = &attention->out_proj;
+          destination = &validated[entry.layer_index].linear_o;
+        }
+        break;
+      }
+      case PrefillR1ProjectionPlaneV2PhysicalFamily::kFullQ: {
+        auto* const attention =
+            std::get_if<FullAttentionWeights>(&layer.attention);
+        if (attention != nullptr) {
+          primary_target = &attention->q_proj;
+          destination = &validated[entry.layer_index].full_q;
+        }
+        break;
+      }
+      case PrefillR1ProjectionPlaneV2PhysicalFamily::kFullK: {
+        auto* const attention =
+            std::get_if<FullAttentionWeights>(&layer.attention);
+        if (attention != nullptr) {
+          primary_target = &attention->k_proj;
+          destination = &validated[entry.layer_index].full_k;
+        }
+        break;
+      }
+      case PrefillR1ProjectionPlaneV2PhysicalFamily::kFullV: {
+        auto* const attention =
+            std::get_if<FullAttentionWeights>(&layer.attention);
+        if (attention != nullptr) {
+          primary_target = &attention->v_proj;
+          destination = &validated[entry.layer_index].full_v;
+        }
+        break;
+      }
+      case PrefillR1ProjectionPlaneV2PhysicalFamily::kFullO: {
+        auto* const attention =
+            std::get_if<FullAttentionWeights>(&layer.attention);
+        if (attention != nullptr) {
+          primary_target = &attention->o_proj;
+          destination = &validated[entry.layer_index].full_o;
+        }
+        break;
+      }
+      case PrefillR1ProjectionPlaneV2PhysicalFamily::kMlpGateUp:
+        primary_target = &layer.mlp.gate_proj;
+        secondary_target = &layer.mlp.up_proj;
+        destination = &validated[entry.layer_index].mlp_gate_up;
+        nvfp4 = true;
+        view_layout = PrefillR1ProjectionPlaneV2ViewLayout::kPairedGateUp;
+        break;
+      case PrefillR1ProjectionPlaneV2PhysicalFamily::kMlpDown:
+        primary_target = &layer.mlp.down_proj;
+        destination = &validated[entry.layer_index].mlp_down;
+        nvfp4 = true;
+        break;
+    }
+    const std::size_t output_size =
+        static_cast<std::size_t>(entry.output_size);
+    const std::size_t input_size =
+        static_cast<std::size_t>(entry.input_size);
+    if (destination == nullptr || primary_target == nullptr ||
+        !destination->empty() ||
+        !base_valid(*primary_target, output_size, input_size, nvfp4) ||
+        (secondary_target != nullptr &&
+         !base_valid(*secondary_target, output_size, input_size, true))) {
+      return false;
+    }
+
+    PrefillR1ProjectionPlaneV2PhysicalView physical_view;
+    physical_view.codes =
+        reinterpret_cast<const std::uint8_t*>(weight_address);
+    physical_view.code_capacity_bytes =
+        static_cast<std::size_t>(entry.packed_weight_bytes);
+    physical_view.scales =
+        reinterpret_cast<const std::uint16_t*>(scale_address);
+    physical_view.scale_capacity_elements =
+        static_cast<std::size_t>(entry.weight_scale_bytes /
+                                 sizeof(std::uint16_t));
+    physical_view.output_size = output_size;
+    physical_view.input_size = input_size;
+    physical_view.physical_ordinal = entry.physical_ordinal;
+    physical_view.logical_projection_count =
+        entry.logical_projection_count;
+    physical_view.physical_layout = view_layout;
+
+    for (std::uint32_t branch = 0U;
+         branch < entry.logical_projection_count; ++branch) {
+      if (logical_index >= manifest.logical_projections.size() ||
+          logical_index >= policy.projections.size()) {
+        return false;
+      }
+      const PrefillR1ProjectionPlaneV2LogicalProjection& logical =
+          manifest.logical_projections[logical_index];
+      const PrefillR1ProjectionPlaneV2Policy::Calibration& calibration =
+          policy.projections[logical_index];
+      const bool secondary = branch == 1U;
+      const std::uintptr_t metadata_address =
+          secondary ? secondary_metadata_address
+                    : primary_metadata_address;
+      const std::uint64_t metadata_bytes =
+          secondary ? entry.secondary_metadata_bytes
+                    : entry.primary_metadata_bytes;
+      PrefillR1ProjectionPlaneV2LogicalCalibrationView logical_view;
+      logical_view.inverse_alpha =
+          reinterpret_cast<const float*>(metadata_address);
+      // Expose only the authenticated logical vector.  Any aligned tail
+      // belongs to the physical record capacity, not to the consumer view.
+      logical_view.inverse_alpha_capacity_elements =
+          static_cast<std::size_t>(logical.input_size);
+      logical_view.output_size = static_cast<std::size_t>(logical.output_size);
+      logical_view.input_size = static_cast<std::size_t>(logical.input_size);
+      logical_view.logical_ordinal = logical.logical_ordinal;
+      logical_view.physical_ordinal = logical.physical_ordinal;
+      logical_view.source_ordinal = logical.source_ordinal;
+      logical_view.identity = expected_identity(logical.family);
+      logical_view.weight_clip_ratio = calibration.weight_clip_ratio;
+      logical_view.activation_clip_ratio =
+          calibration.activation_clip_ratio;
+      if (logical.physical_ordinal != entry.physical_ordinal ||
+          logical.output_size != entry.output_size ||
+          logical.input_size != entry.input_size ||
+          calibration.logical_ordinal != logical.logical_ordinal ||
+          calibration.physical_ordinal != logical.physical_ordinal ||
+          calibration.source_ordinal != logical.source_ordinal ||
+          calibration.source_module != logical.source_module ||
+          calibration.source_sha256 != logical.source_sha256 ||
+          calibration.factor_element_count != logical.input_size ||
+          // v4 projection records align the following record to 256 bytes;
+          // metadata capacity can therefore include a bounded tail pad.  The
+          // logical contract consumes exactly input_size floats, while the
+          // enclosing projection/range checks above authenticate the padding.
+          logical.input_size > metadata_bytes / sizeof(float) ||
+          logical_view.identity ==
+              PrefillR1ProjectionPlaneV2LogicalIdentity::kNone ||
+          !copy_digest(logical.source_sha256,
+                       logical_view.source_sha256) ||
+          !copy_digest(calibration.factor_sha256,
+                       logical_view.factor_sha256) ||
+          !logical_view.attached()) {
+        return false;
+      }
+      if (secondary) {
+        physical_view.secondary = logical_view;
+      } else {
+        physical_view.primary = logical_view;
+      }
+      ++logical_index;
+    }
+    if (!physical_view.attached()) {
+      return false;
+    }
+    *destination = physical_view;
+  }
+  const auto shares_activation_contract = [](
+                                               const auto& left,
+                                               const auto& right) noexcept {
+    return left.input_size == right.input_size &&
+           left.activation_clip_ratio == right.activation_clip_ratio &&
+           left.factor_sha256 == right.factor_sha256;
+  };
+  for (const PrefillR1ProjectionPlaneV2LayerView& layer : validated) {
+    bool group_valid = shares_activation_contract(
+        layer.mlp_gate_up.primary, layer.mlp_gate_up.secondary);
+    if (layer.linear_attached()) {
+      group_valid =
+          group_valid &&
+          shares_activation_contract(layer.linear_qkv.primary,
+                                     layer.linear_z.primary);
+    } else if (layer.full_attached()) {
+      group_valid =
+          group_valid &&
+          shares_activation_contract(layer.full_q.primary,
+                                     layer.full_k.primary) &&
+          shares_activation_contract(layer.full_q.primary,
+                                     layer.full_v.primary);
+    } else {
+      group_valid = false;
+    }
+    if (!group_valid) {
+      return false;
+    }
+  }
+  if (logical_index != manifest.logical_projections.size() ||
+      manifest.projections.size() !=
+          kPrefillR1ProjectionPlaneV2ViewPhysicalProjectionCount ||
+      manifest.logical_projections.size() !=
+          kPrefillR1ProjectionPlaneV2ViewLogicalProjectionCount ||
+      std::any_of(validated.begin(), validated.end(),
+                  [](const PrefillR1ProjectionPlaneV2LayerView& layer) {
+                    return !layer.attached();
+                  })) {
+    return false;
+  }
+
+  PrefillR1ProjectionPlaneV2AttachmentView attachment;
+  attachment.payload = payload.data;
+  attachment.payload_bytes = static_cast<std::size_t>(payload.bytes);
+  attachment.logical_projection_count = manifest.logical_projection_count;
+  attachment.physical_projection_count = manifest.physical_projection_count;
+  if (!copy_digest(manifest.manifest_sha256, attachment.manifest_sha256) ||
+      !copy_digest(policy.policy_sha256, attachment.policy_sha256) ||
+      !copy_digest(payload.payload_sha256, attachment.payload_sha256) ||
+      !copy_digest(payload.receipt_sha256, attachment.receipt_sha256) ||
+      !copy_digest(required_base.manifest_sha256,
+                   attachment.base_manifest_sha256) ||
+      !copy_digest(required_base.policy_sha256,
+                   attachment.base_policy_sha256) ||
+      !copy_digest(required_base.payload_sha256,
+                   attachment.base_payload_sha256) ||
+      !copy_digest(required_base.receipt_sha256,
+                   attachment.base_receipt_sha256) ||
+      !attachment.attached()) {
+    return false;
+  }
+
+  // Publication follows complete preflight.  These are fixed-size trivial
+  // copies and cannot fail, so every observer sees either the old complete
+  // plane or the newly validated complete plane at the API transaction
+  // boundary.
+  for (std::size_t layer_index = 0U; layer_index < layers_.size();
+       ++layer_index) {
+    layers_[layer_index].prefill_r1_projection_plane_v2 =
+        validated[layer_index];
+  }
+  prefill_r1_projection_plane_v2_ = attachment;
   return true;
 }
 

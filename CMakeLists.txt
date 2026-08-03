@@ -34,6 +34,10 @@ option(Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION
   "Build the opt-in native SM87 C64/WY GDN architecture route"
   OFF
 )
+option(Q3X_BUILD_GDN_STATE_O_BV64_FUSION_ADMISSION
+  "Build the default-off native GDN persistent-state plus BV64 output fusion probe"
+  OFF
+)
 option(Q3X_BUILD_GDN_PREFILL_PROMPT_SPAN_MACRO_EXPERIMENT
   "Build the isolated SM87 C64 GDN prompt-span macro correctness experiment"
   OFF
@@ -116,6 +120,10 @@ option(Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_MLP_EXPERIMENT
 )
 option(Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_R1_ADMISSION
   "Build the default-off authenticated whole-M factorized-lane R1 API experiment"
+  OFF
+)
+option(Q3X_BUILD_PREFILL_R1_PROJECTION_PLANE_V2_ADMISSION
+  "Build the default-off unified R1 projection-plane v2 execution admission"
   OFF
 )
 option(Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_R4_ADMISSION
@@ -276,6 +284,14 @@ if(Q3X_BUILD_GDN_PREFILL_PROMPT_SPAN_MACRO_ADMISSION AND
     NOT Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION))
   message(FATAL_ERROR
     "The production GDN prompt-span macro requires the native C64 preprocessing route and the A4 whole-prompt runner"
+  )
+endif()
+if(Q3X_BUILD_GDN_STATE_O_BV64_FUSION_ADMISSION AND
+   (NOT Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION OR
+    NOT Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_R1_ADMISSION OR
+    NOT Q3X_BUILD_SM87_A4W4_ATTENTION_FACTORIZED_LANE_R1_EXPERIMENT))
+  message(FATAL_ERROR
+    "The GDN state+BV64-output fusion probe requires native C64 GDN and the authenticated Attention factorized-lane-R1 direct publication route"
   )
 endif()
 if(Q3X_BUILD_NVFP4_MARLIN_PREFILL_ADMISSION AND NOT BUILD_TESTING)
@@ -457,6 +473,14 @@ if(Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_R1_ADMISSION AND
     NOT Q3X_BUILD_SM87_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_EXPERIMENT))
   message(FATAL_ERROR
     "The factorized-lane R1 API experiment requires BUILD_TESTING, its kernel architecture, authenticated full-A4, whole-M layer-major Prefill, and the cumulative K256 Attention A-exchange/B4 route"
+  )
+endif()
+if(Q3X_BUILD_PREFILL_R1_PROJECTION_PLANE_V2_ADMISSION AND
+   (NOT Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_R1_ADMISSION OR
+    NOT Q3X_BUILD_SM87_A4W4_ATTENTION_FACTORIZED_LANE_R1_EXPERIMENT OR
+    NOT Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION))
+  message(FATAL_ERROR
+    "The unified R1 projection-plane v2 execution admission requires native GDN plus both the factorized R1 and Attention factorized-lane R1 kernel admissions"
   )
 endif()
 if(Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_R4_ADMISSION AND
@@ -756,20 +780,24 @@ if(Q3X_BUILD_LONG_PREFILL_LAYER_MAJOR_ADMISSION)
     Q3X_ENABLE_LONG_PREFILL_LAYER_MAJOR_ADMISSION=1
   )
 endif()
+# The offline R1 publication contract is always built: ModelWeights validates
+# it even in default builds, and the sidecar CLI must remain usable without a
+# GPU execution admission. Kernel dispatch remains separately feature-gated.
+target_sources(q3x_core PRIVATE
+  src/runtime/prefill_mlp_factorized_lane_overlay.cpp
+  src/runtime/prefill_mlp_factorized_lane_converter.cpp
+  src/runtime/prefill_attention_factorized_lane_overlay.cpp
+  src/runtime/prefill_attention_factorized_lane_converter.cpp
+  src/runtime/prefill_r1_projection_plane_v2.cpp
+)
 if(Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_MLP_EXPERIMENT)
   target_sources(q3x_core PRIVATE
-    src/runtime/prefill_mlp_factorized_lane_overlay.cpp
-    src/runtime/prefill_mlp_factorized_lane_converter.cpp
     src/runtime/prefill_mlp_factorized_lane_r4_converter.cpp
     src/runtime/prefill_mlp_factorized_lane_r4_publication.cpp
     src/runtime/prefill_mlp_factorized_lane_r4_candidate_converter.cpp
   )
 endif()
 if(Q3X_BUILD_SM87_A4W4_ATTENTION_FACTORIZED_LANE_R1_EXPERIMENT)
-  target_sources(q3x_core PRIVATE
-    src/runtime/prefill_attention_factorized_lane_overlay.cpp
-    src/runtime/prefill_attention_factorized_lane_converter.cpp
-  )
   target_compile_definitions(q3x_core PRIVATE
     Q3X_ENABLE_A4W4_ATTENTION_FACTORIZED_LANE_R1_EXPERIMENT=1
   )
@@ -1207,6 +1235,11 @@ if(Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_R1_ADMISSION)
     PROPERTIES COMPILE_OPTIONS "--maxrregcount=128;-Xptxas=-v;-Xptxas=-warn-spills;-Xptxas=-warn-lmem-usage"
   )
 endif()
+if(Q3X_BUILD_PREFILL_R1_PROJECTION_PLANE_V2_ADMISSION)
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_PREFILL_R1_PROJECTION_PLANE_V2_ADMISSION=1
+  )
+endif()
 if(Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_R4_ADMISSION)
   target_compile_definitions(q3x_kernels PRIVATE
     Q3X_ENABLE_A4W4_FACTORIZED_LANE_R4_ADMISSION=1
@@ -1349,6 +1382,11 @@ if(Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION)
     Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION=1
   )
 endif()
+if(Q3X_BUILD_GDN_STATE_O_BV64_FUSION_ADMISSION)
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_GDN_STATE_O_BV64_FUSION_ADMISSION=1
+  )
+endif()
 if(Q3X_BUILD_GDN_PREFILL_PROMPT_SPAN_MACRO_ADMISSION)
   target_sources(q3x_kernels PRIVATE
     src/kernels/sm87/gdn_prefill_prompt_span_macro_sm87.cu
@@ -1407,6 +1445,11 @@ if(Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_R1_ADMISSION)
     Q3X_ENABLE_A4W4_FACTORIZED_LANE_R1_ADMISSION=1
   )
 endif()
+if(Q3X_BUILD_PREFILL_R1_PROJECTION_PLANE_V2_ADMISSION)
+  target_compile_definitions(q3x_engine PRIVATE
+    Q3X_ENABLE_PREFILL_R1_PROJECTION_PLANE_V2_ADMISSION=1
+  )
+endif()
 if(Q3X_BUILD_SM87_A4W4_ATTENTION_FACTORIZED_LANE_R1_EXPERIMENT)
   target_compile_definitions(q3x_engine PRIVATE
     Q3X_ENABLE_A4W4_ATTENTION_FACTORIZED_LANE_R1_EXPERIMENT=1
@@ -1425,6 +1468,11 @@ endif()
 if(Q3X_BUILD_GDN_PREFILL_PROMPT_SPAN_MACRO_ADMISSION)
   target_compile_definitions(q3x_engine PRIVATE
     Q3X_ENABLE_GDN_PREFILL_PROMPT_SPAN_MACRO_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_GDN_STATE_O_BV64_FUSION_ADMISSION)
+  target_compile_definitions(q3x_engine PRIVATE
+    Q3X_ENABLE_GDN_STATE_O_BV64_FUSION_ADMISSION=1
   )
 endif()
 if(Q3X_BUILD_SM87_A4W4_ATTENTION_K256_M128N256_ADMISSION)
@@ -1606,6 +1654,9 @@ q3x_enable_warnings(qwen3x-inspect)
 
 add_executable(qwen3x-a4-sidecar tools/q3x-a4-sidecar/main.cpp)
 target_link_libraries(qwen3x-a4-sidecar PRIVATE q3x::core)
+target_compile_definitions(qwen3x-a4-sidecar PRIVATE
+  Q3X_ENABLE_PREFILL_R1_PROJECTION_PLANE_V2_COMPOSER=1
+)
 if(Q3X_BUILD_SM87_A4W4_ATTENTION_FACTORIZED_LANE_R1_EXPERIMENT)
   target_compile_definitions(qwen3x-a4-sidecar PRIVATE
     Q3X_ENABLE_A4W4_ATTENTION_FACTORIZED_LANE_R1_EXPERIMENT=1
@@ -1614,6 +1665,36 @@ endif()
 q3x_enable_warnings(qwen3x-a4-sidecar)
 
 if(BUILD_TESTING)
+  add_executable(q3x_prefill_r1_projection_plane_v2_test
+    tests/prefill_r1_projection_plane_v2_test.cpp
+  )
+  target_link_libraries(q3x_prefill_r1_projection_plane_v2_test
+    PRIVATE q3x::core
+  )
+  q3x_enable_warnings(q3x_prefill_r1_projection_plane_v2_test)
+  add_test(NAME prefill_r1_projection_plane_v2
+    COMMAND q3x_prefill_r1_projection_plane_v2_test
+  )
+  set_tests_properties(prefill_r1_projection_plane_v2 PROPERTIES
+    LABELS "host;prefill;a4w4;r1;projection-plane;contract;correctness"
+  )
+
+  add_executable(q3x_prefill_r1_projection_plane_v2_file_converter_test
+    tests/prefill_r1_projection_plane_v2_file_converter_test.cpp
+  )
+  target_link_libraries(q3x_prefill_r1_projection_plane_v2_file_converter_test
+    PRIVATE q3x::core
+  )
+  q3x_enable_warnings(
+    q3x_prefill_r1_projection_plane_v2_file_converter_test
+  )
+  add_test(NAME prefill_r1_projection_plane_v2_file_converter
+    COMMAND q3x_prefill_r1_projection_plane_v2_file_converter_test
+  )
+  set_tests_properties(prefill_r1_projection_plane_v2_file_converter PROPERTIES
+    LABELS "host;prefill;a4w4;r1;projection-plane;file;transaction;correctness"
+  )
+
   find_package(Python3 QUIET COMPONENTS Interpreter)
   if(Python3_Interpreter_FOUND)
     add_test(
@@ -5749,6 +5830,12 @@ if(BUILD_TESTING)
       q3x_gdn_prefill_chunk_o_bv64_component_test
       PRIVATE q3x::kernels CUDA::cudart
     )
+    if(Q3X_BUILD_GDN_STATE_O_BV64_FUSION_ADMISSION)
+      target_compile_definitions(
+        q3x_gdn_prefill_chunk_o_bv64_component_test
+        PRIVATE Q3X_ENABLE_GDN_STATE_O_BV64_FUSION_ADMISSION=1
+      )
+    endif()
     q3x_enable_warnings(
       q3x_gdn_prefill_chunk_o_bv64_component_test
     )

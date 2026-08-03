@@ -83,6 +83,11 @@ struct ReferenceRunnerOptions {
   // It is invalid without the full-A4 K256 base and the MLP R1 master, and it
   // never inherits production or quality eligibility from authentication.
   bool enable_attention_factorized_lane_r1_prefill_admission = false;
+  // Select the unified 336-physical/400-logical R1 projection plane v2.
+  // This is one complete, default-off whole-model route: it never aliases
+  // the legacy MLP-R1/Attention-R1 booleans or their telemetry, and it owns
+  // Attention, paired Gate+Up, Down, and both handoff boundaries together.
+  bool enable_prefill_r1_projection_plane_v2_admission = false;
   // Select the independent direct-checkpoint R4 whole-MLP package.  It is
   // mutually exclusive with R1 and every K512/Marlin MLP route, and accepts
   // only one logical P1793..P1920 projection span launched as P1920.
@@ -290,6 +295,21 @@ struct ReferenceLongPrefillResult {
   // next decoder layer's K256 Attention input directly.  The final decoder
   // layer has no transition, so a single-span 64-layer request reports 63.
   std::size_t factorized_lane_r1_cross_layer_handoff_launch_hits = 0U;
+  // Independent request-local proof for the unified R1 projection-plane v2.
+  // A complete one-span P1853 request reports 64 layer packages, 64 GateUp,
+  // 64 Down, 128 physical Attention launches, all 400 logical projections,
+  // 64 in-layer handoffs, and 63 cross-layer handoffs. Legacy R1/R4/K512
+  // counters remain zero for this route.
+  std::size_t prefill_r1_projection_plane_v2_layer_package_launch_hits = 0U;
+  std::size_t prefill_r1_projection_plane_v2_gateup_launch_hits = 0U;
+  std::size_t prefill_r1_projection_plane_v2_down_launch_hits = 0U;
+  std::size_t
+      prefill_r1_projection_plane_v2_attention_physical_launch_hits = 0U;
+  std::size_t prefill_r1_projection_plane_v2_logical_projection_hits = 0U;
+  std::size_t
+      prefill_r1_projection_plane_v2_handoff_package_launch_hits = 0U;
+  std::size_t
+      prefill_r1_projection_plane_v2_cross_layer_handoff_launch_hits = 0U;
   // Independent proof for the direct-checkpoint R4 package.  One hit means
   // lane4 hidden quantization, paired Gate+Up, split product quantization,
   // and Down all enqueued successfully for one layer/span.
@@ -341,6 +361,11 @@ struct ReferenceLongPrefillResult {
   // Physical proof for the mutually exclusive whole-K6144 factorized-lane
   // R1 GDN epilogue. P1853 likewise owns four tiles in 48 Linear layers.
   std::size_t gdn_factorized_lane_r1_direct_pack_launch_hits = 0U;
+  // Default-off proof that the same native tiles used one persistent
+  // state+BV64 raw-O kernel before the unchanged direct-R1 publisher.
+  // P1853 must report 192 physical launches and 88,944 logical-token hits.
+  std::size_t gdn_state_o_bv64_fused_launch_hits = 0U;
+  std::size_t gdn_state_o_bv64_fused_logical_token_hits = 0U;
   std::size_t gdn_prompt_span_macro_launch_hits = 0U;
   std::size_t gdn_prompt_span_macro_logical_token_hits = 0U;
   std::optional<ReferenceStepTiming> timing;
@@ -823,6 +848,95 @@ struct A4W4FullPrefillAdmissionHits {
   // for the same complete layer/span package counted immediately above.
   std::size_t factorized_lane_r4_2cta_package_launch_hits = 0U;
 };
+
+// Success-only request staging for the unified projection-plane v2. This is
+// deliberately separate from A4W4FullPrefillAdmissionHits: failed requests
+// discard the entire structure, so no partially executed v2 package can be
+// observed as an admitted result.
+struct PrefillR1ProjectionPlaneV2AdmissionHits final {
+  std::size_t layer_package_launch_hits = 0U;
+  std::size_t gateup_launch_hits = 0U;
+  std::size_t down_launch_hits = 0U;
+  std::size_t attention_physical_launch_hits = 0U;
+  std::size_t logical_projection_hits = 0U;
+  std::size_t handoff_package_launch_hits = 0U;
+  std::size_t cross_layer_handoff_launch_hits = 0U;
+};
+
+enum class PrefillR1ProjectionPlaneV2Route : std::uint8_t {
+  kDisabled = 0,
+  kInvalid,
+  kEnabled,
+};
+
+struct PrefillR1ProjectionPlaneV2RouteQuery final {
+  bool requested = false;
+  bool full_a4_prefill_enabled = false;
+  bool sm87_weight_only = false;
+  bool trace_enabled = false;
+  bool optimized_dispatch_disabled = false;
+  bool k256_inventory = false;
+  bool complete_attachment = false;
+  bool projection_span = false;
+  bool graph_capture = false;
+  bool legacy_r1_requested = false;
+  bool r4_requested = false;
+  bool legacy_mlp_selector_conflict = false;
+  bool legacy_attention_selector_conflict = false;
+};
+
+[[nodiscard]] constexpr PrefillR1ProjectionPlaneV2Route
+select_prefill_r1_projection_plane_v2_route(
+    const PrefillR1ProjectionPlaneV2RouteQuery& query) noexcept {
+  if (!query.requested) {
+    return PrefillR1ProjectionPlaneV2Route::kDisabled;
+  }
+  return query.full_a4_prefill_enabled && query.sm87_weight_only &&
+                 !query.trace_enabled &&
+                 !query.optimized_dispatch_disabled && query.k256_inventory &&
+                 query.complete_attachment && query.projection_span &&
+                 !query.graph_capture && !query.legacy_r1_requested &&
+                 !query.r4_requested && !query.legacy_mlp_selector_conflict &&
+                 !query.legacy_attention_selector_conflict
+             ? PrefillR1ProjectionPlaneV2Route::kEnabled
+             : PrefillR1ProjectionPlaneV2Route::kInvalid;
+}
+
+[[nodiscard]] constexpr bool
+prefill_r1_projection_plane_v2_accounting_valid(
+    const PrefillR1ProjectionPlaneV2Route route,
+    const std::size_t projection_span_count,
+    const PrefillR1ProjectionPlaneV2AdmissionHits& hits) noexcept {
+  if (route == PrefillR1ProjectionPlaneV2Route::kDisabled) {
+    return hits.layer_package_launch_hits == 0U &&
+           hits.gateup_launch_hits == 0U && hits.down_launch_hits == 0U &&
+           hits.attention_physical_launch_hits == 0U &&
+           hits.logical_projection_hits == 0U &&
+           hits.handoff_package_launch_hits == 0U &&
+           hits.cross_layer_handoff_launch_hits == 0U;
+  }
+  if (route != PrefillR1ProjectionPlaneV2Route::kEnabled ||
+      projection_span_count == 0U) {
+    return false;
+  }
+  return hits.layer_package_launch_hits ==
+             projection_span_count * kReferenceDecoderLayerCount &&
+         hits.gateup_launch_hits ==
+             projection_span_count * kReferenceDecoderLayerCount &&
+         hits.down_launch_hits ==
+             projection_span_count * kReferenceDecoderLayerCount &&
+         hits.attention_physical_launch_hits ==
+             projection_span_count * 2U * kReferenceDecoderLayerCount &&
+         hits.logical_projection_hits ==
+             projection_span_count *
+                 kPrefillR1ProjectionPlaneV2ViewLogicalProjectionCount &&
+         hits.handoff_package_launch_hits ==
+             projection_span_count * kReferenceDecoderLayerCount &&
+         hits.cross_layer_handoff_launch_hits ==
+             (projection_span_count == 1U
+                  ? kReferenceDecoderLayerCount - 1U
+                  : 0U);
+}
 
 enum class FactorizedLaneR4PrefillRoute : std::uint8_t {
   kDisabled = 0,
@@ -1931,6 +2045,23 @@ A4W4FullPrefillAdmissionHits
 exchange_a4w4_full_prefill_admission_test_hits(
     A4W4FullPrefillAdmissionHits hits) noexcept;
 
+// Request-local proof for the default-off state+BV64-O fusion. A selected
+// request covers exactly the native state tiles and logical-token volume;
+// an unselected request remains exactly zero. This keeps P1853's
+// 192/88,944 contract testable without constructing a CUDA runner.
+[[nodiscard]] constexpr bool
+gdn_state_o_bv64_fusion_accounting_valid(
+    const bool selected,
+    const std::size_t native_launch_hits,
+    const std::size_t native_logical_token_hits,
+    const std::size_t fused_launch_hits,
+    const std::size_t fused_logical_token_hits) noexcept {
+  return selected
+             ? fused_launch_hits == native_launch_hits &&
+                   fused_logical_token_hits == native_logical_token_hits
+             : fused_launch_hits == 0U && fused_logical_token_hits == 0U;
+}
+
 [[nodiscard]] bool use_fp8_marlin_prefill_projection(
     ProjectionBackend backend, const LinearWeight& weight,
     const std::uint16_t* input, std::uint16_t* output,
@@ -1990,6 +2121,10 @@ class ReferenceRunner {
   [[nodiscard]] bool attention_factorized_lane_r1_prefill_enabled()
       const noexcept {
     return attention_factorized_lane_r1_prefill_admission_enabled_;
+  }
+  [[nodiscard]] bool prefill_r1_projection_plane_v2_enabled()
+      const noexcept {
+    return prefill_r1_projection_plane_v2_admission_enabled_;
   }
   [[nodiscard]] bool factorized_lane_r4_prefill_enabled() const noexcept {
     return factorized_lane_r4_prefill_admission_enabled_;
@@ -2200,6 +2335,9 @@ class ReferenceRunner {
   bool factorized_lane_r1_prefill_admission_enabled_ = false;
   bool factorized_lane_r1_handoff_prefill_admission_enabled_ = false;
   bool attention_factorized_lane_r1_prefill_admission_enabled_ = false;
+  bool prefill_r1_projection_plane_v2_admission_enabled_ = false;
+  reference_runner_detail::PrefillR1ProjectionPlaneV2AdmissionHits
+      prefill_r1_projection_plane_v2_request_hits_{};
   bool factorized_lane_r4_prefill_admission_enabled_ = false;
   bool factorized_lane_r4_2cta_prefill_admission_enabled_ = false;
   bool trace_enabled_ = false;

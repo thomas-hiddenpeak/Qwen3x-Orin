@@ -348,6 +348,30 @@ GenerationControlResult run_generation_control_impl(
           outcome.value->factorized_lane_r1_handoff_package_launch_hits;
       control.timing.factorized_lane_r1_cross_layer_handoff_launch_hits =
           outcome.value->factorized_lane_r1_cross_layer_handoff_launch_hits;
+      control.timing
+          .prefill_r1_projection_plane_v2_layer_package_launch_hits =
+          outcome.value
+              ->prefill_r1_projection_plane_v2_layer_package_launch_hits;
+      control.timing.prefill_r1_projection_plane_v2_gateup_launch_hits =
+          outcome.value->prefill_r1_projection_plane_v2_gateup_launch_hits;
+      control.timing.prefill_r1_projection_plane_v2_down_launch_hits =
+          outcome.value->prefill_r1_projection_plane_v2_down_launch_hits;
+      control.timing
+          .prefill_r1_projection_plane_v2_attention_physical_launch_hits =
+          outcome.value
+              ->prefill_r1_projection_plane_v2_attention_physical_launch_hits;
+      control.timing
+          .prefill_r1_projection_plane_v2_logical_projection_hits =
+          outcome.value
+              ->prefill_r1_projection_plane_v2_logical_projection_hits;
+      control.timing
+          .prefill_r1_projection_plane_v2_handoff_package_launch_hits =
+          outcome.value
+              ->prefill_r1_projection_plane_v2_handoff_package_launch_hits;
+      control.timing
+          .prefill_r1_projection_plane_v2_cross_layer_handoff_launch_hits =
+          outcome.value
+              ->prefill_r1_projection_plane_v2_cross_layer_handoff_launch_hits;
       control.timing.factorized_lane_r4_package_launch_hits =
           outcome.value->factorized_lane_r4_package_launch_hits;
       control.timing.factorized_lane_r4_2cta_package_launch_hits =
@@ -377,6 +401,10 @@ GenerationControlResult run_generation_control_impl(
           outcome.value->gdn_k256_direct_pack_launch_hits;
       control.timing.gdn_factorized_lane_r1_direct_pack_launch_hits =
           outcome.value->gdn_factorized_lane_r1_direct_pack_launch_hits;
+      control.timing.gdn_state_o_bv64_fused_launch_hits =
+          outcome.value->gdn_state_o_bv64_fused_launch_hits;
+      control.timing.gdn_state_o_bv64_fused_logical_token_hits =
+          outcome.value->gdn_state_o_bv64_fused_logical_token_hits;
       control.timing.gdn_prompt_span_macro_launch_hits =
           outcome.value->gdn_prompt_span_macro_launch_hits;
       control.timing.gdn_prompt_span_macro_logical_token_hits =

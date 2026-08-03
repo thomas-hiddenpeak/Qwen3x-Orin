@@ -140,6 +140,16 @@ struct ReferenceEngineOptions {
   std::filesystem::path prefill_mlp_factorized_lane_r4_payload_path;
   std::filesystem::path prefill_mlp_factorized_lane_r4_policy_path;
   std::filesystem::path prefill_mlp_factorized_lane_r4_receipt_path;
+  // Unified, indivisible R1 projection-plane v2 publication. Unlike the
+  // legacy split R1 overlays, this package carries one manifest plus one
+  // 12.18 GB arena for all 400 logical/336 physical projections. All four
+  // paths and the dedicated default-off runtime selector are required
+  // together. The package remains performance-upper-bound-only and cannot
+  // coexist with either split R1 publication, direct R4, or any K512 overlay.
+  std::filesystem::path prefill_r1_projection_plane_v2_payload_path;
+  std::filesystem::path prefill_r1_projection_plane_v2_manifest_path;
+  std::filesystem::path prefill_r1_projection_plane_v2_policy_path;
+  std::filesystem::path prefill_r1_projection_plane_v2_receipt_path;
 };
 
 // Text-only messages accepted by the pinned Qwen 3.6 chat formatter. The
@@ -237,6 +247,20 @@ struct ReferenceGenerationTiming {
   // single-span 64-layer request reports 63 because the final layer has no
   // successor.
   std::size_t factorized_lane_r1_cross_layer_handoff_launch_hits = 0U;
+  // Independent proof for the unified R1 projection-plane v2 route. These
+  // counters are copied from the runner only after a complete request-local
+  // package commits; all legacy split-R1 counters remain independently zero.
+  std::size_t
+      prefill_r1_projection_plane_v2_layer_package_launch_hits = 0U;
+  std::size_t prefill_r1_projection_plane_v2_gateup_launch_hits = 0U;
+  std::size_t prefill_r1_projection_plane_v2_down_launch_hits = 0U;
+  std::size_t
+      prefill_r1_projection_plane_v2_attention_physical_launch_hits = 0U;
+  std::size_t prefill_r1_projection_plane_v2_logical_projection_hits = 0U;
+  std::size_t
+      prefill_r1_projection_plane_v2_handoff_package_launch_hits = 0U;
+  std::size_t
+      prefill_r1_projection_plane_v2_cross_layer_handoff_launch_hits = 0U;
   // Independent request-local proof for the direct-checkpoint calibrated R4
   // package.  It must never be inferred from the R1 counter.
   std::size_t factorized_lane_r4_package_launch_hits = 0U;
@@ -274,6 +298,10 @@ struct ReferenceGenerationTiming {
   // to Attention-O rather than materializing and requantizing BF16 output.
   std::size_t gdn_k256_direct_pack_launch_hits = 0U;
   std::size_t gdn_factorized_lane_r1_direct_pack_launch_hits = 0U;
+  // Request-local production proof for the default-off state+BV64-O fusion.
+  // Logical hits retain one token per Linear-Attention layer.
+  std::size_t gdn_state_o_bv64_fused_launch_hits = 0U;
+  std::size_t gdn_state_o_bv64_fused_logical_token_hits = 0U;
   std::size_t gdn_prompt_span_macro_launch_hits = 0U;
   std::size_t gdn_prompt_span_macro_logical_token_hits = 0U;
   std::vector<double> subsequent_token_milliseconds;
@@ -344,6 +372,7 @@ struct ReferenceEngineLoadStats {
           0.0;
   double prefill_mlp_factorized_lane_r1_overlay_milliseconds = 0.0;
   double prefill_attention_factorized_lane_r1_overlay_milliseconds = 0.0;
+  double prefill_r1_projection_plane_v2_milliseconds = 0.0;
   double prefill_mlp_factorized_lane_r4_overlay_milliseconds = 0.0;
   double runner_factory_milliseconds = 0.0;
   ReferenceDecodeGraphCachePolicy decode_graph_cache_requested_policy =
@@ -566,6 +595,25 @@ struct ReferenceEngineLoadStats {
   std::string prefill_attention_factorized_lane_r1_overlay_receipt_sha256;
   std::string
       prefill_attention_factorized_lane_r1_overlay_base_receipt_sha256;
+  // Readiness proof for the single-arena projection-plane v2 admission.
+  // `enabled` proves strict authentication, stable-file rehash, bounded H2D,
+  // and atomic ModelWeights attachment only. The explicit false eligibility
+  // fields prevent that proof from being mistaken for production approval.
+  bool prefill_r1_projection_plane_v2_requested = false;
+  bool prefill_r1_projection_plane_v2_enabled = false;
+  bool prefill_r1_projection_plane_v2_performance_upper_bound_only = false;
+  bool prefill_r1_projection_plane_v2_production_residency_eligible = false;
+  bool prefill_r1_projection_plane_v2_quality_production_eligible = false;
+  std::size_t prefill_r1_projection_plane_v2_logical_projections = 0U;
+  std::size_t prefill_r1_projection_plane_v2_physical_projections = 0U;
+  std::uint64_t prefill_r1_projection_plane_v2_bytes = 0U;
+  std::uint64_t prefill_r1_projection_plane_v2_copy_chunks = 0U;
+  std::string prefill_r1_projection_plane_v2_layout;
+  std::string prefill_r1_projection_plane_v2_manifest_sha256;
+  std::string prefill_r1_projection_plane_v2_policy_sha256;
+  std::string prefill_r1_projection_plane_v2_payload_sha256;
+  std::string prefill_r1_projection_plane_v2_receipt_sha256;
+  std::string prefill_r1_projection_plane_v2_base_receipt_sha256;
   // Independent readiness proof for direct-checkpoint calibrated R4.  These
   // booleans remain visible because successful authentication/attachment is
   // explicitly not production or quality eligibility.
@@ -866,6 +914,10 @@ struct ReferenceOneShotOptions {
   std::filesystem::path prefill_mlp_factorized_lane_r4_payload_path;
   std::filesystem::path prefill_mlp_factorized_lane_r4_policy_path;
   std::filesystem::path prefill_mlp_factorized_lane_r4_receipt_path;
+  std::filesystem::path prefill_r1_projection_plane_v2_payload_path;
+  std::filesystem::path prefill_r1_projection_plane_v2_manifest_path;
+  std::filesystem::path prefill_r1_projection_plane_v2_policy_path;
+  std::filesystem::path prefill_r1_projection_plane_v2_receipt_path;
 };
 
 struct ReferenceOneShotGeneration {

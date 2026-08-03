@@ -640,6 +640,91 @@ void test_mlp_factorized_lane_r1_publication(TestContext& test) {
               "factorized-lane R1 and K512 MLP publications cannot coexist");
 }
 
+void test_r1_projection_plane_v2_publication(TestContext& test) {
+  const char* const valid[] = {
+      "qwen3x-eval-server", "/model",
+      "--prefill-a4-payload", "/publication/a4-k256.bin",
+      "--prefill-a4-policy", "/publication/a4-k256-policy.json",
+      "--prefill-a4-receipt", "/publication/a4-k256-receipt.json",
+      "--prefill-r1-projection-plane-v2-payload", "/publication/r1-v2.bin",
+      "--prefill-r1-projection-plane-v2-manifest",
+      "/publication/r1-v2.manifest.json",
+      "--prefill-r1-projection-plane-v2-policy",
+      "/publication/r1-v2.policy.json",
+      "--prefill-r1-projection-plane-v2-receipt",
+      "/publication/r1-v2.receipt.json"};
+  server::EvaluationServerOptions options;
+  std::string error;
+  test.expect(
+      parse(valid, options, error) && error.empty() &&
+          options.prefill_r1_projection_plane_v2_payload_path ==
+              "/publication/r1-v2.bin" &&
+          options.prefill_r1_projection_plane_v2_manifest_path ==
+              "/publication/r1-v2.manifest.json" &&
+          options.prefill_r1_projection_plane_v2_policy_path ==
+              "/publication/r1-v2.policy.json" &&
+          options.prefill_r1_projection_plane_v2_receipt_path ==
+              "/publication/r1-v2.receipt.json",
+      "a complete unified R1 v2 publication parses");
+
+  const char* const incomplete[] = {
+      "qwen3x-eval-server", "/model",
+      "--prefill-a4-payload", "/publication/a4-k256.bin",
+      "--prefill-a4-policy", "/publication/a4-k256-policy.json",
+      "--prefill-a4-receipt", "/publication/a4-k256-receipt.json",
+      "--prefill-r1-projection-plane-v2-payload", "/publication/r1-v2.bin",
+      "--prefill-r1-projection-plane-v2-manifest",
+      "/publication/r1-v2.manifest.json",
+      "--prefill-r1-projection-plane-v2-policy",
+      "/publication/r1-v2.policy.json"};
+  options = {};
+  error.clear();
+  test.expect(!parse(incomplete, options, error) &&
+                  error.find("required together") != std::string::npos,
+              "an incomplete unified R1 v2 publication is rejected");
+
+  const char* const missing_base_receipt[] = {
+      "qwen3x-eval-server", "/model",
+      "--prefill-a4-payload", "/publication/a4-k256.bin",
+      "--prefill-a4-policy", "/publication/a4-k256-policy.json",
+      "--prefill-r1-projection-plane-v2-payload", "/publication/r1-v2.bin",
+      "--prefill-r1-projection-plane-v2-manifest",
+      "/publication/r1-v2.manifest.json",
+      "--prefill-r1-projection-plane-v2-policy",
+      "/publication/r1-v2.policy.json",
+      "--prefill-r1-projection-plane-v2-receipt",
+      "/publication/r1-v2.receipt.json"};
+  options = {};
+  error.clear();
+  test.expect(!parse(missing_base_receipt, options, error) &&
+                  error.find("K256 A4") != std::string::npos &&
+                  error.find("receipt") != std::string::npos,
+              "unified R1 v2 requires the exact K256 receipt identity");
+
+  const char* const conflicts_with_split_r1[] = {
+      "qwen3x-eval-server", "/model",
+      "--prefill-a4-payload", "/publication/a4-k256.bin",
+      "--prefill-a4-policy", "/publication/a4-k256-policy.json",
+      "--prefill-a4-receipt", "/publication/a4-k256-receipt.json",
+      "--prefill-mlp-factorized-lane-r1-payload", "/publication/mlp-r1.bin",
+      "--prefill-mlp-factorized-lane-r1-policy",
+      "/publication/mlp-r1.policy.json",
+      "--prefill-mlp-factorized-lane-r1-receipt",
+      "/publication/mlp-r1.receipt.json",
+      "--prefill-r1-projection-plane-v2-payload", "/publication/r1-v2.bin",
+      "--prefill-r1-projection-plane-v2-manifest",
+      "/publication/r1-v2.manifest.json",
+      "--prefill-r1-projection-plane-v2-policy",
+      "/publication/r1-v2.policy.json",
+      "--prefill-r1-projection-plane-v2-receipt",
+      "/publication/r1-v2.receipt.json"};
+  options = {};
+  error.clear();
+  test.expect(!parse(conflicts_with_split_r1, options, error) &&
+                  error.find("mutually exclusive") != std::string::npos,
+              "unified and split R1 publications cannot coexist");
+}
+
 void test_mlp_factorized_lane_r4_publication(TestContext& test) {
   const char* const valid[] = {
       "qwen3x-eval-server",
@@ -742,6 +827,7 @@ int main() {
   test_mlp_k512_paired_gateup_canonical_down_publication(test);
   test_mlp_k512_projection_major_gateup_canonical_down_publication(test);
   test_mlp_factorized_lane_r1_publication(test);
+  test_r1_projection_plane_v2_publication(test);
   test_mlp_factorized_lane_r4_publication(test);
   if (test.failures() != 0) {
     std::cerr << test.failures()

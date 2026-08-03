@@ -25,6 +25,12 @@
 #if defined(Q3X_ENABLE_A4W4_ATTENTION_FACTORIZED_LANE_R1_EXPERIMENT)
 #include "q3x/runtime/prefill_attention_factorized_lane_converter.h"
 #endif
+#if defined(Q3X_ENABLE_PREFILL_R1_PROJECTION_PLANE_V2_ADMISSION)
+#if !defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
+#error "R1 projection-plane v2 admission requires the authenticated K256 A4 base"
+#endif
+#include "q3x/runtime/prefill_r1_projection_plane_v2.h"
+#endif
 #if defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R4_ADMISSION)
 #if !defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
 #error "factorized-lane R4 execution requires the independent K256 Attention companion plane"
@@ -278,6 +284,16 @@ prefill_attention_factorized_lane_r1_environment_enabled() noexcept {
 }
 
 [[nodiscard]] bool
+prefill_r1_projection_plane_v2_environment_enabled() noexcept {
+  if (optimized_prefill_dispatch_disabled()) {
+    return false;
+  }
+  const char* const value = std::getenv(
+      "Q3X_RUN_A4W4_R1_PROJECTION_PLANE_V2_ADMISSION");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
+[[nodiscard]] bool
 prefill_mlp_factorized_lane_r4_environment_enabled() noexcept {
   if (optimized_prefill_dispatch_disabled()) {
     return false;
@@ -386,6 +402,62 @@ prefill_down_k512_m16n64_v2_environment_enabled() noexcept {
   return value != nullptr && std::strcmp(value, "1") == 0;
 }
 
+[[nodiscard]] bool
+prefill_r1_projection_plane_v2_conflicting_legacy_selector_enabled()
+    noexcept {
+  // The unified plane owns every Prefill MLP and Attention projection. Keep
+  // old publication masters and all shape/leaf modifiers unreachable rather
+  // than relying on dispatch precedence inside the runner.
+  constexpr std::array<const char*, 38U> kSelectors = {
+      "Q3X_RUN_A4W4_FACTORIZED_LANE_R1_ADMISSION",
+      "Q3X_RUN_A4W4_FACTORIZED_LANE_R1_HANDOFF_ADMISSION",
+      "Q3X_RUN_A4W4_ATTENTION_FACTORIZED_LANE_R1_ADMISSION",
+      "Q3X_RUN_A4W4_FACTORIZED_LANE_R4_ADMISSION",
+      "Q3X_RUN_A4W4_FACTORIZED_LANE_R4_2CTA_ADMISSION",
+      "Q3X_RUN_A4W4_ATTENTION_O_K512_ADMISSION",
+      "Q3X_RUN_A4W4_MLP_K512_ADMISSION",
+      "Q3X_RUN_A4W4_MLP_K512_FRAGMENT_NATIVE_ADMISSION",
+      "Q3X_RUN_A4W4_MLP_K512_PAIRED_GATEUP_CANONICAL_DOWN_ADMISSION",
+      "Q3X_RUN_A4W4_MLP_K512_PROJECTION_MAJOR_GATEUP_CANONICAL_DOWN_ADMISSION",
+      "Q3X_RUN_A4W4_MLP_K256_M128N256_PAIRFEED_PACKAGE_ADMISSION",
+      "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_ADMISSION",
+      "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M128N64_ADMISSION",
+      "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_ALTERNATING_ADMISSION",
+      "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_LDMATRIX_PAIRFEED_ADMISSION",
+      "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M32N512_OWNER_ADMISSION",
+      "Q3X_RUN_A4W4_GATEUP_K512_M128N128_PROJECTION_SERIAL_ADMISSION",
+      "Q3X_RUN_A4W4_GATEUP_K512_M128N64_SAME_CTA_ADMISSION",
+      "Q3X_RUN_A4W4_GATEUP_K512_M128N512_FUSED_QUANTIZE_ADMISSION",
+      "Q3X_RUN_A4W4_GATEUP_K512_M64N128_REGISTER_PIPELINE_ADMISSION",
+      "Q3X_RUN_A4W4_GATEUP_K512_M64N8_PAIRED_WARP_REGISTER_PIPELINE_ADMISSION",
+      "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M128N512_PAIRED_LDMATRIX_ADMISSION",
+      "Q3X_RUN_A4W4_GATEUP_COMPLETE_CELL_V2_ADMISSION",
+      "Q3X_RUN_A4W4_M128_STAGE_MAJOR_ADMISSION",
+      "Q3X_RUN_A4W4_GATEUP_PROJECTION_V3_ADMISSION",
+      "Q3X_RUN_A4W4_GATEUP_K512_FRAGMENT_NATIVE_M128_ADMISSION",
+      "Q3X_RUN_A4W4_GATEUP_K512_FRAGMENT_NATIVE_M128N64_1CTA_ADMISSION",
+      "Q3X_RUN_A4W4_GATEUP_K512_FRAGMENT_NATIVE_M64N128_1CTA_ADMISSION",
+      "Q3X_RUN_A4W4_GATEUP_K512_FRAGMENT_NATIVE_M128N64_STAGED_ADMISSION",
+      "Q3X_RUN_A4W4_DOWN_K512_M128N128_LDMATRIX_PAIRRING_ADMISSION",
+      "Q3X_RUN_A4W4_DOWN_K512_M128N128_16WARP_PAIRRING_ADMISSION",
+      "Q3X_RUN_A4W4_DOWN_K512_M128N128_16WARP_PAIRRING_L2_MACRO4X4_ADMISSION",
+      "Q3X_RUN_A4W4_DOWN_K512_M16N64_V2_ADMISSION",
+      "Q3X_RUN_A4W4_DOWN_M128_STAGE_MAJOR_ADMISSION",
+      "Q3X_RUN_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION",
+      "Q3X_RUN_A4W4_DOWN_COMPLETE_CELL_V3_ADMISSION",
+      "Q3X_RUN_A4W4_MLP_K512_SHAPE_SEPARATED_MARLIN_PACKAGE_ADMISSION",
+      "Q3X_RUN_A4W4_ATTENTION_K256_M128N256_ADMISSION",
+  };
+  for (const char* const selector : kSelectors) {
+    if (exact_environment_selector_enabled(selector)) {
+      return true;
+    }
+  }
+  return prefill_attention_k256_m128n256_a_exchange_b4_environment_enabled() ||
+         prefill_attention_k256_m128n256_a_exchange_b4_l2_macro4x4_environment_enabled() ||
+         prefill_attention_k256_m128n128_a_exchange_b3_environment_enabled();
+}
+
 [[nodiscard]] bool validate_gdn_prompt_span_macro_selector(
     const bool a4_publication_requested, std::string& error) noexcept {
   const bool selected = exact_environment_selector_enabled(
@@ -413,6 +485,50 @@ prefill_down_k512_m16n64_v2_environment_enabled() noexcept {
   if (optimized_prefill_dispatch_disabled()) {
     error = "the GDN prompt-span macro cannot run while optimized Prefill "
             "dispatch is disabled";
+    return false;
+  }
+  return true;
+#endif
+}
+
+[[nodiscard]] bool validate_gdn_state_o_bv64_fusion_selector(
+    const bool a4_publication_requested, std::string& error) noexcept {
+  const bool selected = exact_environment_selector_enabled(
+      "Q3X_RUN_GDN_STATE_O_BV64_FUSION_ADMISSION");
+  if (!selected) {
+    return true;
+  }
+#if !defined(Q3X_ENABLE_GDN_STATE_O_BV64_FUSION_ADMISSION)
+  error = "this binary does not contain the GDN state+BV64-output fusion "
+          "admission";
+  return false;
+#else
+  if (!a4_publication_requested) {
+    error = "the GDN state+BV64-output fusion requires authenticated A4 "
+            "whole-prompt publication";
+    return false;
+  }
+  if (!exact_environment_selector_enabled(
+          "Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION") ||
+      !exact_environment_selector_enabled(
+          "Q3X_RUN_A4W4_FACTORIZED_LANE_R1_ADMISSION") ||
+      !exact_environment_selector_enabled(
+          "Q3X_RUN_A4W4_FACTORIZED_LANE_R1_HANDOFF_ADMISSION") ||
+      !exact_environment_selector_enabled(
+          "Q3X_RUN_A4W4_ATTENTION_FACTORIZED_LANE_R1_ADMISSION")) {
+    error = "the GDN state+BV64-output fusion requires native C64 GDN and "
+            "the complete Attention factorized-lane-R1 direct handoff";
+    return false;
+  }
+  if (exact_environment_selector_enabled(
+          "Q3X_RUN_GDN_PREFILL_PROMPT_SPAN_MACRO_ADMISSION")) {
+    error = "the GDN state+BV64-output fusion conflicts with the rejected "
+            "full prompt-span macro selector";
+    return false;
+  }
+  if (optimized_prefill_dispatch_disabled()) {
+    error = "the GDN state+BV64-output fusion cannot run while optimized "
+            "Prefill dispatch is disabled";
     return false;
   }
   return true;
@@ -490,6 +606,14 @@ struct PrefillMLPFactorizedLaneR1EnginePaths final {
 struct PrefillAttentionFactorizedLaneR1EnginePaths final {
   bool requested = false;
   std::filesystem::path payload;
+  std::filesystem::path policy;
+  std::filesystem::path receipt;
+};
+
+struct PrefillR1ProjectionPlaneV2EnginePaths final {
+  bool requested = false;
+  std::filesystem::path payload;
+  std::filesystem::path manifest;
   std::filesystem::path policy;
   std::filesystem::path receipt;
 };
@@ -1383,6 +1507,44 @@ resolve_prefill_mlp_k512_projection_major_gateup_canonical_down_engine_paths(
     error = "factorized-lane R1 Attention payload, policy, and receipt must "
             "be distinct paths";
     return false;
+  }
+  return true;
+}
+
+[[nodiscard]] bool resolve_prefill_r1_projection_plane_v2_engine_paths(
+    const ReferenceEngineOptions& options,
+    PrefillR1ProjectionPlaneV2EnginePaths& paths, std::string& error) {
+  const bool has_payload =
+      !options.prefill_r1_projection_plane_v2_payload_path.empty();
+  const bool has_manifest =
+      !options.prefill_r1_projection_plane_v2_manifest_path.empty();
+  const bool has_policy =
+      !options.prefill_r1_projection_plane_v2_policy_path.empty();
+  const bool has_receipt =
+      !options.prefill_r1_projection_plane_v2_receipt_path.empty();
+  paths.requested = has_payload || has_manifest || has_policy || has_receipt;
+  if (!paths.requested) {
+    return true;
+  }
+  if (!has_payload || !has_manifest || !has_policy || !has_receipt) {
+    error = "R1 projection-plane v2 payload, manifest, policy, and receipt "
+            "are required together";
+    return false;
+  }
+  paths.payload = options.prefill_r1_projection_plane_v2_payload_path;
+  paths.manifest = options.prefill_r1_projection_plane_v2_manifest_path;
+  paths.policy = options.prefill_r1_projection_plane_v2_policy_path;
+  paths.receipt = options.prefill_r1_projection_plane_v2_receipt_path;
+  const std::array<std::filesystem::path, 4U> path_set = {
+      paths.payload, paths.manifest, paths.policy, paths.receipt};
+  for (std::size_t left = 0U; left < path_set.size(); ++left) {
+    for (std::size_t right = left + 1U; right < path_set.size(); ++right) {
+      if (path_set[left] == path_set[right]) {
+        error = "R1 projection-plane v2 payload, manifest, policy, and "
+                "receipt must be distinct paths";
+        return false;
+      }
+    }
   }
   return true;
 }
@@ -4327,6 +4489,7 @@ struct Sm87A4PrefillPreparation final {
   std::string manifest_sha256;
   std::string policy_sha256;
   std::string payload_sha256;
+  std::string receipt_sha256;
 };
 
 #if defined(Q3X_ENABLE_A4W4_ATTENTION_O_K512_ADMISSION)
@@ -4460,6 +4623,8 @@ struct Sm87MLPK512ProjectionMajorGateUpCanonicalDownPreparation final {
 #endif
 #endif
 
+#if defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R1_ADMISSION) || \
+    defined(Q3X_ENABLE_PREFILL_R1_PROJECTION_PLANE_V2_ADMISSION)
 #if defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R1_ADMISSION)
 struct Sm87MLPFactorizedLaneR1Overlay final {
   std::uint8_t* data = nullptr;
@@ -4497,6 +4662,48 @@ struct Sm87MLPFactorizedLaneR1Preparation final {
   std::string receipt_sha256;
   std::string base_receipt_sha256;
 };
+#endif
+
+#if defined(Q3X_ENABLE_PREFILL_R1_PROJECTION_PLANE_V2_ADMISSION)
+struct Sm87R1ProjectionPlaneV2 final {
+  std::uint8_t* data = nullptr;
+  std::size_t bytes = 0U;
+
+  Sm87R1ProjectionPlaneV2() noexcept = default;
+  Sm87R1ProjectionPlaneV2(const Sm87R1ProjectionPlaneV2&) = delete;
+  Sm87R1ProjectionPlaneV2& operator=(const Sm87R1ProjectionPlaneV2&) = delete;
+  ~Sm87R1ProjectionPlaneV2() { release(); }
+
+  void release() noexcept {
+    if (data != nullptr) {
+      (void)cudaFree(data);
+    }
+    data = nullptr;
+    bytes = 0U;
+  }
+};
+
+struct Sm87R1ProjectionPlaneV2Preparation final {
+  bool enabled = false;
+  bool performance_upper_bound_only = false;
+  bool production_residency_eligible = false;
+  bool quality_production_eligible = false;
+  std::size_t logical_projections = 0U;
+  std::size_t physical_projections = 0U;
+  std::uint64_t bytes = 0U;
+  std::uint64_t copy_chunks = 0U;
+  int cuda_error = 0;
+  int dependency_error = 0;
+  std::string message;
+  std::string context;
+  std::string physical_layout;
+  std::string manifest_sha256;
+  std::string policy_sha256;
+  std::string payload_sha256;
+  std::string receipt_sha256;
+  std::string base_receipt_sha256;
+};
+#endif
 
 #if defined(Q3X_ENABLE_A4W4_ATTENTION_FACTORIZED_LANE_R1_EXPERIMENT)
 struct Sm87AttentionFactorizedLaneR1Overlay final {
@@ -4796,6 +5003,12 @@ template <typename Preparation>
     result.dependency_error = receipt_system_error;
     return result;
   }
+  result.receipt_sha256 = core::sha256(receipt_document).hex();
+  if (result.receipt_sha256.empty()) {
+    result.message = "failed to hash the exact A4 receipt document";
+    result.context = paths.receipt.string();
+    return result;
+  }
   PrefillA4ConverterDiagnostic receipt_diagnostic;
   std::optional<PrefillA4PublicationReceipt> receipt =
       parse_prefill_a4_publication_receipt(receipt_document,
@@ -4991,7 +5204,7 @@ template <typename Preparation>
 
   if (!model_weights.attach_prefill_a4_sidecars(
           owner.data, payload_bytes, &manifest, &publication.policy(),
-          publication.receipt().payload_sha256)) {
+          publication.receipt().payload_sha256, result.receipt_sha256)) {
     result.message =
         "ModelWeights rejected the authenticated A4 sidecar inventory";
     result.context = "prefill_a4.attach";
@@ -5009,6 +5222,394 @@ template <typename Preparation>
   result.payload_sha256 = publication.receipt().payload_sha256;
   return result;
 }
+
+#if defined(Q3X_ENABLE_PREFILL_R1_PROJECTION_PLANE_V2_ADMISSION)
+[[nodiscard]] Sm87R1ProjectionPlaneV2Preparation
+prepare_sm87_r1_projection_plane_v2(
+    const PrefillR1ProjectionPlaneV2EnginePaths& paths,
+    const PrefillA4EnginePaths& base_paths,
+    const Sm87A4PrefillPreparation& base,
+    const std::uint64_t minimum_free_bytes_after_prepare,
+    ModelWeights& model_weights, Sm87R1ProjectionPlaneV2& owner) {
+  Sm87R1ProjectionPlaneV2Preparation result;
+  if (!paths.requested || !base_paths.requested || owner.data != nullptr ||
+      owner.bytes != 0U) {
+    result.message = "invalid R1 projection-plane v2 preparation state";
+    result.context = "prefill_r1_projection_plane_v2.prepare";
+    return result;
+  }
+
+  const std::array<std::filesystem::path, 4U> v2_path_set = {
+      paths.payload, paths.manifest, paths.policy, paths.receipt};
+  const std::array<std::filesystem::path, 3U> base_path_set = {
+      base_paths.payload, base_paths.policy, base_paths.receipt};
+  for (const std::filesystem::path& v2_path : v2_path_set) {
+    for (const std::filesystem::path& base_path : base_path_set) {
+      if (v2_path == base_path) {
+        result.message = "R1 projection-plane v2 files must not alias any "
+                         "K256 base publication file";
+        result.context = v2_path.string();
+        return result;
+      }
+    }
+  }
+  if (!base.enabled || base.sidecar_kind != PrefillSidecarKind::kA4K256 ||
+      base.projections != kQwen36PrefillProjectionCount || base.bytes == 0U ||
+      base.physical_layout != kPrefillA4K256PhysicalLayout ||
+      base.manifest_sha256.empty() || base.policy_sha256.empty() ||
+      base.payload_sha256.empty() || base.receipt_sha256.empty()) {
+    result.message = "R1 projection-plane v2 requires the complete exact "
+                     "authenticated K256 A4 base identity";
+    result.context = "prefill_r1_projection_plane_v2.base";
+    return result;
+  }
+
+  FactorizedLaneR1LockedFile manifest_file;
+  std::string manifest_document;
+  if (!read_factorized_lane_r1_document(
+          paths.manifest, 4ULL * 1024ULL * 1024ULL, manifest_file,
+          manifest_document, result)) {
+    return result;
+  }
+  PrefillR1ProjectionPlaneV2ManifestResult manifest_result =
+      parse_prefill_r1_projection_plane_v2_manifest(manifest_document);
+  if (!manifest_result) {
+    result.message = manifest_result.diagnostic.message.empty()
+                         ? "strict R1 projection-plane v2 manifest parse failed"
+                         : manifest_result.diagnostic.message;
+    result.context = manifest_result.diagnostic.context.empty()
+                         ? paths.manifest.string()
+                         : manifest_result.diagnostic.context;
+    result.dependency_error =
+        manifest_result.diagnostic.system_error != 0
+            ? manifest_result.diagnostic.system_error
+            : static_cast<int>(manifest_result.diagnostic.code);
+    return result;
+  }
+  const PrefillR1ProjectionPlaneV2Manifest& manifest =
+      *manifest_result.value;
+  const PrefillR1ProjectionPlaneV2BaseK256Binding& required_base =
+      manifest.required_base_k256;
+  if (required_base.physical_layout != kPrefillA4K256PhysicalLayout ||
+      required_base.packed_k_group_size != 64U ||
+      required_base.scale_group_size != 256U ||
+      required_base.manifest_sha256 != base.manifest_sha256 ||
+      required_base.policy_sha256 != base.policy_sha256 ||
+      required_base.payload_sha256 != base.payload_sha256 ||
+      required_base.receipt_sha256 != base.receipt_sha256) {
+    result.message = "R1 projection-plane v2 does not bind the exact resident "
+                     "K256 base manifest/policy/payload/receipt identity";
+    result.context = "prefill_r1_projection_plane_v2.base_identity";
+    return result;
+  }
+  result.base_receipt_sha256 = required_base.receipt_sha256;
+
+  FactorizedLaneR1LockedFile policy_file;
+  std::string policy_document;
+  if (!read_factorized_lane_r1_document(
+          paths.policy, 4ULL * 1024ULL * 1024ULL, policy_file,
+          policy_document, result)) {
+    return result;
+  }
+  PrefillR1ProjectionPlaneV2PolicyResult policy_result =
+      parse_prefill_r1_projection_plane_v2_policy(policy_document, manifest);
+  if (!policy_result) {
+    result.message = policy_result.diagnostic.message.empty()
+                         ? "strict R1 projection-plane v2 policy parse failed"
+                         : policy_result.diagnostic.message;
+    result.context = policy_result.diagnostic.context.empty()
+                         ? paths.policy.string()
+                         : policy_result.diagnostic.context;
+    result.dependency_error =
+        policy_result.diagnostic.system_error != 0
+            ? policy_result.diagnostic.system_error
+            : static_cast<int>(policy_result.diagnostic.code);
+    return result;
+  }
+  const PrefillR1ProjectionPlaneV2Policy& policy = *policy_result.value;
+
+  FactorizedLaneR1LockedFile receipt_file;
+  std::string receipt_document;
+  if (!read_factorized_lane_r1_document(
+          paths.receipt, 128ULL * 1024ULL, receipt_file, receipt_document,
+          result)) {
+    return result;
+  }
+  PrefillR1ProjectionPlaneV2ReceiptResult receipt_result =
+      parse_prefill_r1_projection_plane_v2_receipt(receipt_document, manifest,
+                                                   policy);
+  if (!receipt_result) {
+    result.message = receipt_result.diagnostic.message.empty()
+                         ? "strict R1 projection-plane v2 receipt parse failed"
+                         : receipt_result.diagnostic.message;
+    result.context = receipt_result.diagnostic.context.empty()
+                         ? paths.receipt.string()
+                         : receipt_result.diagnostic.context;
+    result.dependency_error =
+        receipt_result.diagnostic.system_error != 0
+            ? receipt_result.diagnostic.system_error
+            : static_cast<int>(receipt_result.diagnostic.code);
+    return result;
+  }
+  const PrefillR1ProjectionPlaneV2Receipt& receipt = *receipt_result.value;
+  if (!receipt.performance_upper_bound_only ||
+      receipt.production_residency_eligible ||
+      receipt.quality_production_eligible ||
+      receipt.legacy_r1_co_residency_allowed ||
+      !receipt.atomic_installation_required ||
+      receipt.logical_projection_count !=
+          kPrefillR1ProjectionPlaneV2LogicalProjectionCount ||
+      receipt.physical_projection_count !=
+          kPrefillR1ProjectionPlaneV2PhysicalProjectionCount ||
+      receipt.payload_bytes != kPrefillR1ProjectionPlaneV2PayloadBytes) {
+    result.message = "R1 projection-plane v2 receipt does not retain its "
+                     "indivisible performance-upper-bound-only contract";
+    result.context = paths.receipt.string();
+    return result;
+  }
+
+  FactorizedLaneR1LockedFile payload_file;
+  if (!open_factorized_lane_r1_file(
+          paths.payload, kPrefillR1ProjectionPlaneV2PayloadBytes,
+          kPrefillR1ProjectionPlaneV2PayloadBytes, payload_file, result)) {
+    return result;
+  }
+  const std::array<const FactorizedLaneR1LockedFile*, 4U> locked_files = {
+      &payload_file, &manifest_file, &policy_file, &receipt_file};
+  for (std::size_t left = 0U; left < locked_files.size(); ++left) {
+    for (std::size_t right = left + 1U; right < locked_files.size(); ++right) {
+      if (same_factorized_lane_r1_file_identity(locked_files[left]->before,
+                                                locked_files[right]->before)) {
+        result.message = "R1 projection-plane v2 publication files must not "
+                         "alias the same locked inode";
+        result.context = "prefill_r1_projection_plane_v2.file_identity";
+        return result;
+      }
+    }
+  }
+  if (receipt.payload_bytes > std::numeric_limits<std::size_t>::max()) {
+    result.message = "R1 projection-plane v2 payload does not fit the host "
+                     "address space";
+    result.context = paths.payload.string();
+    return result;
+  }
+  const std::size_t payload_bytes =
+      static_cast<std::size_t>(receipt.payload_bytes);
+
+  std::size_t free_bytes = 0U;
+  std::size_t total_bytes = 0U;
+  cudaError_t cuda_status = cudaMemGetInfo(&free_bytes, &total_bytes);
+  (void)total_bytes;
+  if (cuda_status != cudaSuccess) {
+    result.message = "cudaMemGetInfo failed before R1 projection-plane v2 "
+                     "residency";
+    result.context = "prefill_r1_projection_plane_v2.cudaMemGetInfo_before";
+    result.cuda_error = static_cast<int>(cuda_status);
+    return result;
+  }
+  const std::uint64_t free_u64 = static_cast<std::uint64_t>(free_bytes);
+  if (receipt.payload_bytes > free_u64 ||
+      minimum_free_bytes_after_prepare > free_u64 - receipt.payload_bytes) {
+    result.message = "insufficient device memory for R1 projection-plane v2 "
+                     "residency";
+    result.context = "prefill_r1_projection_plane_v2.memory_gate";
+    return result;
+  }
+
+  cuda_status = cudaMalloc(reinterpret_cast<void**>(&owner.data),
+                           payload_bytes);
+  if (cuda_status != cudaSuccess) {
+    result.message = "cudaMalloc failed for the R1 projection-plane v2 arena";
+    result.context = "prefill_r1_projection_plane_v2.cudaMalloc";
+    result.cuda_error = static_cast<int>(cuda_status);
+    return result;
+  }
+  if (reinterpret_cast<std::uintptr_t>(owner.data) %
+          kPrefillR1ProjectionPlaneV2Alignment !=
+      0U) {
+    result.message = "R1 projection-plane v2 device arena is under-aligned";
+    result.context = "prefill_r1_projection_plane_v2.cudaMalloc_alignment";
+    owner.release();
+    return result;
+  }
+
+  constexpr std::size_t kCopyChunkBytes = 32U * 1024U * 1024U;
+  const std::size_t staging_bytes = std::min(payload_bytes, kCopyChunkBytes);
+  void* staging = nullptr;
+  cuda_status = cudaHostAlloc(&staging, staging_bytes, cudaHostAllocDefault);
+  if (cuda_status != cudaSuccess) {
+    result.message = "cudaHostAlloc failed for bounded R1 projection-plane "
+                     "v2 staging";
+    result.context = "prefill_r1_projection_plane_v2.cudaHostAlloc";
+    result.cuda_error = static_cast<int>(cuda_status);
+    owner.release();
+    return result;
+  }
+  struct PinnedGuard final {
+    void* data = nullptr;
+    ~PinnedGuard() {
+      if (data != nullptr) {
+        (void)cudaFreeHost(data);
+      }
+    }
+  } pinned{staging};
+
+  core::Sha256 copied_hash;
+  std::uint64_t offset = 0U;
+  while (offset < receipt.payload_bytes) {
+    const std::size_t count = static_cast<std::size_t>(
+        std::min<std::uint64_t>(staging_bytes,
+                                receipt.payload_bytes - offset));
+    int read_error = 0;
+    if (!pread_exact_engine(payload_file.descriptor, staging, count, offset,
+                            read_error)) {
+      result.message = "failed to read the held R1 projection-plane v2 "
+                       "payload descriptor";
+      result.context = "prefill_r1_projection_plane_v2.payload_copy";
+      result.dependency_error = read_error;
+      owner.release();
+      return result;
+    }
+    if (!copied_hash.update(staging, count)) {
+      result.message = "R1 projection-plane v2 copy SHA-256 overflowed";
+      result.context = "prefill_r1_projection_plane_v2.payload_copy_sha256";
+      owner.release();
+      return result;
+    }
+    cuda_status = cudaMemcpy(
+        owner.data + static_cast<std::size_t>(offset), staging, count,
+        cudaMemcpyHostToDevice);
+    if (cuda_status != cudaSuccess) {
+      result.message = "R1 projection-plane v2 payload H2D copy failed";
+      result.context = "prefill_r1_projection_plane_v2.cudaMemcpy";
+      result.cuda_error = static_cast<int>(cuda_status);
+      owner.release();
+      return result;
+    }
+    offset += count;
+    ++result.copy_chunks;
+  }
+  if (copied_hash.finalize().hex() != receipt.payload_sha256) {
+    result.message = "bytes copied to the R1 projection-plane v2 arena failed "
+                     "receipt SHA-256";
+    result.context = "prefill_r1_projection_plane_v2.payload_copy_sha256";
+    owner.release();
+    return result;
+  }
+
+  const auto rehash_locked_file = [&result, staging, staging_bytes](
+                                      const FactorizedLaneR1LockedFile& file,
+                                      const std::uint64_t bytes,
+                                      std::string& digest) -> bool {
+    core::Sha256 hash;
+    std::uint64_t file_offset = 0U;
+    while (file_offset < bytes) {
+      const std::size_t count = static_cast<std::size_t>(
+          std::min<std::uint64_t>(staging_bytes, bytes - file_offset));
+      int read_error = 0;
+      if (!pread_exact_engine(file.descriptor, staging, count, file_offset,
+                              read_error) ||
+          !hash.update(staging, count)) {
+        result.message = "R1 projection-plane v2 locked-file rehash failed";
+        result.context = "prefill_r1_projection_plane_v2.rehash";
+        result.dependency_error = read_error;
+        return false;
+      }
+      file_offset += count;
+    }
+    digest = hash.finalize().hex();
+    return !digest.empty();
+  };
+
+  std::string verified_payload_sha256;
+  std::string verified_manifest_sha256;
+  std::string verified_policy_sha256;
+  std::string verified_receipt_sha256;
+  if (!rehash_locked_file(payload_file, receipt.payload_bytes,
+                          verified_payload_sha256) ||
+      !rehash_locked_file(
+          manifest_file,
+          static_cast<std::uint64_t>(manifest_file.before.size),
+          verified_manifest_sha256) ||
+      !rehash_locked_file(policy_file,
+                          static_cast<std::uint64_t>(policy_file.before.size),
+                          verified_policy_sha256) ||
+      !rehash_locked_file(
+          receipt_file,
+          static_cast<std::uint64_t>(receipt_file.before.size),
+          verified_receipt_sha256) ||
+      verified_payload_sha256 != receipt.payload_sha256 ||
+      verified_manifest_sha256 != manifest.manifest_sha256 ||
+      verified_policy_sha256 != policy.policy_sha256 ||
+      verified_receipt_sha256 != receipt_result.canonical_sha256 ||
+      !revalidate_factorized_lane_r1_file(paths.payload, payload_file,
+                                          result) ||
+      !revalidate_factorized_lane_r1_file(paths.manifest, manifest_file,
+                                          result) ||
+      !revalidate_factorized_lane_r1_file(paths.policy, policy_file, result) ||
+      !revalidate_factorized_lane_r1_file(paths.receipt, receipt_file,
+                                          result)) {
+    if (result.message.empty()) {
+      result.message = "R1 projection-plane v2 publication changed or failed "
+                       "its post-H2D rehash";
+      result.context = "prefill_r1_projection_plane_v2.rehash";
+    }
+    owner.release();
+    return result;
+  }
+
+  cuda_status = cudaMemGetInfo(&free_bytes, &total_bytes);
+  if (cuda_status != cudaSuccess ||
+      static_cast<std::uint64_t>(free_bytes) <
+          minimum_free_bytes_after_prepare) {
+    result.message = "R1 projection-plane v2 residency did not preserve the "
+                     "configured free-memory reserve";
+    result.context = "prefill_r1_projection_plane_v2.cudaMemGetInfo_after";
+    result.cuda_error = cuda_status == cudaSuccess
+                            ? 0
+                            : static_cast<int>(cuda_status);
+    owner.release();
+    return result;
+  }
+
+  PrefillR1ProjectionPlaneV2AuthenticatedPayloadView payload_view;
+  payload_view.data = owner.data;
+  payload_view.bytes = receipt.payload_bytes;
+  payload_view.version_major = manifest.version_major;
+  payload_view.version_minor = manifest.version_minor;
+  payload_view.physical_layout = manifest.physical_layout;
+  payload_view.manifest_sha256 = manifest.manifest_sha256;
+  payload_view.policy_sha256 = policy.policy_sha256;
+  payload_view.payload_sha256 = receipt.payload_sha256;
+  payload_view.receipt_sha256 = receipt_result.canonical_sha256;
+  payload_view.authenticated = true;
+  const PrefillR1ProjectionPlaneV2Installation installation{
+      &manifest, &policy, &receipt, &payload_view, false, false};
+  if (!model_weights.attach_prefill_r1_projection_plane_v2(&installation)) {
+    result.message = "ModelWeights rejected the authenticated atomic R1 "
+                     "projection-plane v2 inventory";
+    result.context = "prefill_r1_projection_plane_v2.attach";
+    owner.release();
+    return result;
+  }
+
+  owner.bytes = payload_bytes;
+  result.enabled = true;
+  result.performance_upper_bound_only = receipt.performance_upper_bound_only;
+  result.production_residency_eligible =
+      receipt.production_residency_eligible;
+  result.quality_production_eligible = receipt.quality_production_eligible;
+  result.logical_projections = receipt.logical_projection_count;
+  result.physical_projections = receipt.physical_projection_count;
+  result.bytes = receipt.payload_bytes;
+  result.physical_layout = receipt.physical_layout;
+  result.manifest_sha256 = manifest.manifest_sha256;
+  result.policy_sha256 = policy.policy_sha256;
+  result.payload_sha256 = receipt.payload_sha256;
+  result.receipt_sha256 = receipt_result.canonical_sha256;
+  return result;
+}
+#endif
 
 #if defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R1_ADMISSION)
 [[nodiscard]] Sm87MLPFactorizedLaneR1Preparation
@@ -8654,8 +9255,8 @@ exchange_reference_engine_generate_return_snapshot_hook(
 
 struct ReferenceEngine::Impl {
   // Declaration order is part of the safety contract. Destruction is exactly
-  // runner -> request_state -> model_weights -> direct R4 owner -> Attention
-  // R1 owner -> MLP R1 owner -> Decode Down consumer-order sidecars ->
+  // runner -> request_state -> model_weights -> unified R1-v2 owner -> direct
+  // R4 owner -> Attention R1 owner -> MLP R1 owner -> Decode Down sidecars ->
   // authenticated K512 overlays -> authenticated K256 A4/Marlin admission
   // sidecars -> Prefill supermatrix/QKV sidecars -> down scale6 sidecars ->
   // output sidecars -> resident_weights -> tokenizer.
@@ -8701,6 +9302,11 @@ struct ReferenceEngine::Impl {
   // Direct R4 owns no K256/R1 base identity.  It still precedes ModelWeights
   // so every published view is destroyed before its device allocation.
   Sm87MLPFactorizedLaneR4Overlay prefill_mlp_factorized_lane_r4_overlay;
+#endif
+#if defined(Q3X_ENABLE_PREFILL_R1_PROJECTION_PLANE_V2_ADMISSION)
+  // One owner backs all 336 physical v2 projections. Reverse destruction is
+  // ModelWeights -> unified v2 arena -> authenticated K256 base -> resident.
+  Sm87R1ProjectionPlaneV2 prefill_r1_projection_plane_v2;
 #endif
   std::optional<ModelWeights> model_weights;
   std::optional<RequestState> request_state;
@@ -8765,6 +9371,16 @@ struct ReferenceEngine::Impl {
           ReferenceEngineError::kInvalidArgument,
           "gdn_prompt_span_macro_selector",
           gdn_prompt_span_macro_selector_error);
+      return result;
+    }
+    std::string gdn_state_o_bv64_fusion_selector_error;
+    if (!validate_gdn_state_o_bv64_fusion_selector(
+            prefill_a4_paths.requested,
+            gdn_state_o_bv64_fusion_selector_error)) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kInvalidArgument,
+          "gdn_state_o_bv64_fusion_selector",
+          gdn_state_o_bv64_fusion_selector_error);
       return result;
     }
     PrefillAttentionOK512EnginePaths prefill_attention_o_k512_paths;
@@ -8962,6 +9578,71 @@ struct ReferenceEngine::Impl {
           "payload/policy/receipt triplet");
       return result;
     }
+    PrefillR1ProjectionPlaneV2EnginePaths
+        prefill_r1_projection_plane_v2_paths;
+    std::string prefill_r1_projection_plane_v2_path_error;
+    if (!resolve_prefill_r1_projection_plane_v2_engine_paths(
+            options, prefill_r1_projection_plane_v2_paths,
+            prefill_r1_projection_plane_v2_path_error)) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kInvalidArgument,
+          "prefill_r1_projection_plane_v2_options",
+          prefill_r1_projection_plane_v2_path_error);
+      return result;
+    }
+    const bool prefill_r1_projection_plane_v2_selector_requested =
+        exact_environment_selector_enabled(
+            "Q3X_RUN_A4W4_R1_PROJECTION_PLANE_V2_ADMISSION");
+    const bool prefill_r1_projection_plane_v2_selected =
+        prefill_r1_projection_plane_v2_environment_enabled();
+    if (prefill_r1_projection_plane_v2_selector_requested &&
+        !prefill_r1_projection_plane_v2_selected) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kInvalidArgument,
+          "prefill_r1_projection_plane_v2_options",
+          "the R1 projection-plane v2 selector cannot run while optimized "
+          "Prefill dispatch is disabled");
+      return result;
+    }
+    if (prefill_r1_projection_plane_v2_paths.requested !=
+        prefill_r1_projection_plane_v2_selected) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kInvalidArgument,
+          "prefill_r1_projection_plane_v2_options",
+          "the R1 projection-plane v2 four-file publication and its "
+          "dedicated runtime selector are required together");
+      return result;
+    }
+    if (prefill_r1_projection_plane_v2_selected &&
+        !prefill_a4_paths.requested) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kInvalidArgument,
+          "prefill_r1_projection_plane_v2_options",
+          "R1 projection-plane v2 requires an explicitly authenticated K256 "
+          "A4 base publication");
+      return result;
+    }
+    if (prefill_r1_projection_plane_v2_selected &&
+        !exact_environment_selector_enabled(
+            "Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION")) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kInvalidArgument,
+          "prefill_r1_projection_plane_v2_options",
+          "R1 projection-plane v2 requires the native C64 GDN runtime "
+          "selector for its direct Attention-to-SSM handoff");
+      return result;
+    }
+#if !defined(Q3X_ENABLE_PREFILL_R1_PROJECTION_PLANE_V2_ADMISSION)
+    if (prefill_r1_projection_plane_v2_paths.requested ||
+        prefill_r1_projection_plane_v2_selector_requested) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kInvalidArgument,
+          "prefill_r1_projection_plane_v2_options",
+          "this binary does not contain the unified R1 projection-plane v2 "
+          "admission");
+      return result;
+    }
+#endif
     PrefillMLPFactorizedLaneR4EnginePaths
         prefill_mlp_factorized_lane_r4_paths;
     std::string prefill_mlp_factorized_lane_r4_path_error;
@@ -9123,6 +9804,29 @@ struct ReferenceEngine::Impl {
         prefill_mlp_k512_hybrid_selected ||
         prefill_mlp_k512_projection_major_paths.requested ||
         prefill_mlp_k512_projection_major_selected;
+    if (prefill_r1_projection_plane_v2_selected &&
+        (prefill_mlp_factorized_lane_r1_paths.requested ||
+         prefill_mlp_factorized_lane_r1_selected ||
+         prefill_mlp_factorized_lane_r1_handoff_selected ||
+         prefill_attention_factorized_lane_r1_paths.requested ||
+         prefill_attention_factorized_lane_r1_selected ||
+         prefill_mlp_factorized_lane_r4_paths.requested ||
+         prefill_mlp_factorized_lane_r4_selected ||
+         prefill_mlp_factorized_lane_r4_2cta_selected ||
+         prefill_attention_o_k512_paths.requested ||
+         prefill_attention_o_k512_environment_enabled() ||
+         any_k512_mlp_publication_or_master ||
+         prefill_mlp_k256_package_selected ||
+         prefill_r1_projection_plane_v2_conflicting_legacy_selector_enabled())) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kInvalidArgument,
+          "prefill_r1_projection_plane_v2_options",
+          "the unified R1 projection-plane v2 route is strictly mutually "
+          "exclusive with split R1, direct R4, structural K256 MLP, every "
+          "K512 MLP/Attention-O publication, and all legacy projection leaf "
+          "selectors");
+      return result;
+    }
     if (prefill_mlp_factorized_lane_r1_selected &&
         (prefill_mlp_k256_package_selected ||
          any_k512_mlp_publication_or_master)) {
@@ -9326,6 +10030,8 @@ struct ReferenceEngine::Impl {
           prefill_mlp_factorized_lane_r1_paths.requested;
       impl->load.prefill_attention_factorized_lane_r1_overlay_requested =
           prefill_attention_factorized_lane_r1_paths.requested;
+      impl->load.prefill_r1_projection_plane_v2_requested =
+          prefill_r1_projection_plane_v2_paths.requested;
       impl->load.prefill_mlp_factorized_lane_r4_overlay_requested =
           prefill_mlp_factorized_lane_r4_paths.requested;
       impl->load.optimized_prefill_disabled =
@@ -9609,6 +10315,8 @@ struct ReferenceEngine::Impl {
                 prefill_mlp_k256_package_selected ||
                 (prefill_mlp_factorized_lane_r1_paths.requested &&
                  prefill_mlp_factorized_lane_r1_selected) ||
+                (prefill_r1_projection_plane_v2_paths.requested &&
+                 prefill_r1_projection_plane_v2_selected) ||
                 (prefill_mlp_factorized_lane_r4_paths.requested &&
                  prefill_mlp_factorized_lane_r4_selected))) {
             result.diagnostic = engine_diagnostic(
@@ -9634,6 +10342,73 @@ struct ReferenceEngine::Impl {
               prefill_a4_preparation.policy_sha256;
           impl->load.prefill_a4_payload_sha256 =
               prefill_a4_preparation.payload_sha256;
+        }
+#endif
+
+#if defined(Q3X_ENABLE_PREFILL_R1_PROJECTION_PLANE_V2_ADMISSION)
+        if (prefill_r1_projection_plane_v2_paths.requested) {
+          const Clock::time_point projection_plane_v2_begin = Clock::now();
+          const Sm87R1ProjectionPlaneV2Preparation preparation =
+              prepare_sm87_r1_projection_plane_v2(
+                  prefill_r1_projection_plane_v2_paths, prefill_a4_paths,
+                  prefill_a4_preparation,
+                  request_options.min_free_bytes_after_create,
+                  *impl->model_weights,
+                  impl->prefill_r1_projection_plane_v2);
+          impl->load.prefill_r1_projection_plane_v2_milliseconds =
+              elapsed_milliseconds(projection_plane_v2_begin);
+          if (!preparation.enabled ||
+              !preparation.performance_upper_bound_only ||
+              preparation.production_residency_eligible ||
+              preparation.quality_production_eligible ||
+              preparation.logical_projections !=
+                  kPrefillR1ProjectionPlaneV2LogicalProjectionCount ||
+              preparation.physical_projections !=
+                  kPrefillR1ProjectionPlaneV2PhysicalProjectionCount ||
+              preparation.bytes != kPrefillR1ProjectionPlaneV2PayloadBytes) {
+            result.diagnostic = engine_diagnostic(
+                ReferenceEngineError::kRunnerFactoryFailure,
+                "prefill_r1_projection_plane_v2_prepare",
+                preparation.message.empty()
+                    ? "the authenticated R1 projection-plane v2 package did "
+                      "not atomically attach all 400 logical/336 physical "
+                      "performance-only projections"
+                    : preparation.message,
+                preparation.context);
+            result.diagnostic.cuda_error = preparation.cuda_error;
+            result.diagnostic.dependency_error =
+                preparation.dependency_error;
+            return result;
+          }
+          impl->load.prefill_r1_projection_plane_v2_enabled = true;
+          impl->load
+              .prefill_r1_projection_plane_v2_performance_upper_bound_only =
+              preparation.performance_upper_bound_only;
+          impl->load
+              .prefill_r1_projection_plane_v2_production_residency_eligible =
+              preparation.production_residency_eligible;
+          impl->load
+              .prefill_r1_projection_plane_v2_quality_production_eligible =
+              preparation.quality_production_eligible;
+          impl->load.prefill_r1_projection_plane_v2_logical_projections =
+              preparation.logical_projections;
+          impl->load.prefill_r1_projection_plane_v2_physical_projections =
+              preparation.physical_projections;
+          impl->load.prefill_r1_projection_plane_v2_bytes = preparation.bytes;
+          impl->load.prefill_r1_projection_plane_v2_copy_chunks =
+              preparation.copy_chunks;
+          impl->load.prefill_r1_projection_plane_v2_layout =
+              preparation.physical_layout;
+          impl->load.prefill_r1_projection_plane_v2_manifest_sha256 =
+              preparation.manifest_sha256;
+          impl->load.prefill_r1_projection_plane_v2_policy_sha256 =
+              preparation.policy_sha256;
+          impl->load.prefill_r1_projection_plane_v2_payload_sha256 =
+              preparation.payload_sha256;
+          impl->load.prefill_r1_projection_plane_v2_receipt_sha256 =
+              preparation.receipt_sha256;
+          impl->load.prefill_r1_projection_plane_v2_base_receipt_sha256 =
+              preparation.base_receipt_sha256;
         }
 #endif
 
@@ -10201,6 +10976,8 @@ struct ReferenceEngine::Impl {
             prefill_mlp_factorized_lane_r1_handoff_selected;
         runner_options.enable_attention_factorized_lane_r1_prefill_admission =
             prefill_attention_factorized_lane_r1_selected;
+        runner_options.enable_prefill_r1_projection_plane_v2_admission =
+            prefill_r1_projection_plane_v2_selected;
         runner_options.enable_factorized_lane_r4_prefill_admission =
             prefill_mlp_factorized_lane_r4_selected;
         runner_options.enable_factorized_lane_r4_2cta_prefill_admission =
@@ -10925,6 +11702,23 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
     generation.layer_major_prefill =
         control_options.prefill_layer_major_prompt;
     generation.timing = std::move(control.value->timing);
+    if (impl_->load.prefill_r1_projection_plane_v2_enabled &&
+        (generation.timing.attention_factorized_lane_r1_launch_hits != 0U ||
+         generation.timing.factorized_lane_r1_package_launch_hits != 0U ||
+         generation.timing.factorized_lane_r1_handoff_package_launch_hits !=
+             0U ||
+         generation.timing.factorized_lane_r1_cross_layer_handoff_launch_hits !=
+             0U ||
+         generation.timing.factorized_lane_r4_package_launch_hits != 0U ||
+         generation.timing.factorized_lane_r4_2cta_package_launch_hits !=
+             0U)) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kRunnerStepFailure,
+          "prefill_r1_projection_plane_v2_accounting",
+          "unified R1 projection-plane v2 execution published a legacy "
+          "split-R1/R4 request counter");
+      return result;
+    }
     generation.steps = std::move(control.value->steps);
     generation.traces = std::move(traces);
     generation.decode_graph_replays = step_context.decode_graph_replays;
@@ -12285,6 +13079,14 @@ ReferenceOneShotResult generate_reference(
       options.prefill_attention_factorized_lane_r1_policy_path;
   a4_preflight_options.prefill_attention_factorized_lane_r1_receipt_path =
       options.prefill_attention_factorized_lane_r1_receipt_path;
+  a4_preflight_options.prefill_r1_projection_plane_v2_payload_path =
+      options.prefill_r1_projection_plane_v2_payload_path;
+  a4_preflight_options.prefill_r1_projection_plane_v2_manifest_path =
+      options.prefill_r1_projection_plane_v2_manifest_path;
+  a4_preflight_options.prefill_r1_projection_plane_v2_policy_path =
+      options.prefill_r1_projection_plane_v2_policy_path;
+  a4_preflight_options.prefill_r1_projection_plane_v2_receipt_path =
+      options.prefill_r1_projection_plane_v2_receipt_path;
   a4_preflight_options.prefill_mlp_factorized_lane_r4_payload_path =
       options.prefill_mlp_factorized_lane_r4_payload_path;
   a4_preflight_options.prefill_mlp_factorized_lane_r4_policy_path =
@@ -12312,6 +13114,15 @@ ReferenceOneShotResult generate_reference(
     result.diagnostic = engine_diagnostic(
         ReferenceEngineError::kInvalidArgument, "one_shot_options",
         gdn_prompt_span_macro_preflight_error);
+    return result;
+  }
+  std::string gdn_state_o_bv64_fusion_preflight_error;
+  if (!validate_gdn_state_o_bv64_fusion_selector(
+          a4_preflight_paths.requested,
+          gdn_state_o_bv64_fusion_preflight_error)) {
+    result.diagnostic = engine_diagnostic(
+        ReferenceEngineError::kInvalidArgument, "one_shot_options",
+        gdn_state_o_bv64_fusion_preflight_error);
     return result;
   }
   if (a4_preflight_paths.requested &&
@@ -12484,6 +13295,44 @@ ReferenceOneShotResult generate_reference(
             : attention_factorized_lane_r1_preflight_error);
     return result;
   }
+  PrefillR1ProjectionPlaneV2EnginePaths
+      r1_projection_plane_v2_preflight_paths;
+  std::string r1_projection_plane_v2_preflight_error;
+  const bool r1_projection_plane_v2_preflight_selector_requested =
+      exact_environment_selector_enabled(
+          "Q3X_RUN_A4W4_R1_PROJECTION_PLANE_V2_ADMISSION");
+  const bool r1_projection_plane_v2_preflight_selected =
+      prefill_r1_projection_plane_v2_environment_enabled();
+  if (!resolve_prefill_r1_projection_plane_v2_engine_paths(
+          a4_preflight_options, r1_projection_plane_v2_preflight_paths,
+          r1_projection_plane_v2_preflight_error) ||
+      (r1_projection_plane_v2_preflight_selector_requested &&
+       !r1_projection_plane_v2_preflight_selected) ||
+      (r1_projection_plane_v2_preflight_paths.requested !=
+       r1_projection_plane_v2_preflight_selected) ||
+      (r1_projection_plane_v2_preflight_selected &&
+       (!a4_preflight_paths.requested ||
+        !exact_environment_selector_enabled(
+            "Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION")))) {
+    result.diagnostic = engine_diagnostic(
+        ReferenceEngineError::kInvalidArgument, "one_shot_options",
+        r1_projection_plane_v2_preflight_error.empty()
+            ? "R1 projection-plane v2 requires its four distinct files, "
+              "dedicated runtime selector, enabled optimized Prefill, native "
+              "C64 GDN selector, and the exact authenticated K256 A4 base"
+            : r1_projection_plane_v2_preflight_error);
+    return result;
+  }
+#if !defined(Q3X_ENABLE_PREFILL_R1_PROJECTION_PLANE_V2_ADMISSION)
+  if (r1_projection_plane_v2_preflight_paths.requested ||
+      r1_projection_plane_v2_preflight_selector_requested) {
+    result.diagnostic = engine_diagnostic(
+        ReferenceEngineError::kInvalidArgument, "one_shot_options",
+        "this binary does not contain the unified R1 projection-plane v2 "
+        "admission");
+    return result;
+  }
+#endif
   PrefillMLPFactorizedLaneR4EnginePaths
       mlp_factorized_lane_r4_preflight_paths;
   std::string mlp_factorized_lane_r4_preflight_error;
@@ -12553,6 +13402,27 @@ ReferenceOneShotResult generate_reference(
       prefill_mlp_k512_paired_gateup_canonical_down_environment_enabled() ||
       mlp_k512_projection_major_preflight_paths.requested ||
       prefill_mlp_k512_projection_major_gateup_canonical_down_environment_enabled();
+  if (r1_projection_plane_v2_preflight_selected &&
+      (mlp_factorized_lane_r1_preflight_paths.requested ||
+       mlp_factorized_lane_r1_preflight_selected ||
+       mlp_factorized_lane_r1_handoff_preflight_selected ||
+       attention_factorized_lane_r1_preflight_paths.requested ||
+       attention_factorized_lane_r1_preflight_selected ||
+       mlp_factorized_lane_r4_preflight_paths.requested ||
+       mlp_factorized_lane_r4_preflight_selected ||
+       mlp_factorized_lane_r4_2cta_preflight_selected ||
+       k512_preflight_paths.requested ||
+       prefill_attention_o_k512_environment_enabled() ||
+       any_k512_mlp_preflight_publication_or_master ||
+       mlp_k256_package_preflight_selected ||
+       prefill_r1_projection_plane_v2_conflicting_legacy_selector_enabled())) {
+    result.diagnostic = engine_diagnostic(
+        ReferenceEngineError::kInvalidArgument, "one_shot_options",
+        "unified R1 projection-plane v2 is strictly mutually exclusive with "
+        "split R1, direct R4, structural K256 MLP, every K512 MLP/Attention-O "
+        "publication, and all legacy projection leaf selectors");
+    return result;
+  }
   if (mlp_factorized_lane_r1_preflight_selected &&
       (mlp_k256_package_preflight_selected ||
        any_k512_mlp_preflight_publication_or_master)) {
@@ -12858,6 +13728,14 @@ ReferenceOneShotResult generate_reference(
         options.prefill_attention_factorized_lane_r1_policy_path;
     engine_options.prefill_attention_factorized_lane_r1_receipt_path =
         options.prefill_attention_factorized_lane_r1_receipt_path;
+    engine_options.prefill_r1_projection_plane_v2_payload_path =
+        options.prefill_r1_projection_plane_v2_payload_path;
+    engine_options.prefill_r1_projection_plane_v2_manifest_path =
+        options.prefill_r1_projection_plane_v2_manifest_path;
+    engine_options.prefill_r1_projection_plane_v2_policy_path =
+        options.prefill_r1_projection_plane_v2_policy_path;
+    engine_options.prefill_r1_projection_plane_v2_receipt_path =
+        options.prefill_r1_projection_plane_v2_receipt_path;
     engine_options.prefill_mlp_factorized_lane_r4_payload_path =
         options.prefill_mlp_factorized_lane_r4_payload_path;
     engine_options.prefill_mlp_factorized_lane_r4_policy_path =
