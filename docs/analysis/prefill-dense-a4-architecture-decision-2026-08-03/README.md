@@ -470,3 +470,26 @@ from the pinned original NVFP4 checkpoint, and then one real P1853 request
 through the OpenAI-compatible API driven by external EvalScope.  A negative
 whole-request direction closes the R4 cell before any microbenchmark campaign;
 a positive direction unlocks the prompt matrix and profiler attribution.
+
+## Direct R4 external closure
+
+The complete direct-checkpoint R4 path reached the real API gate and was
+rejected.  External EvalScope measured 832.1429 token/s and 2,227.94-ms TTFT
+at P1853; the server measured 2,223.02-ms Prefill.  The locked R1 reference is
+1,106.6259 token/s and 1,670.42-ms server Prefill, so R4 regressed throughput
+by 24.80% and Prefill latency by 33.08%.
+
+Request-scoped NSys isolated the regression to the R4 cells.  Gate+Up rose
+from 487.604160 to 860.028928 ms (+76.38%) and Down rose from 221.828032 to
+390.843168 ms (+76.19%).  Every unchanged category remained within 0.5% of
+the R1 trace.  This validates the resource-plane stop rule: the lower R4 lane
+count per cell did not compensate for N64 A replay, cross-lane FP32 lifetime,
+one-CTA/eight-warp Gate residency or increased operand issue.
+
+The M128N64/M192N128 skeleton is closed.  Its code remains default off as an
+authenticated negative architecture and quality reference, but no local
+parameter scan follows.  The next `projection-plane v2` must change the
+resource/occupancy model and cover shape-specific MLP plus Attention
+projections and legal layer-boundary fusions as one system budget.  Complete
+evidence, hashes and the kernel top 20 are recorded in
+[`../prefill-factorized-r4-direct-rejection-2026-08-03/README.md`](../prefill-factorized-r4-direct-rejection-2026-08-03/README.md).
