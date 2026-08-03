@@ -1,0 +1,131 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-r1-projection-plane-v3-m192-resource-rejection-2026-08-04",
+  "status": "rejected-compile-resource-gate-source-removed",
+  "recorded_at": "2026-08-04T05:20:00+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "base_commit": "42cd5aa",
+    "candidate_commit": null,
+    "candidate_source_status": "three disjoint uncommitted resource prototypes removed with apply_patch after rejection",
+    "production_source_after_screen": "byte-identical to 42cd5aa for all three kernel/header pairs",
+    "runtime_wired": false,
+    "performance_run": false,
+    "correctness_run": false
+  },
+  "policy": {
+    "gate": "all production specializations must compile at no more than 168 registers/thread, zero stack/local memory, zero spill loads/stores, and one active CTA/SM",
+    "reason_performance_was_not_run": "a spilling kernel cannot enter the real-model generation path",
+    "synthetic_performance_authority": "NONE",
+    "cublaslt_executed": false,
+    "mtp_used": false
+  },
+  "common_design": {
+    "threads": 384,
+    "warps": 12,
+    "persistent_ctas": 16,
+    "whole_k_s32_accumulators_per_thread": 128,
+    "weight_publication": "canonical factorized R1 packed B consumed with ldmatrix",
+    "maximum_registers_per_thread": 168,
+    "required_local_bytes": 0,
+    "required_active_blocks_per_sm": 1
+  },
+  "candidates": {
+    "gate_up": {
+      "shape": "paired M192N128",
+      "warp_shape": "M64N32",
+      "pipeline": "A2+B3 K256",
+      "dynamic_shared_bytes": 148352,
+      "final_ptxas": {
+        "test": {
+          "registers_per_thread": 168,
+          "stack_bytes": 248,
+          "spill_store_bytes": 264,
+          "spill_load_bytes": 348,
+          "sass_ldl_instructions": 81,
+          "sass_stl_instructions": 60
+        },
+        "tile_max": {
+          "registers_per_thread": 168,
+          "stack_bytes": 248,
+          "spill_store_bytes": 272,
+          "spill_load_bytes": 436,
+          "sass_ldl_instructions": 103,
+          "sass_stl_instructions": 62
+        }
+      },
+      "bounded_resource_correction": "post-K explicit shared epilogue handoff",
+      "correction_result": "spill traffic increased; reject"
+    },
+    "down": {
+      "shape": "M192N256",
+      "warp_shape": "M64N64",
+      "pipeline": "A3+B2 K256",
+      "dynamic_shared_bytes": 140160,
+      "first_ptxas": {
+        "registers_per_thread": 168,
+        "stack_bytes": 192,
+        "spill_store_bytes": 220,
+        "spill_load_bytes": 220
+      },
+      "bounded_resource_correction": "split each K64 N64 feed into two N32 phases",
+      "final_ptxas": {
+        "registers_per_thread": 168,
+        "stack_bytes": 176,
+        "spill_store_bytes": 172,
+        "spill_load_bytes": 188
+      },
+      "correction_result": "improved but remained nonzero; reject"
+    },
+    "attention": {
+      "shape": "M192N256",
+      "warp_shape": "M64N64",
+      "pipeline": "A2+B3 K256",
+      "dynamic_shared_bytes": 148352,
+      "ptxas": {
+        "linear_qkv_z_and_full_qkv": {
+          "registers_per_thread": 168,
+          "stack_bytes": 64,
+          "spill_store_bytes": 96,
+          "spill_load_bytes": 88
+        },
+        "attention_o_and_contiguous_test": {
+          "registers_per_thread": 168,
+          "stack_bytes": 48,
+          "spill_store_bytes": 48,
+          "spill_load_bytes": 56
+        }
+      },
+      "result": "reject without variant scan"
+    }
+  },
+  "artifacts": {
+    "gate_object": {
+      "path": "/home/rm01/q3x-build-v3-gate/a4w4_gateup_factorized_lane.o",
+      "bytes": 647704,
+      "sha256": "9fe785f27da6b010449de457ed748d9893b452e5419e671e7f988a22f006990a"
+    },
+    "gate_sass": {
+      "path": "/home/rm01/q3x-build-v3-gate/a4w4_gateup_factorized_lane.sass",
+      "bytes": 6208734,
+      "sha256": "7def4e2640b2171c8af11a04bbf4325af6fd5c1d2e69a9e9e1d410a2f5637556"
+    },
+    "down_object": {
+      "path": "/home/rm01/q3x-build-v3-down-make/CMakeFiles/q3x_kernels.dir/src/kernels/sm87/a4w4_down_factorized_lane.cu.o",
+      "bytes": 150240,
+      "sha256": "58694030d140003306909d07cfee4471a2310b82fdd0d8eda6f302aeb83b01c9"
+    },
+    "attention_object": {
+      "path": "/home/rm01/q3x-build-v3-attention/object/a4w4_attention_factorized_lane_r1_m128n256.cu.o",
+      "bytes": 673256,
+      "sha256": "196d6266db2a95a31a446850ac70b28ac60f00d560f72d421ad8abc8223f966b"
+    }
+  },
+  "decision": {
+    "result": "REJECT",
+    "production_changed": false,
+    "retained_baseline": "canonical factorized R1 route",
+    "interpretation": "128 live S32 accumulators plus the M192 feed and epilogue state cannot fit the SM87 384-thread allocation ceiling without local memory",
+    "next": "redesign around a 320-thread, 200-register budget and M160 output ownership; keep canonical ldmatrix publication and shape-separated pipelines"
+  }
+}
