@@ -5,6 +5,68 @@ Scope: Qwen3.6-27B-NVFP4, AGX Orin SM87, single-request Prefill
 Performance authority: real checkpoint, OpenAI `/v1/completions`, external
 EvalScope 1.9.1
 
+## Decision after the real API gate
+
+The package is rejected.  It remains a default-off, fail-closed architectural
+record and does not replace the production M64N128 pair-feed Gate+Up or
+M128N128/16-warp Down routes.  No tile, stage, cache-hint, or CTA-order scan
+follows this result.
+
+The first verdict used the real Qwen3.6-27B-NVFP4 checkpoint, authenticated
+real-weight K256/K512 sidecars, the runner's OpenAI `/v1/completions` API, and
+external EvalScope 1.9.1.  One natural P1804 request warmed the service and
+one natural P1853 request was measured at concurrency one with one generated
+token.  Both requests proved 64 package Gate launches, 64 package Down
+launches, 128 Attention A-exchange B4 launches, zero sibling MLP routes, and
+prompt-derived native GDN accounting.
+
+| Route | P1853 TTFT | Total throughput | Server Prefill |
+|---|---:|---:|---:|
+| Production pair-feed + Down16 | 1,916.24 ms | 967.4983 tok/s | 1,911.30 ms |
+| Shape-separated package | 3,179.31 ms | 583.1384 tok/s | 3,174.29 ms |
+| Candidate change | +1,263.07 ms (+65.91%) | -384.3599 tok/s (-39.73%) | +1,262.99 ms (+66.08%) |
+
+The request-scoped NSys capture explains the endpoint result without an NCU
+or synthetic performance sweep:
+
+| Plane | Production | Candidate | Change |
+|---|---:|---:|---:|
+| Gate+Up | 722.001952 ms | 1,967.447520 ms | +1,245.445568 ms (+172.50%) |
+| Down | 288.796640 ms | 296.415744 ms | +7.619104 ms (+2.64%) |
+| Attention projections | 404.839904 ms | 404.757888 ms | -0.082016 ms (-0.02%) |
+| All GPU kernels | 1,911.120448 ms | 3,164.164192 ms | +1,253.043744 ms (+65.57%) |
+
+The under-warped Gate owner is therefore the rejected mechanism: reducing
+the number of temporal N cells and a small amount of repeated A traffic did
+not compensate for dropping from sixteen to eight active warps while adding
+shared S32 accumulation.  The next Gate architecture must retain sixteen
+active warps and change producer/decode/consumer work together; merely
+widening ownership at lower warp issue is closed.  The shape-specialized Down
+also fails its own incremental gate and is not retained.
+
+Evidence:
+
+```text
+implementation commit
+  744f656
+real EvalScope root
+  /home/rm01/q3x-results/shape-separated-marlin-p1853-candidate-744f656-run1
+request NSys report
+  /home/rm01/q3x-results/shape-separated-marlin-p1853-nsys-744f656-run1.nsys-rep
+server ELF SHA256
+  209e53e34ace630f9445d373ad407e97e4b344efadcd55c701a0427853f9627a
+corpus SHA256
+  41ab42aecfbf7157ece82df889df7a38a8f0ba2963b39958409e732a4681d4af
+provenance SHA256
+  42a26425e49e380c874b03dbbc82c230f65a5c9b79336b12ec27369e02752f8b
+server log SHA256
+  e903f9b6f68385d29b0bcdb60bca1b52483e1b8efada209048023eef74a341a5
+EvalScope summary SHA256
+  fe839f399de41dc3c36e9932c69c3b4ac0dd944a4a4dad1f00d32ba44fd7c926
+NSys report SHA256
+  c783165f664c48b52094917f295b9811d926de191c5c74aff911b741ccd74b74
+```
+
 ## Why this is the next package
 
 The locked production P1853 request is 1,911.30 ms server Prefill and
