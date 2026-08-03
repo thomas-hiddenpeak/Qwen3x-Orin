@@ -295,6 +295,16 @@ prefill_down_k512_m128n128_16warp_pairring_l2_macro4x4_environment_enabled()
 }
 
 [[nodiscard]] bool
+prefill_mlp_k256_m128n256_pairfeed_package_environment_enabled() noexcept {
+  if (optimized_prefill_dispatch_disabled()) {
+    return false;
+  }
+  const char* const value = std::getenv(
+      "Q3X_RUN_A4W4_MLP_K256_M128N256_PAIRFEED_PACKAGE_ADMISSION");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
+[[nodiscard]] bool
 prefill_down_k512_m16n64_v2_environment_enabled() noexcept {
   if (optimized_prefill_dispatch_disabled()) {
     return false;
@@ -412,6 +422,7 @@ struct PrefillMLPK512ProjectionMajorGateUpCanonicalDownEnginePaths final {
     const bool hybrid_selected,
     const bool projection_major_publication_requested,
     const bool projection_major_selected,
+    const bool mlp_k256_package_selected,
     std::string& error) noexcept {
   const bool incumbent_selected =
       prefill_attention_k256_m128n256_environment_enabled();
@@ -472,13 +483,73 @@ struct PrefillMLPK512ProjectionMajorGateUpCanonicalDownEnginePaths final {
   const bool projection_major_consumer_contract =
       projection_major_publication_requested && projection_major_selected;
   if (!v1_consumer_contract && !hybrid_consumer_contract &&
-      !projection_major_consumer_contract) {
+      !projection_major_consumer_contract && !mlp_k256_package_selected) {
     error = "the selected M128N256 K256 Attention implementation requires "
-            "a complete K256 consumer contract: an authenticated K512 MLP "
-            "publication and its matching runtime master selector";
+            "a complete K256 consumer contract: either the structural K256 "
+            "MLP package or an authenticated K512 MLP publication with its "
+            "matching runtime master selector";
     return false;
   }
   return true;
+}
+
+[[nodiscard]] bool validate_prefill_mlp_k256_package_selector(
+    const bool a4_publication_requested,
+    const bool any_k512_publication_or_master,
+    std::string& error) noexcept {
+  const bool selected =
+      prefill_mlp_k256_m128n256_pairfeed_package_environment_enabled();
+  if (!selected) {
+    return true;
+  }
+#if !defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_ALTERNATING_ADMISSION) || \
+    !defined(Q3X_ENABLE_A4W4_DOWN_K512_M128N128_16WARP_PAIRRING_ADMISSION)
+  error = "this binary does not contain both K256 MLP package consumers";
+  return false;
+#else
+  if (!a4_publication_requested) {
+    error = "the structural K256 MLP package requires an authenticated K256 "
+            "A4 publication";
+    return false;
+  }
+  if (any_k512_publication_or_master) {
+    error = "the structural K256 MLP package is mutually exclusive with "
+            "every K512 MLP publication and runtime master";
+    return false;
+  }
+  constexpr std::array<const char*, 22U> kConflictingSelectors = {
+      "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_ADMISSION",
+      "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M128N64_ADMISSION",
+      "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_ALTERNATING_ADMISSION",
+      "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_LDMATRIX_PAIRFEED_ADMISSION",
+      "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M32N512_OWNER_ADMISSION",
+      "Q3X_RUN_A4W4_GATEUP_K512_M128N128_PROJECTION_SERIAL_ADMISSION",
+      "Q3X_RUN_A4W4_GATEUP_K512_M128N64_SAME_CTA_ADMISSION",
+      "Q3X_RUN_A4W4_GATEUP_K512_M128N512_FUSED_QUANTIZE_ADMISSION",
+      "Q3X_RUN_A4W4_GATEUP_K512_M64N128_REGISTER_PIPELINE_ADMISSION",
+      "Q3X_RUN_A4W4_GATEUP_K512_M64N8_PAIRED_WARP_REGISTER_PIPELINE_ADMISSION",
+      "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M128N512_PAIRED_LDMATRIX_ADMISSION",
+      "Q3X_RUN_A4W4_GATEUP_COMPLETE_CELL_V2_ADMISSION",
+      "Q3X_RUN_A4W4_M128_STAGE_MAJOR_ADMISSION",
+      "Q3X_RUN_A4W4_GATEUP_PROJECTION_V3_ADMISSION",
+      "Q3X_RUN_A4W4_DOWN_K512_M128N128_LDMATRIX_PAIRRING_ADMISSION",
+      "Q3X_RUN_A4W4_DOWN_K512_M128N128_16WARP_PAIRRING_ADMISSION",
+      "Q3X_RUN_A4W4_DOWN_K512_M128N128_16WARP_PAIRRING_L2_MACRO4X4_ADMISSION",
+      "Q3X_RUN_A4W4_DOWN_K512_M16N64_V2_ADMISSION",
+      "Q3X_RUN_A4W4_DOWN_M128_STAGE_MAJOR_ADMISSION",
+      "Q3X_RUN_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION",
+      "Q3X_RUN_A4W4_DOWN_COMPLETE_CELL_V3_ADMISSION",
+      "Q3X_RUN_A4W4_MLP_K512_SHAPE_SEPARATED_MARLIN_PACKAGE_ADMISSION",
+  };
+  for (const char* const selector : kConflictingSelectors) {
+    if (exact_environment_selector_enabled(selector)) {
+      error = "the structural K256 MLP package conflicts with every other "
+              "Prefill Gate+Up or Down selector";
+      return false;
+    }
+  }
+  return true;
+#endif
 }
 
 [[nodiscard]] bool validate_prefill_mlp_k512_leaf_selectors(
@@ -6649,6 +6720,27 @@ struct ReferenceEngine::Impl {
           prefill_mlp_k512_leaf_selector_error);
       return result;
     }
+    const bool prefill_mlp_k256_package_selected =
+        prefill_mlp_k256_m128n256_pairfeed_package_environment_enabled();
+    const bool any_k512_mlp_publication_or_master =
+        prefill_mlp_k512_paths.requested || prefill_mlp_k512_selected ||
+        prefill_mlp_k512_fragment_native_paths.requested ||
+        prefill_mlp_k512_fragment_native_selected ||
+        prefill_mlp_k512_hybrid_paths.requested ||
+        prefill_mlp_k512_hybrid_selected ||
+        prefill_mlp_k512_projection_major_paths.requested ||
+        prefill_mlp_k512_projection_major_selected;
+    std::string prefill_mlp_k256_package_selector_error;
+    if (!validate_prefill_mlp_k256_package_selector(
+            prefill_a4_paths.requested,
+            any_k512_mlp_publication_or_master,
+            prefill_mlp_k256_package_selector_error)) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kInvalidArgument,
+          "prefill_mlp_k256_package_selector",
+          prefill_mlp_k256_package_selector_error);
+      return result;
+    }
     std::string prefill_attention_k256_leaf_selector_error;
     if (!validate_prefill_attention_k256_leaf_selectors(
             prefill_a4_paths.requested,
@@ -6658,6 +6750,7 @@ struct ReferenceEngine::Impl {
             prefill_mlp_k512_hybrid_selected,
             prefill_mlp_k512_projection_major_paths.requested,
             prefill_mlp_k512_projection_major_selected,
+            prefill_mlp_k256_package_selected,
             prefill_attention_k256_leaf_selector_error)) {
       result.diagnostic = engine_diagnostic(
           ReferenceEngineError::kInvalidArgument,
@@ -7057,14 +7150,14 @@ struct ReferenceEngine::Impl {
                 (prefill_mlp_k512_hybrid_paths.requested &&
                  prefill_mlp_k512_hybrid_selected) ||
                 (prefill_mlp_k512_projection_major_paths.requested &&
-                 prefill_mlp_k512_projection_major_selected))) {
+                 prefill_mlp_k512_projection_major_selected) ||
+                prefill_mlp_k256_package_selected)) {
             result.diagnostic = engine_diagnostic(
                 ReferenceEngineError::kRunnerFactoryFailure,
                 "prefill_a4_k256_mlp_contract",
-                "the K256 Attention base requires both the authenticated "
-                "K512 MLP v1, paired-GateUp/canonical-Down, or "
-                "projection-major-GateUp/canonical-Down overlay and its "
-                "matching runtime selector");
+                "the K256 Attention base requires either the structural "
+                "K256 MLP package or an authenticated K512 MLP overlay "
+                "with its matching runtime selector");
             return result;
           }
           impl->load.prefill_a4_sidecars_enabled = true;
@@ -9666,6 +9759,27 @@ ReferenceOneShotResult generate_reference(
         mlp_k512_leaf_selector_preflight_error);
     return result;
   }
+  const bool mlp_k256_package_preflight_selected =
+      prefill_mlp_k256_m128n256_pairfeed_package_environment_enabled();
+  const bool any_k512_mlp_preflight_publication_or_master =
+      mlp_k512_preflight_paths.requested ||
+      prefill_mlp_k512_environment_enabled() ||
+      mlp_k512_fragment_native_preflight_paths.requested ||
+      prefill_mlp_k512_fragment_native_environment_enabled() ||
+      mlp_k512_hybrid_preflight_paths.requested ||
+      prefill_mlp_k512_paired_gateup_canonical_down_environment_enabled() ||
+      mlp_k512_projection_major_preflight_paths.requested ||
+      prefill_mlp_k512_projection_major_gateup_canonical_down_environment_enabled();
+  std::string mlp_k256_package_selector_preflight_error;
+  if (!validate_prefill_mlp_k256_package_selector(
+          a4_preflight_paths.requested,
+          any_k512_mlp_preflight_publication_or_master,
+          mlp_k256_package_selector_preflight_error)) {
+    result.diagnostic = engine_diagnostic(
+        ReferenceEngineError::kInvalidArgument, "one_shot_options",
+        mlp_k256_package_selector_preflight_error);
+    return result;
+  }
   std::string attention_k256_leaf_selector_preflight_error;
   if (!validate_prefill_attention_k256_leaf_selectors(
           a4_preflight_paths.requested,
@@ -9675,6 +9789,7 @@ ReferenceOneShotResult generate_reference(
           prefill_mlp_k512_paired_gateup_canonical_down_environment_enabled(),
           mlp_k512_projection_major_preflight_paths.requested,
           prefill_mlp_k512_projection_major_gateup_canonical_down_environment_enabled(),
+          mlp_k256_package_preflight_selected,
           attention_k256_leaf_selector_preflight_error)) {
     result.diagnostic = engine_diagnostic(
         ReferenceEngineError::kInvalidArgument, "one_shot_options",

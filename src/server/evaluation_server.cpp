@@ -1004,6 +1004,9 @@ void execute_job(runtime::ReferenceEngine& engine,
             << generated.value->timing.gateup_alternating_launch_hits
             << " gateup_ldmatrix_pairfeed_launch_hits="
             << generated.value->timing.gateup_ldmatrix_pairfeed_launch_hits
+            << " mlp_k256_m128n256_pairfeed_package_launch_hits="
+            << generated.value->timing
+                   .mlp_k256_m128n256_pairfeed_package_launch_hits
             << " gateup_m128n128_projection_serial_launch_hits="
             << generated.value->timing
                    .gateup_m128n128_projection_serial_launch_hits
@@ -1731,6 +1734,9 @@ int run_evaluation_server(const EvaluationServerOptions& options,
                         created.diagnostic.code)) +
                     " message=" + created.diagnostic.message +
                     " context=" + created.diagnostic.context;
+    if (!created.diagnostic.operation.empty()) {
+      error_message += " operation=" + created.diagnostic.operation;
+    }
     return 3;
   }
   runtime::ReferenceEngine engine = std::move(*created.value);

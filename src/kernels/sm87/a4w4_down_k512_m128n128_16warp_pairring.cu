@@ -4,12 +4,15 @@
 
 #include <cuda_runtime.h>
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
 
 namespace q3x::kernels {
 namespace {
+
+std::atomic<bool> g_down_k256_pairring16_resources_ready{false};
 
 inline constexpr int kRequiredSmCount = 16;
 inline constexpr unsigned int kTileM =
@@ -48,6 +51,25 @@ inline constexpr unsigned int kPackedK64Bytes =
   return first_begin < second_end && second_begin < first_end;
 }
 
+[[nodiscard]] constexpr std::size_t k256_consumer_packed_capacity_bytes(
+    const std::size_t outer_count, const std::size_t logical_k) noexcept {
+  const std::size_t blocks =
+      sm87_a4w4_consumer_outer_block_count(outer_count);
+  const std::size_t groups = sm87_a4w4_k64_group_count(logical_k);
+  constexpr std::size_t kGroupBytes =
+      kSm87A4W4ConsumerOuterBlock *
+      kSm87A4W4ConsumerPackedKBlockBytes;
+  if (blocks == 0U || groups == 0U ||
+      !sm87_a4w4_down_k512_product_fits(blocks, groups)) {
+    return 0U;
+  }
+  const std::size_t block_groups = blocks * groups;
+  return sm87_a4w4_down_k512_product_fits(block_groups, kGroupBytes)
+             ? sm87_a4w4_consumer_packed_capacity_bytes(outer_count,
+                                                        logical_k)
+             : 0U;
+}
+
 struct alignas(16) Stage final {
   std::uint8_t a[kSm87A4W4DownK512M128N128Pairring16K64PerStage]
                 [kTileM * kPackedK64Bytes];
@@ -63,6 +85,16 @@ struct alignas(16) ScaleSlot final {
 struct alignas(16) SharedStorage final {
   Stage stage[kSm87A4W4DownK512M128N128Pairring16Stages];
   ScaleSlot scale[kSm87A4W4DownK512M128N128Pairring16ScaleSlots];
+};
+
+struct alignas(16) K256ScaleStage final {
+  Stage codes;
+  ScaleSlot scale;
+};
+
+struct alignas(16) K256ScaleSharedStorage final {
+  K256ScaleStage
+      stage[kSm87A4W4DownK256M128N128Pairring16Stages];
 };
 
 struct alignas(16) Float4 final {
@@ -102,6 +134,13 @@ static_assert(sizeof(ScaleSlot) ==
               kSm87A4W4DownK512M128N128Pairring16ScaleSlotBytes);
 static_assert(sizeof(SharedStorage) ==
               kSm87A4W4DownK512M128N128Pairring16DynamicSharedBytes);
+static_assert(sizeof(K256ScaleStage) ==
+              kSm87A4W4DownK256M128N128Pairring16StageBytes);
+static_assert(sizeof(K256ScaleSharedStorage) ==
+              kSm87A4W4DownK256M128N128Pairring16DynamicSharedBytes);
+static_assert(
+    kSm87A4W4DownK256M128N128Pairring16K64PerStage ==
+    kSm87A4W4DownK512M128N128Pairring16K64PerStage);
 static_assert(sizeof(Outputs) == 128U);
 static_assert(sizeof(Partials) == 128U);
 
@@ -156,6 +195,19 @@ __device__ __forceinline__ void cp_async_commit() noexcept {
 __device__ __forceinline__ void cp_async_wait_all() noexcept {
 #if defined(__CUDA_ARCH__) && __CUDA_ARCH__ == 870
   asm volatile("cp.async.wait_group 0;" : : : "memory");
+#else
+  asm volatile("trap;");
+#endif
+}
+
+template <unsigned int Remaining>
+__device__ __forceinline__ void cp_async_wait_group() noexcept {
+  static_assert(Remaining <= 3U);
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ == 870
+  asm volatile("cp.async.wait_group %0;"
+               :
+               : "n"(Remaining)
+               : "memory");
 #else
   asm volatile("trap;");
 #endif
@@ -231,6 +283,74 @@ __device__ __forceinline__ void issue_scale_slot(
         source + sm87_a4w4_down_k512_scale_offset(
                      static_cast<std::size_t>(outer_start) + row,
                      group, group_count));
+  }
+  cp_async_commit();
+}
+
+// One logical K256 group is one indivisible ring entry: four packed K64 code
+// planes and its A/B BF16 scale vectors share a single cp.async commit group.
+// This keeps wait_group accounting aligned with logical numerical epochs.
+__device__ __forceinline__ void issue_k256_scale_stage(
+    K256ScaleStage& stage,
+    const std::uint8_t* const packed_a,
+    const std::uint16_t* const a_k256_scales_bf16,
+    const std::uint8_t* const packed_b,
+    const std::uint16_t* const b_k256_scales_bf16,
+    const unsigned int m_tile_start,
+    const unsigned int n_tile_start,
+    const unsigned int k256_group,
+    const unsigned int k256_group_count,
+    const unsigned int physical_k64_group_count) noexcept {
+  constexpr unsigned int kVectorsPerPlane =
+      kTileM * kPackedK64Bytes / 16U;
+  constexpr unsigned int kVectorsPerOperand =
+      static_cast<unsigned int>(
+          kSm87A4W4DownK256M128N128Pairring16K64PerStage) *
+      kVectorsPerPlane;
+  static_assert(kVectorsPerPlane == 256U);
+  static_assert(kVectorsPerOperand == 2U * kThreads);
+
+#pragma unroll
+  for (unsigned int linear = threadIdx.x; linear < kVectorsPerOperand;
+       linear += kThreads) {
+    const unsigned int plane = linear / kVectorsPerPlane;
+    const unsigned int plane_vector = linear - plane * kVectorsPerPlane;
+    const unsigned int row = plane_vector >> 1U;
+    const unsigned int row_vector = plane_vector & 1U;
+    const unsigned int physical_k64_group =
+        kSm87A4W4DownK256M128N128Pairring16K64PerStage * k256_group +
+        plane;
+    const std::size_t shared_offset =
+        sm87_a4w4_swizzled_k64_byte_offset(row, 16U * row_vector);
+    cp_async_cg_16(
+        stage.codes.a[plane] + shared_offset,
+        packed_a + sm87_a4w4_consumer_packed_offset(
+                       static_cast<std::size_t>(m_tile_start) + row,
+                       physical_k64_group, 16U * row_vector,
+                       physical_k64_group_count));
+    cp_async_cg_16(
+        stage.codes.b[plane] + shared_offset,
+        packed_b + sm87_a4w4_consumer_packed_offset(
+                       static_cast<std::size_t>(n_tile_start) + row,
+                       physical_k64_group, 16U * row_vector,
+                       physical_k64_group_count));
+  }
+
+  if (threadIdx.x < 32U) {
+    const unsigned int operand = threadIdx.x >> 4U;
+    const unsigned int vector = threadIdx.x & 15U;
+    const unsigned int row = 8U * vector;
+    std::uint16_t* const destination =
+        (operand == 0U ? stage.scale.a : stage.scale.b) + row;
+    const std::uint16_t* const source =
+        operand == 0U ? a_k256_scales_bf16 : b_k256_scales_bf16;
+    const unsigned int outer_start =
+        operand == 0U ? m_tile_start : n_tile_start;
+    cp_async_ca_16(
+        destination,
+        source + sm87_a4w4_attention_k256_scale_offset(
+                     static_cast<std::size_t>(outer_start) + row,
+                     k256_group, k256_group_count));
   }
   cp_async_commit();
 }
@@ -409,6 +529,26 @@ __device__ __forceinline__ void accumulate_k512_group(
                         lane);
   apply_scales(scale, outputs, partials, local_m_start, local_n_start,
                lane);
+}
+
+__device__ __forceinline__ void accumulate_k256_scale_group(
+    const K256ScaleStage& stage,
+    Outputs& outputs) noexcept {
+  const unsigned int lane = threadIdx.x & 31U;
+  const unsigned int warp = threadIdx.x >> 5U;
+  const unsigned int local_m_start =
+      (warp & 3U) *
+      static_cast<unsigned int>(
+          kSm87A4W4DownK512M128N128Pairring16WarpTileM);
+  const unsigned int local_n_start =
+      (warp >> 2U) *
+      static_cast<unsigned int>(
+          kSm87A4W4DownK512M128N128Pairring16WarpTileN);
+  Partials partials{};
+  accumulate_k256_stage(stage.codes, partials, local_m_start,
+                        local_n_start, lane);
+  apply_scales(stage.scale, outputs, partials, local_m_start,
+               local_n_start, lane);
 }
 
 template <unsigned int MFragment, unsigned int NFragment>
@@ -596,6 +736,79 @@ void q3x_sm87_a4w4_down_k512_m128n128_16warp_pairring_kernel(
 
 extern "C" __global__
     __launch_bounds__(kSm87A4W4DownK512M128N128Pairring16Threads, 1)
+void q3x_sm87_a4w4_down_k256_m128n128_16warp_pairring_kernel(
+    const std::uint8_t* const packed_a,
+    const std::uint16_t* const a_k256_scales_bf16,
+    const std::uint8_t* const packed_b,
+    const std::uint16_t* const b_k256_scales_bf16,
+    const unsigned int k256_group_count,
+    const unsigned int physical_k64_group_count,
+    std::uint16_t* const output_bf16,
+    const unsigned int output_row_stride_elements,
+    const unsigned int m_tile_count,
+    const unsigned int work_tile_count) {
+  extern __shared__ __align__(16) unsigned char k256_dynamic_storage[];
+  auto& shared =
+      *reinterpret_cast<K256ScaleSharedStorage*>(k256_dynamic_storage);
+
+  for (unsigned int work = blockIdx.x; work < work_tile_count;
+       work += gridDim.x) {
+    const unsigned int n_tile = work / m_tile_count;
+    const unsigned int m_tile = work - n_tile * m_tile_count;
+    const unsigned int m_tile_start = m_tile * kTileM;
+    const unsigned int n_tile_start = n_tile * kTileN;
+    Outputs outputs{};
+
+    const unsigned int initial_groups =
+        k256_group_count <
+                kSm87A4W4DownK256M128N128Pairring16Stages
+            ? k256_group_count
+            : static_cast<unsigned int>(
+                  kSm87A4W4DownK256M128N128Pairring16Stages);
+    for (unsigned int group = 0U; group < initial_groups; ++group) {
+      issue_k256_scale_stage(
+          shared.stage[group], packed_a, a_k256_scales_bf16,
+          packed_b, b_k256_scales_bf16, m_tile_start, n_tile_start,
+          group, k256_group_count, physical_k64_group_count);
+    }
+
+    for (unsigned int group = 0U; group < k256_group_count; ++group) {
+      const unsigned int newer_groups = k256_group_count - group - 1U;
+      if (newer_groups >= 3U) {
+        cp_async_wait_group<3U>();
+      } else if (newer_groups == 2U) {
+        cp_async_wait_group<2U>();
+      } else if (newer_groups == 1U) {
+        cp_async_wait_group<1U>();
+      } else {
+        cp_async_wait_group<0U>();
+      }
+      __syncthreads();
+
+      const unsigned int slot =
+          group % kSm87A4W4DownK256M128N128Pairring16Stages;
+      accumulate_k256_scale_group(shared.stage[slot], outputs);
+      __syncthreads();
+
+      const unsigned int next_group =
+          group + kSm87A4W4DownK256M128N128Pairring16Stages;
+      if (next_group < k256_group_count) {
+        issue_k256_scale_stage(
+            shared.stage[slot], packed_a, a_k256_scales_bf16,
+            packed_b, b_k256_scales_bf16, m_tile_start,
+            n_tile_start, next_group, k256_group_count,
+            physical_k64_group_count);
+      }
+    }
+
+    store_outputs(outputs, m_tile_start, n_tile_start,
+                  output_row_stride_elements, output_bf16);
+    __syncthreads();
+  }
+}
+
+extern "C" __global__
+    __launch_bounds__(kSm87A4W4DownK512M128N128Pairring16Threads, 1)
 void q3x_sm87_a4w4_down_k512_m128n128_16warp_pairring_l2_macro4x4_kernel(
     const std::uint8_t* const packed_a,
     const std::uint16_t* const a_k512_scales_bf16,
@@ -671,6 +884,14 @@ namespace {
       cudaFuncAttributeMaxDynamicSharedMemorySize,
       static_cast<int>(
           kSm87A4W4DownK512M128N128Pairring16DynamicSharedBytes)));
+}
+
+[[nodiscard]] int admit_k256_dynamic_shared() noexcept {
+  return static_cast<int>(cudaFuncSetAttribute(
+      q3x_sm87_a4w4_down_k256_m128n128_16warp_pairring_kernel,
+      cudaFuncAttributeMaxDynamicSharedMemorySize,
+      static_cast<int>(
+          kSm87A4W4DownK256M128N128Pairring16DynamicSharedBytes)));
 }
 
 [[nodiscard]] int admit_l2_macro4x4_dynamic_shared() noexcept {
@@ -803,6 +1024,171 @@ namespace {
           packed_a, a_k512_scales_bf16, packed_b,
           b_k512_scales_bf16,
           static_cast<unsigned int>(plan.k512_groups),
+          static_cast<unsigned int>(plan.physical_k64_groups),
+          output_bf16,
+          static_cast<unsigned int>(output_row_stride_elements),
+          static_cast<unsigned int>(plan.m_tiles),
+          static_cast<unsigned int>(plan.work_tiles));
+  return static_cast<int>(cudaPeekAtLastError());
+}
+
+[[nodiscard]] int launch_k256_impl(
+    const std::uint8_t* const packed_a,
+    const std::size_t packed_a_capacity_bytes,
+    const std::uint16_t* const a_k256_scales_bf16,
+    const std::size_t a_scale_capacity_elements,
+    const std::uint8_t* const packed_b,
+    const std::size_t packed_b_capacity_bytes,
+    const std::uint16_t* const b_k256_scales_bf16,
+    const std::size_t b_scale_capacity_elements,
+    const std::size_t logical_token_count,
+    const std::size_t launch_token_count,
+    const std::size_t output_size,
+    const std::size_t input_size,
+    std::uint16_t* const output_bf16,
+    const std::size_t output_row_stride_elements,
+    const std::size_t output_capacity_elements,
+    const unsigned int maximum_launch_ctas,
+    const bool production_shape,
+    void* const cuda_stream) noexcept {
+  if (production_shape &&
+      !sm87_a4w4_down_k256_m128n128_16warp_pairring_padding_contract(
+          logical_token_count, launch_token_count)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const Sm87A4W4DownK256M128N128Pairring16Plan plan =
+      production_shape
+          ? sm87_a4w4_down_k256_m128n128_16warp_pairring_plan(
+                launch_token_count, output_size, input_size)
+          : sm87_a4w4_down_k256_m128n128_16warp_pairring_test_plan(
+                launch_token_count, output_size, input_size);
+  if (plan.launch_ctas == 0U || maximum_launch_ctas == 0U ||
+      !aligned(packed_a, 16U) ||
+      !aligned(a_k256_scales_bf16, 16U) ||
+      !aligned(packed_b, 16U) ||
+      !aligned(b_k256_scales_bf16, 16U) ||
+      !aligned(output_bf16, alignof(std::uint32_t)) ||
+      output_row_stride_elements < output_size ||
+      output_row_stride_elements % 2U != 0U ||
+      output_row_stride_elements >
+          std::numeric_limits<unsigned int>::max() ||
+      launch_token_count > std::numeric_limits<unsigned int>::max() ||
+      output_size > std::numeric_limits<unsigned int>::max() ||
+      plan.k256_groups > std::numeric_limits<unsigned int>::max() ||
+      plan.physical_k64_groups >
+          std::numeric_limits<unsigned int>::max() ||
+      plan.m_tiles > std::numeric_limits<unsigned int>::max() ||
+      plan.n_tiles > std::numeric_limits<unsigned int>::max() ||
+      plan.work_tiles > std::numeric_limits<unsigned int>::max() ||
+      !sm87_a4w4_down_k512_product_fits(
+          launch_token_count, output_row_stride_elements)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+
+  const std::size_t required_a_bytes =
+      k256_consumer_packed_capacity_bytes(launch_token_count,
+                                          input_size);
+  const std::size_t required_b_bytes =
+      k256_consumer_packed_capacity_bytes(output_size, input_size);
+  const std::size_t required_a_scales =
+      sm87_a4w4_attention_k256_scale_capacity_elements(
+          launch_token_count, input_size);
+  const std::size_t required_b_scales =
+      sm87_a4w4_attention_k256_scale_capacity_elements(output_size,
+                                                        input_size);
+  const std::size_t required_output_elements =
+      launch_token_count * output_row_stride_elements;
+  if (required_a_bytes == 0U || required_b_bytes == 0U ||
+      required_a_scales == 0U || required_b_scales == 0U ||
+      packed_a_capacity_bytes < required_a_bytes ||
+      packed_b_capacity_bytes < required_b_bytes ||
+      a_scale_capacity_elements < required_a_scales ||
+      b_scale_capacity_elements < required_b_scales ||
+      output_capacity_elements < required_output_elements ||
+      !sm87_a4w4_down_k512_product_fits(required_a_scales,
+                                         sizeof(std::uint16_t)) ||
+      !sm87_a4w4_down_k512_product_fits(required_b_scales,
+                                         sizeof(std::uint16_t)) ||
+      !sm87_a4w4_down_k512_product_fits(required_output_elements,
+                                         sizeof(std::uint16_t))) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+
+  const std::size_t required_a_scale_bytes =
+      required_a_scales * sizeof(std::uint16_t);
+  const std::size_t required_b_scale_bytes =
+      required_b_scales * sizeof(std::uint16_t);
+  const std::size_t required_output_bytes =
+      required_output_elements * sizeof(std::uint16_t);
+  const auto overlaps = [](const void* const first,
+                           const std::size_t first_bytes,
+                           const void* const second,
+                           const std::size_t second_bytes) noexcept {
+    return byte_ranges_overlap(first, first_bytes, second, second_bytes);
+  };
+  if (overlaps(packed_a, required_a_bytes, a_k256_scales_bf16,
+               required_a_scale_bytes) ||
+      overlaps(packed_a, required_a_bytes, packed_b,
+               required_b_bytes) ||
+      overlaps(packed_a, required_a_bytes, b_k256_scales_bf16,
+               required_b_scale_bytes) ||
+      overlaps(a_k256_scales_bf16, required_a_scale_bytes, packed_b,
+               required_b_bytes) ||
+      overlaps(a_k256_scales_bf16, required_a_scale_bytes,
+               b_k256_scales_bf16, required_b_scale_bytes) ||
+      overlaps(packed_b, required_b_bytes, b_k256_scales_bf16,
+               required_b_scale_bytes) ||
+      overlaps(output_bf16, required_output_bytes, packed_a,
+               required_a_bytes) ||
+      overlaps(output_bf16, required_output_bytes,
+               a_k256_scales_bf16, required_a_scale_bytes) ||
+      overlaps(output_bf16, required_output_bytes, packed_b,
+               required_b_bytes) ||
+      overlaps(output_bf16, required_output_bytes,
+               b_k256_scales_bf16, required_b_scale_bytes)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  cudaStreamCaptureStatus capture_status = cudaStreamCaptureStatusNone;
+  if (stream != nullptr) {
+    const cudaError_t status =
+        cudaStreamIsCapturing(stream, &capture_status);
+    if (status != cudaSuccess) {
+      return static_cast<int>(status);
+    }
+  }
+  if (capture_status != cudaStreamCaptureStatusNone) {
+    if (!g_down_k256_pairring16_resources_ready.load(
+            std::memory_order_acquire)) {
+      return static_cast<int>(cudaErrorNotReady);
+    }
+  } else if (!g_down_k256_pairring16_resources_ready.load(
+                 std::memory_order_acquire)) {
+    Sm87A4W4DownK256M128N128Pairring16Resources resources{};
+    const int resource_status =
+        query_sm87_a4w4_down_k256_m128n128_16warp_pairring_resources_cuda(
+            &resources);
+    if (resource_status != static_cast<int>(cudaSuccess)) {
+      return resource_status;
+    }
+  }
+
+  const unsigned int planned_ctas =
+      static_cast<unsigned int>(plan.launch_ctas);
+  const unsigned int launch_ctas =
+      planned_ctas < maximum_launch_ctas ? planned_ctas
+                                         : maximum_launch_ctas;
+  (void)cudaGetLastError();
+  q3x_sm87_a4w4_down_k256_m128n128_16warp_pairring_kernel
+      <<<launch_ctas,
+         static_cast<unsigned int>(
+             kSm87A4W4DownK512M128N128Pairring16Threads),
+         kSm87A4W4DownK256M128N128Pairring16DynamicSharedBytes,
+         stream>>>(
+          packed_a, a_k256_scales_bf16, packed_b,
+          b_k256_scales_bf16,
+          static_cast<unsigned int>(plan.k256_groups),
           static_cast<unsigned int>(plan.physical_k64_groups),
           output_bf16,
           static_cast<unsigned int>(output_row_stride_elements),
@@ -1012,6 +1398,85 @@ int query_sm87_a4w4_down_k512_m128n128_16warp_pairring_resources_cuda(
   return static_cast<int>(cudaSuccess);
 }
 
+int query_sm87_a4w4_down_k256_m128n128_16warp_pairring_resources_cuda(
+    Sm87A4W4DownK256M128N128Pairring16Resources* const resources) noexcept {
+  if (resources == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  *resources = Sm87A4W4DownK256M128N128Pairring16Resources{};
+  g_down_k256_pairring16_resources_ready.store(false,
+                                                std::memory_order_release);
+  cudaDeviceProp properties{};
+  const int target_status = validate_target(&properties);
+  if (target_status != static_cast<int>(cudaSuccess)) {
+    return target_status;
+  }
+  if (properties.sharedMemPerBlockOptin <
+      kSm87A4W4DownK256M128N128Pairring16DynamicSharedBytes) {
+    return static_cast<int>(cudaErrorNotSupported);
+  }
+  const int admission_status = admit_k256_dynamic_shared();
+  if (admission_status != static_cast<int>(cudaSuccess)) {
+    return admission_status;
+  }
+
+  cudaFuncAttributes attributes{};
+  cudaError_t status = cudaFuncGetAttributes(
+      &attributes,
+      q3x_sm87_a4w4_down_k256_m128n128_16warp_pairring_kernel);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  int active_blocks = 0;
+  status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+      &active_blocks,
+      q3x_sm87_a4w4_down_k256_m128n128_16warp_pairring_kernel,
+      static_cast<int>(
+          kSm87A4W4DownK512M128N128Pairring16Threads),
+      kSm87A4W4DownK256M128N128Pairring16DynamicSharedBytes);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+
+  resources->registers_per_thread = attributes.numRegs;
+  resources->static_shared_bytes = attributes.sharedSizeBytes;
+  resources->dynamic_shared_bytes =
+      kSm87A4W4DownK256M128N128Pairring16DynamicSharedBytes;
+  resources->configured_dynamic_shared_limit_bytes =
+      attributes.maxDynamicSharedSizeBytes;
+  resources->device_optin_shared_limit_bytes =
+      properties.sharedMemPerBlockOptin;
+  resources->local_bytes = attributes.localSizeBytes;
+  resources->maximum_threads_per_block = attributes.maxThreadsPerBlock;
+  resources->active_blocks_per_sm = active_blocks;
+  resources->compute_major = properties.major;
+  resources->compute_minor = properties.minor;
+
+  if (resources->registers_per_thread <= 0 ||
+      resources->registers_per_thread >
+          static_cast<int>(
+              kSm87A4W4DownK512M128N128Pairring16MaximumRegisters) ||
+      resources->static_shared_bytes != 0U ||
+      resources->dynamic_shared_bytes !=
+          kSm87A4W4DownK256M128N128Pairring16DynamicSharedBytes ||
+      resources->configured_dynamic_shared_limit_bytes <
+          kSm87A4W4DownK256M128N128Pairring16DynamicSharedBytes ||
+      resources->device_optin_shared_limit_bytes <
+          kSm87A4W4DownK256M128N128Pairring16DynamicSharedBytes ||
+      resources->local_bytes != 0U ||
+      resources->maximum_threads_per_block <
+          static_cast<int>(
+              kSm87A4W4DownK512M128N128Pairring16Threads) ||
+      resources->active_blocks_per_sm !=
+          static_cast<int>(
+              kSm87A4W4DownK512M128N128Pairring16CtasPerSm)) {
+    return static_cast<int>(cudaErrorLaunchOutOfResources);
+  }
+  g_down_k256_pairring16_resources_ready.store(true,
+                                                std::memory_order_release);
+  return static_cast<int>(cudaSuccess);
+}
+
 int
 query_sm87_a4w4_down_k512_m128n128_16warp_pairring_l2_macro4x4_resources_cuda(
     Sm87A4W4DownK512M128N128Pairring16Resources* const resources) noexcept {
@@ -1111,6 +1576,33 @@ int launch_sm87_a4w4_down_k512_m128n128_16warp_pairring_bf16_cuda(
       cuda_stream);
 }
 
+int launch_sm87_a4w4_down_k256_m128n128_16warp_pairring_bf16_cuda(
+    const std::uint8_t* const packed_a,
+    const std::size_t packed_a_capacity_bytes,
+    const std::uint16_t* const a_k256_scales_bf16,
+    const std::size_t a_scale_capacity_elements,
+    const std::uint8_t* const packed_b,
+    const std::size_t packed_b_capacity_bytes,
+    const std::uint16_t* const b_k256_scales_bf16,
+    const std::size_t b_scale_capacity_elements,
+    const std::size_t logical_token_count,
+    const std::size_t launch_token_count,
+    const std::size_t output_size,
+    const std::size_t input_size,
+    std::uint16_t* const output_bf16,
+    const std::size_t output_row_stride_elements,
+    const std::size_t output_capacity_elements,
+    void* const cuda_stream) noexcept {
+  return launch_k256_impl(
+      packed_a, packed_a_capacity_bytes, a_k256_scales_bf16,
+      a_scale_capacity_elements, packed_b, packed_b_capacity_bytes,
+      b_k256_scales_bf16, b_scale_capacity_elements,
+      logical_token_count, launch_token_count, output_size, input_size,
+      output_bf16, output_row_stride_elements, output_capacity_elements,
+      static_cast<unsigned int>(kSm87A4W4DownK512PersistentCtas), true,
+      cuda_stream);
+}
+
 int
 launch_sm87_a4w4_down_k512_m128n128_16warp_pairring_l2_macro4x4_bf16_cuda(
     const std::uint8_t* const packed_a,
@@ -1159,6 +1651,32 @@ int launch_sm87_a4w4_down_k512_m128n128_16warp_pairring_test_bf16_cuda(
       packed_a, packed_a_capacity_bytes, a_k512_scales_bf16,
       a_scale_capacity_elements, packed_b, packed_b_capacity_bytes,
       b_k512_scales_bf16, b_scale_capacity_elements, token_count,
+      token_count, output_size, input_size, output_bf16,
+      output_row_stride_elements, output_capacity_elements,
+      maximum_launch_ctas, false, cuda_stream);
+}
+
+int launch_sm87_a4w4_down_k256_m128n128_16warp_pairring_test_bf16_cuda(
+    const std::uint8_t* const packed_a,
+    const std::size_t packed_a_capacity_bytes,
+    const std::uint16_t* const a_k256_scales_bf16,
+    const std::size_t a_scale_capacity_elements,
+    const std::uint8_t* const packed_b,
+    const std::size_t packed_b_capacity_bytes,
+    const std::uint16_t* const b_k256_scales_bf16,
+    const std::size_t b_scale_capacity_elements,
+    const std::size_t token_count,
+    const std::size_t output_size,
+    const std::size_t input_size,
+    std::uint16_t* const output_bf16,
+    const std::size_t output_row_stride_elements,
+    const std::size_t output_capacity_elements,
+    const unsigned int maximum_launch_ctas,
+    void* const cuda_stream) noexcept {
+  return launch_k256_impl(
+      packed_a, packed_a_capacity_bytes, a_k256_scales_bf16,
+      a_scale_capacity_elements, packed_b, packed_b_capacity_bytes,
+      b_k256_scales_bf16, b_scale_capacity_elements, token_count,
       token_count, output_size, input_size, output_bf16,
       output_row_stride_elements, output_capacity_elements,
       maximum_launch_ctas, false, cuda_stream);

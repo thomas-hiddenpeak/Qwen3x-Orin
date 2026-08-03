@@ -44,6 +44,10 @@ ATTENTION_K256_LDMATRIX_PAIRFEED_MODE = (
     "cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-"
     "ldmatrix-pairfeed-down-16warp-pairring-attention-k256-a-exchange-b4"
 )
+K256_PAIRFEED_PACKAGE_MODE = (
+    "cumulative-prefill-k256-m128n256-pairfeed-package-"
+    "attention-k256-a-exchange-b4"
+)
 ATTENTION_K256_M32N512_OWNER_MODE = (
     "cumulative-prefill-current-best-mlp-k512-edge-m32n512-owner-k128-b4-"
     "down-16warp-pairring-attention-k256-a-exchange-b4"
@@ -132,6 +136,9 @@ MLP_K512_PAIRED_MASTER_SELECTOR = (
 )
 MLP_K512_PAIRED_WARP_SELECTOR = (
     "Q3X_RUN_A4W4_GATEUP_K512_M64N8_PAIRED_WARP_REGISTER_PIPELINE_ADMISSION"
+)
+K256_PAIRFEED_PACKAGE_SELECTOR = (
+    "Q3X_RUN_A4W4_MLP_K256_M128N256_PAIRFEED_PACKAGE_ADMISSION"
 )
 ATTENTION_K256_MARKERS = (
     "prefill_projection_span_linear_qkv_z_k256_m128n256",
@@ -263,6 +270,12 @@ DOWN_PAIRRING_SELECTOR = (
 DOWN_16WARP_PAIRRING_SELECTOR = (
     "Q3X_RUN_A4W4_DOWN_K512_M128N128_16WARP_PAIRRING_ADMISSION"
 )
+K256_PAIRFEED_PACKAGE_MARKERS = (
+    "prefill_projection_span_mlp_k256_input_quantize",
+    "prefill_projection_span_mlp_k256_gateup_down_edge_"
+    "m128n256_pairfeed",
+    "prefill_projection_span_mlp_k256_down_m128n128_16warp_pairring",
+)
 PROJECTION_MAJOR_LAYOUT = (
     "sm87_s4_gateup_n64_projection_major_down_n64_canonical_scale_k512_"
     "mlp_hybrid_v2"
@@ -372,6 +385,7 @@ class Fixture:
             f"# {MLP_K512_PROJECTION_MAJOR_SELECTOR}\n"
             f"# {MLP_K512_REGISTER_PIPELINE_SELECTOR}\n"
             f"# {MLP_K512_PAIRED_WARP_SELECTOR}\n"
+            f"# {K256_PAIRFEED_PACKAGE_SELECTOR}\n"
             "# Q3X_RUN_A4W4_DOWN_K512_M128N128_LDMATRIX_PAIRRING_"
             "ADMISSION\n"
             "# Q3X_RUN_A4W4_DOWN_K512_M128N128_16WARP_PAIRRING_"
@@ -408,6 +422,7 @@ class Fixture:
             + f"{PROJECTION_MAJOR_DOWN_16WARP_MARKER}\n"
             + f"{PAIRED_WARP_GATE_MARKER}\n"
             + f"{PAIRED_WARP_DOWN_16WARP_MARKER}\n"
+            + "".join(f"{marker}\n" for marker in K256_PAIRFEED_PACKAGE_MARKERS)
             + f"{GDN_PROMPT_SPAN_MACRO_MARKER}\n"
             + "# Q3X_RUN_SHORT_PREFILL_LAYER_MAJOR_ADMISSION\n"
             + "exit 0\n",
@@ -740,6 +755,7 @@ class Fixture:
         environment[MLP_K512_PROJECTION_MAJOR_SELECTOR] = "1"
         environment[MLP_K512_REGISTER_PIPELINE_SELECTOR] = "1"
         environment[MLP_K512_PAIRED_WARP_SELECTOR] = "1"
+        environment[K256_PAIRFEED_PACKAGE_SELECTOR] = "1"
         environment[
             "Q3X_RUN_A4W4_DOWN_K512_M128N128_LDMATRIX_PAIRRING_ADMISSION"
         ] = "1"
@@ -855,6 +871,19 @@ class Fixture:
         return self.run_attention_k256(
             bucket=bucket,
             mode=ATTENTION_K256_LDMATRIX_PAIRFEED_MODE,
+        )
+
+    def run_k256_pairfeed_package(
+        self, *extra: str, bucket: str = "p2k"
+    ) -> subprocess.CompletedProcess[str]:
+        return self.run(
+            "--mode",
+            K256_PAIRFEED_PACKAGE_MODE,
+            *extra,
+            bucket=bucket,
+            prefill_payload=self.k256_payload,
+            prefill_policy=self.k256_policy,
+            prefill_receipt=self.k256_receipt,
         )
 
     def run_attention_k256_m32n512_owner(
@@ -2009,6 +2038,178 @@ class PurePrefillEvalScopeHarnessTest(unittest.TestCase):
         )
         self.assertIn("performance_evidence=0", candidate.stdout)
         self.assertFalse(self.fixture.output.exists())
+
+    def test_k256_pairfeed_package_is_base_only_production_bundle(self) -> None:
+        help_result = subprocess.run(
+            [str(RUNNER), "--help"],
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+        self.assertEqual(help_result.returncode, 0, help_result.stderr)
+        self.assertIn(K256_PAIRFEED_PACKAGE_MODE, help_result.stderr)
+
+        result = self.fixture.run_k256_pairfeed_package()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(
+            f"mode={K256_PAIRFEED_PACKAGE_MODE} dry_run=1", result.stdout
+        )
+        self.assertIn("selector_count=8", result.stdout)
+
+        startup = next(
+            line
+            for line in result.stdout.splitlines()
+            if line.startswith("server_startup_command")
+        )
+        selectors = set(re.findall(r"(Q3X_[A-Z0-9_]+)=1", startup))
+        self.assertEqual(
+            selectors,
+            {
+                "Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION",
+                "Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION",
+                "Q3X_RUN_BF16_AB_LARGE_M_PREFILL_ADMISSION",
+                "Q3X_FULL_ATTENTION_FLASHINFER_DIRECT",
+                "Q3X_RUN_FULL_ATTENTION_PREPROCESS_PROMPT_WIDE_128_ADMISSION",
+                "Q3X_RUN_SHORT_PREFILL_LAYER_MAJOR_ADMISSION",
+                ATTENTION_K256_A_EXCHANGE_B4_SELECTOR,
+                K256_PAIRFEED_PACKAGE_SELECTOR,
+            },
+        )
+        self.assertNotIn("--prefill-mlp-k512-payload", startup)
+        self.assertNotIn("--prefill-mlp-k512-policy", startup)
+        self.assertNotIn("--prefill-mlp-k512-receipt", startup)
+        self.assertIn(
+            "prefill_mlp_k256_implementation=m128n256_pairfeed_package "
+            "source_publication=base_a4_k256 overlay=none",
+            result.stdout,
+        )
+        self.assertIn(
+            "attention_k256_mlp_binding_metadata "
+            "layout=base-a4-k256-only payload_bytes=0",
+            result.stdout,
+        )
+
+        stage_contract = next(
+            line
+            for line in result.stdout.splitlines()
+            if line.startswith("stage_contract")
+            and K256_PAIRFEED_PACKAGE_MARKERS[0] in line
+        )
+        self.assertIn(
+            f"required={','.join(K256_PAIRFEED_PACKAGE_MARKERS)}",
+            stage_contract,
+        )
+        for old_stage in (
+            "prefill_projection_span_mlp_k512_input_quantize",
+            MLP_K512_EDGE_M64N128_K256_LDMATRIX_PAIRFEED_MARKER,
+            DOWN_16WARP_PAIRRING_MARKER,
+            MLP_K512_EDGE_M64N128_K256_ALTERNATING_MARKER,
+            MLP_K512_EDGE_MARKER,
+            "prefill_projection_span_mlp_k512_down",
+        ):
+            self.assertIn(old_stage, stage_contract)
+        self.assertIn(
+            "expected_request_launch_hits=package:64,gate_alternating:0,"
+            "gate_pairfeed:0,gate_projection_serial:0,gate_same_cta:0,"
+            "gate_fused_quantize:0,gate_paired_ldmatrix:0,"
+            "gate_projection_major:0,gate_paired_warp:0,down_ldmatrix:0,"
+            "down_16warp:0",
+            stage_contract,
+        )
+        startup_contract = next(
+            line
+            for line in result.stdout.splitlines()
+            if line.startswith("startup_contract")
+        )
+        self.assertIn(
+            "mlp_k256_m128n256_pairfeed_package_launch_hits_64_per_request",
+            startup_contract,
+        )
+        self.assertIn(
+            "all_k512_mlp_launch_hits_0_per_request", startup_contract
+        )
+        self.assertIn("performance_evidence=0", result.stdout)
+        self.assertFalse(self.fixture.output.exists())
+
+        runner_contents = RUNNER.read_text(encoding="utf-8")
+        self.assertIn(
+            '" mlp_k256_m128n256_pairfeed_package_launch_hits='
+            '${mlp_k256_pairfeed_package_expected_hits}([[:space:]]|$)"',
+            runner_contents,
+        )
+        for old_counter in (
+            "gateup_alternating_expected_hits=0",
+            "gateup_ldmatrix_pairfeed_expected_hits=0",
+            "gateup_m128n128_projection_serial_expected_hits=0",
+            "gateup_m128n64_same_cta_expected_hits=0",
+            "gateup_m128n512_fused_quantize_expected_hits=0",
+            "gateup_m128n512_paired_ldmatrix_expected_hits=0",
+            "gateup_m64n128_register_pipeline_expected_hits=0",
+            "gateup_m64n8_paired_warp_register_pipeline_expected_hits=0",
+            "down_m128n128_ldmatrix_pairring_expected_hits=0",
+            "down_m128n128_16warp_pairring_expected_hits=0",
+        ):
+            self.assertIn(old_counter, runner_contents)
+
+    def test_k256_pairfeed_package_rejects_overlay_and_missing_stage(self) -> None:
+        overlay_contracts = (
+            (
+                "--prefill-mlp-k512-payload",
+                self.fixture.mlp_k512_payload,
+                "--prefill-mlp-k512-policy",
+                self.fixture.mlp_k512_policy,
+                "--prefill-mlp-k512-receipt",
+                self.fixture.mlp_k512_receipt,
+            ),
+            (
+                "--prefill-mlp-k512-fragment-native-payload",
+                self.fixture.fragment_native_payload,
+                "--prefill-mlp-k512-fragment-native-policy",
+                self.fixture.fragment_native_policy,
+                "--prefill-mlp-k512-fragment-native-receipt",
+                self.fixture.fragment_native_receipt,
+            ),
+            (
+                "--prefill-mlp-k512-paired-gateup-canonical-down-payload",
+                self.fixture.hybrid_payload,
+                "--prefill-mlp-k512-paired-gateup-canonical-down-policy",
+                self.fixture.hybrid_policy,
+                "--prefill-mlp-k512-paired-gateup-canonical-down-receipt",
+                self.fixture.hybrid_receipt,
+            ),
+            (
+                "--prefill-mlp-k512-projection-major-gateup-canonical-down-payload",
+                self.fixture.projection_major_payload,
+                "--prefill-mlp-k512-projection-major-gateup-canonical-down-policy",
+                self.fixture.projection_major_policy,
+                "--prefill-mlp-k512-projection-major-gateup-canonical-down-receipt",
+                self.fixture.projection_major_receipt,
+            ),
+        )
+        for overlay_contract in overlay_contracts:
+            with self.subTest(overlay=overlay_contract[0]):
+                overlay = self.fixture.run_k256_pairfeed_package(
+                    *(str(argument) for argument in overlay_contract)
+                )
+                self.assertEqual(overlay.returncode, 2)
+                self.assertIn(
+                    "K256 MLP package mode uses only the base A4 K256 "
+                    "publication; K512 MLP overlay arguments are forbidden",
+                    overlay.stderr,
+                )
+
+        original = self.fixture.server.read_text(encoding="utf-8")
+        self.fixture.server.write_text(
+            original.replace(f"{K256_PAIRFEED_PACKAGE_MARKERS[1]}\n", ""),
+            encoding="utf-8",
+        )
+        missing_stage = self.fixture.run_k256_pairfeed_package()
+        self.assertEqual(missing_stage.returncode, 2)
+        self.assertIn(
+            "server does not prove the K256 M128N256 pair-feed MLP package "
+            f"stage: {K256_PAIRFEED_PACKAGE_MARKERS[1]}",
+            missing_stage.stderr,
+        )
 
     def test_ldmatrix_pairfeed_is_one_gate_selector_delta(self) -> None:
         help_result = subprocess.run(

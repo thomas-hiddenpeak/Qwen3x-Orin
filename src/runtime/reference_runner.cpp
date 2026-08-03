@@ -8,6 +8,10 @@
 #if defined(Q3X_ENABLE_A4W4_ATTENTION_K256_M128N256_ADMISSION)
 #include "q3x/kernels/sm87_a4w4_attention_k256_m128n256.h"
 #endif
+#if defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_ALTERNATING_ADMISSION) && \
+    defined(Q3X_ENABLE_A4W4_DOWN_K512_M128N128_16WARP_PAIRRING_ADMISSION)
+#include "q3x/kernels/sm87_a4w4_gateup_down_k256_m128n256_pairfeed.h"
+#endif
 #if defined(Q3X_ENABLE_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_EXPERIMENT)
 #include "q3x/kernels/sm87_a4w4_attention_k256_m128n128_a_exchange_b3.h"
 #include "q3x/kernels/sm87_a4w4_attention_k256_m128n256_a_exchange_b4.h"
@@ -339,6 +343,25 @@ thread_local bool
 thread_local std::size_t
     g_a4w4_gateup_down_k512_edge_m64n128_k256_ldmatrix_pairfeed_admission_hits =
         0U;
+#endif
+
+#if defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_ALTERNATING_ADMISSION) && \
+    defined(Q3X_ENABLE_A4W4_DOWN_K512_M128N128_16WARP_PAIRRING_ADMISSION)
+[[nodiscard]] bool
+a4w4_mlp_k256_m128n256_pairfeed_package_environment_enabled() noexcept {
+  if (optimized_prefill_dispatch_disabled()) {
+    return false;
+  }
+  const char* const value = std::getenv(
+      "Q3X_RUN_A4W4_MLP_K256_M128N256_PAIRFEED_PACKAGE_ADMISSION");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
+thread_local bool
+    g_enable_a4w4_mlp_k256_m128n256_pairfeed_package_admission =
+        a4w4_mlp_k256_m128n256_pairfeed_package_environment_enabled();
+thread_local std::size_t
+    g_a4w4_mlp_k256_m128n256_pairfeed_package_admission_hits = 0U;
 #endif
 
 #if defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M32N512_OWNER_ADMISSION)
@@ -9049,6 +9072,13 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
       prefill_a4_sidecar_view(layer_weights.mlp.up_proj);
   const PrefillA4LinearSidecarView down_sidecar =
       prefill_a4_sidecar_view(layer_weights.mlp.down_proj);
+#if defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_ALTERNATING_ADMISSION) && \
+    defined(Q3X_ENABLE_A4W4_DOWN_K512_M128N128_16WARP_PAIRRING_ADMISSION)
+  const bool mlp_k256_m128n256_pairfeed_package_requested =
+      g_enable_a4w4_mlp_k256_m128n256_pairfeed_package_admission;
+#else
+  constexpr bool mlp_k256_m128n256_pairfeed_package_requested = false;
+#endif
 #if defined(Q3X_ENABLE_A4W4_MLP_K512_ADMISSION)
   const bool mlp_k512_requested = g_enable_a4w4_mlp_k512_admission;
 #else
@@ -9495,6 +9525,43 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
         "prefill_projection_span_down_k512_m16n64_v2_requires_v1",
         item.layer_index);
   }
+  if (mlp_k256_m128n256_pairfeed_package_requested &&
+      (mlp_k512_requested || mlp_k512_fragment_native_requested ||
+       gateup_down_k512_edge_requested ||
+       gateup_down_k512_edge_m64n128_k256_alternating_requested ||
+       gateup_down_k512_edge_m64n128_k256_ldmatrix_pairfeed_requested ||
+       gateup_down_k512_edge_m32n512_owner_requested ||
+       mlp_k512_shape_separated_marlin_package_requested ||
+       gateup_k512_m128n128_projection_serial_requested ||
+       gateup_k512_m128n64_same_cta_requested ||
+       gateup_k512_m128n512_fused_quantize_requested ||
+       gateup_down_k512_edge_m128n64_requested ||
+       down_k512_m16n64_v2_requested || paired_old_gate_selected ||
+       paired_new_gate_selected || paired_old_down_selected ||
+       paired_new_down_selected ||
+       projection_major_gateup_canonical_down_route !=
+           reference_runner_detail::
+               A4W4ProjectionMajorGateUpCanonicalDownRoute::kDisabled ||
+       g_enable_a4w4_gateup_complete_cell_v2_admission ||
+       g_enable_a4w4_m128_stage_major_admission ||
+       g_enable_a4w4_down_m128_stage_major_admission ||
+       g_enable_a4w4_down_k512_m128n128_ldmatrix_pairring_admission ||
+       g_enable_a4w4_down_k512_m128n128_16warp_pairring_admission
+#if defined(Q3X_ENABLE_A4W4_GATEUP_PROJECTION_V3_ADMISSION)
+       || g_enable_a4w4_gateup_projection_v3_admission
+#endif
+#if defined(Q3X_ENABLE_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION)
+       || g_enable_a4w4_down_complete_cell_v2_admission
+#endif
+#if defined(Q3X_ENABLE_A4W4_DOWN_COMPLETE_CELL_V3_ADMISSION)
+       || g_enable_a4w4_down_complete_cell_v3_admission
+#endif
+       )) {
+    return runner_status(
+        ReferenceRunnerError::kInvalidRunner,
+        "prefill_projection_span_mlp_k256_m128n256_pairfeed_package_selector_conflict",
+        item.layer_index);
+  }
   const std::size_t gate_weight_capacity =
       kernels::sm87_a4w4_consumer_packed_capacity_bytes(
           gate_sidecar.output_size, gate_sidecar.input_size);
@@ -9512,13 +9579,142 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
   bool projection_v3_selected = false;
   bool complete_cell_v2_selected = false;
   bool mlp_k512_selected = false;
+  bool mlp_k256_package_selected = false;
+#if defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_ALTERNATING_ADMISSION) && \
+    defined(Q3X_ENABLE_A4W4_DOWN_K512_M128N128_16WARP_PAIRRING_ADMISSION)
+  if (mlp_k256_m128n256_pairfeed_package_requested) {
+    const std::size_t mlp_launch_token_count =
+        kernels::sm87_a4w4_attention_k256_launch_token_count(token_count);
+    const auto gateup_plan =
+        kernels::sm87_a4w4_gateup_down_k256_m128n256_pairfeed_plan(
+            token_count, mlp_launch_token_count,
+            kReferenceIntermediateSize, kReferenceHiddenSize);
+    const auto down_plan =
+        kernels::sm87_a4w4_down_k256_m128n128_16warp_pairring_plan(
+            mlp_launch_token_count, kReferenceHiddenSize,
+            kReferenceIntermediateSize);
+    const std::size_t down_weight_capacity =
+        kernels::sm87_a4w4_attention_k256_packed_capacity_bytes(
+            down_sidecar.output_size, down_sidecar.input_size);
+    const std::size_t down_scale_capacity =
+        kernels::sm87_a4w4_attention_k256_scale_capacity_elements(
+            down_sidecar.output_size, down_sidecar.input_size);
+    const std::size_t k256_hidden_packed_capacity =
+        kernels::sm87_a4w4_attention_k256_packed_capacity_bytes(
+            mlp_launch_token_count, kReferenceHiddenSize);
+    const std::size_t k256_hidden_scale_capacity =
+        kernels::sm87_a4w4_attention_k256_scale_capacity_elements(
+            mlp_launch_token_count, kReferenceHiddenSize);
+    const std::size_t k256_intermediate_packed_capacity =
+        kernels::sm87_a4w4_attention_k256_packed_capacity_bytes(
+            mlp_launch_token_count, kReferenceIntermediateSize);
+    const std::size_t k256_intermediate_scale_capacity =
+        kernels::sm87_a4w4_attention_k256_scale_capacity_elements(
+            mlp_launch_token_count, kReferenceIntermediateSize);
+    const std::size_t secondary_capacity = static_cast<std::size_t>(
+        request_plan.long_prefill_projection_secondary_bf16
+            .element_capacity);
+    if (a4w4_prefill_consumer_ !=
+            reference_runner_detail::A4W4PrefillConsumer::kK256 ||
+        !gate_sidecar.attached() || !up_sidecar.attached() ||
+        !down_sidecar.attached() ||
+        gate_sidecar.sidecar_kind != PrefillSidecarKind::kA4K256 ||
+        up_sidecar.sidecar_kind != PrefillSidecarKind::kA4K256 ||
+        down_sidecar.sidecar_kind != PrefillSidecarKind::kA4K256 ||
+        gate_sidecar.output_size != kReferenceIntermediateSize ||
+        gate_sidecar.input_size != kReferenceHiddenSize ||
+        up_sidecar.output_size != kReferenceIntermediateSize ||
+        up_sidecar.input_size != kReferenceHiddenSize ||
+        down_sidecar.output_size != kReferenceHiddenSize ||
+        down_sidecar.input_size != kReferenceIntermediateSize ||
+        gate_sidecar.activation_clip_ratio !=
+            up_sidecar.activation_clip_ratio ||
+        mlp_launch_token_count == 0U ||
+        mlp_launch_token_count != projection_token_count ||
+        mlp_launch_token_count > span_capacity ||
+        gateup_plan.launch_ctas !=
+            kernels::kSm87A4W4GateUpDownK256M128N256PairfeedPersistentCtas ||
+        down_plan.launch_ctas == 0U ||
+        hidden_packed_capacity < k256_hidden_packed_capacity ||
+        hidden_scale_capacity < k256_hidden_scale_capacity ||
+        intermediate_packed_capacity < k256_intermediate_packed_capacity ||
+        intermediate_scale_capacity < k256_intermediate_scale_capacity ||
+        gate_weight_capacity !=
+            kernels::sm87_a4w4_attention_k256_packed_capacity_bytes(
+                kReferenceIntermediateSize, kReferenceHiddenSize) ||
+        gate_scale_capacity !=
+            kernels::sm87_a4w4_attention_k256_scale_capacity_elements(
+                kReferenceIntermediateSize, kReferenceHiddenSize) ||
+        up_weight_capacity != gate_weight_capacity ||
+        up_scale_capacity != gate_scale_capacity ||
+        down_weight_capacity == 0U || down_scale_capacity == 0U ||
+        secondary_capacity <
+            mlp_launch_token_count * kReferenceHiddenSize) {
+      return runner_status(
+          ReferenceRunnerError::kInvalidRequestState,
+          "prefill_projection_span_mlp_k256_m128n256_pairfeed_package_contract",
+          item.layer_index);
+    }
+    if (!quantize(
+            primary, kReferenceHiddenSize, token_count,
+            kReferenceHiddenSize, gate_sidecar.activation_clip_ratio,
+            views_.prefill_a4_hidden_packed, hidden_packed_capacity,
+            views_.prefill_a4_hidden_scales, hidden_scale_capacity,
+            "prefill_projection_span_mlp_k256_input_quantize") ||
+        !check_cuda(
+            kernels::
+                launch_sm87_a4w4_gateup_down_k256_m128n256_pairfeed_cuda(
+                    views_.prefill_a4_hidden_packed,
+                    hidden_packed_capacity,
+                    views_.prefill_a4_hidden_scales,
+                    hidden_scale_capacity, gate_sidecar.weight,
+                    gate_weight_capacity, gate_sidecar.scales,
+                    gate_scale_capacity, up_sidecar.weight,
+                    up_weight_capacity, up_sidecar.scales,
+                    up_scale_capacity, token_count,
+                    mlp_launch_token_count, kReferenceIntermediateSize,
+                    kReferenceHiddenSize,
+                    down_sidecar.activation_clip_ratio,
+                    views_.prefill_a4_intermediate_packed,
+                    intermediate_packed_capacity,
+                    views_.prefill_a4_intermediate_scales,
+                    intermediate_scale_capacity, stream_),
+            "prefill_projection_span_mlp_k256_gateup_down_edge_m128n256_pairfeed") ||
+        !check_cuda(
+            kernels::
+                launch_sm87_a4w4_down_k256_m128n128_16warp_pairring_bf16_cuda(
+                    views_.prefill_a4_intermediate_packed,
+                    intermediate_packed_capacity,
+                    views_.prefill_a4_intermediate_scales,
+                    intermediate_scale_capacity, down_sidecar.weight,
+                    down_weight_capacity, down_sidecar.scales,
+                    down_scale_capacity, token_count,
+                    mlp_launch_token_count, kReferenceHiddenSize,
+                    kReferenceIntermediateSize, secondary,
+                    kReferenceHiddenSize, secondary_capacity, stream_),
+            "prefill_projection_span_mlp_k256_down_m128n128_16warp_pairring")) {
+      return failure;
+    }
+    ++local_hits.activation_quantize_hits;
+    ++g_a4w4_full_prefill_admission_hits.activation_quantize_hits;
+    ++local_hits.paired_gate_up_hits;
+    ++local_hits.generic_projection_hits;
+    local_hits.logical_projection_hits += 3U;
+    ++g_a4w4_full_prefill_admission_hits.paired_gate_up_hits;
+    ++g_a4w4_full_prefill_admission_hits.generic_projection_hits;
+    g_a4w4_full_prefill_admission_hits.logical_projection_hits += 3U;
+    ++g_a4w4_mlp_k256_m128n256_pairfeed_package_admission_hits;
+    mlp_k256_package_selected = true;
+  }
+#endif
 #if defined(Q3X_ENABLE_A4W4_GATEUP_K512_M64N128_REGISTER_PIPELINE_ADMISSION)
-  if (projection_major_gateup_canonical_down_route ==
+  if (!mlp_k256_package_selected &&
+      (projection_major_gateup_canonical_down_route ==
           reference_runner_detail::
               A4W4ProjectionMajorGateUpCanonicalDownRoute::kGateOnly ||
       projection_major_gateup_canonical_down_route ==
           reference_runner_detail::
-              A4W4ProjectionMajorGateUpCanonicalDownRoute::kGateAndDown) {
+              A4W4ProjectionMajorGateUpCanonicalDownRoute::kGateAndDown)) {
     const PrefillMLPK512FragmentNativeCompositeView& composite =
         layer_weights.prefill_mlp_k512_fragment_native;
     const std::size_t secondary_capacity = static_cast<std::size_t>(
@@ -10853,7 +11049,7 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
     mlp_k512_selected = true;
   }
 #endif
-  if (!mlp_k512_selected) {
+  if (!mlp_k512_selected && !mlp_k256_package_selected) {
     if (!quantize(primary, kReferenceHiddenSize, token_count,
                   kReferenceHiddenSize, gate_sidecar.activation_clip_ratio,
                   views_.prefill_a4_hidden_packed, hidden_packed_capacity,
@@ -11082,7 +11278,7 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
 #if defined(Q3X_ENABLE_A4W4_DOWN_COMPLETE_CELL_V3_ADMISSION)
   down_cell_query.admission_enabled =
       g_enable_a4w4_down_complete_cell_v3_admission &&
-      !mlp_k512_selected;
+      !mlp_k512_selected && !mlp_k256_package_selected;
   expect_down_complete_cell_v2 =
       reference_runner_detail::use_a4w4_down_complete_cell_v3_route(
           down_cell_query);
@@ -11090,7 +11286,7 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
 #if defined(Q3X_ENABLE_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION)
   down_cell_query.admission_enabled =
       g_enable_a4w4_down_complete_cell_v2_admission &&
-      !mlp_k512_selected;
+      !mlp_k512_selected && !mlp_k256_package_selected;
   expect_down_complete_cell_v2 =
       expect_down_complete_cell_v2 ||
       reference_runner_detail::use_a4w4_down_complete_cell_v2_route(
@@ -11107,7 +11303,7 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
       (!attention_o_k512_all && !attention_o_k512_none) ||
       (attention_supermatrix_output_all && attention_o_k512_all) ||
       local_hits.activation_quantize_hits !=
-          (mlp_k512_selected ? 4U : 3U) ||
+          (mlp_k512_selected || mlp_k256_package_selected ? 4U : 3U) ||
       local_hits.generic_projection_hits != expected_generic ||
       local_hits.paired_gate_up_hits != 1U ||
       local_hits.logical_projection_hits != expected_logical ||
@@ -11117,11 +11313,13 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
           (expect_m128_stage_major ? expected_generic - 1U : 0U) ||
       local_hits.m128_stage_major_down_projection_hits !=
           (expect_down_m128_stage_major && !mlp_k512_selected &&
+                   !mlp_k256_package_selected &&
                    !expect_down_complete_cell_v2
                ? 1U
                : 0U) ||
       local_hits.m128_stage_major_paired_gate_up_hits !=
           (expect_m128_stage_major && !mlp_k512_selected &&
+                   !mlp_k256_package_selected &&
                    !projection_v3_selected &&
                    !complete_cell_v2_selected
                ? 1U
@@ -11304,6 +11502,11 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
 #if defined(Q3X_ENABLE_A4W4_ATTENTION_O_K512_ADMISSION)
     const std::size_t attention_o_k512_hits_before =
         g_a4w4_attention_o_k512_admission_hits;
+#endif
+#if defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_ALTERNATING_ADMISSION) && \
+    defined(Q3X_ENABLE_A4W4_DOWN_K512_M128N128_16WARP_PAIRRING_ADMISSION)
+    const std::size_t mlp_k256_m128n256_pairfeed_package_hits_before =
+        g_a4w4_mlp_k256_m128n256_pairfeed_package_admission_hits;
 #endif
 #if defined(Q3X_ENABLE_A4W4_MLP_K512_ADMISSION)
     const std::size_t mlp_k512_hits_before =
@@ -11594,6 +11797,26 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
         (attention_supermatrix_output_delta == 0U ||
          attention_o_k512_delta == 0U);
     attention_logical_delta += attention_o_k512_delta;
+#if defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_ALTERNATING_ADMISSION) && \
+    defined(Q3X_ENABLE_A4W4_DOWN_K512_M128N128_16WARP_PAIRRING_ADMISSION)
+    const std::size_t mlp_k256_m128n256_pairfeed_package_delta =
+        g_a4w4_mlp_k256_m128n256_pairfeed_package_admission_hits >=
+                mlp_k256_m128n256_pairfeed_package_hits_before
+            ? g_a4w4_mlp_k256_m128n256_pairfeed_package_admission_hits -
+                  mlp_k256_m128n256_pairfeed_package_hits_before
+            : 0U;
+    const bool mlp_k256_m128n256_pairfeed_package_accounting_valid =
+        g_a4w4_mlp_k256_m128n256_pairfeed_package_admission_hits >=
+            mlp_k256_m128n256_pairfeed_package_hits_before &&
+        (mlp_k256_m128n256_pairfeed_package_delta == 0U ||
+         mlp_k256_m128n256_pairfeed_package_delta == spans * 64U) &&
+        (!g_enable_a4w4_mlp_k256_m128n256_pairfeed_package_admission ||
+         mlp_k256_m128n256_pairfeed_package_delta == spans * 64U);
+#else
+    constexpr std::size_t mlp_k256_m128n256_pairfeed_package_delta = 0U;
+    constexpr bool mlp_k256_m128n256_pairfeed_package_accounting_valid =
+        true;
+#endif
 #if defined(Q3X_ENABLE_A4W4_MLP_K512_ADMISSION)
     const std::size_t mlp_k512_v1_delta =
         g_a4w4_mlp_k512_admission_hits >= mlp_k512_hits_before
@@ -12013,7 +12236,8 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
             hits_before.activation_quantize_hits &&
         hits_after.activation_quantize_hits -
                 hits_before.activation_quantize_hits ==
-            spans * 192U + mlp_k512_delta;
+            spans * 192U + mlp_k512_delta +
+                mlp_k256_m128n256_pairfeed_package_delta;
     const bool generic_accounting_valid =
         hits_after.generic_projection_hits >=
             hits_before.generic_projection_hits &&
@@ -12023,6 +12247,9 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
             spans * 272U;
     if (!activation_accounting_valid ||
         !attention_accounting_valid || !mlp_k512_accounting_valid ||
+        !mlp_k256_m128n256_pairfeed_package_accounting_valid ||
+        (mlp_k512_delta != 0U &&
+         mlp_k256_m128n256_pairfeed_package_delta != 0U) ||
         !generic_accounting_valid || !gdn_accounting_valid ||
         !exact_delta(hits_after.paired_gate_up_hits,
                      hits_before.paired_gate_up_hits, 64U) ||
@@ -12061,6 +12288,8 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
         attention_k256_a_exchange_b4_launch_delta;
     value.attention_k256_m128n256_a_exchange_b4_logical_projection_hits =
         attention_k256_a_exchange_b4_logical_delta;
+    value.mlp_k256_m128n256_pairfeed_package_launch_hits =
+        mlp_k256_m128n256_pairfeed_package_delta;
     value.gateup_alternating_launch_hits =
         gateup_down_k512_edge_m64n128_k256_alternating_delta;
     value.gateup_ldmatrix_pairfeed_launch_hits =
@@ -12097,6 +12326,15 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
     ReferenceLongPrefillOutcome outcome;
     outcome.value.emplace(std::move(value));
     return outcome;
+  }
+#endif
+
+#if defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_ALTERNATING_ADMISSION) && \
+    defined(Q3X_ENABLE_A4W4_DOWN_K512_M128N128_16WARP_PAIRRING_ADMISSION)
+  if (g_enable_a4w4_mlp_k256_m128n256_pairfeed_package_admission) {
+    return fail_long_prefill(runner_status(
+        ReferenceRunnerError::kInvalidRunner,
+        "prefill_mlp_k256_m128n256_pairfeed_package_requires_projection_span"));
   }
 #endif
 
@@ -12767,6 +13005,43 @@ ReferenceRunnerFactoryResult create_reference_runner(
         "prefill_a4w4_inventory");
     return result;
   }
+#if defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_ALTERNATING_ADMISSION) && \
+    defined(Q3X_ENABLE_A4W4_DOWN_K512_M128N128_16WARP_PAIRRING_ADMISSION)
+  if (g_enable_a4w4_mlp_k256_m128n256_pairfeed_package_admission) {
+    if (!options.enable_a4w4_full_prefill_admission ||
+        options.projection_backend != ProjectionBackend::kSm87WeightOnly ||
+        runner.a4w4_prefill_consumer_ !=
+            reference_runner_detail::A4W4PrefillConsumer::kK256) {
+      result.diagnostic = runner_status(
+          ReferenceRunnerError::kInvalidModelWeights,
+          "prefill_mlp_k256_m128n256_pairfeed_package_contract");
+      return result;
+    }
+    kernels::Sm87A4W4GateUpDownK256M128N256PairfeedResources
+        gate_resources{};
+    int resource_status = kernels::
+        query_sm87_a4w4_gateup_down_k256_m128n256_pairfeed_resources_cuda(
+            &gate_resources);
+    if (resource_status != static_cast<int>(cudaSuccess)) {
+      result.diagnostic = runner_status(
+          ReferenceRunnerError::kInvalidDependency,
+          "prefill_mlp_k256_m128n256_pairfeed_gate_resource_gate",
+          kReferenceNoLayer, resource_status);
+      return result;
+    }
+    kernels::Sm87A4W4DownK256M128N128Pairring16Resources down_resources{};
+    resource_status = kernels::
+        query_sm87_a4w4_down_k256_m128n128_16warp_pairring_resources_cuda(
+            &down_resources);
+    if (resource_status != static_cast<int>(cudaSuccess)) {
+      result.diagnostic = runner_status(
+          ReferenceRunnerError::kInvalidDependency,
+          "prefill_mlp_k256_down_m128n128_16warp_pairring_resource_gate",
+          kReferenceNoLayer, resource_status);
+      return result;
+    }
+  }
+#endif
 #if defined(Q3X_ENABLE_A4W4_MLP_K512_ADMISSION)
 #if defined(Q3X_ENABLE_A4W4_MLP_K512_SHAPE_SEPARATED_MARLIN_PACKAGE_ADMISSION)
   if (g_enable_a4w4_mlp_k512_shape_separated_marlin_package_admission) {
@@ -13233,7 +13508,12 @@ ReferenceRunnerFactoryResult create_reference_runner(
   if (options.enable_a4w4_full_prefill_admission &&
       runner.a4w4_prefill_consumer_ ==
           reference_runner_detail::A4W4PrefillConsumer::kK256 &&
-      !((g_enable_a4w4_mlp_k512_admission &&
+      !(
+#if defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_ALTERNATING_ADMISSION) && \
+    defined(Q3X_ENABLE_A4W4_DOWN_K512_M128N128_16WARP_PAIRRING_ADMISSION)
+        g_enable_a4w4_mlp_k256_m128n256_pairfeed_package_admission ||
+#endif
+        (g_enable_a4w4_mlp_k512_admission &&
          complete_mlp_k512_overlay_attached(*weights)) ||
 #if defined(Q3X_ENABLE_A4W4_GATEUP_K512_M64N128_REGISTER_PIPELINE_ADMISSION)
         (projection_major_gateup_canonical_down_route !=

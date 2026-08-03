@@ -1,5 +1,6 @@
 #pragma once
 
+#include "q3x/kernels/sm87_a4w4_attention_k256_m128n256.h"
 #include "q3x/kernels/sm87_a4w4_down_k512_macrocell.h"
 #include "q3x/kernels/sm87_a4w4_prefill_gemm.h"
 
@@ -60,6 +61,25 @@ inline constexpr std::size_t
             kSm87A4W4DownK512M128N128Pairring16StageBytes +
         kSm87A4W4DownK512M128N128Pairring16ScaleSlots *
             kSm87A4W4DownK512M128N128Pairring16ScaleSlotBytes;
+
+// Default-off K256-scale sibling.  Packed codes retain the canonical
+// [outer/64][K/64][64][32] ABI; only the independent BF16 scale plane changes
+// to [outer/64][K/256][64].  Each of the four ring entries owns one complete
+// K256 code+scale stage so no scale lifetime can cross a stage overwrite.
+inline constexpr std::size_t
+    kSm87A4W4DownK256M128N128Pairring16ScaleK = 256U;
+inline constexpr std::size_t
+    kSm87A4W4DownK256M128N128Pairring16K64PerStage = 4U;
+inline constexpr std::size_t
+    kSm87A4W4DownK256M128N128Pairring16Stages = 4U;
+inline constexpr std::size_t
+    kSm87A4W4DownK256M128N128Pairring16StageBytes =
+        kSm87A4W4DownK512M128N128Pairring16StageBytes +
+        kSm87A4W4DownK512M128N128Pairring16ScaleSlotBytes;
+inline constexpr std::size_t
+    kSm87A4W4DownK256M128N128Pairring16DynamicSharedBytes =
+        kSm87A4W4DownK256M128N128Pairring16Stages *
+        kSm87A4W4DownK256M128N128Pairring16StageBytes;
 
 // Default-off L2 scheduling sibling.  It does not change the M128N128
 // compute cell.  Exactly sixteen CTAs form a 4-M by 4-N macro-wave; complete
@@ -187,7 +207,83 @@ sm87_a4w4_down_k512_m128n128_16warp_pairring_padding_contract(
          launch_token_count <= kSm87A4W4DownK512MaximumTokenCount;
 }
 
+[[nodiscard]] constexpr bool
+sm87_a4w4_down_k256_m128n128_16warp_pairring_padding_contract(
+    const std::size_t logical_token_count,
+    const std::size_t launch_token_count) noexcept {
+  return logical_token_count != 0U &&
+         launch_token_count ==
+             sm87_a4w4_attention_k256_launch_token_count(
+                 logical_token_count) &&
+         launch_token_count >= kSm87A4W4DownK512MinimumTokenCount &&
+         launch_token_count <= kSm87A4W4DownK512MaximumTokenCount;
+}
+
+struct Sm87A4W4DownK256M128N128Pairring16Plan final {
+  std::size_t token_count{};
+  std::size_t output_size{};
+  std::size_t input_size{};
+  std::size_t m_tiles{};
+  std::size_t n_tiles{};
+  std::size_t k256_groups{};
+  std::size_t physical_k64_groups{};
+  std::size_t work_tiles{};
+  std::size_t launch_ctas{};
+};
+
+[[nodiscard]] constexpr Sm87A4W4DownK256M128N128Pairring16Plan
+sm87_a4w4_down_k256_m128n128_16warp_pairring_test_plan(
+    const std::size_t token_count,
+    const std::size_t output_size,
+    const std::size_t input_size) noexcept {
+  if (token_count == 0U ||
+      token_count % kSm87A4W4DownK512M128N128Pairring16TileM != 0U ||
+      output_size == 0U ||
+      output_size % kSm87A4W4DownK512M128N128Pairring16TileN != 0U ||
+      input_size == 0U ||
+      input_size % kSm87A4W4DownK256M128N128Pairring16ScaleK != 0U) {
+    return {};
+  }
+  const std::size_t m_tiles =
+      token_count / kSm87A4W4DownK512M128N128Pairring16TileM;
+  const std::size_t n_tiles =
+      output_size / kSm87A4W4DownK512M128N128Pairring16TileN;
+  if (!sm87_a4w4_down_k512_product_fits(m_tiles, n_tiles)) {
+    return {};
+  }
+  const std::size_t work_tiles = m_tiles * n_tiles;
+  return {token_count,
+          output_size,
+          input_size,
+          m_tiles,
+          n_tiles,
+          input_size /
+              kSm87A4W4DownK256M128N128Pairring16ScaleK,
+          input_size / kSm87A4W4DownK512PhysicalK64,
+          work_tiles,
+          work_tiles < kSm87A4W4DownK512PersistentCtas
+              ? work_tiles
+              : kSm87A4W4DownK512PersistentCtas};
+}
+
+[[nodiscard]] constexpr Sm87A4W4DownK256M128N128Pairring16Plan
+sm87_a4w4_down_k256_m128n128_16warp_pairring_plan(
+    const std::size_t token_count,
+    const std::size_t output_size,
+    const std::size_t input_size) noexcept {
+  return token_count >= kSm87A4W4DownK512MinimumTokenCount &&
+                 token_count <= kSm87A4W4DownK512MaximumTokenCount &&
+                 output_size == kSm87A4W4DownK512OutputSize &&
+                 input_size == kSm87A4W4DownK512InputSize
+             ? sm87_a4w4_down_k256_m128n128_16warp_pairring_test_plan(
+                   token_count, output_size, input_size)
+             : Sm87A4W4DownK256M128N128Pairring16Plan{};
+}
+
 using Sm87A4W4DownK512M128N128Pairring16Resources =
+    Sm87A4W4DownK512Resources;
+
+using Sm87A4W4DownK256M128N128Pairring16Resources =
     Sm87A4W4DownK512Resources;
 
 [[nodiscard]] int
@@ -197,6 +293,10 @@ query_sm87_a4w4_down_k512_m128n128_16warp_pairring_resources_cuda(
 [[nodiscard]] int
 query_sm87_a4w4_down_k512_m128n128_16warp_pairring_l2_macro4x4_resources_cuda(
     Sm87A4W4DownK512M128N128Pairring16Resources* resources) noexcept;
+
+[[nodiscard]] int
+query_sm87_a4w4_down_k256_m128n128_16warp_pairring_resources_cuda(
+    Sm87A4W4DownK256M128N128Pairring16Resources* resources) noexcept;
 
 // Production entry point.  `packed_a` and `a_k512_scales_bf16` must be the
 // complete ceil128 publication produced from `logical_token_count` by the
@@ -218,6 +318,49 @@ launch_sm87_a4w4_down_k512_m128n128_16warp_pairring_bf16_cuda(
     std::uint16_t* output_bf16,
     std::size_t output_row_stride_elements,
     std::size_t output_capacity_elements,
+    void* cuda_stream = nullptr) noexcept;
+
+// Production-shape K256-scale sibling.  Packed code capacities use the
+// canonical K64 consumer ABI; both scale capacities cover independent
+// [outer/64][K/256][64] BF16 planes.  No runtime selects this entry point.
+[[nodiscard]] int
+launch_sm87_a4w4_down_k256_m128n128_16warp_pairring_bf16_cuda(
+    const std::uint8_t* packed_a,
+    std::size_t packed_a_capacity_bytes,
+    const std::uint16_t* a_k256_scales_bf16,
+    std::size_t a_scale_capacity_elements,
+    const std::uint8_t* packed_b,
+    std::size_t packed_b_capacity_bytes,
+    const std::uint16_t* b_k256_scales_bf16,
+    std::size_t b_scale_capacity_elements,
+    std::size_t logical_token_count,
+    std::size_t launch_token_count,
+    std::size_t output_size,
+    std::size_t input_size,
+    std::uint16_t* output_bf16,
+    std::size_t output_row_stride_elements,
+    std::size_t output_capacity_elements,
+    void* cuda_stream = nullptr) noexcept;
+
+// Correctness-only K256-scale launcher.  Generic M128/N128/K256-complete
+// cells are admitted; synthetic timing through this API is not authoritative.
+[[nodiscard]] int
+launch_sm87_a4w4_down_k256_m128n128_16warp_pairring_test_bf16_cuda(
+    const std::uint8_t* packed_a,
+    std::size_t packed_a_capacity_bytes,
+    const std::uint16_t* a_k256_scales_bf16,
+    std::size_t a_scale_capacity_elements,
+    const std::uint8_t* packed_b,
+    std::size_t packed_b_capacity_bytes,
+    const std::uint16_t* b_k256_scales_bf16,
+    std::size_t b_scale_capacity_elements,
+    std::size_t token_count,
+    std::size_t output_size,
+    std::size_t input_size,
+    std::uint16_t* output_bf16,
+    std::size_t output_row_stride_elements,
+    std::size_t output_capacity_elements,
+    unsigned int maximum_launch_ctas,
     void* cuda_stream = nullptr) noexcept;
 
 // Default-off exact-model sibling.  The launcher always emits grid=16 and
@@ -297,6 +440,19 @@ q3x_sm87_a4w4_down_k512_m128n128_16warp_pairring_kernel(
     unsigned int work_tile_count);
 
 extern "C" __global__ void
+q3x_sm87_a4w4_down_k256_m128n128_16warp_pairring_kernel(
+    const std::uint8_t* packed_a,
+    const std::uint16_t* a_k256_scales_bf16,
+    const std::uint8_t* packed_b,
+    const std::uint16_t* b_k256_scales_bf16,
+    unsigned int k256_group_count,
+    unsigned int physical_k64_group_count,
+    std::uint16_t* output_bf16,
+    unsigned int output_row_stride_elements,
+    unsigned int m_tile_count,
+    unsigned int work_tile_count);
+
+extern "C" __global__ void
 q3x_sm87_a4w4_down_k512_m128n128_16warp_pairring_l2_macro4x4_kernel(
     const std::uint8_t* packed_a,
     const std::uint16_t* a_k512_scales_bf16,
@@ -319,6 +475,17 @@ static_assert(
 static_assert(
     !sm87_a4w4_down_k512_m128n128_16warp_pairring_padding_contract(
         1'853U, 1'853U));
+static_assert(kSm87A4W4DownK256M128N128Pairring16StageBytes == 33'280U);
+static_assert(
+    kSm87A4W4DownK256M128N128Pairring16DynamicSharedBytes == 133'120U);
+static_assert(
+    sm87_a4w4_down_k256_m128n128_16warp_pairring_padding_contract(
+        1'853U, 1'920U));
+static_assert(
+    sm87_a4w4_down_k256_m128n128_16warp_pairring_plan(
+        1'920U, kSm87A4W4DownK512OutputSize,
+        kSm87A4W4DownK512InputSize)
+            .k256_groups == 68U);
 static_assert(
     kSm87A4W4DownK512M128N128Pairring16L2Grid ==
     kSm87A4W4DownK512M128N128Pairring16L2MacroM *

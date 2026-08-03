@@ -200,6 +200,8 @@ struct ReferenceGenerationTiming {
   // Propagated request-local runtime proof for the default-off LDSM
   // pair-feed K256 Gate+Up admission.
   std::size_t gateup_ldmatrix_pairfeed_launch_hits = 0U;
+  // Propagated request-local proof for the structural all-K256 MLP package.
+  std::size_t mlp_k256_m128n256_pairfeed_package_launch_hits = 0U;
   // Propagated request-local runtime proof for the default-off full-
   // projection-serial M128N128 Gate+Up admission.
   std::size_t gateup_m128n128_projection_serial_launch_hits = 0U;
