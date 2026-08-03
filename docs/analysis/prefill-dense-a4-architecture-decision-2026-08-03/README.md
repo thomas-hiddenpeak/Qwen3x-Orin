@@ -36,9 +36,13 @@ The authority is the retained real P1853 request:
 | Attention projections | 404.839904 ms |
 | everything outside those projections | about 495.481952 ms |
 
-The 2,000-token/s P1853 budget is 926.50 ms.  The three projection families
-must therefore move together toward about 721 ms; a Gate-only or Down-only
-result has no terminal budget authority.
+The 2,000-token/s P1853 budget is 926.50 ms.  If the current non-projection
+time did not change, the projection plane would have only 431.018048 ms, which
+is not a credible dense-S4 target.  Closure therefore requires two coupled
+budgets: the three projection families must move together toward about 721 ms
+while everything outside them moves toward about 205 ms.  A Gate-only or
+Down-only result has no terminal budget authority, and a 721-ms projection
+plane is not by itself a 2K result.
 
 ## Architecture stop gates already closed
 
@@ -169,8 +173,8 @@ equalization/calibration and the external capability gate are mandatory.
 
 ## Secondary layer-boundary package
 
-The GDN/consumer audit found a credible 90--125 ms package, but not a credible
-150-ms primary architecture:
+The GDN/consumer audit found a credible first 90--125 ms package, but not a
+credible 150-ms primary architecture:
 
 - retain chunk/head parallel C512 WY/state work;
 - fuse GDN RMSNorm+SiLU directly into O-input A4 packing;
@@ -179,7 +183,11 @@ The GDN/consumer audit found a credible 90--125 ms package, but not a credible
 
 The rejected one-CTA/value-head prompt-span macro serialized 29 C64 chunks and
 must not be reopened.  This consumer-native package is P1 after the projection
-plane establishes its first positive structural result.
+plane establishes its first positive structural result.  It covers only part
+of the required reduction from about 495 ms to about 205 ms: even its 125-ms
+upper estimate leaves roughly 165 ms unclosed.  That remainder requires a new
+chunk/head-parallel GDN/Attention-core structure and cannot be silently
+credited to launch fusion.
 
 ## Qualification order
 
@@ -202,4 +210,3 @@ plane establishes its first positive structural result.
 6. Production remains locked until the complete default-off package passes
    Release tests, Decode graph/oracle checks, memory accounting, real API
    matrices and independent review.
-
