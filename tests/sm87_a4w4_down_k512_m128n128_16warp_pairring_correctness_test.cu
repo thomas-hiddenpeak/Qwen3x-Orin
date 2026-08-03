@@ -234,6 +234,11 @@ struct Payload final {
   return false;
 }
 
+enum class CandidateSchedule : unsigned int {
+  incumbent,
+  l2_macro4x4,
+};
+
 [[nodiscard]] bool launch_candidate(
     const std::uint8_t* const a,
     const std::uint16_t* const a_scales,
@@ -246,20 +251,32 @@ struct Payload final {
     const std::size_t stride,
     const unsigned int grid,
     cudaStream_t stream,
-    const std::string& label) {
+    const std::string& label,
+    const CandidateSchedule schedule) {
   const unsigned int m_tiles = static_cast<unsigned int>(launch_m / 128U);
   const unsigned int n_tiles = static_cast<unsigned int>(n / 128U);
   const unsigned int k512_groups = static_cast<unsigned int>(k / 512U);
   const unsigned int k64_groups = static_cast<unsigned int>(k / 64U);
-  const unsigned int work_tiles = m_tiles * n_tiles;
-  kernels::
-      q3x_sm87_a4w4_down_k512_m128n128_16warp_pairring_kernel
-      <<<grid,
-         kernels::kSm87A4W4DownK512M128N128Pairring16Threads,
-         kernels::kSm87A4W4DownK512M128N128Pairring16DynamicSharedBytes,
-         stream>>>(a, a_scales, b, b_scales, k512_groups, k64_groups,
-                   output, static_cast<unsigned int>(stride), m_tiles,
-                   work_tiles);
+  if (schedule == CandidateSchedule::l2_macro4x4) {
+    kernels::
+        q3x_sm87_a4w4_down_k512_m128n128_16warp_pairring_l2_macro4x4_kernel
+        <<<grid,
+           kernels::kSm87A4W4DownK512M128N128Pairring16Threads,
+           kernels::kSm87A4W4DownK512M128N128Pairring16DynamicSharedBytes,
+           stream>>>(a, a_scales, b, b_scales, k512_groups, k64_groups,
+                     output, static_cast<unsigned int>(stride), m_tiles,
+                     n_tiles);
+  } else {
+    const unsigned int work_tiles = m_tiles * n_tiles;
+    kernels::
+        q3x_sm87_a4w4_down_k512_m128n128_16warp_pairring_kernel
+        <<<grid,
+           kernels::kSm87A4W4DownK512M128N128Pairring16Threads,
+           kernels::kSm87A4W4DownK512M128N128Pairring16DynamicSharedBytes,
+           stream>>>(a, a_scales, b, b_scales, k512_groups, k64_groups,
+                     output, static_cast<unsigned int>(stride), m_tiles,
+                     work_tiles);
+  }
   return cuda_ok(cudaPeekAtLastError(), "launch candidate " + label);
 }
 
@@ -280,7 +297,23 @@ struct Payload final {
     const std::size_t stride,
     const std::size_t output_capacity,
     const unsigned int grid,
-    cudaStream_t stream) {
+    cudaStream_t stream,
+    const CandidateSchedule schedule) {
+  if (schedule == CandidateSchedule::l2_macro4x4) {
+    if (n == kernels::kSm87A4W4DownK512OutputSize &&
+        k == kernels::kSm87A4W4DownK512InputSize) {
+      return kernels::
+          launch_sm87_a4w4_down_k512_m128n128_16warp_pairring_l2_macro4x4_bf16_cuda(
+              a, a_capacity, a_scales, a_scale_capacity, b, b_capacity,
+              b_scales, b_scale_capacity, logical_m, launch_m, n, k,
+              output, stride, output_capacity, stream);
+    }
+    return kernels::
+        launch_sm87_a4w4_down_k512_m128n128_16warp_pairring_l2_macro4x4_test_bf16_cuda(
+            a, a_capacity, a_scales, a_scale_capacity, b, b_capacity,
+            b_scales, b_scale_capacity, launch_m, n, k, output, stride,
+            output_capacity, stream);
+  }
   if (n == kernels::kSm87A4W4DownK512OutputSize &&
       k == kernels::kSm87A4W4DownK512InputSize) {
     return kernels::
@@ -308,7 +341,8 @@ struct Payload final {
     const std::size_t stride,
     const unsigned int grid,
     cudaStream_t stream,
-    const std::string& label) {
+    const std::string& label,
+    const CandidateSchedule schedule) {
   cudaGraph_t graph{};
   cudaGraphExec_t executable{};
   bool ok = cuda_ok(
@@ -317,7 +351,7 @@ struct Payload final {
   if (ok) {
     ok = launch_candidate(a, a_scales, b, b_scales, launch_m, n, k,
                           output, stride, grid, stream,
-                          "captured " + label) &&
+                          "captured " + label, schedule) &&
          cuda_ok(cudaStreamEndCapture(stream, &graph),
                  "end candidate graph " + label) &&
          cuda_ok(cudaGraphInstantiate(&executable, graph, nullptr, nullptr,
@@ -344,7 +378,8 @@ struct Payload final {
                             const std::size_t n,
                             const std::size_t k,
                             const unsigned int grid,
-                            const bool graph_replay) {
+                            const bool graph_replay,
+                            const CandidateSchedule schedule) {
   const std::string shape = "M" + std::to_string(logical_m) + "/P" +
                             std::to_string(launch_m) + " N" +
                             std::to_string(n) + " K" + std::to_string(k);
@@ -400,7 +435,7 @@ struct Payload final {
                     a_scales.payload_count(), b.payload(), b.payload_count(),
                     b_scales.payload(), b_scales.payload_count(), logical_m,
                     launch_m, n, k, candidate.payload(), stride,
-                    candidate.payload_count(), grid, stream),
+                    candidate.payload_count(), grid, stream, schedule),
                 "launch formal candidate " + shape) &&
             cuda_ok(cudaStreamSynchronize(stream),
                     "sync non-default stream " + shape);
@@ -445,7 +480,7 @@ struct Payload final {
     ok = capture_and_replay_candidate(
              a.payload(), a_scales.payload(), b.payload(),
              b_scales.payload(), launch_m, n, k, candidate.payload(),
-             stride, grid, stream, shape) &&
+             stride, grid, stream, shape, schedule) &&
          candidate.copy(candidate_host, "graph candidate " + shape) &&
          candidate.guards_intact(candidate_host,
                                  "graph candidate " + shape) &&
@@ -461,11 +496,145 @@ struct Payload final {
   }
   (void)cudaStreamDestroy(stream);
   if (ok) {
-    std::cout << "PASS: 16-warp pairring bit-exact " << shape
+    std::cout << "PASS: 16-warp pairring "
+              << (schedule == CandidateSchedule::l2_macro4x4
+                      ? "L2 macro4x4 "
+                      : "")
+              << "bit-exact " << shape
               << " grid=" << grid
               << (graph_replay ? " graphx2" : "") << '\n';
   }
   return ok;
+}
+
+[[nodiscard]] bool l2_macro4x4_mapping_contract() {
+  constexpr unsigned int kMTiles = 15U;
+  constexpr unsigned int kNTiles = 40U;
+  constexpr unsigned int kFullWaves = 30U;
+  const unsigned int waves = kernels::
+      sm87_a4w4_down_k512_m128n128_16warp_pairring_l2_macro4x4_wave_count(
+          kMTiles, kNTiles);
+  if (waves != 40U) {
+    std::cerr << "L2 macro4x4 wave count mismatch\n";
+    return false;
+  }
+
+  std::vector<unsigned int> visits(kMTiles * kNTiles, 0U);
+  for (unsigned int wave = 0U; wave < waves; ++wave) {
+    unsigned int valid_in_wave = 0U;
+    for (unsigned int block = 0U;
+         block <
+         kernels::kSm87A4W4DownK512M128N128Pairring16L2Grid;
+         ++block) {
+      const auto work = kernels::
+          sm87_a4w4_down_k512_m128n128_16warp_pairring_l2_macro4x4_work(
+              block, wave, kMTiles, kNTiles);
+      const unsigned int local_m = block % 4U;
+      const unsigned int local_n = block / 4U;
+      const bool expected_valid = wave < kFullWaves || local_m < 3U;
+      if (work.valid != expected_valid) {
+        std::cerr << "L2 macro4x4 validity mismatch at wave=" << wave
+                  << " block=" << block << '\n';
+        return false;
+      }
+      if (!work.valid) {
+        continue;
+      }
+      const unsigned int expected_m =
+          wave < kFullWaves ? (wave / 10U) * 4U + local_m
+                            : 12U + local_m;
+      const unsigned int expected_n =
+          (wave % 10U) * 4U + local_n;
+      if (work.m_tile != expected_m || work.n_tile != expected_n ||
+          work.m_tile >= kMTiles || work.n_tile >= kNTiles) {
+        std::cerr << "L2 macro4x4 coordinate mismatch at wave=" << wave
+                  << " block=" << block << '\n';
+        return false;
+      }
+      ++visits[work.m_tile * kNTiles + work.n_tile];
+      ++valid_in_wave;
+    }
+    const unsigned int expected_count = wave < kFullWaves ? 16U : 12U;
+    if (valid_in_wave != expected_count) {
+      std::cerr << "L2 macro4x4 active CTA count mismatch at wave="
+                << wave << '\n';
+      return false;
+    }
+  }
+  if (!std::all_of(visits.begin(), visits.end(),
+                   [](const unsigned int count) { return count == 1U; })) {
+    std::cerr << "L2 macro4x4 did not cover every M15N40 cell once\n";
+    return false;
+  }
+  const auto invalid_block = kernels::
+      sm87_a4w4_down_k512_m128n128_16warp_pairring_l2_macro4x4_work(
+          16U, 0U, kMTiles, kNTiles);
+  const auto invalid_topology = kernels::
+      sm87_a4w4_down_k512_m128n128_16warp_pairring_l2_macro4x4_work(
+          0U, 0U, kMTiles, 39U);
+  return !invalid_block.valid && !invalid_topology.valid;
+}
+
+[[nodiscard]] bool l2_macro4x4_fail_closed_guards() {
+  constexpr std::size_t kM = 128U;
+  constexpr std::size_t kN = 512U;
+  constexpr std::size_t kK = 512U;
+  const Payload host = make_payload(kM, kM, kN, kK);
+  const std::size_t stride = kN + 8U;
+  GuardedDevice<std::uint8_t> a;
+  GuardedDevice<std::uint16_t> a_scales;
+  GuardedDevice<std::uint8_t> b;
+  GuardedDevice<std::uint16_t> b_scales;
+  GuardedDevice<std::uint16_t> output;
+  if (!a.initialize(host.a, kByteGuards, kByteSentinel, "guard A") ||
+      !a_scales.initialize(host.a_scales, kWordGuards, kWordSentinel,
+                           "guard A scales") ||
+      !b.initialize(host.b, kByteGuards, kByteSentinel, "guard B") ||
+      !b_scales.initialize(host.b_scales, kWordGuards, kWordSentinel,
+                           "guard B scales") ||
+      !output.initialize(
+          std::vector<std::uint16_t>(kM * stride, kOutputSentinel),
+          kWordGuards, kOutputSentinel, "guard output")) {
+    return false;
+  }
+
+  const int bad_topology = kernels::
+      launch_sm87_a4w4_down_k512_m128n128_16warp_pairring_l2_macro4x4_test_bf16_cuda(
+          a.payload(), a.payload_count(), a_scales.payload(),
+          a_scales.payload_count(), b.payload(), b.payload_count(),
+          b_scales.payload(), b_scales.payload_count(), kM, 384U, kK,
+          output.payload(), stride, output.payload_count());
+  const int bad_padding = kernels::
+      launch_sm87_a4w4_down_k512_m128n128_16warp_pairring_l2_macro4x4_bf16_cuda(
+          nullptr, 0U, nullptr, 0U, nullptr, 0U, nullptr, 0U, 1'853U,
+          1'853U, kernels::kSm87A4W4DownK512OutputSize,
+          kernels::kSm87A4W4DownK512InputSize, nullptr, 0U, 0U);
+  if (bad_topology != static_cast<int>(cudaErrorInvalidValue) ||
+      bad_padding != static_cast<int>(cudaErrorInvalidValue) ||
+      kernels::
+              query_sm87_a4w4_down_k512_m128n128_16warp_pairring_l2_macro4x4_resources_cuda(
+                  nullptr) != static_cast<int>(cudaErrorInvalidValue)) {
+    std::cerr << "L2 macro4x4 host admission did not fail closed\n";
+    return false;
+  }
+
+  cudaStream_t stream{};
+  if (!cuda_ok(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking),
+               "create fail-closed stream")) {
+    return false;
+  }
+  const bool launched = launch_candidate(
+      a.payload(), a_scales.payload(), b.payload(), b_scales.payload(), kM,
+      kN, kK, output.payload(), stride, 15U, stream, "wrong-grid",
+      CandidateSchedule::l2_macro4x4);
+  const bool synced =
+      launched && cuda_ok(cudaStreamSynchronize(stream), "sync wrong-grid");
+  (void)cudaStreamDestroy(stream);
+  return synced && output.unchanged("wrong-grid fail-closed output") &&
+         a.unchanged("wrong-grid A") &&
+         a_scales.unchanged("wrong-grid A scales") &&
+         b.unchanged("wrong-grid B") &&
+         b_scales.unchanged("wrong-grid B scales");
 }
 
 [[nodiscard]] int target_status() {
@@ -499,17 +668,39 @@ struct Payload final {
 }
 
 [[nodiscard]] bool resource_gate() {
-  kernels::Sm87A4W4DownK512M128N128Pairring16Resources resources{};
-  return launch_ok(
+  kernels::Sm87A4W4DownK512M128N128Pairring16Resources incumbent{};
+  kernels::Sm87A4W4DownK512M128N128Pairring16Resources macro{};
+  const bool queried = launch_ok(
              kernels::
                  query_sm87_a4w4_down_k512_m128n128_16warp_pairring_resources_cuda(
-                     &resources),
-             "query formal candidate resources") &&
-         resources.registers_per_thread > 0 &&
-         resources.registers_per_thread <= 128 &&
-         resources.local_bytes == 0U &&
-         resources.maximum_threads_per_block >= 512 &&
-         resources.active_blocks_per_sm == 1;
+                     &incumbent),
+             "query incumbent resources") &&
+         launch_ok(
+             kernels::
+                 query_sm87_a4w4_down_k512_m128n128_16warp_pairring_l2_macro4x4_resources_cuda(
+                     &macro),
+             "query L2 macro4x4 resources");
+  const bool identical =
+      incumbent.registers_per_thread == macro.registers_per_thread &&
+      incumbent.static_shared_bytes == macro.static_shared_bytes &&
+      incumbent.dynamic_shared_bytes == macro.dynamic_shared_bytes &&
+      incumbent.configured_dynamic_shared_limit_bytes ==
+          macro.configured_dynamic_shared_limit_bytes &&
+      incumbent.device_optin_shared_limit_bytes ==
+          macro.device_optin_shared_limit_bytes &&
+      incumbent.local_bytes == macro.local_bytes &&
+      incumbent.maximum_threads_per_block ==
+          macro.maximum_threads_per_block &&
+      incumbent.active_blocks_per_sm == macro.active_blocks_per_sm &&
+      incumbent.compute_major == macro.compute_major &&
+      incumbent.compute_minor == macro.compute_minor;
+  if (queried && !identical) {
+    std::cerr << "L2 macro4x4 resources differ from incumbent\n";
+  }
+  return queried && identical && macro.registers_per_thread == 128 &&
+         macro.local_bytes == 0U &&
+         macro.maximum_threads_per_block >= 512 &&
+         macro.active_blocks_per_sm == 1;
 }
 
 }  // namespace
@@ -526,18 +717,34 @@ int main(int argc, char** argv) {
 
   const std::string mode = argc > 1 ? argv[1] : "all";
   if (mode == "small" || mode == "all") {
-    if (!run_case(128U, 128U, 128U, 512U, 1U, false) ||
-        !run_case(129U, 256U, 256U, 1'024U, 4U, true)) {
+    if (!run_case(128U, 128U, 128U, 512U, 1U, false,
+                  CandidateSchedule::incumbent) ||
+        !run_case(129U, 256U, 256U, 1'024U, 4U, true,
+                  CandidateSchedule::incumbent)) {
       return 1;
     }
   }
   if (mode == "model" || mode == "all") {
-    if (!run_case(1'853U, 1'920U, 5'120U, 17'408U, 16U, true)) {
+    if (!run_case(1'853U, 1'920U, 5'120U, 17'408U, 16U, true,
+                  CandidateSchedule::incumbent)) {
       return 1;
     }
   }
-  if (mode != "small" && mode != "model" && mode != "all") {
-    std::cerr << "usage: " << argv[0] << " [small|model|all]\n";
+  if (mode == "l2" || mode == "all") {
+    // M15/N40 is the exact production tile topology at P1920.  logical M1909
+    // leaves a 117-row final logical tile, while the authenticated producer
+    // supplies eleven padded zero rows.  Exact N/K drives the production API;
+    // the generated payload remains a correctness authority only.
+    if (!l2_macro4x4_mapping_contract() ||
+        !l2_macro4x4_fail_closed_guards() ||
+        !run_case(1'909U, 1'920U, 5'120U, 17'408U, 16U, true,
+                  CandidateSchedule::l2_macro4x4)) {
+      return 1;
+    }
+  }
+  if (mode != "small" && mode != "model" && mode != "l2" &&
+      mode != "all") {
+    std::cerr << "usage: " << argv[0] << " [small|model|l2|all]\n";
     return 2;
   }
   std::cout << "Down M128N128 16-warp pairring correctness passed ("

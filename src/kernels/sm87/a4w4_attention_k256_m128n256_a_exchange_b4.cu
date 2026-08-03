@@ -676,6 +676,164 @@ __device__ __forceinline__ void run_fixed_cell_kernel(
   }
 }
 
+// Keep this body independent from run_fixed_cell_kernel.  The production
+// A-exchange/B4 kernel must retain its frozen scheduler and SASS while the
+// default-off sibling changes only the cross-CTA raster.
+template <Sm87A4W4AttentionK256Topology Topology>
+__device__ __forceinline__ void compute_fixed_cell_l2_macro4x4(
+    SharedStorage& shared,
+    const std::uint8_t* const packed_a,
+    const std::uint16_t* const a_k256_scales_bf16,
+    const std::uint8_t* const packed_b0,
+    const std::uint16_t* const b_scales0,
+    const std::uint8_t* const packed_b1,
+    const std::uint16_t* const b_scales1,
+    const std::uint8_t* const packed_b2,
+    const std::uint16_t* const b_scales2,
+    const unsigned int k256_group_count,
+    const unsigned int physical_k64_group_count,
+    std::uint16_t* const output0,
+    const unsigned int stride0,
+    std::uint16_t* const output1,
+    const unsigned int stride1,
+    std::uint16_t* const output2,
+    const unsigned int stride2,
+    const unsigned int macro_cell,
+    const unsigned int m_tile) noexcept {
+  const unsigned int m_tile_start = m_tile * kTileM;
+  Float4 output_m0[16U]{};
+  Float4 output_m1[16U]{};
+
+  issue_a_exchange(shared.a, packed_a, a_k256_scales_bf16,
+                   m_tile_start, 0U, k256_group_count,
+                   physical_k64_group_count);
+  issue_b_ring_slot<Topology>(
+      shared.b[0U], packed_b0, b_scales0, packed_b1, b_scales1,
+      packed_b2, b_scales2, macro_cell, 0U, k256_group_count,
+      physical_k64_group_count);
+  if (k256_group_count > 1U) {
+    issue_b_ring_slot<Topology>(
+        shared.b[1U], packed_b0, b_scales0, packed_b1, b_scales1,
+        packed_b2, b_scales2, macro_cell, 1U, k256_group_count,
+        physical_k64_group_count);
+  }
+  if (k256_group_count > 2U) {
+    issue_b_ring_slot<Topology>(
+        shared.b[2U], packed_b0, b_scales0, packed_b1, b_scales1,
+        packed_b2, b_scales2, macro_cell, 2U, k256_group_count,
+        physical_k64_group_count);
+  }
+  if (k256_group_count > 3U) {
+    issue_b_ring_slot<Topology>(
+        shared.b[3U], packed_b0, b_scales0, packed_b1, b_scales1,
+        packed_b2, b_scales2, macro_cell, 3U, k256_group_count,
+        physical_k64_group_count);
+    cp_async_wait<3U>();
+  } else if (k256_group_count > 2U) {
+    cp_async_wait<2U>();
+  } else if (k256_group_count > 1U) {
+    cp_async_wait<1U>();
+  } else {
+    cp_async_wait<0U>();
+  }
+  __syncthreads();
+
+  for (unsigned int group = 0U; group < k256_group_count; ++group) {
+    const ResidentA resident = load_resident_a(shared.a);
+    __syncthreads();
+    if (group + 1U < k256_group_count) {
+      issue_a_exchange(shared.a, packed_a, a_k256_scales_bf16,
+                       m_tile_start, group + 1U, k256_group_count,
+                       physical_k64_group_count);
+    }
+    accumulate_group(resident, shared.b[group & 3U], output_m0,
+                     output_m1);
+    __syncthreads();
+    if (group + kBSlots < k256_group_count) {
+      issue_b_ring_slot<Topology>(
+          shared.b[group & 3U], packed_b0, b_scales0, packed_b1,
+          b_scales1, packed_b2, b_scales2, macro_cell,
+          group + kBSlots, k256_group_count,
+          physical_k64_group_count);
+      cp_async_wait<1U>();
+    } else {
+      cp_async_wait<0U>();
+    }
+    __syncthreads();
+  }
+
+  store_cell<Topology>(output_m0, output_m1, macro_cell, m_tile_start,
+                       output0, stride0, output1, stride1, output2,
+                       stride2);
+  __syncthreads();
+}
+
+template <Sm87A4W4AttentionK256Topology Topology>
+__device__ __forceinline__ void run_fixed_cell_kernel_l2_macro4x4(
+    SharedStorage& shared,
+    const std::uint8_t* const packed_a,
+    const std::uint16_t* const a_k256_scales_bf16,
+    const std::uint8_t* const packed_b0,
+    const std::uint16_t* const b_scales0,
+    const std::uint8_t* const packed_b1,
+    const std::uint16_t* const b_scales1,
+    const std::uint8_t* const packed_b2,
+    const std::uint16_t* const b_scales2,
+    const unsigned int k256_group_count,
+    const unsigned int physical_k64_group_count,
+    std::uint16_t* const output0,
+    const unsigned int stride0,
+    std::uint16_t* const output1,
+    const unsigned int stride1,
+    std::uint16_t* const output2,
+    const unsigned int stride2,
+    const unsigned int m_tile_count,
+    const unsigned int work_cell_count) noexcept {
+  constexpr unsigned int kMacroM = 4U;
+  constexpr unsigned int kMacroN = 4U;
+  constexpr unsigned int kMacroCtas = kMacroM * kMacroN;
+  if (gridDim.x != kMacroCtas || blockIdx.x >= kMacroCtas ||
+      m_tile_count == 0U) {
+    return;
+  }
+  const unsigned int n_cell_count = work_cell_count / m_tile_count;
+  const unsigned int n_macro_count = n_cell_count / kMacroN;
+  const unsigned int full_m_macro_count = m_tile_count / kMacroM;
+  const unsigned int local_m = blockIdx.x & (kMacroM - 1U);
+  const unsigned int local_n = blockIdx.x / kMacroM;
+
+  // Complete M macros execute first.  Four A tiles remain the only A working
+  // set while the wave advances through N; each B cell is simultaneously
+  // requested by four M consumers.  The possibly partial M macro is last so
+  // inactive CTAs cannot run ahead into a later full wave.
+  for (unsigned int m_macro = 0U; m_macro < full_m_macro_count;
+       ++m_macro) {
+    const unsigned int m_tile = m_macro * kMacroM + local_m;
+    for (unsigned int n_macro = 0U; n_macro < n_macro_count;
+         ++n_macro) {
+      const unsigned int macro_cell = n_macro * kMacroN + local_n;
+      compute_fixed_cell_l2_macro4x4<Topology>(
+          shared, packed_a, a_k256_scales_bf16, packed_b0, b_scales0,
+          packed_b1, b_scales1, packed_b2, b_scales2,
+          k256_group_count, physical_k64_group_count, output0, stride0,
+          output1, stride1, output2, stride2, macro_cell, m_tile);
+    }
+  }
+
+  const unsigned int tail_m = full_m_macro_count * kMacroM + local_m;
+  if (tail_m < m_tile_count) {
+    for (unsigned int n_macro = 0U; n_macro < n_macro_count;
+         ++n_macro) {
+      const unsigned int macro_cell = n_macro * kMacroN + local_n;
+      compute_fixed_cell_l2_macro4x4<Topology>(
+          shared, packed_a, a_k256_scales_bf16, packed_b0, b_scales0,
+          packed_b1, b_scales1, packed_b2, b_scales2,
+          k256_group_count, physical_k64_group_count, output0, stride0,
+          output1, stride1, output2, stride2, macro_cell, tail_m);
+    }
+  }
+}
+
 }  // namespace
 
 // Linear was the first hard resource instantiation.  Full and O share the
@@ -767,6 +925,96 @@ void q3x_sm87_a4w4_attention_k256_m128n256_a_exchange_b4_o_kernel(
       output2, stride2, m_tile_count, work_cell_count);
 }
 
+extern "C" __global__ __launch_bounds__(kThreads, 1)
+void q3x_sm87_a4w4_attention_k256_m128n256_a_exchange_b4_l2_macro4x4_linear_kernel(
+    const std::uint8_t* const packed_a,
+    const std::uint16_t* const a_k256_scales_bf16,
+    const std::uint8_t* const packed_b0,
+    const std::uint16_t* const b_scales0,
+    const std::uint8_t* const packed_b1,
+    const std::uint16_t* const b_scales1,
+    const std::uint8_t* const packed_b2,
+    const std::uint16_t* const b_scales2,
+    const unsigned int k256_group_count,
+    const unsigned int physical_k64_group_count,
+    std::uint16_t* const output0,
+    const unsigned int stride0,
+    std::uint16_t* const output1,
+    const unsigned int stride1,
+    std::uint16_t* const output2,
+    const unsigned int stride2,
+    const unsigned int m_tile_count,
+    const unsigned int work_cell_count) {
+  extern __shared__ __align__(16) unsigned char dynamic_shared[];
+  auto& shared = *reinterpret_cast<SharedStorage*>(dynamic_shared);
+  run_fixed_cell_kernel_l2_macro4x4<
+      Sm87A4W4AttentionK256Topology::kLinearQkvZ>(
+      shared, packed_a, a_k256_scales_bf16, packed_b0, b_scales0,
+      packed_b1, b_scales1, packed_b2, b_scales2, k256_group_count,
+      physical_k64_group_count, output0, stride0, output1, stride1,
+      output2, stride2, m_tile_count, work_cell_count);
+}
+
+extern "C" __global__ __launch_bounds__(kThreads, 1)
+void q3x_sm87_a4w4_attention_k256_m128n256_a_exchange_b4_l2_macro4x4_full_kernel(
+    const std::uint8_t* const packed_a,
+    const std::uint16_t* const a_k256_scales_bf16,
+    const std::uint8_t* const packed_b0,
+    const std::uint16_t* const b_scales0,
+    const std::uint8_t* const packed_b1,
+    const std::uint16_t* const b_scales1,
+    const std::uint8_t* const packed_b2,
+    const std::uint16_t* const b_scales2,
+    const unsigned int k256_group_count,
+    const unsigned int physical_k64_group_count,
+    std::uint16_t* const output0,
+    const unsigned int stride0,
+    std::uint16_t* const output1,
+    const unsigned int stride1,
+    std::uint16_t* const output2,
+    const unsigned int stride2,
+    const unsigned int m_tile_count,
+    const unsigned int work_cell_count) {
+  extern __shared__ __align__(16) unsigned char dynamic_shared[];
+  auto& shared = *reinterpret_cast<SharedStorage*>(dynamic_shared);
+  run_fixed_cell_kernel_l2_macro4x4<
+      Sm87A4W4AttentionK256Topology::kFullQkv>(
+      shared, packed_a, a_k256_scales_bf16, packed_b0, b_scales0,
+      packed_b1, b_scales1, packed_b2, b_scales2, k256_group_count,
+      physical_k64_group_count, output0, stride0, output1, stride1,
+      output2, stride2, m_tile_count, work_cell_count);
+}
+
+extern "C" __global__ __launch_bounds__(kThreads, 1)
+void q3x_sm87_a4w4_attention_k256_m128n256_a_exchange_b4_l2_macro4x4_o_kernel(
+    const std::uint8_t* const packed_a,
+    const std::uint16_t* const a_k256_scales_bf16,
+    const std::uint8_t* const packed_b0,
+    const std::uint16_t* const b_scales0,
+    const std::uint8_t* const packed_b1,
+    const std::uint16_t* const b_scales1,
+    const std::uint8_t* const packed_b2,
+    const std::uint16_t* const b_scales2,
+    const unsigned int k256_group_count,
+    const unsigned int physical_k64_group_count,
+    std::uint16_t* const output0,
+    const unsigned int stride0,
+    std::uint16_t* const output1,
+    const unsigned int stride1,
+    std::uint16_t* const output2,
+    const unsigned int stride2,
+    const unsigned int m_tile_count,
+    const unsigned int work_cell_count) {
+  extern __shared__ __align__(16) unsigned char dynamic_shared[];
+  auto& shared = *reinterpret_cast<SharedStorage*>(dynamic_shared);
+  run_fixed_cell_kernel_l2_macro4x4<
+      Sm87A4W4AttentionK256Topology::kAttentionO>(
+      shared, packed_a, a_k256_scales_bf16, packed_b0, b_scales0,
+      packed_b1, b_scales1, packed_b2, b_scales2, k256_group_count,
+      physical_k64_group_count, output0, stride0, output1, stride1,
+      output2, stride2, m_tile_count, work_cell_count);
+}
+
 namespace {
 
 inline constexpr int kRequiredSmCount = 16;
@@ -846,6 +1094,23 @@ template <class Kernel>
   if (topology == Sm87A4W4AttentionK256Topology::kAttentionO) {
     return configure_kernel(
         q3x_sm87_a4w4_attention_k256_m128n256_a_exchange_b4_o_kernel);
+  }
+  return cudaErrorInvalidValue;
+}
+
+[[nodiscard]] cudaError_t configure_l2_macro4x4_topology(
+    const Sm87A4W4AttentionK256Topology topology) noexcept {
+  if (topology == Sm87A4W4AttentionK256Topology::kLinearQkvZ) {
+    return configure_kernel(
+        q3x_sm87_a4w4_attention_k256_m128n256_a_exchange_b4_l2_macro4x4_linear_kernel);
+  }
+  if (topology == Sm87A4W4AttentionK256Topology::kFullQkv) {
+    return configure_kernel(
+        q3x_sm87_a4w4_attention_k256_m128n256_a_exchange_b4_l2_macro4x4_full_kernel);
+  }
+  if (topology == Sm87A4W4AttentionK256Topology::kAttentionO) {
+    return configure_kernel(
+        q3x_sm87_a4w4_attention_k256_m128n256_a_exchange_b4_l2_macro4x4_o_kernel);
   }
   return cudaErrorInvalidValue;
 }
@@ -1065,6 +1330,84 @@ int query_sm87_a4w4_attention_k256_m128n256_a_exchange_b4_resources_cuda(
   return static_cast<int>(cudaSuccess);
 }
 
+int query_sm87_a4w4_attention_k256_m128n256_a_exchange_b4_l2_macro4x4_resources_cuda(
+    Sm87A4W4AttentionK256Resources* const resources) noexcept {
+  if (resources == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  *resources = Sm87A4W4AttentionK256Resources{};
+  cudaDeviceProp properties{};
+  const int device_status = validate_sm87(&properties);
+  if (device_status != static_cast<int>(cudaSuccess)) {
+    return device_status;
+  }
+  for (const auto topology : {
+           Sm87A4W4AttentionK256Topology::kLinearQkvZ,
+           Sm87A4W4AttentionK256Topology::kFullQkv,
+           Sm87A4W4AttentionK256Topology::kAttentionO}) {
+    const cudaError_t status = configure_l2_macro4x4_topology(topology);
+    if (status != cudaSuccess) {
+      return static_cast<int>(status);
+    }
+  }
+  int maximum_registers = 0;
+  std::size_t maximum_static_shared = 0U;
+  std::size_t maximum_local = 0U;
+  int minimum_maximum_threads = std::numeric_limits<int>::max();
+  int minimum_active_blocks = std::numeric_limits<int>::max();
+  std::size_t minimum_dynamic_limit =
+      std::numeric_limits<std::size_t>::max();
+#define Q3X_MERGE_L2_MACRO4X4_KERNEL(kernel)                            \
+  do {                                                                   \
+    const cudaError_t merge_status = merge_resources(                    \
+        kernel, &maximum_registers, &maximum_static_shared,              \
+        &maximum_local, &minimum_maximum_threads,                         \
+        &minimum_active_blocks, &minimum_dynamic_limit);                  \
+    if (merge_status != cudaSuccess) {                                   \
+      return static_cast<int>(merge_status);                             \
+    }                                                                    \
+  } while (false)
+  Q3X_MERGE_L2_MACRO4X4_KERNEL(
+      q3x_sm87_a4w4_attention_k256_m128n256_a_exchange_b4_l2_macro4x4_linear_kernel);
+  Q3X_MERGE_L2_MACRO4X4_KERNEL(
+      q3x_sm87_a4w4_attention_k256_m128n256_a_exchange_b4_l2_macro4x4_full_kernel);
+  Q3X_MERGE_L2_MACRO4X4_KERNEL(
+      q3x_sm87_a4w4_attention_k256_m128n256_a_exchange_b4_l2_macro4x4_o_kernel);
+#undef Q3X_MERGE_L2_MACRO4X4_KERNEL
+  resources->registers_per_thread = maximum_registers;
+  resources->static_shared_bytes = maximum_static_shared;
+  resources->dynamic_shared_bytes =
+      kSm87A4W4AttentionK256AExchangeB4SharedBytes;
+  resources->configured_dynamic_shared_limit_bytes =
+      minimum_dynamic_limit;
+  resources->device_optin_shared_limit_bytes =
+      properties.sharedMemPerBlockOptin;
+  resources->local_bytes = maximum_local;
+  resources->maximum_threads_per_block = minimum_maximum_threads;
+  resources->active_blocks_per_sm = minimum_active_blocks;
+  resources->compute_major = properties.major;
+  resources->compute_minor = properties.minor;
+  if (resources->registers_per_thread <= 0 ||
+      resources->registers_per_thread >
+          static_cast<int>(
+              kSm87A4W4AttentionK256AExchangeB4MaximumRegisters) ||
+      resources->static_shared_bytes != 0U ||
+      resources->dynamic_shared_bytes !=
+          kSm87A4W4AttentionK256AExchangeB4SharedBytes ||
+      resources->configured_dynamic_shared_limit_bytes <
+          kSm87A4W4AttentionK256AExchangeB4SharedBytes ||
+      resources->device_optin_shared_limit_bytes <
+          kSm87A4W4AttentionK256AExchangeB4SharedBytes ||
+      resources->local_bytes != 0U ||
+      resources->maximum_threads_per_block <
+          static_cast<int>(
+              kSm87A4W4AttentionK256AExchangeB4Threads) ||
+      resources->active_blocks_per_sm != 1) {
+    return static_cast<int>(cudaErrorLaunchOutOfResources);
+  }
+  return static_cast<int>(cudaSuccess);
+}
+
 int launch_sm87_a4w4_attention_k256_m128n256_a_exchange_b4_bf16_cuda(
     const Sm87A4W4AttentionK256Topology topology,
     const std::uint8_t* const packed_a,
@@ -1159,6 +1502,128 @@ int launch_sm87_a4w4_attention_k256_m128n256_a_exchange_b4_bf16_cuda(
         q3x_sm87_a4w4_attention_k256_m128n256_a_exchange_b4_o_kernel);
   }
 #undef Q3X_LAUNCH_CANDIDATE
+  return static_cast<int>(cudaPeekAtLastError());
+}
+
+int launch_sm87_a4w4_attention_k256_m128n256_a_exchange_b4_l2_macro4x4_bf16_cuda(
+    const Sm87A4W4AttentionK256Topology topology,
+    const std::uint8_t* const packed_a,
+    const std::size_t packed_a_capacity_bytes,
+    const std::uint16_t* const a_k256_scales_bf16,
+    const std::size_t a_scale_capacity_elements,
+    const std::size_t token_count,
+    const Sm87A4W4AttentionK256ProjectionView* const projections,
+    const std::size_t projection_count,
+    void* const cuda_stream) noexcept {
+  const Sm87A4W4AttentionK256Plan plan =
+      sm87_a4w4_attention_k256_fixed_plan(topology, token_count);
+  if (projection_count !=
+          sm87_a4w4_attention_k256_fixed_projection_count(topology) ||
+      projections == nullptr ||
+      plan.launch_ctas !=
+          kSm87A4W4AttentionK256AExchangeB4L2MacroGridCtas ||
+      plan.m_tiles == 0U || plan.work_cells % plan.m_tiles != 0U ||
+      (plan.work_cells / plan.m_tiles) %
+              kSm87A4W4AttentionK256AExchangeB4L2MacroNCells !=
+          0U ||
+      !aligned(packed_a, 16U) ||
+      !aligned(a_k256_scales_bf16, 16U) ||
+      plan.m_tiles > std::numeric_limits<unsigned int>::max() ||
+      plan.work_cells > std::numeric_limits<unsigned int>::max() ||
+      plan.k256_groups > std::numeric_limits<unsigned int>::max() ||
+      plan.physical_k64_groups >
+          std::numeric_limits<unsigned int>::max()) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  for (std::size_t projection = 0U; projection < projection_count;
+       ++projection) {
+    if (projections[projection].output_size !=
+        sm87_a4w4_attention_k256_fixed_projection_panels(
+            topology, projection) *
+            kSm87A4W4AttentionK256PanelN) {
+      return static_cast<int>(cudaErrorInvalidValue);
+    }
+  }
+  const std::size_t required_a_bytes =
+      sm87_a4w4_attention_k256_packed_capacity_bytes(
+          plan.token_count, plan.input_size);
+  const std::size_t required_a_scales =
+      sm87_a4w4_attention_k256_scale_capacity_elements(
+          plan.token_count, plan.input_size);
+  if (required_a_bytes == 0U || required_a_scales == 0U ||
+      packed_a_capacity_bytes < required_a_bytes ||
+      a_scale_capacity_elements < required_a_scales ||
+      !projection_views_valid(
+          packed_a, required_a_bytes, a_k256_scales_bf16,
+          required_a_scales, plan.token_count, plan.input_size,
+          projections, projection_count)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const int device_status = validate_sm87();
+  if (device_status != static_cast<int>(cudaSuccess)) {
+    return device_status;
+  }
+  int device = -1;
+  const cudaError_t current_device_status = cudaGetDevice(&device);
+  if (current_device_status != cudaSuccess) {
+    return static_cast<int>(current_device_status);
+  }
+  static thread_local int resource_device = -1;
+  static thread_local int resource_status =
+      static_cast<int>(cudaErrorUnknown);
+  if (resource_device != device) {
+    Sm87A4W4AttentionK256Resources resources{};
+    resource_status =
+        query_sm87_a4w4_attention_k256_m128n256_a_exchange_b4_l2_macro4x4_resources_cuda(
+            &resources);
+    resource_device = device;
+  }
+  if (resource_status != static_cast<int>(cudaSuccess)) {
+    return resource_status;
+  }
+  const cudaError_t configure_status =
+      configure_l2_macro4x4_topology(topology);
+  if (configure_status != cudaSuccess) {
+    return static_cast<int>(configure_status);
+  }
+
+  const auto& p0 = projections[0U];
+  const Sm87A4W4AttentionK256ProjectionView empty{};
+  const auto& p1 = projection_count > 1U ? projections[1U] : empty;
+  const auto& p2 = projection_count > 2U ? projections[2U] : empty;
+  const cudaStream_t stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  constexpr dim3 grid(static_cast<unsigned int>(
+      kSm87A4W4AttentionK256AExchangeB4L2MacroGridCtas));
+  constexpr dim3 block(static_cast<unsigned int>(
+      kSm87A4W4AttentionK256AExchangeB4Threads));
+#define Q3X_LAUNCH_L2_MACRO4X4(kernel)                                  \
+  kernel<<<grid, block,                                                   \
+           kSm87A4W4AttentionK256AExchangeB4SharedBytes, stream>>>(       \
+      packed_a, a_k256_scales_bf16, p0.packed_b,                         \
+      p0.k256_scales_bf16, p1.packed_b, p1.k256_scales_bf16,             \
+      p2.packed_b, p2.k256_scales_bf16,                                  \
+      static_cast<unsigned int>(plan.k256_groups),                       \
+      static_cast<unsigned int>(plan.physical_k64_groups),               \
+      p0.output_bf16,                                                     \
+      static_cast<unsigned int>(p0.output_row_stride_elements),          \
+      p1.output_bf16,                                                     \
+      static_cast<unsigned int>(p1.output_row_stride_elements),          \
+      p2.output_bf16,                                                     \
+      static_cast<unsigned int>(p2.output_row_stride_elements),          \
+      static_cast<unsigned int>(plan.m_tiles),                           \
+      static_cast<unsigned int>(plan.work_cells))
+  (void)cudaGetLastError();
+  if (topology == Sm87A4W4AttentionK256Topology::kLinearQkvZ) {
+    Q3X_LAUNCH_L2_MACRO4X4(
+        q3x_sm87_a4w4_attention_k256_m128n256_a_exchange_b4_l2_macro4x4_linear_kernel);
+  } else if (topology == Sm87A4W4AttentionK256Topology::kFullQkv) {
+    Q3X_LAUNCH_L2_MACRO4X4(
+        q3x_sm87_a4w4_attention_k256_m128n256_a_exchange_b4_l2_macro4x4_full_kernel);
+  } else {
+    Q3X_LAUNCH_L2_MACRO4X4(
+        q3x_sm87_a4w4_attention_k256_m128n256_a_exchange_b4_l2_macro4x4_o_kernel);
+  }
+#undef Q3X_LAUNCH_L2_MACRO4X4
   return static_cast<int>(cudaPeekAtLastError());
 }
 

@@ -25,6 +25,12 @@ inline constexpr std::size_t
     kSm87A4W4AttentionK256AExchangeB4SharedBytes = 149'760U;
 inline constexpr std::size_t
     kSm87A4W4AttentionK256AExchangeB4MaximumRegisters = 255U;
+inline constexpr std::size_t
+    kSm87A4W4AttentionK256AExchangeB4L2MacroGridCtas = 16U;
+inline constexpr std::size_t
+    kSm87A4W4AttentionK256AExchangeB4L2MacroMCells = 4U;
+inline constexpr std::size_t
+    kSm87A4W4AttentionK256AExchangeB4L2MacroNCells = 4U;
 
 // Queries all three fixed topology specializations and reports their worst
 // resource values.  No runtime route is changed by this surface.
@@ -47,6 +53,27 @@ launch_sm87_a4w4_attention_k256_m128n256_a_exchange_b4_bf16_cuda(
     std::size_t projection_count,
     void* cuda_stream = nullptr) noexcept;
 
+// Default-off exact-model sibling.  Arithmetic, tile ownership, and resource
+// use are identical to A-exchange/B4.  Only the persistent raster changes:
+// the 16 resident CTAs advance as a 4-M-by-4-N macro-wave so each K stage has
+// four consumers for both A and B in the shared L2.  N-panel counts must be a
+// multiple of four; unsupported shapes fail before enqueue.
+[[nodiscard]] int
+query_sm87_a4w4_attention_k256_m128n256_a_exchange_b4_l2_macro4x4_resources_cuda(
+    Sm87A4W4AttentionK256Resources* resources) noexcept;
+
+[[nodiscard]] int
+launch_sm87_a4w4_attention_k256_m128n256_a_exchange_b4_l2_macro4x4_bf16_cuda(
+    Sm87A4W4AttentionK256Topology topology,
+    const std::uint8_t* packed_a,
+    std::size_t packed_a_capacity_bytes,
+    const std::uint16_t* a_k256_scales_bf16,
+    std::size_t a_scale_capacity_elements,
+    std::size_t token_count,
+    const Sm87A4W4AttentionK256ProjectionView* projections,
+    std::size_t projection_count,
+    void* cuda_stream = nullptr) noexcept;
+
 static_assert(kSm87A4W4AttentionK256AExchangeB4Threads == 256U);
 static_assert(kSm87A4W4AttentionK256AExchangeB4Warps == 8U);
 static_assert(kSm87A4W4AttentionK256AExchangeBytes == 16'640U);
@@ -55,5 +82,8 @@ static_assert(kSm87A4W4AttentionK256AExchangeB4SharedBytes ==
               kSm87A4W4AttentionK256AExchangeBytes +
                   kSm87A4W4AttentionK256B4Slots *
                       kSm87A4W4AttentionK256B4SlotBytes);
+static_assert(kSm87A4W4AttentionK256AExchangeB4L2MacroGridCtas ==
+              kSm87A4W4AttentionK256AExchangeB4L2MacroMCells *
+                  kSm87A4W4AttentionK256AExchangeB4L2MacroNCells);
 
 }  // namespace q3x::kernels

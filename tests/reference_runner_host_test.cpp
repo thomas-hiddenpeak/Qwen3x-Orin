@@ -3027,9 +3027,20 @@ void test_attention_k256_a_exchange_b4_selector_and_accounting(
   const bool conflict =
       detail::select_a4w4_attention_k256_m128n256_implementation(query) ==
       Implementation::kInvalid;
-  test.expect(disabled && incumbent && candidate && conflict,
+  query = Query{};
+  query.a_exchange_b4_l2_macro4x4_requested = true;
+  const bool orphan_l2_macro4x4 =
+      detail::select_a4w4_attention_k256_m128n256_implementation(query) ==
+      Implementation::kInvalid;
+  query.a_exchange_b4_requested = true;
+  const bool nested_l2_macro4x4 =
+      detail::select_a4w4_attention_k256_m128n256_implementation(query) ==
+      Implementation::kAExchangeB4;
+  test.expect(disabled && incumbent && candidate && conflict &&
+                  orphan_l2_macro4x4 && nested_l2_macro4x4,
               "K256 Attention implementation selector is default-off and "
-              "makes incumbent/A-exchange-B4 exactly mutually exclusive");
+              "makes incumbent/A-exchange-B4 exactly mutually exclusive; "
+              "the L2 macro4x4 modifier cannot orphan its parent");
 
   const char* const incumbent_environment = std::getenv(
       "Q3X_RUN_A4W4_ATTENTION_K256_M128N256_ADMISSION");

@@ -209,6 +209,7 @@ struct ProjectionStorage final {
   DeviceBuffer<std::uint8_t> device_b_codes;
   DeviceBuffer<std::uint16_t> device_b_scales;
   DeviceBuffer<std::uint16_t> candidate_output;
+  DeviceBuffer<std::uint16_t> l2_macro4x4_output;
   DeviceBuffer<std::uint16_t> incumbent_output;
 };
 
@@ -232,7 +233,8 @@ struct ProjectionStorage final {
     const std::uint16_t* const a_scales,
     const std::size_t a_scale_elements,
     const kernels::Sm87A4W4AttentionK256ProjectionView* const views,
-    const std::size_t projection_count) {
+    const std::size_t projection_count,
+    const bool l2_macro4x4) {
   cudaStream_t stream{};
   cudaGraph_t graph{};
   cudaGraphExec_t executable{};
@@ -245,11 +247,15 @@ struct ProjectionStorage final {
     }
     return false;
   }
-  const int launch_status =
-      kernels::launch_sm87_a4w4_attention_k256_m128n256_a_exchange_b4_bf16_cuda(
-          topology, packed_a, packed_a_bytes, a_scales,
-          a_scale_elements, kLaunchTokens, views, projection_count,
-          stream);
+  const int launch_status = l2_macro4x4
+      ? kernels::launch_sm87_a4w4_attention_k256_m128n256_a_exchange_b4_l2_macro4x4_bf16_cuda(
+            topology, packed_a, packed_a_bytes, a_scales,
+            a_scale_elements, kLaunchTokens, views, projection_count,
+            stream)
+      : kernels::launch_sm87_a4w4_attention_k256_m128n256_a_exchange_b4_bf16_cuda(
+            topology, packed_a, packed_a_bytes, a_scales,
+            a_scale_elements, kLaunchTokens, views, projection_count,
+            stream);
   bool ok = cuda_ok(static_cast<cudaError_t>(launch_status),
                     "capture candidate launch") &&
             cuda_ok(cudaStreamEndCapture(stream, &graph),
@@ -301,6 +307,8 @@ struct ProjectionStorage final {
   std::array<kernels::Sm87A4W4AttentionK256ProjectionView, 3U>
       candidate_views{};
   std::array<kernels::Sm87A4W4AttentionK256ProjectionView, 3U>
+      l2_macro4x4_views{};
+  std::array<kernels::Sm87A4W4AttentionK256ProjectionView, 3U>
       incumbent_views{};
   for (std::size_t projection = 0U; projection < projection_count;
        ++projection) {
@@ -323,6 +331,8 @@ struct ProjectionStorage final {
                 "upload guarded B scales") ||
         !upload(item.candidate_output, item.output_initial,
                 "initialize candidate output") ||
+        !upload(item.l2_macro4x4_output, item.output_initial,
+                "initialize L2 macro4x4 output") ||
         !upload(item.incumbent_output, item.output_initial,
                 "initialize incumbent output")) {
       return false;
@@ -339,6 +349,9 @@ struct ProjectionStorage final {
     candidate_views[projection] = common;
     candidate_views[projection].output_bf16 =
         item.candidate_output.get() + kWordGuard;
+    l2_macro4x4_views[projection] = common;
+    l2_macro4x4_views[projection].output_bf16 =
+        item.l2_macro4x4_output.get() + kWordGuard;
     incumbent_views[projection] = common;
     incumbent_views[projection].output_bf16 =
         item.incumbent_output.get() + kWordGuard;
@@ -354,8 +367,20 @@ struct ProjectionStorage final {
           topology, packed_a, a_code_payload.size() - 1U, scales_a,
           a_scale_payload.size(), kLaunchTokens, candidate_views.data(),
           projection_count);
+  const int invalid_l2_token =
+      kernels::launch_sm87_a4w4_attention_k256_m128n256_a_exchange_b4_l2_macro4x4_bf16_cuda(
+          topology, packed_a, a_code_payload.size(), scales_a,
+          a_scale_payload.size(), kLogicalTokens,
+          l2_macro4x4_views.data(), projection_count);
+  const int invalid_l2_capacity =
+      kernels::launch_sm87_a4w4_attention_k256_m128n256_a_exchange_b4_l2_macro4x4_bf16_cuda(
+          topology, packed_a, a_code_payload.size() - 1U, scales_a,
+          a_scale_payload.size(), kLaunchTokens,
+          l2_macro4x4_views.data(), projection_count);
   if (invalid_token != static_cast<int>(cudaErrorInvalidValue) ||
-      invalid_capacity != static_cast<int>(cudaErrorInvalidValue)) {
+      invalid_capacity != static_cast<int>(cudaErrorInvalidValue) ||
+      invalid_l2_token != static_cast<int>(cudaErrorInvalidValue) ||
+      invalid_l2_capacity != static_cast<int>(cudaErrorInvalidValue)) {
     std::cerr << label << ": invalid padding/capacity was accepted\n";
     return false;
   }
@@ -365,13 +390,24 @@ struct ProjectionStorage final {
           topology, packed_a, a_code_payload.size(), scales_a,
           a_scale_payload.size(), kLaunchTokens, incumbent_views.data(),
           projection_count);
+  const int l2_macro4x4_status =
+      kernels::launch_sm87_a4w4_attention_k256_m128n256_a_exchange_b4_l2_macro4x4_bf16_cuda(
+          topology, packed_a, a_code_payload.size(), scales_a,
+          a_scale_payload.size(), kLaunchTokens,
+          l2_macro4x4_views.data(), projection_count);
   if (!cuda_ok(static_cast<cudaError_t>(incumbent_status),
                "launch incumbent") ||
-      !cuda_ok(cudaDeviceSynchronize(), "sync incumbent") ||
+      !cuda_ok(static_cast<cudaError_t>(l2_macro4x4_status),
+               "launch L2 macro4x4 resource-warm candidate") ||
+      !cuda_ok(cudaDeviceSynchronize(), "sync incumbent/L2 macro4x4") ||
       !graph_replay_candidate(
           topology, packed_a, a_code_payload.size(), scales_a,
           a_scale_payload.size(), candidate_views.data(),
-          projection_count)) {
+          projection_count, false) ||
+      !graph_replay_candidate(
+          topology, packed_a, a_code_payload.size(), scales_a,
+          a_scale_payload.size(), l2_macro4x4_views.data(),
+          projection_count, true)) {
     return false;
   }
 
@@ -393,11 +429,17 @@ struct ProjectionStorage final {
       return false;
     }
     std::vector<std::uint16_t> candidate(item.output_initial.size());
+    std::vector<std::uint16_t> l2_macro4x4(item.output_initial.size());
     std::vector<std::uint16_t> incumbent(item.output_initial.size());
     if (!cuda_ok(cudaMemcpy(candidate.data(), item.candidate_output.get(),
                             candidate.size() * sizeof(std::uint16_t),
                             cudaMemcpyDeviceToHost),
                  "copy candidate output") ||
+        !cuda_ok(cudaMemcpy(l2_macro4x4.data(),
+                            item.l2_macro4x4_output.get(),
+                            l2_macro4x4.size() * sizeof(std::uint16_t),
+                            cudaMemcpyDeviceToHost),
+                 "copy L2 macro4x4 output") ||
         !cuda_ok(cudaMemcpy(incumbent.data(), item.incumbent_output.get(),
                             incumbent.size() * sizeof(std::uint16_t),
                             cudaMemcpyDeviceToHost),
@@ -407,18 +449,25 @@ struct ProjectionStorage final {
     const std::size_t payload_begin = kWordGuard;
     const std::size_t payload_end =
         payload_begin + kLaunchTokens * item.stride;
-    const bool outer_guards =
-        std::all_of(candidate.begin(),
-                    candidate.begin() +
-                        static_cast<std::ptrdiff_t>(payload_begin),
-                    [](const std::uint16_t value) {
-                      return value == kWordSentinel;
-                    }) &&
-        std::all_of(candidate.begin() +
-                        static_cast<std::ptrdiff_t>(payload_end),
-                    candidate.end(), [](const std::uint16_t value) {
-                      return value == kWordSentinel;
-                    });
+    const auto guards_unchanged = [payload_begin, payload_end](
+                                      const auto& output) {
+      return std::all_of(
+                 output.begin(),
+                 output.begin() +
+                     static_cast<std::ptrdiff_t>(payload_begin),
+                 [](const std::uint16_t value) {
+                   return value == kWordSentinel;
+                 }) &&
+             std::all_of(
+                 output.begin() +
+                     static_cast<std::ptrdiff_t>(payload_end),
+                 output.end(), [](const std::uint16_t value) {
+                   return value == kWordSentinel;
+                 });
+    };
+    const bool outer_guards = guards_unchanged(candidate) &&
+                              guards_unchanged(l2_macro4x4) &&
+                              guards_unchanged(incumbent);
     if (!outer_guards) {
       std::cerr << label << ": output outer guard overwritten\n";
       return false;
@@ -435,13 +484,25 @@ struct ProjectionStorage final {
                     << std::dec << '\n';
           return false;
         }
-        if (row >= kLogicalTokens && candidate[base + column] != 0U) {
+        if (l2_macro4x4[base + column] != incumbent[base + column]) {
+          std::cerr << label << ": L2 macro4x4 BF16 mismatch projection="
+                    << projection << " row=" << row
+                    << " column=" << column << " candidate=0x"
+                    << std::hex << l2_macro4x4[base + column]
+                    << " incumbent=0x" << incumbent[base + column]
+                    << std::dec << '\n';
+          return false;
+        }
+        if (row >= kLogicalTokens &&
+            (candidate[base + column] != 0U ||
+             l2_macro4x4[base + column] != 0U)) {
           std::cerr << label << ": padded row was not zero\n";
           return false;
         }
       }
       for (std::size_t column = item.n; column < item.stride; ++column) {
         if (candidate[base + column] != kOutputSentinel ||
+            l2_macro4x4[base + column] != kOutputSentinel ||
             incumbent[base + column] != kOutputSentinel) {
           std::cerr << label << ": row guard overwritten\n";
           return false;
@@ -451,7 +512,8 @@ struct ProjectionStorage final {
   }
 
   std::cout << label << " P1920/K" << k
-            << " bit-exact incumbent/graph/guard check passed\n";
+            << " bit-exact incumbent/A-exchange/L2-macro4x4 graph/guard "
+               "check passed\n";
   return true;
 }
 
@@ -459,15 +521,21 @@ struct ProjectionStorage final {
 
 int main() {
   kernels::Sm87A4W4AttentionK256Resources resources{};
+  kernels::Sm87A4W4AttentionK256Resources l2_macro4x4_resources{};
   const int resource_status =
       kernels::query_sm87_a4w4_attention_k256_m128n256_a_exchange_b4_resources_cuda(
           &resources);
+  const int l2_macro4x4_resource_status =
+      kernels::query_sm87_a4w4_attention_k256_m128n256_a_exchange_b4_l2_macro4x4_resources_cuda(
+          &l2_macro4x4_resources);
   if (resource_status == static_cast<int>(cudaErrorNotSupported)) {
     std::cerr << "SM87 16-SM target is unavailable\n";
     return 77;
   }
   if (!cuda_ok(static_cast<cudaError_t>(resource_status),
-               "candidate resource gate")) {
+               "candidate resource gate") ||
+      !cuda_ok(static_cast<cudaError_t>(l2_macro4x4_resource_status),
+               "L2 macro4x4 resource gate")) {
     return 1;
   }
   if (resources.registers_per_thread > 255 ||
@@ -475,14 +543,24 @@ int main() {
       resources.dynamic_shared_bytes != 149'760U ||
       resources.local_bytes != 0U ||
       resources.maximum_threads_per_block < 256 ||
-      resources.active_blocks_per_sm != 1) {
+      resources.active_blocks_per_sm != 1 ||
+      l2_macro4x4_resources.registers_per_thread > 255 ||
+      l2_macro4x4_resources.static_shared_bytes != 0U ||
+      l2_macro4x4_resources.dynamic_shared_bytes != 149'760U ||
+      l2_macro4x4_resources.local_bytes != 0U ||
+      l2_macro4x4_resources.maximum_threads_per_block < 256 ||
+      l2_macro4x4_resources.active_blocks_per_sm != 1) {
     std::cerr << "candidate resource values violated the hard contract\n";
     return 1;
   }
   std::cout << "resources: regs=" << resources.registers_per_thread
             << " dynamic=" << resources.dynamic_shared_bytes
             << " local=" << resources.local_bytes
-            << " active=" << resources.active_blocks_per_sm << '\n';
+            << " active=" << resources.active_blocks_per_sm
+            << " l2_macro4x4_regs="
+            << l2_macro4x4_resources.registers_per_thread
+            << " l2_macro4x4_active="
+            << l2_macro4x4_resources.active_blocks_per_sm << '\n';
 
   if (!run_topology(
           kernels::Sm87A4W4AttentionK256Topology::kLinearQkvZ) ||

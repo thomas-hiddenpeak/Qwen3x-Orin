@@ -1092,12 +1092,15 @@ enum class A4W4AttentionK256M128N256Implementation : std::uint8_t {
 struct A4W4AttentionK256M128N256ImplementationQuery final {
   bool incumbent_requested = false;
   bool a_exchange_b4_requested = false;
+  bool a_exchange_b4_l2_macro4x4_requested = false;
 };
 
 [[nodiscard]] constexpr A4W4AttentionK256M128N256Implementation
 select_a4w4_attention_k256_m128n256_implementation(
     const A4W4AttentionK256M128N256ImplementationQuery& query) noexcept {
-  if (query.incumbent_requested && query.a_exchange_b4_requested) {
+  if ((query.incumbent_requested && query.a_exchange_b4_requested) ||
+      (query.a_exchange_b4_l2_macro4x4_requested &&
+       !query.a_exchange_b4_requested)) {
     return A4W4AttentionK256M128N256Implementation::kInvalid;
   }
   if (query.a_exchange_b4_requested) {

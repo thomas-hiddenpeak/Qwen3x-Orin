@@ -169,6 +169,17 @@ prefill_attention_k256_m128n256_a_exchange_b4_environment_enabled()
   return value != nullptr && std::strcmp(value, "1") == 0;
 }
 
+[[nodiscard]] bool
+prefill_attention_k256_m128n256_a_exchange_b4_l2_macro4x4_environment_enabled()
+    noexcept {
+  if (optimized_prefill_dispatch_disabled()) {
+    return false;
+  }
+  const char* const value = std::getenv(
+      "Q3X_RUN_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_L2_MACRO4X4_ADMISSION");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
 [[nodiscard]] bool prefill_mlp_k512_environment_enabled() noexcept {
   if (optimized_prefill_dispatch_disabled()) {
     return false;
@@ -258,6 +269,17 @@ prefill_down_k512_m128n128_16warp_pairring_environment_enabled() noexcept {
   }
   const char* const value = std::getenv(
       "Q3X_RUN_A4W4_DOWN_K512_M128N128_16WARP_PAIRRING_ADMISSION");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
+[[nodiscard]] bool
+prefill_down_k512_m128n128_16warp_pairring_l2_macro4x4_environment_enabled()
+    noexcept {
+  if (optimized_prefill_dispatch_disabled()) {
+    return false;
+  }
+  const char* const value = std::getenv(
+      "Q3X_RUN_A4W4_DOWN_K512_M128N128_16WARP_PAIRRING_L2_MACRO4X4_ADMISSION");
   return value != nullptr && std::strcmp(value, "1") == 0;
 }
 
@@ -384,10 +406,17 @@ struct PrefillMLPK512ProjectionMajorGateUpCanonicalDownEnginePaths final {
       prefill_attention_k256_m128n256_environment_enabled();
   const bool a_exchange_b4_selected =
       prefill_attention_k256_m128n256_a_exchange_b4_environment_enabled();
+  const bool a_exchange_b4_l2_macro4x4_selected =
+      prefill_attention_k256_m128n256_a_exchange_b4_l2_macro4x4_environment_enabled();
 
   if (incumbent_selected && a_exchange_b4_selected) {
     error = "the incumbent and A-exchange/B4 K256 Attention selectors are "
             "mutually exclusive";
+    return false;
+  }
+  if (a_exchange_b4_l2_macro4x4_selected && !a_exchange_b4_selected) {
+    error = "the Attention L2 macro4x4 selector requires the "
+            "A-exchange/B4 implementation selector";
     return false;
   }
 #if !defined(Q3X_ENABLE_A4W4_ATTENTION_K256_M128N256_ADMISSION)
@@ -446,6 +475,13 @@ struct PrefillMLPK512ProjectionMajorGateUpCanonicalDownEnginePaths final {
       prefill_down_k512_m128n128_ldmatrix_pairring_environment_enabled();
   const bool pairring16_selected =
       prefill_down_k512_m128n128_16warp_pairring_environment_enabled();
+  const bool pairring16_l2_macro4x4_selected =
+      prefill_down_k512_m128n128_16warp_pairring_l2_macro4x4_environment_enabled();
+  if (pairring16_l2_macro4x4_selected && !pairring16_selected) {
+    error = "the Down L2 macro4x4 selector requires the 16-warp "
+            "pair-ring implementation selector";
+    return false;
+  }
   const bool alternating_gate_selected = exact_environment_selector_enabled(
       "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_ALTERNATING_ADMISSION");
   const bool ldmatrix_pairfeed_gate_selected =

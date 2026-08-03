@@ -470,6 +470,17 @@ a4w4_down_k512_m128n128_16warp_pairring_environment_enabled() noexcept {
   return value != nullptr && std::strcmp(value, "1") == 0;
 }
 
+[[nodiscard]] bool
+a4w4_down_k512_m128n128_16warp_pairring_l2_macro4x4_environment_enabled()
+    noexcept {
+  if (optimized_prefill_dispatch_disabled()) {
+    return false;
+  }
+  const char* const value = std::getenv(
+      "Q3X_RUN_A4W4_DOWN_K512_M128N128_16WARP_PAIRRING_L2_MACRO4X4_ADMISSION");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
 thread_local bool
     g_enable_a4w4_mlp_k512_paired_gateup_canonical_down_admission =
         a4w4_mlp_k512_paired_gateup_canonical_down_environment_enabled();
@@ -485,6 +496,9 @@ thread_local bool
 thread_local bool
     g_enable_a4w4_down_k512_m128n128_16warp_pairring_admission =
         a4w4_down_k512_m128n128_16warp_pairring_environment_enabled();
+thread_local bool
+    g_enable_a4w4_down_k512_m128n128_16warp_pairring_l2_macro4x4_admission =
+        a4w4_down_k512_m128n128_16warp_pairring_l2_macro4x4_environment_enabled();
 thread_local std::size_t
     g_a4w4_gateup_down_k512_edge_m128n512_paired_ldmatrix_admission_hits =
         0U;
@@ -495,6 +509,45 @@ thread_local std::size_t
     g_a4w4_down_k512_m128n128_ldmatrix_pairring_admission_hits = 0U;
 thread_local std::size_t
     g_a4w4_down_k512_m128n128_16warp_pairring_admission_hits = 0U;
+
+#if defined(Q3X_ENABLE_A4W4_DOWN_K512_M128N128_16WARP_PAIRRING_ADMISSION)
+[[nodiscard]] int launch_selected_a4w4_down_k512_m128n128_16warp_pairring(
+    const std::uint8_t* const packed_a,
+    const std::size_t packed_a_capacity_bytes,
+    const std::uint16_t* const a_k512_scales_bf16,
+    const std::size_t a_scale_capacity_elements,
+    const std::uint8_t* const packed_b,
+    const std::size_t packed_b_capacity_bytes,
+    const std::uint16_t* const b_k512_scales_bf16,
+    const std::size_t b_scale_capacity_elements,
+    const std::size_t logical_token_count,
+    const std::size_t launch_token_count,
+    const std::size_t output_size,
+    const std::size_t input_size,
+    std::uint16_t* const output_bf16,
+    const std::size_t output_row_stride_elements,
+    const std::size_t output_capacity_elements,
+    void* const cuda_stream) noexcept {
+  if (g_enable_a4w4_down_k512_m128n128_16warp_pairring_l2_macro4x4_admission) {
+    return kernels::
+        launch_sm87_a4w4_down_k512_m128n128_16warp_pairring_l2_macro4x4_bf16_cuda(
+            packed_a, packed_a_capacity_bytes, a_k512_scales_bf16,
+            a_scale_capacity_elements, packed_b, packed_b_capacity_bytes,
+            b_k512_scales_bf16, b_scale_capacity_elements,
+            logical_token_count, launch_token_count, output_size, input_size,
+            output_bf16, output_row_stride_elements,
+            output_capacity_elements, cuda_stream);
+  }
+  return kernels::
+      launch_sm87_a4w4_down_k512_m128n128_16warp_pairring_bf16_cuda(
+          packed_a, packed_a_capacity_bytes, a_k512_scales_bf16,
+          a_scale_capacity_elements, packed_b, packed_b_capacity_bytes,
+          b_k512_scales_bf16, b_scale_capacity_elements,
+          logical_token_count, launch_token_count, output_size, input_size,
+          output_bf16, output_row_stride_elements, output_capacity_elements,
+          cuda_stream);
+}
+#endif
 
 #if defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M128N64_ADMISSION)
 [[nodiscard]] bool
@@ -595,15 +648,32 @@ a4w4_attention_k256_m128n256_a_exchange_b4_environment_enabled() noexcept {
   return value != nullptr && std::strcmp(value, "1") == 0;
 }
 
+[[nodiscard]] bool
+a4w4_attention_k256_m128n256_a_exchange_b4_l2_macro4x4_environment_enabled()
+    noexcept {
+  if (optimized_prefill_dispatch_disabled()) {
+    return false;
+  }
+  const char* const value = std::getenv(
+      "Q3X_RUN_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_L2_MACRO4X4_ADMISSION");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
 thread_local bool
     g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_admission =
         a4w4_attention_k256_m128n256_a_exchange_b4_environment_enabled();
+thread_local bool
+    g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_l2_macro4x4_admission =
+        a4w4_attention_k256_m128n256_a_exchange_b4_l2_macro4x4_environment_enabled();
 thread_local reference_runner_detail::
     A4W4AttentionSupermatrixAdmissionHits
         g_a4w4_attention_k256_m128n256_a_exchange_b4_admission_hits{};
 #else
 constexpr bool
     g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_admission = false;
+constexpr bool
+    g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_l2_macro4x4_admission =
+        false;
 #endif
 
 [[nodiscard]] bool
@@ -930,7 +1000,8 @@ a4w4_down_k512_m128n128_16warp_pairring_v1_selector_query(
   reference_runner_detail::
       A4W4DownK512M128N128Pairring16V1SelectorQuery query;
   query.requested =
-      g_enable_a4w4_down_k512_m128n128_16warp_pairring_admission
+      (g_enable_a4w4_down_k512_m128n128_16warp_pairring_admission ||
+       g_enable_a4w4_down_k512_m128n128_16warp_pairring_l2_macro4x4_admission)
 #if defined(Q3X_ENABLE_A4W4_GATEUP_K512_M64N128_REGISTER_PIPELINE_ADMISSION)
       && !g_enable_a4w4_mlp_k512_projection_major_gateup_canonical_down_admission
 #endif
@@ -951,7 +1022,9 @@ a4w4_down_k512_m128n128_16warp_pairring_v1_selector_query(
   query.incumbent_pairring_requested =
       g_enable_a4w4_down_k512_m128n128_ldmatrix_pairring_admission;
   query.conflicting_down_requested =
-      g_enable_a4w4_down_m128_stage_major_admission;
+      g_enable_a4w4_down_m128_stage_major_admission ||
+      (g_enable_a4w4_down_k512_m128n128_16warp_pairring_l2_macro4x4_admission &&
+       !g_enable_a4w4_down_k512_m128n128_16warp_pairring_admission);
 #if defined(Q3X_ENABLE_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION)
   query.conflicting_down_requested =
       query.conflicting_down_requested ||
@@ -1798,7 +1871,8 @@ void record_a4w4_attention_supermatrix_launch(
           reference_runner_detail::
               select_a4w4_attention_k256_m128n256_implementation(
                   {g_enable_a4w4_attention_k256_m128n256_admission,
-                   g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_admission});
+                   g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_admission,
+                   g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_l2_macro4x4_admission});
   if (implementation == reference_runner_detail::
                             A4W4AttentionK256M128N256Implementation::
                                 kInvalid) {
@@ -1846,11 +1920,19 @@ void record_a4w4_attention_supermatrix_launch(
   if (implementation ==
       reference_runner_detail::
           A4W4AttentionK256M128N256Implementation::kAExchangeB4) {
-    status = kernels::
-        launch_sm87_a4w4_attention_k256_m128n256_a_exchange_b4_bf16_cuda(
-            topology, packed_input, packed_input_capacity, input_scales,
-            input_scale_capacity, token_count, projection_views.data(),
-            projection_count, stream);
+    if (g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_l2_macro4x4_admission) {
+      status = kernels::
+          launch_sm87_a4w4_attention_k256_m128n256_a_exchange_b4_l2_macro4x4_bf16_cuda(
+              topology, packed_input, packed_input_capacity, input_scales,
+              input_scale_capacity, token_count, projection_views.data(),
+              projection_count, stream);
+    } else {
+      status = kernels::
+          launch_sm87_a4w4_attention_k256_m128n256_a_exchange_b4_bf16_cuda(
+              topology, packed_input, packed_input_capacity, input_scales,
+              input_scale_capacity, token_count, projection_views.data(),
+              projection_count, stream);
+    }
   } else
 #endif
       if (implementation ==
@@ -7921,7 +8003,9 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
                   stream_, local_hits, local_attention_k256_hits,
                   local_attention_k256_a_exchange_b4_hits,
                   &attention_supermatrix_selected),
-              g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_admission
+              g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_l2_macro4x4_admission
+                  ? "prefill_projection_span_linear_qkv_z_k256_m128n256_a_exchange_b4_l2_macro4x4"
+              : g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_admission
                   ? "prefill_projection_span_linear_qkv_z_k256_m128n256_a_exchange_b4"
                   : "prefill_projection_span_linear_qkv_z_k256_m128n256")) {
         return failure;
@@ -8341,7 +8425,9 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
                   stream_, local_hits, local_attention_k256_hits,
                   local_attention_k256_a_exchange_b4_hits,
                   &attention_output_supermatrix_selected),
-              g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_admission
+              g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_l2_macro4x4_admission
+                  ? "prefill_projection_span_linear_output_k256_m128n256_a_exchange_b4_l2_macro4x4"
+              : g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_admission
                   ? "prefill_projection_span_linear_output_k256_m128n256_a_exchange_b4"
                   : "prefill_projection_span_linear_output_k256_m128n256")) {
         return failure;
@@ -8469,7 +8555,9 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
                   stream_, local_hits, local_attention_k256_hits,
                   local_attention_k256_a_exchange_b4_hits,
                   &attention_supermatrix_selected),
-              g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_admission
+              g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_l2_macro4x4_admission
+                  ? "prefill_projection_span_full_q_k_v_k256_m128n256_a_exchange_b4_l2_macro4x4"
+              : g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_admission
                   ? "prefill_projection_span_full_q_k_v_k256_m128n256_a_exchange_b4"
                   : "prefill_projection_span_full_q_k_v_k256_m128n256")) {
         return failure;
@@ -8786,7 +8874,9 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
                   stream_, local_hits, local_attention_k256_hits,
                   local_attention_k256_a_exchange_b4_hits,
                   &attention_output_supermatrix_selected),
-              g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_admission
+              g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_l2_macro4x4_admission
+                  ? "prefill_projection_span_full_output_k256_m128n256_a_exchange_b4_l2_macro4x4"
+              : g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_admission
                   ? "prefill_projection_span_full_output_k256_m128n256_a_exchange_b4"
                   : "prefill_projection_span_full_output_k256_m128n256")) {
         return failure;
@@ -9339,8 +9429,7 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
     if (projection_major_gateup_canonical_down_route ==
         reference_runner_detail::
             A4W4ProjectionMajorGateUpCanonicalDownRoute::kGateAndDown) {
-      down_status = kernels::
-          launch_sm87_a4w4_down_k512_m128n128_16warp_pairring_bf16_cuda(
+      down_status = launch_selected_a4w4_down_k512_m128n128_16warp_pairring(
               views_.prefill_a4_intermediate_packed,
               intermediate_packed_capacity,
               views_.prefill_a4_intermediate_scales,
@@ -9351,7 +9440,9 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
               kReferenceIntermediateSize, secondary,
               kReferenceHiddenSize, secondary_capacity, stream_);
       down_stage =
-          "prefill_projection_span_mlp_k512_projection_major_down_m128n128_16warp_pairring";
+          g_enable_a4w4_down_k512_m128n128_16warp_pairring_l2_macro4x4_admission
+              ? "prefill_projection_span_mlp_k512_projection_major_down_m128n128_16warp_pairring_l2_macro4x4"
+              : "prefill_projection_span_mlp_k512_projection_major_down_m128n128_16warp_pairring";
     } else
 #endif
     {
@@ -9547,8 +9638,7 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
     const char* down_stage = nullptr;
 #if defined(Q3X_ENABLE_A4W4_DOWN_K512_M128N128_16WARP_PAIRRING_ADMISSION)
     if (paired_new_down_selected) {
-      down_status = kernels::
-          launch_sm87_a4w4_down_k512_m128n128_16warp_pairring_bf16_cuda(
+      down_status = launch_selected_a4w4_down_k512_m128n128_16warp_pairring(
               views_.prefill_a4_intermediate_packed,
               intermediate_packed_capacity,
               views_.prefill_a4_intermediate_scales,
@@ -9559,7 +9649,9 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
               kReferenceIntermediateSize, secondary,
               kReferenceHiddenSize, secondary_capacity, stream_);
       down_stage =
-          "prefill_projection_span_mlp_k512_paired_warp_down_m128n128_16warp_pairring";
+          g_enable_a4w4_down_k512_m128n128_16warp_pairring_l2_macro4x4_admission
+              ? "prefill_projection_span_mlp_k512_paired_warp_down_m128n128_16warp_pairring_l2_macro4x4"
+              : "prefill_projection_span_mlp_k512_paired_warp_down_m128n128_16warp_pairring";
     } else
 #endif
 #if defined(Q3X_ENABLE_A4W4_DOWN_K512_M128N128_LDMATRIX_PAIRRING_ADMISSION)
@@ -10404,8 +10496,7 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
     if (down_m128n128_16warp_pairring_v1_route ==
         reference_runner_detail::
             A4W4DownK512M128N128Pairring16V1Route::kEnabled) {
-      down_status = kernels::
-          launch_sm87_a4w4_down_k512_m128n128_16warp_pairring_bf16_cuda(
+      down_status = launch_selected_a4w4_down_k512_m128n128_16warp_pairring(
               views_.prefill_a4_intermediate_packed,
               intermediate_packed_capacity,
               views_.prefill_a4_intermediate_scales,
@@ -10416,7 +10507,9 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
               kReferenceIntermediateSize, secondary,
               kReferenceHiddenSize, secondary_capacity, stream_);
       down_stage =
-          "prefill_projection_span_mlp_k512_down_m128n128_16warp_pairring";
+          g_enable_a4w4_down_k512_m128n128_16warp_pairring_l2_macro4x4_admission
+              ? "prefill_projection_span_mlp_k512_down_m128n128_16warp_pairring_l2_macro4x4"
+              : "prefill_projection_span_mlp_k512_down_m128n128_16warp_pairring";
     } else
 #endif
 #if defined(Q3X_ENABLE_A4W4_DOWN_K512_M128N128_LDMATRIX_PAIRRING_ADMISSION)
@@ -12755,7 +12848,8 @@ ReferenceRunnerFactoryResult create_reference_runner(
           reference_runner_detail::
               select_a4w4_attention_k256_m128n256_implementation(
                   {g_enable_a4w4_attention_k256_m128n256_admission,
-                   g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_admission});
+                   g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_admission,
+                   g_enable_a4w4_attention_k256_m128n256_a_exchange_b4_l2_macro4x4_admission});
   if (options.enable_a4w4_full_prefill_admission &&
       attention_k256_implementation ==
           reference_runner_detail::
