@@ -98,14 +98,19 @@ The next complete package must couple:
 
 1. factorized scale lanes, so S32 partial lifetime crosses far fewer scale
    boundaries;
-2. M256 ownership, so B is reused across two M128 panels;
+2. shape-specific wider-M ownership: M256 for R1, where only S32 output is
+   live, and M192 for R4, where S32 lane partials and FP32 cross-lane output
+   must coexist without local memory;
 3. a zero-local output lifecycle and an overlapped load/compute pipeline;
 4. real checkpoint conversion with authenticated inverse activation factors;
 5. OpenAI-compatible serving followed immediately by external
    `evalscope[perf]==1.9.1` P1804 warmup/P1853 measurement.
 
-R1 remains only a performance upper-bound route. R4 is the quality candidate.
-Neither may enter production without real-model capability and end-to-end
-performance admission. The direct exact-K512 M256 skeleton must not be wired
+R1 remains only a performance upper-bound route and uses a new M256 kernel
+that accumulates the complete K dot in S32 before one scale application. R4 is
+the quality candidate and uses M192N128/12 warps so its 64 S32 partials plus
+64 FP32 outputs have a credible zero-local register budget. Neither may enter
+production without real-model capability and end-to-end performance
+admission. The direct exact-K512 M256 skeleton in this record must not be wired
 to the runner. Its public launcher enforces the same resource query as the
 focused test, so the archived spill binary fails closed if called directly.

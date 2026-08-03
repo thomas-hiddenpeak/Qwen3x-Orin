@@ -9,9 +9,10 @@ itself.
 Keep the locked production route unchanged while building one new dense-A4
 projection plane.  The implementation has two coupled parts:
 
-1. shape-specific operand-resident kernels, starting with a factorized-lane
-   Down `M256N128` cell that presents each complete B panel to two adjacent
-   M128 token panels without a grid barrier or cross-CTA partials; and
+1. shape-specific operand-resident kernels: an R1 Down `M256N128` performance
+   upper-bound cell and an R4 Down `M192N128` quality cell, each presenting a
+   complete B panel to more tokens without a grid barrier or cross-CTA
+   partials; and
 2. a separately versioned, equalized scale-lane sidecar which can remove the
    repeated K512/K256 FP32 scale epochs without dropping any weight values.
 
@@ -122,7 +123,18 @@ run.  The complete evidence is recorded in
 [`../prefill-down-m256n128-k512resident-resource-rejection-2026-08-03/README.md`](../prefill-down-m256n128-k512resident-resource-rejection-2026-08-03/README.md).
 
 The successor therefore keeps the same operand-reuse goal but changes the
-scale and output lifecycle with it.  It must have:
+scale and output lifecycle with it.  R1 and R4 do not share one forced tile:
+
+- R1 uses `M256N128`, keeps only 64 S32 accumulators per thread across the
+  complete `K=17408` dot, and applies its single lane scale at the end.  The
+  exact integer upper bound is `49 * 17408 = 852992`.
+- R4 uses `M192N128`, 12 warps and 384 threads.  Each thread keeps 64 S32
+  current-lane partials and 64 FP32 cross-lane outputs.  The SM87 block limit
+  leaves about 168 registers/thread, rather than the roughly 128 available to
+  a 512-thread M256 block.  At P1920 it launches exactly ten M tiles, so B
+  presentation falls from 15 to 10 with no tail MMA.
+
+Both forms must have:
 
 - no `grid.sync`, split-K, global FP32 partial, or inter-CTA wait;
 - one owner and one final BF16 write for every output element;
@@ -137,13 +149,31 @@ No 220--225 ms credit is retained from the rejected skeleton.  Only a
 zero-local factorized-lane cell that reaches the real OpenAI API/EvalScope
 direction gate may establish a new Down timing.
 
-### Gate/Up and Attention
+### Gate/Up, the product boundary, and Attention
 
 The same skeleton is applied by shape rather than copied literally:
 
-- Gate/Up shares activation fragments and keeps paired output ownership.  Its
-  wider-M cell must own the K512 Down publication boundary; a detached BF16
-  publication kernel is disallowed by the measured M128N64 rejection.
+- Gate/Up shares activation fragments and keeps paired output ownership, but
+  R1 and R4 again use different cells.  R1 uses `M128N128`: the 512-thread
+  CTA keeps 64 S32 outputs/thread across the complete K dot, halving B
+  presentation without adding the FP32 cross-lane plane.  Against the current
+  `M64N128` cell its requested A+Gate-B+Up-B operand traffic falls by 40% at
+  an aligned prompt.  R4 uses paired `M128N64`: 32 S32 current-lane partials
+  and 32 FP32 cross-lane outputs/thread retain the current 64-accumulator
+  resource floor while reducing the same ideal operand traffic by 20%.  This
+  deliberately carries forward the measured M128N64 core mechanism without
+  its rejected projection-serial/shared-Gate handoff.
+- Each epilogue writes every `BF16(SiLU(Gate) * Up)` value once into the
+  existing whole-M projection slabs.  A separate factorized quantizer then
+  computes the Down lane-wide dynamic scale and publishes the packed A4
+  consumer operand.
+- This BF16 product boundary is required by the numerical contract, not an
+  optional launch-fusion experiment.  A Gate/Up CTA owns only N128 while one
+  R4 Down scale lane covers 4352 product columns.  Without a materialized
+  product, static scales, grid synchronization, or recomputation, that CTA
+  cannot know the lane-wide maximum.  The previously rejected detached
+  M128N64 publication kernel therefore remains closed; it does not forbid the
+  single-write Gate/Up epilogue followed by the required lane quantizer.
 - Attention projections retain their grouped descriptors (linear QKV+Z and
   full Q/K/V) and online Attention consumer layouts.  A wider-M cell may be
   used only when it removes operand presentation without introducing a global
@@ -184,9 +214,11 @@ forming a performance sweep:
 
 The existing equalization parser, factor SHA validation, shared-boundary
 policy checks, and converter multiplication are reused.  Production's current
-equalization rejection is not deleted.  A new v4 kind, layout, receipt and
-authenticated inverse-factor metadata handle are required, and the existing
-K64/K128/K256 artifacts remain fail-closed.
+equalization rejection is not deleted.  A new, independent 192-projection MLP
+v4 overlay, layout, receipt and authenticated inverse-factor metadata handle
+are required, and the existing 400-projection K256 artifact continues to own
+Attention.  Old K512 MLP and new v4 MLP overlays are mutually exclusive; the
+existing K64/K128/K256 artifacts remain fail-closed.
 
 A real-weight alpha=1 diagnostic on the first 512 rows shows why R1 cannot be
 promoted on performance alone: re-quantizing the current A4 Gate/Down weights
@@ -232,3 +264,22 @@ credited to launch fusion.
 6. Production remains locked until the complete default-off package passes
    Release tests, Decode graph/oracle checks, memory accounting, real API
    matrices and independent review.
+
+The first complete direction slice is deliberately narrow but end to end:
+
+1. generate an authenticated R1/alpha=1 MLP-v4 artifact from the locked real
+   K256 publication (itself bound to the real checkpoint), explicitly labelled
+   as a performance upper bound rather than a quality candidate; R4 quality
+   conversion later returns to the original checkpoint plus real-prompt
+   equalization statistics rather than compounding this R1 recode;
+2. attach it over the locked K256 base, with old K512 MLP, cuBLASLt and MTP
+   routes forbidden;
+3. run factorized hidden quantize, paired Gate/Up plus single BF16 product
+   publication, factorized product quantize, and R1 M256 Down in every layer;
+4. expose exact route counters and authenticated identities through the same
+   OpenAI-compatible server ELF; and
+5. run one natural P1804 warmup then one P1853 measurement using external
+   `evalscope[perf]==1.9.1`, concurrency one and one generated token.
+
+Only a positive whole-request result unlocks the R4/M192 quality artifact and
+kernel, repeated statistics, the longer prompt matrix, and capability gates.
