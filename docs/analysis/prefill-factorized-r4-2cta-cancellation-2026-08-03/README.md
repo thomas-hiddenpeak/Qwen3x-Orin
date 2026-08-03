@@ -1,6 +1,6 @@
 # Direct R4 two-CTA MLP cancellation
 
-Date: 2026-08-03  
+Date: 2026-08-03
 Scope: Qwen3.6-27B-NVFP4, AGX Orin SM87, single-request Prefill
 
 Performance authority: real checkpoint, OpenAI `/v1/completions`, external
@@ -128,4 +128,3 @@ NSys kernel summary SHA-256
 profile server log SHA-256
   56235711f631925067d4d3b210b1ea309191d1536478f5ccb1725649d7afb2e0
 ```
-
