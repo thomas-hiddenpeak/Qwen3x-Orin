@@ -73,6 +73,10 @@ struct ReferenceRunnerOptions {
   // route.  The factory authenticates all 64 Gate/Up/Down views before a
   // runner is returned.
   bool enable_factorized_lane_r1_prefill_admission = false;
+  // Select the independent direct-checkpoint R4 whole-MLP package.  It is
+  // mutually exclusive with R1 and every K512/Marlin MLP route, and accepts
+  // only one logical P1793..P1920 projection span launched as P1920.
+  bool enable_factorized_lane_r4_prefill_admission = false;
 };
 
 enum class ReferenceLogitsMode : std::uint8_t {
@@ -256,6 +260,10 @@ struct ReferenceLongPrefillResult {
   // every decoder layer/projection span.  Tile-prefill can never increment
   // this counter.
   std::size_t factorized_lane_r1_package_launch_hits = 0U;
+  // Independent proof for the direct-checkpoint R4 package.  One hit means
+  // lane4 hidden quantization, paired Gate+Up, split product quantization,
+  // and Down all enqueued successfully for one layer/span.
+  std::size_t factorized_lane_r4_package_launch_hits = 0U;
   // Request-local proof that the default-off full-projection-serial
   // M128N128 Gate+Up route owned every decoder layer.
   std::size_t gateup_m128n128_projection_serial_launch_hits = 0U;
@@ -761,7 +769,54 @@ struct A4W4FullPrefillAdmissionHits {
   // One hit is one complete R1 Gate+Up -> BF16 boundary -> Down package
   // launch for one decoder layer and one whole-M projection span.
   std::size_t factorized_lane_r1_package_launch_hits = 0U;
+  // Kept independent from R1 so request accounting cannot mistake an R1
+  // package for the direct-checkpoint R4 execution slice.
+  std::size_t factorized_lane_r4_package_launch_hits = 0U;
 };
+
+enum class FactorizedLaneR4PrefillRoute : std::uint8_t {
+  kDisabled = 0,
+  kInvalid,
+  kEnabled,
+};
+
+struct FactorizedLaneR4PrefillRouteQuery final {
+  bool requested = false;
+  bool r1_requested = false;
+  bool full_a4_prefill_enabled = false;
+  bool sm87_weight_only = false;
+  bool trace_enabled = false;
+  bool optimized_dispatch_disabled = false;
+  // Independently attached companion inventory for non-MLP projections;
+  // never interpreted as the direct-checkpoint R4 payload source.
+  bool k256_inventory = false;
+  bool complete_r4_mlp_attached = false;
+  bool mlp_selector_conflict = false;
+};
+
+[[nodiscard]] constexpr FactorizedLaneR4PrefillRoute
+select_factorized_lane_r4_prefill_route(
+    const FactorizedLaneR4PrefillRouteQuery& query) noexcept {
+  if (!query.requested) {
+    return FactorizedLaneR4PrefillRoute::kDisabled;
+  }
+  return !query.r1_requested && query.full_a4_prefill_enabled &&
+                 query.sm87_weight_only && !query.trace_enabled &&
+                 !query.optimized_dispatch_disabled &&
+                 query.k256_inventory && query.complete_r4_mlp_attached &&
+                 !query.mlp_selector_conflict
+             ? FactorizedLaneR4PrefillRoute::kEnabled
+             : FactorizedLaneR4PrefillRoute::kInvalid;
+}
+
+[[nodiscard]] constexpr bool factorized_lane_r4_prefill_prompt_supported(
+    const std::size_t logical_token_count,
+    const std::size_t projection_token_count,
+    const std::size_t workspace_span_capacity) noexcept {
+  return logical_token_count >= 1'793U && logical_token_count <= 1'920U &&
+         projection_token_count == 1'920U &&
+         workspace_span_capacity >= projection_token_count;
+}
 
 // Independent success-only accounting for the default-off Attention
 // supermatrix runtime slice.  Input launches count one physical launcher even
@@ -1856,6 +1911,9 @@ class ReferenceRunner {
   [[nodiscard]] bool factorized_lane_r1_prefill_enabled() const noexcept {
     return factorized_lane_r1_prefill_admission_enabled_;
   }
+  [[nodiscard]] bool factorized_lane_r4_prefill_enabled() const noexcept {
+    return factorized_lane_r4_prefill_admission_enabled_;
+  }
 
   [[nodiscard]] ReferenceStepOutcome step(
       std::uint32_t input_token_id,
@@ -2055,6 +2113,7 @@ class ReferenceRunner {
               A4W4PairedGateUpCanonicalDownRoute::kDisabled;
   bool a4w4_full_prefill_admission_enabled_ = false;
   bool factorized_lane_r1_prefill_admission_enabled_ = false;
+  bool factorized_lane_r4_prefill_admission_enabled_ = false;
   bool trace_enabled_ = false;
   bool trace_valid_ = false;
   bool poisoned_ = false;

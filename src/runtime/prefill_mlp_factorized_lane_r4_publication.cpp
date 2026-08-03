@@ -88,6 +88,12 @@ make_diagnostic(
   return true;
 }
 
+[[nodiscard]] bool valid_factor_scheme(
+    const std::string_view value) noexcept {
+  return value == kPrefillMLPFactorizedLaneR4PublicationFactorScheme ||
+         value == kPrefillMLPFactorizedLaneR4IdentityCandidateFactorScheme;
+}
+
 [[nodiscard]] std::string sha256_text(const std::string_view bytes) {
   core::Sha256 hasher;
   if (!hasher.update(bytes.data(), bytes.size())) {
@@ -872,15 +878,15 @@ validate_policy_core(
         binding.source_sha256 != projection.source_sha256 ||
         !valid_clip_ratio(binding.weight_clip_ratio) ||
         !valid_clip_ratio(binding.activation_clip_ratio) ||
-        binding.factor_scheme !=
-            kPrefillMLPFactorizedLaneR4PublicationFactorScheme ||
+        !valid_factor_scheme(binding.factor_scheme) ||
+        binding.factor_scheme != policy.projections.front().factor_scheme ||
         !valid_factor_path(binding.factor_path) ||
         !lower_sha256(binding.factor_sha256) ||
         binding.factor_element_count != projection.input_size) {
       return make_diagnostic(
           PrefillMLPFactorizedLaneR4PublicationErrorCode::kInvalidPolicy,
           "r4.policy.projections[" + std::to_string(index) + "]",
-          "projection clip/source/calibrated-alpha binding is invalid");
+          "projection clip/source/factor binding is invalid or schemes are mixed");
     }
   }
   for (std::size_t layer = 0U;
@@ -959,8 +965,7 @@ build_prefill_mlp_factorized_lane_r4_policy(
       binding.source_sha256 = source.source_sha256;
       binding.weight_clip_ratio = spec.weight_clip_ratio;
       binding.activation_clip_ratio = spec.activation_clip_ratio;
-      binding.factor_scheme =
-          std::string(kPrefillMLPFactorizedLaneR4PublicationFactorScheme);
+      binding.factor_scheme = spec.alpha_scheme;
       binding.factor_path = spec.alpha_path;
       binding.factor_sha256 = spec.alpha_sha256;
       binding.factor_element_count = spec.alpha_element_count;
@@ -1170,8 +1175,7 @@ namespace {
   write_direct_source(output, receipt.direct_source);
   output << ",\"lane_count\":" << receipt.lane_count
          << ",\"factor_scheme\":";
-  write_quoted(output,
-               kPrefillMLPFactorizedLaneR4PublicationFactorScheme);
+  write_quoted(output, receipt.factor_scheme);
   output << ",\"manifest_sha256\":";
   write_quoted(output, receipt.manifest_sha256);
   output << ",\"manifest_bytes\":" << receipt.manifest_bytes
@@ -1214,6 +1218,8 @@ validate_receipt_core(
       receipt.manifest_bytes != manifest.manifest_bytes ||
       receipt.policy_sha256 != policy.policy_sha256 ||
       receipt.policy_bytes != policy.policy_bytes ||
+      !valid_factor_scheme(receipt.factor_scheme) ||
+      receipt.factor_scheme != policy.projections.front().factor_scheme ||
       !lower_sha256(receipt.payload_sha256) ||
       receipt.payload_bytes != manifest.payload_bytes ||
       receipt.payload_bytes !=
@@ -1268,6 +1274,7 @@ build_prefill_mlp_factorized_lane_r4_receipt(
     receipt.manifest_bytes = manifest.manifest_bytes;
     receipt.policy_sha256 = policy.policy_sha256;
     receipt.policy_bytes = policy.policy_bytes;
+    receipt.factor_scheme = policy.projections.front().factor_scheme;
     receipt.payload_sha256 = std::string(payload_sha256);
     receipt.payload_bytes = manifest.payload_bytes;
     receipt.projection_count = manifest.projections.size();
@@ -1317,7 +1324,6 @@ parse_prefill_mlp_factorized_lane_r4_receipt(
     }
     PrefillMLPFactorizedLaneR4Receipt receipt;
     std::string schema;
-    std::string factor_scheme;
     std::uint64_t lane_count = 0U;
     if (!json_string(*root, "schema", schema) || schema != kReceiptSchema ||
         !parse_version(root->at("version"), receipt.version_major,
@@ -1335,7 +1341,7 @@ parse_prefill_mlp_factorized_lane_r4_receipt(
                              receipt.direct_source) ||
         !json_uint(*root, "lane_count", lane_count) ||
         lane_count > std::numeric_limits<std::uint32_t>::max() ||
-        !json_string(*root, "factor_scheme", factor_scheme) ||
+        !json_string(*root, "factor_scheme", receipt.factor_scheme) ||
         !json_string(*root, "manifest_sha256",
                      receipt.manifest_sha256) ||
         !json_uint(*root, "manifest_bytes", receipt.manifest_bytes) ||
@@ -1351,14 +1357,6 @@ parse_prefill_mlp_factorized_lane_r4_receipt(
       return result;
     }
     receipt.lane_count = static_cast<std::uint32_t>(lane_count);
-    if (factor_scheme !=
-        kPrefillMLPFactorizedLaneR4PublicationFactorScheme) {
-      result.diagnostic = make_diagnostic(
-          PrefillMLPFactorizedLaneR4PublicationErrorCode::kInvalidReceipt,
-          "r4.receipt.factor_scheme",
-          "receipt factor scheme differs from calibrated R4 ABI");
-      return result;
-    }
     result.diagnostic = validate_receipt_core(receipt, manifest, policy);
     if (!result.diagnostic) {
       return result;

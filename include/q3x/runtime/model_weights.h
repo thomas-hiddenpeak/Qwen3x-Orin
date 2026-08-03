@@ -867,8 +867,9 @@ class ModelWeights {
   // Transactionally publishes the direct-checkpoint R4 factorized-lane
   // payload as a separate 64-layer view family.  Strict-parser manifest and
   // policy outputs are rechecked for lane4, fixed inventory/layout/ranges,
-  // calibrated alpha identity, and Gate/Up sharing before any resident view
-  // changes.  R4 is mutually exclusive with R1 and every MLP K512 layout.
+  // calibrated alpha identity (or the two exact shape-specific builtin
+  // identity-alpha candidates), and Gate/Up sharing before any resident view
+  // changes. R4 is mutually exclusive with R1 and every MLP K512 layout.
   // A canonical all-null/zero call detaches R4 only.
   [[nodiscard]] bool attach_prefill_mlp_factorized_lane_r4_sidecars(
       const std::uint8_t* arena, std::size_t arena_bytes,

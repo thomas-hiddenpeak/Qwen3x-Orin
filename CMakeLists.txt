@@ -114,6 +114,10 @@ option(Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_R1_ADMISSION
   "Build the default-off authenticated whole-M factorized-lane R1 API experiment"
   OFF
 )
+option(Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_R4_ADMISSION
+  "Build the default-off direct-checkpoint whole-M factorized-lane R4 API experiment"
+  OFF
+)
 option(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M128N64_EXPERIMENT
   "Build the default-off producer-owned M128N64 Gate+Up K512 edge candidate"
   OFF
@@ -373,9 +377,10 @@ if(Q3X_BUILD_SM87_A4W4_ATTENTION_K256_M128N256_ADMISSION AND
 endif()
 if(Q3X_BUILD_SM87_A4W4_ATTENTION_K256_M128N256_ADMISSION AND
    NOT Q3X_BUILD_SM87_A4W4_MLP_K512_ADMISSION AND
-   NOT Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_R1_ADMISSION)
+   NOT Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_R1_ADMISSION AND
+   NOT Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_R4_ADMISSION)
   message(FATAL_ERROR
-    "The K256 Attention projection cell requires either the complete K512 MLP overlay route or the factorized-lane R1 MLP route because the K256 base has no generic MLP consumer"
+    "The K256 Attention projection cell requires either the complete K512 MLP overlay route or a factorized-lane R1/R4 MLP route because the K256 inventory has no generic MLP consumer"
   )
 endif()
 if(Q3X_BUILD_SM87_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_EXPERIMENT AND
@@ -383,9 +388,10 @@ if(Q3X_BUILD_SM87_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_EXPERIMENT AND
     NOT Q3X_BUILD_SM87_A4W4_ATTENTION_K256_M128N256_ADMISSION OR
     NOT Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION OR
     NOT Q3X_BUILD_SM87_A4W4_MLP_K512_ADMISSION AND
-    NOT Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_R1_ADMISSION))
+    NOT Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_R1_ADMISSION AND
+    NOT Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_R4_ADMISSION))
   message(FATAL_ERROR
-    "The Attention A-exchange/B4 experiment requires BUILD_TESTING plus authenticated K256 Attention/full-A4 and either K512 or factorized-R1 MLP"
+    "The Attention A-exchange/B4 experiment requires BUILD_TESTING plus authenticated K256 Attention/full-A4 and either K512 or factorized-lane R1/R4 MLP"
   )
 endif()
 if(Q3X_BUILD_SM87_A4W4_ATTENTION_O_K512_ADMISSION AND
@@ -426,6 +432,17 @@ if(Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_R1_ADMISSION AND
     NOT Q3X_BUILD_SM87_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_EXPERIMENT))
   message(FATAL_ERROR
     "The factorized-lane R1 API experiment requires BUILD_TESTING, its kernel architecture, authenticated full-A4, whole-M layer-major Prefill, and the cumulative K256 Attention A-exchange/B4 route"
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_R4_ADMISSION AND
+   (NOT BUILD_TESTING OR
+    NOT Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_MLP_EXPERIMENT OR
+    NOT Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION OR
+    NOT Q3X_BUILD_LONG_PREFILL_LAYER_MAJOR_ADMISSION OR
+    NOT Q3X_BUILD_SM87_A4W4_ATTENTION_K256_M128N256_ADMISSION OR
+    NOT Q3X_BUILD_SM87_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_EXPERIMENT))
+  message(FATAL_ERROR
+    "The factorized-lane R4 API experiment requires BUILD_TESTING, its direct-checkpoint kernel architecture, authenticated full-A4, whole-M layer-major Prefill, and the cumulative K256 Attention A-exchange/B4 companion route"
   )
 endif()
 if(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M128N64_EXPERIMENT AND
@@ -713,11 +730,17 @@ if(Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_MLP_EXPERIMENT)
     src/runtime/prefill_mlp_factorized_lane_converter.cpp
     src/runtime/prefill_mlp_factorized_lane_r4_converter.cpp
     src/runtime/prefill_mlp_factorized_lane_r4_publication.cpp
+    src/runtime/prefill_mlp_factorized_lane_r4_candidate_converter.cpp
   )
 endif()
 if(Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_R1_ADMISSION)
   target_compile_definitions(q3x_core PRIVATE
     Q3X_ENABLE_A4W4_FACTORIZED_LANE_R1_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_R4_ADMISSION)
+  target_compile_definitions(q3x_core PRIVATE
+    Q3X_ENABLE_A4W4_FACTORIZED_LANE_R4_ADMISSION=1
   )
 endif()
 q3x_enable_warnings(q3x_core)
@@ -1102,6 +1125,11 @@ if(Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_R1_ADMISSION)
     Q3X_ENABLE_A4W4_FACTORIZED_LANE_R1_ADMISSION=1
   )
 endif()
+if(Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_R4_ADMISSION)
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_A4W4_FACTORIZED_LANE_R4_ADMISSION=1
+  )
+endif()
 if(Q3X_BUILD_SM87_A4W4_DOWN_K512_M16N64_V2_EXPERIMENT)
   target_sources(q3x_kernels PRIVATE
     src/kernels/sm87/a4w4_down_k512_m16n64_v2.cu
@@ -1292,6 +1320,11 @@ if(Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_R1_ADMISSION)
     Q3X_ENABLE_A4W4_FACTORIZED_LANE_R1_ADMISSION=1
   )
 endif()
+if(Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_R4_ADMISSION)
+  target_compile_definitions(q3x_engine PRIVATE
+    Q3X_ENABLE_A4W4_FACTORIZED_LANE_R4_ADMISSION=1
+  )
+endif()
 if(Q3X_BUILD_GDN_PREFILL_PROMPT_SPAN_MACRO_ADMISSION)
   target_compile_definitions(q3x_engine PRIVATE
     Q3X_ENABLE_GDN_PREFILL_PROMPT_SPAN_MACRO_ADMISSION=1
@@ -1439,6 +1472,11 @@ if(Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_R1_ADMISSION)
     Q3X_ENABLE_A4W4_FACTORIZED_LANE_R1_ADMISSION=1
   )
 endif()
+if(Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_R4_ADMISSION)
+  target_compile_definitions(q3x_eval_gateway PRIVATE
+    Q3X_ENABLE_A4W4_FACTORIZED_LANE_R4_ADMISSION=1
+  )
+endif()
 if(BUILD_TESTING)
   # Request-scoped CUDA profiler ranges are diagnostic infrastructure only.
   # Keeping both the implementation define and direct cudart link under
@@ -1556,6 +1594,26 @@ if(BUILD_TESTING)
     set_tests_properties(
       prefill_mlp_factorized_lane_r4_publication PROPERTIES
       LABELS "host;prefill;mlp;a4w4;factorized-lane;r4;direct-checkpoint;publication;correctness"
+      TIMEOUT 600
+    )
+
+    add_executable(
+      q3x_prefill_mlp_factorized_lane_r4_candidate_converter_test
+      tests/prefill_mlp_factorized_lane_r4_candidate_converter_test.cpp
+    )
+    target_link_libraries(
+      q3x_prefill_mlp_factorized_lane_r4_candidate_converter_test
+      PRIVATE q3x::core
+    )
+    q3x_enable_warnings(
+      q3x_prefill_mlp_factorized_lane_r4_candidate_converter_test
+    )
+    add_test(NAME prefill_mlp_factorized_lane_r4_candidate_converter
+      COMMAND q3x_prefill_mlp_factorized_lane_r4_candidate_converter_test
+    )
+    set_tests_properties(
+      prefill_mlp_factorized_lane_r4_candidate_converter PROPERTIES
+      LABELS "host;prefill;mlp;a4w4;factorized-lane;r4;direct-checkpoint;candidate;converter;correctness"
       TIMEOUT 600
     )
 

@@ -29,6 +29,9 @@ inline constexpr std::string_view
 inline constexpr std::string_view
     kPrefillMLPFactorizedLaneR4PublicationFactorScheme =
         "calibrated_alpha_f32_v1";
+inline constexpr std::string_view
+    kPrefillMLPFactorizedLaneR4IdentityCandidateFactorScheme =
+        "identity_alpha_f32_v1";
 inline constexpr double
     kPrefillMLPFactorizedLaneR4PublicationMinimumClipRatio = 1.0 / 256.0;
 inline constexpr std::string_view
@@ -126,6 +129,13 @@ prefill_mlp_factorized_lane_r4_manifest_sha256(
     const PrefillMLPFactorizedLaneR4Manifest& manifest);
 
 struct PrefillMLPFactorizedLaneR4CalibrationSpec final {
+  // Calibrated remains the default for existing callers.  The independent
+  // identity direction publisher must set identity_alpha_f32_v1 explicitly.
+  // Runtime admission treats that spelling as a closed builtin vocabulary:
+  // only the two pinned shape-specific identity URIs, one[K] digests, and
+  // exact reciprocal metadata are accepted by the loader.
+  std::string alpha_scheme =
+      std::string(kPrefillMLPFactorizedLaneR4PublicationFactorScheme);
   double weight_clip_ratio = 0.0;
   double activation_clip_ratio = 0.0;
   std::string alpha_path;
@@ -217,6 +227,7 @@ struct PrefillMLPFactorizedLaneR4Receipt final {
   std::uint64_t manifest_bytes = 0U;
   std::string policy_sha256;
   std::uint64_t policy_bytes = 0U;
+  std::string factor_scheme;
   std::string payload_sha256;
   std::uint64_t payload_bytes = 0U;
   std::uint64_t projection_count = 0U;

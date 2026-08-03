@@ -4,6 +4,7 @@
 #include "q3x/model/checkpoint_metadata.h"
 #include "q3x/model/model_config.h"
 #include "q3x/runtime/prefill_mlp_factorized_lane_r4_publication.h"
+#include "q3x/runtime/prefill_mlp_factorized_lane_r4_candidate_converter.h"
 
 #include <algorithm>
 #include <array>
@@ -349,6 +350,41 @@ make_calibration(
   return result;
 }
 
+[[nodiscard]] std::vector<
+    runtime::PrefillMLPFactorizedLaneR4CalibrationSpec>
+make_identity_calibration(
+    const runtime::PrefillMLPFactorizedLaneR4Manifest& manifest,
+    const bool corrupt_digest = false,
+    const bool corrupt_path = false) {
+  std::vector<runtime::PrefillMLPFactorizedLaneR4CalibrationSpec>
+      result(manifest.projections.size());
+  for (std::size_t index = 0U; index < result.size(); ++index) {
+    const bool k5120 = manifest.projections[index].input_size == 5'120U;
+    result[index].alpha_scheme = std::string(
+        runtime::kPrefillMLPFactorizedLaneR4IdentityCandidateFactorScheme);
+    result[index].weight_clip_ratio = 1.0;
+    result[index].activation_clip_ratio = 1.0;
+    result[index].alpha_path =
+        corrupt_path
+            ? "builtin/q3x/identity-alpha-f32-v1/unsupported"
+            : std::string(
+                  k5120 ? runtime::
+                              kPrefillMLPFactorizedLaneR4IdentityCandidateAlpha5120
+                        : runtime::
+                              kPrefillMLPFactorizedLaneR4IdentityCandidateAlpha17408);
+    result[index].alpha_sha256 =
+        corrupt_digest
+            ? std::string(64U, 'a')
+            : k5120
+                  ? std::string(runtime::
+                                    kPrefillMLPFactorizedLaneR4IdentityCandidateAlpha5120Sha256)
+                  : std::string(runtime::
+                                    kPrefillMLPFactorizedLaneR4IdentityCandidateAlpha17408Sha256);
+    result[index].alpha_element_count = manifest.projections[index].input_size;
+  }
+  return result;
+}
+
 [[nodiscard]] bool same_view(
     const runtime::PrefillMLPFactorizedLaneR4LinearSidecarView& left,
     const runtime::PrefillMLPFactorizedLaneR4LinearSidecarView&
@@ -531,6 +567,50 @@ void test_attachment(Test& test) {
                   r4_layout_matches(weights, kArenaAddress),
               "R4 transaction publishes 192 direct-checkpoint views");
   const Snapshot attached = snapshot(weights);
+
+  const auto identity_policy_result =
+      runtime::build_prefill_mlp_factorized_lane_r4_policy(
+          manifest, make_identity_calibration(manifest));
+  test.expect(static_cast<bool>(identity_policy_result),
+              "strict identity-alpha R4 policy builds");
+  if (identity_policy_result) {
+    test.expect(weights.attach_prefill_mlp_factorized_lane_r4_sidecars(
+                    pointer(kArenaAddress), payload_bytes, &manifest,
+                    &*identity_policy_result.value) &&
+                    r4_layout_matches(weights, kArenaAddress),
+                "exact shape-specific builtin identity-alpha policy attaches");
+  }
+  const Snapshot identity_attached = snapshot(weights);
+  const auto bad_identity_policy_result =
+      runtime::build_prefill_mlp_factorized_lane_r4_policy(
+          manifest, make_identity_calibration(manifest, true));
+  test.expect(static_cast<bool>(bad_identity_policy_result),
+              "strict identity policy can bind a different digest");
+  if (bad_identity_policy_result) {
+    test.expect(!weights.attach_prefill_mlp_factorized_lane_r4_sidecars(
+                    pointer(kArenaAddress), payload_bytes, &manifest,
+                    &*bad_identity_policy_result.value) &&
+                    matches_snapshot(weights, identity_attached),
+                "ModelWeights rejects identity builtin with noncanonical "
+                "FP32LE-one digest");
+  }
+  const auto bad_identity_path_policy_result =
+      runtime::build_prefill_mlp_factorized_lane_r4_policy(
+          manifest, make_identity_calibration(manifest, false, true));
+  test.expect(static_cast<bool>(bad_identity_path_policy_result),
+              "strict identity policy can name an unsupported builtin path");
+  if (bad_identity_path_policy_result) {
+    test.expect(!weights.attach_prefill_mlp_factorized_lane_r4_sidecars(
+                    pointer(kArenaAddress), payload_bytes, &manifest,
+                    &*bad_identity_path_policy_result.value) &&
+                    matches_snapshot(weights, identity_attached),
+                "ModelWeights rejects every non-whitelisted builtin "
+                "identity-alpha path");
+  }
+  test.expect(weights.attach_prefill_mlp_factorized_lane_r4_sidecars(
+                  pointer(kArenaAddress), payload_bytes, &manifest, &policy) &&
+                  matches_snapshot(weights, attached),
+              "calibrated R4 policy restores the original transaction");
 
   test.expect(
       !weights.attach_prefill_mlp_factorized_lane_r4_sidecars(

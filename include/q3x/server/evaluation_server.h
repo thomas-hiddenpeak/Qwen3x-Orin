@@ -57,6 +57,12 @@ struct EvaluationServerOptions {
   std::filesystem::path prefill_mlp_factorized_lane_r1_payload_path;
   std::filesystem::path prefill_mlp_factorized_lane_r1_policy_path;
   std::filesystem::path prefill_mlp_factorized_lane_r1_receipt_path;
+  // Direct-checkpoint R4 performance candidate.  The publication identity is
+  // independent from the K256 inventory; the latter is still required by the
+  // first real-API bundle as the companion Attention plane.
+  std::filesystem::path prefill_mlp_factorized_lane_r4_payload_path;
+  std::filesystem::path prefill_mlp_factorized_lane_r4_policy_path;
+  std::filesystem::path prefill_mlp_factorized_lane_r4_receipt_path;
   std::string bind_address = "127.0.0.1";
   std::uint16_t port = 8000U;
   std::string served_model = "qwen3.6-27b-nvfp4";

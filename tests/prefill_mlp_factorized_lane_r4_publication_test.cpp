@@ -354,6 +354,43 @@ void test_policy_and_receipt(
                       policy.canonical_document, manifest)),
               "canonical policy strict round-trip succeeds");
 
+  auto identity_calibration = calibration;
+  for (std::size_t index = 0U; index < identity_calibration.size(); ++index) {
+    auto& spec = identity_calibration[index];
+    spec.alpha_scheme = std::string(
+        runtime::kPrefillMLPFactorizedLaneR4IdentityCandidateFactorScheme);
+    const bool down = index % 3U == 2U;
+    spec.alpha_path = down
+                          ? "builtin/q3x/identity-alpha-f32-v1/k17408"
+                          : "builtin/q3x/identity-alpha-f32-v1/k5120";
+    spec.alpha_sha256 = std::string(64U, down ? '2' : '1');
+  }
+  const auto identity_policy =
+      runtime::build_prefill_mlp_factorized_lane_r4_policy(
+          manifest, identity_calibration);
+  test.expect(
+      identity_policy &&
+          identity_policy.value->projections.front().factor_scheme ==
+              "identity_alpha_f32_v1" &&
+          static_cast<bool>(
+              runtime::parse_prefill_mlp_factorized_lane_r4_policy(
+                  identity_policy.canonical_document, manifest)),
+      "identity direction policy is explicit and never labeled calibrated");
+  if (identity_policy) {
+    const auto identity_receipt =
+        runtime::build_prefill_mlp_factorized_lane_r4_receipt(
+            manifest, *identity_policy.value, std::string(64U, 'd'));
+    test.expect(
+        identity_receipt &&
+            identity_receipt.value->factor_scheme ==
+                "identity_alpha_f32_v1" &&
+            static_cast<bool>(
+                runtime::parse_prefill_mlp_factorized_lane_r4_receipt(
+                    identity_receipt.canonical_document, manifest,
+                    *identity_policy.value)),
+        "identity direction receipt preserves its non-calibrated scheme");
+  }
+
   auto bad_calibration = calibration;
   bad_calibration[1].alpha_path += ".different";
   test.expect(!runtime::build_prefill_mlp_factorized_lane_r4_policy(
@@ -369,6 +406,12 @@ void test_policy_and_receipt(
   test.expect(!runtime::build_prefill_mlp_factorized_lane_r4_policy(
                   manifest, bad_calibration),
               "noncanonical relative alpha path fails builder");
+  bad_calibration = calibration;
+  bad_calibration[2].alpha_scheme = std::string(
+      runtime::kPrefillMLPFactorizedLaneR4IdentityCandidateFactorScheme);
+  test.expect(!runtime::build_prefill_mlp_factorized_lane_r4_policy(
+                  manifest, bad_calibration),
+              "one publication cannot mix calibrated and identity schemes");
 
   std::string mutated = policy.canonical_document;
   test.expect(replace_once(mutated, "{\"schema\":",

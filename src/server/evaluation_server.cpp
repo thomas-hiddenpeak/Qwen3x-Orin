@@ -1011,6 +1011,9 @@ void execute_job(runtime::ReferenceEngine& engine,
             << " factorized_lane_r1_package_launch_hits="
             << generated.value->timing
                    .factorized_lane_r1_package_launch_hits
+            << " factorized_lane_r4_package_launch_hits="
+            << generated.value->timing
+                   .factorized_lane_r4_package_launch_hits
             << " gateup_m128n128_projection_serial_launch_hits="
             << generated.value->timing
                    .gateup_m128n128_projection_serial_launch_hits
@@ -1608,16 +1611,34 @@ void ingress_worker(
             "payload, policy, and receipt";
     return false;
   }
+  const bool mlp_factorized_r4_payload =
+      !options.prefill_mlp_factorized_lane_r4_payload_path.empty();
+  const bool mlp_factorized_r4_policy =
+      !options.prefill_mlp_factorized_lane_r4_policy_path.empty();
+  const bool mlp_factorized_r4_receipt =
+      !options.prefill_mlp_factorized_lane_r4_receipt_path.empty();
+  if (mlp_factorized_r4_payload != mlp_factorized_r4_policy ||
+      mlp_factorized_r4_payload != mlp_factorized_r4_receipt) {
+    error = "factorized-lane R4 MLP payload, policy, and receipt are "
+            "required together";
+    return false;
+  }
+  if (mlp_factorized_r4_payload && (!a4_payload || !a4_receipt)) {
+    error = "factorized-lane R4 MLP execution requires the independently "
+            "authenticated K256 A4 Attention inventory";
+    return false;
+  }
   const unsigned mlp_k512_publications =
       static_cast<unsigned>(mlp_k512_payload) +
       static_cast<unsigned>(mlp_k512_fragment_native_payload) +
       static_cast<unsigned>(mlp_k512_hybrid_payload) +
       static_cast<unsigned>(mlp_k512_projection_major_payload) +
-      static_cast<unsigned>(mlp_factorized_r1_payload);
+      static_cast<unsigned>(mlp_factorized_r1_payload) +
+      static_cast<unsigned>(mlp_factorized_r4_payload);
   if (mlp_k512_publications > 1U) {
     error = "K512 MLP v1, fragment-native v2, paired-GateUp/canonical-Down "
             "hybrid, projection-major-GateUp/canonical-Down, and "
-            "factorized-lane R1 publications are mutually exclusive";
+            "factorized-lane R1/R4 publications are mutually exclusive";
     return false;
   }
   if (a4_payload &&
@@ -1736,6 +1757,12 @@ int run_evaluation_server(const EvaluationServerOptions& options,
       options.prefill_mlp_factorized_lane_r1_policy_path;
   engine_options.prefill_mlp_factorized_lane_r1_receipt_path =
       options.prefill_mlp_factorized_lane_r1_receipt_path;
+  engine_options.prefill_mlp_factorized_lane_r4_payload_path =
+      options.prefill_mlp_factorized_lane_r4_payload_path;
+  engine_options.prefill_mlp_factorized_lane_r4_policy_path =
+      options.prefill_mlp_factorized_lane_r4_policy_path;
+  engine_options.prefill_mlp_factorized_lane_r4_receipt_path =
+      options.prefill_mlp_factorized_lane_r4_receipt_path;
   engine_options.request_options.batch_size = 1U;
   engine_options.request_options.max_sequence_length =
       options.max_sequence_length;
@@ -1930,6 +1957,55 @@ int run_evaluation_server(const EvaluationServerOptions& options,
             << " prefill_mlp_factorized_lane_r1_production_residency_eligible=false"
             << " prefill_mlp_factorized_lane_r1_quality_production_eligible=false"
             << " prefill_mlp_factorized_lane_r1_performance_upper_bound_only=true"
+            << " prefill_mlp_factorized_lane_r4_ms="
+            << load.prefill_mlp_factorized_lane_r4_overlay_milliseconds
+            << " prefill_mlp_factorized_lane_r4_requested="
+            << (load.prefill_mlp_factorized_lane_r4_overlay_requested ? 1
+                                                                      : 0)
+            << " prefill_mlp_factorized_lane_r4_enabled="
+            << (load.prefill_mlp_factorized_lane_r4_overlay_enabled ? 1 : 0)
+            << " prefill_mlp_factorized_lane_r4_layers="
+            << load.prefill_mlp_factorized_lane_r4_overlay_layers
+            << " prefill_mlp_factorized_lane_r4_metadata_verified_projections="
+            << load
+                   .prefill_mlp_factorized_lane_r4_metadata_verified_projections
+            << " prefill_mlp_factorized_lane_r4_factor_files="
+            << load.prefill_mlp_factorized_lane_r4_factor_files
+            << " prefill_mlp_factorized_lane_r4_authenticated_builtin_factors="
+            << load
+                   .prefill_mlp_factorized_lane_r4_authenticated_builtin_factors
+            << " prefill_mlp_factorized_lane_r4_bytes="
+            << load.prefill_mlp_factorized_lane_r4_overlay_bytes
+            << " prefill_mlp_factorized_lane_r4_copy_chunks="
+            << load.prefill_mlp_factorized_lane_r4_overlay_copy_chunks
+            << " prefill_mlp_factorized_lane_r4_layout="
+            << load.prefill_mlp_factorized_lane_r4_overlay_layout
+            << " prefill_mlp_factorized_lane_r4_factor_scheme="
+            << load.prefill_mlp_factorized_lane_r4_factor_scheme
+            << " prefill_mlp_factorized_lane_r4_manifest_sha256="
+            << load.prefill_mlp_factorized_lane_r4_overlay_manifest_sha256
+            << " prefill_mlp_factorized_lane_r4_policy_sha256="
+            << load.prefill_mlp_factorized_lane_r4_overlay_policy_sha256
+            << " prefill_mlp_factorized_lane_r4_payload_sha256="
+            << load.prefill_mlp_factorized_lane_r4_overlay_payload_sha256
+            << " prefill_mlp_factorized_lane_r4_receipt_sha256="
+            << load.prefill_mlp_factorized_lane_r4_overlay_receipt_sha256
+            << " prefill_mlp_factorized_lane_r4_min_prompt_tokens=1793"
+            << " prefill_mlp_factorized_lane_r4_max_prompt_tokens=1920"
+            << " prefill_mlp_factorized_lane_r4_performance_candidate_only="
+            << (load.prefill_mlp_factorized_lane_r4_performance_candidate_only
+                    ? "true"
+                    : "false")
+            << " prefill_mlp_factorized_lane_r4_production_residency_eligible="
+            << (load
+                        .prefill_mlp_factorized_lane_r4_production_residency_eligible
+                    ? "true"
+                    : "false")
+            << " prefill_mlp_factorized_lane_r4_quality_production_eligible="
+            << (load
+                        .prefill_mlp_factorized_lane_r4_quality_production_eligible
+                    ? "true"
+                    : "false")
             << " prefill_mlp_k512_fragment_native_ms="
             << load.prefill_mlp_k512_fragment_native_overlay_milliseconds
             << " prefill_mlp_k512_fragment_native_requested="

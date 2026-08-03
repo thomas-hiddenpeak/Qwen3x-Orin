@@ -55,6 +55,12 @@ void test_disabled_default(TestContext& test) {
                   options.prefill_mlp_factorized_lane_r1_policy_path
                       .empty() &&
                   options.prefill_mlp_factorized_lane_r1_receipt_path
+                      .empty() &&
+                  options.prefill_mlp_factorized_lane_r4_payload_path
+                      .empty() &&
+                  options.prefill_mlp_factorized_lane_r4_policy_path
+                      .empty() &&
+                  options.prefill_mlp_factorized_lane_r4_receipt_path
                       .empty(),
               "omitting the diagnostic switch leaves profiling disabled");
 
@@ -634,6 +640,96 @@ void test_mlp_factorized_lane_r1_publication(TestContext& test) {
               "factorized-lane R1 and K512 MLP publications cannot coexist");
 }
 
+void test_mlp_factorized_lane_r4_publication(TestContext& test) {
+  const char* const valid[] = {
+      "qwen3x-eval-server",
+      "/model",
+      "--prefill-a4-payload",
+      "/publication/a4-k256.bin",
+      "--prefill-a4-policy",
+      "/publication/a4-k256-policy.json",
+      "--prefill-a4-receipt",
+      "/publication/a4-k256-receipt.json",
+      "--prefill-mlp-factorized-lane-r4-payload",
+      "/publication/mlp-factorized-r4.bin",
+      "--prefill-mlp-factorized-lane-r4-policy",
+      "/publication/mlp-factorized-r4.policy.json",
+      "--prefill-mlp-factorized-lane-r4-receipt",
+      "/publication/mlp-factorized-r4.receipt.json"};
+  server::EvaluationServerOptions options;
+  std::string error;
+  test.expect(parse(valid, options, error) && error.empty() &&
+                  options.prefill_mlp_factorized_lane_r4_payload_path ==
+                      "/publication/mlp-factorized-r4.bin" &&
+                  options.prefill_mlp_factorized_lane_r4_policy_path ==
+                      "/publication/mlp-factorized-r4.policy.json" &&
+                  options.prefill_mlp_factorized_lane_r4_receipt_path ==
+                      "/publication/mlp-factorized-r4.receipt.json",
+              "a complete direct-checkpoint factorized-lane R4 bundle parses");
+
+  const char* const incomplete[] = {
+      "qwen3x-eval-server",
+      "/model",
+      "--prefill-a4-payload",
+      "/publication/a4-k256.bin",
+      "--prefill-a4-policy",
+      "/publication/a4-k256-policy.json",
+      "--prefill-a4-receipt",
+      "/publication/a4-k256-receipt.json",
+      "--prefill-mlp-factorized-lane-r4-payload",
+      "/publication/mlp-factorized-r4.bin",
+      "--prefill-mlp-factorized-lane-r4-policy",
+      "/publication/mlp-factorized-r4.policy.json"};
+  options = {};
+  error.clear();
+  test.expect(!parse(incomplete, options, error) &&
+                  error.find("required together") != std::string::npos,
+              "an incomplete factorized-lane R4 publication is rejected");
+
+  const char* const missing_attention_companion[] = {
+      "qwen3x-eval-server",
+      "/model",
+      "--prefill-mlp-factorized-lane-r4-payload",
+      "/publication/mlp-factorized-r4.bin",
+      "--prefill-mlp-factorized-lane-r4-policy",
+      "/publication/mlp-factorized-r4.policy.json",
+      "--prefill-mlp-factorized-lane-r4-receipt",
+      "/publication/mlp-factorized-r4.receipt.json"};
+  options = {};
+  error.clear();
+  test.expect(
+      !parse(missing_attention_companion, options, error) &&
+          error.find("K256 A4 Attention inventory") != std::string::npos,
+      "R4 execution requires but does not derive from the K256 Attention inventory");
+
+  const char* const conflicts_with_r1[] = {
+      "qwen3x-eval-server",
+      "/model",
+      "--prefill-a4-payload",
+      "/publication/a4-k256.bin",
+      "--prefill-a4-policy",
+      "/publication/a4-k256-policy.json",
+      "--prefill-a4-receipt",
+      "/publication/a4-k256-receipt.json",
+      "--prefill-mlp-factorized-lane-r1-payload",
+      "/publication/mlp-factorized-r1.bin",
+      "--prefill-mlp-factorized-lane-r1-policy",
+      "/publication/mlp-factorized-r1.policy.json",
+      "--prefill-mlp-factorized-lane-r1-receipt",
+      "/publication/mlp-factorized-r1.receipt.json",
+      "--prefill-mlp-factorized-lane-r4-payload",
+      "/publication/mlp-factorized-r4.bin",
+      "--prefill-mlp-factorized-lane-r4-policy",
+      "/publication/mlp-factorized-r4.policy.json",
+      "--prefill-mlp-factorized-lane-r4-receipt",
+      "/publication/mlp-factorized-r4.receipt.json"};
+  options = {};
+  error.clear();
+  test.expect(!parse(conflicts_with_r1, options, error) &&
+                  error.find("mutually exclusive") != std::string::npos,
+              "factorized-lane R1 and R4 cannot coexist");
+}
+
 }  // namespace
 
 int main() {
@@ -646,6 +742,7 @@ int main() {
   test_mlp_k512_paired_gateup_canonical_down_publication(test);
   test_mlp_k512_projection_major_gateup_canonical_down_publication(test);
   test_mlp_factorized_lane_r1_publication(test);
+  test_mlp_factorized_lane_r4_publication(test);
   if (test.failures() != 0) {
     std::cerr << test.failures()
               << " evaluation server CLI test(s) failed\n";

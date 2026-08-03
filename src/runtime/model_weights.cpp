@@ -7,6 +7,7 @@
 #include "q3x/runtime/prefill_mlp_k512_overlay.h"
 #include "q3x/runtime/prefill_mlp_factorized_lane_converter.h"
 #include "q3x/runtime/prefill_mlp_factorized_lane_r4_publication.h"
+#include "q3x/runtime/prefill_mlp_factorized_lane_r4_candidate_converter.h"
 #include "q3x/runtime/prefill_quantized_contract.h"
 
 #include <cuda_runtime.h>
@@ -3409,6 +3410,23 @@ bool ModelWeights::attach_prefill_mlp_factorized_lane_r4_sidecars(
     const std::uint64_t expected_offset =
         prefill_mlp_factorized_lane_projection_absolute_offset(
             plan, expected_layer, expected_family);
+    const std::string_view factor_path(calibration.factor_path);
+    const bool calibrated_factor =
+        calibration.factor_scheme ==
+        kPrefillMLPFactorizedLaneR4PublicationFactorScheme;
+    const bool exact_identity_factor =
+        calibration.factor_scheme ==
+            kPrefillMLPFactorizedLaneR4IdentityCandidateFactorScheme &&
+        ((entry.input_size == 5'120U &&
+          factor_path ==
+              kPrefillMLPFactorizedLaneR4IdentityCandidateAlpha5120 &&
+          calibration.factor_sha256 ==
+              kPrefillMLPFactorizedLaneR4IdentityCandidateAlpha5120Sha256) ||
+         (entry.input_size == 17'408U &&
+          factor_path ==
+              kPrefillMLPFactorizedLaneR4IdentityCandidateAlpha17408 &&
+          calibration.factor_sha256 ==
+              kPrefillMLPFactorizedLaneR4IdentityCandidateAlpha17408Sha256));
     if (entry.ordinal != index || entry.layer_index != expected_layer ||
         entry.family != expected_family ||
         entry.payload_offset != expected_offset ||
@@ -3420,8 +3438,7 @@ bool ModelWeights::attach_prefill_mlp_factorized_lane_r4_sidecars(
         calibration.source_sha256 != entry.source_sha256 ||
         !valid_clip(calibration.weight_clip_ratio) ||
         !valid_clip(calibration.activation_clip_ratio) ||
-        calibration.factor_scheme !=
-            kPrefillMLPFactorizedLaneR4PublicationFactorScheme ||
+        (!calibrated_factor && !exact_identity_factor) ||
         calibration.factor_element_count != entry.input_size) {
       return false;
     }

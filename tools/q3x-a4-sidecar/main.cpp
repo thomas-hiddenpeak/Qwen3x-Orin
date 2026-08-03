@@ -1,6 +1,7 @@
 #include "q3x/runtime/prefill_a4_sidecar_converter.h"
 #include "q3x/runtime/prefill_attention_o_k512_overlay.h"
 #include "q3x/runtime/prefill_mlp_factorized_lane_converter.h"
+#include "q3x/runtime/prefill_mlp_factorized_lane_r4_candidate_converter.h"
 #include "q3x/runtime/prefill_mlp_k512_fragment_native_overlay.h"
 #include "q3x/runtime/prefill_mlp_k512_overlay.h"
 
@@ -42,6 +43,9 @@ void print_usage(std::ostream& output) {
          " MODEL_DIR BASE_K256_PAYLOAD BASE_K256_POLICY BASE_K256_RECEIPT"
          " OUTPUT --weight-clip R --activation-clip R"
          " [--no-preallocate]\n"
+      << "  qwen3x-a4-sidecar mlp-factorized-r4-identity-convert"
+         " MODEL_DIR OUTPUT --weight-clip R --activation-clip R"
+         " [--row-chunk 64|128|192|256] [--no-preallocate]\n"
       << "  qwen3x-a4-sidecar mlp-k512-fragment-native-convert"
          " SOURCE_PAYLOAD SOURCE_RECEIPT SOURCE_POLICY"
          " EXPECTED_RECEIPT_SHA OUTPUT [ROWS]\n"
@@ -88,6 +92,13 @@ void print_usage(std::ostream& output) {
          "Both clip ratios are mandatory. The result is eligible only for "
          "the default-off authenticated ABI experiment; it is not a quality "
          "production qualification.\n\n"
+      << "The factorized-R4 identity command streams original pinned NVFP4 "
+         "Gate/Up/Down weights directly; K256 and R1 are never inputs. Its "
+         "builtin FP32 alpha is exactly one[K], reproducibly hashed, and is "
+         "only a real-weight performance direction gate, not calibration. "
+         "It publishes payload, manifest, policy, and receipt with "
+         "performance_candidate_only=true; production and quality "
+         "eligibility remain false. Both clips are mandatory.\n\n"
       << "The fragment-native command performs a lossless offline v1-to-v2 "
          "permutation. EXPECTED_RECEIPT_SHA is mandatory and must be the "
          "explicit lowercase SHA-256 of SOURCE_RECEIPT; the command never "
@@ -237,6 +248,24 @@ void print_diagnostic(
   std::cerr << '\n';
 }
 
+void print_diagnostic(
+    const runtime::PrefillMLPFactorizedLaneR4CandidateConverterDiagnostic&
+        diagnostic) {
+  std::cerr << "error.code=" << runtime::to_string(diagnostic.code)
+            << "\nerror.context=" << diagnostic.context
+            << "\nerror.message=" << diagnostic.message;
+  if (!diagnostic.expected.empty()) {
+    std::cerr << "\nerror.expected=" << diagnostic.expected;
+  }
+  if (!diagnostic.actual.empty()) {
+    std::cerr << "\nerror.actual=" << diagnostic.actual;
+  }
+  if (diagnostic.system_error != 0) {
+    std::cerr << "\nerror.errno=" << diagnostic.system_error;
+  }
+  std::cerr << '\n';
+}
+
 int run_mlp_factorized_r1_convert(const int argc, char** argv) {
   if (argc < 10) {
     print_usage(std::cerr);
@@ -323,6 +352,108 @@ int run_mlp_factorized_r1_convert(const int argc, char** argv) {
             << "\nprojections=" << result.stats.projections_converted
             << "\nn64_blocks=" << result.stats.n64_blocks_converted
             << "\nbase_bytes_read=" << result.stats.base_bytes_read
+            << "\noutput_bytes_written="
+            << result.stats.output_bytes_written
+            << "\npeak_working_bytes=" << result.stats.peak_working_bytes
+            << '\n';
+  return 0;
+}
+
+int run_mlp_factorized_r4_identity_convert(const int argc, char** argv) {
+  if (argc < 8) {
+    print_usage(std::cerr);
+    return 2;
+  }
+  runtime::PrefillMLPFactorizedLaneR4IdentityCandidateConversionOptions
+      options;
+  options.model_directory = argv[2];
+  options.output_path = argv[3];
+  bool have_weight_clip = false;
+  bool have_activation_clip = false;
+  bool have_row_chunk = false;
+  bool have_no_preallocate = false;
+  for (int index = 4; index < argc; ++index) {
+    const std::string_view argument(argv[index]);
+    if (argument == "--weight-clip") {
+      if (have_weight_clip || ++index >= argc ||
+          !parse_ratio(argv[index], options.weight_clip_ratio)) {
+        std::cerr << "invalid --weight-clip value\n";
+        return 2;
+      }
+      have_weight_clip = true;
+      continue;
+    }
+    if (argument == "--activation-clip") {
+      if (have_activation_clip || ++index >= argc ||
+          !parse_ratio(argv[index], options.activation_clip_ratio)) {
+        std::cerr << "invalid --activation-clip value\n";
+        return 2;
+      }
+      have_activation_clip = true;
+      continue;
+    }
+    if (argument == "--row-chunk") {
+      if (have_row_chunk || ++index >= argc ||
+          !parse_size(argv[index], options.row_chunk_size) ||
+          options.row_chunk_size > 256U ||
+          options.row_chunk_size % 64U != 0U) {
+        std::cerr << "invalid --row-chunk value; use 64, 128, 192, or 256\n";
+        return 2;
+      }
+      have_row_chunk = true;
+      continue;
+    }
+    if (argument == "--no-preallocate") {
+      if (have_no_preallocate) {
+        std::cerr << "duplicate --no-preallocate\n";
+        return 2;
+      }
+      options.preallocate_output = false;
+      have_no_preallocate = true;
+      continue;
+    }
+    std::cerr << "unknown argument: " << argument << '\n';
+    return 2;
+  }
+  if (!have_weight_clip || !have_activation_clip) {
+    std::cerr << "both --weight-clip and --activation-clip are required; "
+                 "neither has a default\n";
+    return 2;
+  }
+
+  const auto result = runtime::
+      convert_pinned_qwen36_27b_prefill_mlp_factorized_lane_r4_identity_candidate(
+          options);
+  if (!result) {
+    print_diagnostic(result.diagnostic);
+    return 1;
+  }
+  const auto& receipt = *result.receipt;
+  std::cout << "status=published_performance_candidate_only"
+            << "\noverlay=mlp_factorized_lane_r4_identity"
+            << "\nperformance_candidate_only="
+            << (receipt.performance_candidate_only ? "true" : "false")
+            << "\nproduction_residency_eligible="
+            << (receipt.production_residency_eligible ? "true" : "false")
+            << "\nquality_production_eligible="
+            << (receipt.quality_production_eligible ? "true" : "false")
+            << "\nidentity_alpha_only=true"
+            << "\ncalibrated_alpha=false"
+            << "\nsource_full_shard_sha256_recomputed=true"
+            << "\nphysical_layout=" << receipt.physical_layout
+            << "\nsource_checkpoint_id="
+            << receipt.direct_source.source_checkpoint_id
+            << "\nmanifest_sha256=" << receipt.manifest_sha256
+            << "\npolicy_sha256=" << receipt.policy_sha256
+            << "\npayload_sha256=" << receipt.payload_sha256
+            << "\npayload_bytes=" << receipt.payload_bytes
+            << "\nprojections=" << result.stats.projections_converted
+            << "\nn64_blocks=" << result.stats.n64_blocks_converted
+            << "\nsource_shards_authenticated="
+            << result.stats.source_shards_authenticated
+            << "\nsource_shard_bytes_hashed="
+            << result.stats.source_shard_bytes_hashed
+            << "\nsource_bytes_read=" << result.stats.source_bytes_read
             << "\noutput_bytes_written="
             << result.stats.output_bytes_written
             << "\npeak_working_bytes=" << result.stats.peak_working_bytes
@@ -886,6 +1017,11 @@ int main(const int argc, char** argv) {
   if (argc >= 2 &&
       std::string_view(argv[1]) == "mlp-factorized-r1-convert") {
     return run_mlp_factorized_r1_convert(argc, argv);
+  }
+  if (argc >= 2 &&
+      std::string_view(argv[1]) ==
+          "mlp-factorized-r4-identity-convert") {
+    return run_mlp_factorized_r4_identity_convert(argc, argv);
   }
   if (argc >= 2 &&
       std::string_view(argv[1]) ==

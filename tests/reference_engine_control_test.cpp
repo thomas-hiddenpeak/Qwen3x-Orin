@@ -97,6 +97,7 @@ struct FakeRunner {
   std::size_t long_prefill_gateup_alternating_launch_hits = 64U;
   std::size_t long_prefill_gateup_ldmatrix_pairfeed_launch_hits = 0U;
   std::size_t long_prefill_factorized_lane_r1_package_launch_hits = 64U;
+  std::size_t long_prefill_factorized_lane_r4_package_launch_hits = 63U;
   std::size_t long_prefill_gateup_m128n64_same_cta_launch_hits = 64U;
   std::size_t long_prefill_gateup_m128n512_fused_quantize_launch_hits = 64U;
   std::size_t long_prefill_gateup_m128n512_paired_ldmatrix_launch_hits = 64U;
@@ -329,6 +330,8 @@ runtime::ReferenceLongPrefillOutcome fake_layer_major_prompt(
       fake.long_prefill_gateup_ldmatrix_pairfeed_launch_hits;
   value.factorized_lane_r1_package_launch_hits =
       fake.long_prefill_factorized_lane_r1_package_launch_hits;
+  value.factorized_lane_r4_package_launch_hits =
+      fake.long_prefill_factorized_lane_r4_package_launch_hits;
   value.gateup_m128n64_same_cta_launch_hits =
       fake.long_prefill_gateup_m128n64_same_cta_launch_hits;
   value.gateup_m128n512_fused_quantize_launch_hits =
@@ -873,6 +876,8 @@ void test_layer_major_prompt_admission(TestContext& test) {
                 fake.long_prefill_gateup_ldmatrix_pairfeed_launch_hits &&
             result.value->timing.factorized_lane_r1_package_launch_hits ==
                 fake.long_prefill_factorized_lane_r1_package_launch_hits &&
+            result.value->timing.factorized_lane_r4_package_launch_hits ==
+                fake.long_prefill_factorized_lane_r4_package_launch_hits &&
             result.value->timing.gateup_m128n64_same_cta_launch_hits ==
                 fake.long_prefill_gateup_m128n64_same_cta_launch_hits &&
             result.value->timing.gateup_m128n512_fused_quantize_launch_hits ==
@@ -2511,12 +2516,159 @@ void test_engine_backend_validation(TestContext& test) {
                   empty_load
                           .prefill_mlp_k512_projection_major_gateup_canonical_down_overlay_milliseconds ==
                       0.0 &&
+                  !empty_load.prefill_mlp_factorized_lane_r4_overlay_requested &&
+                  !empty_load.prefill_mlp_factorized_lane_r4_overlay_enabled &&
+                  !empty_load
+                       .prefill_mlp_factorized_lane_r4_performance_candidate_only &&
+                  !empty_load
+                       .prefill_mlp_factorized_lane_r4_production_residency_eligible &&
+                  !empty_load
+                       .prefill_mlp_factorized_lane_r4_quality_production_eligible &&
+                  empty_load.prefill_mlp_factorized_lane_r4_overlay_layers ==
+                      0U &&
+                  empty_load
+                          .prefill_mlp_factorized_lane_r4_metadata_verified_projections ==
+                      0U &&
+                  empty_load.prefill_mlp_factorized_lane_r4_factor_files ==
+                      0U &&
+                  empty_load
+                          .prefill_mlp_factorized_lane_r4_authenticated_builtin_factors ==
+                      0U &&
+                  empty_load.prefill_mlp_factorized_lane_r4_overlay_bytes ==
+                      0U &&
+                  empty_load
+                          .prefill_mlp_factorized_lane_r4_overlay_copy_chunks ==
+                      0U &&
+                  empty_load.prefill_mlp_factorized_lane_r4_overlay_layout
+                      .empty() &&
+                  empty_load.prefill_mlp_factorized_lane_r4_factor_scheme
+                      .empty() &&
+                  empty_load
+                      .prefill_mlp_factorized_lane_r4_overlay_manifest_sha256
+                      .empty() &&
+                  empty_load
+                      .prefill_mlp_factorized_lane_r4_overlay_policy_sha256
+                      .empty() &&
+                  empty_load
+                      .prefill_mlp_factorized_lane_r4_overlay_payload_sha256
+                      .empty() &&
+                  empty_load
+                      .prefill_mlp_factorized_lane_r4_overlay_receipt_sha256
+                      .empty() &&
+                  empty_load
+                          .prefill_mlp_factorized_lane_r4_overlay_milliseconds ==
+                      0.0 &&
                   empty_load.request_long_prefill_token_capacity == 0U &&
                   empty_load
                           .request_long_prefill_projection_span_capacity ==
                       0U &&
                   !empty_load.optimized_prefill_disabled,
               "A4 load statistics default to an unrequested empty route");
+}
+
+void test_factorized_lane_r4_engine_preflight(TestContext& test) {
+  constexpr const char* kR1Selector =
+      "Q3X_RUN_A4W4_FACTORIZED_LANE_R1_ADMISSION";
+  constexpr const char* kR4Selector =
+      "Q3X_RUN_A4W4_FACTORIZED_LANE_R4_ADMISSION";
+  (void)::unsetenv(kR1Selector);
+  (void)::unsetenv(kR4Selector);
+
+  runtime::ReferenceEngineOptions partial;
+  partial.prefill_mlp_factorized_lane_r4_payload_path = "r4.payload";
+  const runtime::ReferenceEngineCreateResult partial_result =
+      runtime::create_reference_engine("unused-model-directory", partial);
+  test.expect(
+      !partial_result &&
+          partial_result.diagnostic.code ==
+              runtime::ReferenceEngineError::kInvalidArgument &&
+          partial_result.diagnostic.stage ==
+              "prefill_mlp_factorized_lane_r4_options" &&
+          partial_result.diagnostic.message.find("required together") !=
+              std::string::npos,
+      "partial direct R4 triplet fails closed before model I/O");
+
+  runtime::ReferenceEngineOptions complete;
+  complete.projection_backend = runtime::ProjectionBackend::kSm87WeightOnly;
+  complete.prefill_mlp_factorized_lane_r4_payload_path = "r4.payload";
+  complete.prefill_mlp_factorized_lane_r4_policy_path = "r4.policy";
+  complete.prefill_mlp_factorized_lane_r4_receipt_path = "r4.receipt";
+  complete.prefill_a4_payload_path = "attention-k256.payload";
+  complete.prefill_a4_calibration_policy_path = "attention-k256.policy";
+  complete.prefill_a4_receipt_path = "attention-k256.receipt";
+  const runtime::ReferenceEngineCreateResult missing_master =
+      runtime::create_reference_engine("unused-model-directory", complete);
+  test.expect(
+      !missing_master &&
+          missing_master.diagnostic.code ==
+              runtime::ReferenceEngineError::kInvalidArgument &&
+          missing_master.diagnostic.stage ==
+              "prefill_mlp_factorized_lane_r4_options" &&
+          missing_master.diagnostic.message.find("runtime master") !=
+              std::string::npos,
+      "complete direct R4 triplet requires its independent runtime master");
+
+  (void)::setenv(kR4Selector, "1", 1);
+  const runtime::ReferenceEngineCreateResult missing_publication =
+      runtime::create_reference_engine("unused-model-directory", {});
+  test.expect(
+      !missing_publication &&
+          missing_publication.diagnostic.code ==
+              runtime::ReferenceEngineError::kInvalidArgument &&
+          missing_publication.diagnostic.stage ==
+              "prefill_mlp_factorized_lane_r4_options" &&
+          missing_publication.diagnostic.message.find(
+              "payload/policy/receipt") != std::string::npos,
+      "direct R4 runtime master without a publication fails closed");
+
+  runtime::ReferenceEngineOptions no_companion = complete;
+  no_companion.prefill_a4_payload_path.clear();
+  no_companion.prefill_a4_calibration_policy_path.clear();
+  no_companion.prefill_a4_receipt_path.clear();
+  const runtime::ReferenceEngineCreateResult missing_companion =
+      runtime::create_reference_engine("unused-model-directory", no_companion);
+  test.expect(
+      !missing_companion &&
+          missing_companion.diagnostic.code ==
+              runtime::ReferenceEngineError::kInvalidArgument &&
+          missing_companion.diagnostic.stage ==
+              "prefill_mlp_factorized_lane_r4_options" &&
+          missing_companion.diagnostic.message.find(
+              "Attention companion") != std::string::npos,
+      "direct R4 execution requires an independent K256 Attention companion");
+
+  runtime::ReferenceEngineOptions r1_r4 = complete;
+  r1_r4.prefill_mlp_factorized_lane_r1_payload_path = "r1.payload";
+  r1_r4.prefill_mlp_factorized_lane_r1_policy_path = "r1.policy";
+  r1_r4.prefill_mlp_factorized_lane_r1_receipt_path = "r1.receipt";
+  (void)::setenv(kR1Selector, "1", 1);
+  const runtime::ReferenceEngineCreateResult conflicting_r1_r4 =
+      runtime::create_reference_engine("unused-model-directory", r1_r4);
+  (void)::unsetenv(kR1Selector);
+  test.expect(
+      !conflicting_r1_r4 &&
+          conflicting_r1_r4.diagnostic.code ==
+              runtime::ReferenceEngineError::kInvalidArgument &&
+          conflicting_r1_r4.diagnostic.stage ==
+              "prefill_mlp_factorized_lane_r4_options" &&
+          conflicting_r1_r4.diagnostic.message.find("mutually exclusive") !=
+              std::string::npos,
+      "R1 and direct R4 runtime masters conflict before model I/O");
+  (void)::unsetenv(kR4Selector);
+
+  runtime::ReferenceOneShotOptions one_shot_partial;
+  one_shot_partial.prefill_mlp_factorized_lane_r4_policy_path = "r4.policy";
+  const runtime::ReferenceOneShotResult one_shot_partial_result =
+      runtime::generate_reference("unused-model-directory", "prompt",
+                                  one_shot_partial);
+  test.expect(
+      !one_shot_partial_result &&
+          one_shot_partial_result.diagnostic.code ==
+              runtime::ReferenceEngineError::kInvalidArgument &&
+          one_shot_partial_result.diagnostic.stage == "one_shot_options" &&
+          one_shot_partial_result.diagnostic.message.find(
+              "required together") != std::string::npos,
+      "one-shot partial direct R4 triplet fails before asset I/O");
 }
 
 void test_factorized_lane_r1_engine_runner_admission_bridge(
@@ -2566,6 +2718,69 @@ void test_factorized_lane_r1_engine_runner_admission_bridge(
           "prefill_mlp_factorized_lane_r1_selected;") != std::string::npos,
       "ReferenceEngine propagates the authenticated factorized-lane R1 "
       "runtime selection into ReferenceRunnerOptions");
+}
+
+void test_factorized_lane_r4_engine_runner_admission_bridge(
+    TestContext& test) {
+  const std::filesystem::path engine_source =
+      std::filesystem::path(__FILE__).parent_path().parent_path() /
+      "src/runtime/reference_engine.cpp";
+  std::ifstream input(engine_source, std::ios::binary);
+  if (!input.is_open()) {
+    test.expect(false,
+                "host test can open the ReferenceEngine production source");
+    return;
+  }
+  const std::string source{std::istreambuf_iterator<char>(input),
+                           std::istreambuf_iterator<char>()};
+  constexpr std::string_view kOptionsBegin =
+      "ReferenceRunnerOptions runner_options;";
+  constexpr std::string_view kFactoryCall =
+      "ReferenceRunnerFactoryResult runner = create_reference_runner(";
+  const std::size_t begin = source.find(kOptionsBegin);
+  const std::size_t end = begin == std::string::npos
+                              ? std::string::npos
+                              : source.find(kFactoryCall, begin);
+  if (begin == std::string::npos || end == std::string::npos || end <= begin) {
+    test.expect(false,
+                "host test locates the ReferenceEngine runner factory bridge");
+    return;
+  }
+  std::string compact;
+  compact.reserve(end - begin);
+  for (std::size_t index = begin; index < end; ++index) {
+    const unsigned char byte = static_cast<unsigned char>(source[index]);
+    if (std::isspace(byte) == 0) {
+      compact.push_back(static_cast<char>(byte));
+    }
+  }
+  test.expect(
+      compact.find(
+          "runner_options.enable_factorized_lane_r4_prefill_admission="
+          "prefill_mlp_factorized_lane_r4_selected;") != std::string::npos,
+      "ReferenceEngine propagates direct R4 selection into runner options");
+  test.expect(
+      source.find("Q3X_RUN_A4W4_FACTORIZED_LANE_R4_ADMISSION") !=
+              std::string::npos &&
+          source.find("parse_prefill_mlp_factorized_lane_r4_policy") !=
+              std::string::npos &&
+          source.find("parse_prefill_mlp_factorized_lane_r4_receipt") !=
+              std::string::npos &&
+          source.find("parse_prefill_mlp_factorized_lane_metadata") !=
+              std::string::npos &&
+          source.find(
+              "kPrefillMLPFactorizedLaneR4IdentityCandidateAlpha5120") !=
+              std::string::npos &&
+          source.find(
+              "kPrefillMLPFactorizedLaneR4IdentityCandidateAlpha17408") !=
+              std::string::npos &&
+          source.find("synthesized builtin R4 identity-alpha failed") !=
+              std::string::npos &&
+          source.find("attach_prefill_mlp_factorized_lane_r4_sidecars") !=
+              std::string::npos,
+      "direct R4 engine bridge retains independent selection, strict "
+      "publication parsing, exact builtin/external alpha-derived metadata "
+      "verification, and attach");
 }
 
 void test_optimized_prefill_engine_derivation(TestContext& test) {
@@ -2754,7 +2969,9 @@ int main() {
   test_generated_text_stop_semantics(test);
   test_committed_token_observer_and_cancellation(test);
   test_engine_backend_validation(test);
+  test_factorized_lane_r4_engine_preflight(test);
   test_factorized_lane_r1_engine_runner_admission_bridge(test);
+  test_factorized_lane_r4_engine_runner_admission_bridge(test);
   test_optimized_prefill_engine_derivation(test);
   if (test.failures() != 0) {
     std::cerr << test.failures() << " reference engine control test(s) failed\n";

@@ -126,6 +126,13 @@ struct ReferenceEngineOptions {
   std::filesystem::path prefill_mlp_factorized_lane_r1_payload_path;
   std::filesystem::path prefill_mlp_factorized_lane_r1_policy_path;
   std::filesystem::path prefill_mlp_factorized_lane_r1_receipt_path;
+  // Default-off direct-checkpoint R4 performance candidate.  This is an
+  // independent publication and never inherits residency authority from an
+  // A4/K256 or R1 payload.  All three paths are required together and the
+  // dedicated runtime selector must also be present.
+  std::filesystem::path prefill_mlp_factorized_lane_r4_payload_path;
+  std::filesystem::path prefill_mlp_factorized_lane_r4_policy_path;
+  std::filesystem::path prefill_mlp_factorized_lane_r4_receipt_path;
 };
 
 // Text-only messages accepted by the pinned Qwen 3.6 chat formatter. The
@@ -213,6 +220,9 @@ struct ReferenceGenerationTiming {
   // Propagated request-local proof for the whole-M factorized-lane R1 MLP
   // package. Tile-prefill never increments this counter.
   std::size_t factorized_lane_r1_package_launch_hits = 0U;
+  // Independent request-local proof for the direct-checkpoint calibrated R4
+  // package.  It must never be inferred from the R1 counter.
+  std::size_t factorized_lane_r4_package_launch_hits = 0U;
   // Propagated request-local runtime proof for the default-off full-
   // projection-serial M128N128 Gate+Up admission.
   std::size_t gateup_m128n128_projection_serial_launch_hits = 0U;
@@ -309,6 +319,7 @@ struct ReferenceEngineLoadStats {
       prefill_mlp_k512_projection_major_gateup_canonical_down_overlay_milliseconds =
           0.0;
   double prefill_mlp_factorized_lane_r1_overlay_milliseconds = 0.0;
+  double prefill_mlp_factorized_lane_r4_overlay_milliseconds = 0.0;
   double runner_factory_milliseconds = 0.0;
   ReferenceDecodeGraphCachePolicy decode_graph_cache_requested_policy =
       ReferenceDecodeGraphCachePolicy::kDisabled;
@@ -513,6 +524,28 @@ struct ReferenceEngineLoadStats {
   std::string prefill_mlp_factorized_lane_r1_overlay_payload_sha256;
   std::string prefill_mlp_factorized_lane_r1_overlay_receipt_sha256;
   std::string prefill_mlp_factorized_lane_r1_overlay_base_receipt_sha256;
+  // Independent readiness proof for direct-checkpoint calibrated R4.  These
+  // booleans remain visible because successful authentication/attachment is
+  // explicitly not production or quality eligibility.
+  bool prefill_mlp_factorized_lane_r4_overlay_requested = false;
+  bool prefill_mlp_factorized_lane_r4_overlay_enabled = false;
+  bool prefill_mlp_factorized_lane_r4_performance_candidate_only = false;
+  bool prefill_mlp_factorized_lane_r4_production_residency_eligible = false;
+  bool prefill_mlp_factorized_lane_r4_quality_production_eligible = false;
+  std::size_t prefill_mlp_factorized_lane_r4_overlay_layers = 0U;
+  std::size_t prefill_mlp_factorized_lane_r4_metadata_verified_projections =
+      0U;
+  std::size_t prefill_mlp_factorized_lane_r4_factor_files = 0U;
+  std::size_t
+      prefill_mlp_factorized_lane_r4_authenticated_builtin_factors = 0U;
+  std::uint64_t prefill_mlp_factorized_lane_r4_overlay_bytes = 0U;
+  std::uint64_t prefill_mlp_factorized_lane_r4_overlay_copy_chunks = 0U;
+  std::string prefill_mlp_factorized_lane_r4_overlay_layout;
+  std::string prefill_mlp_factorized_lane_r4_factor_scheme;
+  std::string prefill_mlp_factorized_lane_r4_overlay_manifest_sha256;
+  std::string prefill_mlp_factorized_lane_r4_overlay_policy_sha256;
+  std::string prefill_mlp_factorized_lane_r4_overlay_payload_sha256;
+  std::string prefill_mlp_factorized_lane_r4_overlay_receipt_sha256;
   // True only when tokenizer parsing and resident loading actually executed
   // concurrently. When true, total_milliseconds is wall time and phase
   // timings intentionally overlap.
@@ -785,6 +818,9 @@ struct ReferenceOneShotOptions {
   std::filesystem::path prefill_mlp_factorized_lane_r1_payload_path;
   std::filesystem::path prefill_mlp_factorized_lane_r1_policy_path;
   std::filesystem::path prefill_mlp_factorized_lane_r1_receipt_path;
+  std::filesystem::path prefill_mlp_factorized_lane_r4_payload_path;
+  std::filesystem::path prefill_mlp_factorized_lane_r4_policy_path;
+  std::filesystem::path prefill_mlp_factorized_lane_r4_receipt_path;
 };
 
 struct ReferenceOneShotGeneration {

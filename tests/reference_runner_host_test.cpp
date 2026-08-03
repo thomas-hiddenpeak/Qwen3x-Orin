@@ -2595,6 +2595,93 @@ void test_prefill_admission_gate_orthogonality(TestContext& test) {
       initial_attention_supermatrix);
 }
 
+void test_factorized_lane_r4_prefill_route(TestContext& test) {
+  using Query = detail::FactorizedLaneR4PrefillRouteQuery;
+  using Route = detail::FactorizedLaneR4PrefillRoute;
+
+  Query valid;
+  valid.requested = true;
+  valid.full_a4_prefill_enabled = true;
+  valid.sm87_weight_only = true;
+  valid.k256_inventory = true;
+  valid.complete_r4_mlp_attached = true;
+  test.expect(detail::select_factorized_lane_r4_prefill_route(valid) ==
+                  Route::kEnabled,
+              "R4 whole-MLP Prefill route admits only its complete base "
+              "contract");
+
+  Query disabled = valid;
+  disabled.requested = false;
+  disabled.complete_r4_mlp_attached = false;
+  test.expect(detail::select_factorized_lane_r4_prefill_route(disabled) ==
+                  Route::kDisabled,
+              "R4 whole-MLP Prefill route remains default-off");
+
+  const auto rejects = [&](Query query) {
+    return detail::select_factorized_lane_r4_prefill_route(query) ==
+           Route::kInvalid;
+  };
+  Query conflict = valid;
+  conflict.r1_requested = true;
+  Query no_full_prefill = valid;
+  no_full_prefill.full_a4_prefill_enabled = false;
+  Query wrong_backend = valid;
+  wrong_backend.sm87_weight_only = false;
+  Query trace = valid;
+  trace.trace_enabled = true;
+  Query globally_disabled = valid;
+  globally_disabled.optimized_dispatch_disabled = true;
+  Query wrong_inventory = valid;
+  wrong_inventory.k256_inventory = false;
+  Query incomplete = valid;
+  incomplete.complete_r4_mlp_attached = false;
+  Query selector_conflict = valid;
+  selector_conflict.mlp_selector_conflict = true;
+  test.expect(rejects(conflict) && rejects(no_full_prefill) &&
+                  rejects(wrong_backend) && rejects(trace) &&
+                  rejects(globally_disabled) && rejects(wrong_inventory) &&
+                  rejects(incomplete) && rejects(selector_conflict),
+              "R4 whole-MLP Prefill route fails closed on R1, backend, "
+              "trace, inventory, attachment, and selector conflicts");
+
+  test.expect(
+      !detail::factorized_lane_r4_prefill_prompt_supported(
+          1'792U, 1'920U, 4'096U) &&
+          detail::factorized_lane_r4_prefill_prompt_supported(1'793U,
+                                                              1'920U,
+                                                              4'096U) &&
+          detail::factorized_lane_r4_prefill_prompt_supported(1'853U,
+                                                              1'920U,
+                                                              2'048U) &&
+          detail::factorized_lane_r4_prefill_prompt_supported(1'920U,
+                                                              1'920U,
+                                                              1'920U) &&
+          !detail::factorized_lane_r4_prefill_prompt_supported(1'921U,
+                                                               1'920U,
+                                                               4'096U) &&
+          !detail::factorized_lane_r4_prefill_prompt_supported(1'853U,
+                                                               2'048U,
+                                                               4'096U) &&
+          !detail::factorized_lane_r4_prefill_prompt_supported(
+              1'853U, 1'920U, 1'536U),
+      "R4 whole-MLP Prefill route is exact to logical P1793..P1920 and "
+      "launch P1920 while allowing a larger aligned workspace span");
+
+  detail::A4W4FullPrefillAdmissionHits aggregate_hits;
+  aggregate_hits.factorized_lane_r1_package_launch_hits = 7U;
+  aggregate_hits.factorized_lane_r4_package_launch_hits = 11U;
+  runtime::ReferenceLongPrefillResult request_hits;
+  request_hits.factorized_lane_r1_package_launch_hits = 13U;
+  request_hits.factorized_lane_r4_package_launch_hits = 17U;
+  test.expect(
+      aggregate_hits.factorized_lane_r1_package_launch_hits == 7U &&
+          aggregate_hits.factorized_lane_r4_package_launch_hits == 11U &&
+          request_hits.factorized_lane_r1_package_launch_hits == 13U &&
+          request_hits.factorized_lane_r4_package_launch_hits == 17U,
+      "R1 and R4 package proofs remain independent in aggregate and "
+      "request-local accounting");
+}
+
 void test_paired_gateup_canonical_down_selector_and_accounting(
     TestContext& test) {
   using Query = detail::A4W4PairedGateUpCanonicalDownSelectorQuery;
@@ -3243,6 +3330,7 @@ int main() {
   test_fake_linear_weight_validation(test);
   test_a4w4_full_prefill_admission_controls(test);
   test_prefill_admission_gate_orthogonality(test);
+  test_factorized_lane_r4_prefill_route(test);
   test_paired_gateup_canonical_down_selector_and_accounting(test);
   test_projection_major_gateup_canonical_down_selector_and_accounting(test);
   test_down_m128n128_ldmatrix_pairring_v1_selector_and_accounting(test);
