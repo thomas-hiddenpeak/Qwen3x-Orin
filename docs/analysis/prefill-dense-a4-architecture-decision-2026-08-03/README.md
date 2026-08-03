@@ -61,9 +61,10 @@ scaling only by token count gives
 666.4768 * 1853 / 512 = 2,412.1 ms
 ```
 
-for the P1853 MLP alone.  The current dense-A4 MLP is 1,010.798592 ms.
-Extending the old runner seam would therefore be a known regression rather
-than a qualitative Prefill improvement.  Marlin remains an implementation
+for the P1853 MLP alone.  The current dense-A4 MLP is 1,010.798592 ms.  This
+token-linear extrapolation is not a P1853 measurement, but it is a strong
+negative architecture screen: extending the old runner seam has no credible
+route to a qualitative Prefill improvement.  Marlin remains an implementation
 reference and compatibility oracle only.
 
 ### SM87 structured sparse S4
@@ -79,7 +80,8 @@ The current production K256 A4 publication was audited directly:
 
 SM87 `mma.sp.m16n8k128.s4.s4` uses the INT4 4:8 pair contract: four adjacent
 INT4 pairs select two pairs.  Choosing the minimum-energy legal mask for every
-real weight group gives:
+real weight group and weighting the dequantized code energy by its stored BF16
+scale gives:
 
 | Projection | weight energy removed | relative L2 error | cosine | already lossless groups |
 | --- | ---: | ---: | ---: | ---: |
@@ -88,10 +90,12 @@ real weight group gives:
 | Down | 20.9048% | 45.7218% | 0.88935 | 0.8748% |
 
 Even the hardware-ineligible, more generous scalar 2:4 lower bound removes
-about 14.1% of weight energy and has about 0.375 relative L2 error.  This is
-not a free sparsity opportunity and is incompatible with the project's
-accuracy priority without a separate sparse-training project.  No sparse
-kernel is implemented on this mainline.
+about 14.1% of weight energy and has about 0.375 relative L2 error.  The
+fixed-K-order, value-preserving mask therefore fails the real-weight
+architecture screen.  Sparse execution is deferred unless a separately
+scoped permutation, calibration/refitting, or fine-tuning project first
+supplies weights that pass the real-API capability gates.  No sparse kernel is
+implemented on this mainline.
 
 ## Dense projection dataflow
 
@@ -157,6 +161,8 @@ forming a performance sweep:
   safely in S32 (`49 * 17408 = 852992`) and applies scale once.
 - R4 is the predeclared quality-oriented candidate if R1 proves the execution
   architecture but fails the numerical/capability gate.
+- R2 is reserved in the ABI so an artifact is not reformatted merely to add a
+  lane count; it has no independent scan or promotion role in this plan.
 - a small, explicit outlier-channel correction plane is allowed only after a
   real-prompt calibration audit demonstrates that it is necessary and bounded.
 
