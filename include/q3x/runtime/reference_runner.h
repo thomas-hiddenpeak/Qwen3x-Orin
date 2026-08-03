@@ -77,6 +77,11 @@ struct ReferenceRunnerOptions {
   // mutually exclusive with R1 and every K512/Marlin MLP route, and accepts
   // only one logical P1793..P1920 projection span launched as P1920.
   bool enable_factorized_lane_r4_prefill_admission = false;
+  // Select the two-CTA/SM Gate+Up and Down implementation beneath the direct
+  // R4 master above.  This leaf never owns or changes an artifact: enabling
+  // it without the R4 master is invalid, while leaving it false preserves the
+  // admitted incumbent R4 kernels exactly.
+  bool enable_factorized_lane_r4_2cta_prefill_admission = false;
 };
 
 enum class ReferenceLogitsMode : std::uint8_t {
@@ -264,6 +269,10 @@ struct ReferenceLongPrefillResult {
   // lane4 hidden quantization, paired Gate+Up, split product quantization,
   // and Down all enqueued successfully for one layer/span.
   std::size_t factorized_lane_r4_package_launch_hits = 0U;
+  // Subordinate proof that the R4 package hit above used both two-CTA/SM
+  // kernels.  It is zero for the incumbent R4 implementation and can never
+  // exceed the master R4 package count.
+  std::size_t factorized_lane_r4_2cta_package_launch_hits = 0U;
   // Request-local proof that the default-off full-projection-serial
   // M128N128 Gate+Up route owned every decoder layer.
   std::size_t gateup_m128n128_projection_serial_launch_hits = 0U;
@@ -772,6 +781,9 @@ struct A4W4FullPrefillAdmissionHits {
   // Kept independent from R1 so request accounting cannot mistake an R1
   // package for the direct-checkpoint R4 execution slice.
   std::size_t factorized_lane_r4_package_launch_hits = 0U;
+  // One subordinate hit proves that both two-CTA/SM R4 kernels were enqueued
+  // for the same complete layer/span package counted immediately above.
+  std::size_t factorized_lane_r4_2cta_package_launch_hits = 0U;
 };
 
 enum class FactorizedLaneR4PrefillRoute : std::uint8_t {
@@ -807,6 +819,28 @@ select_factorized_lane_r4_prefill_route(
                  !query.mlp_selector_conflict
              ? FactorizedLaneR4PrefillRoute::kEnabled
              : FactorizedLaneR4PrefillRoute::kInvalid;
+}
+
+enum class FactorizedLaneR4TwoCtaPrefillRoute : std::uint8_t {
+  kDisabled = 0,
+  kInvalid,
+  kEnabled,
+};
+
+struct FactorizedLaneR4TwoCtaPrefillRouteQuery final {
+  bool requested = false;
+  bool r4_master_requested = false;
+};
+
+[[nodiscard]] constexpr FactorizedLaneR4TwoCtaPrefillRoute
+select_factorized_lane_r4_2cta_prefill_route(
+    const FactorizedLaneR4TwoCtaPrefillRouteQuery& query) noexcept {
+  if (!query.requested) {
+    return FactorizedLaneR4TwoCtaPrefillRoute::kDisabled;
+  }
+  return query.r4_master_requested
+             ? FactorizedLaneR4TwoCtaPrefillRoute::kEnabled
+             : FactorizedLaneR4TwoCtaPrefillRoute::kInvalid;
 }
 
 [[nodiscard]] constexpr bool factorized_lane_r4_prefill_prompt_supported(
@@ -1914,6 +1948,9 @@ class ReferenceRunner {
   [[nodiscard]] bool factorized_lane_r4_prefill_enabled() const noexcept {
     return factorized_lane_r4_prefill_admission_enabled_;
   }
+  [[nodiscard]] bool factorized_lane_r4_2cta_prefill_enabled() const noexcept {
+    return factorized_lane_r4_2cta_prefill_admission_enabled_;
+  }
 
   [[nodiscard]] ReferenceStepOutcome step(
       std::uint32_t input_token_id,
@@ -2114,6 +2151,7 @@ class ReferenceRunner {
   bool a4w4_full_prefill_admission_enabled_ = false;
   bool factorized_lane_r1_prefill_admission_enabled_ = false;
   bool factorized_lane_r4_prefill_admission_enabled_ = false;
+  bool factorized_lane_r4_2cta_prefill_admission_enabled_ = false;
   bool trace_enabled_ = false;
   bool trace_valid_ = false;
   bool poisoned_ = false;

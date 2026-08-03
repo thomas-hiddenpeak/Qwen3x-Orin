@@ -265,6 +265,16 @@ prefill_mlp_factorized_lane_r4_environment_enabled() noexcept {
 }
 
 [[nodiscard]] bool
+prefill_mlp_factorized_lane_r4_2cta_environment_enabled() noexcept {
+  if (optimized_prefill_dispatch_disabled()) {
+    return false;
+  }
+  const char* const value = std::getenv(
+      "Q3X_RUN_A4W4_FACTORIZED_LANE_R4_2CTA_ADMISSION");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
+[[nodiscard]] bool
 prefill_gateup_k512_m64n128_register_pipeline_environment_enabled() noexcept {
   if (optimized_prefill_dispatch_disabled()) {
     return false;
@@ -8326,6 +8336,8 @@ struct ReferenceEngine::Impl {
     }
     const bool prefill_mlp_factorized_lane_r4_selected =
         prefill_mlp_factorized_lane_r4_environment_enabled();
+    const bool prefill_mlp_factorized_lane_r4_2cta_selected =
+        prefill_mlp_factorized_lane_r4_2cta_environment_enabled();
     if (prefill_mlp_factorized_lane_r4_paths.requested &&
         (!prefill_a4_paths.requested ||
          !prefill_mlp_factorized_lane_r4_selected)) {
@@ -8346,6 +8358,24 @@ struct ReferenceEngine::Impl {
           "payload/policy/receipt triplet");
       return result;
     }
+    if (prefill_mlp_factorized_lane_r4_2cta_selected &&
+        !prefill_mlp_factorized_lane_r4_selected) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kInvalidArgument,
+          "prefill_mlp_factorized_lane_r4_2cta_options",
+          "the direct-R4 two-CTA runtime leaf requires the direct R4 "
+          "runtime master");
+      return result;
+    }
+#if !defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R4_2CTA_ADMISSION)
+    if (prefill_mlp_factorized_lane_r4_2cta_selected) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kInvalidArgument,
+          "prefill_mlp_factorized_lane_r4_2cta_options",
+          "this binary does not contain the direct-R4 two-CTA runtime leaf");
+      return result;
+    }
+#endif
     if (prefill_mlp_factorized_lane_r1_selected &&
         prefill_mlp_factorized_lane_r4_selected) {
       result.diagnostic = engine_diagnostic(
@@ -9449,6 +9479,8 @@ struct ReferenceEngine::Impl {
             prefill_mlp_factorized_lane_r1_selected;
         runner_options.enable_factorized_lane_r4_prefill_admission =
             prefill_mlp_factorized_lane_r4_selected;
+        runner_options.enable_factorized_lane_r4_2cta_prefill_admission =
+            prefill_mlp_factorized_lane_r4_2cta_selected;
         const Clock::time_point begin = Clock::now();
         ReferenceRunnerFactoryResult runner = create_reference_runner(
             &*impl->model_weights, &*impl->request_state, runner_options);
@@ -11700,6 +11732,8 @@ ReferenceOneShotResult generate_reference(
   std::string mlp_factorized_lane_r4_preflight_error;
   const bool mlp_factorized_lane_r4_preflight_selected =
       prefill_mlp_factorized_lane_r4_environment_enabled();
+  const bool mlp_factorized_lane_r4_2cta_preflight_selected =
+      prefill_mlp_factorized_lane_r4_2cta_environment_enabled();
   if (!resolve_prefill_mlp_factorized_lane_r4_engine_paths(
           a4_preflight_options, mlp_factorized_lane_r4_preflight_paths,
           mlp_factorized_lane_r4_preflight_error) ||
@@ -11719,6 +11753,22 @@ ReferenceOneShotResult generate_reference(
             : mlp_factorized_lane_r4_preflight_error);
     return result;
   }
+  if (mlp_factorized_lane_r4_2cta_preflight_selected &&
+      !mlp_factorized_lane_r4_preflight_selected) {
+    result.diagnostic = engine_diagnostic(
+        ReferenceEngineError::kInvalidArgument, "one_shot_options",
+        "the direct-R4 two-CTA runtime leaf requires the direct R4 runtime "
+        "master");
+    return result;
+  }
+#if !defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R4_2CTA_ADMISSION)
+  if (mlp_factorized_lane_r4_2cta_preflight_selected) {
+    result.diagnostic = engine_diagnostic(
+        ReferenceEngineError::kInvalidArgument, "one_shot_options",
+        "this binary does not contain the direct-R4 two-CTA runtime leaf");
+    return result;
+  }
+#endif
   std::string mlp_k512_leaf_selector_preflight_error;
   if (!validate_prefill_mlp_k512_leaf_selectors(
           mlp_k512_preflight_paths.requested,

@@ -1014,6 +1014,9 @@ void execute_job(runtime::ReferenceEngine& engine,
             << " factorized_lane_r4_package_launch_hits="
             << generated.value->timing
                    .factorized_lane_r4_package_launch_hits
+            << " factorized_lane_r4_2cta_package_launch_hits="
+            << generated.value->timing
+                   .factorized_lane_r4_2cta_package_launch_hits
             << " gateup_m128n128_projection_serial_launch_hits="
             << generated.value->timing
                    .gateup_m128n128_projection_serial_launch_hits

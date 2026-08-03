@@ -13,6 +13,10 @@
 #include "q3x/kernels/sm87_a4w4_down_factorized_r4_m192n128.h"
 #include "q3x/kernels/sm87_a4w4_gateup_factorized_r4_m128n64.h"
 #endif
+#if defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R4_2CTA_ADMISSION)
+#include "q3x/kernels/sm87_a4w4_down_factorized_r4_m128n64_2cta.h"
+#include "q3x/kernels/sm87_a4w4_gateup_factorized_r4_m64n64_2cta.h"
+#endif
 #if defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
 #if defined(Q3X_ENABLE_A4W4_ATTENTION_SUPERMATRIX_ADMISSION)
 #include "q3x/kernels/sm87_a4w4_attention_supermatrix_cell.h"
@@ -4206,6 +4210,8 @@ ReferenceRunner& ReferenceRunner::operator=(ReferenceRunner&& other) noexcept {
       other.factorized_lane_r1_prefill_admission_enabled_, false);
   factorized_lane_r4_prefill_admission_enabled_ = std::exchange(
       other.factorized_lane_r4_prefill_admission_enabled_, false);
+  factorized_lane_r4_2cta_prefill_admission_enabled_ = std::exchange(
+      other.factorized_lane_r4_2cta_prefill_admission_enabled_, false);
   trace_enabled_ = std::exchange(other.trace_enabled_, false);
   trace_valid_ = std::exchange(other.trace_valid_, false);
   poisoned_ = std::exchange(other.poisoned_, false);
@@ -4314,6 +4320,7 @@ void ReferenceRunner::release() noexcept {
   a4w4_full_prefill_admission_enabled_ = false;
   factorized_lane_r1_prefill_admission_enabled_ = false;
   factorized_lane_r4_prefill_admission_enabled_ = false;
+  factorized_lane_r4_2cta_prefill_admission_enabled_ = false;
   trace_enabled_ = false;
   trace_valid_ = false;
   poisoned_ = false;
@@ -9299,14 +9306,48 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
         layer_weights.prefill_mlp_factorized_lane_r4;
     constexpr std::size_t launch_token_count =
         kernels::kSm87A4W4GateUpFactorizedR4M128N64LaunchTokens;
-    const auto gate_plan =
+    const auto incumbent_gate_plan =
         kernels::sm87_a4w4_gateup_factorized_r4_m128n64_plan(
             token_count, launch_token_count, kReferenceIntermediateSize,
             kReferenceHiddenSize);
-    const auto down_plan =
+    const auto incumbent_down_plan =
         kernels::sm87_a4w4_down_factorized_r4_m192n128_plan(
             token_count, launch_token_count, kReferenceHiddenSize,
             kReferenceIntermediateSize);
+#if defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R4_2CTA_ADMISSION)
+    static_assert(
+        launch_token_count ==
+        kernels::kSm87A4W4GateUpFactorizedR4M64N64TwoCtaLaunchTokens);
+    static_assert(
+        launch_token_count ==
+        kernels::kSm87A4W4DownFactorizedR4M128N64LaunchTokens);
+    static_assert(
+        kernels::kSm87A4W4GateUpFactorizedR4M128N64PrimaryStride ==
+        kernels::kSm87A4W4GateUpFactorizedR4M64N64TwoCtaPrimaryStride);
+    static_assert(
+        kernels::kSm87A4W4GateUpFactorizedR4M128N64SecondaryStride ==
+        kernels::kSm87A4W4GateUpFactorizedR4M64N64TwoCtaSecondaryStride);
+    const bool r4_2cta_selected =
+        factorized_lane_r4_2cta_prefill_admission_enabled_;
+    const auto r4_2cta_gate_plan =
+        kernels::sm87_a4w4_gateup_factorized_r4_m64n64_2cta_plan(
+            token_count, launch_token_count, kReferenceIntermediateSize,
+            kReferenceHiddenSize);
+    const auto r4_2cta_down_plan =
+        kernels::sm87_a4w4_down_factorized_r4_m128n64_plan(
+            token_count, launch_token_count, kReferenceHiddenSize,
+            kReferenceIntermediateSize);
+    const bool gate_plan_valid = r4_2cta_selected
+                                     ? static_cast<bool>(r4_2cta_gate_plan)
+                                     : static_cast<bool>(incumbent_gate_plan);
+    const bool down_plan_valid = r4_2cta_selected
+                                     ? static_cast<bool>(r4_2cta_down_plan)
+                                     : static_cast<bool>(incumbent_down_plan);
+#else
+    constexpr bool r4_2cta_selected = false;
+    const bool gate_plan_valid = static_cast<bool>(incumbent_gate_plan);
+    const bool down_plan_valid = static_cast<bool>(incumbent_down_plan);
+#endif
     const auto hidden_quantize_plan =
         kernels::sm87_a4w4_factorized_lane_quantize_plan(
             token_count, launch_token_count, kReferenceHiddenSize, 4U);
@@ -9324,8 +9365,8 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
         projection_backend_ != ProjectionBackend::kSm87WeightOnly ||
         !reference_runner_detail::factorized_lane_r4_prefill_prompt_supported(
             token_count, projection_token_count, span_capacity) ||
-        projection_token_count != launch_token_count || !gate_plan ||
-        !down_plan ||
+        projection_token_count != launch_token_count || !gate_plan_valid ||
+        !down_plan_valid ||
         !hidden_quantize_plan || !product_quantize_plan ||
         !factorized.attached() ||
         !valid_factorized_lane_r4_projection(
@@ -9363,6 +9404,80 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
           item.layer_index);
     }
 
+    const auto launch_r4_gateup = [&]() noexcept -> int {
+#if defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R4_2CTA_ADMISSION)
+      if (r4_2cta_selected) {
+        return kernels::
+            launch_sm87_a4w4_gateup_factorized_r4_m64n64_2cta_bf16_cuda(
+                views_.prefill_a4_hidden_packed, hidden_packed_capacity,
+                views_.prefill_a4_hidden_scales, hidden_scale_capacity,
+                factorized.gate.packed_weight,
+                factorized.gate.packed_weight_capacity_bytes,
+                factorized.gate.lane_scales,
+                factorized.gate.lane_scale_capacity_elements,
+                factorized.up.packed_weight,
+                factorized.up.packed_weight_capacity_bytes,
+                factorized.up.lane_scales,
+                factorized.up.lane_scale_capacity_elements, token_count,
+                launch_token_count, kReferenceIntermediateSize,
+                kReferenceHiddenSize, primary,
+                kernels::
+                    kSm87A4W4GateUpFactorizedR4M64N64TwoCtaPrimaryStride,
+                primary_capacity, secondary,
+                kernels::
+                    kSm87A4W4GateUpFactorizedR4M64N64TwoCtaSecondaryStride,
+                secondary_capacity, stream_);
+      }
+#endif
+      return kernels::
+          launch_sm87_a4w4_gateup_factorized_r4_m128n64_bf16_cuda(
+              views_.prefill_a4_hidden_packed, hidden_packed_capacity,
+              views_.prefill_a4_hidden_scales, hidden_scale_capacity,
+              factorized.gate.packed_weight,
+              factorized.gate.packed_weight_capacity_bytes,
+              factorized.gate.lane_scales,
+              factorized.gate.lane_scale_capacity_elements,
+              factorized.up.packed_weight,
+              factorized.up.packed_weight_capacity_bytes,
+              factorized.up.lane_scales,
+              factorized.up.lane_scale_capacity_elements, token_count,
+              launch_token_count, kReferenceIntermediateSize,
+              kReferenceHiddenSize, primary,
+              kernels::kSm87A4W4GateUpFactorizedR4M128N64PrimaryStride,
+              primary_capacity, secondary,
+              kernels::kSm87A4W4GateUpFactorizedR4M128N64SecondaryStride,
+              secondary_capacity, stream_);
+    };
+    const auto launch_r4_down = [&]() noexcept -> int {
+#if defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R4_2CTA_ADMISSION)
+      if (r4_2cta_selected) {
+        return kernels::
+            launch_sm87_a4w4_down_factorized_r4_m128n64_bf16_cuda(
+                views_.prefill_a4_intermediate_packed,
+                intermediate_packed_capacity,
+                views_.prefill_a4_intermediate_scales,
+                intermediate_scale_capacity, factorized.down.packed_weight,
+                factorized.down.packed_weight_capacity_bytes,
+                factorized.down.lane_scales,
+                factorized.down.lane_scale_capacity_elements, token_count,
+                launch_token_count, kReferenceHiddenSize,
+                kReferenceIntermediateSize, secondary,
+                kReferenceHiddenSize, secondary_capacity, stream_);
+      }
+#endif
+      return kernels::launch_sm87_a4w4_down_factorized_r4_m192n128_bf16_cuda(
+          views_.prefill_a4_intermediate_packed,
+          intermediate_packed_capacity,
+          views_.prefill_a4_intermediate_scales,
+          intermediate_scale_capacity, factorized.down.packed_weight,
+          factorized.down.packed_weight_capacity_bytes,
+          factorized.down.lane_scales,
+          factorized.down.lane_scale_capacity_elements, token_count,
+          launch_token_count, kReferenceHiddenSize,
+          kReferenceIntermediateSize, secondary, kReferenceHiddenSize,
+          secondary_capacity, stream_);
+    };
+
     if (!check_cuda(
             kernels::launch_sm87_a4w4_factorized_lane_quantize_bf16_cuda(
                 primary, kReferenceHiddenSize, primary_capacity,
@@ -9375,29 +9490,10 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
                 stream_),
             "prefill_projection_span_factorized_lane_r4_input_quantize") ||
         !check_cuda(
-            kernels::
-                launch_sm87_a4w4_gateup_factorized_r4_m128n64_bf16_cuda(
-                    views_.prefill_a4_hidden_packed,
-                    hidden_packed_capacity,
-                    views_.prefill_a4_hidden_scales,
-                    hidden_scale_capacity, factorized.gate.packed_weight,
-                    factorized.gate.packed_weight_capacity_bytes,
-                    factorized.gate.lane_scales,
-                    factorized.gate.lane_scale_capacity_elements,
-                    factorized.up.packed_weight,
-                    factorized.up.packed_weight_capacity_bytes,
-                    factorized.up.lane_scales,
-                    factorized.up.lane_scale_capacity_elements,
-                    token_count, launch_token_count,
-                    kReferenceIntermediateSize, kReferenceHiddenSize,
-                    primary,
-                    kernels::
-                        kSm87A4W4GateUpFactorizedR4M128N64PrimaryStride,
-                    primary_capacity, secondary,
-                    kernels::
-                        kSm87A4W4GateUpFactorizedR4M128N64SecondaryStride,
-                    secondary_capacity, stream_),
-            "prefill_projection_span_factorized_lane_r4_gateup") ||
+            launch_r4_gateup(),
+            r4_2cta_selected
+                ? "prefill_projection_span_factorized_lane_r4_2cta_gateup"
+                : "prefill_projection_span_factorized_lane_r4_gateup") ||
         !check_cuda(
             kernels::
                 launch_sm87_a4w4_factorized_lane_quantize_bf16_split_cuda(
@@ -9423,18 +9519,10 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
                     intermediate_scale_capacity, stream_),
             "prefill_projection_span_factorized_lane_r4_product_quantize") ||
         !check_cuda(
-            kernels::launch_sm87_a4w4_down_factorized_r4_m192n128_bf16_cuda(
-                views_.prefill_a4_intermediate_packed,
-                intermediate_packed_capacity,
-                views_.prefill_a4_intermediate_scales,
-                intermediate_scale_capacity, factorized.down.packed_weight,
-                factorized.down.packed_weight_capacity_bytes,
-                factorized.down.lane_scales,
-                factorized.down.lane_scale_capacity_elements, token_count,
-                launch_token_count, kReferenceHiddenSize,
-                kReferenceIntermediateSize, secondary,
-                kReferenceHiddenSize, secondary_capacity, stream_),
-            "prefill_projection_span_factorized_lane_r4_down")) {
+            launch_r4_down(),
+            r4_2cta_selected
+                ? "prefill_projection_span_factorized_lane_r4_2cta_down"
+                : "prefill_projection_span_factorized_lane_r4_down")) {
       return failure;
     }
     local_hits.activation_quantize_hits += 2U;
@@ -9448,6 +9536,11 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
     g_a4w4_full_prefill_admission_hits.logical_projection_hits += 3U;
     ++g_a4w4_full_prefill_admission_hits
           .factorized_lane_r4_package_launch_hits;
+    if (r4_2cta_selected) {
+      ++local_hits.factorized_lane_r4_2cta_package_launch_hits;
+      ++g_a4w4_full_prefill_admission_hits
+            .factorized_lane_r4_2cta_package_launch_hits;
+    }
     factorized_lane_r4_selected = true;
   }
 #endif
@@ -11863,6 +11956,11 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
           (factorized_lane_r1_selected ? 1U : 0U) ||
       local_hits.factorized_lane_r4_package_launch_hits !=
           (factorized_lane_r4_selected ? 1U : 0U) ||
+      local_hits.factorized_lane_r4_2cta_package_launch_hits !=
+          (factorized_lane_r4_selected &&
+                   factorized_lane_r4_2cta_prefill_admission_enabled_
+               ? 1U
+               : 0U) ||
       down_complete_cell_v2_hits !=
           (expect_down_complete_cell_v2 ? 1U : 0U) ||
       local_hits.m128_stage_major_generic_projection_hits !=
@@ -12750,6 +12848,21 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
             (factorized_lane_r4_prefill_admission_enabled_
                  ? spans * kReferenceDecoderLayerCount
                  : 0U);
+    const std::size_t factorized_lane_r4_2cta_package_delta =
+        hits_after.factorized_lane_r4_2cta_package_launch_hits >=
+                hits_before.factorized_lane_r4_2cta_package_launch_hits
+            ? hits_after.factorized_lane_r4_2cta_package_launch_hits -
+                  hits_before.factorized_lane_r4_2cta_package_launch_hits
+            : 0U;
+    const bool factorized_lane_r4_2cta_package_accounting_valid =
+        hits_after.factorized_lane_r4_2cta_package_launch_hits >=
+            hits_before.factorized_lane_r4_2cta_package_launch_hits &&
+        factorized_lane_r4_2cta_package_delta ==
+            (factorized_lane_r4_2cta_prefill_admission_enabled_
+                 ? spans * kReferenceDecoderLayerCount
+                 : 0U) &&
+        factorized_lane_r4_2cta_package_delta <=
+            factorized_lane_r4_package_delta;
     const bool mlp_k512_accounting_valid =
         mlp_k512_v1_accounting_valid &&
         projection_major_gateup_canonical_down_accounting_valid &&
@@ -12857,6 +12970,7 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
         !mlp_k256_m128n256_pairfeed_package_accounting_valid ||
         !factorized_lane_r1_package_accounting_valid ||
         !factorized_lane_r4_package_accounting_valid ||
+        !factorized_lane_r4_2cta_package_accounting_valid ||
         ((mlp_k512_delta != 0U ? 1U : 0U) +
              (mlp_k256_m128n256_pairfeed_package_delta != 0U ? 1U : 0U) +
              (factorized_lane_r1_package_delta != 0U ? 1U : 0U) +
@@ -12906,6 +13020,8 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
         factorized_lane_r1_package_delta;
     value.factorized_lane_r4_package_launch_hits =
         factorized_lane_r4_package_delta;
+    value.factorized_lane_r4_2cta_package_launch_hits =
+        factorized_lane_r4_2cta_package_delta;
     value.gateup_alternating_launch_hits =
         gateup_down_k512_edge_m64n128_k256_alternating_delta;
     value.gateup_ldmatrix_pairfeed_launch_hits =
@@ -13617,6 +13733,26 @@ ReferenceRunnerFactoryResult create_reference_runner(
     return result;
   }
 #endif
+#if !defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R4_2CTA_ADMISSION)
+  if (options.enable_factorized_lane_r4_2cta_prefill_admission) {
+    result.diagnostic = runner_status(
+        ReferenceRunnerError::kInvalidDependency,
+        "factorized_lane_r4_2cta_prefill_admission_build");
+    return result;
+  }
+#endif
+  const reference_runner_detail::FactorizedLaneR4TwoCtaPrefillRoute
+      r4_2cta_route =
+          reference_runner_detail::select_factorized_lane_r4_2cta_prefill_route(
+              {options.enable_factorized_lane_r4_2cta_prefill_admission,
+               options.enable_factorized_lane_r4_prefill_admission});
+  if (r4_2cta_route == reference_runner_detail::
+                            FactorizedLaneR4TwoCtaPrefillRoute::kInvalid) {
+    result.diagnostic = runner_status(
+        ReferenceRunnerError::kInvalidDependency,
+        "factorized_lane_r4_2cta_requires_r4_master");
+    return result;
+  }
 #if defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R4_ADMISSION) && \
     !defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
   if (options.enable_factorized_lane_r4_prefill_admission) {
@@ -13735,27 +13871,57 @@ ReferenceRunnerFactoryResult create_reference_runner(
           resource_status);
       return result;
     }
-    kernels::Sm87A4W4GateUpFactorizedR4M128N64Resources gateup_resources{};
-    resource_status = kernels::
-        query_sm87_a4w4_gateup_factorized_r4_m128n64_resources_cuda(
-            &gateup_resources);
-    if (resource_status != static_cast<int>(cudaSuccess)) {
-      result.diagnostic = runner_status(
-          ReferenceRunnerError::kInvalidDependency,
-          "factorized_lane_r4_gateup_resource_gate", kReferenceNoLayer,
-          resource_status);
-      return result;
-    }
-    kernels::Sm87A4W4DownFactorizedR4M192N128Resources down_resources{};
-    resource_status = kernels::
-        query_sm87_a4w4_down_factorized_r4_m192n128_resources_cuda(
-            &down_resources);
-    if (resource_status != static_cast<int>(cudaSuccess)) {
-      result.diagnostic = runner_status(
-          ReferenceRunnerError::kInvalidDependency,
-          "factorized_lane_r4_down_resource_gate", kReferenceNoLayer,
-          resource_status);
-      return result;
+#if defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R4_2CTA_ADMISSION)
+    if (r4_2cta_route == reference_runner_detail::
+                              FactorizedLaneR4TwoCtaPrefillRoute::kEnabled) {
+      kernels::Sm87A4W4GateUpFactorizedR4M64N64TwoCtaResources
+          gateup_resources{};
+      resource_status = kernels::
+          query_sm87_a4w4_gateup_factorized_r4_m64n64_2cta_resources_cuda(
+              &gateup_resources);
+      if (resource_status != static_cast<int>(cudaSuccess)) {
+        result.diagnostic = runner_status(
+            ReferenceRunnerError::kInvalidDependency,
+            "factorized_lane_r4_2cta_gateup_resource_gate",
+            kReferenceNoLayer, resource_status);
+        return result;
+      }
+      kernels::Sm87A4W4DownFactorizedR4M128N64Resources down_resources{};
+      resource_status = kernels::
+          query_sm87_a4w4_down_factorized_r4_m128n64_resources_cuda(
+              &down_resources);
+      if (resource_status != static_cast<int>(cudaSuccess)) {
+        result.diagnostic = runner_status(
+            ReferenceRunnerError::kInvalidDependency,
+            "factorized_lane_r4_2cta_down_resource_gate", kReferenceNoLayer,
+            resource_status);
+        return result;
+      }
+    } else
+#endif
+    {
+      kernels::Sm87A4W4GateUpFactorizedR4M128N64Resources gateup_resources{};
+      resource_status = kernels::
+          query_sm87_a4w4_gateup_factorized_r4_m128n64_resources_cuda(
+              &gateup_resources);
+      if (resource_status != static_cast<int>(cudaSuccess)) {
+        result.diagnostic = runner_status(
+            ReferenceRunnerError::kInvalidDependency,
+            "factorized_lane_r4_gateup_resource_gate", kReferenceNoLayer,
+            resource_status);
+        return result;
+      }
+      kernels::Sm87A4W4DownFactorizedR4M192N128Resources down_resources{};
+      resource_status = kernels::
+          query_sm87_a4w4_down_factorized_r4_m192n128_resources_cuda(
+              &down_resources);
+      if (resource_status != static_cast<int>(cudaSuccess)) {
+        result.diagnostic = runner_status(
+            ReferenceRunnerError::kInvalidDependency,
+            "factorized_lane_r4_down_resource_gate", kReferenceNoLayer,
+            resource_status);
+        return result;
+      }
     }
   }
 #endif
@@ -14310,6 +14476,8 @@ ReferenceRunnerFactoryResult create_reference_runner(
       options.enable_factorized_lane_r1_prefill_admission;
   runner.factorized_lane_r4_prefill_admission_enabled_ =
       options.enable_factorized_lane_r4_prefill_admission;
+  runner.factorized_lane_r4_2cta_prefill_admission_enabled_ =
+      options.enable_factorized_lane_r4_2cta_prefill_admission;
   const ReferenceRunnerStatus state_status =
       ReferenceRunner::collect_request_views(state, runner.views_);
   if (!state_status) {

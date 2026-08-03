@@ -2598,6 +2598,8 @@ void test_prefill_admission_gate_orthogonality(TestContext& test) {
 void test_factorized_lane_r4_prefill_route(TestContext& test) {
   using Query = detail::FactorizedLaneR4PrefillRouteQuery;
   using Route = detail::FactorizedLaneR4PrefillRoute;
+  using TwoCtaQuery = detail::FactorizedLaneR4TwoCtaPrefillRouteQuery;
+  using TwoCtaRoute = detail::FactorizedLaneR4TwoCtaPrefillRoute;
 
   Query valid;
   valid.requested = true;
@@ -2667,19 +2669,49 @@ void test_factorized_lane_r4_prefill_route(TestContext& test) {
       "R4 whole-MLP Prefill route is exact to logical P1793..P1920 and "
       "launch P1920 while allowing a larger aligned workspace span");
 
+  test.expect(
+      detail::select_factorized_lane_r4_2cta_prefill_route({false, false}) ==
+              TwoCtaRoute::kDisabled &&
+          detail::select_factorized_lane_r4_2cta_prefill_route(
+              TwoCtaQuery{true, false}) == TwoCtaRoute::kInvalid &&
+          detail::select_factorized_lane_r4_2cta_prefill_route(
+              TwoCtaQuery{true, true}) == TwoCtaRoute::kEnabled,
+      "R4 two-CTA leaf is default-off, requires the direct R4 master, and "
+      "has one unambiguous enabled state");
+
+  runtime::ReferenceRunnerOptions orphan_leaf;
+  orphan_leaf.enable_factorized_lane_r4_2cta_prefill_admission = true;
+  const runtime::ReferenceRunnerFactoryResult orphan_leaf_result =
+      runtime::create_reference_runner(nullptr, nullptr, orphan_leaf);
+  test.expect(
+      !orphan_leaf_result &&
+          orphan_leaf_result.diagnostic.error ==
+              runtime::ReferenceRunnerError::kInvalidDependency &&
+          orphan_leaf_result.diagnostic.operation != nullptr &&
+          (std::string_view(orphan_leaf_result.diagnostic.operation) ==
+               "factorized_lane_r4_2cta_prefill_admission_build" ||
+           std::string_view(orphan_leaf_result.diagnostic.operation) ==
+               "factorized_lane_r4_2cta_requires_r4_master"),
+      "runner factory rejects an orphan R4 two-CTA leaf before model or CUDA "
+      "work in both ordinary and admission builds");
+
   detail::A4W4FullPrefillAdmissionHits aggregate_hits;
   aggregate_hits.factorized_lane_r1_package_launch_hits = 7U;
   aggregate_hits.factorized_lane_r4_package_launch_hits = 11U;
+  aggregate_hits.factorized_lane_r4_2cta_package_launch_hits = 5U;
   runtime::ReferenceLongPrefillResult request_hits;
   request_hits.factorized_lane_r1_package_launch_hits = 13U;
   request_hits.factorized_lane_r4_package_launch_hits = 17U;
+  request_hits.factorized_lane_r4_2cta_package_launch_hits = 9U;
   test.expect(
       aggregate_hits.factorized_lane_r1_package_launch_hits == 7U &&
           aggregate_hits.factorized_lane_r4_package_launch_hits == 11U &&
+          aggregate_hits.factorized_lane_r4_2cta_package_launch_hits == 5U &&
           request_hits.factorized_lane_r1_package_launch_hits == 13U &&
-          request_hits.factorized_lane_r4_package_launch_hits == 17U,
-      "R1 and R4 package proofs remain independent in aggregate and "
-      "request-local accounting");
+          request_hits.factorized_lane_r4_package_launch_hits == 17U &&
+          request_hits.factorized_lane_r4_2cta_package_launch_hits == 9U,
+      "R1, R4 master, and subordinate R4 two-CTA proofs remain independent "
+      "in aggregate and request-local accounting");
 }
 
 void test_paired_gateup_canonical_down_selector_and_accounting(

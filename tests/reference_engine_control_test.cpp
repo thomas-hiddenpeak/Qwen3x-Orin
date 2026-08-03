@@ -98,6 +98,7 @@ struct FakeRunner {
   std::size_t long_prefill_gateup_ldmatrix_pairfeed_launch_hits = 0U;
   std::size_t long_prefill_factorized_lane_r1_package_launch_hits = 64U;
   std::size_t long_prefill_factorized_lane_r4_package_launch_hits = 63U;
+  std::size_t long_prefill_factorized_lane_r4_2cta_package_launch_hits = 62U;
   std::size_t long_prefill_gateup_m128n64_same_cta_launch_hits = 64U;
   std::size_t long_prefill_gateup_m128n512_fused_quantize_launch_hits = 64U;
   std::size_t long_prefill_gateup_m128n512_paired_ldmatrix_launch_hits = 64U;
@@ -332,6 +333,8 @@ runtime::ReferenceLongPrefillOutcome fake_layer_major_prompt(
       fake.long_prefill_factorized_lane_r1_package_launch_hits;
   value.factorized_lane_r4_package_launch_hits =
       fake.long_prefill_factorized_lane_r4_package_launch_hits;
+  value.factorized_lane_r4_2cta_package_launch_hits =
+      fake.long_prefill_factorized_lane_r4_2cta_package_launch_hits;
   value.gateup_m128n64_same_cta_launch_hits =
       fake.long_prefill_gateup_m128n64_same_cta_launch_hits;
   value.gateup_m128n512_fused_quantize_launch_hits =
@@ -878,6 +881,9 @@ void test_layer_major_prompt_admission(TestContext& test) {
                 fake.long_prefill_factorized_lane_r1_package_launch_hits &&
             result.value->timing.factorized_lane_r4_package_launch_hits ==
                 fake.long_prefill_factorized_lane_r4_package_launch_hits &&
+            result.value->timing
+                    .factorized_lane_r4_2cta_package_launch_hits ==
+                fake.long_prefill_factorized_lane_r4_2cta_package_launch_hits &&
             result.value->timing.gateup_m128n64_same_cta_launch_hits ==
                 fake.long_prefill_gateup_m128n64_same_cta_launch_hits &&
             result.value->timing.gateup_m128n512_fused_quantize_launch_hits ==
@@ -2571,8 +2577,25 @@ void test_factorized_lane_r4_engine_preflight(TestContext& test) {
       "Q3X_RUN_A4W4_FACTORIZED_LANE_R1_ADMISSION";
   constexpr const char* kR4Selector =
       "Q3X_RUN_A4W4_FACTORIZED_LANE_R4_ADMISSION";
+  constexpr const char* kR4TwoCtaSelector =
+      "Q3X_RUN_A4W4_FACTORIZED_LANE_R4_2CTA_ADMISSION";
   (void)::unsetenv(kR1Selector);
   (void)::unsetenv(kR4Selector);
+  (void)::unsetenv(kR4TwoCtaSelector);
+
+  (void)::setenv(kR4TwoCtaSelector, "1", 1);
+  const runtime::ReferenceEngineCreateResult orphan_two_cta_leaf =
+      runtime::create_reference_engine("unused-model-directory", {});
+  (void)::unsetenv(kR4TwoCtaSelector);
+  test.expect(
+      !orphan_two_cta_leaf &&
+          orphan_two_cta_leaf.diagnostic.code ==
+              runtime::ReferenceEngineError::kInvalidArgument &&
+          orphan_two_cta_leaf.diagnostic.stage ==
+              "prefill_mlp_factorized_lane_r4_2cta_options" &&
+          orphan_two_cta_leaf.diagnostic.message.find("runtime master") !=
+              std::string::npos,
+      "direct-R4 two-CTA leaf without its R4 master fails before model I/O");
 
   runtime::ReferenceEngineOptions partial;
   partial.prefill_mlp_factorized_lane_r4_payload_path = "r4.payload";
@@ -2760,7 +2783,17 @@ void test_factorized_lane_r4_engine_runner_admission_bridge(
           "prefill_mlp_factorized_lane_r4_selected;") != std::string::npos,
       "ReferenceEngine propagates direct R4 selection into runner options");
   test.expect(
+      compact.find(
+          "runner_options.enable_factorized_lane_r4_2cta_prefill_admission="
+          "prefill_mlp_factorized_lane_r4_2cta_selected;") !=
+          std::string::npos,
+      "ReferenceEngine freezes the direct-R4 two-CTA leaf selection in "
+      "runner options");
+  test.expect(
       source.find("Q3X_RUN_A4W4_FACTORIZED_LANE_R4_ADMISSION") !=
+              std::string::npos &&
+          source.find(
+              "Q3X_RUN_A4W4_FACTORIZED_LANE_R4_2CTA_ADMISSION") !=
               std::string::npos &&
           source.find("parse_prefill_mlp_factorized_lane_r4_policy") !=
               std::string::npos &&

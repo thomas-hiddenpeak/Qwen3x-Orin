@@ -126,6 +126,10 @@ option(Q3X_BUILD_SM87_A4W4_GATEUP_FACTORIZED_R4_M64N64_2CTA_EXPERIMENT
   "Build the default-off resource-first R4 Gate+Up M64N64 two-CTA/SM experiment"
   OFF
 )
+option(Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_R4_2CTA_ADMISSION
+  "Build the default-off direct-R4 M64N64 Gate+Up plus M128N64 Down two-CTA/SM runtime leaf"
+  OFF
+)
 option(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M128N64_EXPERIMENT
   "Build the default-off producer-owned M128N64 Gate+Up K512 edge candidate"
   OFF
@@ -451,6 +455,13 @@ if(Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_R4_ADMISSION AND
     NOT Q3X_BUILD_SM87_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_EXPERIMENT))
   message(FATAL_ERROR
     "The factorized-lane R4 API experiment requires BUILD_TESTING, its direct-checkpoint kernel architecture, authenticated full-A4, whole-M layer-major Prefill, and the cumulative K256 Attention A-exchange/B4 companion route"
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_R4_2CTA_ADMISSION AND
+   (NOT BUILD_TESTING OR
+    NOT Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_R4_ADMISSION))
+  message(FATAL_ERROR
+    "The direct-R4 two-CTA runtime leaf requires BUILD_TESTING and the direct R4 admission"
   )
 endif()
 if(Q3X_BUILD_SM87_A4W4_GATEUP_DOWN_K512_EDGE_M128N64_EXPERIMENT AND
@@ -1128,7 +1139,8 @@ if(Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_MLP_EXPERIMENT)
     PROPERTIES COMPILE_OPTIONS "-Xptxas=-v;-Xptxas=-warn-spills;-Xptxas=-warn-lmem-usage"
   )
 endif()
-if(Q3X_BUILD_SM87_A4W4_DOWN_FACTORIZED_R4_M128N64_2CTA_EXPERIMENT)
+if(Q3X_BUILD_SM87_A4W4_DOWN_FACTORIZED_R4_M128N64_2CTA_EXPERIMENT OR
+   Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_R4_2CTA_ADMISSION)
   target_sources(q3x_kernels PRIVATE
     src/kernels/sm87/a4w4_down_factorized_r4_m128n64_2cta.cu
   )
@@ -1137,7 +1149,8 @@ if(Q3X_BUILD_SM87_A4W4_DOWN_FACTORIZED_R4_M128N64_2CTA_EXPERIMENT)
     PROPERTIES COMPILE_OPTIONS "--maxrregcount=128;-Xptxas=-v;-Xptxas=-warn-spills;-Xptxas=-warn-lmem-usage"
   )
 endif()
-if(Q3X_BUILD_SM87_A4W4_GATEUP_FACTORIZED_R4_M64N64_2CTA_EXPERIMENT)
+if(Q3X_BUILD_SM87_A4W4_GATEUP_FACTORIZED_R4_M64N64_2CTA_EXPERIMENT OR
+   Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_R4_2CTA_ADMISSION)
   target_sources(q3x_kernels PRIVATE
     src/kernels/sm87/a4w4_gateup_factorized_r4_m64n64_2cta.cu
   )
@@ -1154,6 +1167,11 @@ endif()
 if(Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_R4_ADMISSION)
   target_compile_definitions(q3x_kernels PRIVATE
     Q3X_ENABLE_A4W4_FACTORIZED_LANE_R4_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_R4_2CTA_ADMISSION)
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_A4W4_FACTORIZED_LANE_R4_2CTA_ADMISSION=1
   )
 endif()
 if(Q3X_BUILD_SM87_A4W4_DOWN_K512_M16N64_V2_EXPERIMENT)
@@ -1349,6 +1367,11 @@ endif()
 if(Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_R4_ADMISSION)
   target_compile_definitions(q3x_engine PRIVATE
     Q3X_ENABLE_A4W4_FACTORIZED_LANE_R4_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_R4_2CTA_ADMISSION)
+  target_compile_definitions(q3x_engine PRIVATE
+    Q3X_ENABLE_A4W4_FACTORIZED_LANE_R4_2CTA_ADMISSION=1
   )
 endif()
 if(Q3X_BUILD_GDN_PREFILL_PROMPT_SPAN_MACRO_ADMISSION)
@@ -1555,7 +1578,8 @@ if(BUILD_TESTING)
     )
   endif()
 
-  if(Q3X_BUILD_SM87_A4W4_DOWN_FACTORIZED_R4_M128N64_2CTA_EXPERIMENT)
+  if(Q3X_BUILD_SM87_A4W4_DOWN_FACTORIZED_R4_M128N64_2CTA_EXPERIMENT OR
+     Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_R4_2CTA_ADMISSION)
     add_executable(
       q3x_sm87_a4w4_down_factorized_r4_m128n64_2cta_resource_test
       tests/sm87_a4w4_down_factorized_r4_m128n64_2cta_resource_test.cpp
@@ -1607,7 +1631,8 @@ if(BUILD_TESTING)
     )
   endif()
 
-  if(Q3X_BUILD_SM87_A4W4_GATEUP_FACTORIZED_R4_M64N64_2CTA_EXPERIMENT)
+  if(Q3X_BUILD_SM87_A4W4_GATEUP_FACTORIZED_R4_M64N64_2CTA_EXPERIMENT OR
+     Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_R4_2CTA_ADMISSION)
     add_executable(
       q3x_sm87_a4w4_gateup_factorized_r4_m64n64_2cta_resource_test
       tests/sm87_a4w4_gateup_factorized_r4_m64n64_2cta_resource_test.cpp

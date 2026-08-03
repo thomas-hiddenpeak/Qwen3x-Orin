@@ -341,6 +341,8 @@ GenerationControlResult run_generation_control_impl(
           outcome.value->factorized_lane_r1_package_launch_hits;
       control.timing.factorized_lane_r4_package_launch_hits =
           outcome.value->factorized_lane_r4_package_launch_hits;
+      control.timing.factorized_lane_r4_2cta_package_launch_hits =
+          outcome.value->factorized_lane_r4_2cta_package_launch_hits;
       control.timing.gateup_m128n128_projection_serial_launch_hits =
           outcome.value->gateup_m128n128_projection_serial_launch_hits;
       control.timing.gateup_m128n64_same_cta_launch_hits =

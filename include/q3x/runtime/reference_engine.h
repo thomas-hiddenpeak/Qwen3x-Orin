@@ -223,6 +223,9 @@ struct ReferenceGenerationTiming {
   // Independent request-local proof for the direct-checkpoint calibrated R4
   // package.  It must never be inferred from the R1 counter.
   std::size_t factorized_lane_r4_package_launch_hits = 0U;
+  // Subordinate proof that every counted R4 package used the two-CTA/SM
+  // Gate+Up and Down implementation rather than the incumbent kernels.
+  std::size_t factorized_lane_r4_2cta_package_launch_hits = 0U;
   // Propagated request-local runtime proof for the default-off full-
   // projection-serial M128N128 Gate+Up admission.
   std::size_t gateup_m128n128_projection_serial_launch_hits = 0U;
