@@ -3784,7 +3784,12 @@ class PurePrefillEvalScopeHarnessTest(unittest.TestCase):
         )
         self.assertIn("route=native-c512", baseline_metadata)
         self.assertIn(
-            "native_launch_formula=48*ceil(prompt_tokens/512)",
+            "native_launch_formula=48*(floor(prompt_tokens/512)+tail_ge_32)",
+            baseline_metadata,
+        )
+        self.assertIn(
+            "native_logical_token_formula="
+            "48*(prompt_tokens-tail_1_to_31)",
             baseline_metadata,
         )
         self.assertIn("macro_launch_formula=0", baseline_metadata)
@@ -3835,12 +3840,20 @@ class PurePrefillEvalScopeHarnessTest(unittest.TestCase):
         ):
             self.assertIn(field, contents)
         self.assertIn(
-            "expected_gdn_logical_token_hits=$((48 * prompt_tokens))",
+            "gdn_native_tail=$((prompt_tokens % 512))",
             contents,
         )
         self.assertIn(
-            "expected_gdn_native_launch_hits=$((48 * "
-            "((prompt_tokens + 511) / 512)))",
+            "if ((gdn_native_tail >= 32)); then",
+            contents,
+        )
+        self.assertIn(
+            "elif ((gdn_native_tail > 0)); then",
+            contents,
+        )
+        self.assertIn(
+            "expected_gdn_native_launch_hits="
+            "$((48 * gdn_native_tile_count))",
             contents,
         )
         self.assertIn("expected_gdn_macro_launch_hits=48", contents)
@@ -3858,6 +3871,9 @@ class PurePrefillEvalScopeHarnessTest(unittest.TestCase):
         )
 
         expected = {
+            1025: (96, 49_152),
+            1055: (96, 49_152),
+            1056: (144, 50_688),
             1804: (192, 86_592),
             1853: (192, 88_944),
             1792: (192, 86_016),
@@ -3866,10 +3882,15 @@ class PurePrefillEvalScopeHarnessTest(unittest.TestCase):
         }
         for prompt_tokens, (native_launches, logical_tokens) in expected.items():
             with self.subTest(prompt_tokens=prompt_tokens):
-                self.assertEqual(
-                    48 * ((prompt_tokens + 511) // 512), native_launches
+                tail = prompt_tokens % 512
+                native_tokens = (
+                    prompt_tokens - tail if 0 < tail < 32 else prompt_tokens
                 )
-                self.assertEqual(48 * prompt_tokens, logical_tokens)
+                self.assertEqual(
+                    48 * (prompt_tokens // 512 + int(tail >= 32)),
+                    native_launches,
+                )
+                self.assertEqual(48 * native_tokens, logical_tokens)
 
     def test_attention_k256_request_window_preserves_four_independent_counts(
         self,

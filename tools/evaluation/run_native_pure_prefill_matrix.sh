@@ -2376,8 +2376,10 @@ gdn_chunk64_native_expected_logical_formula=
 gdn_prompt_span_macro_expected_launch_formula=
 gdn_prompt_span_macro_expected_logical_formula=
 if [[ "${gdn_prompt_span_accounting_mode}" == 1 ]]; then
-  gdn_chunk64_native_expected_launch_formula='48*ceil(prompt_tokens/512)'
-  gdn_chunk64_native_expected_logical_formula='48*prompt_tokens'
+  # Native C512 owns every full tile and a final tail only when the tail has
+  # at least 32 tokens.  The established exact recurrence owns C1..C31 tails.
+  gdn_chunk64_native_expected_launch_formula='48*(floor(prompt_tokens/512)+tail_ge_32)'
+  gdn_chunk64_native_expected_logical_formula='48*(prompt_tokens-tail_1_to_31)'
   gdn_prompt_span_macro_expected_launch_formula=0
   gdn_prompt_span_macro_expected_logical_formula=0
   if [[ "${gdn_prompt_span_macro_mode}" == 1 ]]; then
@@ -2717,7 +2719,7 @@ if [[ "${gdn_prompt_span_accounting_mode}" == 1 ]]; then
     printf 'stage_contract required=%s retained=gdn-token-parallel-conv,gdn-native-preprocess expected_request_launch_hits=native:0,macro:48 expected_request_logical_tokens=native:0,macro:48*prompt_tokens\n' \
       "${gdn_prompt_span_macro_marker}"
   else
-    printf 'stage_contract retained=gdn-native-c512 expected_request_launch_hits=native:48*ceil(prompt_tokens/512),macro:0 expected_request_logical_tokens=native:48*prompt_tokens,macro:0\n'
+    printf 'stage_contract retained=gdn-native-c512 expected_request_launch_hits=native:48*(floor(prompt_tokens/512)+tail_ge_32),macro:0 expected_request_logical_tokens=native:48*(prompt_tokens-tail_1_to_31),macro:0\n'
   fi
 fi
 if [[ "${attention_k256_mode}" == 1 ]]; then
@@ -2901,7 +2903,7 @@ if [[ "${gdn_prompt_span_accounting_mode}" == 1 ]]; then
     printf ',%s,gdn_chunk64_native_launch_hits_0_per_request,gdn_prompt_span_macro_launch_hits_48_per_request' \
       "${gdn_prompt_span_macro_marker}"
   else
-    printf ',gdn_chunk64_native_launch_hits_48_times_ceil_prompt_tokens_div_512,gdn_prompt_span_macro_launch_hits_0_per_request'
+    printf ',gdn_chunk64_native_launch_hits_48_times_floor_tiles_plus_tail_ge_32,gdn_prompt_span_macro_launch_hits_0_per_request'
   fi
 fi
 if [[ "${mlp_k512_edge_m128n64_mode}" == 1 ]]; then
@@ -3841,8 +3843,16 @@ for bucket in "${buckets[@]}"; do
       fi
       prompt_tokens=${BASH_REMATCH[2]}
       expected_gdn_logical_token_hits=$((48 * prompt_tokens))
-      expected_gdn_native_launch_hits=$((48 * ((prompt_tokens + 511) / 512)))
-      expected_gdn_native_logical_token_hits=${expected_gdn_logical_token_hits}
+      gdn_native_tail=$((prompt_tokens % 512))
+      gdn_native_tile_count=$((prompt_tokens / 512))
+      gdn_native_logical_tokens=${prompt_tokens}
+      if ((gdn_native_tail >= 32)); then
+        gdn_native_tile_count=$((gdn_native_tile_count + 1))
+      elif ((gdn_native_tail > 0)); then
+        gdn_native_logical_tokens=$((prompt_tokens - gdn_native_tail))
+      fi
+      expected_gdn_native_launch_hits=$((48 * gdn_native_tile_count))
+      expected_gdn_native_logical_token_hits=$((48 * gdn_native_logical_tokens))
       expected_gdn_macro_launch_hits=0
       expected_gdn_macro_logical_token_hits=0
       if [[ "${gdn_prompt_span_macro_mode}" == 1 ]]; then
