@@ -98,6 +98,10 @@ option(Q3X_BUILD_SM87_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_EXPERIMENT
   "Build the default-off 256-thread Attention K256 register-A/B4-ring resource experiment"
   OFF
 )
+option(Q3X_BUILD_SM87_A4W4_ATTENTION_FACTORIZED_LANE_R1_EXPERIMENT
+  "Build the default-off 256-thread Attention factorized-lane R1 projection foundation"
+  OFF
+)
 option(Q3X_BUILD_SM87_A4W4_ATTENTION_O_K512_ADMISSION
   "Build the default-off authenticated K512 Attention-O Prefill route"
   OFF
@@ -404,6 +408,15 @@ if(Q3X_BUILD_SM87_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_EXPERIMENT AND
     NOT Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_R4_ADMISSION))
   message(FATAL_ERROR
     "The Attention A-exchange/B4 experiment requires BUILD_TESTING plus authenticated K256 Attention/full-A4 and either K512 or factorized-lane R1/R4 MLP"
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_ATTENTION_FACTORIZED_LANE_R1_EXPERIMENT AND
+   (NOT BUILD_TESTING OR
+    NOT Q3X_BUILD_SM87_A4W4_ATTENTION_K256_M128N256_ADMISSION OR
+    NOT Q3X_BUILD_SM87_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_EXPERIMENT OR
+    NOT Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_R1_ADMISSION))
+  message(FATAL_ERROR
+    "The Attention factorized-lane R1 foundation requires BUILD_TESTING, the authenticated K256 topology, its A-exchange/B4 skeleton, and the factorized-lane R1 package"
   )
 endif()
 if(Q3X_BUILD_SM87_A4W4_ATTENTION_O_K512_ADMISSION AND
@@ -752,6 +765,15 @@ if(Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_MLP_EXPERIMENT)
     src/runtime/prefill_mlp_factorized_lane_r4_candidate_converter.cpp
   )
 endif()
+if(Q3X_BUILD_SM87_A4W4_ATTENTION_FACTORIZED_LANE_R1_EXPERIMENT)
+  target_sources(q3x_core PRIVATE
+    src/runtime/prefill_attention_factorized_lane_overlay.cpp
+    src/runtime/prefill_attention_factorized_lane_converter.cpp
+  )
+  target_compile_definitions(q3x_core PRIVATE
+    Q3X_ENABLE_A4W4_ATTENTION_FACTORIZED_LANE_R1_EXPERIMENT=1
+  )
+endif()
 if(Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_R1_ADMISSION)
   target_compile_definitions(q3x_core PRIVATE
     Q3X_ENABLE_A4W4_FACTORIZED_LANE_R1_ADMISSION=1
@@ -917,6 +939,18 @@ if(Q3X_BUILD_SM87_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_EXPERIMENT)
   set_source_files_properties(
     src/kernels/sm87/a4w4_attention_k256_m128n128_a_exchange_b3.cu
     PROPERTIES COMPILE_OPTIONS "--maxrregcount=128;-Xptxas=-warn-spills"
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_ATTENTION_FACTORIZED_LANE_R1_EXPERIMENT)
+  target_sources(q3x_kernels PRIVATE
+    src/kernels/sm87/a4w4_attention_factorized_lane_r1_m128n256.cu
+  )
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_A4W4_ATTENTION_FACTORIZED_LANE_R1_EXPERIMENT=1
+  )
+  set_source_files_properties(
+    src/kernels/sm87/a4w4_attention_factorized_lane_r1_m128n256.cu
+    PROPERTIES COMPILE_OPTIONS "--maxrregcount=255;-Xptxas=-v;-Xptxas=-warn-spills;-Xptxas=-warn-lmem-usage"
   )
 endif()
 if(Q3X_BUILD_SM87_A4W4_ATTENTION_O_K512_ADMISSION)
@@ -1373,6 +1407,11 @@ if(Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_R1_ADMISSION)
     Q3X_ENABLE_A4W4_FACTORIZED_LANE_R1_ADMISSION=1
   )
 endif()
+if(Q3X_BUILD_SM87_A4W4_ATTENTION_FACTORIZED_LANE_R1_EXPERIMENT)
+  target_compile_definitions(q3x_engine PRIVATE
+    Q3X_ENABLE_A4W4_ATTENTION_FACTORIZED_LANE_R1_EXPERIMENT=1
+  )
+endif()
 if(Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_R4_ADMISSION)
   target_compile_definitions(q3x_engine PRIVATE
     Q3X_ENABLE_A4W4_FACTORIZED_LANE_R4_ADMISSION=1
@@ -1530,6 +1569,11 @@ if(Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_R1_ADMISSION)
     Q3X_ENABLE_A4W4_FACTORIZED_LANE_R1_ADMISSION=1
   )
 endif()
+if(Q3X_BUILD_SM87_A4W4_ATTENTION_FACTORIZED_LANE_R1_EXPERIMENT)
+  target_compile_definitions(q3x_eval_gateway PRIVATE
+    Q3X_ENABLE_A4W4_ATTENTION_FACTORIZED_LANE_R1_EXPERIMENT=1
+  )
+endif()
 if(Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_R4_ADMISSION)
   target_compile_definitions(q3x_eval_gateway PRIVATE
     Q3X_ENABLE_A4W4_FACTORIZED_LANE_R4_ADMISSION=1
@@ -1562,6 +1606,11 @@ q3x_enable_warnings(qwen3x-inspect)
 
 add_executable(qwen3x-a4-sidecar tools/q3x-a4-sidecar/main.cpp)
 target_link_libraries(qwen3x-a4-sidecar PRIVATE q3x::core)
+if(Q3X_BUILD_SM87_A4W4_ATTENTION_FACTORIZED_LANE_R1_EXPERIMENT)
+  target_compile_definitions(qwen3x-a4-sidecar PRIVATE
+    Q3X_ENABLE_A4W4_ATTENTION_FACTORIZED_LANE_R1_EXPERIMENT=1
+  )
+endif()
 q3x_enable_warnings(qwen3x-a4-sidecar)
 
 if(BUILD_TESTING)
@@ -1584,6 +1633,60 @@ if(BUILD_TESTING)
     )
     set_tests_properties(long_context_evalscope_harness PROPERTIES
       LABELS "evaluation;host"
+    )
+  endif()
+
+  if(Q3X_BUILD_SM87_A4W4_ATTENTION_FACTORIZED_LANE_R1_EXPERIMENT)
+    add_executable(q3x_prefill_attention_factorized_lane_overlay_test
+      tests/prefill_attention_factorized_lane_overlay_test.cpp
+    )
+    target_link_libraries(
+      q3x_prefill_attention_factorized_lane_overlay_test
+      PRIVATE q3x::core
+    )
+    q3x_enable_warnings(q3x_prefill_attention_factorized_lane_overlay_test)
+    add_test(NAME prefill_attention_factorized_lane_overlay
+      COMMAND q3x_prefill_attention_factorized_lane_overlay_test
+    )
+    set_tests_properties(
+      prefill_attention_factorized_lane_overlay PROPERTIES
+      LABELS "host;prefill;attention;a4w4;factorized-lane;contract;sidecar"
+    )
+
+    add_executable(q3x_prefill_attention_factorized_lane_converter_test
+      tests/prefill_attention_factorized_lane_converter_test.cpp
+    )
+    target_link_libraries(
+      q3x_prefill_attention_factorized_lane_converter_test
+      PRIVATE q3x::core
+    )
+    q3x_enable_warnings(q3x_prefill_attention_factorized_lane_converter_test)
+    add_test(NAME prefill_attention_factorized_lane_converter
+      COMMAND q3x_prefill_attention_factorized_lane_converter_test
+    )
+    set_tests_properties(
+      prefill_attention_factorized_lane_converter PROPERTIES
+      LABELS "host;prefill;attention;a4w4;factorized-lane;r1;converter;sidecar;correctness"
+      TIMEOUT 600
+    )
+
+    add_executable(q3x_model_weights_prefill_attention_factorized_lane_r1_test
+      tests/model_weights_prefill_attention_factorized_lane_r1_test.cpp
+    )
+    target_link_libraries(
+      q3x_model_weights_prefill_attention_factorized_lane_r1_test
+      PRIVATE q3x::core
+    )
+    q3x_enable_warnings(
+      q3x_model_weights_prefill_attention_factorized_lane_r1_test
+    )
+    add_test(NAME model_weights_prefill_attention_factorized_lane_r1
+      COMMAND q3x_model_weights_prefill_attention_factorized_lane_r1_test
+    )
+    set_tests_properties(
+      model_weights_prefill_attention_factorized_lane_r1 PROPERTIES
+      LABELS "host;prefill;attention;a4w4;factorized-lane;r1;model-weights;sidecar;transaction;correctness"
+      TIMEOUT 600
     )
   endif()
 
@@ -2854,6 +2957,35 @@ if(BUILD_TESTING)
           TIMEOUT 600
       )
     endif()
+  endif()
+
+  if(Q3X_BUILD_SM87_A4W4_ATTENTION_FACTORIZED_LANE_R1_EXPERIMENT)
+    add_executable(
+      q3x_sm87_a4w4_attention_factorized_lane_r1_m128n256_correctness_test
+      tests/sm87_a4w4_attention_factorized_lane_r1_m128n256_correctness_test.cu
+    )
+    target_link_libraries(
+      q3x_sm87_a4w4_attention_factorized_lane_r1_m128n256_correctness_test
+      PRIVATE q3x::kernels CUDA::cudart
+    )
+    q3x_enable_warnings(
+      q3x_sm87_a4w4_attention_factorized_lane_r1_m128n256_correctness_test
+    )
+    find_program(Q3X_ATTENTION_R1_FLOCK_EXECUTABLE flock REQUIRED)
+    add_test(
+      NAME sm87_a4w4_attention_factorized_lane_r1_m128n256_correctness
+      COMMAND "${Q3X_ATTENTION_R1_FLOCK_EXECUTABLE}"
+              -x /tmp/q3x-gpu-bench.lock
+              $<TARGET_FILE:q3x_sm87_a4w4_attention_factorized_lane_r1_m128n256_correctness_test>
+    )
+    set_tests_properties(
+      sm87_a4w4_attention_factorized_lane_r1_m128n256_correctness
+      PROPERTIES
+        LABELS "cuda;sm87;prefill;attention;factorized-lane;r1;m128n256;a-exchange;b4;correctness;resources;synthetic"
+        SKIP_RETURN_CODE 77
+        RESOURCE_LOCK q3x_sm87_gpu
+        TIMEOUT 300
+    )
   endif()
 
   if(Q3X_BUILD_SM87_A4W4_ATTENTION_O_K512_ADMISSION)

@@ -22,6 +22,9 @@
 #endif
 #include "q3x/runtime/prefill_mlp_factorized_lane_converter.h"
 #endif
+#if defined(Q3X_ENABLE_A4W4_ATTENTION_FACTORIZED_LANE_R1_EXPERIMENT)
+#include "q3x/runtime/prefill_attention_factorized_lane_converter.h"
+#endif
 #if defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R4_ADMISSION)
 #if !defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
 #error "factorized-lane R4 execution requires the independent K256 Attention companion plane"
@@ -265,6 +268,16 @@ prefill_mlp_factorized_lane_r1_handoff_environment_enabled() noexcept {
 }
 
 [[nodiscard]] bool
+prefill_attention_factorized_lane_r1_environment_enabled() noexcept {
+  if (optimized_prefill_dispatch_disabled()) {
+    return false;
+  }
+  const char* const value = std::getenv(
+      "Q3X_RUN_A4W4_ATTENTION_FACTORIZED_LANE_R1_ADMISSION");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
+[[nodiscard]] bool
 prefill_mlp_factorized_lane_r4_environment_enabled() noexcept {
   if (optimized_prefill_dispatch_disabled()) {
     return false;
@@ -468,6 +481,13 @@ struct PrefillMLPK512ProjectionMajorGateUpCanonicalDownEnginePaths final {
 };
 
 struct PrefillMLPFactorizedLaneR1EnginePaths final {
+  bool requested = false;
+  std::filesystem::path payload;
+  std::filesystem::path policy;
+  std::filesystem::path receipt;
+};
+
+struct PrefillAttentionFactorizedLaneR1EnginePaths final {
   bool requested = false;
   std::filesystem::path payload;
   std::filesystem::path policy;
@@ -1331,6 +1351,37 @@ resolve_prefill_mlp_k512_projection_major_gateup_canonical_down_engine_paths(
       paths.policy == paths.receipt) {
     error = "factorized-lane R1 payload, policy, and receipt must be "
             "distinct paths";
+    return false;
+  }
+  return true;
+}
+
+[[nodiscard]] bool resolve_prefill_attention_factorized_lane_r1_engine_paths(
+    const ReferenceEngineOptions& options,
+    PrefillAttentionFactorizedLaneR1EnginePaths& paths,
+    std::string& error) {
+  const bool has_payload =
+      !options.prefill_attention_factorized_lane_r1_payload_path.empty();
+  const bool has_policy =
+      !options.prefill_attention_factorized_lane_r1_policy_path.empty();
+  const bool has_receipt =
+      !options.prefill_attention_factorized_lane_r1_receipt_path.empty();
+  paths.requested = has_payload || has_policy || has_receipt;
+  if (!paths.requested) {
+    return true;
+  }
+  if (!has_payload || !has_policy || !has_receipt) {
+    error = "factorized-lane R1 Attention payload, policy, and receipt are "
+            "required together";
+    return false;
+  }
+  paths.payload = options.prefill_attention_factorized_lane_r1_payload_path;
+  paths.policy = options.prefill_attention_factorized_lane_r1_policy_path;
+  paths.receipt = options.prefill_attention_factorized_lane_r1_receipt_path;
+  if (paths.payload == paths.policy || paths.payload == paths.receipt ||
+      paths.policy == paths.receipt) {
+    error = "factorized-lane R1 Attention payload, policy, and receipt must "
+            "be distinct paths";
     return false;
   }
   return true;
@@ -4447,6 +4498,46 @@ struct Sm87MLPFactorizedLaneR1Preparation final {
   std::string base_receipt_sha256;
 };
 
+#if defined(Q3X_ENABLE_A4W4_ATTENTION_FACTORIZED_LANE_R1_EXPERIMENT)
+struct Sm87AttentionFactorizedLaneR1Overlay final {
+  std::uint8_t* data = nullptr;
+  std::size_t bytes = 0U;
+
+  Sm87AttentionFactorizedLaneR1Overlay() noexcept = default;
+  Sm87AttentionFactorizedLaneR1Overlay(
+      const Sm87AttentionFactorizedLaneR1Overlay&) = delete;
+  Sm87AttentionFactorizedLaneR1Overlay& operator=(
+      const Sm87AttentionFactorizedLaneR1Overlay&) = delete;
+  ~Sm87AttentionFactorizedLaneR1Overlay() { release(); }
+
+  void release() noexcept {
+    if (data != nullptr) {
+      (void)cudaFree(data);
+    }
+    data = nullptr;
+    bytes = 0U;
+  }
+};
+
+struct Sm87AttentionFactorizedLaneR1Preparation final {
+  bool enabled = false;
+  std::size_t layers = 0U;
+  std::size_t projections = 0U;
+  std::uint64_t bytes = 0U;
+  std::uint64_t copy_chunks = 0U;
+  int cuda_error = 0;
+  int dependency_error = 0;
+  std::string message;
+  std::string context;
+  std::string physical_layout;
+  std::string manifest_sha256;
+  std::string policy_sha256;
+  std::string payload_sha256;
+  std::string receipt_sha256;
+  std::string base_receipt_sha256;
+};
+#endif
+
 struct FactorizedLaneR1FileSnapshot final {
   dev_t device = 0;
   ino_t inode = 0;
@@ -4508,6 +4599,12 @@ struct FactorizedLaneR1LockedFile final {
          left.changed.tv_nsec == right.changed.tv_nsec;
 }
 
+[[nodiscard]] bool same_factorized_lane_r1_file_identity(
+    const FactorizedLaneR1FileSnapshot& left,
+    const FactorizedLaneR1FileSnapshot& right) noexcept {
+  return left.device == right.device && left.inode == right.inode;
+}
+
 [[nodiscard]] bool factorized_lane_r1_path_names_snapshot(
     const std::filesystem::path& path,
     const FactorizedLaneR1FileSnapshot& snapshot,
@@ -4525,10 +4622,11 @@ struct FactorizedLaneR1LockedFile final {
   return true;
 }
 
+template <typename Preparation>
 [[nodiscard]] bool open_factorized_lane_r1_file(
     const std::filesystem::path& path, const std::uint64_t minimum_bytes,
     const std::uint64_t maximum_bytes, FactorizedLaneR1LockedFile& file,
-    Sm87MLPFactorizedLaneR1Preparation& result) {
+    Preparation& result) {
   if (file.descriptor >= 0 || minimum_bytes == 0U ||
       maximum_bytes < minimum_bytes ||
       maximum_bytes > static_cast<std::uint64_t>(
@@ -4578,10 +4676,11 @@ struct FactorizedLaneR1LockedFile final {
   return true;
 }
 
+template <typename Preparation>
 [[nodiscard]] bool revalidate_factorized_lane_r1_file(
     const std::filesystem::path& path,
     const FactorizedLaneR1LockedFile& file,
-    Sm87MLPFactorizedLaneR1Preparation& result) {
+    Preparation& result) {
   FactorizedLaneR1FileSnapshot after;
   int snapshot_error = 0;
   if (!capture_factorized_lane_r1_snapshot(
@@ -4596,10 +4695,11 @@ struct FactorizedLaneR1LockedFile final {
   return true;
 }
 
+template <typename Preparation>
 [[nodiscard]] bool read_factorized_lane_r1_document(
     const std::filesystem::path& path, const std::uint64_t maximum_bytes,
     FactorizedLaneR1LockedFile& file, std::string& document,
-    Sm87MLPFactorizedLaneR1Preparation& result) {
+    Preparation& result) {
   if (!open_factorized_lane_r1_file(path, 1U, maximum_bytes, file, result)) {
     return false;
   }
@@ -5303,6 +5403,483 @@ prepare_sm87_mlp_factorized_lane_r1_overlay(
   owner.bytes = payload_bytes;
   result.enabled = true;
   result.layers = kPrefillMLPFactorizedLaneLayerCount;
+  result.bytes = receipt.binding.payload.bytes;
+  result.physical_layout = receipt.binding.physical_layout;
+  result.manifest_sha256 = overlay_manifest.manifest_sha256;
+  result.policy_sha256 = policy.binding.policy_sha256;
+  result.payload_sha256 = receipt.binding.payload.sha256;
+  return result;
+}
+#endif
+
+#if defined(Q3X_ENABLE_A4W4_ATTENTION_FACTORIZED_LANE_R1_EXPERIMENT)
+[[nodiscard]] Sm87AttentionFactorizedLaneR1Preparation
+prepare_sm87_attention_factorized_lane_r1_overlay(
+    const std::filesystem::path& model_directory,
+    const PrefillAttentionFactorizedLaneR1EnginePaths& paths,
+    const PrefillMLPFactorizedLaneR1EnginePaths& mlp_paths,
+    const PrefillA4EnginePaths& base_paths,
+    const ResidentWeights& resident, const Sm87A4PrefillPreparation& base,
+    const std::uint64_t minimum_free_bytes_after_prepare,
+    ModelWeights& model_weights,
+    Sm87AttentionFactorizedLaneR1Overlay& owner) {
+  Sm87AttentionFactorizedLaneR1Preparation result;
+  if (!paths.requested || !mlp_paths.requested || !base_paths.requested ||
+      owner.data != nullptr || owner.bytes != 0U) {
+    result.message = "invalid Attention factorized-lane R1 preparation state";
+    result.context = "prefill_attention_factorized_lane_r1.prepare";
+    return result;
+  }
+
+  // The Attention arena is an independent derivative publication.  It may
+  // not borrow a pathname from either the authenticated K256 base or the MLP
+  // R1 package whose selector is required by this upper-bound experiment.
+  const std::array<std::filesystem::path, 3U> attention_path_set = {
+      paths.payload, paths.policy, paths.receipt};
+  const std::array<std::filesystem::path, 3U> base_path_set = {
+      base_paths.payload, base_paths.policy, base_paths.receipt};
+  const std::array<std::filesystem::path, 3U> mlp_path_set = {
+      mlp_paths.payload, mlp_paths.policy, mlp_paths.receipt};
+  for (const std::filesystem::path& attention_path : attention_path_set) {
+    for (const std::filesystem::path& base_path : base_path_set) {
+      if (attention_path == base_path) {
+        result.message = "Attention R1 files must not alias any K256 base "
+                         "publication file";
+        result.context = attention_path.string();
+        return result;
+      }
+    }
+    for (const std::filesystem::path& mlp_path : mlp_path_set) {
+      if (attention_path == mlp_path) {
+        result.message = "Attention R1 files must not alias any MLP R1 "
+                         "publication file";
+        result.context = attention_path.string();
+        return result;
+      }
+    }
+  }
+
+  if (!base.enabled || base.sidecar_kind != PrefillSidecarKind::kA4K256 ||
+      base.projections != kQwen36PrefillProjectionCount || base.bytes == 0U ||
+      base.physical_layout != kPrefillA4K256PhysicalLayout ||
+      !resident_matches_pinned_identity(resident)) {
+    result.message = "Attention factorized-lane R1 requires the complete "
+                     "authenticated K256 A4 base";
+    result.context = "prefill_attention_factorized_lane_r1.base";
+    return result;
+  }
+
+  const model::weights::ManifestResult source_manifest =
+      model::weights::build_qwen36_27b_text_manifest(model_directory);
+  if (!source_manifest) {
+    result.message = "could not rebuild the pinned checkpoint manifest";
+    if (!source_manifest.diagnostics.empty()) {
+      result.message += ": " + source_manifest.diagnostics.front().message;
+      result.context = source_manifest.diagnostics.front().context;
+    }
+    return result;
+  }
+
+  FactorizedLaneR1LockedFile base_receipt_file;
+  std::string base_receipt_document;
+  if (!read_factorized_lane_r1_document(
+          base_paths.receipt, 1ULL * 1024ULL * 1024ULL,
+          base_receipt_file, base_receipt_document, result)) {
+    return result;
+  }
+  result.base_receipt_sha256 = factorized_lane_r1_sha256(
+      base_receipt_document.data(), base_receipt_document.size());
+  if (result.base_receipt_sha256.empty()) {
+    result.message = "failed to hash the exact K256 base receipt bytes";
+    result.context = base_paths.receipt.string();
+    return result;
+  }
+  PrefillA4ConverterDiagnostic base_receipt_diagnostic;
+  const std::optional<PrefillA4PublicationReceipt> base_receipt =
+      parse_prefill_a4_publication_receipt(base_receipt_document,
+                                           base_receipt_diagnostic);
+  if (!base_receipt.has_value() || !base_receipt_diagnostic) {
+    result.message = base_receipt_diagnostic.message.empty()
+                         ? "strict K256 base receipt parse failed"
+                         : base_receipt_diagnostic.message;
+    result.context = base_receipt_diagnostic.context.empty()
+                         ? base_paths.receipt.string()
+                         : base_receipt_diagnostic.context;
+    result.dependency_error = base_receipt_diagnostic.system_error != 0
+                                  ? base_receipt_diagnostic.system_error
+                                  : static_cast<int>(
+                                        base_receipt_diagnostic.code);
+    return result;
+  }
+
+  PrefillSidecarManifestOptions base_manifest_options;
+  base_manifest_options.kind = PrefillSidecarKind::kA4K256;
+  const PrefillSidecarManifestResult base_manifest_result =
+      build_qwen36_27b_prefill_sidecar_manifest(
+          *source_manifest.value, pinned_qwen36_27b_shards(),
+          base_manifest_options);
+  if (!base_manifest_result) {
+    result.message = base_manifest_result.diagnostic.message;
+    result.context = base_manifest_result.diagnostic.context;
+    result.dependency_error =
+        static_cast<int>(base_manifest_result.diagnostic.code);
+    return result;
+  }
+  const PrefillSidecarManifest& base_manifest = *base_manifest_result.value;
+  if (base_manifest.kind != PrefillSidecarKind::kA4K256 ||
+      base_manifest.projections.size() != kQwen36PrefillProjectionCount ||
+      base_manifest.summary.arena_bytes != base.bytes ||
+      base_manifest.manifest_sha256 != base.manifest_sha256 ||
+      base_receipt->manifest_sha256 != base.manifest_sha256 ||
+      base_receipt->policy_sha256 != base.policy_sha256 ||
+      base_receipt->payload_sha256 != base.payload_sha256) {
+    result.message = "rebuilt K256 base identity differs from resident base";
+    result.context = "prefill_attention_factorized_lane_r1.base_identity";
+    return result;
+  }
+  PrefillA4PublicationAuthenticationResult authenticated_base_result =
+      authenticate_prefill_a4_publication_for_residency(
+          base_manifest, *base_receipt, base_paths.payload,
+          base_paths.policy);
+  if (!authenticated_base_result) {
+    result.message = authenticated_base_result.diagnostic.message;
+    result.context = authenticated_base_result.diagnostic.context;
+    result.dependency_error =
+        authenticated_base_result.diagnostic.system_error != 0
+            ? authenticated_base_result.diagnostic.system_error
+            : static_cast<int>(authenticated_base_result.diagnostic.code);
+    return result;
+  }
+  PrefillA4AuthenticatedPublication authenticated_base =
+      std::move(*authenticated_base_result.value);
+
+  PrefillAttentionFactorizedLaneManifestResult overlay_manifest_result =
+      build_prefill_attention_factorized_lane_r1_manifest(
+          base_manifest, *base_receipt, result.base_receipt_sha256);
+  if (!overlay_manifest_result) {
+    result.message = overlay_manifest_result.diagnostic.message;
+    result.context = overlay_manifest_result.diagnostic.context;
+    result.dependency_error =
+        static_cast<int>(overlay_manifest_result.diagnostic.code);
+    return result;
+  }
+  const PrefillAttentionFactorizedLaneOverlayManifestBinding&
+      overlay_manifest = *overlay_manifest_result.value;
+  const PrefillAttentionFactorizedLaneBaseK256Binding& required_base =
+      overlay_manifest.required_base_k256;
+  if (overlay_manifest.lane_count !=
+          kPrefillAttentionFactorizedLaneR1LaneCount ||
+      overlay_manifest.projections.size() !=
+          kPrefillAttentionFactorizedLaneProjectionCount ||
+      overlay_manifest.payload_bytes !=
+          kPrefillAttentionFactorizedLaneR1PayloadBytes ||
+      required_base.physical_layout != base.physical_layout ||
+      required_base.packed_k_group_size != 64U ||
+      required_base.scale_group_size != 256U ||
+      required_base.manifest_sha256 != base.manifest_sha256 ||
+      required_base.policy_sha256 != base.policy_sha256 ||
+      required_base.payload_sha256 != base.payload_sha256 ||
+      required_base.receipt_sha256 != result.base_receipt_sha256) {
+    result.message = "Attention R1 manifest does not retain the exact "
+                     "resident K256 base identity";
+    result.context = "prefill_attention_factorized_lane_r1.manifest";
+    return result;
+  }
+
+  FactorizedLaneR1LockedFile policy_file;
+  std::string policy_document;
+  if (!read_factorized_lane_r1_document(
+          paths.policy, 2ULL * 1024ULL * 1024ULL, policy_file,
+          policy_document, result)) {
+    return result;
+  }
+  PrefillAttentionFactorizedLaneR1PolicyResult policy_result =
+      parse_prefill_attention_factorized_lane_r1_policy(policy_document,
+                                                         overlay_manifest);
+  if (!policy_result) {
+    result.message = policy_result.diagnostic.message;
+    result.context = policy_result.diagnostic.context.empty()
+                         ? paths.policy.string()
+                         : policy_result.diagnostic.context;
+    result.dependency_error =
+        static_cast<int>(policy_result.diagnostic.code);
+    return result;
+  }
+  const PrefillAttentionFactorizedLaneR1Policy& policy =
+      *policy_result.value;
+  if (!policy.performance_upper_bound_only ||
+      policy.quality_production_eligible ||
+      policy.mode != kPrefillAttentionFactorizedLaneR1Mode ||
+      policy.converter_abi !=
+          kPrefillAttentionFactorizedLaneR1ConverterAbi) {
+    result.message = "Attention R1 policy is not upper-bound-only";
+    result.context = paths.policy.string();
+    return result;
+  }
+
+  FactorizedLaneR1LockedFile receipt_file;
+  std::string receipt_document;
+  if (!read_factorized_lane_r1_document(
+          paths.receipt, 64ULL * 1024ULL, receipt_file,
+          receipt_document, result)) {
+    return result;
+  }
+  if (same_factorized_lane_r1_file_identity(policy_file.before,
+                                             receipt_file.before) ||
+      same_factorized_lane_r1_file_identity(base_receipt_file.before,
+                                             policy_file.before) ||
+      same_factorized_lane_r1_file_identity(base_receipt_file.before,
+                                             receipt_file.before)) {
+    result.message = "Attention R1 metadata triplet aliases a held base or "
+                     "overlay descriptor";
+    result.context = "prefill_attention_factorized_lane_r1.file_identity";
+    return result;
+  }
+  PrefillAttentionFactorizedLaneR1ReceiptResult receipt_result =
+      parse_prefill_attention_factorized_lane_r1_receipt(
+          receipt_document, overlay_manifest, policy);
+  if (!receipt_result) {
+    result.message = receipt_result.diagnostic.message;
+    result.context = receipt_result.diagnostic.context.empty()
+                         ? paths.receipt.string()
+                         : receipt_result.diagnostic.context;
+    result.dependency_error =
+        static_cast<int>(receipt_result.diagnostic.code);
+    return result;
+  }
+  const PrefillAttentionFactorizedLaneR1Receipt& receipt =
+      *receipt_result.value;
+  result.receipt_sha256 = factorized_lane_r1_sha256(
+      receipt_document.data(), receipt_document.size());
+  if (result.receipt_sha256.empty() ||
+      receipt.binding.production_residency_eligible ||
+      receipt.binding.quality_production_eligible ||
+      !receipt.performance_upper_bound_only ||
+      receipt.quality_production_eligible ||
+      receipt.mode != kPrefillAttentionFactorizedLaneR1Mode ||
+      receipt.converter_abi !=
+          kPrefillAttentionFactorizedLaneR1ConverterAbi ||
+      receipt.residency_eligibility_scope !=
+          kPrefillAttentionFactorizedLaneR1EligibilityScope ||
+      receipt.binding.lane_count !=
+          kPrefillAttentionFactorizedLaneR1LaneCount ||
+      receipt.binding.payload.bytes !=
+          kPrefillAttentionFactorizedLaneR1PayloadBytes ||
+      receipt.binding.projection_count !=
+          kPrefillAttentionFactorizedLaneProjectionCount ||
+      receipt.binding.required_base_k256.receipt_sha256 !=
+          result.base_receipt_sha256) {
+    result.message = "Attention R1 receipt does not retain the "
+                     "authenticated-ABI-only performance-upper-bound "
+                     "contract";
+    result.context = paths.receipt.string();
+    return result;
+  }
+
+  FactorizedLaneR1LockedFile payload_file;
+  if (!open_factorized_lane_r1_file(
+          paths.payload, receipt.binding.payload.bytes,
+          receipt.binding.payload.bytes, payload_file, result)) {
+    return result;
+  }
+  if (same_factorized_lane_r1_file_identity(payload_file.before,
+                                             policy_file.before) ||
+      same_factorized_lane_r1_file_identity(payload_file.before,
+                                             receipt_file.before) ||
+      same_factorized_lane_r1_file_identity(payload_file.before,
+                                             base_receipt_file.before)) {
+    result.message = "Attention R1 payload aliases a held metadata or base "
+                     "descriptor";
+    result.context = "prefill_attention_factorized_lane_r1.file_identity";
+    return result;
+  }
+  if (receipt.binding.payload.bytes >
+      std::numeric_limits<std::size_t>::max()) {
+    result.message = "Attention R1 payload does not fit the host address "
+                     "space";
+    result.context = paths.payload.string();
+    return result;
+  }
+  const std::size_t payload_bytes =
+      static_cast<std::size_t>(receipt.binding.payload.bytes);
+  std::size_t free_bytes = 0U;
+  std::size_t total_bytes = 0U;
+  cudaError_t cuda_status = cudaMemGetInfo(&free_bytes, &total_bytes);
+  (void)total_bytes;
+  if (cuda_status != cudaSuccess) {
+    result.message = "cudaMemGetInfo failed before Attention R1 residency";
+    result.context =
+        "prefill_attention_factorized_lane_r1.cudaMemGetInfo_before";
+    result.cuda_error = static_cast<int>(cuda_status);
+    return result;
+  }
+  const std::uint64_t free_u64 = static_cast<std::uint64_t>(free_bytes);
+  if (receipt.binding.payload.bytes > free_u64 ||
+      minimum_free_bytes_after_prepare >
+          free_u64 - receipt.binding.payload.bytes) {
+    result.message = "insufficient device memory for Attention "
+                     "factorized-lane R1 residency";
+    result.context = "prefill_attention_factorized_lane_r1.memory_gate";
+    return result;
+  }
+
+  cuda_status =
+      cudaMalloc(reinterpret_cast<void**>(&owner.data), payload_bytes);
+  if (cuda_status != cudaSuccess) {
+    result.message = "cudaMalloc failed for the Attention R1 arena";
+    result.context = "prefill_attention_factorized_lane_r1.cudaMalloc";
+    result.cuda_error = static_cast<int>(cuda_status);
+    return result;
+  }
+  constexpr std::size_t kCopyChunkBytes = 32U * 1024U * 1024U;
+  const std::size_t staging_bytes = std::min(payload_bytes, kCopyChunkBytes);
+  void* staging = nullptr;
+  cuda_status = cudaHostAlloc(&staging, staging_bytes, cudaHostAllocDefault);
+  if (cuda_status != cudaSuccess) {
+    result.message = "cudaHostAlloc failed for Attention R1 staging";
+    result.context = "prefill_attention_factorized_lane_r1.cudaHostAlloc";
+    result.cuda_error = static_cast<int>(cuda_status);
+    owner.release();
+    return result;
+  }
+  struct PinnedGuard final {
+    void* data = nullptr;
+    ~PinnedGuard() {
+      if (data != nullptr) {
+        (void)cudaFreeHost(data);
+      }
+    }
+  } pinned{staging};
+
+  core::Sha256 copied_hash;
+  std::uint64_t offset = 0U;
+  while (offset < receipt.binding.payload.bytes) {
+    const std::size_t count = static_cast<std::size_t>(
+        std::min<std::uint64_t>(staging_bytes,
+                                receipt.binding.payload.bytes - offset));
+    int read_error = 0;
+    if (!pread_exact_engine(payload_file.descriptor, staging, count, offset,
+                            read_error)) {
+      result.message = "failed to read the held Attention R1 payload";
+      result.context =
+          "prefill_attention_factorized_lane_r1.payload_copy";
+      result.dependency_error = read_error;
+      owner.release();
+      return result;
+    }
+    if (!copied_hash.update(staging, count)) {
+      result.message = "Attention R1 payload copy SHA-256 length overflowed";
+      result.context =
+          "prefill_attention_factorized_lane_r1.payload_copy_sha256";
+      owner.release();
+      return result;
+    }
+    cuda_status = cudaMemcpy(
+        owner.data + static_cast<std::size_t>(offset), staging, count,
+        cudaMemcpyHostToDevice);
+    if (cuda_status != cudaSuccess) {
+      result.message = "Attention R1 payload H2D copy failed";
+      result.context = "prefill_attention_factorized_lane_r1.cudaMemcpy";
+      result.cuda_error = static_cast<int>(cuda_status);
+      owner.release();
+      return result;
+    }
+    offset += count;
+    ++result.copy_chunks;
+  }
+  const std::string copied_digest = copied_hash.finalize().hex();
+  if (copied_digest != receipt.binding.payload.sha256 ||
+      !revalidate_factorized_lane_r1_file(
+          paths.payload, payload_file, result)) {
+    if (result.message.empty()) {
+      result.message = "bytes copied to the Attention R1 arena failed "
+                       "receipt SHA-256";
+      result.context =
+          "prefill_attention_factorized_lane_r1.payload_copy_sha256";
+    }
+    owner.release();
+    return result;
+  }
+
+  // Re-read and rehash the same held descriptor after H2D, then revalidate
+  // every metadata descriptor and the authenticated base publication before
+  // any ModelWeights view becomes observable.
+  core::Sha256 verified_hash;
+  offset = 0U;
+  while (offset < receipt.binding.payload.bytes) {
+    const std::size_t count = static_cast<std::size_t>(
+        std::min<std::uint64_t>(staging_bytes,
+                                receipt.binding.payload.bytes - offset));
+    int read_error = 0;
+    if (!pread_exact_engine(payload_file.descriptor, staging, count, offset,
+                            read_error) ||
+        !verified_hash.update(staging, count)) {
+      result.message = "Attention R1 payload digest revalidation failed";
+      result.context =
+          "prefill_attention_factorized_lane_r1.payload_revalidate_sha256";
+      result.dependency_error = read_error;
+      owner.release();
+      return result;
+    }
+    offset += count;
+  }
+  if (verified_hash.finalize().hex() != receipt.binding.payload.sha256 ||
+      !revalidate_factorized_lane_r1_file(
+          paths.payload, payload_file, result) ||
+      !revalidate_factorized_lane_r1_file(
+          paths.policy, policy_file, result) ||
+      !revalidate_factorized_lane_r1_file(
+          paths.receipt, receipt_file, result) ||
+      !revalidate_factorized_lane_r1_file(
+          base_paths.receipt, base_receipt_file, result)) {
+    if (result.message.empty()) {
+      result.message = "Attention R1 payload digest changed after H2D copy";
+      result.context =
+          "prefill_attention_factorized_lane_r1.payload_revalidate_sha256";
+    }
+    owner.release();
+    return result;
+  }
+  const PrefillA4ConverterDiagnostic base_unchanged =
+      authenticated_base.revalidate_unchanged_after_consumption();
+  if (!base_unchanged) {
+    result.message = base_unchanged.message;
+    result.context = base_unchanged.context;
+    result.dependency_error = base_unchanged.system_error != 0
+                                  ? base_unchanged.system_error
+                                  : static_cast<int>(base_unchanged.code);
+    owner.release();
+    return result;
+  }
+
+  cuda_status = cudaMemGetInfo(&free_bytes, &total_bytes);
+  if (cuda_status != cudaSuccess ||
+      static_cast<std::uint64_t>(free_bytes) <
+          minimum_free_bytes_after_prepare) {
+    result.message = "Attention R1 residency did not preserve the "
+                     "configured free-memory reserve";
+    result.context =
+        "prefill_attention_factorized_lane_r1.cudaMemGetInfo_after";
+    result.cuda_error = cuda_status == cudaSuccess
+                            ? 0
+                            : static_cast<int>(cuda_status);
+    owner.release();
+    return result;
+  }
+  if (!model_weights.attach_prefill_attention_factorized_lane_r1_sidecars(
+          owner.data, payload_bytes, &overlay_manifest,
+          &policy.binding)) {
+    result.message = "ModelWeights rejected the authenticated Attention "
+                     "factorized-lane R1 inventory";
+    result.context = "prefill_attention_factorized_lane_r1.attach";
+    owner.release();
+    return result;
+  }
+
+  owner.bytes = payload_bytes;
+  result.enabled = true;
+  result.layers = kPrefillAttentionFactorizedLaneLayerCount;
+  result.projections = kPrefillAttentionFactorizedLaneProjectionCount;
   result.bytes = receipt.binding.payload.bytes;
   result.physical_layout = receipt.binding.physical_layout;
   result.manifest_sha256 = overlay_manifest.manifest_sha256;
@@ -8077,11 +8654,11 @@ exchange_reference_engine_generate_return_snapshot_hook(
 
 struct ReferenceEngine::Impl {
   // Declaration order is part of the safety contract. Destruction is exactly
-  // runner -> request_state -> model_weights -> factorized R1 owner ->
-  // Decode Down consumer-order sidecars -> authenticated K512 overlays ->
-  // authenticated K256 A4/Marlin admission sidecars -> Prefill
-  // supermatrix/QKV sidecars -> down scale6 sidecars -> output sidecars ->
-  // resident_weights -> tokenizer.
+  // runner -> request_state -> model_weights -> direct R4 owner -> Attention
+  // R1 owner -> MLP R1 owner -> Decode Down consumer-order sidecars ->
+  // authenticated K512 overlays -> authenticated K256 A4/Marlin admission
+  // sidecars -> Prefill supermatrix/QKV sidecars -> down scale6 sidecars ->
+  // output sidecars -> resident_weights -> tokenizer.
   std::unique_ptr<text::Tokenizer> tokenizer;
   std::optional<ResidentWeights> resident_weights;
   Sm87Fp8OutputProjectionSidecars fp8_output_sidecars;
@@ -8112,6 +8689,13 @@ struct ReferenceEngine::Impl {
   // Declared after the K256 owner and before ModelWeights so reverse-order
   // destruction is ModelWeights -> R1 -> K256 -> resident.
   Sm87MLPFactorizedLaneR1Overlay prefill_mlp_factorized_lane_r1_overlay;
+#endif
+#if defined(Q3X_ENABLE_A4W4_ATTENTION_FACTORIZED_LANE_R1_EXPERIMENT)
+  // Independent Attention-only allocation. Reverse destruction is
+  // ModelWeights -> Attention R1 -> MLP R1 -> K256 -> resident, so no
+  // non-owning projection view can outlive either backing arena.
+  Sm87AttentionFactorizedLaneR1Overlay
+      prefill_attention_factorized_lane_r1_overlay;
 #endif
 #if defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R4_ADMISSION)
   // Direct R4 owns no K256/R1 base identity.  It still precedes ModelWeights
@@ -8340,6 +8924,41 @@ struct ReferenceEngine::Impl {
           ReferenceEngineError::kInvalidArgument,
           "prefill_mlp_factorized_lane_r1_options",
           "the factorized-lane R1 runtime master requires its authenticated "
+          "payload/policy/receipt triplet");
+      return result;
+    }
+    PrefillAttentionFactorizedLaneR1EnginePaths
+        prefill_attention_factorized_lane_r1_paths;
+    std::string prefill_attention_factorized_lane_r1_path_error;
+    if (!resolve_prefill_attention_factorized_lane_r1_engine_paths(
+            options, prefill_attention_factorized_lane_r1_paths,
+            prefill_attention_factorized_lane_r1_path_error)) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kInvalidArgument,
+          "prefill_attention_factorized_lane_r1_options",
+          prefill_attention_factorized_lane_r1_path_error);
+      return result;
+    }
+    const bool prefill_attention_factorized_lane_r1_selected =
+        prefill_attention_factorized_lane_r1_environment_enabled();
+    if (prefill_attention_factorized_lane_r1_paths.requested &&
+        (!prefill_a4_paths.requested ||
+         !prefill_attention_factorized_lane_r1_selected ||
+         !prefill_mlp_factorized_lane_r1_selected ||
+         !prefill_mlp_factorized_lane_r1_handoff_selected)) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kInvalidArgument,
+          "prefill_attention_factorized_lane_r1_options",
+          "the Attention R1 triplet requires the authenticated K256 base, "
+          "the MLP R1 handoff package, and its dedicated runtime selector");
+      return result;
+    }
+    if (prefill_attention_factorized_lane_r1_selected &&
+        !prefill_attention_factorized_lane_r1_paths.requested) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kInvalidArgument,
+          "prefill_attention_factorized_lane_r1_options",
+          "the Attention R1 runtime selector requires its authenticated "
           "payload/policy/receipt triplet");
       return result;
     }
@@ -8586,6 +9205,17 @@ struct ReferenceEngine::Impl {
       return result;
     }
 #endif
+#if !defined(Q3X_ENABLE_A4W4_ATTENTION_FACTORIZED_LANE_R1_EXPERIMENT)
+    if (prefill_attention_factorized_lane_r1_paths.requested ||
+        prefill_attention_factorized_lane_r1_selected) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kInvalidArgument,
+          "prefill_attention_factorized_lane_r1_options",
+          "this binary does not contain the Attention factorized-lane R1 "
+          "experiment");
+      return result;
+    }
+#endif
 #if !defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R4_ADMISSION)
     if (prefill_mlp_factorized_lane_r4_paths.requested ||
         prefill_mlp_factorized_lane_r4_selected) {
@@ -8694,6 +9324,8 @@ struct ReferenceEngine::Impl {
           prefill_mlp_k512_projection_major_paths.requested;
       impl->load.prefill_mlp_factorized_lane_r1_overlay_requested =
           prefill_mlp_factorized_lane_r1_paths.requested;
+      impl->load.prefill_attention_factorized_lane_r1_overlay_requested =
+          prefill_attention_factorized_lane_r1_paths.requested;
       impl->load.prefill_mlp_factorized_lane_r4_overlay_requested =
           prefill_mlp_factorized_lane_r4_paths.requested;
       impl->load.optimized_prefill_disabled =
@@ -9054,6 +9686,73 @@ struct ReferenceEngine::Impl {
               preparation.receipt_sha256;
           impl->load
               .prefill_mlp_factorized_lane_r1_overlay_base_receipt_sha256 =
+              preparation.base_receipt_sha256;
+        }
+#endif
+
+#if defined(Q3X_ENABLE_A4W4_ATTENTION_FACTORIZED_LANE_R1_EXPERIMENT)
+        if (prefill_attention_factorized_lane_r1_paths.requested) {
+          const Clock::time_point attention_r1_begin = Clock::now();
+          const Sm87AttentionFactorizedLaneR1Preparation preparation =
+              prepare_sm87_attention_factorized_lane_r1_overlay(
+                  model_directory,
+                  prefill_attention_factorized_lane_r1_paths,
+                  prefill_mlp_factorized_lane_r1_paths, prefill_a4_paths,
+                  *impl->resident_weights, prefill_a4_preparation,
+                  request_options.min_free_bytes_after_create,
+                  *impl->model_weights,
+                  impl->prefill_attention_factorized_lane_r1_overlay);
+          impl->load
+              .prefill_attention_factorized_lane_r1_overlay_milliseconds =
+              elapsed_milliseconds(attention_r1_begin);
+          if (!preparation.enabled ||
+              preparation.layers !=
+                  kPrefillAttentionFactorizedLaneLayerCount ||
+              preparation.projections !=
+                  kPrefillAttentionFactorizedLaneProjectionCount ||
+              preparation.bytes !=
+                  kPrefillAttentionFactorizedLaneR1PayloadBytes) {
+            result.diagnostic = engine_diagnostic(
+                ReferenceEngineError::kRunnerFactoryFailure,
+                "prefill_attention_factorized_lane_r1_prepare",
+                preparation.message.empty()
+                    ? "the authenticated Attention factorized-lane R1 "
+                      "overlay did not attach all 208 projections"
+                    : preparation.message,
+                preparation.context);
+            result.diagnostic.cuda_error = preparation.cuda_error;
+            result.diagnostic.dependency_error =
+                preparation.dependency_error;
+            return result;
+          }
+          impl->load
+              .prefill_attention_factorized_lane_r1_overlay_enabled = true;
+          impl->load.prefill_attention_factorized_lane_r1_overlay_layers =
+              preparation.layers;
+          impl->load
+              .prefill_attention_factorized_lane_r1_overlay_projections =
+              preparation.projections;
+          impl->load.prefill_attention_factorized_lane_r1_overlay_bytes =
+              preparation.bytes;
+          impl->load
+              .prefill_attention_factorized_lane_r1_overlay_copy_chunks =
+              preparation.copy_chunks;
+          impl->load.prefill_attention_factorized_lane_r1_overlay_layout =
+              preparation.physical_layout;
+          impl->load
+              .prefill_attention_factorized_lane_r1_overlay_manifest_sha256 =
+              preparation.manifest_sha256;
+          impl->load
+              .prefill_attention_factorized_lane_r1_overlay_policy_sha256 =
+              preparation.policy_sha256;
+          impl->load
+              .prefill_attention_factorized_lane_r1_overlay_payload_sha256 =
+              preparation.payload_sha256;
+          impl->load
+              .prefill_attention_factorized_lane_r1_overlay_receipt_sha256 =
+              preparation.receipt_sha256;
+          impl->load
+              .prefill_attention_factorized_lane_r1_overlay_base_receipt_sha256 =
               preparation.base_receipt_sha256;
         }
 #endif
@@ -9500,6 +10199,8 @@ struct ReferenceEngine::Impl {
             prefill_mlp_factorized_lane_r1_selected;
         runner_options.enable_factorized_lane_r1_handoff_prefill_admission =
             prefill_mlp_factorized_lane_r1_handoff_selected;
+        runner_options.enable_attention_factorized_lane_r1_prefill_admission =
+            prefill_attention_factorized_lane_r1_selected;
         runner_options.enable_factorized_lane_r4_prefill_admission =
             prefill_mlp_factorized_lane_r4_selected;
         runner_options.enable_factorized_lane_r4_2cta_prefill_admission =
@@ -11578,6 +12279,12 @@ ReferenceOneShotResult generate_reference(
       options.prefill_mlp_factorized_lane_r1_policy_path;
   a4_preflight_options.prefill_mlp_factorized_lane_r1_receipt_path =
       options.prefill_mlp_factorized_lane_r1_receipt_path;
+  a4_preflight_options.prefill_attention_factorized_lane_r1_payload_path =
+      options.prefill_attention_factorized_lane_r1_payload_path;
+  a4_preflight_options.prefill_attention_factorized_lane_r1_policy_path =
+      options.prefill_attention_factorized_lane_r1_policy_path;
+  a4_preflight_options.prefill_attention_factorized_lane_r1_receipt_path =
+      options.prefill_attention_factorized_lane_r1_receipt_path;
   a4_preflight_options.prefill_mlp_factorized_lane_r4_payload_path =
       options.prefill_mlp_factorized_lane_r4_payload_path;
   a4_preflight_options.prefill_mlp_factorized_lane_r4_policy_path =
@@ -11734,6 +12441,8 @@ ReferenceOneShotResult generate_reference(
   std::string mlp_factorized_lane_r1_preflight_error;
   const bool mlp_factorized_lane_r1_preflight_selected =
       prefill_mlp_factorized_lane_r1_environment_enabled();
+  const bool mlp_factorized_lane_r1_handoff_preflight_selected =
+      prefill_mlp_factorized_lane_r1_handoff_environment_enabled();
   if (!resolve_prefill_mlp_factorized_lane_r1_engine_paths(
           a4_preflight_options, mlp_factorized_lane_r1_preflight_paths,
           mlp_factorized_lane_r1_preflight_error) ||
@@ -11748,6 +12457,31 @@ ReferenceOneShotResult generate_reference(
             ? "factorized-lane R1 requires its authenticated triplet, "
               "runtime master, and complete K256 A4 base"
             : mlp_factorized_lane_r1_preflight_error);
+    return result;
+  }
+  PrefillAttentionFactorizedLaneR1EnginePaths
+      attention_factorized_lane_r1_preflight_paths;
+  std::string attention_factorized_lane_r1_preflight_error;
+  const bool attention_factorized_lane_r1_preflight_selected =
+      prefill_attention_factorized_lane_r1_environment_enabled();
+  if (!resolve_prefill_attention_factorized_lane_r1_engine_paths(
+          a4_preflight_options,
+          attention_factorized_lane_r1_preflight_paths,
+          attention_factorized_lane_r1_preflight_error) ||
+      (attention_factorized_lane_r1_preflight_paths.requested &&
+       (!a4_preflight_paths.requested ||
+        !mlp_factorized_lane_r1_preflight_selected ||
+        !mlp_factorized_lane_r1_handoff_preflight_selected ||
+        !attention_factorized_lane_r1_preflight_selected)) ||
+      (attention_factorized_lane_r1_preflight_selected &&
+       !attention_factorized_lane_r1_preflight_paths.requested)) {
+    result.diagnostic = engine_diagnostic(
+        ReferenceEngineError::kInvalidArgument, "one_shot_options",
+        attention_factorized_lane_r1_preflight_error.empty()
+            ? "factorized-lane R1 Attention requires its authenticated "
+              "triplet, dedicated selector, MLP R1 handoff package, and complete "
+              "K256 A4 base"
+            : attention_factorized_lane_r1_preflight_error);
     return result;
   }
   PrefillMLPFactorizedLaneR4EnginePaths
@@ -11892,6 +12626,16 @@ ReferenceOneShotResult generate_reference(
     result.diagnostic = engine_diagnostic(
         ReferenceEngineError::kInvalidArgument, "one_shot_options",
         "this binary does not contain the factorized-lane R1 admission");
+    return result;
+  }
+#endif
+#if !defined(Q3X_ENABLE_A4W4_ATTENTION_FACTORIZED_LANE_R1_EXPERIMENT)
+  if (attention_factorized_lane_r1_preflight_paths.requested ||
+      attention_factorized_lane_r1_preflight_selected) {
+    result.diagnostic = engine_diagnostic(
+        ReferenceEngineError::kInvalidArgument, "one_shot_options",
+        "this binary does not contain the Attention factorized-lane R1 "
+        "experiment");
     return result;
   }
 #endif
@@ -12108,6 +12852,12 @@ ReferenceOneShotResult generate_reference(
         options.prefill_mlp_factorized_lane_r1_policy_path;
     engine_options.prefill_mlp_factorized_lane_r1_receipt_path =
         options.prefill_mlp_factorized_lane_r1_receipt_path;
+    engine_options.prefill_attention_factorized_lane_r1_payload_path =
+        options.prefill_attention_factorized_lane_r1_payload_path;
+    engine_options.prefill_attention_factorized_lane_r1_policy_path =
+        options.prefill_attention_factorized_lane_r1_policy_path;
+    engine_options.prefill_attention_factorized_lane_r1_receipt_path =
+        options.prefill_attention_factorized_lane_r1_receipt_path;
     engine_options.prefill_mlp_factorized_lane_r4_payload_path =
         options.prefill_mlp_factorized_lane_r4_payload_path;
     engine_options.prefill_mlp_factorized_lane_r4_policy_path =

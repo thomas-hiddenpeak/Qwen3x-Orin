@@ -702,6 +702,220 @@ template <typename Launch>
   return true;
 }
 
+[[nodiscard]] bool run_mlp_to_attention_r1_case(const CaseSpec& spec,
+                                                 const HostInputs& host) {
+  const std::size_t logical_elements = spec.logical_tokens * kHidden;
+  const std::size_t launch_elements = spec.launch_tokens * kHidden;
+  const std::size_t packed_elements =
+      kernels::sm87_a4w4_consumer_packed_capacity_bytes(spec.launch_tokens,
+                                                        kHidden);
+  const std::size_t scale_elements =
+      kernels::sm87_a4w4_factorized_lane_scale_capacity_elements(
+          spec.launch_tokens, 1U);
+  if (packed_elements == 0U || scale_elements == 0U) {
+    std::cerr << spec.name << ": invalid Attention R1 capacities\n";
+    return false;
+  }
+
+  DeviceBuffer<std::uint16_t> left;
+  DeviceBuffer<std::uint16_t> right;
+  DeviceBuffer<std::uint16_t> weight;
+  DeviceBuffer<float> inverse_alpha;
+  GuardedDeviceBuffer<std::uint16_t> oracle_residual;
+  GuardedDeviceBuffer<std::uint16_t> oracle_normalized;
+  GuardedDeviceBuffer<std::uint16_t> candidate_residual;
+  GuardedDeviceBuffer<std::uint16_t> candidate_normalized;
+  GuardedDeviceBuffer<std::uint16_t> packed_only_residual;
+  GuardedDeviceBuffer<std::uint8_t> oracle_packed;
+  GuardedDeviceBuffer<std::uint8_t> candidate_packed;
+  GuardedDeviceBuffer<std::uint8_t> packed_only_packed;
+  GuardedDeviceBuffer<std::uint16_t> oracle_scales;
+  GuardedDeviceBuffer<std::uint16_t> candidate_scales;
+  GuardedDeviceBuffer<std::uint16_t> packed_only_scales;
+  Stream stream;
+  if (!copy_inputs(host, &left, &right, &weight, &inverse_alpha) ||
+      !oracle_residual.allocate(launch_elements, kWordGuard) ||
+      !oracle_normalized.allocate(launch_elements, kWordGuard) ||
+      !candidate_residual.allocate(launch_elements, kWordGuard) ||
+      !candidate_normalized.allocate(launch_elements, kWordGuard) ||
+      !packed_only_residual.allocate(launch_elements, kWordGuard) ||
+      !oracle_packed.allocate(packed_elements, kByteGuard) ||
+      !candidate_packed.allocate(packed_elements, kByteGuard) ||
+      !packed_only_packed.allocate(packed_elements, kByteGuard) ||
+      !oracle_scales.allocate(scale_elements, kWordGuard) ||
+      !candidate_scales.allocate(scale_elements, kWordGuard) ||
+      !packed_only_scales.allocate(scale_elements, kWordGuard) ||
+      !stream.create()) {
+    std::cerr << spec.name << ": MLP-to-Attention-R1 allocation failed\n";
+    return false;
+  }
+
+  // Independent production-math chain: exact MLP residual/next-input RMS,
+  // followed by the already audited generic R1 activation quantizer.
+  if (!launch_exact_residual_norm_oracle(
+          left.get(), right.get(), weight.get(), spec.logical_tokens,
+          oracle_residual.data(), oracle_normalized.data(), stream.get(),
+          spec.name + " R1 oracle") ||
+      !cuda_ok(static_cast<cudaError_t>(
+                   kernels::launch_sm87_a4w4_factorized_lane_quantize_bf16_cuda(
+                       oracle_normalized.data(), kHidden, logical_elements,
+                       inverse_alpha.get(), kHidden, spec.logical_tokens,
+                       spec.launch_tokens, kHidden, 1U, kClipRatio,
+                       oracle_packed.data(), packed_elements,
+                       oracle_scales.data(), scale_elements, stream.get())),
+               spec.name + " oracle Attention R1 quantize")) {
+    return false;
+  }
+
+  const auto launch_candidate = [&]() noexcept {
+    return kernels::
+        launch_sm87_a4w4_mlp_residual_next_norm_attention_r1_quantize_cuda(
+            left.get(), right.get(), weight.get(), inverse_alpha.get(),
+            kHidden, spec.logical_tokens, spec.launch_tokens, kEpsilon,
+            kClipRatio, candidate_residual.data(), logical_elements,
+            candidate_normalized.data(), logical_elements,
+            candidate_packed.data(), packed_elements, candidate_scales.data(),
+            scale_elements, stream.get());
+  };
+  if (!launch_warm_and_optional_graph(
+          spec, launch_candidate, stream.get(),
+          spec.name + " MLP-to-Attention-R1")) {
+    return false;
+  }
+  const auto launch_packed_only_candidate = [&]() noexcept {
+    return kernels::
+        launch_sm87_a4w4_mlp_residual_next_norm_attention_r1_quantize_cuda(
+            left.get(), right.get(), weight.get(), inverse_alpha.get(),
+            kHidden, spec.logical_tokens, spec.launch_tokens, kEpsilon,
+            kClipRatio, packed_only_residual.data(), logical_elements,
+            nullptr, 0U, packed_only_packed.data(), packed_elements,
+            packed_only_scales.data(), scale_elements, stream.get());
+  };
+  if (!launch_warm_and_optional_graph(
+          spec, launch_packed_only_candidate, stream.get(),
+          spec.name + " MLP-to-Attention-R1-packed-only")) {
+    return false;
+  }
+
+  std::vector<std::uint16_t> host_oracle_residual;
+  std::vector<std::uint16_t> host_oracle_normalized;
+  std::vector<std::uint16_t> host_candidate_residual;
+  std::vector<std::uint16_t> host_candidate_normalized;
+  std::vector<std::uint16_t> host_packed_only_residual;
+  std::vector<std::uint8_t> host_oracle_packed;
+  std::vector<std::uint8_t> host_candidate_packed;
+  std::vector<std::uint8_t> host_packed_only_packed;
+  std::vector<std::uint16_t> host_oracle_scales;
+  std::vector<std::uint16_t> host_candidate_scales;
+  std::vector<std::uint16_t> host_packed_only_scales;
+  if (!oracle_residual.copy_to_host(&host_oracle_residual,
+                                    spec.name + " copy R1 oracle residual") ||
+      !oracle_normalized.copy_to_host(
+          &host_oracle_normalized,
+          spec.name + " copy R1 oracle normalized scratch") ||
+      !candidate_residual.copy_to_host(
+          &host_candidate_residual,
+          spec.name + " copy R1 candidate residual") ||
+      !candidate_normalized.copy_to_host(
+          &host_candidate_normalized,
+          spec.name + " copy R1 candidate normalized") ||
+      !packed_only_residual.copy_to_host(
+          &host_packed_only_residual,
+          spec.name + " copy R1 packed-only residual") ||
+      !oracle_packed.copy_to_host(&host_oracle_packed,
+                                  spec.name + " copy oracle Attention R1 codes") ||
+      !candidate_packed.copy_to_host(
+          &host_candidate_packed,
+          spec.name + " copy candidate Attention R1 codes") ||
+      !packed_only_packed.copy_to_host(
+          &host_packed_only_packed,
+          spec.name + " copy packed-only Attention R1 codes") ||
+      !oracle_scales.copy_to_host(
+          &host_oracle_scales,
+          spec.name + " copy oracle Attention R1 scales") ||
+      !candidate_scales.copy_to_host(
+          &host_candidate_scales,
+          spec.name + " copy candidate Attention R1 scales") ||
+      !packed_only_scales.copy_to_host(
+          &host_packed_only_scales,
+          spec.name + " copy packed-only Attention R1 scales")) {
+    return false;
+  }
+
+  const bool guards =
+      oracle_residual.guards_are_untouched(host_oracle_residual) &&
+      oracle_normalized.guards_are_untouched(host_oracle_normalized) &&
+      candidate_residual.guards_are_untouched(host_candidate_residual) &&
+      candidate_normalized.guards_are_untouched(
+          host_candidate_normalized) &&
+      packed_only_residual.guards_are_untouched(
+          host_packed_only_residual) &&
+      oracle_packed.guards_are_untouched(host_oracle_packed) &&
+      candidate_packed.guards_are_untouched(host_candidate_packed) &&
+      packed_only_packed.guards_are_untouched(host_packed_only_packed) &&
+      oracle_scales.guards_are_untouched(host_oracle_scales) &&
+      candidate_scales.guards_are_untouched(host_candidate_scales) &&
+      packed_only_scales.guards_are_untouched(host_packed_only_scales);
+  const bool residual_exact = logical_payload_equal(
+      oracle_residual, host_oracle_residual, candidate_residual,
+      host_candidate_residual, logical_elements) &&
+      logical_payload_equal(oracle_residual, host_oracle_residual,
+                            packed_only_residual,
+                            host_packed_only_residual, logical_elements);
+  const bool normalized_exact = logical_payload_equal(
+      oracle_normalized, host_oracle_normalized, candidate_normalized,
+      host_candidate_normalized, logical_elements);
+  const bool packed_exact = std::equal(
+      oracle_packed.host_payload(host_oracle_packed),
+      oracle_packed.host_payload(host_oracle_packed) + packed_elements,
+      candidate_packed.host_payload(host_candidate_packed)) &&
+      std::equal(oracle_packed.host_payload(host_oracle_packed),
+                 oracle_packed.host_payload(host_oracle_packed) +
+                     packed_elements,
+                 packed_only_packed.host_payload(host_packed_only_packed));
+  const bool scales_exact = std::equal(
+      oracle_scales.host_payload(host_oracle_scales),
+      oracle_scales.host_payload(host_oracle_scales) + scale_elements,
+      candidate_scales.host_payload(host_candidate_scales)) &&
+      std::equal(oracle_scales.host_payload(host_oracle_scales),
+                 oracle_scales.host_payload(host_oracle_scales) +
+                     scale_elements,
+                 packed_only_scales.host_payload(host_packed_only_scales));
+  const bool suffix =
+      word_suffix_is_sentinel(oracle_residual, host_oracle_residual,
+                              logical_elements) &&
+      word_suffix_is_sentinel(oracle_normalized, host_oracle_normalized,
+                              logical_elements) &&
+      word_suffix_is_sentinel(candidate_residual, host_candidate_residual,
+                              logical_elements) &&
+      word_suffix_is_sentinel(candidate_normalized,
+                              host_candidate_normalized,
+                              logical_elements) &&
+      word_suffix_is_sentinel(packed_only_residual,
+                              host_packed_only_residual,
+                              logical_elements);
+  const bool padded = padded_r1_is_zero_one(
+      candidate_packed.host_payload(host_candidate_packed),
+      candidate_scales.host_payload(host_candidate_scales),
+      spec.logical_tokens, spec.launch_tokens) &&
+      padded_r1_is_zero_one(
+          packed_only_packed.host_payload(host_packed_only_packed),
+          packed_only_scales.host_payload(host_packed_only_scales),
+          spec.logical_tokens, spec.launch_tokens);
+  if (!guards || !residual_exact || !normalized_exact || !packed_exact ||
+      !scales_exact ||
+      !suffix || !padded) {
+    std::cerr << spec.name
+              << ": MLP-to-Attention-R1 bit/guard/padding mismatch"
+              << " guards=" << guards << " residual=" << residual_exact
+              << " normalized=" << normalized_exact
+              << " packed=" << packed_exact << " scales=" << scales_exact
+              << " suffix=" << suffix << " padded=" << padded << '\n';
+    return false;
+  }
+  return true;
+}
+
 [[nodiscard]] bool expect_invalid(const int status,
                                   const std::string& operation) {
   if (status == static_cast<int>(cudaErrorInvalidValue)) {
@@ -786,6 +1000,31 @@ template <typename Launch>
                 residual_capacity, normalized_argument, normalized_capacity,
                 packed_argument, packed_bytes, k256_scales.get(),
                 scale_capacity);
+      };
+  const auto mlp_r1 =
+      [&](const std::uint16_t* left_argument,
+          const std::uint16_t* right_argument,
+          const std::uint16_t* weight_argument,
+          const float* inverse_argument,
+          const std::size_t inverse_capacity,
+          const std::size_t logical_tokens,
+          const std::size_t launch_tokens,
+          const float epsilon,
+          const float clip_ratio,
+          std::uint16_t* residual_argument,
+          const std::size_t residual_capacity,
+          std::uint8_t* packed_argument,
+          const std::size_t packed_bytes,
+          std::uint16_t* scales_argument,
+          const std::size_t scale_capacity) {
+        return kernels::
+            launch_sm87_a4w4_mlp_residual_next_norm_attention_r1_quantize_cuda(
+                left_argument, right_argument, weight_argument,
+                inverse_argument, inverse_capacity, logical_tokens,
+                launch_tokens, epsilon, clip_ratio, residual_argument,
+                residual_capacity, normalized.get(), kLogicalElements,
+                packed_argument, packed_bytes,
+                scales_argument, scale_capacity);
       };
 
   bool ok = true;
@@ -909,6 +1148,112 @@ template <typename Launch>
                           k256_scale_capacity - 1U),
                       "MLP short scales") &&
        ok;
+
+  ok = expect_invalid(
+           mlp_r1(nullptr, right.get(), weight.get(), inverse_alpha.get(),
+                  kHidden, kLogical, kLaunch, kEpsilon, kClipRatio,
+                  residual.get(), kLogicalElements, packed.get(),
+                  packed_capacity, r1_scales.get(), r1_scale_capacity),
+           "MLP R1 null left") &&
+       ok;
+  ok = expect_invalid(
+           mlp_r1(left.get(), right.get(), weight.get(), nullptr, kHidden,
+                  kLogical, kLaunch, kEpsilon, kClipRatio, residual.get(),
+                  kLogicalElements, packed.get(), packed_capacity,
+                  r1_scales.get(), r1_scale_capacity),
+           "MLP R1 null inverse alpha") &&
+       ok;
+  ok = expect_invalid(
+           mlp_r1(left.get(), right.get(), weight.get(), inverse_alpha.get(),
+                  kHidden - 1U, kLogical, kLaunch, kEpsilon, kClipRatio,
+                  residual.get(), kLogicalElements, packed.get(),
+                  packed_capacity, r1_scales.get(), r1_scale_capacity),
+           "MLP R1 short inverse alpha") &&
+       ok;
+  ok = expect_invalid(
+           mlp_r1(left.get(), right.get(), weight.get(), inverse_alpha.get(),
+                  kHidden, kLogical, 192U, kEpsilon, kClipRatio,
+                  residual.get(), kLogicalElements, packed.get(),
+                  packed_capacity, r1_scales.get(), r1_scale_capacity),
+           "MLP R1 noncanonical launch tokens") &&
+       ok;
+  ok = expect_invalid(
+           mlp_r1(left.get(), right.get(), weight.get(), inverse_alpha.get(),
+                  kHidden, kLogical, kLaunch, kEpsilon, kClipRatio,
+                  residual.get(), kLogicalElements - 1U, packed.get(),
+                  packed_capacity, r1_scales.get(), r1_scale_capacity),
+           "MLP R1 short residual") &&
+       ok;
+  ok = expect_invalid(
+           mlp_r1(left.get(), right.get(), weight.get(), inverse_alpha.get(),
+                  kHidden, kLogical, kLaunch, kEpsilon, kClipRatio,
+                  residual.get(), kLogicalElements, packed.get(),
+                  packed_capacity - 1U, r1_scales.get(), r1_scale_capacity),
+           "MLP R1 short packed") &&
+       ok;
+  ok = expect_invalid(
+           mlp_r1(left.get(), right.get(), weight.get(), inverse_alpha.get(),
+                  kHidden, kLogical, kLaunch, kEpsilon, kClipRatio,
+                  residual.get(), kLogicalElements, packed.get(),
+                  packed_capacity, r1_scales.get(), r1_scale_capacity - 1U),
+           "MLP R1 short scales") &&
+       ok;
+  ok = expect_invalid(
+           mlp_r1(left.get(), right.get(), weight.get(), inverse_alpha.get(),
+                  kHidden, kLogical, kLaunch, kEpsilon, kClipRatio,
+                  right.get(), kLogicalElements, packed.get(),
+                  packed_capacity, r1_scales.get(), r1_scale_capacity),
+           "MLP R1 residual aliases right") &&
+       ok;
+  ok = expect_invalid(
+           mlp_r1(left.get(), right.get(), weight.get(), inverse_alpha.get(),
+                  kHidden, kLogical, kLaunch, kEpsilon, kClipRatio,
+                  left.get() + 1U, kLogicalElements, packed.get(),
+                  packed_capacity, r1_scales.get(), r1_scale_capacity),
+           "MLP R1 partial residual-left alias") &&
+       ok;
+  ok = expect_invalid(
+           mlp_r1(left.get(), right.get(), weight.get(),
+                  reinterpret_cast<const float*>(packed.get()), kHidden,
+                  kLogical, kLaunch, kEpsilon, kClipRatio, residual.get(),
+                  kLogicalElements, packed.get(), packed_capacity,
+                  r1_scales.get(), r1_scale_capacity),
+           "MLP R1 inverse alpha aliases packed output") &&
+       ok;
+  ok = expect_invalid(
+           mlp_r1(left.get(), right.get(), weight.get(), inverse_alpha.get(),
+                  kHidden, kLogical, kLaunch, kEpsilon, kClipRatio,
+                  residual.get(), kLogicalElements,
+                  reinterpret_cast<std::uint8_t*>(r1_scales.get()),
+                  packed_capacity, r1_scales.get(), r1_scale_capacity),
+           "MLP R1 packed output aliases scale output") &&
+       ok;
+
+  // Exact residual-over-left ownership is the sole intentional alias.
+  const bool initialized =
+      cuda_ok(cudaMemset(left.get(), 0,
+                         kLogicalElements * sizeof(std::uint16_t)),
+              "initialize MLP R1 in-place left") &&
+      cuda_ok(cudaMemset(right.get(), 0,
+                         kLogicalElements * sizeof(std::uint16_t)),
+              "initialize MLP R1 in-place right") &&
+      cuda_ok(cudaMemset(weight.get(), 0, kHidden * sizeof(std::uint16_t)),
+              "initialize MLP R1 in-place norm weight") &&
+      cuda_ok(cudaMemset(inverse_alpha.get(), 0, kHidden * sizeof(float)),
+              "initialize MLP R1 in-place inverse alpha");
+  const int in_place_status =
+      initialized
+          ? mlp_r1(left.get(), right.get(), weight.get(),
+                   inverse_alpha.get(), kHidden, kLogical, kLaunch,
+                   kEpsilon, kClipRatio, left.get(), kLogicalElements,
+                   packed.get(), packed_capacity, r1_scales.get(),
+                   r1_scale_capacity)
+          : static_cast<int>(cudaErrorUnknown);
+  if (in_place_status != static_cast<int>(cudaSuccess) ||
+      !cuda_ok(cudaDeviceSynchronize(), "MLP R1 in-place residual sync")) {
+    std::cerr << "MLP R1 exact residual-left alias was rejected\n";
+    ok = false;
+  }
   return ok;
 }
 
@@ -929,12 +1274,20 @@ template <typename Launch>
       resources.mlp_to_attention_registers_per_thread <=
           static_cast<int>(
               kernels::kSm87A4W4PrefillHandoffMaximumRegisters) &&
+      resources.mlp_to_attention_r1_registers_per_thread > 0 &&
+      resources.mlp_to_attention_r1_registers_per_thread <=
+          static_cast<int>(
+              kernels::kSm87A4W4PrefillHandoffMaximumRegisters) &&
       resources.attention_to_gate_local_bytes == 0U &&
       resources.mlp_to_attention_local_bytes == 0U &&
+      resources.mlp_to_attention_r1_local_bytes == 0U &&
       resources.attention_to_gate_active_blocks_per_sm >=
           static_cast<int>(
               kernels::kSm87A4W4PrefillHandoffMinimumBlocksPerSm) &&
       resources.mlp_to_attention_active_blocks_per_sm >=
+          static_cast<int>(
+              kernels::kSm87A4W4PrefillHandoffMinimumBlocksPerSm) &&
+      resources.mlp_to_attention_r1_active_blocks_per_sm >=
           static_cast<int>(
               kernels::kSm87A4W4PrefillHandoffMinimumBlocksPerSm) &&
       resources.maximum_threads_per_block >=
@@ -943,6 +1296,25 @@ template <typename Launch>
       resources.multiprocessor_count == 16;
   if (!valid) {
     std::cerr << "prefill handoff resource contract mismatch\n";
+  } else {
+    std::cout << "resources: attention_to_gate(regs="
+              << resources.attention_to_gate_registers_per_thread
+              << ",smem="
+              << resources.attention_to_gate_static_shared_bytes
+              << ",active="
+              << resources.attention_to_gate_active_blocks_per_sm
+              << ") mlp_to_attention_k256(regs="
+              << resources.mlp_to_attention_registers_per_thread
+              << ",smem=" << resources.mlp_to_attention_static_shared_bytes
+              << ",active="
+              << resources.mlp_to_attention_active_blocks_per_sm
+              << ") mlp_to_attention_r1(regs="
+              << resources.mlp_to_attention_r1_registers_per_thread
+              << ",smem="
+              << resources.mlp_to_attention_r1_static_shared_bytes
+              << ",active="
+              << resources.mlp_to_attention_r1_active_blocks_per_sm
+              << ")\n";
   }
   return valid;
 }
@@ -966,9 +1338,11 @@ int main() {
     const HostInputs inputs = make_inputs(spec);
     const bool attention_ok = run_attention_to_gate_case(spec, inputs);
     const bool mlp_ok = run_mlp_to_attention_case(spec, inputs);
+    const bool mlp_r1_ok = run_mlp_to_attention_r1_case(spec, inputs);
     std::cout << spec.name << ": attention_to_gate=" << attention_ok
-              << " mlp_to_attention=" << mlp_ok << '\n';
-    ok = attention_ok && mlp_ok && ok;
+              << " mlp_to_attention=" << mlp_ok
+              << " mlp_to_attention_r1=" << mlp_r1_ok << '\n';
+    ok = attention_ok && mlp_ok && mlp_r1_ok && ok;
   }
 
   if (!ok) {
@@ -976,6 +1350,9 @@ int main() {
   }
   std::cout << "PASS: prefill handoff kernels are bit-exact against the "
                "incumbent residual/RMS/quantize chains across direct, "
-               "non-default-stream, Graph replay, and P1853 padding\n";
+               "non-default-stream, Graph replay, and P1853 padding; the "
+               "MLP-to-Attention R1 boundary publishes packed A plus the "
+               "optional Linear-Attention normalized BF16 handoff, while "
+               "Full Attention remains packed-only\n";
   return 0;
 }

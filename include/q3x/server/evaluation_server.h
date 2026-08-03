@@ -57,6 +57,12 @@ struct EvaluationServerOptions {
   std::filesystem::path prefill_mlp_factorized_lane_r1_payload_path;
   std::filesystem::path prefill_mlp_factorized_lane_r1_policy_path;
   std::filesystem::path prefill_mlp_factorized_lane_r1_receipt_path;
+  // Authenticated Attention-only R1 upper-bound overlay. This triplet has
+  // no production/quality authority and is usable only with the explicit
+  // default-off Attention R1 runtime selector.
+  std::filesystem::path prefill_attention_factorized_lane_r1_payload_path;
+  std::filesystem::path prefill_attention_factorized_lane_r1_policy_path;
+  std::filesystem::path prefill_attention_factorized_lane_r1_receipt_path;
   // Direct-checkpoint R4 performance candidate.  The publication identity is
   // independent from the K256 inventory; the latter is still required by the
   // first real-API bundle as the companion Attention plane.

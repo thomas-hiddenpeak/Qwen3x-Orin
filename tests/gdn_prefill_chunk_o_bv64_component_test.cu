@@ -2,14 +2,17 @@
 #include "gdn_prefill_chunk64_native_sm87.h"
 
 #include "q3x/kernels/sm87_a4w4_attention_k256_m128n256.h"
+#include "q3x/kernels/sm87_a4w4_factorized_lane_quantize.h"
 #include "q3x/runtime/decode_ops.h"
 #include "q3x/runtime/gdn_decode.h"
 
 #include <cuda_runtime.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <iostream>
 #include <limits>
 #include <string>
@@ -52,6 +55,9 @@ constexpr std::size_t kScaleGuardElements = 16U;
 constexpr std::uint8_t kPackedSentinel = 0xa5U;
 constexpr std::uint16_t kScaleSentinel = 0x5aa5U;
 constexpr float kK256ClipRatio = 0.875F;
+constexpr float kFactorizedLaneR1ClipRatio = 0.8125F;
+constexpr std::size_t kFactorizedLaneR1ScaleGroups = 1U;
+constexpr std::size_t kFactorizedLaneR1SharedBytes = 12'528U;
 
 static_assert(kQkHeads == 16U);
 static_assert(kValueHeads == 48U);
@@ -59,6 +65,7 @@ static_assert(kDimension == 128U);
 static_assert(kK256InputSize == 6'144U);
 static_assert(kK256Groups == 24U);
 static_assert(kK256PhysicalGroups == 96U);
+static_assert(kFactorizedLaneR1ScaleGroups == 1U);
 
 template <typename T>
 class ManagedBuffer final {
@@ -661,6 +668,138 @@ void fill_k256_publish_inputs(std::uint16_t* const raw,
   }
 }
 
+[[nodiscard]] float decode_bf16_host(const std::uint16_t bits) {
+  const std::uint32_t word = static_cast<std::uint32_t>(bits) << 16U;
+  float value = 0.0F;
+  std::memcpy(&value, &word, sizeof(value));
+  return value;
+}
+
+[[nodiscard]] std::uint16_t encode_quantizer_bf16_host(
+    const float value) {
+  std::uint32_t bits = 0U;
+  std::memcpy(&bits, &value, sizeof(bits));
+  bits += 0x7fffU + ((bits >> 16U) & 1U);
+  return static_cast<std::uint16_t>(bits >> 16U);
+}
+
+void fill_factorized_lane_r1_inverse_alpha(float* const inverse_alpha) {
+  constexpr float kPatterns[] = {
+      0.5F, 0.75F, 1.0F, 1.25F, 1.5F, 1.75F, 2.0F};
+  constexpr std::size_t kPatternCount =
+      sizeof(kPatterns) / sizeof(kPatterns[0]);
+  for (std::size_t k = 0U; k < kK256InputSize; ++k) {
+    inverse_alpha[k] = kPatterns[(5U * k + k / 128U) % kPatternCount];
+  }
+}
+
+void factorized_lane_r1_quantize_host(
+    const std::uint16_t* const normalized,
+    const float* const inverse_alpha,
+    const std::size_t tile_logical_tokens,
+    const std::size_t destination_first_token,
+    const std::size_t whole_logical_tokens,
+    const std::size_t launch_tokens,
+    const float clip_ratio,
+    std::uint8_t* const packed,
+    std::uint16_t* const scales) {
+  const bool final_slice =
+      destination_first_token + tile_logical_tokens == whole_logical_tokens;
+  const std::size_t padding_tokens =
+      final_slice ? launch_tokens - whole_logical_tokens : 0U;
+  const std::size_t publish_tokens =
+      tile_logical_tokens + padding_tokens;
+  for (std::size_t local_token = 0U; local_token < publish_tokens;
+       ++local_token) {
+    const std::size_t destination_token =
+        destination_first_token + local_token;
+    if (local_token >= tile_logical_tokens) {
+      for (std::size_t pair = 0U; pair < kK256InputSize / 2U; ++pair) {
+        const std::size_t global_even = pair * 2U;
+        packed[kernels::sm87_a4w4_consumer_packed_offset(
+            destination_token, global_even / 64U,
+            (global_even % 64U) / 2U, kK256PhysicalGroups)] = 0U;
+      }
+      scales[kernels::sm87_a4w4_factorized_lane_scale_offset(
+          destination_token, 0U, kFactorizedLaneR1ScaleGroups)] = kOne;
+      continue;
+    }
+
+    const std::size_t input_base = local_token * kK256InputSize;
+    float maximum = 0.0F;
+    for (std::size_t k = 0U; k < kK256InputSize; ++k) {
+      maximum = std::fmax(
+          maximum,
+          std::fabs(decode_bf16_host(normalized[input_base + k]) *
+                    inverse_alpha[k]));
+    }
+    const float clipped_maximum = maximum * clip_ratio;
+    std::uint16_t scale_bits = encode_quantizer_bf16_host(
+        maximum == 0.0F ? 1.0F : clipped_maximum / 7.0F);
+    float stored_scale = decode_bf16_host(scale_bits);
+    if (maximum != 0.0F && stored_scale == 0.0F) {
+      scale_bits = 1U;
+      stored_scale = decode_bf16_host(scale_bits);
+    }
+    scales[kernels::sm87_a4w4_factorized_lane_scale_offset(
+        destination_token, 0U, kFactorizedLaneR1ScaleGroups)] =
+        scale_bits;
+
+    for (std::size_t pair = 0U; pair < kK256InputSize / 2U; ++pair) {
+      const std::size_t global_even = pair * 2U;
+      float even = decode_bf16_host(
+                       normalized[input_base + global_even]) *
+                   inverse_alpha[global_even];
+      float odd = decode_bf16_host(
+                      normalized[input_base + global_even + 1U]) *
+                  inverse_alpha[global_even + 1U];
+      even = std::fmin(std::fmax(even, -clipped_maximum),
+                       clipped_maximum);
+      odd = std::fmin(std::fmax(odd, -clipped_maximum),
+                      clipped_maximum);
+      const long even_rounded = std::lrint(even / stored_scale);
+      const long odd_rounded = std::lrint(odd / stored_scale);
+      const int even_code = even_rounded < -7L
+                                ? -7
+                                : (even_rounded > 7L
+                                       ? 7
+                                       : static_cast<int>(even_rounded));
+      const int odd_code = odd_rounded < -7L
+                               ? -7
+                               : (odd_rounded > 7L
+                                      ? 7
+                                      : static_cast<int>(odd_rounded));
+      packed[kernels::sm87_a4w4_consumer_packed_offset(
+          destination_token, global_even / 64U,
+          (global_even % 64U) / 2U, kK256PhysicalGroups)] =
+          kernels::sm87_a4w4_pack_signed_pair(even_code, odd_code);
+    }
+  }
+}
+
+[[nodiscard]] bool factorized_lane_r1_padding_is_zero_one(
+    const std::uint8_t* const packed,
+    const std::uint16_t* const scales,
+    const std::size_t first_padding_token,
+    const std::size_t launch_token_count) {
+  for (std::size_t token = first_padding_token;
+       token < launch_token_count; ++token) {
+    if (scales[kernels::sm87_a4w4_factorized_lane_scale_offset(
+            token, 0U, kFactorizedLaneR1ScaleGroups)] != kOne) {
+      return false;
+    }
+    for (std::size_t group = 0U; group < kK256PhysicalGroups; ++group) {
+      for (std::size_t byte = 0U; byte < 32U; ++byte) {
+        if (packed[kernels::sm87_a4w4_consumer_packed_offset(
+                token, group, byte, kK256PhysicalGroups)] != 0U) {
+          return false;
+        }
+      }
+    }
+  }
+  return true;
+}
+
 [[nodiscard]] bool k256_padding_is_zero_one(
     const std::uint8_t* const packed,
     const std::uint16_t* const scales,
@@ -953,6 +1092,284 @@ void test_norm_rows8_k256_a4(TestContext& test) {
   }
 }
 
+void test_norm_factorized_lane_r1_a4_resources(TestContext& test) {
+  int registers = 0;
+  std::size_t static_shared = 0U;
+  std::size_t local_bytes = 0U;
+  int maximum_threads = 0;
+  int active_blocks = 0;
+  const int status =
+      chunk_o::query_norm_factorized_lane_r1_a4_resources(
+          &registers, &static_shared, &local_bytes, &maximum_threads,
+          &active_blocks);
+  const bool admitted =
+      test.cuda_ok(status, "query direct norm factorized R1 A4 resources") &&
+      registers > 0 && registers <= 128 &&
+      static_shared == kFactorizedLaneR1SharedBytes &&
+      local_bytes == 0U && maximum_threads >= 256 && active_blocks >= 2;
+  test.expect(
+      admitted,
+      "direct norm factorized R1 A4 retains two CTA/SM resource contract");
+  std::cout << "GDN_CHUNK_O_BV64_NORM_FACTORIZED_R1_A4_RESOURCES regs="
+            << registers << " static_shared=" << static_shared
+            << " local_bytes=" << local_bytes
+            << " max_threads=" << maximum_threads
+            << " active_blocks_per_sm=" << active_blocks
+            << " gate=" << (admitted ? "PASS" : "FAIL") << '\n';
+}
+
+void test_norm_rows8_factorized_lane_r1_a4_case(
+    TestContext& test, const K256PublishCase& spec) {
+  constexpr std::size_t kWholeLogicalTokens = 1'853U;
+  constexpr std::size_t kWholeLaunchTokens = 1'920U;
+  const auto whole_plan =
+      kernels::sm87_a4w4_factorized_lane_quantize_plan(
+          kWholeLogicalTokens, kWholeLaunchTokens, kK256InputSize,
+          kFactorizedLaneR1ScaleGroups);
+  const std::size_t input_elements =
+      spec.tile_logical_tokens * kK256InputSize;
+  const bool capacities_valid = whole_plan.valid() && input_elements != 0U;
+  test.expect(capacities_valid,
+              std::string(spec.name) + " direct factorized R1 capacities");
+  if (!capacities_valid) {
+    return;
+  }
+
+  ManagedBuffer<std::uint16_t> raw(input_elements);
+  ManagedBuffer<std::uint16_t> raw_snapshot(input_elements);
+  ManagedBuffer<std::uint16_t> gate(input_elements);
+  ManagedBuffer<std::uint16_t> weight(kDimension);
+  ManagedBuffer<float> inverse_alpha(kK256InputSize);
+  ManagedBuffer<std::uint16_t> normalized(input_elements);
+  ManagedBuffer<std::uint8_t> expected_packed(
+      whole_plan.packed_capacity_bytes + 2U * kPackedGuardBytes);
+  ManagedBuffer<std::uint16_t> expected_scales(
+      whole_plan.scale_capacity_elements + 2U * kScaleGuardElements);
+  ManagedBuffer<std::uint8_t> candidate_packed(
+      whole_plan.packed_capacity_bytes + 2U * kPackedGuardBytes);
+  ManagedBuffer<std::uint16_t> candidate_scales(
+      whole_plan.scale_capacity_elements + 2U * kScaleGuardElements);
+  NonBlockingStream stream;
+  const bool allocated =
+      raw.valid() && raw_snapshot.valid() && gate.valid() && weight.valid() &&
+      inverse_alpha.valid() && normalized.valid() &&
+      expected_packed.valid() && expected_scales.valid() &&
+      candidate_packed.valid() && candidate_scales.valid() && stream.valid();
+  test.expect(allocated,
+              std::string(spec.name) +
+                  " allocate direct factorized R1 byte fixture");
+  test.expect(stream.valid() && stream.get() != nullptr,
+              std::string(spec.name) +
+                  " direct factorized R1 uses nondefault stream");
+  if (!allocated) {
+    return;
+  }
+
+  fill_k256_publish_inputs(raw.data(), gate.data(), weight.data(),
+                           spec.tile_logical_tokens);
+  std::copy_n(raw.data(), input_elements, raw_snapshot.data());
+  fill_factorized_lane_r1_inverse_alpha(inverse_alpha.data());
+  std::fill_n(normalized.data(), normalized.size(), kPoison);
+  std::fill_n(expected_packed.data(), expected_packed.size(),
+              kPackedSentinel);
+  std::fill_n(expected_scales.data(), expected_scales.size(),
+              kScaleSentinel);
+  std::fill_n(candidate_packed.data(), candidate_packed.size(),
+              kPackedSentinel);
+  std::fill_n(candidate_scales.data(), candidate_scales.size(),
+              kScaleSentinel);
+
+  std::uint8_t* const expected_packed_payload =
+      expected_packed.data() + kPackedGuardBytes;
+  std::uint16_t* const expected_scale_payload =
+      expected_scales.data() + kScaleGuardElements;
+  std::uint8_t* const candidate_packed_payload =
+      candidate_packed.data() + kPackedGuardBytes;
+  std::uint16_t* const candidate_scale_payload =
+      candidate_scales.data() + kScaleGuardElements;
+
+  const int rejected_status =
+      chunk_o::launch_norm_rows8_factorized_lane_r1_a4(
+          raw.data(), weight.data(), gate.data(), spec.tile_logical_tokens,
+          kEpsilon, inverse_alpha.data(), inverse_alpha.size(),
+          spec.destination_first_token, kWholeLogicalTokens,
+          kWholeLaunchTokens, kFactorizedLaneR1ClipRatio,
+          candidate_packed_payload, whole_plan.packed_capacity_bytes - 1U,
+          candidate_scale_payload, whole_plan.scale_capacity_elements,
+          stream.get());
+  test.expect(rejected_status == static_cast<int>(cudaErrorInvalidValue),
+              std::string(spec.name) +
+                  " rejects one-byte-short factorized R1 packed capacity");
+  const bool rejected_untouched =
+      std::all_of(candidate_packed.data(),
+                  candidate_packed.data() + candidate_packed.size(),
+                  [](const std::uint8_t value) {
+                    return value == kPackedSentinel;
+                  }) &&
+      std::all_of(candidate_scales.data(),
+                  candidate_scales.data() + candidate_scales.size(),
+                  [](const std::uint16_t value) {
+                    return value == kScaleSentinel;
+                  });
+  test.expect(rejected_untouched,
+              std::string(spec.name) +
+                  " rejected factorized R1 launch leaves buffers untouched");
+
+  const int norm_status = chunk_o::launch_norm_rows8(
+      raw.data(), weight.data(), gate.data(),
+      spec.tile_logical_tokens * kValueHeads, kEpsilon, normalized.data(),
+      stream.get());
+  const int candidate_status =
+      chunk_o::launch_norm_rows8_factorized_lane_r1_a4(
+          raw.data(), weight.data(), gate.data(), spec.tile_logical_tokens,
+          kEpsilon, inverse_alpha.data(), inverse_alpha.size(),
+          spec.destination_first_token, kWholeLogicalTokens,
+          kWholeLaunchTokens, kFactorizedLaneR1ClipRatio,
+          candidate_packed_payload, whole_plan.packed_capacity_bytes,
+          candidate_scale_payload, whole_plan.scale_capacity_elements,
+          stream.get());
+  const bool launched =
+      test.cuda_ok(norm_status,
+                   std::string(spec.name) +
+                       " launch incumbent BF16 norm for factorized R1") &&
+      test.cuda_ok(candidate_status,
+                   std::string(spec.name) +
+                       " launch direct factorized R1 publisher") &&
+      test.cuda_ok(static_cast<int>(cudaStreamSynchronize(stream.get())),
+                   std::string(spec.name) +
+                       " synchronize direct factorized R1 stream");
+  if (!launched) {
+    return;
+  }
+
+  factorized_lane_r1_quantize_host(
+      normalized.data(), inverse_alpha.data(), spec.tile_logical_tokens,
+      spec.destination_first_token, kWholeLogicalTokens, kWholeLaunchTokens,
+      kFactorizedLaneR1ClipRatio, expected_packed_payload,
+      expected_scale_payload);
+  const std::string label_prefix =
+      "GDN_CHUNK_O_BV64_NORM_FACTORIZED_R1_A4_" +
+      std::string(spec.name);
+  (void)expect_equal_bytes(
+      test, label_prefix + "_PACKED_DEST_SLICE_AND_GUARDS",
+      expected_packed.data(), candidate_packed.data(),
+      candidate_packed.size());
+  (void)expect_equal(
+      test, label_prefix + "_SCALES_DEST_SLICE_AND_GUARDS",
+      expected_scales.data(), candidate_scales.data(),
+      candidate_scales.size());
+  (void)expect_equal(test, label_prefix + "_RAW_INPUT_UNCHANGED",
+                     raw_snapshot.data(), raw.data(), input_elements);
+
+  const bool candidate_guards =
+      guards_are_sentinel(candidate_packed.data(), kPackedGuardBytes,
+                          whole_plan.packed_capacity_bytes,
+                          kPackedGuardBytes, kPackedSentinel) &&
+      guards_are_sentinel(candidate_scales.data(), kScaleGuardElements,
+                          whole_plan.scale_capacity_elements,
+                          kScaleGuardElements, kScaleSentinel);
+  test.expect(candidate_guards,
+              label_prefix + " direct publisher guards intact");
+  if (spec.destination_first_token + spec.tile_logical_tokens ==
+      kWholeLogicalTokens) {
+    const bool padding_ok = factorized_lane_r1_padding_is_zero_one(
+        candidate_packed_payload, candidate_scale_payload,
+        kWholeLogicalTokens, kWholeLaunchTokens);
+    test.expect(padding_ok,
+                label_prefix + " final P1920 padding zero/one");
+  }
+}
+
+void test_norm_rows8_factorized_lane_r1_a4(TestContext& test) {
+  constexpr K256PublishCase kCases[] = {
+      {"C1_FINAL_P1853", 1U, 1'852U},
+      {"C31_FINAL_P1853", 31U, 1'822U},
+      {"C317_FINAL_P1853", 317U, 1'536U},
+      {"C512_INTERIOR_P1853", 512U, 1'024U},
+  };
+  test_norm_factorized_lane_r1_a4_resources(test);
+  for (const K256PublishCase& spec : kCases) {
+    test_norm_rows8_factorized_lane_r1_a4_case(test, spec);
+  }
+}
+
+void test_native_factorized_lane_r1_alias_preflight(TestContext& test) {
+  constexpr std::size_t kWholeLogicalTokens = kTokens;
+  constexpr std::size_t kWholeLaunchTokens = 128U;
+  const auto plan = kernels::sm87_a4w4_factorized_lane_quantize_plan(
+      kWholeLogicalTokens, kWholeLaunchTokens, kK256InputSize,
+      kFactorizedLaneR1ScaleGroups);
+  ManagedBuffer<std::uint8_t> workspace(native::workspace_bytes());
+  ManagedBuffer<std::uint16_t> conv_qkv(
+      kTokens * runtime::kGdnQkvChannels);
+  ManagedBuffer<std::uint16_t> a(kTokens * kValueHeads);
+  ManagedBuffer<std::uint16_t> b(kTokens * kValueHeads);
+  ManagedBuffer<std::uint16_t> a_log(kValueHeads);
+  ManagedBuffer<std::uint16_t> dt_bias(kValueHeads);
+  ManagedBuffer<std::uint16_t> state_input(kBoundaryStateElements);
+  ManagedBuffer<std::uint16_t> state_output(kBoundaryStateElements);
+  ManagedBuffer<std::uint16_t> norm_weight(kDimension);
+  ManagedBuffer<std::uint16_t> silu_gate(kOutputElements);
+  ManagedBuffer<float> inverse_alpha(kK256InputSize);
+  ManagedBuffer<std::uint16_t> scales(plan.scale_capacity_elements);
+  const bool allocated =
+      plan.valid() && workspace.valid() && conv_qkv.valid() && a.valid() &&
+      b.valid() && a_log.valid() && dt_bias.valid() && state_input.valid() &&
+      state_output.valid() && norm_weight.valid() && silu_gate.valid() &&
+      inverse_alpha.valid() && scales.valid();
+  test.expect(allocated,
+              "allocate native factorized R1 alias-preflight fixture");
+  if (!allocated) {
+    return;
+  }
+
+  std::fill_n(state_input.data(), state_input.size(), kZero);
+  std::fill_n(state_output.data(), state_output.size(), kPoison);
+  std::fill_n(workspace.data(), std::min<std::size_t>(workspace.size(), 64U),
+              kPackedSentinel);
+  std::fill_n(inverse_alpha.data(), inverse_alpha.size(), 1.0F);
+  std::fill_n(scales.data(), scales.size(), kScaleSentinel);
+
+  const auto launch_with_packed = [&](std::uint8_t* const packed) {
+    return native::launch_factorized_lane_r1_a4(
+        workspace.data(), workspace.size(), conv_qkv.data(), kTokens,
+        a.data(), b.data(), a_log.data(), dt_bias.data(), state_input.data(),
+        state_output.data(), kEpsilon, norm_weight.data(), silu_gate.data(),
+        kEpsilon, inverse_alpha.data(), inverse_alpha.size(), 0U,
+        kWholeLogicalTokens, kWholeLaunchTokens,
+        kFactorizedLaneR1ClipRatio, packed, plan.packed_capacity_bytes,
+        scales.data(), scales.size());
+  };
+
+  const int state_alias_status = launch_with_packed(
+      reinterpret_cast<std::uint8_t*>(state_output.data()));
+  test.expect(state_alias_status == static_cast<int>(cudaErrorInvalidValue),
+              "native factorized R1 rejects packed/state-output alias before enqueue");
+  test.expect(
+      std::all_of(state_output.data(),
+                  state_output.data() + state_output.size(),
+                  [](const std::uint16_t value) { return value == kPoison; }),
+      "state-output alias rejection leaves recurrent state untouched");
+
+  const int workspace_alias_status = launch_with_packed(workspace.data());
+  test.expect(workspace_alias_status ==
+                  static_cast<int>(cudaErrorInvalidValue),
+              "native factorized R1 rejects packed/workspace alias before enqueue");
+  test.expect(
+      std::all_of(workspace.data(),
+                  workspace.data() +
+                      std::min<std::size_t>(workspace.size(), 64U),
+                  [](const std::uint8_t value) {
+                    return value == kPackedSentinel;
+                  }) &&
+          std::all_of(state_output.data(),
+                      state_output.data() + state_output.size(),
+                      [](const std::uint16_t value) {
+                        return value == kPoison;
+                      }),
+      "workspace alias rejection leaves workspace prefix and state untouched");
+}
+
 }  // namespace
 
 int main() {
@@ -982,6 +1399,8 @@ int main() {
   test_rows8_norm(test, buffers);
   test_prompt_span_vertical_slice_c64(test, buffers);
   test_norm_rows8_k256_a4(test);
+  test_norm_rows8_factorized_lane_r1_a4(test);
+  test_native_factorized_lane_r1_alias_preflight(test);
   std::cout << "GDN_CHUNK_O_BV64_COMPONENT_RESULT gate="
             << (test.result() == 0 ? "PASS" : "FAIL")
             << " authority=SYNTHETIC_CORRECTNESS_ONLY\n";

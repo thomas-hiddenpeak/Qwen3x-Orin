@@ -277,6 +277,33 @@ bool parse_evaluation_server_arguments(
       }
       options.prefill_mlp_factorized_lane_r1_receipt_path = value;
     } else if (argument ==
+               "--prefill-attention-factorized-lane-r1-payload") {
+      if (!options.prefill_attention_factorized_lane_r1_payload_path.empty() ||
+          value.empty()) {
+        error = "--prefill-attention-factorized-lane-r1-payload requires one "
+                "non-empty FILE";
+        return false;
+      }
+      options.prefill_attention_factorized_lane_r1_payload_path = value;
+    } else if (argument ==
+               "--prefill-attention-factorized-lane-r1-policy") {
+      if (!options.prefill_attention_factorized_lane_r1_policy_path.empty() ||
+          value.empty()) {
+        error = "--prefill-attention-factorized-lane-r1-policy requires one "
+                "non-empty FILE";
+        return false;
+      }
+      options.prefill_attention_factorized_lane_r1_policy_path = value;
+    } else if (argument ==
+               "--prefill-attention-factorized-lane-r1-receipt") {
+      if (!options.prefill_attention_factorized_lane_r1_receipt_path.empty() ||
+          value.empty()) {
+        error = "--prefill-attention-factorized-lane-r1-receipt requires one "
+                "non-empty FILE";
+        return false;
+      }
+      options.prefill_attention_factorized_lane_r1_receipt_path = value;
+    } else if (argument ==
                "--prefill-mlp-factorized-lane-r4-payload") {
       if (!options.prefill_mlp_factorized_lane_r4_payload_path.empty() ||
           value.empty()) {
@@ -482,6 +509,25 @@ bool parse_evaluation_server_arguments(
   if (mlp_factorized_r1_payload && (!a4_payload || !a4_receipt)) {
     error = "the factorized-lane R1 MLP experiment requires the explicit "
             "K256 A4 payload, policy, and receipt";
+    return false;
+  }
+  const bool attention_factorized_r1_payload =
+      !options.prefill_attention_factorized_lane_r1_payload_path.empty();
+  const bool attention_factorized_r1_policy =
+      !options.prefill_attention_factorized_lane_r1_policy_path.empty();
+  const bool attention_factorized_r1_receipt =
+      !options.prefill_attention_factorized_lane_r1_receipt_path.empty();
+  if (attention_factorized_r1_payload != attention_factorized_r1_policy ||
+      attention_factorized_r1_payload != attention_factorized_r1_receipt) {
+    error = "--prefill-attention-factorized-lane-r1-payload, "
+            "--prefill-attention-factorized-lane-r1-policy, and "
+            "--prefill-attention-factorized-lane-r1-receipt are required "
+            "together";
+    return false;
+  }
+  if (attention_factorized_r1_payload && (!a4_payload || !a4_receipt)) {
+    error = "the factorized-lane R1 Attention experiment requires the "
+            "explicit K256 A4 payload, policy, and receipt";
     return false;
   }
   const bool mlp_factorized_r4_payload =

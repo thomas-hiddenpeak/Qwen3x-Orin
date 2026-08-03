@@ -1,7 +1,9 @@
 #include "q3x/runtime/model_weights.h"
 
+#include "q3x/core/sha256.h"
 #include "q3x/io/safetensors.h"
 #include "q3x/runtime/prefill_a4_sidecar_converter.h"
+#include "q3x/runtime/prefill_attention_factorized_lane_overlay.h"
 #include "q3x/runtime/prefill_attention_o_k512_overlay.h"
 #include "q3x/runtime/prefill_mlp_k512_fragment_native_overlay.h"
 #include "q3x/runtime/prefill_mlp_k512_overlay.h"
@@ -133,6 +135,179 @@ template <typename Weight>
 [[nodiscard]] NvFp4LinearWeight* nvfp4_up_projection(
     DecoderLayerWeights& layer) noexcept {
   return std::get_if<NvFp4LinearWeight>(&layer.mlp.up_proj);
+}
+
+[[nodiscard]] bool attention_r1_lower_sha256(
+    const std::string_view value) noexcept {
+  return value.size() == 64U &&
+         std::all_of(value.begin(), value.end(), [](const char character) {
+           return (character >= '0' && character <= '9') ||
+                  (character >= 'a' && character <= 'f');
+         });
+}
+
+[[nodiscard]] std::string_view attention_r1_family_name(
+    const PrefillAttentionFactorizedLaneProjectionFamily family) noexcept {
+  switch (family) {
+    case PrefillAttentionFactorizedLaneProjectionFamily::kLinearQkv:
+      return "linear_qkv";
+    case PrefillAttentionFactorizedLaneProjectionFamily::kLinearZ:
+      return "linear_z";
+    case PrefillAttentionFactorizedLaneProjectionFamily::kLinearO:
+      return "linear_o";
+    case PrefillAttentionFactorizedLaneProjectionFamily::kFullQ:
+      return "full_q";
+    case PrefillAttentionFactorizedLaneProjectionFamily::kFullK:
+      return "full_k";
+    case PrefillAttentionFactorizedLaneProjectionFamily::kFullV:
+      return "full_v";
+    case PrefillAttentionFactorizedLaneProjectionFamily::kFullO:
+      return "full_o";
+  }
+  return "invalid";
+}
+
+[[nodiscard]] std::string attention_r1_expected_source_module(
+    const std::uint32_t layer,
+    const PrefillAttentionFactorizedLaneProjectionFamily family) {
+  std::string_view suffix;
+  switch (family) {
+    case PrefillAttentionFactorizedLaneProjectionFamily::kLinearQkv:
+      suffix = "linear_attn.in_proj_qkv";
+      break;
+    case PrefillAttentionFactorizedLaneProjectionFamily::kLinearZ:
+      suffix = "linear_attn.in_proj_z";
+      break;
+    case PrefillAttentionFactorizedLaneProjectionFamily::kLinearO:
+      suffix = "linear_attn.out_proj";
+      break;
+    case PrefillAttentionFactorizedLaneProjectionFamily::kFullQ:
+      suffix = "self_attn.q_proj";
+      break;
+    case PrefillAttentionFactorizedLaneProjectionFamily::kFullK:
+      suffix = "self_attn.k_proj";
+      break;
+    case PrefillAttentionFactorizedLaneProjectionFamily::kFullV:
+      suffix = "self_attn.v_proj";
+      break;
+    case PrefillAttentionFactorizedLaneProjectionFamily::kFullO:
+      suffix = "self_attn.o_proj";
+      break;
+    default:
+      return {};
+  }
+  return "model.language_model.layers." + std::to_string(layer) + "." +
+         std::string(suffix);
+}
+
+[[nodiscard]] const PrefillA4FactorizedLaneProjectionLayoutPlan*
+attention_r1_projection_plan(
+    const PrefillAttentionFactorizedLaneOverlayLayoutPlan& plan,
+    const PrefillAttentionFactorizedLaneProjectionFamily family) noexcept {
+  switch (family) {
+    case PrefillAttentionFactorizedLaneProjectionFamily::kLinearQkv:
+      return &plan.linear_qkv;
+    case PrefillAttentionFactorizedLaneProjectionFamily::kLinearZ:
+      return &plan.linear_z;
+    case PrefillAttentionFactorizedLaneProjectionFamily::kLinearO:
+      return &plan.linear_o;
+    case PrefillAttentionFactorizedLaneProjectionFamily::kFullQ:
+      return &plan.full_q;
+    case PrefillAttentionFactorizedLaneProjectionFamily::kFullK:
+      return &plan.full_k;
+    case PrefillAttentionFactorizedLaneProjectionFamily::kFullV:
+      return &plan.full_v;
+    case PrefillAttentionFactorizedLaneProjectionFamily::kFullO:
+      return &plan.full_o;
+  }
+  return nullptr;
+}
+
+[[nodiscard]] bool attention_r1_expected_shape(
+    const PrefillAttentionFactorizedLaneProjectionFamily family,
+    std::uint64_t& output_size, std::uint64_t& input_size) noexcept {
+  input_size = kPrefillAttentionFactorizedLaneHiddenSize;
+  switch (family) {
+    case PrefillAttentionFactorizedLaneProjectionFamily::kLinearQkv:
+      output_size = kPrefillAttentionFactorizedLaneLinearQkvOutputSize;
+      return true;
+    case PrefillAttentionFactorizedLaneProjectionFamily::kLinearZ:
+      output_size = kPrefillAttentionFactorizedLaneLinearZOutputSize;
+      return true;
+    case PrefillAttentionFactorizedLaneProjectionFamily::kFullQ:
+      output_size = kPrefillAttentionFactorizedLaneFullQOutputSize;
+      return true;
+    case PrefillAttentionFactorizedLaneProjectionFamily::kFullK:
+    case PrefillAttentionFactorizedLaneProjectionFamily::kFullV:
+      output_size = kPrefillAttentionFactorizedLaneFullKvOutputSize;
+      return true;
+    case PrefillAttentionFactorizedLaneProjectionFamily::kLinearO:
+    case PrefillAttentionFactorizedLaneProjectionFamily::kFullO:
+      output_size = kPrefillAttentionFactorizedLaneHiddenSize;
+      input_size = kPrefillAttentionFactorizedLaneAttentionOutputSize;
+      return true;
+  }
+  return false;
+}
+
+[[nodiscard]] PrefillAttentionFactorizedLaneProjectionFamily
+attention_r1_expected_family(const std::uint32_t layer,
+                             const std::uint32_t position) noexcept {
+  if (prefill_attention_factorized_lane_is_full_layer(layer)) {
+    constexpr std::array<PrefillAttentionFactorizedLaneProjectionFamily, 4U>
+        families = {
+            PrefillAttentionFactorizedLaneProjectionFamily::kFullQ,
+            PrefillAttentionFactorizedLaneProjectionFamily::kFullK,
+            PrefillAttentionFactorizedLaneProjectionFamily::kFullV,
+            PrefillAttentionFactorizedLaneProjectionFamily::kFullO};
+    return position < families.size()
+               ? families[position]
+               : static_cast<
+                     PrefillAttentionFactorizedLaneProjectionFamily>(0xffU);
+  }
+  constexpr std::array<PrefillAttentionFactorizedLaneProjectionFamily, 3U>
+      families = {
+          PrefillAttentionFactorizedLaneProjectionFamily::kLinearQkv,
+          PrefillAttentionFactorizedLaneProjectionFamily::kLinearZ,
+          PrefillAttentionFactorizedLaneProjectionFamily::kLinearO};
+  return position < families.size()
+             ? families[position]
+             : static_cast<PrefillAttentionFactorizedLaneProjectionFamily>(
+                   0xffU);
+}
+
+[[nodiscard]] std::string attention_r1_manifest_sha256(
+    const PrefillAttentionFactorizedLaneOverlayManifestBinding& manifest) {
+  constexpr std::string_view kSchema =
+      "q3x.prefill.attention-factorized-r1.overlay-manifest";
+  std::ostringstream output;
+  output << "schema=" << kSchema << "\nversion=" << manifest.version_major
+         << '.' << manifest.version_minor << "\nlayout="
+         << manifest.physical_layout << "\ncheckpoint="
+         << manifest.source_checkpoint_id << "\nconfig="
+         << manifest.source_config_sha256 << "\nindex="
+         << manifest.source_index_sha256 << "\nlane="
+         << manifest.lane_count << "\nbase="
+         << manifest.required_base_k256.physical_layout << ':'
+         << manifest.required_base_k256.packed_k_group_size << ':'
+         << manifest.required_base_k256.scale_group_size << ':'
+         << manifest.required_base_k256.manifest_sha256 << ':'
+         << manifest.required_base_k256.policy_sha256 << ':'
+         << manifest.required_base_k256.payload_sha256 << ':'
+         << manifest.required_base_k256.receipt_sha256 << "\npayload="
+         << manifest.payload_bytes << '\n';
+  for (const auto& entry : manifest.projections) {
+    output << entry.ordinal << ':' << entry.layer_index << ':'
+           << attention_r1_family_name(entry.family) << ':'
+           << entry.source_module << ':' << entry.source_sha256 << ':'
+           << entry.output_size << ':' << entry.input_size << ':'
+           << entry.payload_offset << ':' << entry.payload_bytes << '\n';
+  }
+  const std::string bytes = output.str();
+  core::Sha256 hasher;
+  return hasher.update(bytes.data(), bytes.size())
+             ? hasher.finalize().hex()
+             : std::string{};
 }
 
 }  // namespace
@@ -1505,6 +1680,7 @@ bool ModelWeights::attach_prefill_a4_sidecars(
     for (DecoderLayerWeights& layer : layers_) {
       layer.prefill_mlp_k512_fragment_native = {};
       layer.prefill_mlp_factorized_lane_r1 = {};
+      layer.prefill_attention_factorized_lane_r1 = {};
       clear_weight(layer.mlp.gate_proj);
       clear_weight(layer.mlp.up_proj);
       clear_weight(layer.mlp.down_proj);
@@ -1758,6 +1934,12 @@ bool ModelWeights::attach_prefill_attention_o_k512_sidecars(
       policy == nullptr) {
     clear_all();
     return true;
+  }
+  if (std::any_of(
+          layers_.begin(), layers_.end(), [](const DecoderLayerWeights& layer) {
+            return !layer.prefill_attention_factorized_lane_r1.empty();
+          })) {
+    return false;
   }
   if (arena == nullptr || manifest == nullptr || policy == nullptr ||
       arena_bytes != kPrefillAttentionOK512OverlayPayloadBytes ||
@@ -3526,6 +3708,424 @@ bool ModelWeights::attach_prefill_mlp_factorized_lane_r4_sidecars(
   for (std::size_t layer_index = 0U; layer_index < layers_.size();
        ++layer_index) {
     layers_[layer_index].prefill_mlp_factorized_lane_r4 =
+        validated[layer_index];
+  }
+  return true;
+}
+
+bool ModelWeights::attach_prefill_attention_factorized_lane_r1_sidecars(
+    const std::uint8_t* const arena, const std::size_t arena_bytes,
+    const PrefillAttentionFactorizedLaneOverlayManifestBinding* const manifest,
+    const PrefillAttentionFactorizedLaneOverlayPolicyBinding* const policy)
+    noexcept {
+  const auto clear_all = [this]() noexcept {
+    for (DecoderLayerWeights& layer : layers_) {
+      layer.prefill_attention_factorized_lane_r1 = {};
+    }
+  };
+  if (arena == nullptr && arena_bytes == 0U && manifest == nullptr &&
+      policy == nullptr) {
+    clear_all();
+    return true;
+  }
+
+  // The older Attention-O K512 plane and the all-projection R1 plane expose
+  // different scale/factor ABIs.  Reject even malformed partial legacy state
+  // so a caller must explicitly detach it before publishing R1.
+  for (const DecoderLayerWeights& layer : layers_) {
+    const LinearWeight* output = nullptr;
+    if (const auto* const linear =
+            std::get_if<LinearAttentionWeights>(&layer.attention)) {
+      output = &linear->out_proj;
+    } else if (const auto* const full =
+                   std::get_if<FullAttentionWeights>(&layer.attention)) {
+      output = &full->o_proj;
+    }
+    const auto* const fp8 =
+        output == nullptr ? nullptr : std::get_if<Fp8LinearWeight>(output);
+    if (fp8 == nullptr || fp8->prefill_attention_o_k512_weight != nullptr ||
+        fp8->prefill_attention_o_k512_scales != nullptr ||
+        fp8->prefill_attention_o_k512_activation_clip_ratio != 0.0F) {
+      return false;
+    }
+  }
+
+  const auto same_base = [](
+                             const PrefillAttentionFactorizedLaneBaseK256Binding&
+                                 left,
+                             const PrefillAttentionFactorizedLaneBaseK256Binding&
+                                 right) noexcept {
+    return left.physical_layout == right.physical_layout &&
+           left.packed_k_group_size == right.packed_k_group_size &&
+           left.scale_group_size == right.scale_group_size &&
+           left.manifest_sha256 == right.manifest_sha256 &&
+           left.policy_sha256 == right.policy_sha256 &&
+           left.payload_sha256 == right.payload_sha256 &&
+           left.receipt_sha256 == right.receipt_sha256;
+  };
+  const auto same_factor = [](
+                               const PrefillAttentionFactorizedLaneFactorSourceBinding&
+                                   left,
+                               const PrefillAttentionFactorizedLaneFactorSourceBinding&
+                                   right) noexcept {
+    return left.scheme == right.scheme && left.path == right.path &&
+           left.sha256 == right.sha256 &&
+           left.element_count == right.element_count;
+  };
+  const auto valid_clip = [](const double value) noexcept {
+    const float narrowed = static_cast<float>(value);
+    return std::isfinite(value) && value >= kPrefillA4MinimumClipRatio &&
+           value <= 1.0 && std::isfinite(narrowed) &&
+           narrowed >= static_cast<float>(kPrefillA4MinimumClipRatio) &&
+           narrowed <= 1.0F;
+  };
+
+  constexpr std::uint32_t kR1LaneCount = 1U;
+  constexpr std::string_view kR1FactorScheme = "identity_alpha_f32_v1";
+  constexpr std::string_view kIdentity5120Sha256 =
+      "42010c1c68b632e2ab15c82bca6edef2cac2026c889dd0202d609602b756f568";
+  constexpr std::string_view kIdentity6144Sha256 =
+      "08f46753296b40512f918614f5b0be6f15e4a95fb0aeeff6c9026be0a396c4a7";
+  const PrefillAttentionFactorizedLaneOverlayLayoutPlan plan =
+      prefill_attention_factorized_lane_overlay_layout_plan(kR1LaneCount);
+  if (arena == nullptr || manifest == nullptr || policy == nullptr || !plan ||
+      plan.payload_bytes > std::numeric_limits<std::size_t>::max() ||
+      arena_bytes != static_cast<std::size_t>(plan.payload_bytes) ||
+      manifest->version_major !=
+          kPrefillAttentionFactorizedLaneOverlayVersionMajor ||
+      manifest->version_minor !=
+          kPrefillAttentionFactorizedLaneOverlayVersionMinor ||
+      manifest->physical_layout !=
+          kPrefillAttentionFactorizedLaneOverlayLayout ||
+      manifest->source_checkpoint_id.empty() ||
+      !attention_r1_lower_sha256(manifest->source_config_sha256) ||
+      !attention_r1_lower_sha256(manifest->source_index_sha256) ||
+      manifest->lane_count != kR1LaneCount ||
+      manifest->payload_bytes != plan.payload_bytes ||
+      manifest->projections.size() !=
+          kPrefillAttentionFactorizedLaneProjectionCount ||
+      !attention_r1_lower_sha256(manifest->manifest_sha256) ||
+      manifest->required_base_k256.physical_layout !=
+          kPrefillAttentionFactorizedLaneRequiredBaseK256Layout ||
+      manifest->required_base_k256.packed_k_group_size !=
+          kPrefillAttentionFactorizedLaneRequiredBasePackedK ||
+      manifest->required_base_k256.scale_group_size !=
+          kPrefillAttentionFactorizedLaneRequiredBaseScaleK ||
+      !attention_r1_lower_sha256(
+          manifest->required_base_k256.manifest_sha256) ||
+      !attention_r1_lower_sha256(
+          manifest->required_base_k256.policy_sha256) ||
+      !attention_r1_lower_sha256(
+          manifest->required_base_k256.payload_sha256) ||
+      !attention_r1_lower_sha256(
+          manifest->required_base_k256.receipt_sha256) ||
+      policy->version_major != manifest->version_major ||
+      policy->version_minor != manifest->version_minor ||
+      policy->physical_layout != manifest->physical_layout ||
+      policy->source_checkpoint_id != manifest->source_checkpoint_id ||
+      policy->source_config_sha256 != manifest->source_config_sha256 ||
+      policy->source_index_sha256 != manifest->source_index_sha256 ||
+      policy->manifest_sha256 != manifest->manifest_sha256 ||
+      !same_base(policy->required_base_k256,
+                 manifest->required_base_k256) ||
+      policy->lane_count != kR1LaneCount ||
+      policy->projections.size() != manifest->projections.size() ||
+      !attention_r1_lower_sha256(policy->policy_sha256) ||
+      policy->policy_bytes == 0U || !prefill_a4_attachment_complete_ ||
+      std::string_view(prefill_a4_attachment_manifest_sha256_.data(),
+                       prefill_a4_attachment_manifest_sha256_.size()) !=
+          manifest->required_base_k256.manifest_sha256 ||
+      std::string_view(prefill_a4_attachment_policy_sha256_.data(),
+                       prefill_a4_attachment_policy_sha256_.size()) !=
+          manifest->required_base_k256.policy_sha256 ||
+      std::string_view(prefill_a4_attachment_payload_sha256_.data(),
+                       prefill_a4_attachment_payload_sha256_.size()) !=
+          manifest->required_base_k256.payload_sha256) {
+    return false;
+  }
+  try {
+    if (attention_r1_manifest_sha256(*manifest) !=
+        manifest->manifest_sha256) {
+      return false;
+    }
+  } catch (...) {
+    return false;
+  }
+
+  constexpr auto kPointerMaximum =
+      std::numeric_limits<std::uintptr_t>::max();
+  const std::uintptr_t arena_address =
+      reinterpret_cast<std::uintptr_t>(arena);
+  if (arena_address % kPrefillA4FactorizedLaneMinimumAlignment != 0U ||
+      arena_bytes > kPointerMaximum ||
+      arena_address > kPointerMaximum - arena_bytes) {
+    return false;
+  }
+  const std::uintptr_t arena_end = arena_address + arena_bytes;
+
+  std::array<PrefillAttentionFactorizedLaneR1LayerView,
+             kPrefillAttentionFactorizedLaneLayerCount>
+      validated{};
+  std::size_t index = 0U;
+  try {
+    for (std::uint32_t layer_index = 0U;
+         layer_index < kPrefillAttentionFactorizedLaneLayerCount;
+         ++layer_index) {
+      const std::uint32_t projection_count =
+          prefill_attention_factorized_lane_is_full_layer(layer_index)
+              ? kPrefillAttentionFactorizedLaneFullProjectionsPerLayer
+              : kPrefillAttentionFactorizedLaneLinearProjectionsPerLayer;
+      for (std::uint32_t position = 0U; position < projection_count;
+           ++position, ++index) {
+        const PrefillAttentionFactorizedLaneProjectionFamily expected_family =
+            attention_r1_expected_family(layer_index, position);
+        const PrefillA4FactorizedLaneProjectionLayoutPlan* const
+            projection_plan = attention_r1_projection_plan(plan,
+                                                           expected_family);
+        std::uint64_t expected_output_size = 0U;
+        std::uint64_t expected_input_size = 0U;
+        const std::uint64_t expected_offset =
+            prefill_attention_factorized_lane_projection_absolute_offset(
+                plan, layer_index, expected_family);
+        const std::uint32_t expected_ordinal =
+            prefill_attention_factorized_lane_projection_ordinal(
+                layer_index, expected_family);
+        if (projection_plan == nullptr ||
+            !attention_r1_expected_shape(expected_family,
+                                         expected_output_size,
+                                         expected_input_size) ||
+            expected_ordinal != index) {
+          return false;
+        }
+
+        const PrefillAttentionFactorizedLaneManifestProjection& entry =
+            manifest->projections[index];
+        const PrefillAttentionFactorizedLaneProjectionCalibrationBinding&
+            calibration = policy->projections[index];
+        const std::string expected_module =
+            attention_r1_expected_source_module(layer_index,
+                                                expected_family);
+        const std::string_view expected_factor_digest =
+            expected_input_size ==
+                    kPrefillAttentionFactorizedLaneAttentionOutputSize
+                ? kIdentity6144Sha256
+                : kIdentity5120Sha256;
+        if (entry.ordinal != expected_ordinal ||
+            entry.layer_index != layer_index ||
+            entry.family != expected_family ||
+            entry.source_module != expected_module ||
+            !attention_r1_lower_sha256(entry.source_sha256) ||
+            entry.output_size != expected_output_size ||
+            entry.input_size != expected_input_size ||
+            entry.payload_offset != expected_offset ||
+            entry.payload_offset > arena_bytes ||
+            entry.payload_bytes > arena_bytes - entry.payload_offset ||
+            entry.payload_bytes != projection_plan->projection_bytes ||
+            calibration.ordinal != entry.ordinal ||
+            calibration.source_module != entry.source_module ||
+            calibration.source_sha256 != entry.source_sha256 ||
+            !valid_clip(calibration.weight_clip_ratio) ||
+            !valid_clip(calibration.activation_clip_ratio) ||
+            calibration.factor_source.scheme != kR1FactorScheme ||
+            !calibration.factor_source.path.empty() ||
+            calibration.factor_source.sha256 != expected_factor_digest ||
+            calibration.factor_source.element_count != entry.input_size) {
+          return false;
+        }
+
+        DecoderLayerWeights& layer = layers_[layer_index];
+        LinearWeight* target = nullptr;
+        PrefillAttentionFactorizedLaneR1LinearSidecarView* destination =
+            nullptr;
+        switch (expected_family) {
+          case PrefillAttentionFactorizedLaneProjectionFamily::kLinearQkv: {
+            auto* const attention =
+                std::get_if<LinearAttentionWeights>(&layer.attention);
+            if (attention != nullptr) {
+              target = &attention->in_proj_qkv;
+              destination = &validated[layer_index].linear_qkv;
+            }
+            break;
+          }
+          case PrefillAttentionFactorizedLaneProjectionFamily::kLinearZ: {
+            auto* const attention =
+                std::get_if<LinearAttentionWeights>(&layer.attention);
+            if (attention != nullptr) {
+              target = &attention->in_proj_z;
+              destination = &validated[layer_index].linear_z;
+            }
+            break;
+          }
+          case PrefillAttentionFactorizedLaneProjectionFamily::kLinearO: {
+            auto* const attention =
+                std::get_if<LinearAttentionWeights>(&layer.attention);
+            if (attention != nullptr) {
+              target = &attention->out_proj;
+              destination = &validated[layer_index].linear_o;
+            }
+            break;
+          }
+          case PrefillAttentionFactorizedLaneProjectionFamily::kFullQ: {
+            auto* const attention =
+                std::get_if<FullAttentionWeights>(&layer.attention);
+            if (attention != nullptr) {
+              target = &attention->q_proj;
+              destination = &validated[layer_index].full_q;
+            }
+            break;
+          }
+          case PrefillAttentionFactorizedLaneProjectionFamily::kFullK: {
+            auto* const attention =
+                std::get_if<FullAttentionWeights>(&layer.attention);
+            if (attention != nullptr) {
+              target = &attention->k_proj;
+              destination = &validated[layer_index].full_k;
+            }
+            break;
+          }
+          case PrefillAttentionFactorizedLaneProjectionFamily::kFullV: {
+            auto* const attention =
+                std::get_if<FullAttentionWeights>(&layer.attention);
+            if (attention != nullptr) {
+              target = &attention->v_proj;
+              destination = &validated[layer_index].full_v;
+            }
+            break;
+          }
+          case PrefillAttentionFactorizedLaneProjectionFamily::kFullO: {
+            auto* const attention =
+                std::get_if<FullAttentionWeights>(&layer.attention);
+            if (attention != nullptr) {
+              target = &attention->o_proj;
+              destination = &validated[layer_index].full_o;
+            }
+            break;
+          }
+          default:
+            return false;
+        }
+        const auto* const fp8 =
+            target == nullptr ? nullptr : std::get_if<Fp8LinearWeight>(target);
+        const PrefillA4LinearSidecarView base =
+            target == nullptr ? PrefillA4LinearSidecarView{}
+                              : prefill_a4_sidecar_view(*target);
+        if (destination == nullptr || !has_valid_fp8_payload(fp8) ||
+            fp8->output_size != entry.output_size ||
+            fp8->input_size != entry.input_size || !base.attached() ||
+            base.sidecar_kind != PrefillSidecarKind::kA4K256 ||
+            base.packed_k_group_size !=
+                kPrefillAttentionFactorizedLaneRequiredBasePackedK ||
+            base.scale_group_size !=
+                kPrefillAttentionFactorizedLaneRequiredBaseScaleK) {
+          return false;
+        }
+
+        const std::uintptr_t projection_address =
+            arena_address + entry.payload_offset;
+        const std::uintptr_t weight_address =
+            projection_address + projection_plan->packed_weight_offset;
+        const std::uintptr_t scale_address =
+            projection_address + projection_plan->weight_scale_offset;
+        const std::uintptr_t inverse_alpha_address =
+            projection_address + projection_plan->inverse_alpha_offset;
+        const auto range_valid =
+            [arena_end](const std::uintptr_t address,
+                        const std::uint64_t bytes) noexcept {
+              return address < arena_end && bytes <= arena_end - address;
+            };
+        if (weight_address % 16U != 0U || scale_address % 16U != 0U ||
+            inverse_alpha_address % 16U != 0U ||
+            !range_valid(weight_address,
+                         projection_plan->packed_weight_bytes) ||
+            !range_valid(scale_address,
+                         projection_plan->weight_scale_bytes) ||
+            !range_valid(inverse_alpha_address,
+                         projection_plan->inverse_alpha_bytes) ||
+            projection_plan->packed_weight_bytes >
+                std::numeric_limits<std::size_t>::max() ||
+            projection_plan->weight_scale_elements >
+                std::numeric_limits<std::size_t>::max() ||
+            projection_plan->inverse_alpha_elements >
+                std::numeric_limits<std::size_t>::max()) {
+          return false;
+        }
+        *destination = {
+            reinterpret_cast<const std::uint8_t*>(weight_address),
+            static_cast<std::size_t>(projection_plan->packed_weight_bytes),
+            reinterpret_cast<const std::uint16_t*>(scale_address),
+            static_cast<std::size_t>(projection_plan->weight_scale_elements),
+            reinterpret_cast<const float*>(inverse_alpha_address),
+            static_cast<std::size_t>(projection_plan->inverse_alpha_elements),
+            static_cast<std::size_t>(entry.output_size),
+            static_cast<std::size_t>(entry.input_size),
+            kR1LaneCount,
+            static_cast<float>(calibration.activation_clip_ratio)};
+        if (!destination->attached()) {
+          return false;
+        }
+      }
+    }
+  } catch (...) {
+    return false;
+  }
+  if (index != manifest->projections.size()) {
+    return false;
+  }
+
+  for (std::uint32_t layer_index = 0U;
+       layer_index < kPrefillAttentionFactorizedLaneLayerCount;
+       ++layer_index) {
+    const bool full_layer =
+        prefill_attention_factorized_lane_is_full_layer(layer_index);
+    const auto first_family =
+        full_layer ? PrefillAttentionFactorizedLaneProjectionFamily::kFullQ
+                   : PrefillAttentionFactorizedLaneProjectionFamily::
+                         kLinearQkv;
+    const auto second_family =
+        full_layer ? PrefillAttentionFactorizedLaneProjectionFamily::kFullK
+                   : PrefillAttentionFactorizedLaneProjectionFamily::kLinearZ;
+    const std::uint32_t first_ordinal =
+        prefill_attention_factorized_lane_projection_ordinal(layer_index,
+                                                              first_family);
+    const std::uint32_t second_ordinal =
+        prefill_attention_factorized_lane_projection_ordinal(layer_index,
+                                                              second_family);
+    if (first_ordinal >= policy->projections.size() ||
+        second_ordinal >= policy->projections.size()) {
+      return false;
+    }
+    const auto& first = policy->projections[first_ordinal];
+    const auto& second = policy->projections[second_ordinal];
+    bool group_valid =
+        same_factor(first.factor_source, second.factor_source) &&
+        static_cast<float>(first.activation_clip_ratio) ==
+            static_cast<float>(second.activation_clip_ratio);
+    if (full_layer) {
+      const std::uint32_t third_ordinal =
+          prefill_attention_factorized_lane_projection_ordinal(
+              layer_index,
+              PrefillAttentionFactorizedLaneProjectionFamily::kFullV);
+      if (third_ordinal >= policy->projections.size()) {
+        return false;
+      }
+      const auto& third = policy->projections[third_ordinal];
+      group_valid =
+          group_valid && same_factor(first.factor_source,
+                                     third.factor_source) &&
+          static_cast<float>(first.activation_clip_ratio) ==
+              static_cast<float>(third.activation_clip_ratio);
+    }
+    if (!group_valid ||
+        (full_layer ? !validated[layer_index].full_attached()
+                    : !validated[layer_index].linear_attached())) {
+      return false;
+    }
+  }
+
+  clear_all();
+  for (std::size_t layer_index = 0U; layer_index < layers_.size();
+       ++layer_index) {
+    layers_[layer_index].prefill_attention_factorized_lane_r1 =
         validated[layer_index];
   }
   return true;

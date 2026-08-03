@@ -126,6 +126,13 @@ struct ReferenceEngineOptions {
   std::filesystem::path prefill_mlp_factorized_lane_r1_payload_path;
   std::filesystem::path prefill_mlp_factorized_lane_r1_policy_path;
   std::filesystem::path prefill_mlp_factorized_lane_r1_receipt_path;
+  // Independent Attention-only R1 performance-upper-bound publication. It
+  // derives all 208 Attention projections from the authenticated K256 base
+  // and has no production or quality eligibility. All paths are required
+  // together and the dedicated default-off runtime selector must be present.
+  std::filesystem::path prefill_attention_factorized_lane_r1_payload_path;
+  std::filesystem::path prefill_attention_factorized_lane_r1_policy_path;
+  std::filesystem::path prefill_attention_factorized_lane_r1_receipt_path;
   // Default-off direct-checkpoint R4 performance candidate.  This is an
   // independent publication and never inherits residency authority from an
   // A4/K256 or R1 payload.  All three paths are required together and the
@@ -209,6 +216,9 @@ struct ReferenceGenerationTiming {
   std::size_t attention_k256_m128n256_a_exchange_b4_launch_hits = 0U;
   std::size_t
       attention_k256_m128n256_a_exchange_b4_logical_projection_hits = 0U;
+  std::size_t attention_factorized_lane_r1_launch_hits = 0U;
+  std::size_t
+      attention_factorized_lane_r1_logical_projection_hits = 0U;
   // Propagated request-local runtime proof for the default-off alternating
   // K256 Gate+Up admission.  Zero means the route did not own this request.
   std::size_t gateup_alternating_launch_hits = 0U;
@@ -263,6 +273,7 @@ struct ReferenceGenerationTiming {
   // Physical native GDN state-tile launches that published K256 A4 directly
   // to Attention-O rather than materializing and requantizing BF16 output.
   std::size_t gdn_k256_direct_pack_launch_hits = 0U;
+  std::size_t gdn_factorized_lane_r1_direct_pack_launch_hits = 0U;
   std::size_t gdn_prompt_span_macro_launch_hits = 0U;
   std::size_t gdn_prompt_span_macro_logical_token_hits = 0U;
   std::vector<double> subsequent_token_milliseconds;
@@ -332,6 +343,7 @@ struct ReferenceEngineLoadStats {
       prefill_mlp_k512_projection_major_gateup_canonical_down_overlay_milliseconds =
           0.0;
   double prefill_mlp_factorized_lane_r1_overlay_milliseconds = 0.0;
+  double prefill_attention_factorized_lane_r1_overlay_milliseconds = 0.0;
   double prefill_mlp_factorized_lane_r4_overlay_milliseconds = 0.0;
   double runner_factory_milliseconds = 0.0;
   ReferenceDecodeGraphCachePolicy decode_graph_cache_requested_policy =
@@ -537,6 +549,23 @@ struct ReferenceEngineLoadStats {
   std::string prefill_mlp_factorized_lane_r1_overlay_payload_sha256;
   std::string prefill_mlp_factorized_lane_r1_overlay_receipt_sha256;
   std::string prefill_mlp_factorized_lane_r1_overlay_base_receipt_sha256;
+  // Independent proof for the 208-projection Attention R1 upper-bound
+  // publication. Authentication and residency never imply quality approval.
+  bool prefill_attention_factorized_lane_r1_overlay_requested = false;
+  bool prefill_attention_factorized_lane_r1_overlay_enabled = false;
+  std::size_t prefill_attention_factorized_lane_r1_overlay_layers = 0U;
+  std::size_t prefill_attention_factorized_lane_r1_overlay_projections = 0U;
+  std::uint64_t prefill_attention_factorized_lane_r1_overlay_bytes = 0U;
+  std::uint64_t
+      prefill_attention_factorized_lane_r1_overlay_copy_chunks = 0U;
+  std::string prefill_attention_factorized_lane_r1_overlay_layout;
+  std::string
+      prefill_attention_factorized_lane_r1_overlay_manifest_sha256;
+  std::string prefill_attention_factorized_lane_r1_overlay_policy_sha256;
+  std::string prefill_attention_factorized_lane_r1_overlay_payload_sha256;
+  std::string prefill_attention_factorized_lane_r1_overlay_receipt_sha256;
+  std::string
+      prefill_attention_factorized_lane_r1_overlay_base_receipt_sha256;
   // Independent readiness proof for direct-checkpoint calibrated R4.  These
   // booleans remain visible because successful authentication/attachment is
   // explicitly not production or quality eligibility.
@@ -831,6 +860,9 @@ struct ReferenceOneShotOptions {
   std::filesystem::path prefill_mlp_factorized_lane_r1_payload_path;
   std::filesystem::path prefill_mlp_factorized_lane_r1_policy_path;
   std::filesystem::path prefill_mlp_factorized_lane_r1_receipt_path;
+  std::filesystem::path prefill_attention_factorized_lane_r1_payload_path;
+  std::filesystem::path prefill_attention_factorized_lane_r1_policy_path;
+  std::filesystem::path prefill_attention_factorized_lane_r1_receipt_path;
   std::filesystem::path prefill_mlp_factorized_lane_r4_payload_path;
   std::filesystem::path prefill_mlp_factorized_lane_r4_policy_path;
   std::filesystem::path prefill_mlp_factorized_lane_r4_receipt_path;

@@ -97,6 +97,50 @@ namespace q3x::runtime::gdn_prefill_chunk_o_bv64_detail {
     std::size_t scale_capacity_elements,
     void* cuda_stream = nullptr) noexcept;
 
+// Exact factorized-lane-R1 counterpart to the direct K256 publisher above.
+// One CTA owns one complete [48,128] token row because R1 has exactly one
+// activation scale across the full K6144 Attention-O input.  The kernel
+// preserves the incumbent BF16 seam after RMSNorm+SiLU in CTA-local shared
+// memory, applies the authenticated projection-local inverse-alpha vector,
+// and publishes the established [M/64][K/64][64][32] packed consumer ABI
+// plus one BF16 scale per padded row.  No normalized BF16 tensor is exposed
+// to the runner.  The preflight is launch-free and is intended to run before
+// a stateful GDN caller mutates recurrent state.
+[[nodiscard]] int validate_norm_rows8_factorized_lane_r1_a4(
+    const std::uint16_t* raw_output_tile,
+    const std::uint16_t* norm_weight,
+    const std::uint16_t* silu_gate_tile,
+    std::size_t tile_logical_token_count,
+    float norm_epsilon,
+    const float* authenticated_inverse_alpha_fp32,
+    std::size_t inverse_alpha_capacity_elements,
+    std::size_t destination_first_token,
+    std::size_t whole_logical_token_count,
+    std::size_t launch_token_count,
+    float clip_ratio,
+    std::uint8_t* packed_a_base,
+    std::size_t packed_a_capacity_bytes,
+    std::uint16_t* scales_bf16_base,
+    std::size_t scale_capacity_elements) noexcept;
+
+[[nodiscard]] int launch_norm_rows8_factorized_lane_r1_a4(
+    const std::uint16_t* raw_output_tile,
+    const std::uint16_t* norm_weight,
+    const std::uint16_t* silu_gate_tile,
+    std::size_t tile_logical_token_count,
+    float norm_epsilon,
+    const float* authenticated_inverse_alpha_fp32,
+    std::size_t inverse_alpha_capacity_elements,
+    std::size_t destination_first_token,
+    std::size_t whole_logical_token_count,
+    std::size_t launch_token_count,
+    float clip_ratio,
+    std::uint8_t* packed_a_base,
+    std::size_t packed_a_capacity_bytes,
+    std::uint16_t* scales_bf16_base,
+    std::size_t scale_capacity_elements,
+    void* cuda_stream = nullptr) noexcept;
+
 // Resource queries are deliberately split: the chunk-o tensor-core kernel
 // and the exact rows-8 epilogue have different launch ownership.
 [[nodiscard]] int query_chunk_o_resources(
@@ -113,6 +157,14 @@ namespace q3x::runtime::gdn_prefill_chunk_o_bv64_detail {
 // guarantees <=128 registers/thread, exactly 32 bytes static shared, no
 // local memory, and at least two resident CTAs/SM for its 256-thread block.
 [[nodiscard]] int query_norm_k256_a4_resources(
+    int* registers_per_thread, std::size_t* static_shared_bytes,
+    std::size_t* local_bytes, int* maximum_threads_per_block,
+    int* active_blocks_per_sm) noexcept;
+
+// The whole-K6144 R1 publisher is admitted only with <=128 registers/thread,
+// no local frame, its exact CTA-local BF16 seam storage, and at least two
+// resident 256-thread CTAs/SM.
+[[nodiscard]] int query_norm_factorized_lane_r1_a4_resources(
     int* registers_per_thread, std::size_t* static_shared_bytes,
     std::size_t* local_bytes, int* maximum_threads_per_block,
     int* active_blocks_per_sm) noexcept;

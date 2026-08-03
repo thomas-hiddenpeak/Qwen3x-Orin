@@ -720,7 +720,7 @@ template <typename Invocation, typename Mutation>
   Q3X_INVALID_CONTIGUOUS("logical exceeds launch", value.logical = 65U)
   Q3X_INVALID_CONTIGUOUS("non-M64 launch", value.launch = 63U)
   Q3X_INVALID_CONTIGUOUS("oversized launch", value.launch = 4'160U)
-  Q3X_INVALID_CONTIGUOUS("unsupported K", value.input_size = 6'144U)
+  Q3X_INVALID_CONTIGUOUS("unsupported K", value.input_size = 6'208U)
   Q3X_INVALID_CONTIGUOUS("reserved R2", value.lanes = 2U)
   Q3X_INVALID_CONTIGUOUS("zero clip", value.clip = 0.0F)
   Q3X_INVALID_CONTIGUOUS("oversized clip", value.clip = 1.01F)
@@ -787,11 +787,19 @@ template <typename Invocation, typename Mutation>
       1'853U, 1'920U, 5'120U, 1U);
   const auto down_r4 = kernels::sm87_a4w4_factorized_lane_quantize_plan(
       1'853U, 1'920U, 17'408U, 4U);
+  const auto attention_o_r1 =
+      kernels::sm87_a4w4_factorized_lane_quantize_plan(
+          1'853U, 1'920U,
+          kernels::kSm87A4W4FactorizedLaneQuantizeAttentionOInput, 1U);
   const auto down_r1 = kernels::sm87_a4w4_factorized_lane_quantize_plan(
       1'853U, 2'048U, 17'408U, 1U);
   const bool ok =
       gate.valid() && gate.launch_ctas == 1'920U &&
-      gate.packed_capacity_bytes == 4'915'200U && down_r4.valid() &&
+      gate.packed_capacity_bytes == 4'915'200U &&
+      attention_o_r1.valid() &&
+      attention_o_r1.launch_ctas == 1'920U &&
+      attention_o_r1.packed_capacity_bytes == 5'898'240U &&
+      down_r4.valid() &&
       down_r4.launch_ctas == 7'680U &&
       down_r4.scale_capacity_elements == 7'680U && down_r1.valid() &&
       down_r1.launch_ctas == 2'048U &&
@@ -844,6 +852,8 @@ int main() {
        false},
       {"gate-r4-contiguous", 63U, 64U, 5'120U, 4U, 0.91F, false,
        false},
+      {"attention-o-r1-contiguous", 65U, 128U, 6'144U, 1U, 0.89F,
+       false, false},
       {"down-r1-contiguous", 129U, 192U, 17'408U, 1U, 0.83F, false,
        false},
       {"down-r4-contiguous", 193U, 256U, 17'408U, 4U, 0.73F, false,
@@ -851,6 +861,7 @@ int main() {
       {"down-r1-split", 7U, 64U, 17'408U, 1U, 1.0F, true, false},
       {"down-r4-split", 67U, 128U, 17'408U, 4U, 0.87F, true, false},
       {"gate-r4-graph", 3U, 64U, 5'120U, 4U, 1.0F, false, true},
+      {"attention-o-r1-graph", 3U, 64U, 6'144U, 1U, 1.0F, false, true},
       {"down-r4-split-graph", 3U, 64U, 17'408U, 4U, 1.0F, true, true},
   };
   for (const auto& item : cases) {

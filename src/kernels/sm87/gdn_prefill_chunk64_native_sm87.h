@@ -128,6 +128,26 @@ exchange_vllm_layout_wy_route_for_test(
     std::uint16_t* scales_bf16, std::size_t scale_capacity_elements,
     void* cuda_stream = nullptr) noexcept;
 
+// Whole-K6144 factorized-lane-R1 counterpart to launch_k256_a4().  The
+// authenticated inverse-alpha belongs to the selected Linear-O projection;
+// exactly one span-wide BF16 scale is published per token.
+[[nodiscard]] int launch_factorized_lane_r1_a4(
+    void* workspace, std::size_t workspace_capacity_bytes,
+    const std::uint16_t* conv_qkv, std::size_t token_count,
+    const std::uint16_t* a, const std::uint16_t* b,
+    const std::uint16_t* A_log, const std::uint16_t* dt_bias,
+    const std::uint16_t* state_input, std::uint16_t* state_output,
+    float l2_epsilon, const std::uint16_t* norm_weight,
+    const std::uint16_t* silu_gate, float norm_epsilon,
+    const float* authenticated_inverse_alpha_fp32,
+    std::size_t inverse_alpha_capacity_elements,
+    std::size_t destination_first_token,
+    std::size_t whole_logical_token_count,
+    std::size_t launch_token_count, float clip_ratio,
+    std::uint8_t* packed_a, std::size_t packed_a_capacity_bytes,
+    std::uint16_t* scales_bf16, std::size_t scale_capacity_elements,
+    void* cuda_stream = nullptr) noexcept;
+
 // Same-ELF structural candidate boundary.  The first call performs the
 // complete token-parallel causal convolution and writes compact normalized
 // Q/K directly into this launcher's private workspace.  The second consumes
@@ -162,6 +182,23 @@ exchange_vllm_layout_wy_route_for_test(
     const std::uint16_t* state_input, std::uint16_t* state_output,
     float l2_epsilon, const std::uint16_t* norm_weight,
     const std::uint16_t* silu_gate, float norm_epsilon,
+    std::size_t destination_first_token,
+    std::size_t whole_logical_token_count,
+    std::size_t launch_token_count, float clip_ratio,
+    std::uint8_t* packed_a, std::size_t packed_a_capacity_bytes,
+    std::uint16_t* scales_bf16, std::size_t scale_capacity_elements,
+    void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int launch_qk_preprocessed_factorized_lane_r1_a4(
+    void* workspace, std::size_t workspace_capacity_bytes,
+    const std::uint16_t* conv_qkv, std::size_t token_count,
+    const std::uint16_t* a, const std::uint16_t* b,
+    const std::uint16_t* A_log, const std::uint16_t* dt_bias,
+    const std::uint16_t* state_input, std::uint16_t* state_output,
+    float l2_epsilon, const std::uint16_t* norm_weight,
+    const std::uint16_t* silu_gate, float norm_epsilon,
+    const float* authenticated_inverse_alpha_fp32,
+    std::size_t inverse_alpha_capacity_elements,
     std::size_t destination_first_token,
     std::size_t whole_logical_token_count,
     std::size_t launch_token_count, float clip_ratio,

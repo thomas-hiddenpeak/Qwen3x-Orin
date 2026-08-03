@@ -330,6 +330,11 @@ GenerationControlResult run_generation_control_impl(
           .attention_k256_m128n256_a_exchange_b4_logical_projection_hits =
           outcome.value
               ->attention_k256_m128n256_a_exchange_b4_logical_projection_hits;
+      control.timing.attention_factorized_lane_r1_launch_hits =
+          outcome.value->attention_factorized_lane_r1_launch_hits;
+      control.timing.attention_factorized_lane_r1_logical_projection_hits =
+          outcome.value
+              ->attention_factorized_lane_r1_logical_projection_hits;
       control.timing.gateup_alternating_launch_hits =
           outcome.value->gateup_alternating_launch_hits;
       control.timing.gateup_ldmatrix_pairfeed_launch_hits =
@@ -370,6 +375,8 @@ GenerationControlResult run_generation_control_impl(
           outcome.value->gdn_chunk64_native_logical_token_hits;
       control.timing.gdn_k256_direct_pack_launch_hits =
           outcome.value->gdn_k256_direct_pack_launch_hits;
+      control.timing.gdn_factorized_lane_r1_direct_pack_launch_hits =
+          outcome.value->gdn_factorized_lane_r1_direct_pack_launch_hits;
       control.timing.gdn_prompt_span_macro_launch_hits =
           outcome.value->gdn_prompt_span_macro_launch_hits;
       control.timing.gdn_prompt_span_macro_logical_token_hits =

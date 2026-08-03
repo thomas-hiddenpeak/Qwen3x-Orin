@@ -1,6 +1,7 @@
 #include "gdn_prefill_chunk_o_bv64_sm87.h"
 
 #include "q3x/kernels/sm87_a4w4_attention_k256_m128n256.h"
+#include "q3x/kernels/sm87_a4w4_factorized_lane_quantize.h"
 #include "q3x/kernels/sm87_a4w4_prefill_primitive.h"
 
 #include <cuda_bf16.h>
@@ -66,6 +67,27 @@ constexpr unsigned int kMaximumNormK256A4Registers = 128U;
 constexpr unsigned int kMinimumNormK256A4CtasPerSm = 2U;
 constexpr std::size_t kNormK256A4SharedBytes =
     kNormRowsPerCta * sizeof(float);
+constexpr unsigned int kFactorizedLaneR1LaneCount = 1U;
+constexpr unsigned int kFactorizedLaneR1Pairs = kK256A4InputSize / 2U;
+constexpr unsigned int kFactorizedLaneR1HeadWaves =
+    kValueHeads / (kNormThreads / 32U);
+constexpr unsigned int kMaximumNormFactorizedLaneR1A4Registers = 128U;
+constexpr unsigned int kMinimumNormFactorizedLaneR1A4CtasPerSm = 2U;
+
+struct alignas(16) FactorizedLaneR1SharedStorage final {
+  // The exact normalized BF16 seam is CTA-private: it is consumed once by
+  // the whole-K6144 quantizer and never published to a runner-owned tensor.
+  std::uint16_t seam[kK256A4InputSize];
+  float inverse_rms[kValueHeads];
+  float warp_maxima[kNormThreads / 32U];
+  float clipped_maximum;
+  float stored_scale;
+  std::uint16_t scale_bits;
+  std::uint16_t reserved;
+};
+
+constexpr std::size_t kNormFactorizedLaneR1A4SharedBytes =
+    sizeof(FactorizedLaneR1SharedStorage);
 
 static_assert(kQkHeads * kHeadGroup == kValueHeads);
 static_assert(kChunkWarps == 4U);
@@ -77,6 +99,9 @@ static_assert(kK256A4Groups == 24U);
 static_assert(kK256A4PhysicalGroups == 96U);
 static_assert(kHeadOctetsPerToken == 6U);
 static_assert(kNormK256A4SharedBytes == 32U);
+static_assert(kFactorizedLaneR1Pairs == 3'072U);
+static_assert(kFactorizedLaneR1HeadWaves == 6U);
+static_assert(kNormFactorizedLaneR1A4SharedBytes == 12'528U);
 
 struct M16K16Fragment final {
   std::uint32_t x0;
@@ -235,6 +260,28 @@ encode_quantizer_bf16(const float value) {
   unsigned int bits = __float_as_uint(value);
   bits += 0x7fffU + ((bits >> 16U) & 1U);
   return static_cast<std::uint16_t>(bits >> 16U);
+}
+
+[[nodiscard]] __device__ __forceinline__ float warp_maximum(
+    float value) {
+#pragma unroll
+  for (unsigned int offset = 16U; offset != 0U; offset >>= 1U) {
+    value = fmaxf(
+        value, __shfl_down_sync(0xffff'ffffU, value, offset));
+  }
+  return value;
+}
+
+[[nodiscard]] __device__ __forceinline__ std::uint16_t
+normalized_silu_gate_bf16(
+    const std::uint16_t raw_bits, const float inverse_rms,
+    const std::uint16_t norm_weight_bits,
+    const std::uint16_t gate_bits) {
+  const float raw = decode_bf16(raw_bits);
+  const float gate = decode_bf16(gate_bits);
+  const float normalized =
+      raw * inverse_rms * decode_bf16(norm_weight_bits);
+  return encode_bf16(normalized * gate / (1.0F + expf(-gate)));
 }
 
 [[nodiscard]] __device__ __forceinline__ std::uint32_t pack_bf16_pair(
@@ -1015,6 +1062,169 @@ void rms_norm_silu_rows8_k256_a4_kernel(
   }
 }
 
+__global__ __launch_bounds__(
+    kNormThreads, kMinimumNormFactorizedLaneR1A4CtasPerSm)
+void rms_norm_silu_factorized_lane_r1_a4_kernel(
+    const std::uint16_t* const raw_output_tile,
+    const std::uint16_t* const norm_weight,
+    const std::uint16_t* const silu_gate_tile,
+    const unsigned int tile_logical_token_count,
+    const float norm_epsilon,
+    const float* const inverse_alpha_fp32,
+    const unsigned int destination_first_token,
+    const unsigned int publish_token_count,
+    const float clip_ratio,
+    std::uint8_t* const packed_a_base,
+    std::uint16_t* const scales_bf16_base) {
+  __shared__ FactorizedLaneR1SharedStorage shared;
+  const unsigned int thread = threadIdx.x;
+  const unsigned int warp = thread >> 5U;
+  const unsigned int lane = thread & 31U;
+  const unsigned int local_token = blockIdx.x;
+  const std::size_t destination_token =
+      static_cast<std::size_t>(destination_first_token) + local_token;
+
+  if (local_token >= publish_token_count) {
+    return;
+  }
+  if (local_token >= tile_logical_token_count) {
+    // Only the final state slice owns padded rows.  It never reads the
+    // tile-local raw/gate tensors or the authenticated inverse-alpha plane.
+    for (unsigned int pair = thread; pair < kFactorizedLaneR1Pairs;
+         pair += kNormThreads) {
+      const unsigned int global_even = pair << 1U;
+      packed_a_base[q3x::kernels::sm87_a4w4_consumer_packed_offset(
+          destination_token, global_even >> 6U,
+          (global_even & 63U) >> 1U, kK256A4PhysicalGroups)] = 0U;
+    }
+    if (thread == 0U) {
+      scales_bf16_base[
+          q3x::kernels::sm87_a4w4_factorized_lane_scale_offset(
+              destination_token, 0U, kFactorizedLaneR1LaneCount)] = 0x3f80U;
+    }
+    return;
+  }
+
+  const std::size_t token_base =
+      static_cast<std::size_t>(local_token) * kK256A4InputSize;
+
+  // Preserve the incumbent rows-8 numerical ownership exactly: one warp
+  // reduces one D128 head with four values per lane.  Eight warps cover all
+  // 48 heads in six waves before any normalized value is produced.
+#pragma unroll
+  for (unsigned int wave = 0U; wave < kFactorizedLaneR1HeadWaves; ++wave) {
+    const unsigned int head = wave * (kNormThreads / 32U) + warp;
+    const std::size_t head_base =
+        token_base + static_cast<std::size_t>(head) * kValueDimension;
+    const float value0 = decode_bf16(raw_output_tile[head_base + lane]);
+    const float value1 =
+        decode_bf16(raw_output_tile[head_base + lane + 32U]);
+    const float value2 =
+        decode_bf16(raw_output_tile[head_base + lane + 64U]);
+    const float value3 =
+        decode_bf16(raw_output_tile[head_base + lane + 96U]);
+    float square_sum = fmaf(value0, value0, 0.0F);
+    square_sum = fmaf(value1, value1, square_sum);
+    square_sum = fmaf(value2, value2, square_sum);
+    square_sum = fmaf(value3, value3, square_sum);
+#pragma unroll
+    for (unsigned int offset = 16U; offset != 0U; offset >>= 1U) {
+      square_sum +=
+          __shfl_down_sync(0xffff'ffffU, square_sum, offset);
+    }
+    if (lane == 0U) {
+      shared.inverse_rms[head] = rsqrtf(
+          square_sum / static_cast<float>(kValueDimension) + norm_epsilon);
+    }
+  }
+  __syncthreads();
+
+  // Materialize only the established BF16 seam in shared memory.  Pair-wise
+  // uint32 stores avoid the two-way bank conflict of 16-bit warp stores.
+  // The same values feed both the global R1 maximum and the final codes.
+  auto* const seam_pairs =
+      reinterpret_cast<std::uint32_t*>(shared.seam);
+  float maximum = 0.0F;
+  for (unsigned int pair = thread; pair < kFactorizedLaneR1Pairs;
+       pair += kNormThreads) {
+    const unsigned int global_even = pair << 1U;
+    const unsigned int head = global_even / kValueDimension;
+    const unsigned int dimension = global_even % kValueDimension;
+    const std::size_t input_even = token_base + global_even;
+    const std::uint16_t even_bits = normalized_silu_gate_bf16(
+        raw_output_tile[input_even], shared.inverse_rms[head],
+        norm_weight[dimension], silu_gate_tile[input_even]);
+    const std::uint16_t odd_bits = normalized_silu_gate_bf16(
+        raw_output_tile[input_even + 1U], shared.inverse_rms[head],
+        norm_weight[dimension + 1U], silu_gate_tile[input_even + 1U]);
+    seam_pairs[pair] = pack_bf16_pair(even_bits, odd_bits);
+    maximum = fmaxf(
+        maximum,
+        fabsf(decode_bf16(even_bits) * inverse_alpha_fp32[global_even]));
+    maximum = fmaxf(
+        maximum,
+        fabsf(decode_bf16(odd_bits) *
+              inverse_alpha_fp32[global_even + 1U]));
+  }
+
+  maximum = warp_maximum(maximum);
+  if (lane == 0U) {
+    shared.warp_maxima[warp] = maximum;
+  }
+  __syncthreads();
+  if (warp == 0U) {
+    float block_maximum =
+        lane < kNormThreads / 32U ? shared.warp_maxima[lane] : 0.0F;
+    block_maximum = warp_maximum(block_maximum);
+    if (lane == 0U) {
+      const float clipped_maximum = block_maximum * clip_ratio;
+      std::uint16_t scale_bits = encode_quantizer_bf16(
+          block_maximum == 0.0F ? 1.0F : clipped_maximum / 7.0F);
+      float stored_scale = decode_bf16(scale_bits);
+      if (block_maximum != 0.0F && stored_scale == 0.0F) {
+        scale_bits = 1U;
+        stored_scale = decode_bf16(scale_bits);
+      }
+      shared.clipped_maximum = clipped_maximum;
+      shared.stored_scale = stored_scale;
+      shared.scale_bits = scale_bits;
+    }
+  }
+  __syncthreads();
+
+  for (unsigned int pair = thread; pair < kFactorizedLaneR1Pairs;
+       pair += kNormThreads) {
+    const unsigned int global_even = pair << 1U;
+    const std::uint32_t seam = seam_pairs[pair];
+    float even = decode_bf16(static_cast<std::uint16_t>(seam)) *
+                 inverse_alpha_fp32[global_even];
+    float odd = decode_bf16(static_cast<std::uint16_t>(seam >> 16U)) *
+                inverse_alpha_fp32[global_even + 1U];
+    even = fminf(fmaxf(even, -shared.clipped_maximum),
+                 shared.clipped_maximum);
+    odd = fminf(fmaxf(odd, -shared.clipped_maximum),
+                shared.clipped_maximum);
+    const int even_rounded = __float2int_rn(even / shared.stored_scale);
+    const int odd_rounded = __float2int_rn(odd / shared.stored_scale);
+    const int even_code = even_rounded < -7
+                              ? -7
+                              : (even_rounded > 7 ? 7 : even_rounded);
+    const int odd_code = odd_rounded < -7
+                             ? -7
+                             : (odd_rounded > 7 ? 7 : odd_rounded);
+    packed_a_base[q3x::kernels::sm87_a4w4_consumer_packed_offset(
+        destination_token, global_even >> 6U,
+        (global_even & 63U) >> 1U, kK256A4PhysicalGroups)] =
+        q3x::kernels::sm87_a4w4_pack_signed_pair(even_code, odd_code);
+  }
+  if (thread == 0U) {
+    scales_bf16_base[
+        q3x::kernels::sm87_a4w4_factorized_lane_scale_offset(
+            destination_token, 0U, kFactorizedLaneR1LaneCount)] =
+        shared.scale_bits;
+  }
+}
+
 [[nodiscard]] constexpr bool aligned(
     const void* const pointer, const std::size_t alignment) noexcept {
   return pointer != nullptr &&
@@ -1388,6 +1598,166 @@ int launch_norm_rows8_k256_a4(
   return static_cast<int>(cudaGetLastError());
 }
 
+int validate_norm_rows8_factorized_lane_r1_a4(
+    const std::uint16_t* const raw_output_tile,
+    const std::uint16_t* const norm_weight,
+    const std::uint16_t* const silu_gate_tile,
+    const std::size_t tile_logical_token_count,
+    const float norm_epsilon,
+    const float* const authenticated_inverse_alpha_fp32,
+    const std::size_t inverse_alpha_capacity_elements,
+    const std::size_t destination_first_token,
+    const std::size_t whole_logical_token_count,
+    const std::size_t launch_token_count,
+    const float clip_ratio,
+    std::uint8_t* const packed_a_base,
+    const std::size_t packed_a_capacity_bytes,
+    std::uint16_t* const scales_bf16_base,
+    const std::size_t scale_capacity_elements) noexcept {
+  const std::size_t expected_launch_token_count =
+      q3x::kernels::sm87_a4w4_attention_k256_launch_token_count(
+          whole_logical_token_count);
+  const auto plan =
+      q3x::kernels::sm87_a4w4_factorized_lane_quantize_plan(
+          whole_logical_token_count, launch_token_count,
+          kK256A4InputSize, kFactorizedLaneR1LaneCount);
+  if (tile_logical_token_count == 0U ||
+      tile_logical_token_count > kMaximumTokens ||
+      whole_logical_token_count == 0U ||
+      whole_logical_token_count > kMaximumNormTokens ||
+      expected_launch_token_count == 0U ||
+      launch_token_count != expected_launch_token_count || !plan.valid() ||
+      destination_first_token > whole_logical_token_count ||
+      tile_logical_token_count >
+          whole_logical_token_count - destination_first_token ||
+      inverse_alpha_capacity_elements < kK256A4InputSize ||
+      !std::isfinite(norm_epsilon) || norm_epsilon <= 0.0F ||
+      !(clip_ratio > 0.0F && clip_ratio <= 1.0F) ||
+      !aligned(raw_output_tile, alignof(std::uint16_t)) ||
+      !aligned(norm_weight, alignof(std::uint16_t)) ||
+      !aligned(silu_gate_tile, alignof(std::uint16_t)) ||
+      !aligned(authenticated_inverse_alpha_fp32, 16U) ||
+      !aligned(packed_a_base, 16U) ||
+      !aligned(scales_bf16_base, 16U) ||
+      packed_a_capacity_bytes < plan.packed_capacity_bytes ||
+      scale_capacity_elements < plan.scale_capacity_elements) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+
+  if (!q3x::kernels::sm87_a4w4_attention_k256_product_fits(
+          tile_logical_token_count, kK256A4InputSize) ||
+      !q3x::kernels::sm87_a4w4_attention_k256_product_fits(
+          tile_logical_token_count * kK256A4InputSize,
+          sizeof(std::uint16_t)) ||
+      !q3x::kernels::sm87_a4w4_attention_k256_product_fits(
+          kK256A4InputSize, sizeof(float)) ||
+      !q3x::kernels::sm87_a4w4_attention_k256_product_fits(
+          plan.scale_capacity_elements, sizeof(std::uint16_t))) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const std::size_t input_bytes = tile_logical_token_count *
+                                  kK256A4InputSize *
+                                  sizeof(std::uint16_t);
+  const std::size_t norm_bytes =
+      kValueDimension * sizeof(std::uint16_t);
+  const std::size_t inverse_bytes = kK256A4InputSize * sizeof(float);
+  const std::size_t scale_bytes =
+      plan.scale_capacity_elements * sizeof(std::uint16_t);
+  const void* const pointers[] = {
+      raw_output_tile,
+      norm_weight,
+      silu_gate_tile,
+      authenticated_inverse_alpha_fp32,
+      packed_a_base,
+      scales_bf16_base};
+  const std::size_t bytes[] = {
+      input_bytes,
+      norm_bytes,
+      input_bytes,
+      inverse_bytes,
+      plan.packed_capacity_bytes,
+      scale_bytes};
+  for (std::size_t first = 0U; first < 6U; ++first) {
+    for (std::size_t second = first + 1U; second < 6U; ++second) {
+      if (byte_ranges_overlap(pointers[first], bytes[first],
+                              pointers[second], bytes[second])) {
+        return static_cast<int>(cudaErrorInvalidValue);
+      }
+    }
+  }
+
+  const bool final_slice =
+      tile_logical_token_count ==
+      whole_logical_token_count - destination_first_token;
+  const std::size_t padding_tokens =
+      final_slice ? launch_token_count - whole_logical_token_count : 0U;
+  if (padding_tokens >=
+          q3x::kernels::kSm87A4W4AttentionK256TileM ||
+      tile_logical_token_count >
+          std::numeric_limits<std::size_t>::max() - padding_tokens) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const std::size_t publish_token_count =
+      tile_logical_token_count + padding_tokens;
+  if (destination_first_token > launch_token_count ||
+      publish_token_count > launch_token_count - destination_first_token ||
+      publish_token_count == 0U ||
+      publish_token_count > std::numeric_limits<unsigned int>::max()) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  return static_cast<int>(cudaSuccess);
+}
+
+int launch_norm_rows8_factorized_lane_r1_a4(
+    const std::uint16_t* const raw_output_tile,
+    const std::uint16_t* const norm_weight,
+    const std::uint16_t* const silu_gate_tile,
+    const std::size_t tile_logical_token_count,
+    const float norm_epsilon,
+    const float* const authenticated_inverse_alpha_fp32,
+    const std::size_t inverse_alpha_capacity_elements,
+    const std::size_t destination_first_token,
+    const std::size_t whole_logical_token_count,
+    const std::size_t launch_token_count,
+    const float clip_ratio,
+    std::uint8_t* const packed_a_base,
+    const std::size_t packed_a_capacity_bytes,
+    std::uint16_t* const scales_bf16_base,
+    const std::size_t scale_capacity_elements,
+    void* const cuda_stream) noexcept {
+  const int validation_status =
+      validate_norm_rows8_factorized_lane_r1_a4(
+          raw_output_tile, norm_weight, silu_gate_tile,
+          tile_logical_token_count, norm_epsilon,
+          authenticated_inverse_alpha_fp32,
+          inverse_alpha_capacity_elements, destination_first_token,
+          whole_logical_token_count, launch_token_count, clip_ratio,
+          packed_a_base, packed_a_capacity_bytes, scales_bf16_base,
+          scale_capacity_elements);
+  if (validation_status != static_cast<int>(cudaSuccess)) {
+    return validation_status;
+  }
+  const bool final_slice =
+      tile_logical_token_count ==
+      whole_logical_token_count - destination_first_token;
+  const std::size_t padding_tokens =
+      final_slice ? launch_token_count - whole_logical_token_count : 0U;
+  const std::size_t publish_token_count =
+      tile_logical_token_count + padding_tokens;
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  rms_norm_silu_factorized_lane_r1_a4_kernel<<<
+      static_cast<unsigned int>(publish_token_count), kNormThreads, 0U,
+      stream>>>(
+      raw_output_tile, norm_weight, silu_gate_tile,
+      static_cast<unsigned int>(tile_logical_token_count), norm_epsilon,
+      authenticated_inverse_alpha_fp32,
+      static_cast<unsigned int>(destination_first_token),
+      static_cast<unsigned int>(publish_token_count), clip_ratio,
+      packed_a_base, scales_bf16_base);
+  return static_cast<int>(cudaGetLastError());
+}
+
 int query_chunk_o_resources(int* const registers_per_thread,
                             std::size_t* const static_shared_bytes,
                             std::size_t* const local_bytes,
@@ -1432,6 +1802,33 @@ int query_norm_k256_a4_resources(
       *maximum_threads_per_block < static_cast<int>(kNormThreads) ||
       *active_blocks_per_sm <
           static_cast<int>(kMinimumNormK256A4CtasPerSm)) {
+    return static_cast<int>(cudaErrorLaunchOutOfResources);
+  }
+  return static_cast<int>(cudaSuccess);
+}
+
+int query_norm_factorized_lane_r1_a4_resources(
+    int* const registers_per_thread,
+    std::size_t* const static_shared_bytes,
+    std::size_t* const local_bytes,
+    int* const maximum_threads_per_block,
+    int* const active_blocks_per_sm) noexcept {
+  const int status = query_kernel_resources(
+      rms_norm_silu_factorized_lane_r1_a4_kernel,
+      static_cast<int>(kNormThreads), registers_per_thread,
+      static_shared_bytes, local_bytes, maximum_threads_per_block,
+      active_blocks_per_sm);
+  if (status != static_cast<int>(cudaSuccess)) {
+    return status;
+  }
+  if (*registers_per_thread <= 0 ||
+      *registers_per_thread >
+          static_cast<int>(kMaximumNormFactorizedLaneR1A4Registers) ||
+      *static_shared_bytes != kNormFactorizedLaneR1A4SharedBytes ||
+      *local_bytes != 0U ||
+      *maximum_threads_per_block < static_cast<int>(kNormThreads) ||
+      *active_blocks_per_sm <
+          static_cast<int>(kMinimumNormFactorizedLaneR1A4CtasPerSm)) {
     return static_cast<int>(cudaErrorLaunchOutOfResources);
   }
   return static_cast<int>(cudaSuccess);

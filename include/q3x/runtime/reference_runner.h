@@ -79,6 +79,10 @@ struct ReferenceRunnerOptions {
   // with the next A4 producer; ordinary R1 execution remains unchanged when
   // this leaf is false.
   bool enable_factorized_lane_r1_handoff_prefill_admission = false;
+  // Select the authenticated 208-projection Attention R1 upper-bound route.
+  // It is invalid without the full-A4 K256 base and the MLP R1 master, and it
+  // never inherits production or quality eligibility from authentication.
+  bool enable_attention_factorized_lane_r1_prefill_admission = false;
   // Select the independent direct-checkpoint R4 whole-MLP package.  It is
   // mutually exclusive with R1 and every K512/Marlin MLP route, and accepts
   // only one logical P1793..P1920 projection span launched as P1920.
@@ -253,6 +257,12 @@ struct ReferenceLongPrefillResult {
   std::size_t attention_k256_m128n256_a_exchange_b4_launch_hits = 0U;
   std::size_t
       attention_k256_m128n256_a_exchange_b4_logical_projection_hits = 0U;
+  // Independent proof that all Attention projections used the R1 upper-bound
+  // kernel. Physical launches are 48 Linear inputs + 16 Full inputs + 64 O;
+  // logical projections expand to the exact 208-entry sidecar inventory.
+  std::size_t attention_factorized_lane_r1_launch_hits = 0U;
+  std::size_t
+      attention_factorized_lane_r1_logical_projection_hits = 0U;
   // Request-local proof that the default-off alternating K256 Gate+Up route
   // owned every decoder layer.  The runner leaves this at zero for every
   // other route; consumers must not infer selection from the environment.
@@ -328,6 +338,9 @@ struct ReferenceLongPrefillResult {
   // directly as K256 A4 for Attention-O.  P1853 has four state tiles in each
   // of 48 Linear-Attention layers, hence 192 successful launches.
   std::size_t gdn_k256_direct_pack_launch_hits = 0U;
+  // Physical proof for the mutually exclusive whole-K6144 factorized-lane
+  // R1 GDN epilogue. P1853 likewise owns four tiles in 48 Linear layers.
+  std::size_t gdn_factorized_lane_r1_direct_pack_launch_hits = 0U;
   std::size_t gdn_prompt_span_macro_launch_hits = 0U;
   std::size_t gdn_prompt_span_macro_logical_token_hits = 0U;
   std::optional<ReferenceStepTiming> timing;
@@ -1974,6 +1987,10 @@ class ReferenceRunner {
       const noexcept {
     return factorized_lane_r1_handoff_prefill_admission_enabled_;
   }
+  [[nodiscard]] bool attention_factorized_lane_r1_prefill_enabled()
+      const noexcept {
+    return attention_factorized_lane_r1_prefill_admission_enabled_;
+  }
   [[nodiscard]] bool factorized_lane_r4_prefill_enabled() const noexcept {
     return factorized_lane_r4_prefill_admission_enabled_;
   }
@@ -2182,6 +2199,7 @@ class ReferenceRunner {
   bool a4w4_full_prefill_admission_enabled_ = false;
   bool factorized_lane_r1_prefill_admission_enabled_ = false;
   bool factorized_lane_r1_handoff_prefill_admission_enabled_ = false;
+  bool attention_factorized_lane_r1_prefill_admission_enabled_ = false;
   bool factorized_lane_r4_prefill_admission_enabled_ = false;
   bool factorized_lane_r4_2cta_prefill_admission_enabled_ = false;
   bool trace_enabled_ = false;

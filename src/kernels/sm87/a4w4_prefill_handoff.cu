@@ -337,6 +337,33 @@ void q3x_sm87_mlp_residual_next_norm_k256_quantize_kernel(
   }
 }
 
+extern "C" __global__
+    __launch_bounds__(kSm87A4W4PrefillHandoffThreads,
+                      kSm87A4W4PrefillHandoffMinimumBlocksPerSm)
+void q3x_sm87_mlp_residual_next_norm_attention_r1_quantize_kernel(
+    const std::uint16_t* const left_bf16,
+    const std::uint16_t* const right_bf16,
+    const std::uint16_t* const centered_norm_weight_bf16,
+    const float* const inverse_alpha_fp32,
+    const unsigned int logical_token_count,
+    const float epsilon,
+    const float clip_ratio,
+    std::uint16_t* const residual_output_bf16,
+    std::uint16_t* const normalized_output_bf16,
+    std::uint8_t* const packed_a,
+    std::uint16_t* const a_lane_scales_bf16) {
+  __shared__ HandoffShared shared;
+  const unsigned int row = blockIdx.x;
+  const bool valid_row = row < logical_token_count;
+  if (valid_row) {
+    publish_residual_and_normalized_row(
+        shared, left_bf16, right_bf16, centered_norm_weight_bf16, row,
+        epsilon, residual_output_bf16, normalized_output_bf16);
+  }
+  publish_r1_row(shared, inverse_alpha_fp32, row, valid_row, clip_ratio,
+                 packed_a, a_lane_scales_bf16);
+}
+
 [[nodiscard]] bool aligned(const void* const pointer,
                            const std::size_t alignment) noexcept {
   return pointer != nullptr &&
@@ -472,6 +499,7 @@ int query_sm87_a4w4_prefill_handoff_resources_cuda(
   }
   int attention_maximum_threads = 0;
   int mlp_maximum_threads = 0;
+  int mlp_r1_maximum_threads = 0;
   status = query_one_kernel(
       q3x_sm87_attention_residual_post_norm_r1_quantize_kernel,
       &resources->attention_to_gate_registers_per_thread,
@@ -492,10 +520,24 @@ int query_sm87_a4w4_prefill_handoff_resources_cuda(
   if (status != static_cast<int>(cudaSuccess)) {
     return status;
   }
+  status = query_one_kernel(
+      q3x_sm87_mlp_residual_next_norm_attention_r1_quantize_kernel,
+      &resources->mlp_to_attention_r1_registers_per_thread,
+      &resources->mlp_to_attention_r1_static_shared_bytes,
+      &resources->mlp_to_attention_r1_local_bytes,
+      &mlp_r1_maximum_threads,
+      &resources->mlp_to_attention_r1_active_blocks_per_sm);
+  if (status != static_cast<int>(cudaSuccess)) {
+    return status;
+  }
   resources->maximum_threads_per_block =
       attention_maximum_threads < mlp_maximum_threads
-          ? attention_maximum_threads
-          : mlp_maximum_threads;
+          ? (attention_maximum_threads < mlp_r1_maximum_threads
+                 ? attention_maximum_threads
+                 : mlp_r1_maximum_threads)
+          : (mlp_maximum_threads < mlp_r1_maximum_threads
+                 ? mlp_maximum_threads
+                 : mlp_r1_maximum_threads);
   resources->compute_major = properties.major;
   resources->compute_minor = properties.minor;
   resources->multiprocessor_count = properties.multiProcessorCount;
@@ -505,12 +547,18 @@ int query_sm87_a4w4_prefill_handoff_resources_cuda(
       resources->mlp_to_attention_registers_per_thread <= 0 ||
       resources->mlp_to_attention_registers_per_thread >
           static_cast<int>(kSm87A4W4PrefillHandoffMaximumRegisters) ||
+      resources->mlp_to_attention_r1_registers_per_thread <= 0 ||
+      resources->mlp_to_attention_r1_registers_per_thread >
+          static_cast<int>(kSm87A4W4PrefillHandoffMaximumRegisters) ||
       resources->attention_to_gate_local_bytes != 0U ||
       resources->mlp_to_attention_local_bytes != 0U ||
+      resources->mlp_to_attention_r1_local_bytes != 0U ||
       resources->maximum_threads_per_block < static_cast<int>(kThreads) ||
       resources->attention_to_gate_active_blocks_per_sm <
           static_cast<int>(kSm87A4W4PrefillHandoffMinimumBlocksPerSm) ||
       resources->mlp_to_attention_active_blocks_per_sm <
+          static_cast<int>(kSm87A4W4PrefillHandoffMinimumBlocksPerSm) ||
+      resources->mlp_to_attention_r1_active_blocks_per_sm <
           static_cast<int>(kSm87A4W4PrefillHandoffMinimumBlocksPerSm)) {
     return static_cast<int>(cudaErrorLaunchOutOfResources);
   }
@@ -679,6 +727,115 @@ int launch_sm87_a4w4_mlp_residual_next_norm_k256_quantize_cuda(
       static_cast<unsigned int>(logical_token_count), epsilon, clip_ratio,
       residual_output_bf16, normalized_output_bf16, packed_a,
       a_k256_scales_bf16);
+  return static_cast<int>(cudaPeekAtLastError());
+}
+
+int launch_sm87_a4w4_mlp_residual_next_norm_attention_r1_quantize_cuda(
+    const std::uint16_t* const left_bf16,
+    const std::uint16_t* const right_bf16,
+    const std::uint16_t* const next_centered_norm_weight_bf16,
+    const float* const authenticated_inverse_alpha_fp32,
+    const std::size_t inverse_alpha_capacity_elements,
+    const std::size_t logical_token_count,
+    const std::size_t launch_token_count,
+    const float epsilon,
+    const float clip_ratio,
+    std::uint16_t* const residual_output_bf16,
+    const std::size_t residual_output_capacity_elements,
+    std::uint16_t* const normalized_output_bf16,
+    const std::size_t normalized_output_capacity_elements,
+    std::uint8_t* const packed_a,
+    const std::size_t packed_a_capacity_bytes,
+    std::uint16_t* const a_lane_scales_bf16,
+    const std::size_t a_scale_capacity_elements,
+    void* const cuda_stream) noexcept {
+  std::size_t logical_elements = 0U;
+  const std::size_t required_packed =
+      sm87_a4w4_consumer_packed_capacity_bytes(
+          launch_token_count, kSm87A4W4PrefillHandoffHiddenSize);
+  const std::size_t required_scales =
+      sm87_a4w4_factorized_lane_scale_capacity_elements(
+          launch_token_count, 1U);
+  if (!valid_scalar_arguments(logical_token_count, launch_token_count,
+                              epsilon, clip_ratio) ||
+      launch_token_count !=
+          sm87_a4w4_attention_k256_launch_token_count(logical_token_count) ||
+      !checked_multiply(logical_token_count,
+                        kSm87A4W4PrefillHandoffHiddenSize,
+                        &logical_elements) ||
+      inverse_alpha_capacity_elements <
+          kSm87A4W4PrefillHandoffHiddenSize ||
+      residual_output_capacity_elements < logical_elements ||
+      ((normalized_output_bf16 == nullptr) !=
+       (normalized_output_capacity_elements == 0U)) ||
+      (normalized_output_bf16 != nullptr &&
+       normalized_output_capacity_elements < logical_elements) ||
+      required_packed == 0U || packed_a_capacity_bytes < required_packed ||
+      required_scales == 0U || a_scale_capacity_elements < required_scales ||
+      !aligned(left_bf16, alignof(std::uint16_t)) ||
+      !aligned(right_bf16, alignof(std::uint16_t)) ||
+      !aligned(next_centered_norm_weight_bf16, alignof(std::uint16_t)) ||
+      !aligned(authenticated_inverse_alpha_fp32, alignof(float)) ||
+      !aligned(residual_output_bf16, alignof(std::uint16_t)) ||
+      (normalized_output_bf16 != nullptr &&
+       !aligned(normalized_output_bf16, alignof(std::uint16_t))) ||
+      !aligned(packed_a, 16U) || !aligned(a_lane_scales_bf16, 16U) ||
+      logical_token_count > std::numeric_limits<unsigned int>::max() ||
+      launch_token_count > std::numeric_limits<unsigned int>::max()) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+
+  const std::size_t logical_bytes =
+      logical_elements * sizeof(std::uint16_t);
+  const bool residual_aliases_left = residual_output_bf16 == left_bf16;
+  const ByteRange independent_ranges[] = {
+      {right_bf16, logical_bytes},
+      {next_centered_norm_weight_bf16,
+       kSm87A4W4PrefillHandoffHiddenSize * sizeof(std::uint16_t)},
+      {authenticated_inverse_alpha_fp32,
+       kSm87A4W4PrefillHandoffHiddenSize * sizeof(float)},
+      {packed_a, required_packed},
+      {a_lane_scales_bf16, required_scales * sizeof(std::uint16_t)}};
+  if (!ranges_pairwise_disjoint(independent_ranges)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const ByteRange left_range{left_bf16, logical_bytes};
+  const ByteRange residual_range{residual_output_bf16, logical_bytes};
+  const ByteRange normalized_range{normalized_output_bf16,
+                                   normalized_output_bf16 == nullptr
+                                       ? 0U
+                                       : logical_bytes};
+  for (const ByteRange& range : independent_ranges) {
+    if (byte_ranges_overlap(left_range, range) ||
+        byte_ranges_overlap(residual_range, range) ||
+        (normalized_output_bf16 != nullptr &&
+         byte_ranges_overlap(normalized_range, range))) {
+      return static_cast<int>(cudaErrorInvalidValue);
+    }
+  }
+  if (!residual_aliases_left &&
+      byte_ranges_overlap(left_range, residual_range)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  if (normalized_output_bf16 != nullptr &&
+      (byte_ranges_overlap(left_range, normalized_range) ||
+       byte_ranges_overlap(residual_range, normalized_range))) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+
+  const int target_status = validate_target();
+  if (target_status != static_cast<int>(cudaSuccess)) {
+    return target_status;
+  }
+  const cudaStream_t stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  q3x_sm87_mlp_residual_next_norm_attention_r1_quantize_kernel<<<
+      static_cast<unsigned int>(launch_token_count), kThreads, 0U, stream>>>(
+      left_bf16, right_bf16, next_centered_norm_weight_bf16,
+      authenticated_inverse_alpha_fp32,
+      static_cast<unsigned int>(logical_token_count), epsilon, clip_ratio,
+      residual_output_bf16, normalized_output_bf16, packed_a,
+      a_lane_scales_bf16);
   return static_cast<int>(cudaPeekAtLastError());
 }
 

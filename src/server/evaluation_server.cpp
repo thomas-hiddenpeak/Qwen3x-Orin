@@ -1001,6 +1001,12 @@ void execute_job(runtime::ReferenceEngine& engine,
             << " attention_k256_m128n256_a_exchange_b4_logical_projection_hits="
             << generated.value->timing
                    .attention_k256_m128n256_a_exchange_b4_logical_projection_hits
+            << " attention_factorized_lane_r1_launch_hits="
+            << generated.value->timing
+                   .attention_factorized_lane_r1_launch_hits
+            << " attention_factorized_lane_r1_logical_projection_hits="
+            << generated.value->timing
+                   .attention_factorized_lane_r1_logical_projection_hits
             << " gateup_alternating_launch_hits="
             << generated.value->timing.gateup_alternating_launch_hits
             << " gateup_ldmatrix_pairfeed_launch_hits="
@@ -1053,6 +1059,9 @@ void execute_job(runtime::ReferenceEngine& engine,
                    .gdn_chunk64_native_logical_token_hits
             << " gdn_k256_direct_pack_launch_hits="
             << generated.value->timing.gdn_k256_direct_pack_launch_hits
+            << " gdn_factorized_lane_r1_direct_pack_launch_hits="
+            << generated.value->timing
+                   .gdn_factorized_lane_r1_direct_pack_launch_hits
             << " gdn_prompt_span_macro_launch_hits="
             << generated.value->timing.gdn_prompt_span_macro_launch_hits
             << " gdn_prompt_span_macro_logical_token_hits="
@@ -1622,6 +1631,23 @@ void ingress_worker(
             "payload, policy, and receipt";
     return false;
   }
+  const bool attention_factorized_r1_payload =
+      !options.prefill_attention_factorized_lane_r1_payload_path.empty();
+  const bool attention_factorized_r1_policy =
+      !options.prefill_attention_factorized_lane_r1_policy_path.empty();
+  const bool attention_factorized_r1_receipt =
+      !options.prefill_attention_factorized_lane_r1_receipt_path.empty();
+  if (attention_factorized_r1_payload != attention_factorized_r1_policy ||
+      attention_factorized_r1_payload != attention_factorized_r1_receipt) {
+    error = "factorized-lane R1 Attention payload, policy, and receipt are "
+            "required together";
+    return false;
+  }
+  if (attention_factorized_r1_payload && (!a4_payload || !a4_receipt)) {
+    error = "factorized-lane R1 Attention requires the explicit K256 A4 "
+            "base payload, policy, and receipt";
+    return false;
+  }
   const bool mlp_factorized_r4_payload =
       !options.prefill_mlp_factorized_lane_r4_payload_path.empty();
   const bool mlp_factorized_r4_policy =
@@ -1768,6 +1794,12 @@ int run_evaluation_server(const EvaluationServerOptions& options,
       options.prefill_mlp_factorized_lane_r1_policy_path;
   engine_options.prefill_mlp_factorized_lane_r1_receipt_path =
       options.prefill_mlp_factorized_lane_r1_receipt_path;
+  engine_options.prefill_attention_factorized_lane_r1_payload_path =
+      options.prefill_attention_factorized_lane_r1_payload_path;
+  engine_options.prefill_attention_factorized_lane_r1_policy_path =
+      options.prefill_attention_factorized_lane_r1_policy_path;
+  engine_options.prefill_attention_factorized_lane_r1_receipt_path =
+      options.prefill_attention_factorized_lane_r1_receipt_path;
   engine_options.prefill_mlp_factorized_lane_r4_payload_path =
       options.prefill_mlp_factorized_lane_r4_payload_path;
   engine_options.prefill_mlp_factorized_lane_r4_policy_path =
@@ -1968,6 +2000,43 @@ int run_evaluation_server(const EvaluationServerOptions& options,
             << " prefill_mlp_factorized_lane_r1_production_residency_eligible=false"
             << " prefill_mlp_factorized_lane_r1_quality_production_eligible=false"
             << " prefill_mlp_factorized_lane_r1_performance_upper_bound_only=true"
+            << " prefill_attention_factorized_lane_r1_ms="
+            << load
+                   .prefill_attention_factorized_lane_r1_overlay_milliseconds
+            << " prefill_attention_factorized_lane_r1_requested="
+            << (load.prefill_attention_factorized_lane_r1_overlay_requested
+                    ? 1
+                    : 0)
+            << " prefill_attention_factorized_lane_r1_enabled="
+            << (load.prefill_attention_factorized_lane_r1_overlay_enabled ? 1
+                                                                          : 0)
+            << " prefill_attention_factorized_lane_r1_layers="
+            << load.prefill_attention_factorized_lane_r1_overlay_layers
+            << " prefill_attention_factorized_lane_r1_projections="
+            << load.prefill_attention_factorized_lane_r1_overlay_projections
+            << " prefill_attention_factorized_lane_r1_bytes="
+            << load.prefill_attention_factorized_lane_r1_overlay_bytes
+            << " prefill_attention_factorized_lane_r1_copy_chunks="
+            << load.prefill_attention_factorized_lane_r1_overlay_copy_chunks
+            << " prefill_attention_factorized_lane_r1_layout="
+            << load.prefill_attention_factorized_lane_r1_overlay_layout
+            << " prefill_attention_factorized_lane_r1_manifest_sha256="
+            << load
+                   .prefill_attention_factorized_lane_r1_overlay_manifest_sha256
+            << " prefill_attention_factorized_lane_r1_policy_sha256="
+            << load
+                   .prefill_attention_factorized_lane_r1_overlay_policy_sha256
+            << " prefill_attention_factorized_lane_r1_payload_sha256="
+            << load
+                   .prefill_attention_factorized_lane_r1_overlay_payload_sha256
+            << " prefill_attention_factorized_lane_r1_receipt_sha256="
+            << load
+                   .prefill_attention_factorized_lane_r1_overlay_receipt_sha256
+            << " prefill_attention_factorized_lane_r1_base_receipt_sha256="
+            << load.prefill_attention_factorized_lane_r1_overlay_base_receipt_sha256
+            << " prefill_attention_factorized_lane_r1_production_residency_eligible=false"
+            << " prefill_attention_factorized_lane_r1_quality_production_eligible=false"
+            << " prefill_attention_factorized_lane_r1_performance_upper_bound_only=true"
             << " prefill_mlp_factorized_lane_r4_ms="
             << load.prefill_mlp_factorized_lane_r4_overlay_milliseconds
             << " prefill_mlp_factorized_lane_r4_requested="

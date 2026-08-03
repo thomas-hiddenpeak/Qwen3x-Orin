@@ -114,6 +114,8 @@ struct FakeRunner {
   std::size_t long_prefill_gdn_chunk64_native_launch_hits = 192U;
   std::size_t long_prefill_gdn_chunk64_native_logical_token_hits = 88'944U;
   std::size_t long_prefill_gdn_k256_direct_pack_launch_hits = 192U;
+  std::size_t long_prefill_gdn_factorized_lane_r1_direct_pack_launch_hits =
+      191U;
   std::size_t long_prefill_gdn_prompt_span_macro_launch_hits = 48U;
   std::size_t long_prefill_gdn_prompt_span_macro_logical_token_hits = 88'944U;
 };
@@ -362,6 +364,8 @@ runtime::ReferenceLongPrefillOutcome fake_layer_major_prompt(
       fake.long_prefill_gdn_chunk64_native_logical_token_hits;
   value.gdn_k256_direct_pack_launch_hits =
       fake.long_prefill_gdn_k256_direct_pack_launch_hits;
+  value.gdn_factorized_lane_r1_direct_pack_launch_hits =
+      fake.long_prefill_gdn_factorized_lane_r1_direct_pack_launch_hits;
   value.gdn_prompt_span_macro_launch_hits =
       fake.long_prefill_gdn_prompt_span_macro_launch_hits;
   value.gdn_prompt_span_macro_logical_token_hits =
@@ -923,6 +927,9 @@ void test_layer_major_prompt_admission(TestContext& test) {
                 fake.long_prefill_gdn_chunk64_native_logical_token_hits &&
             result.value->timing.gdn_k256_direct_pack_launch_hits ==
                 fake.long_prefill_gdn_k256_direct_pack_launch_hits &&
+            result.value->timing
+                    .gdn_factorized_lane_r1_direct_pack_launch_hits ==
+                fake.long_prefill_gdn_factorized_lane_r1_direct_pack_launch_hits &&
             result.value->timing.gdn_prompt_span_macro_launch_hits ==
                 fake.long_prefill_gdn_prompt_span_macro_launch_hits &&
             result.value->timing.gdn_prompt_span_macro_logical_token_hits ==
@@ -2845,13 +2852,13 @@ void test_optimized_prefill_engine_derivation(TestContext& test) {
     bool expected_projection_span;
   };
   constexpr std::array<Case, 7U> kCases = {{
-      {512U, 0U, 0U, 207'486'976U, false, false},
-      {513U, 513U, 512U, 236'933'632U, true, true},
-      {2'048U, 2'048U, 2'048U, 444'366'848U, true, true},
-      {4'095U, 4'095U, 3'584U, 695'971'840U, true, true},
-      {4'096U, 4'096U, 4'096U, 721'059'840U, true, true},
-      {40'960U, 40'960U, 4'096U, 3'904'274'432U, true, true},
-      {40'961U, 40'960U, 4'096U, 3'904'340'736U, false, false},
+      {512U, 0U, 0U, 207'765'504U, false, false},
+      {513U, 513U, 512U, 237'212'160U, true, true},
+      {2'048U, 2'048U, 2'048U, 445'480'960U, true, true},
+      {4'095U, 4'095U, 3'584U, 697'921'536U, true, true},
+      {4'096U, 4'096U, 4'096U, 723'288'064U, true, true},
+      {40'960U, 40'960U, 4'096U, 3'906'502'656U, true, true},
+      {40'961U, 40'960U, 4'096U, 3'906'568'960U, false, false},
   }};
 
   for (const Case& item : kCases) {
@@ -2885,17 +2892,29 @@ void test_optimized_prefill_engine_derivation(TestContext& test) {
             item.max_sequence_length,
             derived.long_prefill_projection_span_capacity, true, false);
 
-    test.expect(
+    const bool derivation_matches =
         derived.enable_a4_prefill_workspace &&
-            derived.long_prefill_token_capacity ==
-                item.expected_long_capacity &&
-            derived.long_prefill_projection_span_capacity ==
-                item.expected_span_capacity &&
-            plan && plan.value->arena_bytes == item.expected_arena_bytes &&
-            layer_major ==
-                (item.expected_layer_major &&
-                 runtime::long_prefill_layer_major_build_enabled()) &&
-            projection_span == item.expected_projection_span,
+        derived.long_prefill_token_capacity == item.expected_long_capacity &&
+        derived.long_prefill_projection_span_capacity ==
+            item.expected_span_capacity &&
+        plan && plan.value->arena_bytes == item.expected_arena_bytes &&
+        layer_major ==
+            (item.expected_layer_major &&
+             runtime::long_prefill_layer_major_build_enabled()) &&
+        projection_span == item.expected_projection_span;
+    if (!derivation_matches) {
+      std::cerr << "derivation mismatch max_sequence_length="
+                << item.max_sequence_length
+                << " long_capacity=" << derived.long_prefill_token_capacity
+                << " span_capacity="
+                << derived.long_prefill_projection_span_capacity
+                << " arena_bytes="
+                << (plan ? plan.value->arena_bytes : 0U)
+                << " layer_major=" << layer_major
+                << " projection_span=" << projection_span << '\n';
+    }
+    test.expect(
+        derivation_matches,
         "central A4 Prefill derivation preserves exact boundary capacities, "
         "arena bytes, and safe route selection");
 

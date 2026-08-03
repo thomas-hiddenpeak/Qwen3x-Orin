@@ -26,6 +26,8 @@ namespace q3x::kernels {
 // reads either BF16 input plane.
 inline constexpr std::size_t kSm87A4W4FactorizedLaneQuantizeGateInput =
     5'120U;
+inline constexpr std::size_t
+    kSm87A4W4FactorizedLaneQuantizeAttentionOInput = 6'144U;
 inline constexpr std::size_t kSm87A4W4FactorizedLaneQuantizeDownInput =
     17'408U;
 inline constexpr std::size_t
@@ -53,6 +55,8 @@ sm87_a4w4_factorized_lane_quantize_launch_tokens_supported(
 sm87_a4w4_factorized_lane_quantize_input_supported(
     const std::size_t input_size) noexcept {
   return input_size == kSm87A4W4FactorizedLaneQuantizeGateInput ||
+         input_size ==
+             kSm87A4W4FactorizedLaneQuantizeAttentionOInput ||
          input_size == kSm87A4W4FactorizedLaneQuantizeDownInput;
 }
 
@@ -191,6 +195,10 @@ static_assert(sm87_a4w4_factorized_lane_quantize_plan(
                   1'853U, 1'920U, 5'120U, 1U)
                   .packed_capacity_bytes == 4'915'200U,
               "the real P1853 Gate R1 launch must remain addressable");
+static_assert(sm87_a4w4_factorized_lane_quantize_plan(
+                  1'853U, 1'920U, 6'144U, 1U)
+                  .packed_capacity_bytes == 5'898'240U,
+              "the real P1853 Attention-O R1 launch must remain addressable");
 static_assert(sm87_a4w4_factorized_lane_quantize_plan(
                   1'853U, 1'920U, 17'408U, 4U)
                   .launch_ctas == 7'680U,

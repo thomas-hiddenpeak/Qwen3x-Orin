@@ -25,6 +25,8 @@ struct PrefillMLPFactorizedLaneOverlayManifestBinding;
 struct PrefillMLPFactorizedLaneOverlayPolicyBinding;
 struct PrefillMLPFactorizedLaneR4Manifest;
 struct PrefillMLPFactorizedLaneR4Policy;
+struct PrefillAttentionFactorizedLaneOverlayManifestBinding;
+struct PrefillAttentionFactorizedLaneOverlayPolicyBinding;
 
 inline constexpr std::size_t kQwen36DenseLayerCount = 64U;
 inline constexpr std::size_t kQwen36LinearAttentionLayerCount = 48U;
@@ -606,6 +608,110 @@ struct PrefillMLPFactorizedLaneR4LayerView {
   }
 };
 
+// Projection-local, non-owning view of the Attention-only R1 payload.  The
+// fixed shapes intentionally exclude every MLP projection.  R1 is an
+// upper-bound experiment, so this independent type accepts lane_count=1 only
+// and conveys no production or quality eligibility to a runtime selector.
+struct PrefillAttentionFactorizedLaneR1LinearSidecarView {
+  const std::uint8_t* packed_weight = nullptr;
+  std::size_t packed_weight_capacity_bytes = 0U;
+  const std::uint16_t* lane_scales = nullptr;
+  std::size_t lane_scale_capacity_elements = 0U;
+  const float* inverse_alpha = nullptr;
+  std::size_t inverse_alpha_capacity_elements = 0U;
+  std::size_t output_size = 0U;
+  std::size_t input_size = 0U;
+  std::uint32_t lane_count = 0U;
+  float activation_clip_ratio = 0.0F;
+
+  [[nodiscard]] bool attached() const noexcept {
+    const bool linear_qkv =
+        output_size == 10'240U && input_size == 5'120U;
+    const bool linear_z =
+        output_size == 6'144U && input_size == 5'120U;
+    const bool full_q =
+        output_size == 12'288U && input_size == 5'120U;
+    const bool full_k_or_v =
+        output_size == 1'024U && input_size == 5'120U;
+    const bool attention_o =
+        output_size == 5'120U && input_size == 6'144U;
+    const std::size_t expected_weight_bytes =
+        output_size * input_size / 2U;
+    return packed_weight != nullptr && lane_scales != nullptr &&
+           inverse_alpha != nullptr && lane_count == 1U &&
+           (linear_qkv || linear_z || full_q || full_k_or_v ||
+            attention_o) &&
+           packed_weight_capacity_bytes == expected_weight_bytes &&
+           lane_scale_capacity_elements == output_size &&
+           inverse_alpha_capacity_elements == input_size &&
+           activation_clip_ratio > 0.0F &&
+           activation_clip_ratio <= 1.0F;
+  }
+
+  [[nodiscard]] bool empty() const noexcept {
+    return packed_weight == nullptr &&
+           packed_weight_capacity_bytes == 0U && lane_scales == nullptr &&
+           lane_scale_capacity_elements == 0U && inverse_alpha == nullptr &&
+           inverse_alpha_capacity_elements == 0U && output_size == 0U &&
+           input_size == 0U && lane_count == 0U &&
+           activation_clip_ratio == 0.0F;
+  }
+};
+
+// Exactly one topology is populated per decoder layer.  Linear QKV/Z and
+// full Q/K/V share the activation-factor and clip contracts at attachment;
+// O is deliberately independent because its input K is 6144 rather than
+// 5120.  The pointer values may differ because every projection carries its
+// own authenticated metadata copy even when the factor contents are equal.
+struct PrefillAttentionFactorizedLaneR1LayerView {
+  PrefillAttentionFactorizedLaneR1LinearSidecarView linear_qkv;
+  PrefillAttentionFactorizedLaneR1LinearSidecarView linear_z;
+  PrefillAttentionFactorizedLaneR1LinearSidecarView linear_o;
+  PrefillAttentionFactorizedLaneR1LinearSidecarView full_q;
+  PrefillAttentionFactorizedLaneR1LinearSidecarView full_k;
+  PrefillAttentionFactorizedLaneR1LinearSidecarView full_v;
+  PrefillAttentionFactorizedLaneR1LinearSidecarView full_o;
+
+  [[nodiscard]] bool linear_attached() const noexcept {
+    return linear_qkv.attached() && linear_z.attached() &&
+           linear_o.attached() && full_q.empty() && full_k.empty() &&
+           full_v.empty() && full_o.empty() &&
+           linear_qkv.output_size == 10'240U &&
+           linear_qkv.input_size == 5'120U &&
+           linear_z.output_size == 6'144U &&
+           linear_z.input_size == 5'120U &&
+           linear_o.output_size == 5'120U &&
+           linear_o.input_size == 6'144U &&
+           linear_qkv.lane_count == linear_z.lane_count &&
+           linear_qkv.activation_clip_ratio ==
+               linear_z.activation_clip_ratio;
+  }
+
+  [[nodiscard]] bool full_attached() const noexcept {
+    return full_q.attached() && full_k.attached() && full_v.attached() &&
+           full_o.attached() && linear_qkv.empty() && linear_z.empty() &&
+           linear_o.empty() && full_q.output_size == 12'288U &&
+           full_q.input_size == 5'120U && full_k.output_size == 1'024U &&
+           full_k.input_size == 5'120U && full_v.output_size == 1'024U &&
+           full_v.input_size == 5'120U && full_o.output_size == 5'120U &&
+           full_o.input_size == 6'144U &&
+           full_q.lane_count == full_k.lane_count &&
+           full_q.lane_count == full_v.lane_count &&
+           full_q.activation_clip_ratio == full_k.activation_clip_ratio &&
+           full_q.activation_clip_ratio == full_v.activation_clip_ratio;
+  }
+
+  [[nodiscard]] bool attached() const noexcept {
+    return linear_attached() || full_attached();
+  }
+
+  [[nodiscard]] bool empty() const noexcept {
+    return linear_qkv.empty() && linear_z.empty() && linear_o.empty() &&
+           full_q.empty() && full_k.empty() && full_v.empty() &&
+           full_o.empty();
+  }
+};
+
 struct LinearAttentionWeights {
   LinearWeight in_proj_qkv;
   LinearWeight in_proj_z;
@@ -639,6 +745,8 @@ struct DecoderLayerWeights {
       prefill_mlp_k512_fragment_native;
   PrefillMLPFactorizedLaneLayerView prefill_mlp_factorized_lane_r1;
   PrefillMLPFactorizedLaneR4LayerView prefill_mlp_factorized_lane_r4;
+  PrefillAttentionFactorizedLaneR1LayerView
+      prefill_attention_factorized_lane_r1;
 };
 
 struct WeightBindingStats {
@@ -875,6 +983,20 @@ class ModelWeights {
       const std::uint8_t* arena, std::size_t arena_bytes,
       const PrefillMLPFactorizedLaneR4Manifest* manifest,
       const PrefillMLPFactorizedLaneR4Policy* policy) noexcept;
+
+  // Transactionally publishes the fixed 208-projection Attention-only R1
+  // arena over the exact authenticated K256 A4 base currently attached to
+  // this object.  Every source projection must remain an exact FP8 binding.
+  // Linear QKV/Z and full Q/K/V share activation factor and clip contracts;
+  // each O projection is independent.  Receipt eligibility is intentionally
+  // absent: lane1 is a performance upper bound and never grants production or
+  // quality authority.  A canonical all-null/zero call detaches only this
+  // view family; replacing or detaching the A4 base clears it as well.
+  [[nodiscard]] bool attach_prefill_attention_factorized_lane_r1_sidecars(
+      const std::uint8_t* arena, std::size_t arena_bytes,
+      const PrefillAttentionFactorizedLaneOverlayManifestBinding* manifest,
+      const PrefillAttentionFactorizedLaneOverlayPolicyBinding* policy)
+      noexcept;
 
  private:
   friend class ModelWeightBinder;
