@@ -212,6 +212,9 @@ struct ReferenceGenerationTiming {
   // Independent proof for the projection-major register-pipeline Gate+Up
   // route. A fully admitted Qwen3.6 request reports one hit per layer.
   std::size_t gateup_m64n128_register_pipeline_launch_hits = 0U;
+  // Independent proof for the paired-record, same-warp Gate+Up register
+  // pipeline. A fully admitted Qwen3.6 request reports one hit per layer.
+  std::size_t gateup_m64n8_paired_warp_register_pipeline_launch_hits = 0U;
   // Independent proof for the optional pair-ring Down route.  Gate-only
   // hybrid admission deliberately leaves this at zero.
   std::size_t down_m128n128_ldmatrix_pairring_launch_hits = 0U;

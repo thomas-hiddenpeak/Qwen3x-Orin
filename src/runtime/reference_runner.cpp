@@ -32,6 +32,9 @@
 #include "q3x/kernels/sm87_a4w4_gateup_k512_m64n128_register_pipeline.h"
 #include "q3x/runtime/prefill_mlp_k512_fragment_native_overlay.h"
 #endif
+#if defined(Q3X_ENABLE_A4W4_GATEUP_K512_M64N8_PAIRED_WARP_REGISTER_PIPELINE_ADMISSION)
+#include "q3x/kernels/sm87_a4w4_gateup_k512_m64n8_paired_warp_register_pipeline.h"
+#endif
 #if defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M128N64_ADMISSION)
 #include "q3x/kernels/sm87_a4w4_gateup_down_k512_edge_m128n64.h"
 #endif
@@ -417,6 +420,17 @@ a4w4_gateup_down_k512_edge_m128n512_paired_ldmatrix_environment_enabled()
 }
 
 [[nodiscard]] bool
+a4w4_gateup_k512_m64n8_paired_warp_register_pipeline_environment_enabled()
+    noexcept {
+  if (optimized_prefill_dispatch_disabled()) {
+    return false;
+  }
+  const char* const value = std::getenv(
+      "Q3X_RUN_A4W4_GATEUP_K512_M64N8_PAIRED_WARP_REGISTER_PIPELINE_ADMISSION");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
+[[nodiscard]] bool
 a4w4_down_k512_m128n128_ldmatrix_pairring_environment_enabled() noexcept {
   if (optimized_prefill_dispatch_disabled()) {
     return false;
@@ -443,6 +457,9 @@ thread_local bool
     g_enable_a4w4_gateup_down_k512_edge_m128n512_paired_ldmatrix_admission =
         a4w4_gateup_down_k512_edge_m128n512_paired_ldmatrix_environment_enabled();
 thread_local bool
+    g_enable_a4w4_gateup_k512_m64n8_paired_warp_register_pipeline_admission =
+        a4w4_gateup_k512_m64n8_paired_warp_register_pipeline_environment_enabled();
+thread_local bool
     g_enable_a4w4_down_k512_m128n128_ldmatrix_pairring_admission =
         a4w4_down_k512_m128n128_ldmatrix_pairring_environment_enabled();
 thread_local bool
@@ -450,6 +467,9 @@ thread_local bool
         a4w4_down_k512_m128n128_16warp_pairring_environment_enabled();
 thread_local std::size_t
     g_a4w4_gateup_down_k512_edge_m128n512_paired_ldmatrix_admission_hits =
+        0U;
+thread_local std::size_t
+    g_a4w4_gateup_k512_m64n8_paired_warp_register_pipeline_admission_hits =
         0U;
 thread_local std::size_t
     g_a4w4_down_k512_m128n128_ldmatrix_pairring_admission_hits = 0U;
@@ -684,7 +704,8 @@ a4w4_projection_major_gateup_canonical_down_selector_query(
   query.legacy_gate_requested =
       g_enable_a4w4_gateup_complete_cell_v2_admission ||
       g_enable_a4w4_m128_stage_major_admission ||
-      g_enable_a4w4_gateup_down_k512_edge_m128n512_paired_ldmatrix_admission;
+      g_enable_a4w4_gateup_down_k512_edge_m128n512_paired_ldmatrix_admission ||
+      g_enable_a4w4_gateup_k512_m64n8_paired_warp_register_pipeline_admission;
 #if defined(Q3X_ENABLE_A4W4_GATEUP_PROJECTION_V3_ADMISSION)
   query.legacy_gate_requested =
       query.legacy_gate_requested ||
@@ -746,11 +767,16 @@ a4w4_paired_gateup_canonical_down_selector_query(
   reference_runner_detail::A4W4PairedGateUpCanonicalDownSelectorQuery query;
   query.master_requested =
       g_enable_a4w4_mlp_k512_paired_gateup_canonical_down_admission;
-  query.gate_requested =
+  query.old_gate_requested =
       g_enable_a4w4_gateup_down_k512_edge_m128n512_paired_ldmatrix_admission;
-  query.down_requested =
-      g_enable_a4w4_mlp_k512_paired_gateup_canonical_down_admission &&
+  query.new_paired_warp_gate_requested =
+      g_enable_a4w4_gateup_k512_m64n8_paired_warp_register_pipeline_admission;
+  query.old_ldmatrix_pairring_down_requested =
+      query.master_requested &&
       g_enable_a4w4_down_k512_m128n128_ldmatrix_pairring_admission;
+  query.new_16warp_pairring_down_requested =
+      query.master_requested &&
+      g_enable_a4w4_down_k512_m128n128_16warp_pairring_admission;
   query.legacy_mlp_requested = g_enable_a4w4_mlp_k512_admission;
 #if defined(Q3X_ENABLE_A4W4_MLP_K512_FRAGMENT_NATIVE_ADMISSION)
   query.legacy_mlp_requested =
@@ -802,8 +828,7 @@ a4w4_paired_gateup_canonical_down_selector_query(
       g_enable_a4w4_gateup_k512_m64n128_register_pipeline_admission;
 #endif
   query.legacy_down_requested =
-      g_enable_a4w4_down_m128_stage_major_admission ||
-      g_enable_a4w4_down_k512_m128n128_16warp_pairring_admission;
+      g_enable_a4w4_down_m128_stage_major_admission;
 #if defined(Q3X_ENABLE_A4W4_DOWN_COMPLETE_CELL_V2_ADMISSION)
   query.legacy_down_requested =
       query.legacy_down_requested ||
@@ -879,6 +904,7 @@ a4w4_down_k512_m128n128_16warp_pairring_v1_selector_query(
 #if defined(Q3X_ENABLE_A4W4_GATEUP_K512_M64N128_REGISTER_PIPELINE_ADMISSION)
       && !g_enable_a4w4_mlp_k512_projection_major_gateup_canonical_down_admission
 #endif
+      && !g_enable_a4w4_mlp_k512_paired_gateup_canonical_down_admission
       ;
   query.mlp_k512_v1_requested = g_enable_a4w4_mlp_k512_admission;
 #if defined(Q3X_ENABLE_A4W4_MLP_K512_FRAGMENT_NATIVE_ADMISSION)
@@ -1317,7 +1343,8 @@ a4w4_full_prefill_inventory_consumer(
   return projection_count == kReferenceDecoderLayerCount * 3U;
 }
 
-#if defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M128N512_PAIRED_LDMATRIX_ADMISSION)
+#if defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M128N512_PAIRED_LDMATRIX_ADMISSION) || \
+    defined(Q3X_ENABLE_A4W4_GATEUP_K512_M64N8_PAIRED_WARP_REGISTER_PIPELINE_ADMISSION)
 [[nodiscard]] bool
 complete_mlp_k512_paired_gateup_canonical_down_attached(
     const ModelWeights& weights) noexcept {
@@ -3720,6 +3747,10 @@ ReferenceRunner& ReferenceRunner::operator=(ReferenceRunner&& other) noexcept {
       other.a4w4_projection_major_gateup_canonical_down_route_,
       reference_runner_detail::
           A4W4ProjectionMajorGateUpCanonicalDownRoute::kDisabled);
+  a4w4_paired_gateup_canonical_down_route_ = std::exchange(
+      other.a4w4_paired_gateup_canonical_down_route_,
+      reference_runner_detail::
+          A4W4PairedGateUpCanonicalDownRoute::kDisabled);
   a4w4_full_prefill_admission_enabled_ = std::exchange(
       other.a4w4_full_prefill_admission_enabled_, false);
   trace_enabled_ = std::exchange(other.trace_enabled_, false);
@@ -3824,6 +3855,9 @@ void ReferenceRunner::release() noexcept {
   a4w4_projection_major_gateup_canonical_down_route_ =
       reference_runner_detail::
           A4W4ProjectionMajorGateUpCanonicalDownRoute::kDisabled;
+  a4w4_paired_gateup_canonical_down_route_ =
+      reference_runner_detail::
+          A4W4PairedGateUpCanonicalDownRoute::kDisabled;
   a4w4_full_prefill_admission_enabled_ = false;
   trace_enabled_ = false;
   trace_valid_ = false;
@@ -5216,10 +5250,8 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
         "prefill_mlp_k512_projection_major_gateup_canonical_down_requires_projection_span"));
   }
 #endif
-  if (reference_runner_detail::select_a4w4_paired_gateup_canonical_down_route(
-          a4w4_paired_gateup_canonical_down_selector_query(false)) !=
-      reference_runner_detail::A4W4PairedGateUpCanonicalDownRoute::
-          kDisabled) {
+  if (a4w4_paired_gateup_canonical_down_route_ !=
+      reference_runner_detail::A4W4PairedGateUpCanonicalDownRoute::kDisabled) {
     return fail_prefill_tile(runner_status(
         ReferenceRunnerError::kInvalidRunner,
         "prefill_mlp_k512_paired_gateup_canonical_down_requires_projection_span"));
@@ -8855,9 +8887,7 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
 #endif
   const reference_runner_detail::A4W4PairedGateUpCanonicalDownRoute
       paired_gateup_canonical_down_route =
-          reference_runner_detail::
-              select_a4w4_paired_gateup_canonical_down_route(
-                  a4w4_paired_gateup_canonical_down_selector_query(true));
+          a4w4_paired_gateup_canonical_down_route_;
   if (paired_gateup_canonical_down_route ==
       reference_runner_detail::A4W4PairedGateUpCanonicalDownRoute::kInvalid) {
     return runner_status(
@@ -8871,6 +8901,28 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
           reference_runner_detail::A4W4PairedGateUpCanonicalDownRoute::
               kDisabled;
 #endif
+  const bool paired_old_gate_selected =
+      paired_gateup_canonical_down_route ==
+          reference_runner_detail::A4W4PairedGateUpCanonicalDownRoute::
+              kOldGateCanonicalDown ||
+      paired_gateup_canonical_down_route ==
+          reference_runner_detail::A4W4PairedGateUpCanonicalDownRoute::
+              kOldGateLdmatrixPairringDown;
+  const bool paired_new_gate_selected =
+      paired_gateup_canonical_down_route ==
+          reference_runner_detail::A4W4PairedGateUpCanonicalDownRoute::
+              kNewPairedWarpGateCanonicalDown ||
+      paired_gateup_canonical_down_route ==
+          reference_runner_detail::A4W4PairedGateUpCanonicalDownRoute::
+              kNewPairedWarpGate16WarpPairringDown;
+  const bool paired_old_down_selected =
+      paired_gateup_canonical_down_route ==
+      reference_runner_detail::A4W4PairedGateUpCanonicalDownRoute::
+          kOldGateLdmatrixPairringDown;
+  const bool paired_new_down_selected =
+      paired_gateup_canonical_down_route ==
+      reference_runner_detail::A4W4PairedGateUpCanonicalDownRoute::
+          kNewPairedWarpGate16WarpPairringDown;
 #if defined(Q3X_ENABLE_A4W4_MLP_K512_ADMISSION)
   const reference_runner_detail::
       A4W4DownK512M128N128LdmatrixPairringV1Route
@@ -8918,22 +8970,34 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
                   A4W4DownK512M128N128Pairring16V1Route::kDisabled;
 #endif
 #if !defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M128N512_PAIRED_LDMATRIX_ADMISSION)
-  if (paired_gateup_canonical_down_route !=
-      reference_runner_detail::A4W4PairedGateUpCanonicalDownRoute::
-          kDisabled) {
+  if (paired_old_gate_selected) {
     return runner_status(
         ReferenceRunnerError::kInvalidRunner,
-        "prefill_projection_span_mlp_k512_paired_gateup_canonical_down_not_built",
+        "prefill_projection_span_mlp_k512_old_paired_gate_not_built",
+        item.layer_index);
+  }
+#endif
+#if !defined(Q3X_ENABLE_A4W4_GATEUP_K512_M64N8_PAIRED_WARP_REGISTER_PIPELINE_ADMISSION)
+  if (paired_new_gate_selected) {
+    return runner_status(
+        ReferenceRunnerError::kInvalidRunner,
+        "prefill_projection_span_mlp_k512_paired_warp_gate_not_built",
         item.layer_index);
   }
 #endif
 #if !defined(Q3X_ENABLE_A4W4_DOWN_K512_M128N128_LDMATRIX_PAIRRING_ADMISSION)
-  if (paired_gateup_canonical_down_route ==
-      reference_runner_detail::A4W4PairedGateUpCanonicalDownRoute::
-          kGateAndDown) {
+  if (paired_old_down_selected) {
     return runner_status(
         ReferenceRunnerError::kInvalidRunner,
         "prefill_projection_span_mlp_k512_down_m128n128_ldmatrix_pairring_not_built",
+        item.layer_index);
+  }
+#endif
+#if !defined(Q3X_ENABLE_A4W4_DOWN_K512_M128N128_16WARP_PAIRRING_ADMISSION)
+  if (paired_new_down_selected) {
+    return runner_status(
+        ReferenceRunnerError::kInvalidRunner,
+        "prefill_projection_span_mlp_k512_paired_warp_down_m128n128_16warp_pairring_not_built",
         item.layer_index);
   }
 #endif
@@ -9263,25 +9327,44 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
     mlp_k512_selected = true;
   }
 #endif
-#if defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M128N512_PAIRED_LDMATRIX_ADMISSION)
+#if defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M128N512_PAIRED_LDMATRIX_ADMISSION) || \
+    defined(Q3X_ENABLE_A4W4_GATEUP_K512_M64N8_PAIRED_WARP_REGISTER_PIPELINE_ADMISSION)
   if (!mlp_k512_selected &&
-      (paired_gateup_canonical_down_route ==
-          reference_runner_detail::A4W4PairedGateUpCanonicalDownRoute::
-              kGateOnly ||
-      paired_gateup_canonical_down_route ==
-          reference_runner_detail::A4W4PairedGateUpCanonicalDownRoute::
-              kGateAndDown)) {
+      (paired_old_gate_selected || paired_new_gate_selected)) {
     const PrefillMLPK512FragmentNativeCompositeView& composite =
         layer_weights.prefill_mlp_k512_fragment_native;
     const std::size_t secondary_capacity = static_cast<std::size_t>(
         request_plan.long_prefill_projection_secondary_bf16
             .element_capacity);
     const std::size_t mlp_launch_token_count =
-        kernels::sm87_a4w4_prefill_k512_launch_token_count(token_count);
-    const auto gate_plan = kernels::
-        sm87_a4w4_gateup_down_edge_m128n512_paired_ldmatrix_plan(
-            token_count, mlp_launch_token_count,
-            kReferenceIntermediateSize, kReferenceHiddenSize);
+        kernels::sm87_a4w4_gateup_down_edge_launch_token_count(token_count);
+    bool gate_plan_valid = false;
+    bool gate_scratch_contract_valid = true;
+#if defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M128N512_PAIRED_LDMATRIX_ADMISSION)
+    if (paired_old_gate_selected) {
+      const auto gate_plan = kernels::
+          sm87_a4w4_gateup_down_edge_m128n512_paired_ldmatrix_plan(
+              token_count, mlp_launch_token_count,
+              kReferenceIntermediateSize, kReferenceHiddenSize);
+      gate_plan_valid = gate_plan.launch_ctas != 0U;
+      gate_scratch_contract_valid =
+          gate_plan.required_scratch_bytes ==
+              kRequestA4GateUpCtaScratchBytes &&
+          views_.prefill_a4_gateup_cta_scratch != nullptr &&
+          views_.prefill_a4_gateup_cta_scratch_bytes ==
+              kRequestA4GateUpCtaScratchBytes &&
+          reinterpret_cast<std::uintptr_t>(
+              views_.prefill_a4_gateup_cta_scratch) % 16U == 0U;
+    }
+#endif
+#if defined(Q3X_ENABLE_A4W4_GATEUP_K512_M64N8_PAIRED_WARP_REGISTER_PIPELINE_ADMISSION)
+    if (paired_new_gate_selected) {
+      const auto gate_plan = kernels::sm87_a4w4_gateup_down_edge_plan(
+          token_count, mlp_launch_token_count, kReferenceIntermediateSize,
+          kReferenceHiddenSize);
+      gate_plan_valid = gate_plan.launch_ctas != 0U;
+    }
+#endif
     const auto down_plan = kernels::sm87_a4w4_down_k512_plan(
         mlp_launch_token_count, kReferenceHiddenSize,
         kReferenceIntermediateSize);
@@ -9303,25 +9386,25 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
         mlp_launch_token_count == 0U ||
         mlp_launch_token_count != projection_token_count ||
         mlp_launch_token_count > span_capacity ||
-        gate_plan.launch_ctas == 0U || down_plan.launch_ctas == 0U ||
-        gate_plan.required_scratch_bytes !=
-            kRequestA4GateUpCtaScratchBytes ||
-        views_.prefill_a4_gateup_cta_scratch == nullptr ||
-        views_.prefill_a4_gateup_cta_scratch_bytes !=
-            kRequestA4GateUpCtaScratchBytes ||
-        reinterpret_cast<std::uintptr_t>(
-            views_.prefill_a4_gateup_cta_scratch) % 16U != 0U ||
+        !gate_plan_valid || !gate_scratch_contract_valid ||
+        down_plan.launch_ctas == 0U ||
+#if defined(Q3X_ENABLE_A4W4_DOWN_K512_M128N128_16WARP_PAIRRING_ADMISSION)
+        (paired_new_down_selected &&
+         !kernels::
+              sm87_a4w4_down_k512_m128n128_16warp_pairring_padding_contract(
+                  token_count, mlp_launch_token_count)) ||
+#endif
         hidden_packed_capacity <
-            kernels::sm87_a4w4_consumer_packed_capacity_bytes(
+            kernels::sm87_a4w4_gateup_down_edge_packed_capacity_bytes(
                 mlp_launch_token_count, kReferenceHiddenSize) ||
         hidden_scale_capacity <
-            kernels::sm87_a4w4_prefill_k512_scale_capacity_elements(
+            kernels::sm87_a4w4_gateup_down_edge_scale_capacity_elements(
                 mlp_launch_token_count, kReferenceHiddenSize) ||
         intermediate_packed_capacity <
-            kernels::sm87_a4w4_consumer_packed_capacity_bytes(
+            kernels::sm87_a4w4_gateup_down_edge_packed_capacity_bytes(
                 mlp_launch_token_count, kReferenceIntermediateSize) ||
         intermediate_scale_capacity <
-            kernels::sm87_a4w4_prefill_k512_scale_capacity_elements(
+            kernels::sm87_a4w4_gateup_down_edge_scale_capacity_elements(
                 mlp_launch_token_count, kReferenceIntermediateSize) ||
         secondary_capacity <
             mlp_launch_token_count * kReferenceHiddenSize) {
@@ -9338,37 +9421,88 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
                 views_.prefill_a4_hidden_packed, hidden_packed_capacity,
                 views_.prefill_a4_hidden_scales, hidden_scale_capacity,
                 stream_),
-            "prefill_projection_span_mlp_k512_paired_gateup_canonical_down_input_quantize") ||
-        !check_cuda(
-            kernels::
-                launch_sm87_a4w4_gateup_down_k512_edge_m128n512_paired_ldmatrix_cuda(
-                    views_.prefill_a4_hidden_packed,
-                    hidden_packed_capacity,
-                    views_.prefill_a4_hidden_scales,
-                    hidden_scale_capacity, composite.gateup_codes,
-                    composite.gateup_code_capacity_bytes,
-                    composite.gateup_scales,
-                    composite.gateup_scale_capacity_elements, token_count,
-                    mlp_launch_token_count, kReferenceIntermediateSize,
-                    kReferenceHiddenSize,
-                    composite.down_activation_clip_ratio,
-                    views_.prefill_a4_gateup_cta_scratch,
-                    views_.prefill_a4_gateup_cta_scratch_bytes,
-                    views_.prefill_a4_intermediate_packed,
-                    intermediate_packed_capacity,
-                    views_.prefill_a4_intermediate_scales,
-                    intermediate_scale_capacity, stream_),
-            "prefill_projection_span_mlp_k512_gateup_down_edge_m128n512_paired_ldmatrix")) {
+            "prefill_projection_span_mlp_k512_paired_gateup_canonical_down_input_quantize")) {
       return failure;
     }
-    ++g_a4w4_gateup_down_k512_edge_m128n512_paired_ldmatrix_admission_hits;
+    int gate_status = static_cast<int>(cudaErrorInvalidValue);
+    const char* gate_stage = nullptr;
+#if defined(Q3X_ENABLE_A4W4_GATEUP_K512_M64N8_PAIRED_WARP_REGISTER_PIPELINE_ADMISSION)
+    if (paired_new_gate_selected) {
+      gate_status = kernels::
+          launch_sm87_a4w4_gateup_k512_m64n8_paired_warp_register_pipeline_cuda(
+              views_.prefill_a4_hidden_packed, hidden_packed_capacity,
+              views_.prefill_a4_hidden_scales, hidden_scale_capacity,
+              composite.gateup_codes,
+              composite.gateup_code_capacity_bytes,
+              composite.gateup_scales,
+              composite.gateup_scale_capacity_elements, token_count,
+              mlp_launch_token_count, kReferenceIntermediateSize,
+              kReferenceHiddenSize, composite.down_activation_clip_ratio,
+              views_.prefill_a4_intermediate_packed,
+              intermediate_packed_capacity,
+              views_.prefill_a4_intermediate_scales,
+              intermediate_scale_capacity, stream_);
+      gate_stage =
+          "prefill_projection_span_mlp_k512_gateup_m64n8_paired_warp_register_pipeline";
+    }
+#endif
+#if defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M128N512_PAIRED_LDMATRIX_ADMISSION)
+    if (paired_old_gate_selected) {
+      gate_status = kernels::
+          launch_sm87_a4w4_gateup_down_k512_edge_m128n512_paired_ldmatrix_cuda(
+              views_.prefill_a4_hidden_packed, hidden_packed_capacity,
+              views_.prefill_a4_hidden_scales, hidden_scale_capacity,
+              composite.gateup_codes,
+              composite.gateup_code_capacity_bytes,
+              composite.gateup_scales,
+              composite.gateup_scale_capacity_elements, token_count,
+              mlp_launch_token_count, kReferenceIntermediateSize,
+              kReferenceHiddenSize, composite.down_activation_clip_ratio,
+              views_.prefill_a4_gateup_cta_scratch,
+              views_.prefill_a4_gateup_cta_scratch_bytes,
+              views_.prefill_a4_intermediate_packed,
+              intermediate_packed_capacity,
+              views_.prefill_a4_intermediate_scales,
+              intermediate_scale_capacity, stream_);
+      gate_stage =
+          "prefill_projection_span_mlp_k512_gateup_down_edge_m128n512_paired_ldmatrix";
+    }
+#endif
+    if (!check_cuda(gate_status, gate_stage)) {
+      return failure;
+    }
+#if defined(Q3X_ENABLE_A4W4_GATEUP_K512_M64N8_PAIRED_WARP_REGISTER_PIPELINE_ADMISSION)
+    if (paired_new_gate_selected) {
+      ++g_a4w4_gateup_k512_m64n8_paired_warp_register_pipeline_admission_hits;
+    }
+#endif
+#if defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M128N512_PAIRED_LDMATRIX_ADMISSION)
+    if (paired_old_gate_selected) {
+      ++g_a4w4_gateup_down_k512_edge_m128n512_paired_ldmatrix_admission_hits;
+    }
+#endif
 
     int down_status = static_cast<int>(cudaErrorInvalidValue);
     const char* down_stage = nullptr;
+#if defined(Q3X_ENABLE_A4W4_DOWN_K512_M128N128_16WARP_PAIRRING_ADMISSION)
+    if (paired_new_down_selected) {
+      down_status = kernels::
+          launch_sm87_a4w4_down_k512_m128n128_16warp_pairring_bf16_cuda(
+              views_.prefill_a4_intermediate_packed,
+              intermediate_packed_capacity,
+              views_.prefill_a4_intermediate_scales,
+              intermediate_scale_capacity, composite.down_codes,
+              composite.down_code_capacity_bytes, composite.down_scales,
+              composite.down_scale_capacity_elements, token_count,
+              mlp_launch_token_count, kReferenceHiddenSize,
+              kReferenceIntermediateSize, secondary,
+              kReferenceHiddenSize, secondary_capacity, stream_);
+      down_stage =
+          "prefill_projection_span_mlp_k512_paired_warp_down_m128n128_16warp_pairring";
+    } else
+#endif
 #if defined(Q3X_ENABLE_A4W4_DOWN_K512_M128N128_LDMATRIX_PAIRRING_ADMISSION)
-    if (paired_gateup_canonical_down_route ==
-        reference_runner_detail::A4W4PairedGateUpCanonicalDownRoute::
-            kGateAndDown) {
+    if (paired_old_down_selected) {
       down_status = kernels::
           launch_sm87_a4w4_down_k512_m128n128_ldmatrix_pairring_bf16_cuda(
               views_.prefill_a4_intermediate_packed,
@@ -9401,10 +9535,13 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
       return failure;
     }
 #if defined(Q3X_ENABLE_A4W4_DOWN_K512_M128N128_LDMATRIX_PAIRRING_ADMISSION)
-    if (paired_gateup_canonical_down_route ==
-        reference_runner_detail::A4W4PairedGateUpCanonicalDownRoute::
-            kGateAndDown) {
+    if (paired_old_down_selected) {
       ++g_a4w4_down_k512_m128n128_ldmatrix_pairring_admission_hits;
+    }
+#endif
+#if defined(Q3X_ENABLE_A4W4_DOWN_K512_M128N128_16WARP_PAIRRING_ADMISSION)
+    if (paired_new_down_selected) {
+      ++g_a4w4_down_k512_m128n128_16warp_pairring_admission_hits;
     }
 #endif
     local_hits.activation_quantize_hits += 2U;
@@ -10689,6 +10826,8 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
     const std::size_t
         gateup_m128n512_paired_ldmatrix_hits_before =
             g_a4w4_gateup_down_k512_edge_m128n512_paired_ldmatrix_admission_hits;
+    const std::size_t gateup_m64n8_paired_warp_register_pipeline_hits_before =
+        g_a4w4_gateup_k512_m64n8_paired_warp_register_pipeline_admission_hits;
     const std::size_t down_m128n128_ldmatrix_pairring_hits_before =
         g_a4w4_down_k512_m128n128_ldmatrix_pairring_admission_hits;
     const std::size_t down_m128n128_16warp_pairring_hits_before =
@@ -10703,9 +10842,7 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
 #endif
     const reference_runner_detail::A4W4PairedGateUpCanonicalDownRoute
         request_paired_gateup_canonical_down_route =
-            reference_runner_detail::
-                select_a4w4_paired_gateup_canonical_down_route(
-                    a4w4_paired_gateup_canonical_down_selector_query(true));
+            a4w4_paired_gateup_canonical_down_route_;
     const reference_runner_detail::
         A4W4DownK512M128N128LdmatrixPairringV1Route
             request_down_m128n128_ldmatrix_pairring_v1_route =
@@ -11019,28 +11156,44 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
             ? g_a4w4_gateup_down_k512_edge_m128n512_paired_ldmatrix_admission_hits -
                   gateup_m128n512_paired_ldmatrix_hits_before
             : 0U;
+    const std::size_t gateup_m64n8_paired_warp_register_pipeline_delta =
+        g_a4w4_gateup_k512_m64n8_paired_warp_register_pipeline_admission_hits >=
+                gateup_m64n8_paired_warp_register_pipeline_hits_before
+            ? g_a4w4_gateup_k512_m64n8_paired_warp_register_pipeline_admission_hits -
+                  gateup_m64n8_paired_warp_register_pipeline_hits_before
+            : 0U;
     const std::size_t down_m128n128_ldmatrix_pairring_delta =
         g_a4w4_down_k512_m128n128_ldmatrix_pairring_admission_hits >=
                 down_m128n128_ldmatrix_pairring_hits_before
             ? g_a4w4_down_k512_m128n128_ldmatrix_pairring_admission_hits -
                   down_m128n128_ldmatrix_pairring_hits_before
             : 0U;
-    const bool down_m128n128_ldmatrix_pairring_v1_selected =
-        request_down_m128n128_ldmatrix_pairring_v1_route ==
-        reference_runner_detail::
-            A4W4DownK512M128N128LdmatrixPairringV1Route::kEnabled;
     const std::size_t down_m128n128_ldmatrix_pairring_hybrid_hits_after =
-        down_m128n128_ldmatrix_pairring_v1_selected
-            ? down_m128n128_ldmatrix_pairring_hits_before
-            : g_a4w4_down_k512_m128n128_ldmatrix_pairring_admission_hits;
+        request_paired_gateup_canonical_down_route ==
+                reference_runner_detail::
+                    A4W4PairedGateUpCanonicalDownRoute::
+                        kOldGateLdmatrixPairringDown
+            ? g_a4w4_down_k512_m128n128_ldmatrix_pairring_admission_hits
+            : down_m128n128_ldmatrix_pairring_hits_before;
+    const std::size_t down_m128n128_16warp_pairring_hybrid_hits_after =
+        request_paired_gateup_canonical_down_route ==
+                reference_runner_detail::
+                    A4W4PairedGateUpCanonicalDownRoute::
+                        kNewPairedWarpGate16WarpPairringDown
+            ? g_a4w4_down_k512_m128n128_16warp_pairring_admission_hits
+            : down_m128n128_16warp_pairring_hits_before;
     const bool paired_gateup_canonical_down_accounting_valid =
         reference_runner_detail::
             a4w4_paired_gateup_canonical_down_accounting_valid(
                 request_paired_gateup_canonical_down_route, spans,
                 gateup_m128n512_paired_ldmatrix_hits_before,
                 g_a4w4_gateup_down_k512_edge_m128n512_paired_ldmatrix_admission_hits,
+                gateup_m64n8_paired_warp_register_pipeline_hits_before,
+                g_a4w4_gateup_k512_m64n8_paired_warp_register_pipeline_admission_hits,
                 down_m128n128_ldmatrix_pairring_hits_before,
-                down_m128n128_ldmatrix_pairring_hybrid_hits_after);
+                down_m128n128_ldmatrix_pairring_hybrid_hits_after,
+                down_m128n128_16warp_pairring_hits_before,
+                down_m128n128_16warp_pairring_hybrid_hits_after);
     const bool down_m128n128_ldmatrix_pairring_v1_accounting_valid =
         reference_runner_detail::
             a4w4_down_k512_m128n128_ldmatrix_pairring_v1_accounting_valid(
@@ -11049,7 +11202,8 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
                 down_m128n128_ldmatrix_pairring_hits_before,
                 request_paired_gateup_canonical_down_route ==
                         reference_runner_detail::
-                            A4W4PairedGateUpCanonicalDownRoute::kGateAndDown
+                            A4W4PairedGateUpCanonicalDownRoute::
+                                kOldGateLdmatrixPairringDown
                     ? down_m128n128_ldmatrix_pairring_hits_before
                     : g_a4w4_down_k512_m128n128_ldmatrix_pairring_admission_hits);
     const std::size_t down_m128n128_16warp_pairring_delta =
@@ -11064,11 +11218,17 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
                 request_down_m128n128_16warp_pairring_v1_route, spans,
                 mlp_k512_v1_delta,
                 down_m128n128_16warp_pairring_hits_before,
-                projection_major_gate_and_down_selected
+                (projection_major_gate_and_down_selected ||
+                 request_paired_gateup_canonical_down_route ==
+                     reference_runner_detail::
+                         A4W4PairedGateUpCanonicalDownRoute::
+                             kNewPairedWarpGate16WarpPairringDown)
                     ? down_m128n128_16warp_pairring_hits_before
                     : g_a4w4_down_k512_m128n128_16warp_pairring_admission_hits);
 #else
     constexpr std::size_t gateup_m128n512_paired_ldmatrix_delta = 0U;
+    constexpr std::size_t
+        gateup_m64n8_paired_warp_register_pipeline_delta = 0U;
     constexpr std::size_t down_m128n128_ldmatrix_pairring_delta = 0U;
     constexpr bool paired_gateup_canonical_down_accounting_valid = true;
     constexpr bool
@@ -11251,7 +11411,8 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
     const std::size_t mlp_k512_delta =
         mlp_k512_v1_delta + mlp_k512_fragment_native_delta +
         gateup_m128n512_paired_ldmatrix_delta +
-        gateup_m64n128_register_pipeline_delta;
+        gateup_m64n128_register_pipeline_delta +
+        gateup_m64n8_paired_warp_register_pipeline_delta;
     const bool mlp_k512_accounting_valid =
         mlp_k512_v1_accounting_valid &&
         projection_major_gateup_canonical_down_accounting_valid &&
@@ -11303,11 +11464,24 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
           gateup_m128n128_projection_serial_delta == 0U &&
           gateup_m128n512_fused_quantize_delta == 0U &&
           gateup_down_k512_edge_m128n64_delta == 0U &&
-          gateup_m64n128_register_pipeline_delta == 0U)) &&
+          gateup_m64n128_register_pipeline_delta == 0U &&
+          gateup_m64n8_paired_warp_register_pipeline_delta == 0U)) &&
         (gateup_m64n128_register_pipeline_delta == 0U ||
          (mlp_k512_v1_delta == 0U &&
           mlp_k512_fragment_native_delta == 0U &&
           gateup_m128n512_paired_ldmatrix_delta == 0U &&
+          gateup_m64n8_paired_warp_register_pipeline_delta == 0U &&
+          gateup_down_k512_edge_delta == 0U &&
+          gateup_down_k512_edge_m64n128_k256_alternating_delta == 0U &&
+          gateup_down_k512_edge_m64n128_k256_ldmatrix_pairfeed_delta == 0U &&
+          gateup_m128n128_projection_serial_delta == 0U &&
+          gateup_m128n512_fused_quantize_delta == 0U &&
+          gateup_down_k512_edge_m128n64_delta == 0U)) &&
+        (gateup_m64n8_paired_warp_register_pipeline_delta == 0U ||
+         (mlp_k512_v1_delta == 0U &&
+          mlp_k512_fragment_native_delta == 0U &&
+          gateup_m128n512_paired_ldmatrix_delta == 0U &&
+          gateup_m64n128_register_pipeline_delta == 0U &&
           gateup_down_k512_edge_delta == 0U &&
           gateup_down_k512_edge_m64n128_k256_alternating_delta == 0U &&
           gateup_down_k512_edge_m64n128_k256_ldmatrix_pairfeed_delta == 0U &&
@@ -11379,6 +11553,8 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
         gateup_m128n512_paired_ldmatrix_delta;
     value.gateup_m64n128_register_pipeline_launch_hits =
         gateup_m64n128_register_pipeline_delta;
+    value.gateup_m64n8_paired_warp_register_pipeline_launch_hits =
+        gateup_m64n8_paired_warp_register_pipeline_delta;
     value.down_m128n128_ldmatrix_pairring_launch_hits =
         down_m128n128_ldmatrix_pairring_delta;
     value.down_m128n128_16warp_pairring_launch_hits =
@@ -11412,10 +11588,8 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
         "prefill_mlp_k512_projection_major_gateup_canonical_down_requires_projection_span"));
   }
 #endif
-  if (reference_runner_detail::select_a4w4_paired_gateup_canonical_down_route(
-          a4w4_paired_gateup_canonical_down_selector_query(false)) !=
-      reference_runner_detail::A4W4PairedGateUpCanonicalDownRoute::
-          kDisabled) {
+  if (a4w4_paired_gateup_canonical_down_route_ !=
+      reference_runner_detail::A4W4PairedGateUpCanonicalDownRoute::kDisabled) {
     return fail_long_prefill(runner_status(
         ReferenceRunnerError::kInvalidRunner,
         "prefill_mlp_k512_paired_gateup_canonical_down_requires_projection_span"));
@@ -12150,16 +12324,46 @@ ReferenceRunnerFactoryResult create_reference_runner(
         "prefill_mlp_k512_paired_gateup_canonical_down_selector_contract");
     return result;
   }
-#if !defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M128N512_PAIRED_LDMATRIX_ADMISSION)
-  if (paired_gateup_canonical_down_route !=
+  const bool paired_old_gate_selected =
+      paired_gateup_canonical_down_route ==
+          reference_runner_detail::A4W4PairedGateUpCanonicalDownRoute::
+              kOldGateCanonicalDown ||
+      paired_gateup_canonical_down_route ==
+          reference_runner_detail::A4W4PairedGateUpCanonicalDownRoute::
+              kOldGateLdmatrixPairringDown;
+  const bool paired_new_gate_selected =
+      paired_gateup_canonical_down_route ==
+          reference_runner_detail::A4W4PairedGateUpCanonicalDownRoute::
+              kNewPairedWarpGateCanonicalDown ||
+      paired_gateup_canonical_down_route ==
+          reference_runner_detail::A4W4PairedGateUpCanonicalDownRoute::
+              kNewPairedWarpGate16WarpPairringDown;
+  const bool paired_old_down_selected =
+      paired_gateup_canonical_down_route ==
       reference_runner_detail::A4W4PairedGateUpCanonicalDownRoute::
-          kDisabled) {
+          kOldGateLdmatrixPairringDown;
+  const bool paired_new_down_selected =
+      paired_gateup_canonical_down_route ==
+      reference_runner_detail::A4W4PairedGateUpCanonicalDownRoute::
+          kNewPairedWarpGate16WarpPairringDown;
+#if !defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M128N512_PAIRED_LDMATRIX_ADMISSION)
+  if (paired_old_gate_selected) {
     result.diagnostic = runner_status(
         ReferenceRunnerError::kInvalidDependency,
-        "prefill_mlp_k512_paired_gateup_canonical_down_build");
+        "prefill_mlp_k512_old_paired_gate_build");
     return result;
   }
-#else
+#endif
+#if !defined(Q3X_ENABLE_A4W4_GATEUP_K512_M64N8_PAIRED_WARP_REGISTER_PIPELINE_ADMISSION)
+  if (paired_new_gate_selected) {
+    result.diagnostic = runner_status(
+        ReferenceRunnerError::kInvalidDependency,
+        "prefill_mlp_k512_paired_warp_gate_build");
+    return result;
+  }
+#endif
+#if defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M128N512_PAIRED_LDMATRIX_ADMISSION) || \
+    defined(Q3X_ENABLE_A4W4_GATEUP_K512_M64N8_PAIRED_WARP_REGISTER_PIPELINE_ADMISSION)
   if (paired_gateup_canonical_down_route !=
           reference_runner_detail::A4W4PairedGateUpCanonicalDownRoute::
               kDisabled &&
@@ -12177,15 +12381,84 @@ ReferenceRunnerFactoryResult create_reference_runner(
   }
 #endif
 #if !defined(Q3X_ENABLE_A4W4_DOWN_K512_M128N128_LDMATRIX_PAIRRING_ADMISSION)
-  if (paired_gateup_canonical_down_route ==
-      reference_runner_detail::A4W4PairedGateUpCanonicalDownRoute::
-          kGateAndDown) {
+  if (paired_old_down_selected) {
     result.diagnostic = runner_status(
         ReferenceRunnerError::kInvalidDependency,
         "prefill_mlp_k512_down_m128n128_ldmatrix_pairring_build");
     return result;
   }
 #endif
+#if !defined(Q3X_ENABLE_A4W4_DOWN_K512_M128N128_16WARP_PAIRRING_ADMISSION)
+  if (paired_new_down_selected) {
+    result.diagnostic = runner_status(
+        ReferenceRunnerError::kInvalidDependency,
+        "prefill_mlp_k512_paired_warp_down_m128n128_16warp_pairring_build");
+    return result;
+  }
+#endif
+#if defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M128N512_PAIRED_LDMATRIX_ADMISSION)
+  if (paired_old_gate_selected) {
+    kernels::Sm87A4W4GateUpDownEdgeM128N512PairedLdmatrixResources resources{};
+    const int resource_status = kernels::
+        query_sm87_a4w4_gateup_down_k512_edge_m128n512_paired_ldmatrix_resources_cuda(
+            &resources);
+    if (resource_status != static_cast<int>(cudaSuccess)) {
+      result.diagnostic = runner_status(
+          ReferenceRunnerError::kInvalidDependency,
+          "prefill_mlp_k512_old_paired_gate_resource_gate",
+          kReferenceNoLayer, resource_status);
+      return result;
+    }
+  }
+#endif
+#if defined(Q3X_ENABLE_A4W4_GATEUP_K512_M64N8_PAIRED_WARP_REGISTER_PIPELINE_ADMISSION)
+  if (paired_new_gate_selected) {
+    kernels::Sm87A4W4GateUpK512M64N8PairedWarpRegisterPipelineResources
+        resources{};
+    const int resource_status = kernels::
+        query_sm87_a4w4_gateup_k512_m64n8_paired_warp_register_pipeline_resources_cuda(
+            &resources);
+    if (resource_status != static_cast<int>(cudaSuccess)) {
+      result.diagnostic = runner_status(
+          ReferenceRunnerError::kInvalidDependency,
+          "prefill_mlp_k512_paired_warp_gate_resource_gate",
+          kReferenceNoLayer, resource_status);
+      return result;
+    }
+  }
+#endif
+#if defined(Q3X_ENABLE_A4W4_DOWN_K512_M128N128_LDMATRIX_PAIRRING_ADMISSION)
+  if (paired_old_down_selected) {
+    kernels::Sm87A4W4DownK512M128N128LdmatrixPairringResources resources{};
+    const int resource_status = kernels::
+        query_sm87_a4w4_down_k512_m128n128_ldmatrix_pairring_resources_cuda(
+            &resources);
+    if (resource_status != static_cast<int>(cudaSuccess)) {
+      result.diagnostic = runner_status(
+          ReferenceRunnerError::kInvalidDependency,
+          "prefill_mlp_k512_old_pairring_down_resource_gate",
+          kReferenceNoLayer, resource_status);
+      return result;
+    }
+  }
+#endif
+#if defined(Q3X_ENABLE_A4W4_DOWN_K512_M128N128_16WARP_PAIRRING_ADMISSION)
+  if (paired_new_down_selected) {
+    kernels::Sm87A4W4DownK512M128N128Pairring16Resources resources{};
+    const int resource_status = kernels::
+        query_sm87_a4w4_down_k512_m128n128_16warp_pairring_resources_cuda(
+            &resources);
+    if (resource_status != static_cast<int>(cudaSuccess)) {
+      result.diagnostic = runner_status(
+          ReferenceRunnerError::kInvalidDependency,
+          "prefill_mlp_k512_paired_warp_down_resource_gate",
+          kReferenceNoLayer, resource_status);
+      return result;
+    }
+  }
+#endif
+  runner.a4w4_paired_gateup_canonical_down_route_ =
+      paired_gateup_canonical_down_route;
   const reference_runner_detail::
       A4W4DownK512M128N128LdmatrixPairringV1Route
           down_m128n128_ldmatrix_pairring_v1_route =
@@ -12373,7 +12646,8 @@ ReferenceRunnerFactoryResult create_reference_runner(
          complete_mlp_k512_projection_major_gateup_canonical_down_attached(
              *weights)) ||
 #endif
-#if defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M128N512_PAIRED_LDMATRIX_ADMISSION)
+#if defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M128N512_PAIRED_LDMATRIX_ADMISSION) || \
+    defined(Q3X_ENABLE_A4W4_GATEUP_K512_M64N8_PAIRED_WARP_REGISTER_PIPELINE_ADMISSION)
         (paired_gateup_canonical_down_route !=
              reference_runner_detail::
                  A4W4PairedGateUpCanonicalDownRoute::kDisabled &&

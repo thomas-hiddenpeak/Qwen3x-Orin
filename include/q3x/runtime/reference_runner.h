@@ -256,6 +256,10 @@ struct ReferenceLongPrefillResult {
   // layer and projection span.  It never aliases the older paired-layout
   // counter even though both routes consume a composite MLP publication.
   std::size_t gateup_m64n128_register_pipeline_launch_hits = 0U;
+  // Request-local proof that the paired-v2 publication used the M64N8
+  // same-warp Gate+Up register pipeline.  This is deliberately independent
+  // from both the older paired-layout Gate and the projection-major route.
+  std::size_t gateup_m64n8_paired_warp_register_pipeline_launch_hits = 0U;
   // The optional pair-ring Down selector has an independent request-local
   // proof.  Gate-only admission deliberately leaves this at zero.
   std::size_t down_m128n128_ldmatrix_pairring_launch_hits = 0U;
@@ -1366,21 +1370,27 @@ select_a4w4_k128_down_prefill_route(
 }
 
 // The paired-GateUp/canonical-Down publication is a complete production
-// route, not a leaf-kernel override.  Its master publication selector and
-// Gate selector must be enabled together.  Down is independently optional,
-// while every older MLP/Gate/Down selector is mutually exclusive.  The
-// explicit projection_span flag lets non-span entry points fail closed.
+// route, not a leaf-kernel override.  The factory freezes one of two complete
+// Gate/Down pairs: the old M128N512 Gate may use only the old LDSM pair-ring
+// Down, while the M64N8 paired-warp Gate may use only the 16-warp pair-ring
+// Down.  Exactly one Gate selector is required whenever the publication
+// master is requested.  The explicit projection_span flag lets non-span
+// entry points fail closed.
 enum class A4W4PairedGateUpCanonicalDownRoute : std::uint8_t {
   kDisabled = 0,
   kInvalid,
-  kGateOnly,
-  kGateAndDown,
+  kOldGateCanonicalDown,
+  kOldGateLdmatrixPairringDown,
+  kNewPairedWarpGateCanonicalDown,
+  kNewPairedWarpGate16WarpPairringDown,
 };
 
 struct A4W4PairedGateUpCanonicalDownSelectorQuery final {
   bool master_requested = false;
-  bool gate_requested = false;
-  bool down_requested = false;
+  bool old_gate_requested = false;
+  bool new_paired_warp_gate_requested = false;
+  bool old_ldmatrix_pairring_down_requested = false;
+  bool new_16warp_pairring_down_requested = false;
   bool legacy_mlp_requested = false;
   bool legacy_gate_requested = false;
   bool legacy_down_requested = false;
@@ -1390,32 +1400,57 @@ struct A4W4PairedGateUpCanonicalDownSelectorQuery final {
 [[nodiscard]] constexpr A4W4PairedGateUpCanonicalDownRoute
 select_a4w4_paired_gateup_canonical_down_route(
     const A4W4PairedGateUpCanonicalDownSelectorQuery& query) noexcept {
-  const bool any_new_selector =
-      query.master_requested || query.gate_requested || query.down_requested;
+  const bool any_new_selector = query.master_requested ||
+                                query.old_gate_requested ||
+                                query.new_paired_warp_gate_requested ||
+                                query.old_ldmatrix_pairring_down_requested ||
+                                query.new_16warp_pairring_down_requested;
   if (!any_new_selector) {
     return A4W4PairedGateUpCanonicalDownRoute::kDisabled;
   }
-  if (!query.master_requested || !query.gate_requested ||
+  const bool exactly_one_gate =
+      query.old_gate_requested != query.new_paired_warp_gate_requested;
+  if (!query.master_requested || !exactly_one_gate ||
       !query.projection_span || query.legacy_mlp_requested ||
       query.legacy_gate_requested || query.legacy_down_requested) {
     return A4W4PairedGateUpCanonicalDownRoute::kInvalid;
   }
-  return query.down_requested
-             ? A4W4PairedGateUpCanonicalDownRoute::kGateAndDown
-             : A4W4PairedGateUpCanonicalDownRoute::kGateOnly;
+  if (query.old_gate_requested) {
+    if (query.new_16warp_pairring_down_requested) {
+      return A4W4PairedGateUpCanonicalDownRoute::kInvalid;
+    }
+    return query.old_ldmatrix_pairring_down_requested
+               ? A4W4PairedGateUpCanonicalDownRoute::
+                     kOldGateLdmatrixPairringDown
+               : A4W4PairedGateUpCanonicalDownRoute::kOldGateCanonicalDown;
+  }
+  if (query.old_ldmatrix_pairring_down_requested) {
+    return A4W4PairedGateUpCanonicalDownRoute::kInvalid;
+  }
+  return query.new_16warp_pairring_down_requested
+             ? A4W4PairedGateUpCanonicalDownRoute::
+                   kNewPairedWarpGate16WarpPairringDown
+             : A4W4PairedGateUpCanonicalDownRoute::
+                   kNewPairedWarpGateCanonicalDown;
 }
 
 [[nodiscard]] constexpr bool
 a4w4_paired_gateup_canonical_down_accounting_valid(
     const A4W4PairedGateUpCanonicalDownRoute route,
     const std::size_t projection_span_count,
-    const std::size_t gate_hits_before,
-    const std::size_t gate_hits_after,
-    const std::size_t down_hits_before,
-    const std::size_t down_hits_after) noexcept {
+    const std::size_t old_gate_hits_before,
+    const std::size_t old_gate_hits_after,
+    const std::size_t new_gate_hits_before,
+    const std::size_t new_gate_hits_after,
+    const std::size_t old_down_hits_before,
+    const std::size_t old_down_hits_after,
+    const std::size_t new_down_hits_before,
+    const std::size_t new_down_hits_after) noexcept {
   if (route == A4W4PairedGateUpCanonicalDownRoute::kInvalid ||
-      gate_hits_after < gate_hits_before ||
-      down_hits_after < down_hits_before ||
+      old_gate_hits_after < old_gate_hits_before ||
+      new_gate_hits_after < new_gate_hits_before ||
+      old_down_hits_after < old_down_hits_before ||
+      new_down_hits_after < new_down_hits_before ||
       projection_span_count >
           std::numeric_limits<std::size_t>::max() /
               kReferenceDecoderLayerCount) {
@@ -1423,15 +1458,33 @@ a4w4_paired_gateup_canonical_down_accounting_valid(
   }
   const std::size_t expected =
       projection_span_count * kReferenceDecoderLayerCount;
-  const std::size_t gate_delta = gate_hits_after - gate_hits_before;
-  const std::size_t down_delta = down_hits_after - down_hits_before;
+  const std::size_t old_gate_delta =
+      old_gate_hits_after - old_gate_hits_before;
+  const std::size_t new_gate_delta =
+      new_gate_hits_after - new_gate_hits_before;
+  const std::size_t old_down_delta =
+      old_down_hits_after - old_down_hits_before;
+  const std::size_t new_down_delta =
+      new_down_hits_after - new_down_hits_before;
   switch (route) {
     case A4W4PairedGateUpCanonicalDownRoute::kDisabled:
-      return gate_delta == 0U && down_delta == 0U;
-    case A4W4PairedGateUpCanonicalDownRoute::kGateOnly:
-      return gate_delta == expected && down_delta == 0U;
-    case A4W4PairedGateUpCanonicalDownRoute::kGateAndDown:
-      return gate_delta == expected && down_delta == expected;
+      return old_gate_delta == 0U && new_gate_delta == 0U &&
+             old_down_delta == 0U && new_down_delta == 0U;
+    case A4W4PairedGateUpCanonicalDownRoute::kOldGateCanonicalDown:
+      return old_gate_delta == expected && new_gate_delta == 0U &&
+             old_down_delta == 0U && new_down_delta == 0U;
+    case A4W4PairedGateUpCanonicalDownRoute::
+        kOldGateLdmatrixPairringDown:
+      return old_gate_delta == expected && new_gate_delta == 0U &&
+             old_down_delta == expected && new_down_delta == 0U;
+    case A4W4PairedGateUpCanonicalDownRoute::
+        kNewPairedWarpGateCanonicalDown:
+      return old_gate_delta == 0U && new_gate_delta == expected &&
+             old_down_delta == 0U && new_down_delta == 0U;
+    case A4W4PairedGateUpCanonicalDownRoute::
+        kNewPairedWarpGate16WarpPairringDown:
+      return old_gate_delta == 0U && new_gate_delta == expected &&
+             old_down_delta == 0U && new_down_delta == expected;
     case A4W4PairedGateUpCanonicalDownRoute::kInvalid:
       return false;
   }
@@ -1916,6 +1969,10 @@ class ReferenceRunner {
       a4w4_projection_major_gateup_canonical_down_route_ =
           reference_runner_detail::
               A4W4ProjectionMajorGateUpCanonicalDownRoute::kDisabled;
+  reference_runner_detail::A4W4PairedGateUpCanonicalDownRoute
+      a4w4_paired_gateup_canonical_down_route_ =
+          reference_runner_detail::
+              A4W4PairedGateUpCanonicalDownRoute::kDisabled;
   bool a4w4_full_prefill_admission_enabled_ = false;
   bool trace_enabled_ = false;
   bool trace_valid_ = false;

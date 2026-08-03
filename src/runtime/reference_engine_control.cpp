@@ -342,6 +342,9 @@ GenerationControlResult run_generation_control_impl(
           outcome.value->gateup_m128n512_paired_ldmatrix_launch_hits;
       control.timing.gateup_m64n128_register_pipeline_launch_hits =
           outcome.value->gateup_m64n128_register_pipeline_launch_hits;
+      control.timing.gateup_m64n8_paired_warp_register_pipeline_launch_hits =
+          outcome.value
+              ->gateup_m64n8_paired_warp_register_pipeline_launch_hits;
       control.timing.down_m128n128_ldmatrix_pairring_launch_hits =
           outcome.value->down_m128n128_ldmatrix_pairring_launch_hits;
       control.timing.down_m128n128_16warp_pairring_launch_hits =

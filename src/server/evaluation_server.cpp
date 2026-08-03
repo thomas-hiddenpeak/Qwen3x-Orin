@@ -1016,6 +1016,9 @@ void execute_job(runtime::ReferenceEngine& engine,
             << " gateup_m64n128_register_pipeline_launch_hits="
             << generated.value->timing
                    .gateup_m64n128_register_pipeline_launch_hits
+            << " gateup_m64n8_paired_warp_register_pipeline_launch_hits="
+            << generated.value->timing
+                   .gateup_m64n8_paired_warp_register_pipeline_launch_hits
             << " down_m128n128_ldmatrix_pairring_launch_hits="
             << generated.value->timing
                    .down_m128n128_ldmatrix_pairring_launch_hits

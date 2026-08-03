@@ -220,6 +220,17 @@ prefill_gateup_k512_m64n128_register_pipeline_environment_enabled() noexcept {
 }
 
 [[nodiscard]] bool
+prefill_gateup_k512_m64n8_paired_warp_register_pipeline_environment_enabled()
+    noexcept {
+  if (optimized_prefill_dispatch_disabled()) {
+    return false;
+  }
+  const char* const value = std::getenv(
+      "Q3X_RUN_A4W4_GATEUP_K512_M64N8_PAIRED_WARP_REGISTER_PIPELINE_ADMISSION");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
+[[nodiscard]] bool
 prefill_gateup_down_k512_edge_m128n512_paired_ldmatrix_environment_enabled()
     noexcept {
   if (optimized_prefill_dispatch_disabled()) {
@@ -427,8 +438,10 @@ struct PrefillMLPK512ProjectionMajorGateUpCanonicalDownEnginePaths final {
     const bool projection_major_publication_requested,
     const bool projection_major_selected,
     std::string& error) noexcept {
-  const bool paired_gate_selected =
+  const bool paired_ldmatrix_gate_selected =
       prefill_gateup_down_k512_edge_m128n512_paired_ldmatrix_environment_enabled();
+  const bool paired_warp_gate_selected =
+      prefill_gateup_k512_m64n8_paired_warp_register_pipeline_environment_enabled();
   const bool pairring_selected =
       prefill_down_k512_m128n128_ldmatrix_pairring_environment_enabled();
   const bool pairring16_selected =
@@ -476,7 +489,8 @@ struct PrefillMLPK512ProjectionMajorGateUpCanonicalDownEnginePaths final {
     if (mlp_k512_v1_publication_requested || mlp_k512_v1_selected ||
         fragment_native_publication_requested || fragment_native_selected ||
         hybrid_publication_requested || hybrid_selected ||
-        paired_gate_selected || alternating_gate_selected ||
+        paired_ldmatrix_gate_selected || paired_warp_gate_selected ||
+        alternating_gate_selected ||
         ldmatrix_pairfeed_gate_selected || projection_serial_gate_selected ||
         fused_quantize_gate_selected) {
       error = "the projection-major K512 MLP route is mutually exclusive "
@@ -536,7 +550,7 @@ struct PrefillMLPK512ProjectionMajorGateUpCanonicalDownEnginePaths final {
     if (!mlp_k512_v1_publication_requested || !mlp_k512_v1_selected ||
         fragment_native_publication_requested || fragment_native_selected ||
         hybrid_publication_requested || hybrid_selected ||
-        paired_gate_selected) {
+        paired_ldmatrix_gate_selected || paired_warp_gate_selected) {
       error = "the M128N128 projection-serial Gate+Up admission requires "
               "the authenticated v1 K512 MLP publication and runtime master";
       return false;
@@ -576,7 +590,7 @@ struct PrefillMLPK512ProjectionMajorGateUpCanonicalDownEnginePaths final {
     if (!mlp_k512_v1_publication_requested || !mlp_k512_v1_selected ||
         fragment_native_publication_requested || fragment_native_selected ||
         hybrid_publication_requested || hybrid_selected ||
-        paired_gate_selected) {
+        paired_ldmatrix_gate_selected || paired_warp_gate_selected) {
       error = "the M128N512 fused-quantize Gate+Up admission requires the "
               "authenticated v1 K512 MLP publication and runtime master";
       return false;
@@ -621,7 +635,7 @@ struct PrefillMLPK512ProjectionMajorGateUpCanonicalDownEnginePaths final {
     if (!mlp_k512_v1_publication_requested || !mlp_k512_v1_selected ||
         fragment_native_publication_requested || fragment_native_selected ||
         hybrid_publication_requested || hybrid_selected ||
-        paired_gate_selected) {
+        paired_ldmatrix_gate_selected || paired_warp_gate_selected) {
       error = "the selected M64N128 K256 Gate+Up implementation requires "
               "the authenticated v1 K512 MLP publication and runtime master";
       return false;
@@ -649,23 +663,31 @@ struct PrefillMLPK512ProjectionMajorGateUpCanonicalDownEnginePaths final {
     }
   }
 
-  if (paired_gate_selected != hybrid_selected) {
-    error =
-        "the paired-LDSM GateUp selector and paired-GateUp/canonical-Down "
-        "publication master must be enabled together";
+  if (paired_ldmatrix_gate_selected && paired_warp_gate_selected) {
+    error = "the paired-LDSM and M64N8 paired-warp GateUp selectors are "
+            "mutually exclusive";
+    return false;
+  }
+  const bool any_hybrid_gate_selected =
+      paired_ldmatrix_gate_selected || paired_warp_gate_selected;
+  if (any_hybrid_gate_selected != hybrid_selected) {
+    error = "the paired-GateUp/canonical-Down publication master requires "
+            "exactly one paired GateUp leaf selector";
     return false;
   }
 #if !defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M128N512_PAIRED_LDMATRIX_ADMISSION)
-  if (paired_gate_selected || hybrid_selected ||
-      hybrid_publication_requested) {
-    error =
-        "this binary does not contain the paired-LDSM GateUp candidate";
+  if (paired_ldmatrix_gate_selected) {
+    error = "this binary does not contain the paired-LDSM GateUp candidate";
     return false;
   }
 #endif
-  if (!pairring_selected && !pairring16_selected) {
-    return true;
+#if !defined(Q3X_ENABLE_A4W4_GATEUP_K512_M64N8_PAIRED_WARP_REGISTER_PIPELINE_ADMISSION)
+  if (paired_warp_gate_selected) {
+    error = "this binary does not contain the M64N8 paired-warp "
+            "register-pipeline GateUp candidate";
+    return false;
   }
+#endif
 #if !defined(Q3X_ENABLE_A4W4_DOWN_K512_M128N128_LDMATRIX_PAIRRING_ADMISSION)
   if (pairring_selected) {
     error = "this binary does not contain the M128N128 LDSM pair-ring Down "
@@ -685,27 +707,65 @@ struct PrefillMLPK512ProjectionMajorGateUpCanonicalDownEnginePaths final {
             "are mutually exclusive";
     return false;
   }
-  if (prefill_down_k512_m16n64_v2_environment_enabled() ||
-      prefill_legacy_down_selector_environment_enabled()) {
+  if ((pairring_selected || pairring16_selected) &&
+      (prefill_down_k512_m16n64_v2_environment_enabled() ||
+       prefill_legacy_down_selector_environment_enabled())) {
     error = "the selected M128N128 pair-ring Down candidate conflicts with "
             "every other Prefill Down selector";
     return false;
   }
-  if (pairring_selected && hybrid_selected) {
-    if (!hybrid_publication_requested || !paired_gate_selected) {
-      error = "the M128N128 LDSM pair-ring Down selector on the hybrid route "
-              "requires the authenticated hybrid publication and paired "
-              "Gate selector";
+  if (hybrid_selected) {
+    if (!hybrid_publication_requested) {
+      error = "the selected paired GateUp leaf requires the authenticated "
+              "paired-GateUp/canonical-Down publication";
+      return false;
+    }
+    if (mlp_k512_v1_publication_requested || mlp_k512_v1_selected ||
+        fragment_native_publication_requested || fragment_native_selected ||
+        projection_major_publication_requested || projection_major_selected) {
+      error = "the paired K512 MLP route is mutually exclusive with every "
+              "other MLP publication";
+      return false;
+    }
+    if (paired_warp_gate_selected) {
+      constexpr std::array<const char*, 14U> kConflictingGateSelectors = {
+          "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_ADMISSION",
+          "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M128N64_ADMISSION",
+          "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_ALTERNATING_ADMISSION",
+          "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_LDMATRIX_PAIRFEED_ADMISSION",
+          "Q3X_RUN_A4W4_GATEUP_COMPLETE_CELL_V2_ADMISSION",
+          "Q3X_RUN_A4W4_M128_STAGE_MAJOR_ADMISSION",
+          "Q3X_RUN_A4W4_GATEUP_PROJECTION_V3_ADMISSION",
+          "Q3X_RUN_A4W4_GATEUP_K512_FRAGMENT_NATIVE_M128_ADMISSION",
+          "Q3X_RUN_A4W4_GATEUP_K512_FRAGMENT_NATIVE_M128N64_1CTA_ADMISSION",
+          "Q3X_RUN_A4W4_GATEUP_K512_FRAGMENT_NATIVE_M64N128_1CTA_ADMISSION",
+          "Q3X_RUN_A4W4_GATEUP_K512_FRAGMENT_NATIVE_M128N64_STAGED_ADMISSION",
+          "Q3X_RUN_A4W4_GATEUP_K512_M128N128_PROJECTION_SERIAL_ADMISSION",
+          "Q3X_RUN_A4W4_GATEUP_K512_M128N512_FUSED_QUANTIZE_ADMISSION",
+          "Q3X_RUN_A4W4_GATEUP_K512_M64N128_REGISTER_PIPELINE_ADMISSION",
+      };
+      for (const char* const selector : kConflictingGateSelectors) {
+        if (exact_environment_selector_enabled(selector)) {
+          error = "the M64N8 paired-warp GateUp admission conflicts with "
+                  "every other Prefill Gate+Up selector";
+          return false;
+        }
+      }
+    }
+    if (paired_ldmatrix_gate_selected && pairring16_selected) {
+      error = "the paired-LDSM GateUp leaf cannot use the M128N128 "
+              "16-warp pair-ring Down selector";
+      return false;
+    }
+    if (paired_warp_gate_selected && pairring_selected) {
+      error = "the M64N8 paired-warp GateUp leaf cannot use the incumbent "
+              "M128N128 LDSM pair-ring Down selector";
       return false;
     }
     return true;
   }
-  if (pairring16_selected &&
-      (hybrid_selected || hybrid_publication_requested ||
-       paired_gate_selected)) {
-    error = "the independent M128N128 16-warp pair-ring Down selector "
-            "cannot be combined with the hybrid publication";
-    return false;
+  if (!pairring_selected && !pairring16_selected) {
+    return true;
   }
   if (!mlp_k512_v1_selected || !mlp_k512_v1_publication_requested ||
       fragment_native_selected || fragment_native_publication_requested ||
@@ -6468,14 +6528,15 @@ struct ReferenceEngine::Impl {
       return result;
     }
 #endif
-#if !defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M128N512_PAIRED_LDMATRIX_ADMISSION)
+#if !defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M128N512_PAIRED_LDMATRIX_ADMISSION) && \
+    !defined(Q3X_ENABLE_A4W4_GATEUP_K512_M64N8_PAIRED_WARP_REGISTER_PIPELINE_ADMISSION)
     if (prefill_mlp_k512_hybrid_paths.requested ||
         prefill_mlp_k512_hybrid_selected) {
       result.diagnostic = engine_diagnostic(
           ReferenceEngineError::kInvalidArgument,
           "prefill_mlp_k512_paired_gateup_canonical_down_options",
-          "this binary does not contain the paired-LDSM GateUp candidate "
-          "required by the hybrid K512 MLP publication");
+          "this binary does not contain a paired GateUp leaf required by "
+          "the hybrid K512 MLP publication");
       return result;
     }
 #endif
@@ -9481,13 +9542,14 @@ ReferenceOneShotResult generate_reference(
     return result;
   }
 #endif
-#if !defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M128N512_PAIRED_LDMATRIX_ADMISSION)
+#if !defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M128N512_PAIRED_LDMATRIX_ADMISSION) && \
+    !defined(Q3X_ENABLE_A4W4_GATEUP_K512_M64N8_PAIRED_WARP_REGISTER_PIPELINE_ADMISSION)
   if (mlp_k512_hybrid_preflight_paths.requested ||
       prefill_mlp_k512_paired_gateup_canonical_down_environment_enabled()) {
     result.diagnostic = engine_diagnostic(
         ReferenceEngineError::kInvalidArgument, "one_shot_options",
-        "this binary does not contain the paired-LDSM GateUp candidate "
-        "required by the hybrid K512 MLP publication");
+        "this binary does not contain a paired GateUp leaf required by the "
+        "hybrid K512 MLP publication");
     return result;
   }
 #endif

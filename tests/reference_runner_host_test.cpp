@@ -2613,33 +2613,59 @@ void test_paired_gateup_canonical_down_selector_and_accounting(
           Route::kInvalid,
       "paired GateUp master cannot silently run without its Gate selector");
   query = Query{};
-  query.gate_requested = true;
+  query.old_gate_requested = true;
   query.projection_span = true;
   test.expect(
       detail::select_a4w4_paired_gateup_canonical_down_route(query) ==
           Route::kInvalid,
-      "paired Gate selector cannot silently run without its publication master");
+      "old paired Gate cannot run without its publication master");
   query = Query{};
-  query.down_requested = true;
+  query.new_paired_warp_gate_requested = true;
   query.projection_span = true;
   test.expect(
       detail::select_a4w4_paired_gateup_canonical_down_route(query) ==
           Route::kInvalid,
-      "pair-ring Down cannot run outside the paired GateUp publication route");
+      "new paired-warp Gate cannot run without its publication master");
 
   query = Query{};
   query.master_requested = true;
-  query.gate_requested = true;
+  query.old_gate_requested = true;
   query.projection_span = true;
   test.expect(
       detail::select_a4w4_paired_gateup_canonical_down_route(query) ==
-          Route::kGateOnly,
-      "master plus paired Gate selects canonical-v1 Down");
-  query.down_requested = true;
+          Route::kOldGateCanonicalDown,
+      "master plus old paired Gate selects canonical-v1 Down");
+  query.old_ldmatrix_pairring_down_requested = true;
   test.expect(
       detail::select_a4w4_paired_gateup_canonical_down_route(query) ==
-          Route::kGateAndDown,
-      "independent pair-ring selector replaces only canonical-v1 Down");
+          Route::kOldGateLdmatrixPairringDown,
+      "old paired Gate accepts only the old LDSM pair-ring Down");
+
+  query = Query{};
+  query.master_requested = true;
+  query.new_paired_warp_gate_requested = true;
+  query.projection_span = true;
+  test.expect(
+      detail::select_a4w4_paired_gateup_canonical_down_route(query) ==
+          Route::kNewPairedWarpGateCanonicalDown,
+      "master plus paired-warp Gate selects canonical-v1 Down");
+  query.new_16warp_pairring_down_requested = true;
+  test.expect(
+      detail::select_a4w4_paired_gateup_canonical_down_route(query) ==
+          Route::kNewPairedWarpGate16WarpPairringDown,
+      "paired-warp Gate accepts the 16-warp pair-ring Down");
+
+  Query cross_pair = query;
+  cross_pair.new_16warp_pairring_down_requested = false;
+  cross_pair.old_ldmatrix_pairring_down_requested = true;
+  const bool cross_pair_rejected =
+      detail::select_a4w4_paired_gateup_canonical_down_route(cross_pair) ==
+      Route::kInvalid;
+  Query both_gates = query;
+  both_gates.old_gate_requested = true;
+  const bool both_gates_rejected =
+      detail::select_a4w4_paired_gateup_canonical_down_route(both_gates) ==
+      Route::kInvalid;
 
   Query conflict = query;
   conflict.legacy_mlp_requested = true;
@@ -2663,42 +2689,58 @@ void test_paired_gateup_canonical_down_selector_and_accounting(
       Route::kInvalid;
   test.expect(
       legacy_mlp_rejected && legacy_gate_rejected &&
-          legacy_down_rejected && non_span_rejected,
-      "paired route rejects v1/v2, every aggregated old Gate/Down family, and non-projection-span dispatch");
+          legacy_down_rejected && non_span_rejected && cross_pair_rejected &&
+          both_gates_rejected,
+      "paired route rejects legacy conflicts, crossed Gate/Down pairs, dual Gate selection, and non-span dispatch");
 
-  constexpr std::size_t kBeforeGate = 11U;
-  constexpr std::size_t kBeforeDown = 7U;
+  constexpr std::size_t kOldGate = 11U;
+  constexpr std::size_t kNewGate = 13U;
+  constexpr std::size_t kOldDown = 7U;
+  constexpr std::size_t kNewDown = 17U;
   constexpr std::size_t kTwoSpanHits =
       2U * runtime::kReferenceDecoderLayerCount;
   test.expect(
       detail::a4w4_paired_gateup_canonical_down_accounting_valid(
-          Route::kDisabled, 2U, kBeforeGate, kBeforeGate, kBeforeDown,
-          kBeforeDown) &&
+          Route::kDisabled, 2U, kOldGate, kOldGate, kNewGate, kNewGate,
+          kOldDown, kOldDown, kNewDown, kNewDown) &&
           detail::a4w4_paired_gateup_canonical_down_accounting_valid(
-              Route::kGateOnly, 2U, kBeforeGate,
-              kBeforeGate + kTwoSpanHits, kBeforeDown, kBeforeDown) &&
+              Route::kOldGateCanonicalDown, 2U, kOldGate,
+              kOldGate + kTwoSpanHits, kNewGate, kNewGate, kOldDown,
+              kOldDown, kNewDown, kNewDown) &&
           detail::a4w4_paired_gateup_canonical_down_accounting_valid(
-              Route::kGateAndDown, 2U, kBeforeGate,
-              kBeforeGate + kTwoSpanHits, kBeforeDown,
-              kBeforeDown + kTwoSpanHits),
-      "request accounting requires exactly spans times 64 Gate hits and optional Down hits");
+              Route::kOldGateLdmatrixPairringDown, 2U, kOldGate,
+              kOldGate + kTwoSpanHits, kNewGate, kNewGate, kOldDown,
+              kOldDown + kTwoSpanHits, kNewDown, kNewDown) &&
+          detail::a4w4_paired_gateup_canonical_down_accounting_valid(
+              Route::kNewPairedWarpGateCanonicalDown, 2U, kOldGate,
+              kOldGate, kNewGate, kNewGate + kTwoSpanHits, kOldDown,
+              kOldDown, kNewDown, kNewDown) &&
+          detail::a4w4_paired_gateup_canonical_down_accounting_valid(
+              Route::kNewPairedWarpGate16WarpPairringDown, 2U, kOldGate,
+              kOldGate, kNewGate, kNewGate + kTwoSpanHits, kOldDown,
+              kOldDown, kNewDown, kNewDown + kTwoSpanHits),
+      "request accounting proves exactly one Gate family and its matching optional Down");
   test.expect(
       !detail::a4w4_paired_gateup_canonical_down_accounting_valid(
-          Route::kGateOnly, 2U, kBeforeGate,
-          kBeforeGate + kTwoSpanHits - 1U, kBeforeDown, kBeforeDown) &&
+          Route::kNewPairedWarpGateCanonicalDown, 2U, kOldGate, kOldGate,
+          kNewGate, kNewGate + kTwoSpanHits - 1U, kOldDown, kOldDown,
+          kNewDown, kNewDown) &&
           !detail::a4w4_paired_gateup_canonical_down_accounting_valid(
-              Route::kGateOnly, 2U, kBeforeGate,
-              kBeforeGate + kTwoSpanHits, kBeforeDown, kBeforeDown + 1U) &&
+              Route::kNewPairedWarpGateCanonicalDown, 2U, kOldGate,
+              kOldGate + 1U, kNewGate, kNewGate + kTwoSpanHits, kOldDown,
+              kOldDown, kNewDown, kNewDown) &&
           !detail::a4w4_paired_gateup_canonical_down_accounting_valid(
-              Route::kGateAndDown, 2U, kBeforeGate,
-              kBeforeGate + kTwoSpanHits, kBeforeDown,
-              kBeforeDown + kTwoSpanHits - 1U),
-      "request accounting rejects partial Gate coverage, unexpected Down, and partial pair-ring coverage");
+              Route::kNewPairedWarpGate16WarpPairringDown, 2U, kOldGate,
+              kOldGate, kNewGate, kNewGate + kTwoSpanHits, kOldDown,
+              kOldDown, kNewDown, kNewDown + kTwoSpanHits - 1U),
+      "request accounting rejects partial coverage and any sibling-family hit");
 
   const runtime::ReferenceLongPrefillResult result;
   test.expect(
-      result.gateup_m128n512_fused_quantize_launch_hits == 0U &&
+          result.gateup_m128n512_fused_quantize_launch_hits == 0U &&
           result.gateup_m128n512_paired_ldmatrix_launch_hits == 0U &&
+          result.gateup_m64n8_paired_warp_register_pipeline_launch_hits ==
+              0U &&
           result.down_m128n128_ldmatrix_pairring_launch_hits == 0U &&
           result.down_m128n128_16warp_pairring_launch_hits == 0U &&
           result.gdn_chunk64_native_launch_hits == 0U &&

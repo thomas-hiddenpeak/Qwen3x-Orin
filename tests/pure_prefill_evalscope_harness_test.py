@@ -48,6 +48,10 @@ PROJECTION_MAJOR_MODE = (
     "cumulative-prefill-current-best-mlp-k512-projection-major-gateup-"
     "down-16warp-pairring-attention-k256-a-exchange-b4"
 )
+PAIRED_WARP_MODE = (
+    "cumulative-prefill-current-best-mlp-k512-paired-warp-gateup-"
+    "down-16warp-pairring-attention-k256-a-exchange-b4"
+)
 ATTENTION_K256_M128N128_PROJECTION_SERIAL_MODE = (
     "cumulative-prefill-current-best-mlp-k512-m128n128-projection-serial-"
     "down-16warp-pairring-attention-k256-a-exchange-b4"
@@ -93,6 +97,12 @@ MLP_K512_PROJECTION_MAJOR_SELECTOR = (
 )
 MLP_K512_REGISTER_PIPELINE_SELECTOR = (
     "Q3X_RUN_A4W4_GATEUP_K512_M64N128_REGISTER_PIPELINE_ADMISSION"
+)
+MLP_K512_PAIRED_MASTER_SELECTOR = (
+    "Q3X_RUN_A4W4_MLP_K512_PAIRED_GATEUP_CANONICAL_DOWN_ADMISSION"
+)
+MLP_K512_PAIRED_WARP_SELECTOR = (
+    "Q3X_RUN_A4W4_GATEUP_K512_M64N8_PAIRED_WARP_REGISTER_PIPELINE_ADMISSION"
 )
 ATTENTION_K256_MARKERS = (
     "prefill_projection_span_linear_qkv_z_k256_m128n256",
@@ -215,6 +225,14 @@ PROJECTION_MAJOR_DOWN_16WARP_MARKER = (
     "prefill_projection_span_mlp_k512_projection_major_down_m128n128_"
     "16warp_pairring"
 )
+PAIRED_WARP_GATE_MARKER = (
+    "prefill_projection_span_mlp_k512_gateup_m64n8_"
+    "paired_warp_register_pipeline"
+)
+PAIRED_WARP_DOWN_16WARP_MARKER = (
+    "prefill_projection_span_mlp_k512_paired_warp_down_m128n128_"
+    "16warp_pairring"
+)
 
 
 class Fixture:
@@ -292,12 +310,12 @@ class Fixture:
             f"# {MLP_K512_M128N512_FUSED_QUANTIZE_SELECTOR}\n"
             "# Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M128N64_ADMISSION\n"
             "# Q3X_RUN_A4W4_DOWN_K512_M16N64_V2_ADMISSION\n"
-            "# Q3X_RUN_A4W4_MLP_K512_PAIRED_GATEUP_CANONICAL_DOWN_"
-            "ADMISSION\n"
+            f"# {MLP_K512_PAIRED_MASTER_SELECTOR}\n"
             "# Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M128N512_PAIRED_"
             "LDMATRIX_ADMISSION\n"
             f"# {MLP_K512_PROJECTION_MAJOR_SELECTOR}\n"
             f"# {MLP_K512_REGISTER_PIPELINE_SELECTOR}\n"
+            f"# {MLP_K512_PAIRED_WARP_SELECTOR}\n"
             "# Q3X_RUN_A4W4_DOWN_K512_M128N128_LDMATRIX_PAIRRING_"
             "ADMISSION\n"
             "# Q3X_RUN_A4W4_DOWN_K512_M128N128_16WARP_PAIRRING_"
@@ -323,6 +341,8 @@ class Fixture:
             + f"{PROJECTION_MAJOR_INPUT_MARKER}\n"
             + f"{PROJECTION_MAJOR_GATE_MARKER}\n"
             + f"{PROJECTION_MAJOR_DOWN_16WARP_MARKER}\n"
+            + f"{PAIRED_WARP_GATE_MARKER}\n"
+            + f"{PAIRED_WARP_DOWN_16WARP_MARKER}\n"
             + f"{GDN_PROMPT_SPAN_MACRO_MARKER}\n"
             + "# Q3X_RUN_SHORT_PREFILL_LAYER_MAJOR_ADMISSION\n"
             + "exit 0\n",
@@ -650,6 +670,7 @@ class Fixture:
         ] = "1"
         environment[MLP_K512_PROJECTION_MAJOR_SELECTOR] = "1"
         environment[MLP_K512_REGISTER_PIPELINE_SELECTOR] = "1"
+        environment[MLP_K512_PAIRED_WARP_SELECTOR] = "1"
         environment[
             "Q3X_RUN_A4W4_DOWN_K512_M128N128_LDMATRIX_PAIRRING_ADMISSION"
         ] = "1"
@@ -833,6 +854,25 @@ class Fixture:
             str(self.projection_major_receipt),
             "--mode",
             PROJECTION_MAJOR_MODE,
+            *extra,
+            bucket=bucket,
+            prefill_payload=self.k256_payload,
+            prefill_policy=self.k256_policy,
+            prefill_receipt=self.k256_receipt,
+        )
+
+    def run_paired_warp(
+        self, *extra: str, bucket: str = "p2k"
+    ) -> subprocess.CompletedProcess[str]:
+        return self.run(
+            "--prefill-mlp-k512-paired-gateup-canonical-down-payload",
+            str(self.hybrid_payload),
+            "--prefill-mlp-k512-paired-gateup-canonical-down-policy",
+            str(self.hybrid_policy),
+            "--prefill-mlp-k512-paired-gateup-canonical-down-receipt",
+            str(self.hybrid_receipt),
+            "--mode",
+            PAIRED_WARP_MODE,
             *extra,
             bucket=bucket,
             prefill_payload=self.k256_payload,
@@ -3496,6 +3536,51 @@ class PurePrefillEvalScopeHarnessTest(unittest.TestCase):
                         f"fragment-native Gate+Up variant: {marker}",
                         result.stderr,
                     )
+
+    def test_paired_warp_mode_uses_real_hybrid_publication_and_exact_leaves(
+        self,
+    ) -> None:
+        result = self.fixture.run_paired_warp()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f"mode={PAIRED_WARP_MODE} dry_run=1", result.stdout)
+        self.assertIn("selector_count=10", result.stdout)
+        startup = next(
+            line
+            for line in result.stdout.splitlines()
+            if line.startswith("server_startup_command")
+        )
+        selectors = set(re.findall(r"(Q3X_[A-Z0-9_]+)=1", startup))
+        self.assertIn(MLP_K512_PAIRED_MASTER_SELECTOR, selectors)
+        self.assertIn(MLP_K512_PAIRED_WARP_SELECTOR, selectors)
+        self.assertIn(DOWN_16WARP_PAIRRING_SELECTOR, selectors)
+        self.assertNotIn(
+            "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M128N512_"
+            "PAIRED_LDMATRIX_ADMISSION",
+            selectors,
+        )
+        self.assertIn(
+            "--prefill-mlp-k512-paired-gateup-canonical-down-payload",
+            startup,
+        )
+        self.assertIn(str(self.fixture.hybrid_payload), startup)
+        self.assertNotIn("--prefill-mlp-k512-payload", startup)
+        self.assertIn(PAIRED_WARP_GATE_MARKER, result.stdout)
+        self.assertIn(PAIRED_WARP_DOWN_16WARP_MARKER, result.stdout)
+        self.assertIn(
+            "gateup_m128n512_paired_ldmatrix_launch_hits_0_per_request",
+            result.stdout,
+        )
+        self.assertIn(
+            "gateup_m64n8_paired_warp_register_pipeline_"
+            "launch_hits_64_per_request",
+            result.stdout,
+        )
+        self.assertIn(
+            "down_m128n128_16warp_pairring_launch_hits_64_per_request",
+            result.stdout,
+        )
+        self.assertIn("performance_evidence=0", result.stdout)
+        self.assertFalse(self.fixture.output.exists())
 
     def test_projection_major_mode_replaces_only_the_mlp_publication_and_gate(
         self,
