@@ -1,0 +1,144 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-r1-projection-plane-v2-real-api-rejection-2026-08-04",
+  "status": "rejected-real-api-performance-retained-default-off",
+  "recorded_at": "2026-08-04T04:58:00+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "commit": "a03391ad4c2091ee896fb274d949104d29d8be1f",
+    "subject": "prefill: wire unified R1 projection plane",
+    "git_dirty": false,
+    "server_elf_sha256": "28b04c62e66a07c57de3c6e15fc3e9e3a1ba2805d893596a610529f4091c8b0c",
+    "candidate_code_retained": true,
+    "candidate_default_enabled": false,
+    "production_baseline_changed": false
+  },
+  "policy": {
+    "performance_authority": "real Qwen3.6-27B-NVFP4 model through the OpenAI-compatible API and external EvalScope 1.9.1",
+    "synthetic_performance_authority": "NONE",
+    "first_gate": "one P1804 warmup followed by one P1853 measured request",
+    "diagnostic_after_rejection": "one request-scoped NSys P1853 capture",
+    "cublaslt_executed": false,
+    "cublaslt_role": "REFERENCE_ONLY",
+    "cublaslt_production_eligibility": "NONE",
+    "mtp_used": false
+  },
+  "common_request": {
+    "model": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "api": "openai /v1/completions",
+    "dataset": "line_by_line real ShareGPT prompt corpus",
+    "corpus_sha256": "41ab42aecfbf7157ece82df889df7a38a8f0ba2963b39958409e732a4681d4af",
+    "warmup_prompt_tokens": 1804,
+    "measured_prompt_tokens": 1853,
+    "max_tokens": 1,
+    "parallel": 1,
+    "prefill_chunk_size": 512,
+    "prefix_cache": false,
+    "mtp": false
+  },
+  "candidate_package": {
+    "layout": "sm87_s4_r1_projection_plane_fragment_pair_v2",
+    "logical_projections": 400,
+    "physical_projections": 336,
+    "bytes": 12182982656,
+    "payload_sha256": "58783c1ed51d37a29d8362edd928a764417856c3016735896213599bd2bfbe18",
+    "manifest_sha256": "a57866a86638cae07dcf7017ccdff327a44d26735bc4e6a222458e5958bb0a03",
+    "policy_sha256": "9c211e465fd55d2f983f3ebef7328e9e3db57deab0041be6eed569d377378749",
+    "receipt_sha256": "634cd4024e9fab3b89f2bc8a4bc7e42d61dbdecdb1394e8ffb7bd2e656787f82"
+  },
+  "real_api_direction": {
+    "baseline": {
+      "route": "canonical factorized R1 MLP plus canonical factorized R1 Attention",
+      "evalscope_total_throughput_tok_s": 1224.7335,
+      "evalscope_ttft_ms": 1513.76,
+      "server_prompt_prefill_ms": 1508.31,
+      "success_requests": 1,
+      "failed_requests": 0
+    },
+    "candidate": {
+      "route": "unified R1 projection-plane v2",
+      "evalscope_total_throughput_tok_s": 1093.0052,
+      "evalscope_ttft_ms": 1696.2,
+      "server_prompt_prefill_ms": 1691.26,
+      "success_requests": 1,
+      "failed_requests": 0
+    },
+    "result": {
+      "throughput_delta_tok_s": -131.7283,
+      "throughput_change_percent": -10.7557,
+      "server_prefill_delta_ms": 182.95,
+      "server_prefill_latency_change_percent": 12.1295,
+      "ttft_delta_ms": 182.44,
+      "ttft_latency_change_percent": 12.0521,
+      "direction": "NEGATIVE"
+    }
+  },
+  "route_evidence": {
+    "layer_package_launch_hits": 64,
+    "gateup_launch_hits": 64,
+    "down_launch_hits": 64,
+    "attention_physical_launch_hits": 128,
+    "logical_projection_hits": 400,
+    "handoff_package_launch_hits": 64,
+    "cross_layer_handoff_launch_hits": 63,
+    "gdn_chunk64_native_launch_hits": 192,
+    "gdn_chunk64_native_logical_token_hits": 88944,
+    "old_r1_r4_k512_route_hits": 0,
+    "fallback_detected": false
+  },
+  "request_scoped_nsys": {
+    "candidate_kernel_total_ms": {
+      "gateup_v2": 602.891936,
+      "down_v2": 233.535872,
+      "attention_v2_all_topologies": 300.554976,
+      "gateup_product_finalize": 84.26592
+    },
+    "nearest_canonical_r1_profile_ms": {
+      "gateup": 498.43488,
+      "down": 218.805472,
+      "attention_all_topologies": 298.49088,
+      "gateup_product_finalize": 56.672512
+    },
+    "directional_delta_ms": {
+      "gateup": 104.457056,
+      "down": 14.7304,
+      "attention_all_topologies": 2.064096,
+      "gateup_product_finalize": 27.593408
+    },
+    "comparator_limitation": "the nearest canonical R1 NSys trace predates the decision ELF; these per-kernel deltas are causal diagnostics only, while the same-ELF real-API result is the rejection authority",
+    "interpretation": [
+      "The adjacent-fragment v2 publication replaces ldmatrix B feeding with per-lane ld.shared.v4 feeding.",
+      "Gate+Up accounts for most of the measured regression; Down is moderately negative and Attention is approximately neutral.",
+      "The v2 paired-fragment feed is therefore ineligible as the foundation of the next Gate or Down architecture."
+    ]
+  },
+  "artifacts": {
+    "baseline_server_log": {
+      "path": "/home/rm01/q3x-results/r1-v2-same-elf-baseline-p1853-run1/server.log",
+      "bytes": 12057,
+      "sha256": "2e0eeebc791aa03a54fb6848f54a67a55d17b43224ff540ccffcaf028f183065"
+    },
+    "candidate_server_log": {
+      "path": "/home/rm01/q3x-results/r1-v2-candidate-p1853-run2/server.log",
+      "bytes": 11669,
+      "sha256": "f02cc10d896b3624ec59be57a621de8f628a914044f3fb665468b86b4300727c"
+    },
+    "candidate_nsys_report": {
+      "path": "/home/rm01/q3x-results/r1-v2-candidate-p1853-nsys-run1/trace.nsys-rep",
+      "bytes": 268244,
+      "sha256": "1412158696ae864e34d41531f6d909d265c1acea956c56843208bc46836c19ff"
+    },
+    "candidate_nsys_kernel_summary": {
+      "path": "/home/rm01/q3x-results/r1-v2-candidate-p1853-nsys-run1/nsys-kernel-summary.csv",
+      "bytes": 8075,
+      "sha256": "bd030c8142ed22017b4a61d87b5e67ea682f35cf1249be1f35981607597113ae"
+    }
+  },
+  "decision": {
+    "result": "REJECT",
+    "production_changed": false,
+    "development_baseline_changed": false,
+    "retained_baseline": "canonical factorized R1 MLP and Attention route at 1224.7335 tok/s",
+    "next": "build a shape-separated projection v3 on canonical ldmatrix B publication with larger CTA output ownership and independent A/B pipelines; do not tune the v2 paired-fragment skeleton"
+  }
+}
