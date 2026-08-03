@@ -89,13 +89,14 @@ scale gives:
 | Up | 21.0880% | 45.9217% | 0.88832 | 0.7956% |
 | Down | 20.9048% | 45.7218% | 0.88935 | 0.8748% |
 
-Even the hardware-ineligible, more generous scalar 2:4 lower bound removes
-about 14.1% of weight energy and has about 0.375 relative L2 error.  The
-fixed-K-order, value-preserving mask therefore fails the real-weight
-architecture screen.  Sparse execution is deferred unless a separately
-scoped permutation, calibration/refitting, or fine-tuning project first
-supplies weights that pass the real-API capability gates.  No sparse kernel is
-implemented on this mainline.
+Even a hardware-ineligible relaxation that may keep any four of each eight
+scalar weights removes 11.3674%/11.3676%/11.2355% of Gate/Up/Down energy and
+has about 0.335--0.337 relative L2 error.  The fixed-K-order,
+value-preserving mask therefore fails the real-weight architecture screen.
+Sparse execution is deferred unless a separately scoped permutation,
+calibration/refitting, or fine-tuning project first supplies weights that pass
+the real-API capability gates.  No sparse kernel is implemented on this
+mainline.
 
 ## Dense projection dataflow
 
