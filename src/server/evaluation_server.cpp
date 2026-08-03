@@ -1011,6 +1011,12 @@ void execute_job(runtime::ReferenceEngine& engine,
             << " factorized_lane_r1_package_launch_hits="
             << generated.value->timing
                    .factorized_lane_r1_package_launch_hits
+            << " factorized_lane_r1_handoff_package_launch_hits="
+            << generated.value->timing
+                   .factorized_lane_r1_handoff_package_launch_hits
+            << " factorized_lane_r1_cross_layer_handoff_launch_hits="
+            << generated.value->timing
+                   .factorized_lane_r1_cross_layer_handoff_launch_hits
             << " factorized_lane_r4_package_launch_hits="
             << generated.value->timing
                    .factorized_lane_r4_package_launch_hits
@@ -1045,6 +1051,8 @@ void execute_job(runtime::ReferenceEngine& engine,
             << " gdn_chunk64_native_logical_token_hits="
             << generated.value->timing
                    .gdn_chunk64_native_logical_token_hits
+            << " gdn_k256_direct_pack_launch_hits="
+            << generated.value->timing.gdn_k256_direct_pack_launch_hits
             << " gdn_prompt_span_macro_launch_hits="
             << generated.value->timing.gdn_prompt_span_macro_launch_hits
             << " gdn_prompt_span_macro_logical_token_hits="

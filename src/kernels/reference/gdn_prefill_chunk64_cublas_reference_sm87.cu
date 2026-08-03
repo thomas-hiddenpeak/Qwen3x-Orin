@@ -3462,6 +3462,17 @@ void reconstruct_norm_gate_chunk64_kernel(
                g_force_legacy_qk_reconstruct_baseline_for_test;
 }
 
+struct K256A4Publish final {
+  std::size_t destination_first_token = 0U;
+  std::size_t whole_logical_token_count = 0U;
+  std::size_t launch_token_count = 0U;
+  float clip_ratio = 0.0F;
+  std::uint8_t* packed_a = nullptr;
+  std::size_t packed_a_capacity_bytes = 0U;
+  std::uint16_t* scales_bf16 = nullptr;
+  std::size_t scale_capacity_elements = 0U;
+};
+
 [[nodiscard]] bool invalid_arguments(
     void* const /*context*/,
     void* const workspace,
@@ -3478,14 +3489,17 @@ void reconstruct_norm_gate_chunk64_kernel(
     const std::uint16_t* const norm_weight,
     const std::uint16_t* const silu_gate,
     const float norm_epsilon,
-    const std::uint16_t* const output) noexcept {
+    const std::uint16_t* const output,
+    const K256A4Publish* const k256_a4_publish) noexcept {
+  const bool publish_bf16 = output != nullptr;
+  const bool publish_k256_a4 = k256_a4_publish != nullptr;
   return token_count == 0U || token_count > kTokenCount ||
          workspace == nullptr ||
          workspace_capacity_bytes < required_workspace_bytes() ||
          conv_qkv == nullptr || a == nullptr || b == nullptr ||
          A_log == nullptr || dt_bias == nullptr || state_input == nullptr ||
          state_output == nullptr || norm_weight == nullptr ||
-         silu_gate == nullptr || output == nullptr ||
+         silu_gate == nullptr || publish_bf16 == publish_k256_a4 ||
          !std::isfinite(l2_epsilon) || l2_epsilon <= 0.0F ||
          !std::isfinite(norm_epsilon) || norm_epsilon <= 0.0F;
 }
@@ -3524,11 +3538,13 @@ int launch_impl(void* const context,
                 const float norm_epsilon,
                 std::uint16_t* const output,
                 void* const cuda_stream,
-                const bool qk_preprocessed) noexcept {
+                const bool qk_preprocessed,
+                const K256A4Publish* const k256_a4_publish) noexcept {
   if (invalid_arguments(context, workspace_raw, workspace_capacity_bytes,
                         token_count, conv_qkv, a, b, A_log, dt_bias,
                         state_input, state_output, l2_epsilon, norm_weight,
-                        silu_gate, norm_epsilon, output)) {
+                        silu_gate, norm_epsilon, output,
+                        k256_a4_publish)) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
   (void)context;
@@ -3568,6 +3584,27 @@ int launch_impl(void* const context,
   // compact route. Diagnostic packed baselines must remain fully self-owned.
   if (qk_preprocessed && use_packed_qkv_baseline) {
     return static_cast<int>(cudaErrorInvalidValue);
+  }
+  if (k256_a4_publish != nullptr) {
+    // The direct publisher is defined only on the promoted compact-QK,
+    // resident-state and BV64 chunk-o route.  Diagnostic route overrides
+    // fail before normalize/WY/state can mutate any observable boundary.
+    if (!use_chunk_o_bv64_output) {
+      return static_cast<int>(cudaErrorInvalidValue);
+    }
+    status = gdn_prefill_chunk_o_bv64_detail::
+        validate_norm_rows8_k256_a4(
+            workspace.v, norm_weight, silu_gate, token_count,
+            norm_epsilon, k256_a4_publish->destination_first_token,
+            k256_a4_publish->whole_logical_token_count,
+            k256_a4_publish->launch_token_count,
+            k256_a4_publish->clip_ratio, k256_a4_publish->packed_a,
+            k256_a4_publish->packed_a_capacity_bytes,
+            k256_a4_publish->scales_bf16,
+            k256_a4_publish->scale_capacity_elements);
+    if (status != static_cast<int>(cudaSuccess)) {
+      return status;
+    }
   }
 
   if (qk_preprocessed) {
@@ -3790,11 +3827,33 @@ int launch_impl(void* const context,
   if (use_chunk_o_bv64_output) {
     // Packless WY/state never touch workspace.v. Reuse that exact-size
     // legacy region for the BF16 [T,H,V] boundary between BV64 owners and
-    // the independent exact D128 norm/gate epilogue.
-    status = gdn_prefill_chunk_o_bv64_detail::launch(
+    // exactly one independent epilogue.  The old BF16 publisher and the
+    // direct span-wide K256 A4 publisher are mutually exclusive by the
+    // launch_impl input contract.
+    status = gdn_prefill_chunk_o_bv64_detail::launch_raw(
         workspace.q, workspace.k, workspace.boundary_state,
-        workspace.v_new, workspace.gamma, token_count, norm_weight,
-        silu_gate, norm_epsilon, workspace.v, output, cuda_stream);
+        workspace.v_new, workspace.gamma, token_count, workspace.v,
+        cuda_stream);
+    if (status != static_cast<int>(cudaSuccess)) {
+      return status;
+    }
+    if (k256_a4_publish != nullptr) {
+      status = gdn_prefill_chunk_o_bv64_detail::
+          launch_norm_rows8_k256_a4(
+              workspace.v, norm_weight, silu_gate, token_count,
+              norm_epsilon, k256_a4_publish->destination_first_token,
+              k256_a4_publish->whole_logical_token_count,
+              k256_a4_publish->launch_token_count,
+              k256_a4_publish->clip_ratio, k256_a4_publish->packed_a,
+              k256_a4_publish->packed_a_capacity_bytes,
+              k256_a4_publish->scales_bf16,
+              k256_a4_publish->scale_capacity_elements, cuda_stream);
+    } else {
+      status = gdn_prefill_chunk_o_bv64_detail::launch_norm_rows8(
+          workspace.v, norm_weight, silu_gate,
+          token_count * kValueHeadCount, norm_epsilon, output,
+          cuda_stream);
+    }
   } else {
     constexpr std::size_t reconstruction_shared_bytes =
         kDimension * kChunkSize * sizeof(float);
@@ -3815,7 +3874,8 @@ int launch_impl(void* const context,
     }
     status = launch_grid_status();
   }
-  if (status == static_cast<int>(cudaSuccess)) {
+  if (status == static_cast<int>(cudaSuccess) &&
+      k256_a4_publish == nullptr) {
     gdn_prefill_chunk64_native_detail::inspect_native_boundaries(
         workspace.transform, matrix_count * kChunkSize * kChunkSize,
         workspace.w, head_token_elements, workspace.u,
@@ -3851,7 +3911,44 @@ int launch(void* const context,
   return launch_impl(context, workspace_raw, workspace_capacity_bytes,
                      token_count, conv_qkv, a, b, A_log, dt_bias,
                      state_input, state_output, l2_epsilon, norm_weight,
-                     silu_gate, norm_epsilon, output, cuda_stream, false);
+                     silu_gate, norm_epsilon, output, cuda_stream, false,
+                     nullptr);
+}
+
+int launch_k256_a4_impl(
+    void* const workspace_raw,
+    const std::size_t workspace_capacity_bytes,
+    const std::size_t token_count,
+    const std::uint16_t* const conv_qkv,
+    const std::uint16_t* const a,
+    const std::uint16_t* const b,
+    const std::uint16_t* const A_log,
+    const std::uint16_t* const dt_bias,
+    const std::uint16_t* const state_input,
+    std::uint16_t* const state_output,
+    const float l2_epsilon,
+    const std::uint16_t* const norm_weight,
+    const std::uint16_t* const silu_gate,
+    const float norm_epsilon,
+    const std::size_t destination_first_token,
+    const std::size_t whole_logical_token_count,
+    const std::size_t launch_token_count,
+    const float clip_ratio,
+    std::uint8_t* const packed_a,
+    const std::size_t packed_a_capacity_bytes,
+    std::uint16_t* const scales_bf16,
+    const std::size_t scale_capacity_elements,
+    void* const cuda_stream,
+    const bool qk_preprocessed) noexcept {
+  const K256A4Publish publish{
+      destination_first_token, whole_logical_token_count,
+      launch_token_count, clip_ratio, packed_a,
+      packed_a_capacity_bytes, scales_bf16, scale_capacity_elements};
+  return launch_impl(
+      nullptr, workspace_raw, workspace_capacity_bytes, token_count,
+      conv_qkv, a, b, A_log, dt_bias, state_input, state_output,
+      l2_epsilon, norm_weight, silu_gate, norm_epsilon, nullptr,
+      cuda_stream, qk_preprocessed, &publish);
 }
 
 int query_native_resources(int* const registers_per_thread,
@@ -4039,6 +4136,42 @@ int launch(void* const workspace,
       silu_gate, norm_epsilon, output, cuda_stream);
 }
 
+int launch_k256_a4(
+    void* const workspace,
+    const std::size_t workspace_capacity_bytes,
+    const std::uint16_t* const conv_qkv,
+    const std::size_t token_count,
+    const std::uint16_t* const a,
+    const std::uint16_t* const b,
+    const std::uint16_t* const A_log,
+    const std::uint16_t* const dt_bias,
+    const std::uint16_t* const state_input,
+    std::uint16_t* const state_output,
+    const float l2_epsilon,
+    const std::uint16_t* const norm_weight,
+    const std::uint16_t* const silu_gate,
+    const float norm_epsilon,
+    const std::size_t destination_first_token,
+    const std::size_t whole_logical_token_count,
+    const std::size_t launch_token_count,
+    const float clip_ratio,
+    std::uint8_t* const packed_a,
+    const std::size_t packed_a_capacity_bytes,
+    std::uint16_t* const scales_bf16,
+    const std::size_t scale_capacity_elements,
+    void* const cuda_stream) noexcept {
+  if (token_count == 0U || token_count > 512U) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  return gdn_prefill_chunk64_reference_detail::launch_k256_a4_impl(
+      workspace, workspace_capacity_bytes, token_count, conv_qkv, a, b,
+      A_log, dt_bias, state_input, state_output, l2_epsilon, norm_weight,
+      silu_gate, norm_epsilon, destination_first_token,
+      whole_logical_token_count, launch_token_count, clip_ratio, packed_a,
+      packed_a_capacity_bytes, scales_bf16, scale_capacity_elements,
+      cuda_stream, false);
+}
+
 int launch_fused_conv_compact_qk_preprocess(
     void* const workspace_raw,
     const std::size_t workspace_capacity_bytes,
@@ -4085,7 +4218,43 @@ int launch_qk_preprocessed(
   return gdn_prefill_chunk64_reference_detail::launch_impl(
       nullptr, workspace, workspace_capacity_bytes, token_count, conv_qkv, a,
       b, A_log, dt_bias, state_input, state_output, l2_epsilon, norm_weight,
-      silu_gate, norm_epsilon, output, cuda_stream, true);
+      silu_gate, norm_epsilon, output, cuda_stream, true, nullptr);
+}
+
+int launch_qk_preprocessed_k256_a4(
+    void* const workspace,
+    const std::size_t workspace_capacity_bytes,
+    const std::uint16_t* const conv_qkv,
+    const std::size_t token_count,
+    const std::uint16_t* const a,
+    const std::uint16_t* const b,
+    const std::uint16_t* const A_log,
+    const std::uint16_t* const dt_bias,
+    const std::uint16_t* const state_input,
+    std::uint16_t* const state_output,
+    const float l2_epsilon,
+    const std::uint16_t* const norm_weight,
+    const std::uint16_t* const silu_gate,
+    const float norm_epsilon,
+    const std::size_t destination_first_token,
+    const std::size_t whole_logical_token_count,
+    const std::size_t launch_token_count,
+    const float clip_ratio,
+    std::uint8_t* const packed_a,
+    const std::size_t packed_a_capacity_bytes,
+    std::uint16_t* const scales_bf16,
+    const std::size_t scale_capacity_elements,
+    void* const cuda_stream) noexcept {
+  if (token_count == 0U || token_count > 512U) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  return gdn_prefill_chunk64_reference_detail::launch_k256_a4_impl(
+      workspace, workspace_capacity_bytes, token_count, conv_qkv, a, b,
+      A_log, dt_bias, state_input, state_output, l2_epsilon, norm_weight,
+      silu_gate, norm_epsilon, destination_first_token,
+      whole_logical_token_count, launch_token_count, clip_ratio, packed_a,
+      packed_a_capacity_bytes, scales_bf16, scale_capacity_elements,
+      cuda_stream, true);
 }
 
 int launch_prompt_span_gate_producer(

@@ -73,6 +73,12 @@ struct ReferenceRunnerOptions {
   // route.  The factory authenticates all 64 Gate/Up/Down views before a
   // runner is returned.
   bool enable_factorized_lane_r1_prefill_admission = false;
+  // Select the projection-span producer/consumer handoff beneath the R1
+  // master.  It owns no artifact and is invalid without the authenticated R1
+  // route.  The first implementation fuses exact residual/RMS boundaries
+  // with the next A4 producer; ordinary R1 execution remains unchanged when
+  // this leaf is false.
+  bool enable_factorized_lane_r1_handoff_prefill_admission = false;
   // Select the independent direct-checkpoint R4 whole-MLP package.  It is
   // mutually exclusive with R1 and every K512/Marlin MLP route, and accepts
   // only one logical P1793..P1920 projection span launched as P1920.
@@ -265,6 +271,15 @@ struct ReferenceLongPrefillResult {
   // every decoder layer/projection span.  Tile-prefill can never increment
   // this counter.
   std::size_t factorized_lane_r1_package_launch_hits = 0U;
+  // Independent proof that the R1 projection-span handoff package completed
+  // every fused producer/consumer boundary for one decoder layer/span.  This
+  // counter is physical (not a logical projection expansion) and remains
+  // zero for the older R1 MLP-only package above.
+  std::size_t factorized_lane_r1_handoff_package_launch_hits = 0U;
+  // Subordinate proof that a completed R1 handoff package also published the
+  // next decoder layer's K256 Attention input directly.  The final decoder
+  // layer has no transition, so a single-span 64-layer request reports 63.
+  std::size_t factorized_lane_r1_cross_layer_handoff_launch_hits = 0U;
   // Independent proof for the direct-checkpoint R4 package.  One hit means
   // lane4 hidden quantization, paired Gate+Up, split product quantization,
   // and Down all enqueued successfully for one layer/span.
@@ -309,6 +324,10 @@ struct ReferenceLongPrefillResult {
   // count one token for each Linear-Attention layer that consumed it.
   std::size_t gdn_chunk64_native_launch_hits = 0U;
   std::size_t gdn_chunk64_native_logical_token_hits = 0U;
+  // Physical proof that a native GDN state tile published normalized output
+  // directly as K256 A4 for Attention-O.  P1853 has four state tiles in each
+  // of 48 Linear-Attention layers, hence 192 successful launches.
+  std::size_t gdn_k256_direct_pack_launch_hits = 0U;
   std::size_t gdn_prompt_span_macro_launch_hits = 0U;
   std::size_t gdn_prompt_span_macro_logical_token_hits = 0U;
   std::optional<ReferenceStepTiming> timing;
@@ -778,6 +797,12 @@ struct A4W4FullPrefillAdmissionHits {
   // One hit is one complete R1 Gate+Up -> BF16 boundary -> Down package
   // launch for one decoder layer and one whole-M projection span.
   std::size_t factorized_lane_r1_package_launch_hits = 0U;
+  // One physical hit proves that every in-layer producer/consumer handoff in
+  // the R1 package was enqueued successfully for one layer/span.
+  std::size_t factorized_lane_r1_handoff_package_launch_hits = 0U;
+  // One subordinate physical hit proves that the same package published the
+  // next layer's K256 Attention input directly.  There is no final-layer hit.
+  std::size_t factorized_lane_r1_cross_layer_handoff_launch_hits = 0U;
   // Kept independent from R1 so request accounting cannot mistake an R1
   // package for the direct-checkpoint R4 execution slice.
   std::size_t factorized_lane_r4_package_launch_hits = 0U;
@@ -1945,6 +1970,10 @@ class ReferenceRunner {
   [[nodiscard]] bool factorized_lane_r1_prefill_enabled() const noexcept {
     return factorized_lane_r1_prefill_admission_enabled_;
   }
+  [[nodiscard]] bool factorized_lane_r1_handoff_prefill_enabled()
+      const noexcept {
+    return factorized_lane_r1_handoff_prefill_admission_enabled_;
+  }
   [[nodiscard]] bool factorized_lane_r4_prefill_enabled() const noexcept {
     return factorized_lane_r4_prefill_admission_enabled_;
   }
@@ -2150,6 +2179,7 @@ class ReferenceRunner {
               A4W4PairedGateUpCanonicalDownRoute::kDisabled;
   bool a4w4_full_prefill_admission_enabled_ = false;
   bool factorized_lane_r1_prefill_admission_enabled_ = false;
+  bool factorized_lane_r1_handoff_prefill_admission_enabled_ = false;
   bool factorized_lane_r4_prefill_admission_enabled_ = false;
   bool factorized_lane_r4_2cta_prefill_admission_enabled_ = false;
   bool trace_enabled_ = false;

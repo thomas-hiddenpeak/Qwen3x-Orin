@@ -8,6 +8,8 @@
 #if defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R1_ADMISSION)
 #include "q3x/kernels/sm87_a4w4_down_factorized_lane.h"
 #include "q3x/kernels/sm87_a4w4_gateup_factorized_lane.h"
+#include "q3x/kernels/sm87_a4w4_gateup_r1_product_finalize.h"
+#include "q3x/kernels/sm87_a4w4_prefill_handoff.h"
 #endif
 #if defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R4_ADMISSION)
 #include "q3x/kernels/sm87_a4w4_down_factorized_r4_m192n128.h"
@@ -142,6 +144,7 @@
 #if defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
 #include "../kernels/reference/gdn_prefill_whole_span_conv_sm87.h"
 #include "../kernels/sm87/gdn_prefill_chunk64_native_sm87.h"
+#include "../kernels/sm87/gdn_prefill_chunk_o_bv64_sm87.h"
 #include "reference_runner_gdn_chunk64_native_admission.h"
 #endif
 #if defined(Q3X_ENABLE_GDN_PREFILL_PROMPT_SPAN_MACRO_ADMISSION)
@@ -1248,6 +1251,7 @@ thread_local bool g_enable_prefill_gdn_chunk64_native_admission =
 thread_local std::size_t g_prefill_gdn_chunk64_native_admission_hits = 0U;
 thread_local std::size_t
     g_prefill_gdn_chunk64_native_admission_logical_token_hits = 0U;
+thread_local std::size_t g_gdn_k256_direct_pack_launch_hits = 0U;
 thread_local reference_runner_detail::PrefillGdnChunk64NativeSnapshotHook
     g_prefill_gdn_chunk64_native_snapshot_hook{};
 thread_local reference_runner_detail::
@@ -4208,6 +4212,8 @@ ReferenceRunner& ReferenceRunner::operator=(ReferenceRunner&& other) noexcept {
       other.a4w4_full_prefill_admission_enabled_, false);
   factorized_lane_r1_prefill_admission_enabled_ = std::exchange(
       other.factorized_lane_r1_prefill_admission_enabled_, false);
+  factorized_lane_r1_handoff_prefill_admission_enabled_ = std::exchange(
+      other.factorized_lane_r1_handoff_prefill_admission_enabled_, false);
   factorized_lane_r4_prefill_admission_enabled_ = std::exchange(
       other.factorized_lane_r4_prefill_admission_enabled_, false);
   factorized_lane_r4_2cta_prefill_admission_enabled_ = std::exchange(
@@ -4319,6 +4325,7 @@ void ReferenceRunner::release() noexcept {
           A4W4PairedGateUpCanonicalDownRoute::kDisabled;
   a4w4_full_prefill_admission_enabled_ = false;
   factorized_lane_r1_prefill_admission_enabled_ = false;
+  factorized_lane_r1_handoff_prefill_admission_enabled_ = false;
   factorized_lane_r4_prefill_admission_enabled_ = false;
   factorized_lane_r4_2cta_prefill_admission_enabled_ = false;
   trace_enabled_ = false;
@@ -8278,8 +8285,21 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
   std::uint16_t* const secondary = views_.long_prefill_projection_secondary;
   const DecoderLayerWeights& layer_weights =
       weights_->layer(item.layer_index);
+#if defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R1_ADMISSION)
+  const bool factorized_lane_r1_handoff_selected =
+      factorized_lane_r1_handoff_prefill_admission_enabled_;
+  const bool factorized_lane_r1_cross_layer_handoff_selected =
+      factorized_lane_r1_handoff_selected &&
+      plan.projection_span_count == 1U;
+#else
+  constexpr bool factorized_lane_r1_handoff_selected = false;
+  constexpr bool factorized_lane_r1_cross_layer_handoff_selected = false;
+#endif
+  const bool attention_input_handoff_ready =
+      factorized_lane_r1_cross_layer_handoff_selected &&
+      item.layer_index != 0U;
 
-  if (!check_cuda(
+  if (!attention_input_handoff_ready && !check_cuda(
           launch_headwise_centered_rms_norm_reference_cuda(
               input_hidden, layer_weights.input_layernorm.data, token_count,
               kReferenceHiddenSize, kRmsEpsilon, primary, stream_),
@@ -8300,6 +8320,8 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
         prefill_a4_sidecar_view(attention->in_proj_qkv);
     [[maybe_unused]] const PrefillA4LinearSidecarView z_sidecar =
         prefill_a4_sidecar_view(attention->in_proj_z);
+    const PrefillA4LinearSidecarView output_sidecar =
+        prefill_a4_sidecar_view(attention->out_proj);
     std::uint16_t* const linear_a =
         primary + projection_token_count * kLinearQkvElements;
     std::uint16_t* const linear_b =
@@ -8308,12 +8330,17 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
             attention->in_proj_a, attention->in_proj_b, primary,
             token_count, linear_a, linear_b,
             "prefill_projection_span_linear_ab") ||
-        !quantize(primary, kReferenceHiddenSize, token_count,
-                  kReferenceHiddenSize, qkv_sidecar.activation_clip_ratio,
-                  views_.prefill_a4_hidden_packed, hidden_packed_capacity,
-                  views_.prefill_a4_hidden_scales, hidden_scale_capacity,
-                  "prefill_projection_span_linear_input_quantize")) {
+        (!attention_input_handoff_ready &&
+         !quantize(primary, kReferenceHiddenSize, token_count,
+                   kReferenceHiddenSize, qkv_sidecar.activation_clip_ratio,
+                   views_.prefill_a4_hidden_packed, hidden_packed_capacity,
+                   views_.prefill_a4_hidden_scales, hidden_scale_capacity,
+                   "prefill_projection_span_linear_input_quantize"))) {
       return failure;
+    }
+    if (attention_input_handoff_ready) {
+      ++local_hits.activation_quantize_hits;
+      ++g_a4w4_full_prefill_admission_hits.activation_quantize_hits;
     }
     bool attention_supermatrix_selected = false;
 #if defined(Q3X_ENABLE_A4W4_ATTENTION_SUPERMATRIX_ADMISSION)
@@ -8493,6 +8520,49 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
     }
 #endif
 
+    bool gdn_k256_direct_pack_selected = false;
+#if defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R1_ADMISSION) && \
+    defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
+    if (factorized_lane_r1_handoff_selected) {
+      gdn_k256_direct_pack_selected =
+          !gdn_prompt_span_macro_selected &&
+          a4w4_prefill_consumer_ ==
+              reference_runner_detail::A4W4PrefillConsumer::kK256;
+      for (std::uint32_t tile_index = 0U;
+           gdn_k256_direct_pack_selected &&
+           tile_index < item.state_tile_count;
+           ++tile_index) {
+        LongPrefillProjectionSpanStateTile tile;
+        if (!long_prefill_projection_span_state_tile(
+                plan, item.ordinal, tile_index, tile)) {
+          return runner_status(
+              ReferenceRunnerError::kInvalidStepOptions,
+              "prefill_projection_span_linear_gdn_k256_handoff_state_tile",
+              item.layer_index);
+        }
+        gdn_k256_direct_pack_selected =
+            use_prefill_gdn_chunk64_native_admission(
+                enable_gdn_chunk64_native_admission, projection_backend_,
+                tile.first_position, tile.token_count,
+                prefill_gdn_chunk64_native_workspace_,
+                prefill_gdn_chunk64_native_workspace_bytes_);
+      }
+      if (!gdn_k256_direct_pack_selected) {
+        return runner_status(
+            ReferenceRunnerError::kInvalidRequestState,
+            "prefill_projection_span_linear_gdn_k256_handoff_contract",
+            item.layer_index);
+      }
+    }
+#elif defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R1_ADMISSION)
+    if (factorized_lane_r1_handoff_selected) {
+      return runner_status(
+          ReferenceRunnerError::kInvalidRequestState,
+          "prefill_projection_span_linear_gdn_k256_handoff_unavailable",
+          item.layer_index);
+    }
+#endif
+
     if (!gdn_prompt_span_macro_selected) {
       for (std::uint32_t tile_index = 0U;
            tile_index < item.state_tile_count; ++tile_index) {
@@ -8556,34 +8626,76 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
         ++g_prefill_gdn_chunk64_native_admission_hits;
         g_prefill_gdn_chunk64_native_admission_logical_token_hits +=
             tile.token_count;
-        const int native_status =
-            use_conv_compact_qk_fused_candidate
-                ? gdn_prefill_chunk64_native_detail::launch_qk_preprocessed(
-                      prefill_gdn_chunk64_native_workspace_,
-                      prefill_gdn_chunk64_native_workspace_bytes_, conv_qkv,
-                      tile.token_count,
-                      linear_a + local_first * kLinearScalarElements,
-                      linear_b + local_first * kLinearScalarElements,
-                      attention->a_log.data, attention->dt_bias.data,
-                      views_.gdn_state[item.layer_index],
-                      views_.gdn_state[item.layer_index], kRmsEpsilon,
-                      attention->norm.data, z, kRmsEpsilon,
-                      views_.projection[2], stream_)
-                : gdn_prefill_chunk64_native_detail::launch(
-                      prefill_gdn_chunk64_native_workspace_,
-                      prefill_gdn_chunk64_native_workspace_bytes_, conv_qkv,
-                      tile.token_count,
-                      linear_a + local_first * kLinearScalarElements,
-                      linear_b + local_first * kLinearScalarElements,
-                      attention->a_log.data, attention->dt_bias.data,
-                      views_.gdn_state[item.layer_index],
-                      views_.gdn_state[item.layer_index], kRmsEpsilon,
-                      attention->norm.data, z, kRmsEpsilon,
-                      views_.projection[2], stream_);
+        int native_status = static_cast<int>(cudaErrorInvalidValue);
+        if (gdn_k256_direct_pack_selected) {
+          native_status =
+              use_conv_compact_qk_fused_candidate
+                  ? gdn_prefill_chunk64_native_detail::
+                        launch_qk_preprocessed_k256_a4(
+                            prefill_gdn_chunk64_native_workspace_,
+                            prefill_gdn_chunk64_native_workspace_bytes_,
+                            conv_qkv, tile.token_count,
+                            linear_a + local_first * kLinearScalarElements,
+                            linear_b + local_first * kLinearScalarElements,
+                            attention->a_log.data, attention->dt_bias.data,
+                            views_.gdn_state[item.layer_index],
+                            views_.gdn_state[item.layer_index], kRmsEpsilon,
+                            attention->norm.data, z, kRmsEpsilon, local_first,
+                            token_count, projection_token_count,
+                            output_sidecar.activation_clip_ratio,
+                            views_.prefill_a4_intermediate_packed,
+                            intermediate_packed_capacity,
+                            views_.prefill_a4_intermediate_scales,
+                            intermediate_scale_capacity, stream_)
+                  : gdn_prefill_chunk64_native_detail::launch_k256_a4(
+                        prefill_gdn_chunk64_native_workspace_,
+                        prefill_gdn_chunk64_native_workspace_bytes_, conv_qkv,
+                        tile.token_count,
+                        linear_a + local_first * kLinearScalarElements,
+                        linear_b + local_first * kLinearScalarElements,
+                        attention->a_log.data, attention->dt_bias.data,
+                        views_.gdn_state[item.layer_index],
+                        views_.gdn_state[item.layer_index], kRmsEpsilon,
+                        attention->norm.data, z, kRmsEpsilon, local_first,
+                        token_count, projection_token_count,
+                        output_sidecar.activation_clip_ratio,
+                        views_.prefill_a4_intermediate_packed,
+                        intermediate_packed_capacity,
+                        views_.prefill_a4_intermediate_scales,
+                        intermediate_scale_capacity, stream_);
+        } else {
+          native_status =
+              use_conv_compact_qk_fused_candidate
+                  ? gdn_prefill_chunk64_native_detail::launch_qk_preprocessed(
+                        prefill_gdn_chunk64_native_workspace_,
+                        prefill_gdn_chunk64_native_workspace_bytes_, conv_qkv,
+                        tile.token_count,
+                        linear_a + local_first * kLinearScalarElements,
+                        linear_b + local_first * kLinearScalarElements,
+                        attention->a_log.data, attention->dt_bias.data,
+                        views_.gdn_state[item.layer_index],
+                        views_.gdn_state[item.layer_index], kRmsEpsilon,
+                        attention->norm.data, z, kRmsEpsilon,
+                        views_.projection[2], stream_)
+                  : gdn_prefill_chunk64_native_detail::launch(
+                        prefill_gdn_chunk64_native_workspace_,
+                        prefill_gdn_chunk64_native_workspace_bytes_, conv_qkv,
+                        tile.token_count,
+                        linear_a + local_first * kLinearScalarElements,
+                        linear_b + local_first * kLinearScalarElements,
+                        attention->a_log.data, attention->dt_bias.data,
+                        views_.gdn_state[item.layer_index],
+                        views_.gdn_state[item.layer_index], kRmsEpsilon,
+                        attention->norm.data, z, kRmsEpsilon,
+                        views_.projection[2], stream_);
+        }
         if (!check_cuda(
                 native_status,
                 "prefill_projection_span_linear_gdn_chunk64_native")) {
           return failure;
+        }
+        if (gdn_k256_direct_pack_selected) {
+          ++g_gdn_k256_direct_pack_launch_hits;
         }
       } else
 #endif
@@ -8688,7 +8800,7 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
           }
         }
       }
-      if (!check_cuda(
+      if (!gdn_k256_direct_pack_selected && !check_cuda(
               static_cast<int>(cudaMemcpyAsync(
                   secondary + local_first * kLinearValueElements,
                   views_.projection[2],
@@ -8701,8 +8813,6 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
       }
     }
 
-    const PrefillA4LinearSidecarView output_sidecar =
-        prefill_a4_sidecar_view(attention->out_proj);
     bool attention_o_k512_selected = false;
 #if defined(Q3X_ENABLE_A4W4_ATTENTION_O_K512_ADMISSION)
     if (!check_cuda(
@@ -8731,7 +8841,11 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
       ++g_a4w4_full_prefill_admission_hits.activation_quantize_hits;
       ++g_a4w4_full_prefill_admission_hits.logical_projection_hits;
     }
-    if (!attention_o_k512_selected &&
+    if (gdn_k256_direct_pack_selected) {
+      ++local_hits.activation_quantize_hits;
+      ++g_a4w4_full_prefill_admission_hits.activation_quantize_hits;
+    }
+    if (!gdn_k256_direct_pack_selected && !attention_o_k512_selected &&
         !quantize(secondary, kLinearValueElements, token_count,
                   kLinearValueElements,
                   output_sidecar.activation_clip_ratio,
@@ -8867,12 +8981,17 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
     [[maybe_unused]] const std::size_t projected_span_value_capacity =
         pad_full_kv ? secondary_output_capacity - value_offset_elements
                     : projection_token_count * kFullKvElements;
-    if (!quantize(primary, kReferenceHiddenSize, token_count,
+    if (!attention_input_handoff_ready &&
+        !quantize(primary, kReferenceHiddenSize, token_count,
                   kReferenceHiddenSize, q_sidecar.activation_clip_ratio,
                   views_.prefill_a4_hidden_packed, hidden_packed_capacity,
                   views_.prefill_a4_hidden_scales, hidden_scale_capacity,
                   "prefill_projection_span_full_input_quantize")) {
       return failure;
+    }
+    if (attention_input_handoff_ready) {
+      ++local_hits.activation_quantize_hits;
+      ++g_a4w4_full_prefill_admission_hits.activation_quantize_hits;
     }
     bool attention_supermatrix_selected = false;
 #if defined(Q3X_ENABLE_A4W4_ATTENTION_SUPERMATRIX_ADMISSION)
@@ -9278,17 +9397,55 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
                          item.layer_index);
   }
 
-  if (!check_cuda(
-          launch_residual_add_reference_cuda(
-              input_hidden, secondary, token_count * kReferenceHiddenSize,
-              output_hidden, stream_),
-          "prefill_projection_span_attention_residual") ||
-      !check_cuda(
-          launch_headwise_centered_rms_norm_reference_cuda(
-              output_hidden, layer_weights.post_attention_layernorm.data,
-              token_count, kReferenceHiddenSize, kRmsEpsilon, primary,
-              stream_),
-          "prefill_projection_span_post_attention_norm")) {
+  bool factorized_lane_r1_gate_input_handoff_ready = false;
+#if defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R1_ADMISSION)
+  if (factorized_lane_r1_handoff_selected) {
+    const PrefillMLPFactorizedLaneLayerView& factorized =
+        layer_weights.prefill_mlp_factorized_lane_r1;
+    const std::size_t gate_launch_token_count =
+        kernels::sm87_a4w4_gateup_factorized_launch_token_count(token_count);
+    if (!factorized_lane_r1_prefill_admission_enabled_ ||
+        gate_launch_token_count != projection_token_count ||
+        !factorized.attached()) {
+      return runner_status(
+          ReferenceRunnerError::kInvalidRequestState,
+          "prefill_projection_span_r1_attention_to_gate_handoff_contract",
+          item.layer_index);
+    }
+    if (!check_cuda(
+            kernels::
+                launch_sm87_a4w4_attention_residual_post_norm_r1_quantize_cuda(
+                    input_hidden, secondary,
+                    layer_weights.post_attention_layernorm.data,
+                    factorized.gate.inverse_alpha,
+                    factorized.gate.inverse_alpha_capacity_elements,
+                    token_count, gate_launch_token_count, kRmsEpsilon,
+                    factorized.gate.activation_clip_ratio, output_hidden,
+                    token_count * kReferenceHiddenSize,
+                    views_.prefill_a4_hidden_packed,
+                    hidden_packed_capacity,
+                    views_.prefill_a4_hidden_scales,
+                    hidden_scale_capacity, stream_),
+            "prefill_projection_span_r1_attention_to_gate_handoff")) {
+      return failure;
+    }
+    ++local_hits.activation_quantize_hits;
+    ++g_a4w4_full_prefill_admission_hits.activation_quantize_hits;
+    factorized_lane_r1_gate_input_handoff_ready = true;
+  }
+#endif
+  if (!factorized_lane_r1_gate_input_handoff_ready &&
+      (!check_cuda(
+           launch_residual_add_reference_cuda(
+               input_hidden, secondary,
+               token_count * kReferenceHiddenSize, output_hidden, stream_),
+           "prefill_projection_span_attention_residual") ||
+       !check_cuda(
+           launch_headwise_centered_rms_norm_reference_cuda(
+               output_hidden, layer_weights.post_attention_layernorm.data,
+               token_count, kReferenceHiddenSize, kRmsEpsilon, primary,
+               stream_),
+           "prefill_projection_span_post_attention_norm"))) {
     return failure;
   }
 
@@ -9560,6 +9717,9 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
         kernels::sm87_a4w4_down_factorized_lane_plan(
             token_count, down_launch_token_count, kReferenceHiddenSize,
             kReferenceIntermediateSize);
+    const auto product_finalize_plan =
+        kernels::sm87_a4w4_gateup_r1_product_finalize_plan(
+            token_count, down_launch_token_count);
     const std::size_t primary_capacity = static_cast<std::size_t>(
         request_plan.long_prefill_projection_primary_bf16.element_capacity);
     const std::size_t secondary_capacity = static_cast<std::size_t>(
@@ -9598,6 +9758,18 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
         down_launch_token_count == 0U ||
         down_launch_token_count > span_capacity ||
         gate_plan.launch_ctas == 0U || down_plan.launch_ctas == 0U ||
+        (factorized_lane_r1_handoff_selected &&
+         (!product_finalize_plan ||
+          product_finalize_plan.gate_launch_token_count !=
+              gate_launch_token_count ||
+          views_.prefill_a4_gateup_cta_scratch == nullptr ||
+          reinterpret_cast<std::uintptr_t>(
+              views_.prefill_a4_gateup_cta_scratch) %
+                  alignof(float) !=
+              0U ||
+          views_.prefill_a4_gateup_cta_scratch_bytes <
+              product_finalize_plan.partial_capacity_elements *
+                  sizeof(float))) ||
         gate_a_bytes == 0U || gate_a_scales == 0U ||
         down_a_bytes == 0U || down_a_scales == 0U ||
         hidden_packed_capacity < gate_a_bytes ||
@@ -9617,59 +9789,114 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
           item.layer_index);
     }
 
-    if (!check_cuda(
-            kernels::launch_sm87_a4w4_factorized_lane_quantize_bf16_cuda(
-                primary, kReferenceHiddenSize, primary_capacity,
-                factorized.gate.inverse_alpha,
-                factorized.gate.inverse_alpha_capacity_elements,
-                token_count, gate_launch_token_count,
-                kReferenceHiddenSize, 1U,
-                factorized.gate.activation_clip_ratio,
-                views_.prefill_a4_hidden_packed, hidden_packed_capacity,
-                views_.prefill_a4_hidden_scales, hidden_scale_capacity,
-                stream_),
-            "prefill_projection_span_factorized_lane_r1_input_quantize") ||
+    if ((!factorized_lane_r1_gate_input_handoff_ready &&
+         !check_cuda(
+             kernels::launch_sm87_a4w4_factorized_lane_quantize_bf16_cuda(
+                 primary, kReferenceHiddenSize, primary_capacity,
+                 factorized.gate.inverse_alpha,
+                 factorized.gate.inverse_alpha_capacity_elements,
+                 token_count, gate_launch_token_count,
+                 kReferenceHiddenSize, 1U,
+                 factorized.gate.activation_clip_ratio,
+                 views_.prefill_a4_hidden_packed, hidden_packed_capacity,
+                 views_.prefill_a4_hidden_scales, hidden_scale_capacity,
+                 stream_),
+             "prefill_projection_span_factorized_lane_r1_input_quantize")) ||
         !check_cuda(
-            kernels::launch_sm87_a4w4_gateup_factorized_lane_bf16_cuda(
-                views_.prefill_a4_hidden_packed, hidden_packed_capacity,
-                views_.prefill_a4_hidden_scales, hidden_scale_capacity,
-                factorized.gate.packed_weight,
-                factorized.gate.packed_weight_capacity_bytes,
-                factorized.gate.lane_scales,
-                factorized.gate.lane_scale_capacity_elements,
-                factorized.up.packed_weight,
-                factorized.up.packed_weight_capacity_bytes,
-                factorized.up.lane_scales,
-                factorized.up.lane_scale_capacity_elements, token_count,
-                gate_launch_token_count, kReferenceIntermediateSize,
-                kReferenceHiddenSize, primary,
-                kernels::kSm87A4W4GateUpFactorizedPrimaryStride,
-                primary_capacity, secondary,
-                kernels::kSm87A4W4GateUpFactorizedSecondaryStride,
-                secondary_capacity, stream_),
-            "prefill_projection_span_factorized_lane_r1_gateup") ||
+            factorized_lane_r1_handoff_selected
+                ? kernels::
+                      launch_sm87_a4w4_gateup_factorized_lane_r1_tile_max_bf16_cuda(
+                          views_.prefill_a4_hidden_packed,
+                          hidden_packed_capacity,
+                          views_.prefill_a4_hidden_scales,
+                          hidden_scale_capacity,
+                          factorized.gate.packed_weight,
+                          factorized.gate.packed_weight_capacity_bytes,
+                          factorized.gate.lane_scales,
+                          factorized.gate.lane_scale_capacity_elements,
+                          factorized.up.packed_weight,
+                          factorized.up.packed_weight_capacity_bytes,
+                          factorized.up.lane_scales,
+                          factorized.up.lane_scale_capacity_elements,
+                          token_count, gate_launch_token_count,
+                          kReferenceIntermediateSize, kReferenceHiddenSize,
+                          primary,
+                          kernels::kSm87A4W4GateUpFactorizedPrimaryStride,
+                          primary_capacity, secondary,
+                          kernels::kSm87A4W4GateUpFactorizedSecondaryStride,
+                          secondary_capacity,
+                          factorized.down.inverse_alpha,
+                          factorized.down.inverse_alpha_capacity_elements,
+                          reinterpret_cast<float*>(
+                              views_.prefill_a4_gateup_cta_scratch),
+                          views_.prefill_a4_gateup_cta_scratch_bytes /
+                              sizeof(float),
+                          stream_)
+                : kernels::launch_sm87_a4w4_gateup_factorized_lane_bf16_cuda(
+                      views_.prefill_a4_hidden_packed,
+                      hidden_packed_capacity,
+                      views_.prefill_a4_hidden_scales,
+                      hidden_scale_capacity,
+                      factorized.gate.packed_weight,
+                      factorized.gate.packed_weight_capacity_bytes,
+                      factorized.gate.lane_scales,
+                      factorized.gate.lane_scale_capacity_elements,
+                      factorized.up.packed_weight,
+                      factorized.up.packed_weight_capacity_bytes,
+                      factorized.up.lane_scales,
+                      factorized.up.lane_scale_capacity_elements,
+                      token_count, gate_launch_token_count,
+                      kReferenceIntermediateSize, kReferenceHiddenSize,
+                      primary,
+                      kernels::kSm87A4W4GateUpFactorizedPrimaryStride,
+                      primary_capacity, secondary,
+                      kernels::kSm87A4W4GateUpFactorizedSecondaryStride,
+                      secondary_capacity, stream_),
+            factorized_lane_r1_handoff_selected
+                ? "prefill_projection_span_factorized_lane_r1_gateup_tile_max"
+                : "prefill_projection_span_factorized_lane_r1_gateup") ||
         !check_cuda(
-            kernels::
-                launch_sm87_a4w4_factorized_lane_quantize_bf16_split_cuda(
-                    primary,
-                    kernels::kSm87A4W4GateUpFactorizedPrimaryStride,
-                    primary_capacity,
-                    kernels::
-                        kSm87A4W4FactorizedLaneQuantizeDownPrimaryInput,
-                    secondary,
-                    kernels::kSm87A4W4GateUpFactorizedSecondaryStride,
-                    secondary_capacity,
-                    kernels::
-                        kSm87A4W4FactorizedLaneQuantizeDownSecondaryInput,
-                    factorized.down.inverse_alpha,
-                    factorized.down.inverse_alpha_capacity_elements,
-                    token_count, down_launch_token_count, 1U,
-                    factorized.down.activation_clip_ratio,
-                    views_.prefill_a4_intermediate_packed,
-                    intermediate_packed_capacity,
-                    views_.prefill_a4_intermediate_scales,
-                    intermediate_scale_capacity, stream_),
-            "prefill_projection_span_factorized_lane_r1_product_quantize") ||
+            factorized_lane_r1_handoff_selected
+                ? kernels::launch_sm87_a4w4_gateup_r1_product_finalize_cuda(
+                      primary,
+                      kernels::kSm87A4W4GateUpFactorizedPrimaryStride,
+                      primary_capacity, secondary,
+                      kernels::kSm87A4W4GateUpFactorizedSecondaryStride,
+                      secondary_capacity, factorized.down.inverse_alpha,
+                      factorized.down.inverse_alpha_capacity_elements,
+                      reinterpret_cast<const float*>(
+                          views_.prefill_a4_gateup_cta_scratch),
+                      views_.prefill_a4_gateup_cta_scratch_bytes /
+                          sizeof(float),
+                      token_count, down_launch_token_count,
+                      factorized.down.activation_clip_ratio,
+                      views_.prefill_a4_intermediate_packed,
+                      intermediate_packed_capacity,
+                      views_.prefill_a4_intermediate_scales,
+                      intermediate_scale_capacity, stream_)
+                : kernels::
+                      launch_sm87_a4w4_factorized_lane_quantize_bf16_split_cuda(
+                          primary,
+                          kernels::kSm87A4W4GateUpFactorizedPrimaryStride,
+                          primary_capacity,
+                          kernels::
+                              kSm87A4W4FactorizedLaneQuantizeDownPrimaryInput,
+                          secondary,
+                          kernels::kSm87A4W4GateUpFactorizedSecondaryStride,
+                          secondary_capacity,
+                          kernels::
+                              kSm87A4W4FactorizedLaneQuantizeDownSecondaryInput,
+                          factorized.down.inverse_alpha,
+                          factorized.down.inverse_alpha_capacity_elements,
+                          token_count, down_launch_token_count, 1U,
+                          factorized.down.activation_clip_ratio,
+                          views_.prefill_a4_intermediate_packed,
+                          intermediate_packed_capacity,
+                          views_.prefill_a4_intermediate_scales,
+                          intermediate_scale_capacity, stream_),
+            factorized_lane_r1_handoff_selected
+                ? "prefill_projection_span_factorized_lane_r1_product_finalize"
+                : "prefill_projection_span_factorized_lane_r1_product_quantize") ||
         !check_cuda(
             kernels::launch_sm87_a4w4_down_factorized_lane_bf16_cuda(
                 views_.prefill_a4_intermediate_packed,
@@ -9686,12 +9913,14 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
             "prefill_projection_span_factorized_lane_r1_down")) {
       return failure;
     }
-    local_hits.activation_quantize_hits += 2U;
+    local_hits.activation_quantize_hits +=
+        factorized_lane_r1_gate_input_handoff_ready ? 1U : 2U;
     ++local_hits.paired_gate_up_hits;
     ++local_hits.generic_projection_hits;
     local_hits.logical_projection_hits += 3U;
     ++local_hits.factorized_lane_r1_package_launch_hits;
-    g_a4w4_full_prefill_admission_hits.activation_quantize_hits += 2U;
+    g_a4w4_full_prefill_admission_hits.activation_quantize_hits +=
+        factorized_lane_r1_gate_input_handoff_ready ? 1U : 2U;
     ++g_a4w4_full_prefill_admission_hits.paired_gate_up_hits;
     ++g_a4w4_full_prefill_admission_hits.generic_projection_hits;
     g_a4w4_full_prefill_admission_hits.logical_projection_hits += 3U;
@@ -11739,13 +11968,70 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
       return failure;
     }
   }
-  if (!check_cuda(
+  bool next_attention_input_handoff_published = false;
+#if defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R1_ADMISSION)
+  if (factorized_lane_r1_cross_layer_handoff_selected &&
+      item.layer_index + 1U < kReferenceDecoderLayerCount) {
+    const DecoderLayerWeights& next_layer_weights =
+        weights_->layer(item.layer_index + 1U);
+    float next_attention_clip_ratio = 0.0F;
+    if (const auto* const next_linear =
+            std::get_if<LinearAttentionWeights>(
+                &next_layer_weights.attention)) {
+      next_attention_clip_ratio =
+          prefill_a4_sidecar_view(next_linear->in_proj_qkv)
+              .activation_clip_ratio;
+    } else if (const auto* const next_full =
+                   std::get_if<FullAttentionWeights>(
+                       &next_layer_weights.attention)) {
+      next_attention_clip_ratio =
+          prefill_a4_sidecar_view(next_full->q_proj).activation_clip_ratio;
+    } else {
+      return runner_status(
+          ReferenceRunnerError::kInvalidLayerSchedule,
+          "prefill_projection_span_r1_next_attention_handoff_variant",
+          item.layer_index);
+    }
+    const std::size_t primary_capacity = static_cast<std::size_t>(
+        request_plan.long_prefill_projection_primary_bf16.element_capacity);
+    if (!check_cuda(
+            kernels::
+                launch_sm87_a4w4_mlp_residual_next_norm_k256_quantize_cuda(
+                    output_hidden, secondary,
+                    next_layer_weights.input_layernorm.data, token_count,
+                    projection_token_count, kRmsEpsilon,
+                    next_attention_clip_ratio, output_hidden,
+                    token_count * kReferenceHiddenSize, primary,
+                    primary_capacity, views_.prefill_a4_hidden_packed,
+                    hidden_packed_capacity,
+                    views_.prefill_a4_hidden_scales,
+                    hidden_scale_capacity, stream_),
+            "prefill_projection_span_r1_mlp_to_next_attention_handoff")) {
+      return failure;
+    }
+    next_attention_input_handoff_published = true;
+  }
+#endif
+  if (!next_attention_input_handoff_published &&
+      !check_cuda(
           launch_residual_add_reference_cuda(
               output_hidden, secondary,
               token_count * kReferenceHiddenSize, output_hidden, stream_),
           "prefill_projection_span_mlp_residual")) {
     return failure;
   }
+#if defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R1_ADMISSION)
+  if (factorized_lane_r1_handoff_selected) {
+    ++local_hits.factorized_lane_r1_handoff_package_launch_hits;
+    ++g_a4w4_full_prefill_admission_hits
+          .factorized_lane_r1_handoff_package_launch_hits;
+    if (next_attention_input_handoff_published) {
+      ++local_hits.factorized_lane_r1_cross_layer_handoff_launch_hits;
+      ++g_a4w4_full_prefill_admission_hits
+            .factorized_lane_r1_cross_layer_handoff_launch_hits;
+    }
+  }
+#endif
 
   const bool linear = layer_type == model::LayerType::kLinearAttention;
   std::size_t expected_generic = linear ? 4U : 5U;
@@ -11954,6 +12240,13 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
       local_hits.logical_projection_hits != expected_logical ||
       local_hits.factorized_lane_r1_package_launch_hits !=
           (factorized_lane_r1_selected ? 1U : 0U) ||
+      local_hits.factorized_lane_r1_handoff_package_launch_hits !=
+          (factorized_lane_r1_handoff_selected ? 1U : 0U) ||
+      local_hits.factorized_lane_r1_cross_layer_handoff_launch_hits !=
+          (factorized_lane_r1_cross_layer_handoff_selected &&
+                   item.layer_index + 1U < kReferenceDecoderLayerCount
+               ? 1U
+               : 0U) ||
       local_hits.factorized_lane_r4_package_launch_hits !=
           (factorized_lane_r4_selected ? 1U : 0U) ||
       local_hits.factorized_lane_r4_2cta_package_launch_hits !=
@@ -12276,6 +12569,8 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
         g_prefill_gdn_chunk64_native_admission_hits;
     const std::size_t gdn_chunk64_native_logical_token_hits_before =
         g_prefill_gdn_chunk64_native_admission_logical_token_hits;
+    const std::size_t gdn_k256_direct_pack_launch_hits_before =
+        g_gdn_k256_direct_pack_launch_hits;
 #endif
 #if defined(Q3X_ENABLE_GDN_PREFILL_PROMPT_SPAN_MACRO_ADMISSION)
     const std::size_t gdn_prompt_span_macro_launch_hits_before =
@@ -12341,6 +12636,7 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
     const std::size_t spans = span_plan.value->projection_span_count;
     std::size_t gdn_chunk64_native_launch_delta = 0U;
     std::size_t gdn_chunk64_native_logical_token_delta = 0U;
+    std::size_t gdn_k256_direct_pack_launch_delta = 0U;
     std::size_t gdn_prompt_span_macro_launch_delta = 0U;
     std::size_t gdn_prompt_span_macro_logical_token_delta = 0U;
     bool gdn_accounting_valid = true;
@@ -12349,7 +12645,9 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
         g_prefill_gdn_chunk64_native_admission_hits >=
             gdn_chunk64_native_launch_hits_before &&
         g_prefill_gdn_chunk64_native_admission_logical_token_hits >=
-            gdn_chunk64_native_logical_token_hits_before;
+            gdn_chunk64_native_logical_token_hits_before &&
+        g_gdn_k256_direct_pack_launch_hits >=
+            gdn_k256_direct_pack_launch_hits_before;
     if (gdn_accounting_valid) {
       gdn_chunk64_native_launch_delta =
           g_prefill_gdn_chunk64_native_admission_hits -
@@ -12357,7 +12655,16 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
       gdn_chunk64_native_logical_token_delta =
           g_prefill_gdn_chunk64_native_admission_logical_token_hits -
           gdn_chunk64_native_logical_token_hits_before;
+      gdn_k256_direct_pack_launch_delta =
+          g_gdn_k256_direct_pack_launch_hits -
+          gdn_k256_direct_pack_launch_hits_before;
     }
+    gdn_accounting_valid =
+        gdn_accounting_valid &&
+        gdn_k256_direct_pack_launch_delta ==
+            (factorized_lane_r1_handoff_prefill_admission_enabled_
+                 ? gdn_chunk64_native_launch_delta
+                 : 0U);
 #endif
 #if defined(Q3X_ENABLE_GDN_PREFILL_PROMPT_SPAN_MACRO_ADMISSION)
     gdn_accounting_valid =
@@ -12835,6 +13142,39 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
             (factorized_lane_r1_prefill_admission_enabled_
                  ? spans * kReferenceDecoderLayerCount
                  : 0U);
+    const std::size_t factorized_lane_r1_handoff_package_delta =
+        hits_after.factorized_lane_r1_handoff_package_launch_hits >=
+                hits_before.factorized_lane_r1_handoff_package_launch_hits
+            ? hits_after.factorized_lane_r1_handoff_package_launch_hits -
+                  hits_before.factorized_lane_r1_handoff_package_launch_hits
+            : 0U;
+    const bool factorized_lane_r1_handoff_package_accounting_valid =
+        hits_after.factorized_lane_r1_handoff_package_launch_hits >=
+            hits_before.factorized_lane_r1_handoff_package_launch_hits &&
+        factorized_lane_r1_handoff_package_delta ==
+            (factorized_lane_r1_handoff_prefill_admission_enabled_
+                 ? spans * kReferenceDecoderLayerCount
+                 : 0U) &&
+        factorized_lane_r1_handoff_package_delta <=
+            factorized_lane_r1_package_delta;
+    const std::size_t factorized_lane_r1_cross_layer_handoff_delta =
+        hits_after.factorized_lane_r1_cross_layer_handoff_launch_hits >=
+                hits_before
+                    .factorized_lane_r1_cross_layer_handoff_launch_hits
+            ? hits_after.factorized_lane_r1_cross_layer_handoff_launch_hits -
+                  hits_before
+                      .factorized_lane_r1_cross_layer_handoff_launch_hits
+            : 0U;
+    const bool factorized_lane_r1_cross_layer_handoff_accounting_valid =
+        hits_after.factorized_lane_r1_cross_layer_handoff_launch_hits >=
+            hits_before.factorized_lane_r1_cross_layer_handoff_launch_hits &&
+        factorized_lane_r1_cross_layer_handoff_delta ==
+            (factorized_lane_r1_handoff_prefill_admission_enabled_ &&
+                     spans == 1U
+                 ? kReferenceDecoderLayerCount - 1U
+                 : 0U) &&
+        factorized_lane_r1_cross_layer_handoff_delta <=
+            factorized_lane_r1_handoff_package_delta;
     const std::size_t factorized_lane_r4_package_delta =
         hits_after.factorized_lane_r4_package_launch_hits >=
                 hits_before.factorized_lane_r4_package_launch_hits
@@ -12969,6 +13309,8 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
         !attention_accounting_valid || !mlp_k512_accounting_valid ||
         !mlp_k256_m128n256_pairfeed_package_accounting_valid ||
         !factorized_lane_r1_package_accounting_valid ||
+        !factorized_lane_r1_handoff_package_accounting_valid ||
+        !factorized_lane_r1_cross_layer_handoff_accounting_valid ||
         !factorized_lane_r4_package_accounting_valid ||
         !factorized_lane_r4_2cta_package_accounting_valid ||
         ((mlp_k512_delta != 0U ? 1U : 0U) +
@@ -13018,6 +13360,10 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
         mlp_k256_m128n256_pairfeed_package_delta;
     value.factorized_lane_r1_package_launch_hits =
         factorized_lane_r1_package_delta;
+    value.factorized_lane_r1_handoff_package_launch_hits =
+        factorized_lane_r1_handoff_package_delta;
+    value.factorized_lane_r1_cross_layer_handoff_launch_hits =
+        factorized_lane_r1_cross_layer_handoff_delta;
     value.factorized_lane_r4_package_launch_hits =
         factorized_lane_r4_package_delta;
     value.factorized_lane_r4_2cta_package_launch_hits =
@@ -13046,6 +13392,8 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
         gdn_chunk64_native_launch_delta;
     value.gdn_chunk64_native_logical_token_hits =
         gdn_chunk64_native_logical_token_delta;
+    value.gdn_k256_direct_pack_launch_hits =
+        gdn_k256_direct_pack_launch_delta;
     value.gdn_prompt_span_macro_launch_hits =
         gdn_prompt_span_macro_launch_delta;
     value.gdn_prompt_span_macro_logical_token_hits =
@@ -13718,13 +14066,21 @@ ReferenceRunnerFactoryResult create_reference_runner(
   }
 #endif
 #if !defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R1_ADMISSION)
-  if (options.enable_factorized_lane_r1_prefill_admission) {
+  if (options.enable_factorized_lane_r1_prefill_admission ||
+      options.enable_factorized_lane_r1_handoff_prefill_admission) {
     result.diagnostic = runner_status(
         ReferenceRunnerError::kInvalidDependency,
         "factorized_lane_r1_prefill_admission_build");
     return result;
   }
 #endif
+  if (options.enable_factorized_lane_r1_handoff_prefill_admission &&
+      !options.enable_factorized_lane_r1_prefill_admission) {
+    result.diagnostic = runner_status(
+        ReferenceRunnerError::kInvalidDependency,
+        "factorized_lane_r1_handoff_requires_r1_master");
+    return result;
+  }
 #if !defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R4_ADMISSION)
   if (options.enable_factorized_lane_r4_prefill_admission) {
     result.diagnostic = runner_status(
@@ -13836,6 +14192,61 @@ ReferenceRunnerFactoryResult create_reference_runner(
           "factorized_lane_r1_down_resource_gate", kReferenceNoLayer,
           resource_status);
       return result;
+    }
+    if (options.enable_factorized_lane_r1_handoff_prefill_admission) {
+      kernels::Sm87A4W4GateUpFactorizedLaneResources
+          gateup_tile_max_resources{};
+      resource_status = kernels::
+          query_sm87_a4w4_gateup_factorized_lane_r1_tile_max_resources_cuda(
+              &gateup_tile_max_resources);
+      if (resource_status != static_cast<int>(cudaSuccess)) {
+        result.diagnostic = runner_status(
+            ReferenceRunnerError::kInvalidDependency,
+            "factorized_lane_r1_handoff_gateup_resource_gate",
+            kReferenceNoLayer, resource_status);
+        return result;
+      }
+      kernels::Sm87A4W4GateUpR1ProductFinalizeResources
+          product_finalize_resources{};
+      resource_status = kernels::
+          query_sm87_a4w4_gateup_r1_product_finalize_resources_cuda(
+              &product_finalize_resources);
+      if (resource_status != static_cast<int>(cudaSuccess)) {
+        result.diagnostic = runner_status(
+            ReferenceRunnerError::kInvalidDependency,
+            "factorized_lane_r1_handoff_product_resource_gate",
+            kReferenceNoLayer, resource_status);
+        return result;
+      }
+      kernels::Sm87A4W4PrefillHandoffResources handoff_resources{};
+      resource_status =
+          kernels::query_sm87_a4w4_prefill_handoff_resources_cuda(
+              &handoff_resources);
+      if (resource_status != static_cast<int>(cudaSuccess)) {
+        result.diagnostic = runner_status(
+            ReferenceRunnerError::kInvalidDependency,
+            "factorized_lane_r1_handoff_resource_gate", kReferenceNoLayer,
+            resource_status);
+        return result;
+      }
+#if defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
+      int registers_per_thread = 0;
+      std::size_t static_shared_bytes = 0U;
+      std::size_t local_bytes = 0U;
+      int maximum_threads_per_block = 0;
+      int active_blocks_per_sm = 0;
+      resource_status =
+          gdn_prefill_chunk_o_bv64_detail::query_norm_k256_a4_resources(
+              &registers_per_thread, &static_shared_bytes, &local_bytes,
+              &maximum_threads_per_block, &active_blocks_per_sm);
+      if (resource_status != static_cast<int>(cudaSuccess)) {
+        result.diagnostic = runner_status(
+            ReferenceRunnerError::kInvalidDependency,
+            "factorized_lane_r1_handoff_gdn_k256_resource_gate",
+            kReferenceNoLayer, resource_status);
+        return result;
+      }
+#endif
     }
   }
 #endif
@@ -14474,6 +14885,8 @@ ReferenceRunnerFactoryResult create_reference_runner(
       options.enable_a4w4_full_prefill_admission;
   runner.factorized_lane_r1_prefill_admission_enabled_ =
       options.enable_factorized_lane_r1_prefill_admission;
+  runner.factorized_lane_r1_handoff_prefill_admission_enabled_ =
+      options.enable_factorized_lane_r1_handoff_prefill_admission;
   runner.factorized_lane_r4_prefill_admission_enabled_ =
       options.enable_factorized_lane_r4_prefill_admission;
   runner.factorized_lane_r4_2cta_prefill_admission_enabled_ =

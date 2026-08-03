@@ -107,6 +107,27 @@ exchange_vllm_layout_wy_route_for_test(
     const std::uint16_t* silu_gate, float norm_epsilon,
     std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
 
+// Stateful native-C64 launch with a direct span-wide K256 A4 publication
+// boundary.  It executes the same compact-QK, WY, resident-state and BV64
+// chunk-o route as launch(), but replaces the BF16 norm/gate output with one
+// exact direct K256 publisher.  packed/scales address the complete prompt
+// span; this call owns the logical tile beginning at destination_first_token.
+// Every span/capacity/alias contract is checked before state mutation.
+[[nodiscard]] int launch_k256_a4(
+    void* workspace, std::size_t workspace_capacity_bytes,
+    const std::uint16_t* conv_qkv, std::size_t token_count,
+    const std::uint16_t* a, const std::uint16_t* b,
+    const std::uint16_t* A_log, const std::uint16_t* dt_bias,
+    const std::uint16_t* state_input, std::uint16_t* state_output,
+    float l2_epsilon, const std::uint16_t* norm_weight,
+    const std::uint16_t* silu_gate, float norm_epsilon,
+    std::size_t destination_first_token,
+    std::size_t whole_logical_token_count,
+    std::size_t launch_token_count, float clip_ratio,
+    std::uint8_t* packed_a, std::size_t packed_a_capacity_bytes,
+    std::uint16_t* scales_bf16, std::size_t scale_capacity_elements,
+    void* cuda_stream = nullptr) noexcept;
+
 // Same-ELF structural candidate boundary.  The first call performs the
 // complete token-parallel causal convolution and writes compact normalized
 // Q/K directly into this launcher's private workspace.  The second consumes
@@ -129,6 +150,24 @@ exchange_vllm_layout_wy_route_for_test(
     float l2_epsilon, const std::uint16_t* norm_weight,
     const std::uint16_t* silu_gate, float norm_epsilon,
     std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
+
+// Direct-K256 counterpart to launch_qk_preprocessed().  The immediately
+// preceding same-stream fused convolution owns compact Q/K; this call owns
+// the complete remaining GDN update and exactly one K256 A4 publication.
+[[nodiscard]] int launch_qk_preprocessed_k256_a4(
+    void* workspace, std::size_t workspace_capacity_bytes,
+    const std::uint16_t* conv_qkv, std::size_t token_count,
+    const std::uint16_t* a, const std::uint16_t* b,
+    const std::uint16_t* A_log, const std::uint16_t* dt_bias,
+    const std::uint16_t* state_input, std::uint16_t* state_output,
+    float l2_epsilon, const std::uint16_t* norm_weight,
+    const std::uint16_t* silu_gate, float norm_epsilon,
+    std::size_t destination_first_token,
+    std::size_t whole_logical_token_count,
+    std::size_t launch_token_count, float clip_ratio,
+    std::uint8_t* packed_a, std::size_t packed_a_capacity_bytes,
+    std::uint16_t* scales_bf16, std::size_t scale_capacity_elements,
+    void* cuda_stream = nullptr) noexcept;
 
 // Prompt-span gate producer shared by the fixed-shape WY and state/output
 // consumers. The outputs are FP32 chunk-major tensors laid out as

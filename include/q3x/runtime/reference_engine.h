@@ -220,6 +220,13 @@ struct ReferenceGenerationTiming {
   // Propagated request-local proof for the whole-M factorized-lane R1 MLP
   // package. Tile-prefill never increments this counter.
   std::size_t factorized_lane_r1_package_launch_hits = 0U;
+  // Propagated request-local proof for the complete R1 producer/consumer
+  // handoff package, one physical hit per decoder layer/projection span.
+  std::size_t factorized_lane_r1_handoff_package_launch_hits = 0U;
+  // Subordinate proof for direct Down-to-next-Attention publication.  A
+  // single-span 64-layer request reports 63 because the final layer has no
+  // successor.
+  std::size_t factorized_lane_r1_cross_layer_handoff_launch_hits = 0U;
   // Independent request-local proof for the direct-checkpoint calibrated R4
   // package.  It must never be inferred from the R1 counter.
   std::size_t factorized_lane_r4_package_launch_hits = 0U;
@@ -253,6 +260,9 @@ struct ReferenceGenerationTiming {
   // GDN route and the full-prompt persistent-state macro route.
   std::size_t gdn_chunk64_native_launch_hits = 0U;
   std::size_t gdn_chunk64_native_logical_token_hits = 0U;
+  // Physical native GDN state-tile launches that published K256 A4 directly
+  // to Attention-O rather than materializing and requantizing BF16 output.
+  std::size_t gdn_k256_direct_pack_launch_hits = 0U;
   std::size_t gdn_prompt_span_macro_launch_hits = 0U;
   std::size_t gdn_prompt_span_macro_logical_token_hits = 0U;
   std::vector<double> subsequent_token_milliseconds;

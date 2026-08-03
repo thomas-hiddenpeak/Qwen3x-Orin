@@ -97,6 +97,10 @@ struct FakeRunner {
   std::size_t long_prefill_gateup_alternating_launch_hits = 64U;
   std::size_t long_prefill_gateup_ldmatrix_pairfeed_launch_hits = 0U;
   std::size_t long_prefill_factorized_lane_r1_package_launch_hits = 64U;
+  std::size_t long_prefill_factorized_lane_r1_handoff_package_launch_hits =
+      64U;
+  std::size_t
+      long_prefill_factorized_lane_r1_cross_layer_handoff_launch_hits = 63U;
   std::size_t long_prefill_factorized_lane_r4_package_launch_hits = 63U;
   std::size_t long_prefill_factorized_lane_r4_2cta_package_launch_hits = 62U;
   std::size_t long_prefill_gateup_m128n64_same_cta_launch_hits = 64U;
@@ -109,6 +113,7 @@ struct FakeRunner {
   std::size_t long_prefill_down_m128n128_ldmatrix_pairring_launch_hits = 64U;
   std::size_t long_prefill_gdn_chunk64_native_launch_hits = 192U;
   std::size_t long_prefill_gdn_chunk64_native_logical_token_hits = 88'944U;
+  std::size_t long_prefill_gdn_k256_direct_pack_launch_hits = 192U;
   std::size_t long_prefill_gdn_prompt_span_macro_launch_hits = 48U;
   std::size_t long_prefill_gdn_prompt_span_macro_logical_token_hits = 88'944U;
 };
@@ -331,6 +336,10 @@ runtime::ReferenceLongPrefillOutcome fake_layer_major_prompt(
       fake.long_prefill_gateup_ldmatrix_pairfeed_launch_hits;
   value.factorized_lane_r1_package_launch_hits =
       fake.long_prefill_factorized_lane_r1_package_launch_hits;
+  value.factorized_lane_r1_handoff_package_launch_hits =
+      fake.long_prefill_factorized_lane_r1_handoff_package_launch_hits;
+  value.factorized_lane_r1_cross_layer_handoff_launch_hits =
+      fake.long_prefill_factorized_lane_r1_cross_layer_handoff_launch_hits;
   value.factorized_lane_r4_package_launch_hits =
       fake.long_prefill_factorized_lane_r4_package_launch_hits;
   value.factorized_lane_r4_2cta_package_launch_hits =
@@ -351,6 +360,8 @@ runtime::ReferenceLongPrefillOutcome fake_layer_major_prompt(
       fake.long_prefill_gdn_chunk64_native_launch_hits;
   value.gdn_chunk64_native_logical_token_hits =
       fake.long_prefill_gdn_chunk64_native_logical_token_hits;
+  value.gdn_k256_direct_pack_launch_hits =
+      fake.long_prefill_gdn_k256_direct_pack_launch_hits;
   value.gdn_prompt_span_macro_launch_hits =
       fake.long_prefill_gdn_prompt_span_macro_launch_hits;
   value.gdn_prompt_span_macro_logical_token_hits =
@@ -879,6 +890,12 @@ void test_layer_major_prompt_admission(TestContext& test) {
                 fake.long_prefill_gateup_ldmatrix_pairfeed_launch_hits &&
             result.value->timing.factorized_lane_r1_package_launch_hits ==
                 fake.long_prefill_factorized_lane_r1_package_launch_hits &&
+            result.value->timing
+                    .factorized_lane_r1_handoff_package_launch_hits ==
+                fake.long_prefill_factorized_lane_r1_handoff_package_launch_hits &&
+            result.value->timing
+                    .factorized_lane_r1_cross_layer_handoff_launch_hits ==
+                fake.long_prefill_factorized_lane_r1_cross_layer_handoff_launch_hits &&
             result.value->timing.factorized_lane_r4_package_launch_hits ==
                 fake.long_prefill_factorized_lane_r4_package_launch_hits &&
             result.value->timing
@@ -904,6 +921,8 @@ void test_layer_major_prompt_admission(TestContext& test) {
                 fake.long_prefill_gdn_chunk64_native_launch_hits &&
             result.value->timing.gdn_chunk64_native_logical_token_hits ==
                 fake.long_prefill_gdn_chunk64_native_logical_token_hits &&
+            result.value->timing.gdn_k256_direct_pack_launch_hits ==
+                fake.long_prefill_gdn_k256_direct_pack_launch_hits &&
             result.value->timing.gdn_prompt_span_macro_launch_hits ==
                 fake.long_prefill_gdn_prompt_span_macro_launch_hits &&
             result.value->timing.gdn_prompt_span_macro_logical_token_hits ==

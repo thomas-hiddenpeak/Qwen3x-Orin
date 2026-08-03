@@ -44,6 +44,10 @@ inline constexpr std::size_t kSm87A4W4GateUpFactorizedPrimaryWidth = 12'288U;
 inline constexpr std::size_t kSm87A4W4GateUpFactorizedPrimaryStride = 12'288U;
 inline constexpr std::size_t kSm87A4W4GateUpFactorizedSecondaryWidth = 5'120U;
 inline constexpr std::size_t kSm87A4W4GateUpFactorizedSecondaryStride = 6'144U;
+inline constexpr std::size_t
+    kSm87A4W4GateUpFactorizedR1ProductPartialTiles =
+        kSm87A4W4GateUpFactorizedModelIntermediate /
+        kSm87A4W4GateUpFactorizedTileN;
 
 inline constexpr std::size_t kSm87A4W4GateUpFactorizedAStageBytes =
     kSm87A4W4GateUpFactorizedTileM *
@@ -83,6 +87,7 @@ static_assert(kSm87A4W4GateUpFactorizedMaximumS32 == 250'880);
 static_assert(kSm87A4W4GateUpFactorizedPrimaryWidth +
                       kSm87A4W4GateUpFactorizedSecondaryWidth ==
                   kSm87A4W4GateUpFactorizedModelIntermediate);
+static_assert(kSm87A4W4GateUpFactorizedR1ProductPartialTiles == 136U);
 
 [[nodiscard]] constexpr bool sm87_a4w4_gateup_factorized_product_fits(
     const std::size_t first, const std::size_t second) noexcept {
@@ -163,6 +168,21 @@ sm87_a4w4_gateup_factorized_scale_offset(
   return (outer_coordinate / kSm87A4W4ConsumerOuterBlock) *
              kSm87A4W4ConsumerOuterBlock +
          outer_coordinate % kSm87A4W4ConsumerOuterBlock;
+}
+
+// Candidate-only GateUp -> Down R1 handoff.  One FP32 maximum is published
+// for every padded launch row and N128 GateUp output tile.  The row-major
+// layout is [launch_token_count][136]; padded rows are explicitly zero.
+[[nodiscard]] constexpr std::size_t
+sm87_a4w4_gateup_factorized_r1_product_partial_capacity_elements(
+    const std::size_t launch_token_count) noexcept {
+  return launch_token_count == 0U ||
+                 launch_token_count >
+                     std::numeric_limits<std::size_t>::max() /
+                         kSm87A4W4GateUpFactorizedR1ProductPartialTiles
+             ? 0U
+             : launch_token_count *
+                   kSm87A4W4GateUpFactorizedR1ProductPartialTiles;
 }
 
 [[nodiscard]] constexpr std::size_t
@@ -301,6 +321,27 @@ query_sm87_a4w4_gateup_factorized_lane_resources_cuda(
     std::size_t intermediate_size, std::size_t input_size,
     Q3X_SM87_A4W4_GATEUP_FACTORIZED_OUTPUT_ARGUMENTS,
     void* cuda_stream = nullptr) noexcept;
+
+// Production-shape, default-off candidate.  The BF16 outputs and all
+// incumbent inputs retain the exact launcher contract above.  In addition,
+// each GateUp CTA computes abs(BF16-RNE(product) * inverse_alpha) maxima for
+// its N128 tile and publishes them to `r1_product_tile_maxima_fp32`.  The
+// authenticated inverse-alpha is the exact Down projection R1 payload.
+[[nodiscard]] int
+launch_sm87_a4w4_gateup_factorized_lane_r1_tile_max_bf16_cuda(
+    Q3X_SM87_A4W4_GATEUP_FACTORIZED_INPUT_ARGUMENTS,
+    std::size_t logical_token_count, std::size_t launch_token_count,
+    std::size_t intermediate_size, std::size_t input_size,
+    Q3X_SM87_A4W4_GATEUP_FACTORIZED_OUTPUT_ARGUMENTS,
+    const float* authenticated_down_inverse_alpha_fp32,
+    std::size_t down_inverse_alpha_capacity_elements,
+    float* r1_product_tile_maxima_fp32,
+    std::size_t r1_product_tile_maxima_capacity_elements,
+    void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
+query_sm87_a4w4_gateup_factorized_lane_r1_tile_max_resources_cuda(
+    Sm87A4W4GateUpFactorizedLaneResources* resources) noexcept;
 
 [[nodiscard]] int launch_sm87_a4w4_gateup_factorized_lane_test_bf16_cuda(
     Q3X_SM87_A4W4_GATEUP_FACTORIZED_INPUT_ARGUMENTS,

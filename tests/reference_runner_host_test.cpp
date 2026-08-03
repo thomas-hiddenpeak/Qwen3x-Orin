@@ -2697,21 +2697,35 @@ void test_factorized_lane_r4_prefill_route(TestContext& test) {
 
   detail::A4W4FullPrefillAdmissionHits aggregate_hits;
   aggregate_hits.factorized_lane_r1_package_launch_hits = 7U;
+  aggregate_hits.factorized_lane_r1_handoff_package_launch_hits = 19U;
+  aggregate_hits.factorized_lane_r1_cross_layer_handoff_launch_hits = 23U;
   aggregate_hits.factorized_lane_r4_package_launch_hits = 11U;
   aggregate_hits.factorized_lane_r4_2cta_package_launch_hits = 5U;
   runtime::ReferenceLongPrefillResult request_hits;
   request_hits.factorized_lane_r1_package_launch_hits = 13U;
+  request_hits.factorized_lane_r1_handoff_package_launch_hits = 29U;
+  request_hits.factorized_lane_r1_cross_layer_handoff_launch_hits = 31U;
+  request_hits.gdn_k256_direct_pack_launch_hits = 37U;
   request_hits.factorized_lane_r4_package_launch_hits = 17U;
   request_hits.factorized_lane_r4_2cta_package_launch_hits = 9U;
   test.expect(
       aggregate_hits.factorized_lane_r1_package_launch_hits == 7U &&
+          aggregate_hits.factorized_lane_r1_handoff_package_launch_hits ==
+              19U &&
+          aggregate_hits.factorized_lane_r1_cross_layer_handoff_launch_hits ==
+              23U &&
           aggregate_hits.factorized_lane_r4_package_launch_hits == 11U &&
           aggregate_hits.factorized_lane_r4_2cta_package_launch_hits == 5U &&
           request_hits.factorized_lane_r1_package_launch_hits == 13U &&
+          request_hits.factorized_lane_r1_handoff_package_launch_hits == 29U &&
+          request_hits.factorized_lane_r1_cross_layer_handoff_launch_hits ==
+              31U &&
+          request_hits.gdn_k256_direct_pack_launch_hits == 37U &&
           request_hits.factorized_lane_r4_package_launch_hits == 17U &&
           request_hits.factorized_lane_r4_2cta_package_launch_hits == 9U,
-      "R1, R4 master, and subordinate R4 two-CTA proofs remain independent "
-      "in aggregate and request-local accounting");
+      "R1 MLP, handoff, cross-layer, GDN-direct-pack, R4 master, and "
+      "subordinate R4 two-CTA proofs remain independent in aggregate and "
+      "request-local accounting");
 }
 
 void test_paired_gateup_canonical_down_selector_and_accounting(
@@ -2865,6 +2879,9 @@ void test_paired_gateup_canonical_down_selector_and_accounting(
           result.down_m128n128_16warp_pairring_launch_hits == 0U &&
           result.gdn_chunk64_native_launch_hits == 0U &&
           result.gdn_chunk64_native_logical_token_hits == 0U &&
+          result.factorized_lane_r1_handoff_package_launch_hits == 0U &&
+          result.factorized_lane_r1_cross_layer_handoff_launch_hits == 0U &&
+          result.gdn_k256_direct_pack_launch_hits == 0U &&
           result.gdn_prompt_span_macro_launch_hits == 0U &&
           result.gdn_prompt_span_macro_logical_token_hits == 0U,
       "new request-local telemetry is zero for every unselected route");

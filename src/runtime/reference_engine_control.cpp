@@ -339,6 +339,10 @@ GenerationControlResult run_generation_control_impl(
               ->mlp_k256_m128n256_pairfeed_package_launch_hits;
       control.timing.factorized_lane_r1_package_launch_hits =
           outcome.value->factorized_lane_r1_package_launch_hits;
+      control.timing.factorized_lane_r1_handoff_package_launch_hits =
+          outcome.value->factorized_lane_r1_handoff_package_launch_hits;
+      control.timing.factorized_lane_r1_cross_layer_handoff_launch_hits =
+          outcome.value->factorized_lane_r1_cross_layer_handoff_launch_hits;
       control.timing.factorized_lane_r4_package_launch_hits =
           outcome.value->factorized_lane_r4_package_launch_hits;
       control.timing.factorized_lane_r4_2cta_package_launch_hits =
@@ -364,6 +368,8 @@ GenerationControlResult run_generation_control_impl(
           outcome.value->gdn_chunk64_native_launch_hits;
       control.timing.gdn_chunk64_native_logical_token_hits =
           outcome.value->gdn_chunk64_native_logical_token_hits;
+      control.timing.gdn_k256_direct_pack_launch_hits =
+          outcome.value->gdn_k256_direct_pack_launch_hits;
       control.timing.gdn_prompt_span_macro_launch_hits =
           outcome.value->gdn_prompt_span_macro_launch_hits;
       control.timing.gdn_prompt_span_macro_logical_token_hits =

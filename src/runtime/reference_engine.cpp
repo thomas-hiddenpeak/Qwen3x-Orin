@@ -255,6 +255,16 @@ prefill_mlp_factorized_lane_r1_environment_enabled() noexcept {
 }
 
 [[nodiscard]] bool
+prefill_mlp_factorized_lane_r1_handoff_environment_enabled() noexcept {
+  if (optimized_prefill_dispatch_disabled()) {
+    return false;
+  }
+  const char* const value = std::getenv(
+      "Q3X_RUN_A4W4_FACTORIZED_LANE_R1_HANDOFF_ADMISSION");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
+[[nodiscard]] bool
 prefill_mlp_factorized_lane_r4_environment_enabled() noexcept {
   if (optimized_prefill_dispatch_disabled()) {
     return false;
@@ -8303,6 +8313,17 @@ struct ReferenceEngine::Impl {
     }
     const bool prefill_mlp_factorized_lane_r1_selected =
         prefill_mlp_factorized_lane_r1_environment_enabled();
+    const bool prefill_mlp_factorized_lane_r1_handoff_selected =
+        prefill_mlp_factorized_lane_r1_handoff_environment_enabled();
+    if (prefill_mlp_factorized_lane_r1_handoff_selected &&
+        !prefill_mlp_factorized_lane_r1_selected) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kInvalidArgument,
+          "prefill_mlp_factorized_lane_r1_handoff_options",
+          "the R1 projection-span handoff leaf requires the authenticated "
+          "factorized-lane R1 runtime master");
+      return result;
+    }
     if (prefill_mlp_factorized_lane_r1_paths.requested &&
         (!prefill_a4_paths.requested ||
          !prefill_mlp_factorized_lane_r1_selected)) {
@@ -9477,6 +9498,8 @@ struct ReferenceEngine::Impl {
             prefill_a4_paths.requested;
         runner_options.enable_factorized_lane_r1_prefill_admission =
             prefill_mlp_factorized_lane_r1_selected;
+        runner_options.enable_factorized_lane_r1_handoff_prefill_admission =
+            prefill_mlp_factorized_lane_r1_handoff_selected;
         runner_options.enable_factorized_lane_r4_prefill_admission =
             prefill_mlp_factorized_lane_r4_selected;
         runner_options.enable_factorized_lane_r4_2cta_prefill_admission =

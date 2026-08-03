@@ -1,5 +1,8 @@
 #include "gdn_prefill_chunk_o_bv64_sm87.h"
 
+#include "q3x/kernels/sm87_a4w4_attention_k256_m128n256.h"
+#include "q3x/kernels/sm87_a4w4_prefill_primitive.h"
+
 #include <cuda_bf16.h>
 #include <cuda_runtime.h>
 #include <mma.h>
@@ -7,6 +10,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 
 namespace q3x::runtime::gdn_prefill_chunk_o_bv64_detail {
 namespace {
@@ -48,12 +52,31 @@ constexpr unsigned int kValuesPerToken =
     kValueHeads * kValueDimension;
 constexpr unsigned int kMaximumTokens = 512U;
 constexpr unsigned int kMaximumNormTokens = 4'096U;
+constexpr unsigned int kK256A4InputSize =
+    kValueHeads * kValueDimension;
+constexpr unsigned int kK256A4Groups =
+    kK256A4InputSize /
+    q3x::kernels::kSm87A4W4AttentionK256ScaleK;
+constexpr unsigned int kK256A4PhysicalGroups =
+    kK256A4InputSize /
+    q3x::kernels::kSm87A4W4AttentionK256PhysicalK64;
+constexpr unsigned int kHeadOctetsPerToken =
+    kValueHeads / kNormRowsPerCta;
+constexpr unsigned int kMaximumNormK256A4Registers = 128U;
+constexpr unsigned int kMinimumNormK256A4CtasPerSm = 2U;
+constexpr std::size_t kNormK256A4SharedBytes =
+    kNormRowsPerCta * sizeof(float);
 
 static_assert(kQkHeads * kHeadGroup == kValueHeads);
 static_assert(kChunkWarps == 4U);
 static_assert(kNormRowsPerCta == 8U);
 static_assert(kSharedTileBytes == 8'192U);
 static_assert(kSharedBytes == 24'576U);
+static_assert(kK256A4InputSize == 6'144U);
+static_assert(kK256A4Groups == 24U);
+static_assert(kK256A4PhysicalGroups == 96U);
+static_assert(kHeadOctetsPerToken == 6U);
+static_assert(kNormK256A4SharedBytes == 32U);
 
 struct M16K16Fragment final {
   std::uint32_t x0;
@@ -202,6 +225,16 @@ __device__ __forceinline__ void mma_m16n8k16(
     return static_cast<std::uint16_t>((bits >> 16U) | 0x0040U);
   }
   return __bfloat16_as_ushort(__float2bfloat16_rn(value));
+}
+
+// Preserve the Attention K256 quantizer's bit-level BF16 RNE semantics.
+// Unlike the GDN boundary encoder above, this intentionally does not
+// canonicalize NaNs.
+[[nodiscard]] __device__ __forceinline__ std::uint16_t
+encode_quantizer_bf16(const float value) {
+  unsigned int bits = __float_as_uint(value);
+  bits += 0x7fffU + ((bits >> 16U) & 1U);
+  return static_cast<std::uint16_t>(bits >> 16U);
 }
 
 [[nodiscard]] __device__ __forceinline__ std::uint32_t pack_bf16_pair(
@@ -834,6 +867,192 @@ void rms_norm_silu_rows8_kernel(
   }
 }
 
+__global__ __launch_bounds__(kNormThreads, kMinimumNormK256A4CtasPerSm)
+void rms_norm_silu_rows8_k256_a4_kernel(
+    const std::uint16_t* const raw_output_tile,
+    const std::uint16_t* const norm_weight,
+    const std::uint16_t* const silu_gate_tile,
+    const unsigned int tile_logical_token_count,
+    const float norm_epsilon,
+    const unsigned int destination_first_token,
+    const unsigned int publish_token_count,
+    const float clip_ratio,
+    std::uint8_t* const packed_a_base,
+    std::uint16_t* const scales_bf16_base) {
+  __shared__ float head_maximum[kNormRowsPerCta];
+  const unsigned int warp = threadIdx.x / 32U;
+  const unsigned int lane = threadIdx.x & 31U;
+  const unsigned int local_token = blockIdx.x / kHeadOctetsPerToken;
+  const unsigned int head_octet = blockIdx.x % kHeadOctetsPerToken;
+  const unsigned int head = head_octet * kNormRowsPerCta + warp;
+  const std::size_t destination_token =
+      static_cast<std::size_t>(destination_first_token) + local_token;
+
+  if (local_token >= publish_token_count) {
+    return;
+  }
+  if (local_token >= tile_logical_token_count) {
+    // Only the final slice can enter this uniform CTA branch.  Each warp
+    // owns the two physical K64 code planes of one D128 head; the even warp
+    // in every adjacent pair owns their K256 scale.
+#pragma unroll
+    for (unsigned int index = 0U; index < 4U; ++index) {
+      if ((lane & 1U) == 0U) {
+        const std::size_t physical_group =
+            static_cast<std::size_t>(head) * 2U + index / 2U;
+        const std::size_t byte_in_k64 =
+            (index & 1U) * 16U + lane / 2U;
+        packed_a_base[
+            q3x::kernels::sm87_a4w4_attention_k256_packed_offset(
+                destination_token, physical_group, byte_in_k64,
+                kK256A4PhysicalGroups)] = 0U;
+      }
+    }
+    if ((warp & 1U) == 0U && lane == 0U) {
+      scales_bf16_base[
+          q3x::kernels::sm87_a4w4_attention_k256_scale_offset(
+              destination_token, head / 2U, kK256A4Groups)] = 0x3f80U;
+    }
+    return;
+  }
+
+  const std::size_t input_base =
+      (static_cast<std::size_t>(local_token) * kValueHeads + head) *
+      kValueDimension;
+  const float raw_values[4U] = {
+      decode_bf16(raw_output_tile[input_base + lane]),
+      decode_bf16(raw_output_tile[input_base + lane + 32U]),
+      decode_bf16(raw_output_tile[input_base + lane + 64U]),
+      decode_bf16(raw_output_tile[input_base + lane + 96U])};
+  float square_sum = fmaf(raw_values[0U], raw_values[0U], 0.0F);
+  square_sum = fmaf(raw_values[1U], raw_values[1U], square_sum);
+  square_sum = fmaf(raw_values[2U], raw_values[2U], square_sum);
+  square_sum = fmaf(raw_values[3U], raw_values[3U], square_sum);
+#pragma unroll
+  for (unsigned int offset = 16U; offset != 0U; offset >>= 1U) {
+    square_sum += __shfl_down_sync(0xffff'ffffU, square_sum, offset);
+  }
+  const float inverse_rms = __shfl_sync(
+      0xffff'ffffU,
+      rsqrtf(square_sum / static_cast<float>(kValueDimension) +
+             norm_epsilon),
+      0U);
+
+  float values[4U];
+  float maximum = 0.0F;
+#pragma unroll
+  for (unsigned int index = 0U; index < 4U; ++index) {
+    const unsigned int value = lane + index * 32U;
+    const float gate = decode_bf16(silu_gate_tile[input_base + value]);
+    const float normalized =
+        raw_values[index] * inverse_rms * decode_bf16(norm_weight[value]);
+    // This round trip is the observable incumbent seam between the GDN
+    // epilogue and the standalone K256 quantizer.
+    values[index] = decode_bf16(encode_bf16(
+        normalized * gate / (1.0F + expf(-gate))));
+    maximum = fmaxf(maximum, fabsf(values[index]));
+  }
+#pragma unroll
+  for (unsigned int offset = 16U; offset != 0U; offset >>= 1U) {
+    maximum =
+        fmaxf(maximum,
+              __shfl_down_sync(0xffff'ffffU, maximum, offset));
+  }
+  if (lane == 0U) {
+    head_maximum[warp] = maximum;
+  }
+  __syncthreads();
+
+  maximum = fmaxf(head_maximum[warp & ~1U],
+                  head_maximum[warp | 1U]);
+  const float clipped_maximum = maximum * clip_ratio;
+  std::uint16_t scale_bits = encode_quantizer_bf16(
+      maximum == 0.0F ? 1.0F : clipped_maximum / 7.0F);
+  float stored_scale = decode_bf16(scale_bits);
+  if (maximum != 0.0F && stored_scale == 0.0F) {
+    scale_bits = 1U;
+    stored_scale = decode_bf16(scale_bits);
+  }
+
+  if ((warp & 1U) == 0U && lane == 0U) {
+    scales_bf16_base[
+        q3x::kernels::sm87_a4w4_attention_k256_scale_offset(
+            destination_token, head / 2U, kK256A4Groups)] = scale_bits;
+  }
+#pragma unroll
+  for (unsigned int index = 0U; index < 4U; ++index) {
+    const float even_value = values[index];
+    const float odd_value =
+        __shfl_xor_sync(0xffff'ffffU, even_value, 1U);
+    if ((lane & 1U) == 0U) {
+      const float even =
+          fminf(fmaxf(even_value, -clipped_maximum), clipped_maximum);
+      const float odd =
+          fminf(fmaxf(odd_value, -clipped_maximum), clipped_maximum);
+      const int even_rounded = stored_scale == 0.0F
+                                   ? 0
+                                   : __float2int_rn(even / stored_scale);
+      const int odd_rounded = stored_scale == 0.0F
+                                  ? 0
+                                  : __float2int_rn(odd / stored_scale);
+      const int even_code = even_rounded < -7
+                                ? -7
+                                : even_rounded > 7 ? 7 : even_rounded;
+      const int odd_code = odd_rounded < -7
+                               ? -7
+                               : odd_rounded > 7 ? 7 : odd_rounded;
+      const std::size_t physical_group =
+          static_cast<std::size_t>(head) * 2U + index / 2U;
+      const std::size_t byte_in_k64 =
+          (index & 1U) * 16U + lane / 2U;
+      packed_a_base[
+          q3x::kernels::sm87_a4w4_attention_k256_packed_offset(
+              destination_token, physical_group, byte_in_k64,
+              kK256A4PhysicalGroups)] =
+          q3x::kernels::sm87_a4w4_pack_signed_pair(
+              even_code, odd_code);
+    }
+  }
+}
+
+[[nodiscard]] constexpr bool aligned(
+    const void* const pointer, const std::size_t alignment) noexcept {
+  return pointer != nullptr &&
+         reinterpret_cast<std::uintptr_t>(pointer) % alignment == 0U;
+}
+
+[[nodiscard]] bool byte_ranges_overlap(
+    const void* const first, const std::size_t first_bytes,
+    const void* const second, const std::size_t second_bytes) noexcept {
+  const std::uintptr_t first_begin =
+      reinterpret_cast<std::uintptr_t>(first);
+  const std::uintptr_t second_begin =
+      reinterpret_cast<std::uintptr_t>(second);
+  constexpr std::uintptr_t maximum =
+      std::numeric_limits<std::uintptr_t>::max();
+  if (first_bytes > maximum - first_begin ||
+      second_bytes > maximum - second_begin) {
+    return true;
+  }
+  const std::uintptr_t first_end = first_begin + first_bytes;
+  const std::uintptr_t second_end = second_begin + second_bytes;
+  return first_begin < second_end && second_begin < first_end;
+}
+
+[[nodiscard]] bool invalid_raw_arguments(
+    const std::uint16_t* const compact_q,
+    const std::uint16_t* const compact_k,
+    const std::uint16_t* const boundary_state,
+    const std::uint16_t* const v_new,
+    const float* const cumulative_gate,
+    const std::size_t token_count,
+    const std::uint16_t* const raw_output) noexcept {
+  return compact_q == nullptr || compact_k == nullptr ||
+         boundary_state == nullptr || v_new == nullptr ||
+         cumulative_gate == nullptr || token_count == 0U ||
+         token_count > kMaximumTokens || raw_output == nullptr;
+}
+
 [[nodiscard]] bool invalid_arguments(
     const std::uint16_t* const compact_q,
     const std::uint16_t* const compact_k,
@@ -846,12 +1065,10 @@ void rms_norm_silu_rows8_kernel(
     const float norm_epsilon,
     const std::uint16_t* const raw_output,
     const std::uint16_t* const output) noexcept {
-  return compact_q == nullptr || compact_k == nullptr ||
-         boundary_state == nullptr || v_new == nullptr ||
-         cumulative_gate == nullptr || token_count == 0U ||
-         token_count > kMaximumTokens ||
+  return invalid_raw_arguments(compact_q, compact_k, boundary_state, v_new,
+                               cumulative_gate, token_count, raw_output) ||
          norm_weight == nullptr || silu_gate == nullptr ||
-         raw_output == nullptr || output == nullptr ||
+         output == nullptr ||
          !std::isfinite(norm_epsilon) || norm_epsilon <= 0.0F;
 }
 
@@ -888,6 +1105,29 @@ template <typename Kernel>
 
 }  // namespace
 
+int launch_raw(const std::uint16_t* const compact_q,
+               const std::uint16_t* const compact_k,
+               const std::uint16_t* const boundary_state,
+               const std::uint16_t* const v_new,
+               const float* const cumulative_gate,
+               const std::size_t token_count,
+               std::uint16_t* const raw_output,
+               void* const cuda_stream) noexcept {
+  if (invalid_raw_arguments(compact_q, compact_k, boundary_state, v_new,
+                            cumulative_gate, token_count, raw_output)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  const unsigned int chunk_count =
+      static_cast<unsigned int>((token_count + kChunk - 1U) / kChunk);
+  const dim3 grid(2U, chunk_count, kValueHeads);
+  (void)cudaGetLastError();
+  chunk_o_bv64_kernel<<<grid, kChunkThreads, 0U, stream>>>(
+      compact_q, compact_k, boundary_state, v_new, cumulative_gate,
+      raw_output);
+  return static_cast<int>(cudaGetLastError());
+}
+
 int launch(const std::uint16_t* const compact_q,
            const std::uint16_t* const compact_k,
            const std::uint16_t* const boundary_state,
@@ -905,25 +1145,15 @@ int launch(const std::uint16_t* const compact_q,
                         norm_epsilon, raw_output, output)) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
-  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
-  const unsigned int chunk_count =
-      static_cast<unsigned int>((token_count + kChunk - 1U) / kChunk);
-  const dim3 grid(2U, chunk_count, kValueHeads);
-  (void)cudaGetLastError();
-  chunk_o_bv64_kernel<<<grid, kChunkThreads, 0U, stream>>>(
+  const int status = launch_raw(
       compact_q, compact_k, boundary_state, v_new, cumulative_gate,
-      raw_output);
-  int status = static_cast<int>(cudaGetLastError());
+      token_count, raw_output, cuda_stream);
   if (status != static_cast<int>(cudaSuccess)) {
     return status;
   }
-  const unsigned int row_count =
-      static_cast<unsigned int>(token_count * kRowsPerToken);
-  const unsigned int norm_blocks =
-      (row_count + kNormRowsPerCta - 1U) / kNormRowsPerCta;
-  rms_norm_silu_rows8_kernel<<<norm_blocks, kNormThreads, 0U, stream>>>(
-      raw_output, norm_weight, silu_gate, row_count, norm_epsilon, output);
-  return static_cast<int>(cudaGetLastError());
+  return launch_norm_rows8(
+      raw_output, norm_weight, silu_gate,
+      token_count * kRowsPerToken, norm_epsilon, output, cuda_stream);
 }
 
 int launch_wmma_oracle(const std::uint16_t* const compact_q,
@@ -1011,6 +1241,153 @@ int launch_norm_rows8(const std::uint16_t* const raw_output,
   return static_cast<int>(cudaGetLastError());
 }
 
+int validate_norm_rows8_k256_a4(
+    const std::uint16_t* const raw_output_tile,
+    const std::uint16_t* const norm_weight,
+    const std::uint16_t* const silu_gate_tile,
+    const std::size_t tile_logical_token_count,
+    const float norm_epsilon,
+    const std::size_t destination_first_token,
+    const std::size_t whole_logical_token_count,
+    const std::size_t launch_token_count,
+    const float clip_ratio,
+    std::uint8_t* const packed_a_base,
+    const std::size_t packed_a_capacity_bytes,
+    std::uint16_t* const scales_bf16_base,
+    const std::size_t scale_capacity_elements) noexcept {
+  const std::size_t expected_launch_token_count =
+      q3x::kernels::sm87_a4w4_attention_k256_launch_token_count(
+          whole_logical_token_count);
+  if (tile_logical_token_count == 0U ||
+      tile_logical_token_count > kMaximumTokens ||
+      whole_logical_token_count == 0U ||
+      whole_logical_token_count > kMaximumNormTokens ||
+      expected_launch_token_count == 0U ||
+      launch_token_count != expected_launch_token_count ||
+      destination_first_token > whole_logical_token_count ||
+      tile_logical_token_count >
+          whole_logical_token_count - destination_first_token ||
+      !std::isfinite(norm_epsilon) || norm_epsilon <= 0.0F ||
+      !(clip_ratio > 0.0F && clip_ratio <= 1.0F) ||
+      !aligned(raw_output_tile, alignof(std::uint16_t)) ||
+      !aligned(norm_weight, alignof(std::uint16_t)) ||
+      !aligned(silu_gate_tile, alignof(std::uint16_t)) ||
+      !aligned(packed_a_base, 16U) ||
+      !aligned(scales_bf16_base, 16U)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+
+  const std::size_t required_packed_bytes =
+      q3x::kernels::sm87_a4w4_attention_k256_packed_capacity_bytes(
+          launch_token_count, kK256A4InputSize);
+  const std::size_t required_scale_elements =
+      q3x::kernels::sm87_a4w4_attention_k256_scale_capacity_elements(
+          launch_token_count, kK256A4InputSize);
+  if (required_packed_bytes == 0U || required_scale_elements == 0U ||
+      packed_a_capacity_bytes < required_packed_bytes ||
+      scale_capacity_elements < required_scale_elements ||
+      !q3x::kernels::sm87_a4w4_attention_k256_product_fits(
+          required_scale_elements, sizeof(std::uint16_t)) ||
+      !q3x::kernels::sm87_a4w4_attention_k256_product_fits(
+          tile_logical_token_count, kK256A4InputSize) ||
+      !q3x::kernels::sm87_a4w4_attention_k256_product_fits(
+          tile_logical_token_count * kK256A4InputSize,
+          sizeof(std::uint16_t))) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+
+  const std::size_t input_elements =
+      tile_logical_token_count * kK256A4InputSize;
+  const std::size_t input_bytes = input_elements * sizeof(std::uint16_t);
+  const std::size_t scale_bytes =
+      required_scale_elements * sizeof(std::uint16_t);
+  // raw, gate, packed and scales are independent ownership domains.  Reject
+  // every overlap before launching so an invalid slice cannot partially
+  // corrupt a span-wide handoff buffer.
+  if (byte_ranges_overlap(raw_output_tile, input_bytes,
+                          silu_gate_tile, input_bytes) ||
+      byte_ranges_overlap(raw_output_tile, input_bytes,
+                          packed_a_base, required_packed_bytes) ||
+      byte_ranges_overlap(raw_output_tile, input_bytes,
+                          scales_bf16_base, scale_bytes) ||
+      byte_ranges_overlap(silu_gate_tile, input_bytes,
+                          packed_a_base, required_packed_bytes) ||
+      byte_ranges_overlap(silu_gate_tile, input_bytes,
+                          scales_bf16_base, scale_bytes) ||
+      byte_ranges_overlap(packed_a_base, required_packed_bytes,
+                          scales_bf16_base, scale_bytes)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+
+  const bool final_slice =
+      tile_logical_token_count ==
+      whole_logical_token_count - destination_first_token;
+  const std::size_t padding_tokens =
+      final_slice ? launch_token_count - whole_logical_token_count : 0U;
+  if (padding_tokens >=
+          q3x::kernels::kSm87A4W4AttentionK256TileM ||
+      tile_logical_token_count >
+          std::numeric_limits<std::size_t>::max() - padding_tokens) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const std::size_t publish_token_count =
+      tile_logical_token_count + padding_tokens;
+  if (destination_first_token > launch_token_count ||
+      publish_token_count > launch_token_count - destination_first_token ||
+      publish_token_count == 0U ||
+      publish_token_count >
+          std::numeric_limits<unsigned int>::max() /
+              kHeadOctetsPerToken) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  return static_cast<int>(cudaSuccess);
+}
+
+int launch_norm_rows8_k256_a4(
+    const std::uint16_t* const raw_output_tile,
+    const std::uint16_t* const norm_weight,
+    const std::uint16_t* const silu_gate_tile,
+    const std::size_t tile_logical_token_count,
+    const float norm_epsilon,
+    const std::size_t destination_first_token,
+    const std::size_t whole_logical_token_count,
+    const std::size_t launch_token_count,
+    const float clip_ratio,
+    std::uint8_t* const packed_a_base,
+    const std::size_t packed_a_capacity_bytes,
+    std::uint16_t* const scales_bf16_base,
+    const std::size_t scale_capacity_elements,
+    void* const cuda_stream) noexcept {
+  const int validation_status = validate_norm_rows8_k256_a4(
+      raw_output_tile, norm_weight, silu_gate_tile,
+      tile_logical_token_count, norm_epsilon, destination_first_token,
+      whole_logical_token_count, launch_token_count, clip_ratio,
+      packed_a_base, packed_a_capacity_bytes, scales_bf16_base,
+      scale_capacity_elements);
+  if (validation_status != static_cast<int>(cudaSuccess)) {
+    return validation_status;
+  }
+  const bool final_slice =
+      tile_logical_token_count ==
+      whole_logical_token_count - destination_first_token;
+  const std::size_t padding_tokens =
+      final_slice ? launch_token_count - whole_logical_token_count : 0U;
+  const std::size_t publish_token_count =
+      tile_logical_token_count + padding_tokens;
+  const unsigned int blocks = static_cast<unsigned int>(
+      publish_token_count * kHeadOctetsPerToken);
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  rms_norm_silu_rows8_k256_a4_kernel<<<
+      blocks, kNormThreads, 0U, stream>>>(
+      raw_output_tile, norm_weight, silu_gate_tile,
+      static_cast<unsigned int>(tile_logical_token_count), norm_epsilon,
+      static_cast<unsigned int>(destination_first_token),
+      static_cast<unsigned int>(publish_token_count), clip_ratio,
+      packed_a_base, scales_bf16_base);
+  return static_cast<int>(cudaGetLastError());
+}
+
 int query_chunk_o_resources(int* const registers_per_thread,
                             std::size_t* const static_shared_bytes,
                             std::size_t* const local_bytes,
@@ -1031,6 +1408,33 @@ int query_norm_resources(int* const registers_per_thread,
       rms_norm_silu_rows8_kernel, static_cast<int>(kNormThreads),
       registers_per_thread, static_shared_bytes, local_bytes,
       maximum_threads_per_block, active_blocks_per_sm);
+}
+
+int query_norm_k256_a4_resources(
+    int* const registers_per_thread,
+    std::size_t* const static_shared_bytes,
+    std::size_t* const local_bytes,
+    int* const maximum_threads_per_block,
+    int* const active_blocks_per_sm) noexcept {
+  const int status = query_kernel_resources(
+      rms_norm_silu_rows8_k256_a4_kernel,
+      static_cast<int>(kNormThreads), registers_per_thread,
+      static_shared_bytes, local_bytes, maximum_threads_per_block,
+      active_blocks_per_sm);
+  if (status != static_cast<int>(cudaSuccess)) {
+    return status;
+  }
+  if (*registers_per_thread <= 0 ||
+      *registers_per_thread >
+          static_cast<int>(kMaximumNormK256A4Registers) ||
+      *static_shared_bytes != kNormK256A4SharedBytes ||
+      *local_bytes != 0U ||
+      *maximum_threads_per_block < static_cast<int>(kNormThreads) ||
+      *active_blocks_per_sm <
+          static_cast<int>(kMinimumNormK256A4CtasPerSm)) {
+    return static_cast<int>(cudaErrorLaunchOutOfResources);
+  }
+  return static_cast<int>(cudaSuccess);
 }
 
 }  // namespace q3x::runtime::gdn_prefill_chunk_o_bv64_detail
