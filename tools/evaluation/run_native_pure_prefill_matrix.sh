@@ -21,7 +21,7 @@ usage: run_native_pure_prefill_matrix.sh \
   [--prefill-mlp-k512-projection-major-gateup-canonical-down-payload FILE \
    --prefill-mlp-k512-projection-major-gateup-canonical-down-policy FILE \
    --prefill-mlp-k512-projection-major-gateup-canonical-down-receipt FILE] \
-  [--mode exact|native-gdn|cumulative-prefill|cumulative-prefill-down|cumulative-prefill-attention-down|cumulative-prefill-current-best|cumulative-prefill-current-best-k512|cumulative-prefill-current-best-mlp-k512|cumulative-prefill-current-best-mlp-k512-v1|cumulative-prefill-current-best-mlp-k512-edge|cumulative-prefill-current-best-mlp-k512-edge-attention-k256|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-attention-k256|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-pairring-attention-k256|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256-a-exchange-b4|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-ldmatrix-pairfeed-down-16warp-pairring-attention-k256-a-exchange-b4|cumulative-prefill-current-best-mlp-k512-projection-major-gateup-down-16warp-pairring-attention-k256-a-exchange-b4|cumulative-prefill-current-best-mlp-k512-paired-warp-gateup-down-16warp-pairring-attention-k256-a-exchange-b4|cumulative-prefill-current-best-mlp-k512-m128n128-projection-serial-down-16warp-pairring-attention-k256-a-exchange-b4|cumulative-prefill-current-best-mlp-k512-m128n512-fused-quantize-down-16warp-pairring-attention-k256-a-exchange-b4|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256-a-exchange-b4-gdn-prompt-span-macro|cumulative-prefill-current-best-mlp-k512-edge-m128n64|cumulative-prefill-current-best-mlp-k512-down-m16n64-v2|cumulative-prefill-current-best-mlp-k512-fragment-native|cumulative-prefill-current-best-mlp-k512-fragment-native-m128|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-staged|cumulative-prefill-current-best-mlp-k512-fragment-native-m64n128-1cta|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta-down-m128n256-1cta|cumulative-prefill-current-best-mlp-k512-hybrid-gate-attention-k256|cumulative-prefill-current-best-mlp-k512-hybrid-gate-down-pairring-attention-k256|cumulative-prefill-short] \
+  [--mode exact|native-gdn|cumulative-prefill|cumulative-prefill-down|cumulative-prefill-attention-down|cumulative-prefill-current-best|cumulative-prefill-current-best-k512|cumulative-prefill-current-best-mlp-k512|cumulative-prefill-current-best-mlp-k512-v1|cumulative-prefill-current-best-mlp-k512-edge|cumulative-prefill-current-best-mlp-k512-edge-attention-k256|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-attention-k256|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-pairring-attention-k256|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256-a-exchange-b4|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-ldmatrix-pairfeed-down-16warp-pairring-attention-k256-a-exchange-b4|cumulative-prefill-current-best-mlp-k512-projection-major-gateup-down-16warp-pairring-attention-k256-a-exchange-b4|cumulative-prefill-current-best-mlp-k512-paired-warp-gateup-down-16warp-pairring-attention-k256-a-exchange-b4|cumulative-prefill-current-best-mlp-k512-m128n128-projection-serial-down-16warp-pairring-attention-k256-a-exchange-b4|cumulative-prefill-current-best-mlp-k512-m128n64-same-cta-down-16warp-pairring-attention-k256-a-exchange-b4|cumulative-prefill-current-best-mlp-k512-m128n512-fused-quantize-down-16warp-pairring-attention-k256-a-exchange-b4|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256-a-exchange-b4-gdn-prompt-span-macro|cumulative-prefill-current-best-mlp-k512-edge-m128n64|cumulative-prefill-current-best-mlp-k512-down-m16n64-v2|cumulative-prefill-current-best-mlp-k512-fragment-native|cumulative-prefill-current-best-mlp-k512-fragment-native-m128|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-staged|cumulative-prefill-current-best-mlp-k512-fragment-native-m64n128-1cta|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta-down-m128n256-1cta|cumulative-prefill-current-best-mlp-k512-hybrid-gate-attention-k256|cumulative-prefill-current-best-mlp-k512-hybrid-gate-down-pairring-attention-k256|cumulative-prefill-short] \
   [--dry-run] \
   ELF MODEL_DIR CORPUS_DIR OUTPUT_ROOT [p512|p1k|p2k|p4k]
 EOF
@@ -36,6 +36,8 @@ paired_warp_candidate_mode=cumulative-prefill-current-best-mlp-k512-paired-warp-
 paired_warp_baseline_mode=${ldmatrix_pairfeed_candidate_mode}
 projection_serial_baseline_mode=${ldmatrix_pairfeed_candidate_mode}
 projection_serial_candidate_mode=cumulative-prefill-current-best-mlp-k512-m128n128-projection-serial-down-16warp-pairring-attention-k256-a-exchange-b4
+same_cta_baseline_mode=${ldmatrix_pairfeed_candidate_mode}
+same_cta_candidate_mode=cumulative-prefill-current-best-mlp-k512-m128n64-same-cta-down-16warp-pairring-attention-k256-a-exchange-b4
 fused_quantize_baseline_mode=${ldmatrix_pairfeed_candidate_mode}
 fused_quantize_candidate_mode=cumulative-prefill-current-best-mlp-k512-m128n512-fused-quantize-down-16warp-pairring-attention-k256-a-exchange-b4
 gdn_prompt_span_baseline_mode=${ldmatrix_pairfeed_baseline_mode}
@@ -173,7 +175,7 @@ done
   exit 2
 }
 case "${mode}" in
-  exact|native-gdn|cumulative-prefill|cumulative-prefill-down|cumulative-prefill-attention-down|cumulative-prefill-current-best|cumulative-prefill-current-best-k512|cumulative-prefill-current-best-mlp-k512|cumulative-prefill-current-best-mlp-k512-v1|cumulative-prefill-current-best-mlp-k512-edge|cumulative-prefill-current-best-mlp-k512-edge-attention-k256|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-attention-k256|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-pairring-attention-k256|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256-a-exchange-b4|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-ldmatrix-pairfeed-down-16warp-pairring-attention-k256-a-exchange-b4|cumulative-prefill-current-best-mlp-k512-projection-major-gateup-down-16warp-pairring-attention-k256-a-exchange-b4|cumulative-prefill-current-best-mlp-k512-paired-warp-gateup-down-16warp-pairring-attention-k256-a-exchange-b4|cumulative-prefill-current-best-mlp-k512-m128n128-projection-serial-down-16warp-pairring-attention-k256-a-exchange-b4|cumulative-prefill-current-best-mlp-k512-m128n512-fused-quantize-down-16warp-pairring-attention-k256-a-exchange-b4|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256-a-exchange-b4-gdn-prompt-span-macro|cumulative-prefill-current-best-mlp-k512-edge-m128n64|cumulative-prefill-current-best-mlp-k512-down-m16n64-v2|cumulative-prefill-current-best-mlp-k512-fragment-native|cumulative-prefill-current-best-mlp-k512-fragment-native-m128|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-staged|cumulative-prefill-current-best-mlp-k512-fragment-native-m64n128-1cta|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta-down-m128n256-1cta|cumulative-prefill-current-best-mlp-k512-hybrid-gate-attention-k256|cumulative-prefill-current-best-mlp-k512-hybrid-gate-down-pairring-attention-k256|cumulative-prefill-short) ;;
+  exact|native-gdn|cumulative-prefill|cumulative-prefill-down|cumulative-prefill-attention-down|cumulative-prefill-current-best|cumulative-prefill-current-best-k512|cumulative-prefill-current-best-mlp-k512|cumulative-prefill-current-best-mlp-k512-v1|cumulative-prefill-current-best-mlp-k512-edge|cumulative-prefill-current-best-mlp-k512-edge-attention-k256|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-attention-k256|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-pairring-attention-k256|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256-a-exchange-b4|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-ldmatrix-pairfeed-down-16warp-pairring-attention-k256-a-exchange-b4|cumulative-prefill-current-best-mlp-k512-projection-major-gateup-down-16warp-pairring-attention-k256-a-exchange-b4|cumulative-prefill-current-best-mlp-k512-paired-warp-gateup-down-16warp-pairring-attention-k256-a-exchange-b4|cumulative-prefill-current-best-mlp-k512-m128n128-projection-serial-down-16warp-pairring-attention-k256-a-exchange-b4|cumulative-prefill-current-best-mlp-k512-m128n64-same-cta-down-16warp-pairring-attention-k256-a-exchange-b4|cumulative-prefill-current-best-mlp-k512-m128n512-fused-quantize-down-16warp-pairring-attention-k256-a-exchange-b4|cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256-a-exchange-b4-gdn-prompt-span-macro|cumulative-prefill-current-best-mlp-k512-edge-m128n64|cumulative-prefill-current-best-mlp-k512-down-m16n64-v2|cumulative-prefill-current-best-mlp-k512-fragment-native|cumulative-prefill-current-best-mlp-k512-fragment-native-m128|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-staged|cumulative-prefill-current-best-mlp-k512-fragment-native-m64n128-1cta|cumulative-prefill-current-best-mlp-k512-fragment-native-m128n64-1cta-down-m128n256-1cta|cumulative-prefill-current-best-mlp-k512-hybrid-gate-attention-k256|cumulative-prefill-current-best-mlp-k512-hybrid-gate-down-pairring-attention-k256|cumulative-prefill-short) ;;
   *)
     echo "--mode must be exact, native-gdn, cumulative-prefill, or" \
       "cumulative-prefill-down, cumulative-prefill-attention-down, or" \
@@ -190,6 +192,7 @@ case "${mode}" in
       "cumulative-prefill-current-best-mlp-k512-projection-major-gateup-down-16warp-pairring-attention-k256-a-exchange-b4," \
       "cumulative-prefill-current-best-mlp-k512-paired-warp-gateup-down-16warp-pairring-attention-k256-a-exchange-b4," \
       "cumulative-prefill-current-best-mlp-k512-m128n128-projection-serial-down-16warp-pairring-attention-k256-a-exchange-b4," \
+      "cumulative-prefill-current-best-mlp-k512-m128n64-same-cta-down-16warp-pairring-attention-k256-a-exchange-b4," \
       "cumulative-prefill-current-best-mlp-k512-m128n512-fused-quantize-down-16warp-pairring-attention-k256-a-exchange-b4," \
       "cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256-a-exchange-b4-gdn-prompt-span-macro," \
       "cumulative-prefill-current-best-mlp-k512-edge-m128n64," \
@@ -277,6 +280,7 @@ mlp_k512_edge_mode=0
 mlp_k512_edge_m64n128_k256_alternating_mode=0
 mlp_k512_edge_m64n128_k256_ldmatrix_pairfeed_mode=0
 mlp_k512_m128n128_projection_serial_mode=0
+mlp_k512_m128n64_same_cta_mode=0
 mlp_k512_m128n512_fused_quantize_mode=0
 mlp_k512_v1_down_pairring_mode=0
 mlp_k512_v1_down_16warp_pairring_mode=0
@@ -294,6 +298,7 @@ if [[ "${mode}" == "${ldmatrix_pairfeed_candidate_mode}" ||
       "${mode}" == "${projection_major_candidate_mode}" ||
       "${mode}" == "${paired_warp_candidate_mode}" ||
       "${mode}" == "${projection_serial_candidate_mode}" ||
+      "${mode}" == "${same_cta_candidate_mode}" ||
       "${mode}" == "${fused_quantize_candidate_mode}" ||
       "${mode}" == "${gdn_prompt_span_baseline_mode}" ||
       "${mode}" == "${gdn_prompt_span_candidate_mode}" ]]; then
@@ -334,6 +339,7 @@ if [[ "${mode}" == cumulative-prefill-current-best-mlp-k512 ||
       "${mode}" == cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256-a-exchange-b4 ||
       "${mode}" == "${ldmatrix_pairfeed_candidate_mode}" ||
       "${mode}" == "${projection_serial_candidate_mode}" ||
+      "${mode}" == "${same_cta_candidate_mode}" ||
       "${mode}" == "${fused_quantize_candidate_mode}" ||
       "${mode}" == "${gdn_prompt_span_candidate_mode}" ||
       "${mode}" == cumulative-prefill-current-best-mlp-k512-edge-m128n64 ||
@@ -358,6 +364,7 @@ if [[ "${mode}" == cumulative-prefill-current-best-mlp-k512 ||
         "${mode}" == cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256-a-exchange-b4 ||
         "${mode}" == "${ldmatrix_pairfeed_candidate_mode}" ||
         "${mode}" == "${projection_serial_candidate_mode}" ||
+        "${mode}" == "${same_cta_candidate_mode}" ||
         "${mode}" == "${fused_quantize_candidate_mode}" ||
         "${mode}" == "${gdn_prompt_span_candidate_mode}" ]]; then
     attention_k256_mode=1
@@ -375,6 +382,9 @@ if [[ "${mode}" == cumulative-prefill-current-best-mlp-k512 ||
   if [[ "${mode}" == "${projection_serial_candidate_mode}" ]]; then
     mlp_k512_m128n128_projection_serial_mode=1
   fi
+  if [[ "${mode}" == "${same_cta_candidate_mode}" ]]; then
+    mlp_k512_m128n64_same_cta_mode=1
+  fi
   if [[ "${mode}" == "${fused_quantize_candidate_mode}" ]]; then
     mlp_k512_m128n512_fused_quantize_mode=1
   fi
@@ -385,6 +395,7 @@ if [[ "${mode}" == cumulative-prefill-current-best-mlp-k512 ||
         "${mode}" == cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256-a-exchange-b4 ||
         "${mode}" == "${ldmatrix_pairfeed_candidate_mode}" ||
         "${mode}" == "${projection_serial_candidate_mode}" ||
+        "${mode}" == "${same_cta_candidate_mode}" ||
         "${mode}" == "${fused_quantize_candidate_mode}" ||
         "${mode}" == "${gdn_prompt_span_candidate_mode}" ]]; then
     mlp_k512_v1_down_16warp_pairring_mode=1
@@ -392,6 +403,7 @@ if [[ "${mode}" == cumulative-prefill-current-best-mlp-k512 ||
   if [[ "${mode}" == cumulative-prefill-current-best-mlp-k512-edge-m64n128-k256-alternating-down-16warp-pairring-attention-k256-a-exchange-b4 ||
         "${mode}" == "${ldmatrix_pairfeed_candidate_mode}" ||
         "${mode}" == "${projection_serial_candidate_mode}" ||
+        "${mode}" == "${same_cta_candidate_mode}" ||
         "${mode}" == "${fused_quantize_candidate_mode}" ||
         "${mode}" == "${gdn_prompt_span_candidate_mode}" ]]; then
     attention_k256_a_exchange_b4_mode=1
@@ -1334,6 +1346,20 @@ case "${mode}" in
       Q3X_RUN_A4W4_DOWN_K512_M128N128_16WARP_PAIRRING_ADMISSION
     )
     ;;
+  cumulative-prefill-current-best-mlp-k512-m128n64-same-cta-down-16warp-pairring-attention-k256-a-exchange-b4)
+    candidate_selectors=(
+      Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION
+      Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION
+      Q3X_RUN_BF16_AB_LARGE_M_PREFILL_ADMISSION
+      Q3X_FULL_ATTENTION_FLASHINFER_DIRECT
+      Q3X_RUN_FULL_ATTENTION_PREPROCESS_PROMPT_WIDE_128_ADMISSION
+      Q3X_RUN_SHORT_PREFILL_LAYER_MAJOR_ADMISSION
+      Q3X_RUN_A4W4_ATTENTION_K256_M128N256_A_EXCHANGE_B4_ADMISSION
+      Q3X_RUN_A4W4_MLP_K512_ADMISSION
+      Q3X_RUN_A4W4_GATEUP_K512_M128N64_SAME_CTA_ADMISSION
+      Q3X_RUN_A4W4_DOWN_K512_M128N128_16WARP_PAIRRING_ADMISSION
+    )
+    ;;
   cumulative-prefill-current-best-mlp-k512-m128n512-fused-quantize-down-16warp-pairring-attention-k256-a-exchange-b4)
     candidate_selectors=(
       Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION
@@ -1538,6 +1564,21 @@ if [[ "${mlp_k512_m128n128_projection_serial_mode}" == 1 ]]; then
   for marker in "${projection_serial_markers[@]}"; do
     if ! grep -Fx "${marker}" < <(strings -a "${server}") >/dev/null; then
       echo "server does not prove the M128N128 projection-serial Gate+Up production stage: ${marker}" >&2
+      exit 2
+    fi
+  done
+fi
+same_cta_primary_marker=prefill_projection_span_mlp_k512_gateup_m128n64_same_cta_primary
+same_cta_secondary_marker=prefill_projection_span_mlp_k512_gateup_m128n64_same_cta_secondary
+same_cta_markers=(
+  "${same_cta_primary_marker}"
+  "${same_cta_secondary_marker}"
+  "${projection_serial_quantize_marker}"
+)
+if [[ "${mlp_k512_m128n64_same_cta_mode}" == 1 ]]; then
+  for marker in "${same_cta_markers[@]}"; do
+    if ! grep -Fx "${marker}" < <(strings -a "${server}") >/dev/null; then
+      echo "server does not prove the M128N64 same-CTA Gate+Up production stage: ${marker}" >&2
       exit 2
     fi
   done
@@ -1844,6 +1885,7 @@ fi
 gateup_alternating_expected_hits=
 gateup_ldmatrix_pairfeed_expected_hits=
 gateup_m128n128_projection_serial_expected_hits=
+gateup_m128n64_same_cta_expected_hits=
 gateup_m128n512_fused_quantize_expected_hits=
 gateup_m128n512_paired_ldmatrix_expected_hits=
 gateup_m64n128_register_pipeline_expected_hits=
@@ -1900,6 +1942,15 @@ elif [[ "${mlp_k512_projection_major_mode}" == 1 ]]; then
   gateup_m64n128_register_pipeline_expected_hits=64
   down_m128n128_ldmatrix_pairring_expected_hits=0
   down_m128n128_16warp_pairring_expected_hits=64
+elif [[ "${mlp_k512_m128n64_same_cta_mode}" == 1 ]]; then
+  gateup_alternating_expected_hits=0
+  gateup_ldmatrix_pairfeed_expected_hits=0
+  gateup_m128n128_projection_serial_expected_hits=0
+  gateup_m128n64_same_cta_expected_hits=64
+  gateup_m128n512_fused_quantize_expected_hits=0
+  gateup_m128n512_paired_ldmatrix_expected_hits=0
+  gateup_m64n128_register_pipeline_expected_hits=0
+  gateup_m64n8_paired_warp_register_pipeline_expected_hits=0
 elif [[ "${mlp_k512_m128n512_fused_quantize_mode}" == 1 ]]; then
   gateup_alternating_expected_hits=0
   gateup_ldmatrix_pairfeed_expected_hits=0
@@ -2040,6 +2091,9 @@ elif [[ "${mlp_k512_projection_major_mode}" == 1 ]]; then
 elif [[ "${gdn_prompt_span_macro_mode}" == 1 ]]; then
   printf 'candidate_delta baseline_mode=%s retained_selector=Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION added_selector=Q3X_RUN_GDN_PREFILL_PROMPT_SPAN_MACRO_ADMISSION\n' \
     "${gdn_prompt_span_baseline_mode}"
+elif [[ "${mlp_k512_m128n64_same_cta_mode}" == 1 ]]; then
+  printf 'candidate_delta baseline_mode=%s removed_selector=Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_LDMATRIX_PAIRFEED_ADMISSION added_selector=Q3X_RUN_A4W4_GATEUP_K512_M128N64_SAME_CTA_ADMISSION\n' \
+    "${same_cta_baseline_mode}"
 elif [[ "${mlp_k512_m128n512_fused_quantize_mode}" == 1 ]]; then
   printf 'candidate_delta baseline_mode=%s removed_selector=Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_LDMATRIX_PAIRFEED_ADMISSION added_selector=Q3X_RUN_A4W4_GATEUP_K512_M128N512_FUSED_QUANTIZE_ADMISSION\n' \
     "${fused_quantize_baseline_mode}"
@@ -2109,6 +2163,18 @@ if [[ "${mlp_k512_m128n128_projection_serial_mode}" == 1 ]]; then
     "${projection_serial_quantize_marker}" \
     "${ldmatrix_pairfeed_marker}"
 fi
+if [[ "${mlp_k512_m128n64_same_cta_mode}" == 1 ]]; then
+  printf 'stage_contract required=%s,%s,%s,prefill_projection_span_mlp_k512_down_m128n128_16warp_pairring excluded=%s,%s,%s,%s,prefill_projection_span_mlp_k512_gateup_down_edge_m128n512_paired_ldmatrix,%s,%s,prefill_projection_span_mlp_k512_gateup_down_edge_m64n128_k256_alternating,prefill_projection_span_mlp_k512_gateup_down_edge,prefill_projection_span_mlp_k512_gate_up_primary,prefill_projection_span_mlp_k512_gate_up_secondary,prefill_projection_span_mlp_k512_down,prefill_projection_span_mlp_k512_down_m16n64_v2,prefill_projection_span_mlp_k512_down_m128n128_ldmatrix_pairring retained=prefill_projection_span_mlp_k512_input_quantize expected_request_launch_hits=gate_alternating:0,gate_pairfeed:0,gate_projection_serial:0,gate_same_cta:64,gate_fused_quantize:0,gate_paired_ldmatrix:0,gate_projection_major:0,gate_paired_warp:0,down_incumbent:0,down_candidate:64\n' \
+    "${same_cta_primary_marker}" \
+    "${same_cta_secondary_marker}" \
+    "${projection_serial_quantize_marker}" \
+    "${ldmatrix_pairfeed_marker}" \
+    "${projection_serial_primary_marker}" \
+    "${projection_serial_secondary_marker}" \
+    "${fused_quantize_marker}" \
+    "${projection_major_gate_marker}" \
+    "${paired_warp_gate_marker}"
+fi
 if [[ "${mlp_k512_m128n512_fused_quantize_mode}" == 1 ]]; then
   printf 'stage_contract required=%s,prefill_projection_span_mlp_k512_down_m128n128_16warp_pairring excluded=%s,%s,%s,%s,prefill_projection_span_mlp_k512_gateup_down_edge_m64n128_k256_alternating,prefill_projection_span_mlp_k512_gateup_down_edge,prefill_projection_span_mlp_k512_gate_up_primary,prefill_projection_span_mlp_k512_gate_up_secondary,prefill_projection_span_mlp_k512_product_quantize,prefill_projection_span_mlp_k512_down,prefill_projection_span_mlp_k512_down_m16n64_v2,prefill_projection_span_mlp_k512_down_m128n128_ldmatrix_pairring retained=prefill_projection_span_mlp_k512_input_quantize expected_request_launch_hits=gate_alternating:0,gate_pairfeed:0,gate_projection_serial:0,gate_candidate:64,down_incumbent:0,down_candidate:64\n' \
     "${fused_quantize_marker}" \
@@ -2176,6 +2242,12 @@ if [[ "${mlp_k512_m128n128_projection_serial_mode}" == 1 ]]; then
   printf ',%s,%s,%s,prefill_projection_span_mlp_k512_down_m128n128_16warp_pairring,pairfeed_gateup_stage_excluded,alternating_gateup_stage_excluded,legacy_edge_stage_excluded,old_gateup_split_stages_excluded,down_m16n64_v2_stage_excluded,gateup_alternating_launch_hits_0_per_request,gateup_ldmatrix_pairfeed_launch_hits_0_per_request,gateup_m128n128_projection_serial_launch_hits_64_per_request,gateup_m128n512_fused_quantize_launch_hits_0_per_request' \
     "${projection_serial_primary_marker}" \
     "${projection_serial_secondary_marker}" \
+    "${projection_serial_quantize_marker}"
+fi
+if [[ "${mlp_k512_m128n64_same_cta_mode}" == 1 ]]; then
+  printf ',%s,%s,%s,prefill_projection_span_mlp_k512_down_m128n128_16warp_pairring,pairfeed_gateup_stage_excluded,projection_serial_gateup_stages_excluded,fused_quantize_gateup_stage_excluded,alternating_gateup_stage_excluded,legacy_edge_stage_excluded,old_gateup_split_stages_excluded,down_m16n64_v2_stage_excluded,gateup_alternating_launch_hits_0_per_request,gateup_ldmatrix_pairfeed_launch_hits_0_per_request,gateup_m128n128_projection_serial_launch_hits_0_per_request,gateup_m128n64_same_cta_launch_hits_64_per_request,gateup_m128n512_fused_quantize_launch_hits_0_per_request,gateup_m128n512_paired_ldmatrix_launch_hits_0_per_request,gateup_m64n128_register_pipeline_launch_hits_0_per_request,gateup_m64n8_paired_warp_register_pipeline_launch_hits_0_per_request' \
+    "${same_cta_primary_marker}" \
+    "${same_cta_secondary_marker}" \
     "${projection_serial_quantize_marker}"
 fi
 if [[ "${mlp_k512_m128n512_fused_quantize_mode}" == 1 ]]; then
@@ -2341,6 +2413,21 @@ mkdir -p "${output_root}"
     printf 'excluded_runtime_stages=%s,prefill_projection_span_mlp_k512_gateup_down_edge_m64n128_k256_alternating,prefill_projection_span_mlp_k512_gateup_down_edge,prefill_projection_span_mlp_k512_gate_up_primary,prefill_projection_span_mlp_k512_gate_up_secondary,prefill_projection_span_mlp_k512_down,prefill_projection_span_mlp_k512_down_m16n64_v2,prefill_projection_span_mlp_k512_down_m128n128_ldmatrix_pairring\n' \
       "${ldmatrix_pairfeed_marker}"
   fi
+  if [[ "${mlp_k512_m128n64_same_cta_mode}" == 1 ]]; then
+    printf 'required_runtime_stages=%s,%s,%s,prefill_projection_span_mlp_k512_down_m128n128_16warp_pairring\n' \
+      "${same_cta_primary_marker}" \
+      "${same_cta_secondary_marker}" \
+      "${projection_serial_quantize_marker}"
+    printf 'experiment_baseline_mode=%s\n' "${same_cta_baseline_mode}"
+    printf 'experiment_removed_selector=Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_LDMATRIX_PAIRFEED_ADMISSION\n'
+    printf 'experiment_added_selector=Q3X_RUN_A4W4_GATEUP_K512_M128N64_SAME_CTA_ADMISSION\n'
+    printf 'retained_runtime_stages=prefill_projection_span_mlp_k512_input_quantize,prefill_projection_span_mlp_k512_down_m128n128_16warp_pairring\n'
+    printf 'excluded_runtime_stages=%s,%s,%s,%s,prefill_projection_span_mlp_k512_gateup_down_edge_m64n128_k256_alternating,prefill_projection_span_mlp_k512_gateup_down_edge,prefill_projection_span_mlp_k512_gate_up_primary,prefill_projection_span_mlp_k512_gate_up_secondary,prefill_projection_span_mlp_k512_down,prefill_projection_span_mlp_k512_down_m16n64_v2,prefill_projection_span_mlp_k512_down_m128n128_ldmatrix_pairring\n' \
+      "${ldmatrix_pairfeed_marker}" \
+      "${projection_serial_primary_marker}" \
+      "${projection_serial_secondary_marker}" \
+      "${fused_quantize_marker}"
+  fi
   if [[ "${mlp_k512_m128n512_fused_quantize_mode}" == 1 ]]; then
     printf 'required_runtime_stages=%s,prefill_projection_span_mlp_k512_down_m128n128_16warp_pairring\n' \
       "${fused_quantize_marker}"
@@ -2383,7 +2470,9 @@ mkdir -p "${output_root}"
   if [[ -n "${gateup_alternating_expected_hits}" ||
         -n "${gateup_ldmatrix_pairfeed_expected_hits}" ||
         -n "${gateup_m128n128_projection_serial_expected_hits}" ||
+        -n "${gateup_m128n64_same_cta_expected_hits}" ||
         -n "${gateup_m128n512_fused_quantize_expected_hits}" ||
+        -n "${gateup_m128n512_paired_ldmatrix_expected_hits}" ||
         -n "${gateup_m64n128_register_pipeline_expected_hits}" ||
         -n "${gateup_m64n8_paired_warp_register_pipeline_expected_hits}" ]]; then
     printf 'gateup_alternating_expected_launch_hits_per_request=%s\n' \
@@ -2397,9 +2486,17 @@ mkdir -p "${output_root}"
     printf 'gateup_m128n128_projection_serial_expected_launch_hits_per_request=%s\n' \
       "${gateup_m128n128_projection_serial_expected_hits}"
   fi
+  if [[ -n "${gateup_m128n64_same_cta_expected_hits}" ]]; then
+    printf 'gateup_m128n64_same_cta_expected_launch_hits_per_request=%s\n' \
+      "${gateup_m128n64_same_cta_expected_hits}"
+  fi
   if [[ -n "${gateup_m128n512_fused_quantize_expected_hits}" ]]; then
     printf 'gateup_m128n512_fused_quantize_expected_launch_hits_per_request=%s\n' \
       "${gateup_m128n512_fused_quantize_expected_hits}"
+  fi
+  if [[ -n "${gateup_m128n512_paired_ldmatrix_expected_hits}" ]]; then
+    printf 'gateup_m128n512_paired_ldmatrix_expected_launch_hits_per_request=%s\n' \
+      "${gateup_m128n512_paired_ldmatrix_expected_hits}"
   fi
   if [[ -n "${gateup_m64n128_register_pipeline_expected_hits}" ]]; then
     printf 'gateup_m64n128_register_pipeline_expected_launch_hits_per_request=%s\n' \
@@ -2759,7 +2856,9 @@ for bucket in "${buckets[@]}"; do
   if [[ -n "${gateup_alternating_expected_hits}" ||
         -n "${gateup_ldmatrix_pairfeed_expected_hits}" ||
         -n "${gateup_m128n128_projection_serial_expected_hits}" ||
+        -n "${gateup_m128n64_same_cta_expected_hits}" ||
         -n "${gateup_m128n512_fused_quantize_expected_hits}" ||
+        -n "${gateup_m128n512_paired_ldmatrix_expected_hits}" ||
         -n "${gateup_m64n128_register_pipeline_expected_hits}" ||
         -n "${gateup_m64n8_paired_warp_register_pipeline_expected_hits}" ]]; then
     mapfile -t new_request_logs < <(
@@ -2798,11 +2897,25 @@ for bucket in "${buckets[@]}"; do
         echo "request did not prove gateup_m128n128_projection_serial_launch_hits=${gateup_m128n128_projection_serial_expected_hits}: ${request_log}" >&2
         exit 6
       fi
+      if [[ -n "${gateup_m128n64_same_cta_expected_hits}" ]] &&
+         ! grep -Eq \
+           " gateup_m128n64_same_cta_launch_hits=${gateup_m128n64_same_cta_expected_hits}([[:space:]]|$)" \
+           <<<"${request_log}"; then
+        echo "request did not prove gateup_m128n64_same_cta_launch_hits=${gateup_m128n64_same_cta_expected_hits}: ${request_log}" >&2
+        exit 6
+      fi
       if [[ -n "${gateup_m128n512_fused_quantize_expected_hits}" ]] &&
          ! grep -Eq \
            " gateup_m128n512_fused_quantize_launch_hits=${gateup_m128n512_fused_quantize_expected_hits}([[:space:]]|$)" \
            <<<"${request_log}"; then
         echo "request did not prove gateup_m128n512_fused_quantize_launch_hits=${gateup_m128n512_fused_quantize_expected_hits}: ${request_log}" >&2
+        exit 6
+      fi
+      if [[ -n "${gateup_m128n512_paired_ldmatrix_expected_hits}" ]] &&
+         ! grep -Eq \
+           " gateup_m128n512_paired_ldmatrix_launch_hits=${gateup_m128n512_paired_ldmatrix_expected_hits}([[:space:]]|$)" \
+           <<<"${request_log}"; then
+        echo "request did not prove gateup_m128n512_paired_ldmatrix_launch_hits=${gateup_m128n512_paired_ldmatrix_expected_hits}: ${request_log}" >&2
         exit 6
       fi
       if [[ -n "${gateup_m64n128_register_pipeline_expected_hits}" ]] &&
@@ -2851,10 +2964,20 @@ for bucket in "${buckets[@]}"; do
         "${bucket}" "${expected_request_logs}" \
         "${gateup_m128n128_projection_serial_expected_hits}"
     fi
+    if [[ -n "${gateup_m128n64_same_cta_expected_hits}" ]]; then
+      printf 'gateup_m128n64_same_cta_runtime_contract bucket=%s requests=%s launch_hits_per_request=%s status=passed\n' \
+        "${bucket}" "${expected_request_logs}" \
+        "${gateup_m128n64_same_cta_expected_hits}"
+    fi
     if [[ -n "${gateup_m128n512_fused_quantize_expected_hits}" ]]; then
       printf 'gateup_m128n512_fused_quantize_runtime_contract bucket=%s requests=%s launch_hits_per_request=%s status=passed\n' \
         "${bucket}" "${expected_request_logs}" \
         "${gateup_m128n512_fused_quantize_expected_hits}"
+    fi
+    if [[ -n "${gateup_m128n512_paired_ldmatrix_expected_hits}" ]]; then
+      printf 'gateup_m128n512_paired_ldmatrix_runtime_contract bucket=%s requests=%s launch_hits_per_request=%s status=passed\n' \
+        "${bucket}" "${expected_request_logs}" \
+        "${gateup_m128n512_paired_ldmatrix_expected_hits}"
     fi
     if [[ -n "${gateup_m64n128_register_pipeline_expected_hits}" ]]; then
       printf 'projection_major_mlp_runtime_contract bucket=%s requests=%s old_gate_launch_hits_per_request=%s gate_launch_hits_per_request=%s down_incumbent_launch_hits_per_request=%s down_candidate_launch_hits_per_request=%s status=passed\n' \

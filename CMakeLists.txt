@@ -130,6 +130,10 @@ option(Q3X_BUILD_SM87_A4W4_GATEUP_K512_M128N128_PROJECTION_SERIAL_EXPERIMENT
   "Build the default-off M128N128 full-projection-serial Gate+Up experiment"
   OFF
 )
+option(Q3X_BUILD_SM87_A4W4_GATEUP_K512_M128N64_SAME_CTA_EXPERIMENT
+  "Build the default-off 2-CTA/SM M128N64 same-CTA Gate-to-Up experiment"
+  OFF
+)
 option(Q3X_BUILD_SM87_A4W4_GATEUP_K512_M128N512_FUSED_QUANTIZE_EXPERIMENT
   "Build the default-off M128N512 fused-quantize Gate+Up resource experiment"
   OFF
@@ -424,6 +428,13 @@ if(Q3X_BUILD_SM87_A4W4_GATEUP_K512_M128N128_PROJECTION_SERIAL_EXPERIMENT AND
     NOT Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION))
   message(FATAL_ERROR
     "The M128N128 projection-serial Gate+Up experiment requires BUILD_TESTING=ON and the authenticated full-A4 K512 MLP route"
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_GATEUP_K512_M128N64_SAME_CTA_EXPERIMENT AND
+   (NOT BUILD_TESTING OR NOT Q3X_BUILD_SM87_A4W4_MLP_K512_ADMISSION OR
+    NOT Q3X_BUILD_A4W4_FULL_PREFILL_ADMISSION))
+  message(FATAL_ERROR
+    "The M128N64 same-CTA Gate+Up experiment requires BUILD_TESTING=ON and the authenticated full-A4 K512 MLP route"
   )
 endif()
 if(Q3X_BUILD_SM87_A4W4_GATEUP_K512_M128N512_FUSED_QUANTIZE_EXPERIMENT AND
@@ -879,6 +890,18 @@ if(Q3X_BUILD_SM87_A4W4_GATEUP_K512_M128N128_PROJECTION_SERIAL_EXPERIMENT)
     PROPERTIES COMPILE_OPTIONS "--maxrregcount=128;-Xptxas=-v;-Xptxas=-warn-spills"
   )
 endif()
+if(Q3X_BUILD_SM87_A4W4_GATEUP_K512_M128N64_SAME_CTA_EXPERIMENT)
+  target_sources(q3x_kernels PRIVATE
+    src/kernels/sm87/a4w4_gateup_k512_m128n64_same_cta.cu
+  )
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_A4W4_GATEUP_K512_M128N64_SAME_CTA_ADMISSION=1
+  )
+  set_source_files_properties(
+    src/kernels/sm87/a4w4_gateup_k512_m128n64_same_cta.cu
+    PROPERTIES COMPILE_OPTIONS "--maxrregcount=128;-Xptxas=-v;-Xptxas=-warn-spills"
+  )
+endif()
 if(Q3X_BUILD_SM87_A4W4_GATEUP_K512_M128N512_FUSED_QUANTIZE_EXPERIMENT)
   target_sources(q3x_kernels PRIVATE
     src/kernels/sm87/a4w4_gateup_k512_m128n512_fused_quantize.cu
@@ -1163,6 +1186,11 @@ endif()
 if(Q3X_BUILD_SM87_A4W4_GATEUP_K512_M128N128_PROJECTION_SERIAL_EXPERIMENT)
   target_compile_definitions(q3x_engine PRIVATE
     Q3X_ENABLE_A4W4_GATEUP_K512_M128N128_PROJECTION_SERIAL_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_SM87_A4W4_GATEUP_K512_M128N64_SAME_CTA_EXPERIMENT)
+  target_compile_definitions(q3x_engine PRIVATE
+    Q3X_ENABLE_A4W4_GATEUP_K512_M128N64_SAME_CTA_ADMISSION=1
   )
 endif()
 if(Q3X_BUILD_SM87_A4W4_GATEUP_K512_M128N512_FUSED_QUANTIZE_EXPERIMENT)
@@ -2381,6 +2409,61 @@ if(BUILD_TESTING)
       )
     endif()
 
+    if(Q3X_BUILD_SM87_A4W4_GATEUP_K512_M128N64_SAME_CTA_EXPERIMENT)
+      add_executable(
+        q3x_sm87_a4w4_gateup_k512_m128n64_same_cta_contract_test
+        tests/sm87_a4w4_gateup_k512_m128n64_same_cta_contract_test.cpp
+      )
+      target_link_libraries(
+        q3x_sm87_a4w4_gateup_k512_m128n64_same_cta_contract_test
+        PRIVATE q3x::kernels CUDA::cudart
+      )
+      q3x_enable_warnings(
+        q3x_sm87_a4w4_gateup_k512_m128n64_same_cta_contract_test
+      )
+      add_test(
+        NAME sm87_a4w4_gateup_k512_m128n64_same_cta_contract
+        COMMAND q3x_sm87_a4w4_gateup_k512_m128n64_same_cta_contract_test
+      )
+      set_tests_properties(
+        sm87_a4w4_gateup_k512_m128n64_same_cta_contract
+        PROPERTIES
+        LABELS "host;sm87;prefill;mlp;a4w4;k512;gateup;m128n64;same-cta;contract"
+      )
+
+      add_executable(
+        q3x_sm87_a4w4_gateup_k512_m128n64_same_cta_resource_test
+        tests/sm87_a4w4_gateup_k512_m128n64_same_cta_contract_test.cpp
+      )
+      target_compile_definitions(
+        q3x_sm87_a4w4_gateup_k512_m128n64_same_cta_resource_test
+        PRIVATE Q3X_TEST_M128N64_SAME_CTA_RESOURCES=1
+      )
+      target_link_libraries(
+        q3x_sm87_a4w4_gateup_k512_m128n64_same_cta_resource_test
+        PRIVATE q3x::kernels CUDA::cudart
+      )
+      q3x_enable_warnings(
+        q3x_sm87_a4w4_gateup_k512_m128n64_same_cta_resource_test
+      )
+
+      add_executable(
+        q3x_sm87_a4w4_gateup_k512_m128n64_same_cta_correctness_test
+        tests/sm87_a4w4_gateup_k512_macrocell_correctness_test.cu
+      )
+      target_compile_definitions(
+        q3x_sm87_a4w4_gateup_k512_m128n64_same_cta_correctness_test
+        PRIVATE Q3X_TEST_GATEUP_M128N64_SAME_CTA=1
+      )
+      target_link_libraries(
+        q3x_sm87_a4w4_gateup_k512_m128n64_same_cta_correctness_test
+        PRIVATE q3x::kernels CUDA::cudart
+      )
+      q3x_enable_warnings(
+        q3x_sm87_a4w4_gateup_k512_m128n64_same_cta_correctness_test
+      )
+    endif()
+
     if(Q3X_BUILD_SM87_A4W4_GATEUP_K512_M128N512_FUSED_QUANTIZE_EXPERIMENT)
       add_executable(
         q3x_sm87_a4w4_gateup_k512_m128n512_fused_quantize_contract_test
@@ -3130,6 +3213,34 @@ if(BUILD_TESTING)
         SKIP_RETURN_CODE 77
         RESOURCE_LOCK q3x_sm87_gpu
         TIMEOUT 300
+      )
+    endif()
+    if(Q3X_BUILD_SM87_A4W4_GATEUP_K512_M128N64_SAME_CTA_EXPERIMENT)
+      add_test(
+        NAME sm87_a4w4_gateup_k512_m128n64_same_cta_resources
+        COMMAND "${Q3X_FLOCK_EXECUTABLE}" -x /tmp/q3x-gpu-bench.lock
+                $<TARGET_FILE:q3x_sm87_a4w4_gateup_k512_m128n64_same_cta_resource_test>
+      )
+      set_tests_properties(
+        sm87_a4w4_gateup_k512_m128n64_same_cta_resources
+        PROPERTIES
+        LABELS "cuda;sm87;prefill;mlp;a4w4;k512;gateup;m128n64;same-cta;resources"
+        SKIP_RETURN_CODE 77
+        RESOURCE_LOCK q3x_sm87_gpu
+        TIMEOUT 300
+      )
+      add_test(
+        NAME sm87_a4w4_gateup_k512_m128n64_same_cta_correctness
+        COMMAND "${Q3X_FLOCK_EXECUTABLE}" -x /tmp/q3x-gpu-bench.lock
+                $<TARGET_FILE:q3x_sm87_a4w4_gateup_k512_m128n64_same_cta_correctness_test>
+      )
+      set_tests_properties(
+        sm87_a4w4_gateup_k512_m128n64_same_cta_correctness
+        PROPERTIES
+        LABELS "cuda;sm87;prefill;mlp;a4w4;k512;gateup;m128n64;same-cta;correctness;resources;scalar;canary;synthetic"
+        SKIP_RETURN_CODE 77
+        RESOURCE_LOCK q3x_sm87_gpu
+        TIMEOUT 600
       )
     endif()
     if(Q3X_BUILD_SM87_A4W4_GATEUP_K512_M128N512_FUSED_QUANTIZE_EXPERIMENT)

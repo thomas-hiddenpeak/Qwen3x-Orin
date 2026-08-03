@@ -454,6 +454,8 @@ struct PrefillMLPK512ProjectionMajorGateUpCanonicalDownEnginePaths final {
   const bool projection_serial_gate_selected =
       exact_environment_selector_enabled(
           "Q3X_RUN_A4W4_GATEUP_K512_M128N128_PROJECTION_SERIAL_ADMISSION");
+  const bool same_cta_gate_selected = exact_environment_selector_enabled(
+      "Q3X_RUN_A4W4_GATEUP_K512_M128N64_SAME_CTA_ADMISSION");
   const bool fused_quantize_gate_selected =
       exact_environment_selector_enabled(
           "Q3X_RUN_A4W4_GATEUP_K512_M128N512_FUSED_QUANTIZE_ADMISSION");
@@ -492,7 +494,7 @@ struct PrefillMLPK512ProjectionMajorGateUpCanonicalDownEnginePaths final {
         paired_ldmatrix_gate_selected || paired_warp_gate_selected ||
         alternating_gate_selected ||
         ldmatrix_pairfeed_gate_selected || projection_serial_gate_selected ||
-        fused_quantize_gate_selected) {
+        same_cta_gate_selected || fused_quantize_gate_selected) {
       error = "the projection-major K512 MLP route is mutually exclusive "
               "with every older MLP publication and Gate+Up selector";
       return false;
@@ -569,6 +571,51 @@ struct PrefillMLPK512ProjectionMajorGateUpCanonicalDownEnginePaths final {
       if (exact_environment_selector_enabled(selector)) {
         error = "the M128N128 projection-serial Gate+Up admission conflicts "
                 "with every other Prefill Gate+Up selector";
+        return false;
+      }
+    }
+  }
+
+#if !defined(Q3X_ENABLE_A4W4_GATEUP_K512_M128N64_SAME_CTA_ADMISSION)
+  if (same_cta_gate_selected) {
+    error = "this binary does not contain the M128N64 same-CTA Gate+Up "
+            "admission";
+    return false;
+  }
+#endif
+  if (same_cta_gate_selected) {
+    if (optimized_prefill_dispatch_disabled()) {
+      error = "the M128N64 same-CTA Gate+Up admission cannot run while "
+              "optimized Prefill dispatch is disabled";
+      return false;
+    }
+    if (!mlp_k512_v1_publication_requested || !mlp_k512_v1_selected ||
+        fragment_native_publication_requested || fragment_native_selected ||
+        hybrid_publication_requested || hybrid_selected ||
+        paired_ldmatrix_gate_selected || paired_warp_gate_selected) {
+      error = "the M128N64 same-CTA Gate+Up admission requires the "
+              "authenticated v1 K512 MLP publication and runtime master";
+      return false;
+    }
+    constexpr std::array<const char*, 13U> kConflictingGateSelectors = {
+        "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_ADMISSION",
+        "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M128N64_ADMISSION",
+        "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_ALTERNATING_ADMISSION",
+        "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_LDMATRIX_PAIRFEED_ADMISSION",
+        "Q3X_RUN_A4W4_GATEUP_K512_M128N128_PROJECTION_SERIAL_ADMISSION",
+        "Q3X_RUN_A4W4_GATEUP_K512_M128N512_FUSED_QUANTIZE_ADMISSION",
+        "Q3X_RUN_A4W4_GATEUP_COMPLETE_CELL_V2_ADMISSION",
+        "Q3X_RUN_A4W4_M128_STAGE_MAJOR_ADMISSION",
+        "Q3X_RUN_A4W4_GATEUP_PROJECTION_V3_ADMISSION",
+        "Q3X_RUN_A4W4_GATEUP_K512_FRAGMENT_NATIVE_M128_ADMISSION",
+        "Q3X_RUN_A4W4_GATEUP_K512_FRAGMENT_NATIVE_M128N64_1CTA_ADMISSION",
+        "Q3X_RUN_A4W4_GATEUP_K512_FRAGMENT_NATIVE_M64N128_1CTA_ADMISSION",
+        "Q3X_RUN_A4W4_GATEUP_K512_FRAGMENT_NATIVE_M128N64_STAGED_ADMISSION",
+    };
+    for (const char* const selector : kConflictingGateSelectors) {
+      if (exact_environment_selector_enabled(selector)) {
+        error = "the M128N64 same-CTA Gate+Up admission conflicts with "
+                "every other Prefill Gate+Up selector";
         return false;
       }
     }

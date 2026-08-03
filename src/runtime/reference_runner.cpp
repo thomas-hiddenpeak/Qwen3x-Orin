@@ -25,6 +25,9 @@
 #if defined(Q3X_ENABLE_A4W4_GATEUP_K512_M128N128_PROJECTION_SERIAL_ADMISSION)
 #include "q3x/kernels/sm87_a4w4_gateup_k512_m128n128_projection_serial.h"
 #endif
+#if defined(Q3X_ENABLE_A4W4_GATEUP_K512_M128N64_SAME_CTA_ADMISSION)
+#include "q3x/kernels/sm87_a4w4_gateup_k512_m128n64_same_cta.h"
+#endif
 #if defined(Q3X_ENABLE_A4W4_GATEUP_K512_M128N512_FUSED_QUANTIZE_ADMISSION)
 #include "q3x/kernels/sm87_a4w4_gateup_k512_m128n512_fused_quantize.h"
 #endif
@@ -346,6 +349,23 @@ thread_local bool
         a4w4_gateup_k512_m128n128_projection_serial_environment_enabled();
 thread_local std::size_t
     g_a4w4_gateup_k512_m128n128_projection_serial_admission_hits = 0U;
+#endif
+
+#if defined(Q3X_ENABLE_A4W4_GATEUP_K512_M128N64_SAME_CTA_ADMISSION)
+[[nodiscard]] bool
+a4w4_gateup_k512_m128n64_same_cta_environment_enabled() noexcept {
+  if (optimized_prefill_dispatch_disabled()) {
+    return false;
+  }
+  const char* const value = std::getenv(
+      "Q3X_RUN_A4W4_GATEUP_K512_M128N64_SAME_CTA_ADMISSION");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
+thread_local bool g_enable_a4w4_gateup_k512_m128n64_same_cta_admission =
+    a4w4_gateup_k512_m128n64_same_cta_environment_enabled();
+thread_local std::size_t
+    g_a4w4_gateup_k512_m128n64_same_cta_admission_hits = 0U;
 #endif
 
 #if defined(Q3X_ENABLE_A4W4_GATEUP_K512_M128N512_FUSED_QUANTIZE_ADMISSION)
@@ -727,6 +747,11 @@ a4w4_projection_major_gateup_canonical_down_selector_query(
       query.legacy_gate_requested ||
       g_enable_a4w4_gateup_k512_m128n128_projection_serial_admission;
 #endif
+#if defined(Q3X_ENABLE_A4W4_GATEUP_K512_M128N64_SAME_CTA_ADMISSION)
+  query.legacy_gate_requested =
+      query.legacy_gate_requested ||
+      g_enable_a4w4_gateup_k512_m128n64_same_cta_admission;
+#endif
 #if defined(Q3X_ENABLE_A4W4_GATEUP_K512_M128N512_FUSED_QUANTIZE_ADMISSION)
   query.legacy_gate_requested =
       query.legacy_gate_requested ||
@@ -811,6 +836,11 @@ a4w4_paired_gateup_canonical_down_selector_query(
   query.legacy_gate_requested =
       query.legacy_gate_requested ||
       g_enable_a4w4_gateup_k512_m128n128_projection_serial_admission;
+#endif
+#if defined(Q3X_ENABLE_A4W4_GATEUP_K512_M128N64_SAME_CTA_ADMISSION)
+  query.legacy_gate_requested =
+      query.legacy_gate_requested ||
+      g_enable_a4w4_gateup_k512_m128n64_same_cta_admission;
 #endif
 #if defined(Q3X_ENABLE_A4W4_GATEUP_K512_M128N512_FUSED_QUANTIZE_ADMISSION)
   query.legacy_gate_requested =
@@ -8840,6 +8870,12 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
 #else
   constexpr bool gateup_k512_m128n128_projection_serial_requested = false;
 #endif
+#if defined(Q3X_ENABLE_A4W4_GATEUP_K512_M128N64_SAME_CTA_ADMISSION)
+  const bool gateup_k512_m128n64_same_cta_requested =
+      g_enable_a4w4_gateup_k512_m128n64_same_cta_admission;
+#else
+  constexpr bool gateup_k512_m128n64_same_cta_requested = false;
+#endif
 #if defined(Q3X_ENABLE_A4W4_GATEUP_K512_M128N512_FUSED_QUANTIZE_ADMISSION)
   const bool gateup_k512_m128n512_fused_quantize_requested =
       g_enable_a4w4_gateup_k512_m128n512_fused_quantize_admission;
@@ -9061,6 +9097,12 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
         "prefill_projection_span_mlp_k512_gateup_m128n128_projection_serial_requires_v1",
         item.layer_index);
   }
+  if (gateup_k512_m128n64_same_cta_requested && !mlp_k512_requested) {
+    return runner_status(
+        ReferenceRunnerError::kInvalidRunner,
+        "prefill_projection_span_mlp_k512_gateup_m128n64_same_cta_requires_v1",
+        item.layer_index);
+  }
   if (gateup_k512_m128n512_fused_quantize_requested &&
       !mlp_k512_requested) {
     return runner_status(
@@ -9105,6 +9147,25 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
     return runner_status(
         ReferenceRunnerError::kInvalidRunner,
         "prefill_projection_span_mlp_k512_gateup_m128n128_projection_serial_gate_selector_conflict",
+        item.layer_index);
+  }
+  if (gateup_k512_m128n64_same_cta_requested &&
+      (gateup_down_k512_edge_requested ||
+       gateup_down_k512_edge_m64n128_k256_alternating_requested ||
+       gateup_down_k512_edge_m64n128_k256_ldmatrix_pairfeed_requested ||
+       gateup_k512_m128n128_projection_serial_requested ||
+       gateup_k512_m128n512_fused_quantize_requested ||
+       gateup_down_k512_edge_m128n64_requested || paired_old_gate_selected ||
+       paired_new_gate_selected ||
+       g_enable_a4w4_gateup_complete_cell_v2_admission ||
+       g_enable_a4w4_m128_stage_major_admission
+#if defined(Q3X_ENABLE_A4W4_GATEUP_PROJECTION_V3_ADMISSION)
+       || g_enable_a4w4_gateup_projection_v3_admission
+#endif
+       )) {
+    return runner_status(
+        ReferenceRunnerError::kInvalidRunner,
+        "prefill_projection_span_mlp_k512_gateup_m128n64_same_cta_gate_selector_conflict",
         item.layer_index);
   }
   if (gateup_k512_m128n512_fused_quantize_requested &&
@@ -9926,6 +9987,18 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
             kReferenceIntermediateSize, kReferenceHiddenSize,
             kPrimaryProductColumns, kSecondaryProductColumns);
 #endif
+#if defined(Q3X_ENABLE_A4W4_GATEUP_K512_M128N64_SAME_CTA_ADMISSION)
+    const auto gateup_m128n64_same_cta_primary_plan =
+        kernels::sm87_a4w4_gateup_k512_m128n64_same_cta_plan(
+            token_count, mlp_launch_token_count,
+            kReferenceIntermediateSize, kReferenceHiddenSize, 0U,
+            kPrimaryProductColumns);
+    const auto gateup_m128n64_same_cta_secondary_plan =
+        kernels::sm87_a4w4_gateup_k512_m128n64_same_cta_plan(
+            token_count, mlp_launch_token_count,
+            kReferenceIntermediateSize, kReferenceHiddenSize,
+            kPrimaryProductColumns, kSecondaryProductColumns);
+#endif
 #if defined(Q3X_ENABLE_A4W4_GATEUP_K512_M128N512_FUSED_QUANTIZE_ADMISSION)
     const auto gateup_m128n512_fused_quantize_plan =
         kernels::sm87_a4w4_gateup_k512_m128n512_fused_quantize_plan(
@@ -9982,6 +10055,15 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
           !kernels::
               sm87_a4w4_gateup_k512_m128n128_projection_serial_is_model_plan(
                   gateup_m128n128_projection_serial_secondary_plan))) ||
+#endif
+#if defined(Q3X_ENABLE_A4W4_GATEUP_K512_M128N64_SAME_CTA_ADMISSION)
+        (gateup_k512_m128n64_same_cta_requested &&
+         (!kernels::
+              sm87_a4w4_gateup_k512_m128n64_same_cta_is_model_plan(
+                  gateup_m128n64_same_cta_primary_plan) ||
+          !kernels::
+              sm87_a4w4_gateup_k512_m128n64_same_cta_is_model_plan(
+                  gateup_m128n64_same_cta_secondary_plan))) ||
 #endif
 #if defined(Q3X_ENABLE_A4W4_GATEUP_K512_M128N512_FUSED_QUANTIZE_ADMISSION)
         (gateup_k512_m128n512_fused_quantize_requested &&
@@ -10118,6 +10200,59 @@ ReferenceRunnerStatus ReferenceRunner::execute_long_prefill_projection_span(
         return failure;
       }
       ++g_a4w4_gateup_k512_m128n128_projection_serial_admission_hits;
+    } else
+#endif
+#if defined(Q3X_ENABLE_A4W4_GATEUP_K512_M128N64_SAME_CTA_ADMISSION)
+    if (gateup_k512_m128n64_same_cta_requested) {
+      if (!check_cuda(
+              kernels::
+                  launch_sm87_a4w4_gateup_k512_m128n64_same_cta_bf16_cuda(
+                      views_.prefill_a4_hidden_packed,
+                      hidden_packed_capacity,
+                      views_.prefill_a4_hidden_scales,
+                      hidden_scale_capacity, gate_k512.weight,
+                      gate_k512_weight_capacity, gate_k512.scales,
+                      gate_k512_scale_capacity, up_k512.weight,
+                      up_k512_weight_capacity, up_k512.scales,
+                      up_k512_scale_capacity, token_count,
+                      mlp_launch_token_count, kReferenceIntermediateSize,
+                      kReferenceHiddenSize, 0U, kPrimaryProductColumns,
+                      primary, kPrimaryProductColumns, primary_capacity,
+                      stream_),
+              "prefill_projection_span_mlp_k512_gateup_m128n64_same_cta_primary") ||
+          !check_cuda(
+              kernels::
+                  launch_sm87_a4w4_gateup_k512_m128n64_same_cta_bf16_cuda(
+                      views_.prefill_a4_hidden_packed,
+                      hidden_packed_capacity,
+                      views_.prefill_a4_hidden_scales,
+                      hidden_scale_capacity, gate_k512.weight,
+                      gate_k512_weight_capacity, gate_k512.scales,
+                      gate_k512_scale_capacity, up_k512.weight,
+                      up_k512_weight_capacity, up_k512.scales,
+                      up_k512_scale_capacity, token_count,
+                      mlp_launch_token_count, kReferenceIntermediateSize,
+                      kReferenceHiddenSize, kPrimaryProductColumns,
+                      kSecondaryProductColumns, secondary,
+                      kRequestLongPrefillSecondaryWidth,
+                      secondary_capacity, stream_),
+              "prefill_projection_span_mlp_k512_gateup_m128n64_same_cta_secondary") ||
+          !check_cuda(
+              kernels::launch_sm87_a4_quantize_bf16_k512_split_cuda(
+                  primary, kPrimaryProductColumns,
+                  kPrimaryProductColumns, secondary,
+                  kRequestLongPrefillSecondaryWidth,
+                  kSecondaryProductColumns, token_count,
+                  mlp_launch_token_count,
+                  down_k512.activation_clip_ratio,
+                  views_.prefill_a4_intermediate_packed,
+                  intermediate_packed_capacity,
+                  views_.prefill_a4_intermediate_scales,
+                  intermediate_scale_capacity, stream_),
+              "prefill_projection_span_mlp_k512_product_quantize")) {
+        return failure;
+      }
+      ++g_a4w4_gateup_k512_m128n64_same_cta_admission_hits;
     } else
 #endif
 #if defined(Q3X_ENABLE_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_ALTERNATING_ADMISSION)
@@ -10875,6 +11010,10 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
         gateup_m128n128_projection_serial_hits_before =
             g_a4w4_gateup_k512_m128n128_projection_serial_admission_hits;
 #endif
+#if defined(Q3X_ENABLE_A4W4_GATEUP_K512_M128N64_SAME_CTA_ADMISSION)
+    const std::size_t gateup_m128n64_same_cta_hits_before =
+        g_a4w4_gateup_k512_m128n64_same_cta_admission_hits;
+#endif
 #if defined(Q3X_ENABLE_A4W4_GATEUP_K512_M128N512_FUSED_QUANTIZE_ADMISSION)
     const std::size_t gateup_m128n512_fused_quantize_hits_before =
         g_a4w4_gateup_k512_m128n512_fused_quantize_admission_hits;
@@ -11331,6 +11470,26 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
     constexpr bool gateup_m128n128_projection_serial_accounting_valid =
         true;
 #endif
+#if defined(Q3X_ENABLE_A4W4_GATEUP_K512_M128N64_SAME_CTA_ADMISSION)
+    const std::size_t gateup_m128n64_same_cta_delta =
+        g_a4w4_gateup_k512_m128n64_same_cta_admission_hits >=
+                gateup_m128n64_same_cta_hits_before
+            ? g_a4w4_gateup_k512_m128n64_same_cta_admission_hits -
+                  gateup_m128n64_same_cta_hits_before
+            : 0U;
+    const bool gateup_m128n64_same_cta_accounting_valid =
+        g_a4w4_gateup_k512_m128n64_same_cta_admission_hits >=
+            gateup_m128n64_same_cta_hits_before &&
+        (gateup_m128n64_same_cta_delta == 0U ||
+         gateup_m128n64_same_cta_delta == spans * 64U) &&
+        (!g_enable_a4w4_gateup_k512_m128n64_same_cta_admission ||
+         gateup_m128n64_same_cta_delta == spans * 64U) &&
+        (gateup_m128n64_same_cta_delta == 0U ||
+         gateup_m128n64_same_cta_delta == mlp_k512_v1_delta);
+#else
+    constexpr std::size_t gateup_m128n64_same_cta_delta = 0U;
+    constexpr bool gateup_m128n64_same_cta_accounting_valid = true;
+#endif
 #if defined(Q3X_ENABLE_A4W4_GATEUP_K512_M128N512_FUSED_QUANTIZE_ADMISSION)
     const std::size_t gateup_m128n512_fused_quantize_delta =
         g_a4w4_gateup_k512_m128n512_fused_quantize_admission_hits >=
@@ -11423,6 +11582,7 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
         gateup_down_k512_edge_m64n128_k256_alternating_accounting_valid &&
         gateup_down_k512_edge_m64n128_k256_ldmatrix_pairfeed_accounting_valid &&
         gateup_m128n128_projection_serial_accounting_valid &&
+        gateup_m128n64_same_cta_accounting_valid &&
         gateup_m128n512_fused_quantize_accounting_valid &&
         gateup_down_k512_edge_m128n64_accounting_valid &&
         down_k512_m16n64_v2_accounting_valid &&
@@ -11444,6 +11604,16 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
           gateup_m128n512_fused_quantize_delta == 0U &&
           gateup_down_k512_edge_m128n64_delta == 0U &&
           gateup_m128n512_paired_ldmatrix_delta == 0U)) &&
+        (gateup_m128n64_same_cta_delta == 0U ||
+         (gateup_down_k512_edge_delta == 0U &&
+          gateup_down_k512_edge_m64n128_k256_alternating_delta == 0U &&
+          gateup_down_k512_edge_m64n128_k256_ldmatrix_pairfeed_delta == 0U &&
+          gateup_m128n128_projection_serial_delta == 0U &&
+          gateup_m128n512_fused_quantize_delta == 0U &&
+          gateup_down_k512_edge_m128n64_delta == 0U &&
+          gateup_m128n512_paired_ldmatrix_delta == 0U &&
+          gateup_m64n128_register_pipeline_delta == 0U &&
+          gateup_m64n8_paired_warp_register_pipeline_delta == 0U)) &&
         (gateup_m128n512_fused_quantize_delta == 0U ||
          (gateup_down_k512_edge_delta == 0U &&
           gateup_down_k512_edge_m64n128_k256_alternating_delta == 0U &&
@@ -11547,6 +11717,8 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
         gateup_down_k512_edge_m64n128_k256_ldmatrix_pairfeed_delta;
     value.gateup_m128n128_projection_serial_launch_hits =
         gateup_m128n128_projection_serial_delta;
+    value.gateup_m128n64_same_cta_launch_hits =
+        gateup_m128n64_same_cta_delta;
     value.gateup_m128n512_fused_quantize_launch_hits =
         gateup_m128n512_fused_quantize_delta;
     value.gateup_m128n512_paired_ldmatrix_launch_hits =
@@ -11638,6 +11810,16 @@ ReferenceLongPrefillOutcome ReferenceRunner::prefill_layer_major_prompt(
     return fail_long_prefill(runner_status(
         ReferenceRunnerError::kInvalidRunner,
         "prefill_mlp_k512_gateup_m128n128_projection_serial_requires_projection_span"));
+  }
+#endif
+#if defined(Q3X_ENABLE_A4W4_GATEUP_K512_M128N64_SAME_CTA_ADMISSION)
+  // The same-CTA candidate owns only the authenticated whole-M K512
+  // projection-span executor.  Never accept its selector and silently fall
+  // back to a tiled or K128 Gate+Up route.
+  if (g_enable_a4w4_gateup_k512_m128n64_same_cta_admission) {
+    return fail_long_prefill(runner_status(
+        ReferenceRunnerError::kInvalidRunner,
+        "prefill_mlp_k512_gateup_m128n64_same_cta_requires_projection_span"));
   }
 #endif
 #if defined(Q3X_ENABLE_A4W4_GATEUP_K512_M128N512_FUSED_QUANTIZE_ADMISSION)
@@ -12229,6 +12411,21 @@ ReferenceRunnerFactoryResult create_reference_runner(
     return result;
   }
 #if defined(Q3X_ENABLE_A4W4_MLP_K512_ADMISSION)
+#if defined(Q3X_ENABLE_A4W4_GATEUP_K512_M128N64_SAME_CTA_ADMISSION)
+  if (g_enable_a4w4_gateup_k512_m128n64_same_cta_admission) {
+    kernels::Sm87A4W4GateUpK512M128N64SameCtaResources resources{};
+    const int resource_status = kernels::
+        query_sm87_a4w4_gateup_k512_m128n64_same_cta_resources_cuda(
+            &resources);
+    if (resource_status != static_cast<int>(cudaSuccess)) {
+      result.diagnostic = runner_status(
+          ReferenceRunnerError::kInvalidDependency,
+          "prefill_mlp_k512_gateup_m128n64_same_cta_resource_gate",
+          kReferenceNoLayer, resource_status);
+      return result;
+    }
+  }
+#endif
 #if defined(Q3X_ENABLE_A4W4_GATEUP_K512_M64N128_REGISTER_PIPELINE_ADMISSION)
   const reference_runner_detail::
       A4W4ProjectionMajorGateUpCanonicalDownRoute

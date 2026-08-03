@@ -1,5 +1,7 @@
 #if defined(Q3X_TEST_GATEUP_M128N128_PROJECTION_SERIAL)
 #include "q3x/kernels/sm87_a4w4_gateup_k512_m128n128_projection_serial.h"
+#elif defined(Q3X_TEST_GATEUP_M128N64_SAME_CTA)
+#include "q3x/kernels/sm87_a4w4_gateup_k512_m128n64_same_cta.h"
 #else
 #include "q3x/kernels/sm87_a4w4_gateup_k512_macrocell.h"
 #endif
@@ -45,6 +47,32 @@ using TestResources =
     const std::size_t groups) noexcept {
   return kernels::
       sm87_a4w4_gateup_k512_m128n128_projection_serial_scale_offset(
+          outer, group, groups);
+}
+#elif defined(Q3X_TEST_GATEUP_M128N64_SAME_CTA)
+using TestPlan = kernels::Sm87A4W4GateUpK512M128N64SameCtaPlan;
+using TestResources =
+    kernels::Sm87A4W4GateUpK512M128N64SameCtaResources;
+
+[[nodiscard]] constexpr TestPlan test_plan(
+    const std::size_t logical_m, const std::size_t launch_m,
+    const std::size_t full_n, const std::size_t k,
+    const std::size_t n_start, const std::size_t n_count) noexcept {
+  return kernels::sm87_a4w4_gateup_k512_m128n64_same_cta_plan(
+      logical_m, launch_m, full_n, k, n_start, n_count);
+}
+
+[[nodiscard]] constexpr std::size_t scale_capacity(
+    const std::size_t outer, const std::size_t k) noexcept {
+  return kernels::
+      sm87_a4w4_gateup_k512_m128n64_same_cta_scale_capacity(outer, k);
+}
+
+[[nodiscard]] __host__ __device__ constexpr std::size_t scale_offset(
+    const std::size_t outer, const std::size_t group,
+    const std::size_t groups) noexcept {
+  return kernels::
+      sm87_a4w4_gateup_k512_m128n64_same_cta_scale_offset(
           outer, group, groups);
 }
 #else
@@ -438,6 +466,17 @@ __global__ void gateup_k512_scalar_oracle(
                 launch_m_count, full_n_count, k_count, n_start,
                 n_count, output, output_stride, output_capacity,
                 maximum_launch_ctas);
+#elif defined(Q3X_TEST_GATEUP_M128N64_SAME_CTA)
+        return kernels::
+            launch_sm87_a4w4_gateup_k512_m128n64_same_cta_test_bf16_cuda(
+                a.get(), payload.a.size(), a_scales.get(),
+                payload.a_scales.size(), gate.get(), gate_capacity,
+                gate_scales.get(), payload.gate_scales.size(), up.get(),
+                payload.up.size(), up_scales.get(),
+                payload.up_scales.size(), logical_m_count,
+                launch_m_count, full_n_count, k_count, n_start,
+                n_count, output, output_stride, output_capacity,
+                maximum_launch_ctas);
 #else
         return kernels::launch_sm87_a4w4_gateup_k512_macrocell_test_bf16_cuda(
             a.get(), payload.a.size(), a_scales.get(),
@@ -543,11 +582,22 @@ int main() {
           query_sm87_a4w4_gateup_k512_m128n128_projection_serial_resources_cuda(
               &resources);
   constexpr std::size_t kExpectedShared = 165'376U;
+  constexpr int kExpectedMinimumThreads = 512;
+  constexpr int kExpectedActiveBlocks = 1;
+#elif defined(Q3X_TEST_GATEUP_M128N64_SAME_CTA)
+  const int resource_status = kernels::
+      query_sm87_a4w4_gateup_k512_m128n64_same_cta_resources_cuda(
+          &resources);
+  constexpr std::size_t kExpectedShared = 82'688U;
+  constexpr int kExpectedMinimumThreads = 256;
+  constexpr int kExpectedActiveBlocks = 2;
 #else
   const int resource_status =
       kernels::query_sm87_a4w4_gateup_k512_macrocell_resources_cuda(
           &resources);
   constexpr std::size_t kExpectedShared = 83'200U;
+  constexpr int kExpectedMinimumThreads = 512;
+  constexpr int kExpectedActiveBlocks = 1;
 #endif
   if (!launch_ok(
           resource_status,
@@ -557,8 +607,8 @@ int main() {
       resources.static_shared_bytes != 0U ||
       resources.dynamic_shared_bytes != kExpectedShared ||
       resources.local_bytes != 0U ||
-      resources.maximum_threads_per_block < 512 ||
-      resources.active_blocks_per_sm < 1) {
+      resources.maximum_threads_per_block < kExpectedMinimumThreads ||
+      resources.active_blocks_per_sm < kExpectedActiveBlocks) {
     std::cerr << "resource gate failed: regs="
               << resources.registers_per_thread
               << " static_shared=" << resources.static_shared_bytes
@@ -573,6 +623,11 @@ int main() {
   // slots across three exact K512 groups, output padding, and end guards.
   if (!run_case("projection-serial K1536/tail", 117U, 128U, 256U,
                 128U, 128U, 1'536U, 1U)) {
+#elif defined(Q3X_TEST_GATEUP_M128N64_SAME_CTA)
+  // Nonzero absolute N, logical-M tail, three K512 groups, both scale slots,
+  // output padding, end guards, and one persistent CTA owning two N cells.
+  if (!run_case("same-CTA M128N64 K1536/tail", 117U, 128U, 192U,
+                64U, 128U, 1'536U, 1U)) {
 #else
   if (!run_case("nonzero-N window", 64U, 64U, 256U, 128U, 128U,
                 512U, 1U) ||

@@ -90,6 +90,7 @@ struct FakeRunner {
           209U;
   std::size_t long_prefill_gateup_alternating_launch_hits = 64U;
   std::size_t long_prefill_gateup_ldmatrix_pairfeed_launch_hits = 0U;
+  std::size_t long_prefill_gateup_m128n64_same_cta_launch_hits = 64U;
   std::size_t long_prefill_gateup_m128n512_fused_quantize_launch_hits = 64U;
   std::size_t long_prefill_gateup_m128n512_paired_ldmatrix_launch_hits = 64U;
   std::size_t long_prefill_gateup_m64n128_register_pipeline_launch_hits = 64U;
@@ -319,6 +320,8 @@ runtime::ReferenceLongPrefillOutcome fake_layer_major_prompt(
       fake.long_prefill_gateup_alternating_launch_hits;
   value.gateup_ldmatrix_pairfeed_launch_hits =
       fake.long_prefill_gateup_ldmatrix_pairfeed_launch_hits;
+  value.gateup_m128n64_same_cta_launch_hits =
+      fake.long_prefill_gateup_m128n64_same_cta_launch_hits;
   value.gateup_m128n512_fused_quantize_launch_hits =
       fake.long_prefill_gateup_m128n512_fused_quantize_launch_hits;
   value.gateup_m128n512_paired_ldmatrix_launch_hits =
@@ -859,6 +862,8 @@ void test_layer_major_prompt_admission(TestContext& test) {
                 fake.long_prefill_gateup_alternating_launch_hits &&
             result.value->timing.gateup_ldmatrix_pairfeed_launch_hits ==
                 fake.long_prefill_gateup_ldmatrix_pairfeed_launch_hits &&
+            result.value->timing.gateup_m128n64_same_cta_launch_hits ==
+                fake.long_prefill_gateup_m128n64_same_cta_launch_hits &&
             result.value->timing.gateup_m128n512_fused_quantize_launch_hits ==
                 fake.long_prefill_gateup_m128n512_fused_quantize_launch_hits &&
             result.value->timing
@@ -2220,6 +2225,8 @@ void test_engine_backend_validation(TestContext& test) {
       "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_ALTERNATING_ADMISSION";
   constexpr const char* kGateupLdmatrixPairfeedSelector =
       "Q3X_RUN_A4W4_GATEUP_DOWN_K512_EDGE_M64N128_K256_LDMATRIX_PAIRFEED_ADMISSION";
+  constexpr const char* kGateupM128N64SameCtaSelector =
+      "Q3X_RUN_A4W4_GATEUP_K512_M128N64_SAME_CTA_ADMISSION";
   constexpr const char* kGateupM128N512FusedQuantizeSelector =
       "Q3X_RUN_A4W4_GATEUP_K512_M128N512_FUSED_QUANTIZE_ADMISSION";
   (void)::setenv(kGateupLdmatrixPairfeedSelector, "1", 1);
@@ -2234,6 +2241,20 @@ void test_engine_backend_validation(TestContext& test) {
           missing_pairfeed_v1_master.diagnostic.stage ==
               "prefill_mlp_k512_leaf_selectors",
       "LDSM pair-feed Gate+Up rejects a complete v1 triplet without the "
+      "v1 runtime master before model I/O");
+
+  (void)::setenv(kGateupM128N64SameCtaSelector, "1", 1);
+  const runtime::ReferenceEngineCreateResult missing_same_cta_v1_master =
+      runtime::create_reference_engine("unused-model-directory",
+                                       pairring_without_v1);
+  (void)::unsetenv(kGateupM128N64SameCtaSelector);
+  test.expect(
+      !missing_same_cta_v1_master &&
+          missing_same_cta_v1_master.diagnostic.code ==
+              runtime::ReferenceEngineError::kInvalidArgument &&
+          missing_same_cta_v1_master.diagnostic.stage ==
+              "prefill_mlp_k512_leaf_selectors",
+      "M128N64 same-CTA Gate+Up rejects a complete v1 triplet without the "
       "v1 runtime master before model I/O");
 
   (void)::setenv(kGateupM128N512FusedQuantizeSelector, "1", 1);
@@ -2267,6 +2288,39 @@ void test_engine_backend_validation(TestContext& test) {
               "prefill_mlp_k512_leaf_selectors",
       "M128N512 fused-quantize and pair-feed Gate+Up selectors conflict "
       "before model I/O");
+
+  (void)::setenv(kMlpK512V1Selector, "1", 1);
+  (void)::setenv(kGateupLdmatrixPairfeedSelector, "1", 1);
+  (void)::setenv(kGateupM128N64SameCtaSelector, "1", 1);
+  const runtime::ReferenceEngineCreateResult conflicting_same_cta_gate =
+      runtime::create_reference_engine("unused-model-directory",
+                                       pairring_without_v1);
+  (void)::unsetenv(kGateupM128N64SameCtaSelector);
+  (void)::unsetenv(kGateupLdmatrixPairfeedSelector);
+  (void)::unsetenv(kMlpK512V1Selector);
+  test.expect(
+      !conflicting_same_cta_gate &&
+          conflicting_same_cta_gate.diagnostic.code ==
+              runtime::ReferenceEngineError::kInvalidArgument &&
+          conflicting_same_cta_gate.diagnostic.stage ==
+              "prefill_mlp_k512_leaf_selectors",
+      "M128N64 same-CTA and pair-feed Gate+Up selectors conflict before "
+      "model I/O");
+
+  (void)::setenv(kMlpK512V1Selector, "1", 1);
+  (void)::setenv(kGateupLdmatrixPairfeedSelector, "1", 1);
+  (void)::setenv(kGateupM128N64SameCtaSelector, "enabled", 1);
+  const runtime::ReferenceEngineCreateResult non_exact_same_cta_ignored =
+      runtime::create_reference_engine("unused-model-directory",
+                                       pairring_without_v1);
+  (void)::unsetenv(kGateupM128N64SameCtaSelector);
+  (void)::unsetenv(kGateupLdmatrixPairfeedSelector);
+  (void)::unsetenv(kMlpK512V1Selector);
+  test.expect(
+      !non_exact_same_cta_ignored &&
+          non_exact_same_cta_ignored.diagnostic.stage !=
+              "prefill_mlp_k512_leaf_selectors",
+      "M128N64 same-CTA selector accepts only the exact value '1'");
 
   (void)::setenv(kGateupAlternatingSelector, "1", 1);
   (void)::setenv(kGateupLdmatrixPairfeedSelector, "1", 1);

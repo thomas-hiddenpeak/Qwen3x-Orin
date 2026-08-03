@@ -203,6 +203,9 @@ struct ReferenceGenerationTiming {
   // Propagated request-local runtime proof for the default-off full-
   // projection-serial M128N128 Gate+Up admission.
   std::size_t gateup_m128n128_projection_serial_launch_hits = 0U;
+  // Propagated request-local proof for the default-off M128N64 same-CTA
+  // Gate-to-Up admission.
+  std::size_t gateup_m128n64_same_cta_launch_hits = 0U;
   // Propagated request-local runtime proof for the default-off M128N512
   // Gate+Up plus canonical-K512-quantize admission.
   std::size_t gateup_m128n512_fused_quantize_launch_hits = 0U;

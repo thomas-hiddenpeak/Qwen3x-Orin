@@ -336,6 +336,8 @@ GenerationControlResult run_generation_control_impl(
           outcome.value->gateup_ldmatrix_pairfeed_launch_hits;
       control.timing.gateup_m128n128_projection_serial_launch_hits =
           outcome.value->gateup_m128n128_projection_serial_launch_hits;
+      control.timing.gateup_m128n64_same_cta_launch_hits =
+          outcome.value->gateup_m128n64_same_cta_launch_hits;
       control.timing.gateup_m128n512_fused_quantize_launch_hits =
           outcome.value->gateup_m128n512_fused_quantize_launch_hits;
       control.timing.gateup_m128n512_paired_ldmatrix_launch_hits =

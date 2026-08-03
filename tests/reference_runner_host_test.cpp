@@ -2737,6 +2737,7 @@ void test_paired_gateup_canonical_down_selector_and_accounting(
 
   const runtime::ReferenceLongPrefillResult result;
   test.expect(
+          result.gateup_m128n64_same_cta_launch_hits == 0U &&
           result.gateup_m128n512_fused_quantize_launch_hits == 0U &&
           result.gateup_m128n512_paired_ldmatrix_launch_hits == 0U &&
           result.gateup_m64n8_paired_warp_register_pipeline_launch_hits ==

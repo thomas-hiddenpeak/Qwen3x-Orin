@@ -1007,6 +1007,8 @@ void execute_job(runtime::ReferenceEngine& engine,
             << " gateup_m128n128_projection_serial_launch_hits="
             << generated.value->timing
                    .gateup_m128n128_projection_serial_launch_hits
+            << " gateup_m128n64_same_cta_launch_hits="
+            << generated.value->timing.gateup_m128n64_same_cta_launch_hits
             << " gateup_m128n512_fused_quantize_launch_hits="
             << generated.value->timing
                    .gateup_m128n512_fused_quantize_launch_hits
