@@ -50,6 +50,13 @@ struct EvaluationServerOptions {
       prefill_mlp_k512_projection_major_gateup_canonical_down_policy_path;
   std::filesystem::path
       prefill_mlp_k512_projection_major_gateup_canonical_down_receipt_path;
+  // Authenticated MLP-only factorized-lane R1 performance-upper-bound
+  // publication. This all-or-none triplet requires the explicit K256 A4 base
+  // above and is mutually exclusive with every K512 MLP publication. It is a
+  // default-off real-API experiment, not a quality-production admission.
+  std::filesystem::path prefill_mlp_factorized_lane_r1_payload_path;
+  std::filesystem::path prefill_mlp_factorized_lane_r1_policy_path;
+  std::filesystem::path prefill_mlp_factorized_lane_r1_receipt_path;
   std::string bind_address = "127.0.0.1";
   std::uint16_t port = 8000U;
   std::string served_model = "qwen3.6-27b-nvfp4";

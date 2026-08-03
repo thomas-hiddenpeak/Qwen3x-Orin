@@ -49,6 +49,12 @@ void test_disabled_default(TestContext& test) {
                       .empty() &&
                   options
                       .prefill_mlp_k512_projection_major_gateup_canonical_down_receipt_path
+                      .empty() &&
+                  options.prefill_mlp_factorized_lane_r1_payload_path
+                      .empty() &&
+                  options.prefill_mlp_factorized_lane_r1_policy_path
+                      .empty() &&
+                  options.prefill_mlp_factorized_lane_r1_receipt_path
                       .empty(),
               "omitting the diagnostic switch leaves profiling disabled");
 
@@ -488,6 +494,8 @@ void test_mlp_k512_projection_major_gateup_canonical_down_publication(
       "/publication/a4-k256.bin",
       "--prefill-a4-policy",
       "/publication/a4-k256-policy.json",
+      "--prefill-a4-receipt",
+      "/publication/a4-k256-receipt.json",
       "--prefill-mlp-k512-payload",
       "/publication/mlp-k512-v1.bin",
       "--prefill-mlp-k512-policy",
@@ -519,6 +527,113 @@ void test_mlp_k512_projection_major_gateup_canonical_down_publication(
               "all four K512 MLP publications are mutually exclusive");
 }
 
+void test_mlp_factorized_lane_r1_publication(TestContext& test) {
+  const char* const valid[] = {
+      "qwen3x-eval-server",
+      "/model",
+      "--prefill-a4-payload",
+      "/publication/a4-k256.bin",
+      "--prefill-a4-policy",
+      "/publication/a4-k256-policy.json",
+      "--prefill-a4-receipt",
+      "/publication/a4-k256-receipt.json",
+      "--prefill-mlp-factorized-lane-r1-payload",
+      "/publication/mlp-factorized-r1.bin",
+      "--prefill-mlp-factorized-lane-r1-policy",
+      "/publication/mlp-factorized-r1.policy.json",
+      "--prefill-mlp-factorized-lane-r1-receipt",
+      "/publication/mlp-factorized-r1.receipt.json"};
+  server::EvaluationServerOptions options;
+  std::string error;
+  test.expect(parse(valid, options, error) && error.empty() &&
+                  options.prefill_mlp_factorized_lane_r1_payload_path ==
+                      "/publication/mlp-factorized-r1.bin" &&
+                  options.prefill_mlp_factorized_lane_r1_policy_path ==
+                      "/publication/mlp-factorized-r1.policy.json" &&
+                  options.prefill_mlp_factorized_lane_r1_receipt_path ==
+                      "/publication/mlp-factorized-r1.receipt.json",
+              "a complete factorized-lane R1 experiment parses");
+
+  const char* const incomplete[] = {
+      "qwen3x-eval-server",
+      "/model",
+      "--prefill-a4-payload",
+      "/publication/a4-k256.bin",
+      "--prefill-a4-policy",
+      "/publication/a4-k256-policy.json",
+      "--prefill-mlp-factorized-lane-r1-payload",
+      "/publication/mlp-factorized-r1.bin",
+      "--prefill-mlp-factorized-lane-r1-policy",
+      "/publication/mlp-factorized-r1.policy.json"};
+  options = {};
+  error.clear();
+  test.expect(!parse(incomplete, options, error) &&
+                  error.find("required together") != std::string::npos,
+              "an incomplete factorized-lane R1 publication is rejected");
+
+  const char* const missing_base[] = {
+      "qwen3x-eval-server",
+      "/model",
+      "--prefill-mlp-factorized-lane-r1-payload",
+      "/publication/mlp-factorized-r1.bin",
+      "--prefill-mlp-factorized-lane-r1-policy",
+      "/publication/mlp-factorized-r1.policy.json",
+      "--prefill-mlp-factorized-lane-r1-receipt",
+      "/publication/mlp-factorized-r1.receipt.json"};
+  options = {};
+  error.clear();
+  test.expect(!parse(missing_base, options, error) &&
+                  error.find("explicit K256 A4") != std::string::npos,
+              "factorized-lane R1 requires the explicit K256 A4 base");
+
+  const char* const missing_base_receipt[] = {
+      "qwen3x-eval-server",
+      "/model",
+      "--prefill-a4-payload",
+      "/publication/a4-k256.bin",
+      "--prefill-a4-policy",
+      "/publication/a4-k256-policy.json",
+      "--prefill-mlp-factorized-lane-r1-payload",
+      "/publication/mlp-factorized-r1.bin",
+      "--prefill-mlp-factorized-lane-r1-policy",
+      "/publication/mlp-factorized-r1.policy.json",
+      "--prefill-mlp-factorized-lane-r1-receipt",
+      "/publication/mlp-factorized-r1.receipt.json"};
+  options = {};
+  error.clear();
+  test.expect(!parse(missing_base_receipt, options, error) &&
+                  error.find("explicit K256 A4") != std::string::npos &&
+                  error.find("receipt") != std::string::npos,
+              "factorized-lane R1 requires the K256 A4 base receipt");
+
+  const char* const conflicts_with_k512[] = {
+      "qwen3x-eval-server",
+      "/model",
+      "--prefill-a4-payload",
+      "/publication/a4-k256.bin",
+      "--prefill-a4-policy",
+      "/publication/a4-k256-policy.json",
+      "--prefill-a4-receipt",
+      "/publication/a4-k256-receipt.json",
+      "--prefill-mlp-k512-payload",
+      "/publication/mlp-k512.bin",
+      "--prefill-mlp-k512-policy",
+      "/publication/mlp-k512.policy.json",
+      "--prefill-mlp-k512-receipt",
+      "/publication/mlp-k512.receipt.json",
+      "--prefill-mlp-factorized-lane-r1-payload",
+      "/publication/mlp-factorized-r1.bin",
+      "--prefill-mlp-factorized-lane-r1-policy",
+      "/publication/mlp-factorized-r1.policy.json",
+      "--prefill-mlp-factorized-lane-r1-receipt",
+      "/publication/mlp-factorized-r1.receipt.json"};
+  options = {};
+  error.clear();
+  test.expect(!parse(conflicts_with_k512, options, error) &&
+                  error.find("mutually exclusive") != std::string::npos,
+              "factorized-lane R1 and K512 MLP publications cannot coexist");
+}
+
 }  // namespace
 
 int main() {
@@ -530,6 +645,7 @@ int main() {
   test_mlp_k512_fragment_native_publication(test);
   test_mlp_k512_paired_gateup_canonical_down_publication(test);
   test_mlp_k512_projection_major_gateup_canonical_down_publication(test);
+  test_mlp_factorized_lane_r1_publication(test);
   if (test.failures() != 0) {
     std::cerr << test.failures()
               << " evaluation server CLI test(s) failed\n";

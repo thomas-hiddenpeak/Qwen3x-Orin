@@ -67,6 +67,12 @@ struct ReferenceRunnerOptions {
   // environment/test hook remains available for direct runner experiments,
   // but production selection must not depend on thread-local initialization.
   bool enable_a4w4_full_prefill_admission = false;
+  // Select the authenticated, whole-M factorized-lane R1 MLP package.  This
+  // is an independent default-off decision: it requires the K256 full-A4
+  // Attention plane above, but it never enables or falls back to a tile MLP
+  // route.  The factory authenticates all 64 Gate/Up/Down views before a
+  // runner is returned.
+  bool enable_factorized_lane_r1_prefill_admission = false;
 };
 
 enum class ReferenceLogitsMode : std::uint8_t {
@@ -245,6 +251,11 @@ struct ReferenceLongPrefillResult {
   // counter is independent from every K512 experiment and increments only
   // after both K256 consumers enqueue successfully.
   std::size_t mlp_k256_m128n256_pairfeed_package_launch_hits = 0U;
+  // Request-local proof that the whole-M factorized-lane R1 package owned
+  // Gate+Up, its BF16 product boundary, product quantization, and Down for
+  // every decoder layer/projection span.  Tile-prefill can never increment
+  // this counter.
+  std::size_t factorized_lane_r1_package_launch_hits = 0U;
   // Request-local proof that the default-off full-projection-serial
   // M128N128 Gate+Up route owned every decoder layer.
   std::size_t gateup_m128n128_projection_serial_launch_hits = 0U;
@@ -747,6 +758,9 @@ struct A4W4FullPrefillAdmissionHits {
   std::size_t m128_stage_major_generic_projection_hits = 0U;
   std::size_t m128_stage_major_down_projection_hits = 0U;
   std::size_t m128_stage_major_paired_gate_up_hits = 0U;
+  // One hit is one complete R1 Gate+Up -> BF16 boundary -> Down package
+  // launch for one decoder layer and one whole-M projection span.
+  std::size_t factorized_lane_r1_package_launch_hits = 0U;
 };
 
 // Independent success-only accounting for the default-off Attention
@@ -1839,6 +1853,9 @@ class ReferenceRunner {
             a4w4_prefill_consumer_ ==
                 reference_runner_detail::A4W4PrefillConsumer::kK256);
   }
+  [[nodiscard]] bool factorized_lane_r1_prefill_enabled() const noexcept {
+    return factorized_lane_r1_prefill_admission_enabled_;
+  }
 
   [[nodiscard]] ReferenceStepOutcome step(
       std::uint32_t input_token_id,
@@ -2037,6 +2054,7 @@ class ReferenceRunner {
           reference_runner_detail::
               A4W4PairedGateUpCanonicalDownRoute::kDisabled;
   bool a4w4_full_prefill_admission_enabled_ = false;
+  bool factorized_lane_r1_prefill_admission_enabled_ = false;
   bool trace_enabled_ = false;
   bool trace_valid_ = false;
   bool poisoned_ = false;

@@ -21,6 +21,20 @@ FRAGMENT_NATIVE_PAYLOAD_BYTES = 8_623_226_880
 HYBRID_PAYLOAD_BYTES = 8_623_226_880
 PROJECTION_MAJOR_PAYLOAD_BYTES = 8_623_226_880
 ATTENTION_K256_PAYLOAD_BYTES = 12_353_536_000
+FACTORIZED_R1_PAYLOAD_BYTES = 8_568_619_008
+FACTORIZED_R1_MODE = (
+    "cumulative-prefill-factorized-r1-attention-k256-a-exchange-b4"
+)
+FACTORIZED_R1_LAYOUT = (
+    "sm87_s4_n64_packed_k64_factorized_lane_mlp_v4"
+)
+FACTORIZED_R1_SELECTOR = "Q3X_RUN_A4W4_FACTORIZED_LANE_R1_ADMISSION"
+FACTORIZED_R1_MARKERS = (
+    "prefill_projection_span_factorized_lane_r1_input_quantize",
+    "prefill_projection_span_factorized_lane_r1_gateup",
+    "prefill_projection_span_factorized_lane_r1_product_quantize",
+    "prefill_projection_span_factorized_lane_r1_down",
+)
 ATTENTION_K256_MODE = (
     "cumulative-prefill-current-best-mlp-k512-edge-attention-k256"
 )
@@ -345,6 +359,11 @@ class Fixture:
             root
             / "mlp-k512-projection-major-gateup-canonical-down.bin.receipt.json"
         )
+        self.factorized_r1_payload = root / "mlp-factorized-lane-r1.bin"
+        self.factorized_r1_policy = root / "mlp-factorized-lane-r1-policy.json"
+        self.factorized_r1_receipt = (
+            root / "mlp-factorized-lane-r1.bin.receipt.json"
+        )
         self.fake_bin = root / "fake-bin"
         self.model_dir.mkdir()
         self.corpus_dir.mkdir()
@@ -386,6 +405,7 @@ class Fixture:
             f"# {MLP_K512_REGISTER_PIPELINE_SELECTOR}\n"
             f"# {MLP_K512_PAIRED_WARP_SELECTOR}\n"
             f"# {K256_PAIRFEED_PACKAGE_SELECTOR}\n"
+            f"# {FACTORIZED_R1_SELECTOR}\n"
             "# Q3X_RUN_A4W4_DOWN_K512_M128N128_LDMATRIX_PAIRRING_"
             "ADMISSION\n"
             "# Q3X_RUN_A4W4_DOWN_K512_M128N128_16WARP_PAIRRING_"
@@ -423,6 +443,7 @@ class Fixture:
             + f"{PAIRED_WARP_GATE_MARKER}\n"
             + f"{PAIRED_WARP_DOWN_16WARP_MARKER}\n"
             + "".join(f"{marker}\n" for marker in K256_PAIRFEED_PACKAGE_MARKERS)
+            + "".join(f"{marker}\n" for marker in FACTORIZED_R1_MARKERS)
             + f"{GDN_PROMPT_SPAN_MACRO_MARKER}\n"
             + "# Q3X_RUN_SHORT_PREFILL_LAYER_MAJOR_ADMISSION\n"
             + "exit 0\n",
@@ -458,6 +479,42 @@ class Fixture:
                     "policy_sha256": k256_policy_sha,
                     "policy_bytes": len(b"{}\n"),
                     "payload_sha256": zero_sha,
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        with self.factorized_r1_payload.open("wb") as stream:
+            stream.truncate(FACTORIZED_R1_PAYLOAD_BYTES)
+        self.factorized_r1_policy.write_text("{}\n", encoding="utf-8")
+        factorized_policy_sha = hashlib.sha256(b"{}\n").hexdigest()
+        k256_receipt_sha = hashlib.sha256(
+            self.k256_receipt.read_bytes()
+        ).hexdigest()
+        self.factorized_r1_receipt.write_text(
+            json.dumps(
+                {
+                    "schema": "q3x.prefill.mlp-factorized-r1.receipt",
+                    "version": {"major": 1, "minor": 0},
+                    "mode": "performance_upper_bound_r1",
+                    "production_residency_eligible": False,
+                    "residency_eligibility_scope": "authenticated_abi_only",
+                    "performance_upper_bound_only": True,
+                    "quality_production_eligible": False,
+                    "physical_layout": FACTORIZED_R1_LAYOUT,
+                    "lane_count": 1,
+                    "payload_bytes": FACTORIZED_R1_PAYLOAD_BYTES,
+                    "projection_count": 192,
+                    "manifest_sha256": "9" * 64,
+                    "policy_sha256": factorized_policy_sha,
+                    "payload_sha256": zero_sha,
+                    "required_base_k256": {
+                        "physical_layout": ATTENTION_K256_LAYOUT,
+                        "manifest_sha256": one_sha,
+                        "policy_sha256": k256_policy_sha,
+                        "payload_sha256": zero_sha,
+                        "receipt_sha256": k256_receipt_sha,
+                    },
                 }
             )
             + "\n",
@@ -644,6 +701,10 @@ class Fixture:
             "    exit 0\n"
             "    ;;\n"
             "  *mlp-k512-projection-major-gateup-canonical-down.bin)\n"
+            "    printf '%064d  %s\\n' 0 \"$1\"\n"
+            "    exit 0\n"
+            "    ;;\n"
+            "  *mlp-factorized-lane-r1.bin)\n"
             "    printf '%064d  %s\\n' 0 \"$1\"\n"
             "    exit 0\n"
             "    ;;\n"
@@ -879,6 +940,25 @@ class Fixture:
         return self.run(
             "--mode",
             K256_PAIRFEED_PACKAGE_MODE,
+            *extra,
+            bucket=bucket,
+            prefill_payload=self.k256_payload,
+            prefill_policy=self.k256_policy,
+            prefill_receipt=self.k256_receipt,
+        )
+
+    def run_factorized_r1(
+        self, *extra: str, bucket: str = "p2k"
+    ) -> subprocess.CompletedProcess[str]:
+        return self.run(
+            "--prefill-mlp-factorized-lane-r1-payload",
+            str(self.factorized_r1_payload),
+            "--prefill-mlp-factorized-lane-r1-policy",
+            str(self.factorized_r1_policy),
+            "--prefill-mlp-factorized-lane-r1-receipt",
+            str(self.factorized_r1_receipt),
+            "--mode",
+            FACTORIZED_R1_MODE,
             *extra,
             bucket=bucket,
             prefill_payload=self.k256_payload,
@@ -2209,6 +2289,238 @@ class PurePrefillEvalScopeHarnessTest(unittest.TestCase):
             "server does not prove the K256 M128N256 pair-feed MLP package "
             f"stage: {K256_PAIRFEED_PACKAGE_MARKERS[1]}",
             missing_stage.stderr,
+        )
+
+    def test_factorized_r1_mode_is_authenticated_external_api_bundle(
+        self,
+    ) -> None:
+        help_result = subprocess.run(
+            [str(RUNNER), "--help"],
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+        self.assertEqual(help_result.returncode, 0, help_result.stderr)
+        self.assertIn(FACTORIZED_R1_MODE, help_result.stderr)
+        for option in (
+            "--prefill-mlp-factorized-lane-r1-payload",
+            "--prefill-mlp-factorized-lane-r1-policy",
+            "--prefill-mlp-factorized-lane-r1-receipt",
+        ):
+            self.assertIn(option, help_result.stderr)
+
+        result = self.fixture.run_factorized_r1()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(
+            f"mode={FACTORIZED_R1_MODE} dry_run=1", result.stdout
+        )
+        self.assertIn("selector_count=8", result.stdout)
+
+        startup = next(
+            line
+            for line in result.stdout.splitlines()
+            if line.startswith("server_startup_command")
+        )
+        self.assertEqual(
+            set(re.findall(r"(Q3X_[A-Z0-9_]+)=1", startup)),
+            {
+                "Q3X_RUN_GDN_CHUNK64_NATIVE_ADMISSION",
+                "Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION",
+                "Q3X_RUN_BF16_AB_LARGE_M_PREFILL_ADMISSION",
+                "Q3X_FULL_ATTENTION_FLASHINFER_DIRECT",
+                "Q3X_RUN_FULL_ATTENTION_PREPROCESS_PROMPT_WIDE_128_ADMISSION",
+                "Q3X_RUN_SHORT_PREFILL_LAYER_MAJOR_ADMISSION",
+                ATTENTION_K256_A_EXCHANGE_B4_SELECTOR,
+                FACTORIZED_R1_SELECTOR,
+            },
+        )
+        self.assertIn(
+            "--prefill-mlp-factorized-lane-r1-payload "
+            f"{self.fixture.factorized_r1_payload}",
+            startup,
+        )
+        self.assertIn(
+            "--prefill-mlp-factorized-lane-r1-policy "
+            f"{self.fixture.factorized_r1_policy}",
+            startup,
+        )
+        self.assertIn(
+            "--prefill-mlp-factorized-lane-r1-receipt "
+            f"{self.fixture.factorized_r1_receipt}",
+            startup,
+        )
+        self.assertNotIn("--prefill-mlp-k512-payload", startup)
+        self.assertNotIn(K256_PAIRFEED_PACKAGE_SELECTOR + "=1", startup)
+
+        base_receipt_sha = hashlib.sha256(
+            self.fixture.k256_receipt.read_bytes()
+        ).hexdigest()
+        factorized_receipt_sha = hashlib.sha256(
+            self.fixture.factorized_r1_receipt.read_bytes()
+        ).hexdigest()
+        factorized_policy_sha = hashlib.sha256(
+            self.fixture.factorized_r1_policy.read_bytes()
+        ).hexdigest()
+        metadata = next(
+            line
+            for line in result.stdout.splitlines()
+            if line.startswith("factorized_r1_publication_metadata")
+        )
+        for field in (
+            f"layout={FACTORIZED_R1_LAYOUT}",
+            f"payload_bytes={FACTORIZED_R1_PAYLOAD_BYTES}",
+            f"payload_sha256={'0' * 64}",
+            f"policy_sha256={factorized_policy_sha}",
+            f"receipt_sha256={factorized_receipt_sha}",
+            f"manifest_sha256={'9' * 64}",
+            f"base_receipt_sha256={base_receipt_sha}",
+            "production_residency_eligible=false",
+            "quality_production_eligible=false",
+            "performance_upper_bound_only=true",
+        ):
+            self.assertIn(field, metadata)
+        self.assertIn(
+            "attention_k256_mlp_binding_metadata "
+            f"layout={FACTORIZED_R1_LAYOUT} "
+            f"payload_bytes={FACTORIZED_R1_PAYLOAD_BYTES}",
+            result.stdout,
+        )
+        self.assertIn(
+            "publication=authenticated_upper_bound_only "
+            "runtime_counter=factorized_lane_r1_package_launch_hits",
+            result.stdout,
+        )
+
+        stage_contract = next(
+            line
+            for line in result.stdout.splitlines()
+            if line.startswith("stage_contract")
+            and FACTORIZED_R1_MARKERS[0] in line
+        )
+        self.assertIn(
+            f"required={','.join(FACTORIZED_R1_MARKERS)}", stage_contract
+        )
+        self.assertIn(
+            "expected_request_launch_hits=package:64,k256_package:0,"
+            "gate_alternatives:0,down_alternatives:0 mtp=false",
+            stage_contract,
+        )
+        self.assertIn("performance_evidence=0", result.stdout)
+        self.assertFalse(self.fixture.output.exists())
+
+    def test_factorized_r1_fails_closed_on_receipt_base_and_stage(
+        self,
+    ) -> None:
+        receipt_text = self.fixture.factorized_r1_receipt.read_text(
+            encoding="utf-8"
+        )
+        receipt = json.loads(receipt_text)
+        receipt["production_residency_eligible"] = True
+        self.fixture.factorized_r1_receipt.write_text(
+            json.dumps(receipt) + "\n", encoding="utf-8"
+        )
+        ineligible = self.fixture.run_factorized_r1()
+        self.assertEqual(ineligible.returncode, 2)
+        self.assertIn(
+            "factorized-lane R1 publication receipt does not match the real "
+            "files",
+            ineligible.stderr,
+        )
+
+        receipt = json.loads(receipt_text)
+        receipt["required_base_k256"]["manifest_sha256"] = "f" * 64
+        self.fixture.factorized_r1_receipt.write_text(
+            json.dumps(receipt) + "\n", encoding="utf-8"
+        )
+        wrong_base = self.fixture.run_factorized_r1()
+        self.assertEqual(wrong_base.returncode, 2)
+        self.assertIn(
+            "factorized-lane R1 is not bound to the selected real K256 base",
+            wrong_base.stderr,
+        )
+
+        self.fixture.factorized_r1_receipt.write_text(
+            receipt_text, encoding="utf-8"
+        )
+        server_text = self.fixture.server.read_text(encoding="utf-8")
+        self.fixture.server.write_text(
+            server_text.replace(f"{FACTORIZED_R1_MARKERS[2]}\n", ""),
+            encoding="utf-8",
+        )
+        missing_stage = self.fixture.run_factorized_r1()
+        self.assertEqual(missing_stage.returncode, 2)
+        self.assertIn(
+            "server does not prove the factorized-lane R1 stage: "
+            f"{FACTORIZED_R1_MARKERS[2]}",
+            missing_stage.stderr,
+        )
+
+    def test_factorized_r1_rejects_missing_triplet_and_old_overlay(
+        self,
+    ) -> None:
+        missing_triplet = self.fixture.run(
+            "--prefill-mlp-factorized-lane-r1-payload",
+            str(self.fixture.factorized_r1_payload),
+            "--mode",
+            FACTORIZED_R1_MODE,
+            prefill_payload=self.fixture.k256_payload,
+            prefill_policy=self.fixture.k256_policy,
+            prefill_receipt=self.fixture.k256_receipt,
+        )
+        self.assertEqual(missing_triplet.returncode, 2)
+        self.assertIn(
+            "missing required factorized-lane R1 policy: <unset>",
+            missing_triplet.stderr,
+        )
+
+        old_overlay = self.fixture.run_factorized_r1(
+            "--prefill-mlp-k512-payload",
+            str(self.fixture.mlp_k512_payload),
+            "--prefill-mlp-k512-policy",
+            str(self.fixture.mlp_k512_policy),
+            "--prefill-mlp-k512-receipt",
+            str(self.fixture.mlp_k512_receipt),
+        )
+        self.assertEqual(old_overlay.returncode, 2)
+        self.assertIn(
+            "Prefill MLP K512 publications and factorized-lane R1 are "
+            "mutually exclusive",
+            old_overlay.stderr,
+        )
+
+    def test_factorized_r1_request_evidence_excludes_old_mlp_and_mtp(
+        self,
+    ) -> None:
+        contents = RUNNER.read_text(encoding="utf-8")
+        branch = re.search(
+            r'elif \[\[ "\$\{factorized_r1_mode\}" == 1 \]\]; then\n'
+            r"(?P<body>.*?)"
+            r'elif \[\[ "\$\{mlp_k512_paired_warp_mode\}" == 1 \]\]; then',
+            contents,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(branch)
+        assert branch is not None
+        for assignment in (
+            "down_m128n128_ldmatrix_pairring_expected_hits=0",
+            "down_m128n128_16warp_pairring_expected_hits=0",
+            "mlp_k256_pairfeed_package_expected_hits=0",
+            "factorized_lane_r1_package_expected_hits=64",
+        ):
+            self.assertIn(assignment, branch.group("body"))
+        self.assertIn(
+            '" factorized_lane_r1_package_launch_hits='
+            '${factorized_lane_r1_package_expected_hits}([[:space:]]|$)"',
+            contents,
+        )
+        self.assertIn(
+            "' mtp=false([[:space:]]|$)' <<<\"${request_log}\"",
+            contents,
+        )
+        self.assertIn(
+            "factorized_lane_r1_runtime_contract bucket=%s requests=%s "
+            "package_launch_hits_per_request=%s mtp=false status=passed",
+            contents,
         )
 
     def test_ldmatrix_pairfeed_is_one_gate_selector_delta(self) -> None:

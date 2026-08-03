@@ -118,6 +118,14 @@ struct ReferenceEngineOptions {
       prefill_mlp_k512_projection_major_gateup_canonical_down_policy_path;
   std::filesystem::path
       prefill_mlp_k512_projection_major_gateup_canonical_down_receipt_path;
+  // Default-off, performance-upper-bound-only R1 factorized-lane MLP
+  // publication.  This triplet is accepted only by the dedicated
+  // experimental admission build and runtime selector.  All paths are
+  // required together; the receipt intentionally grants authenticated ABI
+  // residency only and must not claim production/quality eligibility.
+  std::filesystem::path prefill_mlp_factorized_lane_r1_payload_path;
+  std::filesystem::path prefill_mlp_factorized_lane_r1_policy_path;
+  std::filesystem::path prefill_mlp_factorized_lane_r1_receipt_path;
 };
 
 // Text-only messages accepted by the pinned Qwen 3.6 chat formatter. The
@@ -202,6 +210,9 @@ struct ReferenceGenerationTiming {
   std::size_t gateup_ldmatrix_pairfeed_launch_hits = 0U;
   // Propagated request-local proof for the structural all-K256 MLP package.
   std::size_t mlp_k256_m128n256_pairfeed_package_launch_hits = 0U;
+  // Propagated request-local proof for the whole-M factorized-lane R1 MLP
+  // package. Tile-prefill never increments this counter.
+  std::size_t factorized_lane_r1_package_launch_hits = 0U;
   // Propagated request-local runtime proof for the default-off full-
   // projection-serial M128N128 Gate+Up admission.
   std::size_t gateup_m128n128_projection_serial_launch_hits = 0U;
@@ -297,6 +308,7 @@ struct ReferenceEngineLoadStats {
   double
       prefill_mlp_k512_projection_major_gateup_canonical_down_overlay_milliseconds =
           0.0;
+  double prefill_mlp_factorized_lane_r1_overlay_milliseconds = 0.0;
   double runner_factory_milliseconds = 0.0;
   ReferenceDecodeGraphCachePolicy decode_graph_cache_requested_policy =
       ReferenceDecodeGraphCachePolicy::kDisabled;
@@ -487,6 +499,20 @@ struct ReferenceEngineLoadStats {
       prefill_mlp_k512_projection_major_gateup_canonical_down_overlay_receipt_sha256;
   std::string
       prefill_mlp_k512_projection_major_gateup_canonical_down_overlay_source_v1_receipt_sha256;
+  // Independent proof for the R1 performance-upper-bound publication.  It
+  // remains visibly experimental: enabled proves strict authentication and
+  // attachment only, never production-quality eligibility.
+  bool prefill_mlp_factorized_lane_r1_overlay_requested = false;
+  bool prefill_mlp_factorized_lane_r1_overlay_enabled = false;
+  std::size_t prefill_mlp_factorized_lane_r1_overlay_layers = 0U;
+  std::uint64_t prefill_mlp_factorized_lane_r1_overlay_bytes = 0U;
+  std::uint64_t prefill_mlp_factorized_lane_r1_overlay_copy_chunks = 0U;
+  std::string prefill_mlp_factorized_lane_r1_overlay_layout;
+  std::string prefill_mlp_factorized_lane_r1_overlay_manifest_sha256;
+  std::string prefill_mlp_factorized_lane_r1_overlay_policy_sha256;
+  std::string prefill_mlp_factorized_lane_r1_overlay_payload_sha256;
+  std::string prefill_mlp_factorized_lane_r1_overlay_receipt_sha256;
+  std::string prefill_mlp_factorized_lane_r1_overlay_base_receipt_sha256;
   // True only when tokenizer parsing and resident loading actually executed
   // concurrently. When true, total_milliseconds is wall time and phase
   // timings intentionally overlap.
@@ -756,6 +782,9 @@ struct ReferenceOneShotOptions {
       prefill_mlp_k512_projection_major_gateup_canonical_down_policy_path;
   std::filesystem::path
       prefill_mlp_k512_projection_major_gateup_canonical_down_receipt_path;
+  std::filesystem::path prefill_mlp_factorized_lane_r1_payload_path;
+  std::filesystem::path prefill_mlp_factorized_lane_r1_policy_path;
+  std::filesystem::path prefill_mlp_factorized_lane_r1_receipt_path;
 };
 
 struct ReferenceOneShotGeneration {

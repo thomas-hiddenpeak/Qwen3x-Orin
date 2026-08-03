@@ -2,12 +2,18 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <iterator>
 #include <limits>
+#include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -90,6 +96,7 @@ struct FakeRunner {
           209U;
   std::size_t long_prefill_gateup_alternating_launch_hits = 64U;
   std::size_t long_prefill_gateup_ldmatrix_pairfeed_launch_hits = 0U;
+  std::size_t long_prefill_factorized_lane_r1_package_launch_hits = 64U;
   std::size_t long_prefill_gateup_m128n64_same_cta_launch_hits = 64U;
   std::size_t long_prefill_gateup_m128n512_fused_quantize_launch_hits = 64U;
   std::size_t long_prefill_gateup_m128n512_paired_ldmatrix_launch_hits = 64U;
@@ -320,6 +327,8 @@ runtime::ReferenceLongPrefillOutcome fake_layer_major_prompt(
       fake.long_prefill_gateup_alternating_launch_hits;
   value.gateup_ldmatrix_pairfeed_launch_hits =
       fake.long_prefill_gateup_ldmatrix_pairfeed_launch_hits;
+  value.factorized_lane_r1_package_launch_hits =
+      fake.long_prefill_factorized_lane_r1_package_launch_hits;
   value.gateup_m128n64_same_cta_launch_hits =
       fake.long_prefill_gateup_m128n64_same_cta_launch_hits;
   value.gateup_m128n512_fused_quantize_launch_hits =
@@ -862,6 +871,8 @@ void test_layer_major_prompt_admission(TestContext& test) {
                 fake.long_prefill_gateup_alternating_launch_hits &&
             result.value->timing.gateup_ldmatrix_pairfeed_launch_hits ==
                 fake.long_prefill_gateup_ldmatrix_pairfeed_launch_hits &&
+            result.value->timing.factorized_lane_r1_package_launch_hits ==
+                fake.long_prefill_factorized_lane_r1_package_launch_hits &&
             result.value->timing.gateup_m128n64_same_cta_launch_hits ==
                 fake.long_prefill_gateup_m128n64_same_cta_launch_hits &&
             result.value->timing.gateup_m128n512_fused_quantize_launch_hits ==
@@ -2508,6 +2519,55 @@ void test_engine_backend_validation(TestContext& test) {
               "A4 load statistics default to an unrequested empty route");
 }
 
+void test_factorized_lane_r1_engine_runner_admission_bridge(
+    TestContext& test) {
+  // ReferenceEngine::Impl is intentionally private and a real engine cannot
+  // reach its runner factory without authenticating model files and creating
+  // CUDA residency. Keep this host-only regression guard scoped to the exact
+  // production factory call site: deleting or misrouting this assignment must
+  // fail before an expensive real-model experiment can silently run the old
+  // MLP path.
+  const std::filesystem::path engine_source =
+      std::filesystem::path(__FILE__).parent_path().parent_path() /
+      "src/runtime/reference_engine.cpp";
+  std::ifstream input(engine_source, std::ios::binary);
+  if (!input.is_open()) {
+    test.expect(false,
+                "host test can open the ReferenceEngine production source");
+    return;
+  }
+  const std::string source{std::istreambuf_iterator<char>(input),
+                           std::istreambuf_iterator<char>()};
+  constexpr std::string_view kOptionsBegin =
+      "ReferenceRunnerOptions runner_options;";
+  constexpr std::string_view kFactoryCall =
+      "ReferenceRunnerFactoryResult runner = create_reference_runner(";
+  const std::size_t begin = source.find(kOptionsBegin);
+  const std::size_t end = begin == std::string::npos
+                              ? std::string::npos
+                              : source.find(kFactoryCall, begin);
+  if (begin == std::string::npos || end == std::string::npos || end <= begin) {
+    test.expect(false,
+                "host test locates the ReferenceEngine runner factory bridge");
+    return;
+  }
+
+  std::string compact;
+  compact.reserve(end - begin);
+  for (std::size_t index = begin; index < end; ++index) {
+    const unsigned char byte = static_cast<unsigned char>(source[index]);
+    if (std::isspace(byte) == 0) {
+      compact.push_back(static_cast<char>(byte));
+    }
+  }
+  test.expect(
+      compact.find(
+          "runner_options.enable_factorized_lane_r1_prefill_admission="
+          "prefill_mlp_factorized_lane_r1_selected;") != std::string::npos,
+      "ReferenceEngine propagates the authenticated factorized-lane R1 "
+      "runtime selection into ReferenceRunnerOptions");
+}
+
 void test_optimized_prefill_engine_derivation(TestContext& test) {
   struct Case {
     std::uint32_t max_sequence_length;
@@ -2694,6 +2754,7 @@ int main() {
   test_generated_text_stop_semantics(test);
   test_committed_token_observer_and_cancellation(test);
   test_engine_backend_validation(test);
+  test_factorized_lane_r1_engine_runner_admission_bridge(test);
   test_optimized_prefill_engine_derivation(test);
   if (test.failures() != 0) {
     std::cerr << test.failures() << " reference engine control test(s) failed\n";

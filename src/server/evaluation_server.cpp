@@ -1,6 +1,7 @@
 #include "q3x/server/evaluation_server.h"
 
 #include "q3x/runtime/decode_ops.h"
+#include "q3x/runtime/long_prefill_layer_major.h"
 #include "q3x/server/openai_protocol.h"
 
 #include <arpa/inet.h>
@@ -1007,6 +1008,9 @@ void execute_job(runtime::ReferenceEngine& engine,
             << " mlp_k256_m128n256_pairfeed_package_launch_hits="
             << generated.value->timing
                    .mlp_k256_m128n256_pairfeed_package_launch_hits
+            << " factorized_lane_r1_package_launch_hits="
+            << generated.value->timing
+                   .factorized_lane_r1_package_launch_hits
             << " gateup_m128n128_projection_serial_launch_hits="
             << generated.value->timing
                    .gateup_m128n128_projection_serial_launch_hits
@@ -1040,6 +1044,7 @@ void execute_job(runtime::ReferenceEngine& engine,
             << " gdn_prompt_span_macro_logical_token_hits="
             << generated.value->timing
                    .gdn_prompt_span_macro_logical_token_hits
+            << " mtp=false"
             << '\n'
             << std::flush;
 
@@ -1586,15 +1591,33 @@ void ingress_worker(
             "explicit K256 A4 base payload and policy";
     return false;
   }
+  const bool mlp_factorized_r1_payload =
+      !options.prefill_mlp_factorized_lane_r1_payload_path.empty();
+  const bool mlp_factorized_r1_policy =
+      !options.prefill_mlp_factorized_lane_r1_policy_path.empty();
+  const bool mlp_factorized_r1_receipt =
+      !options.prefill_mlp_factorized_lane_r1_receipt_path.empty();
+  if (mlp_factorized_r1_payload != mlp_factorized_r1_policy ||
+      mlp_factorized_r1_payload != mlp_factorized_r1_receipt) {
+    error = "factorized-lane R1 MLP payload, policy, and receipt are "
+            "required together";
+    return false;
+  }
+  if (mlp_factorized_r1_payload && (!a4_payload || !a4_receipt)) {
+    error = "factorized-lane R1 MLP requires the explicit K256 A4 base "
+            "payload, policy, and receipt";
+    return false;
+  }
   const unsigned mlp_k512_publications =
       static_cast<unsigned>(mlp_k512_payload) +
       static_cast<unsigned>(mlp_k512_fragment_native_payload) +
       static_cast<unsigned>(mlp_k512_hybrid_payload) +
-      static_cast<unsigned>(mlp_k512_projection_major_payload);
+      static_cast<unsigned>(mlp_k512_projection_major_payload) +
+      static_cast<unsigned>(mlp_factorized_r1_payload);
   if (mlp_k512_publications > 1U) {
     error = "K512 MLP v1, fragment-native v2, paired-GateUp/canonical-Down "
-            "hybrid, and projection-major-GateUp/canonical-Down "
-            "publications are mutually exclusive";
+            "hybrid, projection-major-GateUp/canonical-Down, and "
+            "factorized-lane R1 publications are mutually exclusive";
     return false;
   }
   if (a4_payload &&
@@ -1707,6 +1730,12 @@ int run_evaluation_server(const EvaluationServerOptions& options,
       .prefill_mlp_k512_projection_major_gateup_canonical_down_receipt_path =
       options
           .prefill_mlp_k512_projection_major_gateup_canonical_down_receipt_path;
+  engine_options.prefill_mlp_factorized_lane_r1_payload_path =
+      options.prefill_mlp_factorized_lane_r1_payload_path;
+  engine_options.prefill_mlp_factorized_lane_r1_policy_path =
+      options.prefill_mlp_factorized_lane_r1_policy_path;
+  engine_options.prefill_mlp_factorized_lane_r1_receipt_path =
+      options.prefill_mlp_factorized_lane_r1_receipt_path;
   engine_options.request_options.batch_size = 1U;
   engine_options.request_options.max_sequence_length =
       options.max_sequence_length;
@@ -1869,6 +1898,38 @@ int run_evaluation_server(const EvaluationServerOptions& options,
             << load.prefill_mlp_k512_overlay_policy_sha256
             << " prefill_mlp_k512_payload_sha256="
             << load.prefill_mlp_k512_overlay_payload_sha256
+            << " prefill_mlp_factorized_lane_r1_ms="
+            << load.prefill_mlp_factorized_lane_r1_overlay_milliseconds
+            << " prefill_mlp_factorized_lane_r1_requested="
+            << (load.prefill_mlp_factorized_lane_r1_overlay_requested ? 1
+                                                                      : 0)
+            << " prefill_mlp_factorized_lane_r1_enabled="
+            << (load.prefill_mlp_factorized_lane_r1_overlay_enabled ? 1
+                                                                    : 0)
+            << " prefill_mlp_factorized_lane_r1_layers="
+            << load.prefill_mlp_factorized_lane_r1_overlay_layers
+            << " prefill_mlp_factorized_lane_r1_bytes="
+            << load.prefill_mlp_factorized_lane_r1_overlay_bytes
+            << " prefill_mlp_factorized_lane_r1_copy_chunks="
+            << load.prefill_mlp_factorized_lane_r1_overlay_copy_chunks
+            << " prefill_mlp_factorized_lane_r1_layout="
+            << load.prefill_mlp_factorized_lane_r1_overlay_layout
+            << " prefill_mlp_factorized_lane_r1_manifest_sha256="
+            << load.prefill_mlp_factorized_lane_r1_overlay_manifest_sha256
+            << " prefill_mlp_factorized_lane_r1_policy_sha256="
+            << load.prefill_mlp_factorized_lane_r1_overlay_policy_sha256
+            << " prefill_mlp_factorized_lane_r1_payload_sha256="
+            << load.prefill_mlp_factorized_lane_r1_overlay_payload_sha256
+            << " prefill_mlp_factorized_lane_r1_receipt_sha256="
+            << load.prefill_mlp_factorized_lane_r1_overlay_receipt_sha256
+            << " prefill_mlp_factorized_lane_r1_base_receipt_sha256="
+            << load
+                   .prefill_mlp_factorized_lane_r1_overlay_base_receipt_sha256
+            << " prefill_mlp_factorized_lane_r1_min_prompt_tokens="
+            << runtime::kShortPrefillLayerMajorMinimumTokens
+            << " prefill_mlp_factorized_lane_r1_production_residency_eligible=false"
+            << " prefill_mlp_factorized_lane_r1_quality_production_eligible=false"
+            << " prefill_mlp_factorized_lane_r1_performance_upper_bound_only=true"
             << " prefill_mlp_k512_fragment_native_ms="
             << load.prefill_mlp_k512_fragment_native_overlay_milliseconds
             << " prefill_mlp_k512_fragment_native_requested="

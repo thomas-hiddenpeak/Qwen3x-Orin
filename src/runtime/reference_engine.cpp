@@ -16,6 +16,12 @@
     defined(Q3X_ENABLE_A4W4_GATEUP_K512_M64N128_REGISTER_PIPELINE_ADMISSION)
 #include "q3x/runtime/prefill_mlp_k512_fragment_native_overlay.h"
 #endif
+#if defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R1_ADMISSION)
+#if !defined(Q3X_ENABLE_A4W4_FULL_PREFILL_ADMISSION)
+#error "factorized-lane R1 admission requires the authenticated K256 A4 base"
+#endif
+#include "q3x/runtime/prefill_mlp_factorized_lane_converter.h"
+#endif
 #include "q3x/kernels/sm87_fp8_prefill_supermatrix.h"
 #if defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION)
 #include "q3x/kernels/sm87_fp8_marlin_w8a16.h"
@@ -232,6 +238,16 @@ prefill_mlp_k512_projection_major_gateup_canonical_down_environment_enabled()
 }
 
 [[nodiscard]] bool
+prefill_mlp_factorized_lane_r1_environment_enabled() noexcept {
+  if (optimized_prefill_dispatch_disabled()) {
+    return false;
+  }
+  const char* const value = std::getenv(
+      "Q3X_RUN_A4W4_FACTORIZED_LANE_R1_ADMISSION");
+  return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
+[[nodiscard]] bool
 prefill_gateup_k512_m64n128_register_pipeline_environment_enabled() noexcept {
   if (optimized_prefill_dispatch_disabled()) {
     return false;
@@ -408,6 +424,13 @@ struct PrefillMLPK512PairedGateUpCanonicalDownEnginePaths final {
 };
 
 struct PrefillMLPK512ProjectionMajorGateUpCanonicalDownEnginePaths final {
+  bool requested = false;
+  std::filesystem::path payload;
+  std::filesystem::path policy;
+  std::filesystem::path receipt;
+};
+
+struct PrefillMLPFactorizedLaneR1EnginePaths final {
   bool requested = false;
   std::filesystem::path payload;
   std::filesystem::path policy;
@@ -1234,6 +1257,36 @@ resolve_prefill_mlp_k512_projection_major_gateup_canonical_down_engine_paths(
       paths.policy == paths.receipt) {
     error = "projection-major-GateUp/canonical-Down K512 MLP payload, "
             "source-v1 policy, and receipt must be distinct paths";
+    return false;
+  }
+  return true;
+}
+
+[[nodiscard]] bool resolve_prefill_mlp_factorized_lane_r1_engine_paths(
+    const ReferenceEngineOptions& options,
+    PrefillMLPFactorizedLaneR1EnginePaths& paths, std::string& error) {
+  const bool has_payload =
+      !options.prefill_mlp_factorized_lane_r1_payload_path.empty();
+  const bool has_policy =
+      !options.prefill_mlp_factorized_lane_r1_policy_path.empty();
+  const bool has_receipt =
+      !options.prefill_mlp_factorized_lane_r1_receipt_path.empty();
+  paths.requested = has_payload || has_policy || has_receipt;
+  if (!paths.requested) {
+    return true;
+  }
+  if (!has_payload || !has_policy || !has_receipt) {
+    error = "factorized-lane R1 payload, policy, and receipt are required "
+            "together";
+    return false;
+  }
+  paths.payload = options.prefill_mlp_factorized_lane_r1_payload_path;
+  paths.policy = options.prefill_mlp_factorized_lane_r1_policy_path;
+  paths.receipt = options.prefill_mlp_factorized_lane_r1_receipt_path;
+  if (paths.payload == paths.policy || paths.payload == paths.receipt ||
+      paths.policy == paths.receipt) {
+    error = "factorized-lane R1 payload, policy, and receipt must be "
+            "distinct paths";
     return false;
   }
   return true;
@@ -4282,6 +4335,233 @@ struct Sm87MLPK512ProjectionMajorGateUpCanonicalDownPreparation final {
 #endif
 #endif
 
+#if defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R1_ADMISSION)
+struct Sm87MLPFactorizedLaneR1Overlay final {
+  std::uint8_t* data = nullptr;
+  std::size_t bytes = 0U;
+
+  Sm87MLPFactorizedLaneR1Overlay() noexcept = default;
+  Sm87MLPFactorizedLaneR1Overlay(
+      const Sm87MLPFactorizedLaneR1Overlay&) = delete;
+  Sm87MLPFactorizedLaneR1Overlay& operator=(
+      const Sm87MLPFactorizedLaneR1Overlay&) = delete;
+  ~Sm87MLPFactorizedLaneR1Overlay() { release(); }
+
+  void release() noexcept {
+    if (data != nullptr) {
+      (void)cudaFree(data);
+    }
+    data = nullptr;
+    bytes = 0U;
+  }
+};
+
+struct Sm87MLPFactorizedLaneR1Preparation final {
+  bool enabled = false;
+  std::size_t layers = 0U;
+  std::uint64_t bytes = 0U;
+  std::uint64_t copy_chunks = 0U;
+  int cuda_error = 0;
+  int dependency_error = 0;
+  std::string message;
+  std::string context;
+  std::string physical_layout;
+  std::string manifest_sha256;
+  std::string policy_sha256;
+  std::string payload_sha256;
+  std::string receipt_sha256;
+  std::string base_receipt_sha256;
+};
+
+struct FactorizedLaneR1FileSnapshot final {
+  dev_t device = 0;
+  ino_t inode = 0;
+  off_t size = 0;
+  uid_t owner = 0;
+  nlink_t links = 0;
+  mode_t mode = 0;
+  timespec modified{};
+  timespec changed{};
+};
+
+struct FactorizedLaneR1LockedFile final {
+  int descriptor = -1;
+  FactorizedLaneR1FileSnapshot before;
+
+  FactorizedLaneR1LockedFile() noexcept = default;
+  FactorizedLaneR1LockedFile(const FactorizedLaneR1LockedFile&) = delete;
+  FactorizedLaneR1LockedFile& operator=(
+      const FactorizedLaneR1LockedFile&) = delete;
+  ~FactorizedLaneR1LockedFile() {
+    if (descriptor >= 0) {
+      (void)::close(descriptor);
+    }
+  }
+};
+
+[[nodiscard]] bool capture_factorized_lane_r1_snapshot(
+    const int descriptor, FactorizedLaneR1FileSnapshot& snapshot,
+    int& system_error) noexcept {
+  struct stat status {};
+  if (::fstat(descriptor, &status) != 0) {
+    system_error = errno;
+    return false;
+  }
+  if (!S_ISREG(status.st_mode) || status.st_size < 0) {
+    system_error = EINVAL;
+    return false;
+  }
+  snapshot.device = status.st_dev;
+  snapshot.inode = status.st_ino;
+  snapshot.size = status.st_size;
+  snapshot.owner = status.st_uid;
+  snapshot.links = status.st_nlink;
+  snapshot.mode = status.st_mode;
+  snapshot.modified = status.st_mtim;
+  snapshot.changed = status.st_ctim;
+  return true;
+}
+
+[[nodiscard]] bool same_factorized_lane_r1_snapshot(
+    const FactorizedLaneR1FileSnapshot& left,
+    const FactorizedLaneR1FileSnapshot& right) noexcept {
+  return left.device == right.device && left.inode == right.inode &&
+         left.size == right.size && left.owner == right.owner &&
+         left.links == right.links && left.mode == right.mode &&
+         left.modified.tv_sec == right.modified.tv_sec &&
+         left.modified.tv_nsec == right.modified.tv_nsec &&
+         left.changed.tv_sec == right.changed.tv_sec &&
+         left.changed.tv_nsec == right.changed.tv_nsec;
+}
+
+[[nodiscard]] bool factorized_lane_r1_path_names_snapshot(
+    const std::filesystem::path& path,
+    const FactorizedLaneR1FileSnapshot& snapshot,
+    int& system_error) noexcept {
+  struct stat status {};
+  if (::lstat(path.c_str(), &status) != 0) {
+    system_error = errno;
+    return false;
+  }
+  if (!S_ISREG(status.st_mode) || status.st_dev != snapshot.device ||
+      status.st_ino != snapshot.inode) {
+    system_error = EINVAL;
+    return false;
+  }
+  return true;
+}
+
+[[nodiscard]] bool open_factorized_lane_r1_file(
+    const std::filesystem::path& path, const std::uint64_t minimum_bytes,
+    const std::uint64_t maximum_bytes, FactorizedLaneR1LockedFile& file,
+    Sm87MLPFactorizedLaneR1Preparation& result) {
+  if (file.descriptor >= 0 || minimum_bytes == 0U ||
+      maximum_bytes < minimum_bytes ||
+      maximum_bytes > static_cast<std::uint64_t>(
+                          std::numeric_limits<off_t>::max())) {
+    result.message = "invalid strict-file admission bounds";
+    result.context = path.string();
+    return false;
+  }
+  file.descriptor =
+      ::open(path.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+  if (file.descriptor < 0) {
+    result.message = "failed to open an owner-held regular publication file";
+    result.context = path.string();
+    result.dependency_error = errno;
+    return false;
+  }
+  if (::flock(file.descriptor, LOCK_SH | LOCK_NB) != 0) {
+    result.message = "publication file is concurrently locked for mutation";
+    result.context = path.string();
+    result.dependency_error = errno;
+    return false;
+  }
+  int snapshot_error = 0;
+  if (!capture_factorized_lane_r1_snapshot(
+          file.descriptor, file.before, snapshot_error)) {
+    result.message = "publication file failed its regular-file snapshot";
+    result.context = path.string();
+    result.dependency_error = snapshot_error;
+    return false;
+  }
+  const std::uint64_t bytes = static_cast<std::uint64_t>(file.before.size);
+  if (bytes < minimum_bytes || bytes > maximum_bytes ||
+      file.before.owner != ::geteuid() || file.before.links != 1 ||
+      (file.before.mode & (S_IWUSR | S_IWGRP | S_IWOTH)) != 0) {
+    result.message = "publication file must have the exact bounded size and "
+                     "be owner-held, read-only, and singly linked";
+    result.context = path.string();
+    return false;
+  }
+  if (!factorized_lane_r1_path_names_snapshot(
+          path, file.before, snapshot_error)) {
+    result.message = "publication path no longer names its locked descriptor";
+    result.context = path.string();
+    result.dependency_error = snapshot_error;
+    return false;
+  }
+  return true;
+}
+
+[[nodiscard]] bool revalidate_factorized_lane_r1_file(
+    const std::filesystem::path& path,
+    const FactorizedLaneR1LockedFile& file,
+    Sm87MLPFactorizedLaneR1Preparation& result) {
+  FactorizedLaneR1FileSnapshot after;
+  int snapshot_error = 0;
+  if (!capture_factorized_lane_r1_snapshot(
+          file.descriptor, after, snapshot_error) ||
+      !same_factorized_lane_r1_snapshot(file.before, after) ||
+      !factorized_lane_r1_path_names_snapshot(path, after, snapshot_error)) {
+    result.message = "publication file changed while it was authenticated";
+    result.context = path.string();
+    result.dependency_error = snapshot_error;
+    return false;
+  }
+  return true;
+}
+
+[[nodiscard]] bool read_factorized_lane_r1_document(
+    const std::filesystem::path& path, const std::uint64_t maximum_bytes,
+    FactorizedLaneR1LockedFile& file, std::string& document,
+    Sm87MLPFactorizedLaneR1Preparation& result) {
+  if (!open_factorized_lane_r1_file(path, 1U, maximum_bytes, file, result)) {
+    return false;
+  }
+  const std::size_t bytes = static_cast<std::size_t>(file.before.size);
+  try {
+    document.resize(bytes);
+  } catch (const std::bad_alloc&) {
+    result.message = "host allocation failed for publication metadata";
+    result.context = path.string();
+    return false;
+  } catch (const std::length_error&) {
+    result.message = "publication metadata length is not representable";
+    result.context = path.string();
+    return false;
+  }
+  int read_error = 0;
+  if (!pread_exact_engine(file.descriptor, document.data(), bytes, 0U,
+                          read_error)) {
+    result.message = "publication metadata read was incomplete";
+    result.context = path.string();
+    result.dependency_error = read_error;
+    return false;
+  }
+  return revalidate_factorized_lane_r1_file(path, file, result);
+}
+
+[[nodiscard]] std::string factorized_lane_r1_sha256(
+    const void* const data, const std::size_t bytes) {
+  core::Sha256 hash;
+  if (!hash.update(data, bytes)) {
+    return {};
+  }
+  return hash.finalize().hex();
+}
+#endif
+
 [[nodiscard]] bool resident_matches_pinned_identity(
     const ResidentWeights& resident) {
   const std::vector<ShardIdentity>& pinned = pinned_qwen36_27b_shards();
@@ -4555,6 +4835,408 @@ struct Sm87MLPK512ProjectionMajorGateUpCanonicalDownPreparation final {
   result.payload_sha256 = publication.receipt().payload_sha256;
   return result;
 }
+
+#if defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R1_ADMISSION)
+[[nodiscard]] Sm87MLPFactorizedLaneR1Preparation
+prepare_sm87_mlp_factorized_lane_r1_overlay(
+    const std::filesystem::path& model_directory,
+    const PrefillMLPFactorizedLaneR1EnginePaths& paths,
+    const PrefillA4EnginePaths& base_paths,
+    const ResidentWeights& resident, const Sm87A4PrefillPreparation& base,
+    const std::uint64_t minimum_free_bytes_after_prepare,
+    ModelWeights& model_weights, Sm87MLPFactorizedLaneR1Overlay& owner) {
+  Sm87MLPFactorizedLaneR1Preparation result;
+  if (!paths.requested || !base_paths.requested || owner.data != nullptr ||
+      owner.bytes != 0U) {
+    result.message = "invalid factorized-lane R1 preparation state";
+    result.context = "prefill_mlp_factorized_lane_r1.prepare";
+    return result;
+  }
+  const std::array<std::filesystem::path, 3U> overlay_path_set = {
+      paths.payload, paths.policy, paths.receipt};
+  const std::array<std::filesystem::path, 3U> base_path_set = {
+      base_paths.payload, base_paths.policy, base_paths.receipt};
+  for (const std::filesystem::path& overlay_path : overlay_path_set) {
+    for (const std::filesystem::path& base_path : base_path_set) {
+      if (overlay_path == base_path) {
+        result.message = "factorized-lane R1 files must not alias any K256 "
+                         "base publication file";
+        result.context = overlay_path.string();
+        return result;
+      }
+    }
+  }
+  if (!base.enabled || base.sidecar_kind != PrefillSidecarKind::kA4K256 ||
+      base.projections != kQwen36PrefillProjectionCount ||
+      base.bytes == 0U ||
+      base.physical_layout != kPrefillA4K256PhysicalLayout ||
+      !resident_matches_pinned_identity(resident)) {
+    result.message = "factorized-lane R1 requires the complete authenticated "
+                     "K256 A4 base";
+    result.context = "prefill_mlp_factorized_lane_r1.base";
+    return result;
+  }
+
+  const model::weights::ManifestResult source_manifest =
+      model::weights::build_qwen36_27b_text_manifest(model_directory);
+  if (!source_manifest) {
+    result.message = "could not rebuild the pinned checkpoint manifest";
+    if (!source_manifest.diagnostics.empty()) {
+      result.message += ": " + source_manifest.diagnostics.front().message;
+      result.context = source_manifest.diagnostics.front().context;
+    }
+    return result;
+  }
+
+  FactorizedLaneR1LockedFile base_receipt_file;
+  std::string base_receipt_document;
+  if (!read_factorized_lane_r1_document(
+          base_paths.receipt, 1ULL * 1024ULL * 1024ULL,
+          base_receipt_file, base_receipt_document, result)) {
+    return result;
+  }
+  result.base_receipt_sha256 = factorized_lane_r1_sha256(
+      base_receipt_document.data(), base_receipt_document.size());
+  if (result.base_receipt_sha256.empty()) {
+    result.message = "failed to hash the exact K256 base receipt bytes";
+    result.context = base_paths.receipt.string();
+    return result;
+  }
+  PrefillA4ConverterDiagnostic base_receipt_diagnostic;
+  const std::optional<PrefillA4PublicationReceipt> base_receipt =
+      parse_prefill_a4_publication_receipt(base_receipt_document,
+                                           base_receipt_diagnostic);
+  if (!base_receipt.has_value() || !base_receipt_diagnostic) {
+    result.message = base_receipt_diagnostic.message.empty()
+                         ? "strict K256 base receipt parse failed"
+                         : base_receipt_diagnostic.message;
+    result.context = base_receipt_diagnostic.context.empty()
+                         ? base_paths.receipt.string()
+                         : base_receipt_diagnostic.context;
+    result.dependency_error = base_receipt_diagnostic.system_error != 0
+                                  ? base_receipt_diagnostic.system_error
+                                  : static_cast<int>(
+                                        base_receipt_diagnostic.code);
+    return result;
+  }
+
+  PrefillSidecarManifestOptions base_manifest_options;
+  base_manifest_options.kind = PrefillSidecarKind::kA4K256;
+  const PrefillSidecarManifestResult base_manifest_result =
+      build_qwen36_27b_prefill_sidecar_manifest(
+          *source_manifest.value, pinned_qwen36_27b_shards(),
+          base_manifest_options);
+  if (!base_manifest_result) {
+    result.message = base_manifest_result.diagnostic.message;
+    result.context = base_manifest_result.diagnostic.context;
+    result.dependency_error =
+        static_cast<int>(base_manifest_result.diagnostic.code);
+    return result;
+  }
+  const PrefillSidecarManifest& base_manifest =
+      *base_manifest_result.value;
+  if (base_manifest.kind != PrefillSidecarKind::kA4K256 ||
+      base_manifest.projections.size() != kQwen36PrefillProjectionCount ||
+      base_manifest.summary.arena_bytes != base.bytes ||
+      base_manifest.manifest_sha256 != base.manifest_sha256 ||
+      base_receipt->manifest_sha256 != base.manifest_sha256 ||
+      base_receipt->policy_sha256 != base.policy_sha256 ||
+      base_receipt->payload_sha256 != base.payload_sha256) {
+    result.message = "rebuilt K256 base identity differs from resident base";
+    result.context = "prefill_mlp_factorized_lane_r1.base_identity";
+    return result;
+  }
+  PrefillA4PublicationAuthenticationResult authenticated_base_result =
+      authenticate_prefill_a4_publication_for_residency(
+          base_manifest, *base_receipt, base_paths.payload,
+          base_paths.policy);
+  if (!authenticated_base_result) {
+    result.message = authenticated_base_result.diagnostic.message;
+    result.context = authenticated_base_result.diagnostic.context;
+    result.dependency_error =
+        authenticated_base_result.diagnostic.system_error != 0
+            ? authenticated_base_result.diagnostic.system_error
+            : static_cast<int>(authenticated_base_result.diagnostic.code);
+    return result;
+  }
+  PrefillA4AuthenticatedPublication authenticated_base =
+      std::move(*authenticated_base_result.value);
+
+  PrefillMLPFactorizedLaneManifestResult overlay_manifest_result =
+      build_prefill_mlp_factorized_lane_r1_manifest(
+          base_manifest, *base_receipt, result.base_receipt_sha256);
+  if (!overlay_manifest_result) {
+    result.message = overlay_manifest_result.diagnostic.message;
+    result.context = overlay_manifest_result.diagnostic.context;
+    result.dependency_error =
+        overlay_manifest_result.diagnostic.system_error != 0
+            ? overlay_manifest_result.diagnostic.system_error
+            : static_cast<int>(overlay_manifest_result.diagnostic.code);
+    return result;
+  }
+  const PrefillMLPFactorizedLaneOverlayManifestBinding& overlay_manifest =
+      *overlay_manifest_result.value;
+
+  FactorizedLaneR1LockedFile policy_file;
+  std::string policy_document;
+  if (!read_factorized_lane_r1_document(
+          paths.policy, 2ULL * 1024ULL * 1024ULL, policy_file,
+          policy_document, result)) {
+    return result;
+  }
+  PrefillMLPFactorizedLaneR1PolicyResult policy_result =
+      parse_prefill_mlp_factorized_lane_r1_policy(policy_document,
+                                                   overlay_manifest);
+  if (!policy_result) {
+    result.message = policy_result.diagnostic.message;
+    result.context = policy_result.diagnostic.context.empty()
+                         ? paths.policy.string()
+                         : policy_result.diagnostic.context;
+    result.dependency_error = policy_result.diagnostic.system_error != 0
+                                  ? policy_result.diagnostic.system_error
+                                  : static_cast<int>(
+                                        policy_result.diagnostic.code);
+    return result;
+  }
+  const PrefillMLPFactorizedLaneR1Policy& policy = *policy_result.value;
+
+  FactorizedLaneR1LockedFile receipt_file;
+  std::string receipt_document;
+  if (!read_factorized_lane_r1_document(
+          paths.receipt, 64ULL * 1024ULL, receipt_file,
+          receipt_document, result)) {
+    return result;
+  }
+  PrefillMLPFactorizedLaneR1ReceiptResult receipt_result =
+      parse_prefill_mlp_factorized_lane_r1_receipt(
+          receipt_document, overlay_manifest, policy);
+  if (!receipt_result) {
+    result.message = receipt_result.diagnostic.message;
+    result.context = receipt_result.diagnostic.context.empty()
+                         ? paths.receipt.string()
+                         : receipt_result.diagnostic.context;
+    result.dependency_error = receipt_result.diagnostic.system_error != 0
+                                  ? receipt_result.diagnostic.system_error
+                                  : static_cast<int>(
+                                        receipt_result.diagnostic.code);
+    return result;
+  }
+  const PrefillMLPFactorizedLaneR1Receipt& receipt = *receipt_result.value;
+  result.receipt_sha256 = factorized_lane_r1_sha256(
+      receipt_document.data(), receipt_document.size());
+  if (result.receipt_sha256.empty() ||
+      receipt.binding.production_residency_eligible ||
+      !receipt.performance_upper_bound_only ||
+      receipt.quality_production_eligible ||
+      receipt.residency_eligibility_scope !=
+          kPrefillMLPFactorizedLaneR1EligibilityScope ||
+      receipt.binding.payload.bytes !=
+          kPrefillMLPFactorizedLaneR1PayloadBytes ||
+      receipt.binding.projection_count !=
+          kPrefillMLPFactorizedLaneProjectionCount ||
+      receipt.binding.required_base_k256.receipt_sha256 !=
+          result.base_receipt_sha256) {
+    result.message = "R1 receipt does not retain the authenticated-ABI-only "
+                     "performance-upper-bound contract";
+    result.context = paths.receipt.string();
+    return result;
+  }
+
+  FactorizedLaneR1LockedFile payload_file;
+  if (!open_factorized_lane_r1_file(
+          paths.payload, receipt.binding.payload.bytes,
+          receipt.binding.payload.bytes, payload_file, result)) {
+    return result;
+  }
+  if (receipt.binding.payload.bytes >
+      std::numeric_limits<std::size_t>::max()) {
+    result.message = "R1 payload does not fit the host address space";
+    result.context = paths.payload.string();
+    return result;
+  }
+  const std::size_t payload_bytes =
+      static_cast<std::size_t>(receipt.binding.payload.bytes);
+  std::size_t free_bytes = 0U;
+  std::size_t total_bytes = 0U;
+  cudaError_t cuda_status = cudaMemGetInfo(&free_bytes, &total_bytes);
+  (void)total_bytes;
+  if (cuda_status != cudaSuccess) {
+    result.message = "cudaMemGetInfo failed before R1 overlay residency";
+    result.context = "prefill_mlp_factorized_lane_r1.cudaMemGetInfo_before";
+    result.cuda_error = static_cast<int>(cuda_status);
+    return result;
+  }
+  const std::uint64_t free_u64 = static_cast<std::uint64_t>(free_bytes);
+  if (receipt.binding.payload.bytes > free_u64 ||
+      minimum_free_bytes_after_prepare >
+          free_u64 - receipt.binding.payload.bytes) {
+    result.message = "insufficient device memory for factorized-lane R1 "
+                     "overlay residency";
+    result.context = "prefill_mlp_factorized_lane_r1.memory_gate";
+    return result;
+  }
+
+  cuda_status =
+      cudaMalloc(reinterpret_cast<void**>(&owner.data), payload_bytes);
+  if (cuda_status != cudaSuccess) {
+    result.message = "cudaMalloc failed for the factorized-lane R1 arena";
+    result.context = "prefill_mlp_factorized_lane_r1.cudaMalloc";
+    result.cuda_error = static_cast<int>(cuda_status);
+    return result;
+  }
+  constexpr std::size_t kCopyChunkBytes = 32U * 1024U * 1024U;
+  const std::size_t staging_bytes =
+      std::min(payload_bytes, kCopyChunkBytes);
+  void* staging = nullptr;
+  cuda_status = cudaHostAlloc(&staging, staging_bytes, cudaHostAllocDefault);
+  if (cuda_status != cudaSuccess) {
+    result.message = "cudaHostAlloc failed for factorized-lane R1 staging";
+    result.context = "prefill_mlp_factorized_lane_r1.cudaHostAlloc";
+    result.cuda_error = static_cast<int>(cuda_status);
+    owner.release();
+    return result;
+  }
+  struct PinnedGuard final {
+    void* data = nullptr;
+    ~PinnedGuard() {
+      if (data != nullptr) {
+        (void)cudaFreeHost(data);
+      }
+    }
+  } pinned{staging};
+
+  core::Sha256 copied_hash;
+  std::uint64_t offset = 0U;
+  while (offset < receipt.binding.payload.bytes) {
+    const std::size_t count = static_cast<std::size_t>(
+        std::min<std::uint64_t>(staging_bytes,
+                                receipt.binding.payload.bytes - offset));
+    int read_error = 0;
+    if (!pread_exact_engine(payload_file.descriptor, staging, count, offset,
+                            read_error)) {
+      result.message = "failed to read the held factorized-lane R1 payload";
+      result.context = "prefill_mlp_factorized_lane_r1.payload_copy";
+      result.dependency_error = read_error;
+      owner.release();
+      return result;
+    }
+    if (!copied_hash.update(staging, count)) {
+      result.message = "R1 payload copy SHA-256 length overflowed";
+      result.context = "prefill_mlp_factorized_lane_r1.payload_copy_sha256";
+      owner.release();
+      return result;
+    }
+    cuda_status = cudaMemcpy(
+        owner.data + static_cast<std::size_t>(offset), staging, count,
+        cudaMemcpyHostToDevice);
+    if (cuda_status != cudaSuccess) {
+      result.message = "factorized-lane R1 payload H2D copy failed";
+      result.context = "prefill_mlp_factorized_lane_r1.cudaMemcpy";
+      result.cuda_error = static_cast<int>(cuda_status);
+      owner.release();
+      return result;
+    }
+    offset += count;
+    ++result.copy_chunks;
+  }
+  const std::string copied_digest = copied_hash.finalize().hex();
+  if (copied_digest != receipt.binding.payload.sha256 ||
+      !revalidate_factorized_lane_r1_file(
+          paths.payload, payload_file, result)) {
+    if (result.message.empty()) {
+      result.message = "bytes copied to the R1 arena failed receipt SHA-256";
+      result.context =
+          "prefill_mlp_factorized_lane_r1.payload_copy_sha256";
+    }
+    owner.release();
+    return result;
+  }
+
+  // Rehash the exact same locked descriptor after H2D.  This is deliberately
+  // separate from the in-copy digest so a mutation cannot hide behind a
+  // matching prefix or a stale pre-copy authentication pass.
+  core::Sha256 verified_hash;
+  offset = 0U;
+  while (offset < receipt.binding.payload.bytes) {
+    const std::size_t count = static_cast<std::size_t>(
+        std::min<std::uint64_t>(staging_bytes,
+                                receipt.binding.payload.bytes - offset));
+    int read_error = 0;
+    if (!pread_exact_engine(payload_file.descriptor, staging, count, offset,
+                            read_error) ||
+        !verified_hash.update(staging, count)) {
+      result.message = "R1 payload digest revalidation failed";
+      result.context =
+          "prefill_mlp_factorized_lane_r1.payload_revalidate_sha256";
+      result.dependency_error = read_error;
+      owner.release();
+      return result;
+    }
+    offset += count;
+  }
+  if (verified_hash.finalize().hex() != receipt.binding.payload.sha256 ||
+      !revalidate_factorized_lane_r1_file(
+          paths.payload, payload_file, result) ||
+      !revalidate_factorized_lane_r1_file(
+          paths.policy, policy_file, result) ||
+      !revalidate_factorized_lane_r1_file(
+          paths.receipt, receipt_file, result) ||
+      !revalidate_factorized_lane_r1_file(
+          base_paths.receipt, base_receipt_file, result)) {
+    if (result.message.empty()) {
+      result.message = "R1 payload digest changed after its H2D copy";
+      result.context =
+          "prefill_mlp_factorized_lane_r1.payload_revalidate_sha256";
+    }
+    owner.release();
+    return result;
+  }
+  const PrefillA4ConverterDiagnostic base_unchanged =
+      authenticated_base.revalidate_unchanged_after_consumption();
+  if (!base_unchanged) {
+    result.message = base_unchanged.message;
+    result.context = base_unchanged.context;
+    result.dependency_error = base_unchanged.system_error != 0
+                                  ? base_unchanged.system_error
+                                  : static_cast<int>(base_unchanged.code);
+    owner.release();
+    return result;
+  }
+
+  cuda_status = cudaMemGetInfo(&free_bytes, &total_bytes);
+  if (cuda_status != cudaSuccess ||
+      static_cast<std::uint64_t>(free_bytes) <
+          minimum_free_bytes_after_prepare) {
+    result.message = "R1 residency did not preserve the configured "
+                     "free-memory reserve";
+    result.context = "prefill_mlp_factorized_lane_r1.cudaMemGetInfo_after";
+    result.cuda_error = cuda_status == cudaSuccess
+                            ? 0
+                            : static_cast<int>(cuda_status);
+    owner.release();
+    return result;
+  }
+  if (!model_weights.attach_prefill_mlp_factorized_lane_r1_sidecars(
+          owner.data, payload_bytes, &overlay_manifest,
+          &policy.binding)) {
+    result.message = "ModelWeights rejected the authenticated factorized-"
+                     "lane R1 inventory";
+    result.context = "prefill_mlp_factorized_lane_r1.attach";
+    owner.release();
+    return result;
+  }
+
+  owner.bytes = payload_bytes;
+  result.enabled = true;
+  result.layers = kPrefillMLPFactorizedLaneLayerCount;
+  result.bytes = receipt.binding.payload.bytes;
+  result.physical_layout = receipt.binding.physical_layout;
+  result.manifest_sha256 = overlay_manifest.manifest_sha256;
+  result.policy_sha256 = policy.binding.policy_sha256;
+  result.payload_sha256 = receipt.binding.payload.sha256;
+  return result;
+}
+#endif
 
 #if defined(Q3X_ENABLE_A4W4_ATTENTION_O_K512_ADMISSION)
 [[nodiscard]] bool same_k512_base_binding(
@@ -6420,10 +7102,11 @@ exchange_reference_engine_generate_return_snapshot_hook(
 
 struct ReferenceEngine::Impl {
   // Declaration order is part of the safety contract. Destruction is exactly
-  // runner -> request_state -> model_weights -> Decode Down consumer-order
-  // sidecars -> authenticated K512 overlays -> A4/Marlin admission sidecars
-  // -> Prefill supermatrix/QKV sidecars -> down scale6 sidecars -> output
-  // sidecars -> resident_weights -> tokenizer.
+  // runner -> request_state -> model_weights -> factorized R1 owner ->
+  // Decode Down consumer-order sidecars -> authenticated K512 overlays ->
+  // authenticated K256 A4/Marlin admission sidecars -> Prefill
+  // supermatrix/QKV sidecars -> down scale6 sidecars -> output sidecars ->
+  // resident_weights -> tokenizer.
   std::unique_ptr<text::Tokenizer> tokenizer;
   std::optional<ResidentWeights> resident_weights;
   Sm87Fp8OutputProjectionSidecars fp8_output_sidecars;
@@ -6450,6 +7133,11 @@ struct ReferenceEngine::Impl {
 #endif
   Sm87NvFp4DownConsumerOrderSidecars
       nvfp4_down_consumer_order_sidecars;
+#if defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R1_ADMISSION)
+  // Declared after the K256 owner and before ModelWeights so reverse-order
+  // destruction is ModelWeights -> R1 -> K256 -> resident.
+  Sm87MLPFactorizedLaneR1Overlay prefill_mlp_factorized_lane_r1_overlay;
+#endif
   std::optional<ModelWeights> model_weights;
   std::optional<RequestState> request_state;
   std::optional<ReferenceRunner> runner;
@@ -6631,6 +7319,39 @@ struct ReferenceEngine::Impl {
     }
     const bool prefill_mlp_k512_projection_major_selected =
         prefill_mlp_k512_projection_major_gateup_canonical_down_environment_enabled();
+    PrefillMLPFactorizedLaneR1EnginePaths
+        prefill_mlp_factorized_lane_r1_paths;
+    std::string prefill_mlp_factorized_lane_r1_path_error;
+    if (!resolve_prefill_mlp_factorized_lane_r1_engine_paths(
+            options, prefill_mlp_factorized_lane_r1_paths,
+            prefill_mlp_factorized_lane_r1_path_error)) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kInvalidArgument,
+          "prefill_mlp_factorized_lane_r1_options",
+          prefill_mlp_factorized_lane_r1_path_error);
+      return result;
+    }
+    const bool prefill_mlp_factorized_lane_r1_selected =
+        prefill_mlp_factorized_lane_r1_environment_enabled();
+    if (prefill_mlp_factorized_lane_r1_paths.requested &&
+        (!prefill_a4_paths.requested ||
+         !prefill_mlp_factorized_lane_r1_selected)) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kInvalidArgument,
+          "prefill_mlp_factorized_lane_r1_options",
+          "the factorized-lane R1 triplet requires the complete "
+          "authenticated K256 base and its runtime master selector");
+      return result;
+    }
+    if (prefill_mlp_factorized_lane_r1_selected &&
+        !prefill_mlp_factorized_lane_r1_paths.requested) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kInvalidArgument,
+          "prefill_mlp_factorized_lane_r1_options",
+          "the factorized-lane R1 runtime master requires its authenticated "
+          "payload/policy/receipt triplet");
+      return result;
+    }
     if (prefill_mlp_k512_fragment_native_paths.requested &&
         !prefill_a4_paths.requested) {
       result.diagnostic = engine_diagnostic(
@@ -6730,6 +7451,17 @@ struct ReferenceEngine::Impl {
         prefill_mlp_k512_hybrid_selected ||
         prefill_mlp_k512_projection_major_paths.requested ||
         prefill_mlp_k512_projection_major_selected;
+    if (prefill_mlp_factorized_lane_r1_selected &&
+        (prefill_mlp_k256_package_selected ||
+         any_k512_mlp_publication_or_master)) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kInvalidArgument,
+          "prefill_mlp_factorized_lane_r1_options",
+          "the factorized-lane R1 route is mutually exclusive with the "
+          "structural K256 MLP package and every K512 MLP publication or "
+          "runtime master");
+      return result;
+    }
     std::string prefill_mlp_k256_package_selector_error;
     if (!validate_prefill_mlp_k256_package_selector(
             prefill_a4_paths.requested,
@@ -6750,7 +7482,8 @@ struct ReferenceEngine::Impl {
             prefill_mlp_k512_hybrid_selected,
             prefill_mlp_k512_projection_major_paths.requested,
             prefill_mlp_k512_projection_major_selected,
-            prefill_mlp_k256_package_selected,
+            prefill_mlp_k256_package_selected ||
+                prefill_mlp_factorized_lane_r1_selected,
             prefill_attention_k256_leaf_selector_error)) {
       result.diagnostic = engine_diagnostic(
           ReferenceEngineError::kInvalidArgument,
@@ -6778,6 +7511,16 @@ struct ReferenceEngine::Impl {
           "selectors are strictly mutually exclusive");
       return result;
     }
+#if !defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R1_ADMISSION)
+    if (prefill_mlp_factorized_lane_r1_paths.requested ||
+        prefill_mlp_factorized_lane_r1_selected) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kInvalidArgument,
+          "prefill_mlp_factorized_lane_r1_options",
+          "this binary does not contain the factorized-lane R1 admission");
+      return result;
+    }
+#endif
 #if !defined(Q3X_ENABLE_A4W4_MLP_K512_FRAGMENT_NATIVE_ADMISSION)
     if (prefill_mlp_k512_fragment_native_paths.requested ||
         prefill_mlp_k512_fragment_native_selected ||
@@ -6873,6 +7616,8 @@ struct ReferenceEngine::Impl {
       impl->load
           .prefill_mlp_k512_projection_major_gateup_canonical_down_overlay_requested =
           prefill_mlp_k512_projection_major_paths.requested;
+      impl->load.prefill_mlp_factorized_lane_r1_overlay_requested =
+          prefill_mlp_factorized_lane_r1_paths.requested;
       impl->load.optimized_prefill_disabled =
           optimized_prefill_dispatch_disabled();
       impl->load.decode_graph_cache_requested_policy =
@@ -7151,7 +7896,9 @@ struct ReferenceEngine::Impl {
                  prefill_mlp_k512_hybrid_selected) ||
                 (prefill_mlp_k512_projection_major_paths.requested &&
                  prefill_mlp_k512_projection_major_selected) ||
-                prefill_mlp_k256_package_selected)) {
+                prefill_mlp_k256_package_selected ||
+                (prefill_mlp_factorized_lane_r1_paths.requested &&
+                 prefill_mlp_factorized_lane_r1_selected))) {
             result.diagnostic = engine_diagnostic(
                 ReferenceEngineError::kRunnerFactoryFailure,
                 "prefill_a4_k256_mlp_contract",
@@ -7175,6 +7922,59 @@ struct ReferenceEngine::Impl {
               prefill_a4_preparation.policy_sha256;
           impl->load.prefill_a4_payload_sha256 =
               prefill_a4_preparation.payload_sha256;
+        }
+#endif
+
+#if defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R1_ADMISSION)
+        if (prefill_mlp_factorized_lane_r1_paths.requested) {
+          const Clock::time_point r1_begin = Clock::now();
+          const Sm87MLPFactorizedLaneR1Preparation preparation =
+              prepare_sm87_mlp_factorized_lane_r1_overlay(
+                  model_directory, prefill_mlp_factorized_lane_r1_paths,
+                  prefill_a4_paths, *impl->resident_weights,
+                  prefill_a4_preparation,
+                  request_options.min_free_bytes_after_create,
+                  *impl->model_weights,
+                  impl->prefill_mlp_factorized_lane_r1_overlay);
+          impl->load.prefill_mlp_factorized_lane_r1_overlay_milliseconds =
+              elapsed_milliseconds(r1_begin);
+          if (!preparation.enabled ||
+              preparation.layers != kPrefillMLPFactorizedLaneLayerCount ||
+              preparation.bytes !=
+                  kPrefillMLPFactorizedLaneR1PayloadBytes) {
+            result.diagnostic = engine_diagnostic(
+                ReferenceEngineError::kRunnerFactoryFailure,
+                "prefill_mlp_factorized_lane_r1_prepare",
+                preparation.message.empty()
+                    ? "the authenticated factorized-lane R1 overlay did not "
+                      "attach all 64 MLP layers"
+                    : preparation.message,
+                preparation.context);
+            result.diagnostic.cuda_error = preparation.cuda_error;
+            result.diagnostic.dependency_error =
+                preparation.dependency_error;
+            return result;
+          }
+          impl->load.prefill_mlp_factorized_lane_r1_overlay_enabled = true;
+          impl->load.prefill_mlp_factorized_lane_r1_overlay_layers =
+              preparation.layers;
+          impl->load.prefill_mlp_factorized_lane_r1_overlay_bytes =
+              preparation.bytes;
+          impl->load.prefill_mlp_factorized_lane_r1_overlay_copy_chunks =
+              preparation.copy_chunks;
+          impl->load.prefill_mlp_factorized_lane_r1_overlay_layout =
+              preparation.physical_layout;
+          impl->load.prefill_mlp_factorized_lane_r1_overlay_manifest_sha256 =
+              preparation.manifest_sha256;
+          impl->load.prefill_mlp_factorized_lane_r1_overlay_policy_sha256 =
+              preparation.policy_sha256;
+          impl->load.prefill_mlp_factorized_lane_r1_overlay_payload_sha256 =
+              preparation.payload_sha256;
+          impl->load.prefill_mlp_factorized_lane_r1_overlay_receipt_sha256 =
+              preparation.receipt_sha256;
+          impl->load
+              .prefill_mlp_factorized_lane_r1_overlay_base_receipt_sha256 =
+              preparation.base_receipt_sha256;
         }
 #endif
 
@@ -7530,6 +8330,8 @@ struct ReferenceEngine::Impl {
         runner_options.projection_backend = options.projection_backend;
         runner_options.enable_a4w4_full_prefill_admission =
             prefill_a4_paths.requested;
+        runner_options.enable_factorized_lane_r1_prefill_admission =
+            prefill_mlp_factorized_lane_r1_selected;
         const Clock::time_point begin = Clock::now();
         ReferenceRunnerFactoryResult runner = create_reference_runner(
             &*impl->model_weights, &*impl->request_state, runner_options);
@@ -9598,6 +10400,12 @@ ReferenceOneShotResult generate_reference(
       .prefill_mlp_k512_projection_major_gateup_canonical_down_receipt_path =
       options
           .prefill_mlp_k512_projection_major_gateup_canonical_down_receipt_path;
+  a4_preflight_options.prefill_mlp_factorized_lane_r1_payload_path =
+      options.prefill_mlp_factorized_lane_r1_payload_path;
+  a4_preflight_options.prefill_mlp_factorized_lane_r1_policy_path =
+      options.prefill_mlp_factorized_lane_r1_policy_path;
+  a4_preflight_options.prefill_mlp_factorized_lane_r1_receipt_path =
+      options.prefill_mlp_factorized_lane_r1_receipt_path;
   PrefillA4EnginePaths a4_preflight_paths;
   std::string a4_preflight_error;
   if (!resolve_prefill_a4_engine_paths(a4_preflight_options,
@@ -9743,6 +10551,27 @@ ReferenceOneShotResult generate_reference(
             : mlp_k512_projection_major_preflight_error);
     return result;
   }
+  PrefillMLPFactorizedLaneR1EnginePaths
+      mlp_factorized_lane_r1_preflight_paths;
+  std::string mlp_factorized_lane_r1_preflight_error;
+  const bool mlp_factorized_lane_r1_preflight_selected =
+      prefill_mlp_factorized_lane_r1_environment_enabled();
+  if (!resolve_prefill_mlp_factorized_lane_r1_engine_paths(
+          a4_preflight_options, mlp_factorized_lane_r1_preflight_paths,
+          mlp_factorized_lane_r1_preflight_error) ||
+      (mlp_factorized_lane_r1_preflight_paths.requested &&
+       (!a4_preflight_paths.requested ||
+        !mlp_factorized_lane_r1_preflight_selected)) ||
+      (mlp_factorized_lane_r1_preflight_selected &&
+       !mlp_factorized_lane_r1_preflight_paths.requested)) {
+    result.diagnostic = engine_diagnostic(
+        ReferenceEngineError::kInvalidArgument, "one_shot_options",
+        mlp_factorized_lane_r1_preflight_error.empty()
+            ? "factorized-lane R1 requires its authenticated triplet, "
+              "runtime master, and complete K256 A4 base"
+            : mlp_factorized_lane_r1_preflight_error);
+    return result;
+  }
   std::string mlp_k512_leaf_selector_preflight_error;
   if (!validate_prefill_mlp_k512_leaf_selectors(
           mlp_k512_preflight_paths.requested,
@@ -9770,6 +10599,15 @@ ReferenceOneShotResult generate_reference(
       prefill_mlp_k512_paired_gateup_canonical_down_environment_enabled() ||
       mlp_k512_projection_major_preflight_paths.requested ||
       prefill_mlp_k512_projection_major_gateup_canonical_down_environment_enabled();
+  if (mlp_factorized_lane_r1_preflight_selected &&
+      (mlp_k256_package_preflight_selected ||
+       any_k512_mlp_preflight_publication_or_master)) {
+    result.diagnostic = engine_diagnostic(
+        ReferenceEngineError::kInvalidArgument, "one_shot_options",
+        "factorized-lane R1 is mutually exclusive with the structural K256 "
+        "MLP package and every K512 MLP publication/runtime master");
+    return result;
+  }
   std::string mlp_k256_package_selector_preflight_error;
   if (!validate_prefill_mlp_k256_package_selector(
           a4_preflight_paths.requested,
@@ -9789,7 +10627,8 @@ ReferenceOneShotResult generate_reference(
           prefill_mlp_k512_paired_gateup_canonical_down_environment_enabled(),
           mlp_k512_projection_major_preflight_paths.requested,
           prefill_mlp_k512_projection_major_gateup_canonical_down_environment_enabled(),
-          mlp_k256_package_preflight_selected,
+          mlp_k256_package_preflight_selected ||
+              mlp_factorized_lane_r1_preflight_selected,
           attention_k256_leaf_selector_preflight_error)) {
     result.diagnostic = engine_diagnostic(
         ReferenceEngineError::kInvalidArgument, "one_shot_options",
@@ -9816,6 +10655,15 @@ ReferenceOneShotResult generate_reference(
         "selectors are strictly mutually exclusive");
     return result;
   }
+#if !defined(Q3X_ENABLE_A4W4_FACTORIZED_LANE_R1_ADMISSION)
+  if (mlp_factorized_lane_r1_preflight_paths.requested ||
+      mlp_factorized_lane_r1_preflight_selected) {
+    result.diagnostic = engine_diagnostic(
+        ReferenceEngineError::kInvalidArgument, "one_shot_options",
+        "this binary does not contain the factorized-lane R1 admission");
+    return result;
+  }
+#endif
 #if !defined(Q3X_ENABLE_A4W4_MLP_K512_FRAGMENT_NATIVE_ADMISSION)
   if (mlp_k512_fragment_native_preflight_paths.requested ||
       prefill_mlp_k512_fragment_native_environment_enabled() ||
@@ -10013,6 +10861,12 @@ ReferenceOneShotResult generate_reference(
         .prefill_mlp_k512_projection_major_gateup_canonical_down_receipt_path =
         options
             .prefill_mlp_k512_projection_major_gateup_canonical_down_receipt_path;
+    engine_options.prefill_mlp_factorized_lane_r1_payload_path =
+        options.prefill_mlp_factorized_lane_r1_payload_path;
+    engine_options.prefill_mlp_factorized_lane_r1_policy_path =
+        options.prefill_mlp_factorized_lane_r1_policy_path;
+    engine_options.prefill_mlp_factorized_lane_r1_receipt_path =
+        options.prefill_mlp_factorized_lane_r1_receipt_path;
 
     ReferenceEngine::Impl::BuildResult built;
     if (resident_future.has_value()) {
