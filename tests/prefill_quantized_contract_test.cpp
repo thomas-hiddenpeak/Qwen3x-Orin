@@ -1,3 +1,4 @@
+#include "q3x/runtime/prefill_a4_factorized_lane_contract.h"
 #include "q3x/runtime/prefill_quantized_contract.h"
 
 #include "q3x/io/safetensors.h"
@@ -34,6 +35,56 @@ class TestContext {
  private:
   int failures_ = 0;
 };
+
+constexpr auto kFactorizedGateR1 =
+    runtime::prefill_a4_factorized_lane_projection_layout_plan(
+        17'408U, 5'120U, 1U);
+constexpr auto kFactorizedGateR2 =
+    runtime::prefill_a4_factorized_lane_projection_layout_plan(
+        17'408U, 5'120U, 2U);
+constexpr auto kFactorizedGateR4 =
+    runtime::prefill_a4_factorized_lane_projection_layout_plan(
+        17'408U, 5'120U, 4U);
+static_assert(kFactorizedGateR1.valid() && kFactorizedGateR2.valid() &&
+              kFactorizedGateR4.valid());
+static_assert(kFactorizedGateR1.packed_weight_bytes == 44'564'480U);
+static_assert(kFactorizedGateR4.weight_scale_elements == 69'632U);
+static_assert(kFactorizedGateR4.metadata_bytes == 20'544U);
+static_assert(kFactorizedGateR4.projection_bytes == 44'724'480U);
+static_assert(
+    runtime::prefill_a4_factorized_lane_weight_scale_element_offset(
+        kFactorizedGateR4, 17'407U, 3U) == 69'631U);
+static_assert(
+    runtime::prefill_a4_factorized_lane_inverse_alpha_byte_offset(
+        kFactorizedGateR4, 5'119U) ==
+    kFactorizedGateR4.inverse_alpha_offset + 5'119U * sizeof(float));
+constexpr std::uint64_t kLargestConsumerAlignedU64 =
+    std::numeric_limits<std::uint64_t>::max() - 63U;
+static_assert(
+    runtime::prefill_a4_factorized_lane_projection_layout_plan(
+        17'408U, 5'120U, 3U)
+        .error ==
+    runtime::PrefillA4FactorizedLanePlanError::kUnsupportedLaneCount);
+static_assert(
+    runtime::prefill_a4_factorized_lane_projection_layout_plan(64U, 64U,
+                                                                2U)
+        .error ==
+    runtime::PrefillA4FactorizedLanePlanError::kLaneNotConsumerAligned);
+static_assert(
+    runtime::prefill_a4_factorized_lane_projection_layout_plan(65U, 64U,
+                                                                1U)
+        .error ==
+    runtime::PrefillA4FactorizedLanePlanError::kShapeNotConsumerAligned);
+static_assert(
+    runtime::prefill_a4_factorized_lane_projection_layout_plan(
+        64U, 64U, 1U, 128U)
+        .error ==
+    runtime::PrefillA4FactorizedLanePlanError::kInvalidAlignment);
+static_assert(
+    runtime::prefill_a4_factorized_lane_projection_layout_plan(
+        kLargestConsumerAlignedU64, 64U, 1U)
+        .error ==
+    runtime::PrefillA4FactorizedLanePlanError::kArithmeticOverflow);
 
 struct SyntheticSource {
   mw::WeightManifest manifest;
@@ -593,6 +644,103 @@ void test_mutually_exclusive_residency(TestContext& test,
               "sidecar and prompt activation families must match");
 }
 
+void test_factorized_lane_v4_projection_layout(TestContext& test) {
+  const auto gate =
+      runtime::prefill_a4_factorized_lane_projection_layout_plan(
+          17'408U, 5'120U, 4U);
+  test.expect(
+      gate.valid() && gate.lane_input_size == 1'280U &&
+          gate.packed_weight_bytes == 44'564'480U &&
+          gate.weight_scale_elements == 69'632U &&
+          gate.weight_scale_bytes == 139'264U &&
+          gate.inverse_alpha_elements == 5'120U &&
+          gate.inverse_alpha_bytes == 20'480U &&
+          gate.metadata_bytes == 20'544U,
+      "factorized-lane Gate R4 sizes preserve dense W4 and authenticated inverse-alpha");
+  test.expect(
+      gate.packed_weight_offset == 0U &&
+          gate.weight_scale_offset == 44'564'480U &&
+          gate.metadata_offset == 44'703'744U &&
+          gate.metadata_digest_offset == 44'703'776U &&
+          gate.inverse_alpha_offset == 44'703'808U &&
+          gate.projection_bytes == 44'724'480U &&
+          gate.weight_scale_offset % gate.alignment == 0U &&
+          gate.metadata_offset % gate.alignment == 0U &&
+          gate.projection_bytes % gate.alignment == 0U,
+      "factorized-lane sections are disjoint and projection-aligned");
+  test.expect(
+      runtime::prefill_a4_factorized_lane_weight_scale_element_offset(
+          gate, 0U, 0U) == 0U &&
+          runtime::prefill_a4_factorized_lane_weight_scale_element_offset(
+              gate, 63U, 3U) == 255U &&
+          runtime::prefill_a4_factorized_lane_weight_scale_element_offset(
+              gate, 64U, 0U) == 256U &&
+          runtime::prefill_a4_factorized_lane_weight_scale_element_offset(
+              gate, 17'407U, 3U) == gate.weight_scale_elements - 1U &&
+          runtime::prefill_a4_factorized_lane_weight_scale_element_offset(
+              gate, gate.output_size, 0U) ==
+              runtime::kPrefillA4FactorizedLaneInvalidOffset &&
+          runtime::prefill_a4_factorized_lane_weight_scale_element_offset(
+              gate, 0U, gate.lane_count) ==
+              runtime::kPrefillA4FactorizedLaneInvalidOffset,
+      "factorized-lane scale coordinates cover exactly [N/64][lane][64]");
+  test.expect(
+      runtime::prefill_a4_factorized_lane_inverse_alpha_byte_offset(
+          gate, 0U) == gate.inverse_alpha_offset &&
+          runtime::prefill_a4_factorized_lane_inverse_alpha_byte_offset(
+              gate, gate.input_size - 1U) + sizeof(float) ==
+              gate.metadata_offset + gate.metadata_bytes &&
+          runtime::prefill_a4_factorized_lane_inverse_alpha_byte_offset(
+              gate, gate.input_size) ==
+              runtime::kPrefillA4FactorizedLaneInvalidOffset,
+      "factorized-lane inverse-alpha FP32 payload exactly closes metadata");
+
+  const auto down =
+      runtime::prefill_a4_factorized_lane_projection_layout_plan(
+          5'120U, 17'408U, 1U, 512U);
+  test.expect(
+      down.valid() && down.lane_input_size == 17'408U &&
+          down.packed_weight_bytes == 44'564'480U &&
+          down.weight_scale_elements == 5'120U &&
+          down.inverse_alpha_elements == 17'408U &&
+          down.weight_scale_offset % 512U == 0U &&
+          down.metadata_offset % 512U == 0U &&
+          down.projection_bytes % 512U == 0U,
+      "factorized-lane Down R1 accepts a stricter power-of-two alignment");
+
+  const auto zero =
+      runtime::prefill_a4_factorized_lane_projection_layout_plan(0U, 64U,
+                                                                  1U);
+  const auto shape =
+      runtime::prefill_a4_factorized_lane_projection_layout_plan(64U, 65U,
+                                                                  1U);
+  const auto lane_count =
+      runtime::prefill_a4_factorized_lane_projection_layout_plan(64U, 64U,
+                                                                  8U);
+  const auto lane_shape =
+      runtime::prefill_a4_factorized_lane_projection_layout_plan(64U, 64U,
+                                                                  4U);
+  const auto non_power_two_alignment =
+      runtime::prefill_a4_factorized_lane_projection_layout_plan(
+          64U, 256U, 1U, 384U);
+  const auto overflow =
+      runtime::prefill_a4_factorized_lane_projection_layout_plan(
+          kLargestConsumerAlignedU64, 64U, 1U);
+  test.expect(
+      zero.error == runtime::PrefillA4FactorizedLanePlanError::kZeroShape &&
+          shape.error == runtime::PrefillA4FactorizedLanePlanError::
+                             kShapeNotConsumerAligned &&
+          lane_count.error == runtime::PrefillA4FactorizedLanePlanError::
+                                  kUnsupportedLaneCount &&
+          lane_shape.error == runtime::PrefillA4FactorizedLanePlanError::
+                                  kLaneNotConsumerAligned &&
+          non_power_two_alignment.error ==
+              runtime::PrefillA4FactorizedLanePlanError::kInvalidAlignment &&
+          overflow.error == runtime::PrefillA4FactorizedLanePlanError::
+                                kArithmeticOverflow,
+      "factorized-lane v4 planning fails closed on shape, lane, alignment, and overflow errors");
+}
+
 }  // namespace
 
 int main() {
@@ -605,6 +753,7 @@ int main() {
   test_prompt_arena_sizes(test);
   test_prompt_arena_fail_closed(test);
   test_mutually_exclusive_residency(test, source);
+  test_factorized_lane_v4_projection_layout(test);
 
   if (test.failures() != 0) {
     std::cerr << test.failures()
