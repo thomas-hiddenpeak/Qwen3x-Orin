@@ -693,6 +693,7 @@ endif()
 if(Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_MLP_EXPERIMENT)
   target_sources(q3x_core PRIVATE
     src/runtime/prefill_mlp_factorized_lane_overlay.cpp
+    src/runtime/prefill_mlp_factorized_lane_converter.cpp
   )
 endif()
 q3x_enable_warnings(q3x_core)
@@ -1457,6 +1458,21 @@ if(BUILD_TESTING)
     )
     set_tests_properties(prefill_mlp_factorized_lane_overlay PROPERTIES
       LABELS "host;prefill;mlp;a4w4;factorized-lane;contract;sidecar"
+    )
+
+    add_executable(q3x_prefill_mlp_factorized_lane_converter_test
+      tests/prefill_mlp_factorized_lane_converter_test.cpp
+    )
+    target_link_libraries(q3x_prefill_mlp_factorized_lane_converter_test
+      PRIVATE q3x::core
+    )
+    q3x_enable_warnings(q3x_prefill_mlp_factorized_lane_converter_test)
+    add_test(NAME prefill_mlp_factorized_lane_converter
+      COMMAND q3x_prefill_mlp_factorized_lane_converter_test
+    )
+    set_tests_properties(prefill_mlp_factorized_lane_converter PROPERTIES
+      LABELS "host;prefill;mlp;a4w4;factorized-lane;r1;converter;sidecar;correctness"
+      TIMEOUT 600
     )
 
     add_executable(q3x_sm87_a4w4_factorized_lane_quantize_correctness_test

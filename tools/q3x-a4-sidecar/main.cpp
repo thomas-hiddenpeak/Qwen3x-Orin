@@ -1,5 +1,6 @@
 #include "q3x/runtime/prefill_a4_sidecar_converter.h"
 #include "q3x/runtime/prefill_attention_o_k512_overlay.h"
+#include "q3x/runtime/prefill_mlp_factorized_lane_converter.h"
 #include "q3x/runtime/prefill_mlp_k512_fragment_native_overlay.h"
 #include "q3x/runtime/prefill_mlp_k512_overlay.h"
 
@@ -37,6 +38,10 @@ void print_usage(std::ostream& output) {
          " WEIGHT_CLIP ACTIVATION_CLIP\n"
       << "  qwen3x-a4-sidecar mlp-k512-convert"
          " MODEL_DIR POLICY.json OUTPUT_PAYLOAD [ROW_CHUNK]\n"
+      << "  qwen3x-a4-sidecar mlp-factorized-r1-convert"
+         " MODEL_DIR BASE_K256_PAYLOAD BASE_K256_POLICY BASE_K256_RECEIPT"
+         " OUTPUT --weight-clip R --activation-clip R"
+         " [--no-preallocate]\n"
       << "  qwen3x-a4-sidecar mlp-k512-fragment-native-convert"
          " SOURCE_PAYLOAD SOURCE_RECEIPT SOURCE_POLICY"
          " EXPECTED_RECEIPT_SHA OUTPUT [ROWS]\n"
@@ -75,6 +80,14 @@ void print_usage(std::ostream& output) {
          "policy also binds the exact base A4-K128/K256 receipt. The MLP command "
          "arguments are positional; both clip ratios are mandatory and "
          "ROW_CHUNK, when present, must be a positive supported row chunk.\n\n"
+      << "The factorized-R1 command derives an MLP-only performance-upper-"
+         "bound publication from one explicitly authenticated A4-K256 base. "
+         "It preserves signed-A4 packing, replaces K256 weight scales with "
+         "one full-K scale per row, materializes identity inverse-alpha "
+         "metadata, and atomically publishes payload, policy, and receipt. "
+         "Both clip ratios are mandatory. The result is eligible only for "
+         "the default-off authenticated ABI experiment; it is not a quality "
+         "production qualification.\n\n"
       << "The fragment-native command performs a lossless offline v1-to-v2 "
          "permutation. EXPECTED_RECEIPT_SHA is mandatory and must be the "
          "explicit lowercase SHA-256 of SOURCE_RECEIPT; the command never "
@@ -205,6 +218,116 @@ void print_diagnostic(
     std::cerr << "\nerror.errno=" << diagnostic.system_error;
   }
   std::cerr << '\n';
+}
+
+void print_diagnostic(
+    const runtime::PrefillMLPFactorizedLaneConverterDiagnostic& diagnostic) {
+  std::cerr << "error.code=" << runtime::to_string(diagnostic.code)
+            << "\nerror.context=" << diagnostic.context
+            << "\nerror.message=" << diagnostic.message;
+  if (!diagnostic.expected.empty()) {
+    std::cerr << "\nerror.expected=" << diagnostic.expected;
+  }
+  if (!diagnostic.actual.empty()) {
+    std::cerr << "\nerror.actual=" << diagnostic.actual;
+  }
+  if (diagnostic.system_error != 0) {
+    std::cerr << "\nerror.errno=" << diagnostic.system_error;
+  }
+  std::cerr << '\n';
+}
+
+int run_mlp_factorized_r1_convert(const int argc, char** argv) {
+  if (argc < 10) {
+    print_usage(std::cerr);
+    return 2;
+  }
+  runtime::PrefillMLPFactorizedLaneR1ConversionOptions options;
+  options.model_directory = argv[2];
+  options.base_k256_payload_path = argv[3];
+  options.base_k256_policy_path = argv[4];
+  options.base_k256_receipt_path = argv[5];
+  options.output_path = argv[6];
+  bool have_weight_clip = false;
+  bool have_activation_clip = false;
+  bool have_no_preallocate = false;
+  for (int index = 7; index < argc; ++index) {
+    const std::string_view argument(argv[index]);
+    if (argument == "--weight-clip") {
+      if (have_weight_clip || ++index >= argc ||
+          !parse_ratio(argv[index], options.weight_clip_ratio)) {
+        std::cerr << "invalid --weight-clip value\n";
+        return 2;
+      }
+      have_weight_clip = true;
+      continue;
+    }
+    if (argument == "--activation-clip") {
+      if (have_activation_clip || ++index >= argc ||
+          !parse_ratio(argv[index], options.activation_clip_ratio)) {
+        std::cerr << "invalid --activation-clip value\n";
+        return 2;
+      }
+      have_activation_clip = true;
+      continue;
+    }
+    if (argument == "--no-preallocate") {
+      if (have_no_preallocate) {
+        std::cerr << "duplicate --no-preallocate\n";
+        return 2;
+      }
+      options.preallocate_output = false;
+      have_no_preallocate = true;
+      continue;
+    }
+    std::cerr << "unknown argument: " << argument << '\n';
+    return 2;
+  }
+  if (!have_weight_clip || !have_activation_clip) {
+    std::cerr << "both --weight-clip and --activation-clip are required\n";
+    return 2;
+  }
+
+  const auto result =
+      runtime::convert_authenticated_k256_to_prefill_mlp_factorized_lane_r1(
+          options);
+  if (!result) {
+    print_diagnostic(result.diagnostic);
+    return 1;
+  }
+  const auto& receipt = *result.receipt;
+  std::cout << "status=published"
+            << "\noverlay=mlp_factorized_lane_r1"
+            << "\nproduction_residency_eligible="
+            << (receipt.binding.production_residency_eligible ? "true"
+                                                               : "false")
+            << "\nquality_production_eligible="
+            << (receipt.quality_production_eligible ? "true" : "false")
+            << "\nperformance_upper_bound_only="
+            << (receipt.performance_upper_bound_only ? "true" : "false")
+            << "\nphysical_layout=" << receipt.binding.physical_layout
+            << "\nsource_checkpoint_id="
+            << receipt.binding.source_checkpoint_id
+            << "\nbase_manifest_sha256="
+            << receipt.binding.required_base_k256.manifest_sha256
+            << "\nbase_policy_sha256="
+            << receipt.binding.required_base_k256.policy_sha256
+            << "\nbase_payload_sha256="
+            << receipt.binding.required_base_k256.payload_sha256
+            << "\nbase_receipt_sha256="
+            << receipt.binding.required_base_k256.receipt_sha256
+            << "\nmanifest_sha256=" << receipt.binding.manifest_sha256
+            << "\npolicy_sha256=" << receipt.binding.policy_sha256
+            << "\npayload_sha256=" << receipt.binding.payload.sha256
+            << "\npayload_bytes=" << receipt.binding.payload.bytes
+            << "\nprojections=" << result.stats.projections_converted
+            << "\nn64_blocks=" << result.stats.n64_blocks_converted
+            << "\nbase_bytes_read=" << result.stats.base_bytes_read
+            << "\noutput_bytes_written="
+            << result.stats.output_bytes_written
+            << "\npeak_working_bytes=" << result.stats.peak_working_bytes
+            << '\n';
+  return 0;
 }
 
 int run_mlp_k512_convert(const int argc, char** argv) {
@@ -759,6 +882,10 @@ int main(const int argc, char** argv) {
   }
   if (argc >= 2 && std::string_view(argv[1]) == "mlp-k512-convert") {
     return run_mlp_k512_convert(argc, argv);
+  }
+  if (argc >= 2 &&
+      std::string_view(argv[1]) == "mlp-factorized-r1-convert") {
+    return run_mlp_factorized_r1_convert(argc, argv);
   }
   if (argc >= 2 &&
       std::string_view(argv[1]) ==
