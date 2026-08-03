@@ -493,3 +493,18 @@ resource/occupancy model and cover shape-specific MLP plus Attention
 projections and legal layer-boundary fusions as one system budget.  Complete
 evidence, hashes and the kernel top 20 are recorded in
 [`../prefill-factorized-r4-direct-rejection-2026-08-03/README.md`](../prefill-factorized-r4-direct-rejection-2026-08-03/README.md).
+
+## Direct R4 two-CTA cancellation closure
+
+The resource-successor package also reached the real API and is closed.  Its
+M64N64 Gate+Up cell reached two CTA/SM and improved Gate by 77.113888 ms, but
+the M128N64 Down cell increased staged operand presentation by about 80% and
+regressed by 72.722592 ms.  The complete MLP slice improved only 4.472256 ms;
+same-ELF external EvalScope moved from 829.7341 to 833.9381 token/s, still
+24.64% below the locked R1 baseline.
+
+This is a cancellation result, not a new baseline.  No repeat matrix or local
+scan follows.  The active plan returns to R1 and requires projection-plane and
+legal GDN/residual/RMS/quantize boundary changes as one package.  Full route,
+resource, profile, hashes and kernel-top-20 evidence are in
+[`../prefill-factorized-r4-2cta-cancellation-2026-08-03/README.md`](../prefill-factorized-r4-2cta-cancellation-2026-08-03/README.md).
