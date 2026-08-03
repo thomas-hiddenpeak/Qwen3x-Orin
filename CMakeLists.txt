@@ -1052,6 +1052,7 @@ endif()
 if(Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_MLP_EXPERIMENT)
   target_sources(q3x_kernels PRIVATE
     src/kernels/sm87/a4w4_factorized_lane_quantize.cu
+    src/kernels/sm87/a4w4_gateup_factorized_lane.cu
     src/kernels/sm87/a4w4_down_factorized_lane.cu
   )
   target_compile_definitions(q3x_kernels PRIVATE
@@ -1059,6 +1060,7 @@ if(Q3X_BUILD_SM87_A4W4_FACTORIZED_LANE_MLP_EXPERIMENT)
   )
   set_source_files_properties(
     src/kernels/sm87/a4w4_factorized_lane_quantize.cu
+    src/kernels/sm87/a4w4_gateup_factorized_lane.cu
     src/kernels/sm87/a4w4_down_factorized_lane.cu
     PROPERTIES COMPILE_OPTIONS "--maxrregcount=128;-Xptxas=-v;-Xptxas=-warn-spills"
   )
@@ -1468,6 +1470,17 @@ if(BUILD_TESTING)
       q3x_sm87_a4w4_factorized_lane_quantize_correctness_test
     )
 
+    add_executable(q3x_sm87_a4w4_gateup_factorized_lane_correctness_test
+      tests/sm87_a4w4_gateup_factorized_lane_correctness_test.cu
+    )
+    target_link_libraries(
+      q3x_sm87_a4w4_gateup_factorized_lane_correctness_test
+      PRIVATE q3x::kernels CUDA::cudart
+    )
+    q3x_enable_warnings(
+      q3x_sm87_a4w4_gateup_factorized_lane_correctness_test
+    )
+
     add_executable(q3x_sm87_a4w4_down_factorized_lane_correctness_test
       tests/sm87_a4w4_down_factorized_lane_correctness_test.cu
     )
@@ -1488,6 +1501,18 @@ if(BUILD_TESTING)
     set_tests_properties(
       sm87_a4w4_factorized_lane_quantize_correctness PROPERTIES
       LABELS "cuda;sm87;prefill;mlp;a4w4;factorized-lane;quantization;correctness;resources;stream;graph;synthetic"
+      SKIP_RETURN_CODE 77
+      RESOURCE_LOCK q3x_sm87_gpu
+      TIMEOUT 600
+    )
+    add_test(NAME sm87_a4w4_gateup_factorized_lane_correctness
+      COMMAND "${Q3X_FACTORIZED_LANE_FLOCK_EXECUTABLE}"
+              -x /tmp/q3x-gpu-bench.lock
+              $<TARGET_FILE:q3x_sm87_a4w4_gateup_factorized_lane_correctness_test>
+    )
+    set_tests_properties(
+      sm87_a4w4_gateup_factorized_lane_correctness PROPERTIES
+      LABELS "cuda;sm87;prefill;mlp;a4w4;factorized-lane;r1;gateup;correctness;resources;stream;graph;synthetic"
       SKIP_RETURN_CODE 77
       RESOURCE_LOCK q3x_sm87_gpu
       TIMEOUT 600
