@@ -21,6 +21,8 @@ struct PrefillMLPK512OverlayPolicy;
 struct PrefillMLPK512FragmentNativeManifest;
 struct PrefillMLPK512PairedGateUpCanonicalDownManifest;
 struct PrefillMLPK512ProjectionMajorGateUpCanonicalDownManifest;
+struct PrefillMLPFactorizedLaneOverlayManifestBinding;
+struct PrefillMLPFactorizedLaneOverlayPolicyBinding;
 
 inline constexpr std::size_t kQwen36DenseLayerCount = 64U;
 inline constexpr std::size_t kQwen36LinearAttentionLayerCount = 48U;
@@ -477,6 +479,71 @@ struct PrefillMLPK512FragmentNativeCompositeView {
   }
 };
 
+// One projection-local, non-owning R1 factorized-lane view.  Capacities are
+// explicit because each pointer addresses a different authenticated range in
+// the v4 payload; kernels must never infer that adjacent ranges are usable.
+// The fixed R1 publication has one lane.  Gate/Up use [17408,5120], while
+// Down uses [5120,17408].
+struct PrefillMLPFactorizedLaneLinearSidecarView {
+  const std::uint8_t* packed_weight = nullptr;
+  std::size_t packed_weight_capacity_bytes = 0U;
+  const std::uint16_t* lane_scales = nullptr;
+  std::size_t lane_scale_capacity_elements = 0U;
+  const float* inverse_alpha = nullptr;
+  std::size_t inverse_alpha_capacity_elements = 0U;
+  std::size_t output_size = 0U;
+  std::size_t input_size = 0U;
+  std::uint32_t lane_count = 0U;
+  float activation_clip_ratio = 0.0F;
+
+  [[nodiscard]] bool attached() const noexcept {
+    const bool gate_or_up =
+        output_size == 17'408U && input_size == 5'120U;
+    const bool down = output_size == 5'120U && input_size == 17'408U;
+    const std::size_t expected_weight_bytes =
+        output_size * input_size / 2U;
+    return packed_weight != nullptr && lane_scales != nullptr &&
+           inverse_alpha != nullptr && lane_count == 1U &&
+           (gate_or_up || down) &&
+           packed_weight_capacity_bytes == expected_weight_bytes &&
+           lane_scale_capacity_elements == output_size &&
+           inverse_alpha_capacity_elements == input_size &&
+           activation_clip_ratio > 0.0F &&
+           activation_clip_ratio <= 1.0F;
+  }
+
+  [[nodiscard]] bool empty() const noexcept {
+    return packed_weight == nullptr &&
+           packed_weight_capacity_bytes == 0U && lane_scales == nullptr &&
+           lane_scale_capacity_elements == 0U && inverse_alpha == nullptr &&
+           inverse_alpha_capacity_elements == 0U && output_size == 0U &&
+           input_size == 0U && lane_count == 0U &&
+           activation_clip_ratio == 0.0F;
+  }
+};
+
+// Published only as one validated all-64-layer transaction.  Gate and Up
+// remain independent payload views, but attachment proves that their R1
+// inverse-alpha identity and activation clip contracts are identical so one
+// factorized activation quantization may feed the paired consumer.
+struct PrefillMLPFactorizedLaneLayerView {
+  PrefillMLPFactorizedLaneLinearSidecarView gate;
+  PrefillMLPFactorizedLaneLinearSidecarView up;
+  PrefillMLPFactorizedLaneLinearSidecarView down;
+
+  [[nodiscard]] bool attached() const noexcept {
+    return gate.attached() && up.attached() && down.attached() &&
+           gate.output_size == up.output_size &&
+           gate.input_size == up.input_size &&
+           gate.lane_count == up.lane_count &&
+           gate.activation_clip_ratio == up.activation_clip_ratio;
+  }
+
+  [[nodiscard]] bool empty() const noexcept {
+    return gate.empty() && up.empty() && down.empty();
+  }
+};
+
 struct LinearAttentionWeights {
   LinearWeight in_proj_qkv;
   LinearWeight in_proj_z;
@@ -508,6 +575,7 @@ struct DecoderLayerWeights {
   AttentionWeights attention;
   PrefillMLPK512FragmentNativeCompositeView
       prefill_mlp_k512_fragment_native;
+  PrefillMLPFactorizedLaneLayerView prefill_mlp_factorized_lane_r1;
 };
 
 struct WeightBindingStats {
@@ -718,6 +786,20 @@ class ModelWeights {
       const PrefillMLPK512ProjectionMajorGateUpCanonicalDownManifest* manifest,
       const PrefillMLPK512OverlayManifest* source_v1_manifest,
       const PrefillMLPK512OverlayPolicy* source_v1_policy) noexcept;
+
+  // Transactionally publishes the fixed v4, lane_count=1, 64-layer MLP
+  // factorized-lane arena over the exact authenticated K256 base currently
+  // attached to this ModelWeights object.  Manifest/policy are assumed to be
+  // strict-parser outputs but are still checked for fixed layout, identities,
+  // shapes, offsets, capacities, and the paired Gate/Up factor contract.
+  // Receipt production eligibility is intentionally not an input and grants
+  // no attachment authority.  All existing MLP K512 layouts are mutually
+  // exclusive.  A canonical all-null/zero call detaches only R1; detaching or
+  // replacing the K256 base also clears R1.
+  [[nodiscard]] bool attach_prefill_mlp_factorized_lane_r1_sidecars(
+      const std::uint8_t* arena, std::size_t arena_bytes,
+      const PrefillMLPFactorizedLaneOverlayManifestBinding* manifest,
+      const PrefillMLPFactorizedLaneOverlayPolicyBinding* policy) noexcept;
 
  private:
   friend class ModelWeightBinder;
