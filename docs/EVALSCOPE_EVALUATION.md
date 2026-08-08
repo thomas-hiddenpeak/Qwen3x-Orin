@@ -23,6 +23,19 @@ they do not substitute for this external gate. EvalScope's
 [stress-test workflow](https://evalscope.readthedocs.io/en/latest/user_guides/stress_test/quick_start.html)
 is the current external performance surface.
 
+All generated evaluation state stays under the ignored workspace directory.
+From the repository root, initialize it once per checkout:
+
+```bash
+Q3X_WORK="$PWD/.q3x-work"
+mkdir -p "$Q3X_WORK/cache/uv" "$Q3X_WORK/tmp" \
+  "$Q3X_WORK/evalscope/corpora" "$Q3X_WORK/evalscope/results"
+```
+
+The commands below assume that `Q3X_WORK` remains set. They redirect the tool
+cache and temporary directory so neither `$HOME` nor `/tmp` accumulates
+project-owned EvalScope state.
+
 ## Evaluation-only gateway
 
 `qwen3x-eval-server` loads one resident model and exposes a deliberately small
@@ -98,16 +111,19 @@ and MTP, and use concurrency one.
 Run the pinned EvalScope 1.9.1 workload against either server endpoint:
 
 ```bash
+TMPDIR="$Q3X_WORK/tmp" XDG_CACHE_HOME="$Q3X_WORK/cache" \
+UV_CACHE_DIR="$Q3X_WORK/cache/uv" \
 uvx --from 'evalscope[perf]==1.9.1' evalscope perf \
   --model qwen3.6-27b-nvfp4 --api openai \
   --url http://127.0.0.1:18080/v1/completions \
   --tokenizer-path MODEL_DIR \
   --dataset line_by_line --data-source local \
-  --dataset-path /tmp/q3x-sharegpt-false-thinking-33.jsonl \
+  --dataset-path "$Q3X_WORK/evalscope/corpora/q3x-sharegpt-false-thinking-33.jsonl" \
   --number 32 --parallel 1 --warmup-num 1 --num-workers 1 \
   --max-tokens 16 --temperature 0 --seed 42 \
   --stream --tokenize-prompt --no-test-connection \
-  --outputs-dir /tmp/q3x-evalscope-native --name native --no-timestamp
+  --outputs-dir "$Q3X_WORK/evalscope/results/native" \
+  --name native --no-timestamp
 ```
 
 The `perf` extra is required by the pinned environment; the bare 1.9.1
@@ -170,10 +186,10 @@ Validate a native pair immediately after the runs with:
 ```bash
 python3 tools/evaluation/validate_evalscope_triplet.py \
   --manifest benchmarks/evalscope/qwen36-sharegpt-false-thinking-v1.manifest.json \
-  --corpus /tmp/q3x-sharegpt-false-thinking-33.jsonl \
+  --corpus "$Q3X_WORK/evalscope/corpora/q3x-sharegpt-false-thinking-33.jsonl" \
   --baseline BASELINE_LEAF \
   --candidate CANDIDATE_LEAF \
-  --output /tmp/q3x-evalscope-direction.json
+  --output "$Q3X_WORK/evalscope/results/q3x-evalscope-direction.json"
 ```
 
 Exit 0 only means that the candidate improves both native mean TTFT and
@@ -207,12 +223,14 @@ already pins 16 output tokens in every request body; EvalScope 1.9.1 preserves
 that value instead of overriding it from the command line:
 
 ```bash
+TMPDIR="$Q3X_WORK/tmp" XDG_CACHE_HOME="$Q3X_WORK/cache" \
+UV_CACHE_DIR="$Q3X_WORK/cache/uv" \
 uvx --from 'evalscope[perf]==1.9.1' evalscope perf \
   --model qwen3.6-27b-nvfp4 --api openai \
   --url http://127.0.0.1:18080/v1/completions \
   --tokenizer-path MODEL_DIR \
   --dataset line_by_line --data-source local \
-  --dataset-path /tmp/q3x-sharegpt-false-thinking-33.jsonl \
+  --dataset-path "$Q3X_WORK/evalscope/corpora/q3x-sharegpt-false-thinking-33.jsonl" \
   --number 8 --parallel 1 --warmup-num 1 --num-workers 1 \
   --max-tokens 16 --temperature 0 --seed 42 \
   --stream --tokenize-prompt --no-test-connection \
