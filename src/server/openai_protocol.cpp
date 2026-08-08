@@ -1,8 +1,10 @@
 #include "q3x/server/openai_protocol.h"
 
+#include "q3x/core/sha256.h"
 #include "q3x/io/json.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -124,6 +126,36 @@ void append_usage(std::string& output, const OpenAIUsage& usage) {
             std::to_string(usage.completion_tokens) +
             ",\"total_tokens\":" +
             std::to_string(usage.total_tokens) + "}";
+}
+
+void append_phase_evidence(std::string& output,
+                           const std::string_view name,
+                           const RequestPhaseEvidence& phase) {
+  append_json_string(output, name);
+  output += ":{\"available\":";
+  const bool available = phase.milliseconds.has_value() &&
+                         std::isfinite(*phase.milliseconds) &&
+                         *phase.milliseconds >= 0.0;
+  output += available ? "true" : "false";
+  output += ",\"scope\":";
+  append_json_string(output, phase.scope);
+  output += ",\"milliseconds\":";
+  if (available) {
+    output += std::to_string(*phase.milliseconds);
+  } else {
+    output += "null";
+  }
+  output += ",\"unavailable_reason\":";
+  if (available) {
+    output += "null";
+  } else if (!phase.unavailable_reason.empty()) {
+    append_json_string(output, phase.unavailable_reason);
+  } else if (phase.milliseconds.has_value()) {
+    append_json_string(output, "invalid_measurement");
+  } else {
+    append_json_string(output, "not_instrumented");
+  }
+  output += "}";
 }
 
 OpenAIParseResult parse_messages(const json::Value& value,
@@ -477,6 +509,87 @@ std::string serialize_health_response(const std::string_view served_model) {
   return output;
 }
 
+std::string sha256_token_ids_u32le(
+    const std::vector<std::uint32_t>& token_ids) {
+  q3x::core::Sha256 hash;
+  std::array<std::uint8_t, 4096U> bytes{};
+  std::size_t used = 0U;
+  for (const std::uint32_t token_id : token_ids) {
+    bytes[used++] = static_cast<std::uint8_t>(token_id & 0xffU);
+    bytes[used++] = static_cast<std::uint8_t>((token_id >> 8U) & 0xffU);
+    bytes[used++] = static_cast<std::uint8_t>((token_id >> 16U) & 0xffU);
+    bytes[used++] = static_cast<std::uint8_t>((token_id >> 24U) & 0xffU);
+    if (used == bytes.size()) {
+      (void)hash.update(bytes.data(), used);
+      used = 0U;
+    }
+  }
+  if (used != 0U) {
+    (void)hash.update(bytes.data(), used);
+  }
+  return hash.finalize().hex();
+}
+
+std::string serialize_target_prefill_witness(
+    const TargetPrefillWitnessRecord& record) {
+  std::string output =
+      "{\"record\":\"target-prefill-witness-v1\",\"schema_version\":1,"
+      "\"request\":{\"id\":";
+  append_json_string(output, record.request_id);
+  output += ",\"body_sha256\":";
+  append_json_string(output, record.request_body_sha256);
+  output += "},\"model\":";
+  append_json_string(output, record.model);
+  output += ",\"endpoint\":";
+  append_json_string(output, to_string(record.endpoint));
+  output += ",\"prompt\":{\"kind\":";
+  append_json_string(output, to_string(record.prompt_kind));
+  output += ",\"tokens\":" + std::to_string(record.prompt_tokens) +
+            ",\"token_ids_u32le_sha256\":";
+  append_json_string(output, record.prompt_token_ids_u32le_sha256);
+  output += ",\"consumed_tokens\":" +
+            std::to_string(record.consumed_prompt_tokens) +
+            ",\"fully_consumed\":";
+  output += record.full_prompt_consumed ? "true" : "false";
+  output += "},\"completion\":{\"tokens\":" +
+            std::to_string(record.completion_tokens) + "},\"timing\":{";
+  append_phase_evidence(output, "queue", record.queue);
+  output += ',';
+  append_phase_evidence(output, "admission", record.admission);
+  output += ',';
+  append_phase_evidence(output, "generation", record.generation);
+  output += ',';
+  append_phase_evidence(output, "pure_prefill", record.pure_prefill);
+  output += ',';
+  append_phase_evidence(output, "finalize", record.finalize);
+  output += ',';
+  append_phase_evidence(output, "ttft", record.ttft);
+  output += ',';
+  append_phase_evidence(output, "first_byte", record.first_byte);
+  output += ',';
+  append_phase_evidence(output, "decode", record.decode);
+  output += ',';
+  append_phase_evidence(output, "total", record.total);
+  output += "},\"prefill\":{\"requested_chunk\":" +
+            std::to_string(record.requested_prefill_chunk_size) +
+            ",\"effective_chunk\":" +
+            std::to_string(record.effective_prefill_chunk_size) +
+            ",\"prefix_execution_count\":" +
+            std::to_string(record.prefix_execution_count) +
+            "},\"route\":{\"scope\":\"configured_engine_facts\","
+            "\"projection_backend\":{\"available\":true,\"value\":";
+  append_json_string(output, runtime::to_string(record.projection_backend));
+  output +=
+      "},\"deployment_plan\":{\"available\":false,\"reason\":"
+      "\"not_implemented\"},\"per_operator_route_hits\":{"
+      "\"available\":false,\"reason\":\"not_instrumented\"},"
+      "\"cache_hits\":{\"available\":false,\"reason\":"
+      "\"not_instrumented\"},"
+      "\"disabled_boundaries\":{\"prefix_cache\":true,\"mtp\":true,"
+      "\"cublaslt_production\":true,\"approximate_numerics\":true}}}";
+  return output;
+}
+
 std::string serialize_chat_completion(
     const std::string_view id, const std::int64_t created,
     const std::string_view model, const std::string_view text,
@@ -573,6 +686,28 @@ std::string_view to_string(const OpenAIFinishReason reason) noexcept {
       return "stop";
     case OpenAIFinishReason::kLength:
       return "length";
+  }
+  return "unknown";
+}
+
+std::string_view to_string(const OpenAIEndpoint endpoint) noexcept {
+  switch (endpoint) {
+    case OpenAIEndpoint::kChatCompletions:
+      return "/v1/chat/completions";
+    case OpenAIEndpoint::kCompletions:
+      return "/v1/completions";
+  }
+  return "unknown";
+}
+
+std::string_view to_string(const OpenAIPromptKind kind) noexcept {
+  switch (kind) {
+    case OpenAIPromptKind::kChatMessages:
+      return "chat_messages";
+    case OpenAIPromptKind::kRawText:
+      return "raw_text";
+    case OpenAIPromptKind::kTokenIds:
+      return "token_ids";
   }
   return "unknown";
 }

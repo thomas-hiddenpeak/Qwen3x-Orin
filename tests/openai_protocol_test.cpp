@@ -4,8 +4,10 @@
 #include <cstddef>
 #include <cstdint>
 #include <iostream>
+#include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace {
 
@@ -219,6 +221,53 @@ void test_serialization(TestContext& test) {
               "health response escapes the configured model alias");
 }
 
+void test_target_prefill_witness_evidence(TestContext& test) {
+  const std::vector<std::uint32_t> token_ids{0U, 1U, 0x01020304U,
+                                             248'046U};
+  constexpr std::string_view kExpectedTokenHash =
+      "6d4ae539080ab0cc26e32f3b9899fea8801c06d3797227da854a66f0b2271aa5";
+  const std::string token_hash =
+      server::sha256_token_ids_u32le(token_ids);
+  test.expect(token_hash == kExpectedTokenHash,
+              "token-id evidence hashes canonical u32 little-endian bytes");
+
+  server::TargetPrefillWitnessRecord record;
+  record.request_id = "cmpl-\"1";
+  record.request_body_sha256 = "body-hash";
+  record.model = "model";
+  record.endpoint = server::OpenAIEndpoint::kCompletions;
+  record.prompt_kind = server::OpenAIPromptKind::kTokenIds;
+  record.prompt_tokens = token_ids.size();
+  record.prompt_token_ids_u32le_sha256 = token_hash;
+  record.consumed_prompt_tokens = token_ids.size();
+  record.full_prompt_consumed = true;
+  record.completion_tokens = 1U;
+  record.queue = {"queue", 1.25, {}};
+  record.admission = {"admission", std::nullopt, "not_instrumented_here"};
+  record.generation = {"generation", 2.0, {}};
+  record.pure_prefill = {"prefill", 3.0, {}};
+  record.finalize = {"finalize", 0.5, {}};
+  record.ttft = {"ttft", 4.0, {}};
+  record.first_byte = {"first_byte", std::nullopt,
+                       "socket_write_not_instrumented"};
+  record.decode = {"decode", 0.0, {}};
+  record.total = {"total", 5.0, {}};
+  record.requested_prefill_chunk_size = 512U;
+  record.effective_prefill_chunk_size = 256U;
+  record.prefix_execution_count = 2U;
+  record.projection_backend =
+      q3x::runtime::ProjectionBackend::kReference;
+
+  const std::string serialized =
+      server::serialize_target_prefill_witness(record);
+  const std::string expected =
+      R"({"record":"target-prefill-witness-v1","schema_version":1,"request":{"id":"cmpl-\"1","body_sha256":"body-hash"},"model":"model","endpoint":"/v1/completions","prompt":{"kind":"token_ids","tokens":4,"token_ids_u32le_sha256":"6d4ae539080ab0cc26e32f3b9899fea8801c06d3797227da854a66f0b2271aa5","consumed_tokens":4,"fully_consumed":true},"completion":{"tokens":1},"timing":{"queue":{"available":true,"scope":"queue","milliseconds":1.250000,"unavailable_reason":null},"admission":{"available":false,"scope":"admission","milliseconds":null,"unavailable_reason":"not_instrumented_here"},"generation":{"available":true,"scope":"generation","milliseconds":2.000000,"unavailable_reason":null},"pure_prefill":{"available":true,"scope":"prefill","milliseconds":3.000000,"unavailable_reason":null},"finalize":{"available":true,"scope":"finalize","milliseconds":0.500000,"unavailable_reason":null},"ttft":{"available":true,"scope":"ttft","milliseconds":4.000000,"unavailable_reason":null},"first_byte":{"available":false,"scope":"first_byte","milliseconds":null,"unavailable_reason":"socket_write_not_instrumented"},"decode":{"available":true,"scope":"decode","milliseconds":0.000000,"unavailable_reason":null},"total":{"available":true,"scope":"total","milliseconds":5.000000,"unavailable_reason":null}},"prefill":{"requested_chunk":512,"effective_chunk":256,"prefix_execution_count":2},"route":{"scope":"configured_engine_facts","projection_backend":{"available":true,"value":"reference"},"deployment_plan":{"available":false,"reason":"not_implemented"},"per_operator_route_hits":{"available":false,"reason":"not_instrumented"},"cache_hits":{"available":false,"reason":"not_instrumented"},"disabled_boundaries":{"prefix_cache":true,"mtp":true,"cublaslt_production":true,"approximate_numerics":true}}})";
+  test.expect(serialized == expected,
+              "request evidence serialization has a stable field contract");
+  test.expect(valid_json(serialized),
+              "request evidence serialization remains valid JSON");
+}
+
 }  // namespace
 
 int main() {
@@ -228,6 +277,7 @@ int main() {
   test_target_length_token_id_contract(test);
   test_fail_closed_parameters(test);
   test_serialization(test);
+  test_target_prefill_witness_evidence(test);
   if (test.failures() != 0) {
     std::cerr << test.failures() << " OpenAI protocol test(s) failed\n";
     return 1;

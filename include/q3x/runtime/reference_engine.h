@@ -179,6 +179,9 @@ struct ReferenceGeneration {
 };
 
 struct ReferenceEngineLoadStats {
+  // Engine-wide dispatcher policy accepted by the factory. This is a
+  // configured route fact, not per-operator launch attestation.
+  ProjectionBackend projection_backend = ProjectionBackend::kReference;
   double tokenizer_milliseconds = 0.0;
   double resident_load_milliseconds = 0.0;
   double weight_bind_milliseconds = 0.0;

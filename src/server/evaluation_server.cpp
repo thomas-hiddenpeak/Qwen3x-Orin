@@ -1,5 +1,6 @@
 #include "q3x/server/evaluation_server.h"
 
+#include "q3x/core/sha256.h"
 #include "q3x/server/openai_protocol.h"
 
 #include <arpa/inet.h>
@@ -36,6 +37,11 @@ namespace q3x::server {
 namespace {
 
 using Clock = std::chrono::steady_clock;
+
+[[nodiscard]] double elapsed_milliseconds(
+    const Clock::time_point begin, const Clock::time_point end) noexcept {
+  return std::chrono::duration<double, std::milli>(end - begin).count();
+}
 
 inline constexpr std::size_t kMaximumHeaderBytes = 64U * 1024U;
 inline constexpr std::size_t kMaximumBodyBytes = 4U * 1024U * 1024U;
@@ -153,7 +159,11 @@ struct InferenceJob {
 
   OpenAIRequest request;
   std::string id;
+  std::string request_body_sha256;
   std::int64_t created = 0;
+  Clock::time_point request_received_at;
+  Clock::time_point admitted_at;
+  Clock::time_point queued_at;
   std::atomic<bool> cancelled{false};
   std::mutex mutex;
   std::condition_variable condition;
@@ -633,6 +643,7 @@ struct ObserverContext {
   bool stream = false;
   bool protocol_failure = false;
   std::string protocol_failure_message;
+  std::optional<Clock::time_point> first_token_committed_at;
 };
 
 bool observe_gateway_token(
@@ -643,6 +654,9 @@ bool observe_gateway_token(
     if (context.job->cancelled.load(std::memory_order_relaxed) ||
         context.stopping->load(std::memory_order_relaxed)) {
       return false;
+    }
+    if (!context.first_token_committed_at.has_value()) {
+      context.first_token_committed_at = Clock::now();
     }
     if (!context.stream) {
       return true;
@@ -716,6 +730,112 @@ bool observe_gateway_token(
   return usage;
 }
 
+[[nodiscard]] std::uint64_t consumed_prompt_tokens(
+    const runtime::ReferenceGeneration& generation) noexcept {
+  const std::size_t comparable =
+      std::min(generation.prompt_token_ids.size(), generation.steps.size());
+  std::size_t consumed = 0U;
+  while (consumed < comparable &&
+         generation.steps[consumed].position == consumed &&
+         generation.steps[consumed].input_token_id ==
+             generation.prompt_token_ids[consumed]) {
+    ++consumed;
+  }
+  return static_cast<std::uint64_t>(consumed);
+}
+
+[[nodiscard]] RequestPhaseEvidence measured_phase(
+    std::string scope, const double milliseconds) {
+  RequestPhaseEvidence phase;
+  phase.scope = std::move(scope);
+  phase.milliseconds = milliseconds;
+  return phase;
+}
+
+[[nodiscard]] RequestPhaseEvidence unavailable_phase(
+    std::string scope, std::string reason) {
+  RequestPhaseEvidence phase;
+  phase.scope = std::move(scope);
+  phase.unavailable_reason = std::move(reason);
+  return phase;
+}
+
+void emit_target_prefill_witness(
+    const runtime::ReferenceEngine& engine,
+    const std::shared_ptr<InferenceJob>& job,
+    const ObserverContext& observer,
+    const runtime::ReferenceGeneration& generation,
+    const Clock::time_point execution_started_at,
+    const Clock::time_point generation_started_at,
+    const Clock::time_point generation_finished_at,
+    const Clock::time_point response_ready_at) noexcept {
+  try {
+    TargetPrefillWitnessRecord record;
+    record.request_id = job->id;
+    record.request_body_sha256 = job->request_body_sha256;
+    record.model = job->request.model;
+    record.endpoint = job->request.endpoint;
+    record.prompt_kind = job->request.prompt_kind;
+    record.prompt_tokens = generation.prompt_token_ids.size();
+    record.prompt_token_ids_u32le_sha256 =
+        sha256_token_ids_u32le(generation.prompt_token_ids);
+    record.consumed_prompt_tokens = consumed_prompt_tokens(generation);
+    record.full_prompt_consumed =
+        record.consumed_prompt_tokens == record.prompt_tokens;
+    record.completion_tokens = generation.generated_token_ids.size();
+    record.queue = measured_phase(
+        "gateway_inference_queue",
+        elapsed_milliseconds(job->queued_at, execution_started_at));
+    record.admission =
+        job->request.prompt_kind == OpenAIPromptKind::kTokenIds
+            ? measured_phase(
+                  "gateway_protocol_and_token_id_capacity",
+                  elapsed_milliseconds(job->request_received_at,
+                                       job->admitted_at))
+            : unavailable_phase(
+                  "capacity_admission",
+                  "tokenization_and_capacity_not_separately_instrumented");
+    record.generation = measured_phase(
+        "engine_call_wall",
+        elapsed_milliseconds(generation_started_at,
+                             generation_finished_at));
+    record.pure_prefill = measured_phase(
+        "engine_prompt_prefill",
+        generation.timing.prompt_prefill_milliseconds);
+    record.finalize = measured_phase(
+        "engine_finish_prefill",
+        generation.timing.finish_prefill_milliseconds);
+    record.ttft = observer.first_token_committed_at.has_value()
+                      ? measured_phase(
+                            "body_received_to_first_token_commit",
+                            elapsed_milliseconds(
+                                job->request_received_at,
+                                *observer.first_token_committed_at))
+                      : unavailable_phase(
+                            "body_received_to_first_token_commit",
+                            "first_token_commit_not_observed");
+    record.first_byte = unavailable_phase(
+        "external_first_response_byte", "socket_write_not_instrumented");
+    record.decode = measured_phase(
+        "engine_decode_after_first",
+        generation.timing.decode_after_first_milliseconds);
+    record.total = measured_phase(
+        "body_received_to_response_enqueued",
+        elapsed_milliseconds(job->request_received_at, response_ready_at));
+    record.requested_prefill_chunk_size =
+        generation.requested_prefill_chunk_size;
+    record.effective_prefill_chunk_size =
+        generation.effective_prefill_chunk_size;
+    record.prefix_execution_count =
+        generation.timing.prefix_execution_milliseconds.size();
+    record.projection_backend = engine.load_stats().projection_backend;
+    std::cerr << serialize_target_prefill_witness(record) << '\n';
+  } catch (...) {
+    // Evidence is observational. Never convert an already successful model
+    // response into an API failure because host-side serialization failed.
+  }
+}
+
 void publish_job_error(const std::shared_ptr<InferenceJob>& job,
                        const OpenAIProtocolError& error,
                        const std::atomic<bool>& stopping) {
@@ -756,6 +876,7 @@ void execute_job(runtime::ReferenceEngine& engine,
                       stopping);
     return;
   }
+  const Clock::time_point execution_started_at = Clock::now();
 
   ObserverContext observer;
   observer.job = job;
@@ -770,6 +891,7 @@ void execute_job(runtime::ReferenceEngine& engine,
   generate_options.token_observer_context = &observer;
 
   runtime::ReferenceGenerateResult generated;
+  const Clock::time_point generation_started_at = Clock::now();
   switch (job->request.prompt_kind) {
     case OpenAIPromptKind::kChatMessages:
       generated = engine.generate_chat(job->request.messages,
@@ -784,6 +906,7 @@ void execute_job(runtime::ReferenceEngine& engine,
           job->request.prompt_token_ids, generate_options);
       break;
   }
+  const Clock::time_point generation_finished_at = Clock::now();
 
   if (observer.protocol_failure) {
     publish_job_error(
@@ -870,6 +993,10 @@ void execute_job(runtime::ReferenceEngine& engine,
                   generated.value->generated_text, reason, usage);
     job->set_response(200, body);
   }
+  const Clock::time_point response_ready_at = Clock::now();
+  emit_target_prefill_witness(
+      engine, job, observer, *generated.value, execution_started_at,
+      generation_started_at, generation_finished_at, response_ready_at);
 }
 
 void inference_worker(runtime::ReferenceEngine& engine,
@@ -1015,6 +1142,7 @@ void handle_connection(
       return;
     }
     HttpRequest request = std::move(*read.value);
+    const Clock::time_point request_received_at = Clock::now();
     const bool final_connection_request =
         !request.keep_alive ||
         request_count + 1U == kMaximumRequestsPerConnection;
@@ -1089,9 +1217,11 @@ void handle_connection(
       }
       continue;
     }
+    const Clock::time_point admitted_at = Clock::now();
 
     auto job = std::make_shared<InferenceJob>();
     job->request = std::move(*parsed.value);
+    job->request_body_sha256 = q3x::core::sha256(request.body).hex();
     const std::uint64_t sequence =
         next_request_id.fetch_add(1U, std::memory_order_relaxed);
     job->id = (chat ? "chatcmpl-q3x-" : "cmpl-q3x-") +
@@ -1101,6 +1231,9 @@ void handle_connection(
             std::chrono::system_clock::now().time_since_epoch())
             .count());
     job->event_capacity = options.stream_event_capacity;
+    job->request_received_at = request_received_at;
+    job->admitted_at = admitted_at;
+    job->queued_at = Clock::now();
     if (!inference_queue.try_push(job)) {
       const bool server_stopping =
           stopping.load(std::memory_order_relaxed);

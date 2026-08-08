@@ -59,6 +59,46 @@ struct OpenAIUsage {
   std::uint64_t total_tokens = 0U;
 };
 
+// One measured or explicitly unavailable request phase. Scope is serialized
+// with every value so engine/device intervals cannot be mistaken for the
+// externally observed EvalScope interval.
+struct RequestPhaseEvidence {
+  std::string scope;
+  std::optional<double> milliseconds;
+  std::string unavailable_reason;
+};
+
+// Minimal request-level evidence emitted by the evaluation adapter for a
+// successful production-path generation. Route fields below are configured
+// engine facts only; the current adapter has no DeploymentPlan or per-launch
+// route counters and reports those absences explicitly.
+struct TargetPrefillWitnessRecord {
+  std::string request_id;
+  std::string request_body_sha256;
+  std::string model;
+  OpenAIEndpoint endpoint = OpenAIEndpoint::kCompletions;
+  OpenAIPromptKind prompt_kind = OpenAIPromptKind::kTokenIds;
+  std::uint64_t prompt_tokens = 0U;
+  std::string prompt_token_ids_u32le_sha256;
+  std::uint64_t consumed_prompt_tokens = 0U;
+  bool full_prompt_consumed = false;
+  std::uint64_t completion_tokens = 0U;
+  RequestPhaseEvidence queue;
+  RequestPhaseEvidence admission;
+  RequestPhaseEvidence generation;
+  RequestPhaseEvidence pure_prefill;
+  RequestPhaseEvidence finalize;
+  RequestPhaseEvidence ttft;
+  RequestPhaseEvidence first_byte;
+  RequestPhaseEvidence decode;
+  RequestPhaseEvidence total;
+  std::uint32_t requested_prefill_chunk_size = 0U;
+  std::uint32_t effective_prefill_chunk_size = 0U;
+  std::uint64_t prefix_execution_count = 0U;
+  runtime::ProjectionBackend projection_backend =
+      runtime::ProjectionBackend::kReference;
+};
+
 enum class OpenAIFinishReason : std::uint8_t {
   kStop,
   kLength,
@@ -75,6 +115,13 @@ enum class OpenAIFinishReason : std::uint8_t {
     std::string_view served_model, std::int64_t created);
 [[nodiscard]] std::string serialize_health_response(
     std::string_view served_model);
+// Hashes the canonical concatenation of every token id encoded as four
+// little-endian bytes. The definition is host-endian independent and streams
+// without allocating a prompt-sized copy.
+[[nodiscard]] std::string sha256_token_ids_u32le(
+    const std::vector<std::uint32_t>& token_ids);
+[[nodiscard]] std::string serialize_target_prefill_witness(
+    const TargetPrefillWitnessRecord& record);
 [[nodiscard]] std::string serialize_chat_completion(
     std::string_view id, std::int64_t created, std::string_view model,
     std::string_view text, OpenAIFinishReason finish_reason,
@@ -97,5 +144,7 @@ enum class OpenAIFinishReason : std::uint8_t {
 
 [[nodiscard]] std::string_view to_string(
     OpenAIFinishReason reason) noexcept;
+[[nodiscard]] std::string_view to_string(OpenAIEndpoint endpoint) noexcept;
+[[nodiscard]] std::string_view to_string(OpenAIPromptKind kind) noexcept;
 
 }  // namespace q3x::server
