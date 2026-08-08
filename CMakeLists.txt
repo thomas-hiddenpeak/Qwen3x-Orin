@@ -371,6 +371,15 @@ if(BUILD_TESTING)
     set_tests_properties(evalscope_triplet_validator PROPERTIES
       LABELS "evaluation;host"
     )
+    add_test(
+      NAME orin_perf_preflight_host
+      COMMAND "${CMAKE_COMMAND}" -E env "PYTHONDONTWRITEBYTECODE=1"
+              "${Python3_EXECUTABLE}"
+              "${CMAKE_CURRENT_SOURCE_DIR}/tests/orin_perf_preflight_test.py"
+    )
+    set_tests_properties(orin_perf_preflight_host PROPERTIES
+      LABELS "performance;preflight;host"
+    )
   endif()
 
   set(Q3X_E2E_MODEL_DIR "" CACHE PATH
