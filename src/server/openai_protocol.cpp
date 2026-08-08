@@ -158,6 +158,68 @@ void append_phase_evidence(std::string& output,
   output += "}";
 }
 
+void append_prefill_route_evidence(
+    std::string& output, const runtime::PrefillRouteEvidence& evidence) {
+  const bool count_matches =
+      evidence.completed_layer_passes == evidence.expected_layer_passes;
+  const bool available = evidence.valid && evidence.complete &&
+                         !evidence.request_active && count_matches;
+  output += "{\"available\":";
+  output += available ? "true" : "false";
+  output +=
+      ",\"scope\":\"request_completed_prefill_logical_operators\",";
+  output += "\"complete\":";
+  output += evidence.complete ? "true" : "false";
+  output += ",\"reason\":";
+  if (available) {
+    output += "null";
+  } else if (!count_matches) {
+    append_json_string(output, "unexpected_layer_pass_count");
+  } else {
+    append_json_string(output, runtime::to_string(evidence.error));
+  }
+  output += ",\"coverage\":{\"completed_layer_passes\":" +
+            std::to_string(evidence.completed_layer_passes) +
+            ",\"expected_layer_passes\":" +
+            std::to_string(evidence.expected_layer_passes) +
+            ",\"layers_per_pass\":64,\"gdn_layers_per_pass\":48,"
+            "\"attention_layers_per_pass\":16},\"operators\":{";
+  for (std::size_t index = 0U;
+       index < runtime::kPrefillOperatorRoleCount; ++index) {
+    if (index != 0U) {
+      output.push_back(',');
+    }
+    const auto role = static_cast<runtime::PrefillOperatorRole>(index);
+    const runtime::PrefillOperatorRouteCounts& counts =
+        evidence.operators[index];
+    append_json_string(output, runtime::to_string(role));
+    output += ":{\"completed_production_hits\":" +
+              std::to_string(counts.production_hits) +
+              ",\"completed_exact_fallback_hits\":" +
+              std::to_string(counts.exact_fallback_hits) +
+              ",\"completed_forbidden_hits\":" +
+              std::to_string(counts.forbidden_hits) + "}";
+  }
+  const auto boundary = [&evidence](
+                            const runtime::PrefillForbiddenBoundary value) {
+    return evidence.forbidden_boundary_hits[static_cast<std::size_t>(value)];
+  };
+  output +=
+      "},\"forbidden_route_hits\":{\"prefix_cache\":" +
+      std::to_string(boundary(runtime::PrefillForbiddenBoundary::kPrefixCache)) +
+      ",\"mtp\":" +
+      std::to_string(boundary(runtime::PrefillForbiddenBoundary::kMtp)) +
+      ",\"cublaslt\":" +
+      std::to_string(boundary(runtime::PrefillForbiddenBoundary::kCublasLt)) +
+      ",\"external_reference\":" +
+      std::to_string(
+          boundary(runtime::PrefillForbiddenBoundary::kExternalReference)) +
+      ",\"approximate_numerics\":" +
+      std::to_string(
+          boundary(runtime::PrefillForbiddenBoundary::kApproximateNumerics)) +
+      "}}";
+}
+
 OpenAIParseResult parse_messages(const json::Value& value,
                                  OpenAIRequest& request) {
   const json::Value::Array* const messages = value.as_array();
@@ -576,16 +638,19 @@ std::string serialize_target_prefill_witness(
             std::to_string(record.effective_prefill_chunk_size) +
             ",\"prefix_execution_count\":" +
             std::to_string(record.prefix_execution_count) +
-            "},\"route\":{\"scope\":\"configured_engine_facts\","
-            "\"projection_backend\":{\"available\":true,\"value\":";
+            "},\"route\":{\"scope\":\"request_witness\","
+            "\"projection_backend\":{\"available\":true,"
+            "\"scope\":\"configured_engine_fact\",\"value\":";
   append_json_string(output, runtime::to_string(record.projection_backend));
+  output += "},\"deployment_plan\":{\"available\":false,\"reason\":"
+            "\"not_implemented\"},\"per_operator_route_hits\":";
+  append_prefill_route_evidence(output, record.prefill_route_evidence);
   output +=
-      "},\"deployment_plan\":{\"available\":false,\"reason\":"
-      "\"not_implemented\"},\"per_operator_route_hits\":{"
-      "\"available\":false,\"reason\":\"not_instrumented\"},"
+      ","
       "\"cache_hits\":{\"available\":false,\"reason\":"
       "\"not_instrumented\"},"
-      "\"disabled_boundaries\":{\"prefix_cache\":true,\"mtp\":true,"
+      "\"disabled_boundaries\":{\"scope\":\"production_contract\","
+      "\"prefix_cache\":true,\"mtp\":true,"
       "\"cublaslt_production\":true,\"approximate_numerics\":true}}}";
   return output;
 }

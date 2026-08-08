@@ -68,6 +68,40 @@ constexpr std::size_t kProductionProjectionSubtileTokens = 32U;
 constexpr float kRmsEpsilon = 1.0e-6F;
 constexpr float kAttentionScale = 1.0F / 16.0F;
 
+enum class PrefillProjectionExecution : std::uint8_t {
+  kUnknown = 0,
+  kGenericExact,
+  kFp8Marlin,
+  kFp8WholeChunk,
+  kFp8Supermatrix,
+  kFp8M64Output,
+};
+
+enum class PrefillGdnExecution : std::uint8_t {
+  kUnknown = 0,
+  kChunk64Native,
+  kC16Exact,
+  kWarpExact,
+  kExternalReference,
+  kApproximateB8,
+};
+
+[[nodiscard]] PrefillRouteDisposition projection_disposition(
+    const PrefillProjectionExecution execution) noexcept {
+  switch (execution) {
+    case PrefillProjectionExecution::kFp8Marlin:
+    case PrefillProjectionExecution::kFp8WholeChunk:
+    case PrefillProjectionExecution::kFp8Supermatrix:
+    case PrefillProjectionExecution::kFp8M64Output:
+      return PrefillRouteDisposition::kProduction;
+    case PrefillProjectionExecution::kGenericExact:
+      return PrefillRouteDisposition::kExactFallback;
+    case PrefillProjectionExecution::kUnknown:
+      return PrefillRouteDisposition::kForbidden;
+  }
+  return PrefillRouteDisposition::kForbidden;
+}
+
 [[nodiscard]] bool
 full_attention_preprocess_prompt_wide_environment_enabled() noexcept {
   const char* const value = std::getenv(
@@ -673,6 +707,8 @@ const char* reference_runner_error_string(
       return "state_commit_failure";
     case ReferenceRunnerError::kInvalidStepOptions:
       return "invalid_step_options";
+    case ReferenceRunnerError::kRouteEvidenceFailure:
+      return "route_evidence_failure";
   }
   return "unknown";
 }
@@ -1754,7 +1790,34 @@ ReferenceRunnerStatus ReferenceRunner::reset() noexcept {
   retained_prefill_hidden_row_ = 0U;
   trace_position_ = 0U;
   trace_input_token_ = 0U;
+  reset_prefill_route_request(prefill_route_evidence_);
   return {};
+}
+
+ReferenceRunnerStatus ReferenceRunner::record_scalar_prefill_route_fallback()
+    noexcept {
+  PrefillRouteEvidence tile;
+  for (std::size_t index = 0U;
+       index < kPrefillOperatorRoleCount; ++index) {
+    if (!record_prefill_operator_route(
+            tile, static_cast<PrefillOperatorRole>(index),
+            PrefillRouteDisposition::kExactFallback,
+            kExpectedPrefillLogicalOperatorsPerTile[index])) {
+      return runner_status(ReferenceRunnerError::kRouteEvidenceFailure,
+                           "prefill_scalar_route_record");
+    }
+  }
+  if (!commit_prefill_route_layer_pass(prefill_route_evidence_, tile)) {
+    return runner_status(ReferenceRunnerError::kRouteEvidenceFailure,
+                         "prefill_scalar_route_commit");
+  }
+  return {};
+}
+
+PrefillRouteEvidence ReferenceRunner::finalize_prefill_route_evidence(
+    const std::uint64_t expected_layer_passes) noexcept {
+  return finalize_prefill_route_request(prefill_route_evidence_,
+                                        expected_layer_passes);
 }
 
 ReferenceStepOutcome ReferenceRunner::step(
@@ -3000,6 +3063,11 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
     tile.step_count = 1U;
     tile.steps[0] = std::move(*step_outcome.value);
     tile.timing = tile.steps[0].timing;
+    const ReferenceRunnerStatus route_status =
+        record_scalar_prefill_route_fallback();
+    if (!route_status) {
+      return fail_prefill_tile(route_status);
+    }
     if (options.retain_last_hidden_for_logits) {
       retained_prefill_hidden_valid_ = true;
       retained_prefill_position_ = tile.steps[0].position;
@@ -3012,6 +3080,7 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
   }
 
   const std::uint32_t first_position = state_->current_position();
+  PrefillRouteEvidence tile_route_evidence;
 #if defined(Q3X_ENABLE_GDN_B8_ADMISSION)
   // Snapshot the admission switch once at the tile boundary. Tests may only
   // change it between synchronous public runner calls.
@@ -3078,7 +3147,11 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
        fp8_marlin_locks](
           const LinearWeight& weight, const std::uint16_t* const input,
           std::uint16_t* const output, const char* const operation,
-          const std::size_t layer, void* const launch_stream) noexcept {
+          const std::size_t layer, void* const launch_stream,
+          PrefillProjectionExecution* const executed_route = nullptr) noexcept {
+        if (executed_route != nullptr) {
+          *executed_route = PrefillProjectionExecution::kUnknown;
+        }
 #if defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION)
         if (is_fp8_marlin_projection(weight)) {
           const auto* const fp8 = std::get_if<Fp8LinearWeight>(&weight);
@@ -3106,6 +3179,9 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
               fp8_marlin_locks, launch_stream);
           if (status == static_cast<int>(cudaSuccess)) {
             ++g_fp8_marlin_prefill_admission_hits;
+            if (executed_route != nullptr) {
+              *executed_route = PrefillProjectionExecution::kFp8Marlin;
+            }
             return true;
           }
           return check_cuda(status, operation, layer);
@@ -3118,6 +3194,9 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
                   projection_backend_, weight, input, token_count, output,
                   launch_stream);
           if (status == static_cast<int>(cudaSuccess)) {
+            if (executed_route != nullptr) {
+              *executed_route = PrefillProjectionExecution::kFp8WholeChunk;
+            }
             return true;
           }
           if (status != static_cast<int>(cudaErrorNotSupported)) {
@@ -3143,6 +3222,9 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
             return false;
           }
         }
+        if (executed_route != nullptr) {
+          *executed_route = PrefillProjectionExecution::kGenericExact;
+        }
         return true;
       };
   const auto project = [this, &project_on_stream](
@@ -3150,8 +3232,11 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
                            const std::uint16_t* const input,
                            std::uint16_t* const output,
                            const char* const operation,
-                           const std::size_t layer) noexcept {
-    return project_on_stream(weight, input, output, operation, layer, stream_);
+                           const std::size_t layer,
+                           PrefillProjectionExecution* const executed_route =
+                               nullptr) noexcept {
+    return project_on_stream(weight, input, output, operation, layer, stream_,
+                             executed_route);
   };
   const auto has_fp8_prefill_supermatrix_sidecar =
       [this, token_count,
@@ -3211,27 +3296,50 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
        &project_fp8_prefill_supermatrix, &is_fp8_marlin_projection](
           const LinearWeight& weight, const std::uint16_t* const input,
           std::uint16_t* const output, const char* const operation,
-          const std::size_t layer) noexcept {
+          const std::size_t layer,
+          PrefillProjectionExecution* const executed_route = nullptr) noexcept {
+        if (executed_route != nullptr) {
+          *executed_route = PrefillProjectionExecution::kUnknown;
+        }
         if (is_fp8_marlin_projection(weight)) {
-          return project(weight, input, output, operation, layer);
+          return project(weight, input, output, operation, layer,
+                         executed_route);
         }
         if (has_fp8_prefill_supermatrix_sidecar(weight)) {
           const LinearWeight* const group_weights[1U] = {&weight};
           std::uint16_t* const group_outputs[1U] = {output};
-          return project_fp8_prefill_supermatrix(
+          const bool succeeded = project_fp8_prefill_supermatrix(
               group_weights, group_outputs, 1U, input, operation, layer);
+          if (succeeded && executed_route != nullptr) {
+            *executed_route = PrefillProjectionExecution::kFp8Supermatrix;
+          }
+          return succeeded;
         }
         if (!reference_runner_detail::
                 use_fp8_m64_prefill_attention_output_projection(
                     projection_backend_, weight, input, output,
                     token_count)) {
-          return project(weight, input, output, operation, layer);
+          return project(weight, input, output, operation, layer,
+                         executed_route);
         }
-        return check_cuda(launch_projection_tile_to_bf16_cuda(
-                              projection_backend_, weight, input,
-                              token_count, views_.fp32_scratch,
-                              views_.fp32_scratch_elements, output, stream_),
-                          operation, layer);
+        const bool succeeded =
+            check_cuda(launch_projection_tile_to_bf16_cuda(
+                           projection_backend_, weight, input, token_count,
+                           views_.fp32_scratch, views_.fp32_scratch_elements,
+                           output, stream_),
+                       operation, layer);
+        if (succeeded && executed_route != nullptr) {
+          *executed_route = PrefillProjectionExecution::kFp8M64Output;
+        }
+        return succeeded;
+      };
+  const auto record_projection_route =
+      [&tile_route_evidence](const PrefillOperatorRole role,
+                             const PrefillProjectionExecution execution,
+                             const std::uint64_t count = 1U) noexcept {
+        return record_prefill_operator_route(
+            tile_route_evidence, role, projection_disposition(execution),
+            count);
       };
   const auto project_pair =
       [this, token_count, &check_cuda,
@@ -3455,6 +3563,10 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
             "prefill_linear_attention_variant", layer));
       }
       bool linear_qkvz_projected = false;
+      PrefillProjectionExecution linear_qkv_route =
+          PrefillProjectionExecution::kUnknown;
+      PrefillProjectionExecution linear_z_route =
+          PrefillProjectionExecution::kUnknown;
       if (has_fp8_prefill_supermatrix_sidecar(attention->in_proj_qkv) &&
           has_fp8_prefill_supermatrix_sidecar(attention->in_proj_z)) {
         const LinearWeight* const group_weights[2U] = {
@@ -3467,15 +3579,25 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
           return fail_prefill_tile(launch_failure);
         }
         linear_qkvz_projected = true;
+        linear_qkv_route = PrefillProjectionExecution::kFp8Supermatrix;
+        linear_z_route = PrefillProjectionExecution::kFp8Supermatrix;
       }
       if (!linear_qkvz_projected &&
           (!project(attention->in_proj_qkv, views_.hidden[1],
                     views_.projection[0], "prefill_linear_qkv_projection",
-                    layer) ||
+                    layer, &linear_qkv_route) ||
            !project(attention->in_proj_z, views_.hidden[1],
                     views_.projection[1], "prefill_linear_z_projection",
-                    layer))) {
+                    layer, &linear_z_route))) {
         return fail_prefill_tile(launch_failure);
+      }
+      if (!record_projection_route(PrefillOperatorRole::kFp8Qkv,
+                                   linear_qkv_route) ||
+          !record_projection_route(PrefillOperatorRole::kFp8Z,
+                                   linear_z_route)) {
+        return fail_prefill_tile(runner_status(
+            ReferenceRunnerError::kRouteEvidenceFailure,
+            "prefill_linear_input_route", layer));
       }
       if (supports_bf16_projection_pair(
               projection_backend_, attention->in_proj_a,
@@ -3498,6 +3620,7 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
               enable_gdn_c16_norm_gate_admission, projection_backend_,
               first_position, token_count);
       bool gdn_output_is_normalized = false;
+      PrefillGdnExecution gdn_execution = PrefillGdnExecution::kUnknown;
 #if defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
       const bool use_gdn_chunk64_native =
           use_prefill_gdn_chunk64_native_admission(
@@ -3573,6 +3696,7 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
                         layer)) {
           return fail_prefill_tile(launch_failure);
         }
+        gdn_execution = PrefillGdnExecution::kChunk64Native;
         gdn_output_is_normalized = true;
       } else
 #endif
@@ -3621,6 +3745,7 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
                 "prefill_linear_gdn_chunk64_reference", layer)) {
           return fail_prefill_tile(launch_failure);
         }
+        gdn_execution = PrefillGdnExecution::kExternalReference;
         gdn_output_is_normalized = true;
       } else
 #endif
@@ -3661,6 +3786,7 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
                 "prefill_linear_gdn_b8_admission", layer)) {
           return fail_prefill_tile(launch_failure);
         }
+        gdn_execution = PrefillGdnExecution::kApproximateB8;
       } else
 #endif
       if (use_gdn_c16_norm_gate) {
@@ -3706,6 +3832,7 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
           ++g_prefill_gdn_c16_norm_gate_admission_hits;
 #endif
         }
+        gdn_execution = PrefillGdnExecution::kC16Exact;
         gdn_output_is_normalized = true;
       } else {
         for (std::size_t token_offset = 0U; token_offset < token_count;
@@ -3744,6 +3871,7 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
             return fail_prefill_tile(launch_failure);
           }
         }
+        gdn_execution = PrefillGdnExecution::kWarpExact;
       }
       if (!gdn_output_is_normalized &&
           !check_cuda(
@@ -3755,10 +3883,42 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
               "prefill_linear_output_norm_gate", layer)) {
         return fail_prefill_tile(launch_failure);
       }
+      PrefillProjectionExecution linear_o_route =
+          PrefillProjectionExecution::kUnknown;
       if (!project_attention_output(
               attention->out_proj, views_.projection[2], views_.hidden[1],
-              "prefill_linear_output_projection", layer)) {
+              "prefill_linear_output_projection", layer, &linear_o_route)) {
         return fail_prefill_tile(launch_failure);
+      }
+      if (!record_projection_route(PrefillOperatorRole::kFp8O,
+                                   linear_o_route)) {
+        return fail_prefill_tile(runner_status(
+            ReferenceRunnerError::kRouteEvidenceFailure,
+            "prefill_linear_output_route", layer));
+      }
+      PrefillRouteDisposition gdn_disposition =
+          PrefillRouteDisposition::kForbidden;
+      if (gdn_execution == PrefillGdnExecution::kChunk64Native) {
+        gdn_disposition = PrefillRouteDisposition::kProduction;
+      } else if (gdn_execution == PrefillGdnExecution::kC16Exact ||
+                 gdn_execution == PrefillGdnExecution::kWarpExact) {
+        gdn_disposition = PrefillRouteDisposition::kExactFallback;
+      } else if (gdn_execution ==
+                 PrefillGdnExecution::kExternalReference) {
+        (void)record_prefill_forbidden_boundary(
+            tile_route_evidence,
+            PrefillForbiddenBoundary::kExternalReference);
+      } else if (gdn_execution == PrefillGdnExecution::kApproximateB8) {
+        (void)record_prefill_forbidden_boundary(
+            tile_route_evidence,
+            PrefillForbiddenBoundary::kApproximateNumerics);
+      }
+      if (!record_prefill_operator_route(tile_route_evidence,
+                                         PrefillOperatorRole::kGdn,
+                                         gdn_disposition)) {
+        return fail_prefill_tile(runner_status(
+            ReferenceRunnerError::kRouteEvidenceFailure,
+            "prefill_linear_gdn_route", layer));
       }
     } else if (expected == model::LayerType::kFullAttention) {
       const auto* const attention =
@@ -3779,6 +3939,12 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
       const std::size_t rope_first_position =
           static_cast<std::size_t>(first_position);
       bool full_qkv_projected = false;
+      PrefillProjectionExecution full_q_route =
+          PrefillProjectionExecution::kUnknown;
+      PrefillProjectionExecution full_k_route =
+          PrefillProjectionExecution::kUnknown;
+      PrefillProjectionExecution full_v_route =
+          PrefillProjectionExecution::kUnknown;
       if (has_fp8_prefill_supermatrix_sidecar(attention->q_proj) &&
           has_fp8_prefill_supermatrix_sidecar(attention->k_proj) &&
           has_fp8_prefill_supermatrix_sidecar(attention->v_proj)) {
@@ -3792,16 +3958,29 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
           return fail_prefill_tile(launch_failure);
         }
         full_qkv_projected = true;
+        full_q_route = PrefillProjectionExecution::kFp8Supermatrix;
+        full_k_route = PrefillProjectionExecution::kFp8Supermatrix;
+        full_v_route = PrefillProjectionExecution::kFp8Supermatrix;
       }
       if (!full_qkv_projected &&
           (!project(attention->q_proj, views_.hidden[1],
                     views_.projection[0], "prefill_full_q_gate_projection",
-                    layer) ||
+                    layer, &full_q_route) ||
            !project(attention->k_proj, views_.hidden[1], tile_key,
-                    "prefill_full_k_projection", layer) ||
+                    "prefill_full_k_projection", layer, &full_k_route) ||
            !project(attention->v_proj, views_.hidden[1], tile_value,
-                    "prefill_full_v_projection", layer))) {
+                    "prefill_full_v_projection", layer, &full_v_route))) {
         return fail_prefill_tile(launch_failure);
+      }
+      if (!record_projection_route(PrefillOperatorRole::kFp8Qkv,
+                                   full_q_route) ||
+          !record_projection_route(PrefillOperatorRole::kFp8Qkv,
+                                   full_k_route) ||
+          !record_projection_route(PrefillOperatorRole::kFp8Qkv,
+                                   full_v_route)) {
+        return fail_prefill_tile(runner_status(
+            ReferenceRunnerError::kRouteEvidenceFailure,
+            "prefill_full_qkv_route", layer));
       }
 
       const std::size_t preprocess_tile_maximum =
@@ -3973,10 +4152,22 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
           return fail_prefill_tile(launch_failure);
         }
       }
+      PrefillProjectionExecution full_o_route =
+          PrefillProjectionExecution::kUnknown;
       if (!project_attention_output(
               attention->o_proj, views_.projection[1], views_.hidden[1],
-              "prefill_full_output_projection", layer)) {
+              "prefill_full_output_projection", layer, &full_o_route)) {
         return fail_prefill_tile(launch_failure);
+      }
+      if (!record_projection_route(PrefillOperatorRole::kFp8O,
+                                   full_o_route) ||
+          !record_prefill_operator_route(
+              tile_route_evidence, PrefillOperatorRole::kAttention,
+              use_bulk_gqa_gate ? PrefillRouteDisposition::kProduction
+                                : PrefillRouteDisposition::kExactFallback)) {
+        return fail_prefill_tile(runner_status(
+            ReferenceRunnerError::kRouteEvidenceFailure,
+            "prefill_full_attention_route", layer));
       }
     } else {
       return fail_prefill_tile(runner_status(
@@ -4187,6 +4378,29 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
         return fail_prefill_tile(launch_failure);
       }
     }
+    const bool nvfp4_mlp_weights =
+        std::holds_alternative<NvFp4LinearWeight>(
+            layer_weights.mlp.gate_proj) &&
+        std::holds_alternative<NvFp4LinearWeight>(
+            layer_weights.mlp.up_proj) &&
+        std::holds_alternative<NvFp4LinearWeight>(
+            layer_weights.mlp.down_proj);
+    const PrefillRouteDisposition mlp_disposition =
+        !nvfp4_mlp_weights
+            ? PrefillRouteDisposition::kForbidden
+            : (marlin_mlp_completed
+                   ? PrefillRouteDisposition::kProduction
+                   : PrefillRouteDisposition::kExactFallback);
+    if (!record_prefill_operator_route(tile_route_evidence,
+                                       PrefillOperatorRole::kNvFp4GateUp,
+                                       mlp_disposition) ||
+        !record_prefill_operator_route(tile_route_evidence,
+                                       PrefillOperatorRole::kNvFp4Down,
+                                       mlp_disposition)) {
+      return fail_prefill_tile(runner_status(
+          ReferenceRunnerError::kRouteEvidenceFailure,
+          "prefill_mlp_route", layer));
+    }
     if (use_m32_residual_rms_fusion) {
       const bool is_final_layer =
           layer + 1U == kReferenceDecoderLayerCount;
@@ -4238,7 +4452,13 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
     return fail_prefill_tile(runner_status(
         ReferenceRunnerError::kStateCommitFailure,
         "prefill_tile_commit", kReferenceNoLayer,
-        commit_status.cuda_error));
+                      commit_status.cuda_error));
+  }
+  if (!commit_prefill_route_layer_pass(prefill_route_evidence_,
+                                       tile_route_evidence)) {
+    return fail_prefill_tile(runner_status(
+        ReferenceRunnerError::kRouteEvidenceFailure,
+        "prefill_tile_route_commit", kReferenceNoLayer));
   }
 #if defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
   const auto native_chunk64_snapshot_hook =

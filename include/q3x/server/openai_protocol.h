@@ -69,9 +69,9 @@ struct RequestPhaseEvidence {
 };
 
 // Minimal request-level evidence emitted by the evaluation adapter for a
-// successful production-path generation. Route fields below are configured
-// engine facts only; the current adapter has no DeploymentPlan or per-launch
-// route counters and reports those absences explicitly.
+// successful production-path generation. Projection backend remains a
+// configured engine fact; per-operator counts below are completed logical
+// Prefix operations merged only after their tile synchronized and committed.
 struct TargetPrefillWitnessRecord {
   std::string request_id;
   std::string request_body_sha256;
@@ -95,6 +95,7 @@ struct TargetPrefillWitnessRecord {
   std::uint32_t requested_prefill_chunk_size = 0U;
   std::uint32_t effective_prefill_chunk_size = 0U;
   std::uint64_t prefix_execution_count = 0U;
+  runtime::PrefillRouteEvidence prefill_route_evidence;
   runtime::ProjectionBackend projection_backend =
       runtime::ProjectionBackend::kReference;
 };

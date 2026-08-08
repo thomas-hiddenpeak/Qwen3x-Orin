@@ -1150,6 +1150,23 @@ struct EngineStepContext {
                                              options);
 }
 
+[[nodiscard]] ReferenceStepOutcome prefill_step_with_route(
+    void* const opaque_context, const std::uint32_t input_token_id,
+    const ReferenceStepOptions& options) {
+  auto& context = *static_cast<EngineStepContext*>(opaque_context);
+  ReferenceStepOutcome outcome =
+      step_with_trace(opaque_context, input_token_id, options);
+  if (!outcome) {
+    return outcome;
+  }
+  const ReferenceRunnerStatus route_status =
+      context.runner->record_scalar_prefill_route_fallback();
+  if (!route_status) {
+    return {{}, route_status};
+  }
+  return outcome;
+}
+
 [[nodiscard]] ReferenceStepOutcome finish_prefill_from_retained_tile(
     void* const opaque_context, const std::uint32_t input_token_id,
     const ReferenceStepOptions& options) {
@@ -3805,8 +3822,8 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
 
     reference_engine_detail::PrefillPlan prefill_plan;
     prefill_plan.context = &step_context;
-    prefill_plan.prefix_step = step_with_trace;
-    prefill_plan.finish_prefill = step_with_trace;
+    prefill_plan.prefix_step = prefill_step_with_route;
+    prefill_plan.finish_prefill = prefill_step_with_route;
     prefill_plan.prefix_tile = prefill_prefix_tile;
     prefill_plan.finish_prefill_from_tile =
         finish_prefill_from_retained_tile;
@@ -3910,6 +3927,13 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
     generation.single_arbitrary_prefill_tiles =
         control_options.prefill_single_arbitrary_tile;
     generation.timing = std::move(control.value->timing);
+    const std::uint64_t expected_prefill_layer_passes =
+        static_cast<std::uint64_t>(
+            generation.timing.prefix_execution_milliseconds.size()) +
+        (generation.all_prompt_tokens_prefilled_by_tiles ? 0U : 1U);
+    generation.prefill_route_evidence =
+        impl_->runner->finalize_prefill_route_evidence(
+            expected_prefill_layer_passes);
     generation.steps = std::move(control.value->steps);
     generation.traces = std::move(traces);
     generation.decode_graph_replays = step_context.decode_graph_replays;

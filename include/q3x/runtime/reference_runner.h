@@ -2,6 +2,7 @@
 
 #include "q3x/model/model_config.h"
 #include "q3x/runtime/model_weights.h"
+#include "q3x/runtime/prefill_route_evidence.h"
 #include "q3x/runtime/request_state.h"
 
 #include <array>
@@ -36,6 +37,7 @@ enum class ReferenceRunnerError : std::uint8_t {
   kNonFiniteLogits,
   kStateCommitFailure,
   kInvalidStepOptions,
+  kRouteEvidenceFailure,
 };
 
 struct ReferenceRunnerStatus {
@@ -530,6 +532,15 @@ class ReferenceRunner {
   // invalidates the prior trace. Reset is the only poison recovery operation.
   [[nodiscard]] ReferenceRunnerStatus reset() noexcept;
 
+  // Request-level route evidence is finalized by the engine only after the
+  // generation controller has accepted every Prefix execution. Scalar
+  // prefix steps use the exact M1 path and are therefore recorded as explicit
+  // fallbacks rather than disappearing from the request witness.
+  [[nodiscard]] ReferenceRunnerStatus
+  record_scalar_prefill_route_fallback() noexcept;
+  [[nodiscard]] PrefillRouteEvidence finalize_prefill_route_evidence(
+      std::uint64_t expected_layer_passes) noexcept;
+
   [[nodiscard]] std::optional<ReferenceTraceView> last_trace() const noexcept;
 
  private:
@@ -619,6 +630,7 @@ class ReferenceRunner {
   std::size_t retained_prefill_hidden_row_ = 0U;
   std::uint32_t trace_position_ = 0U;
   std::uint32_t trace_input_token_ = 0U;
+  PrefillRouteEvidence prefill_route_evidence_{};
 };
 
 struct ReferenceRunnerFactoryResult {

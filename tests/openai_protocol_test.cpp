@@ -255,17 +255,52 @@ void test_target_prefill_witness_evidence(TestContext& test) {
   record.requested_prefill_chunk_size = 512U;
   record.effective_prefill_chunk_size = 256U;
   record.prefix_execution_count = 2U;
+  q3x::runtime::PrefillRouteEvidence route_tile;
+  for (std::size_t index = 0U;
+       index < q3x::runtime::kPrefillOperatorRoleCount; ++index) {
+    test.expect(q3x::runtime::record_prefill_operator_route(
+                    route_tile,
+                    static_cast<q3x::runtime::PrefillOperatorRole>(index),
+                    q3x::runtime::PrefillRouteDisposition::kProduction,
+                    q3x::runtime::
+                        kExpectedPrefillLogicalOperatorsPerTile[index]),
+                "route fixture records complete logical coverage");
+  }
+  q3x::runtime::reset_prefill_route_request(record.prefill_route_evidence);
+  test.expect(q3x::runtime::commit_prefill_route_layer_pass(
+                  record.prefill_route_evidence, route_tile) &&
+                  q3x::runtime::commit_prefill_route_layer_pass(
+                      record.prefill_route_evidence, route_tile),
+              "route fixture commits two completed tiles");
+  record.prefill_route_evidence =
+      q3x::runtime::finalize_prefill_route_request(
+          record.prefill_route_evidence, record.prefix_execution_count);
   record.projection_backend =
       q3x::runtime::ProjectionBackend::kReference;
 
   const std::string serialized =
       server::serialize_target_prefill_witness(record);
   const std::string expected =
-      R"({"record":"target-prefill-witness-v1","schema_version":1,"request":{"id":"cmpl-\"1","body_sha256":"body-hash"},"model":"model","endpoint":"/v1/completions","prompt":{"kind":"token_ids","tokens":4,"token_ids_u32le_sha256":"6d4ae539080ab0cc26e32f3b9899fea8801c06d3797227da854a66f0b2271aa5","consumed_tokens":4,"fully_consumed":true},"completion":{"tokens":1},"timing":{"queue":{"available":true,"scope":"queue","milliseconds":1.250000,"unavailable_reason":null},"admission":{"available":false,"scope":"admission","milliseconds":null,"unavailable_reason":"not_instrumented_here"},"generation":{"available":true,"scope":"generation","milliseconds":2.000000,"unavailable_reason":null},"pure_prefill":{"available":true,"scope":"prefill","milliseconds":3.000000,"unavailable_reason":null},"finalize":{"available":true,"scope":"finalize","milliseconds":0.500000,"unavailable_reason":null},"ttft":{"available":true,"scope":"ttft","milliseconds":4.000000,"unavailable_reason":null},"first_byte":{"available":false,"scope":"first_byte","milliseconds":null,"unavailable_reason":"socket_write_not_instrumented"},"decode":{"available":true,"scope":"decode","milliseconds":0.000000,"unavailable_reason":null},"total":{"available":true,"scope":"total","milliseconds":5.000000,"unavailable_reason":null}},"prefill":{"requested_chunk":512,"effective_chunk":256,"prefix_execution_count":2},"route":{"scope":"configured_engine_facts","projection_backend":{"available":true,"value":"reference"},"deployment_plan":{"available":false,"reason":"not_implemented"},"per_operator_route_hits":{"available":false,"reason":"not_instrumented"},"cache_hits":{"available":false,"reason":"not_instrumented"},"disabled_boundaries":{"prefix_cache":true,"mtp":true,"cublaslt_production":true,"approximate_numerics":true}}})";
+      R"({"record":"target-prefill-witness-v1","schema_version":1,"request":{"id":"cmpl-\"1","body_sha256":"body-hash"},"model":"model","endpoint":"/v1/completions","prompt":{"kind":"token_ids","tokens":4,"token_ids_u32le_sha256":"6d4ae539080ab0cc26e32f3b9899fea8801c06d3797227da854a66f0b2271aa5","consumed_tokens":4,"fully_consumed":true},"completion":{"tokens":1},"timing":{"queue":{"available":true,"scope":"queue","milliseconds":1.250000,"unavailable_reason":null},"admission":{"available":false,"scope":"admission","milliseconds":null,"unavailable_reason":"not_instrumented_here"},"generation":{"available":true,"scope":"generation","milliseconds":2.000000,"unavailable_reason":null},"pure_prefill":{"available":true,"scope":"prefill","milliseconds":3.000000,"unavailable_reason":null},"finalize":{"available":true,"scope":"finalize","milliseconds":0.500000,"unavailable_reason":null},"ttft":{"available":true,"scope":"ttft","milliseconds":4.000000,"unavailable_reason":null},"first_byte":{"available":false,"scope":"first_byte","milliseconds":null,"unavailable_reason":"socket_write_not_instrumented"},"decode":{"available":true,"scope":"decode","milliseconds":0.000000,"unavailable_reason":null},"total":{"available":true,"scope":"total","milliseconds":5.000000,"unavailable_reason":null}},"prefill":{"requested_chunk":512,"effective_chunk":256,"prefix_execution_count":2},"route":{"scope":"request_witness","projection_backend":{"available":true,"scope":"configured_engine_fact","value":"reference"},"deployment_plan":{"available":false,"reason":"not_implemented"},"per_operator_route_hits":{"available":true,"scope":"request_completed_prefill_logical_operators","complete":true,"reason":null,"coverage":{"completed_layer_passes":2,"expected_layer_passes":2,"layers_per_pass":64,"gdn_layers_per_pass":48,"attention_layers_per_pass":16},"operators":{"nvfp4_gate_up":{"completed_production_hits":128,"completed_exact_fallback_hits":0,"completed_forbidden_hits":0},"nvfp4_down":{"completed_production_hits":128,"completed_exact_fallback_hits":0,"completed_forbidden_hits":0},"fp8_qkv":{"completed_production_hits":192,"completed_exact_fallback_hits":0,"completed_forbidden_hits":0},"fp8_z":{"completed_production_hits":96,"completed_exact_fallback_hits":0,"completed_forbidden_hits":0},"fp8_o":{"completed_production_hits":128,"completed_exact_fallback_hits":0,"completed_forbidden_hits":0},"attention":{"completed_production_hits":32,"completed_exact_fallback_hits":0,"completed_forbidden_hits":0},"gdn":{"completed_production_hits":96,"completed_exact_fallback_hits":0,"completed_forbidden_hits":0}},"forbidden_route_hits":{"prefix_cache":0,"mtp":0,"cublaslt":0,"external_reference":0,"approximate_numerics":0}},"cache_hits":{"available":false,"reason":"not_instrumented"},"disabled_boundaries":{"scope":"production_contract","prefix_cache":true,"mtp":true,"cublaslt_production":true,"approximate_numerics":true}}})";
   test.expect(serialized == expected,
               "request evidence serialization has a stable field contract");
   test.expect(valid_json(serialized),
               "request evidence serialization remains valid JSON");
+
+  server::TargetPrefillWitnessRecord invalid_record = record;
+  invalid_record.prefill_route_evidence.expected_layer_passes = 3U;
+  const std::string invalid_serialized =
+      server::serialize_target_prefill_witness(invalid_record);
+  test.expect(
+      invalid_serialized.find(
+          R"("per_operator_route_hits":{"available":false,"scope":"request_completed_prefill_logical_operators","complete":true,"reason":"unexpected_layer_pass_count")") !=
+          std::string::npos &&
+          invalid_serialized.find(
+              R"("completed_layer_passes":2,"expected_layer_passes":3)") !=
+              std::string::npos,
+      "route mismatch is explicit and never serialized as executed evidence");
+  test.expect(valid_json(invalid_serialized),
+              "invalid route evidence remains parseable JSON");
 }
 
 }  // namespace

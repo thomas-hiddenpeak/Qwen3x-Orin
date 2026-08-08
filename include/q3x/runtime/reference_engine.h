@@ -172,6 +172,10 @@ struct ReferenceGeneration {
   // decomposing it into canonical C512/C256/C64/C32/tail executions.
   bool single_arbitrary_prefill_tiles = false;
   ReferenceGenerationTiming timing;
+  // Completed-request Prefill route evidence. Configured/admitted selectors
+  // are deliberately excluded; counters merge only after each Prefix
+  // execution has synchronized and committed its state.
+  PrefillRouteEvidence prefill_route_evidence;
   std::vector<ReferenceStepResult> steps;
   std::vector<ReferenceTraceDigest> traces;
   std::size_t decode_graph_replays = 0U;

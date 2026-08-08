@@ -828,6 +828,7 @@ void emit_target_prefill_witness(
         generation.effective_prefill_chunk_size;
     record.prefix_execution_count =
         generation.timing.prefix_execution_milliseconds.size();
+    record.prefill_route_evidence = generation.prefill_route_evidence;
     record.projection_backend = engine.load_stats().projection_backend;
     std::cerr << serialize_target_prefill_witness(record) << '\n';
   } catch (...) {
