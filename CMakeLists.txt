@@ -144,6 +144,7 @@ add_library(q3x_core STATIC
   src/model/weight_manifest.cpp
   src/runtime/model_weights.cpp
   src/runtime/prefill_execution_plan.cpp
+  src/runtime/prefill_operator_bindings.cpp
   src/runtime/prefill_workspace_plan.cpp
   src/runtime/prefill_route_evidence.cpp
   src/runtime/reference_oracle.cpp
@@ -1579,6 +1580,18 @@ if(BUILD_TESTING)
   )
   set_tests_properties(prefill_execution_plan PROPERTIES
     LABELS "host;prefill;architecture;plan"
+  )
+
+  add_executable(q3x_prefill_operator_bindings_test
+    tests/prefill_operator_bindings_test.cpp
+  )
+  target_link_libraries(q3x_prefill_operator_bindings_test PRIVATE q3x::core)
+  q3x_enable_warnings(q3x_prefill_operator_bindings_test)
+  add_test(NAME prefill_operator_bindings
+    COMMAND q3x_prefill_operator_bindings_test
+  )
+  set_tests_properties(prefill_operator_bindings PROPERTIES
+    LABELS "host;prefill;architecture;bindings"
   )
 
   add_executable(q3x_prefill_workspace_plan_test
