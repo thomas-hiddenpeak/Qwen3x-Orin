@@ -5,6 +5,20 @@ Qwen3.5 and Qwen3.6 models on NVIDIA Jetson AGX Orin (`sm_87`). It is designed
 around Orin's unified memory and Ampere Tensor Cores instead of treating Orin
 as a reduced version of a Blackwell system.
 
+The larger purpose is to establish a reproducible engineering paradigm for a
+**specialized model on specialized hardware with a specialized runner**. The
+Qwen3.6/NVFP4/Orin instance is the concrete proof vehicle, not the limit of the
+idea. The implementation may deliberately reject broad model and hardware
+compatibility in order to co-design authenticated weight layouts, kernels,
+state and memory ownership, scheduling, evaluation, and deployment for one
+target tuple. What should transfer to later tuples is the method and evidence
+discipline, not a universal binary. This project also continues the human--AI
+engineering pattern previously demonstrated by
+[Qwen35-Thor](https://github.com/thomas-hiddenpeak/qwen35-thor): the coding
+agent is expected to understand the project-owner intent, study proven source,
+form and execute system-level plans, validate on the real product path, and
+deliver reviewable commits without requiring continuous human supervision.
+
 The project now contains a correctness-first native generation path for the
 exact pinned NVIDIA Qwen3.6-27B-NVFP4 checkpoint. It authenticates and loads
 the text weights into one resident CUDA arena, binds the fixed hybrid decoder,
