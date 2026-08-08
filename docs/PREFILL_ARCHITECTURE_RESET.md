@@ -4,6 +4,16 @@ Status: active architecture plan, 2026-07-29. This document supersedes
 operator-local Prefill scanning as the primary development strategy. It does
 not change the default numerical contract or production dispatch by itself.
 
+Governing update, 2026-08-09: the
+[engineering constitution](ENGINEERING_CONSTITUTION.md) supersedes this
+document's former feasibility and terminal-target interpretations. Real
+no-cache Agent behavior on vLLM is an existence proof in the tens-of-thousands
+token/s region. The active product targets are first response within two
+seconds for 40K--60K prompt tokens and within four seconds for about 130K
+tokens. The historical P513/411 token/s comparison remains evidence for its
+exact old protocol only; it may not lower those targets. Production remains
+accuracy-preserving and non-MTP.
+
 ## Decision
 
 The current P513 Prefix is **2,260.7385 ms / 226.474667 token/s**. Closing the
@@ -24,6 +34,12 @@ the required gain.
 
 MTP is excluded. cuBLASLt is an external timing and numerical reference only;
 it has no production, fallback, retention, or promotion eligibility.
+
+The historical 2,000 token/s milestone below is no longer the terminal
+Prefill objective. It is an intermediate checkpoint on the way to the locked
+long-context API targets. A large remaining gap requires a global execution
+graph and proven upstream dataflow alignment, not a return to independent
+operator-local scans.
 
 ## External whole-product checkpoint
 
@@ -76,6 +92,13 @@ The complete captured top-20 list and reproduction command are recorded in
 
 ## Physical boundary
 
+> **Superseded feasibility interpretation (2026-08-09).** The calculations in
+> this section are retained as a historical BF16-proxy analysis. They did not
+> model the complete optimized mixed-precision vLLM path and therefore have no
+> authority to declare the exact production goal impossible or to discount
+> the observed vLLM Agent behavior. Future ceiling claims must satisfy the
+> evidence requirements in the engineering constitution.
+
 At M=512, the 64 MLP blocks alone perform about 17.52 TFLOP, or 34.23 GFLOP
 per prompt token. Including attention projections raises the dense projection
 work to about 25.4 TFLOP, or 49.7 GFLOP/token. AGX Orin's published dense
@@ -114,10 +137,16 @@ promotion decision.
 - Remain the default and the fallback during development.
 - Pursue a Marlin-class W4A16/W8A16 projection dataflow and exact
   shape-specific ownership without changing numerical formats.
-- Do not claim that this mode can reach 2,000 token/s; its purpose is exact
-  compatibility and a stable comparator.
+- Treat current shortfalls as implementation limits, not proof that the exact
+  mode cannot reach the target. It remains the production contract and stable
+  comparator.
 
 ### Throughput mode
+
+This is a research-only numerical experiment. It has no production or
+mainline promotion eligibility under the current accuracy constitution.
+Reopening that boundary requires an explicit project-owner contract amendment;
+an isolated speedup or tolerance result is insufficient.
 
 - Opt in explicitly; never activate through an implicit shape fallback.
 - Keep FP32 GDN state across a chunk and use the WY representation, then
@@ -129,7 +158,8 @@ promotion decision.
 - Keep Decode on the locked exact production path. MTP remains disabled.
 - Require deterministic P513 direction evidence first, followed by numerical
   state/output characterization and capability evaluation through an
-  OpenAI-compatible API and EvalScope before production eligibility.
+  OpenAI-compatible API and EvalScope before any research conclusion. Do not
+  describe that conclusion as production eligibility.
 
 Changing the old recurrent-state NRMSE gate is not an implementation shortcut.
 It is a named product contract change. The exact and throughput results must

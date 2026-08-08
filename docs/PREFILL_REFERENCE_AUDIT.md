@@ -5,6 +5,16 @@ the inspected sources, compares their Prefill dataflow with the current
 Qwen3x-Orin runtime, and changes the implementation order without importing
 FlashInfer or qwen35-thor code.
 
+Status update, 2026-08-09: this is a historical architecture audit, not the
+current performance target. The
+[engineering constitution](ENGINEERING_CONSTITUTION.md) treats observed
+cold/no-cache vLLM Agent behavior as the starting-line existence proof and
+locks first response within two seconds for 40K--60K tokens and within four
+seconds for about 130K tokens. Statements below that treated 2K--8K as
+unverified or used a P513 result to bound feasibility are superseded. The
+reference dataflow observations remain useful; the old target interpretation
+does not.
+
 ## Scope and pinned sources
 
 The audit was performed on 2026-07-27 against:

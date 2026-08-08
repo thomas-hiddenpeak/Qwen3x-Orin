@@ -1,0 +1,179 @@
+# Qwen3x-Orin engineering constitution
+
+Status: normative, effective 2026-08-09.
+
+This constitution governs project prioritization, performance methodology,
+accuracy policy, and continuity across contributors, agents, sessions, and
+context compaction. It controls planning when an older roadmap, audit, or
+benchmark narrative conflicts with it. Historical measurements remain valid
+only for the exact protocol they recorded; they do not retain authority to
+lower a current project target.
+
+`REAL_MODEL_PERFORMANCE_POLICY.md` defines the evidence required to retain or
+promote code. This constitution defines what the project is trying to achieve
+and how conflicting observations must influence the work. A project-owner
+observation can therefore set priority and a target without automatically
+becoming release-grade published evidence.
+
+## 1. Trust and planning authority
+
+1. A direct project-owner statement about observed production behavior,
+   required accuracy, or the target hardware/model is an authoritative
+   planning constraint. Treat it as an input to the work, not as an invitation
+   to litigate the observation unless the owner explicitly requests an audit.
+2. If a local benchmark conflicts with an owner-supplied production
+   observation, first audit the local harness, token accounting, cache state,
+   endpoint, model revision, startup configuration, execution path, and metric
+   definition. Do not silently lower the target or use the conflicting local
+   result to declare the production observation impossible.
+3. Record unresolved evidence as a measurement-reconciliation problem. Keep
+   advancing work that is safe under the owner-supplied target while the
+   discrepancy is isolated.
+4. A planning constraint changes only through an explicit owner decision or a
+   same-workload reproduction that the owner accepts as superseding evidence.
+   Approximate prompts, another context length, a component microbenchmark,
+   or a differently configured endpoint cannot supersede it.
+
+## 2. Proven implementation is an existence proof
+
+1. Working vLLM behavior on the target Orin and pinned model family is the
+   performance starting line. It is an existence proof that the hardware and
+   model can reach that region, not a terminal aspiration and not an optional
+   comparison.
+2. When the native runner trails that starting line materially, inspect and
+   reproduce the relevant vLLM, FlashInfer, Triton, FlashLinearAttention, and
+   Mamba dataflows before inventing a local explanation for why the target is
+   unreachable. Reference their scheduling, tiling, fusion, state-update,
+   attention, and memory-lifetime ideas; adapt source only with the required
+   license and provenance.
+3. Framework overhead in a general Python engine makes the native runner's
+   specialization opportunity larger. It is not a reason to accept slower
+   native behavior.
+4. cuBLASLt remains a measurement and numerical reference only. It never has
+   production dispatch, fallback, retention, or promotion eligibility. vLLM
+   is also not a runtime dependency requirement; it is the external starting
+   point and architectural reference.
+
+## 3. Product-first measurement hierarchy
+
+Use the following hierarchy to decide what to do next:
+
+1. **Real product path:** cold/no-cache OpenAI-compatible API behavior on real
+   Agent prompts, especially time to the first visible generated token and
+   end-to-end usability.
+2. **External reproducible path:** EvalScope or an equivalent public framework
+   using the same real model, exact tokens, cache policy, concurrency, and
+   output contract.
+3. **Engine path:** computed prompt tokens divided by the server's actual
+   Prefill interval, separated from queueing, HTTP, and Decode.
+4. **Component path:** real-weight and real-state whole-layer or kernel timing.
+5. **Diagnostic path:** NSys/NCU/SASS counters used to explain an already
+   observed real-path result.
+
+A lower level may diagnose a higher-level result, but it cannot override it
+without a same-workload reconciliation. Logger-window rates, P513 cells,
+synthetic matrices, and isolated kernel peaks must never be presented as the
+product result.
+
+The first test of a candidate is the smallest safe real-model production/API
+run capable of revealing direction. A positive direction unlocks complete
+correctness, noise, resource, and profiler qualification. A negative direction
+stops or archives the candidate; a bounded profile is optional when it answers
+a concrete architectural question.
+
+## 4. Architecture before parameter scanning
+
+1. When the whole-product gap is at least 2x, or the target requires a
+   qualitative step, stop low-yield single-variable scanning as the primary
+   strategy. Write the global dataflow: tensor shapes, traffic, ownership,
+   residency, synchronization, pipeline stages, and phase budgets for every
+   dominant Gate/Up, Down, FP8 projection, Attention, and GDN/SSM path.
+2. Select changes capable of moving a complete Prefix budget or removing an
+   architectural boundary. Micro-optimizations are appropriate near the
+   target or when they validate a named mechanism needed by the architecture.
+3. Do not infer a global optimum by accumulating hundreds of unrelated local
+   wins. Revisit the kernel or runner skeleton when the ideal dataflow does not
+   fit it.
+4. Incremental native improvements are retained against the current native
+   incumbent when they clear real noise. The vLLM or cuBLASLt terminal
+   reference is checked after cumulative progress; it is not a per-experiment
+   rejection threshold.
+
+## 5. Accuracy and feature boundaries
+
+1. Production mainline changes must not degrade model accuracy. A path that
+   changes the numerical contract, activation precision, recurrent-state
+   boundary, logits, or generated behavior remains research-only unless the
+   project owner explicitly authorizes that product-contract change.
+2. Synthetic inputs remain useful for exhaustive correctness and smoke tests,
+   but never select performance work. Performance decisions use real model
+   weights and, when data-dependent, real prompt-derived activations and state.
+3. MTP is excluded from the current Prefill and Decode targets. It is a later
+   roadmap feature and cannot be used to claim the present goals.
+4. Prefill and Decode remain logically distinct optimization phases even when
+   they share a runner. Their kernels, state ownership, buffering, metrics,
+   and priorities must be separable.
+
+## 6. Claim discipline
+
+Do not say that a target is impossible, at the hardware ceiling, or outside
+the feasible region merely because the current implementation stalls.
+
+An impossibility or ceiling claim requires all of the following:
+
+- an exact same-model, same-hardware, same-workload definition;
+- a defensible roofline using the actual quantized operations and memory
+  traffic rather than an inapplicable BF16 proxy;
+- matched NSys/NCU evidence for the complete dominant path;
+- reconciliation with the fastest known vLLM/reference behavior;
+- documented evaluation of materially different algorithms and dataflows.
+
+Without that evidence, report an implementation limitation and the next
+architecture hypothesis, not a hardware impossibility.
+
+## 7. Locked business targets
+
+These targets remain active until the project owner changes them:
+
+| Phase | Required user-visible behavior | Restrictions |
+| --- | --- | --- |
+| Prefill | A cold/no-cache 40K--60K-token Agent prompt reaches first response in at most 2 seconds | real API, real model, no Prefix/KV reuse, no MTP, no accuracy loss |
+| Prefill long context | A cold/no-cache prompt of about 130K tokens reaches first response in at most 4 seconds | same restrictions; no silent truncation |
+| Decode | Single-request Decode reaches at least 10 token/s, corresponding to at most 100 ms/token | no MTP as the means of compliance |
+| Accuracy | Production output/capability does not regress | public evaluation plus pinned deterministic oracles |
+
+The observed vLLM Agent experience is the starting reference for these
+Prefill targets. A ten-second `Avg prompt throughput` log around 4.3K token/s
+is supporting telemetry, not an upper bound and not permission to reduce the
+business target. EvalScope is another product-facing observation surface; a
+short-prompt corpus or unmatched endpoint cannot invalidate the long-context
+Agent requirement.
+
+The native runner must first match vLLM's useful performance on this
+specialized hardware/model family. Its market justification then requires
+specialization to exceed that general engine while preserving accuracy.
+
+## 8. Continuity and change control
+
+1. At the start of performance work, and after any context compaction or
+   handoff, read `AGENTS.md`, this constitution,
+   `REAL_MODEL_PERFORMANCE_POLICY.md`, the active phase architecture document,
+   and the external-evaluation contract before proposing work.
+2. Every material architecture decision, target change, retained result, and
+   rejected mechanism must be written into tracked repository evidence. Chat
+   history is not the authoritative memory.
+3. Commit material milestones atomically and push them to the active remote
+   branch after relevant verification. Preserve unrelated worktree changes.
+4. When an older document conflicts with this constitution, annotate the old
+   statement as historical or superseded rather than allowing both statements
+   to guide current work.
+5. Amend this constitution only through an explicit project-owner direction.
+   Record the date, reason, and affected targets or methods in the amendment.
+
+## Amendments
+
+- **2026-08-09:** Initial constitution. It codifies owner-supplied production
+  observations as planning constraints; product-first and actual-first
+  evaluation; vLLM as the starting-line existence proof; architecture-first
+  response to large gaps; accuracy, non-MTP, and cuBLASLt boundaries; claim
+  discipline; and the 40K--60K/130K long-context Prefill targets.

@@ -360,6 +360,26 @@ revision and script so they can be audited.
 
 ## 8. Performance measurement
 
+The [engineering constitution](ENGINEERING_CONSTITUTION.md) controls
+performance planning and interpretation. In particular, project-owner
+production observations are planning constraints; conflicting local evidence
+starts a same-workload measurement reconciliation and does not lower the
+target. Proven vLLM behavior on the pinned model and target Orin is the
+starting-line existence proof, not a per-candidate gate or a terminal goal.
+
+Roadmap decisions follow a product-first hierarchy: real cold/no-cache
+OpenAI-compatible Agent behavior, matched external-framework behavior, engine
+Prefill/Decode intervals, real-payload components, and finally NSys/NCU/SASS
+attribution. Lower-level evidence explains higher-level behavior but cannot
+replace it. When the whole-path gap is at least 2x, architecture-level
+dataflow changes take priority over unconnected single-variable scans.
+
+The active batch-one targets are cold/no-cache first response within two
+seconds for 40K--60K prompt tokens, within four seconds for about 130K prompt
+tokens, and non-MTP Decode at or above 10 token/s. Production changes must not
+degrade accuracy. These targets remain normative until an explicit
+project-owner amendment.
+
 Microbenchmarks cover at least one representative dense projection, one small
 MoE expert projection, and one FP8 projection before whole-model optimization.
 They report:

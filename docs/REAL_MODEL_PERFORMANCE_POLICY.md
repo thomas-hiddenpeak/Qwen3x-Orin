@@ -4,7 +4,20 @@ This policy defines which measurements may select, reject, or promote a model
 kernel.  It applies to microbenchmarks, component screens, end-to-end
 benchmarks, and Nsight evidence.
 
+The [engineering constitution](ENGINEERING_CONSTITUTION.md) is the controlling
+planning and target contract. This policy qualifies evidence; it may not be
+used to debate away or silently lower a project-owner production observation.
+
 ## Authority rule
+
+Direct project-owner observations of real production/API behavior are
+authoritative for priority and target setting. They are not automatically
+release-grade publication evidence, but a conflicting local benchmark must be
+treated first as a harness, token-accounting, cache, endpoint, configuration,
+or path-reconciliation problem. Until a same-workload reproduction is
+accepted as superseding evidence, the owner-supplied target remains active.
+Component cells, logger-window rates, short-prompt corpora, and unmatched
+framework runs cannot lower it.
 
 Any result used to continue or stop an optimization, change production
 dispatch, set a performance threshold, or publish a model-performance claim

@@ -118,6 +118,15 @@ Exit criteria:
 
 ## Phase 3 — Ampere weight-only performance
 
+The [engineering constitution](ENGINEERING_CONSTITUTION.md) governs this
+phase. The active Prefill target is a cold/no-cache first response within two
+seconds for 40K--60K prompt tokens and within four seconds for about 130K
+tokens, with no accuracy loss and no MTP. Observed vLLM Agent behavior on the
+target model/hardware is the starting-line existence proof. Older P65--P1025,
+411 token/s, 2K--8K, and 4K-limited EvalScope records below remain historical
+protocol evidence; none may be used to lower this business target or declare
+the exact path impossible.
+
 Deliverables:
 
 - [done, explicit opt-in] `sm_87` NVFP4 and FP8 single-token GEMV kernels.
