@@ -18,11 +18,13 @@ and a final usage chunk.
 Materialize the corpus from the hash-locked `swift/sharegpt` source:
 
 ```bash
+Q3X_WORK="$PWD/.q3x-work"
+mkdir -p "$Q3X_WORK/evalscope/corpora"
 python3 tools/evaluation/build_evalscope_sharegpt_requests.py \
   --source SHAREGPT_ROOT/common_zh_70k.jsonl \
   --tokenizer-dir MODEL_DIR \
-  --output /tmp/q3x-sharegpt-false-thinking-33.jsonl \
-  --manifest /tmp/qwen36-sharegpt-false-thinking-v1.manifest.json
+  --output "$Q3X_WORK/evalscope/corpora/q3x-sharegpt-false-thinking-33.jsonl" \
+  --manifest "$Q3X_WORK/evalscope/corpora/qwen36-sharegpt-false-thinking-v1.manifest.json"
 ```
 
 The builder fails closed on the source, tokenizer, standalone chat template,

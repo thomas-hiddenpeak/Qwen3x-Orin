@@ -201,6 +201,25 @@ specialization to exceed that general engine while preserving accuracy.
 5. Amend this constitution only through an explicit project-owner direction.
    Record the date, reason, and affected targets or methods in the amendment.
 
+## 9. Workspace and host hygiene
+
+1. All project-generated builds, temporary source copies, linked worktrees,
+   profiler captures, evaluation databases, generated corpora, logs, and tool
+   environments belong under the repository workspace. Use the ignored
+   `.q3x-work/` tree when an artifact is not source-controlled.
+2. Do not create project-named files or directories directly under the
+   project owner's home directory. User-owned checkpoints, virtual
+   environments such as `~/vllmEvn`, and shared caches are external inputs;
+   treat them as read-only unless the owner explicitly requests a mutation.
+3. Do not use `/tmp` for large or persistent project artifacts. If a system
+   tool requires `/tmp`, keep the allocation bounded and remove or relocate
+   the exact project-owned artifact immediately after use. A test that creates
+   a small temporary file must clean it on every normal and failure path.
+4. Before completing a work phase, audit project-owned processes, temporary
+   files, worktree registrations, and storage use. Retain material evidence
+   inside the workspace and remove only artifacts whose ownership and
+   recoverability are established.
+
 ## Amendments
 
 - **2026-08-09:** Initial constitution. It codifies owner-supplied production
@@ -213,3 +232,6 @@ specialization to exceed that general engine while preserving accuracy.
   paradigm, with Qwen3.6/NVFP4/Orin as its proof vehicle and Qwen35-Thor as an
   established human--AI engineering precedent. The method should transfer;
   the binary is not required to be general.
+- **2026-08-09:** Host-hygiene requirement. Generated project artifacts are
+  confined to the repository workspace, large or persistent `/tmp` use is
+  prohibited, and user-owned home-directory inputs remain untouched.

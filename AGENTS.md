@@ -27,3 +27,13 @@ matched profile evidence, and reconciliation with known implementations.
 Preserve unrelated user changes in the worktree. Keep production accuracy,
 non-MTP scope, reference-only cuBLASLt boundary, evidence requirements, and
 commit history intact.
+
+All project-generated artifacts must stay inside the repository workspace.
+Use the ignored [`/.q3x-work/`](.q3x-work/) tree for temporary source copies,
+builds, profiles, evaluation outputs, downloaded tool environments, and
+retained experiment evidence. Do not create project-named files or
+directories directly under `$HOME`. Treat user-owned model directories,
+virtual environments (including `~/vllmEvn`), and shared caches as read-only
+unless the project owner explicitly requests otherwise. Avoid `/tmp` for
+large or persistent artifacts; when a tool requires `/tmp`, remove the exact
+project-owned files promptly after the task completes.

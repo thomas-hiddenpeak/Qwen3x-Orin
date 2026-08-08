@@ -9,6 +9,7 @@
 /Testing/
 /cmake_install.cmake
 /.cache/
+/.q3x-work/
 /.clangd/
 /.idea/
 /.vscode/

@@ -19,13 +19,14 @@ memory support, then completed a CUDA smoke kernel.
 ## Reproduction
 
 ```bash
-cmake -S . -B /tmp/q3x-orin-phase0 \
+Q3X_WORK="$PWD/.q3x-work"
+cmake -S . -B "$Q3X_WORK/build/phase0" \
   -DCMAKE_BUILD_TYPE=Release \
   -DBUILD_TESTING=ON \
   -DQ3X_CUDA_ARCHITECTURES=87
-cmake --build /tmp/q3x-orin-phase0 -j
-ctest --test-dir /tmp/q3x-orin-phase0 --output-on-failure
-/tmp/q3x-orin-phase0/qwen3x-orin probe
+cmake --build "$Q3X_WORK/build/phase0" -j
+ctest --test-dir "$Q3X_WORK/build/phase0" --output-on-failure
+"$Q3X_WORK/build/phase0/qwen3x-orin" probe
 ```
 
 The milestone run passed all nine tests:
