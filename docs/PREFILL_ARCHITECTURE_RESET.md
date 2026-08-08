@@ -35,6 +35,21 @@ the required gain.
 MTP is excluded. cuBLASLt is an external timing and numerical reference only;
 it has no production, fallback, retention, or promotion eligibility.
 
+The [vLLM/Humming startup-specialization audit](VLLM_HUMMING_STARTUP_AUDIT.md)
+is now an accepted implementation input. For this fixed checkpoint and SM87
+target, JIT is treated as an offline discovery/confirmation technique, not a
+production runtime requirement. Its selected weight layouts, tactics, shape
+buckets, workspace/KV plan, launch segments, and route coverage must be
+materialized as an authenticated AOT deployment plan. Production startup only
+validates and loads that plan; the request path may not compile, autotune,
+repack, rediscover a route, or grow unplanned workspace.
+
+This does not turn process-startup latency into the Prefill objective. The
+steady-state architectural value is removal of hot-path interpretation plus
+offline selection of the complete Gate/Up, Down, FP8, Attention, and GDN
+dataflows. Cache reuse and prepacking that affect only process cold start are
+reported separately.
+
 The historical 2,000 token/s milestone below is no longer the terminal
 Prefill objective. It is an intermediate checkpoint on the way to the locked
 long-context API targets. A large remaining gap requires a global execution
