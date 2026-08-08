@@ -15,10 +15,9 @@ q3x_document:
 
 # Qwen3x-Orin current status
 
-Snapshot date: 2026-08-09. Implementation baseline audited:
-`main@1d727c7`. Governance and system-design changes may exist on a separate
-integration branch; they do not change the implementation state recorded
-here.
+Snapshot date: 2026-08-09. Implementation baseline audited: code tree at
+`1d727c7`. Subsequent documentation-only governance or system-design commits
+do not change the implementation state recorded here.
 
 This is the single point-in-time status page. It records what is target,
 designed, implemented, qualified, and production. Architecture contracts

@@ -56,7 +56,7 @@ authority only for its exact recorded protocol.
 
 | Path | Role | Lifecycle | Authority / ownership boundary |
 | --- | --- | --- | --- |
-| `README.md` | `entry_point` | active | Concise product overview and navigation only; links to controlling docs for current claims. |
+| `README.md` | `entry_point` | active | Product overview, bounded functional evaluation quick start, and navigation; current capability and performance remain owned by Current Status. |
 | `docs/CURRENT_STATUS.md` | `current_status` | active | SSOT for current default route, delivered capability, qualified metrics, and known gaps; replaceable, not an evidence ledger. |
 | `docs/DESIGN.md` | `subsystem_design_index` | active | Compatibility entry point and map of detailed subsystem contracts; subordinate to `docs/SDD.md`. |
 | `docs/PREFILL_ARCHITECTURE_RESET.md` | `subsystem_sdd` | active | Prefill input/output, state, ownership, synchronization, failure, handoff, and architecture-candidate contract; owns no delivery order or mechanism rule. |
