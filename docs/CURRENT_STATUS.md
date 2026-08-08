@@ -15,9 +15,10 @@ q3x_document:
 
 # Qwen3x-Orin current status
 
-Snapshot date: 2026-08-09. Implementation baseline audited: code tree at
-`1d727c7`. Subsequent documentation-only governance or system-design commits
-do not change the implementation state recorded here.
+Snapshot date: 2026-08-09. Implementation facts audited: code tree at
+`af514ed`. Performance and qualification claims remain tied to the exact
+older artifacts cited in their evidence records; the newer unbound
+architecture infrastructure does not revise those measurements.
 
 This is the single point-in-time status page. It records what is target,
 designed, implemented, qualified, and production. Architecture contracts
@@ -55,6 +56,14 @@ per-request arena. It therefore does not deliver the locked cold/no-cache
 evaluation adapter: loopback-only, unauthenticated, serialized batch one, and
 without a production network, tenant, admission, or cancellation contract.
 
+The development tree now contains a pure-host layer-major topology/progress
+plan, an exact host workspace-requirements planner, a 17-role operator-binding
+contract, and isolated C8192 NVFP4/FP8 projection surfaces. These are
+implemented infrastructure components, not an executable architecture
+candidate: they are unbound, are not connected to `RequestState`, the runner,
+or a selector, and have not changed the existing C512 production route or its
+performance.
+
 Accordingly, current product status is **implemented evaluation runner,
 unqualified production runner**.
 
@@ -67,9 +76,10 @@ unqualified production runner**.
 | OpenAI-compatible evaluation API | Implemented | `/healthz`, `/v1/models`, completions/chat, non-streaming and committed-token SSE | Loopback/evaluation-only; no production exposure, security, cancellation, or multi-tenant contract |
 | Production serving API | Designed | Product/API contract is defined in the SDD | No installed release profile or release attestation exists |
 | Default context capacity | Implemented at 8,192 | Server default `max_sequence_length=8192`, maximum output 4,096, 2 GiB request-arena limit | Does not admit the locked long-context workloads |
-| 40K/60K/130K cold/no-cache service | Target; partially designed | Runtime absolute limit and configurable planner can express larger values | Default admission/memory plan, API validation, cancellation, performance, and qualification are absent |
+| 40K/60K/130K cold/no-cache service | Target; host requirements implemented | Configured token-ID ingress fails closed on capacity, the legacy planner expresses C512 arenas, and the layer-major host planner gives exact selected/conservative request-arena requirements | Default admission/reservation, model-plus-sidecar whole-process capacity, cancellation, executable target route, performance, and qualification are absent |
 | Prefill/Decode logical separation | Implemented in part | Separate phase APIs/metrics and an explicit state transition exist | Shared runner and synchronization-heavy physical plan prevent independent utilization and overlap |
-| Large-M Prefill specializations | Implemented as admissions | Native NVFP4/FP8/BF16 and Attention/GDN candidates exist in development builds | Options default off and are test-only; no unique exact release selection |
+| Layer-major C8192 candidate | Designed; supporting infrastructure implemented | Unbound 64-layer host topology/progress, workspace requirements, 17-role binding contract, and isolated NVFP4/FP8 C8192 surfaces | Every C8192 binding is unbound; no `RequestState`/runner/selector seam or complete 17-role executor exists; the candidate is not executable or selected |
+| Large-M Prefill specializations | Implemented as legacy admissions plus isolated C8192 surfaces | Native NVFP4/FP8/BF16 and Attention/GDN C512 candidates exist in development builds; isolated NVFP4/FP8 surfaces accept candidate-only C8192 panels | Existing options default off/test-only, C8192 surfaces are unbound, and no unique exact release selection exists |
 | Decode target | Directionally near target | Short API evidence reports about 104 ms TPOT | At least 10 token/s, long-output stability, and release repetition are not qualified |
 | Production accuracy | Target with partial oracles | Exact deterministic outputs are available for selected prompts/routes | No complete public capability baseline and promotion gate has passed |
 | AOT DeploymentPlan | Designed | Startup-specialization audit defines the intended mechanism | No authenticated plan artifact is loaded and attested by the default release |
@@ -78,7 +88,8 @@ unqualified production runner**.
 
 ## 4. Current API and capacity facts
 
-At `main@1d727c7`, `EvaluationServerOptions` defaults to:
+At implementation snapshot `af514ed`, `EvaluationServerOptions` still defaults
+to:
 
 - bind address `127.0.0.1`;
 - one serialized inference worker behind bounded ingress/inference queues;
@@ -92,21 +103,45 @@ inside its tile sequence. The first response header is delayed until the first
 committed token or an early error. These are honest evaluation-stage
 properties, not production API guarantees.
 
-Under the current request-state planner at chunk 512, approximate arena demand
-is:
+Under the existing request-state planner at the maximum production-route
+chunk M512, exact arena demand is:
 
-| Maximum sequence length | Planned request arena |
+| Maximum sequence length | Planned request arena bytes |
 | ---: | ---: |
-| 8,192 | 0.657 GiB |
-| 40,000 | 2.609 GiB |
-| 60,000 | 3.836 GiB |
-| 130,000 | 8.131 GiB |
+| 8,192 | 705,331,200 |
+| 40,000 | 2,801,096,704 |
+| 60,000 | 4,118,856,704 |
+| 130,000 | 8,731,016,704 |
 
 The 2 GiB default therefore fails the 40K target before performance is
 considered. Merely increasing the command-line limit is not a production
 solution: resident-weight/derived-layout footprint, transient Prefill
 workspace, thermal headroom, cancellation, queue policy, and exact API
 qualification must be planned together.
+
+The unbound layer-major workspace planner separately reports the following
+exact request-arena requirements for `AC-PREFILL-LAYERMAJOR-8K-v1`:
+
+| Prompt tokens | Caller-selected conditional profile | Conservative disjoint profile |
+| ---: | ---: | ---: |
+| 40,000 | 3,975,364,608 bytes | 5,453,731,840 bytes |
+| 60,000 | 5,496,004,608 bytes | 7,181,091,840 bytes |
+| 130,000 | 10,818,244,608 bytes | 13,226,851,840 bytes |
+
+The `selected` label in this table is a caller-selected host-planner strategy,
+not selection of an architecture candidate or production route. It assumes
+one prompt-wide hidden allocation and family-live-set overlay whose alias,
+completion-event, and legacy-route-exclusion contracts are still unbound. The
+conservative profile uses two prompt-wide hidden buffers and disjoint C8192
+families plus the legacy C512 workspace.
+
+All six request-arena values fit the planner's declared
+17,437,720,576-byte limit, but no whole-process fit follows. Resident-model and
+derived-sidecar byte requirements are absent, total whole-process bytes are
+unknown, and the planner's whole-process capacity verdict is
+`kIndeterminate`. No allocation reservation or operator binding exists, so
+this host plan is not executable and does not replace the existing M512
+admission or memory plan.
 
 ## 5. Current performance evidence and its authority
 
@@ -214,6 +249,31 @@ architecture seam. The required response is a whole prompt-span execution
 plan with explicit state semantics, residency, buffer ownership and overlap,
 not a return to unrelated kernel parameter scans.
 
+The tree at `af514ed` has implemented four non-production foundations for that
+response:
+
+- an immutable, pure-host 64-layer/C8192 topology and request-owned progress
+  model with one planned final host-state commit;
+- exact selected/conservative host workspace requirements for the target
+  buckets, while model/sidecar and whole-process capacity remain
+  indeterminate;
+- a complete 17-role typed contract whose C8192 tactic, resource, launcher,
+  and event identities and attestation remain unbound; and
+- isolated candidate-only C8192 NVFP4 and FP8 projection surfaces.
+
+None is bound to `RequestState`, the runner, or a selector. The host commit
+helper cannot mutate production request state, the binding/workspace plans
+report non-executable, and the production-route admission remains M512.
+Consequently these commits change no production performance claim.
+
+The immediate next implementation boundary is the whole-request layer-major
+host seam through `RequestState` and the runner. It must preserve fail-closed
+selection and the C512 incumbent while establishing the final-state
+transition and the attachment points for a later authenticated, fully bound
+17-role execution/deployment plan. It is not permission to call the candidate
+executable, selected, or production before those bindings and the real API
+witness exist.
+
 Unpinned or dirty experimental branches are intentionally excluded from this
 status snapshot. A candidate affects current truth only after its exact commit,
 route, numerical mode, and evidence authority are recorded; branch proximity
@@ -227,9 +287,9 @@ active dependency order and exit criteria are in
 
 | Gap | Audited state | Controlling roadmap slice |
 | --- | --- | --- |
-| Product API and long-context admission | Evaluation adapter only; 40K/60K/130K do not fit the default contract | P1 |
+| Product API and long-context admission | Configured token-ID validation and host requirement plans exist; 40K/60K/130K still do not fit or execute through the default contract | P1 |
 | Exact deliverable identity | No unique `BUILD_TESTING=OFF` release or authenticated DeploymentPlan | P2 |
-| Target-length performance and physical Prefill plan | No valid target witness; tile-major synchronization remains | P3 |
+| Target-length performance and physical Prefill plan | Unbound layer-major host contracts and isolated C8192 projection surfaces exist, but no runner/selector route or valid target witness exists; production remains tile-major M512 | P3 |
 | Accuracy, capability, stability, and release evidence | Partial deterministic oracles; no complete qualification bundle | P4 |
 | Packaging and operations | No attested install/startup/upgrade lane | P5 |
 

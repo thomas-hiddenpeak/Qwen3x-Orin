@@ -224,11 +224,12 @@ explain acceptance or rejection, but cannot select the whole architecture.
 ## 8. Designed candidate lineage: `AC-PREFILL-LAYERMAJOR-8K-v1`
 
 `AC-PREFILL-LAYERMAJOR-8K-v1` is the first complete design response to the
-repeated short-span layer traversal. Its status is **designed only**: it is not
-implemented, not executable as an `architecture_candidate` decision unit,
-not selected, and not active in production. The identifier freezes a lineage
-for later Roadmap activation; it does not open a local optimization work
-package or change the current route.
+repeated short-span layer traversal. Its status remains **designed and
+non-executable as a complete architecture candidate**: supporting host
+contracts and isolated projection surfaces now exist, but the end-to-end
+candidate is not implemented, selected, or active in production. The
+identifier freezes a lineage for Roadmap-controlled integration; it does not
+open a local optimization work package or change the current route.
 
 ### 8.1 Execution shape and progress
 
@@ -261,6 +262,15 @@ plan publishes exactly one final `PrefillStateCommitted` handoff containing
 the complete KV, GDN, position/RoPE, and next-token state. Cancellation and
 failure before that event expose no partial handoff.
 
+The current tree implements this topology as a pure-host, immutable plan for
+64 layers (48 linear-Attention and 16 full-Attention layers), at most 32
+C8192 panels, request-owned progress vectors, and one planned final host-state
+commit transition. That scaffold has no launcher, device pointer, stream,
+event, allocation, or production selector. Its commit helper deliberately
+does not call `RequestState::set_sequence_length()`, and its `executable()`
+result therefore remains false. The existing production-route admission and
+runner boundary remain public C512.
+
 ### 8.2 Indivisible composition boundary
 
 The design is complete only when one attested route composes all dominant
@@ -281,25 +291,73 @@ undeclared fallback invalidates the route rather than producing a partial
 candidate result. Buffering and overlap remain dependency-derived plan
 choices; the `C8192` name does not imply double or triple buffering by itself.
 
-### 8.3 Capacity estimate and closure gate
+The current tree also implements a typed host binding contract for exactly 17
+roles: NVFP4 Gate/Up and Down; linear-Attention FP8 QKV, Z, and O;
+full-Attention FP8 Q, K, V, and O; linear BF16 A and B; exact GDN; exact
+causal Attention; residual; normalization; embedding; and final handoff. The
+C8192 target descriptors state exact/native/AOT requirements, but every
+tactic, weight, sidecar, workspace, launcher, and completion-event identity
+remains unbound with `kUnboundDesign` attestation. The legacy inventory is
+capped at M512 and cannot satisfy the C8192 contract.
 
-The read-only design audit estimates about 1.30 GiB of C8192 temporary scratch.
-Under the current buffer semantics, rough request-arena totals are about
-5.1 GB, 7.0 GB, and 13.8 GB for 40K, 60K, and 130K respectively. They are
-arithmetically below the current approximately 17.44 GB planner constant, but
-this is **not** evidence that the model and candidate fit the device or that a
-production capacity profile exists. The estimate does not close ownership of
-canonical versus duplicated sidecars, the resident checkpoint, allocator
-fragmentation, runtime metadata, or whole-process peak memory.
+Candidate-only C8192 NVFP4 Gate/Up and Down surfaces and shape-specific FP8
+projection surfaces now exist in the kernel tree. As architecture-candidate
+assets they are completely unbound: they remain isolated from the binding
+contract's physical identities and are not connected to `RequestState`, the
+runner, or any production selector. Their presence has not widened production
+admission, changed the selected route, or produced a new production
+performance result. The remaining operator roles are likewise not composed
+into a bound layer-major executor.
 
-P1 must replace the estimate with versioned 40K/60K/130K
-`RequestMemoryPlan` entries and measured whole-process peaks. P2 must bind one
-authenticated AOT layout/sidecar ownership model, all panel workspaces, and
-the exact installed binary. Startup and admission fail closed when the
-selected bucket cannot reserve the complete plan before Prefill begins; the
-request path may not grow it.
+### 8.3 Implemented workspace requirements and capacity closure gate
 
-### 8.4 Activation and adjudication
+The current tree implements a checked, host-only workspace requirements plan.
+It neither reserves device memory nor authenticates model or sidecar
+residency. For the target buckets, its exact request-arena requirements are:
+
+| Prompt tokens | Caller-selected conditional profile | Conservative disjoint profile |
+| ---: | ---: | ---: |
+| 40,000 | 3,975,364,608 bytes | 5,453,731,840 bytes |
+| 60,000 | 5,496,004,608 bytes | 7,181,091,840 bytes |
+| 130,000 | 10,818,244,608 bytes | 13,226,851,840 bytes |
+
+Here `selected` means only the pair of strategies explicitly supplied to the
+host planner: one prompt-wide hidden buffer under an unbound panelwise
+in-place contract, plus sequential C8192 family-live-set overlay under
+unbound completion and legacy-route-exclusion contracts. It does **not** mean
+that the architecture candidate, a tactic, or a production route has been
+selected. The conservative profile uses two disjoint prompt-wide hidden
+buffers and keeps every C8192 family plus the legacy C512 workspace disjoint.
+
+Both profiles for all three buckets fit the planner's declared
+17,437,720,576-byte request-arena limit. This is only a request-arena verdict.
+The planner intentionally leaves resident-model bytes, derived-sidecar bytes,
+and total whole-process required bytes absent, and reports whole-process
+capacity as `kIndeterminate`. Allocation reservations, alias/event contracts,
+and operator bindings are also unbound, so the workspace plan's
+`executable()` result remains false. These values are **not** evidence that
+the model plus candidate fit the device or that a production capacity profile
+exists; allocator fragmentation, runtime metadata, and measured
+whole-process peak memory remain open.
+
+P1 must turn these host requirements into versioned 40K/60K/130K
+`RequestMemoryPlan` reservations and measured whole-process peaks. P2 must
+bind one authenticated AOT layout/sidecar ownership model, all panel
+workspaces, and the exact installed binary. Startup and admission fail closed
+when the selected bucket cannot reserve the complete plan before Prefill
+begins; the request path may not grow it.
+
+### 8.4 Next integration seam, activation, and adjudication
+
+The immediate integration slice is a whole-request, layer-major host seam
+that connects the immutable topology, request-owned progress, workspace
+requirements, and 17-role contract to `RequestState` and the runner. It must
+retain fail-closed selection, preserve the existing C512 production route,
+and make the single final state transition explicit. A host seam alone does
+not make the candidate executable: a later bound execution/deployment plan
+must authenticate artifacts and bind typed launchers, resources, streams,
+events, reservations, and the complete 17-role route before any selector may
+admit it.
 
 The Roadmap may activate this lineage only after its P1/P2 prerequisites are
 closed and after naming bounded local work packages for the mutually dependent

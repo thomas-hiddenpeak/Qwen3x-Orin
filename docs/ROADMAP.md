@@ -161,22 +161,48 @@ Selection sequence:
 6. Qualify a positive composition, or close/redesign a negative architecture
    version after at most one bounded causal profile.
 
-Prepared architecture design (not yet activated):
+Prepared architecture lineage and implemented unbound prerequisites (not yet
+executable or activated):
 
-- `AC-PREFILL-LAYERMAJOR-8K-v1` is designed but not implemented, executable,
-  selected, or active in production. P1 target-capacity closure and the P2
-  authenticated release-plan boundary remain prerequisites to activation.
+- `AC-PREFILL-LAYERMAJOR-8K-v1` is designed but not implemented as a complete
+  candidate, executable, selected, or active in production. P1
+  target-capacity closure and the P2 authenticated release-plan boundary
+  remain prerequisites to activation.
 - It replaces repeated public C512 full-model walks with one whole-request
   layer-major pass and bounded C8192 operator panels. `C8192` is internal
   scheduling capacity, not a public tile or partial state-commit boundary.
+- A pure-host topology/progress scaffold now expresses the 64-layer pass,
+  ordered C8192 panels, exact KV/GDN progress domains, and one planned final
+  host-state commit. It has no launcher, device resource, allocation,
+  `RequestState` mutation, runner connection, or selector, so it cannot
+  execute.
 - The composition boundary includes shape-specific NVFP4 Gate/Up and Down,
   FP8 projections, exact causal Attention/KV progress, exact GDN/SSM progress,
   residual/layout consumers, and one final `PrefillStateCommitted` event. No
   isolated subset may claim the candidate result.
-- The design audit estimates about 1.30 GiB of panel scratch and rough request
-  arenas of 5.1/7.0/13.8 GB for 40K/60K/130K under current buffer semantics.
-  These are planning estimates only; P1/P2 `RequestMemoryPlan`, AOT layout
-  ownership, and measured whole-process peak memory must prove capacity.
+- The implemented host workspace planner reports exact request-arena bytes:
+
+  | Prompt tokens | Caller-selected conditional profile | Conservative disjoint profile |
+  | ---: | ---: | ---: |
+  | 40,000 | 3,975,364,608 | 5,453,731,840 |
+  | 60,000 | 5,496,004,608 | 7,181,091,840 |
+  | 130,000 | 10,818,244,608 | 13,226,851,840 |
+
+  `selected` here names only the caller's explicit host-planner strategies; it
+  is not architecture or production selection. All rows fit the declared
+  17,437,720,576-byte request-arena limit, but model bytes, sidecar bytes, and
+  total whole-process bytes remain unknown, so whole-process capacity is
+  `kIndeterminate` and no reservation or executable memory plan exists.
+- A 17-role typed binding contract and isolated C8192 NVFP4/FP8 projection
+  surfaces now exist. As candidate assets they are completely unbound: all
+  C8192 tactics, artifacts, workspaces, launchers, and completion events remain
+  unbound; the surfaces are not connected to the runner or selector and have
+  not changed production performance. The legacy production-route admission
+  remains M512.
+- The immediate implementation slice is the whole-request layer-major host
+  seam through `RequestState` and the runner. It must preserve fail-closed
+  selection and the C512 incumbent while preparing a later authenticated,
+  fully bound 17-role execution/deployment plan.
 - Once executable, it is selected or rejected only by the clean-host exact
   40K/60K/approximately-130K real-Agent API witnesses against the cumulative
   native incumbent. No panel throughput or component profile is a substitute.
