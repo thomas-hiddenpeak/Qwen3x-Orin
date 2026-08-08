@@ -66,7 +66,8 @@ enum class OpenAIFinishReason : std::uint8_t {
 
 [[nodiscard]] OpenAIParseResult parse_openai_request(
     std::string_view body, OpenAIEndpoint endpoint,
-    std::string_view served_model, std::uint32_t maximum_output_tokens);
+    std::string_view served_model, std::uint32_t maximum_output_tokens,
+    std::uint32_t maximum_sequence_length);
 
 [[nodiscard]] std::string serialize_openai_error(
     const OpenAIProtocolError& error);

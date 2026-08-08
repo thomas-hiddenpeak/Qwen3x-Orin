@@ -3737,6 +3737,26 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
     return result;
   }
 
+  std::uint64_t required_steps = 0U;
+  if (!checked_required_steps(prompt_token_ids.size(),
+                              options.max_new_tokens,
+                              required_steps)) {
+    result.diagnostic = engine_diagnostic(
+        ReferenceEngineError::kArithmeticOverflow, "request_capacity",
+        "prompt plus requested output overflows the sequence length");
+    return result;
+  }
+  if (required_steps > impl_->request_state->max_sequence_length()) {
+    result.diagnostic = engine_diagnostic(
+        ReferenceEngineError::kCapacityExceeded, "request_capacity",
+        "prompt tokens plus requested output exceed the configured sequence "
+        "capacity",
+        "required_steps=" + std::to_string(required_steps) +
+            " capacity=" + std::to_string(
+                impl_->request_state->max_sequence_length()));
+    return result;
+  }
+
   try {
 
     const ReferenceRunnerStatus reset = impl_->runner->reset();

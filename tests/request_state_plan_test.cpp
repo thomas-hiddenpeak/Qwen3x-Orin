@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <iostream>
 #include <limits>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -66,11 +67,11 @@ void test_default_exact_plan(TestContext& test) {
     test.expect(plan.persistent_offset == 0U &&
                     plan.persistent_bytes == 86'835'200U &&
                     plan.workspace_offset == 86'835'200U &&
-                    plan.workspace_bytes == 1'163'776U &&
-                    plan.rope_offset == 87'998'976U &&
+                    plan.workspace_bytes == 1'219'072U &&
+                    plan.rope_offset == 88'054'272U &&
                     plan.rope_bytes == 32'768U &&
                     plan.arena_bytes == runtime::kDefaultRequestArenaBytes &&
-                    plan.arena_bytes == 88'031'744U,
+                    plan.arena_bytes == 88'087'040U,
                 "default persistent/workspace/RoPE/arena bytes are exact");
     test.expect(plan.conv_state.arena_offset == 0U &&
                     plan.gdn_state.arena_offset == 2'949'120U,
@@ -113,8 +114,8 @@ void test_default_exact_plan(TestContext& test) {
                     plan.linear_a_bf16.arena_offset == 87'005'184U &&
                     plan.linear_b_bf16.arena_offset == 87'005'440U,
                 "linear a/b have independent 48-element BF16 buffers");
-    test.expect(plan.fp32_scratch.element_capacity == 248'320U &&
-                    plan.fp32_scratch.byte_size == 993'280U &&
+    test.expect(plan.fp32_scratch.element_capacity == 262'144U &&
+                    plan.fp32_scratch.byte_size == 1'048'576U &&
                     plan.fp32_scratch.arena_offset == 87'005'696U &&
                     plan.gqa_probability_scratch.element_capacity == 3'072U &&
                     plan.gqa_probability_scratch.byte_size == 12'288U &&
@@ -125,8 +126,8 @@ void test_default_exact_plan(TestContext& test) {
                     plan.rope_sin_fp32.element_capacity == 4'096U &&
                     plan.rope_cos_fp32.byte_size == 16'384U &&
                     plan.rope_sin_fp32.byte_size == 16'384U &&
-                    plan.rope_cos_fp32.arena_offset == 87'998'976U &&
-                    plan.rope_sin_fp32.arena_offset == 88'015'360U,
+                    plan.rope_cos_fp32.arena_offset == 88'054'272U &&
+                    plan.rope_sin_fp32.arena_offset == 88'070'656U,
                 "default RoPE cache has [128,32] FP32 storage per table");
 }
 
@@ -149,10 +150,10 @@ void test_prefill_chunk_layout(TestContext& test) {
                     plan.persistent_offset == 0U &&
                     plan.persistent_bytes == 86'835'200U &&
                     plan.workspace_offset == 86'835'200U &&
-                    plan.workspace_bytes == 2'354'688U &&
-                    plan.rope_offset == 89'189'888U &&
+                    plan.workspace_bytes == 2'409'984U &&
+                    plan.rope_offset == 89'245'184U &&
                     plan.rope_bytes == 32'768U &&
-                    plan.arena_bytes == 89'222'656U &&
+                    plan.arena_bytes == 89'277'952U &&
                     plan.arena_bytes - baseline.arena_bytes == 1'190'912U,
                 "chunk-eight workspace and arena totals are byte-exact");
 
@@ -205,8 +206,8 @@ void test_prefill_chunk_layout(TestContext& test) {
                     plan.gqa_probability_scratch.element_capacity ==
                         baseline.gqa_probability_scratch.element_capacity,
                 "chunk-eight leaves FP32 and GQA scratch capacities unchanged");
-    test.expect(plan.rope_cos_fp32.arena_offset == 89'189'888U &&
-                    plan.rope_sin_fp32.arena_offset == 89'206'272U &&
+    test.expect(plan.rope_cos_fp32.arena_offset == 89'245'184U &&
+                    plan.rope_sin_fp32.arena_offset == 89'261'568U &&
                     plan.rope_cos_fp32.byte_size ==
                         baseline.rope_cos_fp32.byte_size &&
                     plan.rope_sin_fp32.byte_size ==
@@ -237,10 +238,10 @@ void test_prefill_chunk_sixteen_layout(TestContext& test) {
                     plan.persistent_offset == 0U &&
                     plan.persistent_bytes == 86'835'200U &&
                     plan.workspace_offset == 86'835'200U &&
-                    plan.workspace_bytes == 3'716'096U &&
-                    plan.rope_offset == 90'551'296U &&
+                    plan.workspace_bytes == 3'771'392U &&
+                    plan.rope_offset == 90'606'592U &&
                     plan.rope_bytes == 32'768U &&
-                    plan.arena_bytes == 90'584'064U &&
+                    plan.arena_bytes == 90'639'360U &&
                     plan.arena_bytes - baseline.arena_bytes == 2'552'320U,
                 "chunk-sixteen workspace and arena totals are byte-exact");
 
@@ -295,8 +296,8 @@ void test_prefill_chunk_sixteen_layout(TestContext& test) {
                     plan.gqa_probability_scratch.element_capacity ==
                         baseline.gqa_probability_scratch.element_capacity,
                 "chunk-sixteen leaves FP32 and GQA scratch capacities unchanged");
-    test.expect(plan.rope_cos_fp32.arena_offset == 90'551'296U &&
-                    plan.rope_sin_fp32.arena_offset == 90'567'680U &&
+    test.expect(plan.rope_cos_fp32.arena_offset == 90'606'592U &&
+                    plan.rope_sin_fp32.arena_offset == 90'622'976U &&
                     plan.rope_cos_fp32.byte_size ==
                         baseline.rope_cos_fp32.byte_size &&
                     plan.rope_sin_fp32.byte_size ==
@@ -327,10 +328,10 @@ void test_prefill_chunk_thirty_two_layout(TestContext& test) {
                     plan.persistent_offset == 0U &&
                     plan.persistent_bytes == 86'835'200U &&
                     plan.workspace_offset == 86'835'200U &&
-                    plan.workspace_bytes == 6'438'912U &&
-                    plan.rope_offset == 93'274'112U &&
+                    plan.workspace_bytes == 6'494'208U &&
+                    plan.rope_offset == 93'329'408U &&
                     plan.rope_bytes == 32'768U &&
-                    plan.arena_bytes == 93'306'880U &&
+                    plan.arena_bytes == 93'362'176U &&
                     plan.arena_bytes - baseline.arena_bytes == 5'275'136U,
                 "chunk-thirty-two workspace and arena totals are byte-exact");
 
@@ -385,8 +386,8 @@ void test_prefill_chunk_thirty_two_layout(TestContext& test) {
                     plan.gqa_probability_scratch.element_capacity ==
                         baseline.gqa_probability_scratch.element_capacity,
                 "chunk-thirty-two leaves FP32 and GQA scratch capacities unchanged");
-    test.expect(plan.rope_cos_fp32.arena_offset == 93'274'112U &&
-                    plan.rope_sin_fp32.arena_offset == 93'290'496U &&
+    test.expect(plan.rope_cos_fp32.arena_offset == 93'329'408U &&
+                    plan.rope_sin_fp32.arena_offset == 93'345'792U &&
                     plan.rope_cos_fp32.byte_size ==
                         baseline.rope_cos_fp32.byte_size &&
                     plan.rope_sin_fp32.byte_size ==
@@ -417,10 +418,10 @@ void test_prefill_chunk_sixty_four_layout(TestContext& test) {
                     plan.persistent_offset == 0U &&
                     plan.persistent_bytes == 86'835'200U &&
                     plan.workspace_offset == 86'835'200U &&
-                    plan.workspace_bytes == 11'884'544U &&
-                    plan.rope_offset == 98'719'744U &&
+                    plan.workspace_bytes == 11'939'840U &&
+                    plan.rope_offset == 98'775'040U &&
                     plan.rope_bytes == 32'768U &&
-                    plan.arena_bytes == 98'752'512U &&
+                    plan.arena_bytes == 98'807'808U &&
                     plan.arena_bytes - baseline.arena_bytes == 10'720'768U,
                 "chunk-sixty-four workspace and arena totals are byte-exact");
 
@@ -456,8 +457,8 @@ void test_prefill_chunk_sixty_four_layout(TestContext& test) {
                         baseline.fp32_scratch.byte_size &&
                     plan.fp32_scratch.element_capacity ==
                         baseline.fp32_scratch.element_capacity &&
-                    plan.rope_cos_fp32.arena_offset == 98'719'744U &&
-                    plan.rope_sin_fp32.arena_offset == 98'736'128U,
+                    plan.rope_cos_fp32.arena_offset == 98'775'040U &&
+                    plan.rope_sin_fp32.arena_offset == 98'791'424U,
                 "chunk-sixty-four leaves FP32 capacity fixed and advances RoPE exactly");
 }
 
@@ -481,18 +482,18 @@ void test_prefill_chunk_large_layout(TestContext& test) {
     test.expect(plan256.prefill_chunk_size == 256U &&
                     plan256.persistent_bytes == 86'835'200U &&
                     plan256.workspace_offset == 86'835'200U &&
-                    plan256.workspace_bytes == 44'558'336U &&
-                    plan256.rope_offset == 131'393'536U &&
+                    plan256.workspace_bytes == 44'613'632U &&
+                    plan256.rope_offset == 131'448'832U &&
                     plan256.rope_bytes == 32'768U &&
-                    plan256.arena_bytes == 131'426'304U,
+                    plan256.arena_bytes == 131'481'600U,
                 "C256 canary workspace and arena totals are byte-exact");
     test.expect(plan512.prefill_chunk_size == 512U &&
                     plan512.persistent_bytes == 86'835'200U &&
                     plan512.workspace_offset == 86'835'200U &&
-                    plan512.workspace_bytes == 88'123'392U &&
-                    plan512.rope_offset == 174'958'592U &&
+                    plan512.workspace_bytes == 88'178'688U &&
+                    plan512.rope_offset == 175'013'888U &&
                     plan512.rope_bytes == 32'768U &&
-                    plan512.arena_bytes == 174'991'360U,
+                    plan512.arena_bytes == 175'046'656U,
                 "public C512 workspace and arena totals are byte-exact");
 
     test.expect(plan256.hidden_bf16[0U].element_capacity == 1'310'720U &&
@@ -510,12 +511,12 @@ void test_native_only_c512_layout(TestContext& test) {
     runtime::RequestMemoryOptions options;
     options.prefill_chunk_size = 512U;
     options.max_sequence_length = 512U;
-    options.max_arena_bytes = 200'255'488U;
+    options.max_arena_bytes = 200'310'784U;
     const runtime::RequestPlanResult c512 =
         runtime::build_request_memory_plan(options);
 
     options.max_sequence_length = 1'024U;
-    options.max_arena_bytes = 233'940'992U;
+    options.max_arena_bytes = 233'996'288U;
     const runtime::RequestPlanResult c512_1024 =
         runtime::build_request_memory_plan(options);
 
@@ -529,27 +530,113 @@ void test_native_only_c512_layout(TestContext& test) {
     const runtime::RequestMemoryPlan& plan1024 = *c512_1024.value;
     test.expect(plan.persistent_bytes == 112'001'024U &&
                     plan.workspace_offset == 112'001'024U &&
-                    plan.workspace_bytes == 88'123'392U &&
-                    plan.rope_offset == 200'124'416U &&
+                    plan.workspace_bytes == 88'178'688U &&
+                    plan.rope_offset == 200'179'712U &&
                     plan.rope_bytes == 131'072U &&
-                    plan.arena_bytes == 200'255'488U,
+                    plan.arena_bytes == 200'310'784U,
                 "C512 maxseq-512 has the exact self-hosted arena layout");
     test.expect(plan1024.persistent_bytes == 145'555'456U &&
                     plan1024.workspace_offset == 145'555'456U &&
-                    plan1024.workspace_bytes == 88'123'392U &&
-                    plan1024.rope_offset == 233'678'848U &&
+                    plan1024.workspace_bytes == 88'178'688U &&
+                    plan1024.rope_offset == 233'734'144U &&
                     plan1024.rope_bytes == 262'144U &&
-                    plan1024.arena_bytes == 233'940'992U,
+                    plan1024.arena_bytes == 233'996'288U,
                 "C512 maxseq-1024 keeps no canonical BF16 weight scratch");
 
     options.max_sequence_length = 512U;
-    options.max_arena_bytes = 200'255'487U;
+    options.max_arena_bytes = 200'310'783U;
     const runtime::RequestPlanResult one_byte_short =
         runtime::build_request_memory_plan(options);
     test.expect(!one_byte_short &&
                     one_byte_short.diagnostic.code ==
                         runtime::RequestErrorCode::kArenaLimitExceeded,
                 "native-only C512 arena bound remains fail-closed");
+}
+
+void test_target_length_capacity_plans(TestContext& test) {
+    struct TargetCapacityCase {
+        std::uint32_t sequence_length;
+        std::uint64_t persistent_bytes;
+        std::uint64_t workspace_bytes;
+        std::uint64_t rope_bytes;
+        std::uint64_t arena_bytes;
+    };
+    constexpr TargetCapacityCase cases[] = {
+        {40'000U, 2'699'886'592ULL, 90'970'112U, 10'240'000U,
+         2'801'096'704ULL},
+        {60'000U, 4'010'606'592ULL, 92'890'112U, 15'360'000U,
+         4'118'856'704ULL},
+        {130'000U, 8'598'126'592ULL, 99'610'112U, 33'280'000U,
+         8'731'016'704ULL},
+        {131'072U, 8'668'381'184ULL, 99'713'024U, 33'554'432U,
+         8'801'648'640ULL},
+    };
+
+    runtime::RequestMemoryOptions default_cap;
+    default_cap.prefill_chunk_size =
+        runtime::kMaximumRequestPrefillChunkSize;
+    default_cap.max_sequence_length = cases[0U].sequence_length;
+    const runtime::RequestPlanResult default_cap_result =
+        runtime::build_request_memory_plan(default_cap);
+    test.expect(!default_cap_result &&
+                    default_cap_result.diagnostic.code ==
+                        runtime::RequestErrorCode::kArenaLimitExceeded,
+                "the default 2-GiB arena cap fails closed for 40K C512");
+
+    for (const TargetCapacityCase& target : cases) {
+        runtime::RequestMemoryOptions options;
+        options.prefill_chunk_size =
+            runtime::kMaximumRequestPrefillChunkSize;
+        options.max_sequence_length = target.sequence_length;
+        options.max_arena_bytes = target.arena_bytes;
+        const runtime::RequestPlanResult exact =
+            runtime::build_request_memory_plan(options);
+        test.expect(static_cast<bool>(exact),
+                    "target-length C512 plan fits its byte-exact arena cap");
+        if (!exact) {
+            continue;
+        }
+
+        const runtime::RequestMemoryPlan& plan = *exact.value;
+        const std::uint64_t kv_elements =
+            static_cast<std::uint64_t>(target.sequence_length) * 4U * 256U;
+        const std::uint64_t probability_elements =
+            static_cast<std::uint64_t>(target.sequence_length) * 24U;
+        const std::uint64_t rope_elements =
+            static_cast<std::uint64_t>(target.sequence_length) * 32U;
+        test.expect(plan.max_sequence_length == target.sequence_length &&
+                        plan.prefill_chunk_size ==
+                            runtime::kMaximumRequestPrefillChunkSize &&
+                        plan.persistent_bytes == target.persistent_bytes &&
+                        plan.workspace_bytes == target.workspace_bytes &&
+                        plan.rope_bytes == target.rope_bytes &&
+                        plan.arena_bytes == target.arena_bytes,
+                    "target-length C512 aggregate capacities are byte-exact");
+        test.expect(plan.key_cache.front().element_capacity == kv_elements &&
+                        plan.key_cache.back().element_capacity == kv_elements &&
+                        plan.value_cache.front().element_capacity ==
+                            kv_elements &&
+                        plan.value_cache.back().element_capacity ==
+                            kv_elements &&
+                        plan.fp32_scratch.element_capacity ==
+                            probability_elements &&
+                        plan.gqa_probability_scratch.element_capacity ==
+                            probability_elements &&
+                        plan.rope_cos_fp32.element_capacity == rope_elements &&
+                        plan.rope_sin_fp32.element_capacity == rope_elements,
+                    "target-length KV, attention scratch, and RoPE capacities "
+                    "consume the full prompt");
+
+        options.max_arena_bytes = target.arena_bytes - 1U;
+        const runtime::RequestPlanResult one_byte_short =
+            runtime::build_request_memory_plan(options);
+        test.expect(!one_byte_short &&
+                        one_byte_short.diagnostic.code ==
+                            runtime::RequestErrorCode::kArenaLimitExceeded &&
+                        one_byte_short.diagnostic.actual ==
+                            std::to_string(target.arena_bytes),
+                    "target-length planner rejects an arena cap one byte short");
+    }
 }
 
 void test_alignment_non_overlap_and_schedule(TestContext& test) {
@@ -636,9 +723,9 @@ void test_minimum_maximum_and_bad_options(TestContext& test) {
     runtime::RequestMemoryOptions options;
     options.max_sequence_length = 1U;
     auto result = runtime::build_request_memory_plan(options);
-    test.expect(result && result.value->arena_bytes == 79'676'416U &&
+    test.expect(result && result.value->arena_bytes == 79'731'712U &&
                     result.value->persistent_bytes == 78'512'128U &&
-                    result.value->workspace_bytes == 1'163'776U &&
+                    result.value->workspace_bytes == 1'219'072U &&
                     result.value->rope_bytes == 512U,
                 "single-position plan includes checked RoPE alignment padding");
 
@@ -737,6 +824,7 @@ int main() {
     test_prefill_chunk_sixty_four_layout(test);
     test_prefill_chunk_large_layout(test);
     test_native_only_c512_layout(test);
+    test_target_length_capacity_plans(test);
     test_alignment_non_overlap_and_schedule(test);
     test_minimum_maximum_and_bad_options(test);
     if (test.failures() != 0) {

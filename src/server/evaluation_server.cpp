@@ -1077,7 +1077,8 @@ void handle_connection(
         request.body,
         chat ? OpenAIEndpoint::kChatCompletions
              : OpenAIEndpoint::kCompletions,
-        options.served_model, options.maximum_output_tokens);
+        options.served_model, options.maximum_output_tokens,
+        options.max_sequence_length);
     if (!parsed) {
       if (!send_fixed_response(connection.get(), parsed.error.http_status,
                                serialize_openai_error(parsed.error),

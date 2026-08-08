@@ -246,17 +246,29 @@ OpenAIParseResult parse_prompt(const json::Value& value,
 OpenAIParseResult parse_openai_request(
     const std::string_view body, const OpenAIEndpoint endpoint,
     const std::string_view served_model,
-    const std::uint32_t maximum_output_tokens) {
-  if (served_model.empty() || maximum_output_tokens == 0U) {
+    const std::uint32_t maximum_output_tokens,
+    const std::uint32_t maximum_sequence_length) {
+  if (served_model.empty() || maximum_output_tokens == 0U ||
+      maximum_sequence_length == 0U ||
+      maximum_sequence_length > runtime::kAbsoluteRequestMaxSequenceLength) {
     return failure("server_configuration_error",
-                   "served model and output limit are not configured", {},
-                   500);
+                   "served model, output limit, and sequence capacity are "
+                   "not configured",
+                   {}, 500);
   }
   json::ParseOptions parse_options;
   parse_options.max_input_bytes = 4U * 1024U * 1024U;
   parse_options.max_nesting_depth = 32U;
-  parse_options.max_values = 100'000U;
-  parse_options.max_container_items = 100'000U;
+  // One exact token-id prompt contributes one JSON value and one container
+  // item per admitted token. Keep a small bounded allowance for the root
+  // request, protocol fields, and chat-message structure. This makes the JSON
+  // budget follow the configured request capacity instead of silently making
+  // 100K the protocol ceiling for a runner that admits up to 262,144 steps.
+  constexpr std::size_t kProtocolValueAllowance = 256U;
+  parse_options.max_values =
+      static_cast<std::size_t>(maximum_sequence_length) +
+      kProtocolValueAllowance;
+  parse_options.max_container_items = parse_options.max_values;
   json::ParseResult parsed = json::parse(body, parse_options);
   if (!parsed) {
     return failure("invalid_json", "request body is not valid bounded JSON");
@@ -339,6 +351,19 @@ OpenAIParseResult parse_openai_request(
                    "max_tokens must be within the configured positive limit",
                    max_tokens != nullptr ? "max_tokens"
                                          : "max_completion_tokens");
+  }
+
+  if (request.prompt_kind == OpenAIPromptKind::kTokenIds) {
+    const std::uint64_t required_steps =
+        static_cast<std::uint64_t>(request.prompt_token_ids.size()) +
+        static_cast<std::uint64_t>(request.max_tokens) - 1U;
+    if (required_steps > maximum_sequence_length) {
+      return failure(
+          "context_length_exceeded",
+          "prompt tokens plus requested output exceed the configured "
+          "sequence capacity",
+          "prompt");
+    }
   }
 
   const json::Value* const temperature = parsed.value->find("temperature");

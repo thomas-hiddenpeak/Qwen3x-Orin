@@ -163,11 +163,11 @@ void test_create_views_rope_and_reset(TestContext& test) {
                     linear_b.value->element_capacity == 48U &&
                     linear_a.value->device_data != linear_b.value->device_data,
                 "hidden/projection and independent linear a/b views are exact");
-    test.expect(fp32 && fp32.value->element_capacity == 248'320U &&
+    test.expect(fp32 && fp32.value->element_capacity == 262'144U &&
                     probabilities &&
                     probabilities.value->element_capacity == 96U &&
                     fp32.value->device_data == probabilities.value->device_data,
-                "small GQA scratch explicitly aliases the 248320 FP32 scratch");
+                "small GQA scratch explicitly aliases the 262144 FP32 scratch");
     test.expect(!state.hidden_buffer(3U) &&
                     state.hidden_buffer(3U).error ==
                         runtime::RequestAccessError::kInvalidBufferIndex &&
