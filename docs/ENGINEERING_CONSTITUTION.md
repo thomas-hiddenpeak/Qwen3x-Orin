@@ -15,6 +15,37 @@ and how conflicting observations must influence the work. A project-owner
 observation can therefore set priority and a target without automatically
 becoming release-grade published evidence.
 
+## 0. Project mission and paradigm
+
+1. Qwen3x-Orin is not merely a one-off Orin engine or a collection of fast
+   kernels. It explores and documents a repeatable engineering paradigm for a
+   **specialized model, specialized numerical format, specialized hardware,
+   and specialized runner**.
+2. The pinned Qwen3.6/NVFP4/SM87 target is the concrete proof vehicle. The
+   runner may deliberately give up general model and hardware compatibility to
+   co-design weight representation, kernel dataflow, state ownership, memory
+   lifetime, scheduling, API evaluation, and deployment. The reusable product
+   is the method and evidence chain; the production binary need not be
+   universal.
+3. Matching vLLM is the minimum viability boundary for this proof, not its
+   terminal ambition. A general engine that remains faster on the same useful
+   workload indicates an unresolved specialized-runner design problem.
+4. The project-owner's Qwen35-Thor work with GitHub Copilot and Opus is an
+   established precedent for both the technical paradigm and productive
+   human--AI engineering. It is relevant project evidence, not an incidental
+   anecdote.
+5. The collaboration process is itself part of the practice being evaluated.
+   An engineering agent is expected to preserve owner intent across context
+   changes, study proven implementations, reason at whole-system level,
+   implement and validate autonomously, distinguish experiments from
+   production, and deliver tracked commits. Repeatedly forcing the owner to
+   re-establish accepted goals, defend production observations, or supervise
+   local optimization choices is a process failure.
+6. Source review, profiler evidence, and external frameworks serve this
+   mission by exposing transferable mechanisms and validating the completed
+   runner. They are not authorities that outrank project-owner knowledge or
+   substitutes for engineering judgment.
+
 ## 1. Trust and planning authority
 
 1. A direct project-owner statement about observed production behavior,
@@ -177,3 +208,8 @@ specialization to exceed that general engine while preserving accuracy.
   evaluation; vLLM as the starting-line existence proof; architecture-first
   response to large gaps; accuracy, non-MTP, and cuBLASLt boundaries; claim
   discipline; and the 40K--60K/130K long-context Prefill targets.
+- **2026-08-09:** Project-owner mission clarification. The primary project is
+  the reproducible specialized-model/specialized-hardware/specialized-runner
+  paradigm, with Qwen3.6/NVFP4/Orin as its proof vehicle and Qwen35-Thor as an
+  established human--AI engineering precedent. The method should transfer;
+  the binary is not required to be general.
