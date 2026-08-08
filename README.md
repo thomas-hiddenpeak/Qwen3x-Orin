@@ -857,6 +857,17 @@ The vLLM reproduction utility is
 
 ## Engineering rules
 
+- The [engineering constitution](docs/ENGINEERING_CONSTITUTION.md) is the
+  normative planning and continuity contract. Every performance contributor
+  must read it after a handoff or context reset; older local measurements may
+  not silently lower its owner-supplied product targets.
+- Real Agent/API behavior decides roadmap direction first. EvalScope, engine
+  timers, real-weight component cells, and NSys/NCU then provide progressively
+  narrower reproducibility and attribution; a lower-level result cannot
+  override the product observation without a same-workload reconciliation.
+- Proven vLLM behavior on the target model and Orin is the starting-line
+  existence proof. Large gaps require architecture/dataflow alignment with
+  vLLM, FlashInfer, Triton, FLA, and Mamba before local parameter scanning.
 - Correctness precedes optimization. Every optimized kernel must have a simple
   reference implementation and a numerical comparison test.
 - Quantization metadata is parsed from the checkpoint; shape or scale policy
@@ -866,6 +877,8 @@ The vLLM reproduction utility is
 - Unsupported model revisions and tensor layouts fail with actionable errors.
 - Performance claims must include the model revision, context length, batch,
   power mode, clocks, JetPack/CUDA version, and measured memory use.
+- Production mainline work may not trade accuracy for speed, and MTP may not
+  satisfy the current Prefill or Decode target. cuBLASLt remains reference-only.
 
 ## Sources and licensing
 

@@ -4,6 +4,16 @@ Status: evaluation gateway implemented; first external performance direction
 baseline complete; release-grade repetition and a valid public capability
 score remain pending.
 
+Governing update, 2026-08-09: EvalScope is one product-facing observation
+surface, not the sole definition of real Prefill. Under the
+[engineering constitution](ENGINEERING_CONSTITUTION.md), confirmed cold/no-cache
+Agent API behavior is an authoritative planning input. A short-prompt
+EvalScope corpus, P513 timer, logger-window statistic, or unmatched endpoint
+cannot invalidate the 40K--60K and 130K long-context targets. Conflicts trigger
+same-workload protocol/configuration reconciliation; they do not lower the
+goal. Candidate direction is checked on the closest real API path first, then
+qualified statistically and attributed internally.
+
 The project judges architecture work in the closest practical whole-product
 path first: a pinned real checkpoint, public OpenAI request semantics,
 [EvalScope](https://github.com/modelscope/evalscope), real prompt
@@ -69,6 +79,10 @@ vllm serve MODEL_DIR \
   --generation-config vllm \
   --default-chat-template-kwargs '{"enable_thinking":false}'
 ```
+
+This retained 4K-limited configuration and its 20--1,160-token corpus are
+historical directional evidence only. They do not represent the current
+long-context Agent target or bound vLLM's achievable Prefill performance.
 
 ## Pinned performance workload
 
