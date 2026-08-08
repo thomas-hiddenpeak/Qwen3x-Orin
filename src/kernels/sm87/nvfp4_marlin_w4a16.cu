@@ -22,6 +22,49 @@ constexpr int kThreadKBlocks = 4;
 constexpr int kStages = 4;
 constexpr int kGroupBlocks = 1;
 constexpr int kGroupSize = 16;
+
+// The vendored kernel accepts int MNK/lda and internally forms int tile
+// indices. The wrapper caps prob_m at the frozen host's M1024 boundary; panel
+// offsets remain host-side size_t pointer arithmetic. These compile-time
+// bounds cover the larger Gate+Up output and the larger Down input.
+static_assert(kSm87NvFp4MarlinMaximumKernelSegmentTokens <=
+              static_cast<std::size_t>(std::numeric_limits<int>::max()));
+static_assert(kSm87NvFp4MarlinMaximumOperatorPanelTokens <=
+              static_cast<std::size_t>(
+                  std::numeric_limits<std::ptrdiff_t>::max()) /
+                  kSm87NvFp4MarlinGateUpOutput);
+static_assert(kSm87NvFp4MarlinMaximumOperatorPanelTokens <=
+              static_cast<std::size_t>(
+                  std::numeric_limits<std::ptrdiff_t>::max()) /
+                  kSm87NvFp4MarlinIntermediate);
+static_assert(kSm87NvFp4MarlinLockBytes ==
+              kSm87NvFp4MarlinSmCount * sizeof(std::int32_t));
+static_assert(kSm87NvFp4MarlinReductionElements ==
+              kSm87NvFp4MarlinSmCount * kSm87NvFp4MarlinThreadM *
+                  kSm87NvFp4MarlinThreadN);
+inline constexpr std::size_t kMaximumKernelParallel =
+    kSm87NvFp4MarlinMaximumKernelSegmentTokens /
+    kSm87NvFp4MarlinM64Tokens;
+inline constexpr std::size_t kMaximumParId = kMaximumKernelParallel - 1U;
+// A/C are int4-addressed inside Marlin. The largest per-launch base offsets
+// occur at the last M64 parallel panel. The scheduler's largest work products
+// are Gate+Up's N tiles and Down's K tiles; both stay in signed-int range.
+static_assert((kSm87NvFp4MarlinM64Tokens / 8U) * kMaximumParId *
+                  kSm87NvFp4MarlinGateUpOutput <=
+              static_cast<std::size_t>(std::numeric_limits<int>::max()));
+static_assert((kSm87NvFp4MarlinM64Tokens / 8U) * kMaximumParId *
+                  kSm87NvFp4MarlinIntermediate <=
+              static_cast<std::size_t>(std::numeric_limits<int>::max()));
+static_assert(kMaximumKernelParallel *
+                  (kSm87NvFp4MarlinGateUpOutput /
+                   kSm87NvFp4MarlinThreadN) *
+                  (kSm87NvFp4MarlinHidden / kSm87NvFp4MarlinThreadK) <=
+              static_cast<std::size_t>(std::numeric_limits<int>::max()));
+static_assert(kMaximumKernelParallel *
+                  (kSm87NvFp4MarlinHidden / kSm87NvFp4MarlinThreadN) *
+                  (kSm87NvFp4MarlinIntermediate /
+                   kSm87NvFp4MarlinThreadK) <=
+              static_cast<std::size_t>(std::numeric_limits<int>::max()));
 [[nodiscard]] bool aligned(const void* const pointer,
                            const std::size_t alignment) noexcept {
   return pointer != nullptr &&
@@ -380,7 +423,7 @@ template <bool FusedGateUp>
       !aligned(output, 16U) || !aligned(c_tmp, 16U) ||
       !aligned(locks, alignof(std::int32_t)) ||
       (FusedGateUp && !aligned(fused_gate_up_output, 8U)) ||
-      !sm87_nvfp4_marlin_supports_token_count(token_count)) {
+      !sm87_nvfp4_marlin_supports_operator_panel_token_count(token_count)) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
   const int device_status = validate_fixed_device();
@@ -390,26 +433,38 @@ template <bool FusedGateUp>
 
   const Sm87NvFp4MarlinExecutionPlan plan =
       sm87_nvfp4_marlin_execution_plan(token_count);
-  const int primary_status = launch_marlin_segment<FusedGateUp>(
-      input, marlin_weight, marlin_scales, marlin_global_scale,
-      plan.primary_tokens, output_size, input_size, output,
-      fused_gate_up_output, c_tmp, locks, cuda_stream);
-  if (primary_status != static_cast<int>(cudaSuccess) ||
-      plan.remainder_tokens == 0U) {
-    return primary_status;
+  if (plan.launch_count == 0U) {
+    return static_cast<int>(cudaErrorInvalidValue);
   }
-
-  const std::size_t input_offset =
-      plan.primary_tokens * static_cast<std::size_t>(input_size);
-  const std::size_t output_offset =
-      plan.primary_tokens * static_cast<std::size_t>(output_size);
-  return launch_marlin_segment<FusedGateUp>(
-      input + input_offset, marlin_weight, marlin_scales,
-      marlin_global_scale, plan.remainder_tokens, output_size, input_size,
-      output + output_offset,
-      fused_gate_up_output +
-          plan.primary_tokens * static_cast<std::size_t>(output_size / 2),
-      c_tmp, locks, cuda_stream);
+  for (std::size_t launch_index = 0U; launch_index < plan.launch_count;
+       ++launch_index) {
+    const Sm87NvFp4MarlinLaunchSegment segment =
+        sm87_nvfp4_marlin_launch_segment(plan, launch_index);
+    if (!segment.valid() ||
+        segment.token_count >
+            kSm87NvFp4MarlinMaximumKernelSegmentTokens) {
+      return static_cast<int>(cudaErrorInvalidValue);
+    }
+    const std::size_t input_offset =
+        segment.token_offset * static_cast<std::size_t>(input_size);
+    const std::size_t output_offset =
+        segment.token_offset * static_cast<std::size_t>(output_size);
+    std::uint16_t* const fused_segment_output =
+        FusedGateUp
+            ? fused_gate_up_output +
+                  segment.token_offset *
+                      static_cast<std::size_t>(output_size / 2)
+            : nullptr;
+    const int status = launch_marlin_segment<FusedGateUp>(
+        input + input_offset, marlin_weight, marlin_scales,
+        marlin_global_scale, segment.token_count, output_size, input_size,
+        output + output_offset, fused_segment_output, c_tmp, locks,
+        cuda_stream);
+    if (status != static_cast<int>(cudaSuccess)) {
+      return status;
+    }
+  }
+  return static_cast<int>(cudaSuccess);
 }
 
 }  // namespace
@@ -546,7 +601,7 @@ int launch_sm87_nvfp4_marlin_gate_up_silu_cuda(
     void* const cuda_stream) noexcept {
   if (!aligned(merged_gate_up, alignof(std::uint16_t)) ||
       !aligned(output, alignof(std::uint16_t)) ||
-      !sm87_nvfp4_marlin_supports_token_count(token_count)) {
+      !sm87_nvfp4_marlin_supports_operator_panel_token_count(token_count)) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
   constexpr unsigned int kBlockThreads = 256U;
@@ -570,7 +625,8 @@ int launch_sm87_nvfp4_marlin_gate_up_m512_cuda(
     std::int32_t* const locks, void* const cuda_stream) noexcept {
   return launch_sm87_nvfp4_marlin_gate_up_cuda(
       input, marlin_weight, marlin_scales, marlin_global_scale,
-      kSm87NvFp4MarlinTokens, merged_gate_up_output, c_tmp, locks,
+      kSm87NvFp4MarlinM512CompatibilityTokens, merged_gate_up_output, c_tmp,
+      locks,
       cuda_stream);
 }
 
@@ -583,14 +639,16 @@ int launch_sm87_nvfp4_marlin_down_m512_cuda(
     void* const cuda_stream) noexcept {
   return launch_sm87_nvfp4_marlin_down_cuda(
       input, marlin_weight, marlin_scales, marlin_global_scale,
-      kSm87NvFp4MarlinTokens, output, c_tmp, locks, cuda_stream);
+      kSm87NvFp4MarlinM512CompatibilityTokens, output, c_tmp, locks,
+      cuda_stream);
 }
 
 int launch_sm87_nvfp4_marlin_gate_up_silu_m512_cuda(
     const std::uint16_t* const merged_gate_up,
     std::uint16_t* const output, void* const cuda_stream) noexcept {
   return launch_sm87_nvfp4_marlin_gate_up_silu_cuda(
-      merged_gate_up, kSm87NvFp4MarlinTokens, output, cuda_stream);
+      merged_gate_up, kSm87NvFp4MarlinM512CompatibilityTokens, output,
+      cuda_stream);
 }
 
 int query_sm87_nvfp4_marlin_m512_resources_cuda(

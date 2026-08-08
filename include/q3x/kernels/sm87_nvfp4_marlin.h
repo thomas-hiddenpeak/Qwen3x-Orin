@@ -6,15 +6,26 @@
 namespace q3x::kernels {
 
 // Fixed Qwen3.6-27B/Orin contract. This API intentionally does not expose a
-// generic Marlin surface: callers may use any M in [1,512] for the fixed
-// BF16 x NVFP4 Gate+Up and Down projections on a 16-SM
-// SM87 device. The shape selector is copied from vLLM's frozen Marlin launch:
+// generic Marlin surface: callers may use any M in [1,8192] for the fixed
+// BF16 x NVFP4 Gate+Up and Down projections on a 16-SM SM87 device. 8192 is
+// an operator-panel capacity, not one underlying Marlin launch. The frozen
+// vLLM ccd49f682 host contract caps N>4096 launches at 16 M64 panels, so this
+// wrapper submits at most M1024 per ordered launch and reuses the fixed
+// lock/reduction workspace only after the preceding launch on the same stream.
+// The shape selector is copied from vLLM's frozen Marlin launch:
 // M1..8=M8N128K128, M9..16=M16N128K128, M17..32=M32N256K64, and
-// M33..512=M64N256K64. A non-M64-aligned large request is one runner tile but
-// two ordered kernel launches: its complete M64 prefix followed by the same
-// <=32 specialization or one masked M64 remainder. Every specialization uses
-// four pipeline stages and a persistent 16-CTA grid.
-inline constexpr std::size_t kSm87NvFp4MarlinTokens = 512U;
+// M33..8192=M64N256K64. A non-M64-aligned panel ends with an additional
+// masked M64 launch. Every specialization uses four pipeline stages and a
+// persistent 16-CTA grid.
+inline constexpr std::size_t kSm87NvFp4MarlinM512CompatibilityTokens = 512U;
+// Historical name retained for source compatibility. It is the exact-M512
+// compatibility entry-point extent, not the maximum supported panel.
+inline constexpr std::size_t kSm87NvFp4MarlinTokens =
+    kSm87NvFp4MarlinM512CompatibilityTokens;
+inline constexpr std::size_t kSm87NvFp4MarlinMaximumOperatorPanelTokens =
+    8'192U;
+inline constexpr std::size_t kSm87NvFp4MarlinMaximumKernelSegmentTokens =
+    1'024U;
 inline constexpr std::size_t kSm87NvFp4MarlinTailMaximumTokens = 32U;
 inline constexpr std::size_t kSm87NvFp4MarlinM64Tokens = 64U;
 inline constexpr std::size_t kSm87NvFp4MarlinM256Tokens = 256U;
@@ -35,33 +46,103 @@ inline constexpr std::size_t kSm87NvFp4MarlinReductionElements =
 inline constexpr std::size_t kSm87NvFp4MarlinReductionBytes =
     kSm87NvFp4MarlinReductionElements * sizeof(float);
 
+static_assert(kSm87NvFp4MarlinMaximumKernelSegmentTokens %
+                  kSm87NvFp4MarlinM64Tokens ==
+              0U);
+static_assert(kSm87NvFp4MarlinMaximumKernelSegmentTokens /
+                  kSm87NvFp4MarlinM64Tokens ==
+              kSm87NvFp4MarlinSmCount);
+static_assert(kSm87NvFp4MarlinMaximumOperatorPanelTokens %
+                  kSm87NvFp4MarlinMaximumKernelSegmentTokens ==
+              0U);
+static_assert(kSm87NvFp4MarlinTokens == 512U);
+
 [[nodiscard]] constexpr bool sm87_nvfp4_marlin_supports_token_count(
     const std::size_t token_count) noexcept {
   return token_count >= 1U && token_count <= kSm87NvFp4MarlinTokens;
 }
 
+// Candidate-only panel capability. The current production C512 admission
+// continues to call the compatibility predicate above until a complete
+// layer-major route is explicitly connected and attested.
+[[nodiscard]] constexpr bool
+sm87_nvfp4_marlin_supports_operator_panel_token_count(
+    const std::size_t token_count) noexcept {
+  return token_count >= 1U &&
+         token_count <= kSm87NvFp4MarlinMaximumOperatorPanelTokens;
+}
+
 struct Sm87NvFp4MarlinExecutionPlan {
+  // Total prefix covered by one or more M64-aligned launches. For M<=64 this
+  // is the single masked launch and remainder_tokens is zero.
   std::size_t primary_tokens = 0U;
+  // Final masked launch after the aligned prefix, always in [1,63].
   std::size_t remainder_tokens = 0U;
+  // Number of exact M1024 launches at the start of the panel.
+  std::size_t complete_segment_count = 0U;
+  // Optional final aligned launch in [64,960], or the sole M<=64 launch.
+  std::size_t final_primary_segment_tokens = 0U;
   std::size_t launch_count = 0U;
 };
 
-// Mirrors the vendored kernel's floor(prob_m/64) parallelization contract.
-// Exact multiples and M33..64 need one launch. Larger nonmultiples first pass
-// only their complete M64 prefix because passing the full value directly would
-// make upstream Marlin intentionally ignore the remainder.
+struct Sm87NvFp4MarlinLaunchSegment {
+  std::size_t token_offset = 0U;
+  std::size_t token_count = 0U;
+
+  [[nodiscard]] constexpr bool valid() const noexcept {
+    return token_count != 0U;
+  }
+};
+
+// Mirrors both contracts around the vendored kernel: it intentionally uses
+// floor(prob_m/64) parallel panels, and the frozen host wrapper limits
+// N>4096 to at most 16 such panels per launch. Exact M1024 segments therefore
+// precede an optional aligned segment and one masked tail.
 [[nodiscard]] constexpr Sm87NvFp4MarlinExecutionPlan
 sm87_nvfp4_marlin_execution_plan(const std::size_t token_count) noexcept {
-  if (!sm87_nvfp4_marlin_supports_token_count(token_count)) {
+  if (!sm87_nvfp4_marlin_supports_operator_panel_token_count(token_count)) {
     return {};
   }
-  if (token_count <= kSm87NvFp4MarlinM64Tokens ||
-      token_count % kSm87NvFp4MarlinM64Tokens == 0U) {
-    return {token_count, 0U, 1U};
+  if (token_count <= kSm87NvFp4MarlinM64Tokens) {
+    return {token_count, 0U, 0U, token_count, 1U};
   }
   const std::size_t primary =
       token_count - token_count % kSm87NvFp4MarlinM64Tokens;
-  return {primary, token_count - primary, 2U};
+  const std::size_t complete_segments =
+      primary / kSm87NvFp4MarlinMaximumKernelSegmentTokens;
+  const std::size_t final_primary =
+      primary % kSm87NvFp4MarlinMaximumKernelSegmentTokens;
+  const std::size_t remainder = token_count - primary;
+  return {primary, remainder, complete_segments, final_primary,
+          complete_segments + (final_primary != 0U ? 1U : 0U) +
+              (remainder != 0U ? 1U : 0U)};
+}
+
+[[nodiscard]] constexpr Sm87NvFp4MarlinLaunchSegment
+sm87_nvfp4_marlin_launch_segment(
+    const Sm87NvFp4MarlinExecutionPlan& plan,
+    const std::size_t launch_index) noexcept {
+  if (launch_index >= plan.launch_count) {
+    return {};
+  }
+  if (launch_index < plan.complete_segment_count) {
+    return {launch_index * kSm87NvFp4MarlinMaximumKernelSegmentTokens,
+            kSm87NvFp4MarlinMaximumKernelSegmentTokens};
+  }
+  std::size_t next_index = plan.complete_segment_count;
+  const std::size_t final_primary_offset =
+      plan.complete_segment_count *
+      kSm87NvFp4MarlinMaximumKernelSegmentTokens;
+  if (plan.final_primary_segment_tokens != 0U) {
+    if (launch_index == next_index) {
+      return {final_primary_offset, plan.final_primary_segment_tokens};
+    }
+    ++next_index;
+  }
+  if (plan.remainder_tokens != 0U && launch_index == next_index) {
+    return {plan.primary_tokens, plan.remainder_tokens};
+  }
+  return {};
 }
 
 struct Sm87NvFp4MarlinTileConfig {
@@ -95,7 +176,8 @@ sm87_nvfp4_marlin_tile_config(const std::size_t token_count) noexcept {
   if (token_count <= kSm87NvFp4MarlinTailMaximumTokens) {
     return {32U, 256U, 64U, 256U, 4U, 16U, false};
   }
-  if (token_count >= 33U && token_count <= kSm87NvFp4MarlinTokens) {
+  if (token_count >= 33U &&
+      sm87_nvfp4_marlin_supports_operator_panel_token_count(token_count)) {
     return {64U, 256U, 64U, 256U, 4U, 16U, false};
   }
   return {};
@@ -113,6 +195,31 @@ static_assert(sm87_nvfp4_marlin_execution_plan(407U).remainder_tokens == 23U);
 static_assert(sm87_nvfp4_marlin_execution_plan(481U).primary_tokens == 448U);
 static_assert(sm87_nvfp4_marlin_execution_plan(481U).remainder_tokens == 33U);
 static_assert(sm87_nvfp4_marlin_execution_plan(512U).launch_count == 1U);
+static_assert(sm87_nvfp4_marlin_execution_plan(513U).launch_count == 2U);
+static_assert(
+    sm87_nvfp4_marlin_launch_segment(
+        sm87_nvfp4_marlin_execution_plan(513U), 0U)
+        .token_count == 512U);
+static_assert(
+    sm87_nvfp4_marlin_launch_segment(
+        sm87_nvfp4_marlin_execution_plan(513U), 1U)
+        .token_offset == 512U);
+static_assert(sm87_nvfp4_marlin_execution_plan(8'192U).launch_count == 8U);
+static_assert(
+    sm87_nvfp4_marlin_launch_segment(
+        sm87_nvfp4_marlin_execution_plan(8'192U), 7U)
+        .token_offset == 7'168U);
+static_assert(sm87_nvfp4_marlin_execution_plan(8'191U).launch_count == 9U);
+static_assert(
+    sm87_nvfp4_marlin_launch_segment(
+        sm87_nvfp4_marlin_execution_plan(8'191U), 8U)
+        .token_count == 63U);
+static_assert(sm87_nvfp4_marlin_tile_config(513U).thread_m == 64U);
+static_assert(sm87_nvfp4_marlin_tile_config(8'192U).thread_m == 64U);
+static_assert(!sm87_nvfp4_marlin_tile_config(8'193U).valid());
+static_assert(sm87_nvfp4_marlin_execution_plan(8'193U).launch_count == 0U);
+static_assert(!sm87_nvfp4_marlin_supports_token_count(513U));
+static_assert(sm87_nvfp4_marlin_supports_operator_panel_token_count(513U));
 
 [[nodiscard]] constexpr std::size_t sm87_nvfp4_marlin_weight_bytes(
     const std::size_t output_size, const std::size_t input_size) noexcept {
@@ -187,7 +294,7 @@ static_assert(sm87_nvfp4_marlin_execution_plan(512U).launch_count == 1U);
     std::int32_t* locks, void* cuda_stream = nullptr) noexcept;
 
 // Converts row-major merged [M,34816] into canonical BF16
-// SiLU(gate)*up [M,17408]. M follows the same C64/C256/C512 contract.
+// SiLU(gate)*up [M,17408]. M follows the same maximum-M8192 panel contract.
 [[nodiscard]] int launch_sm87_nvfp4_marlin_gate_up_silu_cuda(
     const std::uint16_t* merged_gate_up, std::size_t token_count,
     std::uint16_t* output, void* cuda_stream = nullptr) noexcept;

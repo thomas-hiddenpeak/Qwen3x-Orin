@@ -8,12 +8,52 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 
 namespace q3x::kernels {
 namespace {
 
 constexpr int kStages = 4;
 constexpr int kGroupBlocks = -1;
+
+// The vendored kernel accepts int MNK/lda. Shape-aware launch planning caps
+// prob_m at M1024 for N>4096 and M8192 only for N1024, matching the frozen
+// host wrapper. Full-panel offsets remain size_t pointer arithmetic.
+static_assert(kSm87Fp8MarlinSmallNMaximumKernelSegmentTokens <=
+              static_cast<std::size_t>(std::numeric_limits<int>::max()));
+static_assert(kSm87Fp8MarlinMaximumOperatorPanelTokens <=
+              static_cast<std::size_t>(
+                  std::numeric_limits<std::ptrdiff_t>::max()) /
+                  12'288U);
+static_assert(kSm87Fp8MarlinMaximumOperatorPanelTokens <=
+              static_cast<std::size_t>(
+                  std::numeric_limits<std::ptrdiff_t>::max()) /
+                  6'144U);
+static_assert(kSm87Fp8MarlinLockBytes ==
+              kSm87Fp8MarlinSmCount * sizeof(std::int32_t));
+static_assert(kSm87Fp8MarlinReductionElements ==
+              kSm87Fp8MarlinSmCount * kSm87Fp8MarlinMaximumThreadM *
+                  kSm87Fp8MarlinMaximumThreadN);
+inline constexpr std::size_t kLargeNMaximumParallel =
+    kSm87Fp8MarlinLargeNMaximumKernelSegmentTokens /
+    kSm87Fp8MarlinC64Tokens;
+inline constexpr std::size_t kSmallNMaximumParallel =
+    kSm87Fp8MarlinSmallNMaximumKernelSegmentTokens /
+    kSm87Fp8MarlinC64Tokens;
+// A/C are int4-addressed inside Marlin. Check the last parallel-panel base for
+// both scheduler branches and the largest global-MN-times-K work products.
+static_assert((kSm87Fp8MarlinC64Tokens / 8U) *
+                  (kLargeNMaximumParallel - 1U) * 12'288U <=
+              static_cast<std::size_t>(std::numeric_limits<int>::max()));
+static_assert((kSm87Fp8MarlinC64Tokens / 8U) *
+                  (kSmallNMaximumParallel - 1U) * 1'024U <=
+              static_cast<std::size_t>(std::numeric_limits<int>::max()));
+static_assert(kLargeNMaximumParallel * (12'288U / 256U) *
+                  (5'120U / 64U) <=
+              static_cast<std::size_t>(std::numeric_limits<int>::max()));
+static_assert(kSmallNMaximumParallel * (1'024U / 256U) *
+                  (5'120U / 64U) <=
+              static_cast<std::size_t>(std::numeric_limits<int>::max()));
 
 [[nodiscard]] bool aligned(const void* const pointer,
                            const std::size_t alignment) noexcept {
@@ -264,7 +304,7 @@ int launch_sm87_fp8_marlin_projection_cuda(
     const std::size_t input_size, std::uint16_t* const output,
     float* const c_tmp, std::int32_t* const locks,
     void* const cuda_stream) noexcept {
-  if (!sm87_fp8_marlin_supports_token_count(token_count) ||
+  if (!sm87_fp8_marlin_supports_operator_panel_token_count(token_count) ||
       !sm87_fp8_marlin_supports_shape(output_size, input_size) ||
       !aligned(input, 16U) || !aligned(marlin_weight, 16U) ||
       !aligned(marlin_scales, 16U) || !aligned(output, 16U) ||
@@ -278,20 +318,29 @@ int launch_sm87_fp8_marlin_projection_cuda(
   const int output_size_int = static_cast<int>(output_size);
   const int input_size_int = static_cast<int>(input_size);
   const Sm87Fp8MarlinExecutionPlan plan =
-      sm87_fp8_marlin_execution_plan(token_count);
-  const int primary_status = launch_marlin_segment(
-      input, marlin_weight, marlin_scales, plan.primary_tokens,
-      output_size_int, input_size_int, output, c_tmp, locks, cuda_stream);
-  if (primary_status != static_cast<int>(cudaSuccess) ||
-      plan.remainder_tokens == 0U) {
-    return primary_status;
+      sm87_fp8_marlin_execution_plan(token_count, output_size);
+  if (plan.launch_count == 0U || plan.maximum_segment_tokens == 0U) {
+    return static_cast<int>(cudaErrorInvalidValue);
   }
-  const std::size_t input_offset = plan.primary_tokens * input_size;
-  const std::size_t output_offset = plan.primary_tokens * output_size;
-  return launch_marlin_segment(
-      input + input_offset, marlin_weight, marlin_scales,
-      plan.remainder_tokens, output_size_int, input_size_int,
-      output + output_offset, c_tmp, locks, cuda_stream);
+  for (std::size_t launch_index = 0U; launch_index < plan.launch_count;
+       ++launch_index) {
+    const Sm87Fp8MarlinLaunchSegment segment =
+        sm87_fp8_marlin_launch_segment(plan, launch_index);
+    if (!segment.valid() ||
+        segment.token_count > plan.maximum_segment_tokens) {
+      return static_cast<int>(cudaErrorInvalidValue);
+    }
+    const std::size_t input_offset = segment.token_offset * input_size;
+    const std::size_t output_offset = segment.token_offset * output_size;
+    const int status = launch_marlin_segment(
+        input + input_offset, marlin_weight, marlin_scales,
+        segment.token_count, output_size_int, input_size_int,
+        output + output_offset, c_tmp, locks, cuda_stream);
+    if (status != static_cast<int>(cudaSuccess)) {
+      return status;
+    }
+  }
+  return static_cast<int>(cudaSuccess);
 }
 
 }  // namespace q3x::kernels
