@@ -161,6 +161,29 @@ Selection sequence:
 6. Qualify a positive composition, or close/redesign a negative architecture
    version after at most one bounded causal profile.
 
+Prepared architecture design (not yet activated):
+
+- `AC-PREFILL-LAYERMAJOR-8K-v1` is designed but not implemented, executable,
+  selected, or active in production. P1 target-capacity closure and the P2
+  authenticated release-plan boundary remain prerequisites to activation.
+- It replaces repeated public C512 full-model walks with one whole-request
+  layer-major pass and bounded C8192 operator panels. `C8192` is internal
+  scheduling capacity, not a public tile or partial state-commit boundary.
+- The composition boundary includes shape-specific NVFP4 Gate/Up and Down,
+  FP8 projections, exact causal Attention/KV progress, exact GDN/SSM progress,
+  residual/layout consumers, and one final `PrefillStateCommitted` event. No
+  isolated subset may claim the candidate result.
+- The design audit estimates about 1.30 GiB of panel scratch and rough request
+  arenas of 5.1/7.0/13.8 GB for 40K/60K/130K under current buffer semantics.
+  These are planning estimates only; P1/P2 `RequestMemoryPlan`, AOT layout
+  ownership, and measured whole-process peak memory must prove capacity.
+- Once executable, it is selected or rejected only by the clean-host exact
+  40K/60K/approximately-130K real-Agent API witnesses against the cumulative
+  native incumbent. No panel throughput or component profile is a substitute.
+
+The complete subsystem design and non-production status are recorded in
+[`PREFILL_ARCHITECTURE_RESET.md`](PREFILL_ARCHITECTURE_RESET.md#8-designed-candidate-lineage-ac-prefill-layermajor-8k-v1).
+
 Required architecture questions include:
 
 - layer-major prompt-span execution versus repeated tile-major layer walks;

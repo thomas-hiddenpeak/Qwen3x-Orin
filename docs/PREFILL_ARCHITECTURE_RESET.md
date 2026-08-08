@@ -221,7 +221,102 @@ The architecture candidate returns to the real OpenAI-compatible API and the
 its composition budget expires. Component timing and profiler evidence may
 explain acceptance or rejection, but cannot select the whole architecture.
 
-## 8. Global dataflow questions
+## 8. Designed candidate lineage: `AC-PREFILL-LAYERMAJOR-8K-v1`
+
+`AC-PREFILL-LAYERMAJOR-8K-v1` is the first complete design response to the
+repeated short-span layer traversal. Its status is **designed only**: it is not
+implemented, not executable as an `architecture_candidate` decision unit,
+not selected, and not active in production. The identifier freezes a lineage
+for later Roadmap activation; it does not open a local optimization work
+package or change the current route.
+
+### 8.1 Execution shape and progress
+
+The candidate changes the scheduling skeleton from repeated public C512
+Prefill tiles to one whole-request, layer-major model pass. Each model layer
+consumes the complete admitted prompt before the next layer begins. Work
+inside a layer is divided into operator panels of at most 8,192 prompt tokens
+so kernels and scratch remain bounded.
+
+`C8192` is an internal operator-panel capacity, not a public Prefill tile,
+request boundary, partial handoff, or permission to truncate a final panel.
+For 40K, 60K, and 130K prompts the design therefore replaces approximately
+79, 118, and 254 complete 64-layer walks at C512 with one 64-layer walk whose
+layers contain approximately 5, 8, and 16 ordered panels. These counts state
+the scheduling hypothesis only; they are not a speedup or latency promise.
+
+The execution plan owns two monotonic progress vectors:
+
+- `kv_progress[layer]` records the largest prompt position whose exact KV is
+  visible to later Attention panels in that layer; and
+- `gdn_progress[layer]` records the largest position whose exact recurrent
+  and convolution state has advanced in that layer.
+
+Attention panels may consume only positions made visible by the applicable KV
+event. GDN panels advance in token order and preserve the declared recurrent
+state dtype, layout, rounding, and convolution history across every panel
+boundary. Panel progress is internal, request-owned state: neither vector
+authorizes Decode. After every layer has consumed every admitted token, the
+plan publishes exactly one final `PrefillStateCommitted` handoff containing
+the complete KV, GDN, position/RoPE, and next-token state. Cancellation and
+failure before that event expose no partial handoff.
+
+### 8.2 Indivisible composition boundary
+
+The design is complete only when one attested route composes all dominant
+families below in natural model order:
+
+| Family | Candidate requirement |
+| --- | --- |
+| NVFP4 Gate/Up and Down | Shape-specific large-M ownership for both asymmetric roles; neither may inherit a tactic merely because it won on the other shape |
+| FP8 QKV, Z/O, and KV projections | Panel-capable, shape-specific exact routes with authenticated weights, scales, layout, and workspace |
+| Attention | Exact causal Attention over the complete prompt, including ordered KV publication and consumption across panels |
+| GDN/SSM | Exact recurrent and convolution update across panels and exact final boundary state; no approximate state or altered rounding contract |
+| Residual, normalization, embedding, logits, and handoff | Consumer-native layouts or explicit planned conversions, with no undeclared synchronization, allocation, or fallback |
+
+A build that implements only a larger projection, Attention, or GDN kernel is
+a local mutation, not this candidate. Missing family coverage, a return to the
+public C512 loop, approximate arithmetic, MTP, cuBLASLt dispatch, or an
+undeclared fallback invalidates the route rather than producing a partial
+candidate result. Buffering and overlap remain dependency-derived plan
+choices; the `C8192` name does not imply double or triple buffering by itself.
+
+### 8.3 Capacity estimate and closure gate
+
+The read-only design audit estimates about 1.30 GiB of C8192 temporary scratch.
+Under the current buffer semantics, rough request-arena totals are about
+5.1 GB, 7.0 GB, and 13.8 GB for 40K, 60K, and 130K respectively. They are
+arithmetically below the current approximately 17.44 GB planner constant, but
+this is **not** evidence that the model and candidate fit the device or that a
+production capacity profile exists. The estimate does not close ownership of
+canonical versus duplicated sidecars, the resident checkpoint, allocator
+fragmentation, runtime metadata, or whole-process peak memory.
+
+P1 must replace the estimate with versioned 40K/60K/130K
+`RequestMemoryPlan` entries and measured whole-process peaks. P2 must bind one
+authenticated AOT layout/sidecar ownership model, all panel workspaces, and
+the exact installed binary. Startup and admission fail closed when the
+selected bucket cannot reserve the complete plan before Prefill begins; the
+request path may not grow it.
+
+### 8.4 Activation and adjudication
+
+The Roadmap may activate this lineage only after its P1/P2 prerequisites are
+closed and after naming bounded local work packages for the mutually dependent
+route changes. Implementation first returns through a small exact API sanity
+request, then faces the clean-host cold/no-cache 40K, 60K, and approximately
+130K real-Agent witness set against the frozen cumulative native incumbent.
+The witness must retain exact prompt consumption, output/state equivalence,
+route identity, pure Prefill and external TTFT intervals, peak resources,
+single final state commit, and zero forbidden fallbacks.
+
+Only that complete API result may select the development architecture. A
+component timing, C8192 panel rate, C512 comparison, or profiler counter may
+retain or explain a named local mutation but cannot select this candidate or
+activate production. Production remains unchanged until a later frozen
+`release_candidate` completes the full release protocol.
+
+## 9. Global dataflow questions
 
 Every candidate must answer these questions for the full Prefill route, not
 only for a convenient operator or prompt tile:
@@ -245,7 +340,7 @@ choices belong to an explicitly active local optimization work package and
 retain authority only inside its declared role, shape, numerical mode, and
 composition budget.
 
-## 9. Roadmap activation and historical boundary
+## 10. Roadmap activation and historical boundary
 
 This SDD owns no execution sequence. [`ROADMAP.md`](ROADMAP.md) alone selects
 the active delivery slice, architecture candidate, and local work packages.
