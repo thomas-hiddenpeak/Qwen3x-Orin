@@ -1,4 +1,27 @@
+---
+q3x_document:
+  id: q3x-reference-fixtures
+  class: evidence
+  status: frozen
+  owner: verification-maintainers
+  authority: normalized correctness-fixture meaning and provenance catalog
+  effective: 2026-08-09
+  last_reviewed: 2026-08-09
+  supersedes: []
+  superseded_by: []
+  ssot_for: meaning and provenance of the checked-in fixtures at their recorded identities
+  review_trigger: any fixture addition, replacement, schema, source identity, or provenance change
+---
+
 # Reference fixtures
+
+> **Authority boundary.** This frozen fixture catalog is subordinate to the
+> [engineering constitution](../../docs/ENGINEERING_CONSTITUTION.md) and
+> [system SDD](../../docs/SDD.md). It records oracle meaning and provenance for
+> the exact checked-in fixture identities; current implementation,
+> qualification, accuracy, and default-route truth belongs in
+> [`CURRENT_STATUS.md`](../../docs/CURRENT_STATUS.md). Fixture timing or local
+> diagnostics cannot select architecture or production.
 
 These small, normalized fixtures contain expected numerical or token results,
 not model weights or upstream configuration files. Each fixture records the

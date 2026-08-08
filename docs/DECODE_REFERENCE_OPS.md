@@ -1,4 +1,27 @@
+---
+q3x_document:
+  id: q3x-decode-reference-ops
+  class: contract
+  status: active
+  owner: runtime-maintainers
+  authority: Decode common-operation numerical and dimension contract
+  effective: 2026-08-09
+  last_reviewed: 2026-08-09
+  supersedes: []
+  superseded_by: []
+  ssot_for: reference Decode common-op dimensions, arithmetic, and error behavior
+  review_trigger: any Decode common-op ABI, numerical rule, dimension, or error-contract change
+---
+
 # Decode common-op reference contract
+
+> **Authority boundary.** This component contract refines the
+> [system SDD](SDD.md) and is subordinate to it and the
+> [engineering constitution](ENGINEERING_CONSTITUTION.md). Current
+> implementation, qualification, and default-route truth belongs in
+> [`CURRENT_STATUS.md`](CURRENT_STATUS.md). Mechanism-level tuning or
+> benchmark rules here apply only inside a named active local optimization
+> work package; they cannot set global priority or select production.
 
 `q3x/runtime/decode_ops.h` provides allocation-free CPU and CUDA correctness
 paths for the operations surrounding batch-one projection GEMVs. Checkpoint,

@@ -1,4 +1,26 @@
+---
+q3x_document:
+  id: q3x-tokenizer
+  class: contract
+  status: active
+  owner: text-runtime-maintainers
+  authority: pinned tokenizer, chat-formatting resource, and error contract
+  effective: 2026-08-09
+  last_reviewed: 2026-08-09
+  supersedes: []
+  superseded_by: []
+  ssot_for: tokenizer identity, accepted schema, encoding, decoding, chat formatting, and failure behavior
+  review_trigger: any tokenizer identity, schema, vocabulary, normalization, chat template, or API-contract change
+---
+
 # Pinned Qwen 3.6 tokenizer
+
+> **Authority boundary.** This tokenizer contract refines the external-input
+> boundary in the [system SDD](SDD.md) and is subordinate to it and the
+> [engineering constitution](ENGINEERING_CONSTITUTION.md). Current
+> implementation, qualification, model support, and default-route truth
+> belongs in [`CURRENT_STATUS.md`](CURRENT_STATUS.md). Local tokenizer
+> mechanisms cannot set runner-wide priority or establish production status.
 
 `q3x::text` is the pure C++17 tokenizer path for the exact
 `tokenizer.json` shipped by

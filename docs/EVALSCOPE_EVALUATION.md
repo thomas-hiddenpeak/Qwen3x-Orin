@@ -1,8 +1,25 @@
+---
+q3x_document:
+  id: q3x-evalscope-evaluation
+  class: procedure
+  status: active
+  owner: evaluation-maintainers
+  authority: external API evaluation protocol, metric semantics, and artifact requirements
+  effective: 2026-08-09
+  last_reviewed: 2026-08-09
+  supersedes: []
+  superseded_by: []
+  ssot_for: EvalScope and target-length external evaluation procedure
+  review_trigger: product API, corpus, EvalScope version, metric, or release protocol change
+---
+
 # OpenAI-compatible external evaluation
 
-Status: evaluation gateway implemented; first external performance direction
-baseline complete; release-grade repetition and a valid public capability
-score remain pending.
+This document owns an evaluation procedure, not current capability or pending
+work. The presence, defaults, qualification, and gaps of the loopback adapter
+and final product API are reported only in
+[`CURRENT_STATUS.md`](CURRENT_STATUS.md); delivery order belongs only to
+[`ROADMAP.md`](ROADMAP.md).
 
 Governing update, 2026-08-09: EvalScope is one product-facing observation
 surface, not the sole definition of real Prefill. Under the
@@ -11,15 +28,30 @@ Agent API behavior is an authoritative planning input. A short-prompt
 EvalScope corpus, P513 timer, logger-window statistic, or unmatched endpoint
 cannot invalidate the 40K--60K and 130K long-context targets. Conflicts trigger
 same-workload protocol/configuration reconciliation; they do not lower the
-goal. Candidate direction is checked on the closest real API path first, then
-qualified statistically and attributed internally.
+goal.
 
-The project judges architecture work in the closest practical whole-product
-path first: a pinned real checkpoint, public OpenAI request semantics,
-[EvalScope](https://github.com/modelscope/evalscope), real prompt
-distributions, and user-visible latency. Internal Prefix timing, component
-benchmarks, NSys, and NCU remain essential for direction and attribution, but
-they do not substitute for this external gate. EvalScope's
+The project distinguishes two API surfaces:
+
+- the **final product API** is the deliverable runner boundary. Its admission,
+  streaming, cancellation, observability, capacity, defaults, and failure
+  behavior are part of the product and therefore part of architecture and
+  release selection;
+- an **evaluation adapter** is a bounded measurement instrument. It may expose
+  compatible request semantics while the final product server is incomplete,
+  but it has no authority to prove production serviceability, security,
+  concurrency, cancellation, or packaging.
+
+Architecture work is selected through the closest complete product path: a
+pinned real checkpoint, the final product API semantics,
+[EvalScope](https://github.com/modelscope/evalscope), real prompt tokens, and
+user-visible latency. The adapter may temporarily supply that observation only
+when its route and request contract are attested as equivalent for the metric
+being measured. A `release_candidate` must be measured through the actual
+deliverable API; adapter-only evidence cannot promote it.
+
+Internal Prefix timing, component benchmarks, NSys, and NCU remain essential
+for local work packages and attribution, but they do not substitute for an
+architecture or release API witness. EvalScope's
 [stress-test workflow](https://evalscope.readthedocs.io/en/latest/user_guides/stress_test/quick_start.html)
 is the current external performance surface.
 
@@ -36,10 +68,20 @@ The commands below assume that `Q3X_WORK` remains set. They redirect the tool
 cache and temporary directory so neither `$HOME` nor `/tmp` accumulates
 project-owned EvalScope state.
 
-## Evaluation-only gateway
+Before every timed request set or profiler capture, perform the mandatory
+fail-closed clean-host preflight. On Jetson, retain `tegrastats` observations,
+CPU/process state, and GPU device-handle ownership with the run. Do not use the
+Jetson `nvidia-smi` implementation to decide idleness or attribute GPU users.
+An unexpected CPU/GPU consumer invalidates the run; discard its timing rather
+than averaging or reporting it, wait for exclusive ownership, and start a new
+run. Store the preflight record below `.q3x-work/` beside the evaluation
+artifacts.
 
-`qwen3x-eval-server` loads one resident model and exposes a deliberately small
-OpenAI-compatible subset on loopback:
+## Evaluation-adapter procedure (not the product API)
+
+When `CURRENT_STATUS.md` identifies `qwen3x-eval-server` as available, the
+following procedure exercises its deliberately small OpenAI-compatible subset
+on loopback:
 
 - `POST /v1/chat/completions` for text-only system/user/assistant messages;
 - `POST /v1/completions` for one raw string or one flat token-ID prompt;
@@ -51,8 +93,9 @@ OpenAI-compatible subset on loopback:
 Build and run it with:
 
 ```bash
-cmake --build build --target qwen3x-eval-server -j
-build/qwen3x-eval-server MODEL_DIR \
+Q3X_BUILD="$Q3X_WORK/build/eval-server"
+cmake --build "$Q3X_BUILD" --target qwen3x-eval-server -j
+"$Q3X_BUILD/qwen3x-eval-server" MODEL_DIR \
   --host 127.0.0.1 --port 18080 \
   --model qwen3.6-27b-nvfp4 \
   --max-sequence-length 4096 --max-output-tokens 4096 \
@@ -68,7 +111,8 @@ fail closed. Chat formatting always uses `enable_thinking=false`.
 
 The listener is restricted to `127.0.0.1` because it has no authentication,
 TLS, tenant isolation, or production admission policy. It is not continuous
-batching or a production serving API. A connection carries one request.
+batching or a production serving API. It must not be described, packaged, or
+promoted as the final product API. A connection carries one request.
 Before the first committed token, an engine error retains its real HTTP
 4xx/5xx status; after streaming begins, a runtime failure is an SSE error and
 the stream closes. Disconnect and shutdown cancellation are observed at
@@ -97,7 +141,45 @@ This retained 4K-limited configuration and its 20--1,160-token corpus are
 historical directional evidence only. They do not represent the current
 long-context Agent target or bound vLLM's achievable Prefill performance.
 
-## Pinned performance workload
+## Target-length Prefill witness contract
+
+Prefill architecture selection is made on three cold/no-cache real-Agent
+witnesses: 40K tokens, 60K tokens, and approximately 130K tokens. Each corpus
+and manifest must freeze the exact token IDs and count after the pinned
+tokenizer, request body, output contract, cache controls, model/config
+revision, and prompt hash. The server must attest that it admitted the entire
+prompt without truncation, Prefix/KV reuse, MTP, or an approximate numerical
+route.
+
+Run the witnesses in fail-fast 40K, 60K, then 130K order. The first small safe
+API request may precede them to catch protocol, route, allocation, or output
+failures, but it is a sanity check. A short workload, P513, or component cell
+cannot select a Prefill `architecture_candidate`, even when its speedup is
+statistically clean. The architecture decision requires the complete
+predeclared target-length set; a `release_candidate` additionally requires
+independent-process repetition and the full performance/accuracy/capability
+protocol.
+
+For every witness retain both:
+
+- EvalScope's user-visible TTFT from POST start to the first non-empty token
+  event, along with request success, exact input/output token counts, finish
+  status, and complete raw event identity; and
+- server-side route attestation and intervals separating queue/admission,
+  Prefix, first-token Decode, response publication, and any fallback or
+  synchronization cost.
+
+The externally observed TTFT selects the whole architecture. Server-side pure
+Prefill timing explains where that result came from; it never replaces the API
+result. A witness with an incomplete stream, unowned host resources, a route
+mismatch, allocation fallback, truncation, cache reuse, or missing interval is
+invalid rather than slow or fast.
+
+## Historical pinned short workload
+
+The workload below is retained to reproduce the first external direction
+baseline and to provide a cheap protocol/regression proxy. It is not the
+active Prefill architecture-selection workload.
 
 Generate the 33-request corpus as described in
 [`benchmarks/evalscope/README.md`](../benchmarks/evalscope/README.md). Its
@@ -136,7 +218,7 @@ gateway emits exactly one such event per committed token, merges finish into
 the last token event, and emits usage separately with `choices: []`; no
 role-only or finish-only event can pollute TTFT or ITL.
 
-## First external directional result
+## Historical first external directional result
 
 On the same MAXN Jetson AGX Orin, one warmup plus 32 measured requests gave:
 
@@ -162,24 +244,28 @@ wall time. `Total workload throughput` is total input plus output tokens
 divided by that same wall time. Both include Prefill, Decode, HTTP, and request
 transitions; neither is a Prefill-kernel rate. EvalScope 1.9.1 writes an
 inconsistent zero `Input Throughput` into `benchmark_summary.json`, so the
-table uses `workload_throughput.json`. With TPOT only 4.31% apart but TTFT
-2.77x apart, the external evidence makes Prefill architecture the P0
-performance problem and keeps Decode frozen.
+table uses `workload_throughput.json`. At the recorded checkpoint, the much
+larger TTFT gap than TPOT gap informed the then-current decision to investigate
+Prefill first. This historical result owns no current priority or delivery
+order; those belong to `CURRENT_STATUS.md` and `ROADMAP.md`.
 
 Native and vLLM generated exactly identical text for 26/32 requests. The six
 divergences are numerical/capability audit inputs, not evidence that either
-runtime is the accuracy oracle. This single-process, single-round result may
-set roadmap priority. It may not promote a kernel, reset a release threshold,
-or serve as a publication-grade performance baseline.
+runtime is the accuracy oracle. This single-process, single-round result
+informed its dated roadmap decision. It may not set current priority, promote
+a kernel, reset a release threshold, or serve as a publication-grade
+performance baseline.
 
 The independently repeated stock-vLLM measurement is frozen at 1,147.281 ms
 mean TTFT and 182.0818 prompt tok/s. Its raw artifact identities and exact
 configuration are retained in
 [`qwen36-27b-evalscope-vllm-frozen-reference-2026-07-29.json`](metadata/qwen36-27b-evalscope-vllm-frozen-reference-2026-07-29.json).
-Do not restart vLLM for each native candidate. Architecture direction screens
-run only a native baseline/candidate pair; rerun the external engine when the
-cumulative native runner approaches the frozen floor or when the model,
-workload, protocol, software stack, or hardware state changes.
+Do not restart vLLM for each `local_mutation`. The historical short pair may
+still detect a gross regression, and the frozen vLLM result remains a useful
+reference for that exact workload. Architecture selection now uses the
+target-length witness contract above. Rerun the external engine only when the
+cumulative native runner approaches the applicable frozen floor or when the
+model, workload, protocol, software stack, or hardware state changes.
 
 Validate a native pair immediately after the runs with:
 
@@ -192,33 +278,46 @@ python3 tools/evaluation/validate_evalscope_triplet.py \
   --output "$Q3X_WORK/evalscope/results/q3x-evalscope-direction.json"
 ```
 
-Exit 0 only means that the candidate improves both native mean TTFT and
-whole-workload prompt throughput while satisfying the declared output policy.
-Exit 3 is a valid external rejection. The frozen vLLM result is not an
+For this historical validator, exit 0 means only that the candidate improves
+both native mean TTFT and whole-workload prompt throughput while satisfying
+the declared short-output policy. Exit 3 is a valid rejection for this short
+proxy, not a Prefill architecture decision. The frozen vLLM result is not an
 incremental retention threshold.
 
-## Performance-first architecture funnel
+## API-first staged evolution funnel
 
-Prefill architecture work must pass the public serving path before broader
-evaluation infrastructure is expanded. The order is fixed:
+The final runner boundary supplies the constraints; local mechanisms evolve
+inside those constraints; the complete architecture returns to the API for
+selection. The order is fixed:
 
-1. Run one real-checkpoint native baseline/candidate pair through
-   `evalscope perf`, concurrency one, streaming enabled, and a short output.
-   A candidate that does not improve both mean TTFT and whole-workload prompt
-   throughput stops here. NSys or NCU may then explain the rejection, but a
-   capability or length matrix is not built for it.
-2. Retain positive native increments and periodically compare the cumulative
-   runner with the frozen vLLM result above. vLLM is not restarted for each
-   experiment and is never a production backend.
-3. Only a cumulative native runner that approaches or beats the frozen vLLM
-   short-output floor advances to longer-output `evalscope perf` stability
-   runs.
-4. Public capability suites, length buckets, concurrency, and release-grade
-   repetition come last. They validate a competitive runner; they do not
-   select an obviously noncompetitive Prefill architecture.
+1. Define the target request/API witness and its route, state, capacity,
+   observability, accuracy, and user-visible latency contract before opening
+   optimization work.
+2. When a local bottleneck is identified, open a named local optimization work
+   package under `REAL_MODEL_PERFORMANCE_POLICY.md`. Its real-payload component
+   or short-route comparisons may retain `local_mutation` mechanisms for
+   composition without requiring each one to pierce EvalScope's end-to-end
+   noise. Those rules have local authority only.
+3. At the package deadline, compose the mechanisms into one executable
+   `architecture_candidate`. Uncomposed local wins expire into historical
+   evidence rather than accumulating as a product claim.
+4. Run the smallest real API sanity request to verify protocol, route, output,
+   and allocation. It may reject a broken build, but its speed cannot select
+   the Prefill architecture.
+5. Run the cumulative native incumbent/candidate pair through the 40K, 60K,
+   and 130K witness set. Those target-length API results select the
+   architecture. NSys/NCU and pure Prefill intervals attribute the result.
+6. Periodically compare cumulative progress with matched, frozen vLLM
+   evidence; vLLM is never restarted for each local mutation and never becomes
+   a production backend.
+7. Freeze a selected architecture as a `release_candidate`, then run
+   independent-process performance repetition, longer-output stability,
+   concurrency/admission pressure, public capability, packaging, and final
+   production-API conformance gates.
 
-For a fast direction screen, use the same hash-locked corpus and API contract
-as the 32-request run, but measure only the first eight requests. The corpus
+For a cheap historical protocol/regression proxy, use the same hash-locked
+corpus and API contract as the 32-request run, but measure only the first eight
+requests. The corpus
 already pins 16 output tokens in every request body; EvalScope 1.9.1 preserves
 that value instead of overriding it from the command line:
 
@@ -237,8 +336,9 @@ uvx --from 'evalscope[perf]==1.9.1' evalscope perf \
   --outputs-dir OUTPUT_DIR --name RUN_NAME --no-timestamp
 ```
 
-This eight-request, 16-token screen is directional only. It cannot promote a
-kernel or replace the pinned 32-request short-output comparison. A true
+This eight-request, 16-token run has sanity/proxy authority only. It cannot
+retain a `local_mutation`, select an `architecture_candidate`, promote a
+`release_candidate`, or replace the target-length witness set. A true
 one-token workload would require a separate hash-locked corpus and manifest;
 changing only this command-line option is insufficient.
 
@@ -251,21 +351,24 @@ configured 32-token output cap before emitting the required
 That number is an invalid measurement, not model accuracy: parseable answers
 were 0/20 and all 20 stopped at `max_tokens`.
 
-After the performance funnel admits a competitive cumulative runner, the next
-capability step is to calibrate an output cap on a small predeclared sample
-until the answer contract is observable, freeze it, rerun the smoke, then
-remove `--limit` for the complete public suite. Capability results do not
-become authoritative until answer extraction, request success, truncation,
-and output-format coverage all pass.
+After target-length architecture selection admits a competitive cumulative
+runner, the next capability step is to calibrate an output cap on a small
+predeclared sample until the answer contract is observable, freeze it, rerun
+the smoke, then remove `--limit` for the complete public suite. Capability
+results do not become authoritative until answer extraction, request success,
+truncation, and output-format coverage all pass.
 
 ## Remaining external gates
 
-Before a release claim, repeat native and reference runs in independent
-processes with mirrored order, fixed clocks and temperature capture; validate
+Before a release claim, run the actual product API and repeat native and
+reference runs in independent processes with mirrored order, fixed clocks and
+temperature capture; validate
 every EvalScope DB for request hashes, token chunks, finish, and failures; add
 a separate raw-SSE audit for the final usage event because EvalScope 1.9.1
 does not retain its `choices: []` chunk in `benchmark_data.db`; add public
 length buckets, long context, queue pressure, and a valid
-capability suite. Each complete Prefill architecture milestone must return to
-this same external protocol before retention or promotion. P513 and profiler
-cells remain fast explanatory tools rather than the project-level judge.
+capability suite. Each complete Prefill `architecture_candidate` must return
+to the 40K/60K/130K external witness protocol before selection. The final
+`release_candidate` must repeat that protocol through the deliverable API.
+P513, historical short EvalScope workloads, and profiler cells remain sanity,
+local, or explanatory tools rather than the project-level judge.

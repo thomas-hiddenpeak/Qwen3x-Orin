@@ -1,9 +1,34 @@
+---
+q3x_document:
+  id: q3x-reference-benchmark
+  class: procedure
+  status: active
+  owner: runtime-maintainers
+  authority: internal reference repeatability benchmark procedure
+  effective: 2026-08-09
+  last_reviewed: 2026-08-09
+  supersedes: []
+  superseded_by: []
+  ssot_for: reference benchmark setup, execution, output, and repeatability checks
+  review_trigger: any reference benchmark API, CLI, sampling, output, or repeatability-protocol change
+---
+
 # Reference benchmark and repeatability harness
+
+> **Authority boundary.** This procedure is subordinate to the
+> [engineering constitution](ENGINEERING_CONSTITUTION.md),
+> [system SDD](SDD.md), and
+> [real-model performance policy](REAL_MODEL_PERFORMANCE_POLICY.md). It
+> controls the internal reference harness only; current implementation and
+> qualification truth belongs in [`CURRENT_STATUS.md`](CURRENT_STATUS.md).
+> It defines measurement semantics, not architecture, candidate-retention,
+> promotion, or Production lifecycle gates.
 
 The reference benchmark reuses one fully created `ReferenceEngine` across
 warmup and measured rounds. It is a reproducibility and correctness harness
-for the bounded batch-one generation path, not a throughput benchmark or a
-claim about an optimized serving engine.
+for the bounded batch-one generation path. It may support diagnosis inside a
+named local work package, but it does not replace the real OpenAI-compatible
+API result required for architecture or whole-product decisions.
 
 ## Runtime API
 
@@ -42,10 +67,12 @@ the prompt, phase, round, and first differing field. Generation failures retain
 the nested `ReferenceEngineDiagnostic`.
 
 Every measured invocation is retained as a `ReferenceBenchmarkSample` with
-TTFT, total generation time, and all post-first-token latencies. Aggregate and
-per-prompt summaries report count, minimum, median, p95, and maximum. Median is
-the middle sorted value, or the mean of the two middle values for an even
-count. P95 uses nearest rank:
+engine-local TTFT, total generation time, and all post-first-token latencies.
+This internal TTFT excludes request queueing, HTTP handling, and response
+publication and must not be reported as EvalScope's user-visible TTFT.
+Aggregate and per-prompt summaries report count, minimum, median, p95, and
+maximum. Median is the middle sorted value, or the mean of the two middle
+values for an even count. P95 uses nearest rank:
 
 ```text
 sorted[ceil(0.95 * count) - 1]
@@ -85,6 +112,13 @@ peak inside one generation.
 
 ## CLI
 
+Before a timed run, apply the clean-host preflight from
+[`REAL_MODEL_PERFORMANCE_POLICY.md`](REAL_MODEL_PERFORMANCE_POLICY.md). On
+Jetson, establish CPU/GPU idleness and ownership with `tegrastats`, process
+inspection, and GPU-device handle inspection; do not use the incomplete
+Jetson `nvidia-smi` as the idle-host authority. A run with an unexpected
+resource consumer is invalid and must not be retained or reported.
+
 ```bash
 qwen3x-orin benchmark MODEL_DIR \
   --prompt "first prompt" \
@@ -105,15 +139,11 @@ decode input steps. Capacity is also bounded by the default 2 GiB request
 arena; the CLI validates the complete host memory plan before loading model
 weights. `--prefill-chunk-size` accepts 1 through 512 and defaults to 1. The
 engine's request arena reserves activation workspace for the selected maximum
-before weights are loaded. C2 through C512 tile only the prompt prefix; the
-final prompt token and all decode steps remain M=1. The chunk value is an upper
-bound, and the controller emits only `{C512,C256,C64,C32,tail<=31}`. Exact SM87
-C256/C512 full-attention tiles use one bulk causal GQA plus Gate launch and
-exact aligned NVFP4 `[5120,17408]` Down uses one N-major whole-chunk grid.
-Generic projections remain capped at C64 and use ordered fallback schedules for
-wide tiles and near misses. Projection dispatch defaults to `reference`;
-`sm87` explicitly selects the direct SM87 FP8/NVFP4-to-BF16 layer path and
-checks the active device capability before loading model weights.
+before weights are loaded. The chunk is a public workspace/controller bound;
+this procedure does not prescribe its internal decomposition. The final prompt
+boundary produces the first token and all later Decode steps remain M=1.
+Projection dispatch defaults to `reference`; `sm87` explicitly selects the
+SM87 weight-only backend and checks device capability before loading weights.
 
 The command creates the engine once, then invokes the runtime harness. Stdout
 is escaped line-oriented `key=value` data containing model directory, actual
@@ -125,23 +155,14 @@ Progress, diagnostics, and the persistent-memory-drop warning go to stderr.
 The pure-host `reference_benchmark_control` test supplies fake generation and
 memory callbacks. It covers round ordering, warmup exclusion, per-sample and
 aggregate statistics, exact replay mismatches, nested failures, and memory-drop
-classification without loading a model or executing a CUDA kernel. Its C64
-regression validates that a 127-token prefix has three timing records for the
-shared `64+32+31` controller schedule; a separate boundary case accepts and
-preserves the public C512 maximum. Any other timing-record cardinality is
-rejected.
+classification without loading a model or executing a CUDA kernel. Controller
+cardinality tests verify that reports match the runtime's requested/effective
+execution records, including the public C512 boundary, without making a
+particular internal tile schedule part of this harness contract.
 
-The public Prefill result capacity is now 512 entries. This C++ ABI change is
-published as exact package version 0.4.0; installed consumers must rebuild
-rather than mix older objects with the new static libraries.
-
-The first matched reference/SM87 run and its machine-readable samples are in
-the [Phase 3 performance evidence](PERFORMANCE_BASELINE.md). The same document
-and its [C8 metadata record](metadata/qwen36-27b-c8-prefill-benchmark.json)
-retain the first C1/C8 prompt-prefix comparison. The later
-[C16 Tensor Core record](metadata/qwen36-27b-c16-tensor-core-prefill-benchmark.json)
-retains the same-binary C8/C16/C16/C8 mirrored process order and eight measured
-samples per chunk size: median TTFT 1,021.088 versus 761.037 ms and median total
-generation 1,206.170 versus 946.217 ms, with strict replay preserved. These
-short-prompt unlocked-clock results remain diagnostic rather than a
-serving-throughput claim.
+Historical benchmark samples and mechanism-specific measurements are retained
+in [`PERFORMANCE_BASELINE.md`](PERFORMANCE_BASELINE.md) and the
+[`metadata/`](metadata/) evidence index. Current whole-product capability and
+metrics belong only to [`CURRENT_STATUS.md`](CURRENT_STATUS.md). Candidate
+retention and promotion follow the real-model policy; this harness owns no
+threshold of its own.

@@ -1,4 +1,27 @@
+---
+q3x_document:
+  id: q3x-gdn-decode-reference
+  class: contract
+  status: active
+  owner: runtime-maintainers
+  authority: GDN single-token and bounded-tile reference semantics contract
+  effective: 2026-08-09
+  last_reviewed: 2026-08-09
+  supersedes: []
+  superseded_by: []
+  ssot_for: reference Decode GDN state, arithmetic, layout, and failure behavior
+  review_trigger: any GDN Decode ABI, state, numerical, layout, or failure-contract change
+---
+
 # Single-token and bounded-tile Gated DeltaNet reference
+
+> **Authority boundary.** This component contract refines the
+> [system SDD](SDD.md) and is subordinate to it and the
+> [engineering constitution](ENGINEERING_CONSTITUTION.md). Current
+> implementation, qualification, and default-route truth belongs in
+> [`CURRENT_STATUS.md`](CURRENT_STATUS.md). Mechanism-level tuning or
+> benchmark rules here apply only inside a named active local optimization
+> work package; they cannot set global priority or select production.
 
 `q3x/runtime/gdn_decode.h` defines the allocation-free CPU and CUDA numerical
 boundary for one Qwen3.6-27B linear-attention decode step and CUDA prompt tiles
@@ -68,8 +91,8 @@ tiling changes launch organization without changing the causal rounding
 boundary. `A_log`, `dt_bias`, convolution weights, and the one persistent
 history/state allocation remain shared across the tile.
 
-Commit `c90f37e` raises the checked tile limit from eight to 16. The C16 CUDA
-gate compares one 16-token launch with two ordered C8 launches and requires
+The C16 correctness gate compares one 16-token launch with two ordered C8
+launches and requires
 bitwise-equal convolution output/history and GDN output/state. Invalid zero or
 17-token requests, malformed dimensions, overflow, and forbidden aliasing fail
 before a kernel is accepted.
@@ -78,10 +101,11 @@ before a kernel is accepted.
 
 CUDA calls accept caller-owned device pointers and an optional stream. They
 perform no allocation, copy, or synchronization, and isolate their launch
-status from an unrelated stale CUDA last-error. The recurrent kernel launches
-one 128-thread block per value head; one thread owns one V row, shared memory
-holds normalized Q/K, and the thread computes both its full state row and
-output.
+status from an unrelated stale CUDA last-error. Block geometry, shared-memory
+staging, and physical row ownership are implementation tactics rather than
+this component's ABI. If tuned, they are governed only by the active local
+optimization work package and must preserve the logical state/output contract
+above.
 
 Host tests cover cold state, five-step conv history, weight/history
 orientation, 48-to-16 head sharing, stable softplus and sigmoid extremes,

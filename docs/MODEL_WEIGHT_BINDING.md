@@ -1,365 +1,187 @@
-# Qwen3.6-27B resident weight binding
+---
+q3x_document:
+  id: q3x-model-weight-binding
+  class: contract
+  status: active
+  owner: runtime-maintainers
+  authority: typed resident-weight graph, numerical payload, lifetime, and dispatch-interface contract
+  effective: 2026-08-09
+  last_reviewed: 2026-08-09
+  supersedes: []
+  superseded_by: []
+  ssot_for: ModelWeights types, binding validation, non-owning lifetime, and projection API behavior
+  review_trigger: any ModelWeights ABI, tensor graph, payload formula, binding validation, ownership, or public dispatch change
+---
 
-`q3x::runtime::ModelWeights` is the boundary between the authenticated
-resident arena and the future 64-layer decoder. It converts string-keyed
-`DeviceTensorView` records into a fixed, typed, non-owning graph once at model
-startup. The graph contains no names, vectors, maps, owning allocations, or
-lazy scalar reads, so projection dispatch does not allocate after binding.
+# Qwen3.6-27B resident weight binding contract
 
-This component does not execute a layer and does not expand the current
-support claim to native inference.
+> **Authority boundary.** This contract refines the model-asset and projection
+> boundaries in the [system SDD](SDD.md) and is subordinate to it and the
+> [engineering constitution](ENGINEERING_CONSTITUTION.md). Current route,
+> qualification, performance, and Production lifecycle truth belongs in
+> [`CURRENT_STATUS.md`](CURRENT_STATUS.md). Kernel tiles, cache policy,
+> stream topology, fusion selection, and experiment thresholds are excluded;
+> they may govern only a named active local work package.
 
-## Lifetime and production entry point
+The public API is `include/q3x/runtime/model_weights.h`. `ModelWeights`
+converts the authenticated, string-keyed resident view table into one fixed,
+typed, non-owning 64-layer graph at startup. After binding, graph traversal
+requires no tensor-name lookup, scalar device read, or owning allocation.
 
-Production code binds the exact pinned arena:
+## Ownership and binding
 
-```cpp
-q3x::runtime::ResidentLoadResult loaded =
-    q3x::runtime::load_pinned_qwen36_27b(model_directory);
-if (!loaded) {
-  // Report loaded.diagnostic.
-}
+The ordinary runtime path binds the exact object returned by
+`load_pinned_qwen36_27b` through `bind_qwen36_27b_weights`. The pinned overload
+requires the 20,150,786,560-byte resident arena and exactly 1,846 text tensor
+views.
 
-q3x::runtime::WeightBindResult bound =
-    q3x::runtime::bind_qwen36_27b_weights(*loaded.value);
-if (!bound) {
-  // Report bound.diagnostic.
-}
-```
-
-The `ResidentWeights` object and its CUDA arena must outlive `ModelWeights`
-and every queued CUDA operation that uses a bound pointer. `ModelWeights`
-does not retain an owner pointer and does not extend this lifetime. Moving the
-owner transfers its CUDA allocation, but destroying it or move-assigning over
-it invalidates all bound views. The production overload rejects any arena
-whose size is not exactly `20,150,786,560` bytes or whose text view table does
-not contain exactly `1,846` entries.
+`ResidentWeights` and its CUDA allocation must outlive `ModelWeights` and
+every queued operation that consumes a bound pointer. `ModelWeights` does not
+retain or extend owner lifetime. Moving `ResidentWeights` transfers its arena;
+destroying or move-assigning over that owner invalidates all bound views.
 
 The callback-based `WeightBindingSource` overload exists for deterministic
-tests and already-validated alternative arena adapters. It does not weaken
-per-tensor checking: every requested view must still have the exact dtype,
-shape, byte count, non-null pointer, 256-byte-aligned offset and pointer, and
-`arena_base + arena_offset` address.
+tests and already-validated adapters. It does not weaken tensor validation.
+For every view, binding checks name presence, dtype, shape, byte count,
+non-null device pointer, **256-byte-aligned arena offset and device pointer**,
+arithmetic/range safety, and `arena_base + arena_offset` identity before
+publishing a graph.
 
-## Typed graph
+## Typed model graph
 
-The graph fixes the catalogued Qwen3.6-27B constants and exposes:
+The bound graph exposes:
 
 - BF16 `[248320,5120]` token embeddings, BF16 `[5120]` final centered norm,
-  and the independently typed `[248320,5120]` LM head;
-- 64 decoder layers with the exact repeated schedule of three
-  linear-attention layers and one full-attention layer;
-- BF16 input/post-attention norms plus typed gate/up/down MLP projections in
-  every layer;
-- linear-attention QKV, Z, BF16 A/B, `[10240,1,4]` convolution, A-log,
-  dt-bias, plain norm, and output projection in 48 layers;
-- full-attention Q/K/V/O projections and BF16 `[256]` Q/K centered norms in
-  16 layers.
+  and a typed `[248320,5120]` lm-head;
+- 64 decoder layers in the fixed three-linear-attention/one-full-attention
+  schedule;
+- BF16 input and post-attention norms plus gate/up/down projections in every
+  layer;
+- QKV, Z, BF16 A/B, `[10240,1,4]` convolution, A-log, dt-bias, plain norm,
+  and output projection in each of 48 linear-attention layers; and
+- Q/K/V/O plus BF16 `[256]` Q/K centered norms in each of 16 full-attention
+  layers.
 
-Projection type is selected from the actual weight view dtype, never from a
+Projection type is selected from the authenticated payload dtype, never from a
 module-name guess:
 
-| Weight dtype | Bound alternative | Required companions |
+| Payload | Bound alternative | Required companions |
 | --- | --- | --- |
-| `BF16 [N,K]` | `Bf16LinearWeight` | none |
-| `F8_E4M3 [N,K]` | `Fp8LinearWeight` | F32 scalar `weight_scale`, F32 scalar `input_scale` |
-| `U8 [N,K/2]` | `NvFp4LinearWeight` | F8_E4M3 `[N,K/16]` `weight_scale`, F32 scalar `weight_scale_2`, F32 scalar `input_scale` |
+| BF16 `[N,K]` | `Bf16LinearWeight` | none |
+| E4M3FN `[N,K]` | `Fp8LinearWeight` | F32 scalar `weight_scale`, F32 scalar `input_scale` |
+| packed U8 `[N,K/2]` | `NvFp4LinearWeight` | E4M3FN `[N,K/16]` block scale, F32 scalar `weight_scale_2`, F32 scalar `input_scale` |
 
-All F32 companions are copied synchronously from device once during binding
-and must be finite and non-negative. Their device pointers and host values
-are both retained. The reference W8A16 and W4A16 paths validate but do not
-apply `input_scale`, because their activation input is already BF16.
+F32 companions are read once during binding, retained both as device pointers
+and host values, and must be finite and non-negative. The W8A16 and W4A16
+projection formulas consume BF16 activations and therefore validate but do not
+apply the checkpoint activation scale.
 
-## Allocation-free projection dispatch
+## Numerical payload contract
 
-`launch_projection_reference_cuda` accepts caller-owned BF16 device input,
-writes caller-owned FP32 device output, and selects the existing BF16, FP8, or
-canonical NVFP4 reference GEMV from the bound variant. It neither allocates
-nor synchronizes.
+The stable projection interpretation is:
 
-`launch_projection_to_bf16_reference_cuda` additionally invokes the common
-FP32-to-BF16 round-to-nearest-even kernel. The caller supplies FP32 scratch of
-at least `linear_output_size(weight)` elements and the BF16 output buffer.
-Both APIs accept a CUDA stream and isolate their launch result from an
-unrelated stale CUDA last-error.
+```text
+BF16:  y[n] = sum_k BF16(w[n,k]) * BF16(x[k])
+FP8:   y[n] = sum_k E4M3FN(w[n,k]) * weight_scale * BF16(x[k])
+NVFP4: y[n] = sum_k E2M1(w[n,k]) * E4M3FN(block_scale[n,k/16])
+                    * weight_scale_2 * BF16(x[k])
+```
 
-The production boundary `launch_projection_to_bf16_cuda` takes the strongly
-typed `ProjectionBackend`. `kReference` is the default and preserves the
-above behavior. Explicit `kSm87WeightOnly` dispatches FP8 and NVFP4 directly
-to BF16 with the checked SM87 kernels; BF16 deliberately falls back to the
-reference path, and LM-head FP32 projection is unaffected. Direct quantized
-launches do not use FP32 scratch. Unknown backends, unknown/invalid variants,
-and incomplete companion payloads return `cudaErrorInvalidValue`; no dispatch
-path allocates or synchronizes.
+NVFP4 even K occupies the low nibble and odd K the high nibble. Accumulation
+is FP32 and direct-to-BF16 APIs round their completed observable outputs to
+BF16 round-to-nearest-even. NaNs and infinities are not silently clamped.
+Different conforming reduction groupings are not automatically a bitwise
+cross-backend oracle; whole-runner accuracy eligibility is controlled by the
+constitution and real-model policy, not by a local dispatch document.
 
-`launch_projection_tile_to_bf16_cuda` extends that boundary to caller-owned
-row-major BF16 input/output tiles with `M=1..64`. M1 delegates to the scalar
-projection API. For explicit SM87 FP8/NVFP4 weights, M2..M8 use small-M
-kernels that reuse each loaded weight across all M activation rows; M9..M15
-are split into M8 plus the remaining M1..M7 rows. M16 first reaches a
-format-specific fixed-tile launcher: exact aligned production shapes use
-Ampere BF16 Tensor Core MMA and every other valid case falls back to two
-ordered M8 launches. At M17 and M19..M31, exact aligned NVFP4 MLP shapes use
-one runtime-valid-count masked-M32 Tensor Core kernel with an exact M-row
-capacity contract. M18 retains its fixed masked-M32 specialization and exact
-C18 contract. Every FP8 M17..M31 case and each NVFP4 shape/alignment near-miss
-uses the ordered M16 plus at-most-M8 tail path. At M32, the four exact aligned FP8
-production shapes and the two exact aligned NVFP4 MLP shapes use one fixed-M32
-Tensor Core kernel. Other valid FP8 and NVFP4 M32 cases use two ordered M16
-launches. M33..M63 is one ordered M32 prefix followed by the established
-at-most-M31 tail. At M64, only exact aligned NVFP4 `[5120,17408]` down uses one
-weight-reuse M64 kernel; every other weight/backend combination preserves two
-ordered M32 schedules. BF16 weights and the reference backend ultimately
-enqueue checked M1 projections in token order. The launcher validates natural
-BF16 alignment, complete supertile spans, scratch capacity, overflow, and
-input/output overlap before enqueueing any work.
+## Projection interfaces
 
-The public `ReferencePrefillTileResult` capacity is 512 entries at the C512
-request boundary. That C++ ABI change advances the exact package version to
-0.4.0; consumers must rebuild instead of mixing older objects with the new
-static libraries. Generic projection dispatch remains a separate C64-bounded
-contract; the runner admits only narrowly shape-gated wide kernels.
+All projection launchers use caller-owned device storage, accept an optional
+`void*` CUDA stream, allocate nothing, and do not synchronize. Writable output
+ranges must not alias another operand unless the specific public operation
+explicitly documents that behavior.
 
-The fixed-M16 FP8 route accepts `[10240,5120]`, `[5120,6144]`,
-`[6144,5120]`, and `[12288,5120]` when weights are 16-byte aligned and
-activations are 8-byte aligned. It expands the canonical E4M3FN checkpoint
-bytes into BF16 shared-memory tiles and uses FP32 Tensor Core accumulation;
-the measured `[1024,5120]` shape deliberately retains the two-M8 fallback.
-The fixed-M16 NVFP4 route accepts `[17408,5120]` and `[5120,17408]` when
-packed weights are 16-byte aligned, block scales are 2-byte aligned, and
-activations are 8-byte aligned. It combines canonical E2M1 values with their
-E4M3FN block scales before the same BF16 MMA. Neither route repacks or mutates
-the resident checkpoint.
+- `launch_projection_reference_cuda` writes FP32 and dispatches by the bound
+  variant.
+- `launch_projection_to_bf16_reference_cuda` uses caller-owned FP32 scratch
+  and emits BF16.
+- `launch_projection_to_bf16_cuda` selects the strongly typed
+  `ProjectionBackend`; `kReference` is the compatibility default and
+  `kSm87WeightOnly` is explicit. BF16 remains on the reference formula and
+  lm-head FP32 behavior is unchanged.
+- `launch_projection_tile_to_bf16_cuda` accepts token-major BF16 input/output
+  for `M=1..64`. This is a projection-component capacity, not the runner's
+  Prefill capacity.
 
-The public `launch_sm87_nvfp4_w4a16_m17_m31_gemm_bf16_cuda` route accepts only
-M17 and M19..M31 at those same two shapes. Packed weights must be 16-byte
-aligned, block scales 2-byte aligned, and BF16 input 8-byte aligned. Its
-caller-owned input/output capacity is exactly M rows: the kernel reads only
-valid rows in the second internal 16-row panel, zero-fills rows M..31, and
-stores only rows below M. It therefore requires no C32 padding. Near-miss
-shapes or alignments re-enter one public M16 launch followed by public small-M
-launches of at most eight rows; M18 is rejected by this API and remains on the
-fixed entry below.
+The narrow public launch families retain these stable ABI boundaries:
 
-The fixed-M18 NVFP4 route accepts only `token_count=18` and those same two
-shapes under the same packed-weight 16-byte, block-scale 2-byte, and BF16-input
-8-byte alignment gates. The public input and output allocations remain strict
-C18 spans; the masked-M32 implementation loads only rows 0..17, zero-fills
-internal rows 18..31, and stores only rows 0..17. It therefore requires no C32
-capacity or padding from the caller. All FP8 M18 cases, NVFP4 shape near-misses,
-and calls missing any alignment gate retain the ordered public M16+M2 path.
-For `launch_projection_pair_tile_to_bf16_cuda`, both runtime-count projections
-or both fixed-M18 projections must pass their exact gates before bypassing
-generic pair sub-tiling. Both complete tiles, natural input/output alignment,
-cross-ranges, aliases, and overflows are validated before enqueue, so an
-invalid second projection cannot leave the first half enqueued. The two
-masked-M32 kernels retain first-then-second order. The reference runner keeps
-M17..M31 gate/up serial on the main stream, with no general double/triple
-buffering or Prefill/Decode overlap.
+| Public family | Token/shape boundary | Observable contract |
+| --- | --- | --- |
+| exact FP8 whole-chunk | `M in {256,512}`; `[10240,5120]` QKV, `[6144,5120]` Z, `[12288,5120]` Q, `[1024,5120]` K/V, or `[5120,6144]` attention output | direct BF16 output; does not widen the generic M64 API |
+| exact NVFP4 whole-chunk branch | `M in {256,512}`; `[17408,5120]` Gate/Up or `[5120,17408]` Down | direct BF16 output; no FP32 scratch; does not widen the generic M64 API |
+| projection pair tile | `M=1..64`; common input K and two independently sized outputs | validates both projections and all cross-ranges before first enqueue; exact BF16 A/B is two `[48,5120]` matrices and uses the ordinary M16 fused subroute |
+| linear-attention QKV/Z/A/B group | `M=1`; FP8 `[10240,5120]`, FP8 `[6144,5120]`, then two BF16 `[48,5120]` matrices | four distinct BF16 outputs; unsupported exact-route eligibility is reported before enqueue |
+| full-attention Q/K/V group | `M=1`; exact fusion eligibility is FP8 `[12288,5120]`, `[1024,5120]`, `[1024,5120]` | three distinct BF16 outputs; valid non-fused combinations preserve ordered fallback |
+| MLP Gate/Up/SiLU group | `M=1`; exact fusion eligibility is two NVFP4 `[17408,5120]` matrices | Gate output becomes rounded `SiLU(Gate) * Up`; the ordinary form also publishes rounded Up |
+| residual/norm plus Gate/Up/SiLU | `M=1`, hidden 5,120, same Gate/Up shapes | publishes rounded residual and Gate; ordinary form publishes Up, while the decode-only dead-Up form makes that workspace unobservable until overwritten |
+| Down plus residual/norm | `M=1`; exact fusion eligibility is NVFP4 `[5120,17408]` | publishes three distinct BF16 boundaries: raw Down, residual, and normalized output |
 
-The fixed-M32 NVFP4 route accepts those same two shapes and alignment gates.
-Its single K64/LD72 WMMA kernel keeps two 16-token activation panels resident
-in shared memory and reuses each decoded 64-by-128 weight tile across two
-independent accumulator chains. Every other valid NVFP4 M32 projection falls
-back to two ordered public M16 launches.
+Generic BF16 operands require natural 2-byte alignment. Exact FP8 whole-chunk
+eligibility requires 16-byte-aligned weight, 8-byte-aligned BF16 input, and
+2-byte-aligned output. Exact NVFP4 whole-chunk eligibility additionally
+requires a 16-byte-aligned packed weight and 2-byte-aligned block scales.
+Single-token FP8/NVFP4 grouped fusion eligibility uses 4-byte-aligned
+quantized weights, 8-byte-aligned activation, and naturally aligned BF16
+outputs; BF16 A/B weights are naturally aligned. These stricter exact-route
+near misses return `cudaErrorNotSupported` where the API defines caller
+fallback, while null, under-capacity, overflowing, unnaturally aligned, or
+overlapping operands return `cudaErrorInvalidValue`.
 
-The exact-M64 NVFP4 down route accepts only `[M=64,N=5120,K=17408]` with the
-same packed-weight, block-scale, BF16-input, and BF16-output alignment gates.
-One kernel keeps four M16 accumulator panels and reuses each decoded K64 weight
-tile across all 64 rows while retaining the established M32 shared-memory
-footprint. Near-miss shapes or alignments remain on two ordered public M32
-dispatches.
+Static shape dispatch is an interface/implementation constraint only. It does
+not prescribe project priority, architecture, or promotion. A structurally
+unsupported optional route returns `cudaErrorNotSupported` before enqueue so
+its caller may choose a documented fallback. Malformed payloads, pointers,
+scalars, sizes, ranges, aliases, or backend values return
+`cudaErrorInvalidValue` and are not fallback signals. Composite launchers
+validate the complete operation before their first enqueue so a bad later
+operand cannot leave a partial prefix queued.
 
-At runner level only, an exact C32 or C64 gate/up pair may overlap gate on the
-main stream with up on one auxiliary stream before an event join. C64 issues
-two ordered C32 projections on each branch. That narrow branch overlap is
-separate from the projection binding API and does not generalize to M17..M31,
-Decode, double/triple buffering, or Prefill/Decode overlap.
+## Optional sidecar attachment boundary
 
-Within the SM87 NVFP4 launcher, aligned canonical weights with K divisible by
-256 use a packed-x8 route: one 32-bit load supplies eight E2M1 values per lane,
-and adjacent lanes share one 16-value block scale. Non-vector K and unaligned
-weight pointers retain the original scalar kernel. This shape dispatch does not
-change the public projection API or require an offline weight layout.
+The header exposes transactional attachment APIs for optional FP8 and NVFP4
+derived layouts. Those APIs are stable only in these respects:
 
-Three exact aligned M1 NVFP4 shapes refine that packed-x8 route. Down
-`[5120,17408]`, gate/up `[17408,5120]`, and lm-head `[248320,5120]` use the
-adjacent-lane XOR-dual arithmetic while staging their BF16 activation once per
-CTA for reuse by grid-stride row quads. Down stages 34 KiB; gate/up and lm-head
-stage 10 KiB. The cooperative global copy is 8 bytes wide, so all three routes
-preserve the existing 8-byte activation alignment contract; they add no repack
-or 16-byte public alignment requirement. Near-miss shapes, packed-weight or
-activation misalignment retain their preceding routes. M2 through M15 do
-likewise; exact M17/M19..M31 use the runtime-count dispatch, while M18 and M32
-use the fixed-tile dispatches described above. M33..M63 compose M32 plus the
-ordered tail; M64 selects the exact down route only for its one admitted shape
-and otherwise composes two M32 dispatches.
+- canonical null/zero input detaches the applicable set where documented;
+- all descriptors, shapes, alignments, ranges, and complete-set invariants are
+  validated before any existing binding changes;
+- failure preserves the previous attachment set;
+- descriptor fields are copied during attachment, while device arenas remain
+  non-owning and must outlive all consumers; and
+- replacement or detach requires a globally quiescent point because the call
+  does not synchronize earlier CUDA work.
 
-Within the SM87 FP8 launcher, canonical weights with K divisible by 1,024,
-4-byte-aligned weights, and an 8-byte-aligned BF16 activation use a packed-x4
-route. Each lane consumes four E4M3FN weights with one 32-bit load and four
-activations with one 64-bit load, retaining four FP32 accumulators. Its
-branchless decoder is exact for finite E4M3FN values and preserves signed zero
-and signed canonical quiet NaNs. Non-vector K and either unaligned pointer
-retain the scalar kernel. This dispatch likewise requires no public API or
-checkpoint-layout change.
+An attached pointer does not by itself authorize scheduling or imply that a
+route is default, qualified, or Production. Sidecars prepared by the ordinary
+engine construction path are real runtime dependencies of the attached
+`ModelWeights`, even when the consuming route is not yet Production-qualified.
+Only sidecars not selected by the current DeploymentPlan/default route are
+dormant; named local work packages may study them without turning their
+mechanisms into global rules.
 
-`supports_fp8_projection_pair` recognizes only two valid FP8 `[1024,5120]`
-matrices under the explicit SM87 backend. For M1 and aligned operands,
-`launch_projection_pair_tile_to_bf16_cuda` uses one K/V cross-matrix row-quad
-kernel that shares activation decode and codebook setup while preserving each
-single projection's BF16 bits. Eligible unaligned calls, M2..M64 tiles, other
-shapes/types, and other backends retain the existing first-then-second path.
-The runner applies the pair only to full-attention K/V on prompt-final and
-decode steps; chunked prefix projection remains unchanged.
+## Failure and verification boundary
 
-`supports_fp8_qkv_z_projection_pair` recognizes the ordered linear-attention
-FP8 `[10240,5120]` QKV plus `[6144,5120]` Z pair under the same explicit
-backend. At aligned M1, one 1,536-CTA two-phase launch first preserves the QKV
-row-quad grid/stride and then lets its first 768 CTAs preserve the Z
-grid/stride. Both phases reuse one decoded E4M3FN codebook and retain the two
-production single-projection BF16 results bit-for-bit. Reversed or near-miss
-shapes, M2..M64, other backends, 4-byte weight misalignment, 8-byte activation
-misalignment, or 2-byte output misalignment retain two ordered projections.
-The scalar runner step, including `prefill_prefix_tile(..., 1)`, uses the pair
-dispatcher; layer-major C2..C64 prefix tiles remain independent QKV and Z
-projections.
+Binding errors distinguish invalid sources/arenas, missing tensors,
+unsupported or mismatched dtypes, shape/byte mismatches, null or misaligned
+pointers, arena-range mismatch, invalid scalar, layer-schedule and arithmetic
+errors, CUDA failure, and allocation failure. A failed bind publishes no
+partially valid `ModelWeights`.
 
-The SM87 kernels preserve the documented FP32-accumulation/BF16-RNE formula,
-but their warp reduction and global-scale multiplication order are not
-required to be bitwise identical to the deliberately scalar-shaped CUDA
-reference. Optimized results must instead pass the independent per-operation
-tolerance gate and the fixed full-model exact-token/text gate. The current
-deterministic gate covers FP8 and NVFP4 K=5120/6144/17408, scalar and
-unaligned fallbacks, all 256 E4M3FN codes in all four packed byte positions,
-both reserved encodings with NaN-class checks, all E2M1 codes and packed
-nibble positions, and adjacent-lane scale selection. Its 1,237 BF16 outputs
-produced zero bit mismatches against the CUDA reference; the independent host
-oracle checks reserved E4M3FN outputs by NaN class. The default remains
-`kReference`;
-passing one prompt does not make the optimized backend a universal
-floating-point oracle.
-
-The small-M gate covers M1 through M8 for all three bound weight alternatives,
-production K=5120/6144/17408 shapes, awkward K fallback, unaligned inputs and
-weights, host-double/CUDA references, repeated-M1 equivalence, and deterministic
-replay. The full-model C8 gate separately retains the exact 19/26-token text and
-44-step oracle contract. The fixed-M16 gates compare the Tensor Core output
-with two production M8 launches per shape, report BF16 mismatch and
-absolute/relative-error statistics, classify reserved FP8 NaNs separately,
-and require deterministic replay. Their different reduction grouping is not
-a universal bitwise-equivalence promise. The C16 full-model gate nonetheless
-retains the exact 19 prompt IDs, 26 output IDs, decoded text, `<|im_end|>`, and
-44 runner steps.
-
-## Validation coverage
-
-`model_weights_host` builds a complete synthetic 64-layer view table without
-allocating model payloads. It covers all three projection alternatives, exact
-48/16 scheduling, companion shapes and scalar copies, pointer/range/alignment
-checks, missing tensors, overflow-facing metadata checks, move/copy policy,
-and structured failure diagnostics.
-
-`model_weights_cuda` compares all three dispatch alternatives with the CPU
-GEMV references on a real CUDA device, checks stale-error isolation, and
-checks the caller-scratch FP32-to-BF16 convenience path. It does not reload
-the official 20 GB checkpoint.
-
-`projection_backend_dispatch` is a small SM87 CUDA gate for all three
-production routes at M1 through M64, BF16/reference fallback, M9..M15
-segmentation, and M16 Tensor Core selection/two-M8 fallback. For both NVFP4
-MLP shapes, the registry unit checks every one of the 14 runtime counts M17
-and M19..M31 for the direct route and `launch_count=1`. CUDA Graph samples
-cover one-node single projections, two-node ordered pairs, and the M24/M25
-fallback boundaries. It retains exact fixed-M18 masked-M32 selection/M16+M2
-fallback and fixed-M32 Tensor Core selection/two-M16 fallback coverage, and
-adds M33/M50/M63/M64 composition, exact one-node M64 down, two-M32 M64
-gate/up/FP8, and M64 near-miss fallback graph gates. Odd
-BF16 input/output addresses, complete-span aliases, wrapping/size overflows, and a malformed
-second pair projection all fail with zero graph nodes; one-sided pair
-ineligibility retains the recursive first-then-second order. The same test also
-covers scratch behavior, whole-tile overlap/span validation, fail-closed
-backend and variant handling, exact-shape FP8 M1 K/V and QKV/Z pair selection,
-other near-miss and unaligned ordered fallbacks, different output sizes, and
-stale-error isolation. It uses only synthetic buffers.
-
-`sm87_weight_only_gemv` covers awkward dimensions, aligned/unaligned dispatch,
-all packed E4M3FN and E2M1 positions, the model reduction lengths, independent
-host formulas, deterministic replay, and direct optimized-versus-reference
-BF16 mismatch/error statistics. Its default public runtime-mask matrix checks
-both MLP shapes at all 14 supported counts with exact-M allocations, bitwise
-equality, replay, tail canaries, finite output, M17/M31 one-node graphs, and
-zero-node invalid alignment/alias/overflow contracts. Its optional
-production-shape segment performs
-a mirrored scalar/vector CUDA-event comparison and enforces a 1.15x minimum
-speedup for the dominant NVFP4 shapes and FP8 shapes with at least 5,120 rows;
-the smaller FP8 shape may regress by at most 2%. It is enabled with
-`Q3X_RUN_SM87_WEIGHT_ONLY_GEMV_PERF=1`. The fixed-M16 same-binary gates use
-`Q3X_RUN_SM87_FP8_M16_WMMA_PERF=1` and
-`Q3X_RUN_SM87_NVFP4_M16_WMMA_PERF=1`; their final production-call-weighted
-speedups over two M8 launches are 2.41756x and 1.56406x, respectively.
-The fixed-M32 NVFP4 multi-candidate gate is enabled with
-`Q3X_RUN_SM87_NVFP4_M32_WMMA_PERF=1`; it compares preserved K64/LD72 and
-K128/LD136 baselines, the K256 scale-window specialization, and its factorized
-E2M1/E4M3 product lookup on both checkpoint-like and same-bank-stress fixtures.
-Production selects factorized K64/LD72; the final same-cubin gate requires no
-individual regression and at least 1.02x production-call-weighted speedup over
-the full-table K256 scale-window predecessor.
-The exact M18 masked-M32 gate is enabled with
-`Q3X_RUN_SM87_NVFP4_M18_MASKED_M32_PERF=1`. It compares the public production
-M18 entry with an explicit preceding M16+M2 baseline for both MLP shapes and
-checkpoint-like/same-bank distributions, while checking strict C18 capacity,
-bitwise outputs, replay, canaries, and kernel resources. Its final
-production-call-weighted speedup is 1.73817x. A detached P19/C32 B-C-C-B run
-measures 548.7825 to 439.5980 ms median TTFT (1.24837x), and matched Nsight
-traces reduce all CUDA kernels from 2,264 to 2,072 and the target projections
-from 384 to 192 launches.
-The runtime M17/M19..M31 gate is enabled with
-`Q3X_RUN_SM87_NVFP4_M17_M31_RUNTIME_MASKED_M32_PERF=1`. It covers all 14
-supported counts for both MLP shapes and both synthetic scale distributions,
-compares the runtime-masked kernel with explicit M16-plus-tail launches, and
-retains public-dispatch identity, bitwise, replay, canary, graph, invalid, and
-resource gates. The per-M production-call-weighted speedup ranges from 1.59909x
-at M17 to 4.19900x at M31.
-The FP8 M1 K/V pair correctness segment runs by default and covers all 254
-finite E4M3FN codes in each packed byte position, isolated `0x7f`/`0xff` NaNs,
-bitwise comparison, and output canaries. Its optional mirrored timing gate is
-enabled with `Q3X_RUN_SM87_FP8_M1_KV_PAIR_PERF=1` and requires at least 1.10x
-for both checkpoint-like and same-bank-stress fixtures.
-The FP8 M1 QKV/Z two-phase gate is enabled with
-`Q3X_RUN_SM87_FP8_M1_QKV_Z_FUSION_PERF=1`; production evidence additionally
-requires `Q3X_FP8_M1_QKV_Z_ACTUAL_CHECKPOINT_FILE` and the decimal
-`Q3X_FP8_M1_QKV_Z_ACTUAL_CHECKPOINT_OFFSETS=QKV:Z` pair. It compares the exact
-production kernel with two production row-quad launches in five
-baseline/candidate/candidate/baseline rounds, requires at least 1.02x on the
-actual checkpoint and 1.00x on the same-bank stress guard, and reports the
-stricter symmetric 1.01x result as an exploratory diagnostic rather than a
-promotion criterion. It also covers all 254 finite codes in all four packed
-positions for both matrices, isolated signed NaNs, replay, guards, input
-preservation, resources, alignment, shape, scale, cap, and alias contracts.
-The exact M1 NVFP4 data-reuse gates are enabled with
-`Q3X_RUN_SM87_NVFP4_M1_DOWN_XOR_DUAL_PERF=1` and
-`Q3X_RUN_SM87_NVFP4_M1_LM_HEAD_ACTIVATION_STAGED_PERF=1`. The gate/up staged
-gate is enabled with
-`Q3X_RUN_SM87_NVFP4_M1_GATE_UP_ACTIVATION_STAGED_PERF=1`, and the down staged
-gate is enabled with
-`Q3X_RUN_SM87_NVFP4_M1_DOWN_ACTIVATION_STAGED_PERF=1`. They compare the
-preserved indexed-dual or direct-activation baselines with their production
-candidates in the same binary, require bitwise finite/NaN and canary equality,
-verify scalar fallback for packed-weight or activation misalignment, and
-compare public/direct CUDA Graph kernel identities. The default down and
-gate/up segments additionally capture the exact production shapes without
-execution and verify `func`, grid, block, and dynamic-shared launch identity,
-including scalar function identity for packed-weight `+1` and activation `+2`
-fallbacks. The down gate also proves that the preserved direct XOR baseline
-remains a distinct callable kernel.
-
-For the runtime M17/M19..M31 production revision, Release CTest reports 49
-passed, 5 skipped, and 0 failed; host C++ ASan/UBSan reports 48 passed, 5
-skipped, and 0 failed. Exact C1/C8/C16/C32 pinned-model oracle runs pass. The
-fixed M18/M32 production SASS remains unchanged with normalized SHA-256
-`2574bd41a76f112e753f5784a97e38d54362394a2f2ab9c3b8ee32c6074bdf32`.
-Device `compute-sanitizer` did not run to completion because this Orin reports GPU
-debugging features disabled, so it is recorded as platform-blocked rather than
-passed. See the
-[machine-readable runtime-tail record](metadata/qwen36-27b-nvfp4-m17-m31-runtime-masked-m32-benchmark.json).
+Host and CUDA tests cover the complete typed graph, all three numerical
+payload alternatives, schedule and companion validation, owner lifetime,
+alignment/range/overflow/alias failures, stale CUDA-error isolation, and
+allocation-free dispatch. Synthetic kernel matrices remain correctness and
+smoke tools only. Historical mechanism measurements and gates live in
+[`PERFORMANCE_BASELINE.md`](PERFORMANCE_BASELINE.md); exact widened-prefix
+lineage includes the
+[`M17/M19..M31 runtime-masked record`](metadata/qwen36-27b-nvfp4-m17-m31-runtime-masked-m32-benchmark.json).
+It has no active authority here.

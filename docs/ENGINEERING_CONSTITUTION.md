@@ -1,6 +1,19 @@
-# Qwen3x-Orin engineering constitution
+---
+q3x_document:
+  id: q3x-engineering-constitution
+  class: normative
+  status: active
+  owner: project-owner
+  authority: highest project engineering authority below an explicit current owner direction
+  effective: 2026-08-09
+  last_reviewed: 2026-08-09
+  supersedes: []
+  superseded_by: []
+  ssot_for: mission, locked product constraints, and engineering philosophy
+  review_trigger: explicit project-owner amendment
+---
 
-Status: normative, effective 2026-08-09.
+# Qwen3x-Orin engineering constitution
 
 This constitution governs project prioritization, performance methodology,
 accuracy policy, and continuity across contributors, agents, sessions, and
@@ -46,7 +59,67 @@ becoming release-grade published evidence.
    runner. They are not authorities that outrank project-owner knowledge or
    substitutes for engineering judgment.
 
-## 1. Trust and planning authority
+## 1. End-state-first, leakage, and controlled evolution
+
+1. The delivered product is an externally callable, OpenAI-compatible runner
+   for the pinned model/hardware tuple. The external API and the first useful
+   response are therefore the logical starting boundary of system design.
+   Weight loading, execution plans, schedulers, memory, state, operators, and
+   kernels are internal means by which that product contract is satisfied.
+   API-first does not require a general-purpose, multi-model, multi-tenant
+   serving engine; specialization remains intentional.
+2. Product fitness is lexicographic rather than a single speed number. Model
+   accuracy, API semantics, requested capacity without silent truncation,
+   production route identity, non-MTP scope, the cuBLASLt exclusion, and
+   bounded resource behavior are hard constraints. Performance selects among
+   candidates only after those constraints hold.
+3. Final constraints must **leak downward** through a traceable chain:
+   `product scenario -> API observable -> runner phase budget -> execution
+   plan node -> subsystem contract -> local work package`. A local task that
+   cannot name this chain has no authority to consume the active performance
+   program.
+4. Implementation value must **leak upward** through the real production
+   route: a local mechanism changes a subsystem budget, the composed
+   architecture changes a runner phase, and the runner changes the external
+   API result. Architecture has an additional duty to remove any
+   synchronization, layout, ownership, or measurement boundary that prevents
+   a real local improvement from propagating upward.
+5. Three engineering units are distinct:
+   - a `local_mutation` is a bounded change to one mechanism or subsystem;
+   - an `architecture_candidate` is a runnable composition of the mutually
+     dependent local mutations needed to realize one complete dataflow; and
+   - a `release_candidate` is an architecture candidate packaged in the exact
+     production artifact and qualified against every product constraint.
+   A local mutation is not required to cross whole-API noise by itself, and it
+   can never claim production value by itself.
+6. Local mechanism engineering rules, microbenchmark thresholds, profiler
+   cells, tile constraints, and kernel-specific stop losses apply only while
+   an SDD/roadmap-selected **local optimization work package** is active. They
+   may choose implementation variants inside that package. They may not set
+   the product target, reorder global priorities, define the final delivery
+   shape, or keep a package alive after its architecture stop condition.
+7. A locally positive mutation may be retained as an experimental prerequisite
+   only when it is on the attested production route, preserves the numerical
+   contract, beats its real-payload local incumbent above measured noise,
+   belongs to a named architecture candidate, and has a predeclared
+   composition deadline or budget. It does not change the default release.
+   Once the dependencies close or the deadline expires, the complete
+   architecture candidate must return to the target API workload; local gains
+   are never added arithmetically to excuse a globally negative composition.
+8. Controlled evolution is not random parameter scanning. Design fixes the
+   product environment, invariants, search boundary, candidate lineage,
+   fitness vector, selection points, and stop conditions. Local mutations
+   provide variation; complete architecture candidates face system selection;
+   release candidates face production qualification. Rejected and superseded
+   lineages remain recorded so later agents do not rediscover them blindly.
+9. The governing shorthand is:
+
+   > Constraints leak downward from the final runner; variation occurs
+   > locally; mechanisms compose in an architecture candidate; value must leak
+   > upward to the real API. Local work may be retained, but it may not remain
+   > suspended indefinitely, and only whole-product fitness selects production.
+
+## 2. Trust and planning authority
 
 1. A direct project-owner statement about observed production behavior,
    required accuracy, or the target hardware/model is an authoritative
@@ -65,7 +138,7 @@ becoming release-grade published evidence.
    Approximate prompts, another context length, a component microbenchmark,
    or a differently configured endpoint cannot supersede it.
 
-## 2. Proven implementation is an existence proof
+## 3. Proven implementation is an existence proof
 
 1. Working vLLM behavior on the target Orin and pinned model family is the
    performance starting line. It is an existence proof that the hardware and
@@ -85,7 +158,7 @@ becoming release-grade published evidence.
    is also not a runtime dependency requirement; it is the external starting
    point and architectural reference.
 
-## 3. Product-first measurement hierarchy
+## 4. Product-first measurement hierarchy
 
 Use the following hierarchy to decide what to do next:
 
@@ -106,13 +179,18 @@ without a same-workload reconciliation. Logger-window rates, P513 cells,
 synthetic matrices, and isolated kernel peaks must never be presented as the
 product result.
 
-The first test of a candidate is the smallest safe real-model production/API
-run capable of revealing direction. A positive direction unlocks complete
-correctness, noise, resource, and profiler qualification. A negative direction
-stops or archives the candidate; a bounded profile is optional when it answers
-a concrete architectural question.
+The real product path first identifies the active system constraint and selects
+the local optimization work package. A `local_mutation` then uses the smallest
+safe real-route admission and the applicable real-payload local comparator;
+it is governed by the package's composition budget rather than required to
+move the whole API independently. A complete `architecture_candidate` must
+return immediately to the smallest target-representative production/API run
+capable of selecting the whole composition. Positive system direction unlocks
+complete qualification. A negative composition stops or redesigns that
+architecture version; bounded profiling is optional when it answers a named
+causal question.
 
-## 4. Architecture before parameter scanning
+## 5. Architecture before parameter scanning
 
 1. When the whole-product gap is at least 2x, or the target requires a
    qualitative step, stop low-yield single-variable scanning as the primary
@@ -126,11 +204,16 @@ a concrete architectural question.
    wins. Revisit the kernel or runner skeleton when the ideal dataflow does not
    fit it.
 4. Incremental native improvements are retained against the current native
-   incumbent when they clear real noise. The vLLM or cuBLASLt terminal
-   reference is checked after cumulative progress; it is not a per-experiment
-   rejection threshold.
+   incumbent when they clear real noise. The vLLM starting line and any
+   cuBLASLt external component ceiling are checked after cumulative progress;
+   neither is a per-experiment rejection threshold.
+5. Mutually dependent mechanisms may be implemented and evaluated as one
+   architecture candidate when their value is structurally non-orthogonal.
+   Single-variable isolation is a diagnostic tool, not a rule that forbids the
+   complete dataflow required by the design. The package must still have a
+   bounded mutation count, time/budget limit, and API return point.
 
-## 5. Accuracy and feature boundaries
+## 6. Accuracy and feature boundaries
 
 1. Production mainline changes must not degrade model accuracy. A path that
    changes the numerical contract, activation precision, recurrent-state
@@ -145,7 +228,7 @@ a concrete architectural question.
    they share a runner. Their kernels, state ownership, buffering, metrics,
    and priorities must be separable.
 
-## 6. Claim discipline
+## 7. Claim discipline
 
 Do not say that a target is impossible, at the hardware ceiling, or outside
 the feasible region merely because the current implementation stalls.
@@ -162,7 +245,7 @@ An impossibility or ceiling claim requires all of the following:
 Without that evidence, report an implementation limitation and the next
 architecture hypothesis, not a hardware impossibility.
 
-## 7. Locked business targets
+## 8. Locked business targets
 
 These targets remain active until the project owner changes them:
 
@@ -184,12 +267,13 @@ The native runner must first match vLLM's useful performance on this
 specialized hardware/model family. Its market justification then requires
 specialization to exceed that general engine while preserving accuracy.
 
-## 8. Continuity and change control
+## 9. Continuity and change control
 
 1. At the start of performance work, and after any context compaction or
-   handoff, read `AGENTS.md`, this constitution,
-   `REAL_MODEL_PERFORMANCE_POLICY.md`, the active phase architecture document,
-   and the external-evaluation contract before proposing work.
+   handoff, read `AGENTS.md`, this constitution, the canonical `SDD.md`,
+   `CURRENT_STATUS.md`, `REAL_MODEL_PERFORMANCE_POLICY.md`, the active phase
+   architecture document, and the external-evaluation contract before
+   proposing work.
 2. Every material architecture decision, target change, retained result, and
    rejected mechanism must be written into tracked repository evidence. Chat
    history is not the authoritative memory.
@@ -201,7 +285,7 @@ specialization to exceed that general engine while preserving accuracy.
 5. Amend this constitution only through an explicit project-owner direction.
    Record the date, reason, and affected targets or methods in the amendment.
 
-## 9. Workspace and host hygiene
+## 10. Workspace and host hygiene
 
 1. All project-generated builds, temporary source copies, linked worktrees,
    profiler captures, evaluation databases, generated corpora, logs, and tool
@@ -219,6 +303,12 @@ specialization to exceed that general engine while preserving accuracy.
    files, worktree registrations, and storage use. Retain material evidence
    inside the workspace and remove only artifacts whose ownership and
    recoverability are established.
+5. Before every performance timing or profiler capture, run and retain a
+   clean-host resource preflight. On Jetson, `tegrastats`, CPU/process
+   sampling, and GPU-device handle inspection are the authority for load and
+   ownership. The platform's incomplete `nvidia-smi` must not be used to
+   declare the GPU idle or identify all GPU consumers. Any unexpected CPU or
+   GPU consumer invalidates the run; abort before timing or discard the result.
 
 ## Amendments
 
@@ -235,3 +325,12 @@ specialization to exceed that general engine while preserving accuracy.
 - **2026-08-09:** Host-hygiene requirement. Generated project artifacts are
   confined to the repository workspace, large or persistent `/tmp` use is
   prohibited, and user-owned home-directory inputs remain untouched.
+- **2026-08-09:** End-state-first and leakage principle. The external runner
+  API becomes the logical design boundary; final constraints propagate down
+  to scoped local work, local mechanisms compose into architecture
+  candidates, and only whole-product fitness can select production. Local
+  mechanism rules are explicitly confined to an active local optimization
+  work package.
+- **2026-08-09:** Benchmark resource gate. Every timing/profile begins with a
+  clean-host preflight; Jetson load authority is `tegrastats` plus process and
+  device-handle inspection, never the incomplete `nvidia-smi` process view.

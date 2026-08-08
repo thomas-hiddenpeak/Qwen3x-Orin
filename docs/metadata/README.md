@@ -1,5 +1,11 @@
 # Pinned checkpoint metadata evidence
 
+> **Document control**
+> - Class: `evidence_index`
+> - Authority: artifact discovery and exact per-record authority only
+> - Status: historical index; not current status or an active roadmap
+> - Current truth: [`../CURRENT_STATUS.md`](../CURRENT_STATUS.md)
+
 This directory records normalized facts used to design and test Qwen3x-Orin.
 The reports are evidence artifacts, not model files and not end-to-end support
 claims. A report reaches only `metadata-compatible` until all referenced shard

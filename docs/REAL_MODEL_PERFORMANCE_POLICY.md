@@ -1,8 +1,25 @@
+---
+q3x_document:
+  id: q3x-real-model-performance-policy
+  class: normative
+  status: active
+  owner: project-owner
+  authority: performance evidence, candidate selection, retention, and release promotion
+  effective: 2026-08-09
+  last_reviewed: 2026-08-09
+  supersedes: []
+  superseded_by: []
+  ssot_for: performance evidence tiers and decision-unit lifecycle
+  review_trigger: evidence tier, candidate unit, selection gate, or production-promotion change
+---
+
 # Real-model performance evidence policy
 
-This policy defines which measurements may select, reject, or promote a model
-kernel.  It applies to microbenchmarks, component screens, end-to-end
-benchmarks, and Nsight evidence.
+This policy defines which measurements may retain a local mechanism, select an
+architecture, or promote the complete runner. It applies to microbenchmarks,
+component screens, end-to-end benchmarks, and Nsight evidence. Those are three
+different decisions. An evidence record must name the decision it is allowed
+to influence rather than using the unqualified word `candidate`.
 
 The [engineering constitution](ENGINEERING_CONSTITUTION.md) is the controlling
 planning and target contract. This policy qualifies evidence; it may not be
@@ -41,16 +58,112 @@ model-performance conclusion is drawn from it.
 |---|---|---|---|
 | T0 | none | build, ABI, selector, SASS, and static resource contracts | none |
 | T1 | synthetic | exhaustive correctness, robustness, Graph, and smoke tests | none |
-| T2 | pinned model tensors | same-binary component timing and candidate selection | component authority |
-| T3 | pinned model and prompts | natural layer order, route attribution, Prefix/TTFT, tokens, and state | formal protocol: production authority; direction screen: early-stop only |
+| T2 | pinned model tensors | same-binary component timing inside a named local work package | local-retention authority only |
+| T3 | pinned model and prompts | natural layer order, route attribution, Prefix/TTFT, tokens, and state | direction screen: early-stop; target-length architecture witness: development selection; formal release protocol: production authority |
 | T4 | the exact T2 or T3 payload | NCU/NSys mechanism attribution after a valid timing run, including a rejected direction screen | diagnostic only |
 
 T2 is necessary but not sufficient for production promotion.  Production
 selection also requires the applicable T3 gates.
-A direction screen is a restricted protocol class on a T3 payload, not a new
-payload tier. It has early-stop authority only; T3 gains production authority
-only after the formal correctness, noise, repetition, and promotion protocol
-completes.
+A direction screen and a target-length architecture witness are restricted
+protocol classes on a T3 payload, not new payload tiers. A direction screen
+has early-stop authority only. A completed target-length witness may select a
+development architecture but cannot change production. T3 gains production
+authority only after the formal correctness, noise, repetition, and promotion
+protocol completes for a frozen `release_candidate`.
+
+## Candidate units and decision authority
+
+Every performance change belongs to exactly one of these units:
+
+| Unit | Meaning | May be selected by | Authority it never has by itself |
+|---|---|---|---|
+| `local_mutation` | One mechanism or an intentionally coupled mechanism bundle inside a named local optimization work package | A same-binary, real-payload T2 comparison or a more representative T3 comparison against the package's frozen local incumbent | global priority, architecture selection, production dispatch, or a product-performance claim |
+| `architecture_candidate` | A coherent executable dataflow whose mechanisms are connected on the real generation route, including their layouts, ownership, synchronization, state, and fallback contract | A clean-host T3 target-length API witness against the current native architecture | production promotion before complete release qualification |
+| `release_candidate` | A frozen production binary, deployment plan, configuration, API contract, and model-artifact set | The complete repeated T3 release protocol plus accuracy, capability, resource, and packaging gates | changing the constitutional product or numerical contract |
+
+The unit may grow only through an explicit transition recorded in evidence:
+`local_mutation -> architecture_candidate -> release_candidate`. Local
+retention is not architecture retention, and architecture selection is not a
+release claim. The frozen native default/qualification baseline remains
+unchanged until a `release_candidate` completes promotion; whether that
+baseline is already production-qualified is reported only by
+[`CURRENT_STATUS.md`](CURRENT_STATUS.md).
+
+### Named local optimization work packages
+
+Mechanism-level engineering rules apply only while work is explicitly inside
+a **named local optimization work package**. They are tools for executing a
+chosen architecture hypothesis; they must not set the project's global
+priority, redefine the product target, or keep an architecture alive after
+its whole-path evidence fails.
+
+Before the first local timing run, a work-package record must freeze:
+
+- its identifier, owning `architecture_candidate`, affected production route,
+  exact shapes/roles, and numerical contract;
+- the bottleneck observation that opened it and the expected path by which
+  local savings can reach the target API witness;
+- the real payload, local incumbent, timing/noise protocol, correctness oracle,
+  and interactions that require two or more mechanisms to be tested together;
+- an integration point and an explicit composition deadline expressed as a
+  date, a maximum number of local variants, or a clean-host device-time budget;
+  and
+- a stop-loss budget for the composed architecture, not an invented demand
+  that each mechanism independently move an end-to-end metric.
+
+A `local_mutation` may be retained inside that package only when it is
+numerically admissible, its selector/route attestation shows that it can
+execute on the named production route without an undeclared fallback, and
+either:
+
+1. is stably positive over the package's real-payload local incumbent beyond
+   the measured local noise; or
+2. is a required dependency of a predeclared coupled dataflow, has a bounded
+   mechanistic proof, and is labelled `dependency_only` until composition.
+
+The first condition updates only the package-local incumbent. The second does
+not update a performance baseline and cannot be called a speedup. Coupled
+loads, layouts, decode, MMA, fusion, and pipeline stages may be compared as one
+bundle when their interaction is the hypothesis; the policy does not require
+artificially orthogonal single-variable experiments.
+
+A local mutation is not required to pierce whole-API noise before it can be
+retained for composition. Conversely, locally retained mechanisms may not
+accumulate indefinitely. At the declared deadline the package must compose
+them into its named `architecture_candidate` and return to the target API
+witness, or archive the uncomposed mechanisms as non-production evidence. A
+deadline extension requires a newly recorded causal finding and one new
+bounded deadline. When the composed architecture loses, package-local wins do
+not override that result; work resumes only under a materially changed named
+architecture hypothesis.
+
+cuBLASLt may provide an external component ceiling, while vLLM provides the
+whole-product starting line and mechanism clues. Neither serves as a
+per-mutation retention threshold, and cuBLASLt never enters a native package's
+production route.
+
+### Architecture and release selection
+
+An `architecture_candidate` must connect its mechanisms in one real runner
+route and expose route identity, pure Prefill timing, TTFT, output/state
+identity, peak resource use, and fallback behavior. Prefill architecture
+selection uses cold/no-cache 40K, 60K, and approximately 130K API witnesses on
+the pinned model. These witnesses may run in fail-fast order, but a short
+prompt or component result can only check sanity or explain a mechanism; it
+cannot name the winning Prefill architecture.
+
+The architecture comparison is cumulative native incumbent versus cumulative
+native candidate. A stable improvement on the predeclared target-length
+witness set selects the new development architecture; external vLLM remains
+the starting-line and cumulative comparison, not the incremental rejection
+gate. Selection still does not alter production dispatch.
+
+A `release_candidate` freezes the selected architecture into the actual
+deliverable API, release build, authenticated deployment plan, and default
+configuration. It must complete the formal repeated T3 protocol on all target
+lengths, exact/no-regression accuracy gates, public capability evaluation,
+resource and startup checks, and installation/link/route attestation. Only
+that decision may change the production baseline.
 
 ## External whole-product evaluation
 
@@ -64,12 +177,17 @@ it cannot replace the external whole-product observation.
 
 The decision order is:
 
-1. run the smallest predeclared real external workload that can reveal whether
-   the complete architecture change matters;
-2. if positive, validate correctness, state, resources, noise, and mechanism
-   with the applicable T2--T4 tools;
-3. return the completed architecture milestone to the same external protocol
-   before retention or production promotion.
+1. use the smallest safe real API request to establish that the route,
+   streaming contract, token accounting, and output oracle function; this is a
+   sanity gate, not Prefill architecture selection;
+2. execute any named local work packages with T2--T4 evidence under their
+   bounded composition contracts;
+3. return the composed `architecture_candidate` to the predeclared 40K, 60K,
+   and approximately 130K cold/no-cache T3 witnesses for architecture
+   selection; and
+4. freeze the selected architecture as a `release_candidate` and repeat the
+   complete external capability, performance, accuracy, and packaging
+   protocol before production promotion.
 
 A one-process, one-round external run may set roadmap priority but has no
 release, promotion, publication, or threshold-recalibration authority.
@@ -109,9 +227,11 @@ non-symlink files inside the model root.  A real activation/state capture must
 pin the prompt or token IDs, tokenizer/config revision, capture point, dtype,
 shape, and payload SHA256.
 
-The record must also identify the git tree, binary SHA256/build ID, CUDA and
-driver versions, device, clocks, nvpmodel, CPU affinity, temperature envelope,
-and cache protocol.  A hash or shape mismatch fails closed before enqueue.
+The record must also identify `decision_unit`, `work_package_id` when local,
+`architecture_candidate_id` when applicable, the git tree, binary SHA256/build
+ID, CUDA and driver versions, device, clocks, nvpmodel, CPU affinity,
+temperature envelope, and cache protocol. A hash or shape mismatch fails
+closed before enqueue.
 
 ## Modes and exit behavior
 
@@ -122,53 +242,39 @@ adapted to an existing executable, but their behavior must match this contract:
   only; it contains no timing threshold.
 - `performance-checkpoint`: T2 or T3; a checkpoint is mandatory and no
   synthetic fallback exists.
-- `profile-checkpoint`: T4; it uses the same pinned payload and exact
-  incumbent/candidate routes as the preceding valid timing run.
+- `profile-checkpoint`: T4; it uses the same pinned payload and exact incumbent
+  plus `local_mutation` or `architecture_candidate` routes as the preceding
+  valid timing run.
 
 Exit `0` means that the requested tier completed and its applicable gates
 passed.  Exit `1` means invalid evidence, a correctness failure, or a runtime
 failure.  Exit `2` means invalid or incomplete command-line configuration.
 Exit `3` distinguishes a valid, completed measurement that rejected the
-performance candidate.  Exit `77` means that optional hardware or checkpoint
+declared decision unit. Exit `77` means that optional hardware or checkpoint
 data is unavailable in a non-performance environment.  When strict evidence is
 enabled, for example with `Q3X_REQUIRE_REAL_PERF=1`, missing model data,
 incorrect hashes, unsupported hardware, or unlocked required clocks are
 failures, not skips.  A missing checkpoint must never select a synthetic
-performance path implicitly.  For native development screens, exit `3`
-means that the candidate was not retained against the frozen native
-incumbent; an external-library reference may never cause that exit.
+performance path implicitly. For native development screens, exit `3` means
+that the declared `local_mutation` or `architecture_candidate` was not
+retained against its corresponding frozen native incumbent; an
+external-library reference may never cause that exit.
 
-## Current C512 migration state
+## Dormant C512 evidence boundary
 
-The Gate-only cuBLASLt ceiling is synthetic T1 only.  Its legacy absolute
-reference and directional speedup are diagnostic fields and cannot retain or
-reject a route.  The Gate+Up pair and Down ceiling expose separate `smoke` and
-`performance-checkpoint` modes.  Only the latter may emit a performance
-decision, requires a checkpoint explicitly, and is registered as a serialized
-CTest when `Q3X_REAL_PERF_MODEL_DIR` (or the E2E model directory) is supplied.
+C512-specific harness modes, tactic IDs, thresholds, and profile prescriptions
+are historical local-work-package material, not normative policy. They remain
+reachable through [`LARGE_M_PROJECTION_DATAFLOW.md`](LARGE_M_PROJECTION_DATAFLOW.md),
+[`PERFORMANCE_BASELINE.md`](PERFORMANCE_BASELINE.md), and the
+[`metadata/`](metadata/) evidence index. Reopening any of them requires a new
+named work-package manifest with a current incumbent, real payload, evidence
+protocol, composition deadline, and API return point; the old local rules do
+not reactivate themselves.
 
-These component harnesses currently combine pinned layer-0 weight, block
-scale, and tensor scale with a deterministic activation fixture.  Their
-evidence class is therefore `checkpoint_weight_only`, not `full_model`.
-Their layer-0 results are useful migration controls but remain provisional
-until the candidate-independent four-layer panel and T3 full-model gates are
-implemented.  No historical synthetic threshold is thereby re-certified.
-
-The historical exact-C512 Down cuBLASLt module no longer times synthetic BF16
-operands while constructing its reference context.  It scans the runtime
-heuristic list for the zero-workspace configuration locked by the current T2
-checkpoint evidence (`algorithm_id=6`, `tile_id=23`, `split_k=1`, no
-reduction, `cta_swizzle=1`, `custom_option=0`, `stages_id=15`).  This module is
-an external benchmark reference only: it has no production dispatch,
-fallback, retention, or promotion eligibility.  Heuristic-list rank is
-recorded but is not an ABI or native selection key.
-
-This exclusion is permanent rather than a temporary migration state.  The
-production executable and installed kernel library must have no cuBLASLt
-dependency, symbol, selector, context, scratch allocation, or fallback.  A
-native retention run must also remain executable when every cuBLASLt reference
-component is absent; reference setup or timing failure cannot alter its result
-or exit status.  Link/symbol/install audits enforce this boundary.
+The cuBLASLt boundary is project-wide rather than C512-specific: the
+deliverable executable and installed kernel library have no cuBLASLt
+dependency, symbol, selector, context, scratch allocation, dispatch, or
+fallback. Reference setup or timing failure cannot alter a native decision.
 
 ## CI lanes
 
@@ -185,11 +291,30 @@ may not claim a performance completion without evidence from this lane.
 Development retention and production promotion are separate test labels and
 decisions.  Release promotion requires both T2 and T3 results.
 
+## Clean-host preflight
+
+Every retained performance timing and every profiler capture requires a
+fail-closed clean-host preflight immediately before the run. On Jetson the
+record must use `tegrastats`, CPU/process inspection, and GPU device-handle
+ownership inspection. Jetson's incomplete `nvidia-smi` implementation is not
+an idle detector and must not be used to attribute GPU consumers.
+
+The preflight record must capture at least the observed processes and device
+handles, CPU activity, GPU/EMC activity, memory pressure, thermal/clocks state,
+and the identity of the runner that is about to own the device. Any unexpected
+CPU or GPU consumer invalidates the run. Do not retain, average, compare, or
+report its timing; wait for ownership to become clean and begin a new run.
+Profiler setup does not waive this rule.
+
+Store preflight and run artifacts below `.q3x-work/` with the evidence record.
+Do not create project-owned monitoring output in the project owner's home
+directory, and do not leave large or persistent captures in `/tmp`.
+
 ## Layer panels and cache state
 
 A single convenient layer, including layer 0, is not a general production
-sample.  Before viewing a candidate result, each projection or stateful role
-must freeze a layer panel chosen from all eligible layers using payload
+sample. Before viewing a `local_mutation` result, each projection or stateful
+role must freeze a layer panel chosen from all eligible layers using payload
 features such as quantized-code and scale-exponent histograms, zero fraction,
 entropy, and compressibility.  The development panel must contain at least
 four layers spanning low, median, high, and extreme payloads.  Gate, Up, Down,
@@ -201,58 +326,67 @@ layers or explicitly scrub cache so that repeated use of one tensor does not
 create an accidental warm-cache gate.  If warm-cache behavior is relevant, it
 is recorded as a separate steady-state result.
 
-## Direction-first development and threshold recalibration
+## Staged development and threshold recalibration
 
 Synthetic thresholds and absolute timings are not transferred to real
-payloads. Development follows a direction-first funnel so that a candidate
-must first show useful movement in the natural model path before it consumes
-complete qualification effort:
+payloads. Development uses different rules for different decision units.
 
-1. Freeze the live incumbent, payload manifest, layer panel, environment, and
-   timing protocol before inspecting the candidate.
-2. Before the first device run, complete only the minimum safe admission:
-   build and launch contracts, bounds and resource sanity, route isolation,
-   and at least one applicable correctness oracle. Exhaustive synthetic and
-   full-state qualification are not prerequisites for the first direction
-   screen unless safety or the candidate's numerical contract requires them.
-3. Run the first performance screen in the pinned T3 generation path whenever
-   that path exists. Use one engine and one ELF, the natural layer order, the
-   real prompt-derived activations/state, explicit incumbent/candidate route
-   hits, a deterministic generation oracle, and a snapshot-free mirrored
-   order such as one B-C-C-B round. A T2 component screen may help diagnose a
-   candidate, but it does not replace this first whole-path direction check.
-4. A negative or neutral direction result has early-stop authority. Reject and
-   archive the candidate without building exhaustive correctness, noise,
-   six-round, profiler, or promotion harnesses. Alternatively, when a concrete
-   causal question could change the next design, collect a bounded T4 NSys or
-   NCU comparison on the same real payload and record it as diagnostic
-   evidence. Profiling is optional and cannot reverse the rejection.
-5. A positive direction result has no retention, promotion, or publication
-   authority by itself. It unlocks complete correctness/state/Graph/resource
-   validation and incumbent-versus-incumbent paired controls on the real panel
-   to establish the local noise floor.
-6. A development candidate is retained when the formal paired real-payload
-   result is
-   stably positive against the current native development incumbent and clears
-   the measured noise allowance.  It then becomes the new native development
-   incumbent.  Do not impose an external reference or the terminal production
-   margin on this incremental step.
-7. Use the same final binary and six B-C-C-B rounds for incumbent and
-   candidate.  Preserve all raw rounds, including reversals and failures.
-8. Production promotion is a separate cumulative decision against the current
-   native production baseline.  It requires per-layer non-regression, the
-   predeclared engineering margin (currently 1.03x where specified), an
-   independent-process repeat, complete role/shape coverage, and T3.
-9. Re-run the gates after the production binary and selector are finalized.
+For a `local_mutation` inside a named work package:
 
-A direction screen may stop work but may never retain a candidate, update a
-production selector, recalibrate a threshold, or serve as a published
-performance anchor. A rejected candidate may be reopened only after a named
-mechanism changes, at which point the new candidate starts at step 2.
+1. Freeze the package-local incumbent, real payload manifest, applicable layer
+   panel, environment, measurement protocol, and clean-host preflight before
+   inspecting the mutation.
+2. Complete the minimum safe admission before the first device run: build and
+   launch contracts, bounds/resource sanity, route isolation, and at least one
+   applicable correctness oracle. Exhaustive qualification is deferred unless
+   safety or the numerical contract requires it.
+3. Run the cheapest representative real-payload T2 or T3 comparison capable of
+   measuring the package's local hypothesis. Use the same engine and ELF where
+   practical, explicit route hits, and a mirrored incumbent/mutation order.
+   The work package may use a short prompt, P513, a layer panel, or a component
+   boundary here because this result has local authority only.
+4. A negative local result normally archives that mutation. A
+   `dependency_only` mutation may remain until the declared coupled test when
+   the interaction was predeclared; the record must not call it a win.
+5. A positive first result unlocks the package's complete correctness,
+   state/Graph/resource, and noise qualification. When the package specifies
+   six B-C-C-B rounds or another paired protocol, preserve every raw round,
+   reversal, and failure.
+6. Retain a stably positive mutation beyond local noise as the new
+   package-local incumbent. Gate evidence does not set Down or FP8 thresholds,
+   and per-role results remain local until composition.
+7. At the package deadline, build the coupled `architecture_candidate` or
+   archive the package. Do not convert a collection of uncomposed local
+   timings into an end-to-end claim.
 
-Thresholds are role- and shape-specific.  Gate evidence does not set Down or
-FP8 thresholds, and a microbenchmark gain is weighted by the number of actual
-model calls before its end-to-end significance is claimed.
+These minimum-admission, pair-table, local noise, layer-panel, and profiler
+rules are **local optimization engineering rules**. Outside a named local
+work package they do not determine global priority, require the project to
+continue scanning, or supersede a real API architecture result.
+
+For an `architecture_candidate`:
+
+1. Freeze the cumulative native architecture incumbent and one final binary;
+   verify natural layer order, exact model/state, explicit route identity, and
+   the product API semantics.
+2. Run the cold/no-cache target-length witnesses in fail-fast 40K, 60K, 130K
+   order. A neutral or negative whole-path result may close the architecture
+   version immediately. A bounded T4 profile may answer a named causal
+   question but cannot reverse the result.
+3. Select a cumulative architecture only after it is stably positive over the
+   predeclared witness set and preserves the numerical/output contract. Do not
+   impose the vLLM starting-line margin or a cuBLASLt external-ceiling margin
+   on this incremental native architecture decision.
+
+For a `release_candidate`, repeat the formal protocol after the production
+binary, selector, deployment plan, and default API configuration are frozen.
+Production promotion is cumulative against the current qualified native
+production baseline when one exists, or otherwise the frozen native release
+baseline named by `CURRENT_STATUS.md`. It requires the predeclared engineering
+margin where applicable, independent-process repetition, complete role/shape
+and target-length coverage, public capability evidence, and T3. A direction
+or architecture screen may never update production dispatch, recalibrate a
+published threshold, or serve as release evidence.
 
 ## Historical evidence
 
@@ -263,9 +397,9 @@ each result as `synthetic_only`, `checkpoint_weight_only`,
 
 - Synthetic microbenchmarks backed by later real full-model evidence may
   retain the production decision, but their mechanism claims are directional.
-- A synthetic-only production selection is provisional and must be
-  requalified in priority order; it is not reverted without replacement
-  evidence.
+- A historical synthetic-only default-route selection is provisional and must
+  be requalified through the active Roadmap and release protocol; it is not
+  reverted without replacement evidence.
 - A synthetic-only rejection is no longer a permanent stop.  It is rerun only
   if that mechanism re-enters the active roadmap; old negative cells need not
   be migrated wholesale.
@@ -273,17 +407,16 @@ each result as `synthetic_only`, `checkpoint_weight_only`,
 ## Profiling order
 
 NCU or NSys follows, never precedes, a completed and valid T2 or T3 timing run
-or direction screen on the same real payload. A rejected candidate may be
-profiled when an explicit causal question can guide the next design, but that
-work must be bounded and the profile is diagnostic: it cannot reverse the
-rejection. A negative candidate may instead be archived immediately; profiler
-completion is not a rejection gate. The
-authoritative T2 retention comparison is always native incumbent versus native
-candidate.  For the C512 NVFP4 external-reference study, profile the
-dequantization kernel, the immediately following cuBLASLt BF16 GEMM, and the
-native NVFP4 kernel separately.  Both `dequantization + Lt` versus `native`
-and Lt-only results are diagnostic reference observations; neither may retain,
-reject, select, or promote a production route.
+or direction screen on the same real payload. A rejected `local_mutation` or
+`architecture_candidate` may be profiled when an explicit causal question can
+guide the next design, but that work must be bounded and the profile is
+diagnostic: it cannot reverse the rejection. A negative decision unit may
+instead be archived immediately; profiler completion is not a rejection gate.
+The authoritative T2 retention comparison is always the native package-local
+incumbent versus the native `local_mutation`. A named local-work-package
+manifest owns the exact reference components and boundaries to profile. No
+historical component-specific profiling prescription applies outside that
+package, and an external-library profile remains diagnostic only.
 
 Collect occupancy and launch resources, pipeline/SASS structure, issue and
 Tensor activity, HMMA count, stall reasons, global/L2/L1/shared traffic, and

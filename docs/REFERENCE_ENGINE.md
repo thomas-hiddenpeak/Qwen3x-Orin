@@ -1,328 +1,220 @@
-# Native reference engine
+---
+q3x_document:
+  id: q3x-reference-engine-contract
+  class: contract
+  status: active
+  owner: runtime-maintainers
+  authority: correctness-first engine ownership, generation, timing, trace, and failure contract
+  effective: 2026-08-09
+  last_reviewed: 2026-08-09
+  supersedes: []
+  superseded_by: []
+  ssot_for: ReferenceEngine lifecycle, generation semantics, tracing, timing, and error behavior
+  review_trigger: any ReferenceEngine API, lifecycle, generation, trace, timing, or error-contract change
+---
 
-`q3x::engine` is the correctness-first, text-only generation surface for the
-exact pinned `nvidia/Qwen3.6-27B-NVFP4` artifact. It is batch-one, decodes one
-token at a time, and may execute prompt prefixes in bounded tiles of up to
-512 tokens. The implementation remains a bring-up and oracle-alignment path,
-not a large-prefill or serving engine.
+# Native reference engine contract
+
+> **Authority boundary.** This component contract refines the generation
+> boundary in the [system SDD](SDD.md) and is subordinate to it and the
+> [engineering constitution](ENGINEERING_CONSTITUTION.md). Current
+> implementation, capacity, default-route, qualification, performance, and
+> Production lifecycle truth belongs in [`CURRENT_STATUS.md`](CURRENT_STATUS.md).
+> “Reference” names the correctness-oriented API; it does not itself confer
+> Production status. Mechanism-level tuning and benchmark thresholds are not
+> part of this contract.
+
+The public API is `include/q3x/runtime/reference_engine.h`. `ReferenceEngine`
+is the batch-one, text-only, greedy-generation owner for the exact pinned
+`nvidia/Qwen3.6-27B-NVFP4` artifact and tokenizer. It is the in-process runtime
+used by the CLI and evaluation adapter.
 
 ## Ownership and creation
 
-`ReferenceEngine` owns the complete native lifetime chain in one heap-stable
-implementation object:
+One heap-stable implementation object owns this lifetime chain:
 
-1. `ResidentWeights` authenticates the three official shards and loads the
-   text tensors into one CUDA arena.
-2. `ModelWeights` binds checked, non-owning views into that exact resident
-   object.
-3. `RequestState` owns one bounded state/cache/workspace CUDA arena.
-4. `ReferenceRunner` retains pointers to the exact model and request objects.
+1. `ResidentWeights` authenticates the checkpoint and owns its device arena.
+2. Engine-owned sidecar arenas, when prepared, own derived device layouts.
+3. `ModelWeights` binds checked, non-owning typed views into the resident arena
+   and any attached sidecar arenas.
+4. `RequestState` owns one bounded state/cache/workspace arena.
+5. `ReferenceRunner` retains non-owning pointers to the exact model and
+   request objects.
 
-Member destruction is the reverse order: runner, request state, model views,
-then resident weights. Moving `ReferenceEngine` transfers only the owning
-`unique_ptr`; it never relocates the objects retained by the runner.
+The sidecar owners cover FP8 output, NVFP4 Down scale6, optional Gate/Up
+coupled-feed, FP8 Prefill QKV/supermatrix, build-selected Marlin admission, and
+optional Down consumer-order layouts. Declaration order is a safety contract:
+destruction is runner, request state, model bindings, sidecar owners in reverse
+declaration order, resident arena, then tokenizer. Moving the engine transfers
+its owning implementation pointer; it does not relocate objects retained by
+the runner.
 
-`create_reference_engine` creates a reusable engine from explicit resident and
-request options. `generate_reference` is the one-shot production/CLI path. It
-parses `MODEL_DIR/tokenizer.json` while the checkpoint is authenticated and
-copied to the device, formats the prompt to derive the exact request capacity,
-then creates the native chain without loading either asset a second time. Link
-installed consumers to `q3x::engine`.
+`create_reference_engine(model_directory, options)` creates a reusable engine.
+`generate_reference(...)` is the one-shot CLI-oriented convenience path. The
+one-shot path may overlap independent tokenizer parsing and resident loading,
+but it joins all started work on every exit and never leaves a detached loader
+or partial arena. This startup policy is an implementation choice, not a
+global performance prescription.
 
-For multi-round latency collection and strict replay checks on one reused
-engine, see the [reference benchmark harness](REFERENCE_BENCHMARK.md).
+Creation fails closed on tokenizer, resident-load, weight-binding,
+request-state, runner-factory, capacity, arithmetic, or allocation errors. It
+does not publish a partially usable engine.
 
-## Prompt and greedy policy
+## Accepted prompt surfaces
 
-`generate` remains the single-user convenience call. `generate_chat` accepts
-an optional leading system message followed by alternating user/assistant
-turns and a final user turn. Both use the pinned chat formatter with
-`add_generation_prompt=true` and `enable_thinking=false`.
-`generate_prompt` accepts one non-empty raw string, while
-`generate_prompt_token_ids` accepts one non-empty flat list of IDs inside the
-pinned vocabulary. Those completion surfaces do not apply a chat template;
-the token-ID form also avoids a decode/re-encode round trip. All four entry
-points converge on the same reset, capacity, Prefill, greedy Decode, stop, and
-result path.
+All public generation calls require non-empty input and converge on one reset,
+capacity, Prefill, greedy Decode, stop, and result state machine:
 
-Prefill preserves token semantics while optionally batching projections:
+- `generate(user_prompt)` formats exactly one user message with the pinned
+  chat template, `add_generation_prompt=true`, and thinking disabled.
+- `generate_chat(messages)` accepts an optional leading system message,
+  alternating user/assistant messages, and a final user message. Unsupported
+  roles, ordering, tool payloads, and multimodal content fail closed.
+- `generate_prompt(prompt)` encodes a raw completion prompt without applying a
+  chat template.
+- `generate_prompt_token_ids(ids)` executes a non-empty flat list of IDs from
+  the pinned 248,320-token vocabulary without a decode/re-encode round trip.
 
-- with `prefill_chunk_size=1` (the default), every prompt-prefix token executes
-  all 64 layers with `compute_logits=false`, preserving the original order;
-- with `prefill_chunk_size=2..512`, the value is an upper bound for bounded
-  layer-major tiles. The controller uses `{512,256,64,32,tail<=31}` and
-  recomputes after each tile, so noncanonical caps and remainders never reach
-  unsupported wide kernels. This preserves established residual/RMS and MLP
-  fallback schedules;
-- within exact C64, only the aligned NVFP4 `[5120,17408]` down projection uses
-  one M64 kernel. Every other projection preserves two ordered C32 schedules,
-  while causal Conv/GDN updates, RoPE positions, K/V writes, and GQA lengths
-  remain ordered per token;
-- within exact C256/C512 on SM87, full-attention uses one bulk causal GQA plus
-  sigmoid-Gate launch, and aligned NVFP4 `[5120,17408]` Down uses one N-major
-  whole-chunk grid. Generic projections remain capped at C64; FP8 QKV/Z/output,
-  NVFP4 Gate/Up, residual/RMS, Conv/GDN, and all near misses retain ordered
-  fallback subtiles. Gate/Up whole-chunk is deliberately not selected;
-- the final prompt token executes with `compute_logits=true` and produces the
-  first greedy token;
-- each later step consumes the previous prediction and produces the next one;
-- decoding stops after token ID `248046` (`<|im_end|>`) or
-  `max_new_tokens`, whichever comes first.
+Completion requests must use the raw completion surfaces; emulating them
+through the chat formatter changes token semantics and violates the contract.
 
-The host controller now expresses that boundary through separate internal
-`PrefillPlan` and `DecodePlan` seams. Prompt-prefix work stays in the prefill
-plan, the final prompt/logits step is `finish_prefill`, and only later feedback
-steps use `decode_step`. Production currently binds both plans to the same
-`ReferenceRunner`, request state, workspace, and serialized CUDA schedule.
-This is a logical control-plane split, not separate device executors,
-double/triple buffering, or Prefill/Decode overlap. The existing exact aligned
-NVFP4 C32/C64 gate/up branch may use one auxiliary stream inside a layer; that
-narrow event-joined overlap is not a phase-level scheduler.
+## Generation state machine
 
-An optional noexcept committed-token observer runs after a prediction is
-committed and decoded but before the next Decode step. It receives token ID,
-zero-based index, incremental UTF-8 bytes, accumulated text, elapsed step
-time, and terminal-token status. Returning false records `kCancelled` and
-prevents the next Decode step; an observed `<|im_end|>` still takes precedence
-as the semantic stop reason. This observer powers true SSE and disconnect
-cancellation without adding device allocation. It cannot cancel work already
-inside Prefill: the first observation occurs only after `finish_prefill` has
-committed the first generated token.
+The engine has no internal mutex. Its caller must serialize generation calls
+and all mutation of the same engine; the current evaluation server provides
+that external serialization. Each invocation begins with a successful
+request-state reset. Prompt-prefix work executes without logits, the final
+prompt boundary produces the first greedy token, and subsequent Decode steps
+feed back the preceding prediction one token at a time. The logical control
+plane distinguishes Prefill, finish-Prefill, and Decode. This contract does
+not promise separate device executors, overlap, buffering depth, or a
+particular tile schedule.
 
-The required request capacity is therefore
-`prompt_token_count + max_new_tokens - 1`: the first generated token is a
-prediction of the final prompt step and is never fed back unless another token
-is requested.
+The requested workspace chunk is bounded by `1..512`. It is a capacity and
+controller input, not a promise that every component launches that exact
+width. The required sequence capacity is:
 
-`ReferenceGenerateOptions::logits_mode` defaults to
-`kFullStatistics`, preserving the complete `ReferenceStepLogits` result for
-library callers. A caller that only needs greedy IDs may explicitly select
-`kPredictedTokenOnly`; those compute steps expose `ReferenceStepPrediction`
-instead of a partial or fabricated logits-statistics object. The production
-CLI selects prediction-only because it prints token IDs/text but no logit
-probabilities. Token choice, non-finite rejection, stop behavior, and trace
-digests are identical between the two modes.
+```text
+prompt_token_count + max_new_tokens - 1
+```
 
-`generated_token_ids` retains an observed terminal `248046` so exact-token
-fixtures can compare it. `generated_text` decodes only the preceding prefix,
-so the stop marker is not exposed as user text. The stop ID is removed from
-the text view only when the controller actually reports `im_end`; a coincidental
-last ID under another stop reason is retained.
+The subtraction reflects that the first generated token is predicted by the
+final prompt boundary and is fed back only when another token is requested.
 
-## Timing and allocation
+Generation stops after the configured stop token (default ID 248046,
+`<|im_end|>`), after `max_new_tokens`, or after observer cancellation at a
+committed-token boundary. The terminal stop ID remains in
+`generated_token_ids` for exact replay but is omitted from `generated_text`
+only when the reported stop reason is `kImEnd`.
 
-Cold-load statistics separately report tokenizer parsing, authenticated
-resident loading, model binding, request-state creation, runner creation, and
-total wall time. Resident byte/chunk/copy counters, binding counters, and
-request-arena size are also retained.
+## Logits and observer semantics
 
-Once the one-shot concurrent resident load has started, it is joined on every
-exit path. A tokenizer/chat/capacity failure therefore waits for that in-flight
-load to finish and release its CUDA arena before returning; no detached startup
-work survives a failed call.
+`ReferenceGenerateOptions::logits_mode` defaults to full statistics.
+Prediction-only mode returns the same greedy token decision while omitting
+probability statistics. Both modes reject non-finite logits and preserve stop
+and trace semantics.
 
-`prompt_prefill_milliseconds` is the sum of each whole prefix-tile timing and
-the final prompt step.
-`time_to_first_token_milliseconds` has the same value because the first token
-becomes available after the final prompt step. Later decode latencies are kept
-both individually and in `decode_after_first_milliseconds`.
+The optional noexcept observer runs synchronously after a token has completed,
+been committed, and been decoded, but before a later Decode step begins. It
+receives the token ID, zero-based generated index, incremental UTF-8 bytes,
+accumulated text, elapsed step time, and stop-token flag. Returning false
+records cancellation unless the same committed token already establishes the
+semantic stop. String views are valid only during the callback. The observer
+cannot cancel device work already executing inside Prefill.
 
-All device allocations happen during resident, request, or runner creation.
-The token loop performs no device allocation. Result vectors, decoded text,
-timing records, and optional SHA-256 trace strings are host-side result
-storage.
+## Result and timing semantics
 
-## Trace contract
+`ReferenceGeneration` records rendered prompt text, prompt IDs, generated IDs,
+decoded text, stop reason, requested/effective Prefill capacity, step results,
+optional trace digests, and timing fields. A result field describing an
+experimental route reports observation only; it does not promote that route
+or change lifecycle status.
 
-An engine must be created with trace enabled before a generation call can
-request capture. Immediately after every successfully committed step—and
-before another step can invalidate the pinned trace view—the engine hashes:
+Timing fields have these stable meanings:
 
-- the embedding boundary;
-- hidden and residual boundaries for each of all 64 layers;
-- final norm;
-- the complete 130-vector BF16 trace block.
+- `prefix_execution_milliseconds`: one duration per controller prefix
+  execution, in order;
+- `finish_prefill_milliseconds`: final retained-hidden/logits finalization,
+  when used;
+- `prompt_prefill_milliseconds`: the legacy engine aggregate from the first
+  prefix execution through the final prompt/logits step; because it includes
+  that final step, it is not the SDD's server-side pure Prompt-Prefill
+  interval;
+- `time_to_first_token_milliseconds`: engine-local time through first-token
+  readiness; it excludes queueing, protocol, and response publication and is
+  therefore not EvalScope's user-visible TTFT;
+- `subsequent_token_milliseconds`: each later committed-token latency;
+- `decode_after_first_milliseconds`: sum of those later latencies; and
+- `total_generation_milliseconds`: complete generation wall time, excluding
+  engine creation.
 
-`ReferenceTraceDigest` retains position and input token ID plus all boundary
-digests. This permits locating the first divergent layer against the checked-in
-BF16 oracle without retaining a model-sized activation history.
+Cold-start statistics separately report tokenizer, resident load, weight
+binding, request-state creation, optional prepared-resource setup, runner
+creation, and total wall time. Phase timings may overlap when independent
+startup work overlaps, so their arithmetic sum is not required to equal wall
+time. The product API must add separately attested queue/admission, pure
+Prompt-Prefill, first-token, commit, and publication intervals as required by
+the SDD; these legacy engine fields cannot substitute for them.
 
-These hashes are exact replay gates only for the same backend and operation
-order. Native-versus-vLLM comparison is diagnostic: use the recorded samples,
-statistics, and explicit tolerances rather than requiring equal hashes.
+## Trace and replay contract
 
-## CLI
+Trace capture must be enabled when the engine is created and requested by the
+generation call. After each successfully committed captured step, the engine
+hashes the embedding boundary, hidden and residual vectors for all 64 layers,
+final norm, and the complete BF16 trace block. A digest records position and
+input token ID.
+
+These SHA-256 digests are exact replay gates only for the same backend and
+operation order. Cross-engine or changed-operation-order comparisons require
+the numerical oracle policy; digest inequality alone is not a quality verdict.
+
+## Optional diagnostic surfaces
+
+Fixed-position CUDA Graph screen APIs and prepared-cache options are
+diagnostic/experimental ABI surfaces. Their preparation, replay, counters,
+and fallback reasons are observable, but they have no authority to define the
+default route or Production lifecycle state. Their detailed experiments and
+historical measurements belong in evidence records rather than this active
+contract.
+
+## Installed `generate` CLI contract
 
 ```bash
 qwen3x-orin generate MODEL_DIR --prompt TEXT \
-  [--max-tokens N] [--trace] \
-  [--prefill-chunk-size 1..512] \
+  [--max-tokens N] [--trace] [--nvtx-phase-ranges] \
+  [--prefill-chunk-size N] \
   [--projection-backend reference|sm87]
 ```
 
-`N` defaults to 16 and the CLI admits 1 through 4096. Duplicate flags,
-unknown arguments, empty prompts, malformed integers, and values outside the
-range fail before model loading. Prefill chunk size accepts 1 through 512 and
-defaults to 1. The request arena is created for the selected maximum, and a
-later generation request may not exceed that capacity. Requested/effective
-chunk values report this upper-bound policy; a reported value from 33 through
-63 does not imply that the controller emits an M33..M63 runner call. Trace
-capture forces an effective chunk size of 1 so its per-token boundary ordering
-remains unchanged. Projection dispatch defaults to `reference`;
-`sm87` is an explicit, default-off selection for direct FP8/NVFP4-to-BF16
-layer projections. `ReferenceEngineOptions` and `ReferenceOneShotOptions`
-expose the same strongly typed policy. Engine creation verifies that `sm87`
-is running on compute capability 8.7 before loading resident model weights.
-The one-shot path overlaps CPU-only tokenizer parsing with checkpoint
-authentication and device transfer by default. Its `load.total_ms` is elapsed
-wall time, so the separately reported tokenizer and resident phase timings can
-overlap and need not sum to the total. Library callers can disable the overlap
-with `ReferenceOneShotOptions::overlap_tokenizer_and_resident_load` for
-diagnostics and controlled comparisons. The
-`load.tokenizer_resident_overlap` record reports whether the concurrent path
-actually ran (rather than falling back after host thread creation failed).
+`--max-tokens` defaults to 16 and accepts `1..4096`;
+`--prefill-chunk-size` defaults to 1 and accepts `1..512`; trace capture makes
+the effective Prefill chunk 1. Projection backend defaults to `reference` and
+`sm87` is explicit. Duplicate flags, unknown arguments, an empty prompt,
+malformed integers, and out-of-range values fail before model loading.
 
-On success stdout contains escaped, line-oriented `key=value` records for
-cold-load statistics, the actual `projection.backend`, requested/effective
-prefill chunk sizes, rendered prompt/IDs, complete generated IDs, decoded text,
-stop reason, timings, and optional trace hashes. Loading progress and all
-structured diagnostics go to stderr, so stdout can be redirected as one atomic
-result stream. Exit code 2 denotes input/tokenization errors, 3 denotes
-creation/load failures, 4 denotes execution/trace failures, and 5 denotes host
-allocation failure.
+Success writes escaped line-oriented `key=value` load, route, prompt, output,
+timing, and optional trace records to stdout. Progress and structured errors
+go to stderr, so redirected stdout remains one result stream. Exit code 2 is
+an input/tokenization/capacity/arithmetic/decode error, 3 a
+creation/load/bind/state/factory error, 4 an execution/reset/result/trace
+error, and 5 a host-allocation or unclassified failure.
 
-## Target-device evidence
+## Failure semantics
 
-On 2026-07-18 the installed native CLI completed the full pinned checkpoint
-path on the Jetson AGX Orin with:
+The engine reports a structured stage plus nested dependency/CUDA context.
+Errors distinguish invalid arguments, capacity and arithmetic failures,
+tokenizer/load/bind/state/factory failures, step/reset failures, missing
+logits/prediction/timing, decode/trace failures, and allocation failure. A
+failed invocation returns no successful generation value. Every started
+owner is released through RAII; reusable-engine failure recovery follows the
+runner reset/poison contract in [`REFERENCE_RUNNER.md`](REFERENCE_RUNNER.md).
 
-```bash
-qwen3x-orin generate MODEL_DIR \
-  --prompt "用一句话解释 CUDA 是什么。" \
-  --max-tokens 26 --trace
-```
-
-The formatted prompt produced the exact 19 IDs in the
-[BF16 greedy fixture](../tests/fixtures/qwen36-27b-nvfp4-greedy-bf16.json).
-The native runner then produced all 26 expected IDs and the exact UTF-8 text:
-
-> CUDA 是 NVIDIA 开发的一种并行计算平台和编程模型，旨在利用 GPU
-> 的强大算力来加速通用计算任务。
-
-It stopped at ID `248046` with `stop_reason=im_end`; 19 prompt steps plus 25
-feedback steps produced 44 total runner steps.
-
-The complete structured record is checked in as
-[`qwen36-27b-native-reference-run.json`](metadata/qwen36-27b-native-reference-run.json).
-
-The later C8 gate runs the same 19-token prompt prefix as `8+8+2`, keeps the
-final prompt/logits step scalar, and reproduces all 26 output IDs, decoded
-text, stop reason, and 44 transcript steps exactly. Its machine-readable
-aggregate performance record is
-[`qwen36-27b-c8-prefill-benchmark.json`](metadata/qwen36-27b-c8-prefill-benchmark.json).
-
-The C16 runtime (`dda4e3a`) and GDN (`c90f37e`) gates schedule that prefix as
-`16+2`; the nineteenth prompt token and every decode step remain scalar. With
-the SM87 backend, M9..M15 quantized projections split into M8 plus the
-remainder. At exactly M16, the FP8 (`e7283d6`) and NVFP4 (`33948e3`) production
-shapes use canonical-layout decode-to-BF16 Tensor Core kernels, with two M8
-launches retained for other shapes or alignments. The complete C16 run
-reproduces the same 19 prompt IDs, 26 output IDs, decoded text, stop reason,
-and 44 steps exactly. Its implementation and diagnostic performance record is
-[`qwen36-27b-c16-tensor-core-prefill-benchmark.json`](metadata/qwen36-27b-c16-tensor-core-prefill-benchmark.json).
-
-The historical bounded C32 composite baseline extended only the outer
-layer-major tile. At that milestone its validated leaf operations remained C16
-or smaller: quantized projections used M16-first decomposition, causal Conv/GDN
-and full-attention Q/K+RoPE preprocessing executed ordered subtiles of at most
-16 rows, and the final prompt/logits step remained scalar. Thus P19 used one
-M18 outer tile whose projections resolved as M16+M2, while P33 used one M32
-outer tile resolved as M16+M16. The same runner stream performed one final
-synchronization and one sequence-length commit for the complete outer tile.
-The M18 projection detail is retained here as historical evidence and is
-superseded for the two exact NVFP4 MLP shapes by commit `09aa7f7` below.
-
-Commit `09aa7f7` adds an exact aligned NVFP4 M18 route for
-`[17408,5120]` gate/up and `[5120,17408]` down projections. Its public contract
-accepts exact 18-row input and output spans: the masked-M32 WMMA kernel reads
-only those 18 input rows, zero-fills internal rows 18 through 31, and stores
-only output rows 0 through 17. It therefore requires no caller-visible C32
-padding. Other shapes and insufficiently aligned operands retain the ordered
-M16+M2 fallback.
-
-Against detached baseline `965ebb4` (runtime-equivalent to `c58b797`), the P19
-C32 B-C-C-B medians are 548.801, 439.642, 439.554, and 548.764 ms. Mirrored
-means improve from 548.7825 to 439.5980 ms (-109.1845 ms, -19.8958%,
-1.2483735x) without a reversed round. Matched Nsight Systems profiles replace
-384 target M16/M2 launches with 192 M18 launches and reduce their summed time
-from 280.353888 to 171.292544 ms (1.636696x). C1/C8/C16/C32 real-model runs
-preserve the exact pinned token/text/stop oracle. The M18 gate and up
-projections still execute serially on the main stream; this change adds
-neither buffering nor Prefill/Decode phase overlap. Full measurement and
-validation details are in the
-[`M18 masked-M32 record`](metadata/qwen36-27b-nvfp4-m18-masked-m32-benchmark.json).
-
-The original C1 single-run timings are evidence, not performance targets:
-
-| Measurement | Observed value |
-| --- | ---: |
-| Cold load total | 213,845.054 ms |
-| Authenticated resident load | 212,683.392 ms |
-| Request arena | 82,505,216 bytes |
-| Prompt prefill / TTFT | 20,559.187 ms |
-| Decode after first token | 28,652.488 ms |
-| Total generation | 49,211.675 ms |
-| Mean of 25 later token steps | about 1,146.100 ms/token |
-
-The trace captured these native summaries at the two oracle localization
-positions:
-
-- position 18 full:
-  `a780bede09bb74be107323444ec2be4b2165c89721624025308525c31c1dc226`;
-  final norm:
-  `1b4edfc36c9dea31414dc8a1668c8ad10cad9e574ff32871a18c8e0d28131b7b`;
-- position 19 full:
-  `76b767786fa92b117833e79062aab1e4ea8942e0c61ac8fd7b6840744fbc85f1`;
-  final norm:
-  `266c82ecdd4df8e7b3aad8e4de7a78b8c622e3f15129bbfda24bc0c85a23f680`.
-
-The native boundary hashes are deliberately not claimed bitwise-equal to the
-vLLM boundary fixture. The native projection path preserves each checkpoint
-tensor's independent ModelOpt scale, while vLLM's fused projection path
-requantizes fused operands; the native runner also updates BF16 GDN state one
-token at a time, while vLLM prefill uses chunk execution. Those differences
-change intermediate low bits and hashes even though the final greedy IDs,
-decoded text, and stop decision match exactly.
-
-## Verification scope
-
-`reference_engine_control_test` exercises the pure host controller without
-CUDA or model files. It gates independent Prefill/Decode callback contexts,
-scalar, `8+8+2`, `16+2`, one-tile C32, one-tile C64, and C64 `64+32+31`
-partial-wide prefix scheduling, the final-prompt transition, trace-to-C1
-fallback, sequential inputs, prefix-logit suppression, first-token timing,
-stop/max behavior, capacity checks, nested runner errors, missing result fields,
-and the terminal-stop text rule. Its 112-case boundary matrix covers 14 prompt
-lengths across C1/C2/C8/C16/C32/C33/C63/C64, while a separate C512 scheduler
-matrix covers exact 256/512 tiles, noncanonical caps, wide remainders, and zero
-guards; incomplete plans fail before a callback executes. CUDA runner tests cover factory and
-primitive behavior separately. An installed-package consumer also configures
-against exact package version 0.4.0 and links `q3x::engine`; the version bump is
-required because the public fixed-capacity Prefill result expanded to 512
-entries. These synthetic routing cases are not broader
-model-prompt evidence: the fixed-prompt 27B token/text gate is passed, while
-repeatability across more real prompts and tolerance-based native-versus-vLLM
-boundary characterization remain release gates.
-
-The same exact 19/26-ID, text, stop, and 44-step gate is available as the
-conditional `reference_engine_e2e` CTest. Configure with
-`-DQ3X_E2E_MODEL_DIR=MODEL_DIR` (or set that environment variable). Its
-projection policy defaults to `reference`; configure
-`-DQ3X_E2E_PROJECTION_BACKEND=sm87` to gate the optimized path. Without the
-external pinned model directory it exits with the standard skip code 77. The
-test executable also accepts an optional prefill chunk argument, so target
-validation can run the same short oracle through C512 capacity. A dedicated
-matched-profile E2E loads one SM87 engine and compares C64 against P257/C256
-and P513/C512, checking the fixed raw-token hashes, generated ID `9419`, text
-`Hello`, all step positions/inputs, and exact scheduler counts. Without the
-external pinned model both model tests return the standard skip code.
+The external evaluation procedure is documented in
+[`EVALSCOPE_EVALUATION.md`](EVALSCOPE_EVALUATION.md). Current whole-product
+behavior is recorded in [`CURRENT_STATUS.md`](CURRENT_STATUS.md). Immutable
+engine lineage includes the
+[`native reference run`](metadata/qwen36-27b-native-reference-run.json),
+[`C8 Prefill record`](metadata/qwen36-27b-c8-prefill-benchmark.json),
+[`C16 Prefill record`](metadata/qwen36-27b-c16-tensor-core-prefill-benchmark.json),
+and [`M18 record`](metadata/qwen36-27b-nvfp4-m18-masked-m32-benchmark.json).
+These historical records do not amend this contract.

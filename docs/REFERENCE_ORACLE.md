@@ -1,4 +1,27 @@
+---
+q3x_document:
+  id: q3x-reference-oracle
+  class: contract
+  status: active
+  owner: verification-maintainers
+  authority: BF16 oracle identity, schema, trust, and comparison contract
+  effective: 2026-08-09
+  last_reviewed: 2026-08-09
+  supersedes: []
+  superseded_by: []
+  ssot_for: reference oracle loading, validation, trust boundary, and comparison diagnostics
+  review_trigger: any oracle schema, identity, trust, loader, or comparison-contract change
+---
+
 # BF16 reference oracle loader and comparison contract
+
+> **Authority boundary.** This oracle contract refines the verification
+> boundary in the [system SDD](SDD.md) and is subordinate to it and the
+> [engineering constitution](ENGINEERING_CONSTITUTION.md). Current
+> implementation, qualification, accuracy, and default-route truth belongs in
+> [`CURRENT_STATUS.md`](CURRENT_STATUS.md). Oracle diagnostics cannot select
+> global architecture or production outside the applicable qualification
+> protocol.
 
 `q3x::runtime::load_reference_oracle` turns the checked-in BF16-cache greedy
 and layer-boundary JSON pair into a runner-independent host data model. It is

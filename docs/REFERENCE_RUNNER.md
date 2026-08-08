@@ -1,198 +1,144 @@
-# Qwen3.6-27B batch-one CUDA correctness runner
+---
+q3x_document:
+  id: q3x-reference-runner
+  class: contract
+  status: active
+  owner: runtime-maintainers
+  authority: batch-one CUDA runner state, numerical, ownership, and failure contract
+  effective: 2026-08-09
+  last_reviewed: 2026-08-09
+  supersedes: []
+  superseded_by: []
+  ssot_for: ReferenceRunner public execution, commit, poison, reset, trace, and dependency behavior
+  review_trigger: any ReferenceRunner ABI, state transition, numerical boundary, ownership, or failure change
+---
 
-`q3x::runtime::ReferenceRunner` 是当前 Qwen3.6-27B dense text 模型的高层
-correctness 路径。它把已经绑定的 `ModelWeights`、一个 `RequestState` 以及 reference
-CUDA kernels 串成完整的 64 层单 token step，并提供最大 64 token 的 prompt-prefix tile。
-它优先固定执行语义和检查点，不承诺大 prefill 或 serving 吞吐。
+# Qwen3.6-27B batch-one CUDA runner contract
 
-## 所有权和创建
+> **Authority boundary.** This component contract refines the execution
+> boundary in the [system SDD](SDD.md) and is subordinate to it and the
+> [engineering constitution](ENGINEERING_CONSTITUTION.md). Current
+> implementation, default-route, qualification, and release truth belongs in
+> [`CURRENT_STATUS.md`](CURRENT_STATUS.md). Kernel names, tile palettes,
+> stream topology, local fusion choices, and performance gates are excluded;
+> they may govern only a named active local work package.
 
-`create_reference_runner` 在执行任何 CUDA 工作前严格检查：
+The public API is `include/q3x/runtime/reference_runner.h`.
+`ReferenceRunner` is a serialized, correctness-first CUDA executor for one
+request. It exposes token-step, prompt-prefix, retained-final-hidden, reset,
+trace, and explicitly diagnostic graph surfaces without giving any one kernel
+mechanism global scheduling authority.
 
-- 全局和 64 层权重的精确 shape、非空 payload 与 3-linear/1-full variant schedule；
-- batch 必须为 1，hidden/P0..P3/a/b/FP32 scratch、RoPE、48 份 conv/GDN state、
-  16 对 KV cache 的容量和 schedule slot 必须满足精确 ABI；tile activation region
-  必须覆盖 request plan 中声明的 `prefill_chunk_size`（1 到 64）；
-- `RequestState` 必须有效，logical length 不能超过 capacity。
+## Dependencies and ownership
 
-factory 创建一个自有 `cudaStreamNonBlocking` 主 stream，并为精确对齐的 NVFP4 C32/C64
-MLP gate/up 尝试创建一个 auxiliary nonblocking stream 和一对 event；auxiliary 资源创建
-失败时保留可用的串行 runner。factory 还通过一次 `cudaHostAlloc` 预留
-`float[248320]` logits。`ReferenceRunnerOptions::enable_trace=true` 时再通过一次
-`cudaHostAlloc` 预留固定大小的 BF16 trace。factory 返回结构化
-`ReferenceRunnerStatus`，不会用异常表达 CUDA/contract 错误。
+The runner is move-only and owns its internal CUDA resources. It retains
+non-owning pointers to the exact `ModelWeights` and mutable `RequestState`
+objects supplied at creation. Those objects, the resident arena behind all
+weight views, and any attached sidecar arenas must outlive the runner and all
+queued consumers. They must not be moved, externally reset, or concurrently
+used from another stream while the runner is alive.
 
-`ReferenceRunnerOptions::projection_backend` 默认是 `kReference`；只有调用方显式选择
-`kSm87WeightOnly` 时，层内 FP8/NVFP4 projection 才直接写 BF16，BF16 projection 仍回退
-reference。未知 enum 会在 factory 阶段失败。reference/BF16 fallback 的 `lm_head` 走
-FP32 projection 与 host BF16 rounding；SM87 FP8/NVFP4 `lm_head` 直接写 BF16。后者在
-full-statistics 模式 D2H 后做 host 统计，在 prediction-only 模式做 device argmax。
+Factory validation checks the pinned 64-layer model graph, the 48/16 layer
+schedule, request workspace/cache/RoPE capacities, backend selection, and all
+required payloads before publishing a runner. Failure publishes no usable
+runner.
 
-runner 是 move-only，但不拥有 `ModelWeights` 或 `RequestState`。这两个**同一个对象**、
-resident weight arena 和 request arena 必须比 runner 活得更久；runner 存活期间不得移动
-或并发操作它们。析构会先收口自有 stream，再释放 pinned host storage。
+## Token-step semantics
 
-## 单 token 顺序
+`step(input_token_id, options)` operates at the current request position and
+executes the pinned decoder in layer order. It rejects token IDs outside the
+248,320-entry vocabulary and positions without capacity.
 
-workspace 固定复用 `RequestState` 中的 `H0/H1/H2`、`P0..P3`、`linear_a/b` 和
-FP32 scratch。token 路径没有 `cudaMalloc`、`cudaHostAlloc`、C++ heap allocation 或
-隐式 host/device 同步；所有 launch、D2D 和可选 D2H 都进入同一个 owned stream。成功
-step 在末尾执行一次 `cudaStreamSynchronize`；中途失败也会先 drain 同一 stream 再返回。
+The stable numerical boundaries are:
 
-1. `embed_tokens[input_id] -> H0`。
-2. 对层 `0..63`：
-   - `centered_rmsnorm(H0, input_layernorm) -> H1`；
-   - linear 层通过 pair dispatch 投影 QKV/Z，再投影 A/B；显式 SM87 backend
-     下精确、对齐的 FP8 M1 `[10240,5120]` QKV 与 `[6144,5120]` Z
-     合并为一次 two-phase launch，其他有效组合保留 QKV 后 Z 的有序
-     投影；随后执行原位 width-4 causal conv、原位 BF16 GDN state
-     recurrence、逐 value-head plain norm × `SiLU(z)` 与 `out_proj -> H1`；
-   - full 层投影 `[Q|gate]`/K/V，将 per-head interleaved Q/gate 拆到 P3，Q/K 逐 head
-     centered norm，使用 `RequestState` 中已 BF16-round 的 RoPE table 做 256/64 partial
-     NeoX RoPE；当前 K/V 先 D2D 写入 position `p`，GQA 再读取 `0..p`，固定
-     `24/4/256` 和 scale `1/16`；context 乘 `sigmoid(gate)` 后做 `o_proj -> H1`；
-   - `H2 = BF16(H0 + attention_output)`；
-   - post-attention centered norm，MLP gate/up，`SiLU(gate)*up`，`down_proj -> H1`；
-   - `H0 = BF16(H2 + H1)`。
-3. `centered_rmsnorm(H0, final_norm) -> H1`。
-4. `compute_logits=true` 时执行 `lm_head`。默认
-   `ReferenceLogitsMode::kFullStatistics` 保留完整 reference 语义：异步 D2H 后，host 将
-   每个 logit 先按 BF16 RNE 量化、再扩展回 FP32，然后做稳定 logsumexp 和 argmax。
-   显式 `kPredictedTokenOnly` 只返回 greedy token；SM87 BF16 输出由 32-block 归约和
-   1-warp finalize 在 device 上检查有限性并选择最大值，只 D2H 一个 8-byte 结果。
-   reference projection backend 保留同语义的 host BF16-round/argmax fallback。两种模式
-   都对相同最大值选择最小 token id，NaN 或 infinity 都是硬错误。
+- BF16 model activations and persistent state;
+- FP32 accumulation inside projection and reduction operations unless a
+  narrower public operation contract says otherwise;
+- centered RMSNorm with the pinned model epsilon and BF16-rounded boundary
+  values;
+- canonical FP8/NVFP4 checkpoint decoding as defined by
+  [`MODEL_WEIGHT_BINDING.md`](MODEL_WEIGHT_BINDING.md); and
+- greedy selection after the complete logits vector is rounded to BF16.
 
-`compute_logits=false` 仍执行 embedding、全部 64 层、所有 cache/state update 和 final
-norm，只跳过 lm_head 与 logits D2H，适合调用方逐 token 建立 prompt prefix。
+`ReferenceLogitsMode::kFullStatistics` returns the predicted token, chosen
+logit, logsumexp, and maximum log-probability. `kPredictedTokenOnly` validates
+finiteness and returns only the greedy ID. Argmax ties select the smallest
+index. NaN or infinity in logits fails the step.
 
-## Prompt-prefix tile
+When `compute_logits=false`, all decoder layers and persistent-state updates
+still execute, but lm-head and logits analysis are omitted. Timing, when
+requested, is host elapsed time through the required completion boundary.
+Trace capture is valid only if trace storage was enabled at factory time.
 
-`prefill_prefix_tile(ids, M)` 接受 `M=1..64`，且不能超过 request plan 预留的 chunk
-容量或剩余 sequence capacity。M1 直接委托给上述 `step(compute_logits=false)`；M2..M64
-按 layer-major 顺序执行：每层先批量做 norm 与 projection，再按 token 顺序推进 causal
-conv/GDN，或逐 position 写 K/V 并以 `first_position+t+1` 作为 GQA 的 causal length。
-完整 tile 成功同步后才一次性提交新的 sequence length；任何校验、launch 或同步失败都
-保持结构化错误并 poison runner。
+A successful step commits exactly one logical position only after all required
+work and host-visible validation succeed. A failed step does not report a
+partial result.
 
-SM87 FP8/NVFP4 projection 在 M2..M8 使用 small-M weight-reuse kernel；M9..M15
-按 M8 加剩余 M1..M7 分片。M16 对四个 FP8 production shapes 和两个 NVFP4 MLP
-shapes 使用 canonical-layout decode-to-BF16 Tensor Core kernel，不满足 exact-shape 或
-alignment gate 时退回两个有序 M8 launch。M17 与 M19..M31 对 exact aligned NVFP4
-`[17408,5120]` 和 `[5120,17408]` 启用单个 runtime-valid-count masked-M32 Tensor
-Core kernel，门槛是 packed weight 16-byte、block scale 2-byte、BF16 input 8-byte
-对齐。公开输入与输出只要求严格 M-row span；kernel 内部把 rows M..31 zero-fill，不从
-调用方读取这些行，也只存储前 M 行。精确 M18 保留独立的 fixed masked-M32 API 与
-specialization，并继续使用严格 C18 span。所有 FP8 M17..M31，以及 NVFP4 shape
-near-miss 或任一未对齐 case，都退回有序 M16 加至多 M8 的 tail。M32 对四个 exact aligned FP8
-production shapes，以及
-exact aligned NVFP4 `[17408,5120]` gate/up 和 `[5120,17408]` down，使用单个
-fixed-M32 Tensor Core kernel。NVFP4 走 K64/LD72 WMMA：两个 16-token activation panel
-同时驻留，并由两条独立 accumulator chain 复用同一份 decoded weight tile。其他合法
-FP8/NVFP4 M32 case 使用两个有序 M16 launch。reference backend 和 BF16 weight 保留
-逐行 M1 fallback，因此接口语义不依赖 optimized backend。M33..M63 projection 先执行
-一个 M32，再执行有序的至多 M31 tail。精确 C64 只有 aligned NVFP4
-`[5120,17408]` down 使用一个 M64 weight-reuse kernel；其余 projection 保持两个有序
-C32 schedule。production generation controller 不直接发出 M33..M63 runner call：
-每当下一个候选为 33..63 时先执行 C32，再按剩余 token 重新计算；因此 C64 的
-partial-wide remainder 会在下一次调用提交至多 M31 的有序 tail。只有 exact C64 候选
-保持一个 runner call。C64 residual-add 和 centered-RMS 边界同样执行两个有序的
-exact-M32 kernel。outer C17..C64 tile 中的 causal conv/GDN 继续按至多 16 token 的
-有序子块更新同一份 BF16 history/state；完整
-outer tile 仍只同步并提交一次。full-attention Q/K+RoPE preprocessing 同样按至多 16
-token 子块执行，避免因为 outer M>16 落回逐 token RoPE launch。
-在历史 C32 扩展中，`ReferencePrefillTileResult::steps` 从 16 项扩为 32 项；这是
-0.x 系列的公开 C++ ABI 变更，包版本随之从 0.1.0 提升到 0.2.0，调用方必须按
-exact-version 策略重新编译，不能把旧对象与新静态库混链。
+## Prompt-prefix contract: 512 is the public capacity
 
-C64 production supertile 随后把 `ReferencePrefillTileResult::steps` 从 32 项扩为
-64 项；这同样是公开 C++ ABI 变更，包版本因此从 0.2.0 提升到 0.3.0。C64 中只有
-exact aligned NVFP4 `[5120,17408]` down projection 使用单个 M64 kernel；其余
-projection 保持两个有序 C32 schedule。调用方仍须按 exact-version 重新编译。
+`prefill_prefix_tile(input_token_ids, token_count, options)` accepts
+`1 <= token_count <= 512`, provided the request plan reserves at least that
+many workspace rows and remaining sequence capacity. It executes every token's
+64-layer semantics, updates Conv/GDN/KV state in logical token order, produces
+no logits or trace, and commits the complete tile only at its successful
+completion boundary.
 
-C512 request boundary 进一步把 fixed-capacity result 扩为 512 项，并把 package ABI
-从 0.3.0 提升到 0.4.0。generation controller 只发出
-`{C512,C256,C64,C32,tail<=31}`。exact SM87 C256/C512 full-attention tile 使用一个
-bulk causal GQA 加 sigmoid-Gate kernel；exact aligned NVFP4 `[5120,17408]` Down
-使用一个 N-major whole-chunk grid。generic projection API 仍以 C64 为上限；FP8
-projection、NVFP4 Gate/Up、residual/RMS、Conv/GDN 和所有 near miss 保持有序
-fallback。whole-chunk Gate/Up candidate 不由 runner 选择。
+`ReferencePrefillTileResult::steps` therefore has 512 entries and the current
+package ABI is 0.4.0. The separate 64-token limit on a generic projection
+dispatcher is an internal component constraint; it does **not** narrow this
+runner API. The runner may decompose an admitted 1..512 request internally,
+but no particular decomposition, kernel, buffering pattern, or stream plan is
+part of this contract.
 
-projection-pair API 对 exact M17、M19..M31 以及 fixed M18 先完整校验两个
-projection、自然对齐和交叉 range，再按 first-then-second 顺序各发出一个
-masked-M32 kernel；任一侧不满足 direct gate 时，fallback 在每个有序 subtile 内也
-保留 first-then-second 顺序，不会在发现第二侧 host validation 错误前先入队第一侧。
-当前 runner 的这些 MLP gate/up 均在主 stream 上串行执行。只有 exact aligned
-NVFP4 C32/C64 gate/up 可把 gate 发到主 stream、up 发到 auxiliary stream，再用 event
-join；C64 的每条分支各自保持两个有序 C32 projection。这里没有双缓冲、三缓冲或
-Prefill/Decode overlap；C32/C64 特例只是单层内两个独立分支的窄范围并发。
+If `retain_last_hidden_for_logits=true`, a successful tile retains the final
+normalized hidden row for exactly one matching
+`finish_prefill_from_retained_tile` call. The finish operation performs only
+lm-head/logits analysis, does not rerun decoder layers, does not update
+persistent state, and does not advance logical length. Any mismatch, reset,
+intervening incompatible operation, or failed tile invalidates that retained
+boundary.
 
-tile 不计算 logits，也不采集 trace；generation controller 只对 prompt 的最后一个 token
-执行标量 logits step。启用 trace 时 controller 会把 effective chunk 强制为 1，以保留
-逐 token trace ABI。
+## Poison, reset, and trace
 
-`prefill_prefix_tile(..., 1)` 直接委托标量 step，因此可选中上述 QKV/Z
-融合。layer-major prefix 路径继续调用两个独立 QKV/Z tile projection；C256/C512
-wide request 当前会把这些 generic projection 分解为有序 C32 schedule。这个优化不改变
-prefix 分片、causal state update 或 alignment 不足时的 fallback 语义。
+Every failed ordinary execution call routed through the step or prefix failure
+boundary poisons the runner. This includes host-visible invalid options,
+tokens, capacity, or trace requests detected before enqueue as well as failures
+after mutable device work may have begun. Retained-final-hidden completion and
+graph execution follow their corresponding checked failure paths. A poisoned
+runner rejects further execution. `reset()` is the only poison-recovery
+operation: it synchronizes owned execution resources, resets the request's
+persistent state, clears retained-final-hidden and trace validity, and returns
+the position to zero. If reset itself fails, poison is retained.
 
-projection 的具体 BF16/FP8/NVFP4 计算策略完全由 `launch_projection_*` dispatch 决定；
-runner 不复制也不改变底层量化语义。GDN canonical reference 保留 FP32 beta。vLLM
-packed decode 的 BF16 beta 回写与 prefill/通用路径可能产生可解释的舍入差异，不能把
-trace/state fixture 的逐位相等当作跨 backend 通用要求。
+The last trace is a non-owning view of the most recently captured and
+successfully committed step. Its fixed layout is embedding, then hidden and
+residual vectors for layers 0..63, then final norm; each logical vector has
+5,120 BF16 elements. It is invalidated by reset, runner destruction, or the
+next captured step.
 
-## commit、poison 和 reset
+## Diagnostic graph surface
 
-device 工作、可选 D2H 和 host logits 检查都成功后才调用 `RequestState::commit_token()`。
-任意 step 错误（token 越界、capacity、variant、launch、同步、trace 配置、非有限 logits
-或 commit）都会 poison runner；poison 后 step 会稳定返回 `kPoisoned`，不会继续修改
-state。只有成功的 `reset()` 会清零完整 persistent span、同步 owned stream、把 logical
-position 置零并恢复 runner。
+The fixed-position CUDA Graph APIs are explicitly diagnostic/test surfaces.
+Their public slot bank covers positions `[0,64)` and is unrelated to the
+512-token Prefill result capacity. Preparation is transactional; replay is
+valid only for a prepared current position and preserves the ordinary
+prediction-validation and commit boundary. Missing or incompatible slots are
+caller-visible conditions, not authority to redefine the default runtime
+route or Production lifecycle state.
 
-每个成功结果包含输入 token 和提交前的绝对 `position`。完整模式只填充 `logits`，其中
-包含 predicted id、chosen/max logit、max log-probability 和 logsumexp；prediction-only
-模式只填充独立的 `prediction`，不会用零或 NaN 伪造未计算的统计。`compute_logits=false`
-时两个 optional 都为空。`measure_timing` 可附带包含末尾同步与所选 logits 分析的端到端
-毫秒数。
+## Failure semantics
 
-## Trace 与 fixture
+Errors distinguish invalid dependencies, weights, request state, layer
+schedule, runner/options, token/capacity, trace availability, non-finite
+logits, commit failure, allocation failure, CUDA failure, and poison. Public
+launch boundaries validate all host-visible arguments before enqueue whenever
+the operation can do so. An unsupported optional route must either fall back
+before enqueue through its documented caller boundary or return an explicit
+unsupported result; malformed payloads are errors, not fallback signals.
 
-factory 启用 trace 后，step 的 `capture_trace=true` 才会排队 D2H；false 时没有任何 trace
-copy。成功同步并 commit 后，`last_trace()` 暴露只读 pinned spans，布局为：
-
-```text
-embedding[5120]
-for i in 0..63:
-    hidden_i[5120]    # 本层 MLP down projection 输出 m_i
-    residual_i[5120]  # attention residual r_i
-final_norm[5120]
-```
-
-这些采样点与 `tests/fixtures/qwen36-27b-nvfp4-layers-bf16.json` 的 fixture 语义一致。
-view 在 reset、runner 析构或下一次 captured step 后失效。trace 只借用 pinned storage，
-不会增加 device arena，也不会改变 kernel 顺序。
-
-## 当前验证边界
-
-`reference_runner_host` 不加载 20GB 权重，验证纯 host BF16/logits oracle、tie/nonfinite
-策略、trace offsets、固定 layer schedule、默认 `RequestMemoryPlan` 以及 null dependency
-factory 错误。controller/unit gates 覆盖 19-token prompt 的 `8+8+2` prefix 拆分、C1/trace
-fallback、tile malformed result 和失败传播、C16/C32/C64 selector/plan 边界、exact C64
-以及 `64+32+31` partial-wide 拆分。projection dispatch 的合成 CUDA gate 另行覆盖
-M33/M50/M63/M64 composition、exact one-node M64 down 和 M64 near-miss fallback。
-完整模型 fixture 在目标 Orin 上以 C1、C8、C16、C32 分别执行，四者都要求保留精确的
-19 个 prompt IDs、26 个 output IDs、decoded text、`<|im_end|>` 和 44 个 runner steps；
-C64 CTest 已注册，但固定 prompt 只有 18 个 prefix token，因此只覆盖 C64 配置/arena，
-不能替代 P65 或更长 prompt 的 exact-M64 full-model gate。runner 本身不会把缺少
-checkpoint 误报为通过。当前 M17/M19..M31 production 变更的 Release suite 为
-49 passed / 5 skipped / 0 failed；host C++ ASan/UBSan suite 为 48 passed /
-5 skipped / 0 failed，CUDA translation units 不在该 host sanitizer 声明内。
-C1/C8/C16/C32 的目标模型 oracle 均通过。
-`compute-sanitizer` device memcheck 在该 Orin 上因 “GPU debugging features are disabled”
-被平台阻断，因此不记为通过；严格 exact-M allocation、默认 canary/bitwise gate、完整
-token-count 路由/零节点 invalid capture 和完整模型 oracle 是现有 device-side 安全证据。
-fixed M18/M32 production SASS 保持不变，四个 section 的归一化 SHA-256 为
-`2574bd41a76f112e753f5784a97e38d54362394a2f2ab9c3b8ee32c6074bdf32`。完整数据见
-[M17/M19-M31 runtime-masked benchmark](metadata/qwen36-27b-nvfp4-m17-m31-runtime-masked-m32-benchmark.json)
-和
-[tokenizer-pinned prompt manifest](../benchmarks/qwen36-27b-sm87-prefill-tail-prompts-v1.json)。
+Correctness and historical performance evidence lives in
+[`PERFORMANCE_BASELINE.md`](PERFORMANCE_BASELINE.md) and
+[`PHASE0_EVIDENCE.md`](PHASE0_EVIDENCE.md). Exact lineage for the widened
+runtime-prefix boundary includes the
+[`M17/M19..M31 runtime-masked record`](metadata/qwen36-27b-nvfp4-m17-m31-runtime-masked-m32-benchmark.json).
+Those records do not impose active runner mechanisms or promotion thresholds.

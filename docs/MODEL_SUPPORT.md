@@ -1,4 +1,27 @@
+---
+q3x_document:
+  id: q3x-model-support-catalog
+  class: contract
+  status: active
+  owner: runtime-maintainers
+  authority: pinned model and architecture catalog contract
+  effective: 2026-08-09
+  last_reviewed: 2026-08-09
+  supersedes: []
+  superseded_by: []
+  ssot_for: catalogued model architecture facts and catalog status vocabulary
+  review_trigger: any supported model, pinned revision, architecture fact, or catalog-status change
+---
+
 # Model support and architecture catalog
+
+> **Authority boundary.** This catalog contract refines the model boundary in
+> the [system SDD](SDD.md) and is subordinate to it and the
+> [engineering constitution](ENGINEERING_CONSTITUTION.md). Cataloguing an
+> architecture is not a delivery or production claim; current implemented,
+> qualified, and default-route support belongs in
+> [`CURRENT_STATUS.md`](CURRENT_STATUS.md). Local mechanism conclusions apply
+> only within their named active local optimization work package.
 
 Checked on **2026-07-18 (Asia/Shanghai)**. The catalog records architecture
 facts from pinned upstream Hugging Face revisions. It does not imply that an

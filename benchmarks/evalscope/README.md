@@ -1,4 +1,27 @@
+---
+q3x_document:
+  id: q3x-evalscope-workload-procedure
+  class: procedure
+  status: active
+  owner: project-maintainers
+  authority: pinned EvalScope workload-manifest and corpus-materialization procedure
+  effective: 2026-08-09
+  last_reviewed: 2026-08-09
+  supersedes: []
+  superseded_by: []
+  ssot_for: generation and handling of the pinned EvalScope workload fixtures
+  review_trigger: any manifest schema, source corpus, tokenizer identity, or request-protocol change
+---
+
 # Pinned EvalScope workloads
+
+> **Authority boundary.** This procedure is subordinate to the
+> [engineering constitution](../../docs/ENGINEERING_CONSTITUTION.md) and
+> [system SDD](../../docs/SDD.md). It controls reproducible workload-fixture
+> materialization only; current implementation, qualification, and default
+> route truth belongs in
+> [`CURRENT_STATUS.md`](../../docs/CURRENT_STATUS.md). Its commands cannot
+> select a runner architecture or promote a production route.
 
 This directory stores reproducibility manifests, not prompt corpora or
 EvalScope result databases. Prompt token IDs can be reversed into copyrighted

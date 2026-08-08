@@ -1,6 +1,26 @@
+---
+q3x_document:
+  id: q3x-gdn-prefill-dataflow
+  class: historical
+  status: historical
+  owner: prefill-maintainers
+  authority: exact Prefill GDN mechanisms only when explicitly reactivated
+  effective: 2026-08-09
+  last_reviewed: 2026-08-09
+  supersedes: []
+  superseded_by: []
+  ssot_for: none
+  review_trigger: explicit activation by an SDD/Roadmap architecture candidate
+---
+
 # Exact Prefill GDN dataflow on SM87
 
-Status: the original P0 exact composite is implemented at commit `4c135d5` as
+The thresholds, cells, and mechanism order in this document do not apply to
+unrelated work and cannot select the global Prefill architecture. Reactivation
+requires a work-package manifest naming the originating API constraint,
+composition budget, exact state contract, and target API return point.
+
+Historical lineage: the original P0 exact composite is implemented at commit `4c135d5` as
 an isolated test-only CUDA cell, passed T1 synthetic correctness/resource
 gates, and passed the P513/C512 complete-GDN-state correctness gate at
 `6e668f5`. Its CTA-serial sixteen-row epilogue was rejected by the first

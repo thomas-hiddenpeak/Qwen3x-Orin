@@ -1,0 +1,414 @@
+---
+q3x_document:
+  id: q3x-prefill-architecture-legacy
+  class: historical
+  status: historical
+  owner: prefill-maintainers
+  authority: none; retained Prefill architecture and mechanism-design history
+  effective: 2026-07-29
+  last_reviewed: 2026-08-09
+  supersedes: []
+  superseded_by: [docs/PREFILL_ARCHITECTURE_RESET.md]
+  ssot_for: none
+  review_trigger: explicit erratum to preserved historical content
+---
+
+# Prefill architecture reset for SM87 (legacy)
+
+> **Historical control notice (2026-08-09):** This file preserves the former
+> mixed architecture plan, mechanism library, measurements, and local
+> execution rules. It has no current planning, activation, target-setting, or
+> production-selection authority. The active Prefill subsystem contract is
+> [`PREFILL_ARCHITECTURE_RESET.md`](PREFILL_ARCHITECTURE_RESET.md), and
+> [`ROADMAP.md`](ROADMAP.md) is the only active delivery order. P513 budgets,
+> physical-limit arguments, tile/kernel prescriptions, NCU conclusions, and
+> mechanism priorities below apply only to their recorded historical scopes.
+
+## Authority and scope
+
+This document no longer selects the project from an operator-local starting
+point. The external API runner and its 40K/60K/130K cold, no-cache workloads
+select Prefill; the SDD propagates those constraints down to an execution-plan
+budget. Only then may a named section of this document become an active local
+optimization work package.
+
+The detailed GDN, projection, Attention, buffering, cache, and kernel rules
+below are mechanism libraries. They govern implementation only while
+`CURRENT_STATUS.md` and `ROADMAP.md` name the corresponding work package,
+target architecture candidate, composition deadline, and API return point.
+They cannot reorder product priorities, set a terminal business target, or
+keep an unsuccessful architecture alive. Closed packages remain historical
+evidence until explicitly reactivated.
+
+The active Prefill progress unit is a target-API capability or latency budget
+transition. A local mutation can be retained below API noise when it is an
+exact, real-payload, over-noise prerequisite with a bounded composition point;
+the complete architecture candidate is then selected on a target-length real
+API witness. P513 and component cells explain that selection but do not make
+it.
+
+Governing update, 2026-08-09: the
+[engineering constitution](ENGINEERING_CONSTITUTION.md) supersedes this
+document's former feasibility and terminal-target interpretations. Real
+no-cache Agent behavior on vLLM is an existence proof in the tens-of-thousands
+token/s region. The active product targets are first response within two
+seconds for 40K--60K prompt tokens and within four seconds for about 130K
+tokens. The historical P513/411 token/s comparison remains evidence for its
+exact old protocol only; it may not lower those targets. Production remains
+accuracy-preserving and non-MTP.
+
+## Historical 2026-07-29 architecture hypothesis
+
+At the recorded 2026-07-29 checkpoint, P513 Prefix was **2,260.7385 ms /
+226.474667 token/s**. Closing the
+gap to even 2,000 token/s requires an 8.83x whole-Prefix speedup. No remaining
+single exact kernel edit has that authority. Development therefore moves from
+isolated parameter scans to two coupled architecture tracks:
+
+1. replace the token-serial GDN chain with a chunk/WY hierarchy designed for
+   SM87 Tensor Cores; and
+2. replace the current decoded-shared/WMMA projection family with one
+   Marlin-class raw-operand pipeline shared by W4A16 and W8A16, while keeping
+   Gate/Up, Down, and attention-projection ownership shape-specific.
+
+Full Attention, launch-count reduction, buffering, `cp.async`, L2 access-policy
+windows, and epilogue fusion remain supporting mechanisms. None is a primary
+architecture track because each has a measured whole-Prefix ceiling far below
+the required gain.
+
+MTP is excluded. cuBLASLt is an external timing and numerical reference only;
+it has no production, fallback, retention, or promotion eligibility.
+
+The [vLLM/Humming startup-specialization audit](VLLM_HUMMING_STARTUP_AUDIT.md)
+is now an accepted implementation input. For this fixed checkpoint and SM87
+target, JIT is treated as an offline discovery/confirmation technique, not a
+production runtime requirement. Its selected weight layouts, tactics, shape
+buckets, workspace/KV plan, launch segments, and route coverage must be
+materialized as an authenticated AOT deployment plan. Production startup only
+validates and loads that plan; the request path may not compile, autotune,
+repack, rediscover a route, or grow unplanned workspace.
+
+This does not turn process-startup latency into the Prefill objective. The
+steady-state architectural value is removal of hot-path interpretation plus
+offline selection of the complete Gate/Up, Down, FP8, Attention, and GDN
+dataflows. Cache reuse and prepacking that affect only process cold start are
+reported separately.
+
+The historical 2,000 token/s milestone below is no longer the terminal
+Prefill objective. It is an intermediate checkpoint on the way to the locked
+long-context API targets. A large remaining gap requires a global execution
+graph and proven upstream dataflow alignment, not a return to independent
+operator-local scans.
+
+## Historical external whole-product checkpoint
+
+The OpenAI-compatible adapter and EvalScope 1.9.1 direction baseline are now
+implemented. On one warmup plus 32 real ShareGPT requests at concurrency one,
+native mean TTFT is **3,168.79 ms** versus **1,144.51 ms** for matched stock
+vLLM, a **2.768687x** gap. Mean TPOT is much closer at **108.92 versus 104.42
+ms (1.043095x)**. Total external workload throughput is **106.1454 versus
+188.0494 token/s**. This separates the project-level priority cleanly:
+Decode remains frozen and Prefill architecture is P0.
+
+This is a single-process directional baseline, not release evidence. Every
+complete GDN or projection architecture milestone must first show value in the
+real generation path and then return to the same external workload after its
+numerical and engineering gates pass. P513 remains the fast direction and
+profiler-attribution cell; it no longer has sole authority over project-level
+progress. The reproduction procedure, retained configuration, and limitations
+are in [`EVALSCOPE_EVALUATION.md`](EVALSCOPE_EVALUATION.md).
+
+## Historical same-host evidence
+
+One post-warmup stock-vLLM P513 request was captured on the same Orin and the
+same real checkpoint. It produced token 9419 and measured **1,246.689081 ms /
+411.489928 token/s**. Its 1,224.727008 ms of GPU kernel time divides as follows.
+
+| Group | This project, ms | stock vLLM, ms | Consequence |
+| --- | ---: | ---: | --- |
+| NVFP4 MLP Gate/Up + Down | 984.659296 | 723.607136 | The 261.052160 ms gap is the largest exact projection-family opportunity. |
+| FP8 QKV/Z/O projections | 496.920736 | 374.594432 | The 122.326304 ms gap is material, but not the previously reported 399.9 ms. |
+| GDN recurrence/core | 493.889408 | 41.549376 named chunk core | A token-serial recurrence is structurally wrong for Prefill. |
+| Full Attention core | 76.471744 | 3.349504 | Worth fixing after the two dominant gaps, but it cannot lead the program. |
+| Everything else | 208.797316 | at most 81.626560 | Fusion and scheduling are cleanup, not the architecture. |
+
+The vLLM GDN trace contains 48 calls each to chunk-state propagation, output
+reconstruction, inverse-layout merge, and WY recomputation, plus 48 KKT and 48
+local-cumsum calls. The current native trace contains 1,536 exact C16 GDN
+calls. This is the expected signature of an algorithm change rather than a
+better serial kernel.
+
+The Marlin split above corrects an earlier classification error. The second
+kernel template type ID is authoritative: `562949953487106` is FE2M1/NVFP4
+and `2814749767172868` is FE4M3FN/FP8. Grouping by M64 versus M8 tile shape
+incorrectly produced 1,001.201344 ms W4A16 and 97.000224 ms W8A16 even though
+the four raw row times were correct. The corrected W4A16+W8A16 total remains
+1,098.201568 ms, versus 1,481.580032 ms native, leaving a 383.378464 ms common
+projection-pipeline opportunity.
+
+The complete captured top-20 list and reproduction command are recorded in
+[the vLLM architecture profile](analysis/prefill-p513-vllm-architecture-2026-07-29/README.md).
+
+## Physical boundary
+
+> **Superseded feasibility interpretation (2026-08-09).** The calculations in
+> this section are retained as a historical BF16-proxy analysis. They did not
+> model the complete optimized mixed-precision vLLM path and therefore have no
+> authority to declare the exact production goal impossible or to discount
+> the observed vLLM Agent behavior. Future ceiling claims must satisfy the
+> evidence requirements in the engineering constitution.
+
+At M=512, the 64 MLP blocks alone perform about 17.52 TFLOP, or 34.23 GFLOP
+per prompt token. Including attention projections raises the dense projection
+work to about 25.4 TFLOP, or 49.7 GFLOP/token. AGX Orin's published dense
+rates are 43 FP16/BF16 TFLOP/s and 85 INT8 TOPS; SM87 also exposes INT4 Tensor
+Cores but no native FP8 or FP4 Tensor Core instruction.
+
+Consequently:
+
+- the ideal BF16 projection-only floor is about 591 ms, before GDN,
+  Attention, norms, convolution, or scheduling. An exact W4A16/W8A16 program
+  cannot reach the 256 ms whole-Prefix budget required for 2,000 token/s;
+- stock vLLM's 411.49 token/s is a useful first external milestone, not proof
+  that the terminal target is reachable with weight-only arithmetic; and
+- a 1,000-2,000 token/s single-request path requires activation-quantized
+  integer Tensor Core work, sparsity, heterogeneous compute, or a comparable
+  reduction in effective operation cost. The 8,000 token/s observation must
+  be re-measured under this repository's batch-one/P513/one-output-token
+  protocol before it is treated as a like-for-like target.
+
+The checkpoint provides a concrete route rather than a speculative one. All
+192 MLP projections and 209 non-MLP quantized projections retain an
+`input_scale` tensor. The MLP range is 0.0016276042 to 0.20535715 and the
+non-MLP range is 0.0098353801 to 0.44642860. The current SM87 weight-only path
+does not consume these 401 calibration values.
+
+## Numerical contracts
+
+The project now distinguishes two explicit modes. They may share loading,
+workspace, and scheduling infrastructure, but they may not silently share a
+promotion decision.
+
+### Compatibility mode
+
+- Preserve the current per-token BF16 recurrent-state rounding and current
+  quantized-weight interpretation.
+- Remain the default and the fallback during development.
+- Pursue a Marlin-class W4A16/W8A16 projection dataflow and exact
+  shape-specific ownership without changing numerical formats.
+- Treat current shortfalls as implementation limits, not proof that the exact
+  mode cannot reach the target. It remains the production contract and stable
+  comparator.
+
+### Dormant throughput-mode research contract
+
+This section is dormant unless the project owner explicitly activates a named
+throughput-mode research work package. It is a research-only numerical
+experiment and has no production or mainline promotion eligibility under the
+current accuracy constitution. Reopening that boundary requires an explicit
+project-owner contract amendment; an isolated speedup or tolerance result is
+insufficient.
+
+- Opt in explicitly; never activate through an implicit shape fallback.
+- Keep FP32 GDN state across a chunk and use the WY representation, then
+  publish the declared Prefill-to-Decode boundary representation.
+- Permit calibrated activation quantization for Prefill projections. The
+  retained checkpoint `input_scale` values seed the first route; real prompt
+  activation statistics may refine group scales without modifying the source
+  checkpoint.
+- Keep Decode on the locked exact production path. MTP remains disabled.
+- After a product/API symptom has activated this research package, use
+  deterministic P513 evidence only as its first **local** direction screen,
+  followed by numerical state/output characterization and a return to the
+  target OpenAI-compatible API/EvalScope witness before any research
+  conclusion. Do not describe that conclusion as production eligibility.
+
+Changing the old recurrent-state NRMSE gate is not an implementation shortcut.
+It is a named product contract change. The exact and throughput results must
+always be reported separately.
+
+## GDN local-work-package design library
+
+The SM87 path follows the hierarchy demonstrated by FLA/vLLM, not the
+single-CTA scalar skeleton from qwen35-thor:
+
+1. normalize Q/K and form chunk-local log-decay/beta data;
+2. compute KKT and the lower-triangular WY solve for chunk 64;
+3. propagate only eight C64 boundary states for C512, retaining FP32
+   accumulation inside the throughput route;
+4. reconstruct all token outputs in parallel; and
+5. fuse or immediately consume plain-RMSNorm and SiLU(Z) only after the
+   recurrence hierarchy is within budget.
+
+The first implementation may use separate kernels. Kernel fusion is admitted
+only after the algorithmic route wins in the real generation path. The SM87
+design uses BF16 HMMA/WMMA for the KKT, state, and output matrix products; a
+one-CTA-per-head scalar port is a correctness oracle, not a performance
+candidate.
+
+References inspected, without importing their source or binaries:
+
+- vLLM `6f00a1ae3bd4b86168667bce673998218f461c0f`;
+- FlashLinearAttention `9c8e42e762fce087c27b673af4922795d9edb85e`;
+- FlashInfer `7adc546db113f00a42df07dd738f81299a839376`;
+- qwen35-thor `57e29777c2aff8a97f42df6e3d9487b1327f014f`.
+
+FlashInfer's current Prefill GDN backend targets SM90/SM100/SM120, so it is an
+algebra and scheduler reference, not an SM87 implementation dependency.
+qwen35-thor's scalar WY result usefully demonstrates the formulation but also
+shows why matrixizing the phases is mandatory. vLLM's measured SM87 path is
+the decisive reference.
+
+## Projection local-work-package design library
+
+Projection dispatch is a matrix, not one kernel:
+
+| Family | Compatibility path | Throughput path | First structural requirement |
+| --- | --- | --- | --- |
+| Gate/Up, K=5120 N=17408 | Marlin-class W4A16 raw-operand/register-decode path | calibrated groupwise W4A4 INT4 MMA, fused activation quantization and SiLU where profitable | preserve high N-parallelism and share A without coupling independent weight-pipeline phases |
+| Down, K=17408 N=5120 | the same operand-pipeline skeleton with independent Down ownership | calibrated groupwise W4A4 INT4 MMA with a Down-specific K pipeline | choose stages and K ownership for the smaller N grid; do not inherit Gate tuning |
+| FP8 QKV/Z/O | Marlin-class W8A16 raw-operand/register-decode path | calibrated W8A8 INT8 MMA, optionally W4A4 only after quality evidence | remove the decoded-B shared tensor and specialize large-N versus O projection |
+
+The exact common skeleton is one complete dataflow cell, not a tile sweep. The
+measured vLLM large-M configuration uses 256 threads, M64xN256xK64 ownership,
+four asynchronous stages, XOR-swizzled A, register-buffered packed B,
+register dequantization, and direct MMA. The native implementation may change
+shape where SM87 resource evidence requires it, but it must preserve the
+coupled mechanism: engine-lifetime authenticated prepack, pipelined raw A/B,
+fragment-oriented register feed, no decoded-B shared tensor, no per-K64
+full-CTA producer/consumer bubble, and one final output publication. FP8 is
+the first executable proof because its exact bitwise expansion is simpler;
+the cell is admitted only with a concrete NVFP4 port and aggregate budget.
+
+The uniform integer sidecar is generated from the authenticated real weights,
+cached with a source-payload digest, and never replaces the checkpoint. Group
+scales must make each integer MMA partial sum independently dequantizable; a
+single global approximation is not assumed sufficient. The first candidate
+uses the calibration already present in the checkpoint and measures actual
+trajectory error before adding a calibration pipeline.
+
+### Matched NCU verdict
+
+The same-real-checkpoint NCU audit is now complete. The current native FP8
+QKV kernel computes M512xN10240xK5120 in 3.47 ms under NCU; stock vLLM's
+merged QKVZ kernel computes M512xN16384xK5120 in 3.86 ms. Native uses 320
+M128xN128 CTA instances, 128 registers/thread, 79,872 bytes of dynamic shared
+memory, and 32.96% achieved occupancy. vLLM uses 16 persistent M64xN256 CTA
+instances, 255 registers/thread, 166,912 bytes of dynamic shared memory, and
+16.67% achieved occupancy. Despite half the occupancy and 1.6x the output
+work, vLLM reaches 53.74% tensor-pipe activity versus native 36.78%.
+
+The causal difference is on-SM dataflow. Native records 16,442,656 shared-load
+and 503,616 shared-store bank conflicts, 3.210 LG-throttle stall cycles per
+issue, and 2.835 MIO-throttle cycles per issue. The vLLM capture records no
+shared bank conflicts in these metrics, 0.00177 LG-throttle cycles, and 0.164
+MIO-throttle cycles. Therefore neither two-CTA residency nor the native shared
+E4M3 lookup/decode skeleton remains an architectural requirement. The full
+evidence and report hashes are pinned in
+[`analysis/prefill-p513-fp8-supermatrix-ncu-2026-07-29/README.md`](analysis/prefill-p513-fp8-supermatrix-ncu-2026-07-29/README.md).
+
+### Projection-supermatrix call topology
+
+The compatibility proof targets the whole FP8 family. At load time it forms
+logical same-input supermatrices without modifying the checkpoint:
+
+- linear attention: QKV + Z = N16384;
+- full attention: Q/gate + K + V = N14336; and
+- MLP: Gate + Up = N34816, with Down retaining its own K-heavy ownership.
+
+Each partition retains its own exact scalar weight scale and output address;
+merging is a scheduling and prepack contract, not a numerical rescaling. For
+FP8 this reduces 208 native large projection calls to 128 family calls (one
+merged input and one output per layer). For NVFP4 it reduces 192 calls to 128
+(one merged Gate+Up and one Down per layer). A QKVZ-only bring-up is allowed
+to establish correctness, but performance admission waits for the complete
+family on real P513.
+
+## Historical P513 proxy budgets and local stop-loss gates
+
+These 2026-07-29 P513 values are retained as local mechanism evidence. They
+are not current-product milestones, do not select a long-context architecture,
+and cannot lower the API SLO. If a future active work package reuses one, its
+manifest must recalibrate the proxy against the current real API route.
+
+| Milestone | Prefix budget | Throughput | Meaning |
+| --- | ---: | ---: | --- |
+| current native anchor | 2,260.739 ms | 226.475 token/s | frozen comparator |
+| stock-vLLM parity | 1,247 ms | 411 token/s | first external architecture milestone |
+| architecture proof | 768 ms | 667 token/s | both GDN and projection redesigns must be active |
+| useful throughput | 512 ms | 1,000 token/s | activation-quantized path is contributing materially |
+| stretch | 320 ms | 1,600 token/s | near hardware-efficient integer path |
+| historical 2K proxy | 256 ms | 2,000 token/s | former local milestone; not a product target |
+
+Component stop-loss gates are deliberately large enough to prevent a return
+to low-yield scanning:
+
+- GDN C512 across 48 layers: named recurrence/core at or below 100 ms and at
+  least 300 ms saved from whole Prefix in its first real P513 direction run;
+- exact W4A16+W8A16 projections: at or below 1,250 ms aggregate in the first
+  complete engine route, then at or below the stock-vLLM 1,098.201568 ms
+  reference after stabilization;
+- exact W4A16: at or below 850 ms, then at or below 723.607136 ms; exact
+  W8A16: at or below 425 ms, then at or below 374.594432 ms;
+- throughput MLP projections: at or below 350 ms aggregate in the first full
+  route and below 200 ms before the 512 ms Prefix milestone;
+- any new experiment must name a credible path to at least 100 ms P513
+  savings, remove a prerequisite for such a path, or answer a bounded causal
+  question after a real-path failure.
+
+An experiment still compares the current native incumbent and retains a
+stable positive result above real noise. These architecture budgets are
+stop-loss and milestone budgets, not a requirement that every intermediate
+candidate beat stock vLLM or the terminal target by itself.
+
+## Active execution order
+
+1. Establish one exact, `BUILD_TESTING=OFF` release artifact with deployment
+   and route attestation; no approximate numerical route may participate.
+2. Make the API admit the exact target-length witnesses without silent
+   truncation, unplanned allocation, or route fallback. Pin the exact 40K,
+   60K, and 130K token contracts including requested output capacity.
+3. Measure the clean-host real API baseline and decompose TTFT into queue,
+   tokenize/admission, pure Prefill, final-prompt/logits, first commit, and
+   response publication. This selects the next execution-plan boundary.
+4. Write one architecture-candidate manifest that names its global dataflow,
+   required local mutations, real-payload component budgets, maximum mutation
+   count/time, and target-length API return point.
+5. Activate only the required GDN, projection, Attention, memory, or scheduling
+   subsections below as local work packages. Retain exact local improvements
+   against their local incumbent; do not claim them as product gains.
+6. As soon as dependencies close or the composition budget expires, enable the
+   complete architecture candidate in one final binary and select it on the
+   target API witness. Do not add isolated local speedups arithmetically.
+7. Qualify a positive candidate for exactness, all target lengths, repeated
+   external performance, resource behavior, capability, and release
+   attestation. A negative candidate may receive one bounded causal profile
+   before redesign or closure.
+
+The unit of progress is an API-visible runner transition. Local budgets remain
+essential because they are the controllable mutations through which that
+transition is realized.
+
+## Historical first architecture checkpoint
+
+The isolated Chunk64/WY route has now completed its first real-model
+checkpoint. Three native SM87 stages (block-16 KKT/solve, persistent FP32
+state, and reconstruction+norm+gate) plus reference-only W/U/QK GEMMs reduced
+P513 Prefix from 2,260.333589 to 1,912.793973 ms, saving 347.539616 ms. It
+therefore passed the 300 ms whole-Prefix stop-loss but remains above the
+100 ms component budget at an attributed 150.035424 ms.
+
+The P512 recurrent-state NRMSE is 0.117148528 across all 37,748,736 BF16
+elements. This confirms throughput mode is a distinct numerical contract;
+the route remains test-only and the default compatibility path is unchanged.
+Full evidence is in
+[`analysis/prefill-p513-gdn-chunk64-architecture-2026-07-29/README.md`](analysis/prefill-p513-gdn-chunk64-architecture-2026-07-29/README.md).
+
+At that checkpoint, because the remaining projection program was
+1,481.580032 ms native versus 1,098.201568 ms in stock vLLM, the recorded next
+implementation priority was the common Marlin-class W4A16/W8A16 operand
+pipeline. FP8 was its first exact executable proof, not a standalone
+optimization campaign. GDN was to resume only for a design capable of
+removing the W/U/QK global boundaries or most of the remaining 50.035424 ms
+budget. This historical priority does not override the active API-first
+execution order above.

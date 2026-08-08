@@ -1,4 +1,23 @@
+---
+q3x_document:
+  id: q3x-fp8-marlin-w8a16-source-map
+  class: external
+  status: frozen
+  owner: prefill-maintainers
+  authority: pinned external-source provenance and source-to-local mechanism mapping
+  effective: 2026-08-09
+  last_reviewed: 2026-08-09
+  supersedes: []
+  superseded_by: []
+  ssot_for: none
+  review_trigger: source revision, local port, license, or work-package activation change
+---
+
 # FP8 W8A16 Marlin direct-port source map
+
+This reference has no global planning or production-promotion authority. Its
+mechanisms apply only when a named local optimization work package activates
+them.
 
 This admission path is traced against the installed, frozen vLLM revision
 `ccd49f6821ee110cc5a2b1aba620a8a1d66c7cbb`. It is a reference implementation

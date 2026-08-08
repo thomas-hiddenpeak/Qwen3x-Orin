@@ -1,11 +1,33 @@
+---
+q3x_document:
+  id: q3x-vllm-humming-startup-audit
+  class: external
+  status: frozen
+  owner: runtime-maintainers
+  authority: pinned external startup and deployment mechanism input only
+  effective: 2026-08-09
+  last_reviewed: 2026-08-09
+  supersedes: []
+  superseded_by: []
+  ssot_for: none
+  review_trigger: external source pin, local startup design, or DeploymentPlan change
+---
+
 # vLLM and Humming startup-specialization audit
 
-Status: accepted architecture input, 2026-08-09.
+This is a frozen external-source and dated local-gap audit. It is not an active
+local work package, current-status page, delivery plan, or production route.
+Its mechanisms apply only through a named SDD/Roadmap architecture candidate.
+Local observations below belong to the original audit line ending at
+`eb39a3e`; they do not describe the current tree unless `CURRENT_STATUS.md`
+explicitly adopts them.
 
-This is a source and current-runner architecture audit. It does not change a
-production selector by itself and it does not report a Humming performance
-result. The controlling performance, accuracy, non-MTP, and cuBLASLt rules
-remain in the [engineering constitution](ENGINEERING_CONSTITUTION.md) and the
+The accepted native design is owned by the
+[system SDD](SDD.md#3-deploymentplan-contract) and the sole delivery order by
+the [Roadmap](ROADMAP.md). This audit neither changes a selector nor reports a
+Humming performance result. The controlling performance, accuracy, non-MTP,
+and cuBLASLt rules remain in the
+[engineering constitution](ENGINEERING_CONSTITUTION.md) and the
 [real-model evidence policy](REAL_MODEL_PERFORMANCE_POLICY.md).
 
 ## Source pins and scope
@@ -18,21 +40,21 @@ The audit inspected:
 - Humming official `main` at
   [`b18cfac980d2427c0b32a2c027974b3274d0413a`](https://github.com/inclusionAI/humming/tree/b18cfac980d2427c0b32a2c027974b3274d0413a),
   dated 2026-08-07; and
-- the current Q3X tree on the target SM87 Orin and pinned
-  `nvidia/Qwen3.6-27B-NVFP4` checkpoint.
+- the Q3X development tree captured by original audit commit `eb39a3e` on the
+  target SM87 Orin and pinned `nvidia/Qwen3.6-27B-NVFP4` checkpoint.
 
 The local comparison environment currently identifies itself as vLLM 0.26.0
 with Humming 0.1.10. Results or behavior from that installed release must not
 be attributed to the newer source pins without a matched run.
 
-## Decision
+## Transferable conclusion
 
-The project-owner hypothesis is accepted: the most valuable lesson from JIT
+The audit supported the project-owner hypothesis: the most valuable lesson from JIT
 for this fixed-model, fixed-hardware runner is not runtime compilation. It is
 the protocol that turns observed model, device, shape, and memory facts into a
 verified execution plan before the server reports ready.
 
-Q3X should implement a two-stage specialization system:
+The transferable model is a two-stage specialization system:
 
 1. an offline target-Orin qualification/build stage may enumerate candidates,
    compile kernels, transform weights, measure the real API path, and select a
@@ -150,15 +172,17 @@ NVML omissions. Explicit tuning configuration can avoid that query. This is
 additional evidence for offline selection and static deployment, not a reason
 to discard its dataflow ideas.
 
-## Current Q3X startup and hot-path gaps
+## Frozen Q3X startup and hot-path gap snapshot
 
-The current runner already contains useful specialization assets: a strict
+At the original audit revision, the runner contained useful specialization
+assets: a strict
 checkpoint manifest, resident weights, fixed-model bindings, FP8/NVFP4
-sidecars, production Decode graph capture, and an OpenAI-compatible evaluation
-server. The missing layer is one versioned artifact that proves all of those
-assets form the intended production execution plan.
+sidecars, runtime Decode graph capture, and an OpenAI-compatible evaluation
+server. The observed missing layer was one versioned artifact proving that
+those assets formed the intended execution plan. Current implementation truth
+belongs only to [`CURRENT_STATUS.md`](CURRENT_STATUS.md).
 
-| Fixed fact currently rediscovered | Current behavior | Required form |
+| Fixed fact rediscovered at the snapshot | Observed behavior | Reference form proposed by the audit |
 | --- | --- | --- |
 | FP8 Prefill layout | Engine startup inventories 208 projections, allocates exactly 7,214,202,880 bytes, launches one pack per projection, then synchronizes. Other M1/QKV/Down/Marlin sidecars are prepared in additional phases. | An atomic, authenticated `.q3x` offline pack with source-tensor and pack-ABI hashes; startup directly loads the final layout. |
 | Tensor bindings and scalar scales | The loader reconstructs 64-layer name/variant/shape relations and synchronously reads quantization scalars while binding. | Generated tensor offset/type/shape/scale tables tied to the checkpoint hash. |
@@ -175,7 +199,13 @@ overlap in the one-shot CLI, but the API does not use it. That overlap is a
 later process-startup improvement; it must not displace steady-state Prefill
 architecture work.
 
-## Static deployment contract
+## Reference deployment-plan checklist
+
+The following was the audit's proposed checklist. The authoritative adopted
+requirements now live in the
+[`DeploymentPlan` contract](SDD.md#3-deploymentplan-contract) and release
+attestation section of the SDD; changes belong there, not in this frozen
+external audit.
 
 `Q3xDeploymentPlan` should contain at least:
 
@@ -194,10 +224,10 @@ supported context-capacity bucket
 real-API qualification artifact and deterministic output oracle
 ```
 
-Production startup must fail closed when this plan is absent or mismatched.
-It may not fall back to cuBLASLt, runtime JIT, a generic unqualified kernel, a
-smaller context, altered accuracy, or MTP. Development can explicitly request
-a rebuild/qualification mode, but that mode is not a production-ready server.
+The audit proposed fail-closed startup when this plan is absent or mismatched,
+with no cuBLASLt, runtime JIT, generic unqualified-kernel, smaller-context,
+altered-accuracy, or MTP fallback. It separated an explicit development
+rebuild/qualification mode from a production-ready server.
 
 After ready, these invariants hold:
 
@@ -207,42 +237,12 @@ After ready, these invariants hold:
 - zero per-call function-attribute initialization; and
 - no silent plan or precision fallback.
 
-## Mainline execution order
+## Adoption boundary
 
-This audit changes how the Prefill mainline is assembled; it does not create a
-startup-only detour.
-
-1. **Attest the real product path.** Add a plan/route digest and explicit
-   counters to the existing API result and ready state. Record the current
-   short, C512, tail and longest currently supported no-cache API baseline
-   before changing dispatch.
-2. **Compile the fixed runner graph.** Build an engine-lifetime
-   `PrefillExecutionPlan`; batch embedding; initialize launch attributes once;
-   and replace repeated per-layer/per-projection route interpretation with
-   direct planned launches. Resolve the all-prompt bulk tail matrix within this
-   scheduler rather than making the test environment variable a production
-   policy.
-3. **Apply the coupled large-M dataflow.** Implement independent Gate/Up and
-   Down tactics using the complete raw-operand pipeline: asynchronous A/B/scale
-   stages, packed-B register decode, direct MMA, persistent/Stream-K ownership,
-   and L2-aware rasterization. Humming is a schedule oracle; vLLM remains the
-   real external starting line. The first decision is the smallest real API
-   direction run, followed by full qualification only when positive.
-4. **Make long context a deployable capacity.** Add 64K and 131,072 memory-plan
-   buckets and fail-closed startup validation so the locked Agent workloads can
-   actually exercise the runner without truncation.
-5. **Move derived weights offline.** Implement `q3x-pack` and direct-load
-   authenticated sidecars. This reduces process cold start and peak transient
-   memory and permits a deliberate residency plan; it does not claim a
-   steady-state Prefill win by itself.
-6. **Preflight and lock.** Warm C512 and all declared tails through the real
-   model, capture only graph segments that improve API TTFT, lock the workspace,
-   enable plan-miss fail-fast, then report ready.
-7. **Judge the whole product.** Use the real OpenAI-compatible API and the
-   pinned EvalScope procedure for retention/promotion. NSys/NCU explains a
-   result after the real-path direction is known.
-
-The immediate performance goal remains vLLM parity, followed by a specialized
-runner advantage and the locked 40K--60K/130K Agent TTFT targets. Neither a
-faster startup nor a strong isolated Humming-shaped kernel satisfies that goal
-without the complete API path.
+This frozen audit owns no mainline execution order. The SDD adopted the
+authenticated AOT `DeploymentPlan` boundary, and the Roadmap decides when API
+capacity, release identity, Prefill architecture, offline sidecars, warmup, and
+qualification are implemented. Humming remains a schedule/dataflow reference;
+vLLM remains the real external starting line. Neither a faster startup nor a
+strong isolated Humming-shaped kernel constitutes whole-product progress until
+the active architecture candidate returns through the target API witness.

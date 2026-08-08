@@ -1,5 +1,16 @@
 # Qwen3.6 27B Phase 3 performance evidence
 
+> **Document control**
+> - Class: `historical_evidence_ledger`
+> - Authority: exact recorded protocols and artifact identities only
+> - Status: append-only history; not current status, product target, active
+>   plan, or production authority
+> - Current truth: [`CURRENT_STATUS.md`](CURRENT_STATUS.md)
+
+Every occurrence of `current`, `active`, `next`, `production`, or `terminal`
+in the body below is scoped to its recorded historical milestone unless a
+machine-readable evidence record explicitly says otherwise.
+
 This document records the first kernel-level baseline and matched SM87
 projection-backend comparison for the native Qwen3.6-27B-NVFP4 runner on
 Jetson AGX Orin. These are diagnostic Phase 3 results, not serving-throughput

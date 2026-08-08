@@ -1,12 +1,35 @@
+---
+q3x_document:
+  id: q3x-qwen36-27b-runtime-contract
+  class: contract
+  status: active
+  owner: runtime-maintainers
+  authority: pinned Qwen3.5 and Qwen3.6 27B text runtime numerical and state contract
+  effective: 2026-08-09
+  last_reviewed: 2026-08-09
+  supersedes: []
+  superseded_by: []
+  ssot_for: pinned 27B text Decode semantics, tensor boundaries, and recurrent state behavior
+  review_trigger: any pinned model semantic, tensor boundary, Decode order, or state-contract change
+---
+
 # Qwen3.5 / Qwen3.6 27B text-only 单 token decode 运行时契约
 
-本文固定 Qwen3x-Orin Phase 2 的 **27B Dense、batch=1、非 MTP、text-only**
+> **权威边界。** 本组件契约细化 [系统 SDD](SDD.md)，并从属于该 SDD 与
+> [工程宪法](ENGINEERING_CONSTITUTION.md)。当前实现、资格验证和默认生产路径的
+> 动态真值只由 [`CURRENT_STATUS.md`](CURRENT_STATUS.md) 维护。本文中的局部机制、
+> 性能门槛或实现选择，只有在被命名且处于活动状态的局部优化工作包内才具有约束力；
+> 它们不能决定全局优先级、整体架构或生产晋级。
+
+本文固定 Qwen3x-Orin 的 **27B Dense、batch=1、非 MTP、text-only**
 decode 语义。目标不是规定某个 CUDA kernel 的物理布局，而是规定：相同 token、位置、
 权重和进入本步前的状态，任何后端都必须产生可与可信 reference 对齐的逐层结果、更新
 后的状态和 logits。
 
-> 当前实现状态仍以 [ROADMAP.md](ROADMAP.md) 为准。本文是实现与 fixture 的入口契约，
-> 不是端到端支持声明。
+> 当前实现、资格验证和默认路径状态只以
+> [`CURRENT_STATUS.md`](CURRENT_STATUS.md) 为准；未完成工作的先后顺序只以
+> [`ROADMAP.md`](ROADMAP.md) 为准。本文是实现与 fixture 的入口契约，不是端到端
+> 支持声明或进度清单。
 
 ## 1. 证据、版本和结论等级
 
@@ -418,15 +441,15 @@ qwen35-thor 按同一尺寸分配 BF16 state
 和清零证据见
 [T-state-init](https://github.com/thomas-hiddenpeak/qwen35-thor/blob/57e29777c2aff8a97f42df6e3d9487b1327f014f/src/engine/cache_manager.cpp#L177-L201)。
 
-当前 `RequestState` 已把 48 份 conv/GDN state、16 对 full-attention K/V、复用
-workspace 与 BF16-rounded RoPE 表放入单个 256B 对齐 arena，并在创建和异步 reset
-时清零完整 persistent span；精确 byte budget 和 API 见
+运行时请求状态必须为 48 份 conv/GDN state、16 对 full-attention K/V、复用
+workspace 与 BF16-rounded RoPE 表提供显式所有权，并在创建和 reset 时使完整
+persistent span 满足零状态契约；当前实现与精确 byte budget/API 见
 [REQUEST_STATE.md](REQUEST_STATE.md)。
 
 vLLM 允许 state dtype 配置；`auto` 时 conv state 跟随 model/cache dtype，SSM state
 默认跟随 conv state，也可单独指定
 ([V-state-dtype](https://github.com/vllm-project/vllm/blob/ccd49f6821ee110cc5a2b1aba620a8a1d66c7cbb/vllm/model_executor/layers/mamba/mamba_utils.py#L84-L116))。
-Phase 2 基线采用 BF16 persistent state；kernel 内 decay、dot、outer update 应以 FP32
+兼容性数值契约采用 BF16 persistent state；kernel 内 decay、dot、outer update 应以 FP32
 累加，再量化写回 BF16。若选择 FP32 SSM state，单请求 state 总量变为 146.8125 MiB，
 且必须作为不同的数值策略单独验证。
 
@@ -448,7 +471,7 @@ state；只有 full-attention KV 而没有两类 linear state 不是有效 conti
 
 ## 10. 数值执行策略
 
-Phase 2 的 canonical BF16 reference 策略是：
+canonical BF16 reference 策略是：
 
 - activation、projection 输出和 persistent cache 基线为 BF16；
 - RMS variance、Q/K L2 norm、conv 累加、`A_log`、softplus、alpha、DeltaNet
@@ -519,18 +542,19 @@ reference runtime commit、dtype、cache dtype 和 position。
 在这些 fixture 进入仓库并在 Jetson AGX Orin 上复现以前，只能宣称本文的结构契约已
 审计，不能把 Qwen3.5 或 Qwen3.6 27B 标为 `Verified`。
 
-## 12. 实现前检查表
+## 12. 一致性义务
 
-- [x] loader 先验证 model series、固定 revision/config 和完整 tensor manifest。
-- [ ] 64 层调度为 48 linear + 16 full，且每层都有 dense MLP。
-- [ ] centered RMSNorm 与 GDN plain RMSNorm 使用不同 kernel key 或显式 flag。
-- [ ] GDN checkpoint layout 是 Q/K/V/Z 与 B/A 非 interleaved；物理 state layout 显式版本化。
-- [ ] conv state 保存 projection input 的最近 3 项，并在输出计算后 shift。
-- [ ] DeltaNet value head 到 key head 的映射为 3:1，Q/K 使用 L2 norm。
-- [ ] full-attention Q/Gate 按每 head interleave，RoPE 只旋转前 64 维。
-- [ ] full-attention cache 写入当前 K/V，decode query 可见位置 `0..p`。
-- [ ] text-only 加载不要求 `model.visual.*` 或 `mtp.*`。
-- [ ] final centered RMSNorm 后才执行独立 `lm_head.weight`。
-- [ ] fixture 同时比较 activation、两类 linear state、K/V 与 logits，而非只比较 token。
-- [ ] 所有第三方实现若被复制或改编，保留相应 Apache/MIT 头和 NOTICE；本文只总结
+- loader 必须先验证 model series、固定 revision/config 和完整 tensor manifest。
+- 64 层调度必须为 48 linear + 16 full，且每层都有 dense MLP。
+- centered RMSNorm 与 GDN plain RMSNorm 必须使用不同 kernel key 或显式 flag。
+- GDN checkpoint layout 必须是 Q/K/V/Z 与 B/A non-interleaved；物理 state layout
+  必须显式版本化。
+- conv state 必须保存 projection input 的最近 3 项，并在输出计算后 shift。
+- DeltaNet value head 到 key head 的映射必须为 3:1，Q/K 使用 L2 norm。
+- full-attention Q/Gate 必须按每 head interleave，RoPE 只旋转前 64 维。
+- full-attention cache 必须写入当前 K/V，decode query 可见位置 `0..p`。
+- text-only 加载不得要求 `model.visual.*` 或 `mtp.*`。
+- final centered RMSNorm 后才可执行独立 `lm_head.weight`。
+- fixture 必须同时比较 activation、两类 linear state、K/V 与 logits，而非只比较 token。
+- 所有第三方实现若被复制或改编，必须保留相应 Apache/MIT 头和 NOTICE；本文只总结
   运行时契约，没有复制第三方代码。

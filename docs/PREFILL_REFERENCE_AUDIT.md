@@ -1,3 +1,18 @@
+---
+q3x_document:
+  id: q3x-prefill-reference-audit
+  class: historical
+  status: historical
+  owner: prefill-maintainers
+  authority: transferable mechanism and historical existence-proof input only
+  effective: 2026-08-09
+  last_reviewed: 2026-08-09
+  supersedes: []
+  superseded_by: [docs/PREFILL_ARCHITECTURE_RESET.md]
+  ssot_for: none
+  review_trigger: explicit erratum or successor-link change
+---
+
 # Prefill reference-architecture audit
 
 This audit is a design reference, not a dependency-selection record. It pins

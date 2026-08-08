@@ -1,6 +1,27 @@
+---
+q3x_document:
+  id: q3x-large-m-projection-dataflow
+  class: historical
+  status: historical
+  owner: prefill-maintainers
+  authority: large-M projection mechanisms only when explicitly reactivated
+  effective: 2026-08-09
+  last_reviewed: 2026-08-09
+  supersedes: []
+  superseded_by: []
+  ssot_for: none
+  review_trigger: explicit activation by an SDD/Roadmap architecture candidate
+---
+
 # Large-M projection dataflow on SM87
 
-Status: architecture reset after the exact-C512 NVFP4 Gate/Up head-to-head at
+Tile rules, NCU cells, cache policies, pair tables, and local retention gates
+below are scoped to this package. They cannot choose the runner's global
+priority, product target, or release route. Reactivation requires a manifest
+that names the API constraint, Gate/Up and Down shape ownership, dependencies,
+composition limit, and target API return point.
+
+Historical lineage: architecture reset after the exact-C512 NVFP4 Gate/Up head-to-head at
 commit `1fcad2f`, updated by the pinned layer-0 Gate matched-NCU comparison at
 commit `43308b4`, the retained CF3 complete cell at commit `6e415b8`, and the
 retained structured BS512 cell at commit `18c89ac`.  The post-isolation

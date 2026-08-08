@@ -1,5 +1,10 @@
 # Phase 0 evidence record
 
+> **Document control**
+> - Class: `immutable_milestone_evidence`
+> - Authority: bootstrap environment and results recorded below only
+> - Status: historical; no current product or planning authority
+
 This record captures the reproducible Qwen3x-Orin bootstrap state on
 **2026-07-18 (Asia/Shanghai)**. It is an engineering milestone, not an
 end-to-end model support claim.

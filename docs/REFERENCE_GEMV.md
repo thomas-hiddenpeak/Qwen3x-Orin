@@ -1,68 +1,96 @@
+---
+q3x_document:
+  id: q3x-reference-gemv
+  class: contract
+  status: active
+  owner: kernel-maintainers
+  authority: batch-one reference GEMV numerical, ownership, validation, and launch contract
+  effective: 2026-08-09
+  last_reviewed: 2026-08-09
+  supersedes: []
+  superseded_by: []
+  ssot_for: reference GEMV layouts, arithmetic, validation, ownership, and launch behavior
+  review_trigger: any reference GEMV ABI, dtype, layout, arithmetic, validation, ownership, or launch-contract change
+---
+
 # Batch-one reference GEMV contract
 
-`q3x/kernels/reference_gemv.h` defines the first allocation-free matrix-vector
-boundary used by the text runtime. It is a correctness implementation for
-canonical checkpoint layouts, not the final tensor-core or Marlin throughput
-path.
+> **Authority boundary.** This component contract refines the numerical kernel
+> boundary in the [system SDD](SDD.md) and is subordinate to it and the
+> [engineering constitution](ENGINEERING_CONSTITUTION.md). Current route,
+> qualification, performance, and Production lifecycle truth belongs in
+> [`CURRENT_STATUS.md`](CURRENT_STATUS.md). CTA shapes, staging, cache policy,
+> kernel fusion, and timing thresholds are excluded and may govern only a
+> named active local work package.
+
+The public API is `include/q3x/kernels/reference_gemv.h`. It supplies
+allocation-free CPU and CUDA correctness operations for canonical checkpoint
+layouts. These functions define numerical and failure behavior, not the
+project's optimized scheduling architecture.
 
 ## Data and numerical contract
 
-All matrices are row-major `[rows, columns]`, the activation is one BF16
-vector `[columns]`, accumulation is FP32, and output is FP32 `[rows]`. BF16 is
-represented by its raw IEEE bfloat16 `uint16_t` bit pattern.
+All matrices are row-major `[rows,columns]`. The activation is one BF16 vector
+`[columns]`; BF16 is passed as raw IEEE bfloat16 `uint16_t` bits.
 
-- `bf16_gemv_reference_cpu` consumes BF16 weights directly.
-- `fp8_gemv_reference_cpu` consumes E4M3FN bytes and one finite,
-  non-negative `weight_scale`. The decoded weight is
-  `E4M3FN(byte) * weight_scale`.
-- `fp8_static_gemv_reference_cpu` is a separate ModelOpt W8A8 diagnostic:
-  BF16 activations are scaled, saturated and rounded to E4M3FN before the
-  dot product. Its `input_scale` must be finite and strictly positive. The
-  SM87 production dispatcher intentionally uses the preceding W8A16 API,
-  matching vLLM's `MarlinFP8ScaledMMLinearKernel`, which discards the static
-  activation scale on GPUs without native FP8 support.
-- `nvfp4_gemv_reference_cpu` consumes canonical ModelOpt `uint8_t`
-  `[rows, columns / 2]` weights, E4M3FN `[rows, columns / 16]` block scales,
-  and one finite, non-negative `weight_scale_2`. Even K is the low nibble and
-  odd K is the high nibble. K must be a multiple of 16.
+- BF16 consumes BF16 weights directly.
+- FP8 consumes E4M3FN `[rows,columns]` and a finite, non-negative per-tensor
+  `weight_scale`.
+- static FP8 W8A8 first divides each BF16 activation by a finite positive
+  `input_scale`, saturates and rounds it to finite E4M3FN, then expands the
+  code back to FP32 **and multiplies by `input_scale`** before the dot product.
+- NVFP4 consumes canonical packed U8 `[rows,columns/2]`, E4M3FN block scales
+  `[rows,columns/16]`, and a finite, non-negative `weight_scale_2`. Even K is
+  the low nibble, odd K the high nibble, and columns must be a multiple of 16.
 
-The corresponding `launch_*_cuda` functions implement the same formulas.
-They use one 256-thread block per row, cap the grid at 65,535 blocks, and
-grid-stride over additional rows. This covers the pinned model's projection K
-dimensions (including 5120 and 6144) and `lm_head` N=248320 without imposing a
-65,535-row limit.
+Every dot product accumulates in FP32. FP32-output APIs write one FP32 value
+per row. Direct BF16-output APIs round the completed FP32 result to BF16
+round-to-nearest-even. Encoded/BF16 NaNs and infinities follow IEEE arithmetic
+and are not silently clamped, except for the explicitly defined finite
+static-W8A8 activation conversion.
 
-CUDA reduction order differs from the sequential host reference, so finite
-results agree within an FP32 accumulation tolerance rather than bit-for-bit.
-Encoded or BF16 NaNs and infinities follow IEEE arithmetic and are not silently
-clamped, except that the explicit static-W8A8 activation conversion saturates
-to finite E4M3FN by definition. Host weight scales must be finite and
-non-negative; static-W8A8 `input_scale` must additionally be nonzero.
+CUDA reduction order may differ from the sequential CPU oracle, so finite
+cross-device comparisons use the applicable numerical accuracy policy rather
+than assuming bitwise FP32 equality.
 
-## Ownership and launch behavior
+## Public launch and ownership behavior
 
-CUDA pointers and the optional stream are caller-owned. A launch performs no
-allocation, copy, or synchronization. `cuda_stream == nullptr` selects the
-legacy default stream; otherwise pass a `cudaStream_t` as `void*`. Output must
-not alias the activation or weight storage.
+CPU operations return `GemvStatus`. CUDA operations return `cudaError_t` as
+`int` so CUDA types stay out of the header.
 
-Empty shapes are successful no-ops. Non-empty null pointers, overflowing
-`rows * columns`, invalid scalar scales, and non-group-aligned NVFP4 K return a
-structured host status or `cudaErrorInvalidValue`. Immediately before a valid
-kernel launch, the wrapper clears an unrelated stale CUDA last-error and then
-returns the status of its own launch boundary.
+CUDA pointers and optional streams are caller-owned. A launch allocates,
+copies, and synchronizes nothing. `cuda_stream == nullptr` selects the legacy
+default stream; otherwise the `void*` must represent a valid `cudaStream_t`.
+Writable outputs must satisfy the alias rules documented by the corresponding
+function.
 
-## Verification
+The generic BF16 pair-tile API accepts token-major input and two independent
+outputs for `token_count` in `[1,16]`; it validates the complete
+two-projection operation before enqueue. The exact
+`launch_bf16_gemv_pair_m16_projection_fused_cuda` entry is the ordinary SM87
+runtime subroute for the pinned BF16 A/B pair at `M=16, N=48, K=5120`; it is
+not merely a diagnostic surface. The resource-query entries are diagnostic
+gates and do not establish a runner route or an optimization mandate.
 
-`reference_gemv_host` checks fixed fixtures, 24 deterministic randomized shape
-sets, independent double-precision dot products, zero matrices, encoded
-boundary values, malformed arguments, dimension overflow, and NaN/infinity
-propagation. `reference_gemv_cuda` compares all four GPU paths with the host
-FP32 references on SM87, including awkward tails, K=5120/6144, N=248320
-grid-striding, a non-default stream, stale CUDA errors, and non-finite values.
+Empty shapes are successful no-ops where the header permits them. Non-empty
+null pointers, invalid scales, overflowing `rows * columns`, invalid NVFP4
+column grouping, illegal token counts, or prohibited aliases return a
+structured host error or `cudaErrorInvalidValue`. Before a valid launch, the
+wrapper clears unrelated stale CUDA last-error state and returns the status of
+its own launch boundary.
 
-Current intentional limitations are batch size one, F32 output only, no bias,
-and no fused epilogue. Activation quantization exists only in the explicitly
-named static-W8A8 diagnostic; the production SM87 FP8 route remains W8A16.
-These keep this path useful as a numerical oracle while optimized kernels are
-added behind a distinct API.
+## Verification boundary
+
+Host tests cover fixed and deterministic randomized shapes, independent
+double-precision formulas, zero matrices, all encoding boundaries,
+malformed arguments, overflow, and non-finite propagation. CUDA tests compare
+all public numerical paths with host references, including model K sizes,
+awkward tails, large row counts, non-default streams, stale CUDA errors,
+aliases, and non-finite values.
+
+Synthetic matrices are valid for correctness enumeration and smoke tests only.
+Historical kernel mechanisms, resource observations, and timings belong in
+[`PERFORMANCE_BASELINE.md`](PERFORMANCE_BASELINE.md). Exact lineage for the
+ordinary M16 BF16 pair subroute is the
+[`M16 projection-fused record`](metadata/qwen36-27b-bf16-m16-projection-fused-benchmark.json).
+It does not amend this contract.
