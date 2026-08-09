@@ -57,6 +57,19 @@ architecture-selection, release, or production authority. EvalScope 1.9.1
 is the declared invocation version but is not self-attested by the retained
 raw artifacts. P60K and P130K were not run.
 
+The first executable `AC-PREFILL-PROMPT-WIDE-v2` slice and its clean-host
+cold/no-cache P40K API direction screen are frozen in
+[`qwen36-27b-prefill-p40k-flashinfer-exact-panel-api-2026-08-09.json`](qwen36-27b-prefill-p40k-flashinfer-exact-panel-api-2026-08-09.json).
+The v6 route replaces repeated exact QT2 Attention with 80 FlashInfer
+M8192/M7712 logical-panel calls and records zero QT2/Q64/Q128 hits. EvalScope
+TTFT was 109.02622 s and server pure Prefill was 108.981855 s, or 367.033577
+prompt tok/s: 6.15x faster than the preceding exact route. The P40K first
+token `The` matches that route; the P513 full-state hash does not, and the
+complete accuracy gate was not run. The result therefore retains only the
+Attention dataflow direction. It remains default-off, accuracy-unqualified,
+and far below the owner's vLLM starting line; P60K/P130K and production
+promotion have no authority from this record.
+
 The current Prefill architecture reset and same-host stock-vLLM P513 kernel
 profile are recorded in
 [`qwen36-27b-vllm-p513-architecture-profile-2026-07-29.json`](qwen36-27b-vllm-p513-architecture-profile-2026-07-29.json).
