@@ -1119,13 +1119,13 @@ void test_whole_request_layer_major_admission(TestContext& test) {
             runtime::ReferenceLogitsMode::kFullStatistics, 1U);
   run_shape(513U, 1U, 513U,
             runtime::ReferenceLogitsMode::kPredictedTokenOnly, 1U);
-  run_shape(8'193U, 2U, 1U,
+  run_shape(8'193U, 2U, 4'096U,
             runtime::ReferenceLogitsMode::kPredictedTokenOnly, 1U);
-  run_shape(40'000U, 5U, 7'232U,
+  run_shape(40'000U, 5U, 7'712U,
             runtime::ReferenceLogitsMode::kFullStatistics, 1U);
-  run_shape(60'000U, 8U, 2'656U,
+  run_shape(60'000U, 8U, 5'424U,
             runtime::ReferenceLogitsMode::kPredictedTokenOnly, 2U);
-  run_shape(130'000U, 16U, 7'120U,
+  run_shape(130'000U, 16U, 7'656U,
             runtime::ReferenceLogitsMode::kPredictedTokenOnly, 1U);
 }
 

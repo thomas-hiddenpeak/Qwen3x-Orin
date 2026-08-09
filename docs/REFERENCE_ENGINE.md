@@ -138,11 +138,17 @@ plus the separate final prompt execution when applicable. The default-off
 whole-request Prefix duration while deriving route coverage from the immutable
 C8192 topology. Thus P32, P513, P8193, and P40000 have respectively 1, 1, 2,
 and 5 logical route panels even though every whole-request timing vector has
-one entry; the P8193 M1 tail is not discarded. `ReferenceEngine` still leaves
-the whole-request callback/finalizer/commit set unbound, so explicitly asking
-it for this mode fails closed until a real executor is connected. No CLI,
-line-oriented output, or OpenAI witness schema changes merely because this
-host result identity exists.
+one entry; P8193 balances its final pair as C4097+C4096 without dropping a
+token. A development Engine created explicitly for layer-major execution now
+binds the whole-request executor, finalizer, commit receipt, balanced physical
+segment schedule, exact FP8/NVFP4 Marlin inventories, and the exact native C64
+GDN binary/workspace capability. Engine creation fails closed when any bound
+identity, weight shape, sidecar, workspace, stream, or completion event is
+missing. Within the certified GDN M32..M512 envelope, a bound request must
+record the native route; M1..M31 retains the self-owned exact fallback and
+records that fallback explicitly. A legacy-configured Engine never silently
+switches into this route. Executability remains a development fact rather
+than a Production or performance-selection claim.
 
 Timing fields have these stable meanings:
 

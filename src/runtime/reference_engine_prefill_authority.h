@@ -31,7 +31,7 @@ enum class NativePrefillTactic : std::uint8_t {
   kNvfp4DownCanonicalPanel,
   kFp8CanonicalPanel,
   kBf16CanonicalPanel,
-  kExactGdnCanonicalPanel,
+  kExactGdnChunk64Native,
   kExactCausalAttentionCanonicalPanel,
   kResidualCanonicalPanel,
   kNormalizationCanonicalPanel,
@@ -52,7 +52,10 @@ struct NativePrefillRoleReceipt {
       NativePrefillCompletionDomain::kMainStreamBarrier;
   const void* artifact_owner = nullptr;
   const void* workspace_owner = nullptr;
+  std::uint64_t workspace_bytes = 0U;
   std::uint32_t maximum_logical_panel_m = 0U;
+  std::uint32_t minimum_physical_m = 0U;
+  std::uint32_t maximum_physical_m = 0U;
 };
 
 class BoundPrefillExecutionPlan final {

@@ -377,7 +377,8 @@ GenerationControlResult run_generation_control_impl(
             : ReferencePrefillExecutionMode::kLegacyC512Tiled;
     // The whole-request callback has one aggregate timing regardless of
     // prompt length. Route coverage remains panel-granular and therefore
-    // follows the immutable C8192 topology, including an M1 tail panel.
+    // follows the immutable balanced C8192 topology, including its final
+    // full-plus-tail pair.
     control.prefill_logical_panel_count =
         use_whole_request_prefill
             ? static_cast<std::uint64_t>(

@@ -36,11 +36,26 @@ static_assert(kLayerMajorPrefillLegacyPublicTileTokens == 512U);
 static_assert(kLayerMajorPrefillOperatorPanelTokens == 8'192U);
 static_assert(kLayerMajorPrefillMaximumPanelCount == 32U);
 
-// Canonical exact-route subdivision for one already selected logical panel.
-// The caller supplies only the tokens remaining inside that panel, so the
-// returned segment cannot cross its C8192 boundary. The whole executor and
-// the legacy engine scheduler must share this order rather than inventing
-// numerically distinct arbitrary-M segment boundaries.
+// Preserve full-capacity work while preventing a final one-token panel or
+// physical segment.  Once only the final full-capacity unit plus its tail
+// remain, split that suffix into ceil/floor halves.  This keeps the minimum
+// number of units, retains every earlier full unit, and prevents the exact
+// optimized routes from being defeated by a pathological scalar tail.
+[[nodiscard]] constexpr std::size_t
+next_layer_major_prefill_operator_panel_token_count(
+    const std::size_t remaining_prompt_tokens) noexcept {
+  if (remaining_prompt_tokens <= kLayerMajorPrefillOperatorPanelTokens) {
+    return remaining_prompt_tokens;
+  }
+  if (remaining_prompt_tokens <
+      2U * kLayerMajorPrefillOperatorPanelTokens) {
+    return (remaining_prompt_tokens + 1U) / 2U;
+  }
+  return kLayerMajorPrefillOperatorPanelTokens;
+}
+
+// Canonical exact-route subdivision retained for the legacy scheduling
+// contract and its historical evidence.
 [[nodiscard]] constexpr std::size_t
 next_prefill_physical_segment_token_count(
     const std::size_t remaining_panel_tokens) noexcept {
@@ -67,6 +82,30 @@ next_prefill_physical_segment_token_count(
          token_count == kPrefillPhysicalSegmentM32Tokens ||
          (token_count != 0U &&
           token_count <= kPrefillPhysicalSegmentTailMaximumTokens);
+}
+
+// The layer-major compatibility executor accepts every C1..C512 geometry.
+// Keep earlier C512 work full and split only the final C512-plus-tail suffix
+// into ceil/floor halves. This avoids a scalar layer tail without nearly
+// doubling the masked Marlin launch count over the whole panel.
+[[nodiscard]] constexpr std::size_t
+next_layer_major_prefill_physical_segment_token_count(
+    const std::size_t remaining_panel_tokens) noexcept {
+  if (remaining_panel_tokens <= kPrefillPhysicalSegmentMaximumTokens) {
+    return remaining_panel_tokens;
+  }
+  if (remaining_panel_tokens <
+      2U * kPrefillPhysicalSegmentMaximumTokens) {
+    return (remaining_panel_tokens + 1U) / 2U;
+  }
+  return kPrefillPhysicalSegmentMaximumTokens;
+}
+
+[[nodiscard]] constexpr bool
+is_layer_major_prefill_physical_segment_token_count(
+    const std::size_t token_count) noexcept {
+  return token_count != 0U &&
+         token_count <= kPrefillPhysicalSegmentMaximumTokens;
 }
 
 enum class PrefillTraversalOrder : std::uint8_t {

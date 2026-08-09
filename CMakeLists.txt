@@ -329,6 +329,11 @@ if(Q3X_BUILD_FP8_MARLIN_PREFILL_ADMISSION)
     Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION=1
   )
 endif()
+if(Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION)
+  target_compile_definitions(q3x_engine PRIVATE
+    Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION=1
+  )
+endif()
 q3x_enable_warnings(q3x_engine)
 
 # Internal, deliberately narrow OpenAI/EvalScope evaluation adapter. It is

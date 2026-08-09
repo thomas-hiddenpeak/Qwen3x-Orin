@@ -848,7 +848,7 @@ void emit_target_prefill_witness(
     if (generation.prefill_execution_mode == runtime::
             ReferencePrefillExecutionMode::kWholeRequestLayerMajor) {
       record.deployment_plan_id =
-          "q3x.sm87.exact.layer-major-c8192.marlin.v1";
+          "q3x.sm87.exact.layer-major-c8192.balanced-segments.v2";
     }
     std::cerr << serialize_target_prefill_witness(record) << '\n';
   } catch (...) {

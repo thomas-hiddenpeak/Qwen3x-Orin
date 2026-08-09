@@ -1,5 +1,9 @@
 #include "reference_engine_prefill_authority.h"
 
+#if defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
+#include "../kernels/sm87/gdn_prefill_chunk64_native_sm87.h"
+#endif
+
 #include <new>
 #include <utility>
 
@@ -135,6 +139,46 @@ namespace {
   }
   return weights.embed_tokens().weight != nullptr &&
          weights.final_norm().data != nullptr;
+#endif
+}
+
+[[maybe_unused, nodiscard]] bool
+complete_exact_gdn_chunk64_native_inventory(
+    const ModelWeights& weights) noexcept {
+#if !defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
+  (void)weights;
+  return false;
+#else
+  std::size_t linear_attention_layer_count = 0U;
+  for (std::size_t layer = 0U;
+       layer < kReferenceDecoderLayerCount; ++layer) {
+    if (reference_runner_detail::expected_reference_layer_type(layer) !=
+        model::LayerType::kLinearAttention) {
+      continue;
+    }
+    ++linear_attention_layer_count;
+    const auto* const linear = std::get_if<LinearAttentionWeights>(
+        &weights.layer(layer).attention);
+    if (linear == nullptr ||
+        linear_output_size(linear->in_proj_qkv) != 10'240U ||
+        linear_input_size(linear->in_proj_qkv) != kReferenceHiddenSize ||
+        linear_output_size(linear->in_proj_a) != 48U ||
+        linear_input_size(linear->in_proj_a) != kReferenceHiddenSize ||
+        linear_output_size(linear->in_proj_b) != 48U ||
+        linear_input_size(linear->in_proj_b) != kReferenceHiddenSize ||
+        linear->conv1d.data == nullptr ||
+        linear->conv1d.shape !=
+            std::array<std::size_t, 3U>{10'240U, 1U, 4U} ||
+        linear->a_log.data == nullptr ||
+        linear->a_log.element_count != 48U ||
+        linear->dt_bias.data == nullptr ||
+        linear->dt_bias.element_count != 48U ||
+        linear->norm.data == nullptr ||
+        linear->norm.element_count != 128U) {
+      return false;
+    }
+  }
+  return linear_attention_layer_count == kQwen36LinearAttentionLayerCount;
 #endif
 }
 
@@ -316,13 +360,36 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
                         ReferenceRunnerError::kInvalidModelWeights,
                         "bound_prefill_role_inventory");
   }
+  std::size_t exact_gdn_workspace_bytes = 0U;
+#if defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
+  exact_gdn_workspace_bytes =
+      gdn_prefill_chunk64_native_detail::workspace_bytes();
+  if (!complete_exact_gdn_chunk64_native_inventory(*weights)) {
+    return plan_failure(BoundPrefillPlanError::kIncompleteNativeRole,
+                        ReferenceRunnerError::kInvalidModelWeights,
+                        "bound_prefill_exact_gdn_inventory");
+  }
+  if (runner->prefill_gdn_chunk64_native_workspace_ == nullptr ||
+      exact_gdn_workspace_bytes == 0U ||
+      runner->prefill_gdn_chunk64_native_workspace_bytes_ !=
+          exact_gdn_workspace_bytes) {
+    return plan_failure(BoundPrefillPlanError::kIncompleteNativeRole,
+                        ReferenceRunnerError::kInvalidDependency,
+                        "bound_prefill_exact_gdn_workspace");
+  }
+#else
+  return plan_failure(BoundPrefillPlanError::kUnsupportedBinary,
+                      ReferenceRunnerError::kInvalidDependency,
+                      "bound_prefill_exact_gdn_binary");
+#endif
 
   const auto receipt = [](
       const PrefillBindingRole role, const NativePrefillTactic tactic,
       const void* const artifact, const void* const workspace) noexcept {
     return NativePrefillRoleReceipt{
         role, tactic, NativePrefillCompletionDomain::kMainStreamBarrier,
-        artifact, workspace, kLayerMajorPrefillOperatorPanelTokens};
+        artifact, workspace, 0U, kLayerMajorPrefillOperatorPanelTokens,
+        0U, 0U};
   };
   std::array<NativePrefillRoleReceipt,
              kLayerMajorPrefillRequiredOperatorRoleCount>
@@ -382,9 +449,15 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
               views.legacy_c512.linear_b_bf16.storage.device_data);
   roles[static_cast<std::size_t>(PrefillBindingRole::kExactGdn)] =
       receipt(PrefillBindingRole::kExactGdn,
-              NativePrefillTactic::kExactGdnCanonicalPanel,
+              NativePrefillTactic::kExactGdnChunk64Native,
               linear->conv1d.data,
-              views.legacy_c512.projection_bf16[0U].storage.device_data);
+              runner->prefill_gdn_chunk64_native_workspace_);
+  roles[static_cast<std::size_t>(PrefillBindingRole::kExactGdn)]
+      .workspace_bytes = exact_gdn_workspace_bytes;
+  roles[static_cast<std::size_t>(PrefillBindingRole::kExactGdn)]
+      .minimum_physical_m = 32U;
+  roles[static_cast<std::size_t>(PrefillBindingRole::kExactGdn)]
+      .maximum_physical_m = 512U;
   roles[static_cast<std::size_t>(
       PrefillBindingRole::kExactCausalAttention)] =
       receipt(PrefillBindingRole::kExactCausalAttention,
@@ -432,6 +505,18 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
                         ReferenceRunnerError::kInvalidDependency,
                         "bound_prefill_gate_down_tactic_alias");
   }
+  const NativePrefillRoleReceipt& exact_gdn =
+      roles[static_cast<std::size_t>(PrefillBindingRole::kExactGdn)];
+  if (exact_gdn.tactic != NativePrefillTactic::kExactGdnChunk64Native ||
+      exact_gdn.workspace_owner !=
+          runner->prefill_gdn_chunk64_native_workspace_ ||
+      exact_gdn.workspace_bytes != exact_gdn_workspace_bytes ||
+      exact_gdn.minimum_physical_m != 32U ||
+      exact_gdn.maximum_physical_m != 512U) {
+    return plan_failure(BoundPrefillPlanError::kIncompleteNativeRole,
+                        ReferenceRunnerError::kInvalidDependency,
+                        "bound_prefill_exact_gdn_receipt");
+  }
 
   const std::array<const void*, kBoundPrefillSubmissionEventCount>
       submission_events{
@@ -455,6 +540,13 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
 bool ReferenceEnginePrefillExecutor::plan_matches_runner(
     const BoundPrefillExecutionPlan& plan,
     const ReferenceRunner& runner) noexcept {
+#if !defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
+  (void)plan;
+  (void)runner;
+  return false;
+#else
+  const NativePrefillRoleReceipt& exact_gdn =
+      plan.roles_[static_cast<std::size_t>(PrefillBindingRole::kExactGdn)];
   return plan.runner_ == &runner && plan.weights_ == runner.weights_ &&
          plan.state_ == runner.state_ && plan.state_ != nullptr &&
          plan.arena_base_ == plan.state_->arena_data() &&
@@ -467,7 +559,18 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
          plan.submission_events_[1U] ==
              runner.whole_request_submission_events_[1U] &&
          runner.layer_major_request_views_.has_value() &&
-         runner.projection_backend_ == ProjectionBackend::kSm87WeightOnly;
+         runner.projection_backend_ == ProjectionBackend::kSm87WeightOnly &&
+         exact_gdn.role == PrefillBindingRole::kExactGdn &&
+         exact_gdn.tactic == NativePrefillTactic::kExactGdnChunk64Native &&
+         exact_gdn.workspace_owner ==
+             runner.prefill_gdn_chunk64_native_workspace_ &&
+         exact_gdn.workspace_bytes ==
+             runner.prefill_gdn_chunk64_native_workspace_bytes_ &&
+         exact_gdn.workspace_bytes ==
+             gdn_prefill_chunk64_native_detail::workspace_bytes() &&
+         exact_gdn.minimum_physical_m == 32U &&
+         exact_gdn.maximum_physical_m == 512U;
+#endif
 }
 
 ReferenceWholeRequestPrefillOutcome ReferenceEnginePrefillExecutor::execute(

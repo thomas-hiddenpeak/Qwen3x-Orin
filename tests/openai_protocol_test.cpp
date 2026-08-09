@@ -296,7 +296,7 @@ void test_target_prefill_witness_evidence(TestContext& test) {
   sealed_record.bounded_submission_window = true;
   sealed_record.submission_window_retirements = 128U;
   sealed_record.deployment_plan_id =
-      "q3x.sm87.exact.layer-major-c8192.marlin.v1";
+      "q3x.sm87.exact.layer-major-c8192.balanced-segments.v2";
   const std::string sealed_serialized =
       server::serialize_target_prefill_witness(sealed_record);
   test.expect(
@@ -308,7 +308,7 @@ void test_target_prefill_witness_evidence(TestContext& test) {
               R"("execution_mode":"layer-major","logical_panel_count":2,"request_memory_profile":"layer-major-c8192","bounded_submission_window":true,"submission_window_retirements":128)") !=
               std::string::npos &&
           sealed_serialized.find(
-              R"("deployment_plan":{"available":true,"scope":"engine_lifetime_sealed_native_plan","id":"q3x.sm87.exact.layer-major-c8192.marlin.v1"})") !=
+              R"("deployment_plan":{"available":true,"scope":"engine_lifetime_sealed_native_plan","id":"q3x.sm87.exact.layer-major-c8192.balanced-segments.v2"})") !=
               std::string::npos,
       "sealed whole-request evidence upgrades to the stable v2 contract");
 

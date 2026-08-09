@@ -63,13 +63,14 @@ namespace {
   }
 
   std::uint32_t next_position = plan.first_position;
+  std::size_t remaining_tokens = plan.prompt_token_count;
   for (std::size_t panel_index = 0U; panel_index < plan.panel_count;
        ++panel_index) {
     const PrefillOperatorPanel& panel = plan.panels[panel_index];
     const std::uint32_t expected_token_count =
-        panel_index + 1U < plan.panel_count
-            ? kLayerMajorPrefillOperatorPanelTokens
-            : plan.final_position - next_position;
+        static_cast<std::uint32_t>(
+            next_layer_major_prefill_operator_panel_token_count(
+                remaining_tokens));
     if (panel.ordinal != panel_index || panel.first_position != next_position ||
         panel.token_count != expected_token_count ||
         panel.end_position <= panel.first_position ||
@@ -77,8 +78,9 @@ namespace {
       return false;
     }
     next_position = panel.end_position;
+    remaining_tokens -= panel.token_count;
   }
-  if (next_position != plan.final_position) {
+  if (remaining_tokens != 0U || next_position != plan.final_position) {
     return false;
   }
 
@@ -176,9 +178,8 @@ PrefillExecutionPlanResult build_unbound_layer_major_prefill_execution_plan(
   for (std::size_t panel_index = 0U; panel_index < plan.panel_count;
        ++panel_index) {
     const std::uint64_t token_count =
-        remaining < kLayerMajorPrefillOperatorPanelTokens
-            ? remaining
-            : kLayerMajorPrefillOperatorPanelTokens;
+        next_layer_major_prefill_operator_panel_token_count(
+            static_cast<std::size_t>(remaining));
     const std::uint64_t end_position = next_position + token_count;
     plan.panels[panel_index] = PrefillOperatorPanel{
         static_cast<std::uint32_t>(panel_index),

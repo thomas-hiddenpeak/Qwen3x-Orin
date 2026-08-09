@@ -3307,7 +3307,8 @@ bool ReferenceRunner::is_legacy_prefill_tile_execution_control(
          control.allow_experimental_gdn_chunk64_native_admission &&
          control.allow_experimental_gdn_chunk64_reference_admission &&
          !control.force_bound_nvfp4_marlin_prefill &&
-         !control.force_bound_fp8_marlin_prefill;
+         !control.force_bound_fp8_marlin_prefill &&
+         !control.force_bound_gdn_chunk64_native_prefill;
 }
 
 ReferenceRunnerStatus ReferenceRunner::select_prefill_tile_execution(
@@ -3972,8 +3973,8 @@ ReferenceRunner::prefill_whole_request_layer_major_compatibility_core(
       std::size_t remaining = panel.token_count;
       while (remaining != 0U) {
         const std::size_t segment_token_count =
-            next_prefill_physical_segment_token_count(remaining);
-        if (!is_prefill_physical_segment_token_count(
+            next_layer_major_prefill_physical_segment_token_count(remaining);
+        if (!is_layer_major_prefill_physical_segment_token_count(
                 segment_token_count) ||
             segment_token_count > remaining ||
             segment_position > panel.end_position ||
@@ -3999,6 +4000,7 @@ ReferenceRunner::prefill_whole_request_layer_major_compatibility_core(
         control.emit_commit_hooks = false;
         control.force_bound_nvfp4_marlin_prefill = true;
         control.force_bound_fp8_marlin_prefill = true;
+        control.force_bound_gdn_chunk64_native_prefill = true;
         PrefillTileExecutionSelection selection;
         const ReferenceRunnerStatus selection_status =
             select_prefill_tile_execution(
@@ -4038,6 +4040,21 @@ ReferenceRunner::prefill_whole_request_layer_major_compatibility_core(
           return fail_whole_request_prefill(runner_status(
               ReferenceRunnerError::kRouteEvidenceFailure,
               "whole_request_prefill_segment_route", layer));
+        }
+        if (reference_runner_detail::expected_reference_layer_type(layer) ==
+            model::LayerType::kLinearAttention) {
+          const PrefillRouteDisposition gdn_disposition =
+              enqueued.route_fragment.layer_segment.dispositions[
+                  static_cast<std::size_t>(PrefillLayerRouteSlot::kGdn)];
+          const PrefillRouteDisposition expected_gdn_disposition =
+              segment_token_count >= 32U
+                  ? PrefillRouteDisposition::kProduction
+                  : PrefillRouteDisposition::kExactFallback;
+          if (gdn_disposition != expected_gdn_disposition) {
+            return fail_whole_request_prefill(runner_status(
+                ReferenceRunnerError::kRouteEvidenceFailure,
+                "whole_request_prefill_bound_gdn_route", layer));
+          }
         }
         const ReferenceRunnerStatus reduce_status =
             reduce_prefill_layer_route_fragment(
@@ -4267,8 +4284,9 @@ ReferenceRunner::enqueue_prefill_layer_segment(
 #endif
 #if defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
   const bool enable_gdn_chunk64_native_admission =
-      control.allow_experimental_gdn_chunk64_native_admission &&
-      g_enable_prefill_gdn_chunk64_native_admission;
+      (control.allow_experimental_gdn_chunk64_native_admission &&
+       g_enable_prefill_gdn_chunk64_native_admission) ||
+      control.force_bound_gdn_chunk64_native_prefill;
 #endif
 #if defined(Q3X_ENABLE_GDN_CHUNK64_REFERENCE_ADMISSION)
   const bool enable_gdn_chunk64_reference_admission =

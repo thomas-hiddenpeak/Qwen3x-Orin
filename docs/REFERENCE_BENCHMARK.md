@@ -100,8 +100,9 @@ default-off `kWholeRequestLayerMajor` value exists for the host integration
 seam: an accepted result has one whole-request aggregate Prefix timing and a
 separate `prefill_logical_panel_count` derived from the immutable C8192
 topology. P32/P513/P8193/P40000 therefore retain logical panel counts
-1/1/2/5, including the P8193 M1 tail, without being rejected by the legacy
-C512 timing-cardinality rule. Per-sample and per-prompt results retain both
+1/1/2/5; P8193 balances its final pair as C4097+C4096 instead of creating an
+M1 panel, without being rejected by the legacy C512 timing-cardinality rule.
+Per-sample and per-prompt results retain both
 fields, and repeatability rejects either identity changing between rounds.
 
 An accepted whole-request result must also carry finalized route evidence:
@@ -123,10 +124,11 @@ flags or panel counts. Its timing decomposition is:
 
 The commit interval is retained as its own aggregate and per-prompt
 statistic. Legacy results require that appended interval to remain exactly
-zero. The production
-`ReferenceEngine` does not yet bind the whole-request callback set, so this
-mode currently exercises host control only; selecting it against that engine
-returns a generation failure rather than falling back to the legacy route.
+zero. A development `ReferenceEngine` created with the explicit layer-major
+profile binds the whole-request callback set and can exercise this mode. An
+Engine created for the legacy profile rejects it rather than falling back or
+changing its request-memory plan. The bound route and benchmark remain
+development surfaces until the complete target-length and release gates pass.
 
 ## Device-memory accounting
 

@@ -771,19 +771,23 @@ class ReferenceRunner {
     bool allow_scalar_m1_delegate = true;
     bool allow_cross_layer_m32_fusion = true;
     bool emit_commit_hooks = true;
-    // These three routes are experiments, not part of the compatibility-
-    // exact numerical contract.  They default closed so a hand-built
-    // single-layer control cannot inherit a process-wide admission switch.
+    // These process-selected routes default closed so a hand-built
+    // single-layer control cannot inherit an admission switch.
     // legacy_prefill_tile_execution_control() explicitly restores the
-    // historical public behavior.
+    // historical public behavior. The Engine-sealed whole-request plan may
+    // separately force the exact native C64 GDN route below.
     bool allow_experimental_gdn_b8_admission = false;
     bool allow_experimental_gdn_chunk64_native_admission = false;
     bool allow_experimental_gdn_chunk64_reference_admission = false;
     // Engine-sealed layer-major evaluation plans bind the installed Marlin
-    // sidecars once at engine creation. These flags bypass request-time
-    // environment selection only for that private compatibility core.
+    // sidecars and exact native GDN workspace once at engine creation. These
+    // flags bypass request-time environment selection only for that private
+    // compatibility core. Bound GDN must execute natively throughout its
+    // certified M32..M512 envelope; smaller segments retain the certified
+    // self-owned exact fallback and remain visible as such in route evidence.
     bool force_bound_nvfp4_marlin_prefill = false;
     bool force_bound_fp8_marlin_prefill = false;
+    bool force_bound_gdn_chunk64_native_prefill = false;
   };
 
   struct PrefillTileExecutionSelection {
