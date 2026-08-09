@@ -6,12 +6,17 @@
 #include <cstdint>
 #include <iostream>
 #include <limits>
+#include <utility>
 #include <vector>
 
 namespace {
 
 namespace model = q3x::model;
 namespace runtime = q3x::runtime;
+
+static_assert(noexcept(
+    runtime::is_valid_unbound_layer_major_prefill_execution_plan(
+        std::declval<const runtime::PrefillExecutionPlan&>())));
 
 class TestContext {
  public:
@@ -249,6 +254,106 @@ void test_fixed_layer_schedule(TestContext& test) {
               "the immutable plan declares exactly one final state commit");
 }
 
+void test_public_unbound_topology_validator(TestContext& test) {
+  const runtime::PrefillExecutionPlanResult result =
+      build_plan(40'000U, 512U, 65'536U);
+  test.expect(result.ok(), "unbound validator fixture builds");
+  if (!result) {
+    return;
+  }
+
+  const runtime::PrefillExecutionPlan baseline = *result.value;
+  test.expect(
+      runtime::is_valid_unbound_layer_major_prefill_execution_plan(baseline),
+      "the public validator accepts a complete unbound layer-major plan");
+
+  const auto expect_rejected = [&](runtime::PrefillExecutionPlan candidate,
+                                   const char* const message) {
+    test.expect(
+        !runtime::is_valid_unbound_layer_major_prefill_execution_plan(
+            candidate),
+        message);
+  };
+
+  runtime::PrefillExecutionPlan candidate = baseline;
+  candidate.traversal = static_cast<runtime::PrefillTraversalOrder>(0xffU);
+  expect_rejected(candidate, "the unbound validator rejects traversal drift");
+
+  candidate = baseline;
+  candidate.legacy_public_tile_limit += 1U;
+  expect_rejected(candidate,
+                  "the unbound validator rejects legacy capacity drift");
+
+  candidate = baseline;
+  candidate.operator_panel_capacity -= 1U;
+  expect_rejected(candidate,
+                  "the unbound validator rejects operator capacity drift");
+
+  candidate = baseline;
+  candidate.prompt_token_count -= 1U;
+  expect_rejected(candidate,
+                  "the unbound validator rejects prompt-span drift");
+
+  candidate = baseline;
+  candidate.panel_count -= 1U;
+  expect_rejected(candidate,
+                  "the unbound validator rejects an incomplete panel set");
+
+  candidate = baseline;
+  candidate.panels[0].token_count -= 1U;
+  candidate.panels[0].end_position -= 1U;
+  candidate.panels[1].first_position -= 1U;
+  expect_rejected(candidate,
+                  "the unbound validator rejects non-canonical panel sizes");
+
+  candidate = baseline;
+  candidate.panels[1].ordinal = 0U;
+  expect_rejected(candidate,
+                  "the unbound validator rejects panel-order drift");
+
+  candidate = baseline;
+  candidate.layers[7].layer_index = 8U;
+  expect_rejected(candidate,
+                  "the unbound validator rejects layer-order drift");
+
+  candidate = baseline;
+  candidate.layers[3].layer_type = model::LayerType::kLinearAttention;
+  expect_rejected(candidate,
+                  "the unbound validator rejects the fixed layer schedule");
+
+  candidate = baseline;
+  candidate.layers[3].progress_domain =
+      runtime::PrefillProgressDomain::kGdnState;
+  expect_rejected(candidate,
+                  "the unbound validator rejects progress-domain drift");
+
+  candidate = baseline;
+  candidate.final_commit.commit_count = 2U;
+  expect_rejected(candidate,
+                  "the unbound validator rejects final-commit drift");
+
+  candidate = baseline;
+  candidate.operator_bindings_complete = true;
+  expect_rejected(candidate,
+                  "the unbound validator rejects operator-bound plans");
+
+  candidate = baseline;
+  candidate.first_position =
+      runtime::kLayerMajorPrefillMaximumSequenceTokens;
+  candidate.final_position = candidate.first_position + 1U;
+  candidate.prompt_token_count = 1U;
+  candidate.panel_count = 1U;
+  candidate.panels[0] = runtime::PrefillOperatorPanel{
+      0U, candidate.first_position, 1U, candidate.final_position};
+  candidate.final_commit = runtime::PrefillFinalCommitPlan{
+      candidate.first_position, candidate.final_position, 1U};
+  for (runtime::PrefillLayerExecution& layer : candidate.layers) {
+    layer.panel_count = 1U;
+  }
+  expect_rejected(candidate,
+                  "the unbound validator rejects an out-of-capacity span");
+}
+
 void test_strict_layer_major_progress(TestContext& test) {
   const runtime::PrefillExecutionPlanResult result = build_plan(8'193U);
   test.expect(result.ok(), "two-panel progress topology builds");
@@ -408,6 +513,7 @@ int main() {
   test_target_panel_matrix(test);
   test_canonical_physical_segment_contract(test);
   test_fixed_layer_schedule(test);
+  test_public_unbound_topology_validator(test);
   test_strict_layer_major_progress(test);
   test_fail_closed_inputs(test);
   if (test.failures() != 0) {

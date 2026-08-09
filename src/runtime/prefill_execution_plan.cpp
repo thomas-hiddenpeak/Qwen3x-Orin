@@ -40,7 +40,12 @@ namespace {
           kLayerMajorPrefillOperatorPanelTokens ||
       plan.prompt_token_count == 0U || plan.panel_count == 0U ||
       plan.panel_count > plan.panels.size() ||
+      plan.prompt_token_count >
+          kLayerMajorPrefillMaximumSequenceTokens ||
       plan.final_position <= plan.first_position ||
+      plan.final_position > kLayerMajorPrefillMaximumSequenceTokens ||
+      plan.final_position - plan.first_position !=
+          plan.prompt_token_count ||
       plan.final_commit.expected_initial_sequence_length !=
           plan.first_position ||
       plan.final_commit.committed_sequence_length != plan.final_position ||
@@ -49,13 +54,24 @@ namespace {
     return false;
   }
 
+  const std::size_t expected_panel_count =
+      (static_cast<std::size_t>(plan.prompt_token_count) +
+       kLayerMajorPrefillOperatorPanelTokens - 1U) /
+      kLayerMajorPrefillOperatorPanelTokens;
+  if (plan.panel_count != expected_panel_count) {
+    return false;
+  }
+
   std::uint32_t next_position = plan.first_position;
   for (std::size_t panel_index = 0U; panel_index < plan.panel_count;
        ++panel_index) {
     const PrefillOperatorPanel& panel = plan.panels[panel_index];
+    const std::uint32_t expected_token_count =
+        panel_index + 1U < plan.panel_count
+            ? kLayerMajorPrefillOperatorPanelTokens
+            : plan.final_position - next_position;
     if (panel.ordinal != panel_index || panel.first_position != next_position ||
-        panel.token_count == 0U ||
-        panel.token_count > plan.operator_panel_capacity ||
+        panel.token_count != expected_token_count ||
         panel.end_position <= panel.first_position ||
         panel.end_position - panel.first_position != panel.token_count) {
       return false;
@@ -195,6 +211,11 @@ PrefillExecutionPlanResult build_unbound_layer_major_prefill_execution_plan(
   PrefillExecutionPlanResult result;
   result.value.emplace(plan);
   return result;
+}
+
+bool is_valid_unbound_layer_major_prefill_execution_plan(
+    const PrefillExecutionPlan& plan) noexcept {
+  return valid_plan_topology(plan);
 }
 
 PrefillExecutionProgress make_prefill_execution_progress(

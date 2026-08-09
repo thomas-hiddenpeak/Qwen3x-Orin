@@ -156,6 +156,13 @@ struct PrefillExecutionPlanResult {
 build_unbound_layer_major_prefill_execution_plan(
     const PrefillExecutionPlanOptions& options) noexcept;
 
+// Allocation-free host validation for an externally supplied immutable
+// layer-major topology. This accepts only the unbound design contract:
+// operator_bindings_complete must remain false. It does not authenticate or
+// convert a bound execution/deployment plan.
+[[nodiscard]] bool is_valid_unbound_layer_major_prefill_execution_plan(
+    const PrefillExecutionPlan& plan) noexcept;
+
 enum class PrefillExecutionProgressError : std::uint8_t {
   kNone = 0,
   kInvalidPlan,
