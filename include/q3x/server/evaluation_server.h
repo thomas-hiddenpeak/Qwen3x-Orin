@@ -39,6 +39,9 @@ struct EvaluationServerOptions {
   runtime::LayerMajorPrefillFullAttentionTactic
       prefill_full_attention_tactic =
           runtime::LayerMajorPrefillFullAttentionTactic::kExactSegmentedC512;
+  // Profiling-only observability. Ordinary API requests keep the runtime's
+  // zero-range default unless the server is launched with the explicit flag.
+  bool emit_nvtx_phase_ranges = false;
 };
 
 // Loads one resident model, starts a bounded HTTP ingress and exactly one

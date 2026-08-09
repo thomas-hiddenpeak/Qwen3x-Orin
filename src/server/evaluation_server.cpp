@@ -913,6 +913,8 @@ void execute_job(runtime::ReferenceEngine& engine,
   generate_options.token_observer_context = &observer;
   generate_options.prefill_execution_mode =
       options.prefill_execution_mode;
+  generate_options.emit_nvtx_phase_ranges =
+      options.emit_nvtx_phase_ranges;
   if (options.prefill_execution_mode == runtime::
           ReferencePrefillExecutionMode::kWholeRequestLayerMajor) {
     generate_options.prefill_cancellation_probe = prefill_cancelled;
@@ -1588,6 +1590,8 @@ int run_evaluation_server(const EvaluationServerOptions& options,
                             kNativeGroupQ64Panel
                     ? "native-group-q64-panel"
                     : "exact-segmented")
+            << " nvtx_phase_ranges="
+            << (options.emit_nvtx_phase_ranges ? 1 : 0)
             << " inference_workers=1 queue_capacity="
             << options.inference_queue_capacity
             << " fp8_prefill_supermatrix_sidecar_ms="

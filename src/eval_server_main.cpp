@@ -37,6 +37,7 @@ void PrintUsage(std::ostream& output) {
       << "  --prefill-chunk-size N      Native Prefill chunk 1..512 (default 512)\n"
       << "  --prefill-execution-mode legacy|layer-major (default legacy)\n"
       << "  --prefill-attention-tactic exact-segmented|native-group-q64-panel\n"
+      << "  --nvtx-phase-ranges        Emit generation/Prefill/Decode ranges\n"
       << "  --queue-capacity N          Bounded inference queue, max 62 (default 8)\n"
       << "  --ingress-threads N         Fixed HTTP threads, queue+2 min (default 10)\n"
       << "  --projection-backend sm87|reference (default sm87)\n"
@@ -82,6 +83,10 @@ template <typename T>
   }
   for (int index = 2; index < argc; ++index) {
     const std::string_view argument(argv[index]);
+    if (argument == "--nvtx-phase-ranges") {
+      options.emit_nvtx_phase_ranges = true;
+      continue;
+    }
     if (index + 1 >= argc) {
       error = std::string(argument) + " requires a value";
       return false;
