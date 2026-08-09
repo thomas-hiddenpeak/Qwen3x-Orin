@@ -37,7 +37,8 @@ bool has_consistent_prefill_timing(
   for (const double elapsed : timing.prefix_execution_milliseconds) {
     prefix_sum += elapsed;
   }
-  return prefix_sum + timing.finish_prefill_milliseconds ==
+  return prefix_sum + timing.finish_prefill_milliseconds +
+                 timing.commit_prefill_milliseconds ==
              timing.prompt_prefill_milliseconds &&
          timing.prompt_prefill_milliseconds ==
              timing.time_to_first_token_milliseconds;
@@ -1089,13 +1090,21 @@ void test_whole_request_layer_major_admission(TestContext& test) {
         fake.next_position == prompt_size + max_new_tokens - 1U;
     const bool one_aggregate_prompt_timing =
         result &&
+        result.value->prefill_execution_mode ==
+            runtime::ReferencePrefillExecutionMode::
+                kWholeRequestLayerMajor &&
+        result.value->prefill_logical_panel_count == expected_panel_count &&
         result.value->timing.prefix_execution_milliseconds ==
             std::vector<double>({fake.prompt_elapsed_milliseconds}) &&
         result.value->timing.finish_prefill_milliseconds ==
             fake.whole_finalizer_elapsed_milliseconds &&
+        std::isfinite(
+            result.value->timing.commit_prefill_milliseconds) &&
+        result.value->timing.commit_prefill_milliseconds >= 0.0 &&
         result.value->timing.prompt_prefill_milliseconds ==
             fake.prompt_elapsed_milliseconds +
-                fake.whole_finalizer_elapsed_milliseconds &&
+                fake.whole_finalizer_elapsed_milliseconds +
+                result.value->timing.commit_prefill_milliseconds &&
         has_consistent_prefill_timing(result.value->timing);
 
     test.expect(
@@ -1106,6 +1115,12 @@ void test_whole_request_layer_major_admission(TestContext& test) {
         "request state twice");
   };
 
+  run_shape(32U, 1U, 32U,
+            runtime::ReferenceLogitsMode::kFullStatistics, 1U);
+  run_shape(513U, 1U, 513U,
+            runtime::ReferenceLogitsMode::kPredictedTokenOnly, 1U);
+  run_shape(8'193U, 2U, 1U,
+            runtime::ReferenceLogitsMode::kPredictedTokenOnly, 1U);
   run_shape(40'000U, 5U, 7'232U,
             runtime::ReferenceLogitsMode::kFullStatistics, 1U);
   run_shape(60'000U, 8U, 2'656U,
@@ -1487,6 +1502,9 @@ void test_whole_request_layer_major_fail_closed(TestContext& test) {
           isolated_decode);
   test.expect(
       isolated_result && isolated.prompt_call_count == 0U &&
+          isolated_result.value->prefill_execution_mode ==
+              runtime::ReferencePrefillExecutionMode::kLegacyC512Tiled &&
+          isolated_result.value->prefill_logical_panel_count == 2U &&
           isolated.whole_finalizer_call_count == 0U &&
           isolated.prompt_commit_call_count == 0U &&
           isolated.phase_calls ==

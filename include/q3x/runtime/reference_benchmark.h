@@ -40,6 +40,11 @@ struct ReferenceBenchmarkOptions {
   ReferenceLogitsMode logits_mode = ReferenceLogitsMode::kFullStatistics;
   // Emits stable prefill/decode NVTX ranges for an explicitly profiled run.
   bool emit_nvtx_phase_ranges = false;
+  // Legacy C512-bounded controller by default. The whole-request value is an
+  // explicit host-integration mode and never inferred from prompt length or
+  // timing-vector cardinality.
+  ReferencePrefillExecutionMode prefill_execution_mode =
+      ReferencePrefillExecutionMode::kLegacyC512Tiled;
 };
 
 // count==0 means that no values exist for this metric. Median is the middle
@@ -65,6 +70,10 @@ struct ReferenceBenchmarkSample {
   ReferenceGenerationTiming timing;
   std::size_t decode_graph_replays = 0U;
   std::size_t decode_graph_serial_fallbacks = 0U;
+  ReferencePrefillExecutionMode prefill_execution_mode =
+      ReferencePrefillExecutionMode::kLegacyC512Tiled;
+  std::uint64_t prefill_logical_panel_count = 0U;
+  PrefillRouteEvidence prefill_route_evidence;
 };
 
 struct ReferenceBenchmarkPromptReport {
@@ -88,6 +97,11 @@ struct ReferenceBenchmarkPromptReport {
   // This distribution flattens every post-first-token latency from every
   // measured invocation of this prompt.
   ReferenceLatencyStatistics subsequent_token;
+  ReferencePrefillExecutionMode prefill_execution_mode =
+      ReferencePrefillExecutionMode::kLegacyC512Tiled;
+  std::uint64_t prefill_logical_panel_count = 0U;
+  PrefillRouteEvidence prefill_route_evidence;
+  ReferenceLatencyStatistics commit_prefill;
 };
 
 struct ReferenceBenchmarkMemory {
@@ -126,6 +140,9 @@ struct ReferenceBenchmarkReport {
   bool nvtx_phase_ranges_emitted = false;
   bool all_prompt_tokens_prefilled_by_tiles = false;
   bool single_arbitrary_prefill_tiles = false;
+  ReferencePrefillExecutionMode prefill_execution_mode =
+      ReferencePrefillExecutionMode::kLegacyC512Tiled;
+  ReferenceLatencyStatistics commit_prefill;
 };
 
 struct ReferenceBenchmarkDiagnostic {

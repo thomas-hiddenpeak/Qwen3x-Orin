@@ -3719,6 +3719,8 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
       options.prefill_chunk_size > kMaximumRequestPrefillChunkSize ||
       options.stop_token_id >= kReferenceVocabularySize ||
       !is_valid_reference_logits_mode(options.logits_mode) ||
+      !is_valid_reference_prefill_execution_mode(
+          options.prefill_execution_mode) ||
       (options.token_observer == nullptr &&
        options.token_observer_context != nullptr)) {
     result.diagnostic = engine_diagnostic(
@@ -3799,15 +3801,22 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
     control_options.capture_trace = options.capture_trace;
     control_options.logits_mode = options.logits_mode;
     control_options.emit_nvtx_phase_ranges = options.emit_nvtx_phase_ranges;
+    const bool whole_request_layer_major =
+        options.prefill_execution_mode ==
+        ReferencePrefillExecutionMode::kWholeRequestLayerMajor;
     const bool single_arbitrary_prefill_tile =
+        !whole_request_layer_major &&
         !options.capture_trace && options.prefill_chunk_size > 1U &&
         prefill_single_arbitrary_tile_environment_enabled();
     control_options.prefill_all_prompt_tokens =
-        !options.capture_trace && options.prefill_chunk_size > 1U &&
-        (prefill_all_prompt_tokens_environment_enabled() ||
-         single_arbitrary_prefill_tile);
+        whole_request_layer_major ||
+        (!options.capture_trace && options.prefill_chunk_size > 1U &&
+         (prefill_all_prompt_tokens_environment_enabled() ||
+          single_arbitrary_prefill_tile));
     control_options.prefill_single_arbitrary_tile =
         single_arbitrary_prefill_tile;
+    control_options.prefill_whole_request_layer_major =
+        whole_request_layer_major;
 
     EngineTokenObserverContext observer_context;
     if (options.token_observer != nullptr) {
@@ -3922,18 +3931,18 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
     generation.effective_prefill_chunk_size =
         options.capture_trace ? kDefaultRequestPrefillChunkSize
                               : options.prefill_chunk_size;
+    generation.prefill_execution_mode =
+        control.value->prefill_execution_mode;
+    generation.prefill_logical_panel_count =
+        control.value->prefill_logical_panel_count;
     generation.all_prompt_tokens_prefilled_by_tiles =
         control_options.prefill_all_prompt_tokens;
     generation.single_arbitrary_prefill_tiles =
         control_options.prefill_single_arbitrary_tile;
     generation.timing = std::move(control.value->timing);
-    const std::uint64_t expected_prefill_layer_passes =
-        static_cast<std::uint64_t>(
-            generation.timing.prefix_execution_milliseconds.size()) +
-        (generation.all_prompt_tokens_prefilled_by_tiles ? 0U : 1U);
     generation.prefill_route_evidence =
         impl_->runner->finalize_prefill_route_evidence(
-            expected_prefill_layer_passes);
+            generation.prefill_logical_panel_count);
     generation.steps = std::move(control.value->steps);
     generation.traces = std::move(traces);
     generation.decode_graph_replays = step_context.decode_graph_replays;
@@ -5225,6 +5234,8 @@ ReferenceOneShotResult generate_reference(
           kMaximumRequestPrefillChunkSize ||
       options.generation.stop_token_id >= kReferenceVocabularySize ||
       !is_valid_reference_logits_mode(options.generation.logits_mode) ||
+      !is_valid_reference_prefill_execution_mode(
+          options.generation.prefill_execution_mode) ||
       !is_valid_projection_backend(options.projection_backend) ||
       !is_valid_reference_decode_graph_cache_policy(
           options.decode_graph_cache_policy)) {

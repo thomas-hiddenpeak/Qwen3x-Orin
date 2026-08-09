@@ -72,6 +72,10 @@ using reference_benchmark_detail::DeviceMemorySnapshot;
   result.generated_token_ids = generation.generated_token_ids;
   result.generated_text = generation.generated_text;
   result.stop_reason = generation.stop_reason;
+  result.prefill_execution_mode = generation.prefill_execution_mode;
+  result.prefill_logical_panel_count =
+      generation.prefill_logical_panel_count;
+  result.prefill_route_evidence = generation.prefill_route_evidence;
   result.decode_graph_replays = generation.decode_graph_replays;
   result.decode_graph_serial_fallbacks =
       generation.decode_graph_serial_fallbacks;
@@ -166,6 +170,227 @@ using reference_benchmark_detail::DeviceMemorySnapshot;
          kAbsoluteToleranceMilliseconds + kRelativeTolerance * scale;
 }
 
+[[nodiscard]] std::string whole_request_route_validation_error(
+    const ReferenceGeneration& generation) {
+  const PrefillRouteEvidence& evidence = generation.prefill_route_evidence;
+  if (evidence.request_active) {
+    return "prefill_route_evidence.request_active";
+  }
+  if (!evidence.complete) {
+    return "prefill_route_evidence.complete";
+  }
+  if (!evidence.valid) {
+    return "prefill_route_evidence.valid";
+  }
+  if (evidence.error != PrefillRouteEvidenceError::kNone) {
+    return "prefill_route_evidence.error";
+  }
+  if (evidence.expected_layer_passes !=
+      generation.prefill_logical_panel_count) {
+    return "prefill_route_evidence.expected_layer_passes";
+  }
+  if (evidence.completed_layer_passes !=
+      generation.prefill_logical_panel_count) {
+    return "prefill_route_evidence.completed_layer_passes";
+  }
+  for (std::size_t index = 0U;
+       index < evidence.forbidden_boundary_hits.size(); ++index) {
+    if (evidence.forbidden_boundary_hits[index] != 0U) {
+      return "prefill_route_evidence.forbidden_boundary_hits[" +
+             std::to_string(index) + "]";
+    }
+  }
+  for (std::size_t index = 0U; index < evidence.operators.size(); ++index) {
+    const PrefillOperatorRouteCounts& counts = evidence.operators[index];
+    if (counts.forbidden_hits != 0U) {
+      return "prefill_route_evidence.operators[" + std::to_string(index) +
+             "].forbidden_hits";
+    }
+    if (counts.exact_fallback_hits >
+        std::numeric_limits<std::uint64_t>::max() -
+            counts.production_hits) {
+      return "prefill_route_evidence.operators[" + std::to_string(index) +
+             "].count_overflow";
+    }
+    const std::uint64_t completed =
+        counts.production_hits + counts.exact_fallback_hits;
+    const std::uint64_t per_panel =
+        kExpectedPrefillLogicalOperatorsPerTile[index];
+    if (generation.prefill_logical_panel_count != 0U &&
+        per_panel > std::numeric_limits<std::uint64_t>::max() /
+                        generation.prefill_logical_panel_count) {
+      return "prefill_route_evidence.operators[" + std::to_string(index) +
+             "].expected_overflow";
+    }
+    if (completed !=
+        per_panel * generation.prefill_logical_panel_count) {
+      return "prefill_route_evidence.operators[" + std::to_string(index) +
+             "].completed_hits";
+    }
+  }
+  return {};
+}
+
+[[nodiscard]] std::string prefill_route_mismatch_field(
+    const PrefillRouteEvidence& expected,
+    const PrefillRouteEvidence& actual) {
+  if (expected.completed_layer_passes != actual.completed_layer_passes) {
+    return "prefill_route_evidence.completed_layer_passes";
+  }
+  if (expected.expected_layer_passes != actual.expected_layer_passes) {
+    return "prefill_route_evidence.expected_layer_passes";
+  }
+  if (expected.request_active != actual.request_active) {
+    return "prefill_route_evidence.request_active";
+  }
+  if (expected.complete != actual.complete) {
+    return "prefill_route_evidence.complete";
+  }
+  if (expected.valid != actual.valid) {
+    return "prefill_route_evidence.valid";
+  }
+  if (expected.error != actual.error) {
+    return "prefill_route_evidence.error";
+  }
+  for (std::size_t index = 0U; index < expected.operators.size(); ++index) {
+    const PrefillOperatorRouteCounts& expected_counts =
+        expected.operators[index];
+    const PrefillOperatorRouteCounts& actual_counts = actual.operators[index];
+    const std::string prefix = "prefill_route_evidence.operators[" +
+                               std::to_string(index) + "]";
+    if (expected_counts.production_hits != actual_counts.production_hits) {
+      return prefix + ".production_hits";
+    }
+    if (expected_counts.exact_fallback_hits !=
+        actual_counts.exact_fallback_hits) {
+      return prefix + ".exact_fallback_hits";
+    }
+    if (expected_counts.forbidden_hits != actual_counts.forbidden_hits) {
+      return prefix + ".forbidden_hits";
+    }
+  }
+  for (std::size_t index = 0U;
+       index < expected.forbidden_boundary_hits.size(); ++index) {
+    if (expected.forbidden_boundary_hits[index] !=
+        actual.forbidden_boundary_hits[index]) {
+      return "prefill_route_evidence.forbidden_boundary_hits[" +
+             std::to_string(index) + "]";
+    }
+  }
+  return {};
+}
+
+// Validates the scheduling identity independently of timing cardinality. A
+// whole-request callback emits one aggregate duration, while its route
+// evidence remains one complete 64-layer record per logical C8192 panel.
+[[nodiscard]] std::string prefill_execution_validation_error(
+    const ReferenceGeneration& generation,
+    const ReferencePrefillExecutionMode requested_mode) {
+  if (!is_valid_reference_prefill_execution_mode(requested_mode) ||
+      !is_valid_reference_prefill_execution_mode(
+          generation.prefill_execution_mode) ||
+      generation.prefill_execution_mode != requested_mode) {
+    return "prefill_execution_mode";
+  }
+  if (generation.prompt_token_ids.empty()) {
+    return "step_sequence.size";
+  }
+
+  if (requested_mode ==
+      ReferencePrefillExecutionMode::kWholeRequestLayerMajor) {
+    if (!generation.all_prompt_tokens_prefilled_by_tiles) {
+      return "all_prompt_tokens_prefilled_by_tiles";
+    }
+    if (generation.single_arbitrary_prefill_tiles) {
+      return "single_arbitrary_prefill_tiles";
+    }
+    const std::uint64_t prompt_tokens =
+        static_cast<std::uint64_t>(generation.prompt_token_ids.size());
+    const std::uint64_t expected_logical_panels =
+        (prompt_tokens - 1U) /
+            static_cast<std::uint64_t>(
+                kLayerMajorPrefillOperatorPanelTokens) +
+        1U;
+    if (generation.prefill_logical_panel_count !=
+        expected_logical_panels) {
+      return "prefill_logical_panel_count";
+    }
+    const std::string route_error =
+        whole_request_route_validation_error(generation);
+    if (!route_error.empty()) {
+      return route_error;
+    }
+
+    std::size_t expected_step_count = generation.prompt_token_ids.size();
+    if (generation.generated_token_ids.empty() ||
+        generation.generated_token_ids.size() - 1U >
+            std::numeric_limits<std::size_t>::max() - expected_step_count) {
+      return "step_sequence.size";
+    }
+    expected_step_count += generation.generated_token_ids.size() - 1U;
+    if (generation.steps.size() != expected_step_count) {
+      return "step_sequence.size";
+    }
+    for (std::size_t index = 0U; index < generation.steps.size(); ++index) {
+      const ReferenceStepResult& step = generation.steps[index];
+      if (index > std::numeric_limits<std::uint32_t>::max() ||
+          step.position != static_cast<std::uint32_t>(index)) {
+        return "step_sequence[" + std::to_string(index) + "].position";
+      }
+      const std::uint32_t expected_input =
+          index < generation.prompt_token_ids.size()
+              ? generation.prompt_token_ids[index]
+              : generation.generated_token_ids[
+                    index - generation.prompt_token_ids.size()];
+      if (step.input_token_id != expected_input) {
+        return "step_sequence[" + std::to_string(index) + "].input_token_id";
+      }
+      if (index + 1U < generation.prompt_token_ids.size() &&
+          step.timing.has_value()) {
+        return "step_sequence[" + std::to_string(index) + "].timing";
+      }
+    }
+    const std::size_t final_prompt_index =
+        generation.prompt_token_ids.size() - 1U;
+    if (!generation.steps[final_prompt_index].timing.has_value() ||
+        !valid_latency(generation.steps[final_prompt_index]
+                           .timing->elapsed_milliseconds) ||
+        !approximately_equal_latency(
+            generation.steps[final_prompt_index]
+                .timing->elapsed_milliseconds,
+            generation.timing.finish_prefill_milliseconds)) {
+      return "step_sequence[" + std::to_string(final_prompt_index) +
+             "].timing";
+    }
+    return {};
+  }
+
+  if (generation.effective_prefill_chunk_size == 0U ||
+      generation.effective_prefill_chunk_size >
+          kMaximumRequestPrefillChunkSize) {
+    // Retain the legacy timing diagnostic for this malformed condition.
+    return {};
+  }
+  const std::size_t prefix_token_count =
+      generation.prompt_token_ids.size() -
+      (generation.all_prompt_tokens_prefilled_by_tiles ? 0U : 1U);
+  const std::size_t prefix_execution_count =
+      generation.single_arbitrary_prefill_tiles
+          ? reference_engine_detail::single_arbitrary_prefix_execution_count(
+                prefix_token_count,
+                generation.effective_prefill_chunk_size)
+          : reference_engine_detail::prefix_execution_count(
+                prefix_token_count,
+                generation.effective_prefill_chunk_size);
+  const std::uint64_t expected_logical_panels =
+      static_cast<std::uint64_t>(prefix_execution_count) +
+      (generation.all_prompt_tokens_prefilled_by_tiles ? 0U : 1U);
+  if (generation.prefill_logical_panel_count != expected_logical_panels) {
+    return "prefill_logical_panel_count";
+  }
+  return {};
+}
+
 // Returns the offending field/invariant, or an empty string for a valid
 // decomposition. The prefix total is returned for phase aggregation.
 [[nodiscard]] std::string timing_validation_error(
@@ -173,23 +398,30 @@ using reference_benchmark_detail::DeviceMemorySnapshot;
     double& prompt_prefix_milliseconds) {
   const ReferenceGenerationTiming& timing = generation.timing;
   if (generation.prompt_token_ids.empty() ||
+      !is_valid_reference_prefill_execution_mode(
+          generation.prefill_execution_mode) ||
       generation.effective_prefill_chunk_size == 0U ||
       generation.effective_prefill_chunk_size >
           kMaximumRequestPrefillChunkSize) {
     return "prefix_execution_milliseconds.size";
   }
-  const std::size_t prefix_token_count =
-      generation.prompt_token_ids.size() -
-      (generation.all_prompt_tokens_prefilled_by_tiles ? 0U : 1U);
-  const std::size_t effective_prefill_chunk_size =
-      generation.effective_prefill_chunk_size;
-  const std::size_t expected_prefix_execution_count =
-      generation.single_arbitrary_prefill_tiles
-          ? reference_engine_detail::
-                single_arbitrary_prefix_execution_count(
-                    prefix_token_count, effective_prefill_chunk_size)
-          : reference_engine_detail::prefix_execution_count(
-                prefix_token_count, effective_prefill_chunk_size);
+  const std::size_t expected_prefix_execution_count = [&]() {
+    if (generation.prefill_execution_mode ==
+        ReferencePrefillExecutionMode::kWholeRequestLayerMajor) {
+      return std::size_t{1U};
+    }
+    const std::size_t prefix_token_count =
+        generation.prompt_token_ids.size() -
+        (generation.all_prompt_tokens_prefilled_by_tiles ? 0U : 1U);
+    const std::size_t effective_prefill_chunk_size =
+        generation.effective_prefill_chunk_size;
+    return generation.single_arbitrary_prefill_tiles
+               ? reference_engine_detail::
+                     single_arbitrary_prefix_execution_count(
+                         prefix_token_count, effective_prefill_chunk_size)
+               : reference_engine_detail::prefix_execution_count(
+                     prefix_token_count, effective_prefill_chunk_size);
+  }();
   if (timing.prefix_execution_milliseconds.size() !=
       expected_prefix_execution_count) {
     return "prefix_execution_milliseconds.size";
@@ -215,6 +447,12 @@ using reference_benchmark_detail::DeviceMemorySnapshot;
   }
   if (!valid_latency(timing.finish_prefill_milliseconds)) {
     return "finish_prefill_milliseconds";
+  }
+  if (!valid_latency(timing.commit_prefill_milliseconds) ||
+      (generation.prefill_execution_mode ==
+           ReferencePrefillExecutionMode::kLegacyC512Tiled &&
+       timing.commit_prefill_milliseconds != 0.0)) {
+    return "commit_prefill_milliseconds";
   }
   if (!valid_latency(timing.prompt_prefill_milliseconds)) {
     return "prompt_prefill_milliseconds";
@@ -244,11 +482,15 @@ using reference_benchmark_detail::DeviceMemorySnapshot;
   }
 
   const double reconstructed_prefill =
-      prompt_prefix_milliseconds + timing.finish_prefill_milliseconds;
+      prompt_prefix_milliseconds + timing.finish_prefill_milliseconds +
+      timing.commit_prefill_milliseconds;
   if (!std::isfinite(reconstructed_prefill) ||
       !approximately_equal_latency(reconstructed_prefill,
                                    timing.prompt_prefill_milliseconds)) {
-    return "prefix_execution_plus_finish_prefill";
+    return generation.prefill_execution_mode ==
+                   ReferencePrefillExecutionMode::kWholeRequestLayerMajor
+               ? "prefix_execution_plus_finish_and_commit_prefill"
+               : "prefix_execution_plus_finish_prefill";
   }
   if (!approximately_equal_latency(timing.prompt_prefill_milliseconds,
                                    timing.time_to_first_token_milliseconds)) {
@@ -316,6 +558,18 @@ std::string generation_mismatch_field(const ReferenceGeneration& expected,
   }
   if (expected.stop_reason != actual.stop_reason) {
     return "stop_reason";
+  }
+  if (expected.prefill_execution_mode != actual.prefill_execution_mode) {
+    return "prefill_execution_mode";
+  }
+  if (expected.prefill_logical_panel_count !=
+      actual.prefill_logical_panel_count) {
+    return "prefill_logical_panel_count";
+  }
+  const std::string route_mismatch = prefill_route_mismatch_field(
+      expected.prefill_route_evidence, actual.prefill_route_evidence);
+  if (!route_mismatch.empty()) {
+    return route_mismatch;
   }
   if (expected.requested_prefill_chunk_size !=
       actual.requested_prefill_chunk_size) {
@@ -387,7 +641,9 @@ ReferenceBenchmarkResult run_benchmark_control(
       options.stop_token_id >= kReferenceVocabularySize ||
       options.prefill_chunk_size == 0U ||
       options.prefill_chunk_size > kMaximumRequestPrefillChunkSize ||
-      !is_valid_reference_logits_mode(options.logits_mode)) {
+      !is_valid_reference_logits_mode(options.logits_mode) ||
+      !is_valid_reference_prefill_execution_mode(
+          options.prefill_execution_mode)) {
     result.diagnostic = benchmark_diagnostic(
         ReferenceBenchmarkError::kInvalidArgument,
         "callbacks and prompts must be present; measured_rounds and "
@@ -434,6 +690,7 @@ ReferenceBenchmarkResult run_benchmark_control(
     report.max_new_tokens = options.max_new_tokens;
     report.stop_token_id = options.stop_token_id;
     report.prefill_chunk_size = options.prefill_chunk_size;
+    report.prefill_execution_mode = options.prefill_execution_mode;
     report.samples.reserve(sample_count);
     report.device_memory.start_free_bytes = initial_memory.value->free_bytes;
     report.device_memory.end_free_bytes = initial_memory.value->free_bytes;
@@ -445,6 +702,7 @@ ReferenceBenchmarkResult run_benchmark_control(
     std::vector<std::optional<ReferenceGeneration>> baselines(prompts.size());
     std::vector<std::vector<double>> prompt_prompt_prefix(prompts.size());
     std::vector<std::vector<double>> prompt_finish_prefill(prompts.size());
+    std::vector<std::vector<double>> prompt_commit_prefill(prompts.size());
     std::vector<std::vector<double>> prompt_prompt_prefill(prompts.size());
     std::vector<std::vector<double>> prompt_decode_after_first(prompts.size());
     std::vector<std::vector<double>> prompt_ttft(prompts.size());
@@ -452,6 +710,7 @@ ReferenceBenchmarkResult run_benchmark_control(
     std::vector<std::vector<double>> prompt_subsequent(prompts.size());
     std::vector<double> all_prompt_prefix;
     std::vector<double> all_finish_prefill;
+    std::vector<double> all_commit_prefill;
     std::vector<double> all_prompt_prefill;
     std::vector<double> all_decode_after_first;
     std::vector<double> all_ttft;
@@ -459,6 +718,7 @@ ReferenceBenchmarkResult run_benchmark_control(
     std::vector<double> all_subsequent;
     all_prompt_prefix.reserve(sample_count);
     all_finish_prefill.reserve(sample_count);
+    all_commit_prefill.reserve(sample_count);
     all_prompt_prefill.reserve(sample_count);
     all_decode_after_first.reserve(sample_count);
     all_ttft.reserve(sample_count);
@@ -471,6 +731,8 @@ ReferenceBenchmarkResult run_benchmark_control(
     generation_options.prefill_chunk_size = options.prefill_chunk_size;
     generation_options.logits_mode = options.logits_mode;
     generation_options.emit_nvtx_phase_ranges = options.emit_nvtx_phase_ranges;
+    generation_options.prefill_execution_mode =
+        options.prefill_execution_mode;
 
     auto run_phase = [&](const std::uint32_t rounds,
                          const bool warmup) -> bool {
@@ -501,6 +763,21 @@ ReferenceBenchmarkResult run_benchmark_control(
             result.diagnostic.round = round;
             result.diagnostic.warmup = warmup;
             result.diagnostic.mismatch_field = mode_mismatch;
+            return false;
+          }
+
+          const std::string prefill_execution_error =
+              prefill_execution_validation_error(
+                  *generated.value, options.prefill_execution_mode);
+          if (!prefill_execution_error.empty()) {
+            result.diagnostic = benchmark_diagnostic(
+                ReferenceBenchmarkError::kGenerationFailure,
+                "generation returned inconsistent Prefill execution "
+                "metadata or transcript");
+            result.diagnostic.prompt_index = prompt_index;
+            result.diagnostic.round = round;
+            result.diagnostic.warmup = warmup;
+            result.diagnostic.mismatch_field = prefill_execution_error;
             return false;
           }
 
@@ -572,6 +849,12 @@ ReferenceBenchmarkResult run_benchmark_control(
             ReferenceBenchmarkSample sample;
             sample.prompt_index = prompt_index;
             sample.measured_round = round;
+            sample.prefill_execution_mode =
+                generated.value->prefill_execution_mode;
+            sample.prefill_logical_panel_count =
+                generated.value->prefill_logical_panel_count;
+            sample.prefill_route_evidence =
+                generated.value->prefill_route_evidence;
             sample.timing = generated.value->timing;
             sample.decode_graph_replays =
                 generated.value->decode_graph_replays;
@@ -582,6 +865,8 @@ ReferenceBenchmarkResult run_benchmark_control(
             report.decode_graph_serial_fallbacks = aggregate_fallbacks;
             const double finish_prefill =
                 generated.value->timing.finish_prefill_milliseconds;
+            const double commit_prefill =
+                generated.value->timing.commit_prefill_milliseconds;
             const double prompt_prefill =
                 generated.value->timing.prompt_prefill_milliseconds;
             const double decode_after_first =
@@ -593,6 +878,7 @@ ReferenceBenchmarkResult run_benchmark_control(
             prompt_prompt_prefix[prompt_index].push_back(
                 prompt_prefix_milliseconds);
             prompt_finish_prefill[prompt_index].push_back(finish_prefill);
+            prompt_commit_prefill[prompt_index].push_back(commit_prefill);
             prompt_prompt_prefill[prompt_index].push_back(prompt_prefill);
             prompt_decode_after_first[prompt_index].push_back(
                 decode_after_first);
@@ -600,6 +886,7 @@ ReferenceBenchmarkResult run_benchmark_control(
             prompt_total[prompt_index].push_back(total);
             all_prompt_prefix.push_back(prompt_prefix_milliseconds);
             all_finish_prefill.push_back(finish_prefill);
+            all_commit_prefill.push_back(commit_prefill);
             all_prompt_prefill.push_back(prompt_prefill);
             all_decode_after_first.push_back(decode_after_first);
             all_ttft.push_back(ttft);
@@ -655,6 +942,8 @@ ReferenceBenchmarkResult run_benchmark_control(
         compute_latency_statistics(all_prompt_prefix);
     const auto finish_prefill_stats =
         compute_latency_statistics(all_finish_prefill);
+    const auto commit_prefill_stats =
+        compute_latency_statistics(all_commit_prefill);
     const auto prompt_prefill_stats =
         compute_latency_statistics(all_prompt_prefill);
     const auto decode_after_first_stats =
@@ -665,6 +954,7 @@ ReferenceBenchmarkResult run_benchmark_control(
         compute_latency_statistics(all_subsequent);
     if (!prompt_prefix_stats.has_value() ||
         !finish_prefill_stats.has_value() ||
+        !commit_prefill_stats.has_value() ||
         !prompt_prefill_stats.has_value() ||
         !decode_after_first_stats.has_value() || !ttft_stats.has_value() ||
         !total_stats.has_value() || !subsequent_stats.has_value()) {
@@ -675,6 +965,7 @@ ReferenceBenchmarkResult run_benchmark_control(
     }
     report.prompt_prefix = *prompt_prefix_stats;
     report.finish_prefill = *finish_prefill_stats;
+    report.commit_prefill = *commit_prefill_stats;
     report.prompt_prefill = *prompt_prefill_stats;
     report.decode_after_first = *decode_after_first_stats;
     report.time_to_first_token = *ttft_stats;
@@ -689,6 +980,8 @@ ReferenceBenchmarkResult run_benchmark_control(
           compute_latency_statistics(prompt_prompt_prefix[index]);
       const auto per_prompt_finish_prefill =
           compute_latency_statistics(prompt_finish_prefill[index]);
+      const auto per_prompt_commit_prefill =
+          compute_latency_statistics(prompt_commit_prefill[index]);
       const auto per_prompt_prompt_prefill =
           compute_latency_statistics(prompt_prompt_prefill[index]);
       const auto per_prompt_decode_after_first =
@@ -701,6 +994,7 @@ ReferenceBenchmarkResult run_benchmark_control(
           compute_latency_statistics(prompt_subsequent[index]);
       if (!per_prompt_prompt_prefix.has_value() ||
           !per_prompt_finish_prefill.has_value() ||
+          !per_prompt_commit_prefill.has_value() ||
           !per_prompt_prompt_prefill.has_value() ||
           !per_prompt_decode_after_first.has_value() ||
           !per_prompt_ttft.has_value() || !per_prompt_total.has_value() ||
@@ -713,6 +1007,7 @@ ReferenceBenchmarkResult run_benchmark_control(
       }
       prompt.prompt_prefix = *per_prompt_prompt_prefix;
       prompt.finish_prefill = *per_prompt_finish_prefill;
+      prompt.commit_prefill = *per_prompt_commit_prefill;
       prompt.prompt_prefill = *per_prompt_prompt_prefill;
       prompt.decode_after_first = *per_prompt_decode_after_first;
       prompt.time_to_first_token = *per_prompt_ttft;

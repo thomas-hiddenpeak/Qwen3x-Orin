@@ -1,5 +1,6 @@
 #include "q3x/runtime/reference_benchmark.h"
 
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -48,6 +49,7 @@ runtime::ReferenceGeneration make_generation(const std::string_view prompt,
   }
   generation.generated_text = prompt == "alpha" ? "A" : "B";
   generation.stop_reason = runtime::ReferenceStopReason::kImEnd;
+  generation.prefill_logical_panel_count = 2U;
   generation.timing.prefix_execution_milliseconds = {ttft / 4.0};
   generation.timing.finish_prefill_milliseconds = ttft * 3.0 / 4.0;
   generation.timing.prompt_prefill_milliseconds = ttft;
@@ -112,6 +114,46 @@ void replace_prompt_steps(runtime::ReferenceGeneration& generation,
   }
 }
 
+runtime::PrefillRouteEvidence complete_prefill_route_evidence(
+    const std::uint64_t logical_panels,
+    const bool first_role_exact_fallback = false) {
+  runtime::PrefillRouteEvidence request;
+  runtime::reset_prefill_route_request(request);
+  runtime::PrefillRouteEvidence panel;
+  for (std::size_t index = 0U;
+       index < runtime::kExpectedPrefillLogicalOperatorsPerTile.size();
+       ++index) {
+    const auto role = static_cast<runtime::PrefillOperatorRole>(index);
+    const auto disposition = first_role_exact_fallback && index == 0U
+                                 ? runtime::PrefillRouteDisposition::
+                                       kExactFallback
+                                 : runtime::PrefillRouteDisposition::
+                                       kProduction;
+    (void)runtime::record_prefill_operator_route(
+        panel, role, disposition,
+        runtime::kExpectedPrefillLogicalOperatorsPerTile[index]);
+  }
+  for (std::uint64_t panel_index = 0U; panel_index < logical_panels;
+       ++panel_index) {
+    (void)runtime::commit_prefill_route_layer_pass(request, panel);
+  }
+  return runtime::finalize_prefill_route_request(request, logical_panels);
+}
+
+enum class WholeRouteMutation : std::uint8_t {
+  kNone = 0,
+  kZero,
+  kRequestActive,
+  kIncomplete,
+  kInvalid,
+  kError,
+  kExpectedCount,
+  kCompletedCount,
+  kForbiddenOperator,
+  kForbiddenBoundary,
+  kMissingOperatorCoverage,
+};
+
 struct FakeGenerator {
   std::size_t calls = 0U;
   bool mismatch = false;
@@ -125,12 +167,28 @@ struct FakeGenerator {
   std::uint32_t expected_prefill_chunk_size = 4U;
   runtime::ReferenceLogitsMode expected_logits_mode =
       runtime::ReferenceLogitsMode::kFullStatistics;
+  runtime::ReferencePrefillExecutionMode expected_prefill_execution_mode =
+      runtime::ReferencePrefillExecutionMode::kLegacyC512Tiled;
   bool expected_emit_nvtx_phase_ranges = false;
   bool preserve_full_arm = false;
   bool add_both_arms = false;
   bool add_prefix_prediction = false;
   bool c64_partial_prefix = false;
   bool single_arbitrary_prefill = false;
+  std::size_t whole_request_prompt_tokens = 0U;
+  bool invalid_execution_mode = false;
+  bool invalid_logical_panel_count = false;
+  bool whole_missing_all_prompt = false;
+  bool whole_add_single_arbitrary = false;
+  bool whole_wrong_step_position = false;
+  bool whole_wrong_step_token = false;
+  bool whole_add_prefix_step_timing = false;
+  bool whole_omit_final_step_timing = false;
+  bool whole_mismatch_final_step_timing = false;
+  bool invalid_commit_timing = false;
+  bool omit_commit_from_prompt_prefill = false;
+  bool whole_route_replay_shift = false;
+  WholeRouteMutation whole_route_mutation = WholeRouteMutation::kNone;
   std::vector<std::string> prompts;
 };
 
@@ -150,6 +208,8 @@ runtime::ReferenceGenerateResult fake_generate(
       options.prefill_chunk_size != fake.expected_prefill_chunk_size ||
       options.stop_token_id != runtime::kQwen36ImEndTokenId ||
       options.logits_mode != fake.expected_logits_mode ||
+      options.prefill_execution_mode !=
+          fake.expected_prefill_execution_mode ||
       options.emit_nvtx_phase_ranges !=
           fake.expected_emit_nvtx_phase_ranges) {
     result.diagnostic.code = runtime::ReferenceEngineError::kInvalidArgument;
@@ -161,8 +221,10 @@ runtime::ReferenceGenerateResult fake_generate(
   static const std::vector<double> kSubsequent[] = {
       {0.25, 0.25, 0.5}, {0.5, 1.5}, {3.0, 4.0, 3.0},
       {5.0, 15.0}, {6.0, 7.0, 17.0}, {10.0, 30.0}};
+  const std::size_t sample_call = fake.whole_route_replay_shift ? 0U : call;
   runtime::ReferenceGeneration generation = make_generation(
-      prompt, kTtft[call], kTotal[call], kSubsequent[call]);
+      prompt, kTtft[sample_call], kTotal[sample_call],
+      kSubsequent[sample_call]);
   if (fake.c64_partial_prefix) {
     constexpr std::size_t kPromptTokens = 128U;
     replace_prompt_steps(generation, kPromptTokens);
@@ -176,6 +238,37 @@ runtime::ReferenceGenerateResult fake_generate(
     replace_prompt_steps(generation, kPromptTokens);
     generation.all_prompt_tokens_prefilled_by_tiles = true;
     generation.single_arbitrary_prefill_tiles = true;
+  }
+  if (fake.expected_prefill_execution_mode ==
+      runtime::ReferencePrefillExecutionMode::kWholeRequestLayerMajor) {
+    replace_prompt_steps(generation, fake.whole_request_prompt_tokens);
+    const double commit_prefill = kTtft[sample_call] / 8.0;
+    generation.timing.finish_prefill_milliseconds -= commit_prefill;
+    generation.timing.commit_prefill_milliseconds = commit_prefill;
+    generation.all_prompt_tokens_prefilled_by_tiles =
+        !fake.whole_missing_all_prompt;
+    generation.single_arbitrary_prefill_tiles =
+        fake.whole_add_single_arbitrary;
+    if (!fake.whole_omit_final_step_timing) {
+      runtime::ReferenceStepTiming final_timing;
+      final_timing.elapsed_milliseconds =
+          generation.timing.finish_prefill_milliseconds +
+          (fake.whole_mismatch_final_step_timing ? 1.0 : 0.0);
+      generation.steps[fake.whole_request_prompt_tokens - 1U]
+          .timing.emplace(final_timing);
+    }
+    if (fake.whole_wrong_step_position) {
+      generation.steps.front().position = 1U;
+    }
+    if (fake.whole_wrong_step_token) {
+      ++generation.steps.front().input_token_id;
+    }
+    if (fake.whole_add_prefix_step_timing &&
+        fake.whole_request_prompt_tokens > 1U) {
+      runtime::ReferenceStepTiming prefix_timing;
+      prefix_timing.elapsed_milliseconds = 0.25;
+      generation.steps.front().timing.emplace(prefix_timing);
+    }
   }
   if (options.logits_mode ==
           runtime::ReferenceLogitsMode::kPredictedTokenOnly &&
@@ -203,6 +296,81 @@ runtime::ReferenceGenerateResult fake_generate(
   }
   generation.requested_prefill_chunk_size = options.prefill_chunk_size;
   generation.effective_prefill_chunk_size = options.prefill_chunk_size;
+  generation.prefill_execution_mode =
+      fake.invalid_execution_mode
+          ? runtime::ReferencePrefillExecutionMode::kLegacyC512Tiled
+          : fake.expected_prefill_execution_mode;
+  if (fake.expected_prefill_execution_mode ==
+      runtime::ReferencePrefillExecutionMode::kWholeRequestLayerMajor) {
+    generation.prefill_logical_panel_count =
+        (static_cast<std::uint64_t>(generation.prompt_token_ids.size()) - 1U) /
+            runtime::kLayerMajorPrefillOperatorPanelTokens +
+        1U;
+    generation.prefill_route_evidence = complete_prefill_route_evidence(
+        generation.prefill_logical_panel_count,
+        fake.whole_route_replay_shift && call != 0U);
+    switch (fake.whole_route_mutation) {
+      case WholeRouteMutation::kNone:
+        break;
+      case WholeRouteMutation::kZero:
+        generation.prefill_route_evidence = {};
+        break;
+      case WholeRouteMutation::kRequestActive:
+        generation.prefill_route_evidence.request_active = true;
+        break;
+      case WholeRouteMutation::kIncomplete:
+        generation.prefill_route_evidence.complete = false;
+        break;
+      case WholeRouteMutation::kInvalid:
+        generation.prefill_route_evidence.valid = false;
+        break;
+      case WholeRouteMutation::kError:
+        generation.prefill_route_evidence.error =
+            runtime::PrefillRouteEvidenceError::kUnexpectedLayerPassCount;
+        break;
+      case WholeRouteMutation::kExpectedCount:
+        ++generation.prefill_route_evidence.expected_layer_passes;
+        break;
+      case WholeRouteMutation::kCompletedCount:
+        ++generation.prefill_route_evidence.completed_layer_passes;
+        break;
+      case WholeRouteMutation::kForbiddenOperator:
+        generation.prefill_route_evidence.operators[0].forbidden_hits = 1U;
+        break;
+      case WholeRouteMutation::kForbiddenBoundary:
+        generation.prefill_route_evidence.forbidden_boundary_hits[0] = 1U;
+        break;
+      case WholeRouteMutation::kMissingOperatorCoverage:
+        --generation.prefill_route_evidence.operators[0].production_hits;
+        break;
+    }
+  } else {
+    const std::size_t prefix_token_count =
+        generation.prompt_token_ids.size() -
+        (generation.all_prompt_tokens_prefilled_by_tiles ? 0U : 1U);
+    generation.prefill_logical_panel_count =
+        static_cast<std::uint64_t>(
+            generation.single_arbitrary_prefill_tiles
+                ? runtime::reference_engine_detail::
+                      single_arbitrary_prefix_execution_count(
+                          prefix_token_count,
+                          generation.effective_prefill_chunk_size)
+                : runtime::reference_engine_detail::prefix_execution_count(
+                      prefix_token_count,
+                      generation.effective_prefill_chunk_size)) +
+        (generation.all_prompt_tokens_prefilled_by_tiles ? 0U : 1U);
+  }
+  if (fake.invalid_logical_panel_count) {
+    ++generation.prefill_logical_panel_count;
+  }
+  if (fake.invalid_commit_timing) {
+    generation.timing.commit_prefill_milliseconds =
+        std::numeric_limits<double>::quiet_NaN();
+  }
+  if (fake.omit_commit_from_prompt_prefill) {
+    generation.timing.prompt_prefill_milliseconds -=
+        generation.timing.commit_prefill_milliseconds;
+  }
   if (fake.invalid_timing) {
     generation.timing.time_to_first_token_milliseconds = -1.0;
   }
@@ -307,6 +475,9 @@ void test_control_success(TestContext& test) {
   test.expect(report.samples.size() == 4U &&
                   report.stop_token_id == runtime::kQwen36ImEndTokenId &&
                   report.prefill_chunk_size == 4U &&
+                  report.prefill_execution_mode ==
+                      runtime::ReferencePrefillExecutionMode::
+                          kLegacyC512Tiled &&
                   report.samples[0].prompt_index == 0U &&
                   report.samples[0].measured_round == 0U &&
                   report.samples[3].prompt_index == 1U &&
@@ -324,6 +495,8 @@ void test_control_success(TestContext& test) {
                   report.prompt_prefix.p95_milliseconds == 10.0 &&
                   report.finish_prefill.median_milliseconds == 18.75 &&
                   report.finish_prefill.p95_milliseconds == 30.0 &&
+                  report.commit_prefill.median_milliseconds == 0.0 &&
+                  report.commit_prefill.p95_milliseconds == 0.0 &&
                   report.prompt_prefill.median_milliseconds == 25.0 &&
                   report.decode_after_first.median_milliseconds == 25.0,
               "aggregate phase statistics use one prefix sum per sample");
@@ -352,7 +525,12 @@ void test_control_success(TestContext& test) {
               "per-prompt statistics and replay step signature are retained");
   test.expect(report.samples[0].timing.prefix_execution_milliseconds ==
                       std::vector<double>({2.5}) &&
+                  report.samples[0].prefill_execution_mode ==
+                      runtime::ReferencePrefillExecutionMode::
+                          kLegacyC512Tiled &&
+                  report.samples[0].prefill_logical_panel_count == 2U &&
                   report.samples[0].timing.finish_prefill_milliseconds == 7.5 &&
+                  report.samples[0].timing.commit_prefill_milliseconds == 0.0 &&
                   report.samples[0]
                           .timing.prompt_prefill_milliseconds == 10.0 &&
                   report.samples[0]
@@ -498,6 +676,16 @@ void test_repeatability_and_failures(TestContext& test) {
   test.expect(!result && result.diagnostic.code ==
                              runtime::ReferenceBenchmarkError::kInvalidArgument,
               "unknown benchmark logits mode is rejected before callbacks");
+
+  invalid = benchmark_options();
+  invalid.prefill_execution_mode =
+      static_cast<runtime::ReferencePrefillExecutionMode>(255U);
+  result = detail::run_benchmark_control(
+      {"alpha"}, invalid, &generator, fake_generate, &memory, fake_memory);
+  test.expect(!result && result.diagnostic.code ==
+                             runtime::ReferenceBenchmarkError::kInvalidArgument,
+              "unknown benchmark Prefill execution mode is rejected before "
+              "callbacks");
 
   generator = {};
   generator.invalid_timing = true;
@@ -678,6 +866,234 @@ void test_single_arbitrary_prefill_timing_cardinality(TestContext& test) {
               "prefix cardinality");
 }
 
+void test_whole_request_prefill_timing_and_panel_cardinality(
+    TestContext& test) {
+  struct Shape {
+    std::size_t prompt_tokens;
+    std::uint64_t logical_panels;
+  };
+  constexpr std::array<Shape, 4U> kShapes{{
+      {32U, 1U},
+      {513U, 1U},
+      {8'193U, 2U},
+      {40'000U, 5U},
+  }};
+
+  bool all_shapes_valid = true;
+  for (const Shape shape : kShapes) {
+    FakeGenerator generator;
+    generator.expected_prefill_chunk_size = 512U;
+    generator.expected_prefill_execution_mode =
+        runtime::ReferencePrefillExecutionMode::kWholeRequestLayerMajor;
+    generator.whole_request_prompt_tokens = shape.prompt_tokens;
+    FakeMemory memory;
+    memory.free_bytes = {1'000U, 1'000U};
+    runtime::ReferenceBenchmarkOptions options = benchmark_options();
+    options.warmup_rounds = 0U;
+    options.measured_rounds = 1U;
+    options.prefill_chunk_size = 512U;
+    options.prefill_execution_mode =
+        runtime::ReferencePrefillExecutionMode::kWholeRequestLayerMajor;
+    const auto result = detail::run_benchmark_control(
+        {"alpha"}, options, &generator, fake_generate, &memory, fake_memory);
+    all_shapes_valid =
+        all_shapes_valid && result && result.value->samples.size() == 1U &&
+        result.value->prefill_execution_mode ==
+            runtime::ReferencePrefillExecutionMode::
+                kWholeRequestLayerMajor &&
+        result.value->all_prompt_tokens_prefilled_by_tiles &&
+        !result.value->single_arbitrary_prefill_tiles &&
+        result.value->samples.front().prefill_execution_mode ==
+            runtime::ReferencePrefillExecutionMode::
+                kWholeRequestLayerMajor &&
+        result.value->samples.front().prefill_logical_panel_count ==
+            shape.logical_panels &&
+        result.value->prompts.front().prefill_logical_panel_count ==
+            shape.logical_panels &&
+        !result.value->samples.front().prefill_route_evidence.request_active &&
+        result.value->samples.front().prefill_route_evidence.complete &&
+        result.value->samples.front().prefill_route_evidence.valid &&
+        result.value->samples.front().prefill_route_evidence.error ==
+            runtime::PrefillRouteEvidenceError::kNone &&
+        result.value->samples.front()
+                .prefill_route_evidence.expected_layer_passes ==
+            shape.logical_panels &&
+        result.value->samples.front()
+                .prefill_route_evidence.completed_layer_passes ==
+            shape.logical_panels &&
+        result.value->prompts.front()
+                .prefill_route_evidence.completed_layer_passes ==
+            shape.logical_panels &&
+        result.value->samples.front()
+                .timing.prefix_execution_milliseconds.size() == 1U &&
+        result.value->samples.front()
+                .timing.commit_prefill_milliseconds == 0.125 &&
+        result.value->commit_prefill.median_milliseconds == 0.125 &&
+        result.value->prompts.front()
+                .commit_prefill.median_milliseconds == 0.125;
+  }
+  test.expect(
+      all_shapes_valid,
+      "whole-request benchmark accepts one aggregate timing for P32/P513/"
+      "P8193/P40000 while retaining exact C8192 logical-panel coverage");
+}
+
+void test_whole_request_prefill_malformed_results(TestContext& test) {
+  enum class Mutation : std::uint8_t {
+    kModeMismatch,
+    kLogicalPanelCount,
+    kMissingAllPrompt,
+    kSingleArbitrary,
+    kWrongStepPosition,
+    kWrongStepToken,
+    kPrefixStepTiming,
+    kMissingFinalStepTiming,
+    kMismatchedFinalStepTiming,
+    kExtraAggregateTiming,
+    kInvalidCommitTiming,
+    kOmitCommitFromPromptPrefill,
+  };
+  constexpr std::array<Mutation, 12U> kMutations{{
+      Mutation::kModeMismatch,
+      Mutation::kLogicalPanelCount,
+      Mutation::kMissingAllPrompt,
+      Mutation::kSingleArbitrary,
+      Mutation::kWrongStepPosition,
+      Mutation::kWrongStepToken,
+      Mutation::kPrefixStepTiming,
+      Mutation::kMissingFinalStepTiming,
+      Mutation::kMismatchedFinalStepTiming,
+      Mutation::kExtraAggregateTiming,
+      Mutation::kInvalidCommitTiming,
+      Mutation::kOmitCommitFromPromptPrefill,
+  }};
+
+  bool all_rejected = true;
+  for (const Mutation mutation : kMutations) {
+    FakeGenerator generator;
+    generator.expected_prefill_chunk_size = 512U;
+    generator.expected_prefill_execution_mode =
+        runtime::ReferencePrefillExecutionMode::kWholeRequestLayerMajor;
+    generator.whole_request_prompt_tokens = 8'193U;
+    generator.invalid_execution_mode = mutation == Mutation::kModeMismatch;
+    generator.invalid_logical_panel_count =
+        mutation == Mutation::kLogicalPanelCount;
+    generator.whole_missing_all_prompt =
+        mutation == Mutation::kMissingAllPrompt;
+    generator.whole_add_single_arbitrary =
+        mutation == Mutation::kSingleArbitrary;
+    generator.whole_wrong_step_position =
+        mutation == Mutation::kWrongStepPosition;
+    generator.whole_wrong_step_token =
+        mutation == Mutation::kWrongStepToken;
+    generator.whole_add_prefix_step_timing =
+        mutation == Mutation::kPrefixStepTiming;
+    generator.whole_omit_final_step_timing =
+        mutation == Mutation::kMissingFinalStepTiming;
+    generator.whole_mismatch_final_step_timing =
+        mutation == Mutation::kMismatchedFinalStepTiming;
+    generator.invalid_prefix_cardinality =
+        mutation == Mutation::kExtraAggregateTiming;
+    generator.invalid_commit_timing =
+        mutation == Mutation::kInvalidCommitTiming;
+    generator.omit_commit_from_prompt_prefill =
+        mutation == Mutation::kOmitCommitFromPromptPrefill;
+    FakeMemory memory;
+    memory.free_bytes = {1'000U, 1'000U};
+    runtime::ReferenceBenchmarkOptions options = benchmark_options();
+    options.warmup_rounds = 0U;
+    options.measured_rounds = 1U;
+    options.prefill_chunk_size = 512U;
+    options.prefill_execution_mode =
+        runtime::ReferencePrefillExecutionMode::kWholeRequestLayerMajor;
+    const auto result = detail::run_benchmark_control(
+        {"alpha"}, options, &generator, fake_generate, &memory, fake_memory);
+    const bool timing_mutation =
+        mutation == Mutation::kExtraAggregateTiming ||
+        mutation == Mutation::kInvalidCommitTiming ||
+        mutation == Mutation::kOmitCommitFromPromptPrefill;
+    all_rejected =
+        all_rejected && !result &&
+        result.diagnostic.code ==
+            (timing_mutation
+                 ? runtime::ReferenceBenchmarkError::kInvalidTiming
+                 : runtime::ReferenceBenchmarkError::kGenerationFailure) &&
+        !result.diagnostic.mismatch_field.empty();
+  }
+  test.expect(
+      all_rejected,
+      "whole-request benchmark rejects mode/panel metadata, malformed prompt "
+      "transcripts, per-step timing leakage, and invalid commit-aware "
+      "aggregate timings");
+}
+
+void test_whole_request_prefill_route_evidence_validation_and_replay(
+    TestContext& test) {
+  constexpr std::array<WholeRouteMutation, 10U> kMalformed{{
+      WholeRouteMutation::kZero,
+      WholeRouteMutation::kRequestActive,
+      WholeRouteMutation::kIncomplete,
+      WholeRouteMutation::kInvalid,
+      WholeRouteMutation::kError,
+      WholeRouteMutation::kExpectedCount,
+      WholeRouteMutation::kCompletedCount,
+      WholeRouteMutation::kForbiddenOperator,
+      WholeRouteMutation::kForbiddenBoundary,
+      WholeRouteMutation::kMissingOperatorCoverage,
+  }};
+
+  runtime::ReferenceBenchmarkOptions options = benchmark_options();
+  options.warmup_rounds = 0U;
+  options.measured_rounds = 1U;
+  options.prefill_chunk_size = 512U;
+  options.prefill_execution_mode =
+      runtime::ReferencePrefillExecutionMode::kWholeRequestLayerMajor;
+
+  bool all_malformed_rejected = true;
+  for (const WholeRouteMutation mutation : kMalformed) {
+    FakeGenerator generator;
+    generator.expected_prefill_chunk_size = 512U;
+    generator.expected_prefill_execution_mode =
+        runtime::ReferencePrefillExecutionMode::kWholeRequestLayerMajor;
+    generator.whole_request_prompt_tokens = 8'193U;
+    generator.whole_route_mutation = mutation;
+    FakeMemory memory;
+    memory.free_bytes = {1'000U, 1'000U};
+    const auto result = detail::run_benchmark_control(
+        {"alpha"}, options, &generator, fake_generate, &memory, fake_memory);
+    all_malformed_rejected =
+        all_malformed_rejected && !result &&
+        result.diagnostic.code ==
+            runtime::ReferenceBenchmarkError::kGenerationFailure &&
+        result.diagnostic.mismatch_field.rfind("prefill_route_evidence.", 0U) ==
+            0U;
+  }
+  test.expect(
+      all_malformed_rejected,
+      "whole-request benchmark rejects absent, active, incomplete, invalid, "
+      "errored, miscounted, forbidden, and incomplete route evidence");
+
+  FakeGenerator generator;
+  generator.expected_prefill_chunk_size = 512U;
+  generator.expected_prefill_execution_mode =
+      runtime::ReferencePrefillExecutionMode::kWholeRequestLayerMajor;
+  generator.whole_request_prompt_tokens = 8'193U;
+  generator.whole_route_replay_shift = true;
+  FakeMemory memory;
+  memory.free_bytes = {1'000U, 1'000U, 1'000U};
+  options.warmup_rounds = 1U;
+  const auto replay = detail::run_benchmark_control(
+      {"alpha"}, options, &generator, fake_generate, &memory, fake_memory);
+  test.expect(
+      !replay &&
+          replay.diagnostic.code ==
+              runtime::ReferenceBenchmarkError::kRepeatabilityFailure &&
+          replay.diagnostic.mismatch_field ==
+              "prefill_route_evidence.operators[0].production_hits",
+      "whole-request replay treats finalized production/fallback route "
+      "evidence as deterministic generation identity");
+}
+
 void test_step_comparison(TestContext& test) {
   runtime::ReferenceGeneration expected =
       make_generation("alpha", 1.0, 2.0, {1.0});
@@ -697,6 +1113,17 @@ void test_step_comparison(TestContext& test) {
   test.expect(detail::generation_mismatch_field(expected, actual) ==
                   "step_sequence[1].predicted_token_id",
               "prediction-only step changes are localized");
+  actual = expected;
+  actual.prefill_execution_mode =
+      runtime::ReferencePrefillExecutionMode::kWholeRequestLayerMajor;
+  test.expect(detail::generation_mismatch_field(expected, actual) ==
+                  "prefill_execution_mode",
+              "Prefill execution mode changes are localized");
+  actual = expected;
+  ++actual.prefill_logical_panel_count;
+  test.expect(detail::generation_mismatch_field(expected, actual) ==
+                  "prefill_logical_panel_count",
+              "Prefill logical panel coverage changes are localized");
   actual = expected;
   actual.effective_prefill_chunk_size = 2U;
   test.expect(detail::generation_mismatch_field(expected, actual) ==
@@ -731,6 +1158,9 @@ int main() {
   test_maximum_prefill_chunk_boundary(test);
   test_c64_partial_prefix_timing_cardinality(test);
   test_single_arbitrary_prefill_timing_cardinality(test);
+  test_whole_request_prefill_timing_and_panel_cardinality(test);
+  test_whole_request_prefill_malformed_results(test);
+  test_whole_request_prefill_route_evidence_validation_and_replay(test);
   test_step_comparison(test);
   if (test.failures() != 0) {
     std::cerr << test.failures() << " benchmark control assertion(s) failed\n";

@@ -3,6 +3,7 @@
 #include <nvtx3/nvToolsExt.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -370,6 +371,19 @@ GenerationControlResult run_generation_control_impl(
                       prefix_token_count, effective_prefill_chunk_size)
             : reference_engine_detail::prefix_execution_count(
                   prefix_token_count, effective_prefill_chunk_size);
+    control.prefill_execution_mode =
+        use_whole_request_prefill
+            ? ReferencePrefillExecutionMode::kWholeRequestLayerMajor
+            : ReferencePrefillExecutionMode::kLegacyC512Tiled;
+    // The whole-request callback has one aggregate timing regardless of
+    // prompt length. Route coverage remains panel-granular and therefore
+    // follows the immutable C8192 topology, including an M1 tail panel.
+    control.prefill_logical_panel_count =
+        use_whole_request_prefill
+            ? static_cast<std::uint64_t>(
+                  whole_request_topology_result.value->panel_count)
+            : static_cast<std::uint64_t>(prefix_execution_count) +
+                  (use_all_prompt_admission ? 0U : 1U);
     control.timing.prefix_execution_milliseconds.reserve(
         prefix_execution_count);
 
@@ -627,6 +641,7 @@ GenerationControlResult run_generation_control_impl(
         // retained for the controller's local publication afterward.
         const PrefillExecutionProgress completed_uncommitted_progress =
             whole_request_progress;
+        const auto commit_begin = std::chrono::steady_clock::now();
         const auto invoke_commit = [&]() noexcept {
           return prefill_plan.commit_whole_request(
               prefill_plan.context, unbound_immutable_topology,
@@ -639,12 +654,22 @@ GenerationControlResult run_generation_control_impl(
           return failure(GenerationControlError::kRunnerFailure,
                          commit_status);
         }
+        const auto commit_end = std::chrono::steady_clock::now();
+        const double commit_elapsed =
+            std::chrono::duration<double, std::milli>(commit_end -
+                                                       commit_begin)
+                .count();
+        const double committed_prompt_prefill =
+            control.timing.prompt_prefill_milliseconds + commit_elapsed;
         if (publish_prefill_state_committed(
                 unbound_immutable_topology, whole_request_progress) !=
                 PrefillExecutionProgressError::kNone ||
             !whole_request_progress.prefill_state_committed) {
           return failure(GenerationControlError::kUnexpectedStep);
         }
+        control.timing.commit_prefill_milliseconds = commit_elapsed;
+        control.timing.prompt_prefill_milliseconds =
+            committed_prompt_prefill;
       }
     }
 

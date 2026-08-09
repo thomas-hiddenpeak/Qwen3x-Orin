@@ -126,27 +126,55 @@ cannot cancel device work already executing inside Prefill.
 
 `ReferenceGeneration` records rendered prompt text, prompt IDs, generated IDs,
 decoded text, stop reason, requested/effective Prefill capacity, step results,
-optional trace digests, and timing fields. A result field describing an
-experimental route reports observation only; it does not promote that route
-or change lifecycle status.
+optional trace digests, timing fields, an explicit Prefill execution mode, and
+the logical panel count against which completed route evidence is finalized.
+A result field describing an experimental route reports observation only; it
+does not promote that route or change lifecycle status.
+
+`ReferencePrefillExecutionMode::kLegacyC512Tiled` is the compatibility
+default. Its route count follows the existing controller Prefix executions
+plus the separate final prompt execution when applicable. The default-off
+`kWholeRequestLayerMajor` host seam instead records exactly one aggregate
+whole-request Prefix duration while deriving route coverage from the immutable
+C8192 topology. Thus P32, P513, P8193, and P40000 have respectively 1, 1, 2,
+and 5 logical route panels even though every whole-request timing vector has
+one entry; the P8193 M1 tail is not discarded. `ReferenceEngine` still leaves
+the whole-request callback/finalizer/commit set unbound, so explicitly asking
+it for this mode fails closed until a real executor is connected. No CLI,
+line-oriented output, or OpenAI witness schema changes merely because this
+host result identity exists.
 
 Timing fields have these stable meanings:
 
-- `prefix_execution_milliseconds`: one duration per controller prefix
-  execution, in order;
+- `prefix_execution_milliseconds`: one duration per legacy controller prefix
+  execution, in order, or exactly one aggregate duration for an admitted
+  whole-request callback; it is not the route-panel counter;
 - `finish_prefill_milliseconds`: final retained-hidden/logits finalization,
   when used;
-- `prompt_prefill_milliseconds`: the legacy engine aggregate from the first
-  prefix execution through the final prompt/logits step; because it includes
-  that final step, it is not the SDD's server-side pure Prompt-Prefill
-  interval;
+- `commit_prefill_milliseconds`: the successful whole-request commit callback
+  interval that publishes staged request state; it is exactly zero on every
+  legacy route;
+- `prompt_prefill_milliseconds`: prefix execution plus finalization plus the
+  whole-request commit interval when present; because it includes final-token
+  readiness and publication into request state, it is not the SDD's
+  server-side pure Prompt-Prefill interval;
 - `time_to_first_token_milliseconds`: engine-local time through first-token
-  readiness; it excludes queueing, protocol, and response publication and is
-  therefore not EvalScope's user-visible TTFT;
+  readiness, including successful whole-request state commit; it excludes
+  queueing, protocol, and response publication and is therefore not
+  EvalScope's user-visible TTFT;
 - `subsequent_token_milliseconds`: each later committed-token latency;
 - `decode_after_first_milliseconds`: sum of those later latencies; and
 - `total_generation_milliseconds`: complete generation wall time, excluding
   engine creation.
+
+Accordingly, the exact host decomposition is:
+
+`sum(prefix_execution) + finish_prefill + commit_prefill == prompt_prefill == TTFT`
+
+Legacy results preserve their historical equation because `commit_prefill`
+is zero. A whole-request finalizer's step timing covers only
+`finish_prefill`, while readiness is not reported until the subsequent commit
+callback succeeds.
 
 Cold-start statistics separately report tokenizer, resident load, weight
 binding, request-state creation, optional prepared-resource setup, runner

@@ -44,6 +44,8 @@ options.measured_rounds = 3;
 options.max_new_tokens = 26;
 options.prefill_chunk_size = 16;
 options.logits_mode = q3x::runtime::ReferenceLogitsMode::kPredictedTokenOnly;
+options.prefill_execution_mode =
+    q3x::runtime::ReferencePrefillExecutionMode::kLegacyC512Tiled;
 
 q3x::runtime::ReferenceBenchmarkResult result =
     q3x::runtime::benchmark_reference_engine(
@@ -90,6 +92,41 @@ summary. The report also retains `max_new_tokens`, `stop_token_id`, and
 `prefill_chunk_size`, so non-default termination and prefix-tiling policies
 remain reproducible. Requested/effective chunk sizes are part of generation
 replay identity; a replay that silently changes execution policy fails.
+
+Execution mode is also explicit replay identity rather than inferred from a
+prompt length or timing count. `kLegacyC512Tiled` remains the default and
+preserves the existing API, CLI, and line-oriented report behavior. The
+default-off `kWholeRequestLayerMajor` value exists for the host integration
+seam: an accepted result has one whole-request aggregate Prefix timing and a
+separate `prefill_logical_panel_count` derived from the immutable C8192
+topology. P32/P513/P8193/P40000 therefore retain logical panel counts
+1/1/2/5, including the P8193 M1 tail, without being rejected by the legacy
+C512 timing-cardinality rule. Per-sample and per-prompt results retain both
+fields, and repeatability rejects either identity changing between rounds.
+
+An accepted whole-request result must also carry finalized route evidence:
+the recorder is inactive, complete, valid, and error-free; expected and
+completed layer passes both equal `prefill_logical_panel_count`; every
+forbidden operator/boundary counter is zero; and production plus exact
+fallback hits equal the pinned per-panel operator schedule. The complete
+evidence object is replay identity, so a production/fallback route change
+between otherwise identical invocations fails repeatability. Samples and
+per-prompt reports retain this attestation rather than only its validity bit.
+
+Whole-request benchmark validation also checks the complete prompt/decode
+transcript, requires the dedicated finalizer's replacement final-prompt step
+to carry valid timing equal to `finish_prefill_milliseconds`, forbids timing
+on earlier prompt placeholders, and fails closed on mismatched admission
+flags or panel counts. Its timing decomposition is:
+
+`sum(prefix_execution) + finish_prefill + commit_prefill == prompt_prefill == TTFT`
+
+The commit interval is retained as its own aggregate and per-prompt
+statistic. Legacy results require that appended interval to remain exactly
+zero. The production
+`ReferenceEngine` does not yet bind the whole-request callback set, so this
+mode currently exercises host control only; selecting it against that engine
+returns a generation failure rather than falling back to the legacy route.
 
 ## Device-memory accounting
 
@@ -159,6 +196,10 @@ classification without loading a model or executing a CUDA kernel. Controller
 cardinality tests verify that reports match the runtime's requested/effective
 execution records, including the public C512 boundary, without making a
 particular internal tile schedule part of this harness contract.
+The whole-request matrix additionally covers P32, P513, P8193, and P40000,
+one aggregate timing versus C8192 logical route coverage, commit-inclusive
+TTFT decomposition, complete route attestation and replay identity, and
+malformed mode, panel, timing, route, and transcript rejection.
 
 Historical benchmark samples and mechanism-specific measurements are retained
 in [`PERFORMANCE_BASELINE.md`](PERFORMANCE_BASELINE.md) and the

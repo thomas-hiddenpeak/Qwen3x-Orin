@@ -62,6 +62,21 @@ enum class ReferenceDecodeGraphCachePolicy : std::uint8_t {
          policy == ReferenceDecodeGraphCachePolicy::kSm87ShortPositions;
 }
 
+// Host-observable Prefill scheduling identity. The legacy value covers the
+// existing public C512-bounded controller (including smaller canonical
+// tiles); the layer-major value is reserved for the explicit default-off
+// whole-request seam whose internal logical panels are bounded by C8192.
+enum class ReferencePrefillExecutionMode : std::uint8_t {
+  kLegacyC512Tiled = 0,
+  kWholeRequestLayerMajor,
+};
+
+[[nodiscard]] constexpr bool is_valid_reference_prefill_execution_mode(
+    const ReferencePrefillExecutionMode mode) noexcept {
+  return mode == ReferencePrefillExecutionMode::kLegacyC512Tiled ||
+         mode == ReferencePrefillExecutionMode::kWholeRequestLayerMajor;
+}
+
 struct ReferenceEngineOptions {
   ResidentLoadOptions resident_options;
   RequestMemoryOptions request_options;
@@ -118,10 +133,15 @@ struct ReferenceGenerateOptions {
   // Graph preparation is explicit and never occurs in a timed request.
   bool use_prepared_decode_graph_cache = false;
   // Optional synchronous per-token observer used by the streaming gateway.
-  // Keep the callback and context at the end for aggregate-initializer source
-  // compatibility with the pre-existing options surface.
+  // Keep the callback and context in their historical aggregate-initializer
+  // positions. New fields are append-only below them.
   ReferenceTokenObserver token_observer = nullptr;
   void* token_observer_context = nullptr;
+  // The whole-request mode remains a default-off host integration surface.
+  // ReferenceEngine has no bound callbacks for it until the layer-major
+  // executor is connected, so an explicit request currently fails closed.
+  ReferencePrefillExecutionMode prefill_execution_mode =
+      ReferencePrefillExecutionMode::kLegacyC512Tiled;
 };
 
 enum class ReferenceStopReason : std::uint8_t {
@@ -143,6 +163,9 @@ struct ReferenceGenerationTiming {
   std::vector<double> subsequent_token_milliseconds;
   double decode_after_first_milliseconds = 0.0;
   double total_generation_milliseconds = 0.0;
+  // Whole-request-only final publication interval. Legacy routes retain the
+  // exact zero default. prompt_prefill/TTFT/total include this value.
+  double commit_prefill_milliseconds = 0.0;
 };
 
 struct ReferenceTraceDigest {
@@ -182,6 +205,13 @@ struct ReferenceGeneration {
   std::vector<ReferenceTraceDigest> traces;
   std::size_t decode_graph_replays = 0U;
   std::size_t decode_graph_serial_fallbacks = 0U;
+  ReferencePrefillExecutionMode prefill_execution_mode =
+      ReferencePrefillExecutionMode::kLegacyC512Tiled;
+  // Number of complete logical 64-layer route records expected for this
+  // request. In legacy mode this follows controller Prefix/final executions;
+  // in whole-request mode it is the immutable topology's C8192 panel count,
+  // and is intentionally independent of timing-vector cardinality.
+  std::uint64_t prefill_logical_panel_count = 0U;
 };
 
 struct ReferenceEngineLoadStats {
@@ -794,6 +824,9 @@ struct GenerationControl {
   std::vector<ReferenceStepResult> steps;
   ReferenceStopReason stop_reason = ReferenceStopReason::kMaxNewTokens;
   ReferenceGenerationTiming timing;
+  ReferencePrefillExecutionMode prefill_execution_mode =
+      ReferencePrefillExecutionMode::kLegacyC512Tiled;
+  std::uint64_t prefill_logical_panel_count = 0U;
 };
 
 struct GenerationControlResult {
