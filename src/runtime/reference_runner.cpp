@@ -1562,6 +1562,8 @@ ReferenceRunner& ReferenceRunner::operator=(ReferenceRunner&& other) noexcept {
       std::exchange(other.retained_prefill_hidden_row_, 0U);
   trace_position_ = std::exchange(other.trace_position_, 0U);
   trace_input_token_ = std::exchange(other.trace_input_token_, 0U);
+  prefill_route_evidence_ =
+      std::exchange(other.prefill_route_evidence_, PrefillRouteEvidence{});
   return *this;
 }
 
@@ -1655,6 +1657,7 @@ void ReferenceRunner::release() noexcept {
   retained_prefill_hidden_row_ = 0U;
   trace_position_ = 0U;
   trace_input_token_ = 0U;
+  prefill_route_evidence_ = {};
 }
 
 int ReferenceRunner::destroy_decode_graph_p1_slot(

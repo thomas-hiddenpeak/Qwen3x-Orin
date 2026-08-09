@@ -13,6 +13,7 @@
 #include <iostream>
 #include <limits>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace q3x::runtime {
@@ -48,6 +49,23 @@ struct ReferenceRunnerPrefillControlTestPeer {
   using LayerRouteFragment =
       ReferenceRunner::PrefillLayerSegmentRouteFragment;
   using LayerRouteSlot = ReferenceRunner::PrefillLayerRouteSlot;
+
+  [[nodiscard]] static ReferenceRunner empty_runner() noexcept {
+    return ReferenceRunner{};
+  }
+
+  static void set_route_evidence(
+      ReferenceRunner& runner,
+      const PrefillRouteEvidence& evidence) noexcept {
+    runner.prefill_route_evidence_ = evidence;
+  }
+
+  [[nodiscard]] static const PrefillRouteEvidence& route_evidence(
+      const ReferenceRunner& runner) noexcept {
+    return runner.prefill_route_evidence_;
+  }
+
+  static void release(ReferenceRunner& runner) noexcept { runner.release(); }
 
   [[nodiscard]] static constexpr std::size_t
   lightweight_enqueue_result_bytes() noexcept {
@@ -237,6 +255,51 @@ class TestContext {
          same_bits(left.maximum, right.maximum) &&
          same_bits(left.logsumexp, right.logsumexp) &&
          same_bits(left.max_log_probability, right.max_log_probability);
+}
+
+[[nodiscard]] bool same_prefill_route_evidence(
+    const runtime::PrefillRouteEvidence& left,
+    const runtime::PrefillRouteEvidence& right) noexcept {
+  for (std::size_t index = 0U; index < left.operators.size(); ++index) {
+    const runtime::PrefillOperatorRouteCounts& left_counts =
+        left.operators[index];
+    const runtime::PrefillOperatorRouteCounts& right_counts =
+        right.operators[index];
+    if (left_counts.production_hits != right_counts.production_hits ||
+        left_counts.exact_fallback_hits !=
+            right_counts.exact_fallback_hits ||
+        left_counts.forbidden_hits != right_counts.forbidden_hits) {
+      return false;
+    }
+  }
+  return left.forbidden_boundary_hits == right.forbidden_boundary_hits &&
+         left.completed_layer_passes == right.completed_layer_passes &&
+         left.expected_layer_passes == right.expected_layer_passes &&
+         left.request_active == right.request_active &&
+         left.complete == right.complete && left.valid == right.valid &&
+         left.error == right.error;
+}
+
+[[nodiscard]] runtime::PrefillRouteEvidence route_evidence_fixture(
+    const std::uint64_t seed) noexcept {
+  runtime::PrefillRouteEvidence evidence;
+  for (std::size_t index = 0U; index < evidence.operators.size(); ++index) {
+    const std::uint64_t offset = static_cast<std::uint64_t>(index) * 3U;
+    evidence.operators[index] = {
+        seed + offset + 1U, seed + offset + 2U, seed + offset + 3U};
+  }
+  for (std::size_t index = 0U;
+       index < evidence.forbidden_boundary_hits.size(); ++index) {
+    evidence.forbidden_boundary_hits[index] =
+        seed + static_cast<std::uint64_t>(index) + 31U;
+  }
+  evidence.completed_layer_passes = seed + 41U;
+  evidence.expected_layer_passes = seed + 43U;
+  evidence.request_active = true;
+  evidence.complete = false;
+  evidence.valid = false;
+  evidence.error = runtime::PrefillRouteEvidenceError::kForbiddenRoute;
+  return evidence;
 }
 
 [[nodiscard]] detail::LogitsAnalysis scalar_bf16_logits_bits_analysis(
@@ -1863,6 +1926,64 @@ void test_prefill_layer_route_reducer(TestContext& test) {
               "out-of-schedule route reduction fails closed");
 }
 
+void test_prefill_route_evidence_runner_lifetime(TestContext& test) {
+  using Peer = runtime::ReferenceRunnerPrefillControlTestPeer;
+  const runtime::PrefillRouteEvidence empty;
+  const runtime::PrefillRouteEvidence first = route_evidence_fixture(100U);
+  const runtime::PrefillRouteEvidence second = route_evidence_fixture(200U);
+
+  runtime::ReferenceRunner move_construct_source = Peer::empty_runner();
+  Peer::set_route_evidence(move_construct_source, first);
+  runtime::ReferenceRunner move_constructed(
+      std::move(move_construct_source));
+  test.expect(
+      same_prefill_route_evidence(Peer::route_evidence(move_constructed),
+                                  first) &&
+          same_prefill_route_evidence(
+              Peer::route_evidence(move_construct_source), empty),
+      "runner move construction transfers Prefill route evidence and clears "
+      "the source");
+
+  runtime::ReferenceRunner move_assign_source = Peer::empty_runner();
+  runtime::ReferenceRunner move_assign_target = Peer::empty_runner();
+  Peer::set_route_evidence(move_assign_source, first);
+  Peer::set_route_evidence(move_assign_target, second);
+  move_assign_target = std::move(move_assign_source);
+  test.expect(
+      same_prefill_route_evidence(Peer::route_evidence(move_assign_target),
+                                  first) &&
+          same_prefill_route_evidence(
+              Peer::route_evidence(move_assign_source), empty),
+      "runner move assignment replaces prior Prefill route evidence and "
+      "clears the source");
+
+  runtime::ReferenceRunner self_move = Peer::empty_runner();
+  Peer::set_route_evidence(self_move, second);
+  runtime::ReferenceRunner* const self_move_source = &self_move;
+  self_move = std::move(*self_move_source);
+  test.expect(
+      same_prefill_route_evidence(Peer::route_evidence(self_move), second),
+      "runner self move preserves Prefill route evidence");
+
+  runtime::ReferenceRunner empty_source = Peer::empty_runner();
+  runtime::ReferenceRunner nonempty_target = Peer::empty_runner();
+  Peer::set_route_evidence(nonempty_target, first);
+  nonempty_target = std::move(empty_source);
+  test.expect(
+      same_prefill_route_evidence(Peer::route_evidence(nonempty_target),
+                                  empty) &&
+          same_prefill_route_evidence(Peer::route_evidence(empty_source),
+                                      empty),
+      "moving an empty runner clears stale target Prefill route evidence");
+
+  runtime::ReferenceRunner released = Peer::empty_runner();
+  Peer::set_route_evidence(released, first);
+  Peer::release(released);
+  test.expect(
+      same_prefill_route_evidence(Peer::route_evidence(released), empty),
+      "runner release clears Prefill route evidence");
+}
+
 }  // namespace
 
 int main() {
@@ -1877,6 +1998,7 @@ int main() {
   test_trace_layout_and_factory_error(test);
   test_prefill_tile_execution_control(test);
   test_prefill_layer_route_reducer(test);
+  test_prefill_route_evidence_runner_lifetime(test);
   if (test.failures() != 0) {
     std::cerr << test.failures() << " reference-runner host test(s) failed\n";
     return 1;
