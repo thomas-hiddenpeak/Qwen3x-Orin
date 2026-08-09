@@ -2,6 +2,7 @@
 
 #include "q3x/model/model_config.h"
 #include "q3x/runtime/model_weights.h"
+#include "q3x/runtime/prefill_execution_plan.h"
 #include "q3x/runtime/prefill_route_evidence.h"
 #include "q3x/runtime/request_state.h"
 
@@ -199,6 +200,33 @@ struct ReferencePrefillTileResult {
 
 struct ReferencePrefillTileOutcome {
   std::optional<ReferencePrefillTileResult> value;
+  ReferenceRunnerStatus status;
+
+  [[nodiscard]] bool ok() const noexcept {
+    return value.has_value() && status.ok();
+  }
+  [[nodiscard]] explicit operator bool() const noexcept { return ok(); }
+};
+
+// Fixed-size runner result for the layer-major whole-request seam. The
+// Engine adapter, not the CUDA runner, owns the potentially 40K--130K host
+// transcript. Device execution remains uncommitted until the dedicated
+// logits finalizer and single publication callback both succeed.
+struct ReferenceWholeRequestPrefillOptions {
+  bool measure_timing = false;
+};
+
+struct ReferenceWholeRequestPrefillResult {
+  std::uint32_t first_position = 0U;
+  std::uint32_t final_position = 0U;
+  std::size_t prompt_token_count = 0U;
+  std::size_t logical_panel_count = 0U;
+  PrefillExecutionProgress progress;
+  std::optional<ReferenceStepTiming> timing;
+};
+
+struct ReferenceWholeRequestPrefillOutcome {
+  std::optional<ReferenceWholeRequestPrefillResult> value;
   ReferenceRunnerStatus status;
 
   [[nodiscard]] bool ok() const noexcept {
@@ -668,6 +696,47 @@ class ReferenceRunner {
 
   struct Views;
 
+  enum class WholeRequestPrefillStagePhase : std::uint8_t {
+    kIdle = 0,
+    kExecuting,
+    kAwaitingLogits,
+    kAwaitingCommit,
+  };
+
+  struct WholeRequestPrefillStage {
+    WholeRequestPrefillStagePhase phase =
+        WholeRequestPrefillStagePhase::kIdle;
+    std::uint32_t expected_initial_sequence_length = 0U;
+    std::uint32_t committed_sequence_length = 0U;
+    std::uint32_t final_position = 0U;
+    std::uint32_t final_input_token_id = 0U;
+    std::size_t prompt_token_count = 0U;
+    std::size_t logical_panel_count = 0U;
+    const std::uint16_t* final_normalized_hidden = nullptr;
+    PrefillExecutionProgress completed_uncommitted_progress{};
+    PrefillRouteEvidence route_evidence_after_commit{};
+  };
+
+  // Internal exact compatibility core for validating the traversal and
+  // transactional hand-off before production authorization exists. An
+  // unbound topology describes ordering only and must never be sufficient to
+  // reach these methods through the public runner surface. A later public
+  // wrapper must require an authenticated BoundPrefillExecutionPlan and own
+  // cancellation/completion policy before it delegates here.
+  [[nodiscard]] ReferenceWholeRequestPrefillOutcome
+  prefill_whole_request_layer_major_compatibility_core(
+      const std::uint32_t* input_token_ids, std::size_t token_count,
+      const PrefillExecutionPlan& immutable_topology,
+      const ReferenceWholeRequestPrefillOptions& options = {}) noexcept;
+  [[nodiscard]] ReferenceStepOutcome
+  finish_whole_request_compatibility_core(
+      std::uint32_t input_token_id,
+      const ReferenceStepOptions& options = {}) noexcept;
+  [[nodiscard]] ReferenceRunnerStatus
+  commit_whole_request_layer_major_compatibility_core(
+      const PrefillExecutionPlan& immutable_topology,
+      const PrefillExecutionProgress& completed_uncommitted_progress) noexcept;
+
   struct PrefillTileExecutionControl {
     // The public legacy path reads RequestState::current_position(). A future
     // whole-request executor must provide the logical panel position because
@@ -790,6 +859,14 @@ class ReferenceRunner {
       std::uint32_t first_position,
       const PrefillTileExecutionControl& control,
       const Views& execution_views) noexcept;
+  [[nodiscard]] static bool same_prefill_execution_progress(
+      const PrefillExecutionProgress& left,
+      const PrefillExecutionProgress& right) noexcept;
+  [[nodiscard]] bool whole_request_prefill_active() const noexcept;
+  [[nodiscard]] ReferenceWholeRequestPrefillOutcome
+  fail_whole_request_prefill(ReferenceRunnerStatus status) noexcept;
+  [[nodiscard]] ReferenceRunnerStatus fail_whole_request_status(
+      ReferenceRunnerStatus status) noexcept;
 
   struct Views {
     std::uint16_t* hidden[3]{};
@@ -876,6 +953,7 @@ class ReferenceRunner {
   Views views_{};
   std::optional<ReferenceLayerMajorRequestViews>
       layer_major_request_views_;
+  WholeRequestPrefillStage whole_request_prefill_stage_{};
   ProjectionBackend projection_backend_ = ProjectionBackend::kReference;
   bool trace_enabled_ = false;
   bool trace_valid_ = false;

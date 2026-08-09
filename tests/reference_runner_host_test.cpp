@@ -148,6 +148,79 @@ struct ReferenceRunnerPrefillControlTestPeer {
            sizeof(ReferenceRunner::PrefillEnqueueRouteFragment);
   }
 
+  [[nodiscard]] static constexpr std::size_t
+  whole_request_outcome_bytes() noexcept {
+    return sizeof(ReferenceWholeRequestPrefillOutcome);
+  }
+
+  static void seed_whole_request_stage(
+      ReferenceRunner& runner, const std::uint32_t initial_position,
+      const std::uint32_t committed_position,
+      const std::uint32_t final_input_token_id,
+      const std::size_t prompt_token_count,
+      const std::size_t panel_count,
+      const std::uint16_t* const final_hidden,
+      const PrefillExecutionProgress& progress,
+      const PrefillRouteEvidence& staged_route,
+      const bool awaiting_commit) noexcept {
+    ReferenceRunner::WholeRequestPrefillStage stage;
+    stage.phase =
+        awaiting_commit
+            ? ReferenceRunner::WholeRequestPrefillStagePhase::kAwaitingCommit
+            : ReferenceRunner::WholeRequestPrefillStagePhase::kAwaitingLogits;
+    stage.expected_initial_sequence_length = initial_position;
+    stage.committed_sequence_length = committed_position;
+    stage.final_position = committed_position - 1U;
+    stage.final_input_token_id = final_input_token_id;
+    stage.prompt_token_count = prompt_token_count;
+    stage.logical_panel_count = panel_count;
+    stage.final_normalized_hidden = final_hidden;
+    stage.completed_uncommitted_progress = progress;
+    stage.route_evidence_after_commit = staged_route;
+    runner.whole_request_prefill_stage_ = stage;
+  }
+
+  [[nodiscard]] static bool whole_request_stage_active(
+      const ReferenceRunner& runner) noexcept {
+    return runner.whole_request_prefill_active();
+  }
+
+  [[nodiscard]] static bool whole_request_stage_matches(
+      const ReferenceRunner& runner,
+      const std::uint32_t initial_position,
+      const std::uint32_t committed_position,
+      const std::uint32_t final_input_token_id,
+      const std::size_t prompt_token_count,
+      const std::size_t panel_count,
+      const std::uint16_t* const final_hidden,
+      const PrefillExecutionProgress& progress,
+      const PrefillRouteEvidence& staged_route,
+      const bool awaiting_commit) noexcept {
+    const ReferenceRunner::WholeRequestPrefillStage& stage =
+        runner.whole_request_prefill_stage_;
+    const ReferenceRunner::WholeRequestPrefillStagePhase expected_phase =
+        awaiting_commit
+            ? ReferenceRunner::WholeRequestPrefillStagePhase::kAwaitingCommit
+            : ReferenceRunner::WholeRequestPrefillStagePhase::kAwaitingLogits;
+    return stage.phase == expected_phase &&
+           stage.expected_initial_sequence_length == initial_position &&
+           stage.committed_sequence_length == committed_position &&
+           stage.final_position == committed_position - 1U &&
+           stage.final_input_token_id == final_input_token_id &&
+           stage.prompt_token_count == prompt_token_count &&
+           stage.logical_panel_count == panel_count &&
+           stage.final_normalized_hidden == final_hidden &&
+           ReferenceRunner::same_prefill_execution_progress(
+               stage.completed_uncommitted_progress, progress) &&
+           same_prefill_route_evidence_for_peer(
+               stage.route_evidence_after_commit, staged_route);
+  }
+
+  [[nodiscard]] static bool poisoned(
+      const ReferenceRunner& runner) noexcept {
+    return runner.poisoned_;
+  }
+
   [[nodiscard]] static LayerRouteFragment production_layer_route(
       const std::size_t layer, const std::uint32_t first_position,
       const std::uint32_t token_count) noexcept {
@@ -250,6 +323,28 @@ struct ReferenceRunnerPrefillControlTestPeer {
   }
 
  private:
+  [[nodiscard]] static bool same_prefill_route_evidence_for_peer(
+      const PrefillRouteEvidence& left,
+      const PrefillRouteEvidence& right) noexcept {
+    for (std::size_t index = 0U; index < left.operators.size(); ++index) {
+      const PrefillOperatorRouteCounts& left_counts = left.operators[index];
+      const PrefillOperatorRouteCounts& right_counts =
+          right.operators[index];
+      if (left_counts.production_hits != right_counts.production_hits ||
+          left_counts.exact_fallback_hits !=
+              right_counts.exact_fallback_hits ||
+          left_counts.forbidden_hits != right_counts.forbidden_hits) {
+        return false;
+      }
+    }
+    return left.forbidden_boundary_hits == right.forbidden_boundary_hits &&
+           left.completed_layer_passes == right.completed_layer_passes &&
+           left.expected_layer_passes == right.expected_layer_passes &&
+           left.request_active == right.request_active &&
+           left.complete == right.complete && left.valid == right.valid &&
+           left.error == right.error;
+  }
+
   [[nodiscard]] static Result select_private(
       const ReferenceRunner::PrefillTileExecutionControl& control,
       const std::uint32_t current_position,
@@ -2248,6 +2343,137 @@ void test_layer_major_runner_view_binding_lifetime(TestContext& test) {
               "malformed layer-major schedule fails transactionally");
 }
 
+void test_whole_request_prefill_staging_contract(TestContext& test) {
+  using Peer = runtime::ReferenceRunnerPrefillControlTestPeer;
+
+  test.expect(
+      Peer::whole_request_outcome_bytes() < 4U * 1'024U &&
+          Peer::whole_request_outcome_bytes() * 8U <
+              Peer::legacy_tile_outcome_bytes(),
+      "whole-request runner result remains fixed-size and transcript-free");
+
+  runtime::PrefillExecutionPlanOptions plan_options;
+  plan_options.first_position = 17U;
+  plan_options.prompt_token_count = 9'000U;
+  plan_options.max_sequence_length = 32'768U;
+  const runtime::PrefillExecutionPlanResult plan_result =
+      runtime::build_unbound_layer_major_prefill_execution_plan(
+          plan_options);
+  test.expect(plan_result.ok(),
+              "whole-request staging fixture builds a valid topology");
+  if (!plan_result) {
+    return;
+  }
+  const runtime::PrefillExecutionPlan& plan = *plan_result.value;
+
+  runtime::PrefillExecutionProgress progress =
+      runtime::make_prefill_execution_progress(plan);
+  bool progress_ok = true;
+  for (std::size_t layer = 0U;
+       progress_ok && layer < runtime::kReferenceDecoderLayerCount; ++layer) {
+    for (std::size_t panel = 0U;
+         progress_ok && panel < plan.panel_count; ++panel) {
+      progress_ok = runtime::advance_prefill_progress_after_completion(
+                        plan, progress, layer, panel) ==
+                    runtime::PrefillExecutionProgressError::kNone;
+    }
+  }
+  progress_ok =
+      progress_ok &&
+      runtime::mark_prefill_final_hidden_ready(plan, progress) ==
+          runtime::PrefillExecutionProgressError::kNone &&
+      runtime::prefill_final_commit_ready(plan, progress);
+  test.expect(progress_ok,
+              "whole-request staging fixture reaches uncommitted final state");
+
+  runtime::PrefillRouteEvidence live_route;
+  runtime::reset_prefill_route_request(live_route);
+  runtime::PrefillRouteEvidence staged_route = live_route;
+  bool route_ok = true;
+  for (std::size_t panel = 0U;
+       route_ok && panel < plan.panel_count; ++panel) {
+    runtime::PrefillRouteEvidence complete_layer_pass;
+    for (std::size_t layer = 0U;
+         route_ok && layer < runtime::kReferenceDecoderLayerCount; ++layer) {
+      const Peer::LayerRouteFragment fragment =
+          Peer::production_layer_route(layer, 0U, 512U);
+      route_ok =
+          Peer::collapse_layer_route(fragment, complete_layer_pass).ok();
+    }
+    route_ok =
+        route_ok && runtime::commit_prefill_route_layer_pass(
+                        staged_route, complete_layer_pass);
+  }
+  test.expect(
+      route_ok && staged_route.completed_layer_passes == plan.panel_count,
+      "one staged route pass accumulates all 64 layers for every C8192 panel");
+
+  std::array<std::uint16_t, runtime::kReferenceHiddenSize> final_hidden{};
+  runtime::ReferenceRunner runner = Peer::empty_runner();
+  Peer::set_route_evidence(runner, live_route);
+  Peer::seed_whole_request_stage(
+      runner, plan.first_position, plan.final_position, 42U,
+      plan.prompt_token_count, plan.panel_count, final_hidden.data(),
+      progress, staged_route, false);
+  test.expect(
+      Peer::whole_request_stage_active(runner) &&
+          Peer::whole_request_stage_matches(
+              runner, plan.first_position, plan.final_position, 42U,
+              plan.prompt_token_count, plan.panel_count,
+              final_hidden.data(), progress, staged_route, false) &&
+          same_prefill_route_evidence(Peer::route_evidence(runner),
+                                      live_route),
+      "staged progress and route evidence do not publish into live request state");
+
+  runtime::ReferenceRunner moved(std::move(runner));
+  test.expect(
+      !Peer::whole_request_stage_active(runner) &&
+          Peer::whole_request_stage_matches(
+              moved, plan.first_position, plan.final_position, 42U,
+              plan.prompt_token_count, plan.panel_count,
+              final_hidden.data(), progress, staged_route, false) &&
+          same_prefill_route_evidence(Peer::route_evidence(moved),
+                                      live_route),
+      "runner move transfers the whole-request hand-off exactly once");
+  Peer::release(moved);
+  test.expect(!Peer::whole_request_stage_active(moved),
+              "runner release invalidates the whole-request hand-off");
+
+  runtime::ReferenceRunner guarded = Peer::empty_runner();
+  Peer::set_route_evidence(guarded, live_route);
+  Peer::seed_whole_request_stage(
+      guarded, plan.first_position, plan.final_position, 42U,
+      plan.prompt_token_count, plan.panel_count, final_hidden.data(),
+      progress, staged_route, true);
+  const runtime::ReferenceRunnerStatus guard_status =
+      guarded.record_scalar_prefill_route_fallback();
+  test.expect(
+      !guard_status && Peer::poisoned(guarded) &&
+          !Peer::whole_request_stage_active(guarded) &&
+          same_prefill_route_evidence(Peer::route_evidence(guarded),
+                                      live_route),
+      "a competing mutating operation fails closed without publishing staged route evidence");
+
+  runtime::ReferenceRunner prematurely_finalized = Peer::empty_runner();
+  Peer::set_route_evidence(prematurely_finalized, live_route);
+  Peer::seed_whole_request_stage(
+      prematurely_finalized, plan.first_position, plan.final_position, 42U,
+      plan.prompt_token_count, plan.panel_count, final_hidden.data(),
+      progress, staged_route, true);
+  const runtime::PrefillRouteEvidence rejected =
+      prematurely_finalized.finalize_prefill_route_evidence(
+          plan.panel_count);
+  test.expect(
+      rejected.complete && !rejected.valid && !rejected.request_active &&
+          rejected.error ==
+              runtime::PrefillRouteEvidenceError::kIncompleteTile &&
+          Peer::poisoned(prematurely_finalized) &&
+          !Peer::whole_request_stage_active(prematurely_finalized) &&
+          same_prefill_route_evidence(
+              Peer::route_evidence(prematurely_finalized), live_route),
+      "premature route finalization aborts the staged transaction without publishing it");
+}
+
 }  // namespace
 
 int main() {
@@ -2264,6 +2490,7 @@ int main() {
   test_prefill_layer_route_reducer(test);
   test_prefill_route_evidence_runner_lifetime(test);
   test_layer_major_runner_view_binding_lifetime(test);
+  test_whole_request_prefill_staging_contract(test);
   if (test.failures() != 0) {
     std::cerr << test.failures() << " reference-runner host test(s) failed\n";
     return 1;

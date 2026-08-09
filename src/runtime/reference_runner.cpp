@@ -1676,6 +1676,8 @@ ReferenceRunner& ReferenceRunner::operator=(ReferenceRunner&& other) noexcept {
   layer_major_request_views_ =
       std::move(other.layer_major_request_views_);
   other.layer_major_request_views_.reset();
+  whole_request_prefill_stage_ = other.whole_request_prefill_stage_;
+  other.whole_request_prefill_stage_ = {};
   projection_backend_ = std::exchange(
       other.projection_backend_, ProjectionBackend::kReference);
   trace_enabled_ = std::exchange(other.trace_enabled_, false);
@@ -1777,6 +1779,7 @@ void ReferenceRunner::release() noexcept {
   decode_graph_capture_active_ = false;
   views_ = {};
   layer_major_request_views_.reset();
+  whole_request_prefill_stage_ = {};
   projection_backend_ = ProjectionBackend::kReference;
   trace_enabled_ = false;
   trace_valid_ = false;
@@ -1852,6 +1855,7 @@ ReferenceStepOutcome ReferenceRunner::fail_step(
   poisoned_ = true;
   trace_valid_ = false;
   retained_prefill_hidden_valid_ = false;
+  whole_request_prefill_stage_ = {};
   ReferenceStepOutcome outcome;
   outcome.status = status;
   return outcome;
@@ -1869,9 +1873,50 @@ ReferencePrefillTileOutcome ReferenceRunner::fail_prefill_tile(
   poisoned_ = true;
   trace_valid_ = false;
   retained_prefill_hidden_valid_ = false;
+  whole_request_prefill_stage_ = {};
   ReferencePrefillTileOutcome outcome;
   outcome.status = status;
   return outcome;
+}
+
+bool ReferenceRunner::whole_request_prefill_active() const noexcept {
+  return whole_request_prefill_stage_.phase !=
+         WholeRequestPrefillStagePhase::kIdle;
+}
+
+ReferenceWholeRequestPrefillOutcome
+ReferenceRunner::fail_whole_request_prefill(
+    const ReferenceRunnerStatus status) noexcept {
+  if (stream_ != nullptr) {
+    (void)cudaStreamSynchronize(reinterpret_cast<cudaStream_t>(stream_));
+  }
+  if (prefill_auxiliary_stream_ != nullptr) {
+    (void)cudaStreamSynchronize(
+        reinterpret_cast<cudaStream_t>(prefill_auxiliary_stream_));
+  }
+  poisoned_ = true;
+  trace_valid_ = false;
+  retained_prefill_hidden_valid_ = false;
+  whole_request_prefill_stage_ = {};
+  ReferenceWholeRequestPrefillOutcome outcome;
+  outcome.status = status;
+  return outcome;
+}
+
+ReferenceRunnerStatus ReferenceRunner::fail_whole_request_status(
+    const ReferenceRunnerStatus status) noexcept {
+  if (stream_ != nullptr) {
+    (void)cudaStreamSynchronize(reinterpret_cast<cudaStream_t>(stream_));
+  }
+  if (prefill_auxiliary_stream_ != nullptr) {
+    (void)cudaStreamSynchronize(
+        reinterpret_cast<cudaStream_t>(prefill_auxiliary_stream_));
+  }
+  poisoned_ = true;
+  trace_valid_ = false;
+  retained_prefill_hidden_valid_ = false;
+  whole_request_prefill_stage_ = {};
+  return status;
 }
 
 std::optional<ReferenceTraceView> ReferenceRunner::last_trace() const noexcept {
@@ -1883,6 +1928,9 @@ std::optional<ReferenceTraceView> ReferenceRunner::last_trace() const noexcept {
 }
 
 ReferenceRunnerStatus ReferenceRunner::reset() noexcept {
+  // Reset is the sole recovery path from an uncommitted whole-request stage.
+  // Clear its host hand-off even if a later device reset operation fails.
+  whole_request_prefill_stage_ = {};
   if (!static_cast<bool>(*this)) {
     return runner_status(ReferenceRunnerError::kInvalidRunner, "reset");
   }
@@ -1929,6 +1977,11 @@ ReferenceRunnerStatus ReferenceRunner::reset() noexcept {
 
 ReferenceRunnerStatus ReferenceRunner::record_scalar_prefill_route_fallback()
     noexcept {
+  if (whole_request_prefill_active()) {
+    return fail_whole_request_status(runner_status(
+        ReferenceRunnerError::kInvalidStepOptions,
+        "whole_request_prefill_scalar_route_active"));
+  }
   PrefillRouteEvidence tile;
   for (std::size_t index = 0U;
        index < kPrefillOperatorRoleCount; ++index) {
@@ -1949,6 +2002,22 @@ ReferenceRunnerStatus ReferenceRunner::record_scalar_prefill_route_fallback()
 
 PrefillRouteEvidence ReferenceRunner::finalize_prefill_route_evidence(
     const std::uint64_t expected_layer_passes) noexcept {
+  if (whole_request_prefill_active()) {
+    PrefillRouteEvidence rejected = prefill_route_evidence_;
+    // Finalization is a terminal request operation. Calling it before the
+    // staged logits/commit hand-off finishes must abort the transaction just
+    // like every other competing mutator; otherwise a caller could observe a
+    // failed witness while later publishing the staged device state.
+    (void)fail_whole_request_status(runner_status(
+        ReferenceRunnerError::kRouteEvidenceFailure,
+        "whole_request_prefill_route_finalize_active"));
+    rejected.error = PrefillRouteEvidenceError::kIncompleteTile;
+    rejected.request_active = false;
+    rejected.complete = true;
+    rejected.valid = false;
+    rejected.expected_layer_passes = expected_layer_passes;
+    return rejected;
+  }
   return finalize_prefill_route_request(prefill_route_evidence_,
                                         expected_layer_passes);
 }
@@ -1956,6 +2025,11 @@ PrefillRouteEvidence ReferenceRunner::finalize_prefill_route_evidence(
 ReferenceStepOutcome ReferenceRunner::step(
     const std::uint32_t input_token_id,
     const ReferenceStepOptions& options) noexcept {
+  if (whole_request_prefill_active()) {
+    return fail_step(runner_status(
+        ReferenceRunnerError::kInvalidStepOptions,
+        "whole_request_prefill_step_active"));
+  }
   return step_impl(input_token_id, options,
                    DecodeGraphP1Action::kDisabled);
 }
@@ -1963,6 +2037,13 @@ ReferenceStepOutcome ReferenceRunner::step(
 ReferenceDecodeGraphP1PrepareOutcome
 ReferenceRunner::prepare_fixed_position_decode_graph_p1(
     const std::uint32_t input_token_id) noexcept {
+  if (whole_request_prefill_active()) {
+    ReferenceDecodeGraphP1PrepareOutcome outcome;
+    outcome.status = fail_whole_request_status(runner_status(
+        ReferenceRunnerError::kInvalidStepOptions,
+        "whole_request_prefill_graph_prepare_active"));
+    return outcome;
+  }
   const std::uint32_t position = current_position();
   ReferenceStepOptions options;
   options.compute_logits = true;
@@ -1988,6 +2069,12 @@ ReferenceRunner::prepare_fixed_position_decode_graph_cache(
     const std::uint32_t last_position,
     const std::uint32_t input_token_id) noexcept {
   ReferenceDecodeGraphCachePrepareOutcome outcome;
+  if (whole_request_prefill_active()) {
+    outcome.status = fail_whole_request_status(runner_status(
+        ReferenceRunnerError::kInvalidStepOptions,
+        "whole_request_prefill_graph_cache_prepare_active"));
+    return outcome;
+  }
   if (!static_cast<bool>(*this)) {
     outcome.status = runner_status(ReferenceRunnerError::kInvalidRunner,
                                    "decode_graph_cache_prepare");
@@ -2157,6 +2244,11 @@ ReferenceRunner::fixed_position_decode_graph_cache_mask() const noexcept {
 
 ReferenceRunnerStatus
 ReferenceRunner::clear_fixed_position_decode_graph_cache() noexcept {
+  if (whole_request_prefill_active()) {
+    return fail_whole_request_status(runner_status(
+        ReferenceRunnerError::kInvalidStepOptions,
+        "whole_request_prefill_graph_cache_clear_active"));
+  }
   if (!static_cast<bool>(*this)) {
     return runner_status(ReferenceRunnerError::kInvalidRunner,
                          "decode_graph_cache_clear");
@@ -2230,6 +2322,11 @@ ReferenceStepOutcome
 ReferenceRunner::replay_fixed_position_decode_graph_p1(
     const std::uint32_t input_token_id,
     const bool measure_timing) noexcept {
+  if (whole_request_prefill_active()) {
+    return fail_step(runner_status(
+        ReferenceRunnerError::kInvalidStepOptions,
+        "whole_request_prefill_graph_replay_active"));
+  }
   ReferenceStepOptions options;
   options.compute_logits = true;
   options.capture_trace = false;
@@ -2244,6 +2341,11 @@ ReferenceStepOutcome ReferenceRunner::step_impl(
     const ReferenceStepOptions& options,
     const DecodeGraphP1Action graph_action,
     DecodeGraphP1Slot* const capture_destination) noexcept {
+  if (whole_request_prefill_active()) {
+    return fail_step(runner_status(
+        ReferenceRunnerError::kInvalidStepOptions,
+        "whole_request_prefill_step_impl_active"));
+  }
   using Clock = std::chrono::steady_clock;
   Clock::time_point started{};
   if (options.measure_timing) {
@@ -3469,10 +3571,27 @@ ReferenceRunnerStatus ReferenceRunner::collapse_prefill_layer_route_fragment(
   return {};
 }
 
+bool ReferenceRunner::same_prefill_execution_progress(
+    const PrefillExecutionProgress& left,
+    const PrefillExecutionProgress& right) noexcept {
+  return left.kv_visible_end == right.kv_visible_end &&
+         left.gdn_advanced_end == right.gdn_advanced_end &&
+         left.completed_panels == right.completed_panels &&
+         left.next_layer == right.next_layer &&
+         left.next_panel == right.next_panel &&
+         left.final_hidden_ready == right.final_hidden_ready &&
+         left.prefill_state_committed == right.prefill_state_committed;
+}
+
 ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
     const std::uint32_t* const input_token_ids,
     const std::size_t token_count,
     const ReferencePrefillTileOptions& options) noexcept {
+  if (whole_request_prefill_active()) {
+    return fail_prefill_tile(runner_status(
+        ReferenceRunnerError::kInvalidStepOptions,
+        "whole_request_prefill_legacy_tile_active"));
+  }
   using Clock = std::chrono::steady_clock;
   Clock::time_point started{};
   if (options.measure_timing) {
@@ -3629,6 +3748,305 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
   }
   ReferencePrefillTileOutcome outcome;
   outcome.value.emplace(std::move(tile));
+  return outcome;
+}
+
+ReferenceWholeRequestPrefillOutcome
+ReferenceRunner::prefill_whole_request_layer_major_compatibility_core(
+    const std::uint32_t* const input_token_ids,
+    const std::size_t token_count,
+    const PrefillExecutionPlan& immutable_topology,
+    const ReferenceWholeRequestPrefillOptions& options) noexcept {
+  using Clock = std::chrono::steady_clock;
+  Clock::time_point started{};
+  if (options.measure_timing) {
+    started = Clock::now();
+  }
+
+  if (whole_request_prefill_active()) {
+    return fail_whole_request_prefill(runner_status(
+        ReferenceRunnerError::kInvalidStepOptions,
+        "whole_request_prefill_stage_active"));
+  }
+  retained_prefill_hidden_valid_ = false;
+  trace_valid_ = false;
+  if (!static_cast<bool>(*this)) {
+    return fail_whole_request_prefill(runner_status(
+        ReferenceRunnerError::kInvalidRunner,
+        "whole_request_prefill"));
+  }
+  if (poisoned_) {
+    ReferenceWholeRequestPrefillOutcome outcome;
+    outcome.status = runner_status(ReferenceRunnerError::kPoisoned,
+                                   "whole_request_prefill");
+    return outcome;
+  }
+  if (!layer_major_request_views_.has_value() ||
+      state_->memory_profile() != RequestMemoryProfile::kLayerMajorC8192) {
+    return fail_whole_request_prefill(runner_status(
+        ReferenceRunnerError::kInvalidRequestState,
+        "whole_request_prefill_memory_profile"));
+  }
+  if (input_token_ids == nullptr || token_count == 0U ||
+      token_count > kLayerMajorPrefillMaximumSequenceTokens) {
+    return fail_whole_request_prefill(runner_status(
+        ReferenceRunnerError::kTokenOutOfRange,
+        "whole_request_prefill_tokens"));
+  }
+  for (std::size_t token = 0U; token < token_count; ++token) {
+    if (input_token_ids[token] >= kReferenceVocabularySize) {
+      return fail_whole_request_prefill(runner_status(
+          ReferenceRunnerError::kTokenOutOfRange,
+          "whole_request_prefill_token"));
+    }
+  }
+  if (!is_valid_unbound_layer_major_prefill_execution_plan(
+          immutable_topology) ||
+      immutable_topology.first_position != state_->current_position() ||
+      immutable_topology.prompt_token_count != token_count ||
+      immutable_topology.final_position > state_->max_sequence_length() ||
+      immutable_topology.final_commit.expected_initial_sequence_length !=
+          state_->current_position() ||
+      immutable_topology.final_commit.committed_sequence_length !=
+          immutable_topology.final_position) {
+    return fail_whole_request_prefill(runner_status(
+        ReferenceRunnerError::kInvalidStepOptions,
+        "whole_request_prefill_topology"));
+  }
+  if (!prefill_route_evidence_.request_active ||
+      prefill_route_evidence_.complete ||
+      prefill_route_evidence_.error != PrefillRouteEvidenceError::kNone) {
+    return fail_whole_request_prefill(runner_status(
+        ReferenceRunnerError::kRouteEvidenceFailure,
+        "whole_request_prefill_route_state"));
+  }
+
+  ReferenceLayerMajorRequestViews& layer_major =
+      *layer_major_request_views_;
+  DeviceMatrixView& prompt_residual =
+      layer_major.prompt_residual_bf16;
+  DeviceMatrixView& fixed_final_hidden =
+      layer_major.final_hidden_bf16;
+  if (prompt_residual.storage.device_data == nullptr ||
+      prompt_residual.columns != kReferenceHiddenSize ||
+      prompt_residual.row_stride_elements != kReferenceHiddenSize ||
+      prompt_residual.row_capacity < immutable_topology.final_position ||
+      fixed_final_hidden.storage.device_data == nullptr ||
+      fixed_final_hidden.row_capacity != 1U ||
+      fixed_final_hidden.columns != kReferenceHiddenSize ||
+      fixed_final_hidden.row_stride_elements != kReferenceHiddenSize) {
+    return fail_whole_request_prefill(runner_status(
+        ReferenceRunnerError::kInvalidRequestState,
+        "whole_request_prefill_typed_views"));
+  }
+  auto* const prompt_residual_base = static_cast<std::uint16_t*>(
+      prompt_residual.storage.device_data);
+  auto* const final_hidden = static_cast<std::uint16_t*>(
+      fixed_final_hidden.storage.device_data);
+
+  whole_request_prefill_stage_.phase =
+      WholeRequestPrefillStagePhase::kExecuting;
+  std::array<PrefillRouteEvidence,
+             kLayerMajorPrefillMaximumPanelCount>
+      panel_layer_passes{};
+  ReferencePrefillTileOptions segment_options;
+
+  for (std::size_t layer = 0U; layer < kReferenceDecoderLayerCount;
+       ++layer) {
+    for (std::size_t panel_index = 0U;
+         panel_index < immutable_topology.panel_count; ++panel_index) {
+      const PrefillOperatorPanel& panel =
+          immutable_topology.panels[panel_index];
+      PrefillLayerRouteReducer reducer;
+      std::uint32_t segment_position = panel.first_position;
+      std::size_t remaining = panel.token_count;
+      while (remaining != 0U) {
+        const std::size_t segment_token_count =
+            next_prefill_physical_segment_token_count(remaining);
+        if (!is_prefill_physical_segment_token_count(
+                segment_token_count) ||
+            segment_token_count > remaining ||
+            segment_position > panel.end_position ||
+            segment_token_count >
+                static_cast<std::size_t>(panel.end_position -
+                                         segment_position)) {
+          return fail_whole_request_prefill(runner_status(
+              ReferenceRunnerError::kInvalidStepOptions,
+              "whole_request_prefill_physical_segment", layer));
+        }
+
+        PrefillTileExecutionControl control;
+        control.first_position_override = segment_position;
+        control.layer_begin = layer;
+        control.layer_end = layer + 1U;
+        control.gather_embedding = layer == 0U;
+        control.apply_final_norm = false;
+        control.synchronize = false;
+        control.commit_state = false;
+        control.commit_route = false;
+        control.allow_scalar_m1_delegate = false;
+        control.allow_cross_layer_m32_fusion = false;
+        control.emit_commit_hooks = false;
+        PrefillTileExecutionSelection selection;
+        const ReferenceRunnerStatus selection_status =
+            select_prefill_tile_execution(
+                control, state_->current_position(),
+                state_->max_sequence_length(),
+                layer_major.descriptor.legacy_prefill_chunk_size,
+                segment_token_count, segment_options, selection);
+        if (!selection_status ||
+            selection.first_position != segment_position ||
+            selection.completed_position !=
+                segment_position + segment_token_count ||
+            selection.delegate_scalar_m1) {
+          return fail_whole_request_prefill(
+              selection_status
+                  ? runner_status(
+                        ReferenceRunnerError::kInvalidStepOptions,
+                        "whole_request_prefill_segment_selection", layer)
+                  : selection_status);
+        }
+
+        Views segment_views = views_;
+        segment_views.hidden[0] =
+            prompt_residual_base +
+            static_cast<std::size_t>(segment_position) *
+                prompt_residual.row_stride_elements;
+        const std::size_t prompt_offset =
+            static_cast<std::size_t>(segment_position -
+                                     immutable_topology.first_position);
+        const PrefillLayerSegmentEnqueueResult enqueued =
+            enqueue_prefill_layer_segment(
+                input_token_ids + prompt_offset, segment_token_count,
+                selection.first_position, control, segment_views);
+        if (!enqueued) {
+          return fail_whole_request_prefill(enqueued.status);
+        }
+        if (!enqueued.route_fragment.has_single_layer_segment) {
+          return fail_whole_request_prefill(runner_status(
+              ReferenceRunnerError::kRouteEvidenceFailure,
+              "whole_request_prefill_segment_route", layer));
+        }
+        const ReferenceRunnerStatus reduce_status =
+            reduce_prefill_layer_route_fragment(
+                enqueued.route_fragment.layer_segment, reducer);
+        if (!reduce_status) {
+          return fail_whole_request_prefill(reduce_status);
+        }
+        segment_position +=
+            static_cast<std::uint32_t>(segment_token_count);
+        remaining -= segment_token_count;
+      }
+      if (!reducer.initialized ||
+          reducer.route_fragment.first_position != panel.first_position ||
+          reducer.route_fragment.token_count != panel.token_count ||
+          segment_position != panel.end_position) {
+        return fail_whole_request_prefill(runner_status(
+            ReferenceRunnerError::kRouteEvidenceFailure,
+            "whole_request_prefill_panel_route", layer));
+      }
+      const ReferenceRunnerStatus collapse_status =
+          collapse_prefill_layer_route_fragment(
+              reducer.route_fragment,
+              panel_layer_passes[panel_index]);
+      if (!collapse_status) {
+        return fail_whole_request_prefill(collapse_status);
+      }
+    }
+  }
+
+  const std::uint32_t final_position =
+      immutable_topology.final_position - 1U;
+  const std::uint16_t* const final_residual =
+      prompt_residual_base +
+      static_cast<std::size_t>(final_position) *
+          prompt_residual.row_stride_elements;
+  const int final_norm_status =
+      launch_headwise_centered_rms_norm_reference_cuda(
+          final_residual, weights_->final_norm().data, 1U,
+          kReferenceHiddenSize, kRmsEpsilon, final_hidden, stream_);
+  if (final_norm_status != static_cast<int>(cudaSuccess)) {
+    return fail_whole_request_prefill(runner_status(
+        ReferenceRunnerError::kCudaFailure,
+        "whole_request_prefill_final_norm", kReferenceNoLayer,
+        final_norm_status));
+  }
+
+  const cudaError_t sync_status = cudaStreamSynchronize(
+      reinterpret_cast<cudaStream_t>(stream_));
+  if (sync_status != cudaSuccess) {
+    return fail_whole_request_prefill(runner_status(
+        ReferenceRunnerError::kCudaFailure,
+        "whole_request_prefill_synchronize", kReferenceNoLayer,
+        static_cast<int>(sync_status)));
+  }
+
+  PrefillExecutionProgress progress =
+      make_prefill_execution_progress(immutable_topology);
+  for (std::size_t layer = 0U; layer < kReferenceDecoderLayerCount;
+       ++layer) {
+    for (std::size_t panel_index = 0U;
+         panel_index < immutable_topology.panel_count; ++panel_index) {
+      if (advance_prefill_progress_after_completion(
+              immutable_topology, progress, layer, panel_index) !=
+          PrefillExecutionProgressError::kNone) {
+        return fail_whole_request_prefill(runner_status(
+            ReferenceRunnerError::kInvalidStepOptions,
+            "whole_request_prefill_progress", layer));
+      }
+    }
+  }
+  if (mark_prefill_final_hidden_ready(immutable_topology, progress) !=
+          PrefillExecutionProgressError::kNone ||
+      !prefill_final_commit_ready(immutable_topology, progress)) {
+    return fail_whole_request_prefill(runner_status(
+        ReferenceRunnerError::kInvalidStepOptions,
+        "whole_request_prefill_final_progress"));
+  }
+
+  PrefillRouteEvidence staged_route = prefill_route_evidence_;
+  for (std::size_t panel_index = 0U;
+       panel_index < immutable_topology.panel_count; ++panel_index) {
+    if (!commit_prefill_route_layer_pass(
+            staged_route, panel_layer_passes[panel_index])) {
+      return fail_whole_request_prefill(runner_status(
+          ReferenceRunnerError::kRouteEvidenceFailure,
+          "whole_request_prefill_route_merge"));
+    }
+  }
+  if (staged_route.error != PrefillRouteEvidenceError::kNone ||
+      staged_route.complete || !staged_route.request_active) {
+    return fail_whole_request_prefill(runner_status(
+        ReferenceRunnerError::kRouteEvidenceFailure,
+        "whole_request_prefill_route_forbidden"));
+  }
+
+  WholeRequestPrefillStage stage;
+  stage.phase = WholeRequestPrefillStagePhase::kAwaitingLogits;
+  stage.expected_initial_sequence_length = immutable_topology.first_position;
+  stage.committed_sequence_length = immutable_topology.final_position;
+  stage.final_position = final_position;
+  stage.final_input_token_id = input_token_ids[token_count - 1U];
+  stage.prompt_token_count = token_count;
+  stage.logical_panel_count = immutable_topology.panel_count;
+  stage.final_normalized_hidden = final_hidden;
+  stage.completed_uncommitted_progress = progress;
+  stage.route_evidence_after_commit = staged_route;
+  whole_request_prefill_stage_ = stage;
+
+  ReferenceWholeRequestPrefillResult result;
+  result.first_position = immutable_topology.first_position;
+  result.final_position = immutable_topology.final_position;
+  result.prompt_token_count = token_count;
+  result.logical_panel_count = immutable_topology.panel_count;
+  result.progress = progress;
+  if (options.measure_timing) {
+    const std::chrono::duration<double, std::milli> elapsed =
+        Clock::now() - started;
+    result.timing.emplace(ReferenceStepTiming{elapsed.count()});
+  }
+  ReferenceWholeRequestPrefillOutcome outcome;
+  outcome.value.emplace(std::move(result));
   return outcome;
 }
 
@@ -5076,6 +5494,12 @@ ReferenceStepOutcome ReferenceRunner::finish_prefill_from_retained_tile(
     started = Clock::now();
   }
 
+  if (whole_request_prefill_active()) {
+    return fail_step(runner_status(
+        ReferenceRunnerError::kInvalidStepOptions,
+        "whole_request_prefill_legacy_finalizer_active"));
+  }
+
   // Consume the hand-off before validation or launch. A failed finalization
   // poisons the request exactly like a failed ordinary step and can never
   // accidentally reuse a workspace row after another operation.
@@ -5261,6 +5685,353 @@ ReferenceStepOutcome ReferenceRunner::finish_prefill_from_retained_tile(
   ReferenceStepOutcome outcome;
   outcome.value.emplace(std::move(result));
   return outcome;
+}
+
+ReferenceStepOutcome
+ReferenceRunner::finish_whole_request_compatibility_core(
+    const std::uint32_t input_token_id,
+    const ReferenceStepOptions& options) noexcept {
+  using Clock = std::chrono::steady_clock;
+  Clock::time_point started{};
+  if (options.measure_timing) {
+    started = Clock::now();
+  }
+
+  if (whole_request_prefill_stage_.phase !=
+      WholeRequestPrefillStagePhase::kAwaitingLogits) {
+    return fail_step(runner_status(
+        ReferenceRunnerError::kInvalidStepOptions,
+        "whole_request_prefill_finalizer_stage"));
+  }
+  WholeRequestPrefillStage stage = whole_request_prefill_stage_;
+  whole_request_prefill_stage_.phase =
+      WholeRequestPrefillStagePhase::kExecuting;
+  if (!static_cast<bool>(*this)) {
+    return fail_step(runner_status(
+        ReferenceRunnerError::kInvalidRunner,
+        "finish_whole_request_from_uncommitted_final_hidden"));
+  }
+  if (poisoned_) {
+    return fail_step(runner_status(
+        ReferenceRunnerError::kPoisoned,
+        "finish_whole_request_from_uncommitted_final_hidden"));
+  }
+  if (!options.compute_logits || options.capture_trace ||
+      !is_valid_reference_logits_mode(options.logits_mode)) {
+    return fail_step(runner_status(
+        ReferenceRunnerError::kInvalidStepOptions,
+        "whole_request_prefill_logits_options"));
+  }
+  const std::uint16_t* const expected_final_hidden =
+      layer_major_request_views_.has_value()
+          ? static_cast<const std::uint16_t*>(
+                layer_major_request_views_->final_hidden_bf16.storage
+                    .device_data)
+          : nullptr;
+  bool complete_progress =
+      stage.completed_uncommitted_progress.next_layer ==
+          kReferenceDecoderLayerCount &&
+      stage.completed_uncommitted_progress.next_panel == 0U &&
+      stage.completed_uncommitted_progress.final_hidden_ready &&
+      !stage.completed_uncommitted_progress.prefill_state_committed;
+  for (std::size_t layer = 0U;
+       complete_progress && layer < kReferenceDecoderLayerCount; ++layer) {
+    const model::LayerType layer_type =
+        reference_runner_detail::expected_reference_layer_type(layer);
+    complete_progress =
+        stage.completed_uncommitted_progress.completed_panels[layer] ==
+            stage.logical_panel_count &&
+        (layer_type == model::LayerType::kFullAttention
+             ? stage.completed_uncommitted_progress.kv_visible_end[layer] ==
+                       stage.committed_sequence_length &&
+                   stage.completed_uncommitted_progress
+                           .gdn_advanced_end[layer] ==
+                       stage.expected_initial_sequence_length
+             : stage.completed_uncommitted_progress
+                           .gdn_advanced_end[layer] ==
+                       stage.committed_sequence_length &&
+                   stage.completed_uncommitted_progress
+                           .kv_visible_end[layer] ==
+                       stage.expected_initial_sequence_length);
+  }
+  if (stage.expected_initial_sequence_length !=
+          state_->current_position() ||
+      stage.committed_sequence_length == 0U ||
+      stage.final_position + 1U != stage.committed_sequence_length ||
+      stage.final_input_token_id != input_token_id ||
+      stage.final_normalized_hidden == nullptr ||
+      stage.final_normalized_hidden != expected_final_hidden ||
+      !complete_progress) {
+    return fail_step(runner_status(
+        ReferenceRunnerError::kInvalidStepOptions,
+        "whole_request_prefill_final_hidden_contract"));
+  }
+
+  ReferenceRunnerStatus launch_failure{};
+  const auto check_cuda = [&launch_failure](
+                              const int status,
+                              const char* const operation) noexcept {
+    if (status == static_cast<int>(cudaSuccess)) {
+      return true;
+    }
+    launch_failure = runner_status(ReferenceRunnerError::kCudaFailure,
+                                   operation, kReferenceNoLayer, status);
+    return false;
+  };
+  const bool prediction_only =
+      options.logits_mode == ReferenceLogitsMode::kPredictedTokenOnly;
+  const bool use_sm87_bf16_logits =
+      projection_backend_ == ProjectionBackend::kSm87WeightOnly &&
+      linear_weight_kind(weights_->lm_head()) != LinearWeightKind::kBf16;
+  const auto stream = reinterpret_cast<cudaStream_t>(stream_);
+
+  if (use_sm87_bf16_logits) {
+    auto* const device_bf16_logits =
+        reinterpret_cast<std::uint16_t*>(views_.fp32_scratch);
+    if (!check_cuda(
+            launch_projection_to_bf16_cuda(
+                projection_backend_, weights_->lm_head(),
+                stage.final_normalized_hidden, nullptr, 0U,
+                device_bf16_logits, stream_),
+            "whole_request_prefill_lm_head_sm87_bf16")) {
+      return fail_step(launch_failure);
+    }
+    if (prediction_only) {
+      constexpr std::size_t kGreedyWorkspaceBytes =
+          kReferenceVocabularySize * sizeof(std::uint16_t) +
+          kBf16GreedyArgmaxWorkspaceResults *
+              sizeof(Bf16GreedyArgmaxResult);
+      static_assert((kReferenceVocabularySize * sizeof(std::uint16_t)) %
+                            alignof(Bf16GreedyArgmaxResult) ==
+                        0U);
+      if (views_.fp32_scratch_elements <
+          (kGreedyWorkspaceBytes + sizeof(float) - 1U) /
+              sizeof(float)) {
+        return fail_step(runner_status(
+            ReferenceRunnerError::kInvalidRequestState,
+            "whole_request_prefill_bf16_greedy_argmax_workspace"));
+      }
+      auto* const greedy_workspace =
+          reinterpret_cast<Bf16GreedyArgmaxResult*>(
+              device_bf16_logits + kReferenceVocabularySize);
+      if (!check_cuda(
+              launch_bf16_greedy_argmax_cuda(
+                  device_bf16_logits, kReferenceVocabularySize,
+                  greedy_workspace, stream_),
+              "whole_request_prefill_bf16_greedy_argmax") ||
+          !check_cuda(
+              static_cast<int>(cudaMemcpyAsync(
+                  pinned_logits_, greedy_workspace,
+                  sizeof(Bf16GreedyArgmaxResult), cudaMemcpyDeviceToHost,
+                  stream)),
+              "whole_request_prefill_logits_prediction_d2h")) {
+        return fail_step(launch_failure);
+      }
+    } else if (!check_cuda(
+                   static_cast<int>(cudaMemcpyAsync(
+                       pinned_logits_, device_bf16_logits,
+                       kReferenceVocabularySize * sizeof(std::uint16_t),
+                       cudaMemcpyDeviceToHost, stream)),
+                   "whole_request_prefill_logits_bf16_d2h")) {
+      return fail_step(launch_failure);
+    }
+  } else if (!check_cuda(
+                 launch_projection_reference_cuda(
+                     weights_->lm_head(), stage.final_normalized_hidden,
+                     views_.fp32_scratch, stream_),
+                 "whole_request_prefill_lm_head") ||
+             !check_cuda(
+                 static_cast<int>(cudaMemcpyAsync(
+                     pinned_logits_, views_.fp32_scratch,
+                     kReferenceVocabularySize * sizeof(float),
+                     cudaMemcpyDeviceToHost, stream)),
+                 "whole_request_prefill_logits_d2h")) {
+    return fail_step(launch_failure);
+  }
+
+  const cudaError_t sync_status = cudaStreamSynchronize(stream);
+  if (sync_status != cudaSuccess) {
+    return fail_step(runner_status(
+        ReferenceRunnerError::kCudaFailure,
+        "whole_request_prefill_logits_synchronize", kReferenceNoLayer,
+        static_cast<int>(sync_status)));
+  }
+
+  ReferenceStepResult result;
+  result.position = stage.final_position;
+  result.input_token_id = input_token_id;
+  if (prediction_only && use_sm87_bf16_logits) {
+    const auto& greedy =
+        *static_cast<const Bf16GreedyArgmaxResult*>(pinned_logits_);
+    if (greedy.has_nonfinite != 0U) {
+      return fail_step(runner_status(
+          ReferenceRunnerError::kNonFiniteLogits,
+          "whole_request_prefill_bf16_greedy_argmax"));
+    }
+    if (greedy.index >= kReferenceVocabularySize) {
+      return fail_step(runner_status(
+          ReferenceRunnerError::kCudaFailure,
+          "whole_request_prefill_bf16_greedy_argmax_result"));
+    }
+    result.prediction.emplace(ReferenceStepPrediction{greedy.index});
+  } else {
+    const reference_runner_detail::LogitsAnalysis analysis =
+        use_sm87_bf16_logits
+            ? reference_runner_detail::analyze_bf16_logits_bits(
+                  static_cast<const std::uint16_t*>(pinned_logits_),
+                  kReferenceVocabularySize)
+            : (prediction_only
+                   ? reference_runner_detail::analyze_bf16_argmax_in_place(
+                         static_cast<float*>(pinned_logits_),
+                         kReferenceVocabularySize)
+                   : reference_runner_detail::analyze_bf16_logits_in_place(
+                         static_cast<float*>(pinned_logits_),
+                         kReferenceVocabularySize));
+    if (!analysis.ok()) {
+      return fail_step(runner_status(
+          ReferenceRunnerError::kNonFiniteLogits,
+          "whole_request_prefill_bf16_logits_analysis"));
+    }
+    if (prediction_only) {
+      result.prediction.emplace(ReferenceStepPrediction{
+          static_cast<std::uint32_t>(analysis.predicted_index)});
+    } else {
+      ReferenceStepLogits logits;
+      logits.predicted_token_id =
+          static_cast<std::uint32_t>(analysis.predicted_index);
+      logits.chosen_logit = analysis.maximum;
+      logits.max_log_probability = analysis.max_log_probability;
+      logits.logsumexp = analysis.logsumexp;
+      result.logits.emplace(logits);
+    }
+  }
+  if (options.measure_timing) {
+    const std::chrono::duration<double, std::milli> elapsed =
+        Clock::now() - started;
+    result.timing.emplace(ReferenceStepTiming{elapsed.count()});
+  }
+
+  stage.phase = WholeRequestPrefillStagePhase::kAwaitingCommit;
+  whole_request_prefill_stage_ = stage;
+  ReferenceStepOutcome outcome;
+  outcome.value.emplace(std::move(result));
+  return outcome;
+}
+
+ReferenceRunnerStatus
+ReferenceRunner::commit_whole_request_layer_major_compatibility_core(
+    const PrefillExecutionPlan& immutable_topology,
+    const PrefillExecutionProgress&
+        completed_uncommitted_progress) noexcept {
+  if (whole_request_prefill_stage_.phase !=
+      WholeRequestPrefillStagePhase::kAwaitingCommit) {
+    return fail_whole_request_status(runner_status(
+        ReferenceRunnerError::kInvalidStepOptions,
+        "whole_request_prefill_commit_stage"));
+  }
+  const WholeRequestPrefillStage stage =
+      whole_request_prefill_stage_;
+  if (!static_cast<bool>(*this)) {
+    return fail_whole_request_status(runner_status(
+        ReferenceRunnerError::kInvalidRunner,
+        "whole_request_prefill_commit"));
+  }
+  if (poisoned_) {
+    return fail_whole_request_status(runner_status(
+        ReferenceRunnerError::kPoisoned,
+        "whole_request_prefill_commit"));
+  }
+  const std::uint16_t* const expected_final_hidden =
+      layer_major_request_views_.has_value()
+          ? static_cast<const std::uint16_t*>(
+                layer_major_request_views_->final_hidden_bf16.storage
+                    .device_data)
+          : nullptr;
+  if (state_->memory_profile() != RequestMemoryProfile::kLayerMajorC8192 ||
+      !is_valid_unbound_layer_major_prefill_execution_plan(
+          immutable_topology) ||
+      immutable_topology.first_position !=
+          stage.expected_initial_sequence_length ||
+      immutable_topology.final_position !=
+          stage.committed_sequence_length ||
+      immutable_topology.prompt_token_count != stage.prompt_token_count ||
+      immutable_topology.panel_count != stage.logical_panel_count ||
+      immutable_topology.final_position == 0U ||
+      immutable_topology.final_position - 1U != stage.final_position ||
+      state_->current_position() !=
+          stage.expected_initial_sequence_length ||
+      stage.final_normalized_hidden == nullptr ||
+      stage.final_normalized_hidden != expected_final_hidden ||
+      !same_prefill_execution_progress(
+          completed_uncommitted_progress,
+          stage.completed_uncommitted_progress) ||
+      !prefill_final_commit_ready(
+          immutable_topology, completed_uncommitted_progress)) {
+    return fail_whole_request_status(runner_status(
+        ReferenceRunnerError::kInvalidStepOptions,
+        "whole_request_prefill_commit_contract"));
+  }
+
+  const PrefillRouteEvidence& staged_route =
+      stage.route_evidence_after_commit;
+  if (!prefill_route_evidence_.request_active ||
+      prefill_route_evidence_.complete ||
+      prefill_route_evidence_.error != PrefillRouteEvidenceError::kNone ||
+      !staged_route.request_active || staged_route.complete ||
+      staged_route.error != PrefillRouteEvidenceError::kNone ||
+      prefill_route_evidence_.completed_layer_passes >
+          std::numeric_limits<std::uint64_t>::max() -
+              stage.logical_panel_count ||
+      staged_route.completed_layer_passes !=
+          prefill_route_evidence_.completed_layer_passes +
+              stage.logical_panel_count) {
+    return fail_whole_request_status(runner_status(
+        ReferenceRunnerError::kRouteEvidenceFailure,
+        "whole_request_prefill_commit_route"));
+  }
+  for (const PrefillOperatorRouteCounts& counts :
+       staged_route.operators) {
+    if (counts.forbidden_hits != 0U) {
+      return fail_whole_request_status(runner_status(
+          ReferenceRunnerError::kRouteEvidenceFailure,
+          "whole_request_prefill_commit_forbidden_route"));
+    }
+  }
+  for (const std::uint64_t hits :
+       staged_route.forbidden_boundary_hits) {
+    if (hits != 0U) {
+      return fail_whole_request_status(runner_status(
+          ReferenceRunnerError::kRouteEvidenceFailure,
+          "whole_request_prefill_commit_forbidden_boundary"));
+    }
+  }
+
+  PrefillExecutionProgress publication_probe =
+      completed_uncommitted_progress;
+  if (publish_prefill_state_committed(
+          immutable_topology, publication_probe) !=
+          PrefillExecutionProgressError::kNone ||
+      !publication_probe.prefill_state_committed) {
+    return fail_whole_request_status(runner_status(
+        ReferenceRunnerError::kInvalidStepOptions,
+        "whole_request_prefill_commit_progress"));
+  }
+
+  const RequestOperationStatus publication =
+      state_->publish_sequence_length(
+          stage.expected_initial_sequence_length,
+          stage.committed_sequence_length);
+  if (!publication) {
+    return fail_whole_request_status(runner_status(
+        ReferenceRunnerError::kStateCommitFailure,
+        "whole_request_prefill_commit_publish", kReferenceNoLayer,
+        publication.cuda_error));
+  }
+
+  // No fallible operation may follow the sole host-state publication.
+  prefill_route_evidence_ = staged_route;
+  whole_request_prefill_stage_ = {};
+  return {};
 }
 
 ReferenceRunnerFactoryResult create_reference_runner(

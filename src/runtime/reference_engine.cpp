@@ -3943,6 +3943,21 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
     generation.prefill_route_evidence =
         impl_->runner->finalize_prefill_route_evidence(
             generation.prefill_logical_panel_count);
+    if (!generation.prefill_route_evidence.complete ||
+        !generation.prefill_route_evidence.valid ||
+        generation.prefill_route_evidence.request_active ||
+        generation.prefill_route_evidence.error !=
+            PrefillRouteEvidenceError::kNone ||
+        generation.prefill_route_evidence.completed_layer_passes !=
+            generation.prefill_route_evidence.expected_layer_passes) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kRunnerStepFailure,
+          "prefill_route_evidence",
+          "runner did not publish a complete valid Prefill route witness",
+          std::string(to_string(
+              generation.prefill_route_evidence.error)));
+      return result;
+    }
     generation.steps = std::move(control.value->steps);
     generation.traces = std::move(traces);
     generation.decode_graph_replays = step_context.decode_graph_replays;
