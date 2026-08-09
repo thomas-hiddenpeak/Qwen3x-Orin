@@ -16,14 +16,16 @@ q3x_document:
 # Qwen3x-Orin current status
 
 Snapshot date: 2026-08-09. Implementation facts include committed revision
-`21d5c28` and its default-off v5 exact-Marlin M8192 projection route.
-Performance and qualification claims remain tied to their exact artifacts and
-evidence authority. Clean P513, P8192, and P7712 state screens passed, but the
-subsequent cold/no-cache P40K real-API gate reached 670.53071 s EvalScope TTFT
-and 670.486890 s server pure Prefill. The composition produced no system
-improvement, is closed without P60K, and does not revise production or
-architecture-selection status. The faster grouped-Q64 observations remain
-accuracy-unqualified and cannot be promoted.
+`c45b7c5` and its default-off v6 exact FlashInfer logical-panel Attention
+route. Performance and qualification claims remain tied to their exact
+artifacts and evidence authority. Its clean-host cold/no-cache P40K real-API
+screen reached 109.02622 s EvalScope TTFT and 108.981855 s server pure
+Prefill, or 367.033577 prompt tok/s: 6.15x faster than the preceding exact
+route. This is a retained architecture direction, not a product-gate pass.
+The P513 full-state hash differs; the P40K first output `The` matches the
+preceding exact route, but that single token is not an accuracy gate. The
+route therefore remains default-off and accuracy-unqualified. P60K and P130K
+were not run, and production status is unchanged.
 
 This is the single point-in-time status page. It records what is target,
 designed, implemented, qualified, and production. Architecture contracts
@@ -116,6 +118,28 @@ The fastest P40K grouped-Q64 screen remains 179.51119 s EvalScope TTFT and
 accuracy-unqualified. It is an architectural upper-bound clue, not a
 production candidate.
 
+Revision `c45b7c5` adds the first executable slice of
+`AC-PREFILL-PROMPT-WIDE-v2`: `native-flashinfer-exact-panel` submits one
+M8192 or M7712 logical causal-Attention panel through the authenticated
+FlashInfer backend with FP32 online-softmax state and no QT2, Q64, or Q128
+compatibility dispatch. The P40K witness recorded 80 such Attention hits and
+zero generic Attention hits while consuming the unchanged `3x8192 + 2x7712`
+topology. EvalScope TTFT fell to 109.02622 s and server pure Prefill to
+108.981855 s, 367.033577 tok/s. Relative to the preceding exact v5 route this
+is a 6.15x speedup and 83.75% latency reduction; it is also 1.65x faster than
+the grouped-Q64 development direction. External TTFT exceeded server TTFT by
+only 3.874726 ms, so the API is still not the bottleneck.
+
+The result retains the logical-panel Attention dataflow but does not qualify
+its arithmetic. The real-model P513 screen preserved token `9419`/`Hello`
+while producing a different full-state hash. The P40K response `The` matches
+the preceding exact P40K route, but a matching first token does not qualify the
+new reduction order. The route is BUILD_TESTING-admitted, explicitly selected,
+and reports an unqualified numerical contract. It cannot become the default or
+production route until the complete no-regression gate closes. Exact evidence
+is frozen in the
+[v6 P40K API record](metadata/qwen36-27b-prefill-p40k-flashinfer-exact-panel-api-2026-08-09.json).
+
 Accordingly, current product status is **implemented evaluation runner,
 unqualified production runner**.
 
@@ -128,10 +152,10 @@ unqualified production runner**.
 | OpenAI-compatible evaluation API | Implemented | `/healthz`, `/v1/models`, completions/chat, non-streaming and committed-token SSE; explicit layer-major mode has bounded Prefill cancellation | Loopback/evaluation-only; no production exposure, security, admission, or multi-tenant contract |
 | Production serving API | Designed | Product/API contract is defined in the SDD | No installed release profile or release attestation exists |
 | Default context capacity | Implemented at 8,192 | Server default `max_sequence_length=8192`, maximum output 4,096, 2 GiB request-arena limit | Does not admit the locked long-context workloads |
-| 40K/60K/130K cold/no-cache service | Target; unqualified P40K development routes exercised | Token-ID ingress fails closed on capacity; exact and grouped-Q64 routes consumed all 40K tokens through the real API | Latest exact P40K is 670.53071 s TTFT and rejected; fastest 179.51119-s grouped-Q64 route changes output and is accuracy-unqualified; P60K/P130K, whole-process capacity, and qualification remain open |
+| 40K/60K/130K cold/no-cache service | Target; unqualified P40K development routes exercised | Token-ID ingress fails closed on capacity; the v6 exact logical-panel Attention route consumed all 40K tokens through the real API at 109.02622 s TTFT / 367.033577 pure prompt tok/s and matched the preceding exact route's first token | The result is still 11.72x below the owner's 4.3K tok/s vLLM starting line and 54.49x above the 2-s P40K target; P513 full state differs, and P60K/P130K, whole-process capacity, and qualification remain open |
 | Prefill/Decode logical separation | Implemented in part | Separate phase APIs/metrics and an explicit state transition exist | Shared runner and synchronization-heavy physical plan prevent independent utilization and overlap |
-| Layer-major C8192 candidate | Executable compatibility route plus default-off unqualified panel experiments | Sealed Engine transaction and role receipts remain; grouped Attention emits v3/v4 evidence, the segmented projection wrapper emits v4, and the M8192 exact-Marlin projection route emits v5 with separate bulk/partial counters | The v5 route failed its P40K system gate; all candidate tactics remain default-off, accuracy qualification is open, and the next prompt-wide architecture is not yet implemented |
-| Large-M Prefill specializations | One exact-Marlin M8192 single-bulk route is implemented; complete large-M architecture remains incomplete | The clean M8192 and partial-panel state screens passed and the admitted route bypasses host segmentation at exact M8192 | P40K reached only 59.658139 tok/s: the underlying Marlin kernel still decomposes large M internally, M7712 retains the span ledger, and shape-specific Gate/Up, Down, FP8, exact Attention, BF16 A/B, and GDN dataflows remain required |
+| Prompt-wide Prefill candidate | First executable v2 slice; default-off and accuracy-unqualified | Sealed Engine transaction and role receipts remain; v6 submits exact logical-panel Attention through FlashInfer with 80 P40K hits and zero QT2/Q64/Q128 hits; its P40K first token matches the preceding exact route | The P513 state hash differs, full accuracy qualification is not run, projection/BF16 A/B/GDN are still physically segmented, and the route is neither competitive nor production-admissible |
+| Large-M Prefill specializations | Exact logical-panel Attention plus one old-Marlin M8192 wrapper are implemented; complete large-M architecture remains incomplete | FlashInfer removes repeated causal-KV scans at M8192/M7712 and the admitted projection route bypasses host segmentation at exact M8192 | Projection still records 13,104 physical launches and the old Marlin body decomposes large M internally; separate true-large-M Gate/Up and Down tactics, then FP8, BF16 A/B, and GDN dataflows remain required |
 | Decode target | Directionally near target | Short API evidence reports about 104 ms TPOT | At least 10 token/s, long-output stability, and release repetition are not qualified |
 | Production accuracy | Target with partial oracles | Exact deterministic outputs are available for selected prompts/routes | No complete public capability baseline and promotion gate has passed |
 | AOT DeploymentPlan | Implemented internally for the development route; release artifact still designed | Engine-lifetime sealed plan binds model/state/resources/operator identities and one-shot request receipts | No authenticated installed plan artifact is loaded and attested by the default release |
@@ -462,25 +486,34 @@ The explicit development route now implements the whole-request response:
 - a two-slot layer-panel submission window with bounded API cancellation and
   v2 success evidence.
 
-The exact integration remains a compatibility executor whose physical work is
-segmented and test-admitted. The explicit grouped-Q64 experiment changes the
-Attention arithmetic and the connected segmented-Marlin wrapper does not
+The v1 exact integration remains a compatibility executor whose physical work
+is segmented and test-admitted. The explicit grouped-Q64 experiment changes
+the Attention arithmetic and the connected segmented-Marlin wrapper does not
 remove projection segmentation: its P40K v4 witness records 12,992 physical
-projection launches. The wrapper's 179.51119-s API result failed the 165-s
-stop-loss and remains accuracy-unqualified. The v5 projection tactic removes
-software-visible segmentation only for complete M8192 panels; the underlying
-Marlin body still decomposes large M internally and every partial panel retains
-the exact span ledger. Its 670.53071-s exact-Attention API result failed the
-system gate, so this composition is also closed without P60K.
+projection launches. The v5 projection tactic removes software-visible
+segmentation only for complete M8192 panels; the underlying Marlin body still
+decomposes large M internally and every partial panel retains the exact span
+ledger. Its 670.53071-s exact-Attention API result closed that composition.
 
-The active architecture response is prompt-wide and shape-specific: exact
-online-softmax Attention must operate on one logical M8192/M7712 panel rather
-than repeated C512 host spans; NVFP4 Gate/Up and Down and each FP8 projection
-family need tactics matched to their different N/K geometry with real cross-row
-weight reuse; BF16 A/B and GDN must eliminate recursive span dispatch while
-preserving exact recurrent boundaries. This is a new composed dataflow, not an
-extension of the rejected v5 local scan. P60K/P130K stay deferred until the
-same P40K API witness is competitive and accuracy-admissible.
+The first v2 slice now replaces repeated exact QT2 Attention with one
+FlashInfer logical-panel graph per Attention layer and panel. On the same P40K
+API workload, 80 v6 hits and zero QT2/Q64/Q128 hits reduced pure Prefill to
+108.981855 s. This material product movement retains the prompt-wide
+Attention dataflow. It does not relax the accuracy boundary: P513 state
+diverges and the P40K single-token match is insufficient, so the candidate
+remains unqualified and default-off.
+
+The active architecture response now moves to the remaining largest coupled
+package: separate true-large-M NVFP4 Gate/Up and Down tactics covering both
+M8192 and M7712, followed by shape-specific FP8 QKV/Z/O. Existing same-payload
+T4 evidence provides a design-level remaining budget of about 51.96 s NVFP4,
+26.07 s FP8, 5.43 s recursive BF16 A/B, about 12.96 s FlashInfer Attention,
+and about 12.57 s GDN/other. Those transferred numbers are not a new c45b7c5
+profile, but they make projection redesign unambiguously P0; another full P40K
+trace before implementation would not change the decision. BF16 A/B and GDN
+must then eliminate recursive span dispatch while preserving exact recurrent
+boundaries. P60K/P130K stay deferred until the same P40K API witness is
+competitive and accuracy-admissible.
 
 Unpinned or dirty experimental branches are intentionally excluded from this
 status snapshot. A candidate affects current truth only after its exact commit,
@@ -497,7 +530,7 @@ active dependency order and exit criteria are in
 | --- | --- | --- |
 | Product API and long-context admission | Configured token-ID validation and host requirement plans exist; 40K/60K/130K still do not fit or execute through the default contract | P1 |
 | Exact deliverable identity | No unique `BUILD_TESTING=OFF` release or authenticated DeploymentPlan | P2 |
-| Target-length performance and physical Prefill plan | The exact-Attention v5 P40K request reached 670.53071 s TTFT and only 59.658139 tok/s; API overhead was negligible, and the M8192-only composition is closed. The 179.51119-s grouped-Q64 upper-bound route is accuracy-unqualified. A prompt-wide exact Attention, true shape-specific large-M projection, BF16 A/B, and GDN architecture remains open | P3 |
+| Target-length performance and physical Prefill plan | The v6 exact logical-panel Attention route retained a 6.15x P40K direction at 109.02622 s TTFT / 367.033577 pure prompt tok/s with negligible API overhead. P513 full state diverges, the P40K one-token match is insufficient for qualification, and performance remains 11.72x below the 4.3K tok/s starting line. True shape-specific NVFP4 and FP8 projection, BF16 A/B, GDN, and Attention accuracy closure remain open | P3 |
 | Accuracy, capability, stability, and release evidence | Partial deterministic oracles; no complete qualification bundle | P4 |
 | Packaging and operations | No attested install/startup/upgrade lane | P5 |
 
@@ -515,12 +548,14 @@ process/device-handle inspection, never `nvidia-smi` as the idle authority.
 
 Until the gaps above close, use the following language:
 
-- **Current:** real-model native evaluation runner with explicit, default-off,
-  accuracy-unqualified grouped-Q64 and segmented-projection experiments plus a
-  state-screened exact-Marlin M8192 projection route. The latter reached only
-  59.658139 tok/s on the cold/no-cache P40K exact-Attention API witness and is
-  closed as a system direction. The faster grouped-Q64 route changes output.
-  Exact/default routes and production status are unchanged.
+- **Current:** real-model native evaluation runner with an explicit,
+  default-off v6 FlashInfer exact logical-panel Attention candidate. It reached
+  367.033577 pure prompt tok/s on the cold/no-cache P40K API witness, 6.15x
+  faster than the preceding exact route, while eliminating QT2/Q64/Q128
+  Attention dispatch. Its P513 state hash differs; its P40K first token matches
+  the preceding exact route but is not an accuracy gate. It is retained only
+  as an architecture direction. Exact/default routes and production status are
+  unchanged.
 - **Not current:** production server, 40K--130K support, release-grade vLLM
   parity, 1,224.7335 tok/s lossless Prefill, or a fully qualified 10 token/s
   Decode release.

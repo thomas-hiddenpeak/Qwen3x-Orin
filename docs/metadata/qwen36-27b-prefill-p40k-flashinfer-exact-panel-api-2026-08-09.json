@@ -1,0 +1,281 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-p40k-flashinfer-exact-panel-api-2026-08-09",
+  "measured_at": "2026-08-09T23:39:26+08:00",
+  "recorded_at": "2026-08-09T23:48:23+08:00",
+  "timezone": "Asia/Shanghai",
+  "status": "retained_material_direction_default_off_accuracy_unqualified",
+  "policy": {
+    "evidence_tier": "T3",
+    "protocol_class": "EXTERNAL_API_P40K_SINGLE_REQUEST_DIRECTION",
+    "decision_unit": "architecture_candidate",
+    "architecture_candidate_id": "AC-PREFILL-PROMPT-WIDE-v2",
+    "early_stop_authority": true,
+    "architecture_selection_authority": false,
+    "release_performance_authority": false,
+    "production_promotion_authority": false,
+    "default_route_changed": false,
+    "production_eligible": false,
+    "numerical_contract_qualified": false,
+    "accuracy_gate": "NOT_RUN",
+    "cublaslt_production_eligibility": false,
+    "mtp_used": false
+  },
+  "source": {
+    "branch": "codex/prefill-target-path",
+    "commit": "c45b7c581cbed11672b2ebe48d17622b02b68048",
+    "tree": "2f7d1c335914fd1d1d747786c0a7c00ae1fa9205",
+    "subject": "prefill: add exact FlashInfer logical-panel attention",
+    "measurement_tree_clean": true,
+    "binary": {
+      "measurement_path": ".q3x-work/build/prefill-m8192-21d5c28/qwen3x-eval-server",
+      "bytes": 12782616,
+      "sha256": "ea2527cd04bfe06eef8a34d3ff5fe61fba9ec68228e28fb9d2d0b10a4141bde1",
+      "elf_build_id": "12819109fd54babc7950f8b5c407926b297abeaf",
+      "checked_in": false,
+      "build_type": "Release",
+      "build_testing": true,
+      "cuda_architecture": "sm_87",
+      "admissions": {
+        "fp8_marlin_prefill": true,
+        "nvfp4_marlin_prefill": true,
+        "gdn_chunk64_native": true,
+        "bf16_ab_large_m_prefill": true,
+        "flashinfer_prefill_attention": true
+      }
+    }
+  },
+  "checkpoint": {
+    "repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "local_path": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "access": "read_only",
+    "config_sha256": "c04a19ba293737ad7be4f6e96d6666cb7e479cbe19ecc0c289fad267135b0338",
+    "quantization_config_sha256": "fd7200cd8bca2a8a5d777061521abf83e2deb97ab6bc2f04e7a0a3d3f8ecd5c1",
+    "index_sha256": "7aa103a2582b7d26631988de33dea19e8a308ee9c239e8e14feb374af30905e2",
+    "tokenizer_json_sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42"
+  },
+  "real_model_direction_screen": {
+    "test_binary_path": ".q3x-work/build/prefill-m8192-21d5c28/q3x_reference_prefill_operator_panel_equivalence_e2e_test",
+    "test_binary_bytes": 12634424,
+    "test_binary_sha256": "b97571d34d3ade9e799f9f01b4950304b059ae8916dceaf1760063af09266320",
+    "test_binary_elf_build_id": "c2f852a885b333bbe4f84f94f70141c0320c97cc",
+    "prompt_tokens": 513,
+    "generated_token": 9419,
+    "generated_text": "Hello",
+    "output_exact": true,
+    "route_exact": true,
+    "route_contract": true,
+    "state_exact": false,
+    "oracle_state_sha256": "7b76b55c9980646e3294b8979c29c86c3d19cdb9ca973665eefd941dc1134c93",
+    "candidate_state_sha256": "0ba310e26c94deba3dd6c110bfe46088279fba6b6d70c1d72dbba6cf6997cced",
+    "native_flashinfer_exact_panel_hits": 16,
+    "generic_qt2_hits": 0,
+    "direction_gate": "PASS",
+    "accuracy_gate": "NOT_RUN",
+    "qualification": "ACCURACY_UNQUALIFIED",
+    "raw_log_sha256": "7bb1ee18795096dd6ab2bc28c107f323067ec0b3dce4519ca969ae89bc460300",
+    "preflight_sha256": "61d753bd441b655c0f2b7d8813531500aec4ac1b293b91d2c546b2ac83d14d6f",
+    "interpretation": "The real model reaches the new route and preserves the first token at P513, but the full state hash differs. This is a direction screen, not accuracy qualification."
+  },
+  "workload": {
+    "framework": "EvalScope",
+    "framework_version": {
+      "declared": "1.9.1",
+      "artifact_self_attested": false
+    },
+    "api": "openai",
+    "endpoint": "/v1/completions",
+    "url": "http://127.0.0.1:18083/v1/completions",
+    "corpus_path": ".q3x-work/evalscope/corpora/q3x-repository-agent-context-p40000-one-token.jsonl",
+    "corpus_sha256": "8970ac50693f49d1b27d35a0610ecbe5072594330d69b301f4dab731789b6844",
+    "corpus_manifest_path": ".q3x-work/evalscope/corpora/q3x-repository-agent-context-p40k-p60k.manifest.json",
+    "corpus_manifest_sha256": "bf7a458d8406a39ca59187ae77bee2a52f0738758202d2c7280bff346ccd22ff",
+    "prompt_kind": "token_ids",
+    "prompt_tokens": 40000,
+    "prompt_token_ids_u32le_sha256": "76cd23e2d60a9473af0ff24767b1b7ca614b36857697b420246731165156f78f",
+    "request_body_sha256": "e6f5817ad868e85c333db1961fa3dc14c7e65247f0a4241e8bb638870b6575ec",
+    "prompt_fully_consumed": true,
+    "consumed_prompt_tokens": 40000,
+    "measured_requests": 1,
+    "successful_requests": 1,
+    "failed_requests": 0,
+    "warmup_requests": 0,
+    "parallel": 1,
+    "output_tokens": 1,
+    "observed_output_text": "The",
+    "prior_exact_route_output_text": "The",
+    "first_token_matches_prior_exact_route": true,
+    "temperature": 0.0,
+    "seed": 42,
+    "stream": true,
+    "prefix_cache": false,
+    "mtp": false
+  },
+  "server_configuration": {
+    "max_sequence_length": 60001,
+    "max_output_tokens": 1,
+    "prefill_chunk_size": 512,
+    "prefill_execution_mode": "layer-major",
+    "prefill_projection_tactic": "native-quantized-large-m-operator-panel",
+    "prefill_attention_tactic": "native-flashinfer-exact-panel",
+    "projection_backend": "sm87",
+    "queue_capacity": 1,
+    "ingress_threads": 3,
+    "request_max_arena_bytes": 5600000000,
+    "minimum_free_bytes": 4294967296,
+    "nvtx_phase_ranges": false
+  },
+  "route": {
+    "witness_schema": "target-prefill-witness-v6",
+    "deployment_plan_id": "q3x.sm87.ac-prefill-prompt-wide-v2.native-quantized-large-m-operator-panel.native-flashinfer-exact-panel-attention.v1",
+    "qualification": "accuracy-unqualified-architecture-candidate",
+    "numerical_contract_qualified": false,
+    "logical_panel_geometry": "3x8192 + 2x7712",
+    "logical_panel_count": 5,
+    "operator_panel_executor_hits": 320,
+    "submission_window_retirements": 320,
+    "native_flashinfer_exact_panel_hits": 80,
+    "native_group_q64_panel_hits": 0,
+    "native_group_q128_v4_panel_hits": 0,
+    "generic_qt2_hits": 0,
+    "native_large_m_projection_hits": 1680,
+    "native_large_m_projection_bulk_hits": 1008,
+    "native_large_m_projection_oracle_partial_hits": 672,
+    "native_large_m_projection_physical_launches": 13104,
+    "completed_exact_fallback_hits": 0,
+    "completed_forbidden_hits": 0,
+    "production_operator_hits": {
+      "nvfp4_gate_up": 320,
+      "nvfp4_down": 320,
+      "fp8_qkv": 480,
+      "fp8_z": 240,
+      "fp8_o": 320,
+      "attention": 80,
+      "gdn": 240
+    },
+    "forbidden_route_hits": {
+      "prefix_cache": 0,
+      "mtp": 0,
+      "cublaslt": 0,
+      "external_reference": 0,
+      "approximate_numerics": 0
+    }
+  },
+  "timing": {
+    "evalscope": {
+      "ttft_ms": 109026.22,
+      "request_latency_ms": 109026.25474496745,
+      "first_chunk_latency_ms": 109026.21554397047,
+      "whole_workload_prompt_tok_s": 366.88410597582566,
+      "reported_total_tok_s": 366.8933
+    },
+    "server": {
+      "queue_ms": 0.01952,
+      "admission_ms": 9.640411,
+      "generation_call_wall_ms": 109010.673696,
+      "pure_prefill_ms": 108981.854892,
+      "pure_prefill_tok_s": 367.03357673293067,
+      "finish_prefill_ms": 4.477829,
+      "ttft_ms": 109022.345274,
+      "decode_after_first_ms": 0.0,
+      "response_enqueued_total_ms": 109022.373818
+    },
+    "cross_boundary": {
+      "evalscope_ttft_minus_server_ttft_ms": 3.874726,
+      "server_ttft_minus_pure_prefill_ms": 40.490382,
+      "pure_prefill_share_of_server_ttft_percent": 99.962860474,
+      "interpretation": "API transport, queueing, admission, and finalization are not the active bottleneck."
+    }
+  },
+  "comparison": {
+    "preceding_exact_attention_v5": {
+      "evalscope_ttft_ms": 670530.71,
+      "server_pure_prefill_ms": 670486.889899,
+      "server_pure_prefill_tok_s": 59.658138887734964,
+      "evalscope_ttft_speedup": 6.15017846,
+      "server_pure_prefill_speedup": 6.152280034,
+      "server_pure_prefill_latency_reduction_ms": 561505.035007,
+      "server_pure_prefill_latency_reduction_percent": 83.7458634,
+      "source": "qwen36-27b-prefill-p40k-native-large-m-exact-api-2026-08-09"
+    },
+    "fastest_grouped_q64_direction": {
+      "server_pure_prefill_ms": 179395.678907,
+      "candidate_speedup": 1.64610594,
+      "candidate_latency_reduction_percent": 39.2506,
+      "source": "qwen36-27b-prefill-p40k-segmented-marlin-q64-api-2026-08-09",
+      "interpretation": "Both routes remain accuracy-unqualified; this comparison has architecture-direction authority only."
+    },
+    "owner_vllm_starting_line": {
+      "prompt_tok_s": 4300.0,
+      "candidate_throughput_gap_x": 11.71555,
+      "candidate_latency_gap_to_two_seconds_x": 54.4909,
+      "interpretation": "The owner observation remains the starting-line planning constraint; this candidate does not pass it."
+    }
+  },
+  "diagnostic_budget": {
+    "authority": "design-level estimate transferred from the same-payload T4 profile; not a new c45b7c5 profile",
+    "estimated_seconds": {
+      "nvfp4_marlin": 51.96,
+      "fp8_marlin": 26.068,
+      "bf16_m16_ab": 5.433,
+      "flashinfer_exact_attention": 12.955,
+      "gdn_and_other": 12.567
+    },
+    "decision": "The remaining interval is projection-dominated. A duplicate full P40 profile would not change the priority before a true-large-M composed candidate exists."
+  },
+  "clean_host_preflight": {
+    "server_start": {
+      "sha256": "41e8f7ab6fe5f10e137e6986e659c859100b470f0dcf8723a588b8abe9b7a2e9",
+      "created_at_utc": "2026-08-09T15:35:24.353156+00:00",
+      "accepted": true,
+      "maximum_gr3d_percent": 0.0,
+      "aggregate_cpu_busy_percent": 0.4984423676012461
+    },
+    "immediately_before_request": {
+      "sha256": "fa6c56a5aefe8902a7ae0771821edf782fc562adb0361482a86d4f752059d1e0",
+      "created_at_utc": "2026-08-09T15:37:13.868802+00:00",
+      "accepted": true,
+      "maximum_gr3d_percent": 0.0,
+      "aggregate_cpu_busy_percent": 0.46627292508548335,
+      "allowed_server_pid": 557027
+    },
+    "idle_authority": "tegrastats plus CPU/process and GPU-device-handle inspection; nvidia-smi was not used"
+  },
+  "artifact_hashes": {
+    "p513_direction_log": "7bb1ee18795096dd6ab2bc28c107f323067ec0b3dce4519ca969ae89bc460300",
+    "p513_preflight": "61d753bd441b655c0f2b7d8813531500aec4ac1b293b91d2c546b2ac83d14d6f",
+    "server_log": "6bc903269637ecb53f4c307834ec3c0f9c15c9a320b570944423c187547a5e5e",
+    "witness_v6": "4d9c2f1beee6a99ff58d618b82acdee917b351fca0dc9bc73181216ccb316712",
+    "evalscope_client_log": "207554887e95f919012d3430a9aca3a543a0c58a39f69e2fd2a2456bba5a4ca5",
+    "evalscope_benchmark_args": "c5ae4d56cb96c4ff051c37f00414a2b9bf39b4f7757f99f32c67765693e1a62a",
+    "evalscope_benchmark_database": "6d9b055865f516767d707b282922ddfb10d308e98423b30a4630e2b5b69e7d9b",
+    "evalscope_benchmark_percentile": "6daa74b85b98f5dcc1da7c8f72d78d379c6565ac56b479442c8ed255accd5e96",
+    "evalscope_benchmark_summary": "5ab913ded10ef5a6c055d14f1e92b7c2da09529e30f7504b960a76180642c7ca",
+    "evalscope_workload_throughput": "ddec44f7de7e57bbbda23fcf5518d45a795d87633e4e4baae84d57869154b1d2",
+    "evalscope_workload_timeline": "1bcb222d5316b96f442e08fdd42c171f1768d1e088ce59992a7e1342888b115f",
+    "evalscope_performance_summary": "4400ac9d400fe87b4fe90af27988148eac7ae12aedd8e5477a9d09d1f86407dc"
+  },
+  "decision": {
+    "result": "retain_exact_logical_panel_attention_direction_continue_architecture_reset",
+    "reason": "The same real P40K API workload improved by 6.15x over the preceding exact route and eliminated all generic QT2/Q64/Q128 Attention dispatch. The result is material enough to retain as a development direction, but it remains far below the vLLM starting line and fails the accuracy boundary.",
+    "p40k_target_passed": false,
+    "p60k_executed": false,
+    "p130k_executed": false,
+    "next_package": "coupled shape-specific true-large-M NVFP4 Gate/Up and Down tactics for M8192 and M7712, followed by FP8 projections",
+    "new_profile_required_before_next_package": false,
+    "next_profile_trigger": "after the first composed true-large-M candidate returns to the same P40K API workload, or earlier only if a bounded profile can change the kernel architecture",
+    "accuracy_action": "keep the candidate default-off and investigate the P513 full-state divergence before any production promotion",
+    "production_route_changed": false
+  },
+  "limitations": [
+    "This is one request in one process with no repetition or mirrored order; it has architecture-direction authority only.",
+    "The explicit route is default-off, BUILD_TESTING-admitted, and accuracy-unqualified.",
+    "The P513 first token matched while the full state hash differed. The P40K output The matched the preceding exact route, but a one-token output match is not an accuracy qualification.",
+    "The FlashInfer kernel uses a different FP32 online-softmax reduction order; exact causal semantics do not by themselves establish the project's no-regression accuracy contract.",
+    "The current projection tactic still performs 13,104 physical launches and internally decomposes large M through the old Marlin body.",
+    "The result is still 11.72x below the owner's 4.3K tok/s vLLM starting line and 54.49x above the two-second P40K latency target.",
+    "P60K and P130K were deliberately not run because P40K is neither competitive nor accuracy-admissible.",
+    "Raw logs, databases, preflights, corpus, and binaries remain ignored workspace artifacts addressed by the hashes above."
+  ]
+}

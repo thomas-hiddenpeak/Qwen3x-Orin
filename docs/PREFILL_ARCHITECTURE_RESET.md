@@ -490,19 +490,65 @@ The required dataflow is:
 | Family | v1 structural failure | v2 contract |
 | --- | --- | --- |
 | Exact full Attention | Each logical panel is lowered to repeated bounded spans; generic QT2 work repeatedly scans the causal K/V history | One M8192 or M7712 logical-panel launch graph using tiled Q, streamed K/V, FP32 online-softmax state, exact causal masking, and ordered KV publication; FlashInfer/FlashAttention is the reference dataflow, not an approximate grouped-Q64 substitute |
-| NVFP4 projections | A single host launch still enters an M64-oriented Marlin body; partial M7712 panels retain 14x512+2x272 lowering | Separate Gate/Up and Down tactics for their asymmetric N/K shapes, both covering M8192 and M7712, with cross-row weight/scale reuse and staged load/decode/MMA overlap |
+| NVFP4 projections | A single host launch still enters an M64-oriented Marlin body; partial M7712 panels retain 14x512+2x272 lowering | Separate merged Gate/Up (`K=5120,N=34816`) and Down (`K=17408,N=5120`) tactics, both covering M8192 and M7712, with cross-row weight/scale reuse and staged load/decode/MMA overlap |
 | FP8 projections | The same segmented/panel-wrapper limitation applies across heterogeneous QKV/Z/O shapes | Shape-specific QKV, Z, and O tactics with authenticated sidecars and consumer-native layouts; no universal tile is presumed optimal |
 | BF16 A/B | Recursive M16 pair dispatch creates 120,000 launches in the measured P40K route | One panel-wide exact tactic per role, retaining declared output/state boundaries |
 | GDN/SSM | One logical panel is repeatedly submitted as C512 work and each span expands into multiple kernels | Submit the panel's C64 hierarchy as one work graph, parallelize chunk-local KKT/WY work, serialize only the mathematical boundary-state dependency, and write the final boundary state once; FLA and Mamba selective scan are design references |
 | Synchronization | One CUDA stream and zero observed kernel overlap; the two host slots are cancellation windows, not a device pipeline | Events follow real producer/consumer dependencies; buffering is introduced only for a named overlap with measured critical-path effect |
 
-Implementation begins with exact logical-panel Attention because it owns the
-largest observed interval and can return to the P40K product witness without
+Implementation began with exact logical-panel Attention because it owned the
+largest observed interval and could return to the P40K product witness without
 waiting for the remaining families. Prompt-wide GDN/BF16 and true
 shape-specific projection packages follow under the composition deadline in
 [`ROADMAP.md`](ROADMAP.md). Component timing and NSight evidence diagnose each
 package; only the same cold/no-cache real API selects it. A competitive,
 accuracy-admissible P40K result alone unlocks P60K and approximately 130K.
+
+### 8.6 First v2 implementation slice and result
+
+Revision `c45b7c5` implements `native-flashinfer-exact-panel` as a distinct,
+default-off Attention tactic with a v6 witness and no compatibility fallback
+for production-sized logical panels. It submits the complete M8192 or M7712
+query panel against its exact causal KV extent through the authenticated
+FlashInfer backend, uses FP32 online-softmax state, and preserves the model's
+existing RoPE/KV publication boundaries. It is explicitly admitted only in a
+development build; backend capability is queried without side effects and the
+Engine plan fails closed if the route is unavailable.
+
+The clean real-model P513 direction screen hit the new kernel 16 times and no
+QT2/Q64/Q128 route. It preserved generated token `9419`/`Hello`, but its full
+state hash differed from the oracle. The following clean-host cold/no-cache
+P40K OpenAI API/EvalScope screen consumed all 40,000 tokens as
+`3x8192 + 2x7712`, recorded 80 FlashInfer logical-panel hits and zero generic
+Attention hits, and reached 109.02622 s external TTFT / 108.981855 s server
+pure Prefill / 367.033577 prompt tok/s. This is 6.15x faster than the
+preceding exact v5 route and 1.65x faster than the grouped-Q64 direction. API
+boundary overhead remained 3.874726 ms.
+
+The quantity change retains the logical-panel Attention architecture, not its
+production arithmetic. P40K generated `The`, matching the preceding exact
+P40K route, but that one-token match does not qualify a different reduction
+order. Together with the P513 state mismatch and unexecuted accuracy gate,
+this keeps the tactic accuracy-unqualified and default-off. P60K and P130K
+were not run. Exact artifacts and hashes are frozen in the
+[v6 P40K API record](metadata/qwen36-27b-prefill-p40k-flashinfer-exact-panel-api-2026-08-09.json).
+
+The next v2 slice is the coupled NVFP4 projection package. Existing same-payload
+T4 evidence transfers only as a design budget, not a new c45b7c5 profile: the
+remaining route is estimated at 51.96 s NVFP4 Marlin, 26.07 s FP8 Marlin,
+5.43 s recursive BF16 A/B, 12.96 s FlashInfer Attention, and 12.57 s
+GDN/other. This makes true-large-M projection the next P0 without justifying
+another pre-implementation full trace.
+
+The Humming-informed SM87 skeleton reuses the already authenticated Marlin
+packed-weight sidecar rather than duplicating several GiB of weights. It maps
+the existing scale sidecar in the new register loader, stages A, compressed B,
+and scales together, decodes E2M1/E4M3 in registers, and performs BF16 MMA with
+FP32 accumulation. The bring-up configuration is M128N256K64 with 2M-by-4N
+warp ownership and three pipeline stages; M256N128K64 is retained as the
+higher-M-reuse configuration. Gate/Up and Down remain separate compile-time
+shapes, and neither old-Marlin wrapping nor Gate-only tuning satisfies the
+package contract.
 
 ## 9. Global dataflow questions
 

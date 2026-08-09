@@ -291,36 +291,63 @@ compatibility route, not yet selected or production):
   signatures, and 120,000 BF16 M16-pair launches. The new exact route is far
   slower because exact Attention repeatedly scans causal K/V through bounded
   spans. A duplicate full trace is not required before redesign.
+- Revision `c45b7c5` implements WP-V2-A as the default-off
+  `native-flashinfer-exact-panel` route. Its clean-host cold/no-cache P40K
+  OpenAI API/EvalScope screen consumed all 40,000 tokens, issued 80 exact
+  FlashInfer logical-panel Attention calls, and issued zero QT2/Q64/Q128
+  Attention calls. EvalScope TTFT was 109.02622 s; server pure Prefill was
+  108.981855 s, or 367.033577 prompt tok/s. That is 6.15x faster than the
+  preceding exact route and 1.65x faster than the grouped-Q64 direction, so
+  the Attention dataflow is retained. It is not selected for production: the
+  P513 full-state hash differs, and the P40K output `The` matches the preceding
+  exact route but is only one token. The route remains default-off and
+  accuracy-unqualified, and P60K and P130K were not run. Evidence is frozen in
+  the
+  [v6 P40K API record](metadata/qwen36-27b-prefill-p40k-flashinfer-exact-panel-api-2026-08-09.json).
+- The same-payload T4 budget may now be transferred only as a design estimate,
+  not a new c45b7c5 measurement: about 51.96 s NVFP4 projection, 26.07 s FP8
+  projection, 5.43 s recursive BF16 A/B, 12.96 s FlashInfer Attention, and
+  12.57 s GDN/other. It makes true-large-M projection the active P0. A new full
+  NSys run is deferred until the first composed projection candidate returns
+  to P40K and can change a design decision.
 
 Active architecture candidate: `AC-PREFILL-PROMPT-WIDE-v2`.
 
-- **WP-V2-A — exact logical-panel Attention:** replace repeated C512 exact
-  Attention dispatch with an M8192/M7712 logical-panel kernel using causal
-  tiling, streamed K/V, FP32 online-softmax state, and exact KV/state
-  publication. Reuse the authenticated FlashInfer/FlashAttention design and
-  existing direct backend seam; no grouped-Q64 or reduced-precision numerical
-  contract is eligible. This is first because Attention explains the largest
-  observed product interval and is the fastest path to a quantity-changing
-  P40K test.
-- **WP-V2-B — prompt-wide recurrent path:** submit one panel's C64 hierarchy as
-  one GDN work graph, fuse post-convolution preparation where exact, expose
-  chunk-local KKT/WY work in parallel, and serialize only the mathematically
-  recurrent boundary state. Replace recursive BF16 M16 A/B dispatch with a
-  panel-wide exact tactic. FLA and Mamba selective-scan mechanisms are design
-  references; copied code or changed state precision is outside scope.
-- **WP-V2-C — true shape-specific projections:** build separate SM87 tactics
-  for NVFP4 Gate/Up (`K=5120,N=17408`), NVFP4 Down
-  (`K=17408,N=5120`), and the FP8 QKV/Z/O families, covering both M8192 and
-  M7712. The design must provide real cross-row weight/scale reuse and staged
-  load/decode/MMA overlap; a larger host launch around the existing M64 body
-  does not qualify. Humming, Triton, vLLM and cuBLASLt may inform the design,
-  but cuBLASLt remains reference-only and never enters production dispatch.
-- **Composition deadline:** return WP-V2-A to the same real-model P40K API as
-  soon as the exact logical-panel route executes end to end; do not wait for B
-  or C merely to construct a larger local harness. Then compose B and C one at
-  a time only when the P40K product interval moves. Component tests and
-  NSys/NCU explain accepted or rejected directions; the API result selects
-  them. No low-yield parameter scan may displace these three packages.
+- **WP-V2-A — exact logical-panel Attention — implemented, retained, not
+  accuracy-admissible:** `c45b7c5` replaces repeated C512 exact Attention with
+  an M8192/M7712 FlashInfer logical-panel path using exact causal masking and
+  FP32 online-softmax state. The P40K product interval moved by 6.15x, which
+  closes the architecture-direction exit. The P513 state divergence and
+  unexecuted accuracy gate keep its accuracy and production exits open; no
+  weaker numerical contract may be used to close them.
+- **WP-V2-C1 — coupled true-large-M NVFP4 projections — active P0:** design
+  Gate/Up and Down together because their geometries differ materially. The
+  merged Gate+Up physical shape is `K=5120,N=34816`; Down is
+  `K=17408,N=5120`. Both must cover M8192 and M7712, reuse the authenticated
+  Marlin weight/scale identities, and provide real cross-row weight reuse with
+  staged A/B/scale load, in-register E2M1/E4M3 decode, and BF16 MMA with FP32
+  accumulation. The first Humming-informed skeleton is M128N256K64 with
+  2M-by-4N warp ownership and a three-stage pipeline; M256N128K64 is the
+  planned higher-M-reuse configuration. A larger launch around the existing
+  M64 Marlin body does not qualify, and neither Gate/Up-only tuning nor one
+  universal Gate/Down configuration closes this package.
+- **WP-V2-C2 — shape-specific FP8 projections:** after the coupled NVFP4
+  package returns to P40K, build separate QKV, Z, and O tactics instead of
+  inheriting one universal tile. Humming, Triton, vLLM and cuBLASLt may inform
+  the dataflow, but cuBLASLt remains reference-only and never enters production
+  dispatch.
+- **WP-V2-B — prompt-wide recurrent and BF16 path:** submit one panel's C64
+  hierarchy as one GDN work graph, expose chunk-local KKT/WY work in parallel,
+  serialize only the mathematical boundary-state dependency, and replace
+  recursive BF16 M16 A/B dispatch with panel-wide exact tactics. FLA and Mamba
+  selective-scan mechanisms are design references; copied code or changed
+  state precision is outside scope.
+- **Composition deadline:** return the complete NVFP4 Gate/Up+Down package to
+  the same real-model P40K API as soon as both production shapes execute end to
+  end. The external result decides retention first; bounded component tests,
+  NSys, and real-weight NCU then explain or qualify the retained/failed
+  direction. Do not spend a full P40K profile before the new skeleton exists,
+  and do not let low-yield parameter scans displace C1, C2, or B.
 - Only a competitive, accuracy-admissible P40K result unlocks P60K and
   approximately-130K execution, followed by complete capacity/resource and
   architecture-witness qualification.
