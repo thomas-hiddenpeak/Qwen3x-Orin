@@ -237,6 +237,120 @@ struct ReferenceTraceView {
   [[nodiscard]] ConstBf16Span final_norm() const noexcept;
 };
 
+// Candidate-only identity for the typed RequestState seam prepared for
+// AC-PREFILL-LAYERMAJOR-8K-v1.  Building or collecting this descriptor does
+// not bind a launcher, stream, event, operator, selector, or production
+// route.  In particular, it is not an executable-plan attestation.
+enum class ReferenceLayerMajorBindingDisposition : std::uint8_t {
+  kUnboundCandidateOnly = 0,
+};
+
+// Pure-host description of every RequestState region that a future
+// layer-major runner must bind.  The owning C8192 arena is deliberately not
+// present: operator storage is exposed only through the typed phase regions.
+struct ReferenceLayerMajorRequestBindingDescriptor {
+  ReferenceLayerMajorBindingDisposition disposition =
+      ReferenceLayerMajorBindingDisposition::kUnboundCandidateOnly;
+  RequestMemoryProfile profile = RequestMemoryProfile::kLegacyC512;
+  std::uint32_t max_sequence_length = 0U;
+  std::uint32_t operator_panel_capacity_tokens = 0U;
+  std::uint32_t legacy_prefill_chunk_size = 0U;
+  std::uint64_t arena_bytes = 0U;
+
+  std::array<RequestLayerSlot, kRequestLayerCount> layers{};
+  RequestRegion conv_state_bf16;
+  RequestRegion gdn_state_bf16;
+  std::array<RequestRegion, kRequestFullLayerCount> key_cache_bf16;
+  std::array<RequestRegion, kRequestFullLayerCount> value_cache_bf16;
+  RequestRegion rope_cos_fp32;
+  RequestRegion rope_sin_fp32;
+
+  RequestMatrixRegion prompt_residual_bf16;
+  RequestMatrixRegion panel_token_ids_u32;
+  LayerMajorGdnPhaseRegions gdn;
+  LayerMajorAttentionPhaseRegions attention;
+  LayerMajorMlpPhaseRegions mlp;
+  LayerMajorLegacyC512Regions legacy_c512;
+  RequestMatrixRegion final_hidden_bf16;
+
+  PrefillHiddenStrategy hidden_strategy{};
+  PrefillOperatorScratchStrategy scratch_strategy{};
+  PrefillGdnPhysicalTactic gdn_tactic{};
+  PrefillLegacyGdnPhysicalTactic legacy_gdn_tactic{};
+  PrefillMlpPhysicalTactic mlp_tactic{};
+};
+
+struct ReferenceLayerMajorRequestDescriptorOutcome {
+  std::optional<ReferenceLayerMajorRequestBindingDescriptor> value;
+  ReferenceRunnerStatus status;
+  RequestAccessError access_error = RequestAccessError::kNone;
+
+  [[nodiscard]] bool ok() const noexcept {
+    return value.has_value() && status.ok() &&
+           access_error == RequestAccessError::kNone;
+  }
+  [[nodiscard]] explicit operator bool() const noexcept { return ok(); }
+};
+
+// Compact persistent-state views are indexed by the RequestLayerSlot::slot
+// carried in descriptor.layers.  This keeps wrong-family access impossible
+// without exposing sparse untyped per-layer pointers.
+struct ReferenceLayerMajorPersistentViews {
+  std::array<DeviceBufferView, kRequestLinearLayerCount> conv_state_bf16;
+  std::array<DeviceBufferView, kRequestLinearLayerCount> gdn_state_bf16;
+  std::array<DeviceBufferView, kRequestFullLayerCount> key_cache_bf16;
+  std::array<DeviceBufferView, kRequestFullLayerCount> value_cache_bf16;
+  ConstDeviceBufferView rope_cos_fp32;
+  ConstDeviceBufferView rope_sin_fp32;
+};
+
+// One non-owning snapshot of every typed layer-major RequestState view.  The
+// exact RequestState object and its allocation must outlive every consumer.
+// No raw view of c8192_family_phase_arena is exposed here.
+struct ReferenceLayerMajorRequestViews {
+  ReferenceLayerMajorRequestBindingDescriptor descriptor;
+  DeviceMatrixView prompt_residual_bf16;
+  DeviceMatrixView panel_token_ids_u32;
+  LayerMajorGdnPhaseViews gdn;
+  LayerMajorAttentionPhaseViews attention;
+  LayerMajorMlpPhaseViews mlp;
+  LayerMajorLegacyC512Views legacy_c512;
+  DeviceMatrixView final_hidden_bf16;
+  ReferenceLayerMajorPersistentViews persistent;
+};
+
+struct ReferenceLayerMajorRequestViewsOutcome {
+  std::optional<ReferenceLayerMajorRequestViews> value;
+  ReferenceRunnerStatus status;
+  RequestAccessError access_error = RequestAccessError::kNone;
+
+  [[nodiscard]] bool ok() const noexcept {
+    return value.has_value() && status.ok() &&
+           access_error == RequestAccessError::kNone;
+  }
+  [[nodiscard]] explicit operator bool() const noexcept { return ok(); }
+};
+
+// Pure-host, allocation-free validation and descriptor construction.  It
+// accepts only the fixed layer-major RequestState profile and fails closed on
+// every malformed typed family, persistent/KV/RoPE identity, tactic identity,
+// schedule, capacity, or alias topology.
+[[nodiscard]] ReferenceLayerMajorRequestDescriptorOutcome
+build_reference_layer_major_candidate_binding_descriptor(
+    const LayerMajorRequestMemoryPlan& plan) noexcept;
+
+// Explicit candidate seam.  Profile validation deliberately precedes empty
+// state validation so passing a legacy RequestState reports
+// kMemoryProfileMismatch without touching CUDA.  This function is not called
+// by create_reference_runner(), ReferenceEngine, or a production selector.
+[[nodiscard]] ReferenceLayerMajorRequestViewsOutcome
+collect_reference_layer_major_candidate_views(RequestState* state) noexcept;
+
+[[nodiscard]] inline ReferenceLayerMajorRequestViewsOutcome
+collect_reference_layer_major_candidate_views(RequestState& state) noexcept {
+  return collect_reference_layer_major_candidate_views(&state);
+}
+
 namespace reference_runner_detail {
 
 // Public, allocation-free test/oracle helpers. The logits analyzer first

@@ -66,6 +66,15 @@ profile is not connected to a runner implementation, every execution/event/
 operator binding remains false, no selector admits it, and the existing C512
 production route and performance are unchanged.
 
+The runner tree also contains an explicit candidate-only view seam for that
+profile. A pure-host descriptor validates the complete typed memory identity,
+and one non-production collector can gather the prompt residual, panel token
+IDs, GDN/Attention/MLP phase views, disjoint legacy bundle, final hidden, and
+persistent GDN/KV/RoPE views from an allocated layer-major state. It rejects
+legacy states with a profile mismatch, exports no raw C8192 arena, requires
+all binding flags to remain false, and is not called by the existing runner
+factory, engine, Prefill path, or selector.
+
 Accordingly, current product status is **implemented evaluation runner,
 unqualified production runner**.
 
@@ -80,7 +89,7 @@ unqualified production runner**.
 | Default context capacity | Implemented at 8,192 | Server default `max_sequence_length=8192`, maximum output 4,096, 2 GiB request-arena limit | Does not admit the locked long-context workloads |
 | 40K/60K/130K cold/no-cache service | Target; host requirements implemented | Configured token-ID ingress fails closed on capacity, the legacy planner expresses C512 arenas, and the layer-major host planner gives tactic-explicit request-arena requirements | Default admission/reservation, model-plus-sidecar whole-process capacity, cancellation, executable target route, performance, and qualification are absent |
 | Prefill/Decode logical separation | Implemented in part | Separate phase APIs/metrics and an explicit state transition exist | Shared runner and synchronization-heavy physical plan prevent independent utilization and overlap |
-| Layer-major C8192 candidate | Designed; supporting infrastructure implemented | Unbound 64-layer topology/progress, tactic-explicit workspace requirements, staged whole-request controller/finalizer/commit seam, explicit typed `RequestState` allocation profile, 17-role binding contract, and isolated NVFP4/FP8 C8192 surfaces | No runner executor exists, every execution/event/operator binding is unbound, and no selector admits the candidate |
+| Layer-major C8192 candidate | Designed; supporting infrastructure implemented | Unbound 64-layer topology/progress, tactic-explicit workspace requirements, staged whole-request controller/finalizer/commit seam, explicit typed `RequestState` allocation profile, candidate-only runner view collector, 17-role binding contract, and isolated NVFP4/FP8 C8192 surfaces | No runner executor exists, every execution/event/operator binding is unbound, and no selector admits the candidate |
 | Large-M Prefill specializations | Implemented as legacy admissions plus isolated C8192 surfaces | Native NVFP4/FP8/BF16 and Attention/GDN C512 candidates exist in development builds; isolated NVFP4/FP8 surfaces accept candidate-only C8192 panels | Existing options default off/test-only, C8192 surfaces are unbound, and no unique exact release selection exists |
 | Decode target | Directionally near target | Short API evidence reports about 104 ms TPOT | At least 10 token/s, long-output stability, and release repetition are not qualified |
 | Production accuracy | Target with partial oracles | Exact deterministic outputs are available for selected prompts/routes | No complete public capability baseline and promotion gate has passed |
@@ -269,7 +278,7 @@ architecture seam. The required response is a whole prompt-span execution
 plan with explicit state semantics, residency, buffer ownership and overlap,
 not a return to unrelated kernel parameter scans.
 
-The tree has implemented six non-production foundations for that response:
+The tree has implemented seven non-production foundations for that response:
 
 - an immutable, pure-host 64-layer/C8192 topology and request-owned progress
   model with one planned final host-state commit;
@@ -282,6 +291,10 @@ The tree has implemented six non-production foundations for that response:
 - an explicit layer-major `RequestState` profile with one prompt-wide
   residual, one sequential-family arena, physically disjoint legacy C512
   scratch, a fixed final-hidden handoff, and typed phase-only device views;
+- an explicit candidate-only runner view seam that validates the exact unbound
+  descriptor and gathers every typed operator, legacy, final-hidden,
+  persistent, KV, and RoPE view without exposing the raw C8192 arena or
+  entering the legacy runner factory;
 - a default-off whole-request control seam that accepts only a complete,
   uncommitted 64-layer result, uses a dedicated retained-hidden finalizer,
   invokes one no-throw final commit callback whose non-OK status guarantees no
@@ -297,7 +310,8 @@ non-executable, and production-route admission remains M512. Consequently
 these commits change no production performance claim.
 
 The immediate next implementation boundary is the runner executor using the
-new layer-major `RequestState` profile. The runner must extract one
+new layer-major `RequestState` profile and its candidate-only typed view seam.
+The runner must extract one
 parameterized layer-panel body and implement true `layer -> panel` traversal;
 calling the existing 64-layer C512 tile loop repeatedly is not that executor.
 The C512 incumbent remains selectable until a later authenticated, fully bound

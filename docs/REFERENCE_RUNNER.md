@@ -43,6 +43,33 @@ schedule, request workspace/cache/RoPE capacities, backend selection, and all
 required payloads before publishing a runner. Failure publishes no usable
 runner.
 
+### Layer-major candidate view seam
+
+The ordinary `create_reference_runner()` factory remains bound to the legacy
+C512 `RequestState` profile. It continues to collect the established flat
+workspace views and does not admit, reinterpret, or execute a layer-major
+state.
+
+A separate explicit candidate-only seam prepares the next integration step
+for `AC-PREFILL-LAYERMAJOR-8K-v1`. Its pure-host descriptor validates the
+fixed profile, 48/16 schedule, physical tactic identities, request capacity,
+persistent GDN/KV/RoPE regions, prompt residual, token-ID staging, exact
+GDN/Attention/MLP phase topology, disjoint legacy C512 bundle, and fixed final
+hidden handoff. All six execution/alias/event/operator binding flags must
+remain false. A legacy profile fails with `kMemoryProfileMismatch` before an
+empty-state or CUDA check.
+
+For a real allocated layer-major state, one explicit collector obtains every
+typed device view and proves that its metadata and pointer-offset identity
+match the validated descriptor. Compact persistent views are indexed by the
+fixed layer-slot schedule. The collector never returns an untyped view of the
+owning C8192 family arena.
+
+This seam owns no stream, launcher, model weight, completion event, traversal,
+state publication, factory connection, engine callback, or selector. Its
+descriptor is always `kUnboundCandidateOnly`; collecting it is not an
+executable-plan attestation and changes no default or production route.
+
 ## Token-step semantics
 
 `step(input_token_id, options)` operates at the current request position and

@@ -197,6 +197,7 @@ q3x_enable_warnings(q3x_text)
 
 add_library(q3x_kernels STATIC
   src/runtime/reference_runner.cpp
+  src/runtime/reference_runner_layer_major_views.cpp
   src/kernels/reference/decode_ops.cu
   src/kernels/reference/full_attention_c512_register_pipeline.cu
   src/kernels/reference/gdn_decode.cu
@@ -1123,6 +1124,17 @@ if(BUILD_TESTING)
   target_link_libraries(q3x_reference_runner_host_test PRIVATE q3x::kernels)
   q3x_enable_warnings(q3x_reference_runner_host_test)
   add_test(NAME reference_runner_host COMMAND q3x_reference_runner_host_test)
+
+  add_executable(q3x_reference_runner_layer_major_views_host_test
+    tests/reference_runner_layer_major_views_host_test.cpp
+  )
+  target_link_libraries(q3x_reference_runner_layer_major_views_host_test
+    PRIVATE q3x::kernels
+  )
+  q3x_enable_warnings(q3x_reference_runner_layer_major_views_host_test)
+  add_test(NAME reference_runner_layer_major_views_host
+    COMMAND q3x_reference_runner_layer_major_views_host_test
+  )
 
   add_executable(q3x_reference_engine_control_test
     tests/reference_engine_control_test.cpp
