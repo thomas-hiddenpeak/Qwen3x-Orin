@@ -1,0 +1,289 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-p40k-nvfp4-g2-d2-rejection-2026-08-10",
+  "measured_at": "2026-08-10T02:44:02+08:00",
+  "profiled_at": "2026-08-10T02:53:35+08:00",
+  "recorded_at": "2026-08-10T03:10:00+08:00",
+  "timezone": "Asia/Shanghai",
+  "status": "rejected_architecture_direction_default_off_accuracy_unqualified",
+  "policy": {
+    "evidence_tier": "T3_DIRECTION_PLUS_T4_DIAGNOSTIC",
+    "protocol_class": "EXTERNAL_API_P40K_SINGLE_REQUEST_THEN_BOUNDED_NSYS",
+    "decision_unit": "coupled_nvfp4_gate_up_g2_and_down_d2_package_v1",
+    "architecture_candidate_id": "AC-PREFILL-PROMPT-WIDE-v2/WP-V2-C1-G2-D2-v1",
+    "real_model_production_api_first": true,
+    "early_stop_authority": true,
+    "architecture_selection_authority": false,
+    "release_performance_authority": false,
+    "production_promotion_authority": false,
+    "default_route_changed": false,
+    "production_eligible": false,
+    "numerical_contract_qualified": false,
+    "accuracy_gate": "NOT_RUN",
+    "cublaslt_production_eligibility": false,
+    "mtp_used": false
+  },
+  "source": {
+    "branch": "codex/prefill-target-path",
+    "commit": "8889de4f4cf400ae9c72a84ccbc9c3cec1e06611",
+    "tree": "70ddc10084641eb6b4e3d2000fbb46224f84cd2f",
+    "subject": "prefill: add G2 D2 large-M candidate",
+    "measurement_base_commit": "f69f4d582a613ad1638a301d87749326ab037a69",
+    "measurement_base_tree": "67160385fb06c0116205e82fad5177d1e71b4cd7",
+    "measurement_tree_clean": false,
+    "measurement_source_note": "The G2/D2 implementation and alias repair were measured from the working tree above f69f4d5. Commit 8889de4 records that measured implementation; changes between measurement and the milestone were comments and a host regression test, not execution code. measurement_tree_clean remains false and the exact measured binary identity is frozen below.",
+    "binary": {
+      "measurement_path": ".q3x-work/build/g2d2-runtime-integration-make/qwen3x-eval-server",
+      "bytes": 12921008,
+      "sha256": "3a392151762538b324654fe36f53310c1042aed4ece3d417a2ac8f841d685a84",
+      "elf_build_id": "7ff03847e40503860838459c1d6adced2b4f06d6",
+      "checked_in": false,
+      "build_type": "Release",
+      "build_testing": true,
+      "cuda_architecture": "sm_87",
+      "nvfp4_g2_d2_prefill_admission": true
+    }
+  },
+  "checkpoint": {
+    "repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "local_path": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "access": "read_only",
+    "config_sha256": "c04a19ba293737ad7be4f6e96d6666cb7e479cbe19ecc0c289fad267135b0338",
+    "quantization_config_sha256": "fd7200cd8bca2a8a5d777061521abf83e2deb97ab6bc2f04e7a0a3d3f8ecd5c1",
+    "index_sha256": "7aa103a2582b7d26631988de33dea19e8a308ee9c239e8e14feb374af30905e2",
+    "tokenizer_json_sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42"
+  },
+  "workload": {
+    "framework": "EvalScope",
+    "framework_version": "1.9.1",
+    "api": "openai",
+    "endpoint": "/v1/completions",
+    "url": "http://127.0.0.1:18085/v1/completions",
+    "corpus_path": ".q3x-work/evalscope/corpora/q3x-repository-agent-context-p40000-one-token.jsonl",
+    "corpus_sha256": "8970ac50693f49d1b27d35a0610ecbe5072594330d69b301f4dab731789b6844",
+    "manifest_path": ".q3x-work/evalscope/corpora/q3x-repository-agent-context-p40k-p60k.manifest.json",
+    "manifest_sha256": "bf7a458d8406a39ca59187ae77bee2a52f0738758202d2c7280bff346ccd22ff",
+    "prompt_kind": "token_ids",
+    "prompt_tokens": 40000,
+    "prompt_token_ids_u32le_sha256": "76cd23e2d60a9473af0ff24767b1b7ca614b36857697b420246731165156f78f",
+    "request_body_sha256": "e6f5817ad868e85c333db1961fa3dc14c7e65247f0a4241e8bb638870b6575ec",
+    "prompt_fully_consumed": true,
+    "consumed_prompt_tokens": 40000,
+    "logical_panel_geometry": "3x8192 + 2x7712",
+    "measured_requests": 1,
+    "successful_requests": 1,
+    "failed_requests": 0,
+    "warmup_requests": 0,
+    "parallel": 1,
+    "output_tokens": 1,
+    "observed_output_text": "The",
+    "retained_c45_output_text": "The",
+    "first_token_matches_retained_route": true,
+    "first_token_is_accuracy_qualification": false,
+    "temperature": 0.0,
+    "seed": 42,
+    "stream": true,
+    "prefix_cache": false,
+    "mtp": false
+  },
+  "server_configuration": {
+    "max_sequence_length": 60001,
+    "max_output_tokens": 1,
+    "prefill_chunk_size": 512,
+    "prefill_execution_mode": "layer-major",
+    "prefill_projection_tactic": "native-nvfp4-g2-d2-large-m-operator-panel",
+    "prefill_attention_tactic": "native-flashinfer-exact-panel",
+    "projection_backend": "sm87",
+    "queue_capacity": 1,
+    "ingress_threads": 3,
+    "request_max_arena_bytes": 5600000000,
+    "minimum_free_bytes": 4294967296
+  },
+  "pre_measurement_admission_repair": {
+    "failed_attempts": ["r1", "r2", "r3"],
+    "failure": "GateUpG2 returned cudaErrorInvalidValue before a performance result existed.",
+    "root_cause": "The original fused G2 output was bound to mlp.activated_bf16, which intentionally aliases mlp.normalized_input_bf16 in the layer-major request plan. In-place G2 would create a cross-CTA read/write race.",
+    "repair": "Bind the fused G2 output and D2 input to the exact-size dead mlp.gate_bf16 span and validate that it does not alias normalized input.",
+    "performance_authority_of_failed_attempts": "NONE",
+    "measured_run_after_repair": "r4-fixed-alias"
+  },
+  "clean_host_preflight": {
+    "server_start": {
+      "decision": "pass",
+      "sha256": "0af78caffd00dad98d98299daafbae27db3bb87c08f0fd265d0eab6813fee581"
+    },
+    "request_control_paused": {
+      "decision": "pass",
+      "sha256": "481c2662911377e58dd489d1a4c7679db21ab1389c592adfc69eae5a218c6256"
+    },
+    "jetson_idle_authority": "tegrastats plus CPU/process and GPU-device-handle inspection",
+    "nvidia_smi_used_for_idle_decision": false
+  },
+  "route": {
+    "witness_schema": "target-prefill-witness-v8",
+    "deployment_plan_id": "q3x.sm87.ac-prefill-prompt-wide-v2.native-nvfp4-g2-d2-large-m-operator-panel.native-flashinfer-exact-panel-attention.v2",
+    "qualification": "accuracy-unqualified-architecture-candidate",
+    "numerical_contract_qualified": false,
+    "logical_panel_count": 5,
+    "operator_panel_executor_hits": 320,
+    "native_flashinfer_exact_panel_hits": 80,
+    "generic_qt2_hits": 0,
+    "native_nvfp4_g2_d2_projection_hits": 640,
+    "native_nvfp4_gate_up_g2_hits": 320,
+    "native_nvfp4_down_d2_hits": 320,
+    "native_nvfp4_g2_d2_physical_launches": 640,
+    "fp8_projection_hits": 1040,
+    "fp8_projection_physical_launches": 8112,
+    "completed_exact_fallback_hits": 0,
+    "completed_forbidden_hits": 0,
+    "forbidden_route_hits": {
+      "prefix_cache": 0,
+      "mtp": 0,
+      "cublaslt": 0,
+      "external_reference": 0,
+      "approximate_numerics": 0
+    }
+  },
+  "unprofiled_real_api_direction": {
+    "evalscope": {
+      "ttft_ms": 115085.76,
+      "request_latency_ms": 115085.8,
+      "whole_workload_prompt_tok_s": 347.56678079469566,
+      "reported_total_tok_s": 347.5755
+    },
+    "server": {
+      "queue_ms": 0.018592,
+      "admission_ms": 9.349226,
+      "generation_call_wall_ms": 115070.550733,
+      "pure_prefill_ms": 115041.751913,
+      "pure_prefill_tok_s": 347.699851009309,
+      "finish_prefill_ms": 4.483492,
+      "ttft_ms": 115081.956072,
+      "decode_after_first_ms": 0.0,
+      "response_enqueued_total_ms": 115081.9986
+    },
+    "cross_boundary": {
+      "evalscope_ttft_minus_server_ttft_ms": 3.803928,
+      "server_ttft_minus_pure_prefill_ms": 40.204159,
+      "pure_prefill_share_of_server_ttft_percent": 99.965064759,
+      "interpretation": "The negative direction is inside Prefill; API transport, queueing, admission, finalization, and Decode are not the active bottleneck."
+    }
+  },
+  "comparison_to_retained_c45b7c5": {
+    "baseline_source": "qwen36-27b-prefill-p40k-flashinfer-exact-panel-api-2026-08-09",
+    "baseline_server_pure_prefill_ms": 108981.854892,
+    "baseline_server_pure_prefill_tok_s": 367.03357673293067,
+    "candidate_server_pure_prefill_ms": 115041.751913,
+    "candidate_server_pure_prefill_tok_s": 347.699851009309,
+    "latency_delta_ms": 6059.897021,
+    "latency_ratio": 1.055604641956271,
+    "latency_increase_percent": 5.560464,
+    "throughput_change_percent": -5.267563,
+    "candidate_gap_to_owner_4300_tok_s_x": 12.366989,
+    "candidate_gap_to_two_second_p40k_x": 57.520876,
+    "decision": "REJECT"
+  },
+  "bounded_nsys": {
+    "profiler": "Nsight Systems 2026.1.3",
+    "evidence_authority": "T4_DIAGNOSTIC_ONLY",
+    "same_checkpoint": true,
+    "same_prompt_and_request": true,
+    "same_flashinfer_attention": true,
+    "same_binary": false,
+    "baseline_projection_tactic": "native-quantized-large-m-operator-panel",
+    "candidate_projection_tactic": "native-nvfp4-g2-d2-large-m-operator-panel",
+    "capture": "cuda,nvtx; no CPU sampling/context switches; CUDA Graph nodes; NVTX q3x.generation",
+    "profiled_ttft_is_release_metric": false,
+    "candidate": {
+      "gpu_kernel_sum_ms": 115140.486784,
+      "gate_up_g2_ms": 40371.86016,
+      "gate_up_g2_launches": 320,
+      "down_d2_ms": 20532.324128,
+      "down_d2_launches": 320,
+      "g2_plus_d2_ms": 60904.184288
+    },
+    "retained_native_profile": {
+      "gpu_kernel_sum_ms": 109030.088704,
+      "native_marlin_main_ms": 51866.262272,
+      "native_marlin_main_launches": 4480,
+      "separate_silu_ms": 1997.762272,
+      "separate_silu_launches": 2240,
+      "native_marlin_main_plus_silu_ms": 53864.024544
+    },
+    "delta": {
+      "g2_d2_role_scope_ms": 7040.159744,
+      "gpu_kernel_sum_ms": 6110.39808,
+      "all_other_kernel_sum_ms": -929.761664
+    },
+    "interpretation": "G2/D2 removed the standalone SiLU and fused the Down residual, but their combined role time was still 7.040160 s above the retained native Marlin main plus SiLU scope. Other kernels recovered 0.929762 s, leaving a 6.110398-s whole-GPU-kernel regression. Launch fusion and two-CTA resource admission did not create the persistent cross-CTA B/scale reuse needed to beat the retained route."
+  },
+  "candidate_kernel_contract": {
+    "supported_prompt_panel_m": [8192, 7712],
+    "gate_up": {
+      "identity": "GateUpG2",
+      "topology": "M128 x paired Gate64+Up64 x K64 raster",
+      "epilogue": "fused SiLU(gate)*up to BF16 activated output"
+    },
+    "down": {
+      "identity": "DownD2",
+      "topology": "M128N128K64 N-major/B-stationary raster",
+      "epilogue": "fused in-place residual add under the existing BF16 boundary"
+    },
+    "threads": 256,
+    "dynamic_shared_bytes": 41984,
+    "gate_registers_per_thread": 127,
+    "down_registers_per_thread": 126,
+    "static_resource_admission_ctas_per_sm": 2,
+    "structural_result": "Meeting the static two-CTA/SM resource envelope was necessary but insufficient. Each CTA still owns and exits one output raster tile, so B/scale decode is not retained across CTA tiles.",
+    "request_state_workspace_identity": "The RequestState mlp_tactic remains the conservative three-span workspace-reservation identity. It is not the physical execution decomposition of this candidate.",
+    "fused_execution_authority": "The target-prefill-witness-v8 DeploymentPlan and request counters, not the conservative workspace tactic name, attest fused Gate+Up+SiLU and fused Down+residual execution.",
+    "planner_layout_enum_decision": "The route is rejected and default-off, so no new planner layout enum is added solely to rename reservation storage for a closed path."
+  },
+  "p60_geometry_gate": {
+    "run": false,
+    "balanced_logical_panel_geometry": "6x8192 + 2x5424",
+    "current_g2_d2_supported_m": [8192, 7712],
+    "missing_m": 5424,
+    "request_arena_planner_bytes": 5588904960,
+    "result": "NOT_A_PERFORMANCE_CONCLUSION",
+    "reason": "The rejected G2/D2 v1 would fail closed on the M5424 tail. P60 was neither timed nor used to judge speed; a future P40-competitive successor must add an exact M5424/general-tail route before P60."
+  },
+  "decision": {
+    "result": "REJECT_WP_V2_C1_G2_D2_V1",
+    "reason": "The complete real API package regressed pure Prefill latency by 5.560464% and throughput by 5.267563% against the retained native direction. Bounded NSys shows G2+D2 7.040160 s slower than the retained native Marlin main plus SiLU role scope and total GPU kernel time 6.110398 s higher.",
+    "default_route_unchanged": true,
+    "candidate_production_enabled": false,
+    "full_accuracy_harness_run": false,
+    "p60k_run": false,
+    "p130k_run": false,
+    "ncu_run": false,
+    "next_step": "Close this CTA-raster v1. Redesign the complete Gate/Up and Down ownership skeleton around persistent cross-row or cross-tile B/scale residency, freeze the future M5424/general-tail dispatch contract, implement M8192/M7712 first, and return directly to the clean real P40K API witness. Only a competitive, accuracy-admissible P40 result unlocks M5424 implementation and P60."
+  },
+  "artifacts": {
+    "unprofiled_evidence_dir": ".q3x-work/evidence/prefill-target-path/g2d2-p40k-direction-20260810-r4-fixed-alias",
+    "unprofiled_evalscope_dir": ".q3x-work/evalscope/results/g2d2-p40k-direction-20260810-r4-fixed-alias/candidate/g2d2/parallel_1_number_1",
+    "candidate_profile_dir": ".q3x-work/profiles/g2d2-p40k-20260810-r1",
+    "baseline_profile_dir": ".q3x-work/profiles/p40k-native-quantized-da2b9f6-nsys-r1",
+    "unprofiled_server_log_sha256": "f751873084533105ee781a12ba36a6c30a476d3754fa6fab004ca374b7d5db94",
+    "unprofiled_evalscope_client_log_sha256": "393f67e8d36e46e7f07cf22805f61d37349bb82f0d153f4ed6d9fcddeef88d1d",
+    "unprofiled_evalscope_db_sha256": "2d8107bdc402c319968d97248cc83bac0913e62ef18faf6f68770d30c6b51427",
+    "unprofiled_evalscope_summary_sha256": "a54d375e0ee59acf60da7ae92a0f66fdf1b1c07809a01fa66c1170649bc84f1a",
+    "candidate_nsys_report_sha256": "71ca085a7a333c915949886ad9f4c4f49f29333d77a4ae5fd9b8b220775dd21e",
+    "candidate_kernel_summary_sha256": "1109ae28aa30ab3d1b4728277f81682a68549a771d2af5e2085a991437356f49",
+    "candidate_profile_server_log_sha256": "465d55909abcba89f9340ec7cf6191402a1110f6db4479bc36f44f7157b2b776",
+    "candidate_profile_server_start_preflight_sha256": "0fcc2090dea645f3ac01b3a390b1b6a644f682b735525032b4c127479cb4045b",
+    "candidate_profile_request_preflight_sha256": "1b72ec9611e7f216bf4a0ee3af89d07fb80f0878febba0cc92b3c473e9087579",
+    "baseline_nsys_report_sha256": "929ec5385f9fb47470613e48b6c83a563c6f549815b915590971989c0b239691",
+    "baseline_kernel_summary_sha256": "905e94bf9e98951a684ec5625044360f1e0eea9bdebecdaf7315e61b58a1035e"
+  },
+  "honesty_notes": [
+    "The EvalScope result is one clean-host real-API direction sample, not a repetition-qualified release baseline.",
+    "The exact measured binary is pinned, but it was built from a dirty working tree above f69f4d5. Commit 8889de4 records the measured implementation; post-measurement changes before that milestone were comments and a host regression test, not execution code.",
+    "The matching first token is an API/output smoke observation only and does not qualify full numerical state or model capability.",
+    "RequestState's conservative three-span mlp_tactic describes workspace reservation only; the v8 DeploymentPlan/witness is the authority for the fused physical route. No dead-path planner layout enum is added for this rejected candidate.",
+    "The bounded NSys result diagnoses the already rejected direction and cannot reverse the P40 decision.",
+    "P60 was not run because the current candidate lacks M5424. This is a geometry/admission blocker, not a P60 performance result.",
+    "All generated evidence stays under the ignored repository .q3x-work tree; the model directory and user environments were read-only."
+  ]
+}

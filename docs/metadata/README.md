@@ -81,6 +81,20 @@ therefore rejected, default-off, and accuracy-unqualified; its evidence sends
 the next work to distinct G2 paired Gate/Up and D2 Down dataflows rather than
 parameter scanning of the rejected skeleton.
 
+The rejected coupled GateUpG2/DownD2 v1 P40K API direction and bounded Nsight
+attribution are frozen in
+[`qwen36-27b-prefill-p40k-nvfp4-g2-d2-rejection-2026-08-10.json`](qwen36-27b-prefill-p40k-nvfp4-g2-d2-rejection-2026-08-10.json).
+The v8 request consumed all 40,000 tokens and attested 320 G2 plus 320 D2 hits
+with zero Prefix, MTP, cuBLASLt, external, approximate, exact-fallback, or
+forbidden-route hits. Server pure Prefill was 115,041.751913 ms / 347.699851
+tok/s versus 108,981.854892 ms / 367.033577 tok/s for retained `c45b7c5`, a
++5.560464% latency regression. Bounded NSys measured G2+D2 at 60.904184288 s,
+7.040159744 s above retained native Marlin main plus SiLU, and complete GPU
+kernel time increased by 6.110398080 s. The matching first token is not an
+accuracy qualification. P60 was not run because its balanced M5424 tail is
+unsupported by the M8192/M7712-only candidate; this is a geometry blocker, not
+a P60 performance result. G2/D2 v1 is rejected, default-off, and closed.
+
 The current Prefill architecture reset and same-host stock-vLLM P513 kernel
 profile are recorded in
 [`qwen36-27b-vllm-p513-architecture-profile-2026-07-29.json`](qwen36-27b-vllm-p513-architecture-profile-2026-07-29.json).

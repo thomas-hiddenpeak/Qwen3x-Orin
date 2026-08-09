@@ -314,6 +314,68 @@ for a request whose panel geometry would route through the compatibility
 executor. Existing v1--v5 serialization and plan identities remain
 byte-stable.
 
+An explicitly selected coupled GateUpG2/DownD2 projection screen emits
+`target-prefill-witness-v8`. Version 8 identifies the default-off
+`native-nvfp4-g2-d2-large-m-operator-panel` route without relabeling the
+earlier native-large-M or retained native-Marlin paths:
+
+- `nvfp4_package=gate-g2+down-d2`, `package_complete=true`, and the role
+  identities `GateUpG2` and `DownD2` must all be present;
+- `native_nvfp4_gate_up_g2_hits` and `native_nvfp4_down_d2_hits` must each
+  equal `64 * logical_panel_count`, while their sum equals
+  `native_nvfp4_g2_d2_projection_hits` and the physical-launch count;
+- G2 must attest fused Gate+Up+SiLU publication to activated BF16, and D2 must
+  attest its fused in-place residual publication;
+- companion FP8 and the selected Attention-route counts remain explicit. For
+  Q64, Q128-v4, or exact FlashInfer, the selected native count must equal
+  `16 * logical_panel_count` and the other Attention counters must be zero;
+  exact-segmented instead requires nonzero generic-QT2 evidence and zero native
+  Attention counts. The coupled package therefore cannot conceal another
+  projection or Attention route; and
+- exact fallback, forbidden fallback, Prefix cache, MTP, cuBLASLt,
+  external-reference, and approximate-route counters must remain zero.
+
+The four admitted v8 Attention compositions have distinct plan identities:
+
+- exact segmented:
+  `q3x.sm87.ac-prefill-prompt-wide-v2.native-nvfp4-g2-d2-large-m-operator-panel.exact-segmented-attention.v2`;
+- grouped Q64:
+  `q3x.sm87.ac-prefill-prompt-wide-v2.native-nvfp4-g2-d2-large-m-operator-panel.native-group-q64-attention.v2`;
+- grouped Q128-v4:
+  `q3x.sm87.ac-prefill-prompt-wide-v2.native-nvfp4-g2-d2-large-m-operator-panel.native-group-q128-v4-attention.v2`; and
+- exact FlashInfer:
+  `q3x.sm87.ac-prefill-prompt-wide-v2.native-nvfp4-g2-d2-large-m-operator-panel.native-flashinfer-exact-panel-attention.v2`.
+
+It admits only M8192 and M7712 logical panels and fails closed on another M.
+The conservative `RequestState` three-span MLP tactic is a workspace
+reservation identity, not a claim that physical Gate+Up, SiLU, and Down are
+separate. The v8 DeploymentPlan and request witness are the execution
+authority for the fused route. Because the measured route is rejected and
+default-off, no new planner-layout enum is required merely to rename its dead
+reservation spans. Existing v1--v7 serialization and plan identities remain
+byte-stable.
+
+Every v8 route remains `accuracy-unqualified-architecture-candidate` with a
+false `numerical_contract.qualified` value until the complete state and public
+no-regression protocol passes. Matching one generated token is a transport and
+output smoke observation, never an accuracy gate.
+
+The recorded clean-host P40K v8 direction selected the exact FlashInfer plan
+identity above, consumed all 40,000 tokens, recorded 320 G2 plus 320 D2 hits,
+and reported 115,085.76 ms EvalScope TTFT and 115,041.751913 ms server pure
+Prefill (347.699851 tok/s). Retained `c45b7c5` was 108,981.854892 ms /
+367.033577 tok/s, so the direction was rejected at +5.560464% latency /
+-5.267563% throughput. Bounded NSys measured G2+D2 at
+60.904184288 s versus 53.864024544 s for retained native Marlin main plus
+SiLU, a +7.040159744-s role gap and +6.110398080 s in complete GPU kernel
+time. This profile explains rejection; it cannot reverse it.
+
+P60 was not run. Its balanced logical geometry is `6x8192 + 2x5424`, while
+the v8 candidate has no M5424 path. That fact is an admission/geometry blocker,
+not a P60 timing or performance conclusion. The complete P40 route, hashes,
+limitations, and default-off decision are frozen in the
+[G2/D2 rejection record](metadata/qwen36-27b-prefill-p40k-nvfp4-g2-d2-rejection-2026-08-10.json).
+
 The externally observed TTFT selects the whole architecture. Server-side pure
 Prefill timing explains where that result came from; it never replaces the API
 result. A witness with an incomplete stream, unowned host resources, a route

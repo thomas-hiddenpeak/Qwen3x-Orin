@@ -533,7 +533,7 @@ this keeps the tactic accuracy-unqualified and default-off. P60K and P130K
 were not run. Exact artifacts and hashes are frozen in the
 [v6 P40K API record](metadata/qwen36-27b-prefill-p40k-flashinfer-exact-panel-api-2026-08-09.json).
 
-### 8.7 Coupled NVFP4 v1 result and G2/D2 redesign contract
+### 8.7 Coupled NVFP4 C1 and G2/D2 v1 results
 
 Revision `da2b9f6` implements WP-V2-C1-v1 as a distinct, default-off
 `native-nvfp4-true-large-m-operator-panel` tactic. It reuses the authenticated
@@ -567,28 +567,66 @@ counters, artifacts, timings, resource observations, and the decision are
 frozen in the
 [v1 rejection record](metadata/qwen36-27b-prefill-p40k-nvfp4-true-large-m-rejection-2026-08-10.json).
 
-The Roadmap activates a replacement pair, WP-V2-C1-G2 and WP-V2-C1-D2. Their
-status is **designed, not implemented**. Both derive from the proven Marlin
-consumer/feed structure and must provide `ldmatrix`/XOR A feed, two-slot
-raw/decoded-B register ping-pong, scale lifetime ending with its consumer
-fragment, decoded-B fanout across eight M16 panels, at most 128 registers per
-thread, about 50 KiB or less shared memory, and two active CTAs per SM.
+The replacement WP-V2-C1-G2/DownD2 v1 pair is now implemented as the distinct,
+default-off `native-nvfp4-g2-d2-large-m-operator-panel` route. G2 owns merged
+Gate+Up (`K=5120,N=34816`) as an M128 paired Gate64+Up64 K64 raster and
+publishes fused `SiLU(gate) * up` BF16 output. D2 owns Down
+(`K=17408,N=5120`) as an M128N128K64 N-major/B-stationary raster and performs
+the residual addition exactly once in its epilogue. Both reuse authenticated
+Marlin sidecars, accumulate in FP32, use 256 threads and 41,984 bytes of
+dynamic shared memory, and compile at 127/126 registers per thread under the
+static two-active-CTA/SM resource contract. They admit M8192 and M7712 only.
 
-- G2 owns merged Gate+Up (`K=5120,N=34816`) as M128 x paired Gate64+Up64 x
-  K64. It uses L2-capacity grouped ownership first; a 32-CTA persistent grid is
-  admissible only if two-CTA residency and arithmetic reuse are both measured.
-  The epilogue preserves the existing BF16 intermediate rounding, then applies
-  `SiLU(gate) * up` and publishes activated BF16 directly.
-- D2 owns Down (`K=17408,N=5120`) through a separate M128N128K64 topology. It
-  starts with N-major/B-stationary ownership, adding a persistent grid-stride
-  queue only after the residency gate. Its epilogue adds residual exactly once
-  under the existing BF16 rounding contract.
+The conservative `RequestState` MLP tactic continues to describe a three-span
+workspace reservation, not the candidate's physical execution decomposition.
+The v8 `DeploymentPlan` and request witness are the execution authority: they
+identify fused Gate+Up+SiLU and fused Down+residual explicitly and validate
+their 320+320 coupled hits. Because this route is rejected and default-off,
+the planner is not extended with a new layout enum merely to rename dead-path
+reservation storage.
 
-G2 and D2 must return together to the same real-model P40K API witness before
-repetition or full qualification. A positive direction earns bounded
-correctness, matched NSys, and real-weight NCU work; a negative direction is
-closed or redesigned. This architecture section does not claim either
-successor skeleton exists in code.
+Before the valid timing run, the original G2 output binding was found to alias
+the plan's normalized input through `mlp.activated_bf16`. That would create a
+cross-CTA in-place race and correctly failed launch validation. The repaired
+route uses the exact-size dead `mlp.gate_bf16` span as G2 output/D2 input and
+validates non-aliasing. Failed pre-repair attempts carry no performance
+authority.
+
+The following clean-host cold/no-cache P40K OpenAI API/EvalScope direction
+consumed all 40,000 tokens as `3x8192 + 2x7712`. Its v8 witness recorded 320
+GateUpG2 hits, 320 DownD2 hits, 80 exact FlashInfer Attention hits, and zero
+Prefix-cache, MTP, cuBLASLt, external, approximate, exact-fallback, or
+forbidden-route hits. EvalScope TTFT was 115.08576 s; server pure Prefill was
+115.041751913 s, or 347.699851 tok/s. The retained `c45b7c5` route was
+108.981854892 s and 367.033577 tok/s, so G2/D2 v1 increased latency by
+5.560464% and reduced throughput by 5.267563%. The matching first token `The`
+is an API/output smoke observation only, not numerical or capability
+qualification.
+
+A bounded diagnostic NSys capture measured G2 at 40.371860160 s and D2 at
+20.532324128 s, 60.904184288 s combined. The retained native Marlin main
+signature plus standalone SiLU consumed 53.864024544 s, leaving a
+7.040159744-s role gap; all other kernels recovered 0.929761664 s, so complete
+GPU kernel time still increased by 6.110398080 s. Resource admission, launch
+fusion, and epilogue fusion did not provide persistent B/scale residency or
+decoded-fragment reuse across CTA output tiles.
+
+WP-V2-C1-G2/D2 v1 is therefore rejected and remains default-off. Full accuracy
+qualification, repetition, NCU, P60K, and P130K were not run. P60's balanced
+geometry is `6x8192 + 2x5424`; the candidate admits no M5424 path, so the
+missing tail is an admission/geometry blocker rather than a P60 performance
+conclusion. Exact evidence is frozen in the
+[G2/D2 rejection record](metadata/qwen36-27b-prefill-p40k-nvfp4-g2-d2-rejection-2026-08-10.json).
+
+The Roadmap successor must replace one-raster-CTA ownership rather than scan
+parameters on this closed version. Its complete Gate/Up and Down dataflow must
+make B/scale residency and decoded-fragment reuse persist across multiple M
+rows or output tiles and retain shape-specific ownership. Freeze an M5424 tail
+extension in the dispatch contract, implement M8192/M7712 first, and return
+directly to the same real P40K API witness. Only a competitive,
+accuracy-admissible P40K result unlocks M5424 implementation and P60. This
+section records the boundary exposed by v1; it does not claim that persistent
+successor exists in code.
 
 ## 9. Global dataflow questions
 
