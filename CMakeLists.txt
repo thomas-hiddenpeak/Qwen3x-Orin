@@ -1036,6 +1036,28 @@ if(BUILD_TESTING)
     TIMEOUT 300
   )
 
+  # Default-off Attention-v4 bring-up.  The target exercises only the
+  # explicit Q128 test surface; no runner/selector can dispatch this kernel.
+  add_executable(q3x_full_attention_group_q128_v4_cuda_test
+    tests/full_attention_group_q128_v4_cuda_test.cu
+  )
+  target_link_libraries(q3x_full_attention_group_q128_v4_cuda_test
+    PRIVATE q3x::core q3x::kernels
+  )
+  target_compile_options(q3x_full_attention_group_q128_v4_cuda_test PRIVATE
+    $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>
+  )
+  q3x_enable_warnings(q3x_full_attention_group_q128_v4_cuda_test)
+  add_test(NAME full_attention_group_q128_v4_cuda
+    COMMAND q3x_full_attention_group_q128_v4_cuda_test
+  )
+  set_tests_properties(full_attention_group_q128_v4_cuda PROPERTIES
+    LABELS "cuda;sm87;prefill;attention;local_mutation;dependency_only;default_off"
+    RESOURCE_LOCK q3x_sm87_gpu
+    RUN_SERIAL TRUE
+    TIMEOUT 300
+  )
+
   add_executable(q3x_gdn_decode_host_test
     tests/gdn_decode_host_test.cpp
   )
@@ -1213,6 +1235,14 @@ if(BUILD_TESTING)
   )
   set_tests_properties(
     eval_server_rejects_unsealed_layer_major_route PROPERTIES
+    WILL_FAIL TRUE
+  )
+  add_test(NAME eval_server_rejects_segmented_projection_in_legacy_mode
+    COMMAND qwen3x-eval-server unused
+            --prefill-projection-tactic segmented-marlin-operator-panel
+  )
+  set_tests_properties(
+    eval_server_rejects_segmented_projection_in_legacy_mode PROPERTIES
     WILL_FAIL TRUE
   )
 

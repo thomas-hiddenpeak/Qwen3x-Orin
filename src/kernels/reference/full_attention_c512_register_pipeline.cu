@@ -45,6 +45,11 @@ constexpr unsigned int kBulkGqaPackedQueryCount =
     kBulkGqaC512TokenCount * kBulkGqaQueriesPerKv;
 constexpr unsigned int kBulkGqaGroupQueryTile = 64U;
 constexpr unsigned int kBulkGqaGroupKvTile = 32U;
+constexpr unsigned int kBulkGqaGroupQ128V4QueryTile =
+    static_cast<unsigned int>(
+        kBulkCausalGqaGroupQ128V4PackedQueryTile);
+constexpr unsigned int kBulkGqaGroupQ128V4Threads =
+    static_cast<unsigned int>(kBulkCausalGqaGroupQ128V4Threads);
 constexpr unsigned int kBulkGqaGroupGridX =
     kBulkGqaPackedQueryCount / kBulkGqaGroupQueryTile;
 constexpr unsigned int kBulkGqaRangeFirstPositionBits =
@@ -54,6 +59,11 @@ constexpr unsigned int kBulkGqaRangeFirstPositionMask =
 
 static_assert(kBulkGqaQueriesPerKv == 6U);
 static_assert(kBulkGqaRegisterThreads == 128U);
+static_assert(kBulkGqaGroupQ128V4QueryTile == 128U);
+static_assert(kBulkGqaGroupQ128V4Threads == 256U);
+static_assert(kBulkGqaGroupQ128V4Threads / 32U ==
+              kBulkGqaGroupQ128V4QueryTile /
+                  kBulkGqaTensorCoreQueryTile);
 static_assert(kBulkGqaPackedQueryCount == 3'072U);
 static_assert(kBulkGqaGroupGridX == 48U);
 static_assert(kBulkCausalGqaMaximumSequenceLength <=
@@ -678,18 +688,23 @@ void bulk_causal_gqa_sigmoid_gate_24_4_256_c512_register_pipeline_kernel(
 // Query/Gate/output addresses remain tile-local while K/V and causal positions
 // are global. P0/C512 retains a separate compile-time exact specialization so
 // extending the dataflow does not add predicates to its established hot path.
+template <unsigned int kPackedQueryTile>
 struct alignas(16) BulkGqaGroupSharedStorage {
   alignas(16) std::uint16_t
-      query[kBulkGqaGroupQueryTile * kBulkGqaHeadDimension];
+      query[kPackedQueryTile * kBulkGqaHeadDimension];
   alignas(16) std::uint16_t
       key[kBulkGqaGroupKvTile * kBulkGqaHeadDimension];
   alignas(16) std::uint16_t
       value[kBulkGqaGroupKvTile * kBulkGqaHeadDimension];
 };
 
-static_assert(sizeof(BulkGqaGroupSharedStorage) == 64U * 1024U);
+static_assert(sizeof(BulkGqaGroupSharedStorage<kBulkGqaGroupQueryTile>) ==
+              64U * 1024U);
+static_assert(
+    sizeof(BulkGqaGroupSharedStorage<kBulkGqaGroupQ128V4QueryTile>) ==
+    kBulkCausalGqaGroupQ128V4DynamicSharedBytes);
 
-template <bool kExactC512>
+template <bool kExactC512, unsigned int kThreads>
 __device__ __forceinline__ void bulk_gqa_stage_group_kv_tile(
     std::uint16_t* const shared,
     const std::uint16_t* const global,
@@ -705,7 +720,7 @@ __device__ __forceinline__ void bulk_gqa_stage_group_kv_tile(
   static_assert(kVectorsPerTile == 1'024U);
 #pragma unroll
   for (unsigned int vector = thread; vector < kVectorsPerTile;
-       vector += kBulkGqaRegisterThreads) {
+       vector += kThreads) {
     const unsigned int local_position = vector / kVectorsPerHead;
     const unsigned int vector_in_head =
         vector - local_position * kVectorsPerHead;
@@ -740,8 +755,9 @@ __device__ __forceinline__ void bulk_gqa_stage_group_kv_tile(
   bulk_gqa_cp_async_commit();
 }
 
-template <bool kExactC512>
-__global__ __launch_bounds__(kBulkGqaRegisterThreads, 1)
+template <bool kExactC512, unsigned int kPackedQueryTile,
+          unsigned int kThreads>
+__global__ __launch_bounds__(kThreads, 1)
 void bulk_causal_gqa_sigmoid_gate_24_4_256_c512_group_q64_kernel(
     const std::uint16_t* const query,
     const std::uint16_t* const key_cache,
@@ -751,14 +767,17 @@ void bulk_causal_gqa_sigmoid_gate_24_4_256_c512_group_q64_kernel(
     const unsigned int packed_tile_range) {
   extern __shared__ __align__(16) unsigned char dynamic_shared[];
   auto& storage =
-      *reinterpret_cast<BulkGqaGroupSharedStorage*>(dynamic_shared);
+      *reinterpret_cast<BulkGqaGroupSharedStorage<kPackedQueryTile>*>(
+          dynamic_shared);
 
   constexpr unsigned int kQueryVectors =
-      kBulkGqaGroupQueryTile * kBulkGqaHeadDimension *
+      kPackedQueryTile * kBulkGqaHeadDimension *
       sizeof(std::uint16_t) / sizeof(uint4);
   constexpr unsigned int kOutputFragments = kBulkGqaHeadDimension / 16U;
   constexpr unsigned int kScoreFragments = kBulkGqaGroupKvTile / 16U;
-  static_assert(kQueryVectors == 2'048U);
+  static_assert(kPackedQueryTile % kBulkGqaTensorCoreQueryTile == 0U);
+  static_assert(kThreads ==
+                (kPackedQueryTile / kBulkGqaTensorCoreQueryTile) * 32U);
   static_assert(kOutputFragments == 16U);
   static_assert(kScoreFragments == 2U);
 
@@ -775,7 +794,7 @@ void bulk_causal_gqa_sigmoid_gate_24_4_256_c512_group_q64_kernel(
           ? kBulkGqaC512TokenCount
           : packed_tile_range >> kBulkGqaRangeFirstPositionBits;
   const unsigned int first_packed_query =
-      blockIdx.x * kBulkGqaGroupQueryTile;
+      blockIdx.x * kPackedQueryTile;
   const unsigned int warp_packed_query =
       first_packed_query + warp * kBulkGqaTensorCoreQueryTile;
   const unsigned int packed_query_count =
@@ -784,8 +803,8 @@ void bulk_causal_gqa_sigmoid_gate_24_4_256_c512_group_q64_kernel(
   const unsigned int remaining_packed_queries =
       packed_query_count - first_packed_query;
   const unsigned int valid_packed_queries =
-      kExactC512 || remaining_packed_queries >= kBulkGqaGroupQueryTile
-          ? kBulkGqaGroupQueryTile
+      kExactC512 || remaining_packed_queries >= kPackedQueryTile
+          ? kPackedQueryTile
           : remaining_packed_queries;
   const unsigned int last_packed_query =
       first_packed_query + valid_packed_queries - 1U;
@@ -800,11 +819,36 @@ void bulk_causal_gqa_sigmoid_gate_24_4_256_c512_group_q64_kernel(
   const unsigned int iteration_count =
       (causal_kv_length + kBulkGqaGroupKvTile - 1U) /
       kBulkGqaGroupKvTile;
+  // Q128-v4 aggregates two established Q64 CTAs only to share each staged
+  // K/V32 tile.  Keep the two four-warp subgroups' causal iteration bounds
+  // independent so the first subgroup never consumes masked-future values
+  // that its original Q64 CTA would not have loaded.  For the production Q64
+  // specialization the first disjunct is compile-time true, preserving its
+  // hot-path instruction body.
+  constexpr unsigned int kBaselinePackedQueryTile =
+      kBulkGqaGroupQueryTile;
+  const unsigned int baseline_group_first_packed_query =
+      first_packed_query +
+      (warp >> 2U) * kBaselinePackedQueryTile;
+  const unsigned int baseline_group_end_packed_query =
+      baseline_group_first_packed_query + kBaselinePackedQueryTile <
+              packed_query_count
+          ? baseline_group_first_packed_query +
+                kBaselinePackedQueryTile
+          : packed_query_count;
+  const unsigned int baseline_group_iteration_count =
+      baseline_group_first_packed_query >= packed_query_count
+          ? 0U
+          : (global_first_position +
+                 (baseline_group_end_packed_query - 1U) /
+                     kBulkGqaQueriesPerKv +
+                 1U + kBulkGqaGroupKvTile - 1U) /
+                kBulkGqaGroupKvTile;
 
   auto* const shared_query_vectors =
       reinterpret_cast<uint4*>(storage.query);
   for (unsigned int vector = thread; vector < kQueryVectors;
-       vector += kBulkGqaRegisterThreads) {
+       vector += kThreads) {
     const unsigned int local_packed_query = vector / 32U;
     const unsigned int vector_in_head = vector - local_packed_query * 32U;
     const unsigned int packed_query =
@@ -855,10 +899,10 @@ void bulk_causal_gqa_sigmoid_gate_24_4_256_c512_group_q64_kernel(
   float denominators[2] = {0.0F, 0.0F};
 
   unsigned int current_tile_start = 0U;
-  bulk_gqa_stage_group_kv_tile<kExactC512>(
+  bulk_gqa_stage_group_kv_tile<kExactC512, kThreads>(
       storage.key, key_cache, kv_head, current_tile_start, global_kv_count,
       thread);
-  bulk_gqa_stage_group_kv_tile<kExactC512>(
+  bulk_gqa_stage_group_kv_tile<kExactC512, kThreads>(
       storage.value, value_cache, kv_head, current_tile_start, global_kv_count,
       thread);
 
@@ -866,6 +910,10 @@ void bulk_causal_gqa_sigmoid_gate_24_4_256_c512_group_q64_kernel(
        ++iteration) {
     bulk_gqa_cp_async_wait_group_1();
     __syncthreads();
+
+    const bool baseline_group_iteration_active =
+        kPackedQueryTile == kBaselinePackedQueryTile ||
+        iteration < baseline_group_iteration_count;
 
     nvcuda::wmma::fragment<nvcuda::wmma::accumulator, 16, 16, 16,
                            float>
@@ -879,28 +927,31 @@ void bulk_causal_gqa_sigmoid_gate_24_4_256_c512_group_q64_kernel(
         warp * kBulkGqaTensorCoreQueryTile * kBulkGqaHeadDimension;
     const auto* const key_bf16 =
         reinterpret_cast<const __nv_bfloat16*>(storage.key);
+    if (baseline_group_iteration_active) {
 #pragma unroll
-    for (unsigned int dimension = 0U;
-         dimension < kBulkGqaHeadDimension; dimension += 16U) {
-      nvcuda::wmma::fragment<nvcuda::wmma::matrix_a, 16, 16, 16,
-                             __nv_bfloat16, nvcuda::wmma::row_major>
-          query_fragment;
-      nvcuda::wmma::load_matrix_sync(
-          query_fragment, query_bf16 + dimension,
-          kBulkGqaHeadDimension);
-#pragma unroll
-      for (unsigned int score = 0U; score < kScoreFragments; ++score) {
-        nvcuda::wmma::fragment<nvcuda::wmma::matrix_b, 16, 16, 16,
-                               __nv_bfloat16, nvcuda::wmma::col_major>
-            key_fragment;
+      for (unsigned int dimension = 0U;
+           dimension < kBulkGqaHeadDimension; dimension += 16U) {
+        nvcuda::wmma::fragment<nvcuda::wmma::matrix_a, 16, 16, 16,
+                               __nv_bfloat16, nvcuda::wmma::row_major>
+            query_fragment;
         nvcuda::wmma::load_matrix_sync(
-            key_fragment,
-            key_bf16 + score * kBulkGqaTensorCoreKvTile *
-                           kBulkGqaHeadDimension +
-                dimension,
+            query_fragment, query_bf16 + dimension,
             kBulkGqaHeadDimension);
-        nvcuda::wmma::mma_sync(score_fragments[score], query_fragment,
-                               key_fragment, score_fragments[score]);
+#pragma unroll
+        for (unsigned int score = 0U; score < kScoreFragments; ++score) {
+          nvcuda::wmma::fragment<nvcuda::wmma::matrix_b, 16, 16, 16,
+                                 __nv_bfloat16,
+                                 nvcuda::wmma::col_major>
+              key_fragment;
+          nvcuda::wmma::load_matrix_sync(
+              key_fragment,
+              key_bf16 + score * kBulkGqaTensorCoreKvTile *
+                             kBulkGqaHeadDimension +
+                  dimension,
+              kBulkGqaHeadDimension);
+          nvcuda::wmma::mma_sync(score_fragments[score], query_fragment,
+                                 key_fragment, score_fragments[score]);
+        }
       }
     }
 
@@ -909,7 +960,7 @@ void bulk_causal_gqa_sigmoid_gate_24_4_256_c512_group_q64_kernel(
     const bool has_next = iteration + 1U < iteration_count;
     __syncthreads();
     if (has_next) {
-      bulk_gqa_stage_group_kv_tile<kExactC512>(
+      bulk_gqa_stage_group_kv_tile<kExactC512, kThreads>(
           storage.key, key_cache, kv_head, next_tile_start, global_kv_count,
           thread);
       bulk_gqa_cp_async_wait_group_1();
@@ -920,121 +971,125 @@ void bulk_causal_gqa_sigmoid_gate_24_4_256_c512_group_q64_kernel(
 
     const auto* const value_bf16 =
         reinterpret_cast<const __nv_bfloat16*>(storage.value);
+    if (baseline_group_iteration_active) {
 #pragma unroll
-    for (unsigned int score = 0U; score < kScoreFragments; ++score) {
-      auto& score_fragment = score_fragments[score];
+      for (unsigned int score = 0U; score < kScoreFragments; ++score) {
+        auto& score_fragment = score_fragments[score];
 #pragma unroll
-      for (unsigned int reg = 0U; reg < 8U; ++reg) {
-        const unsigned int row =
-            lane / 4U + 8U * ((reg % 4U) / 2U);
-        const unsigned int column =
-            2U * (lane % 4U) + 8U * (reg / 4U) + reg % 2U;
-        const unsigned int packed_query = warp_packed_query + row;
-        const unsigned int local_query_token =
-            packed_query / kBulkGqaQueriesPerKv;
-        const unsigned int query_position =
-            global_first_position + local_query_token;
-        const unsigned int kv_position =
-            current_tile_start + score * kBulkGqaTensorCoreKvTile +
-            column;
-        if constexpr (kExactC512) {
-          score_fragment.x[reg] =
-              kv_position <= query_position
-                  ? score_fragment.x[reg] * kBulkGqaAttentionScale
-                  : -__int_as_float(0x7f800000);
-        } else if (packed_query >= packed_query_count) {
-          // The incomplete Q64 tail is never stored.  Give its private WMMA
-          // rows a finite dummy distribution so -inf - -inf cannot create a
-          // NaN that obscures diagnostics for adjacent valid rows.
-          score_fragment.x[reg] = 0.0F;
-        } else {
-          score_fragment.x[reg] =
-              kv_position < global_kv_count &&
-                  kv_position <= query_position
-                  ? score_fragment.x[reg] * kBulkGqaAttentionScale
-                  : -__int_as_float(0x7f800000);
+        for (unsigned int reg = 0U; reg < 8U; ++reg) {
+          const unsigned int row =
+              lane / 4U + 8U * ((reg % 4U) / 2U);
+          const unsigned int column =
+              2U * (lane % 4U) + 8U * (reg / 4U) + reg % 2U;
+          const unsigned int packed_query = warp_packed_query + row;
+          const unsigned int local_query_token =
+              packed_query / kBulkGqaQueriesPerKv;
+          const unsigned int query_position =
+              global_first_position + local_query_token;
+          const unsigned int kv_position =
+              current_tile_start + score * kBulkGqaTensorCoreKvTile +
+              column;
+          if constexpr (kExactC512) {
+            score_fragment.x[reg] =
+                kv_position <= query_position
+                    ? score_fragment.x[reg] * kBulkGqaAttentionScale
+                    : -__int_as_float(0x7f800000);
+          } else if (packed_query >= packed_query_count) {
+            // The incomplete Q64 tail is never stored.  Give its private WMMA
+            // rows a finite dummy distribution so -inf - -inf cannot create a
+            // NaN that obscures diagnostics for adjacent valid rows.
+            score_fragment.x[reg] = 0.0F;
+          } else {
+            score_fragment.x[reg] =
+                kv_position < global_kv_count &&
+                    kv_position <= query_position
+                    ? score_fragment.x[reg] * kBulkGqaAttentionScale
+                    : -__int_as_float(0x7f800000);
+          }
         }
-      }
 
-      __nv_bfloat16 probability_bits[8];
+        __nv_bfloat16 probability_bits[8];
 #pragma unroll
-      for (unsigned int row_group = 0U; row_group < 2U; ++row_group) {
-        const unsigned int first = 2U * row_group;
-        float local_maximum = fmaxf(
-            fmaxf(score_fragment.x[first],
-                  score_fragment.x[first + 1U]),
-            fmaxf(score_fragment.x[first + 4U],
-                  score_fragment.x[first + 5U]));
-        local_maximum =
-            fmaxf(local_maximum,
-                  __shfl_xor_sync(0xffff'ffffU, local_maximum, 1U));
-        local_maximum =
-            fmaxf(local_maximum,
-                  __shfl_xor_sync(0xffff'ffffU, local_maximum, 2U));
-        const float previous_maximum = maxima[row_group];
-        const float next_maximum =
-            fmaxf(previous_maximum, local_maximum);
-        const float correction =
-            previous_maximum == -__int_as_float(0x7f800000)
-                ? 0.0F
-                : bulk_gqa_fast_exp(previous_maximum - next_maximum);
-        denominators[row_group] *= correction;
+        for (unsigned int row_group = 0U; row_group < 2U; ++row_group) {
+          const unsigned int first = 2U * row_group;
+          float local_maximum = fmaxf(
+              fmaxf(score_fragment.x[first],
+                    score_fragment.x[first + 1U]),
+              fmaxf(score_fragment.x[first + 4U],
+                    score_fragment.x[first + 5U]));
+          local_maximum =
+              fmaxf(local_maximum,
+                    __shfl_xor_sync(0xffff'ffffU, local_maximum, 1U));
+          local_maximum =
+              fmaxf(local_maximum,
+                    __shfl_xor_sync(0xffff'ffffU, local_maximum, 2U));
+          const float previous_maximum = maxima[row_group];
+          const float next_maximum =
+              fmaxf(previous_maximum, local_maximum);
+          const float correction =
+              previous_maximum == -__int_as_float(0x7f800000)
+                  ? 0.0F
+                  : bulk_gqa_fast_exp(previous_maximum - next_maximum);
+          denominators[row_group] *= correction;
 #pragma unroll
-        for (unsigned int fragment = 0U;
-             fragment < kOutputFragments; ++fragment) {
-          output_fragments[fragment].x[first] *= correction;
-          output_fragments[fragment].x[first + 1U] *= correction;
-          output_fragments[fragment].x[first + 4U] *= correction;
-          output_fragments[fragment].x[first + 5U] *= correction;
+          for (unsigned int fragment = 0U;
+               fragment < kOutputFragments; ++fragment) {
+            output_fragments[fragment].x[first] *= correction;
+            output_fragments[fragment].x[first + 1U] *= correction;
+            output_fragments[fragment].x[first + 4U] *= correction;
+            output_fragments[fragment].x[first + 5U] *= correction;
+          }
+          float local_denominator = 0.0F;
+          const unsigned int registers[4] = {
+              first, first + 1U, first + 4U, first + 5U};
+#pragma unroll
+          for (unsigned int item = 0U; item < 4U; ++item) {
+            const unsigned int reg = registers[item];
+            const float probability =
+                bulk_gqa_fast_exp(score_fragment.x[reg] - next_maximum);
+            probability_bits[reg] = __float2bfloat16_rn(probability);
+            local_denominator += __bfloat162float(probability_bits[reg]);
+          }
+          local_denominator +=
+              __shfl_xor_sync(0xffff'ffffU, local_denominator, 1U);
+          local_denominator +=
+              __shfl_xor_sync(0xffff'ffffU, local_denominator, 2U);
+          denominators[row_group] += local_denominator;
+          maxima[row_group] = next_maximum;
         }
-        float local_denominator = 0.0F;
-        const unsigned int registers[4] = {
-            first, first + 1U, first + 4U, first + 5U};
-#pragma unroll
-        for (unsigned int item = 0U; item < 4U; ++item) {
-          const unsigned int reg = registers[item];
-          const float probability =
-              bulk_gqa_fast_exp(score_fragment.x[reg] - next_maximum);
-          probability_bits[reg] = __float2bfloat16_rn(probability);
-          local_denominator += __bfloat162float(probability_bits[reg]);
-        }
-        local_denominator +=
-            __shfl_xor_sync(0xffff'ffffU, local_denominator, 1U);
-        local_denominator +=
-            __shfl_xor_sync(0xffff'ffffU, local_denominator, 2U);
-        denominators[row_group] += local_denominator;
-        maxima[row_group] = next_maximum;
-      }
 
-      nvcuda::wmma::fragment<nvcuda::wmma::matrix_a, 16, 16, 16,
-                             __nv_bfloat16, nvcuda::wmma::row_major>
-          probability_fragment;
+        nvcuda::wmma::fragment<nvcuda::wmma::matrix_a, 16, 16, 16,
+                               __nv_bfloat16,
+                               nvcuda::wmma::row_major>
+            probability_fragment;
 #pragma unroll
-      for (unsigned int reg = 0U;
-           reg < probability_fragment.num_elements; ++reg) {
-        probability_fragment.x[reg] = probability_bits[reg];
-      }
+        for (unsigned int reg = 0U;
+             reg < probability_fragment.num_elements; ++reg) {
+          probability_fragment.x[reg] = probability_bits[reg];
+        }
 #pragma unroll
-      for (unsigned int fragment = 0U; fragment < kOutputFragments;
-           ++fragment) {
-        nvcuda::wmma::fragment<nvcuda::wmma::matrix_b, 16, 16, 16,
-                               __nv_bfloat16, nvcuda::wmma::row_major>
-            value_fragment;
-        nvcuda::wmma::load_matrix_sync(
-            value_fragment,
-            value_bf16 + score * kBulkGqaTensorCoreKvTile *
-                             kBulkGqaHeadDimension +
-                16U * fragment,
-            kBulkGqaHeadDimension);
-        nvcuda::wmma::mma_sync(output_fragments[fragment],
-                               probability_fragment, value_fragment,
-                               output_fragments[fragment]);
+        for (unsigned int fragment = 0U; fragment < kOutputFragments;
+             ++fragment) {
+          nvcuda::wmma::fragment<nvcuda::wmma::matrix_b, 16, 16, 16,
+                                 __nv_bfloat16,
+                                 nvcuda::wmma::row_major>
+              value_fragment;
+          nvcuda::wmma::load_matrix_sync(
+              value_fragment,
+              value_bf16 + score * kBulkGqaTensorCoreKvTile *
+                               kBulkGqaHeadDimension +
+                  16U * fragment,
+              kBulkGqaHeadDimension);
+          nvcuda::wmma::mma_sync(output_fragments[fragment],
+                                 probability_fragment, value_fragment,
+                                 output_fragments[fragment]);
+        }
       }
     }
 
     __syncthreads();
     if (has_next) {
-      bulk_gqa_stage_group_kv_tile<kExactC512>(
+      bulk_gqa_stage_group_kv_tile<kExactC512, kThreads>(
           storage.value, value_cache, kv_head, next_tile_start,
           global_kv_count,
           thread);
@@ -1105,19 +1160,21 @@ void bulk_causal_gqa_sigmoid_gate_24_4_256_c512_group_q64_kernel(
     std::uint16_t* const output,
     const cudaStream_t stream) noexcept {
   constexpr std::size_t kV3DynamicSharedBytes =
-      sizeof(BulkGqaGroupSharedStorage);
+      sizeof(BulkGqaGroupSharedStorage<kBulkGqaGroupQueryTile>);
   const bool exact_c512 =
       first_position == 0U && token_count == kBulkGqaC512TokenCount;
   const cudaError_t attribute_status =
       exact_c512
           ? cudaFuncSetAttribute(
                 bulk_causal_gqa_sigmoid_gate_24_4_256_c512_group_q64_kernel<
-                    true>,
+                    true, kBulkGqaGroupQueryTile,
+                    kBulkGqaRegisterThreads>,
                 cudaFuncAttributeMaxDynamicSharedMemorySize,
                 static_cast<int>(kV3DynamicSharedBytes))
           : cudaFuncSetAttribute(
                 bulk_causal_gqa_sigmoid_gate_24_4_256_c512_group_q64_kernel<
-                    false>,
+                    false, kBulkGqaGroupQueryTile,
+                    kBulkGqaRegisterThreads>,
                 cudaFuncAttributeMaxDynamicSharedMemorySize,
                 static_cast<int>(kV3DynamicSharedBytes));
   if (attribute_status != cudaSuccess) {
@@ -1132,7 +1189,8 @@ void bulk_causal_gqa_sigmoid_gate_24_4_256_c512_group_q64_kernel(
                 kBulkGqaGroupQueryTile),
       1U, kBulkGqaKvHeads);
   if (exact_c512) {
-    bulk_causal_gqa_sigmoid_gate_24_4_256_c512_group_q64_kernel<true>
+    bulk_causal_gqa_sigmoid_gate_24_4_256_c512_group_q64_kernel<
+        true, kBulkGqaGroupQueryTile, kBulkGqaRegisterThreads>
         <<<blocks, kBulkGqaRegisterThreads, kV3DynamicSharedBytes, stream>>>(
             query, key_cache, value_cache, gate, output,
             static_cast<unsigned int>(token_count));
@@ -1141,11 +1199,49 @@ void bulk_causal_gqa_sigmoid_gate_24_4_256_c512_group_q64_kernel(
         static_cast<unsigned int>(first_position) |
         (static_cast<unsigned int>(token_count)
          << kBulkGqaRangeFirstPositionBits);
-    bulk_causal_gqa_sigmoid_gate_24_4_256_c512_group_q64_kernel<false>
+    bulk_causal_gqa_sigmoid_gate_24_4_256_c512_group_q64_kernel<
+        false, kBulkGqaGroupQueryTile, kBulkGqaRegisterThreads>
         <<<blocks, kBulkGqaRegisterThreads, kV3DynamicSharedBytes, stream>>>(
             query, key_cache, value_cache, gate, output,
             packed_tile_range);
   }
+  return static_cast<int>(cudaGetLastError());
+}
+
+[[nodiscard]] int launch_bulk_gqa_group_q128_v4_fixed_impl(
+    const std::uint16_t* const query,
+    const std::uint16_t* const key_cache,
+    const std::uint16_t* const value_cache,
+    const std::uint16_t* const gate,
+    const std::size_t first_position,
+    const std::size_t token_count,
+    std::uint16_t* const output,
+    const cudaStream_t stream) noexcept {
+  constexpr std::size_t kV4DynamicSharedBytes =
+      sizeof(BulkGqaGroupSharedStorage<kBulkGqaGroupQ128V4QueryTile>);
+  static_assert(kV4DynamicSharedBytes ==
+                kBulkCausalGqaGroupQ128V4DynamicSharedBytes);
+  const auto kernel =
+      bulk_causal_gqa_sigmoid_gate_24_4_256_c512_group_q64_kernel<
+          false, kBulkGqaGroupQ128V4QueryTile,
+          kBulkGqaGroupQ128V4Threads>;
+  const cudaError_t attribute_status = cudaFuncSetAttribute(
+      kernel, cudaFuncAttributeMaxDynamicSharedMemorySize,
+      static_cast<int>(kV4DynamicSharedBytes));
+  if (attribute_status != cudaSuccess) {
+    return static_cast<int>(attribute_status);
+  }
+  const dim3 blocks(
+      static_cast<unsigned int>(
+          bulk_causal_gqa_group_q128_v4_grid_x(token_count)),
+      1U, kBulkGqaKvHeads);
+  const unsigned int packed_tile_range =
+      static_cast<unsigned int>(first_position) |
+      (static_cast<unsigned int>(token_count)
+       << kBulkGqaRangeFirstPositionBits);
+  kernel<<<blocks, kBulkGqaGroupQ128V4Threads,
+           kV4DynamicSharedBytes, stream>>>(
+      query, key_cache, value_cache, gate, output, packed_tile_range);
   return static_cast<int>(cudaGetLastError());
 }
 
@@ -1189,6 +1285,29 @@ int launch_bulk_causal_gqa_sigmoid_gate_24_4_256_group_q64_panel_fixed_cuda(
   const auto stream = static_cast<cudaStream_t>(cuda_stream);
   (void)cudaGetLastError();
   return launch_bulk_gqa_group_q64_v3_fixed_impl(
+      query, key_cache, value_cache, gate, first_position, token_count,
+      output, stream);
+}
+
+int launch_bulk_causal_gqa_sigmoid_gate_24_4_256_group_q128_v4_panel_test_cuda(
+    const std::uint16_t* const query,
+    const std::uint16_t* const key_cache,
+    const std::uint16_t* const value_cache,
+    const std::uint16_t* const gate,
+    const std::size_t first_position,
+    const std::size_t token_count,
+    std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  if (!can_launch_bulk_causal_gqa_group_q128_v4_panel(first_position,
+                                                       token_count) ||
+      !valid_group_q64_panel_arguments(
+          query, key_cache, value_cache, gate, first_position, token_count,
+          output)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const auto stream = static_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  return launch_bulk_gqa_group_q128_v4_fixed_impl(
       query, key_cache, value_cache, gate, first_position, token_count,
       output, stream);
 }

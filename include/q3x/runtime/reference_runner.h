@@ -243,6 +243,8 @@ struct ReferenceWholeRequestPrefillResult {
   std::size_t operator_panel_executor_hits = 0U;
   std::size_t native_group_q64_panel_hits = 0U;
   std::size_t generic_qt2_hits = 0U;
+  std::size_t segmented_panel_projection_hits = 0U;
+  std::size_t segmented_panel_projection_physical_launches = 0U;
   PrefillExecutionProgress progress;
   std::optional<ReferenceStepTiming> timing;
 };
@@ -759,6 +761,7 @@ class ReferenceRunner {
   prefill_whole_request_layer_major_panel_core(
       const std::uint32_t* input_token_ids, std::size_t token_count,
       const PrefillExecutionPlan& immutable_topology,
+      LayerMajorPrefillProjectionTactic projection_tactic,
       LayerMajorPrefillFullAttentionTactic full_attention_tactic,
       const ReferenceWholeRequestPrefillOptions& options = {}) noexcept;
   [[nodiscard]] ReferenceWholeRequestPrefillOutcome
@@ -766,6 +769,7 @@ class ReferenceRunner {
       const std::uint32_t* input_token_ids, std::size_t token_count,
       const PrefillExecutionPlan& immutable_topology,
       LayerMajorLayerExecutor executor,
+      LayerMajorPrefillProjectionTactic projection_tactic,
       LayerMajorPrefillFullAttentionTactic full_attention_tactic,
       const ReferenceWholeRequestPrefillOptions& options) noexcept;
   [[nodiscard]] ReferenceStepOutcome
@@ -866,6 +870,8 @@ class ReferenceRunner {
   struct PrefillLayerSegmentEnqueueResult {
     ReferenceRunnerStatus status;
     PrefillEnqueueRouteFragment route_fragment;
+    std::size_t segmented_panel_projection_hits = 0U;
+    std::size_t segmented_panel_projection_physical_launches = 0U;
 
     [[nodiscard]] bool ok() const noexcept { return status.ok(); }
     [[nodiscard]] explicit operator bool() const noexcept { return ok(); }
@@ -912,6 +918,7 @@ class ReferenceRunner {
   enqueue_prefill_layer_panel(
       const std::uint32_t* input_token_ids, std::size_t token_count,
       std::uint32_t first_position, std::size_t layer,
+      LayerMajorPrefillProjectionTactic projection_tactic,
       LayerMajorPrefillFullAttentionTactic full_attention_tactic,
       const ReferenceLayerMajorRequestViews& request_views) noexcept;
   [[nodiscard]] static bool same_prefill_execution_progress(

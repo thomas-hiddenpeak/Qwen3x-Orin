@@ -598,8 +598,21 @@ std::string serialize_target_prefill_witness(
   const bool candidate_v3 =
       record.deployment_plan_id ==
       runtime::kLayerMajorNativeGroupQ64PanelDeploymentPlanId;
+  const bool projection_candidate_v4 =
+      record.deployment_plan_id ==
+          runtime::kLayerMajorSegmentedMarlinProjectionDeploymentPlanId ||
+      record.deployment_plan_id == runtime::
+          kLayerMajorSegmentedMarlinProjectionGroupQ64DeploymentPlanId;
+  const bool projection_candidate_uses_native_attention =
+      record.deployment_plan_id == runtime::
+          kLayerMajorSegmentedMarlinProjectionGroupQ64DeploymentPlanId;
+  const bool accuracy_unqualified_candidate =
+      candidate_v3 || projection_candidate_v4;
   std::string output =
-      candidate_v3
+      projection_candidate_v4
+          ? "{\"record\":\"target-prefill-witness-v4\","
+            "\"schema_version\":4,\"request\":{\"id\":"
+          : candidate_v3
           ? "{\"record\":\"target-prefill-witness-v3\","
             "\"schema_version\":3,\"request\":{\"id\":"
           : sealed
@@ -678,6 +691,25 @@ std::string serialize_target_prefill_witness(
                 std::to_string(record.native_group_q64_panel_hits) +
                 ",\"generic_qt2_hits\":" +
                 std::to_string(record.generic_qt2_hits);
+    } else if (projection_candidate_v4) {
+      output += ",\"projection_tactic\":";
+      append_json_string(output, "segmented-marlin-operator-panel");
+      output += ",\"attention_tactic\":";
+      append_json_string(output,
+                         projection_candidate_uses_native_attention
+                             ? "native-group-q64-panel"
+                             : "exact-segmented");
+      output += ",\"operator_panel_executor_hits\":" +
+                std::to_string(record.operator_panel_executor_hits) +
+                ",\"native_group_q64_panel_hits\":" +
+                std::to_string(record.native_group_q64_panel_hits) +
+                ",\"generic_qt2_hits\":" +
+                std::to_string(record.generic_qt2_hits) +
+                ",\"segmented_panel_projection_hits\":" +
+                std::to_string(record.segmented_panel_projection_hits) +
+                ",\"segmented_panel_projection_physical_launches\":" +
+                std::to_string(
+                    record.segmented_panel_projection_physical_launches);
     }
   }
   output += "},\"route\":{\"scope\":\"request_witness\","
@@ -691,7 +723,7 @@ std::string serialize_target_prefill_witness(
     output += "\"available\":true,\"scope\":"
               "\"engine_lifetime_sealed_native_plan\",\"id\":";
     append_json_string(output, record.deployment_plan_id);
-    if (candidate_v3) {
+    if (accuracy_unqualified_candidate) {
       output += ",\"qualification\":";
       append_json_string(output,
                          "accuracy-unqualified-architecture-candidate");
@@ -707,13 +739,13 @@ std::string serialize_target_prefill_witness(
       ","
       "\"cache_hits\":{\"available\":false,\"reason\":"
       "\"not_instrumented\"},\"disabled_boundaries\":{\"scope\":";
-  append_json_string(output, candidate_v3
+  append_json_string(output, accuracy_unqualified_candidate
                                  ? "architecture_candidate_unqualified"
                                  : "production_contract");
   output +=
       ",\"prefix_cache\":true,\"mtp\":true,"
       "\"cublaslt_production\":true,\"approximate_numerics\":";
-  output += candidate_v3 ? "false" : "true";
+  output += accuracy_unqualified_candidate ? "false" : "true";
   output += "}}}";
   return output;
 }

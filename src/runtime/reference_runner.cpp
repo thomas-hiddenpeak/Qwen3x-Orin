@@ -1729,6 +1729,53 @@ struct ExactPrefillProjectionWorkspace {
 #endif
 }
 
+[[nodiscard]] int launch_segmented_panel_fp8_projection(
+    const ProjectionBackend backend, const LinearWeight& weight,
+    const std::uint16_t* const input, std::uint16_t* const output,
+    const std::size_t token_count,
+    const ExactPrefillProjectionWorkspace& workspace,
+    std::size_t& physical_launches, void* const cuda_stream) noexcept {
+#if defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION)
+  const auto* const fp8 = std::get_if<Fp8LinearWeight>(&weight);
+  if (backend != ProjectionBackend::kSm87WeightOnly || fp8 == nullptr ||
+      !kernels::sm87_fp8_marlin_supports_operator_panel_token_count(
+          token_count) ||
+      !kernels::sm87_fp8_marlin_supports_shape(fp8->output_size,
+                                               fp8->input_size) ||
+      !valid_exact_prefill_projection_workspace(workspace)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const kernels::Sm87Fp8MarlinExecutionPlan plan =
+      kernels::sm87_fp8_marlin_execution_plan(token_count, fp8->output_size);
+  if (plan.launch_count == 0U) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  int status = clear_exact_prefill_projection_locks(workspace, cuda_stream);
+  if (status != static_cast<int>(cudaSuccess)) {
+    return status;
+  }
+  status = kernels::launch_sm87_fp8_marlin_projection_cuda(
+      input, fp8->prefill_marlin_weight, fp8->prefill_marlin_scales,
+      token_count, fp8->output_size, fp8->input_size, output,
+      workspace.reduction, workspace.locks, cuda_stream);
+  if (status == static_cast<int>(cudaSuccess)) {
+    physical_launches += plan.launch_count;
+    ++g_fp8_marlin_prefill_admission_hits;
+  }
+  return status;
+#else
+  (void)backend;
+  (void)weight;
+  (void)input;
+  (void)output;
+  (void)token_count;
+  (void)workspace;
+  (void)physical_launches;
+  (void)cuda_stream;
+  return static_cast<int>(cudaErrorNotSupported);
+#endif
+}
+
 [[nodiscard]] int launch_exact_contract_bf16_projection_pair(
     const ProjectionBackend backend, const LinearWeight& first_weight,
     const LinearWeight& second_weight, const std::uint16_t* const input,
@@ -1864,6 +1911,63 @@ struct ExactPrefillProjectionWorkspace {
     }
   }
   return static_cast<int>(cudaSuccess);
+}
+
+[[nodiscard]] int launch_segmented_panel_nvfp4_mlp(
+    const NvFp4LinearWeight& gate, const NvFp4LinearWeight& up,
+    const NvFp4LinearWeight& down, const std::uint16_t* const input,
+    std::uint16_t* const merged_gate_up, std::uint16_t* const activated,
+    std::uint16_t* const output, const std::size_t token_count,
+    const ExactPrefillProjectionWorkspace& gate_up_workspace,
+    const ExactPrefillProjectionWorkspace& down_workspace,
+    std::size_t& logical_projection_hits, std::size_t& physical_launches,
+    void* const cuda_stream) noexcept {
+  if (!valid_exact_contract_nvfp4_mlp_weights(gate, up, down) ||
+      !kernels::sm87_nvfp4_marlin_supports_operator_panel_token_count(
+          token_count) ||
+      input == nullptr || merged_gate_up == nullptr || activated == nullptr ||
+      output == nullptr ||
+      !valid_exact_prefill_projection_workspace(gate_up_workspace) ||
+      !valid_exact_prefill_projection_workspace(down_workspace)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const kernels::Sm87NvFp4MarlinExecutionPlan plan =
+      kernels::sm87_nvfp4_marlin_execution_plan(token_count);
+  if (plan.launch_count == 0U) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  int status =
+      clear_exact_prefill_projection_locks(gate_up_workspace, cuda_stream);
+  if (status != static_cast<int>(cudaSuccess)) {
+    return status;
+  }
+  status = kernels::launch_sm87_nvfp4_marlin_gate_up_cuda(
+      input, gate.prefill_marlin_weight, gate.prefill_marlin_scales,
+      gate.prefill_marlin_global_scale, token_count, merged_gate_up,
+      gate_up_workspace.reduction, gate_up_workspace.locks, cuda_stream);
+  if (status != static_cast<int>(cudaSuccess)) {
+    return status;
+  }
+  ++logical_projection_hits;
+  physical_launches += plan.launch_count;
+  status = kernels::launch_sm87_nvfp4_marlin_gate_up_silu_cuda(
+      merged_gate_up, token_count, activated, cuda_stream);
+  if (status != static_cast<int>(cudaSuccess)) {
+    return status;
+  }
+  status = clear_exact_prefill_projection_locks(down_workspace, cuda_stream);
+  if (status != static_cast<int>(cudaSuccess)) {
+    return status;
+  }
+  status = kernels::launch_sm87_nvfp4_marlin_down_cuda(
+      activated, down.prefill_marlin_weight, down.prefill_marlin_scales,
+      down.prefill_marlin_global_scale, token_count, output,
+      down_workspace.reduction, down_workspace.locks, cuda_stream);
+  if (status == static_cast<int>(cudaSuccess)) {
+    ++logical_projection_hits;
+    physical_launches += plan.launch_count;
+  }
+  return status;
 }
 #endif
 
@@ -4039,6 +4143,7 @@ ReferenceRunner::prefill_whole_request_layer_major_compatibility_core(
   return prefill_whole_request_layer_major_core(
       input_token_ids, token_count, immutable_topology,
       LayerMajorLayerExecutor::kCompatibilitySegments,
+      LayerMajorPrefillProjectionTactic::kExactSegmentedC512,
       LayerMajorPrefillFullAttentionTactic::kExactSegmentedC512, options);
 }
 
@@ -4047,12 +4152,13 @@ ReferenceRunner::prefill_whole_request_layer_major_panel_core(
     const std::uint32_t* const input_token_ids,
     const std::size_t token_count,
     const PrefillExecutionPlan& immutable_topology,
+    const LayerMajorPrefillProjectionTactic projection_tactic,
     const LayerMajorPrefillFullAttentionTactic full_attention_tactic,
     const ReferenceWholeRequestPrefillOptions& options) noexcept {
   return prefill_whole_request_layer_major_core(
       input_token_ids, token_count, immutable_topology,
-      LayerMajorLayerExecutor::kOperatorPanel, full_attention_tactic,
-      options);
+      LayerMajorLayerExecutor::kOperatorPanel, projection_tactic,
+      full_attention_tactic, options);
 }
 
 ReferenceWholeRequestPrefillOutcome
@@ -4061,6 +4167,7 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
     const std::size_t token_count,
     const PrefillExecutionPlan& immutable_topology,
     const LayerMajorLayerExecutor executor,
+    const LayerMajorPrefillProjectionTactic projection_tactic,
     const LayerMajorPrefillFullAttentionTactic full_attention_tactic,
     const ReferenceWholeRequestPrefillOptions& options) noexcept {
   using Clock = std::chrono::steady_clock;
@@ -4089,11 +4196,14 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
   }
   if (!layer_major_request_views_.has_value() ||
       state_->memory_profile() != RequestMemoryProfile::kLayerMajorC8192 ||
+      !is_valid_layer_major_prefill_projection_tactic(projection_tactic) ||
       !is_valid_layer_major_prefill_full_attention_tactic(
           full_attention_tactic) ||
       (executor == LayerMajorLayerExecutor::kCompatibilitySegments &&
-       full_attention_tactic !=
-           LayerMajorPrefillFullAttentionTactic::kExactSegmentedC512)) {
+       (projection_tactic !=
+            LayerMajorPrefillProjectionTactic::kExactSegmentedC512 ||
+        full_attention_tactic !=
+            LayerMajorPrefillFullAttentionTactic::kExactSegmentedC512))) {
     return fail_whole_request_prefill(runner_status(
         ReferenceRunnerError::kInvalidRequestState,
         "whole_request_prefill_memory_profile"));
@@ -4189,6 +4299,8 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
   std::size_t operator_panel_executor_hits = 0U;
   std::size_t native_group_q64_panel_hits = 0U;
   std::size_t generic_qt2_hits = 0U;
+  std::size_t segmented_panel_projection_hits = 0U;
+  std::size_t segmented_panel_projection_physical_launches = 0U;
   const auto retire_oldest_submission = [&]() noexcept {
     if (!bounded_submission_window || submission_window_in_flight == 0U) {
       return ReferenceRunnerStatus{};
@@ -4242,7 +4354,8 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
         const PrefillLayerSegmentEnqueueResult enqueued =
             enqueue_prefill_layer_panel(
                 input_token_ids + prompt_offset, panel.token_count,
-                panel.first_position, layer, full_attention_tactic,
+                panel.first_position, layer, projection_tactic,
+                full_attention_tactic,
                 layer_major);
         if (!enqueued) {
           return fail_whole_request_prefill(enqueued.status);
@@ -4253,6 +4366,10 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
               "whole_request_prefill_panel_operator_route", layer));
         }
         ++operator_panel_executor_hits;
+        segmented_panel_projection_hits +=
+            enqueued.segmented_panel_projection_hits;
+        segmented_panel_projection_physical_launches +=
+            enqueued.segmented_panel_projection_physical_launches;
         if (reference_runner_detail::expected_reference_layer_type(layer) ==
             model::LayerType::kFullAttention) {
           if (full_attention_tactic ==
@@ -4528,6 +4645,9 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
   result.operator_panel_executor_hits = operator_panel_executor_hits;
   result.native_group_q64_panel_hits = native_group_q64_panel_hits;
   result.generic_qt2_hits = generic_qt2_hits;
+  result.segmented_panel_projection_hits = segmented_panel_projection_hits;
+  result.segmented_panel_projection_physical_launches =
+      segmented_panel_projection_physical_launches;
   result.progress = progress;
   if (options.measure_timing) {
     const std::chrono::duration<double, std::milli> elapsed =
@@ -4545,6 +4665,7 @@ ReferenceRunner::enqueue_prefill_layer_panel(
     const std::size_t token_count,
     const std::uint32_t first_position,
     const std::size_t layer,
+    const LayerMajorPrefillProjectionTactic projection_tactic,
     const LayerMajorPrefillFullAttentionTactic full_attention_tactic,
     const ReferenceLayerMajorRequestViews& request_views) noexcept {
   const auto fail_enqueue = [](const ReferenceRunnerStatus status) noexcept {
@@ -4559,6 +4680,7 @@ ReferenceRunner::enqueue_prefill_layer_panel(
   (void)token_count;
   (void)first_position;
   (void)layer;
+  (void)projection_tactic;
   (void)full_attention_tactic;
   (void)request_views;
   return fail_enqueue(runner_status(
@@ -4569,9 +4691,12 @@ ReferenceRunner::enqueue_prefill_layer_panel(
                 kernels::kSm87NvFp4MarlinReductionBytes);
   static_assert(kernels::kSm87Fp8MarlinLockBytes ==
                 kernels::kSm87NvFp4MarlinLockBytes);
-  constexpr std::size_t kMarlinWorkspaceBytes =
+  constexpr std::size_t kFp8MarlinWorkspaceBytes =
       kernels::kSm87Fp8MarlinReductionBytes +
       kernels::kSm87Fp8MarlinLockBytes;
+  constexpr std::size_t kNvFp4MarlinWorkspaceBytes =
+      kernels::kSm87NvFp4MarlinReductionBytes +
+      kernels::kSm87NvFp4MarlinLockBytes;
   const LayerMajorPrefillArithmeticSpanLedger arithmetic_ledger =
       make_layer_major_prefill_arithmetic_span_ledger(token_count);
   if (input_token_ids == nullptr || layer >= kReferenceDecoderLayerCount ||
@@ -4583,6 +4708,7 @@ ReferenceRunner::enqueue_prefill_layer_panel(
                         first_position) ||
       !is_valid_layer_major_prefill_arithmetic_span_ledger(
           arithmetic_ledger) ||
+      !is_valid_layer_major_prefill_projection_tactic(projection_tactic) ||
       !is_valid_layer_major_prefill_full_attention_tactic(
           full_attention_tactic) ||
       projection_backend_ != ProjectionBackend::kSm87WeightOnly) {
@@ -4601,14 +4727,18 @@ ReferenceRunner::enqueue_prefill_layer_panel(
                view.row_stride_elements == columns &&
                view.storage.element_capacity >= token_count * columns;
       };
-  const auto valid_temporary = [](const DeviceBufferView& view) noexcept {
+  const auto valid_fp8_temporary = [](const DeviceBufferView& view) noexcept {
     return view.device_data != nullptr &&
-           view.byte_size >= kMarlinWorkspaceBytes;
+           view.byte_size >= kFp8MarlinWorkspaceBytes;
   };
-  const auto exact_workspace = [](const DeviceBufferView& view) noexcept {
+  const auto valid_nvfp4_temporary = [](const DeviceBufferView& view) noexcept {
+    return view.device_data != nullptr &&
+           view.byte_size >= kNvFp4MarlinWorkspaceBytes;
+  };
+  const auto fp8_workspace = [](const DeviceBufferView& view) noexcept {
     ExactPrefillProjectionWorkspace workspace;
     if (view.device_data == nullptr ||
-        view.byte_size < kMarlinWorkspaceBytes) {
+        view.byte_size < kFp8MarlinWorkspaceBytes) {
       return workspace;
     }
     workspace.reduction = static_cast<float*>(view.device_data);
@@ -4618,6 +4748,21 @@ ReferenceRunner::enqueue_prefill_layer_panel(
         static_cast<std::uint8_t*>(view.device_data) +
         kernels::kSm87Fp8MarlinReductionBytes);
     workspace.lock_bytes = kernels::kSm87Fp8MarlinLockBytes;
+    return workspace;
+  };
+  const auto nvfp4_workspace = [](const DeviceBufferView& view) noexcept {
+    ExactPrefillProjectionWorkspace workspace;
+    if (view.device_data == nullptr ||
+        view.byte_size < kNvFp4MarlinWorkspaceBytes) {
+      return workspace;
+    }
+    workspace.reduction = static_cast<float*>(view.device_data);
+    workspace.reduction_elements =
+        kernels::kSm87NvFp4MarlinReductionElements;
+    workspace.locks = reinterpret_cast<std::int32_t*>(
+        static_cast<std::uint8_t*>(view.device_data) +
+        kernels::kSm87NvFp4MarlinReductionBytes);
+    workspace.lock_bytes = kernels::kSm87NvFp4MarlinLockBytes;
     return workspace;
   };
   const auto aligned_16 = [](const void* const pointer) noexcept {
@@ -4656,17 +4801,34 @@ ReferenceRunner::enqueue_prefill_layer_panel(
     return false;
   };
   const auto stream = reinterpret_cast<cudaStream_t>(stream_);
+  std::size_t segmented_panel_projection_hits = 0U;
+  std::size_t segmented_panel_projection_physical_launches = 0U;
   const auto fp8_project =
-      [this, &arithmetic_ledger, &check_cuda, &exact_workspace](
+      [this, projection_tactic, token_count, &arithmetic_ledger, &check_cuda,
+       &fp8_workspace, &segmented_panel_projection_hits,
+       &segmented_panel_projection_physical_launches](
           const LinearWeight& weight, const std::uint16_t* const input,
           std::uint16_t* const output, const DeviceBufferView& temporary,
           const char* const operation, const std::size_t failed_layer)
       noexcept {
-        return check_cuda(launch_exact_contract_fp8_projection(
-                              projection_backend_, weight, input, output,
-                              arithmetic_ledger, exact_workspace(temporary),
-                              stream_),
-                          operation, failed_layer);
+        const int status =
+            projection_tactic == LayerMajorPrefillProjectionTactic::
+                                     kSegmentedMarlinOperatorPanel
+                ? launch_segmented_panel_fp8_projection(
+                      projection_backend_, weight, input, output, token_count,
+                      fp8_workspace(temporary),
+                      segmented_panel_projection_physical_launches, stream_)
+                : launch_exact_contract_fp8_projection(
+                      projection_backend_, weight, input, output,
+                      arithmetic_ledger, fp8_workspace(temporary), stream_);
+        if (!check_cuda(status, operation, failed_layer)) {
+          return false;
+        }
+        if (projection_tactic == LayerMajorPrefillProjectionTactic::
+                                     kSegmentedMarlinOperatorPanel) {
+          ++segmented_panel_projection_hits;
+        }
+        return true;
       };
 
   PrefillLayerSegmentRouteFragment layer_route_fragment;
@@ -4739,8 +4901,8 @@ ReferenceRunner::enqueue_prefill_layer_panel(
                       sizeof(std::uint16_t)) ||
         !valid_matrix(gdn.branch_output_bf16, kReferenceHiddenSize,
                       sizeof(std::uint16_t)) ||
-        !valid_temporary(gdn.input_projection_temporary) ||
-        !valid_temporary(gdn.output_projection_temporary) ||
+        !valid_fp8_temporary(gdn.input_projection_temporary) ||
+        !valid_fp8_temporary(gdn.output_projection_temporary) ||
         gdn.native_c64_workspace.device_data == nullptr ||
         gdn.native_c64_workspace.byte_size <
             gdn_prefill_chunk64_native_detail::workspace_bytes() ||
@@ -4783,7 +4945,7 @@ ReferenceRunner::enqueue_prefill_layer_panel(
     }
 
     const ExactPrefillProjectionWorkspace gdn_input_workspace =
-        exact_workspace(gdn.input_projection_temporary);
+        fp8_workspace(gdn.input_projection_temporary);
     if (!check_cuda(launch_exact_contract_bf16_projection_pair(
                         projection_backend_, attention->in_proj_a,
                         attention->in_proj_b, normalized, a, b,
@@ -4858,8 +5020,8 @@ ReferenceRunner::enqueue_prefill_layer_panel(
                       sizeof(std::uint16_t)) ||
         !valid_matrix(phase.branch_output_bf16, kReferenceHiddenSize,
                       sizeof(std::uint16_t)) ||
-        !valid_temporary(phase.input_projection_temporary) ||
-        !valid_temporary(phase.output_projection_temporary) ||
+        !valid_fp8_temporary(phase.input_projection_temporary) ||
+        !valid_fp8_temporary(phase.output_projection_temporary) ||
         views_.key_cache[layer] == nullptr ||
         views_.value_cache[layer] == nullptr || views_.rope_cos == nullptr ||
         views_.rope_sin == nullptr) {
@@ -5047,22 +5209,48 @@ ReferenceRunner::enqueue_prefill_layer_panel(
       reinterpret_cast<std::uintptr_t>(oracle_up) ==
           reinterpret_cast<std::uintptr_t>(oracle_merged_gate_up) +
               oracle.projection_bf16[0].storage.byte_size;
+  auto* const segmented_merged_gate_up = static_cast<std::uint16_t*>(
+      mlp.gate_bf16.storage.device_data);
+  auto* const native_up = static_cast<std::uint16_t*>(
+      mlp.up_bf16.storage.device_data);
+  auto* const segmented_activated = static_cast<std::uint16_t*>(
+      mlp.activated_bf16.storage.device_data);
+  auto* const segmented_branch = static_cast<std::uint16_t*>(
+      mlp.branch_output_bf16.storage.device_data);
+  const bool segmented_mlp_views_valid =
+      valid_matrix(mlp.gate_bf16, kReferenceIntermediateSize,
+                   sizeof(std::uint16_t)) &&
+      valid_matrix(mlp.up_bf16, kReferenceIntermediateSize,
+                   sizeof(std::uint16_t)) &&
+      valid_matrix(mlp.activated_bf16, kReferenceIntermediateSize,
+                   sizeof(std::uint16_t)) &&
+      valid_matrix(mlp.branch_output_bf16, kReferenceHiddenSize,
+                   sizeof(std::uint16_t)) &&
+      valid_nvfp4_temporary(mlp.gate_up_projection_temporary) &&
+      valid_nvfp4_temporary(mlp.down_projection_temporary) &&
+      reinterpret_cast<std::uintptr_t>(native_up) ==
+          reinterpret_cast<std::uintptr_t>(segmented_merged_gate_up) +
+              mlp.gate_bf16.storage.byte_size;
+  const bool segmented_projection =
+      projection_tactic ==
+      LayerMajorPrefillProjectionTactic::kSegmentedMarlinOperatorPanel;
   if (attention_branch_output == nullptr ||
       !valid_matrix(mlp.normalized_input_bf16, kReferenceHiddenSize,
                     sizeof(std::uint16_t)) ||
-      !oracle_views_valid) {
+      (segmented_projection ? !segmented_mlp_views_valid : !oracle_views_valid)) {
     return fail_enqueue(runner_status(
         ReferenceRunnerError::kInvalidRequestState,
-        "prefill_operator_panel_exact_mlp_views", layer));
+        "prefill_operator_panel_mlp_views", layer));
   }
   auto* const mlp_normalized = static_cast<std::uint16_t*>(
       mlp.normalized_input_bf16.storage.device_data);
   constexpr std::size_t kOracleMergedGateUpCapacityBytes =
       2U * kMaximumRequestPrefillChunkSize *
       kReferenceIntermediateSize * sizeof(std::uint16_t);
-  if (kOracleMergedGateUpCapacityBytes >
-      oracle.projection_bf16[0].storage.byte_size +
-          oracle.projection_bf16[1].storage.byte_size) {
+  if (!segmented_projection &&
+      kOracleMergedGateUpCapacityBytes >
+          oracle.projection_bf16[0].storage.byte_size +
+              oracle.projection_bf16[1].storage.byte_size) {
     return fail_enqueue(runner_status(
         ReferenceRunnerError::kInvalidRequestState,
         "prefill_operator_panel_exact_mlp_capacity", layer));
@@ -5078,10 +5266,15 @@ ReferenceRunner::enqueue_prefill_layer_panel(
       !valid_exact_contract_nvfp4_mlp_weights(
           *marlin_gate, *marlin_up, *marlin_down) ||
       !aligned_16(mlp_normalized) ||
-      !aligned_16(oracle_merged_gate_up) ||
-      !aligned_16(oracle_activated) || !aligned_16(oracle_branch) ||
-      !aligned_16(oracle.fp32_scratch.device_data) ||
-      !aligned_16(oracle_locks)) {
+      (segmented_projection
+           ? (!aligned_16(segmented_merged_gate_up) ||
+              !aligned_16(segmented_activated) || !aligned_16(segmented_branch) ||
+              !aligned_16(mlp.gate_up_projection_temporary.device_data) ||
+              !aligned_16(mlp.down_projection_temporary.device_data))
+           : (!aligned_16(oracle_merged_gate_up) ||
+              !aligned_16(oracle_activated) || !aligned_16(oracle_branch) ||
+              !aligned_16(oracle.fp32_scratch.device_data) ||
+              !aligned_16(oracle_locks)))) {
     return fail_enqueue(runner_status(
         ReferenceRunnerError::kInvalidModelWeights,
         "prefill_operator_panel_mlp_inventory", layer));
@@ -5099,50 +5292,72 @@ ReferenceRunner::enqueue_prefill_layer_panel(
           "prefill_operator_panel_post_attention_norm", layer)) {
     return fail_enqueue(launch_failure);
   }
-  ExactPrefillProjectionWorkspace oracle_workspace;
-  oracle_workspace.reduction =
-      static_cast<float*>(oracle.fp32_scratch.device_data);
-  oracle_workspace.reduction_elements =
-      static_cast<std::size_t>(oracle.fp32_scratch.element_capacity);
-  oracle_workspace.locks = oracle_locks;
-  oracle_workspace.lock_bytes = kernels::kSm87NvFp4MarlinLockBytes;
-  for (std::size_t span_index = 0U;
-       span_index < arithmetic_ledger.span_count; ++span_index) {
-    const LayerMajorPrefillArithmeticSpan& span =
-        arithmetic_ledger.spans[span_index];
-    const LayerMajorPrefillArithmeticSpanLedger local_ledger =
-        make_layer_major_prefill_arithmetic_span_ledger(span.token_count);
-    if (local_ledger.span_count != 1U ||
-        local_ledger.spans[0].token_offset != 0U ||
-        local_ledger.spans[0].token_count != span.token_count ||
-        !check_cuda(
-            launch_exact_contract_nvfp4_mlp(
-                *marlin_gate, *marlin_up, *marlin_down,
-                mlp_normalized +
-                    static_cast<std::size_t>(span.token_offset) *
-                        kReferenceHiddenSize,
-                oracle_merged_gate_up, oracle_activated, oracle_branch,
-                local_ledger, oracle_workspace, oracle_workspace, stream_),
-            "prefill_operator_panel_exact_span_mlp", layer) ||
+  if (segmented_projection) {
+    const ExactPrefillProjectionWorkspace gate_up_workspace =
+        nvfp4_workspace(mlp.gate_up_projection_temporary);
+    const ExactPrefillProjectionWorkspace down_workspace =
+        nvfp4_workspace(mlp.down_projection_temporary);
+    if (!check_cuda(
+            launch_segmented_panel_nvfp4_mlp(
+                *marlin_gate, *marlin_up, *marlin_down, mlp_normalized,
+                segmented_merged_gate_up, segmented_activated, segmented_branch,
+                token_count, gate_up_workspace, down_workspace,
+                segmented_panel_projection_hits,
+                segmented_panel_projection_physical_launches, stream_),
+            "prefill_operator_panel_native_marlin_mlp", layer) ||
         !check_cuda(
             launch_residual_add_reference_cuda(
-                prompt_residual +
-                    static_cast<std::size_t>(span.token_offset) *
-                        kReferenceHiddenSize,
-                oracle_branch,
-                static_cast<std::size_t>(span.token_count) *
-                    kReferenceHiddenSize,
-                prompt_residual +
-                    static_cast<std::size_t>(span.token_offset) *
-                        kReferenceHiddenSize,
-                stream_),
-            "prefill_operator_panel_exact_span_residual", layer)) {
-      return fail_enqueue(
-          launch_failure.ok()
-              ? runner_status(ReferenceRunnerError::kInvalidStepOptions,
-                              "prefill_operator_panel_exact_span_ledger",
-                              layer)
-              : launch_failure);
+                prompt_residual, segmented_branch,
+                token_count * kReferenceHiddenSize, prompt_residual, stream_),
+            "prefill_operator_panel_native_marlin_residual", layer)) {
+      return fail_enqueue(launch_failure);
+    }
+  } else {
+    ExactPrefillProjectionWorkspace oracle_workspace;
+    oracle_workspace.reduction =
+        static_cast<float*>(oracle.fp32_scratch.device_data);
+    oracle_workspace.reduction_elements =
+        static_cast<std::size_t>(oracle.fp32_scratch.element_capacity);
+    oracle_workspace.locks = oracle_locks;
+    oracle_workspace.lock_bytes = kernels::kSm87NvFp4MarlinLockBytes;
+    for (std::size_t span_index = 0U;
+         span_index < arithmetic_ledger.span_count; ++span_index) {
+      const LayerMajorPrefillArithmeticSpan& span =
+          arithmetic_ledger.spans[span_index];
+      const LayerMajorPrefillArithmeticSpanLedger local_ledger =
+          make_layer_major_prefill_arithmetic_span_ledger(span.token_count);
+      if (local_ledger.span_count != 1U ||
+          local_ledger.spans[0].token_offset != 0U ||
+          local_ledger.spans[0].token_count != span.token_count ||
+          !check_cuda(
+              launch_exact_contract_nvfp4_mlp(
+                  *marlin_gate, *marlin_up, *marlin_down,
+                  mlp_normalized +
+                      static_cast<std::size_t>(span.token_offset) *
+                          kReferenceHiddenSize,
+                  oracle_merged_gate_up, oracle_activated, oracle_branch,
+                  local_ledger, oracle_workspace, oracle_workspace, stream_),
+              "prefill_operator_panel_exact_span_mlp", layer) ||
+          !check_cuda(
+              launch_residual_add_reference_cuda(
+                  prompt_residual +
+                      static_cast<std::size_t>(span.token_offset) *
+                          kReferenceHiddenSize,
+                  oracle_branch,
+                  static_cast<std::size_t>(span.token_count) *
+                      kReferenceHiddenSize,
+                  prompt_residual +
+                      static_cast<std::size_t>(span.token_offset) *
+                          kReferenceHiddenSize,
+                  stream_),
+              "prefill_operator_panel_exact_span_residual", layer)) {
+        return fail_enqueue(
+            launch_failure.ok()
+                ? runner_status(ReferenceRunnerError::kInvalidStepOptions,
+                                "prefill_operator_panel_exact_span_ledger",
+                                layer)
+                : launch_failure);
+      }
     }
   }
   ++g_nvfp4_marlin_prefill_admission_hits;
@@ -5160,6 +5375,9 @@ ReferenceRunner::enqueue_prefill_layer_panel(
   PrefillLayerSegmentEnqueueResult result;
   result.route_fragment.layer_segment = layer_route_fragment;
   result.route_fragment.has_single_layer_segment = true;
+  result.segmented_panel_projection_hits = segmented_panel_projection_hits;
+  result.segmented_panel_projection_physical_launches =
+      segmented_panel_projection_physical_launches;
   return result;
 #endif
 }

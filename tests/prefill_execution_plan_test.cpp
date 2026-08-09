@@ -89,6 +89,16 @@ void test_public_tile_and_operator_panel_are_independent(TestContext& test) {
               static_cast<runtime::LayerMajorPrefillFullAttentionTactic>(
                   0xffU)),
       "layer-major Attention tactics are a closed engine-lifetime set");
+  test.expect(
+      runtime::is_valid_layer_major_prefill_projection_tactic(
+          runtime::LayerMajorPrefillProjectionTactic::kExactSegmentedC512) &&
+          runtime::is_valid_layer_major_prefill_projection_tactic(
+              runtime::LayerMajorPrefillProjectionTactic::
+                  kSegmentedMarlinOperatorPanel) &&
+          !runtime::is_valid_layer_major_prefill_projection_tactic(
+              static_cast<runtime::LayerMajorPrefillProjectionTactic>(
+                  0xffU)),
+      "layer-major projection tactics are a closed engine-lifetime set");
   const runtime::PrefillExecutionPlanResult result = build_plan(513U);
   test.expect(result &&
                   result.value->legacy_public_tile_limit == 512U &&

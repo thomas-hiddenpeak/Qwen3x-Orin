@@ -56,6 +56,26 @@ is_valid_layer_major_prefill_full_attention_tactic(
              LayerMajorPrefillFullAttentionTactic::kNativeGroupQ64Panel;
 }
 
+// Engine-lifetime projection ownership for the layer-major route. The exact
+// incumbent retains the authenticated C512 arithmetic ledger. The segmented
+// Marlin operator-panel value is an explicit, default-off dependency screen:
+// it submits each logical FP8/NVFP4 projection through the existing wrapper,
+// whose large-N kernels still segment at no more than M1024, while leaving
+// BF16 A/B on the exact contract. It is not the true native large-M tactic.
+// Selection is sealed into the bound plan and never changes per request.
+enum class LayerMajorPrefillProjectionTactic : std::uint8_t {
+  kExactSegmentedC512 = 0,
+  kSegmentedMarlinOperatorPanel,
+};
+
+[[nodiscard]] constexpr bool is_valid_layer_major_prefill_projection_tactic(
+    const LayerMajorPrefillProjectionTactic tactic) noexcept {
+  return tactic ==
+             LayerMajorPrefillProjectionTactic::kExactSegmentedC512 ||
+         tactic ==
+             LayerMajorPrefillProjectionTactic::kSegmentedMarlinOperatorPanel;
+}
+
 // Preserve full-capacity work while preventing a final one-token panel or
 // physical segment.  Once only the final full-capacity unit plus its tail
 // remain, split that suffix into ceil/floor halves.  This keeps the minimum

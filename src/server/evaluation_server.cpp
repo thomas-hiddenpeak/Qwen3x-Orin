@@ -850,6 +850,10 @@ void emit_target_prefill_witness(
     record.native_group_q64_panel_hits =
         generation.prefill_native_group_q64_panel_hits;
     record.generic_qt2_hits = generation.prefill_generic_qt2_hits;
+    record.segmented_panel_projection_hits =
+        generation.prefill_segmented_panel_projection_hits;
+    record.segmented_panel_projection_physical_launches =
+        generation.prefill_segmented_panel_projection_physical_launches;
     record.deployment_plan_id = generation.prefill_deployment_plan_id;
     std::cerr << serialize_target_prefill_witness(record) << '\n';
   } catch (...) {
@@ -1437,7 +1441,9 @@ void ingress_worker(
       !runtime::is_valid_reference_prefill_execution_mode(
           options.prefill_execution_mode) ||
       !runtime::is_valid_layer_major_prefill_full_attention_tactic(
-          options.prefill_full_attention_tactic)) {
+          options.prefill_full_attention_tactic) ||
+      !runtime::is_valid_layer_major_prefill_projection_tactic(
+          options.prefill_projection_tactic)) {
     error = "evaluation server options are outside fixed safe bounds";
     return false;
   }
@@ -1461,6 +1467,13 @@ void ingress_worker(
       options.prefill_full_attention_tactic != runtime::
           LayerMajorPrefillFullAttentionTactic::kExactSegmentedC512) {
     error = "native panel Attention requires layer-major Prefill";
+    return false;
+  }
+  if (options.prefill_execution_mode != runtime::
+          ReferencePrefillExecutionMode::kWholeRequestLayerMajor &&
+      options.prefill_projection_tactic != runtime::
+          LayerMajorPrefillProjectionTactic::kExactSegmentedC512) {
+    error = "segmented panel projections require layer-major Prefill";
     return false;
   }
   return true;
@@ -1518,6 +1531,8 @@ int run_evaluation_server(const EvaluationServerOptions& options,
       options.prefill_execution_mode;
   engine_options.prefill_full_attention_tactic =
       options.prefill_full_attention_tactic;
+  engine_options.prefill_projection_tactic =
+      options.prefill_projection_tactic;
   engine_options.request_options.batch_size = 1U;
   engine_options.request_options.max_sequence_length =
       options.max_sequence_length;
@@ -1589,6 +1604,12 @@ int run_evaluation_server(const EvaluationServerOptions& options,
                         LayerMajorPrefillFullAttentionTactic::
                             kNativeGroupQ64Panel
                     ? "native-group-q64-panel"
+                    : "exact-segmented")
+            << " prefill_projection_tactic="
+            << (options.prefill_projection_tactic == runtime::
+                        LayerMajorPrefillProjectionTactic::
+                            kSegmentedMarlinOperatorPanel
+                    ? "segmented-marlin-operator-panel"
                     : "exact-segmented")
             << " nvtx_phase_ranges="
             << (options.emit_nvtx_phase_ranges ? 1 : 0)

@@ -31,6 +31,9 @@ enum class NativePrefillTactic : std::uint8_t {
   kNvfp4GateUpOracleSpanC512 = 0,
   kNvfp4DownOracleSpanC512,
   kFp8OracleSpanC512,
+  kNvfp4GateUpSegmentedMarlinOperatorPanel,
+  kNvfp4DownSegmentedMarlinOperatorPanel,
+  kFp8SegmentedMarlinOperatorPanel,
   kBf16AbOracleSpanEstablishedM32,
   kExactGdnOracleSpanWholeRawQkvC512,
   kExactCausalAttentionOracleSpanC512C16Reference256,
@@ -79,6 +82,7 @@ class BoundPrefillExecutionPlan final {
       const LayerMajorRequestMemoryPlan* memory_plan,
       const LayerMajorPrefillArithmeticContract* arithmetic_contract,
       bool exact_c512_arithmetic_workspace_bound,
+      LayerMajorPrefillProjectionTactic projection_tactic,
       LayerMajorPrefillFullAttentionTactic full_attention_tactic,
       const void* main_stream, const void* auxiliary_stream,
       std::array<const void*, kBoundPrefillSubmissionEventCount>
@@ -99,6 +103,8 @@ class BoundPrefillExecutionPlan final {
   // also retains it for M1..M31 exact-tail fallback. Other panel operators
   // execute on the typed C8192 arena.
   bool exact_c512_arithmetic_workspace_bound_ = false;
+  LayerMajorPrefillProjectionTactic projection_tactic_ =
+      LayerMajorPrefillProjectionTactic::kExactSegmentedC512;
   LayerMajorPrefillFullAttentionTactic full_attention_tactic_ =
       LayerMajorPrefillFullAttentionTactic::kExactSegmentedC512;
   const void* main_stream_ = nullptr;
@@ -161,6 +167,7 @@ class ReferenceEnginePrefillPlanFactory final {
   [[nodiscard]] static BoundPrefillPlanResult bind(
       const ModelWeights* weights, RequestState* state,
       ReferenceRunner* runner,
+      LayerMajorPrefillProjectionTactic projection_tactic,
       LayerMajorPrefillFullAttentionTactic full_attention_tactic) noexcept;
 };
 

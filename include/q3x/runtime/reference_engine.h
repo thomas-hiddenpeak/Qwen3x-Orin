@@ -81,6 +81,14 @@ inline constexpr std::string_view kLayerMajorOperatorPanelDeploymentPlanId =
 inline constexpr std::string_view
     kLayerMajorNativeGroupQ64PanelDeploymentPlanId =
         "q3x.sm87.ac-prefill-layermajor-8k.native-group-q64-panel.v1";
+inline constexpr std::string_view
+    kLayerMajorSegmentedMarlinProjectionDeploymentPlanId =
+        "q3x.sm87.ac-prefill-layermajor-8k.segmented-marlin-operator-panel."
+        "exact-segmented-attention.v1";
+inline constexpr std::string_view
+    kLayerMajorSegmentedMarlinProjectionGroupQ64DeploymentPlanId =
+        "q3x.sm87.ac-prefill-layermajor-8k.segmented-marlin-operator-panel."
+        "native-group-q64-attention.v1";
 
 [[nodiscard]] constexpr bool is_valid_reference_prefill_execution_mode(
     const ReferencePrefillExecutionMode mode) noexcept {
@@ -108,6 +116,12 @@ struct ReferenceEngineOptions {
   // explicit architecture candidate and receives a distinct deployment ID.
   LayerMajorPrefillFullAttentionTactic prefill_full_attention_tactic =
       LayerMajorPrefillFullAttentionTactic::kExactSegmentedC512;
+  // Layer-major-only, engine-lifetime projection tactic. The default retains
+  // the exact C512 arithmetic sequence. The segmented-wrapper value is an
+  // accuracy-unqualified dependency screen with a distinct plan ID; it is not
+  // the true native large-M implementation.
+  LayerMajorPrefillProjectionTactic prefill_projection_tactic =
+      LayerMajorPrefillProjectionTactic::kExactSegmentedC512;
 };
 
 // Text-only messages accepted by the pinned Qwen 3.6 chat formatter. The
@@ -251,6 +265,11 @@ struct ReferenceGeneration {
   std::uint64_t prefill_operator_panel_executor_hits = 0U;
   std::uint64_t prefill_native_group_q64_panel_hits = 0U;
   std::uint64_t prefill_generic_qt2_hits = 0U;
+  // Segmented-wrapper evidence. A hit is one completed logical FP8 or NVFP4
+  // operator-panel wrapper invocation. Physical launches count the
+  // shape-aware Marlin kernel segments submitted by those wrappers.
+  std::uint64_t prefill_segmented_panel_projection_hits = 0U;
+  std::uint64_t prefill_segmented_panel_projection_physical_launches = 0U;
 };
 
 struct ReferenceEngineLoadStats {

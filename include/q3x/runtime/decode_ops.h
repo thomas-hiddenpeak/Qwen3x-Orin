@@ -18,6 +18,14 @@ inline constexpr std::size_t kBulkCausalGqaMaximumSequenceLength = 262'144U;
 inline constexpr unsigned int kBulkCausalGqaGroupQ64FirstPositionBits = 18U;
 inline constexpr std::size_t kBulkCausalGqaGroupQ64PanelMaximumTokens =
     8'192U;
+// Isolated SM87 Attention-v4 bring-up geometry.  This surface is never
+// selected by the production runner: one CTA aggregates eight independent
+// Q16 warp states so one K/V32 tile is shared by 128 packed GQA queries.
+inline constexpr std::size_t kBulkCausalGqaGroupQ128V4PackedQueryTile =
+    128U;
+inline constexpr std::size_t kBulkCausalGqaGroupQ128V4Threads = 256U;
+inline constexpr std::size_t kBulkCausalGqaGroupQ128V4DynamicSharedBytes =
+    96U * 1024U;
 inline constexpr std::size_t kQwenRotaryDimension = 64U;
 inline constexpr std::size_t kQkRopeTileMaximumTokens = 16U;
 inline constexpr std::size_t kFullAttentionPreprocessMaximumTokens = 512U;
@@ -447,6 +455,38 @@ can_launch_bulk_causal_gqa_group_q64_panel(
 
 [[nodiscard]] int
 launch_bulk_causal_gqa_sigmoid_gate_24_4_256_group_q64_panel_fixed_cuda(
+    const std::uint16_t* query_panel, const std::uint16_t* key_cache,
+    const std::uint16_t* value_cache, const std::uint16_t* gate_panel,
+    std::size_t first_position, std::size_t token_count,
+    std::uint16_t* output_panel, void* cuda_stream = nullptr) noexcept;
+
+// Default-off Attention-v4 architecture surface.  It preserves the v3
+// per-warp Q16, K16 online-softmax update order and BF16 boundaries while
+// aggregating two former Q64 CTAs into one Q128/8-warp CTA.  The initial
+// bring-up deliberately retains the v3 linear shared layout and alternating
+// single-slot K/V cp.async pipeline.  XOR-swizzled direct ldmatrix/mma and a
+// true two-stage K/V buffer remain later mechanisms on this same surface.
+// This launcher is explicit, environment-independent, and has no production
+// dispatch or fallback eligibility.
+[[nodiscard]] constexpr bool
+can_launch_bulk_causal_gqa_group_q128_v4_panel(
+    const std::size_t first_position,
+    const std::size_t token_count) noexcept {
+  return can_launch_bulk_causal_gqa_group_q64_panel(first_position,
+                                                    token_count);
+}
+
+[[nodiscard]] constexpr std::size_t
+bulk_causal_gqa_group_q128_v4_grid_x(
+    const std::size_t token_count) noexcept {
+  constexpr std::size_t kQueriesPerKvHead = 6U;
+  return (token_count * kQueriesPerKvHead +
+          kBulkCausalGqaGroupQ128V4PackedQueryTile - 1U) /
+         kBulkCausalGqaGroupQ128V4PackedQueryTile;
+}
+
+[[nodiscard]] int
+launch_bulk_causal_gqa_sigmoid_gate_24_4_256_group_q128_v4_panel_test_cuda(
     const std::uint16_t* query_panel, const std::uint16_t* key_cache,
     const std::uint16_t* value_cache, const std::uint16_t* gate_panel,
     std::size_t first_position, std::size_t token_count,

@@ -108,6 +108,8 @@ struct TargetPrefillWitnessRecord {
   std::uint64_t operator_panel_executor_hits = 0U;
   std::uint64_t native_group_q64_panel_hits = 0U;
   std::uint64_t generic_qt2_hits = 0U;
+  std::uint64_t segmented_panel_projection_hits = 0U;
+  std::uint64_t segmented_panel_projection_physical_launches = 0U;
   // Empty for legacy/unsealed paths. A non-empty identifier is emitted only
   // after a sealed whole-request generation has completed successfully.
   std::string deployment_plan_id;

@@ -337,6 +337,51 @@ void test_target_prefill_witness_evidence(TestContext& test) {
       "native grouped-Q64 candidate has an explicit unqualified v3 "
       "execution witness");
 
+  server::TargetPrefillWitnessRecord projection_candidate_record =
+      sealed_record;
+  projection_candidate_record.operator_panel_executor_hits = 128U;
+  projection_candidate_record.native_group_q64_panel_hits = 0U;
+  projection_candidate_record.generic_qt2_hits = 4U;
+  projection_candidate_record.segmented_panel_projection_hits = 672U;
+  projection_candidate_record.segmented_panel_projection_physical_launches =
+      4'928U;
+  projection_candidate_record.deployment_plan_id =
+      q3x::runtime::kLayerMajorSegmentedMarlinProjectionDeploymentPlanId;
+  const std::string projection_candidate_serialized =
+      server::serialize_target_prefill_witness(
+          projection_candidate_record);
+  test.expect(
+      valid_json(projection_candidate_serialized) &&
+          projection_candidate_serialized.find(
+              R"("record":"target-prefill-witness-v4","schema_version":4)") !=
+              std::string::npos &&
+          projection_candidate_serialized.find(
+              R"("projection_tactic":"segmented-marlin-operator-panel","attention_tactic":"exact-segmented","operator_panel_executor_hits":128,"native_group_q64_panel_hits":0,"generic_qt2_hits":4,"segmented_panel_projection_hits":672,"segmented_panel_projection_physical_launches":4928)") !=
+              std::string::npos &&
+          projection_candidate_serialized.find(
+              R"("id":"q3x.sm87.ac-prefill-layermajor-8k.segmented-marlin-operator-panel.exact-segmented-attention.v1","qualification":"accuracy-unqualified-architecture-candidate","numerical_contract":{"qualified":false,"reason":"full-state-accuracy-qualification-not-run"})") !=
+              std::string::npos,
+      "native Marlin panel projections have explicit unqualified v4 route "
+      "and physical-launch evidence");
+
+  projection_candidate_record.deployment_plan_id = q3x::runtime::
+      kLayerMajorSegmentedMarlinProjectionGroupQ64DeploymentPlanId;
+  projection_candidate_record.native_group_q64_panel_hits = 32U;
+  projection_candidate_record.generic_qt2_hits = 0U;
+  const std::string combined_candidate_serialized =
+      server::serialize_target_prefill_witness(
+          projection_candidate_record);
+  test.expect(
+      valid_json(combined_candidate_serialized) &&
+          combined_candidate_serialized.find(
+              R"("attention_tactic":"native-group-q64-panel")") !=
+              std::string::npos &&
+          combined_candidate_serialized.find(
+              R"("id":"q3x.sm87.ac-prefill-layermajor-8k.segmented-marlin-operator-panel.native-group-q64-attention.v1")") !=
+              std::string::npos,
+      "combined native projection and Attention tactics have a distinct "
+      "deployment identity");
+
   server::TargetPrefillWitnessRecord unbound_layer_major_record =
       sealed_record;
   unbound_layer_major_record.deployment_plan_id.clear();

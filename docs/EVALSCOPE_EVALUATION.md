@@ -215,6 +215,27 @@ A v3 direction record can select whether development continues; it cannot
 qualify numerical correctness, change the exact default, or serve as release
 or production evidence.
 
+An explicitly selected segmented operator-panel projection screen emits
+`target-prefill-witness-v4`. Version 4 retains every v3 safety and
+qualification field, and additionally records:
+
+- `projection_tactic=segmented-marlin-operator-panel`;
+- `attention_tactic=exact-segmented` or
+  `native-group-q64-panel`;
+- completed logical segmented-wrapper projection hits; and
+- shape-aware physical Marlin kernel launches submitted inside the FP8 and
+  NVFP4 wrappers.
+
+The exact-segmented-Attention combination identifies itself as
+`q3x.sm87.ac-prefill-layermajor-8k.segmented-marlin-operator-panel.exact-segmented-attention.v1`.
+The grouped-Q64-Attention combination identifies itself as
+`q3x.sm87.ac-prefill-layermajor-8k.segmented-marlin-operator-panel.native-group-q64-attention.v1`.
+Both plan IDs remain default-off and
+`accuracy-unqualified-architecture-candidate`; a v4 counter is execution
+evidence, not proof of numerical equivalence or production eligibility. The
+exact projection tactic continues to emit the existing v2 or v3 schema and
+plan identity, so enabling v4 cannot silently relabel an incumbent result.
+
 The externally observed TTFT selects the whole architecture. Server-side pure
 Prefill timing explains where that result came from; it never replaces the API
 result. A witness with an incomplete stream, unowned host resources, a route
