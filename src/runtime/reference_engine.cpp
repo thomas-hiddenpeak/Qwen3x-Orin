@@ -8,6 +8,7 @@
 #include "q3x/kernels/sm87_nvfp4_marlin.h"
 #include "q3x/kernels/sm87_weight_only_gemv.h"
 #include "q3x/text/tokenizer.h"
+#include "reference_engine_prefill_authority.h"
 #include "reference_runner_gdn_chunk64_native_admission.h"
 
 #include <cuda_runtime_api.h>
@@ -1072,9 +1073,232 @@ bool observe_committed_token(void* const opaque,
 struct EngineStepContext {
   ReferenceRunner* runner = nullptr;
   std::vector<ReferenceTraceDigest>* traces = nullptr;
+  const reference_engine_detail::BoundPrefillExecutionPlan*
+      bound_prefill_plan = nullptr;
+  std::optional<reference_engine_detail::BoundPrefillRequestReceipt>
+      bound_prefill_receipt;
+  // Armed before the first whole-request CUDA call and cleared only after
+  // the sealed commit succeeds. EngineWholeRequestTransactionGuard owns the
+  // rollback of every failure window in between.
+  bool whole_request_transaction_armed = false;
   bool capture_trace = false;
   std::size_t decode_graph_replays = 0U;
   std::size_t decode_graph_serial_fallbacks = 0U;
+};
+
+[[nodiscard]] ReferenceRunnerStatus whole_request_adapter_status(
+    const ReferenceRunnerError error,
+    const char* const operation) noexcept {
+  ReferenceRunnerStatus status;
+  status.error = error;
+  status.operation = operation;
+  return status;
+}
+
+[[nodiscard]] reference_engine_detail::PrefillPromptOutcome
+prefill_whole_request_layer_major(
+    void* const opaque_context,
+    const std::uint32_t* const input_token_ids,
+    const std::size_t token_count,
+    const PrefillExecutionPlan& immutable_topology,
+    const reference_engine_detail::PrefillPromptOptions& options) {
+  reference_engine_detail::PrefillPromptOutcome result;
+  if (opaque_context == nullptr) {
+    result.status = whole_request_adapter_status(
+        ReferenceRunnerError::kInvalidDependency,
+        "engine_whole_request_context");
+    return result;
+  }
+  auto& context = *static_cast<EngineStepContext*>(opaque_context);
+  if (context.runner == nullptr || context.bound_prefill_plan == nullptr ||
+      context.capture_trace || input_token_ids == nullptr ||
+      token_count == 0U ||
+      token_count != immutable_topology.prompt_token_count ||
+      !options.retain_last_hidden_for_logits ||
+      context.whole_request_transaction_armed ||
+      context.bound_prefill_receipt.has_value() ||
+      !is_valid_unbound_layer_major_prefill_execution_plan(
+          immutable_topology)) {
+    result.status = whole_request_adapter_status(
+        ReferenceRunnerError::kInvalidStepOptions,
+        "engine_whole_request_precondition");
+    return result;
+  }
+
+  // Complete every potentially allocating transcript operation before
+  // touching device/recurrent state. After the core succeeds, only fixed-size
+  // assignments and noexcept vector moves remain.
+  reference_engine_detail::PrefillPromptResult transcript;
+  try {
+    transcript.panels.resize(immutable_topology.panel_count);
+    transcript.logical_panel_count = immutable_topology.panel_count;
+    transcript.prompt_token_count = token_count;
+    std::size_t prompt_offset = 0U;
+    for (std::size_t panel_index = 0U;
+         panel_index < immutable_topology.panel_count; ++panel_index) {
+      const PrefillOperatorPanel& topology_panel =
+          immutable_topology.panels[panel_index];
+      reference_engine_detail::PrefillPromptPanelResult& panel =
+          transcript.panels[panel_index];
+      panel.logical_panel_ordinal = panel_index;
+      panel.prompt_token_offset = prompt_offset;
+      panel.first_position = topology_panel.first_position;
+      panel.end_position = topology_panel.end_position;
+      panel.steps.resize(topology_panel.token_count);
+      for (std::size_t token = 0U; token < topology_panel.token_count;
+           ++token) {
+        ReferenceStepResult& step = panel.steps[token];
+        step.position = topology_panel.first_position +
+                        static_cast<std::uint32_t>(token);
+        step.input_token_id = input_token_ids[prompt_offset + token];
+      }
+      prompt_offset += topology_panel.token_count;
+    }
+    if (prompt_offset != token_count) {
+      result.status = whole_request_adapter_status(
+          ReferenceRunnerError::kInvalidStepOptions,
+          "engine_whole_request_transcript_geometry");
+      return result;
+    }
+  } catch (const std::bad_alloc&) {
+    result.status = whole_request_adapter_status(
+        ReferenceRunnerError::kAllocationFailure,
+        "engine_whole_request_transcript_allocation");
+    return result;
+  } catch (const std::length_error&) {
+    result.status = whole_request_adapter_status(
+        ReferenceRunnerError::kAllocationFailure,
+        "engine_whole_request_transcript_allocation");
+    return result;
+  } catch (...) {
+    result.status = whole_request_adapter_status(
+        ReferenceRunnerError::kPoisoned,
+        "engine_whole_request_transcript_exception");
+    return result;
+  }
+
+  context.whole_request_transaction_armed = true;
+  ReferenceWholeRequestPrefillOptions runner_options;
+  runner_options.measure_timing = options.measure_timing;
+  ReferenceWholeRequestPrefillOutcome executed =
+      reference_engine_detail::ReferenceEnginePrefillExecutor::execute(
+          *context.bound_prefill_plan, *context.runner, input_token_ids,
+          token_count, immutable_topology, runner_options,
+          context.bound_prefill_receipt);
+  if (!executed) {
+    result.status = executed.status;
+    return result;
+  }
+  if (executed.value->first_position != immutable_topology.first_position ||
+      executed.value->final_position != immutable_topology.final_position ||
+      executed.value->prompt_token_count != token_count ||
+      executed.value->logical_panel_count !=
+          immutable_topology.panel_count) {
+    result.status = whole_request_adapter_status(
+        ReferenceRunnerError::kInvalidStepOptions,
+        "engine_whole_request_runner_contract");
+    return result;
+  }
+
+  transcript.progress = executed.value->progress;
+  transcript.timing = executed.value->timing;
+  result.value.emplace(std::move(transcript));
+  return result;
+}
+
+[[nodiscard]] ReferenceStepOutcome
+finish_whole_request_from_uncommitted_retained(
+    void* const opaque_context, const std::uint32_t input_token_id,
+    const ReferenceStepOptions& options) {
+  if (opaque_context == nullptr) {
+    return {{}, whole_request_adapter_status(
+                    ReferenceRunnerError::kInvalidDependency,
+                    "engine_whole_request_finalizer_context")};
+  }
+  auto& context = *static_cast<EngineStepContext*>(opaque_context);
+  if (context.runner == nullptr || context.bound_prefill_plan == nullptr ||
+      !context.whole_request_transaction_armed ||
+      !context.bound_prefill_receipt.has_value() || context.capture_trace) {
+    return {{}, whole_request_adapter_status(
+                    ReferenceRunnerError::kInvalidStepOptions,
+                    "engine_whole_request_finalizer_precondition")};
+  }
+  return reference_engine_detail::ReferenceEnginePrefillExecutor::finish(
+      *context.bound_prefill_plan, *context.runner,
+      *context.bound_prefill_receipt, input_token_id, options);
+}
+
+[[nodiscard]] ReferenceRunnerStatus commit_whole_request_layer_major(
+    void* const opaque_context,
+    const PrefillExecutionPlan& immutable_topology,
+    const PrefillExecutionProgress& completed_progress) noexcept {
+  if (opaque_context == nullptr) {
+    return whole_request_adapter_status(
+        ReferenceRunnerError::kInvalidDependency,
+        "engine_whole_request_commit_context");
+  }
+  auto& context = *static_cast<EngineStepContext*>(opaque_context);
+  if (context.runner == nullptr || context.bound_prefill_plan == nullptr ||
+      !context.whole_request_transaction_armed ||
+      !context.bound_prefill_receipt.has_value() || context.capture_trace) {
+    return whole_request_adapter_status(
+        ReferenceRunnerError::kInvalidStepOptions,
+        "engine_whole_request_commit_precondition");
+  }
+  const ReferenceRunnerStatus status =
+      reference_engine_detail::ReferenceEnginePrefillExecutor::commit(
+          *context.bound_prefill_plan, *context.runner,
+          *context.bound_prefill_receipt, immutable_topology,
+          completed_progress);
+  if (status) {
+    context.whole_request_transaction_armed = false;
+  }
+  return status;
+}
+
+class EngineWholeRequestTransactionGuard final {
+ public:
+  explicit EngineWholeRequestTransactionGuard(
+      EngineStepContext& context) noexcept
+      : context_(&context) {}
+
+  EngineWholeRequestTransactionGuard(
+      const EngineWholeRequestTransactionGuard&) = delete;
+  EngineWholeRequestTransactionGuard& operator=(
+      const EngineWholeRequestTransactionGuard&) = delete;
+
+  ~EngineWholeRequestTransactionGuard() {
+    if (!rollback_attempted_ && armed()) {
+      (void)rollback();
+    }
+  }
+
+  [[nodiscard]] bool armed() const noexcept {
+    return context_ != nullptr &&
+           context_->whole_request_transaction_armed;
+  }
+
+  [[nodiscard]] ReferenceRunnerStatus rollback() noexcept {
+    rollback_attempted_ = true;
+    if (!armed()) {
+      return {};
+    }
+    if (context_->runner == nullptr) {
+      return whole_request_adapter_status(
+          ReferenceRunnerError::kInvalidDependency,
+          "engine_whole_request_rollback_context");
+    }
+    const ReferenceRunnerStatus status = context_->runner->reset();
+    if (status) {
+      context_->whole_request_transaction_armed = false;
+      context_->bound_prefill_receipt.reset();
+    }
+    return status;
+  }
+
+ private:
+  EngineStepContext* context_ = nullptr;
+  bool rollback_attempted_ = false;
 };
 
 [[nodiscard]] ReferenceStepOutcome step_with_trace(
@@ -2853,10 +3077,10 @@ exchange_reference_engine_generate_return_snapshot_hook(
 
 struct ReferenceEngine::Impl {
   // Declaration order is part of the safety contract. Destruction is exactly
-  // runner -> request_state -> model_weights -> Decode Down consumer-order
-  // sidecars -> Marlin admission sidecars -> Prefill supermatrix/QKV
-  // sidecars -> down scale6 sidecars -> output sidecars -> resident_weights
-  // -> tokenizer.
+  // bound Prefill plan -> runner -> request_state -> model_weights -> Decode
+  // Down consumer-order sidecars -> Marlin admission sidecars -> Prefill
+  // supermatrix/QKV sidecars -> down scale6 sidecars -> output sidecars ->
+  // resident_weights -> tokenizer.
   std::unique_ptr<text::Tokenizer> tokenizer;
   std::optional<ResidentWeights> resident_weights;
   Sm87Fp8OutputProjectionSidecars fp8_output_sidecars;
@@ -2875,6 +3099,9 @@ struct ReferenceEngine::Impl {
   std::optional<ModelWeights> model_weights;
   std::optional<RequestState> request_state;
   std::optional<ReferenceRunner> runner;
+  std::unique_ptr<
+      const reference_engine_detail::BoundPrefillExecutionPlan>
+      bound_prefill_plan;
   ReferenceEngineLoadStats load;
   bool trace_enabled = false;
   bool decode_graph_cache_ready = false;
@@ -2923,6 +3150,18 @@ struct ReferenceEngine::Impl {
           "compatibility workspace inside the layer-major request arena");
       return result;
     }
+#if !defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION) || \
+    !defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION)
+    if (options.prefill_execution_mode ==
+        ReferencePrefillExecutionMode::kWholeRequestLayerMajor) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kPrefillPlanUnavailable,
+          "prefill_execution_mode",
+          "this binary does not contain both exact native Marlin Prefill "
+          "inventories required by the sealed layer-major plan");
+      return result;
+    }
+#endif
     if (!is_valid_reference_decode_graph_cache_policy(
             options.decode_graph_cache_policy)) {
       result.diagnostic = engine_diagnostic(
@@ -3512,6 +3751,24 @@ struct ReferenceEngine::Impl {
         }
       }
 
+      if (options.prefill_execution_mode ==
+          ReferencePrefillExecutionMode::kWholeRequestLayerMajor) {
+        reference_engine_detail::BoundPrefillPlanResult bound =
+            reference_engine_detail::ReferenceEnginePrefillPlanFactory::bind(
+                &*impl->model_weights, &*impl->request_state,
+                &*impl->runner);
+        if (!bound) {
+          result.diagnostic = runner_diagnostic(
+              ReferenceEngineError::kRunnerFactoryFailure,
+              "bound_prefill_plan", bound.status);
+          result.diagnostic.context =
+              "bound_plan_error=" +
+              std::to_string(static_cast<unsigned int>(bound.error));
+          return result;
+        }
+        impl->bound_prefill_plan = std::move(bound.value);
+      }
+
       double prepared_milliseconds = 0.0;
       if (prepared_work_wall_milliseconds > 0.0) {
         prepared_milliseconds = prepared_work_wall_milliseconds;
@@ -3552,10 +3809,15 @@ ReferenceEngine& ReferenceEngine::operator=(ReferenceEngine&&) noexcept =
     default;
 
 ReferenceEngine::operator bool() const noexcept {
-  return impl_ != nullptr && impl_->tokenizer != nullptr &&
-         impl_->resident_weights.has_value() &&
-         impl_->model_weights.has_value() &&
-         impl_->request_state.has_value() && impl_->runner.has_value();
+  if (impl_ == nullptr || impl_->tokenizer == nullptr ||
+      !impl_->resident_weights.has_value() ||
+      !impl_->model_weights.has_value() ||
+      !impl_->request_state.has_value() || !impl_->runner.has_value()) {
+    return false;
+  }
+  return impl_->request_state->memory_profile() !=
+             RequestMemoryProfile::kLayerMajorC8192 ||
+         impl_->bound_prefill_plan != nullptr;
 }
 
 const ReferenceEngineLoadStats& ReferenceEngine::load_stats() const noexcept {
@@ -3773,6 +4035,29 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
         "capture_trace requires an engine created with enable_trace=true");
     return result;
   }
+  const bool whole_request_layer_major =
+      options.prefill_execution_mode ==
+      ReferencePrefillExecutionMode::kWholeRequestLayerMajor;
+  if (whole_request_layer_major &&
+      (options.capture_trace ||
+       options.prefill_chunk_size != kMaximumRequestPrefillChunkSize ||
+       impl_->request_state->memory_profile() !=
+           RequestMemoryProfile::kLayerMajorC8192)) {
+    result.diagnostic = engine_diagnostic(
+        ReferenceEngineError::kInvalidArgument,
+        "whole_request_prefill_options",
+        "whole-request Prefill requires the isolated layer-major arena, "
+        "the fixed C512 compatibility workspace, and trace disabled");
+    return result;
+  }
+  if (whole_request_layer_major && impl_->bound_prefill_plan == nullptr) {
+    result.diagnostic = engine_diagnostic(
+        ReferenceEngineError::kPrefillPlanUnavailable,
+        "prefill_plan_unavailable",
+        "whole-request Prefill was not provisioned and sealed when this "
+        "engine was created");
+    return result;
+  }
   if (!options.capture_trace &&
       options.prefill_chunk_size >
           impl_->request_state->plan().prefill_chunk_size) {
@@ -3820,6 +4105,10 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
     step_context.runner = &*impl_->runner;
     step_context.traces = &traces;
     step_context.capture_trace = options.capture_trace;
+    step_context.bound_prefill_plan =
+        whole_request_layer_major ? impl_->bound_prefill_plan.get()
+                                  : nullptr;
+    EngineWholeRequestTransactionGuard whole_request_guard(step_context);
 
     reference_engine_detail::GenerationControlOptions control_options;
     control_options.max_new_tokens = options.max_new_tokens;
@@ -3830,9 +4119,6 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
     control_options.capture_trace = options.capture_trace;
     control_options.logits_mode = options.logits_mode;
     control_options.emit_nvtx_phase_ranges = options.emit_nvtx_phase_ranges;
-    const bool whole_request_layer_major =
-        options.prefill_execution_mode ==
-        ReferencePrefillExecutionMode::kWholeRequestLayerMajor;
     const bool single_arbitrary_prefill_tile =
         !whole_request_layer_major &&
         !options.capture_trace && options.prefill_chunk_size > 1U &&
@@ -3865,6 +4151,13 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
     prefill_plan.prefix_tile = prefill_prefix_tile;
     prefill_plan.finish_prefill_from_tile =
         finish_prefill_from_retained_tile;
+    if (whole_request_layer_major) {
+      prefill_plan.whole_request = prefill_whole_request_layer_major;
+      prefill_plan.finish_whole_request_from_uncommitted_retained =
+          finish_whole_request_from_uncommitted_retained;
+      prefill_plan.commit_whole_request =
+          commit_whole_request_layer_major;
+    }
 
     reference_engine_detail::DecodePlan decode_plan;
     decode_plan.context = &step_context;
@@ -3877,10 +4170,28 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
             ? decode_with_prepared_graph_cache
             : step_with_trace;
 
-    reference_engine_detail::GenerationControlResult control =
-        reference_engine_detail::run_generation_control(
-            prompt_token_ids, control_options, prefill_plan, decode_plan);
+    reference_engine_detail::GenerationControlResult control;
+    try {
+      control = reference_engine_detail::run_generation_control(
+          prompt_token_ids, control_options, prefill_plan, decode_plan);
+    } catch (...) {
+      const ReferenceRunnerStatus rollback = whole_request_guard.rollback();
+      if (!rollback) {
+        result.diagnostic = runner_diagnostic(
+            ReferenceEngineError::kRunnerResetFailure,
+            "whole_request_exception_rollback", rollback);
+        return result;
+      }
+      throw;
+    }
     if (!control) {
+      const ReferenceRunnerStatus rollback = whole_request_guard.rollback();
+      if (!rollback) {
+        result.diagnostic = runner_diagnostic(
+            ReferenceEngineError::kRunnerResetFailure,
+            "whole_request_failure_rollback", rollback);
+        return result;
+      }
       result.diagnostic = control_diagnostic(control);
       if (use_production_decode_graph_cache &&
           step_context.decode_graph_replays != 0U) {
@@ -3913,6 +4224,21 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
           impl_->load.decode_graph_cache_fallback_reason =
               "runtime_graph_failure_demoted_to_serial";
         }
+      }
+      return result;
+    }
+    if (whole_request_guard.armed()) {
+      const ReferenceRunnerStatus rollback = whole_request_guard.rollback();
+      if (!rollback) {
+        result.diagnostic = runner_diagnostic(
+            ReferenceEngineError::kRunnerResetFailure,
+            "whole_request_uncommitted_rollback", rollback);
+      } else {
+        result.diagnostic = engine_diagnostic(
+            ReferenceEngineError::kRunnerStepFailure,
+            "whole_request_uncommitted",
+            "generation control returned success without consuming the "
+            "whole-request Prefill transaction");
       }
       return result;
     }
@@ -5493,6 +5819,8 @@ std::string_view to_string(const ReferenceEngineError error) noexcept {
       return "allocation_failure";
     case ReferenceEngineError::kMissingPrediction:
       return "missing_prediction";
+    case ReferenceEngineError::kPrefillPlanUnavailable:
+      return "prefill_plan_unavailable";
   }
   return "unknown";
 }

@@ -298,6 +298,7 @@ add_library(q3x_engine STATIC
   src/runtime/reference_benchmark.cpp
   src/runtime/reference_engine.cpp
   src/runtime/reference_engine_control.cpp
+  src/runtime/reference_engine_prefill_authority.cpp
 )
 add_library(q3x::engine ALIAS q3x_engine)
 set_target_properties(q3x_engine PROPERTIES
@@ -1145,6 +1146,23 @@ if(BUILD_TESTING)
   q3x_enable_warnings(q3x_reference_engine_control_test)
   add_test(NAME reference_engine_control
     COMMAND q3x_reference_engine_control_test
+  )
+
+  add_executable(q3x_bound_prefill_authority_type_test
+    tests/bound_prefill_authority_type_test.cpp
+  )
+  target_include_directories(q3x_bound_prefill_authority_type_test PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/runtime"
+  )
+  target_link_libraries(q3x_bound_prefill_authority_type_test
+    PRIVATE q3x::engine
+  )
+  q3x_enable_warnings(q3x_bound_prefill_authority_type_test)
+  add_test(NAME bound_prefill_authority_type
+    COMMAND q3x_bound_prefill_authority_type_test
+  )
+  set_tests_properties(bound_prefill_authority_type PROPERTIES
+    LABELS "host;engine;prefill;authority"
   )
 
   add_executable(q3x_openai_protocol_test

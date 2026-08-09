@@ -13,6 +13,11 @@
 
 namespace q3x::runtime {
 
+namespace reference_engine_detail {
+class ReferenceEnginePrefillPlanFactory;
+class ReferenceEnginePrefillExecutor;
+}  // namespace reference_engine_detail
+
 inline constexpr std::size_t kReferenceVocabularySize = 248'320U;
 inline constexpr std::size_t kReferenceHiddenSize = 5'120U;
 inline constexpr std::size_t kReferenceIntermediateSize = 17'408U;
@@ -691,6 +696,8 @@ class ReferenceRunner {
   // Pure-host control tests use a friend peer so the candidate execution
   // control remains private and cannot become a production selector surface.
   friend struct ReferenceRunnerPrefillControlTestPeer;
+  friend class reference_engine_detail::ReferenceEnginePrefillPlanFactory;
+  friend class reference_engine_detail::ReferenceEnginePrefillExecutor;
   friend ReferenceRunnerFactoryResult create_reference_runner(
       const ModelWeights*, RequestState*, const ReferenceRunnerOptions&) noexcept;
 
@@ -760,6 +767,11 @@ class ReferenceRunner {
     bool allow_experimental_gdn_b8_admission = false;
     bool allow_experimental_gdn_chunk64_native_admission = false;
     bool allow_experimental_gdn_chunk64_reference_admission = false;
+    // Engine-sealed layer-major evaluation plans bind the installed Marlin
+    // sidecars once at engine creation. These flags bypass request-time
+    // environment selection only for that private compatibility core.
+    bool force_bound_nvfp4_marlin_prefill = false;
+    bool force_bound_fp8_marlin_prefill = false;
   };
 
   struct PrefillTileExecutionSelection {

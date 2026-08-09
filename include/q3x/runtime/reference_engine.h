@@ -38,6 +38,9 @@ enum class ReferenceEngineError : std::uint8_t {
   kTraceFailure,
   kAllocationFailure,
   kMissingPrediction,
+  // The caller selected a Prefill route that this engine instance did not
+  // bind and provision at creation time.
+  kPrefillPlanUnavailable,
 };
 
 struct ReferenceEngineDiagnostic {
@@ -144,8 +147,8 @@ struct ReferenceGenerateOptions {
   ReferenceTokenObserver token_observer = nullptr;
   void* token_observer_context = nullptr;
   // The whole-request mode remains a default-off host integration surface.
-  // ReferenceEngine has no bound callbacks for it until the layer-major
-  // executor is connected, so an explicit request currently fails closed.
+  // It is accepted only by an engine created with the matching isolated
+  // layer-major profile and sealed native operator plan.
   ReferencePrefillExecutionMode prefill_execution_mode =
       ReferencePrefillExecutionMode::kLegacyC512Tiled;
 };
@@ -809,7 +812,7 @@ struct GenerationControlOptions {
   // immutable C8192 logical-panel topology exactly once, never prefix_tile.
   // It requires all-prompt admission, dedicated retained-hidden final/commit
   // callbacks, no trace, and no single-arbitrary-tile mode. No
-  // ReferenceEngine route sets it yet.
+  // ReferenceEngine sets it only when its engine-lifetime sealed plan exists.
   bool prefill_whole_request_layer_major = false;
   void* committed_token_context = nullptr;
   CommittedTokenFunction committed_token = nullptr;

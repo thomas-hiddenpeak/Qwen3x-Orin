@@ -668,6 +668,7 @@ void PrintEngineDiagnostic(
     case Error::kWeightBindFailure:
     case Error::kRequestStateFailure:
     case Error::kRunnerFactoryFailure:
+    case Error::kPrefillPlanUnavailable:
       return 3;
     case Error::kRunnerStepFailure:
     case Error::kRunnerResetFailure:

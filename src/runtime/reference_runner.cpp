@@ -1720,6 +1720,14 @@ std::uint32_t ReferenceRunner::current_position() const noexcept {
 }
 
 void ReferenceRunner::release() noexcept {
+  // A whole-request core may have advanced recurrent/KV device state while
+  // leaving the host sequence length unpublished. The Engine owns the normal
+  // rollback guard; this is the final best-effort backstop for an active or
+  // poisoned runner that is destroyed or overwritten by move-assignment.
+  if ((whole_request_prefill_active() || poisoned_) &&
+      static_cast<bool>(*this)) {
+    (void)reset();
+  }
   if (stream_ != nullptr) {
     (void)cudaStreamSynchronize(reinterpret_cast<cudaStream_t>(stream_));
   }
@@ -1929,8 +1937,8 @@ std::optional<ReferenceTraceView> ReferenceRunner::last_trace() const noexcept {
 
 ReferenceRunnerStatus ReferenceRunner::reset() noexcept {
   // Reset is the sole recovery path from an uncommitted whole-request stage.
-  // Clear its host hand-off even if a later device reset operation fails.
-  whole_request_prefill_stage_ = {};
+  // Preserve the hand-off as an abort-required latch until every producer is
+  // drained and RequestState reset has completed successfully.
   if (!static_cast<bool>(*this)) {
     return runner_status(ReferenceRunnerError::kInvalidRunner, "reset");
   }
@@ -1971,6 +1979,7 @@ ReferenceRunnerStatus ReferenceRunner::reset() noexcept {
   retained_prefill_hidden_row_ = 0U;
   trace_position_ = 0U;
   trace_input_token_ = 0U;
+  whole_request_prefill_stage_ = {};
   reset_prefill_route_request(prefill_route_evidence_);
   return {};
 }
@@ -3260,7 +3269,9 @@ bool ReferenceRunner::is_legacy_prefill_tile_execution_control(
          control.allow_cross_layer_m32_fusion && control.emit_commit_hooks &&
          control.allow_experimental_gdn_b8_admission &&
          control.allow_experimental_gdn_chunk64_native_admission &&
-         control.allow_experimental_gdn_chunk64_reference_admission;
+         control.allow_experimental_gdn_chunk64_reference_admission &&
+         !control.force_bound_nvfp4_marlin_prefill &&
+         !control.force_bound_fp8_marlin_prefill;
 }
 
 ReferenceRunnerStatus ReferenceRunner::select_prefill_tile_execution(
@@ -3887,6 +3898,8 @@ ReferenceRunner::prefill_whole_request_layer_major_compatibility_core(
         control.allow_scalar_m1_delegate = false;
         control.allow_cross_layer_m32_fusion = false;
         control.emit_commit_hooks = false;
+        control.force_bound_nvfp4_marlin_prefill = true;
+        control.force_bound_fp8_marlin_prefill = true;
         PrefillTileExecutionSelection selection;
         const ReferenceRunnerStatus selection_status =
             select_prefill_tile_execution(
@@ -4149,7 +4162,8 @@ ReferenceRunner::enqueue_prefill_layer_segment(
   std::int32_t* fp8_marlin_locks = nullptr;
 #if defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION)
   fp8_marlin_tile_enabled =
-      g_enable_fp8_marlin_prefill_admission &&
+      (g_enable_fp8_marlin_prefill_admission ||
+       control.force_bound_fp8_marlin_prefill) &&
       kernels::sm87_fp8_marlin_supports_token_count(token_count);
   fp8_marlin_locks =
       reinterpret_cast<std::int32_t*>(execution_views.projection[3]);
@@ -5248,7 +5262,8 @@ ReferenceRunner::enqueue_prefill_layer_segment(
         static_cast<std::size_t>(state_->plan().prefill_chunk_size) *
         kReferenceIntermediateSize;
     const bool use_marlin_mlp =
-        g_enable_nvfp4_marlin_prefill_admission &&
+        (g_enable_nvfp4_marlin_prefill_admission ||
+         control.force_bound_nvfp4_marlin_prefill) &&
         kernels::sm87_nvfp4_marlin_supports_token_count(token_count) &&
         projection_backend_ == ProjectionBackend::kSm87WeightOnly &&
         marlin_gate != nullptr && marlin_up != nullptr &&
