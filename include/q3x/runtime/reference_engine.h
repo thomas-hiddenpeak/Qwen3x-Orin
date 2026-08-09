@@ -125,6 +125,29 @@ inline constexpr std::string_view
         "q3x.sm87.ac-prefill-prompt-wide-v2."
         "native-quantized-large-m-operator-panel."
         "native-flashinfer-exact-panel-attention.v1";
+// WP-V2-C1 is deliberately a separate, default-off deployment identity.
+// Its NVFP4 Gate+Up and Down launches form one fail-closed true-large-M
+// package; none of these ids may describe the older Marlin fallback route.
+inline constexpr std::string_view
+    kLayerMajorNativeNvfp4TrueLargeMProjectionDeploymentPlanId =
+        "q3x.sm87.ac-prefill-prompt-wide-v2."
+        "native-nvfp4-true-large-m-operator-panel."
+        "exact-segmented-attention.v1";
+inline constexpr std::string_view
+    kLayerMajorNativeNvfp4TrueLargeMProjectionGroupQ64DeploymentPlanId =
+        "q3x.sm87.ac-prefill-prompt-wide-v2."
+        "native-nvfp4-true-large-m-operator-panel."
+        "native-group-q64-attention.v1";
+inline constexpr std::string_view
+    kLayerMajorNativeNvfp4TrueLargeMProjectionGroupQ128V4DeploymentPlanId =
+        "q3x.sm87.ac-prefill-prompt-wide-v2."
+        "native-nvfp4-true-large-m-operator-panel."
+        "native-group-q128-v4-attention.v1";
+inline constexpr std::string_view
+    kLayerMajorNativeNvfp4TrueLargeMProjectionFlashInferExactDeploymentPlanId =
+        "q3x.sm87.ac-prefill-prompt-wide-v2."
+        "native-nvfp4-true-large-m-operator-panel."
+        "native-flashinfer-exact-panel-attention.v1";
 
 [[nodiscard]] constexpr bool is_valid_reference_prefill_execution_mode(
     const ReferencePrefillExecutionMode mode) noexcept {
@@ -320,6 +343,18 @@ struct ReferenceGeneration {
   std::uint64_t prefill_native_large_m_projection_bulk_hits = 0U;
   std::uint64_t prefill_native_large_m_projection_oracle_partial_hits = 0U;
   std::uint64_t prefill_native_large_m_projection_physical_launches = 0U;
+  // WP-V2-C1 evidence is independent from the older native-large-M Marlin
+  // route. Gate+Up and Down must both complete for a coupled panel package.
+  std::uint64_t prefill_nvfp4_true_large_m_route_fp8_projection_hits = 0U;
+  std::uint64_t prefill_nvfp4_true_large_m_route_fp8_projection_bulk_hits = 0U;
+  std::uint64_t
+      prefill_nvfp4_true_large_m_route_fp8_projection_oracle_partial_hits = 0U;
+  std::uint64_t
+      prefill_nvfp4_true_large_m_route_fp8_projection_physical_launches = 0U;
+  std::uint64_t prefill_native_nvfp4_true_large_m_projection_hits = 0U;
+  std::uint64_t prefill_native_nvfp4_true_large_m_gate_up_hits = 0U;
+  std::uint64_t prefill_native_nvfp4_true_large_m_down_hits = 0U;
+  std::uint64_t prefill_native_nvfp4_true_large_m_physical_launches = 0U;
 };
 
 struct ReferenceEngineLoadStats {

@@ -866,6 +866,24 @@ void emit_target_prefill_witness(
         generation.prefill_native_large_m_projection_oracle_partial_hits;
     record.native_large_m_projection_physical_launches =
         generation.prefill_native_large_m_projection_physical_launches;
+    record.nvfp4_true_large_m_route_fp8_projection_hits =
+        generation.prefill_nvfp4_true_large_m_route_fp8_projection_hits;
+    record.nvfp4_true_large_m_route_fp8_projection_bulk_hits =
+        generation.prefill_nvfp4_true_large_m_route_fp8_projection_bulk_hits;
+    record.nvfp4_true_large_m_route_fp8_projection_oracle_partial_hits =
+        generation
+            .prefill_nvfp4_true_large_m_route_fp8_projection_oracle_partial_hits;
+    record.nvfp4_true_large_m_route_fp8_projection_physical_launches =
+        generation
+            .prefill_nvfp4_true_large_m_route_fp8_projection_physical_launches;
+    record.native_nvfp4_true_large_m_projection_hits =
+        generation.prefill_native_nvfp4_true_large_m_projection_hits;
+    record.native_nvfp4_true_large_m_gate_up_hits =
+        generation.prefill_native_nvfp4_true_large_m_gate_up_hits;
+    record.native_nvfp4_true_large_m_down_hits =
+        generation.prefill_native_nvfp4_true_large_m_down_hits;
+    record.native_nvfp4_true_large_m_physical_launches =
+        generation.prefill_native_nvfp4_true_large_m_physical_launches;
     record.deployment_plan_id = generation.prefill_deployment_plan_id;
     std::cerr << serialize_target_prefill_witness(record) << '\n';
   } catch (...) {

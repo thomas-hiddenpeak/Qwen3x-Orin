@@ -591,6 +591,90 @@ void test_target_prefill_witness_evidence(TestContext& test) {
       "native large-M projections plus exact FlashInfer Attention have a "
       "distinct unqualified v6 witness identity");
 
+  server::TargetPrefillWitnessRecord true_large_m_nvfp4_record =
+      sealed_record;
+  true_large_m_nvfp4_record.operator_panel_executor_hits = 128U;
+  true_large_m_nvfp4_record.generic_qt2_hits = 4U;
+  true_large_m_nvfp4_record
+      .nvfp4_true_large_m_route_fp8_projection_hits = 416U;
+  true_large_m_nvfp4_record
+      .nvfp4_true_large_m_route_fp8_projection_bulk_hits = 208U;
+  true_large_m_nvfp4_record
+      .nvfp4_true_large_m_route_fp8_projection_oracle_partial_hits = 208U;
+  true_large_m_nvfp4_record
+      .nvfp4_true_large_m_route_fp8_projection_physical_launches = 1'872U;
+  true_large_m_nvfp4_record
+      .native_nvfp4_true_large_m_projection_hits = 192U;
+  true_large_m_nvfp4_record.native_nvfp4_true_large_m_gate_up_hits = 96U;
+  true_large_m_nvfp4_record.native_nvfp4_true_large_m_down_hits = 96U;
+  true_large_m_nvfp4_record
+      .native_nvfp4_true_large_m_physical_launches = 192U;
+  true_large_m_nvfp4_record.deployment_plan_id = q3x::runtime::
+      kLayerMajorNativeNvfp4TrueLargeMProjectionDeploymentPlanId;
+  const std::string true_large_m_nvfp4_serialized =
+      server::serialize_target_prefill_witness(true_large_m_nvfp4_record);
+  test.expect(
+      valid_json(true_large_m_nvfp4_serialized) &&
+          true_large_m_nvfp4_serialized.find(
+              R"("record":"target-prefill-witness-v7","schema_version":7)") !=
+              std::string::npos &&
+          true_large_m_nvfp4_serialized.find(
+              R"("projection_tactic":"native-nvfp4-true-large-m-operator-panel","attention_tactic":"exact-segmented")") !=
+              std::string::npos &&
+          true_large_m_nvfp4_serialized.find(
+              R"("nvfp4_true_large_m_route_fp8_projection_hits":416,"nvfp4_true_large_m_route_fp8_projection_bulk_hits":208,"nvfp4_true_large_m_route_fp8_projection_oracle_partial_hits":208,"nvfp4_true_large_m_route_fp8_projection_physical_launches":1872,"native_nvfp4_true_large_m_projection_hits":192,"native_nvfp4_true_large_m_gate_up_hits":96,"native_nvfp4_true_large_m_down_hits":96,"native_nvfp4_true_large_m_physical_launches":192)") !=
+              std::string::npos &&
+          true_large_m_nvfp4_serialized.find(
+              R"("native_large_m_projection_hits")") ==
+              std::string::npos &&
+          true_large_m_nvfp4_serialized.find(
+              R"("id":"q3x.sm87.ac-prefill-prompt-wide-v2.native-nvfp4-true-large-m-operator-panel.exact-segmented-attention.v1","qualification":"accuracy-unqualified-architecture-candidate","numerical_contract":{"qualified":false,"reason":"full-state-accuracy-qualification-not-run"})") !=
+              std::string::npos,
+      "true-large-M NVFP4 Gate+Up/Down uses independent unqualified v7 "
+      "execution evidence");
+
+  true_large_m_nvfp4_record.native_group_q64_panel_hits = 32U;
+  true_large_m_nvfp4_record.generic_qt2_hits = 0U;
+  true_large_m_nvfp4_record.deployment_plan_id = q3x::runtime::
+      kLayerMajorNativeNvfp4TrueLargeMProjectionGroupQ64DeploymentPlanId;
+  const std::string true_large_m_nvfp4_q64_serialized =
+      server::serialize_target_prefill_witness(true_large_m_nvfp4_record);
+  test.expect(
+      valid_json(true_large_m_nvfp4_q64_serialized) &&
+          true_large_m_nvfp4_q64_serialized.find(
+              R"("attention_tactic":"native-group-q64-panel")") !=
+              std::string::npos,
+      "true-large-M NVFP4 composes with grouped-Q64 Attention in v7");
+
+  true_large_m_nvfp4_record.native_group_q64_panel_hits = 0U;
+  true_large_m_nvfp4_record.native_group_q128_v4_panel_hits = 32U;
+  true_large_m_nvfp4_record.deployment_plan_id = q3x::runtime::
+      kLayerMajorNativeNvfp4TrueLargeMProjectionGroupQ128V4DeploymentPlanId;
+  const std::string true_large_m_nvfp4_q128_serialized =
+      server::serialize_target_prefill_witness(true_large_m_nvfp4_record);
+  test.expect(
+      valid_json(true_large_m_nvfp4_q128_serialized) &&
+          true_large_m_nvfp4_q128_serialized.find(
+              R"("attention_tactic":"native-group-q128-v4-panel")") !=
+              std::string::npos,
+      "true-large-M NVFP4 composes with grouped-Q128-v4 Attention in v7");
+
+  true_large_m_nvfp4_record.native_group_q128_v4_panel_hits = 0U;
+  true_large_m_nvfp4_record.native_flashinfer_exact_panel_hits = 32U;
+  true_large_m_nvfp4_record.deployment_plan_id = q3x::runtime::
+      kLayerMajorNativeNvfp4TrueLargeMProjectionFlashInferExactDeploymentPlanId;
+  const std::string true_large_m_nvfp4_flashinfer_serialized =
+      server::serialize_target_prefill_witness(true_large_m_nvfp4_record);
+  test.expect(
+      valid_json(true_large_m_nvfp4_flashinfer_serialized) &&
+          true_large_m_nvfp4_flashinfer_serialized.find(
+              R"("record":"target-prefill-witness-v7","schema_version":7)") !=
+              std::string::npos &&
+          true_large_m_nvfp4_flashinfer_serialized.find(
+              R"("attention_tactic":"native-flashinfer-exact-panel")") !=
+              std::string::npos,
+      "true-large-M NVFP4 composes with exact FlashInfer Attention in v7");
+
   server::TargetPrefillWitnessRecord unbound_layer_major_record =
       sealed_record;
   unbound_layer_major_record.deployment_plan_id.clear();

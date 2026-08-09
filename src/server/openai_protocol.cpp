@@ -641,11 +641,33 @@ std::string serialize_target_prefill_witness(
   const bool flashinfer_exact_candidate_uses_native_large_m_projection =
       record.deployment_plan_id == runtime::
           kLayerMajorNativeQuantizedLargeMProjectionFlashInferExactDeploymentPlanId;
+  const bool true_large_m_nvfp4_candidate_v7 =
+      record.deployment_plan_id == runtime::
+          kLayerMajorNativeNvfp4TrueLargeMProjectionDeploymentPlanId ||
+      record.deployment_plan_id == runtime::
+          kLayerMajorNativeNvfp4TrueLargeMProjectionGroupQ64DeploymentPlanId ||
+      record.deployment_plan_id == runtime::
+          kLayerMajorNativeNvfp4TrueLargeMProjectionGroupQ128V4DeploymentPlanId ||
+      record.deployment_plan_id == runtime::
+          kLayerMajorNativeNvfp4TrueLargeMProjectionFlashInferExactDeploymentPlanId;
+  const bool true_large_m_nvfp4_candidate_uses_q64_attention =
+      record.deployment_plan_id == runtime::
+          kLayerMajorNativeNvfp4TrueLargeMProjectionGroupQ64DeploymentPlanId;
+  const bool true_large_m_nvfp4_candidate_uses_q128_v4_attention =
+      record.deployment_plan_id == runtime::
+          kLayerMajorNativeNvfp4TrueLargeMProjectionGroupQ128V4DeploymentPlanId;
+  const bool true_large_m_nvfp4_candidate_uses_flashinfer_attention =
+      record.deployment_plan_id == runtime::
+          kLayerMajorNativeNvfp4TrueLargeMProjectionFlashInferExactDeploymentPlanId;
   const bool accuracy_unqualified_candidate =
       candidate_v3 || projection_candidate_v4 ||
-      native_large_m_candidate_v5 || flashinfer_exact_candidate_v6;
+      native_large_m_candidate_v5 || flashinfer_exact_candidate_v6 ||
+      true_large_m_nvfp4_candidate_v7;
   std::string output =
-      flashinfer_exact_candidate_v6
+      true_large_m_nvfp4_candidate_v7
+          ? "{\"record\":\"target-prefill-witness-v7\","
+            "\"schema_version\":7,\"request\":{\"id\":"
+      : flashinfer_exact_candidate_v6
           ? "{\"record\":\"target-prefill-witness-v6\","
             "\"schema_version\":6,\"request\":{\"id\":"
       : native_large_m_candidate_v5
@@ -724,7 +746,55 @@ std::string serialize_target_prefill_witness(
     output += record.bounded_submission_window ? "true" : "false";
     output += ",\"submission_window_retirements\":" +
               std::to_string(record.submission_window_retirements);
-    if (flashinfer_exact_candidate_v6) {
+    if (true_large_m_nvfp4_candidate_v7) {
+      output += ",\"projection_tactic\":";
+      append_json_string(output,
+                         "native-nvfp4-true-large-m-operator-panel");
+      output += ",\"attention_tactic\":";
+      append_json_string(
+          output, true_large_m_nvfp4_candidate_uses_flashinfer_attention
+                      ? "native-flashinfer-exact-panel"
+                  : true_large_m_nvfp4_candidate_uses_q128_v4_attention
+                      ? "native-group-q128-v4-panel"
+                  : true_large_m_nvfp4_candidate_uses_q64_attention
+                      ? "native-group-q64-panel"
+                      : "exact-segmented");
+      output += ",\"operator_panel_executor_hits\":" +
+                std::to_string(record.operator_panel_executor_hits) +
+                ",\"native_flashinfer_exact_panel_hits\":" +
+                std::to_string(record.native_flashinfer_exact_panel_hits) +
+                ",\"native_group_q64_panel_hits\":" +
+                std::to_string(record.native_group_q64_panel_hits) +
+                ",\"native_group_q128_v4_panel_hits\":" +
+                std::to_string(record.native_group_q128_v4_panel_hits) +
+                ",\"generic_qt2_hits\":" +
+                std::to_string(record.generic_qt2_hits) +
+                ",\"nvfp4_true_large_m_route_fp8_projection_hits\":" +
+                std::to_string(
+                    record.nvfp4_true_large_m_route_fp8_projection_hits) +
+                ",\"nvfp4_true_large_m_route_fp8_projection_bulk_hits\":" +
+                std::to_string(record
+                                   .nvfp4_true_large_m_route_fp8_projection_bulk_hits) +
+                ",\"nvfp4_true_large_m_route_fp8_projection_oracle_partial_hits\":" +
+                std::to_string(
+                    record
+                        .nvfp4_true_large_m_route_fp8_projection_oracle_partial_hits) +
+                ",\"nvfp4_true_large_m_route_fp8_projection_physical_launches\":" +
+                std::to_string(
+                    record
+                        .nvfp4_true_large_m_route_fp8_projection_physical_launches) +
+                ",\"native_nvfp4_true_large_m_projection_hits\":" +
+                std::to_string(
+                    record.native_nvfp4_true_large_m_projection_hits) +
+                ",\"native_nvfp4_true_large_m_gate_up_hits\":" +
+                std::to_string(
+                    record.native_nvfp4_true_large_m_gate_up_hits) +
+                ",\"native_nvfp4_true_large_m_down_hits\":" +
+                std::to_string(record.native_nvfp4_true_large_m_down_hits) +
+                ",\"native_nvfp4_true_large_m_physical_launches\":" +
+                std::to_string(
+                    record.native_nvfp4_true_large_m_physical_launches);
+    } else if (flashinfer_exact_candidate_v6) {
       output += ",\"projection_tactic\":";
       append_json_string(
           output,

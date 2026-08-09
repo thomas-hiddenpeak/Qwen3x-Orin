@@ -121,6 +121,9 @@ void test_public_tile_and_operator_panel_are_independent(TestContext& test) {
           runtime::is_valid_layer_major_prefill_projection_tactic(
               runtime::LayerMajorPrefillProjectionTactic::
                   kNativeQuantizedLargeMOperatorPanel) &&
+          runtime::is_valid_layer_major_prefill_projection_tactic(
+              runtime::LayerMajorPrefillProjectionTactic::
+                  kNativeNvfp4TrueLargeMOperatorPanel) &&
           !runtime::is_valid_layer_major_prefill_projection_tactic(
               static_cast<runtime::LayerMajorPrefillProjectionTactic>(
                   0xffU)),
@@ -136,9 +139,13 @@ void test_public_tile_and_operator_panel_are_independent(TestContext& test) {
           runtime::to_string(
               runtime::LayerMajorPrefillProjectionTactic::
                   kNativeQuantizedLargeMOperatorPanel) ==
-              "native-quantized-large-m-operator-panel",
-      "projection tactic names preserve exact, segmented, and native "
-      "large-M route identity");
+              "native-quantized-large-m-operator-panel" &&
+          runtime::to_string(
+              runtime::LayerMajorPrefillProjectionTactic::
+                  kNativeNvfp4TrueLargeMOperatorPanel) ==
+              "native-nvfp4-true-large-m-operator-panel",
+      "projection tactic names preserve exact, segmented, native large-M, "
+      "and true-large-M NVFP4 route identity");
   const runtime::PrefillExecutionPlanResult result = build_plan(513U);
   test.expect(result &&
                   result.value->legacy_public_tile_limit == 512U &&
@@ -162,6 +169,13 @@ void test_public_tile_and_operator_panel_are_independent(TestContext& test) {
 }
 
 void test_target_panel_matrix(TestContext& test) {
+  test.expect(
+      runtime::is_nvfp4_true_large_m_prefill_panel_tokens(8'192U) &&
+          runtime::is_nvfp4_true_large_m_prefill_panel_tokens(7'712U) &&
+          !runtime::is_nvfp4_true_large_m_prefill_panel_tokens(513U) &&
+          !runtime::is_nvfp4_true_large_m_prefill_panel_tokens(8'191U),
+      "the true-large-M NVFP4 route admits only complete M8192/M7712 "
+      "logical panels");
   expect_panel_shape(test, 1U, 1U, 1U);
   expect_panel_shape(test, 512U, 1U, 512U);
   expect_panel_shape(test, 513U, 1U, 513U);
@@ -171,6 +185,27 @@ void test_target_panel_matrix(TestContext& test) {
   expect_panel_shape(test, 60'000U, 8U, 5'424U);
   expect_panel_shape(test, 130'000U, 16U, 7'656U);
   expect_panel_shape(test, 262'144U, 32U, 8'192U);
+
+  const runtime::PrefillExecutionPlanResult p40 = build_plan(40'000U);
+  bool p40_true_large_m_complete = static_cast<bool>(p40) &&
+                                   p40.value->panel_count == 5U;
+  if (p40) {
+    for (std::size_t panel = 0U; panel < p40.value->panel_count; ++panel) {
+      p40_true_large_m_complete =
+          p40_true_large_m_complete &&
+          runtime::is_nvfp4_true_large_m_prefill_panel_tokens(
+              p40.value->panels[panel].token_count);
+    }
+  }
+  test.expect(
+      p40_true_large_m_complete &&
+          p40.value->panels[0].token_count == 8'192U &&
+          p40.value->panels[1].token_count == 8'192U &&
+          p40.value->panels[2].token_count == 8'192U &&
+          p40.value->panels[3].token_count == 7'712U &&
+          p40.value->panels[4].token_count == 7'712U,
+      "P40K is exactly three M8192 plus two M7712 panels for the first "
+      "true-large-M product gate");
 
   const runtime::PrefillExecutionPlanResult offset =
       build_plan(8'193U, 512U, 16'384U);
@@ -401,6 +436,23 @@ void test_exact_arithmetic_span_ledgers(TestContext& test) {
                .nvfp4_residual_follows_down_per_span,
       "the segmented Marlin tactic does not masquerade as the exact oracle "
       "arithmetic contract");
+  test.expect(
+      runtime::is_valid_layer_major_prefill_arithmetic_contract(
+          runtime::kLayerMajorPrefillTrueLargeMNvFp4ArithmeticContract) &&
+          runtime::kLayerMajorPrefillTrueLargeMNvFp4ArithmeticContract
+                  .version == 4U &&
+          runtime::kLayerMajorPrefillTrueLargeMNvFp4ArithmeticContract
+              .nvfp4_true_large_m_m8192 &&
+          runtime::kLayerMajorPrefillTrueLargeMNvFp4ArithmeticContract
+              .nvfp4_true_large_m_m7712 &&
+          runtime::kLayerMajorPrefillTrueLargeMNvFp4ArithmeticContract
+              .nvfp4_gate_up_down_coupled &&
+          !runtime::kLayerMajorPrefillTrueLargeMNvFp4ArithmeticContract
+               .nvfp4_interleaves_gate_silu_down_per_span &&
+          !runtime::kLayerMajorPrefillTrueLargeMNvFp4ArithmeticContract
+               .m8192_nvfp4_uses_independent_down_workspace,
+      "the true-large-M NVFP4 tactic seals M8192/M7712 Gate+Up and Down as "
+      "one route without an oracle-span fallback");
 }
 
 void test_fixed_layer_schedule(TestContext& test) {

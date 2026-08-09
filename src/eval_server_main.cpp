@@ -41,7 +41,8 @@ void PrintUsage(std::ostream& output) {
       << "                             native-flashinfer-exact-panel\n"
       << "  --prefill-projection-tactic exact-segmented|\n"
       << "                              segmented-marlin-operator-panel|\n"
-      << "                              native-quantized-large-m-operator-panel\n"
+      << "                              native-quantized-large-m-operator-panel|\n"
+      << "                              native-nvfp4-true-large-m-operator-panel\n"
       << "  --nvtx-phase-ranges        Emit generation/Prefill/Decode ranges\n"
       << "  --queue-capacity N          Bounded inference queue, max 62 (default 8)\n"
       << "  --ingress-threads N         Fixed HTTP threads, queue+2 min (default 10)\n"
@@ -171,10 +172,16 @@ template <typename T>
         options.prefill_projection_tactic = q3x::runtime::
             LayerMajorPrefillProjectionTactic::
                 kNativeQuantizedLargeMOperatorPanel;
+      } else if (value ==
+                 "native-nvfp4-true-large-m-operator-panel") {
+        options.prefill_projection_tactic = q3x::runtime::
+            LayerMajorPrefillProjectionTactic::
+                kNativeNvfp4TrueLargeMOperatorPanel;
       } else {
         error = "--prefill-projection-tactic must be exact-segmented or "
                 "segmented-marlin-operator-panel or "
-                "native-quantized-large-m-operator-panel";
+                "native-quantized-large-m-operator-panel or "
+                "native-nvfp4-true-large-m-operator-panel";
         return false;
       }
     } else if (argument == "--queue-capacity") {

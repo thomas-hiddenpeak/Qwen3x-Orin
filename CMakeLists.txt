@@ -38,6 +38,10 @@ option(Q3X_BUILD_NVFP4_MARLIN_PREFILL_ADMISSION
   "Build the test-only scheduler-wide vLLM-Marlin NVFP4 Prefill route"
   OFF
 )
+option(Q3X_BUILD_NVFP4_TRUE_LARGE_M_PREFILL_ADMISSION
+  "Build the test-only WP-V2-C1 true-large-M NVFP4 Prefill route"
+  OFF
+)
 option(Q3X_BUILD_FP8_MARLIN_PREFILL_ADMISSION
   "Build the test-only frozen-vLLM FP8 W8A16 Marlin Prefill route"
   OFF
@@ -73,6 +77,19 @@ endif()
 if(Q3X_BUILD_NVFP4_MARLIN_PREFILL_ADMISSION AND NOT BUILD_TESTING)
   message(FATAL_ERROR
     "Q3X_BUILD_NVFP4_MARLIN_PREFILL_ADMISSION is test-only and requires BUILD_TESTING=ON"
+  )
+endif()
+if(Q3X_BUILD_NVFP4_TRUE_LARGE_M_PREFILL_ADMISSION AND NOT BUILD_TESTING)
+  message(FATAL_ERROR
+    "Q3X_BUILD_NVFP4_TRUE_LARGE_M_PREFILL_ADMISSION is test-only and requires BUILD_TESTING=ON"
+  )
+endif()
+if(Q3X_BUILD_NVFP4_TRUE_LARGE_M_PREFILL_ADMISSION AND
+   (NOT Q3X_BUILD_NVFP4_MARLIN_PREFILL_ADMISSION OR
+    NOT Q3X_BUILD_FP8_MARLIN_PREFILL_ADMISSION OR
+    NOT Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION))
+  message(FATAL_ERROR
+    "Q3X_BUILD_NVFP4_TRUE_LARGE_M_PREFILL_ADMISSION requires the authenticated NVFP4/FP8 Marlin and native GDN admission inventories"
   )
 endif()
 if(Q3X_BUILD_FP8_MARLIN_PREFILL_ADMISSION AND NOT BUILD_TESTING)
@@ -213,6 +230,7 @@ add_library(q3x_kernels STATIC
   src/kernels/sm87/decode_gqa_splitkv_sm87.cu
   src/kernels/sm87/fp8_prefill_supermatrix.cu
   src/kernels/sm87/nvfp4_marlin_w4a16.cu
+  src/kernels/sm87/nvfp4_prefill_large_m.cu
   src/kernels/sm87/weight_only_gemv.cu
 )
 add_library(q3x::kernels ALIAS q3x_kernels)
@@ -258,6 +276,11 @@ endif()
 if(Q3X_BUILD_NVFP4_MARLIN_PREFILL_ADMISSION)
   target_compile_definitions(q3x_kernels PRIVATE
     Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_NVFP4_TRUE_LARGE_M_PREFILL_ADMISSION)
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_NVFP4_TRUE_LARGE_M_PREFILL_ADMISSION=1
   )
 endif()
 if(Q3X_BUILD_FP8_MARLIN_PREFILL_ADMISSION)
@@ -322,6 +345,11 @@ target_link_libraries(q3x_engine
 if(Q3X_BUILD_NVFP4_MARLIN_PREFILL_ADMISSION)
   target_compile_definitions(q3x_engine PRIVATE
     Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_NVFP4_TRUE_LARGE_M_PREFILL_ADMISSION)
+  target_compile_definitions(q3x_engine PRIVATE
+    Q3X_ENABLE_NVFP4_TRUE_LARGE_M_PREFILL_ADMISSION=1
   )
 endif()
 if(Q3X_BUILD_FP8_MARLIN_PREFILL_ADMISSION)
@@ -492,6 +520,20 @@ if(BUILD_TESTING)
   )
   q3x_enable_warnings(q3x_nvfp4_test)
   add_test(NAME nvfp4_reference COMMAND q3x_nvfp4_test)
+
+  add_executable(q3x_sm87_nvfp4_prefill_large_m_host_test
+    tests/sm87_nvfp4_prefill_large_m_host_test.cpp
+  )
+  target_link_libraries(q3x_sm87_nvfp4_prefill_large_m_host_test
+    PRIVATE q3x::kernels
+  )
+  q3x_enable_warnings(q3x_sm87_nvfp4_prefill_large_m_host_test)
+  add_test(NAME sm87_nvfp4_prefill_large_m_host
+    COMMAND q3x_sm87_nvfp4_prefill_large_m_host_test
+  )
+  set_tests_properties(sm87_nvfp4_prefill_large_m_host PROPERTIES
+    LABELS "host;sm87;prefill;contract"
+  )
 
   add_executable(q3x_sm87_weight_only_gemv_test
     tests/sm87_weight_only_gemv_test.cu
@@ -1225,6 +1267,12 @@ if(BUILD_TESTING)
   set_tests_properties(eval_server_help PROPERTIES
     PASS_REGULAR_EXPRESSION "native-quantized-large-m-operator-panel"
   )
+  add_test(NAME eval_server_help_lists_true_large_m_nvfp4
+    COMMAND qwen3x-eval-server --help
+  )
+  set_tests_properties(eval_server_help_lists_true_large_m_nvfp4 PROPERTIES
+    PASS_REGULAR_EXPRESSION "native-nvfp4-true-large-m-operator-panel"
+  )
   add_test(NAME eval_server_rejects_invalid_prefill_mode
     COMMAND qwen3x-eval-server unused
             --prefill-execution-mode invalid
@@ -1256,6 +1304,15 @@ if(BUILD_TESTING)
   )
   set_tests_properties(
     eval_server_rejects_native_large_m_projection_in_legacy_mode PROPERTIES
+    WILL_FAIL TRUE
+  )
+  add_test(NAME eval_server_rejects_true_large_m_nvfp4_in_legacy_mode
+    COMMAND qwen3x-eval-server unused
+            --prefill-projection-tactic
+            native-nvfp4-true-large-m-operator-panel
+  )
+  set_tests_properties(
+    eval_server_rejects_true_large_m_nvfp4_in_legacy_mode PROPERTIES
     WILL_FAIL TRUE
   )
   add_test(NAME eval_server_rejects_q128_attention_in_legacy_mode

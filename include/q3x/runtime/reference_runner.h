@@ -251,6 +251,14 @@ struct ReferenceWholeRequestPrefillResult {
   std::size_t native_large_m_projection_bulk_hits = 0U;
   std::size_t native_large_m_projection_oracle_partial_hits = 0U;
   std::size_t native_large_m_projection_physical_launches = 0U;
+  std::size_t nvfp4_true_large_m_route_fp8_projection_hits = 0U;
+  std::size_t nvfp4_true_large_m_route_fp8_projection_bulk_hits = 0U;
+  std::size_t nvfp4_true_large_m_route_fp8_projection_oracle_partial_hits = 0U;
+  std::size_t nvfp4_true_large_m_route_fp8_projection_physical_launches = 0U;
+  std::size_t native_nvfp4_true_large_m_projection_hits = 0U;
+  std::size_t native_nvfp4_true_large_m_gate_up_hits = 0U;
+  std::size_t native_nvfp4_true_large_m_down_hits = 0U;
+  std::size_t native_nvfp4_true_large_m_physical_launches = 0U;
   PrefillExecutionProgress progress;
   std::optional<ReferenceStepTiming> timing;
 };
@@ -882,6 +890,16 @@ class ReferenceRunner {
     std::size_t native_large_m_projection_bulk_hits = 0U;
     std::size_t native_large_m_projection_oracle_partial_hits = 0U;
     std::size_t native_large_m_projection_physical_launches = 0U;
+    std::size_t nvfp4_true_large_m_route_fp8_projection_hits = 0U;
+    std::size_t nvfp4_true_large_m_route_fp8_projection_bulk_hits = 0U;
+    std::size_t nvfp4_true_large_m_route_fp8_projection_oracle_partial_hits =
+        0U;
+    std::size_t nvfp4_true_large_m_route_fp8_projection_physical_launches =
+        0U;
+    std::size_t native_nvfp4_true_large_m_projection_hits = 0U;
+    std::size_t native_nvfp4_true_large_m_gate_up_hits = 0U;
+    std::size_t native_nvfp4_true_large_m_down_hits = 0U;
+    std::size_t native_nvfp4_true_large_m_physical_launches = 0U;
 
     [[nodiscard]] bool ok() const noexcept { return status.ok(); }
     [[nodiscard]] explicit operator bool() const noexcept { return ok(); }

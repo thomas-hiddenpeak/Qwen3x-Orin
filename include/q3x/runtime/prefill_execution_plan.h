@@ -23,6 +23,8 @@ inline constexpr std::uint32_t kLayerMajorPrefillLegacyPublicTileTokens =
     kPrefillPhysicalSegmentMaximumTokens;
 inline constexpr std::uint32_t kLayerMajorPrefillOperatorPanelTokens =
     8'192U;
+inline constexpr std::uint32_t
+    kLayerMajorPrefillTrueLargeMPartialPanelTokens = 7'712U;
 inline constexpr std::uint32_t kLayerMajorPrefillMaximumSequenceTokens =
     262'144U;
 inline constexpr std::size_t kLayerMajorPrefillLayerCount = 64U;
@@ -35,7 +37,14 @@ inline constexpr std::size_t kLayerMajorPrefillMaximumPanelCount =
 
 static_assert(kLayerMajorPrefillLegacyPublicTileTokens == 512U);
 static_assert(kLayerMajorPrefillOperatorPanelTokens == 8'192U);
+static_assert(kLayerMajorPrefillTrueLargeMPartialPanelTokens == 7'712U);
 static_assert(kLayerMajorPrefillMaximumPanelCount == 32U);
+
+[[nodiscard]] constexpr bool is_nvfp4_true_large_m_prefill_panel_tokens(
+    const std::size_t token_count) noexcept {
+  return token_count == kLayerMajorPrefillOperatorPanelTokens ||
+         token_count == kLayerMajorPrefillTrueLargeMPartialPanelTokens;
+}
 
 // Engine-lifetime full-Attention ownership for the layer-major route.  The
 // incumbent keeps the established C512 arithmetic spans and their exact
@@ -90,11 +99,17 @@ is_valid_layer_major_prefill_full_attention_tactic(
 // projection, while every partial panel retains the complete oracle span
 // ledger and workspace/interleave sequence. Both candidates remain
 // explicitly selected, default-off, and accuracy-unqualified.
+// The true-large-M NVFP4 value is a third, independently witnessed candidate:
+// Gate+Up and Down are one coupled binding package and both must own the
+// complete M8192 or M7712 logical panel. It never inherits the old NVFP4
+// Marlin partial-panel fallback. FP8 keeps the authenticated native-large-M
+// Marlin policy until its own shape-specific successor is admitted.
 // Selection is sealed into the bound plan and never changes per request.
 enum class LayerMajorPrefillProjectionTactic : std::uint8_t {
   kExactSegmentedC512 = 0,
   kSegmentedMarlinOperatorPanel,
   kNativeQuantizedLargeMOperatorPanel,
+  kNativeNvfp4TrueLargeMOperatorPanel,
 };
 
 [[nodiscard]] constexpr bool is_valid_layer_major_prefill_projection_tactic(
@@ -104,7 +119,9 @@ enum class LayerMajorPrefillProjectionTactic : std::uint8_t {
          tactic ==
              LayerMajorPrefillProjectionTactic::kSegmentedMarlinOperatorPanel ||
          tactic == LayerMajorPrefillProjectionTactic::
-                       kNativeQuantizedLargeMOperatorPanel;
+                       kNativeQuantizedLargeMOperatorPanel ||
+         tactic == LayerMajorPrefillProjectionTactic::
+                       kNativeNvfp4TrueLargeMOperatorPanel;
 }
 
 [[nodiscard]] constexpr std::string_view to_string(
@@ -117,6 +134,9 @@ enum class LayerMajorPrefillProjectionTactic : std::uint8_t {
     case LayerMajorPrefillProjectionTactic::
         kNativeQuantizedLargeMOperatorPanel:
       return "native-quantized-large-m-operator-panel";
+    case LayerMajorPrefillProjectionTactic::
+        kNativeNvfp4TrueLargeMOperatorPanel:
+      return "native-nvfp4-true-large-m-operator-panel";
   }
   return "unknown";
 }
@@ -293,6 +313,7 @@ enum class PrefillNvFp4ArithmeticTactic : std::uint8_t {
   kOracleSpanGateSiluDownSequence = 0,
   kM8192SingleBulkOtherwiseOracleSpanGateSiluDown,
   kOperatorPanelGateSiluDownSequence,
+  kM8192OrM7712TrueLargeMPanelGateSiluDown,
 };
 
 enum class PrefillGdnArithmeticTactic : std::uint8_t {
@@ -327,6 +348,9 @@ struct LayerMajorPrefillArithmeticContract {
   bool m8192_fp8_resets_locks_once = false;
   bool m8192_nvfp4_uses_independent_down_workspace = false;
   bool m8192_nvfp4_residual_once_after_bulk = false;
+  bool nvfp4_true_large_m_m8192 = false;
+  bool nvfp4_true_large_m_m7712 = false;
+  bool nvfp4_gate_up_down_coupled = false;
   bool environment_independent = true;
 };
 
@@ -352,6 +376,9 @@ inline constexpr LayerMajorPrefillArithmeticContract
         true,
         true,
         true,
+        false,
+        false,
+        false,
         true};
 
 inline constexpr LayerMajorPrefillArithmeticContract
@@ -371,6 +398,33 @@ inline constexpr LayerMajorPrefillArithmeticContract
         false,
         false,
         false,
+        false,
+        false,
+        false,
+        true};
+
+inline constexpr LayerMajorPrefillArithmeticContract
+    kLayerMajorPrefillTrueLargeMNvFp4ArithmeticContract{
+        4U,
+        PrefillBf16AbArithmeticTactic::kEstablishedM32ProjectionPair,
+        PrefillFp8ArithmeticTactic::
+            kM8192SingleBulkOtherwiseOracleSpanMarlin,
+        PrefillNvFp4ArithmeticTactic::
+            kM8192OrM7712TrueLargeMPanelGateSiluDown,
+        PrefillGdnArithmeticTactic::kOracleSpanWholeRawQkv,
+        PrefillAttentionPreprocessArithmeticTactic::
+            kOracleSpanC16FixedReference256,
+        true,
+        false,
+        false,
+        false,
+        true,
+        true,
+        false,
+        true,
+        true,
+        true,
+        true,
         true};
 
 [[nodiscard]] constexpr bool is_valid_layer_major_prefill_arithmetic_contract(
@@ -395,7 +449,10 @@ inline constexpr LayerMajorPrefillArithmeticContract
       !contract.m8192_single_bulk_projection &&
       !contract.m8192_fp8_resets_locks_once &&
       !contract.m8192_nvfp4_uses_independent_down_workspace &&
-      !contract.m8192_nvfp4_residual_once_after_bulk;
+      !contract.m8192_nvfp4_residual_once_after_bulk &&
+      !contract.nvfp4_true_large_m_m8192 &&
+      !contract.nvfp4_true_large_m_m7712 &&
+      !contract.nvfp4_gate_up_down_coupled;
   const bool exact_marlin_m8192 =
       contract.version == 2U &&
       contract.fp8 == PrefillFp8ArithmeticTactic::
@@ -409,7 +466,10 @@ inline constexpr LayerMajorPrefillArithmeticContract
       contract.m8192_single_bulk_projection &&
       contract.m8192_fp8_resets_locks_once &&
       contract.m8192_nvfp4_uses_independent_down_workspace &&
-      contract.m8192_nvfp4_residual_once_after_bulk;
+      contract.m8192_nvfp4_residual_once_after_bulk &&
+      !contract.nvfp4_true_large_m_m8192 &&
+      !contract.nvfp4_true_large_m_m7712 &&
+      !contract.nvfp4_gate_up_down_coupled;
   const bool segmented_marlin =
       contract.version == 3U &&
       contract.fp8 ==
@@ -423,8 +483,30 @@ inline constexpr LayerMajorPrefillArithmeticContract
       !contract.m8192_single_bulk_projection &&
       !contract.m8192_fp8_resets_locks_once &&
       !contract.m8192_nvfp4_uses_independent_down_workspace &&
-      !contract.m8192_nvfp4_residual_once_after_bulk;
-  return common && (exact || exact_marlin_m8192 || segmented_marlin);
+      !contract.m8192_nvfp4_residual_once_after_bulk &&
+      !contract.nvfp4_true_large_m_m8192 &&
+      !contract.nvfp4_true_large_m_m7712 &&
+      !contract.nvfp4_gate_up_down_coupled;
+  const bool true_large_m_nvfp4 =
+      contract.version == 4U &&
+      contract.fp8 == PrefillFp8ArithmeticTactic::
+                          kM8192SingleBulkOtherwiseOracleSpanMarlin &&
+      contract.nvfp4 == PrefillNvFp4ArithmeticTactic::
+                            kM8192OrM7712TrueLargeMPanelGateSiluDown &&
+      contract.reset_fp8_locks_per_projection_span &&
+      !contract.nvfp4_interleaves_gate_silu_down_per_span &&
+      !contract.nvfp4_down_reuses_gate_up_locks &&
+      !contract.nvfp4_residual_follows_down_per_span &&
+      contract.m8192_single_bulk_projection &&
+      contract.m8192_fp8_resets_locks_once &&
+      !contract.m8192_nvfp4_uses_independent_down_workspace &&
+      contract.m8192_nvfp4_residual_once_after_bulk &&
+      contract.nvfp4_true_large_m_m8192 &&
+      contract.nvfp4_true_large_m_m7712 &&
+      contract.nvfp4_gate_up_down_coupled;
+  return common &&
+         (exact || exact_marlin_m8192 || segmented_marlin ||
+          true_large_m_nvfp4);
 }
 
 static_assert(kLayerMajorPrefillMaximumArithmeticSpanCount == 16U);
@@ -434,6 +516,8 @@ static_assert(is_valid_layer_major_prefill_arithmetic_contract(
     kLayerMajorPrefillExactMarlinM8192ArithmeticContract));
 static_assert(is_valid_layer_major_prefill_arithmetic_contract(
     kLayerMajorPrefillSegmentedMarlinArithmeticContract));
+static_assert(is_valid_layer_major_prefill_arithmetic_contract(
+    kLayerMajorPrefillTrueLargeMNvFp4ArithmeticContract));
 static_assert(is_valid_layer_major_prefill_arithmetic_span_ledger(
     make_layer_major_prefill_arithmetic_span_ledger(513U)));
 

@@ -1100,6 +1100,16 @@ struct EngineStepContext {
   std::size_t prefill_native_large_m_projection_bulk_hits = 0U;
   std::size_t prefill_native_large_m_projection_oracle_partial_hits = 0U;
   std::size_t prefill_native_large_m_projection_physical_launches = 0U;
+  std::size_t prefill_nvfp4_true_large_m_route_fp8_projection_hits = 0U;
+  std::size_t prefill_nvfp4_true_large_m_route_fp8_projection_bulk_hits = 0U;
+  std::size_t
+      prefill_nvfp4_true_large_m_route_fp8_projection_oracle_partial_hits = 0U;
+  std::size_t
+      prefill_nvfp4_true_large_m_route_fp8_projection_physical_launches = 0U;
+  std::size_t prefill_native_nvfp4_true_large_m_projection_hits = 0U;
+  std::size_t prefill_native_nvfp4_true_large_m_gate_up_hits = 0U;
+  std::size_t prefill_native_nvfp4_true_large_m_down_hits = 0U;
+  std::size_t prefill_native_nvfp4_true_large_m_physical_launches = 0U;
   // Armed before the first whole-request CUDA call and cleared only after
   // the sealed commit succeeds. EngineWholeRequestTransactionGuard owns the
   // rollback of every failure window in between.
@@ -1263,6 +1273,24 @@ prefill_whole_request_layer_major(
       executed.value->native_large_m_projection_oracle_partial_hits;
   context.prefill_native_large_m_projection_physical_launches =
       executed.value->native_large_m_projection_physical_launches;
+  context.prefill_nvfp4_true_large_m_route_fp8_projection_hits =
+      executed.value->nvfp4_true_large_m_route_fp8_projection_hits;
+  context.prefill_nvfp4_true_large_m_route_fp8_projection_bulk_hits =
+      executed.value->nvfp4_true_large_m_route_fp8_projection_bulk_hits;
+  context.prefill_nvfp4_true_large_m_route_fp8_projection_oracle_partial_hits =
+      executed.value
+          ->nvfp4_true_large_m_route_fp8_projection_oracle_partial_hits;
+  context.prefill_nvfp4_true_large_m_route_fp8_projection_physical_launches =
+      executed.value
+          ->nvfp4_true_large_m_route_fp8_projection_physical_launches;
+  context.prefill_native_nvfp4_true_large_m_projection_hits =
+      executed.value->native_nvfp4_true_large_m_projection_hits;
+  context.prefill_native_nvfp4_true_large_m_gate_up_hits =
+      executed.value->native_nvfp4_true_large_m_gate_up_hits;
+  context.prefill_native_nvfp4_true_large_m_down_hits =
+      executed.value->native_nvfp4_true_large_m_down_hits;
+  context.prefill_native_nvfp4_true_large_m_physical_launches =
+      executed.value->native_nvfp4_true_large_m_physical_launches;
   result.value.emplace(std::move(transcript));
   return result;
 }
@@ -3258,6 +3286,18 @@ struct ReferenceEngine::Impl {
       return result;
     }
 #endif
+#if !defined(Q3X_ENABLE_NVFP4_TRUE_LARGE_M_PREFILL_ADMISSION)
+    if (options.prefill_projection_tactic ==
+        LayerMajorPrefillProjectionTactic::
+            kNativeNvfp4TrueLargeMOperatorPanel) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kPrefillPlanUnavailable,
+          "prefill_projection_tactic",
+          "this binary does not admit the test-only true-large-M NVFP4 "
+          "Gate+Up/Down package");
+      return result;
+    }
+#endif
     if (!is_valid_reference_decode_graph_cache_policy(
             options.decode_graph_cache_policy)) {
       result.diagnostic = engine_diagnostic(
@@ -4458,6 +4498,35 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
     generation.prefill_native_large_m_projection_physical_launches =
         static_cast<std::uint64_t>(
             step_context.prefill_native_large_m_projection_physical_launches);
+    generation.prefill_nvfp4_true_large_m_route_fp8_projection_hits =
+        static_cast<std::uint64_t>(
+            step_context.prefill_nvfp4_true_large_m_route_fp8_projection_hits);
+    generation.prefill_nvfp4_true_large_m_route_fp8_projection_bulk_hits =
+        static_cast<std::uint64_t>(
+            step_context
+                .prefill_nvfp4_true_large_m_route_fp8_projection_bulk_hits);
+    generation
+        .prefill_nvfp4_true_large_m_route_fp8_projection_oracle_partial_hits =
+        static_cast<std::uint64_t>(
+            step_context
+                .prefill_nvfp4_true_large_m_route_fp8_projection_oracle_partial_hits);
+    generation
+        .prefill_nvfp4_true_large_m_route_fp8_projection_physical_launches =
+        static_cast<std::uint64_t>(
+            step_context
+                .prefill_nvfp4_true_large_m_route_fp8_projection_physical_launches);
+    generation.prefill_native_nvfp4_true_large_m_projection_hits =
+        static_cast<std::uint64_t>(
+            step_context.prefill_native_nvfp4_true_large_m_projection_hits);
+    generation.prefill_native_nvfp4_true_large_m_gate_up_hits =
+        static_cast<std::uint64_t>(
+            step_context.prefill_native_nvfp4_true_large_m_gate_up_hits);
+    generation.prefill_native_nvfp4_true_large_m_down_hits =
+        static_cast<std::uint64_t>(
+            step_context.prefill_native_nvfp4_true_large_m_down_hits);
+    generation.prefill_native_nvfp4_true_large_m_physical_launches =
+        static_cast<std::uint64_t>(
+            step_context.prefill_native_nvfp4_true_large_m_physical_launches);
     generation.all_prompt_tokens_prefilled_by_tiles =
         control_options.prefill_all_prompt_tokens;
     generation.single_arbitrary_prefill_tiles =
