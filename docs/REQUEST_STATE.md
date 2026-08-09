@@ -27,7 +27,10 @@ The public API is `include/q3x/runtime/request_state.h`. `RequestState` owns the
 bounded, mutable device state of one batch-one request. It is separate from
 resident model weights, is move-only, and owns exactly one CUDA arena. The
 planner fixes every region before allocation; token execution does not grow or
-reallocate the state.
+reallocate the state. Package ABI 0.5.0 adds an explicit candidate-only
+layer-major profile and changes the public C++ `RequestState`/plan object
+layout; consumers must rebuild against the exact package version, as already
+required by the 0.x package policy.
 
 ## Model-state contract
 
@@ -66,6 +69,36 @@ a deterministic 256-byte-aligned offset and otherwise does not overlap. These
 sizes are capacity and ownership guarantees, not a required execution tile or
 kernel schedule.
 
+### Isolated layer-major profile
+
+`build_layer_major_request_memory_plan` and
+`create_layer_major_request_state` are separate explicit entry points. They
+have no implicit sequence default and cannot be selected through the legacy
+planner or creator. The fixed first-integration profile owns:
+
+- one prompt-wide dense BF16 `[max_seq,5120]` residual;
+- one 855,638,016-byte C8192 phase arena shared sequentially by GDN,
+  Attention, and MLP typed views;
+- one physically disjoint complete legacy C512 workspace;
+- one independent BF16 `[1,5120]` final-hidden handoff; and
+- the same persistent Conv/GDN/KV and RoPE state as the legacy profile.
+
+The C8192 arena has no public untyped device view. Its named matrices are
+phase views, and overlapping storage is legal only across ordered lifetimes.
+In particular, each dense `[8192,5120]` normalized input occupies the future
+output span before its input projections consume it; it is not a row-prefix
+alias of the later wider-stride matrix. Attention core output, final branch
+output, and O-projection temporary are simultaneously disjoint. The MLP
+Gate/Up temporary supports only serialized projections or one fused-pair
+launch; the legacy dual-stream schedule is not bound to this profile.
+
+Allocation does not make the profile executable. Prompt-residual in-place,
+family completion, intra-family phase, token-ID consumption, projection
+workspace, and operator-binding conditions all default false. Flat legacy
+workspace accessors reject the layer-major profile; its retained disjoint C512
+workspace is reachable only through the explicit typed bundle. Persistent,
+KV, RoPE, position, reset, and ownership operations remain common.
+
 ## RoPE numerical contract
 
 Cosine and sine are separate tables with logical shape `[max_seq,32]`, using
@@ -98,6 +131,12 @@ limit above the default 2 GiB. These are deterministic planner outputs, not
 claims that a current product configuration admits those capacities; see
 [`CURRENT_STATUS.md`](CURRENT_STATUS.md) for that distinction.
 
+For the fixed layer-major strategy, exact 40K/60K/130K request-arena totals
+are 4,066,344,960, 5,588,904,960, and 10,917,864,960 bytes. These are isolated
+allocation-profile totals, not whole-process fit or production-admission
+claims. Resident model/sidecar bytes and measured whole-process peaks remain
+separate requirements.
+
 Before allocation, `create_request_state` checks the planned arena against
 `max_arena_bytes`, queries free device memory, and requires
 `free >= arena + min_free_bytes_after_create`. The default retained-free
@@ -126,15 +165,18 @@ Planning fails closed for invalid options, arithmetic overflow, invalid layer
 schedules, and arena-limit violations. Creation additionally distinguishes
 insufficient device memory, CUDA failure, and allocation failure. View and
 state operations distinguish layer, type, slot, position, capacity, buffer
-index, and empty-state errors. Valid boundaries clear unrelated stale CUDA
-last-error state before reporting their own CUDA result.
+index, memory-profile mismatch, and empty-state errors. Valid boundaries clear
+unrelated stale CUDA last-error state before reporting their own CUDA result.
 
 ## Verification boundary
 
 Host tests cover the exact schedule, region sizes, alignment, non-overlap,
-capacity limits, arithmetic overflow, and bad options. CUDA tests cover real
-allocation, initialization, view ranges, BF16-rounded RoPE values, lifecycle,
-reset ordering, memory gating, and move ownership. Performance measurements
+capacity limits, arithmetic overflow, bad options, all target-bucket totals,
+typed temporal aliases, and profile gates. CUDA tests cover real allocation,
+initialization, view ranges, BF16-rounded RoPE values, lifecycle, reset
+ordering, memory gating, and move ownership. The approximately 1 GiB minimum
+layer-major allocation case is opt-in and may skip explicitly when its
+free-memory reservation cannot be met. Performance measurements
 and historical plan examples are retained in
 [`PERFORMANCE_BASELINE.md`](PERFORMANCE_BASELINE.md) and the
 [`metadata/`](metadata/) evidence index; they do not amend this contract.

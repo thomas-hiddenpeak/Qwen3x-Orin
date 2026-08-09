@@ -1,5 +1,7 @@
 #include "q3x/runtime/request_state.h"
 
+#include "q3x/runtime/prefill_workspace_plan.h"
+
 #include <cuda_runtime_api.h>
 
 #include <algorithm>
@@ -32,11 +34,31 @@ constexpr std::uint64_t kHeadDimension = 256U;
 constexpr std::uint64_t kConvChannels = 10'240U;
 constexpr std::uint64_t kConvHistory = 3U;
 constexpr std::uint64_t kGdnValueHeads = 48U;
-constexpr std::uint64_t kGdnHeadDimension = 128U;
+constexpr std::uint64_t kRequestGdnHeadDimension = 128U;
 constexpr std::uint64_t kRopePairs = 32U;
 constexpr float kRopeTheta = 10'000'000.0F;
 constexpr std::uint64_t kMaximumConfigurableArenaBytes =
     64ULL * 1024ULL * 1024ULL * 1024ULL;
+constexpr std::uint64_t kLayerMajorFamilyPhaseArenaBytes = 855'638'016U;
+constexpr std::uint64_t kProjectionTemporaryBytes = 1'048'832U;
+
+constexpr std::uint64_t kGdnZOffset = 167'772'160U;
+constexpr std::uint64_t kGdnAOffset = 268'435'456U;
+constexpr std::uint64_t kGdnBOffset = 269'221'888U;
+constexpr std::uint64_t kGdnCoreOffset = 270'008'320U;
+constexpr std::uint64_t kGdnNativeWorkspaceOffset = 370'671'616U;
+constexpr std::uint64_t kGdnProjectionTemporaryOffset = 353'894'400U;
+constexpr std::uint64_t kOutputProjectionTemporaryOffset = 83'886'080U;
+
+constexpr std::uint64_t kAttentionProcessedQOffset = 201'326'592U;
+constexpr std::uint64_t kAttentionPackedGateOffset = 301'989'888U;
+constexpr std::uint64_t kAttentionProjectionTemporaryOffset = 285'212'672U;
+constexpr std::uint64_t kAttentionBranchOutputOffset = 100'663'296U;
+constexpr std::uint64_t kAttentionOutputTemporaryOffset = 184'549'376U;
+
+constexpr std::uint64_t kMlpUpOffset = 285'212'672U;
+constexpr std::uint64_t kMlpActivatedOffset = 570'425'344U;
+constexpr std::uint64_t kMlpGateUpTemporaryOffset = 654'311'424U;
 
 RequestDiagnostic make_diagnostic(RequestErrorCode code,
                                   std::string message,
@@ -56,6 +78,13 @@ RequestDiagnostic make_diagnostic(RequestErrorCode code,
 
 RequestPlanResult plan_failure(RequestDiagnostic diagnostic) {
     RequestPlanResult result;
+    result.diagnostic = std::move(diagnostic);
+    return result;
+}
+
+LayerMajorRequestPlanResult layer_major_plan_failure(
+    RequestDiagnostic diagnostic) {
+    LayerMajorRequestPlanResult result;
     result.diagnostic = std::move(diagnostic);
     return result;
 }
@@ -133,6 +162,80 @@ class PlanBuilder {
     std::uint64_t cursor_ = 0U;
 };
 
+[[nodiscard]] bool add_matrix(PlanBuilder& builder,
+                              const std::uint32_t rows,
+                              const std::uint32_t columns,
+                              const std::uint64_t row_stride_elements,
+                              const std::uint32_t element_size,
+                              RequestMatrixRegion& matrix) noexcept {
+    std::uint64_t elements = 0U;
+    if (rows == 0U || columns == 0U || row_stride_elements < columns ||
+        !checked_multiply(rows, row_stride_elements, elements) ||
+        !builder.add(elements, element_size, matrix.storage)) {
+        return false;
+    }
+    matrix.row_capacity = rows;
+    matrix.columns = columns;
+    matrix.row_stride_elements = row_stride_elements;
+    return true;
+}
+
+[[nodiscard]] bool make_subregion_checked(const RequestRegion& aggregate,
+                                          const std::uint64_t relative_offset,
+                                          const std::uint64_t byte_size,
+                                          const std::uint64_t elements,
+                                          const std::uint32_t element_size,
+                                          RequestRegion& result) noexcept {
+    std::uint64_t relative_end = 0U;
+    std::uint64_t arena_offset = 0U;
+    std::uint64_t typed_bytes = 0U;
+    if (byte_size == 0U || elements == 0U || element_size == 0U ||
+        !checked_multiply(elements, element_size, typed_bytes) ||
+        typed_bytes != byte_size ||
+        !checked_add(relative_offset, byte_size, relative_end) ||
+        relative_end > aggregate.byte_size ||
+        !checked_add(aggregate.arena_offset, relative_offset, arena_offset)) {
+        return false;
+    }
+    result.arena_offset = arena_offset;
+    result.byte_size = byte_size;
+    result.element_capacity = elements;
+    result.element_size_bytes = element_size;
+    return true;
+}
+
+[[nodiscard]] bool make_byte_subregion_checked(
+    const RequestRegion& aggregate,
+    const std::uint64_t relative_offset,
+    const std::uint64_t byte_size,
+    RequestRegion& result) noexcept {
+    return make_subregion_checked(aggregate, relative_offset, byte_size,
+                                  byte_size, 1U, result);
+}
+
+[[nodiscard]] bool make_matrix_subregion_checked(
+    const RequestRegion& aggregate,
+    const std::uint64_t relative_offset,
+    const std::uint32_t rows,
+    const std::uint32_t columns,
+    const std::uint64_t row_stride_elements,
+    const std::uint32_t element_size,
+    RequestMatrixRegion& result) noexcept {
+    std::uint64_t elements = 0U;
+    std::uint64_t bytes = 0U;
+    if (rows == 0U || columns == 0U || row_stride_elements < columns ||
+        !checked_multiply(rows, row_stride_elements, elements) ||
+        !checked_multiply(elements, element_size, bytes) ||
+        !make_subregion_checked(aggregate, relative_offset, bytes, elements,
+                                element_size, result.storage)) {
+        return false;
+    }
+    result.row_capacity = rows;
+    result.columns = columns;
+    result.row_stride_elements = row_stride_elements;
+    return true;
+}
+
 RequestDiagnostic cuda_diagnostic(cudaError_t status, std::string context) {
     const char* const name = cudaGetErrorName(status);
     const char* const description = cudaGetErrorString(status);
@@ -177,6 +280,21 @@ RequestViewResult access_failure(RequestAccessError error) noexcept {
 
 RequestConstViewResult const_access_failure(RequestAccessError error) noexcept {
     RequestConstViewResult result;
+    result.error = error;
+    return result;
+}
+
+RequestMatrixViewResult matrix_access_failure(
+    const RequestAccessError error) noexcept {
+    RequestMatrixViewResult result;
+    result.error = error;
+    return result;
+}
+
+template <typename Views>
+LayerMajorTypedViewResult<Views> typed_access_failure(
+    const RequestAccessError error) noexcept {
+    LayerMajorTypedViewResult<Views> result;
     result.error = error;
     return result;
 }
@@ -243,6 +361,13 @@ RequestLayerSlotResult map_request_layer(
     return result;
 }
 
+RequestAccessError validate_request_memory_profile(
+    const RequestMemoryProfile actual,
+    const RequestMemoryProfile required) noexcept {
+    return actual == required ? RequestAccessError::kNone
+                              : RequestAccessError::kMemoryProfileMismatch;
+}
+
 RequestPlanResult build_request_memory_plan(
     const RequestMemoryOptions& options) {
     if (options.batch_size != 1U || options.max_sequence_length == 0U ||
@@ -275,10 +400,10 @@ RequestPlanResult build_request_memory_plan(
                           kGdnValueHeads,
                           gdn_elements) ||
         !checked_multiply(gdn_elements,
-                          kGdnHeadDimension,
+                          kRequestGdnHeadDimension,
                           gdn_elements) ||
         !checked_multiply(gdn_elements,
-                          kGdnHeadDimension,
+                          kRequestGdnHeadDimension,
                           gdn_elements) ||
         !checked_multiply(options.max_sequence_length,
                           kKvHeadCount,
@@ -445,12 +570,368 @@ RequestPlanResult build_request_memory_plan(
     return result;
 }
 
+LayerMajorRequestPlanResult build_layer_major_request_memory_plan(
+    const LayerMajorRequestMemoryOptions& options) {
+    if (options.batch_size != 1U || options.max_sequence_length == 0U ||
+        options.max_sequence_length > kAbsoluteRequestMaxSequenceLength ||
+        options.max_arena_bytes == 0U ||
+        options.max_arena_bytes > kMaximumConfigurableArenaBytes) {
+        return layer_major_plan_failure(make_diagnostic(
+            RequestErrorCode::kInvalidOption,
+            "layer-major request options violate batch, explicit sequence, "
+            "or arena limits",
+            "options"));
+    }
+
+    LayerMajorPrefillWorkspaceOptions workspace_options;
+    workspace_options.sequence_capacity_tokens =
+        options.max_sequence_length;
+    workspace_options.request_arena_limit_bytes = options.max_arena_bytes;
+    workspace_options.hidden_strategy =
+        PrefillHiddenStrategy::kSinglePromptWideConditional;
+    workspace_options.scratch_strategy = PrefillOperatorScratchStrategy::
+        kC8192FamilyOverlayWithDisjointLegacyC512;
+    workspace_options.gdn_tactic =
+        PrefillGdnPhysicalTactic::kC64NativeInPlaceConv;
+    workspace_options.legacy_gdn_tactic =
+        PrefillLegacyGdnPhysicalTactic::kC16Composite;
+    workspace_options.mlp_tactic =
+        PrefillMlpPhysicalTactic::kSeparateGateUpAndSilu;
+    const LayerMajorPrefillWorkspacePlanResult workspace_result =
+        build_unbound_layer_major_prefill_workspace_plan(workspace_options);
+    if (!workspace_result) {
+        return layer_major_plan_failure(make_diagnostic(
+            RequestErrorCode::kInvalidOption,
+            "fixed layer-major workspace strategy was rejected by its planner",
+            "prefill_workspace_plan",
+            "valid fixed strategy",
+            std::to_string(static_cast<unsigned>(workspace_result.error))));
+    }
+    const LayerMajorPrefillWorkspacePlan& workspace =
+        *workspace_result.value;
+    if (workspace.selected.required_bytes > options.max_arena_bytes) {
+        return layer_major_plan_failure(make_diagnostic(
+            RequestErrorCode::kArenaLimitExceeded,
+            "layer-major request arena exceeds configured max_arena_bytes",
+            "max_arena_bytes",
+            std::to_string(options.max_arena_bytes),
+            std::to_string(workspace.selected.required_bytes)));
+    }
+
+    // Reuse the already qualified legacy arithmetic only as a source of exact
+    // common persistent/KV capacities and the fixed layer schedule. Its
+    // workspace offsets are not copied into the candidate layout.
+    RequestMemoryOptions legacy_shape_options;
+    legacy_shape_options.batch_size = 1U;
+    legacy_shape_options.prefill_chunk_size =
+        kMaximumRequestPrefillChunkSize;
+    legacy_shape_options.max_sequence_length = options.max_sequence_length;
+    legacy_shape_options.max_arena_bytes = kMaximumRequestArenaBytes;
+    RequestPlanResult legacy_shape_result =
+        build_request_memory_plan(legacy_shape_options);
+    if (!legacy_shape_result) {
+        return layer_major_plan_failure(
+            std::move(legacy_shape_result.diagnostic));
+    }
+    const RequestMemoryPlan& legacy_shape = *legacy_shape_result.value;
+
+    LayerMajorRequestMemoryPlan plan;
+    RequestMemoryPlan& common = plan.common;
+    common.profile = RequestMemoryProfile::kLayerMajorC8192;
+    common.batch_size = 1U;
+    common.prefill_chunk_size = kMaximumRequestPrefillChunkSize;
+    common.max_sequence_length =
+        static_cast<std::uint32_t>(options.max_sequence_length);
+    common.layers = legacy_shape.layers;
+    plan.hidden_strategy = workspace_options.hidden_strategy;
+    plan.scratch_strategy = workspace_options.scratch_strategy;
+    plan.gdn_tactic = workspace_options.gdn_tactic;
+    plan.legacy_gdn_tactic = workspace_options.legacy_gdn_tactic;
+    plan.mlp_tactic = workspace_options.mlp_tactic;
+
+    PlanBuilder builder;
+    common.persistent_offset = 0U;
+    if (!builder.add(legacy_shape.conv_state.element_capacity,
+                     legacy_shape.conv_state.element_size_bytes,
+                     common.conv_state) ||
+        !builder.add(legacy_shape.gdn_state.element_capacity,
+                     legacy_shape.gdn_state.element_size_bytes,
+                     common.gdn_state)) {
+        return layer_major_plan_failure(make_diagnostic(
+            RequestErrorCode::kArithmeticOverflow,
+            "layer-major persistent state layout overflows uint64",
+            "persistent"));
+    }
+    for (std::size_t slot = 0U; slot < kRequestFullLayerCount; ++slot) {
+        if (!builder.add(legacy_shape.key_cache[slot].element_capacity,
+                         legacy_shape.key_cache[slot].element_size_bytes,
+                         common.key_cache[slot]) ||
+            !builder.add(legacy_shape.value_cache[slot].element_capacity,
+                         legacy_shape.value_cache[slot].element_size_bytes,
+                         common.value_cache[slot])) {
+            return layer_major_plan_failure(make_diagnostic(
+                RequestErrorCode::kArithmeticOverflow,
+                "layer-major KV cache layout overflows uint64",
+                "kv_cache"));
+        }
+    }
+    if (!builder.align()) {
+        return layer_major_plan_failure(make_diagnostic(
+            RequestErrorCode::kArithmeticOverflow,
+            "layer-major persistent alignment overflows uint64",
+            "persistent"));
+    }
+    common.persistent_bytes = builder.cursor();
+    common.workspace_offset = builder.cursor();
+
+    if (!add_matrix(builder, common.max_sequence_length,
+                    static_cast<std::uint32_t>(kHiddenElements),
+                    kHiddenElements, kBf16Bytes,
+                    plan.prompt_residual_bf16) ||
+        !builder.add(kLayerMajorFamilyPhaseArenaBytes, 1U,
+                     plan.c8192_family_phase_arena)) {
+        return layer_major_plan_failure(make_diagnostic(
+            RequestErrorCode::kArithmeticOverflow,
+            "layer-major prompt residual or family arena overflows uint64",
+            "layer_major_workspace"));
+    }
+
+    const RequestRegion& family = plan.c8192_family_phase_arena;
+    constexpr std::uint32_t panel =
+        kLayerMajorRequestOperatorPanelCapacity;
+    if (!make_matrix_subregion_checked(family, 0U, panel, 1U, 1U, 4U,
+                                       plan.panel_token_ids_u32) ||
+        !make_matrix_subregion_checked(family, 0U, panel, 10'240U,
+                                       10'240U, kBf16Bytes,
+                                       plan.gdn.qkv_bf16) ||
+        !make_matrix_subregion_checked(family, kGdnZOffset, panel, 6'144U,
+                                       6'144U, kBf16Bytes,
+                                       plan.gdn.z_bf16) ||
+        !make_matrix_subregion_checked(family, kGdnAOffset, panel, 48U, 48U,
+                                       kBf16Bytes, plan.gdn.a_bf16) ||
+        !make_matrix_subregion_checked(family, kGdnBOffset, panel, 48U, 48U,
+                                       kBf16Bytes, plan.gdn.b_bf16) ||
+        !make_matrix_subregion_checked(family, kGdnCoreOffset, panel,
+                                       6'144U, 6'144U, kBf16Bytes,
+                                       plan.gdn.recurrent_core_bf16) ||
+        !make_byte_subregion_checked(
+            family, kGdnNativeWorkspaceOffset,
+            kLayerMajorPrefillGdnC64NativeWorkspaceBytes,
+            plan.gdn.native_c64_workspace) ||
+        !make_matrix_subregion_checked(family, kGdnCoreOffset, panel,
+                                       5'120U, 5'120U, kBf16Bytes,
+                                       plan.gdn.normalized_input_bf16) ||
+        !make_byte_subregion_checked(family,
+                                     kGdnProjectionTemporaryOffset,
+                                     kProjectionTemporaryBytes,
+                                     plan.gdn.input_projection_temporary) ||
+        !make_matrix_subregion_checked(family, 0U, panel, 5'120U, 5'120U,
+                                       kBf16Bytes,
+                                       plan.gdn.branch_output_bf16) ||
+        !make_byte_subregion_checked(family,
+                                     kOutputProjectionTemporaryOffset,
+                                     kProjectionTemporaryBytes,
+                                     plan.gdn.output_projection_temporary)) {
+        return layer_major_plan_failure(make_diagnostic(
+            RequestErrorCode::kInvalidLayerSchedule,
+            "fixed GDN phase views exceed the C8192 family arena",
+            "gdn_phase_layout"));
+    }
+
+    if (!make_matrix_subregion_checked(family, 0U, panel, 12'288U,
+                                       12'288U, kBf16Bytes,
+                                       plan.attention.raw_q_gate_bf16) ||
+        !make_matrix_subregion_checked(
+            family, kAttentionProcessedQOffset, panel, 6'144U, 6'144U,
+            kBf16Bytes, plan.attention.processed_q_bf16) ||
+        !make_matrix_subregion_checked(
+            family, kAttentionPackedGateOffset, panel, 6'144U, 6'144U,
+            kBf16Bytes, plan.attention.packed_gate_bf16) ||
+        !make_matrix_subregion_checked(
+            family, kAttentionProcessedQOffset, panel, 5'120U, 5'120U,
+            kBf16Bytes, plan.attention.normalized_input_bf16) ||
+        !make_byte_subregion_checked(
+            family, kAttentionProjectionTemporaryOffset,
+            kProjectionTemporaryBytes,
+            plan.attention.input_projection_temporary) ||
+        !make_matrix_subregion_checked(family, 0U, panel, 6'144U, 6'144U,
+                                       kBf16Bytes,
+                                       plan.attention.core_output_bf16) ||
+        !make_matrix_subregion_checked(
+            family, kAttentionBranchOutputOffset, panel, 5'120U, 5'120U,
+            kBf16Bytes, plan.attention.branch_output_bf16) ||
+        !make_byte_subregion_checked(
+            family, kAttentionOutputTemporaryOffset,
+            kProjectionTemporaryBytes,
+            plan.attention.output_projection_temporary)) {
+        return layer_major_plan_failure(make_diagnostic(
+            RequestErrorCode::kInvalidLayerSchedule,
+            "fixed Attention phase views exceed the C8192 family arena",
+            "attention_phase_layout"));
+    }
+
+    if (!make_matrix_subregion_checked(family, 0U, panel, 17'408U,
+                                       17'408U, kBf16Bytes,
+                                       plan.mlp.gate_bf16) ||
+        !make_matrix_subregion_checked(family, kMlpUpOffset, panel, 17'408U,
+                                       17'408U, kBf16Bytes,
+                                       plan.mlp.up_bf16) ||
+        !make_matrix_subregion_checked(family, kMlpActivatedOffset, panel,
+                                       17'408U, 17'408U, kBf16Bytes,
+                                       plan.mlp.activated_bf16) ||
+        !make_matrix_subregion_checked(family, kMlpActivatedOffset, panel,
+                                       5'120U, 5'120U, kBf16Bytes,
+                                       plan.mlp.normalized_input_bf16) ||
+        !make_byte_subregion_checked(
+            family, kMlpGateUpTemporaryOffset, kProjectionTemporaryBytes,
+            plan.mlp.gate_up_projection_temporary) ||
+        !make_matrix_subregion_checked(family, kMlpUpOffset, panel, 5'120U,
+                                       5'120U, kBf16Bytes,
+                                       plan.mlp.branch_output_bf16) ||
+        !make_byte_subregion_checked(family, 0U,
+                                     kProjectionTemporaryBytes,
+                                     plan.mlp.down_projection_temporary)) {
+        return layer_major_plan_failure(make_diagnostic(
+            RequestErrorCode::kInvalidLayerSchedule,
+            "fixed MLP phase views exceed the C8192 family arena",
+            "mlp_phase_layout"));
+    }
+
+    const std::uint64_t legacy_offset = builder.cursor();
+    for (std::size_t index = 0U; index < kRequestHiddenBufferCount; ++index) {
+        if (!add_matrix(builder, kMaximumRequestPrefillChunkSize,
+                        static_cast<std::uint32_t>(kHiddenElements),
+                        kHiddenElements, kBf16Bytes,
+                        plan.legacy_c512.hidden_bf16[index])) {
+            return layer_major_plan_failure(make_diagnostic(
+                RequestErrorCode::kArithmeticOverflow,
+                "legacy hidden sublayout overflows uint64",
+                "legacy_c512"));
+        }
+        common.hidden_bf16[index] =
+            plan.legacy_c512.hidden_bf16[index].storage;
+    }
+    for (std::size_t index = 0U; index < kRequestProjectionBufferCount;
+         ++index) {
+        if (!add_matrix(builder, kMaximumRequestPrefillChunkSize,
+                        static_cast<std::uint32_t>(kProjectionElements),
+                        kProjectionElements, kBf16Bytes,
+                        plan.legacy_c512.projection_bf16[index])) {
+            return layer_major_plan_failure(make_diagnostic(
+                RequestErrorCode::kArithmeticOverflow,
+                "legacy projection sublayout overflows uint64",
+                "legacy_c512"));
+        }
+        common.projection_bf16[index] =
+            plan.legacy_c512.projection_bf16[index].storage;
+    }
+    if (!add_matrix(builder, kMaximumRequestPrefillChunkSize,
+                    static_cast<std::uint32_t>(kLinearScalarElements),
+                    kLinearScalarElements, kBf16Bytes,
+                    plan.legacy_c512.linear_a_bf16) ||
+        !add_matrix(builder, kMaximumRequestPrefillChunkSize,
+                    static_cast<std::uint32_t>(kLinearScalarElements),
+                    kLinearScalarElements, kBf16Bytes,
+                    plan.legacy_c512.linear_b_bf16)) {
+        return layer_major_plan_failure(make_diagnostic(
+            RequestErrorCode::kArithmeticOverflow,
+            "legacy linear scalar sublayout overflows uint64",
+            "legacy_c512"));
+    }
+    common.linear_a_bf16 = plan.legacy_c512.linear_a_bf16.storage;
+    common.linear_b_bf16 = plan.legacy_c512.linear_b_bf16.storage;
+    if (!builder.add(legacy_shape.fp32_scratch.element_capacity,
+                     kFp32Bytes, plan.legacy_c512.fp32_scratch)) {
+        return layer_major_plan_failure(make_diagnostic(
+            RequestErrorCode::kArithmeticOverflow,
+            "legacy FP32 sublayout overflows uint64",
+            "legacy_c512"));
+    }
+    plan.legacy_c512.gqa_probability_scratch =
+        plan.legacy_c512.fp32_scratch;
+    plan.legacy_c512.gqa_probability_scratch.byte_size =
+        legacy_shape.gqa_probability_scratch.byte_size;
+    plan.legacy_c512.gqa_probability_scratch.element_capacity =
+        legacy_shape.gqa_probability_scratch.element_capacity;
+    common.fp32_scratch = plan.legacy_c512.fp32_scratch;
+    common.gqa_probability_scratch =
+        plan.legacy_c512.gqa_probability_scratch;
+    if (!builder.align()) {
+        return layer_major_plan_failure(make_diagnostic(
+            RequestErrorCode::kArithmeticOverflow,
+            "legacy C512 sublayout alignment overflows uint64",
+            "legacy_c512"));
+    }
+    const std::uint64_t selected_scratch_bytes =
+        builder.cursor() - family.arena_offset;
+    if (legacy_offset !=
+            family.arena_offset + kLayerMajorFamilyPhaseArenaBytes ||
+        selected_scratch_bytes !=
+            workspace.operator_scratch.selected.total_required_bytes) {
+        return layer_major_plan_failure(make_diagnostic(
+            RequestErrorCode::kInvalidLayerSchedule,
+            "RequestState scratch layout disagrees with workspace planner",
+            "selected_operator_scratch",
+            std::to_string(
+                workspace.operator_scratch.selected.total_required_bytes),
+            std::to_string(selected_scratch_bytes)));
+    }
+
+    if (!add_matrix(builder, 1U, static_cast<std::uint32_t>(kHiddenElements),
+                    kHiddenElements, kBf16Bytes,
+                    plan.final_hidden_bf16) ||
+        !builder.align()) {
+        return layer_major_plan_failure(make_diagnostic(
+            RequestErrorCode::kArithmeticOverflow,
+            "final hidden handoff layout overflows uint64",
+            "final_hidden"));
+    }
+    common.workspace_bytes = builder.cursor() - common.workspace_offset;
+    common.rope_offset = builder.cursor();
+    if (!builder.add(legacy_shape.rope_cos_fp32.element_capacity,
+                     kFp32Bytes, common.rope_cos_fp32) ||
+        !builder.add(legacy_shape.rope_sin_fp32.element_capacity,
+                     kFp32Bytes, common.rope_sin_fp32) ||
+        !builder.align()) {
+        return layer_major_plan_failure(make_diagnostic(
+            RequestErrorCode::kArithmeticOverflow,
+            "layer-major RoPE layout overflows uint64",
+            "rope"));
+    }
+    common.rope_bytes = builder.cursor() - common.rope_offset;
+    common.arena_bytes = builder.cursor();
+
+    if (common.persistent_bytes !=
+            workspace.persistent_state.total_required_bytes ||
+        plan.prompt_residual_bf16.storage.byte_size !=
+            workspace.prompt_wide_hidden.selected.aggregate_bf16
+                .required_bytes ||
+        plan.final_hidden_bf16.storage.byte_size !=
+            workspace.final_hidden_handoff_bf16.required_bytes ||
+        common.rope_bytes != workspace.position_state.total_required_bytes ||
+        common.arena_bytes != workspace.selected.required_bytes ||
+        common.arena_bytes > options.max_arena_bytes ||
+        workspace.executable()) {
+        return layer_major_plan_failure(make_diagnostic(
+            RequestErrorCode::kInvalidLayerSchedule,
+            "RequestState total or fixed profile disagrees with workspace planner",
+            "layer_major_total",
+            std::to_string(workspace.selected.required_bytes),
+            std::to_string(common.arena_bytes)));
+    }
+
+    LayerMajorRequestPlanResult result;
+    result.value.emplace(std::move(plan));
+    return result;
+}
+
 RequestState::~RequestState() { release(); }
 
 RequestState::RequestState(RequestState&& other) noexcept
     : arena_(std::exchange(other.arena_, nullptr)),
       plan_(std::exchange(other.plan_, {})),
-      sequence_length_(std::exchange(other.sequence_length_, 0U)) {}
+      sequence_length_(std::exchange(other.sequence_length_, 0U)),
+      layer_major_plan_(std::exchange(other.layer_major_plan_, std::nullopt)) {}
 
 RequestState& RequestState::operator=(RequestState&& other) noexcept {
     if (this != &other) {
@@ -458,6 +939,8 @@ RequestState& RequestState::operator=(RequestState&& other) noexcept {
         arena_ = std::exchange(other.arena_, nullptr);
         plan_ = std::exchange(other.plan_, {});
         sequence_length_ = std::exchange(other.sequence_length_, 0U);
+        layer_major_plan_ =
+            std::exchange(other.layer_major_plan_, std::nullopt);
     }
     return *this;
 }
@@ -469,6 +952,7 @@ void RequestState::release() noexcept {
         (void)cudaGetLastError();
     }
     plan_ = {};
+    layer_major_plan_.reset();
     sequence_length_ = 0U;
 }
 
@@ -481,6 +965,16 @@ DeviceBufferView RequestState::mutable_view(
     result.byte_size = region.byte_size;
     result.element_capacity = region.element_capacity;
     result.element_size_bytes = region.element_size_bytes;
+    return result;
+}
+
+DeviceMatrixView RequestState::mutable_matrix_view(
+    const RequestMatrixRegion& region) noexcept {
+    DeviceMatrixView result;
+    result.storage = mutable_view(region.storage);
+    result.row_capacity = region.row_capacity;
+    result.columns = region.columns;
+    result.row_stride_elements = region.row_stride_elements;
     return result;
 }
 
@@ -500,7 +994,7 @@ RequestOperationStatus RequestState::commit_token() noexcept {
     if (arena_ == nullptr) {
         return {RequestAccessError::kEmptyState, 0};
     }
-    if (sequence_length_ >= plan_.max_sequence_length) {
+    if (sequence_length_ >= common_plan().max_sequence_length) {
         return {RequestAccessError::kCapacityExceeded, 0};
     }
     ++sequence_length_;
@@ -512,7 +1006,7 @@ RequestOperationStatus RequestState::set_sequence_length(
     if (arena_ == nullptr) {
         return {RequestAccessError::kEmptyState, 0};
     }
-    if (length > plan_.max_sequence_length) {
+    if (length > common_plan().max_sequence_length) {
         return {RequestAccessError::kCapacityExceeded, 0};
     }
     sequence_length_ = length;
@@ -531,7 +1025,7 @@ RequestViewResult RequestState::conv_state(const std::size_t layer_index) noexce
     constexpr std::uint64_t elements_per_layer =
         kConvChannels * kConvHistory;
     const RequestRegion region = subregion(
-        plan_.conv_state,
+        common_plan().conv_state,
         mapped.value->slot * elements_per_layer * kBf16Bytes,
         elements_per_layer,
         kBf16Bytes);
@@ -550,9 +1044,10 @@ RequestViewResult RequestState::gdn_state(const std::size_t layer_index) noexcep
         return access_failure(mapped.error);
     }
     constexpr std::uint64_t elements_per_layer =
-        kGdnValueHeads * kGdnHeadDimension * kGdnHeadDimension;
+        kGdnValueHeads * kRequestGdnHeadDimension *
+        kRequestGdnHeadDimension;
     const RequestRegion region = subregion(
-        plan_.gdn_state,
+        common_plan().gdn_state,
         mapped.value->slot * elements_per_layer * kBf16Bytes,
         elements_per_layer,
         kBf16Bytes);
@@ -571,7 +1066,8 @@ RequestViewResult RequestState::key_cache(const std::size_t layer_index) noexcep
         return access_failure(mapped.error);
     }
     RequestViewResult result;
-    result.value.emplace(mutable_view(plan_.key_cache[mapped.value->slot]));
+    result.value.emplace(
+        mutable_view(common_plan().key_cache[mapped.value->slot]));
     return result;
 }
 
@@ -585,7 +1081,8 @@ RequestViewResult RequestState::value_cache(const std::size_t layer_index) noexc
         return access_failure(mapped.error);
     }
     RequestViewResult result;
-    result.value.emplace(mutable_view(plan_.value_cache[mapped.value->slot]));
+    result.value.emplace(
+        mutable_view(common_plan().value_cache[mapped.value->slot]));
     return result;
 }
 
@@ -595,7 +1092,7 @@ RequestViewResult RequestState::key_position(const std::size_t layer_index,
     if (!cache) {
         return cache;
     }
-    if (position >= plan_.max_sequence_length) {
+    if (position >= common_plan().max_sequence_length) {
         return access_failure(RequestAccessError::kPositionOutOfRange);
     }
     constexpr std::uint64_t elements_per_position =
@@ -617,7 +1114,7 @@ RequestViewResult RequestState::value_position(const std::size_t layer_index,
     if (!cache) {
         return cache;
     }
-    if (position >= plan_.max_sequence_length) {
+    if (position >= common_plan().max_sequence_length) {
         return access_failure(RequestAccessError::kPositionOutOfRange);
     }
     constexpr std::uint64_t elements_per_position =
@@ -637,6 +1134,11 @@ RequestViewResult RequestState::hidden_buffer(const std::size_t index) noexcept 
     if (arena_ == nullptr) {
         return access_failure(RequestAccessError::kEmptyState);
     }
+    const RequestAccessError profile_error = validate_request_memory_profile(
+        memory_profile(), RequestMemoryProfile::kLegacyC512);
+    if (profile_error != RequestAccessError::kNone) {
+        return access_failure(profile_error);
+    }
     if (index >= plan_.hidden_bf16.size()) {
         return access_failure(RequestAccessError::kInvalidBufferIndex);
     }
@@ -650,6 +1152,11 @@ RequestViewResult RequestState::projection_buffer(
     if (arena_ == nullptr) {
         return access_failure(RequestAccessError::kEmptyState);
     }
+    const RequestAccessError profile_error = validate_request_memory_profile(
+        memory_profile(), RequestMemoryProfile::kLegacyC512);
+    if (profile_error != RequestAccessError::kNone) {
+        return access_failure(profile_error);
+    }
     if (index >= plan_.projection_bf16.size()) {
         return access_failure(RequestAccessError::kInvalidBufferIndex);
     }
@@ -662,6 +1169,11 @@ RequestViewResult RequestState::linear_a_buffer() noexcept {
     if (arena_ == nullptr) {
         return access_failure(RequestAccessError::kEmptyState);
     }
+    const RequestAccessError profile_error = validate_request_memory_profile(
+        memory_profile(), RequestMemoryProfile::kLegacyC512);
+    if (profile_error != RequestAccessError::kNone) {
+        return access_failure(profile_error);
+    }
     RequestViewResult result;
     result.value.emplace(mutable_view(plan_.linear_a_bf16));
     return result;
@@ -670,6 +1182,11 @@ RequestViewResult RequestState::linear_a_buffer() noexcept {
 RequestViewResult RequestState::linear_b_buffer() noexcept {
     if (arena_ == nullptr) {
         return access_failure(RequestAccessError::kEmptyState);
+    }
+    const RequestAccessError profile_error = validate_request_memory_profile(
+        memory_profile(), RequestMemoryProfile::kLegacyC512);
+    if (profile_error != RequestAccessError::kNone) {
+        return access_failure(profile_error);
     }
     RequestViewResult result;
     result.value.emplace(mutable_view(plan_.linear_b_bf16));
@@ -680,6 +1197,11 @@ RequestViewResult RequestState::fp32_scratch() noexcept {
     if (arena_ == nullptr) {
         return access_failure(RequestAccessError::kEmptyState);
     }
+    const RequestAccessError profile_error = validate_request_memory_profile(
+        memory_profile(), RequestMemoryProfile::kLegacyC512);
+    if (profile_error != RequestAccessError::kNone) {
+        return access_failure(profile_error);
+    }
     RequestViewResult result;
     result.value.emplace(mutable_view(plan_.fp32_scratch));
     return result;
@@ -689,8 +1211,199 @@ RequestViewResult RequestState::gqa_probability_scratch() noexcept {
     if (arena_ == nullptr) {
         return access_failure(RequestAccessError::kEmptyState);
     }
+    const RequestAccessError profile_error = validate_request_memory_profile(
+        memory_profile(), RequestMemoryProfile::kLegacyC512);
+    if (profile_error != RequestAccessError::kNone) {
+        return access_failure(profile_error);
+    }
     RequestViewResult result;
     result.value.emplace(mutable_view(plan_.gqa_probability_scratch));
+    return result;
+}
+
+RequestMatrixViewResult RequestState::layer_major_prompt_residual() noexcept {
+    if (arena_ == nullptr) {
+        return matrix_access_failure(RequestAccessError::kEmptyState);
+    }
+    if (validate_request_memory_profile(
+            memory_profile(), RequestMemoryProfile::kLayerMajorC8192) !=
+            RequestAccessError::kNone ||
+        !layer_major_plan_) {
+        return matrix_access_failure(
+            RequestAccessError::kMemoryProfileMismatch);
+    }
+    RequestMatrixViewResult result;
+    result.value.emplace(
+        mutable_matrix_view(layer_major_plan_->prompt_residual_bf16));
+    return result;
+}
+
+RequestMatrixViewResult RequestState::layer_major_panel_token_ids() noexcept {
+    if (arena_ == nullptr) {
+        return matrix_access_failure(RequestAccessError::kEmptyState);
+    }
+    if (validate_request_memory_profile(
+            memory_profile(), RequestMemoryProfile::kLayerMajorC8192) !=
+            RequestAccessError::kNone ||
+        !layer_major_plan_) {
+        return matrix_access_failure(
+            RequestAccessError::kMemoryProfileMismatch);
+    }
+    RequestMatrixViewResult result;
+    result.value.emplace(
+        mutable_matrix_view(layer_major_plan_->panel_token_ids_u32));
+    return result;
+}
+
+LayerMajorGdnPhaseViewResult
+RequestState::layer_major_gdn_phase_views() noexcept {
+    if (arena_ == nullptr) {
+        return typed_access_failure<LayerMajorGdnPhaseViews>(
+            RequestAccessError::kEmptyState);
+    }
+    if (validate_request_memory_profile(
+            memory_profile(), RequestMemoryProfile::kLayerMajorC8192) !=
+            RequestAccessError::kNone ||
+        !layer_major_plan_) {
+        return typed_access_failure<LayerMajorGdnPhaseViews>(
+            RequestAccessError::kMemoryProfileMismatch);
+    }
+    const LayerMajorGdnPhaseRegions& regions = layer_major_plan_->gdn;
+    LayerMajorGdnPhaseViews views;
+    views.qkv_bf16 = mutable_matrix_view(regions.qkv_bf16);
+    views.z_bf16 = mutable_matrix_view(regions.z_bf16);
+    views.a_bf16 = mutable_matrix_view(regions.a_bf16);
+    views.b_bf16 = mutable_matrix_view(regions.b_bf16);
+    views.recurrent_core_bf16 =
+        mutable_matrix_view(regions.recurrent_core_bf16);
+    views.native_c64_workspace = mutable_view(regions.native_c64_workspace);
+    views.normalized_input_bf16 =
+        mutable_matrix_view(regions.normalized_input_bf16);
+    views.input_projection_temporary =
+        mutable_view(regions.input_projection_temporary);
+    views.branch_output_bf16 =
+        mutable_matrix_view(regions.branch_output_bf16);
+    views.output_projection_temporary =
+        mutable_view(regions.output_projection_temporary);
+    LayerMajorGdnPhaseViewResult result;
+    result.value.emplace(std::move(views));
+    return result;
+}
+
+LayerMajorAttentionPhaseViewResult
+RequestState::layer_major_attention_phase_views() noexcept {
+    if (arena_ == nullptr) {
+        return typed_access_failure<LayerMajorAttentionPhaseViews>(
+            RequestAccessError::kEmptyState);
+    }
+    if (validate_request_memory_profile(
+            memory_profile(), RequestMemoryProfile::kLayerMajorC8192) !=
+            RequestAccessError::kNone ||
+        !layer_major_plan_) {
+        return typed_access_failure<LayerMajorAttentionPhaseViews>(
+            RequestAccessError::kMemoryProfileMismatch);
+    }
+    const LayerMajorAttentionPhaseRegions& regions =
+        layer_major_plan_->attention;
+    LayerMajorAttentionPhaseViews views;
+    views.raw_q_gate_bf16 = mutable_matrix_view(regions.raw_q_gate_bf16);
+    views.processed_q_bf16 = mutable_matrix_view(regions.processed_q_bf16);
+    views.packed_gate_bf16 = mutable_matrix_view(regions.packed_gate_bf16);
+    views.normalized_input_bf16 =
+        mutable_matrix_view(regions.normalized_input_bf16);
+    views.input_projection_temporary =
+        mutable_view(regions.input_projection_temporary);
+    views.core_output_bf16 =
+        mutable_matrix_view(regions.core_output_bf16);
+    views.branch_output_bf16 =
+        mutable_matrix_view(regions.branch_output_bf16);
+    views.output_projection_temporary =
+        mutable_view(regions.output_projection_temporary);
+    LayerMajorAttentionPhaseViewResult result;
+    result.value.emplace(std::move(views));
+    return result;
+}
+
+LayerMajorMlpPhaseViewResult
+RequestState::layer_major_mlp_phase_views() noexcept {
+    if (arena_ == nullptr) {
+        return typed_access_failure<LayerMajorMlpPhaseViews>(
+            RequestAccessError::kEmptyState);
+    }
+    if (validate_request_memory_profile(
+            memory_profile(), RequestMemoryProfile::kLayerMajorC8192) !=
+            RequestAccessError::kNone ||
+        !layer_major_plan_) {
+        return typed_access_failure<LayerMajorMlpPhaseViews>(
+            RequestAccessError::kMemoryProfileMismatch);
+    }
+    const LayerMajorMlpPhaseRegions& regions = layer_major_plan_->mlp;
+    LayerMajorMlpPhaseViews views;
+    views.gate_bf16 = mutable_matrix_view(regions.gate_bf16);
+    views.up_bf16 = mutable_matrix_view(regions.up_bf16);
+    views.activated_bf16 = mutable_matrix_view(regions.activated_bf16);
+    views.normalized_input_bf16 =
+        mutable_matrix_view(regions.normalized_input_bf16);
+    views.gate_up_projection_temporary =
+        mutable_view(regions.gate_up_projection_temporary);
+    views.branch_output_bf16 =
+        mutable_matrix_view(regions.branch_output_bf16);
+    views.down_projection_temporary =
+        mutable_view(regions.down_projection_temporary);
+    LayerMajorMlpPhaseViewResult result;
+    result.value.emplace(std::move(views));
+    return result;
+}
+
+LayerMajorLegacyC512ViewResult
+RequestState::layer_major_legacy_c512_views() noexcept {
+    if (arena_ == nullptr) {
+        return typed_access_failure<LayerMajorLegacyC512Views>(
+            RequestAccessError::kEmptyState);
+    }
+    if (validate_request_memory_profile(
+            memory_profile(), RequestMemoryProfile::kLayerMajorC8192) !=
+            RequestAccessError::kNone ||
+        !layer_major_plan_) {
+        return typed_access_failure<LayerMajorLegacyC512Views>(
+            RequestAccessError::kMemoryProfileMismatch);
+    }
+    const LayerMajorLegacyC512Regions& regions =
+        layer_major_plan_->legacy_c512;
+    LayerMajorLegacyC512Views views;
+    for (std::size_t index = 0U; index < views.hidden_bf16.size(); ++index) {
+        views.hidden_bf16[index] =
+            mutable_matrix_view(regions.hidden_bf16[index]);
+    }
+    for (std::size_t index = 0U; index < views.projection_bf16.size();
+         ++index) {
+        views.projection_bf16[index] =
+            mutable_matrix_view(regions.projection_bf16[index]);
+    }
+    views.linear_a_bf16 = mutable_matrix_view(regions.linear_a_bf16);
+    views.linear_b_bf16 = mutable_matrix_view(regions.linear_b_bf16);
+    views.fp32_scratch = mutable_view(regions.fp32_scratch);
+    views.gqa_probability_scratch =
+        mutable_view(regions.gqa_probability_scratch);
+    LayerMajorLegacyC512ViewResult result;
+    result.value.emplace(std::move(views));
+    return result;
+}
+
+RequestMatrixViewResult RequestState::layer_major_final_hidden() noexcept {
+    if (arena_ == nullptr) {
+        return matrix_access_failure(RequestAccessError::kEmptyState);
+    }
+    if (validate_request_memory_profile(
+            memory_profile(), RequestMemoryProfile::kLayerMajorC8192) !=
+            RequestAccessError::kNone ||
+        !layer_major_plan_) {
+        return matrix_access_failure(
+            RequestAccessError::kMemoryProfileMismatch);
+    }
+    RequestMatrixViewResult result;
+    result.value.emplace(
+        mutable_matrix_view(layer_major_plan_->final_hidden_bf16));
     return result;
 }
 
@@ -699,11 +1412,11 @@ RequestConstViewResult RequestState::rope_cos(
     if (arena_ == nullptr) {
         return const_access_failure(RequestAccessError::kEmptyState);
     }
-    if (position >= plan_.max_sequence_length) {
+    if (position >= common_plan().max_sequence_length) {
         return const_access_failure(RequestAccessError::kPositionOutOfRange);
     }
     const RequestRegion region = subregion(
-        plan_.rope_cos_fp32,
+        common_plan().rope_cos_fp32,
         position * kRopePairs * kFp32Bytes,
         kRopePairs,
         kFp32Bytes);
@@ -717,11 +1430,11 @@ RequestConstViewResult RequestState::rope_sin(
     if (arena_ == nullptr) {
         return const_access_failure(RequestAccessError::kEmptyState);
     }
-    if (position >= plan_.max_sequence_length) {
+    if (position >= common_plan().max_sequence_length) {
         return const_access_failure(RequestAccessError::kPositionOutOfRange);
     }
     const RequestRegion region = subregion(
-        plan_.rope_sin_fp32,
+        common_plan().rope_sin_fp32,
         position * kRopePairs * kFp32Bytes,
         kRopePairs,
         kFp32Bytes);
@@ -743,11 +1456,12 @@ RequestOperationStatus RequestState::reset_async(void* const cuda_stream) noexce
         return {RequestAccessError::kEmptyState, 0};
     }
     (void)cudaGetLastError();
+    const RequestMemoryPlan& active_plan = common_plan();
     const cudaError_t status = cudaMemsetAsync(
         static_cast<std::uint8_t*>(arena_) +
-            static_cast<std::size_t>(plan_.persistent_offset),
+            static_cast<std::size_t>(active_plan.persistent_offset),
         0,
-        static_cast<std::size_t>(plan_.persistent_bytes),
+        static_cast<std::size_t>(active_plan.persistent_bytes),
         reinterpret_cast<cudaStream_t>(cuda_stream));
     if (status != cudaSuccess) {
         return {RequestAccessError::kNone, static_cast<int>(status)};
@@ -884,6 +1598,148 @@ RequestStateResult create_request_state(const RequestMemoryOptions& options) {
     }
 }
 
+RequestStateResult create_layer_major_request_state(
+    const LayerMajorRequestMemoryOptions& options) {
+    LayerMajorRequestPlanResult plan_result =
+        build_layer_major_request_memory_plan(options);
+    if (!plan_result) {
+        return state_failure(std::move(plan_result.diagnostic));
+    }
+    try {
+        LayerMajorRequestMemoryPlan& layer_major_plan = *plan_result.value;
+        const RequestMemoryPlan& plan = layer_major_plan.common;
+        if (plan.arena_bytes >
+                static_cast<std::uint64_t>(
+                    std::numeric_limits<std::size_t>::max()) ||
+            plan.rope_cos_fp32.element_capacity >
+                static_cast<std::uint64_t>(
+                    std::numeric_limits<std::size_t>::max())) {
+            return state_failure(make_diagnostic(
+                RequestErrorCode::kArithmeticOverflow,
+                "layer-major request plan exceeds host size_t",
+                "plan"));
+        }
+        const std::size_t rope_elements = static_cast<std::size_t>(
+            plan.rope_cos_fp32.element_capacity);
+        std::vector<float> cosines(rope_elements);
+        std::vector<float> sines(rope_elements);
+        for (std::size_t position = 0U;
+             position < plan.max_sequence_length; ++position) {
+            for (std::size_t pair = 0U; pair < kRopePairs; ++pair) {
+                const float exponent =
+                    2.0F * static_cast<float>(pair) / 64.0F;
+                const float inverse_frequency =
+                    1.0F / std::pow(kRopeTheta, exponent);
+                const float angle =
+                    static_cast<float>(position) * inverse_frequency;
+                const std::size_t index = position * kRopePairs + pair;
+                cosines[index] = bf16_round_trip(std::cos(angle));
+                sines[index] = bf16_round_trip(std::sin(angle));
+            }
+        }
+
+        (void)cudaGetLastError();
+        std::size_t free_bytes = 0U;
+        std::size_t total_bytes = 0U;
+        cudaError_t status = cudaMemGetInfo(&free_bytes, &total_bytes);
+        if (status != cudaSuccess) {
+            return state_failure(cuda_diagnostic(status, "cudaMemGetInfo"));
+        }
+        (void)total_bytes;
+        const std::uint64_t free_u64 = static_cast<std::uint64_t>(free_bytes);
+        if (plan.arena_bytes > free_u64 ||
+            options.min_free_bytes_after_create >
+                free_u64 - plan.arena_bytes) {
+            return state_failure(make_diagnostic(
+                RequestErrorCode::kInsufficientDeviceMemory,
+                "cudaMemGetInfo cannot satisfy layer-major request arena plus "
+                "safety margin",
+                "cudaMemGetInfo",
+                std::to_string(plan.arena_bytes) + "+" +
+                    std::to_string(options.min_free_bytes_after_create),
+                std::to_string(free_u64)));
+        }
+
+        CreateResources resources;
+        status = cudaMalloc(&resources.arena,
+                            static_cast<std::size_t>(plan.arena_bytes));
+        if (status != cudaSuccess) {
+            return state_failure(
+                cuda_diagnostic(status,
+                                "cudaMalloc(layer-major request arena)"));
+        }
+        status = cudaStreamCreateWithFlags(&resources.stream,
+                                           cudaStreamNonBlocking);
+        if (status != cudaSuccess) {
+            return state_failure(
+                cuda_diagnostic(status, "cudaStreamCreateWithFlags"));
+        }
+        auto* const arena = static_cast<std::uint8_t*>(resources.arena);
+        status = cudaMemsetAsync(
+            arena + static_cast<std::size_t>(plan.persistent_offset),
+            0,
+            static_cast<std::size_t>(plan.persistent_bytes),
+            resources.stream);
+        if (status != cudaSuccess) {
+            return state_failure(
+                cuda_diagnostic(status, "cudaMemsetAsync(persistent)"));
+        }
+        status = cudaMemcpyAsync(
+            arena + static_cast<std::size_t>(plan.rope_cos_fp32.arena_offset),
+            cosines.data(),
+            static_cast<std::size_t>(plan.rope_cos_fp32.byte_size),
+            cudaMemcpyHostToDevice,
+            resources.stream);
+        if (status != cudaSuccess) {
+            return state_failure(
+                cuda_diagnostic(status, "cudaMemcpyAsync(rope cos)"));
+        }
+        status = cudaMemcpyAsync(
+            arena + static_cast<std::size_t>(plan.rope_sin_fp32.arena_offset),
+            sines.data(),
+            static_cast<std::size_t>(plan.rope_sin_fp32.byte_size),
+            cudaMemcpyHostToDevice,
+            resources.stream);
+        if (status != cudaSuccess) {
+            return state_failure(
+                cuda_diagnostic(status, "cudaMemcpyAsync(rope sin)"));
+        }
+        status = cudaStreamSynchronize(resources.stream);
+        if (status != cudaSuccess) {
+            return state_failure(
+                cuda_diagnostic(status,
+                                "cudaStreamSynchronize(layer-major create)"));
+        }
+        status = cudaStreamDestroy(resources.stream);
+        resources.stream = nullptr;
+        if (status != cudaSuccess) {
+            return state_failure(
+                cuda_diagnostic(status,
+                                "cudaStreamDestroy(layer-major create)"));
+        }
+
+        RequestState state;
+        state.arena_ = resources.arena;
+        resources.arena = nullptr;
+        state.layer_major_plan_.emplace(std::move(layer_major_plan));
+        state.sequence_length_ = 0U;
+        (void)cudaGetLastError();
+        RequestStateResult result;
+        result.value.emplace(std::move(state));
+        return result;
+    } catch (const std::bad_alloc&) {
+        return state_failure(make_diagnostic(
+            RequestErrorCode::kAllocationFailure,
+            "host allocation failed while creating layer-major request state",
+            "rope_cache"));
+    } catch (const std::length_error&) {
+        return state_failure(make_diagnostic(
+            RequestErrorCode::kAllocationFailure,
+            "host RoPE cache exceeds container limits",
+            "rope_cache"));
+    }
+}
+
 std::string_view to_string(RequestErrorCode code) noexcept {
     switch (code) {
         case RequestErrorCode::kNone:
@@ -922,6 +1778,8 @@ std::string_view to_string(RequestAccessError error) noexcept {
             return "capacity_exceeded";
         case RequestAccessError::kInvalidBufferIndex:
             return "invalid_buffer_index";
+        case RequestAccessError::kMemoryProfileMismatch:
+            return "memory_profile_mismatch";
         case RequestAccessError::kEmptyState:
             return "empty_state";
     }

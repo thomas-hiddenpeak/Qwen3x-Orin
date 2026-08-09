@@ -59,10 +59,11 @@ without a production network, tenant, admission, or cancellation contract.
 The development tree now contains a pure-host layer-major topology/progress
 plan, a tactic-explicit host workspace-requirements planner, a staged
 whole-request generation-control seam, a 17-role operator-binding contract,
-and isolated C8192 NVFP4/FP8 projection surfaces. These are implemented
-infrastructure components, not an executable architecture candidate: the host
-seam is not connected to `RequestState` or a runner implementation, every
-physical binding remains unbound, no selector admits it, and the existing C512
+isolated C8192 NVFP4/FP8 projection surfaces, and an explicit layer-major
+`RequestState` allocation profile with typed phase views. These are implemented
+infrastructure components, not an executable architecture candidate: the
+profile is not connected to a runner implementation, every execution/event/
+operator binding remains false, no selector admits it, and the existing C512
 production route and performance are unchanged.
 
 Accordingly, current product status is **implemented evaluation runner,
@@ -79,7 +80,7 @@ unqualified production runner**.
 | Default context capacity | Implemented at 8,192 | Server default `max_sequence_length=8192`, maximum output 4,096, 2 GiB request-arena limit | Does not admit the locked long-context workloads |
 | 40K/60K/130K cold/no-cache service | Target; host requirements implemented | Configured token-ID ingress fails closed on capacity, the legacy planner expresses C512 arenas, and the layer-major host planner gives tactic-explicit request-arena requirements | Default admission/reservation, model-plus-sidecar whole-process capacity, cancellation, executable target route, performance, and qualification are absent |
 | Prefill/Decode logical separation | Implemented in part | Separate phase APIs/metrics and an explicit state transition exist | Shared runner and synchronization-heavy physical plan prevent independent utilization and overlap |
-| Layer-major C8192 candidate | Designed; supporting infrastructure implemented | Unbound 64-layer topology/progress, tactic-explicit workspace requirements, staged whole-request controller/finalizer/commit seam, 17-role binding contract, and isolated NVFP4/FP8 C8192 surfaces | No layer-major `RequestState` profile or runner executor exists, every physical binding is unbound, and no selector admits the candidate |
+| Layer-major C8192 candidate | Designed; supporting infrastructure implemented | Unbound 64-layer topology/progress, tactic-explicit workspace requirements, staged whole-request controller/finalizer/commit seam, explicit typed `RequestState` allocation profile, 17-role binding contract, and isolated NVFP4/FP8 C8192 surfaces | No runner executor exists, every execution/event/operator binding is unbound, and no selector admits the candidate |
 | Large-M Prefill specializations | Implemented as legacy admissions plus isolated C8192 surfaces | Native NVFP4/FP8/BF16 and Attention/GDN C512 candidates exist in development builds; isolated NVFP4/FP8 surfaces accept candidate-only C8192 panels | Existing options default off/test-only, C8192 surfaces are unbound, and no unique exact release selection exists |
 | Decode target | Directionally near target | Short API evidence reports about 104 ms TPOT | At least 10 token/s, long-output stability, and release repetition are not qualified |
 | Production accuracy | Target with partial oracles | Exact deterministic outputs are available for selected prompts/routes | No complete public capability baseline and promotion gate has passed |
@@ -156,9 +157,11 @@ All six request-arena values fit the planner's declared
 17,437,720,576-byte limit, but no whole-process fit follows. Resident-model and
 derived-sidecar byte requirements are absent, total whole-process bytes are
 unknown, and the planner's whole-process capacity verdict is
-`kIndeterminate`. No allocation reservation or operator binding exists, so
-this host plan is not executable and does not replace the existing M512
-admission or memory plan.
+`kIndeterminate`. The isolated layer-major create API can allocate the selected
+request arena and expose only typed phase views, but it is not a production
+admission/reservation and binds none of the required aliases, events, or
+operators. Its plan therefore remains non-executable and does not replace the
+existing M512 admission or memory plan.
 
 ## 5. Current performance evidence and its authority
 
@@ -266,7 +269,7 @@ architecture seam. The required response is a whole prompt-span execution
 plan with explicit state semantics, residency, buffer ownership and overlap,
 not a return to unrelated kernel parameter scans.
 
-The tree has implemented five non-production foundations for that response:
+The tree has implemented six non-production foundations for that response:
 
 - an immutable, pure-host 64-layer/C8192 topology and request-owned progress
   model with one planned final host-state commit;
@@ -275,7 +278,10 @@ The tree has implemented five non-production foundations for that response:
   and whole-process capacity remain indeterminate;
 - a complete 17-role typed contract whose C8192 tactic, resource, launcher,
   and event identities and attestation remain unbound;
-- isolated candidate-only C8192 NVFP4 and FP8 projection surfaces; and
+- isolated candidate-only C8192 NVFP4 and FP8 projection surfaces;
+- an explicit layer-major `RequestState` profile with one prompt-wide
+  residual, one sequential-family arena, physically disjoint legacy C512
+  scratch, a fixed final-hidden handoff, and typed phase-only device views;
 - a default-off whole-request control seam that accepts only a complete,
   uncommitted 64-layer result, uses a dedicated retained-hidden finalizer,
   invokes one no-throw final commit callback whose non-OK status guarantees no
@@ -283,18 +289,15 @@ The tree has implemented five non-production foundations for that response:
   callback's single no-fail state publication succeeds; every ordinary
   C512/scalar path remains unchanged.
 
-None supplies a layer-major `RequestState`, runner executor, bound deployment
-plan, or selector. The new control callbacks remain null in `ReferenceEngine`,
-the binding/workspace plans report non-executable, and production-route
-admission remains M512. Consequently these commits change no production
-performance claim.
+None supplies a runner executor, bound deployment plan, or selector. The new
+`RequestState` profile is allocation-only: its alias, completion-event,
+projection-subrange, and operator-binding flags are all false. The control
+callbacks remain null in `ReferenceEngine`, the binding/workspace plans report
+non-executable, and production-route admission remains M512. Consequently
+these commits change no production performance claim.
 
-The immediate next implementation boundary is the layer-major `RequestState`
-profile: one full-prompt residual, bounded operator scratch with typed phase
-views, a fixed final-hidden handoff slot, and legacy buffers retained as a
-disjoint first integration profile. Its planner strategy and exact byte total
-now exist, but no device region or typed subrange is bound yet. The runner
-must then extract one
+The immediate next implementation boundary is the runner executor using the
+new layer-major `RequestState` profile. The runner must extract one
 parameterized layer-panel body and implement true `layer -> panel` traversal;
 calling the existing 64-layer C512 tile loop repeatedly is not that executor.
 The C512 incumbent remains selectable until a later authenticated, fully bound

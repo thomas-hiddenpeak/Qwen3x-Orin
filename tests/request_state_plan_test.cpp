@@ -1,5 +1,7 @@
 #include "q3x/runtime/request_state.h"
 
+#include "q3x/runtime/prefill_workspace_plan.h"
+
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
@@ -42,6 +44,22 @@ bool same_region(const runtime::RequestRegion& left,
            left.element_size_bytes == right.element_size_bytes;
 }
 
+bool matrix_is(const runtime::RequestMatrixRegion& matrix,
+               const std::uint64_t offset,
+               const std::uint64_t byte_size,
+               const std::uint32_t rows,
+               const std::uint32_t columns,
+               const std::uint64_t stride,
+               const std::uint32_t element_size) {
+    return matrix.storage.arena_offset == offset &&
+           matrix.storage.byte_size == byte_size &&
+           matrix.storage.element_capacity ==
+               static_cast<std::uint64_t>(rows) * stride &&
+           matrix.storage.element_size_bytes == element_size &&
+           matrix.row_capacity == rows && matrix.columns == columns &&
+           matrix.row_stride_elements == stride;
+}
+
 void test_default_exact_plan(TestContext& test) {
     const runtime::RequestMemoryOptions default_options;
     test.expect(default_options.max_arena_bytes ==
@@ -56,9 +74,10 @@ void test_default_exact_plan(TestContext& test) {
         return;
     }
     const runtime::RequestMemoryPlan& plan = *result.value;
-    test.expect(plan.batch_size == 1U && plan.prefill_chunk_size == 1U &&
+    test.expect(plan.profile == runtime::RequestMemoryProfile::kLegacyC512 &&
+                    plan.batch_size == 1U && plan.prefill_chunk_size == 1U &&
                     plan.max_sequence_length == 128U,
-                "default plan is batch-one, chunk-one, with 128 positions");
+                "default plan remains the batch-one legacy profile");
     test.expect(plan.conv_state.byte_size == 2'949'120U &&
                     plan.conv_state.element_capacity == 1'474'560U &&
                     plan.gdn_state.byte_size == 75'497'472U &&
@@ -813,6 +832,422 @@ void test_minimum_maximum_and_bad_options(TestContext& test) {
                 "request diagnostic enum names are stable");
 }
 
+void test_layer_major_target_profiles(TestContext& test) {
+    struct TargetCase {
+        std::uint32_t sequence_length;
+        std::uint64_t persistent_offset_end;
+        std::uint64_t family_arena_offset;
+        std::uint64_t legacy_offset;
+        std::uint64_t final_hidden_offset;
+        std::uint64_t rope_offset;
+        std::uint64_t arena_bytes;
+    };
+    constexpr TargetCase cases[] = {
+        {40'000U, 2'699'886'592ULL, 3'109'486'592ULL,
+         3'965'124'608ULL, 4'056'094'720ULL, 4'056'104'960ULL,
+         4'066'344'960ULL},
+        {60'000U, 4'010'606'592ULL, 4'625'006'592ULL,
+         5'480'644'608ULL, 5'573'534'720ULL, 5'573'544'960ULL,
+         5'588'904'960ULL},
+        {130'000U, 8'598'126'592ULL, 9'929'326'592ULL,
+         10'784'964'608ULL, 10'884'574'720ULL, 10'884'584'960ULL,
+         10'917'864'960ULL},
+    };
+
+    for (const TargetCase& target : cases) {
+        runtime::LayerMajorRequestMemoryOptions options;
+        options.max_sequence_length = target.sequence_length;
+        options.max_arena_bytes = target.arena_bytes;
+        const runtime::LayerMajorRequestPlanResult result =
+            runtime::build_layer_major_request_memory_plan(options);
+        test.expect(static_cast<bool>(result),
+                    "layer-major target bucket fits its exact arena cap");
+        if (!result) {
+            continue;
+        }
+        const runtime::LayerMajorRequestMemoryPlan& plan = *result.value;
+        const runtime::RequestMemoryPlan& common = plan.common;
+        test.expect(
+            common.profile == runtime::RequestMemoryProfile::kLayerMajorC8192 &&
+                common.batch_size == 1U &&
+                common.prefill_chunk_size == 512U &&
+                common.max_sequence_length == target.sequence_length &&
+                plan.operator_panel_capacity_tokens == 8'192U &&
+                plan.legacy_prefill_chunk_size == 512U,
+            "layer-major plan identity cannot alter the public legacy C512 ABI");
+        test.expect(
+            common.persistent_offset == 0U &&
+                common.persistent_bytes == target.persistent_offset_end &&
+                common.workspace_offset == target.persistent_offset_end &&
+                plan.prompt_residual_bf16.storage.arena_offset ==
+                    target.persistent_offset_end &&
+                plan.c8192_family_phase_arena.arena_offset ==
+                    target.family_arena_offset &&
+                plan.c8192_family_phase_arena.byte_size == 855'638'016U &&
+                plan.legacy_c512.hidden_bf16[0U].storage.arena_offset ==
+                    target.legacy_offset &&
+                plan.final_hidden_bf16.storage.arena_offset ==
+                    target.final_hidden_offset &&
+                common.rope_offset == target.rope_offset &&
+                common.arena_bytes == target.arena_bytes &&
+                common.workspace_bytes ==
+                    target.rope_offset - target.persistent_offset_end,
+            "layer-major target bucket owns the byte-exact physical layout");
+        test.expect(
+            matrix_is(plan.prompt_residual_bf16,
+                      target.persistent_offset_end,
+                      static_cast<std::uint64_t>(target.sequence_length) *
+                          5'120U * 2U,
+                      target.sequence_length, 5'120U, 5'120U, 2U) &&
+                matrix_is(plan.final_hidden_bf16,
+                          target.final_hidden_offset, 10'240U, 1U, 5'120U,
+                          5'120U, 2U) &&
+                common.rope_bytes ==
+                    static_cast<std::uint64_t>(target.sequence_length) *
+                        32U * 4U * 2U,
+            "prompt residual, final hidden, and RoPE retain exact shapes");
+
+        runtime::LayerMajorPrefillWorkspaceOptions workspace_options;
+        workspace_options.sequence_capacity_tokens = target.sequence_length;
+        workspace_options.request_arena_limit_bytes = target.arena_bytes;
+        workspace_options.hidden_strategy =
+            runtime::PrefillHiddenStrategy::kSinglePromptWideConditional;
+        workspace_options.scratch_strategy =
+            runtime::PrefillOperatorScratchStrategy::
+                kC8192FamilyOverlayWithDisjointLegacyC512;
+        workspace_options.gdn_tactic =
+            runtime::PrefillGdnPhysicalTactic::kC64NativeInPlaceConv;
+        workspace_options.legacy_gdn_tactic =
+            runtime::PrefillLegacyGdnPhysicalTactic::kC16Composite;
+        workspace_options.mlp_tactic =
+            runtime::PrefillMlpPhysicalTactic::kSeparateGateUpAndSilu;
+        const auto workspace =
+            runtime::build_unbound_layer_major_prefill_workspace_plan(
+                workspace_options);
+        test.expect(
+            workspace &&
+                common.arena_bytes == workspace.value->selected.required_bytes &&
+                plan.c8192_family_phase_arena.byte_size ==
+                    workspace.value->operator_scratch
+                        .c8192_family_overlay_conditional.total_required_bytes &&
+                plan.gdn.native_c64_workspace.byte_size ==
+                    runtime::kLayerMajorPrefillGdnC64NativeWorkspaceBytes,
+            "constructed allocation equals the fixed planner-selected total");
+
+        test.expect(
+            plan.hidden_strategy ==
+                    runtime::PrefillHiddenStrategy::
+                        kSinglePromptWideConditional &&
+                plan.scratch_strategy ==
+                    runtime::PrefillOperatorScratchStrategy::
+                        kC8192FamilyOverlayWithDisjointLegacyC512 &&
+                plan.gdn_tactic ==
+                    runtime::PrefillGdnPhysicalTactic::
+                        kC64NativeInPlaceConv &&
+                plan.legacy_gdn_tactic ==
+                    runtime::PrefillLegacyGdnPhysicalTactic::kC16Composite &&
+                plan.mlp_tactic ==
+                    runtime::PrefillMlpPhysicalTactic::
+                        kSeparateGateUpAndSilu,
+            "layer-major RequestState fixes every physical tactic identity");
+        test.expect(
+            !plan.prompt_residual_in_place_contract_bound &&
+                !plan.family_completion_events_bound &&
+                !plan.intra_family_phase_contract_bound &&
+                !plan.prompt_token_ids_consumed_event_bound &&
+                !plan.projection_workspace_subrange_binding_bound &&
+                !plan.operator_bindings_complete && !plan.executable(),
+            "allocation does not claim any execution, alias, event, or binding");
+
+        runtime::LayerMajorRequestMemoryOptions short_cap = options;
+        short_cap.max_arena_bytes = target.arena_bytes - 1U;
+        const runtime::LayerMajorRequestPlanResult rejected =
+            runtime::build_layer_major_request_memory_plan(short_cap);
+        test.expect(
+            !rejected &&
+                rejected.diagnostic.code ==
+                    runtime::RequestErrorCode::kArenaLimitExceeded &&
+                rejected.diagnostic.actual ==
+                    std::to_string(target.arena_bytes),
+            "layer-major target bucket rejects an arena cap one byte short");
+    }
+}
+
+void test_layer_major_typed_phase_layout(TestContext& test) {
+    runtime::LayerMajorRequestMemoryOptions options;
+    options.max_sequence_length = 40'000U;
+    options.max_arena_bytes = 4'066'344'960ULL;
+    const auto result =
+        runtime::build_layer_major_request_memory_plan(options);
+    test.expect(static_cast<bool>(result),
+                "40K layer-major plan exists for typed phase audit");
+    if (!result) {
+        return;
+    }
+    const runtime::LayerMajorRequestMemoryPlan& plan = *result.value;
+    const std::uint64_t base = plan.c8192_family_phase_arena.arena_offset;
+
+    test.expect(
+        matrix_is(plan.panel_token_ids_u32, base, 32'768U, 8'192U, 1U,
+                  1U, 4U),
+        "panel token IDs own exactly one event-gated U32 arena prefix");
+    test.expect(
+        matrix_is(plan.gdn.qkv_bf16, base, 167'772'160U, 8'192U,
+                  10'240U, 10'240U, 2U) &&
+            matrix_is(plan.gdn.z_bf16, base + 167'772'160U,
+                      100'663'296U, 8'192U, 6'144U, 6'144U, 2U) &&
+            matrix_is(plan.gdn.a_bf16, base + 268'435'456U, 786'432U,
+                      8'192U, 48U, 48U, 2U) &&
+            matrix_is(plan.gdn.b_bf16, base + 269'221'888U, 786'432U,
+                      8'192U, 48U, 48U, 2U) &&
+            matrix_is(plan.gdn.recurrent_core_bf16,
+                      base + 270'008'320U, 100'663'296U, 8'192U, 6'144U,
+                      6'144U, 2U) &&
+            plan.gdn.native_c64_workspace.arena_offset ==
+                base + 370'671'616U &&
+            plan.gdn.native_c64_workspace.byte_size == 75'694'080U &&
+            matrix_is(plan.gdn.normalized_input_bf16,
+                      base + 270'008'320U, 83'886'080U, 8'192U, 5'120U,
+                      5'120U, 2U) &&
+            plan.gdn.input_projection_temporary.arena_offset ==
+                base + 353'894'400U &&
+            plan.gdn.input_projection_temporary.byte_size == 1'048'832U &&
+            matrix_is(plan.gdn.branch_output_bf16, base, 83'886'080U,
+                      8'192U, 5'120U, 5'120U, 2U) &&
+            plan.gdn.output_projection_temporary.arena_offset ==
+                base + 83'886'080U &&
+            plan.gdn.output_projection_temporary.byte_size == 1'048'832U,
+        "GDN typed views bind the exact projection/recurrent alias ledger");
+
+    test.expect(
+        matrix_is(plan.attention.raw_q_gate_bf16, base, 201'326'592U,
+                  8'192U, 12'288U, 12'288U, 2U) &&
+            matrix_is(plan.attention.processed_q_bf16,
+                      base + 201'326'592U, 100'663'296U, 8'192U, 6'144U,
+                      6'144U, 2U) &&
+            matrix_is(plan.attention.packed_gate_bf16,
+                      base + 301'989'888U, 100'663'296U, 8'192U, 6'144U,
+                      6'144U, 2U) &&
+            matrix_is(plan.attention.normalized_input_bf16,
+                      base + 201'326'592U, 83'886'080U, 8'192U, 5'120U,
+                      5'120U, 2U) &&
+            plan.attention.input_projection_temporary.arena_offset ==
+                base + 285'212'672U &&
+            plan.attention.input_projection_temporary.byte_size ==
+                1'048'832U &&
+            matrix_is(plan.attention.core_output_bf16, base,
+                      100'663'296U, 8'192U, 6'144U, 6'144U, 2U) &&
+            matrix_is(plan.attention.branch_output_bf16,
+                      base + 100'663'296U, 83'886'080U, 8'192U, 5'120U,
+                      5'120U, 2U) &&
+            plan.attention.output_projection_temporary.arena_offset ==
+                base + 184'549'376U &&
+            plan.attention.output_projection_temporary.byte_size ==
+                1'048'832U,
+        "Attention typed views bind the exact preprocess/core alias ledger");
+    const auto disjoint = [](const runtime::RequestRegion& left,
+                             const runtime::RequestRegion& right) {
+        return left.arena_offset + left.byte_size <= right.arena_offset ||
+               right.arena_offset + right.byte_size <= left.arena_offset;
+    };
+    test.expect(
+        disjoint(plan.attention.processed_q_bf16.storage,
+                 plan.attention.packed_gate_bf16.storage) &&
+            disjoint(plan.attention.processed_q_bf16.storage,
+                     plan.attention.core_output_bf16.storage) &&
+            disjoint(plan.attention.packed_gate_bf16.storage,
+                     plan.attention.core_output_bf16.storage) &&
+            disjoint(plan.attention.core_output_bf16.storage,
+                     plan.attention.branch_output_bf16.storage) &&
+            disjoint(plan.attention.core_output_bf16.storage,
+                     plan.attention.output_projection_temporary) &&
+            disjoint(plan.attention.branch_output_bf16.storage,
+                     plan.attention.output_projection_temporary),
+        "Attention live query/gate/core/branch/O-temp views are pairwise disjoint");
+
+    test.expect(
+        matrix_is(plan.mlp.gate_bf16, base, 285'212'672U, 8'192U,
+                  17'408U, 17'408U, 2U) &&
+            matrix_is(plan.mlp.up_bf16, base + 285'212'672U,
+                      285'212'672U, 8'192U, 17'408U, 17'408U, 2U) &&
+            matrix_is(plan.mlp.activated_bf16, base + 570'425'344U,
+                      285'212'672U, 8'192U, 17'408U, 17'408U, 2U) &&
+            matrix_is(plan.mlp.normalized_input_bf16,
+                      base + 570'425'344U, 83'886'080U, 8'192U, 5'120U,
+                      5'120U, 2U) &&
+            plan.mlp.gate_up_projection_temporary.arena_offset ==
+                base + 654'311'424U &&
+            plan.mlp.gate_up_projection_temporary.byte_size == 1'048'832U &&
+            matrix_is(plan.mlp.branch_output_bf16,
+                      base + 285'212'672U, 83'886'080U, 8'192U, 5'120U,
+                      5'120U, 2U) &&
+            plan.mlp.down_projection_temporary.arena_offset == base &&
+            plan.mlp.down_projection_temporary.byte_size == 1'048'832U,
+        "MLP typed views keep full activated GateUp and a disjoint Down output");
+    const std::uint64_t activated_begin =
+        plan.mlp.activated_bf16.storage.arena_offset;
+    const std::uint64_t activated_end =
+        activated_begin + plan.mlp.activated_bf16.storage.byte_size;
+    const std::uint64_t down_output_begin =
+        plan.mlp.branch_output_bf16.storage.arena_offset;
+    const std::uint64_t down_output_end =
+        down_output_begin + plan.mlp.branch_output_bf16.storage.byte_size;
+    test.expect(down_output_end <= activated_begin ||
+                    activated_end <= down_output_begin,
+                "Down output never aliases the live activated MLP input");
+}
+
+void test_layer_major_disjoint_legacy_and_ownership(TestContext& test) {
+    runtime::LayerMajorRequestMemoryOptions options;
+    options.max_sequence_length = 40'000U;
+    options.max_arena_bytes = 4'066'344'960ULL;
+    const auto result =
+        runtime::build_layer_major_request_memory_plan(options);
+    if (!result) {
+        test.expect(false, "40K plan exists for ownership audit");
+        return;
+    }
+    const runtime::LayerMajorRequestMemoryPlan& plan = *result.value;
+    const auto& legacy = plan.legacy_c512;
+    const std::uint64_t legacy_base =
+        legacy.hidden_bf16.front().storage.arena_offset;
+    constexpr std::uint64_t hidden_size = 5'242'880U;
+    constexpr std::uint64_t projection_size = 17'825'792U;
+    test.expect(
+        matrix_is(legacy.hidden_bf16[0U], legacy_base, hidden_size, 512U,
+                  5'120U, 5'120U, 2U) &&
+            matrix_is(legacy.hidden_bf16[1U], legacy_base + hidden_size,
+                      hidden_size, 512U, 5'120U, 5'120U, 2U) &&
+            matrix_is(legacy.hidden_bf16[2U],
+                      legacy_base + 2U * hidden_size, hidden_size, 512U,
+                      5'120U, 5'120U, 2U),
+        "disjoint legacy bundle retains three exact C512 hidden matrices");
+    for (std::size_t index = 0U; index < legacy.projection_bf16.size();
+         ++index) {
+        test.expect(
+            matrix_is(legacy.projection_bf16[index],
+                      legacy_base + 15'728'640U +
+                          index * projection_size,
+                      projection_size, 512U, 17'408U, 17'408U, 2U),
+            "disjoint legacy bundle retains each exact projection matrix");
+    }
+    test.expect(
+        matrix_is(legacy.linear_a_bf16, legacy_base + 87'031'808U,
+                  49'152U, 512U, 48U, 48U, 2U) &&
+            matrix_is(legacy.linear_b_bf16, legacy_base + 87'080'960U,
+                      49'152U, 512U, 48U, 48U, 2U) &&
+            legacy.fp32_scratch.arena_offset ==
+                legacy_base + 87'130'112U &&
+            legacy.fp32_scratch.byte_size == 3'840'000U &&
+            legacy.gqa_probability_scratch.arena_offset ==
+                legacy.fp32_scratch.arena_offset &&
+            legacy.gqa_probability_scratch.byte_size == 3'840'000U,
+        "disjoint legacy linear and long-context FP32 views are byte-exact");
+    for (std::size_t index = 0U; index < legacy.hidden_bf16.size(); ++index) {
+        test.expect(same_region(plan.common.hidden_bf16[index],
+                                legacy.hidden_bf16[index].storage),
+                    "common metadata names the same explicit legacy hidden view");
+    }
+    for (std::size_t index = 0U; index < legacy.projection_bf16.size();
+         ++index) {
+        test.expect(same_region(plan.common.projection_bf16[index],
+                                legacy.projection_bf16[index].storage),
+                    "common metadata names the same explicit legacy projection view");
+    }
+
+    std::vector<std::pair<std::uint64_t, std::uint64_t>> owning;
+    add_region(owning, plan.common.conv_state);
+    add_region(owning, plan.common.gdn_state);
+    for (std::size_t slot = 0U; slot < runtime::kRequestFullLayerCount;
+         ++slot) {
+        add_region(owning, plan.common.key_cache[slot]);
+        add_region(owning, plan.common.value_cache[slot]);
+    }
+    add_region(owning, plan.prompt_residual_bf16.storage);
+    add_region(owning, plan.c8192_family_phase_arena);
+    for (const auto& matrix : legacy.hidden_bf16) {
+        add_region(owning, matrix.storage);
+    }
+    for (const auto& matrix : legacy.projection_bf16) {
+        add_region(owning, matrix.storage);
+    }
+    add_region(owning, legacy.linear_a_bf16.storage);
+    add_region(owning, legacy.linear_b_bf16.storage);
+    add_region(owning, legacy.fp32_scratch);
+    add_region(owning, plan.final_hidden_bf16.storage);
+    add_region(owning, plan.common.rope_cos_fp32);
+    add_region(owning, plan.common.rope_sin_fp32);
+    for (const auto& range : owning) {
+        test.expect(range.first % runtime::kRequestArenaAlignment == 0U &&
+                        range.second > range.first &&
+                        range.second <= plan.common.arena_bytes,
+                    "every layer-major owning range is aligned and bounded");
+    }
+    std::sort(owning.begin(), owning.end());
+    for (std::size_t index = 1U; index < owning.size(); ++index) {
+        test.expect(owning[index - 1U].second <= owning[index].first,
+                    "layer-major owning ranges are physically non-overlapping");
+    }
+    test.expect(
+        plan.c8192_family_phase_arena.arena_offset +
+                plan.c8192_family_phase_arena.byte_size <= legacy_base &&
+            legacy.fp32_scratch.arena_offset +
+                    legacy.fp32_scratch.byte_size <=
+                plan.final_hidden_bf16.storage.arena_offset &&
+            plan.final_hidden_bf16.storage.arena_offset +
+                    plan.final_hidden_bf16.storage.byte_size <=
+                plan.common.rope_offset,
+        "family arena, legacy workspace, final hidden, and RoPE are disjoint");
+}
+
+void test_layer_major_bad_options(TestContext& test) {
+    test.expect(
+        runtime::validate_request_memory_profile(
+            runtime::RequestMemoryProfile::kLegacyC512,
+            runtime::RequestMemoryProfile::kLegacyC512) ==
+                runtime::RequestAccessError::kNone &&
+            runtime::validate_request_memory_profile(
+                runtime::RequestMemoryProfile::kLayerMajorC8192,
+                runtime::RequestMemoryProfile::kLayerMajorC8192) ==
+                runtime::RequestAccessError::kNone &&
+            runtime::validate_request_memory_profile(
+                runtime::RequestMemoryProfile::kLayerMajorC8192,
+                runtime::RequestMemoryProfile::kLegacyC512) ==
+                runtime::RequestAccessError::kMemoryProfileMismatch &&
+            runtime::validate_request_memory_profile(
+                runtime::RequestMemoryProfile::kLegacyC512,
+                runtime::RequestMemoryProfile::kLayerMajorC8192) ==
+                runtime::RequestAccessError::kMemoryProfileMismatch &&
+            runtime::to_string(
+                runtime::RequestAccessError::kMemoryProfileMismatch) ==
+                "memory_profile_mismatch",
+        "workspace profile access is an exact symmetric fail-closed gate");
+    runtime::LayerMajorRequestMemoryOptions options;
+    auto result = runtime::build_layer_major_request_memory_plan(options);
+    test.expect(!result && result.diagnostic.code ==
+                               runtime::RequestErrorCode::kInvalidOption,
+                "layer-major planner has no implicit sequence default");
+    options.max_sequence_length = 1U;
+    options.batch_size = 2U;
+    result = runtime::build_layer_major_request_memory_plan(options);
+    test.expect(!result && result.diagnostic.code ==
+                               runtime::RequestErrorCode::kInvalidOption,
+                "layer-major planner rejects batch greater than one");
+    options.batch_size = 1U;
+    options.max_sequence_length =
+        runtime::kAbsoluteRequestMaxSequenceLength + 1U;
+    result = runtime::build_layer_major_request_memory_plan(options);
+    test.expect(!result && result.diagnostic.code ==
+                               runtime::RequestErrorCode::kInvalidOption,
+                "layer-major planner rejects sequence capacity above maximum");
+    options.max_sequence_length = 1U;
+    options.max_arena_bytes = 0U;
+    result = runtime::build_layer_major_request_memory_plan(options);
+    test.expect(!result && result.diagnostic.code ==
+                               runtime::RequestErrorCode::kInvalidOption,
+                "layer-major planner rejects a zero arena bound");
+}
+
 }  // namespace
 
 int main() {
@@ -827,6 +1262,10 @@ int main() {
     test_target_length_capacity_plans(test);
     test_alignment_non_overlap_and_schedule(test);
     test_minimum_maximum_and_bad_options(test);
+    test_layer_major_target_profiles(test);
+    test_layer_major_typed_phase_layout(test);
+    test_layer_major_disjoint_legacy_and_ownership(test);
+    test_layer_major_bad_options(test);
     if (test.failures() != 0) {
         std::cerr << test.failures() << " request-state plan test(s) failed\n";
         return 1;

@@ -366,7 +366,11 @@ The first `RequestState` allocation strategy is now separately expressible:
 the three C8192 families share their sequential high-water, while the complete
 legacy C512 workspace is physically disjoint. Its exact selected totals are
 4,066,344,960 / 5,588,904,960 / 10,917,864,960 bytes at 40K/60K/130K. It still
-requires typed subrange and completion-event binding before execution.
+requires completion-event and operator binding before execution. The explicit
+candidate-only create API now allocates this exact profile and exposes typed
+GDN, Attention, MLP, legacy, token-staging, residual, and final-hidden views.
+It deliberately leaves every execution/alias/event/operator flag false and is
+not reachable from the legacy default request-state entry point.
 
 Both profiles for all three buckets fit the planner's declared
 17,437,720,576-byte request-arena limit. This is only a request-arena verdict.
@@ -379,9 +383,9 @@ the model plus candidate fit the device or that a production capacity profile
 exists; allocator fragmentation, runtime metadata, and measured
 whole-process peak memory remain open.
 
-P1 must turn these host requirements into versioned 40K/60K/130K
-`RequestMemoryPlan` reservations and measured whole-process peaks. P2 must
-bind one authenticated AOT layout/sidecar ownership model, all panel
+P1 must turn the candidate-only 40K/60K/130K allocation profiles into admitted
+reservations with measured whole-process peaks. P2 must bind one authenticated
+AOT layout/sidecar ownership model, all panel
 workspaces, and the exact installed binary. Startup and admission fail closed
 when the selected bucket cannot reserve the complete plan before Prefill
 begins; the request path may not grow it.
@@ -398,12 +402,12 @@ before its single no-fail initial-to-final state publication, and a non-OK
 status guarantees no state change. `ReferenceEngine` supplies none of these
 callbacks, so the seam cannot select or execute the candidate.
 
-The immediate integration slice is now a distinct layer-major `RequestState`
-profile with one full-prompt residual, a typed phase-layout scratch span, a
-fixed final-hidden handoff slot, and the legacy C512 views retained disjointly
-for the first safe integration. The host planner now names this exact combined
-strategy, but its device allocation and phase offsets remain deliberately
-unbound. The runner must extract a parameterized
+The distinct layer-major `RequestState` profile now owns one full-prompt
+residual, typed phase-layout scratch, a fixed final-hidden handoff slot, and
+physically disjoint legacy C512 views for the first safe integration. Its
+explicit allocation path and exact typed offsets are implemented, while all
+execution, alias, event, projection-subrange, and operator bindings remain
+false. The next integration slice is for the runner to extract a parameterized
 single-layer/single-panel body and implement true outer-layer/inner-panel
 traversal. Repeated calls to the existing public C512 64-layer loop do not
 satisfy this architecture. A later bound execution/deployment plan must still

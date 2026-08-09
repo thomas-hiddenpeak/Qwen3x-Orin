@@ -221,9 +221,9 @@ executable or activated):
   remains M512.
 - The immediate implementation slice is a separate layer-major `RequestState`
   profile: one full-prompt residual, typed operator scratch, fixed final-hidden
-  handoff, and initially disjoint legacy views. Its exact planner strategy now
-  exists; allocation and typed phase offsets are the next binding. The runner
-  then extracts one
+  handoff, and initially disjoint legacy views. Its exact candidate-only
+  allocation and typed phase offsets now exist, with every execution/alias/
+  event/operator flag still false. The runner now extracts one
   layer-panel body and implements true `layer -> panel` traversal while
   preserving the C512 incumbent and preparing a later authenticated, fully
   bound 17-role execution/deployment plan.

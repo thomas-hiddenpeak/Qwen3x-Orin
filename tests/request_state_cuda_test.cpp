@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <iostream>
 #include <limits>
@@ -173,6 +174,14 @@ void test_create_views_rope_and_reset(TestContext& test) {
                         runtime::RequestAccessError::kInvalidBufferIndex &&
                     !state.projection_buffer(4U),
                 "workspace buffer indices are bounded");
+    test.expect(
+        !state.layer_major_prompt_residual() &&
+            state.layer_major_prompt_residual().error ==
+                runtime::RequestAccessError::kMemoryProfileMismatch &&
+            !state.layer_major_gdn_phase_views() &&
+            state.layer_major_gdn_phase_views().error ==
+                runtime::RequestAccessError::kMemoryProfileMismatch,
+        "legacy state rejects candidate-only typed workspace access");
 
     test.expect(sample_zero(*conv0.value) && sample_zero(*conv_last.value) &&
                     sample_zero(*gdn0.value) && sample_zero(*key0.value) &&
@@ -322,6 +331,132 @@ void test_memory_gate(TestContext& test) {
                 "cudaMemGetInfo safety margin fails before arena allocation");
 }
 
+void test_layer_major_create_views_and_profile_gate(TestContext& test) {
+    const char* const enabled =
+        std::getenv("Q3X_RUN_LAYER_MAJOR_REQUEST_STATE_CUDA");
+    if (enabled == nullptr || std::strcmp(enabled, "1") != 0) {
+        std::cout << "SKIP: layer-major RequestState CUDA allocation is "
+                     "opt-in (~1 GiB)\n";
+        return;
+    }
+
+    runtime::LayerMajorRequestMemoryOptions options;
+    options.max_sequence_length = 1U;
+    options.min_free_bytes_after_create = 256U * 1024U * 1024U;
+    const runtime::LayerMajorRequestPlanResult expected =
+        runtime::build_layer_major_request_memory_plan(options);
+    test.expect(static_cast<bool>(expected),
+                "minimum layer-major CUDA plan builds before allocation");
+    if (!expected) {
+        return;
+    }
+
+    std::size_t free_bytes = 0U;
+    std::size_t total_bytes = 0U;
+    const cudaError_t memory_status =
+        cudaMemGetInfo(&free_bytes, &total_bytes);
+    (void)total_bytes;
+    if (memory_status != cudaSuccess ||
+        expected.value->common.arena_bytes > free_bytes ||
+        options.min_free_bytes_after_create >
+            free_bytes - expected.value->common.arena_bytes) {
+        std::cout << "SKIP: insufficient free device memory for opt-in "
+                     "layer-major RequestState allocation\n";
+        (void)cudaGetLastError();
+        return;
+    }
+
+    runtime::RequestStateResult created =
+        runtime::create_layer_major_request_state(options);
+    if (!created && created.diagnostic.code ==
+                        runtime::RequestErrorCode::kInsufficientDeviceMemory) {
+        std::cout << "SKIP: layer-major RequestState lost its free-memory "
+                     "reservation before cudaMalloc\n";
+        return;
+    }
+    if (!created) {
+        print_diagnostic(created.diagnostic);
+    }
+    test.expect(created.ok(),
+                "opt-in layer-major CUDA request state creates successfully");
+    if (!created) {
+        return;
+    }
+
+    runtime::RequestState& state = *created.value;
+    test.expect(
+        state.memory_profile() ==
+                runtime::RequestMemoryProfile::kLayerMajorC8192 &&
+            state.layer_major_plan() != nullptr &&
+            state.plan().arena_bytes == expected.value->common.arena_bytes &&
+            state.layer_major_plan()->c8192_family_phase_arena.arena_offset ==
+                expected.value->c8192_family_phase_arena.arena_offset,
+        "RequestState preserves the complete candidate plan without slicing");
+    test.expect(
+        !state.hidden_buffer(0U) &&
+            state.hidden_buffer(0U).error ==
+                runtime::RequestAccessError::kMemoryProfileMismatch &&
+            !state.projection_buffer(0U) &&
+            state.projection_buffer(0U).error ==
+                runtime::RequestAccessError::kMemoryProfileMismatch &&
+            !state.linear_a_buffer() &&
+            state.linear_a_buffer().error ==
+                runtime::RequestAccessError::kMemoryProfileMismatch &&
+            !state.fp32_scratch() &&
+            state.fp32_scratch().error ==
+                runtime::RequestAccessError::kMemoryProfileMismatch,
+        "flat legacy workspace access fails closed on the layer-major profile");
+
+    const auto residual = state.layer_major_prompt_residual();
+    const auto token_ids = state.layer_major_panel_token_ids();
+    const auto gdn = state.layer_major_gdn_phase_views();
+    const auto attention = state.layer_major_attention_phase_views();
+    const auto mlp = state.layer_major_mlp_phase_views();
+    const auto legacy = state.layer_major_legacy_c512_views();
+    const auto final_hidden = state.layer_major_final_hidden();
+    test.expect(
+        residual && pointer_matches(state, residual.value->storage) &&
+            token_ids && pointer_matches(state, token_ids.value->storage) &&
+            gdn && pointer_matches(state, gdn.value->qkv_bf16.storage) &&
+            pointer_matches(state, gdn.value->native_c64_workspace) &&
+            attention &&
+            pointer_matches(state, attention.value->raw_q_gate_bf16.storage) &&
+            mlp && pointer_matches(state, mlp.value->gate_bf16.storage) &&
+            legacy &&
+            pointer_matches(state, legacy.value->hidden_bf16[0U].storage) &&
+            final_hidden &&
+            pointer_matches(state, final_hidden.value->storage),
+        "all layer-major typed device views resolve inside the owned arena");
+    test.expect(
+        gdn && attention && mlp && legacy &&
+            gdn.value->normalized_input_bf16.storage.device_data ==
+                gdn.value->recurrent_core_bf16.storage.device_data &&
+            attention.value->normalized_input_bf16.storage.device_data ==
+                attention.value->processed_q_bf16.storage.device_data &&
+            attention.value->core_output_bf16.storage.device_data !=
+                attention.value->branch_output_bf16.storage.device_data &&
+            mlp.value->normalized_input_bf16.storage.device_data ==
+                mlp.value->activated_bf16.storage.device_data &&
+            mlp.value->branch_output_bf16.storage.device_data !=
+                mlp.value->activated_bf16.storage.device_data &&
+            legacy.value->gqa_probability_scratch.device_data ==
+                legacy.value->fp32_scratch.device_data,
+        "typed views expose only the declared aliases and keep Down output distinct");
+
+    test.expect(state.commit_token() && !state.commit_token() &&
+                    state.sequence_length() == 1U &&
+                    !state.set_sequence_length(2U),
+                "layer-major state retains common sequence bounds");
+    runtime::RequestState moved = std::move(state);
+    test.expect(
+        moved && !state && moved.layer_major_plan() != nullptr &&
+            moved.layer_major_final_hidden() &&
+            !state.layer_major_final_hidden() &&
+            state.layer_major_final_hidden().error ==
+                runtime::RequestAccessError::kEmptyState,
+        "move transfers complete layer-major ownership and empties the source");
+}
+
 }  // namespace
 
 int main() {
@@ -336,6 +471,7 @@ int main() {
     TestContext test;
     test_create_views_rope_and_reset(test);
     test_memory_gate(test);
+    test_layer_major_create_views_and_profile_gate(test);
     if (test.failures() != 0) {
         std::cerr << test.failures() << " request-state CUDA test(s) failed\n";
         return 1;

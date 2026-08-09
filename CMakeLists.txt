@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24 FATAL_ERROR)
 
-project(Qwen3xOrin VERSION 0.4.0 LANGUAGES CXX CUDA)
+project(Qwen3xOrin VERSION 0.5.0 LANGUAGES CXX CUDA)
 
 include(GNUInstallDirs)
 include(CTest)
