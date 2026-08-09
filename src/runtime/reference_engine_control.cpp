@@ -151,7 +151,9 @@ bool checked_required_steps(const std::size_t prompt_tokens,
   }
   for (std::size_t layer_index = 0U;
        layer_index < topology.layers.size(); ++layer_index) {
-    if (progress.completed_panels[layer_index] != topology.panel_count) {
+    if (progress.completed_panels[layer_index] != topology.panel_count ||
+        progress.completed_mlp_phases[layer_index] !=
+            topology.mlp_schedule.mlp_phase_submission_count_per_layer) {
       return false;
     }
     switch (topology.layers[layer_index].progress_domain) {
@@ -192,6 +194,12 @@ GenerationControlResult run_generation_control_impl(
        prefill_plan.finish_whole_request_from_uncommitted_retained ==
            nullptr ||
        prefill_plan.commit_whole_request == nullptr);
+  const bool invalid_mlp_schedule =
+      !is_valid_layer_major_prefill_mlp_schedule_tactic(
+          options.prefill_mlp_schedule_tactic) ||
+      (!use_whole_request_prefill &&
+       options.prefill_mlp_schedule_tactic !=
+           LayerMajorPrefillMlpScheduleTactic::kPerOperatorPanel);
   const bool invalid_legacy_all_prompt_admission =
       options.prefill_all_prompt_tokens && !use_whole_request_prefill &&
       (options.capture_trace || options.prefill_chunk_size <= 1U ||
@@ -208,6 +216,7 @@ GenerationControlResult run_generation_control_impl(
       (options.prefill_single_arbitrary_tile &&
        !options.prefill_all_prompt_tokens) ||
       invalid_whole_request_prefill ||
+      invalid_mlp_schedule ||
       invalid_legacy_all_prompt_admission) {
     return failure(GenerationControlError::kInvalidArgument);
   }
@@ -235,6 +244,8 @@ GenerationControlResult run_generation_control_impl(
     topology_options.first_position = 0U;
     topology_options.prompt_token_count = prompt_token_ids.size();
     topology_options.max_sequence_length = options.max_sequence_length;
+    topology_options.mlp_schedule_tactic =
+        options.prefill_mlp_schedule_tactic;
     return build_unbound_layer_major_prefill_execution_plan(topology_options);
   }();
   if (use_whole_request_prefill) {
@@ -385,6 +396,12 @@ GenerationControlResult run_generation_control_impl(
                   whole_request_topology_result.value->panel_count)
             : static_cast<std::uint64_t>(prefix_execution_count) +
                   (use_all_prompt_admission ? 0U : 1U);
+    control.prefill_route_layer_pass_count =
+        use_whole_request_prefill
+            ? prefill_route_layer_pass_count(
+                  whole_request_topology_result.value->panel_count,
+                  options.prefill_mlp_schedule_tactic)
+            : control.prefill_logical_panel_count;
     control.timing.prefix_execution_milliseconds.reserve(
         prefix_execution_count);
 

@@ -170,6 +170,35 @@ inline constexpr std::string_view
         "q3x.sm87.ac-prefill-prompt-wide-v2."
         "native-nvfp4-g2-d2-large-m-operator-panel."
         "native-flashinfer-exact-panel-attention.v2";
+// Exact-P40000 persistent MLP is a distinct request-wide schedule and must
+// never inherit an operator-panel deployment identity.
+inline constexpr std::string_view
+    kLayerMajorNativeNvfp4PersistentP40MlpDeploymentPlanId =
+        "q3x.sm87.ac-prefill-prompt-wide-v2."
+        "native-nvfp4-persistent-p40-layer-wide-mlp."
+        "exact-segmented-attention.v1";
+inline constexpr std::string_view
+    kLayerMajorNativeNvfp4PersistentP40MlpGroupQ64DeploymentPlanId =
+        "q3x.sm87.ac-prefill-prompt-wide-v2."
+        "native-nvfp4-persistent-p40-layer-wide-mlp."
+        "native-group-q64-attention.v1";
+inline constexpr std::string_view
+    kLayerMajorNativeNvfp4PersistentP40MlpGroupQ128V4DeploymentPlanId =
+        "q3x.sm87.ac-prefill-prompt-wide-v2."
+        "native-nvfp4-persistent-p40-layer-wide-mlp."
+        "native-group-q128-v4-attention.v1";
+inline constexpr std::string_view
+    kLayerMajorNativeNvfp4PersistentP40MlpFlashInferExactDeploymentPlanId =
+        "q3x.sm87.ac-prefill-prompt-wide-v2."
+        "native-nvfp4-persistent-p40-layer-wide-mlp."
+        "native-flashinfer-exact-panel-attention.v1";
+// Exact-P40000 whole-core composition. This identity requires the independent
+// whole-core projection selector and complete-prompt FlashInfer selector;
+// neither the panel Attention route nor the layer-wide-MLP-only route may
+// emit it.
+inline constexpr std::string_view
+    kLayerMajorNativePromptWideP40WholeCoreDeploymentPlanId =
+        "q3x.sm87.ac-prefill-prompt-wide-v2.native-p40-whole-core.v1";
 
 [[nodiscard]] constexpr bool is_valid_reference_prefill_execution_mode(
     const ReferencePrefillExecutionMode mode) noexcept {
@@ -377,6 +406,32 @@ struct ReferenceGeneration {
   std::uint64_t prefill_native_nvfp4_true_large_m_gate_up_hits = 0U;
   std::uint64_t prefill_native_nvfp4_true_large_m_down_hits = 0U;
   std::uint64_t prefill_native_nvfp4_true_large_m_physical_launches = 0U;
+  LayerMajorPrefillMlpScheduleTactic prefill_mlp_schedule_tactic =
+      LayerMajorPrefillMlpScheduleTactic::kPerOperatorPanel;
+  std::uint64_t prefill_route_layer_pass_count = 0U;
+  // Exact-P40000 layer-wide MLP witnesses. The GateUp/Down counts are one per
+  // decoder layer, never multiplied by the five Attention/GDN panels.
+  std::uint64_t prefill_layer_wide_p40_mlp_layer_hits = 0U;
+  std::uint64_t prefill_persistent_p40_nvfp4_gate_up_hits = 0U;
+  std::uint64_t prefill_persistent_p40_nvfp4_down_residual_hits = 0U;
+  std::uint64_t prefill_persistent_p40_nvfp4_physical_launches = 0U;
+  std::uint64_t prefill_persistent_p40_fp8_projection_hits = 0U;
+  std::uint64_t prefill_persistent_p40_fp8_projection_bulk_hits = 0U;
+  std::uint64_t
+      prefill_persistent_p40_fp8_projection_oracle_partial_hits = 0U;
+  std::uint64_t prefill_persistent_p40_fp8_projection_physical_launches = 0U;
+  // Exact-P40000 whole-core completed-launch witnesses. These are copied
+  // from the committed runner result; selector admission never creates hits.
+  std::uint64_t prefill_prompt_wide_p40_whole_core_layer_hits = 0U;
+  std::uint64_t prefill_prompt_wide_p40_fill_panel_hits = 0U;
+  std::uint64_t prefill_prompt_wide_p40_prompt_core_hits = 0U;
+  std::uint64_t prefill_prompt_wide_p40_drain_panel_hits = 0U;
+  std::uint64_t prefill_prompt_wide_p40_fp8_projection_hits = 0U;
+  std::uint64_t
+      prefill_prompt_wide_p40_fp8_projection_physical_launches = 0U;
+  std::uint64_t prefill_prompt_wide_p40_bf16_ab_hits = 0U;
+  std::uint64_t prefill_prompt_wide_p40_gdn_hits = 0U;
+  std::uint64_t prefill_native_flashinfer_exact_whole_prompt_hits = 0U;
 };
 
 struct ReferenceEngineLoadStats {
@@ -970,6 +1025,11 @@ struct GenerationControlOptions {
   // callbacks, no trace, and no single-arbitrary-tile mode. No
   // ReferenceEngine sets it only when its engine-lifetime sealed plan exists.
   bool prefill_whole_request_layer_major = false;
+  // Engine-sealed MLP topology. The default preserves per-panel execution;
+  // the P40 value is valid only with the whole-request callback and exact
+  // cold P40000 geometry.
+  LayerMajorPrefillMlpScheduleTactic prefill_mlp_schedule_tactic =
+      LayerMajorPrefillMlpScheduleTactic::kPerOperatorPanel;
   void* committed_token_context = nullptr;
   CommittedTokenFunction committed_token = nullptr;
 };
@@ -982,6 +1042,10 @@ struct GenerationControl {
   ReferencePrefillExecutionMode prefill_execution_mode =
       ReferencePrefillExecutionMode::kLegacyC512Tiled;
   std::uint64_t prefill_logical_panel_count = 0U;
+  // Route evidence passes are intentionally independent of logical panel
+  // count. The P40 layer-wide MLP route publishes one complete request-wide
+  // 64-layer pass after all five panels and all 64 full-M phases complete.
+  std::uint64_t prefill_route_layer_pass_count = 0U;
 };
 
 struct GenerationControlResult {

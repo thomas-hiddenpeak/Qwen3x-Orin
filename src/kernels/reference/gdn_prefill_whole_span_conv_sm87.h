@@ -61,6 +61,20 @@ launch_causal_conv1d_silu_update_token_parallel_compact_qk_exact_cuda(
     std::uint16_t* compact_q, std::uint16_t* compact_k,
     void* cuda_stream = nullptr) noexcept;
 
+// Default-off prompt-wide architecture entry. It admits exactly M=40000 and
+// submits one (40 channel groups x 5000 C8 token tiles) grid. The final raw
+// convolution history is still published exactly once from the first token
+// tile, while every other tile reads its immutable raw predecessors. Compact
+// Q/K is written directly in the P40 chunk-graph workspace. This symbol is
+// linked only by the BUILD_TESTING native-GDN admission build.
+[[nodiscard]] int
+launch_causal_conv1d_silu_update_prompt_wide_p40_compact_qk_exact_cuda(
+    const std::uint16_t* raw_qkv, std::size_t token_count,
+    const std::uint16_t* conv_weight, std::uint16_t* history_in_out,
+    std::uint16_t* conv_qkv_output, float l2_epsilon,
+    std::uint16_t* compact_q, std::uint16_t* compact_k,
+    void* cuda_stream = nullptr) noexcept;
+
 // Private admission resource query. No kernel is launched.
 [[nodiscard]] int
 query_causal_conv1d_silu_update_whole_span_resources_cuda(

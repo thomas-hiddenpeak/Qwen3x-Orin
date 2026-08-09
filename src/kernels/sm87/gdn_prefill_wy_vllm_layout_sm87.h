@@ -21,6 +21,18 @@ namespace q3x::runtime::gdn_prefill_wy_vllm_layout_detail {
     std::uint16_t* transform, std::uint16_t* w,
     std::uint16_t* u, void* cuda_stream) noexcept;
 
+// Isolated P40 graph entry. It uses the identical fixed-shape kernels and
+// BF16/FP32 boundaries as launch_packless, but admits exactly 625 C64 chunks
+// in one layer-wide submission. The legacy public helper remains capped at
+// eight chunks.
+[[nodiscard]] int launch_packless_prompt_wide_p40(
+    const std::uint16_t* compact_k, const float* cumulative_gate,
+    const float* beta, const std::uint16_t* conv_qkv,
+    std::size_t token_count, std::size_t chunk_count,
+    float* raw_gram_scratch,
+    std::uint16_t* transform, std::uint16_t* w,
+    std::uint16_t* u, void* cuda_stream) noexcept;
+
 }  // namespace q3x::runtime::gdn_prefill_wy_vllm_layout_detail
 
 #endif  // Q3X_KERNELS_SM87_GDN_PREFILL_WY_VLLM_LAYOUT_SM87_H_

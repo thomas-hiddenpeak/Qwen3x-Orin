@@ -1,5 +1,7 @@
 #include "gdn_prefill_chunk_o_bv64_sm87.h"
 
+#include "q3x/kernels/gdn_prefill_prompt_wide_chunk_graph_abi.h"
+
 #include <cuda_bf16.h>
 #include <cuda_runtime.h>
 #include <mma.h>
@@ -844,11 +846,12 @@ void rms_norm_silu_rows8_kernel(
     const std::uint16_t* const silu_gate,
     const float norm_epsilon,
     const std::uint16_t* const raw_output,
-    const std::uint16_t* const output) noexcept {
+    const std::uint16_t* const output,
+    const std::size_t maximum_token_count) noexcept {
   return compact_q == nullptr || compact_k == nullptr ||
          boundary_state == nullptr || v_new == nullptr ||
          cumulative_gate == nullptr || token_count == 0U ||
-         token_count > kMaximumTokens ||
+         token_count > maximum_token_count ||
          norm_weight == nullptr || silu_gate == nullptr ||
          raw_output == nullptr || output == nullptr ||
          !std::isfinite(norm_epsilon) || norm_epsilon <= 0.0F;
@@ -901,7 +904,7 @@ int launch(const std::uint16_t* const compact_q,
            void* const cuda_stream) noexcept {
   if (invalid_arguments(compact_q, compact_k, boundary_state, v_new,
                         cumulative_gate, token_count, norm_weight, silu_gate,
-                        norm_epsilon, raw_output, output)) {
+                        norm_epsilon, raw_output, output, kMaximumTokens)) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
   const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
@@ -925,6 +928,47 @@ int launch(const std::uint16_t* const compact_q,
   return static_cast<int>(cudaGetLastError());
 }
 
+int launch_prompt_wide_p40(
+    const std::uint16_t* const compact_q,
+    const std::uint16_t* const compact_k,
+    const std::uint16_t* const boundary_state,
+    const std::uint16_t* const v_new,
+    const float* const cumulative_gate,
+    const std::size_t token_count,
+    const std::uint16_t* const norm_weight,
+    const std::uint16_t* const silu_gate,
+    const float norm_epsilon,
+    std::uint16_t* const raw_output,
+    std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  if (token_count != kernels::kGdnPromptWideChunkGraphP40Tokens ||
+      invalid_arguments(
+          compact_q, compact_k, boundary_state, v_new, cumulative_gate,
+          token_count, norm_weight, silu_gate, norm_epsilon, raw_output,
+          output, kernels::kGdnPromptWideChunkGraphP40Tokens)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  constexpr unsigned int chunk_count = static_cast<unsigned int>(
+      kernels::kGdnPromptWideChunkGraphP40Tokens / kChunk);
+  const dim3 grid(2U, chunk_count, kValueHeads);
+  (void)cudaGetLastError();
+  chunk_o_bv64_kernel<<<grid, kChunkThreads, 0U, stream>>>(
+      compact_q, compact_k, boundary_state, v_new, cumulative_gate,
+      raw_output);
+  int status = static_cast<int>(cudaGetLastError());
+  if (status != static_cast<int>(cudaSuccess)) {
+    return status;
+  }
+  constexpr unsigned int row_count = static_cast<unsigned int>(
+      kernels::kGdnPromptWideChunkGraphP40Tokens * kRowsPerToken);
+  constexpr unsigned int norm_blocks =
+      (row_count + kNormRowsPerCta - 1U) / kNormRowsPerCta;
+  rms_norm_silu_rows8_kernel<<<norm_blocks, kNormThreads, 0U, stream>>>(
+      raw_output, norm_weight, silu_gate, row_count, norm_epsilon, output);
+  return static_cast<int>(cudaGetLastError());
+}
+
 int launch_wmma_oracle(const std::uint16_t* const compact_q,
                        const std::uint16_t* const compact_k,
                        const std::uint16_t* const boundary_state,
@@ -939,7 +983,7 @@ int launch_wmma_oracle(const std::uint16_t* const compact_q,
                        void* const cuda_stream) noexcept {
   if (invalid_arguments(compact_q, compact_k, boundary_state, v_new,
                         cumulative_gate, token_count, norm_weight, silu_gate,
-                        norm_epsilon, raw_output, output)) {
+                        norm_epsilon, raw_output, output, kMaximumTokens)) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
   const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);

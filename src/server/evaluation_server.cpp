@@ -884,6 +884,45 @@ void emit_target_prefill_witness(
         generation.prefill_native_nvfp4_true_large_m_down_hits;
     record.native_nvfp4_true_large_m_physical_launches =
         generation.prefill_native_nvfp4_true_large_m_physical_launches;
+    record.mlp_schedule_tactic = generation.prefill_mlp_schedule_tactic;
+    record.route_layer_pass_count =
+        generation.prefill_route_layer_pass_count;
+    record.layer_wide_p40_mlp_layer_hits =
+        generation.prefill_layer_wide_p40_mlp_layer_hits;
+    record.persistent_p40_nvfp4_gate_up_hits =
+        generation.prefill_persistent_p40_nvfp4_gate_up_hits;
+    record.persistent_p40_nvfp4_down_residual_hits =
+        generation.prefill_persistent_p40_nvfp4_down_residual_hits;
+    record.persistent_p40_nvfp4_physical_launches =
+        generation.prefill_persistent_p40_nvfp4_physical_launches;
+    record.persistent_p40_fp8_projection_hits =
+        generation.prefill_persistent_p40_fp8_projection_hits;
+    record.persistent_p40_fp8_projection_bulk_hits =
+        generation.prefill_persistent_p40_fp8_projection_bulk_hits;
+    record.persistent_p40_fp8_projection_oracle_partial_hits =
+        generation
+            .prefill_persistent_p40_fp8_projection_oracle_partial_hits;
+    record.persistent_p40_fp8_projection_physical_launches =
+        generation.prefill_persistent_p40_fp8_projection_physical_launches;
+    record.prompt_wide_p40_whole_core_layer_hits =
+        generation.prefill_prompt_wide_p40_whole_core_layer_hits;
+    record.prompt_wide_p40_fill_panel_hits =
+        generation.prefill_prompt_wide_p40_fill_panel_hits;
+    record.prompt_wide_p40_prompt_core_hits =
+        generation.prefill_prompt_wide_p40_prompt_core_hits;
+    record.prompt_wide_p40_drain_panel_hits =
+        generation.prefill_prompt_wide_p40_drain_panel_hits;
+    record.prompt_wide_p40_fp8_projection_hits =
+        generation.prefill_prompt_wide_p40_fp8_projection_hits;
+    record.prompt_wide_p40_fp8_projection_physical_launches =
+        generation
+            .prefill_prompt_wide_p40_fp8_projection_physical_launches;
+    record.prompt_wide_p40_bf16_ab_hits =
+        generation.prefill_prompt_wide_p40_bf16_ab_hits;
+    record.prompt_wide_p40_gdn_hits =
+        generation.prefill_prompt_wide_p40_gdn_hits;
+    record.native_flashinfer_exact_whole_prompt_hits =
+        generation.prefill_native_flashinfer_exact_whole_prompt_hits;
     record.deployment_plan_id = generation.prefill_deployment_plan_id;
     std::cerr << serialize_target_prefill_witness(record) << '\n';
   } catch (...) {

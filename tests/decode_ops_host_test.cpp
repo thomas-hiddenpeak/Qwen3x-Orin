@@ -30,11 +30,19 @@ static_assert(std::is_same_v<
               FullAttentionPreprocessReference256Launch>);
 static_assert(std::is_same_v<
               decltype(&q3x::runtime::
+                           launch_full_attention_preprocess_24_4_256_64_prompt_wide_p8000_cuda),
+              FullAttentionPreprocessReference256Launch>);
+static_assert(std::is_same_v<
+              decltype(&q3x::runtime::
                            launch_bulk_causal_gqa_sigmoid_gate_24_4_256_fixed_cuda),
               FixedBulkCausalGqaLaunch>);
 static_assert(std::is_same_v<
               decltype(&q3x::runtime::
                            launch_bulk_causal_gqa_sigmoid_gate_24_4_256_group_q64_panel_fixed_cuda),
+              FixedBulkCausalGqaLaunch>);
+static_assert(std::is_same_v<
+              decltype(&q3x::runtime::
+                           launch_bulk_causal_gqa_sigmoid_gate_24_4_256_flashinfer_exact_whole_prompt_fixed_cuda),
               FixedBulkCausalGqaLaunch>);
 
 class TestContext {
@@ -164,6 +172,68 @@ void test_group_q64_panel_contract(TestContext& test) {
               std::numeric_limits<std::size_t>::max(), 2U),
       "panel grouped-Q64 rejects undersized, oversized, and packed-range "
       "overflow geometry");
+}
+
+void test_flashinfer_whole_prompt_contract(TestContext& test) {
+  using q3x::runtime::
+      can_launch_bulk_causal_gqa_flashinfer_exact_whole_prompt;
+  constexpr std::size_t kMinimum = q3x::runtime::
+      kBulkCausalGqaFlashInferExactWholePromptMinimumTokens;
+  constexpr std::size_t kMaximum = q3x::runtime::
+      kBulkCausalGqaFlashInferExactWholePromptMaximumTokens;
+
+  test.expect(
+      kMinimum == 40'000U && kMaximum == 60'000U &&
+          can_launch_bulk_causal_gqa_flashinfer_exact_whole_prompt(0U,
+                                                                   kMinimum) &&
+          can_launch_bulk_causal_gqa_flashinfer_exact_whole_prompt(0U,
+                                                                   50'000U) &&
+          can_launch_bulk_causal_gqa_flashinfer_exact_whole_prompt(0U,
+                                                                   kMaximum),
+      "whole-prompt FlashInfer admits the cold P40..P60 product interval");
+  test.expect(
+      !can_launch_bulk_causal_gqa_flashinfer_exact_whole_prompt(0U,
+                                                                kMinimum - 1U) &&
+          !can_launch_bulk_causal_gqa_flashinfer_exact_whole_prompt(
+              0U, kMaximum + 1U) &&
+          !can_launch_bulk_causal_gqa_flashinfer_exact_whole_prompt(1U,
+                                                                    kMinimum) &&
+          !can_launch_bulk_causal_gqa_flashinfer_exact_whole_prompt(
+              std::numeric_limits<std::size_t>::max(), kMinimum),
+      "whole-prompt FlashInfer rejects short, oversized, append, and overflow geometry");
+}
+
+void test_full_attention_preprocess_prompt_wide_p8000_contract(
+    TestContext& test) {
+  using q3x::runtime::
+      can_launch_full_attention_preprocess_prompt_wide_p8000;
+  constexpr std::size_t kPanel = q3x::runtime::
+      kFullAttentionPreprocessPromptWideP8000Tokens;
+
+  test.expect(
+      kPanel == 8'000U &&
+          can_launch_full_attention_preprocess_prompt_wide_p8000(0U,
+                                                                 kPanel) &&
+          can_launch_full_attention_preprocess_prompt_wide_p8000(8'000U,
+                                                                 kPanel) &&
+          can_launch_full_attention_preprocess_prompt_wide_p8000(16'000U,
+                                                                 kPanel) &&
+          can_launch_full_attention_preprocess_prompt_wide_p8000(24'000U,
+                                                                 kPanel) &&
+          can_launch_full_attention_preprocess_prompt_wide_p8000(32'000U,
+                                                                 kPanel),
+      "prompt-wide preprocessing admits exactly five cold-P40000 panels");
+  test.expect(
+      !can_launch_full_attention_preprocess_prompt_wide_p8000(1U, kPanel) &&
+          !can_launch_full_attention_preprocess_prompt_wide_p8000(40'000U,
+                                                                  kPanel) &&
+          !can_launch_full_attention_preprocess_prompt_wide_p8000(
+              0U, kPanel - 1U) &&
+          !can_launch_full_attention_preprocess_prompt_wide_p8000(
+              0U, kPanel + 1U) &&
+          !can_launch_full_attention_preprocess_prompt_wide_p8000(
+              std::numeric_limits<std::size_t>::max(), kPanel),
+      "prompt-wide preprocessing rejects append, sixth-panel, and non-M8000 geometry");
 }
 
 void test_embedding(TestContext& test) {
@@ -686,6 +756,8 @@ int main() {
   TestContext test;
   test_fixed_bulk_causal_gqa_contract(test);
   test_group_q64_panel_contract(test);
+  test_flashinfer_whole_prompt_contract(test);
+  test_full_attention_preprocess_prompt_wide_p8000_contract(test);
   test_embedding(test);
   test_norms(test);
   test_headwise_norms(test);

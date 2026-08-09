@@ -39,7 +39,6 @@ constexpr std::uint64_t kRopePairs = 32U;
 constexpr float kRopeTheta = 10'000'000.0F;
 constexpr std::uint64_t kMaximumConfigurableArenaBytes =
     64ULL * 1024ULL * 1024ULL * 1024ULL;
-constexpr std::uint64_t kLayerMajorFamilyPhaseArenaBytes = 855'638'016U;
 constexpr std::uint64_t kProjectionTemporaryBytes = 1'048'832U;
 
 constexpr std::uint64_t kGdnZOffset = 167'772'160U;
@@ -56,9 +55,16 @@ constexpr std::uint64_t kAttentionProjectionTemporaryOffset = 285'212'672U;
 constexpr std::uint64_t kAttentionBranchOutputOffset = 100'663'296U;
 constexpr std::uint64_t kAttentionOutputTemporaryOffset = 184'549'376U;
 
-constexpr std::uint64_t kMlpUpOffset = 285'212'672U;
-constexpr std::uint64_t kMlpActivatedOffset = 570'425'344U;
-constexpr std::uint64_t kMlpGateUpTemporaryOffset = 654'311'424U;
+constexpr std::uint64_t kP40WholeCoreRawQkvOffset = 0U;
+constexpr std::uint64_t kP40WholeCoreConvQkvOffset = 819'200'000U;
+constexpr std::uint64_t kP40WholeCoreZOffset = 1'638'400'000U;
+constexpr std::uint64_t kP40WholeCoreAOffset = 2'129'920'000U;
+constexpr std::uint64_t kP40WholeCoreBOffset = 2'133'760'000U;
+constexpr std::uint64_t kP40WholeCoreGdnWorkspaceOffset = 2'137'600'000U;
+constexpr std::uint64_t kP40WholeCoreOutputOffset = 4'938'240'000U;
+constexpr std::uint64_t kP40WholeCoreProcessedQOffset = 983'040'000U;
+constexpr std::uint64_t kP40WholeCorePackedGateOffset = 1'474'560'000U;
+constexpr std::uint64_t kP40WholeCoreAttentionBranchOffset = 491'520'000U;
 
 RequestDiagnostic make_diagnostic(RequestErrorCode code,
                                   std::string message,
@@ -289,6 +295,12 @@ RequestMatrixViewResult matrix_access_failure(
     RequestMatrixViewResult result;
     result.error = error;
     return result;
+}
+
+[[nodiscard]] bool is_layer_major_memory_profile(
+    const RequestMemoryProfile profile) noexcept {
+    return profile == RequestMemoryProfile::kLayerMajorC8192 ||
+           profile == RequestMemoryProfile::kLayerMajorP40WholeCore;
 }
 
 template <typename Views>
@@ -589,10 +601,29 @@ RequestPlanResult build_request_memory_plan(
 
 LayerMajorRequestPlanResult build_layer_major_request_memory_plan(
     const LayerMajorRequestMemoryOptions& options) {
+    const bool whole_core_p40 =
+        options.layout ==
+        LayerMajorRequestLayout::kP40WholeCorePromptWide;
+    const bool layer_wide_p40_mlp =
+        options.mlp_layout ==
+        LayerMajorRequestMlpLayout::kLayerWideP40PersistentTwoSpan;
     if (options.batch_size != 1U || options.max_sequence_length == 0U ||
         options.max_sequence_length > kAbsoluteRequestMaxSequenceLength ||
         options.max_arena_bytes == 0U ||
-        options.max_arena_bytes > kMaximumConfigurableArenaBytes) {
+        options.max_arena_bytes > kMaximumConfigurableArenaBytes ||
+        (options.layout !=
+             LayerMajorRequestLayout::kC8192FamilyOverlay &&
+         !whole_core_p40) ||
+        (options.mlp_layout !=
+             LayerMajorRequestMlpLayout::kPanelLocalThreeSpan &&
+         !layer_wide_p40_mlp) ||
+        (layer_wide_p40_mlp &&
+         (!layer_wide_p40_mlp_prefill_plan_enabled() ||
+          options.max_sequence_length !=
+              kLayerMajorPrefillLayerWideMlpP40RequestCapacityTokens)) ||
+        (whole_core_p40 &&
+         (!prompt_wide_p40_whole_core_prefill_plan_enabled() ||
+          !layer_wide_p40_mlp))) {
         return layer_major_plan_failure(make_diagnostic(
             RequestErrorCode::kInvalidOption,
             "layer-major request options violate batch, explicit sequence, "
@@ -613,27 +644,65 @@ LayerMajorRequestPlanResult build_layer_major_request_memory_plan(
     workspace_options.legacy_gdn_tactic =
         PrefillLegacyGdnPhysicalTactic::kC16Composite;
     workspace_options.mlp_tactic =
-        PrefillMlpPhysicalTactic::kSeparateGateUpAndSilu;
-    const LayerMajorPrefillWorkspacePlanResult workspace_result =
-        build_unbound_layer_major_prefill_workspace_plan(workspace_options);
-    if (!workspace_result) {
-        return layer_major_plan_failure(make_diagnostic(
-            RequestErrorCode::kInvalidOption,
-            "fixed layer-major workspace strategy was rejected by its planner",
-            "prefill_workspace_plan",
-            "valid fixed strategy",
-            std::to_string(static_cast<unsigned>(workspace_result.error))));
+        layer_wide_p40_mlp
+            ? PrefillMlpPhysicalTactic::kLayerWideP40PersistentFusedGateUp
+            : PrefillMlpPhysicalTactic::kSeparateGateUpAndSilu;
+    LayerMajorPrefillWorkspacePlanResult workspace_result;
+    LayerMajorP40WholeCoreWorkspacePlanResult whole_core_workspace_result;
+    if (whole_core_p40) {
+        LayerMajorP40WholeCoreWorkspaceOptions whole_options;
+        whole_options.prompt_token_count =
+            kLayerMajorP40WholeCorePromptTokens;
+        whole_options.request_sequence_capacity_tokens =
+            options.max_sequence_length;
+        whole_options.logical_panel_capacity_tokens =
+            kLayerMajorP40WholeCorePanelTokens;
+        whole_options.request_arena_limit_bytes = options.max_arena_bytes;
+        whole_core_workspace_result =
+            build_unbound_layer_major_p40_whole_core_workspace_plan(
+                whole_options);
+        if (!whole_core_workspace_result) {
+            return layer_major_plan_failure(make_diagnostic(
+                RequestErrorCode::kInvalidOption,
+                "exact P40 whole-core workspace strategy was rejected by "
+                "its planner",
+                "prefill_workspace_plan",
+                "valid exact-P40000/P40001 whole-core strategy",
+                std::to_string(static_cast<unsigned>(
+                    whole_core_workspace_result.error))));
+        }
+    } else {
+        workspace_result =
+            build_unbound_layer_major_prefill_workspace_plan(
+                workspace_options);
+        if (!workspace_result) {
+            return layer_major_plan_failure(make_diagnostic(
+                RequestErrorCode::kInvalidOption,
+                "fixed layer-major workspace strategy was rejected by its "
+                "planner",
+                "prefill_workspace_plan",
+                "valid fixed strategy",
+                std::to_string(
+                    static_cast<unsigned>(workspace_result.error))));
+        }
     }
-    const LayerMajorPrefillWorkspacePlan& workspace =
-        *workspace_result.value;
-    if (workspace.selected.required_bytes > options.max_arena_bytes) {
+    const std::uint64_t selected_request_bytes =
+        whole_core_p40
+            ? whole_core_workspace_result.value->required_bytes
+            : workspace_result.value->selected.required_bytes;
+    if (selected_request_bytes > options.max_arena_bytes) {
         return layer_major_plan_failure(make_diagnostic(
             RequestErrorCode::kArenaLimitExceeded,
             "layer-major request arena exceeds configured max_arena_bytes",
             "max_arena_bytes",
             std::to_string(options.max_arena_bytes),
-            std::to_string(workspace.selected.required_bytes)));
+            std::to_string(selected_request_bytes)));
     }
+
+    const LayerMajorPrefillWorkspacePlan* const workspace =
+        whole_core_p40 ? nullptr : &*workspace_result.value;
+    const LayerMajorP40WholeCoreWorkspacePlan* const whole_workspace =
+        whole_core_p40 ? &*whole_core_workspace_result.value : nullptr;
 
     // Reuse the already qualified legacy arithmetic only as a source of exact
     // common persistent/KV capacities and the fixed layer schedule. Its
@@ -654,17 +723,85 @@ LayerMajorRequestPlanResult build_layer_major_request_memory_plan(
 
     LayerMajorRequestMemoryPlan plan;
     RequestMemoryPlan& common = plan.common;
-    common.profile = RequestMemoryProfile::kLayerMajorC8192;
+    common.profile =
+        whole_core_p40 ? RequestMemoryProfile::kLayerMajorP40WholeCore
+                       : RequestMemoryProfile::kLayerMajorC8192;
     common.batch_size = 1U;
     common.prefill_chunk_size = kMaximumRequestPrefillChunkSize;
     common.max_sequence_length =
         static_cast<std::uint32_t>(options.max_sequence_length);
     common.layers = legacy_shape.layers;
     plan.hidden_strategy = workspace_options.hidden_strategy;
-    plan.scratch_strategy = workspace_options.scratch_strategy;
-    plan.gdn_tactic = workspace_options.gdn_tactic;
+    plan.scratch_strategy =
+        whole_core_p40
+            ? PrefillOperatorScratchStrategy::
+                  kP40WholeCorePromptWideWithDisjointLegacyC512
+            : workspace_options.scratch_strategy;
+    plan.gdn_tactic =
+        whole_core_p40
+            ? PrefillGdnPhysicalTactic::kP40PromptWideChunkGraph
+            : workspace_options.gdn_tactic;
     plan.legacy_gdn_tactic = workspace_options.legacy_gdn_tactic;
     plan.mlp_tactic = workspace_options.mlp_tactic;
+    plan.mlp_layout = options.mlp_layout;
+    plan.layout = options.layout;
+    plan.operator_panel_capacity_tokens =
+        whole_core_p40 ? kLayerMajorP40WholeCorePanelTokens
+                       : kLayerMajorRequestOperatorPanelCapacity;
+    plan.mlp_capacity_tokens =
+        whole_core_p40
+            ? kLayerMajorP40WholeCorePromptTokens
+            : workspace->operator_scratch.mlp_capacity_tokens;
+
+    const std::uint64_t family_phase_arena_bytes =
+        whole_core_p40
+            ? whole_workspace->whole_core_family_arena.required_bytes
+            : workspace->operator_scratch.c8192_family_overlay_conditional
+                  .total_required_bytes;
+    std::uint64_t mlp_span_bytes = 0U;
+    std::uint64_t mlp_up_offset = 0U;
+    std::uint64_t mlp_activated_offset = 0U;
+    std::uint64_t mlp_normalized_offset = 0U;
+    std::uint64_t mlp_normalized_bytes = 0U;
+    std::uint64_t mlp_gate_up_temporary_offset = 0U;
+    std::uint64_t mlp_branch_offset = 0U;
+    if (!checked_multiply(plan.mlp_capacity_tokens, kProjectionElements,
+                          mlp_span_bytes) ||
+        !checked_multiply(mlp_span_bytes, kBf16Bytes, mlp_span_bytes) ||
+        !checked_multiply(plan.mlp_capacity_tokens, kHiddenElements,
+                          mlp_normalized_bytes) ||
+        !checked_multiply(mlp_normalized_bytes, kBf16Bytes,
+                          mlp_normalized_bytes)) {
+        return layer_major_plan_failure(make_diagnostic(
+            RequestErrorCode::kArithmeticOverflow,
+            "layer-major MLP layout arithmetic overflows uint64",
+            "mlp_phase_layout"));
+    }
+    if (whole_core_p40) {
+        mlp_up_offset = 0U;
+        mlp_activated_offset = 0U;
+        mlp_normalized_offset = kP40WholeCoreOutputOffset;
+        mlp_gate_up_temporary_offset = kP40WholeCoreGdnWorkspaceOffset;
+        mlp_branch_offset = kP40WholeCoreOutputOffset;
+    } else if (layer_wide_p40_mlp) {
+        mlp_up_offset = 0U;
+        mlp_activated_offset = 0U;
+        mlp_normalized_offset = mlp_span_bytes;
+        mlp_gate_up_temporary_offset = 0U;
+        mlp_branch_offset = mlp_normalized_offset;
+    } else if (!checked_add(0U, mlp_span_bytes, mlp_up_offset) ||
+               !checked_add(mlp_up_offset, mlp_span_bytes,
+                            mlp_activated_offset) ||
+               !checked_add(mlp_activated_offset, mlp_normalized_bytes,
+                            mlp_gate_up_temporary_offset)) {
+        return layer_major_plan_failure(make_diagnostic(
+            RequestErrorCode::kArithmeticOverflow,
+            "panel-local MLP layout arithmetic overflows uint64",
+            "mlp_phase_layout"));
+    } else {
+        mlp_normalized_offset = mlp_activated_offset;
+        mlp_branch_offset = mlp_up_offset;
+    }
 
     PlanBuilder builder;
     common.persistent_offset = 0U;
@@ -701,108 +838,206 @@ LayerMajorRequestPlanResult build_layer_major_request_memory_plan(
     common.persistent_bytes = builder.cursor();
     common.workspace_offset = builder.cursor();
 
+    RequestRegion* const family_region =
+        whole_core_p40 ? &plan.p40_whole_core.family_phase_arena
+                       : &plan.c8192_family_phase_arena;
     if (!add_matrix(builder, common.max_sequence_length,
                     static_cast<std::uint32_t>(kHiddenElements),
                     kHiddenElements, kBf16Bytes,
                     plan.prompt_residual_bf16) ||
-        !builder.add(kLayerMajorFamilyPhaseArenaBytes, 1U,
-                     plan.c8192_family_phase_arena)) {
+        !builder.add(family_phase_arena_bytes, 1U, *family_region)) {
         return layer_major_plan_failure(make_diagnostic(
             RequestErrorCode::kArithmeticOverflow,
             "layer-major prompt residual or family arena overflows uint64",
             "layer_major_workspace"));
     }
 
-    const RequestRegion& family = plan.c8192_family_phase_arena;
-    constexpr std::uint32_t panel =
-        kLayerMajorRequestOperatorPanelCapacity;
-    if (!make_matrix_subregion_checked(family, 0U, panel, 1U, 1U, 4U,
-                                       plan.panel_token_ids_u32) ||
-        !make_matrix_subregion_checked(family, 0U, panel, 10'240U,
-                                       10'240U, kBf16Bytes,
-                                       plan.gdn.qkv_bf16) ||
-        !make_matrix_subregion_checked(family, kGdnZOffset, panel, 6'144U,
-                                       6'144U, kBf16Bytes,
-                                       plan.gdn.z_bf16) ||
-        !make_matrix_subregion_checked(family, kGdnAOffset, panel, 48U, 48U,
-                                       kBf16Bytes, plan.gdn.a_bf16) ||
-        !make_matrix_subregion_checked(family, kGdnBOffset, panel, 48U, 48U,
-                                       kBf16Bytes, plan.gdn.b_bf16) ||
-        !make_matrix_subregion_checked(family, kGdnCoreOffset, panel,
-                                       6'144U, 6'144U, kBf16Bytes,
-                                       plan.gdn.recurrent_core_bf16) ||
-        !make_byte_subregion_checked(
-            family, kGdnNativeWorkspaceOffset,
-            kLayerMajorPrefillGdnC64NativeWorkspaceBytes,
-            plan.gdn.native_c64_workspace) ||
-        !make_matrix_subregion_checked(family, kGdnCoreOffset, panel,
-                                       5'120U, 5'120U, kBf16Bytes,
-                                       plan.gdn.normalized_input_bf16) ||
-        !make_byte_subregion_checked(family,
-                                     kGdnProjectionTemporaryOffset,
-                                     kProjectionTemporaryBytes,
-                                     plan.gdn.input_projection_temporary) ||
-        !make_matrix_subregion_checked(family, 0U, panel, 5'120U, 5'120U,
-                                       kBf16Bytes,
-                                       plan.gdn.branch_output_bf16) ||
-        !make_byte_subregion_checked(family,
-                                     kOutputProjectionTemporaryOffset,
-                                     kProjectionTemporaryBytes,
-                                     plan.gdn.output_projection_temporary)) {
-        return layer_major_plan_failure(make_diagnostic(
-            RequestErrorCode::kInvalidLayerSchedule,
-            "fixed GDN phase views exceed the C8192 family arena",
-            "gdn_phase_layout"));
+    const RequestRegion& family = *family_region;
+    if (whole_core_p40) {
+        LayerMajorP40WholeCoreRegions& whole = plan.p40_whole_core;
+        whole.prompt_token_count = kLayerMajorP40WholeCorePromptTokens;
+        whole.request_capacity_tokens =
+            kLayerMajorP40WholeCoreRequestCapacityTokens;
+        whole.logical_panel_capacity_tokens =
+            kLayerMajorP40WholeCorePanelTokens;
+        whole.logical_panel_count = kLayerMajorP40WholeCorePanelCount;
+        if (!make_matrix_subregion_checked(
+                family, kP40WholeCoreGdnWorkspaceOffset,
+                kLayerMajorP40WholeCorePromptTokens, 1U, 1U,
+                sizeof(std::uint32_t), whole.prompt_token_ids_u32) ||
+            !make_matrix_subregion_checked(
+                family, kP40WholeCoreRawQkvOffset,
+                kLayerMajorP40WholeCorePromptTokens, 10'240U, 10'240U,
+                kBf16Bytes, whole.linear.raw_qkv_bf16) ||
+            !make_matrix_subregion_checked(
+                family, kP40WholeCoreConvQkvOffset,
+                kLayerMajorP40WholeCorePromptTokens, 10'240U, 10'240U,
+                kBf16Bytes, whole.linear.conv_qkv_bf16) ||
+            !make_matrix_subregion_checked(
+                family, kP40WholeCoreZOffset,
+                kLayerMajorP40WholeCorePromptTokens, 6'144U, 6'144U,
+                kBf16Bytes, whole.linear.z_bf16) ||
+            !make_matrix_subregion_checked(
+                family, kP40WholeCoreAOffset,
+                kLayerMajorP40WholeCorePromptTokens, 48U, 48U,
+                kBf16Bytes, whole.linear.a_bf16) ||
+            !make_matrix_subregion_checked(
+                family, kP40WholeCoreBOffset,
+                kLayerMajorP40WholeCorePromptTokens, 48U, 48U,
+                kBf16Bytes, whole.linear.b_bf16) ||
+            !make_byte_subregion_checked(
+                family, kP40WholeCoreGdnWorkspaceOffset,
+                whole_workspace->linear_prompt_wide_workspace.memory
+                    .required_bytes,
+                whole.linear.prompt_wide_workspace) ||
+            !make_matrix_subregion_checked(
+                family, kP40WholeCoreOutputOffset,
+                kLayerMajorP40WholeCorePromptTokens, 6'144U, 6'144U,
+                kBf16Bytes, whole.linear.output_bf16) ||
+            !make_matrix_subregion_checked(
+                family, kP40WholeCoreOutputOffset,
+                kLayerMajorP40WholeCorePromptTokens, 5'120U, 5'120U,
+                kBf16Bytes, whole.linear.normalized_input_bf16) ||
+            !make_matrix_subregion_checked(
+                family, kP40WholeCoreRawQkvOffset,
+                kLayerMajorP40WholeCorePromptTokens, 5'120U, 5'120U,
+                kBf16Bytes, whole.linear.branch_output_bf16)) {
+            return layer_major_plan_failure(make_diagnostic(
+                RequestErrorCode::kInvalidLayerSchedule,
+                "fixed linear whole-core phase views exceed the P40 family "
+                "arena",
+                "p40_whole_core_linear_phase_layout"));
+        }
+
+        if (!make_matrix_subregion_checked(
+                family, 0U, kLayerMajorP40WholeCorePromptTokens, 12'288U,
+                12'288U, kBf16Bytes,
+                whole.full_attention.raw_q_gate_bf16) ||
+            !make_matrix_subregion_checked(
+                family, kP40WholeCoreProcessedQOffset,
+                kLayerMajorP40WholeCorePromptTokens, 6'144U, 6'144U,
+                kBf16Bytes, whole.full_attention.processed_q_bf16) ||
+            !make_matrix_subregion_checked(
+                family, kP40WholeCorePackedGateOffset,
+                kLayerMajorP40WholeCorePromptTokens, 6'144U, 6'144U,
+                kBf16Bytes, whole.full_attention.packed_gate_bf16) ||
+            !make_matrix_subregion_checked(
+                family, kP40WholeCoreOutputOffset,
+                kLayerMajorP40WholeCorePromptTokens, 5'120U, 5'120U,
+                kBf16Bytes,
+                whole.full_attention.normalized_input_bf16) ||
+            !make_matrix_subregion_checked(
+                family, 0U, kLayerMajorP40WholeCorePromptTokens, 6'144U,
+                6'144U, kBf16Bytes,
+                whole.full_attention.core_output_bf16) ||
+            !make_matrix_subregion_checked(
+                family, kP40WholeCoreAttentionBranchOffset,
+                kLayerMajorP40WholeCorePromptTokens, 5'120U, 5'120U,
+                kBf16Bytes,
+                whole.full_attention.branch_output_bf16)) {
+            return layer_major_plan_failure(make_diagnostic(
+                RequestErrorCode::kInvalidLayerSchedule,
+                "fixed full-Attention whole-core views exceed the P40 "
+                "family arena",
+                "p40_whole_core_full_attention_phase_layout"));
+        }
+    } else {
+        constexpr std::uint32_t panel =
+            kLayerMajorRequestOperatorPanelCapacity;
+        if (!make_matrix_subregion_checked(family, 0U, panel, 1U, 1U, 4U,
+                                           plan.panel_token_ids_u32) ||
+            !make_matrix_subregion_checked(family, 0U, panel, 10'240U,
+                                           10'240U, kBf16Bytes,
+                                           plan.gdn.qkv_bf16) ||
+            !make_matrix_subregion_checked(family, kGdnZOffset, panel,
+                                           6'144U, 6'144U, kBf16Bytes,
+                                           plan.gdn.z_bf16) ||
+            !make_matrix_subregion_checked(family, kGdnAOffset, panel, 48U,
+                                           48U, kBf16Bytes,
+                                           plan.gdn.a_bf16) ||
+            !make_matrix_subregion_checked(family, kGdnBOffset, panel, 48U,
+                                           48U, kBf16Bytes,
+                                           plan.gdn.b_bf16) ||
+            !make_matrix_subregion_checked(family, kGdnCoreOffset, panel,
+                                           6'144U, 6'144U, kBf16Bytes,
+                                           plan.gdn.recurrent_core_bf16) ||
+            !make_byte_subregion_checked(
+                family, kGdnNativeWorkspaceOffset,
+                kLayerMajorPrefillGdnC64NativeWorkspaceBytes,
+                plan.gdn.native_c64_workspace) ||
+            !make_matrix_subregion_checked(
+                family, kGdnCoreOffset, panel, 5'120U, 5'120U,
+                kBf16Bytes, plan.gdn.normalized_input_bf16) ||
+            !make_byte_subregion_checked(
+                family, kGdnProjectionTemporaryOffset,
+                kProjectionTemporaryBytes,
+                plan.gdn.input_projection_temporary) ||
+            !make_matrix_subregion_checked(
+                family, 0U, panel, 5'120U, 5'120U, kBf16Bytes,
+                plan.gdn.branch_output_bf16) ||
+            !make_byte_subregion_checked(
+                family, kOutputProjectionTemporaryOffset,
+                kProjectionTemporaryBytes,
+                plan.gdn.output_projection_temporary)) {
+            return layer_major_plan_failure(make_diagnostic(
+                RequestErrorCode::kInvalidLayerSchedule,
+                "fixed GDN phase views exceed the C8192 family arena",
+                "gdn_phase_layout"));
+        }
+
+        if (!make_matrix_subregion_checked(
+                family, 0U, panel, 12'288U, 12'288U, kBf16Bytes,
+                plan.attention.raw_q_gate_bf16) ||
+            !make_matrix_subregion_checked(
+                family, kAttentionProcessedQOffset, panel, 6'144U, 6'144U,
+                kBf16Bytes, plan.attention.processed_q_bf16) ||
+            !make_matrix_subregion_checked(
+                family, kAttentionPackedGateOffset, panel, 6'144U, 6'144U,
+                kBf16Bytes, plan.attention.packed_gate_bf16) ||
+            !make_matrix_subregion_checked(
+                family, kAttentionProcessedQOffset, panel, 5'120U, 5'120U,
+                kBf16Bytes, plan.attention.normalized_input_bf16) ||
+            !make_byte_subregion_checked(
+                family, kAttentionProjectionTemporaryOffset,
+                kProjectionTemporaryBytes,
+                plan.attention.input_projection_temporary) ||
+            !make_matrix_subregion_checked(
+                family, 0U, panel, 6'144U, 6'144U, kBf16Bytes,
+                plan.attention.core_output_bf16) ||
+            !make_matrix_subregion_checked(
+                family, kAttentionBranchOutputOffset, panel, 5'120U, 5'120U,
+                kBf16Bytes, plan.attention.branch_output_bf16) ||
+            !make_byte_subregion_checked(
+                family, kAttentionOutputTemporaryOffset,
+                kProjectionTemporaryBytes,
+                plan.attention.output_projection_temporary)) {
+            return layer_major_plan_failure(make_diagnostic(
+                RequestErrorCode::kInvalidLayerSchedule,
+                "fixed Attention phase views exceed the C8192 family arena",
+                "attention_phase_layout"));
+        }
     }
 
-    if (!make_matrix_subregion_checked(family, 0U, panel, 12'288U,
-                                       12'288U, kBf16Bytes,
-                                       plan.attention.raw_q_gate_bf16) ||
-        !make_matrix_subregion_checked(
-            family, kAttentionProcessedQOffset, panel, 6'144U, 6'144U,
-            kBf16Bytes, plan.attention.processed_q_bf16) ||
-        !make_matrix_subregion_checked(
-            family, kAttentionPackedGateOffset, panel, 6'144U, 6'144U,
-            kBf16Bytes, plan.attention.packed_gate_bf16) ||
-        !make_matrix_subregion_checked(
-            family, kAttentionProcessedQOffset, panel, 5'120U, 5'120U,
-            kBf16Bytes, plan.attention.normalized_input_bf16) ||
-        !make_byte_subregion_checked(
-            family, kAttentionProjectionTemporaryOffset,
-            kProjectionTemporaryBytes,
-            plan.attention.input_projection_temporary) ||
-        !make_matrix_subregion_checked(family, 0U, panel, 6'144U, 6'144U,
-                                       kBf16Bytes,
-                                       plan.attention.core_output_bf16) ||
-        !make_matrix_subregion_checked(
-            family, kAttentionBranchOutputOffset, panel, 5'120U, 5'120U,
-            kBf16Bytes, plan.attention.branch_output_bf16) ||
-        !make_byte_subregion_checked(
-            family, kAttentionOutputTemporaryOffset,
-            kProjectionTemporaryBytes,
-            plan.attention.output_projection_temporary)) {
-        return layer_major_plan_failure(make_diagnostic(
-            RequestErrorCode::kInvalidLayerSchedule,
-            "fixed Attention phase views exceed the C8192 family arena",
-            "attention_phase_layout"));
-    }
-
-    if (!make_matrix_subregion_checked(family, 0U, panel, 17'408U,
+    const std::uint32_t mlp_rows = plan.mlp_capacity_tokens;
+    if (!make_matrix_subregion_checked(family, 0U, mlp_rows, 17'408U,
                                        17'408U, kBf16Bytes,
                                        plan.mlp.gate_bf16) ||
-        !make_matrix_subregion_checked(family, kMlpUpOffset, panel, 17'408U,
+        !make_matrix_subregion_checked(family, mlp_up_offset, mlp_rows,
+                                       17'408U,
                                        17'408U, kBf16Bytes,
                                        plan.mlp.up_bf16) ||
-        !make_matrix_subregion_checked(family, kMlpActivatedOffset, panel,
+        !make_matrix_subregion_checked(family, mlp_activated_offset, mlp_rows,
                                        17'408U, 17'408U, kBf16Bytes,
                                        plan.mlp.activated_bf16) ||
-        !make_matrix_subregion_checked(family, kMlpActivatedOffset, panel,
+        !make_matrix_subregion_checked(family, mlp_normalized_offset, mlp_rows,
                                        5'120U, 5'120U, kBf16Bytes,
                                        plan.mlp.normalized_input_bf16) ||
         !make_byte_subregion_checked(
-            family, kMlpGateUpTemporaryOffset, kProjectionTemporaryBytes,
+            family, mlp_gate_up_temporary_offset,
+            kProjectionTemporaryBytes,
             plan.mlp.gate_up_projection_temporary) ||
-        !make_matrix_subregion_checked(family, kMlpUpOffset, panel, 5'120U,
+        !make_matrix_subregion_checked(family, mlp_branch_offset, mlp_rows,
+                                       5'120U,
                                        5'120U, kBf16Bytes,
                                        plan.mlp.branch_output_bf16) ||
         !make_byte_subregion_checked(family, 0U,
@@ -857,7 +1092,17 @@ LayerMajorRequestPlanResult build_layer_major_request_memory_plan(
     }
     common.linear_a_bf16 = plan.legacy_c512.linear_a_bf16.storage;
     common.linear_b_bf16 = plan.legacy_c512.linear_b_bf16.storage;
-    if (!builder.add(legacy_shape.fp32_scratch.element_capacity,
+    const std::uint64_t legacy_fp32_elements =
+        whole_core_p40
+            ? static_cast<std::uint64_t>(
+                  kLayerMajorP40WholeCorePromptTokens) * kQueryHeadCount
+            : legacy_shape.fp32_scratch.element_capacity;
+    const std::uint64_t legacy_gqa_probability_elements =
+        whole_core_p40
+            ? static_cast<std::uint64_t>(
+                  kLayerMajorP40WholeCorePromptTokens) * kQueryHeadCount
+            : legacy_shape.gqa_probability_scratch.element_capacity;
+    if (!builder.add(legacy_fp32_elements,
                      kFp32Bytes, plan.legacy_c512.fp32_scratch)) {
         return layer_major_plan_failure(make_diagnostic(
             RequestErrorCode::kArithmeticOverflow,
@@ -867,9 +1112,9 @@ LayerMajorRequestPlanResult build_layer_major_request_memory_plan(
     plan.legacy_c512.gqa_probability_scratch =
         plan.legacy_c512.fp32_scratch;
     plan.legacy_c512.gqa_probability_scratch.byte_size =
-        legacy_shape.gqa_probability_scratch.byte_size;
+        legacy_gqa_probability_elements * kFp32Bytes;
     plan.legacy_c512.gqa_probability_scratch.element_capacity =
-        legacy_shape.gqa_probability_scratch.element_capacity;
+        legacy_gqa_probability_elements;
     common.fp32_scratch = plan.legacy_c512.fp32_scratch;
     common.gqa_probability_scratch =
         plan.legacy_c512.gqa_probability_scratch;
@@ -881,16 +1126,29 @@ LayerMajorRequestPlanResult build_layer_major_request_memory_plan(
     }
     const std::uint64_t selected_scratch_bytes =
         builder.cursor() - family.arena_offset;
+    std::uint64_t expected_scratch_bytes = 0U;
+    if (whole_core_p40) {
+        if (!checked_add(
+                whole_workspace->whole_core_family_arena.required_bytes,
+                whole_workspace->legacy_c512_workspace.required_bytes,
+                expected_scratch_bytes)) {
+            return layer_major_plan_failure(make_diagnostic(
+                RequestErrorCode::kArithmeticOverflow,
+                "P40 whole-core scratch total overflows uint64",
+                "selected_operator_scratch"));
+        }
+    } else {
+        expected_scratch_bytes =
+            workspace->operator_scratch.selected.total_required_bytes;
+    }
     if (legacy_offset !=
-            family.arena_offset + kLayerMajorFamilyPhaseArenaBytes ||
-        selected_scratch_bytes !=
-            workspace.operator_scratch.selected.total_required_bytes) {
+            family.arena_offset + family_phase_arena_bytes ||
+        selected_scratch_bytes != expected_scratch_bytes) {
         return layer_major_plan_failure(make_diagnostic(
             RequestErrorCode::kInvalidLayerSchedule,
             "RequestState scratch layout disagrees with workspace planner",
             "selected_operator_scratch",
-            std::to_string(
-                workspace.operator_scratch.selected.total_required_bytes),
+            std::to_string(expected_scratch_bytes),
             std::to_string(selected_scratch_bytes)));
     }
 
@@ -905,11 +1163,42 @@ LayerMajorRequestPlanResult build_layer_major_request_memory_plan(
     }
     common.workspace_bytes = builder.cursor() - common.workspace_offset;
     common.rope_offset = builder.cursor();
-    if (!builder.add(legacy_shape.rope_cos_fp32.element_capacity,
-                     kFp32Bytes, common.rope_cos_fp32) ||
-        !builder.add(legacy_shape.rope_sin_fp32.element_capacity,
-                     kFp32Bytes, common.rope_sin_fp32) ||
-        !builder.align()) {
+    bool rope_layout_ok = false;
+    if (whole_core_p40) {
+        // The exact P40001 ledger owns RoPE as one aligned allocation.  Its
+        // two equal typed halves are contiguous; independently aligning the
+        // sine half would add 256 bytes across the two 128-byte remainders
+        // and violate the frozen 8,640,542,976-byte arena contract.
+        const std::uint64_t rope_elements =
+            legacy_shape.rope_cos_fp32.element_capacity;
+        std::uint64_t combined_rope_elements = 0U;
+        std::uint64_t half_bytes = 0U;
+        RequestRegion combined_rope;
+        rope_layout_ok =
+            checked_multiply(rope_elements, 2U, combined_rope_elements) &&
+            checked_multiply(rope_elements, kFp32Bytes, half_bytes) &&
+            builder.add(combined_rope_elements, kFp32Bytes,
+                        combined_rope) &&
+            checked_add(combined_rope.arena_offset, half_bytes,
+                        common.rope_sin_fp32.arena_offset) &&
+            builder.align();
+        if (rope_layout_ok) {
+            common.rope_cos_fp32 = combined_rope;
+            common.rope_cos_fp32.byte_size = half_bytes;
+            common.rope_cos_fp32.element_capacity = rope_elements;
+            common.rope_sin_fp32.byte_size = half_bytes;
+            common.rope_sin_fp32.element_capacity = rope_elements;
+            common.rope_sin_fp32.element_size_bytes = kFp32Bytes;
+        }
+    } else {
+        rope_layout_ok =
+            builder.add(legacy_shape.rope_cos_fp32.element_capacity,
+                        kFp32Bytes, common.rope_cos_fp32) &&
+            builder.add(legacy_shape.rope_sin_fp32.element_capacity,
+                        kFp32Bytes, common.rope_sin_fp32) &&
+            builder.align();
+    }
+    if (!rope_layout_ok) {
         return layer_major_plan_failure(make_diagnostic(
             RequestErrorCode::kArithmeticOverflow,
             "layer-major RoPE layout overflows uint64",
@@ -918,22 +1207,41 @@ LayerMajorRequestPlanResult build_layer_major_request_memory_plan(
     common.rope_bytes = builder.cursor() - common.rope_offset;
     common.arena_bytes = builder.cursor();
 
-    if (common.persistent_bytes !=
-            workspace.persistent_state.total_required_bytes ||
+    const std::uint64_t expected_persistent_bytes =
+        whole_core_p40
+            ? whole_workspace->persistent_and_kv.required_bytes
+            : workspace->persistent_state.total_required_bytes;
+    const std::uint64_t expected_residual_bytes =
+        whole_core_p40
+            ? whole_workspace->prompt_residual_bf16.required_bytes
+            : workspace->prompt_wide_hidden.selected.aggregate_bf16
+                  .required_bytes;
+    const std::uint64_t expected_final_hidden_bytes =
+        whole_core_p40
+            ? whole_workspace->final_hidden_handoff_bf16.required_bytes
+            : workspace->final_hidden_handoff_bf16.required_bytes;
+    const std::uint64_t expected_rope_bytes =
+        whole_core_p40
+            ? whole_workspace->rope_cos_sin_fp32.required_bytes
+            : workspace->position_state.total_required_bytes;
+    const std::uint64_t expected_total_bytes =
+        whole_core_p40 ? whole_workspace->required_bytes
+                       : workspace->selected.required_bytes;
+    if (common.persistent_bytes != expected_persistent_bytes ||
         plan.prompt_residual_bf16.storage.byte_size !=
-            workspace.prompt_wide_hidden.selected.aggregate_bf16
-                .required_bytes ||
+            expected_residual_bytes ||
         plan.final_hidden_bf16.storage.byte_size !=
-            workspace.final_hidden_handoff_bf16.required_bytes ||
-        common.rope_bytes != workspace.position_state.total_required_bytes ||
-        common.arena_bytes != workspace.selected.required_bytes ||
+            expected_final_hidden_bytes ||
+        common.rope_bytes != expected_rope_bytes ||
+        common.arena_bytes != expected_total_bytes ||
         common.arena_bytes > options.max_arena_bytes ||
-        workspace.executable()) {
+        (whole_core_p40 ? whole_workspace->executable()
+                        : workspace->executable())) {
         return layer_major_plan_failure(make_diagnostic(
             RequestErrorCode::kInvalidLayerSchedule,
             "RequestState total or fixed profile disagrees with workspace planner",
             "layer_major_total",
-            std::to_string(workspace.selected.required_bytes),
+            std::to_string(expected_total_bytes),
             std::to_string(common.arena_bytes)));
     }
 
@@ -1260,9 +1568,7 @@ RequestMatrixViewResult RequestState::layer_major_prompt_residual() noexcept {
     if (arena_ == nullptr) {
         return matrix_access_failure(RequestAccessError::kEmptyState);
     }
-    if (validate_request_memory_profile(
-            memory_profile(), RequestMemoryProfile::kLayerMajorC8192) !=
-            RequestAccessError::kNone ||
+    if (!is_layer_major_memory_profile(memory_profile()) ||
         !layer_major_plan_) {
         return matrix_access_failure(
             RequestAccessError::kMemoryProfileMismatch);
@@ -1365,9 +1671,7 @@ RequestState::layer_major_mlp_phase_views() noexcept {
         return typed_access_failure<LayerMajorMlpPhaseViews>(
             RequestAccessError::kEmptyState);
     }
-    if (validate_request_memory_profile(
-            memory_profile(), RequestMemoryProfile::kLayerMajorC8192) !=
-            RequestAccessError::kNone ||
+    if (!is_layer_major_memory_profile(memory_profile()) ||
         !layer_major_plan_) {
         return typed_access_failure<LayerMajorMlpPhaseViews>(
             RequestAccessError::kMemoryProfileMismatch);
@@ -1396,9 +1700,7 @@ RequestState::layer_major_legacy_c512_views() noexcept {
         return typed_access_failure<LayerMajorLegacyC512Views>(
             RequestAccessError::kEmptyState);
     }
-    if (validate_request_memory_profile(
-            memory_profile(), RequestMemoryProfile::kLayerMajorC8192) !=
-            RequestAccessError::kNone ||
+    if (!is_layer_major_memory_profile(memory_profile()) ||
         !layer_major_plan_) {
         return typed_access_failure<LayerMajorLegacyC512Views>(
             RequestAccessError::kMemoryProfileMismatch);
@@ -1425,13 +1727,67 @@ RequestState::layer_major_legacy_c512_views() noexcept {
     return result;
 }
 
+LayerMajorP40WholeCoreViewResult
+RequestState::layer_major_p40_whole_core_views() noexcept {
+    if (arena_ == nullptr) {
+        return typed_access_failure<LayerMajorP40WholeCoreViews>(
+            RequestAccessError::kEmptyState);
+    }
+    if (validate_request_memory_profile(
+            memory_profile(),
+            RequestMemoryProfile::kLayerMajorP40WholeCore) !=
+            RequestAccessError::kNone ||
+        !layer_major_plan_ ||
+        layer_major_plan_->layout !=
+            LayerMajorRequestLayout::kP40WholeCorePromptWide) {
+        return typed_access_failure<LayerMajorP40WholeCoreViews>(
+            RequestAccessError::kMemoryProfileMismatch);
+    }
+    const LayerMajorP40WholeCoreRegions& regions =
+        layer_major_plan_->p40_whole_core;
+    LayerMajorP40WholeCoreViews views;
+    views.prompt_token_ids_u32 =
+        mutable_matrix_view(regions.prompt_token_ids_u32);
+
+    views.linear.raw_qkv_bf16 =
+        mutable_matrix_view(regions.linear.raw_qkv_bf16);
+    views.linear.conv_qkv_bf16 =
+        mutable_matrix_view(regions.linear.conv_qkv_bf16);
+    views.linear.z_bf16 = mutable_matrix_view(regions.linear.z_bf16);
+    views.linear.a_bf16 = mutable_matrix_view(regions.linear.a_bf16);
+    views.linear.b_bf16 = mutable_matrix_view(regions.linear.b_bf16);
+    views.linear.prompt_wide_workspace =
+        mutable_view(regions.linear.prompt_wide_workspace);
+    views.linear.output_bf16 =
+        mutable_matrix_view(regions.linear.output_bf16);
+    views.linear.normalized_input_bf16 =
+        mutable_matrix_view(regions.linear.normalized_input_bf16);
+    views.linear.branch_output_bf16 =
+        mutable_matrix_view(regions.linear.branch_output_bf16);
+
+    views.full_attention.raw_q_gate_bf16 =
+        mutable_matrix_view(regions.full_attention.raw_q_gate_bf16);
+    views.full_attention.processed_q_bf16 =
+        mutable_matrix_view(regions.full_attention.processed_q_bf16);
+    views.full_attention.packed_gate_bf16 =
+        mutable_matrix_view(regions.full_attention.packed_gate_bf16);
+    views.full_attention.normalized_input_bf16 = mutable_matrix_view(
+        regions.full_attention.normalized_input_bf16);
+    views.full_attention.core_output_bf16 =
+        mutable_matrix_view(regions.full_attention.core_output_bf16);
+    views.full_attention.branch_output_bf16 =
+        mutable_matrix_view(regions.full_attention.branch_output_bf16);
+
+    LayerMajorP40WholeCoreViewResult result;
+    result.value.emplace(std::move(views));
+    return result;
+}
+
 RequestMatrixViewResult RequestState::layer_major_final_hidden() noexcept {
     if (arena_ == nullptr) {
         return matrix_access_failure(RequestAccessError::kEmptyState);
     }
-    if (validate_request_memory_profile(
-            memory_profile(), RequestMemoryProfile::kLayerMajorC8192) !=
-            RequestAccessError::kNone ||
+    if (!is_layer_major_memory_profile(memory_profile()) ||
         !layer_major_plan_) {
         return matrix_access_failure(
             RequestAccessError::kMemoryProfileMismatch);

@@ -40,6 +40,10 @@ enum class PrefillMlpPhysicalTactic : std::uint8_t;
 enum class RequestMemoryProfile : std::uint8_t {
     kLegacyC512 = 0,
     kLayerMajorC8192,
+    // Default-off exact-P40000 whole-core arena.  This profile is distinct
+    // from the C8192 compatibility layout and admits only P40000 prompt work
+    // inside a P40001 request capacity.
+    kLayerMajorP40WholeCore,
 };
 
 enum class RequestErrorCode : std::uint8_t {
@@ -76,12 +80,32 @@ struct RequestMemoryOptions {
 // The layer-major architecture has no implicit sequence capacity. Callers
 // must name the admitted request bucket and use the separate plan/create
 // entry points below; it can never be selected by the legacy defaults.
+enum class LayerMajorRequestMlpLayout : std::uint8_t {
+    kPanelLocalThreeSpan = 0,
+    // Test-only exact-P40000 persistent route. One full-M activated span and
+    // one disjoint normalized-input span are sufficient because GateUp fuses
+    // SiLU and Down publishes directly into the request residual.
+    kLayerWideP40PersistentTwoSpan,
+};
+
+// Orthogonal to the MLP lifetime choice.  The old profile remains a C8192
+// family overlay; the new profile is one prompt-wide whole-core allocation
+// scheduled as exactly five P8000 panels.
+enum class LayerMajorRequestLayout : std::uint8_t {
+    kC8192FamilyOverlay = 0,
+    kP40WholeCorePromptWide,
+};
+
 struct LayerMajorRequestMemoryOptions {
     std::uint32_t batch_size = 1U;
     std::uint64_t max_sequence_length = 0U;
     std::uint64_t max_arena_bytes = kMaximumRequestArenaBytes;
     std::uint64_t min_free_bytes_after_create =
         8ULL * 1024ULL * 1024ULL * 1024ULL;
+    LayerMajorRequestMlpLayout mlp_layout =
+        LayerMajorRequestMlpLayout::kPanelLocalThreeSpan;
+    LayerMajorRequestLayout layout =
+        LayerMajorRequestLayout::kC8192FamilyOverlay;
 };
 
 struct RequestRegion {
@@ -260,16 +284,63 @@ struct LayerMajorLegacyC512Regions {
     RequestRegion gqa_probability_scratch;  // aliases fp32_scratch prefix
 };
 
+struct LayerMajorP40WholeCoreLinearPhaseRegions {
+    RequestMatrixRegion raw_qkv_bf16;             // [40000, 10240]
+    RequestMatrixRegion conv_qkv_bf16;            // [40000, 10240]
+    RequestMatrixRegion z_bf16;                   // [40000, 6144]
+    RequestMatrixRegion a_bf16;                   // [40000, 48]
+    RequestMatrixRegion b_bf16;                   // [40000, 48]
+    RequestRegion prompt_wide_workspace;          // exact P40 GDN graph
+    RequestMatrixRegion output_bf16;              // [40000, 6144]
+
+    // These aliases have ordered lifetimes. Normalized input occupies the
+    // future independent output span until every input projection consumes
+    // it. Branch output reuses dead raw-QKV only after the GDN graph ends.
+    RequestMatrixRegion normalized_input_bf16;    // [40000, 5120]
+    RequestMatrixRegion branch_output_bf16;       // [40000, 5120]
+};
+
+struct LayerMajorP40WholeCoreFullAttentionPhaseRegions {
+    RequestMatrixRegion raw_q_gate_bf16;          // [40000, 12288]
+    RequestMatrixRegion processed_q_bf16;         // [40000, 6144]
+    RequestMatrixRegion packed_gate_bf16;         // [40000, 6144]
+    // K/V are the per-layer persistent key/value cache regions in `common`;
+    // they are not duplicated in the transient whole-core family arena.
+    RequestMatrixRegion normalized_input_bf16;    // [40000, 5120]
+    RequestMatrixRegion core_output_bf16;         // [40000, 6144]
+    RequestMatrixRegion branch_output_bf16;       // [40000, 5120]
+};
+
+struct LayerMajorP40WholeCoreRegions {
+    std::uint32_t prompt_token_count = 0U;
+    std::uint32_t request_capacity_tokens = 0U;
+    std::uint32_t logical_panel_capacity_tokens = 0U;
+    std::uint32_t logical_panel_count = 0U;
+    // Owning region. No raw RequestState accessor is provided.
+    RequestRegion family_phase_arena;
+    // Full P40000 token staging inside prompt_wide_workspace. This region is
+    // never at family offset zero and dies at embedding completion.
+    RequestMatrixRegion prompt_token_ids_u32;
+    LayerMajorP40WholeCoreLinearPhaseRegions linear;
+    LayerMajorP40WholeCoreFullAttentionPhaseRegions full_attention;
+};
+
 // A separate profile is intentionally not reachable through
 // build_request_memory_plan(). `common` preserves the shared state/KV/RoPE
 // query contract without slicing this complete candidate plan into the
 // legacy RequestMemoryPlan stored by RequestState.
 struct LayerMajorRequestMemoryPlan {
     RequestMemoryPlan common;
+    LayerMajorRequestLayout layout =
+        LayerMajorRequestLayout::kC8192FamilyOverlay;
     std::uint32_t operator_panel_capacity_tokens =
         kLayerMajorRequestOperatorPanelCapacity;
     std::uint32_t legacy_prefill_chunk_size =
         kMaximumRequestPrefillChunkSize;
+    std::uint32_t mlp_capacity_tokens =
+        kLayerMajorRequestOperatorPanelCapacity;
+    LayerMajorRequestMlpLayout mlp_layout =
+        LayerMajorRequestMlpLayout::kPanelLocalThreeSpan;
 
     RequestMatrixRegion prompt_residual_bf16;
     // Owning capacity only. RequestState intentionally exposes no raw view.
@@ -279,6 +350,7 @@ struct LayerMajorRequestMemoryPlan {
     LayerMajorAttentionPhaseRegions attention;
     LayerMajorMlpPhaseRegions mlp;
     LayerMajorLegacyC512Regions legacy_c512;
+    LayerMajorP40WholeCoreRegions p40_whole_core;
     RequestMatrixRegion final_hidden_bf16;
 
     PrefillHiddenStrategy hidden_strategy{};
@@ -430,6 +502,33 @@ struct LayerMajorLegacyC512Views {
     DeviceBufferView gqa_probability_scratch;
 };
 
+struct LayerMajorP40WholeCoreLinearPhaseViews {
+    DeviceMatrixView raw_qkv_bf16;
+    DeviceMatrixView conv_qkv_bf16;
+    DeviceMatrixView z_bf16;
+    DeviceMatrixView a_bf16;
+    DeviceMatrixView b_bf16;
+    DeviceBufferView prompt_wide_workspace;
+    DeviceMatrixView output_bf16;
+    DeviceMatrixView normalized_input_bf16;
+    DeviceMatrixView branch_output_bf16;
+};
+
+struct LayerMajorP40WholeCoreFullAttentionPhaseViews {
+    DeviceMatrixView raw_q_gate_bf16;
+    DeviceMatrixView processed_q_bf16;
+    DeviceMatrixView packed_gate_bf16;
+    DeviceMatrixView normalized_input_bf16;
+    DeviceMatrixView core_output_bf16;
+    DeviceMatrixView branch_output_bf16;
+};
+
+struct LayerMajorP40WholeCoreViews {
+    DeviceMatrixView prompt_token_ids_u32;
+    LayerMajorP40WholeCoreLinearPhaseViews linear;
+    LayerMajorP40WholeCoreFullAttentionPhaseViews full_attention;
+};
+
 template <typename Views>
 struct LayerMajorTypedViewResult {
     std::optional<Views> value;
@@ -449,6 +548,8 @@ using LayerMajorMlpPhaseViewResult =
     LayerMajorTypedViewResult<LayerMajorMlpPhaseViews>;
 using LayerMajorLegacyC512ViewResult =
     LayerMajorTypedViewResult<LayerMajorLegacyC512Views>;
+using LayerMajorP40WholeCoreViewResult =
+    LayerMajorTypedViewResult<LayerMajorP40WholeCoreViews>;
 
 struct RequestOperationStatus {
     RequestAccessError error = RequestAccessError::kNone;
@@ -542,6 +643,8 @@ class RequestState {
     layer_major_mlp_phase_views() noexcept;
     [[nodiscard]] LayerMajorLegacyC512ViewResult
     layer_major_legacy_c512_views() noexcept;
+    [[nodiscard]] LayerMajorP40WholeCoreViewResult
+    layer_major_p40_whole_core_views() noexcept;
     [[nodiscard]] RequestMatrixViewResult
     layer_major_final_hidden() noexcept;
     [[nodiscard]] RequestConstViewResult rope_cos(std::size_t position) const noexcept;

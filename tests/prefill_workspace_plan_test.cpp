@@ -443,6 +443,105 @@ void test_request_state_overlay_with_disjoint_legacy(TestContext& test) {
   }
 }
 
+void test_layer_wide_p40_mlp_memory_plan(TestContext& test) {
+  const auto candidate = build_plan(
+      runtime::kLayerMajorPrefillLayerWideMlpP40RequestCapacityTokens,
+      runtime::PrefillHiddenStrategy::kSinglePromptWideConditional,
+      runtime::PrefillOperatorScratchStrategy::
+          kC8192FamilyOverlayConditional,
+      runtime::kMaximumRequestArenaBytes,
+      runtime::PrefillGdnPhysicalTactic::kC64NativeInPlaceConv,
+      runtime::PrefillLegacyGdnPhysicalTactic::kC16Composite,
+      runtime::PrefillMlpPhysicalTactic::kLayerWideP40AlignedMarlin);
+  if (!runtime::layer_wide_p40_mlp_prefill_plan_enabled()) {
+    test.expect(
+        !candidate &&
+            candidate.error ==
+                runtime::PrefillWorkspacePlanError::kInvalidArgument,
+        "production/default workspace planning rejects layer-wide P40 MLP");
+    return;
+  }
+
+  constexpr std::uint64_t kFullMThreeBf16Spans =
+      3U * runtime::kLayerMajorPrefillLayerWideMlpP40Tokens * 17'408U * 2U;
+  static_assert(kFullMThreeBf16Spans == 4'177'920'000U);
+  test.expect(
+      candidate &&
+          candidate.value->operator_scratch.mlp_tactic ==
+              runtime::PrefillMlpPhysicalTactic::
+                  kLayerWideP40AlignedMarlin &&
+          candidate.value->operator_scratch.mlp_capacity_tokens == 40'000U &&
+          candidate.value->operator_scratch.mlp_gate_up_down_phase
+                  .required_bytes == kFullMThreeBf16Spans &&
+          candidate.value->operator_scratch
+                  .c8192_family_overlay_conditional.total_required_bytes ==
+              kFullMThreeBf16Spans &&
+          candidate.value->operator_scratch.gate_up.maximum_m == 40'000U &&
+          candidate.value->operator_scratch.down.maximum_m == 40'000U &&
+          candidate.value->selected.required_bytes == 7'297'733'120U &&
+          candidate.value->conservative.required_bytes == 8'647'332'608U &&
+          candidate.value->selected.capacity ==
+              runtime::PrefillMemoryCapacityVerdict::kFitsDeclaredLimit &&
+          !candidate.value->request_arena_reservation_bound &&
+          !candidate.value->operator_bindings_complete &&
+          !candidate.value->executable(),
+      "P40 reserves three exact prompt-wide BF16 MLP spans while leaving "
+      "allocation and launch bindings unbound");
+
+  const auto persistent = build_plan(
+      runtime::kLayerMajorPrefillLayerWideMlpP40RequestCapacityTokens,
+      runtime::PrefillHiddenStrategy::kSinglePromptWideConditional,
+      runtime::PrefillOperatorScratchStrategy::
+          kC8192FamilyOverlayConditional,
+      runtime::kMaximumRequestArenaBytes,
+      runtime::PrefillGdnPhysicalTactic::kC64NativeInPlaceConv,
+      runtime::PrefillLegacyGdnPhysicalTactic::kC16Composite,
+      runtime::PrefillMlpPhysicalTactic::
+          kLayerWideP40PersistentFusedGateUp);
+  constexpr std::uint64_t kPersistentNormalizedAndActivated =
+      runtime::kLayerMajorPrefillLayerWideMlpP40Tokens *
+      (5'120U + 17'408U) * 2U;
+  static_assert(kPersistentNormalizedAndActivated == 1'802'240'000U);
+  test.expect(
+      persistent &&
+          persistent.value->operator_scratch.mlp_capacity_tokens == 40'000U &&
+          persistent.value->operator_scratch.mlp_gate_up_down_phase
+                  .required_bytes == kPersistentNormalizedAndActivated &&
+          persistent.value->operator_scratch
+                  .c8192_family_overlay_conditional.total_required_bytes ==
+              kPersistentNormalizedAndActivated &&
+          persistent.value->selected.required_bytes == 4'922'053'120U &&
+          persistent.value->conservative.required_bytes == 6'271'652'608U &&
+          !persistent.value->executable(),
+      "target persistent P40 ownership materializes only normalized and "
+      "activated spans and reuses dead normalized storage for Down output");
+
+  test.expect(
+      !build_plan(39'968U,
+                  runtime::PrefillHiddenStrategy::
+                      kSinglePromptWideConditional,
+                  runtime::PrefillOperatorScratchStrategy::
+                      kC8192FamilyOverlayConditional,
+                  runtime::kMaximumRequestArenaBytes,
+                  runtime::PrefillGdnPhysicalTactic::
+                      kC64NativeInPlaceConv,
+                  runtime::PrefillLegacyGdnPhysicalTactic::kC16Composite,
+                  runtime::PrefillMlpPhysicalTactic::
+                      kLayerWideP40AlignedMarlin) &&
+          !build_plan(40'064U,
+                      runtime::PrefillHiddenStrategy::
+                          kSinglePromptWideConditional,
+                      runtime::PrefillOperatorScratchStrategy::
+                          kC8192FamilyOverlayConditional,
+                      runtime::kMaximumRequestArenaBytes,
+                      runtime::PrefillGdnPhysicalTactic::
+                          kC64NativeInPlaceConv,
+                      runtime::PrefillLegacyGdnPhysicalTactic::kC16Composite,
+                      runtime::PrefillMlpPhysicalTactic::
+                          kLayerWideP40AlignedMarlin),
+      "layer-wide MLP memory cannot be generalized beyond exact P40000");
+}
+
 void test_machine_readable_workspace_backings(TestContext& test) {
   constexpr std::uint64_t maximum_reduction_bytes =
       kernels::kSm87NvFp4MarlinReductionBytes >
@@ -540,6 +639,93 @@ void test_machine_readable_workspace_backings(TestContext& test) {
       "behind the route event");
 }
 
+void test_p40_whole_core_workspace_plan(TestContext& test) {
+  const auto result =
+      runtime::build_unbound_layer_major_p40_whole_core_workspace_plan();
+  test.expect(result.ok(), "exact P40 whole-core workspace plan builds");
+  if (!result) {
+    return;
+  }
+  const runtime::LayerMajorP40WholeCoreWorkspacePlan& plan = *result.value;
+  test.expect(
+      plan.prompt_token_count == 40'000U &&
+          plan.request_sequence_capacity_tokens == 40'001U &&
+          plan.logical_panel_capacity_tokens == 8'000U &&
+          plan.logical_panel_count == 5U &&
+          plan.persistent_and_kv.required_bytes == 2'699'952'128U &&
+          plan.prompt_residual_bf16.required_bytes == 409'610'240U &&
+          plan.whole_core_family_arena.required_bytes == 5'429'760'000U &&
+          plan.legacy_c512_workspace.required_bytes == 90'970'112U &&
+          plan.final_hidden_handoff_bf16.required_bytes == 10'240U &&
+          plan.rope_cos_sin_fp32.required_bytes == 10'240'256U &&
+          plan.required_bytes == 8'640'542'976U &&
+          plan.capacity ==
+              runtime::PrefillMemoryCapacityVerdict::kFitsDeclaredLimit &&
+          !plan.request_arena_reservation_bound &&
+          !plan.lifetime_alias_contracts_bound &&
+          !plan.operator_bindings_complete && !plan.executable(),
+      "whole-core planner fixes the exact six-part request arena ledger");
+
+  test.expect(
+      plan.linear_raw_qkv_bf16.family_relative_offset == 0U &&
+          plan.linear_raw_qkv_bf16.memory.required_bytes == 819'200'000U &&
+          plan.linear_conv_qkv_bf16.family_relative_offset == 819'200'000U &&
+          plan.linear_conv_qkv_bf16.memory.required_bytes == 819'200'000U &&
+          plan.linear_z_bf16.family_relative_offset == 1'638'400'000U &&
+          plan.linear_z_bf16.memory.required_bytes == 491'520'000U &&
+          plan.linear_a_bf16.family_relative_offset == 2'129'920'000U &&
+          plan.linear_a_bf16.memory.required_bytes == 3'840'000U &&
+          plan.linear_b_bf16.family_relative_offset == 2'133'760'000U &&
+          plan.linear_b_bf16.memory.required_bytes == 3'840'000U &&
+          plan.linear_prompt_wide_workspace.family_relative_offset ==
+              2'137'600'000U &&
+          plan.linear_prompt_wide_workspace.memory.required_bytes ==
+              2'800'640'000U &&
+          plan.linear_output_bf16.family_relative_offset ==
+              4'938'240'000U &&
+          plan.linear_output_bf16.memory.required_bytes == 491'520'000U,
+      "whole-core planner records the exact linear/GDN family offsets");
+
+  test.expect(
+      plan.prompt_token_ids_u32.family_relative_offset == 2'137'600'000U &&
+          plan.prompt_token_ids_u32.memory.required_bytes == 160'000U &&
+          plan.prompt_token_ids_u32.memory.alias_condition ==
+              runtime::PrefillMemoryAliasCondition::
+                  kPromptTokenIdsConsumedBeforeOperatorScratchReuse &&
+          plan.prompt_token_ids_u32.family_relative_offset !=
+              plan.linear_raw_qkv_bf16.family_relative_offset,
+      "prompt IDs stage inside the pre-GDN workspace lifetime, never raw-QKV");
+
+  runtime::LayerMajorP40WholeCoreWorkspaceOptions one_byte_short;
+  one_byte_short.request_arena_limit_bytes = 8'640'542'975U;
+  const auto limited =
+      runtime::build_unbound_layer_major_p40_whole_core_workspace_plan(
+          one_byte_short);
+  test.expect(
+      limited &&
+          limited.value->capacity == runtime::PrefillMemoryCapacityVerdict::
+                                         kExceedsDeclaredLimit &&
+          limited.value->required_bytes == 8'640'542'976U,
+      "one-byte-short arena preserves arithmetic and reports explicit overflow");
+
+  runtime::LayerMajorP40WholeCoreWorkspaceOptions wrong = one_byte_short;
+  wrong.request_arena_limit_bytes = runtime::kMaximumRequestArenaBytes;
+  wrong.logical_panel_capacity_tokens = 8'192U;
+  const auto wrong_panel =
+      runtime::build_unbound_layer_major_p40_whole_core_workspace_plan(wrong);
+  wrong.logical_panel_capacity_tokens = 8'000U;
+  wrong.prompt_token_count = 39'999U;
+  const auto wrong_prompt =
+      runtime::build_unbound_layer_major_p40_whole_core_workspace_plan(wrong);
+  test.expect(
+      !wrong_panel && !wrong_prompt &&
+          wrong_panel.error ==
+              runtime::PrefillWorkspacePlanError::kInvalidArgument &&
+          wrong_prompt.error ==
+              runtime::PrefillWorkspacePlanError::kInvalidArgument,
+      "whole-core planner rejects C8192 and every non-P40000 geometry");
+}
+
 void test_fail_closed_inputs(TestContext& test) {
   runtime::LayerMajorPrefillWorkspaceOptions defaults;
   defaults.sequence_capacity_tokens = 40'000U;
@@ -607,7 +793,9 @@ int main() {
   test_explicit_safe_upper_and_capacity_boundary(test);
   test_physical_tactic_matrix(test);
   test_request_state_overlay_with_disjoint_legacy(test);
+  test_layer_wide_p40_mlp_memory_plan(test);
   test_machine_readable_workspace_backings(test);
+  test_p40_whole_core_workspace_plan(test);
   test_fail_closed_inputs(test);
   if (test.failures() != 0) {
     std::cerr << test.failures()

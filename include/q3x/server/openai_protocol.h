@@ -126,6 +126,30 @@ struct TargetPrefillWitnessRecord {
   std::uint64_t native_nvfp4_true_large_m_gate_up_hits = 0U;
   std::uint64_t native_nvfp4_true_large_m_down_hits = 0U;
   std::uint64_t native_nvfp4_true_large_m_physical_launches = 0U;
+  runtime::LayerMajorPrefillMlpScheduleTactic mlp_schedule_tactic =
+      runtime::LayerMajorPrefillMlpScheduleTactic::kPerOperatorPanel;
+  std::uint64_t route_layer_pass_count = 0U;
+  std::uint64_t layer_wide_p40_mlp_layer_hits = 0U;
+  std::uint64_t persistent_p40_nvfp4_gate_up_hits = 0U;
+  std::uint64_t persistent_p40_nvfp4_down_residual_hits = 0U;
+  std::uint64_t persistent_p40_nvfp4_physical_launches = 0U;
+  std::uint64_t persistent_p40_fp8_projection_hits = 0U;
+  std::uint64_t persistent_p40_fp8_projection_bulk_hits = 0U;
+  std::uint64_t persistent_p40_fp8_projection_oracle_partial_hits = 0U;
+  std::uint64_t persistent_p40_fp8_projection_physical_launches = 0U;
+  // Exact-P40000 whole-core completed-launch witnesses. These counters are
+  // deliberately separate from the incumbent operator-panel route so the API
+  // record cannot relabel five panel Attention launches as one whole-prompt
+  // launch, or report a configured tactic that never reached completion.
+  std::uint64_t prompt_wide_p40_whole_core_layer_hits = 0U;
+  std::uint64_t prompt_wide_p40_fill_panel_hits = 0U;
+  std::uint64_t prompt_wide_p40_prompt_core_hits = 0U;
+  std::uint64_t prompt_wide_p40_drain_panel_hits = 0U;
+  std::uint64_t prompt_wide_p40_fp8_projection_hits = 0U;
+  std::uint64_t prompt_wide_p40_fp8_projection_physical_launches = 0U;
+  std::uint64_t prompt_wide_p40_bf16_ab_hits = 0U;
+  std::uint64_t prompt_wide_p40_gdn_hits = 0U;
+  std::uint64_t native_flashinfer_exact_whole_prompt_hits = 0U;
   // Empty for legacy/unsealed paths. A non-empty identifier is emitted only
   // after a sealed whole-request generation has completed successfully.
   std::string deployment_plan_id;

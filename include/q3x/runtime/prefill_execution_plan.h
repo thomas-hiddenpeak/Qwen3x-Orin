@@ -25,6 +25,30 @@ inline constexpr std::uint32_t kLayerMajorPrefillOperatorPanelTokens =
     8'192U;
 inline constexpr std::uint32_t
     kLayerMajorPrefillTrueLargeMPartialPanelTokens = 7'712U;
+// Test-only P40 architecture target. The candidate deliberately admits one
+// exact cold-prompt shape so a host plan cannot silently generalize an
+// unprofiled full-M scheduling contract to other prompt lengths.
+inline constexpr std::uint32_t kLayerMajorPrefillPromptWideP40Tokens =
+    40'000U;
+// The complete whole-core route deliberately uses five equal M8000 panels.
+// M8000 is M64-aligned and remains below the C8192 operator-panel ceiling,
+// allowing every aligned FP8 fill/drain projection to retain one physical
+// launch without changing any incumbent panel geometry.
+inline constexpr std::uint32_t kLayerMajorPrefillPromptWideP40PanelTokens =
+    8'000U;
+inline constexpr std::size_t kLayerMajorPrefillPromptWideP40PanelCount = 5U;
+inline constexpr std::uint32_t kLayerMajorPrefillLayerWideMlpP40Tokens =
+    kLayerMajorPrefillPromptWideP40Tokens;
+// The API must retain one position beyond the exact P40000 prompt so
+// max_tokens=1 is a valid delivered request. This capacity is not an MLP M;
+// full-M typed views remain exactly 40000 rows.
+inline constexpr std::uint32_t
+    kLayerMajorPrefillLayerWideMlpP40RequestCapacityTokens = 40'001U;
+inline constexpr std::uint32_t
+    kLayerMajorPrefillPromptWideP40RequestCapacityTokens =
+        kLayerMajorPrefillLayerWideMlpP40RequestCapacityTokens;
+inline constexpr std::uint32_t kLayerMajorPrefillLayerWideMlpAlignmentTokens =
+    64U;
 inline constexpr std::uint32_t kLayerMajorPrefillMaximumSequenceTokens =
     262'144U;
 inline constexpr std::size_t kLayerMajorPrefillLayerCount = 64U;
@@ -38,6 +62,17 @@ inline constexpr std::size_t kLayerMajorPrefillMaximumPanelCount =
 static_assert(kLayerMajorPrefillLegacyPublicTileTokens == 512U);
 static_assert(kLayerMajorPrefillOperatorPanelTokens == 8'192U);
 static_assert(kLayerMajorPrefillTrueLargeMPartialPanelTokens == 7'712U);
+static_assert(kLayerMajorPrefillLayerWideMlpP40Tokens %
+                  kLayerMajorPrefillLayerWideMlpAlignmentTokens ==
+              0U);
+static_assert(kLayerMajorPrefillPromptWideP40PanelTokens %
+                  kLayerMajorPrefillLayerWideMlpAlignmentTokens ==
+              0U);
+static_assert(kLayerMajorPrefillPromptWideP40PanelTokens <=
+              kLayerMajorPrefillOperatorPanelTokens);
+static_assert(kLayerMajorPrefillPromptWideP40PanelTokens *
+                      kLayerMajorPrefillPromptWideP40PanelCount ==
+                  kLayerMajorPrefillPromptWideP40Tokens);
 static_assert(kLayerMajorPrefillMaximumPanelCount == 32U);
 
 [[nodiscard]] constexpr bool is_nvfp4_true_large_m_prefill_panel_tokens(
@@ -58,6 +93,9 @@ enum class LayerMajorPrefillFullAttentionTactic : std::uint8_t {
   kNativeGroupQ64Panel,
   kNativeGroupQ128V4Panel,
   kNativeFlashInferExactPanel,
+  // Complete cold P40000 Attention ownership. This is distinct from the
+  // logical-panel FlashInfer tactic and cannot be selected by it implicitly.
+  kNativeFlashInferExactWholePrompt,
 };
 
 [[nodiscard]] constexpr bool
@@ -70,7 +108,9 @@ is_valid_layer_major_prefill_full_attention_tactic(
          tactic == LayerMajorPrefillFullAttentionTactic::
                        kNativeGroupQ128V4Panel ||
          tactic == LayerMajorPrefillFullAttentionTactic::
-                       kNativeFlashInferExactPanel;
+                       kNativeFlashInferExactPanel ||
+         tactic == LayerMajorPrefillFullAttentionTactic::
+                       kNativeFlashInferExactWholePrompt;
 }
 
 [[nodiscard]] constexpr std::string_view to_string(
@@ -84,6 +124,9 @@ is_valid_layer_major_prefill_full_attention_tactic(
       return "native-group-q128-v4-panel";
     case LayerMajorPrefillFullAttentionTactic::kNativeFlashInferExactPanel:
       return "native-flashinfer-exact-panel";
+    case LayerMajorPrefillFullAttentionTactic::
+        kNativeFlashInferExactWholePrompt:
+      return "native-flashinfer-exact-whole-prompt";
   }
   return "unknown";
 }
@@ -111,6 +154,14 @@ enum class LayerMajorPrefillProjectionTactic : std::uint8_t {
   kNativeQuantizedLargeMOperatorPanel,
   kNativeNvfp4TrueLargeMOperatorPanel,
   kNativeNvfp4G2D2LargeMOperatorPanel,
+  // Exact-P40000 BUILD_TESTING-only route. FP8 Attention/GDN projections
+  // remain panel-owned; post-attention norm and the persistent fused NVFP4
+  // GateUp+SiLU / Down+residual pair execute once over the complete layer.
+  kNativeNvfp4PersistentP40LayerWideMlp,
+  // Exact-P40000 whole-core architecture tactic. It owns the complete
+  // 5xM8000 fill -> prompt-wide core -> 5xM8000 drain/O -> persistent MLP
+  // schedule and must never inherit the layer-wide-MLP-only identity.
+  kNativePromptWideP40WholeCore,
 };
 
 [[nodiscard]] constexpr bool is_valid_layer_major_prefill_projection_tactic(
@@ -124,7 +175,11 @@ enum class LayerMajorPrefillProjectionTactic : std::uint8_t {
          tactic == LayerMajorPrefillProjectionTactic::
                        kNativeNvfp4TrueLargeMOperatorPanel ||
          tactic == LayerMajorPrefillProjectionTactic::
-                       kNativeNvfp4G2D2LargeMOperatorPanel;
+                       kNativeNvfp4G2D2LargeMOperatorPanel ||
+         tactic == LayerMajorPrefillProjectionTactic::
+                       kNativeNvfp4PersistentP40LayerWideMlp ||
+         tactic == LayerMajorPrefillProjectionTactic::
+                       kNativePromptWideP40WholeCore;
 }
 
 [[nodiscard]] constexpr std::string_view to_string(
@@ -143,6 +198,11 @@ enum class LayerMajorPrefillProjectionTactic : std::uint8_t {
     case LayerMajorPrefillProjectionTactic::
         kNativeNvfp4G2D2LargeMOperatorPanel:
       return "native-nvfp4-g2-d2-large-m-operator-panel";
+    case LayerMajorPrefillProjectionTactic::
+        kNativeNvfp4PersistentP40LayerWideMlp:
+      return "native-nvfp4-persistent-p40-layer-wide-mlp";
+    case LayerMajorPrefillProjectionTactic::kNativePromptWideP40WholeCore:
+      return "native-prompt-wide-p40-whole-core";
   }
   return "unknown";
 }
@@ -307,12 +367,14 @@ is_valid_layer_major_prefill_arithmetic_span_ledger(
 
 enum class PrefillBf16AbArithmeticTactic : std::uint8_t {
   kEstablishedM32ProjectionPair = 0,
+  kPromptWideP40SingleGrid,
 };
 
 enum class PrefillFp8ArithmeticTactic : std::uint8_t {
   kOracleSpanMarlin = 0,
   kM8192SingleBulkOtherwiseOracleSpanMarlin,
   kOperatorPanelSegmentedMarlin,
+  kP8000FillDrainSingleBulk,
 };
 
 enum class PrefillNvFp4ArithmeticTactic : std::uint8_t {
@@ -320,14 +382,17 @@ enum class PrefillNvFp4ArithmeticTactic : std::uint8_t {
   kM8192SingleBulkOtherwiseOracleSpanGateSiluDown,
   kOperatorPanelGateSiluDownSequence,
   kM8192OrM7712TrueLargeMPanelGateSiluDown,
+  kP40000PersistentGateUpSiluDownResidual,
 };
 
 enum class PrefillGdnArithmeticTactic : std::uint8_t {
   kOracleSpanWholeRawQkv = 0,
+  kPromptWideP40ChunkGraph,
 };
 
 enum class PrefillAttentionPreprocessArithmeticTactic : std::uint8_t {
   kOracleSpanC16FixedReference256 = 0,
+  kP8000FillWholePromptFlashInferDrain,
 };
 
 struct LayerMajorPrefillArithmeticContract {
@@ -357,7 +422,14 @@ struct LayerMajorPrefillArithmeticContract {
   bool nvfp4_true_large_m_m8192 = false;
   bool nvfp4_true_large_m_m7712 = false;
   bool nvfp4_gate_up_down_coupled = false;
+  bool p40000_post_attention_norm_prompt_wide = false;
+  bool p40000_persistent_gate_up_silu = false;
+  bool p40000_persistent_down_residual = false;
   bool environment_independent = true;
+  bool p8000_fp8_fill_drain_single_bulk = false;
+  bool p40000_bf16_ab_prompt_wide = false;
+  bool p40000_gdn_prompt_wide = false;
+  bool p40000_flashinfer_whole_prompt = false;
 };
 
 inline constexpr LayerMajorPrefillArithmeticContract
@@ -385,6 +457,9 @@ inline constexpr LayerMajorPrefillArithmeticContract
         false,
         false,
         false,
+        false,
+        false,
+        false,
         true};
 
 inline constexpr LayerMajorPrefillArithmeticContract
@@ -396,6 +471,9 @@ inline constexpr LayerMajorPrefillArithmeticContract
         PrefillGdnArithmeticTactic::kOracleSpanWholeRawQkv,
         PrefillAttentionPreprocessArithmeticTactic::
             kOracleSpanC16FixedReference256,
+        false,
+        false,
+        false,
         false,
         false,
         false,
@@ -431,18 +509,83 @@ inline constexpr LayerMajorPrefillArithmeticContract
         true,
         true,
         true,
+        false,
+        false,
+        false,
+        true};
+
+inline constexpr LayerMajorPrefillArithmeticContract
+    kLayerMajorPrefillPersistentP40NvFp4ArithmeticContract{
+        5U,
+        PrefillBf16AbArithmeticTactic::kEstablishedM32ProjectionPair,
+        PrefillFp8ArithmeticTactic::
+            kM8192SingleBulkOtherwiseOracleSpanMarlin,
+        PrefillNvFp4ArithmeticTactic::
+            kP40000PersistentGateUpSiluDownResidual,
+        PrefillGdnArithmeticTactic::kOracleSpanWholeRawQkv,
+        PrefillAttentionPreprocessArithmeticTactic::
+            kOracleSpanC16FixedReference256,
+        true,
+        false,
+        false,
+        false,
+        true,
+        true,
+        false,
+        false,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true};
+
+inline constexpr LayerMajorPrefillArithmeticContract
+    kLayerMajorPrefillPromptWideP40WholeCoreArithmeticContract{
+        6U,
+        PrefillBf16AbArithmeticTactic::kPromptWideP40SingleGrid,
+        PrefillFp8ArithmeticTactic::kP8000FillDrainSingleBulk,
+        PrefillNvFp4ArithmeticTactic::
+            kP40000PersistentGateUpSiluDownResidual,
+        PrefillGdnArithmeticTactic::kPromptWideP40ChunkGraph,
+        PrefillAttentionPreprocessArithmeticTactic::
+            kP8000FillWholePromptFlashInferDrain,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
         true};
 
 [[nodiscard]] constexpr bool is_valid_layer_major_prefill_arithmetic_contract(
     const LayerMajorPrefillArithmeticContract& contract) noexcept {
   const bool common =
+      contract.environment_independent;
+  const bool legacy_common =
       contract.bf16_ab == PrefillBf16AbArithmeticTactic::
                                 kEstablishedM32ProjectionPair &&
       contract.gdn == PrefillGdnArithmeticTactic::kOracleSpanWholeRawQkv &&
       contract.attention_preprocess ==
           PrefillAttentionPreprocessArithmeticTactic::
               kOracleSpanC16FixedReference256 &&
-      contract.environment_independent;
+      !contract.p8000_fp8_fill_drain_single_bulk &&
+      !contract.p40000_bf16_ab_prompt_wide &&
+      !contract.p40000_gdn_prompt_wide &&
+      !contract.p40000_flashinfer_whole_prompt;
   const bool exact =
       contract.version == 1U &&
       contract.fp8 == PrefillFp8ArithmeticTactic::kOracleSpanMarlin &&
@@ -458,7 +601,10 @@ inline constexpr LayerMajorPrefillArithmeticContract
       !contract.m8192_nvfp4_residual_once_after_bulk &&
       !contract.nvfp4_true_large_m_m8192 &&
       !contract.nvfp4_true_large_m_m7712 &&
-      !contract.nvfp4_gate_up_down_coupled;
+      !contract.nvfp4_gate_up_down_coupled &&
+      !contract.p40000_post_attention_norm_prompt_wide &&
+      !contract.p40000_persistent_gate_up_silu &&
+      !contract.p40000_persistent_down_residual;
   const bool exact_marlin_m8192 =
       contract.version == 2U &&
       contract.fp8 == PrefillFp8ArithmeticTactic::
@@ -475,7 +621,10 @@ inline constexpr LayerMajorPrefillArithmeticContract
       contract.m8192_nvfp4_residual_once_after_bulk &&
       !contract.nvfp4_true_large_m_m8192 &&
       !contract.nvfp4_true_large_m_m7712 &&
-      !contract.nvfp4_gate_up_down_coupled;
+      !contract.nvfp4_gate_up_down_coupled &&
+      !contract.p40000_post_attention_norm_prompt_wide &&
+      !contract.p40000_persistent_gate_up_silu &&
+      !contract.p40000_persistent_down_residual;
   const bool segmented_marlin =
       contract.version == 3U &&
       contract.fp8 ==
@@ -492,7 +641,10 @@ inline constexpr LayerMajorPrefillArithmeticContract
       !contract.m8192_nvfp4_residual_once_after_bulk &&
       !contract.nvfp4_true_large_m_m8192 &&
       !contract.nvfp4_true_large_m_m7712 &&
-      !contract.nvfp4_gate_up_down_coupled;
+      !contract.nvfp4_gate_up_down_coupled &&
+      !contract.p40000_post_attention_norm_prompt_wide &&
+      !contract.p40000_persistent_gate_up_silu &&
+      !contract.p40000_persistent_down_residual;
   const bool true_large_m_nvfp4 =
       contract.version == 4U &&
       contract.fp8 == PrefillFp8ArithmeticTactic::
@@ -509,10 +661,64 @@ inline constexpr LayerMajorPrefillArithmeticContract
       contract.m8192_nvfp4_residual_once_after_bulk &&
       contract.nvfp4_true_large_m_m8192 &&
       contract.nvfp4_true_large_m_m7712 &&
-      contract.nvfp4_gate_up_down_coupled;
+      contract.nvfp4_gate_up_down_coupled &&
+      !contract.p40000_post_attention_norm_prompt_wide &&
+      !contract.p40000_persistent_gate_up_silu &&
+      !contract.p40000_persistent_down_residual;
+  const bool persistent_p40_nvfp4 =
+      contract.version == 5U &&
+      contract.fp8 == PrefillFp8ArithmeticTactic::
+                          kM8192SingleBulkOtherwiseOracleSpanMarlin &&
+      contract.nvfp4 == PrefillNvFp4ArithmeticTactic::
+                            kP40000PersistentGateUpSiluDownResidual &&
+      contract.reset_fp8_locks_per_projection_span &&
+      !contract.nvfp4_interleaves_gate_silu_down_per_span &&
+      !contract.nvfp4_down_reuses_gate_up_locks &&
+      !contract.nvfp4_residual_follows_down_per_span &&
+      contract.m8192_single_bulk_projection &&
+      contract.m8192_fp8_resets_locks_once &&
+      !contract.m8192_nvfp4_uses_independent_down_workspace &&
+      !contract.m8192_nvfp4_residual_once_after_bulk &&
+      !contract.nvfp4_true_large_m_m8192 &&
+      !contract.nvfp4_true_large_m_m7712 &&
+      contract.nvfp4_gate_up_down_coupled &&
+      contract.p40000_post_attention_norm_prompt_wide &&
+      contract.p40000_persistent_gate_up_silu &&
+      contract.p40000_persistent_down_residual && legacy_common;
+  const bool prompt_wide_p40_whole_core =
+      contract.version == 6U &&
+      contract.bf16_ab ==
+          PrefillBf16AbArithmeticTactic::kPromptWideP40SingleGrid &&
+      contract.fp8 == PrefillFp8ArithmeticTactic::kP8000FillDrainSingleBulk &&
+      contract.nvfp4 == PrefillNvFp4ArithmeticTactic::
+                            kP40000PersistentGateUpSiluDownResidual &&
+      contract.gdn == PrefillGdnArithmeticTactic::kPromptWideP40ChunkGraph &&
+      contract.attention_preprocess ==
+          PrefillAttentionPreprocessArithmeticTactic::
+              kP8000FillWholePromptFlashInferDrain &&
+      !contract.reset_fp8_locks_per_projection_span &&
+      !contract.nvfp4_interleaves_gate_silu_down_per_span &&
+      !contract.nvfp4_down_reuses_gate_up_locks &&
+      !contract.nvfp4_residual_follows_down_per_span &&
+      !contract.m8192_single_bulk_projection &&
+      !contract.m8192_fp8_resets_locks_once &&
+      !contract.m8192_nvfp4_uses_independent_down_workspace &&
+      !contract.m8192_nvfp4_residual_once_after_bulk &&
+      !contract.nvfp4_true_large_m_m8192 &&
+      !contract.nvfp4_true_large_m_m7712 &&
+      contract.nvfp4_gate_up_down_coupled &&
+      contract.p40000_post_attention_norm_prompt_wide &&
+      contract.p40000_persistent_gate_up_silu &&
+      contract.p40000_persistent_down_residual &&
+      contract.p8000_fp8_fill_drain_single_bulk &&
+      contract.p40000_bf16_ab_prompt_wide &&
+      contract.p40000_gdn_prompt_wide &&
+      contract.p40000_flashinfer_whole_prompt;
   return common &&
-         (exact || exact_marlin_m8192 || segmented_marlin ||
-          true_large_m_nvfp4);
+         ((legacy_common &&
+           (exact || exact_marlin_m8192 || segmented_marlin ||
+            true_large_m_nvfp4 || persistent_p40_nvfp4)) ||
+          prompt_wide_p40_whole_core);
 }
 
 static_assert(kLayerMajorPrefillMaximumArithmeticSpanCount == 16U);
@@ -524,6 +730,10 @@ static_assert(is_valid_layer_major_prefill_arithmetic_contract(
     kLayerMajorPrefillSegmentedMarlinArithmeticContract));
 static_assert(is_valid_layer_major_prefill_arithmetic_contract(
     kLayerMajorPrefillTrueLargeMNvFp4ArithmeticContract));
+static_assert(is_valid_layer_major_prefill_arithmetic_contract(
+    kLayerMajorPrefillPersistentP40NvFp4ArithmeticContract));
+static_assert(is_valid_layer_major_prefill_arithmetic_contract(
+    kLayerMajorPrefillPromptWideP40WholeCoreArithmeticContract));
 static_assert(is_valid_layer_major_prefill_arithmetic_span_ledger(
     make_layer_major_prefill_arithmetic_span_ledger(513U)));
 
@@ -535,6 +745,61 @@ enum class PrefillProgressDomain : std::uint8_t {
   kGdnState = 0,
   kKvCache,
 };
+
+// Logical MLP ownership inside one layer. The incumbent completes MLP inside
+// every operator-panel submission. The test-only P40 candidate first
+// completes Attention/GDN and its post-attention residual for all five
+// panels, then submits post-attention norm and the exact full-M MLP once.
+// This enum is topology only: a plan remains unbound and non-executable.
+enum class LayerMajorPrefillMlpScheduleTactic : std::uint8_t {
+  kPerOperatorPanel = 0,
+  kLayerWideP40ExactFullM,
+  kPromptWideP40WholeCore,
+};
+
+[[nodiscard]] constexpr bool is_valid_layer_major_prefill_mlp_schedule_tactic(
+    const LayerMajorPrefillMlpScheduleTactic tactic) noexcept {
+  return tactic ==
+             LayerMajorPrefillMlpScheduleTactic::kPerOperatorPanel ||
+         tactic == LayerMajorPrefillMlpScheduleTactic::
+                       kLayerWideP40ExactFullM ||
+         tactic == LayerMajorPrefillMlpScheduleTactic::
+                       kPromptWideP40WholeCore;
+}
+
+[[nodiscard]] constexpr std::string_view to_string(
+    const LayerMajorPrefillMlpScheduleTactic tactic) noexcept {
+  switch (tactic) {
+    case LayerMajorPrefillMlpScheduleTactic::kPerOperatorPanel:
+      return "per-operator-panel";
+    case LayerMajorPrefillMlpScheduleTactic::kLayerWideP40ExactFullM:
+      return "layer-wide-p40-exact-full-m";
+    case LayerMajorPrefillMlpScheduleTactic::kPromptWideP40WholeCore:
+      return "prompt-wide-p40-whole-core";
+  }
+  return "unknown";
+}
+
+// Route evidence counts complete 64-layer logical passes, not storage panels.
+// The incumbent publishes one pass per panel; the exact-P40000 layer-wide
+// schedule collapses all five panels plus their full-M MLP phases into one
+// request-wide pass.
+[[nodiscard]] constexpr std::uint64_t prefill_route_layer_pass_count(
+    const std::size_t logical_panel_count,
+    const LayerMajorPrefillMlpScheduleTactic tactic) noexcept {
+  return tactic != LayerMajorPrefillMlpScheduleTactic::kPerOperatorPanel
+             ? 1U
+             : static_cast<std::uint64_t>(logical_panel_count);
+}
+
+// Reports the compile-time admission inventory owned by q3x_core. Production
+// builds return false. Enabling the candidate requires the default-OFF,
+// BUILD_TESTING-only CMake admission switch.
+[[nodiscard]] bool layer_wide_p40_mlp_prefill_plan_enabled() noexcept;
+
+// Independent architecture admission. Enabling the layer-wide MLP-only
+// experiment never enables the whole-core schedule by implication.
+[[nodiscard]] bool prompt_wide_p40_whole_core_prefill_plan_enabled() noexcept;
 
 enum class PrefillExecutionPlanError : std::uint8_t {
   kNone = 0,
@@ -549,6 +814,8 @@ struct PrefillExecutionPlanOptions {
   std::uint64_t prompt_token_count = 0U;
   std::uint64_t max_sequence_length =
       kLayerMajorPrefillMaximumSequenceTokens;
+  LayerMajorPrefillMlpScheduleTactic mlp_schedule_tactic =
+      LayerMajorPrefillMlpScheduleTactic::kPerOperatorPanel;
 };
 
 struct PrefillOperatorPanel {
@@ -571,6 +838,46 @@ struct PrefillFinalCommitPlan {
   std::uint32_t commit_count = 0U;
 };
 
+struct PrefillMlpSchedulePlan {
+  LayerMajorPrefillMlpScheduleTactic tactic =
+      LayerMajorPrefillMlpScheduleTactic::kPerOperatorPanel;
+  // Number of Attention/GDN panel phases that precede completion of a layer.
+  std::size_t operator_panel_phase_count_per_layer = 0U;
+  // The incumbent owns one MLP phase per panel; P40 owns one full-M phase.
+  std::size_t mlp_phase_submission_count_per_layer = 0U;
+  std::uint32_t maximum_m_per_mlp_submission = 0U;
+
+  // Physical-launch envelope for a future candidate binding. Exact separate
+  // GateUp/SiLU/Down owns three launches; an exact persistent GateUp+SiLU
+  // epilogue owns two. Both must keep each full-M projection unsplit.
+  std::size_t required_gate_up_projection_launches_per_layer = 0U;
+  std::size_t maximum_standalone_silu_launches_per_layer = 0U;
+  std::size_t required_down_projection_launches_per_layer = 0U;
+  std::size_t minimum_total_kernel_launches_per_layer = 0U;
+  std::size_t maximum_total_kernel_launches_per_layer = 0U;
+  bool waits_for_all_operator_panels = false;
+  bool post_attention_residual_completed_panelwise = true;
+  bool post_attention_norm_is_prompt_wide = false;
+  bool exact_full_m_binding_required = false;
+  bool internal_m_segmentation_forbidden = false;
+};
+
+struct PrefillWholeCoreSchedulePlan {
+  bool enabled = false;
+  std::size_t fill_panel_phase_count_per_layer = 0U;
+  std::size_t prompt_core_phase_count_per_layer = 0U;
+  std::size_t drain_panel_phase_count_per_layer = 0U;
+  std::size_t persistent_mlp_phase_count_per_layer = 0U;
+  std::uint32_t panel_token_count = 0U;
+  std::uint32_t prompt_core_token_count = 0U;
+  std::uint32_t request_capacity_tokens = 0U;
+  std::uint64_t route_pass_count = 0U;
+  bool fp8_single_launch_per_projection_required = false;
+  bool bf16_ab_prompt_wide_required = false;
+  bool gdn_prompt_wide_required = false;
+  bool flashinfer_whole_prompt_required = false;
+};
+
 struct PrefillExecutionPlan {
   PrefillTraversalOrder traversal = PrefillTraversalOrder::kLayerMajor;
   // Descriptive compatibility metadata only. It never determines panels.
@@ -586,6 +893,8 @@ struct PrefillExecutionPlan {
       panels{};
   std::size_t panel_count = 0U;
   std::array<PrefillLayerExecution, kLayerMajorPrefillLayerCount> layers{};
+  PrefillMlpSchedulePlan mlp_schedule;
+  PrefillWholeCoreSchedulePlan whole_core_schedule;
   PrefillFinalCommitPlan final_commit;
 
   // The scaffold deliberately has no mutation or binder that can make this
@@ -640,11 +949,42 @@ struct PrefillExecutionProgress {
   std::array<std::uint32_t, kLayerMajorPrefillLayerCount> kv_visible_end{};
   std::array<std::uint32_t, kLayerMajorPrefillLayerCount> gdn_advanced_end{};
   std::array<std::size_t, kLayerMajorPrefillLayerCount> completed_panels{};
+  // Per-panel schedules advance this with every completed panel. The P40
+  // layer-wide schedule advances it once, only after all panel Attention/GDN
+  // and residual work for that layer has completed.
+  std::array<std::size_t, kLayerMajorPrefillLayerCount>
+      completed_mlp_phases{};
+  std::array<std::size_t, kLayerMajorPrefillLayerCount>
+      completed_fill_panels{};
+  std::array<std::size_t, kLayerMajorPrefillLayerCount>
+      completed_prompt_core_phases{};
+  std::array<std::size_t, kLayerMajorPrefillLayerCount>
+      completed_drain_panels{};
   std::size_t next_layer = 0U;
   std::size_t next_panel = 0U;
   bool final_hidden_ready = false;
   bool prefill_state_committed = false;
 };
+
+[[nodiscard]] PrefillExecutionProgressError
+advance_prompt_wide_p40_fill_progress_after_completion(
+    const PrefillExecutionPlan& plan, PrefillExecutionProgress& progress,
+    std::size_t layer_index, std::size_t panel_index) noexcept;
+
+[[nodiscard]] PrefillExecutionProgressError
+advance_prompt_wide_p40_prompt_core_progress_after_completion(
+    const PrefillExecutionPlan& plan, PrefillExecutionProgress& progress,
+    std::size_t layer_index) noexcept;
+
+[[nodiscard]] PrefillExecutionProgressError
+advance_prompt_wide_p40_drain_progress_after_completion(
+    const PrefillExecutionPlan& plan, PrefillExecutionProgress& progress,
+    std::size_t layer_index, std::size_t panel_index) noexcept;
+
+[[nodiscard]] PrefillExecutionProgressError
+advance_prompt_wide_p40_persistent_mlp_progress_after_completion(
+    const PrefillExecutionPlan& plan, PrefillExecutionProgress& progress,
+    std::size_t layer_index) noexcept;
 
 [[nodiscard]] PrefillExecutionProgress make_prefill_execution_progress(
     const PrefillExecutionPlan& plan) noexcept;
@@ -653,6 +993,14 @@ struct PrefillExecutionProgress {
 advance_prefill_progress_after_completion(
     const PrefillExecutionPlan& plan, PrefillExecutionProgress& progress,
     std::size_t layer_index, std::size_t panel_index) noexcept;
+
+// Publishes completion of the single full-M MLP phase for one P40 layer. It
+// is invalid for the incumbent per-panel schedule or before all operator
+// panels in the layer are complete.
+[[nodiscard]] PrefillExecutionProgressError
+advance_layer_wide_p40_mlp_progress_after_completion(
+    const PrefillExecutionPlan& plan, PrefillExecutionProgress& progress,
+    std::size_t layer_index) noexcept;
 
 [[nodiscard]] PrefillExecutionProgressError mark_prefill_final_hidden_ready(
     const PrefillExecutionPlan& plan,

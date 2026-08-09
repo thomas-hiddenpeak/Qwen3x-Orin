@@ -162,4 +162,49 @@ exchange_vllm_layout_wy_route_for_test(
 
 }  // namespace q3x::runtime::gdn_prefill_chunk64_native_detail
 
+namespace q3x::runtime::gdn_prefill_prompt_wide_chunk_graph_detail {
+
+// Default-off, BUILD_TESTING-only P40 architecture surface.  One call
+// submits the full GDN layer graph: a single token-parallel causal-conv plus
+// compact-Q/K grid, chunk-parallel gate/WY work across all 625 C64 chunks,
+// the existing exact persistent-state kernel (the sole sequential chunk
+// progression), and chunk-parallel O+RMSNorm+SiLU publication.
+//
+// The pure-host checked byte/geometry ABI is declared in
+// q3x/kernels/gdn_prefill_prompt_wide_chunk_graph_abi.h.  This entry admits
+// exactly M=40000. M=60000 and every other M fail before the first enqueue.
+[[nodiscard]] bool supports(std::size_t token_count) noexcept;
+
+[[nodiscard]] std::size_t workspace_bytes() noexcept;
+
+struct ResourcePreflightReceipt {
+  int registers_per_thread = 0;
+  std::size_t static_shared_bytes = 0U;
+  std::size_t dynamic_shared_bytes = 0U;
+  std::size_t local_bytes = 0U;
+  int maximum_threads_per_block = 0;
+  int active_blocks_per_sm = 0;
+};
+
+// Explicit no-enqueue startup preflight for the faithful-state kernel's
+// dynamic-shared-memory attribute and launch resources. The candidate launch
+// also invokes this idempotent guard before its first enqueue, so integration
+// remains fail closed even before the Engine owns a startup call site.
+[[nodiscard]] int preflight_resources(
+    ResourcePreflightReceipt* receipt) noexcept;
+
+[[nodiscard]] int launch(
+    void* workspace, std::size_t workspace_capacity_bytes,
+    const std::uint16_t* raw_qkv, std::size_t token_count,
+    const std::uint16_t* conv_weight, std::uint16_t* conv_history_in_out,
+    std::uint16_t* conv_qkv_output,
+    const std::uint16_t* a, const std::uint16_t* b,
+    const std::uint16_t* A_log, const std::uint16_t* dt_bias,
+    const std::uint16_t* state_input, std::uint16_t* state_output,
+    float l2_epsilon, const std::uint16_t* norm_weight,
+    const std::uint16_t* silu_gate, float norm_epsilon,
+    std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
+
+}  // namespace q3x::runtime::gdn_prefill_prompt_wide_chunk_graph_detail
+
 #endif  // Q3X_KERNELS_SM87_GDN_PREFILL_CHUNK64_NATIVE_SM87_H_

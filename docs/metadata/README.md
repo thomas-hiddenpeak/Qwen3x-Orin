@@ -95,6 +95,32 @@ accuracy qualification. P60 was not run because its balanced M5424 tail is
 unsupported by the M8192/M7712-only candidate; this is a geometry blocker, not
 a P60 performance result. G2/D2 v1 is rejected, default-off, and closed.
 
+The rejected exact-P40000 persistent layer-wide MLP direction is frozen in
+[`qwen36-27b-prefill-p40k-persistent-layerwide-mlp-rejection-2026-08-10.json`](qwen36-27b-prefill-p40k-persistent-layerwide-mlp-rejection-2026-08-10.json).
+Its v9 witness consumed all 40,000 tokens through the OpenAI API and recorded
+one 64-layer route pass, 64 persistent GateUp calls, 64 persistent
+Down+residual calls, 128 persistent NVFP4 physical launches, and zero
+forbidden routes. Server pure Prefill was 109,028.398424 ms / 366.876892
+tok/s versus 108,981.854892 ms / 367.033577 tok/s for retained `c45b7c5`, a
+0.042708% latency regression. The direction is therefore rejected before
+full accuracy qualification or profiling. The result closes isolated MLP
+replacement and sends the next candidate to a whole-core schedule with five
+equal M8000 fill/drain panels, prompt-wide Attention/GDN, and aligned
+single-launch FP8 panels.
+
+The following exact-P40000 whole-core direction and bounded Nsight attribution
+are frozen in
+[`qwen36-27b-prefill-p40k-whole-core-direction-2026-08-10.json`](qwen36-27b-prefill-p40k-whole-core-direction-2026-08-10.json).
+Its v10 witness consumed all 40,000 tokens as five M8000 panels, completed one
+64-layer route pass and exactly 768 bounded retirements, and recorded zero
+forbidden routes. Server pure Prefill reached 101,831.853876 ms / 392.804397
+tok/s, +7.02138% versus retained `c45b7c5`; EvalScope TTFT was 101,870.53 ms.
+NSys found 102,113.313600 ms of kernels in a 102,121.306528-ms request, with
+Gate/Up, FP8, Down, and Attention dominant. The whole-core substrate is
+retained, but its inherited 16-CTA old-Marlin NVFP4 bodies are superseded by
+shape-wide Gate/Up and Down work. The candidate remains default-off and
+accuracy-unqualified.
+
 The current Prefill architecture reset and same-host stock-vLLM P513 kernel
 profile are recorded in
 [`qwen36-27b-vllm-p513-architecture-profile-2026-07-29.json`](qwen36-27b-vllm-p513-architecture-profile-2026-07-29.json).

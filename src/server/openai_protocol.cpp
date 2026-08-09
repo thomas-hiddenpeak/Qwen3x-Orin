@@ -677,7 +677,29 @@ std::string serialize_target_prefill_witness(
   const bool g2_d2_nvfp4_candidate_uses_flashinfer_attention =
       record.deployment_plan_id == runtime::
           kLayerMajorNativeNvfp4G2D2LargeMProjectionFlashInferExactDeploymentPlanId;
+  const bool persistent_p40_candidate_v9 =
+      record.deployment_plan_id == runtime::
+          kLayerMajorNativeNvfp4PersistentP40MlpDeploymentPlanId ||
+      record.deployment_plan_id == runtime::
+          kLayerMajorNativeNvfp4PersistentP40MlpGroupQ64DeploymentPlanId ||
+      record.deployment_plan_id == runtime::
+          kLayerMajorNativeNvfp4PersistentP40MlpGroupQ128V4DeploymentPlanId ||
+      record.deployment_plan_id == runtime::
+          kLayerMajorNativeNvfp4PersistentP40MlpFlashInferExactDeploymentPlanId;
+  const bool persistent_p40_candidate_uses_q64_attention =
+      record.deployment_plan_id == runtime::
+          kLayerMajorNativeNvfp4PersistentP40MlpGroupQ64DeploymentPlanId;
+  const bool persistent_p40_candidate_uses_q128_v4_attention =
+      record.deployment_plan_id == runtime::
+          kLayerMajorNativeNvfp4PersistentP40MlpGroupQ128V4DeploymentPlanId;
+  const bool persistent_p40_candidate_uses_flashinfer_attention =
+      record.deployment_plan_id == runtime::
+          kLayerMajorNativeNvfp4PersistentP40MlpFlashInferExactDeploymentPlanId;
+  const bool prompt_wide_p40_whole_core_candidate_v10 =
+      record.deployment_plan_id ==
+      runtime::kLayerMajorNativePromptWideP40WholeCoreDeploymentPlanId;
   constexpr std::uint64_t kLayerCount = 64U;
+  constexpr std::uint64_t kLinearAttentionLayerCount = 48U;
   constexpr std::uint64_t kAttentionLayerCount = 16U;
   constexpr std::uint64_t kFp8ProjectionCountPerPanel = 208U;
   const bool g2_d2_panel_count_valid =
@@ -766,12 +788,174 @@ std::string serialize_target_prefill_witness(
       g2_d2_fp8_partition_complete &&
       record.nvfp4_true_large_m_route_fp8_projection_physical_launches >=
           record.nvfp4_true_large_m_route_fp8_projection_hits;
+  constexpr std::uint64_t kP40LogicalPanelCount = 5U;
+  constexpr std::uint64_t kP40BulkPanelCount = 3U;
+  constexpr std::uint64_t kP40PartialPanelCount = 2U;
+  constexpr std::uint64_t kP40ExpectedFp8ProjectionHits =
+      kP40LogicalPanelCount * kFp8ProjectionCountPerPanel;
+  constexpr std::uint64_t kP40ExpectedBulkFp8ProjectionHits =
+      kP40BulkPanelCount * kFp8ProjectionCountPerPanel;
+  constexpr std::uint64_t kP40ExpectedPartialFp8ProjectionHits =
+      kP40PartialPanelCount * kFp8ProjectionCountPerPanel;
+  constexpr std::uint64_t kP40ExpectedAttentionHits =
+      kP40LogicalPanelCount * kAttentionLayerCount;
+  const bool p40_attention_counts_complete =
+      persistent_p40_candidate_uses_q64_attention
+          ? record.native_group_q64_panel_hits ==
+                    kP40ExpectedAttentionHits &&
+                record.native_group_q128_v4_panel_hits == 0U &&
+                record.native_flashinfer_exact_panel_hits == 0U &&
+                record.generic_qt2_hits == 0U
+      : persistent_p40_candidate_uses_q128_v4_attention
+          ? record.native_group_q64_panel_hits == 0U &&
+                record.native_group_q128_v4_panel_hits ==
+                    kP40ExpectedAttentionHits &&
+                record.native_flashinfer_exact_panel_hits == 0U &&
+                record.generic_qt2_hits == 0U
+      : persistent_p40_candidate_uses_flashinfer_attention
+          ? record.native_group_q64_panel_hits == 0U &&
+                record.native_group_q128_v4_panel_hits == 0U &&
+                record.native_flashinfer_exact_panel_hits ==
+                    kP40ExpectedAttentionHits &&
+                record.generic_qt2_hits == 0U
+          : record.native_group_q64_panel_hits == 0U &&
+                record.native_group_q128_v4_panel_hits == 0U &&
+                record.native_flashinfer_exact_panel_hits == 0U &&
+                record.generic_qt2_hits != 0U;
+  const bool persistent_p40_package_counts_complete =
+      record.prompt_tokens ==
+          runtime::kLayerMajorPrefillLayerWideMlpP40Tokens &&
+      record.prefill_logical_panel_count == kP40LogicalPanelCount &&
+      record.operator_panel_executor_hits ==
+          kLayerCount * kP40LogicalPanelCount &&
+      record.mlp_schedule_tactic == runtime::
+          LayerMajorPrefillMlpScheduleTactic::kLayerWideP40ExactFullM &&
+      record.route_layer_pass_count == 1U &&
+      record.prefill_route_evidence.valid &&
+      record.prefill_route_evidence.complete &&
+      !record.prefill_route_evidence.request_active &&
+      record.prefill_route_evidence.completed_layer_passes == 1U &&
+      record.prefill_route_evidence.expected_layer_passes == 1U &&
+      record.layer_wide_p40_mlp_layer_hits == kLayerCount &&
+      record.persistent_p40_nvfp4_gate_up_hits == kLayerCount &&
+      record.persistent_p40_nvfp4_down_residual_hits == kLayerCount &&
+      record.persistent_p40_nvfp4_physical_launches == 2U * kLayerCount &&
+      record.persistent_p40_fp8_projection_hits ==
+          kP40ExpectedFp8ProjectionHits &&
+      record.persistent_p40_fp8_projection_bulk_hits ==
+          kP40ExpectedBulkFp8ProjectionHits &&
+      record.persistent_p40_fp8_projection_oracle_partial_hits ==
+          kP40ExpectedPartialFp8ProjectionHits &&
+      record.persistent_p40_fp8_projection_physical_launches >=
+          record.persistent_p40_fp8_projection_hits &&
+      p40_attention_counts_complete;
+  constexpr std::uint64_t kP40WholeCoreExpectedLayerHits = kLayerCount;
+  constexpr std::uint64_t kP40WholeCoreExpectedPanelPhaseHits =
+      kLayerCount * kP40LogicalPanelCount;
+  constexpr std::uint64_t kP40WholeCoreExpectedSubmissionRetirements =
+      kLayerCount * (kP40LogicalPanelCount + 1U +
+                     kP40LogicalPanelCount + 1U);
+  static_assert(kP40WholeCoreExpectedSubmissionRetirements == 768U);
+  constexpr std::uint64_t kP40WholeCoreExpectedFp8ProjectionHits =
+      kP40LogicalPanelCount *
+      (3U * kLinearAttentionLayerCount + 4U * kAttentionLayerCount);
+  static_assert(kP40WholeCoreExpectedFp8ProjectionHits == 1'040U);
+  bool prompt_wide_p40_whole_core_route_is_production_only = true;
+  for (std::size_t index = 0U;
+       index < runtime::kPrefillOperatorRoleCount; ++index) {
+    const runtime::PrefillOperatorRouteCounts& counts =
+        record.prefill_route_evidence.operators[index];
+    prompt_wide_p40_whole_core_route_is_production_only =
+        prompt_wide_p40_whole_core_route_is_production_only &&
+        counts.production_hits ==
+            runtime::kExpectedPrefillLogicalOperatorsPerTile[index] &&
+        counts.exact_fallback_hits == 0U && counts.forbidden_hits == 0U;
+  }
+  for (const std::uint64_t boundary_hits :
+       record.prefill_route_evidence.forbidden_boundary_hits) {
+    prompt_wide_p40_whole_core_route_is_production_only =
+        prompt_wide_p40_whole_core_route_is_production_only &&
+        boundary_hits == 0U;
+  }
+  const bool prompt_wide_p40_whole_core_package_counts_complete =
+      record.prompt_tokens ==
+          runtime::kLayerMajorPrefillPromptWideP40Tokens &&
+      record.prefill_logical_panel_count == kP40LogicalPanelCount &&
+      record.request_memory_profile ==
+          runtime::RequestMemoryProfile::kLayerMajorP40WholeCore &&
+      record.bounded_submission_window &&
+      record.submission_window_retirements ==
+          kP40WholeCoreExpectedSubmissionRetirements &&
+      record.mlp_schedule_tactic == runtime::
+          LayerMajorPrefillMlpScheduleTactic::kPromptWideP40WholeCore &&
+      record.route_layer_pass_count == 1U &&
+      record.prefill_route_evidence.valid &&
+      record.prefill_route_evidence.complete &&
+      !record.prefill_route_evidence.request_active &&
+      record.prefill_route_evidence.completed_layer_passes == 1U &&
+      record.prefill_route_evidence.expected_layer_passes == 1U &&
+      prompt_wide_p40_whole_core_route_is_production_only &&
+      record.prompt_wide_p40_whole_core_layer_hits ==
+          kP40WholeCoreExpectedLayerHits &&
+      record.prompt_wide_p40_fill_panel_hits ==
+          kP40WholeCoreExpectedPanelPhaseHits &&
+      record.prompt_wide_p40_prompt_core_hits == kLayerCount &&
+      record.prompt_wide_p40_drain_panel_hits ==
+          kP40WholeCoreExpectedPanelPhaseHits &&
+      record.prompt_wide_p40_fp8_projection_hits ==
+          kP40WholeCoreExpectedFp8ProjectionHits &&
+      record.prompt_wide_p40_fp8_projection_physical_launches ==
+          record.prompt_wide_p40_fp8_projection_hits &&
+      record.prompt_wide_p40_bf16_ab_hits ==
+          kLinearAttentionLayerCount &&
+      record.prompt_wide_p40_gdn_hits == kLinearAttentionLayerCount &&
+      record.native_flashinfer_exact_whole_prompt_hits ==
+          kAttentionLayerCount &&
+      record.layer_wide_p40_mlp_layer_hits == kLayerCount &&
+      record.persistent_p40_nvfp4_gate_up_hits == kLayerCount &&
+      record.persistent_p40_nvfp4_down_residual_hits == kLayerCount &&
+      record.persistent_p40_nvfp4_physical_launches == 2U * kLayerCount &&
+      record.operator_panel_executor_hits == 0U &&
+      record.native_group_q64_panel_hits == 0U &&
+      record.native_group_q128_v4_panel_hits == 0U &&
+      record.native_flashinfer_exact_panel_hits == 0U &&
+      record.generic_qt2_hits == 0U &&
+      record.segmented_panel_projection_hits == 0U &&
+      record.segmented_panel_projection_physical_launches == 0U &&
+      record.native_large_m_projection_hits == 0U &&
+      record.native_large_m_projection_bulk_hits == 0U &&
+      record.native_large_m_projection_oracle_partial_hits == 0U &&
+      record.native_large_m_projection_physical_launches == 0U &&
+      record.nvfp4_true_large_m_route_fp8_projection_hits == 0U &&
+      record.nvfp4_true_large_m_route_fp8_projection_bulk_hits == 0U &&
+      record
+              .nvfp4_true_large_m_route_fp8_projection_oracle_partial_hits ==
+          0U &&
+      record
+              .nvfp4_true_large_m_route_fp8_projection_physical_launches ==
+          0U &&
+      record.native_nvfp4_true_large_m_projection_hits == 0U &&
+      record.native_nvfp4_true_large_m_gate_up_hits == 0U &&
+      record.native_nvfp4_true_large_m_down_hits == 0U &&
+      record.native_nvfp4_true_large_m_physical_launches == 0U &&
+      record.persistent_p40_fp8_projection_hits == 0U &&
+      record.persistent_p40_fp8_projection_bulk_hits == 0U &&
+      record.persistent_p40_fp8_projection_oracle_partial_hits == 0U &&
+      record.persistent_p40_fp8_projection_physical_launches == 0U;
   const bool accuracy_unqualified_candidate =
       candidate_v3 || projection_candidate_v4 ||
       native_large_m_candidate_v5 || flashinfer_exact_candidate_v6 ||
-      true_large_m_nvfp4_candidate_v7 || g2_d2_nvfp4_candidate_v8;
+      true_large_m_nvfp4_candidate_v7 || g2_d2_nvfp4_candidate_v8 ||
+      persistent_p40_candidate_v9 ||
+      prompt_wide_p40_whole_core_candidate_v10;
   std::string output =
-      g2_d2_nvfp4_candidate_v8
+      prompt_wide_p40_whole_core_candidate_v10
+          ? "{\"record\":\"target-prefill-witness-v10\","
+            "\"schema_version\":10,\"request\":{\"id\":"
+      : persistent_p40_candidate_v9
+          ? "{\"record\":\"target-prefill-witness-v9\","
+            "\"schema_version\":9,\"request\":{\"id\":"
+      : g2_d2_nvfp4_candidate_v8
           ? "{\"record\":\"target-prefill-witness-v8\","
             "\"schema_version\":8,\"request\":{\"id\":"
       : true_large_m_nvfp4_candidate_v7
@@ -846,17 +1030,162 @@ std::string serialize_target_prefill_witness(
     output += ",\"logical_panel_count\":" +
               std::to_string(record.prefill_logical_panel_count) +
               ",\"request_memory_profile\":";
-    append_json_string(
-        output,
-        record.request_memory_profile ==
-                runtime::RequestMemoryProfile::kLayerMajorC8192
-            ? "layer-major-c8192"
-            : "legacy-c512");
+    switch (record.request_memory_profile) {
+      case runtime::RequestMemoryProfile::kLayerMajorP40WholeCore:
+        append_json_string(output, "layer-major-p40-whole-core");
+        break;
+      case runtime::RequestMemoryProfile::kLayerMajorC8192:
+        append_json_string(output, "layer-major-c8192");
+        break;
+      case runtime::RequestMemoryProfile::kLegacyC512:
+      default:
+        append_json_string(output, "legacy-c512");
+        break;
+    }
     output += ",\"bounded_submission_window\":";
     output += record.bounded_submission_window ? "true" : "false";
     output += ",\"submission_window_retirements\":" +
               std::to_string(record.submission_window_retirements);
-    if (g2_d2_nvfp4_candidate_v8) {
+    if (prompt_wide_p40_whole_core_candidate_v10) {
+      output += ",\"projection_tactic\":";
+      append_json_string(output, "native-prompt-wide-p40-whole-core");
+      output += ",\"mlp_schedule\":";
+      append_json_string(output, "prompt-wide-p40-whole-core");
+      output += ",\"attention_tactic\":";
+      append_json_string(output, "native-flashinfer-exact-whole-prompt");
+      output += ",\"package_complete\":";
+      output += prompt_wide_p40_whole_core_package_counts_complete
+                    ? "true"
+                    : "false";
+      output +=
+          ",\"route_layer_pass_count\":" +
+          std::to_string(record.route_layer_pass_count) +
+          ",\"operator_panel_executor_hits\":" +
+          std::to_string(record.operator_panel_executor_hits) +
+          ",\"prompt_wide_p40_whole_core_layer_hits\":" +
+          std::to_string(record.prompt_wide_p40_whole_core_layer_hits) +
+          ",\"prompt_wide_p40_fill_panel_hits\":" +
+          std::to_string(record.prompt_wide_p40_fill_panel_hits) +
+          ",\"prompt_wide_p40_prompt_core_hits\":" +
+          std::to_string(record.prompt_wide_p40_prompt_core_hits) +
+          ",\"prompt_wide_p40_drain_panel_hits\":" +
+          std::to_string(record.prompt_wide_p40_drain_panel_hits) +
+          ",\"prompt_wide_p40_fp8_projection_hits\":" +
+          std::to_string(record.prompt_wide_p40_fp8_projection_hits) +
+          ",\"prompt_wide_p40_fp8_projection_physical_launches\":" +
+          std::to_string(
+              record.prompt_wide_p40_fp8_projection_physical_launches) +
+          ",\"prompt_wide_p40_bf16_ab_hits\":" +
+          std::to_string(record.prompt_wide_p40_bf16_ab_hits) +
+          ",\"prompt_wide_p40_gdn_hits\":" +
+          std::to_string(record.prompt_wide_p40_gdn_hits) +
+          ",\"native_flashinfer_exact_whole_prompt_hits\":" +
+          std::to_string(record.native_flashinfer_exact_whole_prompt_hits) +
+          ",\"layer_wide_p40_mlp_layer_hits\":" +
+          std::to_string(record.layer_wide_p40_mlp_layer_hits) +
+          ",\"persistent_p40_nvfp4_gate_up_hits\":" +
+          std::to_string(record.persistent_p40_nvfp4_gate_up_hits) +
+          ",\"persistent_p40_nvfp4_down_residual_hits\":" +
+          std::to_string(record.persistent_p40_nvfp4_down_residual_hits) +
+          ",\"persistent_p40_nvfp4_physical_launches\":" +
+          std::to_string(record.persistent_p40_nvfp4_physical_launches) +
+          ",\"prompt_wide_p40_whole_core_package\":{\"identity\":";
+      append_json_string(output,
+                         "exact-p40000-five-p8000-whole-core-v1");
+      output += ",\"selection\":\"sealed-fail-closed\",\"complete\":";
+      output += prompt_wide_p40_whole_core_package_counts_complete
+                    ? "true"
+                    : "false";
+      output +=
+          ",\"logical_panels\":" +
+          std::to_string(kP40LogicalPanelCount) +
+          ",\"panel_tokens\":" +
+          std::to_string(
+              runtime::kLayerMajorPrefillPromptWideP40PanelTokens) +
+          ",\"count_validation\":{\"expected_layer_hits\":" +
+          std::to_string(kP40WholeCoreExpectedLayerHits) +
+          ",\"expected_panel_phase_hits\":" +
+          std::to_string(kP40WholeCoreExpectedPanelPhaseHits) +
+          ",\"expected_fp8_projection_hits\":" +
+          std::to_string(kP40WholeCoreExpectedFp8ProjectionHits) +
+          ",\"expected_bf16_ab_hits\":" +
+          std::to_string(kLinearAttentionLayerCount) +
+          ",\"expected_gdn_hits\":" +
+          std::to_string(kLinearAttentionLayerCount) +
+          ",\"expected_whole_prompt_attention_hits\":" +
+          std::to_string(kAttentionLayerCount) + "}}";
+    } else if (persistent_p40_candidate_v9) {
+      output += ",\"projection_tactic\":";
+      append_json_string(
+          output, "native-nvfp4-persistent-p40-layer-wide-mlp");
+      output += ",\"mlp_schedule\":";
+      append_json_string(output, "layer-wide-p40-exact-full-m");
+      output += ",\"attention_tactic\":";
+      append_json_string(
+          output, persistent_p40_candidate_uses_flashinfer_attention
+                      ? "native-flashinfer-exact-panel"
+                  : persistent_p40_candidate_uses_q128_v4_attention
+                      ? "native-group-q128-v4-panel"
+                  : persistent_p40_candidate_uses_q64_attention
+                      ? "native-group-q64-panel"
+                      : "exact-segmented");
+      output += ",\"package_complete\":";
+      output += persistent_p40_package_counts_complete ? "true" : "false";
+      output += ",\"route_layer_pass_count\":" +
+                std::to_string(record.route_layer_pass_count) +
+                ",\"operator_panel_executor_hits\":" +
+                std::to_string(record.operator_panel_executor_hits) +
+                ",\"layer_wide_p40_mlp_layer_hits\":" +
+                std::to_string(record.layer_wide_p40_mlp_layer_hits) +
+                ",\"persistent_p40_nvfp4_gate_up_hits\":" +
+                std::to_string(record.persistent_p40_nvfp4_gate_up_hits) +
+                ",\"persistent_p40_nvfp4_down_residual_hits\":" +
+                std::to_string(
+                    record.persistent_p40_nvfp4_down_residual_hits) +
+                ",\"persistent_p40_nvfp4_physical_launches\":" +
+                std::to_string(
+                    record.persistent_p40_nvfp4_physical_launches) +
+                ",\"persistent_p40_fp8_projection_hits\":" +
+                std::to_string(record.persistent_p40_fp8_projection_hits) +
+                ",\"persistent_p40_fp8_projection_bulk_hits\":" +
+                std::to_string(
+                    record.persistent_p40_fp8_projection_bulk_hits) +
+                ",\"persistent_p40_fp8_projection_oracle_partial_hits\":" +
+                std::to_string(record
+                                   .persistent_p40_fp8_projection_oracle_partial_hits) +
+                ",\"persistent_p40_fp8_projection_physical_launches\":" +
+                std::to_string(
+                    record.persistent_p40_fp8_projection_physical_launches) +
+                ",\"native_flashinfer_exact_panel_hits\":" +
+                std::to_string(record.native_flashinfer_exact_panel_hits) +
+                ",\"native_group_q64_panel_hits\":" +
+                std::to_string(record.native_group_q64_panel_hits) +
+                ",\"native_group_q128_v4_panel_hits\":" +
+                std::to_string(record.native_group_q128_v4_panel_hits) +
+                ",\"generic_qt2_hits\":" +
+                std::to_string(record.generic_qt2_hits) +
+                ",\"persistent_p40_package\":{\"identity\":";
+      append_json_string(output, "exact-p40000-layer-wide-nvfp4-mlp");
+      output += ",\"selection\":\"sealed-fail-closed\",\"complete\":";
+      output += persistent_p40_package_counts_complete ? "true" : "false";
+      output += ",\"logical_panels\":" +
+                std::to_string(kP40LogicalPanelCount) +
+                ",\"route_passes\":1,\"roles\":{\"gate_up\":{"
+                "\"logical_hits\":" +
+                std::to_string(record.persistent_p40_nvfp4_gate_up_hits) +
+                "},\"down_residual\":{\"logical_hits\":" +
+                std::to_string(
+                    record.persistent_p40_nvfp4_down_residual_hits) +
+                "}},\"count_validation\":{\"expected_fp8_hits\":" +
+                std::to_string(kP40ExpectedFp8ProjectionHits) +
+                ",\"expected_bulk_fp8_hits\":" +
+                std::to_string(kP40ExpectedBulkFp8ProjectionHits) +
+                ",\"expected_partial_fp8_hits\":" +
+                std::to_string(kP40ExpectedPartialFp8ProjectionHits) +
+                ",\"attention_route_complete\":";
+      output += p40_attention_counts_complete ? "true" : "false";
+      output += "}}";
+    } else if (g2_d2_nvfp4_candidate_v8) {
       output += ",\"projection_tactic\":";
       append_json_string(output,
                          "native-nvfp4-g2-d2-large-m-operator-panel");

@@ -148,7 +148,11 @@ constexpr std::uint64_t kProjectionTemporaryBytes = 1'048'832U;
 [[nodiscard]] bool validate_common_identity(
     const LayerMajorRequestMemoryPlan& plan) noexcept {
   const RequestMemoryPlan& common = plan.common;
-  if (common.profile != RequestMemoryProfile::kLayerMajorC8192 ||
+  const RequestMemoryProfile expected_profile =
+      plan.layout == LayerMajorRequestLayout::kP40WholeCorePromptWide
+          ? RequestMemoryProfile::kLayerMajorP40WholeCore
+          : RequestMemoryProfile::kLayerMajorC8192;
+  if (common.profile != expected_profile ||
       common.batch_size != 1U || common.prefill_chunk_size !=
                                       kMaximumRequestPrefillChunkSize ||
       common.max_sequence_length == 0U ||
@@ -160,8 +164,9 @@ constexpr std::uint64_t kProjectionTemporaryBytes = 1'048'832U;
       common.arena_bytes != common.rope_offset + common.rope_bytes) {
     return false;
   }
-  if (reference_runner_detail::validate_reference_workspace_plan(common) !=
-      ReferenceRunnerError::kNone) {
+  if (plan.layout == LayerMajorRequestLayout::kC8192FamilyOverlay &&
+      reference_runner_detail::validate_reference_workspace_plan(common) !=
+          ReferenceRunnerError::kNone) {
     return false;
   }
   if (!valid_exact_region(common.conv_state,
@@ -199,13 +204,39 @@ constexpr std::uint64_t kProjectionTemporaryBytes = 1'048'832U;
   }
 
   std::uint64_t rope_elements = 0U;
-  return checked_multiply(common.max_sequence_length, kRopePairs,
-                          rope_elements) &&
-         valid_exact_region(common.rope_cos_fp32, rope_elements, kFp32Bytes,
-                            common.arena_bytes) &&
-         valid_exact_region(common.rope_sin_fp32, rope_elements, kFp32Bytes,
-                            common.arena_bytes) &&
-         common.rope_cos_fp32.arena_offset == common.rope_offset &&
+  if (!checked_multiply(common.max_sequence_length, kRopePairs,
+                        rope_elements) ||
+      !valid_exact_region(common.rope_cos_fp32, rope_elements, kFp32Bytes,
+                          common.arena_bytes) ||
+      common.rope_cos_fp32.arena_offset != common.rope_offset) {
+    return false;
+  }
+  const bool whole_core_p40 =
+      plan.layout == LayerMajorRequestLayout::kP40WholeCorePromptWide;
+  std::uint64_t sine_end = 0U;
+  if (whole_core_p40) {
+    std::uint64_t expected_sine_offset = 0U;
+    std::uint64_t expected_rope_bytes = 0U;
+    if (!checked_add(common.rope_cos_fp32.arena_offset,
+                     common.rope_cos_fp32.byte_size,
+                     expected_sine_offset) ||
+        !checked_multiply(rope_elements, kFp32Bytes,
+                          expected_rope_bytes) ||
+        !checked_multiply(expected_rope_bytes, 2U,
+                          expected_rope_bytes) ||
+        common.rope_sin_fp32.element_capacity != rope_elements ||
+        common.rope_sin_fp32.element_size_bytes != kFp32Bytes ||
+        common.rope_sin_fp32.byte_size !=
+            common.rope_cos_fp32.byte_size ||
+        common.rope_sin_fp32.arena_offset != expected_sine_offset ||
+        common.rope_bytes != expected_rope_bytes ||
+        !region_end(common.rope_sin_fp32, sine_end)) {
+      return false;
+    }
+    return sine_end == common.arena_bytes;
+  }
+  return valid_exact_region(common.rope_sin_fp32, rope_elements,
+                            kFp32Bytes, common.arena_bytes) &&
          aligned_next(common.rope_cos_fp32, common.rope_sin_fp32) &&
          [&common]() noexcept {
            std::uint64_t sine_end = 0U;
@@ -357,23 +388,153 @@ constexpr std::uint64_t kProjectionTemporaryBytes = 1'048'832U;
                     attention.output_projection_temporary);
 }
 
+[[nodiscard]] bool validate_p40_whole_core_regions(
+    const LayerMajorRequestMemoryPlan& plan) noexcept {
+  if (plan.layout != LayerMajorRequestLayout::kP40WholeCorePromptWide ||
+      plan.common.profile != RequestMemoryProfile::kLayerMajorP40WholeCore ||
+      plan.common.max_sequence_length !=
+          kLayerMajorP40WholeCoreRequestCapacityTokens ||
+      plan.operator_panel_capacity_tokens !=
+          kLayerMajorP40WholeCorePanelTokens ||
+      plan.mlp_capacity_tokens != kLayerMajorP40WholeCorePromptTokens ||
+      plan.mlp_layout !=
+          LayerMajorRequestMlpLayout::kLayerWideP40PersistentTwoSpan ||
+      plan.common.arena_bytes != 8'640'542'976U) {
+    return false;
+  }
+
+  const std::uint64_t arena_bytes = plan.common.arena_bytes;
+  const LayerMajorP40WholeCoreRegions& whole = plan.p40_whole_core;
+  const RequestRegion& family = whole.family_phase_arena;
+  const auto relative_offset = [&family](const RequestRegion& region,
+                                         const std::uint64_t expected) noexcept {
+    return region.arena_offset >= family.arena_offset &&
+           region.arena_offset - family.arena_offset == expected;
+  };
+  if (whole.prompt_token_count != kLayerMajorP40WholeCorePromptTokens ||
+      whole.request_capacity_tokens !=
+          kLayerMajorP40WholeCoreRequestCapacityTokens ||
+      whole.logical_panel_capacity_tokens !=
+          kLayerMajorP40WholeCorePanelTokens ||
+      whole.logical_panel_count != kLayerMajorP40WholeCorePanelCount ||
+      !valid_byte_region(family, 5'429'760'000U, arena_bytes) ||
+      !contiguous(plan.prompt_residual_bf16.storage, family)) {
+    return false;
+  }
+
+  const LayerMajorP40WholeCoreLinearPhaseRegions& linear = whole.linear;
+  if (!valid_exact_matrix(linear.raw_qkv_bf16, 40'000U, 10'240U,
+                          10'240U, kBf16Bytes, arena_bytes) ||
+      !valid_exact_matrix(linear.conv_qkv_bf16, 40'000U, 10'240U,
+                          10'240U, kBf16Bytes, arena_bytes) ||
+      !valid_exact_matrix(linear.z_bf16, 40'000U, 6'144U, 6'144U,
+                          kBf16Bytes, arena_bytes) ||
+      !valid_exact_matrix(linear.a_bf16, 40'000U, 48U, 48U,
+                          kBf16Bytes, arena_bytes) ||
+      !valid_exact_matrix(linear.b_bf16, 40'000U, 48U, 48U,
+                          kBf16Bytes, arena_bytes) ||
+      !valid_byte_region(linear.prompt_wide_workspace, 2'800'640'000U,
+                         arena_bytes) ||
+      !valid_exact_matrix(linear.output_bf16, 40'000U, 6'144U, 6'144U,
+                          kBf16Bytes, arena_bytes) ||
+      !valid_exact_matrix(linear.normalized_input_bf16, 40'000U, 5'120U,
+                          5'120U, kBf16Bytes, arena_bytes) ||
+      !valid_exact_matrix(linear.branch_output_bf16, 40'000U, 5'120U,
+                          5'120U, kBf16Bytes, arena_bytes) ||
+      !relative_offset(linear.raw_qkv_bf16.storage, 0U) ||
+      !relative_offset(linear.conv_qkv_bf16.storage, 819'200'000U) ||
+      !relative_offset(linear.z_bf16.storage, 1'638'400'000U) ||
+      !relative_offset(linear.a_bf16.storage, 2'129'920'000U) ||
+      !relative_offset(linear.b_bf16.storage, 2'133'760'000U) ||
+      !relative_offset(linear.prompt_wide_workspace, 2'137'600'000U) ||
+      !relative_offset(linear.output_bf16.storage, 4'938'240'000U) ||
+      !relative_offset(linear.normalized_input_bf16.storage,
+                       4'938'240'000U) ||
+      !relative_offset(linear.branch_output_bf16.storage, 0U) ||
+      !contiguous(linear.raw_qkv_bf16.storage,
+                  linear.conv_qkv_bf16.storage) ||
+      !contiguous(linear.conv_qkv_bf16.storage, linear.z_bf16.storage) ||
+      !contiguous(linear.z_bf16.storage, linear.a_bf16.storage) ||
+      !contiguous(linear.a_bf16.storage, linear.b_bf16.storage) ||
+      !contiguous(linear.b_bf16.storage,
+                  linear.prompt_wide_workspace) ||
+      !contiguous(linear.prompt_wide_workspace,
+                  linear.output_bf16.storage)) {
+    return false;
+  }
+
+  if (!valid_exact_matrix(whole.prompt_token_ids_u32, 40'000U, 1U, 1U,
+                          sizeof(std::uint32_t), arena_bytes) ||
+      !contains(linear.prompt_wide_workspace,
+                whole.prompt_token_ids_u32.storage) ||
+      whole.prompt_token_ids_u32.storage.arena_offset !=
+          linear.prompt_wide_workspace.arena_offset ||
+      whole.prompt_token_ids_u32.storage.arena_offset ==
+          family.arena_offset) {
+    return false;
+  }
+
+  const LayerMajorP40WholeCoreFullAttentionPhaseRegions& full =
+      whole.full_attention;
+  const std::array<RequestRegion, 6U> full_regions{
+      full.raw_q_gate_bf16.storage,
+      full.processed_q_bf16.storage,
+      full.packed_gate_bf16.storage,
+      full.normalized_input_bf16.storage,
+      full.core_output_bf16.storage,
+      full.branch_output_bf16.storage};
+  if (!valid_exact_matrix(full.raw_q_gate_bf16, 40'000U, 12'288U,
+                          12'288U, kBf16Bytes, arena_bytes) ||
+      !valid_exact_matrix(full.processed_q_bf16, 40'000U, 6'144U, 6'144U,
+                          kBf16Bytes, arena_bytes) ||
+      !valid_exact_matrix(full.packed_gate_bf16, 40'000U, 6'144U, 6'144U,
+                          kBf16Bytes, arena_bytes) ||
+      !valid_exact_matrix(full.normalized_input_bf16, 40'000U, 5'120U,
+                          5'120U, kBf16Bytes, arena_bytes) ||
+      !valid_exact_matrix(full.core_output_bf16, 40'000U, 6'144U, 6'144U,
+                          kBf16Bytes, arena_bytes) ||
+      !valid_exact_matrix(full.branch_output_bf16, 40'000U, 5'120U,
+                          5'120U, kBf16Bytes, arena_bytes)) {
+    return false;
+  }
+  for (const RequestRegion& region : full_regions) {
+    if (!contains(family, region)) {
+      return false;
+    }
+  }
+  return relative_offset(full.raw_q_gate_bf16.storage, 0U) &&
+         relative_offset(full.processed_q_bf16.storage, 983'040'000U) &&
+         relative_offset(full.packed_gate_bf16.storage, 1'474'560'000U) &&
+         relative_offset(full.normalized_input_bf16.storage,
+                         4'938'240'000U) &&
+         relative_offset(full.core_output_bf16.storage, 0U) &&
+         relative_offset(full.branch_output_bf16.storage, 491'520'000U) &&
+         contiguous(full.raw_q_gate_bf16.storage,
+                    full.processed_q_bf16.storage) &&
+         contiguous(full.processed_q_bf16.storage,
+                    full.packed_gate_bf16.storage);
+}
+
 [[nodiscard]] bool validate_mlp_regions(
     const LayerMajorRequestMemoryPlan& plan) noexcept {
-  const std::uint32_t panel = plan.operator_panel_capacity_tokens;
+  const std::uint32_t rows = plan.mlp_capacity_tokens;
   const std::uint64_t arena_bytes = plan.common.arena_bytes;
-  const RequestRegion& family = plan.c8192_family_phase_arena;
+  const RequestRegion& family =
+      plan.layout == LayerMajorRequestLayout::kP40WholeCorePromptWide
+          ? plan.p40_whole_core.family_phase_arena
+          : plan.c8192_family_phase_arena;
   const LayerMajorMlpPhaseRegions& mlp = plan.mlp;
-  if (!valid_exact_matrix(mlp.gate_bf16, panel, 17'408U, 17'408U,
+  if (!valid_exact_matrix(mlp.gate_bf16, rows, 17'408U, 17'408U,
                           kBf16Bytes, arena_bytes) ||
-      !valid_exact_matrix(mlp.up_bf16, panel, 17'408U, 17'408U,
+      !valid_exact_matrix(mlp.up_bf16, rows, 17'408U, 17'408U,
                           kBf16Bytes, arena_bytes) ||
-      !valid_exact_matrix(mlp.activated_bf16, panel, 17'408U, 17'408U,
+      !valid_exact_matrix(mlp.activated_bf16, rows, 17'408U, 17'408U,
                           kBf16Bytes, arena_bytes) ||
-      !valid_exact_matrix(mlp.normalized_input_bf16, panel, 5'120U, 5'120U,
+      !valid_exact_matrix(mlp.normalized_input_bf16, rows, 5'120U, 5'120U,
                           kBf16Bytes, arena_bytes) ||
       !valid_byte_region(mlp.gate_up_projection_temporary,
                          kProjectionTemporaryBytes, arena_bytes) ||
-      !valid_exact_matrix(mlp.branch_output_bf16, panel, 5'120U, 5'120U,
+      !valid_exact_matrix(mlp.branch_output_bf16, rows, 5'120U, 5'120U,
                           kBf16Bytes, arena_bytes) ||
       !valid_byte_region(mlp.down_projection_temporary,
                          kProjectionTemporaryBytes, arena_bytes)) {
@@ -391,6 +552,41 @@ constexpr std::uint64_t kProjectionTemporaryBytes = 1'048'832U;
     if (!contains(family, region)) {
       return false;
     }
+  }
+  if (plan.layout ==
+      LayerMajorRequestLayout::kP40WholeCorePromptWide) {
+    return plan.mlp_layout ==
+               LayerMajorRequestMlpLayout::kLayerWideP40PersistentTwoSpan &&
+           rows == kLayerMajorP40WholeCorePromptTokens &&
+           mlp.gate_bf16.storage.arena_offset == family.arena_offset &&
+           mlp.up_bf16.storage.arena_offset == family.arena_offset &&
+           mlp.activated_bf16.storage.arena_offset == family.arena_offset &&
+           mlp.normalized_input_bf16.storage.arena_offset ==
+               plan.p40_whole_core.linear.output_bf16.storage.arena_offset &&
+           mlp.branch_output_bf16.storage.arena_offset ==
+               mlp.normalized_input_bf16.storage.arena_offset &&
+           mlp.gate_up_projection_temporary.arena_offset ==
+               plan.p40_whole_core.linear.prompt_wide_workspace.arena_offset &&
+           mlp.down_projection_temporary.arena_offset == family.arena_offset;
+  }
+  if (plan.mlp_layout ==
+      LayerMajorRequestMlpLayout::kLayerWideP40PersistentTwoSpan) {
+    std::uint64_t family_end = 0U;
+    std::uint64_t normalized_end = 0U;
+    return mlp.gate_bf16.storage.arena_offset == family.arena_offset &&
+           mlp.up_bf16.storage.arena_offset == family.arena_offset &&
+           mlp.activated_bf16.storage.arena_offset == family.arena_offset &&
+           contiguous(mlp.activated_bf16.storage,
+                      mlp.normalized_input_bf16.storage) &&
+           mlp.branch_output_bf16.storage.arena_offset ==
+               mlp.normalized_input_bf16.storage.arena_offset &&
+           mlp.gate_up_projection_temporary.arena_offset ==
+               family.arena_offset &&
+           mlp.down_projection_temporary.arena_offset ==
+               family.arena_offset &&
+           region_end(family, family_end) &&
+           region_end(mlp.normalized_input_bf16.storage, normalized_end) &&
+           normalized_end == family_end;
   }
   return mlp.gate_bf16.storage.arena_offset == family.arena_offset &&
          contiguous(mlp.gate_bf16.storage, mlp.up_bf16.storage) &&
@@ -417,7 +613,10 @@ constexpr std::uint64_t kProjectionTemporaryBytes = 1'048'832U;
   const RequestMemoryPlan& common = plan.common;
   const LayerMajorLegacyC512Regions& legacy = plan.legacy_c512;
   const std::uint32_t rows = plan.legacy_prefill_chunk_size;
-  RequestRegion previous = plan.c8192_family_phase_arena;
+  RequestRegion previous =
+      plan.layout == LayerMajorRequestLayout::kP40WholeCorePromptWide
+          ? plan.p40_whole_core.family_phase_arena
+          : plan.c8192_family_phase_arena;
   for (std::size_t index = 0U; index < legacy.hidden_bf16.size(); ++index) {
     if (!valid_exact_matrix(legacy.hidden_bf16[index], rows, 5'120U, 5'120U,
                             kBf16Bytes, common.arena_bytes) ||
@@ -453,7 +652,11 @@ constexpr std::uint64_t kProjectionTemporaryBytes = 1'048'832U;
 
   std::uint64_t probability_elements = 0U;
   std::uint64_t expected_scratch_bytes = 0U;
-  if (!checked_multiply(common.max_sequence_length, 24U,
+  const std::uint64_t probability_tokens =
+      plan.layout == LayerMajorRequestLayout::kP40WholeCorePromptWide
+          ? kLayerMajorP40WholeCorePromptTokens
+          : common.max_sequence_length;
+  if (!checked_multiply(probability_tokens, 24U,
                         probability_elements)) {
     return false;
   }
@@ -649,14 +852,74 @@ constexpr std::uint64_t kProjectionTemporaryBytes = 1'048'832U;
                              arena_identity);
 }
 
+[[nodiscard]] bool validate_p40_whole_core_views(
+    const LayerMajorP40WholeCoreViews& views,
+    const LayerMajorP40WholeCoreRegions& regions,
+    const std::uintptr_t arena_identity) noexcept {
+  const auto& linear_views = views.linear;
+  const auto& linear_regions = regions.linear;
+  const auto& full_views = views.full_attention;
+  const auto& full_regions = regions.full_attention;
+  return matrix_view_matches(views.prompt_token_ids_u32,
+                             regions.prompt_token_ids_u32,
+                             arena_identity) &&
+         matrix_view_matches(linear_views.raw_qkv_bf16,
+                             linear_regions.raw_qkv_bf16,
+                             arena_identity) &&
+         matrix_view_matches(linear_views.conv_qkv_bf16,
+                             linear_regions.conv_qkv_bf16,
+                             arena_identity) &&
+         matrix_view_matches(linear_views.z_bf16,
+                             linear_regions.z_bf16, arena_identity) &&
+         matrix_view_matches(linear_views.a_bf16,
+                             linear_regions.a_bf16, arena_identity) &&
+         matrix_view_matches(linear_views.b_bf16,
+                             linear_regions.b_bf16, arena_identity) &&
+         buffer_view_matches(linear_views.prompt_wide_workspace,
+                             linear_regions.prompt_wide_workspace,
+                             arena_identity) &&
+         matrix_view_matches(linear_views.output_bf16,
+                             linear_regions.output_bf16,
+                             arena_identity) &&
+         matrix_view_matches(linear_views.normalized_input_bf16,
+                             linear_regions.normalized_input_bf16,
+                             arena_identity) &&
+         matrix_view_matches(linear_views.branch_output_bf16,
+                             linear_regions.branch_output_bf16,
+                             arena_identity) &&
+         matrix_view_matches(full_views.raw_q_gate_bf16,
+                             full_regions.raw_q_gate_bf16,
+                             arena_identity) &&
+         matrix_view_matches(full_views.processed_q_bf16,
+                             full_regions.processed_q_bf16,
+                             arena_identity) &&
+         matrix_view_matches(full_views.packed_gate_bf16,
+                             full_regions.packed_gate_bf16,
+                             arena_identity) &&
+         matrix_view_matches(full_views.normalized_input_bf16,
+                             full_regions.normalized_input_bf16,
+                             arena_identity) &&
+         matrix_view_matches(full_views.core_output_bf16,
+                             full_regions.core_output_bf16,
+                             arena_identity) &&
+         matrix_view_matches(full_views.branch_output_bf16,
+                             full_regions.branch_output_bf16,
+                             arena_identity);
+}
+
 }  // namespace
 
 ReferenceLayerMajorRequestDescriptorOutcome
 build_reference_layer_major_candidate_binding_descriptor(
     const LayerMajorRequestMemoryPlan& plan) noexcept {
   const RequestMemoryPlan& common = plan.common;
-  if (validate_request_memory_profile(
-          common.profile, RequestMemoryProfile::kLayerMajorC8192) !=
+  const bool whole_core_p40 =
+      plan.layout ==
+      LayerMajorRequestLayout::kP40WholeCorePromptWide;
+  const RequestMemoryProfile expected_profile =
+      whole_core_p40 ? RequestMemoryProfile::kLayerMajorP40WholeCore
+                     : RequestMemoryProfile::kLayerMajorC8192;
+  if (validate_request_memory_profile(common.profile, expected_profile) !=
       RequestAccessError::kNone) {
     return descriptor_failure(
         ReferenceRunnerError::kInvalidRequestState,
@@ -671,19 +934,51 @@ build_reference_layer_major_candidate_binding_descriptor(
     return descriptor_failure(ReferenceRunnerError::kInvalidRequestState,
                               "layer_major_common_identity");
   }
-  if (plan.operator_panel_capacity_tokens !=
-          kLayerMajorRequestOperatorPanelCapacity ||
+  const bool valid_layout_identity =
+      whole_core_p40
+          ? plan.operator_panel_capacity_tokens ==
+                    kLayerMajorP40WholeCorePanelTokens &&
+                plan.common.max_sequence_length ==
+                    kLayerMajorP40WholeCoreRequestCapacityTokens &&
+                plan.mlp_capacity_tokens ==
+                    kLayerMajorP40WholeCorePromptTokens &&
+                plan.mlp_layout == LayerMajorRequestMlpLayout::
+                                       kLayerWideP40PersistentTwoSpan &&
+                plan.mlp_tactic == PrefillMlpPhysicalTactic::
+                                       kLayerWideP40PersistentFusedGateUp &&
+                plan.scratch_strategy == PrefillOperatorScratchStrategy::
+                                             kP40WholeCorePromptWideWithDisjointLegacyC512 &&
+                plan.gdn_tactic == PrefillGdnPhysicalTactic::
+                                       kP40PromptWideChunkGraph
+          : plan.layout == LayerMajorRequestLayout::kC8192FamilyOverlay &&
+                plan.operator_panel_capacity_tokens ==
+                    kLayerMajorRequestOperatorPanelCapacity &&
+                ((plan.mlp_layout ==
+                      LayerMajorRequestMlpLayout::kPanelLocalThreeSpan &&
+                  plan.mlp_capacity_tokens ==
+                      kLayerMajorRequestOperatorPanelCapacity &&
+                  plan.mlp_tactic ==
+                      PrefillMlpPhysicalTactic::kSeparateGateUpAndSilu) ||
+                 (plan.mlp_layout == LayerMajorRequestMlpLayout::
+                                         kLayerWideP40PersistentTwoSpan &&
+                  plan.common.max_sequence_length ==
+                      kLayerMajorPrefillLayerWideMlpP40RequestCapacityTokens &&
+                  plan.mlp_capacity_tokens ==
+                      kLayerMajorPrefillLayerWideMlpP40Tokens &&
+                  plan.mlp_tactic == PrefillMlpPhysicalTactic::
+                                         kLayerWideP40PersistentFusedGateUp));
+  if (!valid_layout_identity ||
       plan.legacy_prefill_chunk_size !=
           kMaximumRequestPrefillChunkSize ||
       plan.hidden_strategy !=
           PrefillHiddenStrategy::kSinglePromptWideConditional ||
-      plan.scratch_strategy != PrefillOperatorScratchStrategy::
-                                   kC8192FamilyOverlayWithDisjointLegacyC512 ||
-      plan.gdn_tactic != PrefillGdnPhysicalTactic::kC64NativeInPlaceConv ||
+      (!whole_core_p40 &&
+       (plan.scratch_strategy != PrefillOperatorScratchStrategy::
+                                    kC8192FamilyOverlayWithDisjointLegacyC512 ||
+        plan.gdn_tactic !=
+            PrefillGdnPhysicalTactic::kC64NativeInPlaceConv)) ||
       plan.legacy_gdn_tactic !=
-          PrefillLegacyGdnPhysicalTactic::kC16Composite ||
-      plan.mlp_tactic !=
-          PrefillMlpPhysicalTactic::kSeparateGateUpAndSilu) {
+          PrefillLegacyGdnPhysicalTactic::kC16Composite) {
     return descriptor_failure(ReferenceRunnerError::kInvalidRequestState,
                               "layer_major_physical_tactic_identity");
   }
@@ -704,31 +999,46 @@ build_reference_layer_major_candidate_binding_descriptor(
     return descriptor_failure(ReferenceRunnerError::kInvalidRequestState,
                               "layer_major_prompt_residual");
   }
-  if (!valid_byte_region(plan.c8192_family_phase_arena, 855'638'016U,
-                         common.arena_bytes) ||
-      !contiguous(plan.prompt_residual_bf16.storage,
-                  plan.c8192_family_phase_arena)) {
-    return descriptor_failure(ReferenceRunnerError::kInvalidRequestState,
-                              "layer_major_family_arena_identity");
-  }
-  if (!valid_exact_matrix(
-          plan.panel_token_ids_u32,
-          kLayerMajorRequestOperatorPanelCapacity, 1U, 1U,
-          sizeof(std::uint32_t), common.arena_bytes) ||
-      !contains(plan.c8192_family_phase_arena,
-                plan.panel_token_ids_u32.storage) ||
-      plan.panel_token_ids_u32.storage.arena_offset !=
-          plan.c8192_family_phase_arena.arena_offset) {
-    return descriptor_failure(ReferenceRunnerError::kInvalidRequestState,
-                              "layer_major_panel_token_ids");
-  }
-  if (!validate_gdn_regions(plan)) {
-    return descriptor_failure(ReferenceRunnerError::kInvalidRequestState,
-                              "layer_major_gdn_views");
-  }
-  if (!validate_attention_regions(plan)) {
-    return descriptor_failure(ReferenceRunnerError::kInvalidRequestState,
-                              "layer_major_attention_views");
+  if (whole_core_p40) {
+    if (!validate_p40_whole_core_regions(plan)) {
+      return descriptor_failure(ReferenceRunnerError::kInvalidRequestState,
+                                "layer_major_p40_whole_core_views");
+    }
+  } else {
+    const std::uint64_t expected_family_bytes =
+        plan.mlp_layout ==
+                LayerMajorRequestMlpLayout::kLayerWideP40PersistentTwoSpan
+            ? static_cast<std::uint64_t>(plan.mlp_capacity_tokens) *
+                  (17'408U + 5'120U) * 2U
+            : static_cast<std::uint64_t>(plan.mlp_capacity_tokens) *
+                  17'408U * 2U * 3U;
+    if (!valid_byte_region(plan.c8192_family_phase_arena,
+                           expected_family_bytes,
+                           common.arena_bytes) ||
+        !contiguous(plan.prompt_residual_bf16.storage,
+                    plan.c8192_family_phase_arena)) {
+      return descriptor_failure(ReferenceRunnerError::kInvalidRequestState,
+                                "layer_major_family_arena_identity");
+    }
+    if (!valid_exact_matrix(
+            plan.panel_token_ids_u32,
+            kLayerMajorRequestOperatorPanelCapacity, 1U, 1U,
+            sizeof(std::uint32_t), common.arena_bytes) ||
+        !contains(plan.c8192_family_phase_arena,
+                  plan.panel_token_ids_u32.storage) ||
+        plan.panel_token_ids_u32.storage.arena_offset !=
+            plan.c8192_family_phase_arena.arena_offset) {
+      return descriptor_failure(ReferenceRunnerError::kInvalidRequestState,
+                                "layer_major_panel_token_ids");
+    }
+    if (!validate_gdn_regions(plan)) {
+      return descriptor_failure(ReferenceRunnerError::kInvalidRequestState,
+                                "layer_major_gdn_views");
+    }
+    if (!validate_attention_regions(plan)) {
+      return descriptor_failure(ReferenceRunnerError::kInvalidRequestState,
+                                "layer_major_attention_views");
+    }
   }
   if (!validate_mlp_regions(plan)) {
     return descriptor_failure(ReferenceRunnerError::kInvalidRequestState,
@@ -751,6 +1061,9 @@ build_reference_layer_major_candidate_binding_descriptor(
   descriptor.operator_panel_capacity_tokens =
       plan.operator_panel_capacity_tokens;
   descriptor.legacy_prefill_chunk_size = plan.legacy_prefill_chunk_size;
+  descriptor.mlp_capacity_tokens = plan.mlp_capacity_tokens;
+  descriptor.layout = plan.layout;
+  descriptor.mlp_layout = plan.mlp_layout;
   descriptor.arena_bytes = common.arena_bytes;
   descriptor.layers = common.layers;
   descriptor.conv_state_bf16 = common.conv_state;
@@ -765,6 +1078,7 @@ build_reference_layer_major_candidate_binding_descriptor(
   descriptor.attention = plan.attention;
   descriptor.mlp = plan.mlp;
   descriptor.legacy_c512 = plan.legacy_c512;
+  descriptor.p40_whole_core = plan.p40_whole_core;
   descriptor.final_hidden_bf16 = plan.final_hidden_bf16;
   descriptor.hidden_strategy = plan.hidden_strategy;
   descriptor.scratch_strategy = plan.scratch_strategy;
@@ -783,11 +1097,12 @@ collect_reference_layer_major_candidate_views(RequestState* const state) noexcep
     return views_failure(ReferenceRunnerError::kInvalidDependency,
                          "layer_major_request_state");
   }
-  const RequestAccessError profile_error = validate_request_memory_profile(
-      state->memory_profile(), RequestMemoryProfile::kLayerMajorC8192);
-  if (profile_error != RequestAccessError::kNone) {
+  const RequestMemoryProfile profile = state->memory_profile();
+  if (profile != RequestMemoryProfile::kLayerMajorC8192 &&
+      profile != RequestMemoryProfile::kLayerMajorP40WholeCore) {
     return views_failure(ReferenceRunnerError::kInvalidRequestState,
-                         "layer_major_memory_profile", profile_error);
+                         "layer_major_memory_profile",
+                         RequestAccessError::kMemoryProfileMismatch);
   }
   if (!static_cast<bool>(*state)) {
     return views_failure(ReferenceRunnerError::kInvalidRequestState,
@@ -831,41 +1146,63 @@ collect_reference_layer_major_candidate_views(RequestState* const state) noexcep
                          "layer_major_prompt_residual_identity");
   }
 
-  RequestMatrixViewResult token_ids = state->layer_major_panel_token_ids();
-  if (!token_ids) {
-    return views_failure(ReferenceRunnerError::kInvalidRequestState,
-                         "layer_major_panel_token_ids_accessor",
-                         token_ids.error);
-  }
-  if (!matrix_view_matches(*token_ids.value,
-                           described.value->panel_token_ids_u32,
-                           arena_identity)) {
-    return views_failure(ReferenceRunnerError::kInvalidRequestState,
-                         "layer_major_panel_token_ids_identity");
-  }
+  RequestMatrixViewResult token_ids;
+  LayerMajorGdnPhaseViewResult gdn;
+  LayerMajorAttentionPhaseViewResult attention;
+  LayerMajorP40WholeCoreViewResult p40_whole_core;
+  const bool whole_core_p40 =
+      described.value->layout ==
+      LayerMajorRequestLayout::kP40WholeCorePromptWide;
+  if (whole_core_p40) {
+    p40_whole_core = state->layer_major_p40_whole_core_views();
+    if (!p40_whole_core) {
+      return views_failure(ReferenceRunnerError::kInvalidRequestState,
+                           "layer_major_p40_whole_core_accessor",
+                           p40_whole_core.error);
+    }
+    if (!validate_p40_whole_core_views(
+            *p40_whole_core.value, described.value->p40_whole_core,
+            arena_identity)) {
+      return views_failure(ReferenceRunnerError::kInvalidRequestState,
+                           "layer_major_p40_whole_core_identity");
+    }
+  } else {
+    token_ids = state->layer_major_panel_token_ids();
+    if (!token_ids) {
+      return views_failure(ReferenceRunnerError::kInvalidRequestState,
+                           "layer_major_panel_token_ids_accessor",
+                           token_ids.error);
+    }
+    if (!matrix_view_matches(*token_ids.value,
+                             described.value->panel_token_ids_u32,
+                             arena_identity)) {
+      return views_failure(ReferenceRunnerError::kInvalidRequestState,
+                           "layer_major_panel_token_ids_identity");
+    }
 
-  LayerMajorGdnPhaseViewResult gdn = state->layer_major_gdn_phase_views();
-  if (!gdn) {
-    return views_failure(ReferenceRunnerError::kInvalidRequestState,
-                         "layer_major_gdn_accessor", gdn.error);
-  }
-  if (!validate_gdn_views(*gdn.value, described.value->gdn,
-                          arena_identity)) {
-    return views_failure(ReferenceRunnerError::kInvalidRequestState,
-                         "layer_major_gdn_identity");
-  }
+    gdn = state->layer_major_gdn_phase_views();
+    if (!gdn) {
+      return views_failure(ReferenceRunnerError::kInvalidRequestState,
+                           "layer_major_gdn_accessor", gdn.error);
+    }
+    if (!validate_gdn_views(*gdn.value, described.value->gdn,
+                            arena_identity)) {
+      return views_failure(ReferenceRunnerError::kInvalidRequestState,
+                           "layer_major_gdn_identity");
+    }
 
-  LayerMajorAttentionPhaseViewResult attention =
-      state->layer_major_attention_phase_views();
-  if (!attention) {
-    return views_failure(ReferenceRunnerError::kInvalidRequestState,
-                         "layer_major_attention_accessor", attention.error);
-  }
-  if (!validate_attention_views(*attention.value,
-                                described.value->attention,
-                                arena_identity)) {
-    return views_failure(ReferenceRunnerError::kInvalidRequestState,
-                         "layer_major_attention_identity");
+    attention = state->layer_major_attention_phase_views();
+    if (!attention) {
+      return views_failure(ReferenceRunnerError::kInvalidRequestState,
+                           "layer_major_attention_accessor",
+                           attention.error);
+    }
+    if (!validate_attention_views(*attention.value,
+                                  described.value->attention,
+                                  arena_identity)) {
+      return views_failure(ReferenceRunnerError::kInvalidRequestState,
+                           "layer_major_attention_identity");
+    }
   }
 
   LayerMajorMlpPhaseViewResult mlp = state->layer_major_mlp_phase_views();
@@ -1028,9 +1365,13 @@ collect_reference_layer_major_candidate_views(RequestState* const state) noexcep
   ReferenceLayerMajorRequestViews views;
   views.descriptor = std::move(*described.value);
   views.prompt_residual_bf16 = *prompt.value;
-  views.panel_token_ids_u32 = *token_ids.value;
-  views.gdn = std::move(*gdn.value);
-  views.attention = std::move(*attention.value);
+  if (whole_core_p40) {
+    views.p40_whole_core = std::move(*p40_whole_core.value);
+  } else {
+    views.panel_token_ids_u32 = *token_ids.value;
+    views.gdn = std::move(*gdn.value);
+    views.attention = std::move(*attention.value);
+  }
   views.mlp = std::move(*mlp.value);
   views.legacy_c512 = std::move(*legacy.value);
   views.final_hidden_bf16 = *final_hidden.value;

@@ -19,6 +19,17 @@ namespace q3x::runtime::gdn_prefill_chunk_o_bv64_detail {
     float norm_epsilon, std::uint16_t* raw_output,
     std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
 
+// Isolated prompt-wide P40 entry. It submits the identical chunk-O and exact
+// rows-8 norm/gate kernels over all 625 chunks, while the existing helper
+// remains capped at C512.
+[[nodiscard]] int launch_prompt_wide_p40(
+    const std::uint16_t* compact_q, const std::uint16_t* compact_k,
+    const std::uint16_t* boundary_state, const std::uint16_t* v_new,
+    const float* cumulative_gate, std::size_t token_count,
+    const std::uint16_t* norm_weight, const std::uint16_t* silu_gate,
+    float norm_epsilon, std::uint16_t* raw_output,
+    std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
+
 // Correctness-only WMMA oracle for diagnosing inline-PTX fragment mapping.
 // Engine dispatch and performance admission never call this entry.
 [[nodiscard]] int launch_wmma_oracle(

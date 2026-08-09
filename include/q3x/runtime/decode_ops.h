@@ -20,6 +20,14 @@ inline constexpr std::size_t kBulkCausalGqaGroupQ64PanelMaximumTokens =
     8'192U;
 inline constexpr std::size_t
     kBulkCausalGqaFlashInferExactPanelMaximumTokens = 8'192U;
+// Default-off whole-layer architecture surface.  It deliberately admits only
+// the product-selection interval: a cold prompt beginning at position zero
+// whose complete query span is 40K..60K tokens.  The existing logical-panel
+// surface and production selectors retain their byte-stable C8192 contract.
+inline constexpr std::size_t
+    kBulkCausalGqaFlashInferExactWholePromptMinimumTokens = 40'000U;
+inline constexpr std::size_t
+    kBulkCausalGqaFlashInferExactWholePromptMaximumTokens = 60'000U;
 // Isolated SM87 Attention-v4 bring-up geometry.  This surface is never
 // selected by the production runner: one CTA aggregates eight independent
 // Q16 warp states so one K/V32 tile is shared by 128 packed GQA queries.
@@ -31,6 +39,15 @@ inline constexpr std::size_t kBulkCausalGqaGroupQ128V4DynamicSharedBytes =
 inline constexpr std::size_t kQwenRotaryDimension = 64U;
 inline constexpr std::size_t kQkRopeTileMaximumTokens = 16U;
 inline constexpr std::size_t kFullAttentionPreprocessMaximumTokens = 512U;
+// Exact-P40000 whole-core fill geometry.  The explicit launcher below owns
+// one complete M8000 panel and is admitted only at the five cold-prompt panel
+// origins.  Keeping this separate from the compatibility M<=512 entry point
+// prevents a production selector or environment variable from silently
+// changing either route.
+inline constexpr std::size_t
+    kFullAttentionPreprocessPromptWideP8000Tokens = 8'000U;
+inline constexpr std::size_t
+    kFullAttentionPreprocessPromptWideP8000PanelCount = 5U;
 
 enum class DecodeOpStatus : std::uint8_t {
   kSuccess = 0,
@@ -312,6 +329,34 @@ launch_full_attention_preprocess_24_4_256_64_reference_256_cuda(
     std::size_t first_position, std::size_t token_count,
     void* cuda_stream = nullptr) noexcept;
 
+// Candidate-only exact-M8000 preprocessing surface for the five fill panels
+// of a cold P40000 whole-core request. It directly launches one
+// token-by-(Q+KV)-head grid backed by the established 128-thread prompt-wide
+// kernel. There is no environment selector and no fallback to the M<=512
+// compatibility path. Writable arrays obey the same complete-range
+// non-overlap contract as the reference entry point above.
+[[nodiscard]] constexpr bool
+can_launch_full_attention_preprocess_prompt_wide_p8000(
+    const std::size_t first_position,
+    const std::size_t token_count) noexcept {
+  return token_count == kFullAttentionPreprocessPromptWideP8000Tokens &&
+         first_position %
+                 kFullAttentionPreprocessPromptWideP8000Tokens ==
+             0U &&
+         first_position /
+                 kFullAttentionPreprocessPromptWideP8000Tokens <
+             kFullAttentionPreprocessPromptWideP8000PanelCount;
+}
+
+[[nodiscard]] int
+launch_full_attention_preprocess_24_4_256_64_prompt_wide_p8000_cuda(
+    const std::uint16_t* interleaved_q_gate, std::uint16_t* key,
+    const std::uint16_t* q_weight, const std::uint16_t* k_weight,
+    float epsilon, std::uint16_t* query_output,
+    std::uint16_t* gate_output, const float* cosines, const float* sines,
+    std::size_t first_position, std::size_t token_count,
+    void* cuda_stream = nullptr) noexcept;
+
 // Compatibility/admission wrapper. The prompt-wide M>=2 route requires
 // Q3X_RUN_FULL_ATTENTION_PREPROCESS_PROMPT_WIDE_128_ADMISSION=1; otherwise it
 // launches the same established reference-256 tactic as the explicit entry
@@ -529,5 +574,28 @@ launch_bulk_causal_gqa_sigmoid_gate_24_4_256_flashinfer_exact_panel_fixed_cuda(
     const std::uint16_t* value_cache, const std::uint16_t* gate_panel,
     std::size_t first_position, std::size_t token_count,
     std::uint16_t* output_panel, void* cuda_stream = nullptr) noexcept;
+
+// Candidate-only complete-prompt FlashInfer surface.  It preserves the same
+// BF16 inputs/output and FP32 online-softmax contract as the panel launcher,
+// but makes the complete cold P40..P60 prompt one causal Attention work
+// domain.  It is never selected implicitly and has no fallback.
+[[nodiscard]] constexpr bool
+can_launch_bulk_causal_gqa_flashinfer_exact_whole_prompt(
+    const std::size_t first_position,
+    const std::size_t token_count) noexcept {
+  return first_position == 0U &&
+         token_count >=
+             kBulkCausalGqaFlashInferExactWholePromptMinimumTokens &&
+         token_count <=
+             kBulkCausalGqaFlashInferExactWholePromptMaximumTokens &&
+         token_count <= kBulkCausalGqaMaximumSequenceLength;
+}
+
+[[nodiscard]] int
+launch_bulk_causal_gqa_sigmoid_gate_24_4_256_flashinfer_exact_whole_prompt_fixed_cuda(
+    const std::uint16_t* query_prompt, const std::uint16_t* key_cache,
+    const std::uint16_t* value_cache, const std::uint16_t* gate_prompt,
+    std::size_t first_position, std::size_t token_count,
+    std::uint16_t* output_prompt, void* cuda_stream = nullptr) noexcept;
 
 }  // namespace q3x::runtime

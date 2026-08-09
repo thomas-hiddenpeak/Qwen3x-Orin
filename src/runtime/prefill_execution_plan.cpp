@@ -31,6 +31,132 @@ namespace {
              : model::LayerType::kLinearAttention;
 }
 
+[[nodiscard]] constexpr bool layer_wide_p40_mlp_build_enabled() noexcept {
+#if defined(Q3X_ENABLE_LAYER_WIDE_P40_MLP_ADMISSION)
+  return true;
+#else
+  return false;
+#endif
+}
+
+[[nodiscard]] constexpr bool prompt_wide_p40_whole_core_build_enabled()
+    noexcept {
+#if defined(Q3X_ENABLE_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION)
+  return true;
+#else
+  return false;
+#endif
+}
+
+[[nodiscard]] bool supported_mlp_schedule_tactic(
+    const LayerMajorPrefillMlpScheduleTactic tactic) noexcept {
+  return tactic ==
+             LayerMajorPrefillMlpScheduleTactic::kPerOperatorPanel ||
+         (tactic == LayerMajorPrefillMlpScheduleTactic::
+                        kLayerWideP40ExactFullM &&
+          layer_wide_p40_mlp_build_enabled()) ||
+         (tactic == LayerMajorPrefillMlpScheduleTactic::
+                        kPromptWideP40WholeCore &&
+          prompt_wide_p40_whole_core_build_enabled());
+}
+
+[[nodiscard]] bool valid_whole_core_schedule(
+    const PrefillExecutionPlan& plan) noexcept {
+  const PrefillWholeCoreSchedulePlan& schedule = plan.whole_core_schedule;
+  const bool whole_core =
+      plan.mlp_schedule.tactic ==
+      LayerMajorPrefillMlpScheduleTactic::kPromptWideP40WholeCore;
+  if (!whole_core) {
+    return !schedule.enabled &&
+           schedule.fill_panel_phase_count_per_layer == 0U &&
+           schedule.prompt_core_phase_count_per_layer == 0U &&
+           schedule.drain_panel_phase_count_per_layer == 0U &&
+           schedule.persistent_mlp_phase_count_per_layer == 0U &&
+           schedule.panel_token_count == 0U &&
+           schedule.prompt_core_token_count == 0U &&
+           schedule.request_capacity_tokens == 0U &&
+           schedule.route_pass_count == 0U &&
+           !schedule.fp8_single_launch_per_projection_required &&
+           !schedule.bf16_ab_prompt_wide_required &&
+           !schedule.gdn_prompt_wide_required &&
+           !schedule.flashinfer_whole_prompt_required;
+  }
+  return schedule.enabled &&
+         plan.first_position == 0U &&
+         plan.prompt_token_count == kLayerMajorPrefillPromptWideP40Tokens &&
+         plan.final_position == kLayerMajorPrefillPromptWideP40Tokens &&
+         plan.panel_count == kLayerMajorPrefillPromptWideP40PanelCount &&
+         schedule.fill_panel_phase_count_per_layer == plan.panel_count &&
+         schedule.prompt_core_phase_count_per_layer == 1U &&
+         schedule.drain_panel_phase_count_per_layer == plan.panel_count &&
+         schedule.persistent_mlp_phase_count_per_layer == 1U &&
+         schedule.panel_token_count ==
+             kLayerMajorPrefillPromptWideP40PanelTokens &&
+         schedule.prompt_core_token_count ==
+             kLayerMajorPrefillPromptWideP40Tokens &&
+         schedule.request_capacity_tokens ==
+             kLayerMajorPrefillPromptWideP40RequestCapacityTokens &&
+         schedule.route_pass_count == 1U &&
+         schedule.fp8_single_launch_per_projection_required &&
+         schedule.bf16_ab_prompt_wide_required &&
+         schedule.gdn_prompt_wide_required &&
+         schedule.flashinfer_whole_prompt_required;
+}
+
+[[nodiscard]] bool valid_mlp_schedule(
+    const PrefillExecutionPlan& plan) noexcept {
+  const PrefillMlpSchedulePlan& schedule = plan.mlp_schedule;
+  if (!supported_mlp_schedule_tactic(schedule.tactic) ||
+      schedule.operator_panel_phase_count_per_layer != plan.panel_count ||
+      !schedule.post_attention_residual_completed_panelwise) {
+    return false;
+  }
+
+  if (schedule.tactic ==
+      LayerMajorPrefillMlpScheduleTactic::kPerOperatorPanel) {
+    return schedule.mlp_phase_submission_count_per_layer == plan.panel_count &&
+           schedule.maximum_m_per_mlp_submission ==
+               kLayerMajorPrefillOperatorPanelTokens &&
+           schedule.required_gate_up_projection_launches_per_layer == 0U &&
+           schedule.maximum_standalone_silu_launches_per_layer == 0U &&
+           schedule.required_down_projection_launches_per_layer == 0U &&
+           schedule.minimum_total_kernel_launches_per_layer == 0U &&
+           schedule.maximum_total_kernel_launches_per_layer == 0U &&
+           !schedule.waits_for_all_operator_panels &&
+           !schedule.post_attention_norm_is_prompt_wide &&
+           !schedule.exact_full_m_binding_required &&
+           !schedule.internal_m_segmentation_forbidden;
+  }
+
+  const bool layer_wide_mlp_only =
+      schedule.tactic ==
+      LayerMajorPrefillMlpScheduleTactic::kLayerWideP40ExactFullM;
+  const bool whole_core =
+      schedule.tactic ==
+      LayerMajorPrefillMlpScheduleTactic::kPromptWideP40WholeCore;
+  return (layer_wide_mlp_only || whole_core) && plan.first_position == 0U &&
+         plan.prompt_token_count ==
+             kLayerMajorPrefillLayerWideMlpP40Tokens &&
+         plan.final_position == kLayerMajorPrefillLayerWideMlpP40Tokens &&
+         plan.prompt_token_count %
+                 kLayerMajorPrefillLayerWideMlpAlignmentTokens ==
+             0U &&
+         schedule.mlp_phase_submission_count_per_layer == 1U &&
+         schedule.maximum_m_per_mlp_submission ==
+             kLayerMajorPrefillLayerWideMlpP40Tokens &&
+         schedule.required_gate_up_projection_launches_per_layer == 1U &&
+         schedule.maximum_standalone_silu_launches_per_layer ==
+             (whole_core ? 0U : 1U) &&
+         schedule.required_down_projection_launches_per_layer == 1U &&
+         schedule.minimum_total_kernel_launches_per_layer == 2U &&
+         schedule.maximum_total_kernel_launches_per_layer ==
+             (whole_core ? 2U : 3U) &&
+         schedule.waits_for_all_operator_panels &&
+         schedule.post_attention_norm_is_prompt_wide &&
+         schedule.exact_full_m_binding_required &&
+         schedule.internal_m_segmentation_forbidden;
+}
+
 [[nodiscard]] bool valid_plan_topology(
     const PrefillExecutionPlan& plan) noexcept {
   if (plan.traversal != PrefillTraversalOrder::kLayerMajor ||
@@ -50,14 +176,20 @@ namespace {
           plan.first_position ||
       plan.final_commit.committed_sequence_length != plan.final_position ||
       plan.final_commit.commit_count != 1U ||
-      plan.operator_bindings_complete) {
+      plan.operator_bindings_complete || !valid_mlp_schedule(plan) ||
+      !valid_whole_core_schedule(plan)) {
     return false;
   }
 
+  const bool whole_core =
+      plan.mlp_schedule.tactic ==
+      LayerMajorPrefillMlpScheduleTactic::kPromptWideP40WholeCore;
   const std::size_t expected_panel_count =
-      (static_cast<std::size_t>(plan.prompt_token_count) +
-       kLayerMajorPrefillOperatorPanelTokens - 1U) /
-      kLayerMajorPrefillOperatorPanelTokens;
+      whole_core
+          ? kLayerMajorPrefillPromptWideP40PanelCount
+          : (static_cast<std::size_t>(plan.prompt_token_count) +
+             kLayerMajorPrefillOperatorPanelTokens - 1U) /
+                kLayerMajorPrefillOperatorPanelTokens;
   if (plan.panel_count != expected_panel_count) {
     return false;
   }
@@ -68,9 +200,11 @@ namespace {
        ++panel_index) {
     const PrefillOperatorPanel& panel = plan.panels[panel_index];
     const std::uint32_t expected_token_count =
-        static_cast<std::uint32_t>(
-            next_layer_major_prefill_operator_panel_token_count(
-                remaining_tokens));
+        whole_core
+            ? kLayerMajorPrefillPromptWideP40PanelTokens
+            : static_cast<std::uint32_t>(
+                  next_layer_major_prefill_operator_panel_token_count(
+                      remaining_tokens));
     if (panel.ordinal != panel_index || panel.first_position != next_position ||
         panel.token_count != expected_token_count ||
         panel.end_position <= panel.first_position ||
@@ -119,7 +253,21 @@ namespace {
   }
   for (std::size_t layer_index = 0U; layer_index < plan.layers.size();
        ++layer_index) {
-    if (progress.completed_panels[layer_index] != plan.panel_count) {
+    if (progress.completed_panels[layer_index] != plan.panel_count ||
+        progress.completed_mlp_phases[layer_index] !=
+            plan.mlp_schedule.mlp_phase_submission_count_per_layer) {
+      return false;
+    }
+    if (plan.mlp_schedule.tactic ==
+        LayerMajorPrefillMlpScheduleTactic::kPromptWideP40WholeCore) {
+      if (progress.completed_fill_panels[layer_index] != plan.panel_count ||
+          progress.completed_prompt_core_phases[layer_index] != 1U ||
+          progress.completed_drain_panels[layer_index] != plan.panel_count) {
+        return false;
+      }
+    } else if (progress.completed_fill_panels[layer_index] != 0U ||
+               progress.completed_prompt_core_phases[layer_index] != 0U ||
+               progress.completed_drain_panels[layer_index] != 0U) {
       return false;
     }
     if (plan.layers[layer_index].progress_domain ==
@@ -139,12 +287,43 @@ namespace {
 
 }  // namespace
 
+bool layer_wide_p40_mlp_prefill_plan_enabled() noexcept {
+  return layer_wide_p40_mlp_build_enabled();
+}
+
+bool prompt_wide_p40_whole_core_prefill_plan_enabled() noexcept {
+  return prompt_wide_p40_whole_core_build_enabled();
+}
+
 PrefillExecutionPlanResult build_unbound_layer_major_prefill_execution_plan(
     const PrefillExecutionPlanOptions& options) noexcept {
   if (options.prompt_token_count == 0U ||
       options.max_sequence_length == 0U ||
       options.max_sequence_length >
-          kLayerMajorPrefillMaximumSequenceTokens) {
+          kLayerMajorPrefillMaximumSequenceTokens ||
+      !is_valid_layer_major_prefill_mlp_schedule_tactic(
+          options.mlp_schedule_tactic) ||
+      !supported_mlp_schedule_tactic(options.mlp_schedule_tactic)) {
+    return plan_failure(PrefillExecutionPlanError::kInvalidArgument);
+  }
+
+  const bool whole_core =
+      options.mlp_schedule_tactic ==
+      LayerMajorPrefillMlpScheduleTactic::kPromptWideP40WholeCore;
+
+  if (options.mlp_schedule_tactic !=
+          LayerMajorPrefillMlpScheduleTactic::kPerOperatorPanel &&
+      (options.first_position != 0U ||
+       options.prompt_token_count !=
+           kLayerMajorPrefillLayerWideMlpP40Tokens ||
+       options.prompt_token_count %
+               kLayerMajorPrefillLayerWideMlpAlignmentTokens !=
+           0U)) {
+    return plan_failure(PrefillExecutionPlanError::kInvalidArgument);
+  }
+  if (whole_core &&
+      options.max_sequence_length !=
+          kLayerMajorPrefillPromptWideP40RequestCapacityTokens) {
     return plan_failure(PrefillExecutionPlanError::kInvalidArgument);
   }
 
@@ -159,8 +338,11 @@ PrefillExecutionPlanResult build_unbound_layer_major_prefill_execution_plan(
   }
 
   const std::uint64_t panel_count =
-      (options.prompt_token_count + kLayerMajorPrefillOperatorPanelTokens - 1U) /
-      kLayerMajorPrefillOperatorPanelTokens;
+      whole_core
+          ? kLayerMajorPrefillPromptWideP40PanelCount
+          : (options.prompt_token_count +
+             kLayerMajorPrefillOperatorPanelTokens - 1U) /
+                kLayerMajorPrefillOperatorPanelTokens;
   if (panel_count == 0U ||
       panel_count > kLayerMajorPrefillMaximumPanelCount) {
     return plan_failure(PrefillExecutionPlanError::kInvalidTopology);
@@ -178,8 +360,10 @@ PrefillExecutionPlanResult build_unbound_layer_major_prefill_execution_plan(
   for (std::size_t panel_index = 0U; panel_index < plan.panel_count;
        ++panel_index) {
     const std::uint64_t token_count =
-        next_layer_major_prefill_operator_panel_token_count(
-            static_cast<std::size_t>(remaining));
+        whole_core
+            ? kLayerMajorPrefillPromptWideP40PanelTokens
+            : next_layer_major_prefill_operator_panel_token_count(
+                  static_cast<std::size_t>(remaining));
     const std::uint64_t end_position = next_position + token_count;
     plan.panels[panel_index] = PrefillOperatorPanel{
         static_cast<std::uint32_t>(panel_index),
@@ -199,6 +383,49 @@ PrefillExecutionPlanResult build_unbound_layer_major_prefill_execution_plan(
             ? PrefillProgressDomain::kKvCache
             : PrefillProgressDomain::kGdnState,
         plan.panel_count};
+  }
+  plan.mlp_schedule.tactic = options.mlp_schedule_tactic;
+  plan.mlp_schedule.operator_panel_phase_count_per_layer = plan.panel_count;
+  if (options.mlp_schedule_tactic ==
+      LayerMajorPrefillMlpScheduleTactic::kPerOperatorPanel) {
+    plan.mlp_schedule.mlp_phase_submission_count_per_layer = plan.panel_count;
+    plan.mlp_schedule.maximum_m_per_mlp_submission =
+        kLayerMajorPrefillOperatorPanelTokens;
+  } else {
+    plan.mlp_schedule.mlp_phase_submission_count_per_layer = 1U;
+    plan.mlp_schedule.maximum_m_per_mlp_submission =
+        kLayerMajorPrefillLayerWideMlpP40Tokens;
+    plan.mlp_schedule.required_gate_up_projection_launches_per_layer = 1U;
+    plan.mlp_schedule.maximum_standalone_silu_launches_per_layer =
+        whole_core ? 0U : 1U;
+    plan.mlp_schedule.required_down_projection_launches_per_layer = 1U;
+    plan.mlp_schedule.minimum_total_kernel_launches_per_layer = 2U;
+    plan.mlp_schedule.maximum_total_kernel_launches_per_layer =
+        whole_core ? 2U : 3U;
+    plan.mlp_schedule.waits_for_all_operator_panels = true;
+    plan.mlp_schedule.post_attention_norm_is_prompt_wide = true;
+    plan.mlp_schedule.exact_full_m_binding_required = true;
+    plan.mlp_schedule.internal_m_segmentation_forbidden = true;
+  }
+  if (whole_core) {
+    plan.whole_core_schedule.enabled = true;
+    plan.whole_core_schedule.fill_panel_phase_count_per_layer =
+        plan.panel_count;
+    plan.whole_core_schedule.prompt_core_phase_count_per_layer = 1U;
+    plan.whole_core_schedule.drain_panel_phase_count_per_layer =
+        plan.panel_count;
+    plan.whole_core_schedule.persistent_mlp_phase_count_per_layer = 1U;
+    plan.whole_core_schedule.panel_token_count =
+        kLayerMajorPrefillPromptWideP40PanelTokens;
+    plan.whole_core_schedule.prompt_core_token_count =
+        kLayerMajorPrefillPromptWideP40Tokens;
+    plan.whole_core_schedule.request_capacity_tokens =
+        kLayerMajorPrefillPromptWideP40RequestCapacityTokens;
+    plan.whole_core_schedule.route_pass_count = 1U;
+    plan.whole_core_schedule.fp8_single_launch_per_projection_required = true;
+    plan.whole_core_schedule.bf16_ab_prompt_wide_required = true;
+    plan.whole_core_schedule.gdn_prompt_wide_required = true;
+    plan.whole_core_schedule.flashinfer_whole_prompt_required = true;
   }
   plan.final_commit = PrefillFinalCommitPlan{
       plan.first_position, plan.final_position, 1U};
@@ -234,6 +461,10 @@ PrefillExecutionProgressError advance_prefill_progress_after_completion(
   if (!valid_plan_topology(plan)) {
     return PrefillExecutionProgressError::kInvalidPlan;
   }
+  if (plan.mlp_schedule.tactic ==
+      LayerMajorPrefillMlpScheduleTactic::kPromptWideP40WholeCore) {
+    return PrefillExecutionProgressError::kOutOfOrder;
+  }
   if (layer_index >= plan.layers.size()) {
     return PrefillExecutionProgressError::kLayerOutOfRange;
   }
@@ -260,11 +491,169 @@ PrefillExecutionProgressError advance_prefill_progress_after_completion(
 
   *progress_end = panel.end_position;
   ++progress.completed_panels[layer_index];
+  if (plan.mlp_schedule.tactic ==
+      LayerMajorPrefillMlpScheduleTactic::kPerOperatorPanel) {
+    ++progress.completed_mlp_phases[layer_index];
+  }
   ++progress.next_panel;
   if (progress.next_panel == plan.panel_count) {
     progress.next_panel = 0U;
-    ++progress.next_layer;
+    if (plan.mlp_schedule.tactic ==
+        LayerMajorPrefillMlpScheduleTactic::kPerOperatorPanel) {
+      ++progress.next_layer;
+    }
   }
+  return PrefillExecutionProgressError::kNone;
+}
+
+PrefillExecutionProgressError
+advance_layer_wide_p40_mlp_progress_after_completion(
+    const PrefillExecutionPlan& plan, PrefillExecutionProgress& progress,
+    const std::size_t layer_index) noexcept {
+  if (!valid_plan_topology(plan)) {
+    return PrefillExecutionProgressError::kInvalidPlan;
+  }
+  if (layer_index >= plan.layers.size()) {
+    return PrefillExecutionProgressError::kLayerOutOfRange;
+  }
+  if (plan.mlp_schedule.tactic != LayerMajorPrefillMlpScheduleTactic::
+                                      kLayerWideP40ExactFullM ||
+      progress.prefill_state_committed ||
+      progress.next_layer != layer_index || progress.next_panel != 0U ||
+      progress.completed_panels[layer_index] != plan.panel_count ||
+      progress.completed_mlp_phases[layer_index] != 0U) {
+    return PrefillExecutionProgressError::kOutOfOrder;
+  }
+  progress.completed_mlp_phases[layer_index] = 1U;
+  ++progress.next_layer;
+  return PrefillExecutionProgressError::kNone;
+}
+
+PrefillExecutionProgressError
+advance_prompt_wide_p40_fill_progress_after_completion(
+    const PrefillExecutionPlan& plan, PrefillExecutionProgress& progress,
+    const std::size_t layer_index,
+    const std::size_t panel_index) noexcept {
+  if (!valid_plan_topology(plan)) {
+    return PrefillExecutionProgressError::kInvalidPlan;
+  }
+  if (layer_index >= plan.layers.size()) {
+    return PrefillExecutionProgressError::kLayerOutOfRange;
+  }
+  if (panel_index >= plan.panel_count) {
+    return PrefillExecutionProgressError::kPanelOutOfRange;
+  }
+  if (plan.mlp_schedule.tactic !=
+          LayerMajorPrefillMlpScheduleTactic::kPromptWideP40WholeCore ||
+      progress.prefill_state_committed || progress.next_layer != layer_index ||
+      progress.next_panel != panel_index ||
+      progress.completed_fill_panels[layer_index] != panel_index ||
+      progress.completed_prompt_core_phases[layer_index] != 0U ||
+      progress.completed_drain_panels[layer_index] != 0U ||
+      progress.completed_panels[layer_index] != 0U ||
+      progress.completed_mlp_phases[layer_index] != 0U) {
+    return PrefillExecutionProgressError::kOutOfOrder;
+  }
+  ++progress.completed_fill_panels[layer_index];
+  ++progress.next_panel;
+  if (progress.next_panel == plan.panel_count) {
+    progress.next_panel = 0U;
+  }
+  return PrefillExecutionProgressError::kNone;
+}
+
+PrefillExecutionProgressError
+advance_prompt_wide_p40_prompt_core_progress_after_completion(
+    const PrefillExecutionPlan& plan, PrefillExecutionProgress& progress,
+    const std::size_t layer_index) noexcept {
+  if (!valid_plan_topology(plan)) {
+    return PrefillExecutionProgressError::kInvalidPlan;
+  }
+  if (layer_index >= plan.layers.size()) {
+    return PrefillExecutionProgressError::kLayerOutOfRange;
+  }
+  if (plan.mlp_schedule.tactic !=
+          LayerMajorPrefillMlpScheduleTactic::kPromptWideP40WholeCore ||
+      progress.prefill_state_committed || progress.next_layer != layer_index ||
+      progress.next_panel != 0U ||
+      progress.completed_fill_panels[layer_index] != plan.panel_count ||
+      progress.completed_prompt_core_phases[layer_index] != 0U ||
+      progress.completed_drain_panels[layer_index] != 0U ||
+      progress.completed_panels[layer_index] != 0U ||
+      progress.completed_mlp_phases[layer_index] != 0U) {
+    return PrefillExecutionProgressError::kOutOfOrder;
+  }
+  const PrefillProgressDomain domain =
+      plan.layers[layer_index].progress_domain;
+  std::uint32_t* const progress_end =
+      domain == PrefillProgressDomain::kKvCache
+          ? &progress.kv_visible_end[layer_index]
+          : &progress.gdn_advanced_end[layer_index];
+  if (*progress_end != plan.first_position) {
+    return PrefillExecutionProgressError::kOutOfOrder;
+  }
+  *progress_end = plan.final_position;
+  progress.completed_prompt_core_phases[layer_index] = 1U;
+  return PrefillExecutionProgressError::kNone;
+}
+
+PrefillExecutionProgressError
+advance_prompt_wide_p40_drain_progress_after_completion(
+    const PrefillExecutionPlan& plan, PrefillExecutionProgress& progress,
+    const std::size_t layer_index,
+    const std::size_t panel_index) noexcept {
+  if (!valid_plan_topology(plan)) {
+    return PrefillExecutionProgressError::kInvalidPlan;
+  }
+  if (layer_index >= plan.layers.size()) {
+    return PrefillExecutionProgressError::kLayerOutOfRange;
+  }
+  if (panel_index >= plan.panel_count) {
+    return PrefillExecutionProgressError::kPanelOutOfRange;
+  }
+  if (plan.mlp_schedule.tactic !=
+          LayerMajorPrefillMlpScheduleTactic::kPromptWideP40WholeCore ||
+      progress.prefill_state_committed || progress.next_layer != layer_index ||
+      progress.next_panel != panel_index ||
+      progress.completed_fill_panels[layer_index] != plan.panel_count ||
+      progress.completed_prompt_core_phases[layer_index] != 1U ||
+      progress.completed_drain_panels[layer_index] != panel_index ||
+      progress.completed_panels[layer_index] != panel_index ||
+      progress.completed_mlp_phases[layer_index] != 0U) {
+    return PrefillExecutionProgressError::kOutOfOrder;
+  }
+  ++progress.completed_drain_panels[layer_index];
+  ++progress.completed_panels[layer_index];
+  ++progress.next_panel;
+  if (progress.next_panel == plan.panel_count) {
+    progress.next_panel = 0U;
+  }
+  return PrefillExecutionProgressError::kNone;
+}
+
+PrefillExecutionProgressError
+advance_prompt_wide_p40_persistent_mlp_progress_after_completion(
+    const PrefillExecutionPlan& plan, PrefillExecutionProgress& progress,
+    const std::size_t layer_index) noexcept {
+  if (!valid_plan_topology(plan)) {
+    return PrefillExecutionProgressError::kInvalidPlan;
+  }
+  if (layer_index >= plan.layers.size()) {
+    return PrefillExecutionProgressError::kLayerOutOfRange;
+  }
+  if (plan.mlp_schedule.tactic !=
+          LayerMajorPrefillMlpScheduleTactic::kPromptWideP40WholeCore ||
+      progress.prefill_state_committed || progress.next_layer != layer_index ||
+      progress.next_panel != 0U ||
+      progress.completed_fill_panels[layer_index] != plan.panel_count ||
+      progress.completed_prompt_core_phases[layer_index] != 1U ||
+      progress.completed_drain_panels[layer_index] != plan.panel_count ||
+      progress.completed_panels[layer_index] != plan.panel_count ||
+      progress.completed_mlp_phases[layer_index] != 0U) {
+    return PrefillExecutionProgressError::kOutOfOrder;
+  }
+  progress.completed_mlp_phases[layer_index] = 1U;
+  ++progress.next_layer;
   return PrefillExecutionProgressError::kNone;
 }
 

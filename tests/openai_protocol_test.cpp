@@ -819,6 +819,166 @@ void test_target_prefill_witness_evidence(TestContext& test) {
               std::string::npos,
       "G2/D2 v8 witness never reports an incomplete role count as complete");
 
+  server::TargetPrefillWitnessRecord persistent_p40_record = sealed_record;
+  persistent_p40_record.prompt_tokens =
+      q3x::runtime::kLayerMajorPrefillLayerWideMlpP40Tokens;
+  persistent_p40_record.consumed_prompt_tokens =
+      persistent_p40_record.prompt_tokens;
+  persistent_p40_record.prefix_execution_count = 5U;
+  persistent_p40_record.prefill_logical_panel_count = 5U;
+  persistent_p40_record.submission_window_retirements = 384U;
+  persistent_p40_record.operator_panel_executor_hits = 320U;
+  persistent_p40_record.native_flashinfer_exact_panel_hits = 80U;
+  persistent_p40_record.mlp_schedule_tactic = q3x::runtime::
+      LayerMajorPrefillMlpScheduleTactic::kLayerWideP40ExactFullM;
+  persistent_p40_record.route_layer_pass_count = 1U;
+  persistent_p40_record.layer_wide_p40_mlp_layer_hits = 64U;
+  persistent_p40_record.persistent_p40_nvfp4_gate_up_hits = 64U;
+  persistent_p40_record.persistent_p40_nvfp4_down_residual_hits = 64U;
+  persistent_p40_record.persistent_p40_nvfp4_physical_launches = 128U;
+  persistent_p40_record.persistent_p40_fp8_projection_hits = 1'040U;
+  persistent_p40_record.persistent_p40_fp8_projection_bulk_hits = 624U;
+  persistent_p40_record
+      .persistent_p40_fp8_projection_oracle_partial_hits = 416U;
+  persistent_p40_record
+      .persistent_p40_fp8_projection_physical_launches = 1'040U;
+  q3x::runtime::reset_prefill_route_request(
+      persistent_p40_record.prefill_route_evidence);
+  test.expect(q3x::runtime::commit_prefill_route_layer_pass(
+                  persistent_p40_record.prefill_route_evidence,
+                  route_tile),
+              "P40000 witness fixture commits one request-wide route pass");
+  persistent_p40_record.prefill_route_evidence =
+      q3x::runtime::finalize_prefill_route_request(
+          persistent_p40_record.prefill_route_evidence, 1U);
+  persistent_p40_record.deployment_plan_id = q3x::runtime::
+      kLayerMajorNativeNvfp4PersistentP40MlpFlashInferExactDeploymentPlanId;
+  const std::string persistent_p40_serialized =
+      server::serialize_target_prefill_witness(persistent_p40_record);
+  test.expect(
+      valid_json(persistent_p40_serialized) &&
+          persistent_p40_serialized.find(
+              R"("record":"target-prefill-witness-v9","schema_version":9)") !=
+              std::string::npos &&
+          persistent_p40_serialized.find(
+              R"("projection_tactic":"native-nvfp4-persistent-p40-layer-wide-mlp","mlp_schedule":"layer-wide-p40-exact-full-m","attention_tactic":"native-flashinfer-exact-panel","package_complete":true)") !=
+              std::string::npos &&
+          persistent_p40_serialized.find(
+              R"("persistent_p40_package":{"identity":"exact-p40000-layer-wide-nvfp4-mlp","selection":"sealed-fail-closed","complete":true)") !=
+              std::string::npos &&
+          persistent_p40_serialized.find(
+              R"("expected_fp8_hits":1040,"expected_bulk_fp8_hits":624,"expected_partial_fp8_hits":416,"attention_route_complete":true)") !=
+              std::string::npos,
+      "exact-P40000 persistent MLP emits a complete v9 package witness");
+
+  --persistent_p40_record.persistent_p40_nvfp4_down_residual_hits;
+  const std::string incomplete_persistent_p40_serialized =
+      server::serialize_target_prefill_witness(persistent_p40_record);
+  test.expect(
+      valid_json(incomplete_persistent_p40_serialized) &&
+          incomplete_persistent_p40_serialized.find(
+              R"("package_complete":false)") != std::string::npos &&
+          incomplete_persistent_p40_serialized.find(
+              R"("selection":"sealed-fail-closed","complete":false)") !=
+              std::string::npos,
+      "P40000 v9 witness fails closed on an incomplete Down role count");
+
+  server::TargetPrefillWitnessRecord whole_core_p40_record = sealed_record;
+  whole_core_p40_record.prompt_tokens =
+      q3x::runtime::kLayerMajorPrefillPromptWideP40Tokens;
+  whole_core_p40_record.consumed_prompt_tokens =
+      whole_core_p40_record.prompt_tokens;
+  whole_core_p40_record.prefix_execution_count = 1U;
+  whole_core_p40_record.prefill_logical_panel_count = 5U;
+  whole_core_p40_record.request_memory_profile =
+      q3x::runtime::RequestMemoryProfile::kLayerMajorP40WholeCore;
+  whole_core_p40_record.submission_window_retirements = 768U;
+  whole_core_p40_record.mlp_schedule_tactic = q3x::runtime::
+      LayerMajorPrefillMlpScheduleTactic::kPromptWideP40WholeCore;
+  whole_core_p40_record.route_layer_pass_count = 1U;
+  whole_core_p40_record.prompt_wide_p40_whole_core_layer_hits = 64U;
+  whole_core_p40_record.prompt_wide_p40_fill_panel_hits = 320U;
+  whole_core_p40_record.prompt_wide_p40_prompt_core_hits = 64U;
+  whole_core_p40_record.prompt_wide_p40_drain_panel_hits = 320U;
+  whole_core_p40_record.prompt_wide_p40_fp8_projection_hits = 1'040U;
+  whole_core_p40_record
+      .prompt_wide_p40_fp8_projection_physical_launches = 1'040U;
+  whole_core_p40_record.prompt_wide_p40_bf16_ab_hits = 48U;
+  whole_core_p40_record.prompt_wide_p40_gdn_hits = 48U;
+  whole_core_p40_record.native_flashinfer_exact_whole_prompt_hits = 16U;
+  whole_core_p40_record.layer_wide_p40_mlp_layer_hits = 64U;
+  whole_core_p40_record.persistent_p40_nvfp4_gate_up_hits = 64U;
+  whole_core_p40_record.persistent_p40_nvfp4_down_residual_hits = 64U;
+  whole_core_p40_record.persistent_p40_nvfp4_physical_launches = 128U;
+  q3x::runtime::reset_prefill_route_request(
+      whole_core_p40_record.prefill_route_evidence);
+  test.expect(q3x::runtime::commit_prefill_route_layer_pass(
+                  whole_core_p40_record.prefill_route_evidence,
+                  route_tile),
+              "P40000 whole-core witness fixture commits one route pass");
+  whole_core_p40_record.prefill_route_evidence =
+      q3x::runtime::finalize_prefill_route_request(
+          whole_core_p40_record.prefill_route_evidence, 1U);
+  whole_core_p40_record.deployment_plan_id = q3x::runtime::
+      kLayerMajorNativePromptWideP40WholeCoreDeploymentPlanId;
+  const std::string whole_core_p40_serialized =
+      server::serialize_target_prefill_witness(whole_core_p40_record);
+  test.expect(
+      valid_json(whole_core_p40_serialized) &&
+          whole_core_p40_serialized.find(
+              R"("record":"target-prefill-witness-v10","schema_version":10)") !=
+              std::string::npos &&
+          whole_core_p40_serialized.find(
+              R"("request_memory_profile":"layer-major-p40-whole-core")") !=
+              std::string::npos &&
+          whole_core_p40_serialized.find(
+              R"("projection_tactic":"native-prompt-wide-p40-whole-core","mlp_schedule":"prompt-wide-p40-whole-core","attention_tactic":"native-flashinfer-exact-whole-prompt","package_complete":true)") !=
+              std::string::npos &&
+          whole_core_p40_serialized.find(
+              R"("prompt_wide_p40_fp8_projection_hits":1040,"prompt_wide_p40_fp8_projection_physical_launches":1040,"prompt_wide_p40_bf16_ab_hits":48,"prompt_wide_p40_gdn_hits":48,"native_flashinfer_exact_whole_prompt_hits":16)") !=
+              std::string::npos &&
+          whole_core_p40_serialized.find(
+              R"("prompt_wide_p40_whole_core_package":{"identity":"exact-p40000-five-p8000-whole-core-v1","selection":"sealed-fail-closed","complete":true)") !=
+              std::string::npos,
+      "exact-P40000 whole-core route emits a complete v10 package witness");
+
+  --whole_core_p40_record.prompt_wide_p40_fp8_projection_physical_launches;
+  const std::string incomplete_whole_core_p40_serialized =
+      server::serialize_target_prefill_witness(whole_core_p40_record);
+  test.expect(
+      valid_json(incomplete_whole_core_p40_serialized) &&
+          incomplete_whole_core_p40_serialized.find(
+              R"("package_complete":false)") != std::string::npos &&
+          incomplete_whole_core_p40_serialized.find(
+              R"("selection":"sealed-fail-closed","complete":false)") !=
+              std::string::npos,
+      "P40000 v10 witness fails closed on a missing physical FP8 launch");
+
+  ++whole_core_p40_record
+        .prompt_wide_p40_fp8_projection_physical_launches;
+  whole_core_p40_record.submission_window_retirements = 767U;
+  const std::string short_retirement_whole_core_p40_serialized =
+      server::serialize_target_prefill_witness(whole_core_p40_record);
+  whole_core_p40_record.submission_window_retirements = 704U;
+  const std::string legacy_retirement_whole_core_p40_serialized =
+      server::serialize_target_prefill_witness(whole_core_p40_record);
+  whole_core_p40_record.submission_window_retirements = 768U;
+  whole_core_p40_record.bounded_submission_window = false;
+  const std::string unbounded_whole_core_p40_serialized =
+      server::serialize_target_prefill_witness(whole_core_p40_record);
+  test.expect(
+      valid_json(short_retirement_whole_core_p40_serialized) &&
+          valid_json(legacy_retirement_whole_core_p40_serialized) &&
+          valid_json(unbounded_whole_core_p40_serialized) &&
+          short_retirement_whole_core_p40_serialized.find(
+              R"("package_complete":false)") != std::string::npos &&
+          legacy_retirement_whole_core_p40_serialized.find(
+              R"("package_complete":false)") != std::string::npos &&
+          unbounded_whole_core_p40_serialized.find(
+              R"("package_complete":false)") != std::string::npos,
+      "P40000 v10 witness requires a bounded 12-phase-per-layer submission "
+      "window with exactly 768 retirements");
+
   server::TargetPrefillWitnessRecord unbound_layer_major_record =
       sealed_record;
   unbound_layer_major_record.deployment_plan_id.clear();

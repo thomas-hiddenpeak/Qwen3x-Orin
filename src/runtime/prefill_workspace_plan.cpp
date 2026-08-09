@@ -1,5 +1,6 @@
 #include "q3x/runtime/prefill_workspace_plan.h"
 
+#include "q3x/kernels/gdn_prefill_prompt_wide_chunk_graph_abi.h"
 #include "q3x/kernels/sm87_fp8_marlin_w8a16.h"
 #include "q3x/kernels/sm87_nvfp4_marlin.h"
 #include "q3x/model/model_config.h"
@@ -139,7 +140,19 @@ template <std::size_t Count>
 [[nodiscard]] bool valid_mlp_tactic(
     const PrefillMlpPhysicalTactic tactic) noexcept {
   return tactic == PrefillMlpPhysicalTactic::kSeparateGateUpAndSilu ||
-         tactic == PrefillMlpPhysicalTactic::kFusedGateUpEpilogue;
+         tactic == PrefillMlpPhysicalTactic::kFusedGateUpEpilogue ||
+         tactic ==
+             PrefillMlpPhysicalTactic::kLayerWideP40AlignedMarlin ||
+         tactic == PrefillMlpPhysicalTactic::
+                       kLayerWideP40PersistentFusedGateUp;
+}
+
+[[nodiscard]] bool enabled_mlp_tactic(
+    const PrefillMlpPhysicalTactic tactic) noexcept {
+  return (tactic != PrefillMlpPhysicalTactic::kLayerWideP40AlignedMarlin &&
+          tactic != PrefillMlpPhysicalTactic::
+                        kLayerWideP40PersistentFusedGateUp) ||
+         layer_wide_p40_mlp_prefill_plan_enabled();
 }
 
 [[nodiscard]] bool valid_layer_major_model_contract(
@@ -169,18 +182,34 @@ struct PrefillTacticByteRequirements {
 
 [[nodiscard]] bool checked_tactic_byte_requirements(
     const model::ModelConfig& config,
+    const std::uint64_t sequence_capacity_tokens,
     const PrefillGdnPhysicalTactic gdn_tactic,
     const PrefillLegacyGdnPhysicalTactic legacy_gdn_tactic,
     const PrefillMlpPhysicalTactic mlp_tactic,
     PrefillTacticByteRequirements& output) noexcept {
   if (!valid_gdn_tactic(gdn_tactic) ||
       !valid_legacy_gdn_tactic(legacy_gdn_tactic) ||
-      !valid_mlp_tactic(mlp_tactic)) {
+      !valid_mlp_tactic(mlp_tactic) || !enabled_mlp_tactic(mlp_tactic)) {
+    return false;
+  }
+
+  const bool layer_wide_p40 =
+      mlp_tactic == PrefillMlpPhysicalTactic::kLayerWideP40AlignedMarlin ||
+      mlp_tactic == PrefillMlpPhysicalTactic::
+                        kLayerWideP40PersistentFusedGateUp;
+  const bool persistent_fused_gate_up =
+      mlp_tactic == PrefillMlpPhysicalTactic::
+                        kLayerWideP40PersistentFusedGateUp;
+  if (layer_wide_p40 &&
+      sequence_capacity_tokens !=
+          kLayerMajorPrefillLayerWideMlpP40RequestCapacityTokens) {
     return false;
   }
 
   PrefillTacticByteRequirements result;
   const std::uint64_t panel = kLayerMajorPrefillOperatorPanelTokens;
+  const std::uint64_t mlp_rows =
+      layer_wide_p40 ? kLayerMajorPrefillLayerWideMlpP40Tokens : panel;
   const std::uint64_t qkv_width = config.linear_qkv_projection_dim();
   const std::uint64_t value_width = config.linear_value_dim();
   const std::uint64_t gdn_qkvz_width = qkv_width + value_width;
@@ -210,7 +239,11 @@ struct PrefillTacticByteRequirements {
       !checked_mul(panel, attention_live_width, elements) ||
       !checked_mul(elements, kBf16Bytes,
                    result.attention_preprocess_phase) ||
-      !checked_mul(panel, mlp_separate_live_width, elements) ||
+      !checked_mul(mlp_rows,
+                   persistent_fused_gate_up
+                       ? config.hidden_size + config.intermediate_size
+                       : mlp_separate_live_width,
+                   elements) ||
       !checked_mul(elements, kBf16Bytes,
                    result.mlp_gate_up_down_phase)) {
     return false;
@@ -668,21 +701,28 @@ struct VariantBackingRequirements {
   }
 
   const auto& scratch = plan.operator_scratch;
+  const std::uint32_t expected_mlp_capacity =
+      scratch.mlp_tactic ==
+                  PrefillMlpPhysicalTactic::kLayerWideP40AlignedMarlin ||
+              scratch.mlp_tactic == PrefillMlpPhysicalTactic::
+                                        kLayerWideP40PersistentFusedGateUp
+          ? kLayerMajorPrefillLayerWideMlpP40Tokens
+          : kLayerMajorPrefillOperatorPanelTokens;
   if (scratch.c8192_panel_capacity_tokens !=
           kLayerMajorPrefillOperatorPanelTokens ||
       scratch.legacy_c512_panel_capacity_tokens !=
           kLayerMajorPrefillLegacyPublicTileTokens ||
+      scratch.mlp_capacity_tokens != expected_mlp_capacity ||
       !valid_gdn_tactic(scratch.gdn_tactic) ||
       !valid_legacy_gdn_tactic(scratch.legacy_gdn_tactic) ||
       !valid_mlp_tactic(scratch.mlp_tactic) ||
       scratch.gate_up.role != PrefillProjectionRole::kGateUp ||
-      scratch.gate_up.maximum_m !=
-          kLayerMajorPrefillOperatorPanelTokens ||
+      scratch.gate_up.maximum_m != expected_mlp_capacity ||
       scratch.gate_up.n != 17'408U || scratch.gate_up.k != 5'120U ||
       scratch.gate_up.logical_matrix_count != 2U ||
       scratch.gate_up.tactic_bound ||
       scratch.down.role != PrefillProjectionRole::kDown ||
-      scratch.down.maximum_m != kLayerMajorPrefillOperatorPanelTokens ||
+      scratch.down.maximum_m != expected_mlp_capacity ||
       scratch.down.n != 5'120U || scratch.down.k != 17'408U ||
       scratch.down.logical_matrix_count != 1U ||
       scratch.down.tactic_bound) {
@@ -703,7 +743,8 @@ struct VariantBackingRequirements {
 
   PrefillTacticByteRequirements expected_tactic_bytes;
   if (!checked_tactic_byte_requirements(
-          *config, scratch.gdn_tactic, scratch.legacy_gdn_tactic,
+          *config, plan.sequence_capacity_tokens, scratch.gdn_tactic,
+          scratch.legacy_gdn_tactic,
           scratch.mlp_tactic, expected_tactic_bytes) ||
       !valid_raw_requirement_exact(
           scratch.gdn_projection_phase,
@@ -967,6 +1008,11 @@ struct VariantBackingRequirements {
         kDisjointAllFamiliesAndLegacyC512:
       expected_selected_scratch = &scratch.disjoint_conservative;
       break;
+    case PrefillOperatorScratchStrategy::
+        kP40WholeCorePromptWideWithDisjointLegacyC512:
+      // The exact-P40000 strategy is owned by the separate whole-core
+      // planner and cannot be validated as a C8192 scratch variant.
+      return false;
     case PrefillOperatorScratchStrategy::kUnselected:
       return false;
   }
@@ -1028,7 +1074,14 @@ build_unbound_layer_major_prefill_workspace_plan(
       !valid_scratch_strategy(options.scratch_strategy) ||
       !valid_gdn_tactic(options.gdn_tactic) ||
       !valid_legacy_gdn_tactic(options.legacy_gdn_tactic) ||
-      !valid_mlp_tactic(options.mlp_tactic)) {
+      !valid_mlp_tactic(options.mlp_tactic) ||
+      !enabled_mlp_tactic(options.mlp_tactic) ||
+      ((options.mlp_tactic ==
+            PrefillMlpPhysicalTactic::kLayerWideP40AlignedMarlin ||
+        options.mlp_tactic == PrefillMlpPhysicalTactic::
+                                  kLayerWideP40PersistentFusedGateUp) &&
+       options.sequence_capacity_tokens !=
+           kLayerMajorPrefillLayerWideMlpP40RequestCapacityTokens)) {
     return failure(PrefillWorkspacePlanError::kInvalidArgument);
   }
 
@@ -1172,13 +1225,21 @@ build_unbound_layer_major_prefill_workspace_plan(
       kLayerMajorPrefillOperatorPanelTokens;
   scratch.legacy_c512_panel_capacity_tokens =
       kLayerMajorPrefillLegacyPublicTileTokens;
+  scratch.mlp_capacity_tokens =
+      options.mlp_tactic ==
+                  PrefillMlpPhysicalTactic::kLayerWideP40AlignedMarlin ||
+              options.mlp_tactic == PrefillMlpPhysicalTactic::
+                                        kLayerWideP40PersistentFusedGateUp
+          ? kLayerMajorPrefillLayerWideMlpP40Tokens
+          : kLayerMajorPrefillOperatorPanelTokens;
   scratch.gdn_tactic = options.gdn_tactic;
   scratch.legacy_gdn_tactic = options.legacy_gdn_tactic;
   scratch.mlp_tactic = options.mlp_tactic;
 
   PrefillTacticByteRequirements tactic_bytes;
   if (!checked_tactic_byte_requirements(
-          *config, options.gdn_tactic, options.legacy_gdn_tactic,
+          *config, sequence, options.gdn_tactic,
+          options.legacy_gdn_tactic,
           options.mlp_tactic, tactic_bytes)) {
     return failure(PrefillWorkspacePlanError::kArithmeticOverflow);
   }
@@ -1516,20 +1577,24 @@ build_unbound_layer_major_prefill_workspace_plan(
         kDisjointAllFamiliesAndLegacyC512:
       scratch.selected = all_disjoint;
       break;
+    case PrefillOperatorScratchStrategy::
+        kP40WholeCorePromptWideWithDisjointLegacyC512:
+      // Callers must use build_unbound_layer_major_p40_whole_core_workspace_plan().
+      return failure(PrefillWorkspacePlanError::kInvalidArgument);
     case PrefillOperatorScratchStrategy::kUnselected:
       return failure(PrefillWorkspacePlanError::kInvalidArgument);
   }
 
   scratch.gate_up = PrefillProjectionShapeRequirement{
       PrefillProjectionRole::kGateUp,
-      kLayerMajorPrefillOperatorPanelTokens,
+      scratch.mlp_capacity_tokens,
       config->intermediate_size,
       config->hidden_size,
       2U,
       false};
   scratch.down = PrefillProjectionShapeRequirement{
       PrefillProjectionRole::kDown,
-      kLayerMajorPrefillOperatorPanelTokens,
+      scratch.mlp_capacity_tokens,
       config->hidden_size,
       config->intermediate_size,
       1U,
@@ -1602,6 +1667,223 @@ build_unbound_layer_major_prefill_workspace_plan(
   }
 
   LayerMajorPrefillWorkspacePlanResult result;
+  result.value.emplace(plan);
+  return result;
+}
+
+LayerMajorP40WholeCoreWorkspacePlanResult
+build_unbound_layer_major_p40_whole_core_workspace_plan(
+    const LayerMajorP40WholeCoreWorkspaceOptions& options) noexcept {
+  LayerMajorP40WholeCoreWorkspacePlanResult result;
+  if (options.prompt_token_count != kLayerMajorP40WholeCorePromptTokens ||
+      options.request_sequence_capacity_tokens !=
+          kLayerMajorP40WholeCoreRequestCapacityTokens ||
+      options.logical_panel_capacity_tokens !=
+          kLayerMajorP40WholeCorePanelTokens ||
+      options.request_arena_limit_bytes == 0U ||
+      options.request_arena_limit_bytes > kMaximumRequestArenaBytes) {
+    result.error = PrefillWorkspacePlanError::kInvalidArgument;
+    return result;
+  }
+
+  const model::ModelConfig* const config =
+      model::find_known_model(model::KnownModel::kQwen36_27B);
+  if (!valid_layer_major_model_contract(config) ||
+      config->hidden_size != 5'120U ||
+      config->intermediate_size != 17'408U ||
+      options.prompt_token_count % options.logical_panel_capacity_tokens !=
+          0U ||
+      options.prompt_token_count / options.logical_panel_capacity_tokens !=
+          kLayerMajorP40WholeCorePanelCount) {
+    result.error = PrefillWorkspacePlanError::kModelContractMismatch;
+    return result;
+  }
+
+  constexpr std::uint64_t kBf16 = sizeof(std::uint16_t);
+  constexpr std::uint64_t kFp32 = sizeof(float);
+  constexpr std::uint64_t kU32 = sizeof(std::uint32_t);
+  constexpr std::uint64_t kQueryHeads = 24U;
+  constexpr std::uint64_t kKvHeads = 4U;
+  constexpr std::uint64_t kHeadDimension = 256U;
+  constexpr std::uint64_t kLinearQkvChannels = 10'240U;
+  constexpr std::uint64_t kLinearZChannels = 6'144U;
+  constexpr std::uint64_t kLinearScalarChannels = 48U;
+  constexpr std::uint64_t kLegacyPanelTokens = 512U;
+
+  LayerMajorP40WholeCoreWorkspacePlan plan;
+  plan.prompt_token_count = kLayerMajorP40WholeCorePromptTokens;
+  plan.request_sequence_capacity_tokens =
+      kLayerMajorP40WholeCoreRequestCapacityTokens;
+  plan.logical_panel_capacity_tokens = kLayerMajorP40WholeCorePanelTokens;
+  plan.logical_panel_count = kLayerMajorP40WholeCorePanelCount;
+  plan.request_arena_limit_bytes = options.request_arena_limit_bytes;
+
+  std::uint64_t kv_elements = 0U;
+  std::uint64_t kv_bytes = 0U;
+  std::uint64_t persistent_bytes = 0U;
+  std::uint64_t residual_elements = 0U;
+  std::uint64_t raw_elements = 0U;
+  std::uint64_t z_elements = 0U;
+  std::uint64_t scalar_elements = 0U;
+  std::uint64_t output_elements = 0U;
+  std::uint64_t token_id_elements = 0U;
+  std::uint64_t legacy_hidden_elements = 0U;
+  std::uint64_t legacy_projection_elements = 0U;
+  std::uint64_t legacy_scalar_elements = 0U;
+  std::uint64_t legacy_probability_elements = 0U;
+  std::uint64_t legacy_bytes = 0U;
+  std::uint64_t rope_elements = 0U;
+  std::uint64_t family_cursor = 0U;
+
+  const auto append_family = [&family_cursor](
+                                 const std::uint64_t elements,
+                                 const std::uint32_t element_size,
+                                 const PrefillMemoryAliasCondition alias,
+                                 LayerMajorP40WholeCoreFamilyRegionRequirement&
+                                     region) noexcept {
+    region.family_relative_offset = family_cursor;
+    if (!make_typed_requirement(elements, element_size,
+                                PrefillMemoryLifetime::kRequestPrefill,
+                                alias, region.memory)) {
+      return false;
+    }
+    return checked_add(family_cursor, region.memory.required_bytes,
+                       family_cursor);
+  };
+
+  if (!checked_mul(plan.request_sequence_capacity_tokens, kKvHeads,
+                   kv_elements) ||
+      !checked_mul(kv_elements, kHeadDimension, kv_elements) ||
+      !checked_mul(kv_elements, kBf16, kv_bytes) ||
+      !checked_mul(kv_bytes, 2U * kLayerMajorPrefillFullLayerCount,
+                   kv_bytes) ||
+      !checked_add(kRequestConvStateBytes, kRequestGdnStateBytes,
+                   persistent_bytes) ||
+      !checked_add(persistent_bytes, kv_bytes, persistent_bytes) ||
+      !make_raw_requirement(persistent_bytes,
+                            PrefillMemoryLifetime::kRequestThroughDecode,
+                            PrefillMemoryAliasCondition::kDisjoint,
+                            plan.persistent_and_kv) ||
+      !checked_mul(plan.request_sequence_capacity_tokens,
+                   config->hidden_size, residual_elements) ||
+      !make_typed_requirement(
+          residual_elements, kBf16, PrefillMemoryLifetime::kRequestPrefill,
+          PrefillMemoryAliasCondition::kDisjoint,
+          plan.prompt_residual_bf16) ||
+      !checked_mul(plan.prompt_token_count, kLinearQkvChannels,
+                   raw_elements) ||
+      !checked_mul(plan.prompt_token_count, kLinearZChannels, z_elements) ||
+      !checked_mul(plan.prompt_token_count, kLinearScalarChannels,
+                   scalar_elements) ||
+      !checked_mul(plan.prompt_token_count, kLinearZChannels,
+                   output_elements) ||
+      !append_family(raw_elements, static_cast<std::uint32_t>(kBf16),
+                     PrefillMemoryAliasCondition::kDisjoint,
+                     plan.linear_raw_qkv_bf16) ||
+      !append_family(raw_elements, static_cast<std::uint32_t>(kBf16),
+                     PrefillMemoryAliasCondition::kDisjoint,
+                     plan.linear_conv_qkv_bf16) ||
+      !append_family(z_elements, static_cast<std::uint32_t>(kBf16),
+                     PrefillMemoryAliasCondition::kDisjoint,
+                     plan.linear_z_bf16) ||
+      !append_family(scalar_elements, static_cast<std::uint32_t>(kBf16),
+                     PrefillMemoryAliasCondition::kDisjoint,
+                     plan.linear_a_bf16) ||
+      !append_family(scalar_elements, static_cast<std::uint32_t>(kBf16),
+                     PrefillMemoryAliasCondition::kDisjoint,
+                     plan.linear_b_bf16) ||
+      !append_family(
+          kernels::kGdnPromptWideChunkGraphP40WorkspaceBytes, 1U,
+          PrefillMemoryAliasCondition::kDisjoint,
+          plan.linear_prompt_wide_workspace) ||
+      !append_family(output_elements, static_cast<std::uint32_t>(kBf16),
+                     PrefillMemoryAliasCondition::kDisjoint,
+                     plan.linear_output_bf16) ||
+      !make_raw_requirement(family_cursor,
+                            PrefillMemoryLifetime::kRequestPrefill,
+                            PrefillMemoryAliasCondition::
+                                kSequentialFamilyLiveSetOverlay,
+                            plan.whole_core_family_arena) ||
+      !checked_mul(plan.prompt_token_count, 1U, token_id_elements) ||
+      !make_typed_requirement(
+          token_id_elements, kU32, PrefillMemoryLifetime::kRequestPrefill,
+          PrefillMemoryAliasCondition::
+              kPromptTokenIdsConsumedBeforeOperatorScratchReuse,
+          plan.prompt_token_ids_u32.memory) ||
+      !checked_mul(3U * kLegacyPanelTokens, config->hidden_size,
+                   legacy_hidden_elements) ||
+      !checked_mul(4U * kLegacyPanelTokens, config->intermediate_size,
+                   legacy_projection_elements) ||
+      !checked_mul(2U * kLegacyPanelTokens, kLinearScalarChannels,
+                   legacy_scalar_elements) ||
+      !checked_mul(plan.prompt_token_count, kQueryHeads,
+                   legacy_probability_elements) ||
+      !checked_sum(std::array<std::uint64_t, 4U>{
+                       legacy_hidden_elements * kBf16,
+                       legacy_projection_elements * kBf16,
+                       legacy_scalar_elements * kBf16,
+                       legacy_probability_elements * kFp32},
+                   legacy_bytes) ||
+      !make_raw_requirement(legacy_bytes,
+                            PrefillMemoryLifetime::kRequestPrefill,
+                            PrefillMemoryAliasCondition::kDisjoint,
+                            plan.legacy_c512_workspace) ||
+      !make_typed_requirement(config->hidden_size, kBf16,
+                              PrefillMemoryLifetime::kRequestPrefill,
+                              PrefillMemoryAliasCondition::kDisjoint,
+                              plan.final_hidden_handoff_bf16) ||
+      !checked_mul(plan.request_sequence_capacity_tokens, 64U,
+                   rope_elements) ||
+      !make_typed_requirement(rope_elements, kFp32,
+                              PrefillMemoryLifetime::kRequestThroughDecode,
+                              PrefillMemoryAliasCondition::kDisjoint,
+                              plan.rope_cos_sin_fp32) ||
+      !checked_sum(std::array<std::uint64_t, 6U>{
+                       plan.persistent_and_kv.required_bytes,
+                       plan.prompt_residual_bf16.required_bytes,
+                       plan.whole_core_family_arena.required_bytes,
+                       plan.legacy_c512_workspace.required_bytes,
+                       plan.final_hidden_handoff_bf16.required_bytes,
+                       plan.rope_cos_sin_fp32.required_bytes},
+                   plan.required_bytes)) {
+    result.error = PrefillWorkspacePlanError::kArithmeticOverflow;
+    return result;
+  }
+
+  plan.prompt_token_ids_u32.family_relative_offset =
+      plan.linear_prompt_wide_workspace.family_relative_offset;
+  std::uint64_t token_ids_end = 0U;
+  std::uint64_t workspace_end = 0U;
+  if (!checked_add(plan.prompt_token_ids_u32.family_relative_offset,
+                   plan.prompt_token_ids_u32.memory.required_bytes,
+                   token_ids_end) ||
+      !checked_add(plan.linear_prompt_wide_workspace.family_relative_offset,
+                   plan.linear_prompt_wide_workspace.memory.required_bytes,
+                   workspace_end) ||
+      token_ids_end > workspace_end ||
+      plan.prompt_token_ids_u32.family_relative_offset == 0U ||
+      plan.linear_raw_qkv_bf16.family_relative_offset != 0U ||
+      plan.linear_conv_qkv_bf16.family_relative_offset != 819'200'000U ||
+      plan.linear_z_bf16.family_relative_offset != 1'638'400'000U ||
+      plan.linear_a_bf16.family_relative_offset != 2'129'920'000U ||
+      plan.linear_b_bf16.family_relative_offset != 2'133'760'000U ||
+      plan.linear_prompt_wide_workspace.family_relative_offset !=
+          2'137'600'000U ||
+      plan.linear_output_bf16.family_relative_offset != 4'938'240'000U ||
+      plan.whole_core_family_arena.required_bytes != 5'429'760'000U ||
+      plan.persistent_and_kv.required_bytes != 2'699'952'128U ||
+      plan.prompt_residual_bf16.required_bytes != 409'610'240U ||
+      plan.legacy_c512_workspace.required_bytes != 90'970'112U ||
+      plan.final_hidden_handoff_bf16.required_bytes != 10'240U ||
+      plan.rope_cos_sin_fp32.required_bytes != 10'240'256U ||
+      plan.required_bytes != 8'640'542'976U ||
+      plan.executable()) {
+    result.error = PrefillWorkspacePlanError::kInvalidLayout;
+    return result;
+  }
+
+  plan.capacity = capacity(plan.required_bytes,
+                           plan.request_arena_limit_bytes);
   result.value.emplace(plan);
   return result;
 }

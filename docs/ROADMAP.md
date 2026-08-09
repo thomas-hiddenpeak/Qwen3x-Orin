@@ -154,26 +154,32 @@ route while P1/P2 capacity and release seams are being closed. It cannot
 select an architecture, change the default, or promote production before the
 P1 and P2 exits provide the target-length API and canonical release artifact.
 
-Current P0 decision: both WP-V2-C1-v1 and its GateUpG2/DownD2 v1 successor are
-implemented and rejected. The clean real-API G2/D2 P40K request consumed all
-40,000 tokens and attested 320+320 coupled role hits, but server pure Prefill
-was 115.041752 s / 347.699851 prompt tok/s versus 108.981855 s / 367.033577
-tok/s for retained `c45b7c5`: +5.560464% latency and -5.267563% throughput.
-EvalScope TTFT was 115.08576 s, so the API boundary remains negligible.
-Bounded NSys measured G2+D2 at 60.904184288 s versus 53.864024544 s for the
-retained native Marlin main plus SiLU scope, a +7.040159744-s role gap and
-+6.110398080 s in complete GPU kernel time. Defaults are unchanged and no
-accuracy promotion was run. Exact evidence is in the
-[G2/D2 rejection record](metadata/qwen36-27b-prefill-p40k-nvfp4-g2-d2-rejection-2026-08-10.json).
+Current P0 decision: the exact-P40000 whole-core execution substrate is
+implemented in the working tree and retained as a positive architecture
+direction. Its clean real-API request consumed all 40,000 tokens as five
+M8000 panels, completed one route pass and exactly 768 bounded retirements,
+and reached 101.831854 s / 392.804397 prompt tok/s versus 108.981855 s /
+367.033577 tok/s for retained `c45b7c5`: -6.560726% latency and +7.02138%
+throughput. EvalScope TTFT was 101.87053 s, so the API boundary remains
+negligible. Defaults are unchanged, the inherited FlashInfer path has a known
+P513 state mismatch, and no accuracy promotion was run. Exact evidence is in
+the [whole-core direction record](metadata/qwen36-27b-prefill-p40k-whole-core-direction-2026-08-10.json).
 
-The active P0 is now a projection-ownership architecture reset, not another
-parameter scan on either rejected raster skeleton. The successor must make
-B/scale residency and decoded-fragment reuse persist across multiple M rows or
-output tiles, and keep Gate/Up and Down shape-specific. Freeze the dispatch
-contract for M8192/M7712 and the future M5424 tail now, but implement
-M8192/M7712 and return first to the same P40K API witness. Only a competitive,
-accuracy-admissible P40K composition unlocks M5424 implementation/validation
-and P60; P130 remains locked behind those gates.
+Bounded NSys measured 102.113314 s of kernels inside a 102.121307-s request;
+only 7.992928 ms / 0.0078% is non-kernel space. NVFP4 Gate/Up, FP8, NVFP4
+Down, and Attention consume 37.273068 s, 25.864647 s, 17.559457 s, and
+13.634170 s. The whole-core control/memory/witness substrate therefore stays,
+while its inherited fixed-16-CTA old-Marlin NVFP4 body is closed: it reorders
+old M64 raster work without cross-CTA decoded-B/scale reuse.
+
+The active implementation package is a coupled Gate/Up and Down dataflow
+reset, not another scan on the rejected Marlin/C1/G2-D2 rasters. It must use
+shape-specific ownership, a real multi-stage producer/consumer feed, bounded
+register/shared admission for at least two CTAs per SM, and L2 rastering chosen
+from the full Gate and Down shapes. Its first decision is the same clean P40K
+API witness. Only a competitive, accuracy-admissible P40K composition unlocks
+M5424 implementation/validation and P60; P130 remains locked behind those
+gates.
 
 Selection sequence:
 
@@ -371,17 +377,21 @@ Active architecture candidate: `AC-PREFILL-PROMPT-WIDE-v2`.
   scope 7.040160 s slower than retained Marlin main plus SiLU. Meeting the
   resource envelope did not create persistent cross-CTA B/scale reuse, so this
   one-raster-CTA version is closed and must not receive parameter scans.
-- **WP-V2-C1-v2 — persistent NVFP4 ownership reset — active design, not
-  implemented:** freeze one global Gate/Up and Down dataflow that retains or
-  reuses packed B, scales, and decoded fragments across multiple M rows or
-  output tiles rather than exiting after one raster tile. Derive distinct
-  ownership for the asymmetric Gate/Up and Down shapes from the proven
-  Marlin/vLLM/Triton feed structures. Its dispatch design must reserve an exact
-  M5424/general-tail extension, but the first implementation slice admits
-  M8192/M7712 and returns directly to P40K. Static occupancy is only an
-  admission fact; the design must quantify the useful reuse and pipeline
-  lifetime that reaches the API budget. M5424 code and P60 execution follow
-  only after that P40K composition is competitive and accuracy-admissible.
+- **WP-V2-C1-v2 — fixed-16-CTA persistent Marlin wrapper — implemented,
+  superseded as kernel architecture:** the whole-core route reduces NVFP4 to
+  64 Gate/Up and 64 Down launches, but NSys still measures 37.273068 s and
+  17.559457 s in those roles. The body retains Marlin's M64 raster and only
+  changes task order, so launch reduction does not create decoded-B/scale
+  reuse. Keep the surrounding exact-P40000 schedule and route witness; do not
+  parameter-scan this kernel body.
+- **WP-V2-C1-v3 — shape-wide NVFP4 feed reset — active implementation:** use
+  G2/D2's two-CTA resource discipline and decoded-B fanout as the starting
+  point, then add a genuine multi-stage `cp.async` producer/consumer pipeline
+  and shape-specific L2 rastering. Gate/Up and Down must not share one M/N
+  ownership rule. The complete coupled package returns first to real P40K;
+  resource or synthetic checks are admission only, never performance
+  selection. Reserve the M5424/general-tail dispatch seam, but implement and
+  time it only after P40 is competitive and accuracy-admissible.
 - **WP-V2-C2 — shape-specific FP8 projections:** after the coupled NVFP4
   package returns to P40K, build separate QKV, Z, and O tactics instead of
   inheriting one universal tile. Humming, Triton, vLLM and cuBLASLt may inform
@@ -393,11 +403,13 @@ Active architecture candidate: `AC-PREFILL-PROMPT-WIDE-v2`.
   recursive BF16 M16 A/B dispatch with panel-wide exact tactics. FLA and Mamba
   selective-scan mechanisms are design references; copied code or changed
   state precision is outside scope.
-- **Composition deadline:** G2/D2 v1 met its API return point and is closed.
-  WP-V2-C1-v2 must freeze its whole-dataflow/shape contract before local timing,
+- **Composition deadline:** the whole-core v2 route met its API return point
+  and retains only its control substrate. WP-V2-C1-v3 must freeze its
+  whole-dataflow/shape contract before local timing,
   implement the mutually dependent ownership and feed changes as one package,
-  and return to one unprofiled clean-host P40K API direction against retained
-  `c45b7c5` as soon as both roles execute end to end. A positive result earns
+  and return to one unprofiled clean-host P40K API direction against the
+  392.804397 tok/s whole-core direction as soon as both roles execute end to
+  end. A positive result earns
   correctness repetition and matched NSys/real-weight NCU; a negative result
   earns at most one bounded causal profile before closure or another material
   architecture reset. Do not let low-yield scans displace this return point.

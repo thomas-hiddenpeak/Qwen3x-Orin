@@ -174,6 +174,7 @@ struct ReferenceRunnerPrefillControlTestPeer {
     stage.final_input_token_id = final_input_token_id;
     stage.prompt_token_count = prompt_token_count;
     stage.logical_panel_count = panel_count;
+    stage.mlp_phase_count_per_layer = panel_count;
     stage.final_normalized_hidden = final_hidden;
     stage.completed_uncommitted_progress = progress;
     stage.route_evidence_after_commit = staged_route;
@@ -209,6 +210,7 @@ struct ReferenceRunnerPrefillControlTestPeer {
            stage.final_input_token_id == final_input_token_id &&
            stage.prompt_token_count == prompt_token_count &&
            stage.logical_panel_count == panel_count &&
+           stage.mlp_phase_count_per_layer == panel_count &&
            stage.final_normalized_hidden == final_hidden &&
            ReferenceRunner::same_prefill_execution_progress(
                stage.completed_uncommitted_progress, progress) &&
@@ -279,6 +281,32 @@ struct ReferenceRunnerPrefillControlTestPeer {
       PrefillRouteEvidence& layer_pass) noexcept {
     return ReferenceRunner::collapse_prefill_layer_route_fragment(
         fragment, layer_pass);
+  }
+
+  [[nodiscard]] static ReferenceRunnerStatus validate_layer_wide_p40_route(
+      const LayerRouteFragment& fragment) noexcept {
+    return ReferenceRunner::
+        validate_layer_wide_p40_prefill_layer_route_fragment(fragment);
+  }
+
+  [[nodiscard]] static ReferenceRunnerStatus collapse_layer_wide_p40_route(
+      const LayerRouteFragment& fragment,
+      PrefillRouteEvidence& request_pass) noexcept {
+    return ReferenceRunner::
+        collapse_layer_wide_p40_prefill_layer_route_fragment(fragment,
+                                                              request_pass);
+  }
+
+  [[nodiscard]] static bool valid_prompt_wide_p40_whole_core_contract(
+      const PrefillExecutionPlan& topology,
+      const RequestMemoryProfile profile,
+      const std::uint32_t max_sequence_length) noexcept {
+    return ReferenceRunner::valid_prompt_wide_p40_whole_core_runner_contract(
+        topology, profile, max_sequence_length,
+        ReferenceRunner::LayerMajorLayerExecutor::kOperatorPanel,
+        LayerMajorPrefillProjectionTactic::kNativePromptWideP40WholeCore,
+        LayerMajorPrefillFullAttentionTactic::
+            kNativeFlashInferExactWholePrompt);
   }
 
   [[nodiscard]] static Result select(
@@ -1912,7 +1940,7 @@ void test_prefill_layer_route_reducer(TestContext& test) {
           Peer::lightweight_enqueue_result_bytes() < 1'024U &&
           Peer::lightweight_enqueue_result_bytes() <=
               Peer::lightweight_enqueue_payload_bytes() +
-                  6U * sizeof(std::size_t) &&
+                  20U * sizeof(std::size_t) + sizeof(bool) &&
           Peer::lightweight_enqueue_result_bytes() * 16U <
               Peer::legacy_tile_outcome_bytes(),
       "candidate enqueue result contains route identity, not a C512 transcript");
@@ -2107,6 +2135,66 @@ void test_prefill_layer_route_reducer(TestContext& test) {
       logical_c8192_counts_exact,
       "one direct logical C8192 panel collapses once per layer to exact "
       "64/64/96/48/64/16/48 production counts");
+
+  runtime::PrefillRouteEvidence logical_p40000_request_pass;
+  runtime::ReferenceRunnerStatus logical_p40000_status;
+  if (runtime::layer_wide_p40_mlp_prefill_plan_enabled()) {
+    for (std::size_t layer = 0U;
+         logical_p40000_status.ok() &&
+         layer < runtime::kReferenceDecoderLayerCount;
+         ++layer) {
+      const Peer::LayerRouteFragment fragment =
+          Peer::production_layer_route(
+              layer, 0U,
+              runtime::kLayerMajorPrefillLayerWideMlpP40Tokens);
+      logical_p40000_status = Peer::validate_layer_wide_p40_route(fragment);
+      if (logical_p40000_status.ok()) {
+        logical_p40000_status = Peer::collapse_layer_wide_p40_route(
+            fragment, logical_p40000_request_pass);
+      }
+    }
+    bool logical_p40000_counts_exact = logical_p40000_status.ok();
+    for (std::size_t role = 0U;
+         logical_p40000_counts_exact &&
+         role < logical_p40000_request_pass.operators.size();
+         ++role) {
+      const runtime::PrefillOperatorRouteCounts& counts =
+          logical_p40000_request_pass.operators[role];
+      logical_p40000_counts_exact =
+          counts.production_hits ==
+              runtime::kExpectedPrefillLogicalOperatorsPerTile[role] &&
+          counts.exact_fallback_hits == 0U &&
+          counts.forbidden_hits == 0U;
+    }
+    test.expect(
+        logical_p40000_counts_exact,
+        "one admitted P40000 request-wide pass collapses each logical "
+        "operator exactly once per model layer");
+
+    Peer::LayerRouteFragment bad_p40000_geometry =
+        Peer::production_layer_route(
+            0U, 1U,
+            runtime::kLayerMajorPrefillLayerWideMlpP40Tokens);
+    const runtime::ReferenceRunnerStatus bad_p40000_status =
+        Peer::validate_layer_wide_p40_route(bad_p40000_geometry);
+    test.expect(
+        !bad_p40000_status &&
+            operation_is(bad_p40000_status,
+                         "prefill_layer_wide_p40_route_geometry"),
+        "P40000 request-wide route validation rejects non-cold geometry");
+  } else {
+    const Peer::LayerRouteFragment disabled_p40000 =
+        Peer::production_layer_route(
+            0U, 0U,
+            runtime::kLayerMajorPrefillLayerWideMlpP40Tokens);
+    logical_p40000_status =
+        Peer::validate_layer_wide_p40_route(disabled_p40000);
+    test.expect(
+        !logical_p40000_status &&
+            operation_is(logical_p40000_status,
+                         "prefill_layer_wide_p40_route_geometry"),
+        "default-off build rejects the P40000 request-wide route");
+  }
 
   Peer::LayerRouteReducer malformed;
   Peer::LayerRouteFragment bad_slots =
@@ -2380,6 +2468,48 @@ void test_layer_major_runner_view_binding_lifetime(TestContext& test) {
               "malformed layer-major schedule fails transactionally");
 }
 
+void test_prompt_wide_p40_whole_core_runner_contract(TestContext& test) {
+  using Peer = runtime::ReferenceRunnerPrefillControlTestPeer;
+  runtime::PrefillExecutionPlanOptions options;
+  options.first_position = 0U;
+  options.prompt_token_count =
+      runtime::kLayerMajorPrefillPromptWideP40Tokens;
+  options.max_sequence_length =
+      runtime::kLayerMajorPrefillPromptWideP40RequestCapacityTokens;
+  options.mlp_schedule_tactic = runtime::LayerMajorPrefillMlpScheduleTactic::
+      kPromptWideP40WholeCore;
+  const runtime::PrefillExecutionPlanResult built =
+      runtime::build_unbound_layer_major_prefill_execution_plan(options);
+  if (!runtime::prompt_wide_p40_whole_core_prefill_plan_enabled()) {
+    test.expect(!built,
+                "default-off runner cannot construct whole-core topology");
+    return;
+  }
+  test.expect(
+      built && Peer::valid_prompt_wide_p40_whole_core_contract(
+                   *built.value,
+                   runtime::RequestMemoryProfile::kLayerMajorP40WholeCore,
+                   runtime::kLayerMajorPrefillPromptWideP40RequestCapacityTokens),
+      "runner admits only the exact P40000 whole-core topology");
+  if (!built) {
+    return;
+  }
+  runtime::PrefillExecutionPlan malformed = *built.value;
+  malformed.panels[1U].token_count = 8'192U;
+  test.expect(
+      !Peer::valid_prompt_wide_p40_whole_core_contract(
+          malformed, runtime::RequestMemoryProfile::kLayerMajorP40WholeCore,
+          runtime::kLayerMajorPrefillPromptWideP40RequestCapacityTokens) &&
+          !Peer::valid_prompt_wide_p40_whole_core_contract(
+              *built.value, runtime::RequestMemoryProfile::kLayerMajorC8192,
+              runtime::kLayerMajorPrefillPromptWideP40RequestCapacityTokens) &&
+          !Peer::valid_prompt_wide_p40_whole_core_contract(
+              *built.value,
+              runtime::RequestMemoryProfile::kLayerMajorP40WholeCore,
+              runtime::kLayerMajorPrefillPromptWideP40Tokens),
+      "runner rejects mixed profile, capacity, and panel geometry");
+}
+
 void test_whole_request_prefill_staging_contract(TestContext& test) {
   using Peer = runtime::ReferenceRunnerPrefillControlTestPeer;
 
@@ -2527,6 +2657,7 @@ int main() {
   test_prefill_layer_route_reducer(test);
   test_prefill_route_evidence_runner_lifetime(test);
   test_layer_major_runner_view_binding_lifetime(test);
+  test_prompt_wide_p40_whole_core_runner_contract(test);
   test_whole_request_prefill_staging_contract(test);
   if (test.failures() != 0) {
     std::cerr << test.failures() << " reference-runner host test(s) failed\n";

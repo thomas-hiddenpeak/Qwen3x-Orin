@@ -1,0 +1,220 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-p40k-persistent-layerwide-mlp-rejection-2026-08-10",
+  "measured_at": "2026-08-10T05:07:44+08:00",
+  "recorded_at": "2026-08-10T05:14:40+08:00",
+  "timezone": "Asia/Shanghai",
+  "status": "rejected_architecture_direction_default_off_accuracy_unqualified",
+  "policy": {
+    "evidence_tier": "T3_DIRECTION",
+    "protocol_class": "EXTERNAL_API_P40K_SINGLE_REQUEST_EARLY_STOP",
+    "decision_unit": "exact_p40000_layer_wide_persistent_nvfp4_mlp",
+    "architecture_candidate_id": "AC-PREFILL-PROMPT-WIDE-v2/P40-PERSISTENT-LAYER-WIDE-MLP-v1",
+    "real_model_production_api_first": true,
+    "early_stop_authority": true,
+    "architecture_selection_authority": false,
+    "release_performance_authority": false,
+    "production_promotion_authority": false,
+    "default_route_changed": false,
+    "production_eligible": false,
+    "numerical_contract_qualified": false,
+    "accuracy_gate": "NOT_RUN_AFTER_NEGATIVE_DIRECTION",
+    "cublaslt_production_eligibility": false,
+    "mtp_used": false
+  },
+  "source": {
+    "branch": "codex/prefill-target-path",
+    "measurement_base_commit": "a4f95ba3fa15248cbd95f0e2a7e0a8578fae3cb6",
+    "measurement_base_tree": "34a46fadca5fdc22c1805785271dc9e39c8756a4",
+    "measurement_tree_clean": false,
+    "measurement_source_note": "The layer-wide runtime, persistent NVFP4 kernels, prompt-wide component surfaces, and final route-pass contract repair were measured from the working tree above a4f95ba. The exact measured binary is pinned below; no clean-commit performance authority is claimed.",
+    "binary": {
+      "measurement_path": ".q3x-work/build/p40-whole-layer-candidate/qwen3x-eval-server",
+      "bytes": 13128248,
+      "sha256": "79c93a2a6fa943be95f705d1ebaa1e36b55d035a689d96ddd85bbb342450c50d",
+      "elf_build_id": "e7256376ab4aefcdd92b6549e15fdd1630641fd7",
+      "checked_in": false,
+      "build_type": "Release",
+      "build_testing": true,
+      "cuda_architecture": "sm_87",
+      "flashinfer_prefill_attention_admission": true,
+      "bf16_ab_large_m_prefill_admission": true,
+      "gdn_prompt_wide_chunk_graph_admission": true,
+      "layer_wide_p40_mlp_admission": true,
+      "nvfp4_persistent_prefill_admission": true
+    }
+  },
+  "checkpoint": {
+    "repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "local_path": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "access": "read_only",
+    "config_sha256": "c04a19ba293737ad7be4f6e96d6666cb7e479cbe19ecc0c289fad267135b0338",
+    "quantization_config_sha256": "fd7200cd8cba2a8a5d777061521abf83e2deb97ab6bc2f04e7a0a3d3f8ecd5c1",
+    "index_sha256": "7aa103a2582b7d26631988de33dea19e8a308ee9c239e8e14feb374af30905e2",
+    "tokenizer_json_sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42"
+  },
+  "workload": {
+    "framework": "EvalScope",
+    "framework_version": "1.9.1",
+    "api": "openai",
+    "endpoint": "/v1/completions",
+    "url": "http://127.0.0.1:18086/v1/completions",
+    "corpus_path": ".q3x-work/evalscope/corpora/q3x-repository-agent-context-p40000-one-token.jsonl",
+    "corpus_sha256": "8970ac50693f49d1b27d35a0610ecbe5072594330d69b301f4dab731789b6844",
+    "prompt_kind": "token_ids",
+    "prompt_tokens": 40000,
+    "prompt_token_ids_u32le_sha256": "76cd23e2d60a9473af0ff24767b1b7ca614b36857697b420246731165156f78f",
+    "request_body_sha256": "e6f5817ad868e85c333db1961fa3dc14c7e65247f0a4241e8bb638870b6575ec",
+    "prompt_fully_consumed": true,
+    "consumed_prompt_tokens": 40000,
+    "logical_panel_geometry": "3x8192 + 2x7712",
+    "measured_requests": 1,
+    "successful_requests": 1,
+    "failed_requests": 0,
+    "warmup_requests": 0,
+    "parallel": 1,
+    "output_tokens": 1,
+    "observed_output_text": "The",
+    "retained_c45_output_text": "The",
+    "first_token_matches_retained_route": true,
+    "first_token_is_accuracy_qualification": false,
+    "temperature": 0.0,
+    "seed": 42,
+    "stream": true,
+    "prefix_cache": false,
+    "mtp": false
+  },
+  "server_configuration": {
+    "max_sequence_length": 40001,
+    "max_output_tokens": 1,
+    "prefill_chunk_size": 512,
+    "prefill_execution_mode": "layer-major",
+    "prefill_projection_tactic": "native-nvfp4-persistent-p40-layer-wide-mlp",
+    "prefill_attention_tactic": "native-flashinfer-exact-panel",
+    "projection_backend": "sm87",
+    "queue_capacity": 1,
+    "ingress_threads": 3,
+    "request_max_arena_bytes": 5100000000,
+    "minimum_free_bytes": 4294967296
+  },
+  "pre_measurement_route_contract_repair": {
+    "failed_request_performance_authority": "NONE",
+    "failure": "All device work completed, but the request failed closed at whole_request_prefill_commit_route with dependency_error=15.",
+    "root_cause": "The new route correctly collapsed five panels into one complete 64-layer route pass, while the final commit still required the legacy five-pass increment.",
+    "repair": "Define route-pass count independently from logical panel count and require one pass for the layer-wide schedule in both generation control and atomic runner commit.",
+    "regression_tests": [
+      "prefill execution plan",
+      "reference runner host",
+      "OpenAI protocol"
+    ]
+  },
+  "clean_host_preflight": {
+    "server_start": {
+      "decision": "pass",
+      "sha256": "3dff93f4cc16647a4e4e771de05283eb51e0f98f17face9ae57240ec31e51f80"
+    },
+    "request_control_paused": {
+      "decision": "pass",
+      "sha256": "0693de8f12b5c4231af76f7699eaf6a49c2ad72ed9e5b8dae01f7221fd0317ac"
+    },
+    "jetson_idle_authority": "tegrastats plus CPU/process and GPU-device-handle inspection",
+    "nvidia_smi_used_for_idle_decision": false
+  },
+  "route": {
+    "witness_schema": "target-prefill-witness-v9",
+    "deployment_plan_id": "q3x.sm87.ac-prefill-prompt-wide-v2.native-nvfp4-persistent-p40-layer-wide-mlp.native-flashinfer-exact-panel-attention.v1",
+    "qualification": "accuracy-unqualified-architecture-candidate",
+    "package_complete": true,
+    "logical_panel_count": 5,
+    "route_layer_pass_count": 1,
+    "operator_panel_executor_hits": 320,
+    "layer_wide_p40_mlp_layer_hits": 64,
+    "persistent_p40_nvfp4_gate_up_hits": 64,
+    "persistent_p40_nvfp4_down_residual_hits": 64,
+    "persistent_p40_nvfp4_physical_launches": 128,
+    "fp8_projection_hits": 1040,
+    "fp8_projection_bulk_hits": 624,
+    "fp8_projection_oracle_partial_hits": 416,
+    "fp8_projection_physical_launches": 8112,
+    "native_flashinfer_exact_panel_hits": 80,
+    "generic_qt2_hits": 0,
+    "completed_exact_fallback_hits": 0,
+    "completed_forbidden_hits": 0,
+    "forbidden_route_hits": {
+      "prefix_cache": 0,
+      "mtp": 0,
+      "cublaslt": 0,
+      "external_reference": 0,
+      "approximate_numerics": 0
+    }
+  },
+  "real_api_direction": {
+    "evalscope": {
+      "ttft_ms": 109064.28,
+      "request_latency_ms": 109064.315307,
+      "whole_workload_prompt_tok_s": 366.76,
+      "reported_total_tok_s": 366.77
+    },
+    "server": {
+      "queue_ms": 0.024896,
+      "admission_ms": 9.033677,
+      "generation_call_wall_ms": 109049.531149,
+      "pure_prefill_ms": 109028.398424,
+      "pure_prefill_tok_s": 366.876892426175,
+      "finish_prefill_ms": 4.482694,
+      "ttft_ms": 109060.601035,
+      "decode_after_first_ms": 0.0,
+      "response_enqueued_total_ms": 109060.636332
+    },
+    "cross_boundary": {
+      "evalscope_ttft_minus_server_ttft_ms": 3.678965,
+      "server_ttft_minus_pure_prefill_ms": 32.202611,
+      "pure_prefill_share_of_server_ttft_percent": 99.970473,
+      "interpretation": "The API boundary is not the bottleneck; the negative direction is entirely inside Prefill."
+    }
+  },
+  "comparison_to_retained_c45b7c5": {
+    "baseline_source": "qwen36-27b-prefill-p40k-flashinfer-exact-panel-api-2026-08-09",
+    "baseline_server_pure_prefill_ms": 108981.854892,
+    "baseline_server_pure_prefill_tok_s": 367.03357673293067,
+    "candidate_server_pure_prefill_ms": 109028.398424,
+    "candidate_server_pure_prefill_tok_s": 366.876892426175,
+    "latency_delta_ms": 46.543532,
+    "latency_increase_percent": 0.042707598,
+    "throughput_change_percent": -0.042689366,
+    "candidate_gap_to_owner_4300_tok_s_x": 11.720553,
+    "candidate_gap_to_two_second_p40k_x": 54.514199,
+    "decision": "REJECT"
+  },
+  "decision": {
+    "result": "REJECT_P40_PERSISTENT_LAYER_WIDE_MLP_V1",
+    "reason": "The complete real API path was 46.543532 ms slower than the retained direction. Reducing the MLP to 128 persistent physical launches did not improve whole-product Prefill while 8112 FP8 launches and panel-local linear/GDN/Attention dataflow remained.",
+    "default_route_unchanged": true,
+    "candidate_production_enabled": false,
+    "full_accuracy_harness_run": false,
+    "p60k_run": false,
+    "p130k_run": false,
+    "nsys_run": false,
+    "ncu_run": false,
+    "next_step": "Replace the panel-local core with an exact-P40000 schedule using five equal M8000 fill/drain panels, one prompt-wide linear-attention core or whole-prompt FlashInfer operation per layer, aligned single-launch FP8 projection panels, and one persistent MLP phase. Return directly to the same clean P40K API gate."
+  },
+  "artifacts": {
+    "evidence_dir": ".q3x-work/evidence/prefill-target-path/p40-persistent-layerwide-mlp-r1",
+    "evalscope_dir": ".q3x-work/evalscope/results/p40-persistent-layerwide-mlp-r1/candidate-r3/persistentlayerwidemlproutefix/parallel_1_number_1",
+    "server_log_sha256": "d319369b976622f9df0b7232e40a2152fd2023aa5e583bfdd9b17285fa8d6dfd",
+    "evalscope_client_log_sha256": "f39c252959e5a2c5c95b3bf2896730f52fbb0543cca563dc2c8de48c6be9f35b",
+    "evalscope_db_sha256": "f1190944d530bdec5836b8db58c5a80cc4c517ffe31fa1b0d77f19ed19b6f952",
+    "evalscope_summary_sha256": "1b6339867fea24f4a5cd90268079e6c5e7ac68d69ee60b2e756c3765ba230f83",
+    "performance_summary_sha256": "f797a8daca9b987b1f1776a88ea6055d9ade20be052e8a3a7b5c8a2f18345240"
+  },
+  "honesty_notes": [
+    "This is one clean-host real-API direction sample, not a repetition-qualified release baseline.",
+    "The exact measured binary is pinned, but it came from a dirty working tree above a4f95ba.",
+    "The matching first token is an API/output smoke observation only and does not qualify full numerical state or model capability.",
+    "The pre-repair failed request has no performance authority because the API transaction did not commit successfully.",
+    "No Nsight capture was taken because the valid real-API result already rejects this isolated direction and the retained P40 profile identifies the remaining architecture-wide work.",
+    "P60 and P130 were not run because the P40 gate failed.",
+    "All generated evidence stays under the ignored repository .q3x-work tree; the model directory and user environments were read-only."
+  ]
+}

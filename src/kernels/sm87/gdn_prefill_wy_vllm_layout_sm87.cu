@@ -1,5 +1,6 @@
 #include "gdn_prefill_wy_vllm_layout_sm87.h"
 
+#include "q3x/kernels/gdn_prefill_prompt_wide_chunk_graph_abi.h"
 #include "q3x/runtime/gdn_decode.h"
 
 #include <cuda_bf16.h>
@@ -773,32 +774,33 @@ void value_head_recompute_chunk64_kernel(
     const std::size_t token_count, const std::size_t chunk_count,
     const float* const raw_gram,
     const std::uint16_t* const transform,
-    const std::uint16_t* const w, const std::uint16_t* const u) noexcept {
+    const std::uint16_t* const w, const std::uint16_t* const u,
+    const std::size_t maximum_chunks) noexcept {
   return compact_k == nullptr || cumulative_gate == nullptr ||
          beta == nullptr || conv_qkv == nullptr || raw_gram == nullptr ||
          transform == nullptr || w == nullptr || u == nullptr ||
-         token_count == 0U || token_count > kMaximumChunks * kChunk ||
-         chunk_count == 0U || chunk_count > kMaximumChunks ||
+         token_count == 0U || token_count > maximum_chunks * kChunk ||
+         chunk_count == 0U || chunk_count > maximum_chunks ||
          token_count > chunk_count * kChunk ||
          token_count <= (chunk_count - 1U) * kChunk;
 }
 
-}  // namespace
-
-int launch_packless(const std::uint16_t* const compact_k,
-                    const float* const cumulative_gate,
-                    const float* const beta,
-                    const std::uint16_t* const conv_qkv,
-                    const std::size_t token_count,
-                    const std::size_t chunk_count,
-                    float* const raw_gram_scratch,
-                    std::uint16_t* const transform,
-                    std::uint16_t* const w,
-                    std::uint16_t* const u,
-                    void* const cuda_stream) noexcept {
+[[nodiscard]] int launch_packless_impl(
+    const std::uint16_t* const compact_k,
+    const float* const cumulative_gate,
+    const float* const beta,
+    const std::uint16_t* const conv_qkv,
+    const std::size_t token_count,
+    const std::size_t chunk_count,
+    const std::size_t maximum_chunks,
+    float* const raw_gram_scratch,
+    std::uint16_t* const transform,
+    std::uint16_t* const w,
+    std::uint16_t* const u,
+    void* const cuda_stream) noexcept {
   if (invalid_arguments(compact_k, cumulative_gate, beta, conv_qkv,
                         token_count, chunk_count, raw_gram_scratch,
-                        transform, w, u)) {
+                        transform, w, u, maximum_chunks)) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
   const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
@@ -829,6 +831,47 @@ int launch_packless(const std::uint16_t* const compact_k,
       static_cast<unsigned int>(token_count),
       static_cast<unsigned int>(chunk_count), transform, w, u);
   return static_cast<int>(cudaGetLastError());
+}
+
+}  // namespace
+
+int launch_packless(const std::uint16_t* const compact_k,
+                    const float* const cumulative_gate,
+                    const float* const beta,
+                    const std::uint16_t* const conv_qkv,
+                    const std::size_t token_count,
+                    const std::size_t chunk_count,
+                    float* const raw_gram_scratch,
+                    std::uint16_t* const transform,
+                    std::uint16_t* const w,
+                    std::uint16_t* const u,
+                    void* const cuda_stream) noexcept {
+  return launch_packless_impl(
+      compact_k, cumulative_gate, beta, conv_qkv, token_count, chunk_count,
+      kMaximumChunks, raw_gram_scratch, transform, w, u, cuda_stream);
+}
+
+int launch_packless_prompt_wide_p40(
+    const std::uint16_t* const compact_k,
+    const float* const cumulative_gate,
+    const float* const beta,
+    const std::uint16_t* const conv_qkv,
+    const std::size_t token_count,
+    const std::size_t chunk_count,
+    float* const raw_gram_scratch,
+    std::uint16_t* const transform,
+    std::uint16_t* const w,
+    std::uint16_t* const u,
+    void* const cuda_stream) noexcept {
+  constexpr std::size_t expected_chunks =
+      kernels::kGdnPromptWideChunkGraphP40Tokens / kChunk;
+  if (token_count != kernels::kGdnPromptWideChunkGraphP40Tokens ||
+      chunk_count != expected_chunks) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  return launch_packless_impl(
+      compact_k, cumulative_gate, beta, conv_qkv, token_count, chunk_count,
+      expected_chunks, raw_gram_scratch, transform, w, u, cuda_stream);
 }
 
 }  // namespace q3x::runtime::gdn_prefill_wy_vllm_layout_detail

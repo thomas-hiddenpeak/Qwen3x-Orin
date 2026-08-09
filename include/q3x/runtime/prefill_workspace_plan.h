@@ -88,6 +88,9 @@ enum class PrefillOperatorScratchStrategy : std::uint8_t {
   // disjoint. Phase-local reuse inside each explicitly selected physical
   // tactic remains a separately named, unbound contract.
   kDisjointAllFamiliesAndLegacyC512,
+  // Exact-P40000 prompt-wide whole-core family arena plus one physically
+  // disjoint C512 compatibility workspace. This is not a C8192 overlay.
+  kP40WholeCorePromptWideWithDisjointLegacyC512,
 };
 
 enum class PrefillGdnPhysicalTactic : std::uint8_t {
@@ -99,6 +102,9 @@ enum class PrefillGdnPhysicalTactic : std::uint8_t {
   // Exact C64-native recurrence keeps one independent C512 convolution output
   // while the full-panel projected QKV remains live.
   kC64NativeTokenParallelConv,
+  // One exact P40000 prompt-wide chunk graph with independent raw,
+  // convolution, gate/scalar, workspace, and output ranges.
+  kP40PromptWideChunkGraph,
 };
 
 enum class PrefillLegacyGdnPhysicalTactic : std::uint8_t {
@@ -122,6 +128,18 @@ enum class PrefillMlpPhysicalTactic : std::uint8_t {
   // The fused epilogue keeps N, merged Gate+Up, activated Down input, Marlin
   // reduction storage, and locks live together.
   kFusedGateUpEpilogue,
+  // Test-only exact-P40000 layer-wide schedule. Attention/GDN and the
+  // post-attention residual finish panelwise, then three prompt-wide BF16
+  // spans hold merged Gate+Up, Up/Down input, and activated output for one
+  // exact full-M MLP phase. This is a byte/shape requirement only; no
+  // allocation, launcher, or production route is bound here.
+  kLayerWideP40AlignedMarlin,
+  // Target full-M ownership: normalized [M,5120] is consumed by one exact
+  // persistent GateUp kernel whose fused SiLU epilogue publishes only
+  // activated [M,17408]. Persistent Down then accumulates and publishes
+  // directly into prompt residual. No merged Gate/Up or branch-output
+  // materialization is reserved.
+  kLayerWideP40PersistentFusedGateUp,
 };
 
 enum class PrefillWorkspacePlanError : std::uint8_t {
@@ -146,6 +164,90 @@ struct PrefillMemoryRequirement {
   // is a requirement, not proof that an allocation or alias contract exists.
   bool allocation_bound = false;
   bool alias_contract_bound = false;
+};
+
+// Exact request-workspace contract for the first P40 whole-core composition.
+// This is deliberately separate from the C8192 family-overlay planner above:
+// the new route owns one P40000 operator graph, five exact P8000 scheduling
+// panels, and a P40001 request capacity (prompt plus one generated token).
+// Keeping a distinct type prevents a caller from presenting the old C8192
+// layout or its 8192/7712 panel geometry as this architecture.
+inline constexpr std::uint32_t kLayerMajorP40WholeCorePromptTokens = 40'000U;
+inline constexpr std::uint32_t
+    kLayerMajorP40WholeCoreRequestCapacityTokens = 40'001U;
+inline constexpr std::uint32_t kLayerMajorP40WholeCorePanelTokens = 8'000U;
+inline constexpr std::uint32_t kLayerMajorP40WholeCorePanelCount = 5U;
+
+struct LayerMajorP40WholeCoreFamilyRegionRequirement {
+  PrefillMemoryRequirement memory;
+  std::uint64_t family_relative_offset = 0U;
+};
+
+struct LayerMajorP40WholeCoreWorkspaceOptions {
+  std::uint64_t prompt_token_count = kLayerMajorP40WholeCorePromptTokens;
+  std::uint64_t request_sequence_capacity_tokens =
+      kLayerMajorP40WholeCoreRequestCapacityTokens;
+  std::uint64_t logical_panel_capacity_tokens =
+      kLayerMajorP40WholeCorePanelTokens;
+  std::uint64_t request_arena_limit_bytes = kMaximumRequestArenaBytes;
+};
+
+struct LayerMajorP40WholeCoreWorkspacePlan {
+  std::uint32_t prompt_token_count = 0U;
+  std::uint32_t request_sequence_capacity_tokens = 0U;
+  std::uint32_t logical_panel_capacity_tokens = 0U;
+  std::uint32_t logical_panel_count = 0U;
+
+  PrefillMemoryRequirement persistent_and_kv;
+  PrefillMemoryRequirement prompt_residual_bf16;
+
+  // One sequential whole-core family arena.  The linear/GDN layout below is
+  // the owning high-water. Full-Attention and MLP use only explicitly typed
+  // lifetime aliases within this same allocation.
+  PrefillMemoryRequirement whole_core_family_arena;
+  LayerMajorP40WholeCoreFamilyRegionRequirement linear_raw_qkv_bf16;
+  LayerMajorP40WholeCoreFamilyRegionRequirement linear_conv_qkv_bf16;
+  LayerMajorP40WholeCoreFamilyRegionRequirement linear_z_bf16;
+  LayerMajorP40WholeCoreFamilyRegionRequirement linear_a_bf16;
+  LayerMajorP40WholeCoreFamilyRegionRequirement linear_b_bf16;
+  LayerMajorP40WholeCoreFamilyRegionRequirement
+      linear_prompt_wide_workspace;
+  LayerMajorP40WholeCoreFamilyRegionRequirement linear_output_bf16;
+
+  // Prompt IDs live in a pre-GDN lifetime at the beginning of the prompt-wide
+  // GDN workspace. They never cover raw-QKV offset zero; embedding completion
+  // is the required reuse boundary.
+  LayerMajorP40WholeCoreFamilyRegionRequirement prompt_token_ids_u32;
+
+  PrefillMemoryRequirement legacy_c512_workspace;
+  PrefillMemoryRequirement final_hidden_handoff_bf16;
+  PrefillMemoryRequirement rope_cos_sin_fp32;
+  std::uint64_t required_bytes = 0U;
+  std::uint64_t request_arena_limit_bytes = 0U;
+  PrefillMemoryCapacityVerdict capacity =
+      PrefillMemoryCapacityVerdict::kIndeterminate;
+
+  // This pure host calculation never proves allocation, event/lifetime
+  // aliases, operator binding, or whole-process residency.
+  bool request_arena_reservation_bound = false;
+  bool lifetime_alias_contracts_bound = false;
+  bool operator_bindings_complete = false;
+
+  [[nodiscard]] constexpr bool executable() const noexcept {
+    return request_arena_reservation_bound &&
+           lifetime_alias_contracts_bound && operator_bindings_complete &&
+           capacity == PrefillMemoryCapacityVerdict::kFitsDeclaredLimit;
+  }
+};
+
+struct LayerMajorP40WholeCoreWorkspacePlanResult {
+  std::optional<LayerMajorP40WholeCoreWorkspacePlan> value;
+  PrefillWorkspacePlanError error = PrefillWorkspacePlanError::kNone;
+
+  [[nodiscard]] bool ok() const noexcept {
+    return value.has_value() && error == PrefillWorkspacePlanError::kNone;
+  }
+  [[nodiscard]] explicit operator bool() const noexcept { return ok(); }
 };
 
 struct PrefillPersistentStateMemoryPlan {
@@ -289,6 +391,9 @@ struct PrefillOperatorScratchVariant {
 struct PrefillOperatorScratchMemoryPlan {
   std::uint32_t c8192_panel_capacity_tokens = 0U;
   std::uint32_t legacy_c512_panel_capacity_tokens = 0U;
+  // MLP scratch is normally panel-capacity. The isolated P40 candidate owns
+  // the entire prompt in one layer-wide phase and therefore records M40000.
+  std::uint32_t mlp_capacity_tokens = 0U;
   PrefillGdnPhysicalTactic gdn_tactic =
       PrefillGdnPhysicalTactic::kUnselected;
   PrefillLegacyGdnPhysicalTactic legacy_gdn_tactic =
@@ -425,5 +530,13 @@ struct LayerMajorPrefillWorkspacePlanResult {
 [[nodiscard]] LayerMajorPrefillWorkspacePlanResult
 build_unbound_layer_major_prefill_workspace_plan(
     const LayerMajorPrefillWorkspaceOptions& options) noexcept;
+
+// Computes the exact P40000/P40001 whole-core request arena described above.
+// Any other prompt, request capacity, or panel geometry is rejected.  Like
+// the generic planner, this function has byte authority only: it performs no
+// allocation and binds no alias/event/operator contract.
+[[nodiscard]] LayerMajorP40WholeCoreWorkspacePlanResult
+build_unbound_layer_major_p40_whole_core_workspace_plan(
+    const LayerMajorP40WholeCoreWorkspaceOptions& options = {}) noexcept;
 
 }  // namespace q3x::runtime

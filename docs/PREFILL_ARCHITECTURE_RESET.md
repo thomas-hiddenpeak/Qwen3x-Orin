@@ -628,6 +628,41 @@ accuracy-admissible P40K result unlocks M5424 implementation and P60. This
 section records the boundary exposed by v1; it does not claim that persistent
 successor exists in code.
 
+### 8.8 Exact-P40000 whole-core direction and replacement boundary
+
+The working tree above `a4f95ba` implements the next complete schedule as five
+equal M8000 fill panels, one whole-prompt core, five M8000 drain panels, and
+one layer-wide MLP phase per layer. Its v10 witness fails closed unless one
+64-layer pass retires exactly 768 bounded submissions and records the complete
+FP8, BF16 A/B, GDN, Attention, Gate/Up, and Down role counts with zero
+forbidden routes.
+
+The clean-host OpenAI API/EvalScope P40K direction consumed all 40,000 tokens.
+Server pure Prefill was 101.831853876 s / 392.804397 tok/s, compared with
+108.981854892 s / 367.033577 tok/s for retained `c45b7c5`: a 7.02138%
+throughput improvement. The exact transaction/memory/witness substrate is
+therefore retained as positive architecture infrastructure. It remains
+default-off and accuracy-unqualified because the inherited FlashInfer
+arithmetic has a known P513 full-state mismatch.
+
+A bounded NSys capture contains 102.113313600 s of kernels inside a
+102.121306528-s whole-request interval. The 7.992928-ms gap is only 0.0078%,
+so neither the OpenAI adapter nor launch gaps explain the remaining order-of-
+magnitude deficit. Gate/Up, FP8, Down, and Attention contribute 37.273068224
+s, 25.864646560 s, 17.559457280 s, and 13.634170272 s respectively.
+
+The persistent NVFP4 implementation is not the required projection
+architecture. It launches 16 CTAs and reuses the old M64N256K64 Marlin body,
+changing task order without retaining decoded B or scales across CTA output
+tiles. The successor must start from the two-CTA G2/D2 feed discipline, use a
+real multi-stage producer/consumer pipeline, and select L2 rastering separately
+for the asymmetric Gate/Up and Down shapes. Humming and Triton are reference
+mechanisms for pipeline and raster design; their code and any SM90+ mechanism
+are not production dependencies. The full package returns directly to the
+same real P40K API witness before NCU or broader prompt sweeps. Exact evidence
+is frozen in the
+[whole-core direction record](metadata/qwen36-27b-prefill-p40k-whole-core-direction-2026-08-10.json).
+
 ## 9. Global dataflow questions
 
 Every candidate must answer these questions for the full Prefill route, not

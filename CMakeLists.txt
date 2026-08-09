@@ -34,6 +34,10 @@ option(Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION
   "Build the test-only native SM87 C64/WY GDN architecture route"
   OFF
 )
+option(Q3X_BUILD_GDN_PROMPT_WIDE_CHUNK_GRAPH_ADMISSION
+  "Build the test-only P40 prompt-wide exact GDN chunk graph"
+  OFF
+)
 option(Q3X_BUILD_NVFP4_MARLIN_PREFILL_ADMISSION
   "Build the test-only scheduler-wide vLLM-Marlin NVFP4 Prefill route"
   OFF
@@ -46,6 +50,10 @@ option(Q3X_BUILD_NVFP4_G2_D2_PREFILL_ADMISSION
   "Build the test-only independent G2/D2 NVFP4 Prefill package"
   OFF
 )
+option(Q3X_BUILD_NVFP4_SHAPE_WIDE_PREFILL_ADMISSION
+  "Build the test-only exact-P40000 shape-wide NVFP4 Prefill package"
+  OFF
+)
 option(Q3X_BUILD_FP8_MARLIN_PREFILL_ADMISSION
   "Build the test-only frozen-vLLM FP8 W8A16 Marlin Prefill route"
   OFF
@@ -56,6 +64,18 @@ option(Q3X_BUILD_BF16_AB_LARGE_M_PREFILL_ADMISSION
 )
 option(Q3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION
   "Build the test-only FlashInfer SM87 Prefill-attention route"
+  OFF
+)
+option(Q3X_BUILD_LAYER_WIDE_P40_MLP_ADMISSION
+  "Build the test-only exact-P40000 layer-wide MLP plan"
+  OFF
+)
+option(Q3X_BUILD_NVFP4_PERSISTENT_PREFILL_ADMISSION
+  "Build the test-only exact-P40000 persistent NVFP4 MLP kernels"
+  OFF
+)
+option(Q3X_BUILD_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION
+  "Build the test-only exact-P40000 whole-core Prefill schedule"
   OFF
 )
 if(Q3X_BUILD_GDN_B8_ADMISSION AND NOT BUILD_TESTING)
@@ -76,6 +96,17 @@ endif()
 if(Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION AND NOT BUILD_TESTING)
   message(FATAL_ERROR
     "Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION is test-only and requires BUILD_TESTING=ON"
+  )
+endif()
+if(Q3X_BUILD_GDN_PROMPT_WIDE_CHUNK_GRAPH_ADMISSION AND NOT BUILD_TESTING)
+  message(FATAL_ERROR
+    "Q3X_BUILD_GDN_PROMPT_WIDE_CHUNK_GRAPH_ADMISSION is test-only and requires BUILD_TESTING=ON"
+  )
+endif()
+if(Q3X_BUILD_GDN_PROMPT_WIDE_CHUNK_GRAPH_ADMISSION AND
+   NOT Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION)
+  message(FATAL_ERROR
+    "Q3X_BUILD_GDN_PROMPT_WIDE_CHUNK_GRAPH_ADMISSION requires the native C64 GDN admission inventory"
   )
 endif()
 if(Q3X_BUILD_NVFP4_MARLIN_PREFILL_ADMISSION AND NOT BUILD_TESTING)
@@ -109,6 +140,11 @@ if(Q3X_BUILD_NVFP4_G2_D2_PREFILL_ADMISSION AND
     "Q3X_BUILD_NVFP4_G2_D2_PREFILL_ADMISSION requires the authenticated NVFP4/FP8 Marlin and native GDN admission inventories"
   )
 endif()
+if(Q3X_BUILD_NVFP4_SHAPE_WIDE_PREFILL_ADMISSION AND NOT BUILD_TESTING)
+  message(FATAL_ERROR
+    "Q3X_BUILD_NVFP4_SHAPE_WIDE_PREFILL_ADMISSION is test-only and requires BUILD_TESTING=ON"
+  )
+endif()
 if(Q3X_BUILD_FP8_MARLIN_PREFILL_ADMISSION AND NOT BUILD_TESTING)
   message(FATAL_ERROR
     "Q3X_BUILD_FP8_MARLIN_PREFILL_ADMISSION is test-only and requires BUILD_TESTING=ON"
@@ -122,6 +158,41 @@ endif()
 if(Q3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION AND NOT BUILD_TESTING)
   message(FATAL_ERROR
     "Q3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION is test-only and requires BUILD_TESTING=ON"
+  )
+endif()
+if(Q3X_BUILD_LAYER_WIDE_P40_MLP_ADMISSION AND NOT BUILD_TESTING)
+  message(FATAL_ERROR
+    "Q3X_BUILD_LAYER_WIDE_P40_MLP_ADMISSION is test-only and requires BUILD_TESTING=ON"
+  )
+endif()
+if(Q3X_BUILD_NVFP4_PERSISTENT_PREFILL_ADMISSION AND NOT BUILD_TESTING)
+  message(FATAL_ERROR
+    "Q3X_BUILD_NVFP4_PERSISTENT_PREFILL_ADMISSION is test-only and requires BUILD_TESTING=ON"
+  )
+endif()
+if(Q3X_BUILD_NVFP4_PERSISTENT_PREFILL_ADMISSION AND
+   (NOT Q3X_BUILD_NVFP4_MARLIN_PREFILL_ADMISSION OR
+    NOT Q3X_BUILD_LAYER_WIDE_P40_MLP_ADMISSION))
+  message(FATAL_ERROR
+    "Q3X_BUILD_NVFP4_PERSISTENT_PREFILL_ADMISSION requires Marlin Prefill and layer-wide P40 admission inventories"
+  )
+endif()
+if(Q3X_BUILD_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION AND NOT BUILD_TESTING)
+  message(FATAL_ERROR
+    "Q3X_BUILD_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION is test-only and requires BUILD_TESTING=ON"
+  )
+endif()
+if(Q3X_BUILD_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION AND
+   (NOT Q3X_BUILD_NVFP4_MARLIN_PREFILL_ADMISSION OR
+    NOT Q3X_BUILD_FP8_MARLIN_PREFILL_ADMISSION OR
+    NOT Q3X_BUILD_BF16_AB_LARGE_M_PREFILL_ADMISSION OR
+    NOT Q3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION OR
+    NOT Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION OR
+    NOT Q3X_BUILD_GDN_PROMPT_WIDE_CHUNK_GRAPH_ADMISSION OR
+    NOT Q3X_BUILD_LAYER_WIDE_P40_MLP_ADMISSION OR
+    NOT Q3X_BUILD_NVFP4_PERSISTENT_PREFILL_ADMISSION))
+  message(FATAL_ERROR
+    "Q3X_BUILD_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION requires the FP8/NVFP4 Marlin, BF16 A/B, FlashInfer, native prompt-wide GDN, layer-wide P40, and persistent NVFP4 admission inventories"
   )
 endif()
 if((Q3X_BUILD_GDN_B8_ADMISSION AND
@@ -204,6 +275,22 @@ target_include_directories(q3x_core
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
 target_link_libraries(q3x_core PUBLIC CUDA::cudart Threads::Threads)
+if(Q3X_BUILD_LAYER_WIDE_P40_MLP_ADMISSION)
+  # The plan-enabled query is an inline constexpr header contract. Propagate
+  # the opt-in to every consumer so its definition is ODR-identical across the
+  # planner, runner, engine, and host tests.
+  target_compile_definitions(q3x_core PUBLIC
+    Q3X_ENABLE_LAYER_WIDE_P40_MLP_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION)
+  # The whole-core plan changes topology, request layout, runner scheduling,
+  # and the sealed Engine authority. Keep one PUBLIC definition across every
+  # consumer so default-off binaries cannot acquire a partial route.
+  target_compile_definitions(q3x_core PUBLIC
+    Q3X_ENABLE_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION=1
+  )
+endif()
 q3x_enable_warnings(q3x_core)
 
 add_library(q3x_text STATIC
@@ -249,6 +336,7 @@ add_library(q3x_kernels STATIC
   src/kernels/sm87/nvfp4_marlin_w4a16.cu
   src/kernels/sm87/nvfp4_prefill_large_m.cu
   src/kernels/sm87/nvfp4_prefill_g2_d2.cu
+  src/kernels/sm87/nvfp4_prefill_shape_wide.cu
   src/kernels/sm87/weight_only_gemv.cu
 )
 add_library(q3x::kernels ALIAS q3x_kernels)
@@ -306,6 +394,19 @@ if(Q3X_BUILD_NVFP4_G2_D2_PREFILL_ADMISSION)
     Q3X_ENABLE_NVFP4_G2_D2_PREFILL_ADMISSION=1
   )
 endif()
+if(Q3X_BUILD_NVFP4_SHAPE_WIDE_PREFILL_ADMISSION)
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_NVFP4_SHAPE_WIDE_PREFILL_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_NVFP4_PERSISTENT_PREFILL_ADMISSION)
+  target_sources(q3x_kernels PRIVATE
+    src/kernels/sm87/nvfp4_prefill_persistent.cu
+  )
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_NVFP4_PERSISTENT_PREFILL_ADMISSION=1
+  )
+endif()
 if(Q3X_BUILD_FP8_MARLIN_PREFILL_ADMISSION)
   target_sources(q3x_kernels PRIVATE
     src/kernels/sm87/fp8_marlin_w8a16.cu
@@ -336,6 +437,11 @@ if(Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION)
   )
   target_compile_definitions(q3x_kernels PRIVATE
     Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_GDN_PROMPT_WIDE_CHUNK_GRAPH_ADMISSION)
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_GDN_PROMPT_WIDE_CHUNK_GRAPH_ADMISSION=1
   )
 endif()
 q3x_enable_warnings(q3x_kernels)
@@ -380,14 +486,34 @@ if(Q3X_BUILD_NVFP4_G2_D2_PREFILL_ADMISSION)
     Q3X_ENABLE_NVFP4_G2_D2_PREFILL_ADMISSION=1
   )
 endif()
+if(Q3X_BUILD_NVFP4_PERSISTENT_PREFILL_ADMISSION)
+  target_compile_definitions(q3x_engine PRIVATE
+    Q3X_ENABLE_NVFP4_PERSISTENT_PREFILL_ADMISSION=1
+  )
+endif()
 if(Q3X_BUILD_FP8_MARLIN_PREFILL_ADMISSION)
   target_compile_definitions(q3x_engine PRIVATE
     Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION=1
   )
 endif()
+if(Q3X_BUILD_BF16_AB_LARGE_M_PREFILL_ADMISSION)
+  target_compile_definitions(q3x_engine PRIVATE
+    Q3X_ENABLE_BF16_AB_LARGE_M_PREFILL_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION)
+  target_compile_definitions(q3x_engine PRIVATE
+    Q3X_ENABLE_FLASHINFER_PREFILL_ATTENTION_ADMISSION=1
+  )
+endif()
 if(Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION)
   target_compile_definitions(q3x_engine PRIVATE
     Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_GDN_PROMPT_WIDE_CHUNK_GRAPH_ADMISSION)
+  target_compile_definitions(q3x_engine PRIVATE
+    Q3X_ENABLE_GDN_PROMPT_WIDE_CHUNK_GRAPH_ADMISSION=1
   )
 endif()
 q3x_enable_warnings(q3x_engine)
@@ -576,6 +702,68 @@ if(BUILD_TESTING)
   set_tests_properties(sm87_nvfp4_prefill_g2_d2_host PROPERTIES
     LABELS "host;sm87;prefill;contract"
   )
+
+  add_executable(q3x_sm87_nvfp4_prefill_shape_wide_host_test
+    tests/sm87_nvfp4_prefill_shape_wide_host_test.cpp
+  )
+  target_link_libraries(q3x_sm87_nvfp4_prefill_shape_wide_host_test
+    PRIVATE q3x::kernels
+  )
+  q3x_enable_warnings(q3x_sm87_nvfp4_prefill_shape_wide_host_test)
+  add_test(NAME sm87_nvfp4_prefill_shape_wide_host
+    COMMAND q3x_sm87_nvfp4_prefill_shape_wide_host_test
+  )
+  set_tests_properties(sm87_nvfp4_prefill_shape_wide_host PROPERTIES
+    LABELS "host;sm87;prefill;contract"
+  )
+
+  if(Q3X_BUILD_NVFP4_PERSISTENT_PREFILL_ADMISSION)
+    add_executable(q3x_sm87_nvfp4_prefill_persistent_host_test
+      tests/sm87_nvfp4_prefill_persistent_host_test.cpp
+    )
+    target_link_libraries(q3x_sm87_nvfp4_prefill_persistent_host_test
+      PRIVATE q3x::kernels
+    )
+    q3x_enable_warnings(q3x_sm87_nvfp4_prefill_persistent_host_test)
+    add_test(NAME sm87_nvfp4_prefill_persistent_host
+      COMMAND q3x_sm87_nvfp4_prefill_persistent_host_test
+    )
+    set_tests_properties(sm87_nvfp4_prefill_persistent_host PROPERTIES
+      LABELS "host;sm87;prefill;contract"
+    )
+  endif()
+
+  if(Q3X_BUILD_BF16_AB_LARGE_M_PREFILL_ADMISSION)
+    add_executable(q3x_sm87_bf16_ab_prompt_wide_p40_host_test
+      tests/sm87_bf16_ab_prompt_wide_p40_host_test.cpp
+    )
+    target_link_libraries(q3x_sm87_bf16_ab_prompt_wide_p40_host_test
+      PRIVATE q3x::kernels
+    )
+    q3x_enable_warnings(q3x_sm87_bf16_ab_prompt_wide_p40_host_test)
+    add_test(NAME sm87_bf16_ab_prompt_wide_p40_host
+      COMMAND q3x_sm87_bf16_ab_prompt_wide_p40_host_test
+    )
+    set_tests_properties(sm87_bf16_ab_prompt_wide_p40_host PROPERTIES
+      LABELS "host;sm87;prefill;contract"
+    )
+
+    add_executable(q3x_sm87_bf16_ab_prompt_wide_p40_cuda_test
+      tests/sm87_bf16_ab_prompt_wide_p40_cuda_test.cu
+    )
+    target_link_libraries(q3x_sm87_bf16_ab_prompt_wide_p40_cuda_test
+      PRIVATE q3x::kernels
+    )
+    q3x_enable_warnings(q3x_sm87_bf16_ab_prompt_wide_p40_cuda_test)
+    add_test(NAME sm87_bf16_ab_prompt_wide_p40_cuda
+      COMMAND q3x_sm87_bf16_ab_prompt_wide_p40_cuda_test
+    )
+    set_tests_properties(sm87_bf16_ab_prompt_wide_p40_cuda PROPERTIES
+      LABELS "cuda;sm87;prefill;correctness;synthetic;graph"
+      SKIP_RETURN_CODE 77
+      RESOURCE_LOCK q3x_sm87_gpu
+    )
+  endif()
 
   add_executable(q3x_sm87_weight_only_gemv_test
     tests/sm87_weight_only_gemv_test.cu
@@ -1889,6 +2077,20 @@ if(BUILD_TESTING)
   )
   set_tests_properties(prefill_workspace_plan PROPERTIES
     LABELS "host;prefill;architecture;memory;plan"
+  )
+
+  add_executable(q3x_gdn_prompt_wide_chunk_graph_plan_test
+    tests/gdn_prompt_wide_chunk_graph_plan_test.cpp
+  )
+  target_link_libraries(q3x_gdn_prompt_wide_chunk_graph_plan_test
+    PRIVATE q3x::core
+  )
+  q3x_enable_warnings(q3x_gdn_prompt_wide_chunk_graph_plan_test)
+  add_test(NAME gdn_prompt_wide_chunk_graph_plan
+    COMMAND q3x_gdn_prompt_wide_chunk_graph_plan_test
+  )
+  set_tests_properties(gdn_prompt_wide_chunk_graph_plan PROPERTIES
+    LABELS "host;prefill;gdn;architecture_candidate;memory;plan"
   )
 
   add_executable(q3x_prefill_route_evidence_test

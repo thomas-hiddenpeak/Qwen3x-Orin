@@ -41,18 +41,30 @@ enum class NativePrefillTactic : std::uint8_t {
   kNvfp4DownTrueLargeMOperatorPanel,
   kNvfp4GateUpG2LargeMOperatorPanel,
   kNvfp4DownD2LargeMOperatorPanel,
+  kNvfp4GateUpPersistentP40LayerWide,
+  kNvfp4DownResidualPersistentP40LayerWide,
   kFp8Nvfp4TrueLargeMRouteCompanion,
+  kFp8PromptWideP40FillDrain,
   kBf16AbOracleSpanEstablishedM32,
+  kBf16AbPromptWideP40,
   kExactGdnOracleSpanWholeRawQkvC512,
+  kExactGdnPromptWideP40ChunkGraph,
   kExactCausalAttentionOracleSpanC512C16Reference256,
   kNativeCausalAttentionGroupQ64OperatorPanel,
   kNativeCausalAttentionGroupQ128V4OperatorPanel,
   kNativeCausalAttentionFlashInferExactOperatorPanel,
+  kNativeCausalAttentionFlashInferExactWholePrompt,
   kResidualOperatorPanel,
   kNormalizationOperatorPanel,
   kEmbeddingOperatorPanel,
   kFinalHandoff,
 };
+
+// Compile-inventory fact only; device resources are still queried by bind().
+// This remains false unless the independent whole-core admission and every
+// required component admission were compiled into the same q3x_core binary.
+[[nodiscard]] bool
+prompt_wide_p40_whole_core_prefill_authority_enabled() noexcept;
 
 enum class NativePrefillCompletionDomain : std::uint8_t {
   kMainStreamBarrier = 0,
@@ -94,6 +106,7 @@ class BoundPrefillExecutionPlan final {
       bool exact_c512_arithmetic_workspace_bound,
       LayerMajorPrefillProjectionTactic projection_tactic,
       LayerMajorPrefillFullAttentionTactic full_attention_tactic,
+      LayerMajorPrefillMlpScheduleTactic mlp_schedule_tactic,
       const void* main_stream, const void* auxiliary_stream,
       std::array<const void*, kBoundPrefillSubmissionEventCount>
           submission_events,
@@ -117,6 +130,8 @@ class BoundPrefillExecutionPlan final {
       LayerMajorPrefillProjectionTactic::kExactSegmentedC512;
   LayerMajorPrefillFullAttentionTactic full_attention_tactic_ =
       LayerMajorPrefillFullAttentionTactic::kExactSegmentedC512;
+  LayerMajorPrefillMlpScheduleTactic mlp_schedule_tactic_ =
+      LayerMajorPrefillMlpScheduleTactic::kPerOperatorPanel;
   const void* main_stream_ = nullptr;
   const void* auxiliary_stream_ = nullptr;
   std::array<const void*, kBoundPrefillSubmissionEventCount>

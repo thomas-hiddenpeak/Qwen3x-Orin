@@ -3173,6 +3173,7 @@ namespace {
 enum class FullAttentionPreprocessLaunchPolicy : std::uint8_t {
   kReference256 = 0U,
   kAdmissionWrapper,
+  kPromptWideP8000,
 };
 
 [[nodiscard]] int launch_full_attention_preprocess_24_4_256_64_impl(
@@ -3190,8 +3191,13 @@ enum class FullAttentionPreprocessLaunchPolicy : std::uint8_t {
     const FullAttentionPreprocessLaunchPolicy policy,
     void* const cuda_stream) noexcept {
   constexpr std::size_t kHalfRotary = kQwenRotaryDimension / 2U;
-  if (token_count == 0U ||
-      token_count > kFullAttentionPreprocessMaximumTokens ||
+  const bool exact_prompt_wide_p8000 =
+      policy == FullAttentionPreprocessLaunchPolicy::kPromptWideP8000;
+  if ((exact_prompt_wide_p8000
+           ? !can_launch_full_attention_preprocess_prompt_wide_p8000(
+                 first_position, token_count)
+           : token_count == 0U ||
+                 token_count > kFullAttentionPreprocessMaximumTokens) ||
       !valid_epsilon(epsilon) ||
       first_position >
           std::numeric_limits<std::size_t>::max() - token_count ||
@@ -3247,10 +3253,11 @@ enum class FullAttentionPreprocessLaunchPolicy : std::uint8_t {
   const unsigned int blocks =
       static_cast<unsigned int>(token_count * kCombinedHeads);
   const bool use_prompt_wide =
-      policy == FullAttentionPreprocessLaunchPolicy::kAdmissionWrapper &&
-      token_count >= 2U &&
-      (g_enable_full_attention_preprocess_prompt_wide_admission ||
-       g_force_full_attention_preprocess_prompt_wide_test);
+      exact_prompt_wide_p8000 ||
+      (policy == FullAttentionPreprocessLaunchPolicy::kAdmissionWrapper &&
+       token_count >= 2U &&
+       (g_enable_full_attention_preprocess_prompt_wide_admission ||
+        g_force_full_attention_preprocess_prompt_wide_test));
   if (!use_prompt_wide) {
     full_attention_preprocess_24_4_256_64_kernel
         <<<blocks, kThreads, 0U, stream>>>(
@@ -3288,6 +3295,41 @@ int launch_full_attention_preprocess_24_4_256_64_reference_256_cuda(
       interleaved_q_gate, key, q_weight, k_weight, epsilon, query_output,
       gate_output, cosines, sines, first_position, token_count,
       FullAttentionPreprocessLaunchPolicy::kReference256, cuda_stream);
+}
+
+int launch_full_attention_preprocess_24_4_256_64_prompt_wide_p8000_cuda(
+    const std::uint16_t* const interleaved_q_gate,
+    std::uint16_t* const key,
+    const std::uint16_t* const q_weight,
+    const std::uint16_t* const k_weight,
+    const float epsilon,
+    std::uint16_t* const query_output,
+    std::uint16_t* const gate_output,
+    const float* const cosines,
+    const float* const sines,
+    const std::size_t first_position,
+    const std::size_t token_count,
+    void* const cuda_stream) noexcept {
+#if defined(Q3X_ENABLE_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION)
+  return launch_full_attention_preprocess_24_4_256_64_impl(
+      interleaved_q_gate, key, q_weight, k_weight, epsilon, query_output,
+      gate_output, cosines, sines, first_position, token_count,
+      FullAttentionPreprocessLaunchPolicy::kPromptWideP8000, cuda_stream);
+#else
+  (void)interleaved_q_gate;
+  (void)key;
+  (void)q_weight;
+  (void)k_weight;
+  (void)epsilon;
+  (void)query_output;
+  (void)gate_output;
+  (void)cosines;
+  (void)sines;
+  (void)first_position;
+  (void)token_count;
+  (void)cuda_stream;
+  return static_cast<int>(cudaErrorNotSupported);
+#endif
 }
 
 int launch_full_attention_preprocess_24_4_256_64_cuda(

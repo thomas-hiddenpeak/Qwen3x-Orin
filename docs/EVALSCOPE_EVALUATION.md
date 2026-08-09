@@ -376,6 +376,42 @@ not a P60 timing or performance conclusion. The complete P40 route, hashes,
 limitations, and default-off decision are frozen in the
 [G2/D2 rejection record](metadata/qwen36-27b-prefill-p40k-nvfp4-g2-d2-rejection-2026-08-10.json).
 
+The exact-P40000 layer-wide MLP experiment emits
+`target-prefill-witness-v9`. It admits one 64-layer route pass, 64 persistent
+Gate/Up calls, 64 persistent Down+residual calls, and 128 NVFP4 physical
+launches while preserving the explicit panel-local FP8 and Attention counts.
+Its real-API direction was neutral-negative and is closed; version 9 remains
+necessary to distinguish the measured implementation from a planned
+whole-core route. The exact route and rejection are frozen in the
+[v9 rejection record](metadata/qwen36-27b-prefill-p40k-persistent-layerwide-mlp-rejection-2026-08-10.json).
+
+The following exact-P40000 whole-core experiment emits
+`target-prefill-witness-v10`. Version 10 is valid only when all of the
+following are true:
+
+- request memory profile is `layer-major-p40-whole-core`, projection tactic is
+  `native-prompt-wide-p40-whole-core`, Attention tactic is
+  `native-flashinfer-exact-whole-prompt`, and the sealed DeploymentPlan is
+  `q3x.sm87.ac-prefill-prompt-wide-v2.native-p40-whole-core.v1`;
+- the prompt is consumed exactly as five M8000 panels in one 64-layer route
+  pass, with 320 fill, 64 prompt-core, 320 drain, and 64 MLP phases;
+- the two-slot submission window is bounded and retires exactly 768 phases;
+- FP8 projection hits and physical launches are both 1,040, BF16 A/B and GDN
+  hits are both 48, whole-prompt FlashInfer hits are 16, and persistent NVFP4
+  Gate/Up and Down hits are 64 each with 128 physical launches; and
+- all exact-fallback, forbidden, Prefix-cache, MTP, cuBLASLt,
+  external-reference, and approximate-route counters are zero.
+
+The clean-host P40K v10 screen reached 101,870.53 ms EvalScope TTFT and
+101,831.853876 ms server pure Prefill, or 392.804397 tok/s. This is a positive
+7.02138% direction against retained v6, not a release baseline: the route is
+default-off, the exact binary came from a pinned dirty working tree, and the
+inherited FlashInfer arithmetic has a known P513 full-state mismatch. Bounded
+Nsight then showed only 7.992928 ms of non-kernel space in a 102.121307-s
+request, so the next work replaces dominant GPU dataflows rather than the API
+adapter. Exact hashes, counts, and limitations are frozen in the
+[v10 whole-core direction record](metadata/qwen36-27b-prefill-p40k-whole-core-direction-2026-08-10.json).
+
 The externally observed TTFT selects the whole architecture. Server-side pure
 Prefill timing explains where that result came from; it never replaces the API
 result. A witness with an incomplete stream, unowned host resources, a route

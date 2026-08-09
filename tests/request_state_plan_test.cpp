@@ -1214,6 +1214,204 @@ void test_layer_major_disjoint_legacy_and_ownership(TestContext& test) {
         "family arena, legacy workspace, final hidden, and RoPE are disjoint");
 }
 
+void test_layer_wide_p40_mlp_request_layout(TestContext& test) {
+    runtime::LayerMajorRequestMemoryOptions options;
+    options.max_sequence_length =
+        runtime::kLayerMajorPrefillLayerWideMlpP40RequestCapacityTokens;
+    options.mlp_layout =
+        runtime::LayerMajorRequestMlpLayout::kLayerWideP40PersistentTwoSpan;
+    const auto result =
+        runtime::build_layer_major_request_memory_plan(options);
+    if (!runtime::layer_wide_p40_mlp_prefill_plan_enabled()) {
+        test.expect(
+            !result &&
+                result.diagnostic.code ==
+                    runtime::RequestErrorCode::kInvalidOption,
+            "default builds reject the test-only P40 RequestState layout");
+        return;
+    }
+    test.expect(result.ok(),
+                "test admission builds the conservative P40 RequestState");
+    if (!result) {
+        return;
+    }
+
+    const runtime::LayerMajorRequestMemoryPlan& plan = *result.value;
+    const std::uint64_t base =
+        plan.c8192_family_phase_arena.arena_offset;
+    test.expect(
+        plan.mlp_layout ==
+                runtime::LayerMajorRequestMlpLayout::
+                    kLayerWideP40PersistentTwoSpan &&
+            plan.mlp_capacity_tokens == 40'000U &&
+            plan.mlp_tactic ==
+                runtime::PrefillMlpPhysicalTactic::
+                    kLayerWideP40PersistentFusedGateUp &&
+            plan.c8192_family_phase_arena.byte_size == 1'802'240'000U &&
+            plan.common.arena_bytes == 5'013'023'488U &&
+            !plan.executable(),
+        "P40 RequestState owns the planner-exact persistent two-span arena "
+        "and remains unbound");
+    test.expect(
+        matrix_is(plan.mlp.gate_bf16, base, 1'392'640'000U, 40'000U,
+                  17'408U, 17'408U, 2U) &&
+            matrix_is(plan.mlp.up_bf16, base,
+                      1'392'640'000U, 40'000U, 17'408U, 17'408U, 2U) &&
+            matrix_is(plan.mlp.activated_bf16, base,
+                      1'392'640'000U, 40'000U, 17'408U, 17'408U, 2U) &&
+            matrix_is(plan.mlp.normalized_input_bf16,
+                      base + 1'392'640'000U, 409'600'000U, 40'000U,
+                      5'120U, 5'120U, 2U) &&
+            matrix_is(plan.mlp.branch_output_bf16,
+                      base + 1'392'640'000U, 409'600'000U, 40'000U,
+                      5'120U, 5'120U, 2U) &&
+            plan.mlp.gate_up_projection_temporary.arena_offset ==
+                base &&
+            plan.mlp.down_projection_temporary.arena_offset == base,
+        "full-M typed views expose one activated and one normalized span; "
+        "unused compatibility views are honest aliases of those spans");
+
+    runtime::LayerMajorRequestMemoryOptions wrong_shape = options;
+    wrong_shape.max_sequence_length = 39'968U;
+    const auto rejected =
+        runtime::build_layer_major_request_memory_plan(wrong_shape);
+    test.expect(
+        !rejected &&
+            rejected.diagnostic.code == runtime::RequestErrorCode::kInvalidOption,
+        "P40 RequestState layout fails closed for every other capacity");
+}
+
+void test_p40_whole_core_request_layout(TestContext& test) {
+    runtime::LayerMajorRequestMemoryOptions options;
+    options.max_sequence_length =
+        runtime::kLayerMajorP40WholeCoreRequestCapacityTokens;
+    options.mlp_layout =
+        runtime::LayerMajorRequestMlpLayout::kLayerWideP40PersistentTwoSpan;
+    options.layout =
+        runtime::LayerMajorRequestLayout::kP40WholeCorePromptWide;
+    const auto result =
+        runtime::build_layer_major_request_memory_plan(options);
+    if (!runtime::prompt_wide_p40_whole_core_prefill_plan_enabled()) {
+        test.expect(
+            !result &&
+                result.diagnostic.code ==
+                    runtime::RequestErrorCode::kInvalidOption,
+            "default builds reject the exact P40 whole-core layout");
+        return;
+    }
+    test.expect(result.ok(),
+                "admission build constructs the exact P40 whole-core plan");
+    if (!result) {
+        return;
+    }
+
+    const runtime::LayerMajorRequestMemoryPlan& plan = *result.value;
+    const runtime::RequestMemoryPlan& common = plan.common;
+    const runtime::LayerMajorP40WholeCoreRegions& whole =
+        plan.p40_whole_core;
+    constexpr std::uint64_t family_base = 3'109'562'368U;
+    test.expect(
+        common.profile ==
+                runtime::RequestMemoryProfile::kLayerMajorP40WholeCore &&
+            plan.layout == runtime::LayerMajorRequestLayout::
+                               kP40WholeCorePromptWide &&
+            plan.operator_panel_capacity_tokens == 8'000U &&
+            plan.mlp_capacity_tokens == 40'000U &&
+            whole.prompt_token_count == 40'000U &&
+            whole.request_capacity_tokens == 40'001U &&
+            whole.logical_panel_capacity_tokens == 8'000U &&
+            whole.logical_panel_count == 5U &&
+            common.persistent_bytes == 2'699'952'128U &&
+            plan.prompt_residual_bf16.storage.arena_offset ==
+                2'699'952'128U &&
+            plan.prompt_residual_bf16.storage.byte_size == 409'610'240U &&
+            whole.family_phase_arena.arena_offset == family_base &&
+            whole.family_phase_arena.byte_size == 5'429'760'000U &&
+            common.workspace_bytes == 5'930'350'592U &&
+            common.rope_offset == 8'630'302'720U &&
+            common.rope_bytes == 10'240'256U &&
+            common.arena_bytes == 8'640'542'976U && !plan.executable(),
+        "whole-core plan fixes exact P40000/P40001 geometry and arena ledger");
+
+    test.expect(
+        matrix_is(whole.linear.raw_qkv_bf16, family_base, 819'200'000U,
+                  40'000U, 10'240U, 10'240U, 2U) &&
+            matrix_is(whole.linear.conv_qkv_bf16,
+                      family_base + 819'200'000U, 819'200'000U, 40'000U,
+                      10'240U, 10'240U, 2U) &&
+            matrix_is(whole.linear.z_bf16,
+                      family_base + 1'638'400'000U, 491'520'000U, 40'000U,
+                      6'144U, 6'144U, 2U) &&
+            matrix_is(whole.linear.a_bf16,
+                      family_base + 2'129'920'000U, 3'840'000U, 40'000U,
+                      48U, 48U, 2U) &&
+            matrix_is(whole.linear.b_bf16,
+                      family_base + 2'133'760'000U, 3'840'000U, 40'000U,
+                      48U, 48U, 2U) &&
+            whole.linear.prompt_wide_workspace.arena_offset ==
+                family_base + 2'137'600'000U &&
+            whole.linear.prompt_wide_workspace.byte_size ==
+                2'800'640'000U &&
+            matrix_is(whole.linear.output_bf16,
+                      family_base + 4'938'240'000U, 491'520'000U, 40'000U,
+                      6'144U, 6'144U, 2U),
+        "whole-core linear/GDN family regions use the exact seven-span ledger");
+
+    test.expect(
+        matrix_is(whole.prompt_token_ids_u32,
+                  family_base + 2'137'600'000U, 160'000U, 40'000U, 1U, 1U,
+                  4U) &&
+            whole.prompt_token_ids_u32.storage.arena_offset != family_base &&
+            matrix_is(whole.linear.normalized_input_bf16,
+                      family_base + 4'938'240'000U, 409'600'000U, 40'000U,
+                      5'120U, 5'120U, 2U) &&
+            matrix_is(whole.linear.branch_output_bf16, family_base,
+                      409'600'000U, 40'000U, 5'120U, 5'120U, 2U),
+        "token staging stays off raw-QKV and ordered aliases retain exact shapes");
+
+    test.expect(
+        matrix_is(whole.full_attention.raw_q_gate_bf16, family_base,
+                  983'040'000U, 40'000U, 12'288U, 12'288U, 2U) &&
+            matrix_is(whole.full_attention.processed_q_bf16,
+                      family_base + 983'040'000U, 491'520'000U, 40'000U,
+                      6'144U, 6'144U, 2U) &&
+            matrix_is(whole.full_attention.packed_gate_bf16,
+                      family_base + 1'474'560'000U, 491'520'000U, 40'000U,
+                      6'144U, 6'144U, 2U) &&
+            matrix_is(whole.full_attention.core_output_bf16, family_base,
+                      491'520'000U, 40'000U, 6'144U, 6'144U, 2U) &&
+            matrix_is(whole.full_attention.branch_output_bf16,
+                      family_base + 491'520'000U, 409'600'000U, 40'000U,
+                      5'120U, 5'120U, 2U),
+        "full-Attention prompt-wide Q/gate/output aliases are byte-exact");
+
+    test.expect(
+        plan.legacy_c512.hidden_bf16.front().storage.arena_offset ==
+                8'539'322'368U &&
+            plan.legacy_c512.fp32_scratch.byte_size == 3'840'000U &&
+            plan.final_hidden_bf16.storage.arena_offset ==
+                8'630'292'480U &&
+            common.rope_cos_fp32.arena_offset == 8'630'302'720U &&
+            common.rope_sin_fp32.arena_offset == 8'635'422'848U,
+        "legacy, final handoff, and RoPE follow the whole-core arena exactly");
+
+    runtime::LayerMajorRequestMemoryOptions one_byte_short = options;
+    one_byte_short.max_arena_bytes = 8'640'542'975U;
+    const auto rejected =
+        runtime::build_layer_major_request_memory_plan(one_byte_short);
+    test.expect(
+        !rejected && rejected.diagnostic.code ==
+                         runtime::RequestErrorCode::kArenaLimitExceeded,
+        "whole-core request layout rejects an arena one byte short");
+
+    runtime::LayerMajorRequestMemoryOptions wrong_mlp = options;
+    wrong_mlp.mlp_layout =
+        runtime::LayerMajorRequestMlpLayout::kPanelLocalThreeSpan;
+    test.expect(
+        !runtime::build_layer_major_request_memory_plan(wrong_mlp),
+        "whole-core request layout rejects the panel-local MLP identity");
+}
+
 void test_layer_major_bad_options(TestContext& test) {
     test.expect(
         runtime::validate_request_memory_profile(
@@ -1325,6 +1523,8 @@ int main() {
     test_layer_major_target_profiles(test);
     test_layer_major_typed_phase_layout(test);
     test_layer_major_disjoint_legacy_and_ownership(test);
+    test_layer_wide_p40_mlp_request_layout(test);
+    test_p40_whole_core_request_layout(test);
     test_layer_major_bad_options(test);
     test_sequence_length_publication_validation(test);
     if (test.failures() != 0) {

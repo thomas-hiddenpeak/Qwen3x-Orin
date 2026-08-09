@@ -195,6 +195,27 @@ __global__ void bulk_gqa_flashinfer_sigmoid_gate_kernel(
   output[index] = encode_bf16_device(attention * sigmoid);
 }
 
+// Whole-prompt companion.  Capping the resident grid avoids publishing one
+// CTA for every 256 elements of a 40K..60K prompt while retaining exactly the
+// same per-element instruction and rounding sequence as the panel epilogue.
+__global__ void bulk_gqa_flashinfer_sigmoid_gate_whole_prompt_kernel(
+    const std::uint16_t* const gate,
+    const std::size_t element_count,
+    std::uint16_t* const output) {
+  for (std::size_t index =
+           static_cast<std::size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+       index < element_count;
+       index += static_cast<std::size_t>(blockDim.x) * gridDim.x) {
+    const float attention = decode_bf16_device(output[index]);
+    const float gate_value = decode_bf16_device(gate[index]);
+    const float gate_exp = exp2f(-fabsf(gate_value) * 1.4426950408889634F);
+    const float sigmoid = gate_value >= 0.0F
+                              ? 1.0F / (1.0F + gate_exp)
+                              : gate_exp / (1.0F + gate_exp);
+    output[index] = encode_bf16_device(attention * sigmoid);
+  }
+}
+
 int launch_bulk_gqa_flashinfer_exact_panel_impl(
     const std::uint16_t* const query,
     const std::uint16_t* const key_cache,
@@ -203,10 +224,16 @@ int launch_bulk_gqa_flashinfer_exact_panel_impl(
     const std::size_t first_position,
     const std::size_t token_count,
     std::uint16_t* const output,
+    const bool whole_prompt,
     cudaStream_t const stream) noexcept {
   const std::size_t kv_length = first_position + token_count;
-  if (!can_launch_bulk_causal_gqa_flashinfer_exact_panel(first_position,
-                                                         token_count) ||
+  const bool geometry_admitted =
+      whole_prompt
+          ? can_launch_bulk_causal_gqa_flashinfer_exact_whole_prompt(
+                first_position, token_count)
+          : can_launch_bulk_causal_gqa_flashinfer_exact_panel(first_position,
+                                                               token_count);
+  if (!geometry_admitted ||
       kv_length > static_cast<std::size_t>(UINT32_MAX)) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
@@ -243,11 +270,22 @@ int launch_bulk_gqa_flashinfer_exact_panel_impl(
   constexpr unsigned int kGateThreads = 256U;
   const std::size_t element_count =
       token_count * kBulkGqaQueryHeads * kBulkGqaHeadDimension;
-  const unsigned int blocks = static_cast<unsigned int>(
-      (element_count + kGateThreads - 1U) / kGateThreads);
-  bulk_gqa_flashinfer_sigmoid_gate_kernel<<<blocks, kGateThreads, 0U,
-                                            stream>>>(gate, element_count,
-                                                      output);
+  const std::size_t required_blocks =
+      (element_count + kGateThreads - 1U) / kGateThreads;
+  if (whole_prompt) {
+    constexpr std::size_t kWholePromptGateMaximumBlocks = 4'096U;
+    const auto blocks = static_cast<unsigned int>(
+        required_blocks < kWholePromptGateMaximumBlocks
+            ? required_blocks
+            : kWholePromptGateMaximumBlocks);
+    bulk_gqa_flashinfer_sigmoid_gate_whole_prompt_kernel
+        <<<blocks, kGateThreads, 0U, stream>>>(gate, element_count, output);
+  } else {
+    const auto blocks = static_cast<unsigned int>(required_blocks);
+    bulk_gqa_flashinfer_sigmoid_gate_kernel<<<blocks, kGateThreads, 0U,
+                                              stream>>>(gate, element_count,
+                                                        output);
+  }
   return static_cast<int>(cudaGetLastError());
 }
 #endif
@@ -1282,7 +1320,42 @@ int launch_bulk_causal_gqa_sigmoid_gate_24_4_256_flashinfer_exact_panel_fixed_cu
   (void)cudaGetLastError();
   return launch_bulk_gqa_flashinfer_exact_panel_impl(
       query, key_cache, value_cache, gate, first_position, token_count,
-      output, stream);
+      output, false, stream);
+#else
+  (void)query;
+  (void)key_cache;
+  (void)value_cache;
+  (void)gate;
+  (void)first_position;
+  (void)token_count;
+  (void)output;
+  (void)cuda_stream;
+  return static_cast<int>(cudaErrorNotSupported);
+#endif
+}
+
+int launch_bulk_causal_gqa_sigmoid_gate_24_4_256_flashinfer_exact_whole_prompt_fixed_cuda(
+    const std::uint16_t* const query,
+    const std::uint16_t* const key_cache,
+    const std::uint16_t* const value_cache,
+    const std::uint16_t* const gate,
+    const std::size_t first_position,
+    const std::size_t token_count,
+    std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+#if defined(Q3X_ENABLE_FLASHINFER_PREFILL_ATTENTION_ADMISSION)
+  if (!valid_panel_arguments(
+          query, key_cache, value_cache, gate, first_position, token_count,
+          output,
+          can_launch_bulk_causal_gqa_flashinfer_exact_whole_prompt(
+              first_position, token_count))) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const auto stream = static_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  return launch_bulk_gqa_flashinfer_exact_panel_impl(
+      query, key_cache, value_cache, gate, first_position, token_count,
+      output, true, stream);
 #else
   (void)query;
   (void)key_cache;
@@ -1383,7 +1456,7 @@ int launch_bulk_causal_gqa_sigmoid_gate_24_4_256_c512_register_pipeline_cuda(
   if (use_flashinfer_direct) {
     return launch_bulk_gqa_flashinfer_exact_panel_impl(
         query, key_cache, value_cache, gate, first_position, token_count,
-        output, stream);
+        output, false, stream);
   }
 #endif
 

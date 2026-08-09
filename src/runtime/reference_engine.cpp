@@ -1110,6 +1110,27 @@ struct EngineStepContext {
   std::size_t prefill_native_nvfp4_true_large_m_gate_up_hits = 0U;
   std::size_t prefill_native_nvfp4_true_large_m_down_hits = 0U;
   std::size_t prefill_native_nvfp4_true_large_m_physical_launches = 0U;
+  LayerMajorPrefillMlpScheduleTactic prefill_mlp_schedule_tactic =
+      LayerMajorPrefillMlpScheduleTactic::kPerOperatorPanel;
+  std::size_t prefill_layer_wide_p40_mlp_layer_hits = 0U;
+  std::size_t prefill_persistent_p40_nvfp4_gate_up_hits = 0U;
+  std::size_t prefill_persistent_p40_nvfp4_down_residual_hits = 0U;
+  std::size_t prefill_persistent_p40_nvfp4_physical_launches = 0U;
+  std::size_t prefill_persistent_p40_fp8_projection_hits = 0U;
+  std::size_t prefill_persistent_p40_fp8_projection_bulk_hits = 0U;
+  std::size_t
+      prefill_persistent_p40_fp8_projection_oracle_partial_hits = 0U;
+  std::size_t prefill_persistent_p40_fp8_projection_physical_launches = 0U;
+  std::size_t prefill_prompt_wide_p40_whole_core_layer_hits = 0U;
+  std::size_t prefill_prompt_wide_p40_fill_panel_hits = 0U;
+  std::size_t prefill_prompt_wide_p40_prompt_core_hits = 0U;
+  std::size_t prefill_prompt_wide_p40_drain_panel_hits = 0U;
+  std::size_t prefill_prompt_wide_p40_fp8_projection_hits = 0U;
+  std::size_t
+      prefill_prompt_wide_p40_fp8_projection_physical_launches = 0U;
+  std::size_t prefill_prompt_wide_p40_bf16_ab_hits = 0U;
+  std::size_t prefill_prompt_wide_p40_gdn_hits = 0U;
+  std::size_t prefill_native_flashinfer_exact_whole_prompt_hits = 0U;
   // Armed before the first whole-request CUDA call and cleared only after
   // the sealed commit succeeds. EngineWholeRequestTransactionGuard owns the
   // rollback of every failure window in between.
@@ -1227,22 +1248,149 @@ prefill_whole_request_layer_major(
     result.status = executed.status;
     return result;
   }
+  const bool prompt_wide_p40_whole_core =
+      immutable_topology.mlp_schedule.tactic ==
+      LayerMajorPrefillMlpScheduleTactic::kPromptWideP40WholeCore;
+  const std::size_t expected_submissions_per_layer =
+      prompt_wide_p40_whole_core
+          ? immutable_topology.whole_core_schedule
+                    .fill_panel_phase_count_per_layer +
+                immutable_topology.whole_core_schedule
+                    .prompt_core_phase_count_per_layer +
+                immutable_topology.whole_core_schedule
+                    .drain_panel_phase_count_per_layer +
+                immutable_topology.whole_core_schedule
+                    .persistent_mlp_phase_count_per_layer
+          : immutable_topology.panel_count +
+                (immutable_topology.mlp_schedule
+                         .waits_for_all_operator_panels
+                     ? immutable_topology.mlp_schedule
+                           .mlp_phase_submission_count_per_layer
+                     : 0U);
   if (executed.value->first_position != immutable_topology.first_position ||
       executed.value->final_position != immutable_topology.final_position ||
       executed.value->prompt_token_count != token_count ||
       executed.value->logical_panel_count !=
           immutable_topology.panel_count ||
+      executed.value->mlp_schedule_tactic !=
+          immutable_topology.mlp_schedule.tactic ||
       executed.value->bounded_submission_window !=
           (context.prefill_cancellation_probe != nullptr) ||
       (executed.value->bounded_submission_window &&
        executed.value->submission_window_retirements !=
            immutable_topology.layers.size() *
-               immutable_topology.panel_count) ||
+               expected_submissions_per_layer) ||
       (!executed.value->bounded_submission_window &&
        executed.value->submission_window_retirements != 0U)) {
     result.status = whole_request_adapter_status(
         ReferenceRunnerError::kInvalidStepOptions,
         "engine_whole_request_runner_contract");
+    return result;
+  }
+  const bool layer_wide_p40_mlp =
+      immutable_topology.mlp_schedule.tactic ==
+      LayerMajorPrefillMlpScheduleTactic::kLayerWideP40ExactFullM;
+  constexpr std::size_t kP40Fp8ProjectionsPerPanel =
+      3U * kLayerMajorPrefillLinearLayerCount +
+      4U * kLayerMajorPrefillFullLayerCount;
+  const std::size_t bulk_panel_count = [&immutable_topology]() noexcept {
+    std::size_t count = 0U;
+    for (std::size_t panel = 0U; panel < immutable_topology.panel_count;
+         ++panel) {
+      count += immutable_topology.panels[panel].token_count ==
+                       kLayerMajorPrefillOperatorPanelTokens
+                   ? 1U
+                   : 0U;
+    }
+    return count;
+  }();
+  const bool whole_core_witness_zero =
+      executed.value->prompt_wide_p40_whole_core_layer_hits == 0U &&
+      executed.value->prompt_wide_p40_fill_panel_hits == 0U &&
+      executed.value->prompt_wide_p40_prompt_core_hits == 0U &&
+      executed.value->prompt_wide_p40_drain_panel_hits == 0U &&
+      executed.value->prompt_wide_p40_fp8_projection_hits == 0U &&
+      executed.value->prompt_wide_p40_fp8_projection_physical_launches ==
+          0U &&
+      executed.value->prompt_wide_p40_bf16_ab_hits == 0U &&
+      executed.value->prompt_wide_p40_gdn_hits == 0U &&
+      executed.value->native_flashinfer_exact_whole_prompt_hits == 0U;
+  const bool persistent_p40_witness_zero =
+      executed.value->layer_wide_p40_mlp_layer_hits == 0U &&
+      executed.value->persistent_p40_nvfp4_gate_up_hits == 0U &&
+      executed.value->persistent_p40_nvfp4_down_residual_hits == 0U &&
+      executed.value->persistent_p40_nvfp4_physical_launches == 0U &&
+      executed.value->persistent_p40_fp8_projection_hits == 0U &&
+      executed.value->persistent_p40_fp8_projection_bulk_hits == 0U &&
+      executed.value->persistent_p40_fp8_projection_oracle_partial_hits ==
+          0U &&
+      executed.value->persistent_p40_fp8_projection_physical_launches == 0U;
+  const bool valid_p40_witness =
+      prompt_wide_p40_whole_core
+          ? executed.value->operator_panel_executor_hits == 0U &&
+                executed.value->layer_wide_p40_mlp_layer_hits ==
+                    kReferenceDecoderLayerCount &&
+                executed.value->persistent_p40_nvfp4_gate_up_hits ==
+                    kReferenceDecoderLayerCount &&
+                executed.value->persistent_p40_nvfp4_down_residual_hits ==
+                    kReferenceDecoderLayerCount &&
+                executed.value->persistent_p40_nvfp4_physical_launches ==
+                    2U * kReferenceDecoderLayerCount &&
+                executed.value->persistent_p40_fp8_projection_hits == 0U &&
+                executed.value->persistent_p40_fp8_projection_bulk_hits ==
+                    0U &&
+                executed.value
+                        ->persistent_p40_fp8_projection_oracle_partial_hits ==
+                    0U &&
+                executed.value
+                        ->persistent_p40_fp8_projection_physical_launches ==
+                    0U &&
+                executed.value->prompt_wide_p40_whole_core_layer_hits ==
+                    kReferenceDecoderLayerCount &&
+                executed.value->prompt_wide_p40_fill_panel_hits ==
+                    kReferenceDecoderLayerCount *
+                        immutable_topology.panel_count &&
+                executed.value->prompt_wide_p40_prompt_core_hits ==
+                    kReferenceDecoderLayerCount &&
+                executed.value->prompt_wide_p40_drain_panel_hits ==
+                    kReferenceDecoderLayerCount *
+                        immutable_topology.panel_count &&
+                executed.value->prompt_wide_p40_fp8_projection_hits ==
+                    kP40Fp8ProjectionsPerPanel *
+                        immutable_topology.panel_count &&
+                executed.value
+                        ->prompt_wide_p40_fp8_projection_physical_launches ==
+                    executed.value->prompt_wide_p40_fp8_projection_hits &&
+                executed.value->prompt_wide_p40_bf16_ab_hits ==
+                    kLayerMajorPrefillLinearLayerCount &&
+                executed.value->prompt_wide_p40_gdn_hits ==
+                    kLayerMajorPrefillLinearLayerCount &&
+                executed.value->native_flashinfer_exact_whole_prompt_hits ==
+                    kLayerMajorPrefillFullLayerCount
+      : layer_wide_p40_mlp
+          ? whole_core_witness_zero &&
+                executed.value->layer_wide_p40_mlp_layer_hits ==
+                    kReferenceDecoderLayerCount &&
+                executed.value->persistent_p40_nvfp4_gate_up_hits ==
+                    kReferenceDecoderLayerCount &&
+                executed.value->persistent_p40_nvfp4_down_residual_hits ==
+                    kReferenceDecoderLayerCount &&
+                executed.value->persistent_p40_nvfp4_physical_launches ==
+                    2U * kReferenceDecoderLayerCount &&
+                executed.value->persistent_p40_fp8_projection_hits ==
+                    kP40Fp8ProjectionsPerPanel *
+                        immutable_topology.panel_count &&
+                executed.value->persistent_p40_fp8_projection_bulk_hits ==
+                    kP40Fp8ProjectionsPerPanel * bulk_panel_count &&
+                executed.value
+                        ->persistent_p40_fp8_projection_oracle_partial_hits ==
+                    kP40Fp8ProjectionsPerPanel *
+                        (immutable_topology.panel_count - bulk_panel_count)
+          : persistent_p40_witness_zero && whole_core_witness_zero;
+  if (!valid_p40_witness) {
+    result.status = whole_request_adapter_status(
+        ReferenceRunnerError::kInvalidStepOptions,
+        "engine_whole_request_p40_witness");
     return result;
   }
 
@@ -1291,6 +1439,42 @@ prefill_whole_request_layer_major(
       executed.value->native_nvfp4_true_large_m_down_hits;
   context.prefill_native_nvfp4_true_large_m_physical_launches =
       executed.value->native_nvfp4_true_large_m_physical_launches;
+  context.prefill_mlp_schedule_tactic =
+      executed.value->mlp_schedule_tactic;
+  context.prefill_layer_wide_p40_mlp_layer_hits =
+      executed.value->layer_wide_p40_mlp_layer_hits;
+  context.prefill_persistent_p40_nvfp4_gate_up_hits =
+      executed.value->persistent_p40_nvfp4_gate_up_hits;
+  context.prefill_persistent_p40_nvfp4_down_residual_hits =
+      executed.value->persistent_p40_nvfp4_down_residual_hits;
+  context.prefill_persistent_p40_nvfp4_physical_launches =
+      executed.value->persistent_p40_nvfp4_physical_launches;
+  context.prefill_persistent_p40_fp8_projection_hits =
+      executed.value->persistent_p40_fp8_projection_hits;
+  context.prefill_persistent_p40_fp8_projection_bulk_hits =
+      executed.value->persistent_p40_fp8_projection_bulk_hits;
+  context.prefill_persistent_p40_fp8_projection_oracle_partial_hits =
+      executed.value->persistent_p40_fp8_projection_oracle_partial_hits;
+  context.prefill_persistent_p40_fp8_projection_physical_launches =
+      executed.value->persistent_p40_fp8_projection_physical_launches;
+  context.prefill_prompt_wide_p40_whole_core_layer_hits =
+      executed.value->prompt_wide_p40_whole_core_layer_hits;
+  context.prefill_prompt_wide_p40_fill_panel_hits =
+      executed.value->prompt_wide_p40_fill_panel_hits;
+  context.prefill_prompt_wide_p40_prompt_core_hits =
+      executed.value->prompt_wide_p40_prompt_core_hits;
+  context.prefill_prompt_wide_p40_drain_panel_hits =
+      executed.value->prompt_wide_p40_drain_panel_hits;
+  context.prefill_prompt_wide_p40_fp8_projection_hits =
+      executed.value->prompt_wide_p40_fp8_projection_hits;
+  context.prefill_prompt_wide_p40_fp8_projection_physical_launches =
+      executed.value->prompt_wide_p40_fp8_projection_physical_launches;
+  context.prefill_prompt_wide_p40_bf16_ab_hits =
+      executed.value->prompt_wide_p40_bf16_ab_hits;
+  context.prefill_prompt_wide_p40_gdn_hits =
+      executed.value->prompt_wide_p40_gdn_hits;
+  context.prefill_native_flashinfer_exact_whole_prompt_hits =
+      executed.value->native_flashinfer_exact_whole_prompt_hits;
   result.value.emplace(std::move(transcript));
   return result;
 }
@@ -3216,6 +3400,8 @@ struct ReferenceEngine::Impl {
   ReferenceEngineLoadStats load;
   bool trace_enabled = false;
   bool decode_graph_cache_ready = false;
+  LayerMajorPrefillMlpScheduleTactic prefill_mlp_schedule_tactic =
+      LayerMajorPrefillMlpScheduleTactic::kPerOperatorPanel;
 
   struct BuildResult {
     std::unique_ptr<Impl> value;
@@ -3310,6 +3496,62 @@ struct ReferenceEngine::Impl {
       return result;
     }
 #endif
+#if !defined(Q3X_ENABLE_NVFP4_PERSISTENT_PREFILL_ADMISSION)
+    if (options.prefill_projection_tactic ==
+        LayerMajorPrefillProjectionTactic::
+            kNativeNvfp4PersistentP40LayerWideMlp) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kPrefillPlanUnavailable,
+          "prefill_projection_tactic",
+          "this binary does not admit the test-only exact-P40000 "
+          "persistent NVFP4 layer-wide MLP package");
+      return result;
+    }
+#else
+    if (options.prefill_projection_tactic ==
+            LayerMajorPrefillProjectionTactic::
+                kNativeNvfp4PersistentP40LayerWideMlp &&
+        (options.prefill_execution_mode !=
+             ReferencePrefillExecutionMode::kWholeRequestLayerMajor ||
+         options.request_options.max_sequence_length !=
+             kLayerMajorPrefillLayerWideMlpP40RequestCapacityTokens)) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kInvalidArgument,
+          "prefill_projection_tactic",
+          "the persistent layer-wide MLP route admits only a cold exact "
+          "P40000 whole-request engine");
+      return result;
+    }
+#endif
+#if !defined(Q3X_ENABLE_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION)
+    if (options.prefill_projection_tactic ==
+        LayerMajorPrefillProjectionTactic::kNativePromptWideP40WholeCore) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kPrefillPlanUnavailable,
+          "prefill_projection_tactic",
+          "this binary does not admit the test-only exact-P40000 "
+          "prompt-wide whole-core package");
+      return result;
+    }
+#else
+    if (options.prefill_projection_tactic ==
+            LayerMajorPrefillProjectionTactic::
+                kNativePromptWideP40WholeCore &&
+        (options.prefill_execution_mode !=
+             ReferencePrefillExecutionMode::kWholeRequestLayerMajor ||
+         options.request_options.max_sequence_length !=
+             kLayerMajorPrefillPromptWideP40RequestCapacityTokens ||
+         options.prefill_full_attention_tactic !=
+             LayerMajorPrefillFullAttentionTactic::
+                 kNativeFlashInferExactWholePrompt)) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kInvalidArgument,
+          "prefill_projection_tactic",
+          "the prompt-wide whole-core route admits only a cold exact "
+          "P40000 whole-request engine with whole-prompt FlashInfer");
+      return result;
+    }
+#endif
     if (!is_valid_reference_decode_graph_cache_policy(
             options.decode_graph_cache_policy)) {
       result.diagnostic = engine_diagnostic(
@@ -3330,6 +3572,18 @@ struct ReferenceEngine::Impl {
       const bool resident_was_prepared = prepared_resident.has_value();
       auto impl = std::make_unique<Impl>();
       impl->trace_enabled = options.enable_trace;
+      impl->prefill_mlp_schedule_tactic =
+          options.prefill_projection_tactic ==
+                  LayerMajorPrefillProjectionTactic::
+                      kNativePromptWideP40WholeCore
+              ? LayerMajorPrefillMlpScheduleTactic::
+                    kPromptWideP40WholeCore
+          : options.prefill_projection_tactic ==
+                  LayerMajorPrefillProjectionTactic::
+                      kNativeNvfp4PersistentP40LayerWideMlp
+              ? LayerMajorPrefillMlpScheduleTactic::
+                    kLayerWideP40ExactFullM
+              : LayerMajorPrefillMlpScheduleTactic::kPerOperatorPanel;
       impl->load.projection_backend = options.projection_backend;
       impl->load.decode_graph_cache_requested_policy =
           options.decode_graph_cache_policy;
@@ -3397,6 +3651,21 @@ struct ReferenceEngine::Impl {
               options.request_options.max_arena_bytes;
           layer_major_options.min_free_bytes_after_create =
               options.request_options.min_free_bytes_after_create;
+          layer_major_options.mlp_layout =
+              impl->prefill_mlp_schedule_tactic ==
+                          LayerMajorPrefillMlpScheduleTactic::
+                              kLayerWideP40ExactFullM ||
+                      impl->prefill_mlp_schedule_tactic ==
+                          LayerMajorPrefillMlpScheduleTactic::
+                              kPromptWideP40WholeCore
+                  ? LayerMajorRequestMlpLayout::kLayerWideP40PersistentTwoSpan
+                  : LayerMajorRequestMlpLayout::kPanelLocalThreeSpan;
+          layer_major_options.layout =
+              impl->prefill_mlp_schedule_tactic ==
+                      LayerMajorPrefillMlpScheduleTactic::
+                          kPromptWideP40WholeCore
+                  ? LayerMajorRequestLayout::kP40WholeCorePromptWide
+                  : LayerMajorRequestLayout::kC8192FamilyOverlay;
           request = create_layer_major_request_state(layer_major_options);
         } else {
           request = create_request_state(options.request_options);
@@ -3541,9 +3810,15 @@ struct ReferenceEngine::Impl {
           // legacy admission asks another engine mode to prepare the fused
           // interleaved epilogue layout.
           const bool interleave_gate_up =
-              options.prefill_execution_mode !=
-                  ReferencePrefillExecutionMode::kWholeRequestLayerMajor &&
-              prefill_marlin_gate_up_epilogue_environment_enabled();
+              options.prefill_projection_tactic ==
+                  LayerMajorPrefillProjectionTactic::
+                      kNativeNvfp4PersistentP40LayerWideMlp ||
+              options.prefill_projection_tactic ==
+                  LayerMajorPrefillProjectionTactic::
+                      kNativePromptWideP40WholeCore ||
+              (options.prefill_execution_mode !=
+                   ReferencePrefillExecutionMode::kWholeRequestLayerMajor &&
+               prefill_marlin_gate_up_epilogue_environment_enabled());
           const Sm87NvFp4MarlinPrefillPreparation marlin_preparation =
               prepare_sm87_nvfp4_marlin_prefill_sidecars(
                   *impl->model_weights,
@@ -3923,6 +4198,12 @@ struct ReferenceEngine::Impl {
           result.diagnostic.context =
               "bound_plan_error=" +
               std::to_string(static_cast<unsigned int>(bound.error));
+          if (bound.status.operation != nullptr &&
+              bound.status.operation[0] != '\0') {
+            result.diagnostic.context +=
+                " bound_operation=" +
+                std::string(bound.status.operation);
+          }
           return result;
         }
         impl->bound_prefill_plan = std::move(bound.value);
@@ -3974,9 +4255,12 @@ ReferenceEngine::operator bool() const noexcept {
       !impl_->request_state.has_value() || !impl_->runner.has_value()) {
     return false;
   }
-  return impl_->request_state->memory_profile() !=
-             RequestMemoryProfile::kLayerMajorC8192 ||
-         impl_->bound_prefill_plan != nullptr;
+  const RequestMemoryProfile memory_profile =
+      impl_->request_state->memory_profile();
+  const bool layer_major_memory_profile =
+      memory_profile == RequestMemoryProfile::kLayerMajorC8192 ||
+      memory_profile == RequestMemoryProfile::kLayerMajorP40WholeCore;
+  return !layer_major_memory_profile || impl_->bound_prefill_plan != nullptr;
 }
 
 const ReferenceEngineLoadStats& ReferenceEngine::load_stats() const noexcept {
@@ -4199,11 +4483,16 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
   const bool whole_request_layer_major =
       options.prefill_execution_mode ==
       ReferencePrefillExecutionMode::kWholeRequestLayerMajor;
+  const RequestMemoryProfile request_memory_profile =
+      impl_->request_state->memory_profile();
+  const bool layer_major_memory_profile =
+      request_memory_profile == RequestMemoryProfile::kLayerMajorC8192 ||
+      request_memory_profile ==
+          RequestMemoryProfile::kLayerMajorP40WholeCore;
   if (whole_request_layer_major &&
       (options.capture_trace ||
        options.prefill_chunk_size != kMaximumRequestPrefillChunkSize ||
-       impl_->request_state->memory_profile() !=
-           RequestMemoryProfile::kLayerMajorC8192)) {
+       !layer_major_memory_profile)) {
     result.diagnostic = engine_diagnostic(
         ReferenceEngineError::kInvalidArgument,
         "whole_request_prefill_options",
@@ -4306,6 +4595,10 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
         single_arbitrary_prefill_tile;
     control_options.prefill_whole_request_layer_major =
         whole_request_layer_major;
+    control_options.prefill_mlp_schedule_tactic =
+        whole_request_layer_major
+            ? impl_->prefill_mlp_schedule_tactic
+            : LayerMajorPrefillMlpScheduleTactic::kPerOperatorPanel;
 
     EngineTokenObserverContext observer_context;
     if (options.token_observer != nullptr) {
@@ -4539,6 +4832,65 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
     generation.prefill_native_nvfp4_true_large_m_physical_launches =
         static_cast<std::uint64_t>(
             step_context.prefill_native_nvfp4_true_large_m_physical_launches);
+    generation.prefill_mlp_schedule_tactic =
+        step_context.prefill_mlp_schedule_tactic;
+    generation.prefill_route_layer_pass_count =
+        control.value->prefill_route_layer_pass_count;
+    generation.prefill_layer_wide_p40_mlp_layer_hits =
+        static_cast<std::uint64_t>(
+            step_context.prefill_layer_wide_p40_mlp_layer_hits);
+    generation.prefill_persistent_p40_nvfp4_gate_up_hits =
+        static_cast<std::uint64_t>(
+            step_context.prefill_persistent_p40_nvfp4_gate_up_hits);
+    generation.prefill_persistent_p40_nvfp4_down_residual_hits =
+        static_cast<std::uint64_t>(
+            step_context.prefill_persistent_p40_nvfp4_down_residual_hits);
+    generation.prefill_persistent_p40_nvfp4_physical_launches =
+        static_cast<std::uint64_t>(
+            step_context.prefill_persistent_p40_nvfp4_physical_launches);
+    generation.prefill_persistent_p40_fp8_projection_hits =
+        static_cast<std::uint64_t>(
+            step_context.prefill_persistent_p40_fp8_projection_hits);
+    generation.prefill_persistent_p40_fp8_projection_bulk_hits =
+        static_cast<std::uint64_t>(
+            step_context.prefill_persistent_p40_fp8_projection_bulk_hits);
+    generation
+        .prefill_persistent_p40_fp8_projection_oracle_partial_hits =
+        static_cast<std::uint64_t>(
+            step_context
+                .prefill_persistent_p40_fp8_projection_oracle_partial_hits);
+    generation.prefill_persistent_p40_fp8_projection_physical_launches =
+        static_cast<std::uint64_t>(
+            step_context
+                .prefill_persistent_p40_fp8_projection_physical_launches);
+    generation.prefill_prompt_wide_p40_whole_core_layer_hits =
+        static_cast<std::uint64_t>(
+            step_context.prefill_prompt_wide_p40_whole_core_layer_hits);
+    generation.prefill_prompt_wide_p40_fill_panel_hits =
+        static_cast<std::uint64_t>(
+            step_context.prefill_prompt_wide_p40_fill_panel_hits);
+    generation.prefill_prompt_wide_p40_prompt_core_hits =
+        static_cast<std::uint64_t>(
+            step_context.prefill_prompt_wide_p40_prompt_core_hits);
+    generation.prefill_prompt_wide_p40_drain_panel_hits =
+        static_cast<std::uint64_t>(
+            step_context.prefill_prompt_wide_p40_drain_panel_hits);
+    generation.prefill_prompt_wide_p40_fp8_projection_hits =
+        static_cast<std::uint64_t>(
+            step_context.prefill_prompt_wide_p40_fp8_projection_hits);
+    generation.prefill_prompt_wide_p40_fp8_projection_physical_launches =
+        static_cast<std::uint64_t>(
+            step_context
+                .prefill_prompt_wide_p40_fp8_projection_physical_launches);
+    generation.prefill_prompt_wide_p40_bf16_ab_hits =
+        static_cast<std::uint64_t>(
+            step_context.prefill_prompt_wide_p40_bf16_ab_hits);
+    generation.prefill_prompt_wide_p40_gdn_hits =
+        static_cast<std::uint64_t>(
+            step_context.prefill_prompt_wide_p40_gdn_hits);
+    generation.prefill_native_flashinfer_exact_whole_prompt_hits =
+        static_cast<std::uint64_t>(
+            step_context.prefill_native_flashinfer_exact_whole_prompt_hits);
     generation.all_prompt_tokens_prefilled_by_tiles =
         control_options.prefill_all_prompt_tokens;
     generation.single_arbitrary_prefill_tiles =
@@ -4546,7 +4898,7 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
     generation.timing = std::move(control.value->timing);
     generation.prefill_route_evidence =
         impl_->runner->finalize_prefill_route_evidence(
-            generation.prefill_logical_panel_count);
+            control.value->prefill_route_layer_pass_count);
     if (!generation.prefill_route_evidence.complete ||
         !generation.prefill_route_evidence.valid ||
         generation.prefill_route_evidence.request_active ||

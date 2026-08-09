@@ -1,0 +1,261 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-p40k-whole-core-direction-2026-08-10",
+  "measured_at": "2026-08-10T06:10:48+08:00",
+  "profiled_at": "2026-08-10T06:18:57+08:00",
+  "recorded_at": "2026-08-10T06:35:00+08:00",
+  "timezone": "Asia/Shanghai",
+  "status": "positive_architecture_direction_default_off_accuracy_unqualified",
+  "policy": {
+    "evidence_tier": "T4_DIRECTION_PROFILE",
+    "protocol_class": "EXTERNAL_API_P40K_SINGLE_REQUEST_PLUS_BOUNDED_NSYS",
+    "decision_unit": "exact_p40000_five_p8000_fill_drain_whole_core",
+    "architecture_candidate_id": "AC-PREFILL-PROMPT-WIDE-v2/P40-WHOLE-CORE-v1",
+    "real_model_production_api_first": true,
+    "architecture_direction_retained": true,
+    "architecture_selection_authority": false,
+    "release_performance_authority": false,
+    "production_promotion_authority": false,
+    "default_route_changed": false,
+    "production_eligible": false,
+    "numerical_contract_qualified": false,
+    "accuracy_gate": "KNOWN_P513_FULL_STATE_MISMATCH_IN_INHERITED_FLASHINFER_ARITHMETIC",
+    "cublaslt_production_eligibility": false,
+    "mtp_used": false
+  },
+  "source": {
+    "branch": "codex/prefill-target-path",
+    "measurement_base_commit": "a4f95ba3fa15248cbd95f0e2a7e0a8578fae3cb6",
+    "measurement_tree_clean": false,
+    "measurement_source_note": "The whole-core route and its exact control/witness surfaces were measured from the working tree above a4f95ba. The exact measured binary is pinned below; no clean-commit release authority is claimed.",
+    "binary": {
+      "measurement_path": ".q3x-work/build/p40-whole-core-candidate/qwen3x-eval-server",
+      "sha256": "d1d77e26cd4695185b772ded8d22eea229c361095cf66cbd3185b3a0a68a1634",
+      "elf_build_id": "c594b4a1b2e0d4607f17b74d596ab9f7b2456b33",
+      "checked_in": false,
+      "build_type": "Release",
+      "build_testing": true,
+      "cuda_architecture": "sm_87"
+    }
+  },
+  "checkpoint": {
+    "repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "local_path": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "access": "read_only",
+    "config_sha256": "c04a19ba293737ad7be4f6e96d6666cb7e479cbe19ecc0c289fad267135b0338",
+    "quantization_config_sha256": "fd7200cd8cba2a8a5d777061521abf83e2deb97ab6bc2f04e7a0a3d3f8ecd5c1",
+    "index_sha256": "7aa103a2582b7d26631988de33dea19e8a308ee9c239e8e14feb374af30905e2",
+    "tokenizer_json_sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42"
+  },
+  "workload": {
+    "framework": "EvalScope",
+    "framework_version": "1.9.1",
+    "api": "openai",
+    "endpoint": "/v1/completions",
+    "corpus_path": ".q3x-work/evalscope/corpora/q3x-repository-agent-context-p40000-one-token.jsonl",
+    "corpus_sha256": "8970ac50693f49d1b27d35a0610ecbe5072594330d69b301f4dab731789b6844",
+    "prompt_kind": "token_ids",
+    "prompt_tokens": 40000,
+    "prompt_token_ids_u32le_sha256": "76cd23e2d60a9473af0ff24767b1b7ca614b36857697b420246731165156f78f",
+    "request_body_sha256": "e6f5817ad868e85c333db1961fa3dc14c7e65247f0a4241e8bb638870b6575ec",
+    "prompt_fully_consumed": true,
+    "consumed_prompt_tokens": 40000,
+    "logical_panel_geometry": "5x8000",
+    "measured_requests": 1,
+    "successful_requests": 1,
+    "failed_requests": 0,
+    "warmup_requests": 0,
+    "parallel": 1,
+    "output_tokens": 1,
+    "temperature": 0.0,
+    "seed": 42,
+    "stream": true,
+    "prefix_cache": false,
+    "mtp": false
+  },
+  "server_configuration": {
+    "max_sequence_length": 40001,
+    "max_output_tokens": 1,
+    "prefill_chunk_size": 512,
+    "prefill_execution_mode": "layer-major",
+    "request_memory_profile": "layer-major-p40-whole-core",
+    "prefill_projection_tactic": "native-prompt-wide-p40-whole-core",
+    "prefill_attention_tactic": "native-flashinfer-exact-whole-prompt",
+    "projection_backend": "sm87",
+    "queue_capacity": 1,
+    "ingress_threads": 3,
+    "request_arena_bytes": 8640542976
+  },
+  "clean_host_preflight": {
+    "server_start": {
+      "decision": "pass",
+      "sha256": "95b692c9a6a51b726ad377c2fd82c439f6dbd0ff0d9615583448a42b18ff9c44"
+    },
+    "request_control_paused": {
+      "decision": "pass",
+      "sha256": "239e87cc55986529f16f3d51c7c0498da0986bde5e0498e869cc9a171b96b31d"
+    },
+    "profile_server_start": {
+      "decision": "pass",
+      "sha256": "17316ce93502d18e95caa26d03616429e9eee800c05bc51c440821d805b0af33"
+    },
+    "profile_request_capture": {
+      "decision": "pass",
+      "sha256": "8ce8e17fc4b8b4c6528b369de03f48c38d724244676037b7737e1e1026fea158"
+    },
+    "jetson_idle_authority": "tegrastats plus CPU/process and GPU-device-handle inspection",
+    "nvidia_smi_used_for_idle_decision": false
+  },
+  "route": {
+    "witness_schema": "target-prefill-witness-v10",
+    "deployment_plan_id": "q3x.sm87.ac-prefill-prompt-wide-v2.native-p40-whole-core.v1",
+    "qualification": "accuracy-unqualified-architecture-candidate",
+    "package_complete": true,
+    "bounded_submission_window": true,
+    "submission_window_retirements": 768,
+    "route_layer_pass_count": 1,
+    "logical_panel_count": 5,
+    "panel_tokens": 8000,
+    "whole_core_layer_hits": 64,
+    "fill_panel_hits": 320,
+    "prompt_core_hits": 64,
+    "drain_panel_hits": 320,
+    "fp8_projection_hits": 1040,
+    "fp8_projection_physical_launches": 1040,
+    "bf16_ab_hits": 48,
+    "gdn_hits": 48,
+    "whole_prompt_flashinfer_hits": 16,
+    "persistent_nvfp4_gate_up_hits": 64,
+    "persistent_nvfp4_down_residual_hits": 64,
+    "persistent_nvfp4_physical_launches": 128,
+    "completed_exact_fallback_hits": 0,
+    "completed_forbidden_hits": 0,
+    "forbidden_route_hits": {
+      "prefix_cache": 0,
+      "mtp": 0,
+      "cublaslt": 0,
+      "external_reference": 0,
+      "approximate_numerics": 0
+    }
+  },
+  "real_api_direction": {
+    "evalscope": {
+      "ttft_ms": 101870.53,
+      "whole_workload_prompt_tok_s": 392.66,
+      "reported_total_tok_s": 392.66
+    },
+    "server": {
+      "queue_ms": 0.020768,
+      "admission_ms": 11.175044,
+      "generation_call_wall_ms": 101853.592342,
+      "pure_prefill_ms": 101831.853876,
+      "pure_prefill_tok_s": 392.804397421,
+      "finish_prefill_ms": 4.475207,
+      "ttft_ms": 101866.799499,
+      "decode_after_first_ms": 0.0,
+      "response_enqueued_total_ms": 101866.829548
+    },
+    "cross_boundary": {
+      "evalscope_ttft_minus_server_ttft_ms": 3.730501,
+      "server_ttft_minus_pure_prefill_ms": 34.945623,
+      "pure_prefill_share_of_server_ttft_percent": 99.965694,
+      "interpretation": "The API boundary is not the bottleneck; the request is dominated by the Prefill GPU path."
+    }
+  },
+  "comparison_to_retained_c45b7c5": {
+    "baseline_source": "qwen36-27b-prefill-p40k-flashinfer-exact-panel-api-2026-08-09",
+    "baseline_server_pure_prefill_ms": 108981.854892,
+    "baseline_server_pure_prefill_tok_s": 367.033576733,
+    "candidate_server_pure_prefill_ms": 101831.853876,
+    "candidate_server_pure_prefill_tok_s": 392.804397421,
+    "latency_delta_ms": -7150.001016,
+    "latency_change_percent": -6.560726,
+    "throughput_change_percent": 7.021380,
+    "speedup_x": 1.070213796,
+    "owner_vllm_floor_tok_s": 4300.0,
+    "fraction_of_owner_vllm_floor_percent": 9.134986,
+    "gap_to_owner_vllm_floor_x": 10.946517,
+    "gap_to_two_second_p40k_x": 50.915927,
+    "decision": "RETAIN_WHOLE_CORE_INFRASTRUCTURE_DO_NOT_PROMOTE"
+  },
+  "nsys": {
+    "whole_request_ms": 102121.306528,
+    "summed_kernel_ms": 102113.313600,
+    "kernel_gap_ms": 7.992928,
+    "kernel_gap_percent": 0.007827,
+    "cuda_streams_observed": 1,
+    "kernel_overlap_observed": false,
+    "kernel_launches": 2422,
+    "unique_kernel_names": 18,
+    "dominant_kernels": [
+      {
+        "role": "nvfp4_gate_up_persistent_marlin",
+        "instances": 64,
+        "total_ms": 37273.068224,
+        "whole_request_percent": 36.50,
+        "grid": "16x1x1",
+        "block": "256x1x1"
+      },
+      {
+        "role": "fp8_marlin",
+        "instances": 1040,
+        "total_ms": 25864.646560,
+        "whole_request_percent": 25.33,
+        "grid": "16x1x1",
+        "block": "256x1x1"
+      },
+      {
+        "role": "nvfp4_down_persistent_marlin",
+        "instances": 64,
+        "total_ms": 17559.457280,
+        "whole_request_percent": 17.19,
+        "grid": "16x1x1",
+        "block": "256x1x1"
+      },
+      {
+        "role": "flashinfer_whole_prompt_attention",
+        "instances": 16,
+        "total_ms": 13634.170272,
+        "whole_request_percent": 13.35,
+        "grid": "3750x1x4",
+        "block": "32x4x1"
+      }
+    ],
+    "interpretation": "The whole-core host schedule removes launch-gap/API ambiguity but the persistent NVFP4 implementation still wraps the old 16-CTA Marlin raster and does not provide cross-CTA decoded-B/scale sharing. The four dominant roles require architecture-level replacement; stream overlap alone cannot close the observed order-of-magnitude gap."
+  },
+  "decision": {
+    "result": "RETAIN_WHOLE_CORE_EXECUTION_INFRASTRUCTURE_REPLACE_DOMINANT_KERNEL_DATAFLOWS",
+    "reason": "The exact P40 route improves the retained direction by 7.02138%, validates one bounded whole-request transaction, and proves the API is not limiting. It remains 10.95x below the owner's vLLM floor, is accuracy-unqualified, and its dominant kernels expose old raster ownership rather than the required prompt-wide weight/decode reuse.",
+    "default_route_unchanged": true,
+    "candidate_production_enabled": false,
+    "full_accuracy_harness_run": false,
+    "p60k_run": false,
+    "p130k_run": false,
+    "next_step": "Keep the whole-core control/memory/witness substrate. Replace Gate/Up and Down with distinct SM87 large-M dataflows that expose useful decoded-B/scale reuse and at least two-CTA/SM admission, then return directly to the same clean-host real P40K API witness. Follow with shape-specific FP8 and Attention architecture work; use NCU only to explain a full-path direction result."
+  },
+  "artifacts": {
+    "evidence_dir": ".q3x-work/evidence/prefill-target-path/p40-whole-core-r2",
+    "profile_dir": ".q3x-work/profiles/p40-whole-core-r3-profile",
+    "evalscope_dir": ".q3x-work/evalscope/results/p40-whole-core-r2/candidate/wholecore/parallel_1_number_1",
+    "server_log_sha256": "06cef683cd257397e3ebee68ae8c36d909e462052133bda83a2680278e842698",
+    "evalscope_client_log_sha256": "9f680ee27a145774b987148c4f33b99092eb32468c07a92cd0d40a7400471ba4",
+    "evalscope_db_sha256": "acbcf694200db8b461a01d04c71730004747c1f952a0d0e6c4b0d7d19db3e2eb",
+    "evalscope_summary_sha256": "5e8b79c168c036b8a7daf78dfc7c0953d56fb37e5b484d6dceae115955b57874",
+    "nsys_report_sha256": "22c86a6bfb95810089ba34cb84e0e27a595d0777664b2a58de42e207bcfe3717",
+    "nsys_sqlite_sha256": "8be3df86e4dcb811675d6c673bf399f090bbe63b26de21813ca62b7634153710",
+    "whole_request_kernel_summary_sha256": "4b0f8f5803e187328125bf6f56508c934b75d6ebbbefe62c349f04d3ea69c9cc",
+    "whole_request_grid_summary_sha256": "12ffcdd956ff0bae7a9ca736f42b458200846bd39d8593c3c6107aea3c83bc99",
+    "nvtx_summary_sha256": "5c945a04e693e22742a45277911b497b98dedf21d214044719c6f36807d8cc8c",
+    "profile_server_log_sha256": "dd3ac9e0b2a19d412c474633dd31cf9f90ed2dd3161802750a08952d9c00b94f",
+    "profile_evalscope_log_sha256": "da9a6dde2ef5539f317081e7e52c9fa51b014cc2c3bafdd904104f00dbed69fc"
+  },
+  "honesty_notes": [
+    "This is one clean-host real-API direction sample plus one bounded Nsight capture, not a repetition-qualified release baseline.",
+    "The exact measured binary is pinned, but it came from a dirty working tree above a4f95ba.",
+    "The inherited exact-FlashInfer arithmetic has a known P513 full-state mismatch; no production accuracy claim is made.",
+    "The whole-core control/data-lifetime infrastructure is retained as a positive direction. The inherited 16-CTA persistent Marlin bodies are not accepted as the target large-M architecture.",
+    "P60 and P130 were not run because P40 remains far below the locked target and is not accuracy-admissible.",
+    "All generated evidence remains inside the ignored repository .q3x-work tree; the model directory and user environments were read-only."
+  ]
+}

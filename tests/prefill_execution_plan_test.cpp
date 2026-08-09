@@ -37,11 +37,14 @@ class TestContext {
     const std::uint64_t prompt_token_count,
     const std::uint64_t first_position = 0U,
     const std::uint64_t max_sequence_length =
-        runtime::kLayerMajorPrefillMaximumSequenceTokens) {
+        runtime::kLayerMajorPrefillMaximumSequenceTokens,
+    const runtime::LayerMajorPrefillMlpScheduleTactic mlp_schedule_tactic =
+        runtime::LayerMajorPrefillMlpScheduleTactic::kPerOperatorPanel) {
   runtime::PrefillExecutionPlanOptions options;
   options.first_position = first_position;
   options.prompt_token_count = prompt_token_count;
   options.max_sequence_length = max_sequence_length;
+  options.mlp_schedule_tactic = mlp_schedule_tactic;
   return runtime::build_unbound_layer_major_prefill_execution_plan(options);
 }
 
@@ -71,6 +74,11 @@ void expect_panel_shape(TestContext& test,
   return left.kv_visible_end == right.kv_visible_end &&
          left.gdn_advanced_end == right.gdn_advanced_end &&
          left.completed_panels == right.completed_panels &&
+         left.completed_mlp_phases == right.completed_mlp_phases &&
+         left.completed_fill_panels == right.completed_fill_panels &&
+         left.completed_prompt_core_phases ==
+             right.completed_prompt_core_phases &&
+         left.completed_drain_panels == right.completed_drain_panels &&
          left.next_layer == right.next_layer &&
          left.next_panel == right.next_panel &&
          left.final_hidden_ready == right.final_hidden_ready &&
@@ -91,6 +99,9 @@ void test_public_tile_and_operator_panel_are_independent(TestContext& test) {
           runtime::is_valid_layer_major_prefill_full_attention_tactic(
               runtime::LayerMajorPrefillFullAttentionTactic::
                   kNativeFlashInferExactPanel) &&
+          runtime::is_valid_layer_major_prefill_full_attention_tactic(
+              runtime::LayerMajorPrefillFullAttentionTactic::
+                  kNativeFlashInferExactWholePrompt) &&
           !runtime::is_valid_layer_major_prefill_full_attention_tactic(
               static_cast<runtime::LayerMajorPrefillFullAttentionTactic>(
                   0xffU)),
@@ -109,7 +120,11 @@ void test_public_tile_and_operator_panel_are_independent(TestContext& test) {
           runtime::to_string(
               runtime::LayerMajorPrefillFullAttentionTactic::
                   kNativeFlashInferExactPanel) ==
-              "native-flashinfer-exact-panel",
+              "native-flashinfer-exact-panel" &&
+          runtime::to_string(
+              runtime::LayerMajorPrefillFullAttentionTactic::
+                  kNativeFlashInferExactWholePrompt) ==
+              "native-flashinfer-exact-whole-prompt",
       "Attention tactic names preserve exact Q64/Q128/FlashInfer route "
       "identity");
   test.expect(
@@ -127,6 +142,12 @@ void test_public_tile_and_operator_panel_are_independent(TestContext& test) {
           runtime::is_valid_layer_major_prefill_projection_tactic(
               runtime::LayerMajorPrefillProjectionTactic::
                   kNativeNvfp4G2D2LargeMOperatorPanel) &&
+          runtime::is_valid_layer_major_prefill_projection_tactic(
+              runtime::LayerMajorPrefillProjectionTactic::
+                  kNativeNvfp4PersistentP40LayerWideMlp) &&
+          runtime::is_valid_layer_major_prefill_projection_tactic(
+              runtime::LayerMajorPrefillProjectionTactic::
+                  kNativePromptWideP40WholeCore) &&
           !runtime::is_valid_layer_major_prefill_projection_tactic(
               static_cast<runtime::LayerMajorPrefillProjectionTactic>(
                   0xffU)),
@@ -150,7 +171,15 @@ void test_public_tile_and_operator_panel_are_independent(TestContext& test) {
           runtime::to_string(
               runtime::LayerMajorPrefillProjectionTactic::
                   kNativeNvfp4G2D2LargeMOperatorPanel) ==
-              "native-nvfp4-g2-d2-large-m-operator-panel",
+              "native-nvfp4-g2-d2-large-m-operator-panel" &&
+          runtime::to_string(
+              runtime::LayerMajorPrefillProjectionTactic::
+                  kNativeNvfp4PersistentP40LayerWideMlp) ==
+              "native-nvfp4-persistent-p40-layer-wide-mlp" &&
+          runtime::to_string(
+              runtime::LayerMajorPrefillProjectionTactic::
+                  kNativePromptWideP40WholeCore) ==
+              "native-prompt-wide-p40-whole-core",
       "projection tactic names preserve exact, segmented, native large-M, "
       "true-large-M, and G2/D2 NVFP4 route identity");
   const runtime::PrefillExecutionPlanResult result = build_plan(513U);
@@ -173,6 +202,136 @@ void test_public_tile_and_operator_panel_are_independent(TestContext& test) {
                   runtime::kLayerMajorPrefillOperatorPanelTokens == 8'192U &&
                   runtime::kLayerMajorPrefillMaximumPanelCount == 32U,
               "legacy tile and layer-major panel constants remain distinct");
+}
+
+void test_prompt_wide_p40_whole_core_schedule(TestContext& test) {
+  using MlpSchedule = runtime::LayerMajorPrefillMlpScheduleTactic;
+  constexpr auto kWholeCore = MlpSchedule::kPromptWideP40WholeCore;
+  test.expect(
+      runtime::is_valid_layer_major_prefill_mlp_schedule_tactic(kWholeCore) &&
+          runtime::to_string(kWholeCore) ==
+              "prompt-wide-p40-whole-core" &&
+          runtime::prefill_route_layer_pass_count(5U, kWholeCore) == 1U &&
+          runtime::kLayerMajorPrefillPromptWideP40PanelCount == 5U &&
+          runtime::kLayerMajorPrefillPromptWideP40PanelTokens == 8'000U &&
+          runtime::kLayerMajorPrefillPromptWideP40PanelTokens % 64U == 0U &&
+          runtime::kLayerMajorPrefillPromptWideP40PanelTokens <=
+              runtime::kLayerMajorPrefillOperatorPanelTokens &&
+          runtime::kLayerMajorPrefillPromptWideP40PanelCount *
+                  runtime::kLayerMajorPrefillPromptWideP40PanelTokens ==
+              runtime::kLayerMajorPrefillPromptWideP40Tokens &&
+          runtime::kLayerMajorPrefillPromptWideP40RequestCapacityTokens ==
+              40'001U,
+      "whole-core identity locks exact P40000/P40001 and five aligned M8000 "
+      "panels");
+
+  const auto candidate = build_plan(
+      runtime::kLayerMajorPrefillPromptWideP40Tokens, 0U,
+      runtime::kLayerMajorPrefillPromptWideP40RequestCapacityTokens,
+      kWholeCore);
+  if (!runtime::prompt_wide_p40_whole_core_prefill_plan_enabled()) {
+    test.expect(
+        !candidate &&
+            candidate.error ==
+                runtime::PrefillExecutionPlanError::kInvalidArgument,
+        "default build fails closed on the independent whole-core tactic");
+    return;
+  }
+
+  bool panels_exact = candidate && candidate.value->panel_count == 5U;
+  for (std::size_t panel = 0U; panels_exact && panel < 5U; ++panel) {
+    const runtime::PrefillOperatorPanel& geometry =
+        candidate.value->panels[panel];
+    panels_exact = geometry.ordinal == panel &&
+                   geometry.first_position == panel * 8'000U &&
+                   geometry.token_count == 8'000U &&
+                   geometry.end_position == (panel + 1U) * 8'000U;
+  }
+  const runtime::PrefillWholeCoreSchedulePlan* schedule =
+      candidate ? &candidate.value->whole_core_schedule : nullptr;
+  test.expect(
+      panels_exact && schedule != nullptr && schedule->enabled &&
+          schedule->fill_panel_phase_count_per_layer == 5U &&
+          schedule->prompt_core_phase_count_per_layer == 1U &&
+          schedule->drain_panel_phase_count_per_layer == 5U &&
+          schedule->persistent_mlp_phase_count_per_layer == 1U &&
+          schedule->panel_token_count == 8'000U &&
+          schedule->prompt_core_token_count == 40'000U &&
+          schedule->request_capacity_tokens == 40'001U &&
+          schedule->route_pass_count == 1U &&
+          schedule->fp8_single_launch_per_projection_required &&
+          schedule->bf16_ab_prompt_wide_required &&
+          schedule->gdn_prompt_wide_required &&
+          schedule->flashinfer_whole_prompt_required &&
+          candidate.value->mlp_schedule.maximum_standalone_silu_launches_per_layer ==
+              0U &&
+          candidate.value->mlp_schedule.minimum_total_kernel_launches_per_layer ==
+              2U &&
+          candidate.value->mlp_schedule.maximum_total_kernel_launches_per_layer ==
+              2U &&
+          runtime::is_valid_unbound_layer_major_prefill_execution_plan(
+              *candidate.value),
+      "whole-core plan is exactly 5 fill, 1 core, 5 drain, and 1 persistent "
+      "MLP per layer");
+
+  test.expect(
+      !build_plan(runtime::kLayerMajorPrefillPromptWideP40Tokens, 0U,
+                  runtime::kLayerMajorPrefillMaximumSequenceTokens,
+                  kWholeCore) &&
+          !build_plan(39'936U, 0U,
+                      runtime::kLayerMajorPrefillPromptWideP40RequestCapacityTokens,
+                      kWholeCore) &&
+          !build_plan(runtime::kLayerMajorPrefillPromptWideP40Tokens, 64U,
+                      runtime::kLayerMajorPrefillPromptWideP40RequestCapacityTokens,
+                      kWholeCore),
+      "whole-core refuses a generalized capacity, prompt length, or warm "
+      "position");
+
+  runtime::PrefillExecutionProgress progress =
+      runtime::make_prefill_execution_progress(*candidate.value);
+  test.expect(
+      runtime::advance_prompt_wide_p40_prompt_core_progress_after_completion(
+          *candidate.value, progress, 0U) ==
+          runtime::PrefillExecutionProgressError::kOutOfOrder,
+      "whole-core cannot publish its core before all five fill panels");
+  bool ordered = true;
+  for (std::size_t layer = 0U;
+       ordered && layer < candidate.value->layers.size(); ++layer) {
+    for (std::size_t panel = 0U; ordered && panel < 5U; ++panel) {
+      ordered =
+          runtime::advance_prompt_wide_p40_fill_progress_after_completion(
+              *candidate.value, progress, layer, panel) ==
+          runtime::PrefillExecutionProgressError::kNone;
+    }
+    ordered = ordered &&
+              runtime::advance_prompt_wide_p40_prompt_core_progress_after_completion(
+                  *candidate.value, progress, layer) ==
+                  runtime::PrefillExecutionProgressError::kNone;
+    for (std::size_t panel = 0U; ordered && panel < 5U; ++panel) {
+      ordered =
+          runtime::advance_prompt_wide_p40_drain_progress_after_completion(
+              *candidate.value, progress, layer, panel) ==
+          runtime::PrefillExecutionProgressError::kNone;
+    }
+    ordered = ordered &&
+              runtime::advance_prompt_wide_p40_persistent_mlp_progress_after_completion(
+                  *candidate.value, progress, layer) ==
+                  runtime::PrefillExecutionProgressError::kNone;
+  }
+  test.expect(
+      ordered && progress.next_layer == candidate.value->layers.size() &&
+          runtime::mark_prefill_final_hidden_ready(*candidate.value,
+                                                   progress) ==
+              runtime::PrefillExecutionProgressError::kNone &&
+          runtime::prefill_final_commit_ready(*candidate.value, progress),
+      "whole-core progress reaches final commit only after every ordered "
+      "phase in all 64 layers");
+
+  runtime::PrefillExecutionPlan mutated = *candidate.value;
+  mutated.panels[1U].token_count = 8'192U;
+  test.expect(
+      !runtime::is_valid_unbound_layer_major_prefill_execution_plan(mutated),
+      "whole-core authority rejects incumbent 8192/7712 geometry relabeling");
 }
 
 void test_target_panel_matrix(TestContext& test) {
@@ -705,6 +864,143 @@ void test_strict_layer_major_progress(TestContext& test) {
               "the logical PrefillStateCommitted transition is single-shot");
 }
 
+void test_layer_wide_p40_mlp_schedule(TestContext& test) {
+  using MlpSchedule = runtime::LayerMajorPrefillMlpScheduleTactic;
+  test.expect(
+      runtime::is_valid_layer_major_prefill_mlp_schedule_tactic(
+          MlpSchedule::kPerOperatorPanel) &&
+          runtime::is_valid_layer_major_prefill_mlp_schedule_tactic(
+              MlpSchedule::kLayerWideP40ExactFullM) &&
+          !runtime::is_valid_layer_major_prefill_mlp_schedule_tactic(
+              static_cast<MlpSchedule>(0xffU)) &&
+          runtime::to_string(MlpSchedule::kPerOperatorPanel) ==
+              "per-operator-panel" &&
+          runtime::to_string(MlpSchedule::kLayerWideP40ExactFullM) ==
+              "layer-wide-p40-exact-full-m" &&
+          runtime::prefill_route_layer_pass_count(
+              5U, MlpSchedule::kPerOperatorPanel) == 5U &&
+          runtime::prefill_route_layer_pass_count(
+              5U, MlpSchedule::kLayerWideP40ExactFullM) == 1U,
+      "MLP schedules have closed, durable topology identities");
+
+  const auto incumbent =
+      build_plan(runtime::kLayerMajorPrefillLayerWideMlpP40Tokens);
+  test.expect(
+      incumbent && incumbent.value->panel_count == 5U &&
+          incumbent.value->mlp_schedule.tactic ==
+              MlpSchedule::kPerOperatorPanel &&
+          incumbent.value->mlp_schedule
+                  .operator_panel_phase_count_per_layer == 5U &&
+          incumbent.value->mlp_schedule
+                  .mlp_phase_submission_count_per_layer == 5U &&
+          incumbent.value->mlp_schedule.maximum_m_per_mlp_submission ==
+              runtime::kLayerMajorPrefillOperatorPanelTokens &&
+          incumbent.value->mlp_schedule
+                  .required_gate_up_projection_launches_per_layer == 0U &&
+          !incumbent.value->mlp_schedule.waits_for_all_operator_panels,
+      "the default P40 topology preserves five panel-local MLP phases and "
+      "makes no unbound physical-launch claim");
+
+  const auto candidate = build_plan(
+      runtime::kLayerMajorPrefillLayerWideMlpP40Tokens, 0U,
+      runtime::kLayerMajorPrefillMaximumSequenceTokens,
+      MlpSchedule::kLayerWideP40ExactFullM);
+  if (!runtime::layer_wide_p40_mlp_prefill_plan_enabled()) {
+    test.expect(
+        !candidate &&
+            candidate.error ==
+                runtime::PrefillExecutionPlanError::kInvalidArgument,
+        "production/default builds fail closed on the test-only P40 plan");
+    return;
+  }
+
+  test.expect(
+      candidate && candidate.value->panel_count == 5U &&
+          candidate.value->mlp_schedule.tactic ==
+              MlpSchedule::kLayerWideP40ExactFullM &&
+          candidate.value->mlp_schedule
+                  .operator_panel_phase_count_per_layer == 5U &&
+          candidate.value->mlp_schedule
+                  .mlp_phase_submission_count_per_layer == 1U &&
+          candidate.value->mlp_schedule.maximum_m_per_mlp_submission ==
+              runtime::kLayerMajorPrefillLayerWideMlpP40Tokens &&
+          candidate.value->mlp_schedule
+                  .required_gate_up_projection_launches_per_layer == 1U &&
+          candidate.value->mlp_schedule
+                  .maximum_standalone_silu_launches_per_layer == 1U &&
+          candidate.value->mlp_schedule
+                  .required_down_projection_launches_per_layer == 1U &&
+          candidate.value->mlp_schedule
+                  .minimum_total_kernel_launches_per_layer == 2U &&
+          candidate.value->mlp_schedule
+                  .maximum_total_kernel_launches_per_layer == 3U &&
+          candidate.value->mlp_schedule.waits_for_all_operator_panels &&
+          candidate.value->mlp_schedule
+              .post_attention_residual_completed_panelwise &&
+          candidate.value->mlp_schedule
+              .post_attention_norm_is_prompt_wide &&
+          candidate.value->mlp_schedule
+              .exact_full_m_binding_required &&
+          candidate.value->mlp_schedule.internal_m_segmentation_forbidden &&
+          !candidate.value->operator_bindings_complete &&
+          !candidate.value->executable() &&
+          runtime::is_valid_unbound_layer_major_prefill_execution_plan(
+              *candidate.value),
+      "P40 completes five Attention/GDN panels then requires one exact "
+      "unsplit full-M MLP phase with a two-to-three launch envelope");
+
+  test.expect(
+      !build_plan(39'968U, 0U,
+                  runtime::kLayerMajorPrefillMaximumSequenceTokens,
+                  MlpSchedule::kLayerWideP40ExactFullM) &&
+          !build_plan(40'064U, 0U,
+                      runtime::kLayerMajorPrefillMaximumSequenceTokens,
+                      MlpSchedule::kLayerWideP40ExactFullM) &&
+          !build_plan(runtime::kLayerMajorPrefillLayerWideMlpP40Tokens, 64U,
+                      runtime::kLayerMajorPrefillMaximumSequenceTokens,
+                      MlpSchedule::kLayerWideP40ExactFullM),
+      "the test-only schedule admits only a cold, exact P40000 prompt");
+
+  runtime::PrefillExecutionPlan mutated = *candidate.value;
+  mutated.mlp_schedule.required_down_projection_launches_per_layer = 2U;
+  test.expect(
+      !runtime::is_valid_unbound_layer_major_prefill_execution_plan(mutated),
+      "a binder cannot relabel an internally segmented Down projection as "
+      "the required one-launch P40 contract");
+
+  runtime::PrefillExecutionProgress progress =
+      runtime::make_prefill_execution_progress(*candidate.value);
+  test.expect(
+      runtime::advance_layer_wide_p40_mlp_progress_after_completion(
+          *candidate.value, progress, 0U) ==
+          runtime::PrefillExecutionProgressError::kOutOfOrder,
+      "full-M MLP cannot publish before every panel phase in its layer");
+  bool ordered = true;
+  for (std::size_t layer = 0U;
+       ordered && layer < candidate.value->layers.size(); ++layer) {
+    for (std::size_t panel = 0U;
+         ordered && panel < candidate.value->panel_count; ++panel) {
+      ordered = runtime::advance_prefill_progress_after_completion(
+                    *candidate.value, progress, layer, panel) ==
+                runtime::PrefillExecutionProgressError::kNone;
+    }
+    ordered = ordered && progress.next_layer == layer &&
+              progress.next_panel == 0U &&
+              progress.completed_mlp_phases[layer] == 0U &&
+              runtime::advance_layer_wide_p40_mlp_progress_after_completion(
+                  *candidate.value, progress, layer) ==
+                  runtime::PrefillExecutionProgressError::kNone &&
+              progress.completed_mlp_phases[layer] == 1U;
+  }
+  test.expect(
+      ordered && progress.next_layer == candidate.value->layers.size() &&
+          runtime::mark_prefill_final_hidden_ready(*candidate.value,
+                                                   progress) ==
+              runtime::PrefillExecutionProgressError::kNone,
+      "progress cannot advance to the next layer or final hidden until its "
+      "single full-M MLP phase completes");
+}
+
 void test_fail_closed_inputs(TestContext& test) {
   test.expect(!build_plan(0U) &&
                   build_plan(0U).error ==
@@ -767,6 +1063,8 @@ int main() {
   test_fixed_layer_schedule(test);
   test_public_unbound_topology_validator(test);
   test_strict_layer_major_progress(test);
+  test_layer_wide_p40_mlp_schedule(test);
+  test_prompt_wide_p40_whole_core_schedule(test);
   test_fail_closed_inputs(test);
   if (test.failures() != 0) {
     std::cerr << test.failures()

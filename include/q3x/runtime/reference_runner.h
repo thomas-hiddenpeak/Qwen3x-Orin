@@ -52,7 +52,7 @@ struct ReferenceRunnerStatus {
   int cuda_error = 0;
   std::size_t layer = kReferenceNoLayer;
   const char* operation = nullptr;
-  // Number of layer-panel completion events retired before cancellation was
+  // Number of layer/phase completion events retired before cancellation was
   // observed. A younger in-flight quantum may be drained during rollback but
   // is intentionally not presented as a cancellation observation point.
   std::uint64_t retired_prefill_quanta = 0U;
@@ -259,6 +259,32 @@ struct ReferenceWholeRequestPrefillResult {
   std::size_t native_nvfp4_true_large_m_gate_up_hits = 0U;
   std::size_t native_nvfp4_true_large_m_down_hits = 0U;
   std::size_t native_nvfp4_true_large_m_physical_launches = 0U;
+  LayerMajorPrefillMlpScheduleTactic mlp_schedule_tactic =
+      LayerMajorPrefillMlpScheduleTactic::kPerOperatorPanel;
+  // Physical, committed witnesses for the exact-P40000 layer-wide phase.
+  // These count one layer phase / GateUp / Down pair, never one per panel.
+  std::size_t layer_wide_p40_mlp_layer_hits = 0U;
+  std::size_t persistent_p40_nvfp4_gate_up_hits = 0U;
+  std::size_t persistent_p40_nvfp4_down_residual_hits = 0U;
+  std::size_t persistent_p40_nvfp4_physical_launches = 0U;
+  std::size_t persistent_p40_fp8_projection_hits = 0U;
+  std::size_t persistent_p40_fp8_projection_bulk_hits = 0U;
+  std::size_t persistent_p40_fp8_projection_oracle_partial_hits = 0U;
+  std::size_t persistent_p40_fp8_projection_physical_launches = 0U;
+  // Exact-P40000 prompt-wide whole-core witnesses. These counters are
+  // intentionally orthogonal to the older logical-panel and layer-wide-MLP
+  // routes: a whole-prompt Attention launch is never reported as five panel
+  // launches, and a fill/drain phase is never reported as an operator-panel
+  // executor hit.
+  std::size_t prompt_wide_p40_whole_core_layer_hits = 0U;
+  std::size_t prompt_wide_p40_fill_panel_hits = 0U;
+  std::size_t prompt_wide_p40_prompt_core_hits = 0U;
+  std::size_t prompt_wide_p40_drain_panel_hits = 0U;
+  std::size_t prompt_wide_p40_fp8_projection_hits = 0U;
+  std::size_t prompt_wide_p40_fp8_projection_physical_launches = 0U;
+  std::size_t prompt_wide_p40_bf16_ab_hits = 0U;
+  std::size_t prompt_wide_p40_gdn_hits = 0U;
+  std::size_t native_flashinfer_exact_whole_prompt_hits = 0U;
   PrefillExecutionProgress progress;
   std::optional<ReferenceStepTiming> timing;
 };
@@ -321,6 +347,11 @@ struct ReferenceLayerMajorRequestBindingDescriptor {
   std::uint32_t max_sequence_length = 0U;
   std::uint32_t operator_panel_capacity_tokens = 0U;
   std::uint32_t legacy_prefill_chunk_size = 0U;
+  std::uint32_t mlp_capacity_tokens = 0U;
+  LayerMajorRequestLayout layout =
+      LayerMajorRequestLayout::kC8192FamilyOverlay;
+  LayerMajorRequestMlpLayout mlp_layout =
+      LayerMajorRequestMlpLayout::kPanelLocalThreeSpan;
   std::uint64_t arena_bytes = 0U;
 
   std::array<RequestLayerSlot, kRequestLayerCount> layers{};
@@ -337,6 +368,7 @@ struct ReferenceLayerMajorRequestBindingDescriptor {
   LayerMajorAttentionPhaseRegions attention;
   LayerMajorMlpPhaseRegions mlp;
   LayerMajorLegacyC512Regions legacy_c512;
+  LayerMajorP40WholeCoreRegions p40_whole_core;
   RequestMatrixRegion final_hidden_bf16;
 
   PrefillHiddenStrategy hidden_strategy{};
@@ -381,6 +413,7 @@ struct ReferenceLayerMajorRequestViews {
   LayerMajorAttentionPhaseViews attention;
   LayerMajorMlpPhaseViews mlp;
   LayerMajorLegacyC512Views legacy_c512;
+  LayerMajorP40WholeCoreViews p40_whole_core;
   DeviceMatrixView final_hidden_bf16;
   ReferenceLayerMajorPersistentViews persistent;
 };
@@ -757,6 +790,7 @@ class ReferenceRunner {
     std::uint32_t final_input_token_id = 0U;
     std::size_t prompt_token_count = 0U;
     std::size_t logical_panel_count = 0U;
+    std::size_t mlp_phase_count_per_layer = 0U;
     const std::uint16_t* final_normalized_hidden = nullptr;
     PrefillExecutionProgress completed_uncommitted_progress{};
     PrefillRouteEvidence route_evidence_after_commit{};
@@ -900,6 +934,11 @@ class ReferenceRunner {
     std::size_t native_nvfp4_true_large_m_gate_up_hits = 0U;
     std::size_t native_nvfp4_true_large_m_down_hits = 0U;
     std::size_t native_nvfp4_true_large_m_physical_launches = 0U;
+    std::size_t persistent_p40_fp8_projection_hits = 0U;
+    std::size_t persistent_p40_fp8_projection_bulk_hits = 0U;
+    std::size_t persistent_p40_fp8_projection_oracle_partial_hits = 0U;
+    std::size_t persistent_p40_fp8_projection_physical_launches = 0U;
+    bool mlp_deferred = false;
 
     [[nodiscard]] bool ok() const noexcept { return status.ok(); }
     [[nodiscard]] explicit operator bool() const noexcept { return ok(); }
@@ -933,7 +972,18 @@ class ReferenceRunner {
   validate_prefill_layer_route_fragment(
       const PrefillLayerSegmentRouteFragment& fragment) noexcept;
   [[nodiscard]] static ReferenceRunnerStatus
+  validate_layer_wide_p40_prefill_layer_route_fragment(
+      const PrefillLayerSegmentRouteFragment& fragment) noexcept;
+  [[nodiscard]] static ReferenceRunnerStatus
   collapse_prefill_layer_route_fragment(
+      const PrefillLayerSegmentRouteFragment& layer_fragment,
+      PrefillRouteEvidence& layer_pass) noexcept;
+  [[nodiscard]] static ReferenceRunnerStatus
+  collapse_layer_wide_p40_prefill_layer_route_fragment(
+      const PrefillLayerSegmentRouteFragment& layer_fragment,
+      PrefillRouteEvidence& request_pass) noexcept;
+  [[nodiscard]] static ReferenceRunnerStatus
+  collapse_validated_prefill_layer_route_fragment(
       const PrefillLayerSegmentRouteFragment& layer_fragment,
       PrefillRouteEvidence& layer_pass) noexcept;
   [[nodiscard]] PrefillLayerSegmentEnqueueResult
@@ -948,7 +998,35 @@ class ReferenceRunner {
       std::uint32_t first_position, std::size_t layer,
       LayerMajorPrefillProjectionTactic projection_tactic,
       LayerMajorPrefillFullAttentionTactic full_attention_tactic,
+      bool defer_mlp,
       const ReferenceLayerMajorRequestViews& request_views) noexcept;
+  [[nodiscard]] ReferenceRunnerStatus enqueue_layer_wide_p40_mlp(
+      std::size_t layer,
+      const ReferenceLayerMajorRequestViews& request_views) noexcept;
+  [[nodiscard]] static bool
+  valid_prompt_wide_p40_whole_core_runner_contract(
+      const PrefillExecutionPlan& immutable_topology,
+      RequestMemoryProfile memory_profile,
+      std::uint32_t max_sequence_length,
+      LayerMajorLayerExecutor executor,
+      LayerMajorPrefillProjectionTactic projection_tactic,
+      LayerMajorPrefillFullAttentionTactic full_attention_tactic) noexcept;
+  [[nodiscard]] ReferenceRunnerStatus
+  enqueue_prompt_wide_p40_whole_core_fill_panel(
+      std::size_t layer, const PrefillOperatorPanel& panel,
+      const ReferenceLayerMajorRequestViews& request_views,
+      std::size_t& fp8_projection_hits,
+      std::size_t& fp8_physical_launches) noexcept;
+  [[nodiscard]] ReferenceRunnerStatus
+  enqueue_prompt_wide_p40_whole_core_prompt_core(
+      std::size_t layer,
+      const ReferenceLayerMajorRequestViews& request_views) noexcept;
+  [[nodiscard]] ReferenceRunnerStatus
+  enqueue_prompt_wide_p40_whole_core_drain_panel(
+      std::size_t layer, const PrefillOperatorPanel& panel,
+      const ReferenceLayerMajorRequestViews& request_views,
+      std::size_t& fp8_projection_hits,
+      std::size_t& fp8_physical_launches) noexcept;
   [[nodiscard]] static bool same_prefill_execution_progress(
       const PrefillExecutionProgress& left,
       const PrefillExecutionProgress& right) noexcept;

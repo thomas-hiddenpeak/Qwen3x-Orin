@@ -36,6 +36,17 @@
 
 namespace MARLIN_NAMESPACE_NAME {
 
+// Output-tile ownership is deliberately independent from the operand dtype
+// and dequantization body.  The default retains upstream Marlin's striped
+// M-major scheduling behavior.  The two persistent policies assign one
+// complete K reduction to one CTA (no Split-K/Stream-K) and only change the
+// logical MN -> physical MN mapping, so NVFP4 and FP8 W8A16 can share them.
+enum class MarlinTileRasterPolicy : int {
+  kLegacyStripe = 0,
+  kGroupedM4NMajor = 1,
+  kBStationaryNMajor = 2,
+};
+
 #if defined(__CUDA_ARCH__) && __CUDA_ARCH__ < 750
 
 template <typename scalar_t,  // compute dtype, half or nv_float16
@@ -55,7 +66,10 @@ template <typename scalar_t,  // compute dtype, half or nv_float16
           const int group_blocks,    // number of consecutive 16x16 blocks
                                      // with a separate quantization scale
           const bool is_zp_float,    // is zero point of float16 type?
-          const bool fused_gate_up = false
+          const bool fused_gate_up = false,
+          const MarlinTileRasterPolicy tile_raster =
+              MarlinTileRasterPolicy::kLegacyStripe,
+          const bool fused_residual = false
           >
 __global__ void Marlin(
     const int4* __restrict__ A,  // fp16 input matrix of shape mxk
@@ -240,7 +254,10 @@ template <const vllm::ScalarTypeId a_type_id,  // A ScalarType id
           const int group_blocks,  // number of consecutive 16x16 blocks
                                    // with a separate quantization scale
           const bool is_zp_float,  // is zero point of float16 type?
-          const bool fused_gate_up = false
+          const bool fused_gate_up = false,
+          const MarlinTileRasterPolicy tile_raster =
+              MarlinTileRasterPolicy::kLegacyStripe,
+          const bool fused_residual = false
           >
 __global__ void Marlin(
     const int4* __restrict__ A0,  // fp16 input matrix of shape mxk
@@ -308,6 +325,7 @@ __global__ void Marlin(
   using Cdtype = MarlinScalarType<c_type_id>;
   const int4* A = A0;
   int4* C = C0;
+  const int4* const b_bias0 = b_bias_ptr;
 
   using scalar_t = typename MarlinScalarType<a_type_id>::scalar_t;
   using scalar_t2 = typename MarlinScalarType<a_type_id>::scalar_t2;
@@ -362,6 +380,19 @@ __global__ void Marlin(
 
   constexpr bool has_act_order = group_blocks == 0;
   constexpr int m_block_size = m_block_size_8 ? 8 : (16 * thread_m_blocks);
+  constexpr bool persistent_output_raster =
+      tile_raster != MarlinTileRasterPolicy::kLegacyStripe;
+  static_assert(!(fused_gate_up && fused_residual));
+  static_assert(!fused_residual || persistent_output_raster);
+
+  if constexpr (persistent_output_raster) {
+    // The persistent policies deliberately reuse this exact M64N256K64 core.
+    // They are dtype-independent, but a different compute tile must introduce
+    // a separately reviewed ownership policy instead of inheriting this one.
+    static_assert(!m_block_size_8 && thread_m_blocks == 4 &&
+                  thread_n_blocks == 16 && thread_k_blocks == 4 &&
+                  stages == 4);
+  }
 
   extern __shared__ int4 sh[];
   float* sh_a_s = reinterpret_cast<float*>(sh);
@@ -385,7 +416,17 @@ __global__ void Marlin(
   int part1_mn_iters = 0;
   bool in_part2 = false;
 
-  if (global_mn_tiles > gridDim.x) {
+  if constexpr (persistent_output_raster) {
+    // One CTA owns the complete K reduction for every assigned output tile.
+    // There is no part-2 K striping, lock, global reduction, Split-K, or
+    // Stream-K.  The 16 persistent CTAs advance by gridDim.x tasks.
+    part2_mn_tiles = 0;
+    part1_mn_iters =
+        blockIdx.x < global_mn_tiles
+            ? div_ceil(global_mn_tiles - static_cast<int>(blockIdx.x),
+                       static_cast<int>(gridDim.x))
+            : 0;
+  } else if (global_mn_tiles > gridDim.x) {
     part2_mn_tiles = global_mn_tiles % gridDim.x;
     if (part2_mn_tiles * 3 <= gridDim.x) part2_mn_tiles += gridDim.x;
     part1_mn_iters = (global_mn_tiles - part2_mn_tiles) / gridDim.x;
@@ -415,6 +456,45 @@ __global__ void Marlin(
 
   int par_id = 0;
   int locks_off = 0;
+
+  // Map one logical persistent task to a physical (M,N) tile.  This mapping
+  // does not depend on A/B/S dtypes or their decode path.  Grouped-M4 keeps a
+  // bounded A+B+scale working cohort; B-stationary traverses the complete M
+  // slab for one N tile before advancing N.
+  auto bind_persistent_output_tile = [&](const int logical_tile) {
+    int mapped_m = 0;
+    int mapped_n = 0;
+    if constexpr (tile_raster ==
+                  MarlinTileRasterPolicy::kGroupedM4NMajor) {
+      constexpr int group_m = 4;
+      const int complete_group_tasks = group_m * n_tiles;
+      const int group = logical_tile / complete_group_tasks;
+      const int group_begin_m = group * group_m;
+      const int remaining_m = parallel - group_begin_m;
+      const int group_rows = remaining_m < group_m ? remaining_m : group_m;
+      const int in_group = logical_tile - group * complete_group_tasks;
+      mapped_m = group_begin_m + in_group % group_rows;
+      mapped_n = in_group / group_rows;
+    } else if constexpr (tile_raster ==
+                         MarlinTileRasterPolicy::kBStationaryNMajor) {
+      mapped_m = logical_tile % parallel;
+      mapped_n = logical_tile / parallel;
+    }
+    par_id = mapped_m;
+    slice_col = mapped_n;
+    A = A0 + 16 * thread_m_blocks / (is_a_8bit ? 16 : 8) * par_id * lda;
+    if constexpr (fused_gate_up) {
+      // With one complete K reduction, the final fused writer never consumes
+      // C.  Keep the unused pointer at its base instead of forming an invalid
+      // full-M offset into a small safety scratch.
+      C = C0;
+      b_bias_ptr = reinterpret_cast<const int4*>(
+          reinterpret_cast<const int2*>(b_bias0) +
+          2 * thread_m_blocks * prob_n * par_id);
+    } else {
+      C = C0 + 16 * thread_m_blocks / 8 * par_id * prob_n;
+    }
+  };
 
   if (part2_mn_tiles >= gridDim.x) {
     // when part2_mn_tiles >= sms
@@ -477,16 +557,18 @@ __global__ void Marlin(
       if (threadIdx.x == 0) locks[locks_off] = 1 - slice_count;
     }
 
-    if (slice_col == n_tiles) {
-      A += 16 * thread_m_blocks * lda / (is_a_8bit ? 16 : 8);
-      C += 16 * thread_m_blocks * prob_n / 8;
-      if constexpr (fused_gate_up) {
-        b_bias_ptr = reinterpret_cast<const int4*>(
-            reinterpret_cast<const int2*>(b_bias_ptr) +
-            2 * thread_m_blocks * prob_n);
+    if constexpr (!persistent_output_raster) {
+      if (slice_col == n_tiles) {
+        A += 16 * thread_m_blocks * lda / (is_a_8bit ? 16 : 8);
+        C += 16 * thread_m_blocks * prob_n / 8;
+        if constexpr (fused_gate_up) {
+          b_bias_ptr = reinterpret_cast<const int4*>(
+              reinterpret_cast<const int2*>(b_bias_ptr) +
+              2 * thread_m_blocks * prob_n);
+        }
+        slice_col = 0;
+        par_id++;
       }
-      slice_col = 0;
-      par_id++;
     }
     if (is_a_8bit && (first_init || slice_col == 0)) {
       __syncthreads();
@@ -499,17 +581,21 @@ __global__ void Marlin(
   auto init_part1_slice = [&]() {
     if (part1_mn_iters) {
       part1_mn_iters--;
-      if constexpr (fused_gate_up) {
-        b_bias_ptr = reinterpret_cast<const int4*>(
-            reinterpret_cast<const int2*>(b_bias_ptr) +
-            2 * thread_m_blocks * prob_n *
-                (slice_col_par / n_tiles - par_id));
+      if constexpr (persistent_output_raster) {
+        bind_persistent_output_tile(slice_col_par);
+      } else {
+        if constexpr (fused_gate_up) {
+          b_bias_ptr = reinterpret_cast<const int4*>(
+              reinterpret_cast<const int2*>(b_bias_ptr) +
+              2 * thread_m_blocks * prob_n *
+                  (slice_col_par / n_tiles - par_id));
+        }
+        par_id = slice_col_par / n_tiles;
+        slice_col = slice_col_par % n_tiles;
+        A = A0 + 16 * thread_m_blocks / (is_a_8bit ? 16 : 8) * par_id * lda;
+        C = C0 + 16 * thread_m_blocks / 8 * par_id * prob_n;
       }
-      par_id = slice_col_par / n_tiles;
-      slice_col = slice_col_par % n_tiles;
       slice_iters = k_tiles;
-      A = A0 + 16 * thread_m_blocks / (is_a_8bit ? 16 : 8) * par_id * lda;
-      C = C0 + 16 * thread_m_blocks / 8 * par_id * prob_n;
       if (is_a_8bit) {
         __syncthreads();
         int a_s_gl_rd = par_id * 16 * thread_m_blocks + threadIdx.x;
@@ -524,17 +610,30 @@ __global__ void Marlin(
       in_part2 = true;
       slice_col_par = (iters * blockIdx.x) / k_tiles;
       slice_row = (iters * blockIdx.x) % k_tiles;
-      slice_col = (slice_col_par + global_mn_tiles - part2_mn_tiles) % n_tiles;
-      if constexpr (fused_gate_up) {
-        b_bias_ptr = reinterpret_cast<const int4*>(
-            reinterpret_cast<const int2*>(b_bias_ptr) +
-            2 * thread_m_blocks * prob_n *
-                ((slice_col_par + global_mn_tiles - part2_mn_tiles) / n_tiles -
-                 par_id));
+      if constexpr (persistent_output_raster) {
+        slice_col = 0;
+        par_id = 0;
+        A = A0;
+        C = C0;
+        if constexpr (fused_gate_up) {
+          b_bias_ptr = b_bias0;
+        }
+      } else {
+        slice_col =
+            (slice_col_par + global_mn_tiles - part2_mn_tiles) % n_tiles;
+        if constexpr (fused_gate_up) {
+          b_bias_ptr = reinterpret_cast<const int4*>(
+              reinterpret_cast<const int2*>(b_bias_ptr) +
+              2 * thread_m_blocks * prob_n *
+                  ((slice_col_par + global_mn_tiles - part2_mn_tiles) /
+                       n_tiles -
+                   par_id));
+        }
+        par_id =
+            (slice_col_par + global_mn_tiles - part2_mn_tiles) / n_tiles;
+        A = A0 + 16 * thread_m_blocks / (is_a_8bit ? 16 : 8) * par_id * lda;
+        C = C0 + 16 * thread_m_blocks / 8 * par_id * prob_n;
       }
-      par_id = (slice_col_par + global_mn_tiles - part2_mn_tiles) / n_tiles;
-      A = A0 + 16 * thread_m_blocks / (is_a_8bit ? 16 : 8) * par_id * lda;
-      C = C0 + 16 * thread_m_blocks / 8 * par_id * prob_n;
     }
     if (!in_part2) {
       init_part1_slice();
@@ -1776,6 +1875,28 @@ __global__ void Marlin(
           } else {
             C[c_gl_wr] = sh_red[c_sh_rd];
           }
+        } else if constexpr (fused_residual) {
+          // `write()` has already applied the global scale and converted the
+          // branch to the public BF16/FP16 boundary in shared memory.  Read
+          // the BF16/FP16 residual from C, add in FP32, round once more to the
+          // same public dtype, and publish in place.  This ordering preserves
+          // the branch boundary and avoids a third physical kernel.
+          const int4 branch = sh_red[c_sh_rd];
+          const int4 residual = C[c_gl_wr];
+          int4 fused;
+          const c_scalar_t* const branch_values =
+              reinterpret_cast<const c_scalar_t*>(&branch);
+          const c_scalar_t* const residual_values =
+              reinterpret_cast<const c_scalar_t*>(&residual);
+          c_scalar_t* const fused_values =
+              reinterpret_cast<c_scalar_t*>(&fused);
+  #pragma unroll
+          for (int value = 0; value < 8; ++value) {
+            fused_values[value] = Cdtype::float2num(
+                Cdtype::num2float(branch_values[value]) +
+                Cdtype::num2float(residual_values[value]));
+          }
+          C[c_gl_wr] = fused;
         } else {
           C[c_gl_wr] = sh_red[c_sh_rd];
         }

@@ -38,12 +38,15 @@ void PrintUsage(std::ostream& output) {
       << "  --prefill-execution-mode legacy|layer-major (default legacy)\n"
       << "  --prefill-attention-tactic exact-segmented|native-group-q64-panel|\n"
       << "                             native-group-q128-v4-panel|\n"
-      << "                             native-flashinfer-exact-panel\n"
+      << "                             native-flashinfer-exact-panel|\n"
+      << "                             native-flashinfer-exact-whole-prompt\n"
       << "  --prefill-projection-tactic exact-segmented|\n"
       << "                              segmented-marlin-operator-panel|\n"
       << "                              native-quantized-large-m-operator-panel|\n"
       << "                              native-nvfp4-true-large-m-operator-panel|\n"
-      << "                              native-nvfp4-g2-d2-large-m-operator-panel\n"
+      << "                              native-nvfp4-g2-d2-large-m-operator-panel|\n"
+      << "                              native-nvfp4-persistent-p40-layer-wide-mlp|\n"
+      << "                              native-prompt-wide-p40-whole-core\n"
       << "  --nvtx-phase-ranges        Emit generation/Prefill/Decode ranges\n"
       << "  --queue-capacity N          Bounded inference queue, max 62 (default 8)\n"
       << "  --ingress-threads N         Fixed HTTP threads, queue+2 min (default 10)\n"
@@ -155,10 +158,15 @@ template <typename T>
         options.prefill_full_attention_tactic = q3x::runtime::
             LayerMajorPrefillFullAttentionTactic::
                 kNativeFlashInferExactPanel;
+      } else if (value == "native-flashinfer-exact-whole-prompt") {
+        options.prefill_full_attention_tactic = q3x::runtime::
+            LayerMajorPrefillFullAttentionTactic::
+                kNativeFlashInferExactWholePrompt;
       } else {
         error = "--prefill-attention-tactic must be exact-segmented or "
                 "native-group-q64-panel or native-group-q128-v4-panel or "
-                "native-flashinfer-exact-panel";
+                "native-flashinfer-exact-panel or "
+                "native-flashinfer-exact-whole-prompt";
         return false;
       }
     } else if (argument == "--prefill-projection-tactic") {
@@ -183,12 +191,23 @@ template <typename T>
         options.prefill_projection_tactic = q3x::runtime::
             LayerMajorPrefillProjectionTactic::
                 kNativeNvfp4G2D2LargeMOperatorPanel;
+      } else if (value ==
+                 "native-nvfp4-persistent-p40-layer-wide-mlp") {
+        options.prefill_projection_tactic = q3x::runtime::
+            LayerMajorPrefillProjectionTactic::
+                kNativeNvfp4PersistentP40LayerWideMlp;
+      } else if (value == "native-prompt-wide-p40-whole-core") {
+        options.prefill_projection_tactic = q3x::runtime::
+            LayerMajorPrefillProjectionTactic::
+                kNativePromptWideP40WholeCore;
       } else {
         error = "--prefill-projection-tactic must be exact-segmented or "
                 "segmented-marlin-operator-panel or "
                 "native-quantized-large-m-operator-panel or "
                 "native-nvfp4-true-large-m-operator-panel or "
-                "native-nvfp4-g2-d2-large-m-operator-panel";
+                "native-nvfp4-g2-d2-large-m-operator-panel or "
+                "native-nvfp4-persistent-p40-layer-wide-mlp or "
+                "native-prompt-wide-p40-whole-core";
         return false;
       }
     } else if (argument == "--queue-capacity") {

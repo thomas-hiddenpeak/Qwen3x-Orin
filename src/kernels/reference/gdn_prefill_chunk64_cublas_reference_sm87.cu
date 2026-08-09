@@ -6,12 +6,14 @@
 #include "../sm87/gdn_prefill_wy_vllm_layout_sm87.h"
 
 #include "q3x/kernels/gdn_prefill_chunk64_workspace_abi.h"
+#include "q3x/kernels/gdn_prefill_prompt_wide_chunk_graph_abi.h"
 #include "q3x/runtime/gdn_decode.h"
 
 #include <cuda_bf16.h>
 #include <cuda_runtime.h>
 #include <mma.h>
 
+#include <atomic>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -219,6 +221,18 @@ using WmmaAccumulator =
   return kernels::kGdnPrefillChunk64NativeWorkspaceBytes;
 }
 
+enum class WorkspaceProfile : std::uint8_t {
+  kLegacyC512 = 0,
+  kPromptWideP40,
+};
+
+[[nodiscard]] constexpr std::size_t required_workspace_bytes(
+    const WorkspaceProfile profile) noexcept {
+  return profile == WorkspaceProfile::kLegacyC512
+             ? required_workspace_bytes()
+             : kernels::kGdnPromptWideChunkGraphP40WorkspaceBytes;
+}
+
 static_assert(required_workspace_bytes() == 75'694'080U);
 
 struct Workspace {
@@ -271,6 +285,42 @@ template <typename T>
   workspace.gamma = workspace_region<float>(base, layout.gamma_offset);
   workspace.beta = workspace_region<float>(base, layout.beta_offset);
   return layout.total_bytes <= capacity;
+}
+
+[[nodiscard]] bool partition_prompt_wide_p40_workspace(
+    void* const raw, const std::size_t capacity,
+    Workspace& workspace) noexcept {
+  constexpr auto& plan = kernels::kGdnPromptWideChunkGraphP40WorkspacePlan;
+  constexpr auto& layout = plan.layout;
+  if (!plan.ok() || raw == nullptr || capacity < layout.total_bytes ||
+      (reinterpret_cast<std::uintptr_t>(raw) &
+       (kernels::kGdnPromptWideChunkGraphAlignment - 1U)) != 0U) {
+    return false;
+  }
+  auto* const base = static_cast<std::uint8_t*>(raw);
+  workspace.q =
+      workspace_region<std::uint16_t>(base, layout.compact_q_offset);
+  workspace.k =
+      workspace_region<std::uint16_t>(base, layout.compact_k_offset);
+  workspace.k_g = nullptr;
+  workspace.k_decay = nullptr;
+  workspace.v =
+      workspace_region<std::uint16_t>(base, layout.raw_output_offset);
+  workspace.transform =
+      workspace_region<std::uint16_t>(base, layout.transform_offset);
+  workspace.qk = nullptr;
+  workspace.w =
+      workspace_region<std::uint16_t>(base, layout.w_offset);
+  workspace.u =
+      workspace_region<std::uint16_t>(base, layout.u_offset);
+  workspace.v_new =
+      workspace_region<std::uint16_t>(base, layout.v_new_offset);
+  workspace.boundary_state =
+      workspace_region<std::uint16_t>(base, layout.boundary_state_offset);
+  workspace.kkt = workspace_region<float>(base, layout.raw_gram_offset);
+  workspace.gamma = workspace_region<float>(base, layout.gamma_offset);
+  workspace.beta = workspace_region<float>(base, layout.beta_offset);
+  return true;
 }
 
 __device__ __forceinline__ float decode_bf16_device(
@@ -2909,10 +2959,20 @@ void reconstruct_norm_gate_chunk64_kernel(
     const std::uint16_t* const norm_weight,
     const std::uint16_t* const silu_gate,
     const float norm_epsilon,
-    const std::uint16_t* const output) noexcept {
-  return token_count == 0U || token_count > kTokenCount ||
+    const std::uint16_t* const output,
+    const WorkspaceProfile workspace_profile) noexcept {
+  const std::size_t maximum_token_count =
+      workspace_profile == WorkspaceProfile::kLegacyC512
+          ? kTokenCount
+          : kernels::kGdnPromptWideChunkGraphP40Tokens;
+  const bool invalid_prompt_wide_shape =
+      workspace_profile == WorkspaceProfile::kPromptWideP40 &&
+      token_count != kernels::kGdnPromptWideChunkGraphP40Tokens;
+  return token_count == 0U || token_count > maximum_token_count ||
+         invalid_prompt_wide_shape ||
          workspace == nullptr ||
-         workspace_capacity_bytes < required_workspace_bytes() ||
+         workspace_capacity_bytes <
+             required_workspace_bytes(workspace_profile) ||
          conv_qkv == nullptr || a == nullptr || b == nullptr ||
          A_log == nullptr || dt_bias == nullptr || state_input == nullptr ||
          state_output == nullptr || norm_weight == nullptr ||
@@ -2955,18 +3015,25 @@ int launch_impl(void* const context,
                 const float norm_epsilon,
                 std::uint16_t* const output,
                 void* const cuda_stream,
+                const WorkspaceProfile workspace_profile,
                 const bool qk_preprocessed,
                 const bool fixed_production) noexcept {
   if (invalid_arguments(context, workspace_raw, workspace_capacity_bytes,
                         token_count, conv_qkv, a, b, A_log, dt_bias,
                         state_input, state_output, l2_epsilon, norm_weight,
-                        silu_gate, norm_epsilon, output)) {
+                        silu_gate, norm_epsilon, output,
+                        workspace_profile)) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
   (void)context;
   Workspace workspace;
-  if (!partition_workspace(workspace_raw, workspace_capacity_bytes,
-                           workspace)) {
+  const bool workspace_partitioned =
+      workspace_profile == WorkspaceProfile::kLegacyC512
+          ? partition_workspace(workspace_raw, workspace_capacity_bytes,
+                                workspace)
+          : partition_prompt_wide_p40_workspace(
+                workspace_raw, workspace_capacity_bytes, workspace);
+  if (!workspace_partitioned) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
   const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
@@ -3101,10 +3168,18 @@ int launch_impl(void* const context,
       return status;
     }
   } else if (use_vllm_layout_wy) {
-    status = gdn_prefill_wy_vllm_layout_detail::launch_packless(
-        workspace.k, workspace.gamma, workspace.beta, conv_qkv,
-        token_count, chunk_count, workspace.kkt, workspace.transform,
-        workspace.w, workspace.u, cuda_stream);
+    status = workspace_profile == WorkspaceProfile::kPromptWideP40
+                 ? gdn_prefill_wy_vllm_layout_detail::
+                       launch_packless_prompt_wide_p40(
+                           workspace.k, workspace.gamma, workspace.beta,
+                           conv_qkv, token_count, chunk_count, workspace.kkt,
+                           workspace.transform, workspace.w, workspace.u,
+                           cuda_stream)
+                 : gdn_prefill_wy_vllm_layout_detail::launch_packless(
+                       workspace.k, workspace.gamma, workspace.beta,
+                       conv_qkv, token_count, chunk_count, workspace.kkt,
+                       workspace.transform, workspace.w, workspace.u,
+                       cuda_stream);
     if (status != static_cast<int>(cudaSuccess)) {
       return status;
     }
@@ -3200,12 +3275,19 @@ int launch_impl(void* const context,
           static_cast<unsigned int>(chunk_count), workspace.v_new,
           workspace.boundary_state, workspace.k_decay, workspace.k_g);
     } else {
-      static const int attribute_status = static_cast<int>(
-          cudaFuncSetAttribute(
-              persistent_state_chunk64_vllm_faithful_kernel<false>,
-              cudaFuncAttributeMaxDynamicSharedMemorySize,
-              static_cast<int>(kFaithfulStateSharedBytes)));
-      status = attribute_status;
+      // The prompt-wide route owns an explicit startup/resource preflight and
+      // reaches this point only after it succeeds. Preserve the established
+      // lazy attribute guard byte-for-byte for the legacy C512 route.
+      if (workspace_profile == WorkspaceProfile::kLegacyC512) {
+        static const int attribute_status = static_cast<int>(
+            cudaFuncSetAttribute(
+                persistent_state_chunk64_vllm_faithful_kernel<false>,
+                cudaFuncAttributeMaxDynamicSharedMemorySize,
+                static_cast<int>(kFaithfulStateSharedBytes)));
+        status = attribute_status;
+      } else {
+        status = static_cast<int>(cudaSuccess);
+      }
       if (status != static_cast<int>(cudaSuccess)) {
         return status;
       }
@@ -3234,10 +3316,17 @@ int launch_impl(void* const context,
     // Packless WY/state never touch workspace.v. Reuse that exact-size
     // legacy region for the BF16 [T,H,V] boundary between BV64 owners and
     // the independent exact D128 norm/gate epilogue.
-    status = gdn_prefill_chunk_o_bv64_detail::launch(
-        workspace.q, workspace.k, workspace.boundary_state,
-        workspace.v_new, workspace.gamma, token_count, norm_weight,
-        silu_gate, norm_epsilon, workspace.v, output, cuda_stream);
+    status = workspace_profile == WorkspaceProfile::kPromptWideP40
+                 ? gdn_prefill_chunk_o_bv64_detail::launch_prompt_wide_p40(
+                       workspace.q, workspace.k, workspace.boundary_state,
+                       workspace.v_new, workspace.gamma, token_count,
+                       norm_weight, silu_gate, norm_epsilon, workspace.v,
+                       output, cuda_stream)
+                 : gdn_prefill_chunk_o_bv64_detail::launch(
+                       workspace.q, workspace.k, workspace.boundary_state,
+                       workspace.v_new, workspace.gamma, token_count,
+                       norm_weight, silu_gate, norm_epsilon, workspace.v,
+                       output, cuda_stream);
   } else {
     constexpr std::size_t reconstruction_shared_bytes =
         kDimension * kChunkSize * sizeof(float);
@@ -3294,8 +3383,8 @@ int launch(void* const context,
   return launch_impl(context, workspace_raw, workspace_capacity_bytes,
                      token_count, conv_qkv, a, b, A_log, dt_bias,
                      state_input, state_output, l2_epsilon, norm_weight,
-                     silu_gate, norm_epsilon, output, cuda_stream, false,
-                     false);
+                     silu_gate, norm_epsilon, output, cuda_stream,
+                     WorkspaceProfile::kLegacyC512, false, false);
 }
 
 int query_native_resources(int* const registers_per_thread,
@@ -3384,7 +3473,9 @@ int launch_fixed_production(
   return gdn_prefill_chunk64_reference_detail::launch_impl(
       nullptr, workspace, workspace_capacity_bytes, token_count, conv_qkv, a,
       b, A_log, dt_bias, state_input, state_output, l2_epsilon, norm_weight,
-      silu_gate, norm_epsilon, output, cuda_stream, false, true);
+      silu_gate, norm_epsilon, output, cuda_stream,
+      gdn_prefill_chunk64_reference_detail::WorkspaceProfile::kLegacyC512,
+      false, true);
 }
 
 int launch_fused_conv_compact_qk_preprocess(
@@ -3433,7 +3524,9 @@ int launch_qk_preprocessed(
   return gdn_prefill_chunk64_reference_detail::launch_impl(
       nullptr, workspace, workspace_capacity_bytes, token_count, conv_qkv, a,
       b, A_log, dt_bias, state_input, state_output, l2_epsilon, norm_weight,
-      silu_gate, norm_epsilon, output, cuda_stream, true, false);
+      silu_gate, norm_epsilon, output, cuda_stream,
+      gdn_prefill_chunk64_reference_detail::WorkspaceProfile::kLegacyC512,
+      true, false);
 }
 
 int launch_compact_qk_baseline_for_test(
@@ -3477,3 +3570,164 @@ int query_resources(int* const registers_per_thread,
 }
 
 }  // namespace q3x::runtime::gdn_prefill_chunk64_native_detail
+
+#if defined(Q3X_ENABLE_GDN_PROMPT_WIDE_CHUNK_GRAPH_ADMISSION)
+
+namespace q3x::runtime::gdn_prefill_prompt_wide_chunk_graph_detail {
+
+namespace {
+
+// Constant initialization only: no CUDA driver work occurs until the
+// explicit preflight API is called. A release store publishes the resource
+// receipt, and an acquire load makes subsequent layer calls no-op queries.
+std::atomic<int> g_resource_preflight_state{0};  // 0=new, 1=busy, 2=ready
+ResourcePreflightReceipt g_resource_preflight_receipt{};
+
+}  // namespace
+
+bool supports(const std::size_t token_count) noexcept {
+  return kernels::make_gdn_prompt_wide_chunk_graph_workspace_plan(
+             token_count)
+      .ok();
+}
+
+std::size_t workspace_bytes() noexcept {
+  return kernels::kGdnPromptWideChunkGraphP40WorkspaceBytes;
+}
+
+int preflight_resources(ResourcePreflightReceipt* const receipt) noexcept {
+  if (receipt == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  int state = g_resource_preflight_state.load(std::memory_order_acquire);
+  if (state == 2) {
+    *receipt = g_resource_preflight_receipt;
+    return static_cast<int>(cudaSuccess);
+  }
+  if (state == 1) {
+    return static_cast<int>(cudaErrorNotReady);
+  }
+  int expected = 0;
+  if (!g_resource_preflight_state.compare_exchange_strong(
+          expected, 1, std::memory_order_acq_rel,
+          std::memory_order_acquire)) {
+    return expected == 2 ? (*receipt = g_resource_preflight_receipt,
+                            static_cast<int>(cudaSuccess))
+                         : static_cast<int>(cudaErrorNotReady);
+  }
+
+  using namespace gdn_prefill_chunk64_reference_detail;
+  cudaError_t status = cudaFuncSetAttribute(
+      persistent_state_chunk64_vllm_faithful_kernel<false>,
+      cudaFuncAttributeMaxDynamicSharedMemorySize,
+      static_cast<int>(kFaithfulStateSharedBytes));
+  cudaFuncAttributes attributes{};
+  if (status == cudaSuccess) {
+    status = cudaFuncGetAttributes(
+        &attributes, persistent_state_chunk64_vllm_faithful_kernel<false>);
+  }
+  int active_blocks = 0;
+  if (status == cudaSuccess) {
+    status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+        &active_blocks,
+        persistent_state_chunk64_vllm_faithful_kernel<false>,
+        static_cast<int>(kFusedSolveThreads), kFaithfulStateSharedBytes);
+  }
+  if (status != cudaSuccess ||
+      attributes.maxThreadsPerBlock < static_cast<int>(kFusedSolveThreads) ||
+      active_blocks <= 0) {
+    g_resource_preflight_state.store(0, std::memory_order_release);
+    return status != cudaSuccess ? static_cast<int>(status)
+                                 : static_cast<int>(cudaErrorInvalidConfiguration);
+  }
+
+  g_resource_preflight_receipt.registers_per_thread = attributes.numRegs;
+  g_resource_preflight_receipt.static_shared_bytes =
+      attributes.sharedSizeBytes;
+  g_resource_preflight_receipt.dynamic_shared_bytes =
+      kFaithfulStateSharedBytes;
+  g_resource_preflight_receipt.local_bytes = attributes.localSizeBytes;
+  g_resource_preflight_receipt.maximum_threads_per_block =
+      attributes.maxThreadsPerBlock;
+  g_resource_preflight_receipt.active_blocks_per_sm = active_blocks;
+  g_resource_preflight_state.store(2, std::memory_order_release);
+  *receipt = g_resource_preflight_receipt;
+  return static_cast<int>(cudaSuccess);
+}
+
+int launch(
+    void* const workspace_raw,
+    const std::size_t workspace_capacity_bytes,
+    const std::uint16_t* const raw_qkv,
+    const std::size_t token_count,
+    const std::uint16_t* const conv_weight,
+    std::uint16_t* const conv_history_in_out,
+    std::uint16_t* const conv_qkv_output,
+    const std::uint16_t* const a,
+    const std::uint16_t* const b,
+    const std::uint16_t* const A_log,
+    const std::uint16_t* const dt_bias,
+    const std::uint16_t* const state_input,
+    std::uint16_t* const state_output,
+    const float l2_epsilon,
+    const std::uint16_t* const norm_weight,
+    const std::uint16_t* const silu_gate,
+    const float norm_epsilon,
+    std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  using gdn_prefill_chunk64_reference_detail::Workspace;
+  using gdn_prefill_chunk64_reference_detail::WorkspaceProfile;
+  const auto buffer_contract =
+      kernels::inspect_gdn_prompt_wide_chunk_graph_buffer_contract(
+          workspace_raw, workspace_capacity_bytes, raw_qkv, token_count,
+          conv_weight, conv_history_in_out, conv_qkv_output, a, b, A_log,
+          dt_bias, state_input, state_output, norm_weight, silu_gate, output);
+  if (!buffer_contract.ok() || !supports(token_count) ||
+      gdn_prefill_chunk64_reference_detail::invalid_arguments(
+          nullptr, workspace_raw, workspace_capacity_bytes, token_count,
+          conv_qkv_output, a, b, A_log, dt_bias, state_input, state_output,
+          l2_epsilon, norm_weight, silu_gate, norm_epsilon, output,
+          WorkspaceProfile::kPromptWideP40)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+
+  Workspace workspace;
+  if (!gdn_prefill_chunk64_reference_detail::
+          partition_prompt_wide_p40_workspace(
+              workspace_raw, workspace_capacity_bytes, workspace)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+
+  ResourcePreflightReceipt resource_receipt{};
+  const int preflight_status = preflight_resources(&resource_receipt);
+  if (preflight_status != static_cast<int>(cudaSuccess)) {
+    return preflight_status;
+  }
+
+  // This is the only public candidate call. The causal convolution and
+  // compact Q/K producer is one P40 grid, so integration cannot accidentally
+  // retain eighty C512 convolution submissions while claiming a prompt-wide
+  // recurrent graph.
+  int status = gdn_prefill_whole_span_conv_detail::
+      launch_causal_conv1d_silu_update_prompt_wide_p40_compact_qk_exact_cuda(
+          raw_qkv, token_count, conv_weight, conv_history_in_out,
+          conv_qkv_output, l2_epsilon, workspace.q, workspace.k,
+          cuda_stream);
+  if (status != static_cast<int>(cudaSuccess)) {
+    return status;
+  }
+
+  // Fixed-production selects the exact compact-QK, vLLM-layout WY,
+  // faithful-BF16-state, and BV64 O routes without environment selectors or
+  // diagnostic hooks. qk_preprocessed consumes the compact boundaries from
+  // the immediately preceding same-stream convolution grid.
+  return gdn_prefill_chunk64_reference_detail::launch_impl(
+      nullptr, workspace_raw, workspace_capacity_bytes, token_count,
+      conv_qkv_output, a, b, A_log, dt_bias, state_input, state_output,
+      l2_epsilon, norm_weight, silu_gate, norm_epsilon, output, cuda_stream,
+      WorkspaceProfile::kPromptWideP40, true, true);
+}
+
+}  // namespace q3x::runtime::gdn_prefill_prompt_wide_chunk_graph_detail
+
+#endif  // Q3X_ENABLE_GDN_PROMPT_WIDE_CHUNK_GRAPH_ADMISSION

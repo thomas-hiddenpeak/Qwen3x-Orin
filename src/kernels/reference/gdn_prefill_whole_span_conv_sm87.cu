@@ -1,9 +1,11 @@
 #include "gdn_prefill_whole_span_conv_sm87.h"
 
+#include "q3x/kernels/gdn_prefill_prompt_wide_chunk_graph_abi.h"
 #include "q3x/runtime/gdn_decode.h"
 
 #include <cuda_runtime.h>
 
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -399,6 +401,124 @@ void inspect_boundaries(const std::uint16_t* const conv_qkv,
   }
 }
 
+namespace {
+
+[[nodiscard]] bool invalid_compact_qk_arguments(
+    const std::uint16_t* const raw_qkv,
+    const std::size_t token_count,
+    const std::size_t maximum_token_count,
+    const std::uint16_t* const conv_weight,
+    const std::uint16_t* const history_in_out,
+    const std::uint16_t* const conv_qkv_output,
+    const float l2_epsilon,
+    const std::uint16_t* const compact_q,
+    const std::uint16_t* const compact_k) noexcept {
+  return token_count == 0U || token_count > maximum_token_count ||
+         raw_qkv == nullptr || conv_weight == nullptr ||
+         history_in_out == nullptr || conv_qkv_output == nullptr ||
+         compact_q == nullptr || compact_k == nullptr ||
+         !std::isfinite(l2_epsilon) || l2_epsilon <= 0.0F ||
+         raw_qkv == conv_qkv_output || compact_q == compact_k ||
+         compact_q == raw_qkv || compact_q == conv_weight ||
+         compact_q == history_in_out || compact_q == conv_qkv_output ||
+         compact_k == raw_qkv || compact_k == conv_weight ||
+         compact_k == history_in_out || compact_k == conv_qkv_output ||
+         invalid_alias(raw_qkv, conv_weight, history_in_out,
+                       conv_qkv_output);
+}
+
+[[nodiscard]] int launch_compact_qk_impl(
+    const std::uint16_t* const raw_qkv,
+    const std::size_t token_count,
+    const std::size_t maximum_token_count,
+    const std::uint16_t* const conv_weight,
+    std::uint16_t* const history_in_out,
+    std::uint16_t* const conv_qkv_output,
+    const float l2_epsilon,
+    std::uint16_t* const compact_q,
+    std::uint16_t* const compact_k,
+    void* const cuda_stream,
+    const bool inspect) noexcept {
+  if (invalid_compact_qk_arguments(
+          raw_qkv, token_count, maximum_token_count, conv_weight,
+          history_in_out, conv_qkv_output, l2_epsilon, compact_q,
+          compact_k)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const auto stream = static_cast<cudaStream_t>(cuda_stream);
+  const std::size_t padded_token_count =
+      ((token_count + kChunkSize - 1U) / kChunkSize) * kChunkSize;
+  const unsigned int token_tiles = static_cast<unsigned int>(
+      padded_token_count / kTokenTile);
+  (void)cudaGetLastError();
+  causal_conv1d_silu_update_token_parallel_compact_qk_kernel<<<
+      dim3(kBlocks, token_tiles), kThreads, 0U, stream>>>(
+      raw_qkv, static_cast<unsigned int>(token_count), conv_weight,
+      history_in_out, conv_qkv_output, l2_epsilon, compact_q, compact_k);
+  const cudaError_t status = cudaGetLastError();
+  if (status == cudaSuccess && inspect) {
+    inspect_boundaries(conv_qkv_output, token_count, history_in_out,
+                       cuda_stream);
+  }
+  return static_cast<int>(status);
+}
+
+[[nodiscard]] bool invalid_prompt_wide_p40_compact_qk_ranges(
+    const std::uint16_t* const raw_qkv,
+    const std::uint16_t* const conv_weight,
+    const std::uint16_t* const history_in_out,
+    const std::uint16_t* const conv_qkv_output,
+    const std::uint16_t* const compact_q,
+    const std::uint16_t* const compact_k) noexcept {
+  constexpr auto& plan = kernels::kGdnPromptWideChunkGraphP40WorkspacePlan;
+  constexpr std::size_t bf16_bytes = sizeof(std::uint16_t);
+  constexpr std::size_t raw_qkv_bytes =
+      kernels::kGdnPromptWideChunkGraphP40Tokens * kGdnQkvChannels *
+      bf16_bytes;
+  constexpr std::size_t conv_weight_bytes =
+      kGdnQkvChannels * kGdnConvKernelWidth * bf16_bytes;
+  constexpr std::size_t history_bytes =
+      kGdnQkvChannels * kGdnConvHistoryWidth * bf16_bytes;
+  constexpr std::size_t compact_bytes =
+      plan.compact_head_token_elements * bf16_bytes;
+  const std::array<std::uintptr_t, 6U> begins{{
+      reinterpret_cast<std::uintptr_t>(raw_qkv),
+      reinterpret_cast<std::uintptr_t>(conv_weight),
+      reinterpret_cast<std::uintptr_t>(history_in_out),
+      reinterpret_cast<std::uintptr_t>(conv_qkv_output),
+      reinterpret_cast<std::uintptr_t>(compact_q),
+      reinterpret_cast<std::uintptr_t>(compact_k),
+  }};
+  constexpr std::array<std::size_t, 6U> sizes{{
+      raw_qkv_bytes,
+      conv_weight_bytes,
+      history_bytes,
+      raw_qkv_bytes,
+      compact_bytes,
+      compact_bytes,
+  }};
+  std::array<kernels::GdnPromptWideChunkGraphByteRange, 6U> ranges{};
+  for (std::size_t role = 0U; role < ranges.size(); ++role) {
+    if (begins[role] == 0U ||
+        (begins[role] & (alignof(std::uint16_t) - 1U)) != 0U ||
+        !kernels::make_gdn_prompt_wide_byte_range(
+            begins[role], sizes[role], ranges[role])) {
+      return true;
+    }
+  }
+  for (std::size_t left = 0U; left < ranges.size(); ++left) {
+    for (std::size_t right = left + 1U; right < ranges.size(); ++right) {
+      if (kernels::gdn_prompt_wide_ranges_overlap(ranges[left],
+                                                  ranges[right])) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+}  // namespace
+
 int launch_causal_conv1d_silu_update_whole_span_exact_cuda(
     const std::uint16_t* const raw_qkv,
     const std::size_t token_count,
@@ -464,37 +584,33 @@ int launch_causal_conv1d_silu_update_token_parallel_compact_qk_exact_cuda(
     std::uint16_t* const compact_q,
     std::uint16_t* const compact_k,
     void* const cuda_stream) noexcept {
-  if (token_count == 0U || token_count > kMaximumTokenCount ||
-      raw_qkv == nullptr ||
-      conv_weight == nullptr || history_in_out == nullptr ||
-      conv_qkv_output == nullptr || compact_q == nullptr ||
-      compact_k == nullptr || !std::isfinite(l2_epsilon) ||
-      l2_epsilon <= 0.0F || raw_qkv == conv_qkv_output ||
-      compact_q == compact_k || compact_q == raw_qkv ||
-      compact_q == conv_weight || compact_q == history_in_out ||
-      compact_q == conv_qkv_output || compact_k == raw_qkv ||
-      compact_k == conv_weight || compact_k == history_in_out ||
-      compact_k == conv_qkv_output ||
-      invalid_alias(raw_qkv, conv_weight, history_in_out,
-                    conv_qkv_output)) {
+  return launch_compact_qk_impl(
+      raw_qkv, token_count, kMaximumTokenCount, conv_weight, history_in_out,
+      conv_qkv_output, l2_epsilon, compact_q, compact_k, cuda_stream, true);
+}
+
+int launch_causal_conv1d_silu_update_prompt_wide_p40_compact_qk_exact_cuda(
+    const std::uint16_t* const raw_qkv,
+    const std::size_t token_count,
+    const std::uint16_t* const conv_weight,
+    std::uint16_t* const history_in_out,
+    std::uint16_t* const conv_qkv_output,
+    const float l2_epsilon,
+    std::uint16_t* const compact_q,
+    std::uint16_t* const compact_k,
+    void* const cuda_stream) noexcept {
+  constexpr std::size_t p40_token_count =
+      kernels::kGdnPromptWideChunkGraphP40Tokens;
+  if (token_count != p40_token_count ||
+      invalid_prompt_wide_p40_compact_qk_ranges(
+          raw_qkv, conv_weight, history_in_out, conv_qkv_output, compact_q,
+          compact_k)) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
-  const auto stream = static_cast<cudaStream_t>(cuda_stream);
-  const std::size_t padded_token_count =
-      ((token_count + kChunkSize - 1U) / kChunkSize) * kChunkSize;
-  const unsigned int token_tiles = static_cast<unsigned int>(
-      padded_token_count / kTokenTile);
-  (void)cudaGetLastError();
-  causal_conv1d_silu_update_token_parallel_compact_qk_kernel<<<
-      dim3(kBlocks, token_tiles), kThreads, 0U, stream>>>(
-      raw_qkv, static_cast<unsigned int>(token_count), conv_weight,
-      history_in_out, conv_qkv_output, l2_epsilon, compact_q, compact_k);
-  const cudaError_t status = cudaGetLastError();
-  if (status == cudaSuccess) {
-    inspect_boundaries(conv_qkv_output, token_count, history_in_out,
-                       cuda_stream);
-  }
-  return static_cast<int>(status);
+  return launch_compact_qk_impl(
+      raw_qkv, token_count, p40_token_count, conv_weight, history_in_out,
+      conv_qkv_output, l2_epsilon, compact_q, compact_k, cuda_stream,
+      false);
 }
 
 int query_causal_conv1d_silu_update_whole_span_resources_cuda(

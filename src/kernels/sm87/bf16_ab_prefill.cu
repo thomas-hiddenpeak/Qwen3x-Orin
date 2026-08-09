@@ -47,6 +47,13 @@ struct alignas(32) PipelineStorage final {
 
 constexpr std::size_t kDynamicSharedBytes = sizeof(PipelineStorage);
 static_assert(kDynamicSharedBytes == 46'080U);
+static_assert(kThreads == kSm87Bf16AbPromptWideP40Threads);
+static_assert(kRowsPerProjection ==
+              kSm87Bf16AbPromptWideP40RowsPerProjection);
+static_assert(kColumns == kSm87Bf16AbPromptWideP40InputFeatures);
+static_assert(kTokenTile == kSm87Bf16AbPromptWideP40TileTokens);
+static_assert(kDynamicSharedBytes ==
+              kSm87Bf16AbPromptWideP40DynamicSharedBytes);
 
 struct InlineM16K16Activation final {
   std::uint32_t x0;
@@ -363,6 +370,140 @@ void bf16_ab_prefill_m64_n96_k64_kernel(
 }
 
 }  // namespace
+
+int query_sm87_bf16_ab_prompt_wide_p40_resources_cuda(
+    Sm87Bf16AbPromptWideP40Resources* const resources) noexcept {
+  if (resources == nullptr) {
+    return invalid_value();
+  }
+  *resources = {};
+
+  int device = 0;
+  cudaError_t status = cudaGetDevice(&device);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  cudaDeviceProp properties{};
+  status = cudaGetDeviceProperties(&properties, device);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  resources->compute_major = properties.major;
+  resources->compute_minor = properties.minor;
+  if (properties.major != 8 || properties.minor != 7) {
+    return static_cast<int>(cudaErrorNotSupported);
+  }
+
+  cudaFuncAttributes attributes{};
+  status = cudaFuncGetAttributes(
+      &attributes, bf16_ab_prefill_m64_n96_k64_kernel);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  status = cudaFuncSetAttribute(
+      bf16_ab_prefill_m64_n96_k64_kernel,
+      cudaFuncAttributeMaxDynamicSharedMemorySize,
+      static_cast<int>(kDynamicSharedBytes));
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+
+  int active_blocks = 0;
+  status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+      &active_blocks, bf16_ab_prefill_m64_n96_k64_kernel,
+      static_cast<int>(kThreads), kDynamicSharedBytes);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+
+  resources->binary_version = attributes.binaryVersion;
+  resources->registers_per_thread = attributes.numRegs;
+  resources->static_shared_bytes = attributes.sharedSizeBytes;
+  resources->dynamic_shared_bytes = kDynamicSharedBytes;
+  resources->local_bytes = attributes.localSizeBytes;
+  resources->active_blocks_per_sm = active_blocks;
+
+  const bool supported =
+      properties.major == 8 && properties.minor == 7 &&
+      properties.warpSize == static_cast<int>(kWarpSize) &&
+      properties.maxThreadsPerBlock >= static_cast<int>(kThreads) &&
+      properties.maxThreadsDim[0] >= static_cast<int>(kThreads) &&
+      properties.maxGridSize[0] >=
+          static_cast<int>(kSm87Bf16AbPromptWideP40GridBlocks) &&
+      properties.sharedMemPerBlockOptin >= kDynamicSharedBytes &&
+      attributes.binaryVersion == 87 &&
+      attributes.maxThreadsPerBlock >= static_cast<int>(kThreads) &&
+      attributes.numRegs > 0 && active_blocks >= 2;
+  if (!supported) {
+    return static_cast<int>(cudaErrorNotSupported);
+  }
+  resources->admitted = true;
+  return static_cast<int>(cudaSuccess);
+}
+
+int launch_sm87_bf16_ab_prompt_wide_p40_cuda(
+    const std::uint16_t* const first_weights,
+    const std::uint16_t* const second_weights,
+    const std::uint16_t* const input,
+    const std::size_t token_count,
+    std::uint16_t* const first_output,
+    std::uint16_t* const second_output,
+    void* const cuda_stream) noexcept {
+  const Sm87Bf16AbPromptWideP40Plan plan =
+      make_sm87_bf16_ab_prompt_wide_p40_plan(token_count);
+  if (!plan.valid() ||
+      !pointer_is_aligned(first_weights, alignof(uint4)) ||
+      !pointer_is_aligned(second_weights, alignof(uint4)) ||
+      !pointer_is_aligned(input, alignof(uint4)) ||
+      !pointer_is_aligned(first_output, alignof(std::uint32_t)) ||
+      !pointer_is_aligned(second_output, alignof(std::uint32_t))) {
+    return invalid_value();
+  }
+
+  constexpr std::size_t kWeightBytes =
+      kSm87Bf16AbPromptWideP40WeightElements * sizeof(std::uint16_t);
+  constexpr std::size_t kInputBytes =
+      kSm87Bf16AbPromptWideP40InputElements * sizeof(std::uint16_t);
+  constexpr std::size_t kOutputBytes =
+      kSm87Bf16AbPromptWideP40OutputElements * sizeof(std::uint16_t);
+  if (byte_range_overflows(first_weights, kWeightBytes) ||
+      byte_range_overflows(second_weights, kWeightBytes) ||
+      byte_range_overflows(input, kInputBytes) ||
+      byte_range_overflows(first_output, kOutputBytes) ||
+      byte_range_overflows(second_output, kOutputBytes) ||
+      byte_ranges_overlap(first_output, kOutputBytes,
+                          first_weights, kWeightBytes) ||
+      byte_ranges_overlap(first_output, kOutputBytes,
+                          second_weights, kWeightBytes) ||
+      byte_ranges_overlap(first_output, kOutputBytes, input, kInputBytes) ||
+      byte_ranges_overlap(second_output, kOutputBytes,
+                          first_weights, kWeightBytes) ||
+      byte_ranges_overlap(second_output, kOutputBytes,
+                          second_weights, kWeightBytes) ||
+      byte_ranges_overlap(second_output, kOutputBytes, input, kInputBytes) ||
+      byte_ranges_overlap(first_output, kOutputBytes,
+                          second_output, kOutputBytes)) {
+    return invalid_value();
+  }
+
+  Sm87Bf16AbPromptWideP40Resources resources{};
+  const int capability_status =
+      query_sm87_bf16_ab_prompt_wide_p40_resources_cuda(&resources);
+  if (capability_status != static_cast<int>(cudaSuccess) ||
+      !resources.valid()) {
+    return capability_status == static_cast<int>(cudaSuccess)
+               ? static_cast<int>(cudaErrorNotSupported)
+               : capability_status;
+  }
+
+  (void)cudaGetLastError();
+  bf16_ab_prefill_m64_n96_k64_kernel
+      <<<static_cast<unsigned int>(plan.grid_blocks), kThreads,
+         kDynamicSharedBytes, static_cast<cudaStream_t>(cuda_stream)>>>(
+          first_weights, second_weights, input,
+          first_output, second_output);
+  return static_cast<int>(cudaGetLastError());
+}
 
 int launch_sm87_bf16_ab_large_m_prefill_cuda(
     const std::uint16_t* const first_weights,
