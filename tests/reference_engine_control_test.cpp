@@ -7,6 +7,8 @@
 #include <cstdint>
 #include <iostream>
 #include <limits>
+#include <stdexcept>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -44,9 +46,33 @@ bool has_consistent_prefill_timing(
 enum class PhaseCall : std::uint8_t {
   kPrefixStep,
   kPrefixTile,
+  kWholeRequestPrefill,
   kFinishPrefill,
   kFinishPrefillFromTile,
+  kFinishWholeRequestFromUncommittedRetained,
+  kWholeRequestCommit,
   kDecodeStep,
+};
+
+enum class PromptResultMutation : std::uint8_t {
+  kNone,
+  kRunnerFailure,
+  kMissingTiming,
+  kWrongLogicalPanelCount,
+  kMissingPanel,
+  kWrongPanelOffset,
+  kWrongPanelEnd,
+  kWrongStepPosition,
+  kWrongStepToken,
+  kStepTiming,
+  kStepLogits,
+  kStepPrediction,
+  kProgressMissingLayer,
+  kProgressFinalHiddenNotReady,
+  kProgressAlreadyCommitted,
+  kProgressWrongDomain,
+  kProgressWrongCursor,
+  kThrowException,
 };
 
 struct FakeRunner {
@@ -74,6 +100,24 @@ struct FakeRunner {
   bool tile_wrong_token = false;
   bool tile_add_logits = false;
   double tile_elapsed_milliseconds = 10.0;
+  std::size_t prompt_call_count = 0U;
+  std::size_t prompt_token_count = 0U;
+  std::size_t prompt_panel_count = 0U;
+  std::size_t prompt_tail_token_count = 0U;
+  bool prompt_topology_was_unbound = false;
+  std::vector<detail::PrefillPromptOptions> prompt_options;
+  PromptResultMutation prompt_result_mutation = PromptResultMutation::kNone;
+  double prompt_elapsed_milliseconds = 25.0;
+  std::uint32_t whole_retained_position = 0U;
+  std::uint32_t whole_retained_token = 0U;
+  std::size_t whole_finalizer_call_count = 0U;
+  bool whole_finalizer_fail = false;
+  bool whole_finalizer_throw = false;
+  bool whole_finalizer_advance_state = false;
+  double whole_finalizer_elapsed_milliseconds = 1.0;
+  std::size_t prompt_commit_call_count = 0U;
+  std::size_t prompt_commit_success_count = 0U;
+  bool prompt_commit_force_failure = false;
 };
 
 struct PhaseContext {
@@ -259,6 +303,241 @@ runtime::ReferencePrefillTileOutcome fake_prefix_tile(
   FakeRunner& fake = *static_cast<PhaseContext*>(context)->runner;
   fake.phase_calls.push_back(PhaseCall::kPrefixTile);
   return fake_prefill_tile(&fake, input_tokens, token_count, options);
+}
+
+detail::PrefillPromptOutcome fake_whole_request_prefill(
+    void* const context,
+    const std::uint32_t* const input_tokens,
+    const std::size_t token_count,
+    const runtime::PrefillExecutionPlan& unbound_immutable_topology,
+    const detail::PrefillPromptOptions& options) {
+  FakeRunner& fake = *static_cast<PhaseContext*>(context)->runner;
+  fake.phase_calls.push_back(PhaseCall::kWholeRequestPrefill);
+  ++fake.prompt_call_count;
+  fake.prompt_token_count = token_count;
+  fake.prompt_panel_count = unbound_immutable_topology.panel_count;
+  fake.prompt_tail_token_count =
+      unbound_immutable_topology
+          .panels[unbound_immutable_topology.panel_count - 1U]
+          .token_count;
+  fake.prompt_topology_was_unbound =
+      !unbound_immutable_topology.executable() &&
+      !unbound_immutable_topology.operator_bindings_complete;
+  fake.prompt_options.push_back(options);
+
+  detail::PrefillPromptOutcome outcome;
+  if (fake.prompt_result_mutation ==
+      PromptResultMutation::kRunnerFailure) {
+    outcome.status.error = runtime::ReferenceRunnerError::kPoisoned;
+    outcome.status.layer = 23U;
+    outcome.status.operation = "fake_whole_request_prefill";
+    return outcome;
+  }
+  if (fake.prompt_result_mutation == PromptResultMutation::kThrowException) {
+    throw std::runtime_error("fake whole-request callback exception");
+  }
+
+  detail::PrefillPromptResult prompt;
+  prompt.logical_panel_count = unbound_immutable_topology.panel_count;
+  prompt.prompt_token_count = token_count;
+  prompt.progress = runtime::make_prefill_execution_progress(
+      unbound_immutable_topology);
+  fake.whole_retained_position =
+      unbound_immutable_topology.final_position - 1U;
+  fake.whole_retained_token = input_tokens[token_count - 1U];
+  prompt.panels.reserve(unbound_immutable_topology.panel_count);
+  for (std::size_t panel_index = 0U;
+       panel_index < unbound_immutable_topology.panel_count;
+       ++panel_index) {
+    const runtime::PrefillOperatorPanel& topology_panel =
+        unbound_immutable_topology.panels[panel_index];
+    detail::PrefillPromptPanelResult panel;
+    panel.logical_panel_ordinal = panel_index;
+    panel.prompt_token_offset = topology_panel.first_position;
+    panel.first_position = topology_panel.first_position;
+    panel.end_position = topology_panel.end_position;
+    panel.steps.reserve(topology_panel.token_count);
+    for (std::size_t panel_step = 0U;
+         panel_step < topology_panel.token_count; ++panel_step) {
+      runtime::ReferenceStepResult step;
+      step.position = static_cast<std::uint32_t>(
+          topology_panel.first_position + panel_step);
+      step.input_token_id =
+          input_tokens[panel.prompt_token_offset + panel_step];
+      panel.steps.emplace_back(std::move(step));
+    }
+    prompt.panels.emplace_back(std::move(panel));
+  }
+  for (std::size_t layer_index = 0U;
+       layer_index < unbound_immutable_topology.layers.size();
+       ++layer_index) {
+    for (std::size_t panel_index = 0U;
+         panel_index < unbound_immutable_topology.panel_count;
+         ++panel_index) {
+      if (runtime::advance_prefill_progress_after_completion(
+              unbound_immutable_topology, prompt.progress, layer_index,
+              panel_index) !=
+          runtime::PrefillExecutionProgressError::kNone) {
+        outcome.status.error =
+            runtime::ReferenceRunnerError::kStateCommitFailure;
+        outcome.status.operation = "fake_whole_request_progress";
+        return outcome;
+      }
+    }
+  }
+  if (runtime::mark_prefill_final_hidden_ready(
+          unbound_immutable_topology, prompt.progress) !=
+      runtime::PrefillExecutionProgressError::kNone) {
+    outcome.status.error = runtime::ReferenceRunnerError::kStateCommitFailure;
+    outcome.status.operation = "fake_whole_request_final_hidden";
+    return outcome;
+  }
+  if (fake.prompt_result_mutation !=
+      PromptResultMutation::kMissingTiming) {
+    runtime::ReferenceStepTiming timing;
+    timing.elapsed_milliseconds = fake.prompt_elapsed_milliseconds;
+    prompt.timing.emplace(timing);
+  }
+  switch (fake.prompt_result_mutation) {
+    case PromptResultMutation::kNone:
+    case PromptResultMutation::kRunnerFailure:
+    case PromptResultMutation::kMissingTiming:
+      break;
+    case PromptResultMutation::kWrongLogicalPanelCount:
+      ++prompt.logical_panel_count;
+      break;
+    case PromptResultMutation::kMissingPanel:
+      prompt.panels.pop_back();
+      break;
+    case PromptResultMutation::kWrongPanelOffset:
+      ++prompt.panels.back().prompt_token_offset;
+      break;
+    case PromptResultMutation::kWrongPanelEnd:
+      ++prompt.panels.back().end_position;
+      break;
+    case PromptResultMutation::kWrongStepPosition:
+      ++prompt.panels.back().steps.back().position;
+      break;
+    case PromptResultMutation::kWrongStepToken:
+      ++prompt.panels.back().steps.back().input_token_id;
+      break;
+    case PromptResultMutation::kStepTiming:
+      prompt.panels.back().steps.back().timing.emplace();
+      break;
+    case PromptResultMutation::kStepLogits:
+      prompt.panels.back().steps.back().logits.emplace();
+      break;
+    case PromptResultMutation::kStepPrediction:
+      prompt.panels.back().steps.back().prediction.emplace();
+      break;
+    case PromptResultMutation::kProgressMissingLayer:
+      --prompt.progress.completed_panels.back();
+      break;
+    case PromptResultMutation::kProgressFinalHiddenNotReady:
+      prompt.progress.final_hidden_ready = false;
+      break;
+    case PromptResultMutation::kProgressAlreadyCommitted:
+      prompt.progress.prefill_state_committed = true;
+      break;
+    case PromptResultMutation::kProgressWrongDomain:
+      prompt.progress.gdn_advanced_end[3U] =
+          unbound_immutable_topology.final_position;
+      break;
+    case PromptResultMutation::kProgressWrongCursor:
+      --prompt.progress.next_layer;
+      prompt.progress.next_panel =
+          unbound_immutable_topology.panel_count - 1U;
+      break;
+    case PromptResultMutation::kThrowException:
+      break;
+  }
+
+  outcome.value.emplace(std::move(prompt));
+  return outcome;
+}
+
+runtime::ReferenceStepOutcome
+fake_finish_whole_request_from_uncommitted_retained(
+    void* const context, const std::uint32_t input_token,
+    const runtime::ReferenceStepOptions& options) {
+  FakeRunner& fake = *static_cast<PhaseContext*>(context)->runner;
+  fake.phase_calls.push_back(
+      PhaseCall::kFinishWholeRequestFromUncommittedRetained);
+  ++fake.whole_finalizer_call_count;
+  fake.inputs.push_back(input_token);
+  fake.options.push_back(options);
+
+  runtime::ReferenceStepOutcome outcome;
+  if (fake.whole_finalizer_fail) {
+    outcome.status.error = runtime::ReferenceRunnerError::kPoisoned;
+    outcome.status.operation = "fake_whole_request_finalizer";
+    return outcome;
+  }
+  if (fake.whole_finalizer_throw) {
+    throw std::runtime_error("fake whole-request finalizer exception");
+  }
+
+  runtime::ReferenceStepResult step;
+  step.position = fake.whole_retained_position;
+  step.input_token_id = input_token;
+  runtime::ReferenceStepTiming timing;
+  timing.elapsed_milliseconds = fake.whole_finalizer_elapsed_milliseconds;
+  step.timing.emplace(timing);
+  if (options.compute_logits) {
+    const std::uint32_t predicted =
+        fake.predictions.at(fake.next_prediction++);
+    if (options.logits_mode ==
+        runtime::ReferenceLogitsMode::kPredictedTokenOnly) {
+      step.prediction.emplace(runtime::ReferenceStepPrediction{predicted});
+    } else {
+      runtime::ReferenceStepLogits logits;
+      logits.predicted_token_id = predicted;
+      logits.chosen_logit = 1.0F;
+      logits.max_log_probability = -0.5;
+      logits.logsumexp = 1.5;
+      step.logits.emplace(logits);
+    }
+  }
+  if (fake.whole_finalizer_advance_state) {
+    ++fake.next_position;
+  }
+  outcome.value.emplace(std::move(step));
+  return outcome;
+}
+
+runtime::ReferenceRunnerStatus fake_commit_whole_request(
+    void* const context,
+    const runtime::PrefillExecutionPlan& unbound_immutable_topology,
+    const runtime::PrefillExecutionProgress&
+        completed_uncommitted_progress) noexcept {
+  FakeRunner& fake = *static_cast<PhaseContext*>(context)->runner;
+  fake.phase_calls.push_back(PhaseCall::kWholeRequestCommit);
+  ++fake.prompt_commit_call_count;
+
+  runtime::ReferenceRunnerStatus status;
+  if (fake.prompt_commit_force_failure ||
+      fake.next_position != unbound_immutable_topology.first_position ||
+      completed_uncommitted_progress.prefill_state_committed ||
+      !runtime::prefill_final_commit_ready(
+          unbound_immutable_topology, completed_uncommitted_progress)) {
+    status.error = runtime::ReferenceRunnerError::kStateCommitFailure;
+    status.operation = "fake_whole_request_commit";
+    return status;
+  }
+
+  const runtime::PrefillFinalCommitPlan& expected =
+      unbound_immutable_topology.final_commit;
+  if (expected.expected_initial_sequence_length != fake.next_position ||
+      expected.committed_sequence_length !=
+          unbound_immutable_topology.final_position ||
+      expected.commit_count != 1U) {
+    status.error = runtime::ReferenceRunnerError::kStateCommitFailure;
+    status.operation = "fake_whole_request_commit_plan";
+    return status;
+  }
+  fake.next_position = expected.committed_sequence_length;
+  ++fake.prompt_commit_success_count;
+  return status;
 }
 
 detail::GenerationControlOptions options(const std::uint32_t max_new_tokens,
@@ -702,6 +981,520 @@ void test_all_prompt_tile_admission(TestContext& test) {
                   result.error ==
                       detail::GenerationControlError::kInvalidArgument,
               "all-prompt admission rejects incompatible trace capture");
+}
+
+void test_whole_request_layer_major_admission(TestContext& test) {
+  const auto run_shape = [&test](
+                             const std::size_t prompt_size,
+                             const std::size_t expected_panel_count,
+                             const std::size_t expected_tail_tokens,
+                             const runtime::ReferenceLogitsMode logits_mode,
+                             const std::uint32_t max_new_tokens) {
+    FakeRunner fake;
+    fake.predictions = max_new_tokens > 1U
+                           ? std::vector<std::uint32_t>(
+                                 {42U, runtime::kQwen36ImEndTokenId})
+                           : std::vector<std::uint32_t>(
+                                 {runtime::kQwen36ImEndTokenId});
+    PhaseContext context{&fake};
+
+    detail::PrefillPlan prefill_plan;
+    prefill_plan.context = &context;
+    prefill_plan.prefix_step = fake_prefix_step;
+    prefill_plan.finish_prefill = fake_finish_prefill;
+    // Keep the legacy tile callback present so the test detects accidental
+    // dispatch rather than merely proving that a null callback was tolerated.
+    prefill_plan.prefix_tile = fake_prefix_tile;
+    prefill_plan.finish_prefill_from_tile =
+        fake_finish_prefill_from_tile;
+    prefill_plan.whole_request = fake_whole_request_prefill;
+    prefill_plan.finish_whole_request_from_uncommitted_retained =
+        fake_finish_whole_request_from_uncommitted_retained;
+    prefill_plan.commit_whole_request = fake_commit_whole_request;
+    detail::DecodePlan decode_plan;
+    decode_plan.context = &context;
+    decode_plan.decode_step = fake_decode_step;
+
+    std::vector<std::uint32_t> prompt(prompt_size);
+    for (std::size_t index = 0U; index < prompt.size(); ++index) {
+      prompt[index] = static_cast<std::uint32_t>(1'000U + index);
+    }
+    detail::GenerationControlOptions control_options = options(
+        max_new_tokens,
+        static_cast<std::uint32_t>(prompt_size + max_new_tokens - 1U), false,
+        512U, logits_mode);
+    control_options.prefill_all_prompt_tokens = true;
+    control_options.prefill_whole_request_layer_major = true;
+    const detail::GenerationControlResult result =
+        detail::run_generation_control(prompt, control_options, prefill_plan,
+                                       decode_plan);
+
+    bool transcript_exact =
+        result && result.value->steps.size() ==
+                      prompt.size() + max_new_tokens - 1U;
+    if (result) {
+      for (std::size_t index = 0U; index < prompt.size(); ++index) {
+        const runtime::ReferenceStepResult& step =
+            result.value->steps[index];
+        const bool final_step = index + 1U == prompt.size();
+        transcript_exact =
+            transcript_exact && step.position == index &&
+            step.input_token_id == prompt[index] &&
+            step.timing.has_value() == final_step &&
+            (final_step
+                 ? (logits_mode ==
+                            runtime::ReferenceLogitsMode::kFullStatistics
+                        ? step.logits.has_value() &&
+                              !step.prediction.has_value()
+                        : !step.logits.has_value() &&
+                              step.prediction.has_value())
+                 : !step.logits.has_value() &&
+                       !step.prediction.has_value());
+      }
+    }
+    const bool decode_exact =
+        max_new_tokens == 1U ||
+        (result && result.value->steps.back().position == prompt.size() &&
+         result.value->steps.back().input_token_id == 42U &&
+         result.value->steps.back().timing.has_value() &&
+         result.value->generated_token_ids ==
+             std::vector<std::uint32_t>(
+                 {42U, runtime::kQwen36ImEndTokenId}));
+
+    const bool callback_contract =
+        fake.prompt_call_count == 1U &&
+        fake.prompt_token_count == prompt_size &&
+        fake.prompt_panel_count == expected_panel_count &&
+        fake.prompt_tail_token_count == expected_tail_tokens &&
+        fake.prompt_topology_was_unbound &&
+        fake.prompt_options.size() == 1U &&
+        fake.prompt_options[0].measure_timing &&
+        fake.prompt_options[0].retain_last_hidden_for_logits &&
+        fake.whole_finalizer_call_count == 1U &&
+        fake.prompt_commit_call_count == 1U &&
+        fake.prompt_commit_success_count == 1U;
+    std::vector<PhaseCall> expected_phases{
+        PhaseCall::kWholeRequestPrefill,
+        PhaseCall::kFinishWholeRequestFromUncommittedRetained,
+        PhaseCall::kWholeRequestCommit};
+    std::vector<std::uint32_t> expected_scalar_inputs{prompt.back()};
+    if (max_new_tokens > 1U) {
+      expected_phases.push_back(PhaseCall::kDecodeStep);
+      expected_scalar_inputs.push_back(42U);
+    }
+    const bool phase_contract =
+        fake.tile_inputs.empty() && fake.tile_options.empty() &&
+        fake.phase_calls == expected_phases &&
+        fake.inputs == expected_scalar_inputs &&
+        fake.next_position == prompt_size + max_new_tokens - 1U;
+    const bool one_aggregate_prompt_timing =
+        result &&
+        result.value->timing.prefix_execution_milliseconds ==
+            std::vector<double>({fake.prompt_elapsed_milliseconds}) &&
+        result.value->timing.finish_prefill_milliseconds ==
+            fake.whole_finalizer_elapsed_milliseconds &&
+        result.value->timing.prompt_prefill_milliseconds ==
+            fake.prompt_elapsed_milliseconds +
+                fake.whole_finalizer_elapsed_milliseconds &&
+        has_consistent_prefill_timing(result.value->timing);
+
+    test.expect(
+        result && transcript_exact && decode_exact && callback_contract &&
+            phase_contract && one_aggregate_prompt_timing,
+        "whole-request layer-major admission invokes one unbound-topology "
+        "callback and replaces the final placeholder without advancing "
+        "request state twice");
+  };
+
+  run_shape(40'000U, 5U, 7'232U,
+            runtime::ReferenceLogitsMode::kFullStatistics, 1U);
+  run_shape(60'000U, 8U, 2'656U,
+            runtime::ReferenceLogitsMode::kPredictedTokenOnly, 2U);
+  run_shape(130'000U, 16U, 7'120U,
+            runtime::ReferenceLogitsMode::kPredictedTokenOnly, 1U);
+}
+
+void test_whole_request_layer_major_fail_closed(TestContext& test) {
+  const auto malformed_result_is_rejected =
+      [](const PromptResultMutation mutation,
+         const detail::GenerationControlError expected_error) {
+        FakeRunner fake;
+        fake.prompt_result_mutation = mutation;
+        PhaseContext context{&fake};
+        detail::PrefillPlan prefill_plan;
+        prefill_plan.context = &context;
+        prefill_plan.prefix_step = fake_prefix_step;
+        prefill_plan.finish_prefill = fake_finish_prefill;
+        prefill_plan.prefix_tile = fake_prefix_tile;
+        prefill_plan.finish_prefill_from_tile =
+            fake_finish_prefill_from_tile;
+        prefill_plan.whole_request = fake_whole_request_prefill;
+        prefill_plan.finish_whole_request_from_uncommitted_retained =
+            fake_finish_whole_request_from_uncommitted_retained;
+        prefill_plan.commit_whole_request = fake_commit_whole_request;
+        detail::DecodePlan decode_plan;
+        decode_plan.context = &context;
+        decode_plan.decode_step = fake_decode_step;
+        detail::GenerationControlOptions control_options =
+            options(1U, 8'193U, false, 512U);
+        control_options.prefill_all_prompt_tokens = true;
+        control_options.prefill_whole_request_layer_major = true;
+        std::vector<std::uint32_t> prompt(8'193U);
+        for (std::size_t index = 0U; index < prompt.size(); ++index) {
+          prompt[index] = static_cast<std::uint32_t>(3'000U + index);
+        }
+        const detail::GenerationControlResult result =
+            detail::run_generation_control(prompt, control_options,
+                                           prefill_plan, decode_plan);
+        const bool status_exact = [&]() {
+          if (mutation != PromptResultMutation::kRunnerFailure &&
+              mutation != PromptResultMutation::kThrowException) {
+            return true;
+          }
+          const std::string_view expected_operation =
+              mutation == PromptResultMutation::kRunnerFailure
+                  ? "fake_whole_request_prefill"
+                  : "whole_request_callback_exception";
+          return result.runner_status.error ==
+                     runtime::ReferenceRunnerError::kPoisoned &&
+                 result.runner_status.operation != nullptr &&
+                 std::string_view(result.runner_status.operation) ==
+                     expected_operation;
+        }();
+        return !result && result.error == expected_error && status_exact &&
+               fake.prompt_call_count == 1U && fake.tile_inputs.empty() &&
+               fake.inputs.empty() &&
+               fake.whole_finalizer_call_count == 0U &&
+               fake.prompt_commit_call_count == 0U &&
+               fake.prompt_commit_success_count == 0U &&
+               fake.next_position == 0U;
+      };
+
+  const std::array malformed_cases{
+      std::pair{PromptResultMutation::kMissingTiming,
+                detail::GenerationControlError::kMissingTiming},
+      std::pair{PromptResultMutation::kWrongLogicalPanelCount,
+                detail::GenerationControlError::kUnexpectedStep},
+      std::pair{PromptResultMutation::kMissingPanel,
+                detail::GenerationControlError::kUnexpectedStep},
+      std::pair{PromptResultMutation::kWrongPanelOffset,
+                detail::GenerationControlError::kUnexpectedStep},
+      std::pair{PromptResultMutation::kWrongPanelEnd,
+                detail::GenerationControlError::kUnexpectedStep},
+      std::pair{PromptResultMutation::kWrongStepPosition,
+                detail::GenerationControlError::kUnexpectedStep},
+      std::pair{PromptResultMutation::kWrongStepToken,
+                detail::GenerationControlError::kUnexpectedStep},
+      std::pair{PromptResultMutation::kStepTiming,
+                detail::GenerationControlError::kUnexpectedStep},
+      std::pair{PromptResultMutation::kStepLogits,
+                detail::GenerationControlError::kUnexpectedStep},
+      std::pair{PromptResultMutation::kStepPrediction,
+                detail::GenerationControlError::kUnexpectedStep},
+      std::pair{PromptResultMutation::kProgressMissingLayer,
+                detail::GenerationControlError::kUnexpectedStep},
+      std::pair{PromptResultMutation::kProgressFinalHiddenNotReady,
+                detail::GenerationControlError::kUnexpectedStep},
+      std::pair{PromptResultMutation::kProgressAlreadyCommitted,
+                detail::GenerationControlError::kUnexpectedStep},
+      std::pair{PromptResultMutation::kProgressWrongDomain,
+                detail::GenerationControlError::kUnexpectedStep},
+      std::pair{PromptResultMutation::kProgressWrongCursor,
+                detail::GenerationControlError::kUnexpectedStep},
+      std::pair{PromptResultMutation::kRunnerFailure,
+                detail::GenerationControlError::kRunnerFailure},
+      std::pair{PromptResultMutation::kThrowException,
+                detail::GenerationControlError::kRunnerFailure},
+  };
+  bool malformed_cases_rejected = true;
+  for (const auto& [mutation, expected_error] : malformed_cases) {
+    malformed_cases_rejected =
+        malformed_cases_rejected &&
+        malformed_result_is_rejected(mutation, expected_error);
+  }
+  test.expect(
+      malformed_cases_rejected,
+      "whole-request results fail closed on callback errors, aggregate "
+      "timing, panel count, token/offset continuity, and state progress");
+
+  const auto invalid_prompt_elapsed_is_rejected = [](const double elapsed) {
+    FakeRunner fake;
+    fake.prompt_elapsed_milliseconds = elapsed;
+    PhaseContext context{&fake};
+    detail::PrefillPlan prefill_plan;
+    prefill_plan.context = &context;
+    prefill_plan.prefix_step = fake_prefix_step;
+    prefill_plan.finish_prefill = fake_finish_prefill;
+    prefill_plan.prefix_tile = fake_prefix_tile;
+    prefill_plan.finish_prefill_from_tile =
+        fake_finish_prefill_from_tile;
+    prefill_plan.whole_request = fake_whole_request_prefill;
+    prefill_plan.finish_whole_request_from_uncommitted_retained =
+        fake_finish_whole_request_from_uncommitted_retained;
+    prefill_plan.commit_whole_request = fake_commit_whole_request;
+    detail::DecodePlan decode_plan;
+    decode_plan.context = &context;
+    decode_plan.decode_step = fake_decode_step;
+    detail::GenerationControlOptions control_options =
+        options(1U, 32U, false, 512U);
+    control_options.prefill_all_prompt_tokens = true;
+    control_options.prefill_whole_request_layer_major = true;
+    const detail::GenerationControlResult result =
+        detail::run_generation_control(
+            std::vector<std::uint32_t>(32U, 9U), control_options,
+            prefill_plan, decode_plan);
+    return !result &&
+           result.error == detail::GenerationControlError::kUnexpectedStep &&
+           fake.prompt_call_count == 1U &&
+           fake.whole_finalizer_call_count == 0U &&
+           fake.prompt_commit_call_count == 0U &&
+           fake.prompt_commit_success_count == 0U &&
+           fake.next_position == 0U;
+  };
+
+  test.expect(
+      invalid_prompt_elapsed_is_rejected(
+          std::numeric_limits<double>::quiet_NaN()) &&
+          invalid_prompt_elapsed_is_rejected(
+              std::numeric_limits<double>::infinity()) &&
+          invalid_prompt_elapsed_is_rejected(-1.0),
+      "whole-request aggregate prompt timing rejects NaN, infinity, and "
+      "negative elapsed values before finalization or state commit");
+
+  const auto invalid_configuration_is_rejected =
+      [](const bool all_prompt, const bool capture_trace,
+         const bool single_arbitrary, const bool provide_callback,
+         const bool provide_finalizer, const bool provide_commit) {
+        FakeRunner fake;
+        PhaseContext context{&fake};
+        detail::PrefillPlan prefill_plan;
+        prefill_plan.context = &context;
+        prefill_plan.prefix_step = fake_prefix_step;
+        prefill_plan.finish_prefill = fake_finish_prefill;
+        prefill_plan.prefix_tile = fake_prefix_tile;
+        prefill_plan.finish_prefill_from_tile =
+            fake_finish_prefill_from_tile;
+        prefill_plan.whole_request =
+            provide_callback ? fake_whole_request_prefill : nullptr;
+        prefill_plan.finish_whole_request_from_uncommitted_retained =
+            provide_finalizer
+                ? fake_finish_whole_request_from_uncommitted_retained
+                : nullptr;
+        prefill_plan.commit_whole_request =
+            provide_commit ? fake_commit_whole_request : nullptr;
+        detail::DecodePlan decode_plan;
+        decode_plan.context = &context;
+        decode_plan.decode_step = fake_decode_step;
+        detail::GenerationControlOptions control_options =
+            options(1U, 32U, capture_trace, 512U);
+        control_options.prefill_all_prompt_tokens = all_prompt;
+        control_options.prefill_single_arbitrary_tile = single_arbitrary;
+        control_options.prefill_whole_request_layer_major = true;
+        const detail::GenerationControlResult result =
+            detail::run_generation_control(
+                std::vector<std::uint32_t>(32U, 7U), control_options,
+                prefill_plan, decode_plan);
+        return !result &&
+               result.error ==
+                   detail::GenerationControlError::kInvalidArgument &&
+               fake.phase_calls.empty() && fake.prompt_call_count == 0U &&
+               fake.tile_inputs.empty() && fake.inputs.empty();
+      };
+
+  test.expect(
+      invalid_configuration_is_rejected(false, false, false, true, true,
+                                        true) &&
+          invalid_configuration_is_rejected(true, true, false, true, true,
+                                            true) &&
+          invalid_configuration_is_rejected(true, false, true, true, true,
+                                            true) &&
+          invalid_configuration_is_rejected(true, false, false, false,
+                                             true, true) &&
+          invalid_configuration_is_rejected(true, false, false, true,
+                                             false, true) &&
+          invalid_configuration_is_rejected(true, false, false, true, true,
+                                            false),
+      "whole-request mode requires explicit all-prompt, non-trace, "
+      "non-arbitrary admission with prompt, uncommitted finalizer, and "
+      "commit callbacks");
+
+  const auto finalizer_or_commit_failure_is_rejected =
+      [](const double finalizer_elapsed, const bool finalizer_failure,
+         const bool finalizer_advances,
+         const detail::GenerationControlError expected_error,
+         const std::size_t expected_commit_calls,
+         const std::size_t expected_position) {
+        FakeRunner fake;
+        fake.predictions = {runtime::kQwen36ImEndTokenId};
+        fake.whole_finalizer_elapsed_milliseconds = finalizer_elapsed;
+        fake.whole_finalizer_fail = finalizer_failure;
+        fake.whole_finalizer_advance_state = finalizer_advances;
+        PhaseContext context{&fake};
+        detail::PrefillPlan prefill_plan;
+        prefill_plan.context = &context;
+        prefill_plan.prefix_step = fake_prefix_step;
+        prefill_plan.finish_prefill = fake_finish_prefill;
+        prefill_plan.prefix_tile = fake_prefix_tile;
+        prefill_plan.finish_prefill_from_tile =
+            fake_finish_prefill_from_tile;
+        prefill_plan.whole_request = fake_whole_request_prefill;
+        prefill_plan.finish_whole_request_from_uncommitted_retained =
+            fake_finish_whole_request_from_uncommitted_retained;
+        prefill_plan.commit_whole_request = fake_commit_whole_request;
+        detail::DecodePlan decode_plan;
+        decode_plan.context = &context;
+        decode_plan.decode_step = fake_decode_step;
+        detail::GenerationControlOptions control_options =
+            options(1U, 32U, false, 512U);
+        control_options.prefill_all_prompt_tokens = true;
+        control_options.prefill_whole_request_layer_major = true;
+        const detail::GenerationControlResult result =
+            detail::run_generation_control(
+                std::vector<std::uint32_t>(32U, 9U), control_options,
+                prefill_plan, decode_plan);
+        return !result && result.error == expected_error &&
+               fake.prompt_call_count == 1U &&
+               fake.whole_finalizer_call_count == 1U &&
+               fake.prompt_commit_call_count == expected_commit_calls &&
+               fake.prompt_commit_success_count == 0U &&
+               fake.next_position == expected_position;
+      };
+
+  test.expect(
+      finalizer_or_commit_failure_is_rejected(
+          1.0, true, false,
+          detail::GenerationControlError::kRunnerFailure, 0U, 0U) &&
+          finalizer_or_commit_failure_is_rejected(
+              std::numeric_limits<double>::quiet_NaN(), false, false,
+              detail::GenerationControlError::kUnexpectedStep, 0U, 0U) &&
+          finalizer_or_commit_failure_is_rejected(
+              std::numeric_limits<double>::infinity(), false, false,
+              detail::GenerationControlError::kUnexpectedStep, 0U, 0U) &&
+          finalizer_or_commit_failure_is_rejected(
+              -1.0, false, false,
+              detail::GenerationControlError::kUnexpectedStep, 0U, 0U) &&
+          finalizer_or_commit_failure_is_rejected(
+              1.0, false, true,
+              detail::GenerationControlError::kRunnerFailure, 1U, 1U),
+      "whole-request finalizer failures and invalid timings never call "
+      "commit, while an advancing finalizer makes the atomic commit fail");
+
+  {
+    FakeRunner fake;
+    fake.predictions = {runtime::kQwen36ImEndTokenId};
+    fake.whole_finalizer_throw = true;
+    PhaseContext context{&fake};
+    detail::PrefillPlan prefill_plan;
+    prefill_plan.context = &context;
+    prefill_plan.prefix_step = fake_prefix_step;
+    prefill_plan.finish_prefill = fake_finish_prefill;
+    prefill_plan.prefix_tile = fake_prefix_tile;
+    prefill_plan.finish_prefill_from_tile =
+        fake_finish_prefill_from_tile;
+    prefill_plan.whole_request = fake_whole_request_prefill;
+    prefill_plan.finish_whole_request_from_uncommitted_retained =
+        fake_finish_whole_request_from_uncommitted_retained;
+    prefill_plan.commit_whole_request = fake_commit_whole_request;
+    detail::DecodePlan decode_plan;
+    decode_plan.context = &context;
+    decode_plan.decode_step = fake_decode_step;
+    detail::GenerationControlOptions control_options =
+        options(1U, 32U, false, 512U);
+    control_options.prefill_all_prompt_tokens = true;
+    control_options.prefill_whole_request_layer_major = true;
+    const detail::GenerationControlResult result =
+        detail::run_generation_control(
+            std::vector<std::uint32_t>(32U, 9U), control_options,
+            prefill_plan, decode_plan);
+    test.expect(
+        !result &&
+            result.error == detail::GenerationControlError::kRunnerFailure &&
+            result.runner_status.error ==
+                runtime::ReferenceRunnerError::kPoisoned &&
+            result.runner_status.operation != nullptr &&
+            std::string_view(result.runner_status.operation) ==
+                "whole_request_finalizer_exception" &&
+            fake.prompt_call_count == 1U &&
+            fake.whole_finalizer_call_count == 1U &&
+            fake.prompt_commit_call_count == 0U &&
+            fake.prompt_commit_success_count == 0U &&
+            fake.next_position == 0U,
+        "whole-request dedicated finalizer exceptions map to a poisoned "
+        "runner failure without committing staged state");
+  }
+
+  {
+    FakeRunner fake;
+    fake.predictions = {runtime::kQwen36ImEndTokenId};
+    fake.prompt_commit_force_failure = true;
+    PhaseContext context{&fake};
+    detail::PrefillPlan prefill_plan;
+    prefill_plan.context = &context;
+    prefill_plan.prefix_step = fake_prefix_step;
+    prefill_plan.finish_prefill = fake_finish_prefill;
+    prefill_plan.whole_request = fake_whole_request_prefill;
+    prefill_plan.finish_whole_request_from_uncommitted_retained =
+        fake_finish_whole_request_from_uncommitted_retained;
+    prefill_plan.commit_whole_request = fake_commit_whole_request;
+    detail::DecodePlan decode_plan;
+    decode_plan.context = &context;
+    decode_plan.decode_step = fake_decode_step;
+    detail::GenerationControlOptions control_options =
+        options(1U, 32U, false, 512U);
+    control_options.prefill_all_prompt_tokens = true;
+    control_options.prefill_whole_request_layer_major = true;
+    const detail::GenerationControlResult result =
+        detail::run_generation_control(
+            std::vector<std::uint32_t>(32U, 9U), control_options,
+            prefill_plan, decode_plan);
+    test.expect(
+        !result &&
+            result.error == detail::GenerationControlError::kRunnerFailure &&
+            result.runner_status.error ==
+                runtime::ReferenceRunnerError::kStateCommitFailure &&
+            result.runner_status.operation != nullptr &&
+            std::string_view(result.runner_status.operation) ==
+                "fake_whole_request_commit" &&
+            fake.prompt_call_count == 1U &&
+            fake.whole_finalizer_call_count == 1U &&
+            fake.prompt_commit_call_count == 1U &&
+            fake.prompt_commit_success_count == 0U &&
+            fake.next_position == 0U,
+        "whole-request commit failure leaves staged state unpublished and "
+        "preserves the callback's exact failure status");
+  }
+
+  FakeRunner isolated;
+  isolated.predictions = {runtime::kQwen36ImEndTokenId};
+  PhaseContext isolated_context{&isolated};
+  detail::PrefillPlan isolated_prefill;
+  isolated_prefill.context = &isolated_context;
+  isolated_prefill.prefix_step = fake_prefix_step;
+  isolated_prefill.finish_prefill = fake_finish_prefill;
+  isolated_prefill.prefix_tile = fake_prefix_tile;
+  isolated_prefill.finish_prefill_from_tile =
+      fake_finish_prefill_from_tile;
+  isolated_prefill.whole_request = fake_whole_request_prefill;
+  isolated_prefill.finish_whole_request_from_uncommitted_retained =
+      fake_finish_whole_request_from_uncommitted_retained;
+  isolated_prefill.commit_whole_request = fake_commit_whole_request;
+  detail::DecodePlan isolated_decode;
+  isolated_decode.context = &isolated_context;
+  isolated_decode.decode_step = fake_decode_step;
+  const detail::GenerationControlResult isolated_result =
+      detail::run_generation_control(
+          {10U, 11U}, options(1U, 2U), isolated_prefill,
+          isolated_decode);
+  test.expect(
+      isolated_result && isolated.prompt_call_count == 0U &&
+          isolated.whole_finalizer_call_count == 0U &&
+          isolated.prompt_commit_call_count == 0U &&
+          isolated.phase_calls ==
+              std::vector<PhaseCall>({PhaseCall::kPrefixStep,
+                                      PhaseCall::kFinishPrefill}) &&
+          isolated.next_position == 2U,
+      "whole-request callbacks remain isolated when the explicit flag is "
+      "false");
 }
 
 void test_single_arbitrary_tile_admission(TestContext& test) {
@@ -1536,6 +2329,8 @@ int main() {
   test_prefill_decode_and_stop(test);
   test_explicit_phase_plans(test);
   test_all_prompt_tile_admission(test);
+  test_whole_request_layer_major_admission(test);
+  test_whole_request_layer_major_fail_closed(test);
   test_single_arbitrary_tile_admission(test);
   test_explicit_c512_prefill_schedule(test);
   test_explicit_phase_plan_shape_matrix(test);

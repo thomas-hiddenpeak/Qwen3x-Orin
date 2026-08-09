@@ -1,6 +1,7 @@
 #pragma once
 
 #include "q3x/runtime/model_weights.h"
+#include "q3x/runtime/prefill_execution_plan.h"
 #include "q3x/runtime/reference_runner.h"
 #include "q3x/runtime/request_state.h"
 #include "q3x/runtime/resident_weights.h"
@@ -130,10 +131,11 @@ enum class ReferenceStopReason : std::uint8_t {
 };
 
 struct ReferenceGenerationTiming {
-  // One aggregate duration for each prefix_step or prefix_tile execution, in
-  // execution order. Under the test-only whole-prompt admission, the final
-  // prompt token is included here; its logits-only finalize duration remains
-  // in finish_prefill_milliseconds below.
+  // One aggregate duration for each prefix_step or prefix_tile execution, or
+  // exactly one duration for the opt-in whole-request callback. Under either
+  // test-only all-prompt admission, the final prompt token is included here;
+  // its logits-only finalize duration remains in
+  // finish_prefill_milliseconds below.
   std::vector<double> prefix_execution_milliseconds;
   double finish_prefill_milliseconds = 0.0;
   double prompt_prefill_milliseconds = 0.0;
@@ -656,6 +658,71 @@ using StepFunction = ReferenceStepOutcome (*)(
 using PrefillTileFunction = ReferencePrefillTileOutcome (*)(
     void* context, const std::uint32_t* input_token_ids,
     std::size_t token_count, const ReferencePrefillTileOptions& options);
+
+// Host-only transcript returned for one logical C8192 panel. The panel
+// metadata is deliberately repeated from the immutable unbound topology so
+// the generation controller can fail closed on omissions, reordering, or
+// discontinuities before accepting the transcript. It does not attest bound
+// operators or make PrefillExecutionPlan executable.
+struct PrefillPromptPanelResult {
+  std::size_t logical_panel_ordinal = 0U;
+  std::size_t prompt_token_offset = 0U;
+  std::uint32_t first_position = 0U;
+  std::uint32_t end_position = 0U;
+  std::vector<ReferenceStepResult> steps;
+};
+
+// A whole-request callback reports exactly one aggregate timing. Individual
+// panel and placeholder steps carry no timing or logits; the existing
+// retained-hidden finalizer replaces the last placeholder afterward.
+struct PrefillPromptResult {
+  std::vector<PrefillPromptPanelResult> panels;
+  std::size_t logical_panel_count = 0U;
+  std::size_t prompt_token_count = 0U;
+  // Host-side proof that every logical panel completed in every layer, the
+  // correct KV/GDN domain reached the prompt end, and final hidden became
+  // ready. The callback must leave prefill_state_committed false; the
+  // controller owns the later single commit. This does not substitute for
+  // future bound stream/event evidence.
+  PrefillExecutionProgress progress;
+  std::optional<ReferenceStepTiming> timing;
+};
+
+struct PrefillPromptOutcome {
+  std::optional<PrefillPromptResult> value;
+  ReferenceRunnerStatus status;
+
+  [[nodiscard]] bool ok() const noexcept {
+    return value.has_value() && status.ok();
+  }
+  [[nodiscard]] explicit operator bool() const noexcept { return ok(); }
+};
+
+struct PrefillPromptOptions {
+  bool measure_timing = false;
+  bool retain_last_hidden_for_logits = false;
+};
+
+// input_token_ids and unbound_immutable_topology are synchronous-call
+// references: the callback must not retain either address after returning.
+// Success means every reported device operation is complete and visible, not
+// merely enqueued. The callback must not throw; the controller nevertheless
+// maps a contract-violating exception to a runner failure.
+using PrefillPromptFunction = PrefillPromptOutcome (*)(
+    void* context, const std::uint32_t* input_token_ids,
+    std::size_t token_count,
+    const PrefillExecutionPlan& unbound_immutable_topology,
+    const PrefillPromptOptions& options);
+
+// Atomically publishes the completed, uncommitted whole-request state. The
+// topology/progress references are valid only during the call. This callback
+// is no-throw. It must validate every fallible precondition before one no-fail
+// initial->final publication; a non-OK status guarantees that state did not
+// change. The controller supplies the immutable transition and owns the sole
+// invocation, so the callback cannot invent a receipt or commit count.
+using PrefillCommitFunction = ReferenceRunnerStatus (*)(
+    void* context, const PrefillExecutionPlan& unbound_immutable_topology,
+    const PrefillExecutionProgress& completed_uncommitted_progress) noexcept;
 using CommittedTokenFunction = bool (*)(
     void* context, std::uint32_t token_id, std::size_t token_index,
     double elapsed_milliseconds) noexcept;
@@ -665,16 +732,27 @@ using CommittedTokenFunction = bool (*)(
 // separate plans make the final-prompt boundary explicit without changing the
 // runner, request-state, workspace, or public engine contracts. Both plans
 // must provide every scalar callback even when a particular request would not
-// exercise it; prefix_tile is required only for a chunked non-empty prefix.
+// exercise it; prefix_tile is required only for a legacy chunked non-empty
+// prefix, while whole_request is default-null and separately opted in.
 struct PrefillPlan {
   void* context = nullptr;
   StepFunction prefix_step = nullptr;
   StepFunction finish_prefill = nullptr;
   PrefillTileFunction prefix_tile = nullptr;
-  // Required only by the test-only whole-prompt tile admission. This callback
-  // finalizes logits from the last prompt step already committed by a marked
-  // prefix tile; it must not append or commit another model-state step.
+  // Required only by the legacy test-only whole-prompt tile admission. This
+  // callback finalizes logits from the last prompt step already committed by
+  // a marked prefix tile; it must not append another model-state step.
   StepFunction finish_prefill_from_tile = nullptr;
+  // Default-null host seam for AC-PREFILL-LAYERMAJOR-8K-v1. The callback is
+  // reachable only through the explicit whole-request control option. Its
+  // PrefillExecutionPlan argument is immutable unbound topology
+  // (executable()==false), not a production operator binding or route.
+  PrefillPromptFunction whole_request = nullptr;
+  // Whole-request-only finalizer for retained hidden whose state is complete
+  // but still uncommitted. It must produce logits without changing logical
+  // state; commit_whole_request is the sole publication transition.
+  StepFunction finish_whole_request_from_uncommitted_retained = nullptr;
+  PrefillCommitFunction commit_whole_request = nullptr;
 };
 
 struct DecodePlan {
@@ -690,15 +768,23 @@ struct GenerationControlOptions {
   bool capture_trace = false;
   ReferenceLogitsMode logits_mode = ReferenceLogitsMode::kFullStatistics;
   bool emit_nvtx_phase_ranges = false;
-  // Test-only admission. When enabled with a chunk size greater than one, all
-  // prompt tokens are submitted to prefix tiles and the final tile retains its
-  // last normalized hidden row for finish_prefill_from_tile. Default-off keeps
-  // the production prompt-(P-1) plus scalar-final-step schedule unchanged.
+  // Test-only admission. Ordinarily, all prompt tokens are submitted to
+  // prefix tiles and the final tile retains its last normalized hidden row.
+  // The separate whole-request opt-in below instead submits one immutable
+  // logical-panel topology, its dedicated uncommitted finalizer, and its
+  // single commit callback. Default-off keeps the production prompt-(P-1)
+  // plus scalar-final-step schedule.
   bool prefill_all_prompt_tokens = false;
   // Test-only admission layered on top of prefill_all_prompt_tokens. Each
   // request-sized chunk is one arbitrary 1..512-token prefix_tile call. It is
   // invalid unless whole-prompt admission is also enabled.
   bool prefill_single_arbitrary_tile = false;
+  // Host-control opt-in only. This submits the complete prompt and its
+  // immutable C8192 logical-panel topology exactly once, never prefix_tile.
+  // It requires all-prompt admission, dedicated retained-hidden final/commit
+  // callbacks, no trace, and no single-arbitrary-tile mode. No
+  // ReferenceEngine route sets it yet.
+  bool prefill_whole_request_layer_major = false;
   void* committed_token_context = nullptr;
   CommittedTokenFunction committed_token = nullptr;
 };

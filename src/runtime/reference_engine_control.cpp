@@ -17,14 +17,19 @@ namespace {
 inline constexpr char kNvtxGeneration[] = "q3x.generation";
 inline constexpr char kNvtxPrefixStep[] = "q3x.prefill.prefix_step";
 inline constexpr char kNvtxPrefixTile[] = "q3x.prefill.prefix_tile";
+inline constexpr char kNvtxWholeRequestPrefill[] =
+    "q3x.prefill.whole_request";
 inline constexpr char kNvtxFinishPrefill[] = "q3x.prefill.finish";
+inline constexpr char kNvtxCommitPrefill[] = "q3x.prefill.commit";
 inline constexpr char kNvtxDecodeStep[] = "q3x.decode.step";
 
 enum class NvtxRangeName : std::uint8_t {
   kGeneration,
   kPrefixStep,
   kPrefixTile,
+  kWholeRequestPrefill,
   kFinishPrefill,
+  kCommitPrefill,
   kDecodeStep,
 };
 
@@ -32,7 +37,9 @@ struct RegisteredNvtxStrings {
   nvtxStringHandle_t generation = nullptr;
   nvtxStringHandle_t prefix_step = nullptr;
   nvtxStringHandle_t prefix_tile = nullptr;
+  nvtxStringHandle_t whole_request_prefill = nullptr;
   nvtxStringHandle_t finish_prefill = nullptr;
+  nvtxStringHandle_t commit_prefill = nullptr;
   nvtxStringHandle_t decode_step = nullptr;
 };
 
@@ -41,7 +48,9 @@ struct RegisteredNvtxStrings {
       nvtxDomainRegisterStringA(nullptr, kNvtxGeneration),
       nvtxDomainRegisterStringA(nullptr, kNvtxPrefixStep),
       nvtxDomainRegisterStringA(nullptr, kNvtxPrefixTile),
+      nvtxDomainRegisterStringA(nullptr, kNvtxWholeRequestPrefill),
       nvtxDomainRegisterStringA(nullptr, kNvtxFinishPrefill),
+      nvtxDomainRegisterStringA(nullptr, kNvtxCommitPrefill),
       nvtxDomainRegisterStringA(nullptr, kNvtxDecodeStep)};
   return strings;
 }
@@ -56,8 +65,12 @@ struct RegisteredNvtxStrings {
       return strings.prefix_step;
     case NvtxRangeName::kPrefixTile:
       return strings.prefix_tile;
+    case NvtxRangeName::kWholeRequestPrefill:
+      return strings.whole_request_prefill;
     case NvtxRangeName::kFinishPrefill:
       return strings.finish_prefill;
+    case NvtxRangeName::kCommitPrefill:
+      return strings.commit_prefill;
     case NvtxRangeName::kDecodeStep:
       return strings.decode_step;
   }
@@ -126,12 +139,62 @@ bool checked_required_steps(const std::size_t prompt_tokens,
   return true;
 }
 
+[[nodiscard]] bool complete_uncommitted_whole_request_prefill_progress(
+    const PrefillExecutionPlan& topology,
+    const PrefillExecutionProgress& progress) noexcept {
+  if (progress.next_layer != topology.layers.size() ||
+      progress.next_panel != 0U || !progress.final_hidden_ready ||
+      progress.prefill_state_committed ||
+      !prefill_final_commit_ready(topology, progress)) {
+    return false;
+  }
+  for (std::size_t layer_index = 0U;
+       layer_index < topology.layers.size(); ++layer_index) {
+    if (progress.completed_panels[layer_index] != topology.panel_count) {
+      return false;
+    }
+    switch (topology.layers[layer_index].progress_domain) {
+      case PrefillProgressDomain::kKvCache:
+        if (progress.kv_visible_end[layer_index] !=
+                topology.final_position ||
+            progress.gdn_advanced_end[layer_index] !=
+                topology.first_position) {
+          return false;
+        }
+        break;
+      case PrefillProgressDomain::kGdnState:
+        if (progress.gdn_advanced_end[layer_index] !=
+                topology.final_position ||
+            progress.kv_visible_end[layer_index] !=
+                topology.first_position) {
+          return false;
+        }
+        break;
+    }
+  }
+  return true;
+}
+
 template <bool EmitNvtx>
 GenerationControlResult run_generation_control_impl(
     const std::vector<std::uint32_t>& prompt_token_ids,
     const GenerationControlOptions& options,
     const PrefillPlan& prefill_plan,
     const DecodePlan& decode_plan) {
+  const bool use_whole_request_prefill =
+      options.prefill_whole_request_layer_major;
+  const bool invalid_whole_request_prefill =
+      use_whole_request_prefill &&
+      (!options.prefill_all_prompt_tokens || options.capture_trace ||
+       options.prefill_single_arbitrary_tile ||
+       prefill_plan.whole_request == nullptr ||
+       prefill_plan.finish_whole_request_from_uncommitted_retained ==
+           nullptr ||
+       prefill_plan.commit_whole_request == nullptr);
+  const bool invalid_legacy_all_prompt_admission =
+      options.prefill_all_prompt_tokens && !use_whole_request_prefill &&
+      (options.capture_trace || options.prefill_chunk_size <= 1U ||
+       prefill_plan.finish_prefill_from_tile == nullptr);
   if (prompt_token_ids.empty() || options.max_new_tokens == 0U ||
       options.max_sequence_length == 0U ||
       prefill_plan.prefix_step == nullptr ||
@@ -143,9 +206,8 @@ GenerationControlResult run_generation_control_impl(
       !is_valid_reference_logits_mode(options.logits_mode) ||
       (options.prefill_single_arbitrary_tile &&
        !options.prefill_all_prompt_tokens) ||
-      (options.prefill_all_prompt_tokens &&
-       (options.capture_trace || options.prefill_chunk_size <= 1U ||
-        prefill_plan.finish_prefill_from_tile == nullptr))) {
+      invalid_whole_request_prefill ||
+      invalid_legacy_all_prompt_admission) {
     return failure(GenerationControlError::kInvalidArgument);
   }
   for (const std::uint32_t token : prompt_token_ids) {
@@ -162,6 +224,37 @@ GenerationControlResult run_generation_control_impl(
   }
   if (required_steps > options.max_sequence_length) {
     return failure(GenerationControlError::kCapacityExceeded);
+  }
+
+  const PrefillExecutionPlanResult whole_request_topology_result = [&]() {
+    if (!use_whole_request_prefill) {
+      return PrefillExecutionPlanResult{};
+    }
+    PrefillExecutionPlanOptions topology_options;
+    topology_options.first_position = 0U;
+    topology_options.prompt_token_count = prompt_token_ids.size();
+    topology_options.max_sequence_length = options.max_sequence_length;
+    return build_unbound_layer_major_prefill_execution_plan(topology_options);
+  }();
+  if (use_whole_request_prefill) {
+    if (!whole_request_topology_result) {
+      switch (whole_request_topology_result.error) {
+        case PrefillExecutionPlanError::kInvalidArgument:
+          return failure(GenerationControlError::kInvalidArgument);
+        case PrefillExecutionPlanError::kArithmeticOverflow:
+          return failure(GenerationControlError::kArithmeticOverflow);
+        case PrefillExecutionPlanError::kCapacityExceeded:
+          return failure(GenerationControlError::kCapacityExceeded);
+        case PrefillExecutionPlanError::kInvalidTopology:
+        case PrefillExecutionPlanError::kNone:
+          return failure(GenerationControlError::kUnexpectedStep);
+      }
+    }
+    // This seam passes topology only. A bound/executable plan here would
+    // silently turn a host scaffold into a production selector.
+    if (whole_request_topology_result.value->executable()) {
+      return failure(GenerationControlError::kUnexpectedStep);
+    }
   }
 
   [[maybe_unused]] const GenerationNvtxRange<EmitNvtx> generation_range;
@@ -252,21 +345,26 @@ GenerationControlResult run_generation_control_impl(
 
     ReferenceRunnerStatus runner_failure_status;
     std::uint32_t predicted_token = 0U;
+    PrefillExecutionProgress whole_request_progress;
+    bool whole_request_progress_ready = false;
 
-    const bool use_all_prompt_tile_admission =
+    const bool use_all_prompt_admission =
         options.prefill_all_prompt_tokens;
     const std::size_t prefix_token_count =
-        use_all_prompt_tile_admission
+        use_all_prompt_admission
             ? prompt_token_ids.size()
             : prompt_token_ids.size() - 1U;
     const std::size_t effective_prefill_chunk_size =
         options.capture_trace ? 1U : options.prefill_chunk_size;
-    if (effective_prefill_chunk_size > 1U && prefix_token_count != 0U &&
+    if (!use_whole_request_prefill && effective_prefill_chunk_size > 1U &&
+        prefix_token_count != 0U &&
         prefill_plan.prefix_tile == nullptr) {
       return failure(GenerationControlError::kInvalidArgument);
     }
     const std::size_t prefix_execution_count =
-        options.prefill_single_arbitrary_tile
+        use_whole_request_prefill
+            ? 1U
+            : options.prefill_single_arbitrary_tile
             ? reference_engine_detail::
                   single_arbitrary_prefix_execution_count(
                       prefix_token_count, effective_prefill_chunk_size)
@@ -276,7 +374,98 @@ GenerationControlResult run_generation_control_impl(
         prefix_execution_count);
 
     std::size_t prefix_index = 0U;
-    if (effective_prefill_chunk_size > 1U) {
+    if (use_whole_request_prefill) {
+      const PrefillExecutionPlan& unbound_immutable_topology =
+          *whole_request_topology_result.value;
+      PrefillPromptOptions prompt_options;
+      prompt_options.measure_timing = true;
+      prompt_options.retain_last_hidden_for_logits = true;
+      const auto invoke_whole_request = [&]() {
+        return prefill_plan.whole_request(
+            prefill_plan.context, prompt_token_ids.data(),
+            prompt_token_ids.size(), unbound_immutable_topology,
+            prompt_options);
+      };
+      PrefillPromptOutcome outcome;
+      try {
+        outcome = invoke_with_optional_nvtx<EmitNvtx>(
+            NvtxRangeName::kWholeRequestPrefill, invoke_whole_request);
+      } catch (const std::bad_alloc&) {
+        throw;
+      } catch (const std::length_error&) {
+        throw;
+      } catch (...) {
+        ReferenceRunnerStatus exception_status;
+        exception_status.error = ReferenceRunnerError::kPoisoned;
+        exception_status.operation = "whole_request_callback_exception";
+        return failure(GenerationControlError::kRunnerFailure,
+                       exception_status);
+      }
+      if (!outcome) {
+        return failure(GenerationControlError::kRunnerFailure,
+                       outcome.status);
+      }
+      if (outcome.value->logical_panel_count !=
+              unbound_immutable_topology.panel_count ||
+          outcome.value->panels.size() !=
+              unbound_immutable_topology.panel_count ||
+          outcome.value->prompt_token_count != prompt_token_ids.size() ||
+          !complete_uncommitted_whole_request_prefill_progress(
+              unbound_immutable_topology, outcome.value->progress)) {
+        return failure(GenerationControlError::kUnexpectedStep);
+      }
+      if (!outcome.value->timing.has_value()) {
+        return failure(GenerationControlError::kMissingTiming);
+      }
+      const double prompt_elapsed =
+          outcome.value->timing->elapsed_milliseconds;
+      if (!std::isfinite(prompt_elapsed) || prompt_elapsed < 0.0) {
+        return failure(GenerationControlError::kUnexpectedStep);
+      }
+
+      std::size_t expected_prompt_offset = 0U;
+      for (std::size_t panel_index = 0U;
+           panel_index < unbound_immutable_topology.panel_count;
+           ++panel_index) {
+        const PrefillOperatorPanel& expected_panel =
+            unbound_immutable_topology.panels[panel_index];
+        const PrefillPromptPanelResult& panel =
+            outcome.value->panels[panel_index];
+        if (panel.logical_panel_ordinal != panel_index ||
+            panel.prompt_token_offset != expected_prompt_offset ||
+            panel.first_position != expected_panel.first_position ||
+            panel.end_position != expected_panel.end_position ||
+            panel.steps.size() != expected_panel.token_count) {
+          return failure(GenerationControlError::kUnexpectedStep);
+        }
+        for (std::size_t panel_step = 0U;
+             panel_step < panel.steps.size(); ++panel_step) {
+          const ReferenceStepResult& step = panel.steps[panel_step];
+          if (step.position != expected_panel.first_position + panel_step ||
+              step.input_token_id !=
+                  prompt_token_ids[expected_prompt_offset + panel_step] ||
+              step.logits.has_value() || step.prediction.has_value() ||
+              step.timing.has_value()) {
+            return failure(GenerationControlError::kUnexpectedStep);
+          }
+        }
+        expected_prompt_offset += expected_panel.token_count;
+      }
+      if (expected_prompt_offset != prompt_token_ids.size()) {
+        return failure(GenerationControlError::kUnexpectedStep);
+      }
+
+      for (PrefillPromptPanelResult& panel : outcome.value->panels) {
+        for (ReferenceStepResult& step : panel.steps) {
+          control.steps.emplace_back(std::move(step));
+        }
+      }
+      whole_request_progress = outcome.value->progress;
+      whole_request_progress_ready = true;
+      control.timing.prefix_execution_milliseconds.push_back(prompt_elapsed);
+      control.timing.prompt_prefill_milliseconds = prompt_elapsed;
+      prefix_index = prefix_token_count;
+    } else if (effective_prefill_chunk_size > 1U) {
       while (prefix_index < prefix_token_count) {
         const std::size_t tile_token_count =
             options.prefill_single_arbitrary_tile
@@ -290,7 +479,7 @@ GenerationControlResult run_generation_control_impl(
         ReferencePrefillTileOptions tile_options;
         tile_options.measure_timing = true;
         tile_options.retain_last_hidden_for_logits =
-            use_all_prompt_tile_admission &&
+            use_all_prompt_admission &&
             prefix_index + tile_token_count == prefix_token_count;
         const auto invoke_prefix_tile = [&]() {
           return prefill_plan.prefix_tile(
@@ -372,25 +561,48 @@ GenerationControlResult run_generation_control_impl(
 
     {
       const StepFunction finish_prefill =
-          use_all_prompt_tile_admission
-              ? prefill_plan.finish_prefill_from_tile
-              : prefill_plan.finish_prefill;
+          use_whole_request_prefill
+              ? prefill_plan
+                    .finish_whole_request_from_uncommitted_retained
+              : use_all_prompt_admission
+                    ? prefill_plan.finish_prefill_from_tile
+                    : prefill_plan.finish_prefill;
       // The final prompt step already exists in the transcript when every
-      // prompt token was committed by tiles. Replace only that placeholder
-      // with the logits-bearing finalizer result; the callback itself must not
-      // advance model state or logical position.
-      if (use_all_prompt_tile_admission) {
+      // prompt token was committed by legacy tiles or staged by the
+      // whole-request callback. Replace only that placeholder with the
+      // logits-bearing finalizer result. The dedicated whole-request
+      // finalizer must leave the staged state uncommitted and must not advance
+      // logical position.
+      if (use_all_prompt_admission) {
         if (control.steps.empty()) {
           return failure(GenerationControlError::kUnexpectedStep);
         }
         control.steps.pop_back();
       }
       double elapsed = 0.0;
-      const GenerationControlError error = execute(
-          prefill_plan.context, finish_prefill,
-          NvtxRangeName::kFinishPrefill,
-          prompt_token_ids.back(), true, elapsed,
-          predicted_token, runner_failure_status);
+      GenerationControlError error = GenerationControlError::kNone;
+      if (use_whole_request_prefill) {
+        try {
+          error = execute(prefill_plan.context, finish_prefill,
+                          NvtxRangeName::kFinishPrefill,
+                          prompt_token_ids.back(), true, elapsed,
+                          predicted_token, runner_failure_status);
+        } catch (const std::bad_alloc&) {
+          throw;
+        } catch (const std::length_error&) {
+          throw;
+        } catch (...) {
+          runner_failure_status.error = ReferenceRunnerError::kPoisoned;
+          runner_failure_status.operation =
+              "whole_request_finalizer_exception";
+          error = GenerationControlError::kRunnerFailure;
+        }
+      } else {
+        error = execute(prefill_plan.context, finish_prefill,
+                        NvtxRangeName::kFinishPrefill,
+                        prompt_token_ids.back(), true, elapsed,
+                        predicted_token, runner_failure_status);
+      }
       if (error != GenerationControlError::kNone) {
         return failure(error, runner_failure_status);
       }
@@ -401,6 +613,39 @@ GenerationControlResult run_generation_control_impl(
       }
       control.timing.finish_prefill_milliseconds = elapsed;
       control.timing.prompt_prefill_milliseconds = prompt_prefill;
+
+      if (use_whole_request_prefill) {
+        if (!whole_request_progress_ready ||
+            whole_request_progress.prefill_state_committed) {
+          return failure(GenerationControlError::kUnexpectedStep);
+        }
+        const PrefillExecutionPlan& unbound_immutable_topology =
+            *whole_request_topology_result.value;
+        // The callback receives an actually const snapshot. A const reference
+        // to whole_request_progress itself would still permit legal mutation
+        // through const_cast because that underlying object is mutable and is
+        // retained for the controller's local publication afterward.
+        const PrefillExecutionProgress completed_uncommitted_progress =
+            whole_request_progress;
+        const auto invoke_commit = [&]() noexcept {
+          return prefill_plan.commit_whole_request(
+              prefill_plan.context, unbound_immutable_topology,
+              completed_uncommitted_progress);
+        };
+        const ReferenceRunnerStatus commit_status =
+            invoke_with_optional_nvtx<EmitNvtx>(NvtxRangeName::kCommitPrefill,
+                                                invoke_commit);
+        if (!commit_status) {
+          return failure(GenerationControlError::kRunnerFailure,
+                         commit_status);
+        }
+        if (publish_prefill_state_committed(
+                unbound_immutable_topology, whole_request_progress) !=
+                PrefillExecutionProgressError::kNone ||
+            !whole_request_progress.prefill_state_committed) {
+          return failure(GenerationControlError::kUnexpectedStep);
+        }
+      }
     }
 
     control.timing.time_to_first_token_milliseconds =
