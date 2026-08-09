@@ -41,6 +41,90 @@ struct ReferenceRunnerPrefillControlTestPeer {
     Control selected_control;
   };
 
+  struct LayerRouteReducer {
+    ReferenceRunner::PrefillLayerRouteReducer value;
+  };
+
+  using LayerRouteFragment =
+      ReferenceRunner::PrefillLayerSegmentRouteFragment;
+  using LayerRouteSlot = ReferenceRunner::PrefillLayerRouteSlot;
+
+  [[nodiscard]] static constexpr std::size_t
+  lightweight_enqueue_result_bytes() noexcept {
+    return sizeof(ReferenceRunner::PrefillLayerSegmentEnqueueResult);
+  }
+
+  [[nodiscard]] static constexpr std::size_t
+  legacy_tile_outcome_bytes() noexcept {
+    return sizeof(ReferencePrefillTileOutcome);
+  }
+
+  [[nodiscard]] static constexpr std::size_t
+  lightweight_enqueue_payload_bytes() noexcept {
+    return sizeof(ReferenceRunnerStatus) +
+           sizeof(ReferenceRunner::PrefillEnqueueRouteFragment);
+  }
+
+  [[nodiscard]] static LayerRouteFragment production_layer_route(
+      const std::size_t layer, const std::uint32_t first_position,
+      const std::uint32_t token_count) noexcept {
+    LayerRouteFragment fragment;
+    fragment.layer = layer;
+    fragment.first_position = first_position;
+    fragment.token_count = token_count;
+    fragment.recorded_slots =
+        ReferenceRunner::expected_prefill_layer_route_slots(layer);
+    for (std::size_t slot = 0U;
+         slot < ReferenceRunner::kPrefillLayerRouteSlotCount; ++slot) {
+      fragment.dispositions[slot] = PrefillRouteDisposition::kProduction;
+    }
+    return fragment;
+  }
+
+  static void set_route_disposition(
+      LayerRouteFragment& fragment, const LayerRouteSlot slot,
+      const PrefillRouteDisposition disposition) noexcept {
+    fragment.dispositions[static_cast<std::size_t>(slot)] = disposition;
+  }
+
+  static void set_forbidden_boundary(
+      LayerRouteFragment& fragment,
+      const PrefillForbiddenBoundary boundary) noexcept {
+    fragment.forbidden_boundaries = static_cast<std::uint8_t>(
+        fragment.forbidden_boundaries |
+        static_cast<std::uint8_t>(
+            1U << static_cast<std::size_t>(boundary)));
+  }
+
+  [[nodiscard]] static ReferenceRunnerStatus reduce_layer_route(
+      LayerRouteReducer& reducer,
+      const LayerRouteFragment& fragment) noexcept {
+    return ReferenceRunner::reduce_prefill_layer_route_fragment(
+        fragment, reducer.value);
+  }
+
+  [[nodiscard]] static bool route_initialized(
+      const LayerRouteReducer& reducer) noexcept {
+    return reducer.value.initialized;
+  }
+
+  [[nodiscard]] static std::size_t route_layer(
+      const LayerRouteReducer& reducer) noexcept {
+    return reducer.value.route_fragment.layer;
+  }
+
+  [[nodiscard]] static LayerRouteFragment reduced_route(
+      const LayerRouteReducer& reducer) noexcept {
+    return reducer.value.route_fragment;
+  }
+
+  [[nodiscard]] static ReferenceRunnerStatus collapse_layer_route(
+      const LayerRouteFragment& fragment,
+      PrefillRouteEvidence& layer_pass) noexcept {
+    return ReferenceRunner::collapse_prefill_layer_route_fragment(
+        fragment, layer_pass);
+  }
+
   [[nodiscard]] static Result select(
       const Control& requested, const std::uint32_t current_position,
       const std::uint32_t max_sequence_length,
@@ -1530,6 +1614,255 @@ void test_prefill_tile_execution_control(TestContext& test) {
               "first-position plus token count is checked without overflow");
 }
 
+void test_prefill_layer_route_reducer(TestContext& test) {
+  using Peer = runtime::ReferenceRunnerPrefillControlTestPeer;
+  using Slot = Peer::LayerRouteSlot;
+  const auto operation_is = [](const runtime::ReferenceRunnerStatus& status,
+                               const std::string_view expected) noexcept {
+    return status.operation != nullptr &&
+           std::string_view(status.operation) == expected;
+  };
+  const auto disposition = [](const Peer::LayerRouteFragment& fragment,
+                              const Slot slot) noexcept {
+    return fragment.dispositions[static_cast<std::size_t>(slot)];
+  };
+  const auto boundary_bit = [](
+                                const runtime::PrefillForbiddenBoundary boundary)
+      noexcept {
+        return static_cast<std::uint8_t>(
+            1U << static_cast<std::size_t>(boundary));
+      };
+
+  test.expect(
+      Peer::legacy_tile_outcome_bytes() >= 32U * 1'024U &&
+          Peer::lightweight_enqueue_result_bytes() < 1'024U &&
+          Peer::lightweight_enqueue_result_bytes() <=
+              Peer::lightweight_enqueue_payload_bytes() + 16U &&
+          Peer::lightweight_enqueue_result_bytes() * 16U <
+              Peer::legacy_tile_outcome_bytes(),
+      "candidate enqueue result contains route identity, not a C512 transcript");
+
+  Peer::LayerRouteReducer linear;
+  Peer::LayerRouteFragment first =
+      Peer::production_layer_route(0U, 0U, 512U);
+  Peer::set_route_disposition(
+      first, Slot::kNvFp4GateUp,
+      runtime::PrefillRouteDisposition::kExactFallback);
+  runtime::ReferenceRunnerStatus status =
+      Peer::reduce_layer_route(linear, first);
+  Peer::LayerRouteFragment second =
+      Peer::production_layer_route(0U, 512U, 256U);
+  Peer::set_route_disposition(
+      second, Slot::kGdn, runtime::PrefillRouteDisposition::kForbidden);
+  Peer::set_forbidden_boundary(
+      second, runtime::PrefillForbiddenBoundary::kApproximateNumerics);
+  status = status.ok() ? Peer::reduce_layer_route(linear, second) : status;
+  const Peer::LayerRouteFragment reduced_linear =
+      Peer::reduced_route(linear);
+  test.expect(
+      status.ok() && Peer::route_initialized(linear) &&
+          Peer::route_layer(linear) == 0U &&
+          reduced_linear.first_position == 0U &&
+          reduced_linear.token_count == 768U &&
+          disposition(reduced_linear, Slot::kNvFp4GateUp) ==
+              runtime::PrefillRouteDisposition::kExactFallback &&
+          disposition(reduced_linear, Slot::kGdn) ==
+              runtime::PrefillRouteDisposition::kForbidden &&
+          disposition(reduced_linear, Slot::kQOrLinearQkv) ==
+              runtime::PrefillRouteDisposition::kProduction &&
+          (reduced_linear.forbidden_boundaries &
+           boundary_bit(
+               runtime::PrefillForbiddenBoundary::kApproximateNumerics)) != 0U,
+      "same-layer physical segments preserve geometry and weakest typed routes");
+
+  const auto reduce_gate_sequence =
+      [&test](const std::array<runtime::PrefillRouteDisposition, 3U>& routes)
+      noexcept {
+        Peer::LayerRouteReducer reducer;
+        runtime::ReferenceRunnerStatus sequence_status;
+        for (std::size_t index = 0U; index < routes.size(); ++index) {
+          Peer::LayerRouteFragment fragment =
+              Peer::production_layer_route(
+                  0U, static_cast<std::uint32_t>(index * 32U), 32U);
+          Peer::set_route_disposition(
+              fragment, Slot::kNvFp4GateUp, routes[index]);
+          if (sequence_status.ok()) {
+            sequence_status = Peer::reduce_layer_route(reducer, fragment);
+          }
+        }
+        test.expect(sequence_status.ok(),
+                    "route algebra fixture remains valid");
+        return Peer::reduced_route(reducer);
+      };
+  const Peer::LayerRouteFragment pff = reduce_gate_sequence(
+      {runtime::PrefillRouteDisposition::kProduction,
+       runtime::PrefillRouteDisposition::kExactFallback,
+       runtime::PrefillRouteDisposition::kForbidden});
+  const Peer::LayerRouteFragment fpf = reduce_gate_sequence(
+      {runtime::PrefillRouteDisposition::kForbidden,
+       runtime::PrefillRouteDisposition::kProduction,
+       runtime::PrefillRouteDisposition::kExactFallback});
+  const Peer::LayerRouteFragment ffp = reduce_gate_sequence(
+      {runtime::PrefillRouteDisposition::kExactFallback,
+       runtime::PrefillRouteDisposition::kForbidden,
+       runtime::PrefillRouteDisposition::kProduction});
+  const Peer::LayerRouteFragment iii = reduce_gate_sequence(
+      {runtime::PrefillRouteDisposition::kExactFallback,
+       runtime::PrefillRouteDisposition::kExactFallback,
+       runtime::PrefillRouteDisposition::kExactFallback});
+  test.expect(
+      disposition(pff, Slot::kNvFp4GateUp) ==
+              runtime::PrefillRouteDisposition::kForbidden &&
+          disposition(fpf, Slot::kNvFp4GateUp) ==
+              disposition(pff, Slot::kNvFp4GateUp) &&
+          disposition(ffp, Slot::kNvFp4GateUp) ==
+              disposition(pff, Slot::kNvFp4GateUp) &&
+          disposition(iii, Slot::kNvFp4GateUp) ==
+              runtime::PrefillRouteDisposition::kExactFallback,
+      "explicit weakest-route algebra is commutative, associative, and idempotent");
+
+  Peer::LayerRouteReducer full;
+  Peer::LayerRouteFragment full_first =
+      Peer::production_layer_route(3U, 1'024U, 512U);
+  Peer::set_route_disposition(
+      full_first, Slot::kQOrLinearQkv,
+      runtime::PrefillRouteDisposition::kExactFallback);
+  Peer::LayerRouteFragment full_second =
+      Peer::production_layer_route(3U, 1'536U, 512U);
+  Peer::set_route_disposition(
+      full_second, Slot::kFullK,
+      runtime::PrefillRouteDisposition::kExactFallback);
+  status = Peer::reduce_layer_route(full, full_first);
+  status = status.ok() ? Peer::reduce_layer_route(full, full_second) : status;
+  const Peer::LayerRouteFragment reduced_full = Peer::reduced_route(full);
+  runtime::PrefillRouteEvidence collapsed_full;
+  status = status.ok()
+               ? Peer::collapse_layer_route(reduced_full, collapsed_full)
+               : status;
+  const runtime::PrefillOperatorRouteCounts& collapsed_qkv =
+      collapsed_full.operators[static_cast<std::size_t>(
+          runtime::PrefillOperatorRole::kFp8Qkv)];
+  test.expect(
+      status.ok() &&
+          disposition(reduced_full, Slot::kQOrLinearQkv) ==
+              runtime::PrefillRouteDisposition::kExactFallback &&
+          disposition(reduced_full, Slot::kFullK) ==
+              runtime::PrefillRouteDisposition::kExactFallback &&
+          disposition(reduced_full, Slot::kFullV) ==
+              runtime::PrefillRouteDisposition::kProduction &&
+          collapsed_qkv.production_hits == 1U &&
+          collapsed_qkv.exact_fallback_hits == 2U &&
+          collapsed_qkv.forbidden_hits == 0U,
+      "full Q/K/V ordinals survive segment reduction before legacy collapse");
+
+  const Peer::LayerRouteFragment before_rejection =
+      Peer::reduced_route(linear);
+  Peer::LayerRouteFragment mixed_layer =
+      Peer::production_layer_route(1U, 768U, 32U);
+  status = Peer::reduce_layer_route(linear, mixed_layer);
+  test.expect(
+      !status && operation_is(status, "prefill_layer_route_mixed_layer") &&
+          Peer::reduced_route(linear).token_count ==
+              before_rejection.token_count,
+      "one reducer cannot combine different model layers");
+
+  Peer::LayerRouteFragment out_of_order =
+      Peer::production_layer_route(0U, 800U, 32U);
+  status = Peer::reduce_layer_route(linear, out_of_order);
+  test.expect(
+      !status &&
+          operation_is(status, "prefill_layer_route_segment_order") &&
+          Peer::reduced_route(linear).token_count ==
+              before_rejection.token_count,
+      "same-layer segment order is monotonic and transactional");
+
+  Peer::LayerRouteReducer maximum_panel;
+  status = {};
+  for (std::size_t segment = 0U; segment < 16U; ++segment) {
+    const Peer::LayerRouteFragment fragment =
+        Peer::production_layer_route(
+            0U, static_cast<std::uint32_t>(segment * 512U), 512U);
+    if (status.ok()) {
+      status = Peer::reduce_layer_route(maximum_panel, fragment);
+    }
+  }
+  test.expect(status.ok() &&
+                  Peer::reduced_route(maximum_panel).token_count == 8'192U,
+              "same-layer reducer admits exactly one complete C8192 panel");
+  const Peer::LayerRouteFragment beyond_panel =
+      Peer::production_layer_route(0U, 8'192U, 512U);
+  status = Peer::reduce_layer_route(maximum_panel, beyond_panel);
+  test.expect(
+      !status && operation_is(status, "prefill_layer_route_segment_span") &&
+          Peer::reduced_route(maximum_panel).token_count == 8'192U,
+      "same-layer reducer rejects an unbounded seventeenth C512 segment");
+
+  Peer::LayerRouteReducer malformed;
+  Peer::LayerRouteFragment bad_slots =
+      Peer::production_layer_route(0U, 0U, 32U);
+  bad_slots.recorded_slots = static_cast<std::uint16_t>(
+      bad_slots.recorded_slots &
+      ~static_cast<std::uint16_t>(
+          1U << static_cast<std::size_t>(Slot::kQOrLinearQkv)));
+  status = Peer::reduce_layer_route(malformed, bad_slots);
+  test.expect(
+      !status &&
+          operation_is(status, "prefill_layer_route_fragment_slots") &&
+          !Peer::route_initialized(malformed),
+      "missing ordinal route identity fails before reducer publication");
+
+  Peer::LayerRouteFragment bad_geometry =
+      Peer::production_layer_route(0U, 0U, 0U);
+  status = Peer::reduce_layer_route(malformed, bad_geometry);
+  test.expect(
+      !status &&
+          operation_is(status, "prefill_layer_route_fragment_geometry") &&
+          !Peer::route_initialized(malformed),
+      "zero-length route geometry fails closed");
+
+  Peer::LayerRouteFragment oversized_physical =
+      Peer::production_layer_route(0U, 0U, 513U);
+  status = Peer::reduce_layer_route(malformed, oversized_physical);
+  test.expect(
+      !status &&
+          operation_is(status, "prefill_layer_route_physical_segment") &&
+          !Peer::route_initialized(malformed),
+      "legacy fallback reducer retains the C512 physical-segment boundary");
+
+  Peer::LayerRouteFragment bad_disposition =
+      Peer::production_layer_route(0U, 0U, 32U);
+  Peer::set_route_disposition(
+      bad_disposition, Slot::kGdn,
+      static_cast<runtime::PrefillRouteDisposition>(255U));
+  status = Peer::reduce_layer_route(malformed, bad_disposition);
+  test.expect(
+      !status &&
+          operation_is(status,
+                       "prefill_layer_route_fragment_disposition") &&
+          !Peer::route_initialized(malformed),
+      "unknown route dispositions never participate in weakest selection");
+
+  Peer::LayerRouteFragment bad_boundaries =
+      Peer::production_layer_route(0U, 0U, 32U);
+  bad_boundaries.forbidden_boundaries = 0x80U;
+  status = Peer::reduce_layer_route(malformed, bad_boundaries);
+  test.expect(
+      !status &&
+          operation_is(status,
+                       "prefill_layer_route_fragment_boundaries") &&
+          !Peer::route_initialized(malformed),
+      "unknown forbidden-boundary bits fail closed");
+
+  const Peer::LayerRouteFragment bad_layer =
+      Peer::production_layer_route(
+          runtime::kReferenceDecoderLayerCount, 0U, 32U);
+  status = Peer::reduce_layer_route(malformed, bad_layer);
+  test.expect(!status &&
+                  operation_is(status, "prefill_layer_route_layer") &&
+                  !Peer::route_initialized(malformed),
+              "out-of-schedule route reduction fails closed");
+}
+
 }  // namespace
 
 int main() {
@@ -1543,6 +1876,7 @@ int main() {
   test_fake_linear_weight_validation(test);
   test_trace_layout_and_factory_error(test);
   test_prefill_tile_execution_control(test);
+  test_prefill_layer_route_reducer(test);
   if (test.failures() != 0) {
     std::cerr << test.failures() << " reference-runner host test(s) failed\n";
     return 1;

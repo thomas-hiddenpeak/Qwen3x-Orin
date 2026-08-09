@@ -6,7 +6,6 @@
 #include "q3x/runtime/request_state.h"
 
 #include <array>
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -691,6 +690,68 @@ class ReferenceRunner {
     bool delegate_scalar_m1 = false;
   };
 
+  // Route slots retain the ordinal identity that the request-level evidence
+  // intentionally erases. In particular, full-Attention Q, K, and V must be
+  // reduced independently across physical segments before their three hits
+  // are collapsed into the public kFp8Qkv role.
+  enum class PrefillLayerRouteSlot : std::uint8_t {
+    kNvFp4GateUp = 0,
+    kNvFp4Down,
+    kQOrLinearQkv,
+    kFullK,
+    kFullV,
+    kLinearZ,
+    kO,
+    kAttention,
+    kGdn,
+    kCount,
+  };
+
+  inline static constexpr std::size_t kPrefillLayerRouteSlotCount =
+      static_cast<std::size_t>(PrefillLayerRouteSlot::kCount);
+  static_assert(kPrefillLayerRouteSlotCount <= 16U);
+  static_assert(kPrefillForbiddenBoundaryCount <= 8U);
+
+  struct PrefillLayerSegmentRouteFragment {
+    std::array<PrefillRouteDisposition, kPrefillLayerRouteSlotCount>
+        dispositions{};
+    std::uint16_t recorded_slots = 0U;
+    std::uint8_t forbidden_boundaries = 0U;
+    std::size_t layer = kReferenceNoLayer;
+    std::uint32_t first_position = 0U;
+    std::uint32_t token_count = 0U;
+  };
+
+  struct PrefillEnqueueRouteFragment {
+    // Public 0..64 execution collapses each completed layer here and commits
+    // this exact legacy evidence only after its normal synchronization point.
+    PrefillRouteEvidence legacy_layer_pass;
+    // Candidate selection admits exactly one layer, for which ordinal route
+    // identity remains available to the same-layer physical-segment reducer.
+    PrefillLayerSegmentRouteFragment layer_segment;
+    bool has_single_layer_segment = false;
+  };
+
+  // Device-enqueue result for one already-admitted physical segment. It is
+  // deliberately independent of ReferencePrefillTileOutcome: candidate
+  // layer-major traversal must not materialize the legacy C512 per-token
+  // transcript after every model layer.
+  struct PrefillLayerSegmentEnqueueResult {
+    ReferenceRunnerStatus status;
+    PrefillEnqueueRouteFragment route_fragment;
+
+    [[nodiscard]] bool ok() const noexcept { return status.ok(); }
+    [[nodiscard]] explicit operator bool() const noexcept { return ok(); }
+  };
+
+  // Same-layer reduction state for the physical C512 segments that implement
+  // one logical operator panel. Ordinal slots take the weakest observed
+  // disposition without multiplying logical hits by physical segment count.
+  struct PrefillLayerRouteReducer {
+    PrefillLayerSegmentRouteFragment route_fragment;
+    bool initialized = false;
+  };
+
   [[nodiscard]] static PrefillTileExecutionControl
   legacy_prefill_tile_execution_control() noexcept;
   [[nodiscard]] static bool is_legacy_prefill_tile_execution_control(
@@ -701,12 +762,25 @@ class ReferenceRunner {
       std::uint32_t workspace_token_capacity, std::size_t token_count,
       const ReferencePrefillTileOptions& options,
       PrefillTileExecutionSelection& selection) noexcept;
-  [[nodiscard]] ReferencePrefillTileOutcome prefill_prefix_tile_impl(
+  [[nodiscard]] static ReferenceRunnerStatus
+  reduce_prefill_layer_route_fragment(
+      const PrefillLayerSegmentRouteFragment& segment_fragment,
+      PrefillLayerRouteReducer& reducer) noexcept;
+  [[nodiscard]] static std::uint16_t expected_prefill_layer_route_slots(
+      std::size_t layer) noexcept;
+  [[nodiscard]] static ReferenceRunnerStatus
+  validate_prefill_layer_route_fragment(
+      const PrefillLayerSegmentRouteFragment& fragment) noexcept;
+  [[nodiscard]] static ReferenceRunnerStatus
+  collapse_prefill_layer_route_fragment(
+      const PrefillLayerSegmentRouteFragment& layer_fragment,
+      PrefillRouteEvidence& layer_pass) noexcept;
+  [[nodiscard]] PrefillLayerSegmentEnqueueResult
+  enqueue_prefill_layer_segment(
       const std::uint32_t* input_token_ids, std::size_t token_count,
-      const ReferencePrefillTileOptions& options,
+      std::uint32_t first_position,
       const PrefillTileExecutionControl& control,
-      const Views& execution_views,
-      std::chrono::steady_clock::time_point started) noexcept;
+      const Views& execution_views) noexcept;
 
   struct Views {
     std::uint16_t* hidden[3]{};

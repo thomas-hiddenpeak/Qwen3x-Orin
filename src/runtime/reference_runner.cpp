@@ -3097,6 +3097,230 @@ ReferenceRunnerStatus ReferenceRunner::select_prefill_tile_execution(
   return {};
 }
 
+std::uint16_t ReferenceRunner::expected_prefill_layer_route_slots(
+    const std::size_t layer) noexcept {
+  const auto bit = [](const PrefillLayerRouteSlot slot) noexcept {
+    return static_cast<std::uint16_t>(
+        1U << static_cast<std::uint8_t>(slot));
+  };
+  const std::uint16_t common =
+      bit(PrefillLayerRouteSlot::kNvFp4GateUp) |
+      bit(PrefillLayerRouteSlot::kNvFp4Down) |
+      bit(PrefillLayerRouteSlot::kQOrLinearQkv) |
+      bit(PrefillLayerRouteSlot::kO);
+  const model::LayerType layer_type =
+      reference_runner_detail::expected_reference_layer_type(layer);
+  if (layer_type == model::LayerType::kLinearAttention) {
+    return common | bit(PrefillLayerRouteSlot::kLinearZ) |
+           bit(PrefillLayerRouteSlot::kGdn);
+  }
+  if (layer_type == model::LayerType::kFullAttention) {
+    return common | bit(PrefillLayerRouteSlot::kFullK) |
+           bit(PrefillLayerRouteSlot::kFullV) |
+           bit(PrefillLayerRouteSlot::kAttention);
+  }
+  return 0U;
+}
+
+ReferenceRunnerStatus ReferenceRunner::validate_prefill_layer_route_fragment(
+    const PrefillLayerSegmentRouteFragment& fragment) noexcept {
+  if (fragment.layer >= kReferenceDecoderLayerCount) {
+    return runner_status(ReferenceRunnerError::kInvalidLayerSchedule,
+                         "prefill_layer_route_layer", fragment.layer);
+  }
+  if (fragment.token_count == 0U ||
+      fragment.token_count > kLayerMajorRequestOperatorPanelCapacity ||
+      fragment.first_position >
+          std::numeric_limits<std::uint32_t>::max() -
+              fragment.token_count) {
+    return runner_status(ReferenceRunnerError::kRouteEvidenceFailure,
+                         "prefill_layer_route_fragment_geometry",
+                         fragment.layer);
+  }
+  const std::uint16_t expected =
+      expected_prefill_layer_route_slots(fragment.layer);
+  if (expected == 0U || fragment.recorded_slots != expected) {
+    return runner_status(ReferenceRunnerError::kRouteEvidenceFailure,
+                         "prefill_layer_route_fragment_slots",
+                         fragment.layer);
+  }
+  constexpr std::uint8_t kKnownBoundaryMask = static_cast<std::uint8_t>(
+      (1U << kPrefillForbiddenBoundaryCount) - 1U);
+  if ((fragment.forbidden_boundaries &
+       static_cast<std::uint8_t>(~kKnownBoundaryMask)) != 0U) {
+    return runner_status(ReferenceRunnerError::kRouteEvidenceFailure,
+                         "prefill_layer_route_fragment_boundaries",
+                         fragment.layer);
+  }
+  for (std::size_t slot = 0U; slot < kPrefillLayerRouteSlotCount; ++slot) {
+    if ((expected & static_cast<std::uint16_t>(1U << slot)) == 0U) {
+      continue;
+    }
+    const PrefillRouteDisposition disposition =
+        fragment.dispositions[slot];
+    if (disposition != PrefillRouteDisposition::kProduction &&
+        disposition != PrefillRouteDisposition::kExactFallback &&
+        disposition != PrefillRouteDisposition::kForbidden) {
+      return runner_status(ReferenceRunnerError::kRouteEvidenceFailure,
+                           "prefill_layer_route_fragment_disposition",
+                           fragment.layer);
+    }
+  }
+  return {};
+}
+
+ReferenceRunnerStatus ReferenceRunner::reduce_prefill_layer_route_fragment(
+    const PrefillLayerSegmentRouteFragment& segment_fragment,
+    PrefillLayerRouteReducer& reducer) noexcept {
+  const ReferenceRunnerStatus segment_status =
+      validate_prefill_layer_route_fragment(segment_fragment);
+  if (!segment_status) {
+    return segment_status;
+  }
+  if (segment_fragment.token_count > kMaximumRequestPrefillChunkSize) {
+    return runner_status(ReferenceRunnerError::kRouteEvidenceFailure,
+                         "prefill_layer_route_physical_segment",
+                         segment_fragment.layer);
+  }
+  if (reducer.initialized) {
+    const ReferenceRunnerStatus reducer_status =
+        validate_prefill_layer_route_fragment(reducer.route_fragment);
+    if (!reducer_status) {
+      return runner_status(ReferenceRunnerError::kRouteEvidenceFailure,
+                           "prefill_layer_route_reducer_state",
+                           segment_fragment.layer);
+    }
+    if (reducer.route_fragment.layer != segment_fragment.layer) {
+      return runner_status(ReferenceRunnerError::kRouteEvidenceFailure,
+                           "prefill_layer_route_mixed_layer",
+                           segment_fragment.layer);
+    }
+  } else {
+    reducer.route_fragment = segment_fragment;
+    reducer.initialized = true;
+    return {};
+  }
+
+  PrefillLayerSegmentRouteFragment reduced = reducer.route_fragment;
+  if (segment_fragment.first_position !=
+      reduced.first_position + reduced.token_count) {
+    return runner_status(ReferenceRunnerError::kRouteEvidenceFailure,
+                         "prefill_layer_route_segment_order",
+                         segment_fragment.layer);
+  }
+  if (reduced.token_count > kLayerMajorRequestOperatorPanelCapacity ||
+      segment_fragment.token_count >
+          kLayerMajorRequestOperatorPanelCapacity - reduced.token_count) {
+    return runner_status(ReferenceRunnerError::kRouteEvidenceFailure,
+                         "prefill_layer_route_segment_span",
+                         segment_fragment.layer);
+  }
+  const auto weakest_disposition = [](
+      const PrefillRouteDisposition left,
+      const PrefillRouteDisposition right) noexcept {
+    if (left == PrefillRouteDisposition::kForbidden ||
+        right == PrefillRouteDisposition::kForbidden) {
+      return PrefillRouteDisposition::kForbidden;
+    }
+    if (left == PrefillRouteDisposition::kExactFallback ||
+        right == PrefillRouteDisposition::kExactFallback) {
+      return PrefillRouteDisposition::kExactFallback;
+    }
+    return PrefillRouteDisposition::kProduction;
+  };
+  for (std::size_t slot = 0U; slot < kPrefillLayerRouteSlotCount; ++slot) {
+    if ((reduced.recorded_slots &
+         static_cast<std::uint16_t>(1U << slot)) == 0U) {
+      continue;
+    }
+    reduced.dispositions[slot] = weakest_disposition(
+        reduced.dispositions[slot],
+        segment_fragment.dispositions[slot]);
+  }
+  reduced.forbidden_boundaries = static_cast<std::uint8_t>(
+      reduced.forbidden_boundaries |
+      segment_fragment.forbidden_boundaries);
+  reduced.token_count += segment_fragment.token_count;
+  reducer.route_fragment = reduced;
+  return {};
+}
+
+ReferenceRunnerStatus ReferenceRunner::collapse_prefill_layer_route_fragment(
+    const PrefillLayerSegmentRouteFragment& layer_fragment,
+    PrefillRouteEvidence& layer_pass) noexcept {
+  const ReferenceRunnerStatus fragment_status =
+      validate_prefill_layer_route_fragment(layer_fragment);
+  if (!fragment_status) {
+    return fragment_status;
+  }
+  PrefillRouteEvidence collapsed = layer_pass;
+  const auto disposition = [&layer_fragment](
+      const PrefillLayerRouteSlot slot) noexcept {
+    return layer_fragment.dispositions[static_cast<std::size_t>(slot)];
+  };
+  const auto record = [&collapsed, &disposition](
+      const PrefillLayerRouteSlot slot,
+      const PrefillOperatorRole role) noexcept {
+    return record_prefill_operator_route(collapsed, role,
+                                         disposition(slot));
+  };
+  if (!record(PrefillLayerRouteSlot::kNvFp4GateUp,
+              PrefillOperatorRole::kNvFp4GateUp) ||
+      !record(PrefillLayerRouteSlot::kNvFp4Down,
+              PrefillOperatorRole::kNvFp4Down) ||
+      !record(PrefillLayerRouteSlot::kQOrLinearQkv,
+              PrefillOperatorRole::kFp8Qkv) ||
+      !record(PrefillLayerRouteSlot::kO, PrefillOperatorRole::kFp8O)) {
+    return runner_status(ReferenceRunnerError::kRouteEvidenceFailure,
+                         "prefill_layer_route_collapse",
+                         layer_fragment.layer);
+  }
+  const model::LayerType layer_type =
+      reference_runner_detail::expected_reference_layer_type(
+          layer_fragment.layer);
+  if (layer_type == model::LayerType::kLinearAttention) {
+    if (!record(PrefillLayerRouteSlot::kLinearZ,
+                PrefillOperatorRole::kFp8Z) ||
+        !record(PrefillLayerRouteSlot::kGdn,
+                PrefillOperatorRole::kGdn)) {
+      return runner_status(ReferenceRunnerError::kRouteEvidenceFailure,
+                           "prefill_layer_route_collapse_linear",
+                           layer_fragment.layer);
+    }
+  } else if (layer_type == model::LayerType::kFullAttention) {
+    if (!record(PrefillLayerRouteSlot::kFullK,
+                PrefillOperatorRole::kFp8Qkv) ||
+        !record(PrefillLayerRouteSlot::kFullV,
+                PrefillOperatorRole::kFp8Qkv) ||
+        !record(PrefillLayerRouteSlot::kAttention,
+                PrefillOperatorRole::kAttention)) {
+      return runner_status(ReferenceRunnerError::kRouteEvidenceFailure,
+                           "prefill_layer_route_collapse_full",
+                           layer_fragment.layer);
+    }
+  } else {
+    return runner_status(ReferenceRunnerError::kInvalidLayerSchedule,
+                         "prefill_layer_route_schedule",
+                         layer_fragment.layer);
+  }
+  // Physical segments OR a boundary inside one logical layer. Collapse then
+  // contributes one hit for each affected layer, preserving the legacy
+  // request-level counter meaning without multiplying by C512 segment count.
+  for (std::size_t boundary = 0U;
+       boundary < kPrefillForbiddenBoundaryCount; ++boundary) {
+    if ((layer_fragment.forbidden_boundaries &
+        static_cast<std::uint8_t>(1U << boundary)) != 0U &&
+        !record_prefill_forbidden_boundary(
+            collapsed, static_cast<PrefillForbiddenBoundary>(boundary))) {
+      return runner_status(ReferenceRunnerError::kRouteEvidenceFailure,
+                           "prefill_layer_route_collapse_boundary",
+                           layer_fragment.layer);
+    }
+  }
+  layer_pass = collapsed;
+  return {};
+}
+
 ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
     const std::uint32_t* const input_token_ids,
     const std::size_t token_count,
@@ -3109,19 +3333,6 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
   // Preserve the public contract: any attempted new tile invalidates a prior
   // retained row before runner, token, capacity, or control validation.
   retained_prefill_hidden_valid_ = false;
-  return prefill_prefix_tile_impl(
-      input_token_ids, token_count, options,
-      legacy_prefill_tile_execution_control(), views_, started);
-}
-
-ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
-    const std::uint32_t* const input_token_ids,
-    const std::size_t token_count,
-    const ReferencePrefillTileOptions& options,
-    const PrefillTileExecutionControl& control,
-    const Views& execution_views,
-    const std::chrono::steady_clock::time_point started) noexcept {
-  using Clock = std::chrono::steady_clock;
   if (!static_cast<bool>(*this)) {
     return fail_prefill_tile(
         runner_status(ReferenceRunnerError::kInvalidRunner,
@@ -3146,6 +3357,8 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
                         "prefill_tile_token"));
     }
   }
+  const PrefillTileExecutionControl control =
+      legacy_prefill_tile_execution_control();
   PrefillTileExecutionSelection execution;
   const ReferenceRunnerStatus execution_status =
       select_prefill_tile_execution(
@@ -3187,7 +3400,138 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
     return outcome;
   }
 
-  PrefillRouteEvidence tile_route_evidence;
+  // The public tile validates its token IDs exactly once. The enqueue core is
+  // also the future layer-major physical-segment seam and therefore assumes
+  // its enclosing whole-request admission has already performed that check.
+  const PrefillLayerSegmentEnqueueResult enqueued =
+      enqueue_prefill_layer_segment(input_token_ids, token_count,
+                                    first_position, control, views_);
+  if (!enqueued) {
+    return fail_prefill_tile(enqueued.status);
+  }
+
+  const auto stream = reinterpret_cast<cudaStream_t>(stream_);
+  const cudaError_t sync_status = cudaStreamSynchronize(stream);
+  if (sync_status != cudaSuccess) {
+    return fail_prefill_tile(runner_status(
+        ReferenceRunnerError::kCudaFailure, "prefill_tile_synchronize",
+        kReferenceNoLayer, static_cast<int>(sync_status)));
+  }
+  const std::uint32_t committed_length = execution.completed_position;
+  const RequestOperationStatus commit_status =
+      state_->set_sequence_length(committed_length);
+  if (!commit_status) {
+    return fail_prefill_tile(runner_status(
+        ReferenceRunnerError::kStateCommitFailure,
+        "prefill_tile_commit", kReferenceNoLayer,
+        commit_status.cuda_error));
+  }
+  if (!commit_prefill_route_layer_pass(
+          prefill_route_evidence_,
+          enqueued.route_fragment.legacy_layer_pass)) {
+    return fail_prefill_tile(runner_status(
+        ReferenceRunnerError::kRouteEvidenceFailure,
+        "prefill_tile_route_commit", kReferenceNoLayer));
+  }
+#if defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
+  const auto native_chunk64_snapshot_hook =
+      g_prefill_gdn_chunk64_native_snapshot_hook;
+  if (native_chunk64_snapshot_hook.callback != nullptr) {
+    native_chunk64_snapshot_hook.callback(
+        *state_, native_chunk64_snapshot_hook.context);
+  }
+#endif
+#if defined(Q3X_ENABLE_GDN_CHUNK64_REFERENCE_ADMISSION)
+  const auto chunk64_snapshot_hook =
+      g_prefill_gdn_chunk64_reference_snapshot_hook;
+  if (chunk64_snapshot_hook.callback != nullptr) {
+    chunk64_snapshot_hook.callback(*state_, chunk64_snapshot_hook.context);
+  }
+#endif
+#if defined(Q3X_ENABLE_GDN_C16_NORM_GATE_ADMISSION)
+  // The synchronize above completed the full C512 state transition; observe
+  // it only after the logical sequence length was committed.
+  const auto snapshot_hook =
+      g_prefill_gdn_c16_norm_gate_admission_snapshot_hook;
+  if (snapshot_hook.callback != nullptr) {
+    snapshot_hook.callback(
+        *state_, reference_runner_detail::
+                     PrefillGdnC16NormGateAdmissionSnapshotStage::kPrefixTile,
+        snapshot_hook.context);
+  }
+#endif
+
+  ReferencePrefillTileResult tile;
+  tile.step_count = token_count;
+  for (std::size_t token = 0U; token < token_count; ++token) {
+    tile.steps[token].position =
+        first_position + static_cast<std::uint32_t>(token);
+    tile.steps[token].input_token_id = input_token_ids[token];
+  }
+  if (options.measure_timing) {
+    const std::chrono::duration<double, std::milli> elapsed =
+        Clock::now() - started;
+    tile.timing.emplace(ReferenceStepTiming{elapsed.count()});
+  }
+  if (options.retain_last_hidden_for_logits) {
+    retained_prefill_hidden_valid_ = true;
+    retained_prefill_position_ = committed_length - 1U;
+    retained_prefill_input_token_ = input_token_ids[token_count - 1U];
+    retained_prefill_hidden_row_ = token_count - 1U;
+  }
+  ReferencePrefillTileOutcome outcome;
+  outcome.value.emplace(std::move(tile));
+  return outcome;
+}
+
+ReferenceRunner::PrefillLayerSegmentEnqueueResult
+ReferenceRunner::enqueue_prefill_layer_segment(
+    const std::uint32_t* const input_token_ids,
+    const std::size_t token_count,
+    const std::uint32_t first_position,
+    const PrefillTileExecutionControl& control,
+    const Views& execution_views) noexcept {
+  const auto fail_enqueue = [](const ReferenceRunnerStatus status) noexcept {
+    PrefillLayerSegmentEnqueueResult result;
+    result.status = status;
+    return result;
+  };
+  PrefillRouteEvidence legacy_layer_pass;
+  PrefillLayerSegmentRouteFragment layer_route_fragment;
+  const auto record_layer_route = [&layer_route_fragment](
+                                      const PrefillLayerRouteSlot slot,
+                                      const PrefillRouteDisposition disposition)
+      noexcept {
+        const std::size_t index = static_cast<std::size_t>(slot);
+        if (index >= kPrefillLayerRouteSlotCount ||
+            (disposition != PrefillRouteDisposition::kProduction &&
+             disposition != PrefillRouteDisposition::kExactFallback &&
+             disposition != PrefillRouteDisposition::kForbidden)) {
+          return false;
+        }
+        const std::uint16_t bit =
+            static_cast<std::uint16_t>(1U << index);
+        if ((layer_route_fragment.recorded_slots & bit) != 0U) {
+          return false;
+        }
+        layer_route_fragment.dispositions[index] = disposition;
+        layer_route_fragment.recorded_slots = static_cast<std::uint16_t>(
+            layer_route_fragment.recorded_slots | bit);
+        return true;
+      };
+  const auto record_layer_forbidden_boundary =
+      [&layer_route_fragment](
+          const PrefillForbiddenBoundary boundary) noexcept {
+        const std::size_t index = static_cast<std::size_t>(boundary);
+        if (index >= kPrefillForbiddenBoundaryCount) {
+          return false;
+        }
+        layer_route_fragment.forbidden_boundaries =
+            static_cast<std::uint8_t>(
+                layer_route_fragment.forbidden_boundaries |
+                static_cast<std::uint8_t>(1U << index));
+        return true;
+      };
 #if defined(Q3X_ENABLE_GDN_B8_ADMISSION)
   // Snapshot the admission switch once at the tile boundary. Tests may only
   // change it between synchronous public runner calls.
@@ -3441,12 +3785,10 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
         return succeeded;
       };
   const auto record_projection_route =
-      [&tile_route_evidence](const PrefillOperatorRole role,
-                             const PrefillProjectionExecution execution,
-                             const std::uint64_t count = 1U) noexcept {
-        return record_prefill_operator_route(
-            tile_route_evidence, role, projection_disposition(execution),
-            count);
+      [&record_layer_route](const PrefillLayerRouteSlot slot,
+                            const PrefillProjectionExecution execution)
+      noexcept {
+        return record_layer_route(slot, projection_disposition(execution));
       };
   const auto project_pair =
       [this, token_count, &check_cuda, &execution_views,
@@ -3630,7 +3972,7 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
                           stream_),
                       "prefill_embedding_gather_prompt_wide",
                       kReferenceNoLayer)) {
-        return fail_prefill_tile(launch_failure);
+        return fail_enqueue(launch_failure);
       }
     } else {
       for (std::size_t token = 0U; token < token_count; ++token) {
@@ -3641,7 +3983,7 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
                             execution_views.hidden[0] + token * kReferenceHiddenSize,
                             stream_),
                         "prefill_embedding_gather", kReferenceNoLayer)) {
-          return fail_prefill_tile(launch_failure);
+          return fail_enqueue(launch_failure);
         }
       }
     }
@@ -3649,6 +3991,11 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
 
   for (std::size_t layer = control.layer_begin; layer < control.layer_end;
        ++layer) {
+    layer_route_fragment = {};
+    layer_route_fragment.layer = layer;
+    layer_route_fragment.first_position = first_position;
+    layer_route_fragment.token_count =
+        static_cast<std::uint32_t>(token_count);
     const DecoderLayerWeights& layer_weights = weights_->layer(layer);
     // The M32-prefix plus reference-tail layer-(N-1) MLP boundary already
     // produced layer N's normalized input. Layer 0 still normalizes the
@@ -3660,7 +4007,7 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
                         kReferenceHiddenSize, kRmsEpsilon, execution_views.hidden[1],
                         stream_),
                     "prefill_input_layernorm", layer)) {
-      return fail_prefill_tile(launch_failure);
+      return fail_enqueue(launch_failure);
     }
 
     const model::LayerType expected =
@@ -3669,7 +4016,7 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
       const auto* const attention =
           std::get_if<LinearAttentionWeights>(&layer_weights.attention);
       if (attention == nullptr) {
-        return fail_prefill_tile(runner_status(
+        return fail_enqueue(runner_status(
             ReferenceRunnerError::kInvalidLayerSchedule,
             "prefill_linear_attention_variant", layer));
       }
@@ -3687,7 +4034,7 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
         if (!project_fp8_prefill_supermatrix(
                 group_weights, group_outputs, 2U, execution_views.hidden[1],
                 "prefill_linear_qkvz_supermatrix_projection", layer)) {
-          return fail_prefill_tile(launch_failure);
+          return fail_enqueue(launch_failure);
         }
         linear_qkvz_projected = true;
         linear_qkv_route = PrefillProjectionExecution::kFp8Supermatrix;
@@ -3700,13 +4047,13 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
            !project(attention->in_proj_z, execution_views.hidden[1],
                     execution_views.projection[1], "prefill_linear_z_projection",
                     layer, &linear_z_route))) {
-        return fail_prefill_tile(launch_failure);
+        return fail_enqueue(launch_failure);
       }
-      if (!record_projection_route(PrefillOperatorRole::kFp8Qkv,
+      if (!record_projection_route(PrefillLayerRouteSlot::kQOrLinearQkv,
                                    linear_qkv_route) ||
-          !record_projection_route(PrefillOperatorRole::kFp8Z,
+          !record_projection_route(PrefillLayerRouteSlot::kLinearZ,
                                    linear_z_route)) {
-        return fail_prefill_tile(runner_status(
+        return fail_enqueue(runner_status(
             ReferenceRunnerError::kRouteEvidenceFailure,
             "prefill_linear_input_route", layer));
       }
@@ -3716,7 +4063,7 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
         if (!project_pair(attention->in_proj_a, attention->in_proj_b,
                           execution_views.hidden[1], execution_views.linear_a, execution_views.linear_b,
                           "prefill_linear_a_b_projection", layer)) {
-          return fail_prefill_tile(launch_failure);
+          return fail_enqueue(launch_failure);
         }
       } else if (!project(attention->in_proj_a, execution_views.hidden[1],
                           execution_views.linear_a, "prefill_linear_a_projection",
@@ -3724,7 +4071,7 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
                  !project(attention->in_proj_b, execution_views.hidden[1],
                           execution_views.linear_b, "prefill_linear_b_projection",
                           layer)) {
-        return fail_prefill_tile(launch_failure);
+        return fail_enqueue(launch_failure);
       }
       const bool use_gdn_c16_norm_gate =
           should_use_prefill_gdn_c16_norm_gate(
@@ -3777,7 +4124,7 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
         }
         if (!check_cuda(conv_status,
                         "prefill_linear_causal_conv_whole_span", layer)) {
-          return fail_prefill_tile(launch_failure);
+          return fail_enqueue(launch_failure);
         }
         if (use_conv_compact_qk_fused_candidate) {
           ++g_gdn_conv_compact_qk_fused_candidate_hits;
@@ -3805,7 +4152,7 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
                     kRmsEpsilon, execution_views.projection[2], stream_);
         if (!check_cuda(native_status, "prefill_linear_gdn_chunk64_native",
                         layer)) {
-          return fail_prefill_tile(launch_failure);
+          return fail_enqueue(launch_failure);
         }
         gdn_execution = PrefillGdnExecution::kChunk64Native;
         gdn_output_is_normalized = true;
@@ -3837,7 +4184,7 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
                           token_offset * kLinearQkvElements,
                       {}, stream_),
                   "prefill_linear_causal_conv", layer)) {
-            return fail_prefill_tile(launch_failure);
+            return fail_enqueue(launch_failure);
           }
         }
         ++g_prefill_gdn_chunk64_reference_admission_hits;
@@ -3854,7 +4201,7 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
                     execution_views.projection[1], kRmsEpsilon,
                     execution_views.projection[2], stream_),
                 "prefill_linear_gdn_chunk64_reference", layer)) {
-          return fail_prefill_tile(launch_failure);
+          return fail_enqueue(launch_failure);
         }
         gdn_execution = PrefillGdnExecution::kExternalReference;
         gdn_output_is_normalized = true;
@@ -3882,7 +4229,7 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
                           token_offset * kLinearQkvElements,
                       {}, stream_),
                   "prefill_linear_causal_conv", layer)) {
-            return fail_prefill_tile(launch_failure);
+            return fail_enqueue(launch_failure);
           }
         }
         ++g_prefill_gdn_b8_admission_hits;
@@ -3895,7 +4242,7 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
                         execution_views.gdn_state[layer], kRmsEpsilon,
                         execution_views.projection[2], stream_),
                 "prefill_linear_gdn_b8_admission", layer)) {
-          return fail_prefill_tile(launch_failure);
+          return fail_enqueue(launch_failure);
         }
         gdn_execution = PrefillGdnExecution::kApproximateB8;
       } else
@@ -3937,7 +4284,7 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
                               token_offset * kLinearValueElements,
                           stream_),
                   "prefill_linear_gdn_c16_norm_gate", layer)) {
-            return fail_prefill_tile(launch_failure);
+            return fail_enqueue(launch_failure);
           }
 #if defined(Q3X_ENABLE_GDN_C16_NORM_GATE_ADMISSION)
           ++g_prefill_gdn_c16_norm_gate_admission_hits;
@@ -3979,7 +4326,7 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
                           token_offset * kLinearValueElements,
                       {}, stream_),
                   "prefill_linear_gdn", layer)) {
-            return fail_prefill_tile(launch_failure);
+            return fail_enqueue(launch_failure);
           }
         }
         gdn_execution = PrefillGdnExecution::kWarpExact;
@@ -3992,18 +4339,18 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
                   kGdnHeadDimension, kRmsEpsilon, execution_views.projection[2],
                   stream_),
               "prefill_linear_output_norm_gate", layer)) {
-        return fail_prefill_tile(launch_failure);
+        return fail_enqueue(launch_failure);
       }
       PrefillProjectionExecution linear_o_route =
           PrefillProjectionExecution::kUnknown;
       if (!project_attention_output(
               attention->out_proj, execution_views.projection[2], execution_views.hidden[1],
               "prefill_linear_output_projection", layer, &linear_o_route)) {
-        return fail_prefill_tile(launch_failure);
+        return fail_enqueue(launch_failure);
       }
-      if (!record_projection_route(PrefillOperatorRole::kFp8O,
+      if (!record_projection_route(PrefillLayerRouteSlot::kO,
                                    linear_o_route)) {
-        return fail_prefill_tile(runner_status(
+        return fail_enqueue(runner_status(
             ReferenceRunnerError::kRouteEvidenceFailure,
             "prefill_linear_output_route", layer));
       }
@@ -4016,18 +4363,15 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
         gdn_disposition = PrefillRouteDisposition::kExactFallback;
       } else if (gdn_execution ==
                  PrefillGdnExecution::kExternalReference) {
-        (void)record_prefill_forbidden_boundary(
-            tile_route_evidence,
+        (void)record_layer_forbidden_boundary(
             PrefillForbiddenBoundary::kExternalReference);
       } else if (gdn_execution == PrefillGdnExecution::kApproximateB8) {
-        (void)record_prefill_forbidden_boundary(
-            tile_route_evidence,
+        (void)record_layer_forbidden_boundary(
             PrefillForbiddenBoundary::kApproximateNumerics);
       }
-      if (!record_prefill_operator_route(tile_route_evidence,
-                                         PrefillOperatorRole::kGdn,
-                                         gdn_disposition)) {
-        return fail_prefill_tile(runner_status(
+      if (!record_layer_route(PrefillLayerRouteSlot::kGdn,
+                              gdn_disposition)) {
+        return fail_enqueue(runner_status(
             ReferenceRunnerError::kRouteEvidenceFailure,
             "prefill_linear_gdn_route", layer));
       }
@@ -4035,7 +4379,7 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
       const auto* const attention =
           std::get_if<FullAttentionWeights>(&layer_weights.attention);
       if (attention == nullptr) {
-        return fail_prefill_tile(runner_status(
+        return fail_enqueue(runner_status(
             ReferenceRunnerError::kInvalidLayerSchedule,
             "prefill_full_attention_variant", layer));
       }
@@ -4066,7 +4410,7 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
         if (!project_fp8_prefill_supermatrix(
                 group_weights, group_outputs, 3U, execution_views.hidden[1],
                 "prefill_full_qkv_supermatrix_projection", layer)) {
-          return fail_prefill_tile(launch_failure);
+          return fail_enqueue(launch_failure);
         }
         full_qkv_projected = true;
         full_q_route = PrefillProjectionExecution::kFp8Supermatrix;
@@ -4081,15 +4425,15 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
                     "prefill_full_k_projection", layer, &full_k_route) ||
            !project(attention->v_proj, execution_views.hidden[1], tile_value,
                     "prefill_full_v_projection", layer, &full_v_route))) {
-        return fail_prefill_tile(launch_failure);
+        return fail_enqueue(launch_failure);
       }
-      if (!record_projection_route(PrefillOperatorRole::kFp8Qkv,
+      if (!record_projection_route(PrefillLayerRouteSlot::kQOrLinearQkv,
                                    full_q_route) ||
-          !record_projection_route(PrefillOperatorRole::kFp8Qkv,
+          !record_projection_route(PrefillLayerRouteSlot::kFullK,
                                    full_k_route) ||
-          !record_projection_route(PrefillOperatorRole::kFp8Qkv,
+          !record_projection_route(PrefillLayerRouteSlot::kFullV,
                                    full_v_route)) {
-        return fail_prefill_tile(runner_status(
+        return fail_enqueue(runner_status(
             ReferenceRunnerError::kRouteEvidenceFailure,
             "prefill_full_qkv_route", layer));
       }
@@ -4147,7 +4491,7 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
                       subtile_gates, execution_views.rope_cos, execution_views.rope_sin,
                       subtile_first_position, subtile_tokens, stream_),
                   "prefill_full_preprocess", layer)) {
-            return fail_prefill_tile(launch_failure);
+            return fail_enqueue(launch_failure);
           }
           continue;
         }
@@ -4169,7 +4513,7 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
                             kFullHeadDimension, kRmsEpsilon, subtile_key,
                             stream_),
                         "prefill_full_k_norm_fallback", layer)) {
-          return fail_prefill_tile(launch_failure);
+          return fail_enqueue(launch_failure);
         }
         for (std::size_t token = 0U; token < subtile_tokens; ++token) {
           const std::size_t position = subtile_first_position + token;
@@ -4189,7 +4533,7 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
                               subtile_key + token * kFullKvElements,
                               stream_),
                           "prefill_full_k_rope_fallback", layer)) {
-            return fail_prefill_tile(launch_failure);
+            return fail_enqueue(launch_failure);
           }
         }
       }
@@ -4206,7 +4550,7 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
                     first_position, token_count, execution_views.projection[1],
                     stream_),
                 "prefill_full_bulk_gqa_output_gate", layer)) {
-          return fail_prefill_tile(launch_failure);
+          return fail_enqueue(launch_failure);
         }
       } else {
         const std::size_t fused_gqa_gate_prefix_tokens =
@@ -4242,7 +4586,7 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
                   fuse_gqa_gate_token ? "prefill_full_gqa_output_gate"
                                       : "prefill_full_gqa",
                   layer)) {
-            return fail_prefill_tile(launch_failure);
+            return fail_enqueue(launch_failure);
           }
         }
         if (fused_gqa_gate_prefix_tokens < token_count &&
@@ -4260,7 +4604,7 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
                                     kFullQueryElements,
                             stream_),
                         "prefill_full_output_gate", layer)) {
-          return fail_prefill_tile(launch_failure);
+          return fail_enqueue(launch_failure);
         }
       }
       PrefillProjectionExecution full_o_route =
@@ -4268,20 +4612,20 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
       if (!project_attention_output(
               attention->o_proj, execution_views.projection[1], execution_views.hidden[1],
               "prefill_full_output_projection", layer, &full_o_route)) {
-        return fail_prefill_tile(launch_failure);
+        return fail_enqueue(launch_failure);
       }
-      if (!record_projection_route(PrefillOperatorRole::kFp8O,
+      if (!record_projection_route(PrefillLayerRouteSlot::kO,
                                    full_o_route) ||
-          !record_prefill_operator_route(
-              tile_route_evidence, PrefillOperatorRole::kAttention,
+          !record_layer_route(
+              PrefillLayerRouteSlot::kAttention,
               use_bulk_gqa_gate ? PrefillRouteDisposition::kProduction
                                 : PrefillRouteDisposition::kExactFallback)) {
-        return fail_prefill_tile(runner_status(
+        return fail_enqueue(runner_status(
             ReferenceRunnerError::kRouteEvidenceFailure,
             "prefill_full_attention_route", layer));
       }
     } else {
-      return fail_prefill_tile(runner_status(
+      return fail_enqueue(runner_status(
           ReferenceRunnerError::kInvalidLayerSchedule,
           "prefill_layer_schedule", layer));
     }
@@ -4292,7 +4636,7 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
               layer_weights.post_attention_layernorm.data, execution_views.hidden[2],
               execution_views.hidden[1],
               "prefill_attention_residual_post_attention_layernorm", layer)) {
-        return fail_prefill_tile(launch_failure);
+        return fail_enqueue(launch_failure);
       }
     } else {
       if (!check_cuda(launch_residual_add_reference_cuda(
@@ -4300,7 +4644,7 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
                           token_count * kReferenceHiddenSize,
                           execution_views.hidden[2], stream_),
                       "prefill_attention_residual", layer)) {
-        return fail_prefill_tile(launch_failure);
+        return fail_enqueue(launch_failure);
       }
       if (!check_cuda(launch_headwise_centered_rms_norm_reference_cuda(
                           execution_views.hidden[2],
@@ -4308,7 +4652,7 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
                           token_count, kReferenceHiddenSize, kRmsEpsilon,
                           execution_views.hidden[1], stream_),
                       "prefill_post_attention_layernorm", layer)) {
-        return fail_prefill_tile(launch_failure);
+        return fail_enqueue(launch_failure);
       }
     }
     bool marlin_mlp_completed = false;
@@ -4390,7 +4734,7 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
                   marlin_down->prefill_marlin_global_scale, token_count,
                   execution_views.hidden[1], execution_views.fp32_scratch, locks, stream_),
               "prefill_marlin_down", layer)) {
-        return fail_prefill_tile(launch_failure);
+        return fail_enqueue(launch_failure);
       }
       ++g_nvfp4_marlin_prefill_admission_hits;
       marlin_mlp_completed = true;
@@ -4465,7 +4809,7 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
             !check_cuda(static_cast<int>(
                             cudaStreamWaitEvent(stream, branch_done, 0U)),
                         "prefill_mlp_branch_done_wait", layer)) {
-          return fail_prefill_tile(launch_failure);
+          return fail_enqueue(launch_failure);
         }
       } else if (!project(layer_weights.mlp.gate_proj, execution_views.hidden[1],
                           execution_views.projection[0],
@@ -4473,7 +4817,7 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
                  !project(layer_weights.mlp.up_proj, execution_views.hidden[1],
                           execution_views.projection[1],
                           "prefill_mlp_up_projection", layer)) {
-        return fail_prefill_tile(launch_failure);
+        return fail_enqueue(launch_failure);
       }
       }
       if (!check_cuda(launch_silu_mul_reference_cuda(
@@ -4481,12 +4825,12 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
                         token_count * kReferenceIntermediateSize,
                         execution_views.projection[0], stream_),
                     "prefill_mlp_silu_mul", layer)) {
-        return fail_prefill_tile(launch_failure);
+        return fail_enqueue(launch_failure);
       }
       if (!project_down(layer_weights.mlp.down_proj, execution_views.projection[0],
                         execution_views.hidden[1], "prefill_mlp_down_projection",
                         layer)) {
-        return fail_prefill_tile(launch_failure);
+        return fail_enqueue(launch_failure);
       }
     }
     const bool nvfp4_mlp_weights =
@@ -4502,13 +4846,11 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
             : (marlin_mlp_completed
                    ? PrefillRouteDisposition::kProduction
                    : PrefillRouteDisposition::kExactFallback);
-    if (!record_prefill_operator_route(tile_route_evidence,
-                                       PrefillOperatorRole::kNvFp4GateUp,
-                                       mlp_disposition) ||
-        !record_prefill_operator_route(tile_route_evidence,
-                                       PrefillOperatorRole::kNvFp4Down,
-                                       mlp_disposition)) {
-      return fail_prefill_tile(runner_status(
+    if (!record_layer_route(PrefillLayerRouteSlot::kNvFp4GateUp,
+                            mlp_disposition) ||
+        !record_layer_route(PrefillLayerRouteSlot::kNvFp4Down,
+                            mlp_disposition)) {
+      return fail_enqueue(runner_status(
           ReferenceRunnerError::kRouteEvidenceFailure,
           "prefill_mlp_route", layer));
     }
@@ -4525,14 +4867,20 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
       if (!residual_norm_m32_tiles(
               execution_views.hidden[2], execution_views.hidden[1], next_norm_weight,
               execution_views.hidden[0], execution_views.hidden[1], operation, layer)) {
-        return fail_prefill_tile(launch_failure);
+        return fail_enqueue(launch_failure);
       }
     } else if (!check_cuda(launch_residual_add_reference_cuda(
                                execution_views.hidden[2], execution_views.hidden[1],
                                token_count * kReferenceHiddenSize,
                                execution_views.hidden[0], stream_),
                            "prefill_layer_residual", layer)) {
-      return fail_prefill_tile(launch_failure);
+      return fail_enqueue(launch_failure);
+    }
+    const ReferenceRunnerStatus route_status =
+        collapse_prefill_layer_route_fragment(layer_route_fragment,
+                                              legacy_layer_pass);
+    if (!route_status) {
+      return fail_enqueue(route_status);
     }
   }
 
@@ -4546,87 +4894,16 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
                       token_count, kReferenceHiddenSize, kRmsEpsilon,
                       execution_views.hidden[1], stream_),
                   "prefill_final_norm", kReferenceNoLayer)) {
-    return fail_prefill_tile(launch_failure);
+    return fail_enqueue(launch_failure);
   }
 
-  if (control.synchronize) {
-    const cudaError_t sync_status = cudaStreamSynchronize(stream);
-    if (sync_status != cudaSuccess) {
-      return fail_prefill_tile(runner_status(
-          ReferenceRunnerError::kCudaFailure, "prefill_tile_synchronize",
-          kReferenceNoLayer, static_cast<int>(sync_status)));
-    }
+  PrefillLayerSegmentEnqueueResult result;
+  result.route_fragment.legacy_layer_pass = legacy_layer_pass;
+  if (control.layer_end == control.layer_begin + 1U) {
+    result.route_fragment.layer_segment = layer_route_fragment;
+    result.route_fragment.has_single_layer_segment = true;
   }
-  const std::uint32_t committed_length = execution.completed_position;
-  if (control.commit_state) {
-    const RequestOperationStatus commit_status =
-        state_->set_sequence_length(committed_length);
-    if (!commit_status) {
-      return fail_prefill_tile(runner_status(
-          ReferenceRunnerError::kStateCommitFailure,
-          "prefill_tile_commit", kReferenceNoLayer,
-          commit_status.cuda_error));
-    }
-  }
-  if (control.commit_route &&
-      !commit_prefill_route_layer_pass(prefill_route_evidence_,
-                                       tile_route_evidence)) {
-    return fail_prefill_tile(runner_status(
-        ReferenceRunnerError::kRouteEvidenceFailure,
-        "prefill_tile_route_commit", kReferenceNoLayer));
-  }
-  if (control.emit_commit_hooks) {
-#if defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
-    const auto native_chunk64_snapshot_hook =
-        g_prefill_gdn_chunk64_native_snapshot_hook;
-    if (native_chunk64_snapshot_hook.callback != nullptr) {
-      native_chunk64_snapshot_hook.callback(
-          *state_, native_chunk64_snapshot_hook.context);
-    }
-#endif
-#if defined(Q3X_ENABLE_GDN_CHUNK64_REFERENCE_ADMISSION)
-    const auto chunk64_snapshot_hook =
-        g_prefill_gdn_chunk64_reference_snapshot_hook;
-    if (chunk64_snapshot_hook.callback != nullptr) {
-      chunk64_snapshot_hook.callback(*state_, chunk64_snapshot_hook.context);
-    }
-#endif
-#if defined(Q3X_ENABLE_GDN_C16_NORM_GATE_ADMISSION)
-    // prefill_tile_synchronize above completed the full C512 state transition;
-    // observe it only after the logical sequence length was committed.
-    const auto snapshot_hook =
-        g_prefill_gdn_c16_norm_gate_admission_snapshot_hook;
-    if (snapshot_hook.callback != nullptr) {
-      snapshot_hook.callback(
-          *state_, reference_runner_detail::
-                       PrefillGdnC16NormGateAdmissionSnapshotStage::kPrefixTile,
-          snapshot_hook.context);
-    }
-#endif
-  }
-
-  ReferencePrefillTileResult tile;
-  tile.step_count = token_count;
-  for (std::size_t token = 0U; token < token_count; ++token) {
-    tile.steps[token].position =
-        first_position + static_cast<std::uint32_t>(token);
-    tile.steps[token].input_token_id = input_token_ids[token];
-  }
-  if (options.measure_timing) {
-    const std::chrono::duration<double, std::milli> elapsed =
-        Clock::now() - started;
-    tile.timing.emplace(ReferenceStepTiming{elapsed.count()});
-  }
-  if (options.retain_last_hidden_for_logits) {
-    retained_prefill_hidden_valid_ = true;
-    retained_prefill_position_ =
-        committed_length - 1U;
-    retained_prefill_input_token_ = input_token_ids[token_count - 1U];
-    retained_prefill_hidden_row_ = token_count - 1U;
-  }
-  ReferencePrefillTileOutcome outcome;
-  outcome.value.emplace(std::move(tile));
-  return outcome;
+  return result;
 }
 
 ReferenceStepOutcome ReferenceRunner::finish_prefill_from_retained_tile(
