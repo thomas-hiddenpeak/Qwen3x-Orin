@@ -187,6 +187,30 @@ thread_local bool g_force_full_attention_preprocess_prompt_wide_test = false;
          ranges_overlap(first, first_bytes, second, second_bytes);
 }
 
+[[nodiscard]] bool valid_residual_add_arguments(
+    const std::uint16_t* const left,
+    const std::uint16_t* const right,
+    const std::size_t element_count,
+    const std::uint16_t* const output) noexcept {
+  if (left == nullptr || right == nullptr || output == nullptr ||
+      multiply_overflows(element_count, sizeof(std::uint16_t))) {
+    return false;
+  }
+  const std::size_t bytes = element_count * sizeof(std::uint16_t);
+  if (byte_range_overflows(left, bytes) ||
+      byte_range_overflows(right, bytes) ||
+      byte_range_overflows(output, bytes)) {
+    return false;
+  }
+
+  // The pointwise kernel reads both operands for one element before writing
+  // that same element, so a complete output/input alias is exact. Inputs must
+  // remain independent, and shifted aliases would create cross-element races.
+  return !ranges_overlap(left, bytes, right, bytes) &&
+         !partially_overlaps(output, bytes, left, bytes) &&
+         !partially_overlaps(output, bytes, right, bytes);
+}
+
 [[nodiscard]] unsigned int block_count(const std::size_t work_items) noexcept {
   const std::size_t needed =
       work_items / kThreads + (work_items % kThreads != 0U ? 1U : 0U);
@@ -2863,7 +2887,7 @@ int launch_residual_add_reference_cuda(
   if (element_count == 0U) {
     return static_cast<int>(cudaSuccess);
   }
-  if (left == nullptr || right == nullptr || output == nullptr) {
+  if (!valid_residual_add_arguments(left, right, element_count, output)) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
   const auto stream = static_cast<cudaStream_t>(cuda_stream);

@@ -854,6 +854,77 @@ void test_launch_validation(TestContext& test) {
               "overlap");
 }
 
+void test_residual_add_launch_validation(TestContext& test) {
+  constexpr std::size_t kCount = 8U;
+  static std::array<std::uint16_t, 64U> storage{};
+  const std::uint16_t* const left = storage.data() + 8U;
+  const std::uint16_t* const right = storage.data() + 24U;
+  std::uint16_t* const output = storage.data() + 40U;
+  const auto launch = [&](const std::uint16_t* const launch_left,
+                          const std::uint16_t* const launch_right,
+                          const std::size_t count,
+                          std::uint16_t* const launch_output) {
+    return static_cast<cudaError_t>(
+        q3x::runtime::launch_residual_add_reference_cuda(
+            launch_left, launch_right, count, launch_output));
+  };
+
+  test.expect(launch(nullptr, right, kCount, output) ==
+                      cudaErrorInvalidValue &&
+                  launch(left, nullptr, kCount, output) ==
+                      cudaErrorInvalidValue &&
+                  launch(left, right, kCount, nullptr) ==
+                      cudaErrorInvalidValue,
+              "residual add rejects every null non-empty range");
+  test.expect(launch(left, left, kCount, output) ==
+                      cudaErrorInvalidValue &&
+                  launch(left, left + 1U, kCount, output) ==
+                      cudaErrorInvalidValue,
+              "residual add rejects exact and partial input overlap");
+  test.expect(launch(left, right, kCount,
+                     const_cast<std::uint16_t*>(left) + 1U) ==
+                      cudaErrorInvalidValue &&
+                  launch(left, right, kCount,
+                         const_cast<std::uint16_t*>(left) - 1U) ==
+                      cudaErrorInvalidValue &&
+                  launch(left, right, kCount,
+                         const_cast<std::uint16_t*>(right) + 1U) ==
+                      cudaErrorInvalidValue &&
+                  launch(left, right, kCount,
+                         const_cast<std::uint16_t*>(right) - 1U) ==
+                      cudaErrorInvalidValue,
+              "residual add rejects forward and reverse shifted output aliases");
+
+  constexpr std::uintptr_t kAddressStride = 0x1000'0000ULL;
+  const auto* const far_left =
+      reinterpret_cast<const std::uint16_t*>(1U * kAddressStride);
+  const auto* const far_right =
+      reinterpret_cast<const std::uint16_t*>(2U * kAddressStride);
+  auto* const far_output =
+      reinterpret_cast<std::uint16_t*>(3U * kAddressStride);
+  const std::size_t overflowing_count =
+      std::numeric_limits<std::size_t>::max() /
+          sizeof(std::uint16_t) +
+      1U;
+  test.expect(launch(far_left, far_right, overflowing_count, far_output) ==
+                  cudaErrorInvalidValue,
+              "residual add rejects byte-count overflow");
+
+  const std::uintptr_t near_max_address =
+      std::numeric_limits<std::uintptr_t>::max() - 1U;
+  const auto* const near_max_input =
+      reinterpret_cast<const std::uint16_t*>(near_max_address);
+  auto* const near_max_output =
+      reinterpret_cast<std::uint16_t*>(near_max_address);
+  test.expect(launch(near_max_input, far_right, 2U, far_output) ==
+                      cudaErrorInvalidValue &&
+                  launch(far_left, near_max_input, 2U, far_output) ==
+                      cudaErrorInvalidValue &&
+                  launch(far_left, far_right, 2U, near_max_output) ==
+                      cudaErrorInvalidValue,
+              "residual add rejects every overflowing address range");
+}
+
 void test_residual_rms_m32_launch_validation(TestContext& test) {
   constexpr std::size_t kTokenCount = 32U;
   constexpr std::size_t kHiddenSize = 5'120U;
@@ -1472,6 +1543,209 @@ void test_vector_ops(TestContext& test, cudaStream_t stream) {
                             std::to_string(index));
     }
   }
+}
+
+void test_residual_add_exact_alias_contract(TestContext& test,
+                                            cudaStream_t stream) {
+  // 777 deliberately leaves a nine-element tail after three complete CTAs.
+  constexpr std::size_t kCount = 777U;
+  static_assert(kCount % 256U == 9U);
+  const std::string label = "residual add exact-alias C777";
+
+  GuardedBf16Buffer left;
+  GuardedBf16Buffer right;
+  GuardedBf16Buffer output;
+  GuardedBf16Buffer alias_left;
+  GuardedBf16Buffer alias_right;
+  GuardedBf16Buffer graph_left;
+  GuardedBf16Buffer graph_right;
+  bool ready = left.allocate(test, kCount, label + " left");
+  ready = ready && right.allocate(test, kCount, label + " right");
+  ready = ready && output.allocate(test, kCount, label + " output");
+  ready = ready && alias_left.allocate(test, kCount, label + " alias left");
+  ready = ready &&
+          alias_right.allocate(test, kCount, label + " alias right");
+  ready = ready && graph_left.allocate(test, kCount, label + " graph left");
+  ready = ready &&
+          graph_right.allocate(test, kCount, label + " graph right");
+  if (!ready) {
+    return;
+  }
+
+  left.initialize(0U, 0x8111U, 0x8112U);
+  right.initialize(0U, 0x8221U, 0x8222U);
+  output.initialize(0xdeadU, 0x8331U, 0x8332U);
+  alias_left.initialize(0U, 0x8441U, 0x8442U);
+  alias_right.initialize(0U, 0x8551U, 0x8552U);
+  graph_left.initialize(0U, 0x8661U, 0x8662U);
+  graph_right.initialize(0U, 0x8771U, 0x8772U);
+  for (std::size_t index = 0U; index < kCount; ++index) {
+    const int left_code =
+        static_cast<int>((index * 17U + index / 11U) % 257U) - 128;
+    const int right_code =
+        static_cast<int>((index * 29U + index / 7U) % 193U) - 96;
+    left.data()[index] =
+        encode_bf16(static_cast<float>(left_code) / 32.0F);
+    right.data()[index] =
+        encode_bf16(static_cast<float>(right_code) / 64.0F);
+  }
+
+  const std::vector<std::uint16_t> left_payload(left.data(),
+                                                 left.data() + kCount);
+  const std::vector<std::uint16_t> right_payload(right.data(),
+                                                  right.data() + kCount);
+  const std::vector<std::uint16_t> left_before = left.snapshot();
+  const std::vector<std::uint16_t> right_before = right.snapshot();
+  std::vector<std::uint16_t> oracle(kCount);
+  test.expect(q3x::runtime::residual_add_reference_cpu(
+                  left_payload.data(), right_payload.data(), kCount,
+                  oracle.data()) == q3x::runtime::DecodeOpStatus::kSuccess,
+              label + " CPU oracle succeeds");
+
+  ready = launch_after_stale(test, stream, label + " out-of-place", [&]() {
+    return q3x::runtime::launch_residual_add_reference_cuda(
+        left.data(), right.data(), kCount, output.data(),
+        static_cast<void*>(stream));
+  });
+  if (!ready) {
+    return;
+  }
+  expect_bf16_bits_equal(test, output.data(), oracle.data(), kCount,
+                         label + " out-of-place oracle");
+
+  std::copy(left_payload.begin(), left_payload.end(), alias_left.data());
+  ready = launch_after_stale(test, stream, label + " output aliases left",
+                             [&]() {
+                               return q3x::runtime::
+                                   launch_residual_add_reference_cuda(
+                                       alias_left.data(), right.data(), kCount,
+                                       alias_left.data(),
+                                       static_cast<void*>(stream));
+                             });
+  if (!ready) {
+    return;
+  }
+  expect_bf16_bits_equal(test, alias_left.data(), oracle.data(), kCount,
+                         label + " exact left alias oracle");
+
+  std::copy(right_payload.begin(), right_payload.end(), alias_right.data());
+  ready = launch_after_stale(test, stream, label + " output aliases right",
+                             [&]() {
+                               return q3x::runtime::
+                                   launch_residual_add_reference_cuda(
+                                       left.data(), alias_right.data(), kCount,
+                                       alias_right.data(),
+                                       static_cast<void*>(stream));
+                             });
+  if (!ready) {
+    return;
+  }
+  expect_bf16_bits_equal(test, alias_right.data(), oracle.data(), kCount,
+                         label + " exact right alias oracle");
+  left.expect_snapshot(test, left_before, label + " preserves left input");
+  right.expect_snapshot(test, right_before, label + " preserves right input");
+  output.expect_guards(test, label + " out-of-place");
+  alias_left.expect_guards(test, label + " exact left alias");
+  alias_right.expect_guards(test, label + " exact right alias");
+
+  const auto run_graph_alias = [&](const bool output_aliases_left) {
+    const std::string graph_label =
+        label + (output_aliases_left ? " graph left alias"
+                                     : " graph right alias");
+    std::copy(left_payload.begin(), left_payload.end(), graph_left.data());
+    std::copy(right_payload.begin(), right_payload.end(), graph_right.data());
+    std::uint16_t* const graph_output =
+        output_aliases_left ? graph_left.data() : graph_right.data();
+
+    cudaGraph_t graph = nullptr;
+    bool graph_ready = test.cuda_ok(
+        cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+        graph_label + " begin capture");
+    if (graph_ready) {
+      const cudaError_t launch_status = static_cast<cudaError_t>(
+          q3x::runtime::launch_residual_add_reference_cuda(
+              graph_left.data(), graph_right.data(), kCount, graph_output,
+              static_cast<void*>(stream)));
+      test.expect(launch_status == cudaSuccess,
+                  graph_label + " capture launch succeeds");
+      graph_ready = test.cuda_ok(cudaStreamEndCapture(stream, &graph),
+                                 graph_label + " end capture");
+    }
+
+    cudaGraphExec_t executable = nullptr;
+    if (graph_ready) {
+      std::size_t node_count = 0U;
+      graph_ready = test.cuda_ok(cudaGraphGetNodes(graph, nullptr, &node_count),
+                                 graph_label + " count nodes");
+      test.expect(node_count == 1U,
+                  graph_label + " captures exactly one kernel");
+      if (graph_ready && node_count == 1U) {
+        cudaGraphNode_t node = nullptr;
+        std::size_t capacity = 1U;
+        graph_ready = test.cuda_ok(cudaGraphGetNodes(graph, &node, &capacity),
+                                   graph_label + " fetch node");
+        cudaGraphNodeType node_type = cudaGraphNodeTypeEmpty;
+        graph_ready = graph_ready &&
+                      test.cuda_ok(cudaGraphNodeGetType(node, &node_type),
+                                   graph_label + " read node type");
+        test.expect(node_type == cudaGraphNodeTypeKernel,
+                    graph_label + " node is a kernel");
+        cudaKernelNodeParams parameters{};
+        graph_ready = graph_ready &&
+                      test.cuda_ok(cudaGraphKernelNodeGetParams(
+                                       node, &parameters),
+                                   graph_label + " read kernel parameters");
+        if (graph_ready) {
+          test.expect(parameters.gridDim.x == 4U &&
+                          parameters.blockDim.x == 256U &&
+                          parameters.sharedMemBytes == 0U,
+                      graph_label + " retains C777 tail topology");
+        }
+      }
+      graph_ready = graph_ready &&
+                    test.cuda_ok(cudaGraphInstantiate(&executable, graph,
+                                                       nullptr, nullptr, 0U),
+                                 graph_label + " instantiate");
+    }
+
+    for (unsigned int replay = 0U; graph_ready && replay < 2U; ++replay) {
+      std::copy(left_payload.begin(), left_payload.end(), graph_left.data());
+      std::copy(right_payload.begin(), right_payload.end(),
+                graph_right.data());
+      graph_ready = test.cuda_ok(cudaGraphLaunch(executable, stream),
+                                 graph_label + " replay " +
+                                     std::to_string(replay));
+      graph_ready = graph_ready &&
+                    test.cuda_ok(cudaStreamSynchronize(stream),
+                                 graph_label + " synchronize " +
+                                     std::to_string(replay));
+      if (graph_ready) {
+        expect_bf16_bits_equal(test, graph_output, oracle.data(), kCount,
+                               graph_label + " exact replay " +
+                                   std::to_string(replay));
+        const std::uint16_t* const preserved_input =
+            output_aliases_left ? graph_right.data() : graph_left.data();
+        const std::uint16_t* const preserved_expected =
+            output_aliases_left ? right_payload.data() : left_payload.data();
+        expect_bf16_bits_equal(test, preserved_input, preserved_expected,
+                               kCount, graph_label + " preserves peer input " +
+                                           std::to_string(replay));
+      }
+    }
+    if (executable != nullptr) {
+      (void)test.cuda_ok(cudaGraphExecDestroy(executable),
+                         graph_label + " destroy executable");
+    }
+    if (graph != nullptr) {
+      (void)test.cuda_ok(cudaGraphDestroy(graph),
+                         graph_label + " destroy graph");
+    }
+    graph_left.expect_guards(test, graph_label + " left");
+    graph_right.expect_guards(test, graph_label + " right");
+  };
+
+  run_graph_alias(true);
+  run_graph_alias(false);
 }
 
 enum class ResidualRmsFixture : std::uint8_t {
@@ -10142,6 +10416,7 @@ void test_nonfinite(TestContext& test, cudaStream_t stream) {
 int main() {
   TestContext test;
   test_launch_validation(test);
+  test_residual_add_launch_validation(test);
   test_embedding_prompt_launch_validation(test);
   test_residual_rms_m32_launch_validation(test);
 
@@ -10169,6 +10444,7 @@ int main() {
   test_embedding(test, stream);
   test_embedding_prompt(test, stream);
   test_vector_ops(test, stream);
+  test_residual_add_exact_alias_contract(test, stream);
   test_residual_rms_fused(test, stream);
   test_residual_rms_fused_perf(test, stream);
   test_residual_rms_m32_fused_exact(test, stream);

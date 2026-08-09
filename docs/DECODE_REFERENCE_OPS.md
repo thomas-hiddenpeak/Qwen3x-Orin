@@ -78,10 +78,14 @@ CUDA API allocates internal storage.
 
 CUDA calls are asynchronous on a caller-supplied stream, perform no copies or
 synchronization, and clear an unrelated stale last-error before their first
-kernel. Exact input/output aliasing is supported for RMSNorm input, residual
-operands, pointwise gates, L2 input, RoPE input, and softmax input. Weight/cache
-storage and attention scratch/output must remain disjoint unless an API
-explicitly states otherwise.
+kernel. Exact input/output aliasing is supported for RMSNorm input, pointwise
+gates, L2 input, RoPE input, and softmax input. The ordinary residual-add
+launcher additionally permits its output to equal the complete left or right
+input span. The two inputs must be disjoint, and every shifted/partial output
+overlap is rejected before enqueue. This does not relax the fused
+residual-plus-RMSNorm launcher's disjoint-output contract. Weight/cache storage
+and attention scratch/output must remain disjoint unless an API explicitly
+states otherwise.
 
 ## Verification shape gates
 
@@ -97,3 +101,9 @@ Q/K centered norms at 24x256 and 4x256, GDN plain/fused norms at 48x128, GDN
 24-query/4-KV/head-dim-256 GQA with
 attention scale `1/sqrt(256) = 1/16`; awkward tails and non-finite propagation
 are also covered.
+
+The residual-add alias gate uses a 777-element BF16 payload, which leaves a
+nine-element CTA tail, and requires bitwise agreement for out-of-place, exact
+left-alias, and exact right-alias execution. Both exact aliases are also
+captured and replayed twice as one-kernel CUDA Graphs with guard regions and
+peer-input preservation.

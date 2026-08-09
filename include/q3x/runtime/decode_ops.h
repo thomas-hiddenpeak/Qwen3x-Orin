@@ -188,6 +188,10 @@ inline constexpr std::size_t kBf16GreedyArgmaxWorkspaceResults = 33U;
     std::size_t head_dimension, float epsilon, std::uint16_t* output,
     void* cuda_stream = nullptr) noexcept;
 
+// left and right must occupy disjoint full byte ranges. output may alias left
+// or right only when its complete range is exactly identical to that input;
+// every partial overlap is rejected before enqueue. Empty input remains a
+// successful no-op, including with null pointers.
 [[nodiscard]] int launch_residual_add_reference_cuda(
     const std::uint16_t* left, const std::uint16_t* right,
     std::size_t element_count, std::uint16_t* output,
