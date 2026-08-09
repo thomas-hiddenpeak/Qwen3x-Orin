@@ -16,9 +16,9 @@ q3x_document:
 # Qwen3x-Orin current status
 
 Snapshot date: 2026-08-09. Implementation facts audited through code baseline
-`606ea1d`. Performance and qualification claims remain tied to the exact older
-artifacts cited in their evidence records; executability of the newer
-layer-major compatibility route does not revise those measurements.
+`18363ad`. Performance and qualification claims remain tied to their exact
+artifacts and evidence authority; the short sealed layer-major result below is
+a direction screen and does not revise target-length or production status.
 
 This is the single point-in-time status page. It records what is target,
 designed, implemented, qualified, and production. Architecture contracts
@@ -64,15 +64,20 @@ traversal, finalizes logits from uncommitted hidden state, and publishes one
 final sequence length through a move-only request receipt. A two-slot bounded
 submission window carries API disconnect/shutdown cancellation into long
 Prefill without exposing partial state; failures drain and reset through the
-Engine transaction guard.
+Engine transaction guard. Logical and physical tails are balanced without
+changing the legacy scheduler, and eligible M32--M512 linear-attention layers
+must bind the exact native C64 GDN tactic and its real workspace; only M1--M31
+may use the sealed exact fallback.
 
 This closes the system execution and API-observation shape, not the performance
 architecture. Each logical C8192 panel still lowers to ordered physical
-segments of at most C512 and uses the exact admitted M512 FP8/NVFP4 Marlin
+segments of at most C512 and uses the exact admitted M-at-most-512 FP8/NVFP4 Marlin
 routes. Both inventories are development/test admissions. True C8192 NVFP4/FP8
 surfaces remain isolated, the evaluation server selects layer-major only by an
-explicit option, the legacy route remains default, and no clean-host real-model
-API performance result has yet qualified the new path.
+explicit option, and the legacy route remains default. A clean-host real-model
+P1025 OpenAI API/EvalScope screen is cumulatively positive against an older
+greedy/fallback layer-major witness, but remains slower than the legacy path
+and has no target-length selection or production authority.
 
 Accordingly, current product status is **implemented evaluation runner,
 unqualified production runner**.
@@ -88,7 +93,7 @@ unqualified production runner**.
 | Default context capacity | Implemented at 8,192 | Server default `max_sequence_length=8192`, maximum output 4,096, 2 GiB request-arena limit | Does not admit the locked long-context workloads |
 | 40K/60K/130K cold/no-cache service | Target; development compatibility route implemented | Token-ID ingress fails closed on capacity; layer-major startup reserves the request profile and binds a bounded exact segmented route | Whole-process capacity, clean-host target-length execution, native large-M tactics, performance, and qualification are absent |
 | Prefill/Decode logical separation | Implemented in part | Separate phase APIs/metrics and an explicit state transition exist | Shared runner and synchronization-heavy physical plan prevent independent utilization and overlap |
-| Layer-major C8192 candidate | Executable segmented compatibility route; native large-M candidate still designed | Sealed Engine transaction, true layer-major/logical-panel traversal, typed request profile, two-slot cancellation, 17 bound role receipts, explicit evaluation-server selection and v2 witness | Physical execution remains M512-segmented/test-admitted; true C8192 surfaces, whole-process capacity, real-model API result, release plan, and qualification remain open |
+| Layer-major C8192 candidate | Executable segmented compatibility route; native large-M candidate still designed | Sealed Engine transaction, balanced logical/physical tails, native exact C64 GDN receipt for eligible segments, true layer-major/logical-panel traversal, typed request profile, two-slot cancellation, 17 bound role receipts, explicit evaluation-server selection, v2 witness, and a clean-host P1025 direction screen | Physical execution remains M512-segmented/test-admitted; true C8192 surfaces, whole-process capacity, target-length real-model API result, release plan, and qualification remain open |
 | Large-M Prefill specializations | Implemented as legacy admissions plus isolated C8192 surfaces | Native NVFP4/FP8/BF16 and Attention/GDN C512 candidates exist in development builds; isolated NVFP4/FP8 surfaces accept candidate-only C8192 panels | Existing options default off/test-only, C8192 surfaces are unbound, and no unique exact release selection exists |
 | Decode target | Directionally near target | Short API evidence reports about 104 ms TPOT | At least 10 token/s, long-output stability, and release repetition are not qualified |
 | Production accuracy | Target with partial oracles | Exact deterministic outputs are available for selected prompts/routes | No complete public capability baseline and promotion gate has passed |
@@ -98,7 +103,7 @@ unqualified production runner**.
 
 ## 4. Current API and capacity facts
 
-At implementation baseline `606ea1d`, `EvaluationServerOptions` still defaults
+At implementation baseline `18363ad`, `EvaluationServerOptions` still defaults
 to:
 
 - bind address `127.0.0.1`;
@@ -136,9 +141,10 @@ qualification must be planned together.
 The unbound layer-major workspace planner separately reports the following
 exact request-arena arithmetic for one explicit physical-tactic profile:
 C8192 exact C64-native GDN with in-place convolution, current Release/default
-legacy C16 GDN, and separate Gate+Up then SiLU. C64-native remains a test-only
-admission today; naming it here is a candidate requirement, not a production
-claim.
+legacy C16 GDN, and separate Gate+Up then SiLU. C64-native remains a
+development admission and is not the default production route; at `18363ad`
+it is nevertheless authenticated and mandatory for eligible M32--M512
+segments in the explicit layer-major plan.
 
 | Prompt tokens | Caller-selected conditional profile | Conservative disjoint profile |
 | ---: | ---: | ---: |
@@ -178,7 +184,47 @@ concurrently.
 
 ## 5. Current performance evidence and its authority
 
-### 5.1 Latest retained main-line short external result
+### 5.1 Sealed layer-major P1025 direction screen
+
+Commit `18363ad` was measured through the real OpenAI-compatible API with
+EvalScope 1.9.1 on one hash-locked 1,025-token prompt and one greedy output
+token after a clean-host Jetson preflight. The exact binary SHA-256 was
+`de172fd1dca5d62241f6df5954bbc90efce4d8e3ba0d7cf1ccf8ca28f4aae8c0`.
+The prior comparator is an older full-inventory build family using greedy
+layer-major physical segmentation and exact fallback for FP8, Attention, and
+GDN.
+
+| Metric | Prior greedy/fallback layer-major | `18363ad` sealed composition |
+| --- | ---: | ---: |
+| EvalScope TTFT | 3,291.95 ms | **2,767.24 ms** |
+| Server pure Prefill | 3,285.658588 ms | **2,761.173664 ms** |
+| EvalScope prompt throughput | 311.36 tok/s | **370.40 tok/s** |
+| Server pure Prefill throughput | 311.96 tok/s | **371.218954 tok/s** |
+
+The cumulative sealed route saves 524.484924 ms of pure Prefill, a 1.189950x
+speedup or 15.962855% latency reduction against that older witness. This is
+not a single-mechanism comparison: the older witness reports production
+dispositions only for NVFP4 Gate/Up and Down, with FP8 QKV/Z/O, Attention, and
+GDN on exact fallback. The `18363ad` v2 witness records 64 NVFP4 Gate/Up hits,
+64 NVFP4 Down hits, 96 FP8 QKV hits, 48 FP8 Z hits, 64 FP8 O hits, 16 Attention
+hits, and 48 native GDN hits on their admitted production dispositions, with
+zero exact fallback, forbidden fallback, Prefix cache, MTP, cuBLASLt,
+external-reference, or approximate-route hits. The output token is exactly
+`在` and finishes by the declared one-token length cap.
+
+This is a single-request short direction screen, not an architecture
+selection, target-length result, repetition sample, or production result. It
+remains 415.976098 ms (17.737358%) slower in pure Prefill than the older
+2,345.197566-ms legacy P1025 observation. The evidence therefore retains only
+the complete sealed composition direction; it does not attribute the gain to
+balanced segmentation, native GDN, or any other constituent in isolation. It
+also confirms that the M512 compatibility internals must give way to the next
+operator-panel dataflow boundary.
+
+Source:
+[`metadata/qwen36-27b-prefill-layer-major-balanced-p1025-direction-2026-08-09.json`](metadata/qwen36-27b-prefill-layer-major-balanced-p1025-direction-2026-08-09.json).
+
+### 5.2 Latest retained cumulative short external result
 
 The latest retained cumulative comparison associated with main used eight
 real requests, prompt lengths 32--1,025, 16 output tokens, concurrency one,
@@ -205,7 +251,7 @@ The reported TPOT corresponds to roughly 9.61 token/s in the best of these
 runs, which remains below the locked 10 token/s release target and is not a
 long-output qualification.
 
-### 5.2 Current cumulative internal Prefix attribution
+### 5.3 Current cumulative internal Prefix attribution
 
 One real-model P513 NSys capture reports:
 
@@ -224,7 +270,7 @@ This is one diagnostic capture, not a retention sample and not the target
 workload. It attributes the admitted P513 path; it cannot establish 40K--130K
 API fitness.
 
-### 5.3 Historical external baseline
+### 5.4 Historical external baseline
 
 The earlier 32-request EvalScope 1.9.1 run used 20--1,160-token prompts and 16
 output tokens. Native mean TTFT was 3,168.79 ms versus 1,144.51 ms for matched
@@ -233,7 +279,7 @@ tok/s. It set Prefill architecture priority, but its native binary provenance
 was incomplete and it was a single-process directional protocol. It remains
 historical evidence, not current release qualification.
 
-### 5.4 The 1,224.7335 tok/s number
+### 5.5 The 1,224.7335 tok/s number
 
 The 1,224.7335 tok/s result belongs to an opt-in Factorized-R1 experimental
 branch and a one-warmup/one-measurement P1853 `/v1/completions` direction
@@ -287,7 +333,10 @@ The explicit development route now implements the whole-request response:
 - typed prompt-wide `RequestState` storage with fixed final-hidden handoff;
 - a sealed 17-role Engine plan bound to exact model, arena, views, streams,
   tactics, sidecars, workspaces, and two completion events;
-- true `layer -> logical panel -> physical segment` traversal;
+- true `layer -> logical panel -> physical segment` traversal with balanced
+  final logical and physical panel pairs rather than a one-token tail;
+- fail-closed native exact C64 GDN binding for every eligible M32--M512
+  linear-attention segment, with exact fallback restricted to M1--M31;
 - an uncommitted retained-hidden finalizer and one final sequence-length
   publication guarded by a move-only receipt and RAII rollback; and
 - a two-slot layer-panel submission window with bounded API cancellation and
@@ -298,10 +347,16 @@ physically segmented at M512, and the exact Marlin inventories that authorize
 it are still test-only. It is therefore an executable route for real API
 evaluation, not yet the native C8192 large-M dataflow, a performance-selected
 architecture, or a production route. Isolated true-C8192 NVFP4/FP8 surfaces
-remain outside the executor. The immediate boundary is clean-host real-model
-API sanity and target-capacity evidence; if valid, the resulting whole-product
-timing determines which native large-M/operator dataflow must replace the
-segmented compatibility internals.
+remain outside the executor. The clean-host P1025 screen confirms that the
+cumulative sealed composition improves its older greedy/fallback witness, but
+it also remains slower than the legacy M512 route. The immediate boundary is
+therefore a private operator-panel executor: bind the existing M-at-most-8192
+FP8/NVFP4 wrappers directly while keeping dependency-ordered GDN, Attention,
+and BF16 work internally segmented until their native panel contracts are
+ready. NVFP4 and large-N FP8 wrappers still lower to ordered kernel segments
+of at most M1024; only N1024 FP8 K/V may issue one M8192 launch. Only after
+that complete composition passes a short API sanity check does the
+40K/60K/130K target-capacity witness become meaningful.
 
 Unpinned or dirty experimental branches are intentionally excluded from this
 status snapshot. A candidate affects current truth only after its exact commit,
@@ -318,7 +373,7 @@ active dependency order and exit criteria are in
 | --- | --- | --- |
 | Product API and long-context admission | Configured token-ID validation and host requirement plans exist; 40K/60K/130K still do not fit or execute through the default contract | P1 |
 | Exact deliverable identity | No unique `BUILD_TESTING=OFF` release or authenticated DeploymentPlan | P2 |
-| Target-length performance and physical Prefill plan | Explicit layer-major compatibility route exists, but remains physically M512-segmented/test-admitted and has no valid target-length API witness; production remains legacy M512 | P3 |
+| Target-length performance and physical Prefill plan | Explicit balanced/sealed layer-major compatibility route has a positive P1025 direction screen, but remains physically M512-segmented/test-admitted and has no valid target-length API witness; production remains legacy M512 | P3 |
 | Accuracy, capability, stability, and release evidence | Partial deterministic oracles; no complete qualification bundle | P4 |
 | Packaging and operations | No attested install/startup/upgrade lane | P5 |
 
@@ -337,8 +392,9 @@ process/device-handle inspection, never `nvidia-smi` as the idle authority.
 Until the gaps above close, use the following language:
 
 - **Current:** real-model native evaluation runner with short-workload
-  cumulative admission evidence and an explicit, unqualified segmented
-  layer-major evaluation route.
+  cumulative admission evidence and an explicit, unqualified balanced/sealed
+  segmented layer-major route whose P1025 direction screen reaches about
+  371 pure Prefill tok/s.
 - **Not current:** production server, 40K--130K support, release-grade vLLM
   parity, 1,224.7335 tok/s lossless Prefill, or a fully qualified 10 token/s
   Decode release.

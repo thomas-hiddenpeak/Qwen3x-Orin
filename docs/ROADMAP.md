@@ -149,6 +149,11 @@ Exit criteria:
 Purpose: first reach the useful vLLM starting line and then justify the
 specialized runner by exceeding it.
 
+P3 implementation preparation may proceed in the same pinned development
+route while P1/P2 capacity and release seams are being closed. It cannot
+select an architecture, change the default, or promote production before the
+P1 and P2 exits provide the target-length API and canonical release artifact.
+
 Selection sequence:
 
 1. Establish a clean-host real API baseline on the canonical release.
@@ -168,12 +173,13 @@ compatibility route, not yet selected or production):
   with one whole-request layer-major pass and bounded logical C8192 panels.
   `C8192` is internal scheduling capacity, not a public tile or partial
   state-commit boundary.
-- At implementation baseline `606ea1d`, an explicit development route
+- At implementation baseline `18363ad`, an explicit development route
   provisions the layer-major request profile and executes true
   `layer -> logical panel -> physical segment` traversal through
-  `ReferenceEngine` and `qwen3x-eval-server`. It still lowers every logical
-  panel to ordered physical segments of at most C512, so it closes the system
-  transaction/API shape without yet closing the large-M performance design.
+  `ReferenceEngine` and `qwen3x-eval-server`. It balances the final logical and
+  physical panel pairs, but still lowers every logical panel to ordered
+  physical segments of at most C512, so it closes the system transaction/API
+  shape without yet closing the large-M performance design.
 - Engine creation seals the model, state, arena, typed views, main/auxiliary
   streams, two completion events, and all 17 required operator-role receipts.
   The request receipt is move-only. Transcript allocation precedes GPU work;
@@ -185,7 +191,10 @@ compatibility route, not yet selected or production):
   cancelled request publishes no partial position or success witness.
 - The compatibility route fails closed unless the SM87 backend, C512
   compatibility workspace, layer-major memory profile, and both exact FP8 and
-  NVFP4 Marlin Prefill inventories are present. Those inventories remain
+  NVFP4 Marlin Prefill inventories are present. It also seals the real native
+  GDN workspace, validates the 48 linear-attention layer/weight shapes, and
+  requires exact native C64 GDN for each eligible M32--M512 segment; M1--M31
+  alone may use the sealed exact fallback. Those inventories remain
   development/test admissions; legacy stays the default route.
 - The indivisible composition boundary still includes shape-specific NVFP4
   Gate/Up and Down, FP8 projections, exact causal Attention/KV progress, exact
@@ -220,9 +229,28 @@ compatibility route, not yet selected or production):
   Marlin paths. The next architecture change must bind native large-M tactics
   rather than mistaking logical-panel scheduling alone for the performance
   candidate.
-- The immediate gate is a clean-host short exact real-model API sanity request,
-  followed by capacity/resource closure and the exact 40K, 60K, and
-  approximately-130K real-Agent API witnesses. No panel throughput or
+- A clean-host one-request P1025 OpenAI API/EvalScope direction screen on
+  `18363ad` is cumulatively positive against its older greedy/fallback
+  layer-major witness and remains slower than the older legacy observation.
+  The comparison is not causal: the older witness used exact FP8, Attention,
+  and GDN fallbacks, whereas `18363ad` reports every required role on its
+  admitted production disposition. It retains the complete sealed composition
+  direction only and does not select `AC-PREFILL-LAYERMAJOR-8K-v1`; current
+  numbers are owned by [`CURRENT_STATUS.md`](CURRENT_STATUS.md) and exact
+  evidence by the
+  [machine-readable direction record](metadata/qwen36-27b-prefill-layer-major-balanced-p1025-direction-2026-08-09.json).
+- The immediate implementation gate is a private
+  `enqueue_prefill_layer_panel(...)` seam bound directly to the typed
+  layer-major request views. Prompt-panel projections must bind the existing
+  M-at-most-8192 operator-panel wrappers. NVFP4 and large-N FP8 still execute
+  ordered kernel segments of at most M1024, while N1024 FP8 K/V may issue one
+  M8192 launch. Exact GDN, causal Attention, and BF16 A/B may retain
+  dependency-ordered internal C512 work initially. Both complete linear/GDN
+  and full-Attention layer families must enter the same executable before the
+  next real API direction screen.
+- If that complete composition passes the short exact API sanity request, the
+  next gate is capacity/resource closure and the exact 40K, 60K, and
+  approximately-130K real-Agent API witness set. No panel throughput or
   component profile substitutes for those results.
 
 The complete subsystem design and non-production status are recorded in

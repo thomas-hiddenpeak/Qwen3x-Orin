@@ -228,10 +228,12 @@ repeated short-span layer traversal. The tree now contains an **executable
 development compatibility route** for its transaction, memory, scheduling,
 and API shape. That route still executes each logical C8192 panel as ordered
 physical segments of at most C512, and its exact FP8/NVFP4 Marlin inventories
-remain development/test admissions. It is therefore not yet the complete
-large-M architecture candidate, a selected performance result, or production.
-The identifier freezes a lineage for Roadmap-controlled integration; explicit
-evaluation of the compatibility route does not change the default route.
+remain development/test admissions. Its final logical and physical panel pair
+is balanced, and eligible segments bind sealed native exact C64 GDN, but it is
+therefore still not the complete large-M architecture candidate, a selected
+performance result, or production. The identifier freezes a lineage for
+Roadmap-controlled integration; explicit evaluation of the compatibility
+route does not change the default route.
 
 ### 8.1 Execution shape and progress
 
@@ -275,7 +277,9 @@ The runner leaves all recurrent/KV work and final hidden state uncommitted;
 the Engine performs logits finalization and the single sequence-length
 publication through a move-only one-request receipt. Any failure is drained
 and reset by the Engine transaction guard. The default selector remains the
-legacy C512 route, and no performance conclusion follows from executability.
+legacy C512 route. The scheduler balances only the final full-plus-tail pair,
+so P1025 becomes 512+257+256 rather than 512+512+1 while complete C512 blocks
+remain unchanged. No production conclusion follows from executability.
 
 ### 8.2 Indivisible composition boundary
 
@@ -306,7 +310,11 @@ be associated with the exact authenticated weights/sidecars, launch tactic,
 workspace, and resource identity. The installed execution inventory remains
 capped at physical M512, however, so these receipts authorize the segmented
 compatibility route; they do not establish the target C8192 large-M kernel
-contract.
+contract. The exact GDN receipt is no longer nominal: the binary capability,
+real workspace pointer and byte capacity, 48-layer producer/weight shapes,
+and M32--M512 native tactic envelope are sealed and revalidated. Every
+eligible segment must report the native disposition; exact fallback is
+permitted only for M1--M31.
 
 Candidate-only C8192 NVFP4 Gate/Up and Down surfaces and shape-specific FP8
 projection surfaces now exist in the kernel tree. As architecture-candidate
@@ -415,17 +423,40 @@ logits, and before commit, and never publishes a partial sequence length.
 `--prefill-execution-mode layer-major`. It propagates API disconnect/shutdown
 state into the bounded probe and emits a v2 success witness containing the
 actual mode, panel count, request profile, window/retirement facts, and sealed
-plan identifier. Legacy remains the default and retains the v1 witness. Both
-default and dual-Marlin development builds pass the current host/API/type
-tests; this is implementation evidence, not yet a real-model performance or
-accuracy result.
+plan identifier. The sealed balanced route identifies itself as
+`q3x.sm87.exact.layer-major-c8192.balanced-segments.v2`. Legacy remains the
+default and retains the v1 witness. Default, dual-Marlin, full-inventory, and
+GDN-disabled control builds pass their applicable host/API/type tests.
 
-The immediate next gate is a small exact real-model API sanity request on a
-clean host, followed by the cold/no-cache 40K, 60K, and approximately 130K
-real-Agent witness set against the frozen cumulative native incumbent.
-The witness must retain exact prompt consumption, output/state equivalence,
-route identity, pure Prefill and external TTFT intervals, peak resources,
-single final state commit, and zero forbidden fallbacks.
+A clean-host P1025, one-output-token OpenAI API/EvalScope direction screen on
+commit `18363ad` is cumulatively positive against its older greedy/fallback
+layer-major witness, returns the same exact token, and reports every required
+operator role on its admitted production disposition with zero forbidden route
+hits. It remains slower than the older legacy observation. The comparison is
+not causal: the earlier witness used exact FP8, Attention, and GDN fallbacks,
+so it retains the complete sealed composition direction only. The short screen
+cannot select this architecture lineage or activate production; current
+numbers belong to [`CURRENT_STATUS.md`](CURRENT_STATUS.md), and exact evidence
+belongs to the
+[machine-readable direction record](metadata/qwen36-27b-prefill-layer-major-balanced-p1025-direction-2026-08-09.json).
+
+The immediate integration seam is a private
+`enqueue_prefill_layer_panel(...)` executor operating directly on
+`layer_major_request_views_`. It must bind the existing M-at-most-8192 FP8 and
+NVFP4 operator-panel wrappers. NVFP4 and large-N FP8 wrappers still lower to
+ordered kernel segments of at most M1024; only N1024 FP8 K/V may issue one
+M8192 launch. Exact GDN/SSM, causal Attention, and linear BF16 A/B may retain
+dependency-ordered internal C512 execution initially, preserving the existing
+segmented route as the bitwise oracle. The first new API executable must
+include both the complete linear/GDN and full-Attention layer families; a
+projection-only executable is still a local mutation.
+
+After that composition passes a small exact real-model API sanity request on
+a clean host, run the cold/no-cache 40K, 60K, and approximately 130K
+real-Agent witness set against the frozen cumulative native incumbent. The
+witness must retain exact prompt consumption, output/state equivalence, route
+identity, pure Prefill and external TTFT intervals, peak resources, single
+final state commit, and zero forbidden fallbacks.
 
 Only that complete API result may select the development architecture. A
 component timing, C8192 panel rate, C512 comparison, or profiler counter may

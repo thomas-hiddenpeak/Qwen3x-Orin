@@ -8598,3 +8598,69 @@ has no capability authority. Reproduction, artifact hashes, and limitations
 are recorded in the
 [external evaluation record](metadata/qwen36-27b-evalscope-external-directional-baseline-2026-07-29.json)
 and [evaluation contract](EVALSCOPE_EVALUATION.md).
+
+## Sealed balanced layer-major P1025 direction screen
+
+Commit `18363ad` seals the balanced segmented layer-major compatibility route.
+Its deployment-plan identifier is
+`q3x.sm87.exact.layer-major-c8192.balanced-segments.v2`. Logical and physical
+tail scheduling balances only the final full-plus-tail pair; the Engine also
+binds the real native exact C64 GDN workspace and eligible M32--M512 tactic
+envelope. The path remains an explicit development/test admission and the
+legacy route remains the default.
+
+One clean-host Jetson run exercised the real `/v1/completions` API through
+EvalScope 1.9.1 with one hash-locked 1,025-token request, one greedy output
+token, no cache, no MTP, and no approximate route. The exact server binary
+SHA-256 is
+`de172fd1dca5d62241f6df5954bbc90efce4d8e3ba0d7cf1ccf8ca28f4aae8c0`;
+the prompt token-ID SHA-256 is
+`b26da917472e0c537b2190448c0cc5b242a4c97eba89cb6121937f625479a1a7`.
+Both the server and EvalScope launches passed separate policy-compliant
+`tegrastats`, CPU/process, and GPU-device-handle preflights. The only allowed
+persistent GPU holders were the known desktop display processes; no unexpected
+consumer was admitted.
+
+| Metric | Prior greedy/fallback layer-major | `18363ad` sealed composition |
+| --- | ---: | ---: |
+| EvalScope TTFT | 3,291.95 ms | **2,767.24 ms** |
+| EvalScope prompt throughput | 311.36 tok/s | **370.40 tok/s** |
+| Server pure Prefill | 3,285.658588 ms | **2,761.173664 ms** |
+| Server pure Prefill throughput | 311.961810 tok/s | **371.218954 tok/s** |
+| Server TTFT | not retained for comparator | **2,763.797302 ms** |
+| Server finalization | not retained for comparator | **4.472550 ms** |
+
+The cumulative measured pure-Prefill saving against the older layer-major
+witness is 524.484924 ms: 1.189949995x speedup and 15.962855% lower latency.
+This is not a causal single-mechanism comparison. The older witness reports
+production dispositions only for NVFP4 Gate/Up and Down; FP8 QKV/Z/O,
+Attention, and GDN all use exact fallback. The `18363ad` success witness
+records 64 NVFP4 Gate/Up, 64 NVFP4 Down, 96 FP8 QKV, 48 FP8 Z, 64 FP8 O, 16
+Attention, and 48 native GDN hits on their admitted production dispositions.
+Exact fallback, forbidden fallback, Prefix cache, MTP, cuBLASLt,
+external-reference, and approximate-route counts are all zero. The returned
+token is exactly `在` with `finish_reason=length`.
+
+The older legacy P1025 pure-Prefill observation is
+2,345.197566 ms. The sealed layer-major route is therefore still 415.976098 ms
+or 17.737358% slower than legacy. This one-request result has protocol and
+architecture-direction authority only. It is not a B-B-B-B repetition, a
+target-length 40K/60K/130K witness, an `architecture_candidate` selection, a
+release qualification, or a production claim. It retains the balanced/GDN
+composition only as part of the complete sealed route; it does not attribute
+the gain to either mechanism. It makes the existing M-at-most-8192 FP8/NVFP4
+operator-panel wrapper binding the next architecture seam. Those wrappers do
+not imply one M8192 kernel launch: NVFP4 and large-N FP8 remain internally
+segmented at M1024, while N1024 FP8 K/V may issue one M8192 launch.
+
+Local retained artifacts are:
+
+- `.q3x-work/evidence/prefill-target-path/18363ad-p1025-server-preflight.json`;
+- `.q3x-work/evidence/prefill-target-path/18363ad-p1025-evalscope-preflight.json`;
+- `.q3x-work/evidence/prefill-target-path/18363ad-p1025-server.log`; and
+- `.q3x-work/evalscope/results/18363ad-balanced-c64-p1025-one-token/native/`.
+
+These ignored workspace artifacts are local forensic material. The immutable
+numbers, identities, route counts, limitations, and decision authority are
+frozen by this append-only ledger entry and the
+[machine-readable direction record](metadata/qwen36-27b-prefill-layer-major-balanced-p1025-direction-2026-08-09.json).

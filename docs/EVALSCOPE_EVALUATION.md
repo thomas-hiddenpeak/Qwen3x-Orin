@@ -107,7 +107,11 @@ The default remains `legacy`. The implemented development layer-major route
 is selected explicitly with `--prefill-execution-mode layer-major`; it fails
 closed unless the engine is configured for the SM87 backend, the fixed C512
 compatibility workspace, the layer-major request-memory profile, and both
-exact FP8 and NVFP4 Marlin Prefill inventories. Those inventories are still
+exact FP8 and NVFP4 Marlin Prefill inventories. It additionally requires the
+native exact C64 GDN binary capability, the real native workspace and exact
+byte capacity, and the authenticated 48-layer producer/weight shape
+inventory. Eligible M32--M512 segments must report the native GDN disposition;
+M1--M31 alone may use the sealed exact fallback. These inventories are still
 development/test admissions, so this route is an executable evaluation
 candidate rather than the installed production default. The request arena is
 reserved before GPU execution. Target-length runs must therefore also pass a
@@ -193,13 +197,34 @@ Legacy/unsealed evidence retains the byte-stable
 layer-major request emits `target-prefill-witness-v2`, adding the actual
 execution mode, logical panel count, request-memory profile, bounded-window
 fact, retirement count, and stable deployment-plan identifier. An empty plan
-identifier can never upgrade a record to v2.
+identifier can never upgrade a record to v2. The sealed balanced compatibility
+route at `18363ad` must identify itself exactly as
+`q3x.sm87.exact.layer-major-c8192.balanced-segments.v2`; another identifier is
+a route mismatch, not equivalent evidence.
 
 The externally observed TTFT selects the whole architecture. Server-side pure
 Prefill timing explains where that result came from; it never replaces the API
 result. A witness with an incomplete stream, unowned host resources, a route
 mismatch, allocation fallback, truncation, cache reuse, or missing interval is
 invalid rather than slow or fast.
+
+### Retained sealed P1025 direction screen
+
+Commit `18363ad` completed one clean-host, one-request P1025 protocol/direction
+screen using a hash-locked token-ID corpus and one greedy output token. It
+confirmed prompt consumption, exact output, v2 route completeness, and zero
+forbidden-route hits. The cumulative sealed composition is positive against
+its older greedy/fallback layer-major witness and remains slower than the
+older legacy observation. The comparison is not causal because the earlier
+witness used exact FP8, Attention, and GDN fallbacks while `18363ad` reports
+all required roles on their admitted production disposition.
+
+This screen has sanity and direction authority only: it is not the
+target-length witness set, an architecture selection, a repetition sample, or
+a production result. Current numbers belong to
+[`CURRENT_STATUS.md`](CURRENT_STATUS.md); exact identities, hashes, route
+counts, and limitations are frozen in
+[`metadata/qwen36-27b-prefill-layer-major-balanced-p1025-direction-2026-08-09.json`](metadata/qwen36-27b-prefill-layer-major-balanced-p1025-direction-2026-08-09.json).
 
 ## Historical pinned short workload
 

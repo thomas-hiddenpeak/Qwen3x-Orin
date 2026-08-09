@@ -1,0 +1,204 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-layer-major-balanced-p1025-direction-2026-08-09",
+  "recorded_at": "2026-08-09T14:41:00+08:00",
+  "timezone": "Asia/Shanghai",
+  "status": "positive_short_direction_screen_target_length_selection_pending",
+  "policy": {
+    "evidence_tier": "T3",
+    "protocol_class": "EXTERNAL_API_SHORT_DIRECTION_SCREEN",
+    "decision_unit": "architecture_candidate",
+    "architecture_candidate_id": "AC-PREFILL-LAYERMAJOR-8K-v1",
+    "measured_route_class": "segmented_compatibility_precursor",
+    "early_stop_authority": true,
+    "architecture_selection_authority": false,
+    "release_performance_authority": false,
+    "production_promotion_authority": false,
+    "threshold_recalibration_authority": false,
+    "cublaslt_production_eligibility": false,
+    "mtp_used": false,
+    "approximate_numerics_used": false
+  },
+  "source": {
+    "branch": "codex/prefill-target-path",
+    "commit": "18363ad66d01e9d4516382c9a94c4bcf49a601d0",
+    "tree": "2ff2ed655a23ea60ffeeb68a121c32bc533c90c0",
+    "committed_at": "2026-08-09T14:39:02+08:00",
+    "binary": {
+      "measurement_path": ".q3x-work/build/bound-prefill-cumulative/qwen3x-eval-server",
+      "bytes": 12576168,
+      "sha256": "de172fd1dca5d62241f6df5954bbc90efce4d8e3ba0d7cf1ccf8ca28f4aae8c0",
+      "elf_build_id": "e99f62b0317d3c58520442323448a5a4399d6ad6",
+      "checked_in": false
+    }
+  },
+  "checkpoint": {
+    "repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "local_path": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "access": "read_only",
+    "config_sha256": "c04a19ba293737ad7be4f6e96d6666cb7e479cbe19ecc0c289fad267135b0338",
+    "quantization_config_sha256": "fd7200cd8bca2a8a5d777061521abf83e2deb97ab6bc2f04e7a0a3d3f8ecd5c1",
+    "index_sha256": "7aa103a2582b7d26631988de33dea19e8a308ee9c239e8e14feb374af30905e2",
+    "tokenizer_json_sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42",
+    "authentication": "runner startup authenticated the pinned model inventory before accepting the request"
+  },
+  "environment": {
+    "device": "NVIDIA Jetson AGX Orin",
+    "architecture": "SM87",
+    "operating_system": "Linux 6.8.12-1021-tegra aarch64",
+    "cuda_toolkit": "13.3.33",
+    "driver_branch": "r595_00",
+    "nvpmodel": "MAXN",
+    "gpu_hz": 1300000000,
+    "emc_hz": 3200000000,
+    "cpu_affinity": "not_pinned",
+    "server_preflight_gpu_temperature_celsius": {
+      "minimum": 54.5,
+      "maximum": 54.906
+    }
+  },
+  "route": {
+    "execution_mode": "layer-major",
+    "deployment_plan_id": "q3x.sm87.exact.layer-major-c8192.balanced-segments.v2",
+    "logical_panel_count": 1,
+    "physical_segments": [
+      512,
+      257,
+      256
+    ],
+    "prefill_chunk_size": 512,
+    "bounded_submission_window": true,
+    "submission_window_retirements": 64,
+    "native_gdn_envelope": "M32..M512",
+    "exact_gdn_fallback_envelope": "M1..M31",
+    "default_route_changed": false,
+    "build_testing_admission": true
+  },
+  "workload": {
+    "framework": "evalscope[perf]==1.9.1",
+    "api": "openai",
+    "endpoint": "/v1/completions",
+    "url": "http://127.0.0.1:18082/v1/completions",
+    "corpus": ".q3x-work/evalscope/corpora/q3x-p1025-one-token.jsonl",
+    "corpus_sha256": "0eefb71a15b71ab63de44e0803270608073e538e93bd93bc7a67e4c87cfad9e4",
+    "prompt_kind": "token_ids",
+    "prompt_tokens": 1025,
+    "prompt_token_ids_u32le_sha256": "b26da917472e0c537b2190448c0cc5b242a4c97eba89cb6121937f625479a1a7",
+    "measured_requests": 1,
+    "warmup_requests": 0,
+    "parallel": 1,
+    "output_tokens": 1,
+    "temperature": 0.0,
+    "seed": 42,
+    "stream": true,
+    "prefix_cache": false,
+    "mtp": false
+  },
+  "results": {
+    "success_requests": 1,
+    "failed_requests": 0,
+    "evalscope_ttft_ms": 2767.24,
+    "evalscope_prompt_throughput_tok_s": 370.3999664979109,
+    "server_pure_prefill_ms": 2761.173664,
+    "server_pure_prefill_tok_s": 371.218954,
+    "server_ttft_ms": 2763.797302,
+    "server_finalize_ms": 4.472550,
+    "generated_text": "在",
+    "finish_reason": "length",
+    "completed_route_hits": {
+      "nvfp4_gate_up": 64,
+      "nvfp4_down": 64,
+      "fp8_qkv": 96,
+      "fp8_z": 48,
+      "fp8_o": 64,
+      "attention": 16,
+      "gdn_native": 48
+    },
+    "zero_route_hits": [
+      "exact_fallback",
+      "forbidden_fallback",
+      "prefix_cache",
+      "mtp",
+      "cublaslt",
+      "external_reference",
+      "approximate_numerics"
+    ]
+  },
+  "comparators": {
+    "prior_greedy_layer_major": {
+      "inventory_relationship": "older full-inventory build family; not the same binary and not the same operator dispositions",
+      "evalscope_ttft_ms": 3291.95,
+      "evalscope_prompt_throughput_tok_s": 311.36,
+      "server_pure_prefill_ms": 3285.658588,
+      "server_pure_prefill_tok_s": 311.961810,
+      "completed_production_hits": {
+        "nvfp4_gate_up": 64,
+        "nvfp4_down": 64
+      },
+      "completed_exact_fallback_hits": {
+        "fp8_qkv": 96,
+        "fp8_z": 48,
+        "fp8_o": 64,
+        "attention": 16,
+        "gdn": 48
+      },
+      "candidate_saved_ms": 524.484924,
+      "candidate_speedup": 1.189949995,
+      "candidate_latency_improvement_percent": 15.962855,
+      "causal_attribution_allowed": false
+    },
+    "older_legacy": {
+      "server_pure_prefill_ms": 2345.197566,
+      "candidate_regression_ms": 415.976098,
+      "candidate_regression_percent": 17.737358
+    }
+  },
+  "preflight": {
+    "server": {
+      "path": ".q3x-work/evidence/prefill-target-path/18363ad-p1025-server-preflight.json",
+      "sha256": "f36a5b3111985829c3d1f4877aaf568c402d562258cb9ca285fda740dcc63f00",
+      "accepted": true,
+      "maximum_gr3d_percent": 0.0,
+      "aggregate_cpu_busy_percent": 0.498220640569395
+    },
+    "evalscope": {
+      "path": ".q3x-work/evidence/prefill-target-path/18363ad-p1025-evalscope-preflight.json",
+      "sha256": "4f1365c15d4492f4915e22c748df4d97446ff182274d2dbbbe2de22793830d1f",
+      "accepted": true,
+      "maximum_gr3d_percent": 0.0,
+      "aggregate_cpu_busy_percent": 0.776287932251235
+    },
+    "allowed_persistent_gpu_holders": [
+      "Xorg pid 2599",
+      "gnome-shell pid 2719",
+      "mutter-x11-frames pid 2738"
+    ],
+    "unexpected_gpu_or_cpu_consumer": false
+  },
+  "artifact_hashes": {
+    "server_log": "caa6cc39602e36a8bd15ec34d45692c06747f55bad6e0f9b23d1dd67263147ab",
+    "benchmark_args_json": "9cc1db4874f8ae805361afe8cc544fa2f6e5373717e06c2067bf2f4b9544d69b",
+    "benchmark_data_db": "04ca26c2a09675ed9ba46ecc113206d66a8a5bf6005591e74f03b4979a407f55",
+    "benchmark_percentile_json": "3da654381efda8e6462e743f6b9cc3f0ea250841cf83b5302a849ce6be90b488",
+    "benchmark_summary_json": "f6d31c6c57664e2044a387e47c72ae68adb99828a9e92cf753754639afca8004",
+    "workload_throughput_json": "6d6f4a7f2f4c27675e115f587b45fc53678e07a1c9f580c09662b3ace5164294",
+    "workload_timeline_json": "2b32318198a68afd63b916863ffed0decab85fe047ae42bd4fd6ff591fbc571e"
+  },
+  "decision": {
+    "result": "retain_for_true_c8192_composition",
+    "reason": "the cumulative sealed composition improved its older greedy/fallback layer-major witness, but the comparator changed FP8, Attention, and GDN dispositions and therefore permits no constituent-level attribution; segmented compatibility execution remains below legacy and far below the locked target",
+    "retained_scope": "complete sealed composition direction only",
+    "next_architecture_seam": "bind the existing M<=8192 FP8/NVFP4 operator-panel wrappers through a private layer-panel executor before another whole-product direction screen; NVFP4 and large-N FP8 remain internally segmented at M<=1024 while N1024 FP8 K/V may issue one M8192 launch"
+  },
+  "limitations": [
+    "One request, one process, and no warmup or mirrored repetition.",
+    "P1025 is a protocol and direction screen, not the 40K/60K/130K architecture-selection witness set.",
+    "The historical greedy and legacy comparator binaries were not re-run or hash-paired with the measured binary.",
+    "The older greedy witness used exact FP8, Attention, and GDN fallbacks; the 1.189949995x cumulative comparison cannot attribute gain to balanced segmentation, native GDN, or another constituent.",
+    "CPU affinity was not pinned.",
+    "The local .q3x-work artifacts are ignored forensic material rather than checked-in binaries or databases.",
+    "The route is BUILD_TESTING admission inventory and is not the default installed BUILD_TESTING=OFF release.",
+    "No capability, long-output Decode, resource-peak, or production packaging gate was run."
+  ]
+}

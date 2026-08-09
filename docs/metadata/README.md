@@ -21,6 +21,13 @@ release baseline, production promotion, threshold reset, or capability score.
 The fresh stock-vLLM run is separately frozen in
 [`qwen36-27b-evalscope-vllm-frozen-reference-2026-07-29.json`](qwen36-27b-evalscope-vllm-frozen-reference-2026-07-29.json).
 It is a cumulative market floor and is not rerun for each native candidate.
+The sealed balanced layer-major P1025 API/EvalScope direction screen is frozen
+in
+[`qwen36-27b-prefill-layer-major-balanced-p1025-direction-2026-08-09.json`](qwen36-27b-prefill-layer-major-balanced-p1025-direction-2026-08-09.json).
+It retains only the complete sealed composition direction for the next
+operator-panel integration step; its older comparator used FP8, Attention,
+and GDN fallbacks, so the result has no constituent-level attribution,
+architecture-selection, release, or production authority.
 
 The current Prefill architecture reset and same-host stock-vLLM P513 kernel
 profile are recorded in
