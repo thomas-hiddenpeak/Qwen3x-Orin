@@ -15,10 +15,10 @@ q3x_document:
 
 # Qwen3x-Orin current status
 
-Snapshot date: 2026-08-09. Implementation facts audited: code tree at
-`af514ed`. Performance and qualification claims remain tied to the exact
-older artifacts cited in their evidence records; the newer unbound
-architecture infrastructure does not revise those measurements.
+Snapshot date: 2026-08-09. Implementation facts audited through code baseline
+`606ea1d`. Performance and qualification claims remain tied to the exact older
+artifacts cited in their evidence records; executability of the newer
+layer-major compatibility route does not revise those measurements.
 
 This is the single point-in-time status page. It records what is target,
 designed, implemented, qualified, and production. Architecture contracts
@@ -56,24 +56,23 @@ per-request arena. It therefore does not deliver the locked cold/no-cache
 evaluation adapter: loopback-only, unauthenticated, serialized batch one, and
 without a production network, tenant, admission, or cancellation contract.
 
-The development tree now contains a pure-host layer-major topology/progress
-plan, a tactic-explicit host workspace-requirements planner, a staged
-whole-request generation-control seam, a 17-role operator-binding contract,
-isolated C8192 NVFP4/FP8 projection surfaces, and an explicit layer-major
-`RequestState` allocation profile with typed phase views. These are implemented
-infrastructure components, not an executable architecture candidate: the
-profile is not connected to a runner implementation, every execution/event/
-operator binding remains false, no selector admits it, and the existing C512
-production route and performance are unchanged.
+The development tree now contains an executable, explicit layer-major
+compatibility route. `ReferenceEngine` provisions the typed layer-major
+`RequestState`, seals the exact model/state/arena/views/streams/two completion
+events and 17 operator-role receipts, executes outer-layer/inner-logical-panel
+traversal, finalizes logits from uncommitted hidden state, and publishes one
+final sequence length through a move-only request receipt. A two-slot bounded
+submission window carries API disconnect/shutdown cancellation into long
+Prefill without exposing partial state; failures drain and reset through the
+Engine transaction guard.
 
-The runner tree also contains an explicit candidate-only view seam for that
-profile. A pure-host descriptor validates the complete typed memory identity,
-and one non-production collector can gather the prompt residual, panel token
-IDs, GDN/Attention/MLP phase views, disjoint legacy bundle, final hidden, and
-persistent GDN/KV/RoPE views from an allocated layer-major state. It rejects
-legacy states with a profile mismatch, exports no raw C8192 arena, requires
-all binding flags to remain false, and is not called by the existing runner
-factory, engine, Prefill path, or selector.
+This closes the system execution and API-observation shape, not the performance
+architecture. Each logical C8192 panel still lowers to ordered physical
+segments of at most C512 and uses the exact admitted M512 FP8/NVFP4 Marlin
+routes. Both inventories are development/test admissions. True C8192 NVFP4/FP8
+surfaces remain isolated, the evaluation server selects layer-major only by an
+explicit option, the legacy route remains default, and no clean-host real-model
+API performance result has yet qualified the new path.
 
 Accordingly, current product status is **implemented evaluation runner,
 unqualified production runner**.
@@ -84,22 +83,22 @@ unqualified production runner**.
 | --- | --- | --- | --- |
 | Pinned Qwen3.6-27B NVFP4 model identity and loader | Implemented | Exact revision/shard authentication, one resident arena and typed weight binding | Must be tied to the installed binary and DeploymentPlan in release attestation |
 | Pure C++ tokenizer and greedy generation | Implemented | Pinned tokenizer, batch-one generation and deterministic test/oracle surfaces | Public capability qualification is incomplete |
-| OpenAI-compatible evaluation API | Implemented | `/healthz`, `/v1/models`, completions/chat, non-streaming and committed-token SSE | Loopback/evaluation-only; no production exposure, security, cancellation, or multi-tenant contract |
+| OpenAI-compatible evaluation API | Implemented | `/healthz`, `/v1/models`, completions/chat, non-streaming and committed-token SSE; explicit layer-major mode has bounded Prefill cancellation | Loopback/evaluation-only; no production exposure, security, admission, or multi-tenant contract |
 | Production serving API | Designed | Product/API contract is defined in the SDD | No installed release profile or release attestation exists |
 | Default context capacity | Implemented at 8,192 | Server default `max_sequence_length=8192`, maximum output 4,096, 2 GiB request-arena limit | Does not admit the locked long-context workloads |
-| 40K/60K/130K cold/no-cache service | Target; host requirements implemented | Configured token-ID ingress fails closed on capacity, the legacy planner expresses C512 arenas, and the layer-major host planner gives tactic-explicit request-arena requirements | Default admission/reservation, model-plus-sidecar whole-process capacity, cancellation, executable target route, performance, and qualification are absent |
+| 40K/60K/130K cold/no-cache service | Target; development compatibility route implemented | Token-ID ingress fails closed on capacity; layer-major startup reserves the request profile and binds a bounded exact segmented route | Whole-process capacity, clean-host target-length execution, native large-M tactics, performance, and qualification are absent |
 | Prefill/Decode logical separation | Implemented in part | Separate phase APIs/metrics and an explicit state transition exist | Shared runner and synchronization-heavy physical plan prevent independent utilization and overlap |
-| Layer-major C8192 candidate | Designed; supporting infrastructure implemented | Unbound 64-layer topology/progress, tactic-explicit workspace requirements, staged whole-request controller/finalizer/commit seam, explicit typed `RequestState` allocation profile, candidate-only runner view collector, 17-role binding contract, and isolated NVFP4/FP8 C8192 surfaces | No runner executor exists, every execution/event/operator binding is unbound, and no selector admits the candidate |
+| Layer-major C8192 candidate | Executable segmented compatibility route; native large-M candidate still designed | Sealed Engine transaction, true layer-major/logical-panel traversal, typed request profile, two-slot cancellation, 17 bound role receipts, explicit evaluation-server selection and v2 witness | Physical execution remains M512-segmented/test-admitted; true C8192 surfaces, whole-process capacity, real-model API result, release plan, and qualification remain open |
 | Large-M Prefill specializations | Implemented as legacy admissions plus isolated C8192 surfaces | Native NVFP4/FP8/BF16 and Attention/GDN C512 candidates exist in development builds; isolated NVFP4/FP8 surfaces accept candidate-only C8192 panels | Existing options default off/test-only, C8192 surfaces are unbound, and no unique exact release selection exists |
 | Decode target | Directionally near target | Short API evidence reports about 104 ms TPOT | At least 10 token/s, long-output stability, and release repetition are not qualified |
 | Production accuracy | Target with partial oracles | Exact deterministic outputs are available for selected prompts/routes | No complete public capability baseline and promotion gate has passed |
-| AOT DeploymentPlan | Designed | Startup-specialization audit defines the intended mechanism | No authenticated plan artifact is loaded and attested by the default release |
+| AOT DeploymentPlan | Implemented internally for the development route; release artifact still designed | Engine-lifetime sealed plan binds model/state/resources/operator identities and one-shot request receipts | No authenticated installed plan artifact is loaded and attested by the default release |
 | Unique `BUILD_TESTING=OFF` release | Not implemented | Installed targets can be built | No single build/route manifest reproduces the strongest evidence without admissions or environment composition |
 | Automated release evidence lane | Designed | Local CTest and evidence policies exist | No checked-in remote CI/workflow enforces the Orin release gate |
 
 ## 4. Current API and capacity facts
 
-At implementation snapshot `af514ed`, `EvaluationServerOptions` still defaults
+At implementation baseline `606ea1d`, `EvaluationServerOptions` still defaults
 to:
 
 - bind address `127.0.0.1`;
@@ -109,10 +108,14 @@ to:
 - Prefill chunk size 512; and
 - `request_max_arena_bytes=2 GiB`.
 
-The adapter has no authentication or TLS and cannot interrupt a long Prefill
-inside its tile sequence. The first response header is delayed until the first
-committed token or an early error. These are honest evaluation-stage
-properties, not production API guarantees.
+The adapter has no authentication or TLS. Legacy mode still observes
+disconnect/shutdown only at committed-token boundaries. Explicit layer-major
+mode uses a two-slot bounded window over `layer x logical-panel` quanta and
+checks cancellation after retirement, final normalization, before logits, and
+before the single commit; it drains and resets without publishing partial
+position. The first response header is delayed until the first committed token
+or an early error. These are honest evaluation-stage properties, not
+production API guarantees.
 
 Under the existing request-state planner at the maximum production-route
 chunk M512, exact arena demand is:
@@ -166,11 +169,12 @@ All six request-arena values fit the planner's declared
 17,437,720,576-byte limit, but no whole-process fit follows. Resident-model and
 derived-sidecar byte requirements are absent, total whole-process bytes are
 unknown, and the planner's whole-process capacity verdict is
-`kIndeterminate`. The isolated layer-major create API can allocate the selected
-request arena and expose only typed phase views, but it is not a production
-admission/reservation and binds none of the required aliases, events, or
-operators. Its plan therefore remains non-executable and does not replace the
-existing M512 admission or memory plan.
+`kIndeterminate`. The layer-major Engine create path can allocate the selected
+request arena, expose typed phase views, and bind the segmented compatibility
+executor and completion events. This is a fail-closed development admission,
+not a production capacity verdict, and it does not replace the default M512
+route or establish that model plus sidecars plus the largest request fit
+concurrently.
 
 ## 5. Current performance evidence and its authority
 
@@ -265,12 +269,11 @@ required.
 
 ## 7. Current execution-architecture gap
 
-Prefill and Decode are logically identifiable, but the current physical
-runner is primarily serial. Prefill processes bounded prompt tiles through the
-shared runner and synchronizes the stream at each tile boundary before
-committing state. Gate/Up uses a limited layer-local auxiliary-stream fork and
-join, but the system has no general double/triple-buffered cross-tile or
-cross-layer pipeline.
+Prefill and Decode are logically identifiable. The default legacy route is
+still primarily serial: it processes bounded prompt tiles through the shared
+runner and synchronizes before each tile commit. Gate/Up uses a limited
+layer-local auxiliary-stream fork/join, but the default route has no general
+double/triple-buffered cross-tile or cross-layer pipeline.
 
 At chunk 512, 40K tokens require about 79 tiles. Repeating a 64-layer weight
 and synchronization traversal for every small tile is a first-class
@@ -278,44 +281,27 @@ architecture seam. The required response is a whole prompt-span execution
 plan with explicit state semantics, residency, buffer ownership and overlap,
 not a return to unrelated kernel parameter scans.
 
-The tree has implemented seven non-production foundations for that response:
+The explicit development route now implements the whole-request response:
 
-- an immutable, pure-host 64-layer/C8192 topology and request-owned progress
-  model with one planned final host-state commit;
-- tactic-explicit selected/conservative host workspace requirements for the target
-  buckets under explicit GDN/legacy/MLP physical tactics, while model/sidecar
-  and whole-process capacity remain indeterminate;
-- a complete 17-role typed contract whose C8192 tactic, resource, launcher,
-  and event identities and attestation remain unbound;
-- isolated candidate-only C8192 NVFP4 and FP8 projection surfaces;
-- an explicit layer-major `RequestState` profile with one prompt-wide
-  residual, one sequential-family arena, physically disjoint legacy C512
-  scratch, a fixed final-hidden handoff, and typed phase-only device views;
-- an explicit candidate-only runner view seam that validates the exact unbound
-  descriptor and gathers every typed operator, legacy, final-hidden,
-  persistent, KV, and RoPE view without exposing the raw C8192 arena or
-  entering the legacy runner factory;
-- a default-off whole-request control seam that accepts only a complete,
-  uncommitted 64-layer result, uses a dedicated retained-hidden finalizer,
-  invokes one no-throw final commit callback whose non-OK status guarantees no
-  state change, and publishes the controller's local progress only after the
-  callback's single no-fail state publication succeeds; every ordinary
-  C512/scalar path remains unchanged.
+- immutable 64-layer/logical-C8192 topology and request-owned progress;
+- typed prompt-wide `RequestState` storage with fixed final-hidden handoff;
+- a sealed 17-role Engine plan bound to exact model, arena, views, streams,
+  tactics, sidecars, workspaces, and two completion events;
+- true `layer -> logical panel -> physical segment` traversal;
+- an uncommitted retained-hidden finalizer and one final sequence-length
+  publication guarded by a move-only receipt and RAII rollback; and
+- a two-slot layer-panel submission window with bounded API cancellation and
+  v2 success evidence.
 
-None supplies a runner executor, bound deployment plan, or selector. The new
-`RequestState` profile is allocation-only: its alias, completion-event,
-projection-subrange, and operator-binding flags are all false. The control
-callbacks remain null in `ReferenceEngine`, the binding/workspace plans report
-non-executable, and production-route admission remains M512. Consequently
-these commits change no production performance claim.
-
-The immediate next implementation boundary is the runner executor using the
-new layer-major `RequestState` profile and its candidate-only typed view seam.
-The runner must extract one
-parameterized layer-panel body and implement true `layer -> panel` traversal;
-calling the existing 64-layer C512 tile loop repeatedly is not that executor.
-The C512 incumbent remains selectable until a later authenticated, fully bound
-17-role plan and real API witness exist.
+This integration remains a compatibility executor: every logical panel is
+physically segmented at M512, and the exact Marlin inventories that authorize
+it are still test-only. It is therefore an executable route for real API
+evaluation, not yet the native C8192 large-M dataflow, a performance-selected
+architecture, or a production route. Isolated true-C8192 NVFP4/FP8 surfaces
+remain outside the executor. The immediate boundary is clean-host real-model
+API sanity and target-capacity evidence; if valid, the resulting whole-product
+timing determines which native large-M/operator dataflow must replace the
+segmented compatibility internals.
 
 Unpinned or dirty experimental branches are intentionally excluded from this
 status snapshot. A candidate affects current truth only after its exact commit,
@@ -332,7 +318,7 @@ active dependency order and exit criteria are in
 | --- | --- | --- |
 | Product API and long-context admission | Configured token-ID validation and host requirement plans exist; 40K/60K/130K still do not fit or execute through the default contract | P1 |
 | Exact deliverable identity | No unique `BUILD_TESTING=OFF` release or authenticated DeploymentPlan | P2 |
-| Target-length performance and physical Prefill plan | Unbound layer-major host contracts and isolated C8192 projection surfaces exist, but no runner/selector route or valid target witness exists; production remains tile-major M512 | P3 |
+| Target-length performance and physical Prefill plan | Explicit layer-major compatibility route exists, but remains physically M512-segmented/test-admitted and has no valid target-length API witness; production remains legacy M512 | P3 |
 | Accuracy, capability, stability, and release evidence | Partial deterministic oracles; no complete qualification bundle | P4 |
 | Packaging and operations | No attested install/startup/upgrade lane | P5 |
 
@@ -351,7 +337,8 @@ process/device-handle inspection, never `nvidia-smi` as the idle authority.
 Until the gaps above close, use the following language:
 
 - **Current:** real-model native evaluation runner with short-workload
-  cumulative admission evidence.
+  cumulative admission evidence and an explicit, unqualified segmented
+  layer-major evaluation route.
 - **Not current:** production server, 40K--130K support, release-grade vLLM
   parity, 1,224.7335 tok/s lossless Prefill, or a fully qualified 10 token/s
   Decode release.

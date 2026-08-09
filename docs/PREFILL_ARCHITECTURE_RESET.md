@@ -224,12 +224,14 @@ explain acceptance or rejection, but cannot select the whole architecture.
 ## 8. Designed candidate lineage: `AC-PREFILL-LAYERMAJOR-8K-v1`
 
 `AC-PREFILL-LAYERMAJOR-8K-v1` is the first complete design response to the
-repeated short-span layer traversal. Its status remains **designed and
-non-executable as a complete architecture candidate**: supporting host
-contracts and isolated projection surfaces now exist, but the end-to-end
-candidate is not implemented, selected, or active in production. The
-identifier freezes a lineage for Roadmap-controlled integration; it does not
-open a local optimization work package or change the current route.
+repeated short-span layer traversal. The tree now contains an **executable
+development compatibility route** for its transaction, memory, scheduling,
+and API shape. That route still executes each logical C8192 panel as ordered
+physical segments of at most C512, and its exact FP8/NVFP4 Marlin inventories
+remain development/test admissions. It is therefore not yet the complete
+large-M architecture candidate, a selected performance result, or production.
+The identifier freezes a lineage for Roadmap-controlled integration; explicit
+evaluation of the compatibility route does not change the default route.
 
 ### 8.1 Execution shape and progress
 
@@ -262,14 +264,18 @@ plan publishes exactly one final `PrefillStateCommitted` handoff containing
 the complete KV, GDN, position/RoPE, and next-token state. Cancellation and
 failure before that event expose no partial handoff.
 
-The current tree implements this topology as a pure-host, immutable plan for
-64 layers (48 linear-Attention and 16 full-Attention layers), at most 32
-C8192 panels, request-owned progress vectors, and one planned final host-state
-commit transition. That scaffold has no launcher, device pointer, stream,
-event, allocation, or production selector. Its commit helper deliberately
-does not call `RequestState::set_sequence_length()`, and its `executable()`
-result therefore remains false. The existing production-route admission and
-runner boundary remain public C512.
+The current tree implements the immutable 64-layer topology (48
+linear-Attention and 16 full-Attention layers), at most 32 logical C8192
+panels, request-owned progress, and one final host-state commit transition.
+For the explicit development route, `ReferenceEngine` provisions the
+layer-major request profile, binds a sealed engine-lifetime plan to the exact
+model, state, arena, typed views, main/auxiliary streams, completion events,
+and operator receipts, then executes true outer-layer/inner-panel traversal.
+The runner leaves all recurrent/KV work and final hidden state uncommitted;
+the Engine performs logits finalization and the single sequence-length
+publication through a move-only one-request receipt. Any failure is drained
+and reset by the Engine transaction guard. The default selector remains the
+legacy C512 route, and no performance conclusion follows from executability.
 
 ### 8.2 Indivisible composition boundary
 
@@ -291,23 +297,25 @@ undeclared fallback invalidates the route rather than producing a partial
 candidate result. Buffering and overlap remain dependency-derived plan
 choices; the `C8192` name does not imply double or triple buffering by itself.
 
-The current tree also implements a typed host binding contract for exactly 17
+The current tree implements and seals a typed binding contract for exactly 17
 roles: NVFP4 Gate/Up and Down; linear-Attention FP8 QKV, Z, and O;
 full-Attention FP8 Q, K, V, and O; linear BF16 A and B; exact GDN; exact
-causal Attention; residual; normalization; embedding; and final handoff. The
-C8192 target descriptors state exact/native/AOT requirements, but every
-tactic, weight, sidecar, workspace, launcher, and completion-event identity
-remains unbound with `kUnboundDesign` attestation. The legacy inventory is
-capped at M512 and cannot satisfy the C8192 contract.
+causal Attention; residual; normalization; embedding; and final handoff. At
+engine creation, the compatibility route fails closed unless every role can
+be associated with the exact authenticated weights/sidecars, launch tactic,
+workspace, and resource identity. The installed execution inventory remains
+capped at physical M512, however, so these receipts authorize the segmented
+compatibility route; they do not establish the target C8192 large-M kernel
+contract.
 
 Candidate-only C8192 NVFP4 Gate/Up and Down surfaces and shape-specific FP8
 projection surfaces now exist in the kernel tree. As architecture-candidate
 assets they are completely unbound: they remain isolated from the binding
 contract's physical identities and are not connected to `RequestState`, the
-runner, or any production selector. Their presence has not widened production
-admission, changed the selected route, or produced a new production
-performance result. The remaining operator roles are likewise not composed
-into a bound layer-major executor.
+runner, or any production selector. The bound compatibility executor instead
+forces the exact admitted Marlin routes for each physical C512 segment. The
+isolated true-C8192 surfaces have not widened production admission, changed
+the selected route, or produced a production performance result.
 
 ### 8.3 Implemented workspace requirements and capacity closure gate
 
@@ -365,60 +373,56 @@ requirements rather than deployed production facts.
 The first `RequestState` allocation strategy is now separately expressible:
 the three C8192 families share their sequential high-water, while the complete
 legacy C512 workspace is physically disjoint. Its exact selected totals are
-4,066,344,960 / 5,588,904,960 / 10,917,864,960 bytes at 40K/60K/130K. It still
-requires completion-event and operator binding before execution. The explicit
-candidate-only create API now allocates this exact profile and exposes typed
-GDN, Attention, MLP, legacy, token-staging, residual, and final-hidden views.
-It deliberately leaves every execution/alias/event/operator flag false and is
-not reachable from the legacy default request-state entry point.
+4,066,344,960 / 5,588,904,960 / 10,917,864,960 bytes at 40K/60K/130K. The
+explicit create path allocates this exact profile and exposes typed GDN,
+Attention, MLP, legacy, token-staging, residual, and final-hidden views. In
+whole-request mode the Engine now selects it at startup, binds the compatibility
+executor and two completion events, and fails creation rather than falling
+back when the complete route is unavailable. It remains unreachable from the
+legacy default request-state entry point.
 
 Both profiles for all three buckets fit the planner's declared
 17,437,720,576-byte request-arena limit. This is only a request-arena verdict.
 The planner intentionally leaves resident-model bytes, derived-sidecar bytes,
 and total whole-process required bytes absent, and reports whole-process
-capacity as `kIndeterminate`. Allocation reservations, alias/event contracts,
-and operator bindings are also unbound, so the workspace plan's
-`executable()` result remains false. These values are **not** evidence that
-the model plus candidate fit the device or that a production capacity profile
-exists; allocator fragmentation, runtime metadata, and measured
-whole-process peak memory remain open.
+capacity as `kIndeterminate`. Runtime binding makes the segmented compatibility
+path executable, but does not turn these request-only numbers into evidence
+that the model plus target-length candidate fits the device or that a
+production capacity profile exists; allocator fragmentation, runtime metadata,
+and measured whole-process peak memory remain open.
 
-P1 must turn the candidate-only 40K/60K/130K allocation profiles into admitted
-reservations with measured whole-process peaks. P2 must bind one authenticated
-AOT layout/sidecar ownership model, all panel
-workspaces, and the exact installed binary. Startup and admission fail closed
-when the selected bucket cannot reserve the complete plan before Prefill
-begins; the request path may not grow it.
+The next capacity gate must exercise 40K/60K/130K reservations with measured
+whole-process peaks. The release gate must then bind one authenticated AOT
+layout/sidecar ownership model, native large-M panel tactics, all workspaces,
+and the exact installed binary. Startup and admission fail closed when the
+selected bucket cannot reserve the complete plan before Prefill begins; the
+request path may not grow it.
 
 ### 8.4 Next integration seam, activation, and adjudication
 
-A default-off whole-request host-control seam now exists. It accepts only a
-complete, uncommitted 64-layer progress result, validates the transcript and
-domains, invokes a dedicated uncommitted retained-hidden finalizer, calls one
-no-throw final commit callback, and publishes the controller's local host
-progress only after that callback returns OK. The callback returns status
-rather than a caller-authored receipt: it must complete every fallible check
-before its single no-fail initial-to-final state publication, and a non-OK
-status guarantees no state change. `ReferenceEngine` supplies none of these
-callbacks, so the seam cannot select or execute the candidate.
+A default-off whole-request Engine transaction now supplies the complete
+controller seam: it preallocates the transcript before touching GPU state,
+executes the sealed layer-major plan, validates complete uncommitted progress,
+invokes the retained-hidden logits finalizer, and calls one no-throw final
+commit. A move-only receipt prevents reuse, and an RAII rollback guard resets
+the runner on every failure or cancellation window. The API route adds two
+engine-lifetime disable-timing events and treats one `layer x logical panel`
+as a submission quantum. It submits at most two quanta, retires the oldest
+before polling cancellation, checks again after final normalization, before
+logits, and before commit, and never publishes a partial sequence length.
 
-The distinct layer-major `RequestState` profile now owns one full-prompt
-residual, typed phase-layout scratch, a fixed final-hidden handoff slot, and
-physically disjoint legacy C512 views for the first safe integration. Its
-explicit allocation path and exact typed offsets are implemented, while all
-execution, alias, event, projection-subrange, and operator bindings remain
-false. The next integration slice is for the runner to extract a parameterized
-single-layer/single-panel body and implement true outer-layer/inner-panel
-traversal. Repeated calls to the existing public C512 64-layer loop do not
-satisfy this architecture. A later bound execution/deployment plan must still
-authenticate artifacts and bind typed launchers, resources, streams, events,
-reservations, and the complete 17-role route before any selector may admit it.
+`qwen3x-eval-server` exposes this route only through explicit
+`--prefill-execution-mode layer-major`. It propagates API disconnect/shutdown
+state into the bounded probe and emits a v2 success witness containing the
+actual mode, panel count, request profile, window/retirement facts, and sealed
+plan identifier. Legacy remains the default and retains the v1 witness. Both
+default and dual-Marlin development builds pass the current host/API/type
+tests; this is implementation evidence, not yet a real-model performance or
+accuracy result.
 
-The Roadmap may activate this lineage only after its P1/P2 prerequisites are
-closed and after naming bounded local work packages for the mutually dependent
-route changes. Implementation first returns through a small exact API sanity
-request, then faces the clean-host cold/no-cache 40K, 60K, and approximately
-130K real-Agent witness set against the frozen cumulative native incumbent.
+The immediate next gate is a small exact real-model API sanity request on a
+clean host, followed by the cold/no-cache 40K, 60K, and approximately 130K
+real-Agent witness set against the frozen cumulative native incumbent.
 The witness must retain exact prompt consumption, output/state equivalence,
 route identity, pure Prefill and external TTFT intervals, peak resources,
 single final state commit, and zero forbidden fallbacks.

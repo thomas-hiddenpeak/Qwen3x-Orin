@@ -161,36 +161,41 @@ Selection sequence:
 6. Qualify a positive composition, or close/redesign a negative architecture
    version after at most one bounded causal profile.
 
-Prepared architecture lineage and implemented unbound prerequisites (not yet
-executable or activated):
+Prepared architecture lineage and current integration state (executable
+compatibility route, not yet selected or production):
 
-- `AC-PREFILL-LAYERMAJOR-8K-v1` is designed but not implemented as a complete
-  candidate, executable, selected, or active in production. P1
-  target-capacity closure and the P2 authenticated release-plan boundary
-  remain prerequisites to activation.
-- It replaces repeated public C512 full-model walks with one whole-request
-  layer-major pass and bounded C8192 operator panels. `C8192` is internal
-  scheduling capacity, not a public tile or partial state-commit boundary.
-- A pure-host topology/progress scaffold now expresses the 64-layer pass,
-  ordered C8192 panels, exact KV/GDN progress domains, and one planned final
-  host-state commit. It has no launcher, device resource, allocation,
-  `RequestState` mutation, runner connection, or selector, so it cannot
-  execute.
-- A default-off whole-request generation-control seam now enforces a staged
-  uncommitted result, dedicated retained-hidden finalizer, one commit callback,
-  and controller-local progress publication only after the callback returns
-  OK. The no-throw callback must finish every fallible check before its single
-  no-fail state publication, and a non-OK status guarantees no state change;
-  it returns no caller-authored receipt. `ReferenceEngine` leaves all three
-  callbacks null, so this is a host contract rather than an active route.
-- The composition boundary includes shape-specific NVFP4 Gate/Up and Down,
-  FP8 projections, exact causal Attention/KV progress, exact GDN/SSM progress,
-  residual/layout consumers, and one final `PrefillStateCommitted` event. No
-  isolated subset may claim the candidate result.
-- The implemented host workspace planner reports exact request-arena bytes for
-  an explicit candidate tactic profile: C8192 C64-native GDN with in-place
-  convolution, current Release/default legacy C16 GDN, and separate Gate+Up
-  then SiLU. The C64-native route remains test-only today.
+- `AC-PREFILL-LAYERMAJOR-8K-v1` replaces repeated public C512 full-model walks
+  with one whole-request layer-major pass and bounded logical C8192 panels.
+  `C8192` is internal scheduling capacity, not a public tile or partial
+  state-commit boundary.
+- At implementation baseline `606ea1d`, an explicit development route
+  provisions the layer-major request profile and executes true
+  `layer -> logical panel -> physical segment` traversal through
+  `ReferenceEngine` and `qwen3x-eval-server`. It still lowers every logical
+  panel to ordered physical segments of at most C512, so it closes the system
+  transaction/API shape without yet closing the large-M performance design.
+- Engine creation seals the model, state, arena, typed views, main/auxiliary
+  streams, two completion events, and all 17 required operator-role receipts.
+  The request receipt is move-only. Transcript allocation precedes GPU work;
+  final hidden/logits remain uncommitted until one final state publication;
+  every earlier failure drains and resets the runner.
+- The API supplies disconnect/shutdown cancellation through a two-slot bounded
+  submission window. It polls after retiring the oldest `layer x panel`
+  quantum and again after final norm, before logits, and before commit. A
+  cancelled request publishes no partial position or success witness.
+- The compatibility route fails closed unless the SM87 backend, C512
+  compatibility workspace, layer-major memory profile, and both exact FP8 and
+  NVFP4 Marlin Prefill inventories are present. Those inventories remain
+  development/test admissions; legacy stays the default route.
+- The indivisible composition boundary still includes shape-specific NVFP4
+  Gate/Up and Down, FP8 projections, exact causal Attention/KV progress, exact
+  GDN/SSM progress, residual/layout consumers, and one final
+  `PrefillStateCommitted` event. No isolated subset may claim the candidate
+  result.
+- The host workspace planner reports exact request-arena bytes for the target
+  tactic profile: C8192 C64-native GDN with in-place convolution, current
+  Release/default legacy C16 GDN, and separate Gate+Up then SiLU. C64-native
+  and native large-M admissions remain non-production today.
 
   | Prompt tokens | Caller-selected conditional profile | Conservative disjoint profile |
   | ---: | ---: | ---: |
@@ -206,30 +211,19 @@ executable or activated):
   the overlay from 855,638,016 to 940,572,928 bytes. All shown rows fit the
   17,437,720,576-byte request-arena limit, but model bytes, sidecar bytes, and
   total whole-process bytes remain unknown, so whole-process capacity is
-  `kIndeterminate` and no reservation or executable memory plan exists.
-  These totals include a disjoint 10,240-byte final-hidden handoff. The initial
-  `RequestState` combination—C8192 family overlay plus physically disjoint
-  legacy C512 workspace—is now a first-class planner strategy at
+  `kIndeterminate`. These totals include a disjoint 10,240-byte final-hidden
+  handoff. The runtime compatibility `RequestState` combination—C8192 family
+  overlay plus physically disjoint legacy C512 workspace—reserves
   4,066,344,960 / 5,588,904,960 / 10,917,864,960 bytes for 40K/60K/130K.
-  Its 32,768-byte panel token-ID prefix remains event-gated within the operator
-  arena and does not increase the total.
-- A 17-role typed binding contract and isolated C8192 NVFP4/FP8 projection
-  surfaces now exist. As candidate assets they are completely unbound: all
-  C8192 tactics, artifacts, workspaces, launchers, and completion events remain
-  unbound; the surfaces are not connected to the runner or selector and have
-  not changed production performance. The legacy production-route admission
-  remains M512.
-- The immediate implementation slice is a separate layer-major `RequestState`
-  profile: one full-prompt residual, typed operator scratch, fixed final-hidden
-  handoff, and initially disjoint legacy views. Its exact candidate-only
-  allocation and typed phase offsets now exist, with every execution/alias/
-  event/operator flag still false. The runner now extracts one
-  layer-panel body and implements true `layer -> panel` traversal while
-  preserving the C512 incumbent and preparing a later authenticated, fully
-  bound 17-role execution/deployment plan.
-- Once executable, it is selected or rejected only by the clean-host exact
-  40K/60K/approximately-130K real-Agent API witnesses against the cumulative
-  native incumbent. No panel throughput or component profile is a substitute.
+- Isolated true-C8192 NVFP4/FP8 projection surfaces remain outside the bound
+  compatibility executor; it deliberately uses the admitted exact M512
+  Marlin paths. The next architecture change must bind native large-M tactics
+  rather than mistaking logical-panel scheduling alone for the performance
+  candidate.
+- The immediate gate is a clean-host short exact real-model API sanity request,
+  followed by capacity/resource closure and the exact 40K, 60K, and
+  approximately-130K real-Agent API witnesses. No panel throughput or
+  component profile substitutes for those results.
 
 The complete subsystem design and non-production status are recorded in
 [`PREFILL_ARCHITECTURE_RESET.md`](PREFILL_ARCHITECTURE_RESET.md#8-designed-candidate-lineage-ac-prefill-layermajor-8k-v1).

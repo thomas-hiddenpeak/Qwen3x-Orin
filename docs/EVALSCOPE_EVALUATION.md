@@ -99,8 +99,20 @@ cmake --build "$Q3X_BUILD" --target qwen3x-eval-server -j
   --host 127.0.0.1 --port 18080 \
   --model qwen3.6-27b-nvfp4 \
   --max-sequence-length 4096 --max-output-tokens 4096 \
-  --prefill-chunk-size 512 --projection-backend sm87
+  --prefill-chunk-size 512 --prefill-execution-mode legacy \
+  --projection-backend sm87
 ```
+
+The default remains `legacy`. The implemented development layer-major route
+is selected explicitly with `--prefill-execution-mode layer-major`; it fails
+closed unless the engine is configured for the SM87 backend, the fixed C512
+compatibility workspace, the layer-major request-memory profile, and both
+exact FP8 and NVFP4 Marlin Prefill inventories. Those inventories are still
+development/test admissions, so this route is an executable evaluation
+candidate rather than the installed production default. The request arena is
+reserved before GPU execution. Target-length runs must therefore also pass a
+plan-derived `--request-max-arena-bytes` value; the 2 GiB default is not valid
+for 40K, 60K, or 130K layer-major requests.
 
 The API is greedy only. Requests must explicitly provide a positive
 `max_tokens` (or `max_completion_tokens`) and `temperature=0`; this prevents
@@ -115,11 +127,18 @@ batching or a production serving API. It must not be described, packaged, or
 promoted as the final product API. A connection carries one request.
 Before the first committed token, an engine error retains its real HTTP
 4xx/5xx status; after streaming begins, a runtime failure is an SSE error and
-the stream closes. Disconnect and shutdown cancellation are observed at
-committed-token boundaries, so a long Prefill cannot yet be interrupted in
-the middle of a tile sequence. The first HTTP response header is also delayed
-until a first token or early error exists; long-context clients must set a
-read timeout above expected TTFT.
+the stream closes. In legacy mode, disconnect and shutdown cancellation remain
+committed-token-boundary observations. In layer-major mode, the API supplies a
+lock-free cancellation probe to a two-slot bounded submission window whose
+quantum is one `layer x logical-C8192-panel`. The runner retires the oldest
+completion event before polling, never has more than two quanta submitted, and
+polls again after final normalization, before logits finalization, and before
+the single state commit. Cancellation drains already submitted work, rolls the
+request state back, publishes no partial sequence length, and emits no success
+witness. The final commit check is the linearization point: cancellation
+observed after it loses to the completed commit. The first HTTP response header
+is also delayed until a first token or early error exists; long-context clients
+must set a read timeout above expected TTFT.
 
 The matched stock-vLLM process used this retained configuration:
 
@@ -168,6 +187,13 @@ For every witness retain both:
 - server-side route attestation and intervals separating queue/admission,
   Prefix, first-token Decode, response publication, and any fallback or
   synchronization cost.
+
+Legacy/unsealed evidence retains the byte-stable
+`target-prefill-witness-v1` schema. A successfully committed sealed
+layer-major request emits `target-prefill-witness-v2`, adding the actual
+execution mode, logical panel count, request-memory profile, bounded-window
+fact, retirement count, and stable deployment-plan identifier. An empty plan
+identifier can never upgrade a record to v2.
 
 The externally observed TTFT selects the whole architecture. Server-side pure
 Prefill timing explains where that result came from; it never replaces the API
