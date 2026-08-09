@@ -1174,6 +1174,22 @@ if(BUILD_TESTING)
   q3x_enable_warnings(q3x_openai_protocol_test)
   add_test(NAME openai_protocol COMMAND q3x_openai_protocol_test)
   add_test(NAME eval_server_help COMMAND qwen3x-eval-server --help)
+  add_test(NAME eval_server_rejects_invalid_prefill_mode
+    COMMAND qwen3x-eval-server unused
+            --prefill-execution-mode invalid
+  )
+  set_tests_properties(eval_server_rejects_invalid_prefill_mode PROPERTIES
+    WILL_FAIL TRUE
+  )
+  add_test(NAME eval_server_rejects_unsealed_layer_major_route
+    COMMAND qwen3x-eval-server unused
+            --prefill-execution-mode layer-major
+            --projection-backend reference
+  )
+  set_tests_properties(
+    eval_server_rejects_unsealed_layer_major_route PROPERTIES
+    WILL_FAIL TRUE
+  )
 
   add_executable(q3x_reference_benchmark_control_test
     tests/reference_benchmark_control_test.cpp

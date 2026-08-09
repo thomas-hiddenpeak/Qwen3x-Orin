@@ -287,6 +287,31 @@ void test_target_prefill_witness_evidence(TestContext& test) {
   test.expect(valid_json(serialized),
               "request evidence serialization remains valid JSON");
 
+  server::TargetPrefillWitnessRecord sealed_record = record;
+  sealed_record.prefill_execution_mode = q3x::runtime::
+      ReferencePrefillExecutionMode::kWholeRequestLayerMajor;
+  sealed_record.prefill_logical_panel_count = 2U;
+  sealed_record.request_memory_profile =
+      q3x::runtime::RequestMemoryProfile::kLayerMajorC8192;
+  sealed_record.bounded_submission_window = true;
+  sealed_record.submission_window_retirements = 128U;
+  sealed_record.deployment_plan_id =
+      "q3x.sm87.exact.layer-major-c8192.marlin.v1";
+  const std::string sealed_serialized =
+      server::serialize_target_prefill_witness(sealed_record);
+  test.expect(
+      valid_json(sealed_serialized) &&
+          sealed_serialized.find(
+              R"("record":"target-prefill-witness-v2","schema_version":2)") !=
+              std::string::npos &&
+          sealed_serialized.find(
+              R"("execution_mode":"layer-major","logical_panel_count":2,"request_memory_profile":"layer-major-c8192","bounded_submission_window":true,"submission_window_retirements":128)") !=
+              std::string::npos &&
+          sealed_serialized.find(
+              R"("deployment_plan":{"available":true,"scope":"engine_lifetime_sealed_native_plan","id":"q3x.sm87.exact.layer-major-c8192.marlin.v1"})") !=
+              std::string::npos,
+      "sealed whole-request evidence upgrades to the stable v2 contract");
+
   server::TargetPrefillWitnessRecord invalid_record = record;
   invalid_record.prefill_route_evidence.expected_layer_passes = 3U;
   const std::string invalid_serialized =

@@ -98,6 +98,16 @@ struct TargetPrefillWitnessRecord {
   runtime::PrefillRouteEvidence prefill_route_evidence;
   runtime::ProjectionBackend projection_backend =
       runtime::ProjectionBackend::kReference;
+  runtime::ReferencePrefillExecutionMode prefill_execution_mode =
+      runtime::ReferencePrefillExecutionMode::kLegacyC512Tiled;
+  std::uint64_t prefill_logical_panel_count = 0U;
+  runtime::RequestMemoryProfile request_memory_profile =
+      runtime::RequestMemoryProfile::kLegacyC512;
+  bool bounded_submission_window = false;
+  std::uint64_t submission_window_retirements = 0U;
+  // Empty for legacy/unsealed paths. A non-empty identifier is emitted only
+  // after a sealed whole-request generation has completed successfully.
+  std::string deployment_plan_id;
 };
 
 enum class OpenAIFinishReason : std::uint8_t {

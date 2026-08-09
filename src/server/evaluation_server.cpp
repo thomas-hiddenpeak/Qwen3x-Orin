@@ -646,6 +646,12 @@ struct ObserverContext {
   std::optional<Clock::time_point> first_token_committed_at;
 };
 
+bool prefill_cancelled(void* const opaque) noexcept {
+  const auto& context = *static_cast<const ObserverContext*>(opaque);
+  return context.job->cancelled.load(std::memory_order_relaxed) ||
+         context.stopping->load(std::memory_order_relaxed);
+}
+
 bool observe_gateway_token(
     void* const opaque,
     const runtime::ReferenceTokenEvent& token) noexcept {
@@ -830,6 +836,20 @@ void emit_target_prefill_witness(
         generation.timing.prefix_execution_milliseconds.size();
     record.prefill_route_evidence = generation.prefill_route_evidence;
     record.projection_backend = engine.load_stats().projection_backend;
+    record.prefill_execution_mode = generation.prefill_execution_mode;
+    record.prefill_logical_panel_count =
+        generation.prefill_logical_panel_count;
+    record.request_memory_profile =
+        engine.load_stats().request_memory_profile;
+    record.bounded_submission_window =
+        generation.prefill_bounded_submission_window;
+    record.submission_window_retirements =
+        generation.prefill_submission_window_retirements;
+    if (generation.prefill_execution_mode == runtime::
+            ReferencePrefillExecutionMode::kWholeRequestLayerMajor) {
+      record.deployment_plan_id =
+          "q3x.sm87.exact.layer-major-c8192.marlin.v1";
+    }
     std::cerr << serialize_target_prefill_witness(record) << '\n';
   } catch (...) {
     // Evidence is observational. Never convert an already successful model
@@ -890,6 +910,13 @@ void execute_job(runtime::ReferenceEngine& engine,
       runtime::ReferenceLogitsMode::kPredictedTokenOnly;
   generate_options.token_observer = observe_gateway_token;
   generate_options.token_observer_context = &observer;
+  generate_options.prefill_execution_mode =
+      options.prefill_execution_mode;
+  if (options.prefill_execution_mode == runtime::
+          ReferencePrefillExecutionMode::kWholeRequestLayerMajor) {
+    generate_options.prefill_cancellation_probe = prefill_cancelled;
+    generate_options.prefill_cancellation_context = &observer;
+  }
 
   runtime::ReferenceGenerateResult generated;
   const Clock::time_point generation_started_at = Clock::now();
@@ -919,6 +946,26 @@ void execute_job(runtime::ReferenceEngine& engine,
   }
   if (job->cancelled.load(std::memory_order_relaxed) ||
       stopping.load(std::memory_order_relaxed)) {
+    if (!generated) {
+      std::cerr << "evaluation request " << job->id
+                << (generated.diagnostic.code ==
+                            runtime::ReferenceEngineError::kCancelled
+                        ? " cancelled at bounded Prefill safe point"
+                        : " failed while cancellation or shutdown was active")
+                << " code="
+                << runtime::to_string(generated.diagnostic.code)
+                << " retired_prefill_quanta="
+                << generated.diagnostic.retired_prefill_quanta;
+      if (generated.diagnostic.layer != runtime::kReferenceNoLayer) {
+        std::cerr << " layer=" << generated.diagnostic.layer;
+      }
+      std::cerr << " stage=" << generated.diagnostic.stage
+                << " operation=" << generated.diagnostic.operation
+                << " dependency_error="
+                << generated.diagnostic.dependency_error
+                << " cuda_error=" << generated.diagnostic.cuda_error
+                << '\n';
+    }
     job->close_events();
     return;
   }
@@ -1383,13 +1430,25 @@ void ingress_worker(
       options.write_timeout_milliseconds == 0U ||
       !complete_utf8_prefix(options.served_model, served_model_bytes) ||
       served_model_bytes != options.served_model.size() ||
-      !runtime::is_valid_projection_backend(options.projection_backend)) {
+      !runtime::is_valid_projection_backend(options.projection_backend) ||
+      !runtime::is_valid_reference_prefill_execution_mode(
+          options.prefill_execution_mode)) {
     error = "evaluation server options are outside fixed safe bounds";
     return false;
   }
   if (options.bind_address != "127.0.0.1") {
     error = "the unauthenticated evaluation gateway is restricted to "
             "127.0.0.1";
+    return false;
+  }
+  if (options.prefill_execution_mode == runtime::
+          ReferencePrefillExecutionMode::kWholeRequestLayerMajor &&
+      (options.projection_backend !=
+           runtime::ProjectionBackend::kSm87WeightOnly ||
+       options.prefill_chunk_size !=
+           runtime::kMaximumRequestPrefillChunkSize)) {
+    error = "layer-major Prefill requires the SM87 backend and fixed C512 "
+            "compatibility workspace";
     return false;
   }
   return true;
@@ -1443,6 +1502,8 @@ int run_evaluation_server(const EvaluationServerOptions& options,
 
   runtime::ReferenceEngineOptions engine_options;
   engine_options.projection_backend = options.projection_backend;
+  engine_options.prefill_execution_mode =
+      options.prefill_execution_mode;
   engine_options.request_options.batch_size = 1U;
   engine_options.request_options.max_sequence_length =
       options.max_sequence_length;
@@ -1504,6 +1565,11 @@ int run_evaluation_server(const EvaluationServerOptions& options,
             << options.port << "/v1 model=" << options.served_model
             << " max_sequence_length=" << options.max_sequence_length
             << " prefill_chunk_size=" << options.prefill_chunk_size
+            << " prefill_execution_mode="
+            << (options.prefill_execution_mode == runtime::
+                        ReferencePrefillExecutionMode::kWholeRequestLayerMajor
+                    ? "layer-major"
+                    : "legacy")
             << " inference_workers=1 queue_capacity="
             << options.inference_queue_capacity
             << " fp8_prefill_supermatrix_sidecar_ms="

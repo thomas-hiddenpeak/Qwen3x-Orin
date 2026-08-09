@@ -912,6 +912,8 @@ sm87_device_diagnostic(const ProjectionBackend backend,
   if (status.operation != nullptr) {
     diagnostic.operation = status.operation;
   }
+  diagnostic.retired_prefill_quanta =
+      status.retired_prefill_quanta;
   return diagnostic;
 }
 
@@ -939,6 +941,9 @@ sm87_device_diagnostic(const ProjectionBackend backend,
       } else if (result.runner_status.error ==
                  ReferenceRunnerError::kAllocationFailure) {
         code = ReferenceEngineError::kAllocationFailure;
+      } else if (result.runner_status.error ==
+                 ReferenceRunnerError::kCancelled) {
+        code = ReferenceEngineError::kCancelled;
       } else {
         code = ReferenceEngineError::kRunnerStepFailure;
       }
@@ -970,6 +975,8 @@ sm87_device_diagnostic(const ProjectionBackend backend,
     if (result.runner_status.operation != nullptr) {
       diagnostic.operation = result.runner_status.operation;
     }
+    diagnostic.retired_prefill_quanta =
+        result.runner_status.retired_prefill_quanta;
   }
   return diagnostic;
 }
@@ -1077,6 +1084,11 @@ struct EngineStepContext {
       bound_prefill_plan = nullptr;
   std::optional<reference_engine_detail::BoundPrefillRequestReceipt>
       bound_prefill_receipt;
+  ReferenceWholeRequestPrefillOptions::CancellationProbe
+      prefill_cancellation_probe = nullptr;
+  void* prefill_cancellation_context = nullptr;
+  bool prefill_bounded_submission_window = false;
+  std::size_t prefill_submission_window_retirements = 0U;
   // Armed before the first whole-request CUDA call and cleared only after
   // the sealed commit succeeds. EngineWholeRequestTransactionGuard owns the
   // rollback of every failure window in between.
@@ -1088,10 +1100,12 @@ struct EngineStepContext {
 
 [[nodiscard]] ReferenceRunnerStatus whole_request_adapter_status(
     const ReferenceRunnerError error,
-    const char* const operation) noexcept {
+    const char* const operation,
+    const std::uint64_t retired_prefill_quanta = 0U) noexcept {
   ReferenceRunnerStatus status;
   status.error = error;
   status.operation = operation;
+  status.retired_prefill_quanta = retired_prefill_quanta;
   return status;
 }
 
@@ -1180,6 +1194,9 @@ prefill_whole_request_layer_major(
   context.whole_request_transaction_armed = true;
   ReferenceWholeRequestPrefillOptions runner_options;
   runner_options.measure_timing = options.measure_timing;
+  runner_options.cancellation_probe = context.prefill_cancellation_probe;
+  runner_options.cancellation_context =
+      context.prefill_cancellation_context;
   ReferenceWholeRequestPrefillOutcome executed =
       reference_engine_detail::ReferenceEnginePrefillExecutor::execute(
           *context.bound_prefill_plan, *context.runner, input_token_ids,
@@ -1193,7 +1210,15 @@ prefill_whole_request_layer_major(
       executed.value->final_position != immutable_topology.final_position ||
       executed.value->prompt_token_count != token_count ||
       executed.value->logical_panel_count !=
-          immutable_topology.panel_count) {
+          immutable_topology.panel_count ||
+      executed.value->bounded_submission_window !=
+          (context.prefill_cancellation_probe != nullptr) ||
+      (executed.value->bounded_submission_window &&
+       executed.value->submission_window_retirements !=
+           immutable_topology.layers.size() *
+               immutable_topology.panel_count) ||
+      (!executed.value->bounded_submission_window &&
+       executed.value->submission_window_retirements != 0U)) {
     result.status = whole_request_adapter_status(
         ReferenceRunnerError::kInvalidStepOptions,
         "engine_whole_request_runner_contract");
@@ -1202,6 +1227,10 @@ prefill_whole_request_layer_major(
 
   transcript.progress = executed.value->progress;
   transcript.timing = executed.value->timing;
+  context.prefill_bounded_submission_window =
+      executed.value->bounded_submission_window;
+  context.prefill_submission_window_retirements =
+      executed.value->submission_window_retirements;
   result.value.emplace(std::move(transcript));
   return result;
 }
@@ -1222,6 +1251,15 @@ finish_whole_request_from_uncommitted_retained(
     return {{}, whole_request_adapter_status(
                     ReferenceRunnerError::kInvalidStepOptions,
                     "engine_whole_request_finalizer_precondition")};
+  }
+  if (context.prefill_cancellation_probe != nullptr &&
+      context.prefill_cancellation_probe(
+          context.prefill_cancellation_context)) {
+    return {{}, whole_request_adapter_status(
+                    ReferenceRunnerError::kCancelled,
+                    "engine_whole_request_finalizer_cancelled",
+                    static_cast<std::uint64_t>(
+                        context.prefill_submission_window_retirements))};
   }
   return reference_engine_detail::ReferenceEnginePrefillExecutor::finish(
       *context.bound_prefill_plan, *context.runner,
@@ -1244,6 +1282,15 @@ finish_whole_request_from_uncommitted_retained(
     return whole_request_adapter_status(
         ReferenceRunnerError::kInvalidStepOptions,
         "engine_whole_request_commit_precondition");
+  }
+  if (context.prefill_cancellation_probe != nullptr &&
+      context.prefill_cancellation_probe(
+          context.prefill_cancellation_context)) {
+    return whole_request_adapter_status(
+        ReferenceRunnerError::kCancelled,
+        "engine_whole_request_commit_cancelled",
+        static_cast<std::uint64_t>(
+            context.prefill_submission_window_retirements));
   }
   const ReferenceRunnerStatus status =
       reference_engine_detail::ReferenceEnginePrefillExecutor::commit(
@@ -4013,7 +4060,9 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
       !is_valid_reference_prefill_execution_mode(
           options.prefill_execution_mode) ||
       (options.token_observer == nullptr &&
-       options.token_observer_context != nullptr)) {
+       options.token_observer_context != nullptr) ||
+      (options.prefill_cancellation_probe == nullptr &&
+       options.prefill_cancellation_context != nullptr)) {
     result.diagnostic = engine_diagnostic(
         ReferenceEngineError::kInvalidArgument, "generation_options",
         "prompt tokens must be non-empty, max_new_tokens must be positive, "
@@ -4048,6 +4097,15 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
         "whole_request_prefill_options",
         "whole-request Prefill requires the isolated layer-major arena, "
         "the fixed C512 compatibility workspace, and trace disabled");
+    return result;
+  }
+  if (!whole_request_layer_major &&
+      options.prefill_cancellation_probe != nullptr) {
+    result.diagnostic = engine_diagnostic(
+        ReferenceEngineError::kInvalidArgument,
+        "prefill_cancellation_probe",
+        "the bounded Prefill cancellation probe is available only for the "
+        "whole-request layer-major route");
     return result;
   }
   if (whole_request_layer_major && impl_->bound_prefill_plan == nullptr) {
@@ -4108,6 +4166,10 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
     step_context.bound_prefill_plan =
         whole_request_layer_major ? impl_->bound_prefill_plan.get()
                                   : nullptr;
+    step_context.prefill_cancellation_probe =
+        options.prefill_cancellation_probe;
+    step_context.prefill_cancellation_context =
+        options.prefill_cancellation_context;
     EngineWholeRequestTransactionGuard whole_request_guard(step_context);
 
     reference_engine_detail::GenerationControlOptions control_options;
@@ -4190,6 +4252,8 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
         result.diagnostic = runner_diagnostic(
             ReferenceEngineError::kRunnerResetFailure,
             "whole_request_failure_rollback", rollback);
+        result.diagnostic.retired_prefill_quanta =
+            control.runner_status.retired_prefill_quanta;
         return result;
       }
       result.diagnostic = control_diagnostic(control);
@@ -4290,6 +4354,11 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
         control.value->prefill_execution_mode;
     generation.prefill_logical_panel_count =
         control.value->prefill_logical_panel_count;
+    generation.prefill_bounded_submission_window =
+        step_context.prefill_bounded_submission_window;
+    generation.prefill_submission_window_retirements =
+        static_cast<std::uint64_t>(
+            step_context.prefill_submission_window_retirements);
     generation.all_prompt_tokens_prefilled_by_tiles =
         control_options.prefill_all_prompt_tokens;
     generation.single_arbitrary_prefill_tiles =
@@ -5821,6 +5890,8 @@ std::string_view to_string(const ReferenceEngineError error) noexcept {
       return "missing_prediction";
     case ReferenceEngineError::kPrefillPlanUnavailable:
       return "prefill_plan_unavailable";
+    case ReferenceEngineError::kCancelled:
+      return "cancelled";
   }
   return "unknown";
 }

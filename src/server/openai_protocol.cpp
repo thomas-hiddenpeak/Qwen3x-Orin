@@ -594,9 +594,12 @@ std::string sha256_token_ids_u32le(
 
 std::string serialize_target_prefill_witness(
     const TargetPrefillWitnessRecord& record) {
-  std::string output =
-      "{\"record\":\"target-prefill-witness-v1\",\"schema_version\":1,"
-      "\"request\":{\"id\":";
+  const bool sealed_v2 = !record.deployment_plan_id.empty();
+  std::string output = sealed_v2
+                           ? "{\"record\":\"target-prefill-witness-v2\","
+                             "\"schema_version\":2,\"request\":{\"id\":"
+                           : "{\"record\":\"target-prefill-witness-v1\","
+                             "\"schema_version\":1,\"request\":{\"id\":";
   append_json_string(output, record.request_id);
   output += ",\"body_sha256\":";
   append_json_string(output, record.request_body_sha256);
@@ -637,13 +640,42 @@ std::string serialize_target_prefill_witness(
             ",\"effective_chunk\":" +
             std::to_string(record.effective_prefill_chunk_size) +
             ",\"prefix_execution_count\":" +
-            std::to_string(record.prefix_execution_count) +
-            "},\"route\":{\"scope\":\"request_witness\","
+            std::to_string(record.prefix_execution_count);
+  if (sealed_v2) {
+    output += ",\"execution_mode\":";
+    append_json_string(
+        output,
+        record.prefill_execution_mode == runtime::
+                ReferencePrefillExecutionMode::kWholeRequestLayerMajor
+            ? "layer-major"
+            : "legacy");
+    output += ",\"logical_panel_count\":" +
+              std::to_string(record.prefill_logical_panel_count) +
+              ",\"request_memory_profile\":";
+    append_json_string(
+        output,
+        record.request_memory_profile ==
+                runtime::RequestMemoryProfile::kLayerMajorC8192
+            ? "layer-major-c8192"
+            : "legacy-c512");
+    output += ",\"bounded_submission_window\":";
+    output += record.bounded_submission_window ? "true" : "false";
+    output += ",\"submission_window_retirements\":" +
+              std::to_string(record.submission_window_retirements);
+  }
+  output += "},\"route\":{\"scope\":\"request_witness\","
             "\"projection_backend\":{\"available\":true,"
             "\"scope\":\"configured_engine_fact\",\"value\":";
   append_json_string(output, runtime::to_string(record.projection_backend));
-  output += "},\"deployment_plan\":{\"available\":false,\"reason\":"
-            "\"not_implemented\"},\"per_operator_route_hits\":";
+  output += "},\"deployment_plan\":{";
+  if (!sealed_v2) {
+    output += "\"available\":false,\"reason\":\"not_implemented\"";
+  } else {
+    output += "\"available\":true,\"scope\":"
+              "\"engine_lifetime_sealed_native_plan\",\"id\":";
+    append_json_string(output, record.deployment_plan_id);
+  }
+  output += "},\"per_operator_route_hits\":";
   append_prefill_route_evidence(output, record.prefill_route_evidence);
   output +=
       ","

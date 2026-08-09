@@ -652,6 +652,10 @@ void PrintEngineDiagnostic(
   if (!diagnostic.operation.empty()) {
     PrintStringField(output, "error.operation", diagnostic.operation);
   }
+  if (diagnostic.retired_prefill_quanta != 0U) {
+    output << "error.retired_prefill_quanta="
+           << diagnostic.retired_prefill_quanta << '\n';
+  }
 }
 
 [[nodiscard]] int EngineFailureExitCode(
@@ -676,6 +680,7 @@ void PrintEngineDiagnostic(
     case Error::kMissingTiming:
     case Error::kTraceFailure:
     case Error::kMissingPrediction:
+    case Error::kCancelled:
       return 4;
     case Error::kAllocationFailure:
       return 5;

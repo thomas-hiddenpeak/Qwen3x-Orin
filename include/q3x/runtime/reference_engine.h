@@ -41,6 +41,7 @@ enum class ReferenceEngineError : std::uint8_t {
   // The caller selected a Prefill route that this engine instance did not
   // bind and provision at creation time.
   kPrefillPlanUnavailable,
+  kCancelled,
 };
 
 struct ReferenceEngineDiagnostic {
@@ -52,6 +53,7 @@ struct ReferenceEngineDiagnostic {
   int cuda_error = 0;
   std::size_t layer = kReferenceNoLayer;
   std::string operation;
+  std::uint64_t retired_prefill_quanta = 0U;
 };
 
 enum class ReferenceDecodeGraphCachePolicy : std::uint8_t {
@@ -151,6 +153,11 @@ struct ReferenceGenerateOptions {
   // layer-major profile and sealed native operator plan.
   ReferencePrefillExecutionMode prefill_execution_mode =
       ReferencePrefillExecutionMode::kLegacyC512Tiled;
+  // Whole-request-only cancellation probe. Supplying this callback also
+  // enables the runner's two-quantum bounded submission window.
+  ReferenceWholeRequestPrefillOptions::CancellationProbe
+      prefill_cancellation_probe = nullptr;
+  void* prefill_cancellation_context = nullptr;
 };
 
 enum class ReferenceStopReason : std::uint8_t {
@@ -221,6 +228,8 @@ struct ReferenceGeneration {
   // in whole-request mode it is the immutable topology's C8192 panel count,
   // and is intentionally independent of timing-vector cardinality.
   std::uint64_t prefill_logical_panel_count = 0U;
+  bool prefill_bounded_submission_window = false;
+  std::uint64_t prefill_submission_window_retirements = 0U;
 };
 
 struct ReferenceEngineLoadStats {

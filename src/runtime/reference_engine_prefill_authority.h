@@ -11,6 +11,8 @@
 
 namespace q3x::runtime::reference_engine_detail {
 
+inline constexpr std::size_t kBoundPrefillSubmissionEventCount = 2U;
+
 // Engine-internal capability boundary for the default-off layer-major
 // evaluation route. Public PrefillOperatorBindingSet values remain
 // descriptive and can never be exchanged for this authority.
@@ -68,6 +70,9 @@ class BoundPrefillExecutionPlan final {
       ReferenceRunner* runner, const void* arena_base,
       std::uint64_t arena_bytes,
       const LayerMajorRequestMemoryPlan* memory_plan,
+      const void* main_stream, const void* auxiliary_stream,
+      std::array<const void*, kBoundPrefillSubmissionEventCount>
+          submission_events,
       std::array<NativePrefillRoleReceipt,
                  kLayerMajorPrefillRequiredOperatorRoleCount>
           roles) noexcept;
@@ -78,6 +83,10 @@ class BoundPrefillExecutionPlan final {
   const void* arena_base_ = nullptr;
   std::uint64_t arena_bytes_ = 0U;
   const LayerMajorRequestMemoryPlan* memory_plan_ = nullptr;
+  const void* main_stream_ = nullptr;
+  const void* auxiliary_stream_ = nullptr;
+  std::array<const void*, kBoundPrefillSubmissionEventCount>
+      submission_events_{};
   std::array<NativePrefillRoleReceipt,
              kLayerMajorPrefillRequiredOperatorRoleCount>
       roles_{};

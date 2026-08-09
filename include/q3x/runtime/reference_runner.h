@@ -44,6 +44,7 @@ enum class ReferenceRunnerError : std::uint8_t {
   kStateCommitFailure,
   kInvalidStepOptions,
   kRouteEvidenceFailure,
+  kCancelled,
 };
 
 struct ReferenceRunnerStatus {
@@ -51,6 +52,10 @@ struct ReferenceRunnerStatus {
   int cuda_error = 0;
   std::size_t layer = kReferenceNoLayer;
   const char* operation = nullptr;
+  // Number of layer-panel completion events retired before cancellation was
+  // observed. A younger in-flight quantum may be drained during rollback but
+  // is intentionally not presented as a cancellation observation point.
+  std::uint64_t retired_prefill_quanta = 0U;
 
   [[nodiscard]] bool ok() const noexcept {
     return error == ReferenceRunnerError::kNone && cuda_error == 0;
@@ -219,6 +224,13 @@ struct ReferencePrefillTileOutcome {
 // logits finalizer and single publication callback both succeed.
 struct ReferenceWholeRequestPrefillOptions {
   bool measure_timing = false;
+  // A non-null probe enables the bounded two-quantum submission window. The
+  // runner polls only after the oldest layer-panel completion is visible.
+  // At most one younger quantum remains in flight; failure handling drains it
+  // before rollback and never publishes partially advanced request state.
+  using CancellationProbe = bool (*)(void* context) noexcept;
+  CancellationProbe cancellation_probe = nullptr;
+  void* cancellation_context = nullptr;
 };
 
 struct ReferenceWholeRequestPrefillResult {
@@ -226,6 +238,8 @@ struct ReferenceWholeRequestPrefillResult {
   std::uint32_t final_position = 0U;
   std::size_t prompt_token_count = 0U;
   std::size_t logical_panel_count = 0U;
+  bool bounded_submission_window = false;
+  std::size_t submission_window_retirements = 0U;
   PrefillExecutionProgress progress;
   std::optional<ReferenceStepTiming> timing;
 };
@@ -724,12 +738,10 @@ class ReferenceRunner {
     PrefillRouteEvidence route_evidence_after_commit{};
   };
 
-  // Internal exact compatibility core for validating the traversal and
-  // transactional hand-off before production authorization exists. An
-  // unbound topology describes ordering only and must never be sufficient to
-  // reach these methods through the public runner surface. A later public
-  // wrapper must require an authenticated BoundPrefillExecutionPlan and own
-  // cancellation/completion policy before it delegates here.
+  // Internal exact compatibility core reached only through the Engine's
+  // sealed BoundPrefillExecutionPlan and one-shot request receipt. The
+  // unbound topology describes ordering only; the Engine owns cancellation,
+  // bounded completion, rollback, finalization, and publication policy.
   [[nodiscard]] ReferenceWholeRequestPrefillOutcome
   prefill_whole_request_layer_major_compatibility_core(
       const std::uint32_t* input_token_ids, std::size_t token_count,
@@ -952,6 +964,10 @@ class ReferenceRunner {
   void* prefill_auxiliary_stream_ = nullptr;
   void* prefill_branch_ready_event_ = nullptr;
   void* prefill_branch_done_event_ = nullptr;
+  inline static constexpr std::size_t
+      kWholeRequestSubmissionWindowSlots = 2U;
+  std::array<void*, kWholeRequestSubmissionWindowSlots>
+      whole_request_submission_events_{};
   void* prefill_gdn_chunk64_reference_context_ = nullptr;
   void* prefill_gdn_chunk64_reference_workspace_ = nullptr;
   std::size_t prefill_gdn_chunk64_reference_workspace_bytes_ = 0U;

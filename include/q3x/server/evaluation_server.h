@@ -34,6 +34,8 @@ struct EvaluationServerOptions {
       8ULL * 1024ULL * 1024ULL * 1024ULL;
   runtime::ProjectionBackend projection_backend =
       runtime::ProjectionBackend::kSm87WeightOnly;
+  runtime::ReferencePrefillExecutionMode prefill_execution_mode =
+      runtime::ReferencePrefillExecutionMode::kLegacyC512Tiled;
 };
 
 // Loads one resident model, starts a bounded HTTP ingress and exactly one

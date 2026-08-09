@@ -342,8 +342,10 @@ template <std::size_t SpanCount>
 [[nodiscard]] ReferenceRunnerStatus runner_status(
     const ReferenceRunnerError error, const char* const operation,
     const std::size_t layer = kReferenceNoLayer,
-    const int cuda_error = 0) noexcept {
-  return {error, cuda_error, layer, operation};
+    const int cuda_error = 0,
+    const std::uint64_t retired_prefill_quanta = 0U) noexcept {
+  return {error, cuda_error, layer, operation,
+          retired_prefill_quanta};
 }
 
 [[nodiscard]] bool valid_vector(const Bf16VectorWeight& weight,
@@ -835,6 +837,8 @@ const char* reference_runner_error_string(
       return "invalid_step_options";
     case ReferenceRunnerError::kRouteEvidenceFailure:
       return "route_evidence_failure";
+    case ReferenceRunnerError::kCancelled:
+      return "cancelled";
   }
   return "unknown";
 }
@@ -1655,6 +1659,11 @@ ReferenceRunner& ReferenceRunner::operator=(ReferenceRunner&& other) noexcept {
       std::exchange(other.prefill_branch_ready_event_, nullptr);
   prefill_branch_done_event_ =
       std::exchange(other.prefill_branch_done_event_, nullptr);
+  for (std::size_t slot = 0U;
+       slot < whole_request_submission_events_.size(); ++slot) {
+    whole_request_submission_events_[slot] =
+        std::exchange(other.whole_request_submission_events_[slot], nullptr);
+  }
   prefill_gdn_chunk64_reference_context_ =
       std::exchange(other.prefill_gdn_chunk64_reference_context_, nullptr);
   prefill_gdn_chunk64_reference_workspace_ =
@@ -1712,6 +1721,11 @@ ReferenceRunner::operator bool() const noexcept {
           prefill_gdn_chunk64_native_workspace_bytes_ >=
               gdn_prefill_chunk64_native_detail::workspace_bytes();
 #endif
+  if (layer_major_request_views_.has_value()) {
+    for (const void* const event : whole_request_submission_events_) {
+      ready = ready && event != nullptr;
+    }
+  }
   return ready;
 }
 
@@ -1758,6 +1772,11 @@ void ReferenceRunner::release() noexcept {
     (void)cudaEventDestroy(
         reinterpret_cast<cudaEvent_t>(prefill_branch_done_event_));
   }
+  for (void* const event : whole_request_submission_events_) {
+    if (event != nullptr) {
+      (void)cudaEventDestroy(reinterpret_cast<cudaEvent_t>(event));
+    }
+  }
   if (prefill_auxiliary_stream_ != nullptr) {
     (void)cudaStreamDestroy(
         reinterpret_cast<cudaStream_t>(prefill_auxiliary_stream_));
@@ -1777,6 +1796,7 @@ void ReferenceRunner::release() noexcept {
   prefill_auxiliary_stream_ = nullptr;
   prefill_branch_ready_event_ = nullptr;
   prefill_branch_done_event_ = nullptr;
+  whole_request_submission_events_ = {};
   prefill_gdn_chunk64_reference_context_ = nullptr;
   prefill_gdn_chunk64_reference_workspace_ = nullptr;
   prefill_gdn_chunk64_reference_workspace_bytes_ = 0U;
@@ -1895,19 +1915,35 @@ bool ReferenceRunner::whole_request_prefill_active() const noexcept {
 ReferenceWholeRequestPrefillOutcome
 ReferenceRunner::fail_whole_request_prefill(
     const ReferenceRunnerStatus status) noexcept {
+  ReferenceRunnerStatus terminal_status = status;
+  const auto capture_drain_failure =
+      [&terminal_status](const cudaError_t drain_status,
+                         const char* const operation) noexcept {
+        if (drain_status != cudaSuccess &&
+            terminal_status.error != ReferenceRunnerError::kCudaFailure) {
+          terminal_status = runner_status(
+              ReferenceRunnerError::kCudaFailure, operation,
+              terminal_status.layer, static_cast<int>(drain_status),
+              terminal_status.retired_prefill_quanta);
+        }
+      };
   if (stream_ != nullptr) {
-    (void)cudaStreamSynchronize(reinterpret_cast<cudaStream_t>(stream_));
+    capture_drain_failure(
+        cudaStreamSynchronize(reinterpret_cast<cudaStream_t>(stream_)),
+        "whole_request_prefill_failure_drain_main");
   }
   if (prefill_auxiliary_stream_ != nullptr) {
-    (void)cudaStreamSynchronize(
-        reinterpret_cast<cudaStream_t>(prefill_auxiliary_stream_));
+    capture_drain_failure(
+        cudaStreamSynchronize(
+            reinterpret_cast<cudaStream_t>(prefill_auxiliary_stream_)),
+        "whole_request_prefill_failure_drain_auxiliary");
   }
   poisoned_ = true;
   trace_valid_ = false;
   retained_prefill_hidden_valid_ = false;
   whole_request_prefill_stage_ = {};
   ReferenceWholeRequestPrefillOutcome outcome;
-  outcome.status = status;
+  outcome.status = terminal_status;
   return outcome;
 }
 
@@ -3798,6 +3834,17 @@ ReferenceRunner::prefill_whole_request_layer_major_compatibility_core(
         ReferenceRunnerError::kInvalidRequestState,
         "whole_request_prefill_memory_profile"));
   }
+  const bool bounded_submission_window =
+      options.cancellation_probe != nullptr;
+  if ((!bounded_submission_window &&
+       options.cancellation_context != nullptr) ||
+      (bounded_submission_window &&
+       (whole_request_submission_events_[0U] == nullptr ||
+        whole_request_submission_events_[1U] == nullptr))) {
+    return fail_whole_request_prefill(runner_status(
+        ReferenceRunnerError::kInvalidStepOptions,
+        "whole_request_prefill_cancellation_options"));
+  }
   if (input_token_ids == nullptr || token_count == 0U ||
       token_count > kLayerMajorPrefillMaximumSequenceTokens) {
     return fail_whole_request_prefill(runner_status(
@@ -3855,17 +3902,69 @@ ReferenceRunner::prefill_whole_request_layer_major_compatibility_core(
   auto* const final_hidden = static_cast<std::uint16_t*>(
       fixed_final_hidden.storage.device_data);
 
+  const auto cancellation_requested = [&options]() noexcept {
+    return options.cancellation_probe != nullptr &&
+           options.cancellation_probe(options.cancellation_context);
+  };
+  if (cancellation_requested()) {
+    return fail_whole_request_prefill(runner_status(
+        ReferenceRunnerError::kCancelled,
+        "whole_request_prefill_cancelled"));
+  }
+
   whole_request_prefill_stage_.phase =
       WholeRequestPrefillStagePhase::kExecuting;
   std::array<PrefillRouteEvidence,
              kLayerMajorPrefillMaximumPanelCount>
       panel_layer_passes{};
   ReferencePrefillTileOptions segment_options;
+  std::size_t submission_window_in_flight = 0U;
+  std::size_t submission_window_oldest_slot = 0U;
+  std::size_t submission_window_next_slot = 0U;
+  std::size_t submission_window_retirements = 0U;
+  const auto retire_oldest_submission = [&]() noexcept {
+    if (!bounded_submission_window || submission_window_in_flight == 0U) {
+      return ReferenceRunnerStatus{};
+    }
+    const cudaError_t status = cudaEventSynchronize(
+        reinterpret_cast<cudaEvent_t>(whole_request_submission_events_[
+            submission_window_oldest_slot]));
+    if (status != cudaSuccess) {
+      return runner_status(
+          ReferenceRunnerError::kCudaFailure,
+          "whole_request_prefill_submission_wait", kReferenceNoLayer,
+          static_cast<int>(status));
+    }
+    submission_window_oldest_slot =
+        (submission_window_oldest_slot + 1U) %
+        kWholeRequestSubmissionWindowSlots;
+    --submission_window_in_flight;
+    ++submission_window_retirements;
+    if (cancellation_requested()) {
+      const std::size_t completed_layer =
+          (submission_window_retirements - 1U) /
+          immutable_topology.panel_count;
+      return runner_status(
+          ReferenceRunnerError::kCancelled,
+          "whole_request_prefill_cancelled", completed_layer, 0,
+          static_cast<std::uint64_t>(submission_window_retirements));
+    }
+    return ReferenceRunnerStatus{};
+  };
 
   for (std::size_t layer = 0U; layer < kReferenceDecoderLayerCount;
        ++layer) {
     for (std::size_t panel_index = 0U;
          panel_index < immutable_topology.panel_count; ++panel_index) {
+      if (bounded_submission_window &&
+          submission_window_in_flight ==
+              kWholeRequestSubmissionWindowSlots) {
+        const ReferenceRunnerStatus retirement =
+            retire_oldest_submission();
+        if (!retirement) {
+          return fail_whole_request_prefill(retirement);
+        }
+      }
       const PrefillOperatorPanel& panel =
           immutable_topology.panels[panel_index];
       PrefillLayerRouteReducer reducer;
@@ -3965,6 +4064,34 @@ ReferenceRunner::prefill_whole_request_layer_major_compatibility_core(
       if (!collapse_status) {
         return fail_whole_request_prefill(collapse_status);
       }
+      if (bounded_submission_window) {
+        const cudaError_t record_status = cudaEventRecord(
+            reinterpret_cast<cudaEvent_t>(
+                whole_request_submission_events_[
+                    submission_window_next_slot]),
+            reinterpret_cast<cudaStream_t>(stream_));
+        if (record_status != cudaSuccess) {
+          return fail_whole_request_prefill(runner_status(
+              ReferenceRunnerError::kCudaFailure,
+              "whole_request_prefill_submission_record", layer,
+              static_cast<int>(record_status)));
+        }
+        if (submission_window_in_flight == 0U) {
+          submission_window_oldest_slot =
+              submission_window_next_slot;
+        }
+        submission_window_next_slot =
+            (submission_window_next_slot + 1U) %
+            kWholeRequestSubmissionWindowSlots;
+        ++submission_window_in_flight;
+      }
+    }
+  }
+
+  while (submission_window_in_flight != 0U) {
+    const ReferenceRunnerStatus retirement = retire_oldest_submission();
+    if (!retirement) {
+      return fail_whole_request_prefill(retirement);
     }
   }
 
@@ -3992,6 +4119,13 @@ ReferenceRunner::prefill_whole_request_layer_major_compatibility_core(
         ReferenceRunnerError::kCudaFailure,
         "whole_request_prefill_synchronize", kReferenceNoLayer,
         static_cast<int>(sync_status)));
+  }
+  if (cancellation_requested()) {
+    return fail_whole_request_prefill(runner_status(
+        ReferenceRunnerError::kCancelled,
+        "whole_request_prefill_cancelled",
+        kReferenceDecoderLayerCount - 1U, 0,
+        static_cast<std::uint64_t>(submission_window_retirements)));
   }
 
   PrefillExecutionProgress progress =
@@ -4052,6 +4186,9 @@ ReferenceRunner::prefill_whole_request_layer_major_compatibility_core(
   result.final_position = immutable_topology.final_position;
   result.prompt_token_count = token_count;
   result.logical_panel_count = immutable_topology.panel_count;
+  result.bounded_submission_window = bounded_submission_window;
+  result.submission_window_retirements =
+      submission_window_retirements;
   result.progress = progress;
   if (options.measure_timing) {
     const std::chrono::duration<double, std::milli> elapsed =
@@ -6113,6 +6250,23 @@ ReferenceRunnerFactoryResult create_reference_runner(
     return result;
   }
   runner.stream_ = reinterpret_cast<void*>(stream);
+
+  if (state->memory_profile() == RequestMemoryProfile::kLayerMajorC8192) {
+    for (std::size_t slot = 0U;
+         slot < runner.whole_request_submission_events_.size(); ++slot) {
+      cudaEvent_t event = nullptr;
+      status = cudaEventCreateWithFlags(&event, cudaEventDisableTiming);
+      if (status != cudaSuccess) {
+        result.diagnostic = runner_status(
+            ReferenceRunnerError::kAllocationFailure,
+            "cudaEventCreateWithFlags(whole_request_submission)",
+            kReferenceNoLayer, static_cast<int>(status));
+        return result;
+      }
+      runner.whole_request_submission_events_[slot] =
+          reinterpret_cast<void*>(event);
+    }
+  }
 
 #if defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
   runner.prefill_gdn_chunk64_native_workspace_bytes_ =

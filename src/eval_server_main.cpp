@@ -35,6 +35,7 @@ void PrintUsage(std::ostream& output) {
       << "  --max-sequence-length N     Resident request capacity (default 8192)\n"
       << "  --max-output-tokens N       Per-request output ceiling (default 4096)\n"
       << "  --prefill-chunk-size N      Native Prefill chunk 1..512 (default 512)\n"
+      << "  --prefill-execution-mode legacy|layer-major (default legacy)\n"
       << "  --queue-capacity N          Bounded inference queue, max 62 (default 8)\n"
       << "  --ingress-threads N         Fixed HTTP threads, queue+2 min (default 10)\n"
       << "  --projection-backend sm87|reference (default sm87)\n"
@@ -114,6 +115,17 @@ template <typename T>
           options.prefill_chunk_size >
               q3x::runtime::kMaximumRequestPrefillChunkSize) {
         error = "--prefill-chunk-size must be in [1,512]";
+        return false;
+      }
+    } else if (argument == "--prefill-execution-mode") {
+      if (value == "legacy") {
+        options.prefill_execution_mode =
+            q3x::runtime::ReferencePrefillExecutionMode::kLegacyC512Tiled;
+      } else if (value == "layer-major") {
+        options.prefill_execution_mode = q3x::runtime::
+            ReferencePrefillExecutionMode::kWholeRequestLayerMajor;
+      } else {
+        error = "--prefill-execution-mode must be legacy or layer-major";
         return false;
       }
     } else if (argument == "--queue-capacity") {

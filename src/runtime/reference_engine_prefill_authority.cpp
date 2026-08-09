@@ -185,6 +185,9 @@ BoundPrefillExecutionPlan::BoundPrefillExecutionPlan(
     ReferenceRunner* const runner, const void* const arena_base,
     const std::uint64_t arena_bytes,
     const LayerMajorRequestMemoryPlan* const memory_plan,
+    const void* const main_stream, const void* const auxiliary_stream,
+    std::array<const void*, kBoundPrefillSubmissionEventCount>
+        submission_events,
     std::array<NativePrefillRoleReceipt,
                kLayerMajorPrefillRequiredOperatorRoleCount>
         roles) noexcept
@@ -194,6 +197,9 @@ BoundPrefillExecutionPlan::BoundPrefillExecutionPlan(
       arena_base_(arena_base),
       arena_bytes_(arena_bytes),
       memory_plan_(memory_plan),
+      main_stream_(main_stream),
+      auxiliary_stream_(auxiliary_stream),
+      submission_events_(std::move(submission_events)),
       roles_(std::move(roles)) {}
 
 BoundPrefillRequestReceipt::BoundPrefillRequestReceipt(
@@ -217,6 +223,8 @@ BoundPrefillRequestReceipt::BoundPrefillRequestReceipt(
 BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
     const ModelWeights* const weights, RequestState* const state,
     ReferenceRunner* const runner) noexcept {
+  static_assert(kBoundPrefillSubmissionEventCount ==
+                ReferenceRunner::kWholeRequestSubmissionWindowSlots);
   if (weights == nullptr || state == nullptr || runner == nullptr ||
       !static_cast<bool>(*state) || !static_cast<bool>(*runner)) {
     return plan_failure(BoundPrefillPlanError::kInvalidDependency,
@@ -231,7 +239,10 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
   }
   if (runner->weights_ != weights || runner->state_ != state ||
       runner->projection_backend_ != ProjectionBackend::kSm87WeightOnly ||
-      runner->poisoned_ || runner->whole_request_prefill_active()) {
+      runner->poisoned_ || runner->whole_request_prefill_active() ||
+      runner->stream_ == nullptr ||
+      runner->whole_request_submission_events_[0U] == nullptr ||
+      runner->whole_request_submission_events_[1U] == nullptr) {
     return plan_failure(BoundPrefillPlanError::kRunnerIdentityMismatch,
                         ReferenceRunnerError::kInvalidRunner,
                         "bound_prefill_runner_identity");
@@ -422,9 +433,15 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
                         "bound_prefill_gate_down_tactic_alias");
   }
 
+  const std::array<const void*, kBoundPrefillSubmissionEventCount>
+      submission_events{
+          runner->whole_request_submission_events_[0U],
+          runner->whole_request_submission_events_[1U]};
   auto* const allocation = new (std::nothrow) BoundPrefillExecutionPlan(
       weights, state, runner, state->arena_data(), state->arena_bytes(),
-      state->layer_major_plan(), std::move(roles));
+      state->layer_major_plan(), runner->stream_,
+      runner->prefill_auxiliary_stream_, submission_events,
+      std::move(roles));
   if (allocation == nullptr) {
     return plan_failure(BoundPrefillPlanError::kInvalidDependency,
                         ReferenceRunnerError::kAllocationFailure,
@@ -443,6 +460,12 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
          plan.arena_base_ == plan.state_->arena_data() &&
          plan.arena_bytes_ == plan.state_->arena_bytes() &&
          plan.memory_plan_ == plan.state_->layer_major_plan() &&
+         plan.main_stream_ == runner.stream_ &&
+         plan.auxiliary_stream_ == runner.prefill_auxiliary_stream_ &&
+         plan.submission_events_[0U] ==
+             runner.whole_request_submission_events_[0U] &&
+         plan.submission_events_[1U] ==
+             runner.whole_request_submission_events_[1U] &&
          runner.layer_major_request_views_.has_value() &&
          runner.projection_backend_ == ProjectionBackend::kSm87WeightOnly;
 }
