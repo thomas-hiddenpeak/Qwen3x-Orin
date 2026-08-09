@@ -609,19 +609,7 @@ static_assert(kMaximumRequestPrefillChunkSize == 512U);
   const std::size_t candidate = remaining_tokens < requested_chunk_size
                                     ? remaining_tokens
                                     : requested_chunk_size;
-  if (candidate >= kMaximumRequestPrefillChunkSize) {
-    return kMaximumRequestPrefillChunkSize;
-  }
-  if (candidate >= kPrefillM256TileTokens) {
-    return kPrefillM256TileTokens;
-  }
-  if (candidate >= kPrefillM64TileTokens) {
-    return kPrefillM64TileTokens;
-  }
-  if (candidate >= kOptimizedPrefillSubtileTokens) {
-    return kOptimizedPrefillSubtileTokens;
-  }
-  return candidate;
+  return next_prefill_physical_segment_token_count(candidate);
 }
 
 [[nodiscard]] constexpr std::size_t prefix_execution_count(

@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <iostream>
 #include <limits>
+#include <vector>
 
 namespace {
 
@@ -115,6 +116,94 @@ void test_target_panel_matrix(TestContext& test) {
                   offset.value->final_position == 8'705U,
               "nonzero request positions preserve continuous absolute panel "
               "coordinates");
+}
+
+[[nodiscard]] std::vector<std::size_t> physical_segment_schedule(
+    std::size_t remaining_panel_tokens) {
+  std::vector<std::size_t> schedule;
+  while (remaining_panel_tokens != 0U) {
+    const std::size_t segment =
+        runtime::next_prefill_physical_segment_token_count(
+            remaining_panel_tokens);
+    if (!runtime::is_prefill_physical_segment_token_count(segment) ||
+        segment > remaining_panel_tokens) {
+      return {};
+    }
+    schedule.push_back(segment);
+    remaining_panel_tokens -= segment;
+  }
+  return schedule;
+}
+
+void test_canonical_physical_segment_contract(TestContext& test) {
+  test.expect(
+      physical_segment_schedule(1U) == std::vector<std::size_t>({1U}) &&
+          physical_segment_schedule(31U) ==
+              std::vector<std::size_t>({31U}) &&
+          physical_segment_schedule(32U) ==
+              std::vector<std::size_t>({32U}) &&
+          physical_segment_schedule(33U) ==
+              std::vector<std::size_t>({32U, 1U}) &&
+          physical_segment_schedule(63U) ==
+              std::vector<std::size_t>({32U, 31U}) &&
+          physical_segment_schedule(64U) ==
+              std::vector<std::size_t>({64U}) &&
+          physical_segment_schedule(65U) ==
+              std::vector<std::size_t>({64U, 1U}) &&
+          physical_segment_schedule(255U) ==
+              std::vector<std::size_t>({64U, 64U, 64U, 32U, 31U}) &&
+          physical_segment_schedule(256U) ==
+              std::vector<std::size_t>({256U}) &&
+          physical_segment_schedule(257U) ==
+              std::vector<std::size_t>({256U, 1U}) &&
+          physical_segment_schedule(511U) ==
+              std::vector<std::size_t>(
+                  {256U, 64U, 64U, 64U, 32U, 31U}) &&
+          physical_segment_schedule(512U) ==
+              std::vector<std::size_t>({512U}) &&
+          physical_segment_schedule(513U) ==
+              std::vector<std::size_t>({512U, 1U}),
+      "physical segments use only the canonical 512/256/64/32/tail order");
+
+  constexpr std::array<std::uint64_t, 5U> kPanelBoundaryPrompts{
+      8'191U, 8'192U, 8'193U, 130'000U,
+      runtime::kLayerMajorPrefillMaximumSequenceTokens};
+  for (const std::uint64_t prompt_tokens : kPanelBoundaryPrompts) {
+    const runtime::PrefillExecutionPlanResult result = build_plan(prompt_tokens);
+    bool exact = result.ok();
+    std::uint64_t next_position = 0U;
+    if (result) {
+      for (std::size_t panel_index = 0U;
+           panel_index < result.value->panel_count; ++panel_index) {
+        const runtime::PrefillOperatorPanel& panel =
+            result.value->panels[panel_index];
+        exact = exact && panel.first_position == next_position;
+        std::size_t remaining = panel.token_count;
+        std::uint64_t segment_position = panel.first_position;
+        while (remaining != 0U) {
+          const std::size_t segment =
+              runtime::next_prefill_physical_segment_token_count(remaining);
+          exact = exact &&
+                  runtime::is_prefill_physical_segment_token_count(segment) &&
+                  segment != 0U && segment <= remaining &&
+                  segment_position + segment <= panel.end_position;
+          segment_position += segment;
+          remaining -= segment;
+        }
+        exact = exact && segment_position == panel.end_position;
+        next_position = panel.end_position;
+      }
+    }
+    test.expect(exact && next_position == prompt_tokens,
+                "physical segments are continuous and stay inside C8192 panels");
+  }
+
+  test.expect(runtime::next_prefill_physical_segment_token_count(0U) == 0U &&
+                  !runtime::is_prefill_physical_segment_token_count(0U) &&
+                  !runtime::is_prefill_physical_segment_token_count(33U) &&
+                  !runtime::is_prefill_physical_segment_token_count(255U) &&
+                  !runtime::is_prefill_physical_segment_token_count(513U),
+              "zero and non-canonical physical segment sizes are rejected");
 }
 
 void test_fixed_layer_schedule(TestContext& test) {
@@ -317,6 +406,7 @@ int main() {
   TestContext test;
   test_public_tile_and_operator_panel_are_independent(test);
   test_target_panel_matrix(test);
+  test_canonical_physical_segment_contract(test);
   test_fixed_layer_schedule(test);
   test_strict_layer_major_progress(test);
   test_fail_closed_inputs(test);

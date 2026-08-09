@@ -13,8 +13,13 @@ namespace q3x::runtime {
 // contract separate from its internal operator-panel capacity. This header is
 // currently a pure-host, unbound topology contract: it contains no launcher,
 // device pointer, stream, event, allocation, or production route selector.
+inline constexpr std::uint32_t kPrefillPhysicalSegmentMaximumTokens = 512U;
+inline constexpr std::uint32_t kPrefillPhysicalSegmentM256Tokens = 256U;
+inline constexpr std::uint32_t kPrefillPhysicalSegmentM64Tokens = 64U;
+inline constexpr std::uint32_t kPrefillPhysicalSegmentM32Tokens = 32U;
+inline constexpr std::uint32_t kPrefillPhysicalSegmentTailMaximumTokens = 31U;
 inline constexpr std::uint32_t kLayerMajorPrefillLegacyPublicTileTokens =
-    512U;
+    kPrefillPhysicalSegmentMaximumTokens;
 inline constexpr std::uint32_t kLayerMajorPrefillOperatorPanelTokens =
     8'192U;
 inline constexpr std::uint32_t kLayerMajorPrefillMaximumSequenceTokens =
@@ -30,6 +35,39 @@ inline constexpr std::size_t kLayerMajorPrefillMaximumPanelCount =
 static_assert(kLayerMajorPrefillLegacyPublicTileTokens == 512U);
 static_assert(kLayerMajorPrefillOperatorPanelTokens == 8'192U);
 static_assert(kLayerMajorPrefillMaximumPanelCount == 32U);
+
+// Canonical exact-route subdivision for one already selected logical panel.
+// The caller supplies only the tokens remaining inside that panel, so the
+// returned segment cannot cross its C8192 boundary. The whole executor and
+// the legacy engine scheduler must share this order rather than inventing
+// numerically distinct arbitrary-M segment boundaries.
+[[nodiscard]] constexpr std::size_t
+next_prefill_physical_segment_token_count(
+    const std::size_t remaining_panel_tokens) noexcept {
+  if (remaining_panel_tokens >= kPrefillPhysicalSegmentMaximumTokens) {
+    return kPrefillPhysicalSegmentMaximumTokens;
+  }
+  if (remaining_panel_tokens >= kPrefillPhysicalSegmentM256Tokens) {
+    return kPrefillPhysicalSegmentM256Tokens;
+  }
+  if (remaining_panel_tokens >= kPrefillPhysicalSegmentM64Tokens) {
+    return kPrefillPhysicalSegmentM64Tokens;
+  }
+  if (remaining_panel_tokens >= kPrefillPhysicalSegmentM32Tokens) {
+    return kPrefillPhysicalSegmentM32Tokens;
+  }
+  return remaining_panel_tokens;
+}
+
+[[nodiscard]] constexpr bool is_prefill_physical_segment_token_count(
+    const std::size_t token_count) noexcept {
+  return token_count == kPrefillPhysicalSegmentMaximumTokens ||
+         token_count == kPrefillPhysicalSegmentM256Tokens ||
+         token_count == kPrefillPhysicalSegmentM64Tokens ||
+         token_count == kPrefillPhysicalSegmentM32Tokens ||
+         (token_count != 0U &&
+          token_count <= kPrefillPhysicalSegmentTailMaximumTokens);
+}
 
 enum class PrefillTraversalOrder : std::uint8_t {
   kLayerMajor = 0,
