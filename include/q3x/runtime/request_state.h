@@ -113,6 +113,8 @@ enum class RequestAccessError : std::uint8_t {
     kInvalidBufferIndex,
     kEmptyState,
     kMemoryProfileMismatch,
+    kSequenceLengthMismatch,
+    kSequenceLengthRegression,
 };
 
 struct RequestLayerSlotResult {
@@ -138,6 +140,15 @@ struct RequestLayerSlotResult {
 [[nodiscard]] RequestAccessError validate_request_memory_profile(
     RequestMemoryProfile actual,
     RequestMemoryProfile required) noexcept;
+
+// Pure validation for the conditional whole-request host-length publication.
+// The check order is part of the contract: a stale expected value wins over
+// desired-value errors, then capacity is checked before monotonicity.
+[[nodiscard]] RequestAccessError validate_sequence_length_publication(
+    std::uint32_t current,
+    std::uint32_t expected_current,
+    std::uint32_t desired,
+    std::uint32_t max_sequence_length) noexcept;
 
 struct RequestMemoryPlan {
     std::uint32_t batch_size = 1U;
@@ -494,6 +505,9 @@ class RequestState {
     [[nodiscard]] RequestOperationStatus commit_token() noexcept;
     [[nodiscard]] RequestOperationStatus set_sequence_length(
         std::uint32_t length) noexcept;
+    [[nodiscard]] RequestOperationStatus publish_sequence_length(
+        std::uint32_t expected_current,
+        std::uint32_t desired) noexcept;
 
     [[nodiscard]] RequestViewResult conv_state(std::size_t layer_index) noexcept;
     [[nodiscard]] RequestViewResult gdn_state(std::size_t layer_index) noexcept;

@@ -368,6 +368,23 @@ RequestAccessError validate_request_memory_profile(
                               : RequestAccessError::kMemoryProfileMismatch;
 }
 
+RequestAccessError validate_sequence_length_publication(
+    const std::uint32_t current,
+    const std::uint32_t expected_current,
+    const std::uint32_t desired,
+    const std::uint32_t max_sequence_length) noexcept {
+    if (expected_current != current) {
+        return RequestAccessError::kSequenceLengthMismatch;
+    }
+    if (desired > max_sequence_length) {
+        return RequestAccessError::kCapacityExceeded;
+    }
+    if (desired < expected_current) {
+        return RequestAccessError::kSequenceLengthRegression;
+    }
+    return RequestAccessError::kNone;
+}
+
 RequestPlanResult build_request_memory_plan(
     const RequestMemoryOptions& options) {
     if (options.batch_size != 1U || options.max_sequence_length == 0U ||
@@ -1010,6 +1027,24 @@ RequestOperationStatus RequestState::set_sequence_length(
         return {RequestAccessError::kCapacityExceeded, 0};
     }
     sequence_length_ = length;
+    return {};
+}
+
+RequestOperationStatus RequestState::publish_sequence_length(
+    const std::uint32_t expected_current,
+    const std::uint32_t desired) noexcept {
+    if (arena_ == nullptr) {
+        return {RequestAccessError::kEmptyState, 0};
+    }
+    const RequestAccessError validation =
+        validate_sequence_length_publication(sequence_length_,
+                                               expected_current,
+                                               desired,
+                                               common_plan().max_sequence_length);
+    if (validation != RequestAccessError::kNone) {
+        return {validation, 0};
+    }
+    sequence_length_ = desired;
     return {};
 }
 
@@ -1780,6 +1815,10 @@ std::string_view to_string(RequestAccessError error) noexcept {
             return "invalid_buffer_index";
         case RequestAccessError::kMemoryProfileMismatch:
             return "memory_profile_mismatch";
+        case RequestAccessError::kSequenceLengthMismatch:
+            return "sequence_length_mismatch";
+        case RequestAccessError::kSequenceLengthRegression:
+            return "sequence_length_regression";
         case RequestAccessError::kEmptyState:
             return "empty_state";
     }

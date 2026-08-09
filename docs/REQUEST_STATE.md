@@ -149,6 +149,22 @@ Logical sequence length starts at zero. `commit_token()` increments it only
 within capacity; `set_sequence_length()` rejects an excessive value. Current
 RoPE lookup fails when the logical position reaches capacity.
 
+Whole-request prefill publishes host-visible progress through
+`publish_sequence_length(expected_current, desired)`. This is a host-only,
+`noexcept` conditional update: an empty state, a stale `expected_current`, a
+`desired` value beyond request capacity, or a regression below the matched
+current length is rejected before mutation. On success, the logical length is
+assigned exactly once; on every failure it remains unchanged. Equality is an
+allowed idempotent publication. The executor must capture the initial length,
+finish all layer/panel device work, and publish the final length once at the
+whole-request commit boundary--never once per panel or layer.
+
+This transactional API does not change the existing legacy semantics of
+`commit_token()` or `set_sequence_length()`; in particular, the bounded setter
+remains available to reset or restore logical length where its callers already
+own that lifecycle. Conditional publication is supported identically by the
+legacy C512 and layer-major C8192 memory profiles and never launches CUDA work.
+
 `reset_async(stream)` enqueues one reset of the complete persistent Conv,
 GDN, K, and V span and sets host logical length to zero after successful
 enqueue. Workspace and immutable RoPE tables are not reset. Subsequent use

@@ -249,6 +249,29 @@ void test_create_views_rope_and_reset(TestContext& test) {
                         runtime::RequestAccessError::kPositionOutOfRange,
                 "RoPE lookup at max capacity is rejected");
 
+    const runtime::RequestOperationStatus published =
+        state.publish_sequence_length(0U, 2U);
+    const runtime::RequestOperationStatus stale_publish =
+        state.publish_sequence_length(0U, 3U);
+    const runtime::RequestOperationStatus excessive_publish =
+        state.publish_sequence_length(2U, 5U);
+    const runtime::RequestOperationStatus regressive_publish =
+        state.publish_sequence_length(2U, 1U);
+    test.expect(
+        published && !stale_publish &&
+            stale_publish.error ==
+                runtime::RequestAccessError::kSequenceLengthMismatch &&
+            !excessive_publish &&
+            excessive_publish.error ==
+                runtime::RequestAccessError::kCapacityExceeded &&
+            !regressive_publish &&
+            regressive_publish.error ==
+                runtime::RequestAccessError::kSequenceLengthRegression &&
+            state.sequence_length() == 2U &&
+            state.set_sequence_length(0U),
+        "legacy state publication is conditional, bounded, monotonic, and "
+        "all-or-nothing");
+
     test.expect(state.commit_token() && state.commit_token() &&
                     state.sequence_length() == 2U &&
                     state.remaining_capacity() == 2U &&
@@ -443,10 +466,19 @@ void test_layer_major_create_views_and_profile_gate(TestContext& test) {
                 legacy.value->fp32_scratch.device_data,
         "typed views expose only the declared aliases and keep Down output distinct");
 
-    test.expect(state.commit_token() && !state.commit_token() &&
+    const runtime::RequestOperationStatus layer_publish =
+        state.publish_sequence_length(0U, 1U);
+    const runtime::RequestOperationStatus layer_regression =
+        state.publish_sequence_length(1U, 0U);
+    test.expect(layer_publish && !layer_regression &&
+                    layer_regression.error ==
+                        runtime::RequestAccessError::kSequenceLengthRegression &&
+                    state.sequence_length() == 1U &&
+                    state.set_sequence_length(0U) &&
+                    state.commit_token() && !state.commit_token() &&
                     state.sequence_length() == 1U &&
                     !state.set_sequence_length(2U),
-                "layer-major state retains common sequence bounds");
+                "layer-major state shares publication and legacy sequence contracts");
     runtime::RequestState moved = std::move(state);
     test.expect(
         moved && !state && moved.layer_major_plan() != nullptr &&

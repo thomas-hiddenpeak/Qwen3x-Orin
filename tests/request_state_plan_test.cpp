@@ -1248,6 +1248,52 @@ void test_layer_major_bad_options(TestContext& test) {
                 "layer-major planner rejects a zero arena bound");
 }
 
+void test_sequence_length_publication_validation(TestContext& test) {
+    static_assert(noexcept(runtime::validate_sequence_length_publication(
+        0U, 0U, 0U, 0U)));
+    static_assert(noexcept(std::declval<runtime::RequestState&>()
+                               .publish_sequence_length(0U, 0U)));
+
+    test.expect(
+        runtime::validate_sequence_length_publication(7U, 7U, 8U, 8U) ==
+                runtime::RequestAccessError::kNone &&
+            runtime::validate_sequence_length_publication(7U, 7U, 7U, 8U) ==
+                runtime::RequestAccessError::kNone,
+        "conditional publication accepts bounded growth and idempotence");
+    test.expect(
+        runtime::validate_sequence_length_publication(7U, 6U, 9U, 8U) ==
+            runtime::RequestAccessError::kSequenceLengthMismatch,
+        "stale expected length wins before desired-value validation");
+    test.expect(
+        runtime::validate_sequence_length_publication(7U, 7U, 9U, 8U) ==
+                runtime::RequestAccessError::kCapacityExceeded &&
+            runtime::validate_sequence_length_publication(10U, 10U, 9U,
+                                                          8U) ==
+                runtime::RequestAccessError::kCapacityExceeded,
+        "capacity rejection precedes regression after expected length matches");
+    test.expect(
+        runtime::validate_sequence_length_publication(7U, 7U, 6U, 8U) ==
+            runtime::RequestAccessError::kSequenceLengthRegression,
+        "conditional publication rejects a matching-current regression");
+    test.expect(
+        runtime::to_string(
+            runtime::RequestAccessError::kSequenceLengthMismatch) ==
+                "sequence_length_mismatch" &&
+            runtime::to_string(
+                runtime::RequestAccessError::kSequenceLengthRegression) ==
+                "sequence_length_regression",
+        "conditional publication errors have stable diagnostic strings");
+
+    runtime::RequestState empty;
+    const runtime::RequestOperationStatus empty_publish =
+        empty.publish_sequence_length(0U, 1U);
+    test.expect(
+        !empty_publish &&
+            empty_publish.error == runtime::RequestAccessError::kEmptyState &&
+            empty.sequence_length() == 0U,
+        "empty RequestState rejects publication without changing host length");
+}
+
 }  // namespace
 
 int main() {
@@ -1266,6 +1312,7 @@ int main() {
     test_layer_major_typed_phase_layout(test);
     test_layer_major_disjoint_legacy_and_ownership(test);
     test_layer_major_bad_options(test);
+    test_sequence_length_publication_validation(test);
     if (test.failures() != 0) {
         std::cerr << test.failures() << " request-state plan test(s) failed\n";
         return 1;
