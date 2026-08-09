@@ -31,6 +31,9 @@ struct ReferenceRunnerPrefillControlTestPeer {
     bool allow_scalar_m1_delegate = true;
     bool allow_cross_layer_m32_fusion = true;
     bool emit_commit_hooks = true;
+    bool allow_experimental_gdn_b8_admission = false;
+    bool allow_experimental_gdn_chunk64_native_admission = false;
+    bool allow_experimental_gdn_chunk64_reference_admission = false;
   };
 
   struct Result {
@@ -224,6 +227,12 @@ struct ReferenceRunnerPrefillControlTestPeer {
     control.allow_cross_layer_m32_fusion =
         requested.allow_cross_layer_m32_fusion;
     control.emit_commit_hooks = requested.emit_commit_hooks;
+    control.allow_experimental_gdn_b8_admission =
+        requested.allow_experimental_gdn_b8_admission;
+    control.allow_experimental_gdn_chunk64_native_admission =
+        requested.allow_experimental_gdn_chunk64_native_admission;
+    control.allow_experimental_gdn_chunk64_reference_admission =
+        requested.allow_experimental_gdn_chunk64_reference_admission;
     return select_private(control, current_position, max_sequence_length,
                           workspace_token_capacity, token_count, options);
   }
@@ -269,7 +278,10 @@ struct ReferenceRunnerPrefillControlTestPeer {
         control.commit_route,
         control.allow_scalar_m1_delegate,
         control.allow_cross_layer_m32_fusion,
-        control.emit_commit_hooks};
+        control.emit_commit_hooks,
+        control.allow_experimental_gdn_b8_admission,
+        control.allow_experimental_gdn_chunk64_native_admission,
+        control.allow_experimental_gdn_chunk64_reference_admission};
     return result;
   }
 };
@@ -1612,6 +1624,11 @@ void test_prefill_tile_execution_control(TestContext& test) {
           legacy.selected_control.allow_scalar_m1_delegate &&
           legacy.selected_control.allow_cross_layer_m32_fusion &&
           legacy.selected_control.emit_commit_hooks &&
+          legacy.selected_control.allow_experimental_gdn_b8_admission &&
+          legacy.selected_control
+              .allow_experimental_gdn_chunk64_native_admission &&
+          legacy.selected_control
+              .allow_experimental_gdn_chunk64_reference_admission &&
           legacy.first_position == 17U &&
           legacy.completed_position == 49U &&
           !legacy.delegate_scalar_m1,
@@ -1638,8 +1655,45 @@ void test_prefill_tile_execution_control(TestContext& test) {
   test.expect(candidate_m1.status.ok() && !candidate_m1.legacy_control &&
                   candidate_m1.first_position == 513U &&
                   candidate_m1.completed_position == 514U &&
-                  !candidate_m1.delegate_scalar_m1,
-              "single-layer M1 candidate is enqueue-only and independent of host state");
+                  !candidate_m1.delegate_scalar_m1 &&
+                  !candidate_m1.selected_control
+                       .allow_experimental_gdn_b8_admission &&
+                  !candidate_m1.selected_control
+                       .allow_experimental_gdn_chunk64_native_admission &&
+                  !candidate_m1.selected_control
+                       .allow_experimental_gdn_chunk64_reference_admission,
+              "single-layer M1 candidate is compatibility-exact, enqueue-only, "
+              "and independent of host state");
+
+  const auto expect_experimental_gdn_rejected =
+      [&test](const Peer::Control& control,
+              const std::string_view message) {
+        const Peer::Result result =
+            Peer::select(control, 17U, 8'192U, 512U, 32U);
+        test.expect(
+            !result.status &&
+                result.status.error ==
+                    runtime::ReferenceRunnerError::kInvalidStepOptions &&
+                result.status.operation != nullptr &&
+                std::string_view(result.status.operation) ==
+                    "prefill_tile_candidate_experimental_gdn_admission",
+            message);
+      };
+  Peer::Control experimental_gdn = candidate;
+  experimental_gdn.allow_experimental_gdn_b8_admission = true;
+  expect_experimental_gdn_rejected(
+      experimental_gdn,
+      "single-layer candidate rejects approximate B8 before enqueue");
+  experimental_gdn = candidate;
+  experimental_gdn.allow_experimental_gdn_chunk64_native_admission = true;
+  expect_experimental_gdn_rejected(
+      experimental_gdn,
+      "single-layer candidate rejects Chunk64 native before enqueue");
+  experimental_gdn = candidate;
+  experimental_gdn.allow_experimental_gdn_chunk64_reference_admission = true;
+  expect_experimental_gdn_rejected(
+      experimental_gdn,
+      "single-layer candidate rejects external Chunk64 reference before enqueue");
 
   Peer::Control synchronized_candidate = candidate;
   synchronized_candidate.synchronize = true;

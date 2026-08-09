@@ -3140,7 +3140,11 @@ ReferenceStepOutcome ReferenceRunner::step_impl(
 
 ReferenceRunner::PrefillTileExecutionControl
 ReferenceRunner::legacy_prefill_tile_execution_control() noexcept {
-  return {};
+  PrefillTileExecutionControl control;
+  control.allow_experimental_gdn_b8_admission = true;
+  control.allow_experimental_gdn_chunk64_native_admission = true;
+  control.allow_experimental_gdn_chunk64_reference_admission = true;
+  return control;
 }
 
 bool ReferenceRunner::is_legacy_prefill_tile_execution_control(
@@ -3151,7 +3155,10 @@ bool ReferenceRunner::is_legacy_prefill_tile_execution_control(
          control.gather_embedding && control.apply_final_norm &&
          control.synchronize && control.commit_state && control.commit_route &&
          control.allow_scalar_m1_delegate &&
-         control.allow_cross_layer_m32_fusion && control.emit_commit_hooks;
+         control.allow_cross_layer_m32_fusion && control.emit_commit_hooks &&
+         control.allow_experimental_gdn_b8_admission &&
+         control.allow_experimental_gdn_chunk64_native_admission &&
+         control.allow_experimental_gdn_chunk64_reference_admission;
 }
 
 ReferenceRunnerStatus ReferenceRunner::select_prefill_tile_execution(
@@ -3181,6 +3188,14 @@ ReferenceRunnerStatus ReferenceRunner::select_prefill_tile_execution(
 
   const bool legacy =
       is_legacy_prefill_tile_execution_control(control);
+  if (!legacy &&
+      (control.allow_experimental_gdn_b8_admission ||
+       control.allow_experimental_gdn_chunk64_native_admission ||
+       control.allow_experimental_gdn_chunk64_reference_admission)) {
+    return runner_status(
+        ReferenceRunnerError::kInvalidStepOptions,
+        "prefill_tile_candidate_experimental_gdn_admission");
+  }
   if (!legacy && !control.first_position_override.has_value()) {
     return runner_status(ReferenceRunnerError::kInvalidStepOptions,
                          "prefill_tile_first_position_override");
@@ -3629,6 +3644,16 @@ ReferenceRunner::enqueue_prefill_layer_segment(
     result.status = status;
     return result;
   };
+  const bool legacy_control =
+      is_legacy_prefill_tile_execution_control(control);
+  if (!legacy_control &&
+      (control.allow_experimental_gdn_b8_admission ||
+       control.allow_experimental_gdn_chunk64_native_admission ||
+       control.allow_experimental_gdn_chunk64_reference_admission)) {
+    return fail_enqueue(runner_status(
+        ReferenceRunnerError::kInvalidStepOptions,
+        "prefill_tile_candidate_experimental_gdn_admission"));
+  }
   PrefillRouteEvidence legacy_layer_pass;
   PrefillLayerSegmentRouteFragment layer_route_fragment;
   const auto record_layer_route = [&layer_route_fragment](
@@ -3669,14 +3694,17 @@ ReferenceRunner::enqueue_prefill_layer_segment(
   // Snapshot the admission switch once at the tile boundary. Tests may only
   // change it between synchronous public runner calls.
   const bool enable_gdn_b8_admission =
+      control.allow_experimental_gdn_b8_admission &&
       g_enable_prefill_gdn_b8_admission;
 #endif
 #if defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
   const bool enable_gdn_chunk64_native_admission =
+      control.allow_experimental_gdn_chunk64_native_admission &&
       g_enable_prefill_gdn_chunk64_native_admission;
 #endif
 #if defined(Q3X_ENABLE_GDN_CHUNK64_REFERENCE_ADMISSION)
   const bool enable_gdn_chunk64_reference_admission =
+      control.allow_experimental_gdn_chunk64_reference_admission &&
       g_enable_prefill_gdn_chunk64_reference_admission;
 #endif
 #if defined(Q3X_ENABLE_GDN_C16_NORM_GATE_ADMISSION)
