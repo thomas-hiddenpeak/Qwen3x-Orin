@@ -82,6 +82,9 @@ inline constexpr std::string_view
     kLayerMajorNativeGroupQ64PanelDeploymentPlanId =
         "q3x.sm87.ac-prefill-layermajor-8k.native-group-q64-panel.v1";
 inline constexpr std::string_view
+    kLayerMajorNativeGroupQ128V4PanelDeploymentPlanId =
+        "q3x.sm87.ac-prefill-layermajor-8k.native-group-q128-v4-panel.v1";
+inline constexpr std::string_view
     kLayerMajorSegmentedMarlinProjectionDeploymentPlanId =
         "q3x.sm87.ac-prefill-layermajor-8k.segmented-marlin-operator-panel."
         "exact-segmented-attention.v1";
@@ -89,6 +92,10 @@ inline constexpr std::string_view
     kLayerMajorSegmentedMarlinProjectionGroupQ64DeploymentPlanId =
         "q3x.sm87.ac-prefill-layermajor-8k.segmented-marlin-operator-panel."
         "native-group-q64-attention.v1";
+inline constexpr std::string_view
+    kLayerMajorSegmentedMarlinProjectionGroupQ128V4DeploymentPlanId =
+        "q3x.sm87.ac-prefill-layermajor-8k.segmented-marlin-operator-panel."
+        "native-group-q128-v4-attention.v1";
 
 [[nodiscard]] constexpr bool is_valid_reference_prefill_execution_mode(
     const ReferencePrefillExecutionMode mode) noexcept {
@@ -112,8 +119,9 @@ struct ReferenceEngineOptions {
   ReferencePrefillExecutionMode prefill_execution_mode =
       ReferencePrefillExecutionMode::kLegacyC512Tiled;
   // Layer-major-only, engine-lifetime Attention tactic. The default preserves
-  // the exact segmented incumbent. The native grouped-Q64 panel value is an
-  // explicit architecture candidate and receives a distinct deployment ID.
+  // the exact segmented incumbent. The native grouped-Q64 and Q128-v4 panel
+  // values are explicit accuracy-unqualified architecture tactics and each
+  // receives a distinct deployment ID.
   LayerMajorPrefillFullAttentionTactic prefill_full_attention_tactic =
       LayerMajorPrefillFullAttentionTactic::kExactSegmentedC512;
   // Layer-major-only, engine-lifetime projection tactic. The default retains
@@ -264,6 +272,7 @@ struct ReferenceGeneration {
   // committed; configured tactics alone never synthesize hits.
   std::uint64_t prefill_operator_panel_executor_hits = 0U;
   std::uint64_t prefill_native_group_q64_panel_hits = 0U;
+  std::uint64_t prefill_native_group_q128_v4_panel_hits = 0U;
   std::uint64_t prefill_generic_qt2_hits = 0U;
   // Segmented-wrapper evidence. A hit is one completed logical FP8 or NVFP4
   // operator-panel wrapper invocation. Physical launches count the

@@ -29,6 +29,34 @@ operator-panel integration step; its older comparator used FP8, Attention,
 and GDN fallbacks, so the result has no constituent-level attribution,
 architecture-selection, release, or production authority.
 
+The rejected real-API P40K screen of the explicit segmented-Marlin projection
+wrapper plus grouped-Q64 Attention is frozen in
+[`qwen36-27b-prefill-p40k-segmented-marlin-q64-api-2026-08-09.json`](qwen36-27b-prefill-p40k-segmented-marlin-q64-api-2026-08-09.json).
+EvalScope reported 179,511.19 ms TTFT and 222.827281 prompt tok/s; server pure
+Prefill was 179,395.678907 ms. The v4 witness records five logical panels,
+1,680 segmented projection hits, 12,992 physical Marlin launches, and 80
+grouped-Q64 Attention hits, with zero Prefix, MTP, cuBLASLt,
+external-reference, or generic approximate-route hits. The route remains
+default-off and accuracy-unqualified. Because it crossed the predeclared
+`>=165 s` stop-loss, it was rejected without P60K, P130K, NSys, or NCU. The
+record distinguishes this wrapper from true native large-M and sends the next
+work to shape-specific M128 Gate/Up, Down, and FP8 projection ownership.
+
+The first real-API P40K Nsight attribution of the explicit, default-off
+native-group-Q64-panel route is frozen in
+[`qwen36-27b-prefill-p40k-native-group-q64-panel-nsys-2026-08-09.json`](qwen36-27b-prefill-p40k-native-group-q64-panel-nsys-2026-08-09.json).
+The single clean-host capture records 180,345.412463 ms of server pure
+Prefill (221.796604 tok/s), with 46.8% of kernel time in grouped-Q64 causal
+Attention and 43.4% in the two dominant still-segmented Marlin signatures.
+It also records one CUDA stream, zero kernel overlap, and only 3.738965 ms
+between external EvalScope TTFT and server TTFT, so the loopback API is not
+the dominant observed budget. This record is T4 diagnostic evidence only:
+the route is accuracy-unqualified, generated a different first token from
+the exact segmented direction context, remains non-default, and has no
+architecture-selection, release, or production authority. EvalScope 1.9.1
+is the declared invocation version but is not self-attested by the retained
+raw artifacts. P60K and P130K were not run.
+
 The current Prefill architecture reset and same-host stock-vLLM P513 kernel
 profile are recorded in
 [`qwen36-27b-vllm-p513-architecture-profile-2026-07-29.json`](qwen36-27b-vllm-p513-architecture-profile-2026-07-29.json).

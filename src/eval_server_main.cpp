@@ -36,7 +36,8 @@ void PrintUsage(std::ostream& output) {
       << "  --max-output-tokens N       Per-request output ceiling (default 4096)\n"
       << "  --prefill-chunk-size N      Native Prefill chunk 1..512 (default 512)\n"
       << "  --prefill-execution-mode legacy|layer-major (default legacy)\n"
-      << "  --prefill-attention-tactic exact-segmented|native-group-q64-panel\n"
+      << "  --prefill-attention-tactic exact-segmented|native-group-q64-panel|\n"
+      << "                             native-group-q128-v4-panel\n"
       << "  --prefill-projection-tactic exact-segmented|segmented-marlin-operator-panel\n"
       << "  --nvtx-phase-ranges        Emit generation/Prefill/Decode ranges\n"
       << "  --queue-capacity N          Bounded inference queue, max 62 (default 8)\n"
@@ -142,9 +143,12 @@ template <typename T>
       } else if (value == "native-group-q64-panel") {
         options.prefill_full_attention_tactic = q3x::runtime::
             LayerMajorPrefillFullAttentionTactic::kNativeGroupQ64Panel;
+      } else if (value == "native-group-q128-v4-panel") {
+        options.prefill_full_attention_tactic = q3x::runtime::
+            LayerMajorPrefillFullAttentionTactic::kNativeGroupQ128V4Panel;
       } else {
         error = "--prefill-attention-tactic must be exact-segmented or "
-                "native-group-q64-panel";
+                "native-group-q64-panel or native-group-q128-v4-panel";
         return false;
       }
     } else if (argument == "--prefill-projection-tactic") {

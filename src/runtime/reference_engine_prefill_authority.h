@@ -38,6 +38,7 @@ enum class NativePrefillTactic : std::uint8_t {
   kExactGdnOracleSpanWholeRawQkvC512,
   kExactCausalAttentionOracleSpanC512C16Reference256,
   kNativeCausalAttentionGroupQ64OperatorPanel,
+  kNativeCausalAttentionGroupQ128V4OperatorPanel,
   kResidualOperatorPanel,
   kNormalizationOperatorPanel,
   kEmbeddingOperatorPanel,

@@ -1289,7 +1289,7 @@ int launch_bulk_causal_gqa_sigmoid_gate_24_4_256_group_q64_panel_fixed_cuda(
       output, stream);
 }
 
-int launch_bulk_causal_gqa_sigmoid_gate_24_4_256_group_q128_v4_panel_test_cuda(
+int launch_bulk_causal_gqa_sigmoid_gate_24_4_256_group_q128_v4_panel_fixed_cuda(
     const std::uint16_t* const query,
     const std::uint16_t* const key_cache,
     const std::uint16_t* const value_cache,

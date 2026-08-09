@@ -238,6 +238,30 @@ complete_exact_gdn_chunk64_native_inventory(
   return true;
 }
 
+[[nodiscard]] constexpr NativePrefillTactic native_attention_tactic(
+    const LayerMajorPrefillFullAttentionTactic tactic) noexcept {
+  switch (tactic) {
+    case LayerMajorPrefillFullAttentionTactic::kNativeGroupQ64Panel:
+      return NativePrefillTactic::
+          kNativeCausalAttentionGroupQ64OperatorPanel;
+    case LayerMajorPrefillFullAttentionTactic::kNativeGroupQ128V4Panel:
+      return NativePrefillTactic::
+          kNativeCausalAttentionGroupQ128V4OperatorPanel;
+    case LayerMajorPrefillFullAttentionTactic::kExactSegmentedC512:
+    default:
+      return NativePrefillTactic::
+          kExactCausalAttentionOracleSpanC512C16Reference256;
+  }
+}
+
+[[nodiscard]] constexpr std::uint32_t native_attention_maximum_physical_m(
+    const LayerMajorPrefillFullAttentionTactic tactic) noexcept {
+  return tactic ==
+                 LayerMajorPrefillFullAttentionTactic::kExactSegmentedC512
+             ? kPrefillPhysicalSegmentMaximumTokens
+             : kLayerMajorPrefillOperatorPanelTokens;
+}
+
 }  // namespace
 
 bool exchange_reference_engine_prefill_compatibility_oracle_for_test(
@@ -633,21 +657,11 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
   roles[static_cast<std::size_t>(
       PrefillBindingRole::kExactCausalAttention)] =
       receipt(PrefillBindingRole::kExactCausalAttention,
-              full_attention_tactic ==
-                      LayerMajorPrefillFullAttentionTactic::
-                          kNativeGroupQ64Panel
-                  ? NativePrefillTactic::
-                        kNativeCausalAttentionGroupQ64OperatorPanel
-                  : NativePrefillTactic::
-                        kExactCausalAttentionOracleSpanC512C16Reference256,
+              native_attention_tactic(full_attention_tactic),
               attention->q_norm.data,
               views.attention.core_output_bf16.storage.device_data,
               views.attention.core_output_bf16.storage.byte_size, 2U,
-              full_attention_tactic ==
-                      LayerMajorPrefillFullAttentionTactic::
-                          kNativeGroupQ64Panel
-                  ? kLayerMajorPrefillOperatorPanelTokens
-                  : kPrefillPhysicalSegmentMaximumTokens);
+              native_attention_maximum_physical_m(full_attention_tactic));
   roles[static_cast<std::size_t>(PrefillBindingRole::kResidual)] =
       receipt(PrefillBindingRole::kResidual,
               NativePrefillTactic::kResidualOperatorPanel, weights,
@@ -975,21 +989,12 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
                  gdn_prefill_chunk64_native_detail::workspace_bytes(), 32U,
                  kPrefillPhysicalSegmentMaximumTokens) &&
          matches(PrefillBindingRole::kExactCausalAttention,
-                 plan.full_attention_tactic_ ==
-                         LayerMajorPrefillFullAttentionTactic::
-                             kNativeGroupQ64Panel
-                     ? NativePrefillTactic::
-                           kNativeCausalAttentionGroupQ64OperatorPanel
-                     : NativePrefillTactic::
-                           kExactCausalAttentionOracleSpanC512C16Reference256,
+                 native_attention_tactic(plan.full_attention_tactic_),
                  attention->q_norm.data,
                  views.attention.core_output_bf16.storage.device_data,
                  views.attention.core_output_bf16.storage.byte_size, 2U,
-                 plan.full_attention_tactic_ ==
-                         LayerMajorPrefillFullAttentionTactic::
-                             kNativeGroupQ64Panel
-                     ? kLayerMajorPrefillOperatorPanelTokens
-                     : kPrefillPhysicalSegmentMaximumTokens) &&
+                 native_attention_maximum_physical_m(
+                     plan.full_attention_tactic_)) &&
          matches(PrefillBindingRole::kResidual,
                  NativePrefillTactic::kResidualOperatorPanel,
                  runner.weights_,
@@ -1023,15 +1028,25 @@ std::string_view ReferenceEnginePrefillExecutor::deployment_plan_id(
   }
   if (plan.projection_tactic_ ==
       LayerMajorPrefillProjectionTactic::kSegmentedMarlinOperatorPanel) {
-    return plan.full_attention_tactic_ ==
-                   LayerMajorPrefillFullAttentionTactic::kNativeGroupQ64Panel
-               ? kLayerMajorSegmentedMarlinProjectionGroupQ64DeploymentPlanId
-               : kLayerMajorSegmentedMarlinProjectionDeploymentPlanId;
+    switch (plan.full_attention_tactic_) {
+      case LayerMajorPrefillFullAttentionTactic::kNativeGroupQ64Panel:
+        return kLayerMajorSegmentedMarlinProjectionGroupQ64DeploymentPlanId;
+      case LayerMajorPrefillFullAttentionTactic::kNativeGroupQ128V4Panel:
+        return kLayerMajorSegmentedMarlinProjectionGroupQ128V4DeploymentPlanId;
+      case LayerMajorPrefillFullAttentionTactic::kExactSegmentedC512:
+      default:
+        return kLayerMajorSegmentedMarlinProjectionDeploymentPlanId;
+    }
   }
-  return plan.full_attention_tactic_ ==
-                 LayerMajorPrefillFullAttentionTactic::kNativeGroupQ64Panel
-             ? kLayerMajorNativeGroupQ64PanelDeploymentPlanId
-             : kLayerMajorOperatorPanelDeploymentPlanId;
+  switch (plan.full_attention_tactic_) {
+    case LayerMajorPrefillFullAttentionTactic::kNativeGroupQ64Panel:
+      return kLayerMajorNativeGroupQ64PanelDeploymentPlanId;
+    case LayerMajorPrefillFullAttentionTactic::kNativeGroupQ128V4Panel:
+      return kLayerMajorNativeGroupQ128V4PanelDeploymentPlanId;
+    case LayerMajorPrefillFullAttentionTactic::kExactSegmentedC512:
+    default:
+      return kLayerMajorOperatorPanelDeploymentPlanId;
+  }
 }
 
 ReferenceWholeRequestPrefillOutcome ReferenceEnginePrefillExecutor::execute(

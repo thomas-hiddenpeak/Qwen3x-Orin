@@ -1037,7 +1037,8 @@ if(BUILD_TESTING)
   )
 
   # Default-off Attention-v4 bring-up.  The target exercises only the
-  # explicit Q128 test surface; no runner/selector can dispatch this kernel.
+  # Explicit Q128-v4 correctness surface. Runtime dispatch remains confined
+  # to the default-off, accuracy-unqualified layer-major tactic.
   add_executable(q3x_full_attention_group_q128_v4_cuda_test
     tests/full_attention_group_q128_v4_cuda_test.cu
   )
@@ -1243,6 +1244,14 @@ if(BUILD_TESTING)
   )
   set_tests_properties(
     eval_server_rejects_segmented_projection_in_legacy_mode PROPERTIES
+    WILL_FAIL TRUE
+  )
+  add_test(NAME eval_server_rejects_q128_attention_in_legacy_mode
+    COMMAND qwen3x-eval-server unused
+            --prefill-attention-tactic native-group-q128-v4-panel
+  )
+  set_tests_properties(
+    eval_server_rejects_q128_attention_in_legacy_mode PROPERTIES
     WILL_FAIL TRUE
   )
 

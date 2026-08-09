@@ -4298,6 +4298,7 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
   std::size_t submission_window_retirements = 0U;
   std::size_t operator_panel_executor_hits = 0U;
   std::size_t native_group_q64_panel_hits = 0U;
+  std::size_t native_group_q128_v4_panel_hits = 0U;
   std::size_t generic_qt2_hits = 0U;
   std::size_t segmented_panel_projection_hits = 0U;
   std::size_t segmented_panel_projection_physical_launches = 0U;
@@ -4376,6 +4377,10 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
               LayerMajorPrefillFullAttentionTactic::
                   kNativeGroupQ64Panel) {
             ++native_group_q64_panel_hits;
+          } else if (full_attention_tactic ==
+                     LayerMajorPrefillFullAttentionTactic::
+                         kNativeGroupQ128V4Panel) {
+            ++native_group_q128_v4_panel_hits;
           } else {
             const LayerMajorPrefillArithmeticSpanLedger ledger =
                 make_layer_major_prefill_arithmetic_span_ledger(
@@ -4644,6 +4649,7 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
       submission_window_retirements;
   result.operator_panel_executor_hits = operator_panel_executor_hits;
   result.native_group_q64_panel_hits = native_group_q64_panel_hits;
+  result.native_group_q128_v4_panel_hits = native_group_q128_v4_panel_hits;
   result.generic_qt2_hits = generic_qt2_hits;
   result.segmented_panel_projection_hits = segmented_panel_projection_hits;
   result.segmented_panel_projection_physical_launches =
@@ -5100,8 +5106,26 @@ ReferenceRunner::enqueue_prefill_layer_panel(
       }
     }
 
-    if (full_attention_tactic ==
-        LayerMajorPrefillFullAttentionTactic::kNativeGroupQ64Panel) {
+    if (full_attention_tactic == LayerMajorPrefillFullAttentionTactic::
+                                     kNativeGroupQ128V4Panel) {
+      if (!can_launch_bulk_causal_gqa_group_q128_v4_panel(first_position,
+                                                           token_count) ||
+          !check_cuda(
+              launch_bulk_causal_gqa_sigmoid_gate_24_4_256_group_q128_v4_panel_fixed_cuda(
+                  processed_q, views_.key_cache[layer],
+                  views_.value_cache[layer], packed_gate, first_position,
+                  token_count, core_output, stream_),
+              "prefill_operator_panel_full_attention_group_q128_v4",
+              layer)) {
+        return fail_enqueue(
+            launch_failure.ok()
+                ? runner_status(ReferenceRunnerError::kInvalidStepOptions,
+                                "prefill_operator_panel_attention_geometry",
+                                layer)
+                : launch_failure);
+      }
+    } else if (full_attention_tactic ==
+               LayerMajorPrefillFullAttentionTactic::kNativeGroupQ64Panel) {
       if (!can_launch_bulk_causal_gqa_group_q64_panel(first_position,
                                                        token_count) ||
           !check_cuda(

@@ -107,6 +107,7 @@ struct TargetPrefillWitnessRecord {
   std::uint64_t submission_window_retirements = 0U;
   std::uint64_t operator_panel_executor_hits = 0U;
   std::uint64_t native_group_q64_panel_hits = 0U;
+  std::uint64_t native_group_q128_v4_panel_hits = 0U;
   std::uint64_t generic_qt2_hits = 0U;
   std::uint64_t segmented_panel_projection_hits = 0U;
   std::uint64_t segmented_panel_projection_physical_launches = 0U;

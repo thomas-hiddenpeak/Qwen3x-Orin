@@ -224,10 +224,14 @@ compatibility route, not yet selected or production):
   handoff. The runtime compatibility `RequestState` combination—C8192 family
   overlay plus physically disjoint legacy C512 workspace—reserves
   4,066,344,960 / 5,588,904,960 / 10,917,864,960 bytes for 40K/60K/130K.
-- Isolated true-C8192 NVFP4/FP8 projection surfaces remain outside the bound
-  compatibility executor; it deliberately uses the admitted exact M512
-  Marlin paths. The next architecture change must bind native large-M tactics
-  rather than mistaking logical-panel scheduling alone for the performance
+- At current baseline `bbd8ac3`, explicit, default-off
+  `native-group-q64-panel` Attention and
+  `segmented-marlin-operator-panel` projection tactics are bound to the
+  layer-major executor and emit v4 accuracy-unqualified witnesses. The exact
+  layer-major tactics and server-wide legacy route remain the defaults. The
+  projection tactic is deliberately named `segmented`: it groups logical
+  operator panels but still lowers them to bounded physical Marlin launches;
+  it is not a native large-M implementation or the indivisible architecture
   candidate.
 - A clean-host one-request P1025 OpenAI API/EvalScope direction screen on
   `18363ad` is cumulatively positive against its older greedy/fallback
@@ -239,19 +243,40 @@ compatibility route, not yet selected or production):
   numbers are owned by [`CURRENT_STATUS.md`](CURRENT_STATUS.md) and exact
   evidence by the
   [machine-readable direction record](metadata/qwen36-27b-prefill-layer-major-balanced-p1025-direction-2026-08-09.json).
-- The immediate implementation gate is a private
-  `enqueue_prefill_layer_panel(...)` seam bound directly to the typed
-  layer-major request views. Prompt-panel projections must bind the existing
-  M-at-most-8192 operator-panel wrappers. NVFP4 and large-N FP8 still execute
-  ordered kernel segments of at most M1024, while N1024 FP8 K/V may issue one
-  M8192 launch. Exact GDN, causal Attention, and BF16 A/B may retain
-  dependency-ordered internal C512 work initially. Both complete linear/GDN
-  and full-Attention layer families must enter the same executable before the
-  next real API direction screen.
-- If that complete composition passes the short exact API sanity request, the
-  next gate is capacity/resource closure and the exact 40K, 60K, and
-  approximately-130K real-Agent API witness set. No panel throughput or
-  component profile substitutes for those results.
+- A clean-host real-API P40K direction run of that partial tactic observed
+  222.204547 pure Prefill tok/s versus 59.974810 tok/s for the exact segmented
+  Attention context, but generated a different first token and remains
+  accuracy-unqualified. The following T4 trace records 221.796604 tok/s and
+  places 46.8% of kernel time in grouped-Q64 Attention, 43.4% in the two main
+  segmented Marlin signatures, and 3.0% in 120,000 BF16 M16-pair launches.
+  It observes one CUDA stream and zero kernel overlap; external EvalScope TTFT
+  exceeds server TTFT by only 3.738965 ms. This is diagnostic evidence only,
+  not P40K target passage or architecture selection. P60K/P130K were not run.
+  Exact evidence is frozen in the
+  [P40K profile record](metadata/qwen36-27b-prefill-p40k-native-group-q64-panel-nsys-2026-08-09.json).
+- The following clean-host P40K real-API screen at `bbd8ac3` exercised the
+  segmented projection wrapper with grouped-Q64 Attention. EvalScope reported
+  179,511.19 ms TTFT and 222.827281 prompt tok/s; server pure Prefill was
+  179,395.678907 ms. External TTFT exceeded server TTFT by only 3.775881 ms,
+  so the API is not the active measured bottleneck. The v4 witness recorded
+  five logical panels, 1,680 segmented projection hits, 12,992 physical
+  projection launches, 80 grouped-Q64 Attention hits, and no Prefix, MTP,
+  cuBLASLt, external-reference, or generic approximate-route hits. The route
+  remains accuracy-unqualified.
+- That 179.51119-s result crossed the predeclared `>=165 s` stop-loss. The
+  segmented-wrapper direction is rejected; P60K, P130K, NSys, and NCU were not
+  run for it. The decision and raw-artifact hashes are frozen in the
+  [P40K API record](metadata/qwen36-27b-prefill-p40k-segmented-marlin-q64-api-2026-08-09.json).
+- The immediate implementation gate is true native M128 projection dataflow,
+  with distinct tactics and ownership for NVFP4 Gate/Up, NVFP4 Down, and FP8
+  projections. It must remove the physical segmentation/data-presentation
+  boundary rather than wrap it, while retaining exact recurrent state and the
+  complete Attention contract.
+- As soon as that composition is runnable, return first to the same clean-host
+  P40K real-API direction gate. Only a competitive, accuracy-admissible P40K
+  result unlocks P60K and approximately-130K execution, followed by complete
+  capacity/resource and architecture-witness qualification. No panel
+  throughput or component profile substitutes for those results.
 
 The complete subsystem design and non-production status are recorded in
 [`PREFILL_ARCHITECTURE_RESET.md`](PREFILL_ARCHITECTURE_RESET.md#8-designed-candidate-lineage-ac-prefill-layermajor-8k-v1).

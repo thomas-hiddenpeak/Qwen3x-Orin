@@ -1,0 +1,614 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-p40k-native-group-q64-panel-nsys-2026-08-09",
+  "measured_at": "2026-08-09T18:52:21+08:00",
+  "recorded_at": "2026-08-09T19:14:12+08:00",
+  "timezone": "Asia/Shanghai",
+  "status": "t4_diagnostic_only_default_off_accuracy_unqualified",
+  "policy": {
+    "evidence_tier": "T4",
+    "protocol_class": "PROFILE_CHECKPOINT_EXTERNAL_API_P40K_SINGLE_REQUEST",
+    "decision_unit": "architecture_candidate",
+    "architecture_candidate_id": "AC-PREFILL-LAYERMAJOR-8K-v1",
+    "measured_route_class": "explicit_default_off_attention_architecture_candidate",
+    "diagnostic_authority": true,
+    "direction_screen_authority": false,
+    "architecture_selection_authority": false,
+    "release_performance_authority": false,
+    "production_promotion_authority": false,
+    "threshold_recalibration_authority": false,
+    "default_route_changed": false,
+    "production_eligible": false,
+    "numerical_contract_qualified": false,
+    "cublaslt_production_eligibility": false,
+    "mtp_used": false
+  },
+  "source": {
+    "branch": "codex/prefill-target-path",
+    "commit": "a9a065ebaa79c5ece408d016f90f5fee28c5076f",
+    "tree": "8b8e737e63ecbaf7528edc7b2c298f81f9cfa2a0",
+    "committed_at": "2026-08-09T18:49:49+08:00",
+    "candidate_implementation_commit": "08e3f03c348efd1057df9d12d0ae5eee4c1f9a16",
+    "candidate_implementation_tree": "e200ff42738ac98bf8180ef5346c3b89a80972eb",
+    "candidate_implementation_subject": "prefill: screen panel-wide grouped attention",
+    "profile_seam_commit": "a9a065ebaa79c5ece408d016f90f5fee28c5076f",
+    "profile_seam_subject": "server: expose explicit NVTX phase ranges",
+    "binary": {
+      "measurement_path": "/home/rm01/Qwen3x-Orin/.q3x-work/build-panel-exact-no-bf16-large-m/qwen3x-eval-server",
+      "bytes": 14700576,
+      "sha256": "856a507d4ad9d992ce55f3fefa3b0d37936c20bebdace77e8e53fce5ff6e442e",
+      "elf_build_id": "78813e68baed9046ae731528792a86a525183184",
+      "checked_in": false,
+      "build_testing": true,
+      "admissions": {
+        "fp8_marlin_prefill": true,
+        "nvfp4_marlin_prefill": true,
+        "bf16_ab_large_m_prefill": false,
+        "flashinfer_prefill_attention": false
+      }
+    }
+  },
+  "checkpoint": {
+    "repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "local_path": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "access": "read_only",
+    "config_sha256": "c04a19ba293737ad7be4f6e96d6666cb7e479cbe19ecc0c289fad267135b0338",
+    "quantization_config_sha256": "fd7200cd8bca2a8a5d777061521abf83e2deb97ab6bc2f04e7a0a3d3f8ecd5c1",
+    "index_sha256": "7aa103a2582b7d26631988de33dea19e8a308ee9c239e8e14feb374af30905e2",
+    "tokenizer_json_sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42",
+    "authentication": "runner startup authenticated the pinned resident model before readiness"
+  },
+  "environment": {
+    "host": "RM01dev.Orin",
+    "device": "NVIDIA Jetson AGX Orin",
+    "architecture": "SM87",
+    "operating_system": "Linux 6.8.12-1021-tegra aarch64",
+    "jetson_release": "R39.2.0",
+    "cuda_toolkit": "13.3.33",
+    "nvpmodel": "MAXN",
+    "gpu_hz": 1300000000,
+    "emc_hz": 3200000000,
+    "cpu_affinity": "not_pinned"
+  },
+  "clean_host_preflight": {
+    "server_start": {
+      "path": ".q3x-work/profiles/p40k-native-group-q64-panel-nsys-r1/server-start-preflight.json",
+      "sha256": "cfabc115e4a77befbae4507dd9525c10a3e45e4f6f8f5a633bb41c9ef902369d",
+      "created_at_utc": "2026-08-09T10:50:19.307633+00:00",
+      "accepted": true,
+      "tegrastats_samples": 5,
+      "maximum_gr3d_percent": 0.0,
+      "aggregate_cpu_busy_percent": 0.7092198581560284,
+      "gpu_device_fd_audit_complete": true
+    },
+    "immediately_before_request": {
+      "path": ".q3x-work/profiles/p40k-native-group-q64-panel-nsys-r1/request-capture-preflight.json",
+      "sha256": "58afd9b61e085ae1aedec8d99c91ba510146aea8647040c3365c6569e3244148",
+      "created_at_utc": "2026-08-09T10:52:00.173955+00:00",
+      "accepted": true,
+      "tegrastats_samples": 5,
+      "maximum_gr3d_percent": 0.0,
+      "aggregate_cpu_busy_percent": 0.847457627118644,
+      "gpu_device_fd_audit_complete": true
+    },
+    "allowed_persistent_gpu_holders": [
+      "Xorg pid 2599",
+      "gnome-shell pid 2719",
+      "mutter-x11-frames pid 2738"
+    ],
+    "allowed_project_holders_during_request_preflight": [
+      "nsys pid 399188",
+      "qwen3x-eval-server pid 399214"
+    ],
+    "unexpected_cpu_or_gpu_consumer": false,
+    "idle_authority": "tegrastats plus CPU/process and GPU-device-handle inspection; nvidia-smi was not used"
+  },
+  "profiler": {
+    "tool": "NVIDIA Nsight Systems",
+    "version": "2026.1.3.243-261337792075v0",
+    "version_provenance": "local nsys --version query and versioned executable path; the version string is not embedded in the derived CSV files",
+    "trace": [
+      "cuda",
+      "nvtx"
+    ],
+    "sampling": "none",
+    "cpu_context_switch_trace": "none",
+    "cuda_graph_trace": "node",
+    "capture_range": "nvtx",
+    "nvtx_capture": "q3x.generation",
+    "capture_range_end": "stop",
+    "model_load_in_capture": false,
+    "report_path": ".q3x-work/profiles/p40k-native-group-q64-panel-nsys-r1/p40k-generation.nsys-rep",
+    "sqlite_export_path": ".q3x-work/profiles/p40k-native-group-q64-panel-nsys-r1/p40k-generation.sqlite",
+    "temporary_directory": ".q3x-work/profiles/p40k-native-group-q64-panel-nsys-r1/nsys-tmp",
+    "temporary_directory_cleaned_after_capture": true
+  },
+  "workload": {
+    "framework": "EvalScope",
+    "framework_version": {
+      "declared": "1.9.1",
+      "artifact_self_attested": false,
+      "reason": "the retained EvalScope argument JSON and logs do not contain a package-version field"
+    },
+    "api": "openai",
+    "endpoint": "/v1/completions",
+    "url": "http://127.0.0.1:18082/v1/completions",
+    "corpus_kind": "deterministic_repository_derived_representative_agent_context",
+    "corpus_path": ".q3x-work/evalscope/corpora/q3x-repository-agent-context-p40000-one-token.jsonl",
+    "corpus_sha256": "8970ac50693f49d1b27d35a0610ecbe5072594330d69b301f4dab731789b6844",
+    "corpus_manifest_path": ".q3x-work/evalscope/corpora/q3x-repository-agent-context-p40k-p60k.manifest.json",
+    "corpus_manifest_sha256": "bf7a458d8406a39ca59187ae77bee2a52f0738758202d2c7280bff346ccd22ff",
+    "prompt_kind": "token_ids",
+    "prompt_tokens": 40000,
+    "prompt_token_ids_u32le_sha256": "76cd23e2d60a9473af0ff24767b1b7ca614b36857697b420246731165156f78f",
+    "request_body_sha256": "e6f5817ad868e85c333db1961fa3dc14c7e65247f0a4241e8bb638870b6575ec",
+    "prompt_fully_consumed": true,
+    "consumed_prompt_tokens": 40000,
+    "measured_requests": 1,
+    "warmup_requests": 0,
+    "parallel": 1,
+    "output_tokens": 1,
+    "temperature": 0.0,
+    "seed": 42,
+    "stream": true,
+    "prefix_cache": false,
+    "mtp": false,
+    "first_token_text": "Based",
+    "finish_reason": "length"
+  },
+  "server_configuration": {
+    "max_sequence_length": 60001,
+    "max_output_tokens": 1,
+    "prefill_chunk_size": 512,
+    "prefill_execution_mode": "layer-major",
+    "prefill_attention_tactic": "native-group-q64-panel",
+    "projection_backend": "sm87",
+    "queue_capacity": 1,
+    "ingress_threads": 3,
+    "request_max_arena_bytes": 5600000000,
+    "minimum_free_bytes": 4294967296,
+    "nvtx_phase_ranges": true
+  },
+  "route": {
+    "witness_schema": "target-prefill-witness-v3",
+    "execution_mode": "layer-major",
+    "deployment_plan_id": "q3x.sm87.ac-prefill-layermajor-8k.native-group-q64-panel.v1",
+    "qualification": "accuracy-unqualified-architecture-candidate",
+    "numerical_contract": {
+      "qualified": false,
+      "reason": "full-state-accuracy-qualification-not-run"
+    },
+    "selection": {
+      "server_default_execution_mode": "legacy",
+      "layer_major_default_attention_tactic": "exact-segmented",
+      "candidate_requires_explicit_flags": [
+        "--prefill-execution-mode layer-major",
+        "--prefill-attention-tactic native-group-q64-panel"
+      ],
+      "default_route_changed": false
+    },
+    "logical_panel_count": 5,
+    "request_memory_profile": "layer-major-c8192",
+    "bounded_submission_window": true,
+    "submission_window_retirements": 320,
+    "operator_panel_executor_hits": 320,
+    "native_group_q64_panel_hits": 80,
+    "generic_qt2_hits": 0,
+    "completed_operator_hits": {
+      "nvfp4_gate_up": 320,
+      "nvfp4_down": 320,
+      "fp8_qkv": 480,
+      "fp8_z": 240,
+      "fp8_o": 320,
+      "attention": 80,
+      "gdn": 240
+    },
+    "completed_exact_fallback_hits": 0,
+    "completed_forbidden_hits": 0,
+    "forbidden_route_hits": {
+      "prefix_cache": 0,
+      "mtp": 0,
+      "cublaslt": 0,
+      "external_reference": 0,
+      "approximate_numerics": 0
+    },
+    "disabled_boundaries": {
+      "scope": "architecture_candidate_unqualified",
+      "prefix_cache": true,
+      "mtp": true,
+      "cublaslt_production": true,
+      "approximate_numerics": false
+    },
+    "numerical_interpretation": "zero generic approximate-route hits does not attest exact numerics because approximate_numerics is explicitly not a disabled boundary for this unqualified candidate"
+  },
+  "timing": {
+    "evalscope": {
+      "success_requests": 1,
+      "failed_requests": 0,
+      "ttft_ms": 180864.40489790402,
+      "request_latency_ms": 187982.95615194365,
+      "whole_workload_new_prompt_tok_s": 212.78524829489666,
+      "whole_workload_metric_usable_as_performance_baseline": false,
+      "whole_workload_metric_limitation": "Nsight capture-range stop and report generation delayed request completion after first-token commit"
+    },
+    "server": {
+      "queue_ms": 0.020225,
+      "admission_ms": 51.498953,
+      "generation_call_wall_ms": 187920.192812,
+      "pure_prefill_ms": 180345.412463,
+      "pure_prefill_tok_s": 221.79660382659566,
+      "finish_prefill_ms": 4.570975,
+      "ttft_ms": 180860.665933,
+      "decode_after_first_ms": 0.0,
+      "response_enqueued_total_ms": 187979.479527,
+      "first_byte_ms": null,
+      "first_byte_unavailable_reason": "socket_write_not_instrumented"
+    },
+    "cross_boundary_deltas": {
+      "evalscope_ttft_minus_server_ttft_ms": 3.738964999996824,
+      "evalscope_ttft_minus_server_ttft_percent": 0.0020672752065866383,
+      "evalscope_ttft_minus_server_pure_prefill_ms": 518.9924350000219,
+      "evalscope_ttft_minus_server_pure_prefill_percent": 0.2869511197035769,
+      "queue_plus_admission_ms": 51.519178
+    },
+    "interpretation": "loopback API transport is not the dominant measured bottleneck; the external-to-server TTFT delta is 3.739 ms and pure Prefill occupies nearly all TTFT",
+    "profiler_stop_perturbation": "generation-call and request-total values include an approximately 7.57-second differential after the q3x.generation NVTX range, consistent with Nsight stop/report processing; do not use them or EvalScope whole-workload throughput as an unprofiled baseline"
+  },
+  "nvtx": {
+    "ranges": [
+      {
+        "name": "q3x.generation",
+        "instances": 1,
+        "wall_ms": 180348.274816,
+        "kernel_instances": 234073,
+        "kernel_sum_ms": 179992.954016,
+        "kernel_union_ms": 179992.954016,
+        "kernel_overlap_ms": 0.0,
+        "non_kernel_gap_ms": 355.3208,
+        "kernel_union_percent_of_wall": 99.80298076021936
+      },
+      {
+        "name": "q3x.prefill.whole_request",
+        "instances": 1,
+        "wall_ms": 180340.668128,
+        "kernel_instances": 234070,
+        "kernel_sum_ms": 179988.52464,
+        "kernel_union_ms": 179988.52464,
+        "kernel_overlap_ms": 0.0,
+        "non_kernel_gap_ms": 352.143488,
+        "kernel_union_percent_of_wall": 99.80473428891254
+      },
+      {
+        "name": "q3x.prefill.finish",
+        "instances": 1,
+        "wall_ms": 4.590944,
+        "kernel_instances": 3,
+        "kernel_sum_ms": 4.429376,
+        "kernel_union_ms": 4.429376,
+        "kernel_overlap_ms": 0.0,
+        "non_kernel_gap_ms": 0.161568,
+        "kernel_union_percent_of_wall": 96.4807237901399
+      },
+      {
+        "name": "q3x.prefill.commit",
+        "instances": 1,
+        "wall_ms": 0.019072,
+        "kernel_instances": 0,
+        "kernel_sum_ms": 0.0,
+        "kernel_union_ms": 0.0,
+        "kernel_overlap_ms": 0.0,
+        "non_kernel_gap_ms": 0.019072,
+        "kernel_union_percent_of_wall": 0.0
+      }
+    ],
+    "kernel_timeline": {
+      "device_id": 0,
+      "context_id": 1,
+      "stream_ids": [
+        20
+      ],
+      "cuda_stream_count": 1,
+      "kernel_overlap_ms": 0.0,
+      "overlap_observed": false,
+      "interpretation": "this request executed kernels on one CUDA stream; the two-slot host submission window did not create device-kernel overlap in this trace"
+    }
+  },
+  "dominant_kernel_attribution": {
+    "basis": "exact kernel name for Attention; Marlin family roles inferred from route counts and the matching logical projection inventories",
+    "attention_group_q64": {
+      "total_ms": 84318.548,
+      "instances": 80,
+      "whole_request_wall_percent": 46.7551489496276
+    },
+    "main_nvfp4_marlin_signature": {
+      "total_ms": 51960.015,
+      "instances": 10240,
+      "whole_request_wall_percent": 28.812145113669235
+    },
+    "main_fp8_marlin_signature": {
+      "total_ms": 26067.5183,
+      "instances": 16640,
+      "whole_request_wall_percent": 14.454597828981155
+    },
+    "bf16_m16_pair": {
+      "total_ms": 5432.6802,
+      "instances": 120000,
+      "whole_request_wall_percent": 3.0124542935285445
+    },
+    "attention_plus_main_nvfp4_plus_main_fp8": {
+      "total_ms": 162346.0813,
+      "whole_request_wall_percent": 90.02189189227799,
+      "kernel_union_percent": 90.19801769291284
+    },
+    "interpretation": "the remaining target gap is structurally split between causal Attention and still-segmented projection work; the API layer is not the active dominant budget"
+  },
+  "attention_launch_split": [
+    {
+      "logical_panel_tokens": 7712,
+      "grid": [
+        723,
+        1,
+        4
+      ],
+      "block": [
+        128,
+        1,
+        1
+      ],
+      "instances": 32,
+      "total_ms": 52408.936128,
+      "average_ms": 1637.779254,
+      "registers_per_thread": 254,
+      "static_shared_bytes": 0,
+      "dynamic_shared_bytes": 65536,
+      "local_bytes_per_thread": 0
+    },
+    {
+      "logical_panel_tokens": 8192,
+      "grid": [
+        768,
+        1,
+        4
+      ],
+      "block": [
+        128,
+        1,
+        1
+      ],
+      "instances": 48,
+      "total_ms": 31909.61184,
+      "average_ms": 664.78358,
+      "registers_per_thread": 254,
+      "static_shared_bytes": 0,
+      "dynamic_shared_bytes": 65536,
+      "local_bytes_per_thread": 0
+    }
+  ],
+  "generation_kernel_top20": [
+    {
+      "rank": 1,
+      "time_percent_rounded": 46.8,
+      "total_ms_rounded_4dp": 84318.548,
+      "instances": 80,
+      "average_ms_rounded_4dp": 1053.9818,
+      "name": "void q3x::runtime::<unnamed>::bulk_causal_gqa_sigmoid_gate_24_4_256_c512_group_q64_kernel<(bool)0>(const unsigned short *, const unsigned short *, const unsigned short *, const unsigned short *, unsigned short *, unsigned int)"
+    },
+    {
+      "rank": 2,
+      "time_percent_rounded": 28.9,
+      "total_ms_rounded_4dp": 51960.015,
+      "instances": 10240,
+      "average_ms_rounded_4dp": 5.0742,
+      "name": "void marlin::Marlin<(long)1125899906909960, (long)562949953487106, (long)1125899906909960, (long)2814749767172868, (int)256, (int)4, (int)16, (int)4, (bool)0, (int)4, (int)1, (bool)0, (bool)0>(const int4 *, const int4 *, int4 *, int4 *, const int4 *, const float *, const int4 *, const float *, const int4 *, const int *, int, int, int, int, int, int *, bool, bool, bool, int)"
+    },
+    {
+      "rank": 3,
+      "time_percent_rounded": 14.5,
+      "total_ms_rounded_4dp": 26067.5183,
+      "instances": 16640,
+      "average_ms_rounded_4dp": 1.5666,
+      "name": "void marlin::Marlin<(long)1125899906909960, (long)2814749767172868, (long)1125899906909960, (long)1125899906909960, (int)256, (int)4, (int)16, (int)4, (bool)0, (int)4, (int)-1, (bool)0, (bool)0>(const int4 *, const int4 *, int4 *, int4 *, const int4 *, const float *, const int4 *, const float *, const int4 *, const int *, int, int, int, int, int, int *, bool, bool, bool, int)"
+    },
+    {
+      "rank": 4,
+      "time_percent_rounded": 3.0,
+      "total_ms_rounded_4dp": 5432.6802,
+      "instances": 120000,
+      "average_ms_rounded_4dp": 0.0453,
+      "name": "q3x::kernels::<unnamed>::bf16_gemv_pair_m16_projection_fused_kernel(const unsigned short *, const unsigned short *, const unsigned short *, unsigned short *, unsigned short *)"
+    },
+    {
+      "rank": 5,
+      "time_percent_rounded": 1.2,
+      "total_ms_rounded_4dp": 2077.4901,
+      "instances": 5120,
+      "average_ms_rounded_4dp": 0.4058,
+      "name": "q3x::kernels::<unnamed>::merged_gate_up_silu_kernel(const unsigned short *, unsigned long, unsigned short *)"
+    },
+    {
+      "rank": 6,
+      "time_percent_rounded": 0.9,
+      "total_ms_rounded_4dp": 1642.4417,
+      "instances": 3840,
+      "average_ms_rounded_4dp": 0.4277,
+      "name": "q3x::runtime::gdn_prefill_whole_span_conv_detail::<unnamed>::causal_conv1d_silu_update_whole_span_kernel(const unsigned short *, unsigned int, const unsigned short *, unsigned short *, unsigned short *)"
+    },
+    {
+      "rank": 7,
+      "time_percent_rounded": 0.8,
+      "total_ms_rounded_4dp": 1440.0425,
+      "instances": 5440,
+      "average_ms_rounded_4dp": 0.2647,
+      "name": "q3x::runtime::<unnamed>::residual_add_kernel(const unsigned short *, const unsigned short *, unsigned long, unsigned short *)"
+    },
+    {
+      "rank": 8,
+      "time_percent_rounded": 0.8,
+      "total_ms_rounded_4dp": 1362.1835,
+      "instances": 3840,
+      "average_ms_rounded_4dp": 0.3547,
+      "name": "q3x::runtime::gdn_prefill_chunk_o_bv64_detail::<unnamed>::chunk_o_bv64_kernel(const unsigned short *, const unsigned short *, const unsigned short *, const unsigned short *, const float *, unsigned short *)"
+    },
+    {
+      "rank": 9,
+      "time_percent_rounded": 0.6,
+      "total_ms_rounded_4dp": 1162.5949,
+      "instances": 3840,
+      "average_ms_rounded_4dp": 0.3028,
+      "name": "void q3x::runtime::gdn_prefill_chunk64_reference_detail::<unnamed>::persistent_state_chunk64_vllm_faithful_kernel<(bool)0>(const unsigned short *, const unsigned short *, const unsigned short *, const float *, const unsigned short *, unsigned short *, unsigned int, unsigned short *, unsigned short *, unsigned short *, unsigned short *)"
+    },
+    {
+      "rank": 10,
+      "time_percent_rounded": 0.6,
+      "total_ms_rounded_4dp": 1043.4299,
+      "instances": 641,
+      "average_ms_rounded_4dp": 1.6278,
+      "name": "void q3x::runtime::<unnamed>::headwise_rms_norm_kernel<(bool)1, (bool)0>(const unsigned short *, const unsigned short *, const unsigned short *, unsigned long, unsigned long, float, unsigned short *)"
+    },
+    {
+      "rank": 11,
+      "time_percent_rounded": 0.4,
+      "total_ms_rounded_4dp": 743.4336,
+      "instances": 3840,
+      "average_ms_rounded_4dp": 0.1936,
+      "name": "q3x::runtime::gdn_prefill_wy_vllm_layout_detail::<unnamed>::value_head_recompute_chunk64_kernel(const unsigned short *, const float *, const unsigned short *, unsigned int, unsigned int, const unsigned short *, unsigned short *, unsigned short *)"
+    },
+    {
+      "rank": 12,
+      "time_percent_rounded": 0.3,
+      "total_ms_rounded_4dp": 621.5744,
+      "instances": 3840,
+      "average_ms_rounded_4dp": 0.1619,
+      "name": "q3x::runtime::gdn_prefill_wy_vllm_layout_detail::<unnamed>::value_head_solve_chunk64_kernel(const float *, const float *, const float *, unsigned int, unsigned short *)"
+    },
+    {
+      "rank": 13,
+      "time_percent_rounded": 0.3,
+      "total_ms_rounded_4dp": 618.26,
+      "instances": 40000,
+      "average_ms_rounded_4dp": 0.0155,
+      "name": "q3x::runtime::<unnamed>::full_attention_preprocess_24_4_256_64_kernel(const unsigned short *, unsigned short *, const unsigned short *, const unsigned short *, float, unsigned short *, unsigned short *, const float *, const float *, unsigned long)"
+    },
+    {
+      "rank": 14,
+      "time_percent_rounded": 0.3,
+      "total_ms_rounded_4dp": 536.9954,
+      "instances": 3840,
+      "average_ms_rounded_4dp": 0.1398,
+      "name": "q3x::runtime::gdn_prefill_chunk_o_bv64_detail::<unnamed>::rms_norm_silu_rows8_kernel(const unsigned short *, const unsigned short *, const unsigned short *, unsigned int, float, unsigned short *)"
+    },
+    {
+      "rank": 15,
+      "time_percent_rounded": 0.2,
+      "total_ms_rounded_4dp": 395.1338,
+      "instances": 3840,
+      "average_ms_rounded_4dp": 0.1029,
+      "name": "void q3x::runtime::gdn_prefill_chunk64_reference_detail::<unnamed>::normalize_qk_kernel<(bool)1>(const unsigned short *, unsigned long, float, unsigned short *, unsigned short *)"
+    },
+    {
+      "rank": 16,
+      "time_percent_rounded": 0.1,
+      "total_ms_rounded_4dp": 223.9898,
+      "instances": 512,
+      "average_ms_rounded_4dp": 0.4375,
+      "name": "void marlin::Marlin<(long)1125899906909960, (long)562949953487106, (long)1125899906909960, (long)2814749767172868, (int)256, (int)1, (int)8, (int)8, (bool)0, (int)4, (int)1, (bool)0, (bool)0>(const int4 *, const int4 *, int4 *, int4 *, const int4 *, const float *, const int4 *, const float *, const int4 *, const int *, int, int, int, int, int, int *, bool, bool, bool, int)"
+    },
+    {
+      "rank": 17,
+      "time_percent_rounded": 0.1,
+      "total_ms_rounded_4dp": 164.7762,
+      "instances": 832,
+      "average_ms_rounded_4dp": 0.198,
+      "name": "void marlin::Marlin<(long)1125899906909960, (long)2814749767172868, (long)1125899906909960, (long)1125899906909960, (int)256, (int)1, (int)8, (int)8, (bool)0, (int)4, (int)-1, (bool)0, (bool)0>(const int4 *, const int4 *, int4 *, int4 *, const int4 *, const float *, const int4 *, const float *, const int4 *, const int *, int, int, int, int, int, int *, bool, bool, bool, int)"
+    },
+    {
+      "rank": 18,
+      "time_percent_rounded": 0.1,
+      "total_ms_rounded_4dp": 128.6661,
+      "instances": 3840,
+      "average_ms_rounded_4dp": 0.0335,
+      "name": "q3x::runtime::gdn_prefill_wy_vllm_layout_detail::<unnamed>::compact_lower_gram_chunk64_kernel(const unsigned short *, unsigned int, float *)"
+    },
+    {
+      "rank": 19,
+      "time_percent_rounded": 0.0,
+      "total_ms_rounded_4dp": 43.7172,
+      "instances": 3840,
+      "average_ms_rounded_4dp": 0.0114,
+      "name": "q3x::runtime::gdn_prefill_chunk64_reference_detail::<unnamed>::prepare_gate_kernel(const unsigned short *, const unsigned short *, const unsigned short *, const unsigned short *, unsigned long, float *, float *)"
+    },
+    {
+      "rank": 20,
+      "time_percent_rounded": 0.0,
+      "total_ms_rounded_4dp": 5.0342,
+      "instances": 5,
+      "average_ms_rounded_4dp": 1.0068,
+      "name": "q3x::runtime::<unnamed>::embedding_gather_prompt_kernel(const unsigned short *, unsigned long, unsigned long, const unsigned int *, unsigned short *)"
+    }
+  ],
+  "generation_kernel_top20_format": "Time percentages and per-row timings are the rounded values in generation-kernel-summary.csv; range-level totals and unions above come from integer-nanosecond SQLite events.",
+  "preceding_unprofiled_direction_context": {
+    "authority": "context for why the bounded T4 capture was taken; not repeated or promoted by this T4 record",
+    "same_corpus_and_request_contract": true,
+    "exact_segmented_attention_route": {
+      "deployment_plan_id": "q3x.sm87.exact.layer-major-c8192.operator-panel.v3",
+      "server_pure_prefill_ms": 666946.668018,
+      "server_pure_prefill_tok_s": 59.97481045803868,
+      "evalscope_ttft_ms": 667065.3753560036,
+      "first_token_text": "The",
+      "server_log_sha256": "fbee8f0f7e9537516c22ec5fcc2505e84c4fa22a9a89df5451dc936236f3656c",
+      "evalscope_database_sha256": "de80bb7400034f617ce847d0559751d3e97f34d64b95f2438854f782f0c84b40"
+    },
+    "native_group_q64_panel_route": {
+      "deployment_plan_id": "q3x.sm87.ac-prefill-layermajor-8k.native-group-q64-panel.v1",
+      "server_pure_prefill_ms": 180014.317964,
+      "server_pure_prefill_tok_s": 222.20454712940872,
+      "evalscope_ttft_ms": 180132.8653381206,
+      "first_token_text": "Based",
+      "server_log_sha256": "325c22479a647dcfea38681e48045bb438a98ff0149fab10ddd925263411d994",
+      "evalscope_database_sha256": "786b3dfbbee31c29f913afb265b249484cc69218e5740daed00eef254f7a5f88"
+    },
+    "candidate_pure_prefill_speedup": 3.7049645581601944,
+    "candidate_pure_prefill_latency_reduction_percent": 73.00918850093998,
+    "accuracy_interpretation": "the first-token texts differ and the candidate full-state oracle is not qualified; the speed direction cannot establish an accuracy-preserving architecture"
+  },
+  "artifact_hashes": {
+    "profile_artifact_hash_manifest": "636d03a17c093861b047115d84192eae96e77e9f0f49d4f9146ef0e1c370a4a6",
+    "nsys_report": "04928ee072dc2fced2623b02ffb3e49172b850cbee38d7b2868de61534e31aba",
+    "sqlite_export": "e0f8fa25c17e64e5f4cfb9d667127cfb62a0246bf41dd332c9c8c2aab7c4a464",
+    "generation_kernel_summary_csv": "69037242571d41dbbbf7eee6f041f6b3ef0022319d4b42a77afe39cfb181b0a6",
+    "generation_kernel_grid_block_summary_csv": "9e1d700577d402a5ba90bf10e25621445a3c8d255150a5f41a083f0f4ee57a80",
+    "whole_request_kernel_summary_csv": "bbee49382284eb2631962ddbc29c7ada1ba9bfcc2c1c3f6625b4da9114d574ff",
+    "nvtx_summary_csv": "9d9218ef562e0c2d5c4d56f0d5cbf00159998735e08310ee0623eae4683dbc8c",
+    "server_log": "f369fad461ac775819f93e4496cc8451764c7a4f3ea29b08db5a5a158d18d5b0",
+    "evalscope_client_log": "964a50e07cda231a76e4305984f08f2e501607a4103b1c9a0419396600594305",
+    "evalscope_benchmark_args": "f3448530f8113b48ee185248187b739ede59abee4e5936be4b6b7a613cde58f2",
+    "evalscope_benchmark_database": "8dcdbd77120e266a4e582aded5408a4448af941c59dc69fbe1f8a6ce6f3e8580",
+    "evalscope_benchmark_summary": "838d2a520b0791fad4d019cffc2b05fd28425c54ec39308889a8b490fa3fb470",
+    "evalscope_benchmark_percentile": "c6ab8dac35e30c9854ddee6f34f07b8a62b260a07548686ab47592a2f88de3c1",
+    "evalscope_workload_throughput": "d9b642d33151ffa583612d2ac26bd815144e8811eef5378e0ed7de0c9e1ce68d",
+    "evalscope_workload_timeline": "c6110b4018d4a11421675b4356b0acd9953e43aa45873fdc323dbe39220f759d"
+  },
+  "decision": {
+    "result": "use_profile_to_redesign_the_composed_prefill_dataflow_without_architecture_selection",
+    "reason": "the trace places about 46.8% of whole-request wall in grouped-Q64 causal Attention and another 43.3% in the two main still-segmented Marlin signatures, with 120000 BF16 M16-pair launches adding 3.0%; API transport is negligible and the device timeline has no overlap",
+    "next_architecture_boundary": "compose panel-capable shape-specific NVFP4/FP8/BF16 projection ownership with a redesigned exact causal Attention dataflow, then return first to the same clean-host P40K real API direction gate",
+    "p60k_run": false,
+    "p130k_run": false,
+    "production_route_changed": false
+  },
+  "limitations": [
+    "This is one request in one process with no warmup, repetition, mirrored order, or independent-process replication.",
+    "The route is explicit, default-off, BUILD_TESTING-admitted, and accuracy-unqualified; it is not the default, a selected architecture, a release candidate, or production.",
+    "The candidate first-token text differs from the exact segmented direction context, and full-state accuracy qualification was not run. No no-loss claim is permitted.",
+    "The v3 witness reports zero generic approximate-route hits but explicitly does not attest approximate numerics as disabled.",
+    "This is a T4 Nsight diagnostic. Profiler overhead means its total request duration and whole-workload prompt throughput are not unprofiled performance baselines.",
+    "The retained EvalScope logs and argument JSON do not self-attest the claimed 1.9.1 package version.",
+    "The trace contains one CUDA stream and zero kernel overlap; it does not demonstrate effective double- or triple-buffered device execution.",
+    "No NCU counters were collected, so occupancy, stall reasons, bank conflicts, cache traffic, Tensor utilization, and cp.async execution are not proven by this record.",
+    "The 60K and approximately-130K target witnesses were deliberately not run because the P40K candidate remains far below the target and numerically unqualified.",
+    "The raw profile, SQLite database, EvalScope database, logs, preflights, corpus, and binary are ignored local artifacts rather than checked-in release material.",
+    "CPU affinity was not pinned, first-byte timing is not instrumented, and no public capability, memory-peak, long-output Decode, cancellation, packaging, or release gate was run."
+  ]
+}

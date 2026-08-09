@@ -204,8 +204,14 @@ a route mismatch, not equivalent evidence.
 
 An explicitly selected, default-off architecture candidate may emit
 `target-prefill-witness-v3`. Version 3 adds the engine-lifetime Attention
-tactic and completed operator-panel, native-panel-Attention, and generic-QT2
-hit counts. It must also carry
+tactic and completed operator-panel, grouped-Q64, grouped-Q128-v4, and
+generic-QT2 hit counts. The Q64 tactic identifies itself as
+`native-group-q64-panel` with plan
+`q3x.sm87.ac-prefill-layermajor-8k.native-group-q64-panel.v1`; the Q128-v4
+tactic identifies itself as `native-group-q128-v4-panel` with plan
+`q3x.sm87.ac-prefill-layermajor-8k.native-group-q128-v4-panel.v1`. Their hit
+counters are separate: one tactic may not report work under the other's
+counter. Both must also carry
 `qualification=accuracy-unqualified-architecture-candidate`, a false
 `numerical_contract.qualified` value, and an
 `architecture_candidate_unqualified` disabled-boundary scope until the full
@@ -221,7 +227,8 @@ qualification field, and additionally records:
 
 - `projection_tactic=segmented-marlin-operator-panel`;
 - `attention_tactic=exact-segmented` or
-  `native-group-q64-panel`;
+  `native-group-q64-panel` or `native-group-q128-v4-panel`;
+- separate grouped-Q64 and grouped-Q128-v4 completed panel hit counters;
 - completed logical segmented-wrapper projection hits; and
 - shape-aware physical Marlin kernel launches submitted inside the FP8 and
   NVFP4 wrappers.
@@ -230,7 +237,9 @@ The exact-segmented-Attention combination identifies itself as
 `q3x.sm87.ac-prefill-layermajor-8k.segmented-marlin-operator-panel.exact-segmented-attention.v1`.
 The grouped-Q64-Attention combination identifies itself as
 `q3x.sm87.ac-prefill-layermajor-8k.segmented-marlin-operator-panel.native-group-q64-attention.v1`.
-Both plan IDs remain default-off and
+The grouped-Q128-v4-Attention combination identifies itself as
+`q3x.sm87.ac-prefill-layermajor-8k.segmented-marlin-operator-panel.native-group-q128-v4-attention.v1`.
+All three plan IDs remain default-off and
 `accuracy-unqualified-architecture-candidate`; a v4 counter is execution
 evidence, not proof of numerical equivalence or production eligibility. The
 exact projection tactic continues to emit the existing v2 or v3 schema and

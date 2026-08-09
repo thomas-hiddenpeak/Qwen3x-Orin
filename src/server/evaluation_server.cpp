@@ -849,6 +849,8 @@ void emit_target_prefill_witness(
         generation.prefill_operator_panel_executor_hits;
     record.native_group_q64_panel_hits =
         generation.prefill_native_group_q64_panel_hits;
+    record.native_group_q128_v4_panel_hits =
+        generation.prefill_native_group_q128_v4_panel_hits;
     record.generic_qt2_hits = generation.prefill_generic_qt2_hits;
     record.segmented_panel_projection_hits =
         generation.prefill_segmented_panel_projection_hits;
@@ -1600,11 +1602,7 @@ int run_evaluation_server(const EvaluationServerOptions& options,
                     ? "layer-major"
                     : "legacy")
             << " prefill_attention_tactic="
-            << (options.prefill_full_attention_tactic == runtime::
-                        LayerMajorPrefillFullAttentionTactic::
-                            kNativeGroupQ64Panel
-                    ? "native-group-q64-panel"
-                    : "exact-segmented")
+            << runtime::to_string(options.prefill_full_attention_tactic)
             << " prefill_projection_tactic="
             << (options.prefill_projection_tactic == runtime::
                         LayerMajorPrefillProjectionTactic::

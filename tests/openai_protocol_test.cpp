@@ -1,4 +1,5 @@
 #include "q3x/io/json.h"
+#include "q3x/server/evaluation_server.h"
 #include "q3x/server/openai_protocol.h"
 
 #include <cstddef>
@@ -326,7 +327,7 @@ void test_target_prefill_witness_evidence(TestContext& test) {
               R"("record":"target-prefill-witness-v3","schema_version":3)") !=
               std::string::npos &&
           candidate_serialized.find(
-              R"("attention_tactic":"native-group-q64-panel","operator_panel_executor_hits":128,"native_group_q64_panel_hits":32,"generic_qt2_hits":0)") !=
+              R"("attention_tactic":"native-group-q64-panel","operator_panel_executor_hits":128,"native_group_q64_panel_hits":32,"native_group_q128_v4_panel_hits":0,"generic_qt2_hits":0)") !=
               std::string::npos &&
           candidate_serialized.find(
               R"("id":"q3x.sm87.ac-prefill-layermajor-8k.native-group-q64-panel.v1","qualification":"accuracy-unqualified-architecture-candidate","numerical_contract":{"qualified":false,"reason":"full-state-accuracy-qualification-not-run"})") !=
@@ -335,6 +336,31 @@ void test_target_prefill_witness_evidence(TestContext& test) {
               R"("disabled_boundaries":{"scope":"architecture_candidate_unqualified","prefix_cache":true,"mtp":true,"cublaslt_production":true,"approximate_numerics":false})") !=
               std::string::npos,
       "native grouped-Q64 candidate has an explicit unqualified v3 "
+      "execution witness");
+
+  server::TargetPrefillWitnessRecord q128_candidate_record =
+      candidate_record;
+  q128_candidate_record.native_group_q64_panel_hits = 0U;
+  q128_candidate_record.native_group_q128_v4_panel_hits = 32U;
+  q128_candidate_record.deployment_plan_id =
+      q3x::runtime::kLayerMajorNativeGroupQ128V4PanelDeploymentPlanId;
+  const std::string q128_candidate_serialized =
+      server::serialize_target_prefill_witness(q128_candidate_record);
+  test.expect(
+      valid_json(q128_candidate_serialized) &&
+          q128_candidate_serialized.find(
+              R"("record":"target-prefill-witness-v3","schema_version":3)") !=
+              std::string::npos &&
+          q128_candidate_serialized.find(
+              R"("attention_tactic":"native-group-q128-v4-panel","operator_panel_executor_hits":128,"native_group_q64_panel_hits":0,"native_group_q128_v4_panel_hits":32,"generic_qt2_hits":0)") !=
+              std::string::npos &&
+          q128_candidate_serialized.find(
+              R"("id":"q3x.sm87.ac-prefill-layermajor-8k.native-group-q128-v4-panel.v1","qualification":"accuracy-unqualified-architecture-candidate","numerical_contract":{"qualified":false,"reason":"full-state-accuracy-qualification-not-run"})") !=
+              std::string::npos &&
+          q128_candidate_serialized.find(
+              R"("disabled_boundaries":{"scope":"architecture_candidate_unqualified","prefix_cache":true,"mtp":true,"cublaslt_production":true,"approximate_numerics":false})") !=
+              std::string::npos,
+      "native grouped-Q128-v4 candidate has a distinct unqualified v3 "
       "execution witness");
 
   server::TargetPrefillWitnessRecord projection_candidate_record =
@@ -356,7 +382,7 @@ void test_target_prefill_witness_evidence(TestContext& test) {
               R"("record":"target-prefill-witness-v4","schema_version":4)") !=
               std::string::npos &&
           projection_candidate_serialized.find(
-              R"("projection_tactic":"segmented-marlin-operator-panel","attention_tactic":"exact-segmented","operator_panel_executor_hits":128,"native_group_q64_panel_hits":0,"generic_qt2_hits":4,"segmented_panel_projection_hits":672,"segmented_panel_projection_physical_launches":4928)") !=
+              R"("projection_tactic":"segmented-marlin-operator-panel","attention_tactic":"exact-segmented","operator_panel_executor_hits":128,"native_group_q64_panel_hits":0,"native_group_q128_v4_panel_hits":0,"generic_qt2_hits":4,"segmented_panel_projection_hits":672,"segmented_panel_projection_physical_launches":4928)") !=
               std::string::npos &&
           projection_candidate_serialized.find(
               R"("id":"q3x.sm87.ac-prefill-layermajor-8k.segmented-marlin-operator-panel.exact-segmented-attention.v1","qualification":"accuracy-unqualified-architecture-candidate","numerical_contract":{"qualified":false,"reason":"full-state-accuracy-qualification-not-run"})") !=
@@ -367,6 +393,7 @@ void test_target_prefill_witness_evidence(TestContext& test) {
   projection_candidate_record.deployment_plan_id = q3x::runtime::
       kLayerMajorSegmentedMarlinProjectionGroupQ64DeploymentPlanId;
   projection_candidate_record.native_group_q64_panel_hits = 32U;
+  projection_candidate_record.native_group_q128_v4_panel_hits = 0U;
   projection_candidate_record.generic_qt2_hits = 0U;
   const std::string combined_candidate_serialized =
       server::serialize_target_prefill_witness(
@@ -381,6 +408,27 @@ void test_target_prefill_witness_evidence(TestContext& test) {
               std::string::npos,
       "combined native projection and Attention tactics have a distinct "
       "deployment identity");
+
+  projection_candidate_record.deployment_plan_id = q3x::runtime::
+      kLayerMajorSegmentedMarlinProjectionGroupQ128V4DeploymentPlanId;
+  projection_candidate_record.native_group_q64_panel_hits = 0U;
+  projection_candidate_record.native_group_q128_v4_panel_hits = 32U;
+  const std::string combined_q128_candidate_serialized =
+      server::serialize_target_prefill_witness(
+          projection_candidate_record);
+  test.expect(
+      valid_json(combined_q128_candidate_serialized) &&
+          combined_q128_candidate_serialized.find(
+              R"("attention_tactic":"native-group-q128-v4-panel")") !=
+              std::string::npos &&
+          combined_q128_candidate_serialized.find(
+              R"("native_group_q64_panel_hits":0,"native_group_q128_v4_panel_hits":32)") !=
+              std::string::npos &&
+          combined_q128_candidate_serialized.find(
+              R"("id":"q3x.sm87.ac-prefill-layermajor-8k.segmented-marlin-operator-panel.native-group-q128-v4-attention.v1")") !=
+              std::string::npos,
+      "segmented projections plus Q128-v4 Attention have a distinct "
+      "unqualified v4 witness identity");
 
   server::TargetPrefillWitnessRecord unbound_layer_major_record =
       sealed_record;
@@ -416,6 +464,21 @@ void test_target_prefill_witness_evidence(TestContext& test) {
               "invalid route evidence remains parseable JSON");
 }
 
+void test_prefill_tactic_defaults_remain_exact(TestContext& test) {
+  const server::EvaluationServerOptions server_options;
+  const q3x::runtime::ReferenceEngineOptions engine_options;
+  test.expect(
+      server_options.prefill_execution_mode == q3x::runtime::
+              ReferencePrefillExecutionMode::kLegacyC512Tiled &&
+          server_options.prefill_full_attention_tactic == q3x::runtime::
+              LayerMajorPrefillFullAttentionTactic::kExactSegmentedC512 &&
+          engine_options.prefill_execution_mode == q3x::runtime::
+              ReferencePrefillExecutionMode::kLegacyC512Tiled &&
+          engine_options.prefill_full_attention_tactic == q3x::runtime::
+              LayerMajorPrefillFullAttentionTactic::kExactSegmentedC512,
+      "Q128-v4 exposure does not change server or engine defaults");
+}
+
 }  // namespace
 
 int main() {
@@ -426,6 +489,7 @@ int main() {
   test_fail_closed_parameters(test);
   test_serialization(test);
   test_target_prefill_witness_evidence(test);
+  test_prefill_tactic_defaults_remain_exact(test);
   if (test.failures() != 0) {
     std::cerr << test.failures() << " OpenAI protocol test(s) failed\n";
     return 1;

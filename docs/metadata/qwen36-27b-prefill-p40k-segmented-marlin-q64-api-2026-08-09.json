@@ -1,0 +1,198 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-p40k-segmented-marlin-q64-api-2026-08-09",
+  "measured_at": "2026-08-09T19:51:37+08:00",
+  "recorded_at": "2026-08-09T19:59:45+08:00",
+  "timezone": "Asia/Shanghai",
+  "status": "rejected_by_p40k_stop_loss_default_off_accuracy_unqualified",
+  "policy": {
+    "evidence_tier": "T3",
+    "protocol_class": "EXTERNAL_API_P40K_SINGLE_REQUEST_EARLY_STOP",
+    "decision_unit": "architecture_candidate",
+    "architecture_candidate_id": "AC-PREFILL-LAYERMAJOR-8K-v1",
+    "early_stop_authority": true,
+    "architecture_selection_authority": false,
+    "release_performance_authority": false,
+    "production_promotion_authority": false,
+    "default_route_changed": false,
+    "production_eligible": false,
+    "numerical_contract_qualified": false,
+    "cublaslt_production_eligibility": false,
+    "mtp_used": false
+  },
+  "source": {
+    "branch": "codex/prefill-target-path",
+    "commit": "bbd8ac3722733994acdc6c443b065d8f9703a46a",
+    "tree": "2e54e05e62189b19efe32ad4cc8b78273dc24c07",
+    "subject": "prefill: stage segmented panels and Q128 attention",
+    "binary": {
+      "measurement_path": ".q3x-work/build-panel-exact-no-bf16-large-m/qwen3x-eval-server",
+      "sha256": "67cd1db5afc402ae479d3138658e9f005ac3d5ce0af0ef77765238799740a235",
+      "elf_build_id": "08133247e2d28ea51b9cea67a088d141ee8801ea",
+      "checked_in": false,
+      "build_testing": true
+    }
+  },
+  "checkpoint": {
+    "repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "local_path": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "access": "read_only"
+  },
+  "workload": {
+    "framework": "EvalScope",
+    "framework_version": {
+      "declared": "1.9.1",
+      "artifact_self_attested": false
+    },
+    "api": "openai",
+    "endpoint": "/v1/completions",
+    "url": "http://127.0.0.1:18082/v1/completions",
+    "corpus_path": ".q3x-work/evalscope/corpora/q3x-repository-agent-context-p40000-one-token.jsonl",
+    "corpus_sha256": "8970ac50693f49d1b27d35a0610ecbe5072594330d69b301f4dab731789b6844",
+    "corpus_manifest_path": ".q3x-work/evalscope/corpora/q3x-repository-agent-context-p40k-p60k.manifest.json",
+    "corpus_manifest_sha256": "bf7a458d8406a39ca59187ae77bee2a52f0738758202d2c7280bff346ccd22ff",
+    "prompt_kind": "token_ids",
+    "prompt_tokens": 40000,
+    "prompt_token_ids_u32le_sha256": "76cd23e2d60a9473af0ff24767b1b7ca614b36857697b420246731165156f78f",
+    "request_body_sha256": "e6f5817ad868e85c333db1961fa3dc14c7e65247f0a4241e8bb638870b6575ec",
+    "prompt_fully_consumed": true,
+    "consumed_prompt_tokens": 40000,
+    "measured_requests": 1,
+    "successful_requests": 1,
+    "failed_requests": 0,
+    "warmup_requests": 0,
+    "parallel": 1,
+    "output_tokens": 1,
+    "temperature": 0.0,
+    "seed": 42,
+    "stream": true,
+    "prefix_cache": false,
+    "mtp": false
+  },
+  "server_configuration": {
+    "max_sequence_length": 60001,
+    "max_output_tokens": 1,
+    "prefill_chunk_size": 512,
+    "prefill_execution_mode": "layer-major",
+    "prefill_projection_tactic": "segmented-marlin-operator-panel",
+    "prefill_attention_tactic": "native-group-q64-panel",
+    "projection_backend": "sm87",
+    "queue_capacity": 1,
+    "ingress_threads": 3,
+    "request_max_arena_bytes": 5600000000,
+    "minimum_free_bytes": 4294967296,
+    "nvtx_phase_ranges": false
+  },
+  "route": {
+    "witness_schema": "target-prefill-witness-v4",
+    "execution_mode": "layer-major",
+    "deployment_plan_id": "q3x.sm87.ac-prefill-layermajor-8k.segmented-marlin-operator-panel.native-group-q64-attention.v1",
+    "qualification": "accuracy-unqualified-architecture-candidate",
+    "numerical_contract": {
+      "qualified": false,
+      "reason": "full-state-accuracy-qualification-not-run"
+    },
+    "projection_tactic": "segmented-marlin-operator-panel",
+    "attention_tactic": "native-group-q64-panel",
+    "logical_panel_count": 5,
+    "operator_panel_executor_hits": 320,
+    "segmented_panel_projection_hits": 1680,
+    "segmented_panel_projection_physical_launches": 12992,
+    "native_group_q64_panel_hits": 80,
+    "generic_qt2_hits": 0,
+    "completed_exact_fallback_hits": 0,
+    "completed_forbidden_hits": 0,
+    "forbidden_route_hits": {
+      "prefix_cache": 0,
+      "mtp": 0,
+      "cublaslt": 0,
+      "external_reference": 0,
+      "approximate_numerics": 0
+    },
+    "disabled_boundaries": {
+      "scope": "architecture_candidate_unqualified",
+      "prefix_cache": true,
+      "mtp": true,
+      "cublaslt_production": true,
+      "approximate_numerics": false
+    },
+    "interpretation": "zero forbidden approximate-route hits does not qualify numerical equivalence because approximate_numerics is not a disabled boundary for this unqualified candidate"
+  },
+  "timing": {
+    "evalscope": {
+      "ttft_ms": 179511.19,
+      "request_latency_ms": 179511.2,
+      "prompt_throughput_tok_s": 222.82728101083308
+    },
+    "server": {
+      "queue_ms": 0.022112,
+      "admission_ms": 51.63512,
+      "generation_call_wall_ms": 179447.969267,
+      "pure_prefill_ms": 179395.678907,
+      "pure_prefill_tok_s": 222.970810911986,
+      "finish_prefill_ms": 4.52985,
+      "ttft_ms": 179507.414119,
+      "decode_after_first_ms": 0.0,
+      "response_enqueued_total_ms": 179507.479143
+    },
+    "cross_boundary": {
+      "evalscope_ttft_minus_server_ttft_ms": 3.775881,
+      "evalscope_ttft_minus_server_pure_prefill_ms": 115.511093,
+      "interpretation": "API transport and non-Prefill server work are not the dominant observed bottleneck"
+    }
+  },
+  "comparison": {
+    "native_incumbent": {
+      "source_commit": "a9a065ebaa79c5ece408d016f90f5fee28c5076f",
+      "route": "exact projection plus native-group-q64-panel Attention",
+      "server_pure_prefill_ms": 180014.317964,
+      "server_pure_prefill_tok_s": 222.204547
+    },
+    "candidate_saved_pure_prefill_ms": 618.639057,
+    "candidate_pure_prefill_speedup": 1.003448461,
+    "candidate_pure_prefill_latency_improvement_percent": 0.343661029,
+    "interpretation": "the segmented wrapper is effectively neutral and does not close the structural large-M gap"
+  },
+  "clean_host_preflight": {
+    "server_start": {
+      "path": ".q3x-work/evidence/prefill-target-path/p40k-segmented-marlin-q64-r1/server-start-preflight.json",
+      "sha256": "8f07e78bedc47b28a79f8ffca3683c86c4c47a74c6a619751d086899828f7369",
+      "created_at_utc": "2026-08-09T11:49:34.297612+00:00",
+      "accepted": true,
+      "tegrastats_samples": 5,
+      "maximum_gr3d_percent": 0.0
+    },
+    "immediately_before_request": {
+      "path": ".q3x-work/evidence/prefill-target-path/p40k-segmented-marlin-q64-r1/request-preflight.json",
+      "sha256": "e8fbe46bb1fa8b64852a2f0b16299667973cc3c8ab7d99465753e5e592602ebe",
+      "created_at_utc": "2026-08-09T11:51:10.667408+00:00",
+      "accepted": true,
+      "tegrastats_samples": 5,
+      "maximum_gr3d_percent": 0.0
+    },
+    "idle_authority": "tegrastats plus CPU/process and GPU-device-handle inspection; nvidia-smi was not used"
+  },
+  "artifact_hashes": {
+    ".q3x-work/evidence/prefill-target-path/p40k-segmented-marlin-q64-r1/server.log": "b366a1cbfc790fcc8c50dbc37f6a6725e7e80ea59fa97b041c967c92d42a0847",
+    ".q3x-work/evidence/prefill-target-path/p40k-segmented-marlin-q64-r1/evalscope-client.log": "31145c3718f8d46a46ca21de9ceb65d41822cefa74e912fc52568509f88da287",
+    ".q3x-work/evalscope/results/p40k-segmented-marlin-q64-r1/native/parallel_1_number_1/benchmark_args.json": "39f4f1d655f6fa1b04180e8a39a405b572c6681c9f535ff9a027b6a2a6918555",
+    ".q3x-work/evalscope/results/p40k-segmented-marlin-q64-r1/native/parallel_1_number_1/benchmark_data.db": "9f016669f88af2ca3c66d713c99c1d4a533a381b5a4a8695bcf76a5782607c45",
+    ".q3x-work/evalscope/results/p40k-segmented-marlin-q64-r1/native/parallel_1_number_1/benchmark_summary.json": "b4873be45a4ad5949e02ad029ee6df9a7664855c8d9503079e7a547020903155",
+    ".q3x-work/evalscope/results/p40k-segmented-marlin-q64-r1/native/parallel_1_number_1/workload_throughput.json": "e8ad86fb357f9ae122e5130e04430e4e3e4c0dab0dc9119608b3ae3de64875a7"
+  },
+  "decision": {
+    "stop_loss": {
+      "comparison_metric": "EvalScope external TTFT seconds",
+      "reject_at_or_above_seconds": 165.0,
+      "observed_seconds": 179.51119,
+      "result": "reject"
+    },
+    "p60k_executed": false,
+    "p130k_executed": false,
+    "nsys_executed_for_this_candidate": false,
+    "ncu_executed_for_this_candidate": false,
+    "reason": "the candidate is a segmented Marlin wrapper, not a true native large-M dataflow, and failed the predeclared P40K early-stop gate",
+    "next_architecture": "true native M128 shape-specific Gate, Up, Down, and FP8 projection tactics, followed immediately by the same clean-host P40K real-API gate"
+  }
+}

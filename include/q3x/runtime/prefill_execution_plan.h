@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <string_view>
 
 namespace q3x::runtime {
 
@@ -38,13 +39,15 @@ static_assert(kLayerMajorPrefillMaximumPanelCount == 32U);
 
 // Engine-lifetime full-Attention ownership for the layer-major route.  The
 // incumbent keeps the established C512 arithmetic spans and their exact
-// fixed selector.  The architecture candidate gives one native grouped-Q64
-// online-softmax launch ownership of the complete logical operator panel.
-// This is part of the sealed plan, never a request-time or environment
-// selector.
+// fixed selector.  The default-off architecture tactics give one native
+// grouped online-softmax launch ownership of the complete logical operator
+// panel.  Q64 and Q128-v4 remain distinct accuracy-unqualified tactics so
+// route evidence can never relabel one as the other.  This is part of the
+// sealed plan, never a request-time or environment selector.
 enum class LayerMajorPrefillFullAttentionTactic : std::uint8_t {
   kExactSegmentedC512 = 0,
   kNativeGroupQ64Panel,
+  kNativeGroupQ128V4Panel,
 };
 
 [[nodiscard]] constexpr bool
@@ -53,7 +56,22 @@ is_valid_layer_major_prefill_full_attention_tactic(
   return tactic ==
              LayerMajorPrefillFullAttentionTactic::kExactSegmentedC512 ||
          tactic ==
-             LayerMajorPrefillFullAttentionTactic::kNativeGroupQ64Panel;
+             LayerMajorPrefillFullAttentionTactic::kNativeGroupQ64Panel ||
+         tactic == LayerMajorPrefillFullAttentionTactic::
+                       kNativeGroupQ128V4Panel;
+}
+
+[[nodiscard]] constexpr std::string_view to_string(
+    const LayerMajorPrefillFullAttentionTactic tactic) noexcept {
+  switch (tactic) {
+    case LayerMajorPrefillFullAttentionTactic::kExactSegmentedC512:
+      return "exact-segmented";
+    case LayerMajorPrefillFullAttentionTactic::kNativeGroupQ64Panel:
+      return "native-group-q64-panel";
+    case LayerMajorPrefillFullAttentionTactic::kNativeGroupQ128V4Panel:
+      return "native-group-q128-v4-panel";
+  }
+  return "unknown";
 }
 
 // Engine-lifetime projection ownership for the layer-major route. The exact

@@ -466,8 +466,9 @@ launch_bulk_causal_gqa_sigmoid_gate_24_4_256_group_q64_panel_fixed_cuda(
 // bring-up deliberately retains the v3 linear shared layout and alternating
 // single-slot K/V cp.async pipeline.  XOR-swizzled direct ldmatrix/mma and a
 // true two-stage K/V buffer remain later mechanisms on this same surface.
-// This launcher is explicit, environment-independent, and has no production
-// dispatch or fallback eligibility.
+// This launcher is explicit, environment-independent, and has no default or
+// production dispatch/fallback eligibility.  It may be selected only by the
+// sealed, default-off, accuracy-unqualified layer-major tactic.
 [[nodiscard]] constexpr bool
 can_launch_bulk_causal_gqa_group_q128_v4_panel(
     const std::size_t first_position,
@@ -486,7 +487,7 @@ bulk_causal_gqa_group_q128_v4_grid_x(
 }
 
 [[nodiscard]] int
-launch_bulk_causal_gqa_sigmoid_gate_24_4_256_group_q128_v4_panel_test_cuda(
+launch_bulk_causal_gqa_sigmoid_gate_24_4_256_group_q128_v4_panel_fixed_cuda(
     const std::uint16_t* query_panel, const std::uint16_t* key_cache,
     const std::uint16_t* value_cache, const std::uint16_t* gate_panel,
     std::size_t first_position, std::size_t token_count,

@@ -16,9 +16,11 @@ q3x_document:
 # Qwen3x-Orin current status
 
 Snapshot date: 2026-08-09. Implementation facts audited through code baseline
-`18363ad`. Performance and qualification claims remain tied to their exact
-artifacts and evidence authority; the short sealed layer-major result below is
-a direction screen and does not revise target-length or production status.
+`bbd8ac3`. Performance and qualification claims remain tied to their exact
+artifacts and evidence authority. Both P40K grouped-Q64 records below are
+accuracy-unqualified; the latest segmented-Marlin projection wrapper failed
+its predeclared early-stop gate and does not revise production or
+architecture-selection status.
 
 This is the single point-in-time status page. It records what is target,
 designed, implemented, qualified, and production. Architecture contracts
@@ -70,14 +72,23 @@ must bind the exact native C64 GDN tactic and its real workspace; only M1--M31
 may use the sealed exact fallback.
 
 This closes the system execution and API-observation shape, not the performance
-architecture. Each logical C8192 panel still lowers to ordered physical
-segments of at most C512 and uses the exact admitted M-at-most-512 FP8/NVFP4
-Marlin routes. Both inventories are development/test admissions. True C8192
-NVFP4/FP8 surfaces remain isolated, the evaluation server selects layer-major
-only by an explicit option, and the legacy route remains default. A clean-host
-real-model P1025 OpenAI API/EvalScope screen is cumulatively positive against
-an older greedy/fallback layer-major witness, but remains slower than the
-legacy path and has no target-length selection or production authority.
+architecture. The exact layer-major tactic still lowers Attention and the
+admitted FP8/NVFP4 projections to bounded physical segments. The tree now also
+contains an explicit `native-group-q64-panel` Attention tactic and an explicit
+`segmented-marlin-operator-panel` projection wrapper. Both are default-off and
+accuracy-unqualified. The projection name is intentional: it groups logical
+panel work but still lowers P40K to 12,992 physical FP8/NVFP4 Marlin launches;
+it is not a native large-M implementation. The evaluation server still
+selects layer-major only explicitly, its layer-major Attention and projection
+defaults remain exact, and the server-wide legacy route remains default.
+
+The latest clean-host P40K real-API screen reached 179.51119 s EvalScope TTFT
+(222.83 prompt tok/s) and 179.395679 s server pure Prefill. External TTFT
+exceeded server TTFT by only 3.775881 ms, so the API is not the active measured
+bottleneck. The result breached the predeclared 165-s rejection boundary;
+P60K and profiler work were therefore skipped. This wrapper is rejected, and
+no grouped-Q64 or segmented-projection record has architecture-selection or
+production authority.
 
 Accordingly, current product status is **implemented evaluation runner,
 unqualified production runner**.
@@ -91,10 +102,10 @@ unqualified production runner**.
 | OpenAI-compatible evaluation API | Implemented | `/healthz`, `/v1/models`, completions/chat, non-streaming and committed-token SSE; explicit layer-major mode has bounded Prefill cancellation | Loopback/evaluation-only; no production exposure, security, admission, or multi-tenant contract |
 | Production serving API | Designed | Product/API contract is defined in the SDD | No installed release profile or release attestation exists |
 | Default context capacity | Implemented at 8,192 | Server default `max_sequence_length=8192`, maximum output 4,096, 2 GiB request-arena limit | Does not admit the locked long-context workloads |
-| 40K/60K/130K cold/no-cache service | Target; development compatibility route implemented | Token-ID ingress fails closed on capacity; layer-major startup reserves the request profile and binds a bounded exact segmented route | Whole-process capacity, clean-host target-length execution, native large-M tactics, performance, and qualification are absent |
+| 40K/60K/130K cold/no-cache service | Target; unqualified P40K development routes exercised | Token-ID ingress fails closed on capacity; explicit grouped-Q64 routes consumed all 40K tokens through the real API | Latest P40K is 179.51119 s TTFT and rejected; P60K/P130K, whole-process capacity, exact large-M composition, and qualification remain absent |
 | Prefill/Decode logical separation | Implemented in part | Separate phase APIs/metrics and an explicit state transition exist | Shared runner and synchronization-heavy physical plan prevent independent utilization and overlap |
-| Layer-major C8192 candidate | Executable segmented compatibility route; native large-M candidate still designed | Sealed Engine transaction, balanced logical/physical tails, native exact C64 GDN receipt for eligible segments, true layer-major/logical-panel traversal, typed request profile, two-slot cancellation, 17 bound role receipts, explicit evaluation-server selection, v2 witness, and a clean-host P1025 direction screen | Physical execution remains M512-segmented/test-admitted; true C8192 surfaces, whole-process capacity, target-length real-model API result, release plan, and qualification remain open |
-| Large-M Prefill specializations | Implemented as legacy admissions plus isolated C8192 surfaces | Native NVFP4/FP8/BF16 and Attention/GDN C512 candidates exist in development builds; isolated NVFP4/FP8 surfaces accept candidate-only C8192 panels | Existing options default off/test-only, C8192 surfaces are unbound, and no unique exact release selection exists |
+| Layer-major C8192 candidate | Executable compatibility route plus unqualified panel experiments | Sealed Engine transaction and role receipts remain; explicit grouped-Q64 Attention emits v3/v4 evidence and the segmented projection wrapper emits v4 counters | Both tactics are default-off and not state/accuracy qualified; the wrapper still submits 12,992 physical projection launches at P40K, P60K/P130K and release qualification are open |
+| Large-M Prefill specializations | Legacy admissions and isolated surfaces only; native large-M remains unimplemented | Native NVFP4/FP8/BF16 and Attention/GDN development assets exist; the segmented wrapper is connected to the executor | The connected wrapper is not true large-M and failed its P40K stop-loss; shape-specific M128 Gate/Up, Down, and FP8 ownership remains the next implementation boundary |
 | Decode target | Directionally near target | Short API evidence reports about 104 ms TPOT | At least 10 token/s, long-output stability, and release repetition are not qualified |
 | Production accuracy | Target with partial oracles | Exact deterministic outputs are available for selected prompts/routes | No complete public capability baseline and promotion gate has passed |
 | AOT DeploymentPlan | Implemented internally for the development route; release artifact still designed | Engine-lifetime sealed plan binds model/state/resources/operator identities and one-shot request receipts | No authenticated installed plan artifact is loaded and attested by the default release |
@@ -103,7 +114,7 @@ unqualified production runner**.
 
 ## 4. Current API and capacity facts
 
-At implementation baseline `18363ad`, `EvaluationServerOptions` still defaults
+At implementation baseline `bbd8ac3`, `EvaluationServerOptions` still defaults
 to:
 
 - bind address `127.0.0.1`;
@@ -184,7 +195,90 @@ concurrently.
 
 ## 5. Current performance evidence and its authority
 
-### 5.1 Sealed layer-major P1025 direction screen
+### 5.1 Rejected P40K segmented-Marlin projection screen
+
+At `bbd8ac3`, one clean-host EvalScope 1.9.1 request sent the pinned 40,000
+token-ID prompt through
+`q3x.sm87.ac-prefill-layermajor-8k.segmented-marlin-operator-panel.native-group-q64-attention.v1`.
+The v4 witness attested all 40,000 tokens consumed, five logical panels, 1,680
+logical segmented-projection hits, 12,992 physical Marlin projection launches,
+and 80 grouped-Q64 Attention hits. It reported zero Prefix-cache, MTP,
+cuBLASLt, external-reference, or generic approximate-route hits. The plan is
+nevertheless explicitly `accuracy-unqualified-architecture-candidate` and
+does not qualify numerical equivalence.
+
+| Metric | Result |
+| --- | ---: |
+| EvalScope TTFT | 179,511.19 ms |
+| EvalScope prompt throughput | 222.827281 tok/s |
+| Server TTFT | 179,507.414119 ms |
+| Server pure Prefill | 179,395.678907 ms |
+| Server pure Prefill throughput | 222.970811 tok/s |
+| External TTFT minus server TTFT | 3.775881 ms |
+
+The wrapper saved only 618.639057 ms of server pure Prefill against the
+preceding 180,014.317964-ms exact-projection/grouped-Q64 screen, a 1.003448x
+direction. This is effectively neutral relative to the architectural gap.
+More importantly, the 179.51119-s external TTFT crossed the predeclared
+`>=165 s` rejection boundary. The segmented wrapper was therefore rejected
+immediately; P60K, P130K, NSys, and NCU were not run for it.
+
+This result distinguishes logical grouping from native large-M execution. The
+wrapper does not remove the structural physical-launch/data-presentation
+boundary and cannot be described as a large-M kernel. The next architecture
+work is true M128, shape-specific Gate/Up, Down, and FP8 projection ownership,
+followed immediately by the same clean-host P40K real-API gate. Exact hashes,
+route counters, timings, and the stop decision are frozen in
+[`metadata/qwen36-27b-prefill-p40k-segmented-marlin-q64-api-2026-08-09.json`](metadata/qwen36-27b-prefill-p40k-segmented-marlin-q64-api-2026-08-09.json).
+
+### 5.2 P40K native-group-Q64 Attention direction and T4 profile
+
+At `a9a065e`, one clean-host, one-request real-API/EvalScope plus Nsight
+capture consumed all 40,000 tokens and generated one token through the
+explicit deployment plan
+`q3x.sm87.ac-prefill-layermajor-8k.native-group-q64-panel.v1`. The plan is
+default-off and identifies itself as an
+`accuracy-unqualified-architecture-candidate`; its numerical contract is
+explicitly unqualified. EvalScope 1.9.1 is the declared invocation version,
+but the retained raw artifacts do not self-attest that package version.
+
+| Profiled metric | Result |
+| --- | ---: |
+| EvalScope TTFT | 180,864.404898 ms |
+| Server TTFT | 180,860.665933 ms |
+| Server pure Prefill | 180,345.412463 ms |
+| Server pure Prefill throughput | 221.796604 tok/s |
+| External TTFT minus server TTFT | 3.738965 ms |
+| `q3x.prefill.whole_request` wall | 180,340.668128 ms |
+| Whole-request kernel union | 179,988.524640 ms (99.804734%) |
+| CUDA streams / kernel overlap | 1 / 0 ms |
+
+The top grouped-Q64 Attention kernel consumes 84,318.548 ms (46.8% of
+kernel time). The two dominant still-segmented Marlin signatures consume
+51,960.015 and 26,067.5183 ms (43.4% together), while the BF16 M16 pair adds
+5,432.6802 ms across 120,000 launches. Attention plus the two main Marlin
+signatures occupy 90.021892% of the whole-request wall. The trace therefore
+locates the next composed architecture boundary in both exact causal
+Attention and panel-capable projection ownership; the loopback API is not the
+dominant measured budget. The two-slot host submission window created no
+device-kernel overlap in this trace.
+
+A preceding unprofiled direction screen on the same corpus observed
+180,014.317964 ms (222.204547 tok/s) for this tactic versus
+666,946.668018 ms (59.974810 tok/s) for the exact segmented Attention
+context. That 3.704965x performance direction does not qualify the candidate:
+the exact context generated `The`, while the candidate and profiled runs
+generated `Based`, and no full-state accuracy gate passed. The profiler's
+request-total and whole-workload-throughput fields are also polluted by
+capture-stop/report-generation delay and are not unprofiled baselines.
+
+This is a T4 diagnostic record, not a completed target-length architecture
+witness. P60K and P130K were deliberately not run; the default exact/legacy
+routes, production status, and target remain unchanged. Exact route, hash,
+NVTX, kernel-union, top-20, and limitation evidence is frozen in
+[`metadata/qwen36-27b-prefill-p40k-native-group-q64-panel-nsys-2026-08-09.json`](metadata/qwen36-27b-prefill-p40k-native-group-q64-panel-nsys-2026-08-09.json).
+
+### 5.3 Sealed layer-major P1025 direction screen
 
 Commit `18363ad` was measured through the real OpenAI-compatible API with
 EvalScope 1.9.1 on one hash-locked 1,025-token prompt and one greedy output
@@ -224,7 +318,7 @@ operator-panel dataflow boundary.
 Source:
 [`metadata/qwen36-27b-prefill-layer-major-balanced-p1025-direction-2026-08-09.json`](metadata/qwen36-27b-prefill-layer-major-balanced-p1025-direction-2026-08-09.json).
 
-### 5.2 Latest retained cumulative short external result
+### 5.4 Latest retained cumulative short external result
 
 The latest retained cumulative comparison associated with main used eight
 real requests, prompt lengths 32--1,025, 16 output tokens, concurrency one,
@@ -251,7 +345,7 @@ The reported TPOT corresponds to roughly 9.61 token/s in the best of these
 runs, which remains below the locked 10 token/s release target and is not a
 long-output qualification.
 
-### 5.3 Current cumulative internal Prefix attribution
+### 5.5 Current cumulative internal Prefix attribution
 
 One real-model P513 NSys capture reports:
 
@@ -270,7 +364,7 @@ This is one diagnostic capture, not a retention sample and not the target
 workload. It attributes the admitted P513 path; it cannot establish 40K--130K
 API fitness.
 
-### 5.4 Historical external baseline
+### 5.6 Historical external baseline
 
 The earlier 32-request EvalScope 1.9.1 run used 20--1,160-token prompts and 16
 output tokens. Native mean TTFT was 3,168.79 ms versus 1,144.51 ms for matched
@@ -279,7 +373,7 @@ tok/s. It set Prefill architecture priority, but its native binary provenance
 was incomplete and it was a single-process directional protocol. It remains
 historical evidence, not current release qualification.
 
-### 5.5 The 1,224.7335 tok/s number
+### 5.7 The 1,224.7335 tok/s number
 
 The 1,224.7335 tok/s result belongs to an opt-in Factorized-R1 experimental
 branch and a one-warmup/one-measurement P1853 `/v1/completions` direction
@@ -342,21 +436,17 @@ The explicit development route now implements the whole-request response:
 - a two-slot layer-panel submission window with bounded API cancellation and
   v2 success evidence.
 
-This integration remains a compatibility executor: every logical panel is
-physically segmented at M512, and the exact Marlin inventories that authorize
-it are still test-only. It is therefore an executable route for real API
-evaluation, not yet the native C8192 large-M dataflow, a performance-selected
-architecture, or a production route. Isolated true-C8192 NVFP4/FP8 surfaces
-remain outside the executor. The clean-host P1025 screen confirms that the
-cumulative sealed composition improves its older greedy/fallback witness, but
-it also remains slower than the legacy M512 route. The immediate boundary is
-therefore a private operator-panel executor: bind the existing M-at-most-8192
-FP8/NVFP4 wrappers directly while keeping dependency-ordered GDN, Attention,
-and BF16 work internally segmented until their native panel contracts are
-ready. NVFP4 and large-N FP8 wrappers still lower to ordered kernel segments
-of at most M1024; only N1024 FP8 K/V may issue one M8192 launch. Only after
-that complete composition passes a short API sanity check does the
-40K/60K/130K target-capacity witness become meaningful.
+The exact integration remains a compatibility executor whose physical work is
+segmented and test-admitted. The explicit grouped-Q64 experiment removes that
+boundary only for full Attention, and the connected segmented-Marlin wrapper
+does not remove it for projections: its P40K v4 witness still records 12,992
+physical projection launches. The wrapper's 179.51119-s API result failed the
+165-s stop-loss, so it is closed without P60K or a profiler pass. The immediate
+architecture boundary is now true M128, shape-specific NVFP4 Gate/Up and Down
+plus FP8 projection ownership, followed immediately by the same P40K real-API
+gate. Exact causal Attention remains part of the complete composition and
+accuracy contract. P60K/P130K stay deferred until P40K is both competitive
+and accuracy-admissible.
 
 Unpinned or dirty experimental branches are intentionally excluded from this
 status snapshot. A candidate affects current truth only after its exact commit,
@@ -373,7 +463,7 @@ active dependency order and exit criteria are in
 | --- | --- | --- |
 | Product API and long-context admission | Configured token-ID validation and host requirement plans exist; 40K/60K/130K still do not fit or execute through the default contract | P1 |
 | Exact deliverable identity | No unique `BUILD_TESTING=OFF` release or authenticated DeploymentPlan | P2 |
-| Target-length performance and physical Prefill plan | Explicit balanced/sealed layer-major compatibility route has a positive P1025 direction screen, but remains physically M512-segmented/test-admitted and has no valid target-length API witness; production remains legacy M512 | P3 |
+| Target-length performance and physical Prefill plan | The latest segmented-projection/grouped-Q64 P40K request reached 179.51119 s TTFT and failed its 165-s stop-loss; it remains default-off and accuracy-unqualified, and its 12,992 projection launches prove that true shape-specific large-M work is still absent | P3 |
 | Accuracy, capability, stability, and release evidence | Partial deterministic oracles; no complete qualification bundle | P4 |
 | Packaging and operations | No attested install/startup/upgrade lane | P5 |
 
@@ -391,10 +481,11 @@ process/device-handle inspection, never `nvidia-smi` as the idle authority.
 
 Until the gaps above close, use the following language:
 
-- **Current:** real-model native evaluation runner with short-workload
-  cumulative admission evidence and an explicit, unqualified balanced/sealed
-  segmented layer-major route whose P1025 direction screen reaches about
-  371 pure Prefill tok/s.
+- **Current:** real-model native evaluation runner with explicit, default-off,
+  accuracy-unqualified grouped-Q64 and segmented-projection experiments. The
+  latest P40K real-API screen reached 179.51119 s TTFT (222.83 prompt tok/s),
+  failed its 165-s stop-loss, and was rejected without P60K or profiling. The
+  exact/default routes and production status are unchanged.
 - **Not current:** production server, 40K--130K support, release-grade vLLM
   parity, 1,224.7335 tok/s lossless Prefill, or a fully qualified 10 token/s
   Decode release.

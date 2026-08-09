@@ -221,13 +221,13 @@ void run_v4_equivalence(TestContext& test, cudaStream_t stream) {
 
   test.expect(
       q3x::runtime::
-          launch_bulk_causal_gqa_sigmoid_gate_24_4_256_group_q128_v4_panel_test_cuda(
+          launch_bulk_causal_gqa_sigmoid_gate_24_4_256_group_q128_v4_panel_fixed_cuda(
               query + 1U, key, value, gate, kFirstPosition, kTokenCount,
               candidate, stream) == static_cast<int>(cudaErrorInvalidValue),
       "v4 entry rejects a misaligned vector operand");
   test.expect(
       q3x::runtime::
-          launch_bulk_causal_gqa_sigmoid_gate_24_4_256_group_q128_v4_panel_test_cuda(
+          launch_bulk_causal_gqa_sigmoid_gate_24_4_256_group_q128_v4_panel_fixed_cuda(
               query, key, value, gate, kFirstPosition, kTokenCount, query,
               stream) == static_cast<int>(cudaErrorInvalidValue),
       "v4 entry rejects overlapping input and output ranges");
@@ -240,7 +240,7 @@ void run_v4_equivalence(TestContext& test, cudaStream_t stream) {
       "Q64 v3 baseline launch");
   ready = test.cuda_ok(
               static_cast<cudaError_t>(q3x::runtime::
-                  launch_bulk_causal_gqa_sigmoid_gate_24_4_256_group_q128_v4_panel_test_cuda(
+                  launch_bulk_causal_gqa_sigmoid_gate_24_4_256_group_q128_v4_panel_fixed_cuda(
                       query, key, value, gate, kFirstPosition, kTokenCount,
                       candidate, stream)),
               "Q128 v4 launch") &&
@@ -249,7 +249,7 @@ void run_v4_equivalence(TestContext& test, cudaStream_t stream) {
     const ScopedHostileEnvironment hostile_environment;
     ready = test.cuda_ok(
                 static_cast<cudaError_t>(q3x::runtime::
-                    launch_bulk_causal_gqa_sigmoid_gate_24_4_256_group_q128_v4_panel_test_cuda(
+                    launch_bulk_causal_gqa_sigmoid_gate_24_4_256_group_q128_v4_panel_fixed_cuda(
                         query, key, value, gate, kFirstPosition,
                         kTokenCount, replay, stream)),
                 "hostile-environment v4 replay") &&
@@ -277,7 +277,7 @@ void run_v4_equivalence(TestContext& test, cudaStream_t stream) {
   if (ready) {
     ready = test.cuda_ok(
                 static_cast<cudaError_t>(q3x::runtime::
-                    launch_bulk_causal_gqa_sigmoid_gate_24_4_256_group_q128_v4_panel_test_cuda(
+                    launch_bulk_causal_gqa_sigmoid_gate_24_4_256_group_q128_v4_panel_fixed_cuda(
                         query, key, value, gate, kFirstPosition,
                         kTokenCount, replay, stream)),
                 "capture v4 launch") &&
@@ -496,7 +496,7 @@ void run_p40k_panel_shape_equivalence(TestContext& test,
         "P40K-shape Q64 baseline launch");
     ready = test.cuda_ok(
                 static_cast<cudaError_t>(q3x::runtime::
-                    launch_bulk_causal_gqa_sigmoid_gate_24_4_256_group_q128_v4_panel_test_cuda(
+                    launch_bulk_causal_gqa_sigmoid_gate_24_4_256_group_q128_v4_panel_fixed_cuda(
                         query, key, value, gate, shape.first_position,
                         shape.token_count, candidate, stream)),
                 "P40K-shape Q128 v4 launch") &&

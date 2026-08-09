@@ -595,17 +595,26 @@ std::string sha256_token_ids_u32le(
 std::string serialize_target_prefill_witness(
     const TargetPrefillWitnessRecord& record) {
   const bool sealed = !record.deployment_plan_id.empty();
-  const bool candidate_v3 =
+  const bool candidate_q64_v3 =
       record.deployment_plan_id ==
       runtime::kLayerMajorNativeGroupQ64PanelDeploymentPlanId;
+  const bool candidate_q128_v3 =
+      record.deployment_plan_id ==
+      runtime::kLayerMajorNativeGroupQ128V4PanelDeploymentPlanId;
+  const bool candidate_v3 = candidate_q64_v3 || candidate_q128_v3;
   const bool projection_candidate_v4 =
       record.deployment_plan_id ==
           runtime::kLayerMajorSegmentedMarlinProjectionDeploymentPlanId ||
       record.deployment_plan_id == runtime::
-          kLayerMajorSegmentedMarlinProjectionGroupQ64DeploymentPlanId;
-  const bool projection_candidate_uses_native_attention =
+          kLayerMajorSegmentedMarlinProjectionGroupQ64DeploymentPlanId ||
+      record.deployment_plan_id == runtime::
+          kLayerMajorSegmentedMarlinProjectionGroupQ128V4DeploymentPlanId;
+  const bool projection_candidate_uses_q64_attention =
       record.deployment_plan_id == runtime::
           kLayerMajorSegmentedMarlinProjectionGroupQ64DeploymentPlanId;
+  const bool projection_candidate_uses_q128_v4_attention =
+      record.deployment_plan_id == runtime::
+          kLayerMajorSegmentedMarlinProjectionGroupQ128V4DeploymentPlanId;
   const bool accuracy_unqualified_candidate =
       candidate_v3 || projection_candidate_v4;
   std::string output =
@@ -684,25 +693,33 @@ std::string serialize_target_prefill_witness(
               std::to_string(record.submission_window_retirements);
     if (candidate_v3) {
       output += ",\"attention_tactic\":";
-      append_json_string(output, "native-group-q64-panel");
+      append_json_string(output, candidate_q128_v3
+                                     ? "native-group-q128-v4-panel"
+                                     : "native-group-q64-panel");
       output += ",\"operator_panel_executor_hits\":" +
                 std::to_string(record.operator_panel_executor_hits) +
                 ",\"native_group_q64_panel_hits\":" +
                 std::to_string(record.native_group_q64_panel_hits) +
+                ",\"native_group_q128_v4_panel_hits\":" +
+                std::to_string(record.native_group_q128_v4_panel_hits) +
                 ",\"generic_qt2_hits\":" +
                 std::to_string(record.generic_qt2_hits);
     } else if (projection_candidate_v4) {
       output += ",\"projection_tactic\":";
       append_json_string(output, "segmented-marlin-operator-panel");
       output += ",\"attention_tactic\":";
-      append_json_string(output,
-                         projection_candidate_uses_native_attention
-                             ? "native-group-q64-panel"
-                             : "exact-segmented");
+      append_json_string(
+          output, projection_candidate_uses_q128_v4_attention
+                      ? "native-group-q128-v4-panel"
+                  : projection_candidate_uses_q64_attention
+                      ? "native-group-q64-panel"
+                      : "exact-segmented");
       output += ",\"operator_panel_executor_hits\":" +
                 std::to_string(record.operator_panel_executor_hits) +
                 ",\"native_group_q64_panel_hits\":" +
                 std::to_string(record.native_group_q64_panel_hits) +
+                ",\"native_group_q128_v4_panel_hits\":" +
+                std::to_string(record.native_group_q128_v4_panel_hits) +
                 ",\"generic_qt2_hits\":" +
                 std::to_string(record.generic_qt2_hits) +
                 ",\"segmented_panel_projection_hits\":" +
