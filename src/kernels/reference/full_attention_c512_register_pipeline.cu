@@ -7,6 +7,8 @@
  * Licensed under the Apache License, Version 2.0.  This file is a
  * fixed-model, SM87-specific modification and is not part of FlashInfer.
  */
+#include "q3x/runtime/decode_ops.h"
+
 #include <cuda_bf16.h>
 #include <cuda_runtime.h>
 #if defined(Q3X_ENABLE_FLASHINFER_PREFILL_ATTENTION_ADMISSION)
@@ -1001,7 +1003,82 @@ void bulk_causal_gqa_sigmoid_gate_24_4_256_c512_group_q64_kernel(
   }
 }
 
+[[nodiscard]] int launch_bulk_gqa_group_q64_v3_fixed_impl(
+    const std::uint16_t* const query,
+    const std::uint16_t* const key_cache,
+    const std::uint16_t* const value_cache,
+    const std::uint16_t* const gate,
+    const std::size_t first_position,
+    const std::size_t token_count,
+    std::uint16_t* const output,
+    const cudaStream_t stream) noexcept {
+  constexpr std::size_t kV3DynamicSharedBytes =
+      sizeof(BulkGqaGroupSharedStorage);
+  const bool exact_c512 =
+      first_position == 0U && token_count == kBulkGqaC512TokenCount;
+  const cudaError_t attribute_status =
+      exact_c512
+          ? cudaFuncSetAttribute(
+                bulk_causal_gqa_sigmoid_gate_24_4_256_c512_group_q64_kernel<
+                    true>,
+                cudaFuncAttributeMaxDynamicSharedMemorySize,
+                static_cast<int>(kV3DynamicSharedBytes))
+          : cudaFuncSetAttribute(
+                bulk_causal_gqa_sigmoid_gate_24_4_256_c512_group_q64_kernel<
+                    false>,
+                cudaFuncAttributeMaxDynamicSharedMemorySize,
+                static_cast<int>(kV3DynamicSharedBytes));
+  if (attribute_status != cudaSuccess) {
+    return static_cast<int>(attribute_status);
+  }
+  const dim3 blocks(
+      exact_c512
+          ? kBulkGqaGroupGridX
+          : static_cast<unsigned int>(
+                (token_count * kBulkGqaQueriesPerKv +
+                 kBulkGqaGroupQueryTile - 1U) /
+                kBulkGqaGroupQueryTile),
+      1U, kBulkGqaKvHeads);
+  if (exact_c512) {
+    bulk_causal_gqa_sigmoid_gate_24_4_256_c512_group_q64_kernel<true>
+        <<<blocks, kBulkGqaRegisterThreads, kV3DynamicSharedBytes, stream>>>(
+            query, key_cache, value_cache, gate, output,
+            static_cast<unsigned int>(token_count));
+  } else {
+    const unsigned int packed_tile_range =
+        static_cast<unsigned int>(first_position) |
+        (static_cast<unsigned int>(token_count)
+         << kBulkGqaRangeFirstPositionBits);
+    bulk_causal_gqa_sigmoid_gate_24_4_256_c512_group_q64_kernel<false>
+        <<<blocks, kBulkGqaRegisterThreads, kV3DynamicSharedBytes, stream>>>(
+            query, key_cache, value_cache, gate, output,
+            packed_tile_range);
+  }
+  return static_cast<int>(cudaGetLastError());
+}
+
 }  // namespace
+
+int launch_bulk_causal_gqa_sigmoid_gate_24_4_256_c512_group_q64_v3_fixed_cuda(
+    const std::uint16_t* const query,
+    const std::uint16_t* const key_cache,
+    const std::uint16_t* const value_cache,
+    const std::uint16_t* const gate,
+    const std::size_t first_position,
+    const std::size_t token_count,
+    std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  if (query == nullptr || key_cache == nullptr || value_cache == nullptr ||
+      gate == nullptr || output == nullptr ||
+      !use_bulk_causal_gqa_group_q64_prefill(first_position, token_count)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const auto stream = static_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  return launch_bulk_gqa_group_q64_v3_fixed_impl(
+      query, key_cache, value_cache, gate, first_position, token_count,
+      output, stream);
+}
 
 int launch_bulk_causal_gqa_sigmoid_gate_24_4_256_c512_register_pipeline_cuda(
     const std::uint16_t* const query,
@@ -1057,49 +1134,9 @@ int launch_bulk_causal_gqa_sigmoid_gate_24_4_256_c512_register_pipeline_cuda(
     return static_cast<int>(cudaGetLastError());
   }
 
-  constexpr std::size_t kV3DynamicSharedBytes =
-      sizeof(BulkGqaGroupSharedStorage);
-  const bool exact_c512 =
-      first_position == 0U && token_count == kBulkGqaC512TokenCount;
-  const cudaError_t attribute_status =
-      exact_c512
-          ? cudaFuncSetAttribute(
-                bulk_causal_gqa_sigmoid_gate_24_4_256_c512_group_q64_kernel<
-                    true>,
-                cudaFuncAttributeMaxDynamicSharedMemorySize,
-                static_cast<int>(kV3DynamicSharedBytes))
-          : cudaFuncSetAttribute(
-                bulk_causal_gqa_sigmoid_gate_24_4_256_c512_group_q64_kernel<
-                    false>,
-                cudaFuncAttributeMaxDynamicSharedMemorySize,
-                static_cast<int>(kV3DynamicSharedBytes));
-  if (attribute_status != cudaSuccess) {
-    return static_cast<int>(attribute_status);
-  }
-  const dim3 blocks(
-      exact_c512
-          ? kBulkGqaGroupGridX
-          : static_cast<unsigned int>(
-                (token_count * kBulkGqaQueriesPerKv +
-                 kBulkGqaGroupQueryTile - 1U) /
-                kBulkGqaGroupQueryTile),
-      1U, kBulkGqaKvHeads);
-  if (exact_c512) {
-    bulk_causal_gqa_sigmoid_gate_24_4_256_c512_group_q64_kernel<true>
-        <<<blocks, kBulkGqaRegisterThreads, kV3DynamicSharedBytes, stream>>>(
-            query, key_cache, value_cache, gate, output,
-            static_cast<unsigned int>(token_count));
-  } else {
-    const unsigned int packed_tile_range =
-        static_cast<unsigned int>(first_position) |
-        (static_cast<unsigned int>(token_count)
-         << kBulkGqaRangeFirstPositionBits);
-    bulk_causal_gqa_sigmoid_gate_24_4_256_c512_group_q64_kernel<false>
-        <<<blocks, kBulkGqaRegisterThreads, kV3DynamicSharedBytes, stream>>>(
-            query, key_cache, value_cache, gate, output,
-            packed_tile_range);
-  }
-  return static_cast<int>(cudaGetLastError());
+  return launch_bulk_gqa_group_q64_v3_fixed_impl(
+      query, key_cache, value_cache, gate, first_position, token_count,
+      output, stream);
 }
 
 }  // namespace q3x::runtime

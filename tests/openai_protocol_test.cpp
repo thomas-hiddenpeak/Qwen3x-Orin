@@ -296,7 +296,7 @@ void test_target_prefill_witness_evidence(TestContext& test) {
   sealed_record.bounded_submission_window = true;
   sealed_record.submission_window_retirements = 128U;
   sealed_record.deployment_plan_id =
-      "q3x.sm87.exact.layer-major-c8192.balanced-segments.v2";
+      q3x::runtime::kLayerMajorOperatorPanelDeploymentPlanId;
   const std::string sealed_serialized =
       server::serialize_target_prefill_witness(sealed_record);
   test.expect(
@@ -308,9 +308,27 @@ void test_target_prefill_witness_evidence(TestContext& test) {
               R"("execution_mode":"layer-major","logical_panel_count":2,"request_memory_profile":"layer-major-c8192","bounded_submission_window":true,"submission_window_retirements":128)") !=
               std::string::npos &&
           sealed_serialized.find(
-              R"("deployment_plan":{"available":true,"scope":"engine_lifetime_sealed_native_plan","id":"q3x.sm87.exact.layer-major-c8192.balanced-segments.v2"})") !=
+              R"("deployment_plan":{"available":true,"scope":"engine_lifetime_sealed_native_plan","id":"q3x.sm87.exact.layer-major-c8192.operator-panel.v3"})") !=
               std::string::npos,
-      "sealed whole-request evidence upgrades to the stable v2 contract");
+      "sealed whole-request evidence upgrades to the stable v3 contract");
+
+  server::TargetPrefillWitnessRecord unbound_layer_major_record =
+      sealed_record;
+  unbound_layer_major_record.deployment_plan_id.clear();
+  const std::string unbound_layer_major_serialized =
+      server::serialize_target_prefill_witness(unbound_layer_major_record);
+  test.expect(
+      valid_json(unbound_layer_major_serialized) &&
+          unbound_layer_major_serialized.find(
+              R"("record":"target-prefill-witness-v1","schema_version":1)") !=
+              std::string::npos &&
+          unbound_layer_major_serialized.find(
+              R"("deployment_plan":{"available":false,"reason":"not_implemented"})") !=
+              std::string::npos &&
+          unbound_layer_major_serialized.find(
+              R"("record":"target-prefill-witness-v2")") ==
+              std::string::npos,
+      "layer-major mode alone cannot synthesize a sealed deployment plan");
 
   server::TargetPrefillWitnessRecord invalid_record = record;
   invalid_record.prefill_route_evidence.expected_layer_passes = 3U;

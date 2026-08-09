@@ -9,9 +9,29 @@
 #include <iostream>
 #include <limits>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 namespace {
+
+using FullAttentionPreprocessReference256Launch = int (*)(
+    const std::uint16_t*, std::uint16_t*, const std::uint16_t*,
+    const std::uint16_t*, float, std::uint16_t*, std::uint16_t*,
+    const float*, const float*, std::size_t, std::size_t, void*) noexcept;
+
+using FixedBulkCausalGqaLaunch = int (*)(
+    const std::uint16_t*, const std::uint16_t*, const std::uint16_t*,
+    const std::uint16_t*, std::size_t, std::size_t, std::uint16_t*,
+    void*) noexcept;
+
+static_assert(std::is_same_v<
+              decltype(&q3x::runtime::
+                           launch_full_attention_preprocess_24_4_256_64_reference_256_cuda),
+              FullAttentionPreprocessReference256Launch>);
+static_assert(std::is_same_v<
+              decltype(&q3x::runtime::
+                           launch_bulk_causal_gqa_sigmoid_gate_24_4_256_fixed_cuda),
+              FixedBulkCausalGqaLaunch>);
 
 class TestContext {
  public:
@@ -66,6 +86,50 @@ void expect_bf16_near(TestContext& test, const std::uint16_t actual,
       std::max(2.0e-3, std::fabs(expected) * 8.0e-3);
   test.expect_near(static_cast<double>(decode_bf16(actual)), expected,
                    tolerance, message);
+}
+
+void test_fixed_bulk_causal_gqa_contract(TestContext& test) {
+  using q3x::runtime::FixedBulkCausalGqaPrefillTactic;
+  using q3x::runtime::select_fixed_bulk_causal_gqa_prefill_tactic;
+  constexpr std::size_t kMaximum =
+      q3x::runtime::kBulkCausalGqaMaximumSequenceLength;
+
+  test.expect(
+      select_fixed_bulk_causal_gqa_prefill_tactic(0U, 2U) ==
+              FixedBulkCausalGqaPrefillTactic::kGroupQ64V3 &&
+          select_fixed_bulk_causal_gqa_prefill_tactic(0U, 512U) ==
+              FixedBulkCausalGqaPrefillTactic::kGroupQ64V3 &&
+          select_fixed_bulk_causal_gqa_prefill_tactic(512U, 2U) ==
+              FixedBulkCausalGqaPrefillTactic::kGroupQ64V3 &&
+          select_fixed_bulk_causal_gqa_prefill_tactic(512U, 512U) ==
+              FixedBulkCausalGqaPrefillTactic::kGroupQ64V3,
+      "sealed bulk GQA fixes every legal P0/P512 tile to V3 group-Q64");
+  test.expect(
+      select_fixed_bulk_causal_gqa_prefill_tactic(1U, 2U) ==
+              FixedBulkCausalGqaPrefillTactic::kGenericQt2 &&
+          select_fixed_bulk_causal_gqa_prefill_tactic(257U, 256U) ==
+              FixedBulkCausalGqaPrefillTactic::kGenericQt2 &&
+          select_fixed_bulk_causal_gqa_prefill_tactic(511U, 512U) ==
+              FixedBulkCausalGqaPrefillTactic::kGenericQt2 &&
+          select_fixed_bulk_causal_gqa_prefill_tactic(513U, 512U) ==
+              FixedBulkCausalGqaPrefillTactic::kGenericQt2 &&
+          select_fixed_bulk_causal_gqa_prefill_tactic(kMaximum - 512U,
+                                                      512U) ==
+              FixedBulkCausalGqaPrefillTactic::kGenericQt2,
+      "sealed bulk GQA fixes every other legal append to generic QT2");
+  test.expect(
+      select_fixed_bulk_causal_gqa_prefill_tactic(0U, 1U) ==
+              FixedBulkCausalGqaPrefillTactic::kInvalid &&
+          select_fixed_bulk_causal_gqa_prefill_tactic(0U, 513U) ==
+              FixedBulkCausalGqaPrefillTactic::kInvalid &&
+          select_fixed_bulk_causal_gqa_prefill_tactic(kMaximum - 511U,
+                                                      512U) ==
+              FixedBulkCausalGqaPrefillTactic::kInvalid &&
+          select_fixed_bulk_causal_gqa_prefill_tactic(
+              std::numeric_limits<std::size_t>::max(), 2U) ==
+              FixedBulkCausalGqaPrefillTactic::kInvalid,
+      "sealed bulk GQA rejects single-token, oversized, and causal-range "
+      "overflow geometry");
 }
 
 void test_embedding(TestContext& test) {
@@ -586,6 +650,7 @@ void test_validation_and_nonfinite(TestContext& test) {
 
 int main() {
   TestContext test;
+  test_fixed_bulk_causal_gqa_contract(test);
   test_embedding(test);
   test_norms(test);
   test_headwise_norms(test);

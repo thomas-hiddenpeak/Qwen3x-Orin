@@ -122,13 +122,22 @@ struct NvFp4DownConsumerOrderSidecarDescriptor {
   std::size_t input_size = 0U;
 };
 
+enum class NvFp4MarlinGateUpLayout : std::uint8_t {
+  kUnbound = 0,
+  kCanonicalGateThenUp,
+  kInterleavedGateUp,
+};
+
 // One complete test-admission Marlin sidecar set for a dense layer. Gate and
 // Up are represented by one N=34816 projection and therefore share all three
-// pointers. Down retains its independent K/N shape and launch. Descriptor
-// storage is copied by attach; the six pointed-to device arenas must outlive
-// ModelWeights and all queued consumers.
+// pointers and one explicit immutable output-column layout. Down retains its
+// independent K/N shape and launch. Descriptor storage is copied by attach;
+// the six pointed-to device arenas must outlive ModelWeights and all queued
+// consumers.
 struct NvFp4MarlinPrefillSidecarDescriptor {
   std::size_t layer_index = 0U;
+  NvFp4MarlinGateUpLayout gate_up_layout =
+      NvFp4MarlinGateUpLayout::kUnbound;
   const std::uint8_t* gate_up_weight = nullptr;
   const std::uint8_t* gate_up_scales = nullptr;
   const float* gate_up_global_scale = nullptr;
@@ -203,6 +212,8 @@ struct NvFp4LinearWeight {
   // these views unless the dedicated admission build is enabled. Gate and Up
   // bindings point at the same merged N=34816 sidecar; Down points at its own
   // N=5120/K=17408 sidecar.
+  NvFp4MarlinGateUpLayout prefill_marlin_gate_up_layout =
+      NvFp4MarlinGateUpLayout::kUnbound;
   const std::uint8_t* prefill_marlin_weight = nullptr;
   const std::uint8_t* prefill_marlin_scales = nullptr;
   const float* prefill_marlin_global_scale = nullptr;

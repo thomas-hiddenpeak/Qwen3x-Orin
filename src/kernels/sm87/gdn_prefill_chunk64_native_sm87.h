@@ -107,6 +107,20 @@ exchange_vllm_layout_wy_route_for_test(
     const std::uint16_t* silu_gate, float norm_epsilon,
     std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
 
+// Sealed production entry point. It fixes the admitted packless compact-QK,
+// vLLM-layout WY, faithful-state, and chunk-O tactics and never consults the
+// environment or any test selector/hook. The arithmetic therefore remains
+// stable when the caller binds the exact layer-major contract.
+[[nodiscard]] int launch_fixed_production(
+    void* workspace, std::size_t workspace_capacity_bytes,
+    const std::uint16_t* conv_qkv, std::size_t token_count,
+    const std::uint16_t* a, const std::uint16_t* b,
+    const std::uint16_t* A_log, const std::uint16_t* dt_bias,
+    const std::uint16_t* state_input, std::uint16_t* state_output,
+    float l2_epsilon, const std::uint16_t* norm_weight,
+    const std::uint16_t* silu_gate, float norm_epsilon,
+    std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
+
 // Same-ELF structural candidate boundary.  The first call performs the
 // complete token-parallel causal convolution and writes compact normalized
 // Q/K directly into this launcher's private workspace.  The second consumes

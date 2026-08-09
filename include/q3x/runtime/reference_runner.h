@@ -717,6 +717,11 @@ class ReferenceRunner {
 
   struct Views;
 
+  enum class LayerMajorLayerExecutor : std::uint8_t {
+    kCompatibilitySegments = 0,
+    kOperatorPanel,
+  };
+
   enum class WholeRequestPrefillStagePhase : std::uint8_t {
     kIdle = 0,
     kExecuting,
@@ -747,6 +752,17 @@ class ReferenceRunner {
       const std::uint32_t* input_token_ids, std::size_t token_count,
       const PrefillExecutionPlan& immutable_topology,
       const ReferenceWholeRequestPrefillOptions& options = {}) noexcept;
+  [[nodiscard]] ReferenceWholeRequestPrefillOutcome
+  prefill_whole_request_layer_major_panel_core(
+      const std::uint32_t* input_token_ids, std::size_t token_count,
+      const PrefillExecutionPlan& immutable_topology,
+      const ReferenceWholeRequestPrefillOptions& options = {}) noexcept;
+  [[nodiscard]] ReferenceWholeRequestPrefillOutcome
+  prefill_whole_request_layer_major_core(
+      const std::uint32_t* input_token_ids, std::size_t token_count,
+      const PrefillExecutionPlan& immutable_topology,
+      LayerMajorLayerExecutor executor,
+      const ReferenceWholeRequestPrefillOptions& options) noexcept;
   [[nodiscard]] ReferenceStepOutcome
   finish_whole_request_compatibility_core(
       std::uint32_t input_token_id,
@@ -887,6 +903,11 @@ class ReferenceRunner {
       std::uint32_t first_position,
       const PrefillTileExecutionControl& control,
       const Views& execution_views) noexcept;
+  [[nodiscard]] PrefillLayerSegmentEnqueueResult
+  enqueue_prefill_layer_panel(
+      const std::uint32_t* input_token_ids, std::size_t token_count,
+      std::uint32_t first_position, std::size_t layer,
+      const ReferenceLayerMajorRequestViews& request_views) noexcept;
   [[nodiscard]] static bool same_prefill_execution_progress(
       const PrefillExecutionProgress& left,
       const PrefillExecutionProgress& right) noexcept;

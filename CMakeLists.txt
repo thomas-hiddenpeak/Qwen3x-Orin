@@ -1301,6 +1301,39 @@ if(BUILD_TESTING)
     SKIP_RETURN_CODE 77
     TIMEOUT 900
   )
+
+  if(Q3X_BUILD_NVFP4_MARLIN_PREFILL_ADMISSION AND
+     Q3X_BUILD_FP8_MARLIN_PREFILL_ADMISSION AND
+     Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION)
+    add_executable(
+      q3x_reference_prefill_operator_panel_equivalence_e2e_test
+      tests/reference_prefill_operator_panel_equivalence_e2e_test.cpp
+    )
+    target_include_directories(
+      q3x_reference_prefill_operator_panel_equivalence_e2e_test
+      PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/runtime"
+    )
+    target_link_libraries(
+      q3x_reference_prefill_operator_panel_equivalence_e2e_test
+      PRIVATE q3x::engine q3x::core
+    )
+    q3x_enable_warnings(
+      q3x_reference_prefill_operator_panel_equivalence_e2e_test
+    )
+    add_test(NAME reference_prefill_operator_panel_equivalence_e2e
+      COMMAND q3x_reference_prefill_operator_panel_equivalence_e2e_test
+              "${_q3x_e2e_model_dir}"
+    )
+    set_tests_properties(
+      reference_prefill_operator_panel_equivalence_e2e PROPERTIES
+      LABELS "e2e;model;sm87;prefill;operator_panel;correctness;bitwise"
+      RESOURCE_LOCK q3x_sm87_gpu
+      RUN_SERIAL TRUE
+      SKIP_RETURN_CODE 77
+      TIMEOUT 3600
+    )
+  endif()
+
   add_executable(q3x_reference_prefill_bulk_attention_e2e_test
     tests/reference_prefill_bulk_attention_e2e_test.cpp
   )

@@ -76,6 +76,9 @@ enum class ReferencePrefillExecutionMode : std::uint8_t {
   kWholeRequestLayerMajor,
 };
 
+inline constexpr std::string_view kLayerMajorOperatorPanelDeploymentPlanId =
+    "q3x.sm87.exact.layer-major-c8192.operator-panel.v3";
+
 [[nodiscard]] constexpr bool is_valid_reference_prefill_execution_mode(
     const ReferencePrefillExecutionMode mode) noexcept {
   return mode == ReferencePrefillExecutionMode::kLegacyC512Tiled ||
@@ -223,6 +226,10 @@ struct ReferenceGeneration {
   std::size_t decode_graph_serial_fallbacks = 0U;
   ReferencePrefillExecutionMode prefill_execution_mode =
       ReferencePrefillExecutionMode::kLegacyC512Tiled;
+  // Empty for legacy execution. Whole-request execution copies the identity
+  // from the engine-lifetime BoundPrefillExecutionPlan; gateways must not
+  // infer it from the public mode enum.
+  std::string prefill_deployment_plan_id;
   // Number of complete logical 64-layer route records expected for this
   // request. In legacy mode this follows controller Prefix/final executions;
   // in whole-request mode it is the immutable topology's C8192 panel count,

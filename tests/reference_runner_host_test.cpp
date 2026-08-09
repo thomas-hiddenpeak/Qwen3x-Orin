@@ -2071,6 +2071,42 @@ void test_prefill_layer_route_reducer(TestContext& test) {
           Peer::reduced_route(maximum_panel).token_count == 8'192U,
       "same-layer reducer rejects an unbounded seventeenth C512 segment");
 
+  runtime::PrefillRouteEvidence logical_c8192_panel;
+  runtime::ReferenceRunnerStatus logical_c8192_status;
+  for (std::size_t layer = 0U;
+       logical_c8192_status.ok() &&
+       layer < runtime::kReferenceDecoderLayerCount;
+       ++layer) {
+    const Peer::LayerRouteFragment fragment =
+        Peer::production_layer_route(layer, 0U, 8'192U);
+    logical_c8192_status =
+        Peer::collapse_layer_route(fragment, logical_c8192_panel);
+  }
+  constexpr std::array<std::uint64_t,
+                       runtime::kPrefillOperatorRoleCount>
+      kExpectedLogicalC8192ProductionHits{{64U, 64U, 96U, 48U,
+                                           64U, 16U, 48U}};
+  bool logical_c8192_counts_exact = logical_c8192_status.ok();
+  for (std::size_t role = 0U;
+       logical_c8192_counts_exact &&
+       role < logical_c8192_panel.operators.size();
+       ++role) {
+    const runtime::PrefillOperatorRouteCounts& counts =
+        logical_c8192_panel.operators[role];
+    logical_c8192_counts_exact =
+        counts.production_hits == kExpectedLogicalC8192ProductionHits[role] &&
+        counts.exact_fallback_hits == 0U && counts.forbidden_hits == 0U;
+  }
+  for (const std::uint64_t boundary_hits :
+       logical_c8192_panel.forbidden_boundary_hits) {
+    logical_c8192_counts_exact =
+        logical_c8192_counts_exact && boundary_hits == 0U;
+  }
+  test.expect(
+      logical_c8192_counts_exact,
+      "one direct logical C8192 panel collapses once per layer to exact "
+      "64/64/96/48/64/16/48 production counts");
+
   Peer::LayerRouteReducer malformed;
   Peer::LayerRouteFragment bad_slots =
       Peer::production_layer_route(0U, 0U, 32U);

@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <string_view>
 
 namespace q3x::runtime::reference_engine_detail {
 
@@ -27,15 +28,15 @@ enum class BoundPrefillPlanError : std::uint8_t {
 };
 
 enum class NativePrefillTactic : std::uint8_t {
-  kNvfp4GateUpCanonicalPanel = 0,
-  kNvfp4DownCanonicalPanel,
-  kFp8CanonicalPanel,
-  kBf16CanonicalPanel,
-  kExactGdnChunk64Native,
-  kExactCausalAttentionCanonicalPanel,
-  kResidualCanonicalPanel,
-  kNormalizationCanonicalPanel,
-  kEmbeddingCanonicalPanel,
+  kNvfp4GateUpOracleSpanC512 = 0,
+  kNvfp4DownOracleSpanC512,
+  kFp8OracleSpanC512,
+  kBf16AbOracleSpanEstablishedM32,
+  kExactGdnOracleSpanWholeRawQkvC512,
+  kExactCausalAttentionOracleSpanC512C16Reference256,
+  kResidualOperatorPanel,
+  kNormalizationOperatorPanel,
+  kEmbeddingOperatorPanel,
   kFinalHandoff,
 };
 
@@ -53,6 +54,8 @@ struct NativePrefillRoleReceipt {
   const void* artifact_owner = nullptr;
   const void* workspace_owner = nullptr;
   std::uint64_t workspace_bytes = 0U;
+  const void* auxiliary_workspace_owner = nullptr;
+  std::uint64_t auxiliary_workspace_bytes = 0U;
   std::uint32_t maximum_logical_panel_m = 0U;
   std::uint32_t minimum_physical_m = 0U;
   std::uint32_t maximum_physical_m = 0U;
@@ -73,6 +76,8 @@ class BoundPrefillExecutionPlan final {
       ReferenceRunner* runner, const void* arena_base,
       std::uint64_t arena_bytes,
       const LayerMajorRequestMemoryPlan* memory_plan,
+      const LayerMajorPrefillArithmeticContract* arithmetic_contract,
+      bool exact_c512_arithmetic_workspace_bound,
       const void* main_stream, const void* auxiliary_stream,
       std::array<const void*, kBoundPrefillSubmissionEventCount>
           submission_events,
@@ -86,6 +91,12 @@ class BoundPrefillExecutionPlan final {
   const void* arena_base_ = nullptr;
   std::uint64_t arena_bytes_ = 0U;
   const LayerMajorRequestMemoryPlan* memory_plan_ = nullptr;
+  const LayerMajorPrefillArithmeticContract* arithmetic_contract_ = nullptr;
+  // The sealed contract uses the authenticated disjoint C512 arithmetic
+  // workspace for every oracle span's NVFP4 Gate+Up/SiLU/Down sequence and
+  // also retains it for M1..M31 exact-tail fallback. Other panel operators
+  // execute on the typed C8192 arena.
+  bool exact_c512_arithmetic_workspace_bound_ = false;
   const void* main_stream_ = nullptr;
   const void* auxiliary_stream_ = nullptr;
   std::array<const void*, kBoundPrefillSubmissionEventCount>
@@ -148,8 +159,20 @@ class ReferenceEnginePrefillPlanFactory final {
       ReferenceRunner* runner) noexcept;
 };
 
+// Same-ELF, thread-local correctness oracle selector. Production execution
+// never changes this value and always takes the operator-panel route. Tests
+// may scope it around one synchronous ReferenceEngine::generate() call to
+// compare the retained segmented compatibility core with the bound panel
+// executor without creating a second public mode or fallback.
+[[nodiscard]] bool
+exchange_reference_engine_prefill_compatibility_oracle_for_test(
+    bool enabled) noexcept;
+
 class ReferenceEnginePrefillExecutor final {
  public:
+  [[nodiscard]] static std::string_view deployment_plan_id(
+      const BoundPrefillExecutionPlan& plan) noexcept;
+
   [[nodiscard]] static ReferenceWholeRequestPrefillOutcome execute(
       const BoundPrefillExecutionPlan& plan, ReferenceRunner& runner,
       const std::uint32_t* input_token_ids, std::size_t token_count,

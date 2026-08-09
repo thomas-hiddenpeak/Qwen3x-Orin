@@ -2955,7 +2955,8 @@ int launch_impl(void* const context,
                 const float norm_epsilon,
                 std::uint16_t* const output,
                 void* const cuda_stream,
-                const bool qk_preprocessed) noexcept {
+                const bool qk_preprocessed,
+                const bool fixed_production) noexcept {
   if (invalid_arguments(context, workspace_raw, workspace_capacity_bytes,
                         token_count, conv_qkv, a, b, A_log, dt_bias,
                         state_input, state_output, l2_epsilon, norm_weight,
@@ -2978,22 +2979,28 @@ int launch_impl(void* const context,
   int status = static_cast<int>(cudaSuccess);
   (void)cudaGetLastError();
 
-  const bool use_fused_kkt_baseline = force_fused_kkt_baseline();
+  const bool use_fused_kkt_baseline =
+      !fixed_production && force_fused_kkt_baseline();
   const bool use_split_wy_baseline =
-      !use_fused_kkt_baseline && force_split_wy_baseline();
+      !fixed_production && !use_fused_kkt_baseline &&
+      force_split_wy_baseline();
   const bool use_resident_state_baseline =
-      force_resident_state_baseline();
+      !fixed_production && force_resident_state_baseline();
   const bool use_packless_resident_state_fallback =
-      !use_resident_state_baseline &&
+      !fixed_production && !use_resident_state_baseline &&
       force_packless_resident_state_fallback();
   const bool use_vllm_faithful_state_candidate =
       !use_resident_state_baseline &&
       !use_packless_resident_state_fallback;
   const bool use_packed_qkv_baseline =
-      force_packed_qkv_baseline() || use_fused_kkt_baseline ||
+      (!fixed_production && force_packed_qkv_baseline()) ||
+      use_fused_kkt_baseline ||
       use_split_wy_baseline || use_resident_state_baseline;
   const bool use_chunk_o_bv64_output =
-      use_chunk_o_bv64() && !use_packed_qkv_baseline;
+      (fixed_production || use_chunk_o_bv64()) &&
+      !use_packed_qkv_baseline;
+  const bool use_vllm_layout_wy =
+      fixed_production || use_vllm_layout_wy_candidate();
 
   // A preprocessed workspace is layout-compatible only with the production
   // compact route. Diagnostic packed baselines must remain fully self-owned.
@@ -3021,9 +3028,11 @@ int launch_impl(void* const context,
   }
   const std::size_t compact_qk_elements =
       chunk_count * kQkHeadCount * kChunkSize * kDimension;
-  gdn_prefill_chunk64_native_detail::inspect_preprocess_boundaries(
-      workspace.q, compact_qk_elements, workspace.k,
-      compact_qk_elements, cuda_stream);
+  if (!fixed_production) {
+    gdn_prefill_chunk64_native_detail::inspect_preprocess_boundaries(
+        workspace.q, compact_qk_elements, workspace.k,
+        compact_qk_elements, cuda_stream);
+  }
   prepare_gate_kernel<<<static_cast<unsigned int>(matrix_count),
                         kChunkThreads, 0U, stream>>>(
       a, b, A_log, dt_bias, token_count, workspace.gamma,
@@ -3046,7 +3055,9 @@ int launch_impl(void* const context,
   }
 
   const auto timing_hook =
-      gdn_prefill_chunk64_native_detail::g_wy_timing_hook;
+      fixed_production
+          ? gdn_prefill_chunk64_native_detail::WyTimingHook{}
+          : gdn_prefill_chunk64_native_detail::g_wy_timing_hook;
   status = record_wy_timing_event(timing_hook.begin, stream);
   if (status != static_cast<int>(cudaSuccess)) {
     return status;
@@ -3089,7 +3100,7 @@ int launch_impl(void* const context,
     if (status != static_cast<int>(cudaSuccess)) {
       return status;
     }
-  } else if (use_vllm_layout_wy_candidate()) {
+  } else if (use_vllm_layout_wy) {
     status = gdn_prefill_wy_vllm_layout_detail::launch_packless(
         workspace.k, workspace.gamma, workspace.beta, conv_qkv,
         token_count, chunk_count, workspace.kkt, workspace.transform,
@@ -3168,8 +3179,9 @@ int launch_impl(void* const context,
     // 49,412-byte dynamic shared lifetime once during candidate warmup,
     // rather than adding 48 driver calls to every measured prefix.
     const bool diagnostic =
+        !fixed_production &&
         gdn_prefill_chunk64_native_detail::g_inspection_hook.callback !=
-        nullptr;
+            nullptr;
     if (diagnostic) {
       static const int attribute_status = static_cast<int>(
           cudaFuncSetAttribute(
@@ -3246,7 +3258,7 @@ int launch_impl(void* const context,
     }
     status = launch_grid_status();
   }
-  if (status == static_cast<int>(cudaSuccess)) {
+  if (status == static_cast<int>(cudaSuccess) && !fixed_production) {
     gdn_prefill_chunk64_native_detail::inspect_native_boundaries(
         workspace.transform, matrix_count * kChunkSize * kChunkSize,
         workspace.w, head_token_elements, workspace.u,
@@ -3282,7 +3294,8 @@ int launch(void* const context,
   return launch_impl(context, workspace_raw, workspace_capacity_bytes,
                      token_count, conv_qkv, a, b, A_log, dt_bias,
                      state_input, state_output, l2_epsilon, norm_weight,
-                     silu_gate, norm_epsilon, output, cuda_stream, false);
+                     silu_gate, norm_epsilon, output, cuda_stream, false,
+                     false);
 }
 
 int query_native_resources(int* const registers_per_thread,
@@ -3355,6 +3368,25 @@ int launch(void* const workspace,
       silu_gate, norm_epsilon, output, cuda_stream);
 }
 
+int launch_fixed_production(
+    void* const workspace, const std::size_t workspace_capacity_bytes,
+    const std::uint16_t* const conv_qkv, const std::size_t token_count,
+    const std::uint16_t* const a, const std::uint16_t* const b,
+    const std::uint16_t* const A_log, const std::uint16_t* const dt_bias,
+    const std::uint16_t* const state_input,
+    std::uint16_t* const state_output, const float l2_epsilon,
+    const std::uint16_t* const norm_weight,
+    const std::uint16_t* const silu_gate, const float norm_epsilon,
+    std::uint16_t* const output, void* const cuda_stream) noexcept {
+  if (token_count == 0U || token_count > 512U) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  return gdn_prefill_chunk64_reference_detail::launch_impl(
+      nullptr, workspace, workspace_capacity_bytes, token_count, conv_qkv, a,
+      b, A_log, dt_bias, state_input, state_output, l2_epsilon, norm_weight,
+      silu_gate, norm_epsilon, output, cuda_stream, false, true);
+}
+
 int launch_fused_conv_compact_qk_preprocess(
     void* const workspace_raw,
     const std::size_t workspace_capacity_bytes,
@@ -3401,7 +3433,7 @@ int launch_qk_preprocessed(
   return gdn_prefill_chunk64_reference_detail::launch_impl(
       nullptr, workspace, workspace_capacity_bytes, token_count, conv_qkv, a,
       b, A_log, dt_bias, state_input, state_output, l2_epsilon, norm_weight,
-      silu_gate, norm_epsilon, output, cuda_stream, true);
+      silu_gate, norm_epsilon, output, cuda_stream, true, false);
 }
 
 int launch_compact_qk_baseline_for_test(

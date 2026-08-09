@@ -108,6 +108,159 @@ is_layer_major_prefill_physical_segment_token_count(
          token_count <= kPrefillPhysicalSegmentMaximumTokens;
 }
 
+// Exact arithmetic is owned by the historical C512-balanced compatibility
+// route, even when a layer is submitted as one larger operator panel.  The
+// ledger makes those physical ownership boundaries explicit so every
+// projection and stateful operator can retain the oracle's masked-tail
+// specialization sequence without giving up panel-wide storage and
+// scheduling.
+inline constexpr std::size_t kLayerMajorPrefillMaximumArithmeticSpanCount =
+    (kLayerMajorPrefillOperatorPanelTokens +
+     kPrefillPhysicalSegmentMaximumTokens - 1U) /
+    kPrefillPhysicalSegmentMaximumTokens;
+
+struct LayerMajorPrefillArithmeticSpan {
+  std::uint32_t token_offset = 0U;
+  std::uint32_t token_count = 0U;
+};
+
+struct LayerMajorPrefillArithmeticSpanLedger {
+  std::array<LayerMajorPrefillArithmeticSpan,
+             kLayerMajorPrefillMaximumArithmeticSpanCount>
+      spans{};
+  std::size_t span_count = 0U;
+  std::uint32_t token_count = 0U;
+};
+
+[[nodiscard]] constexpr LayerMajorPrefillArithmeticSpanLedger
+make_layer_major_prefill_arithmetic_span_ledger(
+    const std::size_t panel_token_count) noexcept {
+  LayerMajorPrefillArithmeticSpanLedger ledger;
+  if (panel_token_count == 0U ||
+      panel_token_count > kLayerMajorPrefillOperatorPanelTokens) {
+    return ledger;
+  }
+
+  std::size_t offset = 0U;
+  std::size_t remaining = panel_token_count;
+  while (remaining != 0U &&
+         ledger.span_count < ledger.spans.size()) {
+    const std::size_t span_token_count =
+        next_layer_major_prefill_physical_segment_token_count(remaining);
+    if (!is_layer_major_prefill_physical_segment_token_count(
+            span_token_count) ||
+        span_token_count > remaining) {
+      return {};
+    }
+    ledger.spans[ledger.span_count++] = LayerMajorPrefillArithmeticSpan{
+        static_cast<std::uint32_t>(offset),
+        static_cast<std::uint32_t>(span_token_count)};
+    offset += span_token_count;
+    remaining -= span_token_count;
+  }
+  if (remaining != 0U || offset != panel_token_count) {
+    return {};
+  }
+  ledger.token_count = static_cast<std::uint32_t>(panel_token_count);
+  return ledger;
+}
+
+[[nodiscard]] constexpr bool
+is_valid_layer_major_prefill_arithmetic_span_ledger(
+    const LayerMajorPrefillArithmeticSpanLedger& ledger) noexcept {
+  if (ledger.token_count == 0U ||
+      ledger.token_count > kLayerMajorPrefillOperatorPanelTokens ||
+      ledger.span_count == 0U ||
+      ledger.span_count > ledger.spans.size()) {
+    return false;
+  }
+  std::size_t expected_offset = 0U;
+  for (std::size_t index = 0U; index < ledger.span_count; ++index) {
+    const LayerMajorPrefillArithmeticSpan& span = ledger.spans[index];
+    if (expected_offset >= ledger.token_count) {
+      return false;
+    }
+    const std::size_t remaining = ledger.token_count - expected_offset;
+    if (span.token_offset != expected_offset ||
+        !is_layer_major_prefill_physical_segment_token_count(
+            span.token_count) ||
+        span.token_count !=
+            next_layer_major_prefill_physical_segment_token_count(
+                remaining)) {
+      return false;
+    }
+    expected_offset += span.token_count;
+  }
+  return expected_offset == ledger.token_count;
+}
+
+enum class PrefillBf16AbArithmeticTactic : std::uint8_t {
+  kEstablishedM32ProjectionPair = 0,
+};
+
+enum class PrefillFp8ArithmeticTactic : std::uint8_t {
+  kOracleSpanMarlin = 0,
+};
+
+enum class PrefillNvFp4ArithmeticTactic : std::uint8_t {
+  kOracleSpanGateSiluDownSequence = 0,
+};
+
+enum class PrefillGdnArithmeticTactic : std::uint8_t {
+  kOracleSpanWholeRawQkv = 0,
+};
+
+enum class PrefillAttentionPreprocessArithmeticTactic : std::uint8_t {
+  kOracleSpanC16FixedReference256 = 0,
+};
+
+struct LayerMajorPrefillArithmeticContract {
+  std::uint32_t version = 1U;
+  PrefillBf16AbArithmeticTactic bf16_ab =
+      PrefillBf16AbArithmeticTactic::kEstablishedM32ProjectionPair;
+  PrefillFp8ArithmeticTactic fp8 =
+      PrefillFp8ArithmeticTactic::kOracleSpanMarlin;
+  PrefillNvFp4ArithmeticTactic nvfp4 =
+      PrefillNvFp4ArithmeticTactic::kOracleSpanGateSiluDownSequence;
+  PrefillGdnArithmeticTactic gdn =
+      PrefillGdnArithmeticTactic::kOracleSpanWholeRawQkv;
+  PrefillAttentionPreprocessArithmeticTactic attention_preprocess =
+      PrefillAttentionPreprocessArithmeticTactic::
+          kOracleSpanC16FixedReference256;
+  bool reset_fp8_locks_per_projection_span = true;
+  bool nvfp4_interleaves_gate_silu_down_per_span = true;
+  bool nvfp4_down_reuses_gate_up_locks = true;
+  bool environment_independent = true;
+};
+
+inline constexpr LayerMajorPrefillArithmeticContract
+    kLayerMajorPrefillExactArithmeticContract{};
+
+[[nodiscard]] constexpr bool is_valid_layer_major_prefill_arithmetic_contract(
+    const LayerMajorPrefillArithmeticContract& contract) noexcept {
+  return contract.version == 1U &&
+         contract.bf16_ab == PrefillBf16AbArithmeticTactic::
+                                   kEstablishedM32ProjectionPair &&
+         contract.fp8 == PrefillFp8ArithmeticTactic::kOracleSpanMarlin &&
+         contract.nvfp4 == PrefillNvFp4ArithmeticTactic::
+                                kOracleSpanGateSiluDownSequence &&
+         contract.gdn ==
+             PrefillGdnArithmeticTactic::kOracleSpanWholeRawQkv &&
+         contract.attention_preprocess ==
+             PrefillAttentionPreprocessArithmeticTactic::
+                 kOracleSpanC16FixedReference256 &&
+         contract.reset_fp8_locks_per_projection_span &&
+         contract.nvfp4_interleaves_gate_silu_down_per_span &&
+         contract.nvfp4_down_reuses_gate_up_locks &&
+         contract.environment_independent;
+}
+
+static_assert(kLayerMajorPrefillMaximumArithmeticSpanCount == 16U);
+static_assert(is_valid_layer_major_prefill_arithmetic_contract(
+    kLayerMajorPrefillExactArithmeticContract));
+static_assert(is_valid_layer_major_prefill_arithmetic_span_ledger(
+    make_layer_major_prefill_arithmetic_span_ledger(513U)));
+
 enum class PrefillTraversalOrder : std::uint8_t {
   kLayerMajor = 0,
 };

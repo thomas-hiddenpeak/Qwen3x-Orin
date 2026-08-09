@@ -236,6 +236,85 @@ void test_balanced_physical_segment_contract(TestContext& test) {
       "the layer-major schedule admits every nonzero C1..C512 geometry");
 }
 
+void expect_arithmetic_span_ledger(
+    TestContext& test, const std::size_t panel_tokens,
+    const std::vector<std::size_t>& expected_counts) {
+  const runtime::LayerMajorPrefillArithmeticSpanLedger ledger =
+      runtime::make_layer_major_prefill_arithmetic_span_ledger(panel_tokens);
+  bool exact =
+      runtime::is_valid_layer_major_prefill_arithmetic_span_ledger(ledger) &&
+      ledger.token_count == panel_tokens &&
+      ledger.span_count == expected_counts.size();
+  std::size_t expected_offset = 0U;
+  if (exact) {
+    for (std::size_t index = 0U; index < expected_counts.size(); ++index) {
+      exact = exact && ledger.spans[index].token_offset == expected_offset &&
+              ledger.spans[index].token_count == expected_counts[index];
+      expected_offset += expected_counts[index];
+    }
+  }
+  test.expect(exact && expected_offset == panel_tokens &&
+                  expected_counts ==
+                      layer_major_physical_segment_schedule(panel_tokens),
+              "arithmetic ledger exactly preserves the compatibility span "
+              "sequence");
+}
+
+void test_exact_arithmetic_span_ledgers(TestContext& test) {
+  expect_arithmetic_span_ledger(test, 513U, {257U, 256U});
+  expect_arithmetic_span_ledger(test, 1'025U, {512U, 257U, 256U});
+  expect_arithmetic_span_ledger(
+      test, 8'192U, std::vector<std::size_t>(
+                        runtime::kLayerMajorPrefillMaximumArithmeticSpanCount,
+                        512U));
+
+  const runtime::PrefillExecutionPlanResult p8193 = build_plan(8'193U);
+  bool balanced_panels = p8193 && p8193.value->panel_count == 2U;
+  if (balanced_panels) {
+    const runtime::PrefillOperatorPanel& first = p8193.value->panels[0];
+    const runtime::PrefillOperatorPanel& second = p8193.value->panels[1];
+    balanced_panels = first.first_position == 0U &&
+                      first.token_count == 4'097U &&
+                      first.end_position == 4'097U &&
+                      second.first_position == first.end_position &&
+                      second.token_count == 4'096U &&
+                      second.end_position == 8'193U;
+    expect_arithmetic_span_ledger(
+        test, first.token_count,
+        {512U, 512U, 512U, 512U, 512U, 512U, 512U, 257U, 256U});
+    expect_arithmetic_span_ledger(
+        test, second.token_count,
+        {512U, 512U, 512U, 512U, 512U, 512U, 512U, 512U});
+    const runtime::LayerMajorPrefillArithmeticSpanLedger first_ledger =
+        runtime::make_layer_major_prefill_arithmetic_span_ledger(
+            first.token_count);
+    const runtime::LayerMajorPrefillArithmeticSpanLedger second_ledger =
+        runtime::make_layer_major_prefill_arithmetic_span_ledger(
+            second.token_count);
+    balanced_panels =
+        balanced_panels &&
+        first.first_position + first_ledger.token_count ==
+            first.end_position &&
+        second.first_position + second_ledger.token_count ==
+            second.end_position;
+  }
+  test.expect(balanced_panels,
+              "P8193 panel and arithmetic ledgers continuously cover the "
+              "whole prompt");
+
+  runtime::LayerMajorPrefillArithmeticSpanLedger noncanonical =
+      runtime::make_layer_major_prefill_arithmetic_span_ledger(513U);
+  noncanonical.spans[0] = {0U, 256U};
+  noncanonical.spans[1] = {256U, 257U};
+  test.expect(
+      !runtime::is_valid_layer_major_prefill_arithmetic_span_ledger(
+          noncanonical),
+      "ledger validator rejects a contiguous but noncanonical P513 split");
+  test.expect(runtime::is_valid_layer_major_prefill_arithmetic_contract(
+                  runtime::kLayerMajorPrefillExactArithmeticContract),
+              "the bound arithmetic contract is explicit and immutable");
+}
+
 void test_fixed_layer_schedule(TestContext& test) {
   const runtime::PrefillExecutionPlanResult result = build_plan(40'000U);
   test.expect(result.ok(), "40K layer-major topology builds");
@@ -537,6 +616,7 @@ int main() {
   test_public_tile_and_operator_panel_are_independent(test);
   test_target_panel_matrix(test);
   test_balanced_physical_segment_contract(test);
+  test_exact_arithmetic_span_ledgers(test);
   test_fixed_layer_schedule(test);
   test_public_unbound_topology_validator(test);
   test_strict_layer_major_progress(test);

@@ -285,10 +285,24 @@ launch_residual_add_headwise_centered_rms_norm_prefill_5120_cuda(
 // applies centered headwise Q/K RMSNorm, then rotates Q/K using base
 // [position, 32] FP32 tables. token_count must be in
 // [1, kFullAttentionPreprocessMaximumTokens]. Writable arrays must not overlap
-// each other or any read-only input. The prompt-wide M>=2 route is admission
-// only and requires
-// Q3X_RUN_FULL_ATTENTION_PREPROCESS_PROMPT_WIDE_128_ADMISSION=1; otherwise the
-// frozen one-head-per-CTA production kernel is launched.
+// each other or any read-only input.
+//
+// This explicit entry point always launches the established 256-thread,
+// one-head-per-CTA reference tactic. Its tactic selection never reads the
+// prompt-wide admission environment or thread-local test state.
+[[nodiscard]] int
+launch_full_attention_preprocess_24_4_256_64_reference_256_cuda(
+    const std::uint16_t* interleaved_q_gate, std::uint16_t* key,
+    const std::uint16_t* q_weight, const std::uint16_t* k_weight,
+    float epsilon, std::uint16_t* query_output,
+    std::uint16_t* gate_output, const float* cosines, const float* sines,
+    std::size_t first_position, std::size_t token_count,
+    void* cuda_stream = nullptr) noexcept;
+
+// Compatibility/admission wrapper. The prompt-wide M>=2 route requires
+// Q3X_RUN_FULL_ATTENTION_PREPROCESS_PROMPT_WIDE_128_ADMISSION=1; otherwise it
+// launches the same established reference-256 tactic as the explicit entry
+// point above.
 [[nodiscard]] int launch_full_attention_preprocess_24_4_256_64_cuda(
     const std::uint16_t* interleaved_q_gate, std::uint16_t* key,
     const std::uint16_t* q_weight, const std::uint16_t* k_weight,
@@ -366,7 +380,41 @@ launch_gqa_attention_splitkv_sigmoid_gate_24_4_256_cuda(
          token_count >= 2U && token_count <= 512U;
 }
 
+// Sealed Prefill owns an explicit, environment-independent tactic contract.
+// P0/P512 use the current production-default V3 grouped-Q64 implementation;
+// every other legal append position uses the generic QT2 implementation.
+// Invalid geometry is represented explicitly so host-only binding tests can
+// prove the complete dispatch table without launching CUDA work.
+enum class FixedBulkCausalGqaPrefillTactic : std::uint8_t {
+  kInvalid = 0,
+  kGroupQ64V3,
+  kGenericQt2,
+};
+
+[[nodiscard]] constexpr FixedBulkCausalGqaPrefillTactic
+select_fixed_bulk_causal_gqa_prefill_tactic(
+    const std::size_t first_position,
+    const std::size_t token_count) noexcept {
+  if (token_count < 2U || token_count > 512U ||
+      first_position > kBulkCausalGqaMaximumSequenceLength - token_count) {
+    return FixedBulkCausalGqaPrefillTactic::kInvalid;
+  }
+  return use_bulk_causal_gqa_group_q64_prefill(first_position, token_count)
+             ? FixedBulkCausalGqaPrefillTactic::kGroupQ64V3
+             : FixedBulkCausalGqaPrefillTactic::kGenericQt2;
+}
+
 [[nodiscard]] int launch_bulk_causal_gqa_sigmoid_gate_24_4_256_cuda(
+    const std::uint16_t* query_tile, const std::uint16_t* key_cache,
+    const std::uint16_t* value_cache, const std::uint16_t* gate_tile,
+    std::size_t first_position, std::size_t token_count,
+    std::uint16_t* output_tile, void* cuda_stream = nullptr) noexcept;
+
+// Sealed counterpart to the admission-aware wrapper above. This entry never
+// reads Q3X_FULL_ATTENTION_FLASHINFER_DIRECT or
+// Q3X_FULL_ATTENTION_C512_FORCE_V2_BASELINE. It uses only the tactic returned
+// by select_fixed_bulk_causal_gqa_prefill_tactic().
+[[nodiscard]] int launch_bulk_causal_gqa_sigmoid_gate_24_4_256_fixed_cuda(
     const std::uint16_t* query_tile, const std::uint16_t* key_cache,
     const std::uint16_t* value_cache, const std::uint16_t* gate_tile,
     std::size_t first_position, std::size_t token_count,

@@ -845,11 +845,7 @@ void emit_target_prefill_witness(
         generation.prefill_bounded_submission_window;
     record.submission_window_retirements =
         generation.prefill_submission_window_retirements;
-    if (generation.prefill_execution_mode == runtime::
-            ReferencePrefillExecutionMode::kWholeRequestLayerMajor) {
-      record.deployment_plan_id =
-          "q3x.sm87.exact.layer-major-c8192.balanced-segments.v2";
-    }
+    record.deployment_plan_id = generation.prefill_deployment_plan_id;
     std::cerr << serialize_target_prefill_witness(record) << '\n';
   } catch (...) {
     // Evidence is observational. Never convert an already successful model

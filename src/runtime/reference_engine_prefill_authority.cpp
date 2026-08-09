@@ -1,5 +1,13 @@
 #include "reference_engine_prefill_authority.h"
 
+#include "q3x/runtime/reference_engine.h"
+
+#if defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION)
+#include "q3x/kernels/sm87_fp8_marlin_w8a16.h"
+#endif
+#if defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION)
+#include "q3x/kernels/sm87_nvfp4_marlin.h"
+#endif
 #if defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
 #include "../kernels/sm87/gdn_prefill_chunk64_native_sm87.h"
 #endif
@@ -9,6 +17,9 @@
 
 namespace q3x::runtime::reference_engine_detail {
 namespace {
+
+thread_local bool
+    g_reference_engine_prefill_compatibility_oracle_for_test = false;
 
 [[nodiscard]] BoundPrefillPlanResult plan_failure(
     const BoundPrefillPlanError error,
@@ -78,7 +89,8 @@ namespace {
 [[nodiscard]] bool complete_installed_projection_inventory(
     const ModelWeights& weights) noexcept {
 #if !defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION) || \
-    !defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION)
+    !defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION) || \
+    !defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
   (void)weights;
   return false;
 #else
@@ -95,6 +107,10 @@ namespace {
     const auto* const up =
         std::get_if<NvFp4LinearWeight>(&layer_weights.mlp.up_proj);
     if (gate == nullptr || up == nullptr ||
+        gate->prefill_marlin_gate_up_layout !=
+            NvFp4MarlinGateUpLayout::kCanonicalGateThenUp ||
+        up->prefill_marlin_gate_up_layout !=
+            gate->prefill_marlin_gate_up_layout ||
         gate->prefill_marlin_weight != up->prefill_marlin_weight ||
         gate->prefill_marlin_scales != up->prefill_marlin_scales ||
         gate->prefill_marlin_global_scale !=
@@ -224,11 +240,19 @@ complete_exact_gdn_chunk64_native_inventory(
 
 }  // namespace
 
+bool exchange_reference_engine_prefill_compatibility_oracle_for_test(
+    const bool enabled) noexcept {
+  return std::exchange(
+      g_reference_engine_prefill_compatibility_oracle_for_test, enabled);
+}
+
 BoundPrefillExecutionPlan::BoundPrefillExecutionPlan(
     const ModelWeights* const weights, RequestState* const state,
     ReferenceRunner* const runner, const void* const arena_base,
     const std::uint64_t arena_bytes,
     const LayerMajorRequestMemoryPlan* const memory_plan,
+    const LayerMajorPrefillArithmeticContract* const arithmetic_contract,
+    const bool exact_c512_arithmetic_workspace_bound,
     const void* const main_stream, const void* const auxiliary_stream,
     std::array<const void*, kBoundPrefillSubmissionEventCount>
         submission_events,
@@ -241,6 +265,9 @@ BoundPrefillExecutionPlan::BoundPrefillExecutionPlan(
       arena_base_(arena_base),
       arena_bytes_(arena_bytes),
       memory_plan_(memory_plan),
+      arithmetic_contract_(arithmetic_contract),
+      exact_c512_arithmetic_workspace_bound_(
+          exact_c512_arithmetic_workspace_bound),
       main_stream_(main_stream),
       auxiliary_stream_(auxiliary_stream),
       submission_events_(std::move(submission_events)),
@@ -270,7 +297,9 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
   static_assert(kBoundPrefillSubmissionEventCount ==
                 ReferenceRunner::kWholeRequestSubmissionWindowSlots);
   if (weights == nullptr || state == nullptr || runner == nullptr ||
-      !static_cast<bool>(*state) || !static_cast<bool>(*runner)) {
+      !static_cast<bool>(*state) || !static_cast<bool>(*runner) ||
+      !is_valid_layer_major_prefill_arithmetic_contract(
+          kLayerMajorPrefillExactArithmeticContract)) {
     return plan_failure(BoundPrefillPlanError::kInvalidDependency,
                         ReferenceRunnerError::kInvalidDependency,
                         "bound_prefill_dependencies");
@@ -313,6 +342,41 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
 
   const ReferenceLayerMajorRequestViews& views =
       *runner->layer_major_request_views_;
+  bool exact_c512_arithmetic_workspace_bound =
+      views.legacy_c512.linear_a_bf16.storage.device_data != nullptr &&
+      views.legacy_c512.linear_b_bf16.storage.device_data != nullptr &&
+      views.legacy_c512.fp32_scratch.device_data != nullptr;
+  for (const DeviceMatrixView& hidden : views.legacy_c512.hidden_bf16) {
+    exact_c512_arithmetic_workspace_bound =
+        exact_c512_arithmetic_workspace_bound &&
+        hidden.storage.device_data != nullptr;
+  }
+  for (const DeviceMatrixView& projection :
+       views.legacy_c512.projection_bf16) {
+    exact_c512_arithmetic_workspace_bound =
+        exact_c512_arithmetic_workspace_bound &&
+        projection.storage.device_data != nullptr;
+  }
+  const DeviceMatrixView& oracle_gate =
+      views.legacy_c512.projection_bf16[0];
+  const DeviceMatrixView& oracle_up =
+      views.legacy_c512.projection_bf16[1];
+  const DeviceMatrixView& oracle_locks =
+      views.legacy_c512.projection_bf16[3];
+  exact_c512_arithmetic_workspace_bound =
+      exact_c512_arithmetic_workspace_bound &&
+      views.legacy_c512.fp32_scratch.byte_size >=
+          kernels::kSm87NvFp4MarlinReductionBytes &&
+      oracle_locks.storage.byte_size >=
+          kernels::kSm87NvFp4MarlinLockBytes &&
+      reinterpret_cast<std::uintptr_t>(oracle_up.storage.device_data) ==
+          reinterpret_cast<std::uintptr_t>(oracle_gate.storage.device_data) +
+              oracle_gate.storage.byte_size;
+  if (!exact_c512_arithmetic_workspace_bound) {
+    return plan_failure(BoundPrefillPlanError::kIncompleteTypedViews,
+                        ReferenceRunnerError::kInvalidRequestState,
+                        "bound_prefill_exact_c512_arithmetic_views");
+  }
   const DecoderLayerWeights& linear_layer = weights->layer(0U);
   const DecoderLayerWeights& full_layer = weights->layer(3U);
   const auto* const linear =
@@ -321,6 +385,8 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
       std::get_if<FullAttentionWeights>(&full_layer.attention);
   const auto* const gate =
       std::get_if<NvFp4LinearWeight>(&linear_layer.mlp.gate_proj);
+  const auto* const up =
+      std::get_if<NvFp4LinearWeight>(&linear_layer.mlp.up_proj);
   const auto* const down =
       std::get_if<NvFp4LinearWeight>(&linear_layer.mlp.down_proj);
   const auto* const linear_qkv =
@@ -352,7 +418,12 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
       attention == nullptr ? nullptr
                            : std::get_if<Fp8LinearWeight>(&attention->o_proj);
   if (linear == nullptr || attention == nullptr || gate == nullptr ||
-      down == nullptr || linear_qkv == nullptr || linear_z == nullptr ||
+      up == nullptr || down == nullptr ||
+      gate->prefill_marlin_gate_up_layout !=
+          NvFp4MarlinGateUpLayout::kCanonicalGateThenUp ||
+      up->prefill_marlin_gate_up_layout !=
+          gate->prefill_marlin_gate_up_layout ||
+      linear_qkv == nullptr || linear_z == nullptr ||
       linear_o == nullptr || linear_a == nullptr || linear_b == nullptr ||
       full_q == nullptr || full_k == nullptr || full_v == nullptr ||
       full_o == nullptr) {
@@ -369,9 +440,9 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
                         ReferenceRunnerError::kInvalidModelWeights,
                         "bound_prefill_exact_gdn_inventory");
   }
-  if (runner->prefill_gdn_chunk64_native_workspace_ == nullptr ||
+  if (views.gdn.native_c64_workspace.device_data == nullptr ||
       exact_gdn_workspace_bytes == 0U ||
-      runner->prefill_gdn_chunk64_native_workspace_bytes_ !=
+      views.gdn.native_c64_workspace.byte_size !=
           exact_gdn_workspace_bytes) {
     return plan_failure(BoundPrefillPlanError::kIncompleteNativeRole,
                         ReferenceRunnerError::kInvalidDependency,
@@ -385,104 +456,145 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
 
   const auto receipt = [](
       const PrefillBindingRole role, const NativePrefillTactic tactic,
-      const void* const artifact, const void* const workspace) noexcept {
+      const void* const artifact, const void* const workspace,
+      const std::uint64_t workspace_bytes,
+      const std::uint32_t minimum_physical_m,
+      const std::uint32_t maximum_physical_m,
+      const void* const auxiliary_workspace = nullptr,
+      const std::uint64_t auxiliary_workspace_bytes = 0U) noexcept {
     return NativePrefillRoleReceipt{
         role, tactic, NativePrefillCompletionDomain::kMainStreamBarrier,
-        artifact, workspace, 0U, kLayerMajorPrefillOperatorPanelTokens,
-        0U, 0U};
+        artifact, workspace, workspace_bytes, auxiliary_workspace,
+        auxiliary_workspace_bytes,
+        kLayerMajorPrefillOperatorPanelTokens, minimum_physical_m,
+        maximum_physical_m};
   };
   std::array<NativePrefillRoleReceipt,
              kLayerMajorPrefillRequiredOperatorRoleCount>
       roles{};
   roles[static_cast<std::size_t>(PrefillBindingRole::kNvfp4GateUp)] =
       receipt(PrefillBindingRole::kNvfp4GateUp,
-              NativePrefillTactic::kNvfp4GateUpCanonicalPanel,
+              NativePrefillTactic::kNvfp4GateUpOracleSpanC512,
               gate->prefill_marlin_weight,
-              views.legacy_c512.projection_bf16[0U].storage.device_data);
+              views.legacy_c512.fp32_scratch.device_data,
+              kernels::kSm87NvFp4MarlinReductionBytes, 1U,
+              kPrefillPhysicalSegmentMaximumTokens,
+              views.legacy_c512.projection_bf16[3].storage.device_data,
+              kernels::kSm87NvFp4MarlinLockBytes);
   roles[static_cast<std::size_t>(PrefillBindingRole::kNvfp4Down)] =
       receipt(PrefillBindingRole::kNvfp4Down,
-              NativePrefillTactic::kNvfp4DownCanonicalPanel,
+              NativePrefillTactic::kNvfp4DownOracleSpanC512,
               down->prefill_marlin_weight,
-              views.legacy_c512.projection_bf16[2U].storage.device_data);
+              views.legacy_c512.fp32_scratch.device_data,
+              kernels::kSm87NvFp4MarlinReductionBytes, 1U,
+              kPrefillPhysicalSegmentMaximumTokens,
+              views.legacy_c512.projection_bf16[3].storage.device_data,
+              kernels::kSm87NvFp4MarlinLockBytes);
   roles[static_cast<std::size_t>(PrefillBindingRole::kLinearFp8Qkv)] =
       receipt(PrefillBindingRole::kLinearFp8Qkv,
-              NativePrefillTactic::kFp8CanonicalPanel,
+              NativePrefillTactic::kFp8OracleSpanC512,
               linear_qkv->prefill_marlin_weight,
-              views.legacy_c512.projection_bf16[0U].storage.device_data);
+              views.gdn.input_projection_temporary.device_data,
+              views.gdn.input_projection_temporary.byte_size, 2U,
+              kPrefillPhysicalSegmentMaximumTokens);
   roles[static_cast<std::size_t>(PrefillBindingRole::kLinearFp8Z)] =
       receipt(PrefillBindingRole::kLinearFp8Z,
-              NativePrefillTactic::kFp8CanonicalPanel,
+              NativePrefillTactic::kFp8OracleSpanC512,
               linear_z->prefill_marlin_weight,
-              views.legacy_c512.projection_bf16[1U].storage.device_data);
+              views.gdn.input_projection_temporary.device_data,
+              views.gdn.input_projection_temporary.byte_size, 2U,
+              kPrefillPhysicalSegmentMaximumTokens);
   roles[static_cast<std::size_t>(PrefillBindingRole::kLinearFp8O)] =
       receipt(PrefillBindingRole::kLinearFp8O,
-              NativePrefillTactic::kFp8CanonicalPanel,
+              NativePrefillTactic::kFp8OracleSpanC512,
               linear_o->prefill_marlin_weight,
-              views.legacy_c512.hidden_bf16[1U].storage.device_data);
+              views.gdn.output_projection_temporary.device_data,
+              views.gdn.output_projection_temporary.byte_size, 2U,
+              kPrefillPhysicalSegmentMaximumTokens);
   roles[static_cast<std::size_t>(PrefillBindingRole::kFullFp8Q)] =
       receipt(PrefillBindingRole::kFullFp8Q,
-              NativePrefillTactic::kFp8CanonicalPanel,
+              NativePrefillTactic::kFp8OracleSpanC512,
               full_q->prefill_marlin_weight,
-              views.legacy_c512.projection_bf16[0U].storage.device_data);
+              views.attention.input_projection_temporary.device_data,
+              views.attention.input_projection_temporary.byte_size, 2U,
+              kPrefillPhysicalSegmentMaximumTokens);
   roles[static_cast<std::size_t>(PrefillBindingRole::kFullFp8K)] =
       receipt(PrefillBindingRole::kFullFp8K,
-              NativePrefillTactic::kFp8CanonicalPanel,
+              NativePrefillTactic::kFp8OracleSpanC512,
               full_k->prefill_marlin_weight,
-              views.legacy_c512.projection_bf16[1U].storage.device_data);
+              views.attention.input_projection_temporary.device_data,
+              views.attention.input_projection_temporary.byte_size, 2U,
+              kPrefillPhysicalSegmentMaximumTokens);
   roles[static_cast<std::size_t>(PrefillBindingRole::kFullFp8V)] =
       receipt(PrefillBindingRole::kFullFp8V,
-              NativePrefillTactic::kFp8CanonicalPanel,
+              NativePrefillTactic::kFp8OracleSpanC512,
               full_v->prefill_marlin_weight,
-              views.legacy_c512.projection_bf16[2U].storage.device_data);
+              views.attention.input_projection_temporary.device_data,
+              views.attention.input_projection_temporary.byte_size, 2U,
+              kPrefillPhysicalSegmentMaximumTokens);
   roles[static_cast<std::size_t>(PrefillBindingRole::kFullFp8O)] =
       receipt(PrefillBindingRole::kFullFp8O,
-              NativePrefillTactic::kFp8CanonicalPanel,
+              NativePrefillTactic::kFp8OracleSpanC512,
               full_o->prefill_marlin_weight,
-              views.legacy_c512.hidden_bf16[1U].storage.device_data);
+              views.attention.output_projection_temporary.device_data,
+              views.attention.output_projection_temporary.byte_size, 2U,
+              kPrefillPhysicalSegmentMaximumTokens);
   roles[static_cast<std::size_t>(PrefillBindingRole::kLinearBf16A)] =
       receipt(PrefillBindingRole::kLinearBf16A,
-              NativePrefillTactic::kBf16CanonicalPanel, linear_a->weight,
-              views.legacy_c512.linear_a_bf16.storage.device_data);
+              NativePrefillTactic::kBf16AbOracleSpanEstablishedM32,
+              linear_a->weight,
+              views.gdn.a_bf16.storage.device_data,
+              views.gdn.a_bf16.storage.byte_size, 2U,
+              kPrefillPhysicalSegmentMaximumTokens);
   roles[static_cast<std::size_t>(PrefillBindingRole::kLinearBf16B)] =
       receipt(PrefillBindingRole::kLinearBf16B,
-              NativePrefillTactic::kBf16CanonicalPanel, linear_b->weight,
-              views.legacy_c512.linear_b_bf16.storage.device_data);
+              NativePrefillTactic::kBf16AbOracleSpanEstablishedM32,
+              linear_b->weight,
+              views.gdn.b_bf16.storage.device_data,
+              views.gdn.b_bf16.storage.byte_size, 2U,
+              kPrefillPhysicalSegmentMaximumTokens);
   roles[static_cast<std::size_t>(PrefillBindingRole::kExactGdn)] =
       receipt(PrefillBindingRole::kExactGdn,
-              NativePrefillTactic::kExactGdnChunk64Native,
+              NativePrefillTactic::kExactGdnOracleSpanWholeRawQkvC512,
               linear->conv1d.data,
-              runner->prefill_gdn_chunk64_native_workspace_);
-  roles[static_cast<std::size_t>(PrefillBindingRole::kExactGdn)]
-      .workspace_bytes = exact_gdn_workspace_bytes;
-  roles[static_cast<std::size_t>(PrefillBindingRole::kExactGdn)]
-      .minimum_physical_m = 32U;
-  roles[static_cast<std::size_t>(PrefillBindingRole::kExactGdn)]
-      .maximum_physical_m = 512U;
+              views.gdn.native_c64_workspace.device_data,
+              exact_gdn_workspace_bytes, 32U,
+              kPrefillPhysicalSegmentMaximumTokens);
   roles[static_cast<std::size_t>(
       PrefillBindingRole::kExactCausalAttention)] =
       receipt(PrefillBindingRole::kExactCausalAttention,
-              NativePrefillTactic::kExactCausalAttentionCanonicalPanel,
+              NativePrefillTactic::
+                  kExactCausalAttentionOracleSpanC512C16Reference256,
               attention->q_norm.data,
-              views.legacy_c512.fp32_scratch.device_data);
+              views.attention.core_output_bf16.storage.device_data,
+              views.attention.core_output_bf16.storage.byte_size, 2U,
+              kPrefillPhysicalSegmentMaximumTokens);
   roles[static_cast<std::size_t>(PrefillBindingRole::kResidual)] =
       receipt(PrefillBindingRole::kResidual,
-              NativePrefillTactic::kResidualCanonicalPanel,
-              weights, views.prompt_residual_bf16.storage.device_data);
+              NativePrefillTactic::kResidualOperatorPanel, weights,
+              views.prompt_residual_bf16.storage.device_data,
+              views.prompt_residual_bf16.storage.byte_size, 1U,
+              kLayerMajorPrefillOperatorPanelTokens);
   roles[static_cast<std::size_t>(PrefillBindingRole::kNormalization)] =
       receipt(PrefillBindingRole::kNormalization,
-              NativePrefillTactic::kNormalizationCanonicalPanel,
+              NativePrefillTactic::kNormalizationOperatorPanel,
               linear_layer.input_layernorm.data,
-              views.legacy_c512.hidden_bf16[1U].storage.device_data);
+              views.gdn.normalized_input_bf16.storage.device_data,
+              views.gdn.normalized_input_bf16.storage.byte_size, 1U,
+              kLayerMajorPrefillOperatorPanelTokens);
   roles[static_cast<std::size_t>(PrefillBindingRole::kEmbedding)] =
       receipt(PrefillBindingRole::kEmbedding,
-              NativePrefillTactic::kEmbeddingCanonicalPanel,
+              NativePrefillTactic::kEmbeddingOperatorPanel,
               weights->embed_tokens().weight,
-              views.prompt_residual_bf16.storage.device_data);
+              views.panel_token_ids_u32.storage.device_data,
+              views.panel_token_ids_u32.storage.byte_size, 1U,
+              kLayerMajorPrefillOperatorPanelTokens);
   roles[static_cast<std::size_t>(PrefillBindingRole::kFinalHandoff)] =
       receipt(PrefillBindingRole::kFinalHandoff,
               NativePrefillTactic::kFinalHandoff,
               weights->final_norm().data,
-              views.final_hidden_bf16.storage.device_data);
+              views.final_hidden_bf16.storage.device_data,
+              views.final_hidden_bf16.storage.byte_size, 1U, 1U);
 
   for (std::size_t index = 0U; index < roles.size(); ++index) {
     const NativePrefillRoleReceipt& role = roles[index];
@@ -490,6 +602,11 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
         role.maximum_logical_panel_m !=
             kLayerMajorPrefillOperatorPanelTokens ||
         role.artifact_owner == nullptr || role.workspace_owner == nullptr ||
+        role.workspace_bytes == 0U || role.minimum_physical_m == 0U ||
+        ((role.auxiliary_workspace_owner == nullptr) !=
+         (role.auxiliary_workspace_bytes == 0U)) ||
+        role.minimum_physical_m > role.maximum_physical_m ||
+        role.maximum_physical_m > role.maximum_logical_panel_m ||
         role.completion !=
             NativePrefillCompletionDomain::kMainStreamBarrier) {
       return plan_failure(BoundPrefillPlanError::kIncompleteNativeRole,
@@ -507,9 +624,10 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
   }
   const NativePrefillRoleReceipt& exact_gdn =
       roles[static_cast<std::size_t>(PrefillBindingRole::kExactGdn)];
-  if (exact_gdn.tactic != NativePrefillTactic::kExactGdnChunk64Native ||
+  if (exact_gdn.tactic !=
+          NativePrefillTactic::kExactGdnOracleSpanWholeRawQkvC512 ||
       exact_gdn.workspace_owner !=
-          runner->prefill_gdn_chunk64_native_workspace_ ||
+          views.gdn.native_c64_workspace.device_data ||
       exact_gdn.workspace_bytes != exact_gdn_workspace_bytes ||
       exact_gdn.minimum_physical_m != 32U ||
       exact_gdn.maximum_physical_m != 512U) {
@@ -524,7 +642,9 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
           runner->whole_request_submission_events_[1U]};
   auto* const allocation = new (std::nothrow) BoundPrefillExecutionPlan(
       weights, state, runner, state->arena_data(), state->arena_bytes(),
-      state->layer_major_plan(), runner->stream_,
+      state->layer_major_plan(), &kLayerMajorPrefillExactArithmeticContract,
+      exact_c512_arithmetic_workspace_bound,
+      runner->stream_,
       runner->prefill_auxiliary_stream_, submission_events,
       std::move(roles));
   if (allocation == nullptr) {
@@ -540,37 +660,247 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
 bool ReferenceEnginePrefillExecutor::plan_matches_runner(
     const BoundPrefillExecutionPlan& plan,
     const ReferenceRunner& runner) noexcept {
-#if !defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
+#if !defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION) || \
+    !defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION) || \
+    !defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
   (void)plan;
   (void)runner;
   return false;
 #else
-  const NativePrefillRoleReceipt& exact_gdn =
-      plan.roles_[static_cast<std::size_t>(PrefillBindingRole::kExactGdn)];
-  return plan.runner_ == &runner && plan.weights_ == runner.weights_ &&
-         plan.state_ == runner.state_ && plan.state_ != nullptr &&
-         plan.arena_base_ == plan.state_->arena_data() &&
-         plan.arena_bytes_ == plan.state_->arena_bytes() &&
-         plan.memory_plan_ == plan.state_->layer_major_plan() &&
-         plan.main_stream_ == runner.stream_ &&
-         plan.auxiliary_stream_ == runner.prefill_auxiliary_stream_ &&
-         plan.submission_events_[0U] ==
-             runner.whole_request_submission_events_[0U] &&
-         plan.submission_events_[1U] ==
-             runner.whole_request_submission_events_[1U] &&
-         runner.layer_major_request_views_.has_value() &&
-         runner.projection_backend_ == ProjectionBackend::kSm87WeightOnly &&
-         exact_gdn.role == PrefillBindingRole::kExactGdn &&
-         exact_gdn.tactic == NativePrefillTactic::kExactGdnChunk64Native &&
-         exact_gdn.workspace_owner ==
-             runner.prefill_gdn_chunk64_native_workspace_ &&
-         exact_gdn.workspace_bytes ==
-             runner.prefill_gdn_chunk64_native_workspace_bytes_ &&
-         exact_gdn.workspace_bytes ==
-             gdn_prefill_chunk64_native_detail::workspace_bytes() &&
-         exact_gdn.minimum_physical_m == 32U &&
-         exact_gdn.maximum_physical_m == 512U;
+  if (plan.runner_ != &runner || plan.weights_ != runner.weights_ ||
+      plan.state_ != runner.state_ || plan.state_ == nullptr ||
+      plan.arena_base_ != plan.state_->arena_data() ||
+      plan.arena_bytes_ != plan.state_->arena_bytes() ||
+      plan.memory_plan_ != plan.state_->layer_major_plan() ||
+      plan.arithmetic_contract_ !=
+          &kLayerMajorPrefillExactArithmeticContract ||
+      !is_valid_layer_major_prefill_arithmetic_contract(
+          *plan.arithmetic_contract_) ||
+      !plan.exact_c512_arithmetic_workspace_bound_ ||
+      plan.main_stream_ != runner.stream_ ||
+      plan.auxiliary_stream_ != runner.prefill_auxiliary_stream_ ||
+      plan.submission_events_[0U] !=
+          runner.whole_request_submission_events_[0U] ||
+      plan.submission_events_[1U] !=
+          runner.whole_request_submission_events_[1U] ||
+      !runner.layer_major_request_views_.has_value() ||
+      runner.projection_backend_ != ProjectionBackend::kSm87WeightOnly) {
+    return false;
+  }
+  const ReferenceLayerMajorRequestViews& views =
+      *runner.layer_major_request_views_;
+  bool fallback_views_match =
+      views.legacy_c512.linear_a_bf16.storage.device_data != nullptr &&
+      views.legacy_c512.linear_b_bf16.storage.device_data != nullptr &&
+      views.legacy_c512.fp32_scratch.device_data != nullptr;
+  for (const DeviceMatrixView& hidden : views.legacy_c512.hidden_bf16) {
+    fallback_views_match = fallback_views_match &&
+                           hidden.storage.device_data != nullptr;
+  }
+  for (const DeviceMatrixView& projection :
+       views.legacy_c512.projection_bf16) {
+    fallback_views_match = fallback_views_match &&
+                           projection.storage.device_data != nullptr;
+  }
+  fallback_views_match =
+      fallback_views_match &&
+      views.legacy_c512.fp32_scratch.byte_size >=
+          kernels::kSm87NvFp4MarlinReductionBytes &&
+      views.legacy_c512.projection_bf16[3].storage.byte_size >=
+          kernels::kSm87NvFp4MarlinLockBytes &&
+      reinterpret_cast<std::uintptr_t>(
+          views.legacy_c512.projection_bf16[1].storage.device_data) ==
+          reinterpret_cast<std::uintptr_t>(
+              views.legacy_c512.projection_bf16[0].storage.device_data) +
+              views.legacy_c512.projection_bf16[0].storage.byte_size;
+  if (!fallback_views_match) {
+    return false;
+  }
+  const DecoderLayerWeights& linear_layer = runner.weights_->layer(0U);
+  const DecoderLayerWeights& full_layer = runner.weights_->layer(3U);
+  const auto* const linear =
+      std::get_if<LinearAttentionWeights>(&linear_layer.attention);
+  const auto* const attention =
+      std::get_if<FullAttentionWeights>(&full_layer.attention);
+  const auto* const gate =
+      std::get_if<NvFp4LinearWeight>(&linear_layer.mlp.gate_proj);
+  const auto* const up =
+      std::get_if<NvFp4LinearWeight>(&linear_layer.mlp.up_proj);
+  const auto* const down =
+      std::get_if<NvFp4LinearWeight>(&linear_layer.mlp.down_proj);
+  if (linear == nullptr || attention == nullptr || gate == nullptr ||
+      up == nullptr || down == nullptr ||
+      gate->prefill_marlin_gate_up_layout !=
+          NvFp4MarlinGateUpLayout::kCanonicalGateThenUp ||
+      up->prefill_marlin_gate_up_layout !=
+          gate->prefill_marlin_gate_up_layout ||
+      views.attention.normalized_input_bf16.storage.device_data == nullptr ||
+      views.mlp.normalized_input_bf16.storage.device_data == nullptr) {
+    return false;
+  }
+  const auto* const linear_qkv =
+      std::get_if<Fp8LinearWeight>(&linear->in_proj_qkv);
+  const auto* const linear_z =
+      std::get_if<Fp8LinearWeight>(&linear->in_proj_z);
+  const auto* const linear_o =
+      std::get_if<Fp8LinearWeight>(&linear->out_proj);
+  const auto* const linear_a =
+      std::get_if<Bf16LinearWeight>(&linear->in_proj_a);
+  const auto* const linear_b =
+      std::get_if<Bf16LinearWeight>(&linear->in_proj_b);
+  const auto* const full_q =
+      std::get_if<Fp8LinearWeight>(&attention->q_proj);
+  const auto* const full_k =
+      std::get_if<Fp8LinearWeight>(&attention->k_proj);
+  const auto* const full_v =
+      std::get_if<Fp8LinearWeight>(&attention->v_proj);
+  const auto* const full_o =
+      std::get_if<Fp8LinearWeight>(&attention->o_proj);
+  if (linear_qkv == nullptr || linear_z == nullptr || linear_o == nullptr ||
+      linear_a == nullptr || linear_b == nullptr || full_q == nullptr ||
+      full_k == nullptr || full_v == nullptr || full_o == nullptr) {
+    return false;
+  }
+  const auto matches = [&plan](
+                           const PrefillBindingRole role,
+                           const NativePrefillTactic tactic,
+                           const void* const artifact,
+                           const void* const workspace,
+                           const std::uint64_t workspace_bytes,
+                           const std::uint32_t minimum_physical_m,
+                           const std::uint32_t maximum_physical_m,
+                           const void* const auxiliary_workspace = nullptr,
+                           const std::uint64_t auxiliary_workspace_bytes =
+                               0U) noexcept {
+    const NativePrefillRoleReceipt& receipt =
+        plan.roles_[static_cast<std::size_t>(role)];
+    return receipt.role == role && receipt.tactic == tactic &&
+           receipt.completion ==
+               NativePrefillCompletionDomain::kMainStreamBarrier &&
+           receipt.artifact_owner == artifact &&
+           receipt.workspace_owner == workspace &&
+           receipt.workspace_bytes == workspace_bytes &&
+           receipt.auxiliary_workspace_owner == auxiliary_workspace &&
+           receipt.auxiliary_workspace_bytes ==
+               auxiliary_workspace_bytes &&
+           receipt.maximum_logical_panel_m ==
+               kLayerMajorPrefillOperatorPanelTokens &&
+           receipt.minimum_physical_m == minimum_physical_m &&
+           receipt.maximum_physical_m == maximum_physical_m;
+  };
+  return matches(
+             PrefillBindingRole::kNvfp4GateUp,
+             NativePrefillTactic::kNvfp4GateUpOracleSpanC512,
+             gate->prefill_marlin_weight,
+             views.legacy_c512.fp32_scratch.device_data,
+             kernels::kSm87NvFp4MarlinReductionBytes, 1U,
+             kPrefillPhysicalSegmentMaximumTokens,
+             views.legacy_c512.projection_bf16[3].storage.device_data,
+             kernels::kSm87NvFp4MarlinLockBytes) &&
+         matches(PrefillBindingRole::kNvfp4Down,
+                 NativePrefillTactic::kNvfp4DownOracleSpanC512,
+                 down->prefill_marlin_weight,
+                 views.legacy_c512.fp32_scratch.device_data,
+                 kernels::kSm87NvFp4MarlinReductionBytes, 1U,
+                 kPrefillPhysicalSegmentMaximumTokens,
+                 views.legacy_c512.projection_bf16[3].storage.device_data,
+                 kernels::kSm87NvFp4MarlinLockBytes) &&
+         matches(PrefillBindingRole::kLinearFp8Qkv,
+                 NativePrefillTactic::kFp8OracleSpanC512,
+                 linear_qkv->prefill_marlin_weight,
+                 views.gdn.input_projection_temporary.device_data,
+                 views.gdn.input_projection_temporary.byte_size, 2U,
+                 kPrefillPhysicalSegmentMaximumTokens) &&
+         matches(PrefillBindingRole::kLinearFp8Z,
+                 NativePrefillTactic::kFp8OracleSpanC512,
+                 linear_z->prefill_marlin_weight,
+                 views.gdn.input_projection_temporary.device_data,
+                 views.gdn.input_projection_temporary.byte_size, 2U,
+                 kPrefillPhysicalSegmentMaximumTokens) &&
+         matches(PrefillBindingRole::kLinearFp8O,
+                 NativePrefillTactic::kFp8OracleSpanC512,
+                 linear_o->prefill_marlin_weight,
+                 views.gdn.output_projection_temporary.device_data,
+                 views.gdn.output_projection_temporary.byte_size, 2U,
+                 kPrefillPhysicalSegmentMaximumTokens) &&
+         matches(PrefillBindingRole::kFullFp8Q,
+                 NativePrefillTactic::kFp8OracleSpanC512,
+                 full_q->prefill_marlin_weight,
+                 views.attention.input_projection_temporary.device_data,
+                 views.attention.input_projection_temporary.byte_size, 2U,
+                 kPrefillPhysicalSegmentMaximumTokens) &&
+         matches(PrefillBindingRole::kFullFp8K,
+                 NativePrefillTactic::kFp8OracleSpanC512,
+                 full_k->prefill_marlin_weight,
+                 views.attention.input_projection_temporary.device_data,
+                 views.attention.input_projection_temporary.byte_size, 2U,
+                 kPrefillPhysicalSegmentMaximumTokens) &&
+         matches(PrefillBindingRole::kFullFp8V,
+                 NativePrefillTactic::kFp8OracleSpanC512,
+                 full_v->prefill_marlin_weight,
+                 views.attention.input_projection_temporary.device_data,
+                 views.attention.input_projection_temporary.byte_size, 2U,
+                 kPrefillPhysicalSegmentMaximumTokens) &&
+         matches(PrefillBindingRole::kFullFp8O,
+                 NativePrefillTactic::kFp8OracleSpanC512,
+                 full_o->prefill_marlin_weight,
+                 views.attention.output_projection_temporary.device_data,
+                 views.attention.output_projection_temporary.byte_size, 2U,
+                 kPrefillPhysicalSegmentMaximumTokens) &&
+         matches(PrefillBindingRole::kLinearBf16A,
+                 NativePrefillTactic::kBf16AbOracleSpanEstablishedM32,
+                 linear_a->weight, views.gdn.a_bf16.storage.device_data,
+                 views.gdn.a_bf16.storage.byte_size, 2U,
+                 kPrefillPhysicalSegmentMaximumTokens) &&
+         matches(PrefillBindingRole::kLinearBf16B,
+                 NativePrefillTactic::kBf16AbOracleSpanEstablishedM32,
+                 linear_b->weight, views.gdn.b_bf16.storage.device_data,
+                 views.gdn.b_bf16.storage.byte_size, 2U,
+                 kPrefillPhysicalSegmentMaximumTokens) &&
+         matches(PrefillBindingRole::kExactGdn,
+                 NativePrefillTactic::kExactGdnOracleSpanWholeRawQkvC512,
+                 linear->conv1d.data,
+                 views.gdn.native_c64_workspace.device_data,
+                 gdn_prefill_chunk64_native_detail::workspace_bytes(), 32U,
+                 kPrefillPhysicalSegmentMaximumTokens) &&
+         matches(PrefillBindingRole::kExactCausalAttention,
+                 NativePrefillTactic::
+                     kExactCausalAttentionOracleSpanC512C16Reference256,
+                 attention->q_norm.data,
+                 views.attention.core_output_bf16.storage.device_data,
+                 views.attention.core_output_bf16.storage.byte_size, 2U,
+                 kPrefillPhysicalSegmentMaximumTokens) &&
+         matches(PrefillBindingRole::kResidual,
+                 NativePrefillTactic::kResidualOperatorPanel,
+                 runner.weights_,
+                 views.prompt_residual_bf16.storage.device_data,
+                 views.prompt_residual_bf16.storage.byte_size, 1U,
+                 kLayerMajorPrefillOperatorPanelTokens) &&
+         matches(PrefillBindingRole::kNormalization,
+                 NativePrefillTactic::kNormalizationOperatorPanel,
+                 linear_layer.input_layernorm.data,
+                 views.gdn.normalized_input_bf16.storage.device_data,
+                 views.gdn.normalized_input_bf16.storage.byte_size, 1U,
+                 kLayerMajorPrefillOperatorPanelTokens) &&
+         matches(PrefillBindingRole::kEmbedding,
+                 NativePrefillTactic::kEmbeddingOperatorPanel,
+                 runner.weights_->embed_tokens().weight,
+                 views.panel_token_ids_u32.storage.device_data,
+                 views.panel_token_ids_u32.storage.byte_size, 1U,
+                 kLayerMajorPrefillOperatorPanelTokens) &&
+         matches(PrefillBindingRole::kFinalHandoff,
+                 NativePrefillTactic::kFinalHandoff,
+                 runner.weights_->final_norm().data,
+                 views.final_hidden_bf16.storage.device_data,
+                 views.final_hidden_bf16.storage.byte_size, 1U, 1U);
 #endif
+}
+
+std::string_view ReferenceEnginePrefillExecutor::deployment_plan_id(
+    const BoundPrefillExecutionPlan& plan) noexcept {
+  return plan.exact_c512_arithmetic_workspace_bound_
+             ? kLayerMajorOperatorPanelDeploymentPlanId
+             : std::string_view{};
 }
 
 ReferenceWholeRequestPrefillOutcome ReferenceEnginePrefillExecutor::execute(
@@ -586,8 +916,11 @@ ReferenceWholeRequestPrefillOutcome ReferenceEnginePrefillExecutor::execute(
   }
   receipt.emplace(BoundPrefillRequestReceipt(&plan, &runner, geometry));
   ReferenceWholeRequestPrefillOutcome outcome =
-      runner.prefill_whole_request_layer_major_compatibility_core(
-          input_token_ids, token_count, geometry, options);
+      g_reference_engine_prefill_compatibility_oracle_for_test
+          ? runner.prefill_whole_request_layer_major_compatibility_core(
+                input_token_ids, token_count, geometry, options)
+          : runner.prefill_whole_request_layer_major_panel_core(
+                input_token_ids, token_count, geometry, options);
   receipt->phase_ = outcome
                         ? BoundPrefillRequestReceipt::Phase::kAwaitingLogits
                         : BoundPrefillRequestReceipt::Phase::kPoisoned;

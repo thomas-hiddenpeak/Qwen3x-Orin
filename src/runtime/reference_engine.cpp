@@ -2834,6 +2834,7 @@ prepare_sm87_fp8_marlin_prefill_sidecars(
 prepare_sm87_nvfp4_marlin_prefill_sidecars(
     ModelWeights& model_weights,
     const std::uint64_t minimum_free_bytes_after_prepare,
+    const bool interleave_gate_up,
     Sm87NvFp4MarlinPrefillSidecars& owner) {
   Sm87NvFp4MarlinPrefillPreparation result;
   if (owner.gate_up_weights != nullptr || owner.gate_up_scales != nullptr ||
@@ -3052,8 +3053,7 @@ prepare_sm87_nvfp4_marlin_prefill_sidecars(
             gate->packed_weight, up->packed_weight, gate->block_scale,
             up->block_scale, gate->weight_scale_2_device, gate_up_factor,
             gate_up_weight, gate_up_scale, gate_up_global, transpose_scratch,
-            kScratchBytes, static_cast<void*>(stream),
-            prefill_marlin_gate_up_epilogue_environment_enabled()));
+            kScratchBytes, static_cast<void*>(stream), interleave_gate_up));
     if (status == cudaSuccess) {
       status = static_cast<cudaError_t>(
           kernels::prepare_sm87_nvfp4_marlin_down_cuda(
@@ -3073,8 +3073,12 @@ prepare_sm87_nvfp4_marlin_prefill_sidecars(
       return result;
     }
     owner.descriptors.push_back(NvFp4MarlinPrefillSidecarDescriptor{
-        layer_index, gate_up_weight, gate_up_scale, gate_up_global,
-        down_weight, down_scale, down_global});
+        layer_index,
+        interleave_gate_up
+            ? NvFp4MarlinGateUpLayout::kInterleavedGateUp
+            : NvFp4MarlinGateUpLayout::kCanonicalGateThenUp,
+        gate_up_weight, gate_up_scale, gate_up_global, down_weight,
+        down_scale, down_global});
   }
 
   status = cudaStreamSynchronize(stream);
@@ -3198,14 +3202,15 @@ struct ReferenceEngine::Impl {
       return result;
     }
 #if !defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION) || \
-    !defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION)
+    !defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION) || \
+    !defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
     if (options.prefill_execution_mode ==
         ReferencePrefillExecutionMode::kWholeRequestLayerMajor) {
       result.diagnostic = engine_diagnostic(
           ReferenceEngineError::kPrefillPlanUnavailable,
           "prefill_execution_mode",
-          "this binary does not contain both exact native Marlin Prefill "
-          "inventories required by the sealed layer-major plan");
+          "this binary does not contain the FP8, NVFP4, and exact native "
+          "GDN inventories required by the sealed layer-major plan");
       return result;
     }
 #endif
@@ -3434,10 +3439,20 @@ struct ReferenceEngine::Impl {
 #endif
 #if defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION)
           const Clock::time_point marlin_begin = Clock::now();
+          // The sealed layer-major arithmetic contract always launches the
+          // ordinary Gate+Up producer followed by its standalone SiLU. Its
+          // sidecar must therefore remain canonical even when a process-wide
+          // legacy admission asks another engine mode to prepare the fused
+          // interleaved epilogue layout.
+          const bool interleave_gate_up =
+              options.prefill_execution_mode !=
+                  ReferencePrefillExecutionMode::kWholeRequestLayerMajor &&
+              prefill_marlin_gate_up_epilogue_environment_enabled();
           const Sm87NvFp4MarlinPrefillPreparation marlin_preparation =
               prepare_sm87_nvfp4_marlin_prefill_sidecars(
                   *impl->model_weights,
                   options.request_options.min_free_bytes_after_create,
+                  interleave_gate_up,
                   impl->nvfp4_marlin_prefill_sidecars);
           impl->load.nvfp4_marlin_prefill_sidecar_milliseconds =
               elapsed_milliseconds(marlin_begin);
@@ -4352,6 +4367,13 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
                               : options.prefill_chunk_size;
     generation.prefill_execution_mode =
         control.value->prefill_execution_mode;
+    if (generation.prefill_execution_mode ==
+            ReferencePrefillExecutionMode::kWholeRequestLayerMajor &&
+        impl_->bound_prefill_plan != nullptr) {
+      generation.prefill_deployment_plan_id = std::string(
+          reference_engine_detail::ReferenceEnginePrefillExecutor::
+              deployment_plan_id(*impl_->bound_prefill_plan));
+    }
     generation.prefill_logical_panel_count =
         control.value->prefill_logical_panel_count;
     generation.prefill_bounded_submission_window =

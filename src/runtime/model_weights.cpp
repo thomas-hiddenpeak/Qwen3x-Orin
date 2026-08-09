@@ -1325,6 +1325,8 @@ bool ModelWeights::attach_nvfp4_marlin_prefill_sidecars(
            {nvfp4_gate_projection(layer), nvfp4_up_projection(layer),
             nvfp4_down_projection(layer)}) {
         if (projection != nullptr) {
+          projection->prefill_marlin_gate_up_layout =
+              NvFp4MarlinGateUpLayout::kUnbound;
           projection->prefill_marlin_weight = nullptr;
           projection->prefill_marlin_scales = nullptr;
           projection->prefill_marlin_global_scale = nullptr;
@@ -1359,6 +1361,10 @@ bool ModelWeights::attach_nvfp4_marlin_prefill_sidecars(
     const NvFp4MarlinPrefillSidecarDescriptor& descriptor = descriptors[index];
     if (descriptor.layer_index >= kQwen36DenseLayerCount ||
         seen[descriptor.layer_index] || descriptor.gate_up_weight == nullptr ||
+        (descriptor.gate_up_layout !=
+             NvFp4MarlinGateUpLayout::kCanonicalGateThenUp &&
+         descriptor.gate_up_layout !=
+             NvFp4MarlinGateUpLayout::kInterleavedGateUp) ||
         descriptor.gate_up_scales == nullptr ||
         descriptor.gate_up_global_scale == nullptr ||
         descriptor.down_weight == nullptr || descriptor.down_scales == nullptr ||
@@ -1399,6 +1405,8 @@ bool ModelWeights::attach_nvfp4_marlin_prefill_sidecars(
   for (const Validated& entry : validated) {
     const NvFp4MarlinPrefillSidecarDescriptor& descriptor = *entry.descriptor;
     for (NvFp4LinearWeight* const projection : {entry.gate, entry.up}) {
+      projection->prefill_marlin_gate_up_layout =
+          descriptor.gate_up_layout;
       projection->prefill_marlin_weight = descriptor.gate_up_weight;
       projection->prefill_marlin_scales = descriptor.gate_up_scales;
       projection->prefill_marlin_global_scale =
