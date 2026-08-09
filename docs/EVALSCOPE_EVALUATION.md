@@ -412,6 +412,17 @@ request, so the next work replaces dominant GPU dataflows rather than the API
 adapter. Exact hashes, counts, and limitations are frozen in the
 [v10 whole-core direction record](metadata/qwen36-27b-prefill-p40k-whole-core-direction-2026-08-10.json).
 
+The first WP-V2-C1-v3 direction reused the exact v10 host schedule and route
+counters through a binary-pinned, default-off overlay; the binary hash, not a
+new witness name, distinguishes its substituted shape-wide NVFP4 body. It
+returned to this same P40K API gate before accuracy or statistical work and
+regressed server pure Prefill to 106,374.300578 ms / 376.030675 tok/s. One
+bounded profile attributed the loss to the substituted NVFP4 package, so the
+overlay was removed and P60/P130 stayed locked. This early-overlay exception
+does not authorize ambiguous identity for a positive or promotable route.
+Exact evidence is frozen in the
+[v3 rejection record](metadata/qwen36-27b-prefill-p40k-nvfp4-shape-wide-v3-rejection-2026-08-10.json).
+
 The externally observed TTFT selects the whole architecture. Server-side pure
 Prefill timing explains where that result came from; it never replaces the API
 result. A witness with an incomplete stream, unowned host resources, a route

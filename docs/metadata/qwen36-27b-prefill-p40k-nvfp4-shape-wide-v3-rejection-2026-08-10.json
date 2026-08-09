@@ -1,0 +1,260 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-p40k-nvfp4-shape-wide-v3-rejection-2026-08-10",
+  "measured_at": "2026-08-10T07:11:33+08:00",
+  "profiled_at": "2026-08-10T07:18:33+08:00",
+  "recorded_at": "2026-08-10T07:30:00+08:00",
+  "timezone": "Asia/Shanghai",
+  "status": "rejected_default_off_architecture_direction",
+  "policy": {
+    "evidence_tier": "T4_DIRECTION_PROFILE",
+    "protocol_class": "EXTERNAL_API_P40K_SINGLE_REQUEST_PLUS_BOUNDED_NSYS",
+    "decision_unit": "shape_specific_nvfp4_gate_up_and_down_package",
+    "architecture_candidate_id": "AC-PREFILL-PROMPT-WIDE-v2/WP-V2-C1-v3",
+    "real_model_production_api_first": true,
+    "architecture_direction_retained": false,
+    "architecture_selection_authority": false,
+    "release_performance_authority": false,
+    "production_promotion_authority": false,
+    "default_route_changed": false,
+    "production_eligible": false,
+    "numerical_contract_qualified": false,
+    "accuracy_gate": "NOT_RUN_AFTER_NEGATIVE_P40K_DIRECTION",
+    "cublaslt_production_eligibility": false,
+    "mtp_used": false
+  },
+  "source": {
+    "branch": "codex/prefill-target-path",
+    "measurement_base_commit": "a46d165e140f874e05f1ec1b01f1317146813df6",
+    "measurement_tree_clean": false,
+    "measurement_source_note": "The independent shape-wide kernel, host plan, and resource admission surfaces are committed at a46d165. A temporary, default-off runner overlay selected those kernels only for the exact whole-core P40 profile. The overlay was binary-pinned, rejected after its real-API screen and one causal profile, then removed without promotion.",
+    "binary": {
+      "measurement_path": ".q3x-work/build/p40-whole-core-shape-wide-v3/qwen3x-eval-server",
+      "sha256": "f826e95bfbe1bfe80691dfea73c1cb056ff3c7940a6ba931379b9be1b40ae00a",
+      "elf_build_id": "d789515b4bb3b09f21724ee74a1a526dc74f87e9",
+      "checked_in": false,
+      "build_type": "Release",
+      "build_testing": true,
+      "cuda_architecture": "sm_87"
+    }
+  },
+  "checkpoint": {
+    "repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "local_path": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "access": "read_only"
+  },
+  "workload": {
+    "framework": "EvalScope",
+    "framework_version": "1.9.1",
+    "api": "openai",
+    "endpoint": "/v1/completions",
+    "corpus_path": ".q3x-work/evalscope/corpora/q3x-repository-agent-context-p40000-one-token.jsonl",
+    "corpus_sha256": "8970ac50693f49d1b27d35a0610ecbe5072594330d69b301f4dab731789b6844",
+    "prompt_kind": "token_ids",
+    "prompt_tokens": 40000,
+    "prompt_token_ids_u32le_sha256": "76cd23e2d60a9473af0ff24767b1b7ca614b36857697b420246731165156f78f",
+    "request_body_sha256": "e6f5817ad868e85c333db1961fa3dc14c7e65247f0a4241e8bb638870b6575ec",
+    "prompt_fully_consumed": true,
+    "consumed_prompt_tokens": 40000,
+    "logical_panel_geometry": "5x8000",
+    "measured_requests": 1,
+    "successful_requests": 1,
+    "warmup_requests": 0,
+    "parallel": 1,
+    "output_tokens": 1,
+    "temperature": 0.0,
+    "seed": 42,
+    "stream": true,
+    "prefix_cache": false,
+    "mtp": false
+  },
+  "candidate": {
+    "scope": "exact_P40000_NVFP4_GateUp_and_Down_only_inside_whole_core_package",
+    "gate_up": {
+      "problem": "M40000_K5120_N17408_pairwise_Gate64_Up64",
+      "tile": "M128_pairN64_K64",
+      "pipeline_stages": 3,
+      "raster": "group_M_2",
+      "epilogue": "fused_SiLU",
+      "registers_per_thread": 126,
+      "dynamic_shared_bytes": 62976,
+      "active_ctas_per_sm": 2
+    },
+    "down": {
+      "problem": "M40000_K17408_N5120",
+      "tile": "M128_N128_K64",
+      "pipeline_stages": 3,
+      "raster": "A_major_group_M_1",
+      "epilogue": "BF16_RNE_plus_in_place_residual",
+      "registers_per_thread": 126,
+      "dynamic_shared_bytes": 62976,
+      "active_ctas_per_sm": 2
+    },
+    "residency_contract": "Humming-style L2 locality only; no cross-CTA shared-memory residency is claimed.",
+    "host_raster_bijection_ctas_per_layer": 97656,
+    "correctness_scope": "host plan, exhaustive raster bijection, build and route admission only; full model numerical qualification was intentionally not run after the negative product result"
+  },
+  "clean_host_preflight": {
+    "api_server_start": {
+      "decision": "pass",
+      "sha256": "c3144b889265654a49ff99148e9c7f166c8b95ae361d246553744db0a6f7346b"
+    },
+    "api_request_control_paused": {
+      "decision": "pass",
+      "sha256": "444bd941f434ee24cdad873939d69db62e629cbb4a9ab5d8a3ae57033f834a78"
+    },
+    "profile_server_start": {
+      "decision": "pass",
+      "sha256": "097133d8525b33c066641e82501dff381fd90b4c527d64d05cf5c4644942e758"
+    },
+    "profile_request_capture": {
+      "decision": "pass",
+      "sha256": "dd4f7bbd4a9de1b838ee2171176e4936dd9984366f925488a9778775483f9bce"
+    },
+    "jetson_idle_authority": "tegrastats plus CPU/process and GPU-device-handle inspection",
+    "nvidia_smi_used_for_idle_decision": false
+  },
+  "route": {
+    "witness_schema": "target-prefill-witness-v10",
+    "deployment_plan_id": "q3x.sm87.ac-prefill-prompt-wide-v2.native-p40-whole-core.v1",
+    "witness_identity_note": "The early direction overlay reused the v10 host schedule and counters; the exact binary hash is the authority distinguishing the substituted NVFP4 body. No new witness identity was promoted.",
+    "package_complete": true,
+    "bounded_submission_window": true,
+    "submission_window_retirements": 768,
+    "route_layer_pass_count": 1,
+    "logical_panel_count": 5,
+    "panel_tokens": 8000,
+    "whole_core_layer_hits": 64,
+    "fp8_projection_physical_launches": 1040,
+    "whole_prompt_flashinfer_hits": 16,
+    "nvfp4_gate_up_hits": 64,
+    "nvfp4_down_hits": 64,
+    "completed_forbidden_hits": 0,
+    "forbidden_route_hits": {
+      "prefix_cache": 0,
+      "mtp": 0,
+      "cublaslt": 0,
+      "external_reference": 0,
+      "approximate_numerics": 0
+    }
+  },
+  "real_api_direction": {
+    "evalscope": {
+      "ttft_ms": 106415.04,
+      "whole_workload_prompt_tok_s": 375.896,
+      "workload_timeline_prompt_tok_s": 375.886571
+    },
+    "server": {
+      "queue_ms": 0.028065,
+      "admission_ms": 11.930173,
+      "generation_call_wall_ms": 106396.249356,
+      "pure_prefill_ms": 106374.300578,
+      "pure_prefill_tok_s": 376.030674539,
+      "finish_prefill_ms": 4.485347,
+      "ttft_ms": 106410.224633,
+      "decode_after_first_ms": 0.0,
+      "response_enqueued_total_ms": 106410.262393
+    }
+  },
+  "comparison_to_whole_core_baseline": {
+    "baseline_source": "qwen36-27b-prefill-p40k-whole-core-direction-2026-08-10",
+    "baseline_server_pure_prefill_ms": 101831.853876,
+    "baseline_server_pure_prefill_tok_s": 392.804397421,
+    "candidate_server_pure_prefill_ms": 106374.300578,
+    "candidate_server_pure_prefill_tok_s": 376.030674539,
+    "latency_delta_ms": 4542.446702,
+    "latency_change_percent": 4.460733,
+    "throughput_change_percent": -4.270248,
+    "speedup_x": 0.957297518,
+    "owner_vllm_floor_tok_s": 4300.0,
+    "fraction_of_owner_vllm_floor_percent": 8.744899,
+    "gap_to_owner_vllm_floor_x": 11.435237,
+    "decision": "REJECT_AND_REMOVE_RUNNER_OVERLAY"
+  },
+  "nsys": {
+    "whole_request_ms": 106752.632896,
+    "summed_kernel_ms": 106749.233344,
+    "kernel_gap_ms": 3.399552,
+    "kernel_gap_percent": 0.003185,
+    "cuda_streams_observed": 1,
+    "kernel_overlap_observed": false,
+    "kernel_launches": 2425,
+    "unique_kernel_names": 21,
+    "dominant_kernels": [
+      {
+        "role": "nvfp4_shape_wide_gate_up",
+        "instances": 64,
+        "total_ms": 41163.382144,
+        "profile_percent": 38.6
+      },
+      {
+        "role": "fp8_marlin",
+        "instances": 1040,
+        "total_ms": 25906.728288,
+        "profile_percent": 24.3
+      },
+      {
+        "role": "nvfp4_shape_wide_down",
+        "instances": 64,
+        "total_ms": 17788.101568,
+        "profile_percent": 16.7
+      },
+      {
+        "role": "flashinfer_whole_prompt_attention",
+        "instances": 16,
+        "total_ms": 14103.426336,
+        "profile_percent": 13.2
+      }
+    ],
+    "matched_nvfp4_attribution": {
+      "baseline_gate_up_ms": 37273.068224,
+      "candidate_gate_up_ms": 41163.382144,
+      "gate_up_change_percent": 10.437332,
+      "baseline_down_ms": 17559.457280,
+      "candidate_down_ms": 17788.101568,
+      "down_change_percent": 1.302115,
+      "baseline_combined_ms": 54832.525504,
+      "candidate_combined_ms": 58951.483712,
+      "combined_delta_ms": 4118.958208,
+      "combined_change_percent": 7.511889
+    },
+    "interpretation": "The whole-product regression is causal to the substituted NVFP4 package, principally Gate/Up. API, host launch gaps, and route selection cannot explain it. Two-CTA admission, three-stage cp.async, and L2 grouping do not repair this skeleton on real P40 model weights."
+  },
+  "decision": {
+    "result": "REJECT_SHAPE_WIDE_V3_KEEP_INDEPENDENT_EXPERIMENT_SURFACE_DEFAULT_OFF",
+    "reason": "The first clean real-API P40K screen regressed pure-Prefill latency by 4.460733%. The bounded profile assigns a 4.118958-s increase to Gate/Up plus Down, including a 10.437332% Gate/Up regression. Further tile, stage, or raster scans on this skeleton are outside its composition budget.",
+    "default_route_unchanged": true,
+    "runner_overlay_removed": true,
+    "candidate_production_enabled": false,
+    "full_accuracy_harness_run": false,
+    "repetition_harness_run": false,
+    "ncu_run": false,
+    "p60k_run": false,
+    "p130k_run": false,
+    "next_step": "Retain the exact-P40 whole-core transaction, arena, and witness substrate at 392.804397 tok/s. Redesign the complete dominant GPU package from the full execution/dataflow graph rather than scan this NVFP4 skeleton; return the next material architecture directly to the same real-API P40 gate."
+  },
+  "artifacts": {
+    "evidence_dir": ".q3x-work/evidence/prefill-target-path/p40-shape-wide-v3-r1",
+    "profile_dir": ".q3x-work/profiles/p40-shape-wide-v3-r2-profile",
+    "evalscope_dir": ".q3x-work/evalscope/results/p40-shape-wide-v3-r1/candidate/shapewidev3/parallel_1_number_1",
+    "server_log_sha256": "632d73585613ba0e92b032493c523856678307d4d3e4d33acf86d3384e215006",
+    "evalscope_client_log_sha256": "2a78ab6b6d95edc6227d3af7b075f3d9e432f5f75b0ee32cf0edbf2ed4cb27d9",
+    "evalscope_db_sha256": "9bdf1aaba26070e9f7f14329c8964feb686da91e4d2309f18e3c1ad30c5afc42",
+    "evalscope_summary_sha256": "53996118f5511fb40c9fafe2012fca436ac51b35ed19f03973d81e70c5e26e4b",
+    "nsys_report_sha256": "4f85cdae3d3e15532ef204a8776718f8b67a61c51d605ef335ddc64effb148c0",
+    "nsys_sqlite_sha256": "7b83890ff613b545bdcc10335c839e7ad56cb4727dd5c0d47afad43c27d3438a",
+    "kernel_summary_sha256": "01635479ba5a6ff402f35f643e5bce28595141ce93e2036fd189d581505903ba",
+    "nvtx_summary_sha256": "40f39896ffb8f21ecada22ef8a5a2f2579f82fcccbc6401856c42e3eb18a7c50",
+    "profile_server_log_sha256": "81e84c15cf9b895e203a832356a8d3ac34fc84f951a477df8cd7e0be9437374c",
+    "profile_evalscope_log_sha256": "6bdaea006eaf6e6b0020c9e2a80abede117e527cfe8cd0c6149c16c555350d61"
+  },
+  "honesty_notes": [
+    "This is one clean-host real-API direction sample plus one bounded Nsight capture, not a repetition-qualified release baseline.",
+    "The measured binary is pinned but came from a temporary dirty-tree route overlay above a46d165; the overlay was removed after rejection.",
+    "The inherited FlashInfer path is still accuracy-unqualified. The negative product result stopped full accuracy work on the substituted NVFP4 body.",
+    "The committed shape-wide files remain default-off experiment evidence and are not reachable from the runner after overlay removal.",
+    "P60 and P130 were not run because P40 regressed and remains far below the locked target.",
+    "All generated evidence remains under the ignored repository .q3x-work tree; no user model or environment was modified."
+  ]
+}

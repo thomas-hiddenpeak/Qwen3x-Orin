@@ -117,9 +117,17 @@ forbidden routes. Server pure Prefill reached 101,831.853876 ms / 392.804397
 tok/s, +7.02138% versus retained `c45b7c5`; EvalScope TTFT was 101,870.53 ms.
 NSys found 102,113.313600 ms of kernels in a 102,121.306528-ms request, with
 Gate/Up, FP8, Down, and Attention dominant. The whole-core substrate is
-retained, but its inherited 16-CTA old-Marlin NVFP4 bodies are superseded by
-shape-wide Gate/Up and Down work. The candidate remains default-off and
+retained, while its inherited 16-CTA old-Marlin NVFP4 bodies are designated
+for architecture replacement. The candidate remains default-off and
 accuracy-unqualified.
+
+The first shape-wide Gate/Up and Down package returned through the same real
+API P40K gate and is frozen in
+[`qwen36-27b-prefill-p40k-nvfp4-shape-wide-v3-rejection-2026-08-10.json`](qwen36-27b-prefill-p40k-nvfp4-shape-wide-v3-rejection-2026-08-10.json).
+It regressed server pure Prefill to 106,374.300578 ms / 376.030675 tok/s.
+Bounded NSys measured Gate/Up +10.437332%, Down +1.302115%, and the pair
++7.511889% against the whole-core profile. The binary-pinned runner overlay
+was removed; the independent kernel surface remains default-off evidence only.
 
 The current Prefill architecture reset and same-host stock-vLLM P513 kernel
 profile are recorded in

@@ -172,14 +172,25 @@ Down, and Attention consume 37.273068 s, 25.864647 s, 17.559457 s, and
 while its inherited fixed-16-CTA old-Marlin NVFP4 body is closed: it reorders
 old M64 raster work without cross-CTA decoded-B/scale reuse.
 
-The active implementation package is a coupled Gate/Up and Down dataflow
-reset, not another scan on the rejected Marlin/C1/G2-D2 rasters. It must use
-shape-specific ownership, a real multi-stage producer/consumer feed, bounded
-register/shared admission for at least two CTAs per SM, and L2 rastering chosen
-from the full Gate and Down shapes. Its first decision is the same clean P40K
-API witness. Only a competitive, accuracy-admissible P40K composition unlocks
-M5424 implementation/validation and P60; P130 remains locked behind those
-gates.
+The first coupled Gate/Up and Down feed reset has now returned to the same
+P40K gate and is closed. Its three-stage, shape-specific, two-CTA/SM package
+regressed pure Prefill to 106.374301 s / 376.030675 tok/s. Bounded NSys places
+Gate/Up at +10.437332%, Down at +1.302115%, and their combined scope at
++7.511889% versus the whole-core profile. The temporary runner overlay is
+removed; no stage/tile/raster scan, accuracy expansion, or P60/P130 run
+follows. Exact evidence is in the
+[v3 rejection record](metadata/qwen36-27b-prefill-p40k-nvfp4-shape-wide-v3-rejection-2026-08-10.json).
+
+The active package is now the complete P40 projection subsystem, not another
+NVFP4-only kernel. It must replace the decode/MMA ownership for NVFP4 Gate/Up,
+NVFP4 Down, and every FP8 QKV/Z/O role together while preserving the exact
+whole-core transaction. The design is AOT-specialized from the real model
+shapes and SM87 plan: compressed B/scale stays packed through asynchronous
+global-to-shared stages, register decode is double-buffered with MMA, one
+decoded fragment serves multiple M microtiles, and Gate/Up, Down, large-N
+FP8, and small-N FP8 receive distinct ownership and scheduling. Gate/Up SiLU
+and Down residual remain exact epilogues. L2 grouping, occupancy, and stage
+count are implementation consequences, not independent selection goals.
 
 Selection sequence:
 
@@ -384,35 +395,47 @@ Active architecture candidate: `AC-PREFILL-PROMPT-WIDE-v2`.
   changes task order, so launch reduction does not create decoded-B/scale
   reuse. Keep the surrounding exact-P40000 schedule and route witness; do not
   parameter-scan this kernel body.
-- **WP-V2-C1-v3 — shape-wide NVFP4 feed reset — active implementation:** use
-  G2/D2's two-CTA resource discipline and decoded-B fanout as the starting
-  point, then add a genuine multi-stage `cp.async` producer/consumer pipeline
-  and shape-specific L2 rastering. Gate/Up and Down must not share one M/N
-  ownership rule. The complete coupled package returns first to real P40K;
-  resource or synthetic checks are admission only, never performance
-  selection. Reserve the M5424/general-tail dispatch seam, but implement and
-  time it only after P40 is competitive and accuracy-admissible.
-- **WP-V2-C2 — shape-specific FP8 projections:** after the coupled NVFP4
-  package returns to P40K, build separate QKV, Z, and O tactics instead of
-  inheriting one universal tile. Humming, Triton, vLLM and cuBLASLt may inform
-  the dataflow, but cuBLASLt remains reference-only and never enters production
-  dispatch.
+- **WP-V2-C1-v3 — shape-wide NVFP4 feed reset — implemented, rejected, runner
+  overlay removed:** Gate/Up used an M128 paired Gate64+Up64 K64 tile,
+  group-M=2 L2 order, three asynchronous stages, and fused SiLU; Down used
+  M128N128K64, A-major order, three stages, and fused residual. Both measured
+  126 registers/thread, 62,976 bytes dynamic shared, zero spill, and two
+  CTAs/SM. The clean P40K direction regressed latency 4.460733%; the causal
+  profile attributes a 4.118958-s increase to the pair. This skeleton is
+  closed and must not receive local scans.
+- **WP-V2-C2 — complete shape-specific projection reset — active
+  implementation:** replace NVFP4 Gate/Up, NVFP4 Down, linear-attention FP8
+  QKV/Z/O, and full-attention FP8 Q/K/V/O as one route package. Use the proven
+  Humming/vLLM scheduling ideas, not their runtime dependency: AOT-frozen
+  role/shape plans, packed consumer-order B/scale, asynchronous operand stages,
+  two register-resident decoded-B buffers, direct MMA feed, and shape-aware
+  persistent/Stream-K work ownership. The failed paired-N64 Gate tile is not
+  reused. FP8 supermatrices are eligible only when they also replace the
+  decode/MMA ownership; launch merging alone is not the architecture.
+- **WP-V2-C2 quantitative gate:** current projection time is 80.697172 s.
+  With current Attention and tail held fixed, 1,000 prompt tok/s requires
+  projection time at or below 18.584 s, or at least 4.34x faster. This is the
+  package's architecture-exit target, not the retention rule: every strict
+  real-API improvement may update the internal baseline, but a smaller gain
+  does not declare the projection reset complete or unlock local scans. The
+  first performance decision is one clean, cold/no-cache P40K API request with
+  all projection-role receipts present and no forbidden route.
 - **WP-V2-B — prompt-wide recurrent and BF16 path:** submit one panel's C64
   hierarchy as one GDN work graph, expose chunk-local KKT/WY work in parallel,
   serialize only the mathematical boundary-state dependency, and replace
   recursive BF16 M16 A/B dispatch with panel-wide exact tactics. FLA and Mamba
   selective-scan mechanisms are design references; copied code or changed
   state precision is outside scope.
-- **Composition deadline:** the whole-core v2 route met its API return point
-  and retains only its control substrate. WP-V2-C1-v3 must freeze its
-  whole-dataflow/shape contract before local timing,
-  implement the mutually dependent ownership and feed changes as one package,
-  and return to one unprofiled clean-host P40K API direction against the
-  392.804397 tok/s whole-core direction as soon as both roles execute end to
-  end. A positive result earns
-  correctness repetition and matched NSys/real-weight NCU; a negative result
-  earns at most one bounded causal profile before closure or another material
-  architecture reset. Do not let low-yield scans displace this return point.
+- **Composition deadline:** the whole-core v2 route retains only its control,
+  arena, and witness substrate. WP-V2-C2 must freeze the full projection
+  contract, implement every required projection role in one binary, and
+  return directly to one unprofiled clean-host P40K API direction against
+  392.804397 tok/s. A positive result is retained and earns bounded
+  correctness/statistical qualification proportional to its status; a
+  negative result earns at most one causal profile before closure. NCU follows
+  a whole-product direction result and uses real checkpoint payloads. No P60,
+  P130, EvalScope dataset matrix, or low-yield parameter scan may displace this
+  return point.
 - Only a competitive, accuracy-admissible P40K result unlocks P60K and
   approximately-130K execution, followed by complete capacity/resource and
   architecture-witness qualification. P60's balanced geometry is

@@ -15,7 +15,7 @@ q3x_document:
 
 # Qwen3x-Orin current status
 
-Snapshot date: 2026-08-10. The current working tree above `a4f95ba` implements
+Snapshot date: 2026-08-10. Revision `a46d165` implements
 an exact-P40000 whole-core route: each layer executes five M8000 fill panels,
 one whole-prompt core, five M8000 drain panels, and one layer-wide NVFP4 MLP
 phase. Its clean-host cold/no-cache OpenAI API/EvalScope direction consumed all
@@ -45,6 +45,18 @@ cross-CTA decoded-B/scale sharing. P60K and P130K remain locked behind a
 competitive, accuracy-admissible P40K result, and production status is
 unchanged. Exact evidence is in the
 [whole-core direction record](metadata/qwen36-27b-prefill-p40k-whole-core-direction-2026-08-10.json).
+
+The first shape-wide NVFP4 replacement then returned through the same real
+API P40K gate. Its three-stage, two-CTA/SM Gate/Up and Down package reached
+106.374301 s / 376.030675 prompt tok/s, a 4.460733% latency regression against
+the whole-core baseline. One bounded profile attributes a 4.118958-s increase
+to those two roles: Gate/Up regressed 10.437332% and Down regressed 1.302115%.
+This closes the skeleton before accuracy/repetition work or P60/P130. The
+temporary runner overlay has been removed; only its independent default-off
+experiment surface and immutable
+[v3 rejection record](metadata/qwen36-27b-prefill-p40k-nvfp4-shape-wide-v3-rejection-2026-08-10.json)
+remain. The 392.804397 tok/s whole-core direction is still the strongest P40K
+result.
 
 This is the single point-in-time status page. It records what is target,
 designed, implemented, qualified, and production. Architecture contracts
@@ -531,10 +543,27 @@ The whole-core infrastructure is retained because it moves the product metric
 and closes transaction, memory, route, and evidence seams. The NVFP4 body is
 not retained as the final architecture: it launches a fixed 16 CTAs and wraps
 the old M64N256K64 Marlin raster, so it does not create the required decoded-B
-or scale reuse. The active implementation package replaces Gate/Up and Down
-with distinct shape-wide dataflows, then returns directly to the same P40K API
-witness. Full hashes and limitations are frozen in the
+or scale reuse. The first distinct shape-wide replacement also regressed, so
+neither NVFP4 skeleton is an active implementation target. Full hashes and
+limitations for this retained substrate are frozen in the
 [whole-core direction record](metadata/qwen36-27b-prefill-p40k-whole-core-direction-2026-08-10.json).
+
+### 5.6.1 Rejected shape-wide NVFP4 v3 direction
+
+The v3 package used separate real-shape rasters, a three-stage `cp.async`
+feed, 126 registers/thread, 62,976 bytes of dynamic shared memory, and measured
+two-CTA/SM admission for both Gate/Up and Down. It was selected only by a
+binary-pinned, default-off overlay inside the exact-P40 whole-core route. The
+clean API run consumed all 40,000 tokens with no forbidden route, but pure
+Prefill increased from 101,831.853876 ms to 106,374.300578 ms.
+
+The permitted causal profile measured Gate/Up at 41,163.382144 ms versus
+37,273.068224 ms for the whole-core baseline and Down at 17,788.101568 ms
+versus 17,559.457280 ms. Their combined 7.511889% regression explains the
+whole-product loss; the 3.399552-ms kernel gap is immaterial. The overlay was
+removed, no NCU or accuracy promotion was run, and stage/tile/raster scans on
+this skeleton are closed. Exact evidence is in the
+[v3 rejection record](metadata/qwen36-27b-prefill-p40k-nvfp4-shape-wide-v3-rejection-2026-08-10.json).
 
 ### 5.7 Current cumulative internal Prefix attribution
 
@@ -667,15 +696,20 @@ the API and inter-kernel gaps are negligible, while the four dominant roles
 consume more than 92% of the request. It also proves that the current
 "persistent" NVFP4 body is still a 16-CTA old-Marlin raster without useful
 cross-CTA B/scale residency. The whole-core infrastructure is retained; that
-MLP body is superseded by distinct Gate/Up and Down shape-wide dataflows.
+MLP body remains insufficient. The first distinct Gate/Up and Down shape-wide
+replacement subsequently regressed to 106.374301 s / 376.030675 tok/s; its
+profile makes Gate/Up the principal cause. Both NVFP4 skeletons are therefore
+closed against local parameter scanning.
 
 The first system selection point remains the same clean real P40K API against
 the 392.804397 tok/s whole-core direction and ultimately the owner's 4.3K
 tok/s vLLM starting line. Only a competitive, accuracy-admissible P40K
-composition unlocks M5424 implementation, P60, and then P130. Shape-specific
-FP8 QKV/Z/O and exact Attention are the next dominant complete architecture
-packages; BF16 A/B and GDN are now lower in the measured critical path and do
-not displace them.
+composition unlocks M5424 implementation, P60, and then P130. The active next
+package jointly replaces NVFP4 Gate/Up, NVFP4 Down, and every FP8 projection
+role with a shape-specific packed-feed/decoded-register/MMA architecture; it
+does not isolate another NVFP4 tile. Exact Attention and then GDN are the next
+dominant package boundaries. BF16 A/B alone is lower in the measured critical
+path and does not displace them.
 
 Unpinned or dirty experimental branches are intentionally excluded from this
 status snapshot. A candidate affects current truth only after its exact commit,
@@ -692,7 +726,7 @@ active dependency order and exit criteria are in
 | --- | --- | --- |
 | Product API and long-context admission | Configured token-ID validation and host requirement plans exist; 40K/60K/130K still do not fit or execute through the default contract | P1 |
 | Exact deliverable identity | No unique `BUILD_TESTING=OFF` release or authenticated DeploymentPlan | P2 |
-| Target-length performance and physical Prefill plan | The exact-P40000 whole-core direction reaches 392.804397 pure prompt tok/s, +7.02138% versus retained v6, with negligible API and kernel-gap overhead. NSys attributes over 92% to NVFP4 Gate/Up, FP8, NVFP4 Down, and Attention. The control substrate is retained; the inherited 16-CTA NVFP4 raster is being replaced. This remains 10.95x below the owner's vLLM floor and accuracy-unqualified. P60/P130 were not timed | P3 |
+| Target-length performance and physical Prefill plan | The exact-P40000 whole-core direction reaches 392.804397 pure prompt tok/s, +7.02138% versus retained v6, with negligible API and kernel-gap overhead. NSys attributes over 92% to NVFP4 Gate/Up, FP8, NVFP4 Down, and Attention. The first two-CTA/SM shape-wide NVFP4 replacement regressed to 376.030675 tok/s and is closed. The retained result remains 10.95x below the owner's vLLM floor and accuracy-unqualified. P60/P130 were not timed | P3 |
 | Accuracy, capability, stability, and release evidence | Partial deterministic oracles; no complete qualification bundle | P4 |
 | Packaging and operations | No attested install/startup/upgrade lane | P5 |
 
@@ -716,8 +750,9 @@ Until the gaps above close, use the following language:
   witness has no forbidden route, but the inherited FlashInfer arithmetic has
   a known P513 state mismatch and the measured binary came from a dirty working
   tree, so it remains accuracy-unqualified and unpromoted. The whole-core
-  control substrate is retained; its 16-CTA old-Marlin NVFP4 body is being
-  replaced. P60/P130 were not run. Exact/default routes and production status
+  control substrate is retained. Its old-Marlin body is insufficient, while
+  the first shape-wide replacement regressed and has been removed from the
+  runner. P60/P130 were not run. Exact/default routes and production status
   are unchanged.
 - **Not current:** production server, 40K--130K support, release-grade vLLM
   parity, 1,224.7335 tok/s lossless Prefill, or a fully qualified 10 token/s

@@ -654,14 +654,38 @@ s, 25.864646560 s, 17.559457280 s, and 13.634170272 s respectively.
 The persistent NVFP4 implementation is not the required projection
 architecture. It launches 16 CTAs and reuses the old M64N256K64 Marlin body,
 changing task order without retaining decoded B or scales across CTA output
-tiles. The successor must start from the two-CTA G2/D2 feed discipline, use a
-real multi-stage producer/consumer pipeline, and select L2 rastering separately
-for the asymmetric Gate/Up and Down shapes. Humming and Triton are reference
-mechanisms for pipeline and raster design; their code and any SM90+ mechanism
-are not production dependencies. The full package returns directly to the
-same real P40K API witness before NCU or broader prompt sweeps. Exact evidence
-is frozen in the
+tiles. The first successor was required to start from the two-CTA G2/D2 feed
+discipline, use a real multi-stage producer/consumer pipeline, and select L2
+rastering separately for the asymmetric Gate/Up and Down shapes. Humming and
+Triton were reference mechanisms for pipeline and raster design; their code
+and any SM90+ mechanism were not production dependencies. Exact evidence for
+the retained substrate is frozen in the
 [whole-core direction record](metadata/qwen36-27b-prefill-p40k-whole-core-direction-2026-08-10.json).
+
+### 8.9 Shape-wide v3 closure and new reset boundary
+
+WP-V2-C1-v3 implemented that first successor as separate Gate/Up and Down
+rasters with three-stage `cp.async`, 126 registers/thread, 62,976 bytes of
+dynamic shared memory, and two active CTAs/SM. Gate/Up used group-M=2 L2
+ordering; Down used group-M=1 A-major ordering. This is L2 locality, not
+cross-CTA shared-memory residency.
+
+The clean-host OpenAI API/EvalScope P40K direction regressed pure Prefill from
+101.831853876 s / 392.804397 tok/s to 106.374300578 s / 376.030675 tok/s.
+The single permitted causal profile found 106.749233344 s of kernels inside a
+106.752632896-s request. Gate/Up increased from 37.273068224 s to
+41.163382144 s (+10.437332%); Down increased from 17.559457280 s to
+17.788101568 s (+1.302115%). Their combined increase was 4.118958208 s /
+7.511889%.
+
+This disproves the v3 skeleton as a target architecture on real P40 model
+weights. Its temporary runner overlay is removed; the independent default-off
+kernel surface is retained only as experiment evidence. No stage, tile,
+raster, NCU, accuracy, repetition, P60, or P130 expansion follows. The next
+candidate must be derived from the complete dominant execution graph—NVFP4,
+FP8, and Attention together—and must again return first to the same real API
+P40 gate. Exact evidence is frozen in the
+[v3 rejection record](metadata/qwen36-27b-prefill-p40k-nvfp4-shape-wide-v3-rejection-2026-08-10.json).
 
 ## 9. Global dataflow questions
 
