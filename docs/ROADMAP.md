@@ -233,6 +233,17 @@ compatibility route, not yet selected or production):
   operator panels but still lowers them to bounded physical Marlin launches;
   it is not a native large-M implementation or the indivisible architecture
   candidate.
+- The current development tree additionally connects a distinct default-off
+  `native-quantized-large-m-operator-panel` v5 tactic. It preserves the
+  immutable balanced logical-panel topology and the exact recurrent/Attention
+  route. A complete M8192 panel issues one frozen Marlin launch for each
+  logical FP8 or NVFP4 projection; every partial panel executes the complete
+  authenticated oracle span ledger, including per-span MLP Down-to-residual
+  interleave. Separate bulk, partial-oracle, and physical-launch counters make
+  that distinction externally auditable. This closes one bounded host-
+  segmentation seam; it does not establish an arbitrary-M kernel, complete
+  large-M architecture, performance selection, accuracy qualification, or
+  production dispatch.
 - A clean-host one-request P1025 OpenAI API/EvalScope direction screen on
   `18363ad` is cumulatively positive against its older greedy/fallback
   layer-major witness and remains slower than the older legacy observation.
@@ -267,16 +278,17 @@ compatibility route, not yet selected or production):
   segmented-wrapper direction is rejected; P60K, P130K, NSys, and NCU were not
   run for it. The decision and raw-artifact hashes are frozen in the
   [P40K API record](metadata/qwen36-27b-prefill-p40k-segmented-marlin-q64-api-2026-08-09.json).
-- The immediate implementation gate is true native M128 projection dataflow,
-  with distinct tactics and ownership for NVFP4 Gate/Up, NVFP4 Down, and FP8
-  projections. It must remove the physical segmentation/data-presentation
-  boundary rather than wrap it, while retaining exact recurrent state and the
-  complete Attention contract.
-- As soon as that composition is runnable, return first to the same clean-host
-  P40K real-API direction gate. Only a competitive, accuracy-admissible P40K
-  result unlocks P60K and approximately-130K execution, followed by complete
-  capacity/resource and architecture-witness qualification. No panel
-  throughput or component profile substitutes for those results.
+- The immediate selection gate is now the same clean-host P40K real API using
+  exact Attention and the v5 projection tactic. It must report external TTFT,
+  server pure Prefill, full prompt consumption, immutable plan identity, and
+  the expected M8192-bulk/partial-oracle split. No panel throughput or
+  component profile substitutes for that result.
+- Only a competitive, accuracy-admissible P40K result unlocks P60K and
+  approximately-130K execution, followed by complete capacity/resource and
+  architecture-witness qualification. If the v5 composition is neutral or
+  negative, close it after at most one bounded causal profile and redesign the
+  global shape-specific NVFP4 Gate/Up, NVFP4 Down, FP8 projection, exact
+  Attention, and GDN dataflow; do not resume low-yield local scanning.
 
 The complete subsystem design and non-production status are recorded in
 [`PREFILL_ARCHITECTURE_RESET.md`](PREFILL_ARCHITECTURE_RESET.md#8-designed-candidate-lineage-ac-prefill-layermajor-8k-v1).

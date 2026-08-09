@@ -110,10 +110,27 @@ void test_public_tile_and_operator_panel_are_independent(TestContext& test) {
           runtime::is_valid_layer_major_prefill_projection_tactic(
               runtime::LayerMajorPrefillProjectionTactic::
                   kSegmentedMarlinOperatorPanel) &&
+          runtime::is_valid_layer_major_prefill_projection_tactic(
+              runtime::LayerMajorPrefillProjectionTactic::
+                  kNativeQuantizedLargeMOperatorPanel) &&
           !runtime::is_valid_layer_major_prefill_projection_tactic(
               static_cast<runtime::LayerMajorPrefillProjectionTactic>(
                   0xffU)),
       "layer-major projection tactics are a closed engine-lifetime set");
+  test.expect(
+      runtime::to_string(
+          runtime::LayerMajorPrefillProjectionTactic::
+              kExactSegmentedC512) == "exact-segmented" &&
+          runtime::to_string(
+              runtime::LayerMajorPrefillProjectionTactic::
+                  kSegmentedMarlinOperatorPanel) ==
+              "segmented-marlin-operator-panel" &&
+          runtime::to_string(
+              runtime::LayerMajorPrefillProjectionTactic::
+                  kNativeQuantizedLargeMOperatorPanel) ==
+              "native-quantized-large-m-operator-panel",
+      "projection tactic names preserve exact, segmented, and native "
+      "large-M route identity");
   const runtime::PrefillExecutionPlanResult result = build_plan(513U);
   test.expect(result &&
                   result.value->legacy_public_tile_limit == 512U &&
@@ -349,6 +366,33 @@ void test_exact_arithmetic_span_ledgers(TestContext& test) {
   test.expect(runtime::is_valid_layer_major_prefill_arithmetic_contract(
                   runtime::kLayerMajorPrefillExactArithmeticContract),
               "the bound arithmetic contract is explicit and immutable");
+  test.expect(
+      runtime::is_valid_layer_major_prefill_arithmetic_contract(
+          runtime::kLayerMajorPrefillExactMarlinM8192ArithmeticContract) &&
+          runtime::kLayerMajorPrefillExactMarlinM8192ArithmeticContract
+                  .version == 2U &&
+          runtime::kLayerMajorPrefillExactMarlinM8192ArithmeticContract
+              .m8192_single_bulk_projection &&
+          runtime::kLayerMajorPrefillExactMarlinM8192ArithmeticContract
+              .m8192_fp8_resets_locks_once &&
+          runtime::kLayerMajorPrefillExactMarlinM8192ArithmeticContract
+              .m8192_nvfp4_uses_independent_down_workspace &&
+          runtime::kLayerMajorPrefillExactMarlinM8192ArithmeticContract
+              .m8192_nvfp4_residual_once_after_bulk,
+      "the M8192 Marlin tactic owns a distinct sealed arithmetic contract");
+  test.expect(
+      runtime::is_valid_layer_major_prefill_arithmetic_contract(
+          runtime::kLayerMajorPrefillSegmentedMarlinArithmeticContract) &&
+          runtime::kLayerMajorPrefillSegmentedMarlinArithmeticContract
+                  .version == 3U &&
+          !runtime::kLayerMajorPrefillSegmentedMarlinArithmeticContract
+               .nvfp4_interleaves_gate_silu_down_per_span &&
+          !runtime::kLayerMajorPrefillSegmentedMarlinArithmeticContract
+               .nvfp4_down_reuses_gate_up_locks &&
+          !runtime::kLayerMajorPrefillSegmentedMarlinArithmeticContract
+               .nvfp4_residual_follows_down_per_span,
+      "the segmented Marlin tactic does not masquerade as the exact oracle "
+      "arithmetic contract");
 }
 
 void test_fixed_layer_schedule(TestContext& test) {

@@ -350,4 +350,18 @@ static_assert(sm87_fp8_marlin_supports_operator_panel_token_count(513U));
     float* c_tmp, std::int32_t* locks,
     void* cuda_stream = nullptr) noexcept;
 
+// Default-off single-kernel aligned-panel probe that reuses the frozen Marlin
+// kernel body while bypassing the historical N>4096 host segmentation
+// boundary. token_count must be an M64 multiple in [64,8192]. This API makes
+// no whole-model equivalence claim for that range: the caller must separately
+// admit each production shape. The current runner admits single-bulk only at
+// M8192 and sends every partial panel through the regular exact API.
+[[nodiscard]] int
+launch_sm87_fp8_marlin_projection_aligned_operator_panel_cuda(
+    const std::uint16_t* input, const std::uint8_t* marlin_weight,
+    const std::uint16_t* marlin_scales, std::size_t token_count,
+    std::size_t output_size, std::size_t input_size, std::uint16_t* output,
+    float* c_tmp, std::int32_t* locks,
+    void* cuda_stream = nullptr) noexcept;
+
 }  // namespace q3x::kernels

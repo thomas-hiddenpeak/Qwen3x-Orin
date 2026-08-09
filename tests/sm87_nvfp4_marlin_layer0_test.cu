@@ -101,7 +101,8 @@ class DeviceAllocation {
   const auto result =
       std::from_chars(value.data(), value.data() + value.size(), parsed);
   if (result.ec != std::errc{} || result.ptr != value.data() + value.size() ||
-      !kernels::sm87_nvfp4_marlin_supports_token_count(parsed)) {
+      !kernels::sm87_nvfp4_marlin_supports_operator_panel_token_count(
+          parsed)) {
     return false;
   }
   *token_count = parsed;
@@ -225,7 +226,7 @@ int main(const int argc, char** const argv) {
   std::size_t token_count = 0U;
   if (!parse_token_count(argc, argv, &token_count)) {
     std::cerr << "usage: q3x_sm87_nvfp4_marlin_layer0_test MODEL_DIRECTORY "
-                 "[--tokens=1..512]\n";
+                 "[--tokens=1..8192]\n";
     return 77;
   }
 
@@ -445,15 +446,22 @@ int main(const int argc, char** const argv) {
   DeviceAllocation gate_input_device;
   DeviceAllocation down_input_device;
   DeviceAllocation merged_output_device;
+  DeviceAllocation segmented_merged_snapshot_device;
+  DeviceAllocation single_bulk_merged_output_device;
   DeviceAllocation baseline_silu_output_device;
   DeviceAllocation fused_silu_output_device;
   DeviceAllocation gate_reference_device;
   DeviceAllocation up_reference_device;
   DeviceAllocation down_output_device;
+  DeviceAllocation single_bulk_down_output_device;
   DeviceAllocation down_reference_device;
   if (!gate_input_device.allocate(gate_input.size() * sizeof(std::uint16_t)) ||
       !down_input_device.allocate(down_input.size() * sizeof(std::uint16_t)) ||
       !merged_output_device.allocate(kMergedElements * sizeof(std::uint16_t)) ||
+      !segmented_merged_snapshot_device.allocate(
+          kMergedElements * sizeof(std::uint16_t)) ||
+      !single_bulk_merged_output_device.allocate(
+          kMergedElements * sizeof(std::uint16_t)) ||
       !baseline_silu_output_device.allocate(kGateElements *
                                             sizeof(std::uint16_t)) ||
       !fused_silu_output_device.allocate(kGateElements *
@@ -461,6 +469,8 @@ int main(const int argc, char** const argv) {
       !gate_reference_device.allocate(kGateElements * sizeof(std::uint16_t)) ||
       !up_reference_device.allocate(kGateElements * sizeof(std::uint16_t)) ||
       !down_output_device.allocate(kDownOutputElements * sizeof(std::uint16_t)) ||
+      !single_bulk_down_output_device.allocate(
+          kDownOutputElements * sizeof(std::uint16_t)) ||
       !down_reference_device.allocate(kDownOutputElements *
                                       sizeof(std::uint16_t)) ||
       !cuda_ok(cudaMemcpy(gate_input_device.get(), gate_input.data(),
@@ -473,6 +483,45 @@ int main(const int argc, char** const argv) {
                "upload_down_input")) {
     return 1;
   }
+
+  const bool single_bulk_case =
+      token_count >= kernels::kSm87NvFp4MarlinM64Tokens &&
+      token_count % kernels::kSm87NvFp4MarlinM64Tokens == 0U;
+  const auto launch_single_bulk = [&]() {
+    if (!single_bulk_case) {
+      return true;
+    }
+    return cuda_ok(
+               cudaMemcpyAsync(segmented_merged_snapshot_device.get(),
+                               merged_output_device.get(),
+                               kMergedElements * sizeof(std::uint16_t),
+                               cudaMemcpyDeviceToDevice),
+               "snapshot_segmented_gate_up") &&
+           cuda_ok(cudaMemsetAsync(locks.get(), 0, locks.bytes()),
+                   "clear_single_bulk_gate_up_locks") &&
+           launch_ok(
+               kernels::
+                   launch_sm87_nvfp4_marlin_gate_up_aligned_operator_panel_cuda(
+                       gate_input_device.as<std::uint16_t>(),
+                       marlin_gate_up_weight.as<std::uint8_t>(),
+                       marlin_gate_up_scales.as<std::uint8_t>(),
+                       marlin_gate_up_global.as<float>(), token_count,
+                       single_bulk_merged_output_device.as<std::uint16_t>(),
+                       c_tmp.as<float>(), locks.as<std::int32_t>()),
+               "single_bulk_gate_up") &&
+           cuda_ok(cudaMemsetAsync(locks.get(), 0, locks.bytes()),
+                   "clear_single_bulk_down_locks") &&
+           launch_ok(
+               kernels::
+                   launch_sm87_nvfp4_marlin_down_aligned_operator_panel_cuda(
+                       down_input_device.as<std::uint16_t>(),
+                       marlin_down_weight.as<std::uint8_t>(),
+                       marlin_down_scales.as<std::uint8_t>(),
+                       marlin_down_global.as<float>(), token_count,
+                       single_bulk_down_output_device.as<std::uint16_t>(),
+                       c_tmp.as<float>(), locks.as<std::int32_t>()),
+               "single_bulk_down");
+  };
 
   if (!launch_ok(kernels::launch_sm87_nvfp4_marlin_gate_up_cuda(
                      gate_input_device.as<std::uint16_t>(),
@@ -517,6 +566,7 @@ int main(const int argc, char** const argv) {
           kernels::kSm87NvFp4MarlinHidden,
           kernels::kSm87NvFp4MarlinIntermediate,
           down_reference_device.as<std::uint16_t>(), "reference_down") ||
+      !launch_single_bulk() ||
       !launch_ok(kernels::prepare_sm87_nvfp4_marlin_gate_up_cuda(
                      gate_weight_device.as<std::uint8_t>(),
                      up_weight_device.as<std::uint8_t>(),
@@ -545,16 +595,31 @@ int main(const int argc, char** const argv) {
   }
 
   std::vector<std::uint16_t> merged_output(kMergedElements);
+  std::vector<std::uint16_t> segmented_merged_snapshot(kMergedElements);
+  std::vector<std::uint16_t> single_bulk_merged_output(kMergedElements);
   std::vector<std::uint16_t> baseline_silu_output(kGateElements);
   std::vector<std::uint16_t> fused_silu_output(kGateElements);
   std::vector<std::uint16_t> gate_reference(kGateElements);
   std::vector<std::uint16_t> up_reference(kGateElements);
   std::vector<std::uint16_t> down_output(kDownOutputElements);
+  std::vector<std::uint16_t> single_bulk_down_output(kDownOutputElements);
   std::vector<std::uint16_t> down_reference(kDownOutputElements);
   if (!cuda_ok(cudaMemcpy(merged_output.data(), merged_output_device.get(),
                           merged_output.size() * sizeof(std::uint16_t),
                           cudaMemcpyDeviceToHost),
                "download_gate_up") ||
+      (single_bulk_case &&
+       !cuda_ok(cudaMemcpy(segmented_merged_snapshot.data(),
+                           segmented_merged_snapshot_device.get(),
+                           segmented_merged_snapshot_device.bytes(),
+                           cudaMemcpyDeviceToHost),
+                "download_segmented_gate_up_snapshot")) ||
+      (single_bulk_case &&
+       !cuda_ok(cudaMemcpy(single_bulk_merged_output.data(),
+                           single_bulk_merged_output_device.get(),
+                           single_bulk_merged_output_device.bytes(),
+                           cudaMemcpyDeviceToHost),
+                "download_single_bulk_gate_up")) ||
       !cuda_ok(cudaMemcpy(baseline_silu_output.data(),
                           baseline_silu_output_device.get(),
                           baseline_silu_output.size() * sizeof(std::uint16_t),
@@ -577,6 +642,12 @@ int main(const int argc, char** const argv) {
                           down_output.size() * sizeof(std::uint16_t),
                           cudaMemcpyDeviceToHost),
                "download_down") ||
+      (single_bulk_case &&
+       !cuda_ok(cudaMemcpy(single_bulk_down_output.data(),
+                           single_bulk_down_output_device.get(),
+                           single_bulk_down_output_device.bytes(),
+                           cudaMemcpyDeviceToHost),
+                "download_single_bulk_down")) ||
       !cuda_ok(cudaMemcpy(down_reference.data(), down_reference_device.get(),
                           down_reference.size() * sizeof(std::uint16_t),
                           cudaMemcpyDeviceToHost),
@@ -608,11 +679,30 @@ int main(const int argc, char** const argv) {
   const ErrorStatistics fused_epilogue_error = compare_output(
       baseline_silu_output, fused_silu_output,
       [](const std::size_t index) { return index; });
+  ErrorStatistics single_bulk_gate_up_error;
+  ErrorStatistics single_bulk_down_error;
+  if (single_bulk_case) {
+    single_bulk_gate_up_error = compare_output(
+        segmented_merged_snapshot, single_bulk_merged_output,
+        [](const std::size_t index) { return index; });
+    single_bulk_down_error = compare_output(
+        down_output, single_bulk_down_output,
+        [](const std::size_t index) { return index; });
+  } else {
+    single_bulk_gate_up_error.bitwise_equal = kMergedElements;
+    single_bulk_down_error.bitwise_equal = kDownOutputElements;
+  }
   print_statistics("gate", gate_error, kGateElements);
   print_statistics("up", up_error, kGateElements);
   print_statistics("down", down_error, kDownOutputElements);
   print_statistics("fused_gate_up_epilogue", fused_epilogue_error,
                    kGateElements);
+  if (single_bulk_case) {
+    print_statistics("single_bulk_gate_up_vs_segmented",
+                     single_bulk_gate_up_error, kMergedElements);
+    print_statistics("single_bulk_down_vs_segmented",
+                     single_bulk_down_error, kDownOutputElements);
+  }
   std::cout << "MARLIN_LAYER0_CASE token_count=" << token_count
             << " primary_tokens="
             << kernels::sm87_nvfp4_marlin_execution_plan(token_count)
@@ -642,6 +732,8 @@ int main(const int argc, char** const argv) {
   if (gate_error.finite != kGateElements || up_error.finite != kGateElements ||
       down_error.finite != kDownOutputElements ||
       fused_epilogue_error.bitwise_equal != kGateElements ||
+      single_bulk_gate_up_error.bitwise_equal != kMergedElements ||
+      single_bulk_down_error.bitwise_equal != kDownOutputElements ||
       gate_error.nrmse > kNrmseLimit || up_error.nrmse > kNrmseLimit ||
       down_error.nrmse > kNrmseLimit ||
       gate_error.maximum_absolute > kMaximumAbsoluteLimit ||

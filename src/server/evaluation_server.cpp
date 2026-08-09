@@ -856,6 +856,14 @@ void emit_target_prefill_witness(
         generation.prefill_segmented_panel_projection_hits;
     record.segmented_panel_projection_physical_launches =
         generation.prefill_segmented_panel_projection_physical_launches;
+    record.native_large_m_projection_hits =
+        generation.prefill_native_large_m_projection_hits;
+    record.native_large_m_projection_bulk_hits =
+        generation.prefill_native_large_m_projection_bulk_hits;
+    record.native_large_m_projection_oracle_partial_hits =
+        generation.prefill_native_large_m_projection_oracle_partial_hits;
+    record.native_large_m_projection_physical_launches =
+        generation.prefill_native_large_m_projection_physical_launches;
     record.deployment_plan_id = generation.prefill_deployment_plan_id;
     std::cerr << serialize_target_prefill_witness(record) << '\n';
   } catch (...) {
@@ -1475,7 +1483,7 @@ void ingress_worker(
           ReferencePrefillExecutionMode::kWholeRequestLayerMajor &&
       options.prefill_projection_tactic != runtime::
           LayerMajorPrefillProjectionTactic::kExactSegmentedC512) {
-    error = "segmented panel projections require layer-major Prefill";
+    error = "operator-panel projections require layer-major Prefill";
     return false;
   }
   return true;
@@ -1604,11 +1612,7 @@ int run_evaluation_server(const EvaluationServerOptions& options,
             << " prefill_attention_tactic="
             << runtime::to_string(options.prefill_full_attention_tactic)
             << " prefill_projection_tactic="
-            << (options.prefill_projection_tactic == runtime::
-                        LayerMajorPrefillProjectionTactic::
-                            kSegmentedMarlinOperatorPanel
-                    ? "segmented-marlin-operator-panel"
-                    : "exact-segmented")
+            << runtime::to_string(options.prefill_projection_tactic)
             << " nvtx_phase_ranges="
             << (options.emit_nvtx_phase_ranges ? 1 : 0)
             << " inference_workers=1 queue_capacity="

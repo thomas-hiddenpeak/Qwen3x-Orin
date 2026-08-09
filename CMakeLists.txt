@@ -1222,6 +1222,9 @@ if(BUILD_TESTING)
   q3x_enable_warnings(q3x_openai_protocol_test)
   add_test(NAME openai_protocol COMMAND q3x_openai_protocol_test)
   add_test(NAME eval_server_help COMMAND qwen3x-eval-server --help)
+  set_tests_properties(eval_server_help PROPERTIES
+    PASS_REGULAR_EXPRESSION "native-quantized-large-m-operator-panel"
+  )
   add_test(NAME eval_server_rejects_invalid_prefill_mode
     COMMAND qwen3x-eval-server unused
             --prefill-execution-mode invalid
@@ -1244,6 +1247,15 @@ if(BUILD_TESTING)
   )
   set_tests_properties(
     eval_server_rejects_segmented_projection_in_legacy_mode PROPERTIES
+    WILL_FAIL TRUE
+  )
+  add_test(NAME eval_server_rejects_native_large_m_projection_in_legacy_mode
+    COMMAND qwen3x-eval-server unused
+            --prefill-projection-tactic
+            native-quantized-large-m-operator-panel
+  )
+  set_tests_properties(
+    eval_server_rejects_native_large_m_projection_in_legacy_mode PROPERTIES
     WILL_FAIL TRUE
   )
   add_test(NAME eval_server_rejects_q128_attention_in_legacy_mode

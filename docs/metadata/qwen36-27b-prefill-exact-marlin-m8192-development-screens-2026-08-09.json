@@ -1,0 +1,156 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-exact-marlin-m8192-development-screens-2026-08-09",
+  "recorded_at": "2026-08-09T22:15:00+08:00",
+  "timezone": "Asia/Shanghai",
+  "status": "development_direction_retained_m8192_only_partial_oracle_clean_commit_rerun_pending",
+  "policy": {
+    "evidence_tier": "T3",
+    "protocol_class": "INTERNAL_FULL_MODEL_WHOLE_STATE_DIRECTION_SCREEN",
+    "decision_unit": "architecture_candidate_dependency",
+    "architecture_candidate_id": "AC-PREFILL-LAYERMAJOR-8K-v1",
+    "performance_authority": false,
+    "architecture_selection_authority": false,
+    "release_performance_authority": false,
+    "production_promotion_authority": false,
+    "default_route_changed": false,
+    "production_eligible": false,
+    "numerical_contract_qualified": false,
+    "accuracy_gate": "NOT_RUN",
+    "cublaslt_production_eligibility": false,
+    "mtp_used": false
+  },
+  "source": {
+    "branch": "codex/prefill-target-path",
+    "base_commit": "57de10a",
+    "candidate_commit": "the commit containing this record",
+    "measurement_tree_clean": false,
+    "binary_identity_retained": false,
+    "interpretation": "These screens were collected while the implementation was being corrected in one uncommitted development lineage. They retain and reject arithmetic directions, but do not qualify the final committed binary. A clean rebuild and rerun is mandatory before target-length timing."
+  },
+  "checkpoint": {
+    "repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "local_path": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "access": "read_only"
+  },
+  "route_contract": {
+    "projection_tactic": "native-quantized-large-m-operator-panel",
+    "attention_tactic": "exact-segmented",
+    "deployment_plan_id": "q3x.sm87.ac-prefill-layermajor-8k.native-quantized-large-m-operator-panel.exact-segmented-attention.v1",
+    "logical_panel_geometry": "immutable balanced topology owned by the prefill plan",
+    "m8192": "one physical frozen-Marlin launch per logical FP8 or NVFP4 projection",
+    "partial_panel": "complete exact oracle span ledger including per-span Gate+Up, SiLU, Down, and residual",
+    "hybrid_bulk_plus_tail_allowed": false,
+    "qualification": "accuracy-unqualified-architecture-candidate"
+  },
+  "screens": [
+    {
+      "id": "p513_initial_workspace_sequence",
+      "measured_at": "2026-08-09T21:11:30+08:00",
+      "prompt_tokens": 513,
+      "candidate_sequence": "panel MLP workspace and interleave applied to a partial panel",
+      "output_exact": false,
+      "state_exact": false,
+      "oracle_state_sha256": "7b76b55c9980646e3294b8979c29c86c3d19cdb9ca973665eefd941dc1134c93",
+      "candidate_state_sha256": "be0fff272e5027b1e2e1bbeb13125d158b75d7b8c4fc1275e4e9143ac33f1f30",
+      "decision": "rejected",
+      "reason": "partial panels must preserve the complete legacy oracle workspace and interleave sequence",
+      "raw_log_sha256": "af387b1681ae7d48c28310ade47ae7b96db6fef9cb020f652d5e954469931936"
+    },
+    {
+      "id": "p8192_single_bulk",
+      "measured_at": "2026-08-09T21:19:05+08:00",
+      "prompt_tokens": 8192,
+      "logical_projection_hits": 336,
+      "physical_projection_launches": 336,
+      "output_exact": true,
+      "state_exact": true,
+      "oracle_state_sha256": "01e22355af9ad1e6d1db4c7289a4d745511461ca63b405a0616977075edeb8a9",
+      "candidate_state_sha256": "01e22355af9ad1e6d1db4c7289a4d745511461ca63b405a0616977075edeb8a9",
+      "decision": "retained_for_clean_commit_rerun",
+      "raw_log_sha256": "233a0e467bf525c1178d79fcf62de3bc05b36f3ff5e81329e5685cbc20b7326e",
+      "preflight_sha256": "03fa9033eca4cf1fd9eaf5a1eeec5d7eebbac94ca67e5f867d85362bdf9cfa81"
+    },
+    {
+      "id": "p7712_aggressive_7680_plus_32",
+      "measured_at": "2026-08-09T21:21:28+08:00",
+      "prompt_tokens": 7712,
+      "candidate_sequence": "single bulk M7680 plus exact M32 suffix",
+      "output_exact": true,
+      "state_exact": false,
+      "oracle_state_sha256": "c9cb75091b144059f4ff03e09f4b091bc900beda13657deb920a0fe663bd840d",
+      "candidate_state_sha256": "4727d2984ea62bffc595f169bc39f9900df2ad81b8535bcef093a0f32e0fdaa9",
+      "decision": "rejected",
+      "reason": "output identity did not preserve the complete recurrent/KV boundary state",
+      "raw_log_sha256": "434a0d57ae69255109d7a7b6c93504ad1df22377d3312844eb16c08b93513856",
+      "preflight_sha256": "b106aff7cb594869194219afd1cc28ea25339a78f1c56404fcb4806c15ef2f5e"
+    },
+    {
+      "id": "p7712_conservative_7168_plus_272_plus_272",
+      "measured_at": "2026-08-09T21:27:05+08:00",
+      "prompt_tokens": 7712,
+      "candidate_sequence": "single bulk M7168 plus two exact M272 spans",
+      "output_exact": false,
+      "state_exact": false,
+      "oracle_state_sha256": "c9cb75091b144059f4ff03e09f4b091bc900beda13657deb920a0fe663bd840d",
+      "candidate_state_sha256": "99df3f76fafb2fae6f766b8af1d742658763e511dddb83df419ac4b03276d4d2",
+      "decision": "rejected",
+      "reason": "arbitrary aligned-M bulk correctness cannot be inferred from the M8192 result",
+      "raw_log_sha256": "d638cc96519f1837a24c0883ffdcd75c2f13eb6ff46c96f521f6586838e9a04c",
+      "preflight_sha256": "5f032bf9a049a03213132cf2abaef2eb4de69b42376ca712436adcf3b19ccb73"
+    },
+    {
+      "id": "p7712_complete_oracle_fallback",
+      "measured_at": "2026-08-09T21:33:37+08:00",
+      "prompt_tokens": 7712,
+      "logical_projection_hits": 336,
+      "physical_projection_launches": 6048,
+      "output_exact": true,
+      "state_exact": true,
+      "oracle_state_sha256": "c9cb75091b144059f4ff03e09f4b091bc900beda13657deb920a0fe663bd840d",
+      "candidate_state_sha256": "c9cb75091b144059f4ff03e09f4b091bc900beda13657deb920a0fe663bd840d",
+      "decision": "retained_partial_panel_contract",
+      "raw_log_sha256": "30cde3771740d3845d1fdea609721bac13c86e95272338ebe081d502080b2c27",
+      "preflight_sha256": "65d2b8183aac64181e64330ee879941c0daf105ed0f503288eeba93d7242eb80"
+    },
+    {
+      "id": "p513_final_partial_oracle_with_explicit_counters",
+      "measured_at": "2026-08-09T22:02:10+08:00",
+      "prompt_tokens": 513,
+      "native_large_m_projection_hits": 336,
+      "native_large_m_projection_bulk_hits": 0,
+      "native_large_m_projection_oracle_partial_hits": 336,
+      "physical_projection_launches": 1008,
+      "output_exact": true,
+      "state_exact": true,
+      "oracle_state_sha256": "7b76b55c9980646e3294b8979c29c86c3d19cdb9ca973665eefd941dc1134c93",
+      "candidate_state_sha256": "7b76b55c9980646e3294b8979c29c86c3d19cdb9ca973665eefd941dc1134c93",
+      "decision": "retained_partial_panel_contract_for_clean_commit_rerun",
+      "raw_log_sha256": "133fce82aa03685380561f03084b6ff3be2e2045a7c4b5d1166f84d52fc1a96e",
+      "preflight_sha256": "b350ce4fc572a8dcf0dec90a2255ce3301ee8022ef41632df6a1ab98da825ec5"
+    }
+  ],
+  "counter_schema_caveat": {
+    "p513_final_emitted_bulk_partial_counters": true,
+    "earlier_logs_emitted_bulk_partial_counters": false,
+    "interpretation": "P8192 and P7712 physical counts and state identity are retained, but their new bulk/partial counter values must be re-emitted by the clean committed binary before target-length timing."
+  },
+  "raw_artifacts": {
+    "workspace_directory": ".q3x-work/evidence/prefill-target-path/exact-marlin-single-bulk-20260809",
+    "tracked": false,
+    "retention": "local workspace evidence addressed by the hashes in this record"
+  },
+  "decision": {
+    "retained": "single-bulk is admissible only for the exact M8192 panel shape; partial panels use the complete oracle ledger",
+    "rejected": [
+      "partial-panel use of panel-wide MLP workspace/interleave",
+      "M7680 bulk plus M32 suffix",
+      "M7168 bulk plus two M272 suffix spans",
+      "inference from alignment alone"
+    ],
+    "next_gate": "clean committed rebuild, P513/P8192/P7712 state and explicit counter rerun, then cold no-cache P40K OpenAI API plus EvalScope with exact Attention",
+    "p60k_unlocked": false,
+    "production_changed": false
+  }
+}

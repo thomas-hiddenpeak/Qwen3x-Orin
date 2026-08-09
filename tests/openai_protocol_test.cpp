@@ -430,6 +430,68 @@ void test_target_prefill_witness_evidence(TestContext& test) {
       "segmented projections plus Q128-v4 Attention have a distinct "
       "unqualified v4 witness identity");
 
+  server::TargetPrefillWitnessRecord native_large_m_record = sealed_record;
+  native_large_m_record.operator_panel_executor_hits = 128U;
+  native_large_m_record.generic_qt2_hits = 4U;
+  native_large_m_record.native_large_m_projection_hits = 672U;
+  native_large_m_record.native_large_m_projection_bulk_hits = 672U;
+  native_large_m_record.native_large_m_projection_oracle_partial_hits = 0U;
+  native_large_m_record.native_large_m_projection_physical_launches = 672U;
+  native_large_m_record.deployment_plan_id = q3x::runtime::
+      kLayerMajorNativeQuantizedLargeMProjectionDeploymentPlanId;
+  const std::string native_large_m_serialized =
+      server::serialize_target_prefill_witness(native_large_m_record);
+  test.expect(
+      valid_json(native_large_m_serialized) &&
+          native_large_m_serialized.find(
+              R"("record":"target-prefill-witness-v5","schema_version":5)") !=
+              std::string::npos &&
+          native_large_m_serialized.find(
+              R"("projection_tactic":"native-quantized-large-m-operator-panel","attention_tactic":"exact-segmented","operator_panel_executor_hits":128,"native_group_q64_panel_hits":0,"native_group_q128_v4_panel_hits":0,"generic_qt2_hits":4,"native_large_m_projection_hits":672,"native_large_m_projection_bulk_hits":672,"native_large_m_projection_oracle_partial_hits":0,"native_large_m_projection_physical_launches":672)") !=
+              std::string::npos &&
+          native_large_m_serialized.find(
+              R"("id":"q3x.sm87.ac-prefill-layermajor-8k.native-quantized-large-m-operator-panel.exact-segmented-attention.v1","qualification":"accuracy-unqualified-architecture-candidate","numerical_contract":{"qualified":false,"reason":"full-state-accuracy-qualification-not-run"})") !=
+              std::string::npos &&
+          native_large_m_serialized.find(
+              R"("segmented_panel_projection_hits")") ==
+              std::string::npos,
+      "native large-M projections have explicit unqualified v5 route and "
+      "physical-launch evidence");
+
+  native_large_m_record.native_group_q64_panel_hits = 32U;
+  native_large_m_record.generic_qt2_hits = 0U;
+  native_large_m_record.deployment_plan_id = q3x::runtime::
+      kLayerMajorNativeQuantizedLargeMProjectionGroupQ64DeploymentPlanId;
+  const std::string native_large_m_q64_serialized =
+      server::serialize_target_prefill_witness(native_large_m_record);
+  test.expect(
+      valid_json(native_large_m_q64_serialized) &&
+          native_large_m_q64_serialized.find(
+              R"("attention_tactic":"native-group-q64-panel")") !=
+              std::string::npos &&
+          native_large_m_q64_serialized.find(
+              R"("id":"q3x.sm87.ac-prefill-layermajor-8k.native-quantized-large-m-operator-panel.native-group-q64-attention.v1")") !=
+              std::string::npos,
+      "native large-M projections plus Q64 Attention have a distinct v5 "
+      "deployment identity");
+
+  native_large_m_record.native_group_q64_panel_hits = 0U;
+  native_large_m_record.native_group_q128_v4_panel_hits = 32U;
+  native_large_m_record.deployment_plan_id = q3x::runtime::
+      kLayerMajorNativeQuantizedLargeMProjectionGroupQ128V4DeploymentPlanId;
+  const std::string native_large_m_q128_serialized =
+      server::serialize_target_prefill_witness(native_large_m_record);
+  test.expect(
+      valid_json(native_large_m_q128_serialized) &&
+          native_large_m_q128_serialized.find(
+              R"("attention_tactic":"native-group-q128-v4-panel")") !=
+              std::string::npos &&
+          native_large_m_q128_serialized.find(
+              R"("id":"q3x.sm87.ac-prefill-layermajor-8k.native-quantized-large-m-operator-panel.native-group-q128-v4-attention.v1")") !=
+              std::string::npos,
+      "native large-M projections plus Q128-v4 Attention have a distinct "
+      "unqualified v5 witness identity");
+
   server::TargetPrefillWitnessRecord unbound_layer_major_record =
       sealed_record;
   unbound_layer_major_record.deployment_plan_id.clear();

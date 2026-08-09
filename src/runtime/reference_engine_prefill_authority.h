@@ -34,6 +34,9 @@ enum class NativePrefillTactic : std::uint8_t {
   kNvfp4GateUpSegmentedMarlinOperatorPanel,
   kNvfp4DownSegmentedMarlinOperatorPanel,
   kFp8SegmentedMarlinOperatorPanel,
+  kNvfp4GateUpNativeQuantizedLargeMOperatorPanel,
+  kNvfp4DownNativeQuantizedLargeMOperatorPanel,
+  kFp8NativeQuantizedLargeMOperatorPanel,
   kBf16AbOracleSpanEstablishedM32,
   kExactGdnOracleSpanWholeRawQkvC512,
   kExactCausalAttentionOracleSpanC512C16Reference256,
@@ -99,10 +102,10 @@ class BoundPrefillExecutionPlan final {
   std::uint64_t arena_bytes_ = 0U;
   const LayerMajorRequestMemoryPlan* memory_plan_ = nullptr;
   const LayerMajorPrefillArithmeticContract* arithmetic_contract_ = nullptr;
-  // The sealed contract uses the authenticated disjoint C512 arithmetic
-  // workspace for every oracle span's NVFP4 Gate+Up/SiLU/Down sequence and
-  // also retains it for M1..M31 exact-tail fallback. Other panel operators
-  // execute on the typed C8192 arena.
+  // The sealed exact contract uses the authenticated disjoint C512 arithmetic
+  // workspace for every oracle span's NVFP4 Gate+Up/SiLU/Down sequence. The
+  // M8192 Marlin contract retains that workspace for every partial panel and
+  // binds typed reduction/lock workspaces for its full-panel bulk sequence.
   bool exact_c512_arithmetic_workspace_bound_ = false;
   LayerMajorPrefillProjectionTactic projection_tactic_ =
       LayerMajorPrefillProjectionTactic::kExactSegmentedC512;

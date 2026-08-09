@@ -96,6 +96,21 @@ inline constexpr std::string_view
     kLayerMajorSegmentedMarlinProjectionGroupQ128V4DeploymentPlanId =
         "q3x.sm87.ac-prefill-layermajor-8k.segmented-marlin-operator-panel."
         "native-group-q128-v4-attention.v1";
+inline constexpr std::string_view
+    kLayerMajorNativeQuantizedLargeMProjectionDeploymentPlanId =
+        "q3x.sm87.ac-prefill-layermajor-8k."
+        "native-quantized-large-m-operator-panel."
+        "exact-segmented-attention.v1";
+inline constexpr std::string_view
+    kLayerMajorNativeQuantizedLargeMProjectionGroupQ64DeploymentPlanId =
+        "q3x.sm87.ac-prefill-layermajor-8k."
+        "native-quantized-large-m-operator-panel."
+        "native-group-q64-attention.v1";
+inline constexpr std::string_view
+    kLayerMajorNativeQuantizedLargeMProjectionGroupQ128V4DeploymentPlanId =
+        "q3x.sm87.ac-prefill-layermajor-8k."
+        "native-quantized-large-m-operator-panel."
+        "native-group-q128-v4-attention.v1";
 
 [[nodiscard]] constexpr bool is_valid_reference_prefill_execution_mode(
     const ReferencePrefillExecutionMode mode) noexcept {
@@ -126,8 +141,11 @@ struct ReferenceEngineOptions {
       LayerMajorPrefillFullAttentionTactic::kExactSegmentedC512;
   // Layer-major-only, engine-lifetime projection tactic. The default retains
   // the exact C512 arithmetic sequence. The segmented-wrapper value is an
-  // accuracy-unqualified dependency screen with a distinct plan ID; it is not
-  // the true native large-M implementation.
+  // accuracy-unqualified dependency screen with a distinct plan ID. The
+  // native quantized large-M value is a separate accuracy-unqualified
+  // architecture tactic whose receipts bind the exact Marlin sidecars,
+  // reduction arenas, and locks. Only M8192 uses one physical bulk launch;
+  // partial panels retain the authenticated exact span ledger.
   LayerMajorPrefillProjectionTactic prefill_projection_tactic =
       LayerMajorPrefillProjectionTactic::kExactSegmentedC512;
 };
@@ -279,6 +297,14 @@ struct ReferenceGeneration {
   // shape-aware Marlin kernel segments submitted by those wrappers.
   std::uint64_t prefill_segmented_panel_projection_hits = 0U;
   std::uint64_t prefill_segmented_panel_projection_physical_launches = 0U;
+  // Native quantized large-M evidence. A hit is one completed logical FP8 or
+  // NVFP4 projection. Each projection is exclusively either one complete
+  // M8192 bulk launch or the full partial-panel exact-oracle launch ledger;
+  // hybrid bulk-plus-tail execution is not part of this plan identity.
+  std::uint64_t prefill_native_large_m_projection_hits = 0U;
+  std::uint64_t prefill_native_large_m_projection_bulk_hits = 0U;
+  std::uint64_t prefill_native_large_m_projection_oracle_partial_hits = 0U;
+  std::uint64_t prefill_native_large_m_projection_physical_launches = 0U;
 };
 
 struct ReferenceEngineLoadStats {

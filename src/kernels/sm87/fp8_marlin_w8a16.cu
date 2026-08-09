@@ -343,4 +343,31 @@ int launch_sm87_fp8_marlin_projection_cuda(
   return static_cast<int>(cudaSuccess);
 }
 
+int launch_sm87_fp8_marlin_projection_aligned_operator_panel_cuda(
+    const std::uint16_t* const input,
+    const std::uint8_t* const marlin_weight,
+    const std::uint16_t* const marlin_scales,
+    const std::size_t token_count, const std::size_t output_size,
+    const std::size_t input_size, std::uint16_t* const output,
+    float* const c_tmp, std::int32_t* const locks,
+    void* const cuda_stream) noexcept {
+  if (!sm87_fp8_marlin_supports_shape(output_size, input_size) ||
+      token_count < kSm87Fp8MarlinC64Tokens ||
+      token_count > kSm87Fp8MarlinMaximumOperatorPanelTokens ||
+      token_count % kSm87Fp8MarlinC64Tokens != 0U ||
+      !aligned(input, 16U) || !aligned(marlin_weight, 16U) ||
+      !aligned(marlin_scales, 16U) || !aligned(output, 16U) ||
+      !aligned(c_tmp, 16U) || !aligned(locks, alignof(std::int32_t))) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const int device_status = validate_fixed_device();
+  if (device_status != static_cast<int>(cudaSuccess)) {
+    return device_status;
+  }
+  return launch_marlin_segment(
+      input, marlin_weight, marlin_scales, token_count,
+      static_cast<int>(output_size), static_cast<int>(input_size), output,
+      c_tmp, locks, cuda_stream);
+}
+
 }  // namespace q3x::kernels

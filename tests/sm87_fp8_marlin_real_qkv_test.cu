@@ -5,6 +5,7 @@
 #include <cuda_runtime.h>
 
 #include <algorithm>
+#include <charconv>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -12,6 +13,7 @@
 #include <filesystem>
 #include <iostream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace {
@@ -19,7 +21,7 @@ namespace {
 namespace kernels = q3x::kernels;
 namespace support = q3x::test::support;
 
-constexpr std::size_t kTokens = 407U;
+constexpr std::size_t kDefaultTokens = 407U;
 constexpr std::size_t kRows = 10'240U;
 constexpr std::size_t kColumns = 5'120U;
 
@@ -81,9 +83,9 @@ class DeviceAllocation {
 [[nodiscard]] bool launch_canonical(
     const std::uint8_t* const weight, const float weight_scale,
     const std::uint16_t* const input, std::uint16_t* const output,
-    void* const stream) {
+    const std::size_t token_count, void* const stream) {
   std::size_t offset = 0U;
-  while (kTokens - offset >= 32U) {
+  while (token_count - offset >= 32U) {
     if (!launch_ok(kernels::launch_sm87_fp8_w8a16_m32_gemm_bf16_cuda(
                        weight, weight_scale, input + offset * kColumns,
                        kRows, kColumns, output + offset * kRows, stream),
@@ -92,7 +94,7 @@ class DeviceAllocation {
     }
     offset += 32U;
   }
-  if (kTokens - offset >= 16U) {
+  if (token_count - offset >= 16U) {
     if (!launch_ok(kernels::launch_sm87_fp8_w8a16_m16_gemm_bf16_cuda(
                        weight, weight_scale, input + offset * kColumns,
                        kRows, kColumns, output + offset * kRows, stream),
@@ -101,15 +103,42 @@ class DeviceAllocation {
     }
     offset += 16U;
   }
-  if (offset < kTokens) {
+  if (offset < token_count) {
     if (!launch_ok(kernels::launch_sm87_fp8_w8a16_small_m_gemm_bf16_cuda(
                        weight, weight_scale, input + offset * kColumns,
-                       kTokens - offset, kRows, kColumns,
+                       token_count - offset, kRows, kColumns,
                        output + offset * kRows, stream),
                    "canonical_tail")) {
       return false;
     }
   }
+  return true;
+}
+
+[[nodiscard]] bool parse_token_count(const int argc, char** const argv,
+                                     std::size_t* const token_count) {
+  if (token_count == nullptr || argc < 2 || argc > 3) {
+    return false;
+  }
+  if (argc == 2) {
+    *token_count = kDefaultTokens;
+    return true;
+  }
+  constexpr std::string_view kPrefix = "--tokens=";
+  const std::string_view argument(argv[2]);
+  if (argument.size() < kPrefix.size() ||
+      argument.compare(0U, kPrefix.size(), kPrefix) != 0) {
+    return false;
+  }
+  const std::string_view value = argument.substr(kPrefix.size());
+  std::size_t parsed = 0U;
+  const auto result =
+      std::from_chars(value.data(), value.data() + value.size(), parsed);
+  if (result.ec != std::errc{} || result.ptr != value.data() + value.size() ||
+      !kernels::sm87_fp8_marlin_supports_operator_panel_token_count(parsed)) {
+    return false;
+  }
+  *token_count = parsed;
   return true;
 }
 
@@ -147,8 +176,10 @@ template <typename Launch>
 }  // namespace
 
 int main(const int argc, char** const argv) {
-  if (argc != 2) {
-    std::cerr << "usage: q3x_sm87_fp8_marlin_real_qkv_test MODEL_DIRECTORY\n";
+  std::size_t token_count = 0U;
+  if (!parse_token_count(argc, argv, &token_count)) {
+    std::cerr << "usage: q3x_sm87_fp8_marlin_real_qkv_test MODEL_DIRECTORY "
+                 "[--tokens=2..8192]\n";
     return 77;
   }
 
@@ -191,8 +222,8 @@ int main(const int argc, char** const argv) {
     return 1;
   }
 
-  constexpr std::size_t kInputElements = kTokens * kColumns;
-  constexpr std::size_t kOutputElements = kTokens * kRows;
+  const std::size_t kInputElements = token_count * kColumns;
+  const std::size_t kOutputElements = token_count * kRows;
   std::vector<std::uint16_t> host_input(kInputElements);
   for (std::size_t index = 0U; index < host_input.size(); ++index) {
     host_input[index] = encode_bf16(
@@ -206,6 +237,7 @@ int main(const int argc, char** const argv) {
   DeviceAllocation transpose_scratch;
   DeviceAllocation input;
   DeviceAllocation candidate;
+  DeviceAllocation single_bulk_candidate;
   DeviceAllocation reference;
   DeviceAllocation reduction;
   DeviceAllocation locks;
@@ -218,6 +250,8 @@ int main(const int argc, char** const argv) {
       !transpose_scratch.allocate(weight_bytes) ||
       !input.allocate(kInputElements * sizeof(std::uint16_t)) ||
       !candidate.allocate(kOutputElements * sizeof(std::uint16_t)) ||
+      !single_bulk_candidate.allocate(kOutputElements *
+                                      sizeof(std::uint16_t)) ||
       !reference.allocate(kOutputElements * sizeof(std::uint16_t)) ||
       !reduction.allocate(kernels::kSm87Fp8MarlinReductionBytes) ||
       !locks.allocate(kernels::kSm87Fp8MarlinLockBytes)) {
@@ -250,7 +284,7 @@ int main(const int argc, char** const argv) {
            launch_ok(kernels::launch_sm87_fp8_marlin_projection_cuda(
                          input.as<std::uint16_t>(),
                          marlin_weight.as<std::uint8_t>(),
-                         marlin_scale.as<std::uint16_t>(), kTokens, kRows,
+                         marlin_scale.as<std::uint16_t>(), token_count, kRows,
                          kColumns, candidate.as<std::uint16_t>(),
                          reduction.as<float>(), locks.as<std::int32_t>()),
                      "candidate");
@@ -258,18 +292,44 @@ int main(const int argc, char** const argv) {
   const auto launch_reference = [&]() {
     return launch_canonical(canonical_weight.as<std::uint8_t>(),
                             *scale->f32_value, input.as<std::uint16_t>(),
-                            reference.as<std::uint16_t>(), nullptr);
+                            reference.as<std::uint16_t>(), token_count,
+                            nullptr);
   };
-  if (!launch_candidate() || !launch_reference() ||
+  const bool single_bulk_case =
+      token_count >= kernels::kSm87Fp8MarlinC64Tokens &&
+      token_count % kernels::kSm87Fp8MarlinC64Tokens == 0U;
+  const auto launch_single_bulk = [&]() {
+    return !single_bulk_case ||
+           (cuda_ok(cudaMemsetAsync(locks.get(), 0, locks.bytes()),
+                    "clear_single_bulk_locks") &&
+            launch_ok(
+                kernels::
+                    launch_sm87_fp8_marlin_projection_aligned_operator_panel_cuda(
+                        input.as<std::uint16_t>(),
+                        marlin_weight.as<std::uint8_t>(),
+                        marlin_scale.as<std::uint16_t>(), token_count, kRows,
+                        kColumns,
+                        single_bulk_candidate.as<std::uint16_t>(),
+                        reduction.as<float>(), locks.as<std::int32_t>()),
+                "single_bulk_candidate"));
+  };
+  if (!launch_candidate() || !launch_reference() || !launch_single_bulk() ||
       !cuda_ok(cudaDeviceSynchronize(), "correctness_sync")) {
     return 1;
   }
 
   std::vector<std::uint16_t> host_candidate(kOutputElements);
+  std::vector<std::uint16_t> host_single_bulk_candidate(kOutputElements);
   std::vector<std::uint16_t> host_reference(kOutputElements);
   if (!cuda_ok(cudaMemcpy(host_candidate.data(), candidate.get(),
                           candidate.bytes(), cudaMemcpyDeviceToHost),
                "download_candidate") ||
+      (single_bulk_case &&
+       !cuda_ok(cudaMemcpy(host_single_bulk_candidate.data(),
+                           single_bulk_candidate.get(),
+                           single_bulk_candidate.bytes(),
+                           cudaMemcpyDeviceToHost),
+                "download_single_bulk_candidate")) ||
       !cuda_ok(cudaMemcpy(host_reference.data(), reference.get(),
                           reference.bytes(), cudaMemcpyDeviceToHost),
                "download_reference")) {
@@ -280,8 +340,14 @@ int main(const int argc, char** const argv) {
   double max_abs = 0.0;
   std::size_t finite = 0U;
   std::size_t bitwise = 0U;
+  std::size_t single_bulk_bitwise = 0U;
   for (std::size_t index = 0U; index < kOutputElements; ++index) {
     bitwise += host_candidate[index] == host_reference[index] ? 1U : 0U;
+    if (single_bulk_case) {
+      single_bulk_bitwise +=
+          host_candidate[index] == host_single_bulk_candidate[index] ? 1U
+                                                                      : 0U;
+    }
     const double expected = decode_bf16(host_reference[index]);
     const double actual = decode_bf16(host_candidate[index]);
     if (!std::isfinite(expected) || !std::isfinite(actual)) {
@@ -304,19 +370,26 @@ int main(const int argc, char** const argv) {
       !measure(launch_candidate, "candidate_elapsed", &candidate_ms)) {
     return 1;
   }
-  const auto plan = kernels::sm87_fp8_marlin_execution_plan(kTokens);
-  std::cout << "FP8_MARLIN_REAL_QKV_M407 weight=real_checkpoint"
+  const auto plan = kernels::sm87_fp8_marlin_execution_plan(token_count);
+  std::cout << "FP8_MARLIN_REAL_QKV weight=real_checkpoint"
+            << " token_count=" << token_count
             << " activation=deterministic_bf16"
             << " finite=" << finite << '/' << kOutputElements
             << " nrmse=" << nrmse << " max_abs=" << max_abs
             << " bitwise_fraction="
             << static_cast<double>(bitwise) / kOutputElements
+            << " single_bulk_bitwise_fraction="
+            << (single_bulk_case
+                    ? static_cast<double>(single_bulk_bitwise) /
+                          kOutputElements
+                    : 1.0)
             << " baseline_ms=" << baseline_ms
             << " candidate_ms=" << candidate_ms
             << " speedup=" << baseline_ms / candidate_ms
             << " plan=" << plan.primary_tokens << '+' << plan.remainder_tokens
             << " launches=" << plan.launch_count << '\n';
-  if (finite != kOutputElements || nrmse > 0.03) {
+  if (finite != kOutputElements || nrmse > 0.03 ||
+      (single_bulk_case && single_bulk_bitwise != kOutputElements)) {
     std::cerr << "FP8_MARLIN_QKV_ERROR stage=correctness_gate\n";
     return 1;
   }

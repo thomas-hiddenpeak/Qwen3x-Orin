@@ -615,10 +615,27 @@ std::string serialize_target_prefill_witness(
   const bool projection_candidate_uses_q128_v4_attention =
       record.deployment_plan_id == runtime::
           kLayerMajorSegmentedMarlinProjectionGroupQ128V4DeploymentPlanId;
+  const bool native_large_m_candidate_v5 =
+      record.deployment_plan_id == runtime::
+          kLayerMajorNativeQuantizedLargeMProjectionDeploymentPlanId ||
+      record.deployment_plan_id == runtime::
+          kLayerMajorNativeQuantizedLargeMProjectionGroupQ64DeploymentPlanId ||
+      record.deployment_plan_id == runtime::
+          kLayerMajorNativeQuantizedLargeMProjectionGroupQ128V4DeploymentPlanId;
+  const bool native_large_m_candidate_uses_q64_attention =
+      record.deployment_plan_id == runtime::
+          kLayerMajorNativeQuantizedLargeMProjectionGroupQ64DeploymentPlanId;
+  const bool native_large_m_candidate_uses_q128_v4_attention =
+      record.deployment_plan_id == runtime::
+          kLayerMajorNativeQuantizedLargeMProjectionGroupQ128V4DeploymentPlanId;
   const bool accuracy_unqualified_candidate =
-      candidate_v3 || projection_candidate_v4;
+      candidate_v3 || projection_candidate_v4 ||
+      native_large_m_candidate_v5;
   std::string output =
-      projection_candidate_v4
+      native_large_m_candidate_v5
+          ? "{\"record\":\"target-prefill-witness-v5\","
+            "\"schema_version\":5,\"request\":{\"id\":"
+      : projection_candidate_v4
           ? "{\"record\":\"target-prefill-witness-v4\","
             "\"schema_version\":4,\"request\":{\"id\":"
           : candidate_v3
@@ -727,6 +744,35 @@ std::string serialize_target_prefill_witness(
                 ",\"segmented_panel_projection_physical_launches\":" +
                 std::to_string(
                     record.segmented_panel_projection_physical_launches);
+    } else if (native_large_m_candidate_v5) {
+      output += ",\"projection_tactic\":";
+      append_json_string(output,
+                         "native-quantized-large-m-operator-panel");
+      output += ",\"attention_tactic\":";
+      append_json_string(
+          output, native_large_m_candidate_uses_q128_v4_attention
+                      ? "native-group-q128-v4-panel"
+                  : native_large_m_candidate_uses_q64_attention
+                      ? "native-group-q64-panel"
+                      : "exact-segmented");
+      output += ",\"operator_panel_executor_hits\":" +
+                std::to_string(record.operator_panel_executor_hits) +
+                ",\"native_group_q64_panel_hits\":" +
+                std::to_string(record.native_group_q64_panel_hits) +
+                ",\"native_group_q128_v4_panel_hits\":" +
+                std::to_string(record.native_group_q128_v4_panel_hits) +
+                ",\"generic_qt2_hits\":" +
+                std::to_string(record.generic_qt2_hits) +
+                ",\"native_large_m_projection_hits\":" +
+                std::to_string(record.native_large_m_projection_hits) +
+                ",\"native_large_m_projection_bulk_hits\":" +
+                std::to_string(record.native_large_m_projection_bulk_hits) +
+                ",\"native_large_m_projection_oracle_partial_hits\":" +
+                std::to_string(
+                    record.native_large_m_projection_oracle_partial_hits) +
+                ",\"native_large_m_projection_physical_launches\":" +
+                std::to_string(
+                    record.native_large_m_projection_physical_launches);
     }
   }
   output += "},\"route\":{\"scope\":\"request_witness\","

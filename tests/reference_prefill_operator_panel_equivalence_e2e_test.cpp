@@ -28,8 +28,8 @@ namespace runtime = q3x::runtime;
 namespace engine_detail = q3x::runtime::reference_engine_detail;
 namespace runner_detail = q3x::runtime::reference_runner_detail;
 
-constexpr std::array<std::size_t, 4U> kPromptTokenCounts{
-    {513U, 1'025U, 8'192U, 8'193U}};
+constexpr std::array<std::size_t, 5U> kPromptTokenCounts{
+    {513U, 1'025U, 7'712U, 8'192U, 8'193U}};
 constexpr std::size_t kPromptTemplateTokens = 12U;
 constexpr std::size_t kHashCopyChunkBytes = 4U * 1024U * 1024U;
 constexpr std::size_t kKvHeadCount = 4U;
@@ -498,7 +498,8 @@ void print_diagnostic(
                             const std::size_t prompt_tokens,
                             const runtime::LayerMajorPrefillFullAttentionTactic
                                 attention_tactic,
-                            const bool segmented_marlin_operator_panel) {
+                            const runtime::LayerMajorPrefillProjectionTactic
+                                projection_tactic) {
   const bool native_group_q64_panel =
       attention_tactic == runtime::LayerMajorPrefillFullAttentionTactic::
                               kNativeGroupQ64Panel;
@@ -507,6 +508,12 @@ void print_diagnostic(
                               kNativeGroupQ128V4Panel;
   const bool native_group_panel =
       native_group_q64_panel || native_group_q128_v4_panel;
+  const bool segmented_marlin_operator_panel =
+      projection_tactic == runtime::LayerMajorPrefillProjectionTactic::
+                               kSegmentedMarlinOperatorPanel;
+  const bool native_large_m_operator_panel =
+      projection_tactic == runtime::LayerMajorPrefillProjectionTactic::
+                               kNativeQuantizedLargeMOperatorPanel;
   const std::size_t expected_logical_panels =
       (prompt_tokens + runtime::kLayerMajorPrefillOperatorPanelTokens - 1U) /
       runtime::kLayerMajorPrefillOperatorPanelTokens;
@@ -561,7 +568,8 @@ void print_diagnostic(
   const runtime::ReferenceGeneration& oracle = *oracle_result.value;
   const runtime::ReferenceGeneration& panel = *panel_result.value;
   const bool architecture_candidate =
-      native_group_panel || segmented_marlin_operator_panel;
+      native_group_panel || segmented_marlin_operator_panel ||
+      native_large_m_operator_panel;
   std::size_t expected_segmented_projection_physical_launches = 0U;
   if (segmented_marlin_operator_panel) {
     for (std::size_t panel_index = 0U;
@@ -582,8 +590,65 @@ void print_diagnostic(
           32U * fp8_small_n_launches;
     }
   }
+  std::size_t expected_native_large_m_projection_physical_launches = 0U;
+  std::size_t expected_native_large_m_projection_bulk_hits = 0U;
+  std::size_t expected_native_large_m_projection_oracle_partial_hits = 0U;
+  if (native_large_m_operator_panel) {
+    for (std::size_t panel_index = 0U;
+         panel_index < topology.value->panel_count; ++panel_index) {
+      const std::size_t panel_tokens =
+          topology.value->panels[panel_index].token_count;
+      if (panel_tokens ==
+          runtime::kLayerMajorPrefillOperatorPanelTokens) {
+        expected_native_large_m_projection_bulk_hits += 336U;
+      } else {
+        expected_native_large_m_projection_oracle_partial_hits += 336U;
+      }
+      std::size_t nvfp4_launches = 1U;
+      std::size_t fp8_large_n_launches = 1U;
+      std::size_t fp8_small_n_launches = 1U;
+      if (panel_tokens !=
+          runtime::kLayerMajorPrefillOperatorPanelTokens) {
+        nvfp4_launches = 0U;
+        fp8_large_n_launches = 0U;
+        fp8_small_n_launches = 0U;
+        const runtime::LayerMajorPrefillArithmeticSpanLedger ledger =
+            runtime::make_layer_major_prefill_arithmetic_span_ledger(
+                panel_tokens);
+        for (std::size_t span_index = 0U;
+             span_index < ledger.span_count; ++span_index) {
+          const std::size_t span_tokens = ledger.spans[span_index].token_count;
+          nvfp4_launches +=
+              q3x::kernels::sm87_nvfp4_marlin_execution_plan(span_tokens)
+                  .launch_count;
+          fp8_large_n_launches +=
+              q3x::kernels::sm87_fp8_marlin_execution_plan(span_tokens,
+                                                            5'120U)
+                  .launch_count;
+          fp8_small_n_launches +=
+              q3x::kernels::sm87_fp8_marlin_execution_plan(span_tokens,
+                                                            1'024U)
+                  .launch_count;
+        }
+      }
+      // Gate+Up is one merged Marlin projection. Across 64 layers there are
+      // 208 FP8 projections plus 128 NVFP4 Gate+Up/Down projections.
+      expected_native_large_m_projection_physical_launches +=
+          128U * nvfp4_launches + 176U * fp8_large_n_launches +
+          32U * fp8_small_n_launches;
+    }
+  }
   const std::string_view expected_deployment_plan_id =
-      segmented_marlin_operator_panel
+      native_large_m_operator_panel
+          ? (native_group_q128_v4_panel
+                 ? runtime::
+                       kLayerMajorNativeQuantizedLargeMProjectionGroupQ128V4DeploymentPlanId
+             : native_group_q64_panel
+                 ? runtime::
+                       kLayerMajorNativeQuantizedLargeMProjectionGroupQ64DeploymentPlanId
+                 : runtime::
+                       kLayerMajorNativeQuantizedLargeMProjectionDeploymentPlanId)
+      : segmented_marlin_operator_panel
           ? (native_group_q128_v4_panel
                  ? runtime::
                        kLayerMajorSegmentedMarlinProjectionGroupQ128V4DeploymentPlanId
@@ -636,11 +701,28 @@ void print_diagnostic(
                : 0U) &&
       panel.prefill_segmented_panel_projection_physical_launches ==
           expected_segmented_projection_physical_launches &&
+      panel.prefill_native_large_m_projection_hits ==
+          (native_large_m_operator_panel
+               ? 336U * expected_logical_panels
+               : 0U) &&
+      panel.prefill_native_large_m_projection_bulk_hits ==
+          expected_native_large_m_projection_bulk_hits &&
+      panel.prefill_native_large_m_projection_oracle_partial_hits ==
+          expected_native_large_m_projection_oracle_partial_hits &&
+      panel.prefill_native_large_m_projection_hits ==
+          panel.prefill_native_large_m_projection_bulk_hits +
+              panel.prefill_native_large_m_projection_oracle_partial_hits &&
+      panel.prefill_native_large_m_projection_physical_launches ==
+          expected_native_large_m_projection_physical_launches &&
       oracle.prefill_operator_panel_executor_hits == 0U &&
       oracle.prefill_native_group_q64_panel_hits == 0U &&
       oracle.prefill_native_group_q128_v4_panel_hits == 0U &&
       oracle.prefill_segmented_panel_projection_hits == 0U &&
-      oracle.prefill_segmented_panel_projection_physical_launches == 0U;
+      oracle.prefill_segmented_panel_projection_physical_launches == 0U &&
+      oracle.prefill_native_large_m_projection_hits == 0U &&
+      oracle.prefill_native_large_m_projection_bulk_hits == 0U &&
+      oracle.prefill_native_large_m_projection_oracle_partial_hits == 0U &&
+      oracle.prefill_native_large_m_projection_physical_launches == 0U;
   const bool state_exact =
       same_snapshots(oracle_snapshot, panel_snapshot);
   const bool direction_passed =
@@ -674,9 +756,7 @@ void print_diagnostic(
             << " attention_tactic="
             << runtime::to_string(attention_tactic)
             << " projection_tactic="
-            << (segmented_marlin_operator_panel
-                    ? "segmented-marlin-operator-panel"
-                    : "exact-segmented")
+            << runtime::to_string(projection_tactic)
             << " operator_panel_executor_hits="
             << panel.prefill_operator_panel_executor_hits
             << " native_group_q64_panel_hits="
@@ -688,6 +768,14 @@ void print_diagnostic(
             << panel.prefill_segmented_panel_projection_hits
             << " segmented_panel_projection_physical_launches="
             << panel.prefill_segmented_panel_projection_physical_launches
+            << " native_large_m_projection_hits="
+            << panel.prefill_native_large_m_projection_hits
+            << " native_large_m_projection_bulk_hits="
+            << panel.prefill_native_large_m_projection_bulk_hits
+            << " native_large_m_projection_oracle_partial_hits="
+            << panel.prefill_native_large_m_projection_oracle_partial_hits
+            << " native_large_m_projection_physical_launches="
+            << panel.prefill_native_large_m_projection_physical_launches
             << (architecture_candidate
                     ? (candidate_passed
                            ? " direction_gate=PASS accuracy_gate=NOT_RUN"
@@ -745,11 +833,34 @@ int main(const int argc, char** const argv) {
       projection_tactic != nullptr &&
       std::string_view(projection_tactic) ==
           "segmented-marlin-operator-panel";
+  const bool native_large_m_operator_panel =
+      projection_tactic != nullptr &&
+      std::string_view(projection_tactic) ==
+          "native-quantized-large-m-operator-panel";
   if (projection_tactic != nullptr && !segmented_marlin_operator_panel &&
+      !native_large_m_operator_panel &&
       std::string_view(projection_tactic) != "exact-segmented") {
     std::cerr << "Q3X_TEST_PREFILL_PROJECTION_TACTIC must be "
-                 "exact-segmented or segmented-marlin-operator-panel\n";
+                 "exact-segmented, segmented-marlin-operator-panel, or "
+                 "native-quantized-large-m-operator-panel\n";
     return 2;
+  }
+  std::vector<std::size_t> prompt_token_counts(kPromptTokenCounts.begin(),
+                                                kPromptTokenCounts.end());
+  const char* const selected_prompt_tokens =
+      std::getenv("Q3X_TEST_PREFILL_PROMPT_TOKENS");
+  if (selected_prompt_tokens != nullptr) {
+    const auto selected = std::find_if(
+        kPromptTokenCounts.begin(), kPromptTokenCounts.end(),
+        [selected_prompt_tokens](const std::size_t value) {
+          return std::to_string(value) == selected_prompt_tokens;
+        });
+    if (selected == kPromptTokenCounts.end()) {
+      std::cerr << "Q3X_TEST_PREFILL_PROMPT_TOKENS must be one of "
+                   "513, 1025, 7712, 8192, or 8193\n";
+      return 2;
+    }
+    prompt_token_counts.assign(1U, *selected);
   }
 
   try {
@@ -757,7 +868,7 @@ int main(const int argc, char** const argv) {
     options.request_options.prefill_chunk_size =
         runtime::kMaximumRequestPrefillChunkSize;
     options.request_options.max_sequence_length =
-        kPromptTokenCounts.back() + 1U;
+        prompt_token_counts.back() + 1U;
     options.projection_backend = runtime::ProjectionBackend::kSm87WeightOnly;
     options.prefill_execution_mode =
         runtime::ReferencePrefillExecutionMode::kWholeRequestLayerMajor;
@@ -771,12 +882,17 @@ int main(const int argc, char** const argv) {
       options.prefill_full_attention_tactic = runtime::
           LayerMajorPrefillFullAttentionTactic::kExactSegmentedC512;
     }
-    options.prefill_projection_tactic =
-        segmented_marlin_operator_panel
-            ? runtime::LayerMajorPrefillProjectionTactic::
-                  kSegmentedMarlinOperatorPanel
-            : runtime::LayerMajorPrefillProjectionTactic::
-                  kExactSegmentedC512;
+    if (native_large_m_operator_panel) {
+      options.prefill_projection_tactic = runtime::
+          LayerMajorPrefillProjectionTactic::
+              kNativeQuantizedLargeMOperatorPanel;
+    } else if (segmented_marlin_operator_panel) {
+      options.prefill_projection_tactic = runtime::
+          LayerMajorPrefillProjectionTactic::kSegmentedMarlinOperatorPanel;
+    } else {
+      options.prefill_projection_tactic = runtime::
+          LayerMajorPrefillProjectionTactic::kExactSegmentedC512;
+    }
     runtime::ReferenceEngineCreateResult created =
         runtime::create_reference_engine(
             std::filesystem::path(model_directory), options);
@@ -786,10 +902,10 @@ int main(const int argc, char** const argv) {
       return 1;
     }
 
-    for (const std::size_t prompt_tokens : kPromptTokenCounts) {
+    for (const std::size_t prompt_tokens : prompt_token_counts) {
       if (!run_case(*created.value, prompt_tokens,
                     options.prefill_full_attention_tactic,
-                    segmented_marlin_operator_panel)) {
+                    options.prefill_projection_tactic)) {
         return 1;
       }
     }

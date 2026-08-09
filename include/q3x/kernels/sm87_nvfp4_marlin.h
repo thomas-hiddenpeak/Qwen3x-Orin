@@ -277,6 +277,21 @@ static_assert(sm87_nvfp4_marlin_supports_operator_panel_token_count(513U));
     float* c_tmp, std::int32_t* locks,
     void* cuda_stream = nullptr) noexcept;
 
+// Default-off architecture probe for one complete M64-aligned operator
+// panel. It invokes the same frozen Marlin M64N256K64 kernel body and lets the
+// persistent 16-CTA scheduler traverse M64..M8192 in one kernel instead of
+// imposing the historical M1024 host segmentation boundary. This surface
+// makes no whole-model equivalence claim for arbitrary aligned M: the current
+// runner admits single-bulk only at M8192. Non-aligned and partial panels stay
+// on the caller's exact oracle path and are rejected here.
+[[nodiscard]] int
+launch_sm87_nvfp4_marlin_gate_up_aligned_operator_panel_cuda(
+    const std::uint16_t* input, const std::uint8_t* marlin_weight,
+    const std::uint8_t* marlin_scales, const float* marlin_global_scale,
+    std::size_t token_count, std::uint16_t* merged_gate_up_output,
+    float* c_tmp, std::int32_t* locks,
+    void* cuda_stream = nullptr) noexcept;
+
 // Candidate-only fused epilogue. The Marlin cross-CTA reduction continues to
 // use merged_gate_up_workspace; only the last writer consumes adjacent BF16
 // Gate/Up columns and publishes SiLU(gate)*up directly to output.
@@ -288,6 +303,12 @@ static_assert(sm87_nvfp4_marlin_supports_operator_panel_token_count(513U));
     void* cuda_stream = nullptr) noexcept;
 
 [[nodiscard]] int launch_sm87_nvfp4_marlin_down_cuda(
+    const std::uint16_t* input, const std::uint8_t* marlin_weight,
+    const std::uint8_t* marlin_scales, const float* marlin_global_scale,
+    std::size_t token_count, std::uint16_t* output, float* c_tmp,
+    std::int32_t* locks, void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int launch_sm87_nvfp4_marlin_down_aligned_operator_panel_cuda(
     const std::uint16_t* input, const std::uint8_t* marlin_weight,
     const std::uint8_t* marlin_scales, const float* marlin_global_scale,
     std::size_t token_count, std::uint16_t* output, float* c_tmp,

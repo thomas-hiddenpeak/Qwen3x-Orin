@@ -1911,7 +1911,8 @@ void test_prefill_layer_route_reducer(TestContext& test) {
       Peer::legacy_tile_outcome_bytes() >= 32U * 1'024U &&
           Peer::lightweight_enqueue_result_bytes() < 1'024U &&
           Peer::lightweight_enqueue_result_bytes() <=
-              Peer::lightweight_enqueue_payload_bytes() + 16U &&
+              Peer::lightweight_enqueue_payload_bytes() +
+                  6U * sizeof(std::size_t) &&
           Peer::lightweight_enqueue_result_bytes() * 16U <
               Peer::legacy_tile_outcome_bytes(),
       "candidate enqueue result contains route identity, not a C512 transcript");

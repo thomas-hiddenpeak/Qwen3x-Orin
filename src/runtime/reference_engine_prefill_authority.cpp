@@ -1,13 +1,9 @@
 #include "reference_engine_prefill_authority.h"
 
+#include "q3x/kernels/sm87_fp8_marlin_w8a16.h"
+#include "q3x/kernels/sm87_nvfp4_marlin.h"
 #include "q3x/runtime/reference_engine.h"
 
-#if defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION)
-#include "q3x/kernels/sm87_fp8_marlin_w8a16.h"
-#endif
-#if defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION)
-#include "q3x/kernels/sm87_nvfp4_marlin.h"
-#endif
 #if defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
 #include "../kernels/sm87/gdn_prefill_chunk64_native_sm87.h"
 #endif
@@ -49,41 +45,62 @@ thread_local bool
 }
 
 [[maybe_unused, nodiscard]] bool valid_fp8_marlin_binding(
-    const LinearWeight& weight) noexcept {
+    const LinearWeight& weight, const std::size_t expected_output_size,
+    const std::size_t expected_input_size) noexcept {
 #if defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION)
   const auto* const fp8 = std::get_if<Fp8LinearWeight>(&weight);
+  const auto aligned_16 = [](const void* const pointer) noexcept {
+    return pointer != nullptr &&
+           reinterpret_cast<std::uintptr_t>(pointer) % 16U == 0U;
+  };
   return fp8 != nullptr && fp8->weight != nullptr &&
          fp8->weight_scale_device != nullptr &&
          fp8->input_scale_device != nullptr &&
-         fp8->prefill_marlin_weight != nullptr &&
-         fp8->prefill_marlin_scales != nullptr;
+         aligned_16(fp8->prefill_marlin_weight) &&
+         aligned_16(fp8->prefill_marlin_scales) &&
+         fp8->output_size == expected_output_size &&
+         fp8->input_size == expected_input_size;
 #else
   (void)weight;
+  (void)expected_output_size;
+  (void)expected_input_size;
   return false;
 #endif
 }
 
 [[maybe_unused, nodiscard]] bool valid_nvfp4_marlin_binding(
-    const LinearWeight& weight) noexcept {
+    const LinearWeight& weight, const std::size_t expected_output_size,
+    const std::size_t expected_input_size) noexcept {
 #if defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION)
   const auto* const nvfp4 = std::get_if<NvFp4LinearWeight>(&weight);
+  const auto aligned_16 = [](const void* const pointer) noexcept {
+    return pointer != nullptr &&
+           reinterpret_cast<std::uintptr_t>(pointer) % 16U == 0U;
+  };
   return nvfp4 != nullptr && nvfp4->packed_weight != nullptr &&
          nvfp4->block_scale != nullptr &&
          nvfp4->weight_scale_2_device != nullptr &&
          nvfp4->input_scale_device != nullptr &&
-         nvfp4->prefill_marlin_weight != nullptr &&
-         nvfp4->prefill_marlin_scales != nullptr &&
-         nvfp4->prefill_marlin_global_scale != nullptr;
+         aligned_16(nvfp4->prefill_marlin_weight) &&
+         aligned_16(nvfp4->prefill_marlin_scales) &&
+         nvfp4->prefill_marlin_global_scale != nullptr &&
+         nvfp4->output_size == expected_output_size &&
+         nvfp4->input_size == expected_input_size;
 #else
   (void)weight;
+  (void)expected_output_size;
+  (void)expected_input_size;
   return false;
 #endif
 }
 
 [[maybe_unused, nodiscard]] bool valid_bf16_binding(
-    const LinearWeight& weight) noexcept {
+    const LinearWeight& weight, const std::size_t expected_output_size,
+    const std::size_t expected_input_size) noexcept {
   const auto* const bf16 = std::get_if<Bf16LinearWeight>(&weight);
-  return bf16 != nullptr && bf16->weight != nullptr;
+  return bf16 != nullptr && bf16->weight != nullptr &&
+         bf16->output_size == expected_output_size &&
+         bf16->input_size == expected_input_size;
 }
 
 [[nodiscard]] bool complete_installed_projection_inventory(
@@ -97,9 +114,12 @@ thread_local bool
   for (std::size_t layer = 0U;
        layer < kReferenceDecoderLayerCount; ++layer) {
     const DecoderLayerWeights& layer_weights = weights.layer(layer);
-    if (!valid_nvfp4_marlin_binding(layer_weights.mlp.gate_proj) ||
-        !valid_nvfp4_marlin_binding(layer_weights.mlp.up_proj) ||
-        !valid_nvfp4_marlin_binding(layer_weights.mlp.down_proj)) {
+    if (!valid_nvfp4_marlin_binding(
+            layer_weights.mlp.gate_proj, 17'408U, kReferenceHiddenSize) ||
+        !valid_nvfp4_marlin_binding(
+            layer_weights.mlp.up_proj, 17'408U, kReferenceHiddenSize) ||
+        !valid_nvfp4_marlin_binding(
+            layer_weights.mlp.down_proj, kReferenceHiddenSize, 17'408U)) {
       return false;
     }
     const auto* const gate =
@@ -124,11 +144,16 @@ thread_local bool
       const auto* const linear =
           std::get_if<LinearAttentionWeights>(&layer_weights.attention);
       if (linear == nullptr ||
-          !valid_fp8_marlin_binding(linear->in_proj_qkv) ||
-          !valid_fp8_marlin_binding(linear->in_proj_z) ||
-          !valid_bf16_binding(linear->in_proj_a) ||
-          !valid_bf16_binding(linear->in_proj_b) ||
-          !valid_fp8_marlin_binding(linear->out_proj) ||
+          !valid_fp8_marlin_binding(
+              linear->in_proj_qkv, 10'240U, kReferenceHiddenSize) ||
+          !valid_fp8_marlin_binding(
+              linear->in_proj_z, 6'144U, kReferenceHiddenSize) ||
+          !valid_bf16_binding(
+              linear->in_proj_a, 48U, kReferenceHiddenSize) ||
+          !valid_bf16_binding(
+              linear->in_proj_b, 48U, kReferenceHiddenSize) ||
+          !valid_fp8_marlin_binding(
+              linear->out_proj, kReferenceHiddenSize, 6'144U) ||
           linear->conv1d.data == nullptr || linear->a_log.data == nullptr ||
           linear->dt_bias.data == nullptr || linear->norm.data == nullptr) {
         return false;
@@ -137,24 +162,35 @@ thread_local bool
       const auto* const attention =
           std::get_if<FullAttentionWeights>(&layer_weights.attention);
       if (attention == nullptr ||
-          !valid_fp8_marlin_binding(attention->q_proj) ||
-          !valid_fp8_marlin_binding(attention->k_proj) ||
-          !valid_fp8_marlin_binding(attention->v_proj) ||
-          !valid_fp8_marlin_binding(attention->o_proj) ||
+          !valid_fp8_marlin_binding(
+              attention->q_proj, 12'288U, kReferenceHiddenSize) ||
+          !valid_fp8_marlin_binding(
+              attention->k_proj, 1'024U, kReferenceHiddenSize) ||
+          !valid_fp8_marlin_binding(
+              attention->v_proj, 1'024U, kReferenceHiddenSize) ||
+          !valid_fp8_marlin_binding(
+              attention->o_proj, kReferenceHiddenSize, 6'144U) ||
           attention->q_norm.data == nullptr ||
-          attention->k_norm.data == nullptr) {
+          attention->q_norm.element_count != 256U ||
+          attention->k_norm.data == nullptr ||
+          attention->k_norm.element_count != 256U) {
         return false;
       }
     } else {
       return false;
     }
     if (layer_weights.input_layernorm.data == nullptr ||
-        layer_weights.post_attention_layernorm.data == nullptr) {
+        layer_weights.input_layernorm.element_count != kReferenceHiddenSize ||
+        layer_weights.post_attention_layernorm.data == nullptr ||
+        layer_weights.post_attention_layernorm.element_count !=
+            kReferenceHiddenSize) {
       return false;
     }
   }
   return weights.embed_tokens().weight != nullptr &&
-         weights.final_norm().data != nullptr;
+         weights.embed_tokens().input_size == kReferenceHiddenSize &&
+         weights.final_norm().data != nullptr &&
+         weights.final_norm().element_count == kReferenceHiddenSize;
 #endif
 }
 
@@ -262,6 +298,20 @@ complete_exact_gdn_chunk64_native_inventory(
              : kLayerMajorPrefillOperatorPanelTokens;
 }
 
+[[nodiscard]] constexpr const LayerMajorPrefillArithmeticContract*
+projection_arithmetic_contract(
+    const LayerMajorPrefillProjectionTactic tactic) noexcept {
+  return tactic == LayerMajorPrefillProjectionTactic::
+                       kNativeQuantizedLargeMOperatorPanel
+             ? &kLayerMajorPrefillExactMarlinM8192ArithmeticContract
+         : tactic == LayerMajorPrefillProjectionTactic::
+                       kSegmentedMarlinOperatorPanel
+             ? &kLayerMajorPrefillSegmentedMarlinArithmeticContract
+         : tactic == LayerMajorPrefillProjectionTactic::kExactSegmentedC512
+             ? &kLayerMajorPrefillExactArithmeticContract
+             : nullptr;
+}
+
 }  // namespace
 
 bool exchange_reference_engine_prefill_compatibility_oracle_for_test(
@@ -327,13 +377,16 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
         full_attention_tactic) noexcept {
   static_assert(kBoundPrefillSubmissionEventCount ==
                 ReferenceRunner::kWholeRequestSubmissionWindowSlots);
+  const LayerMajorPrefillArithmeticContract* const arithmetic_contract =
+      projection_arithmetic_contract(projection_tactic);
   if (weights == nullptr || state == nullptr || runner == nullptr ||
       !static_cast<bool>(*state) || !static_cast<bool>(*runner) ||
       !is_valid_layer_major_prefill_projection_tactic(projection_tactic) ||
       !is_valid_layer_major_prefill_full_attention_tactic(
           full_attention_tactic) ||
+      arithmetic_contract == nullptr ||
       !is_valid_layer_major_prefill_arithmetic_contract(
-          kLayerMajorPrefillExactArithmeticContract)) {
+          *arithmetic_contract)) {
     return plan_failure(BoundPrefillPlanError::kInvalidDependency,
                         ReferenceRunnerError::kInvalidDependency,
                         "bound_prefill_dependencies");
@@ -368,6 +421,9 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
                         ReferenceRunnerError::kInvalidRequestState,
                         "bound_prefill_typed_views");
   }
+  const bool native_large_m_projection =
+      projection_tactic == LayerMajorPrefillProjectionTactic::
+                               kNativeQuantizedLargeMOperatorPanel;
   if (!complete_installed_projection_inventory(*weights)) {
     return plan_failure(BoundPrefillPlanError::kUnsupportedBinary,
                         ReferenceRunnerError::kInvalidDependency,
@@ -429,7 +485,7 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
            view.byte_size >= kNvFp4MarlinTemporaryBytes;
   };
   const LayerMajorMlpPhaseViews& mlp_views = views.mlp;
-  const bool segmented_projection_views_complete =
+  const bool operator_panel_projection_outputs_complete =
       mlp_views.gate_bf16.storage.device_data != nullptr &&
       mlp_views.up_bf16.storage.device_data != nullptr &&
       mlp_views.activated_bf16.storage.device_data != nullptr &&
@@ -440,16 +496,24 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
           reinterpret_cast<std::uintptr_t>(
               mlp_views.gate_bf16.storage.device_data) +
               mlp_views.gate_bf16.storage.byte_size &&
+      views.gdn.qkv_bf16.storage.device_data != nullptr &&
+      views.gdn.z_bf16.storage.device_data != nullptr &&
+      views.gdn.branch_output_bf16.storage.device_data != nullptr &&
+      views.attention.raw_q_gate_bf16.storage.device_data != nullptr &&
+      views.attention.branch_output_bf16.storage.device_data != nullptr;
+  const bool segmented_projection_views_complete =
+      operator_panel_projection_outputs_complete &&
       valid_nvfp4_temporary(mlp_views.gate_up_projection_temporary) &&
       valid_nvfp4_temporary(mlp_views.down_projection_temporary) &&
       valid_fp8_temporary(views.gdn.input_projection_temporary) &&
       valid_fp8_temporary(views.gdn.output_projection_temporary) &&
       valid_fp8_temporary(views.attention.input_projection_temporary) &&
       valid_fp8_temporary(views.attention.output_projection_temporary);
-  if (segmented_projection && !segmented_projection_views_complete) {
+  if ((segmented_projection || native_large_m_projection) &&
+      !segmented_projection_views_complete) {
     return plan_failure(BoundPrefillPlanError::kIncompleteTypedViews,
                         ReferenceRunnerError::kInvalidRequestState,
-                        "bound_prefill_segmented_projection_views");
+                        "bound_prefill_marlin_operator_panel_views");
   }
   const DecoderLayerWeights& linear_layer = weights->layer(0U);
   const DecoderLayerWeights& full_layer = weights->layer(3U);
@@ -554,7 +618,29 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
     return static_cast<void*>(static_cast<std::uint8_t*>(view.device_data) +
                               kernels::kSm87NvFp4MarlinReductionBytes);
   };
-  if (segmented_projection) {
+  if (native_large_m_projection) {
+    roles[static_cast<std::size_t>(PrefillBindingRole::kNvfp4GateUp)] =
+        receipt(
+            PrefillBindingRole::kNvfp4GateUp,
+            NativePrefillTactic::
+                kNvfp4GateUpNativeQuantizedLargeMOperatorPanel,
+            gate->prefill_marlin_weight,
+            mlp_views.gate_up_projection_temporary.device_data,
+            kernels::kSm87NvFp4MarlinReductionBytes, 1U,
+            kLayerMajorPrefillOperatorPanelTokens,
+            nvfp4_locks(mlp_views.gate_up_projection_temporary),
+            kernels::kSm87NvFp4MarlinLockBytes);
+    roles[static_cast<std::size_t>(PrefillBindingRole::kNvfp4Down)] =
+        receipt(PrefillBindingRole::kNvfp4Down,
+                NativePrefillTactic::
+                    kNvfp4DownNativeQuantizedLargeMOperatorPanel,
+                down->prefill_marlin_weight,
+                mlp_views.down_projection_temporary.device_data,
+                kernels::kSm87NvFp4MarlinReductionBytes, 1U,
+                kLayerMajorPrefillOperatorPanelTokens,
+                nvfp4_locks(mlp_views.down_projection_temporary),
+                kernels::kSm87NvFp4MarlinLockBytes);
+  } else if (segmented_projection) {
     roles[static_cast<std::size_t>(PrefillBindingRole::kNvfp4GateUp)] =
         receipt(PrefillBindingRole::kNvfp4GateUp,
                 NativePrefillTactic::kNvfp4GateUpSegmentedMarlinOperatorPanel,
@@ -593,11 +679,22 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
                 views.legacy_c512.projection_bf16[3].storage.device_data,
                 kernels::kSm87NvFp4MarlinLockBytes);
   }
-  const auto fp8_receipt = [&receipt, &fp8_locks, segmented_projection](
+  const auto fp8_receipt = [&receipt, &fp8_locks, segmented_projection,
+                            native_large_m_projection](
                                const PrefillBindingRole role,
                                const Fp8LinearWeight& weight,
                                const DeviceBufferView& temporary) noexcept {
-    return segmented_projection
+    return native_large_m_projection
+               ? receipt(role,
+                         NativePrefillTactic::
+                             kFp8NativeQuantizedLargeMOperatorPanel,
+                         weight.prefill_marlin_weight,
+                         temporary.device_data,
+                         kernels::kSm87Fp8MarlinReductionBytes, 2U,
+                         kLayerMajorPrefillOperatorPanelTokens,
+                         fp8_locks(temporary),
+                         kernels::kSm87Fp8MarlinLockBytes)
+           : segmented_projection
                ? receipt(
                      role, NativePrefillTactic::kFp8SegmentedMarlinOperatorPanel,
                      weight.prefill_marlin_weight, temporary.device_data,
@@ -691,13 +788,15 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
 
   for (std::size_t index = 0U; index < roles.size(); ++index) {
     const NativePrefillRoleReceipt& role = roles[index];
+    const bool workspace_valid =
+        role.workspace_owner != nullptr && role.workspace_bytes != 0U &&
+        ((role.auxiliary_workspace_owner == nullptr) ==
+         (role.auxiliary_workspace_bytes == 0U));
     if (role.role != static_cast<PrefillBindingRole>(index) ||
         role.maximum_logical_panel_m !=
             kLayerMajorPrefillOperatorPanelTokens ||
-        role.artifact_owner == nullptr || role.workspace_owner == nullptr ||
-        role.workspace_bytes == 0U || role.minimum_physical_m == 0U ||
-        ((role.auxiliary_workspace_owner == nullptr) !=
-         (role.auxiliary_workspace_bytes == 0U)) ||
+        role.artifact_owner == nullptr ||
+        !workspace_valid || role.minimum_physical_m == 0U ||
         role.minimum_physical_m > role.maximum_physical_m ||
         role.maximum_physical_m > role.maximum_logical_panel_m ||
         role.completion !=
@@ -735,7 +834,7 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
           runner->whole_request_submission_events_[1U]};
   auto* const allocation = new (std::nothrow) BoundPrefillExecutionPlan(
       weights, state, runner, state->arena_data(), state->arena_bytes(),
-      state->layer_major_plan(), &kLayerMajorPrefillExactArithmeticContract,
+      state->layer_major_plan(), arithmetic_contract,
       exact_c512_arithmetic_workspace_bound,
       projection_tactic,
       full_attention_tactic,
@@ -762,13 +861,15 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
   (void)runner;
   return false;
 #else
+  const LayerMajorPrefillArithmeticContract* const expected_contract =
+      projection_arithmetic_contract(plan.projection_tactic_);
   if (plan.runner_ != &runner || plan.weights_ != runner.weights_ ||
       plan.state_ != runner.state_ || plan.state_ == nullptr ||
       plan.arena_base_ != plan.state_->arena_data() ||
       plan.arena_bytes_ != plan.state_->arena_bytes() ||
       plan.memory_plan_ != plan.state_->layer_major_plan() ||
-      plan.arithmetic_contract_ !=
-          &kLayerMajorPrefillExactArithmeticContract ||
+      expected_contract == nullptr ||
+      plan.arithmetic_contract_ != expected_contract ||
       !is_valid_layer_major_prefill_arithmetic_contract(
           *plan.arithmetic_contract_) ||
       !plan.exact_c512_arithmetic_workspace_bound_ ||
@@ -788,6 +889,12 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
   }
   const ReferenceLayerMajorRequestViews& views =
       *runner.layer_major_request_views_;
+  const bool native_large_m_projection =
+      plan.projection_tactic_ == LayerMajorPrefillProjectionTactic::
+                                      kNativeQuantizedLargeMOperatorPanel;
+  if (!complete_installed_projection_inventory(*runner.weights_)) {
+    return false;
+  }
   bool fallback_views_match =
       views.legacy_c512.linear_a_bf16.storage.device_data != nullptr &&
       views.legacy_c512.linear_b_bf16.storage.device_data != nullptr &&
@@ -900,11 +1007,22 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
         static_cast<std::uint8_t*>(temporary.device_data) +
         kernels::kSm87NvFp4MarlinReductionBytes);
   };
-  const auto fp8_matches = [&matches, &fp8_locks, segmented_projection](
+  const auto fp8_matches = [&matches, &fp8_locks, segmented_projection,
+                            native_large_m_projection](
                                const PrefillBindingRole role,
                                const Fp8LinearWeight& weight,
                                const DeviceBufferView& temporary) noexcept {
-    return segmented_projection
+    return native_large_m_projection
+               ? matches(role,
+                         NativePrefillTactic::
+                             kFp8NativeQuantizedLargeMOperatorPanel,
+                         weight.prefill_marlin_weight,
+                         temporary.device_data,
+                         kernels::kSm87Fp8MarlinReductionBytes, 2U,
+                         kLayerMajorPrefillOperatorPanelTokens,
+                         fp8_locks(temporary),
+                         kernels::kSm87Fp8MarlinLockBytes)
+           : segmented_projection
                ? matches(
                      role, NativePrefillTactic::kFp8SegmentedMarlinOperatorPanel,
                      weight.prefill_marlin_weight, temporary.device_data,
@@ -920,7 +1038,28 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
                          kPrefillPhysicalSegmentMaximumTokens);
   };
   const bool nvfp4_matches =
-      segmented_projection
+      native_large_m_projection
+          ? matches(
+                PrefillBindingRole::kNvfp4GateUp,
+                NativePrefillTactic::
+                    kNvfp4GateUpNativeQuantizedLargeMOperatorPanel,
+                gate->prefill_marlin_weight,
+                views.mlp.gate_up_projection_temporary.device_data,
+                kernels::kSm87NvFp4MarlinReductionBytes, 1U,
+                kLayerMajorPrefillOperatorPanelTokens,
+                nvfp4_locks(views.mlp.gate_up_projection_temporary),
+                kernels::kSm87NvFp4MarlinLockBytes) &&
+                matches(
+                    PrefillBindingRole::kNvfp4Down,
+                    NativePrefillTactic::
+                        kNvfp4DownNativeQuantizedLargeMOperatorPanel,
+                    down->prefill_marlin_weight,
+                    views.mlp.down_projection_temporary.device_data,
+                    kernels::kSm87NvFp4MarlinReductionBytes, 1U,
+                    kLayerMajorPrefillOperatorPanelTokens,
+                    nvfp4_locks(views.mlp.down_projection_temporary),
+                    kernels::kSm87NvFp4MarlinLockBytes)
+      : segmented_projection
           ? matches(
                 PrefillBindingRole::kNvfp4GateUp,
                 NativePrefillTactic::kNvfp4GateUpSegmentedMarlinOperatorPanel,
@@ -1025,6 +1164,18 @@ std::string_view ReferenceEnginePrefillExecutor::deployment_plan_id(
     const BoundPrefillExecutionPlan& plan) noexcept {
   if (!plan.exact_c512_arithmetic_workspace_bound_) {
     return {};
+  }
+  if (plan.projection_tactic_ == LayerMajorPrefillProjectionTactic::
+                                     kNativeQuantizedLargeMOperatorPanel) {
+    switch (plan.full_attention_tactic_) {
+      case LayerMajorPrefillFullAttentionTactic::kNativeGroupQ64Panel:
+        return kLayerMajorNativeQuantizedLargeMProjectionGroupQ64DeploymentPlanId;
+      case LayerMajorPrefillFullAttentionTactic::kNativeGroupQ128V4Panel:
+        return kLayerMajorNativeQuantizedLargeMProjectionGroupQ128V4DeploymentPlanId;
+      case LayerMajorPrefillFullAttentionTactic::kExactSegmentedC512:
+      default:
+        return kLayerMajorNativeQuantizedLargeMProjectionDeploymentPlanId;
+    }
   }
   if (plan.projection_tactic_ ==
       LayerMajorPrefillProjectionTactic::kSegmentedMarlinOperatorPanel) {

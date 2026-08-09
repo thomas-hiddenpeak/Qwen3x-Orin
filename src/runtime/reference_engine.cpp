@@ -1095,6 +1095,10 @@ struct EngineStepContext {
   std::size_t prefill_generic_qt2_hits = 0U;
   std::size_t prefill_segmented_panel_projection_hits = 0U;
   std::size_t prefill_segmented_panel_projection_physical_launches = 0U;
+  std::size_t prefill_native_large_m_projection_hits = 0U;
+  std::size_t prefill_native_large_m_projection_bulk_hits = 0U;
+  std::size_t prefill_native_large_m_projection_oracle_partial_hits = 0U;
+  std::size_t prefill_native_large_m_projection_physical_launches = 0U;
   // Armed before the first whole-request CUDA call and cleared only after
   // the sealed commit succeeds. EngineWholeRequestTransactionGuard owns the
   // rollback of every failure window in between.
@@ -1248,6 +1252,14 @@ prefill_whole_request_layer_major(
       executed.value->segmented_panel_projection_hits;
   context.prefill_segmented_panel_projection_physical_launches =
       executed.value->segmented_panel_projection_physical_launches;
+  context.prefill_native_large_m_projection_hits =
+      executed.value->native_large_m_projection_hits;
+  context.prefill_native_large_m_projection_bulk_hits =
+      executed.value->native_large_m_projection_bulk_hits;
+  context.prefill_native_large_m_projection_oracle_partial_hits =
+      executed.value->native_large_m_projection_oracle_partial_hits;
+  context.prefill_native_large_m_projection_physical_launches =
+      executed.value->native_large_m_projection_physical_launches;
   result.value.emplace(std::move(transcript));
   return result;
 }
@@ -4428,6 +4440,18 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
     generation.prefill_segmented_panel_projection_physical_launches =
         static_cast<std::uint64_t>(
             step_context.prefill_segmented_panel_projection_physical_launches);
+    generation.prefill_native_large_m_projection_hits =
+        static_cast<std::uint64_t>(
+            step_context.prefill_native_large_m_projection_hits);
+    generation.prefill_native_large_m_projection_bulk_hits =
+        static_cast<std::uint64_t>(
+            step_context.prefill_native_large_m_projection_bulk_hits);
+    generation.prefill_native_large_m_projection_oracle_partial_hits =
+        static_cast<std::uint64_t>(
+            step_context.prefill_native_large_m_projection_oracle_partial_hits);
+    generation.prefill_native_large_m_projection_physical_launches =
+        static_cast<std::uint64_t>(
+            step_context.prefill_native_large_m_projection_physical_launches);
     generation.all_prompt_tokens_prefilled_by_tiles =
         control_options.prefill_all_prompt_tokens;
     generation.single_arbitrary_prefill_tiles =

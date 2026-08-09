@@ -320,10 +320,12 @@ Candidate-only C8192 NVFP4 Gate/Up and Down surfaces and shape-specific FP8
 projection surfaces now exist in the kernel tree. As architecture-candidate
 assets they are completely unbound: they remain isolated from the binding
 contract's physical identities and are not connected to `RequestState`, the
-runner, or any production selector. The bound compatibility executor instead
-forces the exact admitted Marlin routes for each physical C512 segment. The
-isolated true-C8192 surfaces have not widened production admission, changed
-the selected route, or produced a production performance result.
+runner, or any production selector. They are distinct from the later v5 route,
+which connects the existing frozen exact-Marlin sidecars and kernel body to
+one complete M8192 launch while preserving the exact oracle sequence for every
+partial panel. The bespoke candidate-only surfaces remain unbound; the v5
+route does not claim to implement them, change the default route, or produce a
+production performance result.
 
 ### 8.3 Implemented workspace requirements and capacity closure gate
 
@@ -440,23 +442,27 @@ numbers belong to [`CURRENT_STATUS.md`](CURRENT_STATUS.md), and exact evidence
 belongs to the
 [machine-readable direction record](metadata/qwen36-27b-prefill-layer-major-balanced-p1025-direction-2026-08-09.json).
 
-The immediate integration seam is a private
-`enqueue_prefill_layer_panel(...)` executor operating directly on
-`layer_major_request_views_`. It must bind the existing M-at-most-8192 FP8 and
-NVFP4 operator-panel wrappers. NVFP4 and large-N FP8 wrappers still lower to
-ordered kernel segments of at most M1024; only N1024 FP8 K/V may issue one
-M8192 launch. Exact GDN/SSM, causal Attention, and linear BF16 A/B may retain
-dependency-ordered internal C512 execution initially, preserving the existing
-segmented route as the bitwise oracle. The first new API executable must
-include both the complete linear/GDN and full-Attention layer families; a
-projection-only executable is still a local mutation.
+The private `enqueue_prefill_layer_panel(...)` executor now binds three
+engine-lifetime projection tactics. The exact tactic preserves the complete
+C512 oracle sequence. The rejected segmented wrapper groups one logical panel
+but retains bounded internal Marlin segmentation. The default-off v5 tactic
+uses the same authenticated exact-Marlin sidecars, typed reduction arenas, and
+locks to issue exactly one launch per logical FP8/NVFP4 projection only when
+the panel is the complete M8192 shape. Every partial panel retains the entire
+oracle span ledger and legacy MLP workspace, including per-span
+Gate+Up-to-SiLU-to-Down-to-residual ordering. Projection tactics do not own or
+change logical panel geometry; the existing balanced topology and plan
+identity remain immutable.
 
-After that composition passes a small exact real-model API sanity request on
-a clean host, run the cold/no-cache 40K, 60K, and approximately 130K
-real-Agent witness set against the frozen cumulative native incumbent. The
-witness must retain exact prompt consumption, output/state equivalence, route
-identity, pure Prefill and external TTFT intervals, peak resources, single
-final state commit, and zero forbidden fallbacks.
+Exact GDN/SSM, causal Attention, linear BF16 A/B, and the one final state
+commit remain in the same complete linear/full-Attention API executable. The
+v5 route may proceed to target-length measurement only after its bounded
+real-model state screens pass. Run P40K first through the cold/no-cache real
+API with exact Attention. Only a valid, competitive, accuracy-admissible P40K
+result may unlock P60K and approximately 130K. The witness must retain exact
+prompt consumption, output/state and route identity, pure Prefill and external
+TTFT intervals, peak resources, single final state commit, and zero forbidden
+fallbacks.
 
 Only that complete API result may select the development architecture. A
 component timing, C8192 panel rate, C512 comparison, or profiler counter may

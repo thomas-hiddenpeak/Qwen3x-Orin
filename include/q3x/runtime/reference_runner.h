@@ -246,6 +246,10 @@ struct ReferenceWholeRequestPrefillResult {
   std::size_t generic_qt2_hits = 0U;
   std::size_t segmented_panel_projection_hits = 0U;
   std::size_t segmented_panel_projection_physical_launches = 0U;
+  std::size_t native_large_m_projection_hits = 0U;
+  std::size_t native_large_m_projection_bulk_hits = 0U;
+  std::size_t native_large_m_projection_oracle_partial_hits = 0U;
+  std::size_t native_large_m_projection_physical_launches = 0U;
   PrefillExecutionProgress progress;
   std::optional<ReferenceStepTiming> timing;
 };
@@ -873,6 +877,10 @@ class ReferenceRunner {
     PrefillEnqueueRouteFragment route_fragment;
     std::size_t segmented_panel_projection_hits = 0U;
     std::size_t segmented_panel_projection_physical_launches = 0U;
+    std::size_t native_large_m_projection_hits = 0U;
+    std::size_t native_large_m_projection_bulk_hits = 0U;
+    std::size_t native_large_m_projection_oracle_partial_hits = 0U;
+    std::size_t native_large_m_projection_physical_launches = 0U;
 
     [[nodiscard]] bool ok() const noexcept { return status.ok(); }
     [[nodiscard]] explicit operator bool() const noexcept { return ok(); }

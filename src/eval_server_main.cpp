@@ -38,7 +38,9 @@ void PrintUsage(std::ostream& output) {
       << "  --prefill-execution-mode legacy|layer-major (default legacy)\n"
       << "  --prefill-attention-tactic exact-segmented|native-group-q64-panel|\n"
       << "                             native-group-q128-v4-panel\n"
-      << "  --prefill-projection-tactic exact-segmented|segmented-marlin-operator-panel\n"
+      << "  --prefill-projection-tactic exact-segmented|\n"
+      << "                              segmented-marlin-operator-panel|\n"
+      << "                              native-quantized-large-m-operator-panel\n"
       << "  --nvtx-phase-ranges        Emit generation/Prefill/Decode ranges\n"
       << "  --queue-capacity N          Bounded inference queue, max 62 (default 8)\n"
       << "  --ingress-threads N         Fixed HTTP threads, queue+2 min (default 10)\n"
@@ -158,9 +160,15 @@ template <typename T>
       } else if (value == "segmented-marlin-operator-panel") {
         options.prefill_projection_tactic = q3x::runtime::
             LayerMajorPrefillProjectionTactic::kSegmentedMarlinOperatorPanel;
+      } else if (value ==
+                 "native-quantized-large-m-operator-panel") {
+        options.prefill_projection_tactic = q3x::runtime::
+            LayerMajorPrefillProjectionTactic::
+                kNativeQuantizedLargeMOperatorPanel;
       } else {
         error = "--prefill-projection-tactic must be exact-segmented or "
-                "segmented-marlin-operator-panel";
+                "segmented-marlin-operator-panel or "
+                "native-quantized-large-m-operator-panel";
         return false;
       }
     } else if (argument == "--queue-capacity") {

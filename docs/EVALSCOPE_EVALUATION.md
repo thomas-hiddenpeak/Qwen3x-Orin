@@ -245,6 +245,45 @@ evidence, not proof of numerical equivalence or production eligibility. The
 exact projection tactic continues to emit the existing v2 or v3 schema and
 plan identity, so enabling v4 cannot silently relabel an incumbent result.
 
+An explicitly selected native quantized large-M operator-panel projection
+screen emits `target-prefill-witness-v5`. Version 5 preserves the v4 safety
+and accuracy-qualification boundary while identifying a different physical
+route:
+
+- `projection_tactic=native-quantized-large-m-operator-panel`;
+- `attention_tactic=exact-segmented`, `native-group-q64-panel`, or
+  `native-group-q128-v4-panel`;
+- separate grouped-Q64 and grouped-Q128-v4 completed panel hit counters;
+- completed logical native large-M FP8/NVFP4 projection hits; and
+- separate `native_large_m_projection_bulk_hits` and
+  `native_large_m_projection_oracle_partial_hits` counters for projections
+  that used the authenticated M8192 single-bulk route and projections that
+  retained the exact partial-panel oracle ledger; their sum must equal
+  `native_large_m_projection_hits`; and
+- physical native large-M launches: one frozen Marlin launch for each
+  authenticated M8192 logical projection, or the complete established Marlin
+  span-ledger launch count for a partial panel.
+
+The exact-segmented-Attention combination identifies itself as
+`q3x.sm87.ac-prefill-layermajor-8k.native-quantized-large-m-operator-panel.exact-segmented-attention.v1`.
+The grouped-Q64-Attention combination identifies itself as
+`q3x.sm87.ac-prefill-layermajor-8k.native-quantized-large-m-operator-panel.native-group-q64-attention.v1`.
+The grouped-Q128-v4-Attention combination identifies itself as
+`q3x.sm87.ac-prefill-layermajor-8k.native-quantized-large-m-operator-panel.native-group-q128-v4-attention.v1`.
+All three plans consume the prepared FP8/NVFP4 Marlin weight and scale
+sidecars and bind their typed reduction arenas and locks. NVFP4 Gate+Up is the
+single merged Marlin artifact; Down owns its independent sidecar and
+workspace. A conforming v5 emitter must issue one physical bulk launch only
+for a complete M8192 panel. Every partial panel must preserve the exact
+arithmetic ledger, masked specialization positions, legacy MLP workspace, and
+Down-to-residual interleave. The projection tactic does not own or alter the
+immutable balanced logical-panel geometry. These are procedure and route
+requirements, not release qualification:
+every v5 plan remains default-off and
+`accuracy-unqualified-architecture-candidate` until the full accuracy
+protocol passes. Existing v1--v4 records and plan identities remain
+byte-stable for their original routes.
+
 The externally observed TTFT selects the whole architecture. Server-side pure
 Prefill timing explains where that result came from; it never replaces the API
 result. A witness with an incomplete stream, unowned host resources, a route

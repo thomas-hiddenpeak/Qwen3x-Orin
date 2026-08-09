@@ -179,10 +179,10 @@ struct Fp8LinearWeight {
   // FP8 tensor. A non-null pointer has no effect unless the runtime owns every
   // same-input partition in the complete model-wide arena.
   const std::uint8_t* prefill_supermatrix_sidecar = nullptr;
-  // Test-only direct frozen-vLLM W8A16 Marlin views. The weight sidecar is an
-  // equal-byte projection-local permutation; scales contains one BF16 value
-  // per output channel. They have no scheduling authority without the
-  // dedicated admission build and runtime switch.
+  // Direct frozen-vLLM W8A16 Marlin views. The weight sidecar is an equal-byte
+  // projection-local permutation; scales contains one BF16 value per output
+  // channel. They have no scheduling authority without the dedicated
+  // admission build and a sealed engine-lifetime projection tactic.
   const std::uint8_t* prefill_marlin_weight = nullptr;
   const std::uint16_t* prefill_marlin_scales = nullptr;
 };
@@ -208,10 +208,10 @@ struct NvFp4LinearWeight {
   // test admission; Prefill and every generic projection keep canonical
   // packed-weight and block-scale bindings.
   const std::uint8_t* decode_gate_up_coupled_feed_sidecar = nullptr;
-  // Test-only scheduler-wide Marlin admission. Production scheduling ignores
-  // these views unless the dedicated admission build is enabled. Gate and Up
-  // bindings point at the same merged N=34816 sidecar; Down points at its own
-  // N=5120/K=17408 sidecar.
+  // Scheduler-wide Marlin admission. The default route ignores these views;
+  // the dedicated admission build plus a sealed engine-lifetime projection
+  // tactic may consume them. Gate and Up bindings point at the same merged
+  // N=34816 sidecar; Down points at its own N=5120/K=17408 sidecar.
   NvFp4MarlinGateUpLayout prefill_marlin_gate_up_layout =
       NvFp4MarlinGateUpLayout::kUnbound;
   const std::uint8_t* prefill_marlin_weight = nullptr;
