@@ -17,11 +17,14 @@
 #endif
 #include <mma.h>
 
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
+#include <utility>
 
 namespace q3x::runtime {
 namespace {
@@ -44,7 +47,8 @@ constexpr unsigned int kBulkGqaGroupQueryTile = 64U;
 constexpr unsigned int kBulkGqaGroupKvTile = 32U;
 constexpr unsigned int kBulkGqaGroupGridX =
     kBulkGqaPackedQueryCount / kBulkGqaGroupQueryTile;
-constexpr unsigned int kBulkGqaRangeFirstPositionBits = 18U;
+constexpr unsigned int kBulkGqaRangeFirstPositionBits =
+    kBulkCausalGqaGroupQ64FirstPositionBits;
 constexpr unsigned int kBulkGqaRangeFirstPositionMask =
     (1U << kBulkGqaRangeFirstPositionBits) - 1U;
 
@@ -52,6 +56,94 @@ static_assert(kBulkGqaQueriesPerKv == 6U);
 static_assert(kBulkGqaRegisterThreads == 128U);
 static_assert(kBulkGqaPackedQueryCount == 3'072U);
 static_assert(kBulkGqaGroupGridX == 48U);
+static_assert(kBulkCausalGqaMaximumSequenceLength <=
+              (1U << kBulkGqaRangeFirstPositionBits));
+static_assert(kBulkCausalGqaGroupQ64PanelMaximumTokens <
+              (1U << (32U - kBulkGqaRangeFirstPositionBits)));
+
+[[nodiscard]] bool byte_range_overflows(const void* const pointer,
+                                        const std::size_t bytes) noexcept {
+  const std::uintptr_t begin = reinterpret_cast<std::uintptr_t>(pointer);
+  return bytes > std::numeric_limits<std::uintptr_t>::max() - begin;
+}
+
+[[nodiscard]] bool byte_ranges_overlap(const void* const first,
+                                       const std::size_t first_bytes,
+                                       const void* const second,
+                                       const std::size_t second_bytes) noexcept {
+  if (byte_range_overflows(first, first_bytes) ||
+      byte_range_overflows(second, second_bytes)) {
+    return true;
+  }
+  const std::uintptr_t first_begin =
+      reinterpret_cast<std::uintptr_t>(first);
+  const std::uintptr_t second_begin =
+      reinterpret_cast<std::uintptr_t>(second);
+  const std::uintptr_t first_end = first_begin + first_bytes;
+  const std::uintptr_t second_end = second_begin + second_bytes;
+  return first_begin < second_end && second_begin < first_end;
+}
+
+[[nodiscard]] bool valid_group_q64_panel_arguments(
+    const std::uint16_t* const query,
+    const std::uint16_t* const key_cache,
+    const std::uint16_t* const value_cache,
+    const std::uint16_t* const gate,
+    const std::size_t first_position,
+    const std::size_t token_count,
+    const std::uint16_t* const output) noexcept {
+  if (query == nullptr || key_cache == nullptr || value_cache == nullptr ||
+      gate == nullptr || output == nullptr ||
+      !can_launch_bulk_causal_gqa_group_q64_panel(first_position,
+                                                   token_count)) {
+    return false;
+  }
+  constexpr std::uintptr_t kVectorAlignment = alignof(uint4);
+  if ((reinterpret_cast<std::uintptr_t>(query) % kVectorAlignment) != 0U ||
+      (reinterpret_cast<std::uintptr_t>(key_cache) % kVectorAlignment) !=
+          0U ||
+      (reinterpret_cast<std::uintptr_t>(value_cache) % kVectorAlignment) !=
+          0U ||
+      (reinterpret_cast<std::uintptr_t>(gate) % kVectorAlignment) != 0U ||
+      (reinterpret_cast<std::uintptr_t>(output) % kVectorAlignment) != 0U) {
+    return false;
+  }
+
+  constexpr std::size_t kQueryElementsPerToken =
+      kBulkGqaQueryHeads * kBulkGqaHeadDimension;
+  constexpr std::size_t kKvElementsPerToken =
+      kBulkGqaKvHeads * kBulkGqaHeadDimension;
+  const std::size_t panel_bytes =
+      token_count * kQueryElementsPerToken * sizeof(std::uint16_t);
+  const std::size_t cache_bytes =
+      (first_position + token_count) * kKvElementsPerToken *
+      sizeof(std::uint16_t);
+  if (byte_range_overflows(query, panel_bytes) ||
+      byte_range_overflows(key_cache, cache_bytes) ||
+      byte_range_overflows(value_cache, cache_bytes) ||
+      byte_range_overflows(gate, panel_bytes) ||
+      byte_range_overflows(output, panel_bytes)) {
+    return false;
+  }
+
+  const std::array<std::pair<const void*, std::size_t>, 5U> ranges{{
+      {query, panel_bytes},
+      {key_cache, cache_bytes},
+      {value_cache, cache_bytes},
+      {gate, panel_bytes},
+      {output, panel_bytes},
+  }};
+  for (std::size_t first = 0U; first < ranges.size(); ++first) {
+    for (std::size_t second = first + 1U; second < ranges.size(); ++second) {
+      if (byte_ranges_overlap(ranges[first].first, ranges[first].second,
+                              ranges[second].first,
+                              ranges[second].second)) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
 
 #if defined(Q3X_ENABLE_FLASHINFER_PREFILL_ATTENTION_ADMISSION)
 using FlashInferPrefillParams =
@@ -1071,6 +1163,27 @@ int launch_bulk_causal_gqa_sigmoid_gate_24_4_256_c512_group_q64_v3_fixed_cuda(
   if (query == nullptr || key_cache == nullptr || value_cache == nullptr ||
       gate == nullptr || output == nullptr ||
       !use_bulk_causal_gqa_group_q64_prefill(first_position, token_count)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const auto stream = static_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  return launch_bulk_gqa_group_q64_v3_fixed_impl(
+      query, key_cache, value_cache, gate, first_position, token_count,
+      output, stream);
+}
+
+int launch_bulk_causal_gqa_sigmoid_gate_24_4_256_group_q64_panel_fixed_cuda(
+    const std::uint16_t* const query,
+    const std::uint16_t* const key_cache,
+    const std::uint16_t* const value_cache,
+    const std::uint16_t* const gate,
+    const std::size_t first_position,
+    const std::size_t token_count,
+    std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  if (!valid_group_q64_panel_arguments(
+          query, key_cache, value_cache, gate, first_position, token_count,
+          output)) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
   const auto stream = static_cast<cudaStream_t>(cuda_stream);

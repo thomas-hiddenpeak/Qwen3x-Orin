@@ -240,6 +240,9 @@ struct ReferenceWholeRequestPrefillResult {
   std::size_t logical_panel_count = 0U;
   bool bounded_submission_window = false;
   std::size_t submission_window_retirements = 0U;
+  std::size_t operator_panel_executor_hits = 0U;
+  std::size_t native_group_q64_panel_hits = 0U;
+  std::size_t generic_qt2_hits = 0U;
   PrefillExecutionProgress progress;
   std::optional<ReferenceStepTiming> timing;
 };
@@ -756,12 +759,14 @@ class ReferenceRunner {
   prefill_whole_request_layer_major_panel_core(
       const std::uint32_t* input_token_ids, std::size_t token_count,
       const PrefillExecutionPlan& immutable_topology,
+      LayerMajorPrefillFullAttentionTactic full_attention_tactic,
       const ReferenceWholeRequestPrefillOptions& options = {}) noexcept;
   [[nodiscard]] ReferenceWholeRequestPrefillOutcome
   prefill_whole_request_layer_major_core(
       const std::uint32_t* input_token_ids, std::size_t token_count,
       const PrefillExecutionPlan& immutable_topology,
       LayerMajorLayerExecutor executor,
+      LayerMajorPrefillFullAttentionTactic full_attention_tactic,
       const ReferenceWholeRequestPrefillOptions& options) noexcept;
   [[nodiscard]] ReferenceStepOutcome
   finish_whole_request_compatibility_core(
@@ -907,6 +912,7 @@ class ReferenceRunner {
   enqueue_prefill_layer_panel(
       const std::uint32_t* input_token_ids, std::size_t token_count,
       std::uint32_t first_position, std::size_t layer,
+      LayerMajorPrefillFullAttentionTactic full_attention_tactic,
       const ReferenceLayerMajorRequestViews& request_views) noexcept;
   [[nodiscard]] static bool same_prefill_execution_progress(
       const PrefillExecutionProgress& left,

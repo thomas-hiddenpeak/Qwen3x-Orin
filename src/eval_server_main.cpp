@@ -36,6 +36,7 @@ void PrintUsage(std::ostream& output) {
       << "  --max-output-tokens N       Per-request output ceiling (default 4096)\n"
       << "  --prefill-chunk-size N      Native Prefill chunk 1..512 (default 512)\n"
       << "  --prefill-execution-mode legacy|layer-major (default legacy)\n"
+      << "  --prefill-attention-tactic exact-segmented|native-group-q64-panel\n"
       << "  --queue-capacity N          Bounded inference queue, max 62 (default 8)\n"
       << "  --ingress-threads N         Fixed HTTP threads, queue+2 min (default 10)\n"
       << "  --projection-backend sm87|reference (default sm87)\n"
@@ -126,6 +127,18 @@ template <typename T>
             ReferencePrefillExecutionMode::kWholeRequestLayerMajor;
       } else {
         error = "--prefill-execution-mode must be legacy or layer-major";
+        return false;
+      }
+    } else if (argument == "--prefill-attention-tactic") {
+      if (value == "exact-segmented") {
+        options.prefill_full_attention_tactic = q3x::runtime::
+            LayerMajorPrefillFullAttentionTactic::kExactSegmentedC512;
+      } else if (value == "native-group-q64-panel") {
+        options.prefill_full_attention_tactic = q3x::runtime::
+            LayerMajorPrefillFullAttentionTactic::kNativeGroupQ64Panel;
+      } else {
+        error = "--prefill-attention-tactic must be exact-segmented or "
+                "native-group-q64-panel";
         return false;
       }
     } else if (argument == "--queue-capacity") {

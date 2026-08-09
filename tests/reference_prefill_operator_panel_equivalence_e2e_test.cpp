@@ -385,7 +385,7 @@ void print_diagnostic(
   return true;
 }
 
-[[nodiscard]] bool valid_production_route(
+[[nodiscard]] bool valid_completed_native_route(
     const runtime::PrefillRouteEvidence& evidence,
     const std::uint64_t logical_panels) noexcept {
   if (!evidence.complete || !evidence.valid || evidence.request_active ||
@@ -493,7 +493,8 @@ void print_diagnostic(
 }
 
 [[nodiscard]] bool run_case(runtime::ReferenceEngine& engine,
-                            const std::size_t prompt_tokens) {
+                            const std::size_t prompt_tokens,
+                            const bool native_group_q64_panel) {
   const std::size_t expected_logical_panels =
       (prompt_tokens + runtime::kLayerMajorPrefillOperatorPanelTokens - 1U) /
       runtime::kLayerMajorPrefillOperatorPanelTokens;
@@ -560,21 +561,37 @@ void print_diagnostic(
           runtime::ReferencePrefillExecutionMode::kWholeRequestLayerMajor &&
       panel.prefill_execution_mode == oracle.prefill_execution_mode &&
       oracle.prefill_deployment_plan_id ==
-          runtime::kLayerMajorOperatorPanelDeploymentPlanId &&
+          (native_group_q64_panel
+               ? runtime::kLayerMajorNativeGroupQ64PanelDeploymentPlanId
+               : runtime::kLayerMajorOperatorPanelDeploymentPlanId) &&
       panel.prefill_deployment_plan_id ==
           oracle.prefill_deployment_plan_id &&
       oracle.prefill_logical_panel_count == expected_logical_panels &&
       panel.prefill_logical_panel_count ==
           oracle.prefill_logical_panel_count &&
-      valid_production_route(oracle.prefill_route_evidence,
-                             expected_logical_panels) &&
-      valid_production_route(panel.prefill_route_evidence,
-                             expected_logical_panels);
+      valid_completed_native_route(oracle.prefill_route_evidence,
+                                   expected_logical_panels) &&
+      valid_completed_native_route(panel.prefill_route_evidence,
+                                   expected_logical_panels) &&
+      panel.prefill_operator_panel_executor_hits ==
+          runtime::kReferenceDecoderLayerCount * expected_logical_panels &&
+      panel.prefill_native_group_q64_panel_hits ==
+          (native_group_q64_panel
+               ? runtime::kRequestFullLayerCount * expected_logical_panels
+               : 0U) &&
+      (!native_group_q64_panel || panel.prefill_generic_qt2_hits == 0U) &&
+      oracle.prefill_operator_panel_executor_hits == 0U &&
+      oracle.prefill_native_group_q64_panel_hits == 0U;
   const bool state_exact =
       same_snapshots(oracle_snapshot, panel_snapshot);
-  const bool passed = output_exact && route_exact && route_contract &&
-                      state_exact;
-  std::cout << "PREFILL_OPERATOR_PANEL_EQUIVALENCE"
+  const bool direction_passed =
+      output_exact && route_exact && route_contract;
+  const bool exact_equivalence_passed = direction_passed && state_exact;
+  const bool passed = native_group_q64_panel ? direction_passed
+                                              : exact_equivalence_passed;
+  std::cout << (native_group_q64_panel
+                    ? "PREFILL_OPERATOR_PANEL_DIRECTION_SCREEN"
+                    : "PREFILL_OPERATOR_PANEL_EQUIVALENCE")
             << " prompt_tokens=" << prompt_tokens
             << " logical_panels=" << expected_logical_panels
             << " oracle_state_sha256=" << oracle_snapshot.aggregate.hex()
@@ -588,8 +605,26 @@ void print_diagnostic(
             << " route_exact=" << (route_exact ? "true" : "false")
             << " route_contract=" << (route_contract ? "true" : "false")
             << " state_exact=" << (state_exact ? "true" : "false")
-            << " gate=" << (passed ? "PASS" : "FAIL")
-            << " authority=REAL_MODEL_CORRECTNESS_ONLY\n";
+            << " attention_tactic="
+            << (native_group_q64_panel ? "native-group-q64-panel"
+                                       : "exact-segmented")
+            << " operator_panel_executor_hits="
+            << panel.prefill_operator_panel_executor_hits
+            << " native_group_q64_panel_hits="
+            << panel.prefill_native_group_q64_panel_hits
+            << " generic_qt2_hits=" << panel.prefill_generic_qt2_hits
+            << (native_group_q64_panel
+                    ? (direction_passed
+                           ? " direction_gate=PASS accuracy_gate=NOT_RUN"
+                           : " direction_gate=FAIL accuracy_gate=NOT_RUN")
+                    : (exact_equivalence_passed
+                           ? " equivalence_gate=PASS"
+                           : " equivalence_gate=FAIL"))
+            << (native_group_q64_panel
+                    ? " qualification=ACCURACY_UNQUALIFIED"
+                      " authority=REAL_MODEL_DIRECTION_SCREEN_ONLY\n"
+                    : " qualification=BITWISE_EXACT"
+                      " authority=REAL_MODEL_CORRECTNESS_ONLY\n");
   return passed;
 }
 
@@ -613,6 +648,17 @@ int main(const int argc, char** const argv) {
                  "after a clean-host GPU preflight\n";
     return 77;
   }
+  const char* const attention_tactic =
+      std::getenv("Q3X_TEST_PREFILL_ATTENTION_TACTIC");
+  const bool native_group_q64_panel =
+      attention_tactic != nullptr &&
+      std::string_view(attention_tactic) == "native-group-q64-panel";
+  if (attention_tactic != nullptr && !native_group_q64_panel &&
+      std::string_view(attention_tactic) != "exact-segmented") {
+    std::cerr << "Q3X_TEST_PREFILL_ATTENTION_TACTIC must be "
+                 "exact-segmented or native-group-q64-panel\n";
+    return 2;
+  }
 
   try {
     runtime::ReferenceEngineOptions options;
@@ -623,6 +669,12 @@ int main(const int argc, char** const argv) {
     options.projection_backend = runtime::ProjectionBackend::kSm87WeightOnly;
     options.prefill_execution_mode =
         runtime::ReferencePrefillExecutionMode::kWholeRequestLayerMajor;
+    options.prefill_full_attention_tactic =
+        native_group_q64_panel
+            ? runtime::LayerMajorPrefillFullAttentionTactic::
+                  kNativeGroupQ64Panel
+            : runtime::LayerMajorPrefillFullAttentionTactic::
+                  kExactSegmentedC512;
     runtime::ReferenceEngineCreateResult created =
         runtime::create_reference_engine(
             std::filesystem::path(model_directory), options);
@@ -633,7 +685,8 @@ int main(const int argc, char** const argv) {
     }
 
     for (const std::size_t prompt_tokens : kPromptTokenCounts) {
-      if (!run_case(*created.value, prompt_tokens)) {
+      if (!run_case(*created.value, prompt_tokens,
+                    native_group_q64_panel)) {
         return 1;
       }
     }

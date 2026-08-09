@@ -15,6 +15,9 @@ inline constexpr std::size_t kDecodeGqaSplitKvMaximumWorkspaceElements =
     24U * kDecodeGqaSplitKvMaximumSplits *
     kDecodeGqaSplitKvStateElements;
 inline constexpr std::size_t kBulkCausalGqaMaximumSequenceLength = 262'144U;
+inline constexpr unsigned int kBulkCausalGqaGroupQ64FirstPositionBits = 18U;
+inline constexpr std::size_t kBulkCausalGqaGroupQ64PanelMaximumTokens =
+    8'192U;
 inline constexpr std::size_t kQwenRotaryDimension = 64U;
 inline constexpr std::size_t kQkRopeTileMaximumTokens = 16U;
 inline constexpr std::size_t kFullAttentionPreprocessMaximumTokens = 512U;
@@ -419,5 +422,34 @@ select_fixed_bulk_causal_gqa_prefill_tactic(
     const std::uint16_t* value_cache, const std::uint16_t* gate_tile,
     std::size_t first_position, std::size_t token_count,
     std::uint16_t* output_tile, void* cuda_stream = nullptr) noexcept;
+
+// Architecture-candidate panel-wide counterpart. Query/Gate/output remain
+// panel-local [token_count,24,256] BF16 arrays while K/V are global NHD
+// caches. The grouped-Q64 Tensor Core online-softmax kernel owns the complete
+// logical panel in one launch and scans all causal K/V visible to each query.
+// This entry is explicit and environment-independent; it never falls back to
+// generic QT2. The arithmetic boundary remains Attention BF16 -> sigmoid
+// Gate -> BF16, but its reduction tree is qualified separately from the
+// exact segmented incumbent before any production promotion. All five arrays
+// must be pairwise disjoint and 16-byte aligned.
+[[nodiscard]] constexpr bool
+can_launch_bulk_causal_gqa_group_q64_panel(
+    const std::size_t first_position,
+    const std::size_t token_count) noexcept {
+  constexpr std::size_t kFirstPositionCapacity =
+      std::size_t{1U} << kBulkCausalGqaGroupQ64FirstPositionBits;
+  return token_count >= 2U &&
+         token_count <= kBulkCausalGqaGroupQ64PanelMaximumTokens &&
+         first_position < kFirstPositionCapacity &&
+         first_position <=
+             kBulkCausalGqaMaximumSequenceLength - token_count;
+}
+
+[[nodiscard]] int
+launch_bulk_causal_gqa_sigmoid_gate_24_4_256_group_q64_panel_fixed_cuda(
+    const std::uint16_t* query_panel, const std::uint16_t* key_cache,
+    const std::uint16_t* value_cache, const std::uint16_t* gate_panel,
+    std::size_t first_position, std::size_t token_count,
+    std::uint16_t* output_panel, void* cuda_stream = nullptr) noexcept;
 
 }  // namespace q3x::runtime

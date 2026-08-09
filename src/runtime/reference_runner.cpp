@@ -4038,7 +4038,8 @@ ReferenceRunner::prefill_whole_request_layer_major_compatibility_core(
     const ReferenceWholeRequestPrefillOptions& options) noexcept {
   return prefill_whole_request_layer_major_core(
       input_token_ids, token_count, immutable_topology,
-      LayerMajorLayerExecutor::kCompatibilitySegments, options);
+      LayerMajorLayerExecutor::kCompatibilitySegments,
+      LayerMajorPrefillFullAttentionTactic::kExactSegmentedC512, options);
 }
 
 ReferenceWholeRequestPrefillOutcome
@@ -4046,10 +4047,12 @@ ReferenceRunner::prefill_whole_request_layer_major_panel_core(
     const std::uint32_t* const input_token_ids,
     const std::size_t token_count,
     const PrefillExecutionPlan& immutable_topology,
+    const LayerMajorPrefillFullAttentionTactic full_attention_tactic,
     const ReferenceWholeRequestPrefillOptions& options) noexcept {
   return prefill_whole_request_layer_major_core(
       input_token_ids, token_count, immutable_topology,
-      LayerMajorLayerExecutor::kOperatorPanel, options);
+      LayerMajorLayerExecutor::kOperatorPanel, full_attention_tactic,
+      options);
 }
 
 ReferenceWholeRequestPrefillOutcome
@@ -4058,6 +4061,7 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
     const std::size_t token_count,
     const PrefillExecutionPlan& immutable_topology,
     const LayerMajorLayerExecutor executor,
+    const LayerMajorPrefillFullAttentionTactic full_attention_tactic,
     const ReferenceWholeRequestPrefillOptions& options) noexcept {
   using Clock = std::chrono::steady_clock;
   Clock::time_point started{};
@@ -4084,7 +4088,12 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
     return outcome;
   }
   if (!layer_major_request_views_.has_value() ||
-      state_->memory_profile() != RequestMemoryProfile::kLayerMajorC8192) {
+      state_->memory_profile() != RequestMemoryProfile::kLayerMajorC8192 ||
+      !is_valid_layer_major_prefill_full_attention_tactic(
+          full_attention_tactic) ||
+      (executor == LayerMajorLayerExecutor::kCompatibilitySegments &&
+       full_attention_tactic !=
+           LayerMajorPrefillFullAttentionTactic::kExactSegmentedC512)) {
     return fail_whole_request_prefill(runner_status(
         ReferenceRunnerError::kInvalidRequestState,
         "whole_request_prefill_memory_profile"));
@@ -4177,6 +4186,9 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
   std::size_t submission_window_oldest_slot = 0U;
   std::size_t submission_window_next_slot = 0U;
   std::size_t submission_window_retirements = 0U;
+  std::size_t operator_panel_executor_hits = 0U;
+  std::size_t native_group_q64_panel_hits = 0U;
+  std::size_t generic_qt2_hits = 0U;
   const auto retire_oldest_submission = [&]() noexcept {
     if (!bounded_submission_window || submission_window_in_flight == 0U) {
       return ReferenceRunnerStatus{};
@@ -4230,7 +4242,8 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
         const PrefillLayerSegmentEnqueueResult enqueued =
             enqueue_prefill_layer_panel(
                 input_token_ids + prompt_offset, panel.token_count,
-                panel.first_position, layer, layer_major);
+                panel.first_position, layer, full_attention_tactic,
+                layer_major);
         if (!enqueued) {
           return fail_whole_request_prefill(enqueued.status);
         }
@@ -4238,6 +4251,31 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
           return fail_whole_request_prefill(runner_status(
               ReferenceRunnerError::kRouteEvidenceFailure,
               "whole_request_prefill_panel_operator_route", layer));
+        }
+        ++operator_panel_executor_hits;
+        if (reference_runner_detail::expected_reference_layer_type(layer) ==
+            model::LayerType::kFullAttention) {
+          if (full_attention_tactic ==
+              LayerMajorPrefillFullAttentionTactic::
+                  kNativeGroupQ64Panel) {
+            ++native_group_q64_panel_hits;
+          } else {
+            const LayerMajorPrefillArithmeticSpanLedger ledger =
+                make_layer_major_prefill_arithmetic_span_ledger(
+                    panel.token_count);
+            for (std::size_t span_index = 0U;
+                 span_index < ledger.span_count; ++span_index) {
+              const LayerMajorPrefillArithmeticSpan& span =
+                  ledger.spans[span_index];
+              if (select_fixed_bulk_causal_gqa_prefill_tactic(
+                      static_cast<std::size_t>(panel.first_position) +
+                          span.token_offset,
+                      span.token_count) ==
+                  FixedBulkCausalGqaPrefillTactic::kGenericQt2) {
+                ++generic_qt2_hits;
+              }
+            }
+          }
         }
         const ReferenceRunnerStatus collapse_status =
             collapse_prefill_layer_route_fragment(
@@ -4487,6 +4525,9 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
   result.bounded_submission_window = bounded_submission_window;
   result.submission_window_retirements =
       submission_window_retirements;
+  result.operator_panel_executor_hits = operator_panel_executor_hits;
+  result.native_group_q64_panel_hits = native_group_q64_panel_hits;
+  result.generic_qt2_hits = generic_qt2_hits;
   result.progress = progress;
   if (options.measure_timing) {
     const std::chrono::duration<double, std::milli> elapsed =
@@ -4504,6 +4545,7 @@ ReferenceRunner::enqueue_prefill_layer_panel(
     const std::size_t token_count,
     const std::uint32_t first_position,
     const std::size_t layer,
+    const LayerMajorPrefillFullAttentionTactic full_attention_tactic,
     const ReferenceLayerMajorRequestViews& request_views) noexcept {
   const auto fail_enqueue = [](const ReferenceRunnerStatus status) noexcept {
     PrefillLayerSegmentEnqueueResult result;
@@ -4517,6 +4559,7 @@ ReferenceRunner::enqueue_prefill_layer_panel(
   (void)token_count;
   (void)first_position;
   (void)layer;
+  (void)full_attention_tactic;
   (void)request_views;
   return fail_enqueue(runner_status(
       ReferenceRunnerError::kInvalidDependency,
@@ -4540,6 +4583,8 @@ ReferenceRunner::enqueue_prefill_layer_panel(
                         first_position) ||
       !is_valid_layer_major_prefill_arithmetic_span_ledger(
           arithmetic_ledger) ||
+      !is_valid_layer_major_prefill_full_attention_tactic(
+          full_attention_tactic) ||
       projection_backend_ != ProjectionBackend::kSm87WeightOnly) {
     return fail_enqueue(runner_status(
         ReferenceRunnerError::kInvalidStepOptions,
@@ -4893,33 +4938,52 @@ ReferenceRunner::enqueue_prefill_layer_panel(
       }
     }
 
-    for (std::size_t span_index = 0U;
-         span_index < arithmetic_ledger.span_count; ++span_index) {
-      const LayerMajorPrefillArithmeticSpan& span =
-          arithmetic_ledger.spans[span_index];
-      const std::size_t segment_offset = span.token_offset;
-      const std::size_t segment_token_count = span.token_count;
-      const std::size_t segment_first_position =
-          static_cast<std::size_t>(first_position) + segment_offset;
-      if (!reference_runner_detail::
-              use_bulk_causal_gqa_sigmoid_gate_prefill(
-                  projection_backend_, expected, segment_first_position,
-                  segment_token_count) ||
+    if (full_attention_tactic ==
+        LayerMajorPrefillFullAttentionTactic::kNativeGroupQ64Panel) {
+      if (!can_launch_bulk_causal_gqa_group_q64_panel(first_position,
+                                                       token_count) ||
           !check_cuda(
-              launch_bulk_causal_gqa_sigmoid_gate_24_4_256_fixed_cuda(
-                  processed_q + segment_offset * kFullQueryElements,
-                  views_.key_cache[layer], views_.value_cache[layer],
-                  packed_gate + segment_offset * kFullQueryElements,
-                  segment_first_position, segment_token_count,
-                  core_output + segment_offset * kFullQueryElements,
-                  stream_),
-              "prefill_operator_panel_full_attention", layer)) {
+              launch_bulk_causal_gqa_sigmoid_gate_24_4_256_group_q64_panel_fixed_cuda(
+                  processed_q, views_.key_cache[layer],
+                  views_.value_cache[layer], packed_gate, first_position,
+                  token_count, core_output, stream_),
+              "prefill_operator_panel_full_attention_group_q64", layer)) {
         return fail_enqueue(
             launch_failure.ok()
                 ? runner_status(ReferenceRunnerError::kInvalidStepOptions,
                                 "prefill_operator_panel_attention_geometry",
                                 layer)
                 : launch_failure);
+      }
+    } else {
+      for (std::size_t span_index = 0U;
+           span_index < arithmetic_ledger.span_count; ++span_index) {
+        const LayerMajorPrefillArithmeticSpan& span =
+            arithmetic_ledger.spans[span_index];
+        const std::size_t segment_offset = span.token_offset;
+        const std::size_t segment_token_count = span.token_count;
+        const std::size_t segment_first_position =
+            static_cast<std::size_t>(first_position) + segment_offset;
+        if (!reference_runner_detail::
+                use_bulk_causal_gqa_sigmoid_gate_prefill(
+                    projection_backend_, expected, segment_first_position,
+                    segment_token_count) ||
+            !check_cuda(
+                launch_bulk_causal_gqa_sigmoid_gate_24_4_256_fixed_cuda(
+                    processed_q + segment_offset * kFullQueryElements,
+                    views_.key_cache[layer], views_.value_cache[layer],
+                    packed_gate + segment_offset * kFullQueryElements,
+                    segment_first_position, segment_token_count,
+                    core_output + segment_offset * kFullQueryElements,
+                    stream_),
+                "prefill_operator_panel_full_attention", layer)) {
+          return fail_enqueue(
+              launch_failure.ok()
+                  ? runner_status(
+                        ReferenceRunnerError::kInvalidStepOptions,
+                        "prefill_operator_panel_attention_geometry", layer)
+                  : launch_failure);
+        }
       }
     }
     if (!fp8_project(attention->o_proj, core_output,

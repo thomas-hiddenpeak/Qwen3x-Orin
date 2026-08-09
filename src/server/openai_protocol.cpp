@@ -594,12 +594,19 @@ std::string sha256_token_ids_u32le(
 
 std::string serialize_target_prefill_witness(
     const TargetPrefillWitnessRecord& record) {
-  const bool sealed_v2 = !record.deployment_plan_id.empty();
-  std::string output = sealed_v2
-                           ? "{\"record\":\"target-prefill-witness-v2\","
-                             "\"schema_version\":2,\"request\":{\"id\":"
-                           : "{\"record\":\"target-prefill-witness-v1\","
-                             "\"schema_version\":1,\"request\":{\"id\":";
+  const bool sealed = !record.deployment_plan_id.empty();
+  const bool candidate_v3 =
+      record.deployment_plan_id ==
+      runtime::kLayerMajorNativeGroupQ64PanelDeploymentPlanId;
+  std::string output =
+      candidate_v3
+          ? "{\"record\":\"target-prefill-witness-v3\","
+            "\"schema_version\":3,\"request\":{\"id\":"
+          : sealed
+                ? "{\"record\":\"target-prefill-witness-v2\","
+                  "\"schema_version\":2,\"request\":{\"id\":"
+                : "{\"record\":\"target-prefill-witness-v1\","
+                  "\"schema_version\":1,\"request\":{\"id\":";
   append_json_string(output, record.request_id);
   output += ",\"body_sha256\":";
   append_json_string(output, record.request_body_sha256);
@@ -641,7 +648,7 @@ std::string serialize_target_prefill_witness(
             std::to_string(record.effective_prefill_chunk_size) +
             ",\"prefix_execution_count\":" +
             std::to_string(record.prefix_execution_count);
-  if (sealed_v2) {
+  if (sealed) {
     output += ",\"execution_mode\":";
     append_json_string(
         output,
@@ -662,28 +669,52 @@ std::string serialize_target_prefill_witness(
     output += record.bounded_submission_window ? "true" : "false";
     output += ",\"submission_window_retirements\":" +
               std::to_string(record.submission_window_retirements);
+    if (candidate_v3) {
+      output += ",\"attention_tactic\":";
+      append_json_string(output, "native-group-q64-panel");
+      output += ",\"operator_panel_executor_hits\":" +
+                std::to_string(record.operator_panel_executor_hits) +
+                ",\"native_group_q64_panel_hits\":" +
+                std::to_string(record.native_group_q64_panel_hits) +
+                ",\"generic_qt2_hits\":" +
+                std::to_string(record.generic_qt2_hits);
+    }
   }
   output += "},\"route\":{\"scope\":\"request_witness\","
             "\"projection_backend\":{\"available\":true,"
             "\"scope\":\"configured_engine_fact\",\"value\":";
   append_json_string(output, runtime::to_string(record.projection_backend));
   output += "},\"deployment_plan\":{";
-  if (!sealed_v2) {
+  if (!sealed) {
     output += "\"available\":false,\"reason\":\"not_implemented\"";
   } else {
     output += "\"available\":true,\"scope\":"
               "\"engine_lifetime_sealed_native_plan\",\"id\":";
     append_json_string(output, record.deployment_plan_id);
+    if (candidate_v3) {
+      output += ",\"qualification\":";
+      append_json_string(output,
+                         "accuracy-unqualified-architecture-candidate");
+      output += ",\"numerical_contract\":{\"qualified\":false,\"reason\":";
+      append_json_string(output,
+                         "full-state-accuracy-qualification-not-run");
+      output += "}";
+    }
   }
   output += "},\"per_operator_route_hits\":";
   append_prefill_route_evidence(output, record.prefill_route_evidence);
   output +=
       ","
       "\"cache_hits\":{\"available\":false,\"reason\":"
-      "\"not_instrumented\"},"
-      "\"disabled_boundaries\":{\"scope\":\"production_contract\","
-      "\"prefix_cache\":true,\"mtp\":true,"
-      "\"cublaslt_production\":true,\"approximate_numerics\":true}}}";
+      "\"not_instrumented\"},\"disabled_boundaries\":{\"scope\":";
+  append_json_string(output, candidate_v3
+                                 ? "architecture_candidate_unqualified"
+                                 : "production_contract");
+  output +=
+      ",\"prefix_cache\":true,\"mtp\":true,"
+      "\"cublaslt_production\":true,\"approximate_numerics\":";
+  output += candidate_v3 ? "false" : "true";
+  output += "}}}";
   return output;
 }
 

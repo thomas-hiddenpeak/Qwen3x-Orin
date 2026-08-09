@@ -32,6 +32,10 @@ static_assert(std::is_same_v<
               decltype(&q3x::runtime::
                            launch_bulk_causal_gqa_sigmoid_gate_24_4_256_fixed_cuda),
               FixedBulkCausalGqaLaunch>);
+static_assert(std::is_same_v<
+              decltype(&q3x::runtime::
+                           launch_bulk_causal_gqa_sigmoid_gate_24_4_256_group_q64_panel_fixed_cuda),
+              FixedBulkCausalGqaLaunch>);
 
 class TestContext {
  public:
@@ -129,6 +133,36 @@ void test_fixed_bulk_causal_gqa_contract(TestContext& test) {
               std::numeric_limits<std::size_t>::max(), 2U) ==
               FixedBulkCausalGqaPrefillTactic::kInvalid,
       "sealed bulk GQA rejects single-token, oversized, and causal-range "
+      "overflow geometry");
+}
+
+void test_group_q64_panel_contract(TestContext& test) {
+  using q3x::runtime::can_launch_bulk_causal_gqa_group_q64_panel;
+  constexpr std::size_t kMaximum =
+      q3x::runtime::kBulkCausalGqaMaximumSequenceLength;
+  constexpr std::size_t kPanelMaximum =
+      q3x::runtime::kBulkCausalGqaGroupQ64PanelMaximumTokens;
+
+  test.expect(
+      can_launch_bulk_causal_gqa_group_q64_panel(0U, 2U) &&
+          can_launch_bulk_causal_gqa_group_q64_panel(0U, kPanelMaximum) &&
+          can_launch_bulk_causal_gqa_group_q64_panel(40'000U,
+                                                      kPanelMaximum) &&
+          can_launch_bulk_causal_gqa_group_q64_panel(60'000U,
+                                                      kPanelMaximum) &&
+          can_launch_bulk_causal_gqa_group_q64_panel(
+              kMaximum - kPanelMaximum, kPanelMaximum),
+      "panel grouped-Q64 accepts target-length C2..C8192 geometry");
+  test.expect(
+      !can_launch_bulk_causal_gqa_group_q64_panel(0U, 1U) &&
+          !can_launch_bulk_causal_gqa_group_q64_panel(
+              0U, kPanelMaximum + 1U) &&
+          !can_launch_bulk_causal_gqa_group_q64_panel(
+              kMaximum - kPanelMaximum + 1U, kPanelMaximum) &&
+          !can_launch_bulk_causal_gqa_group_q64_panel(kMaximum, 2U) &&
+          !can_launch_bulk_causal_gqa_group_q64_panel(
+              std::numeric_limits<std::size_t>::max(), 2U),
+      "panel grouped-Q64 rejects undersized, oversized, and packed-range "
       "overflow geometry");
 }
 
@@ -651,6 +685,7 @@ void test_validation_and_nonfinite(TestContext& test) {
 int main() {
   TestContext test;
   test_fixed_bulk_causal_gqa_contract(test);
+  test_group_q64_panel_contract(test);
   test_embedding(test);
   test_norms(test);
   test_headwise_norms(test);

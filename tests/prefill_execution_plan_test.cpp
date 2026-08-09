@@ -78,6 +78,17 @@ void expect_panel_shape(TestContext& test,
 }
 
 void test_public_tile_and_operator_panel_are_independent(TestContext& test) {
+  test.expect(
+      runtime::is_valid_layer_major_prefill_full_attention_tactic(
+          runtime::LayerMajorPrefillFullAttentionTactic::
+              kExactSegmentedC512) &&
+          runtime::is_valid_layer_major_prefill_full_attention_tactic(
+              runtime::LayerMajorPrefillFullAttentionTactic::
+                  kNativeGroupQ64Panel) &&
+          !runtime::is_valid_layer_major_prefill_full_attention_tactic(
+              static_cast<runtime::LayerMajorPrefillFullAttentionTactic>(
+                  0xffU)),
+      "layer-major Attention tactics are a closed engine-lifetime set");
   const runtime::PrefillExecutionPlanResult result = build_plan(513U);
   test.expect(result &&
                   result.value->legacy_public_tile_limit == 512U &&

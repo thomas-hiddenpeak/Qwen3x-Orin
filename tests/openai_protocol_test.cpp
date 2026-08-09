@@ -310,7 +310,32 @@ void test_target_prefill_witness_evidence(TestContext& test) {
           sealed_serialized.find(
               R"("deployment_plan":{"available":true,"scope":"engine_lifetime_sealed_native_plan","id":"q3x.sm87.exact.layer-major-c8192.operator-panel.v3"})") !=
               std::string::npos,
-      "sealed whole-request evidence upgrades to the stable v3 contract");
+      "sealed whole-request evidence keeps the stable v2 contract");
+
+  server::TargetPrefillWitnessRecord candidate_record = sealed_record;
+  candidate_record.operator_panel_executor_hits = 128U;
+  candidate_record.native_group_q64_panel_hits = 32U;
+  candidate_record.generic_qt2_hits = 0U;
+  candidate_record.deployment_plan_id =
+      q3x::runtime::kLayerMajorNativeGroupQ64PanelDeploymentPlanId;
+  const std::string candidate_serialized =
+      server::serialize_target_prefill_witness(candidate_record);
+  test.expect(
+      valid_json(candidate_serialized) &&
+          candidate_serialized.find(
+              R"("record":"target-prefill-witness-v3","schema_version":3)") !=
+              std::string::npos &&
+          candidate_serialized.find(
+              R"("attention_tactic":"native-group-q64-panel","operator_panel_executor_hits":128,"native_group_q64_panel_hits":32,"generic_qt2_hits":0)") !=
+              std::string::npos &&
+          candidate_serialized.find(
+              R"("id":"q3x.sm87.ac-prefill-layermajor-8k.native-group-q64-panel.v1","qualification":"accuracy-unqualified-architecture-candidate","numerical_contract":{"qualified":false,"reason":"full-state-accuracy-qualification-not-run"})") !=
+              std::string::npos &&
+          candidate_serialized.find(
+              R"("disabled_boundaries":{"scope":"architecture_candidate_unqualified","prefix_cache":true,"mtp":true,"cublaslt_production":true,"approximate_numerics":false})") !=
+              std::string::npos,
+      "native grouped-Q64 candidate has an explicit unqualified v3 "
+      "execution witness");
 
   server::TargetPrefillWitnessRecord unbound_layer_major_record =
       sealed_record;

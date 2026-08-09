@@ -36,6 +36,9 @@ struct EvaluationServerOptions {
       runtime::ProjectionBackend::kSm87WeightOnly;
   runtime::ReferencePrefillExecutionMode prefill_execution_mode =
       runtime::ReferencePrefillExecutionMode::kLegacyC512Tiled;
+  runtime::LayerMajorPrefillFullAttentionTactic
+      prefill_full_attention_tactic =
+          runtime::LayerMajorPrefillFullAttentionTactic::kExactSegmentedC512;
 };
 
 // Loads one resident model, starts a bounded HTTP ingress and exactly one

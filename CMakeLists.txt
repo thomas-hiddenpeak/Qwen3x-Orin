@@ -1016,6 +1016,26 @@ if(BUILD_TESTING)
   q3x_enable_warnings(q3x_decode_ops_cuda_test)
   add_test(NAME decode_ops_cuda COMMAND q3x_decode_ops_cuda_test)
 
+  add_executable(q3x_full_attention_group_q64_panel_cuda_test
+    tests/full_attention_group_q64_panel_cuda_test.cu
+  )
+  target_link_libraries(q3x_full_attention_group_q64_panel_cuda_test
+    PRIVATE q3x::core q3x::kernels
+  )
+  target_compile_options(q3x_full_attention_group_q64_panel_cuda_test PRIVATE
+    $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>
+  )
+  q3x_enable_warnings(q3x_full_attention_group_q64_panel_cuda_test)
+  add_test(NAME full_attention_group_q64_panel_cuda
+    COMMAND q3x_full_attention_group_q64_panel_cuda_test
+  )
+  set_tests_properties(full_attention_group_q64_panel_cuda PROPERTIES
+    LABELS "cuda;sm87;prefill;attention;architecture_candidate"
+    RESOURCE_LOCK q3x_sm87_gpu
+    RUN_SERIAL TRUE
+    TIMEOUT 300
+  )
+
   add_executable(q3x_gdn_decode_host_test
     tests/gdn_decode_host_test.cpp
   )

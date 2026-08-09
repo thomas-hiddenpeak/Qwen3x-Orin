@@ -253,6 +253,7 @@ BoundPrefillExecutionPlan::BoundPrefillExecutionPlan(
     const LayerMajorRequestMemoryPlan* const memory_plan,
     const LayerMajorPrefillArithmeticContract* const arithmetic_contract,
     const bool exact_c512_arithmetic_workspace_bound,
+    const LayerMajorPrefillFullAttentionTactic full_attention_tactic,
     const void* const main_stream, const void* const auxiliary_stream,
     std::array<const void*, kBoundPrefillSubmissionEventCount>
         submission_events,
@@ -268,6 +269,7 @@ BoundPrefillExecutionPlan::BoundPrefillExecutionPlan(
       arithmetic_contract_(arithmetic_contract),
       exact_c512_arithmetic_workspace_bound_(
           exact_c512_arithmetic_workspace_bound),
+      full_attention_tactic_(full_attention_tactic),
       main_stream_(main_stream),
       auxiliary_stream_(auxiliary_stream),
       submission_events_(std::move(submission_events)),
@@ -293,11 +295,15 @@ BoundPrefillRequestReceipt::BoundPrefillRequestReceipt(
 
 BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
     const ModelWeights* const weights, RequestState* const state,
-    ReferenceRunner* const runner) noexcept {
+    ReferenceRunner* const runner,
+    const LayerMajorPrefillFullAttentionTactic
+        full_attention_tactic) noexcept {
   static_assert(kBoundPrefillSubmissionEventCount ==
                 ReferenceRunner::kWholeRequestSubmissionWindowSlots);
   if (weights == nullptr || state == nullptr || runner == nullptr ||
       !static_cast<bool>(*state) || !static_cast<bool>(*runner) ||
+      !is_valid_layer_major_prefill_full_attention_tactic(
+          full_attention_tactic) ||
       !is_valid_layer_major_prefill_arithmetic_contract(
           kLayerMajorPrefillExactArithmeticContract)) {
     return plan_failure(BoundPrefillPlanError::kInvalidDependency,
@@ -563,12 +569,21 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
   roles[static_cast<std::size_t>(
       PrefillBindingRole::kExactCausalAttention)] =
       receipt(PrefillBindingRole::kExactCausalAttention,
-              NativePrefillTactic::
-                  kExactCausalAttentionOracleSpanC512C16Reference256,
+              full_attention_tactic ==
+                      LayerMajorPrefillFullAttentionTactic::
+                          kNativeGroupQ64Panel
+                  ? NativePrefillTactic::
+                        kNativeCausalAttentionGroupQ64OperatorPanel
+                  : NativePrefillTactic::
+                        kExactCausalAttentionOracleSpanC512C16Reference256,
               attention->q_norm.data,
               views.attention.core_output_bf16.storage.device_data,
               views.attention.core_output_bf16.storage.byte_size, 2U,
-              kPrefillPhysicalSegmentMaximumTokens);
+              full_attention_tactic ==
+                      LayerMajorPrefillFullAttentionTactic::
+                          kNativeGroupQ64Panel
+                  ? kLayerMajorPrefillOperatorPanelTokens
+                  : kPrefillPhysicalSegmentMaximumTokens);
   roles[static_cast<std::size_t>(PrefillBindingRole::kResidual)] =
       receipt(PrefillBindingRole::kResidual,
               NativePrefillTactic::kResidualOperatorPanel, weights,
@@ -644,6 +659,7 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
       weights, state, runner, state->arena_data(), state->arena_bytes(),
       state->layer_major_plan(), &kLayerMajorPrefillExactArithmeticContract,
       exact_c512_arithmetic_workspace_bound,
+      full_attention_tactic,
       runner->stream_,
       runner->prefill_auxiliary_stream_, submission_events,
       std::move(roles));
@@ -677,6 +693,8 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
       !is_valid_layer_major_prefill_arithmetic_contract(
           *plan.arithmetic_contract_) ||
       !plan.exact_c512_arithmetic_workspace_bound_ ||
+      !is_valid_layer_major_prefill_full_attention_tactic(
+          plan.full_attention_tactic_) ||
       plan.main_stream_ != runner.stream_ ||
       plan.auxiliary_stream_ != runner.prefill_auxiliary_stream_ ||
       plan.submission_events_[0U] !=
@@ -864,12 +882,21 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
                  gdn_prefill_chunk64_native_detail::workspace_bytes(), 32U,
                  kPrefillPhysicalSegmentMaximumTokens) &&
          matches(PrefillBindingRole::kExactCausalAttention,
-                 NativePrefillTactic::
-                     kExactCausalAttentionOracleSpanC512C16Reference256,
+                 plan.full_attention_tactic_ ==
+                         LayerMajorPrefillFullAttentionTactic::
+                             kNativeGroupQ64Panel
+                     ? NativePrefillTactic::
+                           kNativeCausalAttentionGroupQ64OperatorPanel
+                     : NativePrefillTactic::
+                           kExactCausalAttentionOracleSpanC512C16Reference256,
                  attention->q_norm.data,
                  views.attention.core_output_bf16.storage.device_data,
                  views.attention.core_output_bf16.storage.byte_size, 2U,
-                 kPrefillPhysicalSegmentMaximumTokens) &&
+                 plan.full_attention_tactic_ ==
+                         LayerMajorPrefillFullAttentionTactic::
+                             kNativeGroupQ64Panel
+                     ? kLayerMajorPrefillOperatorPanelTokens
+                     : kPrefillPhysicalSegmentMaximumTokens) &&
          matches(PrefillBindingRole::kResidual,
                  NativePrefillTactic::kResidualOperatorPanel,
                  runner.weights_,
@@ -898,9 +925,13 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
 
 std::string_view ReferenceEnginePrefillExecutor::deployment_plan_id(
     const BoundPrefillExecutionPlan& plan) noexcept {
-  return plan.exact_c512_arithmetic_workspace_bound_
-             ? kLayerMajorOperatorPanelDeploymentPlanId
-             : std::string_view{};
+  if (!plan.exact_c512_arithmetic_workspace_bound_) {
+    return {};
+  }
+  return plan.full_attention_tactic_ ==
+                 LayerMajorPrefillFullAttentionTactic::kNativeGroupQ64Panel
+             ? kLayerMajorNativeGroupQ64PanelDeploymentPlanId
+             : kLayerMajorOperatorPanelDeploymentPlanId;
 }
 
 ReferenceWholeRequestPrefillOutcome ReferenceEnginePrefillExecutor::execute(
@@ -920,7 +951,8 @@ ReferenceWholeRequestPrefillOutcome ReferenceEnginePrefillExecutor::execute(
           ? runner.prefill_whole_request_layer_major_compatibility_core(
                 input_token_ids, token_count, geometry, options)
           : runner.prefill_whole_request_layer_major_panel_core(
-                input_token_ids, token_count, geometry, options);
+                input_token_ids, token_count, geometry,
+                plan.full_attention_tactic_, options);
   receipt->phase_ = outcome
                         ? BoundPrefillRequestReceipt::Phase::kAwaitingLogits
                         : BoundPrefillRequestReceipt::Phase::kPoisoned;

@@ -78,6 +78,9 @@ enum class ReferencePrefillExecutionMode : std::uint8_t {
 
 inline constexpr std::string_view kLayerMajorOperatorPanelDeploymentPlanId =
     "q3x.sm87.exact.layer-major-c8192.operator-panel.v3";
+inline constexpr std::string_view
+    kLayerMajorNativeGroupQ64PanelDeploymentPlanId =
+        "q3x.sm87.ac-prefill-layermajor-8k.native-group-q64-panel.v1";
 
 [[nodiscard]] constexpr bool is_valid_reference_prefill_execution_mode(
     const ReferencePrefillExecutionMode mode) noexcept {
@@ -100,6 +103,11 @@ struct ReferenceEngineOptions {
   // profile. Keeping this default legacy preserves every existing caller.
   ReferencePrefillExecutionMode prefill_execution_mode =
       ReferencePrefillExecutionMode::kLegacyC512Tiled;
+  // Layer-major-only, engine-lifetime Attention tactic. The default preserves
+  // the exact segmented incumbent. The native grouped-Q64 panel value is an
+  // explicit architecture candidate and receives a distinct deployment ID.
+  LayerMajorPrefillFullAttentionTactic prefill_full_attention_tactic =
+      LayerMajorPrefillFullAttentionTactic::kExactSegmentedC512;
 };
 
 // Text-only messages accepted by the pinned Qwen 3.6 chat formatter. The
@@ -237,6 +245,12 @@ struct ReferenceGeneration {
   std::uint64_t prefill_logical_panel_count = 0U;
   bool prefill_bounded_submission_window = false;
   std::uint64_t prefill_submission_window_retirements = 0U;
+  // Completed-launch witnesses from the bound layer-major executor. They are
+  // published only after the whole Prefill transaction has synchronized and
+  // committed; configured tactics alone never synthesize hits.
+  std::uint64_t prefill_operator_panel_executor_hits = 0U;
+  std::uint64_t prefill_native_group_q64_panel_hits = 0U;
+  std::uint64_t prefill_generic_qt2_hits = 0U;
 };
 
 struct ReferenceEngineLoadStats {

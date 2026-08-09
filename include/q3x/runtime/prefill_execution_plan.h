@@ -36,6 +36,26 @@ static_assert(kLayerMajorPrefillLegacyPublicTileTokens == 512U);
 static_assert(kLayerMajorPrefillOperatorPanelTokens == 8'192U);
 static_assert(kLayerMajorPrefillMaximumPanelCount == 32U);
 
+// Engine-lifetime full-Attention ownership for the layer-major route.  The
+// incumbent keeps the established C512 arithmetic spans and their exact
+// fixed selector.  The architecture candidate gives one native grouped-Q64
+// online-softmax launch ownership of the complete logical operator panel.
+// This is part of the sealed plan, never a request-time or environment
+// selector.
+enum class LayerMajorPrefillFullAttentionTactic : std::uint8_t {
+  kExactSegmentedC512 = 0,
+  kNativeGroupQ64Panel,
+};
+
+[[nodiscard]] constexpr bool
+is_valid_layer_major_prefill_full_attention_tactic(
+    const LayerMajorPrefillFullAttentionTactic tactic) noexcept {
+  return tactic ==
+             LayerMajorPrefillFullAttentionTactic::kExactSegmentedC512 ||
+         tactic ==
+             LayerMajorPrefillFullAttentionTactic::kNativeGroupQ64Panel;
+}
+
 // Preserve full-capacity work while preventing a final one-token panel or
 // physical segment.  Once only the final full-capacity unit plus its tail
 // remain, split that suffix into ceil/floor halves.  This keeps the minimum

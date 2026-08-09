@@ -1089,6 +1089,9 @@ struct EngineStepContext {
   void* prefill_cancellation_context = nullptr;
   bool prefill_bounded_submission_window = false;
   std::size_t prefill_submission_window_retirements = 0U;
+  std::size_t prefill_operator_panel_executor_hits = 0U;
+  std::size_t prefill_native_group_q64_panel_hits = 0U;
+  std::size_t prefill_generic_qt2_hits = 0U;
   // Armed before the first whole-request CUDA call and cleared only after
   // the sealed commit succeeds. EngineWholeRequestTransactionGuard owns the
   // rollback of every failure window in between.
@@ -1231,6 +1234,11 @@ prefill_whole_request_layer_major(
       executed.value->bounded_submission_window;
   context.prefill_submission_window_retirements =
       executed.value->submission_window_retirements;
+  context.prefill_operator_panel_executor_hits =
+      executed.value->operator_panel_executor_hits;
+  context.prefill_native_group_q64_panel_hits =
+      executed.value->native_group_q64_panel_hits;
+  context.prefill_generic_qt2_hits = executed.value->generic_qt2_hits;
   result.value.emplace(std::move(transcript));
   return result;
 }
@@ -3190,10 +3198,16 @@ struct ReferenceEngine::Impl {
     }
     if (!is_valid_reference_prefill_execution_mode(
             options.prefill_execution_mode) ||
+        !is_valid_layer_major_prefill_full_attention_tactic(
+            options.prefill_full_attention_tactic) ||
         (options.prefill_execution_mode ==
              ReferencePrefillExecutionMode::kWholeRequestLayerMajor &&
          options.request_options.prefill_chunk_size !=
-             kMaximumRequestPrefillChunkSize)) {
+             kMaximumRequestPrefillChunkSize) ||
+        (options.prefill_execution_mode !=
+             ReferencePrefillExecutionMode::kWholeRequestLayerMajor &&
+         options.prefill_full_attention_tactic !=
+             LayerMajorPrefillFullAttentionTactic::kExactSegmentedC512)) {
       result.diagnostic = engine_diagnostic(
           ReferenceEngineError::kInvalidArgument,
           "prefill_execution_mode",
@@ -3818,7 +3832,7 @@ struct ReferenceEngine::Impl {
         reference_engine_detail::BoundPrefillPlanResult bound =
             reference_engine_detail::ReferenceEnginePrefillPlanFactory::bind(
                 &*impl->model_weights, &*impl->request_state,
-                &*impl->runner);
+                &*impl->runner, options.prefill_full_attention_tactic);
         if (!bound) {
           result.diagnostic = runner_diagnostic(
               ReferenceEngineError::kRunnerFactoryFailure,
@@ -4381,6 +4395,14 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
     generation.prefill_submission_window_retirements =
         static_cast<std::uint64_t>(
             step_context.prefill_submission_window_retirements);
+    generation.prefill_operator_panel_executor_hits =
+        static_cast<std::uint64_t>(
+            step_context.prefill_operator_panel_executor_hits);
+    generation.prefill_native_group_q64_panel_hits =
+        static_cast<std::uint64_t>(
+            step_context.prefill_native_group_q64_panel_hits);
+    generation.prefill_generic_qt2_hits = static_cast<std::uint64_t>(
+        step_context.prefill_generic_qt2_hits);
     generation.all_prompt_tokens_prefilled_by_tiles =
         control_options.prefill_all_prompt_tokens;
     generation.single_arbitrary_prefill_tiles =

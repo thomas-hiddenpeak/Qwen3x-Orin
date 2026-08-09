@@ -202,6 +202,19 @@ route at `18363ad` must identify itself exactly as
 `q3x.sm87.exact.layer-major-c8192.balanced-segments.v2`; another identifier is
 a route mismatch, not equivalent evidence.
 
+An explicitly selected, default-off architecture candidate may emit
+`target-prefill-witness-v3`. Version 3 adds the engine-lifetime Attention
+tactic and completed operator-panel, native-panel-Attention, and generic-QT2
+hit counts. It must also carry
+`qualification=accuracy-unqualified-architecture-candidate`, a false
+`numerical_contract.qualified` value, and an
+`architecture_candidate_unqualified` disabled-boundary scope until the full
+accuracy protocol passes. In that state `approximate_numerics` is not attested
+as disabled, even when no generic forbidden-route counter was incremented.
+A v3 direction record can select whether development continues; it cannot
+qualify numerical correctness, change the exact default, or serve as release
+or production evidence.
+
 The externally observed TTFT selects the whole architecture. Server-side pure
 Prefill timing explains where that result came from; it never replaces the API
 result. A witness with an incomplete stream, unowned host resources, a route

@@ -845,6 +845,11 @@ void emit_target_prefill_witness(
         generation.prefill_bounded_submission_window;
     record.submission_window_retirements =
         generation.prefill_submission_window_retirements;
+    record.operator_panel_executor_hits =
+        generation.prefill_operator_panel_executor_hits;
+    record.native_group_q64_panel_hits =
+        generation.prefill_native_group_q64_panel_hits;
+    record.generic_qt2_hits = generation.prefill_generic_qt2_hits;
     record.deployment_plan_id = generation.prefill_deployment_plan_id;
     std::cerr << serialize_target_prefill_witness(record) << '\n';
   } catch (...) {
@@ -1428,7 +1433,9 @@ void ingress_worker(
       served_model_bytes != options.served_model.size() ||
       !runtime::is_valid_projection_backend(options.projection_backend) ||
       !runtime::is_valid_reference_prefill_execution_mode(
-          options.prefill_execution_mode)) {
+          options.prefill_execution_mode) ||
+      !runtime::is_valid_layer_major_prefill_full_attention_tactic(
+          options.prefill_full_attention_tactic)) {
     error = "evaluation server options are outside fixed safe bounds";
     return false;
   }
@@ -1445,6 +1452,13 @@ void ingress_worker(
            runtime::kMaximumRequestPrefillChunkSize)) {
     error = "layer-major Prefill requires the SM87 backend and fixed C512 "
             "compatibility workspace";
+    return false;
+  }
+  if (options.prefill_execution_mode != runtime::
+          ReferencePrefillExecutionMode::kWholeRequestLayerMajor &&
+      options.prefill_full_attention_tactic != runtime::
+          LayerMajorPrefillFullAttentionTactic::kExactSegmentedC512) {
+    error = "native panel Attention requires layer-major Prefill";
     return false;
   }
   return true;
@@ -1500,6 +1514,8 @@ int run_evaluation_server(const EvaluationServerOptions& options,
   engine_options.projection_backend = options.projection_backend;
   engine_options.prefill_execution_mode =
       options.prefill_execution_mode;
+  engine_options.prefill_full_attention_tactic =
+      options.prefill_full_attention_tactic;
   engine_options.request_options.batch_size = 1U;
   engine_options.request_options.max_sequence_length =
       options.max_sequence_length;
@@ -1566,6 +1582,12 @@ int run_evaluation_server(const EvaluationServerOptions& options,
                         ReferencePrefillExecutionMode::kWholeRequestLayerMajor
                     ? "layer-major"
                     : "legacy")
+            << " prefill_attention_tactic="
+            << (options.prefill_full_attention_tactic == runtime::
+                        LayerMajorPrefillFullAttentionTactic::
+                            kNativeGroupQ64Panel
+                    ? "native-group-q64-panel"
+                    : "exact-segmented")
             << " inference_workers=1 queue_capacity="
             << options.inference_queue_capacity
             << " fp8_prefill_supermatrix_sidecar_ms="
