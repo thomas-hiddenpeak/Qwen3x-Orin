@@ -339,10 +339,11 @@ struct ReferenceLayerMajorRequestViewsOutcome {
 build_reference_layer_major_candidate_binding_descriptor(
     const LayerMajorRequestMemoryPlan& plan) noexcept;
 
-// Explicit candidate seam.  Profile validation deliberately precedes empty
-// state validation so passing a legacy RequestState reports
-// kMemoryProfileMismatch without touching CUDA.  This function is not called
-// by create_reference_runner(), ReferenceEngine, or a production selector.
+// Explicit typed seam. Profile validation deliberately precedes empty state
+// validation so passing a legacy RequestState reports kMemoryProfileMismatch
+// without touching CUDA. create_reference_runner() uses it only to bind a
+// layer-major RequestState's disjoint legacy C512 compatibility views; no
+// whole-request selector or executable operator plan is implied.
 [[nodiscard]] ReferenceLayerMajorRequestViewsOutcome
 collect_reference_layer_major_candidate_views(RequestState* state) noexcept;
 
@@ -799,6 +800,17 @@ class ReferenceRunner {
 
   [[nodiscard]] static ReferenceRunnerStatus collect_request_views(
       RequestState* state, Views& views) noexcept;
+  // Converts the already authenticated candidate snapshot into the compact
+  // pointer table shared by Decode and the extracted C512 layer body.  The
+  // complete typed snapshot remains cached separately for the future
+  // whole-request executor; this mapper never reinterprets the untyped C8192
+  // family arena.
+  [[nodiscard]] static ReferenceRunnerStatus
+  map_layer_major_candidate_views(
+      const ReferenceLayerMajorRequestViews& candidate,
+      Views& views) noexcept;
+  [[nodiscard]] ReferenceRunnerStatus bind_layer_major_candidate_views(
+      ReferenceLayerMajorRequestViews&& candidate) noexcept;
   ReferenceRunner() noexcept = default;
   void release() noexcept;
   [[nodiscard]] ReferenceStepOutcome fail_step(
@@ -854,6 +866,8 @@ class ReferenceRunner {
       decode_graph_p1_slots_{};
   bool decode_graph_capture_active_ = false;
   Views views_{};
+  std::optional<ReferenceLayerMajorRequestViews>
+      layer_major_request_views_;
   ProjectionBackend projection_backend_ = ProjectionBackend::kReference;
   bool trace_enabled_ = false;
   bool trace_valid_ = false;

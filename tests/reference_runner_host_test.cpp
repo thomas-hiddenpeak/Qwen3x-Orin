@@ -50,6 +50,21 @@ struct ReferenceRunnerPrefillControlTestPeer {
       ReferenceRunner::PrefillLayerSegmentRouteFragment;
   using LayerRouteSlot = ReferenceRunner::PrefillLayerRouteSlot;
 
+  struct CompactViews {
+    std::array<std::uint16_t*, 3U> hidden{};
+    std::array<std::uint16_t*, 4U> projection{};
+    std::uint16_t* linear_a = nullptr;
+    std::uint16_t* linear_b = nullptr;
+    float* fp32_scratch = nullptr;
+    std::size_t fp32_scratch_elements = 0U;
+    std::array<std::uint16_t*, kReferenceDecoderLayerCount> conv_state{};
+    std::array<std::uint16_t*, kReferenceDecoderLayerCount> gdn_state{};
+    std::array<std::uint16_t*, kReferenceDecoderLayerCount> key_cache{};
+    std::array<std::uint16_t*, kReferenceDecoderLayerCount> value_cache{};
+    const float* rope_cos = nullptr;
+    const float* rope_sin = nullptr;
+  };
+
   [[nodiscard]] static ReferenceRunner empty_runner() noexcept {
     return ReferenceRunner{};
   }
@@ -63,6 +78,53 @@ struct ReferenceRunnerPrefillControlTestPeer {
   [[nodiscard]] static const PrefillRouteEvidence& route_evidence(
       const ReferenceRunner& runner) noexcept {
     return runner.prefill_route_evidence_;
+  }
+
+  [[nodiscard]] static ReferenceRunnerStatus bind_layer_major_views(
+      ReferenceRunner& runner,
+      ReferenceLayerMajorRequestViews candidate) noexcept {
+    return runner.bind_layer_major_candidate_views(std::move(candidate));
+  }
+
+  [[nodiscard]] static bool has_layer_major_views(
+      const ReferenceRunner& runner) noexcept {
+    return runner.layer_major_request_views_.has_value();
+  }
+
+  [[nodiscard]] static const ReferenceLayerMajorRequestViews*
+  layer_major_views(const ReferenceRunner& runner) noexcept {
+    return runner.layer_major_request_views_
+               ? &*runner.layer_major_request_views_
+               : nullptr;
+  }
+
+  [[nodiscard]] static CompactViews compact_views(
+      const ReferenceRunner& runner) noexcept {
+    CompactViews result;
+    std::copy(std::begin(runner.views_.hidden),
+              std::end(runner.views_.hidden), result.hidden.begin());
+    std::copy(std::begin(runner.views_.projection),
+              std::end(runner.views_.projection),
+              result.projection.begin());
+    result.linear_a = runner.views_.linear_a;
+    result.linear_b = runner.views_.linear_b;
+    result.fp32_scratch = runner.views_.fp32_scratch;
+    result.fp32_scratch_elements = runner.views_.fp32_scratch_elements;
+    std::copy(std::begin(runner.views_.conv_state),
+              std::end(runner.views_.conv_state),
+              result.conv_state.begin());
+    std::copy(std::begin(runner.views_.gdn_state),
+              std::end(runner.views_.gdn_state),
+              result.gdn_state.begin());
+    std::copy(std::begin(runner.views_.key_cache),
+              std::end(runner.views_.key_cache),
+              result.key_cache.begin());
+    std::copy(std::begin(runner.views_.value_cache),
+              std::end(runner.views_.value_cache),
+              result.value_cache.begin());
+    result.rope_cos = runner.views_.rope_cos;
+    result.rope_sin = runner.views_.rope_sin;
+    return result;
   }
 
   static void release(ReferenceRunner& runner) noexcept { runner.release(); }
@@ -1984,6 +2046,154 @@ void test_prefill_route_evidence_runner_lifetime(TestContext& test) {
       "runner release clears Prefill route evidence");
 }
 
+[[nodiscard]] runtime::ReferenceLayerMajorRequestViews
+make_layer_major_runner_view_fixture(
+    std::array<std::uint64_t, 192U>& identities) noexcept {
+  runtime::ReferenceLayerMajorRequestViews views;
+  views.descriptor.profile =
+      runtime::RequestMemoryProfile::kLayerMajorC8192;
+  views.descriptor.legacy_prefill_chunk_size =
+      runtime::kMaximumRequestPrefillChunkSize;
+
+  std::size_t identity = 0U;
+  const auto next_pointer = [&]() noexcept -> void* {
+    return static_cast<void*>(&identities[identity++]);
+  };
+  views.prompt_residual_bf16.storage.device_data = next_pointer();
+  views.panel_token_ids_u32.storage.device_data = next_pointer();
+  views.gdn.qkv_bf16.storage.device_data = next_pointer();
+  views.attention.raw_q_gate_bf16.storage.device_data = next_pointer();
+  views.mlp.gate_bf16.storage.device_data = next_pointer();
+  views.final_hidden_bf16.storage.device_data = next_pointer();
+  for (runtime::DeviceMatrixView& hidden :
+       views.legacy_c512.hidden_bf16) {
+    hidden.storage.device_data = next_pointer();
+  }
+  for (runtime::DeviceMatrixView& projection :
+       views.legacy_c512.projection_bf16) {
+    projection.storage.device_data = next_pointer();
+  }
+  views.legacy_c512.linear_a_bf16.storage.device_data = next_pointer();
+  views.legacy_c512.linear_b_bf16.storage.device_data = next_pointer();
+  views.legacy_c512.fp32_scratch.device_data = next_pointer();
+  views.legacy_c512.fp32_scratch.element_capacity =
+      runtime::kReferenceVocabularySize;
+
+  std::size_t linear_slot = 0U;
+  std::size_t full_slot = 0U;
+  for (std::size_t layer = 0U;
+       layer < runtime::kReferenceDecoderLayerCount; ++layer) {
+    const q3x::model::LayerType type =
+        detail::expected_reference_layer_type(layer);
+    runtime::RequestLayerSlot& slot = views.descriptor.layers[layer];
+    slot.type = type;
+    if (type == q3x::model::LayerType::kLinearAttention) {
+      slot.slot = linear_slot;
+      views.persistent.conv_state_bf16[linear_slot].device_data =
+          next_pointer();
+      views.persistent.gdn_state_bf16[linear_slot].device_data =
+          next_pointer();
+      ++linear_slot;
+    } else {
+      slot.slot = full_slot;
+      views.persistent.key_cache_bf16[full_slot].device_data =
+          next_pointer();
+      views.persistent.value_cache_bf16[full_slot].device_data =
+          next_pointer();
+      ++full_slot;
+    }
+  }
+  views.persistent.rope_cos_fp32.device_data = next_pointer();
+  views.persistent.rope_sin_fp32.device_data = next_pointer();
+  return views;
+}
+
+void test_layer_major_runner_view_binding_lifetime(TestContext& test) {
+  using Peer = runtime::ReferenceRunnerPrefillControlTestPeer;
+  std::array<std::uint64_t, 192U> identities{};
+  const runtime::ReferenceLayerMajorRequestViews candidate =
+      make_layer_major_runner_view_fixture(identities);
+
+  runtime::ReferenceRunner runner = Peer::empty_runner();
+  const runtime::ReferenceRunnerStatus status =
+      Peer::bind_layer_major_views(runner, candidate);
+  const Peer::CompactViews mapped = Peer::compact_views(runner);
+  bool schedule_mapped = status.ok();
+  for (std::size_t layer = 0U;
+       layer < runtime::kReferenceDecoderLayerCount; ++layer) {
+    const runtime::RequestLayerSlot slot =
+        candidate.descriptor.layers[layer];
+    if (slot.type == q3x::model::LayerType::kLinearAttention) {
+      schedule_mapped =
+          schedule_mapped &&
+          mapped.conv_state[layer] == static_cast<std::uint16_t*>(
+              candidate.persistent.conv_state_bf16[slot.slot].device_data) &&
+          mapped.gdn_state[layer] == static_cast<std::uint16_t*>(
+              candidate.persistent.gdn_state_bf16[slot.slot].device_data) &&
+          mapped.key_cache[layer] == nullptr &&
+          mapped.value_cache[layer] == nullptr;
+    } else {
+      schedule_mapped =
+          schedule_mapped && mapped.conv_state[layer] == nullptr &&
+          mapped.gdn_state[layer] == nullptr &&
+          mapped.key_cache[layer] == static_cast<std::uint16_t*>(
+              candidate.persistent.key_cache_bf16[slot.slot].device_data) &&
+          mapped.value_cache[layer] == static_cast<std::uint16_t*>(
+              candidate.persistent.value_cache_bf16[slot.slot].device_data);
+    }
+  }
+  const runtime::ReferenceLayerMajorRequestViews* const cached =
+      Peer::layer_major_views(runner);
+  test.expect(
+      schedule_mapped && Peer::has_layer_major_views(runner) &&
+          mapped.hidden[0U] == static_cast<std::uint16_t*>(
+              candidate.legacy_c512.hidden_bf16[0U].storage.device_data) &&
+          mapped.projection[3U] == static_cast<std::uint16_t*>(
+              candidate.legacy_c512.projection_bf16[3U].storage.device_data) &&
+          mapped.linear_a == static_cast<std::uint16_t*>(
+              candidate.legacy_c512.linear_a_bf16.storage.device_data) &&
+          mapped.linear_b == static_cast<std::uint16_t*>(
+              candidate.legacy_c512.linear_b_bf16.storage.device_data) &&
+          mapped.fp32_scratch_elements ==
+              runtime::kReferenceVocabularySize &&
+          mapped.rope_cos == static_cast<const float*>(
+              candidate.persistent.rope_cos_fp32.device_data) &&
+          mapped.rope_sin == static_cast<const float*>(
+              candidate.persistent.rope_sin_fp32.device_data) &&
+          cached != nullptr &&
+          cached->prompt_residual_bf16.storage.device_data ==
+              candidate.prompt_residual_bf16.storage.device_data &&
+          cached->final_hidden_bf16.storage.device_data ==
+              candidate.final_hidden_bf16.storage.device_data,
+      "layer-major binding caches the complete typed snapshot and maps only "
+      "legacy C512 plus descriptor-indexed persistent views");
+
+  runtime::ReferenceRunner moved(std::move(runner));
+  test.expect(
+      Peer::has_layer_major_views(moved) &&
+          !Peer::has_layer_major_views(runner) &&
+          Peer::compact_views(moved).hidden[0U] == mapped.hidden[0U] &&
+          Peer::compact_views(runner).hidden[0U] == nullptr,
+      "runner move transfers the typed layer-major binding and clears source");
+  Peer::release(moved);
+  test.expect(!Peer::has_layer_major_views(moved) &&
+                  Peer::compact_views(moved).hidden[0U] == nullptr &&
+                  Peer::compact_views(moved).rope_cos == nullptr,
+              "runner release clears typed and compact layer-major views");
+
+  runtime::ReferenceLayerMajorRequestViews malformed = candidate;
+  ++malformed.descriptor.layers[3U].slot;
+  runtime::ReferenceRunner rejected = Peer::empty_runner();
+  const runtime::ReferenceRunnerStatus rejected_status =
+      Peer::bind_layer_major_views(rejected, std::move(malformed));
+  test.expect(!rejected_status &&
+                  rejected_status.error ==
+                      runtime::ReferenceRunnerError::kInvalidLayerSchedule &&
+                  !Peer::has_layer_major_views(rejected) &&
+                  Peer::compact_views(rejected).hidden[0U] == nullptr,
+              "malformed layer-major schedule fails transactionally");
+}
+
 }  // namespace
 
 int main() {
@@ -1999,6 +2209,7 @@ int main() {
   test_prefill_tile_execution_control(test);
   test_prefill_layer_route_reducer(test);
   test_prefill_route_evidence_runner_lifetime(test);
+  test_layer_major_runner_view_binding_lifetime(test);
   if (test.failures() != 0) {
     std::cerr << test.failures() << " reference-runner host test(s) failed\n";
     return 1;

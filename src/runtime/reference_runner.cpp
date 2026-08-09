@@ -661,6 +661,132 @@ ReferenceRunnerStatus ReferenceRunner::collect_request_views(
   return {};
 }
 
+ReferenceRunnerStatus ReferenceRunner::map_layer_major_candidate_views(
+    const ReferenceLayerMajorRequestViews& candidate,
+    Views& views) noexcept {
+  const ReferenceLayerMajorRequestBindingDescriptor& descriptor =
+      candidate.descriptor;
+  if (descriptor.profile != RequestMemoryProfile::kLayerMajorC8192 ||
+      descriptor.legacy_prefill_chunk_size !=
+          kMaximumRequestPrefillChunkSize) {
+    return runner_status(ReferenceRunnerError::kInvalidRequestState,
+                         "layer_major_runner_profile");
+  }
+
+  Views mapped;
+  for (std::size_t index = 0U; index < 3U; ++index) {
+    if (candidate.legacy_c512.hidden_bf16[index].storage.device_data ==
+        nullptr) {
+      return runner_status(ReferenceRunnerError::kInvalidRequestState,
+                           "layer_major_runner_hidden_workspace");
+    }
+    mapped.hidden[index] = static_cast<std::uint16_t*>(
+        candidate.legacy_c512.hidden_bf16[index].storage.device_data);
+  }
+  for (std::size_t index = 0U; index < 4U; ++index) {
+    if (candidate.legacy_c512.projection_bf16[index].storage.device_data ==
+        nullptr) {
+      return runner_status(ReferenceRunnerError::kInvalidRequestState,
+                           "layer_major_runner_projection_workspace");
+    }
+    mapped.projection[index] = static_cast<std::uint16_t*>(
+        candidate.legacy_c512.projection_bf16[index].storage.device_data);
+  }
+  if (candidate.legacy_c512.linear_a_bf16.storage.device_data == nullptr ||
+      candidate.legacy_c512.linear_b_bf16.storage.device_data == nullptr ||
+      candidate.legacy_c512.fp32_scratch.device_data == nullptr ||
+      candidate.legacy_c512.fp32_scratch.element_capacity <
+          kReferenceVocabularySize) {
+    return runner_status(ReferenceRunnerError::kInvalidRequestState,
+                         "layer_major_runner_scalar_or_fp32_workspace");
+  }
+  mapped.linear_a = static_cast<std::uint16_t*>(
+      candidate.legacy_c512.linear_a_bf16.storage.device_data);
+  mapped.linear_b = static_cast<std::uint16_t*>(
+      candidate.legacy_c512.linear_b_bf16.storage.device_data);
+  mapped.fp32_scratch =
+      static_cast<float*>(candidate.legacy_c512.fp32_scratch.device_data);
+  mapped.fp32_scratch_elements = static_cast<std::size_t>(
+      candidate.legacy_c512.fp32_scratch.element_capacity);
+
+  if (candidate.persistent.rope_cos_fp32.device_data == nullptr ||
+      candidate.persistent.rope_sin_fp32.device_data == nullptr) {
+    return runner_status(ReferenceRunnerError::kInvalidRequestState,
+                         "layer_major_runner_rope_workspace");
+  }
+  mapped.rope_cos = static_cast<const float*>(
+      candidate.persistent.rope_cos_fp32.device_data);
+  mapped.rope_sin = static_cast<const float*>(
+      candidate.persistent.rope_sin_fp32.device_data);
+
+  std::size_t linear_slot = 0U;
+  std::size_t full_slot = 0U;
+  for (std::size_t layer = 0U; layer < kReferenceDecoderLayerCount; ++layer) {
+    const model::LayerType expected =
+        reference_runner_detail::expected_reference_layer_type(layer);
+    const RequestLayerSlot& slot = descriptor.layers[layer];
+    const std::size_t expected_slot =
+        expected == model::LayerType::kFullAttention ? full_slot++
+                                                     : linear_slot++;
+    if (slot.type != expected || slot.slot != expected_slot) {
+      return runner_status(ReferenceRunnerError::kInvalidLayerSchedule,
+                           "layer_major_runner_layer_schedule", layer);
+    }
+    if (expected == model::LayerType::kLinearAttention) {
+      if (slot.slot >= candidate.persistent.conv_state_bf16.size() ||
+          candidate.persistent.conv_state_bf16[slot.slot].device_data ==
+              nullptr ||
+          candidate.persistent.gdn_state_bf16[slot.slot].device_data ==
+              nullptr) {
+        return runner_status(ReferenceRunnerError::kInvalidRequestState,
+                             "layer_major_runner_linear_state", layer);
+      }
+      mapped.conv_state[layer] = static_cast<std::uint16_t*>(
+          candidate.persistent.conv_state_bf16[slot.slot].device_data);
+      mapped.gdn_state[layer] = static_cast<std::uint16_t*>(
+          candidate.persistent.gdn_state_bf16[slot.slot].device_data);
+    } else if (expected == model::LayerType::kFullAttention) {
+      if (slot.slot >= candidate.persistent.key_cache_bf16.size() ||
+          candidate.persistent.key_cache_bf16[slot.slot].device_data ==
+              nullptr ||
+          candidate.persistent.value_cache_bf16[slot.slot].device_data ==
+              nullptr) {
+        return runner_status(ReferenceRunnerError::kInvalidRequestState,
+                             "layer_major_runner_full_attention_state",
+                             layer);
+      }
+      mapped.key_cache[layer] = static_cast<std::uint16_t*>(
+          candidate.persistent.key_cache_bf16[slot.slot].device_data);
+      mapped.value_cache[layer] = static_cast<std::uint16_t*>(
+          candidate.persistent.value_cache_bf16[slot.slot].device_data);
+    } else {
+      return runner_status(ReferenceRunnerError::kInvalidLayerSchedule,
+                           "layer_major_runner_layer_schedule", layer);
+    }
+  }
+  if (linear_slot != kRequestLinearLayerCount ||
+      full_slot != kRequestFullLayerCount) {
+    return runner_status(ReferenceRunnerError::kInvalidLayerSchedule,
+                         "layer_major_runner_layer_schedule");
+  }
+
+  views = mapped;
+  return {};
+}
+
+ReferenceRunnerStatus ReferenceRunner::bind_layer_major_candidate_views(
+    ReferenceLayerMajorRequestViews&& candidate) noexcept {
+  Views mapped;
+  const ReferenceRunnerStatus status =
+      map_layer_major_candidate_views(candidate, mapped);
+  if (!status) {
+    return status;
+  }
+  layer_major_request_views_.emplace(std::move(candidate));
+  views_ = mapped;
+  return {};
+}
+
 namespace {
 
 [[nodiscard]] ConstBf16Span trace_span(
@@ -1547,6 +1673,9 @@ ReferenceRunner& ReferenceRunner::operator=(ReferenceRunner&& other) noexcept {
       std::exchange(other.decode_graph_capture_active_, false);
   views_ = other.views_;
   other.views_ = {};
+  layer_major_request_views_ =
+      std::move(other.layer_major_request_views_);
+  other.layer_major_request_views_.reset();
   projection_backend_ = std::exchange(
       other.projection_backend_, ProjectionBackend::kReference);
   trace_enabled_ = std::exchange(other.trace_enabled_, false);
@@ -1647,6 +1776,7 @@ void ReferenceRunner::release() noexcept {
   pinned_trace_ = nullptr;
   decode_graph_capture_active_ = false;
   views_ = {};
+  layer_major_request_views_.reset();
   projection_backend_ = ProjectionBackend::kReference;
   trace_enabled_ = false;
   trace_valid_ = false;
@@ -5124,8 +5254,36 @@ ReferenceRunnerFactoryResult create_reference_runner(
   runner.weights_ = weights;
   runner.state_ = state;
   runner.projection_backend_ = options.projection_backend;
-  const ReferenceRunnerStatus state_status =
-      ReferenceRunner::collect_request_views(state, runner.views_);
+  ReferenceRunnerStatus state_status;
+  if (state == nullptr) {
+    // Preserve the legacy null-dependency diagnostic and avoid reading a
+    // profile from an absent RequestState.
+    state_status =
+        ReferenceRunner::collect_request_views(state, runner.views_);
+  } else {
+    switch (state->memory_profile()) {
+      case RequestMemoryProfile::kLegacyC512:
+        state_status =
+            ReferenceRunner::collect_request_views(state, runner.views_);
+        break;
+      case RequestMemoryProfile::kLayerMajorC8192: {
+        ReferenceLayerMajorRequestViewsOutcome collected =
+            collect_reference_layer_major_candidate_views(state);
+        if (!collected) {
+          state_status = collected.status;
+          break;
+        }
+        state_status = runner.bind_layer_major_candidate_views(
+            std::move(*collected.value));
+        break;
+      }
+      default:
+        state_status = runner_status(
+            ReferenceRunnerError::kInvalidRequestState,
+            "request_memory_profile");
+        break;
+    }
+  }
   if (!state_status) {
     result.diagnostic = state_status;
     return result;
