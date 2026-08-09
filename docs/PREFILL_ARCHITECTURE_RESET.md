@@ -313,13 +313,16 @@ into a bound layer-major executor.
 
 The current tree implements a checked, host-only workspace requirements plan.
 It neither reserves device memory nor authenticates model or sidecar
-residency. For the target buckets, its exact request-arena requirements are:
+residency. A byte total exists only after the caller explicitly names the
+C8192 GDN, legacy GDN, and MLP physical tactics. For C8192 exact C64-native GDN
+with in-place convolution, current Release/default legacy exact C16 GDN, and
+separate Gate+Up then SiLU, the target-bucket arithmetic is:
 
 | Prompt tokens | Caller-selected conditional profile | Conservative disjoint profile |
 | ---: | ---: | ---: |
-| 40,000 | 3,975,364,608 bytes | 5,453,731,840 bytes |
-| 60,000 | 5,496,004,608 bytes | 7,181,091,840 bytes |
-| 130,000 | 10,818,244,608 bytes | 13,226,851,840 bytes |
+| 40,000 | 3,975,374,848 bytes | 5,324,963,840 bytes |
+| 60,000 | 5,496,014,848 bytes | 7,052,323,840 bytes |
+| 130,000 | 10,818,254,848 bytes | 13,098,083,840 bytes |
 
 Here `selected` means only the pair of strategies explicitly supplied to the
 host planner: one prompt-wide hidden buffer under an unbound panelwise
@@ -327,7 +330,43 @@ in-place contract, plus sequential C8192 family-live-set overlay under
 unbound completion and legacy-route-exclusion contracts. It does **not** mean
 that the architecture candidate, a tactic, or a production route has been
 selected. The conservative profile uses two disjoint prompt-wide hidden
-buffers and keeps every C8192 family plus the legacy C512 workspace disjoint.
+buffers and separates three C8192 operator families plus the legacy C512
+workspace. It still relies on each selected tactic's named phase-local layout
+and therefore is not an alias-free executable reservation.
+
+The corrected C8192 physical high-water ledger is:
+
+- exact C64-native GDN: 446,365,696 bytes with in-place convolution, or
+  456,851,456 bytes with one independent token-parallel C512 convolution
+  output; the fixed 75,694,080-byte native workspace is reused serially and is
+  never multiplied by physical segment count;
+- Full Attention preprocess/core: 402,653,184 bytes for raw Q+gate, processed
+  Q, and packed gate; K/V write directly to persistent cache;
+- MLP: 855,638,016 bytes for separate Gate+Up then SiLU, or 940,572,928 bytes
+  for the fused Gate+Up epilogue; and
+- shared Marlin FP32 reduction plus locks: 1,048,832 bytes, placed only through
+  an authenticated dead-span/phase layout.
+
+The request total separately owns one stable 10,240-byte final-hidden handoff.
+The native GDN layout and every CUDA partition offset now share one constexpr
+host ABI, while the Marlin reduction and lock sizes come directly from the
+public NVFP4/FP8 kernel ABIs. One 32,768-byte panel token-ID view may occupy the
+operator-arena prefix only until embedding gather completes; its reuse is an
+explicit event-gated alias rather than additional capacity.
+
+Consequently separate-SiLU MLP still dominates the selected overlay. Choosing
+token-parallel C64 convolution changes the conservative 40K/60K/130K rows to
+5,335,449,600 / 7,062,809,600 / 13,108,569,600 bytes. Choosing a disjoint
+test-only C64-native legacy route adds 75,694,080 bytes; the current Release
+C16 legacy route has no such external workspace. C64-native and the large-M
+projection admissions remain test-only today, so these are explicit candidate
+requirements rather than deployed production facts.
+
+The first `RequestState` allocation strategy is now separately expressible:
+the three C8192 families share their sequential high-water, while the complete
+legacy C512 workspace is physically disjoint. Its exact selected totals are
+4,066,344,960 / 5,588,904,960 / 10,917,864,960 bytes at 40K/60K/130K. It still
+requires typed subrange and completion-event binding before execution.
 
 Both profiles for all three buckets fit the planner's declared
 17,437,720,576-byte request-arena limit. This is only a request-arena verdict.
@@ -349,15 +388,27 @@ begins; the request path may not grow it.
 
 ### 8.4 Next integration seam, activation, and adjudication
 
-The immediate integration slice is a whole-request, layer-major host seam
-that connects the immutable topology, request-owned progress, workspace
-requirements, and 17-role contract to `RequestState` and the runner. It must
-retain fail-closed selection, preserve the existing C512 production route,
-and make the single final state transition explicit. A host seam alone does
-not make the candidate executable: a later bound execution/deployment plan
-must authenticate artifacts and bind typed launchers, resources, streams,
-events, reservations, and the complete 17-role route before any selector may
-admit it.
+A default-off whole-request host-control seam now exists. It accepts only a
+complete, uncommitted 64-layer progress result, validates the transcript and
+domains, invokes a dedicated uncommitted retained-hidden finalizer, calls one
+no-throw final commit callback, and publishes the controller's local host
+progress only after that callback returns OK. The callback returns status
+rather than a caller-authored receipt: it must complete every fallible check
+before its single no-fail initial-to-final state publication, and a non-OK
+status guarantees no state change. `ReferenceEngine` supplies none of these
+callbacks, so the seam cannot select or execute the candidate.
+
+The immediate integration slice is now a distinct layer-major `RequestState`
+profile with one full-prompt residual, a typed phase-layout scratch span, a
+fixed final-hidden handoff slot, and the legacy C512 views retained disjointly
+for the first safe integration. The host planner now names this exact combined
+strategy, but its device allocation and phase offsets remain deliberately
+unbound. The runner must extract a parameterized
+single-layer/single-panel body and implement true outer-layer/inner-panel
+traversal. Repeated calls to the existing public C512 64-layer loop do not
+satisfy this architecture. A later bound execution/deployment plan must still
+authenticate artifacts and bind typed launchers, resources, streams, events,
+reservations, and the complete 17-role route before any selector may admit it.
 
 The Roadmap may activate this lineage only after its P1/P2 prerequisites are
 closed and after naming bounded local work packages for the mutually dependent

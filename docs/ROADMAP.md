@@ -176,33 +176,57 @@ executable or activated):
   host-state commit. It has no launcher, device resource, allocation,
   `RequestState` mutation, runner connection, or selector, so it cannot
   execute.
+- A default-off whole-request generation-control seam now enforces a staged
+  uncommitted result, dedicated retained-hidden finalizer, one commit callback,
+  and controller-local progress publication only after the callback returns
+  OK. The no-throw callback must finish every fallible check before its single
+  no-fail state publication, and a non-OK status guarantees no state change;
+  it returns no caller-authored receipt. `ReferenceEngine` leaves all three
+  callbacks null, so this is a host contract rather than an active route.
 - The composition boundary includes shape-specific NVFP4 Gate/Up and Down,
   FP8 projections, exact causal Attention/KV progress, exact GDN/SSM progress,
   residual/layout consumers, and one final `PrefillStateCommitted` event. No
   isolated subset may claim the candidate result.
-- The implemented host workspace planner reports exact request-arena bytes:
+- The implemented host workspace planner reports exact request-arena bytes for
+  an explicit candidate tactic profile: C8192 C64-native GDN with in-place
+  convolution, current Release/default legacy C16 GDN, and separate Gate+Up
+  then SiLU. The C64-native route remains test-only today.
 
   | Prompt tokens | Caller-selected conditional profile | Conservative disjoint profile |
   | ---: | ---: | ---: |
-  | 40,000 | 3,975,364,608 | 5,453,731,840 |
-  | 60,000 | 5,496,004,608 | 7,181,091,840 |
-  | 130,000 | 10,818,244,608 | 13,226,851,840 |
+  | 40,000 | 3,975,374,848 | 5,324,963,840 |
+  | 60,000 | 5,496,014,848 | 7,052,323,840 |
+  | 130,000 | 10,818,254,848 | 13,098,083,840 |
 
   `selected` here names only the caller's explicit host-planner strategies; it
-  is not architecture or production selection. All rows fit the declared
+  is not architecture or production selection. The disjoint profile separates
+  the three operator families and legacy workspace but still requires each
+  tactic's named phase layout. Token-parallel C64 convolution raises its rows
+  to 5,335,449,600 / 7,062,809,600 / 13,108,569,600 bytes; fused Gate+Up raises
+  the overlay from 855,638,016 to 940,572,928 bytes. All shown rows fit the
   17,437,720,576-byte request-arena limit, but model bytes, sidecar bytes, and
   total whole-process bytes remain unknown, so whole-process capacity is
   `kIndeterminate` and no reservation or executable memory plan exists.
+  These totals include a disjoint 10,240-byte final-hidden handoff. The initial
+  `RequestState` combination—C8192 family overlay plus physically disjoint
+  legacy C512 workspace—is now a first-class planner strategy at
+  4,066,344,960 / 5,588,904,960 / 10,917,864,960 bytes for 40K/60K/130K.
+  Its 32,768-byte panel token-ID prefix remains event-gated within the operator
+  arena and does not increase the total.
 - A 17-role typed binding contract and isolated C8192 NVFP4/FP8 projection
   surfaces now exist. As candidate assets they are completely unbound: all
   C8192 tactics, artifacts, workspaces, launchers, and completion events remain
   unbound; the surfaces are not connected to the runner or selector and have
   not changed production performance. The legacy production-route admission
   remains M512.
-- The immediate implementation slice is the whole-request layer-major host
-  seam through `RequestState` and the runner. It must preserve fail-closed
-  selection and the C512 incumbent while preparing a later authenticated,
-  fully bound 17-role execution/deployment plan.
+- The immediate implementation slice is a separate layer-major `RequestState`
+  profile: one full-prompt residual, typed operator scratch, fixed final-hidden
+  handoff, and initially disjoint legacy views. Its exact planner strategy now
+  exists; allocation and typed phase offsets are the next binding. The runner
+  then extracts one
+  layer-panel body and implements true `layer -> panel` traversal while
+  preserving the C512 incumbent and preparing a later authenticated, fully
+  bound 17-role execution/deployment plan.
 - Once executable, it is selected or rejected only by the clean-host exact
   40K/60K/approximately-130K real-Agent API witnesses against the cumulative
   native incumbent. No panel throughput or component profile is a substitute.

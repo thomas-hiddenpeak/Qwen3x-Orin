@@ -1,5 +1,6 @@
 #pragma once
 
+#include "q3x/kernels/gdn_prefill_chunk64_workspace_abi.h"
 #include "q3x/runtime/prefill_execution_plan.h"
 #include "q3x/runtime/request_state.h"
 
@@ -13,12 +14,18 @@ namespace q3x::runtime {
 // AC-PREFILL-LAYERMAJOR-8K-v1 memory requirements. These constants describe
 // an unbound host plan only. They do not reserve device memory, authenticate
 // a sidecar, bind a launcher, or make the architecture executable.
-inline constexpr std::size_t kLayerMajorPrefillScratchFamilyCount = 4U;
+inline constexpr std::size_t kLayerMajorPrefillScratchFamilyCount = 3U;
 inline constexpr std::size_t kLegacyC512HiddenScratchBufferCount = 3U;
 inline constexpr std::size_t kLegacyC512ProjectionScratchBufferCount = 4U;
 inline constexpr std::size_t kLegacyC512LinearScalarScratchBufferCount = 2U;
 inline constexpr std::uint64_t kLayerMajorPrefillFp32MinimumScratchElements =
     262'144U;
+// Exact capacity of the current test-only C64-native GDN workspace. A plan
+// counts this only when its explicit physical tactic selects that mechanism;
+// the Release C16 route does not own this allocation.
+inline constexpr std::uint64_t
+    kLayerMajorPrefillGdnC64NativeWorkspaceBytes =
+        kernels::kGdnPrefillChunk64NativeWorkspaceBytes;
 
 static_assert(kLayerMajorPrefillOperatorPanelTokens == 8'192U);
 static_assert(kRequestArenaAlignment == 256U);
@@ -48,6 +55,9 @@ enum class PrefillMemoryAliasCondition : std::uint8_t {
   // C512 and C8192 views may share storage only when route selection and
   // completion events prove that the two routes cannot use it concurrently.
   kMutuallyExclusiveRouteOverlay,
+  // Panel token IDs occupy the operator arena prefix only until embedding
+  // gather completes; family or legacy scratch may cover it afterward.
+  kPromptTokenIdsConsumedBeforeOperatorScratchReuse,
 };
 
 enum class PrefillMemoryCapacityVerdict : std::uint8_t {
@@ -70,9 +80,44 @@ enum class PrefillOperatorScratchStrategy : std::uint8_t {
   // The family-overlay C8192 span and C512 workspace additionally share raw
   // storage under a route-exclusive event.
   kOverlayLegacyC512MutuallyExclusive,
-  // Every C8192 family and the legacy C512 workspace are disjoint. This is the
-  // conservative coexistence requirement and makes no alias assumption.
+  // The three C8192 families share one sequential span, while the complete
+  // legacy C512 route owns physically disjoint storage. This is the initial
+  // RequestState allocation shape; it needs family events but no route alias.
+  kC8192FamilyOverlayWithDisjointLegacyC512,
+  // The C8192 GDN/Attention/MLP families and legacy C512 workspace are
+  // disjoint. Phase-local reuse inside each explicitly selected physical
+  // tactic remains a separately named, unbound contract.
   kDisjointAllFamiliesAndLegacyC512,
+};
+
+enum class PrefillGdnPhysicalTactic : std::uint8_t {
+  kUnselected = 0,
+  // Exact C64-native recurrence reuses the projected QKV span as the causal
+  // convolution output. The fixed C512 native workspace is reused serially
+  // by every physical segment of one logical C8192 panel.
+  kC64NativeInPlaceConv,
+  // Exact C64-native recurrence keeps one independent C512 convolution output
+  // while the full-panel projected QKV remains live.
+  kC64NativeTokenParallelConv,
+};
+
+enum class PrefillLegacyGdnPhysicalTactic : std::uint8_t {
+  kUnselected = 0,
+  // Current Release/default exact C16 composite; no runner-lifetime native
+  // C64 workspace exists in this configuration.
+  kC16Composite,
+  // Experimental/test-only C64-native legacy route. A future production use
+  // must explicitly promote and bind its fixed workspace.
+  kC64Native,
+};
+
+enum class PrefillMlpPhysicalTactic : std::uint8_t {
+  kUnselected = 0,
+  // Gate+Up projection completes before the separate exact SiLU/gate pass.
+  kSeparateGateUpAndSilu,
+  // The fused epilogue keeps N, merged Gate+Up, activated Down input, Marlin
+  // reduction storage, and locks live together.
+  kFusedGateUpEpilogue,
 };
 
 enum class PrefillWorkspacePlanError : std::uint8_t {
@@ -150,22 +195,19 @@ struct PrefillProjectionShapeRequirement {
 };
 
 enum class PrefillScratchFamily : std::uint8_t {
-  kGdnMergedInputProjection = 0,
-  kGdnFusedPostConvPrep,
+  kGdnProjectionAndRecurrentCore = 0,
   kFullAttentionProjectionAndCore,
-  kMlpMergedGateUp,
+  kMlpGateUpAndDown,
 };
 
 enum class PrefillScratchProducer : std::uint8_t {
   kGdnInProjQkvzAndInProjBa = 0,
-  kGdnFusedPostConvPrepQkvGBeta,
   kFullAttentionQkvGateProjection,
   kMlpMergedGateUpProjection,
 };
 
 enum class PrefillScratchLastConsumer : std::uint8_t {
-  kGdnFusedPostConvPrep = 0,
-  kGdnRecurrentUpdateNormAndOutputProjection,
+  kGdnRecurrentUpdateNormAndOutputProjection = 0,
   kFullAttentionCoreGateAndOutputProjection,
   kMlpSiluGateAndDownProjection,
 };
@@ -174,12 +216,55 @@ enum class PrefillScratchLastConsumer : std::uint8_t {
 // its last consumer. Different family live sets may overlay only after a
 // future event contract proves that producer-consumer interval complete.
 struct PrefillOperatorFamilyLiveSet {
-  PrefillScratchFamily family = PrefillScratchFamily::kGdnMergedInputProjection;
+  PrefillScratchFamily family =
+      PrefillScratchFamily::kGdnProjectionAndRecurrentCore;
   PrefillScratchProducer producer =
       PrefillScratchProducer::kGdnInProjQkvzAndInProjBa;
   PrefillScratchLastConsumer last_consumer =
-      PrefillScratchLastConsumer::kGdnFusedPostConvPrep;
+      PrefillScratchLastConsumer::kGdnRecurrentUpdateNormAndOutputProjection;
   PrefillMemoryRequirement aggregate;
+};
+
+enum class PrefillWorkspaceBackingIdentity : std::uint8_t {
+  kNone = 0,
+  // One physical projection workspace is reused by the sequential C8192
+  // family arena after the named family-completion events.
+  kC8192SequentialFamilyPhaseArena,
+  // Each disjoint C8192 family arena owns its own embedded projection view.
+  kC8192DisjointFamilyPhaseArenas,
+  kOperatorArenaPromptTokenPrefix,
+  kC8192GdnNativeArena,
+  kLegacyC512GdnNativeArena,
+  // C8192 and legacy C512 routes reuse one native workspace only after the
+  // route mutual-exclusion event is bound.
+  kMutuallyExclusiveC8192LegacyGdnNativeArena,
+  // C8192 and legacy C512 routes retain two physically distinct workspaces.
+  kDisjointC8192LegacyGdnNativeArenas,
+};
+
+enum class PrefillWorkspacePhaseOwnership : std::uint8_t {
+  kNone = 0,
+  kC8192ProjectionFamilies,
+  kPromptTokenIdsBeforeOperatorFamilies,
+  kC8192GdnRecurrentPhase,
+  kLegacyC512GdnRoute,
+  kMutuallyExclusiveC8192LegacyGdnRoutes,
+  kDisjointC8192LegacyGdnRoutes,
+};
+
+// Machine-readable physical backing requirement. `minimum_instance_count`
+// describes distinct backing instances required by this variant; it is not a
+// launch count. The bytes are already included in the variant high-water, but
+// the concrete subrange remains unbound in every host-only plan.
+struct PrefillWorkspaceBackingContract {
+  PrefillWorkspaceBackingIdentity identity =
+      PrefillWorkspaceBackingIdentity::kNone;
+  PrefillWorkspacePhaseOwnership phase_ownership =
+      PrefillWorkspacePhaseOwnership::kNone;
+  std::uint64_t bytes_per_instance = 0U;
+  std::uint32_t minimum_instance_count = 0U;
+  bool capacity_included_in_variant_total = false;
+  bool subrange_binding_required = false;
 };
 
 struct PrefillOperatorScratchVariant {
@@ -190,11 +275,36 @@ struct PrefillOperatorScratchVariant {
   bool requires_legacy_route_exclusion = false;
   bool requires_family_completion_events = false;
   bool requires_route_mutual_exclusion_event = false;
+  bool requires_intra_family_phase_contract = false;
+  bool requires_prompt_token_ids_consumed_event = false;
+  PrefillWorkspaceBackingContract prompt_token_ids_backing;
+  PrefillWorkspaceBackingContract projection_workspace_backing;
+  PrefillWorkspaceBackingContract gdn_native_workspace_backing;
 };
 
 struct PrefillOperatorScratchMemoryPlan {
   std::uint32_t c8192_panel_capacity_tokens = 0U;
   std::uint32_t legacy_c512_panel_capacity_tokens = 0U;
+  PrefillGdnPhysicalTactic gdn_tactic =
+      PrefillGdnPhysicalTactic::kUnselected;
+  PrefillLegacyGdnPhysicalTactic legacy_gdn_tactic =
+      PrefillLegacyGdnPhysicalTactic::kUnselected;
+  PrefillMlpPhysicalTactic mlp_tactic =
+      PrefillMlpPhysicalTactic::kUnselected;
+
+  // Phase details are non-additive named evidence for each family high-water.
+  // The aggregate family requirement is the maximum of its phases, not their
+  // sum. All aliases remain unbound until a DeploymentPlan authenticates the
+  // selected tactic, workspace partition, launcher, stream, and event.
+  PrefillMemoryRequirement gdn_projection_phase;
+  PrefillMemoryRequirement prompt_token_ids_u32;
+  PrefillMemoryRequirement gdn_recurrent_phase;
+  PrefillMemoryRequirement gdn_c64_native_workspace;
+  std::optional<PrefillMemoryRequirement>
+      gdn_token_parallel_c512_conv_output;
+  PrefillMemoryRequirement full_attention_preprocess_phase;
+  PrefillMemoryRequirement mlp_gate_up_down_phase;
+  PrefillMemoryRequirement shared_projection_reduction_and_locks;
   std::array<PrefillOperatorFamilyLiveSet,
              kLayerMajorPrefillScratchFamilyCount>
       c8192_family_live_sets{};
@@ -204,8 +314,11 @@ struct PrefillOperatorScratchMemoryPlan {
   PrefillMemoryRequirement legacy_c512_projection_bf16;
   PrefillMemoryRequirement legacy_c512_linear_scalar_bf16;
   PrefillMemoryRequirement legacy_c512_fp32_scratch;
+  std::optional<PrefillMemoryRequirement> legacy_c512_gdn_native_workspace;
   PrefillOperatorScratchVariant legacy_c512_only;
   PrefillOperatorScratchVariant mutually_exclusive_overlay;
+  PrefillOperatorScratchVariant
+      c8192_family_overlay_with_disjoint_legacy_c512;
   PrefillOperatorScratchVariant disjoint_conservative;
   PrefillOperatorScratchVariant selected;
   PrefillProjectionShapeRequirement gate_up;
@@ -236,6 +349,12 @@ struct LayerMajorPrefillWorkspaceOptions {
   PrefillHiddenStrategy hidden_strategy = PrefillHiddenStrategy::kUnselected;
   PrefillOperatorScratchStrategy scratch_strategy =
       PrefillOperatorScratchStrategy::kUnselected;
+  PrefillGdnPhysicalTactic gdn_tactic =
+      PrefillGdnPhysicalTactic::kUnselected;
+  PrefillLegacyGdnPhysicalTactic legacy_gdn_tactic =
+      PrefillLegacyGdnPhysicalTactic::kUnselected;
+  PrefillMlpPhysicalTactic mlp_tactic =
+      PrefillMlpPhysicalTactic::kUnselected;
 };
 
 struct LayerMajorPrefillWorkspacePlan {
@@ -246,13 +365,18 @@ struct LayerMajorPrefillWorkspacePlan {
 
   PrefillPersistentStateMemoryPlan persistent_state;
   PrefillPositionMemoryPlan position_state;
+  // Stable one-token BF16 handoff from the final layer into sampling/decode.
+  // It is physically independent of prompt-wide and legacy hidden buffers.
+  PrefillMemoryRequirement final_hidden_handoff_bf16;
   PrefillPromptWideHiddenMemoryPlan prompt_wide_hidden;
   PrefillOperatorScratchMemoryPlan operator_scratch;
 
   PrefillMemoryOwner request_arena_owner =
       PrefillMemoryOwner::kRequestStateArena;
-  // minimum_conditional is not a safe default; conservative is an upper
-  // coexistence requirement; selected is exactly the caller's explicit pair.
+  // Every profile is conditional on the explicitly selected physical tactics.
+  // minimum_conditional overlays operator families; conservative separates
+  // the three C8192 families and legacy route but still names phase-local
+  // tactic reuse. selected is exactly the caller's explicit strategy pair.
   PrefillArenaCapacityProfile minimum_conditional;
   PrefillArenaCapacityProfile selected;
   PrefillArenaCapacityProfile conservative;

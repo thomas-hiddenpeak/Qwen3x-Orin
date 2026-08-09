@@ -5,6 +5,7 @@
 #include "../sm87/gdn_prefill_group_wy_sm87.h"
 #include "../sm87/gdn_prefill_wy_vllm_layout_sm87.h"
 
+#include "q3x/kernels/gdn_prefill_chunk64_workspace_abi.h"
 #include "q3x/runtime/gdn_decode.h"
 
 #include <cuda_bf16.h>
@@ -185,9 +186,6 @@ constexpr std::size_t kChunkMatrixElements =
 constexpr std::size_t kBoundaryStateElements =
     kMatrixCount * kDimension * kDimension;
 constexpr std::size_t kScalarElements = kMatrixCount * kChunkSize;
-constexpr std::size_t kWorkspaceAlignment = 256U;
-constexpr std::size_t kBf16Bytes = sizeof(std::uint16_t);
-constexpr std::size_t kFp32Bytes = sizeof(float);
 constexpr std::size_t kQOffset = 0U;
 constexpr std::size_t kKOffset = kGdnQElements;
 constexpr std::size_t kVOffset = kGdnQElements + kGdnKElements;
@@ -197,52 +195,31 @@ static_assert(kQkHeadCount * 3U == kValueHeadCount);
 static_assert(kCompactHeadTokenElements * 3U == kHeadTokenElements);
 static_assert(kDimension == 128U);
 static_assert(kChunkSize == 4U * kSolveSubblock);
+static_assert(kTokenCount ==
+              kernels::kGdnPrefillChunk64WorkspaceTokenCount);
+static_assert(kChunkSize ==
+              kernels::kGdnPrefillChunk64WorkspaceChunkSize);
+static_assert(kMatrixCount ==
+              kernels::kGdnPrefillChunk64WorkspaceMatrixCount);
+static_assert(kHeadTokenElements ==
+              kernels::kGdnPrefillChunk64WorkspaceHeadTokenElements);
+static_assert(kChunkMatrixElements ==
+              kernels::kGdnPrefillChunk64WorkspaceChunkMatrixElements);
+static_assert(kBoundaryStateElements ==
+              kernels::kGdnPrefillChunk64WorkspaceBoundaryStateElements);
+static_assert(kScalarElements ==
+              kernels::kGdnPrefillChunk64WorkspaceScalarElements);
 
 namespace wmma = nvcuda::wmma;
 using Bf16 = __nv_bfloat16;
 using WmmaAccumulator =
     wmma::fragment<wmma::accumulator, 16, 16, 16, float>;
 
-[[nodiscard]] constexpr std::size_t align_workspace(
-    const std::size_t value) noexcept {
-  return (value + kWorkspaceAlignment - 1U) &
-         ~(kWorkspaceAlignment - 1U);
-}
-
-[[nodiscard]] constexpr std::size_t append_region(
-    const std::size_t offset,
-    const std::size_t elements,
-    const std::size_t element_bytes) noexcept {
-  return align_workspace(offset) + elements * element_bytes;
-}
-
 [[nodiscard]] constexpr std::size_t required_workspace_bytes() noexcept {
-  std::size_t offset = 0U;
-  // Same-ELF packed-baseline capacity is retained for Q, K, exp(g)K,
-  // end-decayed K, and V. The production path uses only the compact H16
-  // prefix of Q/K and never touches the three packed materializations.
-  // T, QK, W, U, Vnew, and H retain their value-head layout.
-  for (unsigned int index = 0U; index < 5U; ++index) {
-    offset = append_region(offset, kHeadTokenElements, kBf16Bytes);
-  }
-  for (unsigned int index = 0U; index < 2U; ++index) {
-    offset = append_region(offset, kChunkMatrixElements, kBf16Bytes);
-  }
-  for (unsigned int index = 0U; index < 3U; ++index) {
-    offset = append_region(offset, kHeadTokenElements, kBf16Bytes);
-  }
-  offset = append_region(offset, kBoundaryStateElements, kBf16Bytes);
-  // The open-book KKT path deliberately preserves FLA's FP32 A boundary
-  // between the streamed dot product and the triangular inverse. This costs
-  // one bounded C64 matrix per chunk/head and lets the two kernels use 8 KiB
-  // and 32 KiB of shared memory instead of sharing a 48 KiB fused lifetime.
-  offset = append_region(offset, kChunkMatrixElements, kFp32Bytes);
-  // Cumulative gate and beta. QK is produced directly at its BF16 stage
-  // boundary by the native WMMA kernel.
-  offset = append_region(offset, kScalarElements, kFp32Bytes);
-  offset = append_region(offset, kScalarElements, kFp32Bytes);
-  return align_workspace(offset);
+  return kernels::kGdnPrefillChunk64NativeWorkspaceBytes;
 }
+
+static_assert(required_workspace_bytes() == 75'694'080U);
 
 struct Workspace {
   std::uint16_t* q = nullptr;
@@ -262,13 +239,9 @@ struct Workspace {
 };
 
 template <typename T>
-[[nodiscard]] T* take_region(std::uint8_t* const base,
-                             std::size_t& offset,
-                             const std::size_t elements) noexcept {
-  offset = align_workspace(offset);
-  auto* const result = reinterpret_cast<T*>(base + offset);
-  offset += elements * sizeof(T);
-  return result;
+[[nodiscard]] T* workspace_region(std::uint8_t* const base,
+                                  const std::size_t offset) noexcept {
+  return reinterpret_cast<T*>(base + offset);
 }
 
 [[nodiscard]] bool partition_workspace(void* const raw,
@@ -278,28 +251,26 @@ template <typename T>
     return false;
   }
   auto* const base = static_cast<std::uint8_t*>(raw);
-  std::size_t offset = 0U;
-  workspace.q = take_region<std::uint16_t>(base, offset, kHeadTokenElements);
-  workspace.k = take_region<std::uint16_t>(base, offset, kHeadTokenElements);
-  workspace.k_g =
-      take_region<std::uint16_t>(base, offset, kHeadTokenElements);
+  constexpr auto& layout = kernels::kGdnPrefillChunk64WorkspaceLayout;
+  workspace.q = workspace_region<std::uint16_t>(base, layout.q_offset);
+  workspace.k = workspace_region<std::uint16_t>(base, layout.k_offset);
+  workspace.k_g = workspace_region<std::uint16_t>(base, layout.k_g_offset);
   workspace.k_decay =
-      take_region<std::uint16_t>(base, offset, kHeadTokenElements);
-  workspace.v = take_region<std::uint16_t>(base, offset, kHeadTokenElements);
+      workspace_region<std::uint16_t>(base, layout.k_decay_offset);
+  workspace.v = workspace_region<std::uint16_t>(base, layout.v_offset);
   workspace.transform =
-      take_region<std::uint16_t>(base, offset, kChunkMatrixElements);
-  workspace.qk =
-      take_region<std::uint16_t>(base, offset, kChunkMatrixElements);
-  workspace.w = take_region<std::uint16_t>(base, offset, kHeadTokenElements);
-  workspace.u = take_region<std::uint16_t>(base, offset, kHeadTokenElements);
+      workspace_region<std::uint16_t>(base, layout.transform_offset);
+  workspace.qk = workspace_region<std::uint16_t>(base, layout.qk_offset);
+  workspace.w = workspace_region<std::uint16_t>(base, layout.w_offset);
+  workspace.u = workspace_region<std::uint16_t>(base, layout.u_offset);
   workspace.v_new =
-      take_region<std::uint16_t>(base, offset, kHeadTokenElements);
+      workspace_region<std::uint16_t>(base, layout.v_new_offset);
   workspace.boundary_state =
-      take_region<std::uint16_t>(base, offset, kBoundaryStateElements);
-  workspace.kkt = take_region<float>(base, offset, kChunkMatrixElements);
-  workspace.gamma = take_region<float>(base, offset, kScalarElements);
-  workspace.beta = take_region<float>(base, offset, kScalarElements);
-  return align_workspace(offset) <= capacity;
+      workspace_region<std::uint16_t>(base, layout.boundary_state_offset);
+  workspace.kkt = workspace_region<float>(base, layout.kkt_offset);
+  workspace.gamma = workspace_region<float>(base, layout.gamma_offset);
+  workspace.beta = workspace_region<float>(base, layout.beta_offset);
+  return layout.total_bytes <= capacity;
 }
 
 __device__ __forceinline__ float decode_bf16_device(

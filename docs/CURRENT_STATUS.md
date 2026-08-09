@@ -57,12 +57,13 @@ evaluation adapter: loopback-only, unauthenticated, serialized batch one, and
 without a production network, tenant, admission, or cancellation contract.
 
 The development tree now contains a pure-host layer-major topology/progress
-plan, an exact host workspace-requirements planner, a 17-role operator-binding
-contract, and isolated C8192 NVFP4/FP8 projection surfaces. These are
-implemented infrastructure components, not an executable architecture
-candidate: they are unbound, are not connected to `RequestState`, the runner,
-or a selector, and have not changed the existing C512 production route or its
-performance.
+plan, a tactic-explicit host workspace-requirements planner, a staged
+whole-request generation-control seam, a 17-role operator-binding contract,
+and isolated C8192 NVFP4/FP8 projection surfaces. These are implemented
+infrastructure components, not an executable architecture candidate: the host
+seam is not connected to `RequestState` or a runner implementation, every
+physical binding remains unbound, no selector admits it, and the existing C512
+production route and performance are unchanged.
 
 Accordingly, current product status is **implemented evaluation runner,
 unqualified production runner**.
@@ -76,9 +77,9 @@ unqualified production runner**.
 | OpenAI-compatible evaluation API | Implemented | `/healthz`, `/v1/models`, completions/chat, non-streaming and committed-token SSE | Loopback/evaluation-only; no production exposure, security, cancellation, or multi-tenant contract |
 | Production serving API | Designed | Product/API contract is defined in the SDD | No installed release profile or release attestation exists |
 | Default context capacity | Implemented at 8,192 | Server default `max_sequence_length=8192`, maximum output 4,096, 2 GiB request-arena limit | Does not admit the locked long-context workloads |
-| 40K/60K/130K cold/no-cache service | Target; host requirements implemented | Configured token-ID ingress fails closed on capacity, the legacy planner expresses C512 arenas, and the layer-major host planner gives exact selected/conservative request-arena requirements | Default admission/reservation, model-plus-sidecar whole-process capacity, cancellation, executable target route, performance, and qualification are absent |
+| 40K/60K/130K cold/no-cache service | Target; host requirements implemented | Configured token-ID ingress fails closed on capacity, the legacy planner expresses C512 arenas, and the layer-major host planner gives tactic-explicit request-arena requirements | Default admission/reservation, model-plus-sidecar whole-process capacity, cancellation, executable target route, performance, and qualification are absent |
 | Prefill/Decode logical separation | Implemented in part | Separate phase APIs/metrics and an explicit state transition exist | Shared runner and synchronization-heavy physical plan prevent independent utilization and overlap |
-| Layer-major C8192 candidate | Designed; supporting infrastructure implemented | Unbound 64-layer host topology/progress, workspace requirements, 17-role binding contract, and isolated NVFP4/FP8 C8192 surfaces | Every C8192 binding is unbound; no `RequestState`/runner/selector seam or complete 17-role executor exists; the candidate is not executable or selected |
+| Layer-major C8192 candidate | Designed; supporting infrastructure implemented | Unbound 64-layer topology/progress, tactic-explicit workspace requirements, staged whole-request controller/finalizer/commit seam, 17-role binding contract, and isolated NVFP4/FP8 C8192 surfaces | No layer-major `RequestState` profile or runner executor exists, every physical binding is unbound, and no selector admits the candidate |
 | Large-M Prefill specializations | Implemented as legacy admissions plus isolated C8192 surfaces | Native NVFP4/FP8/BF16 and Attention/GDN C512 candidates exist in development builds; isolated NVFP4/FP8 surfaces accept candidate-only C8192 panels | Existing options default off/test-only, C8192 surfaces are unbound, and no unique exact release selection exists |
 | Decode target | Directionally near target | Short API evidence reports about 104 ms TPOT | At least 10 token/s, long-output stability, and release repetition are not qualified |
 | Production accuracy | Target with partial oracles | Exact deterministic outputs are available for selected prompts/routes | No complete public capability baseline and promotion gate has passed |
@@ -120,20 +121,36 @@ workspace, thermal headroom, cancellation, queue policy, and exact API
 qualification must be planned together.
 
 The unbound layer-major workspace planner separately reports the following
-exact request-arena requirements for `AC-PREFILL-LAYERMAJOR-8K-v1`:
+exact request-arena arithmetic for one explicit physical-tactic profile:
+C8192 exact C64-native GDN with in-place convolution, current Release/default
+legacy C16 GDN, and separate Gate+Up then SiLU. C64-native remains a test-only
+admission today; naming it here is a candidate requirement, not a production
+claim.
 
 | Prompt tokens | Caller-selected conditional profile | Conservative disjoint profile |
 | ---: | ---: | ---: |
-| 40,000 | 3,975,364,608 bytes | 5,453,731,840 bytes |
-| 60,000 | 5,496,004,608 bytes | 7,181,091,840 bytes |
-| 130,000 | 10,818,244,608 bytes | 13,226,851,840 bytes |
+| 40,000 | 3,975,374,848 bytes | 5,324,963,840 bytes |
+| 60,000 | 5,496,014,848 bytes | 7,052,323,840 bytes |
+| 130,000 | 10,818,254,848 bytes | 13,098,083,840 bytes |
 
 The `selected` label in this table is a caller-selected host-planner strategy,
 not selection of an architecture candidate or production route. It assumes
 one prompt-wide hidden allocation and family-live-set overlay whose alias,
 completion-event, and legacy-route-exclusion contracts are still unbound. The
-conservative profile uses two prompt-wide hidden buffers and disjoint C8192
-families plus the legacy C512 workspace.
+conservative profile uses two prompt-wide hidden buffers and makes the three
+C8192 operator families plus the legacy C512 workspace disjoint; it still
+depends on the named phase-local layout contract inside each selected tactic.
+Changing the tactic changes the exact total: token-parallel C64 convolution
+raises the three conservative rows to 5,335,449,600, 7,062,809,600, and
+13,108,569,600 bytes; fused Gate+Up epilogue raises the C8192 overlay from
+855,638,016 to 940,572,928 bytes. A disjoint test-only native legacy GDN adds
+another 75,694,080 bytes, whereas the current Release C16 route adds none.
+Every profile also includes an independent 10,240-byte final-hidden handoff.
+The initial `RequestState` shape keeps the C8192 family overlay but gives the
+legacy C512 workspace disjoint storage; its exact 40K/60K/130K totals are
+4,066,344,960, 5,588,904,960, and 10,917,864,960 bytes. A 32,768-byte C8192
+token-ID staging view reuses the operator-arena prefix only after an explicit
+embedding-consumed event, so it does not add another allocation.
 
 All six request-arena values fit the planner's declared
 17,437,720,576-byte limit, but no whole-process fit follows. Resident-model and
@@ -249,30 +266,39 @@ architecture seam. The required response is a whole prompt-span execution
 plan with explicit state semantics, residency, buffer ownership and overlap,
 not a return to unrelated kernel parameter scans.
 
-The tree at `af514ed` has implemented four non-production foundations for that
-response:
+The tree has implemented five non-production foundations for that response:
 
 - an immutable, pure-host 64-layer/C8192 topology and request-owned progress
   model with one planned final host-state commit;
-- exact selected/conservative host workspace requirements for the target
-  buckets, while model/sidecar and whole-process capacity remain
-  indeterminate;
+- tactic-explicit selected/conservative host workspace requirements for the target
+  buckets under explicit GDN/legacy/MLP physical tactics, while model/sidecar
+  and whole-process capacity remain indeterminate;
 - a complete 17-role typed contract whose C8192 tactic, resource, launcher,
-  and event identities and attestation remain unbound; and
-- isolated candidate-only C8192 NVFP4 and FP8 projection surfaces.
+  and event identities and attestation remain unbound;
+- isolated candidate-only C8192 NVFP4 and FP8 projection surfaces; and
+- a default-off whole-request control seam that accepts only a complete,
+  uncommitted 64-layer result, uses a dedicated retained-hidden finalizer,
+  invokes one no-throw final commit callback whose non-OK status guarantees no
+  state change, and publishes the controller's local progress only after the
+  callback's single no-fail state publication succeeds; every ordinary
+  C512/scalar path remains unchanged.
 
-None is bound to `RequestState`, the runner, or a selector. The host commit
-helper cannot mutate production request state, the binding/workspace plans
-report non-executable, and the production-route admission remains M512.
-Consequently these commits change no production performance claim.
+None supplies a layer-major `RequestState`, runner executor, bound deployment
+plan, or selector. The new control callbacks remain null in `ReferenceEngine`,
+the binding/workspace plans report non-executable, and production-route
+admission remains M512. Consequently these commits change no production
+performance claim.
 
-The immediate next implementation boundary is the whole-request layer-major
-host seam through `RequestState` and the runner. It must preserve fail-closed
-selection and the C512 incumbent while establishing the final-state
-transition and the attachment points for a later authenticated, fully bound
-17-role execution/deployment plan. It is not permission to call the candidate
-executable, selected, or production before those bindings and the real API
-witness exist.
+The immediate next implementation boundary is the layer-major `RequestState`
+profile: one full-prompt residual, bounded operator scratch with typed phase
+views, a fixed final-hidden handoff slot, and legacy buffers retained as a
+disjoint first integration profile. Its planner strategy and exact byte total
+now exist, but no device region or typed subrange is bound yet. The runner
+must then extract one
+parameterized layer-panel body and implement true `layer -> panel` traversal;
+calling the existing 64-layer C512 tile loop repeatedly is not that executor.
+The C512 incumbent remains selectable until a later authenticated, fully bound
+17-role plan and real API witness exist.
 
 Unpinned or dirty experimental branches are intentionally excluded from this
 status snapshot. A candidate affects current truth only after its exact commit,
