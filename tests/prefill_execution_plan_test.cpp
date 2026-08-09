@@ -124,6 +124,9 @@ void test_public_tile_and_operator_panel_are_independent(TestContext& test) {
           runtime::is_valid_layer_major_prefill_projection_tactic(
               runtime::LayerMajorPrefillProjectionTactic::
                   kNativeNvfp4TrueLargeMOperatorPanel) &&
+          runtime::is_valid_layer_major_prefill_projection_tactic(
+              runtime::LayerMajorPrefillProjectionTactic::
+                  kNativeNvfp4G2D2LargeMOperatorPanel) &&
           !runtime::is_valid_layer_major_prefill_projection_tactic(
               static_cast<runtime::LayerMajorPrefillProjectionTactic>(
                   0xffU)),
@@ -143,9 +146,13 @@ void test_public_tile_and_operator_panel_are_independent(TestContext& test) {
           runtime::to_string(
               runtime::LayerMajorPrefillProjectionTactic::
                   kNativeNvfp4TrueLargeMOperatorPanel) ==
-              "native-nvfp4-true-large-m-operator-panel",
+              "native-nvfp4-true-large-m-operator-panel" &&
+          runtime::to_string(
+              runtime::LayerMajorPrefillProjectionTactic::
+                  kNativeNvfp4G2D2LargeMOperatorPanel) ==
+              "native-nvfp4-g2-d2-large-m-operator-panel",
       "projection tactic names preserve exact, segmented, native large-M, "
-      "and true-large-M NVFP4 route identity");
+      "true-large-M, and G2/D2 NVFP4 route identity");
   const runtime::PrefillExecutionPlanResult result = build_plan(513U);
   test.expect(result &&
                   result.value->legacy_public_tile_limit == 512U &&

@@ -659,12 +659,122 @@ std::string serialize_target_prefill_witness(
   const bool true_large_m_nvfp4_candidate_uses_flashinfer_attention =
       record.deployment_plan_id == runtime::
           kLayerMajorNativeNvfp4TrueLargeMProjectionFlashInferExactDeploymentPlanId;
+  const bool g2_d2_nvfp4_candidate_v8 =
+      record.deployment_plan_id == runtime::
+          kLayerMajorNativeNvfp4G2D2LargeMProjectionDeploymentPlanId ||
+      record.deployment_plan_id == runtime::
+          kLayerMajorNativeNvfp4G2D2LargeMProjectionGroupQ64DeploymentPlanId ||
+      record.deployment_plan_id == runtime::
+          kLayerMajorNativeNvfp4G2D2LargeMProjectionGroupQ128V4DeploymentPlanId ||
+      record.deployment_plan_id == runtime::
+          kLayerMajorNativeNvfp4G2D2LargeMProjectionFlashInferExactDeploymentPlanId;
+  const bool g2_d2_nvfp4_candidate_uses_q64_attention =
+      record.deployment_plan_id == runtime::
+          kLayerMajorNativeNvfp4G2D2LargeMProjectionGroupQ64DeploymentPlanId;
+  const bool g2_d2_nvfp4_candidate_uses_q128_v4_attention =
+      record.deployment_plan_id == runtime::
+          kLayerMajorNativeNvfp4G2D2LargeMProjectionGroupQ128V4DeploymentPlanId;
+  const bool g2_d2_nvfp4_candidate_uses_flashinfer_attention =
+      record.deployment_plan_id == runtime::
+          kLayerMajorNativeNvfp4G2D2LargeMProjectionFlashInferExactDeploymentPlanId;
+  constexpr std::uint64_t kLayerCount = 64U;
+  constexpr std::uint64_t kAttentionLayerCount = 16U;
+  constexpr std::uint64_t kFp8ProjectionCountPerPanel = 208U;
+  const bool g2_d2_panel_count_valid =
+      record.operator_panel_executor_hits != 0U &&
+      record.operator_panel_executor_hits % kLayerCount == 0U;
+  const std::uint64_t g2_d2_panel_count =
+      g2_d2_panel_count_valid
+          ? record.operator_panel_executor_hits / kLayerCount
+          : 0U;
+  const bool g2_d2_panel_coverage_complete =
+      g2_d2_panel_count_valid &&
+      record.prefill_logical_panel_count == g2_d2_panel_count &&
+      record.prefill_route_evidence.valid &&
+      record.prefill_route_evidence.complete &&
+      !record.prefill_route_evidence.request_active &&
+      record.prefill_route_evidence.completed_layer_passes ==
+          g2_d2_panel_count &&
+      record.prefill_route_evidence.expected_layer_passes ==
+          g2_d2_panel_count;
+  const bool g2_d2_expected_fp8_count_representable =
+      g2_d2_panel_count <= std::numeric_limits<std::uint64_t>::max() /
+                               kFp8ProjectionCountPerPanel;
+  const std::uint64_t g2_d2_expected_fp8_projection_hits =
+      g2_d2_expected_fp8_count_representable
+          ? g2_d2_panel_count * kFp8ProjectionCountPerPanel
+          : 0U;
+  const bool g2_d2_expected_nvfp4_count_representable =
+      record.operator_panel_executor_hits <=
+      std::numeric_limits<std::uint64_t>::max() / 2U;
+  const std::uint64_t g2_d2_expected_nvfp4_projection_hits =
+      g2_d2_expected_nvfp4_count_representable
+          ? 2U * record.operator_panel_executor_hits
+          : 0U;
+  const bool g2_d2_expected_attention_count_representable =
+      g2_d2_panel_count <= std::numeric_limits<std::uint64_t>::max() /
+                               kAttentionLayerCount;
+  const std::uint64_t g2_d2_expected_native_attention_hits =
+      g2_d2_expected_attention_count_representable
+          ? g2_d2_panel_count * kAttentionLayerCount
+          : 0U;
+  const bool g2_d2_attention_counts_complete =
+      g2_d2_expected_attention_count_representable &&
+      (g2_d2_nvfp4_candidate_uses_q64_attention
+           ? record.native_group_q64_panel_hits ==
+                     g2_d2_expected_native_attention_hits &&
+                 record.native_group_q128_v4_panel_hits == 0U &&
+                 record.native_flashinfer_exact_panel_hits == 0U &&
+                 record.generic_qt2_hits == 0U
+       : g2_d2_nvfp4_candidate_uses_q128_v4_attention
+           ? record.native_group_q64_panel_hits == 0U &&
+                 record.native_group_q128_v4_panel_hits ==
+                     g2_d2_expected_native_attention_hits &&
+                 record.native_flashinfer_exact_panel_hits == 0U &&
+                 record.generic_qt2_hits == 0U
+       : g2_d2_nvfp4_candidate_uses_flashinfer_attention
+           ? record.native_group_q64_panel_hits == 0U &&
+                 record.native_group_q128_v4_panel_hits == 0U &&
+                 record.native_flashinfer_exact_panel_hits ==
+                     g2_d2_expected_native_attention_hits &&
+                 record.generic_qt2_hits == 0U
+           : record.native_group_q64_panel_hits == 0U &&
+                 record.native_group_q128_v4_panel_hits == 0U &&
+                 record.native_flashinfer_exact_panel_hits == 0U &&
+                 record.generic_qt2_hits != 0U);
+  const bool g2_d2_fp8_partition_complete =
+      record.nvfp4_true_large_m_route_fp8_projection_bulk_hits <=
+          record.nvfp4_true_large_m_route_fp8_projection_hits &&
+      record.nvfp4_true_large_m_route_fp8_projection_oracle_partial_hits ==
+          record.nvfp4_true_large_m_route_fp8_projection_hits -
+              record.nvfp4_true_large_m_route_fp8_projection_bulk_hits;
+  const bool g2_d2_package_counts_complete =
+      g2_d2_panel_coverage_complete &&
+      g2_d2_expected_fp8_count_representable &&
+      g2_d2_expected_nvfp4_count_representable &&
+      g2_d2_attention_counts_complete &&
+      record.native_nvfp4_true_large_m_gate_up_hits ==
+          record.operator_panel_executor_hits &&
+      record.native_nvfp4_true_large_m_down_hits ==
+          record.operator_panel_executor_hits &&
+      record.native_nvfp4_true_large_m_projection_hits ==
+          g2_d2_expected_nvfp4_projection_hits &&
+      record.native_nvfp4_true_large_m_physical_launches ==
+          record.native_nvfp4_true_large_m_projection_hits &&
+      record.nvfp4_true_large_m_route_fp8_projection_hits ==
+          g2_d2_expected_fp8_projection_hits &&
+      g2_d2_fp8_partition_complete &&
+      record.nvfp4_true_large_m_route_fp8_projection_physical_launches >=
+          record.nvfp4_true_large_m_route_fp8_projection_hits;
   const bool accuracy_unqualified_candidate =
       candidate_v3 || projection_candidate_v4 ||
       native_large_m_candidate_v5 || flashinfer_exact_candidate_v6 ||
-      true_large_m_nvfp4_candidate_v7;
+      true_large_m_nvfp4_candidate_v7 || g2_d2_nvfp4_candidate_v8;
   std::string output =
-      true_large_m_nvfp4_candidate_v7
+      g2_d2_nvfp4_candidate_v8
+          ? "{\"record\":\"target-prefill-witness-v8\","
+            "\"schema_version\":8,\"request\":{\"id\":"
+      : true_large_m_nvfp4_candidate_v7
           ? "{\"record\":\"target-prefill-witness-v7\","
             "\"schema_version\":7,\"request\":{\"id\":"
       : flashinfer_exact_candidate_v6
@@ -746,7 +856,104 @@ std::string serialize_target_prefill_witness(
     output += record.bounded_submission_window ? "true" : "false";
     output += ",\"submission_window_retirements\":" +
               std::to_string(record.submission_window_retirements);
-    if (true_large_m_nvfp4_candidate_v7) {
+    if (g2_d2_nvfp4_candidate_v8) {
+      output += ",\"projection_tactic\":";
+      append_json_string(output,
+                         "native-nvfp4-g2-d2-large-m-operator-panel");
+      output += ",\"nvfp4_package\":\"gate-g2+down-d2\","
+                "\"nvfp4_gate_role_tactic\":\"GateUpG2\","
+                "\"nvfp4_down_role_tactic\":\"DownD2\","
+                "\"package_complete\":";
+      output += g2_d2_package_counts_complete ? "true" : "false";
+      output += ",\"attention_tactic\":";
+      append_json_string(
+          output, g2_d2_nvfp4_candidate_uses_flashinfer_attention
+                      ? "native-flashinfer-exact-panel"
+                  : g2_d2_nvfp4_candidate_uses_q128_v4_attention
+                      ? "native-group-q128-v4-panel"
+                  : g2_d2_nvfp4_candidate_uses_q64_attention
+                      ? "native-group-q64-panel"
+                      : "exact-segmented");
+      output += ",\"operator_panel_executor_hits\":" +
+                std::to_string(record.operator_panel_executor_hits) +
+                ",\"native_flashinfer_exact_panel_hits\":" +
+                std::to_string(record.native_flashinfer_exact_panel_hits) +
+                ",\"native_group_q64_panel_hits\":" +
+                std::to_string(record.native_group_q64_panel_hits) +
+                ",\"native_group_q128_v4_panel_hits\":" +
+                std::to_string(record.native_group_q128_v4_panel_hits) +
+                ",\"generic_qt2_hits\":" +
+                std::to_string(record.generic_qt2_hits) +
+                ",\"nvfp4_g2_d2_route_fp8_projection_hits\":" +
+                std::to_string(
+                    record.nvfp4_true_large_m_route_fp8_projection_hits) +
+                ",\"nvfp4_g2_d2_route_fp8_projection_bulk_hits\":" +
+                std::to_string(record
+                                   .nvfp4_true_large_m_route_fp8_projection_bulk_hits) +
+                ",\"nvfp4_g2_d2_route_fp8_projection_oracle_partial_hits\":" +
+                std::to_string(
+                    record
+                        .nvfp4_true_large_m_route_fp8_projection_oracle_partial_hits) +
+                ",\"nvfp4_g2_d2_route_fp8_projection_physical_launches\":" +
+                std::to_string(
+                    record
+                        .nvfp4_true_large_m_route_fp8_projection_physical_launches) +
+                ",\"native_nvfp4_g2_d2_projection_hits\":" +
+                std::to_string(
+                    record.native_nvfp4_true_large_m_projection_hits) +
+                ",\"native_nvfp4_gate_up_g2_hits\":" +
+                std::to_string(
+                    record.native_nvfp4_true_large_m_gate_up_hits) +
+                ",\"native_nvfp4_down_d2_hits\":" +
+                std::to_string(record.native_nvfp4_true_large_m_down_hits) +
+                ",\"native_nvfp4_g2_d2_physical_launches\":" +
+                std::to_string(
+                    record.native_nvfp4_true_large_m_physical_launches) +
+                ",\"nvfp4_g2_d2_package\":{\"identity\":";
+      append_json_string(output, "native-nvfp4-g2-d2-large-m");
+      output += ",\"selection\":\"coupled-fail-closed\",\"complete\":";
+      output += g2_d2_package_counts_complete ? "true" : "false";
+      output += ",\"roles\":{\"gate_up\":{\"identity\":\"GateUpG2\","
+                "\"publishes\":\"activated_bf16\","
+                "\"fused_silu_gate\":true,\"logical_hits\":" +
+                std::to_string(
+                    record.native_nvfp4_true_large_m_gate_up_hits) +
+                "},\"down\":{\"identity\":\"DownD2\","
+                "\"publishes\":\"prompt_residual_bf16\","
+                "\"fused_in_place_residual\":true,\"logical_hits\":" +
+                std::to_string(record.native_nvfp4_true_large_m_down_hits) +
+                "}},\"count_validation\":{\"complete\":";
+      output += g2_d2_package_counts_complete ? "true" : "false";
+      output += ",\"expected_layer_panel_hits\":" +
+                std::to_string(record.operator_panel_executor_hits) +
+                ",\"logical_panel_count\":" +
+                std::to_string(g2_d2_panel_count) +
+                ",\"expected_nvfp4_logical_projection_hits\":" +
+                std::to_string(g2_d2_expected_nvfp4_projection_hits) +
+                ",\"observed_nvfp4_logical_projection_hits\":" +
+                std::to_string(
+                    record.native_nvfp4_true_large_m_projection_hits) +
+                ",\"expected_nvfp4_physical_launches\":" +
+                std::to_string(g2_d2_expected_nvfp4_projection_hits) +
+                ",\"observed_nvfp4_physical_launches\":" +
+                std::to_string(
+                    record.native_nvfp4_true_large_m_physical_launches) +
+                ",\"expected_fp8_companion_projection_hits\":" +
+                std::to_string(g2_d2_expected_fp8_projection_hits) +
+                ",\"observed_fp8_companion_projection_hits\":" +
+                std::to_string(
+                    record.nvfp4_true_large_m_route_fp8_projection_hits) +
+                ",\"attention_route_complete\":";
+      output += g2_d2_attention_counts_complete ? "true" : "false";
+      output += ",\"expected_native_attention_hits\":" +
+                std::to_string(
+                    g2_d2_nvfp4_candidate_uses_q64_attention ||
+                            g2_d2_nvfp4_candidate_uses_q128_v4_attention ||
+                            g2_d2_nvfp4_candidate_uses_flashinfer_attention
+                        ? g2_d2_expected_native_attention_hits
+                        : 0U) +
+                "}}";
+    } else if (true_large_m_nvfp4_candidate_v7) {
       output += ",\"projection_tactic\":";
       append_json_string(output,
                          "native-nvfp4-true-large-m-operator-panel");

@@ -675,6 +675,150 @@ void test_target_prefill_witness_evidence(TestContext& test) {
               std::string::npos,
       "true-large-M NVFP4 composes with exact FlashInfer Attention in v7");
 
+  server::TargetPrefillWitnessRecord g2_d2_nvfp4_record =
+      true_large_m_nvfp4_record;
+  g2_d2_nvfp4_record.native_flashinfer_exact_panel_hits = 0U;
+  g2_d2_nvfp4_record.generic_qt2_hits = 4U;
+  g2_d2_nvfp4_record.native_nvfp4_true_large_m_projection_hits = 256U;
+  g2_d2_nvfp4_record.native_nvfp4_true_large_m_gate_up_hits = 128U;
+  g2_d2_nvfp4_record.native_nvfp4_true_large_m_down_hits = 128U;
+  g2_d2_nvfp4_record.native_nvfp4_true_large_m_physical_launches = 256U;
+  g2_d2_nvfp4_record.deployment_plan_id = q3x::runtime::
+      kLayerMajorNativeNvfp4G2D2LargeMProjectionDeploymentPlanId;
+  const std::string g2_d2_nvfp4_serialized =
+      server::serialize_target_prefill_witness(g2_d2_nvfp4_record);
+  test.expect(
+      valid_json(g2_d2_nvfp4_serialized) &&
+          g2_d2_nvfp4_serialized.find(
+              R"("record":"target-prefill-witness-v8","schema_version":8)") !=
+              std::string::npos &&
+          g2_d2_nvfp4_serialized.find(
+              R"("projection_tactic":"native-nvfp4-g2-d2-large-m-operator-panel")") !=
+              std::string::npos &&
+          g2_d2_nvfp4_serialized.find(
+              R"("nvfp4_package":"gate-g2+down-d2","nvfp4_gate_role_tactic":"GateUpG2","nvfp4_down_role_tactic":"DownD2","package_complete":true,"attention_tactic":"exact-segmented")") !=
+              std::string::npos &&
+          g2_d2_nvfp4_serialized.find(
+              R"("native_nvfp4_g2_d2_projection_hits":256,"native_nvfp4_gate_up_g2_hits":128,"native_nvfp4_down_d2_hits":128,"native_nvfp4_g2_d2_physical_launches":256)") !=
+              std::string::npos &&
+          g2_d2_nvfp4_serialized.find(
+              R"("native_nvfp4_true_large_m_projection_hits")") ==
+              std::string::npos &&
+          g2_d2_nvfp4_serialized.find(
+              R"("nvfp4_g2_d2_package":{"identity":"native-nvfp4-g2-d2-large-m","selection":"coupled-fail-closed","complete":true,"roles":{"gate_up":{"identity":"GateUpG2","publishes":"activated_bf16","fused_silu_gate":true,"logical_hits":128},"down":{"identity":"DownD2","publishes":"prompt_residual_bf16","fused_in_place_residual":true,"logical_hits":128}},"count_validation":{"complete":true,"expected_layer_panel_hits":128,"logical_panel_count":2,"expected_nvfp4_logical_projection_hits":256,"observed_nvfp4_logical_projection_hits":256,"expected_nvfp4_physical_launches":256,"observed_nvfp4_physical_launches":256,"expected_fp8_companion_projection_hits":416,"observed_fp8_companion_projection_hits":416,"attention_route_complete":true,"expected_native_attention_hits":0}})") !=
+              std::string::npos &&
+          g2_d2_nvfp4_serialized.find(
+              R"("id":"q3x.sm87.ac-prefill-prompt-wide-v2.native-nvfp4-g2-d2-large-m-operator-panel.exact-segmented-attention.v2")") !=
+              std::string::npos,
+      "G2/D2 emits a distinct v8 coupled-package witness with complete role "
+      "and launch counts");
+
+  server::TargetPrefillWitnessRecord g2_d2_missing_exact_attention =
+      g2_d2_nvfp4_record;
+  g2_d2_missing_exact_attention.generic_qt2_hits = 0U;
+  const std::string g2_d2_missing_exact_attention_serialized =
+      server::serialize_target_prefill_witness(
+          g2_d2_missing_exact_attention);
+  test.expect(
+      valid_json(g2_d2_missing_exact_attention_serialized) &&
+          g2_d2_missing_exact_attention_serialized.find(
+              R"("package_complete":false,"attention_tactic":"exact-segmented")") !=
+              std::string::npos &&
+          g2_d2_missing_exact_attention_serialized.find(
+              R"("attention_route_complete":false)") != std::string::npos,
+      "G2/D2 exact-segmented v8 requires nonzero generic QT2 evidence");
+
+  g2_d2_nvfp4_record.native_group_q64_panel_hits = 32U;
+  g2_d2_nvfp4_record.generic_qt2_hits = 0U;
+  g2_d2_nvfp4_record.deployment_plan_id = q3x::runtime::
+      kLayerMajorNativeNvfp4G2D2LargeMProjectionGroupQ64DeploymentPlanId;
+  const std::string g2_d2_nvfp4_q64_serialized =
+      server::serialize_target_prefill_witness(g2_d2_nvfp4_record);
+  test.expect(
+      valid_json(g2_d2_nvfp4_q64_serialized) &&
+          g2_d2_nvfp4_q64_serialized.find(
+              R"("package_complete":true,"attention_tactic":"native-group-q64-panel")") !=
+              std::string::npos,
+      "G2/D2 composes with grouped-Q64 Attention under a distinct v8 id");
+
+  g2_d2_nvfp4_record.native_group_q64_panel_hits = 0U;
+  g2_d2_nvfp4_record.native_group_q128_v4_panel_hits = 32U;
+  g2_d2_nvfp4_record.deployment_plan_id = q3x::runtime::
+      kLayerMajorNativeNvfp4G2D2LargeMProjectionGroupQ128V4DeploymentPlanId;
+  const std::string g2_d2_nvfp4_q128_serialized =
+      server::serialize_target_prefill_witness(g2_d2_nvfp4_record);
+  test.expect(
+      valid_json(g2_d2_nvfp4_q128_serialized) &&
+          g2_d2_nvfp4_q128_serialized.find(
+              R"("package_complete":true,"attention_tactic":"native-group-q128-v4-panel")") !=
+              std::string::npos,
+      "G2/D2 composes with grouped-Q128-v4 Attention under a distinct v8 id");
+
+  g2_d2_nvfp4_record.native_group_q128_v4_panel_hits = 0U;
+  g2_d2_nvfp4_record.native_flashinfer_exact_panel_hits = 32U;
+  g2_d2_nvfp4_record.deployment_plan_id = q3x::runtime::
+      kLayerMajorNativeNvfp4G2D2LargeMProjectionFlashInferExactDeploymentPlanId;
+  const std::string g2_d2_nvfp4_flashinfer_serialized =
+      server::serialize_target_prefill_witness(g2_d2_nvfp4_record);
+  test.expect(
+      valid_json(g2_d2_nvfp4_flashinfer_serialized) &&
+          g2_d2_nvfp4_flashinfer_serialized.find(
+              R"("package_complete":true,"attention_tactic":"native-flashinfer-exact-panel")") !=
+              std::string::npos,
+      "G2/D2 composes with exact FlashInfer Attention under a distinct v8 id");
+
+  server::TargetPrefillWitnessRecord g2_d2_bad_panel_count =
+      g2_d2_nvfp4_record;
+  g2_d2_bad_panel_count.prefill_logical_panel_count = 3U;
+  const std::string g2_d2_bad_panel_count_serialized =
+      server::serialize_target_prefill_witness(g2_d2_bad_panel_count);
+  test.expect(
+      valid_json(g2_d2_bad_panel_count_serialized) &&
+          g2_d2_bad_panel_count_serialized.find(
+              R"("selection":"coupled-fail-closed","complete":false)") !=
+              std::string::npos,
+      "G2/D2 v8 count validation binds executor hits to logical panels");
+
+  server::TargetPrefillWitnessRecord g2_d2_bad_attention =
+      g2_d2_nvfp4_record;
+  --g2_d2_bad_attention.native_flashinfer_exact_panel_hits;
+  const std::string g2_d2_bad_attention_serialized =
+      server::serialize_target_prefill_witness(g2_d2_bad_attention);
+  test.expect(
+      valid_json(g2_d2_bad_attention_serialized) &&
+          g2_d2_bad_attention_serialized.find(
+              R"("selection":"coupled-fail-closed","complete":false)") !=
+              std::string::npos &&
+          g2_d2_bad_attention_serialized.find(
+              R"("attention_route_complete":false)") != std::string::npos,
+      "G2/D2 v8 count validation rejects an Attention deployment/count "
+      "mismatch");
+
+  server::TargetPrefillWitnessRecord g2_d2_bad_fp8 = g2_d2_nvfp4_record;
+  g2_d2_bad_fp8.nvfp4_true_large_m_route_fp8_projection_physical_launches =
+      g2_d2_bad_fp8.nvfp4_true_large_m_route_fp8_projection_hits - 1U;
+  const std::string g2_d2_bad_fp8_serialized =
+      server::serialize_target_prefill_witness(g2_d2_bad_fp8);
+  test.expect(
+      valid_json(g2_d2_bad_fp8_serialized) &&
+          g2_d2_bad_fp8_serialized.find(
+              R"("selection":"coupled-fail-closed","complete":false)") !=
+              std::string::npos,
+      "G2/D2 v8 count validation rejects incomplete FP8 physical coverage");
+
+  --g2_d2_nvfp4_record.native_nvfp4_true_large_m_gate_up_hits;
+  const std::string incomplete_g2_d2_serialized =
+      server::serialize_target_prefill_witness(g2_d2_nvfp4_record);
+  test.expect(
+      valid_json(incomplete_g2_d2_serialized) &&
+          incomplete_g2_d2_serialized.find(
+              R"("nvfp4_g2_d2_package":{"identity":"native-nvfp4-g2-d2-large-m","selection":"coupled-fail-closed","complete":false)") !=
+              std::string::npos &&
+          incomplete_g2_d2_serialized.find(
+              R"("count_validation":{"complete":false)") !=
+              std::string::npos,
+      "G2/D2 v8 witness never reports an incomplete role count as complete");
+
   server::TargetPrefillWitnessRecord unbound_layer_major_record =
       sealed_record;
   unbound_layer_major_record.deployment_plan_id.clear();

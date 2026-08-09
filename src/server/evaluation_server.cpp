@@ -1011,7 +1011,17 @@ void execute_job(runtime::ReferenceEngine& engine,
               << " failed stage=" << generated.diagnostic.stage
               << " code=" << runtime::to_string(generated.diagnostic.code)
               << " message=" << generated.diagnostic.message
-              << " context=" << generated.diagnostic.context << '\n';
+              << " context=" << generated.diagnostic.context
+              << " operation=" << generated.diagnostic.operation
+              << " dependency_error="
+              << generated.diagnostic.dependency_error
+              << " cuda_error=" << generated.diagnostic.cuda_error
+              << " retired_prefill_quanta="
+              << generated.diagnostic.retired_prefill_quanta;
+    if (generated.diagnostic.layer != runtime::kReferenceNoLayer) {
+      std::cerr << " layer=" << generated.diagnostic.layer;
+    }
+    std::cerr << '\n';
     const bool client_error =
         generated.diagnostic.code ==
             runtime::ReferenceEngineError::kInvalidArgument ||

@@ -39,6 +39,8 @@ enum class NativePrefillTactic : std::uint8_t {
   kFp8NativeQuantizedLargeMOperatorPanel,
   kNvfp4GateUpTrueLargeMOperatorPanel,
   kNvfp4DownTrueLargeMOperatorPanel,
+  kNvfp4GateUpG2LargeMOperatorPanel,
+  kNvfp4DownD2LargeMOperatorPanel,
   kFp8Nvfp4TrueLargeMRouteCompanion,
   kBf16AbOracleSpanEstablishedM32,
   kExactGdnOracleSpanWholeRawQkvC512,

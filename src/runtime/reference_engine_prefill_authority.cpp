@@ -5,6 +5,9 @@
 #if defined(Q3X_ENABLE_NVFP4_TRUE_LARGE_M_PREFILL_ADMISSION)
 #include "q3x/kernels/sm87_nvfp4_prefill_large_m.h"
 #endif
+#if defined(Q3X_ENABLE_NVFP4_G2_D2_PREFILL_ADMISSION)
+#include "q3x/kernels/sm87_nvfp4_prefill_g2_d2.h"
+#endif
 #include "q3x/runtime/decode_ops.h"
 #include "q3x/runtime/reference_engine.h"
 
@@ -244,6 +247,68 @@ complete_nvfp4_true_large_m_capability() noexcept {
 }
 
 [[maybe_unused, nodiscard]] bool
+complete_nvfp4_g2_d2_capability() noexcept {
+#if !defined(Q3X_ENABLE_NVFP4_G2_D2_PREFILL_ADMISSION)
+  return false;
+#else
+  constexpr std::array<kernels::Sm87NvFp4PrefillG2D2Role, 2U> kRoles{
+      kernels::Sm87NvFp4PrefillG2D2Role::kGateUpG2,
+      kernels::Sm87NvFp4PrefillG2D2Role::kDownD2};
+  constexpr std::array<std::size_t, 2U> kPanelSizes{
+      kLayerMajorPrefillOperatorPanelTokens,
+      kLayerMajorPrefillTrueLargeMPartialPanelTokens};
+  const auto same_plan = [](
+                             const kernels::Sm87NvFp4PrefillG2D2Plan& left,
+                             const kernels::Sm87NvFp4PrefillG2D2Plan& right)
+      noexcept {
+        return left.role == right.role && left.dataflow == right.dataflow &&
+               left.token_count == right.token_count &&
+               left.input_features == right.input_features &&
+               left.weight_output_features == right.weight_output_features &&
+               left.published_output_features ==
+                   right.published_output_features &&
+               left.tile_m == right.tile_m &&
+               left.branch_tile_n == right.branch_tile_n &&
+               left.tile_k == right.tile_k && left.threads == right.threads &&
+               left.pipeline_stages == right.pipeline_stages &&
+               left.grid_m == right.grid_m && left.grid_n == right.grid_n &&
+               left.tail_rows == right.tail_rows &&
+               left.dynamic_shared_bytes == right.dynamic_shared_bytes;
+      };
+  constexpr std::size_t kMaximumTotalSharedBytes = 50U * 1024U;
+  for (const kernels::Sm87NvFp4PrefillG2D2Role role : kRoles) {
+    for (const std::size_t panel_m : kPanelSizes) {
+      const kernels::Sm87NvFp4PrefillG2D2Plan expected =
+          kernels::sm87_nvfp4_prefill_g2_d2_plan(role, panel_m);
+      kernels::Sm87NvFp4PrefillG2D2Capability capability;
+      kernels::Sm87NvFp4PrefillG2D2Resources resources;
+      if (!kernels::sm87_nvfp4_prefill_g2_d2_supports(role, panel_m) ||
+          !expected.valid() ||
+          kernels::query_sm87_nvfp4_prefill_g2_d2_capability_cuda(
+              role, panel_m, &capability) != 0 ||
+          !capability.supported || !capability.plan.valid() ||
+          !same_plan(capability.plan, expected) ||
+          kernels::query_sm87_nvfp4_prefill_g2_d2_resources_cuda(
+              role, panel_m, &resources) != 0 ||
+          resources.active_blocks_per_sm < 2 ||
+          resources.registers_per_thread <= 0 ||
+          resources.registers_per_thread > 128 ||
+          resources.maximum_threads_per_block <
+              static_cast<int>(expected.threads) ||
+          resources.dynamic_shared_bytes != expected.dynamic_shared_bytes ||
+          resources.static_shared_bytes > kMaximumTotalSharedBytes ||
+          resources.dynamic_shared_bytes >
+              kMaximumTotalSharedBytes - resources.static_shared_bytes ||
+          resources.local_bytes != 0U) {
+        return false;
+      }
+    }
+  }
+  return true;
+#endif
+}
+
+[[maybe_unused, nodiscard]] bool
 complete_exact_gdn_chunk64_native_inventory(
     const ModelWeights& weights) noexcept {
 #if !defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
@@ -354,6 +419,9 @@ complete_exact_gdn_chunk64_native_inventory(
 projection_arithmetic_contract(
     const LayerMajorPrefillProjectionTactic tactic) noexcept {
   return tactic == LayerMajorPrefillProjectionTactic::
+                       kNativeNvfp4G2D2LargeMOperatorPanel
+             ? &kLayerMajorPrefillTrueLargeMNvFp4ArithmeticContract
+         : tactic == LayerMajorPrefillProjectionTactic::
                        kNativeNvfp4TrueLargeMOperatorPanel
              ? &kLayerMajorPrefillTrueLargeMNvFp4ArithmeticContract
          : tactic == LayerMajorPrefillProjectionTactic::
@@ -482,6 +550,9 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
   [[maybe_unused]] const bool true_large_m_nvfp4_projection =
       projection_tactic == LayerMajorPrefillProjectionTactic::
                                kNativeNvfp4TrueLargeMOperatorPanel;
+  [[maybe_unused]] const bool g2_d2_nvfp4_projection =
+      projection_tactic == LayerMajorPrefillProjectionTactic::
+                               kNativeNvfp4G2D2LargeMOperatorPanel;
 #if !defined(Q3X_ENABLE_NVFP4_TRUE_LARGE_M_PREFILL_ADMISSION)
   if (true_large_m_nvfp4_projection) {
     return plan_failure(BoundPrefillPlanError::kUnsupportedBinary,
@@ -494,6 +565,19 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
     return plan_failure(BoundPrefillPlanError::kUnsupportedBinary,
                         ReferenceRunnerError::kInvalidDependency,
                         "bound_prefill_nvfp4_true_large_m_coupled_capability");
+  }
+#endif
+#if !defined(Q3X_ENABLE_NVFP4_G2_D2_PREFILL_ADMISSION)
+  if (g2_d2_nvfp4_projection) {
+    return plan_failure(BoundPrefillPlanError::kUnsupportedBinary,
+                        ReferenceRunnerError::kInvalidDependency,
+                        "bound_prefill_nvfp4_g2_d2_binary");
+  }
+#else
+  if (g2_d2_nvfp4_projection && !complete_nvfp4_g2_d2_capability()) {
+    return plan_failure(BoundPrefillPlanError::kUnsupportedBinary,
+                        ReferenceRunnerError::kInvalidDependency,
+                        "bound_prefill_nvfp4_g2_d2_complete_package_capability");
   }
 #endif
   if (full_attention_tactic == LayerMajorPrefillFullAttentionTactic::
@@ -564,24 +648,26 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
            view.byte_size >= kNvFp4MarlinTemporaryBytes;
   };
   const LayerMajorMlpPhaseViews& mlp_views = views.mlp;
-  const bool operator_panel_projection_outputs_complete =
-      mlp_views.gate_bf16.storage.device_data != nullptr &&
-      mlp_views.up_bf16.storage.device_data != nullptr &&
-      mlp_views.activated_bf16.storage.device_data != nullptr &&
+  const bool operator_panel_shared_outputs_complete =
       mlp_views.normalized_input_bf16.storage.device_data != nullptr &&
-      mlp_views.branch_output_bf16.storage.device_data != nullptr &&
-      reinterpret_cast<std::uintptr_t>(
-          mlp_views.up_bf16.storage.device_data) ==
-          reinterpret_cast<std::uintptr_t>(
-              mlp_views.gate_bf16.storage.device_data) +
-              mlp_views.gate_bf16.storage.byte_size &&
       views.gdn.qkv_bf16.storage.device_data != nullptr &&
       views.gdn.z_bf16.storage.device_data != nullptr &&
       views.gdn.branch_output_bf16.storage.device_data != nullptr &&
       views.attention.raw_q_gate_bf16.storage.device_data != nullptr &&
       views.attention.branch_output_bf16.storage.device_data != nullptr;
+  const bool legacy_operator_panel_mlp_outputs_complete =
+      operator_panel_shared_outputs_complete &&
+      mlp_views.gate_bf16.storage.device_data != nullptr &&
+      mlp_views.up_bf16.storage.device_data != nullptr &&
+      mlp_views.activated_bf16.storage.device_data != nullptr &&
+      mlp_views.branch_output_bf16.storage.device_data != nullptr &&
+      reinterpret_cast<std::uintptr_t>(
+          mlp_views.up_bf16.storage.device_data) ==
+          reinterpret_cast<std::uintptr_t>(
+              mlp_views.gate_bf16.storage.device_data) +
+              mlp_views.gate_bf16.storage.byte_size;
   const bool segmented_projection_views_complete =
-      operator_panel_projection_outputs_complete &&
+      legacy_operator_panel_mlp_outputs_complete &&
       valid_nvfp4_temporary(mlp_views.gate_up_projection_temporary) &&
       valid_nvfp4_temporary(mlp_views.down_projection_temporary) &&
       valid_fp8_temporary(views.gdn.input_projection_temporary) &&
@@ -589,7 +675,16 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
       valid_fp8_temporary(views.attention.input_projection_temporary) &&
       valid_fp8_temporary(views.attention.output_projection_temporary);
   const bool true_large_m_projection_views_complete =
-      operator_panel_projection_outputs_complete &&
+      legacy_operator_panel_mlp_outputs_complete &&
+      valid_fp8_temporary(views.gdn.input_projection_temporary) &&
+      valid_fp8_temporary(views.gdn.output_projection_temporary) &&
+      valid_fp8_temporary(views.attention.input_projection_temporary) &&
+      valid_fp8_temporary(views.attention.output_projection_temporary);
+  const bool g2_d2_projection_views_complete =
+      operator_panel_shared_outputs_complete &&
+      mlp_views.gate_bf16.storage.device_data != nullptr &&
+      mlp_views.gate_bf16.storage.device_data !=
+          mlp_views.normalized_input_bf16.storage.device_data &&
       valid_fp8_temporary(views.gdn.input_projection_temporary) &&
       valid_fp8_temporary(views.gdn.output_projection_temporary) &&
       valid_fp8_temporary(views.attention.input_projection_temporary) &&
@@ -605,6 +700,11 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
     return plan_failure(BoundPrefillPlanError::kIncompleteTypedViews,
                         ReferenceRunnerError::kInvalidRequestState,
                         "bound_prefill_nvfp4_true_large_m_panel_views");
+  }
+  if (g2_d2_nvfp4_projection && !g2_d2_projection_views_complete) {
+    return plan_failure(BoundPrefillPlanError::kIncompleteTypedViews,
+                        ReferenceRunnerError::kInvalidRequestState,
+                        "bound_prefill_nvfp4_g2_d2_fused_panel_views");
   }
   const DecoderLayerWeights& linear_layer = weights->layer(0U);
   const DecoderLayerWeights& full_layer = weights->layer(3U);
@@ -709,7 +809,32 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
     return static_cast<void*>(static_cast<std::uint8_t*>(view.device_data) +
                               kernels::kSm87NvFp4MarlinReductionBytes);
   };
-  if (true_large_m_nvfp4_projection) {
+  if (g2_d2_nvfp4_projection) {
+#if defined(Q3X_ENABLE_NVFP4_G2_D2_PREFILL_ADMISSION)
+    constexpr std::uint64_t kGateUpScaleBytes =
+        static_cast<std::uint64_t>(kReferenceHiddenSize) *
+        (2U * kReferenceIntermediateSize) / 16U;
+    constexpr std::uint64_t kDownScaleBytes =
+        static_cast<std::uint64_t>(kReferenceIntermediateSize) *
+        kReferenceHiddenSize / 16U;
+    roles[static_cast<std::size_t>(PrefillBindingRole::kNvfp4GateUp)] =
+        receipt(PrefillBindingRole::kNvfp4GateUp,
+                NativePrefillTactic::kNvfp4GateUpG2LargeMOperatorPanel,
+                gate->prefill_marlin_weight, gate->prefill_marlin_scales,
+                kGateUpScaleBytes,
+                kLayerMajorPrefillTrueLargeMPartialPanelTokens,
+                kLayerMajorPrefillOperatorPanelTokens,
+                gate->prefill_marlin_global_scale, sizeof(float));
+    roles[static_cast<std::size_t>(PrefillBindingRole::kNvfp4Down)] =
+        receipt(PrefillBindingRole::kNvfp4Down,
+                NativePrefillTactic::kNvfp4DownD2LargeMOperatorPanel,
+                down->prefill_marlin_weight, down->prefill_marlin_scales,
+                kDownScaleBytes,
+                kLayerMajorPrefillTrueLargeMPartialPanelTokens,
+                kLayerMajorPrefillOperatorPanelTokens,
+                down->prefill_marlin_global_scale, sizeof(float));
+#endif
+  } else if (true_large_m_nvfp4_projection) {
 #if defined(Q3X_ENABLE_NVFP4_TRUE_LARGE_M_PREFILL_ADMISSION)
     constexpr std::uint64_t kGateUpScaleBytes =
         kernels::kSm87NvFp4PrefillLargeMHidden *
@@ -797,11 +922,12 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
   }
   const auto fp8_receipt = [&receipt, &fp8_locks, segmented_projection,
                             native_large_m_projection,
-                            true_large_m_nvfp4_projection](
+                            true_large_m_nvfp4_projection,
+                            g2_d2_nvfp4_projection](
                                const PrefillBindingRole role,
                                const Fp8LinearWeight& weight,
                                const DeviceBufferView& temporary) noexcept {
-    return true_large_m_nvfp4_projection
+    return (true_large_m_nvfp4_projection || g2_d2_nvfp4_projection)
                ? receipt(role,
                          NativePrefillTactic::
                              kFp8Nvfp4TrueLargeMRouteCompanion,
@@ -1022,6 +1148,9 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
   [[maybe_unused]] const bool true_large_m_nvfp4_projection =
       plan.projection_tactic_ == LayerMajorPrefillProjectionTactic::
                                       kNativeNvfp4TrueLargeMOperatorPanel;
+  [[maybe_unused]] const bool g2_d2_nvfp4_projection =
+      plan.projection_tactic_ == LayerMajorPrefillProjectionTactic::
+                                      kNativeNvfp4G2D2LargeMOperatorPanel;
 #if !defined(Q3X_ENABLE_NVFP4_TRUE_LARGE_M_PREFILL_ADMISSION)
   if (true_large_m_nvfp4_projection) {
     return false;
@@ -1029,6 +1158,15 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
 #else
   if (true_large_m_nvfp4_projection &&
       !complete_nvfp4_true_large_m_capability()) {
+    return false;
+  }
+#endif
+#if !defined(Q3X_ENABLE_NVFP4_G2_D2_PREFILL_ADMISSION)
+  if (g2_d2_nvfp4_projection) {
+    return false;
+  }
+#else
+  if (g2_d2_nvfp4_projection && !complete_nvfp4_g2_d2_capability()) {
     return false;
   }
 #endif
@@ -1096,20 +1234,29 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
     return view.device_data != nullptr &&
            view.byte_size >= kFp8MarlinTemporaryBytes;
   };
+  const bool true_large_m_fp8_temporaries_complete =
+      valid_fp8_temporary(views.gdn.input_projection_temporary) &&
+      valid_fp8_temporary(views.gdn.output_projection_temporary) &&
+      valid_fp8_temporary(views.attention.input_projection_temporary) &&
+      valid_fp8_temporary(views.attention.output_projection_temporary);
   if (true_large_m_nvfp4_projection &&
       (views.mlp.gate_bf16.storage.device_data == nullptr ||
        views.mlp.up_bf16.storage.device_data == nullptr ||
        views.mlp.activated_bf16.storage.device_data == nullptr ||
        views.mlp.branch_output_bf16.storage.device_data == nullptr ||
-       !valid_fp8_temporary(views.gdn.input_projection_temporary) ||
-       !valid_fp8_temporary(views.gdn.output_projection_temporary) ||
-       !valid_fp8_temporary(views.attention.input_projection_temporary) ||
-       !valid_fp8_temporary(views.attention.output_projection_temporary) ||
+       !true_large_m_fp8_temporaries_complete ||
        reinterpret_cast<std::uintptr_t>(
            views.mlp.up_bf16.storage.device_data) !=
            reinterpret_cast<std::uintptr_t>(
                views.mlp.gate_bf16.storage.device_data) +
                views.mlp.gate_bf16.storage.byte_size)) {
+    return false;
+  }
+  if (g2_d2_nvfp4_projection &&
+      (views.mlp.gate_bf16.storage.device_data == nullptr ||
+       views.mlp.gate_bf16.storage.device_data ==
+           views.mlp.normalized_input_bf16.storage.device_data ||
+       !true_large_m_fp8_temporaries_complete)) {
     return false;
   }
   const auto* const linear_qkv =
@@ -1177,11 +1324,12 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
   };
   const auto fp8_matches = [&matches, &fp8_locks, segmented_projection,
                             native_large_m_projection,
-                            true_large_m_nvfp4_projection](
+                            true_large_m_nvfp4_projection,
+                            g2_d2_nvfp4_projection](
                                const PrefillBindingRole role,
                                const Fp8LinearWeight& weight,
                                const DeviceBufferView& temporary) noexcept {
-    return true_large_m_nvfp4_projection
+    return (true_large_m_nvfp4_projection || g2_d2_nvfp4_projection)
                ? matches(role,
                          NativePrefillTactic::
                              kFp8Nvfp4TrueLargeMRouteCompanion,
@@ -1216,6 +1364,30 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
                          temporary.byte_size, 2U,
                          kPrefillPhysicalSegmentMaximumTokens);
   };
+  bool g2_d2_nvfp4_receipts_match = false;
+#if defined(Q3X_ENABLE_NVFP4_G2_D2_PREFILL_ADMISSION)
+  constexpr std::uint64_t kG2GateUpScaleBytes =
+      static_cast<std::uint64_t>(kReferenceHiddenSize) *
+      (2U * kReferenceIntermediateSize) / 16U;
+  constexpr std::uint64_t kD2DownScaleBytes =
+      static_cast<std::uint64_t>(kReferenceIntermediateSize) *
+      kReferenceHiddenSize / 16U;
+  g2_d2_nvfp4_receipts_match =
+      matches(PrefillBindingRole::kNvfp4GateUp,
+              NativePrefillTactic::kNvfp4GateUpG2LargeMOperatorPanel,
+              gate->prefill_marlin_weight, gate->prefill_marlin_scales,
+              kG2GateUpScaleBytes,
+              kLayerMajorPrefillTrueLargeMPartialPanelTokens,
+              kLayerMajorPrefillOperatorPanelTokens,
+              gate->prefill_marlin_global_scale, sizeof(float)) &&
+      matches(PrefillBindingRole::kNvfp4Down,
+              NativePrefillTactic::kNvfp4DownD2LargeMOperatorPanel,
+              down->prefill_marlin_weight, down->prefill_marlin_scales,
+              kD2DownScaleBytes,
+              kLayerMajorPrefillTrueLargeMPartialPanelTokens,
+              kLayerMajorPrefillOperatorPanelTokens,
+              down->prefill_marlin_global_scale, sizeof(float));
+#endif
   bool true_large_m_nvfp4_receipts_match = false;
 #if defined(Q3X_ENABLE_NVFP4_TRUE_LARGE_M_PREFILL_ADMISSION)
   constexpr std::uint64_t kGateUpScaleBytes =
@@ -1241,7 +1413,9 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
               down->prefill_marlin_global_scale, sizeof(float));
 #endif
   const bool nvfp4_matches =
-      true_large_m_nvfp4_projection
+      g2_d2_nvfp4_projection
+          ? g2_d2_nvfp4_receipts_match
+      : true_large_m_nvfp4_projection
           ? true_large_m_nvfp4_receipts_match
       : native_large_m_projection
           ? matches(
@@ -1369,6 +1543,20 @@ std::string_view ReferenceEnginePrefillExecutor::deployment_plan_id(
     const BoundPrefillExecutionPlan& plan) noexcept {
   if (!plan.exact_c512_arithmetic_workspace_bound_) {
     return {};
+  }
+  if (plan.projection_tactic_ == LayerMajorPrefillProjectionTactic::
+                                     kNativeNvfp4G2D2LargeMOperatorPanel) {
+    switch (plan.full_attention_tactic_) {
+      case LayerMajorPrefillFullAttentionTactic::kNativeGroupQ64Panel:
+        return kLayerMajorNativeNvfp4G2D2LargeMProjectionGroupQ64DeploymentPlanId;
+      case LayerMajorPrefillFullAttentionTactic::kNativeGroupQ128V4Panel:
+        return kLayerMajorNativeNvfp4G2D2LargeMProjectionGroupQ128V4DeploymentPlanId;
+      case LayerMajorPrefillFullAttentionTactic::kNativeFlashInferExactPanel:
+        return kLayerMajorNativeNvfp4G2D2LargeMProjectionFlashInferExactDeploymentPlanId;
+      case LayerMajorPrefillFullAttentionTactic::kExactSegmentedC512:
+      default:
+        return kLayerMajorNativeNvfp4G2D2LargeMProjectionDeploymentPlanId;
+    }
   }
   if (plan.projection_tactic_ == LayerMajorPrefillProjectionTactic::
                                      kNativeNvfp4TrueLargeMOperatorPanel) {

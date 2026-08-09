@@ -232,6 +232,9 @@ struct LayerMajorAttentionPhaseRegions {
 };
 
 struct LayerMajorMlpPhaseRegions {
+    // The fused G2 route publishes activated BF16 here.  It may not publish
+    // into activated_bf16 because that span aliases normalized_input_bf16
+    // until Gate/Up has consumed every input row.
     RequestMatrixRegion gate_bf16;                // [8192, 17408]
     RequestMatrixRegion up_bf16;                  // [8192, 17408]
     RequestMatrixRegion activated_bf16;           // [8192, 17408]
@@ -282,6 +285,9 @@ struct LayerMajorRequestMemoryPlan {
     PrefillOperatorScratchStrategy scratch_strategy{};
     PrefillGdnPhysicalTactic gdn_tactic{};
     PrefillLegacyGdnPhysicalTactic legacy_gdn_tactic{};
+    // Conservative request-arena reservation identity.  The sealed
+    // DeploymentPlan/witness, rather than this field, proves whether a
+    // candidate actually executes a separate or fused MLP kernel path.
     PrefillMlpPhysicalTactic mlp_tactic{};
 
     bool prompt_residual_in_place_contract_bound = false;

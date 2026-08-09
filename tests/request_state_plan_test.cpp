@@ -1088,10 +1088,24 @@ void test_layer_major_typed_phase_layout(TestContext& test) {
         plan.mlp.activated_bf16.storage.arena_offset;
     const std::uint64_t activated_end =
         activated_begin + plan.mlp.activated_bf16.storage.byte_size;
+    const std::uint64_t gate_begin =
+        plan.mlp.gate_bf16.storage.arena_offset;
+    const std::uint64_t gate_end =
+        gate_begin + plan.mlp.gate_bf16.storage.byte_size;
+    const std::uint64_t normalized_begin =
+        plan.mlp.normalized_input_bf16.storage.arena_offset;
+    const std::uint64_t normalized_end =
+        normalized_begin + plan.mlp.normalized_input_bf16.storage.byte_size;
     const std::uint64_t down_output_begin =
         plan.mlp.branch_output_bf16.storage.arena_offset;
     const std::uint64_t down_output_end =
         down_output_begin + plan.mlp.branch_output_bf16.storage.byte_size;
+    test.expect(
+        normalized_begin == activated_begin &&
+            plan.mlp.gate_bf16.storage.byte_size == 285'212'672U &&
+            (gate_end <= normalized_begin || normalized_end <= gate_begin),
+        "fused G2 may reuse the full Gate span only because it is disjoint "
+        "from the intentionally aliased normalized/activated span");
     test.expect(down_output_end <= activated_begin ||
                     activated_end <= down_output_begin,
                 "Down output never aliases the live activated MLP input");

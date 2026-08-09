@@ -14,6 +14,9 @@
 #if defined(Q3X_ENABLE_NVFP4_TRUE_LARGE_M_PREFILL_ADMISSION)
 #include "q3x/kernels/sm87_nvfp4_prefill_large_m.h"
 #endif
+#if defined(Q3X_ENABLE_NVFP4_G2_D2_PREFILL_ADMISSION)
+#include "q3x/kernels/sm87_nvfp4_prefill_g2_d2.h"
+#endif
 
 #if defined(Q3X_ENABLE_GDN_B8_ADMISSION)
 #include "../kernels/reference/gdn_prefill_b8_sequential_sm87.h"
@@ -2179,6 +2182,54 @@ exact_marlin_operator_panel_plan(
   ++gate_up_hits;
   ++down_hits;
   physical_launches += 2U;
+  return static_cast<int>(cudaSuccess);
+}
+#endif
+
+#if defined(Q3X_ENABLE_NVFP4_G2_D2_PREFILL_ADMISSION)
+[[nodiscard]] int launch_nvfp4_g2_d2_large_m_mlp(
+    const NvFp4LinearWeight& gate, const NvFp4LinearWeight& up,
+    const NvFp4LinearWeight& down, const std::uint16_t* const input,
+    std::uint16_t* const activated, std::uint16_t* const residual_output,
+    const std::size_t token_count, std::size_t& logical_projection_hits,
+    std::size_t& gate_up_hits, std::size_t& down_hits,
+    std::size_t& physical_launches, const char** const failure_operation,
+    void* const cuda_stream) noexcept {
+  if (failure_operation == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  *failure_operation = "prefill_operator_panel_nvfp4_g2_d2_contract";
+  if (!valid_exact_contract_nvfp4_mlp_weights(gate, up, down) ||
+      gate.prefill_marlin_gate_up_layout !=
+          NvFp4MarlinGateUpLayout::kCanonicalGateThenUp ||
+      input == nullptr || activated == nullptr || residual_output == nullptr ||
+      !is_nvfp4_true_large_m_prefill_panel_tokens(token_count) ||
+      !kernels::sm87_nvfp4_prefill_g2_d2_supports(
+          kernels::Sm87NvFp4PrefillG2D2Role::kGateUpG2, token_count) ||
+      !kernels::sm87_nvfp4_prefill_g2_d2_supports(
+          kernels::Sm87NvFp4PrefillG2D2Role::kDownD2, token_count)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  *failure_operation = "prefill_operator_panel_nvfp4_gate_up_g2";
+  int status = kernels::launch_sm87_nvfp4_prefill_gate_up_g2_cuda(
+      input, gate.prefill_marlin_weight, gate.prefill_marlin_scales,
+      gate.prefill_marlin_global_scale, token_count, activated, cuda_stream);
+  if (status != static_cast<int>(cudaSuccess)) {
+    return status;
+  }
+  *failure_operation = "prefill_operator_panel_nvfp4_down_d2";
+  status = kernels::launch_sm87_nvfp4_prefill_down_d2_cuda(
+      activated, down.prefill_marlin_weight, down.prefill_marlin_scales,
+      down.prefill_marlin_global_scale, residual_output, token_count,
+      residual_output, cuda_stream);
+  if (status != static_cast<int>(cudaSuccess)) {
+    return status;
+  }
+  logical_projection_hits += 2U;
+  ++gate_up_hits;
+  ++down_hits;
+  physical_launches += 2U;
+  *failure_operation = "prefill_operator_panel_nvfp4_g2_d2_mlp";
   return static_cast<int>(cudaSuccess);
 }
 #endif
@@ -4459,7 +4510,9 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
         "whole_request_prefill_topology"));
   }
   if (projection_tactic == LayerMajorPrefillProjectionTactic::
-                               kNativeNvfp4TrueLargeMOperatorPanel) {
+                               kNativeNvfp4TrueLargeMOperatorPanel ||
+      projection_tactic == LayerMajorPrefillProjectionTactic::
+                               kNativeNvfp4G2D2LargeMOperatorPanel) {
     for (std::size_t panel_index = 0U;
          panel_index < immutable_topology.panel_count; ++panel_index) {
       const std::uint32_t panel_m =
@@ -5027,8 +5080,10 @@ ReferenceRunner::enqueue_prefill_layer_panel(
       !is_valid_layer_major_prefill_projection_tactic(projection_tactic) ||
       !is_valid_layer_major_prefill_full_attention_tactic(
           full_attention_tactic) ||
-      (projection_tactic == LayerMajorPrefillProjectionTactic::
-                                kNativeNvfp4TrueLargeMOperatorPanel &&
+      ((projection_tactic == LayerMajorPrefillProjectionTactic::
+                                 kNativeNvfp4TrueLargeMOperatorPanel ||
+        projection_tactic == LayerMajorPrefillProjectionTactic::
+                                 kNativeNvfp4G2D2LargeMOperatorPanel) &&
        !is_nvfp4_true_large_m_prefill_panel_tokens(token_count)) ||
       projection_backend_ != ProjectionBackend::kSm87WeightOnly) {
     return fail_enqueue(runner_status(
@@ -5169,6 +5224,8 @@ ReferenceRunner::enqueue_prefill_layer_panel(
             break;
           case LayerMajorPrefillProjectionTactic::
               kNativeNvfp4TrueLargeMOperatorPanel:
+          case LayerMajorPrefillProjectionTactic::
+              kNativeNvfp4G2D2LargeMOperatorPanel:
             status = launch_native_large_m_fp8_projection(
                 projection_backend_, weight, input, output, token_count,
                 arithmetic_ledger, fp8_workspace(temporary),
@@ -5196,7 +5253,9 @@ ReferenceRunner::enqueue_prefill_layer_panel(
             ++native_large_m_projection_oracle_partial_hits;
           }
         } else if (projection_tactic == LayerMajorPrefillProjectionTactic::
-                                            kNativeNvfp4TrueLargeMOperatorPanel) {
+                                               kNativeNvfp4TrueLargeMOperatorPanel ||
+                   projection_tactic == LayerMajorPrefillProjectionTactic::
+                                               kNativeNvfp4G2D2LargeMOperatorPanel) {
           ++nvfp4_true_large_m_route_fp8_projection_hits;
           if (token_count == kLayerMajorPrefillOperatorPanelTokens) {
             ++nvfp4_true_large_m_route_fp8_projection_bulk_hits;
@@ -5627,6 +5686,11 @@ ReferenceRunner::enqueue_prefill_layer_panel(
       mlp.up_bf16.storage.device_data);
   auto* const segmented_activated = static_cast<std::uint16_t*>(
       mlp.activated_bf16.storage.device_data);
+  // G2 fuses Gate, Up, BF16 branch rounding, and SiLU.  Its output must be
+  // disjoint from normalized_input_bf16 for the full lifetime of the launch.
+  // The legacy gate span is dead in this route and has the exact activated
+  // matrix capacity, whereas segmented_activated aliases the input span.
+  auto* const g2_d2_activated = segmented_merged_gate_up;
   auto* const segmented_branch = static_cast<std::uint16_t*>(
       mlp.branch_output_bf16.storage.device_data);
   const bool native_panel_mlp_views_valid =
@@ -5654,14 +5718,24 @@ ReferenceRunner::enqueue_prefill_layer_panel(
   const bool true_large_m_nvfp4_projection =
       projection_tactic == LayerMajorPrefillProjectionTactic::
                                kNativeNvfp4TrueLargeMOperatorPanel;
+  const bool g2_d2_nvfp4_projection =
+      projection_tactic == LayerMajorPrefillProjectionTactic::
+                               kNativeNvfp4G2D2LargeMOperatorPanel;
   const bool native_large_m_partial_panel =
       native_large_m_projection &&
       token_count != kLayerMajorPrefillOperatorPanelTokens;
   const bool operator_panel_projection =
       segmented_projection || native_large_m_projection ||
-      true_large_m_nvfp4_projection;
+      true_large_m_nvfp4_projection || g2_d2_nvfp4_projection;
+  const bool g2_d2_mlp_views_valid =
+      valid_matrix(mlp.gate_bf16, kReferenceIntermediateSize,
+                   sizeof(std::uint16_t)) &&
+      mlp.gate_bf16.storage.device_data !=
+          mlp.normalized_input_bf16.storage.device_data;
   const bool selected_mlp_views_valid =
-      true_large_m_nvfp4_projection
+      g2_d2_nvfp4_projection
+          ? g2_d2_mlp_views_valid
+      : true_large_m_nvfp4_projection
           ? native_panel_mlp_views_valid
           : (segmented_projection || native_large_m_projection)
                 ? marlin_panel_mlp_views_valid
@@ -5713,6 +5787,8 @@ ReferenceRunner::enqueue_prefill_layer_panel(
                   aligned_16(oracle_branch) &&
                   aligned_16(oracle.fp32_scratch.device_data) &&
                   aligned_16(oracle_locks)))
+      : g2_d2_nvfp4_projection
+          ? aligned_16(g2_d2_activated) && aligned_16(prompt_residual)
       : true_large_m_nvfp4_projection
           ? aligned_16(segmented_merged_gate_up) && aligned_16(native_up) &&
                 aligned_16(segmented_activated) && aligned_16(segmented_branch)
@@ -5762,6 +5838,27 @@ ReferenceRunner::enqueue_prefill_layer_panel(
             "prefill_operator_panel_native_marlin_residual", layer)) {
       return fail_enqueue(launch_failure);
     }
+  } else if (g2_d2_nvfp4_projection) {
+#if defined(Q3X_ENABLE_NVFP4_G2_D2_PREFILL_ADMISSION)
+    const char* g2_d2_failure_operation =
+        "prefill_operator_panel_nvfp4_g2_d2_mlp";
+    if (!check_cuda(
+            launch_nvfp4_g2_d2_large_m_mlp(
+                *marlin_gate, *marlin_up, *marlin_down, mlp_normalized,
+                g2_d2_activated, prompt_residual, token_count,
+                native_nvfp4_true_large_m_projection_hits,
+                native_nvfp4_true_large_m_gate_up_hits,
+                native_nvfp4_true_large_m_down_hits,
+                native_nvfp4_true_large_m_physical_launches,
+                &g2_d2_failure_operation, stream_),
+            g2_d2_failure_operation, layer)) {
+      return fail_enqueue(launch_failure);
+    }
+#else
+    return fail_enqueue(runner_status(
+        ReferenceRunnerError::kInvalidDependency,
+        "prefill_operator_panel_nvfp4_g2_d2_binary", layer));
+#endif
   } else if (true_large_m_nvfp4_projection) {
 #if defined(Q3X_ENABLE_NVFP4_TRUE_LARGE_M_PREFILL_ADMISSION)
     if (!check_cuda(
@@ -5929,7 +6026,7 @@ ReferenceRunner::enqueue_prefill_layer_panel(
       }
     }
   }
-  if (!true_large_m_nvfp4_projection) {
+  if (!true_large_m_nvfp4_projection && !g2_d2_nvfp4_projection) {
     ++g_nvfp4_marlin_prefill_admission_hits;
   }
   if (!record_layer_route(PrefillLayerRouteSlot::kNvFp4GateUp) ||

@@ -3298,6 +3298,18 @@ struct ReferenceEngine::Impl {
       return result;
     }
 #endif
+#if !defined(Q3X_ENABLE_NVFP4_G2_D2_PREFILL_ADMISSION)
+    if (options.prefill_projection_tactic ==
+        LayerMajorPrefillProjectionTactic::
+            kNativeNvfp4G2D2LargeMOperatorPanel) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kPrefillPlanUnavailable,
+          "prefill_projection_tactic",
+          "this binary does not admit the test-only coupled NVFP4 G2/D2 "
+          "large-M package");
+      return result;
+    }
+#endif
     if (!is_valid_reference_decode_graph_cache_policy(
             options.decode_graph_cache_policy)) {
       result.diagnostic = engine_diagnostic(

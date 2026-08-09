@@ -148,6 +148,28 @@ inline constexpr std::string_view
         "q3x.sm87.ac-prefill-prompt-wide-v2."
         "native-nvfp4-true-large-m-operator-panel."
         "native-flashinfer-exact-panel-attention.v1";
+// G2/D2 is a new coupled package identity. These v2 deployment
+// identifiers cannot be confused with the rejected C1 Gate+Up/Down v1 route.
+inline constexpr std::string_view
+    kLayerMajorNativeNvfp4G2D2LargeMProjectionDeploymentPlanId =
+        "q3x.sm87.ac-prefill-prompt-wide-v2."
+        "native-nvfp4-g2-d2-large-m-operator-panel."
+        "exact-segmented-attention.v2";
+inline constexpr std::string_view
+    kLayerMajorNativeNvfp4G2D2LargeMProjectionGroupQ64DeploymentPlanId =
+        "q3x.sm87.ac-prefill-prompt-wide-v2."
+        "native-nvfp4-g2-d2-large-m-operator-panel."
+        "native-group-q64-attention.v2";
+inline constexpr std::string_view
+    kLayerMajorNativeNvfp4G2D2LargeMProjectionGroupQ128V4DeploymentPlanId =
+        "q3x.sm87.ac-prefill-prompt-wide-v2."
+        "native-nvfp4-g2-d2-large-m-operator-panel."
+        "native-group-q128-v4-attention.v2";
+inline constexpr std::string_view
+    kLayerMajorNativeNvfp4G2D2LargeMProjectionFlashInferExactDeploymentPlanId =
+        "q3x.sm87.ac-prefill-prompt-wide-v2."
+        "native-nvfp4-g2-d2-large-m-operator-panel."
+        "native-flashinfer-exact-panel-attention.v2";
 
 [[nodiscard]] constexpr bool is_valid_reference_prefill_execution_mode(
     const ReferencePrefillExecutionMode mode) noexcept {

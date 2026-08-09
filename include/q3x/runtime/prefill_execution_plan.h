@@ -110,6 +110,7 @@ enum class LayerMajorPrefillProjectionTactic : std::uint8_t {
   kSegmentedMarlinOperatorPanel,
   kNativeQuantizedLargeMOperatorPanel,
   kNativeNvfp4TrueLargeMOperatorPanel,
+  kNativeNvfp4G2D2LargeMOperatorPanel,
 };
 
 [[nodiscard]] constexpr bool is_valid_layer_major_prefill_projection_tactic(
@@ -121,7 +122,9 @@ enum class LayerMajorPrefillProjectionTactic : std::uint8_t {
          tactic == LayerMajorPrefillProjectionTactic::
                        kNativeQuantizedLargeMOperatorPanel ||
          tactic == LayerMajorPrefillProjectionTactic::
-                       kNativeNvfp4TrueLargeMOperatorPanel;
+                       kNativeNvfp4TrueLargeMOperatorPanel ||
+         tactic == LayerMajorPrefillProjectionTactic::
+                       kNativeNvfp4G2D2LargeMOperatorPanel;
 }
 
 [[nodiscard]] constexpr std::string_view to_string(
@@ -137,6 +140,9 @@ enum class LayerMajorPrefillProjectionTactic : std::uint8_t {
     case LayerMajorPrefillProjectionTactic::
         kNativeNvfp4TrueLargeMOperatorPanel:
       return "native-nvfp4-true-large-m-operator-panel";
+    case LayerMajorPrefillProjectionTactic::
+        kNativeNvfp4G2D2LargeMOperatorPanel:
+      return "native-nvfp4-g2-d2-large-m-operator-panel";
   }
   return "unknown";
 }

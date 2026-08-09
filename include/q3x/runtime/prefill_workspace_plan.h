@@ -113,7 +113,11 @@ enum class PrefillLegacyGdnPhysicalTactic : std::uint8_t {
 
 enum class PrefillMlpPhysicalTactic : std::uint8_t {
   kUnselected = 0,
-  // Gate+Up projection completes before the separate exact SiLU/gate pass.
+  // Conservative three-span workspace identity.  It reserves independently
+  // addressable Gate, Up, and activated matrices for the separate exact
+  // SiLU/gate path.  A sealed experimental DeploymentPlan may prove a
+  // narrower fused lifetime and reuse one dead span; this workspace value is
+  // not, by itself, evidence of the kernels executed by that DeploymentPlan.
   kSeparateGateUpAndSilu,
   // The fused epilogue keeps N, merged Gate+Up, activated Down input, Marlin
   // reduction storage, and locks live together.
