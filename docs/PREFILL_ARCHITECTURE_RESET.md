@@ -309,7 +309,7 @@ engine creation, the compatibility route fails closed unless every role can
 be associated with the exact authenticated weights/sidecars, launch tactic,
 workspace, and resource identity. The installed execution inventory remains
 capped at physical M512, however, so these receipts authorize the segmented
-compatibility route; they do not establish the target C8192 large-M kernel
+compatibility route; they do not establish the target C8192 operator-panel
 contract. The exact GDN receipt is no longer nominal: the binary capability,
 real workspace pointer and byte capacity, 48-layer producer/weight shapes,
 and M32--M512 native tactic envelope are sealed and revalidated. Every

@@ -71,13 +71,13 @@ may use the sealed exact fallback.
 
 This closes the system execution and API-observation shape, not the performance
 architecture. Each logical C8192 panel still lowers to ordered physical
-segments of at most C512 and uses the exact admitted M-at-most-512 FP8/NVFP4 Marlin
-routes. Both inventories are development/test admissions. True C8192 NVFP4/FP8
-surfaces remain isolated, the evaluation server selects layer-major only by an
-explicit option, and the legacy route remains default. A clean-host real-model
-P1025 OpenAI API/EvalScope screen is cumulatively positive against an older
-greedy/fallback layer-major witness, but remains slower than the legacy path
-and has no target-length selection or production authority.
+segments of at most C512 and uses the exact admitted M-at-most-512 FP8/NVFP4
+Marlin routes. Both inventories are development/test admissions. True C8192
+NVFP4/FP8 surfaces remain isolated, the evaluation server selects layer-major
+only by an explicit option, and the legacy route remains default. A clean-host
+real-model P1025 OpenAI API/EvalScope screen is cumulatively positive against
+an older greedy/fallback layer-major witness, but remains slower than the
+legacy path and has no target-length selection or production authority.
 
 Accordingly, current product status is **implemented evaluation runner,
 unqualified production runner**.

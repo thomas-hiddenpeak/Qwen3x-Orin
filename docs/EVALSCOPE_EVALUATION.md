@@ -210,20 +210,9 @@ invalid rather than slow or fast.
 
 ### Retained sealed P1025 direction screen
 
-Commit `18363ad` completed one clean-host, one-request P1025 protocol/direction
-screen using a hash-locked token-ID corpus and one greedy output token. It
-confirmed prompt consumption, exact output, v2 route completeness, and zero
-forbidden-route hits. The cumulative sealed composition is positive against
-its older greedy/fallback layer-major witness and remains slower than the
-older legacy observation. The comparison is not causal because the earlier
-witness used exact FP8, Attention, and GDN fallbacks while `18363ad` reports
-all required roles on their admitted production disposition.
-
-This screen has sanity and direction authority only: it is not the
-target-length witness set, an architecture selection, a repetition sample, or
-a production result. Current numbers belong to
-[`CURRENT_STATUS.md`](CURRENT_STATUS.md); exact identities, hashes, route
-counts, and limitations are frozen in
+For the current sealed-route screen and its authority, see
+[`CURRENT_STATUS.md`](CURRENT_STATUS.md). Exact identities, hashes, route
+counts, comparator differences, and limitations are frozen in
 [`metadata/qwen36-27b-prefill-layer-major-balanced-p1025-direction-2026-08-09.json`](metadata/qwen36-27b-prefill-layer-major-balanced-p1025-direction-2026-08-09.json).
 
 ## Historical pinned short workload
