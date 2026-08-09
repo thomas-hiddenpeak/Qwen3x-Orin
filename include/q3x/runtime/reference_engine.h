@@ -86,6 +86,12 @@ struct ReferenceEngineOptions {
   // prepared during engine creation and never lazily inside generate().
   ReferenceDecodeGraphCachePolicy decode_graph_cache_policy =
       ReferenceDecodeGraphCachePolicy::kDisabled;
+  // Engine-lifetime request-arena provisioning. Whole-request execution is
+  // still selected per generate() call, but it can only be requested from an
+  // engine whose arena was explicitly created with the isolated layer-major
+  // profile. Keeping this default legacy preserves every existing caller.
+  ReferencePrefillExecutionMode prefill_execution_mode =
+      ReferencePrefillExecutionMode::kLegacyC512Tiled;
 };
 
 // Text-only messages accepted by the pinned Qwen 3.6 chat formatter. The
@@ -257,6 +263,8 @@ struct ReferenceEngineLoadStats {
   std::uint32_t request_max_sequence_length = 0U;
   std::uint32_t request_prefill_chunk_size =
       kDefaultRequestPrefillChunkSize;
+  RequestMemoryProfile request_memory_profile =
+      RequestMemoryProfile::kLegacyC512;
   bool fp8_output_sidecars_enabled = false;
   std::size_t fp8_output_sidecar_layers = 0U;
   std::uint64_t fp8_output_sidecar_bytes = 0U;

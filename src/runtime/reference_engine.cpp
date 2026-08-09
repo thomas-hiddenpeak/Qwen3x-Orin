@@ -2910,6 +2910,19 @@ struct ReferenceEngine::Impl {
           "unknown projection backend");
       return result;
     }
+    if (!is_valid_reference_prefill_execution_mode(
+            options.prefill_execution_mode) ||
+        (options.prefill_execution_mode ==
+             ReferencePrefillExecutionMode::kWholeRequestLayerMajor &&
+         options.request_options.prefill_chunk_size !=
+             kMaximumRequestPrefillChunkSize)) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kInvalidArgument,
+          "prefill_execution_mode",
+          "whole-request engine provisioning requires the fixed C512 "
+          "compatibility workspace inside the layer-major request arena");
+      return result;
+    }
     if (!is_valid_reference_decode_graph_cache_policy(
             options.decode_graph_cache_policy)) {
       result.diagnostic = engine_diagnostic(
@@ -2985,8 +2998,22 @@ struct ReferenceEngine::Impl {
 
       {
         const Clock::time_point begin = Clock::now();
-        RequestStateResult request =
-            create_request_state(options.request_options);
+        RequestStateResult request;
+        if (options.prefill_execution_mode ==
+            ReferencePrefillExecutionMode::kWholeRequestLayerMajor) {
+          LayerMajorRequestMemoryOptions layer_major_options;
+          layer_major_options.batch_size =
+              options.request_options.batch_size;
+          layer_major_options.max_sequence_length =
+              options.request_options.max_sequence_length;
+          layer_major_options.max_arena_bytes =
+              options.request_options.max_arena_bytes;
+          layer_major_options.min_free_bytes_after_create =
+              options.request_options.min_free_bytes_after_create;
+          request = create_layer_major_request_state(layer_major_options);
+        } else {
+          request = create_request_state(options.request_options);
+        }
         impl->load.request_state_milliseconds = elapsed_milliseconds(begin);
         if (!request) {
           result.diagnostic = request_diagnostic(request.diagnostic);
@@ -2999,6 +3026,8 @@ struct ReferenceEngine::Impl {
             impl->request_state->max_sequence_length();
         impl->load.request_prefill_chunk_size =
             impl->request_state->plan().prefill_chunk_size;
+        impl->load.request_memory_profile =
+            impl->request_state->memory_profile();
       }
 
       if (options.projection_backend ==
@@ -5369,6 +5398,8 @@ ReferenceOneShotResult generate_reference(
     engine_options.projection_backend = options.projection_backend;
     engine_options.decode_graph_cache_policy =
         options.decode_graph_cache_policy;
+    engine_options.prefill_execution_mode =
+        options.generation.prefill_execution_mode;
 
     ReferenceEngine::Impl::BuildResult built;
     if (resident_future.has_value()) {
