@@ -408,7 +408,7 @@ and the exact installed binary. Startup and admission fail closed when the
 selected bucket cannot reserve the complete plan before Prefill begins; the
 request path may not grow it.
 
-### 8.4 Next integration seam, activation, and adjudication
+### 8.4 Implemented integration seam and v1 closure
 
 A default-off whole-request Engine transaction now supplies the complete
 controller seam: it preallocates the transcript before touching GPU state,
@@ -455,20 +455,54 @@ change logical panel geometry; the existing balanced topology and plan
 identity remain immutable.
 
 Exact GDN/SSM, causal Attention, linear BF16 A/B, and the one final state
-commit remain in the same complete linear/full-Attention API executable. The
-v5 route may proceed to target-length measurement only after its bounded
-real-model state screens pass. Run P40K first through the cold/no-cache real
-API with exact Attention. Only a valid, competitive, accuracy-admissible P40K
-result may unlock P60K and approximately 130K. The witness must retain exact
-prompt consumption, output/state and route identity, pure Prefill and external
-TTFT intervals, peak resources, single final state commit, and zero forbidden
-fallbacks.
+commit remain in the same complete linear/full-Attention API executable. At
+`21d5c28`, clean P513, P8192, and P7712 real-model state screens passed for the
+v5 tactic. The following cold/no-cache P40K real-API gate consumed all 40,000
+tokens as `3x8192 + 2x7712`, but reached 670.53071 s EvalScope TTFT and
+670.486890 s server pure Prefill, or 59.658139 prompt tok/s. Pure Prefill was
+99.994017% of server TTFT and external overhead was only 3.702638 ms. The route
+recorded 1,008 bulk launches, 672 partial-oracle hits, 13,104 physical
+projection launches, and no Prefix, MTP, cuBLASLt, external, approximate, or
+forbidden fallback. It was about 0.53% slower than the prior same-payload
+exact-Attention observation.
 
-Only that complete API result may select the development architecture. A
-component timing, C8192 panel rate, C512 comparison, or profiler counter may
-retain or explain a named local mutation but cannot select this candidate or
-activate production. Production remains unchanged until a later frozen
-`release_candidate` completes the full release protocol.
+This closes the M8192-only v1 composition as a negative system result. P60K
+and P130K were not run, the route remains default-off, and production is
+unchanged. The existing same-payload T4 profile is sufficient to justify
+architecture redesign; duplicating its approximately eleven-minute trace
+would not change the product decision. Exact artifacts and hashes are frozen
+in the
+[v5 P40K API record](metadata/qwen36-27b-prefill-p40k-native-large-m-exact-api-2026-08-09.json).
+
+### 8.5 Designed successor: `AC-PREFILL-PROMPT-WIDE-v2`
+
+The successor preserves the whole-request Engine transaction, exact model
+weights, model-declared dtypes, FP32 accumulation where required, exact causal
+masking, exact recurrent-state contract, cancellation semantics, and one final
+state commit. It replaces the v1 physical lowering rather than adding more
+parameters to it. A different parallel reduction order is a candidate
+implementation detail, not permission to weaken accuracy: every such path
+remains default-off and accuracy-unqualified until the complete no-regression
+gate passes.
+
+The required dataflow is:
+
+| Family | v1 structural failure | v2 contract |
+| --- | --- | --- |
+| Exact full Attention | Each logical panel is lowered to repeated bounded spans; generic QT2 work repeatedly scans the causal K/V history | One M8192 or M7712 logical-panel launch graph using tiled Q, streamed K/V, FP32 online-softmax state, exact causal masking, and ordered KV publication; FlashInfer/FlashAttention is the reference dataflow, not an approximate grouped-Q64 substitute |
+| NVFP4 projections | A single host launch still enters an M64-oriented Marlin body; partial M7712 panels retain 14x512+2x272 lowering | Separate Gate/Up and Down tactics for their asymmetric N/K shapes, both covering M8192 and M7712, with cross-row weight/scale reuse and staged load/decode/MMA overlap |
+| FP8 projections | The same segmented/panel-wrapper limitation applies across heterogeneous QKV/Z/O shapes | Shape-specific QKV, Z, and O tactics with authenticated sidecars and consumer-native layouts; no universal tile is presumed optimal |
+| BF16 A/B | Recursive M16 pair dispatch creates 120,000 launches in the measured P40K route | One panel-wide exact tactic per role, retaining declared output/state boundaries |
+| GDN/SSM | One logical panel is repeatedly submitted as C512 work and each span expands into multiple kernels | Submit the panel's C64 hierarchy as one work graph, parallelize chunk-local KKT/WY work, serialize only the mathematical boundary-state dependency, and write the final boundary state once; FLA and Mamba selective scan are design references |
+| Synchronization | One CUDA stream and zero observed kernel overlap; the two host slots are cancellation windows, not a device pipeline | Events follow real producer/consumer dependencies; buffering is introduced only for a named overlap with measured critical-path effect |
+
+Implementation begins with exact logical-panel Attention because it owns the
+largest observed interval and can return to the P40K product witness without
+waiting for the remaining families. Prompt-wide GDN/BF16 and true
+shape-specific projection packages follow under the composition deadline in
+[`ROADMAP.md`](ROADMAP.md). Component timing and NSight evidence diagnose each
+package; only the same cold/no-cache real API selects it. A competitive,
+accuracy-admissible P40K result alone unlocks P60K and approximately 130K.
 
 ## 9. Global dataflow questions
 

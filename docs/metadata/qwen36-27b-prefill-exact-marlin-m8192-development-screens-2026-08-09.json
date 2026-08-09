@@ -3,7 +3,7 @@
   "artifact": "qwen36-27b-prefill-exact-marlin-m8192-development-screens-2026-08-09",
   "recorded_at": "2026-08-09T22:15:00+08:00",
   "timezone": "Asia/Shanghai",
-  "status": "development_direction_retained_m8192_only_partial_oracle_clean_commit_rerun_pending",
+  "status": "development_direction_closed_after_clean_commit_rerun_and_p40k_rejection",
   "policy": {
     "evidence_tier": "T3",
     "protocol_class": "INTERNAL_FULL_MODEL_WHOLE_STATE_DIRECTION_SCREEN",
@@ -23,10 +23,10 @@
   "source": {
     "branch": "codex/prefill-target-path",
     "base_commit": "57de10a",
-    "candidate_commit": "the commit containing this record",
+    "candidate_commit": "21d5c2820a7f0e4535ce55fb89bc20b1fad49d01",
     "measurement_tree_clean": false,
     "binary_identity_retained": false,
-    "interpretation": "These screens were collected while the implementation was being corrected in one uncommitted development lineage. They retain and reject arithmetic directions, but do not qualify the final committed binary. A clean rebuild and rerun is mandatory before target-length timing."
+    "interpretation": "The screens in this record were collected while the implementation was being corrected in one uncommitted development lineage. The required clean-commit P513/P8192/P7712 rerun and following P40K API rejection are frozen separately in qwen36-27b-prefill-p40k-native-large-m-exact-api-2026-08-09.json."
   },
   "checkpoint": {
     "repository": "nvidia/Qwen3.6-27B-NVFP4",
@@ -134,7 +134,7 @@
   "counter_schema_caveat": {
     "p513_final_emitted_bulk_partial_counters": true,
     "earlier_logs_emitted_bulk_partial_counters": false,
-    "interpretation": "P8192 and P7712 physical counts and state identity are retained, but their new bulk/partial counter values must be re-emitted by the clean committed binary before target-length timing."
+    "interpretation": "This historical caveat applied to the dirty development logs. Commit 21d5c28 subsequently re-emitted all counters and the frozen hashes on P513, P8192, and P7712 before target-length timing; see the linked clean API record."
   },
   "raw_artifacts": {
     "workspace_directory": ".q3x-work/evidence/prefill-target-path/exact-marlin-single-bulk-20260809",
@@ -149,8 +149,9 @@
       "M7168 bulk plus two M272 suffix spans",
       "inference from alignment alone"
     ],
-    "next_gate": "clean committed rebuild, P513/P8192/P7712 state and explicit counter rerun, then cold no-cache P40K OpenAI API plus EvalScope with exact Attention",
+    "next_gate": "closed: clean committed reruns passed, but the cold no-cache P40K OpenAI API plus EvalScope exact-Attention composition showed no system improvement and was rejected",
     "p60k_unlocked": false,
     "production_changed": false
-  }
+  },
+  "closure_record": "qwen36-27b-prefill-p40k-native-large-m-exact-api-2026-08-09.json"
 }

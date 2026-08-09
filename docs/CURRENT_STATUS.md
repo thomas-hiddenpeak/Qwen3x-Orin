@@ -15,14 +15,15 @@ q3x_document:
 
 # Qwen3x-Orin current status
 
-Snapshot date: 2026-08-09. Implementation facts are based on `57de10a` plus
-the default-off v5 exact-Marlin M8192 projection route introduced with this
-snapshot. Performance and qualification claims remain tied to their exact
-artifacts and evidence authority. Both measured P40K grouped-Q64 records below
-are accuracy-unqualified; the latest measured segmented-Marlin projection
-wrapper failed its predeclared early-stop gate. The newer v5 projection route
-has not yet produced a target-length API performance result, so none of these
-paths revises production or architecture-selection status.
+Snapshot date: 2026-08-09. Implementation facts include committed revision
+`21d5c28` and its default-off v5 exact-Marlin M8192 projection route.
+Performance and qualification claims remain tied to their exact artifacts and
+evidence authority. Clean P513, P8192, and P7712 state screens passed, but the
+subsequent cold/no-cache P40K real-API gate reached 670.53071 s EvalScope TTFT
+and 670.486890 s server pure Prefill. The composition produced no system
+improvement, is closed without P60K, and does not revise production or
+architecture-selection status. The faster grouped-Q64 observations remain
+accuracy-unqualified and cannot be promoted.
 
 This is the single point-in-time status page. It records what is target,
 designed, implemented, qualified, and production. Architecture contracts
@@ -98,13 +99,22 @@ default. The retained and rejected development screens, including their dirty
 binary limitation, are frozen in the
 [M8192/partial-panel direction record](metadata/qwen36-27b-prefill-exact-marlin-m8192-development-screens-2026-08-09.json).
 
-The latest clean-host P40K real-API screen reached 179.51119 s EvalScope TTFT
-(222.83 prompt tok/s) and 179.395679 s server pure Prefill. External TTFT
-exceeded server TTFT by only 3.775881 ms, so the API is not the active measured
-bottleneck. The result breached the predeclared 165-s rejection boundary;
-P60K and profiler work were therefore skipped. This wrapper is rejected, and
-no grouped-Q64 or segmented-projection record has architecture-selection or
-production authority.
+The newest clean-host P40K real-API screen used exact Attention and the v5
+projection tactic. EvalScope reported 670.53071 s TTFT; the server reported
+670.486890 s pure Prefill, or 59.658139 prompt tok/s. Pure Prefill occupied
+99.994017% of server TTFT and external TTFT exceeded server TTFT by only
+3.702638 ms, so the API is unequivocally not the active bottleneck. The route
+consumed all 40,000 tokens as `3x8192 + 2x7712`, with 1,008 bulk launches, 672
+partial-oracle hits, 13,104 physical projection launches, and zero Prefix,
+MTP, cuBLASLt, external, approximate, or forbidden fallbacks. It was about
+0.53% slower than the prior same-payload exact-Attention observation, so the
+M8192-only composition is rejected and P60K was not run. Evidence is frozen in
+the [v5 P40K API record](metadata/qwen36-27b-prefill-p40k-native-large-m-exact-api-2026-08-09.json).
+
+The fastest P40K grouped-Q64 screen remains 179.51119 s EvalScope TTFT and
+179.395679 s pure Prefill, but it generated a different first token and remains
+accuracy-unqualified. It is an architectural upper-bound clue, not a
+production candidate.
 
 Accordingly, current product status is **implemented evaluation runner,
 unqualified production runner**.
@@ -118,10 +128,10 @@ unqualified production runner**.
 | OpenAI-compatible evaluation API | Implemented | `/healthz`, `/v1/models`, completions/chat, non-streaming and committed-token SSE; explicit layer-major mode has bounded Prefill cancellation | Loopback/evaluation-only; no production exposure, security, admission, or multi-tenant contract |
 | Production serving API | Designed | Product/API contract is defined in the SDD | No installed release profile or release attestation exists |
 | Default context capacity | Implemented at 8,192 | Server default `max_sequence_length=8192`, maximum output 4,096, 2 GiB request-arena limit | Does not admit the locked long-context workloads |
-| 40K/60K/130K cold/no-cache service | Target; unqualified P40K development routes exercised | Token-ID ingress fails closed on capacity; explicit grouped-Q64 routes consumed all 40K tokens through the real API | Latest measured P40K is 179.51119 s TTFT and rejected; the newer v5 exact-Attention P40K gate, P60K/P130K, whole-process capacity, and qualification remain open |
+| 40K/60K/130K cold/no-cache service | Target; unqualified P40K development routes exercised | Token-ID ingress fails closed on capacity; exact and grouped-Q64 routes consumed all 40K tokens through the real API | Latest exact P40K is 670.53071 s TTFT and rejected; fastest 179.51119-s grouped-Q64 route changes output and is accuracy-unqualified; P60K/P130K, whole-process capacity, and qualification remain open |
 | Prefill/Decode logical separation | Implemented in part | Separate phase APIs/metrics and an explicit state transition exist | Shared runner and synchronization-heavy physical plan prevent independent utilization and overlap |
-| Layer-major C8192 candidate | Executable compatibility route plus default-off unqualified panel experiments | Sealed Engine transaction and role receipts remain; grouped Attention emits v3/v4 evidence, the segmented projection wrapper emits v4, and the M8192 exact-Marlin projection route emits v5 with separate bulk/partial counters | The new v5 route has not passed the P40K API gate or full accuracy qualification; all candidate tactics remain default-off and P60K/P130K are open |
-| Large-M Prefill specializations | One exact-Marlin M8192 single-bulk route is implemented; complete large-M architecture remains incomplete | The retained M8192 whole-state screen was bitwise equal and the admitted route can bypass host segmentation at that exact shape; every partial panel routes to the authenticated exact oracle ledger | P40K still contains two M7712 partial panels, exact Attention remains expensive, no target-length v5 timing exists, and a shape-specific global Gate/Up, Down, FP8, Attention, and GDN dataflow remains required if this screen is insufficient |
+| Layer-major C8192 candidate | Executable compatibility route plus default-off unqualified panel experiments | Sealed Engine transaction and role receipts remain; grouped Attention emits v3/v4 evidence, the segmented projection wrapper emits v4, and the M8192 exact-Marlin projection route emits v5 with separate bulk/partial counters | The v5 route failed its P40K system gate; all candidate tactics remain default-off, accuracy qualification is open, and the next prompt-wide architecture is not yet implemented |
+| Large-M Prefill specializations | One exact-Marlin M8192 single-bulk route is implemented; complete large-M architecture remains incomplete | The clean M8192 and partial-panel state screens passed and the admitted route bypasses host segmentation at exact M8192 | P40K reached only 59.658139 tok/s: the underlying Marlin kernel still decomposes large M internally, M7712 retains the span ledger, and shape-specific Gate/Up, Down, FP8, exact Attention, BF16 A/B, and GDN dataflows remain required |
 | Decode target | Directionally near target | Short API evidence reports about 104 ms TPOT | At least 10 token/s, long-output stability, and release repetition are not qualified |
 | Production accuracy | Target with partial oracles | Exact deterministic outputs are available for selected prompts/routes | No complete public capability baseline and promotion gate has passed |
 | AOT DeploymentPlan | Implemented internally for the development route; release artifact still designed | Engine-lifetime sealed plan binds model/state/resources/operator identities and one-shot request receipts | No authenticated installed plan artifact is loaded and attested by the default release |
@@ -453,18 +463,24 @@ The explicit development route now implements the whole-request response:
   v2 success evidence.
 
 The exact integration remains a compatibility executor whose physical work is
-segmented and test-admitted. The explicit grouped-Q64 experiment removes that
-boundary only for full Attention, and the connected segmented-Marlin wrapper
-does not remove it for projections: its P40K v4 witness still records 12,992
-physical projection launches. The wrapper's 179.51119-s API result failed the
-165-s stop-loss, so it is closed without P60K or a profiler pass. The newer v5
-projection tactic removes host segmentation only for complete M8192 panels and
-retains exact partial-panel arithmetic. Its immediate gate is the same P40K
-real API with exact Attention. If that complete composition does not move the
-product budget materially, the architecture must be redesigned around
-shape-specific NVFP4 Gate/Up and Down, FP8 projections, exact causal Attention,
-and GDN rather than expanded through local parameter scans. P60K/P130K stay
-deferred until P40K is competitive and accuracy-admissible.
+segmented and test-admitted. The explicit grouped-Q64 experiment changes the
+Attention arithmetic and the connected segmented-Marlin wrapper does not
+remove projection segmentation: its P40K v4 witness records 12,992 physical
+projection launches. The wrapper's 179.51119-s API result failed the 165-s
+stop-loss and remains accuracy-unqualified. The v5 projection tactic removes
+software-visible segmentation only for complete M8192 panels; the underlying
+Marlin body still decomposes large M internally and every partial panel retains
+the exact span ledger. Its 670.53071-s exact-Attention API result failed the
+system gate, so this composition is also closed without P60K.
+
+The active architecture response is prompt-wide and shape-specific: exact
+online-softmax Attention must operate on one logical M8192/M7712 panel rather
+than repeated C512 host spans; NVFP4 Gate/Up and Down and each FP8 projection
+family need tactics matched to their different N/K geometry with real cross-row
+weight reuse; BF16 A/B and GDN must eliminate recursive span dispatch while
+preserving exact recurrent boundaries. This is a new composed dataflow, not an
+extension of the rejected v5 local scan. P60K/P130K stay deferred until the
+same P40K API witness is competitive and accuracy-admissible.
 
 Unpinned or dirty experimental branches are intentionally excluded from this
 status snapshot. A candidate affects current truth only after its exact commit,
@@ -481,7 +497,7 @@ active dependency order and exit criteria are in
 | --- | --- | --- |
 | Product API and long-context admission | Configured token-ID validation and host requirement plans exist; 40K/60K/130K still do not fit or execute through the default contract | P1 |
 | Exact deliverable identity | No unique `BUILD_TESTING=OFF` release or authenticated DeploymentPlan | P2 |
-| Target-length performance and physical Prefill plan | The latest measured segmented-projection/grouped-Q64 P40K request reached 179.51119 s TTFT and failed its 165-s stop-loss. A newer default-off v5 route now issues one exact Marlin launch for each full M8192 projection and exact fallback for partial panels, but its P40K result is not yet measured and the complete shape-specific architecture remains open | P3 |
+| Target-length performance and physical Prefill plan | The exact-Attention v5 P40K request reached 670.53071 s TTFT and only 59.658139 tok/s; API overhead was negligible, and the M8192-only composition is closed. The 179.51119-s grouped-Q64 upper-bound route is accuracy-unqualified. A prompt-wide exact Attention, true shape-specific large-M projection, BF16 A/B, and GDN architecture remains open | P3 |
 | Accuracy, capability, stability, and release evidence | Partial deterministic oracles; no complete qualification bundle | P4 |
 | Packaging and operations | No attested install/startup/upgrade lane | P5 |
 
@@ -500,11 +516,11 @@ process/device-handle inspection, never `nvidia-smi` as the idle authority.
 Until the gaps above close, use the following language:
 
 - **Current:** real-model native evaluation runner with explicit, default-off,
-  accuracy-unqualified grouped-Q64, segmented-projection, and exact-Marlin
-  M8192 projection experiments. The newest route uses single-bulk only at
-  M8192 and exact oracle fallback for partial panels; it has no P40K timing yet.
-  The latest measured P40K route remains the rejected 179.51119-s segmented
-  screen. Exact/default routes and production status are unchanged.
+  accuracy-unqualified grouped-Q64 and segmented-projection experiments plus a
+  state-screened exact-Marlin M8192 projection route. The latter reached only
+  59.658139 tok/s on the cold/no-cache P40K exact-Attention API witness and is
+  closed as a system direction. The faster grouped-Q64 route changes output.
+  Exact/default routes and production status are unchanged.
 - **Not current:** production server, 40K--130K support, release-grade vLLM
   parity, 1,224.7335 tok/s lossless Prefill, or a fully qualified 10 token/s
   Decode release.

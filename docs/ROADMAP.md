@@ -233,17 +233,14 @@ compatibility route, not yet selected or production):
   operator panels but still lowers them to bounded physical Marlin launches;
   it is not a native large-M implementation or the indivisible architecture
   candidate.
-- The current development tree additionally connects a distinct default-off
+- Revision `21d5c28` connects a distinct default-off
   `native-quantized-large-m-operator-panel` v5 tactic. It preserves the
-  immutable balanced logical-panel topology and the exact recurrent/Attention
+  immutable balanced logical-panel topology and exact recurrent/Attention
   route. A complete M8192 panel issues one frozen Marlin launch for each
   logical FP8 or NVFP4 projection; every partial panel executes the complete
-  authenticated oracle span ledger, including per-span MLP Down-to-residual
-  interleave. Separate bulk, partial-oracle, and physical-launch counters make
-  that distinction externally auditable. This closes one bounded host-
-  segmentation seam; it does not establish an arbitrary-M kernel, complete
-  large-M architecture, performance selection, accuracy qualification, or
-  production dispatch.
+  authenticated oracle span ledger. Clean P513/P8192/P7712 state screens
+  passed. The underlying Marlin body still decomposes large M internally, so
+  this closes a host-submission seam rather than true cross-row weight reuse.
 - A clean-host one-request P1025 OpenAI API/EvalScope direction screen on
   `18363ad` is cumulatively positive against its older greedy/fallback
   layer-major witness and remains slower than the older legacy observation.
@@ -278,17 +275,55 @@ compatibility route, not yet selected or production):
   segmented-wrapper direction is rejected; P60K, P130K, NSys, and NCU were not
   run for it. The decision and raw-artifact hashes are frozen in the
   [P40K API record](metadata/qwen36-27b-prefill-p40k-segmented-marlin-q64-api-2026-08-09.json).
-- The immediate selection gate is now the same clean-host P40K real API using
-  exact Attention and the v5 projection tactic. It must report external TTFT,
-  server pure Prefill, full prompt consumption, immutable plan identity, and
-  the expected M8192-bulk/partial-oracle split. No panel throughput or
-  component profile substitutes for that result.
+- The clean-host cold/no-cache P40K real-API gate for `21d5c28` consumed all
+  40,000 tokens as `3x8192 + 2x7712`. EvalScope TTFT was 670.53071 s and server
+  pure Prefill was 670.486890 s, or 59.658139 prompt tok/s. Pure Prefill was
+  99.994017% of server TTFT; external overhead was 3.702638 ms. The witness
+  recorded 1,008 bulk launches, 672 partial-oracle hits, 13,104 physical
+  projection launches, and zero forbidden routes. It was about 0.53% slower
+  than the prior same-payload exact-Attention observation. The M8192-only
+  composition is therefore closed and P60K/P130K were not run. Exact evidence
+  is frozen in the
+  [v5 P40K API record](metadata/qwen36-27b-prefill-p40k-native-large-m-exact-api-2026-08-09.json).
+- The existing same-payload T4 trace already establishes the architecture-level
+  symptom: one CUDA stream and zero kernel overlap, with 46.8% of kernel time
+  in the grouped-Q64 Attention upper-bound path, 43.4% in the two main Marlin
+  signatures, and 120,000 BF16 M16-pair launches. The new exact route is far
+  slower because exact Attention repeatedly scans causal K/V through bounded
+  spans. A duplicate full trace is not required before redesign.
+
+Active architecture candidate: `AC-PREFILL-PROMPT-WIDE-v2`.
+
+- **WP-V2-A — exact logical-panel Attention:** replace repeated C512 exact
+  Attention dispatch with an M8192/M7712 logical-panel kernel using causal
+  tiling, streamed K/V, FP32 online-softmax state, and exact KV/state
+  publication. Reuse the authenticated FlashInfer/FlashAttention design and
+  existing direct backend seam; no grouped-Q64 or reduced-precision numerical
+  contract is eligible. This is first because Attention explains the largest
+  observed product interval and is the fastest path to a quantity-changing
+  P40K test.
+- **WP-V2-B — prompt-wide recurrent path:** submit one panel's C64 hierarchy as
+  one GDN work graph, fuse post-convolution preparation where exact, expose
+  chunk-local KKT/WY work in parallel, and serialize only the mathematically
+  recurrent boundary state. Replace recursive BF16 M16 A/B dispatch with a
+  panel-wide exact tactic. FLA and Mamba selective-scan mechanisms are design
+  references; copied code or changed state precision is outside scope.
+- **WP-V2-C — true shape-specific projections:** build separate SM87 tactics
+  for NVFP4 Gate/Up (`K=5120,N=17408`), NVFP4 Down
+  (`K=17408,N=5120`), and the FP8 QKV/Z/O families, covering both M8192 and
+  M7712. The design must provide real cross-row weight/scale reuse and staged
+  load/decode/MMA overlap; a larger host launch around the existing M64 body
+  does not qualify. Humming, Triton, vLLM and cuBLASLt may inform the design,
+  but cuBLASLt remains reference-only and never enters production dispatch.
+- **Composition deadline:** return WP-V2-A to the same real-model P40K API as
+  soon as the exact logical-panel route executes end to end; do not wait for B
+  or C merely to construct a larger local harness. Then compose B and C one at
+  a time only when the P40K product interval moves. Component tests and
+  NSys/NCU explain accepted or rejected directions; the API result selects
+  them. No low-yield parameter scan may displace these three packages.
 - Only a competitive, accuracy-admissible P40K result unlocks P60K and
   approximately-130K execution, followed by complete capacity/resource and
-  architecture-witness qualification. If the v5 composition is neutral or
-  negative, close it after at most one bounded causal profile and redesign the
-  global shape-specific NVFP4 Gate/Up, NVFP4 Down, FP8 projection, exact
-  Attention, and GDN dataflow; do not resume low-yield local scanning.
+  architecture-witness qualification.
 
 The complete subsystem design and non-production status are recorded in
 [`PREFILL_ARCHITECTURE_RESET.md`](PREFILL_ARCHITECTURE_RESET.md#8-designed-candidate-lineage-ac-prefill-layermajor-8k-v1).
