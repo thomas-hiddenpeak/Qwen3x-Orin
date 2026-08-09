@@ -4410,6 +4410,21 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
         ReferenceRunnerError::kInvalidStepOptions,
         "whole_request_prefill_topology"));
   }
+  if (full_attention_tactic == LayerMajorPrefillFullAttentionTactic::
+                                   kNativeFlashInferExactPanel) {
+    for (std::size_t panel_index = 0U;
+         panel_index < immutable_topology.panel_count; ++panel_index) {
+      const PrefillOperatorPanel& panel =
+          immutable_topology.panels[panel_index];
+      if (panel.token_count < kPrefillPhysicalSegmentM32Tokens ||
+          !can_launch_bulk_causal_gqa_flashinfer_exact_panel(
+              panel.first_position, panel.token_count)) {
+        return fail_whole_request_prefill(runner_status(
+            ReferenceRunnerError::kInvalidStepOptions,
+            "whole_request_prefill_flashinfer_panel_geometry"));
+      }
+    }
+  }
   if (!prefill_route_evidence_.request_active ||
       prefill_route_evidence_.complete ||
       prefill_route_evidence_.error != PrefillRouteEvidenceError::kNone) {
@@ -4464,6 +4479,7 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
   std::size_t operator_panel_executor_hits = 0U;
   std::size_t native_group_q64_panel_hits = 0U;
   std::size_t native_group_q128_v4_panel_hits = 0U;
+  std::size_t native_flashinfer_exact_panel_hits = 0U;
   std::size_t generic_qt2_hits = 0U;
   std::size_t segmented_panel_projection_hits = 0U;
   std::size_t segmented_panel_projection_physical_launches = 0U;
@@ -4558,6 +4574,10 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
                      LayerMajorPrefillFullAttentionTactic::
                          kNativeGroupQ128V4Panel) {
             ++native_group_q128_v4_panel_hits;
+          } else if (full_attention_tactic ==
+                     LayerMajorPrefillFullAttentionTactic::
+                         kNativeFlashInferExactPanel) {
+            ++native_flashinfer_exact_panel_hits;
           } else {
             const LayerMajorPrefillArithmeticSpanLedger ledger =
                 make_layer_major_prefill_arithmetic_span_ledger(
@@ -4827,6 +4847,8 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
   result.operator_panel_executor_hits = operator_panel_executor_hits;
   result.native_group_q64_panel_hits = native_group_q64_panel_hits;
   result.native_group_q128_v4_panel_hits = native_group_q128_v4_panel_hits;
+  result.native_flashinfer_exact_panel_hits =
+      native_flashinfer_exact_panel_hits;
   result.generic_qt2_hits = generic_qt2_hits;
   result.segmented_panel_projection_hits = segmented_panel_projection_hits;
   result.segmented_panel_projection_physical_launches =
@@ -5320,7 +5342,25 @@ ReferenceRunner::enqueue_prefill_layer_panel(
     }
 
     if (full_attention_tactic == LayerMajorPrefillFullAttentionTactic::
-                                     kNativeGroupQ128V4Panel) {
+                                     kNativeFlashInferExactPanel) {
+      if (!can_launch_bulk_causal_gqa_flashinfer_exact_panel(
+              first_position, token_count) ||
+          !check_cuda(
+              launch_bulk_causal_gqa_sigmoid_gate_24_4_256_flashinfer_exact_panel_fixed_cuda(
+                  processed_q, views_.key_cache[layer],
+                  views_.value_cache[layer], packed_gate, first_position,
+                  token_count, core_output, stream_),
+              "prefill_operator_panel_full_attention_flashinfer_exact",
+              layer)) {
+        return fail_enqueue(
+            launch_failure.ok()
+                ? runner_status(ReferenceRunnerError::kInvalidStepOptions,
+                                "prefill_operator_panel_attention_geometry",
+                                layer)
+                : launch_failure);
+      }
+    } else if (full_attention_tactic == LayerMajorPrefillFullAttentionTactic::
+                                            kNativeGroupQ128V4Panel) {
       if (!can_launch_bulk_causal_gqa_group_q128_v4_panel(first_position,
                                                            token_count) ||
           !check_cuda(

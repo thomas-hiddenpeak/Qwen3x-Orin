@@ -42,6 +42,7 @@ enum class NativePrefillTactic : std::uint8_t {
   kExactCausalAttentionOracleSpanC512C16Reference256,
   kNativeCausalAttentionGroupQ64OperatorPanel,
   kNativeCausalAttentionGroupQ128V4OperatorPanel,
+  kNativeCausalAttentionFlashInferExactOperatorPanel,
   kResidualOperatorPanel,
   kNormalizationOperatorPanel,
   kEmbeddingOperatorPanel,

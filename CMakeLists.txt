@@ -1403,6 +1403,22 @@ if(BUILD_TESTING)
       SKIP_RETURN_CODE 77
       TIMEOUT 3600
     )
+    if(Q3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION)
+      add_test(NAME reference_prefill_flashinfer_exact_panel_e2e
+        COMMAND q3x_reference_prefill_operator_panel_equivalence_e2e_test
+                "${_q3x_e2e_model_dir}"
+      )
+      set_tests_properties(
+        reference_prefill_flashinfer_exact_panel_e2e PROPERTIES
+        LABELS "e2e;model;sm87;prefill;operator_panel;architecture_candidate;accuracy_unqualified"
+        ENVIRONMENT
+          "Q3X_TEST_PREFILL_ATTENTION_TACTIC=native-flashinfer-exact-panel"
+        RESOURCE_LOCK q3x_sm87_gpu
+        RUN_SERIAL TRUE
+        SKIP_RETURN_CODE 77
+        TIMEOUT 3600
+      )
+    endif()
   endif()
 
   add_executable(q3x_reference_prefill_bulk_attention_e2e_test

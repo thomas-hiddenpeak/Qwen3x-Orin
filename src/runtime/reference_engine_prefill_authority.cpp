@@ -2,6 +2,7 @@
 
 #include "q3x/kernels/sm87_fp8_marlin_w8a16.h"
 #include "q3x/kernels/sm87_nvfp4_marlin.h"
+#include "q3x/runtime/decode_ops.h"
 #include "q3x/runtime/reference_engine.h"
 
 #if defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
@@ -283,6 +284,9 @@ complete_exact_gdn_chunk64_native_inventory(
     case LayerMajorPrefillFullAttentionTactic::kNativeGroupQ128V4Panel:
       return NativePrefillTactic::
           kNativeCausalAttentionGroupQ128V4OperatorPanel;
+    case LayerMajorPrefillFullAttentionTactic::kNativeFlashInferExactPanel:
+      return NativePrefillTactic::
+          kNativeCausalAttentionFlashInferExactOperatorPanel;
     case LayerMajorPrefillFullAttentionTactic::kExactSegmentedC512:
     default:
       return NativePrefillTactic::
@@ -424,6 +428,13 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
   const bool native_large_m_projection =
       projection_tactic == LayerMajorPrefillProjectionTactic::
                                kNativeQuantizedLargeMOperatorPanel;
+  if (full_attention_tactic == LayerMajorPrefillFullAttentionTactic::
+                                   kNativeFlashInferExactPanel &&
+      !has_bulk_causal_gqa_flashinfer_exact_panel_cuda()) {
+    return plan_failure(BoundPrefillPlanError::kUnsupportedBinary,
+                        ReferenceRunnerError::kInvalidDependency,
+                        "bound_prefill_flashinfer_exact_panel_binary");
+  }
   if (!complete_installed_projection_inventory(*weights)) {
     return plan_failure(BoundPrefillPlanError::kUnsupportedBinary,
                         ReferenceRunnerError::kInvalidDependency,
@@ -892,6 +903,11 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
   const bool native_large_m_projection =
       plan.projection_tactic_ == LayerMajorPrefillProjectionTactic::
                                       kNativeQuantizedLargeMOperatorPanel;
+  if (plan.full_attention_tactic_ == LayerMajorPrefillFullAttentionTactic::
+                                         kNativeFlashInferExactPanel &&
+      !has_bulk_causal_gqa_flashinfer_exact_panel_cuda()) {
+    return false;
+  }
   if (!complete_installed_projection_inventory(*runner.weights_)) {
     return false;
   }
@@ -1172,6 +1188,8 @@ std::string_view ReferenceEnginePrefillExecutor::deployment_plan_id(
         return kLayerMajorNativeQuantizedLargeMProjectionGroupQ64DeploymentPlanId;
       case LayerMajorPrefillFullAttentionTactic::kNativeGroupQ128V4Panel:
         return kLayerMajorNativeQuantizedLargeMProjectionGroupQ128V4DeploymentPlanId;
+      case LayerMajorPrefillFullAttentionTactic::kNativeFlashInferExactPanel:
+        return kLayerMajorNativeQuantizedLargeMProjectionFlashInferExactDeploymentPlanId;
       case LayerMajorPrefillFullAttentionTactic::kExactSegmentedC512:
       default:
         return kLayerMajorNativeQuantizedLargeMProjectionDeploymentPlanId;
@@ -1184,6 +1202,8 @@ std::string_view ReferenceEnginePrefillExecutor::deployment_plan_id(
         return kLayerMajorSegmentedMarlinProjectionGroupQ64DeploymentPlanId;
       case LayerMajorPrefillFullAttentionTactic::kNativeGroupQ128V4Panel:
         return kLayerMajorSegmentedMarlinProjectionGroupQ128V4DeploymentPlanId;
+      case LayerMajorPrefillFullAttentionTactic::kNativeFlashInferExactPanel:
+        return kLayerMajorSegmentedMarlinProjectionFlashInferExactDeploymentPlanId;
       case LayerMajorPrefillFullAttentionTactic::kExactSegmentedC512:
       default:
         return kLayerMajorSegmentedMarlinProjectionDeploymentPlanId;
@@ -1194,6 +1214,8 @@ std::string_view ReferenceEnginePrefillExecutor::deployment_plan_id(
       return kLayerMajorNativeGroupQ64PanelDeploymentPlanId;
     case LayerMajorPrefillFullAttentionTactic::kNativeGroupQ128V4Panel:
       return kLayerMajorNativeGroupQ128V4PanelDeploymentPlanId;
+    case LayerMajorPrefillFullAttentionTactic::kNativeFlashInferExactPanel:
+      return kLayerMajorNativeFlashInferExactPanelDeploymentPlanId;
     case LayerMajorPrefillFullAttentionTactic::kExactSegmentedC512:
     default:
       return kLayerMajorOperatorPanelDeploymentPlanId;

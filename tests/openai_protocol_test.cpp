@@ -333,6 +333,9 @@ void test_target_prefill_witness_evidence(TestContext& test) {
               R"("id":"q3x.sm87.ac-prefill-layermajor-8k.native-group-q64-panel.v1","qualification":"accuracy-unqualified-architecture-candidate","numerical_contract":{"qualified":false,"reason":"full-state-accuracy-qualification-not-run"})") !=
               std::string::npos &&
           candidate_serialized.find(
+              R"("native_flashinfer_exact_panel_hits")") ==
+              std::string::npos &&
+          candidate_serialized.find(
               R"("disabled_boundaries":{"scope":"architecture_candidate_unqualified","prefix_cache":true,"mtp":true,"cublaslt_production":true,"approximate_numerics":false})") !=
               std::string::npos,
       "native grouped-Q64 candidate has an explicit unqualified v3 "
@@ -363,6 +366,36 @@ void test_target_prefill_witness_evidence(TestContext& test) {
       "native grouped-Q128-v4 candidate has a distinct unqualified v3 "
       "execution witness");
 
+  server::TargetPrefillWitnessRecord flashinfer_candidate_record =
+      sealed_record;
+  flashinfer_candidate_record.operator_panel_executor_hits = 128U;
+  flashinfer_candidate_record.native_flashinfer_exact_panel_hits = 32U;
+  flashinfer_candidate_record.generic_qt2_hits = 0U;
+  flashinfer_candidate_record.deployment_plan_id = q3x::runtime::
+      kLayerMajorNativeFlashInferExactPanelDeploymentPlanId;
+  const std::string flashinfer_candidate_serialized =
+      server::serialize_target_prefill_witness(
+          flashinfer_candidate_record);
+  test.expect(
+      valid_json(flashinfer_candidate_serialized) &&
+          flashinfer_candidate_serialized.find(
+              R"("record":"target-prefill-witness-v6","schema_version":6)") !=
+              std::string::npos &&
+          flashinfer_candidate_serialized.find(
+              R"("projection_tactic":"exact-segmented")") !=
+              std::string::npos &&
+          flashinfer_candidate_serialized.find(
+              R"("attention_tactic":"native-flashinfer-exact-panel")") !=
+              std::string::npos &&
+          flashinfer_candidate_serialized.find(
+              R"("native_flashinfer_exact_panel_hits":32)") !=
+              std::string::npos &&
+          flashinfer_candidate_serialized.find(
+              R"("id":"q3x.sm87.ac-prefill-prompt-wide-v2.exact-segmented-projection.native-flashinfer-exact-panel-attention.v1","qualification":"accuracy-unqualified-architecture-candidate","numerical_contract":{"qualified":false,"reason":"full-state-accuracy-qualification-not-run"})") !=
+              std::string::npos,
+      "exact FlashInfer panel Attention has an explicit unqualified v6 "
+      "execution witness");
+
   server::TargetPrefillWitnessRecord projection_candidate_record =
       sealed_record;
   projection_candidate_record.operator_panel_executor_hits = 128U;
@@ -386,6 +419,9 @@ void test_target_prefill_witness_evidence(TestContext& test) {
               std::string::npos &&
           projection_candidate_serialized.find(
               R"("id":"q3x.sm87.ac-prefill-layermajor-8k.segmented-marlin-operator-panel.exact-segmented-attention.v1","qualification":"accuracy-unqualified-architecture-candidate","numerical_contract":{"qualified":false,"reason":"full-state-accuracy-qualification-not-run"})") !=
+              std::string::npos &&
+          projection_candidate_serialized.find(
+              R"("native_flashinfer_exact_panel_hits")") ==
               std::string::npos,
       "native Marlin panel projections have explicit unqualified v4 route "
       "and physical-launch evidence");
@@ -430,6 +466,37 @@ void test_target_prefill_witness_evidence(TestContext& test) {
       "segmented projections plus Q128-v4 Attention have a distinct "
       "unqualified v4 witness identity");
 
+  projection_candidate_record.deployment_plan_id = q3x::runtime::
+      kLayerMajorSegmentedMarlinProjectionFlashInferExactDeploymentPlanId;
+  projection_candidate_record.native_group_q128_v4_panel_hits = 0U;
+  projection_candidate_record.native_flashinfer_exact_panel_hits = 32U;
+  projection_candidate_record.generic_qt2_hits = 0U;
+  const std::string segmented_flashinfer_candidate_serialized =
+      server::serialize_target_prefill_witness(
+          projection_candidate_record);
+  test.expect(
+      valid_json(segmented_flashinfer_candidate_serialized) &&
+          segmented_flashinfer_candidate_serialized.find(
+              R"("record":"target-prefill-witness-v6","schema_version":6)") !=
+              std::string::npos &&
+          segmented_flashinfer_candidate_serialized.find(
+              R"("projection_tactic":"segmented-marlin-operator-panel")") !=
+              std::string::npos &&
+          segmented_flashinfer_candidate_serialized.find(
+              R"("attention_tactic":"native-flashinfer-exact-panel")") !=
+              std::string::npos &&
+          segmented_flashinfer_candidate_serialized.find(
+              R"("native_flashinfer_exact_panel_hits":32)") !=
+              std::string::npos &&
+          segmented_flashinfer_candidate_serialized.find(
+              R"("segmented_panel_projection_hits":672,"segmented_panel_projection_physical_launches":4928)") !=
+              std::string::npos &&
+          segmented_flashinfer_candidate_serialized.find(
+              R"("id":"q3x.sm87.ac-prefill-prompt-wide-v2.segmented-marlin-operator-panel.native-flashinfer-exact-panel-attention.v1")") !=
+              std::string::npos,
+      "segmented projections plus exact FlashInfer Attention have a distinct "
+      "unqualified v6 witness identity");
+
   server::TargetPrefillWitnessRecord native_large_m_record = sealed_record;
   native_large_m_record.operator_panel_executor_hits = 128U;
   native_large_m_record.generic_qt2_hits = 4U;
@@ -454,6 +521,9 @@ void test_target_prefill_witness_evidence(TestContext& test) {
               std::string::npos &&
           native_large_m_serialized.find(
               R"("segmented_panel_projection_hits")") ==
+              std::string::npos &&
+          native_large_m_serialized.find(
+              R"("native_flashinfer_exact_panel_hits")") ==
               std::string::npos,
       "native large-M projections have explicit unqualified v5 route and "
       "physical-launch evidence");
@@ -491,6 +561,35 @@ void test_target_prefill_witness_evidence(TestContext& test) {
               std::string::npos,
       "native large-M projections plus Q128-v4 Attention have a distinct "
       "unqualified v5 witness identity");
+
+  native_large_m_record.native_group_q128_v4_panel_hits = 0U;
+  native_large_m_record.native_flashinfer_exact_panel_hits = 32U;
+  native_large_m_record.deployment_plan_id = q3x::runtime::
+      kLayerMajorNativeQuantizedLargeMProjectionFlashInferExactDeploymentPlanId;
+  const std::string native_large_m_flashinfer_serialized =
+      server::serialize_target_prefill_witness(native_large_m_record);
+  test.expect(
+      valid_json(native_large_m_flashinfer_serialized) &&
+          native_large_m_flashinfer_serialized.find(
+              R"("record":"target-prefill-witness-v6","schema_version":6)") !=
+              std::string::npos &&
+          native_large_m_flashinfer_serialized.find(
+              R"("projection_tactic":"native-quantized-large-m-operator-panel")") !=
+              std::string::npos &&
+          native_large_m_flashinfer_serialized.find(
+              R"("attention_tactic":"native-flashinfer-exact-panel")") !=
+              std::string::npos &&
+          native_large_m_flashinfer_serialized.find(
+              R"("native_flashinfer_exact_panel_hits":32)") !=
+              std::string::npos &&
+          native_large_m_flashinfer_serialized.find(
+              R"("native_large_m_projection_hits":672,"native_large_m_projection_bulk_hits":672,"native_large_m_projection_oracle_partial_hits":0,"native_large_m_projection_physical_launches":672)") !=
+              std::string::npos &&
+          native_large_m_flashinfer_serialized.find(
+              R"("id":"q3x.sm87.ac-prefill-prompt-wide-v2.native-quantized-large-m-operator-panel.native-flashinfer-exact-panel-attention.v1")") !=
+              std::string::npos,
+      "native large-M projections plus exact FlashInfer Attention have a "
+      "distinct unqualified v6 witness identity");
 
   server::TargetPrefillWitnessRecord unbound_layer_major_record =
       sealed_record;

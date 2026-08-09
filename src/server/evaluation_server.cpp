@@ -851,6 +851,8 @@ void emit_target_prefill_witness(
         generation.prefill_native_group_q64_panel_hits;
     record.native_group_q128_v4_panel_hits =
         generation.prefill_native_group_q128_v4_panel_hits;
+    record.native_flashinfer_exact_panel_hits =
+        generation.prefill_native_flashinfer_exact_panel_hits;
     record.generic_qt2_hits = generation.prefill_generic_qt2_hits;
     record.segmented_panel_projection_hits =
         generation.prefill_segmented_panel_projection_hits;

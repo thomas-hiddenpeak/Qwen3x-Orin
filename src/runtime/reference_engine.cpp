@@ -1092,6 +1092,7 @@ struct EngineStepContext {
   std::size_t prefill_operator_panel_executor_hits = 0U;
   std::size_t prefill_native_group_q64_panel_hits = 0U;
   std::size_t prefill_native_group_q128_v4_panel_hits = 0U;
+  std::size_t prefill_native_flashinfer_exact_panel_hits = 0U;
   std::size_t prefill_generic_qt2_hits = 0U;
   std::size_t prefill_segmented_panel_projection_hits = 0U;
   std::size_t prefill_segmented_panel_projection_physical_launches = 0U;
@@ -1247,6 +1248,8 @@ prefill_whole_request_layer_major(
       executed.value->native_group_q64_panel_hits;
   context.prefill_native_group_q128_v4_panel_hits =
       executed.value->native_group_q128_v4_panel_hits;
+  context.prefill_native_flashinfer_exact_panel_hits =
+      executed.value->native_flashinfer_exact_panel_hits;
   context.prefill_generic_qt2_hits = executed.value->generic_qt2_hits;
   context.prefill_segmented_panel_projection_hits =
       executed.value->segmented_panel_projection_hits;
@@ -4432,6 +4435,9 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
     generation.prefill_native_group_q128_v4_panel_hits =
         static_cast<std::uint64_t>(
             step_context.prefill_native_group_q128_v4_panel_hits);
+    generation.prefill_native_flashinfer_exact_panel_hits =
+        static_cast<std::uint64_t>(
+            step_context.prefill_native_flashinfer_exact_panel_hits);
     generation.prefill_generic_qt2_hits = static_cast<std::uint64_t>(
         step_context.prefill_generic_qt2_hits);
     generation.prefill_segmented_panel_projection_hits =

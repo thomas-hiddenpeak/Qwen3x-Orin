@@ -628,11 +628,27 @@ std::string serialize_target_prefill_witness(
   const bool native_large_m_candidate_uses_q128_v4_attention =
       record.deployment_plan_id == runtime::
           kLayerMajorNativeQuantizedLargeMProjectionGroupQ128V4DeploymentPlanId;
+  const bool flashinfer_exact_candidate_v6 =
+      record.deployment_plan_id ==
+          runtime::kLayerMajorNativeFlashInferExactPanelDeploymentPlanId ||
+      record.deployment_plan_id == runtime::
+          kLayerMajorSegmentedMarlinProjectionFlashInferExactDeploymentPlanId ||
+      record.deployment_plan_id == runtime::
+          kLayerMajorNativeQuantizedLargeMProjectionFlashInferExactDeploymentPlanId;
+  const bool flashinfer_exact_candidate_uses_segmented_projection =
+      record.deployment_plan_id == runtime::
+          kLayerMajorSegmentedMarlinProjectionFlashInferExactDeploymentPlanId;
+  const bool flashinfer_exact_candidate_uses_native_large_m_projection =
+      record.deployment_plan_id == runtime::
+          kLayerMajorNativeQuantizedLargeMProjectionFlashInferExactDeploymentPlanId;
   const bool accuracy_unqualified_candidate =
       candidate_v3 || projection_candidate_v4 ||
-      native_large_m_candidate_v5;
+      native_large_m_candidate_v5 || flashinfer_exact_candidate_v6;
   std::string output =
-      native_large_m_candidate_v5
+      flashinfer_exact_candidate_v6
+          ? "{\"record\":\"target-prefill-witness-v6\","
+            "\"schema_version\":6,\"request\":{\"id\":"
+      : native_large_m_candidate_v5
           ? "{\"record\":\"target-prefill-witness-v5\","
             "\"schema_version\":5,\"request\":{\"id\":"
       : projection_candidate_v4
@@ -708,7 +724,43 @@ std::string serialize_target_prefill_witness(
     output += record.bounded_submission_window ? "true" : "false";
     output += ",\"submission_window_retirements\":" +
               std::to_string(record.submission_window_retirements);
-    if (candidate_v3) {
+    if (flashinfer_exact_candidate_v6) {
+      output += ",\"projection_tactic\":";
+      append_json_string(
+          output,
+          flashinfer_exact_candidate_uses_native_large_m_projection
+              ? "native-quantized-large-m-operator-panel"
+          : flashinfer_exact_candidate_uses_segmented_projection
+              ? "segmented-marlin-operator-panel"
+              : "exact-segmented");
+      output += ",\"attention_tactic\":";
+      append_json_string(output, "native-flashinfer-exact-panel");
+      output += ",\"operator_panel_executor_hits\":" +
+                std::to_string(record.operator_panel_executor_hits) +
+                ",\"native_flashinfer_exact_panel_hits\":" +
+                std::to_string(record.native_flashinfer_exact_panel_hits) +
+                ",\"native_group_q64_panel_hits\":" +
+                std::to_string(record.native_group_q64_panel_hits) +
+                ",\"native_group_q128_v4_panel_hits\":" +
+                std::to_string(record.native_group_q128_v4_panel_hits) +
+                ",\"generic_qt2_hits\":" +
+                std::to_string(record.generic_qt2_hits) +
+                ",\"segmented_panel_projection_hits\":" +
+                std::to_string(record.segmented_panel_projection_hits) +
+                ",\"segmented_panel_projection_physical_launches\":" +
+                std::to_string(
+                    record.segmented_panel_projection_physical_launches) +
+                ",\"native_large_m_projection_hits\":" +
+                std::to_string(record.native_large_m_projection_hits) +
+                ",\"native_large_m_projection_bulk_hits\":" +
+                std::to_string(record.native_large_m_projection_bulk_hits) +
+                ",\"native_large_m_projection_oracle_partial_hits\":" +
+                std::to_string(
+                    record.native_large_m_projection_oracle_partial_hits) +
+                ",\"native_large_m_projection_physical_launches\":" +
+                std::to_string(
+                    record.native_large_m_projection_physical_launches);
+    } else if (candidate_v3) {
       output += ",\"attention_tactic\":";
       append_json_string(output, candidate_q128_v3
                                      ? "native-group-q128-v4-panel"

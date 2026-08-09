@@ -85,6 +85,10 @@ inline constexpr std::string_view
     kLayerMajorNativeGroupQ128V4PanelDeploymentPlanId =
         "q3x.sm87.ac-prefill-layermajor-8k.native-group-q128-v4-panel.v1";
 inline constexpr std::string_view
+    kLayerMajorNativeFlashInferExactPanelDeploymentPlanId =
+        "q3x.sm87.ac-prefill-prompt-wide-v2.exact-segmented-projection."
+        "native-flashinfer-exact-panel-attention.v1";
+inline constexpr std::string_view
     kLayerMajorSegmentedMarlinProjectionDeploymentPlanId =
         "q3x.sm87.ac-prefill-layermajor-8k.segmented-marlin-operator-panel."
         "exact-segmented-attention.v1";
@@ -96,6 +100,11 @@ inline constexpr std::string_view
     kLayerMajorSegmentedMarlinProjectionGroupQ128V4DeploymentPlanId =
         "q3x.sm87.ac-prefill-layermajor-8k.segmented-marlin-operator-panel."
         "native-group-q128-v4-attention.v1";
+inline constexpr std::string_view
+    kLayerMajorSegmentedMarlinProjectionFlashInferExactDeploymentPlanId =
+        "q3x.sm87.ac-prefill-prompt-wide-v2."
+        "segmented-marlin-operator-panel."
+        "native-flashinfer-exact-panel-attention.v1";
 inline constexpr std::string_view
     kLayerMajorNativeQuantizedLargeMProjectionDeploymentPlanId =
         "q3x.sm87.ac-prefill-layermajor-8k."
@@ -111,6 +120,11 @@ inline constexpr std::string_view
         "q3x.sm87.ac-prefill-layermajor-8k."
         "native-quantized-large-m-operator-panel."
         "native-group-q128-v4-attention.v1";
+inline constexpr std::string_view
+    kLayerMajorNativeQuantizedLargeMProjectionFlashInferExactDeploymentPlanId =
+        "q3x.sm87.ac-prefill-prompt-wide-v2."
+        "native-quantized-large-m-operator-panel."
+        "native-flashinfer-exact-panel-attention.v1";
 
 [[nodiscard]] constexpr bool is_valid_reference_prefill_execution_mode(
     const ReferencePrefillExecutionMode mode) noexcept {
@@ -291,6 +305,7 @@ struct ReferenceGeneration {
   std::uint64_t prefill_operator_panel_executor_hits = 0U;
   std::uint64_t prefill_native_group_q64_panel_hits = 0U;
   std::uint64_t prefill_native_group_q128_v4_panel_hits = 0U;
+  std::uint64_t prefill_native_flashinfer_exact_panel_hits = 0U;
   std::uint64_t prefill_generic_qt2_hits = 0U;
   // Segmented-wrapper evidence. A hit is one completed logical FP8 or NVFP4
   // operator-panel wrapper invocation. Physical launches count the

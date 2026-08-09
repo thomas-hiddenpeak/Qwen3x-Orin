@@ -18,6 +18,8 @@ inline constexpr std::size_t kBulkCausalGqaMaximumSequenceLength = 262'144U;
 inline constexpr unsigned int kBulkCausalGqaGroupQ64FirstPositionBits = 18U;
 inline constexpr std::size_t kBulkCausalGqaGroupQ64PanelMaximumTokens =
     8'192U;
+inline constexpr std::size_t
+    kBulkCausalGqaFlashInferExactPanelMaximumTokens = 8'192U;
 // Isolated SM87 Attention-v4 bring-up geometry.  This surface is never
 // selected by the production runner: one CTA aggregates eight independent
 // Q16 warp states so one K/V32 tile is shared by 128 packed GQA queries.
@@ -488,6 +490,41 @@ bulk_causal_gqa_group_q128_v4_grid_x(
 
 [[nodiscard]] int
 launch_bulk_causal_gqa_sigmoid_gate_24_4_256_group_q128_v4_panel_fixed_cuda(
+    const std::uint16_t* query_panel, const std::uint16_t* key_cache,
+    const std::uint16_t* value_cache, const std::uint16_t* gate_panel,
+    std::size_t first_position, std::size_t token_count,
+    std::uint16_t* output_panel, void* cuda_stream = nullptr) noexcept;
+
+// Default-off exact logical-panel Attention surface backed by the vendored
+// FlashInfer single-Prefill dataflow. query_panel, gate_panel, and
+// output_panel are panel-local [token_count,24,256] BF16 arrays. key_cache and
+// value_cache are global contiguous NHD [first_position+token_count,4,256]
+// BF16 arrays. FlashInfer owns the exact causal mask for qo_len=token_count
+// and kv_len=first_position+token_count, retains FP32 online-softmax state,
+// and writes a BF16 Attention boundary before the existing sigmoid gate and
+// final BF16 rounding.
+//
+// The capability query has no CUDA side effects and reports only whether the
+// test-only compile-time admission is present in the linked kernel library.
+// The geometry query performs no admission or device query. The launcher is
+// explicit and environment-independent: it has no fallback or selector, and
+// returns cudaErrorNotSupported when the admission was not compiled. All five
+// arrays must be pairwise disjoint and 16-byte aligned.
+[[nodiscard]] bool
+has_bulk_causal_gqa_flashinfer_exact_panel_cuda() noexcept;
+
+[[nodiscard]] constexpr bool
+can_launch_bulk_causal_gqa_flashinfer_exact_panel(
+    const std::size_t first_position,
+    const std::size_t token_count) noexcept {
+  return token_count >= 2U &&
+         token_count <= kBulkCausalGqaFlashInferExactPanelMaximumTokens &&
+         first_position <=
+             kBulkCausalGqaMaximumSequenceLength - token_count;
+}
+
+[[nodiscard]] int
+launch_bulk_causal_gqa_sigmoid_gate_24_4_256_flashinfer_exact_panel_fixed_cuda(
     const std::uint16_t* query_panel, const std::uint16_t* key_cache,
     const std::uint16_t* value_cache, const std::uint16_t* gate_panel,
     std::size_t first_position, std::size_t token_count,

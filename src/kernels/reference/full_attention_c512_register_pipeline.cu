@@ -94,18 +94,17 @@ static_assert(kBulkCausalGqaGroupQ64PanelMaximumTokens <
   return first_begin < second_end && second_begin < first_end;
 }
 
-[[nodiscard]] bool valid_group_q64_panel_arguments(
+[[nodiscard]] bool valid_panel_arguments(
     const std::uint16_t* const query,
     const std::uint16_t* const key_cache,
     const std::uint16_t* const value_cache,
     const std::uint16_t* const gate,
     const std::size_t first_position,
     const std::size_t token_count,
-    const std::uint16_t* const output) noexcept {
+    const std::uint16_t* const output,
+    const bool geometry_admitted) noexcept {
   if (query == nullptr || key_cache == nullptr || value_cache == nullptr ||
-      gate == nullptr || output == nullptr ||
-      !can_launch_bulk_causal_gqa_group_q64_panel(first_position,
-                                                   token_count)) {
+      gate == nullptr || output == nullptr || !geometry_admitted) {
     return false;
   }
   constexpr std::uintptr_t kVectorAlignment = alignof(uint4);
@@ -196,7 +195,7 @@ __global__ void bulk_gqa_flashinfer_sigmoid_gate_kernel(
   output[index] = encode_bf16_device(attention * sigmoid);
 }
 
-int launch_bulk_gqa_flashinfer_direct(
+int launch_bulk_gqa_flashinfer_exact_panel_impl(
     const std::uint16_t* const query,
     const std::uint16_t* const key_cache,
     const std::uint16_t* const value_cache,
@@ -206,7 +205,8 @@ int launch_bulk_gqa_flashinfer_direct(
     std::uint16_t* const output,
     cudaStream_t const stream) noexcept {
   const std::size_t kv_length = first_position + token_count;
-  if (token_count == 0U || token_count > kBulkGqaC512TokenCount ||
+  if (!can_launch_bulk_causal_gqa_flashinfer_exact_panel(first_position,
+                                                         token_count) ||
       kv_length > static_cast<std::size_t>(UINT32_MAX)) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
@@ -224,13 +224,19 @@ int launch_bulk_gqa_flashinfer_direct(
       kBulkGqaKvHeads * kBulkGqaHeadDimension, kBulkGqaHeadDimension,
       kBulkGqaHeadDimension, -1, 0.0F, kBulkGqaAttentionScale, 1.0F,
       10'000.0F);
-  const cudaError_t status =
-      flashinfer::SinglePrefillWithKVCacheDispatched<
-          kBulkGqaHeadDimension, kBulkGqaHeadDimension,
-          flashinfer::PosEncodingMode::kNone, false,
-          flashinfer::MaskMode::kCausal,
-          flashinfer::DefaultAttention<false, false, false, false>>(
-          params, nullptr, stream);
+  cudaError_t status = cudaErrorUnknown;
+  try {
+    status = flashinfer::SinglePrefillWithKVCacheDispatched<
+        kBulkGqaHeadDimension, kBulkGqaHeadDimension,
+        flashinfer::PosEncodingMode::kNone, false,
+        flashinfer::MaskMode::kCausal,
+        flashinfer::DefaultAttention<false, false, false, false>>(
+        params, nullptr, stream);
+  } catch (const flashinfer::Error&) {
+    return static_cast<int>(cudaErrorNotSupported);
+  } catch (...) {
+    return static_cast<int>(cudaErrorUnknown);
+  }
   if (status != cudaSuccess) {
     return static_cast<int>(status);
   }
@@ -1247,6 +1253,49 @@ void bulk_causal_gqa_sigmoid_gate_24_4_256_c512_group_q64_kernel(
 
 }  // namespace
 
+bool has_bulk_causal_gqa_flashinfer_exact_panel_cuda() noexcept {
+#if defined(Q3X_ENABLE_FLASHINFER_PREFILL_ATTENTION_ADMISSION)
+  return true;
+#else
+  return false;
+#endif
+}
+
+int launch_bulk_causal_gqa_sigmoid_gate_24_4_256_flashinfer_exact_panel_fixed_cuda(
+    const std::uint16_t* const query,
+    const std::uint16_t* const key_cache,
+    const std::uint16_t* const value_cache,
+    const std::uint16_t* const gate,
+    const std::size_t first_position,
+    const std::size_t token_count,
+    std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+#if defined(Q3X_ENABLE_FLASHINFER_PREFILL_ATTENTION_ADMISSION)
+  if (!valid_panel_arguments(
+          query, key_cache, value_cache, gate, first_position, token_count,
+          output,
+          can_launch_bulk_causal_gqa_flashinfer_exact_panel(first_position,
+                                                            token_count))) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const auto stream = static_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  return launch_bulk_gqa_flashinfer_exact_panel_impl(
+      query, key_cache, value_cache, gate, first_position, token_count,
+      output, stream);
+#else
+  (void)query;
+  (void)key_cache;
+  (void)value_cache;
+  (void)gate;
+  (void)first_position;
+  (void)token_count;
+  (void)output;
+  (void)cuda_stream;
+  return static_cast<int>(cudaErrorNotSupported);
+#endif
+}
+
 int launch_bulk_causal_gqa_sigmoid_gate_24_4_256_c512_group_q64_v3_fixed_cuda(
     const std::uint16_t* const query,
     const std::uint16_t* const key_cache,
@@ -1277,9 +1326,11 @@ int launch_bulk_causal_gqa_sigmoid_gate_24_4_256_group_q64_panel_fixed_cuda(
     const std::size_t token_count,
     std::uint16_t* const output,
     void* const cuda_stream) noexcept {
-  if (!valid_group_q64_panel_arguments(
+  if (!valid_panel_arguments(
           query, key_cache, value_cache, gate, first_position, token_count,
-          output)) {
+          output,
+          can_launch_bulk_causal_gqa_group_q64_panel(first_position,
+                                                     token_count))) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
   const auto stream = static_cast<cudaStream_t>(cuda_stream);
@@ -1300,9 +1351,8 @@ int launch_bulk_causal_gqa_sigmoid_gate_24_4_256_group_q128_v4_panel_fixed_cuda(
     void* const cuda_stream) noexcept {
   if (!can_launch_bulk_causal_gqa_group_q128_v4_panel(first_position,
                                                        token_count) ||
-      !valid_group_q64_panel_arguments(
-          query, key_cache, value_cache, gate, first_position, token_count,
-          output)) {
+      !valid_panel_arguments(query, key_cache, value_cache, gate,
+                             first_position, token_count, output, true)) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
   const auto stream = static_cast<cudaStream_t>(cuda_stream);
@@ -1331,7 +1381,7 @@ int launch_bulk_causal_gqa_sigmoid_gate_24_4_256_c512_register_pipeline_cuda(
     return value != nullptr && std::strcmp(value, "1") == 0;
   }();
   if (use_flashinfer_direct) {
-    return launch_bulk_gqa_flashinfer_direct(
+    return launch_bulk_gqa_flashinfer_exact_panel_impl(
         query, key_cache, value_cache, gate, first_position, token_count,
         output, stream);
   }

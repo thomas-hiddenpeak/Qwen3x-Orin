@@ -37,7 +37,8 @@ void PrintUsage(std::ostream& output) {
       << "  --prefill-chunk-size N      Native Prefill chunk 1..512 (default 512)\n"
       << "  --prefill-execution-mode legacy|layer-major (default legacy)\n"
       << "  --prefill-attention-tactic exact-segmented|native-group-q64-panel|\n"
-      << "                             native-group-q128-v4-panel\n"
+      << "                             native-group-q128-v4-panel|\n"
+      << "                             native-flashinfer-exact-panel\n"
       << "  --prefill-projection-tactic exact-segmented|\n"
       << "                              segmented-marlin-operator-panel|\n"
       << "                              native-quantized-large-m-operator-panel\n"
@@ -148,9 +149,14 @@ template <typename T>
       } else if (value == "native-group-q128-v4-panel") {
         options.prefill_full_attention_tactic = q3x::runtime::
             LayerMajorPrefillFullAttentionTactic::kNativeGroupQ128V4Panel;
+      } else if (value == "native-flashinfer-exact-panel") {
+        options.prefill_full_attention_tactic = q3x::runtime::
+            LayerMajorPrefillFullAttentionTactic::
+                kNativeFlashInferExactPanel;
       } else {
         error = "--prefill-attention-tactic must be exact-segmented or "
-                "native-group-q64-panel or native-group-q128-v4-panel";
+                "native-group-q64-panel or native-group-q128-v4-panel or "
+                "native-flashinfer-exact-panel";
         return false;
       }
     } else if (argument == "--prefill-projection-tactic") {

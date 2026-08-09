@@ -48,6 +48,7 @@ enum class LayerMajorPrefillFullAttentionTactic : std::uint8_t {
   kExactSegmentedC512 = 0,
   kNativeGroupQ64Panel,
   kNativeGroupQ128V4Panel,
+  kNativeFlashInferExactPanel,
 };
 
 [[nodiscard]] constexpr bool
@@ -58,7 +59,9 @@ is_valid_layer_major_prefill_full_attention_tactic(
          tactic ==
              LayerMajorPrefillFullAttentionTactic::kNativeGroupQ64Panel ||
          tactic == LayerMajorPrefillFullAttentionTactic::
-                       kNativeGroupQ128V4Panel;
+                       kNativeGroupQ128V4Panel ||
+         tactic == LayerMajorPrefillFullAttentionTactic::
+                       kNativeFlashInferExactPanel;
 }
 
 [[nodiscard]] constexpr std::string_view to_string(
@@ -70,6 +73,8 @@ is_valid_layer_major_prefill_full_attention_tactic(
       return "native-group-q64-panel";
     case LayerMajorPrefillFullAttentionTactic::kNativeGroupQ128V4Panel:
       return "native-group-q128-v4-panel";
+    case LayerMajorPrefillFullAttentionTactic::kNativeFlashInferExactPanel:
+      return "native-flashinfer-exact-panel";
   }
   return "unknown";
 }

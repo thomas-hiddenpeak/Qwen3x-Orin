@@ -88,6 +88,9 @@ void test_public_tile_and_operator_panel_are_independent(TestContext& test) {
           runtime::is_valid_layer_major_prefill_full_attention_tactic(
               runtime::LayerMajorPrefillFullAttentionTactic::
                   kNativeGroupQ128V4Panel) &&
+          runtime::is_valid_layer_major_prefill_full_attention_tactic(
+              runtime::LayerMajorPrefillFullAttentionTactic::
+                  kNativeFlashInferExactPanel) &&
           !runtime::is_valid_layer_major_prefill_full_attention_tactic(
               static_cast<runtime::LayerMajorPrefillFullAttentionTactic>(
                   0xffU)),
@@ -102,8 +105,13 @@ void test_public_tile_and_operator_panel_are_independent(TestContext& test) {
           runtime::to_string(
               runtime::LayerMajorPrefillFullAttentionTactic::
                   kNativeGroupQ128V4Panel) ==
-              "native-group-q128-v4-panel",
-      "Attention tactic names preserve exact Q64/Q128 route identity");
+              "native-group-q128-v4-panel" &&
+          runtime::to_string(
+              runtime::LayerMajorPrefillFullAttentionTactic::
+                  kNativeFlashInferExactPanel) ==
+              "native-flashinfer-exact-panel",
+      "Attention tactic names preserve exact Q64/Q128/FlashInfer route "
+      "identity");
   test.expect(
       runtime::is_valid_layer_major_prefill_projection_tactic(
           runtime::LayerMajorPrefillProjectionTactic::kExactSegmentedC512) &&

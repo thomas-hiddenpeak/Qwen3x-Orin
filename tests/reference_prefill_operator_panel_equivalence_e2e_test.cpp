@@ -506,8 +506,13 @@ void print_diagnostic(
   const bool native_group_q128_v4_panel =
       attention_tactic == runtime::LayerMajorPrefillFullAttentionTactic::
                               kNativeGroupQ128V4Panel;
+  const bool native_flashinfer_exact_panel =
+      attention_tactic == runtime::LayerMajorPrefillFullAttentionTactic::
+                              kNativeFlashInferExactPanel;
   const bool native_group_panel =
       native_group_q64_panel || native_group_q128_v4_panel;
+  const bool native_panel_attention =
+      native_group_panel || native_flashinfer_exact_panel;
   const bool segmented_marlin_operator_panel =
       projection_tactic == runtime::LayerMajorPrefillProjectionTactic::
                                kSegmentedMarlinOperatorPanel;
@@ -568,7 +573,7 @@ void print_diagnostic(
   const runtime::ReferenceGeneration& oracle = *oracle_result.value;
   const runtime::ReferenceGeneration& panel = *panel_result.value;
   const bool architecture_candidate =
-      native_group_panel || segmented_marlin_operator_panel ||
+      native_panel_attention || segmented_marlin_operator_panel ||
       native_large_m_operator_panel;
   std::size_t expected_segmented_projection_physical_launches = 0U;
   if (segmented_marlin_operator_panel) {
@@ -640,7 +645,10 @@ void print_diagnostic(
   }
   const std::string_view expected_deployment_plan_id =
       native_large_m_operator_panel
-          ? (native_group_q128_v4_panel
+          ? (native_flashinfer_exact_panel
+                 ? runtime::
+                       kLayerMajorNativeQuantizedLargeMProjectionFlashInferExactDeploymentPlanId
+             : native_group_q128_v4_panel
                  ? runtime::
                        kLayerMajorNativeQuantizedLargeMProjectionGroupQ128V4DeploymentPlanId
              : native_group_q64_panel
@@ -649,7 +657,10 @@ void print_diagnostic(
                  : runtime::
                        kLayerMajorNativeQuantizedLargeMProjectionDeploymentPlanId)
       : segmented_marlin_operator_panel
-          ? (native_group_q128_v4_panel
+          ? (native_flashinfer_exact_panel
+                 ? runtime::
+                       kLayerMajorSegmentedMarlinProjectionFlashInferExactDeploymentPlanId
+             : native_group_q128_v4_panel
                  ? runtime::
                        kLayerMajorSegmentedMarlinProjectionGroupQ128V4DeploymentPlanId
              : native_group_q64_panel
@@ -657,7 +668,9 @@ void print_diagnostic(
                        kLayerMajorSegmentedMarlinProjectionGroupQ64DeploymentPlanId
                  : runtime::
                        kLayerMajorSegmentedMarlinProjectionDeploymentPlanId)
-          : (native_group_q128_v4_panel
+          : (native_flashinfer_exact_panel
+                 ? runtime::kLayerMajorNativeFlashInferExactPanelDeploymentPlanId
+             : native_group_q128_v4_panel
                  ? runtime::kLayerMajorNativeGroupQ128V4PanelDeploymentPlanId
              : native_group_q64_panel
                  ? runtime::kLayerMajorNativeGroupQ64PanelDeploymentPlanId
@@ -694,7 +707,11 @@ void print_diagnostic(
           (native_group_q128_v4_panel
                ? runtime::kRequestFullLayerCount * expected_logical_panels
                : 0U) &&
-      (!native_group_panel || panel.prefill_generic_qt2_hits == 0U) &&
+      panel.prefill_native_flashinfer_exact_panel_hits ==
+          (native_flashinfer_exact_panel
+               ? runtime::kRequestFullLayerCount * expected_logical_panels
+               : 0U) &&
+      (!native_panel_attention || panel.prefill_generic_qt2_hits == 0U) &&
       panel.prefill_segmented_panel_projection_hits ==
           (segmented_marlin_operator_panel
                ? 336U * expected_logical_panels
@@ -717,6 +734,7 @@ void print_diagnostic(
       oracle.prefill_operator_panel_executor_hits == 0U &&
       oracle.prefill_native_group_q64_panel_hits == 0U &&
       oracle.prefill_native_group_q128_v4_panel_hits == 0U &&
+      oracle.prefill_native_flashinfer_exact_panel_hits == 0U &&
       oracle.prefill_segmented_panel_projection_hits == 0U &&
       oracle.prefill_segmented_panel_projection_physical_launches == 0U &&
       oracle.prefill_native_large_m_projection_hits == 0U &&
@@ -730,11 +748,11 @@ void print_diagnostic(
   const bool exact_equivalence_passed = direction_passed && state_exact;
   // A projection-only candidate changes wrapper segmentation but not the
   // admitted arithmetic, recurrent state, or Attention tactic, so it must
-  // retain the complete real-model state oracle.  Native grouped Attention
-  // remains explicitly accuracy-unqualified and is screened only for output
-  // and sealed-route integrity here.
+  // retain the complete real-model state oracle. Native grouped and
+  // FlashInfer panel Attention remain explicitly accuracy-unqualified and are
+  // screened only for output and sealed-route integrity here.
   const bool candidate_passed =
-      direction_passed && (native_group_panel || state_exact);
+      direction_passed && (native_panel_attention || state_exact);
   const bool passed = architecture_candidate ? candidate_passed
                                               : exact_equivalence_passed;
   std::cout << (architecture_candidate
@@ -763,6 +781,8 @@ void print_diagnostic(
             << panel.prefill_native_group_q64_panel_hits
             << " native_group_q128_v4_panel_hits="
             << panel.prefill_native_group_q128_v4_panel_hits
+            << " native_flashinfer_exact_panel_hits="
+            << panel.prefill_native_flashinfer_exact_panel_hits
             << " generic_qt2_hits=" << panel.prefill_generic_qt2_hits
             << " segmented_panel_projection_hits="
             << panel.prefill_segmented_panel_projection_hits
@@ -819,12 +839,18 @@ int main(const int argc, char** const argv) {
   const bool native_group_q128_v4_panel =
       attention_tactic != nullptr &&
       std::string_view(attention_tactic) == "native-group-q128-v4-panel";
+  const bool native_flashinfer_exact_panel =
+      attention_tactic != nullptr &&
+      std::string_view(attention_tactic) ==
+          "native-flashinfer-exact-panel";
   if (attention_tactic != nullptr && !native_group_q64_panel &&
       !native_group_q128_v4_panel &&
+      !native_flashinfer_exact_panel &&
       std::string_view(attention_tactic) != "exact-segmented") {
     std::cerr << "Q3X_TEST_PREFILL_ATTENTION_TACTIC must be "
                  "exact-segmented, native-group-q64-panel, or "
-                 "native-group-q128-v4-panel\n";
+                 "native-group-q128-v4-panel, or "
+                 "native-flashinfer-exact-panel\n";
     return 2;
   }
   const char* const projection_tactic =
@@ -872,7 +898,11 @@ int main(const int argc, char** const argv) {
     options.projection_backend = runtime::ProjectionBackend::kSm87WeightOnly;
     options.prefill_execution_mode =
         runtime::ReferencePrefillExecutionMode::kWholeRequestLayerMajor;
-    if (native_group_q128_v4_panel) {
+    if (native_flashinfer_exact_panel) {
+      options.prefill_full_attention_tactic = runtime::
+          LayerMajorPrefillFullAttentionTactic::
+              kNativeFlashInferExactPanel;
+    } else if (native_group_q128_v4_panel) {
       options.prefill_full_attention_tactic = runtime::
           LayerMajorPrefillFullAttentionTactic::kNativeGroupQ128V4Panel;
     } else if (native_group_q64_panel) {

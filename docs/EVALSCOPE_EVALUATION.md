@@ -284,6 +284,36 @@ every v5 plan remains default-off and
 protocol passes. Existing v1--v4 records and plan identities remain
 byte-stable for their original routes.
 
+An explicitly selected FlashInfer exact logical-panel Attention screen emits
+`target-prefill-witness-v6`. Version 6 identifies the prompt-wide v2
+Attention dataflow without relabeling the grouped-Q64/Q128 or segmented exact
+routes:
+
+- `attention_tactic=native-flashinfer-exact-panel`;
+- `native_flashinfer_exact_panel_hits` counts completed full-Attention logical
+  panels independently from grouped-Q64, grouped-Q128-v4, and generic-QT2;
+- the count must equal `16 * logical_panel_count`, while all three incumbent
+  Attention counters must be zero; and
+- projection tactic and all v4/v5 projection counters remain explicit, so the
+  Attention change cannot conceal which projection path executed.
+
+The exact-segmented projection combination identifies itself as
+`q3x.sm87.ac-prefill-prompt-wide-v2.exact-segmented-projection.native-flashinfer-exact-panel-attention.v1`.
+The segmented-Marlin projection combination identifies itself as
+`q3x.sm87.ac-prefill-prompt-wide-v2.segmented-marlin-operator-panel.native-flashinfer-exact-panel-attention.v1`.
+The native-large-M projection combination identifies itself as
+`q3x.sm87.ac-prefill-prompt-wide-v2.native-quantized-large-m-operator-panel.native-flashinfer-exact-panel-attention.v1`.
+
+The tactic uses exact causal masking, the model's BF16 Q/K/V and output
+boundaries, and FP32 online-softmax state; it is not the grouped-Q64
+approximation. FlashInfer's parallel reduction order nevertheless differs
+from the segmented incumbent, so every v6 route remains default-off and
+`accuracy-unqualified-architecture-candidate` until the complete real-model
+state and public no-regression protocol passes. No v6 record may be emitted
+for a request whose panel geometry would route through the compatibility
+executor. Existing v1--v5 serialization and plan identities remain
+byte-stable.
+
 The externally observed TTFT selects the whole architecture. Server-side pure
 Prefill timing explains where that result came from; it never replaces the API
 result. A witness with an incomplete stream, unowned host resources, a route
