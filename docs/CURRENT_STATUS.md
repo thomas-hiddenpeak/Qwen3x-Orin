@@ -5,8 +5,8 @@ q3x_document:
   status: active
   owner: project-maintainers
   authority: current implementation, qualification, production, metric, and blocker snapshot
-  effective: 2026-08-09
-  last_reviewed: 2026-08-09
+  effective: 2026-08-10
+  last_reviewed: 2026-08-10
   supersedes: []
   superseded_by: []
   ssot_for: current delivered state and open production gaps
@@ -15,17 +15,25 @@ q3x_document:
 
 # Qwen3x-Orin current status
 
-Snapshot date: 2026-08-09. Implementation facts include committed revision
-`c45b7c5` and its default-off v6 exact FlashInfer logical-panel Attention
-route. Performance and qualification claims remain tied to their exact
-artifacts and evidence authority. Its clean-host cold/no-cache P40K real-API
-screen reached 109.02622 s EvalScope TTFT and 108.981855 s server pure
-Prefill, or 367.033577 prompt tok/s: 6.15x faster than the preceding exact
-route. This is a retained architecture direction, not a product-gate pass.
-The P513 full-state hash differs; the P40K first output `The` matches the
-preceding exact route, but that single token is not an accuracy gate. The
-route therefore remains default-off and accuracy-unqualified. P60K and P130K
-were not run, and production status is unchanged.
+Snapshot date: 2026-08-10. Revision `da2b9f6` implements the first coupled
+true-large-M NVFP4 v1 candidate, but its clean-host cold/no-cache P40K real-API
+screen is negative: server pure Prefill was 136.929918 s, or 292.120 prompt
+tok/s, versus 108.981855 s and 367.034 prompt tok/s for retained revision
+`c45b7c5`. That is a 25.64% latency regression. External TTFT exceeded server
+TTFT by only 4.047 ms and pure Prefill occupied 99.97% of TTFT, so the API is
+not the bottleneck. A matched NSys comparison assigns 99.30% of the interval
+increase to NVFP4; candidate Gate+Up and Down were respectively 1.501x and
+1.589x the retained Marlin time. WP-V2-C1-v1 is rejected, the default route is
+unchanged, and no accuracy promotion was attempted. The next Gate/Up G2 and
+Down D2 skeletons are designed, not implemented. Exact evidence is frozen in
+the [v1 rejection record](metadata/qwen36-27b-prefill-p40k-nvfp4-true-large-m-rejection-2026-08-10.json).
+
+The strongest retained P40K development direction therefore remains
+`c45b7c5` and its default-off v6 exact FlashInfer logical-panel Attention route
+at 367.033577 prompt tok/s. It is not a product-gate pass: the P513 full-state
+hash differs, its matching P40K first token is not an accuracy gate, and the
+route remains default-off and accuracy-unqualified. P60K and P130K were not
+run, and production status is unchanged.
 
 This is the single point-in-time status page. It records what is target,
 designed, implemented, qualified, and production. Architecture contracts
@@ -140,6 +148,33 @@ production route until the complete no-regression gate closes. Exact evidence
 is frozen in the
 [v6 P40K API record](metadata/qwen36-27b-prefill-p40k-flashinfer-exact-panel-api-2026-08-09.json).
 
+Revision `da2b9f6` then connected the default-off
+`native-nvfp4-true-large-m-operator-panel` v1 tactic to that same exact
+Attention and real generation/API path. The implementation replaces each
+Gate+Up or Down operator panel with one M128N256K64, three-stage kernel launch
+surface, reducing matched NVFP4 physical launches from 4,992 to 640. It is an
+implemented architecture experiment, not a production path and not evidence
+that the required shape-specific large-M dataflow has been solved.
+
+The clean-host P40K screen reached 136.97409 s EvalScope TTFT and
+136.929918 s server pure Prefill, or 292.120 prompt tok/s. Against the retained
+`c45b7c5` result, pure-Prefill latency increased by 27.948063 s, or 25.64%.
+The external/server boundary was only 4.047 ms. In the matched NSys pair,
+99.30% of the whole-request interval increase was NVFP4 time: Gate+Up rose
+from 35.039284 s to 52.600776 s (1.501x) and Down from 17.051106 s to
+27.094866 s (1.589x). The large launch-count reduction did not offset decoded-B
+duplication, two full-CTA barriers per K64 step, 203/220 registers per thread,
+and one-CTA-per-SM residency.
+
+WP-V2-C1-v1 is therefore rejected. The candidate stays disabled, the retained
+route and all defaults remain unchanged, and the full accuracy harness, P60K,
+P130K, and NCU were not run. Its successor is only a design: separate Gate/Up
+G2 and Down D2 skeletons derived from the proven Marlin consumer/feed topology,
+with a two-CTA-per-SM resource contract and another real P40K API direction
+gate before deeper qualification. The complete measurements, route counters,
+resource observations, and stop decision are in the
+[v1 rejection record](metadata/qwen36-27b-prefill-p40k-nvfp4-true-large-m-rejection-2026-08-10.json).
+
 Accordingly, current product status is **implemented evaluation runner,
 unqualified production runner**.
 
@@ -152,10 +187,10 @@ unqualified production runner**.
 | OpenAI-compatible evaluation API | Implemented | `/healthz`, `/v1/models`, completions/chat, non-streaming and committed-token SSE; explicit layer-major mode has bounded Prefill cancellation | Loopback/evaluation-only; no production exposure, security, admission, or multi-tenant contract |
 | Production serving API | Designed | Product/API contract is defined in the SDD | No installed release profile or release attestation exists |
 | Default context capacity | Implemented at 8,192 | Server default `max_sequence_length=8192`, maximum output 4,096, 2 GiB request-arena limit | Does not admit the locked long-context workloads |
-| 40K/60K/130K cold/no-cache service | Target; unqualified P40K development routes exercised | Token-ID ingress fails closed on capacity; the v6 exact logical-panel Attention route consumed all 40K tokens through the real API at 109.02622 s TTFT / 367.033577 pure prompt tok/s and matched the preceding exact route's first token | The result is still 11.72x below the owner's 4.3K tok/s vLLM starting line and 54.49x above the 2-s P40K target; P513 full state differs, and P60K/P130K, whole-process capacity, and qualification remain open |
+| 40K/60K/130K cold/no-cache service | Target; unqualified P40K development routes exercised | Token-ID ingress fails closed on capacity; retained v6 consumed all 40K tokens through the real API at 109.02622 s TTFT / 367.033577 pure prompt tok/s. The later NVFP4 v1 route also consumed all 40K, but regressed to 292.120 prompt tok/s and was rejected | The retained result is still 11.72x below the owner's 4.3K tok/s vLLM starting line and 54.49x above the 2-s P40K target; P513 full state differs, and P60K/P130K, whole-process capacity, and qualification remain open |
 | Prefill/Decode logical separation | Implemented in part | Separate phase APIs/metrics and an explicit state transition exist | Shared runner and synchronization-heavy physical plan prevent independent utilization and overlap |
-| Prompt-wide Prefill candidate | First executable v2 slice; default-off and accuracy-unqualified | Sealed Engine transaction and role receipts remain; v6 submits exact logical-panel Attention through FlashInfer with 80 P40K hits and zero QT2/Q64/Q128 hits; its P40K first token matches the preceding exact route | The P513 state hash differs, full accuracy qualification is not run, projection/BF16 A/B/GDN are still physically segmented, and the route is neither competitive nor production-admissible |
-| Large-M Prefill specializations | Exact logical-panel Attention plus one old-Marlin M8192 wrapper are implemented; complete large-M architecture remains incomplete | FlashInfer removes repeated causal-KV scans at M8192/M7712 and the admitted projection route bypasses host segmentation at exact M8192 | Projection still records 13,104 physical launches and the old Marlin body decomposes large M internally; separate true-large-M Gate/Up and Down tactics, then FP8, BF16 A/B, and GDN dataflows remain required |
+| Prompt-wide Prefill candidate | Attention slice retained but accuracy-unqualified; NVFP4 v1 implemented and rejected | Sealed Engine transaction and role receipts remain; v6 submits exact logical-panel Attention through FlashInfer. `da2b9f6` exercised a distinct true-large-M NVFP4 v1 route through the same P40K API path | Attention's P513 state hash differs; NVFP4 v1 regressed pure Prefill by 25.64%, so it was not accuracy-promoted. Shape-specific G2/D2, FP8, BF16 A/B, and GDN remain unfinished |
+| Large-M Prefill specializations | First true-large-M NVFP4 v1 is implemented only as a rejected, default-off experiment; G2/D2 are designed, not implemented | v1 reduced matched NVFP4 launches from 4,992 to 640, but Gate+Up and Down were 1.501x and 1.589x slower and one-CTA/SM limited | Implement separate Gate/Up G2 and Down D2 around the proven Marlin consumer/feed topology, meet the two-CTA/SM resource contract, and first show positive direction on the real P40K API path |
 | Decode target | Directionally near target | Short API evidence reports about 104 ms TPOT | At least 10 token/s, long-output stability, and release repetition are not qualified |
 | Production accuracy | Target with partial oracles | Exact deterministic outputs are available for selected prompts/routes | No complete public capability baseline and promotion gate has passed |
 | AOT DeploymentPlan | Implemented internally for the development route; release artifact still designed | Engine-lifetime sealed plan binds model/state/resources/operator identities and one-shot request receipts | No authenticated installed plan artifact is loaded and attested by the default release |
@@ -503,17 +538,24 @@ Attention dataflow. It does not relax the accuracy boundary: P513 state
 diverges and the P40K single-token match is insufficient, so the candidate
 remains unqualified and default-off.
 
-The active architecture response now moves to the remaining largest coupled
-package: separate true-large-M NVFP4 Gate/Up and Down tactics covering both
-M8192 and M7712, followed by shape-specific FP8 QKV/Z/O. Existing same-payload
-T4 evidence provides a design-level remaining budget of about 51.96 s NVFP4,
-26.07 s FP8, 5.43 s recursive BF16 A/B, about 12.96 s FlashInfer Attention,
-and about 12.57 s GDN/other. Those transferred numbers are not a new c45b7c5
-profile, but they make projection redesign unambiguously P0; another full P40K
-trace before implementation would not change the decision. BF16 A/B and GDN
-must then eliminate recursive span dispatch while preserving exact recurrent
-boundaries. P60K/P130K stay deferred until the same P40K API witness is
-competitive and accuracy-admissible.
+The first coupled true-large-M NVFP4 implementation at `da2b9f6` did return to
+the same P40K product witness. Its M128N256K64 v1 reduced projection launches,
+but pure Prefill regressed from 108.981855 s to 136.929918 s. A matched NSys
+pair attributes 99.30% of the interval increase to NVFP4; Gate+Up and Down are
+1.501x and 1.589x slower than the retained Marlin route. The v1 skeleton is
+therefore closed and must not be parameter-scanned further. The API boundary
+remained only 4.047 ms, so API work cannot explain or repair this regression.
+
+The next P0 is a redesign, not a claim of existing code: Gate/Up G2 and Down D2
+use distinct shape-specific topologies derived from the proven Marlin
+consumer/feed structure. Their shared contract includes `ldmatrix`/XOR A feed,
+two-slot raw/decoded-B register ping-pong, short scale lifetime, decoded-B
+fanout across eight M16 panels, at most 128 registers per thread, about 50 KiB
+or less shared memory, and two active CTAs per SM. G2/D2 must first run together
+through the same real P40K API path and beat the retained 367.034 tok/s
+direction before repetition, full accuracy qualification, NCU, P60K, or P130K.
+Shape-specific FP8 QKV/Z/O, BF16 A/B, and GDN remain subsequent architecture
+packages rather than reasons to dilute this composition deadline.
 
 Unpinned or dirty experimental branches are intentionally excluded from this
 status snapshot. A candidate affects current truth only after its exact commit,
@@ -530,7 +572,7 @@ active dependency order and exit criteria are in
 | --- | --- | --- |
 | Product API and long-context admission | Configured token-ID validation and host requirement plans exist; 40K/60K/130K still do not fit or execute through the default contract | P1 |
 | Exact deliverable identity | No unique `BUILD_TESTING=OFF` release or authenticated DeploymentPlan | P2 |
-| Target-length performance and physical Prefill plan | The v6 exact logical-panel Attention route retained a 6.15x P40K direction at 109.02622 s TTFT / 367.033577 pure prompt tok/s with negligible API overhead. P513 full state diverges, the P40K one-token match is insufficient for qualification, and performance remains 11.72x below the 4.3K tok/s starting line. True shape-specific NVFP4 and FP8 projection, BF16 A/B, GDN, and Attention accuracy closure remain open | P3 |
+| Target-length performance and physical Prefill plan | Retained v6 remains 367.033577 pure prompt tok/s with negligible API overhead. The implemented NVFP4 v1 regressed P40K latency by 25.64%; matched NSys assigns 99.30% of the increase to NVFP4, so v1 is rejected. Gate/Up G2 and Down D2 are designed but not implemented. Attention accuracy closure, shape-specific FP8, BF16 A/B, and GDN remain open | P3 |
 | Accuracy, capability, stability, and release evidence | Partial deterministic oracles; no complete qualification bundle | P4 |
 | Packaging and operations | No attested install/startup/upgrade lane | P5 |
 
@@ -548,14 +590,14 @@ process/device-handle inspection, never `nvidia-smi` as the idle authority.
 
 Until the gaps above close, use the following language:
 
-- **Current:** real-model native evaluation runner with an explicit,
-  default-off v6 FlashInfer exact logical-panel Attention candidate. It reached
-  367.033577 pure prompt tok/s on the cold/no-cache P40K API witness, 6.15x
-  faster than the preceding exact route, while eliminating QT2/Q64/Q128
-  Attention dispatch. Its P513 state hash differs; its P40K first token matches
-  the preceding exact route but is not an accuracy gate. It is retained only
-  as an architecture direction. Exact/default routes and production status are
-  unchanged.
+- **Current:** real-model native evaluation runner whose strongest retained
+  P40K development direction is the default-off v6 FlashInfer exact
+  logical-panel Attention candidate at 367.033577 pure prompt tok/s. Its P513
+  state hash differs, so it remains accuracy-unqualified. The later `da2b9f6`
+  true-large-M NVFP4 v1 path is implemented but rejected: it reached only
+  292.120 prompt tok/s and regressed latency by 25.64%, with 99.30% of the
+  matched interval increase attributed to NVFP4. G2/D2 are designs only.
+  Exact/default routes and production status are unchanged.
 - **Not current:** production server, 40K--130K support, release-grade vLLM
   parity, 1,224.7335 tok/s lossless Prefill, or a fully qualified 10 token/s
   Decode release.

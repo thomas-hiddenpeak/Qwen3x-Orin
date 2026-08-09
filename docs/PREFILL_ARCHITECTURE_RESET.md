@@ -5,8 +5,8 @@ q3x_document:
   status: active
   owner: prefill-maintainers
   authority: Prefill subsystem boundary, state contract, and architecture-candidate requirements
-  effective: 2026-08-09
-  last_reviewed: 2026-08-09
+  effective: 2026-08-10
+  last_reviewed: 2026-08-10
   supersedes: [docs/PREFILL_ARCHITECTURE_RESET_LEGACY.md, docs/PREFILL_REFERENCE_AUDIT.md]
   superseded_by: []
   ssot_for: Prefill inputs, outputs, ownership, synchronization, failure, and Decode handoff
@@ -533,22 +533,62 @@ this keeps the tactic accuracy-unqualified and default-off. P60K and P130K
 were not run. Exact artifacts and hashes are frozen in the
 [v6 P40K API record](metadata/qwen36-27b-prefill-p40k-flashinfer-exact-panel-api-2026-08-09.json).
 
-The next v2 slice is the coupled NVFP4 projection package. Existing same-payload
-T4 evidence transfers only as a design budget, not a new c45b7c5 profile: the
-remaining route is estimated at 51.96 s NVFP4 Marlin, 26.07 s FP8 Marlin,
-5.43 s recursive BF16 A/B, 12.96 s FlashInfer Attention, and 12.57 s
-GDN/other. This makes true-large-M projection the next P0 without justifying
-another pre-implementation full trace.
+### 8.7 Coupled NVFP4 v1 result and G2/D2 redesign contract
 
-The Humming-informed SM87 skeleton reuses the already authenticated Marlin
-packed-weight sidecar rather than duplicating several GiB of weights. It maps
-the existing scale sidecar in the new register loader, stages A, compressed B,
-and scales together, decodes E2M1/E4M3 in registers, and performs BF16 MMA with
-FP32 accumulation. The bring-up configuration is M128N256K64 with 2M-by-4N
-warp ownership and three pipeline stages; M256N128K64 is retained as the
-higher-M-reuse configuration. Gate/Up and Down remain separate compile-time
-shapes, and neither old-Marlin wrapping nor Gate-only tuning satisfies the
-package contract.
+Revision `da2b9f6` implements WP-V2-C1-v1 as a distinct, default-off
+`native-nvfp4-true-large-m-operator-panel` tactic. It reuses the authenticated
+Marlin packed-weight and scale sidecars, decodes E2M1/E4M3 in registers, and
+uses BF16 MMA with FP32 accumulation. The v1 launch surface is M128N256K64,
+256 threads, three pipeline stages, and 82,944 bytes of dynamic shared memory.
+Gate+Up uses 203 registers per thread and Down uses 220, so both reach only one
+active CTA per SM. This describes implemented v1; it does not describe the
+successor below.
+
+The clean-host cold/no-cache P40K OpenAI API/EvalScope screen consumed all
+40,000 tokens with the retained exact FlashInfer logical-panel Attention path.
+It reached 136.97409 s external TTFT and 136.929918 s server pure Prefill, or
+292.120 prompt tok/s. The retained `c45b7c5` path was 108.981855 s and
+367.034 prompt tok/s, so v1 increased pure-Prefill latency by 25.64%. External
+TTFT exceeded server TTFT by only 4.047 ms and pure Prefill was 99.97% of TTFT;
+the API is not the active bottleneck.
+
+The same-binary, same-checkpoint, same-prompt matched NSys pair attributes
+99.30% of the whole-request interval increase to NVFP4. Gate+Up moved from
+35.039284 s and 2,496 launches to 52.600776 s and 320 launches (1.501x). Down
+moved from 17.051106 s and 2,496 launches to 27.094866 s and 320 launches
+(1.589x). Launch reduction did not overcome the absence of persistent
+cross-tile ownership, duplicate B/scale decode across M warp rows, two full-CTA
+barriers per K64 step, and the accumulator plus decoded-B live range that
+forces one-CTA/SM residency.
+
+WP-V2-C1-v1 is rejected. It remains disabled, the default route is unchanged,
+and the full accuracy harness, P60K, P130K, and NCU were not run. Exact route
+counters, artifacts, timings, resource observations, and the decision are
+frozen in the
+[v1 rejection record](metadata/qwen36-27b-prefill-p40k-nvfp4-true-large-m-rejection-2026-08-10.json).
+
+The Roadmap activates a replacement pair, WP-V2-C1-G2 and WP-V2-C1-D2. Their
+status is **designed, not implemented**. Both derive from the proven Marlin
+consumer/feed structure and must provide `ldmatrix`/XOR A feed, two-slot
+raw/decoded-B register ping-pong, scale lifetime ending with its consumer
+fragment, decoded-B fanout across eight M16 panels, at most 128 registers per
+thread, about 50 KiB or less shared memory, and two active CTAs per SM.
+
+- G2 owns merged Gate+Up (`K=5120,N=34816`) as M128 x paired Gate64+Up64 x
+  K64. It uses L2-capacity grouped ownership first; a 32-CTA persistent grid is
+  admissible only if two-CTA residency and arithmetic reuse are both measured.
+  The epilogue preserves the existing BF16 intermediate rounding, then applies
+  `SiLU(gate) * up` and publishes activated BF16 directly.
+- D2 owns Down (`K=17408,N=5120`) through a separate M128N128K64 topology. It
+  starts with N-major/B-stationary ownership, adding a persistent grid-stride
+  queue only after the residency gate. Its epilogue adds residual exactly once
+  under the existing BF16 rounding contract.
+
+G2 and D2 must return together to the same real-model P40K API witness before
+repetition or full qualification. A positive direction earns bounded
+correctness, matched NSys, and real-weight NCU work; a negative direction is
+closed or redesigned. This architecture section does not claim either
+successor skeleton exists in code.
 
 ## 9. Global dataflow questions
 

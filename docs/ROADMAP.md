@@ -5,8 +5,8 @@ q3x_document:
   status: active
   owner: project-maintainers
   authority: current delivery dependency order and exit criteria
-  effective: 2026-08-09
-  last_reviewed: 2026-08-09
+  effective: 2026-08-10
+  last_reviewed: 2026-08-10
   supersedes: [docs/ROADMAP_LEGACY.md]
   superseded_by: []
   ssot_for: active unfinished delivery slices and their ordering
@@ -153,6 +153,17 @@ P3 implementation preparation may proceed in the same pinned development
 route while P1/P2 capacity and release seams are being closed. It cannot
 select an architecture, change the default, or promote production before the
 P1 and P2 exits provide the target-length API and canonical release artifact.
+
+Current P0 decision: WP-V2-C1-v1 is implemented at `da2b9f6` and rejected.
+On the real cold/no-cache P40K API path it reached 292.120 prompt tok/s versus
+367.034 prompt tok/s for retained `c45b7c5`, a 25.64% pure-Prefill latency
+regression. The API boundary was only 4.047 ms. Matched NSys assigns 99.30% of
+the interval increase to NVFP4, with Gate+Up at 1.501x and Down at 1.589x the
+retained Marlin time. Defaults are unchanged and no accuracy promotion was
+run. The replacement Gate/Up G2 and Down D2 package is designed but not
+implemented; it must first prove positive direction on this same P40K API
+witness. Exact evidence is in the
+[v1 rejection record](metadata/qwen36-27b-prefill-p40k-nvfp4-true-large-m-rejection-2026-08-10.json).
 
 Selection sequence:
 
@@ -304,12 +315,24 @@ compatibility route, not yet selected or production):
   accuracy-unqualified, and P60K and P130K were not run. Evidence is frozen in
   the
   [v6 P40K API record](metadata/qwen36-27b-prefill-p40k-flashinfer-exact-panel-api-2026-08-09.json).
-- The same-payload T4 budget may now be transferred only as a design estimate,
-  not a new c45b7c5 measurement: about 51.96 s NVFP4 projection, 26.07 s FP8
-  projection, 5.43 s recursive BF16 A/B, 12.96 s FlashInfer Attention, and
-  12.57 s GDN/other. It makes true-large-M projection the active P0. A new full
-  NSys run is deferred until the first composed projection candidate returns
-  to P40K and can change a design decision.
+- Revision `da2b9f6` implements WP-V2-C1-v1 as the distinct default-off
+  `native-nvfp4-true-large-m-operator-panel` route. Its clean-host P40K API
+  screen consumed all 40,000 tokens with exact FlashInfer Attention and zero
+  Prefix, MTP, cuBLASLt, external, approximate, or forbidden fallback hits.
+  Server pure Prefill was 136.929918 s, or 292.120 prompt tok/s, versus
+  108.981855 s and 367.034 prompt tok/s for retained `c45b7c5`: a 25.64%
+  latency regression. Pure Prefill was 99.97% of TTFT and the external/server
+  boundary was 4.047 ms, so the API is not the bottleneck.
+- The matched NSys pair changes the architecture decision. It attributes
+  99.30% of the whole-request interval increase to NVFP4. Gate+Up increased
+  from 35.039284 s to 52.600776 s (1.501x), and Down from 17.051106 s to
+  27.094866 s (1.589x), despite reducing their combined physical launches from
+  4,992 to 640. The M128N256K64, three-stage v1 consumes 203/220 registers per
+  thread, reaches only one CTA/SM, duplicates decoded B across M warp rows, and
+  uses two full-CTA barriers per K64 step. WP-V2-C1-v1 is rejected; defaults
+  are unchanged, and accuracy promotion, P60K, P130K, and NCU were not run.
+  Exact evidence is frozen in the
+  [v1 rejection record](metadata/qwen36-27b-prefill-p40k-nvfp4-true-large-m-rejection-2026-08-10.json).
 
 Active architecture candidate: `AC-PREFILL-PROMPT-WIDE-v2`.
 
@@ -320,17 +343,27 @@ Active architecture candidate: `AC-PREFILL-PROMPT-WIDE-v2`.
   closes the architecture-direction exit. The P513 state divergence and
   unexecuted accuracy gate keep its accuracy and production exits open; no
   weaker numerical contract may be used to close them.
-- **WP-V2-C1 — coupled true-large-M NVFP4 projections — active P0:** design
-  Gate/Up and Down together because their geometries differ materially. The
-  merged Gate+Up physical shape is `K=5120,N=34816`; Down is
-  `K=17408,N=5120`. Both must cover M8192 and M7712, reuse the authenticated
-  Marlin weight/scale identities, and provide real cross-row weight reuse with
-  staged A/B/scale load, in-register E2M1/E4M3 decode, and BF16 MMA with FP32
-  accumulation. The first Humming-informed skeleton is M128N256K64 with
-  2M-by-4N warp ownership and a three-stage pipeline; M256N128K64 is the
-  planned higher-M-reuse configuration. A larger launch around the existing
-  M64 Marlin body does not qualify, and neither Gate/Up-only tuning nor one
-  universal Gate/Down configuration closes this package.
+- **WP-V2-C1-v1 — coupled true-large-M NVFP4 projections — implemented,
+  rejected, default unchanged:** `da2b9f6` implements the M128N256K64,
+  three-stage skeleton for both Gate+Up and Down. It returned through the real
+  P40K API path but regressed pure-Prefill latency by 25.64%. The matched
+  profile assigns 99.30% of the regression to the new NVFP4 kernels. It is not
+  accuracy-promoted and must not receive further parameter scans.
+- **WP-V2-C1-G2 / WP-V2-C1-D2 — shape-specific NVFP4 redesign — designed,
+  not implemented, active P0:** use the proven Marlin consumer/feed structures
+  as the mother topology rather than extending the rejected v1 skeleton. G2
+  owns merged Gate+Up (`K=5120,N=34816`) as M128 x paired Gate64+Up64 x K64;
+  D2 owns Down (`K=17408,N=5120`) as its own M128N128K64 topology. Both cover
+  M8192 and M7712 and retain the authenticated packed-weight/scale identities,
+  exact BF16 intermediate/output rounding, and FP32 accumulation. Their shared
+  resource/dataflow contract is `ldmatrix`/XOR A feed, two-slot raw/decoded-B
+  register ping-pong, scale lifetime ending with its consumer fragment,
+  decoded-B fanout across eight M16 panels, no more than 128 registers per
+  thread, about 50 KiB or less shared memory, and two active CTAs per SM. G2
+  starts with grouped L2-capacity ownership; a 32-CTA persistent grid is
+  eligible only after residency and arithmetic reuse pass. D2 starts N-major
+  and B-stationary, with a persistent grid-stride queue only after the same
+  residency gate. These are design requirements, not implemented capabilities.
 - **WP-V2-C2 — shape-specific FP8 projections:** after the coupled NVFP4
   package returns to P40K, build separate QKV, Z, and O tactics instead of
   inheriting one universal tile. Humming, Triton, vLLM and cuBLASLt may inform
@@ -342,12 +375,13 @@ Active architecture candidate: `AC-PREFILL-PROMPT-WIDE-v2`.
   recursive BF16 M16 A/B dispatch with panel-wide exact tactics. FLA and Mamba
   selective-scan mechanisms are design references; copied code or changed
   state precision is outside scope.
-- **Composition deadline:** return the complete NVFP4 Gate/Up+Down package to
-  the same real-model P40K API as soon as both production shapes execute end to
-  end. The external result decides retention first; bounded component tests,
-  NSys, and real-weight NCU then explain or qualify the retained/failed
-  direction. Do not spend a full P40K profile before the new skeleton exists,
-  and do not let low-yield parameter scans displace C1, C2, or B.
+- **Composition deadline:** implement G2 and D2 as one complete NVFP4 package
+  and return it to the same real-model P40K API as soon as both shapes execute
+  end to end. The first decision is one unprofiled clean-host direction against
+  retained `c45b7c5`; a positive result earns correctness repetition and
+  matched NSys/real-weight NCU, while a negative result earns only the bounded
+  attribution needed to redesign or close it. Do not run P60K/P130K or let
+  low-yield parameter scans displace G2/D2, C2, or B before that decision.
 - Only a competitive, accuracy-admissible P40K result unlocks P60K and
   approximately-130K execution, followed by complete capacity/resource and
   architecture-witness qualification.

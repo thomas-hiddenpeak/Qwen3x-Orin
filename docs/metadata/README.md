@@ -70,6 +70,17 @@ Attention dataflow direction. It remains default-off, accuracy-unqualified,
 and far below the owner's vLLM starting line; P60K/P130K and production
 promotion have no authority from this record.
 
+The rejected first true-large-M NVFP4 operator-panel P40K API screen and its
+matched Nsight attribution are frozen in
+[`qwen36-27b-prefill-p40k-nvfp4-true-large-m-rejection-2026-08-10.json`](qwen36-27b-prefill-p40k-nvfp4-true-large-m-rejection-2026-08-10.json).
+The candidate used native M128N256K64 Gate/Up and Down kernels, but regressed
+server pure Prefill from 108,981.854892 ms to 136,929.917554 ms. The API
+boundary contributed only 4.046819 ms, while matched profiling attributed
+27.605252 s of added kernel time to NVFP4 projection kernels. The route is
+therefore rejected, default-off, and accuracy-unqualified; its evidence sends
+the next work to distinct G2 paired Gate/Up and D2 Down dataflows rather than
+parameter scanning of the rejected skeleton.
+
 The current Prefill architecture reset and same-host stock-vLLM P513 kernel
 profile are recorded in
 [`qwen36-27b-vllm-p513-architecture-profile-2026-07-29.json`](qwen36-27b-vllm-p513-architecture-profile-2026-07-29.json).

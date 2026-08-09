@@ -1,0 +1,307 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-p40k-nvfp4-true-large-m-rejection-2026-08-10",
+  "measured_at": "2026-08-10T00:47:46+08:00",
+  "profiled_at": "2026-08-10T00:56:40+08:00",
+  "recorded_at": "2026-08-10T01:12:00+08:00",
+  "timezone": "Asia/Shanghai",
+  "status": "rejected_architecture_direction_default_off_accuracy_unqualified",
+  "policy": {
+    "evidence_tier": "T3_DIRECTION_PLUS_MATCHED_T4_DIAGNOSTIC",
+    "protocol_class": "EXTERNAL_API_P40K_SINGLE_REQUEST_THEN_MATCHED_NSYS",
+    "decision_unit": "complete_nvfp4_gate_up_and_down_package",
+    "architecture_candidate_id": "AC-PREFILL-PROMPT-WIDE-v2/WP-V2-C1-v1",
+    "real_model_production_api_first": true,
+    "early_stop_authority": true,
+    "architecture_selection_authority": false,
+    "release_performance_authority": false,
+    "production_promotion_authority": false,
+    "default_route_changed": false,
+    "production_eligible": false,
+    "numerical_contract_qualified": false,
+    "accuracy_gate": "NOT_RUN",
+    "cublaslt_production_eligibility": false,
+    "mtp_used": false
+  },
+  "source": {
+    "branch": "codex/prefill-target-path",
+    "commit": "da2b9f638e29343f853c6b4f6118256399009f1d",
+    "tree": "35eb01bf04ba1d66374f67d950dcdc368db4e675",
+    "subject": "prefill: add true large-M NVFP4 candidate",
+    "measurement_tree_clean": true,
+    "binary": {
+      "measurement_path": ".q3x-work/build/prefill-v2-admission-on/qwen3x-eval-server",
+      "bytes": 12919856,
+      "sha256": "b4c2f76b80b49162fae1d59b7732f2e52776f35c760febb283615960f93fed6f",
+      "elf_build_id": "5fdbcaa099046d5199642ad6b50454cf3231128d",
+      "checked_in": false,
+      "build_type": "Release",
+      "build_testing": true,
+      "cuda_architecture": "sm_87",
+      "nvfp4_true_large_m_prefill_admission": true
+    }
+  },
+  "checkpoint": {
+    "repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "local_path": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "access": "read_only",
+    "config_sha256": "c04a19ba293737ad7be4f6e96d6666cb7e479cbe19ecc0c289fad267135b0338",
+    "quantization_config_sha256": "fd7200cd8bca2a8a5d777061521abf83e2deb97ab6bc2f04e7a0a3d3f8ecd5c1",
+    "index_sha256": "7aa103a2582b7d26631988de33dea19e8a308ee9c239e8e14feb374af30905e2",
+    "tokenizer_json_sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42"
+  },
+  "workload": {
+    "framework": "EvalScope",
+    "framework_version": "1.9.1",
+    "api": "openai",
+    "endpoint": "/v1/completions",
+    "url": "http://127.0.0.1:18084/v1/completions",
+    "corpus_path": ".q3x-work/evalscope/corpora/q3x-repository-agent-context-p40000-one-token.jsonl",
+    "corpus_sha256": "8970ac50693f49d1b27d35a0610ecbe5072594330d69b301f4dab731789b6844",
+    "prompt_kind": "token_ids",
+    "prompt_tokens": 40000,
+    "prompt_token_ids_u32le_sha256": "76cd23e2d60a9473af0ff24767b1b7ca614b36857697b420246731165156f78f",
+    "request_body_sha256": "e6f5817ad868e85c333db1961fa3dc14c7e65247f0a4241e8bb638870b6575ec",
+    "prompt_fully_consumed": true,
+    "consumed_prompt_tokens": 40000,
+    "logical_panel_geometry": "3x8192 + 2x7712",
+    "measured_requests": 1,
+    "successful_requests": 1,
+    "failed_requests": 0,
+    "warmup_requests": 0,
+    "parallel": 1,
+    "output_tokens": 1,
+    "observed_output_text": "The",
+    "preceding_route_output_text": "The",
+    "first_token_matches_preceding_route": true,
+    "first_token_is_accuracy_qualification": false,
+    "temperature": 0.0,
+    "seed": 42,
+    "stream": true,
+    "prefix_cache": false,
+    "mtp": false
+  },
+  "server_configuration": {
+    "max_sequence_length": 60001,
+    "max_output_tokens": 1,
+    "prefill_chunk_size": 512,
+    "prefill_execution_mode": "layer-major",
+    "prefill_projection_tactic": "native-nvfp4-true-large-m-operator-panel",
+    "prefill_attention_tactic": "native-flashinfer-exact-panel",
+    "projection_backend": "sm87",
+    "queue_capacity": 1,
+    "ingress_threads": 3,
+    "request_max_arena_bytes": 5600000000,
+    "minimum_free_bytes": 4294967296
+  },
+  "route": {
+    "witness_schema": "target-prefill-witness-v7",
+    "deployment_plan_id": "q3x.sm87.ac-prefill-prompt-wide-v2.native-nvfp4-true-large-m-operator-panel.native-flashinfer-exact-panel-attention.v1",
+    "qualification": "accuracy-unqualified-architecture-candidate",
+    "numerical_contract_qualified": false,
+    "logical_panel_count": 5,
+    "operator_panel_executor_hits": 320,
+    "native_flashinfer_exact_panel_hits": 80,
+    "generic_qt2_hits": 0,
+    "native_nvfp4_true_large_m_projection_hits": 640,
+    "native_nvfp4_true_large_m_gate_up_hits": 320,
+    "native_nvfp4_true_large_m_down_hits": 320,
+    "native_nvfp4_true_large_m_physical_launches": 640,
+    "fp8_projection_hits": 1040,
+    "fp8_projection_physical_launches": 8112,
+    "completed_exact_fallback_hits": 0,
+    "completed_forbidden_hits": 0,
+    "forbidden_route_hits": {
+      "prefix_cache": 0,
+      "mtp": 0,
+      "cublaslt": 0,
+      "external_reference": 0,
+      "approximate_numerics": 0
+    }
+  },
+  "unprofiled_real_api_direction": {
+    "evalscope": {
+      "ttft_ms": 136974.09,
+      "request_latency_ms": 136974.1354729049,
+      "whole_workload_prompt_tok_s": 292.02593512928195,
+      "reported_total_tok_s": 292.0332
+    },
+    "server": {
+      "queue_ms": 0.023808,
+      "admission_ms": 9.324112,
+      "generation_call_wall_ms": 136958.669164,
+      "pure_prefill_ms": 136929.917554,
+      "pure_prefill_tok_s": 292.1202372317613,
+      "finish_prefill_ms": 4.490758,
+      "ttft_ms": 136970.043181,
+      "decode_after_first_ms": 0.0,
+      "response_enqueued_total_ms": 136970.077262
+    },
+    "cross_boundary": {
+      "evalscope_ttft_minus_server_ttft_ms": 4.046819,
+      "server_ttft_minus_pure_prefill_ms": 40.125627,
+      "pure_prefill_share_of_server_ttft_percent": 99.970704,
+      "interpretation": "The product regression is inside Prefill; API transport, queueing, admission, finalization, and Decode are not the active bottleneck."
+    }
+  },
+  "comparison_to_retained_c45b7c5": {
+    "baseline_source": "qwen36-27b-prefill-p40k-flashinfer-exact-panel-api-2026-08-09",
+    "baseline_server_pure_prefill_ms": 108981.854892,
+    "baseline_server_pure_prefill_tok_s": 367.03357673293067,
+    "candidate_server_pure_prefill_ms": 136929.917554,
+    "candidate_server_pure_prefill_tok_s": 292.1202372317613,
+    "latency_delta_ms": 27948.062662,
+    "latency_ratio": 1.2564469350397485,
+    "latency_increase_percent": 25.644693503974846,
+    "throughput_change_percent": -20.41048673747894,
+    "candidate_gap_to_owner_4300_tok_s_x": 14.719966137055003,
+    "candidate_gap_to_two_second_p40k_x": 68.464958777,
+    "decision": "REJECT"
+  },
+  "matched_nsys": {
+    "profiler": "Nsight Systems 2026.1.3",
+    "same_binary": true,
+    "same_checkpoint": true,
+    "same_prompt_and_request": true,
+    "same_flashinfer_attention": true,
+    "only_intended_runtime_difference": "prefill_projection_tactic",
+    "capture": "cuda,nvtx; no CPU sampling/context switches; CUDA Graph nodes; NVTX q3x.generation",
+    "profiled_ttft_is_release_metric": false,
+    "baseline_projection_tactic": "native-quantized-large-m-operator-panel",
+    "candidate_projection_tactic": "native-nvfp4-true-large-m-operator-panel",
+    "baseline": {
+      "whole_request_nvtx_ms": 109325.8096,
+      "gpu_kernel_sum_ms": 109030.088704,
+      "kernel_span_idle_ms": 300.997,
+      "kernel_overlap_ms": 0.0
+    },
+    "candidate": {
+      "whole_request_nvtx_ms": 137125.790656,
+      "gpu_kernel_sum_ms": 136845.176416,
+      "kernel_span_idle_ms": 284.728,
+      "kernel_overlap_ms": 0.0
+    },
+    "delta": {
+      "whole_request_nvtx_ms": 27799.981056,
+      "gpu_kernel_sum_ms": 27815.087712,
+      "nvfp4_kernel_ms": 27605.251744,
+      "nvfp4_share_of_nvtx_delta_percent": 99.29953437159637,
+      "nvfp4_share_of_gpu_sum_delta_percent": 99.24560378822942,
+      "non_nvfp4_gpu_kernel_ms": 209.835968
+    }
+  },
+  "matched_nvfp4_attribution": {
+    "classification": "Candidate Gate and Down have distinct kernel names. Baseline Marlin launches are classified by the next MLP boundary: SiLU means Gate+Up and residual means Down; the partition exactly reproduces the complete 52.090389536-second NVFP4 family total.",
+    "baseline": {
+      "gate_up_ms": 35039.283872,
+      "gate_up_launches": 2496,
+      "down_ms": 17051.105664,
+      "down_launches": 2496,
+      "combined_ms": 52090.389536,
+      "combined_physical_launches": 4992
+    },
+    "candidate": {
+      "gate_up_ms": 52600.77552,
+      "gate_up_launches": 320,
+      "down_ms": 27094.86576,
+      "down_launches": 320,
+      "combined_ms": 79695.64128,
+      "combined_physical_launches": 640
+    },
+    "ratios": {
+      "gate_up_candidate_over_baseline": 1.5011943655056672,
+      "down_candidate_over_baseline": 1.5890386403038597,
+      "combined_candidate_over_baseline": 1.5299490364709565
+    },
+    "non_nvfp4_stability_ms": {
+      "fp8_marlin_delta": 166.568576,
+      "flashinfer_attention_plus_gate_delta": 88.9112,
+      "bf16_recursive_projection_delta": 4.919776,
+      "standalone_silu_delta": -50.954016,
+      "residual_delta": -31.749408
+    }
+  },
+  "candidate_kernel_resources_and_structure": {
+    "tile": "M128N256K64",
+    "threads": 256,
+    "pipeline_stages": 3,
+    "dynamic_shared_bytes": 82944,
+    "gate_registers_per_thread": 203,
+    "down_registers_per_thread": 220,
+    "active_ctas_per_sm": 1,
+    "gate_p40_ctas": 2733056,
+    "down_p40_ctas": 401920,
+    "combined_p40_ctas": 3134976,
+    "structural_findings": [
+      "The A-stationary and B-stationary labels describe block-index order only; every CTA computes one tile and exits, so there is no persistent cross-tile ownership.",
+      "Two M64 warp rows with the same N ownership independently reload and decode the same B/scale fragments; packed shared landing is reused, decoded B arithmetic is not.",
+      "Each K64 step performs a wait plus two full-CTA barriers around a serial decode/load/MMA interval.",
+      "The 128 FP32 accumulator registers per thread plus full decoded-B live range force one CTA/SM; launch-count reduction did not recover tensor-feed efficiency."
+    ]
+  },
+  "next_architecture_unit": {
+    "status": "DESIGNED_NOT_IMPLEMENTED",
+    "principle": "Use the proven Marlin consumer/feed structures as the mother topology; do not continue parameter scans on the rejected M128N256 m_warp-by-n_warp skeleton.",
+    "shared_requirements": [
+      "ldmatrix/XOR A feed",
+      "two-slot raw/decoded B register ping-pong",
+      "scale lifetime ends with its consumer fragment",
+      "decoded B fans out across eight M16 panels",
+      "at most 128 registers per thread",
+      "approximately 50 KiB or less shared memory",
+      "two active CTAs per SM",
+      "real-model P40K API direction before repetition or full qualification"
+    ],
+    "gate_up": {
+      "topology": "M128 x paired Gate64+Up64 x K64",
+      "scheduling": "L2-capacity grouped ownership, then a 32-CTA persistent grid only if two-CTA residency and arithmetic reuse are both achieved",
+      "epilogue": "Preserve the existing BF16 intermediate rounding contract, then apply SiLU(gate)*up and publish activated BF16 directly",
+      "profiled_entry_gate_ms_per_m8192": 111.84
+    },
+    "down": {
+      "topology": "shape-specific M128N128K64 derived from the existing two-CTA production surface",
+      "scheduling": "N-major/B-stationary ownership with a persistent grid-stride queue after the residency gate",
+      "epilogue": "Add the residual exactly once under the existing BF16 rounding contract",
+      "profiled_entry_gate_ms_per_m8192": 54.31
+    }
+  },
+  "decision": {
+    "result": "REJECT_WP_V2_C1_V1",
+    "reason": "The complete real API package regressed pure Prefill by 25.64%; matched NSys assigns 99.30% of the interval increase to the new NVFP4 kernels, and both Gate+Up and Down are structurally slower than the retained Marlin route.",
+    "default_route_unchanged": true,
+    "candidate_production_enabled": false,
+    "full_accuracy_harness_run": false,
+    "p60k_run": false,
+    "p130k_run": false,
+    "ncu_run": false,
+    "why_no_ncu_before_redesign": "The matched product and NSys evidence already changes the architecture decision. NCU is deferred to a new complete skeleton that first shows positive P40K direction."
+  },
+  "artifacts": {
+    "unprofiled_evidence_dir": ".q3x-work/evidence/prefill-target-path/true-large-m-da2b9f6",
+    "unprofiled_evalscope_dir": ".q3x-work/evalscope/results/p40k-true-large-m-da2b9f6-r1/native/native/parallel_1_number_1",
+    "candidate_profile_dir": ".q3x-work/profiles/p40k-true-large-m-da2b9f6-nsys-r1",
+    "baseline_profile_dir": ".q3x-work/profiles/p40k-native-quantized-da2b9f6-nsys-r1",
+    "unprofiled_server_log_sha256": "926894138e9264228d8a50ec51e58fb55bd13cb0519bfdd2275756f079e0a823",
+    "unprofiled_evalscope_db_sha256": "e1f30df2e5fdb13103fcf3ce0bca3efcb2c25408d8b24160d4c7c0a4642821c7",
+    "unprofiled_server_start_preflight_sha256": "4e2bda7a159bd2c10cb3d036369952fe72e850c0a17c211c53ff6bc6cbe3fdf6",
+    "unprofiled_request_preflight_sha256": "3729dcd40a89207edfbf24a24eab4e62a709a6b4b0cda080082b8de7022fea4a",
+    "candidate_nsys_report_sha256": "674a802847c3e1333391ac165b50c91e0218ee1373207e32247aadded4c48cb1",
+    "candidate_kernel_summary_sha256": "e8cc710db4c1a3a03fabfee043c9783028e39f42fe0f9cb142788b02a2a2a732",
+    "candidate_profile_server_log_sha256": "4983677aebbda39b31e138067f7ee64631eed9d87f430e643d5837c7b8336fe8",
+    "candidate_profile_server_start_preflight_sha256": "5b0eb3d4e963cc0ef6500eef337522f9dd10b99e41f4dc62baa1764e75b57084",
+    "candidate_profile_request_preflight_sha256": "cae50bf9655fa4645d1abfbc84837e34ef1bf50a109296b3a54e21d884b137e2",
+    "baseline_nsys_report_sha256": "929ec5385f9fb47470613e48b6c83a563c6f549815b915590971989c0b239691",
+    "baseline_kernel_summary_sha256": "905e94bf9e98951a684ec5625044360f1e0eea9bdebecdaf7315e61b58a1035e",
+    "baseline_profile_server_log_sha256": "6d4412bf534fa31cbd8981742c2c20fa6f6bbc240f9fe8d37692e2d161d1b69f",
+    "baseline_profile_server_start_preflight_sha256": "0c146060315cd1a2463e7f7dfadee57cfc3a1b43988f1871c32bb5caf2d906ae",
+    "baseline_profile_request_preflight_sha256": "812dca74a7fd2b421ccd226b10fa5dd651ccbccdfc9eb754ff162f40f4bc5a06"
+  },
+  "honesty_notes": [
+    "The unprofiled EvalScope run is one clean-host direction sample, not a repetition-qualified release baseline.",
+    "Profiler TTFT includes capture-stop/report handling and is not compared with the unprofiled release-direction TTFT.",
+    "The matching first token does not qualify the candidate's full numerical state.",
+    "Rejected preflight attempts caused by unreadable process FDs or Codex-host CPU activity were retained but produced no performance claim.",
+    "All generated evidence stays under the ignored repository .q3x-work tree; the model directory and user environments were read-only."
+  ]
+}
