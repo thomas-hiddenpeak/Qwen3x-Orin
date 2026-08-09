@@ -6,6 +6,7 @@
 #include "q3x/runtime/request_state.h"
 
 #include <array>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -659,8 +660,53 @@ class ReferenceRunner {
 
  private:
   friend struct ReferenceRunnerFactoryResult;
+  // Pure-host control tests use a friend peer so the candidate execution
+  // control remains private and cannot become a production selector surface.
+  friend struct ReferenceRunnerPrefillControlTestPeer;
   friend ReferenceRunnerFactoryResult create_reference_runner(
       const ModelWeights*, RequestState*, const ReferenceRunnerOptions&) noexcept;
+
+  struct Views;
+
+  struct PrefillTileExecutionControl {
+    // The public legacy path reads RequestState::current_position(). A future
+    // whole-request executor must provide the logical panel position because
+    // it deliberately leaves host sequence length uncommitted until the end.
+    std::optional<std::uint32_t> first_position_override;
+    std::size_t layer_begin = 0U;
+    std::size_t layer_end = kReferenceDecoderLayerCount;
+    bool gather_embedding = true;
+    bool apply_final_norm = true;
+    bool synchronize = true;
+    bool commit_state = true;
+    bool commit_route = true;
+    bool allow_scalar_m1_delegate = true;
+    bool allow_cross_layer_m32_fusion = true;
+    bool emit_commit_hooks = true;
+  };
+
+  struct PrefillTileExecutionSelection {
+    std::uint32_t first_position = 0U;
+    std::uint32_t completed_position = 0U;
+    bool delegate_scalar_m1 = false;
+  };
+
+  [[nodiscard]] static PrefillTileExecutionControl
+  legacy_prefill_tile_execution_control() noexcept;
+  [[nodiscard]] static bool is_legacy_prefill_tile_execution_control(
+      const PrefillTileExecutionControl& control) noexcept;
+  [[nodiscard]] static ReferenceRunnerStatus select_prefill_tile_execution(
+      const PrefillTileExecutionControl& control,
+      std::uint32_t current_position, std::uint32_t max_sequence_length,
+      std::uint32_t workspace_token_capacity, std::size_t token_count,
+      const ReferencePrefillTileOptions& options,
+      PrefillTileExecutionSelection& selection) noexcept;
+  [[nodiscard]] ReferencePrefillTileOutcome prefill_prefix_tile_impl(
+      const std::uint32_t* input_token_ids, std::size_t token_count,
+      const ReferencePrefillTileOptions& options,
+      const PrefillTileExecutionControl& control,
+      const Views& execution_views,
+      std::chrono::steady_clock::time_point started) noexcept;
 
   struct Views {
     std::uint16_t* hidden[3]{};

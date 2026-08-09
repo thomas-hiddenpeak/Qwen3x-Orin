@@ -15,6 +15,103 @@
 #include <string_view>
 #include <vector>
 
+namespace q3x::runtime {
+
+struct ReferenceRunnerPrefillControlTestPeer {
+  struct Control {
+    std::optional<std::uint32_t> first_position_override;
+    std::size_t layer_begin = 0U;
+    std::size_t layer_end = kReferenceDecoderLayerCount;
+    bool gather_embedding = true;
+    bool apply_final_norm = true;
+    bool synchronize = true;
+    bool commit_state = true;
+    bool commit_route = true;
+    bool allow_scalar_m1_delegate = true;
+    bool allow_cross_layer_m32_fusion = true;
+    bool emit_commit_hooks = true;
+  };
+
+  struct Result {
+    ReferenceRunnerStatus status;
+    std::uint32_t first_position = 0U;
+    std::uint32_t completed_position = 0U;
+    bool delegate_scalar_m1 = false;
+    bool legacy_control = false;
+    Control selected_control;
+  };
+
+  [[nodiscard]] static Result select(
+      const Control& requested, const std::uint32_t current_position,
+      const std::uint32_t max_sequence_length,
+      const std::uint32_t workspace_token_capacity,
+      const std::size_t token_count,
+      const ReferencePrefillTileOptions& options = {}) noexcept {
+    ReferenceRunner::PrefillTileExecutionControl control;
+    control.first_position_override = requested.first_position_override;
+    control.layer_begin = requested.layer_begin;
+    control.layer_end = requested.layer_end;
+    control.gather_embedding = requested.gather_embedding;
+    control.apply_final_norm = requested.apply_final_norm;
+    control.synchronize = requested.synchronize;
+    control.commit_state = requested.commit_state;
+    control.commit_route = requested.commit_route;
+    control.allow_scalar_m1_delegate = requested.allow_scalar_m1_delegate;
+    control.allow_cross_layer_m32_fusion =
+        requested.allow_cross_layer_m32_fusion;
+    control.emit_commit_hooks = requested.emit_commit_hooks;
+    return select_private(control, current_position, max_sequence_length,
+                          workspace_token_capacity, token_count, options);
+  }
+
+  [[nodiscard]] static Result legacy_defaults(
+      const std::uint32_t current_position,
+      const std::uint32_t max_sequence_length,
+      const std::uint32_t workspace_token_capacity,
+      const std::size_t token_count,
+      const ReferencePrefillTileOptions& options = {}) noexcept {
+    return select_private(
+        ReferenceRunner::legacy_prefill_tile_execution_control(),
+        current_position, max_sequence_length, workspace_token_capacity,
+        token_count, options);
+  }
+
+ private:
+  [[nodiscard]] static Result select_private(
+      const ReferenceRunner::PrefillTileExecutionControl& control,
+      const std::uint32_t current_position,
+      const std::uint32_t max_sequence_length,
+      const std::uint32_t workspace_token_capacity,
+      const std::size_t token_count,
+      const ReferencePrefillTileOptions& options) noexcept {
+    ReferenceRunner::PrefillTileExecutionSelection selection;
+    Result result;
+    result.status = ReferenceRunner::select_prefill_tile_execution(
+        control, current_position, max_sequence_length,
+        workspace_token_capacity, token_count, options, selection);
+    result.first_position = selection.first_position;
+    result.completed_position = selection.completed_position;
+    result.delegate_scalar_m1 = selection.delegate_scalar_m1;
+    result.legacy_control =
+        ReferenceRunner::is_legacy_prefill_tile_execution_control(control);
+    result.selected_control = {
+        control.first_position_override,
+        control.layer_begin,
+        control.layer_end,
+        control.gather_embedding,
+        control.apply_final_norm,
+        control.synchronize,
+        control.commit_state,
+        control.commit_route,
+        control.allow_scalar_m1_delegate,
+        control.allow_cross_layer_m32_fusion,
+        control.emit_commit_hooks};
+    return result;
+  }
+};
+
+}  // namespace q3x::runtime
+
 namespace {
 
 namespace runtime = q3x::runtime;
@@ -1282,6 +1379,157 @@ void test_trace_layout_and_factory_error(TestContext& test) {
               "logits modes and invalid-step diagnostics are stable");
 }
 
+void test_prefill_tile_execution_control(TestContext& test) {
+  using Peer = runtime::ReferenceRunnerPrefillControlTestPeer;
+  const auto operation_is = [](const Peer::Result& result,
+                               const std::string_view expected) noexcept {
+    return result.status.operation != nullptr &&
+           std::string_view(result.status.operation) == expected;
+  };
+
+  const Peer::Result legacy =
+      Peer::legacy_defaults(17U, 100U, 512U, 32U);
+  test.expect(
+      legacy.status.ok() && legacy.legacy_control &&
+          !legacy.selected_control.first_position_override.has_value() &&
+          legacy.selected_control.layer_begin == 0U &&
+          legacy.selected_control.layer_end ==
+              runtime::kReferenceDecoderLayerCount &&
+          legacy.selected_control.gather_embedding &&
+          legacy.selected_control.apply_final_norm &&
+          legacy.selected_control.synchronize &&
+          legacy.selected_control.commit_state &&
+          legacy.selected_control.commit_route &&
+          legacy.selected_control.allow_scalar_m1_delegate &&
+          legacy.selected_control.allow_cross_layer_m32_fusion &&
+          legacy.selected_control.emit_commit_hooks &&
+          legacy.first_position == 17U &&
+          legacy.completed_position == 49U &&
+          !legacy.delegate_scalar_m1,
+      "public Prefill control defaults preserve the complete legacy path");
+  const Peer::Result legacy_m1 =
+      Peer::legacy_defaults(17U, 100U, 512U, 1U);
+  test.expect(legacy_m1.status.ok() && legacy_m1.delegate_scalar_m1,
+              "only the complete legacy M1 path delegates to step");
+
+  Peer::Control candidate;
+  candidate.first_position_override = 513U;
+  candidate.layer_begin = 17U;
+  candidate.layer_end = 18U;
+  candidate.gather_embedding = false;
+  candidate.apply_final_norm = false;
+  candidate.synchronize = false;
+  candidate.commit_state = false;
+  candidate.commit_route = false;
+  candidate.allow_scalar_m1_delegate = false;
+  candidate.allow_cross_layer_m32_fusion = false;
+  candidate.emit_commit_hooks = false;
+  const Peer::Result candidate_m1 =
+      Peer::select(candidate, 8'000U, 8'192U, 512U, 1U);
+  test.expect(candidate_m1.status.ok() && !candidate_m1.legacy_control &&
+                  candidate_m1.first_position == 513U &&
+                  candidate_m1.completed_position == 514U &&
+                  !candidate_m1.delegate_scalar_m1,
+              "single-layer M1 candidate is enqueue-only and independent of host state");
+
+  Peer::Control synchronized_candidate = candidate;
+  synchronized_candidate.synchronize = true;
+  Peer::Result rejected = Peer::select(
+      synchronized_candidate, 8'000U, 8'192U, 512U, 32U);
+  test.expect(
+      !rejected.status &&
+          operation_is(rejected, "prefill_tile_candidate_not_enqueue_only"),
+      "single-layer candidate leaves synchronization to the outer executor");
+
+  Peer::Control invalid = candidate;
+  invalid.first_position_override.reset();
+  rejected = Peer::select(invalid, 17U, 8'192U, 512U, 32U);
+  test.expect(!rejected.status &&
+                  operation_is(rejected,
+                               "prefill_tile_first_position_override"),
+              "candidate first position never depends on uncommitted host state");
+
+  runtime::ReferencePrefillTileOptions candidate_options;
+  candidate_options.retain_last_hidden_for_logits = true;
+  rejected = Peer::select(candidate, 17U, 8'192U, 512U, 32U,
+                          candidate_options);
+  test.expect(
+      !rejected.status &&
+          operation_is(rejected,
+                       "prefill_tile_candidate_completion_options"),
+      "enqueue-only candidate cannot publish a retained hidden row");
+  candidate_options = {};
+  candidate_options.measure_timing = true;
+  rejected = Peer::select(candidate, 17U, 8'192U, 512U, 32U,
+                          candidate_options);
+  test.expect(
+      !rejected.status &&
+          operation_is(rejected,
+                       "prefill_tile_candidate_completion_options"),
+      "enqueue-only candidate cannot report a host completion timer");
+
+  invalid = candidate;
+  invalid.apply_final_norm = true;
+  rejected = Peer::select(invalid, 17U, 8'192U, 512U, 32U);
+  test.expect(!rejected.status &&
+                  operation_is(rejected, "prefill_tile_partial_final_norm"),
+              "partial layer execution cannot own final normalization");
+
+  invalid = candidate;
+  invalid.commit_state = true;
+  rejected = Peer::select(invalid, 17U, 8'192U, 512U, 32U);
+  test.expect(
+      !rejected.status &&
+          operation_is(rejected, "prefill_tile_candidate_not_enqueue_only"),
+      "single-layer candidate cannot publish request state");
+
+  invalid = candidate;
+  invalid.commit_route = true;
+  rejected = Peer::select(invalid, 17U, 8'192U, 512U, 32U);
+  test.expect(
+      !rejected.status &&
+          operation_is(rejected, "prefill_tile_candidate_not_enqueue_only"),
+      "single-layer candidate cannot commit incomplete route evidence");
+
+  invalid = candidate;
+  invalid.emit_commit_hooks = true;
+  rejected = Peer::select(invalid, 17U, 8'192U, 512U, 32U);
+  test.expect(
+      !rejected.status &&
+          operation_is(rejected, "prefill_tile_candidate_not_enqueue_only"),
+      "commit hooks cannot observe an uncommitted partial layer");
+
+  invalid = candidate;
+  invalid.layer_end = invalid.layer_begin + 2U;
+  rejected = Peer::select(invalid, 17U, 8'192U, 512U, 32U);
+  test.expect(
+      !rejected.status &&
+          operation_is(rejected, "prefill_tile_candidate_layer_span"),
+      "candidate seam executes exactly one model layer per enqueue call");
+
+  invalid = candidate;
+  invalid.layer_end = invalid.layer_begin;
+  rejected = Peer::select(invalid, 17U, 8'192U, 512U, 32U);
+  test.expect(!rejected.status &&
+                  operation_is(rejected, "prefill_tile_layer_range"),
+              "empty layer ranges fail closed");
+  invalid = candidate;
+  invalid.layer_end = runtime::kReferenceDecoderLayerCount + 1U;
+  rejected = Peer::select(invalid, 17U, 8'192U, 512U, 32U);
+  test.expect(!rejected.status &&
+                  operation_is(rejected, "prefill_tile_layer_range"),
+              "out-of-range layer endpoints fail closed");
+
+  invalid = candidate;
+  invalid.first_position_override = 8'192U;
+  rejected = Peer::select(invalid, 0U, 8'192U, 512U, 1U);
+  test.expect(!rejected.status &&
+                  rejected.status.error ==
+                      runtime::ReferenceRunnerError::kCapacityExceeded &&
+                  operation_is(rejected, "prefill_tile_capacity"),
+              "first-position plus token count is checked without overflow");
+}
+
 }  // namespace
 
 int main() {
@@ -1294,6 +1542,7 @@ int main() {
   test_schedule_and_workspace(test);
   test_fake_linear_weight_validation(test);
   test_trace_layout_and_factory_error(test);
+  test_prefill_tile_execution_control(test);
   if (test.failures() != 0) {
     std::cerr << test.failures() << " reference-runner host test(s) failed\n";
     return 1;
