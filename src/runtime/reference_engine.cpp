@@ -1248,19 +1248,29 @@ prefill_whole_request_layer_major(
     result.status = executed.status;
     return result;
   }
+  const bool p40_projection_reset =
+      immutable_topology.mlp_schedule.tactic ==
+      LayerMajorPrefillMlpScheduleTactic::kPromptWideP40ProjectionReset;
   const bool prompt_wide_p40_whole_core =
       immutable_topology.mlp_schedule.tactic ==
-      LayerMajorPrefillMlpScheduleTactic::kPromptWideP40WholeCore;
+          LayerMajorPrefillMlpScheduleTactic::kPromptWideP40WholeCore ||
+      p40_projection_reset;
   const std::size_t expected_submissions_per_layer =
       prompt_wide_p40_whole_core
-          ? immutable_topology.whole_core_schedule
-                    .fill_panel_phase_count_per_layer +
-                immutable_topology.whole_core_schedule
-                    .prompt_core_phase_count_per_layer +
-                immutable_topology.whole_core_schedule
-                    .drain_panel_phase_count_per_layer +
-                immutable_topology.whole_core_schedule
-                    .persistent_mlp_phase_count_per_layer
+          ? p40_projection_reset
+                ? 2U * immutable_topology.panel_count +
+                      immutable_topology.projection_reset_schedule
+                          .prompt_core_phase_count_per_layer +
+                      immutable_topology.projection_reset_schedule
+                          .persistent_mlp_phase_count_per_layer
+                : immutable_topology.whole_core_schedule
+                          .fill_panel_phase_count_per_layer +
+                      immutable_topology.whole_core_schedule
+                          .prompt_core_phase_count_per_layer +
+                      immutable_topology.whole_core_schedule
+                          .drain_panel_phase_count_per_layer +
+                      immutable_topology.whole_core_schedule
+                          .persistent_mlp_phase_count_per_layer
           : immutable_topology.panel_count +
                 (immutable_topology.mlp_schedule
                          .waits_for_all_operator_panels
@@ -1293,6 +1303,16 @@ prefill_whole_request_layer_major(
   constexpr std::size_t kP40Fp8ProjectionsPerPanel =
       3U * kLayerMajorPrefillLinearLayerCount +
       4U * kLayerMajorPrefillFullLayerCount;
+  const std::size_t expected_prompt_wide_fp8_hits =
+      p40_projection_reset
+          ? immutable_topology.projection_reset_schedule
+                .fp8_tensor_role_hits_per_request
+          : kP40Fp8ProjectionsPerPanel * immutable_topology.panel_count;
+  const std::size_t expected_prompt_wide_fp8_physical_launches =
+      p40_projection_reset
+          ? immutable_topology.projection_reset_schedule
+                .fp8_physical_launches_per_request
+          : expected_prompt_wide_fp8_hits;
   const std::size_t bulk_panel_count = [&immutable_topology]() noexcept {
     std::size_t count = 0U;
     for (std::size_t panel = 0U; panel < immutable_topology.panel_count;
@@ -1356,11 +1376,10 @@ prefill_whole_request_layer_major(
                     kReferenceDecoderLayerCount *
                         immutable_topology.panel_count &&
                 executed.value->prompt_wide_p40_fp8_projection_hits ==
-                    kP40Fp8ProjectionsPerPanel *
-                        immutable_topology.panel_count &&
+                    expected_prompt_wide_fp8_hits &&
                 executed.value
                         ->prompt_wide_p40_fp8_projection_physical_launches ==
-                    executed.value->prompt_wide_p40_fp8_projection_hits &&
+                    expected_prompt_wide_fp8_physical_launches &&
                 executed.value->prompt_wide_p40_bf16_ab_hits ==
                     kLayerMajorPrefillLinearLayerCount &&
                 executed.value->prompt_wide_p40_gdn_hits ==
@@ -3552,6 +3571,36 @@ struct ReferenceEngine::Impl {
       return result;
     }
 #endif
+#if !defined(Q3X_ENABLE_P40_PROJECTION_RESET_ADMISSION)
+    if (options.prefill_projection_tactic ==
+        LayerMajorPrefillProjectionTactic::
+            kNativePromptWideP40ProjectionReset) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kPrefillPlanUnavailable,
+          "prefill_projection_tactic",
+          "this binary does not admit the test-only exact-P40000 "
+          "projection-reset package");
+      return result;
+    }
+#else
+    if (options.prefill_projection_tactic ==
+            LayerMajorPrefillProjectionTactic::
+                kNativePromptWideP40ProjectionReset &&
+        (options.prefill_execution_mode !=
+             ReferencePrefillExecutionMode::kWholeRequestLayerMajor ||
+         options.request_options.max_sequence_length !=
+             kLayerMajorPrefillPromptWideP40RequestCapacityTokens ||
+         options.prefill_full_attention_tactic !=
+             LayerMajorPrefillFullAttentionTactic::
+                 kNativeFlashInferExactWholePrompt)) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kInvalidArgument,
+          "prefill_projection_tactic",
+          "the projection-reset route admits only a cold exact P40000 "
+          "whole-request engine with whole-prompt FlashInfer");
+      return result;
+    }
+#endif
     if (!is_valid_reference_decode_graph_cache_policy(
             options.decode_graph_cache_policy)) {
       result.diagnostic = engine_diagnostic(
@@ -3574,6 +3623,11 @@ struct ReferenceEngine::Impl {
       impl->trace_enabled = options.enable_trace;
       impl->prefill_mlp_schedule_tactic =
           options.prefill_projection_tactic ==
+                  LayerMajorPrefillProjectionTactic::
+                      kNativePromptWideP40ProjectionReset
+              ? LayerMajorPrefillMlpScheduleTactic::
+                    kPromptWideP40ProjectionReset
+          : options.prefill_projection_tactic ==
                   LayerMajorPrefillProjectionTactic::
                       kNativePromptWideP40WholeCore
               ? LayerMajorPrefillMlpScheduleTactic::
@@ -3657,13 +3711,19 @@ struct ReferenceEngine::Impl {
                               kLayerWideP40ExactFullM ||
                       impl->prefill_mlp_schedule_tactic ==
                           LayerMajorPrefillMlpScheduleTactic::
-                              kPromptWideP40WholeCore
+                              kPromptWideP40WholeCore ||
+                      impl->prefill_mlp_schedule_tactic ==
+                          LayerMajorPrefillMlpScheduleTactic::
+                              kPromptWideP40ProjectionReset
                   ? LayerMajorRequestMlpLayout::kLayerWideP40PersistentTwoSpan
                   : LayerMajorRequestMlpLayout::kPanelLocalThreeSpan;
           layer_major_options.layout =
               impl->prefill_mlp_schedule_tactic ==
                       LayerMajorPrefillMlpScheduleTactic::
-                          kPromptWideP40WholeCore
+                          kPromptWideP40WholeCore ||
+                  impl->prefill_mlp_schedule_tactic ==
+                      LayerMajorPrefillMlpScheduleTactic::
+                          kPromptWideP40ProjectionReset
                   ? LayerMajorRequestLayout::kP40WholeCorePromptWide
                   : LayerMajorRequestLayout::kC8192FamilyOverlay;
           request = create_layer_major_request_state(layer_major_options);
@@ -3744,64 +3804,75 @@ struct ReferenceEngine::Impl {
         if (impl->load.request_prefill_chunk_size ==
             kMaximumRequestPrefillChunkSize) {
 #if defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION)
-          const Clock::time_point fp8_marlin_begin = Clock::now();
-          const Sm87Fp8MarlinPrefillPreparation fp8_marlin_preparation =
-              prepare_sm87_fp8_marlin_prefill_sidecars(
-                  *impl->model_weights,
-                  options.request_options.min_free_bytes_after_create,
-                  impl->fp8_marlin_prefill_sidecars);
-          impl->load.fp8_marlin_prefill_sidecar_milliseconds =
-              elapsed_milliseconds(fp8_marlin_begin);
-          if (fp8_marlin_preparation.hard_failure ||
-              !fp8_marlin_preparation.enabled ||
-              fp8_marlin_preparation.projections !=
-                  kFp8PrefillSupermatrixProjectionCount) {
-            result.diagnostic = engine_diagnostic(
-                ReferenceEngineError::kRunnerFactoryFailure,
-                "fp8_marlin_prefill_sidecar_prepare",
-                fp8_marlin_preparation.message.empty()
-                    ? "the test admission did not publish all 208 FP8 "
-                      "Marlin projections"
-                    : fp8_marlin_preparation.message);
-            result.diagnostic.cuda_error =
-                fp8_marlin_preparation.cuda_error;
-            return result;
-          }
-          impl->load.fp8_marlin_prefill_sidecars_enabled = true;
-          impl->load.fp8_marlin_prefill_sidecar_projections =
-              fp8_marlin_preparation.projections;
-          impl->load.fp8_marlin_prefill_sidecar_bytes =
-              fp8_marlin_preparation.bytes;
+          const bool prepare_fp8_supermatrix =
+              options.prefill_projection_tactic ==
+              LayerMajorPrefillProjectionTactic::
+                  kNativePromptWideP40ProjectionReset;
 #else
-          const Clock::time_point supermatrix_begin = Clock::now();
-          const Sm87Fp8PrefillSupermatrixPreparation preparation =
-              prepare_sm87_fp8_prefill_supermatrix_sidecars(
-                  *impl->model_weights,
-                  options.request_options.min_free_bytes_after_create,
-                  impl->fp8_prefill_supermatrix_sidecars);
-          impl->load.fp8_prefill_supermatrix_sidecar_milliseconds =
-              elapsed_milliseconds(supermatrix_begin);
-          if (preparation.hard_failure || !preparation.enabled ||
-              preparation.projections !=
-                  kFp8PrefillSupermatrixProjectionCount ||
-              preparation.bytes !=
-                  kQwen36Fp8PrefillSupermatrixSidecarBytes) {
-            result.diagnostic = engine_diagnostic(
-                ReferenceEngineError::kRunnerFactoryFailure,
-                "fp8_prefill_supermatrix_sidecar_prepare",
-                preparation.message.empty()
-                    ? "the production FP8 Prefill supermatrix did "
-                      "not publish its complete arena"
-                    : preparation.message);
-            result.diagnostic.cuda_error = preparation.cuda_error;
-            return result;
-          }
-          impl->load.fp8_prefill_supermatrix_sidecars_enabled = true;
-          impl->load.fp8_prefill_supermatrix_sidecar_projections =
-              preparation.projections;
-          impl->load.fp8_prefill_supermatrix_sidecar_bytes =
-              preparation.bytes;
+          constexpr bool prepare_fp8_supermatrix = true;
 #endif
+#if defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION)
+          if (!prepare_fp8_supermatrix) {
+            const Clock::time_point fp8_marlin_begin = Clock::now();
+            const Sm87Fp8MarlinPrefillPreparation fp8_marlin_preparation =
+                prepare_sm87_fp8_marlin_prefill_sidecars(
+                    *impl->model_weights,
+                    options.request_options.min_free_bytes_after_create,
+                    impl->fp8_marlin_prefill_sidecars);
+            impl->load.fp8_marlin_prefill_sidecar_milliseconds =
+                elapsed_milliseconds(fp8_marlin_begin);
+            if (fp8_marlin_preparation.hard_failure ||
+                !fp8_marlin_preparation.enabled ||
+                fp8_marlin_preparation.projections !=
+                    kFp8PrefillSupermatrixProjectionCount) {
+              result.diagnostic = engine_diagnostic(
+                  ReferenceEngineError::kRunnerFactoryFailure,
+                  "fp8_marlin_prefill_sidecar_prepare",
+                  fp8_marlin_preparation.message.empty()
+                      ? "the test admission did not publish all 208 FP8 "
+                        "Marlin projections"
+                      : fp8_marlin_preparation.message);
+              result.diagnostic.cuda_error =
+                  fp8_marlin_preparation.cuda_error;
+              return result;
+            }
+            impl->load.fp8_marlin_prefill_sidecars_enabled = true;
+            impl->load.fp8_marlin_prefill_sidecar_projections =
+                fp8_marlin_preparation.projections;
+            impl->load.fp8_marlin_prefill_sidecar_bytes =
+                fp8_marlin_preparation.bytes;
+          }
+#endif
+          if (prepare_fp8_supermatrix) {
+            const Clock::time_point supermatrix_begin = Clock::now();
+            const Sm87Fp8PrefillSupermatrixPreparation preparation =
+                prepare_sm87_fp8_prefill_supermatrix_sidecars(
+                    *impl->model_weights,
+                    options.request_options.min_free_bytes_after_create,
+                    impl->fp8_prefill_supermatrix_sidecars);
+            impl->load.fp8_prefill_supermatrix_sidecar_milliseconds =
+                elapsed_milliseconds(supermatrix_begin);
+            if (preparation.hard_failure || !preparation.enabled ||
+                preparation.projections !=
+                    kFp8PrefillSupermatrixProjectionCount ||
+                preparation.bytes !=
+                    kQwen36Fp8PrefillSupermatrixSidecarBytes) {
+              result.diagnostic = engine_diagnostic(
+                  ReferenceEngineError::kRunnerFactoryFailure,
+                  "fp8_prefill_supermatrix_sidecar_prepare",
+                  preparation.message.empty()
+                      ? "the production FP8 Prefill supermatrix did "
+                        "not publish its complete arena"
+                      : preparation.message);
+              result.diagnostic.cuda_error = preparation.cuda_error;
+              return result;
+            }
+            impl->load.fp8_prefill_supermatrix_sidecars_enabled = true;
+            impl->load.fp8_prefill_supermatrix_sidecar_projections =
+                preparation.projections;
+            impl->load.fp8_prefill_supermatrix_sidecar_bytes =
+                preparation.bytes;
+          }
 #if defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION)
           const Clock::time_point marlin_begin = Clock::now();
           // The sealed layer-major arithmetic contract always launches the
@@ -3816,6 +3887,9 @@ struct ReferenceEngine::Impl {
               options.prefill_projection_tactic ==
                   LayerMajorPrefillProjectionTactic::
                       kNativePromptWideP40WholeCore ||
+              options.prefill_projection_tactic ==
+                  LayerMajorPrefillProjectionTactic::
+                      kNativePromptWideP40ProjectionReset ||
               (options.prefill_execution_mode !=
                    ReferencePrefillExecutionMode::kWholeRequestLayerMajor &&
                prefill_marlin_gate_up_epilogue_environment_enabled());

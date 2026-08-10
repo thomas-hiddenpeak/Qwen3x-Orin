@@ -148,6 +148,9 @@ void test_public_tile_and_operator_panel_are_independent(TestContext& test) {
           runtime::is_valid_layer_major_prefill_projection_tactic(
               runtime::LayerMajorPrefillProjectionTactic::
                   kNativePromptWideP40WholeCore) &&
+          runtime::is_valid_layer_major_prefill_projection_tactic(
+              runtime::LayerMajorPrefillProjectionTactic::
+                  kNativePromptWideP40ProjectionReset) &&
           !runtime::is_valid_layer_major_prefill_projection_tactic(
               static_cast<runtime::LayerMajorPrefillProjectionTactic>(
                   0xffU)),
@@ -179,7 +182,11 @@ void test_public_tile_and_operator_panel_are_independent(TestContext& test) {
           runtime::to_string(
               runtime::LayerMajorPrefillProjectionTactic::
                   kNativePromptWideP40WholeCore) ==
-              "native-prompt-wide-p40-whole-core",
+              "native-prompt-wide-p40-whole-core" &&
+          runtime::to_string(
+              runtime::LayerMajorPrefillProjectionTactic::
+                  kNativePromptWideP40ProjectionReset) ==
+              "native-prompt-wide-p40-projection-reset",
       "projection tactic names preserve exact, segmented, native large-M, "
       "true-large-M, and G2/D2 NVFP4 route identity");
   const runtime::PrefillExecutionPlanResult result = build_plan(513U);
@@ -332,6 +339,152 @@ void test_prompt_wide_p40_whole_core_schedule(TestContext& test) {
   test.expect(
       !runtime::is_valid_unbound_layer_major_prefill_execution_plan(mutated),
       "whole-core authority rejects incumbent 8192/7712 geometry relabeling");
+}
+
+void test_prompt_wide_p40_projection_reset_schedule(TestContext& test) {
+  using MlpSchedule = runtime::LayerMajorPrefillMlpScheduleTactic;
+  constexpr auto kProjectionReset =
+      MlpSchedule::kPromptWideP40ProjectionReset;
+  test.expect(
+      runtime::is_valid_layer_major_prefill_mlp_schedule_tactic(
+          kProjectionReset) &&
+          runtime::to_string(kProjectionReset) ==
+              "prompt-wide-p40-projection-reset" &&
+          runtime::prefill_route_layer_pass_count(5U, kProjectionReset) ==
+              1U &&
+          runtime::kLayerMajorPrefillProjectionResetFp8GroupedInputLaunchesPerLayer ==
+              1U &&
+          runtime::kLayerMajorPrefillProjectionResetFp8OutputLaunchesPerLayer ==
+              1U &&
+          runtime::kLayerMajorPrefillProjectionResetFp8PhysicalLaunchesPerRequest ==
+              128U &&
+          runtime::kLayerMajorPrefillProjectionResetFp8TensorRoleHitsPerRequest ==
+              208U &&
+          runtime::kLayerMajorPrefillProjectionResetNvFp4PhysicalLaunchesPerRequest ==
+              128U,
+      "projection reset has a distinct exact-P40000 schedule identity and "
+      "frozen physical/logical route counts");
+
+  const auto candidate = build_plan(
+      runtime::kLayerMajorPrefillPromptWideP40Tokens, 0U,
+      runtime::kLayerMajorPrefillPromptWideP40RequestCapacityTokens,
+      kProjectionReset);
+  if (!runtime::prompt_wide_p40_projection_reset_prefill_plan_enabled()) {
+    test.expect(
+        !candidate &&
+            candidate.error ==
+                runtime::PrefillExecutionPlanError::kInvalidArgument,
+        "default builds fail closed on the independent projection reset");
+    return;
+  }
+
+  const runtime::PrefillP40ProjectionResetSchedulePlan* schedule =
+      candidate ? &candidate.value->projection_reset_schedule : nullptr;
+  test.expect(
+      candidate && schedule != nullptr && schedule->enabled &&
+          candidate.value->panel_count == 5U &&
+          schedule->input_preparation_panel_count_per_layer == 5U &&
+          schedule->prompt_core_phase_count_per_layer == 1U &&
+          schedule->persistent_mlp_phase_count_per_layer == 1U &&
+          schedule->panel_token_count == 8'000U &&
+          schedule->projection_m_tokens == 40'000U &&
+          schedule->request_capacity_tokens == 40'001U &&
+          schedule->route_pass_count == 1U &&
+          schedule->fp8_grouped_input_launches_per_layer == 1U &&
+          schedule->fp8_output_launches_per_layer == 1U &&
+          schedule->fp8_physical_launches_per_request == 128U &&
+          schedule->fp8_tensor_role_hits_per_request == 208U &&
+          schedule->nvfp4_gate_up_launches_per_layer == 1U &&
+          schedule->nvfp4_down_launches_per_layer == 1U &&
+          schedule->nvfp4_physical_launches_per_request == 128U &&
+          schedule->fp8_grouped_full_prompt_input_required &&
+          schedule->fp8_full_prompt_output_required &&
+          schedule->nvfp4_full_prompt_required &&
+          schedule->internal_m_segmentation_forbidden &&
+          schedule->production_accuracy_required &&
+          schedule->approximate_numerics_forbidden &&
+          schedule->mtp_forbidden && schedule->cublaslt_forbidden &&
+          !candidate.value->whole_core_schedule.enabled &&
+          candidate.value->whole_core_schedule
+                  .fill_panel_phase_count_per_layer == 0U &&
+          candidate.value->whole_core_schedule
+                  .fp8_single_launch_per_projection_required == false &&
+          candidate.value->mlp_schedule
+                  .required_gate_up_projection_launches_per_layer == 1U &&
+          candidate.value->mlp_schedule
+                  .maximum_standalone_silu_launches_per_layer == 0U &&
+          candidate.value->mlp_schedule
+                  .required_down_projection_launches_per_layer == 1U &&
+          candidate.value->mlp_schedule
+                  .minimum_total_kernel_launches_per_layer == 2U &&
+          candidate.value->mlp_schedule
+                  .maximum_total_kernel_launches_per_layer == 2U &&
+          runtime::is_valid_unbound_layer_major_prefill_execution_plan(
+              *candidate.value),
+      "projection reset groups every FP8 input role into one P40 launch, "
+      "retains one P40 O and Gate/Down launch, and cannot masquerade as "
+      "whole-core");
+
+  test.expect(
+      !build_plan(runtime::kLayerMajorPrefillPromptWideP40Tokens, 0U,
+                  runtime::kLayerMajorPrefillMaximumSequenceTokens,
+                  kProjectionReset) &&
+          !build_plan(39'936U, 0U,
+                      runtime::kLayerMajorPrefillPromptWideP40RequestCapacityTokens,
+                      kProjectionReset) &&
+          !build_plan(runtime::kLayerMajorPrefillPromptWideP40Tokens, 64U,
+                      runtime::kLayerMajorPrefillPromptWideP40RequestCapacityTokens,
+                      kProjectionReset),
+      "projection reset refuses generalized capacity, M, and warm-position "
+      "relabeling");
+
+  runtime::PrefillExecutionPlan mutated = *candidate.value;
+  mutated.projection_reset_schedule.fp8_physical_launches_per_request =
+      1'040U;
+  test.expect(
+      !runtime::is_valid_unbound_layer_major_prefill_execution_plan(mutated),
+      "the old panel-owned FP8 physical inventory cannot be relabeled as "
+      "projection reset");
+  mutated = *candidate.value;
+  mutated.projection_reset_schedule.fp8_tensor_role_hits_per_request = 128U;
+  test.expect(
+      !runtime::is_valid_unbound_layer_major_prefill_execution_plan(mutated),
+      "FP8 launch grouping cannot erase the 208 logical tensor-role hits");
+  mutated = *candidate.value;
+  mutated.projection_reset_schedule.mtp_forbidden = false;
+  test.expect(
+      !runtime::is_valid_unbound_layer_major_prefill_execution_plan(mutated),
+      "projection reset cannot weaken the non-MTP contract");
+  mutated = *candidate.value;
+  mutated.whole_core_schedule.enabled = true;
+  test.expect(
+      !runtime::is_valid_unbound_layer_major_prefill_execution_plan(mutated),
+      "projection reset cannot acquire the retired whole-core schedule "
+      "identity");
+
+  runtime::PrefillExecutionProgress progress =
+      runtime::make_prefill_execution_progress(*candidate.value);
+  test.expect(
+      runtime::advance_prefill_progress_after_completion(
+          *candidate.value, progress, 0U, 0U) ==
+          runtime::PrefillExecutionProgressError::kOutOfOrder,
+      "projection reset cannot publish a partial M8000 panel");
+  bool ordered = true;
+  for (std::size_t layer = 0U;
+       ordered && layer < candidate.value->layers.size(); ++layer) {
+    ordered =
+        runtime::advance_prompt_wide_p40_projection_reset_layer_progress_after_completion(
+            *candidate.value, progress, layer) ==
+        runtime::PrefillExecutionProgressError::kNone;
+  }
+  test.expect(
+      ordered && progress.next_layer == candidate.value->layers.size() &&
+          runtime::mark_prefill_final_hidden_ready(*candidate.value,
+                                                   progress) ==
+              runtime::PrefillExecutionProgressError::kNone &&
+          runtime::prefill_final_commit_ready(*candidate.value, progress),
+      "projection reset publishes progress only after each complete grouped "
+      "P40 layer and reaches one final commit");
 }
 
 void test_target_panel_matrix(TestContext& test) {
@@ -619,6 +772,43 @@ void test_exact_arithmetic_span_ledgers(TestContext& test) {
                .m8192_nvfp4_uses_independent_down_workspace,
       "the true-large-M NVFP4 tactic seals M8192/M7712 Gate+Up and Down as "
       "one route without an oracle-span fallback");
+
+  const auto& whole_core =
+      runtime::kLayerMajorPrefillPromptWideP40WholeCoreArithmeticContract;
+  const auto& projection_reset = runtime::
+      kLayerMajorPrefillPromptWideP40ProjectionResetArithmeticContract;
+  test.expect(
+      runtime::is_valid_layer_major_prefill_arithmetic_contract(whole_core) &&
+          runtime::is_valid_layer_major_prefill_arithmetic_contract(
+              projection_reset) &&
+          whole_core.version == 6U && projection_reset.version == 7U &&
+          whole_core.fp8 == runtime::PrefillFp8ArithmeticTactic::
+                                kP8000FillDrainSingleBulk &&
+          projection_reset.fp8 == runtime::PrefillFp8ArithmeticTactic::
+                                      kP40000GroupedInputAndOutputSingleBulk &&
+          whole_core.p8000_fp8_fill_drain_single_bulk &&
+          !projection_reset.p8000_fp8_fill_drain_single_bulk &&
+          &whole_core != &projection_reset,
+      "projection reset owns a distinct v7 grouped-P40000 FP8 arithmetic "
+      "contract instead of reusing the v6 M8000 contract");
+
+  runtime::LayerMajorPrefillArithmeticContract reset_with_v6_fp8 =
+      projection_reset;
+  reset_with_v6_fp8.fp8 =
+      runtime::PrefillFp8ArithmeticTactic::kP8000FillDrainSingleBulk;
+  reset_with_v6_fp8.p8000_fp8_fill_drain_single_bulk = true;
+  runtime::LayerMajorPrefillArithmeticContract whole_core_with_reset_fp8 =
+      whole_core;
+  whole_core_with_reset_fp8.fp8 = runtime::PrefillFp8ArithmeticTactic::
+      kP40000GroupedInputAndOutputSingleBulk;
+  whole_core_with_reset_fp8.p8000_fp8_fill_drain_single_bulk = false;
+  test.expect(
+      !runtime::is_valid_layer_major_prefill_arithmetic_contract(
+          reset_with_v6_fp8) &&
+          !runtime::is_valid_layer_major_prefill_arithmetic_contract(
+              whole_core_with_reset_fp8),
+      "v6 and v7 arithmetic identities cannot be relabeled by changing only "
+      "their FP8 boundary metadata");
 }
 
 void test_fixed_layer_schedule(TestContext& test) {
@@ -1065,6 +1255,7 @@ int main() {
   test_strict_layer_major_progress(test);
   test_layer_wide_p40_mlp_schedule(test);
   test_prompt_wide_p40_whole_core_schedule(test);
+  test_prompt_wide_p40_projection_reset_schedule(test);
   test_fail_closed_inputs(test);
   if (test.failures() != 0) {
     std::cerr << test.failures()

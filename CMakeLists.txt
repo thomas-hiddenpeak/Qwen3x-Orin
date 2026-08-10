@@ -78,6 +78,10 @@ option(Q3X_BUILD_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION
   "Build the test-only exact-P40000 whole-core Prefill schedule"
   OFF
 )
+option(Q3X_BUILD_P40_PROJECTION_RESET_ADMISSION
+  "Build the test-only exact-P40000 persistent S2R projection reset"
+  OFF
+)
 if(Q3X_BUILD_GDN_B8_ADMISSION AND NOT BUILD_TESTING)
   message(FATAL_ERROR
     "Q3X_BUILD_GDN_B8_ADMISSION is test-only and requires BUILD_TESTING=ON"
@@ -195,6 +199,19 @@ if(Q3X_BUILD_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION AND
     "Q3X_BUILD_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION requires the FP8/NVFP4 Marlin, BF16 A/B, FlashInfer, native prompt-wide GDN, layer-wide P40, and persistent NVFP4 admission inventories"
   )
 endif()
+if(Q3X_BUILD_P40_PROJECTION_RESET_ADMISSION AND NOT BUILD_TESTING)
+  message(FATAL_ERROR
+    "Q3X_BUILD_P40_PROJECTION_RESET_ADMISSION is test-only and requires BUILD_TESTING=ON"
+  )
+endif()
+if(Q3X_BUILD_P40_PROJECTION_RESET_ADMISSION AND
+   (NOT Q3X_BUILD_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION OR
+    NOT Q3X_BUILD_NVFP4_MARLIN_PREFILL_ADMISSION OR
+    NOT Q3X_BUILD_NVFP4_PERSISTENT_PREFILL_ADMISSION))
+  message(FATAL_ERROR
+    "Q3X_BUILD_P40_PROJECTION_RESET_ADMISSION requires the whole-core, NVFP4 Marlin, and interleaved persistent-sidecar inventories"
+  )
+endif()
 if((Q3X_BUILD_GDN_B8_ADMISSION AND
     Q3X_BUILD_GDN_C16_NORM_GATE_ADMISSION) OR
    (Q3X_BUILD_GDN_B8_ADMISSION AND
@@ -289,6 +306,14 @@ if(Q3X_BUILD_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION)
   # consumer so default-off binaries cannot acquire a partial route.
   target_compile_definitions(q3x_core PUBLIC
     Q3X_ENABLE_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_P40_PROJECTION_RESET_ADMISSION)
+  # The reset adds a distinct plan/tactic, runner schedule, engine authority,
+  # and CUDA inventory.  Propagate one definition through every consumer so a
+  # default-off binary cannot observe a partial route or an ODR-split enum.
+  target_compile_definitions(q3x_core PUBLIC
+    Q3X_ENABLE_P40_PROJECTION_RESET_ADMISSION=1
   )
 endif()
 q3x_enable_warnings(q3x_core)
@@ -405,6 +430,14 @@ if(Q3X_BUILD_NVFP4_PERSISTENT_PREFILL_ADMISSION)
   )
   target_compile_definitions(q3x_kernels PRIVATE
     Q3X_ENABLE_NVFP4_PERSISTENT_PREFILL_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_P40_PROJECTION_RESET_ADMISSION)
+  target_sources(q3x_kernels PRIVATE
+    src/kernels/sm87/p40_projection_reset.cu
+  )
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_P40_PROJECTION_RESET_ADMISSION=1
   )
 endif()
 if(Q3X_BUILD_FP8_MARLIN_PREFILL_ADMISSION)
@@ -729,6 +762,22 @@ if(BUILD_TESTING)
       COMMAND q3x_sm87_nvfp4_prefill_persistent_host_test
     )
     set_tests_properties(sm87_nvfp4_prefill_persistent_host PROPERTIES
+      LABELS "host;sm87;prefill;contract"
+    )
+  endif()
+
+  if(Q3X_BUILD_P40_PROJECTION_RESET_ADMISSION)
+    add_executable(q3x_sm87_p40_projection_reset_host_test
+      tests/sm87_p40_projection_reset_host_test.cpp
+    )
+    target_link_libraries(q3x_sm87_p40_projection_reset_host_test
+      PRIVATE q3x::kernels
+    )
+    q3x_enable_warnings(q3x_sm87_p40_projection_reset_host_test)
+    add_test(NAME sm87_p40_projection_reset_host
+      COMMAND q3x_sm87_p40_projection_reset_host_test
+    )
+    set_tests_properties(sm87_p40_projection_reset_host PROPERTIES
       LABELS "host;sm87;prefill;contract"
     )
   endif()

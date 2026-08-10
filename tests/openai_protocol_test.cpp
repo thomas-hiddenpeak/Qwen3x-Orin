@@ -942,6 +942,81 @@ void test_target_prefill_witness_evidence(TestContext& test) {
               std::string::npos,
       "exact-P40000 whole-core route emits a complete v10 package witness");
 
+  server::TargetPrefillWitnessRecord projection_reset_p40_record =
+      whole_core_p40_record;
+  projection_reset_p40_record.mlp_schedule_tactic = q3x::runtime::
+      LayerMajorPrefillMlpScheduleTactic::kPromptWideP40ProjectionReset;
+  projection_reset_p40_record.prompt_wide_p40_fp8_projection_hits = 208U;
+  projection_reset_p40_record
+      .prompt_wide_p40_fp8_projection_physical_launches = 128U;
+  projection_reset_p40_record.deployment_plan_id = q3x::runtime::
+      kLayerMajorNativePromptWideP40ProjectionResetDeploymentPlanId;
+  const std::string projection_reset_p40_serialized =
+      server::serialize_target_prefill_witness(projection_reset_p40_record);
+  test.expect(
+      valid_json(projection_reset_p40_serialized) &&
+          projection_reset_p40_serialized.find(
+              R"("record":"target-prefill-witness-v11","schema_version":11)") !=
+              std::string::npos &&
+          projection_reset_p40_serialized.find(
+              R"("projection_tactic":"native-prompt-wide-p40-projection-reset","mlp_schedule":"prompt-wide-p40-projection-reset","attention_tactic":"native-flashinfer-exact-whole-prompt","package_complete":true)") !=
+              std::string::npos &&
+          projection_reset_p40_serialized.find(
+              R"("prompt_wide_p40_fp8_projection_hits":208,"prompt_wide_p40_fp8_projection_physical_launches":128)") !=
+              std::string::npos &&
+          projection_reset_p40_serialized.find(
+              R"("p40_projection_reset_package":{"identity":"exact-p40000-grouped-projection-reset-v1","selection":"sealed-fail-closed","complete":true)") !=
+              std::string::npos &&
+          projection_reset_p40_serialized.find(
+              R"("expected_fp8_tensor_role_hits":208,"expected_fp8_physical_launches":128,"expected_nvfp4_physical_launches":128)") !=
+              std::string::npos &&
+          projection_reset_p40_serialized.find(
+              R"("qualification":"accuracy-unqualified-architecture-candidate")") !=
+              std::string::npos,
+      "exact-P40000 grouped projection reset emits a distinct complete v11 "
+      "witness with separate logical and physical FP8 counts");
+
+  server::TargetPrefillWitnessRecord reset_not_fully_consumed =
+      projection_reset_p40_record;
+  reset_not_fully_consumed.full_prompt_consumed = false;
+  server::TargetPrefillWitnessRecord reset_short_consumption =
+      projection_reset_p40_record;
+  --reset_short_consumption.consumed_prompt_tokens;
+  server::TargetPrefillWitnessRecord reset_without_completion =
+      projection_reset_p40_record;
+  reset_without_completion.completion_tokens = 0U;
+  const std::string reset_not_fully_consumed_serialized =
+      server::serialize_target_prefill_witness(reset_not_fully_consumed);
+  const std::string reset_short_consumption_serialized =
+      server::serialize_target_prefill_witness(reset_short_consumption);
+  const std::string reset_without_completion_serialized =
+      server::serialize_target_prefill_witness(reset_without_completion);
+  test.expect(
+      valid_json(reset_not_fully_consumed_serialized) &&
+          valid_json(reset_short_consumption_serialized) &&
+          valid_json(reset_without_completion_serialized) &&
+          reset_not_fully_consumed_serialized.find(
+              R"("package_complete":false)") != std::string::npos &&
+          reset_short_consumption_serialized.find(
+              R"("package_complete":false)") != std::string::npos &&
+          reset_without_completion_serialized.find(
+              R"("package_complete":false)") != std::string::npos,
+      "P40000 v11 package completeness requires full exact prompt "
+      "consumption and a committed completion token");
+
+  --projection_reset_p40_record
+        .prompt_wide_p40_fp8_projection_physical_launches;
+  const std::string incomplete_projection_reset_p40_serialized =
+      server::serialize_target_prefill_witness(projection_reset_p40_record);
+  test.expect(
+      valid_json(incomplete_projection_reset_p40_serialized) &&
+          incomplete_projection_reset_p40_serialized.find(
+              R"("package_complete":false)") != std::string::npos &&
+          incomplete_projection_reset_p40_serialized.find(
+              R"("selection":"sealed-fail-closed","complete":false)") !=
+              std::string::npos,
+      "P40000 v11 witness fails closed on a missing grouped FP8 launch");
+
   --whole_core_p40_record.prompt_wide_p40_fp8_projection_physical_launches;
   const std::string incomplete_whole_core_p40_serialized =
       server::serialize_target_prefill_witness(whole_core_p40_record);

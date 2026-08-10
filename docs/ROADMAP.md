@@ -181,16 +181,32 @@ removed; no stage/tile/raster scan, accuracy expansion, or P60/P130 run
 follows. Exact evidence is in the
 [v3 rejection record](metadata/qwen36-27b-prefill-p40k-nvfp4-shape-wide-v3-rejection-2026-08-10.json).
 
-The active package is now the complete P40 projection subsystem, not another
-NVFP4-only kernel. It must replace the decode/MMA ownership for NVFP4 Gate/Up,
-NVFP4 Down, and every FP8 QKV/Z/O role together while preserving the exact
-whole-core transaction. The design is AOT-specialized from the real model
-shapes and SM87 plan: compressed B/scale stays packed through asynchronous
-global-to-shared stages, register decode is double-buffered with MMA, one
-decoded fragment serves multiple M microtiles, and Gate/Up, Down, large-N
-FP8, and small-N FP8 receive distinct ownership and scheduling. Gate/Up SiLU
-and Down residual remain exact epilogues. L2 grouping, occupancy, and stage
-count are implementation consequences, not independent selection goals.
+The first complete P40 projection reset also returned to the real API gate and
+is closed. It grouped the 208 logical FP8 tensor roles into 128 physical
+P40000 launches and used 128 P40000 NVFP4 launches, but pure Prefill regressed
+to 194.220222 s / 205.951777 tok/s. Matched NSys places FP8 at 103.177068 s
+(3.989x the v10 FP8 scope), Gate/Up at 45.718603 s (+22.6585%), and Down at
+24.065402 s (+37.0509%). The package explains slightly more than the entire
+91.908076-s whole-request regression; all non-projection work is net faster.
+Launch count fell from 2,422 to 1,510 while kernel time still covered 99.997%
+of the request. Therefore the 16/32-CTA persistent-grid skeleton, not the API
+or host gaps, is rejected. P60 and accuracy expansion did not run. Exact
+evidence is in the
+[v11 rejection record](metadata/qwen36-27b-prefill-p40k-projection-reset-rejection-2026-08-10.json).
+
+The active package remains the complete P40 projection subsystem, now as a new
+architecture version rather than a scan of that rejected skeleton. It must
+replace the decode/MMA ownership for NVFP4 Gate/Up, NVFP4 Down, and every FP8
+QKV/Z/O role together while preserving the exact whole-core transaction. The
+design is AOT-specialized from the real model shapes and SM87 plan: a
+high-parallelism CTA wavefront must expose tensor-core throughput, compressed
+B/scale stays packed through asynchronous global-to-shared stages, register
+decode is double-buffered with MMA, one decoded fragment serves multiple M
+microtiles, and Gate/Up, Down, large-N FP8, and small-N FP8 receive distinct
+ownership and scheduling. A tiny fixed persistent grid is explicitly not an
+acceptable substitute for that dataflow. Gate/Up SiLU and Down residual remain
+exact epilogues. L2 grouping, occupancy, and stage count are implementation
+consequences, not independent selection goals.
 
 Selection sequence:
 

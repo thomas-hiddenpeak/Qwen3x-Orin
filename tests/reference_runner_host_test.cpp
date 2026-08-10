@@ -300,11 +300,14 @@ struct ReferenceRunnerPrefillControlTestPeer {
   [[nodiscard]] static bool valid_prompt_wide_p40_whole_core_contract(
       const PrefillExecutionPlan& topology,
       const RequestMemoryProfile profile,
-      const std::uint32_t max_sequence_length) noexcept {
+      const std::uint32_t max_sequence_length,
+      const LayerMajorPrefillProjectionTactic projection_tactic =
+          LayerMajorPrefillProjectionTactic::
+              kNativePromptWideP40WholeCore) noexcept {
     return ReferenceRunner::valid_prompt_wide_p40_whole_core_runner_contract(
         topology, profile, max_sequence_length,
         ReferenceRunner::LayerMajorLayerExecutor::kOperatorPanel,
-        LayerMajorPrefillProjectionTactic::kNativePromptWideP40WholeCore,
+        projection_tactic,
         LayerMajorPrefillFullAttentionTactic::
             kNativeFlashInferExactWholePrompt);
   }
@@ -2508,6 +2511,31 @@ void test_prompt_wide_p40_whole_core_runner_contract(TestContext& test) {
               runtime::RequestMemoryProfile::kLayerMajorP40WholeCore,
               runtime::kLayerMajorPrefillPromptWideP40Tokens),
       "runner rejects mixed profile, capacity, and panel geometry");
+
+  options.mlp_schedule_tactic = runtime::LayerMajorPrefillMlpScheduleTactic::
+      kPromptWideP40ProjectionReset;
+  const runtime::PrefillExecutionPlanResult reset =
+      runtime::build_unbound_layer_major_prefill_execution_plan(options);
+  if (!runtime::prompt_wide_p40_projection_reset_prefill_plan_enabled()) {
+    test.expect(!reset,
+                "default-off runner cannot construct projection reset");
+    return;
+  }
+  test.expect(
+      reset && Peer::valid_prompt_wide_p40_whole_core_contract(
+                   *reset.value,
+                   runtime::RequestMemoryProfile::kLayerMajorP40WholeCore,
+                   runtime::kLayerMajorPrefillPromptWideP40RequestCapacityTokens,
+                   runtime::LayerMajorPrefillProjectionTactic::
+                       kNativePromptWideP40ProjectionReset) &&
+          !Peer::valid_prompt_wide_p40_whole_core_contract(
+              *reset.value,
+              runtime::RequestMemoryProfile::kLayerMajorP40WholeCore,
+              runtime::kLayerMajorPrefillPromptWideP40RequestCapacityTokens,
+              runtime::LayerMajorPrefillProjectionTactic::
+                  kNativePromptWideP40WholeCore),
+      "runner admits the exact P40000 projection reset under its own tactic "
+      "and refuses to relabel it as the legacy whole-core route");
 }
 
 void test_whole_request_prefill_staging_contract(TestContext& test) {

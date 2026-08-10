@@ -58,6 +58,21 @@ experiment surface and immutable
 remain. The 392.804397 tok/s whole-core direction is still the strongest P40K
 result.
 
+The complete P40 projection-reset candidate subsequently replaced all FP8
+QKV/Z/O and both NVFP4 MLP projections with grouped P40000 kernels while
+preserving the v10 whole-request transaction. Its v11 API witness consumed all
+40,000 tokens, committed the same one-token smoke output as v10, and reported
+128 FP8 plus 128 NVFP4 physical launches with no forbidden route. It still
+regressed decisively: pure Prefill was 194.220222 s / 205.951777 prompt tok/s,
+90.7264% more latency than v10. Bounded NSys attributes 103.177068 s to the
+new FP8 kernels, 45.718603 s to Gate/Up, and 24.065402 s to Down. That package
+adds 92.263901 s while all non-projection work is net 0.355825 s faster, and
+kernel time covers 99.997% of the request. The 16/32-CTA persistent projection
+skeleton is therefore rejected; API/host work is not the cause. The route is
+test-only, default-off, accuracy-unqualified, and frozen in the
+[v11 rejection record](metadata/qwen36-27b-prefill-p40k-projection-reset-rejection-2026-08-10.json).
+P60 was not run. The v10 392.804397 tok/s result remains the incumbent.
+
 This is the single point-in-time status page. It records what is target,
 designed, implemented, qualified, and production. Architecture contracts
 belong in [`SDD.md`](SDD.md), pending work in [`ROADMAP.md`](ROADMAP.md), and
@@ -239,10 +254,10 @@ unqualified production runner**.
 | OpenAI-compatible evaluation API | Implemented | `/healthz`, `/v1/models`, completions/chat, non-streaming and committed-token SSE; explicit layer-major mode has bounded Prefill cancellation | Loopback/evaluation-only; no production exposure, security, admission, or multi-tenant contract |
 | Production serving API | Designed | Product/API contract is defined in the SDD | No installed release profile or release attestation exists |
 | Default context capacity | Implemented at 8,192 | Server default `max_sequence_length=8192`, maximum output 4,096, 2 GiB request-arena limit | Does not admit the locked long-context workloads |
-| 40K/60K/130K cold/no-cache service | Target; unqualified P40K development routes exercised | Token-ID ingress fails closed on capacity; retained v6 consumed all 40K tokens through the real API at 109.02622 s TTFT / 367.033577 pure prompt tok/s. G2/D2 v1 also consumed all 40K but regressed to 347.699851 prompt tok/s and was rejected | The retained result is still 11.72x below the owner's 4.3K tok/s vLLM starting line and 54.49x above the 2-s P40K target; P513 full state differs. P60K needs an M5424 tail route and has not been timed; P130K, whole-process capacity, and qualification remain open |
+| 40K/60K/130K cold/no-cache service | Target; unqualified P40K development routes exercised | Token-ID ingress fails closed on capacity; the v10 whole-core direction consumed all 40K tokens through the real API at 101.87053 s TTFT / 392.804397 pure prompt tok/s. The v11 complete projection reset also consumed all 40K but regressed to 205.951777 prompt tok/s and was rejected | The incumbent is still 10.95x below the owner's 4.3K tok/s vLLM starting line and 50.92x above the 2-s P40K target; inherited FlashInfer full state differs. P60K has not been timed; P130K, whole-process capacity, and qualification remain open |
 | Prefill/Decode logical separation | Implemented in part | Separate phase APIs/metrics and an explicit state transition exist | Shared runner and synchronization-heavy physical plan prevent independent utilization and overlap |
-| Prompt-wide Prefill candidate | Attention slice retained but accuracy-unqualified; both NVFP4 large-M compositions implemented and rejected | Sealed Engine transaction and role receipts remain; v6 submits exact logical-panel Attention through FlashInfer. The latest v8 route executes coupled GateUpG2/DownD2 with 320+320 hits through the same P40K API path | Attention's P513 state hash differs; G2/D2 v1 regressed pure Prefill by 5.560464%, so it was not accuracy-promoted. A new projection ownership skeleton, shape-specific FP8, BF16 A/B, and GDN remain unfinished |
-| Large-M Prefill specializations | C1 and G2/D2 v1 are implemented only as rejected, default-off experiments | G2/D2 reaches the two-CTA/SM resource envelope, fuses SiLU/residual, and reduces the package to 640 physical launches, but its combined role scope is 7.040160 s slower than retained Marlin main plus SiLU | Replace one-raster-CTA ownership with prompt/shape-specific persistent B/scale residency and cross-row/tile reuse; freeze the future M5424 dispatch contract, implement M8192/M7712, and return first to the real P40K API path. Implement M5424 only after P40 is competitive and accuracy-admissible |
+| Prompt-wide Prefill candidate | v10 whole-request substrate retained but accuracy-unqualified; complete v11 projection reset rejected | Sealed Engine transaction and role receipts remain; v10 submits whole-prompt FlashInfer and one persistent MLP pair per layer. v11 proved 208 FP8 roles can be grouped into 128 launches and completed the same API route | Inherited Attention state differs; v11's tiny persistent-grid FP8/NVFP4 package regressed pure Prefill by 90.7264%. A high-parallelism projection ownership design, production-exact Attention, BF16 A/B, and GDN remain unfinished |
+| Large-M Prefill specializations | C1, G2/D2, shape-wide v3, and projection-reset v1 are rejected default-off experiments | The latest reset collapses projection launch count and preserves exact route ownership, but its FP8 path is 3.989x slower and the complete projection package adds 92.263901 s | Replace the 16/32-CTA scalar-decode skeleton with shape-specific high-wave tensor-core ownership and real decoded-B/scale reuse, then return the complete package first to the real P40K API path. Open P60 geometry only after P40 is competitive and accuracy-admissible |
 | Decode target | Directionally near target | Short API evidence reports about 104 ms TPOT | At least 10 token/s, long-output stability, and release repetition are not qualified |
 | Production accuracy | Target with partial oracles | Exact deterministic outputs are available for selected prompts/routes | No complete public capability baseline and promotion gate has passed |
 | AOT DeploymentPlan | Implemented internally for the development route; release artifact still designed | Engine-lifetime sealed plan binds model/state/resources/operator identities and one-shot request receipts | No authenticated installed plan artifact is loaded and attested by the default release |

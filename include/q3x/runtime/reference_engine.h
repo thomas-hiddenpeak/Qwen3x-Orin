@@ -199,6 +199,10 @@ inline constexpr std::string_view
 inline constexpr std::string_view
     kLayerMajorNativePromptWideP40WholeCoreDeploymentPlanId =
         "q3x.sm87.ac-prefill-prompt-wide-v2.native-p40-whole-core.v1";
+inline constexpr std::string_view
+    kLayerMajorNativePromptWideP40ProjectionResetDeploymentPlanId =
+        "q3x.sm87.ac-prefill-prompt-wide-v2."
+        "native-p40-projection-reset.v1";
 
 [[nodiscard]] constexpr bool is_valid_reference_prefill_execution_mode(
     const ReferencePrefillExecutionMode mode) noexcept {

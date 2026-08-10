@@ -47,6 +47,25 @@ inline constexpr std::uint32_t
 inline constexpr std::uint32_t
     kLayerMajorPrefillPromptWideP40RequestCapacityTokens =
         kLayerMajorPrefillLayerWideMlpP40RequestCapacityTokens;
+// The projection-reset candidate preserves the same exact P40000 request
+// boundary, but replaces the old five-panel FP8 physical inventory with one
+// grouped full-prompt input launch and one full-prompt O launch per layer.
+// Tensor-role hits remain logical route evidence: linear layers own QKV, Z,
+// and O; full-Attention layers own Q, K, V, and O.
+inline constexpr std::size_t
+    kLayerMajorPrefillProjectionResetFp8GroupedInputLaunchesPerLayer = 1U;
+inline constexpr std::size_t
+    kLayerMajorPrefillProjectionResetFp8OutputLaunchesPerLayer = 1U;
+inline constexpr std::size_t
+    kLayerMajorPrefillProjectionResetFp8PhysicalLaunchesPerRequest = 128U;
+inline constexpr std::size_t
+    kLayerMajorPrefillProjectionResetFp8TensorRoleHitsPerRequest = 208U;
+inline constexpr std::size_t
+    kLayerMajorPrefillProjectionResetNvFp4GateUpLaunchesPerLayer = 1U;
+inline constexpr std::size_t
+    kLayerMajorPrefillProjectionResetNvFp4DownLaunchesPerLayer = 1U;
+inline constexpr std::size_t
+    kLayerMajorPrefillProjectionResetNvFp4PhysicalLaunchesPerRequest = 128U;
 inline constexpr std::uint32_t kLayerMajorPrefillLayerWideMlpAlignmentTokens =
     64U;
 inline constexpr std::uint32_t kLayerMajorPrefillMaximumSequenceTokens =
@@ -73,6 +92,20 @@ static_assert(kLayerMajorPrefillPromptWideP40PanelTokens <=
 static_assert(kLayerMajorPrefillPromptWideP40PanelTokens *
                       kLayerMajorPrefillPromptWideP40PanelCount ==
                   kLayerMajorPrefillPromptWideP40Tokens);
+static_assert(
+    kLayerMajorPrefillProjectionResetFp8PhysicalLaunchesPerRequest ==
+    kLayerMajorPrefillLayerCount *
+        (kLayerMajorPrefillProjectionResetFp8GroupedInputLaunchesPerLayer +
+         kLayerMajorPrefillProjectionResetFp8OutputLaunchesPerLayer));
+static_assert(
+    kLayerMajorPrefillProjectionResetFp8TensorRoleHitsPerRequest ==
+    kLayerMajorPrefillLinearLayerCount * 3U +
+        kLayerMajorPrefillFullLayerCount * 4U);
+static_assert(
+    kLayerMajorPrefillProjectionResetNvFp4PhysicalLaunchesPerRequest ==
+    kLayerMajorPrefillLayerCount *
+        (kLayerMajorPrefillProjectionResetNvFp4GateUpLaunchesPerLayer +
+         kLayerMajorPrefillProjectionResetNvFp4DownLaunchesPerLayer));
 static_assert(kLayerMajorPrefillMaximumPanelCount == 32U);
 
 [[nodiscard]] constexpr bool is_nvfp4_true_large_m_prefill_panel_tokens(
@@ -162,6 +195,12 @@ enum class LayerMajorPrefillProjectionTactic : std::uint8_t {
   // 5xM8000 fill -> prompt-wide core -> 5xM8000 drain/O -> persistent MLP
   // schedule and must never inherit the layer-wide-MLP-only identity.
   kNativePromptWideP40WholeCore,
+  // Exact-P40000 projection reset. FP8 owns one grouped full-prompt input
+  // launch plus one full-prompt O launch per layer, while NVFP4 owns one
+  // unsplit Gate+Up and one unsplit Down projection. This is a distinct,
+  // default-off route and may not be reported as the earlier whole-core
+  // tactic.
+  kNativePromptWideP40ProjectionReset,
 };
 
 [[nodiscard]] constexpr bool is_valid_layer_major_prefill_projection_tactic(
@@ -179,7 +218,9 @@ enum class LayerMajorPrefillProjectionTactic : std::uint8_t {
          tactic == LayerMajorPrefillProjectionTactic::
                        kNativeNvfp4PersistentP40LayerWideMlp ||
          tactic == LayerMajorPrefillProjectionTactic::
-                       kNativePromptWideP40WholeCore;
+                       kNativePromptWideP40WholeCore ||
+         tactic == LayerMajorPrefillProjectionTactic::
+                       kNativePromptWideP40ProjectionReset;
 }
 
 [[nodiscard]] constexpr std::string_view to_string(
@@ -203,6 +244,9 @@ enum class LayerMajorPrefillProjectionTactic : std::uint8_t {
       return "native-nvfp4-persistent-p40-layer-wide-mlp";
     case LayerMajorPrefillProjectionTactic::kNativePromptWideP40WholeCore:
       return "native-prompt-wide-p40-whole-core";
+    case LayerMajorPrefillProjectionTactic::
+        kNativePromptWideP40ProjectionReset:
+      return "native-prompt-wide-p40-projection-reset";
   }
   return "unknown";
 }
@@ -375,6 +419,7 @@ enum class PrefillFp8ArithmeticTactic : std::uint8_t {
   kM8192SingleBulkOtherwiseOracleSpanMarlin,
   kOperatorPanelSegmentedMarlin,
   kP8000FillDrainSingleBulk,
+  kP40000GroupedInputAndOutputSingleBulk,
 };
 
 enum class PrefillNvFp4ArithmeticTactic : std::uint8_t {
@@ -571,6 +616,42 @@ inline constexpr LayerMajorPrefillArithmeticContract
         true,
         true};
 
+// The projection-reset route changes the physical FP8 arithmetic boundary:
+// every layer owns one grouped M40000 input launch and one M40000 O launch.
+// Keep that identity separate from v6, whose FP8 projections remain M8000
+// fill/drain bulks, even though the two routes share the surrounding BF16,
+// GDN, Attention, and persistent-NVFP4 arithmetic tactics.
+inline constexpr LayerMajorPrefillArithmeticContract
+    kLayerMajorPrefillPromptWideP40ProjectionResetArithmeticContract{
+        7U,
+        PrefillBf16AbArithmeticTactic::kPromptWideP40SingleGrid,
+        PrefillFp8ArithmeticTactic::
+            kP40000GroupedInputAndOutputSingleBulk,
+        PrefillNvFp4ArithmeticTactic::
+            kP40000PersistentGateUpSiluDownResidual,
+        PrefillGdnArithmeticTactic::kPromptWideP40ChunkGraph,
+        PrefillAttentionPreprocessArithmeticTactic::
+            kP8000FillWholePromptFlashInferDrain,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        false,
+        true,
+        true,
+        true};
+
 [[nodiscard]] constexpr bool is_valid_layer_major_prefill_arithmetic_contract(
     const LayerMajorPrefillArithmeticContract& contract) noexcept {
   const bool common =
@@ -714,11 +795,42 @@ inline constexpr LayerMajorPrefillArithmeticContract
       contract.p40000_bf16_ab_prompt_wide &&
       contract.p40000_gdn_prompt_wide &&
       contract.p40000_flashinfer_whole_prompt;
+  const bool prompt_wide_p40_projection_reset =
+      contract.version == 7U &&
+      contract.bf16_ab ==
+          PrefillBf16AbArithmeticTactic::kPromptWideP40SingleGrid &&
+      contract.fp8 == PrefillFp8ArithmeticTactic::
+                          kP40000GroupedInputAndOutputSingleBulk &&
+      contract.nvfp4 == PrefillNvFp4ArithmeticTactic::
+                            kP40000PersistentGateUpSiluDownResidual &&
+      contract.gdn == PrefillGdnArithmeticTactic::kPromptWideP40ChunkGraph &&
+      contract.attention_preprocess ==
+          PrefillAttentionPreprocessArithmeticTactic::
+              kP8000FillWholePromptFlashInferDrain &&
+      !contract.reset_fp8_locks_per_projection_span &&
+      !contract.nvfp4_interleaves_gate_silu_down_per_span &&
+      !contract.nvfp4_down_reuses_gate_up_locks &&
+      !contract.nvfp4_residual_follows_down_per_span &&
+      !contract.m8192_single_bulk_projection &&
+      !contract.m8192_fp8_resets_locks_once &&
+      !contract.m8192_nvfp4_uses_independent_down_workspace &&
+      !contract.m8192_nvfp4_residual_once_after_bulk &&
+      !contract.nvfp4_true_large_m_m8192 &&
+      !contract.nvfp4_true_large_m_m7712 &&
+      contract.nvfp4_gate_up_down_coupled &&
+      contract.p40000_post_attention_norm_prompt_wide &&
+      contract.p40000_persistent_gate_up_silu &&
+      contract.p40000_persistent_down_residual &&
+      !contract.p8000_fp8_fill_drain_single_bulk &&
+      contract.p40000_bf16_ab_prompt_wide &&
+      contract.p40000_gdn_prompt_wide &&
+      contract.p40000_flashinfer_whole_prompt;
   return common &&
          ((legacy_common &&
            (exact || exact_marlin_m8192 || segmented_marlin ||
             true_large_m_nvfp4 || persistent_p40_nvfp4)) ||
-          prompt_wide_p40_whole_core);
+          prompt_wide_p40_whole_core ||
+          prompt_wide_p40_projection_reset);
 }
 
 static_assert(kLayerMajorPrefillMaximumArithmeticSpanCount == 16U);
@@ -734,6 +846,8 @@ static_assert(is_valid_layer_major_prefill_arithmetic_contract(
     kLayerMajorPrefillPersistentP40NvFp4ArithmeticContract));
 static_assert(is_valid_layer_major_prefill_arithmetic_contract(
     kLayerMajorPrefillPromptWideP40WholeCoreArithmeticContract));
+static_assert(is_valid_layer_major_prefill_arithmetic_contract(
+    kLayerMajorPrefillPromptWideP40ProjectionResetArithmeticContract));
 static_assert(is_valid_layer_major_prefill_arithmetic_span_ledger(
     make_layer_major_prefill_arithmetic_span_ledger(513U)));
 
@@ -755,6 +869,7 @@ enum class LayerMajorPrefillMlpScheduleTactic : std::uint8_t {
   kPerOperatorPanel = 0,
   kLayerWideP40ExactFullM,
   kPromptWideP40WholeCore,
+  kPromptWideP40ProjectionReset,
 };
 
 [[nodiscard]] constexpr bool is_valid_layer_major_prefill_mlp_schedule_tactic(
@@ -764,7 +879,9 @@ enum class LayerMajorPrefillMlpScheduleTactic : std::uint8_t {
          tactic == LayerMajorPrefillMlpScheduleTactic::
                        kLayerWideP40ExactFullM ||
          tactic == LayerMajorPrefillMlpScheduleTactic::
-                       kPromptWideP40WholeCore;
+                       kPromptWideP40WholeCore ||
+         tactic == LayerMajorPrefillMlpScheduleTactic::
+                       kPromptWideP40ProjectionReset;
 }
 
 [[nodiscard]] constexpr std::string_view to_string(
@@ -776,6 +893,8 @@ enum class LayerMajorPrefillMlpScheduleTactic : std::uint8_t {
       return "layer-wide-p40-exact-full-m";
     case LayerMajorPrefillMlpScheduleTactic::kPromptWideP40WholeCore:
       return "prompt-wide-p40-whole-core";
+    case LayerMajorPrefillMlpScheduleTactic::kPromptWideP40ProjectionReset:
+      return "prompt-wide-p40-projection-reset";
   }
   return "unknown";
 }
@@ -800,6 +919,12 @@ enum class LayerMajorPrefillMlpScheduleTactic : std::uint8_t {
 // Independent architecture admission. Enabling the layer-wide MLP-only
 // experiment never enables the whole-core schedule by implication.
 [[nodiscard]] bool prompt_wide_p40_whole_core_prefill_plan_enabled() noexcept;
+
+// Independent default-OFF admission for the projection reset. The reset may
+// not become selectable merely because the earlier whole-core experiment is
+// compiled into the same binary.
+[[nodiscard]] bool prompt_wide_p40_projection_reset_prefill_plan_enabled()
+    noexcept;
 
 enum class PrefillExecutionPlanError : std::uint8_t {
   kNone = 0,
@@ -878,6 +1003,38 @@ struct PrefillWholeCoreSchedulePlan {
   bool flashinfer_whole_prompt_required = false;
 };
 
+// Exact-P40000 projection ownership for the reset architecture. The five
+// M8000 panels remain bounded storage/progress geometry; they are not FP8
+// physical projection boundaries. A conforming binding first makes all input
+// rows ready, then submits one grouped P40000 input projection and one P40000
+// O projection per layer. Logical tensor-role hits remain separately visible
+// so grouping cannot erase QKV/Z or Q/K/V route attestation.
+struct PrefillP40ProjectionResetSchedulePlan {
+  bool enabled = false;
+  std::size_t input_preparation_panel_count_per_layer = 0U;
+  std::size_t prompt_core_phase_count_per_layer = 0U;
+  std::size_t persistent_mlp_phase_count_per_layer = 0U;
+  std::uint32_t panel_token_count = 0U;
+  std::uint32_t projection_m_tokens = 0U;
+  std::uint32_t request_capacity_tokens = 0U;
+  std::uint64_t route_pass_count = 0U;
+  std::size_t fp8_grouped_input_launches_per_layer = 0U;
+  std::size_t fp8_output_launches_per_layer = 0U;
+  std::size_t fp8_physical_launches_per_request = 0U;
+  std::size_t fp8_tensor_role_hits_per_request = 0U;
+  std::size_t nvfp4_gate_up_launches_per_layer = 0U;
+  std::size_t nvfp4_down_launches_per_layer = 0U;
+  std::size_t nvfp4_physical_launches_per_request = 0U;
+  bool fp8_grouped_full_prompt_input_required = false;
+  bool fp8_full_prompt_output_required = false;
+  bool nvfp4_full_prompt_required = false;
+  bool internal_m_segmentation_forbidden = false;
+  bool production_accuracy_required = false;
+  bool approximate_numerics_forbidden = false;
+  bool mtp_forbidden = false;
+  bool cublaslt_forbidden = false;
+};
+
 struct PrefillExecutionPlan {
   PrefillTraversalOrder traversal = PrefillTraversalOrder::kLayerMajor;
   // Descriptive compatibility metadata only. It never determines panels.
@@ -895,6 +1052,7 @@ struct PrefillExecutionPlan {
   std::array<PrefillLayerExecution, kLayerMajorPrefillLayerCount> layers{};
   PrefillMlpSchedulePlan mlp_schedule;
   PrefillWholeCoreSchedulePlan whole_core_schedule;
+  PrefillP40ProjectionResetSchedulePlan projection_reset_schedule;
   PrefillFinalCommitPlan final_commit;
 
   // The scaffold deliberately has no mutation or binder that can make this
@@ -983,6 +1141,16 @@ advance_prompt_wide_p40_drain_progress_after_completion(
 
 [[nodiscard]] PrefillExecutionProgressError
 advance_prompt_wide_p40_persistent_mlp_progress_after_completion(
+    const PrefillExecutionPlan& plan, PrefillExecutionProgress& progress,
+    std::size_t layer_index) noexcept;
+
+// The projection reset publishes request progress only after the complete
+// grouped FP8 input, mathematical core, FP8 O, and full-Prompt NVFP4 MLP for
+// one layer have completed. The host transition is intentionally atomic so a
+// partially executed grouped projection can never look like a completed
+// M8000 panel.
+[[nodiscard]] PrefillExecutionProgressError
+advance_prompt_wide_p40_projection_reset_layer_progress_after_completion(
     const PrefillExecutionPlan& plan, PrefillExecutionProgress& progress,
     std::size_t layer_index) noexcept;
 

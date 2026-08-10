@@ -412,6 +412,86 @@ request, so the next work replaces dominant GPU dataflows rather than the API
 adapter. Exact hashes, counts, and limitations are frozen in the
 [v10 whole-core direction record](metadata/qwen36-27b-prefill-p40k-whole-core-direction-2026-08-10.json).
 
+The default-off exact-P40000 grouped projection-reset experiment emits
+`target-prefill-witness-v11`; it may not reuse or be serialized as v10. A v11
+record is complete only when all of the following are true:
+
+- request memory profile is `layer-major-p40-whole-core`, projection tactic is
+  `native-prompt-wide-p40-projection-reset`, MLP schedule is
+  `prompt-wide-p40-projection-reset`, Attention tactic is
+  `native-flashinfer-exact-whole-prompt`, and the sealed DeploymentPlan is
+  `q3x.sm87.ac-prefill-prompt-wide-v2.native-p40-projection-reset.v1`;
+- one 64-layer route pass retains five M8000 input-preparation and five M8000
+  residual phases per layer, one whole-prompt core phase, one whole-prompt MLP
+  phase, and the bounded two-slot window retires exactly 768 phases;
+- FP8 reports 208 logical tensor-role hits but exactly 128 physical launches:
+  one grouped P40000 input projection and one P40000 output projection per
+  layer. Its bound artifact is the authenticated FP8 supermatrix sidecar, not
+  the M8000 FP8 Marlin sidecar;
+- BF16 A/B and GDN hits are both 48, whole-prompt FlashInfer hits are 16, and
+  P40000 NVFP4 Gate/Up and Down hits are 64 each with 128 physical launches;
+  and
+- every exact-fallback, forbidden, Prefix-cache, MTP, cuBLASLt,
+  external-reference, and approximate-route counter is zero.
+
+Configure and start this default-off candidate with the complete fixed
+geometry below. The exact arena is 8,640,542,976 bytes; using the generic
+2 GiB adapter default is invalid for this route.
+
+```bash
+Q3X_BUILD="$Q3X_WORK/build/p40-projection-reset"
+cmake -S . -B "$Q3X_BUILD" -DCMAKE_BUILD_TYPE=Release \
+  -DBUILD_TESTING=ON \
+  -DQ3X_BUILD_FP8_MARLIN_PREFILL_ADMISSION=ON \
+  -DQ3X_BUILD_NVFP4_MARLIN_PREFILL_ADMISSION=ON \
+  -DQ3X_BUILD_BF16_AB_LARGE_M_PREFILL_ADMISSION=ON \
+  -DQ3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION=ON \
+  -DQ3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION=ON \
+  -DQ3X_BUILD_GDN_PROMPT_WIDE_CHUNK_GRAPH_ADMISSION=ON \
+  -DQ3X_BUILD_LAYER_WIDE_P40_MLP_ADMISSION=ON \
+  -DQ3X_BUILD_NVFP4_PERSISTENT_PREFILL_ADMISSION=ON \
+  -DQ3X_BUILD_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION=ON \
+  -DQ3X_BUILD_P40_PROJECTION_RESET_ADMISSION=ON
+cmake --build "$Q3X_BUILD" --target qwen3x-eval-server -j
+
+"$Q3X_BUILD/qwen3x-eval-server" MODEL_DIR \
+  --host 127.0.0.1 --port 18089 \
+  --model qwen3.6-27b-nvfp4 \
+  --max-sequence-length 40001 --max-output-tokens 1 \
+  --prefill-chunk-size 512 --prefill-execution-mode layer-major \
+  --prefill-attention-tactic native-flashinfer-exact-whole-prompt \
+  --prefill-projection-tactic native-prompt-wide-p40-projection-reset \
+  --projection-backend sm87 \
+  --request-max-arena-bytes 8640542976 \
+  --min-free-bytes 4294967296 \
+  --queue-capacity 1 --ingress-threads 3
+```
+
+The selection request must use the frozen flat token-ID P40000 corpus with
+`max_tokens=1`, `temperature=0`, `stream=true`, no warmup, no Prefix cache,
+and no MTP. A v11 package is incomplete unless all 40,000 prompt tokens are
+reported consumed and at least one completion token is committed.
+
+Version 11 remains `accuracy-unqualified-architecture-candidate` until the
+real-checkpoint numerical protocol passes. Its first selection gate is the
+cold/no-cache real-API P40 request defined here. P60 remains fail-closed until
+a separate exact-P60000 geometry, capacity, plan, and witness exist; a P40
+result cannot be relabeled as P60 support.
+
+That P40 gate is now closed as a negative architecture result. The clean-host
+request completed 40,000/40,000 prompt tokens with no cache hit and the same
+one-token smoke output as v10, but reached 194,256.49 ms EvalScope TTFT and
+194,220.222475 ms server pure Prefill, or 205.951777 tok/s. This is 90.7264%
+more pure-Prefill latency than v10. A matched bounded Nsight capture assigns
+92.264 seconds of added work to the substituted projection package: grouped
+FP8 rises from 25.865 to 103.177 seconds, Gate/Up from 37.273 to 45.719
+seconds, and Down from 17.559 to 24.065 seconds. Kernel time covers 99.997% of
+the request, so API, host launch gaps, and repeated runtime validation do not
+explain the regression. The route stays default-off and accuracy-unqualified;
+P60 was not run. Exact hashes, route counts, kernel attribution, and
+limitations are frozen in the
+[v11 rejection record](metadata/qwen36-27b-prefill-p40k-projection-reset-rejection-2026-08-10.json).
+
 The first WP-V2-C1-v3 direction reused the exact v10 host schedule and route
 counters through a binary-pinned, default-off overlay; the binary hash, not a
 new witness name, distinguishes its substituted shape-wide NVFP4 body. It
