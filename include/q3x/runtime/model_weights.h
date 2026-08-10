@@ -1,5 +1,6 @@
 #pragma once
 
+#include "q3x/kernels/sm87_p40_packed_projection.h"
 #include "q3x/model/model_config.h"
 #include "q3x/runtime/resident_weights.h"
 
@@ -146,6 +147,15 @@ struct NvFp4MarlinPrefillSidecarDescriptor {
   const float* down_global_scale = nullptr;
 };
 
+// One of the four authenticated packed projection artifacts owned by a
+// decoder layer. The descriptor is copied by attach; the device payload must
+// outlive ModelWeights and all queued consumers. A complete transaction has
+// exactly Gate+Up, Down, grouped FP8 input, and FP8 output for every layer.
+struct P40PackedProjectionSidecarDescriptor {
+  std::size_t layer_index = 0U;
+  kernels::Sm87P40PackedProjectionDeviceView view{};
+};
+
 struct Bf16VectorWeight {
   const std::uint16_t* data = nullptr;
   std::size_t element_count = 0U;
@@ -185,6 +195,10 @@ struct Fp8LinearWeight {
   // admission build and a sealed engine-lifetime projection tactic.
   const std::uint8_t* prefill_marlin_weight = nullptr;
   const std::uint16_t* prefill_marlin_scales = nullptr;
+  // AC-PREFILL-P40-PACKED-DATAFLOW-v1 only. All same-input logical sources
+  // share the same authenticated physical artifact view; the sealed runner
+  // validates the expected source partition before launch.
+  kernels::Sm87P40PackedProjectionDeviceView prefill_p40_packed_artifact{};
 };
 
 struct NvFp4LinearWeight {
@@ -217,6 +231,7 @@ struct NvFp4LinearWeight {
   const std::uint8_t* prefill_marlin_weight = nullptr;
   const std::uint8_t* prefill_marlin_scales = nullptr;
   const float* prefill_marlin_global_scale = nullptr;
+  kernels::Sm87P40PackedProjectionDeviceView prefill_p40_packed_artifact{};
 };
 
 // The active alternative is selected strictly from the payload weight dtype:
@@ -492,6 +507,14 @@ class ModelWeights {
   // any binding; it is intentionally not a production scheduling switch.
   [[nodiscard]] bool attach_nvfp4_marlin_prefill_sidecars(
       const NvFp4MarlinPrefillSidecarDescriptor* descriptors,
+      std::size_t descriptor_count) noexcept;
+
+  // Transactionally attaches the complete 256-artifact P40 packed inventory.
+  // The canonical null/zero call detaches every view. Artifact payloads may
+  // replace older Prefill sidecars in the owning engine; they must not be
+  // prepared or selected from a request path.
+  [[nodiscard]] bool attach_p40_packed_projection_sidecars(
+      const P40PackedProjectionSidecarDescriptor* descriptors,
       std::size_t descriptor_count) noexcept;
 
  private:

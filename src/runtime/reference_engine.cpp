@@ -7,6 +7,7 @@
 #endif
 #include "q3x/kernels/sm87_nvfp4_marlin.h"
 #include "q3x/kernels/sm87_weight_only_gemv.h"
+#include "q3x/runtime/p40_packed_projection_assets.h"
 #include "q3x/text/tokenizer.h"
 #include "reference_engine_prefill_authority.h"
 #include "reference_runner_gdn_chunk64_native_admission.h"
@@ -1251,10 +1252,13 @@ prefill_whole_request_layer_major(
   const bool p40_projection_reset =
       immutable_topology.mlp_schedule.tactic ==
       LayerMajorPrefillMlpScheduleTactic::kPromptWideP40ProjectionReset;
+  const bool p40_packed_projection =
+      immutable_topology.mlp_schedule.tactic ==
+      LayerMajorPrefillMlpScheduleTactic::kPromptWideP40PackedProjection;
   const bool prompt_wide_p40_whole_core =
       immutable_topology.mlp_schedule.tactic ==
           LayerMajorPrefillMlpScheduleTactic::kPromptWideP40WholeCore ||
-      p40_projection_reset;
+      p40_projection_reset || p40_packed_projection;
   const std::size_t expected_submissions_per_layer =
       prompt_wide_p40_whole_core
           ? p40_projection_reset
@@ -1263,6 +1267,12 @@ prefill_whole_request_layer_major(
                           .prompt_core_phase_count_per_layer +
                       immutable_topology.projection_reset_schedule
                           .persistent_mlp_phase_count_per_layer
+            : p40_packed_projection
+                ? 2U * immutable_topology.panel_count +
+                      immutable_topology.packed_projection_schedule
+                          .prompt_core_phase_count_per_layer +
+                      immutable_topology.packed_projection_schedule
+                          .packed_mlp_phase_count_per_layer
                 : immutable_topology.whole_core_schedule
                           .fill_panel_phase_count_per_layer +
                       immutable_topology.whole_core_schedule
@@ -1307,10 +1317,16 @@ prefill_whole_request_layer_major(
       p40_projection_reset
           ? immutable_topology.projection_reset_schedule
                 .fp8_tensor_role_hits_per_request
+      : p40_packed_projection
+          ? immutable_topology.packed_projection_schedule
+                .fp8_tensor_role_hits_per_request
           : kP40Fp8ProjectionsPerPanel * immutable_topology.panel_count;
   const std::size_t expected_prompt_wide_fp8_physical_launches =
       p40_projection_reset
           ? immutable_topology.projection_reset_schedule
+                .fp8_physical_launches_per_request
+      : p40_packed_projection
+          ? immutable_topology.packed_projection_schedule
                 .fp8_physical_launches_per_request
           : expected_prompt_wide_fp8_hits;
   const std::size_t bulk_panel_count = [&immutable_topology]() noexcept {
@@ -3408,6 +3424,7 @@ struct ReferenceEngine::Impl {
 #if defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION)
   Sm87NvFp4MarlinPrefillSidecars nvfp4_marlin_prefill_sidecars;
 #endif
+  P40PackedProjectionAssets p40_packed_projection_assets;
   Sm87NvFp4DownConsumerOrderSidecars
       nvfp4_down_consumer_order_sidecars;
   std::optional<ModelWeights> model_weights;
@@ -3601,6 +3618,36 @@ struct ReferenceEngine::Impl {
       return result;
     }
 #endif
+#if !defined(Q3X_ENABLE_P40_PACKED_PROJECTION_ADMISSION)
+    if (options.prefill_projection_tactic ==
+        LayerMajorPrefillProjectionTactic::
+            kNativePromptWideP40PackedProjection) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kPrefillPlanUnavailable,
+          "prefill_projection_tactic",
+          "this binary does not admit the test-only exact-P40000 packed "
+          "projection package");
+      return result;
+    }
+#else
+    if (options.prefill_projection_tactic ==
+            LayerMajorPrefillProjectionTactic::
+                kNativePromptWideP40PackedProjection &&
+        (options.prefill_execution_mode !=
+             ReferencePrefillExecutionMode::kWholeRequestLayerMajor ||
+         options.request_options.max_sequence_length !=
+             kLayerMajorPrefillPromptWideP40RequestCapacityTokens ||
+         options.prefill_full_attention_tactic !=
+             LayerMajorPrefillFullAttentionTactic::
+                 kNativeFlashInferExactWholePrompt)) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kInvalidArgument,
+          "prefill_projection_tactic",
+          "the packed projection route admits only a cold exact P40000 "
+          "whole-request engine with whole-prompt FlashInfer");
+      return result;
+    }
+#endif
     if (!is_valid_reference_decode_graph_cache_policy(
             options.decode_graph_cache_policy)) {
       result.diagnostic = engine_diagnostic(
@@ -3623,6 +3670,11 @@ struct ReferenceEngine::Impl {
       impl->trace_enabled = options.enable_trace;
       impl->prefill_mlp_schedule_tactic =
           options.prefill_projection_tactic ==
+                  LayerMajorPrefillProjectionTactic::
+                      kNativePromptWideP40PackedProjection
+              ? LayerMajorPrefillMlpScheduleTactic::
+                    kPromptWideP40PackedProjection
+          : options.prefill_projection_tactic ==
                   LayerMajorPrefillProjectionTactic::
                       kNativePromptWideP40ProjectionReset
               ? LayerMajorPrefillMlpScheduleTactic::
@@ -3714,7 +3766,10 @@ struct ReferenceEngine::Impl {
                               kPromptWideP40WholeCore ||
                       impl->prefill_mlp_schedule_tactic ==
                           LayerMajorPrefillMlpScheduleTactic::
-                              kPromptWideP40ProjectionReset
+                              kPromptWideP40ProjectionReset ||
+                      impl->prefill_mlp_schedule_tactic ==
+                          LayerMajorPrefillMlpScheduleTactic::
+                              kPromptWideP40PackedProjection
                   ? LayerMajorRequestMlpLayout::kLayerWideP40PersistentTwoSpan
                   : LayerMajorRequestMlpLayout::kPanelLocalThreeSpan;
           layer_major_options.layout =
@@ -3723,7 +3778,10 @@ struct ReferenceEngine::Impl {
                           kPromptWideP40WholeCore ||
                   impl->prefill_mlp_schedule_tactic ==
                       LayerMajorPrefillMlpScheduleTactic::
-                          kPromptWideP40ProjectionReset
+                          kPromptWideP40ProjectionReset ||
+                  impl->prefill_mlp_schedule_tactic ==
+                      LayerMajorPrefillMlpScheduleTactic::
+                          kPromptWideP40PackedProjection
                   ? LayerMajorRequestLayout::kP40WholeCorePromptWide
                   : LayerMajorRequestLayout::kC8192FamilyOverlay;
           request = create_layer_major_request_state(layer_major_options);
@@ -3803,6 +3861,51 @@ struct ReferenceEngine::Impl {
         // silently falls back to the old projection layout.
         if (impl->load.request_prefill_chunk_size ==
             kMaximumRequestPrefillChunkSize) {
+          const bool prepare_p40_packed_projection =
+              options.prefill_projection_tactic ==
+              LayerMajorPrefillProjectionTactic::
+                  kNativePromptWideP40PackedProjection;
+          if (prepare_p40_packed_projection) {
+            const Clock::time_point packed_begin = Clock::now();
+            const P40PackedProjectionPreparationStats preparation =
+                prepare_p40_packed_projection_assets(
+                    *impl->resident_weights, *impl->model_weights,
+                    options.request_options.min_free_bytes_after_create,
+                    impl->p40_packed_projection_assets);
+            impl->load.p40_packed_projection_asset_milliseconds =
+                elapsed_milliseconds(packed_begin);
+            if (preparation.hard_failure || !preparation.enabled ||
+                preparation.artifacts !=
+                    kernels::kSm87P40PackedProjectionArtifactCount ||
+                preparation.sources !=
+                    kernels::kSm87P40PackedProjectionSourceIdentityCount ||
+                preparation.fp8_logical !=
+                    kernels::kSm87P40PackedProjectionFp8LogicalRoleCount ||
+                preparation.fp8_physical != 128U ||
+                preparation.nvfp4_physical != 128U ||
+                preparation.bytes != kP40PackedProjectionArenaBytes) {
+              result.diagnostic = engine_diagnostic(
+                  ReferenceEngineError::kRunnerFactoryFailure,
+                  "p40_packed_projection_asset_prepare",
+                  preparation.message.empty()
+                      ? "the P40 packed route did not publish its complete "
+                        "authenticated inventory"
+                      : preparation.message);
+              result.diagnostic.cuda_error = preparation.cuda_error;
+              return result;
+            }
+            impl->load.p40_packed_projection_assets_enabled = true;
+            impl->load.p40_packed_projection_artifacts =
+                preparation.artifacts;
+            impl->load.p40_packed_projection_sources = preparation.sources;
+            impl->load.p40_packed_projection_fp8_logical_roles =
+                preparation.fp8_logical;
+            impl->load.p40_packed_projection_fp8_physical_launches =
+                preparation.fp8_physical;
+            impl->load.p40_packed_projection_nvfp4_physical_launches =
+                preparation.nvfp4_physical;
+            impl->load.p40_packed_projection_asset_bytes = preparation.bytes;
+          } else {
 #if defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION)
           const bool prepare_fp8_supermatrix =
               options.prefill_projection_tactic ==
@@ -3919,6 +4022,7 @@ struct ReferenceEngine::Impl {
           impl->load.nvfp4_marlin_prefill_sidecar_bytes =
               marlin_preparation.bytes;
 #endif
+          }
         }
 
         // Prepare Decode-only experiments only after every production/Prefill

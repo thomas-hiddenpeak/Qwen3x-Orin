@@ -1694,6 +1694,16 @@ int run_evaluation_server(const EvaluationServerOptions& options,
             << load.fp8_prefill_supermatrix_sidecar_projections
             << " fp8_prefill_supermatrix_sidecar_bytes="
             << load.fp8_prefill_supermatrix_sidecar_bytes
+            << " p40_packed_projection_asset_ms="
+            << load.p40_packed_projection_asset_milliseconds
+            << " p40_packed_projection_assets_enabled="
+            << (load.p40_packed_projection_assets_enabled ? 1 : 0)
+            << " p40_packed_projection_artifacts="
+            << load.p40_packed_projection_artifacts
+            << " p40_packed_projection_sources="
+            << load.p40_packed_projection_sources
+            << " p40_packed_projection_asset_bytes="
+            << load.p40_packed_projection_asset_bytes
             << " nvfp4_down_consumer_order_requested="
             << (load.nvfp4_down_consumer_order_sidecars_requested ? 1 : 0)
             << " nvfp4_down_consumer_order_enabled="

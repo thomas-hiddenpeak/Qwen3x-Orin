@@ -976,6 +976,81 @@ void test_target_prefill_witness_evidence(TestContext& test) {
       "exact-P40000 grouped projection reset emits a distinct complete v11 "
       "witness with separate logical and physical FP8 counts");
 
+  server::TargetPrefillWitnessRecord packed_projection_p40_record =
+      whole_core_p40_record;
+  packed_projection_p40_record.mlp_schedule_tactic = q3x::runtime::
+      LayerMajorPrefillMlpScheduleTactic::kPromptWideP40PackedProjection;
+  packed_projection_p40_record.prompt_wide_p40_fp8_projection_hits = 208U;
+  packed_projection_p40_record
+      .prompt_wide_p40_fp8_projection_physical_launches = 128U;
+  packed_projection_p40_record.deployment_plan_id = q3x::runtime::
+      kLayerMajorNativePromptWideP40PackedProjectionDeploymentPlanId;
+  const std::string packed_projection_p40_serialized =
+      server::serialize_target_prefill_witness(packed_projection_p40_record);
+  test.expect(
+      valid_json(packed_projection_p40_serialized) &&
+          packed_projection_p40_serialized.find(
+              R"("record":"target-prefill-witness-v13","schema_version":13)") !=
+              std::string::npos &&
+          packed_projection_p40_serialized.find(
+              R"("projection_tactic":"native-prompt-wide-p40-packed-projection","mlp_schedule":"prompt-wide-p40-packed-projection","attention_tactic":"native-flashinfer-exact-whole-prompt","package_complete":true)") !=
+              std::string::npos &&
+          packed_projection_p40_serialized.find(
+              R"("prompt_wide_p40_fp8_projection_hits":208,"prompt_wide_p40_fp8_projection_physical_launches":128)") !=
+              std::string::npos &&
+          packed_projection_p40_serialized.find(
+              R"("persistent_p40_nvfp4_physical_launches":128,"p40_packed_projection_package":{"identity":"exact-p40000-packed-projection-dataflow-v1","selection":"sealed-fail-closed","complete":true)") !=
+              std::string::npos &&
+          packed_projection_p40_serialized.find(
+              R"("expected_fp8_tensor_role_hits":208,"expected_fp8_physical_launches":128,"expected_nvfp4_physical_launches":128)") !=
+              std::string::npos &&
+          packed_projection_p40_serialized.find(
+              R"("qualification":"accuracy-unqualified-architecture-candidate","numerical_contract":{"qualified":false)") !=
+              std::string::npos &&
+          packed_projection_p40_serialized.find(
+              R"("disabled_boundaries":{"scope":"architecture_candidate_unqualified","prefix_cache":true,"mtp":true,"cublaslt_production":true,"approximate_numerics":false})") !=
+              std::string::npos,
+      "exact-P40000 packed projection emits a distinct accuracy-unqualified "
+      "v13 witness with 208 FP8 logical roles and 128 FP8/NVFP4 launches");
+
+  server::TargetPrefillWitnessRecord packed_missing_fp8_role =
+      packed_projection_p40_record;
+  --packed_missing_fp8_role.prompt_wide_p40_fp8_projection_hits;
+  server::TargetPrefillWitnessRecord packed_missing_fp8_launch =
+      packed_projection_p40_record;
+  --packed_missing_fp8_launch
+        .prompt_wide_p40_fp8_projection_physical_launches;
+  server::TargetPrefillWitnessRecord packed_missing_nvfp4_launch =
+      packed_projection_p40_record;
+  --packed_missing_nvfp4_launch.persistent_p40_nvfp4_physical_launches;
+  const std::string packed_missing_fp8_role_serialized =
+      server::serialize_target_prefill_witness(packed_missing_fp8_role);
+  const std::string packed_missing_fp8_launch_serialized =
+      server::serialize_target_prefill_witness(packed_missing_fp8_launch);
+  const std::string packed_missing_nvfp4_launch_serialized =
+      server::serialize_target_prefill_witness(packed_missing_nvfp4_launch);
+  test.expect(
+      valid_json(packed_missing_fp8_role_serialized) &&
+          valid_json(packed_missing_fp8_launch_serialized) &&
+          valid_json(packed_missing_nvfp4_launch_serialized) &&
+          packed_missing_fp8_role_serialized.find(
+              R"("package_complete":false)") != std::string::npos &&
+          packed_missing_fp8_role_serialized.find(
+              R"("selection":"sealed-fail-closed","complete":false)") !=
+              std::string::npos &&
+          packed_missing_fp8_launch_serialized.find(
+              R"("package_complete":false)") != std::string::npos &&
+          packed_missing_fp8_launch_serialized.find(
+              R"("selection":"sealed-fail-closed","complete":false)") !=
+              std::string::npos &&
+          packed_missing_nvfp4_launch_serialized.find(
+              R"("package_complete":false)") != std::string::npos &&
+          packed_missing_nvfp4_launch_serialized.find(
+              R"("selection":"sealed-fail-closed","complete":false)") !=
+              std::string::npos,
+      "P40000 v13 witness fails closed unless all packed FP8 logical, FP8 "
+      "physical, and NVFP4 physical counts are exact");
+
   server::TargetPrefillWitnessRecord reset_not_fully_consumed =
       projection_reset_p40_record;
   reset_not_fully_consumed.full_prompt_consumed = false;

@@ -88,6 +88,25 @@ is not an active tuning surface, did not run P60 or full accuracy, and remains
 default-off. The exact result is frozen in the
 [phase-local rejection record](metadata/qwen36-27b-prefill-p40k-phase-local-bf16-rejection-2026-08-10.json).
 
+The complete AOT packed-operand projection v1 package is now also implemented
+and has crossed the same external P40 gate. Engine load prepared 256 physical
+artifacts from all 400 real-checkpoint projection sources into a
+16,840,130,560-byte resident arena. Its independent v13 witness retained the
+v10 transaction, consumed all 40,000 tokens, and attested 208 logical FP8
+roles in 128 physical launches plus 64 Gate+Up and 64 Down roles in 128 NVFP4
+launches, with every forbidden-route count zero. Thus the API, asset, sealed
+plan, and request route are complete for this exact development screen.
+
+Performance rejected the package: pure Prefill was 161.410929 s /
+247.814694 prompt tok/s and EvalScope TTFT was 161.44732 s with
+247.758768 New Prompt tok/s. Against v10, latency increased by
+59.579075 s / 58.5073% and throughput fell 36.9114%. EvalScope exceeded
+server TTFT by only 3.807390 ms, so the API is not causal. Packed v1 remains
+default-off and accuracy-unqualified; full accuracy/repetition and P60/P130
+did not run. The v10 392.804397 tok/s direction remains the incumbent. Exact
+evidence is frozen in the
+[packed projection rejection record](metadata/qwen36-27b-prefill-p40k-packed-projection-rejection-2026-08-10.json).
+
 This is the single point-in-time status page. It records what is target,
 designed, implemented, qualified, and production. Architecture contracts
 belong in [`SDD.md`](SDD.md), pending work in [`ROADMAP.md`](ROADMAP.md), and
@@ -269,10 +288,10 @@ unqualified production runner**.
 | OpenAI-compatible evaluation API | Implemented | `/healthz`, `/v1/models`, completions/chat, non-streaming and committed-token SSE; explicit layer-major mode has bounded Prefill cancellation | Loopback/evaluation-only; no production exposure, security, admission, or multi-tenant contract |
 | Production serving API | Designed | Product/API contract is defined in the SDD | No installed release profile or release attestation exists |
 | Default context capacity | Implemented at 8,192 | Server default `max_sequence_length=8192`, maximum output 4,096, 2 GiB request-arena limit | Does not admit the locked long-context workloads |
-| 40K/60K/130K cold/no-cache service | Target; unqualified P40K development routes exercised | Token-ID ingress fails closed on capacity; the v10 whole-core direction consumed all 40K tokens through the real API at 101.87053 s TTFT / 392.804397 pure prompt tok/s. The v11 projection-reset and experimental v12 phase-local BF16 routes also consumed all 40K but regressed to 205.951777 and 320.472999 prompt tok/s and were rejected; v12 lacks sealed-route authority | The incumbent is still 10.95x below the owner's 4.3K tok/s vLLM starting line and 50.92x above the 2-s P40K target; inherited FlashInfer full state differs. P60K has not been timed; P130K, whole-process capacity, and qualification remain open |
+| 40K/60K/130K cold/no-cache service | Target; unqualified P40K development routes exercised | Token-ID ingress fails closed on capacity; v10 consumed all 40K tokens through the real API at 101.87053 s TTFT / 392.804397 pure prompt tok/s. v11 projection-reset, experimental v12 phase-local BF16, and sealed v13 packed-projection routes also consumed all 40K but reached only 205.951777, 320.472999, and 247.814694 pure prompt tok/s and were rejected; v12 alone lacks sealed-route authority | The incumbent is still 10.95x below the owner's 4.3K tok/s vLLM starting line and 50.92x above the 2-s P40K target; inherited FlashInfer full state differs. P60K has not been timed; P130K, whole-process capacity, and qualification remain open |
 | Prefill/Decode logical separation | Implemented in part | Separate phase APIs/metrics and an explicit state transition exist | Shared runner and synchronization-heavy physical plan prevent independent utilization and overlap |
-| Prompt-wide Prefill candidate | v10 whole-request substrate retained but accuracy-unqualified; v11 projection-reset and experimental v12 phase-local BF16 packages rejected | Sealed Engine transaction and role receipts remain; v10 submits whole-prompt FlashInfer and one persistent MLP pair per layer. v11 proved grouped projection ownership; v12 direction evidence proved exact request-time expansion is cheap but ordinary BF16 dense consumption is structurally slower, without supplying sealed route attestation | Inherited Attention state differs; the active successor must retain packed NVFP4/FP8 operands, specialize roles, then continue through exact Attention and GDN under one 9.302326-s P40 budget |
-| Large-M Prefill specializations | C1, G2/D2, shape-wide v3, projection-reset v1, and phase-local BF16 v1 are rejected default-off experiments | v12's exact expansion costs only 0.363332 s, but its dense consumers consume 98.999425 s. The retained default-off code is correctness evidence, not a performance path | Implement the complete AOT packed-operand Gate+Up/Down/FP8 package with coupled A/B/scale pipeline, register-side decode, persistent scheduling and role-specific tactics; return it first to the real P40K API. Open P60 only after P40 is competitive and accuracy-admissible |
+| Prompt-wide Prefill candidate | v10 whole-request substrate retained but accuracy-unqualified; v11, v12, and v13 projection packages rejected | Sealed Engine transaction and role receipts remain; v13 proves the complete 256-artifact/400-source AOT packed API route and exact launch ledger can execute without fallback, but it regressed pure Prefill to 161.410929 s / 247.814694 tok/s | Inherited Attention state differs. Packed v1 cannot be parameter-scanned; one bounded causal profile may choose a materially different successor, which must return to P40 before exact Attention/GDN continuation under the 9.302326-s total budget |
+| Large-M Prefill specializations | C1, G2/D2, shape-wide v3, projection-reset v1, phase-local BF16 v1, and packed projection v1 are rejected default-off experiments | v13 load-time assets cover all 400 real-checkpoint projection sources and the API/route/count contract is complete, but the composed path is 36.9114% slower in throughput than v10. The retained default-off code and synthetic CUDA gates are implementation/correctness evidence, not a performance path | Do not scan packed v1. Use at most one named same-payload causal profile, then activate only a materially different v2 dataflow hypothesis. Open P60 only after P40 is competitive and accuracy-admissible |
 | Decode target | Directionally near target | Short API evidence reports about 104 ms TPOT | At least 10 token/s, long-output stability, and release repetition are not qualified |
 | Production accuracy | Target with partial oracles | Exact deterministic outputs are available for selected prompts/routes | No complete public capability baseline and promotion gate has passed |
 | AOT DeploymentPlan | Implemented internally for the development route; release artifact still designed | Engine-lifetime sealed plan binds model/state/resources/operator identities and one-shot request receipts | No authenticated installed plan artifact is loaded and attested by the default release |
@@ -620,6 +639,43 @@ accuracy expansion, P60, P130, or production promotion. Exact evidence is in
 the
 [phase-local rejection record](metadata/qwen36-27b-prefill-p40k-phase-local-bf16-rejection-2026-08-10.json).
 
+### 5.6.3 Rejected AOT packed-operand projection v1 direction
+
+The independent v13 route replaced all NVFP4 Gate/Up/Down and FP8 QKV/Z/O
+projection operands with role-specific load-time packed artifacts. Startup
+authenticated and prepared 256 physical artifacts from 400 original
+real-checkpoint sources into 16,840,130,560 resident bytes; no request-time
+repack, BF16 weight materialization, runtime JIT, FP8 supermatrix fallback,
+MTP, or cuBLASLt production route was present. Synthetic CUDA arithmetic,
+canary, invalid-input, and resource gates passed, but they do not qualify
+real-model state or capability.
+
+The clean-host cold/no-cache EvalScope 1.9.1 request consumed all 40,000 token
+IDs as `5x8000`, committed one `Based` token, and retained the v10 whole-core
+control schedule. Its v13 witness recorded exactly 208 FP8 logical roles in
+128 physical launches, 64 Gate+Up and 64 Down roles in 128 NVFP4 launches,
+48 BF16 A/B, 48 GDN, 16 whole-prompt FlashInfer hits, 768 retirements, and no
+forbidden route. Historical v12 was not reused: the tactic, deployment plan,
+package identity, topology, and retained raw witness are independent.
+
+| Metric | v10 incumbent | Packed projection v1 | Change |
+| --- | ---: | ---: | ---: |
+| Server pure Prefill | 101,831.853876 ms | 161,410.929373 ms | +59,579.075497 ms / +58.5073% |
+| Server pure Prefill throughput | 392.804397 tok/s | 247.814694 tok/s | -36.9114% |
+| EvalScope TTFT | 101,870.53 ms | 161,447.32 ms | direction only |
+| EvalScope New Prompt | — | 247.758768 tok/s | direction only |
+
+EvalScope TTFT exceeded server TTFT by only 3.807390 ms and pure Prefill was
+99.9798% of server TTFT, so API, admission, and first-response publication do
+not explain the regression. The API/asset/plan/route integration is complete
+for this exact P40 development screen, but the packed v1 performance dataflow
+is rejected. It remains default-off and accuracy-unqualified. Full accuracy,
+repetition, NCU, P60, and P130 were not run. At most one bounded same-payload
+profile may answer a named causal question for a materially different
+successor; it cannot reverse this rejection. Exact hashes and limitations are
+frozen in the
+[packed projection rejection record](metadata/qwen36-27b-prefill-p40k-packed-projection-rejection-2026-08-10.json).
+
 ### 5.7 Current cumulative internal Prefix attribution
 
 One real-model P513 NSys capture reports:
@@ -756,28 +812,30 @@ replacement subsequently regressed to 106.374301 s / 376.030675 tok/s; its
 profile makes Gate/Up the principal cause. Both NVFP4 skeletons are therefore
 closed against local parameter scanning.
 
-The next two complete projection resets also failed the same product gate.
+The next three complete projection resets also failed the same product gate.
 The v11 16/32-CTA grouped reset reduced software-visible launches but regressed
 to 194.220222 s / 205.951777 tok/s. The v12 phase-local path proved exact
 request-time expansion is inexpensive at 0.363332 s, but its expanded-B dense
 consumers consumed 98.999425 s and regressed the request to 124.815475 s /
 320.472999 tok/s. Therefore neither tiny persistent ownership nor BF16 B
-materialization is an active tuning surface. The successor must preserve
-packed operands through shared memory and decode only in the MMA register
-pipeline.
+materialization is an active tuning surface. Packed v1 then implemented the
+complete AOT 256-artifact/400-source route, preserved packed operands through
+the load-time asset and request interfaces, and proved the sealed API/count
+contract. It still regressed to 161.410929 s / 247.814694 tok/s. Thus packed
+representation alone does not validate this kernel ownership/pipeline; v1 is
+closed against parameter scans.
 
 The first system selection point remains the same clean real P40K API against
 the 392.804397 tok/s whole-core direction and ultimately the owner's 4.3K
 tok/s vLLM starting line. Only a competitive, accuracy-admissible P40K
-composition unlocks M5424 implementation, P60, and then P130. The active next
-package jointly replaces NVFP4 Gate/Up, NVFP4 Down, and every FP8 projection
-role with AOT role-specific packed layouts, a coupled A/B/scale `cp.async`
-pipeline, double-buffered register decode/MMA, persistent Stream-K ownership,
-and fused exact Gate+Up/Down epilogues. It does not isolate another NVFP4 tile.
-The 4.3K tok/s starting line permits only 9.302326 s at P40, while v10's
-non-projection kernels already consume about 21.416142 s. Therefore exact
-Attention and GDN are subsequent slices of the same system candidate rather
-than optional follow-ups; a projection win alone cannot complete the goal.
+composition unlocks M5424 implementation, P60, and then P130. No local packed
+v1 scan is active. One bounded same-payload profile may answer a predeclared
+causal question; the Roadmap must then activate a materially different named
+v2 ownership/dataflow hypothesis and return it directly to P40. The 4.3K tok/s
+starting line permits only 9.302326 s at P40, while v10's non-projection
+kernels already consume about 21.416142 s. Exact Attention and GDN therefore
+remain mandatory system slices after a positive projection architecture, not
+optional follow-ups; a projection win alone cannot complete the goal.
 
 Unpinned or dirty experimental branches are intentionally excluded from this
 status snapshot. A candidate affects current truth only after its exact commit,
@@ -794,7 +852,7 @@ active dependency order and exit criteria are in
 | --- | --- | --- |
 | Product API and long-context admission | Configured token-ID validation and host requirement plans exist; 40K/60K/130K still do not fit or execute through the default contract | P1 |
 | Exact deliverable identity | No unique `BUILD_TESTING=OFF` release or authenticated DeploymentPlan | P2 |
-| Target-length performance and physical Prefill plan | The exact-P40000 whole-core direction reaches 392.804397 pure prompt tok/s, +7.02138% versus retained v6, with negligible API and kernel-gap overhead. Shape-wide NVFP4, grouped projection-reset, and phase-local BF16 packages all regressed and are closed; v12 measured 320.472999 tok/s and located 98.999425 s in expanded-B dense consumers. The retained incumbent remains 10.95x below the owner's vLLM floor and accuracy-unqualified. P60/P130 were not timed | P3 |
+| Target-length performance and physical Prefill plan | The exact-P40000 whole-core direction reaches 392.804397 pure prompt tok/s, +7.02138% versus retained v6, with negligible API and kernel-gap overhead. Shape-wide NVFP4, grouped projection-reset, phase-local BF16, and AOT packed projection v1 all regressed and are closed. v13 proves the complete packed API/asset/route contract but reaches only 247.814694 tok/s, -36.9114% versus v10. The retained incumbent remains 10.95x below the owner's vLLM floor and accuracy-unqualified. P60/P130 were not timed | P3 |
 | Accuracy, capability, stability, and release evidence | Partial deterministic oracles; no complete qualification bundle | P4 |
 | Packaging and operations | No attested install/startup/upgrade lane | P5 |
 
@@ -821,9 +879,11 @@ Until the gaps above close, use the following language:
   control substrate is retained. Its old-Marlin body is insufficient, while
   the first shape-wide replacement regressed and has been removed from the
   runner. P60/P130 were not run. Exact/default routes and production status
-  are unchanged. The rejected v12 phase-local BF16 route reached 320.472999
-  tok/s and remains correctness evidence only; it is not the active
-  performance architecture.
+  are unchanged. The rejected v13 route proves complete AOT packed assets and
+  sealed API/route integration, but reached only 247.814694 tok/s, 36.9114%
+  below v10, and remains default-off implementation/correctness evidence. The
+  historical v12 route is also rejected and cannot be reused. Neither is the
+  active performance architecture; no packed-v1 parameter scan is active.
 - **Not current:** production server, 40K--130K support, release-grade vLLM
   parity, 1,224.7335 tok/s lossless Prefill, or a fully qualified 10 token/s
   Decode release.

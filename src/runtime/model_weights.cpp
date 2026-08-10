@@ -1419,6 +1419,214 @@ bool ModelWeights::attach_nvfp4_marlin_prefill_sidecars(
   return true;
 }
 
+bool ModelWeights::attach_p40_packed_projection_sidecars(
+    const P40PackedProjectionSidecarDescriptor* const descriptors,
+    const std::size_t descriptor_count) noexcept {
+  using kernels::Sm87P40PackedProjectionDeviceView;
+  using kernels::Sm87P40PackedProjectionRole;
+  constexpr std::size_t kArtifactKindsPerLayer = 4U;
+  constexpr std::size_t kExpectedArtifacts =
+      kernels::kSm87P40PackedProjectionArtifactCount;
+  static_assert(kExpectedArtifacts ==
+                kQwen36DenseLayerCount * kArtifactKindsPerLayer);
+
+  const auto clear_all = [this]() noexcept {
+    for (DecoderLayerWeights& layer : layers_) {
+      for (NvFp4LinearWeight* const projection :
+           {nvfp4_gate_projection(layer), nvfp4_up_projection(layer),
+            nvfp4_down_projection(layer)}) {
+        if (projection != nullptr) {
+          projection->prefill_p40_packed_artifact = {};
+        }
+      }
+      if (auto* const linear =
+              std::get_if<LinearAttentionWeights>(&layer.attention)) {
+        for (LinearWeight* const binding :
+             {&linear->in_proj_qkv, &linear->in_proj_z,
+              &linear->out_proj}) {
+          if (auto* const fp8 = std::get_if<Fp8LinearWeight>(binding)) {
+            fp8->prefill_p40_packed_artifact = {};
+          }
+        }
+      } else if (auto* const full =
+                     std::get_if<FullAttentionWeights>(&layer.attention)) {
+        for (LinearWeight* const binding :
+             {&full->q_proj, &full->k_proj, &full->v_proj,
+              &full->o_proj}) {
+          if (auto* const fp8 = std::get_if<Fp8LinearWeight>(binding)) {
+            fp8->prefill_p40_packed_artifact = {};
+          }
+        }
+      }
+    }
+  };
+
+  if (descriptors == nullptr && descriptor_count == 0U) {
+    clear_all();
+    return true;
+  }
+  if (descriptors == nullptr || descriptor_count != kExpectedArtifacts) {
+    return false;
+  }
+
+  using LayerViews =
+      std::array<Sm87P40PackedProjectionDeviceView,
+                 kArtifactKindsPerLayer>;
+  std::array<LayerViews, kQwen36DenseLayerCount> validated{};
+  std::array<std::array<bool, kArtifactKindsPerLayer>,
+             kQwen36DenseLayerCount>
+      seen{};
+  std::array<std::uintptr_t, kExpectedArtifacts> range_begins{};
+  std::array<std::uintptr_t, kExpectedArtifacts> range_ends{};
+  std::array<std::uint64_t, kExpectedArtifacts> identities{};
+
+  const auto role_slot = [](const Sm87P40PackedProjectionRole role)
+      noexcept -> std::size_t {
+    switch (role) {
+      case Sm87P40PackedProjectionRole::kNvFp4GateUp:
+        return 0U;
+      case Sm87P40PackedProjectionRole::kNvFp4Down:
+        return 1U;
+      case Sm87P40PackedProjectionRole::kFp8LinearQkvZ:
+      case Sm87P40PackedProjectionRole::kFp8FullQkv:
+        return 2U;
+      case Sm87P40PackedProjectionRole::kFp8AttentionOutput:
+        return 3U;
+      case Sm87P40PackedProjectionRole::kCount:
+      case Sm87P40PackedProjectionRole::kInvalid:
+        return kArtifactKindsPerLayer;
+    }
+    return kArtifactKindsPerLayer;
+  };
+
+  for (std::size_t index = 0U; index < descriptor_count; ++index) {
+    const P40PackedProjectionSidecarDescriptor& descriptor =
+        descriptors[index];
+    const Sm87P40PackedProjectionDeviceView& view = descriptor.view;
+    const std::size_t slot = role_slot(view.role);
+    const auto plan = kernels::sm87_p40_packed_projection_plan(view.role);
+    if (descriptor.layer_index >= kQwen36DenseLayerCount ||
+        slot >= kArtifactKindsPerLayer ||
+        seen[descriptor.layer_index][slot] || !plan.valid() ||
+        (slot == 2U &&
+         ((kernels::sm87_p40_packed_is_full_layer(descriptor.layer_index) &&
+           view.role != Sm87P40PackedProjectionRole::kFp8FullQkv) ||
+          (!kernels::sm87_p40_packed_is_full_layer(descriptor.layer_index) &&
+           view.role != Sm87P40PackedProjectionRole::kFp8LinearQkvZ))) ||
+        view.payload == nullptr || view.payload_bytes != plan.payload_bytes ||
+        view.artifact_identity == 0U || view.tactic != plan.tactic ||
+        view.source_count != plan.source_count ||
+        reinterpret_cast<std::uintptr_t>(view.payload) %
+                kernels::kSm87P40PackedProjectionPayloadAlignment !=
+            0U ||
+        view.payload_bytes >
+            std::numeric_limits<std::uintptr_t>::max() -
+                reinterpret_cast<std::uintptr_t>(view.payload)) {
+      return false;
+    }
+    for (std::size_t source = 0U; source < view.scalar_scales.size();
+         ++source) {
+      const float scale = view.scalar_scales[source];
+      if ((source < view.source_count &&
+           (!std::isfinite(scale) || scale < 0.0F)) ||
+          (source >= view.source_count && scale != 0.0F)) {
+        return false;
+      }
+    }
+    const std::uintptr_t begin =
+        reinterpret_cast<std::uintptr_t>(view.payload);
+    range_begins[index] = begin;
+    range_ends[index] = begin + view.payload_bytes;
+    identities[index] = view.artifact_identity;
+    for (std::size_t prior = 0U; prior < index; ++prior) {
+      if (identities[prior] == identities[index] ||
+          (range_begins[prior] < range_ends[index] &&
+           range_begins[index] < range_ends[prior])) {
+        return false;
+      }
+    }
+    seen[descriptor.layer_index][slot] = true;
+    validated[descriptor.layer_index][slot] = view;
+  }
+
+  for (std::size_t layer_index = 0U; layer_index < layers_.size();
+       ++layer_index) {
+    if (std::any_of(seen[layer_index].begin(), seen[layer_index].end(),
+                    [](const bool value) { return !value; })) {
+      return false;
+    }
+    DecoderLayerWeights& layer = layers_[layer_index];
+    NvFp4LinearWeight* const gate = nvfp4_gate_projection(layer);
+    NvFp4LinearWeight* const up = nvfp4_up_projection(layer);
+    NvFp4LinearWeight* const down = nvfp4_down_projection(layer);
+    if (!has_valid_nvfp4_payload(gate) || !has_valid_nvfp4_payload(up) ||
+        !has_valid_nvfp4_payload(down) ||
+        gate->prefill_marlin_weight != nullptr ||
+        up->prefill_marlin_weight != nullptr ||
+        down->prefill_marlin_weight != nullptr) {
+      return false;
+    }
+    if (auto* const linear =
+            std::get_if<LinearAttentionWeights>(&layer.attention)) {
+      for (LinearWeight* const binding :
+           {&linear->in_proj_qkv, &linear->in_proj_z,
+            &linear->out_proj}) {
+        const auto* const fp8 = std::get_if<Fp8LinearWeight>(binding);
+        if (!has_valid_fp8_payload(fp8) ||
+            fp8->prefill_supermatrix_sidecar != nullptr ||
+            fp8->prefill_marlin_weight != nullptr) {
+          return false;
+        }
+      }
+    } else if (auto* const full =
+                   std::get_if<FullAttentionWeights>(&layer.attention)) {
+      for (LinearWeight* const binding :
+           {&full->q_proj, &full->k_proj, &full->v_proj,
+            &full->o_proj}) {
+        const auto* const fp8 = std::get_if<Fp8LinearWeight>(binding);
+        if (!has_valid_fp8_payload(fp8) ||
+            fp8->prefill_supermatrix_sidecar != nullptr ||
+            fp8->prefill_marlin_weight != nullptr) {
+          return false;
+        }
+      }
+    } else {
+      return false;
+    }
+  }
+
+  clear_all();
+  for (std::size_t layer_index = 0U; layer_index < layers_.size();
+       ++layer_index) {
+    DecoderLayerWeights& layer = layers_[layer_index];
+    NvFp4LinearWeight* const gate = nvfp4_gate_projection(layer);
+    NvFp4LinearWeight* const up = nvfp4_up_projection(layer);
+    NvFp4LinearWeight* const down = nvfp4_down_projection(layer);
+    gate->prefill_p40_packed_artifact = validated[layer_index][0U];
+    up->prefill_p40_packed_artifact = validated[layer_index][0U];
+    down->prefill_p40_packed_artifact = validated[layer_index][1U];
+    if (auto* const linear =
+            std::get_if<LinearAttentionWeights>(&layer.attention)) {
+      std::get<Fp8LinearWeight>(linear->in_proj_qkv)
+          .prefill_p40_packed_artifact = validated[layer_index][2U];
+      std::get<Fp8LinearWeight>(linear->in_proj_z)
+          .prefill_p40_packed_artifact = validated[layer_index][2U];
+      std::get<Fp8LinearWeight>(linear->out_proj)
+          .prefill_p40_packed_artifact = validated[layer_index][3U];
+    } else {
+      auto& full = std::get<FullAttentionWeights>(layer.attention);
+      for (LinearWeight* const binding :
+           {&full.q_proj, &full.k_proj, &full.v_proj}) {
+        std::get<Fp8LinearWeight>(*binding).prefill_p40_packed_artifact =
+            validated[layer_index][2U];
+      }
+      std::get<Fp8LinearWeight>(full.o_proj).prefill_p40_packed_artifact =
+          validated[layer_index][3U];
+    }
+  }
+  return true;
+}
+
 LinearWeightKind linear_weight_kind(const LinearWeight& weight) noexcept {
   if (std::holds_alternative<Bf16LinearWeight>(weight)) {
     return LinearWeightKind::kBf16;

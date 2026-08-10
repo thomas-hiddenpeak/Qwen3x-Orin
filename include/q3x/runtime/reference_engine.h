@@ -203,6 +203,10 @@ inline constexpr std::string_view
     kLayerMajorNativePromptWideP40ProjectionResetDeploymentPlanId =
         "q3x.sm87.ac-prefill-prompt-wide-v2."
         "native-p40-projection-reset.v1";
+inline constexpr std::string_view
+    kLayerMajorNativePromptWideP40PackedProjectionDeploymentPlanId =
+        "q3x.sm87.ac-prefill-p40-packed-dataflow."
+        "native-p40-packed-projection.v1";
 
 [[nodiscard]] constexpr bool is_valid_reference_prefill_execution_mode(
     const ReferencePrefillExecutionMode mode) noexcept {
@@ -454,6 +458,7 @@ struct ReferenceEngineLoadStats {
   double fp8_prefill_supermatrix_sidecar_milliseconds = 0.0;
   double fp8_marlin_prefill_sidecar_milliseconds = 0.0;
   double nvfp4_marlin_prefill_sidecar_milliseconds = 0.0;
+  double p40_packed_projection_asset_milliseconds = 0.0;
   double runner_factory_milliseconds = 0.0;
   ReferenceDecodeGraphCachePolicy decode_graph_cache_requested_policy =
       ReferenceDecodeGraphCachePolicy::kDisabled;
@@ -544,6 +549,16 @@ struct ReferenceEngineLoadStats {
   bool nvfp4_marlin_prefill_sidecars_enabled = false;
   std::size_t nvfp4_marlin_prefill_sidecar_layers = 0U;
   std::uint64_t nvfp4_marlin_prefill_sidecar_bytes = 0U;
+  // Exact-P40000 AOT packed projection inventory. One engine-lifetime arena
+  // owns 256 authenticated physical artifacts sourced from all 400 logical
+  // FP8/NVFP4 checkpoint tensors; no request may repack or select tactics.
+  bool p40_packed_projection_assets_enabled = false;
+  std::size_t p40_packed_projection_artifacts = 0U;
+  std::size_t p40_packed_projection_sources = 0U;
+  std::size_t p40_packed_projection_fp8_logical_roles = 0U;
+  std::size_t p40_packed_projection_fp8_physical_launches = 0U;
+  std::size_t p40_packed_projection_nvfp4_physical_launches = 0U;
+  std::uint64_t p40_packed_projection_asset_bytes = 0U;
   // True only when tokenizer parsing and resident loading actually executed
   // concurrently. When true, total_milliseconds is wall time and phase
   // timings intentionally overlap.

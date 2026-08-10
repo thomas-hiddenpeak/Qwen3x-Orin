@@ -61,6 +61,9 @@ enum class NativePrefillTactic : std::uint8_t {
   kNvfp4GateUpP40ProjectionReset,
   kNvfp4DownResidualP40ProjectionReset,
   kFp8P40ProjectionReset,
+  kNvfp4GateUpP40PackedProjection,
+  kNvfp4DownResidualP40PackedProjection,
+  kFp8P40PackedProjection,
 };
 
 // Compile-inventory fact only; device resources are still queried by bind().

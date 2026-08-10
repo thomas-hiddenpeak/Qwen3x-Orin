@@ -151,6 +151,9 @@ void test_public_tile_and_operator_panel_are_independent(TestContext& test) {
           runtime::is_valid_layer_major_prefill_projection_tactic(
               runtime::LayerMajorPrefillProjectionTactic::
                   kNativePromptWideP40ProjectionReset) &&
+          runtime::is_valid_layer_major_prefill_projection_tactic(
+              runtime::LayerMajorPrefillProjectionTactic::
+                  kNativePromptWideP40PackedProjection) &&
           !runtime::is_valid_layer_major_prefill_projection_tactic(
               static_cast<runtime::LayerMajorPrefillProjectionTactic>(
                   0xffU)),
@@ -186,7 +189,11 @@ void test_public_tile_and_operator_panel_are_independent(TestContext& test) {
           runtime::to_string(
               runtime::LayerMajorPrefillProjectionTactic::
                   kNativePromptWideP40ProjectionReset) ==
-              "native-prompt-wide-p40-projection-reset",
+              "native-prompt-wide-p40-projection-reset" &&
+          runtime::to_string(
+              runtime::LayerMajorPrefillProjectionTactic::
+                  kNativePromptWideP40PackedProjection) ==
+              "native-prompt-wide-p40-packed-projection",
       "projection tactic names preserve exact, segmented, native large-M, "
       "true-large-M, and G2/D2 NVFP4 route identity");
   const runtime::PrefillExecutionPlanResult result = build_plan(513U);
@@ -485,6 +492,112 @@ void test_prompt_wide_p40_projection_reset_schedule(TestContext& test) {
           runtime::prefill_final_commit_ready(*candidate.value, progress),
       "projection reset publishes progress only after each complete grouped "
       "P40 layer and reaches one final commit");
+}
+
+void test_prompt_wide_p40_packed_projection_schedule(TestContext& test) {
+  using MlpSchedule = runtime::LayerMajorPrefillMlpScheduleTactic;
+  constexpr auto kPacked = MlpSchedule::kPromptWideP40PackedProjection;
+  test.expect(
+      runtime::is_valid_layer_major_prefill_mlp_schedule_tactic(kPacked) &&
+          runtime::to_string(kPacked) ==
+              "prompt-wide-p40-packed-projection" &&
+          runtime::prefill_route_layer_pass_count(5U, kPacked) == 1U &&
+          runtime::kLayerMajorPrefillPackedProjectionFp8PhysicalLaunchesPerRequest ==
+              128U &&
+          runtime::kLayerMajorPrefillPackedProjectionFp8TensorRoleHitsPerRequest ==
+              208U &&
+          runtime::kLayerMajorPrefillPackedProjectionNvFp4PhysicalLaunchesPerRequest ==
+              128U &&
+          runtime::kLayerMajorPrefillPackedProjectionArtifactCount == 256U &&
+          runtime::kLayerMajorPrefillPackedProjectionAuthenticatedSourceCount ==
+              400U,
+      "packed projection has an independent P40 identity and complete model "
+      "artifact/route counts");
+
+  const auto candidate = build_plan(
+      runtime::kLayerMajorPrefillPromptWideP40Tokens, 0U,
+      runtime::kLayerMajorPrefillPromptWideP40RequestCapacityTokens, kPacked);
+  if (!runtime::prompt_wide_p40_packed_projection_prefill_plan_enabled()) {
+    test.expect(
+        !candidate &&
+            candidate.error ==
+                runtime::PrefillExecutionPlanError::kInvalidArgument,
+        "default builds fail closed on the independent packed route");
+    return;
+  }
+
+  const runtime::PrefillP40PackedProjectionSchedulePlan* schedule =
+      candidate ? &candidate.value->packed_projection_schedule : nullptr;
+  test.expect(
+      candidate && schedule != nullptr && schedule->enabled &&
+          candidate.value->panel_count == 5U &&
+          schedule->input_preparation_panel_count_per_layer == 5U &&
+          schedule->prompt_core_phase_count_per_layer == 1U &&
+          schedule->packed_mlp_phase_count_per_layer == 1U &&
+          schedule->panel_token_count == 8'000U &&
+          schedule->projection_m_tokens == 40'000U &&
+          schedule->request_capacity_tokens == 40'001U &&
+          schedule->route_pass_count == 1U &&
+          schedule->fp8_physical_launches_per_request == 128U &&
+          schedule->fp8_tensor_role_hits_per_request == 208U &&
+          schedule->nvfp4_physical_launches_per_request == 128U &&
+          schedule->authenticated_artifact_count == 256U &&
+          schedule->authenticated_source_count == 400U &&
+          schedule->stream_k_slice_count == 1U &&
+          schedule->packed_operands_retained_to_register_decode &&
+          schedule->role_specific_tactics_required &&
+          schedule->request_time_repack_forbidden &&
+          schedule->request_time_tactic_selection_forbidden &&
+          schedule->internal_m_segmentation_forbidden &&
+          schedule->production_accuracy_required &&
+          schedule->approximate_numerics_forbidden &&
+          schedule->mtp_forbidden && schedule->cublaslt_forbidden &&
+          !candidate.value->projection_reset_schedule.enabled &&
+          !candidate.value->whole_core_schedule.enabled &&
+          runtime::is_valid_unbound_layer_major_prefill_execution_plan(
+              *candidate.value),
+      "packed plan admits only full-K AOT packed consumers and cannot inherit "
+      "an older P40 schedule");
+
+  runtime::PrefillExecutionPlan mutated = *candidate.value;
+  mutated.packed_projection_schedule.stream_k_slice_count = 2U;
+  test.expect(
+      !runtime::is_valid_unbound_layer_major_prefill_execution_plan(mutated),
+      "unproven Stream-K accumulation cannot enter packed v1");
+  mutated = *candidate.value;
+  mutated.packed_projection_schedule.authenticated_artifact_count = 255U;
+  test.expect(
+      !runtime::is_valid_unbound_layer_major_prefill_execution_plan(mutated),
+      "one missing packed role invalidates the whole route");
+  mutated = *candidate.value;
+  mutated.packed_projection_schedule.request_time_repack_forbidden = false;
+  test.expect(
+      !runtime::is_valid_unbound_layer_major_prefill_execution_plan(mutated),
+      "request-time repack cannot masquerade as an AOT packed route");
+
+  runtime::PrefillExecutionProgress progress =
+      runtime::make_prefill_execution_progress(*candidate.value);
+  test.expect(
+      runtime::advance_prefill_progress_after_completion(
+          *candidate.value, progress, 0U, 0U) ==
+          runtime::PrefillExecutionProgressError::kOutOfOrder,
+      "packed projection cannot publish a partial M8000 panel");
+  bool ordered = true;
+  for (std::size_t layer = 0U;
+       ordered && layer < candidate.value->layers.size(); ++layer) {
+    ordered =
+        runtime::advance_prompt_wide_p40_packed_projection_layer_progress_after_completion(
+            *candidate.value, progress, layer) ==
+        runtime::PrefillExecutionProgressError::kNone;
+  }
+  test.expect(
+      ordered && progress.next_layer == candidate.value->layers.size() &&
+          runtime::mark_prefill_final_hidden_ready(*candidate.value,
+                                                   progress) ==
+              runtime::PrefillExecutionProgressError::kNone &&
+          runtime::prefill_final_commit_ready(*candidate.value, progress),
+      "packed route publishes one atomic completed layer and one final "
+      "request commit");
 }
 
 void test_target_panel_matrix(TestContext& test) {
@@ -1256,6 +1369,7 @@ int main() {
   test_layer_wide_p40_mlp_schedule(test);
   test_prompt_wide_p40_whole_core_schedule(test);
   test_prompt_wide_p40_projection_reset_schedule(test);
+  test_prompt_wide_p40_packed_projection_schedule(test);
   test_fail_closed_inputs(test);
   if (test.failures() != 0) {
     std::cerr << test.failures()

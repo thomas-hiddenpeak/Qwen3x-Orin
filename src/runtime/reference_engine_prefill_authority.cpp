@@ -6,6 +6,9 @@
 #if defined(Q3X_ENABLE_P40_PROJECTION_RESET_ADMISSION)
 #include "q3x/kernels/sm87_p40_projection_reset.h"
 #endif
+#if defined(Q3X_ENABLE_P40_PACKED_PROJECTION_ADMISSION)
+#include "q3x/kernels/sm87_p40_packed_projection.h"
+#endif
 #if defined(Q3X_ENABLE_BF16_AB_LARGE_M_PREFILL_ADMISSION)
 #include "q3x/kernels/sm87_bf16_ab_prefill.h"
 #endif
@@ -26,6 +29,7 @@
 #endif
 
 #include <cmath>
+#include <limits>
 #include <new>
 #include <utility>
 
@@ -138,6 +142,291 @@ thread_local bool
   return bf16 != nullptr && bf16->weight != nullptr &&
          bf16->output_size == expected_output_size &&
          bf16->input_size == expected_input_size;
+}
+
+[[nodiscard]] bool same_p40_packed_artifact_view(
+    const kernels::Sm87P40PackedProjectionDeviceView& left,
+    const kernels::Sm87P40PackedProjectionDeviceView& right) noexcept {
+  return left.payload == right.payload &&
+         left.payload_bytes == right.payload_bytes &&
+         left.artifact_identity == right.artifact_identity &&
+         left.role == right.role && left.tactic == right.tactic &&
+         left.source_count == right.source_count &&
+         left.scalar_scales == right.scalar_scales;
+}
+
+[[nodiscard]] bool valid_p40_packed_artifact_view(
+    const kernels::Sm87P40PackedProjectionDeviceView& view,
+    const kernels::Sm87P40PackedProjectionRole expected_role,
+    const float* const expected_scales,
+    const std::size_t expected_scale_count) noexcept {
+  const kernels::Sm87P40PackedProjectionPlan expected =
+      kernels::sm87_p40_packed_projection_plan(expected_role);
+  if (!expected.valid() || expected_scale_count != expected.source_count ||
+      expected_scales == nullptr || view.payload == nullptr ||
+      view.payload_bytes != expected.payload_bytes ||
+      view.artifact_identity == 0U || view.role != expected_role ||
+      view.tactic != expected.tactic ||
+      view.source_count != expected.source_count ||
+      reinterpret_cast<std::uintptr_t>(view.payload) %
+              kernels::kSm87P40PackedProjectionPayloadAlignment !=
+          0U) {
+    return false;
+  }
+  for (std::size_t source = 0U; source < view.scalar_scales.size();
+       ++source) {
+    const float scale = view.scalar_scales[source];
+    if (source < expected_scale_count) {
+      if (!std::isfinite(scale) || scale < 0.0F ||
+          scale != expected_scales[source]) {
+        return false;
+      }
+    } else if (scale != 0.0F) {
+      return false;
+    }
+  }
+  return true;
+}
+
+[[nodiscard]] bool valid_p40_packed_nvfp4_source(
+    const NvFp4LinearWeight& weight,
+    const std::size_t expected_output_size,
+    const std::size_t expected_input_size) noexcept {
+  return weight.packed_weight != nullptr && weight.block_scale != nullptr &&
+         weight.weight_scale_2_device != nullptr &&
+         weight.input_scale_device != nullptr &&
+         std::isfinite(weight.weight_scale_2) &&
+         weight.weight_scale_2 >= 0.0F && std::isfinite(weight.input_scale) &&
+         weight.input_scale >= 0.0F &&
+         weight.output_size == expected_output_size &&
+         weight.input_size == expected_input_size &&
+         weight.prefill_marlin_gate_up_layout ==
+             NvFp4MarlinGateUpLayout::kUnbound &&
+         weight.prefill_marlin_weight == nullptr &&
+         weight.prefill_marlin_scales == nullptr &&
+         weight.prefill_marlin_global_scale == nullptr;
+}
+
+[[nodiscard]] bool valid_p40_packed_fp8_source(
+    const Fp8LinearWeight& weight,
+    const std::size_t expected_output_size,
+    const std::size_t expected_input_size) noexcept {
+  return weight.weight != nullptr && weight.weight_scale_device != nullptr &&
+         weight.input_scale_device != nullptr &&
+         std::isfinite(weight.weight_scale) && weight.weight_scale >= 0.0F &&
+         std::isfinite(weight.input_scale) && weight.input_scale >= 0.0F &&
+         weight.output_size == expected_output_size &&
+         weight.input_size == expected_input_size &&
+         weight.prefill_supermatrix_sidecar == nullptr &&
+         weight.prefill_marlin_weight == nullptr &&
+         weight.prefill_marlin_scales == nullptr;
+}
+
+// Revalidates the complete ModelWeights attachment rather than trusting a
+// representative layer. The 256 unique physical artifacts bind exactly 400
+// authenticated logical sources: 192 NVFP4 and 208 FP8 tensor roles. Packed
+// execution is mutually exclusive with the retired Marlin/supermatrix
+// sidecars, so a mixed owner graph fails before a plan can be sealed.
+[[nodiscard]] bool complete_p40_packed_projection_inventory(
+    const ModelWeights& weights) noexcept {
+  constexpr std::size_t kExpectedArtifacts =
+      kernels::kSm87P40PackedProjectionArtifactCount;
+  std::array<std::uint64_t, kExpectedArtifacts> artifact_identities{};
+  std::array<std::uintptr_t, kExpectedArtifacts> range_begins{};
+  std::array<std::uintptr_t, kExpectedArtifacts> range_ends{};
+  std::size_t artifact_count = 0U;
+  std::size_t source_count = 0U;
+  std::size_t gate_up_artifacts = 0U;
+  std::size_t down_artifacts = 0U;
+  std::size_t fp8_artifacts = 0U;
+  std::size_t fp8_logical_roles = 0U;
+
+  const auto record_artifact = [&](
+                                   const kernels::
+                                       Sm87P40PackedProjectionDeviceView& view,
+                                   const kernels::Sm87P40PackedProjectionRole
+                                       expected_role,
+                                   const float* const expected_scales,
+                                   const std::size_t expected_scale_count)
+      noexcept {
+    if (artifact_count >= artifact_identities.size() ||
+        !valid_p40_packed_artifact_view(
+            view, expected_role, expected_scales, expected_scale_count)) {
+      return false;
+    }
+    const std::uintptr_t begin =
+        reinterpret_cast<std::uintptr_t>(view.payload);
+    if (view.payload_bytes >
+        std::numeric_limits<std::uintptr_t>::max() - begin) {
+      return false;
+    }
+    const std::uintptr_t end = begin + view.payload_bytes;
+    for (std::size_t prior = 0U; prior < artifact_count; ++prior) {
+      if (artifact_identities[prior] == view.artifact_identity ||
+          (range_begins[prior] < end && begin < range_ends[prior])) {
+        return false;
+      }
+    }
+    artifact_identities[artifact_count] = view.artifact_identity;
+    range_begins[artifact_count] = begin;
+    range_ends[artifact_count] = end;
+    ++artifact_count;
+    source_count += view.source_count;
+    if (expected_role ==
+        kernels::Sm87P40PackedProjectionRole::kNvFp4GateUp) {
+      ++gate_up_artifacts;
+    } else if (expected_role ==
+               kernels::Sm87P40PackedProjectionRole::kNvFp4Down) {
+      ++down_artifacts;
+    } else {
+      ++fp8_artifacts;
+    }
+    return true;
+  };
+
+  for (std::size_t layer = 0U; layer < kReferenceDecoderLayerCount;
+       ++layer) {
+    const DecoderLayerWeights& layer_weights = weights.layer(layer);
+    const auto* const gate =
+        std::get_if<NvFp4LinearWeight>(&layer_weights.mlp.gate_proj);
+    const auto* const up =
+        std::get_if<NvFp4LinearWeight>(&layer_weights.mlp.up_proj);
+    const auto* const down =
+        std::get_if<NvFp4LinearWeight>(&layer_weights.mlp.down_proj);
+    if (gate == nullptr || up == nullptr || down == nullptr ||
+        !valid_p40_packed_nvfp4_source(
+            *gate, kReferenceIntermediateSize, kReferenceHiddenSize) ||
+        !valid_p40_packed_nvfp4_source(
+            *up, kReferenceIntermediateSize, kReferenceHiddenSize) ||
+        !valid_p40_packed_nvfp4_source(
+            *down, kReferenceHiddenSize, kReferenceIntermediateSize) ||
+        !same_p40_packed_artifact_view(
+            gate->prefill_p40_packed_artifact,
+            up->prefill_p40_packed_artifact)) {
+      return false;
+    }
+    const std::array<float, 2U> gate_up_scales{
+        gate->weight_scale_2, up->weight_scale_2};
+    const std::array<float, 1U> down_scale{down->weight_scale_2};
+    if (!record_artifact(
+            gate->prefill_p40_packed_artifact,
+            kernels::Sm87P40PackedProjectionRole::kNvFp4GateUp,
+            gate_up_scales.data(), gate_up_scales.size()) ||
+        !record_artifact(
+            down->prefill_p40_packed_artifact,
+            kernels::Sm87P40PackedProjectionRole::kNvFp4Down,
+            down_scale.data(), down_scale.size())) {
+      return false;
+    }
+
+    const model::LayerType expected_layer_type =
+        reference_runner_detail::expected_reference_layer_type(layer);
+    if (expected_layer_type == model::LayerType::kLinearAttention) {
+      const auto* const linear =
+          std::get_if<LinearAttentionWeights>(&layer_weights.attention);
+      const auto* const qkv =
+          linear == nullptr
+              ? nullptr
+              : std::get_if<Fp8LinearWeight>(&linear->in_proj_qkv);
+      const auto* const z =
+          linear == nullptr ? nullptr
+                            : std::get_if<Fp8LinearWeight>(&linear->in_proj_z);
+      const auto* const output =
+          linear == nullptr ? nullptr
+                            : std::get_if<Fp8LinearWeight>(&linear->out_proj);
+      if (qkv == nullptr || z == nullptr || output == nullptr ||
+          !valid_p40_packed_fp8_source(*qkv, 10'240U,
+                                      kReferenceHiddenSize) ||
+          !valid_p40_packed_fp8_source(*z, 6'144U,
+                                      kReferenceHiddenSize) ||
+          !valid_p40_packed_fp8_source(*output, kReferenceHiddenSize,
+                                      6'144U) ||
+          !same_p40_packed_artifact_view(
+              qkv->prefill_p40_packed_artifact,
+              z->prefill_p40_packed_artifact)) {
+        return false;
+      }
+      const std::array<float, 2U> input_scales{
+          qkv->weight_scale, z->weight_scale};
+      const std::array<float, 1U> output_scale{output->weight_scale};
+      if (!record_artifact(
+              qkv->prefill_p40_packed_artifact,
+              kernels::Sm87P40PackedProjectionRole::kFp8LinearQkvZ,
+              input_scales.data(), input_scales.size()) ||
+          !record_artifact(
+              output->prefill_p40_packed_artifact,
+              kernels::Sm87P40PackedProjectionRole::kFp8AttentionOutput,
+              output_scale.data(), output_scale.size())) {
+        return false;
+      }
+      fp8_logical_roles += 3U;
+    } else if (expected_layer_type == model::LayerType::kFullAttention) {
+      const auto* const attention =
+          std::get_if<FullAttentionWeights>(&layer_weights.attention);
+      const auto* const query =
+          attention == nullptr
+              ? nullptr
+              : std::get_if<Fp8LinearWeight>(&attention->q_proj);
+      const auto* const key =
+          attention == nullptr
+              ? nullptr
+              : std::get_if<Fp8LinearWeight>(&attention->k_proj);
+      const auto* const value =
+          attention == nullptr
+              ? nullptr
+              : std::get_if<Fp8LinearWeight>(&attention->v_proj);
+      const auto* const output =
+          attention == nullptr
+              ? nullptr
+              : std::get_if<Fp8LinearWeight>(&attention->o_proj);
+      if (query == nullptr || key == nullptr || value == nullptr ||
+          output == nullptr ||
+          !valid_p40_packed_fp8_source(*query, 12'288U,
+                                      kReferenceHiddenSize) ||
+          !valid_p40_packed_fp8_source(*key, 1'024U,
+                                      kReferenceHiddenSize) ||
+          !valid_p40_packed_fp8_source(*value, 1'024U,
+                                      kReferenceHiddenSize) ||
+          !valid_p40_packed_fp8_source(*output, kReferenceHiddenSize,
+                                      6'144U) ||
+          !same_p40_packed_artifact_view(
+              query->prefill_p40_packed_artifact,
+              key->prefill_p40_packed_artifact) ||
+          !same_p40_packed_artifact_view(
+              query->prefill_p40_packed_artifact,
+              value->prefill_p40_packed_artifact)) {
+        return false;
+      }
+      const std::array<float, 3U> input_scales{
+          query->weight_scale, key->weight_scale, value->weight_scale};
+      const std::array<float, 1U> output_scale{output->weight_scale};
+      if (!record_artifact(
+              query->prefill_p40_packed_artifact,
+              kernels::Sm87P40PackedProjectionRole::kFp8FullQkv,
+              input_scales.data(), input_scales.size()) ||
+          !record_artifact(
+              output->prefill_p40_packed_artifact,
+              kernels::Sm87P40PackedProjectionRole::kFp8AttentionOutput,
+              output_scale.data(), output_scale.size())) {
+        return false;
+      }
+      fp8_logical_roles += 4U;
+    } else {
+      return false;
+    }
+  }
+
+  return artifact_count ==
+             kernels::kSm87P40PackedProjectionArtifactCount &&
+         gate_up_artifacts ==
+             kernels::kSm87P40PackedProjectionLayerCount &&
+         down_artifacts == kernels::kSm87P40PackedProjectionLayerCount &&
+         fp8_artifacts ==
+             2U * kernels::kSm87P40PackedProjectionLayerCount &&
+         fp8_logical_roles ==
+             kernels::kSm87P40PackedProjectionFp8LogicalRoleCount &&
+         source_count ==
+             kernels::kSm87P40PackedProjectionSourceIdentityCount;
 }
 
 [[nodiscard]] bool complete_installed_projection_inventory(
@@ -550,6 +839,85 @@ complete_p40_projection_reset_capability() noexcept {
 #endif
 }
 
+[[maybe_unused, nodiscard]] bool
+complete_p40_packed_projection_capability() noexcept {
+#if !defined(Q3X_ENABLE_P40_PACKED_PROJECTION_ADMISSION)
+  return false;
+#else
+  static_assert(kernels::kSm87P40PackedProjectionTokens ==
+                kLayerMajorPrefillPromptWideP40Tokens);
+  static_assert(kernels::kSm87P40PackedProjectionLayerCount ==
+                kReferenceDecoderLayerCount);
+  static_assert(kernels::kSm87P40PackedProjectionSmCount == 16U);
+  static_assert(kernels::kSm87P40PackedProjectionPersistentCtas ==
+                2U * kernels::kSm87P40PackedProjectionSmCount);
+  constexpr std::array<kernels::Sm87P40PackedProjectionRole, 5U> kRoles{
+      kernels::Sm87P40PackedProjectionRole::kNvFp4GateUp,
+      kernels::Sm87P40PackedProjectionRole::kNvFp4Down,
+      kernels::Sm87P40PackedProjectionRole::kFp8LinearQkvZ,
+      kernels::Sm87P40PackedProjectionRole::kFp8FullQkv,
+      kernels::Sm87P40PackedProjectionRole::kFp8AttentionOutput};
+  const auto expected_dynamic_shared = [](
+                                           const kernels::
+                                               Sm87P40PackedProjectionRole
+                                                   role) noexcept {
+    switch (role) {
+      case kernels::Sm87P40PackedProjectionRole::kNvFp4GateUp:
+        return std::size_t{69'632U};
+      case kernels::Sm87P40PackedProjectionRole::kNvFp4Down:
+        return std::size_t{51'200U};
+      case kernels::Sm87P40PackedProjectionRole::kFp8FullQkv:
+        return std::size_t{73'728U};
+      case kernels::Sm87P40PackedProjectionRole::kFp8LinearQkvZ:
+      case kernels::Sm87P40PackedProjectionRole::kFp8AttentionOutput:
+        return std::size_t{65'536U};
+      case kernels::Sm87P40PackedProjectionRole::kCount:
+      case kernels::Sm87P40PackedProjectionRole::kInvalid:
+        return std::size_t{0U};
+    }
+    return std::size_t{0U};
+  };
+  constexpr std::size_t kMaximumPerCtaSharedBytes = 82U * 1'024U;
+  for (const kernels::Sm87P40PackedProjectionRole role : kRoles) {
+    const kernels::Sm87P40PackedProjectionPlan plan =
+        kernels::sm87_p40_packed_projection_plan(role);
+    std::uint32_t required_threads = 0U;
+    for (std::size_t partition = 0U; partition < plan.source_count;
+         ++partition) {
+      if (plan.partitions[partition].threads > required_threads) {
+        required_threads = plan.partitions[partition].threads;
+      }
+    }
+    kernels::Sm87P40PackedProjectionResources resources{};
+    const std::size_t dynamic_shared = expected_dynamic_shared(role);
+    // This query includes the kernel provider's existing exact-device gate:
+    // compute capability 8.7 and exactly 16 SMs.
+    if (!plan.valid() || plan.token_count !=
+                             kLayerMajorPrefillPromptWideP40Tokens ||
+        plan.tile_m != kernels::kSm87P40PackedProjectionTileM ||
+        plan.grid_m != kernels::kSm87P40PackedProjectionGridM ||
+        plan.persistent_ctas !=
+            kernels::kSm87P40PackedProjectionPersistentCtas ||
+        plan.policy != kernels::kSm87P40PackedRequiredPolicy ||
+        required_threads == 0U || dynamic_shared == 0U ||
+        kernels::query_sm87_p40_packed_projection_resources_cuda(
+            role, &resources) != 0 ||
+        resources.registers_per_thread <= 0 ||
+        resources.registers_per_thread > 255 ||
+        resources.maximum_threads_per_block <
+            static_cast<int>(required_threads) ||
+        resources.active_blocks_per_sm < 2 || resources.local_bytes != 0U ||
+        resources.dynamic_shared_bytes != dynamic_shared ||
+        resources.static_shared_bytes > 4U * 1'024U ||
+        resources.static_shared_bytes + resources.dynamic_shared_bytes >
+            kMaximumPerCtaSharedBytes) {
+      return false;
+    }
+  }
+  return true;
+#endif
+}
+
 [[nodiscard]] constexpr bool
 whole_core_compile_inventory_enabled() noexcept {
 #if defined(Q3X_ENABLE_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION) && \
@@ -557,6 +925,20 @@ whole_core_compile_inventory_enabled() noexcept {
     defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION) && \
     defined(Q3X_ENABLE_LAYER_WIDE_P40_MLP_ADMISSION) && \
     defined(Q3X_ENABLE_NVFP4_PERSISTENT_PREFILL_ADMISSION) && \
+    defined(Q3X_ENABLE_BF16_AB_LARGE_M_PREFILL_ADMISSION) && \
+    defined(Q3X_ENABLE_FLASHINFER_PREFILL_ATTENTION_ADMISSION) && \
+    defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION) && \
+    defined(Q3X_ENABLE_GDN_PROMPT_WIDE_CHUNK_GRAPH_ADMISSION)
+  return true;
+#else
+  return false;
+#endif
+}
+
+[[nodiscard]] constexpr bool
+packed_projection_compile_inventory_enabled() noexcept {
+#if defined(Q3X_ENABLE_P40_PACKED_PROJECTION_ADMISSION) && \
+    defined(Q3X_ENABLE_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION) && \
     defined(Q3X_ENABLE_BF16_AB_LARGE_M_PREFILL_ADMISSION) && \
     defined(Q3X_ENABLE_FLASHINFER_PREFILL_ATTENTION_ADMISSION) && \
     defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION) && \
@@ -733,7 +1115,59 @@ complete_exact_gdn_chunk64_native_inventory(
       left.projection_reset_schedule.mtp_forbidden !=
           right.projection_reset_schedule.mtp_forbidden ||
       left.projection_reset_schedule.cublaslt_forbidden !=
-          right.projection_reset_schedule.cublaslt_forbidden) {
+          right.projection_reset_schedule.cublaslt_forbidden ||
+      left.packed_projection_schedule.enabled !=
+          right.packed_projection_schedule.enabled ||
+      left.packed_projection_schedule
+              .input_preparation_panel_count_per_layer !=
+          right.packed_projection_schedule
+              .input_preparation_panel_count_per_layer ||
+      left.packed_projection_schedule.prompt_core_phase_count_per_layer !=
+          right.packed_projection_schedule.prompt_core_phase_count_per_layer ||
+      left.packed_projection_schedule.packed_mlp_phase_count_per_layer !=
+          right.packed_projection_schedule.packed_mlp_phase_count_per_layer ||
+      left.packed_projection_schedule.panel_token_count !=
+          right.packed_projection_schedule.panel_token_count ||
+      left.packed_projection_schedule.projection_m_tokens !=
+          right.packed_projection_schedule.projection_m_tokens ||
+      left.packed_projection_schedule.request_capacity_tokens !=
+          right.packed_projection_schedule.request_capacity_tokens ||
+      left.packed_projection_schedule.route_pass_count !=
+          right.packed_projection_schedule.route_pass_count ||
+      left.packed_projection_schedule.fp8_physical_launches_per_request !=
+          right.packed_projection_schedule.fp8_physical_launches_per_request ||
+      left.packed_projection_schedule.fp8_tensor_role_hits_per_request !=
+          right.packed_projection_schedule.fp8_tensor_role_hits_per_request ||
+      left.packed_projection_schedule.nvfp4_physical_launches_per_request !=
+          right.packed_projection_schedule.nvfp4_physical_launches_per_request ||
+      left.packed_projection_schedule.authenticated_artifact_count !=
+          right.packed_projection_schedule.authenticated_artifact_count ||
+      left.packed_projection_schedule.authenticated_source_count !=
+          right.packed_projection_schedule.authenticated_source_count ||
+      left.packed_projection_schedule.stream_k_slice_count !=
+          right.packed_projection_schedule.stream_k_slice_count ||
+      left.packed_projection_schedule
+              .packed_operands_retained_to_register_decode !=
+          right.packed_projection_schedule
+              .packed_operands_retained_to_register_decode ||
+      left.packed_projection_schedule.role_specific_tactics_required !=
+          right.packed_projection_schedule.role_specific_tactics_required ||
+      left.packed_projection_schedule.request_time_repack_forbidden !=
+          right.packed_projection_schedule.request_time_repack_forbidden ||
+      left.packed_projection_schedule
+              .request_time_tactic_selection_forbidden !=
+          right.packed_projection_schedule
+              .request_time_tactic_selection_forbidden ||
+      left.packed_projection_schedule.internal_m_segmentation_forbidden !=
+          right.packed_projection_schedule.internal_m_segmentation_forbidden ||
+      left.packed_projection_schedule.production_accuracy_required !=
+          right.packed_projection_schedule.production_accuracy_required ||
+      left.packed_projection_schedule.approximate_numerics_forbidden !=
+          right.packed_projection_schedule.approximate_numerics_forbidden ||
+      left.packed_projection_schedule.mtp_forbidden !=
+          right.packed_projection_schedule.mtp_forbidden ||
+      left.packed_projection_schedule.cublaslt_forbidden !=
+          right.packed_projection_schedule.cublaslt_forbidden) {
     return false;
   }
   for (std::size_t panel = 0U; panel < left.panel_count; ++panel) {
@@ -755,6 +1189,51 @@ complete_exact_gdn_chunk64_native_inventory(
     }
   }
   return true;
+}
+
+[[nodiscard]] bool complete_packed_projection_geometry(
+    const PrefillExecutionPlan& geometry) noexcept {
+  const PrefillP40PackedProjectionSchedulePlan& schedule =
+      geometry.packed_projection_schedule;
+  return geometry.mlp_schedule.tactic ==
+             LayerMajorPrefillMlpScheduleTactic::
+                 kPromptWideP40PackedProjection &&
+         geometry.first_position == 0U &&
+         geometry.prompt_token_count ==
+             kLayerMajorPrefillPromptWideP40Tokens &&
+         geometry.final_position == kLayerMajorPrefillPromptWideP40Tokens &&
+         geometry.panel_count == kLayerMajorPrefillPromptWideP40PanelCount &&
+         schedule.enabled &&
+         schedule.input_preparation_panel_count_per_layer ==
+             kLayerMajorPrefillPromptWideP40PanelCount &&
+         schedule.prompt_core_phase_count_per_layer == 1U &&
+         schedule.packed_mlp_phase_count_per_layer == 1U &&
+         schedule.panel_token_count ==
+             kLayerMajorPrefillPromptWideP40PanelTokens &&
+         schedule.projection_m_tokens ==
+             kLayerMajorPrefillPromptWideP40Tokens &&
+         schedule.request_capacity_tokens ==
+             kLayerMajorPrefillPromptWideP40RequestCapacityTokens &&
+         schedule.route_pass_count == 1U &&
+         schedule.fp8_physical_launches_per_request ==
+             kLayerMajorPrefillPackedProjectionFp8PhysicalLaunchesPerRequest &&
+         schedule.fp8_tensor_role_hits_per_request ==
+             kLayerMajorPrefillPackedProjectionFp8TensorRoleHitsPerRequest &&
+         schedule.nvfp4_physical_launches_per_request ==
+             kLayerMajorPrefillPackedProjectionNvFp4PhysicalLaunchesPerRequest &&
+         schedule.authenticated_artifact_count ==
+             kLayerMajorPrefillPackedProjectionArtifactCount &&
+         schedule.authenticated_source_count ==
+             kLayerMajorPrefillPackedProjectionAuthenticatedSourceCount &&
+         schedule.stream_k_slice_count == 1U &&
+         schedule.packed_operands_retained_to_register_decode &&
+         schedule.role_specific_tactics_required &&
+         schedule.request_time_repack_forbidden &&
+         schedule.request_time_tactic_selection_forbidden &&
+         schedule.internal_m_segmentation_forbidden &&
+         schedule.production_accuracy_required &&
+         schedule.approximate_numerics_forbidden && schedule.mtp_forbidden &&
+         schedule.cublaslt_forbidden;
 }
 
 [[nodiscard]] bool complete_projection_reset_geometry(
@@ -841,6 +1320,9 @@ complete_exact_gdn_chunk64_native_inventory(
 projection_arithmetic_contract(
     const LayerMajorPrefillProjectionTactic tactic) noexcept {
   return tactic == LayerMajorPrefillProjectionTactic::
+                       kNativePromptWideP40PackedProjection
+             ? &kLayerMajorPrefillPromptWideP40PackedProjectionArithmeticContract
+         : tactic == LayerMajorPrefillProjectionTactic::
                        kNativePromptWideP40ProjectionReset
              ? &kLayerMajorPrefillPromptWideP40ProjectionResetArithmeticContract
          : tactic == LayerMajorPrefillProjectionTactic::
@@ -875,6 +1357,11 @@ static_assert(
         LayerMajorPrefillProjectionTactic::
             kNativePromptWideP40ProjectionReset) ==
     &kLayerMajorPrefillPromptWideP40ProjectionResetArithmeticContract);
+static_assert(
+    projection_arithmetic_contract(
+        LayerMajorPrefillProjectionTactic::
+            kNativePromptWideP40PackedProjection) ==
+    &kLayerMajorPrefillPromptWideP40PackedProjectionArithmeticContract);
 
 inline constexpr std::uint64_t kPromptWideP40WholeCoreArenaBytes =
     8'640'542'976U;
@@ -987,13 +1474,21 @@ inline constexpr std::uint64_t kPromptWideP40WholeCoreArenaBytes =
 [[nodiscard]] constexpr std::uint32_t
 prompt_wide_p40_role_maximum_logical_m(
     const PrefillBindingRole role,
-    const bool use_projection_reset) noexcept {
+    const bool fp8_uses_full_prompt_projection) noexcept {
   if (role == PrefillBindingRole::kFinalHandoff) {
     return 1U;
   }
-  return prompt_wide_p40_fp8_role(role) && !use_projection_reset
+  return prompt_wide_p40_fp8_role(role) &&
+                 !fp8_uses_full_prompt_projection
              ? kLayerMajorPrefillPromptWideP40PanelTokens
              : kLayerMajorPrefillPromptWideP40Tokens;
+}
+
+[[nodiscard]] constexpr bool prompt_wide_p40_packed_projection_role(
+    const PrefillBindingRole role) noexcept {
+  return role == PrefillBindingRole::kNvfp4GateUp ||
+         role == PrefillBindingRole::kNvfp4Down ||
+         prompt_wide_p40_fp8_role(role);
 }
 
 }  // namespace
@@ -1078,18 +1573,25 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
   const bool projection_reset =
       projection_tactic == LayerMajorPrefillProjectionTactic::
                                kNativePromptWideP40ProjectionReset;
+  const bool packed_projection =
+      projection_tactic == LayerMajorPrefillProjectionTactic::
+                               kNativePromptWideP40PackedProjection;
   const bool prompt_wide_p40_projection =
-      whole_core_projection || projection_reset;
+      whole_core_projection || projection_reset || packed_projection;
   const bool persistent_nvfp4_kernel_projection =
       layer_wide_p40_projection || whole_core_projection;
   const bool interleaved_p40_projection =
       persistent_nvfp4_kernel_projection || projection_reset;
-  const bool persistent_p40_projection = interleaved_p40_projection;
+  const bool persistent_p40_projection =
+      interleaved_p40_projection || packed_projection;
   const bool whole_prompt_attention =
       full_attention_tactic == LayerMajorPrefillFullAttentionTactic::
                                    kNativeFlashInferExactWholePrompt;
   const LayerMajorPrefillMlpScheduleTactic mlp_schedule_tactic =
-      projection_reset
+      packed_projection
+          ? LayerMajorPrefillMlpScheduleTactic::
+                kPromptWideP40PackedProjection
+      : projection_reset
           ? LayerMajorPrefillMlpScheduleTactic::
                 kPromptWideP40ProjectionReset
       : whole_core_projection
@@ -1150,14 +1652,14 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
                ? kLayerMajorPrefillPromptWideP40PanelTokens
                : kLayerMajorPrefillOperatorPanelTokens) ||
       runner->layer_major_request_views_->descriptor.mlp_capacity_tokens !=
-          (interleaved_p40_projection
+          (persistent_p40_projection
                ? kLayerMajorPrefillLayerWideMlpP40Tokens
                : kLayerMajorPrefillOperatorPanelTokens) ||
       runner->layer_major_request_views_->descriptor.mlp_layout !=
-          (interleaved_p40_projection
+          (persistent_p40_projection
                ? LayerMajorRequestMlpLayout::kLayerWideP40PersistentTwoSpan
                : LayerMajorRequestMlpLayout::kPanelLocalThreeSpan) ||
-      (interleaved_p40_projection &&
+      (persistent_p40_projection &&
        runner->layer_major_request_views_->descriptor.max_sequence_length !=
            kLayerMajorPrefillLayerWideMlpP40RequestCapacityTokens) ||
       (prompt_wide_p40_projection &&
@@ -1189,6 +1691,12 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
     return plan_failure(BoundPrefillPlanError::kUnsupportedBinary,
                         ReferenceRunnerError::kInvalidDependency,
                         "bound_prefill_p40_projection_reset_binary");
+  }
+  if (packed_projection &&
+      !packed_projection_compile_inventory_enabled()) {
+    return plan_failure(BoundPrefillPlanError::kUnsupportedBinary,
+                        ReferenceRunnerError::kInvalidDependency,
+                        "bound_prefill_p40_packed_projection_binary");
   }
 #if !defined(Q3X_ENABLE_NVFP4_TRUE_LARGE_M_PREFILL_ADMISSION)
   if (true_large_m_nvfp4_projection) {
@@ -1224,6 +1732,13 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
         BoundPrefillPlanError::kUnsupportedBinary,
         ReferenceRunnerError::kInvalidDependency,
         "bound_prefill_p40_projection_reset_complete_package_capability");
+  }
+  if (packed_projection &&
+      !complete_p40_packed_projection_capability()) {
+    return plan_failure(
+        BoundPrefillPlanError::kUnsupportedBinary,
+        ReferenceRunnerError::kInvalidDependency,
+        "bound_prefill_p40_packed_projection_complete_package_capability");
   }
 #if !defined(Q3X_ENABLE_NVFP4_G2_D2_PREFILL_ADMISSION)
   if (g2_d2_nvfp4_projection) {
@@ -1266,8 +1781,12 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
         ReferenceRunnerError::kInvalidDependency,
         "bound_prefill_gdn_prompt_wide_p40_capability");
   }
-  if (!complete_installed_projection_inventory(
-          *weights, expected_gate_up_layout, projection_reset)) {
+  const bool projection_inventory_complete =
+      packed_projection
+          ? complete_p40_packed_projection_inventory(*weights)
+          : complete_installed_projection_inventory(
+                *weights, expected_gate_up_layout, projection_reset);
+  if (!projection_inventory_complete) {
     return plan_failure(BoundPrefillPlanError::kUnsupportedBinary,
                         ReferenceRunnerError::kInvalidDependency,
                         "bound_prefill_installed_binary");
@@ -1359,9 +1878,10 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
                              : std::get_if<Fp8LinearWeight>(&attention->o_proj);
     if (linear == nullptr || attention == nullptr || gate == nullptr ||
         up == nullptr || down == nullptr ||
-        gate->prefill_marlin_gate_up_layout != expected_gate_up_layout ||
-        up->prefill_marlin_gate_up_layout !=
-            gate->prefill_marlin_gate_up_layout ||
+        (!packed_projection &&
+         (gate->prefill_marlin_gate_up_layout != expected_gate_up_layout ||
+          up->prefill_marlin_gate_up_layout !=
+              gate->prefill_marlin_gate_up_layout)) ||
         linear_qkv == nullptr || linear_z == nullptr || linear_o == nullptr ||
         linear_a == nullptr || linear_b == nullptr || full_q == nullptr ||
         full_k == nullptr || full_v == nullptr || full_o == nullptr ||
@@ -1403,37 +1923,62 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
     constexpr std::uint64_t kDownScaleBytes =
         static_cast<std::uint64_t>(kReferenceIntermediateSize) *
         kReferenceHiddenSize / 16U;
-    roles[static_cast<std::size_t>(PrefillBindingRole::kNvfp4GateUp)] =
-        receipt(
-            PrefillBindingRole::kNvfp4GateUp,
-            projection_reset
-                ? NativePrefillTactic::kNvfp4GateUpP40ProjectionReset
-                : NativePrefillTactic::
-                      kNvfp4GateUpPersistentP40LayerWide,
-            gate->prefill_marlin_weight, gate->prefill_marlin_scales,
-            kGateUpScaleBytes, kLayerMajorPrefillPromptWideP40Tokens,
-            kLayerMajorPrefillPromptWideP40Tokens,
-            gate->prefill_marlin_global_scale, sizeof(float));
-    roles[static_cast<std::size_t>(PrefillBindingRole::kNvfp4Down)] =
-        receipt(
-            PrefillBindingRole::kNvfp4Down,
-            projection_reset
-                ? NativePrefillTactic::kNvfp4DownResidualP40ProjectionReset
-                : NativePrefillTactic::
-                      kNvfp4DownResidualPersistentP40LayerWide,
-            down->prefill_marlin_weight, down->prefill_marlin_scales,
-            kDownScaleBytes, kLayerMajorPrefillPromptWideP40Tokens,
-            kLayerMajorPrefillPromptWideP40Tokens,
-            down->prefill_marlin_global_scale, sizeof(float));
+    if (packed_projection) {
+      roles[static_cast<std::size_t>(PrefillBindingRole::kNvfp4GateUp)] =
+          receipt(
+              PrefillBindingRole::kNvfp4GateUp,
+              NativePrefillTactic::kNvfp4GateUpP40PackedProjection,
+              gate->prefill_p40_packed_artifact.payload, nullptr, 0U,
+              kLayerMajorPrefillPromptWideP40Tokens,
+              kLayerMajorPrefillPromptWideP40Tokens);
+      roles[static_cast<std::size_t>(PrefillBindingRole::kNvfp4Down)] =
+          receipt(
+              PrefillBindingRole::kNvfp4Down,
+              NativePrefillTactic::kNvfp4DownResidualP40PackedProjection,
+              down->prefill_p40_packed_artifact.payload, nullptr, 0U,
+              kLayerMajorPrefillPromptWideP40Tokens,
+              kLayerMajorPrefillPromptWideP40Tokens);
+    } else {
+      roles[static_cast<std::size_t>(PrefillBindingRole::kNvfp4GateUp)] =
+          receipt(
+              PrefillBindingRole::kNvfp4GateUp,
+              projection_reset
+                  ? NativePrefillTactic::kNvfp4GateUpP40ProjectionReset
+                  : NativePrefillTactic::
+                        kNvfp4GateUpPersistentP40LayerWide,
+              gate->prefill_marlin_weight, gate->prefill_marlin_scales,
+              kGateUpScaleBytes, kLayerMajorPrefillPromptWideP40Tokens,
+              kLayerMajorPrefillPromptWideP40Tokens,
+              gate->prefill_marlin_global_scale, sizeof(float));
+      roles[static_cast<std::size_t>(PrefillBindingRole::kNvfp4Down)] =
+          receipt(
+              PrefillBindingRole::kNvfp4Down,
+              projection_reset
+                  ? NativePrefillTactic::kNvfp4DownResidualP40ProjectionReset
+                  : NativePrefillTactic::
+                        kNvfp4DownResidualPersistentP40LayerWide,
+              down->prefill_marlin_weight, down->prefill_marlin_scales,
+              kDownScaleBytes, kLayerMajorPrefillPromptWideP40Tokens,
+              kLayerMajorPrefillPromptWideP40Tokens,
+              down->prefill_marlin_global_scale, sizeof(float));
+    }
 
     const DeviceBufferView& fp8_reduction =
         views.legacy_c512.fp32_scratch;
     const DeviceBufferView& fp8_locks =
         views.legacy_c512.projection_bf16[3U].storage;
     const auto fp8_receipt = [&receipt, &fp8_reduction, &fp8_locks,
-                              projection_reset](
+                              projection_reset, packed_projection](
                                  const PrefillBindingRole role,
                                  const Fp8LinearWeight& weight) noexcept {
+      if (packed_projection) {
+        return receipt(
+            role, NativePrefillTactic::kFp8P40PackedProjection,
+            weight.prefill_p40_packed_artifact.payload, nullptr, 0U,
+            kLayerMajorPrefillPromptWideP40Tokens,
+            kLayerMajorPrefillPromptWideP40Tokens, nullptr, 0U,
+            kLayerMajorPrefillPromptWideP40Tokens);
+      }
       if (projection_reset) {
         return receipt(
             role, NativePrefillTactic::kFp8P40ProjectionReset,
@@ -1537,7 +2082,9 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
           static_cast<PrefillBindingRole>(index);
       const NativePrefillRoleReceipt& role = roles[index];
       const bool workspace_optional =
-          projection_reset && prompt_wide_p40_fp8_role(role_identity);
+          (projection_reset && prompt_wide_p40_fp8_role(role_identity)) ||
+          (packed_projection &&
+           prompt_wide_p40_packed_projection_role(role_identity));
       const bool workspace_valid =
           ((role.workspace_owner == nullptr) ==
            (role.workspace_bytes == 0U)) &&
@@ -1549,7 +2096,8 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
           !workspace_valid ||
           role.maximum_logical_panel_m !=
               prompt_wide_p40_role_maximum_logical_m(role_identity,
-                                                     projection_reset) ||
+                                                     projection_reset ||
+                                                         packed_projection) ||
           role.minimum_physical_m == 0U ||
           role.minimum_physical_m > role.maximum_physical_m ||
           role.maximum_physical_m > role.maximum_logical_panel_m ||
@@ -1725,9 +2273,10 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
                            : std::get_if<Fp8LinearWeight>(&attention->o_proj);
   if (linear == nullptr || attention == nullptr || gate == nullptr ||
       up == nullptr || down == nullptr ||
-      gate->prefill_marlin_gate_up_layout != expected_gate_up_layout ||
-      up->prefill_marlin_gate_up_layout !=
-          gate->prefill_marlin_gate_up_layout ||
+      (!packed_projection &&
+       (gate->prefill_marlin_gate_up_layout != expected_gate_up_layout ||
+        up->prefill_marlin_gate_up_layout !=
+            gate->prefill_marlin_gate_up_layout)) ||
       linear_qkv == nullptr || linear_z == nullptr ||
       linear_o == nullptr || linear_a == nullptr || linear_b == nullptr ||
       full_q == nullptr || full_k == nullptr || full_v == nullptr ||
@@ -2163,14 +2712,22 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
   const bool projection_reset =
       plan.projection_tactic_ == LayerMajorPrefillProjectionTactic::
                                      kNativePromptWideP40ProjectionReset;
+  const bool packed_projection =
+      plan.projection_tactic_ == LayerMajorPrefillProjectionTactic::
+                                     kNativePromptWideP40PackedProjection;
   const bool prompt_wide_p40_projection =
-      whole_core_projection || projection_reset;
+      whole_core_projection || projection_reset || packed_projection;
   const bool persistent_nvfp4_kernel_projection =
       layer_wide_p40_projection || whole_core_projection;
-  const bool persistent_p40_projection =
+  const bool interleaved_p40_projection =
       persistent_nvfp4_kernel_projection || projection_reset;
+  const bool persistent_p40_projection =
+      interleaved_p40_projection || packed_projection;
   const LayerMajorPrefillMlpScheduleTactic expected_mlp_schedule =
-      projection_reset
+      packed_projection
+          ? LayerMajorPrefillMlpScheduleTactic::
+                kPromptWideP40PackedProjection
+      : projection_reset
           ? LayerMajorPrefillMlpScheduleTactic::
                 kPromptWideP40ProjectionReset
       : whole_core_projection
@@ -2179,7 +2736,7 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
           ? LayerMajorPrefillMlpScheduleTactic::kLayerWideP40ExactFullM
           : LayerMajorPrefillMlpScheduleTactic::kPerOperatorPanel;
   const NvFp4MarlinGateUpLayout expected_gate_up_layout =
-      persistent_p40_projection
+      interleaved_p40_projection
           ? NvFp4MarlinGateUpLayout::kInterleavedGateUp
           : NvFp4MarlinGateUpLayout::kCanonicalGateThenUp;
   if (plan.runner_ != &runner || plan.weights_ != runner.weights_ ||
@@ -2237,6 +2794,14 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
        !complete_gdn_prompt_wide_p40_capability())) {
     return false;
   }
+  if (packed_projection &&
+      (!packed_projection_compile_inventory_enabled() ||
+       !complete_p40_packed_projection_capability() ||
+       !complete_flashinfer_whole_prompt_p40_capability() ||
+       !complete_bf16_ab_prompt_wide_p40_capability() ||
+       !complete_gdn_prompt_wide_p40_capability())) {
+    return false;
+  }
 #if !defined(Q3X_ENABLE_NVFP4_TRUE_LARGE_M_PREFILL_ADMISSION)
   if (true_large_m_nvfp4_projection) {
     return false;
@@ -2271,8 +2836,12 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
       !has_bulk_causal_gqa_flashinfer_exact_panel_cuda()) {
     return false;
   }
-  if (!complete_installed_projection_inventory(
-          *runner.weights_, expected_gate_up_layout, projection_reset)) {
+  const bool projection_inventory_complete =
+      packed_projection
+          ? complete_p40_packed_projection_inventory(*runner.weights_)
+          : complete_installed_projection_inventory(
+                *runner.weights_, expected_gate_up_layout, projection_reset);
+  if (!projection_inventory_complete) {
     return false;
   }
   bool fallback_views_match =
@@ -2316,9 +2885,10 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
       std::get_if<NvFp4LinearWeight>(&linear_layer.mlp.down_proj);
   if (linear == nullptr || attention == nullptr || gate == nullptr ||
       up == nullptr || down == nullptr ||
-      gate->prefill_marlin_gate_up_layout != expected_gate_up_layout ||
-      up->prefill_marlin_gate_up_layout !=
-          gate->prefill_marlin_gate_up_layout ||
+      (!packed_projection &&
+       (gate->prefill_marlin_gate_up_layout != expected_gate_up_layout ||
+        up->prefill_marlin_gate_up_layout !=
+            gate->prefill_marlin_gate_up_layout)) ||
       (!prompt_wide_p40_projection &&
        views.attention.normalized_input_bf16.storage.device_data == nullptr) ||
       views.mlp.normalized_input_bf16.storage.device_data == nullptr) {
@@ -2395,9 +2965,17 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
     const DeviceBufferView& locks =
         views.legacy_c512.projection_bf16[3U].storage;
     const auto fp8_matches = [&matches, &reduction, &locks,
-                              projection_reset](
+                              projection_reset, packed_projection](
                                  const PrefillBindingRole role,
                                  const Fp8LinearWeight& weight) noexcept {
+      if (packed_projection) {
+        return matches(
+            role, NativePrefillTactic::kFp8P40PackedProjection,
+            weight.prefill_p40_packed_artifact.payload, nullptr, 0U,
+            kLayerMajorPrefillPromptWideP40Tokens,
+            kLayerMajorPrefillPromptWideP40Tokens, nullptr, 0U,
+            kLayerMajorPrefillPromptWideP40Tokens);
+      }
       if (projection_reset) {
         return matches(
             role, NativePrefillTactic::kFp8P40ProjectionReset,
@@ -2416,27 +2994,46 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
           kLayerMajorPrefillPromptWideP40PanelTokens);
     };
     const LayerMajorP40WholeCoreViews& whole = views.p40_whole_core;
-    return matches(
-               PrefillBindingRole::kNvfp4GateUp,
-               projection_reset
-                   ? NativePrefillTactic::kNvfp4GateUpP40ProjectionReset
-                   : NativePrefillTactic::
-                         kNvfp4GateUpPersistentP40LayerWide,
-               gate->prefill_marlin_weight, gate->prefill_marlin_scales,
-               kGateUpScaleBytes, kLayerMajorPrefillPromptWideP40Tokens,
-               kLayerMajorPrefillPromptWideP40Tokens,
-               gate->prefill_marlin_global_scale, sizeof(float)) &&
-           matches(
-               PrefillBindingRole::kNvfp4Down,
-               projection_reset
-                   ? NativePrefillTactic::
-                         kNvfp4DownResidualP40ProjectionReset
-                   : NativePrefillTactic::
-                         kNvfp4DownResidualPersistentP40LayerWide,
-               down->prefill_marlin_weight, down->prefill_marlin_scales,
-               kDownScaleBytes, kLayerMajorPrefillPromptWideP40Tokens,
-               kLayerMajorPrefillPromptWideP40Tokens,
-               down->prefill_marlin_global_scale, sizeof(float)) &&
+    const bool nvfp4_receipts_match =
+        packed_projection
+            ? matches(
+                  PrefillBindingRole::kNvfp4GateUp,
+                  NativePrefillTactic::kNvfp4GateUpP40PackedProjection,
+                  gate->prefill_p40_packed_artifact.payload, nullptr, 0U,
+                  kLayerMajorPrefillPromptWideP40Tokens,
+                  kLayerMajorPrefillPromptWideP40Tokens) &&
+                  matches(
+                      PrefillBindingRole::kNvfp4Down,
+                      NativePrefillTactic::
+                          kNvfp4DownResidualP40PackedProjection,
+                      down->prefill_p40_packed_artifact.payload, nullptr, 0U,
+                      kLayerMajorPrefillPromptWideP40Tokens,
+                      kLayerMajorPrefillPromptWideP40Tokens)
+            : matches(
+                  PrefillBindingRole::kNvfp4GateUp,
+                  projection_reset
+                      ? NativePrefillTactic::
+                            kNvfp4GateUpP40ProjectionReset
+                      : NativePrefillTactic::
+                            kNvfp4GateUpPersistentP40LayerWide,
+                  gate->prefill_marlin_weight, gate->prefill_marlin_scales,
+                  kGateUpScaleBytes,
+                  kLayerMajorPrefillPromptWideP40Tokens,
+                  kLayerMajorPrefillPromptWideP40Tokens,
+                  gate->prefill_marlin_global_scale, sizeof(float)) &&
+                  matches(
+                      PrefillBindingRole::kNvfp4Down,
+                      projection_reset
+                          ? NativePrefillTactic::
+                                kNvfp4DownResidualP40ProjectionReset
+                          : NativePrefillTactic::
+                                kNvfp4DownResidualPersistentP40LayerWide,
+                      down->prefill_marlin_weight,
+                      down->prefill_marlin_scales, kDownScaleBytes,
+                      kLayerMajorPrefillPromptWideP40Tokens,
+                      kLayerMajorPrefillPromptWideP40Tokens,
+                      down->prefill_marlin_global_scale, sizeof(float));
+    return nvfp4_receipts_match &&
            fp8_matches(PrefillBindingRole::kLinearFp8Qkv, *linear_qkv) &&
            fp8_matches(PrefillBindingRole::kLinearFp8Z, *linear_z) &&
            fp8_matches(PrefillBindingRole::kLinearFp8O, *linear_o) &&
@@ -2893,6 +3490,15 @@ std::string_view ReferenceEnginePrefillExecutor::deployment_plan_id(
   }
   if (plan.projection_tactic_ ==
       LayerMajorPrefillProjectionTactic::
+          kNativePromptWideP40PackedProjection) {
+    return plan.full_attention_tactic_ ==
+                   LayerMajorPrefillFullAttentionTactic::
+                       kNativeFlashInferExactWholePrompt
+               ? kLayerMajorNativePromptWideP40PackedProjectionDeploymentPlanId
+               : std::string_view{};
+  }
+  if (plan.projection_tactic_ ==
+      LayerMajorPrefillProjectionTactic::
           kNativePromptWideP40ProjectionReset) {
     return plan.full_attention_tactic_ ==
                    LayerMajorPrefillFullAttentionTactic::
@@ -3011,11 +3617,18 @@ ReferenceWholeRequestPrefillOutcome ReferenceEnginePrefillExecutor::execute(
            LayerMajorPrefillProjectionTactic::
                kNativePromptWideP40ProjectionReset &&
        !complete_projection_reset_geometry(geometry)) ||
+      (plan.projection_tactic_ ==
+           LayerMajorPrefillProjectionTactic::
+               kNativePromptWideP40PackedProjection &&
+       !complete_packed_projection_geometry(geometry)) ||
       ((plan.mlp_schedule_tactic_ ==
             LayerMajorPrefillMlpScheduleTactic::kPromptWideP40WholeCore ||
         plan.mlp_schedule_tactic_ ==
             LayerMajorPrefillMlpScheduleTactic::
-                kPromptWideP40ProjectionReset) &&
+                kPromptWideP40ProjectionReset ||
+        plan.mlp_schedule_tactic_ ==
+            LayerMajorPrefillMlpScheduleTactic::
+                kPromptWideP40PackedProjection) &&
        g_reference_engine_prefill_compatibility_oracle_for_test)) {
     return execution_failure("bound_prefill_execute_authority");
   }

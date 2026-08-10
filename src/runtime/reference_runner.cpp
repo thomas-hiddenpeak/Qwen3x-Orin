@@ -4,6 +4,7 @@
 #if defined(Q3X_ENABLE_P40_PROJECTION_RESET_ADMISSION)
 #include "q3x/kernels/sm87_p40_projection_reset.h"
 #endif
+#include "q3x/kernels/sm87_p40_packed_projection.h"
 #if defined(Q3X_ENABLE_BF16_AB_LARGE_M_PREFILL_ADMISSION)
 #include "q3x/kernels/sm87_bf16_ab_prefill.h"
 #endif
@@ -2014,6 +2015,102 @@ launch_p40_projection_reset_fp8_group(
 #endif
 }
 
+// Exact-P40000 grouped FP8 primitive for the AOT packed route. All logical
+// projections in one group must name the same authenticated physical
+// artifact; partition order is fixed by the public packed-layout ABI.
+[[maybe_unused, nodiscard]] int launch_p40_packed_fp8_group(
+    const ProjectionBackend backend,
+    const LinearWeight* const* const group_weights,
+    std::uint16_t* const* const group_outputs,
+    const std::size_t group_size, const std::uint16_t* const input,
+    std::size_t& physical_launches, void* const cuda_stream) noexcept {
+#if defined(Q3X_ENABLE_P40_PACKED_PROJECTION_ADMISSION)
+  if (backend != ProjectionBackend::kSm87WeightOnly ||
+      group_weights == nullptr || group_outputs == nullptr ||
+      group_size == 0U || group_size >
+          kernels::kSm87P40PackedProjectionMaximumSources ||
+      input == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const auto* const first =
+      std::get_if<Fp8LinearWeight>(group_weights[0U]);
+  if (first == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const kernels::Sm87P40PackedProjectionDeviceView& artifact =
+      first->prefill_p40_packed_artifact;
+  kernels::Sm87P40PackedProjectionRole expected_role =
+      kernels::Sm87P40PackedProjectionRole::kInvalid;
+  if (group_size == 2U && first->output_size == 10'240U &&
+      first->input_size == 5'120U) {
+    expected_role =
+        kernels::Sm87P40PackedProjectionRole::kFp8LinearQkvZ;
+  } else if (group_size == 3U && first->output_size == 12'288U &&
+             first->input_size == 5'120U) {
+    expected_role = kernels::Sm87P40PackedProjectionRole::kFp8FullQkv;
+  } else if (group_size == 1U && first->output_size == 5'120U &&
+             first->input_size == 6'144U) {
+    expected_role =
+        kernels::Sm87P40PackedProjectionRole::kFp8AttentionOutput;
+  }
+  const kernels::Sm87P40PackedProjectionPlan expected_plan =
+      kernels::sm87_p40_packed_projection_plan(expected_role);
+  if (expected_role ==
+          kernels::Sm87P40PackedProjectionRole::kInvalid ||
+      artifact.payload == nullptr || artifact.artifact_identity == 0U ||
+      artifact.role != expected_role ||
+      artifact.tactic != expected_plan.tactic ||
+      artifact.payload_bytes != expected_plan.payload_bytes ||
+      artifact.source_count != group_size) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  std::array<std::uint16_t*,
+             kernels::kSm87P40PackedProjectionMaximumSources>
+      outputs{};
+  for (std::size_t index = 0U; index < group_size; ++index) {
+    const auto* const fp8 =
+        group_weights[index] == nullptr
+            ? nullptr
+            : std::get_if<Fp8LinearWeight>(group_weights[index]);
+    const auto& partition = expected_plan.partitions[index];
+    if (fp8 == nullptr || group_outputs[index] == nullptr ||
+        fp8->output_size != partition.output_features ||
+        fp8->input_size != partition.input_features ||
+        fp8->prefill_p40_packed_artifact.payload != artifact.payload ||
+        fp8->prefill_p40_packed_artifact.payload_bytes !=
+            artifact.payload_bytes ||
+        fp8->prefill_p40_packed_artifact.artifact_identity !=
+            artifact.artifact_identity ||
+        fp8->prefill_p40_packed_artifact.role != artifact.role ||
+        fp8->prefill_p40_packed_artifact.tactic != artifact.tactic ||
+        fp8->prefill_p40_packed_artifact.source_count !=
+            artifact.source_count ||
+        fp8->prefill_p40_packed_artifact.scalar_scales !=
+            artifact.scalar_scales ||
+        fp8->weight_scale != artifact.scalar_scales[index]) {
+      return static_cast<int>(cudaErrorInvalidValue);
+    }
+    outputs[index] = group_outputs[index];
+  }
+  const int status = kernels::launch_sm87_p40_packed_fp8_cuda(
+      input, artifact, kernels::kSm87P40PackedProjectionTokens, outputs,
+      cuda_stream);
+  if (status == static_cast<int>(cudaSuccess)) {
+    ++physical_launches;
+  }
+  return status;
+#else
+  (void)backend;
+  (void)group_weights;
+  (void)group_outputs;
+  (void)group_size;
+  (void)input;
+  (void)physical_launches;
+  (void)cuda_stream;
+  return static_cast<int>(cudaErrorNotSupported);
+#endif
+}
+
 [[nodiscard]] int launch_exact_contract_bf16_projection_pair(
     const ProjectionBackend backend, const LinearWeight& first_weight,
     const LinearWeight& second_weight, const std::uint16_t* const input,
@@ -2120,6 +2217,53 @@ launch_p40_projection_reset_fp8_group(
          aligned_16(down.prefill_marlin_weight) &&
          aligned_16(down.prefill_marlin_scales) &&
          down.prefill_marlin_global_scale != nullptr;
+}
+#endif
+
+#if defined(Q3X_ENABLE_P40_PACKED_PROJECTION_ADMISSION)
+[[nodiscard]] bool valid_p40_packed_nvfp4_mlp_weights(
+    const NvFp4LinearWeight& gate, const NvFp4LinearWeight& up,
+    const NvFp4LinearWeight& down) noexcept {
+  const auto& gate_artifact = gate.prefill_p40_packed_artifact;
+  const auto& up_artifact = up.prefill_p40_packed_artifact;
+  const auto& down_artifact = down.prefill_p40_packed_artifact;
+  const auto gate_plan = kernels::sm87_p40_packed_projection_plan(
+      kernels::Sm87P40PackedProjectionRole::kNvFp4GateUp);
+  const auto down_plan = kernels::sm87_p40_packed_projection_plan(
+      kernels::Sm87P40PackedProjectionRole::kNvFp4Down);
+  const bool shared_gate_up =
+      gate_artifact.payload != nullptr &&
+      gate_artifact.payload == up_artifact.payload &&
+      gate_artifact.payload_bytes == gate_plan.payload_bytes &&
+      gate_artifact.payload_bytes == up_artifact.payload_bytes &&
+      gate_artifact.artifact_identity != 0U &&
+      gate_artifact.artifact_identity == up_artifact.artifact_identity &&
+      gate_artifact.role ==
+          kernels::Sm87P40PackedProjectionRole::kNvFp4GateUp &&
+      gate_artifact.role == up_artifact.role &&
+      gate_artifact.tactic == gate_plan.tactic &&
+      gate_artifact.tactic == up_artifact.tactic &&
+      gate_artifact.source_count == 2U &&
+      gate_artifact.source_count == up_artifact.source_count &&
+      gate_artifact.scalar_scales == up_artifact.scalar_scales &&
+      gate_artifact.scalar_scales[0U] == gate.weight_scale_2 &&
+      gate_artifact.scalar_scales[1U] == up.weight_scale_2;
+  const bool valid_down =
+      down_artifact.payload != nullptr &&
+      down_artifact.payload_bytes == down_plan.payload_bytes &&
+      down_artifact.artifact_identity != 0U &&
+      down_artifact.role ==
+          kernels::Sm87P40PackedProjectionRole::kNvFp4Down &&
+      down_artifact.tactic == down_plan.tactic &&
+      down_artifact.source_count == 1U &&
+      down_artifact.scalar_scales[0U] == down.weight_scale_2;
+  return gate.output_size == kReferenceIntermediateSize &&
+         gate.input_size == kReferenceHiddenSize &&
+         up.output_size == kReferenceIntermediateSize &&
+         up.input_size == kReferenceHiddenSize &&
+         down.output_size == kReferenceHiddenSize &&
+         down.input_size == kReferenceIntermediateSize && shared_gate_up &&
+         valid_down;
 }
 #endif
 
@@ -4445,12 +4589,18 @@ bool ReferenceRunner::valid_prompt_wide_p40_whole_core_runner_contract(
   const bool use_projection_reset =
       projection_tactic == LayerMajorPrefillProjectionTactic::
                                kNativePromptWideP40ProjectionReset;
+  const bool use_packed_projection =
+      projection_tactic == LayerMajorPrefillProjectionTactic::
+                               kNativePromptWideP40PackedProjection;
   const bool use_legacy_whole_core =
       projection_tactic == LayerMajorPrefillProjectionTactic::
                                kNativePromptWideP40WholeCore;
-  if ((!use_projection_reset && !use_legacy_whole_core) ||
+  if ((!use_projection_reset && !use_packed_projection &&
+       !use_legacy_whole_core) ||
       (use_projection_reset
            ? !prompt_wide_p40_projection_reset_prefill_plan_enabled()
+       : use_packed_projection
+           ? !prompt_wide_p40_packed_projection_prefill_plan_enabled()
            : !prompt_wide_p40_whole_core_prefill_plan_enabled()) ||
       memory_profile != RequestMemoryProfile::kLayerMajorP40WholeCore ||
       executor != LayerMajorLayerExecutor::kOperatorPanel ||
@@ -4471,6 +4621,9 @@ bool ReferenceRunner::valid_prompt_wide_p40_whole_core_runner_contract(
           (use_projection_reset
                ? LayerMajorPrefillMlpScheduleTactic::
                      kPromptWideP40ProjectionReset
+           : use_packed_projection
+               ? LayerMajorPrefillMlpScheduleTactic::
+                     kPromptWideP40PackedProjection
                : LayerMajorPrefillMlpScheduleTactic::
                      kPromptWideP40WholeCore)) {
     return false;
@@ -4507,9 +4660,44 @@ bool ReferenceRunner::valid_prompt_wide_p40_whole_core_runner_contract(
       return false;
     }
   }
+  if (use_packed_projection) {
+    const PrefillP40PackedProjectionSchedulePlan& schedule =
+        immutable_topology.packed_projection_schedule;
+    if (!schedule.enabled ||
+        schedule.input_preparation_panel_count_per_layer !=
+            kLayerMajorPrefillPromptWideP40PanelCount ||
+        schedule.prompt_core_phase_count_per_layer != 1U ||
+        schedule.packed_mlp_phase_count_per_layer != 1U ||
+        schedule.panel_token_count !=
+            kLayerMajorPrefillPromptWideP40PanelTokens ||
+        schedule.projection_m_tokens !=
+            kLayerMajorPrefillPromptWideP40Tokens ||
+        schedule.request_capacity_tokens !=
+            kLayerMajorPrefillPromptWideP40RequestCapacityTokens ||
+        schedule.route_pass_count != 1U ||
+        schedule.fp8_physical_launches_per_request != 128U ||
+        schedule.fp8_tensor_role_hits_per_request != 208U ||
+        schedule.nvfp4_physical_launches_per_request != 128U ||
+        schedule.authenticated_artifact_count !=
+            kernels::kSm87P40PackedProjectionArtifactCount ||
+        schedule.authenticated_source_count !=
+            kernels::kSm87P40PackedProjectionSourceIdentityCount ||
+        schedule.stream_k_slice_count != 1U ||
+        !schedule.packed_operands_retained_to_register_decode ||
+        !schedule.role_specific_tactics_required ||
+        !schedule.request_time_repack_forbidden ||
+        !schedule.request_time_tactic_selection_forbidden ||
+        !schedule.internal_m_segmentation_forbidden ||
+        !schedule.production_accuracy_required ||
+        !schedule.approximate_numerics_forbidden || !schedule.mtp_forbidden ||
+        !schedule.cublaslt_forbidden) {
+      return false;
+    }
+  }
   const PrefillWholeCoreSchedulePlan& schedule =
       immutable_topology.whole_core_schedule;
-  if (!use_projection_reset && (!schedule.enabled ||
+  if (!use_projection_reset && !use_packed_projection &&
+      (!schedule.enabled ||
       schedule.fill_panel_phase_count_per_layer !=
           kLayerMajorPrefillPromptWideP40PanelCount ||
       schedule.prompt_core_phase_count_per_layer != 1U ||
@@ -4524,7 +4712,7 @@ bool ReferenceRunner::valid_prompt_wide_p40_whole_core_runner_contract(
       !schedule.fp8_single_launch_per_projection_required ||
       !schedule.bf16_ab_prompt_wide_required ||
       !schedule.gdn_prompt_wide_required ||
-      !schedule.flashinfer_whole_prompt_required)) {
+       !schedule.flashinfer_whole_prompt_required)) {
     return false;
   }
   for (std::size_t panel_index = 0U;
@@ -4548,7 +4736,7 @@ ReferenceRunnerStatus
 ReferenceRunner::enqueue_prompt_wide_p40_whole_core_fill_panel(
     const std::size_t layer, const PrefillOperatorPanel& panel,
     const ReferenceLayerMajorRequestViews& request_views,
-    const bool use_projection_reset,
+    const bool use_projection_reset, const bool use_packed_projection,
     std::size_t& fp8_projection_hits,
     std::size_t& fp8_physical_launches) noexcept {
 #if !defined(Q3X_ENABLE_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION) || \
@@ -4557,6 +4745,7 @@ ReferenceRunner::enqueue_prompt_wide_p40_whole_core_fill_panel(
   (void)panel;
   (void)request_views;
   (void)use_projection_reset;
+  (void)use_packed_projection;
   (void)fp8_projection_hits;
   (void)fp8_physical_launches;
   return runner_status(ReferenceRunnerError::kInvalidDependency,
@@ -4588,7 +4777,7 @@ ReferenceRunner::enqueue_prompt_wide_p40_whole_core_fill_panel(
   }
 
   ExactPrefillProjectionWorkspace workspace{};
-  if (!use_projection_reset) {
+  if (!use_projection_reset && !use_packed_projection) {
     const DeviceBufferView& reduction =
         request_views.legacy_c512.fp32_scratch;
     const DeviceMatrixView& lock_storage =
@@ -4676,7 +4865,7 @@ ReferenceRunner::enqueue_prompt_wide_p40_whole_core_fill_panel(
     if (!status) {
       return status;
     }
-    if (use_projection_reset) {
+    if (use_projection_reset || use_packed_projection) {
       return {};
     }
     status = check(launch_prompt_wide_p40_fp8_projection(
@@ -4753,7 +4942,7 @@ ReferenceRunner::enqueue_prompt_wide_p40_whole_core_fill_panel(
     if (!status) {
       return status;
     }
-    if (use_projection_reset) {
+    if (use_projection_reset || use_packed_projection) {
       return {};
     }
     const auto project = [&](const LinearWeight& weight,
@@ -4804,7 +4993,8 @@ ReferenceRunnerStatus
 ReferenceRunner::enqueue_prompt_wide_p40_whole_core_prompt_core(
     const std::size_t layer,
     const ReferenceLayerMajorRequestViews& request_views,
-    const bool use_projection_reset, std::size_t& fp8_projection_hits,
+    const bool use_projection_reset, const bool use_packed_projection,
+    std::size_t& fp8_projection_hits,
     std::size_t& fp8_physical_launches) noexcept {
 #if !defined(Q3X_ENABLE_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION) || \
     !defined(Q3X_ENABLE_BF16_AB_LARGE_M_PREFILL_ADMISSION) || \
@@ -4813,6 +5003,7 @@ ReferenceRunner::enqueue_prompt_wide_p40_whole_core_prompt_core(
   (void)layer;
   (void)request_views;
   (void)use_projection_reset;
+  (void)use_packed_projection;
   (void)fp8_projection_hits;
   (void)fp8_physical_launches;
   return runner_status(ReferenceRunnerError::kInvalidDependency,
@@ -4871,18 +5062,26 @@ ReferenceRunner::enqueue_prompt_wide_p40_whole_core_prompt_core(
         phase.a_bf16.storage.device_data);
     auto* const b = static_cast<std::uint16_t*>(
         phase.b_bf16.storage.device_data);
-    if (use_projection_reset) {
+    if (use_projection_reset || use_packed_projection) {
       const LinearWeight* const group_weights[2U] = {
           &attention->in_proj_qkv, &attention->in_proj_z};
       std::uint16_t* const group_outputs[2U] = {
           static_cast<std::uint16_t*>(phase.raw_qkv_bf16.storage.device_data),
           static_cast<std::uint16_t*>(phase.z_bf16.storage.device_data)};
-      const int projection_status = launch_p40_projection_reset_fp8_group(
-          projection_backend_, group_weights, group_outputs, 2U, normalized,
-          fp8_physical_launches, stream_);
+      const int projection_status =
+          use_packed_projection
+              ? launch_p40_packed_fp8_group(
+                    projection_backend_, group_weights, group_outputs, 2U,
+                    normalized, fp8_physical_launches, stream_)
+              : launch_p40_projection_reset_fp8_group(
+                    projection_backend_, group_weights, group_outputs, 2U,
+                    normalized, fp8_physical_launches, stream_);
       if (projection_status != static_cast<int>(cudaSuccess)) {
         return runner_status(ReferenceRunnerError::kCudaFailure,
-                             "prefill_projection_reset_linear_qkvz", layer,
+                             use_packed_projection
+                                 ? "prefill_p40_packed_linear_qkvz"
+                                 : "prefill_projection_reset_linear_qkvz",
+                             layer,
                              projection_status);
       }
       fp8_projection_hits += 2U;
@@ -4935,7 +5134,7 @@ ReferenceRunner::enqueue_prompt_wide_p40_whole_core_prompt_core(
       return runner_status(ReferenceRunnerError::kInvalidRequestState,
                            "prefill_whole_core_attention_core_views", layer);
     }
-    if (use_projection_reset) {
+    if (use_projection_reset || use_packed_projection) {
       const LinearWeight* const group_weights[3U] = {
           &attention->q_proj, &attention->k_proj, &attention->v_proj};
       std::uint16_t* const group_outputs[3U] = {
@@ -4945,14 +5144,22 @@ ReferenceRunner::enqueue_prompt_wide_p40_whole_core_prompt_core(
               request_views.persistent.key_cache_bf16[slot.slot].device_data),
           static_cast<std::uint16_t*>(
               request_views.persistent.value_cache_bf16[slot.slot].device_data)};
-      const int projection_status = launch_p40_projection_reset_fp8_group(
-          projection_backend_, group_weights, group_outputs, 3U,
-          static_cast<const std::uint16_t*>(
-              phase.normalized_input_bf16.storage.device_data),
-          fp8_physical_launches, stream_);
+      const auto* const normalized = static_cast<const std::uint16_t*>(
+          phase.normalized_input_bf16.storage.device_data);
+      const int projection_status =
+          use_packed_projection
+              ? launch_p40_packed_fp8_group(
+                    projection_backend_, group_weights, group_outputs, 3U,
+                    normalized, fp8_physical_launches, stream_)
+              : launch_p40_projection_reset_fp8_group(
+                    projection_backend_, group_weights, group_outputs, 3U,
+                    normalized, fp8_physical_launches, stream_);
       if (projection_status != static_cast<int>(cudaSuccess)) {
         return runner_status(ReferenceRunnerError::kCudaFailure,
-                             "prefill_projection_reset_full_qkv", layer,
+                             use_packed_projection
+                                 ? "prefill_p40_packed_full_qkv"
+                                 : "prefill_projection_reset_full_qkv",
+                             layer,
                              projection_status);
       }
       fp8_projection_hits += 3U;
@@ -4983,7 +5190,9 @@ ReferenceRunner::enqueue_prompt_wide_p40_whole_core_prompt_core(
                 offset, kPromptWideP40WholeCorePanelTokens, stream_);
         if (preprocess_status != static_cast<int>(cudaSuccess)) {
           return runner_status(ReferenceRunnerError::kCudaFailure,
-                               "prefill_projection_reset_full_preprocess",
+                               use_packed_projection
+                                   ? "prefill_p40_packed_full_preprocess"
+                                   : "prefill_projection_reset_full_preprocess",
                                layer, preprocess_status);
         }
       }
@@ -5015,7 +5224,7 @@ ReferenceRunnerStatus
 ReferenceRunner::enqueue_prompt_wide_p40_whole_core_drain_panel(
     const std::size_t layer, const PrefillOperatorPanel& panel,
     const ReferenceLayerMajorRequestViews& request_views,
-    const bool use_projection_reset,
+    const bool use_projection_reset, const bool use_packed_projection,
     std::size_t& fp8_projection_hits,
     std::size_t& fp8_physical_launches) noexcept {
 #if !defined(Q3X_ENABLE_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION) || \
@@ -5024,6 +5233,7 @@ ReferenceRunner::enqueue_prompt_wide_p40_whole_core_drain_panel(
   (void)panel;
   (void)request_views;
   (void)use_projection_reset;
+  (void)use_packed_projection;
   (void)fp8_projection_hits;
   (void)fp8_physical_launches;
   return runner_status(ReferenceRunnerError::kInvalidDependency,
@@ -5038,7 +5248,7 @@ ReferenceRunner::enqueue_prompt_wide_p40_whole_core_drain_panel(
                          "prefill_whole_core_drain_geometry", layer);
   }
   ExactPrefillProjectionWorkspace workspace{};
-  if (!use_projection_reset) {
+  if (!use_projection_reset && !use_packed_projection) {
     const DeviceBufferView& reduction =
         request_views.legacy_c512.fp32_scratch;
     const DeviceMatrixView& lock_storage =
@@ -5102,13 +5312,17 @@ ReferenceRunner::enqueue_prompt_wide_p40_whole_core_drain_panel(
   std::uint16_t* const branch_output =
       branch_output_base + offset * kReferenceHiddenSize;
   int status = static_cast<int>(cudaSuccess);
-  if (use_projection_reset) {
+  if (use_projection_reset || use_packed_projection) {
     if (panel.ordinal == 0U) {
       const LinearWeight* const group_weights[1U] = {output_weight};
       std::uint16_t* const group_outputs[1U] = {branch_output_base};
-      status = launch_p40_projection_reset_fp8_group(
-          projection_backend_, group_weights, group_outputs, 1U,
-          core_output_base, fp8_physical_launches, stream_);
+      status = use_packed_projection
+                   ? launch_p40_packed_fp8_group(
+                         projection_backend_, group_weights, group_outputs,
+                         1U, core_output_base, fp8_physical_launches, stream_)
+                   : launch_p40_projection_reset_fp8_group(
+                         projection_backend_, group_weights, group_outputs,
+                         1U, core_output_base, fp8_physical_launches, stream_);
       if (status == static_cast<int>(cudaSuccess)) {
         ++fp8_projection_hits;
       }
@@ -5371,12 +5585,16 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
                                kNativePromptWideP40WholeCore ||
       projection_tactic == LayerMajorPrefillProjectionTactic::
                                kNativePromptWideP40ProjectionReset ||
+      projection_tactic == LayerMajorPrefillProjectionTactic::
+                               kNativePromptWideP40PackedProjection ||
       full_attention_tactic == LayerMajorPrefillFullAttentionTactic::
                                    kNativeFlashInferExactWholePrompt ||
       immutable_topology.mlp_schedule.tactic ==
           LayerMajorPrefillMlpScheduleTactic::kPromptWideP40WholeCore ||
       immutable_topology.mlp_schedule.tactic ==
-          LayerMajorPrefillMlpScheduleTactic::kPromptWideP40ProjectionReset;
+          LayerMajorPrefillMlpScheduleTactic::kPromptWideP40ProjectionReset ||
+      immutable_topology.mlp_schedule.tactic ==
+          LayerMajorPrefillMlpScheduleTactic::kPromptWideP40PackedProjection;
   const bool prompt_wide_p40_whole_core =
       valid_prompt_wide_p40_whole_core_runner_contract(
           immutable_topology, state_->memory_profile(),
@@ -5385,6 +5603,9 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
   const bool use_projection_reset =
       projection_tactic == LayerMajorPrefillProjectionTactic::
                                kNativePromptWideP40ProjectionReset;
+  const bool use_packed_projection =
+      projection_tactic == LayerMajorPrefillProjectionTactic::
+                               kNativePromptWideP40PackedProjection;
   if (!layer_major_request_views_.has_value() ||
       any_prompt_wide_p40_whole_core_identity !=
           prompt_wide_p40_whole_core ||
@@ -5701,7 +5922,7 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
         }
         status = enqueue_prompt_wide_p40_whole_core_fill_panel(
             layer, immutable_topology.panels[panel_index], layer_major,
-            use_projection_reset,
+            use_projection_reset, use_packed_projection,
             prompt_wide_p40_fp8_projection_hits,
             prompt_wide_p40_fp8_projection_physical_launches);
         if (!status) {
@@ -5719,7 +5940,7 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
         return fail_whole_request_prefill(status);
       }
       status = enqueue_prompt_wide_p40_whole_core_prompt_core(
-          layer, layer_major, use_projection_reset,
+          layer, layer_major, use_projection_reset, use_packed_projection,
           prompt_wide_p40_fp8_projection_hits,
           prompt_wide_p40_fp8_projection_physical_launches);
       if (!status) {
@@ -5747,7 +5968,7 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
         }
         status = enqueue_prompt_wide_p40_whole_core_drain_panel(
             layer, immutable_topology.panels[panel_index], layer_major,
-            use_projection_reset,
+            use_projection_reset, use_packed_projection,
             prompt_wide_p40_fp8_projection_hits,
             prompt_wide_p40_fp8_projection_physical_launches);
         if (!status) {
@@ -5766,7 +5987,8 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
         return fail_whole_request_prefill(status);
       }
       status = enqueue_layer_wide_p40_mlp(layer, layer_major,
-                                          use_projection_reset);
+                                          use_projection_reset,
+                                          use_packed_projection);
       if (!status) {
         return fail_whole_request_prefill(status);
       }
@@ -6220,6 +6442,16 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
   for (std::size_t layer = 0U; layer < kReferenceDecoderLayerCount;
        ++layer) {
     if (prompt_wide_p40_whole_core) {
+      if (use_packed_projection) {
+        if (advance_prompt_wide_p40_packed_projection_layer_progress_after_completion(
+                immutable_topology, progress, layer) !=
+            PrefillExecutionProgressError::kNone) {
+          return fail_whole_request_prefill(runner_status(
+              ReferenceRunnerError::kInvalidStepOptions,
+              "whole_request_prefill_packed_projection_progress", layer));
+        }
+        continue;
+      }
       if (use_projection_reset) {
         if (advance_prompt_wide_p40_projection_reset_layer_progress_after_completion(
                 immutable_topology, progress, layer) !=
@@ -6650,6 +6882,8 @@ ReferenceRunner::enqueue_prefill_layer_panel(
               kNativePromptWideP40WholeCore:
           case LayerMajorPrefillProjectionTactic::
               kNativePromptWideP40ProjectionReset:
+          case LayerMajorPrefillProjectionTactic::
+              kNativePromptWideP40PackedProjection:
             // This helper is never part of the whole-core route. The latter
             // binds its explicit M8000 primitive before entering this legacy
             // panel executor.
@@ -7550,11 +7784,13 @@ ReferenceRunner::enqueue_prefill_layer_panel(
 ReferenceRunnerStatus ReferenceRunner::enqueue_layer_wide_p40_mlp(
     const std::size_t layer,
     const ReferenceLayerMajorRequestViews& request_views,
-    const bool use_projection_reset) noexcept {
+    const bool use_projection_reset,
+    const bool use_packed_projection) noexcept {
 #if !defined(Q3X_ENABLE_NVFP4_PERSISTENT_PREFILL_ADMISSION)
   (void)layer;
   (void)request_views;
   (void)use_projection_reset;
+  (void)use_packed_projection;
   return runner_status(ReferenceRunnerError::kInvalidDependency,
                        "prefill_layer_wide_p40_mlp_binary");
 #else
@@ -7606,7 +7842,13 @@ ReferenceRunnerStatus ReferenceRunner::enqueue_layer_wide_p40_mlp(
   if (gate == nullptr || up == nullptr || down == nullptr ||
       !valid_vector(layer_weights.post_attention_layernorm,
                     kReferenceHiddenSize) ||
-      !valid_persistent_p40_nvfp4_mlp_weights(*gate, *up, *down)) {
+      (use_packed_projection
+#if defined(Q3X_ENABLE_P40_PACKED_PROJECTION_ADMISSION)
+           ? !valid_p40_packed_nvfp4_mlp_weights(*gate, *up, *down)
+#else
+           ? true
+#endif
+           : !valid_persistent_p40_nvfp4_mlp_weights(*gate, *up, *down))) {
     return runner_status(ReferenceRunnerError::kInvalidModelWeights,
                          "prefill_layer_wide_p40_mlp_inventory", layer);
   }
@@ -7640,7 +7882,15 @@ ReferenceRunnerStatus ReferenceRunner::enqueue_layer_wide_p40_mlp(
                          "prefill_layer_wide_p40_post_attention_norm", layer,
                          norm_status);
   }
-  const int gate_up_status = use_projection_reset
+  int gate_up_status = static_cast<int>(cudaErrorNotSupported);
+  if (use_packed_projection) {
+#if defined(Q3X_ENABLE_P40_PACKED_PROJECTION_ADMISSION)
+    gate_up_status = kernels::launch_sm87_p40_packed_nvfp4_gate_up_cuda(
+        normalized, gate->prefill_p40_packed_artifact,
+        kLayerMajorPrefillLayerWideMlpP40Tokens, activated, stream_);
+#endif
+  } else {
+    gate_up_status = use_projection_reset
 #if defined(Q3X_ENABLE_P40_PROJECTION_RESET_ADMISSION)
       ? kernels::launch_sm87_p40_projection_reset_nvfp4_gate_up_silu_cuda(
             normalized, gate->prefill_marlin_weight,
@@ -7655,12 +7905,24 @@ ReferenceRunnerStatus ReferenceRunner::enqueue_layer_wide_p40_mlp(
             gate->prefill_marlin_scales,
             gate->prefill_marlin_global_scale,
             kLayerMajorPrefillLayerWideMlpP40Tokens, activated, stream_);
+  }
   if (gate_up_status != static_cast<int>(cudaSuccess)) {
     return runner_status(ReferenceRunnerError::kCudaFailure,
-                         "prefill_layer_wide_p40_persistent_gate_up", layer,
+                         use_packed_projection
+                             ? "prefill_p40_packed_nvfp4_gate_up"
+                             : "prefill_layer_wide_p40_persistent_gate_up",
+                         layer,
                          gate_up_status);
   }
-  const int down_status = use_projection_reset
+  int down_status = static_cast<int>(cudaErrorNotSupported);
+  if (use_packed_projection) {
+#if defined(Q3X_ENABLE_P40_PACKED_PROJECTION_ADMISSION)
+    down_status = kernels::launch_sm87_p40_packed_nvfp4_down_cuda(
+        activated, down->prefill_p40_packed_artifact,
+        kLayerMajorPrefillLayerWideMlpP40Tokens, residual, stream_);
+#endif
+  } else {
+    down_status = use_projection_reset
 #if defined(Q3X_ENABLE_P40_PROJECTION_RESET_ADMISSION)
       ? kernels::launch_sm87_p40_projection_reset_nvfp4_down_residual_cuda(
             activated, down->prefill_marlin_weight,
@@ -7675,9 +7937,12 @@ ReferenceRunnerStatus ReferenceRunner::enqueue_layer_wide_p40_mlp(
             down->prefill_marlin_scales,
             down->prefill_marlin_global_scale,
             kLayerMajorPrefillLayerWideMlpP40Tokens, residual, stream_);
+  }
   if (down_status != static_cast<int>(cudaSuccess)) {
     return runner_status(ReferenceRunnerError::kCudaFailure,
-                         "prefill_layer_wide_p40_persistent_down_residual",
+                         use_packed_projection
+                             ? "prefill_p40_packed_nvfp4_down_residual"
+                             : "prefill_layer_wide_p40_persistent_down_residual",
                          layer, down_status);
   }
   return {};
@@ -9706,7 +9971,10 @@ ReferenceRunner::commit_whole_request_layer_major_compatibility_core(
                       kPromptWideP40WholeCore ||
               immutable_topology.mlp_schedule.tactic ==
                   LayerMajorPrefillMlpScheduleTactic::
-                      kPromptWideP40ProjectionReset
+                      kPromptWideP40ProjectionReset ||
+              immutable_topology.mlp_schedule.tactic ==
+                  LayerMajorPrefillMlpScheduleTactic::
+                      kPromptWideP40PackedProjection
           ? RequestMemoryProfile::kLayerMajorP40WholeCore
           : RequestMemoryProfile::kLayerMajorC8192;
   if (state_->memory_profile() != expected_memory_profile ||

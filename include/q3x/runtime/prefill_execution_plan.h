@@ -66,6 +66,23 @@ inline constexpr std::size_t
     kLayerMajorPrefillProjectionResetNvFp4DownLaunchesPerLayer = 1U;
 inline constexpr std::size_t
     kLayerMajorPrefillProjectionResetNvFp4PhysicalLaunchesPerRequest = 128U;
+// The packed-dataflow successor owns the same logical model roles as the
+// projection reset, but it has a separate route identity and authenticated
+// artifact inventory.  These constants must never be satisfied by the old
+// Marlin/supermatrix sidecars merely because their launch counts match.
+inline constexpr std::size_t
+    kLayerMajorPrefillPackedProjectionFp8PhysicalLaunchesPerRequest = 128U;
+inline constexpr std::size_t
+    kLayerMajorPrefillPackedProjectionFp8TensorRoleHitsPerRequest = 208U;
+inline constexpr std::size_t
+    kLayerMajorPrefillPackedProjectionNvFp4PhysicalLaunchesPerRequest = 128U;
+// Four physical artifacts per layer: Gate+Up, Down, grouped FP8 input, and
+// FP8 output. Their manifests retain 3 NVFP4 and 208 FP8 logical source
+// identities across the model, so grouping cannot erase provenance.
+inline constexpr std::size_t
+    kLayerMajorPrefillPackedProjectionArtifactCount = 256U;
+inline constexpr std::size_t
+    kLayerMajorPrefillPackedProjectionAuthenticatedSourceCount = 400U;
 inline constexpr std::uint32_t kLayerMajorPrefillLayerWideMlpAlignmentTokens =
     64U;
 inline constexpr std::uint32_t kLayerMajorPrefillMaximumSequenceTokens =
@@ -106,6 +123,13 @@ static_assert(
     kLayerMajorPrefillLayerCount *
         (kLayerMajorPrefillProjectionResetNvFp4GateUpLaunchesPerLayer +
          kLayerMajorPrefillProjectionResetNvFp4DownLaunchesPerLayer));
+static_assert(
+    kLayerMajorPrefillPackedProjectionArtifactCount ==
+    kLayerMajorPrefillLayerCount * 4U);
+static_assert(
+    kLayerMajorPrefillPackedProjectionAuthenticatedSourceCount ==
+    kLayerMajorPrefillLayerCount * 3U +
+        kLayerMajorPrefillPackedProjectionFp8TensorRoleHitsPerRequest);
 static_assert(kLayerMajorPrefillMaximumPanelCount == 32U);
 
 [[nodiscard]] constexpr bool is_nvfp4_true_large_m_prefill_panel_tokens(
@@ -201,6 +225,10 @@ enum class LayerMajorPrefillProjectionTactic : std::uint8_t {
   // default-off route and may not be reported as the earlier whole-core
   // tactic.
   kNativePromptWideP40ProjectionReset,
+  // AC-PREFILL-P40-PACKED-DATAFLOW-v1. All 64 Gate+Up, 64 Down, and
+  // 208 FP8 roles consume their own authenticated packed operand artifacts.
+  // This value cannot inherit projection-reset bindings or evidence.
+  kNativePromptWideP40PackedProjection,
 };
 
 [[nodiscard]] constexpr bool is_valid_layer_major_prefill_projection_tactic(
@@ -220,7 +248,9 @@ enum class LayerMajorPrefillProjectionTactic : std::uint8_t {
          tactic == LayerMajorPrefillProjectionTactic::
                        kNativePromptWideP40WholeCore ||
          tactic == LayerMajorPrefillProjectionTactic::
-                       kNativePromptWideP40ProjectionReset;
+                       kNativePromptWideP40ProjectionReset ||
+         tactic == LayerMajorPrefillProjectionTactic::
+                       kNativePromptWideP40PackedProjection;
 }
 
 [[nodiscard]] constexpr std::string_view to_string(
@@ -247,6 +277,9 @@ enum class LayerMajorPrefillProjectionTactic : std::uint8_t {
     case LayerMajorPrefillProjectionTactic::
         kNativePromptWideP40ProjectionReset:
       return "native-prompt-wide-p40-projection-reset";
+    case LayerMajorPrefillProjectionTactic::
+        kNativePromptWideP40PackedProjection:
+      return "native-prompt-wide-p40-packed-projection";
   }
   return "unknown";
 }
@@ -420,6 +453,7 @@ enum class PrefillFp8ArithmeticTactic : std::uint8_t {
   kOperatorPanelSegmentedMarlin,
   kP8000FillDrainSingleBulk,
   kP40000GroupedInputAndOutputSingleBulk,
+  kP40000PackedRoleSpecialized,
 };
 
 enum class PrefillNvFp4ArithmeticTactic : std::uint8_t {
@@ -428,6 +462,7 @@ enum class PrefillNvFp4ArithmeticTactic : std::uint8_t {
   kOperatorPanelGateSiluDownSequence,
   kM8192OrM7712TrueLargeMPanelGateSiluDown,
   kP40000PersistentGateUpSiluDownResidual,
+  kP40000PackedGateUpSiluDownResidual,
 };
 
 enum class PrefillGdnArithmeticTactic : std::uint8_t {
@@ -652,6 +687,40 @@ inline constexpr LayerMajorPrefillArithmeticContract
         true,
         true};
 
+// The packed route preserves every public arithmetic boundary of the exact
+// P40 whole-core substrate while changing both quantized operand providers.
+// A distinct contract version prevents a receipt for the rejected
+// projection-reset skeleton from authorizing this route (or vice versa).
+inline constexpr LayerMajorPrefillArithmeticContract
+    kLayerMajorPrefillPromptWideP40PackedProjectionArithmeticContract{
+        8U,
+        PrefillBf16AbArithmeticTactic::kPromptWideP40SingleGrid,
+        PrefillFp8ArithmeticTactic::kP40000PackedRoleSpecialized,
+        PrefillNvFp4ArithmeticTactic::
+            kP40000PackedGateUpSiluDownResidual,
+        PrefillGdnArithmeticTactic::kPromptWideP40ChunkGraph,
+        PrefillAttentionPreprocessArithmeticTactic::
+            kP8000FillWholePromptFlashInferDrain,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        false,
+        true,
+        true,
+        true};
+
 [[nodiscard]] constexpr bool is_valid_layer_major_prefill_arithmetic_contract(
     const LayerMajorPrefillArithmeticContract& contract) noexcept {
   const bool common =
@@ -825,12 +894,43 @@ inline constexpr LayerMajorPrefillArithmeticContract
       contract.p40000_bf16_ab_prompt_wide &&
       contract.p40000_gdn_prompt_wide &&
       contract.p40000_flashinfer_whole_prompt;
+  const bool prompt_wide_p40_packed_projection =
+      contract.version == 8U &&
+      contract.bf16_ab ==
+          PrefillBf16AbArithmeticTactic::kPromptWideP40SingleGrid &&
+      contract.fp8 ==
+          PrefillFp8ArithmeticTactic::kP40000PackedRoleSpecialized &&
+      contract.nvfp4 == PrefillNvFp4ArithmeticTactic::
+                             kP40000PackedGateUpSiluDownResidual &&
+      contract.gdn == PrefillGdnArithmeticTactic::kPromptWideP40ChunkGraph &&
+      contract.attention_preprocess ==
+          PrefillAttentionPreprocessArithmeticTactic::
+              kP8000FillWholePromptFlashInferDrain &&
+      !contract.reset_fp8_locks_per_projection_span &&
+      !contract.nvfp4_interleaves_gate_silu_down_per_span &&
+      !contract.nvfp4_down_reuses_gate_up_locks &&
+      !contract.nvfp4_residual_follows_down_per_span &&
+      !contract.m8192_single_bulk_projection &&
+      !contract.m8192_fp8_resets_locks_once &&
+      !contract.m8192_nvfp4_uses_independent_down_workspace &&
+      !contract.m8192_nvfp4_residual_once_after_bulk &&
+      !contract.nvfp4_true_large_m_m8192 &&
+      !contract.nvfp4_true_large_m_m7712 &&
+      contract.nvfp4_gate_up_down_coupled &&
+      contract.p40000_post_attention_norm_prompt_wide &&
+      contract.p40000_persistent_gate_up_silu &&
+      contract.p40000_persistent_down_residual &&
+      !contract.p8000_fp8_fill_drain_single_bulk &&
+      contract.p40000_bf16_ab_prompt_wide &&
+      contract.p40000_gdn_prompt_wide &&
+      contract.p40000_flashinfer_whole_prompt;
   return common &&
          ((legacy_common &&
            (exact || exact_marlin_m8192 || segmented_marlin ||
             true_large_m_nvfp4 || persistent_p40_nvfp4)) ||
           prompt_wide_p40_whole_core ||
-          prompt_wide_p40_projection_reset);
+          prompt_wide_p40_projection_reset ||
+          prompt_wide_p40_packed_projection);
 }
 
 static_assert(kLayerMajorPrefillMaximumArithmeticSpanCount == 16U);
@@ -848,6 +948,8 @@ static_assert(is_valid_layer_major_prefill_arithmetic_contract(
     kLayerMajorPrefillPromptWideP40WholeCoreArithmeticContract));
 static_assert(is_valid_layer_major_prefill_arithmetic_contract(
     kLayerMajorPrefillPromptWideP40ProjectionResetArithmeticContract));
+static_assert(is_valid_layer_major_prefill_arithmetic_contract(
+    kLayerMajorPrefillPromptWideP40PackedProjectionArithmeticContract));
 static_assert(is_valid_layer_major_prefill_arithmetic_span_ledger(
     make_layer_major_prefill_arithmetic_span_ledger(513U)));
 
@@ -870,6 +972,7 @@ enum class LayerMajorPrefillMlpScheduleTactic : std::uint8_t {
   kLayerWideP40ExactFullM,
   kPromptWideP40WholeCore,
   kPromptWideP40ProjectionReset,
+  kPromptWideP40PackedProjection,
 };
 
 [[nodiscard]] constexpr bool is_valid_layer_major_prefill_mlp_schedule_tactic(
@@ -881,7 +984,9 @@ enum class LayerMajorPrefillMlpScheduleTactic : std::uint8_t {
          tactic == LayerMajorPrefillMlpScheduleTactic::
                        kPromptWideP40WholeCore ||
          tactic == LayerMajorPrefillMlpScheduleTactic::
-                       kPromptWideP40ProjectionReset;
+                       kPromptWideP40ProjectionReset ||
+         tactic == LayerMajorPrefillMlpScheduleTactic::
+                       kPromptWideP40PackedProjection;
 }
 
 [[nodiscard]] constexpr std::string_view to_string(
@@ -895,6 +1000,8 @@ enum class LayerMajorPrefillMlpScheduleTactic : std::uint8_t {
       return "prompt-wide-p40-whole-core";
     case LayerMajorPrefillMlpScheduleTactic::kPromptWideP40ProjectionReset:
       return "prompt-wide-p40-projection-reset";
+    case LayerMajorPrefillMlpScheduleTactic::kPromptWideP40PackedProjection:
+      return "prompt-wide-p40-packed-projection";
   }
   return "unknown";
 }
@@ -924,6 +1031,11 @@ enum class LayerMajorPrefillMlpScheduleTactic : std::uint8_t {
 // not become selectable merely because the earlier whole-core experiment is
 // compiled into the same binary.
 [[nodiscard]] bool prompt_wide_p40_projection_reset_prefill_plan_enabled()
+    noexcept;
+
+// Independent default-OFF admission for AC-PREFILL-P40-PACKED-DATAFLOW-v1.
+// It never becomes selectable through either older P40 admission switch.
+[[nodiscard]] bool prompt_wide_p40_packed_projection_prefill_plan_enabled()
     noexcept;
 
 enum class PrefillExecutionPlanError : std::uint8_t {
@@ -1035,6 +1147,36 @@ struct PrefillP40ProjectionResetSchedulePlan {
   bool cublaslt_forbidden = false;
 };
 
+// Exact-P40000 packed-operand ownership. The numeric launch envelope is
+// intentionally recorded separately from the projection-reset schedule:
+// route admission additionally requires all 336 authenticated artifacts,
+// full-K data parallelism, and zero request-time repack or tactic selection.
+struct PrefillP40PackedProjectionSchedulePlan {
+  bool enabled = false;
+  std::size_t input_preparation_panel_count_per_layer = 0U;
+  std::size_t prompt_core_phase_count_per_layer = 0U;
+  std::size_t packed_mlp_phase_count_per_layer = 0U;
+  std::uint32_t panel_token_count = 0U;
+  std::uint32_t projection_m_tokens = 0U;
+  std::uint32_t request_capacity_tokens = 0U;
+  std::uint64_t route_pass_count = 0U;
+  std::size_t fp8_physical_launches_per_request = 0U;
+  std::size_t fp8_tensor_role_hits_per_request = 0U;
+  std::size_t nvfp4_physical_launches_per_request = 0U;
+  std::size_t authenticated_artifact_count = 0U;
+  std::size_t authenticated_source_count = 0U;
+  std::size_t stream_k_slice_count = 0U;
+  bool packed_operands_retained_to_register_decode = false;
+  bool role_specific_tactics_required = false;
+  bool request_time_repack_forbidden = false;
+  bool request_time_tactic_selection_forbidden = false;
+  bool internal_m_segmentation_forbidden = false;
+  bool production_accuracy_required = false;
+  bool approximate_numerics_forbidden = false;
+  bool mtp_forbidden = false;
+  bool cublaslt_forbidden = false;
+};
+
 struct PrefillExecutionPlan {
   PrefillTraversalOrder traversal = PrefillTraversalOrder::kLayerMajor;
   // Descriptive compatibility metadata only. It never determines panels.
@@ -1053,6 +1195,7 @@ struct PrefillExecutionPlan {
   PrefillMlpSchedulePlan mlp_schedule;
   PrefillWholeCoreSchedulePlan whole_core_schedule;
   PrefillP40ProjectionResetSchedulePlan projection_reset_schedule;
+  PrefillP40PackedProjectionSchedulePlan packed_projection_schedule;
   PrefillFinalCommitPlan final_commit;
 
   // The scaffold deliberately has no mutation or binder that can make this
@@ -1151,6 +1294,13 @@ advance_prompt_wide_p40_persistent_mlp_progress_after_completion(
 // M8000 panel.
 [[nodiscard]] PrefillExecutionProgressError
 advance_prompt_wide_p40_projection_reset_layer_progress_after_completion(
+    const PrefillExecutionPlan& plan, PrefillExecutionProgress& progress,
+    std::size_t layer_index) noexcept;
+
+// The packed route publishes one layer atomically under its own topology
+// identity; it cannot call the projection-reset transition as an alias.
+[[nodiscard]] PrefillExecutionProgressError
+advance_prompt_wide_p40_packed_projection_layer_progress_after_completion(
     const PrefillExecutionPlan& plan, PrefillExecutionProgress& progress,
     std::size_t layer_index) noexcept;
 

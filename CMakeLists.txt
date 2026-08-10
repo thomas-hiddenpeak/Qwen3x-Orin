@@ -86,6 +86,10 @@ option(Q3X_BUILD_P40_PHASE_BF16_PROJECTION_ADMISSION
   "Build the test-only rejected P40000 phase-local BF16 correctness primitives"
   OFF
 )
+option(Q3X_BUILD_P40_PACKED_PROJECTION_ADMISSION
+  "Build the test-only AC-PREFILL-P40-PACKED-DATAFLOW-v1 projection route"
+  OFF
+)
 if(Q3X_BUILD_GDN_B8_ADMISSION AND NOT BUILD_TESTING)
   message(FATAL_ERROR
     "Q3X_BUILD_GDN_B8_ADMISSION is test-only and requires BUILD_TESTING=ON"
@@ -221,6 +225,17 @@ if(Q3X_BUILD_P40_PHASE_BF16_PROJECTION_ADMISSION AND NOT BUILD_TESTING)
     "Q3X_BUILD_P40_PHASE_BF16_PROJECTION_ADMISSION is test-only and requires BUILD_TESTING=ON"
   )
 endif()
+if(Q3X_BUILD_P40_PACKED_PROJECTION_ADMISSION AND NOT BUILD_TESTING)
+  message(FATAL_ERROR
+    "Q3X_BUILD_P40_PACKED_PROJECTION_ADMISSION is test-only and requires BUILD_TESTING=ON"
+  )
+endif()
+if(Q3X_BUILD_P40_PACKED_PROJECTION_ADMISSION AND
+   NOT Q3X_BUILD_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION)
+  message(FATAL_ERROR
+    "Q3X_BUILD_P40_PACKED_PROJECTION_ADMISSION requires the exact-P40000 whole-core execution substrate"
+  )
+endif()
 if((Q3X_BUILD_GDN_B8_ADMISSION AND
     Q3X_BUILD_GDN_C16_NORM_GATE_ADMISSION) OR
    (Q3X_BUILD_GDN_B8_ADMISSION AND
@@ -323,6 +338,13 @@ if(Q3X_BUILD_P40_PROJECTION_RESET_ADMISSION)
   # default-off binary cannot observe a partial route or an ODR-split enum.
   target_compile_definitions(q3x_core PUBLIC
     Q3X_ENABLE_P40_PROJECTION_RESET_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_P40_PACKED_PROJECTION_ADMISSION)
+  # The packed route adds a distinct topology, sidecar ABI, runner path, and
+  # sealed authority. Keep one definition across planner/runner/engine/tests.
+  target_compile_definitions(q3x_core PUBLIC
+    Q3X_ENABLE_P40_PACKED_PROJECTION_ADMISSION=1
   )
 endif()
 q3x_enable_warnings(q3x_core)
@@ -458,6 +480,16 @@ if(Q3X_BUILD_P40_PHASE_BF16_PROJECTION_ADMISSION)
     Q3X_ENABLE_P40_PHASE_BF16_PROJECTION_ADMISSION=1
   )
 endif()
+if(Q3X_BUILD_P40_PACKED_PROJECTION_ADMISSION)
+  target_sources(q3x_kernels PRIVATE
+    src/kernels/sm87/p40_packed_layout.cpp
+    src/kernels/sm87/p40_packed_nvfp4.cu
+    src/kernels/sm87/p40_packed_fp8.cu
+  )
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_P40_PACKED_PROJECTION_ADMISSION=1
+  )
+endif()
 if(Q3X_BUILD_FP8_MARLIN_PREFILL_ADMISSION)
   target_sources(q3x_kernels PRIVATE
     src/kernels/sm87/fp8_marlin_w8a16.cu
@@ -498,6 +530,7 @@ endif()
 q3x_enable_warnings(q3x_kernels)
 
 add_library(q3x_engine STATIC
+  src/runtime/p40_packed_projection_assets.cpp
   src/runtime/reference_benchmark.cpp
   src/runtime/reference_engine.cpp
   src/runtime/reference_engine_control.cpp
@@ -797,6 +830,54 @@ if(BUILD_TESTING)
     )
     set_tests_properties(sm87_p40_projection_reset_host PROPERTIES
       LABELS "host;sm87;prefill;contract"
+    )
+  endif()
+
+  if(Q3X_BUILD_P40_PACKED_PROJECTION_ADMISSION)
+    add_executable(q3x_sm87_p40_packed_projection_host_test
+      tests/sm87_p40_packed_projection_host_test.cpp
+    )
+    target_link_libraries(q3x_sm87_p40_packed_projection_host_test
+      PRIVATE q3x::kernels
+    )
+    q3x_enable_warnings(q3x_sm87_p40_packed_projection_host_test)
+    add_test(NAME sm87_p40_packed_projection_host
+      COMMAND q3x_sm87_p40_packed_projection_host_test
+    )
+    set_tests_properties(sm87_p40_packed_projection_host PROPERTIES
+      LABELS "host;sm87;prefill;contract;packed"
+    )
+
+    add_executable(q3x_sm87_p40_packed_fp8_cuda_test
+      tests/sm87_p40_packed_fp8_cuda_test.cu
+    )
+    target_link_libraries(q3x_sm87_p40_packed_fp8_cuda_test
+      PRIVATE q3x::kernels CUDA::cudart
+    )
+    q3x_enable_warnings(q3x_sm87_p40_packed_fp8_cuda_test)
+    add_test(NAME sm87_p40_packed_fp8_cuda
+      COMMAND q3x_sm87_p40_packed_fp8_cuda_test
+    )
+    set_tests_properties(sm87_p40_packed_fp8_cuda PROPERTIES
+      LABELS "cuda;sm87;prefill;correctness;packed"
+      SKIP_RETURN_CODE 77
+      RESOURCE_LOCK q3x_gpu
+    )
+
+    add_executable(q3x_sm87_p40_packed_nvfp4_cuda_test
+      tests/sm87_p40_packed_nvfp4_cuda_test.cu
+    )
+    target_link_libraries(q3x_sm87_p40_packed_nvfp4_cuda_test
+      PRIVATE q3x::kernels CUDA::cudart
+    )
+    q3x_enable_warnings(q3x_sm87_p40_packed_nvfp4_cuda_test)
+    add_test(NAME sm87_p40_packed_nvfp4_cuda
+      COMMAND q3x_sm87_p40_packed_nvfp4_cuda_test
+    )
+    set_tests_properties(sm87_p40_packed_nvfp4_cuda PROPERTIES
+      LABELS "cuda;sm87;prefill;correctness;packed"
+      SKIP_RETURN_CODE 77
+      RESOURCE_LOCK q3x_gpu
     )
   endif()
 

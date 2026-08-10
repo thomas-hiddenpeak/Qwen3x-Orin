@@ -513,6 +513,58 @@ the
 [v12 phase-local record](metadata/qwen36-27b-prefill-p40k-phase-local-bf16-rejection-2026-08-10.json),
 but results and current status do not belong in this procedure.
 
+The default-off AOT packed-operand projection experiment emits the independent
+`target-prefill-witness-v13` schema. It must never reuse, deserialize as, or
+claim continuity from historical v12: v12 described a removed phase-local BF16
+expansion/dense lowering, lacked a retained raw server witness, and had no
+sealed-route authority. A conforming v13 request is complete only when all of
+the following are true:
+
+- projection tactic is `native-prompt-wide-p40-packed-projection`, MLP schedule
+  is `prompt-wide-p40-packed-projection`, Attention tactic remains
+  `native-flashinfer-exact-whole-prompt`, request memory profile remains
+  `layer-major-p40-whole-core`, and the sealed DeploymentPlan is exactly
+  `q3x.sm87.ac-prefill-p40-packed-dataflow.native-p40-packed-projection.v1`;
+- the engine has prepared and authenticated exactly 256 physical packed
+  artifacts from 400 original checkpoint tensor sources before readiness,
+  reports 16,840,130,560 resident packed-asset bytes, and has not prepared or
+  selected the old FP8 supermatrix sidecar for this route;
+- one 64-layer pass consumes exactly five M8000 panels, completes 320 fill, 64
+  prompt-core, 320 drain, and 64 MLP phases, and retires the bounded two-slot
+  window exactly 768 times;
+- FP8 records 208 logical tensor-role hits and exactly 128 physical launches;
+  NVFP4 records 64 merged Gate+Up and 64 Down+residual hits in exactly 128
+  physical launches; BF16 A/B and GDN each record 48 hits and whole-prompt
+  FlashInfer records 16; and
+- the package identity is `exact-p40000-packed-projection-dataflow-v1`, every
+  role receipt is complete, all exact/forbidden fallback counts are zero, and
+  Prefix cache, MTP, cuBLASLt, external-reference, and approximate-route hits
+  are zero.
+
+The v13 selection gate is the same frozen flat token-ID cold/no-cache P40000
+OpenAI completions request: one successful EvalScope 1.9.1 request, exactly
+40,000 prompt tokens fully consumed, one committed greedy token, no warmup,
+Prefix cache, or MTP, plus an accepted clean-host preflight immediately before
+timing. Route completeness and a matching first token are transport/admission
+evidence only. Version 13 remains
+`accuracy-unqualified-architecture-candidate` until full real-model state and
+capability qualification passes, and one sample has early-stop rather than
+architecture-selection or release authority. P60 remains fail-closed until a
+competitive, accuracy-admissible P40 result and an independent exact-P60000
+geometry, capacity plan, route, and witness exist.
+
+The first valid clean-host v13 request proved that complete API, asset, plan, and
+route integration, but rejected packed projection v1 on performance. Server
+pure Prefill was 161,410.929373 ms / 247.814693561 prompt tok/s and EvalScope
+reported 161,447.32 ms TTFT / 247.758768301 New Prompt tok/s. Against v10 at
+101,831.853876 ms / 392.804397 tok/s, it added 59,579.075497 ms and reduced
+throughput by 36.9114%. EvalScope TTFT exceeded server TTFT by only 3.807390
+ms, so the API boundary is not the cause. The route remains default-off, full
+accuracy/repetition did not run, and P60/P130 stay locked. Exact hashes,
+counts, limitations, and the bounded post-rejection profiling boundary are
+frozen in the
+[v13 packed projection rejection record](metadata/qwen36-27b-prefill-p40k-packed-projection-rejection-2026-08-10.json).
+
 The first WP-V2-C1-v3 direction reused the exact v10 host schedule and route
 counters through a binary-pinned, default-off overlay; the binary hash, not a
 new witness name, distinguishes its substituted shape-wide NVFP4 body. It

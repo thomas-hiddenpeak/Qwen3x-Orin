@@ -63,11 +63,14 @@ class SyntheticArena {
       const bool force_fp8_attention_outputs = false,
       const bool force_nvfp4_down_projections = false,
       const bool force_fp8_linear_qkv = false,
-      const bool force_fp8_prefill_supermatrix = false)
+      const bool force_fp8_prefill_supermatrix = false,
+      const bool force_p40_packed_projection = false)
       : force_fp8_attention_outputs_(force_fp8_attention_outputs),
         force_nvfp4_down_projections_(force_nvfp4_down_projections),
         force_fp8_linear_qkv_(force_fp8_linear_qkv),
-        force_fp8_prefill_supermatrix_(force_fp8_prefill_supermatrix) {
+        force_fp8_prefill_supermatrix_(force_fp8_prefill_supermatrix ||
+                                       force_p40_packed_projection),
+        force_p40_packed_projection_(force_p40_packed_projection) {
     build();
   }
 
@@ -204,13 +207,20 @@ class SyntheticArena {
       add(prefix + "post_attention_layernorm.weight", st::DType::kBf16,
           {config->hidden_size});
       add_linear(prefix + "mlp.gate_proj", config->intermediate_size,
-                 config->hidden_size, next_kind());
+                 config->hidden_size,
+                 force_p40_packed_projection_
+                     ? SyntheticLinearKind::kNvFp4
+                     : next_kind());
       add_linear(prefix + "mlp.up_proj", config->intermediate_size,
-                 config->hidden_size, next_kind());
+                 config->hidden_size,
+                 force_p40_packed_projection_
+                     ? SyntheticLinearKind::kNvFp4
+                     : next_kind());
       const SyntheticLinearKind down_kind = next_kind();
       add_linear(prefix + "mlp.down_proj", config->hidden_size,
                  config->intermediate_size,
                  force_nvfp4_down_projections_
+                         || force_p40_packed_projection_
                      ? SyntheticLinearKind::kNvFp4
                      : down_kind);
 
@@ -292,6 +302,7 @@ class SyntheticArena {
   bool force_nvfp4_down_projections_ = false;
   bool force_fp8_linear_qkv_ = false;
   bool force_fp8_prefill_supermatrix_ = false;
+  bool force_p40_packed_projection_ = false;
 };
 
 [[nodiscard]] runtime::Fp8LinearWeight* mutable_attention_output(
@@ -1021,6 +1032,134 @@ void test_fp8_prefill_supermatrix_sidecar_attachment(TestContext& test) {
               "canonical empty supermatrix call detaches all 208 views");
 }
 
+void test_p40_packed_projection_sidecar_attachment(TestContext& test) {
+  namespace kernels = q3x::kernels;
+  static_assert(kernels::kSm87P40PackedProjectionArtifactCount == 256U);
+  static_assert(kernels::kSm87P40PackedProjectionFp8LogicalRoleCount ==
+                208U);
+
+  SyntheticArena arena(/*force_fp8_attention_outputs=*/false,
+                       /*force_nvfp4_down_projections=*/false,
+                       /*force_fp8_linear_qkv=*/false,
+                       /*force_fp8_prefill_supermatrix=*/false,
+                       /*force_p40_packed_projection=*/true);
+  runtime::WeightBindResult result =
+      runtime::bind_qwen36_27b_weights(arena.source());
+  test.expect(result.ok(), "P40 packed synthetic model ABI binds");
+  if (!result) {
+    return;
+  }
+  runtime::ModelWeights& weights = *result.value;
+
+  constexpr std::uintptr_t kBaseAddress = 0x0000300000000000ULL;
+  std::vector<runtime::P40PackedProjectionSidecarDescriptor> descriptors;
+  descriptors.reserve(kernels::kSm87P40PackedProjectionArtifactCount);
+  std::uintptr_t next_address = kBaseAddress;
+  std::uint64_t next_identity = 1U;
+  const auto append = [&](const std::size_t layer_index,
+                          const kernels::Sm87P40PackedProjectionRole role) {
+    const kernels::Sm87P40PackedProjectionPlan plan =
+        kernels::sm87_p40_packed_projection_plan(role);
+    kernels::Sm87P40PackedProjectionDeviceView view;
+    view.payload = reinterpret_cast<const std::uint8_t*>(next_address);
+    view.payload_bytes = plan.payload_bytes;
+    view.artifact_identity = next_identity++;
+    view.role = role;
+    view.tactic = plan.tactic;
+    view.source_count = plan.source_count;
+    for (std::size_t source = 0U; source < plan.source_count; ++source) {
+      view.scalar_scales[source] =
+          role == kernels::Sm87P40PackedProjectionRole::kNvFp4GateUp ||
+                  role == kernels::Sm87P40PackedProjectionRole::kNvFp4Down
+              ? 0.03125F
+              : 0.125F;
+    }
+    descriptors.push_back({layer_index, view});
+    next_address += plan.payload_bytes;
+  };
+  for (std::size_t layer = 0U;
+       layer < kernels::kSm87P40PackedProjectionLayerCount; ++layer) {
+    append(layer, kernels::Sm87P40PackedProjectionRole::kNvFp4GateUp);
+    append(layer, kernels::Sm87P40PackedProjectionRole::kNvFp4Down);
+    append(layer, kernels::sm87_p40_packed_is_full_layer(layer)
+                      ? kernels::Sm87P40PackedProjectionRole::kFp8FullQkv
+                      : kernels::Sm87P40PackedProjectionRole::kFp8LinearQkvZ);
+    append(layer,
+           kernels::Sm87P40PackedProjectionRole::kFp8AttentionOutput);
+  }
+  test.expect(descriptors.size() ==
+                  kernels::kSm87P40PackedProjectionArtifactCount,
+              "packed descriptor builder covers four artifacts per layer");
+
+  test.expect(weights.attach_p40_packed_projection_sidecars(
+                  descriptors.data(), descriptors.size()),
+              "complete disjoint packed inventory attaches atomically");
+  const auto layer_zero_gate =
+      std::get<runtime::NvFp4LinearWeight>(weights.layer(0U).mlp.gate_proj)
+          .prefill_p40_packed_artifact;
+  const auto layer_zero_up =
+      std::get<runtime::NvFp4LinearWeight>(weights.layer(0U).mlp.up_proj)
+          .prefill_p40_packed_artifact;
+  const auto& layer_zero_linear =
+      std::get<runtime::LinearAttentionWeights>(
+          weights.layer(0U).attention);
+  const auto layer_zero_qkv =
+      std::get<runtime::Fp8LinearWeight>(layer_zero_linear.in_proj_qkv)
+          .prefill_p40_packed_artifact;
+  const auto layer_zero_z =
+      std::get<runtime::Fp8LinearWeight>(layer_zero_linear.in_proj_z)
+          .prefill_p40_packed_artifact;
+  test.expect(
+      layer_zero_gate.artifact_identity == descriptors[0U].view.artifact_identity &&
+          layer_zero_up.artifact_identity == layer_zero_gate.artifact_identity &&
+          layer_zero_qkv.artifact_identity ==
+              descriptors[2U].view.artifact_identity &&
+          layer_zero_z.artifact_identity == layer_zero_qkv.artifact_identity,
+      "Gate/Up and grouped FP8 logical sources share only their declared "
+      "physical artifacts");
+
+  const auto expect_rejected_preserves =
+      [&](std::vector<runtime::P40PackedProjectionSidecarDescriptor> invalid,
+          const std::string_view message) {
+        test.expect(
+            !weights.attach_p40_packed_projection_sidecars(
+                invalid.data(), invalid.size()) &&
+                std::get<runtime::NvFp4LinearWeight>(
+                    weights.layer(0U).mlp.gate_proj)
+                        .prefill_p40_packed_artifact.artifact_identity ==
+                    layer_zero_gate.artifact_identity,
+            message);
+      };
+  auto invalid = descriptors;
+  invalid.back().view.artifact_identity = invalid.front().view.artifact_identity;
+  expect_rejected_preserves(std::move(invalid),
+                            "duplicate artifact identity is atomic");
+  invalid = descriptors;
+  invalid[1U].view.payload = invalid[0U].view.payload;
+  expect_rejected_preserves(std::move(invalid),
+                            "overlapping artifact payload is atomic");
+  invalid = descriptors;
+  invalid[2U].view.source_count = 1U;
+  expect_rejected_preserves(std::move(invalid),
+                            "grouped FP8 source loss is atomic");
+  invalid = descriptors;
+  invalid[0U].view.scalar_scales[2U] = 1.0F;
+  expect_rejected_preserves(std::move(invalid),
+                            "undeclared scalar scale is atomic");
+  test.expect(!weights.attach_p40_packed_projection_sidecars(
+                  descriptors.data(), descriptors.size() - 1U),
+              "incomplete physical inventory is rejected");
+
+  test.expect(weights.attach_p40_packed_projection_sidecars(nullptr, 0U) &&
+                  std::get<runtime::NvFp4LinearWeight>(
+                      weights.layer(0U).mlp.gate_proj)
+                          .prefill_p40_packed_artifact.payload == nullptr &&
+                  std::get<runtime::Fp8LinearWeight>(
+                      layer_zero_linear.in_proj_qkv)
+                          .prefill_p40_packed_artifact.payload == nullptr,
+              "canonical empty call detaches the complete packed inventory");
+}
+
 void test_nvfp4_down_scale6_sidecar_attachment(TestContext& test) {
   static_assert(runtime::kNvFp4DownScale6Rows == 5'120U);
   static_assert(runtime::kNvFp4DownScale6Columns == 17'408U);
@@ -1710,6 +1849,7 @@ int main() {
   test_fp8_m1_output_projection_sidecar_attachment(test);
   test_fp8_prefill_qkv_register_feed_sidecar_attachment(test);
   test_fp8_prefill_supermatrix_sidecar_attachment(test);
+  test_p40_packed_projection_sidecar_attachment(test);
   test_nvfp4_down_scale6_sidecar_attachment(test);
   test_projection_pair_eligibility(test);
   test_fp8_qkv_z_projection_pair_eligibility(test);
