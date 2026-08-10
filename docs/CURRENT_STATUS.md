@@ -15,8 +15,8 @@ q3x_document:
 
 # Qwen3x-Orin current status
 
-Snapshot date: 2026-08-10. Revision `a46d165` implements
-an exact-P40000 whole-core route: each layer executes five M8000 fill panels,
+Snapshot date: 2026-08-10. Baseline revision `a46d165` implements an
+exact-P40000 whole-core route: each layer executes five M8000 fill panels,
 one whole-prompt core, five M8000 drain panels, and one layer-wide NVFP4 MLP
 phase. Its clean-host cold/no-cache OpenAI API/EvalScope direction consumed all
 40,000 tokens and reached 101.831854 s pure Prefill, or 392.804397 prompt
@@ -72,6 +72,21 @@ skeleton is therefore rejected; API/host work is not the cause. The route is
 test-only, default-off, accuracy-unqualified, and frozen in the
 [v11 rejection record](metadata/qwen36-27b-prefill-p40k-projection-reset-rejection-2026-08-10.json).
 P60 was not run. The v10 392.804397 tok/s result remains the incumbent.
+
+The subsequent default-off phase-local candidate expanded each canonical
+NVFP4/FP8 weight into short-lived BF16 scratch and consumed it with a native
+M128N128K64 BF16 Tensor Core grid. Its live experimental v12 output reported
+416 FP8 physical launches; the 512 NVFP4 MLP total was inferred from the
+successful-enqueue composition, not independently observed. No raw witness
+was retained, and its immutable topology disagreed with the physical lowering,
+so it has no sealed-route authority. It nevertheless regressed to
+124.815475 s / 320.472999 prompt
+tok/s; EvalScope TTFT was 124.853852 s. NSys attributes 98.999425 s / 79.4070%
+of kernel time to its dense consumers and only 0.363332 s / 0.2914% to all
+weight expansion. The BF16-consumer architecture is therefore rejected; it
+is not an active tuning surface, did not run P60 or full accuracy, and remains
+default-off. The exact result is frozen in the
+[phase-local rejection record](metadata/qwen36-27b-prefill-p40k-phase-local-bf16-rejection-2026-08-10.json).
 
 This is the single point-in-time status page. It records what is target,
 designed, implemented, qualified, and production. Architecture contracts
@@ -254,10 +269,10 @@ unqualified production runner**.
 | OpenAI-compatible evaluation API | Implemented | `/healthz`, `/v1/models`, completions/chat, non-streaming and committed-token SSE; explicit layer-major mode has bounded Prefill cancellation | Loopback/evaluation-only; no production exposure, security, admission, or multi-tenant contract |
 | Production serving API | Designed | Product/API contract is defined in the SDD | No installed release profile or release attestation exists |
 | Default context capacity | Implemented at 8,192 | Server default `max_sequence_length=8192`, maximum output 4,096, 2 GiB request-arena limit | Does not admit the locked long-context workloads |
-| 40K/60K/130K cold/no-cache service | Target; unqualified P40K development routes exercised | Token-ID ingress fails closed on capacity; the v10 whole-core direction consumed all 40K tokens through the real API at 101.87053 s TTFT / 392.804397 pure prompt tok/s. The v11 complete projection reset also consumed all 40K but regressed to 205.951777 prompt tok/s and was rejected | The incumbent is still 10.95x below the owner's 4.3K tok/s vLLM starting line and 50.92x above the 2-s P40K target; inherited FlashInfer full state differs. P60K has not been timed; P130K, whole-process capacity, and qualification remain open |
+| 40K/60K/130K cold/no-cache service | Target; unqualified P40K development routes exercised | Token-ID ingress fails closed on capacity; the v10 whole-core direction consumed all 40K tokens through the real API at 101.87053 s TTFT / 392.804397 pure prompt tok/s. The v11 projection-reset and experimental v12 phase-local BF16 routes also consumed all 40K but regressed to 205.951777 and 320.472999 prompt tok/s and were rejected; v12 lacks sealed-route authority | The incumbent is still 10.95x below the owner's 4.3K tok/s vLLM starting line and 50.92x above the 2-s P40K target; inherited FlashInfer full state differs. P60K has not been timed; P130K, whole-process capacity, and qualification remain open |
 | Prefill/Decode logical separation | Implemented in part | Separate phase APIs/metrics and an explicit state transition exist | Shared runner and synchronization-heavy physical plan prevent independent utilization and overlap |
-| Prompt-wide Prefill candidate | v10 whole-request substrate retained but accuracy-unqualified; complete v11 projection reset rejected | Sealed Engine transaction and role receipts remain; v10 submits whole-prompt FlashInfer and one persistent MLP pair per layer. v11 proved 208 FP8 roles can be grouped into 128 launches and completed the same API route | Inherited Attention state differs; v11's tiny persistent-grid FP8/NVFP4 package regressed pure Prefill by 90.7264%. A high-parallelism projection ownership design, production-exact Attention, BF16 A/B, and GDN remain unfinished |
-| Large-M Prefill specializations | C1, G2/D2, shape-wide v3, and projection-reset v1 are rejected default-off experiments | The latest reset collapses projection launch count and preserves exact route ownership, but its FP8 path is 3.989x slower and the complete projection package adds 92.263901 s | Replace the 16/32-CTA scalar-decode skeleton with shape-specific high-wave tensor-core ownership and real decoded-B/scale reuse, then return the complete package first to the real P40K API path. Open P60 geometry only after P40 is competitive and accuracy-admissible |
+| Prompt-wide Prefill candidate | v10 whole-request substrate retained but accuracy-unqualified; v11 projection-reset and experimental v12 phase-local BF16 packages rejected | Sealed Engine transaction and role receipts remain; v10 submits whole-prompt FlashInfer and one persistent MLP pair per layer. v11 proved grouped projection ownership; v12 direction evidence proved exact request-time expansion is cheap but ordinary BF16 dense consumption is structurally slower, without supplying sealed route attestation | Inherited Attention state differs; the active successor must retain packed NVFP4/FP8 operands, specialize roles, then continue through exact Attention and GDN under one 9.302326-s P40 budget |
+| Large-M Prefill specializations | C1, G2/D2, shape-wide v3, projection-reset v1, and phase-local BF16 v1 are rejected default-off experiments | v12's exact expansion costs only 0.363332 s, but its dense consumers consume 98.999425 s. The retained default-off code is correctness evidence, not a performance path | Implement the complete AOT packed-operand Gate+Up/Down/FP8 package with coupled A/B/scale pipeline, register-side decode, persistent scheduling and role-specific tactics; return it first to the real P40K API. Open P60 only after P40 is competitive and accuracy-admissible |
 | Decode target | Directionally near target | Short API evidence reports about 104 ms TPOT | At least 10 token/s, long-output stability, and release repetition are not qualified |
 | Production accuracy | Target with partial oracles | Exact deterministic outputs are available for selected prompts/routes | No complete public capability baseline and promotion gate has passed |
 | AOT DeploymentPlan | Implemented internally for the development route; release artifact still designed | Engine-lifetime sealed plan binds model/state/resources/operator identities and one-shot request receipts | No authenticated installed plan artifact is loaded and attested by the default release |
@@ -580,6 +595,31 @@ removed, no NCU or accuracy promotion was run, and stage/tile/raster scans on
 this skeleton are closed. Exact evidence is in the
 [v3 rejection record](metadata/qwen36-27b-prefill-p40k-nvfp4-shape-wide-v3-rejection-2026-08-10.json).
 
+### 5.6.2 Rejected phase-local BF16 projection direction
+
+The experimental phase-local package used exact real-checkpoint NVFP4/FP8
+expansion into short-lived BF16 scratch followed by a serialized native
+M128N128K64 dense consumer. Its independent v12 deployment identity reached
+the real OpenAI API and consumed all 40,000 tokens. Live output reported one
+matching smoke token and 416 FP8 physical launches; 512 NVFP4 MLP launches were
+inferred from the successful-enqueue composition. No raw witness was retained,
+and the immutable topology disagreed with the physical lowering, so these
+counters do not provide sealed-route or promotion authority. The route
+remained default-off and accuracy-unqualified.
+
+Pure Prefill increased to 124,815.475334 ms / 320.472999 prompt tok/s versus
+101,831.853876 ms / 392.804397 tok/s for v10. EvalScope TTFT was
+124,853.851547 ms, so the API boundary added only 38.376213 ms. The bounded
+profile found 98,999.424800 ms in all BF16 dense projections but only
+363.332320 ms in every canonical expansion kernel. Gate/Up dense plus the
+separate SiLU was 49,661.799968 ms, FP8 dense was 29,642.775168 ms, and
+Attention remained effectively unchanged. The architecture is rejected
+because it abandons compressed-B movement and register-side decode; the
+expansion kernel is not the problem. It unlocks no NCU/parameter scan,
+accuracy expansion, P60, P130, or production promotion. Exact evidence is in
+the
+[phase-local rejection record](metadata/qwen36-27b-prefill-p40k-phase-local-bf16-rejection-2026-08-10.json).
+
 ### 5.7 Current cumulative internal Prefix attribution
 
 One real-model P513 NSys capture reports:
@@ -716,15 +756,28 @@ replacement subsequently regressed to 106.374301 s / 376.030675 tok/s; its
 profile makes Gate/Up the principal cause. Both NVFP4 skeletons are therefore
 closed against local parameter scanning.
 
+The next two complete projection resets also failed the same product gate.
+The v11 16/32-CTA grouped reset reduced software-visible launches but regressed
+to 194.220222 s / 205.951777 tok/s. The v12 phase-local path proved exact
+request-time expansion is inexpensive at 0.363332 s, but its expanded-B dense
+consumers consumed 98.999425 s and regressed the request to 124.815475 s /
+320.472999 tok/s. Therefore neither tiny persistent ownership nor BF16 B
+materialization is an active tuning surface. The successor must preserve
+packed operands through shared memory and decode only in the MMA register
+pipeline.
+
 The first system selection point remains the same clean real P40K API against
 the 392.804397 tok/s whole-core direction and ultimately the owner's 4.3K
 tok/s vLLM starting line. Only a competitive, accuracy-admissible P40K
 composition unlocks M5424 implementation, P60, and then P130. The active next
 package jointly replaces NVFP4 Gate/Up, NVFP4 Down, and every FP8 projection
-role with a shape-specific packed-feed/decoded-register/MMA architecture; it
-does not isolate another NVFP4 tile. Exact Attention and then GDN are the next
-dominant package boundaries. BF16 A/B alone is lower in the measured critical
-path and does not displace them.
+role with AOT role-specific packed layouts, a coupled A/B/scale `cp.async`
+pipeline, double-buffered register decode/MMA, persistent Stream-K ownership,
+and fused exact Gate+Up/Down epilogues. It does not isolate another NVFP4 tile.
+The 4.3K tok/s starting line permits only 9.302326 s at P40, while v10's
+non-projection kernels already consume about 21.416142 s. Therefore exact
+Attention and GDN are subsequent slices of the same system candidate rather
+than optional follow-ups; a projection win alone cannot complete the goal.
 
 Unpinned or dirty experimental branches are intentionally excluded from this
 status snapshot. A candidate affects current truth only after its exact commit,
@@ -741,7 +794,7 @@ active dependency order and exit criteria are in
 | --- | --- | --- |
 | Product API and long-context admission | Configured token-ID validation and host requirement plans exist; 40K/60K/130K still do not fit or execute through the default contract | P1 |
 | Exact deliverable identity | No unique `BUILD_TESTING=OFF` release or authenticated DeploymentPlan | P2 |
-| Target-length performance and physical Prefill plan | The exact-P40000 whole-core direction reaches 392.804397 pure prompt tok/s, +7.02138% versus retained v6, with negligible API and kernel-gap overhead. NSys attributes over 92% to NVFP4 Gate/Up, FP8, NVFP4 Down, and Attention. The first two-CTA/SM shape-wide NVFP4 replacement regressed to 376.030675 tok/s and is closed. The retained result remains 10.95x below the owner's vLLM floor and accuracy-unqualified. P60/P130 were not timed | P3 |
+| Target-length performance and physical Prefill plan | The exact-P40000 whole-core direction reaches 392.804397 pure prompt tok/s, +7.02138% versus retained v6, with negligible API and kernel-gap overhead. Shape-wide NVFP4, grouped projection-reset, and phase-local BF16 packages all regressed and are closed; v12 measured 320.472999 tok/s and located 98.999425 s in expanded-B dense consumers. The retained incumbent remains 10.95x below the owner's vLLM floor and accuracy-unqualified. P60/P130 were not timed | P3 |
 | Accuracy, capability, stability, and release evidence | Partial deterministic oracles; no complete qualification bundle | P4 |
 | Packaging and operations | No attested install/startup/upgrade lane | P5 |
 
@@ -768,7 +821,9 @@ Until the gaps above close, use the following language:
   control substrate is retained. Its old-Marlin body is insufficient, while
   the first shape-wide replacement regressed and has been removed from the
   runner. P60/P130 were not run. Exact/default routes and production status
-  are unchanged.
+  are unchanged. The rejected v12 phase-local BF16 route reached 320.472999
+  tok/s and remains correctness evidence only; it is not the active
+  performance architecture.
 - **Not current:** production server, 40K--130K support, release-grade vLLM
   parity, 1,224.7335 tok/s lossless Prefill, or a fully qualified 10 token/s
   Decode release.

@@ -1,0 +1,311 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-p40k-phase-local-bf16-rejection-2026-08-10",
+  "measured_at": "2026-08-10T11:12:05+08:00",
+  "profiled_at": "2026-08-10T11:19:19+08:00",
+  "recorded_at": "2026-08-10T11:35:00+08:00",
+  "timezone": "Asia/Shanghai",
+  "status": "rejected_default_off_projection_architecture",
+  "policy": {
+    "selection_evidence_tier": "T3_DIRECTION_SCREEN",
+    "diagnostic_evidence_tier": "T4_DIRECTION_PROFILE",
+    "protocol_class": "EXTERNAL_API_P40K_SINGLE_REQUEST_PLUS_BOUNDED_NSYS",
+    "decision_unit": "exact_p40000_phase_local_canonical_expand_then_native_bf16_dense",
+    "architecture_candidate_id": "AC-PREFILL-PROMPT-WIDE-v2/WP-P40-PROJECTION-PHASE-LOCAL-v1",
+    "real_model_production_api_first": true,
+    "early_stop_authority": true,
+    "architecture_direction_retained": false,
+    "architecture_selection_authority": false,
+    "release_performance_authority": false,
+    "production_promotion_authority": false,
+    "default_route_changed": false,
+    "production_eligible": false,
+    "numerical_contract_qualified": false,
+    "accuracy_gate": "FULL_STATE_DEVICE_ARITHMETIC_ORACLE_NOT_RUN_AFTER_NEGATIVE_P40_DIRECTION",
+    "cublaslt_production_eligibility": false,
+    "mtp_used": false,
+    "p60_run_permitted": false
+  },
+  "source": {
+    "branch": "codex/prefill-target-path",
+    "measurement_base_commit": "f39172b6b2f2ee8e26f41ea6f17684551b20a3c4",
+    "measurement_base_tree": "bcc04c62c6bbade40f26fb5501491736988c99af",
+    "measurement_tree_clean": false,
+    "measurement_source_note": "The default-off phase-local expansion, BF16 dense consumers, bound plan, Engine route, and live v12 API output were measured from the dirty working tree above f39172b. The performance request script verified the recorded binary SHA-256 before submission. That binary was later overwritten by a rebuild and was not separately retained; the profile script verified the executable path and process identity but did not independently verify its SHA-256. Retained external and profiler artifacts are hash-pinned below, but no raw server log or v12 response header was retained.",
+    "binary": {
+      "measurement_path": ".q3x-work/build-phase-route/qwen3x-eval-server",
+      "sha256": "d6ea66347e8f0332a2dcb056c31f35484e700a680fdbcf77d543b2f41d0190bb",
+      "elf_build_id": "4f022c26a0567df9322bb25eb4e52c8592d17b55",
+      "checked_in": false,
+      "retained": false,
+      "current_path_sha256_after_rebuild": "43364858e40d1db1e6ed5ccde7e9811d321838544c1bb6d87409d1cf0aeee0f3",
+      "build_type": "Release",
+      "build_testing": true,
+      "cuda_architecture": "sm_87"
+    }
+  },
+  "checkpoint": {
+    "repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "local_path": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "access": "read_only",
+    "config_sha256": "c04a19ba293737ad7be4f6e96d6666cb7e479cbe19ecc0c289fad267135b0338",
+    "quantization_config_sha256": "fd7200cd8cba2a8a5d777061521abf83e2deb97ab6bc2f04e7a0a3d3f8ecd5c1",
+    "index_sha256": "7aa103a2582b7d26631988de33dea19e8a308ee9c239e8e14feb374af30905e2",
+    "tokenizer_json_sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42"
+  },
+  "artifacts": {
+    "evidence_dir": ".q3x-work/evidence/prefill-target-path/p40-phase-local-bf16-r1",
+    "evalscope_dir": ".q3x-work/evalscope/results/p40-phase-local-bf16-r1/candidate/phase-local",
+    "server_log_retained": false,
+    "raw_v12_witness_retained": false,
+    "evalscope_client_log_sha256": "23951b7237c2c1906c63c5542205275cde3d7ffb952b7fa7543b696342d53ce4",
+    "evalscope_args_sha256": "4c4b584dce34b22c6244a2f8a39b726d7d53dde9a6696d0b17ed55ac2f1240cb",
+    "evalscope_db_sha256": "c630600fa1af19384f91bbcf977009c2e39f2dd0659aefef0d4bfc49eb693b2a",
+    "evalscope_percentile_sha256": "b15ebfff34499fe5bad9b7952a5bf7233791bd0d935e749069a72cf9e58b0254",
+    "evalscope_summary_sha256": "3cfc7a927e5bf2c7441016c2a92e457266fb047304d5bac7f1e97ce75509eed2",
+    "evalscope_workload_throughput_sha256": "3127af351ded8bf5d444e34cfb92d0d8fe7f3ea6fb7b64fb948791dd2beeb459",
+    "evalscope_workload_timeline_sha256": "4a40b8189694dd9ea31e8b63d673183da66726643a74dc1c1c111805168185ea",
+    "evalscope_html_sha256": "742e0d3a32eabb19cc19baca5b71caa9dd96ea19a12a90741b228e122d4c1a09",
+    "evalscope_text_summary_sha256": "71dd5a368d4d3b171ddea507622db3149a90ca0b41005b116cf04495e6389b6a",
+    "nsys_report_sha256": "4f9a197849b6602e37555b123bdb679e4c897e48e701d80bb48d42359e2fb170",
+    "nsys_sqlite_sha256": "301927fbbc22e9f5f620258897c308588c31ea6b81d02f80d3b852b54373b6f9",
+    "kernel_sum_csv_sha256": "80c33b6e40ae4c42facee03cc7abf180cd06e9678f7ee7b033797e95514cdc96",
+    "kernel_grid_sum_csv_sha256": "65f139e044bf70d1d7d0ff3ebebe2df9047895ff6d0244e44401899e8f66f7cd",
+    "api_run_script_sha256": "29d14296d320169f85c264005613a38cfc8aafa6078053c24e785802d793034e",
+    "profile_run_script_sha256": "a4bf5ef481a7180f8a40ba99250547e798aaae5247c106ce1060efd738aa70c2"
+  },
+  "workload": {
+    "framework": "EvalScope",
+    "framework_version": "1.9.1",
+    "api": "openai",
+    "endpoint": "/v1/completions",
+    "corpus_path": ".q3x-work/evalscope/corpora/q3x-repository-agent-context-p40000-one-token.jsonl",
+    "corpus_sha256": "8970ac50693f49d1b27d35a0610ecbe5072594330d69b301f4dab731789b6844",
+    "prompt_kind": "token_ids",
+    "prompt_tokens": 40000,
+    "prompt_token_ids_u32le_sha256": "76cd23e2d60a9473af0ff24767b1b7ca614b36857697b420246731165156f78f",
+    "request_body_sha256": "e6f5817ad868e85c333db1961fa3dc14c7e65247f0a4241e8bb638870b6575ec",
+    "prompt_fully_consumed": true,
+    "consumed_prompt_tokens": 40000,
+    "logical_panel_geometry": "5x8000_control_only_with_projection_M40000",
+    "measured_requests": 1,
+    "successful_requests": 1,
+    "failed_requests": 0,
+    "warmup_requests": 0,
+    "parallel": 1,
+    "output_tokens": 1,
+    "observed_output_text": "Based",
+    "v10_baseline_output_text": "Based",
+    "first_token_matches_v10_baseline": true,
+    "first_token_is_accuracy_qualification": false,
+    "temperature": 0.0,
+    "seed": 42,
+    "stream": true,
+    "prefix_cache": false,
+    "mtp": false
+  },
+  "candidate": {
+    "scope": "all exact P40000 FP8 QKV_Z_O and NVFP4 Gate_Up_Down projections inside the v10 whole-core route",
+    "weight_lifetime": "one_projection_phase",
+    "composition": "canonical_weight_expansion_then_serialized_native_bf16_tensor_core_dense",
+    "full_model_bf16_copy": false,
+    "cublaslt_linked_or_called": false,
+    "expansion_scratch": "aliases_existing_prompt_wide_workspace",
+    "dense_kernel": {
+      "tile": "M128_N128_K64",
+      "pipeline_stages": 2,
+      "threads_per_cta": 256,
+      "dynamic_shared_bytes": 73728,
+      "registers_per_thread": 158,
+      "local_bytes_per_thread": 0,
+      "active_ctas_per_sm": 1,
+      "weight_layout": "BF16_N_by_K_backing_logical_column_major_K_by_N",
+      "global_scale": "explicit_epilogue_alpha"
+    },
+    "correctness": {
+      "host_decode_exhaustive": "pass",
+      "cuda_nonzero_shapes": [
+        "K5120_N1024",
+        "K6144_N5120",
+        "K5120_N17408_Gate",
+        "K17408_N5120_Down"
+      ],
+      "cuda_sample_count": 864,
+      "boundary_alpha_canary_and_resource_checks": "pass",
+      "model_first_token_smoke": "pass",
+      "full_state_accuracy": "not_run_after_negative_direction"
+    }
+  },
+  "clean_host_preflight": {
+    "api_server_start": {
+      "decision": "pass",
+      "sha256": "2a0057389c5b6bdc3603fa9147399e895987dca3e9c35dad7ace43e0dc10eda4"
+    },
+    "api_request_control_paused": {
+      "decision": "pass",
+      "sha256": "05c12c4c2faa87cf31744495f6384d87e15c79c294870bfc05bec0113ba92243"
+    },
+    "profile_server_start": {
+      "decision": "pass",
+      "sha256": "d827b759ffd05f749a21abf20cf4a95fea51a347c5905679f44c6a0041ea7701"
+    },
+    "profile_request_control_paused": {
+      "decision": "pass",
+      "sha256": "46bf58528cd4ceadf6b263f8b598cefb3f2adaf2638bdb216f7de99685abace9"
+    },
+    "jetson_idle_authority": "tegrastats plus CPU/process and GPU-device-handle inspection",
+    "maximum_observed_pre_request_gr3d_percent": 0.0,
+    "full_root_fd_audit": true,
+    "nvidia_smi_used_for_idle_decision": false
+  },
+  "route": {
+    "witness_schema": "target-prefill-witness-v12",
+    "deployment_plan_id": "q3x.sm87.ac-prefill-p40.phase-local-canonical-bf16-dense.native-flashinfer-exact-whole-prompt.v1",
+    "qualification": "accuracy-unqualified-architecture-candidate",
+    "live_witness_reported_package_complete": true,
+    "retained_raw_witness_available": false,
+    "topology_authority_inconsistent": true,
+    "bounded_submission_window": true,
+    "submission_window_retirements": 768,
+    "route_layer_pass_count": 1,
+    "logical_panel_count": 5,
+    "panel_tokens": 8000,
+    "projection_m_tokens": 40000,
+    "whole_core_layer_hits": 64,
+    "fp8_logical_projection_receipts": 208,
+    "fp8_expansion_launches_expected": 208,
+    "fp8_dense_launches_expected": 208,
+    "fp8_physical_launches_runtime_counter": 416,
+    "nvfp4_logical_projection_receipts": 192,
+    "nvfp4_expansion_launches_expected": 192,
+    "nvfp4_dense_launches_expected": 192,
+    "nvfp4_silu_launches_expected": 64,
+    "nvfp4_residual_launches_expected": 64,
+    "nvfp4_mlp_physical_launches_inferred_from_successful_enqueue_contract": 512,
+    "post_attention_norm_launches_expected": 64,
+    "bf16_ab_hits": 48,
+    "gdn_hits": 48,
+    "whole_prompt_flashinfer_hits": 16,
+    "completed_exact_fallback_hits": 0,
+    "completed_forbidden_hits": 0,
+    "forbidden_route_hits": {
+      "prefix_cache": 0,
+      "mtp": 0,
+      "cublaslt": 0,
+      "external_reference": 0,
+      "approximate_numerics": 0
+    },
+    "telemetry_limitation": "The live v12 output was inspected during the run but no raw server log/header was retained. FP8 increments a runtime aggregate after each expansion+dense pair succeeds. NVFP4 adds the fixed eight-launch per-layer composition only after the layer MLP enqueue succeeds; it is not an independent kernel ledger. Category splits are plan constants. The immutable topology reused the rejected projection-reset two-kernel schedule and was inconsistent with the eight-kernel phase-local lowering, so this witness has no sealed-route or promotion authority. The negative timing/profile decision remains valid."
+  },
+  "real_api_direction": {
+    "evalscope": {
+      "ttft_ms": 124853.851547,
+      "whole_workload_prompt_tok_s": 320.374477076,
+      "summary_sha256": "3cfc7a927e5bf2c7441016c2a92e457266fb047304d5bac7f1e97ce75509eed2",
+      "database_sha256": "c630600fa1af19384f91bbcf977009c2e39f2dd0659aefef0d4bfc49eb693b2a"
+    },
+    "server": {
+      "pure_prefill_ms": 124815.475334,
+      "pure_prefill_tok_s": 320.472999,
+      "decode_after_first_ms": 0.0
+    },
+    "cross_boundary": {
+      "evalscope_ttft_minus_server_pure_prefill_ms": 38.376213,
+      "pure_prefill_share_of_evalscope_ttft_percent": 99.969263,
+      "interpretation": "The API and first-response boundary are negligible. The negative direction is inside the Prefill GPU execution graph."
+    }
+  },
+  "comparison_to_v10_whole_core_baseline": {
+    "baseline_source": "qwen36-27b-prefill-p40k-whole-core-direction-2026-08-10",
+    "baseline_server_pure_prefill_ms": 101831.853876,
+    "baseline_server_pure_prefill_tok_s": 392.804397421,
+    "candidate_server_pure_prefill_ms": 124815.475334,
+    "candidate_server_pure_prefill_tok_s": 320.472999,
+    "latency_delta_ms": 22983.621458,
+    "latency_change_percent": 22.570168943,
+    "throughput_change_percent": -18.414100899,
+    "slowdown_x": 1.225701689,
+    "owner_vllm_floor_tok_s": 4300.0,
+    "fraction_of_owner_vllm_floor_percent": 7.452860442,
+    "gap_to_owner_vllm_floor_x": 13.417667053,
+    "gap_to_two_second_p40k_x": 62.407737667,
+    "decision": "REJECT_AT_P40_AND_DO_NOT_RUN_P60"
+  },
+  "nsys": {
+    "profile_server_pure_prefill_ms": 124684.319213,
+    "summed_kernel_ms": 124673.427072,
+    "kernel_gap_ms": 10.892141,
+    "kernel_gap_percent": 0.008735,
+    "kernel_launches": 2182,
+    "unique_kernel_names": 23,
+    "cuda_streams_observed": 1,
+    "kernel_overlap_observed": false,
+    "report_sha256": "4f9a197849b6602e37555b123bdb679e4c897e48e701d80bb48d42359e2fb170",
+    "kernel_sum_csv_sha256": "80c33b6e40ae4c42facee03cc7abf180cd06e9678f7ee7b033797e95514cdc96",
+    "kernel_grid_sum_csv_sha256": "65f139e044bf70d1d7d0ff3ebebe2df9047895ff6d0244e44401899e8f66f7cd",
+    "dominant_scopes": [
+      {
+        "role": "all_native_bf16_dense_projections",
+        "instances": 400,
+        "total_ms": 98999.424800,
+        "kernel_time_percent": 79.406997245
+      },
+      {
+        "role": "nvfp4_gate_and_up_bf16_dense",
+        "instances": 128,
+        "total_ms": 46549.856096
+      },
+      {
+        "role": "nvfp4_down_bf16_dense",
+        "instances": 64,
+        "total_ms": 22806.793536
+      },
+      {
+        "role": "fp8_bf16_dense_all_shapes",
+        "instances": 208,
+        "total_ms": 29642.775168
+      },
+      {
+        "role": "flashinfer_exact_attention",
+        "instances": 16,
+        "total_ms": 13670.335008
+      },
+      {
+        "role": "all_canonical_weight_expansion",
+        "instances": 400,
+        "total_ms": 363.332320,
+        "kernel_time_percent": 0.291427234
+      }
+    ],
+    "matched_v10_attribution": {
+      "gate_up_plus_separate_silu_candidate_ms": 49661.799968,
+      "gate_up_fused_v10_ms": 37273.068224,
+      "gate_up_change_percent": 33.237756735,
+      "fp8_dense_candidate_ms": 29642.775168,
+      "fp8_v10_ms": 25864.646560,
+      "fp8_change_percent": 14.607308085,
+      "attention_candidate_ms": 13670.335008,
+      "attention_v10_ms": 13634.170272,
+      "attention_change_percent": 0.265250729
+    },
+    "causal_conclusion": "Canonical expansion is negligible; the ordinary BF16 dense consumer is slower than the incumbent packed-quantized projection path. No tile, stage, raster, buffering, NCU, P60, or accuracy scan is authorized on this rejected skeleton."
+  },
+  "decision": {
+    "candidate_retained": false,
+    "code_retained_as_default_off_correctness_primitives_only": true,
+    "runner_engine_cli_api_overlay_retained": false,
+    "production_route_changed": false,
+    "p60_skipped": true,
+    "full_accuracy_skipped": true,
+    "successor_boundary": "The next candidate must keep weights packed in the hot path and redesign NVFP4, FP8, Attention, and GDN against one P40 whole-request composition budget. Projection-only success cannot satisfy the 4300 tok/s starting line because the v10 non-projection remainder already exceeds its 9.302326-second P40 budget."
+  },
+  "honesty_notes": {
+    "negative_performance_direction_supported": true,
+    "causal_profile_supported": true,
+    "exact_measurement_binary_replayable": false,
+    "profile_binary_hash_independently_verified": false,
+    "route_attestation_replayable": false,
+    "reason": "The measured binary and raw v12 server witness were not retained, and the experimental topology authority disagreed with physical lowering. These gaps weaken route-attestation and exact replay claims but do not turn a 22.57% real-API regression or its 98.999-second dense-kernel attribution into a positive result."
+  }
+}

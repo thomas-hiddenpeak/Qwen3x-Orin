@@ -8664,3 +8664,53 @@ These ignored workspace artifacts are local forensic material. The immutable
 numbers, identities, route counts, limitations, and decision authority are
 frozen by this append-only ledger entry and the
 [machine-readable direction record](metadata/qwen36-27b-prefill-layer-major-balanced-p1025-direction-2026-08-09.json).
+
+## P40 phase-local BF16 consumer rejection
+
+`WP-P40-PROJECTION-PHASE-LOCAL-v1` was exercised through the real
+`/v1/completions` API with EvalScope 1.9.1, the authenticated 40,000-token
+corpus, one greedy output token, no warmup, no cache, no MTP, and the real
+`nvidia/Qwen3.6-27B-NVFP4` checkpoint. Both server and request preflights used
+`tegrastats`, CPU/process inspection, and a root-complete GPU-device-handle
+audit; all observed pre-request GR3D samples were zero. The route was
+default-off and cuBLASLt was neither linked nor called.
+
+| Metric | v10 whole-core incumbent | Phase-local BF16 candidate | Result |
+| --- | ---: | ---: | ---: |
+| Server pure Prefill | 101,831.853876 ms | 124,815.475334 ms | **+22.570169% latency** |
+| Server pure Prefill throughput | 392.804397 tok/s | 320.472999 tok/s | **-18.414101%** |
+| EvalScope TTFT | 101,870.530 ms | 124,853.852 ms | rejected |
+| EvalScope whole-workload prompt rate | incumbent record | 320.374477 tok/s | directional only |
+
+The first returned token is `Based`, matching v10, but this is a smoke oracle
+and not an accuracy qualification. The negative direction locked P60, repeated
+performance, full-state accuracy, and production promotion.
+
+The one permitted causal NSys capture sums 124,673.427072 ms across 2,182
+kernel launches inside the 124,684.319213-ms server Prefill interval. All BF16
+dense projections consume 98,999.424800 ms / 79.406997% of kernel time:
+Gate/Up dense is 46,549.856096 ms, Down dense is 22,806.793536 ms, and FP8
+dense is 29,642.775168 ms. Separate SiLU adds 3,111.943872 ms. All exact
+canonical NVFP4 and FP8 expansion totals only 363.332320 ms / 0.291427%.
+FlashInfer exact whole-prompt Attention remains essentially unchanged at
+13,670.335008 ms versus 13,634.170272 ms for v10.
+
+Evidence limitations are material to route attestation but not to the negative
+performance decision. The exact measured binary was subsequently overwritten,
+the raw v12 server witness was not retained, and the experimental immutable
+topology described two projection kernels where the physical lowering used
+the phase-local multi-kernel composition. The EvalScope artifacts and bounded
+NSys report support the timing and hotspot rejection; they do not support
+exact binary replay, sealed-route attestation, or production promotion.
+
+This closes the architecture, not merely one parameter cell: materializing
+BF16 B is cheap, but the ordinary M128N128K64 dense consumer loses the packed-
+operand load/decode/MMA dataflow and rereads expanded B for every M tile. Its
+default-off implementation is retained only as exact expansion/dense
+correctness evidence. No BF16 tile, stage, raster, buffering, NCU, P60, or
+accuracy scan follows. The next candidate keeps NVFP4/FP8 packed through
+global/shared movement, performs register-side decode immediately before MMA,
+specializes Gate+Up, Down and FP8 roles, and returns first to the same external
+P40 gate. Complete hashes, route counts, limitations and profiler attribution
+are frozen in the
+[phase-local rejection record](metadata/qwen36-27b-prefill-p40k-phase-local-bf16-rejection-2026-08-10.json).

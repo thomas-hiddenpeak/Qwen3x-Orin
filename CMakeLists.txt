@@ -82,6 +82,10 @@ option(Q3X_BUILD_P40_PROJECTION_RESET_ADMISSION
   "Build the test-only exact-P40000 persistent S2R projection reset"
   OFF
 )
+option(Q3X_BUILD_P40_PHASE_BF16_PROJECTION_ADMISSION
+  "Build the test-only rejected P40000 phase-local BF16 correctness primitives"
+  OFF
+)
 if(Q3X_BUILD_GDN_B8_ADMISSION AND NOT BUILD_TESTING)
   message(FATAL_ERROR
     "Q3X_BUILD_GDN_B8_ADMISSION is test-only and requires BUILD_TESTING=ON"
@@ -210,6 +214,11 @@ if(Q3X_BUILD_P40_PROJECTION_RESET_ADMISSION AND
     NOT Q3X_BUILD_NVFP4_PERSISTENT_PREFILL_ADMISSION))
   message(FATAL_ERROR
     "Q3X_BUILD_P40_PROJECTION_RESET_ADMISSION requires the whole-core, NVFP4 Marlin, and interleaved persistent-sidecar inventories"
+  )
+endif()
+if(Q3X_BUILD_P40_PHASE_BF16_PROJECTION_ADMISSION AND NOT BUILD_TESTING)
+  message(FATAL_ERROR
+    "Q3X_BUILD_P40_PHASE_BF16_PROJECTION_ADMISSION is test-only and requires BUILD_TESTING=ON"
   )
 endif()
 if((Q3X_BUILD_GDN_B8_ADMISSION AND
@@ -438,6 +447,15 @@ if(Q3X_BUILD_P40_PROJECTION_RESET_ADMISSION)
   )
   target_compile_definitions(q3x_kernels PRIVATE
     Q3X_ENABLE_P40_PROJECTION_RESET_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_P40_PHASE_BF16_PROJECTION_ADMISSION)
+  target_sources(q3x_kernels PRIVATE
+    src/kernels/sm87/p40_phase_bf16_projection.cu
+    src/kernels/sm87/phase_local_weight_expansion.cu
+  )
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_P40_PHASE_BF16_PROJECTION_ADMISSION=1
   )
 endif()
 if(Q3X_BUILD_FP8_MARLIN_PREFILL_ADMISSION)
@@ -779,6 +797,68 @@ if(BUILD_TESTING)
     )
     set_tests_properties(sm87_p40_projection_reset_host PROPERTIES
       LABELS "host;sm87;prefill;contract"
+    )
+  endif()
+
+  if(Q3X_BUILD_P40_PHASE_BF16_PROJECTION_ADMISSION)
+    add_executable(q3x_sm87_p40_phase_bf16_projection_host_test
+      tests/sm87_p40_phase_bf16_projection_host_test.cpp
+    )
+    target_link_libraries(q3x_sm87_p40_phase_bf16_projection_host_test
+      PRIVATE q3x::kernels
+    )
+    q3x_enable_warnings(q3x_sm87_p40_phase_bf16_projection_host_test)
+    add_test(NAME sm87_p40_phase_bf16_projection_host
+      COMMAND q3x_sm87_p40_phase_bf16_projection_host_test
+    )
+    set_tests_properties(sm87_p40_phase_bf16_projection_host PROPERTIES
+      LABELS "host;sm87;prefill;projection;correctness;rejected;default_off"
+    )
+
+    add_executable(q3x_sm87_phase_local_weight_expansion_host_test
+      tests/sm87_phase_local_weight_expansion_host_test.cpp
+    )
+    target_link_libraries(q3x_sm87_phase_local_weight_expansion_host_test
+      PRIVATE q3x::kernels
+    )
+    q3x_enable_warnings(q3x_sm87_phase_local_weight_expansion_host_test)
+    add_test(NAME sm87_phase_local_weight_expansion_host
+      COMMAND q3x_sm87_phase_local_weight_expansion_host_test
+    )
+    set_tests_properties(sm87_phase_local_weight_expansion_host PROPERTIES
+      LABELS "host;sm87;prefill;projection;quantization;correctness;rejected;default_off"
+    )
+
+    add_executable(q3x_sm87_phase_local_weight_expansion_cuda_test
+      tests/sm87_phase_local_weight_expansion_cuda_test.cu
+    )
+    target_link_libraries(q3x_sm87_phase_local_weight_expansion_cuda_test
+      PRIVATE q3x::kernels CUDA::cudart
+    )
+    q3x_enable_warnings(q3x_sm87_phase_local_weight_expansion_cuda_test)
+    add_test(NAME sm87_phase_local_weight_expansion_cuda
+      COMMAND q3x_sm87_phase_local_weight_expansion_cuda_test
+    )
+    set_tests_properties(sm87_phase_local_weight_expansion_cuda PROPERTIES
+      LABELS "cuda;sm87;prefill;projection;quantization;correctness;synthetic;rejected;default_off"
+      SKIP_RETURN_CODE 77
+      RESOURCE_LOCK q3x_sm87_gpu
+    )
+
+    add_executable(q3x_sm87_p40_phase_bf16_projection_cuda_test
+      tests/sm87_p40_phase_bf16_projection_cuda_test.cu
+    )
+    target_link_libraries(q3x_sm87_p40_phase_bf16_projection_cuda_test
+      PRIVATE q3x::kernels CUDA::cudart
+    )
+    q3x_enable_warnings(q3x_sm87_p40_phase_bf16_projection_cuda_test)
+    add_test(NAME sm87_p40_phase_bf16_projection_cuda
+      COMMAND q3x_sm87_p40_phase_bf16_projection_cuda_test
+    )
+    set_tests_properties(sm87_p40_phase_bf16_projection_cuda PROPERTIES
+      LABELS "cuda;sm87;prefill;projection;correctness;synthetic;rejected;default_off"
+      SKIP_RETURN_CODE 77
+      RESOURCE_LOCK q3x_sm87_gpu
     )
   endif()
 

@@ -129,6 +129,19 @@ Bounded NSys measured Gate/Up +10.437332%, Down +1.302115%, and the pair
 +7.511889% against the whole-core profile. The binary-pinned runner overlay
 was removed; the independent kernel surface remains default-off evidence only.
 
+The rejected phase-local BF16 projection direction and bounded Nsight
+attribution are frozen in
+[`qwen36-27b-prefill-p40k-phase-local-bf16-rejection-2026-08-10.json`](qwen36-27b-prefill-p40k-phase-local-bf16-rejection-2026-08-10.json).
+It regressed real-API pure Prefill from 101,831.853876 ms / 392.804397 tok/s
+to 124,815.475334 ms / 320.472999 tok/s. The profile assigns 98,999.424800 ms
+to the ordinary BF16 dense consumers and only 363.332320 ms to canonical
+weight expansion, closing request-time BF16 B materialization as a performance
+architecture. The exact measured binary and raw v12 server witness were not
+retained, and the experimental topology disagreed with physical lowering;
+therefore the record supports negative timing and hotspot attribution only,
+not exact replay, sealed-route attestation, accuracy, or production promotion.
+Only its default-off correctness primitives remain in the tree.
+
 The current Prefill architecture reset and same-host stock-vLLM P513 kernel
 profile are recorded in
 [`qwen36-27b-vllm-p513-architecture-profile-2026-07-29.json`](qwen36-27b-vllm-p513-architecture-profile-2026-07-29.json).

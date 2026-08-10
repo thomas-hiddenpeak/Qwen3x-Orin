@@ -6,7 +6,7 @@ q3x_document:
   owner: evaluation-maintainers
   authority: external API evaluation protocol, metric semantics, and artifact requirements
   effective: 2026-08-09
-  last_reviewed: 2026-08-09
+  last_reviewed: 2026-08-10
   supersedes: []
   superseded_by: []
   ssot_for: EvalScope and target-length external evaluation procedure
@@ -491,6 +491,27 @@ explain the regression. The route stays default-off and accuracy-unqualified;
 P60 was not run. Exact hashes, route counts, kernel attribution, and
 limitations are frozen in the
 [v11 rejection record](metadata/qwen36-27b-prefill-p40k-projection-reset-rejection-2026-08-10.json).
+
+The measured, now-removed default-off phase-local BF16 experiment emitted
+`target-prefill-witness-v12`; that historical identity may not be reused by a
+future route. Its experimental deployment plan was
+`q3x.sm87.ac-prefill-p40.phase-local-canonical-bf16-dense.native-flashinfer-exact-whole-prompt.v1`,
+projection tactic `native-prompt-wide-p40-phase-local-bf16`, the same complete
+P40000 whole-request transaction, and 208 FP8 logical projection receipts.
+Its 416 FP8 physical count was a runtime aggregate after successful
+expansion+dense pairs. The 512 NVFP4 MLP count was inferred from the fixed
+successful-enqueue composition of 192 expansion, 192 dense, 64 SiLU, and 64
+residual launches; it was not an independent kernel counter. Post-attention
+norm was separately expected 64 times and was not part of that total.
+
+No raw v12 server witness was retained, and its immutable topology reused a
+two-kernel projection-reset schedule that disagreed with the physical
+phase-local lowering. The historical witness therefore has no sealed-route,
+promotion, or replay authority. The experiment's external timing and bounded
+profile remain negative-direction evidence under the limitations recorded in
+the
+[v12 phase-local record](metadata/qwen36-27b-prefill-p40k-phase-local-bf16-rejection-2026-08-10.json),
+but results and current status do not belong in this procedure.
 
 The first WP-V2-C1-v3 direction reused the exact v10 host schedule and route
 counters through a binary-pinned, default-off overlay; the binary hash, not a

@@ -194,19 +194,53 @@ or host gaps, is rejected. P60 and accuracy expansion did not run. Exact
 evidence is in the
 [v11 rejection record](metadata/qwen36-27b-prefill-p40k-projection-reset-rejection-2026-08-10.json).
 
-The active package remains the complete P40 projection subsystem, now as a new
-architecture version rather than a scan of that rejected skeleton. It must
-replace the decode/MMA ownership for NVFP4 Gate/Up, NVFP4 Down, and every FP8
-QKV/Z/O role together while preserving the exact whole-core transaction. The
-design is AOT-specialized from the real model shapes and SM87 plan: a
-high-parallelism CTA wavefront must expose tensor-core throughput, compressed
-B/scale stays packed through asynchronous global-to-shared stages, register
-decode is double-buffered with MMA, one decoded fragment serves multiple M
-microtiles, and Gate/Up, Down, large-N FP8, and small-N FP8 receive distinct
-ownership and scheduling. A tiny fixed persistent grid is explicitly not an
-acceptable substitute for that dataflow. Gate/Up SiLU and Down residual remain
-exact epilogues. L2 grouping, occupancy, and stage count are implementation
-consequences, not independent selection goals.
+The phase-local BF16 consumer package is closed and its runner overlay has
+been removed. Only default-off correctness primitives remain; the package may
+not be reopened as a tile/stage/raster scan. Current outcome and immutable
+evidence are linked from [`CURRENT_STATUS.md`](CURRENT_STATUS.md) and the
+[phase-local rejection record](metadata/qwen36-27b-prefill-p40k-phase-local-bf16-rejection-2026-08-10.json).
+
+The active system candidate is now `AC-PREFILL-P40-PACKED-DATAFLOW-v1`; its
+first implementation package is `WP-P40-PACKED-PROJECTION-v1`. The system
+target remains the owner-observed vLLM starting line of at least 4,300 prompt
+tok/s, or no more than 9.302326 s pure Prefill at P40. v10 spends 80.697172 s
+in projections, but its non-projection remainder is already about 21.416142 s.
+Accordingly, the projection package is a necessary first slice and must return
+through the real P40 API, but it cannot complete the system candidate. A
+positive projection package immediately continues into the exact Attention
+and GDN slices under the same composition budget; the goal is not redefined to
+the speed of the first retained slice.
+
+`WP-P40-PACKED-PROJECTION-v1` replaces every NVFP4 Gate/Up/Down and FP8
+QKV/Z/O role together. Offline/load time creates authenticated, role-specific
+packed consumer layouts. The hot path pipelines A, packed B and scales through
+one multi-stage `cp.async` producer, decodes B only in double-buffered registers
+immediately before BF16 MMA, and uses a persistent Stream-K scheduler with
+role-specific L2 rastering. Gate+Up is merged while preserving both original
+global scales and fuses exact SiLU multiplication; Down has a K-heavy tactic
+and exact residual epilogue; FP8 uses its own K/N buckets. The initial coupled
+NVFP4 cell is M64N256K64, four stages, 32 persistent CTAs and two CTA/SM. It is
+not a universal configuration or authorization for a local parameter scan.
+
+The current whole-prompt FlashInfer Attention and GDN remain fixed controls
+during the first projection return so causality is visible in the product
+request. Provisional starting-line budgets for the completed system candidate
+are 5.0 s for all projections, 1.8 s for full Attention, 1.5 s for GDN plus
+BF16 A/B, and about 1.0 s for all remaining work. These are allocation targets
+rather than hardware-bound claims. The Attention slice continues from exact
+whole-prompt online softmax; the GDN slice adopts the FLA/Mamba chunk-local
+parallel, short boundary-state pass and parallel reconstruction structure
+without relaxing per-token BF16-RNE state semantics.
+
+The package is default-off and not production eligible. Its first performance
+decision is one clean-host, real-checkpoint, cold/no-cache P40 OpenAI API run
+against v10. A positive result retains the complete packed projection package
+and updates the experimental baseline before full correctness/repetition. A
+negative result permits one bounded causal profile and closes that whole cell;
+it does not reopen phase-local BF16 scans. P60 remains locked behind the P40
+gate. No full-model BF16 copy, cuBLASLt production path, MTP, approximate
+arithmetic, runtime JIT/repack, silent fallback, or request-time route discovery
+is allowed.
 
 Selection sequence:
 
@@ -377,7 +411,8 @@ compatibility route, not yet selected or production):
   Exact evidence is frozen in the
   [v1 rejection record](metadata/qwen36-27b-prefill-p40k-nvfp4-true-large-m-rejection-2026-08-10.json).
 
-Active architecture candidate: `AC-PREFILL-PROMPT-WIDE-v2`.
+Parent architecture lineage: `AC-PREFILL-PROMPT-WIDE-v2`. The active
+selection is `AC-PREFILL-P40-PACKED-DATAFLOW-v1` as declared above.
 
 - **WP-V2-A — exact logical-panel Attention — implemented, retained, not
   accuracy-admissible:** `c45b7c5` replaces repeated C512 exact Attention with
@@ -419,39 +454,52 @@ Active architecture candidate: `AC-PREFILL-PROMPT-WIDE-v2`.
   CTAs/SM. The clean P40K direction regressed latency 4.460733%; the causal
   profile attributes a 4.118958-s increase to the pair. This skeleton is
   closed and must not receive local scans.
-- **WP-V2-C2 — complete shape-specific projection reset — active
-  implementation:** replace NVFP4 Gate/Up, NVFP4 Down, linear-attention FP8
+- **WP-P40-PACKED-PROJECTION-v1 — complete packed-operand projection reset —
+  active implementation:** replace NVFP4 Gate/Up, NVFP4 Down, linear-attention FP8
   QKV/Z/O, and full-attention FP8 Q/K/V/O as one route package. Use the proven
   Humming/vLLM scheduling ideas, not their runtime dependency: AOT-frozen
-  role/shape plans, packed consumer-order B/scale, asynchronous operand stages,
-  two register-resident decoded-B buffers, direct MMA feed, and shape-aware
-  persistent/Stream-K work ownership. The failed paired-N64 Gate tile is not
-  reused. FP8 supermatrices are eligible only when they also replace the
-  decode/MMA ownership; launch merging alone is not the architecture.
-- **WP-V2-C2 quantitative gate:** current projection time is 80.697172 s.
-  With current Attention and tail held fixed, 1,000 prompt tok/s requires
-  projection time at or below 18.584 s, or at least 4.34x faster. This is the
-  package's architecture-exit target, not the retention rule: every strict
-  real-API improvement may update the internal baseline, but a smaller gain
-  does not declare the projection reset complete or unlock local scans. The
-  first performance decision is one clean, cold/no-cache P40K API request with
-  all projection-role receipts present and no forbidden route.
-- **WP-V2-B — prompt-wide recurrent and BF16 path:** submit one panel's C64
+  role/shape plans, packed consumer-order B/scale, coupled A/B/scale
+  asynchronous stages, two register-resident decoded-B buffers, direct MMA
+  feed, exact fused epilogues, and shape-aware persistent/Stream-K ownership.
+  The failed paired-N64 and phase-local BF16 tiles are not reused. FP8
+  supermatrices are eligible only when they also replace packed load,
+  register-decode and MMA ownership; launch merging alone is not the
+  architecture.
+- **WP-P40-PACKED-PROJECTION-v1 quantitative gate:** current projection time
+  is 80.697172 s; the whole-system 4.3K starting line allocates no more than
+  5.0 s to every projection. This is the package's system composition budget,
+  not its retention rule: every strict real-API improvement may update the
+  experimental native baseline, but a smaller gain neither declares vLLM
+  parity nor unlocks local scans. The first performance decision is one clean,
+  cold/no-cache P40K API request with all projection-role receipts present and
+  no forbidden route.
+- **WP-P40-EXACT-GDN-v1 — prompt-wide recurrent and BF16 path — queued inside
+  the same system candidate:** submit one panel's C64
   hierarchy as one GDN work graph, expose chunk-local KKT/WY work in parallel,
   serialize only the mathematical boundary-state dependency, and replace
   recursive BF16 M16 A/B dispatch with panel-wide exact tactics. FLA and Mamba
   selective-scan mechanisms are design references; copied code or changed
-  state precision is outside scope.
+  state precision is outside scope. Its provisional GDN plus BF16 A/B budget
+  is 1.5 s at P40.
+- **WP-P40-EXACT-ATTENTION-v1 — exact whole-prompt Attention — queued inside
+  the same system candidate:** retain online softmax and one final exact state,
+  but close the known production-accuracy mismatch and remove avoidable
+  preprocess, gate, layout and KV traffic. FlashInfer/FlashAttention planning,
+  Q-tile and KV-stage ownership are reference mechanisms. Its provisional
+  Attention budget is 1.8 s at P40.
 - **Composition deadline:** the whole-core v2 route retains only its control,
-  arena, and witness substrate. WP-V2-C2 must freeze the full projection
+  arena, and witness substrate. `WP-P40-PACKED-PROJECTION-v1` must freeze the full projection
   contract, implement every required projection role in one binary, and
   return directly to one unprofiled clean-host P40K API direction against
   392.804397 tok/s. A positive result is retained and earns bounded
-  correctness/statistical qualification proportional to its status; a
-  negative result earns at most one causal profile before closure. NCU follows
-  a whole-product direction result and uses real checkpoint payloads. No P60,
-  P130, EvalScope dataset matrix, or low-yield parameter scan may displace this
-  return point.
+  correctness/statistical qualification proportional to its status, then
+  continues directly into the queued Attention and GDN slices; a negative
+  result earns at most one causal profile before closure. NCU follows a whole-
+  product direction result and uses real checkpoint payloads. No P60, P130,
+  EvalScope dataset matrix, or low-yield parameter scan may displace this
+  return point. The completed system must fit projections 5.0 s, Attention
+  1.8 s, GDN plus BF16 A/B 1.5 s, and all remaining work about 1.0 s, for a
+  total no greater than 9.302326 s.
 - Only a competitive, accuracy-admissible P40K result unlocks P60K and
   approximately-130K execution, followed by complete capacity/resource and
   architecture-witness qualification. P60's balanced geometry is

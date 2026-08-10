@@ -687,6 +687,34 @@ FP8, and Attention together—and must again return first to the same real API
 P40 gate. Exact evidence is frozen in the
 [v3 rejection record](metadata/qwen36-27b-prefill-p40k-nvfp4-shape-wide-v3-rejection-2026-08-10.json).
 
+### 8.10 Packed-operand projection contract
+
+Large-M quantized projections in a production Prefill candidate must preserve
+the packed operand as a first-class execution asset:
+
+- authenticated real-checkpoint tensors are transformed only at build or
+  load time into role- and shape-specific consumer layouts;
+- NVFP4 or FP8 B operands and their scales remain packed through global and
+  shared-memory movement, with decode adjacent to the exact BF16 MMA consumer
+  and FP32 accumulation;
+- A, packed B, scales, and epilogue state have one declared producer/consumer
+  pipeline rather than independent mechanisms whose composition is assumed;
+- merged Gate+Up, K-heavy Down, and FP8 QKV/Z/O families may select different
+  layouts and schedules, while preserving each tensor's original scale,
+  rounding, residual, and activation semantics;
+- a request may not materialize a full BF16 copy of B, JIT compile or repack a
+  weight, discover a tactic, grow an arena, or enter a fallback route;
+- the physical launch and synchronization ledger must agree with the sealed
+  deployment plan and runtime witness; and
+- rejected implementation mechanisms may remain as default-off correctness
+  evidence but cannot remain reachable from the runner.
+
+This contract intentionally does not select an active candidate, work-package
+identifier, tile, stage count, grid size, performance budget, or delivery
+order. Those decisions belong only in [`ROADMAP.md`](ROADMAP.md); measured
+history and current implementation state belong in the evidence records and
+[`CURRENT_STATUS.md`](CURRENT_STATUS.md).
+
 ## 9. Global dataflow questions
 
 Every candidate must answer these questions for the full Prefill route, not
