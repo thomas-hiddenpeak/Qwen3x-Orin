@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: documentation navigation
   effective: 2026-08-09
-  last_reviewed: 2026-08-09
+  last_reviewed: 2026-08-11
   supersedes: []
   superseded_by: []
   ssot_for: documentation entry points and required reading order
@@ -34,14 +34,16 @@ Before planning, implementing, or evaluating performance work, read:
    evidence, retention, and production-promotion rules;
 6. [`PREFILL_ARCHITECTURE_RESET.md`](PREFILL_ARCHITECTURE_RESET.md) — active
    Prefill subsystem boundary and handoff contract;
-7. [`EVALSCOPE_EVALUATION.md`](EVALSCOPE_EVALUATION.md) — external-evaluation
+7. [`PREFILL_MATHEMATICAL_EQUIVALENCE_LEDGER.md`](PREFILL_MATHEMATICAL_EQUIVALENCE_LEDGER.md)
+   — Prefill proof order, finite-precision identity, and observable liveness;
+8. [`EVALSCOPE_EVALUATION.md`](EVALSCOPE_EVALUATION.md) — external-evaluation
    contract and procedure;
-8. [`DOCUMENT_GOVERNANCE.md`](DOCUMENT_GOVERNANCE.md) — document authority and
+9. [`DOCUMENT_GOVERNANCE.md`](DOCUMENT_GOVERNANCE.md) — document authority and
    lifecycle;
-9. [`ROADMAP.md`](ROADMAP.md) — active delivery order and exit criteria;
-10. the detailed subsystem SDD or contract for the work being changed.
+10. [`ROADMAP.md`](ROADMAP.md) — active delivery order and exit criteria;
+11. the detailed subsystem SDD or contract for the work being changed.
 
-Items 2--7 preserve the mandatory order declared by `AGENTS.md`; the remaining
+Items 2--8 preserve the mandatory order declared by `AGENTS.md`; the remaining
 items complete the end-state-first project orientation before implementation.
 
 The controlling authority and conflict order are defined in
@@ -57,6 +59,7 @@ is [`DOCUMENT_REGISTRY.md`](DOCUMENT_REGISTRY.md).
 | Current default route, delivered capability, qualified metrics, and open gaps | [`CURRENT_STATUS.md`](CURRENT_STATUS.md) |
 | Active dependency order and milestone exit criteria | [`ROADMAP.md`](ROADMAP.md) |
 | Evidence tiers, local retention, architecture-candidate qualification, and release promotion | [`REAL_MODEL_PERFORMANCE_POLICY.md`](REAL_MODEL_PERFORMANCE_POLICY.md) |
+| Prefill proof order, finite-precision equivalence, P40 arithmetic, and production-observable liveness | [`PREFILL_MATHEMATICAL_EQUIVALENCE_LEDGER.md`](PREFILL_MATHEMATICAL_EQUIVALENCE_LEDGER.md) |
 | Documentation classes, lifecycle, supersession, and completeness | [`DOCUMENT_GOVERNANCE.md`](DOCUMENT_GOVERNANCE.md) |
 | Accepted architecture decisions and their supersession chain | [`decisions/README.md`](decisions/README.md) |
 | OpenAI-compatible EvalScope procedure and protocol limitations | [`EVALSCOPE_EVALUATION.md`](EVALSCOPE_EVALUATION.md) |

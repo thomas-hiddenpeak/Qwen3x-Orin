@@ -211,6 +211,10 @@ inline constexpr std::string_view
     kLayerMajorNativePromptWideP40PackedNvfp4V2DeploymentPlanId =
         "q3x.sm87.ac-prefill-p40-packed-dataflow-v2."
         "native-p40-packed-nvfp4-shape-specific.v1";
+inline constexpr std::string_view
+    kLayerMajorNativePromptWideP40VllmMarlinParityDeploymentPlanId =
+        "q3x.sm87.ac-prefill-p40-vllm-marlin-parity."
+        "native-p40-canonical-nvfp4-legacy-stripe.v1";
 
 [[nodiscard]] constexpr bool is_valid_reference_prefill_execution_mode(
     const ReferencePrefillExecutionMode mode) noexcept {
@@ -449,6 +453,20 @@ struct ReferenceGeneration {
   std::uint64_t prefill_packed_nvfp4_v2_gate_up_hits = 0U;
   std::uint64_t prefill_packed_nvfp4_v2_down_hits = 0U;
   std::uint64_t prefill_packed_nvfp4_v2_physical_launches = 0U;
+  // Independent stock-vLLM Marlin host-dispatch reference. These counters
+  // and receipts never alias the historical persistent/packed ledgers.
+  std::uint64_t prefill_vllm_marlin_parity_gate_up_hits = 0U;
+  std::uint64_t prefill_vllm_marlin_parity_down_hits = 0U;
+  std::uint64_t prefill_vllm_marlin_parity_physical_launches = 0U;
+  std::uint64_t prefill_vllm_marlin_parity_standalone_silu_launches = 0U;
+  std::uint64_t
+      prefill_vllm_marlin_parity_standalone_residual_launches = 0U;
+  std::uint64_t prefill_vllm_marlin_parity_lock_clear_operations = 0U;
+  std::array<ReferenceP40VllmMarlinParityLayerCompletionReceipt,
+             kReferenceDecoderLayerCount>
+      prefill_vllm_marlin_parity_layer_completion_receipts{};
+  std::size_t
+      prefill_vllm_marlin_parity_layer_completion_receipt_count = 0U;
 };
 
 struct ReferenceEngineLoadStats {
@@ -468,6 +486,7 @@ struct ReferenceEngineLoadStats {
   double fp8_marlin_prefill_sidecar_milliseconds = 0.0;
   double nvfp4_marlin_prefill_sidecar_milliseconds = 0.0;
   double p40_packed_projection_asset_milliseconds = 0.0;
+  double nvfp4_marlin_p40_parity_sidecar_milliseconds = 0.0;
   double runner_factory_milliseconds = 0.0;
   ReferenceDecodeGraphCachePolicy decode_graph_cache_requested_policy =
       ReferenceDecodeGraphCachePolicy::kDisabled;
@@ -568,6 +587,15 @@ struct ReferenceEngineLoadStats {
   std::size_t p40_packed_projection_fp8_physical_launches = 0U;
   std::size_t p40_packed_projection_nvfp4_physical_launches = 0U;
   std::uint64_t p40_packed_projection_asset_bytes = 0U;
+  // Independent P40000 vLLM-Marlin reference owner. Its 128 artifacts are
+  // derived from 192 authenticated canonical checkpoint sources and never
+  // populate either prefill_marlin_* or packed projection views.
+  bool nvfp4_marlin_p40_parity_sidecars_enabled = false;
+  std::size_t nvfp4_marlin_p40_parity_layers = 0U;
+  std::size_t nvfp4_marlin_p40_parity_artifacts = 0U;
+  std::size_t nvfp4_marlin_p40_parity_sources = 0U;
+  std::uint64_t nvfp4_marlin_p40_parity_sidecar_bytes = 0U;
+  std::string nvfp4_marlin_p40_parity_manifest_sha256;
   // True only when tokenizer parsing and resident loading actually executed
   // concurrently. When true, total_milliseconds is wall time and phase
   // timings intentionally overlap.

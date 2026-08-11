@@ -1123,6 +1123,153 @@ void test_target_prefill_witness_evidence(TestContext& test) {
       "v14 fails closed on a missing Down completion or a mismatched route "
       "identity");
 
+  server::TargetPrefillWitnessRecord vllm_marlin_parity_p40_record =
+      whole_core_p40_record;
+  vllm_marlin_parity_p40_record.mlp_schedule_tactic = q3x::runtime::
+      LayerMajorPrefillMlpScheduleTactic::kPromptWideP40VllmMarlinParity;
+  vllm_marlin_parity_p40_record.persistent_p40_nvfp4_gate_up_hits = 0U;
+  vllm_marlin_parity_p40_record
+      .persistent_p40_nvfp4_down_residual_hits = 0U;
+  vllm_marlin_parity_p40_record.persistent_p40_nvfp4_physical_launches = 0U;
+  vllm_marlin_parity_p40_record.vllm_marlin_parity_gate_up_hits = 64U;
+  vllm_marlin_parity_p40_record.vllm_marlin_parity_down_hits = 64U;
+  vllm_marlin_parity_p40_record.vllm_marlin_parity_physical_launches =
+      5'120U;
+  vllm_marlin_parity_p40_record
+      .vllm_marlin_parity_standalone_silu_launches = 64U;
+  vllm_marlin_parity_p40_record
+      .vllm_marlin_parity_standalone_residual_launches = 64U;
+  vllm_marlin_parity_p40_record
+      .vllm_marlin_parity_lock_clear_operations = 1U;
+  for (std::size_t layer = 0U;
+       layer < q3x::runtime::kReferenceDecoderLayerCount; ++layer) {
+    q3x::runtime::PrefillP40VllmMarlinParityLayerCompletionReceipt receipt;
+    receipt.layer_index = layer;
+    receipt.request_lock_clear_operations = layer == 0U ? 1U : 0U;
+    receipt.gate_up_full_m1024_launches = 39U;
+    receipt.gate_up_split_m64_launches = 1U;
+    receipt.standalone_silu_launches = 1U;
+    receipt.down_full_m1024_launches = 39U;
+    receipt.down_split_m64_launches = 1U;
+    receipt.standalone_residual_launches = 1U;
+    receipt.retained_prompt_core_complete = true;
+    receipt.canonical_gate_then_up_bf16_published = true;
+    receipt.activated_bf16_published = true;
+    receipt.down_bf16_published = true;
+    receipt.stable_lock_owner_bound = true;
+    receipt.lock_owner_alias_exclusion_proved = true;
+    receipt.ordered_lock_protocol_completed = true;
+    receipt.request_stream_completion_observed = true;
+    vllm_marlin_parity_p40_record
+        .vllm_marlin_parity_layer_completion_receipts[layer] =
+        q3x::runtime::ReferenceP40VllmMarlinParityLayerCompletionReceipt::
+            from_validated(receipt);
+  }
+  vllm_marlin_parity_p40_record
+      .vllm_marlin_parity_layer_completion_receipt_count = 64U;
+  vllm_marlin_parity_p40_record.deployment_plan_id = q3x::runtime::
+      kLayerMajorNativePromptWideP40VllmMarlinParityDeploymentPlanId;
+  const std::string vllm_marlin_parity_p40_serialized =
+      server::serialize_target_prefill_witness(
+          vllm_marlin_parity_p40_record);
+  test.expect(
+      valid_json(vllm_marlin_parity_p40_serialized) &&
+          vllm_marlin_parity_p40_serialized.find(
+              R"("record":"target-prefill-witness-v15","schema_version":15)") !=
+              std::string::npos &&
+          vllm_marlin_parity_p40_serialized.find(
+              R"("projection_tactic":"native-prompt-wide-p40-vllm-marlin-parity","mlp_schedule":"prompt-wide-p40-vllm-marlin-parity","attention_tactic":"native-flashinfer-exact-whole-prompt","package_complete":true)") !=
+              std::string::npos &&
+          vllm_marlin_parity_p40_serialized.find(
+              R"("vllm_marlin_parity_gate_up_hits":64,"vllm_marlin_parity_down_hits":64,"vllm_marlin_parity_physical_launches":5120,"vllm_marlin_parity_standalone_silu_launches":64,"vllm_marlin_parity_standalone_residual_launches":64,"vllm_marlin_parity_lock_clear_operations":1)") !=
+              std::string::npos &&
+          vllm_marlin_parity_p40_serialized.find(
+              R"("persistent_p40_nvfp4_gate_up_hits":0,"persistent_p40_nvfp4_down_residual_hits":0,"persistent_p40_nvfp4_physical_launches":0,"packed_nvfp4_v2_gate_up_hits":0,"packed_nvfp4_v2_down_hits":0,"packed_nvfp4_v2_physical_launches":0)") !=
+              std::string::npos &&
+          vllm_marlin_parity_p40_serialized.find(
+              R"("vllm_marlin_parity_layer_completion_receipt_count":64,"vllm_marlin_parity_layer_completion_receipts":[{"layer":0,"request_lock_clear_operations":1,"gate_up":{"full_m1024_launches":39,"split_m64_launches":1})") !=
+              std::string::npos &&
+          vllm_marlin_parity_p40_serialized.find(
+              R"({"layer":63,"request_lock_clear_operations":0,"gate_up":{"full_m1024_launches":39,"split_m64_launches":1})") !=
+              std::string::npos &&
+          vllm_marlin_parity_p40_serialized.find(
+              R"("lock_lifetime":{"stable_owner_bound":true,"alias_exclusion_proved":true,"ordered_protocol_completed":true},"request_stream_completion_observed":true)") !=
+              std::string::npos &&
+          vllm_marlin_parity_p40_serialized.find(
+              R"("p40_vllm_marlin_parity_package":{"identity":"stock-vllm-marlin-p40000-projection-host-dispatch-parity-v1","scope":"projection-host-dispatch-reference","selection":"sealed-fail-closed","complete":true)") !=
+              std::string::npos &&
+          vllm_marlin_parity_p40_serialized.find(
+              R"("expected_nvfp4_physical_launches":5120,"expected_full_m1024_launches_per_role_per_layer":39,"expected_split_m64_launches_per_role_per_layer":1)") !=
+              std::string::npos &&
+          vllm_marlin_parity_p40_serialized.find(
+              R"("expected_layer_completion_receipts":64,"all_layer_receipts_complete":true)") !=
+              std::string::npos,
+      "stock-vLLM Marlin P40000 parity emits an independent complete v15 "
+      "witness with every per-layer completion receipt");
+
+  server::TargetPrefillWitnessRecord parity_missing_receipt =
+      vllm_marlin_parity_p40_record;
+  parity_missing_receipt.vllm_marlin_parity_layer_completion_receipt_count =
+      63U;
+  server::TargetPrefillWitnessRecord parity_bad_publication =
+      vllm_marlin_parity_p40_record;
+  parity_bad_publication.vllm_marlin_parity_layer_completion_receipts[17U]
+      .packed &= ~(1U << 25U);
+  server::TargetPrefillWitnessRecord parity_bad_lock_lifetime =
+      vllm_marlin_parity_p40_record;
+  parity_bad_lock_lifetime.vllm_marlin_parity_layer_completion_receipts[17U]
+      .packed &= ~(1U << 28U);
+  server::TargetPrefillWitnessRecord parity_missing_stream_completion =
+      vllm_marlin_parity_p40_record;
+  parity_missing_stream_completion
+      .vllm_marlin_parity_layer_completion_receipts[17U]
+      .packed &= ~(1U << 30U);
+  server::TargetPrefillWitnessRecord parity_wrong_schedule =
+      vllm_marlin_parity_p40_record;
+  parity_wrong_schedule.mlp_schedule_tactic = q3x::runtime::
+      LayerMajorPrefillMlpScheduleTactic::kPromptWideP40WholeCore;
+  server::TargetPrefillWitnessRecord parity_old_persistent_hit =
+      vllm_marlin_parity_p40_record;
+  parity_old_persistent_hit.persistent_p40_nvfp4_gate_up_hits = 1U;
+  server::TargetPrefillWitnessRecord parity_old_packed_v2_hit =
+      vllm_marlin_parity_p40_record;
+  parity_old_packed_v2_hit.packed_nvfp4_v2_down_hits = 1U;
+  server::TargetPrefillWitnessRecord parity_short_physical_count =
+      vllm_marlin_parity_p40_record;
+  --parity_short_physical_count.vllm_marlin_parity_physical_launches;
+  const auto parity_fails_closed = [](const auto& value) {
+    const std::string serialized =
+        server::serialize_target_prefill_witness(value);
+    return valid_json(serialized) &&
+           serialized.find(R"("package_complete":false)") !=
+               std::string::npos &&
+           serialized.find(
+               R"("selection":"sealed-fail-closed","complete":false)") !=
+               std::string::npos;
+  };
+  test.expect(
+      parity_fails_closed(parity_missing_receipt) &&
+          parity_fails_closed(parity_bad_publication) &&
+          parity_fails_closed(parity_bad_lock_lifetime) &&
+          parity_fails_closed(parity_missing_stream_completion) &&
+          parity_fails_closed(parity_wrong_schedule) &&
+          parity_fails_closed(parity_old_persistent_hit) &&
+          parity_fails_closed(parity_old_packed_v2_hit) &&
+          parity_fails_closed(parity_short_physical_count),
+      "v15 fails closed on missing receipts, publication, lock lifetime, "
+      "stream completion, schedule, legacy-route contamination, or "
+      "physical-count mismatch");
+
+  server::TargetPrefillWitnessRecord v14_with_v15_only_fields =
+      packed_nvfp4_v2_p40_record;
+  v14_with_v15_only_fields.vllm_marlin_parity_gate_up_hits = 64U;
+  v14_with_v15_only_fields.vllm_marlin_parity_layer_completion_receipt_count =
+      64U;
+  test.expect(
+      server::serialize_target_prefill_witness(v14_with_v15_only_fields) ==
+          packed_nvfp4_v2_p40_serialized,
+      "v14 remains byte-stable when append-only v15 fields exist");
+
   server::TargetPrefillWitnessRecord reset_not_fully_consumed =
       projection_reset_p40_record;
   reset_not_fully_consumed.full_prompt_consumed = false;

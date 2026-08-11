@@ -194,6 +194,35 @@ void test_p40_marlin_parity_descriptor(TestContext& test) {
           described.value->mlp.down_projection_temporary.byte_size ==
               described.value->mlp.gate_up_projection_temporary.byte_size,
       "descriptor preserves the distinct parity tactic and exact typed views");
+  if (!described) {
+    return;
+  }
+  test.expect(
+      runtime::
+          valid_reference_p40_vllm_marlin_parity_lock_lifetime_descriptor(
+              *described.value),
+      "parity descriptor proves the stable lock owner across the complete "
+      "request lifetime");
+
+  runtime::ReferenceLayerMajorRequestBindingDescriptor aliased_descriptor =
+      *described.value;
+  aliased_descriptor.legacy_c512.projection_bf16[3U].storage.arena_offset =
+      aliased_descriptor.p40_whole_core.family_phase_arena.arena_offset;
+  test.expect(
+      !runtime::
+          valid_reference_p40_vllm_marlin_parity_lock_lifetime_descriptor(
+              aliased_descriptor),
+      "lock owner inside the active prompt-wide GDN family fails closed");
+
+  aliased_descriptor = *described.value;
+  aliased_descriptor.legacy_c512.projection_bf16[3U].storage.arena_offset =
+      aliased_descriptor.legacy_c512.fp32_scratch.arena_offset;
+  test.expect(
+      !runtime::
+          valid_reference_p40_vllm_marlin_parity_lock_lifetime_descriptor(
+              aliased_descriptor),
+      "lock owner overlapping the ordered FP8 reduction workspace fails "
+      "closed");
 
   runtime::LayerMajorRequestMemoryOptions v10_options = options;
   v10_options.mlp_layout =

@@ -147,6 +147,104 @@ struct NvFp4MarlinPrefillSidecarDescriptor {
   const float* down_global_scale = nullptr;
 };
 
+// Append-only ModelWeights ABI for the fixed P40000 stock-vLLM Marlin
+// projection host-dispatch reference.  This inventory is deliberately
+// independent from prefill_marlin_* (which may describe v10's interleaved
+// Gate/Up artifact) and from the packed-v1/v2 artifact view.  A later Engine
+// transaction derives and seals the identities below from the authenticated
+// checkpoint before attaching the non-owning device views.
+inline constexpr std::uint32_t kNvFp4MarlinP40ParityManifestVersion = 1U;
+inline constexpr std::size_t kNvFp4MarlinP40ParityArtifactCount = 128U;
+inline constexpr std::size_t kNvFp4MarlinP40ParitySourceCount = 192U;
+inline constexpr std::size_t kNvFp4MarlinP40ParityMaximumSources = 2U;
+inline constexpr std::size_t kNvFp4MarlinP40ParityHidden = 5'120U;
+inline constexpr std::size_t kNvFp4MarlinP40ParityIntermediate = 17'408U;
+inline constexpr std::size_t kNvFp4MarlinP40ParityGateUpOutput = 34'816U;
+inline constexpr std::uint64_t kNvFp4MarlinP40ParityGateUpWeightBytes =
+    static_cast<std::uint64_t>(kNvFp4MarlinP40ParityGateUpOutput) *
+    kNvFp4MarlinP40ParityHidden / 2U;
+inline constexpr std::uint64_t kNvFp4MarlinP40ParityGateUpScaleBytes =
+    static_cast<std::uint64_t>(kNvFp4MarlinP40ParityGateUpOutput) *
+    kNvFp4MarlinP40ParityHidden / 16U;
+inline constexpr std::uint64_t kNvFp4MarlinP40ParityDownWeightBytes =
+    static_cast<std::uint64_t>(kNvFp4MarlinP40ParityHidden) *
+    kNvFp4MarlinP40ParityIntermediate / 2U;
+inline constexpr std::uint64_t kNvFp4MarlinP40ParityDownScaleBytes =
+    static_cast<std::uint64_t>(kNvFp4MarlinP40ParityHidden) *
+    kNvFp4MarlinP40ParityIntermediate / 16U;
+
+static_assert(kNvFp4MarlinP40ParityArtifactCount ==
+              2U * kQwen36DenseLayerCount);
+static_assert(kNvFp4MarlinP40ParitySourceCount ==
+              3U * kQwen36DenseLayerCount);
+static_assert(kNvFp4MarlinP40ParityGateUpWeightBytes == 89'128'960U);
+static_assert(kNvFp4MarlinP40ParityGateUpScaleBytes == 11'141'120U);
+static_assert(kNvFp4MarlinP40ParityDownWeightBytes == 44'564'480U);
+static_assert(kNvFp4MarlinP40ParityDownScaleBytes == 5'570'560U);
+
+using NvFp4MarlinP40ParityDigest = std::array<std::uint8_t, 32U>;
+
+enum class NvFp4MarlinP40ParityRole : std::uint8_t {
+  kInvalid = 0U,
+  kGateUp,
+  kDown,
+};
+
+enum class NvFp4MarlinP40ParityLayout : std::uint8_t {
+  kInvalid = 0U,
+  kCanonicalGateThenUp,
+  kCanonicalDown,
+};
+
+enum class NvFp4MarlinP40ParitySourceRole : std::uint8_t {
+  kInvalid = 0U,
+  kGate,
+  kUp,
+  kDown,
+};
+
+struct NvFp4MarlinP40ParitySourceManifest {
+  NvFp4MarlinP40ParitySourceRole role =
+      NvFp4MarlinP40ParitySourceRole::kInvalid;
+  std::uint64_t tensor_identity = 0U;
+  NvFp4MarlinP40ParityDigest weight_digest{};
+  NvFp4MarlinP40ParityDigest scale_digest{};
+  std::uint32_t global_scale_bits = 0U;
+};
+
+struct NvFp4MarlinP40ParityArtifactManifest {
+  std::uint32_t version = kNvFp4MarlinP40ParityManifestVersion;
+  std::uint32_t layer_index = 0U;
+  NvFp4MarlinP40ParityRole role = NvFp4MarlinP40ParityRole::kInvalid;
+  NvFp4MarlinP40ParityLayout layout =
+      NvFp4MarlinP40ParityLayout::kInvalid;
+  std::uint32_t output_features = 0U;
+  std::uint32_t input_features = 0U;
+  std::uint64_t weight_bytes = 0U;
+  std::uint64_t scale_bytes = 0U;
+  std::uint64_t artifact_identity = 0U;
+  // Source-bound digest of the deterministic repack recipe, ABI, schedule,
+  // and checkpoint manifests. This is deliberately not represented as a
+  // byte hash of the generated device allocation.
+  NvFp4MarlinP40ParityDigest transformation_digest{};
+  std::uint32_t source_count = 0U;
+  std::array<NvFp4MarlinP40ParitySourceManifest,
+             kNvFp4MarlinP40ParityMaximumSources>
+      sources{};
+};
+
+struct NvFp4MarlinP40ParityDeviceView {
+  const std::uint8_t* weight = nullptr;
+  const std::uint8_t* scales = nullptr;
+  const float* global_scale = nullptr;
+  NvFp4MarlinP40ParityArtifactManifest manifest{};
+};
+
+struct NvFp4MarlinP40ParitySidecarDescriptor {
+  std::size_t layer_index = 0U;
+  NvFp4MarlinP40ParityDeviceView view{};
+};
+
 // One of the four authenticated packed projection artifacts owned by a
 // decoder layer. The descriptor is copied by attach; the device payload must
 // outlive ModelWeights and all queued consumers. A complete transaction has
@@ -232,6 +330,11 @@ struct NvFp4LinearWeight {
   const std::uint8_t* prefill_marlin_scales = nullptr;
   const float* prefill_marlin_global_scale = nullptr;
   kernels::Sm87P40PackedProjectionDeviceView prefill_p40_packed_artifact{};
+  // Independent canonical GateThenUp/Down views for the exact P40000
+  // stock-vLLM Marlin projection host-dispatch reference. Gate and Up bind
+  // the same GateUp view; Down binds its own view. No selector may infer this
+  // route from the historical prefill_marlin_* fields.
+  NvFp4MarlinP40ParityDeviceView prefill_p40_vllm_marlin_parity{};
 };
 
 // The active alternative is selected strictly from the payload weight dtype:
@@ -522,6 +625,15 @@ class ModelWeights {
   // sidecars, and requires every packed FP8 view to remain detached.
   [[nodiscard]] bool attach_p40_packed_nvfp4_sidecars(
       const P40PackedProjectionSidecarDescriptor* descriptors,
+      std::size_t descriptor_count) noexcept;
+
+  // Transactionally attaches exactly 64 canonical GateThenUp and 64
+  // canonical Down artifacts backed by 192 authenticated source manifests.
+  // The canonical null/zero call detaches only these parity views. Validation
+  // is all-or-nothing, so any malformed identity, range, layout, source set,
+  // or target preserves the complete previously attached parity inventory.
+  [[nodiscard]] bool attach_nvfp4_marlin_p40_parity_sidecars(
+      const NvFp4MarlinP40ParitySidecarDescriptor* descriptors,
       std::size_t descriptor_count) noexcept;
 
  private:

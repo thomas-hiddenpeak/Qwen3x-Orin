@@ -220,6 +220,97 @@ void append_prefill_route_evidence(
       "}}";
 }
 
+[[nodiscard]] bool complete_vllm_marlin_parity_layer_receipts(
+    const TargetPrefillWitnessRecord& record) noexcept {
+  if (record.vllm_marlin_parity_layer_completion_receipt_count !=
+      runtime::kReferenceDecoderLayerCount) {
+    return false;
+  }
+  for (std::size_t layer = 0U; layer < runtime::kReferenceDecoderLayerCount;
+       ++layer) {
+    const runtime::ReferenceP40VllmMarlinParityLayerCompletionReceipt& receipt =
+        record.vllm_marlin_parity_layer_completion_receipts[layer];
+    if ((receipt.packed & 0x80000000U) != 0U ||
+        receipt.layer_index() != layer ||
+        receipt.request_lock_clear_operations() != (layer == 0U ? 1U : 0U) ||
+        receipt.gate_up_full_m1024_launches() != runtime::
+            kLayerMajorPrefillVllmMarlinParityFullSegmentsPerProjection ||
+        receipt.gate_up_split_m64_launches() != runtime::
+            kLayerMajorPrefillVllmMarlinParityTailSegmentsPerProjection ||
+        receipt.standalone_silu_launches() != runtime::
+            kLayerMajorPrefillVllmMarlinParityStandaloneSiluLaunchesPerLayer ||
+        receipt.down_full_m1024_launches() != runtime::
+            kLayerMajorPrefillVllmMarlinParityFullSegmentsPerProjection ||
+        receipt.down_split_m64_launches() != runtime::
+            kLayerMajorPrefillVllmMarlinParityTailSegmentsPerProjection ||
+        receipt.standalone_residual_launches() != runtime::
+            kLayerMajorPrefillVllmMarlinParityStandaloneResidualLaunchesPerLayer ||
+        !receipt.retained_prompt_core_complete() ||
+        !receipt.canonical_gate_then_up_bf16_published() ||
+        !receipt.activated_bf16_published() ||
+        !receipt.down_bf16_published() ||
+        !receipt.stable_lock_owner_bound() ||
+        !receipt.lock_owner_alias_exclusion_proved() ||
+        !receipt.ordered_lock_protocol_completed() ||
+        !receipt.request_stream_completion_observed()) {
+      return false;
+    }
+  }
+  return true;
+}
+
+void append_vllm_marlin_parity_layer_receipts(
+    std::string& output, const TargetPrefillWitnessRecord& record) {
+  output.push_back('[');
+  const std::size_t serialized_count = static_cast<std::size_t>(std::min<
+      std::uint64_t>(record.vllm_marlin_parity_layer_completion_receipt_count,
+                     runtime::kReferenceDecoderLayerCount));
+  for (std::size_t layer = 0U; layer < serialized_count; ++layer) {
+    if (layer != 0U) {
+      output.push_back(',');
+    }
+    const runtime::ReferenceP40VllmMarlinParityLayerCompletionReceipt& receipt =
+        record.vllm_marlin_parity_layer_completion_receipts[layer];
+    output +=
+        "{\"layer\":" + std::to_string(receipt.layer_index()) +
+        ",\"request_lock_clear_operations\":" +
+        std::to_string(receipt.request_lock_clear_operations()) +
+        ",\"gate_up\":{\"full_m1024_launches\":" +
+        std::to_string(receipt.gate_up_full_m1024_launches()) +
+        ",\"split_m64_launches\":" +
+        std::to_string(receipt.gate_up_split_m64_launches()) +
+        "},\"standalone_silu_launches\":" +
+        std::to_string(receipt.standalone_silu_launches()) +
+        ",\"down\":{\"full_m1024_launches\":" +
+        std::to_string(receipt.down_full_m1024_launches()) +
+        ",\"split_m64_launches\":" +
+        std::to_string(receipt.down_split_m64_launches()) +
+        "},\"standalone_residual_launches\":" +
+        std::to_string(receipt.standalone_residual_launches()) +
+        ",\"publication\":{\"retained_prompt_core_complete\":";
+    output += receipt.retained_prompt_core_complete() ? "true" : "false";
+    output += ",\"canonical_gate_then_up_bf16_published\":";
+    output += receipt.canonical_gate_then_up_bf16_published() ? "true"
+                                                              : "false";
+    output += ",\"activated_bf16_published\":";
+    output += receipt.activated_bf16_published() ? "true" : "false";
+    output += ",\"down_bf16_published\":";
+    output += receipt.down_bf16_published() ? "true" : "false";
+    output += "},\"lock_lifetime\":{\"stable_owner_bound\":";
+    output += receipt.stable_lock_owner_bound() ? "true" : "false";
+    output += ",\"alias_exclusion_proved\":";
+    output +=
+        receipt.lock_owner_alias_exclusion_proved() ? "true" : "false";
+    output += ",\"ordered_protocol_completed\":";
+    output += receipt.ordered_lock_protocol_completed() ? "true" : "false";
+    output += "},\"request_stream_completion_observed\":";
+    output +=
+        receipt.request_stream_completion_observed() ? "true" : "false";
+    output.push_back('}');
+  }
+  output.push_back(']');
+}
+
 OpenAIParseResult parse_messages(const json::Value& value,
                                  OpenAIRequest& request) {
   const json::Value::Array* const messages = value.as_array();
@@ -707,6 +798,9 @@ std::string serialize_target_prefill_witness(
   const bool p40_packed_nvfp4_v2_candidate_v14 =
       record.deployment_plan_id == runtime::
           kLayerMajorNativePromptWideP40PackedNvfp4V2DeploymentPlanId;
+  const bool p40_vllm_marlin_parity_candidate_v15 =
+      record.deployment_plan_id == runtime::
+          kLayerMajorNativePromptWideP40VllmMarlinParityDeploymentPlanId;
   constexpr std::uint64_t kLayerCount = 64U;
   constexpr std::uint64_t kLinearAttentionLayerCount = 48U;
   constexpr std::uint64_t kAttentionLayerCount = 16U;
@@ -907,7 +1001,7 @@ std::string serialize_target_prefill_witness(
         prompt_wide_p40_whole_core_route_is_production_only &&
         boundary_hits == 0U;
   }
-  const bool prompt_wide_p40_common_package_counts_complete =
+  const bool prompt_wide_p40_common_non_mlp_counts_complete =
       record.prompt_tokens ==
           runtime::kLayerMajorPrefillPromptWideP40Tokens &&
       record.prefill_logical_panel_count == kP40LogicalPanelCount &&
@@ -936,9 +1030,6 @@ std::string serialize_target_prefill_witness(
       record.native_flashinfer_exact_whole_prompt_hits ==
           kAttentionLayerCount &&
       record.layer_wide_p40_mlp_layer_hits == kLayerCount &&
-      record.persistent_p40_nvfp4_gate_up_hits == kLayerCount &&
-      record.persistent_p40_nvfp4_down_residual_hits == kLayerCount &&
-      record.persistent_p40_nvfp4_physical_launches == 2U * kLayerCount &&
       record.operator_panel_executor_hits == 0U &&
       record.native_group_q64_panel_hits == 0U &&
       record.native_group_q128_v4_panel_hits == 0U &&
@@ -966,6 +1057,11 @@ std::string serialize_target_prefill_witness(
       record.persistent_p40_fp8_projection_bulk_hits == 0U &&
       record.persistent_p40_fp8_projection_oracle_partial_hits == 0U &&
       record.persistent_p40_fp8_projection_physical_launches == 0U;
+  const bool prompt_wide_p40_common_package_counts_complete =
+      prompt_wide_p40_common_non_mlp_counts_complete &&
+      record.persistent_p40_nvfp4_gate_up_hits == kLayerCount &&
+      record.persistent_p40_nvfp4_down_residual_hits == kLayerCount &&
+      record.persistent_p40_nvfp4_physical_launches == 2U * kLayerCount;
   const bool prompt_wide_p40_whole_core_package_counts_complete =
       prompt_wide_p40_common_package_counts_complete &&
       record.mlp_schedule_tactic == runtime::
@@ -1015,6 +1111,42 @@ std::string serialize_target_prefill_witness(
       record.packed_nvfp4_v2_down_hits == kLayerCount &&
       record.packed_nvfp4_v2_physical_launches ==
           kP40PackedExpectedNvFp4PhysicalLaunches;
+  const bool p40_vllm_marlin_parity_package_counts_complete =
+      prompt_wide_p40_common_non_mlp_counts_complete &&
+      record.full_prompt_consumed &&
+      record.consumed_prompt_tokens == record.prompt_tokens &&
+      record.completion_tokens > 0U &&
+      record.prefix_execution_count == 1U &&
+      record.prefill_execution_mode == runtime::
+          ReferencePrefillExecutionMode::kWholeRequestLayerMajor &&
+      record.mlp_schedule_tactic == runtime::
+          LayerMajorPrefillMlpScheduleTactic::
+              kPromptWideP40VllmMarlinParity &&
+      record.prompt_wide_p40_fp8_projection_hits == runtime::
+          kLayerMajorPrefillVllmMarlinParityFp8TensorRoleHitsPerRequest &&
+      record.prompt_wide_p40_fp8_projection_physical_launches == runtime::
+          kLayerMajorPrefillVllmMarlinParityFp8PhysicalLaunchesPerRequest &&
+      record.vllm_marlin_parity_gate_up_hits == runtime::
+          kLayerMajorPrefillVllmMarlinParityGateUpLogicalRoleHitsPerRequest &&
+      record.vllm_marlin_parity_down_hits == runtime::
+          kLayerMajorPrefillVllmMarlinParityDownLogicalRoleHitsPerRequest &&
+      record.vllm_marlin_parity_physical_launches == runtime::
+          kLayerMajorPrefillVllmMarlinParityNvFp4PhysicalLaunchesPerRequest &&
+      record.vllm_marlin_parity_standalone_silu_launches ==
+          kLayerCount * runtime::
+              kLayerMajorPrefillVllmMarlinParityStandaloneSiluLaunchesPerLayer &&
+      record.vllm_marlin_parity_standalone_residual_launches ==
+          kLayerCount * runtime::
+              kLayerMajorPrefillVllmMarlinParityStandaloneResidualLaunchesPerLayer &&
+      record.vllm_marlin_parity_lock_clear_operations == runtime::
+          kLayerMajorPrefillVllmMarlinParityLockClearOperationsPerRequest &&
+      complete_vllm_marlin_parity_layer_receipts(record) &&
+      record.persistent_p40_nvfp4_gate_up_hits == 0U &&
+      record.persistent_p40_nvfp4_down_residual_hits == 0U &&
+      record.persistent_p40_nvfp4_physical_launches == 0U &&
+      record.packed_nvfp4_v2_gate_up_hits == 0U &&
+      record.packed_nvfp4_v2_down_hits == 0U &&
+      record.packed_nvfp4_v2_physical_launches == 0U;
   const bool accuracy_unqualified_candidate =
       candidate_v3 || projection_candidate_v4 ||
       native_large_m_candidate_v5 || flashinfer_exact_candidate_v6 ||
@@ -1023,9 +1155,13 @@ std::string serialize_target_prefill_witness(
       prompt_wide_p40_whole_core_candidate_v10 ||
       p40_projection_reset_candidate_v11 ||
       p40_packed_projection_candidate_v13 ||
-      p40_packed_nvfp4_v2_candidate_v14;
+      p40_packed_nvfp4_v2_candidate_v14 ||
+      p40_vllm_marlin_parity_candidate_v15;
   std::string output =
-      p40_packed_nvfp4_v2_candidate_v14
+      p40_vllm_marlin_parity_candidate_v15
+          ? "{\"record\":\"target-prefill-witness-v15\","
+            "\"schema_version\":15,\"request\":{\"id\":"
+      : p40_packed_nvfp4_v2_candidate_v14
           ? "{\"record\":\"target-prefill-witness-v14\","
             "\"schema_version\":14,\"request\":{\"id\":"
       : p40_packed_projection_candidate_v13
@@ -1131,7 +1267,124 @@ std::string serialize_target_prefill_witness(
     output += record.bounded_submission_window ? "true" : "false";
     output += ",\"submission_window_retirements\":" +
               std::to_string(record.submission_window_retirements);
-    if (p40_packed_nvfp4_v2_candidate_v14) {
+    if (p40_vllm_marlin_parity_candidate_v15) {
+      const bool parity_receipts_complete =
+          complete_vllm_marlin_parity_layer_receipts(record);
+      output += ",\"projection_tactic\":";
+      append_json_string(output,
+                         "native-prompt-wide-p40-vllm-marlin-parity");
+      output += ",\"mlp_schedule\":";
+      append_json_string(output, "prompt-wide-p40-vllm-marlin-parity");
+      output += ",\"attention_tactic\":";
+      append_json_string(output, "native-flashinfer-exact-whole-prompt");
+      output += ",\"package_complete\":";
+      output += p40_vllm_marlin_parity_package_counts_complete ? "true"
+                                                               : "false";
+      output +=
+          ",\"route_layer_pass_count\":" +
+          std::to_string(record.route_layer_pass_count) +
+          ",\"operator_panel_executor_hits\":" +
+          std::to_string(record.operator_panel_executor_hits) +
+          ",\"prompt_wide_p40_whole_core_layer_hits\":" +
+          std::to_string(record.prompt_wide_p40_whole_core_layer_hits) +
+          ",\"prompt_wide_p40_fill_panel_hits\":" +
+          std::to_string(record.prompt_wide_p40_fill_panel_hits) +
+          ",\"prompt_wide_p40_prompt_core_hits\":" +
+          std::to_string(record.prompt_wide_p40_prompt_core_hits) +
+          ",\"prompt_wide_p40_drain_panel_hits\":" +
+          std::to_string(record.prompt_wide_p40_drain_panel_hits) +
+          ",\"prompt_wide_p40_fp8_projection_hits\":" +
+          std::to_string(record.prompt_wide_p40_fp8_projection_hits) +
+          ",\"prompt_wide_p40_fp8_projection_physical_launches\":" +
+          std::to_string(
+              record.prompt_wide_p40_fp8_projection_physical_launches) +
+          ",\"prompt_wide_p40_bf16_ab_hits\":" +
+          std::to_string(record.prompt_wide_p40_bf16_ab_hits) +
+          ",\"prompt_wide_p40_gdn_hits\":" +
+          std::to_string(record.prompt_wide_p40_gdn_hits) +
+          ",\"native_flashinfer_exact_whole_prompt_hits\":" +
+          std::to_string(record.native_flashinfer_exact_whole_prompt_hits) +
+          ",\"layer_wide_p40_mlp_layer_hits\":" +
+          std::to_string(record.layer_wide_p40_mlp_layer_hits) +
+          ",\"vllm_marlin_parity_gate_up_hits\":" +
+          std::to_string(record.vllm_marlin_parity_gate_up_hits) +
+          ",\"vllm_marlin_parity_down_hits\":" +
+          std::to_string(record.vllm_marlin_parity_down_hits) +
+          ",\"vllm_marlin_parity_physical_launches\":" +
+          std::to_string(record.vllm_marlin_parity_physical_launches) +
+          ",\"vllm_marlin_parity_standalone_silu_launches\":" +
+          std::to_string(
+              record.vllm_marlin_parity_standalone_silu_launches) +
+          ",\"vllm_marlin_parity_standalone_residual_launches\":" +
+          std::to_string(
+              record.vllm_marlin_parity_standalone_residual_launches) +
+          ",\"vllm_marlin_parity_lock_clear_operations\":" +
+          std::to_string(record.vllm_marlin_parity_lock_clear_operations) +
+          ",\"persistent_p40_nvfp4_gate_up_hits\":" +
+          std::to_string(record.persistent_p40_nvfp4_gate_up_hits) +
+          ",\"persistent_p40_nvfp4_down_residual_hits\":" +
+          std::to_string(record.persistent_p40_nvfp4_down_residual_hits) +
+          ",\"persistent_p40_nvfp4_physical_launches\":" +
+          std::to_string(record.persistent_p40_nvfp4_physical_launches) +
+          ",\"packed_nvfp4_v2_gate_up_hits\":" +
+          std::to_string(record.packed_nvfp4_v2_gate_up_hits) +
+          ",\"packed_nvfp4_v2_down_hits\":" +
+          std::to_string(record.packed_nvfp4_v2_down_hits) +
+          ",\"packed_nvfp4_v2_physical_launches\":" +
+          std::to_string(record.packed_nvfp4_v2_physical_launches) +
+          ",\"vllm_marlin_parity_layer_completion_receipt_count\":" +
+          std::to_string(
+              record.vllm_marlin_parity_layer_completion_receipt_count) +
+          ",\"vllm_marlin_parity_layer_completion_receipts\":";
+      append_vllm_marlin_parity_layer_receipts(output, record);
+      output += ",\"p40_vllm_marlin_parity_package\":{\"identity\":";
+      append_json_string(
+          output,
+          "stock-vllm-marlin-p40000-projection-host-dispatch-parity-v1");
+      output +=
+          ",\"scope\":\"projection-host-dispatch-reference\","
+          "\"selection\":\"sealed-fail-closed\",\"complete\":";
+      output += p40_vllm_marlin_parity_package_counts_complete ? "true"
+                                                               : "false";
+      output +=
+          ",\"publication_order\":"
+          "\"retained-prompt-core->canonical-gate-then-up-bf16->"
+          "standalone-silu-activated-bf16->down-bf16->"
+          "standalone-residual\",\"count_validation\":{"
+          "\"expected_fp8_tensor_role_hits\":" +
+          std::to_string(runtime::
+                             kLayerMajorPrefillVllmMarlinParityFp8TensorRoleHitsPerRequest) +
+          ",\"expected_fp8_physical_launches\":" +
+          std::to_string(runtime::
+                             kLayerMajorPrefillVllmMarlinParityFp8PhysicalLaunchesPerRequest) +
+          ",\"expected_gate_up_hits\":" +
+          std::to_string(runtime::
+                             kLayerMajorPrefillVllmMarlinParityGateUpLogicalRoleHitsPerRequest) +
+          ",\"expected_down_hits\":" +
+          std::to_string(runtime::
+                             kLayerMajorPrefillVllmMarlinParityDownLogicalRoleHitsPerRequest) +
+          ",\"expected_nvfp4_physical_launches\":" +
+          std::to_string(runtime::
+                             kLayerMajorPrefillVllmMarlinParityNvFp4PhysicalLaunchesPerRequest) +
+          ",\"expected_full_m1024_launches_per_role_per_layer\":" +
+          std::to_string(runtime::
+                             kLayerMajorPrefillVllmMarlinParityFullSegmentsPerProjection) +
+          ",\"expected_split_m64_launches_per_role_per_layer\":" +
+          std::to_string(runtime::
+                             kLayerMajorPrefillVllmMarlinParityTailSegmentsPerProjection) +
+          ",\"expected_standalone_silu_launches\":" +
+          std::to_string(kLayerCount) +
+          ",\"expected_standalone_residual_launches\":" +
+          std::to_string(kLayerCount) +
+          ",\"expected_lock_clear_operations\":" +
+          std::to_string(runtime::
+                             kLayerMajorPrefillVllmMarlinParityLockClearOperationsPerRequest) +
+          ",\"expected_layer_completion_receipts\":" +
+          std::to_string(kLayerCount) +
+          ",\"all_layer_receipts_complete\":";
+      output += parity_receipts_complete ? "true" : "false";
+      output += "}}";
+    } else if (p40_packed_nvfp4_v2_candidate_v14) {
       output += ",\"projection_tactic\":";
       append_json_string(output,
                          "native-prompt-wide-p40-packed-nvfp4-v2");

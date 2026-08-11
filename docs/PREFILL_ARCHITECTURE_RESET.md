@@ -119,6 +119,16 @@ capacity profile retains required memory headroom. Buffer count is therefore
 an architecture decision derived from dependencies, not a global mechanism
 rule.
 
+The same rule applies to small control workspaces. Locks, counters, barrier
+state, and completion words that remain live across operator-family phases
+must have one stable physical owner until their last consumer. Allocation,
+pointer validity, and an initial clear are insufficient when a family overlay
+can write the same bytes in between. The bound plan must either exclude every
+intervening alias writer or explicitly re-establish the required state before
+the next consumer; a receipt must cover the complete lifetime. The normative
+proof obligation is owned by the
+[`PREFILL_MATHEMATICAL_EQUIVALENCE_LEDGER.md`](PREFILL_MATHEMATICAL_EQUIVALENCE_LEDGER.md).
+
 ## 4. Synchronization and execution semantics
 
 The Prefill plan must preserve model order and recurrent dependencies while
@@ -194,6 +204,20 @@ boundary.
 
 A Prefill architecture candidate is a complete executable dataflow, not a
 kernel list. Before activation it must declare:
+
+```text
+real-number function and legal rewrites
+  -> finite-precision operands, reduction tree, rounding and state boundaries
+  -> production observables, buffer/control-state lifetimes and alias owners
+  -> SM87 engineering map: residency, ownership, pipeline and synchronization
+```
+
+This is the mandatory design order. The mathematical ledger owns the first
+three proof layers; this subsystem SDD owns their executable state, lifetime,
+and handoff mapping. CUDA layout or profiler evidence may refine the fourth
+step only. If it changes an earlier premise, the candidate returns to that
+proof layer under a new identity rather than treating the physical mechanism
+as its own justification.
 
 1. the originating 40K, 60K, or approximately 130K API symptom and the
    downward budget assigned to Prefill;
@@ -717,6 +741,13 @@ history and current implementation state belong in the evidence records and
 
 ### 8.11 Mathematical-equivalence ledger
 
+The normative proof classes, finite-precision obligations, quantitative P40
+arithmetic, layer-63 liveness boundary, and plan/receipt/oracle requirements
+are maintained in
+[`PREFILL_MATHEMATICAL_EQUIVALENCE_LEDGER.md`](PREFILL_MATHEMATICAL_EQUIVALENCE_LEDGER.md).
+This section retains the architecture-lineage derivation and does not weaken
+that ledger when its summary is less specific.
+
 Prefill architecture starts from the following functions rather than from the
 current kernel boundaries. Let `R_bf16` denote BF16 round-to-nearest-even,
 `Acc_fp32^K` the complete declared K-fragment order, K-slice ownership,
@@ -893,11 +924,12 @@ and 9.830T causal QK/PV MAC: about 24.3T MAC / 48.6T conventional operations,
 without an activation-dependent eligibility test. Against all projections
 plus the 16 full-Attention layers' causal QK/PV work
 (`2,262,625,157,120,000` conventional operations, excluding softmax, norm and
-GDN), that is about 2.15%. The exact oracle must
+GDN), the ledger-owned exact ratio is `2.1479599663%`. The exact oracle must
 compare the still-observable complete K/V handoff plus the last hidden/logits,
 not demand dead earlier-token layer-63 hidden values.  This remains a bounded
-component rather than the complete 4.3K solution.  Likewise, concatenating
-Gate and Up removes duplicate A transport but neither independent dot product.
+component rather than the complete 4.3K solution and does not lower the
+4.3K tok/s vLLM starting line. Likewise, concatenating Gate and Up removes
+duplicate A transport but neither independent dot product.
 
 Gate and Up may be represented as one column-concatenated projection and may
 share A movement because each output retains its original K order, independent
@@ -1040,6 +1072,14 @@ parity**. It is not whole-runner vLLM parity: FP8 projections, Attention, GDN,
 API scheduling, and the complete real request still require their own route
 witness. This distinction keeps reference integrity separate from production
 selection and from the later quantity-changing mathematical successor.
+
+Its split-K locks are cross-phase live control state. A parity plan may clear
+them once per request only when they are bound to a physically stable owner
+that no intervening family phase can overwrite, and when surrounding users
+leave them in the state required by the next parity tail. A convenient alias
+inside the prompt-wide family arena is invalid if GDN, Attention, projection,
+or residual work covers it during that lifetime. Address validation and a
+single successful clear do not satisfy this contract.
 
 ## 9. Global dataflow questions
 

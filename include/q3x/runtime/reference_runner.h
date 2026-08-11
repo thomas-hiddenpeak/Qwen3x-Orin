@@ -233,6 +233,134 @@ struct ReferenceWholeRequestPrefillOptions {
   void* cancellation_context = nullptr;
 };
 
+// Compact host-visible form of the planner's device-completion receipt. The
+// fixed parity geometry fits losslessly in 31 bits: layer/full-launch counts
+// use six bits, the remaining counts are one-bit, and completion owns eight
+// flags. Retaining the planner's size_t-heavy form for 64 layers would violate
+// the runner result's fixed-size, transcript-free boundary. The runner first
+// validates the full receipt through the progress transition and only then
+// encodes this witness.
+struct ReferenceP40VllmMarlinParityLayerCompletionReceipt {
+  std::uint32_t packed = 0U;
+
+  [[nodiscard]] static constexpr
+      ReferenceP40VllmMarlinParityLayerCompletionReceipt
+      from_validated(
+          const PrefillP40VllmMarlinParityLayerCompletionReceipt& source)
+          noexcept {
+    ReferenceP40VllmMarlinParityLayerCompletionReceipt encoded{};
+    encoded.packed =
+        (static_cast<std::uint32_t>(source.layer_index) & 0x3fU) |
+        ((static_cast<std::uint32_t>(
+              source.request_lock_clear_operations) &
+          0x1U)
+         << 6U) |
+        ((static_cast<std::uint32_t>(
+              source.gate_up_full_m1024_launches) &
+          0x3fU)
+         << 7U) |
+        ((static_cast<std::uint32_t>(
+              source.gate_up_split_m64_launches) &
+          0x1U)
+         << 13U) |
+        ((static_cast<std::uint32_t>(source.standalone_silu_launches) &
+          0x1U)
+         << 14U) |
+        ((static_cast<std::uint32_t>(source.down_full_m1024_launches) &
+          0x3fU)
+         << 15U) |
+        ((static_cast<std::uint32_t>(source.down_split_m64_launches) &
+          0x1U)
+         << 21U) |
+        ((static_cast<std::uint32_t>(source.standalone_residual_launches) &
+          0x1U)
+         << 22U) |
+        (static_cast<std::uint32_t>(source.retained_prompt_core_complete)
+         << 23U) |
+        (static_cast<std::uint32_t>(
+             source.canonical_gate_then_up_bf16_published)
+         << 24U) |
+        (static_cast<std::uint32_t>(source.activated_bf16_published)
+         << 25U) |
+        (static_cast<std::uint32_t>(source.down_bf16_published) << 26U) |
+        (static_cast<std::uint32_t>(source.stable_lock_owner_bound)
+         << 27U) |
+        (static_cast<std::uint32_t>(
+             source.lock_owner_alias_exclusion_proved)
+         << 28U) |
+        (static_cast<std::uint32_t>(source.ordered_lock_protocol_completed)
+         << 29U) |
+        (static_cast<std::uint32_t>(
+             source.request_stream_completion_observed)
+         << 30U);
+    return encoded;
+  }
+
+  [[nodiscard]] constexpr std::size_t layer_index() const noexcept {
+    return packed & 0x3fU;
+  }
+  [[nodiscard]] constexpr std::size_t
+  request_lock_clear_operations() const noexcept {
+    return (packed >> 6U) & 0x1U;
+  }
+  [[nodiscard]] constexpr std::size_t
+  gate_up_full_m1024_launches() const noexcept {
+    return (packed >> 7U) & 0x3fU;
+  }
+  [[nodiscard]] constexpr std::size_t
+  gate_up_split_m64_launches() const noexcept {
+    return (packed >> 13U) & 0x1U;
+  }
+  [[nodiscard]] constexpr std::size_t standalone_silu_launches()
+      const noexcept {
+    return (packed >> 14U) & 0x1U;
+  }
+  [[nodiscard]] constexpr std::size_t
+  down_full_m1024_launches() const noexcept {
+    return (packed >> 15U) & 0x3fU;
+  }
+  [[nodiscard]] constexpr std::size_t
+  down_split_m64_launches() const noexcept {
+    return (packed >> 21U) & 0x1U;
+  }
+  [[nodiscard]] constexpr std::size_t standalone_residual_launches()
+      const noexcept {
+    return (packed >> 22U) & 0x1U;
+  }
+  [[nodiscard]] constexpr bool retained_prompt_core_complete()
+      const noexcept {
+    return ((packed >> 23U) & 0x1U) != 0U;
+  }
+  [[nodiscard]] constexpr bool canonical_gate_then_up_bf16_published()
+      const noexcept {
+    return ((packed >> 24U) & 0x1U) != 0U;
+  }
+  [[nodiscard]] constexpr bool activated_bf16_published() const noexcept {
+    return ((packed >> 25U) & 0x1U) != 0U;
+  }
+  [[nodiscard]] constexpr bool down_bf16_published() const noexcept {
+    return ((packed >> 26U) & 0x1U) != 0U;
+  }
+  [[nodiscard]] constexpr bool stable_lock_owner_bound() const noexcept {
+    return ((packed >> 27U) & 0x1U) != 0U;
+  }
+  [[nodiscard]] constexpr bool lock_owner_alias_exclusion_proved()
+      const noexcept {
+    return ((packed >> 28U) & 0x1U) != 0U;
+  }
+  [[nodiscard]] constexpr bool ordered_lock_protocol_completed()
+      const noexcept {
+    return ((packed >> 29U) & 0x1U) != 0U;
+  }
+  [[nodiscard]] constexpr bool request_stream_completion_observed()
+      const noexcept {
+    return ((packed >> 30U) & 0x1U) != 0U;
+  }
+};
+
+static_assert(
+    sizeof(ReferenceP40VllmMarlinParityLayerCompletionReceipt) == 4U);
+
 struct ReferenceWholeRequestPrefillResult {
   std::uint32_t first_position = 0U;
   std::uint32_t final_position = 0U;
@@ -288,6 +416,23 @@ struct ReferenceWholeRequestPrefillResult {
   std::size_t packed_nvfp4_v2_gate_up_hits = 0U;
   std::size_t packed_nvfp4_v2_down_hits = 0U;
   std::size_t packed_nvfp4_v2_physical_launches = 0U;
+  // Default-off stock-vLLM-Marlin P40000 projection-host-dispatch
+  // witnesses. These remain disjoint from both the historical persistent
+  // P40 counters and packed-v2 counters: one logical Gate+Up/Down role owns
+  // forty physical projection launches, with standalone SiLU and residual
+  // publication boundaries. Per-layer receipts are populated only after the
+  // request stream has completed and the documented tail-lock protocol is
+  // therefore observable.
+  std::size_t vllm_marlin_parity_gate_up_hits = 0U;
+  std::size_t vllm_marlin_parity_down_hits = 0U;
+  std::size_t vllm_marlin_parity_physical_launches = 0U;
+  std::size_t vllm_marlin_parity_standalone_silu_launches = 0U;
+  std::size_t vllm_marlin_parity_standalone_residual_launches = 0U;
+  std::size_t vllm_marlin_parity_lock_clear_operations = 0U;
+  std::array<ReferenceP40VllmMarlinParityLayerCompletionReceipt,
+             kReferenceDecoderLayerCount>
+      vllm_marlin_parity_layer_completion_receipts{};
+  std::size_t vllm_marlin_parity_layer_completion_receipt_count = 0U;
   PrefillExecutionProgress progress;
   std::optional<ReferenceStepTiming> timing;
 };
@@ -380,6 +525,13 @@ struct ReferenceLayerMajorRequestBindingDescriptor {
   PrefillLegacyGdnPhysicalTactic legacy_gdn_tactic{};
   PrefillMlpPhysicalTactic mlp_tactic{};
 };
+
+// Pure host validator for the request-long P40 parity lock lifetime. It
+// proves that the one stable lock prefix is outside every active persistent,
+// family-phase, residual, handoff, RoPE, and other legacy workspace writer.
+[[nodiscard]] bool
+valid_reference_p40_vllm_marlin_parity_lock_lifetime_descriptor(
+    const ReferenceLayerMajorRequestBindingDescriptor& descriptor) noexcept;
 
 struct ReferenceLayerMajorRequestDescriptorOutcome {
   std::optional<ReferenceLayerMajorRequestBindingDescriptor> value;
@@ -1011,12 +1163,18 @@ class ReferenceRunner {
     kProjectionResetV11,
     kPackedV1,
     kPackedNvfp4V2,
+    kVllmMarlinParityV1,
   };
   [[nodiscard]] ReferenceRunnerStatus enqueue_layer_wide_p40_mlp(
       std::size_t layer,
       const ReferenceLayerMajorRequestViews& request_views,
       PromptWideP40ProjectionPackage projection_package =
           PromptWideP40ProjectionPackage::kWholeCoreV10) noexcept;
+  [[nodiscard]] ReferenceRunnerStatus
+  enqueue_prompt_wide_p40_vllm_marlin_parity_mlp(
+      std::size_t layer,
+      const ReferenceLayerMajorRequestViews& request_views,
+      PrefillP40VllmMarlinParityLayerCompletionReceipt& receipt) noexcept;
   [[nodiscard]] static bool
   valid_prompt_wide_p40_whole_core_runner_contract(
       const PrefillExecutionPlan& immutable_topology,

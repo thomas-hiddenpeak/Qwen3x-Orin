@@ -932,10 +932,10 @@ void test_prompt_wide_p40_vllm_marlin_parity_schedule(TestContext& test) {
     receipt.canonical_gate_then_up_bf16_published = true;
     receipt.activated_bf16_published = true;
     receipt.down_bf16_published = true;
-    receipt.locks_zero_before_gate_up_tail = true;
-    receipt.locks_zero_after_gate_up_tail = true;
-    receipt.locks_zero_after_down_tail = true;
-    receipt.completion_event_observed = true;
+    receipt.stable_lock_owner_bound = true;
+    receipt.lock_owner_alias_exclusion_proved = true;
+    receipt.ordered_lock_protocol_completed = true;
+    receipt.request_stream_completion_observed = true;
     return receipt;
   };
 

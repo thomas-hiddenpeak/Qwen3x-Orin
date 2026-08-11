@@ -6,6 +6,9 @@
 #include "q3x/kernels/sm87_fp8_marlin_w8a16.h"
 #endif
 #include "q3x/kernels/sm87_nvfp4_marlin.h"
+#if defined(Q3X_ENABLE_P40_VLLM_MARLIN_PARITY_ADMISSION)
+#include "q3x/kernels/sm87_nvfp4_marlin_p40_parity.h"
+#endif
 #include "q3x/kernels/sm87_weight_only_gemv.h"
 #include "q3x/runtime/p40_packed_projection_assets.h"
 #include "q3x/text/tokenizer.h"
@@ -15,6 +18,7 @@
 #include <cuda_runtime_api.h>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
@@ -23,6 +27,7 @@
 #include <cstring>
 #include <fstream>
 #include <future>
+#include <initializer_list>
 #include <limits>
 #include <memory>
 #include <new>
@@ -32,6 +37,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -420,6 +426,84 @@ struct Sm87NvFp4MarlinPrefillPreparation {
   bool hard_failure = false;
   std::size_t layers = 0U;
   std::uint64_t bytes = 0U;
+  int cuda_error = 0;
+  std::string message;
+};
+#endif
+
+#if defined(Q3X_ENABLE_P40_VLLM_MARLIN_PARITY_ADMISSION)
+inline constexpr std::uint64_t kNvFp4MarlinP40ParityRetainedBytes =
+    static_cast<std::uint64_t>(kNvFp4MarlinP40ParityArtifactCount / 2U) *
+    (kNvFp4MarlinP40ParityGateUpWeightBytes +
+     kNvFp4MarlinP40ParityGateUpScaleBytes + sizeof(float) +
+     kNvFp4MarlinP40ParityDownWeightBytes +
+     kNvFp4MarlinP40ParityDownScaleBytes + sizeof(float));
+
+static_assert(kNvFp4MarlinP40ParityRetainedBytes == 9'625'928'192ULL);
+
+// Engine-lifetime ownership is deliberately independent from both the
+// historical generic Marlin owner and the packed-v1/v2 arena. ModelWeights
+// receives only non-owning copies of the exact descriptor views below.
+struct Sm87NvFp4MarlinP40ParitySidecars {
+  std::uint8_t* gate_up_weights = nullptr;
+  std::uint8_t* gate_up_scales = nullptr;
+  float* gate_up_global_scales = nullptr;
+  std::uint8_t* down_weights = nullptr;
+  std::uint8_t* down_scales = nullptr;
+  float* down_global_scales = nullptr;
+  std::uint64_t bytes = 0U;
+  std::array<NvFp4MarlinP40ParitySidecarDescriptor,
+             kNvFp4MarlinP40ParityArtifactCount>
+      descriptors{};
+  std::size_t descriptor_count = 0U;
+  core::Sha256Digest manifest_digest{};
+
+  Sm87NvFp4MarlinP40ParitySidecars() noexcept = default;
+  Sm87NvFp4MarlinP40ParitySidecars(
+      const Sm87NvFp4MarlinP40ParitySidecars&) = delete;
+  Sm87NvFp4MarlinP40ParitySidecars& operator=(
+      const Sm87NvFp4MarlinP40ParitySidecars&) = delete;
+  ~Sm87NvFp4MarlinP40ParitySidecars() { release(); }
+
+  void release() noexcept {
+    for (void* const allocation :
+         {static_cast<void*>(gate_up_weights),
+          static_cast<void*>(gate_up_scales),
+          static_cast<void*>(gate_up_global_scales),
+          static_cast<void*>(down_weights), static_cast<void*>(down_scales),
+          static_cast<void*>(down_global_scales)}) {
+      if (allocation != nullptr) {
+        (void)cudaFree(allocation);
+      }
+    }
+    gate_up_weights = nullptr;
+    gate_up_scales = nullptr;
+    gate_up_global_scales = nullptr;
+    down_weights = nullptr;
+    down_scales = nullptr;
+    down_global_scales = nullptr;
+    bytes = 0U;
+    descriptors = {};
+    descriptor_count = 0U;
+    manifest_digest = {};
+  }
+
+  [[nodiscard]] bool empty() const noexcept {
+    return gate_up_weights == nullptr && gate_up_scales == nullptr &&
+           gate_up_global_scales == nullptr && down_weights == nullptr &&
+           down_scales == nullptr && down_global_scales == nullptr &&
+           bytes == 0U && descriptor_count == 0U;
+  }
+};
+
+struct Sm87NvFp4MarlinP40ParityPreparation {
+  bool enabled = false;
+  bool hard_failure = false;
+  std::size_t layers = 0U;
+  std::size_t artifacts = 0U;
+  std::size_t sources = 0U;
+  std::uint64_t bytes = 0U;
+  core::Sha256Digest manifest_digest{};
   int cuda_error = 0;
   std::string message;
 };
@@ -1135,6 +1219,17 @@ struct EngineStepContext {
   std::size_t prefill_packed_nvfp4_v2_gate_up_hits = 0U;
   std::size_t prefill_packed_nvfp4_v2_down_hits = 0U;
   std::size_t prefill_packed_nvfp4_v2_physical_launches = 0U;
+  std::size_t prefill_vllm_marlin_parity_gate_up_hits = 0U;
+  std::size_t prefill_vllm_marlin_parity_down_hits = 0U;
+  std::size_t prefill_vllm_marlin_parity_physical_launches = 0U;
+  std::size_t prefill_vllm_marlin_parity_standalone_silu_launches = 0U;
+  std::size_t prefill_vllm_marlin_parity_standalone_residual_launches = 0U;
+  std::size_t prefill_vllm_marlin_parity_lock_clear_operations = 0U;
+  std::array<ReferenceP40VllmMarlinParityLayerCompletionReceipt,
+             kReferenceDecoderLayerCount>
+      prefill_vllm_marlin_parity_layer_completion_receipts{};
+  std::size_t
+      prefill_vllm_marlin_parity_layer_completion_receipt_count = 0U;
   // Armed before the first whole-request CUDA call and cleared only after
   // the sealed commit succeeds. EngineWholeRequestTransactionGuard owns the
   // rollback of every failure window in between.
@@ -1261,10 +1356,14 @@ prefill_whole_request_layer_major(
   const bool p40_packed_nvfp4_v2 =
       immutable_topology.mlp_schedule.tactic ==
       LayerMajorPrefillMlpScheduleTactic::kPromptWideP40PackedNvfp4V2;
+  const bool p40_vllm_marlin_parity =
+      immutable_topology.mlp_schedule.tactic ==
+      LayerMajorPrefillMlpScheduleTactic::kPromptWideP40VllmMarlinParity;
   const bool prompt_wide_p40_whole_core =
       immutable_topology.mlp_schedule.tactic ==
           LayerMajorPrefillMlpScheduleTactic::kPromptWideP40WholeCore ||
-      p40_projection_reset || p40_packed_projection || p40_packed_nvfp4_v2;
+      p40_projection_reset || p40_packed_projection || p40_packed_nvfp4_v2 ||
+      p40_vllm_marlin_parity;
   const std::size_t expected_submissions_per_layer =
       prompt_wide_p40_whole_core
           ? p40_projection_reset
@@ -1285,6 +1384,12 @@ prefill_whole_request_layer_major(
                           .prompt_core_phase_count_per_layer +
                       immutable_topology.packed_nvfp4_v2_schedule
                           .packed_mlp_phase_count_per_layer
+            : p40_vllm_marlin_parity
+                ? 2U * immutable_topology.panel_count +
+                      immutable_topology.vllm_marlin_parity_schedule
+                          .prompt_core_phase_count_per_layer +
+                      immutable_topology.vllm_marlin_parity_schedule
+                          .segmented_mlp_phase_count_per_layer
                 : immutable_topology.whole_core_schedule
                           .fill_panel_phase_count_per_layer +
                       immutable_topology.whole_core_schedule
@@ -1335,6 +1440,9 @@ prefill_whole_request_layer_major(
       : p40_packed_nvfp4_v2
           ? immutable_topology.packed_nvfp4_v2_schedule
                 .fp8_tensor_role_hits_per_request
+      : p40_vllm_marlin_parity
+          ? immutable_topology.vllm_marlin_parity_schedule
+                .fp8_tensor_role_hits_per_request
           : kP40Fp8ProjectionsPerPanel * immutable_topology.panel_count;
   const std::size_t expected_prompt_wide_fp8_physical_launches =
       p40_projection_reset
@@ -1345,6 +1453,9 @@ prefill_whole_request_layer_major(
                 .fp8_physical_launches_per_request
       : p40_packed_nvfp4_v2
           ? immutable_topology.packed_nvfp4_v2_schedule
+                .fp8_physical_launches_per_request
+      : p40_vllm_marlin_parity
+          ? immutable_topology.vllm_marlin_parity_schedule
                 .fp8_physical_launches_per_request
           : expected_prompt_wide_fp8_hits;
   const std::size_t bulk_panel_count = [&immutable_topology]() noexcept {
@@ -1390,17 +1501,96 @@ prefill_whole_request_layer_major(
           : executed.value->packed_nvfp4_v2_gate_up_hits == 0U &&
                 executed.value->packed_nvfp4_v2_down_hits == 0U &&
                 executed.value->packed_nvfp4_v2_physical_launches == 0U;
+  const bool parity_receipts_valid = [&]() noexcept {
+    if (executed.value
+            ->vllm_marlin_parity_layer_completion_receipt_count !=
+        kReferenceDecoderLayerCount) {
+      return false;
+    }
+    for (std::size_t layer = 0U; layer < kReferenceDecoderLayerCount;
+         ++layer) {
+      const auto& receipt =
+          executed.value
+              ->vllm_marlin_parity_layer_completion_receipts[layer];
+      if (receipt.layer_index() != layer ||
+          receipt.request_lock_clear_operations() !=
+              (layer == 0U ? 1U : 0U) ||
+          receipt.gate_up_full_m1024_launches() != 39U ||
+          receipt.gate_up_split_m64_launches() != 1U ||
+          receipt.standalone_silu_launches() != 1U ||
+          receipt.down_full_m1024_launches() != 39U ||
+          receipt.down_split_m64_launches() != 1U ||
+          receipt.standalone_residual_launches() != 1U ||
+          !receipt.retained_prompt_core_complete() ||
+          !receipt.canonical_gate_then_up_bf16_published() ||
+          !receipt.activated_bf16_published() ||
+          !receipt.down_bf16_published() ||
+          !receipt.stable_lock_owner_bound() ||
+          !receipt.lock_owner_alias_exclusion_proved() ||
+          !receipt.ordered_lock_protocol_completed() ||
+          !receipt.request_stream_completion_observed()) {
+        return false;
+      }
+    }
+    return true;
+  }();
+  const auto& parity_schedule =
+      immutable_topology.vllm_marlin_parity_schedule;
+  const bool parity_witness_valid =
+      p40_vllm_marlin_parity
+          ? executed.value->vllm_marlin_parity_gate_up_hits ==
+                    parity_schedule.gate_up_logical_role_hits_per_request &&
+                executed.value->vllm_marlin_parity_down_hits ==
+                    parity_schedule.down_logical_role_hits_per_request &&
+                executed.value->vllm_marlin_parity_physical_launches ==
+                    parity_schedule.nvfp4_physical_launches_per_request &&
+                executed.value
+                        ->vllm_marlin_parity_standalone_silu_launches ==
+                    kReferenceDecoderLayerCount *
+                        parity_schedule.standalone_silu_launches_per_layer &&
+                executed.value
+                        ->vllm_marlin_parity_standalone_residual_launches ==
+                    kReferenceDecoderLayerCount *
+                        parity_schedule
+                            .standalone_residual_launches_per_layer &&
+                executed.value->vllm_marlin_parity_lock_clear_operations ==
+                    parity_schedule.lock_clear_operations_per_request &&
+                parity_receipts_valid
+          : executed.value->vllm_marlin_parity_gate_up_hits == 0U &&
+                executed.value->vllm_marlin_parity_down_hits == 0U &&
+                executed.value->vllm_marlin_parity_physical_launches == 0U &&
+                executed.value
+                        ->vllm_marlin_parity_standalone_silu_launches == 0U &&
+                executed.value
+                        ->vllm_marlin_parity_standalone_residual_launches ==
+                    0U &&
+                executed.value->vllm_marlin_parity_lock_clear_operations ==
+                    0U &&
+                executed.value
+                        ->vllm_marlin_parity_layer_completion_receipt_count ==
+                    0U;
   const bool valid_p40_witness =
       prompt_wide_p40_whole_core
           ? executed.value->operator_panel_executor_hits == 0U &&
                 executed.value->layer_wide_p40_mlp_layer_hits ==
                     kReferenceDecoderLayerCount &&
-                executed.value->persistent_p40_nvfp4_gate_up_hits ==
-                    kReferenceDecoderLayerCount &&
-                executed.value->persistent_p40_nvfp4_down_residual_hits ==
-                    kReferenceDecoderLayerCount &&
-                executed.value->persistent_p40_nvfp4_physical_launches ==
-                    2U * kReferenceDecoderLayerCount &&
+                (p40_vllm_marlin_parity
+                     ? executed.value->persistent_p40_nvfp4_gate_up_hits ==
+                               0U &&
+                           executed.value
+                                   ->persistent_p40_nvfp4_down_residual_hits ==
+                               0U &&
+                           executed.value
+                                   ->persistent_p40_nvfp4_physical_launches ==
+                               0U
+                     : executed.value->persistent_p40_nvfp4_gate_up_hits ==
+                               kReferenceDecoderLayerCount &&
+                           executed.value
+                                   ->persistent_p40_nvfp4_down_residual_hits ==
+                               kReferenceDecoderLayerCount &&
+                           executed.value
+                                   ->persistent_p40_nvfp4_physical_launches ==
+                               2U * kReferenceDecoderLayerCount) &&
                 executed.value->persistent_p40_fp8_projection_hits == 0U &&
                 executed.value->persistent_p40_fp8_projection_bulk_hits ==
                     0U &&
@@ -1431,7 +1621,7 @@ prefill_whole_request_layer_major(
                     kLayerMajorPrefillLinearLayerCount &&
                 executed.value->native_flashinfer_exact_whole_prompt_hits ==
                     kLayerMajorPrefillFullLayerCount &&
-                packed_nvfp4_v2_witness_valid
+                packed_nvfp4_v2_witness_valid && parity_witness_valid
       : layer_wide_p40_mlp
           ? whole_core_witness_zero &&
                 executed.value->layer_wide_p40_mlp_layer_hits ==
@@ -1451,9 +1641,9 @@ prefill_whole_request_layer_major(
                         ->persistent_p40_fp8_projection_oracle_partial_hits ==
                     kP40Fp8ProjectionsPerPanel *
                         (immutable_topology.panel_count - bulk_panel_count) &&
-                packed_nvfp4_v2_witness_valid
+                packed_nvfp4_v2_witness_valid && parity_witness_valid
           : persistent_p40_witness_zero && whole_core_witness_zero &&
-                packed_nvfp4_v2_witness_valid;
+                packed_nvfp4_v2_witness_valid && parity_witness_valid;
   if (!valid_p40_witness) {
     result.status = whole_request_adapter_status(
         ReferenceRunnerError::kInvalidStepOptions,
@@ -1548,6 +1738,22 @@ prefill_whole_request_layer_major(
       executed.value->packed_nvfp4_v2_down_hits;
   context.prefill_packed_nvfp4_v2_physical_launches =
       executed.value->packed_nvfp4_v2_physical_launches;
+  context.prefill_vllm_marlin_parity_gate_up_hits =
+      executed.value->vllm_marlin_parity_gate_up_hits;
+  context.prefill_vllm_marlin_parity_down_hits =
+      executed.value->vllm_marlin_parity_down_hits;
+  context.prefill_vllm_marlin_parity_physical_launches =
+      executed.value->vllm_marlin_parity_physical_launches;
+  context.prefill_vllm_marlin_parity_standalone_silu_launches =
+      executed.value->vllm_marlin_parity_standalone_silu_launches;
+  context.prefill_vllm_marlin_parity_standalone_residual_launches =
+      executed.value->vllm_marlin_parity_standalone_residual_launches;
+  context.prefill_vllm_marlin_parity_lock_clear_operations =
+      executed.value->vllm_marlin_parity_lock_clear_operations;
+  context.prefill_vllm_marlin_parity_layer_completion_receipts =
+      executed.value->vllm_marlin_parity_layer_completion_receipts;
+  context.prefill_vllm_marlin_parity_layer_completion_receipt_count =
+      executed.value->vllm_marlin_parity_layer_completion_receipt_count;
   result.value.emplace(std::move(transcript));
   return result;
 }
@@ -3430,6 +3636,858 @@ prepare_sm87_nvfp4_marlin_prefill_sidecars(
 }
 #endif
 
+#if defined(Q3X_ENABLE_P40_VLLM_MARLIN_PARITY_ADMISSION)
+constexpr std::string_view kP40ParityModelRepository =
+    "nvidia/Qwen3.6-27B-NVFP4";
+constexpr std::string_view kP40ParityModelRevision =
+    "0893e1606ff3d5f97a441f405d5fc541a6bdf404";
+constexpr std::string_view kP40ParityCheckpointHashDomain =
+    "q3x.sm87.p40.vllm-marlin-parity.checkpoint.v1";
+constexpr std::string_view kP40ParityTensorIdentityHashDomain =
+    "q3x.sm87.p40.vllm-marlin-parity.tensor-identity.v1";
+constexpr std::string_view kP40ParityWeightHashDomain =
+    "q3x.sm87.p40.vllm-marlin-parity.weight-source.v1";
+constexpr std::string_view kP40ParityScaleHashDomain =
+    "q3x.sm87.p40.vllm-marlin-parity.scale-source.v1";
+constexpr std::string_view kP40ParityTransformationHashDomain =
+    "q3x.sm87.p40.vllm-marlin-parity.payload-transform.v1";
+constexpr std::string_view kP40ParityArtifactIdentityHashDomain =
+    "q3x.sm87.p40.vllm-marlin-parity.artifact-identity.v1";
+constexpr std::string_view kP40ParityManifestHashDomain =
+    "q3x.sm87.p40.vllm-marlin-parity.manifest-inventory.v1";
+constexpr std::string_view kP40ParityGateUpPackAbi =
+    "sm87-nvfp4-marlin-canonical-gate-then-up.v1";
+constexpr std::string_view kP40ParityDownPackAbi =
+    "sm87-nvfp4-marlin-canonical-down.v1";
+constexpr std::string_view kP40ParityScheduleAbi =
+    "legacy-stripe-39xm1024-plus-m64-fp32-tail-reduce.v1";
+
+template <typename Unsigned>
+[[nodiscard]] bool p40_parity_hash_unsigned(core::Sha256& hasher,
+                                            Unsigned value) noexcept {
+  static_assert(std::is_unsigned_v<Unsigned>);
+  std::array<std::uint8_t, sizeof(Unsigned)> bytes{};
+  for (std::size_t index = 0U; index < bytes.size(); ++index) {
+    bytes[index] = static_cast<std::uint8_t>(value >> (index * 8U));
+  }
+  return hasher.update(bytes.data(), bytes.size());
+}
+
+[[nodiscard]] bool p40_parity_hash_string(
+    core::Sha256& hasher, const std::string_view value) noexcept {
+  return p40_parity_hash_unsigned(
+             hasher, static_cast<std::uint64_t>(value.size())) &&
+         hasher.update(value.data(), value.size());
+}
+
+[[nodiscard]] bool p40_parity_hash_digest(
+    core::Sha256& hasher,
+    const NvFp4MarlinP40ParityDigest& digest) noexcept {
+  return hasher.update(digest.data(), digest.size());
+}
+
+[[nodiscard]] NvFp4MarlinP40ParityDigest p40_parity_finish_digest(
+    core::Sha256& hasher) noexcept {
+  return hasher.finalize().bytes;
+}
+
+[[nodiscard]] bool p40_parity_digest_present(
+    const NvFp4MarlinP40ParityDigest& digest) noexcept {
+  return std::any_of(digest.begin(), digest.end(),
+                     [](const std::uint8_t byte) { return byte != 0U; });
+}
+
+[[nodiscard]] std::uint64_t p40_parity_digest_identity(
+    const NvFp4MarlinP40ParityDigest& digest) noexcept {
+  std::uint64_t value = 0U;
+  for (std::size_t index = 0U; index < sizeof(value); ++index) {
+    value |= static_cast<std::uint64_t>(digest[index]) << (index * 8U);
+  }
+  return value;
+}
+
+[[nodiscard]] std::uint32_t p40_parity_float_bits(
+    const float value) noexcept {
+  std::uint32_t bits = 0U;
+  static_assert(sizeof(bits) == sizeof(value));
+  std::memcpy(&bits, &value, sizeof(bits));
+  return bits;
+}
+
+[[nodiscard]] bool p40_parity_empty_packed_view(
+    const kernels::Sm87P40PackedProjectionDeviceView& view) noexcept {
+  return view.payload == nullptr && view.payload_bytes == 0U &&
+         view.artifact_identity == 0U &&
+         view.role == kernels::Sm87P40PackedProjectionRole::kInvalid &&
+         view.tactic == kernels::Sm87P40PackedTactic::kInvalid &&
+         view.source_count == 0U;
+}
+
+[[nodiscard]] bool p40_parity_empty_view(
+    const NvFp4MarlinP40ParityDeviceView& view) noexcept {
+  return view.weight == nullptr && view.scales == nullptr &&
+         view.global_scale == nullptr &&
+         view.manifest.artifact_identity == 0U &&
+         view.manifest.source_count == 0U &&
+         !p40_parity_digest_present(view.manifest.transformation_digest);
+}
+
+[[nodiscard]] bool p40_parity_verify_checkpoint(
+    const ResidentWeights& resident,
+    NvFp4MarlinP40ParityDigest& checkpoint_digest,
+    std::string& message) {
+  if (!resident || resident.arena_data() == nullptr ||
+      resident.size_bytes() != kPinnedQwen36_27BArenaBytes) {
+    message = "parity preparation requires the exact pinned resident arena";
+    return false;
+  }
+  const auto& pinned = pinned_qwen36_27b_shards();
+  const auto& observed = resident.stats().shards;
+  if (pinned.empty() || observed.size() != pinned.size() ||
+      observed.size() > 16U) {
+    message = "parity preparation did not observe every pinned shard";
+    return false;
+  }
+
+  core::Sha256 hasher;
+  bool ok = p40_parity_hash_string(hasher, kP40ParityCheckpointHashDomain) &&
+            p40_parity_hash_string(hasher, kP40ParityModelRepository) &&
+            p40_parity_hash_string(hasher, kP40ParityModelRevision) &&
+            p40_parity_hash_unsigned(
+                hasher, static_cast<std::uint64_t>(pinned.size()));
+  std::array<bool, 16U> observed_used{};
+  for (const ShardIdentity& expected : pinned) {
+    std::size_t match = observed.size();
+    for (std::size_t index = 0U; index < observed.size(); ++index) {
+      if (!observed_used[index] &&
+          observed[index].filename == expected.filename) {
+        match = index;
+        break;
+      }
+    }
+    if (match == observed.size() ||
+        observed[match].sha256 != expected.sha256 ||
+        observed[match].bytes_read != expected.file_size) {
+      message = "parity checkpoint provenance mismatch at " +
+                expected.filename;
+      return false;
+    }
+    observed_used[match] = true;
+    ok = ok && p40_parity_hash_string(hasher, expected.filename) &&
+         p40_parity_hash_unsigned(hasher, expected.file_size) &&
+         p40_parity_hash_string(hasher, observed[match].sha256);
+  }
+  checkpoint_digest = p40_parity_finish_digest(hasher);
+  if (!ok || !p40_parity_digest_present(checkpoint_digest)) {
+    checkpoint_digest = {};
+    message = "parity checkpoint digest derivation failed";
+    return false;
+  }
+  return true;
+}
+
+[[nodiscard]] bool p40_parity_resident_tensor_matches(
+    const ResidentWeights& resident, const std::string& name,
+    const void* const expected_pointer,
+    const io::safetensors::DType expected_dtype,
+    const std::initializer_list<std::uint64_t> expected_shape,
+    const std::uint64_t expected_bytes) noexcept {
+  const DeviceTensorView* const view = resident.find(name);
+  if (view == nullptr || view->device_data != expected_pointer ||
+      view->dtype != expected_dtype || view->byte_size != expected_bytes ||
+      view->shape.size() != expected_shape.size() ||
+      view->arena_offset > resident.size_bytes() ||
+      view->byte_size > resident.size_bytes() - view->arena_offset) {
+    return false;
+  }
+  const auto base = reinterpret_cast<std::uintptr_t>(resident.arena_data());
+  if (resident.size_bytes() >
+          std::numeric_limits<std::uintptr_t>::max() - base ||
+      view->arena_offset >
+          std::numeric_limits<std::uintptr_t>::max() - base ||
+      reinterpret_cast<std::uintptr_t>(view->device_data) !=
+          base + static_cast<std::uintptr_t>(view->arena_offset)) {
+    return false;
+  }
+  return std::equal(view->shape.begin(), view->shape.end(),
+                    expected_shape.begin(), expected_shape.end());
+}
+
+struct P40ParityPlannedSource {
+  const NvFp4LinearWeight* projection = nullptr;
+  std::string module_name;
+  NvFp4MarlinP40ParitySourceRole role =
+      NvFp4MarlinP40ParitySourceRole::kInvalid;
+};
+
+[[nodiscard]] bool p40_parity_validate_source(
+    const ResidentWeights& resident, const NvFp4LinearWeight& projection,
+    const std::string& module_name, const std::size_t expected_output,
+    const std::size_t expected_input) noexcept {
+  const std::uint64_t output = expected_output;
+  const std::uint64_t input = expected_input;
+  return projection.packed_weight != nullptr &&
+         projection.block_scale != nullptr &&
+         projection.weight_scale_2_device != nullptr &&
+         projection.output_size == expected_output &&
+         projection.input_size == expected_input &&
+         std::isfinite(projection.weight_scale_2) &&
+         projection.weight_scale_2 > 0.0F &&
+         reinterpret_cast<std::uintptr_t>(projection.packed_weight) % 16U ==
+             0U &&
+         reinterpret_cast<std::uintptr_t>(projection.block_scale) % 16U ==
+             0U &&
+         reinterpret_cast<std::uintptr_t>(
+             projection.weight_scale_2_device) % alignof(float) == 0U &&
+         projection.prefill_marlin_gate_up_layout ==
+             NvFp4MarlinGateUpLayout::kUnbound &&
+         projection.prefill_marlin_weight == nullptr &&
+         projection.prefill_marlin_scales == nullptr &&
+         projection.prefill_marlin_global_scale == nullptr &&
+         p40_parity_empty_packed_view(
+             projection.prefill_p40_packed_artifact) &&
+         p40_parity_empty_view(
+             projection.prefill_p40_vllm_marlin_parity) &&
+         p40_parity_resident_tensor_matches(
+             resident, module_name + ".weight", projection.packed_weight,
+             io::safetensors::DType::kU8, {output, input / 2U},
+             output * input / 2U) &&
+         p40_parity_resident_tensor_matches(
+             resident, module_name + ".weight_scale", projection.block_scale,
+             io::safetensors::DType::kF8E4M3, {output, input / 16U},
+             output * input / 16U) &&
+         p40_parity_resident_tensor_matches(
+             resident, module_name + ".weight_scale_2",
+             projection.weight_scale_2_device,
+             io::safetensors::DType::kF32, {}, sizeof(float));
+}
+
+[[nodiscard]] bool p40_parity_derive_source_manifest(
+    const ResidentWeights& resident, const P40ParityPlannedSource& planned,
+    const NvFp4MarlinP40ParityDigest& checkpoint_digest,
+    NvFp4MarlinP40ParitySourceManifest& source) noexcept {
+  if (planned.projection == nullptr ||
+      planned.role == NvFp4MarlinP40ParitySourceRole::kInvalid) {
+    return false;
+  }
+  const auto* const weight =
+      resident.find(planned.module_name + ".weight");
+  const auto* const scale =
+      resident.find(planned.module_name + ".weight_scale");
+  const auto* const global =
+      resident.find(planned.module_name + ".weight_scale_2");
+  if (weight == nullptr || scale == nullptr || global == nullptr) {
+    return false;
+  }
+  const std::uint8_t role = static_cast<std::uint8_t>(planned.role);
+  const std::uint32_t global_scale_bits =
+      p40_parity_float_bits(planned.projection->weight_scale_2);
+
+  core::Sha256 identity_hasher;
+  bool ok = p40_parity_hash_string(
+                identity_hasher, kP40ParityTensorIdentityHashDomain) &&
+            p40_parity_hash_string(identity_hasher,
+                                   kP40ParityModelRepository) &&
+            p40_parity_hash_string(identity_hasher,
+                                   kP40ParityModelRevision) &&
+            p40_parity_hash_digest(identity_hasher, checkpoint_digest) &&
+            p40_parity_hash_string(identity_hasher, planned.module_name) &&
+            p40_parity_hash_unsigned(identity_hasher, role) &&
+            p40_parity_hash_unsigned(identity_hasher, weight->arena_offset) &&
+            p40_parity_hash_unsigned(identity_hasher, scale->arena_offset) &&
+            p40_parity_hash_unsigned(identity_hasher, global->arena_offset);
+  const NvFp4MarlinP40ParityDigest identity_digest =
+      p40_parity_finish_digest(identity_hasher);
+
+  core::Sha256 weight_hasher;
+  ok = ok && p40_parity_hash_string(weight_hasher,
+                                    kP40ParityWeightHashDomain) &&
+       p40_parity_hash_digest(weight_hasher, checkpoint_digest) &&
+       p40_parity_hash_string(weight_hasher,
+                              planned.module_name + ".weight") &&
+       p40_parity_hash_unsigned(weight_hasher, role) &&
+       p40_parity_hash_unsigned(weight_hasher, weight->arena_offset) &&
+       p40_parity_hash_unsigned(weight_hasher, weight->byte_size) &&
+       p40_parity_hash_unsigned(
+           weight_hasher,
+           static_cast<std::uint64_t>(planned.projection->output_size)) &&
+       p40_parity_hash_unsigned(
+           weight_hasher,
+           static_cast<std::uint64_t>(planned.projection->input_size));
+  const NvFp4MarlinP40ParityDigest weight_digest =
+      p40_parity_finish_digest(weight_hasher);
+
+  core::Sha256 scale_hasher;
+  ok = ok && p40_parity_hash_string(scale_hasher,
+                                    kP40ParityScaleHashDomain) &&
+       p40_parity_hash_digest(scale_hasher, checkpoint_digest) &&
+       p40_parity_hash_string(scale_hasher,
+                              planned.module_name + ".weight_scale") &&
+       p40_parity_hash_string(scale_hasher,
+                              planned.module_name + ".weight_scale_2") &&
+       p40_parity_hash_unsigned(scale_hasher, role) &&
+       p40_parity_hash_unsigned(scale_hasher, scale->arena_offset) &&
+       p40_parity_hash_unsigned(scale_hasher, scale->byte_size) &&
+       p40_parity_hash_unsigned(scale_hasher, global->arena_offset) &&
+       p40_parity_hash_unsigned(scale_hasher, global_scale_bits);
+  const NvFp4MarlinP40ParityDigest scale_digest =
+      p40_parity_finish_digest(scale_hasher);
+
+  source.role = planned.role;
+  source.tensor_identity = p40_parity_digest_identity(identity_digest);
+  source.weight_digest = weight_digest;
+  source.scale_digest = scale_digest;
+  source.global_scale_bits = global_scale_bits;
+  return ok && source.tensor_identity != 0U &&
+         p40_parity_digest_present(weight_digest) &&
+         p40_parity_digest_present(scale_digest);
+}
+
+[[nodiscard]] bool p40_parity_derive_artifact_manifest(
+    const ResidentWeights& resident,
+    const NvFp4MarlinP40ParityDigest& checkpoint_digest,
+    const std::size_t layer_index,
+    const kernels::Sm87NvFp4MarlinP40ParityRole kernel_role,
+    const P40ParityPlannedSource* const sources,
+    const std::size_t source_count,
+    NvFp4MarlinP40ParityArtifactManifest& manifest) noexcept {
+  const bool gate_up =
+      kernel_role == kernels::Sm87NvFp4MarlinP40ParityRole::kGateUp;
+  const bool down =
+      kernel_role == kernels::Sm87NvFp4MarlinP40ParityRole::kDown;
+  const auto plan = kernels::sm87_nvfp4_marlin_p40_parity_plan(
+      kernel_role, kernels::kSm87NvFp4MarlinP40ParityTokens);
+  if ((!gate_up && !down) || !plan.valid() || sources == nullptr ||
+      source_count != (gate_up ? 2U : 1U)) {
+    return false;
+  }
+
+  manifest = {};
+  manifest.version = kNvFp4MarlinP40ParityManifestVersion;
+  manifest.layer_index = static_cast<std::uint32_t>(layer_index);
+  manifest.role = gate_up ? NvFp4MarlinP40ParityRole::kGateUp
+                          : NvFp4MarlinP40ParityRole::kDown;
+  manifest.layout = gate_up
+                        ? NvFp4MarlinP40ParityLayout::kCanonicalGateThenUp
+                        : NvFp4MarlinP40ParityLayout::kCanonicalDown;
+  manifest.output_features = static_cast<std::uint32_t>(
+      plan.weight_output_features);
+  manifest.input_features = static_cast<std::uint32_t>(plan.input_features);
+  manifest.weight_bytes = gate_up
+                              ? kNvFp4MarlinP40ParityGateUpWeightBytes
+                              : kNvFp4MarlinP40ParityDownWeightBytes;
+  manifest.scale_bytes = gate_up
+                             ? kNvFp4MarlinP40ParityGateUpScaleBytes
+                             : kNvFp4MarlinP40ParityDownScaleBytes;
+  manifest.source_count = static_cast<std::uint32_t>(source_count);
+  bool ok = true;
+  for (std::size_t index = 0U; index < source_count; ++index) {
+    ok = ok && p40_parity_derive_source_manifest(
+                   resident, sources[index], checkpoint_digest,
+                   manifest.sources[index]);
+  }
+
+  core::Sha256 transformation_hasher;
+  ok = ok && p40_parity_hash_string(
+                 transformation_hasher,
+                 kP40ParityTransformationHashDomain) &&
+       p40_parity_hash_string(transformation_hasher,
+                              gate_up ? kP40ParityGateUpPackAbi
+                                      : kP40ParityDownPackAbi) &&
+       p40_parity_hash_string(transformation_hasher, kP40ParityScheduleAbi) &&
+       p40_parity_hash_string(transformation_hasher,
+                              kP40ParityModelRepository) &&
+       p40_parity_hash_string(transformation_hasher,
+                              kP40ParityModelRevision) &&
+       p40_parity_hash_digest(transformation_hasher, checkpoint_digest) &&
+       p40_parity_hash_unsigned(transformation_hasher, manifest.version) &&
+       p40_parity_hash_unsigned(transformation_hasher,
+                                manifest.layer_index) &&
+       p40_parity_hash_unsigned(
+           transformation_hasher,
+           static_cast<std::uint8_t>(manifest.role)) &&
+       p40_parity_hash_unsigned(
+           transformation_hasher,
+           static_cast<std::uint8_t>(manifest.layout)) &&
+       p40_parity_hash_unsigned(transformation_hasher,
+                                manifest.output_features) &&
+       p40_parity_hash_unsigned(transformation_hasher,
+                                manifest.input_features) &&
+       p40_parity_hash_unsigned(transformation_hasher,
+                                manifest.weight_bytes) &&
+       p40_parity_hash_unsigned(transformation_hasher,
+                                manifest.scale_bytes) &&
+       p40_parity_hash_unsigned(
+           transformation_hasher,
+           static_cast<std::uint64_t>(kernels::kSm87NvFp4MarlinThreadM)) &&
+       p40_parity_hash_unsigned(
+           transformation_hasher,
+           static_cast<std::uint64_t>(kernels::kSm87NvFp4MarlinThreadN)) &&
+       p40_parity_hash_unsigned(
+           transformation_hasher,
+           static_cast<std::uint64_t>(kernels::kSm87NvFp4MarlinThreadK)) &&
+       p40_parity_hash_unsigned(
+           transformation_hasher,
+           static_cast<std::uint64_t>(
+               kernels::kSm87NvFp4MarlinPipelineStages)) &&
+       p40_parity_hash_unsigned(
+           transformation_hasher,
+           static_cast<std::uint64_t>(plan.token_count)) &&
+       p40_parity_hash_unsigned(
+           transformation_hasher,
+           static_cast<std::uint64_t>(plan.segment_count)) &&
+       p40_parity_hash_unsigned(
+           transformation_hasher,
+           static_cast<std::uint64_t>(
+               plan.legacy_full_k_m1024_launches)) &&
+       p40_parity_hash_unsigned(
+           transformation_hasher,
+           static_cast<std::uint64_t>(
+               plan.legacy_split_k_m64_launches)) &&
+       p40_parity_hash_unsigned(
+           transformation_hasher,
+           static_cast<std::uint64_t>(plan.tail_split_k_output_tiles)) &&
+       p40_parity_hash_unsigned(
+           transformation_hasher,
+           static_cast<std::uint64_t>(plan.tail_split_k_partial_slices)) &&
+       p40_parity_hash_unsigned(
+           transformation_hasher,
+           static_cast<std::uint64_t>(
+               plan.required_reduction_workspace_bytes)) &&
+       p40_parity_hash_unsigned(
+           transformation_hasher,
+           static_cast<std::uint64_t>(plan.required_lock_bytes)) &&
+       p40_parity_hash_unsigned(
+           transformation_hasher,
+           static_cast<std::uint8_t>(plan.fp32_reduce)) &&
+       p40_parity_hash_unsigned(
+           transformation_hasher,
+           static_cast<std::uint8_t>(plan.requires_zero_initialized_locks));
+  for (std::size_t index = 0U; index < source_count; ++index) {
+    const auto& source = manifest.sources[index];
+    ok = ok && p40_parity_hash_unsigned(
+                   transformation_hasher,
+                   static_cast<std::uint8_t>(source.role)) &&
+         p40_parity_hash_unsigned(transformation_hasher,
+                                  source.tensor_identity) &&
+         p40_parity_hash_digest(transformation_hasher,
+                                source.weight_digest) &&
+         p40_parity_hash_digest(transformation_hasher,
+                                source.scale_digest) &&
+         p40_parity_hash_unsigned(transformation_hasher,
+                                  source.global_scale_bits);
+  }
+  manifest.transformation_digest =
+      p40_parity_finish_digest(transformation_hasher);
+
+  core::Sha256 identity_hasher;
+  ok = ok && p40_parity_hash_string(
+                 identity_hasher, kP40ParityArtifactIdentityHashDomain) &&
+       p40_parity_hash_digest(identity_hasher, checkpoint_digest) &&
+       p40_parity_hash_digest(identity_hasher,
+                              manifest.transformation_digest) &&
+       p40_parity_hash_unsigned(identity_hasher, manifest.layer_index) &&
+       p40_parity_hash_unsigned(
+           identity_hasher, static_cast<std::uint8_t>(manifest.role));
+  manifest.artifact_identity = p40_parity_digest_identity(
+      p40_parity_finish_digest(identity_hasher));
+  return ok && manifest.artifact_identity != 0U &&
+         p40_parity_digest_present(manifest.transformation_digest);
+}
+
+[[nodiscard]] bool p40_parity_derive_inventory_digest(
+    const std::array<NvFp4MarlinP40ParitySidecarDescriptor,
+                     kNvFp4MarlinP40ParityArtifactCount>& descriptors,
+    const std::size_t descriptor_count,
+    core::Sha256Digest& digest) noexcept {
+  if (descriptor_count != descriptors.size()) {
+    return false;
+  }
+  core::Sha256 hasher;
+  bool ok = p40_parity_hash_string(hasher, kP40ParityManifestHashDomain) &&
+            p40_parity_hash_string(hasher, kP40ParityModelRepository) &&
+            p40_parity_hash_string(hasher, kP40ParityModelRevision) &&
+            p40_parity_hash_unsigned(
+                hasher, static_cast<std::uint64_t>(descriptor_count)) &&
+            p40_parity_hash_unsigned(
+                hasher,
+                static_cast<std::uint64_t>(
+                    kNvFp4MarlinP40ParitySourceCount));
+  for (const auto& descriptor : descriptors) {
+    const auto& manifest = descriptor.view.manifest;
+    ok = ok && p40_parity_hash_unsigned(
+                   hasher, static_cast<std::uint64_t>(descriptor.layer_index)) &&
+         p40_parity_hash_unsigned(
+             hasher, static_cast<std::uint8_t>(manifest.role)) &&
+         p40_parity_hash_unsigned(hasher, manifest.artifact_identity) &&
+         p40_parity_hash_digest(hasher, manifest.transformation_digest) &&
+         p40_parity_hash_unsigned(hasher, manifest.source_count);
+    for (std::size_t source = 0U; source < manifest.source_count; ++source) {
+      ok = ok && p40_parity_hash_unsigned(
+                     hasher, manifest.sources[source].tensor_identity) &&
+           p40_parity_hash_digest(
+               hasher, manifest.sources[source].weight_digest) &&
+           p40_parity_hash_digest(
+               hasher, manifest.sources[source].scale_digest) &&
+           p40_parity_hash_unsigned(
+               hasher, manifest.sources[source].global_scale_bits);
+    }
+  }
+  digest = hasher.finalize();
+  return ok && std::any_of(
+                   digest.bytes.begin(), digest.bytes.end(),
+                   [](const std::uint8_t byte) { return byte != 0U; });
+}
+
+[[nodiscard]] Sm87NvFp4MarlinP40ParityPreparation
+prepare_sm87_nvfp4_marlin_p40_parity_sidecars(
+    const ResidentWeights& resident, ModelWeights& model_weights,
+    const std::uint64_t minimum_free_bytes_after_prepare,
+    Sm87NvFp4MarlinP40ParitySidecars& owner) {
+  Sm87NvFp4MarlinP40ParityPreparation result;
+  if (!owner.empty()) {
+    result.hard_failure = true;
+    result.message = "P40 vLLM-Marlin parity owner was not empty";
+    return result;
+  }
+
+  NvFp4MarlinP40ParityDigest checkpoint_digest{};
+  if (!p40_parity_verify_checkpoint(resident, checkpoint_digest,
+                                    result.message)) {
+    result.hard_failure = true;
+    return result;
+  }
+
+  for (const auto role :
+       {kernels::Sm87NvFp4MarlinP40ParityRole::kGateUp,
+        kernels::Sm87NvFp4MarlinP40ParityRole::kDown}) {
+    kernels::Sm87NvFp4MarlinP40ParityResources resources{};
+    const int status =
+        kernels::query_sm87_nvfp4_marlin_p40_parity_resources_cuda(
+            role, &resources);
+    if (status != static_cast<int>(cudaSuccess) || !resources.supported ||
+        !resources.bulk_and_tail_share_kernel ||
+        !resources.requires_zero_initialized_locks ||
+        resources.atomic_add || !resources.fp32_reduce ||
+        resources.reduction_workspace_bytes !=
+            kernels::kSm87NvFp4MarlinP40ParityReductionBytes ||
+        resources.lock_bytes !=
+            kernels::kSm87NvFp4MarlinP40ParityLockBytes) {
+      result.hard_failure = true;
+      result.cuda_error = status;
+      result.message = "P40 vLLM-Marlin parity kernel capability mismatch";
+      return result;
+    }
+  }
+
+  for (std::size_t layer_index = 0U;
+       layer_index < kQwen36DenseLayerCount; ++layer_index) {
+    const DecoderLayerWeights& layer = model_weights.layer(layer_index);
+    const auto* const gate =
+        std::get_if<NvFp4LinearWeight>(&layer.mlp.gate_proj);
+    const auto* const up =
+        std::get_if<NvFp4LinearWeight>(&layer.mlp.up_proj);
+    const auto* const down =
+        std::get_if<NvFp4LinearWeight>(&layer.mlp.down_proj);
+    const std::string prefix = "model.language_model.layers." +
+                               std::to_string(layer_index) + ".mlp.";
+    if (gate == nullptr || up == nullptr || down == nullptr ||
+        p40_parity_float_bits(gate->weight_scale_2) !=
+            p40_parity_float_bits(up->weight_scale_2) ||
+        !p40_parity_validate_source(
+            resident, *gate, prefix + "gate_proj",
+            kNvFp4MarlinP40ParityIntermediate,
+            kNvFp4MarlinP40ParityHidden) ||
+        !p40_parity_validate_source(
+            resident, *up, prefix + "up_proj",
+            kNvFp4MarlinP40ParityIntermediate,
+            kNvFp4MarlinP40ParityHidden) ||
+        !p40_parity_validate_source(
+            resident, *down, prefix + "down_proj",
+            kNvFp4MarlinP40ParityHidden,
+            kNvFp4MarlinP40ParityIntermediate)) {
+      result.hard_failure = true;
+      result.message =
+          "ineligible or non-resident P40 parity inventory at layer " +
+          std::to_string(layer_index);
+      return result;
+    }
+  }
+
+  constexpr std::uint64_t kScratchBytes =
+      kNvFp4MarlinP40ParityGateUpWeightBytes;
+  std::size_t free_bytes = 0U;
+  std::size_t total_bytes = 0U;
+  cudaError_t status = cudaMemGetInfo(&free_bytes, &total_bytes);
+  (void)total_bytes;
+  if (status != cudaSuccess) {
+    result.hard_failure = true;
+    result.cuda_error = static_cast<int>(status);
+    result.message = "cudaMemGetInfo failed before P40 parity preparation";
+    return result;
+  }
+  const std::uint64_t free_u64 = static_cast<std::uint64_t>(free_bytes);
+  if (kNvFp4MarlinP40ParityRetainedBytes + kScratchBytes > free_u64 ||
+      minimum_free_bytes_after_prepare >
+          free_u64 -
+              (kNvFp4MarlinP40ParityRetainedBytes + kScratchBytes)) {
+    result.hard_failure = true;
+    result.message =
+        "insufficient device memory for the independent P40 parity owner";
+    return result;
+  }
+
+  const auto allocate = [](void** const destination,
+                           const std::size_t bytes) noexcept {
+    *destination = nullptr;
+    return cudaMalloc(destination, bytes);
+  };
+  status = allocate(reinterpret_cast<void**>(&owner.gate_up_weights),
+                    kQwen36DenseLayerCount *
+                        kNvFp4MarlinP40ParityGateUpWeightBytes);
+  if (status == cudaSuccess) {
+    status = allocate(reinterpret_cast<void**>(&owner.gate_up_scales),
+                      kQwen36DenseLayerCount *
+                          kNvFp4MarlinP40ParityGateUpScaleBytes);
+  }
+  if (status == cudaSuccess) {
+    status = allocate(
+        reinterpret_cast<void**>(&owner.gate_up_global_scales),
+        kQwen36DenseLayerCount * sizeof(float));
+  }
+  if (status == cudaSuccess) {
+    status = allocate(reinterpret_cast<void**>(&owner.down_weights),
+                      kQwen36DenseLayerCount *
+                          kNvFp4MarlinP40ParityDownWeightBytes);
+  }
+  if (status == cudaSuccess) {
+    status = allocate(reinterpret_cast<void**>(&owner.down_scales),
+                      kQwen36DenseLayerCount *
+                          kNvFp4MarlinP40ParityDownScaleBytes);
+  }
+  if (status == cudaSuccess) {
+    status = allocate(reinterpret_cast<void**>(&owner.down_global_scales),
+                      kQwen36DenseLayerCount * sizeof(float));
+  }
+  void* transpose_scratch = nullptr;
+  if (status == cudaSuccess) {
+    status = cudaMalloc(&transpose_scratch,
+                        static_cast<std::size_t>(kScratchBytes));
+  }
+  if (status != cudaSuccess || transpose_scratch == nullptr) {
+    result.hard_failure = true;
+    result.cuda_error = static_cast<int>(status);
+    result.message = "cudaMalloc failed for the independent P40 parity owner";
+    if (transpose_scratch != nullptr) {
+      (void)cudaFree(transpose_scratch);
+    }
+    owner.release();
+    return result;
+  }
+
+  std::size_t remaining_free = 0U;
+  status = cudaMemGetInfo(&remaining_free, &total_bytes);
+  if (status != cudaSuccess ||
+      static_cast<std::uint64_t>(remaining_free) <
+          minimum_free_bytes_after_prepare) {
+    result.hard_failure = true;
+    result.cuda_error = static_cast<int>(status);
+    result.message = status == cudaSuccess
+                         ? "P40 parity owner violated the free-memory margin"
+                         : "cudaMemGetInfo failed after P40 parity allocation";
+    (void)cudaFree(transpose_scratch);
+    owner.release();
+    return result;
+  }
+
+  cudaStream_t stream = nullptr;
+  status = cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking);
+  if (status != cudaSuccess) {
+    result.hard_failure = true;
+    result.cuda_error = static_cast<int>(status);
+    result.message = "failed to create the P40 parity preparation stream";
+    (void)cudaFree(transpose_scratch);
+    owner.release();
+    return result;
+  }
+
+  std::vector<std::uint8_t> gate_scales(
+      kNvFp4MarlinP40ParityGateUpScaleBytes / 2U);
+  std::vector<std::uint8_t> up_scales(
+      kNvFp4MarlinP40ParityGateUpScaleBytes / 2U);
+  std::vector<std::uint8_t> down_scales(
+      kNvFp4MarlinP40ParityDownScaleBytes);
+  for (std::size_t layer_index = 0U;
+       layer_index < kQwen36DenseLayerCount; ++layer_index) {
+    const DecoderLayerWeights& layer = model_weights.layer(layer_index);
+    const auto* const gate =
+        std::get_if<NvFp4LinearWeight>(&layer.mlp.gate_proj);
+    const auto* const up =
+        std::get_if<NvFp4LinearWeight>(&layer.mlp.up_proj);
+    const auto* const down =
+        std::get_if<NvFp4LinearWeight>(&layer.mlp.down_proj);
+    status = cudaMemcpyAsync(gate_scales.data(), gate->block_scale,
+                             gate_scales.size(), cudaMemcpyDeviceToHost,
+                             stream);
+    if (status == cudaSuccess) {
+      status = cudaMemcpyAsync(up_scales.data(), up->block_scale,
+                               up_scales.size(), cudaMemcpyDeviceToHost,
+                               stream);
+    }
+    if (status == cudaSuccess) {
+      status = cudaMemcpyAsync(down_scales.data(), down->block_scale,
+                               down_scales.size(), cudaMemcpyDeviceToHost,
+                               stream);
+    }
+    if (status == cudaSuccess) {
+      status = cudaStreamSynchronize(stream);
+    }
+    float gate_up_factor = 0.0F;
+    float down_factor = 0.0F;
+    if (status != cudaSuccess ||
+        !kernels::derive_sm87_nvfp4_marlin_scale_factor(
+            gate_scales.data(), gate_scales.size(), up_scales.data(),
+            up_scales.size(), &gate_up_factor) ||
+        !kernels::derive_sm87_nvfp4_marlin_scale_factor(
+            down_scales.data(), down_scales.size(), nullptr, 0U,
+            &down_factor)) {
+      result.hard_failure = true;
+      result.cuda_error = static_cast<int>(status);
+      result.message = "failed to authenticate P40 parity scales at layer " +
+                       std::to_string(layer_index);
+      (void)cudaStreamDestroy(stream);
+      (void)cudaFree(transpose_scratch);
+      owner.release();
+      return result;
+    }
+
+    std::uint8_t* const gate_up_weight =
+        owner.gate_up_weights +
+        layer_index * kNvFp4MarlinP40ParityGateUpWeightBytes;
+    std::uint8_t* const gate_up_scale =
+        owner.gate_up_scales +
+        layer_index * kNvFp4MarlinP40ParityGateUpScaleBytes;
+    float* const gate_up_global = owner.gate_up_global_scales + layer_index;
+    std::uint8_t* const down_weight =
+        owner.down_weights +
+        layer_index * kNvFp4MarlinP40ParityDownWeightBytes;
+    std::uint8_t* const down_scale =
+        owner.down_scales +
+        layer_index * kNvFp4MarlinP40ParityDownScaleBytes;
+    float* const down_global = owner.down_global_scales + layer_index;
+    status = static_cast<cudaError_t>(
+        kernels::prepare_sm87_nvfp4_marlin_p40_parity_gate_up_cuda(
+            gate->packed_weight, up->packed_weight, gate->block_scale,
+            up->block_scale, gate->weight_scale_2_device, gate_up_factor,
+            gate_up_weight, gate_up_scale, gate_up_global, transpose_scratch,
+            static_cast<std::size_t>(kScratchBytes),
+            static_cast<void*>(stream)));
+    if (status == cudaSuccess) {
+      status = static_cast<cudaError_t>(
+          kernels::prepare_sm87_nvfp4_marlin_down_cuda(
+              down->packed_weight, down->block_scale,
+              down->weight_scale_2_device, down_factor, down_weight,
+              down_scale, down_global, transpose_scratch,
+              static_cast<std::size_t>(kScratchBytes),
+              static_cast<void*>(stream)));
+    }
+    if (status != cudaSuccess) {
+      result.hard_failure = true;
+      result.cuda_error = static_cast<int>(status);
+      result.message = "P40 parity repack failed at layer " +
+                       std::to_string(layer_index);
+      (void)cudaStreamDestroy(stream);
+      (void)cudaFree(transpose_scratch);
+      owner.release();
+      return result;
+    }
+
+    const std::string prefix = "model.language_model.layers." +
+                               std::to_string(layer_index) + ".mlp.";
+    const std::array<P40ParityPlannedSource, 2U> gate_up_sources{{
+        {gate, prefix + "gate_proj",
+         NvFp4MarlinP40ParitySourceRole::kGate},
+        {up, prefix + "up_proj", NvFp4MarlinP40ParitySourceRole::kUp},
+    }};
+    const std::array<P40ParityPlannedSource, 1U> down_sources{{
+        {down, prefix + "down_proj",
+         NvFp4MarlinP40ParitySourceRole::kDown},
+    }};
+    NvFp4MarlinP40ParitySidecarDescriptor& gate_up_descriptor =
+        owner.descriptors[2U * layer_index];
+    gate_up_descriptor.layer_index = layer_index;
+    gate_up_descriptor.view.weight = gate_up_weight;
+    gate_up_descriptor.view.scales = gate_up_scale;
+    gate_up_descriptor.view.global_scale = gate_up_global;
+    NvFp4MarlinP40ParitySidecarDescriptor& down_descriptor =
+        owner.descriptors[2U * layer_index + 1U];
+    down_descriptor.layer_index = layer_index;
+    down_descriptor.view.weight = down_weight;
+    down_descriptor.view.scales = down_scale;
+    down_descriptor.view.global_scale = down_global;
+    if (!p40_parity_derive_artifact_manifest(
+            resident, checkpoint_digest, layer_index,
+            kernels::Sm87NvFp4MarlinP40ParityRole::kGateUp,
+            gate_up_sources.data(), gate_up_sources.size(),
+            gate_up_descriptor.view.manifest) ||
+        !p40_parity_derive_artifact_manifest(
+            resident, checkpoint_digest, layer_index,
+            kernels::Sm87NvFp4MarlinP40ParityRole::kDown,
+            down_sources.data(), down_sources.size(),
+            down_descriptor.view.manifest)) {
+      result.hard_failure = true;
+      result.message = "failed to derive the P40 parity manifest at layer " +
+                       std::to_string(layer_index);
+      (void)cudaStreamSynchronize(stream);
+      (void)cudaStreamDestroy(stream);
+      (void)cudaFree(transpose_scratch);
+      owner.release();
+      return result;
+    }
+    owner.descriptor_count += 2U;
+  }
+
+  status = cudaStreamSynchronize(stream);
+  const cudaError_t destroy_status = cudaStreamDestroy(stream);
+  const cudaError_t scratch_status = cudaFree(transpose_scratch);
+  if (status != cudaSuccess || destroy_status != cudaSuccess ||
+      scratch_status != cudaSuccess) {
+    const cudaError_t failure =
+        status != cudaSuccess
+            ? status
+            : (destroy_status != cudaSuccess ? destroy_status
+                                             : scratch_status);
+    result.hard_failure = true;
+    result.cuda_error = static_cast<int>(failure);
+    result.message = "P40 parity preparation did not retire cleanly";
+    owner.release();
+    return result;
+  }
+  if (owner.descriptor_count != kNvFp4MarlinP40ParityArtifactCount ||
+      !p40_parity_derive_inventory_digest(
+          owner.descriptors, owner.descriptor_count,
+          owner.manifest_digest) ||
+      !model_weights.attach_nvfp4_marlin_p40_parity_sidecars(
+          owner.descriptors.data(), owner.descriptor_count)) {
+    result.hard_failure = true;
+    result.message =
+        "ModelWeights rejected the source-bound P40 parity transformation "
+        "inventory";
+    owner.release();
+    return result;
+  }
+
+  owner.bytes = kNvFp4MarlinP40ParityRetainedBytes;
+  result.enabled = true;
+  result.layers = kQwen36DenseLayerCount;
+  result.artifacts = kNvFp4MarlinP40ParityArtifactCount;
+  result.sources = kNvFp4MarlinP40ParitySourceCount;
+  result.bytes = owner.bytes;
+  result.manifest_digest = owner.manifest_digest;
+  return result;
+}
+#endif
+
 }  // namespace
 
 namespace reference_runner_detail {
@@ -3446,9 +4504,9 @@ exchange_reference_engine_generate_return_snapshot_hook(
 struct ReferenceEngine::Impl {
   // Declaration order is part of the safety contract. Destruction is exactly
   // bound Prefill plan -> runner -> request_state -> model_weights -> Decode
-  // Down consumer-order sidecars -> Marlin admission sidecars -> Prefill
-  // supermatrix/QKV sidecars -> down scale6 sidecars -> output sidecars ->
-  // resident_weights -> tokenizer.
+  // Down consumer-order sidecars -> independent parity/packed/Marlin
+  // admission sidecars -> Prefill supermatrix/QKV sidecars -> down scale6
+  // sidecars -> output sidecars -> resident_weights -> tokenizer.
   std::unique_ptr<text::Tokenizer> tokenizer;
   std::optional<ResidentWeights> resident_weights;
   Sm87Fp8OutputProjectionSidecars fp8_output_sidecars;
@@ -3461,6 +4519,10 @@ struct ReferenceEngine::Impl {
 #endif
 #if defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION)
   Sm87NvFp4MarlinPrefillSidecars nvfp4_marlin_prefill_sidecars;
+#endif
+#if defined(Q3X_ENABLE_P40_VLLM_MARLIN_PARITY_ADMISSION)
+  Sm87NvFp4MarlinP40ParitySidecars
+      nvfp4_marlin_p40_parity_sidecars;
 #endif
   P40PackedProjectionAssets p40_packed_projection_assets;
   Sm87NvFp4DownConsumerOrderSidecars
@@ -3716,6 +4778,37 @@ struct ReferenceEngine::Impl {
       return result;
     }
 #endif
+#if !defined(Q3X_ENABLE_P40_VLLM_MARLIN_PARITY_ADMISSION)
+    if (options.prefill_projection_tactic ==
+        LayerMajorPrefillProjectionTactic::
+            kNativePromptWideP40VllmMarlinParity) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kPrefillPlanUnavailable,
+          "prefill_projection_tactic",
+          "this binary does not admit the independent exact-P40000 "
+          "vLLM-Marlin projection reference");
+      return result;
+    }
+#else
+    if (options.prefill_projection_tactic ==
+            LayerMajorPrefillProjectionTactic::
+                kNativePromptWideP40VllmMarlinParity &&
+        (options.prefill_execution_mode !=
+             ReferencePrefillExecutionMode::kWholeRequestLayerMajor ||
+         options.projection_backend != ProjectionBackend::kSm87WeightOnly ||
+         options.request_options.max_sequence_length !=
+             kLayerMajorPrefillPromptWideP40RequestCapacityTokens ||
+         options.prefill_full_attention_tactic !=
+             LayerMajorPrefillFullAttentionTactic::
+                 kNativeFlashInferExactWholePrompt)) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kInvalidArgument,
+          "prefill_projection_tactic",
+          "the vLLM-Marlin parity route admits only the SM87 cold exact "
+          "P40000 whole-request engine with whole-prompt FlashInfer");
+      return result;
+    }
+#endif
     if (!is_valid_reference_decode_graph_cache_policy(
             options.decode_graph_cache_policy)) {
       result.diagnostic = engine_diagnostic(
@@ -3738,6 +4831,11 @@ struct ReferenceEngine::Impl {
       impl->trace_enabled = options.enable_trace;
       impl->prefill_mlp_schedule_tactic =
           options.prefill_projection_tactic ==
+                  LayerMajorPrefillProjectionTactic::
+                      kNativePromptWideP40VllmMarlinParity
+              ? LayerMajorPrefillMlpScheduleTactic::
+                    kPromptWideP40VllmMarlinParity
+          : options.prefill_projection_tactic ==
                   LayerMajorPrefillProjectionTactic::
                       kNativePromptWideP40PackedNvfp4V2
               ? LayerMajorPrefillMlpScheduleTactic::
@@ -3832,6 +4930,11 @@ struct ReferenceEngine::Impl {
               options.request_options.min_free_bytes_after_create;
           layer_major_options.mlp_layout =
               impl->prefill_mlp_schedule_tactic ==
+                      LayerMajorPrefillMlpScheduleTactic::
+                          kPromptWideP40VllmMarlinParity
+                  ? LayerMajorRequestMlpLayout::
+                        kLayerWideP40MarlinParityMergedGateUp
+              : impl->prefill_mlp_schedule_tactic ==
                           LayerMajorPrefillMlpScheduleTactic::
                               kLayerWideP40ExactFullM ||
                       impl->prefill_mlp_schedule_tactic ==
@@ -3860,7 +4963,10 @@ struct ReferenceEngine::Impl {
                           kPromptWideP40PackedProjection ||
                   impl->prefill_mlp_schedule_tactic ==
                       LayerMajorPrefillMlpScheduleTactic::
-                          kPromptWideP40PackedNvfp4V2
+                          kPromptWideP40PackedNvfp4V2 ||
+                  impl->prefill_mlp_schedule_tactic ==
+                      LayerMajorPrefillMlpScheduleTactic::
+                          kPromptWideP40VllmMarlinParity
                   ? LayerMajorRequestLayout::kP40WholeCorePromptWide
                   : LayerMajorRequestLayout::kC8192FamilyOverlay;
           request = create_layer_major_request_state(layer_major_options);
@@ -3948,6 +5054,10 @@ struct ReferenceEngine::Impl {
               options.prefill_projection_tactic ==
                   LayerMajorPrefillProjectionTactic::
                       kNativePromptWideP40PackedNvfp4V2;
+          const bool prepare_p40_vllm_marlin_parity =
+              options.prefill_projection_tactic ==
+              LayerMajorPrefillProjectionTactic::
+                  kNativePromptWideP40VllmMarlinParity;
           if (prepare_p40_packed_projection) {
             const Clock::time_point packed_begin = Clock::now();
             const P40PackedProjectionPreparationStats preparation =
@@ -4060,7 +5170,8 @@ struct ReferenceEngine::Impl {
                 preparation.bytes;
           }
 #if defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION)
-          if (!prepare_p40_packed_nvfp4_v2) {
+          if (!prepare_p40_packed_nvfp4_v2 &&
+              !prepare_p40_vllm_marlin_parity) {
             const Clock::time_point marlin_begin = Clock::now();
             // The sealed layer-major arithmetic contract always launches the
             // ordinary Gate+Up producer followed by its standalone SiLU. Its
@@ -4106,6 +5217,49 @@ struct ReferenceEngine::Impl {
             impl->load.nvfp4_marlin_prefill_sidecar_bytes =
                 marlin_preparation.bytes;
           }
+#endif
+#if defined(Q3X_ENABLE_P40_VLLM_MARLIN_PARITY_ADMISSION)
+          if (prepare_p40_vllm_marlin_parity) {
+            const Clock::time_point parity_begin = Clock::now();
+            const Sm87NvFp4MarlinP40ParityPreparation preparation =
+                prepare_sm87_nvfp4_marlin_p40_parity_sidecars(
+                    *impl->resident_weights, *impl->model_weights,
+                    options.request_options.min_free_bytes_after_create,
+                    impl->nvfp4_marlin_p40_parity_sidecars);
+            impl->load.nvfp4_marlin_p40_parity_sidecar_milliseconds =
+                elapsed_milliseconds(parity_begin);
+            if (preparation.hard_failure || !preparation.enabled ||
+                preparation.layers != kQwen36DenseLayerCount ||
+                preparation.artifacts !=
+                    kNvFp4MarlinP40ParityArtifactCount ||
+                preparation.sources != kNvFp4MarlinP40ParitySourceCount ||
+                preparation.bytes !=
+                    kNvFp4MarlinP40ParityRetainedBytes ||
+                !impl->p40_packed_projection_assets.empty() ||
+                impl->load.nvfp4_marlin_prefill_sidecars_enabled ||
+                impl->load.p40_packed_projection_assets_enabled) {
+              result.diagnostic = engine_diagnostic(
+                  ReferenceEngineError::kRunnerFactoryFailure,
+                  "nvfp4_marlin_p40_parity_sidecar_prepare",
+                  preparation.message.empty()
+                      ? "the independent P40 parity owner did not publish "
+                        "all 128 artifacts from 192 pinned sources"
+                      : preparation.message);
+              result.diagnostic.cuda_error = preparation.cuda_error;
+              return result;
+            }
+            impl->load.nvfp4_marlin_p40_parity_sidecars_enabled = true;
+            impl->load.nvfp4_marlin_p40_parity_layers = preparation.layers;
+            impl->load.nvfp4_marlin_p40_parity_artifacts =
+                preparation.artifacts;
+            impl->load.nvfp4_marlin_p40_parity_sources = preparation.sources;
+            impl->load.nvfp4_marlin_p40_parity_sidecar_bytes =
+                preparation.bytes;
+            impl->load.nvfp4_marlin_p40_parity_manifest_sha256 =
+                preparation.manifest_digest.hex();
+          }
+#else
+          (void)prepare_p40_vllm_marlin_parity;
 #endif
           if (prepare_p40_packed_nvfp4_v2) {
             const Clock::time_point packed_begin = Clock::now();
@@ -5200,6 +6354,30 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
     generation.prefill_packed_nvfp4_v2_physical_launches =
         static_cast<std::uint64_t>(
             step_context.prefill_packed_nvfp4_v2_physical_launches);
+    generation.prefill_vllm_marlin_parity_gate_up_hits =
+        static_cast<std::uint64_t>(
+            step_context.prefill_vllm_marlin_parity_gate_up_hits);
+    generation.prefill_vllm_marlin_parity_down_hits =
+        static_cast<std::uint64_t>(
+            step_context.prefill_vllm_marlin_parity_down_hits);
+    generation.prefill_vllm_marlin_parity_physical_launches =
+        static_cast<std::uint64_t>(
+            step_context.prefill_vllm_marlin_parity_physical_launches);
+    generation.prefill_vllm_marlin_parity_standalone_silu_launches =
+        static_cast<std::uint64_t>(step_context
+                                       .prefill_vllm_marlin_parity_standalone_silu_launches);
+    generation.prefill_vllm_marlin_parity_standalone_residual_launches =
+        static_cast<std::uint64_t>(
+            step_context
+                .prefill_vllm_marlin_parity_standalone_residual_launches);
+    generation.prefill_vllm_marlin_parity_lock_clear_operations =
+        static_cast<std::uint64_t>(
+            step_context.prefill_vllm_marlin_parity_lock_clear_operations);
+    generation.prefill_vllm_marlin_parity_layer_completion_receipts =
+        step_context.prefill_vllm_marlin_parity_layer_completion_receipts;
+    generation.prefill_vllm_marlin_parity_layer_completion_receipt_count =
+        step_context
+            .prefill_vllm_marlin_parity_layer_completion_receipt_count;
     generation.all_prompt_tokens_prefilled_by_tiles =
         control_options.prefill_all_prompt_tokens;
     generation.single_arbitrary_prefill_tiles =

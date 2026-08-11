@@ -39,6 +39,20 @@ as a required mutation inside a named architecture candidate selected by an
 API-visible product constraint. Local work-package rules stop at that package;
 they cannot reorder the delivery slices below.
 
+Inside every Prefill architecture candidate, the work order is also fixed:
+
+```text
+real-number equivalence and live graph
+  -> finite-precision operands, reduction tree, rounding and state boundaries
+  -> production observables, buffer/control-state lifetime and alias ownership
+  -> engineering map to SM87 residency, ownership, pipeline and synchronization
+```
+
+The
+[`PREFILL_MATHEMATICAL_EQUIVALENCE_LEDGER.md`](PREFILL_MATHEMATICAL_EQUIVALENCE_LEDGER.md)
+owns the proof classes. A local kernel parameter cannot skip or retroactively
+justify an earlier step.
+
 ## Locked outcome
 
 The first proof vehicle is the pinned Qwen3.6-27B-NVFP4 checkpoint on Jetson
@@ -494,8 +508,8 @@ successor activation.
   without a parameter scan. Its default-off implementation remains
   correctness/forensic evidence and does not unblock accuracy repetition,
   P60/P130, Attention, or GDN promotion.
-- **WP-P40-VLLM-MARLIN-PARITY-v1 — source schedule mapped, default-off
-  projection reference implemented, production route incomplete:**
+- **WP-P40-VLLM-MARLIN-PARITY-v1 — default-off host route integrated; real
+  P40 direction and numerical qualification pending:**
   reconstruct the actual stock-vLLM W4A16 Marlin route as the execution
   specification, then translate it into the native runner without a vLLM
   runtime dependency. Freeze v10 FP8, Attention, GDN, API, memory, and
@@ -515,11 +529,18 @@ successor activation.
   not stock parity. The default-off native projection reference now preserves
   the stock split tail, canonical per-token GateThenUp rows, BF16 publication,
   and standalone SiLU/Down-residual boundaries. It remains accuracy-
-  unqualified and is not connected to the production runner. Its current CUDA
-  witness is launch/capture topology only, not a numerical or SASS
-  differential. Route integration must bind typed Ctmp/lock subviews and place
-  the one request-level lock clear after the final old alias writer and before
-  the first M64 tail. The next decision unit must connect the complete 64-layer
+  unqualified and default-off. Its Engine/runner/OpenAI v15 host route is now
+  integrated, but its current CUDA witness is launch/capture topology only,
+  not a numerical or SASS differential, and it has no real-API or EvalScope
+  performance number. Integration found and closed the lock-lifetime defect:
+  the old family-temporary alias overlapped a later prompt-wide GDN writer.
+  Ctmp remains in the parity family temporary, while locks now use a stable
+  physically disjoint legacy owner. Authority and runner validate the full
+  request writer set before the one clear; receipt fields attest that layout
+  and ordered protocol rather than claiming unperformed D2H lock reads. Exact
+  offsets and current qualification state are owned by
+  [`CURRENT_STATUS.md`](CURRENT_STATUS.md). The next decision unit must
+  connect the complete 64-layer
   NVFP4 replacement to the same real-checkpoint,
   cold/no-cache P40 OpenAI API + EvalScope one-request gate against v10. A
   negative result closes the parity skeleton; a positive result earns full
@@ -543,11 +564,24 @@ successor activation.
   24.3T MAC / 48.6T conventional operations. Relative to all projection work
   plus the 16 full-Attention layers' causal QK/PV work
   (`2,262,625,157,120,000` operations, excluding softmax, norm and GDN), this
-  is about 2.15%. Implement it under an independent terminal-
+  is exactly `2.1479599663%` under the ledger's denominator. Implement it
+  under an independent terminal-
   layer tactic, progress transition, M1 receipts and a liveness oracle that
   compares complete K/V plus the last hidden/logits. It is a certain exact
   system gain to compose with the successor, not the complete 4.3K solution
-  and not a reason to resume low-yield local scanning.
+  and not a reason to lower the 4.3K target or resume low-yield local scanning.
+- **WP-P40-EXACT-ARITHMETIC-CLASS-v1 — qualification designed; CUDA not
+  authorized yet:** capture the real P40 production-boundary K16/K64 exponent
+  span, aligned-significand trailing zeros, exact INT8/INT4 limb count,
+  residual-plane density, exact 2:4 eligibility, special values, preserved
+  ordered-FP32 partials, fallback fraction, and average physical MMA pass
+  count for every NVFP4/FP8 projection role. This is a mathematical
+  eligibility gate for a block-floating, integer-limb, or bit-plane execution
+  class, not an activation-quantization experiment. Implement its CUDA
+  architecture only if the measured exact representation can fit the 5.0-s
+  projection allocation and, when applied to QK/PV, the 1.8-s Attention
+  allocation. Otherwise close the arithmetic class before kernel work. A
+  calibrated or truncated path remains outside the production contract.
 - **WP-P40-EXACT-GDN-v1 — prompt-wide recurrent and BF16 path — designed,
   blocked behind a positive replacement projection architecture:** submit one panel's C64
   hierarchy as one GDN work graph, expose chunk-local KKT/WY work in parallel,
@@ -568,8 +602,10 @@ successor activation.
   profile must predeclare which observed kernel/traffic/stall fact will choose
   a materially different successor dataflow. Packed v2 is closed, so the
   successor must first derive its real-number equation, finite-precision
-  publication/state boundaries, communication lower bound, and intended
-  operand residence/reuse before choosing its CUDA mapping. It must freeze every
+  publication/reduction/state boundaries, production-observable live graph,
+  complete buffer/control-state lifetime and alias ownership, communication
+  lower bound, and intended operand residence/reuse before choosing its CUDA
+  mapping. It must freeze every
   projection role in one binary and return directly to one unprofiled
   clean-host P40K API direction against 392.804397 tok/s. A positive result
   earns bounded correctness/statistical work and unblocks Attention/GDN; a

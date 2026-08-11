@@ -183,6 +183,37 @@ predeclared target-length set; a `release_candidate` additionally requires
 independent-process repetition and the full performance/accuracy/capability
 protocol.
 
+### Architecture admission before a timed witness
+
+Before an architecture route receives a witness identity, its admission
+record follows the order owned by the
+[`PREFILL_MATHEMATICAL_EQUIVALENCE_LEDGER.md`](PREFILL_MATHEMATICAL_EQUIVALENCE_LEDGER.md):
+
+1. derive the real-number computation and production-live graph;
+2. bind decoded operands, scale placement, reduction tree, rounding,
+   publication, and recurrent-state boundaries;
+3. bind every production observable and the full lifetime, alias set, reuse
+   event, and physical owner of live data, control state, and workspace; and
+4. bind the resulting SM87 residency, CTA/warp ownership, pipeline, buffering,
+   synchronization, and physical route receipts.
+
+An `accuracy-unqualified` direction may record a deliberately different
+finite-precision tree at step 2 instead of claiming strict equivalence, but it
+may not omit or disguise that boundary. Minimum safe admission is still
+proportional to the decision: this ordering does not require full release
+qualification before an early direction screen, but it does require an honest
+numerical identity and a memory/control-state lifetime that cannot corrupt the
+run.
+
+For cross-phase state such as split-K locks, pointer validity and one initial
+clear are not sufficient witness facts. The route must attest that no alias
+writer covers the bytes before the last consumer, or that the plan explicitly
+re-establishes the required value at the correct dependency edge. A partial
+kernel or reference surface that is not connected to the complete Engine,
+runner, and API route receives no new target-witness version, EvalScope
+command, or performance claim; current availability is reported only in
+[`CURRENT_STATUS.md`](CURRENT_STATUS.md).
+
 For every witness retain both:
 
 - EvalScope's user-visible TTFT from POST start to the first non-empty token
@@ -711,6 +742,114 @@ default-off implementation and CUDA correctness gates remain development
 evidence only. Exact hashes, preflights, counters, metrics, and cleanup facts
 are frozen in the
 [v14 packed NVFP4 rejection record](metadata/qwen36-27b-prefill-p40k-packed-nvfp4-v2-rejection-2026-08-11.json).
+
+### Pending v15 stock-vLLM-Marlin projection-parity P40 gate
+
+The Engine/runner/API host integration and stable lock-owner contract are now
+implemented and pass both ordinary default-off and explicit admission host
+builds/tests. The CUDA target compiles, but this exact integrated route has not
+yet run a GPU numerical or performance gate. The default-off stock-vLLM-Marlin
+projection-parity route must emit an independent
+`target-prefill-witness-v15`. Version 15 may not deserialize as, relabel, or
+borrow qualification from v10 or v14. Its serialization fields are frozen by
+the host protocol tests, and the following facts are mandatory:
+
+- request profile `layer-major-p40-whole-core`, projection tactic
+  `native-prompt-wide-p40-vllm-marlin-parity`, Attention tactic
+  `native-flashinfer-exact-whole-prompt`, and deployment plan
+  `q3x.sm87.ac-prefill-p40-vllm-marlin-parity.native-p40-canonical-nvfp4-legacy-stripe.v1`;
+- the exact independent 64-layer Gate+Up/Down parity artifact inventory,
+  canonical per-token `[Gate, Up]` publication, standalone SiLU, and
+  standalone Down residual boundary; its transformation digest binds source
+  provenance and the deterministic repack recipe, not post-pack device bytes;
+- for each of 64 layers and each of the two NVFP4 roles, exactly 39 full-K
+  M1024 `LegacyStripe` launches followed by one M64 split-K tail, with the
+  plan-declared FP32 Ctmp reduction and ordered-lock protocol;
+- one request-level parity lock clear only after the lock view is bound to a
+  physically disjoint stable owner whose complete lifetime excludes GDN or
+  another family writer; surrounding ordered v10 FP8 users must leave that
+  owner in the state required by the first and subsequent parity tails;
+- the unchanged v10 FP8, BF16 A/B, GDN, whole-prompt FlashInfer, whole-request
+  transaction, request arena, progress, and final state-commit route; and
+- zero Prefix/cache reuse, MTP, cuBLASLt, external-reference, approximate,
+  exact-fallback, forbidden-fallback, incompatible-route, request-time repack,
+  or request-time tactic-discovery hits.
+
+This route remains `accuracy-unqualified-architecture-candidate` and
+default-off. Matching one token cannot qualify the stock split-K reduction
+tree or the already known whole-prompt FlashInfer numerical difference.
+
+After a clean-host Jetson resource preflight, configure and start the pending
+v15 candidate with the fixed P40 geometry below. The command is a frozen
+future measurement procedure, not evidence that it has already run.
+
+```bash
+Q3X_BUILD="$Q3X_WORK/build/p40-vllm-marlin-parity"
+cmake -S . -B "$Q3X_BUILD" -DCMAKE_BUILD_TYPE=Release \
+  -DBUILD_TESTING=ON \
+  -DQ3X_BUILD_FP8_MARLIN_PREFILL_ADMISSION=ON \
+  -DQ3X_BUILD_NVFP4_MARLIN_PREFILL_ADMISSION=ON \
+  -DQ3X_BUILD_BF16_AB_LARGE_M_PREFILL_ADMISSION=ON \
+  -DQ3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION=ON \
+  -DQ3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION=ON \
+  -DQ3X_BUILD_GDN_PROMPT_WIDE_CHUNK_GRAPH_ADMISSION=ON \
+  -DQ3X_BUILD_LAYER_WIDE_P40_MLP_ADMISSION=ON \
+  -DQ3X_BUILD_NVFP4_PERSISTENT_PREFILL_ADMISSION=ON \
+  -DQ3X_BUILD_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION=ON \
+  -DQ3X_BUILD_P40_VLLM_MARLIN_PARITY_ADMISSION=ON
+cmake --build "$Q3X_BUILD" --target qwen3x-eval-server -j
+
+"$Q3X_BUILD/qwen3x-eval-server" MODEL_DIR \
+  --host 127.0.0.1 --port 18092 \
+  --model qwen3.6-27b-nvfp4 \
+  --max-sequence-length 40001 --max-output-tokens 1 \
+  --prefill-chunk-size 512 --prefill-execution-mode layer-major \
+  --prefill-attention-tactic native-flashinfer-exact-whole-prompt \
+  --prefill-projection-tactic native-prompt-wide-p40-vllm-marlin-parity \
+  --projection-backend sm87 \
+  --request-max-arena-bytes 8640542976 \
+  --min-free-bytes 4294967296 \
+  --queue-capacity 1 --ingress-threads 3
+```
+
+The first v15 decision unit uses the same exact frozen token-ID corpus and
+hash as v14. Immediately after an accepted clean-host Jetson preflight, run
+one cold/no-cache EvalScope 1.9.1 request, one greedy output token, concurrency
+one, no warmup:
+
+```bash
+Q3X_P40_CORPUS="$Q3X_WORK/evalscope/corpora/q3x-repository-agent-context-p40000-one-token.jsonl"
+Q3X_P40_RESULTS="$Q3X_WORK/evalscope/results/p40-vllm-marlin-parity-v1"
+
+TMPDIR="$Q3X_WORK/tmp" XDG_CACHE_HOME="$Q3X_WORK/cache" \
+UV_CACHE_DIR="$Q3X_WORK/cache/uv" \
+uvx --from 'evalscope[perf]==1.9.1' evalscope perf \
+  --model qwen3.6-27b-nvfp4 --api openai \
+  --url http://127.0.0.1:18092/v1/completions \
+  --tokenizer-path MODEL_DIR \
+  --dataset line_by_line --data-source local \
+  --dataset-path "$Q3X_P40_CORPUS" \
+  --number 1 --parallel 1 --warmup-num 0 --num-workers 1 \
+  --max-prompt-length 131072 \
+  --max-tokens 1 --temperature 0 --seed 42 \
+  --stream --tokenize-prompt --no-test-connection \
+  --total-timeout 680 \
+  --outputs-dir "$Q3X_P40_RESULTS" \
+  --name vllm-marlin-parity-v1 --no-timestamp
+```
+
+The result is valid only if EvalScope reports one successful request, the
+server attests the exact 40,000 input tokens and one committed output token,
+the complete v15 route facts above hold, and both the preflight and raw route
+witness are retained. Compare server pure Prefill and external TTFT against
+the frozen v10 native incumbent; vLLM and cuBLASLt remain references, not
+incremental rejection or production paths. A negative result closes or
+redesigns this parity skeleton before repetition, P60, P130, or full accuracy;
+a positive direction unlocks the independent numerical/SASS/state gates but
+does not pass them.
+
+**This v15 gate has not been run. There is currently no parity TTFT, pure-
+Prefill latency, or prompt-throughput result.**
 
 The first WP-V2-C1-v3 direction reused the exact v10 host schedule and route
 counters through a binary-pinned, default-off overlay; the binary hash, not a

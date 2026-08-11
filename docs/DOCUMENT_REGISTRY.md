@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: exhaustive tracked-Markdown inventory and classification
   effective: 2026-08-09
-  last_reviewed: 2026-08-09
+  last_reviewed: 2026-08-11
   supersedes: []
   superseded_by: []
   ssot_for: tracked Markdown paths, primary classes, roles, and lifecycle states
@@ -21,9 +21,9 @@ document. Classes and authority rules are defined by
 
 ## Audit snapshot
 
-- Audit date: 2026-08-09.
-- Expected integrated-tree coverage: **66 Markdown paths**.
-- Classified: **66**.
+- Audit date: 2026-08-11.
+- Expected integrated-tree coverage: **67 Markdown paths**.
+- Classified: **67**.
 - Unclassified: **0**.
 - Duplicate registrations: **0**.
 - Inventory basis: every literal path expected from `git ls-files '*.md'`
@@ -44,12 +44,13 @@ authority only for its exact recorded protocol.
 | --- | --- | --- | --- |
 | `AGENTS.md` | `repository_work_package` | active | Repository execution and hygiene instructions; cannot amend mission, numerical contract, or business targets. |
 
-## Normative (3)
+## Normative (4)
 
 | Path | Role | Lifecycle | Authority / ownership boundary |
 | --- | --- | --- | --- |
 | `docs/DOCUMENT_GOVERNANCE.md` | `documentation_policy` | active | Document classes, control headers, SSOT, supersession, SDD composition, and completeness. |
 | `docs/ENGINEERING_CONSTITUTION.md` | `constitution` | active | Mission, owner-set constraints, end-to-start/leakage philosophy, product targets, and project-wide boundaries. |
+| `docs/PREFILL_MATHEMATICAL_EQUIVALENCE_LEDGER.md` | `numerical_equivalence_policy` | active | Prefill architecture proof order, finite-precision/reduction-tree identity, P40 arithmetic ledger, and production-observable liveness eligibility. |
 | `docs/REAL_MODEL_PERFORMANCE_POLICY.md` | `evidence_policy` | active | Real-payload evidence, local retention, architecture-candidate qualification, and release promotion. |
 
 ## Active first-party documents (7)

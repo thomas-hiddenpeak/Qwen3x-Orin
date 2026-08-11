@@ -66,6 +66,11 @@ enum class NativePrefillTactic : std::uint8_t {
   kFp8P40PackedProjection,
   kNvfp4GateUpP40PackedNvfp4V2,
   kNvfp4DownResidualP40PackedNvfp4V2,
+  // Exact stock-vLLM host-dispatch parity keeps the projection publication
+  // boundary explicit. Down writes a BF16 branch; residual is the independent
+  // kResidualOperatorPanel role and may not be reported as fused here.
+  kNvfp4GateUpP40VllmMarlinParity,
+  kNvfp4DownBranchP40VllmMarlinParity,
 };
 
 // Compile-inventory fact only; device resources are still queried by bind().

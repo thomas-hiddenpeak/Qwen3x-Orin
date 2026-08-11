@@ -761,17 +761,11 @@ void test_p40_whole_core_workspace_plan(TestContext& test) {
               runtime::kLayerMajorP40MarlinParityTemporaryOffset &&
           runtime::kLayerMajorP40MarlinParityReductionWorkspaceBytes ==
               1'048'576U &&
-          runtime::kLayerMajorP40MarlinParityLocksOffset ==
-              4'178'968'576U &&
           runtime::kLayerMajorP40MarlinParityLockBytes == 64U &&
           runtime::kLayerMajorP40MarlinParityTemporaryPayloadBytes ==
-              1'048'640U &&
+              1'048'576U &&
           runtime::kLayerMajorP40MarlinParityTemporaryBytes ==
               1'048'832U &&
-          runtime::kLayerMajorP40MarlinParityLocksOffset +
-                  runtime::kLayerMajorP40MarlinParityLockBytes <=
-              runtime::kLayerMajorP40MarlinParityTemporaryOffset +
-                  runtime::kLayerMajorP40MarlinParityTemporaryBytes &&
           runtime::kLayerMajorP40MarlinParityTemporaryOffset +
                   runtime::kLayerMajorP40MarlinParityTemporaryBytes <=
               runtime::kLayerMajorP40MarlinParityNormalizedOffset &&

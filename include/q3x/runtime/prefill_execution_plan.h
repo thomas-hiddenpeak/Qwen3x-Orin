@@ -1505,9 +1505,10 @@ struct PrefillP40PackedNvfp4V2SchedulePlan {
 // each internally partitioned as 39xM1024 + M64. The M1024 segments own full
 // K. The stock M64 LegacyStripe tail uses an in-kernel FP32 cross-CTA
 // reduction for 8/136 GateUp and 12/20 Down output tiles, backed by one
-// reusable Ctmp+locks region. Gate+Up publication is one token-major row-major
-// [M,34816] tensor whose per-token columns are [Gate, Up], followed by one
-// independent SiLU phase. Down is followed by one independent residual phase.
+// reusable Ctmp region plus one separately sealed request-long lock owner.
+// Gate+Up publication is one token-major row-major [M,34816] tensor whose
+// per-token columns are [Gate, Up], followed by one independent SiLU phase.
+// Down is followed by one independent residual phase.
 struct PrefillP40VllmMarlinParitySchedulePlan {
   bool enabled = false;
   std::size_t input_preparation_panel_count_per_layer = 0U;
@@ -1565,9 +1566,12 @@ struct PrefillP40VllmMarlinParitySchedulePlan {
 
 // Device-completion evidence consumed by the parity-v1 progress transition.
 // Counts are per layer; only layer zero may report the one request-level lock
-// clear. A future runner must construct this after its completion event and
-// physical launch counters are visible. The host planner must not synthesize
-// a successful receipt merely from the intended schedule.
+// clear. The runner constructs this only after physical launch counters and
+// request-stream completion are visible. Lock fields attest the sealed stable
+// owner, complete writer-set alias exclusion, and ordered kernel protocol;
+// they deliberately do not claim a per-layer D2H read of lock values. The
+// host planner must not synthesize a successful receipt merely from the
+// intended schedule.
 struct PrefillP40VllmMarlinParityLayerCompletionReceipt {
   std::size_t layer_index = 0U;
   std::size_t request_lock_clear_operations = 0U;
@@ -1581,10 +1585,10 @@ struct PrefillP40VllmMarlinParityLayerCompletionReceipt {
   bool canonical_gate_then_up_bf16_published = false;
   bool activated_bf16_published = false;
   bool down_bf16_published = false;
-  bool locks_zero_before_gate_up_tail = false;
-  bool locks_zero_after_gate_up_tail = false;
-  bool locks_zero_after_down_tail = false;
-  bool completion_event_observed = false;
+  bool stable_lock_owner_bound = false;
+  bool lock_owner_alias_exclusion_proved = false;
+  bool ordered_lock_protocol_completed = false;
+  bool request_stream_completion_observed = false;
 };
 
 struct PrefillExecutionPlan {

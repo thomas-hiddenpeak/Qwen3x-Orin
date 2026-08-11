@@ -89,8 +89,9 @@ enum class LayerMajorRequestMlpLayout : std::uint8_t {
     // Default-off stock-vLLM-Marlin parity layout for exact P40000. One
     // canonical token-major [M,34816] GateThenUp output and one independent
     // [M,17408] activated output are materialized. Both projection temporary
-    // regions alias one sequentially reused Ctmp+locks span; only the legacy
-    // Gate/Up matrix views are empty.
+    // regions alias one sequentially reused Ctmp span; request-long locks use
+    // a stable physically disjoint legacy owner. Only the legacy Gate/Up
+    // matrix views are empty.
     kLayerWideP40MarlinParityMergedGateUp,
 };
 
@@ -278,8 +279,8 @@ struct LayerMajorMlpPhaseRegions {
     // is not a row-prefix alias.
     RequestMatrixRegion normalized_input_bf16;
     // Marlin projection parity aliases GateUp and Down to one sequentially
-    // reused Ctmp+locks region. Other layouts retain their established
-    // semantics.
+    // reused Ctmp region. Request-long locks use a stable physically disjoint
+    // legacy owner. Other layouts retain their established semantics.
     RequestRegion gate_up_projection_temporary;
     RequestMatrixRegion branch_output_bf16;       // dead Up contiguous span
     RequestRegion down_projection_temporary;      // dead Gate contiguous span

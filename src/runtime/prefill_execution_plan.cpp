@@ -525,10 +525,10 @@ prompt_wide_p40_vllm_marlin_parity_build_enabled() noexcept {
          receipt.retained_prompt_core_complete &&
          receipt.canonical_gate_then_up_bf16_published &&
          receipt.activated_bf16_published && receipt.down_bf16_published &&
-         receipt.locks_zero_before_gate_up_tail &&
-         receipt.locks_zero_after_gate_up_tail &&
-         receipt.locks_zero_after_down_tail &&
-         receipt.completion_event_observed;
+         receipt.stable_lock_owner_bound &&
+         receipt.lock_owner_alias_exclusion_proved &&
+         receipt.ordered_lock_protocol_completed &&
+         receipt.request_stream_completion_observed;
 }
 
 [[nodiscard]] bool valid_mlp_schedule(

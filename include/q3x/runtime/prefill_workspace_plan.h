@@ -144,9 +144,10 @@ enum class PrefillMlpPhysicalTactic : std::uint8_t {
   // Default-off stock-vLLM-Marlin parity ownership for exact P40000. One
   // canonical token-major [M,34816] GateThenUp matrix and one independent
   // [M,17408] activated matrix are simultaneously live. Gate/Up and Down use
-  // stock LegacyStripe ownership. Its M64 tail reuses one Ctmp+locks region
-  // for GateUp and Down; the 39 M1024 segments do not consume it. Normalized
-  // input and the Down branch output retain the existing whole-core alias.
+  // stock LegacyStripe ownership. Its M64 tail reuses one Ctmp region for
+  // GateUp and Down; request-long locks use a physically disjoint stable
+  // legacy owner because the family arena is overwritten by intervening
+  // phases. The 39 M1024 segments do not consume Ctmp.
   // This identity selects no execution route.
   kLayerWideP40MarlinParityMergedGateUp,
 };
@@ -196,7 +197,9 @@ inline constexpr std::uint64_t kLayerMajorP40WholeCoreFamilyArenaBytes =
 // [40000,34816] tensor: within physical token row r, Gate occupies columns
 // [0,17408) and Up occupies [17408,34816). It must never be exposed as two
 // tensor-major matrices. Activated is one independent [40000,17408] tensor.
-// GateUp and Down execute sequentially and alias one stock Ctmp+locks region.
+// GateUp and Down execute sequentially and alias one stock Ctmp region. The
+// request-long lock bytes use an external stable owner and are not part of
+// this family span's live payload.
 inline constexpr std::uint32_t
     kLayerMajorP40MarlinParityGateUpHalfFeatures = 17'408U;
 inline constexpr std::uint32_t
@@ -236,20 +239,15 @@ inline constexpr std::uint64_t
 inline constexpr std::uint64_t
     kLayerMajorP40MarlinParityReductionWorkspaceBytes =
         kernels::kSm87NvFp4MarlinP40ParityReductionBytes;
-inline constexpr std::uint64_t kLayerMajorP40MarlinParityLocksOffset =
-    kLayerMajorP40MarlinParityReductionWorkspaceOffset +
-    kLayerMajorP40MarlinParityReductionWorkspaceBytes;
 inline constexpr std::uint64_t kLayerMajorP40MarlinParityLockBytes =
     kernels::kSm87NvFp4MarlinP40ParityLockBytes;
 inline constexpr std::uint64_t
     kLayerMajorP40MarlinParityTemporaryPayloadBytes =
-        kLayerMajorP40MarlinParityReductionWorkspaceBytes +
-        kLayerMajorP40MarlinParityLockBytes;
+        kLayerMajorP40MarlinParityReductionWorkspaceBytes;
+// Preserve the established projection-temporary view extent. The aligned
+// padding above the 1-MiB Ctmp is dead and carries no lock semantics.
 inline constexpr std::uint64_t kLayerMajorP40MarlinParityTemporaryBytes =
-    ((kLayerMajorP40MarlinParityTemporaryPayloadBytes +
-      kRequestArenaAlignment - 1U) /
-     kRequestArenaAlignment) *
-    kRequestArenaAlignment;
+    1'048'832U;
 inline constexpr std::uint64_t kLayerMajorP40MarlinParityNormalizedOffset =
     4'938'240'000U;
 inline constexpr std::uint64_t kLayerMajorP40MarlinParityNormalizedBytes =
@@ -270,15 +268,10 @@ static_assert(kLayerMajorP40MarlinParityReductionWorkspaceOffset ==
               kLayerMajorP40MarlinParityTemporaryOffset);
 static_assert(kLayerMajorP40MarlinParityReductionWorkspaceBytes ==
               1'048'576U);
-static_assert(kLayerMajorP40MarlinParityLocksOffset == 4'178'968'576U);
 static_assert(kLayerMajorP40MarlinParityLockBytes == 64U);
 static_assert(kLayerMajorP40MarlinParityTemporaryPayloadBytes ==
-              1'048'640U);
+              1'048'576U);
 static_assert(kLayerMajorP40MarlinParityTemporaryBytes == 1'048'832U);
-static_assert(kLayerMajorP40MarlinParityLocksOffset +
-                  kLayerMajorP40MarlinParityLockBytes <=
-              kLayerMajorP40MarlinParityTemporaryOffset +
-                  kLayerMajorP40MarlinParityTemporaryBytes);
 static_assert(kLayerMajorP40MarlinParityNormalizedBytes == 409'600'000U);
 static_assert(kLayerMajorP40MarlinParityTemporaryOffset +
                   kLayerMajorP40MarlinParityTemporaryBytes <=

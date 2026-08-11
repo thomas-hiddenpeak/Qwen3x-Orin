@@ -18,6 +18,9 @@
 #if defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION)
 #include "q3x/kernels/sm87_nvfp4_marlin.h"
 #endif
+#if defined(Q3X_ENABLE_P40_VLLM_MARLIN_PARITY_ADMISSION)
+#include "q3x/kernels/sm87_nvfp4_marlin_p40_parity.h"
+#endif
 #if defined(Q3X_ENABLE_NVFP4_TRUE_LARGE_M_PREFILL_ADMISSION)
 #include "q3x/kernels/sm87_nvfp4_prefill_large_m.h"
 #endif
@@ -47,6 +50,7 @@
 #include "q3x/runtime/decode_ops.h"
 #include "q3x/runtime/gdn_decode.h"
 #include "q3x/runtime/layout_ops.h"
+#include "q3x/runtime/prefill_workspace_plan.h"
 
 #include <cuda_runtime.h>
 
@@ -318,6 +322,12 @@ static_assert(kProductionProjectionSubtileTokens <=
               kMaximumProjectionTileTokenCount);
 static_assert(kMaximumProjectionTileTokenCount <=
               kMaximumRequestPrefillChunkSize);
+static_assert(kReferenceDecoderLayerCount <=
+              static_cast<std::size_t>(
+                  std::numeric_limits<std::uint8_t>::max()) +
+                  1U);
+static_assert(kLayerMajorPrefillVllmMarlinParityFullSegmentsPerProjection <=
+              std::numeric_limits<std::uint8_t>::max());
 
 [[nodiscard]] bool byte_range_overflows(const void* const pointer,
                                         const std::size_t bytes) noexcept {
@@ -362,6 +372,95 @@ template <std::size_t SpanCount>
     }
   }
   return true;
+}
+
+[[nodiscard]] bool request_region_is_valid(
+    const RequestRegion& region, const std::uint64_t arena_bytes) noexcept {
+  return region.byte_size != 0U && region.element_capacity != 0U &&
+         region.element_size_bytes != 0U &&
+         region.arena_offset <= arena_bytes &&
+         region.byte_size <= arena_bytes - region.arena_offset;
+}
+
+[[nodiscard]] bool request_regions_are_disjoint(
+    const RequestRegion& first, const RequestRegion& second,
+    const std::uint64_t arena_bytes) noexcept {
+  if (!request_region_is_valid(first, arena_bytes) ||
+      !request_region_is_valid(second, arena_bytes)) {
+    return false;
+  }
+  const std::uint64_t first_end = first.arena_offset + first.byte_size;
+  const std::uint64_t second_end = second.arena_offset + second.byte_size;
+  return first_end <= second.arena_offset || second_end <= first.arena_offset;
+}
+
+// The parity lock prefix is cleared once before layer zero and remains live
+// through the last Down tail. Prove its complete RequestState lifetime from
+// the sealed owning-region graph, rather than from the MLP-local pointers
+// alone. The P40 phase matrices and temporaries are all subregions of the
+// family arena; persistent state, residual, final handoff, RoPE, and every
+// other legacy-C512 workspace owner are checked independently.
+[[nodiscard]] bool valid_p40_vllm_marlin_parity_lock_lifetime_layout_impl(
+    const ReferenceLayerMajorRequestBindingDescriptor& descriptor) noexcept {
+  if (descriptor.profile != RequestMemoryProfile::kLayerMajorP40WholeCore ||
+      descriptor.layout != LayerMajorRequestLayout::kP40WholeCorePromptWide ||
+      descriptor.mlp_layout != LayerMajorRequestMlpLayout::
+                                   kLayerWideP40MarlinParityMergedGateUp ||
+      descriptor.arena_bytes == 0U) {
+    return false;
+  }
+  const std::uint64_t arena_bytes = descriptor.arena_bytes;
+  const RequestRegion& lock_owner =
+      descriptor.legacy_c512.projection_bf16[3U].storage;
+  if (!request_region_is_valid(lock_owner, arena_bytes) ||
+      lock_owner.byte_size < kLayerMajorP40MarlinParityLockBytes ||
+      lock_owner.element_size_bytes != sizeof(std::uint16_t)) {
+    return false;
+  }
+  RequestRegion lock = lock_owner;
+  lock.byte_size = kLayerMajorP40MarlinParityLockBytes;
+  lock.element_capacity =
+      kLayerMajorP40MarlinParityLockBytes / sizeof(std::uint16_t);
+
+  const auto disjoint = [&lock, arena_bytes](
+                            const RequestRegion& region) noexcept {
+    return request_regions_are_disjoint(lock, region, arena_bytes);
+  };
+  if (!disjoint(descriptor.conv_state_bf16) ||
+      !disjoint(descriptor.gdn_state_bf16) ||
+      !disjoint(descriptor.prompt_residual_bf16.storage) ||
+      !disjoint(descriptor.p40_whole_core.family_phase_arena) ||
+      !disjoint(descriptor.final_hidden_bf16.storage) ||
+      !disjoint(descriptor.rope_cos_fp32) ||
+      !disjoint(descriptor.rope_sin_fp32)) {
+    return false;
+  }
+  for (const RequestRegion& region : descriptor.key_cache_bf16) {
+    if (!disjoint(region)) {
+      return false;
+    }
+  }
+  for (const RequestRegion& region : descriptor.value_cache_bf16) {
+    if (!disjoint(region)) {
+      return false;
+    }
+  }
+  for (const RequestMatrixRegion& region :
+       descriptor.legacy_c512.hidden_bf16) {
+    if (!disjoint(region.storage)) {
+      return false;
+    }
+  }
+  for (std::size_t index = 0U;
+       index < descriptor.legacy_c512.projection_bf16.size(); ++index) {
+    if (index != 3U &&
+        !disjoint(descriptor.legacy_c512.projection_bf16[index].storage)) {
+      return false;
+    }
+  }
+  return disjoint(descriptor.legacy_c512.linear_a_bf16.storage) &&
+         disjoint(descriptor.legacy_c512.linear_b_bf16.storage) &&
+         disjoint(descriptor.legacy_c512.fp32_scratch);
 }
 
 [[nodiscard]] ReferenceRunnerStatus runner_status(
@@ -580,6 +679,11 @@ template <std::size_t SpanCount>
 }
 
 }  // namespace
+
+bool valid_reference_p40_vllm_marlin_parity_lock_lifetime_descriptor(
+    const ReferenceLayerMajorRequestBindingDescriptor& descriptor) noexcept {
+  return valid_p40_vllm_marlin_parity_lock_lifetime_layout_impl(descriptor);
+}
 
 ReferenceRunnerStatus ReferenceRunner::collect_request_views(
     RequestState* const state, Views& views) noexcept {
@@ -4598,12 +4702,16 @@ bool ReferenceRunner::valid_prompt_wide_p40_whole_core_runner_contract(
   const bool use_packed_nvfp4_v2 =
       projection_tactic == LayerMajorPrefillProjectionTactic::
                                kNativePromptWideP40PackedNvfp4V2;
+  const bool use_vllm_marlin_parity =
+      projection_tactic == LayerMajorPrefillProjectionTactic::
+                               kNativePromptWideP40VllmMarlinParity;
   const bool use_any_packed_projection =
       use_packed_projection || use_packed_nvfp4_v2;
   const bool use_legacy_whole_core =
       projection_tactic == LayerMajorPrefillProjectionTactic::
                                kNativePromptWideP40WholeCore;
   if ((!use_projection_reset && !use_any_packed_projection &&
+       !use_vllm_marlin_parity &&
        !use_legacy_whole_core) ||
       (use_projection_reset
            ? !prompt_wide_p40_projection_reset_prefill_plan_enabled()
@@ -4611,6 +4719,8 @@ bool ReferenceRunner::valid_prompt_wide_p40_whole_core_runner_contract(
            ? !prompt_wide_p40_packed_projection_prefill_plan_enabled()
        : use_packed_nvfp4_v2
            ? !prompt_wide_p40_packed_nvfp4_v2_prefill_plan_enabled()
+       : use_vllm_marlin_parity
+           ? !prompt_wide_p40_vllm_marlin_parity_prefill_plan_enabled()
            : !prompt_wide_p40_whole_core_prefill_plan_enabled()) ||
       memory_profile != RequestMemoryProfile::kLayerMajorP40WholeCore ||
       executor != LayerMajorLayerExecutor::kOperatorPanel ||
@@ -4637,6 +4747,9 @@ bool ReferenceRunner::valid_prompt_wide_p40_whole_core_runner_contract(
            : use_packed_nvfp4_v2
                ? LayerMajorPrefillMlpScheduleTactic::
                      kPromptWideP40PackedNvfp4V2
+           : use_vllm_marlin_parity
+               ? LayerMajorPrefillMlpScheduleTactic::
+                     kPromptWideP40VllmMarlinParity
                : LayerMajorPrefillMlpScheduleTactic::
                      kPromptWideP40WholeCore)) {
     return false;
@@ -4745,9 +4858,97 @@ bool ReferenceRunner::valid_prompt_wide_p40_whole_core_runner_contract(
       return false;
     }
   }
+  if (use_vllm_marlin_parity) {
+    const PrefillP40VllmMarlinParitySchedulePlan& schedule =
+        immutable_topology.vllm_marlin_parity_schedule;
+    if (!schedule.enabled ||
+        schedule.input_preparation_panel_count_per_layer !=
+            kLayerMajorPrefillPromptWideP40PanelCount ||
+        schedule.prompt_core_phase_count_per_layer != 1U ||
+        schedule.segmented_mlp_phase_count_per_layer != 1U ||
+        schedule.panel_token_count !=
+            kLayerMajorPrefillPromptWideP40PanelTokens ||
+        schedule.projection_m_tokens !=
+            kLayerMajorPrefillPromptWideP40Tokens ||
+        schedule.request_capacity_tokens !=
+            kLayerMajorPrefillPromptWideP40RequestCapacityTokens ||
+        schedule.route_pass_count != 1U ||
+        schedule.fp8_physical_launches_per_request !=
+            kLayerMajorPrefillVllmMarlinParityFp8PhysicalLaunchesPerRequest ||
+        schedule.fp8_tensor_role_hits_per_request !=
+            kLayerMajorPrefillVllmMarlinParityFp8TensorRoleHitsPerRequest ||
+        schedule.gate_up_segments_per_layer !=
+            kLayerMajorPrefillVllmMarlinParityGateUpSegmentsPerLayer ||
+        schedule.down_segments_per_layer !=
+            kLayerMajorPrefillVllmMarlinParityDownSegmentsPerLayer ||
+        schedule.nvfp4_physical_launches_per_request !=
+            kLayerMajorPrefillVllmMarlinParityNvFp4PhysicalLaunchesPerRequest ||
+        schedule.gate_up_logical_role_hits_per_request !=
+            kLayerMajorPrefillVllmMarlinParityGateUpLogicalRoleHitsPerRequest ||
+        schedule.down_logical_role_hits_per_request !=
+            kLayerMajorPrefillVllmMarlinParityDownLogicalRoleHitsPerRequest ||
+        schedule.standalone_silu_launches_per_layer !=
+            kLayerMajorPrefillVllmMarlinParityStandaloneSiluLaunchesPerLayer ||
+        schedule.standalone_residual_launches_per_layer !=
+            kLayerMajorPrefillVllmMarlinParityStandaloneResidualLaunchesPerLayer ||
+        schedule.lock_clear_operations_per_request !=
+            kLayerMajorPrefillVllmMarlinParityLockClearOperationsPerRequest ||
+        schedule.full_m1024_segments_per_projection !=
+            kLayerMajorPrefillVllmMarlinParityFullSegmentsPerProjection ||
+        schedule.tail_m64_segments_per_projection !=
+            kLayerMajorPrefillVllmMarlinParityTailSegmentsPerProjection ||
+        schedule.gate_up_tail_output_tiles !=
+            kLayerMajorPrefillVllmMarlinParityGateUpTailOutputTiles ||
+        schedule.gate_up_tail_split_output_tiles !=
+            kLayerMajorPrefillVllmMarlinParityGateUpTailSplitOutputTiles ||
+        schedule.down_tail_output_tiles !=
+            kLayerMajorPrefillVllmMarlinParityDownTailOutputTiles ||
+        schedule.down_tail_split_output_tiles !=
+            kLayerMajorPrefillVllmMarlinParityDownTailSplitOutputTiles ||
+        schedule.full_segment_m_tokens !=
+            kLayerMajorPrefillVllmMarlinParityFullSegmentTokens ||
+        schedule.tail_segment_m_tokens !=
+            kLayerMajorPrefillVllmMarlinParityTailSegmentTokens ||
+        schedule.gate_up_input_features !=
+            kLayerMajorPrefillVllmMarlinParityHiddenFeatures ||
+        schedule.merged_gate_up_output_features !=
+            kLayerMajorPrefillVllmMarlinParityMergedGateUpFeatures ||
+        schedule.gate_output_features !=
+            kLayerMajorPrefillVllmMarlinParityIntermediateFeatures ||
+        schedule.up_output_features !=
+            kLayerMajorPrefillVllmMarlinParityIntermediateFeatures ||
+        schedule.down_input_features !=
+            kLayerMajorPrefillVllmMarlinParityIntermediateFeatures ||
+        schedule.down_output_features !=
+            kLayerMajorPrefillVllmMarlinParityHiddenFeatures ||
+        schedule.authenticated_artifact_count !=
+            kLayerMajorPrefillVllmMarlinParityArtifactCount ||
+        schedule.authenticated_source_count !=
+            kLayerMajorPrefillVllmMarlinParityAuthenticatedSourceCount ||
+        !schedule.independent_canonical_marlin_sidecars_required ||
+        !schedule.canonical_token_major_gate_then_up_rows_required ||
+        !schedule.independent_activated_buffer_required ||
+        !schedule.bf16_projection_publication_required ||
+        !schedule.internal_m_segmentation_required ||
+        !schedule.m64_tail_is_final_segment_required ||
+        !schedule.m1024_segments_full_k_required ||
+        !schedule.m64_tail_split_k_required ||
+        !schedule.m64_tail_locks_required ||
+        !schedule.m64_tail_zero_initialized_locks_required ||
+        !schedule.m64_tail_fp32_reduction_workspace_required ||
+        !schedule.m64_tail_in_kernel_global_reduction_required ||
+        !schedule.request_time_repack_forbidden ||
+        !schedule.request_time_tactic_selection_forbidden ||
+        !schedule.production_accuracy_required ||
+        !schedule.approximate_numerics_forbidden || !schedule.mtp_forbidden ||
+        !schedule.cublaslt_forbidden) {
+      return false;
+    }
+  }
   const PrefillWholeCoreSchedulePlan& schedule =
       immutable_topology.whole_core_schedule;
   if (!use_projection_reset && !use_any_packed_projection &&
+      !use_vllm_marlin_parity &&
       (!schedule.enabled ||
       schedule.fill_panel_phase_count_per_layer !=
           kLayerMajorPrefillPromptWideP40PanelCount ||
@@ -5649,6 +5850,8 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
                                kNativePromptWideP40PackedProjection ||
       projection_tactic == LayerMajorPrefillProjectionTactic::
                                kNativePromptWideP40PackedNvfp4V2 ||
+      projection_tactic == LayerMajorPrefillProjectionTactic::
+                               kNativePromptWideP40VllmMarlinParity ||
       full_attention_tactic == LayerMajorPrefillFullAttentionTactic::
                                    kNativeFlashInferExactWholePrompt ||
       immutable_topology.mlp_schedule.tactic ==
@@ -5658,7 +5861,10 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
       immutable_topology.mlp_schedule.tactic ==
           LayerMajorPrefillMlpScheduleTactic::kPromptWideP40PackedProjection ||
       immutable_topology.mlp_schedule.tactic ==
-          LayerMajorPrefillMlpScheduleTactic::kPromptWideP40PackedNvfp4V2;
+          LayerMajorPrefillMlpScheduleTactic::kPromptWideP40PackedNvfp4V2 ||
+      immutable_topology.mlp_schedule.tactic ==
+          LayerMajorPrefillMlpScheduleTactic::
+              kPromptWideP40VllmMarlinParity;
   const bool prompt_wide_p40_whole_core =
       valid_prompt_wide_p40_whole_core_runner_contract(
           immutable_topology, state_->memory_profile(),
@@ -5673,6 +5879,9 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
   const bool use_packed_nvfp4_v2 =
       projection_tactic == LayerMajorPrefillProjectionTactic::
                                kNativePromptWideP40PackedNvfp4V2;
+  const bool use_vllm_marlin_parity =
+      projection_tactic == LayerMajorPrefillProjectionTactic::
+                               kNativePromptWideP40VllmMarlinParity;
   const PromptWideP40ProjectionPackage projection_package =
       use_projection_reset
           ? PromptWideP40ProjectionPackage::kProjectionResetV11
@@ -5680,6 +5889,8 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
           ? PromptWideP40ProjectionPackage::kPackedV1
       : use_packed_nvfp4_v2
           ? PromptWideP40ProjectionPackage::kPackedNvfp4V2
+      : use_vllm_marlin_parity
+          ? PromptWideP40ProjectionPackage::kVllmMarlinParityV1
           : PromptWideP40ProjectionPackage::kWholeCoreV10;
   if (!layer_major_request_views_.has_value() ||
       any_prompt_wide_p40_whole_core_identity !=
@@ -5881,6 +6092,17 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
   std::size_t packed_nvfp4_v2_gate_up_hits = 0U;
   std::size_t packed_nvfp4_v2_down_hits = 0U;
   std::size_t packed_nvfp4_v2_physical_launches = 0U;
+  std::size_t vllm_marlin_parity_gate_up_hits = 0U;
+  std::size_t vllm_marlin_parity_down_hits = 0U;
+  std::size_t vllm_marlin_parity_physical_launches = 0U;
+  std::size_t vllm_marlin_parity_standalone_silu_launches = 0U;
+  std::size_t vllm_marlin_parity_standalone_residual_launches = 0U;
+  std::size_t vllm_marlin_parity_lock_clear_operations = 0U;
+  bool vllm_marlin_parity_lock_lifetime_layout_sealed = false;
+  std::array<PrefillP40VllmMarlinParityLayerCompletionReceipt,
+             kReferenceDecoderLayerCount>
+      vllm_marlin_parity_layer_completion_receipts{};
+  std::size_t vllm_marlin_parity_layer_completion_receipt_count = 0U;
   const auto retire_oldest_submission = [&]() noexcept {
     if (!bounded_submission_window || submission_window_in_flight == 0U) {
       return ReferenceRunnerStatus{};
@@ -5979,6 +6201,53 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
           "whole_request_prefill_whole_core_token_copy", kReferenceNoLayer,
           static_cast<int>(token_copy_status)));
     }
+    if (use_vllm_marlin_parity) {
+#if !defined(Q3X_ENABLE_P40_VLLM_MARLIN_PARITY_ADMISSION)
+      return fail_whole_request_prefill(runner_status(
+          ReferenceRunnerError::kInvalidDependency,
+          "whole_request_prefill_vllm_marlin_parity_binary"));
+#else
+      // The parity family temporary aliases the live prompt-wide GDN
+      // workspace in earlier phases of every linear layer. Its embedded lock
+      // tail therefore cannot retain one request-level clear. Reuse the
+      // physically-disjoint legacy-Marlin lock backing already owned by the
+      // surrounding v10 FP8 path; those ordered launches also return it to
+      // zero before each parity MLP. Ctmp remains in the parity family span.
+      const DeviceBufferView& lock_storage =
+          layer_major.legacy_c512.projection_bf16[3U].storage;
+      if (lock_storage.device_data == nullptr ||
+          lock_storage.byte_size < kLayerMajorP40MarlinParityLockBytes ||
+          lock_storage.element_size_bytes != sizeof(std::uint16_t) ||
+          lock_storage.arena_offset !=
+              layer_major.descriptor.legacy_c512.projection_bf16[3U]
+                  .storage.arena_offset ||
+          !valid_reference_p40_vllm_marlin_parity_lock_lifetime_descriptor(
+              layer_major.descriptor)) {
+        return fail_whole_request_prefill(runner_status(
+            ReferenceRunnerError::kInvalidRequestState,
+            "whole_request_prefill_vllm_marlin_parity_lock_view"));
+      }
+      auto* const locks =
+          reinterpret_cast<std::int32_t*>(lock_storage.device_data);
+      if (reinterpret_cast<std::uintptr_t>(locks) % alignof(std::int32_t) !=
+          0U) {
+        return fail_whole_request_prefill(runner_status(
+            ReferenceRunnerError::kInvalidRequestState,
+            "whole_request_prefill_vllm_marlin_parity_lock_alignment"));
+      }
+      const cudaError_t lock_clear_status = cudaMemsetAsync(
+          locks, 0, kLayerMajorP40MarlinParityLockBytes,
+          reinterpret_cast<cudaStream_t>(stream_));
+      if (lock_clear_status != cudaSuccess) {
+        return fail_whole_request_prefill(runner_status(
+            ReferenceRunnerError::kCudaFailure,
+            "whole_request_prefill_vllm_marlin_parity_lock_clear",
+            kReferenceNoLayer, static_cast<int>(lock_clear_status)));
+      }
+      ++vllm_marlin_parity_lock_clear_operations;
+      vllm_marlin_parity_lock_lifetime_layout_sealed = true;
+#endif
+    }
   }
 
   for (std::size_t layer = 0U; layer < kReferenceDecoderLayerCount;
@@ -6064,15 +6333,40 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
       if (!status) {
         return fail_whole_request_prefill(status);
       }
-      status = enqueue_layer_wide_p40_mlp(layer, layer_major,
-                                          projection_package);
+      PrefillP40VllmMarlinParityLayerCompletionReceipt* parity_receipt =
+          nullptr;
+      if (use_vllm_marlin_parity) {
+        parity_receipt =
+            &vllm_marlin_parity_layer_completion_receipts[layer];
+        status = enqueue_prompt_wide_p40_vllm_marlin_parity_mlp(
+            layer, layer_major, *parity_receipt);
+      } else {
+        status = enqueue_layer_wide_p40_mlp(layer, layer_major,
+                                            projection_package);
+      }
       if (!status) {
         return fail_whole_request_prefill(status);
       }
       ++layer_wide_p40_mlp_layer_hits;
-      ++persistent_p40_nvfp4_gate_up_hits;
-      ++persistent_p40_nvfp4_down_residual_hits;
-      persistent_p40_nvfp4_physical_launches += 2U;
+      if (use_vllm_marlin_parity) {
+        parity_receipt->request_lock_clear_operations =
+            layer == 0U ? vllm_marlin_parity_lock_clear_operations : 0U;
+        ++vllm_marlin_parity_gate_up_hits;
+        ++vllm_marlin_parity_down_hits;
+        vllm_marlin_parity_physical_launches +=
+            parity_receipt->gate_up_full_m1024_launches +
+            parity_receipt->gate_up_split_m64_launches +
+            parity_receipt->down_full_m1024_launches +
+            parity_receipt->down_split_m64_launches;
+        vllm_marlin_parity_standalone_silu_launches +=
+            parity_receipt->standalone_silu_launches;
+        vllm_marlin_parity_standalone_residual_launches +=
+            parity_receipt->standalone_residual_launches;
+      } else {
+        ++persistent_p40_nvfp4_gate_up_hits;
+        ++persistent_p40_nvfp4_down_residual_hits;
+        persistent_p40_nvfp4_physical_launches += 2U;
+      }
       if (use_packed_nvfp4_v2) {
         ++packed_nvfp4_v2_gate_up_hits;
         ++packed_nvfp4_v2_down_hits;
@@ -6519,11 +6813,61 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
         static_cast<std::uint64_t>(submission_window_retirements)));
   }
 
+  if (use_vllm_marlin_parity) {
+    const PrefillP40VllmMarlinParitySchedulePlan& parity_schedule =
+        immutable_topology.vllm_marlin_parity_schedule;
+    if (vllm_marlin_parity_gate_up_hits !=
+            parity_schedule.gate_up_logical_role_hits_per_request ||
+        vllm_marlin_parity_down_hits !=
+            parity_schedule.down_logical_role_hits_per_request ||
+        vllm_marlin_parity_physical_launches !=
+            parity_schedule.nvfp4_physical_launches_per_request ||
+        vllm_marlin_parity_standalone_silu_launches !=
+            kReferenceDecoderLayerCount *
+                parity_schedule.standalone_silu_launches_per_layer ||
+        vllm_marlin_parity_standalone_residual_launches !=
+            kReferenceDecoderLayerCount *
+                parity_schedule.standalone_residual_launches_per_layer ||
+        vllm_marlin_parity_lock_clear_operations !=
+            parity_schedule.lock_clear_operations_per_request ||
+        !vllm_marlin_parity_lock_lifetime_layout_sealed) {
+      return fail_whole_request_prefill(runner_status(
+          ReferenceRunnerError::kRouteEvidenceFailure,
+          "whole_request_prefill_vllm_marlin_parity_witness"));
+    }
+    for (std::size_t layer = 0U; layer < kReferenceDecoderLayerCount;
+         ++layer) {
+      PrefillP40VllmMarlinParityLayerCompletionReceipt& receipt =
+          vllm_marlin_parity_layer_completion_receipts[layer];
+      receipt.retained_prompt_core_complete = true;
+      receipt.canonical_gate_then_up_bf16_published = true;
+      receipt.activated_bf16_published = true;
+      receipt.down_bf16_published = true;
+      receipt.stable_lock_owner_bound = true;
+      receipt.lock_owner_alias_exclusion_proved = true;
+      receipt.ordered_lock_protocol_completed = true;
+      receipt.request_stream_completion_observed = true;
+    }
+    vllm_marlin_parity_layer_completion_receipt_count =
+        kReferenceDecoderLayerCount;
+  }
+
   PrefillExecutionProgress progress =
       make_prefill_execution_progress(immutable_topology);
   for (std::size_t layer = 0U; layer < kReferenceDecoderLayerCount;
        ++layer) {
     if (prompt_wide_p40_whole_core) {
+      if (use_vllm_marlin_parity) {
+        if (advance_prompt_wide_p40_vllm_marlin_parity_layer_progress_after_completion(
+                immutable_topology, progress, layer,
+                vllm_marlin_parity_layer_completion_receipts[layer]) !=
+            PrefillExecutionProgressError::kNone) {
+          return fail_whole_request_prefill(runner_status(
+              ReferenceRunnerError::kInvalidStepOptions,
+              "whole_request_prefill_vllm_marlin_parity_progress", layer));
+        }
+        continue;
+      }
       if (use_packed_nvfp4_v2) {
         if (advance_prompt_wide_p40_packed_nvfp4_v2_layer_progress_after_completion(
                 immutable_topology, progress, layer) !=
@@ -6735,6 +7079,28 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
   result.packed_nvfp4_v2_down_hits = packed_nvfp4_v2_down_hits;
   result.packed_nvfp4_v2_physical_launches =
       packed_nvfp4_v2_physical_launches;
+  result.vllm_marlin_parity_gate_up_hits =
+      vllm_marlin_parity_gate_up_hits;
+  result.vllm_marlin_parity_down_hits =
+      vllm_marlin_parity_down_hits;
+  result.vllm_marlin_parity_physical_launches =
+      vllm_marlin_parity_physical_launches;
+  result.vllm_marlin_parity_standalone_silu_launches =
+      vllm_marlin_parity_standalone_silu_launches;
+  result.vllm_marlin_parity_standalone_residual_launches =
+      vllm_marlin_parity_standalone_residual_launches;
+  result.vllm_marlin_parity_lock_clear_operations =
+      vllm_marlin_parity_lock_clear_operations;
+  result.vllm_marlin_parity_layer_completion_receipt_count =
+      vllm_marlin_parity_layer_completion_receipt_count;
+  for (std::size_t layer = 0U;
+       layer < vllm_marlin_parity_layer_completion_receipt_count; ++layer) {
+    const PrefillP40VllmMarlinParityLayerCompletionReceipt& source =
+        vllm_marlin_parity_layer_completion_receipts[layer];
+    result.vllm_marlin_parity_layer_completion_receipts[layer] =
+        ReferenceP40VllmMarlinParityLayerCompletionReceipt::from_validated(
+            source);
+  }
   result.progress = progress;
   if (options.measure_timing) {
     const std::chrono::duration<double, std::milli> elapsed =
@@ -7878,6 +8244,328 @@ ReferenceRunner::enqueue_prefill_layer_panel(
   result.native_nvfp4_true_large_m_physical_launches =
       native_nvfp4_true_large_m_physical_launches;
   return result;
+#endif
+}
+
+ReferenceRunnerStatus
+ReferenceRunner::enqueue_prompt_wide_p40_vllm_marlin_parity_mlp(
+    const std::size_t layer,
+    const ReferenceLayerMajorRequestViews& request_views,
+    PrefillP40VllmMarlinParityLayerCompletionReceipt& receipt) noexcept {
+  receipt = {};
+#if !defined(Q3X_ENABLE_P40_VLLM_MARLIN_PARITY_ADMISSION)
+  (void)layer;
+  (void)request_views;
+  return runner_status(ReferenceRunnerError::kInvalidDependency,
+                       "prefill_p40_vllm_marlin_parity_binary");
+#else
+  static_assert(kernels::kSm87Fp8MarlinLockBytes ==
+                kLayerMajorP40MarlinParityLockBytes);
+  const auto exact_bf16_matrix = [](const DeviceMatrixView& view,
+                                    const std::uint32_t rows,
+                                    const std::uint32_t columns) noexcept {
+    const std::uint64_t elements =
+        static_cast<std::uint64_t>(rows) * columns;
+    return view.storage.device_data != nullptr &&
+           view.storage.element_size_bytes == sizeof(std::uint16_t) &&
+           view.storage.element_capacity == elements &&
+           view.storage.byte_size == elements * sizeof(std::uint16_t) &&
+           view.row_capacity == rows && view.columns == columns &&
+           view.row_stride_elements == columns;
+  };
+  const auto empty_matrix = [](const DeviceMatrixView& view) noexcept {
+    return view.storage.device_data == nullptr &&
+           view.storage.byte_size == 0U &&
+           view.storage.element_capacity == 0U && view.row_capacity == 0U &&
+           view.columns == 0U && view.row_stride_elements == 0U;
+  };
+  const auto aligned = [](const void* const pointer,
+                          const std::uintptr_t alignment) noexcept {
+    return pointer != nullptr &&
+           reinterpret_cast<std::uintptr_t>(pointer) % alignment == 0U;
+  };
+  if (layer >= kReferenceDecoderLayerCount ||
+      request_views.descriptor.profile !=
+          RequestMemoryProfile::kLayerMajorP40WholeCore ||
+      request_views.descriptor.layout !=
+          LayerMajorRequestLayout::kP40WholeCorePromptWide ||
+      request_views.descriptor.mlp_layout !=
+          LayerMajorRequestMlpLayout::
+              kLayerWideP40MarlinParityMergedGateUp ||
+      request_views.descriptor.mlp_capacity_tokens !=
+          kLayerMajorP40WholeCorePromptTokens ||
+      request_views.descriptor.max_sequence_length !=
+          kLayerMajorP40WholeCoreRequestCapacityTokens) {
+    return runner_status(ReferenceRunnerError::kInvalidRequestState,
+                         "prefill_p40_vllm_marlin_parity_descriptor", layer);
+  }
+
+  const DeviceMatrixView& residual_view =
+      request_views.prompt_residual_bf16;
+  const LayerMajorMlpPhaseViews& mlp = request_views.mlp;
+  const DeviceBufferView& gate_up_temporary =
+      mlp.gate_up_projection_temporary;
+  const DeviceBufferView& down_temporary = mlp.down_projection_temporary;
+  const DeviceBufferView& stable_lock_storage =
+      request_views.legacy_c512.projection_bf16[3U].storage;
+  if (!exact_bf16_matrix(
+          residual_view, kLayerMajorP40WholeCoreRequestCapacityTokens,
+          kReferenceHiddenSize) ||
+      !exact_bf16_matrix(
+          mlp.merged_gate_up_bf16, kLayerMajorP40WholeCorePromptTokens,
+          kLayerMajorP40MarlinParityMergedGateUpFeatures) ||
+      !empty_matrix(mlp.gate_bf16) || !empty_matrix(mlp.up_bf16) ||
+      !exact_bf16_matrix(
+          mlp.activated_bf16, kLayerMajorP40WholeCorePromptTokens,
+          kReferenceIntermediateSize) ||
+      !exact_bf16_matrix(
+          mlp.normalized_input_bf16,
+          kLayerMajorP40WholeCorePromptTokens, kReferenceHiddenSize) ||
+      !exact_bf16_matrix(
+          mlp.branch_output_bf16, kLayerMajorP40WholeCorePromptTokens,
+          kReferenceHiddenSize) ||
+      mlp.branch_output_bf16.storage.device_data !=
+          mlp.normalized_input_bf16.storage.device_data ||
+      mlp.branch_output_bf16.storage.arena_offset !=
+          mlp.normalized_input_bf16.storage.arena_offset ||
+      gate_up_temporary.device_data == nullptr ||
+      gate_up_temporary.byte_size !=
+          kLayerMajorP40MarlinParityTemporaryBytes ||
+      gate_up_temporary.element_size_bytes != 1U ||
+      gate_up_temporary.element_capacity !=
+          kLayerMajorP40MarlinParityTemporaryBytes ||
+      down_temporary.device_data != gate_up_temporary.device_data ||
+      down_temporary.arena_offset != gate_up_temporary.arena_offset ||
+      down_temporary.byte_size != gate_up_temporary.byte_size ||
+      down_temporary.element_capacity !=
+          gate_up_temporary.element_capacity ||
+      down_temporary.element_size_bytes !=
+          gate_up_temporary.element_size_bytes ||
+      stable_lock_storage.device_data == nullptr ||
+      stable_lock_storage.byte_size <
+          kLayerMajorP40MarlinParityLockBytes ||
+      stable_lock_storage.element_size_bytes != sizeof(std::uint16_t) ||
+      stable_lock_storage.arena_offset !=
+          request_views.descriptor.legacy_c512.projection_bf16[3U]
+              .storage.arena_offset ||
+      !valid_reference_p40_vllm_marlin_parity_lock_lifetime_descriptor(
+          request_views.descriptor)) {
+    return runner_status(ReferenceRunnerError::kInvalidRequestState,
+                         "prefill_p40_vllm_marlin_parity_views", layer);
+  }
+
+  const DecoderLayerWeights& layer_weights = weights_->layer(layer);
+  const auto* const gate =
+      std::get_if<NvFp4LinearWeight>(&layer_weights.mlp.gate_proj);
+  const auto* const up =
+      std::get_if<NvFp4LinearWeight>(&layer_weights.mlp.up_proj);
+  const auto* const down =
+      std::get_if<NvFp4LinearWeight>(&layer_weights.mlp.down_proj);
+  if (gate == nullptr || up == nullptr || down == nullptr ||
+      !valid_vector(layer_weights.post_attention_layernorm,
+                    kReferenceHiddenSize)) {
+    return runner_status(ReferenceRunnerError::kInvalidModelWeights,
+                         "prefill_p40_vllm_marlin_parity_inventory", layer);
+  }
+  const NvFp4MarlinP40ParityDeviceView& gate_view =
+      gate->prefill_p40_vllm_marlin_parity;
+  const NvFp4MarlinP40ParityDeviceView& up_view =
+      up->prefill_p40_vllm_marlin_parity;
+  const NvFp4MarlinP40ParityDeviceView& down_view =
+      down->prefill_p40_vllm_marlin_parity;
+  const NvFp4MarlinP40ParityArtifactManifest& gate_manifest =
+      gate_view.manifest;
+  const NvFp4MarlinP40ParityArtifactManifest& up_manifest =
+      up_view.manifest;
+  const NvFp4MarlinP40ParityArtifactManifest& down_manifest =
+      down_view.manifest;
+  const bool gate_up_inventory =
+      gate->output_size == kReferenceIntermediateSize &&
+      gate->input_size == kReferenceHiddenSize &&
+      up->output_size == kReferenceIntermediateSize &&
+      up->input_size == kReferenceHiddenSize &&
+      aligned(gate_view.weight, 16U) && aligned(gate_view.scales, 16U) &&
+      aligned(gate_view.global_scale, alignof(float)) &&
+      gate_view.weight == up_view.weight &&
+      gate_view.scales == up_view.scales &&
+      gate_view.global_scale == up_view.global_scale &&
+      gate_manifest.version == kNvFp4MarlinP40ParityManifestVersion &&
+      gate_manifest.layer_index == layer &&
+      gate_manifest.role == NvFp4MarlinP40ParityRole::kGateUp &&
+      gate_manifest.layout ==
+          NvFp4MarlinP40ParityLayout::kCanonicalGateThenUp &&
+      gate_manifest.output_features ==
+          kNvFp4MarlinP40ParityGateUpOutput &&
+      gate_manifest.input_features == kNvFp4MarlinP40ParityHidden &&
+      gate_manifest.weight_bytes ==
+          kNvFp4MarlinP40ParityGateUpWeightBytes &&
+      gate_manifest.scale_bytes ==
+          kNvFp4MarlinP40ParityGateUpScaleBytes &&
+      gate_manifest.artifact_identity != 0U &&
+      gate_manifest.source_count == 2U &&
+      gate_manifest.sources[0U].role ==
+          NvFp4MarlinP40ParitySourceRole::kGate &&
+      gate_manifest.sources[1U].role ==
+          NvFp4MarlinP40ParitySourceRole::kUp &&
+      up_manifest.version == gate_manifest.version &&
+      up_manifest.layer_index == gate_manifest.layer_index &&
+      up_manifest.role == gate_manifest.role &&
+      up_manifest.layout == gate_manifest.layout &&
+      up_manifest.output_features == gate_manifest.output_features &&
+      up_manifest.input_features == gate_manifest.input_features &&
+      up_manifest.weight_bytes == gate_manifest.weight_bytes &&
+      up_manifest.scale_bytes == gate_manifest.scale_bytes &&
+      up_manifest.artifact_identity == gate_manifest.artifact_identity &&
+      up_manifest.transformation_digest ==
+          gate_manifest.transformation_digest &&
+      up_manifest.source_count == gate_manifest.source_count;
+  const bool down_inventory =
+      down->output_size == kReferenceHiddenSize &&
+      down->input_size == kReferenceIntermediateSize &&
+      aligned(down_view.weight, 16U) && aligned(down_view.scales, 16U) &&
+      aligned(down_view.global_scale, alignof(float)) &&
+      down_manifest.version == kNvFp4MarlinP40ParityManifestVersion &&
+      down_manifest.layer_index == layer &&
+      down_manifest.role == NvFp4MarlinP40ParityRole::kDown &&
+      down_manifest.layout == NvFp4MarlinP40ParityLayout::kCanonicalDown &&
+      down_manifest.output_features == kNvFp4MarlinP40ParityHidden &&
+      down_manifest.input_features == kNvFp4MarlinP40ParityIntermediate &&
+      down_manifest.weight_bytes ==
+          kNvFp4MarlinP40ParityDownWeightBytes &&
+      down_manifest.scale_bytes == kNvFp4MarlinP40ParityDownScaleBytes &&
+      down_manifest.artifact_identity != 0U &&
+      down_manifest.source_count == 1U &&
+      down_manifest.sources[0U].role ==
+          NvFp4MarlinP40ParitySourceRole::kDown;
+  if (!gate_up_inventory || !down_inventory) {
+    return runner_status(ReferenceRunnerError::kInvalidModelWeights,
+                         "prefill_p40_vllm_marlin_parity_inventory", layer);
+  }
+
+  auto* const residual = static_cast<std::uint16_t*>(
+      residual_view.storage.device_data);
+  auto* const merged_gate_up = static_cast<std::uint16_t*>(
+      mlp.merged_gate_up_bf16.storage.device_data);
+  auto* const activated = static_cast<std::uint16_t*>(
+      mlp.activated_bf16.storage.device_data);
+  auto* const normalized_and_branch = static_cast<std::uint16_t*>(
+      mlp.normalized_input_bf16.storage.device_data);
+  auto* const temporary =
+      static_cast<std::uint8_t*>(gate_up_temporary.device_data);
+  constexpr std::uint64_t kReductionRelativeOffset =
+      kLayerMajorP40MarlinParityReductionWorkspaceOffset -
+      kLayerMajorP40MarlinParityTemporaryOffset;
+  auto* const reduction_workspace = reinterpret_cast<float*>(
+      temporary + kReductionRelativeOffset);
+  auto* const locks =
+      reinterpret_cast<std::int32_t*>(stable_lock_storage.device_data);
+  constexpr std::size_t kResidualBytes =
+      static_cast<std::size_t>(kLayerMajorP40WholeCoreRequestCapacityTokens) *
+      kReferenceHiddenSize * sizeof(std::uint16_t);
+  constexpr std::size_t kNormalizedBytes =
+      static_cast<std::size_t>(kLayerMajorP40WholeCorePromptTokens) *
+      kReferenceHiddenSize * sizeof(std::uint16_t);
+  if (!aligned(merged_gate_up, 16U) || !aligned(activated, 16U) ||
+      !aligned(normalized_and_branch, 16U) ||
+      !aligned(reduction_workspace, 16U) ||
+      !aligned(locks, alignof(std::int32_t)) ||
+      !byte_ranges_are_pairwise_disjoint(std::array<ByteSpan, 6U>{{
+          {residual, kResidualBytes},
+          {merged_gate_up, kLayerMajorP40MarlinParityMergedGateUpBytes},
+          {activated, kLayerMajorP40MarlinParityActivatedBytes},
+          {normalized_and_branch, kNormalizedBytes},
+          {temporary, kLayerMajorP40MarlinParityTemporaryBytes},
+          {locks, kLayerMajorP40MarlinParityLockBytes},
+      }})) {
+    return runner_status(ReferenceRunnerError::kInvalidRequestState,
+                         "prefill_p40_vllm_marlin_parity_alias", layer);
+  }
+
+  const int norm_status = launch_headwise_centered_rms_norm_reference_cuda(
+      residual, layer_weights.post_attention_layernorm.data,
+      kLayerMajorP40WholeCorePromptTokens, kReferenceHiddenSize, kRmsEpsilon,
+      normalized_and_branch, stream_);
+  if (norm_status != static_cast<int>(cudaSuccess)) {
+    return runner_status(ReferenceRunnerError::kCudaFailure,
+                         "prefill_p40_vllm_marlin_parity_norm", layer,
+                         norm_status);
+  }
+
+  const kernels::Sm87NvFp4MarlinP40ParityPlan gate_plan =
+      kernels::sm87_nvfp4_marlin_p40_parity_plan(
+          kernels::Sm87NvFp4MarlinP40ParityRole::kGateUp,
+          kLayerMajorP40WholeCorePromptTokens);
+  const kernels::Sm87NvFp4MarlinP40ParityPlan down_plan =
+      kernels::sm87_nvfp4_marlin_p40_parity_plan(
+          kernels::Sm87NvFp4MarlinP40ParityRole::kDown,
+          kLayerMajorP40WholeCorePromptTokens);
+  if (!gate_plan.valid() || !down_plan.valid()) {
+    return runner_status(ReferenceRunnerError::kInvalidDependency,
+                         "prefill_p40_vllm_marlin_parity_plan", layer);
+  }
+  kernels::Sm87NvFp4MarlinP40ParityLaunchCounters gate_counters{};
+  int status = kernels::launch_sm87_nvfp4_marlin_p40_parity_gate_up_cuda(
+      normalized_and_branch, gate_view.weight, gate_view.scales,
+      gate_view.global_scale, merged_gate_up, reduction_workspace,
+      kLayerMajorP40MarlinParityReductionWorkspaceBytes, locks,
+      kLayerMajorP40MarlinParityLockBytes, &gate_counters, stream_);
+  if (status != static_cast<int>(cudaSuccess) ||
+      !gate_counters.matches(gate_plan)) {
+    return runner_status(ReferenceRunnerError::kCudaFailure,
+                         "prefill_p40_vllm_marlin_parity_gate_up", layer,
+                         status == static_cast<int>(cudaSuccess)
+                             ? static_cast<int>(cudaErrorUnknown)
+                             : status);
+  }
+
+  status = kernels::launch_sm87_nvfp4_marlin_p40_parity_silu_cuda(
+      merged_gate_up, activated, stream_);
+  if (status != static_cast<int>(cudaSuccess)) {
+    return runner_status(ReferenceRunnerError::kCudaFailure,
+                         "prefill_p40_vllm_marlin_parity_silu", layer,
+                         status);
+  }
+
+  kernels::Sm87NvFp4MarlinP40ParityLaunchCounters down_counters{};
+  status = kernels::launch_sm87_nvfp4_marlin_p40_parity_down_cuda(
+      activated, down_view.weight, down_view.scales,
+      down_view.global_scale, normalized_and_branch, reduction_workspace,
+      kLayerMajorP40MarlinParityReductionWorkspaceBytes, locks,
+      kLayerMajorP40MarlinParityLockBytes, &down_counters, stream_);
+  if (status != static_cast<int>(cudaSuccess) ||
+      !down_counters.matches(down_plan)) {
+    return runner_status(ReferenceRunnerError::kCudaFailure,
+                         "prefill_p40_vllm_marlin_parity_down", layer,
+                         status == static_cast<int>(cudaSuccess)
+                             ? static_cast<int>(cudaErrorUnknown)
+                             : status);
+  }
+
+  status = launch_residual_add_reference_cuda(
+      residual, normalized_and_branch,
+      static_cast<std::size_t>(kLayerMajorP40WholeCorePromptTokens) *
+          kReferenceHiddenSize,
+      residual, stream_);
+  if (status != static_cast<int>(cudaSuccess)) {
+    return runner_status(ReferenceRunnerError::kCudaFailure,
+                         "prefill_p40_vllm_marlin_parity_residual", layer,
+                         status);
+  }
+
+  PrefillP40VllmMarlinParityLayerCompletionReceipt completed{};
+  completed.layer_index = layer;
+  completed.gate_up_full_m1024_launches =
+      gate_counters.legacy_full_k_m1024_launches;
+  completed.gate_up_split_m64_launches =
+      gate_counters.legacy_split_k_m64_launches;
+  completed.standalone_silu_launches = 1U;
+  completed.down_full_m1024_launches =
+      down_counters.legacy_full_k_m1024_launches;
+  completed.down_split_m64_launches =
+      down_counters.legacy_split_k_m64_launches;
+  completed.standalone_residual_launches = 1U;
+  receipt = completed;
+  return {};
 #endif
 }
 

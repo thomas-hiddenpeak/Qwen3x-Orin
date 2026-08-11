@@ -929,6 +929,22 @@ void emit_target_prefill_witness(
         generation.prefill_packed_nvfp4_v2_down_hits;
     record.packed_nvfp4_v2_physical_launches =
         generation.prefill_packed_nvfp4_v2_physical_launches;
+    record.vllm_marlin_parity_gate_up_hits =
+        generation.prefill_vllm_marlin_parity_gate_up_hits;
+    record.vllm_marlin_parity_down_hits =
+        generation.prefill_vllm_marlin_parity_down_hits;
+    record.vllm_marlin_parity_physical_launches =
+        generation.prefill_vllm_marlin_parity_physical_launches;
+    record.vllm_marlin_parity_standalone_silu_launches =
+        generation.prefill_vllm_marlin_parity_standalone_silu_launches;
+    record.vllm_marlin_parity_standalone_residual_launches =
+        generation.prefill_vllm_marlin_parity_standalone_residual_launches;
+    record.vllm_marlin_parity_lock_clear_operations =
+        generation.prefill_vllm_marlin_parity_lock_clear_operations;
+    record.vllm_marlin_parity_layer_completion_receipts =
+        generation.prefill_vllm_marlin_parity_layer_completion_receipts;
+    record.vllm_marlin_parity_layer_completion_receipt_count =
+        generation.prefill_vllm_marlin_parity_layer_completion_receipt_count;
     record.deployment_plan_id = generation.prefill_deployment_plan_id;
     std::cerr << serialize_target_prefill_witness(record) << '\n';
   } catch (...) {

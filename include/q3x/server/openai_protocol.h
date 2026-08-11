@@ -2,6 +2,7 @@
 
 #include "q3x/runtime/reference_engine.h"
 
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -153,6 +154,19 @@ struct TargetPrefillWitnessRecord {
   std::uint64_t packed_nvfp4_v2_gate_up_hits = 0U;
   std::uint64_t packed_nvfp4_v2_down_hits = 0U;
   std::uint64_t packed_nvfp4_v2_physical_launches = 0U;
+  // Independent stock-vLLM-Marlin P40000 projection host-dispatch evidence.
+  // These fields are copied only from the successfully committed generation
+  // result and never alias the older persistent or packed-NVFP4-v2 ledgers.
+  std::uint64_t vllm_marlin_parity_gate_up_hits = 0U;
+  std::uint64_t vllm_marlin_parity_down_hits = 0U;
+  std::uint64_t vllm_marlin_parity_physical_launches = 0U;
+  std::uint64_t vllm_marlin_parity_standalone_silu_launches = 0U;
+  std::uint64_t vllm_marlin_parity_standalone_residual_launches = 0U;
+  std::uint64_t vllm_marlin_parity_lock_clear_operations = 0U;
+  std::array<runtime::ReferenceP40VllmMarlinParityLayerCompletionReceipt,
+             runtime::kReferenceDecoderLayerCount>
+      vllm_marlin_parity_layer_completion_receipts{};
+  std::uint64_t vllm_marlin_parity_layer_completion_receipt_count = 0U;
   // Empty for legacy/unsealed paths. A non-empty identifier is emitted only
   // after a sealed whole-request generation has completed successfully.
   std::string deployment_plan_id;

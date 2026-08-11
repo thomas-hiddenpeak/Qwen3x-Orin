@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <iostream>
 #include <limits>
 #include <map>
@@ -1226,6 +1227,479 @@ void test_p40_packed_projection_sidecar_attachment(TestContext& test) {
       "NVFP4-only detach clears only packed MLP views");
 }
 
+void test_nvfp4_marlin_p40_parity_sidecar_attachment(TestContext& test) {
+  static_assert(runtime::kNvFp4MarlinP40ParityArtifactCount == 128U);
+  static_assert(runtime::kNvFp4MarlinP40ParitySourceCount == 192U);
+
+  SyntheticArena arena(/*force_fp8_attention_outputs=*/false,
+                       /*force_nvfp4_down_projections=*/false,
+                       /*force_fp8_linear_qkv=*/false,
+                       /*force_fp8_prefill_supermatrix=*/false,
+                       /*force_p40_packed_projection=*/true);
+  runtime::WeightBindResult result =
+      runtime::bind_qwen36_27b_weights(arena.source());
+  test.expect(result.ok(), "P40 parity synthetic model ABI binds");
+  if (!result) {
+    return;
+  }
+  runtime::ModelWeights& weights = *result.value;
+
+  const auto float_bits = [](const float value) {
+    std::uint32_t bits = 0U;
+    std::memcpy(&bits, &value, sizeof(bits));
+    return bits;
+  };
+  const auto make_digest =
+      [](const std::uint64_t identity) -> runtime::NvFp4MarlinP40ParityDigest {
+    runtime::NvFp4MarlinP40ParityDigest digest{};
+    digest.fill(static_cast<std::uint8_t>(identity % 251U + 1U));
+    return digest;
+  };
+  const auto build_descriptors =
+      [&](const std::uintptr_t base_address,
+          const std::uint64_t artifact_identity_base,
+          const std::uint64_t tensor_identity_base) {
+        std::vector<runtime::NvFp4MarlinP40ParitySidecarDescriptor>
+            descriptors;
+        descriptors.reserve(runtime::kNvFp4MarlinP40ParityArtifactCount);
+        std::uintptr_t address = base_address;
+        std::uint64_t artifact_identity = artifact_identity_base;
+        std::uint64_t tensor_identity = tensor_identity_base;
+        const auto append =
+            [&](const std::size_t layer_index,
+                const runtime::NvFp4MarlinP40ParityRole role) {
+              const bool gate_up =
+                  role == runtime::NvFp4MarlinP40ParityRole::kGateUp;
+              const std::uint64_t weight_bytes =
+                  gate_up
+                      ? runtime::kNvFp4MarlinP40ParityGateUpWeightBytes
+                      : runtime::kNvFp4MarlinP40ParityDownWeightBytes;
+              const std::uint64_t scale_bytes =
+                  gate_up
+                      ? runtime::kNvFp4MarlinP40ParityGateUpScaleBytes
+                      : runtime::kNvFp4MarlinP40ParityDownScaleBytes;
+              runtime::NvFp4MarlinP40ParityDeviceView view;
+              view.weight = reinterpret_cast<const std::uint8_t*>(address);
+              address += static_cast<std::uintptr_t>(weight_bytes);
+              view.scales = reinterpret_cast<const std::uint8_t*>(address);
+              address += static_cast<std::uintptr_t>(scale_bytes);
+              view.global_scale = reinterpret_cast<const float*>(address);
+              address += sizeof(float);
+              address = (address + 15U) & ~std::uintptr_t{15U};
+
+              auto& manifest = view.manifest;
+              manifest.version =
+                  runtime::kNvFp4MarlinP40ParityManifestVersion;
+              manifest.layer_index = static_cast<std::uint32_t>(layer_index);
+              manifest.role = role;
+              manifest.layout =
+                  gate_up
+                      ? runtime::NvFp4MarlinP40ParityLayout::
+                            kCanonicalGateThenUp
+                      : runtime::NvFp4MarlinP40ParityLayout::kCanonicalDown;
+              manifest.output_features = static_cast<std::uint32_t>(
+                  gate_up ? runtime::kNvFp4MarlinP40ParityGateUpOutput
+                          : runtime::kNvFp4MarlinP40ParityHidden);
+              manifest.input_features = static_cast<std::uint32_t>(
+                  gate_up ? runtime::kNvFp4MarlinP40ParityHidden
+                          : runtime::kNvFp4MarlinP40ParityIntermediate);
+              manifest.weight_bytes = weight_bytes;
+              manifest.scale_bytes = scale_bytes;
+              manifest.artifact_identity = artifact_identity++;
+              manifest.transformation_digest =
+                  make_digest(manifest.artifact_identity);
+              manifest.source_count = gate_up ? 2U : 1U;
+              for (std::size_t source = 0U; source < manifest.source_count;
+                   ++source) {
+                auto& source_manifest = manifest.sources[source];
+                source_manifest.role =
+                    gate_up
+                        ? (source == 0U
+                               ? runtime::NvFp4MarlinP40ParitySourceRole::kGate
+                               : runtime::NvFp4MarlinP40ParitySourceRole::kUp)
+                        : runtime::NvFp4MarlinP40ParitySourceRole::kDown;
+                source_manifest.tensor_identity = tensor_identity++;
+                source_manifest.weight_digest =
+                    make_digest(source_manifest.tensor_identity);
+                source_manifest.scale_digest =
+                    make_digest(source_manifest.tensor_identity + 10'000U);
+                source_manifest.global_scale_bits = float_bits(0.03125F);
+              }
+              descriptors.push_back({layer_index, view});
+            };
+        for (std::size_t layer_index = 0U;
+             layer_index < runtime::kQwen36DenseLayerCount; ++layer_index) {
+          append(layer_index,
+                 runtime::NvFp4MarlinP40ParityRole::kGateUp);
+          append(layer_index, runtime::NvFp4MarlinP40ParityRole::kDown);
+        }
+        return descriptors;
+      };
+
+  auto descriptors = build_descriptors(0x0000500000000000ULL, 1'000U,
+                                       10'000U);
+  auto replacements = build_descriptors(0x0000600000000000ULL, 2'000U,
+                                        20'000U);
+  test.expect(descriptors.size() ==
+                      runtime::kNvFp4MarlinP40ParityArtifactCount &&
+                  replacements.size() == descriptors.size(),
+              "parity descriptor builders cover 64 GateUp and 64 Down");
+
+  const auto snapshot = [&weights]() {
+    std::array<std::uint64_t, runtime::kNvFp4MarlinP40ParitySourceCount>
+        identities{};
+    std::size_t offset = 0U;
+    for (std::size_t layer_index = 0U;
+         layer_index < runtime::kQwen36DenseLayerCount; ++layer_index) {
+      const auto& layer = weights.layer(layer_index);
+      for (const runtime::LinearWeight* const binding :
+           {&layer.mlp.gate_proj, &layer.mlp.up_proj,
+            &layer.mlp.down_proj}) {
+        identities[offset++] =
+            std::get<runtime::NvFp4LinearWeight>(*binding)
+                .prefill_p40_vllm_marlin_parity.manifest.artifact_identity;
+      }
+    }
+    return identities;
+  };
+
+  test.expect(weights.attach_nvfp4_marlin_p40_parity_sidecars(
+                  descriptors.data(), descriptors.size()),
+              "complete canonical parity inventory attaches atomically");
+  const auto attached = snapshot();
+  const auto& layer_zero_gate =
+      std::get<runtime::NvFp4LinearWeight>(weights.layer(0U).mlp.gate_proj)
+          .prefill_p40_vllm_marlin_parity;
+  const auto& layer_zero_up =
+      std::get<runtime::NvFp4LinearWeight>(weights.layer(0U).mlp.up_proj)
+          .prefill_p40_vllm_marlin_parity;
+  const auto& layer_zero_down =
+      std::get<runtime::NvFp4LinearWeight>(weights.layer(0U).mlp.down_proj)
+          .prefill_p40_vllm_marlin_parity;
+  test.expect(
+      layer_zero_gate.manifest.artifact_identity ==
+              descriptors[0U].view.manifest.artifact_identity &&
+          layer_zero_up.manifest.artifact_identity ==
+              layer_zero_gate.manifest.artifact_identity &&
+          layer_zero_down.manifest.artifact_identity ==
+              descriptors[1U].view.manifest.artifact_identity &&
+          layer_zero_gate.manifest.layout ==
+              runtime::NvFp4MarlinP40ParityLayout::kCanonicalGateThenUp &&
+          layer_zero_down.manifest.layout ==
+              runtime::NvFp4MarlinP40ParityLayout::kCanonicalDown,
+      "Gate/Up share only the canonical merged view and Down stays independent");
+
+  const auto legacy_marlin_views_empty = [&weights]() {
+    for (std::size_t layer_index = 0U;
+         layer_index < runtime::kQwen36DenseLayerCount; ++layer_index) {
+      const auto& layer = weights.layer(layer_index);
+      for (const runtime::LinearWeight* const binding :
+           {&layer.mlp.gate_proj, &layer.mlp.up_proj,
+            &layer.mlp.down_proj}) {
+        const auto& projection =
+            std::get<runtime::NvFp4LinearWeight>(*binding);
+        if (projection.prefill_marlin_gate_up_layout !=
+                runtime::NvFp4MarlinGateUpLayout::kUnbound ||
+            projection.prefill_marlin_weight != nullptr ||
+            projection.prefill_marlin_scales != nullptr ||
+            projection.prefill_marlin_global_scale != nullptr) {
+          return false;
+        }
+      }
+    }
+    return true;
+  };
+  const auto packed_nvfp4_views_empty = [&weights]() {
+    for (std::size_t layer_index = 0U;
+         layer_index < runtime::kQwen36DenseLayerCount; ++layer_index) {
+      const auto& layer = weights.layer(layer_index);
+      for (const runtime::LinearWeight* const binding :
+           {&layer.mlp.gate_proj, &layer.mlp.up_proj,
+            &layer.mlp.down_proj}) {
+        const auto& view = std::get<runtime::NvFp4LinearWeight>(*binding)
+                               .prefill_p40_packed_artifact;
+        if (view.payload != nullptr || view.payload_bytes != 0U ||
+            view.artifact_identity != 0U) {
+          return false;
+        }
+      }
+    }
+    return true;
+  };
+
+  std::vector<runtime::NvFp4MarlinPrefillSidecarDescriptor>
+      legacy_marlin_descriptors;
+  legacy_marlin_descriptors.reserve(runtime::kQwen36DenseLayerCount);
+  constexpr std::uintptr_t kLegacyMarlinBase = 0x0000700001000000ULL;
+  for (std::size_t layer_index = 0U;
+       layer_index < runtime::kQwen36DenseLayerCount; ++layer_index) {
+    const std::uintptr_t base =
+        kLegacyMarlinBase + layer_index * 0x1000U;
+    legacy_marlin_descriptors.push_back(
+        {layer_index,
+         runtime::NvFp4MarlinGateUpLayout::kCanonicalGateThenUp,
+         reinterpret_cast<const std::uint8_t*>(base),
+         reinterpret_cast<const std::uint8_t*>(base + 0x100U),
+         reinterpret_cast<const float*>(base + 0x200U),
+         reinterpret_cast<const std::uint8_t*>(base + 0x300U),
+         reinterpret_cast<const std::uint8_t*>(base + 0x400U),
+         reinterpret_cast<const float*>(base + 0x500U)});
+  }
+  const bool legacy_marlin_accepted =
+      weights.attach_nvfp4_marlin_prefill_sidecars(
+          legacy_marlin_descriptors.data(),
+          legacy_marlin_descriptors.size());
+  const bool legacy_marlin_rejection_preserved =
+      snapshot() == attached && legacy_marlin_views_empty();
+  test.expect(!legacy_marlin_accepted &&
+                  legacy_marlin_rejection_preserved,
+              "parity-to-legacy Marlin attach is rejected atomically");
+  test.expect(weights.attach_nvfp4_marlin_prefill_sidecars(nullptr, 0U) &&
+                  snapshot() == attached,
+              "legacy Marlin canonical detach stays valid with parity bound");
+
+  namespace kernels = q3x::kernels;
+  std::vector<runtime::P40PackedProjectionSidecarDescriptor>
+      legacy_packed_descriptors;
+  legacy_packed_descriptors.reserve(
+      kernels::kSm87P40PackedProjectionArtifactCount);
+  std::uintptr_t legacy_packed_address = 0x0000710000000000ULL;
+  std::uint64_t legacy_packed_identity = 30'000U;
+  const auto append_legacy_packed =
+      [&](const std::size_t layer_index,
+          const kernels::Sm87P40PackedProjectionRole role) {
+        const kernels::Sm87P40PackedProjectionPlan plan =
+            kernels::sm87_p40_packed_projection_plan(role);
+        kernels::Sm87P40PackedProjectionDeviceView view;
+        view.payload = reinterpret_cast<const std::uint8_t*>(
+            legacy_packed_address);
+        view.payload_bytes = plan.payload_bytes;
+        view.artifact_identity = legacy_packed_identity++;
+        view.role = role;
+        view.tactic = plan.tactic;
+        view.source_count = plan.source_count;
+        for (std::size_t source = 0U; source < plan.source_count; ++source) {
+          view.scalar_scales[source] =
+              role == kernels::Sm87P40PackedProjectionRole::kNvFp4GateUp ||
+                      role == kernels::Sm87P40PackedProjectionRole::kNvFp4Down
+                  ? 0.03125F
+                  : 0.125F;
+        }
+        legacy_packed_descriptors.push_back({layer_index, view});
+        legacy_packed_address += plan.payload_bytes;
+      };
+  for (std::size_t layer_index = 0U;
+       layer_index < runtime::kQwen36DenseLayerCount; ++layer_index) {
+    append_legacy_packed(
+        layer_index,
+        kernels::Sm87P40PackedProjectionRole::kNvFp4GateUp);
+    append_legacy_packed(layer_index,
+                         kernels::Sm87P40PackedProjectionRole::kNvFp4Down);
+    append_legacy_packed(
+        layer_index,
+        kernels::sm87_p40_packed_is_full_layer(layer_index)
+            ? kernels::Sm87P40PackedProjectionRole::kFp8FullQkv
+            : kernels::Sm87P40PackedProjectionRole::kFp8LinearQkvZ);
+    append_legacy_packed(
+        layer_index,
+        kernels::Sm87P40PackedProjectionRole::kFp8AttentionOutput);
+  }
+  const bool legacy_packed_accepted =
+      weights.attach_p40_packed_projection_sidecars(
+          legacy_packed_descriptors.data(),
+          legacy_packed_descriptors.size());
+  const bool legacy_packed_rejection_preserved =
+      snapshot() == attached && packed_nvfp4_views_empty();
+  test.expect(!legacy_packed_accepted && legacy_packed_rejection_preserved,
+              "parity-to-packed-v1 attach is rejected atomically");
+  test.expect(weights.attach_p40_packed_projection_sidecars(nullptr, 0U) &&
+                  snapshot() == attached,
+              "packed-v1 canonical detach stays valid with parity bound");
+
+  std::vector<runtime::P40PackedProjectionSidecarDescriptor>
+      legacy_packed_nvfp4_descriptors;
+  legacy_packed_nvfp4_descriptors.reserve(
+      2U * runtime::kQwen36DenseLayerCount);
+  for (std::size_t layer_index = 0U;
+       layer_index < runtime::kQwen36DenseLayerCount; ++layer_index) {
+    legacy_packed_nvfp4_descriptors.push_back(
+        legacy_packed_descriptors[4U * layer_index]);
+    legacy_packed_nvfp4_descriptors.push_back(
+        legacy_packed_descriptors[4U * layer_index + 1U]);
+  }
+  const bool legacy_packed_nvfp4_accepted =
+      weights.attach_p40_packed_nvfp4_sidecars(
+          legacy_packed_nvfp4_descriptors.data(),
+          legacy_packed_nvfp4_descriptors.size());
+  const bool legacy_packed_nvfp4_rejection_preserved =
+      snapshot() == attached && packed_nvfp4_views_empty();
+  test.expect(!legacy_packed_nvfp4_accepted &&
+                  legacy_packed_nvfp4_rejection_preserved,
+              "parity-to-packed-v2 attach is rejected atomically");
+  test.expect(weights.attach_p40_packed_nvfp4_sidecars(nullptr, 0U) &&
+                  snapshot() == attached,
+              "packed-v2 canonical detach stays valid with parity bound");
+
+  const auto expect_rejected_preserves =
+      [&](std::vector<runtime::NvFp4MarlinP40ParitySidecarDescriptor> invalid,
+          const std::string_view message) {
+        test.expect(
+            !weights.attach_nvfp4_marlin_p40_parity_sidecars(
+                invalid.data(), invalid.size()) &&
+                snapshot() == attached,
+            message);
+      };
+  test.expect(
+      !weights.attach_nvfp4_marlin_p40_parity_sidecars(
+          descriptors.data(), descriptors.size() - 1U) &&
+          snapshot() == attached,
+      "incomplete parity inventory is rejected atomically");
+  test.expect(!weights.attach_nvfp4_marlin_p40_parity_sidecars(
+                  descriptors.data(), 0U) &&
+                  snapshot() == attached,
+              "noncanonical non-null empty attach is rejected atomically");
+  test.expect(!weights.attach_nvfp4_marlin_p40_parity_sidecars(
+                  nullptr, descriptors.size()) &&
+                  snapshot() == attached,
+              "noncanonical null non-empty attach is rejected atomically");
+
+  auto invalid = descriptors;
+  invalid.back() = invalid.front();
+  expect_rejected_preserves(std::move(invalid),
+                            "duplicate layer/role is rejected atomically");
+  invalid = descriptors;
+  invalid.back().view.manifest.layer_index = 62U;
+  expect_rejected_preserves(std::move(invalid),
+                            "manifest/descriptor layer mismatch is atomic");
+  invalid = descriptors;
+  invalid[0U].view.manifest.layout =
+      runtime::NvFp4MarlinP40ParityLayout::kInvalid;
+  expect_rejected_preserves(std::move(invalid),
+                            "noncanonical GateUp layout is rejected");
+  invalid = descriptors;
+  invalid[1U].view.manifest.input_features -= 1U;
+  expect_rejected_preserves(std::move(invalid),
+                            "incorrect Down shape is rejected atomically");
+  invalid = descriptors;
+  invalid[0U].view.manifest.weight_bytes -= 16U;
+  expect_rejected_preserves(std::move(invalid),
+                            "incorrect exact byte extent is rejected");
+  invalid = descriptors;
+  invalid[0U].view.weight = reinterpret_cast<const std::uint8_t*>(
+      reinterpret_cast<std::uintptr_t>(invalid[0U].view.weight) + 1U);
+  expect_rejected_preserves(std::move(invalid),
+                            "misaligned payload is rejected atomically");
+  invalid = descriptors;
+  invalid[1U].view.weight = invalid[0U].view.weight;
+  expect_rejected_preserves(std::move(invalid),
+                            "overlapping parity payload is rejected atomically");
+  invalid = descriptors;
+  invalid[1U].view.manifest.artifact_identity =
+      invalid[0U].view.manifest.artifact_identity;
+  expect_rejected_preserves(std::move(invalid),
+                            "duplicate artifact identity is rejected");
+  invalid = descriptors;
+  invalid[1U].view.manifest.sources[0U].tensor_identity =
+      invalid[0U].view.manifest.sources[0U].tensor_identity;
+  expect_rejected_preserves(std::move(invalid),
+                            "duplicate checkpoint tensor identity is rejected");
+  invalid = descriptors;
+  invalid[0U].view.manifest.transformation_digest = {};
+  expect_rejected_preserves(std::move(invalid),
+                            "missing artifact digest is rejected atomically");
+  invalid = descriptors;
+  invalid[0U].view.manifest.sources[1U].weight_digest = {};
+  expect_rejected_preserves(std::move(invalid),
+                            "missing source digest is rejected atomically");
+  invalid = descriptors;
+  invalid[0U].view.manifest.sources[0U].role =
+      runtime::NvFp4MarlinP40ParitySourceRole::kUp;
+  expect_rejected_preserves(std::move(invalid),
+                            "GateThenUp source order is authenticated");
+  invalid = descriptors;
+  invalid[0U].view.manifest.source_count = 1U;
+  expect_rejected_preserves(std::move(invalid),
+                            "GateUp source loss is rejected atomically");
+  invalid = descriptors;
+  invalid[1U].view.manifest.sources[1U].role =
+      runtime::NvFp4MarlinP40ParitySourceRole::kUp;
+  expect_rejected_preserves(std::move(invalid),
+                            "undeclared Down source is rejected atomically");
+  invalid = descriptors;
+  invalid[0U].view.manifest.sources[0U].global_scale_bits ^= 1U;
+  expect_rejected_preserves(std::move(invalid),
+                            "source scale identity is exact-bit checked");
+
+  auto& mutable_layer_zero =
+      const_cast<runtime::DecoderLayerWeights&>(weights.layer(0U));
+  auto& mutable_gate =
+      std::get<runtime::NvFp4LinearWeight>(mutable_layer_zero.mlp.gate_proj);
+  const std::uint8_t* const canonical_gate_weight = mutable_gate.packed_weight;
+  invalid = descriptors;
+  invalid[0U].view.weight = canonical_gate_weight;
+  expect_rejected_preserves(std::move(invalid),
+                            "sidecar/source alias is rejected atomically");
+
+  auto& mutable_up =
+      std::get<runtime::NvFp4LinearWeight>(mutable_layer_zero.mlp.up_proj);
+  const float original_up_scale = mutable_up.weight_scale_2;
+  mutable_up.weight_scale_2 = original_up_scale * 2.0F;
+  test.expect(!weights.attach_nvfp4_marlin_p40_parity_sidecars(
+                  replacements.data(), replacements.size()) &&
+                  snapshot() == attached,
+              "mathematically unequal Gate/Up global scales are rejected");
+  mutable_up.weight_scale_2 = original_up_scale;
+
+  auto& mutable_last_layer = const_cast<runtime::DecoderLayerWeights&>(
+      weights.layer(runtime::kQwen36DenseLayerCount - 1U));
+  auto& mutable_last_down = std::get<runtime::NvFp4LinearWeight>(
+      mutable_last_layer.mlp.down_proj);
+  const std::size_t original_last_input = mutable_last_down.input_size;
+  mutable_last_down.input_size = original_last_input - 1U;
+  test.expect(!weights.attach_nvfp4_marlin_p40_parity_sidecars(
+                  replacements.data(), replacements.size()) &&
+                  snapshot() == attached,
+              "late target shape failure preserves the old inventory");
+  mutable_last_down.input_size = original_last_input;
+
+  mutable_gate.prefill_marlin_weight =
+      reinterpret_cast<const std::uint8_t*>(0x0000700000000000ULL);
+  test.expect(!weights.attach_nvfp4_marlin_p40_parity_sidecars(
+                  replacements.data(), replacements.size()) &&
+                  snapshot() == attached,
+              "historical NVFP4 Marlin coexistence is rejected atomically");
+  mutable_gate.prefill_marlin_weight = nullptr;
+  mutable_gate.prefill_p40_packed_artifact.payload =
+      reinterpret_cast<const std::uint8_t*>(0x0000700000001000ULL);
+  test.expect(!weights.attach_nvfp4_marlin_p40_parity_sidecars(
+                  replacements.data(), replacements.size()) &&
+                  snapshot() == attached,
+              "packed-v2 NVFP4 coexistence is rejected atomically");
+  mutable_gate.prefill_p40_packed_artifact = {};
+
+  test.expect(weights.attach_nvfp4_marlin_p40_parity_sidecars(
+                  replacements.data(), replacements.size()) &&
+                  snapshot()[0U] ==
+                      replacements[0U].view.manifest.artifact_identity &&
+                  snapshot() != attached,
+              "valid parity replacement atomically updates all 192 views");
+  mutable_gate.down_scale6_sidecar =
+      reinterpret_cast<const std::uint8_t*>(0x0000700000002000ULL);
+  const bool detached =
+      weights.attach_nvfp4_marlin_p40_parity_sidecars(nullptr, 0U);
+  const auto detached_snapshot = snapshot();
+  test.expect(detached &&
+                  std::all_of(detached_snapshot.begin(),
+                              detached_snapshot.end(),
+                              [](const std::uint64_t identity) {
+                                return identity == 0U;
+                              }) &&
+                  mutable_gate.down_scale6_sidecar ==
+                      reinterpret_cast<const std::uint8_t*>(
+                          0x0000700000002000ULL),
+              "canonical detach clears only parity views");
+}
+
 void test_nvfp4_down_scale6_sidecar_attachment(TestContext& test) {
   static_assert(runtime::kNvFp4DownScale6Rows == 5'120U);
   static_assert(runtime::kNvFp4DownScale6Columns == 17'408U);
@@ -1916,6 +2390,7 @@ int main() {
   test_fp8_prefill_qkv_register_feed_sidecar_attachment(test);
   test_fp8_prefill_supermatrix_sidecar_attachment(test);
   test_p40_packed_projection_sidecar_attachment(test);
+  test_nvfp4_marlin_p40_parity_sidecar_attachment(test);
   test_nvfp4_down_scale6_sidecar_attachment(test);
   test_projection_pair_eligibility(test);
   test_fp8_qkv_z_projection_pair_eligibility(test);

@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <initializer_list>
 #include <limits>
 #include <new>
@@ -108,6 +109,37 @@ template <typename Weight>
          view.source_count == 0U &&
          std::all_of(view.scalar_scales.begin(), view.scalar_scales.end(),
                      [](const float scale) { return scale == 0.0F; });
+}
+
+[[nodiscard]] bool empty_nvfp4_marlin_p40_parity_view(
+    const NvFp4MarlinP40ParityDeviceView& view) noexcept {
+  const auto digest_empty = [](const NvFp4MarlinP40ParityDigest& digest) {
+    return std::all_of(digest.begin(), digest.end(),
+                       [](const std::uint8_t byte) { return byte == 0U; });
+  };
+  const auto source_empty = [&digest_empty](
+                                const NvFp4MarlinP40ParitySourceManifest&
+                                    source) {
+    return source.role == NvFp4MarlinP40ParitySourceRole::kInvalid &&
+           source.tensor_identity == 0U &&
+           digest_empty(source.weight_digest) &&
+           digest_empty(source.scale_digest) &&
+           source.global_scale_bits == 0U;
+  };
+  const NvFp4MarlinP40ParityArtifactManifest& manifest = view.manifest;
+  return view.weight == nullptr && view.scales == nullptr &&
+         view.global_scale == nullptr &&
+         manifest.version == kNvFp4MarlinP40ParityManifestVersion &&
+         manifest.layer_index == 0U &&
+         manifest.role == NvFp4MarlinP40ParityRole::kInvalid &&
+         manifest.layout == NvFp4MarlinP40ParityLayout::kInvalid &&
+         manifest.output_features == 0U && manifest.input_features == 0U &&
+         manifest.weight_bytes == 0U && manifest.scale_bytes == 0U &&
+         manifest.artifact_identity == 0U &&
+         digest_empty(manifest.transformation_digest) &&
+         manifest.source_count == 0U &&
+         std::all_of(manifest.sources.begin(), manifest.sources.end(),
+                     source_empty);
 }
 
 [[nodiscard]] LinearWeight* attention_output_projection(
@@ -1400,7 +1432,13 @@ bool ModelWeights::attach_nvfp4_marlin_prefill_sidecars(
         !has_valid_nvfp4_payload(down) || gate->output_size != kGateRows ||
         up->output_size != kGateRows || gate->input_size != kHidden ||
         up->input_size != kHidden || down->output_size != kHidden ||
-        down->input_size != kGateRows) {
+        down->input_size != kGateRows ||
+        !empty_nvfp4_marlin_p40_parity_view(
+            gate->prefill_p40_vllm_marlin_parity) ||
+        !empty_nvfp4_marlin_p40_parity_view(
+            up->prefill_p40_vllm_marlin_parity) ||
+        !empty_nvfp4_marlin_p40_parity_view(
+            down->prefill_p40_vllm_marlin_parity)) {
       return false;
     }
     seen[descriptor.layer_index] = true;
@@ -1574,7 +1612,13 @@ bool ModelWeights::attach_p40_packed_projection_sidecars(
         !has_valid_nvfp4_payload(down) ||
         gate->prefill_marlin_weight != nullptr ||
         up->prefill_marlin_weight != nullptr ||
-        down->prefill_marlin_weight != nullptr) {
+        down->prefill_marlin_weight != nullptr ||
+        !empty_nvfp4_marlin_p40_parity_view(
+            gate->prefill_p40_vllm_marlin_parity) ||
+        !empty_nvfp4_marlin_p40_parity_view(
+            up->prefill_p40_vllm_marlin_parity) ||
+        !empty_nvfp4_marlin_p40_parity_view(
+            down->prefill_p40_vllm_marlin_parity)) {
       return false;
     }
     if (auto* const linear =
@@ -1762,7 +1806,13 @@ bool ModelWeights::attach_p40_packed_nvfp4_sidecars(
         up->prefill_marlin_global_scale != nullptr ||
         down->prefill_marlin_weight != nullptr ||
         down->prefill_marlin_scales != nullptr ||
-        down->prefill_marlin_global_scale != nullptr) {
+        down->prefill_marlin_global_scale != nullptr ||
+        !empty_nvfp4_marlin_p40_parity_view(
+            gate->prefill_p40_vllm_marlin_parity) ||
+        !empty_nvfp4_marlin_p40_parity_view(
+            up->prefill_p40_vllm_marlin_parity) ||
+        !empty_nvfp4_marlin_p40_parity_view(
+            down->prefill_p40_vllm_marlin_parity)) {
       return false;
     }
 
@@ -1802,6 +1852,314 @@ bool ModelWeights::attach_p40_packed_nvfp4_sidecars(
     gate->prefill_p40_packed_artifact = validated[layer_index][0U];
     up->prefill_p40_packed_artifact = validated[layer_index][0U];
     down->prefill_p40_packed_artifact = validated[layer_index][1U];
+  }
+  return true;
+}
+
+bool ModelWeights::attach_nvfp4_marlin_p40_parity_sidecars(
+    const NvFp4MarlinP40ParitySidecarDescriptor* const descriptors,
+    const std::size_t descriptor_count) noexcept {
+  constexpr std::size_t kRolesPerLayer = 2U;
+  constexpr std::size_t kSourceRanges =
+      kNvFp4MarlinP40ParitySourceCount * 3U;
+  constexpr std::size_t kArtifactRanges =
+      kNvFp4MarlinP40ParityArtifactCount * 3U;
+  static_assert(kNvFp4MarlinP40ParityArtifactCount ==
+                kQwen36DenseLayerCount * kRolesPerLayer);
+
+  const auto clear_all = [this]() noexcept {
+    for (DecoderLayerWeights& layer : layers_) {
+      for (NvFp4LinearWeight* const projection :
+           {nvfp4_gate_projection(layer), nvfp4_up_projection(layer),
+            nvfp4_down_projection(layer)}) {
+        if (projection != nullptr) {
+          projection->prefill_p40_vllm_marlin_parity = {};
+        }
+      }
+    }
+  };
+
+  if (descriptors == nullptr && descriptor_count == 0U) {
+    clear_all();
+    return true;
+  }
+  if (descriptors == nullptr ||
+      descriptor_count != kNvFp4MarlinP40ParityArtifactCount) {
+    return false;
+  }
+
+  struct PointerRange {
+    std::uintptr_t begin = 0U;
+    std::uintptr_t end = 0U;
+  };
+  const auto make_range = [](const void* const pointer,
+                             const std::uint64_t bytes,
+                             const std::uintptr_t alignment,
+                             PointerRange* const range) noexcept {
+    if (pointer == nullptr || range == nullptr || bytes == 0U ||
+        bytes > std::numeric_limits<std::uintptr_t>::max()) {
+      return false;
+    }
+    const std::uintptr_t begin = reinterpret_cast<std::uintptr_t>(pointer);
+    const std::uintptr_t size = static_cast<std::uintptr_t>(bytes);
+    if (alignment == 0U || begin % alignment != 0U ||
+        begin > std::numeric_limits<std::uintptr_t>::max() - size) {
+      return false;
+    }
+    *range = PointerRange{begin, begin + size};
+    return true;
+  };
+  const auto overlaps = [](const PointerRange& first,
+                           const PointerRange& second) noexcept {
+    return first.begin < second.end && second.begin < first.end;
+  };
+  const auto digest_present = [](const NvFp4MarlinP40ParityDigest& digest)
+      noexcept {
+    return std::any_of(digest.begin(), digest.end(),
+                       [](const std::uint8_t byte) { return byte != 0U; });
+  };
+  const auto float_bits = [](const float value) noexcept {
+    std::uint32_t bits = 0U;
+    static_assert(sizeof(bits) == sizeof(value));
+    std::memcpy(&bits, &value, sizeof(bits));
+    return bits;
+  };
+  const auto source_manifest_empty =
+      [&digest_present](const NvFp4MarlinP40ParitySourceManifest& source)
+      noexcept {
+        return source.role == NvFp4MarlinP40ParitySourceRole::kInvalid &&
+               source.tensor_identity == 0U &&
+               !digest_present(source.weight_digest) &&
+               !digest_present(source.scale_digest) &&
+               source.global_scale_bits == 0U;
+      };
+
+  struct LayerTargets {
+    NvFp4LinearWeight* gate = nullptr;
+    NvFp4LinearWeight* up = nullptr;
+    NvFp4LinearWeight* down = nullptr;
+  };
+  std::array<LayerTargets, kQwen36DenseLayerCount> targets{};
+  std::array<PointerRange, kSourceRanges> source_ranges{};
+  std::size_t source_range_count = 0U;
+  const auto append_source_ranges =
+      [&make_range, &overlaps, &source_ranges,
+       &source_range_count](const NvFp4LinearWeight& projection) noexcept {
+        const std::uint64_t elements =
+            static_cast<std::uint64_t>(projection.output_size) *
+            projection.input_size;
+        const std::array<std::pair<const void*, std::uint64_t>, 3U> payloads{{
+            {projection.packed_weight, elements / 2U},
+            {projection.block_scale, elements / 16U},
+            {projection.weight_scale_2_device, sizeof(float)},
+        }};
+        for (std::size_t index = 0U; index < payloads.size(); ++index) {
+          PointerRange range{};
+          const std::uintptr_t alignment =
+              index == 2U ? alignof(float) : 16U;
+          if (source_range_count >= source_ranges.size() ||
+              !make_range(payloads[index].first, payloads[index].second,
+                          alignment, &range)) {
+            return false;
+          }
+          for (std::size_t prior = 0U; prior < source_range_count; ++prior) {
+            if (overlaps(source_ranges[prior], range)) {
+              return false;
+            }
+          }
+          source_ranges[source_range_count++] = range;
+        }
+        return true;
+      };
+
+  for (std::size_t layer_index = 0U; layer_index < layers_.size();
+       ++layer_index) {
+    DecoderLayerWeights& layer = layers_[layer_index];
+    NvFp4LinearWeight* const gate = nvfp4_gate_projection(layer);
+    NvFp4LinearWeight* const up = nvfp4_up_projection(layer);
+    NvFp4LinearWeight* const down = nvfp4_down_projection(layer);
+    if (!has_valid_nvfp4_payload(gate) || !has_valid_nvfp4_payload(up) ||
+        !has_valid_nvfp4_payload(down) ||
+        gate->output_size != kNvFp4MarlinP40ParityIntermediate ||
+        gate->input_size != kNvFp4MarlinP40ParityHidden ||
+        up->output_size != kNvFp4MarlinP40ParityIntermediate ||
+        up->input_size != kNvFp4MarlinP40ParityHidden ||
+        down->output_size != kNvFp4MarlinP40ParityHidden ||
+        down->input_size != kNvFp4MarlinP40ParityIntermediate ||
+        float_bits(gate->weight_scale_2) !=
+            float_bits(up->weight_scale_2) ||
+        gate->prefill_marlin_gate_up_layout !=
+            NvFp4MarlinGateUpLayout::kUnbound ||
+        up->prefill_marlin_gate_up_layout !=
+            NvFp4MarlinGateUpLayout::kUnbound ||
+        down->prefill_marlin_gate_up_layout !=
+            NvFp4MarlinGateUpLayout::kUnbound ||
+        gate->prefill_marlin_weight != nullptr ||
+        gate->prefill_marlin_scales != nullptr ||
+        gate->prefill_marlin_global_scale != nullptr ||
+        up->prefill_marlin_weight != nullptr ||
+        up->prefill_marlin_scales != nullptr ||
+        up->prefill_marlin_global_scale != nullptr ||
+        down->prefill_marlin_weight != nullptr ||
+        down->prefill_marlin_scales != nullptr ||
+        down->prefill_marlin_global_scale != nullptr ||
+        !empty_p40_packed_artifact_view(
+            gate->prefill_p40_packed_artifact) ||
+        !empty_p40_packed_artifact_view(up->prefill_p40_packed_artifact) ||
+        !empty_p40_packed_artifact_view(
+            down->prefill_p40_packed_artifact) ||
+        !append_source_ranges(*gate) || !append_source_ranges(*up) ||
+        !append_source_ranges(*down)) {
+      return false;
+    }
+    targets[layer_index] = LayerTargets{gate, up, down};
+  }
+  if (source_range_count != source_ranges.size()) {
+    return false;
+  }
+
+  using LayerViews =
+      std::array<NvFp4MarlinP40ParityDeviceView, kRolesPerLayer>;
+  std::array<LayerViews, kQwen36DenseLayerCount> validated{};
+  std::array<std::array<bool, kRolesPerLayer>, kQwen36DenseLayerCount> seen{};
+  std::array<std::uint64_t, kNvFp4MarlinP40ParityArtifactCount>
+      artifact_identities{};
+  std::size_t artifact_identity_count = 0U;
+  std::array<std::uint64_t, kNvFp4MarlinP40ParitySourceCount>
+      tensor_identities{};
+  std::size_t tensor_identity_count = 0U;
+  std::array<PointerRange, kArtifactRanges> artifact_ranges{};
+  std::size_t artifact_range_count = 0U;
+
+  for (std::size_t index = 0U; index < descriptor_count; ++index) {
+    const NvFp4MarlinP40ParitySidecarDescriptor& descriptor =
+        descriptors[index];
+    const NvFp4MarlinP40ParityDeviceView& view = descriptor.view;
+    const NvFp4MarlinP40ParityArtifactManifest& manifest = view.manifest;
+    const bool gate_up =
+        manifest.role == NvFp4MarlinP40ParityRole::kGateUp;
+    const bool down = manifest.role == NvFp4MarlinP40ParityRole::kDown;
+    const std::size_t slot = gate_up ? 0U : down ? 1U : kRolesPerLayer;
+    if (descriptor.layer_index >= kQwen36DenseLayerCount ||
+        manifest.layer_index != descriptor.layer_index ||
+        slot >= kRolesPerLayer || seen[descriptor.layer_index][slot] ||
+        manifest.version != kNvFp4MarlinP40ParityManifestVersion ||
+        manifest.artifact_identity == 0U ||
+        !digest_present(manifest.transformation_digest) ||
+        (gate_up &&
+         (manifest.layout !=
+              NvFp4MarlinP40ParityLayout::kCanonicalGateThenUp ||
+          manifest.output_features != kNvFp4MarlinP40ParityGateUpOutput ||
+          manifest.input_features != kNvFp4MarlinP40ParityHidden ||
+          manifest.weight_bytes !=
+              kNvFp4MarlinP40ParityGateUpWeightBytes ||
+          manifest.scale_bytes !=
+              kNvFp4MarlinP40ParityGateUpScaleBytes ||
+          manifest.source_count != 2U)) ||
+        (down &&
+         (manifest.layout != NvFp4MarlinP40ParityLayout::kCanonicalDown ||
+          manifest.output_features != kNvFp4MarlinP40ParityHidden ||
+          manifest.input_features != kNvFp4MarlinP40ParityIntermediate ||
+          manifest.weight_bytes != kNvFp4MarlinP40ParityDownWeightBytes ||
+          manifest.scale_bytes != kNvFp4MarlinP40ParityDownScaleBytes ||
+          manifest.source_count != 1U ||
+          !source_manifest_empty(manifest.sources[1U])))) {
+      return false;
+    }
+
+    for (std::size_t prior = 0U; prior < artifact_identity_count; ++prior) {
+      if (artifact_identities[prior] == manifest.artifact_identity) {
+        return false;
+      }
+    }
+    artifact_identities[artifact_identity_count++] =
+        manifest.artifact_identity;
+
+    const std::array<PointerRange, 3U> candidate_ranges = [&]() noexcept {
+      std::array<PointerRange, 3U> ranges{};
+      if (!make_range(view.weight, manifest.weight_bytes, 16U,
+                      &ranges[0U]) ||
+          !make_range(view.scales, manifest.scale_bytes, 16U,
+                      &ranges[1U]) ||
+          !make_range(view.global_scale, sizeof(float), alignof(float),
+                      &ranges[2U])) {
+        return std::array<PointerRange, 3U>{};
+      }
+      return ranges;
+    }();
+    if (candidate_ranges[0U].end == 0U ||
+        candidate_ranges[1U].end == 0U ||
+        candidate_ranges[2U].end == 0U) {
+      return false;
+    }
+    for (const PointerRange& range : candidate_ranges) {
+      for (std::size_t source = 0U; source < source_range_count; ++source) {
+        if (overlaps(range, source_ranges[source])) {
+          return false;
+        }
+      }
+      for (std::size_t prior = 0U; prior < artifact_range_count; ++prior) {
+        if (overlaps(range, artifact_ranges[prior])) {
+          return false;
+        }
+      }
+      artifact_ranges[artifact_range_count++] = range;
+    }
+
+    const LayerTargets& layer = targets[descriptor.layer_index];
+    const std::array<const NvFp4LinearWeight*, 2U> expected_sources{
+        gate_up ? layer.gate : layer.down, gate_up ? layer.up : nullptr};
+    const std::array<NvFp4MarlinP40ParitySourceRole, 2U> expected_roles{
+        gate_up ? NvFp4MarlinP40ParitySourceRole::kGate
+                : NvFp4MarlinP40ParitySourceRole::kDown,
+        gate_up ? NvFp4MarlinP40ParitySourceRole::kUp
+                : NvFp4MarlinP40ParitySourceRole::kInvalid};
+    for (std::size_t source_index = 0U;
+         source_index < manifest.source_count; ++source_index) {
+      const NvFp4MarlinP40ParitySourceManifest& source =
+          manifest.sources[source_index];
+      const NvFp4LinearWeight* const expected =
+          expected_sources[source_index];
+      if (expected == nullptr || source.role != expected_roles[source_index] ||
+          source.tensor_identity == 0U ||
+          !digest_present(source.weight_digest) ||
+          !digest_present(source.scale_digest) ||
+          source.global_scale_bits != float_bits(expected->weight_scale_2)) {
+        return false;
+      }
+      for (std::size_t prior = 0U; prior < tensor_identity_count; ++prior) {
+        if (tensor_identities[prior] == source.tensor_identity) {
+          return false;
+        }
+      }
+      tensor_identities[tensor_identity_count++] = source.tensor_identity;
+    }
+
+    seen[descriptor.layer_index][slot] = true;
+    validated[descriptor.layer_index][slot] = view;
+  }
+
+  if (artifact_identity_count != artifact_identities.size() ||
+      tensor_identity_count != tensor_identities.size() ||
+      artifact_range_count != artifact_ranges.size()) {
+    return false;
+  }
+  for (const auto& layer_seen : seen) {
+    if (std::any_of(layer_seen.begin(), layer_seen.end(),
+                    [](const bool value) { return !value; })) {
+      return false;
+    }
+  }
+
+  clear_all();
+  for (std::size_t layer_index = 0U; layer_index < layers_.size();
+       ++layer_index) {
+    targets[layer_index].gate->prefill_p40_vllm_marlin_parity =
+        validated[layer_index][0U];
+    targets[layer_index].up->prefill_p40_vllm_marlin_parity =
+        validated[layer_index][0U];
+    targets[layer_index].down->prefill_p40_vllm_marlin_parity =
+        validated[layer_index][1U];
   }
   return true;
 }

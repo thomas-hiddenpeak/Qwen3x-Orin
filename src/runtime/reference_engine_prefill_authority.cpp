@@ -12,6 +12,9 @@
 #if defined(Q3X_ENABLE_P40_PACKED_NVFP4_V2_ADMISSION)
 #include "q3x/kernels/sm87_p40_packed_nvfp4_v2.h"
 #endif
+#if defined(Q3X_ENABLE_P40_VLLM_MARLIN_PARITY_ADMISSION)
+#include "q3x/kernels/sm87_nvfp4_marlin_p40_parity.h"
+#endif
 #if defined(Q3X_ENABLE_BF16_AB_LARGE_M_PREFILL_ADMISSION)
 #include "q3x/kernels/sm87_bf16_ab_prefill.h"
 #endif
@@ -25,13 +28,16 @@
 #include "q3x/kernels/sm87_nvfp4_prefill_persistent.h"
 #endif
 #include "q3x/runtime/decode_ops.h"
+#include "q3x/runtime/prefill_workspace_plan.h"
 #include "q3x/runtime/reference_engine.h"
 
 #if defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
 #include "../kernels/sm87/gdn_prefill_chunk64_native_sm87.h"
 #endif
 
+#include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <limits>
 #include <new>
 #include <utility>
@@ -233,6 +239,224 @@ thread_local bool
          weight.prefill_supermatrix_sidecar == nullptr &&
          weight.prefill_marlin_weight == nullptr &&
          weight.prefill_marlin_scales == nullptr;
+}
+
+[[nodiscard]] bool same_p40_vllm_marlin_parity_view(
+    const NvFp4MarlinP40ParityDeviceView& left,
+    const NvFp4MarlinP40ParityDeviceView& right) noexcept {
+  return left.weight == right.weight && left.scales == right.scales &&
+         left.global_scale == right.global_scale &&
+         left.manifest.version == right.manifest.version &&
+         left.manifest.layer_index == right.manifest.layer_index &&
+         left.manifest.role == right.manifest.role &&
+         left.manifest.layout == right.manifest.layout &&
+         left.manifest.output_features == right.manifest.output_features &&
+         left.manifest.input_features == right.manifest.input_features &&
+         left.manifest.weight_bytes == right.manifest.weight_bytes &&
+         left.manifest.scale_bytes == right.manifest.scale_bytes &&
+         left.manifest.artifact_identity ==
+             right.manifest.artifact_identity &&
+         left.manifest.transformation_digest ==
+             right.manifest.transformation_digest &&
+         left.manifest.source_count == right.manifest.source_count &&
+         left.manifest.sources[0U].role ==
+             right.manifest.sources[0U].role &&
+         left.manifest.sources[0U].tensor_identity ==
+             right.manifest.sources[0U].tensor_identity &&
+         left.manifest.sources[0U].weight_digest ==
+             right.manifest.sources[0U].weight_digest &&
+         left.manifest.sources[0U].scale_digest ==
+             right.manifest.sources[0U].scale_digest &&
+         left.manifest.sources[0U].global_scale_bits ==
+             right.manifest.sources[0U].global_scale_bits &&
+         left.manifest.sources[1U].role ==
+             right.manifest.sources[1U].role &&
+         left.manifest.sources[1U].tensor_identity ==
+             right.manifest.sources[1U].tensor_identity &&
+         left.manifest.sources[1U].weight_digest ==
+             right.manifest.sources[1U].weight_digest &&
+         left.manifest.sources[1U].scale_digest ==
+             right.manifest.sources[1U].scale_digest &&
+         left.manifest.sources[1U].global_scale_bits ==
+             right.manifest.sources[1U].global_scale_bits;
+}
+
+// The parity owner is intentionally independent from both historical Marlin
+// and packed-v2. Revalidate its complete 128-artifact/192-source graph at plan
+// seal time so a representative layer or a non-null pointer can never confer
+// scheduling authority.
+[[maybe_unused, nodiscard]] bool complete_p40_vllm_marlin_parity_inventory(
+    const ModelWeights& weights) noexcept {
+  constexpr std::size_t kExpectedArtifacts =
+      kNvFp4MarlinP40ParityArtifactCount;
+  constexpr std::size_t kExpectedSources = kNvFp4MarlinP40ParitySourceCount;
+  constexpr std::size_t kRangesPerArtifact = 3U;
+  std::array<std::uint64_t, kExpectedArtifacts> artifact_identities{};
+  std::array<std::uint64_t, kExpectedSources> source_identities{};
+  std::array<std::uintptr_t, kExpectedArtifacts * kRangesPerArtifact>
+      range_begins{};
+  std::array<std::uintptr_t, kExpectedArtifacts * kRangesPerArtifact>
+      range_ends{};
+  std::size_t artifact_count = 0U;
+  std::size_t source_count = 0U;
+  std::size_t range_count = 0U;
+
+  const auto digest_present = [](const NvFp4MarlinP40ParityDigest& digest)
+      noexcept {
+        return std::any_of(digest.begin(), digest.end(),
+                           [](const std::uint8_t byte) { return byte != 0U; });
+      };
+  const auto float_bits = [](const float value) noexcept {
+    std::uint32_t bits = 0U;
+    static_assert(sizeof(bits) == sizeof(value));
+    std::memcpy(&bits, &value, sizeof(bits));
+    return bits;
+  };
+  const auto append_range = [&](const void* const pointer,
+                                const std::uint64_t bytes,
+                                const std::uintptr_t alignment) noexcept {
+    if (range_count >= range_begins.size() || pointer == nullptr ||
+        bytes == 0U || bytes > std::numeric_limits<std::uintptr_t>::max()) {
+      return false;
+    }
+    const std::uintptr_t begin = reinterpret_cast<std::uintptr_t>(pointer);
+    const std::uintptr_t size = static_cast<std::uintptr_t>(bytes);
+    if (alignment == 0U || begin % alignment != 0U ||
+        begin > std::numeric_limits<std::uintptr_t>::max() - size) {
+      return false;
+    }
+    const std::uintptr_t end = begin + size;
+    for (std::size_t prior = 0U; prior < range_count; ++prior) {
+      if (range_begins[prior] < end && begin < range_ends[prior]) {
+        return false;
+      }
+    }
+    range_begins[range_count] = begin;
+    range_ends[range_count] = end;
+    ++range_count;
+    return true;
+  };
+  const auto record = [&](const NvFp4MarlinP40ParityDeviceView& view,
+                          const std::size_t layer,
+                          const NvFp4MarlinP40ParityRole role,
+                          const NvFp4MarlinP40ParityLayout layout,
+                          const std::uint32_t output_features,
+                          const std::uint32_t input_features,
+                          const std::uint64_t weight_bytes,
+                          const std::uint64_t scale_bytes,
+                          const std::array<NvFp4MarlinP40ParitySourceRole,
+                                           2U>& source_roles,
+                          const std::array<std::uint32_t, 2U>& scale_bits,
+                          const std::uint32_t expected_source_count) noexcept {
+    const NvFp4MarlinP40ParityArtifactManifest& manifest = view.manifest;
+    if (artifact_count >= artifact_identities.size() ||
+        manifest.version != kNvFp4MarlinP40ParityManifestVersion ||
+        manifest.layer_index != layer || manifest.role != role ||
+        manifest.layout != layout ||
+        manifest.output_features != output_features ||
+        manifest.input_features != input_features ||
+        manifest.weight_bytes != weight_bytes ||
+        manifest.scale_bytes != scale_bytes ||
+        manifest.artifact_identity == 0U ||
+        !digest_present(manifest.transformation_digest) ||
+        manifest.source_count != expected_source_count ||
+        !append_range(view.weight, weight_bytes, 16U) ||
+        !append_range(view.scales, scale_bytes, 16U) ||
+        !append_range(view.global_scale, sizeof(float), alignof(float))) {
+      return false;
+    }
+    for (std::size_t prior = 0U; prior < artifact_count; ++prior) {
+      if (artifact_identities[prior] == manifest.artifact_identity) {
+        return false;
+      }
+    }
+    artifact_identities[artifact_count++] = manifest.artifact_identity;
+    for (std::size_t source = 0U; source < manifest.sources.size(); ++source) {
+      const NvFp4MarlinP40ParitySourceManifest& actual =
+          manifest.sources[source];
+      if (source < expected_source_count) {
+        if (source_count >= source_identities.size() ||
+            actual.role != source_roles[source] ||
+            actual.tensor_identity == 0U ||
+            !digest_present(actual.weight_digest) ||
+            !digest_present(actual.scale_digest) ||
+            actual.global_scale_bits != scale_bits[source]) {
+          return false;
+        }
+        for (std::size_t prior = 0U; prior < source_count; ++prior) {
+          if (source_identities[prior] == actual.tensor_identity) {
+            return false;
+          }
+        }
+        source_identities[source_count++] = actual.tensor_identity;
+      } else if (actual.role != NvFp4MarlinP40ParitySourceRole::kInvalid ||
+                 actual.tensor_identity != 0U ||
+                 digest_present(actual.weight_digest) ||
+                 digest_present(actual.scale_digest) ||
+                 actual.global_scale_bits != 0U) {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  for (std::size_t layer = 0U; layer < kReferenceDecoderLayerCount; ++layer) {
+    const DecoderLayerWeights& layer_weights = weights.layer(layer);
+    const auto* const gate =
+        std::get_if<NvFp4LinearWeight>(&layer_weights.mlp.gate_proj);
+    const auto* const up =
+        std::get_if<NvFp4LinearWeight>(&layer_weights.mlp.up_proj);
+    const auto* const down =
+        std::get_if<NvFp4LinearWeight>(&layer_weights.mlp.down_proj);
+    if (gate == nullptr || up == nullptr || down == nullptr ||
+        !valid_p40_packed_nvfp4_source(
+            *gate, kReferenceIntermediateSize, kReferenceHiddenSize) ||
+        !valid_p40_packed_nvfp4_source(
+            *up, kReferenceIntermediateSize, kReferenceHiddenSize) ||
+        !valid_p40_packed_nvfp4_source(
+            *down, kReferenceHiddenSize, kReferenceIntermediateSize) ||
+        !empty_p40_packed_artifact_view(
+            gate->prefill_p40_packed_artifact) ||
+        !empty_p40_packed_artifact_view(up->prefill_p40_packed_artifact) ||
+        !empty_p40_packed_artifact_view(
+            down->prefill_p40_packed_artifact) ||
+        !same_p40_vllm_marlin_parity_view(
+            gate->prefill_p40_vllm_marlin_parity,
+            up->prefill_p40_vllm_marlin_parity) ||
+        float_bits(gate->weight_scale_2) !=
+            float_bits(up->weight_scale_2)) {
+      return false;
+    }
+    const std::uint32_t gate_up_scale_bits =
+        float_bits(gate->weight_scale_2);
+    if (!record(
+            gate->prefill_p40_vllm_marlin_parity, layer,
+            NvFp4MarlinP40ParityRole::kGateUp,
+            NvFp4MarlinP40ParityLayout::kCanonicalGateThenUp,
+            kNvFp4MarlinP40ParityGateUpOutput,
+            kNvFp4MarlinP40ParityHidden,
+            kNvFp4MarlinP40ParityGateUpWeightBytes,
+            kNvFp4MarlinP40ParityGateUpScaleBytes,
+            {NvFp4MarlinP40ParitySourceRole::kGate,
+             NvFp4MarlinP40ParitySourceRole::kUp},
+            {gate_up_scale_bits, gate_up_scale_bits}, 2U) ||
+        !record(
+            down->prefill_p40_vllm_marlin_parity, layer,
+            NvFp4MarlinP40ParityRole::kDown,
+            NvFp4MarlinP40ParityLayout::kCanonicalDown,
+            kNvFp4MarlinP40ParityHidden,
+            kNvFp4MarlinP40ParityIntermediate,
+            kNvFp4MarlinP40ParityDownWeightBytes,
+            kNvFp4MarlinP40ParityDownScaleBytes,
+            {NvFp4MarlinP40ParitySourceRole::kDown,
+             NvFp4MarlinP40ParitySourceRole::kInvalid},
+            {float_bits(down->weight_scale_2), 0U}, 1U)) {
+      return false;
+    }
+  }
+  return artifact_count == kExpectedArtifacts &&
+         source_count == kExpectedSources &&
+         range_count == kExpectedArtifacts * kRangesPerArtifact;
 }
 
 // Revalidates the complete ModelWeights attachment rather than trusting a
@@ -565,7 +789,8 @@ thread_local bool
     const ModelWeights& weights,
     const NvFp4MarlinGateUpLayout expected_gate_up_layout,
     const bool use_projection_reset,
-    const bool use_packed_nvfp4) noexcept {
+    const bool use_packed_nvfp4,
+    const bool use_vllm_marlin_parity = false) noexcept {
 #if !defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION) || \
     !defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION) || \
     !defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
@@ -573,8 +798,13 @@ thread_local bool
   (void)expected_gate_up_layout;
   (void)use_projection_reset;
   (void)use_packed_nvfp4;
+  (void)use_vllm_marlin_parity;
   return false;
 #else
+  if (use_vllm_marlin_parity &&
+      !complete_p40_vllm_marlin_parity_inventory(weights)) {
+    return false;
+  }
   const auto valid_fp8 = [use_projection_reset, use_packed_nvfp4](
                              const LinearWeight& weight,
                              const std::size_t output_size,
@@ -601,13 +831,20 @@ thread_local bool
     if (gate == nullptr || up == nullptr || down == nullptr) {
       return false;
     }
-    if (use_packed_nvfp4) {
+    if (use_packed_nvfp4 || use_vllm_marlin_parity) {
       if (!valid_p40_packed_nvfp4_source(
               *gate, kReferenceIntermediateSize, kReferenceHiddenSize) ||
           !valid_p40_packed_nvfp4_source(
               *up, kReferenceIntermediateSize, kReferenceHiddenSize) ||
           !valid_p40_packed_nvfp4_source(
-              *down, kReferenceHiddenSize, kReferenceIntermediateSize)) {
+              *down, kReferenceHiddenSize, kReferenceIntermediateSize) ||
+          (use_vllm_marlin_parity &&
+           (!empty_p40_packed_artifact_view(
+                gate->prefill_p40_packed_artifact) ||
+            !empty_p40_packed_artifact_view(
+                up->prefill_p40_packed_artifact) ||
+            !empty_p40_packed_artifact_view(
+                down->prefill_p40_packed_artifact)))) {
         return false;
       }
     } else if (!valid_nvfp4_marlin_binding(
@@ -1146,6 +1383,44 @@ complete_p40_packed_nvfp4_v2_capability() noexcept {
 #endif
 }
 
+[[maybe_unused, nodiscard]] bool
+complete_p40_vllm_marlin_parity_capability() noexcept {
+#if !defined(Q3X_ENABLE_P40_VLLM_MARLIN_PARITY_ADMISSION)
+  return false;
+#else
+  constexpr std::array<kernels::Sm87NvFp4MarlinP40ParityRole, 2U> kRoles{
+      kernels::Sm87NvFp4MarlinP40ParityRole::kGateUp,
+      kernels::Sm87NvFp4MarlinP40ParityRole::kDown};
+  for (const kernels::Sm87NvFp4MarlinP40ParityRole role : kRoles) {
+    const kernels::Sm87NvFp4MarlinP40ParityPlan plan =
+        kernels::sm87_nvfp4_marlin_p40_parity_plan(
+            role, kernels::kSm87NvFp4MarlinP40ParityTokens);
+    kernels::Sm87NvFp4MarlinP40ParityResources resources{};
+    if (!plan.valid() ||
+        kernels::query_sm87_nvfp4_marlin_p40_parity_resources_cuda(
+            role, &resources) != 0 ||
+        !resources.supported ||
+        resources.legacy_stripe.registers_per_thread <= 0 ||
+        resources.legacy_stripe.registers_per_thread > 255 ||
+        resources.legacy_stripe.maximum_threads_per_block < 256 ||
+        resources.legacy_stripe.active_blocks_per_sm < 1 ||
+        resources.legacy_stripe.local_bytes != 0U ||
+        resources.legacy_stripe.dynamic_shared_bytes !=
+            kernels::kSm87NvFp4MarlinDynamicSharedBytes ||
+        resources.reduction_workspace_bytes !=
+            kernels::kSm87NvFp4MarlinP40ParityReductionBytes ||
+        resources.lock_bytes !=
+            kernels::kSm87NvFp4MarlinP40ParityLockBytes ||
+        !resources.bulk_and_tail_share_kernel ||
+        !resources.requires_zero_initialized_locks || resources.atomic_add ||
+        !resources.fp32_reduce) {
+      return false;
+    }
+  }
+  return true;
+#endif
+}
+
 [[nodiscard]] constexpr bool
 whole_core_compile_inventory_enabled() noexcept {
 #if defined(Q3X_ENABLE_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION) && \
@@ -1183,6 +1458,22 @@ packed_nvfp4_v2_compile_inventory_enabled() noexcept {
     defined(Q3X_ENABLE_P40_PACKED_PROJECTION_ADMISSION) && \
     defined(Q3X_ENABLE_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION) && \
     defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION) && \
+    defined(Q3X_ENABLE_BF16_AB_LARGE_M_PREFILL_ADMISSION) && \
+    defined(Q3X_ENABLE_FLASHINFER_PREFILL_ATTENTION_ADMISSION) && \
+    defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION) && \
+    defined(Q3X_ENABLE_GDN_PROMPT_WIDE_CHUNK_GRAPH_ADMISSION)
+  return true;
+#else
+  return false;
+#endif
+}
+
+[[nodiscard]] constexpr bool
+vllm_marlin_parity_compile_inventory_enabled() noexcept {
+#if defined(Q3X_ENABLE_P40_VLLM_MARLIN_PARITY_ADMISSION) && \
+    defined(Q3X_ENABLE_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION) && \
+    defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION) && \
+    defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION) && \
     defined(Q3X_ENABLE_BF16_AB_LARGE_M_PREFILL_ADMISSION) && \
     defined(Q3X_ENABLE_FLASHINFER_PREFILL_ATTENTION_ADMISSION) && \
     defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION) && \
@@ -1295,6 +1586,65 @@ complete_exact_gdn_chunk64_native_inventory(
              right.approximate_numerics_forbidden &&
          left.mtp_forbidden == right.mtp_forbidden &&
          left.cublaslt_forbidden == right.cublaslt_forbidden;
+}
+
+[[nodiscard]] constexpr bool same_vllm_marlin_parity_schedule(
+    const PrefillP40VllmMarlinParitySchedulePlan& left,
+    const PrefillP40VllmMarlinParitySchedulePlan& right) noexcept {
+#define Q3X_SAME_PARITY_FIELD(field) (left.field == right.field)
+  return Q3X_SAME_PARITY_FIELD(enabled) &&
+         Q3X_SAME_PARITY_FIELD(input_preparation_panel_count_per_layer) &&
+         Q3X_SAME_PARITY_FIELD(prompt_core_phase_count_per_layer) &&
+         Q3X_SAME_PARITY_FIELD(segmented_mlp_phase_count_per_layer) &&
+         Q3X_SAME_PARITY_FIELD(panel_token_count) &&
+         Q3X_SAME_PARITY_FIELD(projection_m_tokens) &&
+         Q3X_SAME_PARITY_FIELD(request_capacity_tokens) &&
+         Q3X_SAME_PARITY_FIELD(route_pass_count) &&
+         Q3X_SAME_PARITY_FIELD(fp8_physical_launches_per_request) &&
+         Q3X_SAME_PARITY_FIELD(fp8_tensor_role_hits_per_request) &&
+         Q3X_SAME_PARITY_FIELD(gate_up_segments_per_layer) &&
+         Q3X_SAME_PARITY_FIELD(down_segments_per_layer) &&
+         Q3X_SAME_PARITY_FIELD(nvfp4_physical_launches_per_request) &&
+         Q3X_SAME_PARITY_FIELD(gate_up_logical_role_hits_per_request) &&
+         Q3X_SAME_PARITY_FIELD(down_logical_role_hits_per_request) &&
+         Q3X_SAME_PARITY_FIELD(standalone_silu_launches_per_layer) &&
+         Q3X_SAME_PARITY_FIELD(standalone_residual_launches_per_layer) &&
+         Q3X_SAME_PARITY_FIELD(lock_clear_operations_per_request) &&
+         Q3X_SAME_PARITY_FIELD(full_m1024_segments_per_projection) &&
+         Q3X_SAME_PARITY_FIELD(tail_m64_segments_per_projection) &&
+         Q3X_SAME_PARITY_FIELD(gate_up_tail_output_tiles) &&
+         Q3X_SAME_PARITY_FIELD(gate_up_tail_split_output_tiles) &&
+         Q3X_SAME_PARITY_FIELD(down_tail_output_tiles) &&
+         Q3X_SAME_PARITY_FIELD(down_tail_split_output_tiles) &&
+         Q3X_SAME_PARITY_FIELD(full_segment_m_tokens) &&
+         Q3X_SAME_PARITY_FIELD(tail_segment_m_tokens) &&
+         Q3X_SAME_PARITY_FIELD(gate_up_input_features) &&
+         Q3X_SAME_PARITY_FIELD(merged_gate_up_output_features) &&
+         Q3X_SAME_PARITY_FIELD(gate_output_features) &&
+         Q3X_SAME_PARITY_FIELD(up_output_features) &&
+         Q3X_SAME_PARITY_FIELD(down_input_features) &&
+         Q3X_SAME_PARITY_FIELD(down_output_features) &&
+         Q3X_SAME_PARITY_FIELD(authenticated_artifact_count) &&
+         Q3X_SAME_PARITY_FIELD(authenticated_source_count) &&
+         Q3X_SAME_PARITY_FIELD(independent_canonical_marlin_sidecars_required) &&
+         Q3X_SAME_PARITY_FIELD(canonical_token_major_gate_then_up_rows_required) &&
+         Q3X_SAME_PARITY_FIELD(independent_activated_buffer_required) &&
+         Q3X_SAME_PARITY_FIELD(bf16_projection_publication_required) &&
+         Q3X_SAME_PARITY_FIELD(internal_m_segmentation_required) &&
+         Q3X_SAME_PARITY_FIELD(m64_tail_is_final_segment_required) &&
+         Q3X_SAME_PARITY_FIELD(m1024_segments_full_k_required) &&
+         Q3X_SAME_PARITY_FIELD(m64_tail_split_k_required) &&
+         Q3X_SAME_PARITY_FIELD(m64_tail_locks_required) &&
+         Q3X_SAME_PARITY_FIELD(m64_tail_zero_initialized_locks_required) &&
+         Q3X_SAME_PARITY_FIELD(m64_tail_fp32_reduction_workspace_required) &&
+         Q3X_SAME_PARITY_FIELD(m64_tail_in_kernel_global_reduction_required) &&
+         Q3X_SAME_PARITY_FIELD(request_time_repack_forbidden) &&
+         Q3X_SAME_PARITY_FIELD(request_time_tactic_selection_forbidden) &&
+         Q3X_SAME_PARITY_FIELD(production_accuracy_required) &&
+         Q3X_SAME_PARITY_FIELD(approximate_numerics_forbidden) &&
+         Q3X_SAME_PARITY_FIELD(mtp_forbidden) &&
+         Q3X_SAME_PARITY_FIELD(cublaslt_forbidden);
+#undef Q3X_SAME_PARITY_FIELD
 }
 
 [[nodiscard]] bool same_geometry(
@@ -1459,7 +1809,10 @@ complete_exact_gdn_chunk64_native_inventory(
       left.packed_projection_schedule.cublaslt_forbidden !=
           right.packed_projection_schedule.cublaslt_forbidden ||
       !same_packed_nvfp4_v2_schedule(left.packed_nvfp4_v2_schedule,
-                                     right.packed_nvfp4_v2_schedule)) {
+                                     right.packed_nvfp4_v2_schedule) ||
+      !same_vllm_marlin_parity_schedule(
+          left.vllm_marlin_parity_schedule,
+          right.vllm_marlin_parity_schedule)) {
     return false;
   }
   for (std::size_t panel = 0U; panel < left.panel_count; ++panel) {
@@ -1575,6 +1928,20 @@ complete_exact_gdn_chunk64_native_inventory(
          schedule.cublaslt_forbidden;
 }
 
+[[nodiscard]] bool complete_vllm_marlin_parity_geometry(
+    const PrefillExecutionPlan& geometry) noexcept {
+  PrefillExecutionPlanOptions options{};
+  options.first_position = 0U;
+  options.prompt_token_count = kLayerMajorPrefillPromptWideP40Tokens;
+  options.max_sequence_length =
+      kLayerMajorPrefillPromptWideP40RequestCapacityTokens;
+  options.mlp_schedule_tactic =
+      LayerMajorPrefillMlpScheduleTactic::kPromptWideP40VllmMarlinParity;
+  const PrefillExecutionPlanResult expected =
+      build_unbound_layer_major_prefill_execution_plan(options);
+  return expected && same_geometry(geometry, *expected.value);
+}
+
 [[nodiscard]] bool complete_projection_reset_geometry(
     const PrefillExecutionPlan& geometry) noexcept {
   const PrefillP40ProjectionResetSchedulePlan& schedule =
@@ -1659,6 +2026,9 @@ complete_exact_gdn_chunk64_native_inventory(
 projection_arithmetic_contract(
     const LayerMajorPrefillProjectionTactic tactic) noexcept {
   return tactic == LayerMajorPrefillProjectionTactic::
+                       kNativePromptWideP40VllmMarlinParity
+             ? &kLayerMajorPrefillPromptWideP40VllmMarlinParityArithmeticContract
+         : tactic == LayerMajorPrefillProjectionTactic::
                        kNativePromptWideP40PackedNvfp4V2
              ? &kLayerMajorPrefillPromptWideP40PackedNvfp4V2ArithmeticContract
          : tactic == LayerMajorPrefillProjectionTactic::
@@ -1690,6 +2060,11 @@ projection_arithmetic_contract(
              : nullptr;
 }
 
+static_assert(
+    projection_arithmetic_contract(
+        LayerMajorPrefillProjectionTactic::
+            kNativePromptWideP40VllmMarlinParity) ==
+    &kLayerMajorPrefillPromptWideP40VllmMarlinParityArithmeticContract);
 static_assert(
     projection_arithmetic_contract(
         LayerMajorPrefillProjectionTactic::kNativePromptWideP40WholeCore) ==
@@ -1728,7 +2103,8 @@ inline constexpr std::uint64_t kPromptWideP40WholeCoreArenaBytes =
 }
 
 [[nodiscard]] bool complete_prompt_wide_p40_whole_core_views(
-    const ReferenceLayerMajorRequestViews& views) noexcept {
+    const ReferenceLayerMajorRequestViews& views,
+    const bool vllm_marlin_parity = false) noexcept {
   const LayerMajorP40WholeCoreViews& whole = views.p40_whole_core;
   const LayerMajorP40WholeCoreLinearPhaseViews& linear = whole.linear;
   const LayerMajorP40WholeCoreFullAttentionPhaseViews& full =
@@ -1744,7 +2120,14 @@ inline constexpr std::uint64_t kPromptWideP40WholeCoreArenaBytes =
          views.descriptor.mlp_capacity_tokens ==
              kLayerMajorPrefillPromptWideP40Tokens &&
          views.descriptor.mlp_layout ==
-             LayerMajorRequestMlpLayout::kLayerWideP40PersistentTwoSpan &&
+             (vllm_marlin_parity
+                  ? LayerMajorRequestMlpLayout::
+                        kLayerWideP40MarlinParityMergedGateUp
+                  : LayerMajorRequestMlpLayout::
+                        kLayerWideP40PersistentTwoSpan) &&
+         (!vllm_marlin_parity ||
+          valid_reference_p40_vllm_marlin_parity_lock_lifetime_descriptor(
+              views.descriptor)) &&
          views.descriptor.arena_bytes == kPromptWideP40WholeCoreArenaBytes &&
          exact_matrix_view(
              views.prompt_residual_bf16,
@@ -1788,9 +2171,29 @@ inline constexpr std::uint64_t kPromptWideP40WholeCoreArenaBytes =
          exact_matrix_view(full.branch_output_bf16,
                            kLayerMajorPrefillPromptWideP40Tokens,
                            kReferenceHiddenSize) &&
-         exact_matrix_view(views.mlp.gate_bf16,
-                           kLayerMajorPrefillPromptWideP40Tokens,
-                           kReferenceIntermediateSize) &&
+         (vllm_marlin_parity
+              ? (exact_matrix_view(
+                     views.mlp.merged_gate_up_bf16,
+                     kLayerMajorPrefillPromptWideP40Tokens,
+                     kLayerMajorP40MarlinParityMergedGateUpFeatures) &&
+                 views.mlp.gate_bf16.storage.device_data == nullptr &&
+                 views.mlp.up_bf16.storage.device_data == nullptr &&
+                 exact_matrix_view(
+                     views.mlp.activated_bf16,
+                     kLayerMajorPrefillPromptWideP40Tokens,
+                     kReferenceIntermediateSize) &&
+                 views.mlp.gate_up_projection_temporary.device_data !=
+                     nullptr &&
+                 views.mlp.gate_up_projection_temporary.byte_size ==
+                     kLayerMajorP40MarlinParityTemporaryBytes &&
+                 views.mlp.down_projection_temporary.device_data ==
+                     views.mlp.gate_up_projection_temporary.device_data &&
+                 views.mlp.down_projection_temporary.byte_size ==
+                     kLayerMajorP40MarlinParityTemporaryBytes)
+              : exact_matrix_view(
+                    views.mlp.gate_bf16,
+                    kLayerMajorPrefillPromptWideP40Tokens,
+                    kReferenceIntermediateSize)) &&
          exact_matrix_view(views.mlp.normalized_input_bf16,
                            kLayerMajorPrefillPromptWideP40Tokens,
                            kReferenceHiddenSize) &&
@@ -1932,21 +2335,30 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
   const bool packed_nvfp4_v2 =
       projection_tactic == LayerMajorPrefillProjectionTactic::
                                kNativePromptWideP40PackedNvfp4V2;
+  const bool vllm_marlin_parity =
+      projection_tactic == LayerMajorPrefillProjectionTactic::
+                               kNativePromptWideP40VllmMarlinParity;
   const bool any_packed_projection =
       packed_projection || packed_nvfp4_v2;
   const bool prompt_wide_p40_projection =
-      whole_core_projection || projection_reset || any_packed_projection;
+      whole_core_projection || projection_reset || any_packed_projection ||
+      vllm_marlin_parity;
   const bool persistent_nvfp4_kernel_projection =
       layer_wide_p40_projection || whole_core_projection;
   const bool interleaved_p40_projection =
       persistent_nvfp4_kernel_projection || projection_reset;
   const bool persistent_p40_projection =
       interleaved_p40_projection || any_packed_projection;
+  const bool layer_wide_p40_memory =
+      persistent_p40_projection || vllm_marlin_parity;
   const bool whole_prompt_attention =
       full_attention_tactic == LayerMajorPrefillFullAttentionTactic::
                                    kNativeFlashInferExactWholePrompt;
   const LayerMajorPrefillMlpScheduleTactic mlp_schedule_tactic =
-      packed_nvfp4_v2
+      vllm_marlin_parity
+          ? LayerMajorPrefillMlpScheduleTactic::
+                kPromptWideP40VllmMarlinParity
+      : packed_nvfp4_v2
           ? LayerMajorPrefillMlpScheduleTactic::
                 kPromptWideP40PackedNvfp4V2
       : packed_projection
@@ -2013,14 +2425,17 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
                ? kLayerMajorPrefillPromptWideP40PanelTokens
                : kLayerMajorPrefillOperatorPanelTokens) ||
       runner->layer_major_request_views_->descriptor.mlp_capacity_tokens !=
-          (persistent_p40_projection
+          (layer_wide_p40_memory
                ? kLayerMajorPrefillLayerWideMlpP40Tokens
                : kLayerMajorPrefillOperatorPanelTokens) ||
       runner->layer_major_request_views_->descriptor.mlp_layout !=
-          (persistent_p40_projection
+          (vllm_marlin_parity
+               ? LayerMajorRequestMlpLayout::
+                     kLayerWideP40MarlinParityMergedGateUp
+           : persistent_p40_projection
                ? LayerMajorRequestMlpLayout::kLayerWideP40PersistentTwoSpan
                : LayerMajorRequestMlpLayout::kPanelLocalThreeSpan) ||
-      (persistent_p40_projection &&
+      (layer_wide_p40_memory &&
        runner->layer_major_request_views_->descriptor.max_sequence_length !=
            kLayerMajorPrefillLayerWideMlpP40RequestCapacityTokens) ||
       (prompt_wide_p40_projection &&
@@ -2064,6 +2479,12 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
     return plan_failure(BoundPrefillPlanError::kUnsupportedBinary,
                         ReferenceRunnerError::kInvalidDependency,
                         "bound_prefill_p40_packed_nvfp4_v2_binary");
+  }
+  if (vllm_marlin_parity &&
+      !vllm_marlin_parity_compile_inventory_enabled()) {
+    return plan_failure(BoundPrefillPlanError::kUnsupportedBinary,
+                        ReferenceRunnerError::kInvalidDependency,
+                        "bound_prefill_p40_vllm_marlin_parity_binary");
   }
 #if !defined(Q3X_ENABLE_NVFP4_TRUE_LARGE_M_PREFILL_ADMISSION)
   if (true_large_m_nvfp4_projection) {
@@ -2114,6 +2535,13 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
         ReferenceRunnerError::kInvalidDependency,
         "bound_prefill_p40_packed_nvfp4_v2_complete_package_capability");
   }
+  if (vllm_marlin_parity &&
+      !complete_p40_vllm_marlin_parity_capability()) {
+    return plan_failure(
+        BoundPrefillPlanError::kUnsupportedBinary,
+        ReferenceRunnerError::kInvalidDependency,
+        "bound_prefill_p40_vllm_marlin_parity_complete_package_capability");
+  }
 #if !defined(Q3X_ENABLE_NVFP4_G2_D2_PREFILL_ADMISSION)
   if (g2_d2_nvfp4_projection) {
     return plan_failure(BoundPrefillPlanError::kUnsupportedBinary,
@@ -2160,7 +2588,7 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
           ? complete_p40_packed_projection_inventory(*weights)
           : complete_installed_projection_inventory(
                 *weights, expected_gate_up_layout, projection_reset,
-                packed_nvfp4_v2) &&
+                packed_nvfp4_v2, vllm_marlin_parity) &&
                 (!packed_nvfp4_v2 ||
                  complete_p40_packed_nvfp4_inventory(*weights));
   if (!projection_inventory_complete) {
@@ -2207,7 +2635,8 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
                         "bound_prefill_exact_c512_arithmetic_views");
   }
   if (prompt_wide_p40_projection) {
-    if (!complete_prompt_wide_p40_whole_core_views(views)) {
+    if (!complete_prompt_wide_p40_whole_core_views(
+            views, vllm_marlin_parity)) {
       return plan_failure(BoundPrefillPlanError::kIncompleteTypedViews,
                           ReferenceRunnerError::kInvalidRequestState,
                           "bound_prefill_prompt_wide_p40_whole_core_views");
@@ -2255,7 +2684,7 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
                              : std::get_if<Fp8LinearWeight>(&attention->o_proj);
     if (linear == nullptr || attention == nullptr || gate == nullptr ||
         up == nullptr || down == nullptr ||
-        (!any_packed_projection &&
+        (!any_packed_projection && !vllm_marlin_parity &&
          (gate->prefill_marlin_gate_up_layout != expected_gate_up_layout ||
           up->prefill_marlin_gate_up_layout !=
               gate->prefill_marlin_gate_up_layout)) ||
@@ -2300,7 +2729,36 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
     constexpr std::uint64_t kDownScaleBytes =
         static_cast<std::uint64_t>(kReferenceIntermediateSize) *
         kReferenceHiddenSize / 16U;
-    if (any_packed_projection) {
+    if (vllm_marlin_parity) {
+      const NvFp4MarlinP40ParityDeviceView& gate_up_view =
+          gate->prefill_p40_vllm_marlin_parity;
+      const NvFp4MarlinP40ParityDeviceView& down_view =
+          down->prefill_p40_vllm_marlin_parity;
+      void* const reduction =
+          views.mlp.gate_up_projection_temporary.device_data;
+      void* const locks =
+          views.legacy_c512.projection_bf16[3U].storage.device_data;
+      roles[static_cast<std::size_t>(PrefillBindingRole::kNvfp4GateUp)] =
+          receipt(
+              PrefillBindingRole::kNvfp4GateUp,
+              NativePrefillTactic::kNvfp4GateUpP40VllmMarlinParity,
+              &gate_up_view, reduction,
+              kLayerMajorP40MarlinParityReductionWorkspaceBytes,
+              kLayerMajorPrefillVllmMarlinParityTailSegmentTokens,
+              kLayerMajorPrefillVllmMarlinParityFullSegmentTokens, locks,
+              kLayerMajorP40MarlinParityLockBytes,
+              kLayerMajorPrefillPromptWideP40Tokens);
+      roles[static_cast<std::size_t>(PrefillBindingRole::kNvfp4Down)] =
+          receipt(
+              PrefillBindingRole::kNvfp4Down,
+              NativePrefillTactic::kNvfp4DownBranchP40VllmMarlinParity,
+              &down_view, reduction,
+              kLayerMajorP40MarlinParityReductionWorkspaceBytes,
+              kLayerMajorPrefillVllmMarlinParityTailSegmentTokens,
+              kLayerMajorPrefillVllmMarlinParityFullSegmentTokens, locks,
+              kLayerMajorP40MarlinParityLockBytes,
+              kLayerMajorPrefillPromptWideP40Tokens);
+    } else if (any_packed_projection) {
       roles[static_cast<std::size_t>(PrefillBindingRole::kNvfp4GateUp)] =
           receipt(
               PrefillBindingRole::kNvfp4GateUp,
@@ -2592,6 +3050,33 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
       mlp_views.normalized_input_bf16.storage.device_data != nullptr &&
       mlp_views.gate_bf16.storage.device_data !=
           mlp_views.normalized_input_bf16.storage.device_data;
+  const bool vllm_marlin_parity_views_complete =
+      operator_panel_shared_outputs_complete &&
+      views.descriptor.mlp_layout == LayerMajorRequestMlpLayout::
+                                         kLayerWideP40MarlinParityMergedGateUp &&
+      views.descriptor.mlp_capacity_tokens ==
+          kLayerMajorPrefillLayerWideMlpP40Tokens &&
+      exact_matrix_view(mlp_views.merged_gate_up_bf16,
+                        kLayerMajorPrefillLayerWideMlpP40Tokens,
+                        kLayerMajorP40MarlinParityMergedGateUpFeatures) &&
+      exact_matrix_view(mlp_views.activated_bf16,
+                        kLayerMajorPrefillLayerWideMlpP40Tokens,
+                        kReferenceIntermediateSize) &&
+      exact_matrix_view(mlp_views.normalized_input_bf16,
+                        kLayerMajorPrefillLayerWideMlpP40Tokens,
+                        kReferenceHiddenSize) &&
+      exact_matrix_view(mlp_views.branch_output_bf16,
+                        kLayerMajorPrefillLayerWideMlpP40Tokens,
+                        kReferenceHiddenSize) &&
+      mlp_views.gate_bf16.storage.device_data == nullptr &&
+      mlp_views.up_bf16.storage.device_data == nullptr &&
+      mlp_views.gate_up_projection_temporary.device_data != nullptr &&
+      mlp_views.gate_up_projection_temporary.byte_size ==
+          kLayerMajorP40MarlinParityTemporaryBytes &&
+      mlp_views.down_projection_temporary.device_data ==
+          mlp_views.gate_up_projection_temporary.device_data &&
+      mlp_views.down_projection_temporary.byte_size ==
+          kLayerMajorP40MarlinParityTemporaryBytes;
   if ((segmented_projection || native_large_m_projection) &&
       !segmented_projection_views_complete) {
     return plan_failure(BoundPrefillPlanError::kIncompleteTypedViews,
@@ -2614,6 +3099,11 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
     return plan_failure(BoundPrefillPlanError::kIncompleteTypedViews,
                         ReferenceRunnerError::kInvalidRequestState,
                         "bound_prefill_nvfp4_persistent_p40_full_m_views");
+  }
+  if (vllm_marlin_parity && !vllm_marlin_parity_views_complete) {
+    return plan_failure(BoundPrefillPlanError::kIncompleteTypedViews,
+                        ReferenceRunnerError::kInvalidRequestState,
+                        "bound_prefill_p40_vllm_marlin_parity_views");
   }
   const DecoderLayerWeights& linear_layer = weights->layer(0U);
   const DecoderLayerWeights& full_layer = weights->layer(3U);
@@ -2657,7 +3147,7 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
                            : std::get_if<Fp8LinearWeight>(&attention->o_proj);
   if (linear == nullptr || attention == nullptr || gate == nullptr ||
       up == nullptr || down == nullptr ||
-      (!any_packed_projection &&
+      (!any_packed_projection && !vllm_marlin_parity &&
        (gate->prefill_marlin_gate_up_layout != expected_gate_up_layout ||
         up->prefill_marlin_gate_up_layout !=
             gate->prefill_marlin_gate_up_layout)) ||
@@ -3102,10 +3592,14 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
   const bool packed_nvfp4_v2 =
       plan.projection_tactic_ == LayerMajorPrefillProjectionTactic::
                                      kNativePromptWideP40PackedNvfp4V2;
+  const bool vllm_marlin_parity =
+      plan.projection_tactic_ == LayerMajorPrefillProjectionTactic::
+                                     kNativePromptWideP40VllmMarlinParity;
   const bool any_packed_projection =
       packed_projection || packed_nvfp4_v2;
   const bool prompt_wide_p40_projection =
-      whole_core_projection || projection_reset || any_packed_projection;
+      whole_core_projection || projection_reset || any_packed_projection ||
+      vllm_marlin_parity;
   const bool persistent_nvfp4_kernel_projection =
       layer_wide_p40_projection || whole_core_projection;
   const bool interleaved_p40_projection =
@@ -3113,7 +3607,10 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
   const bool persistent_p40_projection =
       interleaved_p40_projection || any_packed_projection;
   const LayerMajorPrefillMlpScheduleTactic expected_mlp_schedule =
-      packed_nvfp4_v2
+      vllm_marlin_parity
+          ? LayerMajorPrefillMlpScheduleTactic::
+                kPromptWideP40VllmMarlinParity
+      : packed_nvfp4_v2
           ? LayerMajorPrefillMlpScheduleTactic::
                 kPromptWideP40PackedNvfp4V2
       : packed_projection
@@ -3202,6 +3699,14 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
        !complete_gdn_prompt_wide_p40_capability())) {
     return false;
   }
+  if (vllm_marlin_parity &&
+      (!vllm_marlin_parity_compile_inventory_enabled() ||
+       !complete_p40_vllm_marlin_parity_capability() ||
+       !complete_flashinfer_whole_prompt_p40_capability() ||
+       !complete_bf16_ab_prompt_wide_p40_capability() ||
+       !complete_gdn_prompt_wide_p40_capability())) {
+    return false;
+  }
 #if !defined(Q3X_ENABLE_NVFP4_TRUE_LARGE_M_PREFILL_ADMISSION)
   if (true_large_m_nvfp4_projection) {
     return false;
@@ -3241,7 +3746,7 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
           ? complete_p40_packed_projection_inventory(*runner.weights_)
           : complete_installed_projection_inventory(
                 *runner.weights_, expected_gate_up_layout, projection_reset,
-                packed_nvfp4_v2) &&
+                packed_nvfp4_v2, vllm_marlin_parity) &&
                 (!packed_nvfp4_v2 ||
                  complete_p40_packed_nvfp4_inventory(*runner.weights_));
   if (!projection_inventory_complete) {
@@ -3288,7 +3793,7 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
       std::get_if<NvFp4LinearWeight>(&linear_layer.mlp.down_proj);
   if (linear == nullptr || attention == nullptr || gate == nullptr ||
       up == nullptr || down == nullptr ||
-      (!any_packed_projection &&
+      (!any_packed_projection && !vllm_marlin_parity &&
        (gate->prefill_marlin_gate_up_layout != expected_gate_up_layout ||
         up->prefill_marlin_gate_up_layout !=
             gate->prefill_marlin_gate_up_layout)) ||
@@ -3304,7 +3809,8 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
         plan.memory_plan_->layout !=
             LayerMajorRequestLayout::kP40WholeCorePromptWide ||
         plan.arena_bytes_ != kPromptWideP40WholeCoreArenaBytes ||
-        !complete_prompt_wide_p40_whole_core_views(views) ||
+        !complete_prompt_wide_p40_whole_core_views(
+            views, vllm_marlin_parity) ||
         !complete_exact_gdn_chunk64_native_inventory(*runner.weights_)) {
       return false;
     }
@@ -3397,8 +3903,33 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
           kLayerMajorPrefillPromptWideP40PanelTokens);
     };
     const LayerMajorP40WholeCoreViews& whole = views.p40_whole_core;
+    void* const parity_reduction =
+        views.mlp.gate_up_projection_temporary.device_data;
+    void* const parity_locks =
+        views.legacy_c512.projection_bf16[3U].storage.device_data;
     const bool nvfp4_receipts_match =
-        any_packed_projection
+        vllm_marlin_parity
+            ? matches(
+                  PrefillBindingRole::kNvfp4GateUp,
+                  NativePrefillTactic::kNvfp4GateUpP40VllmMarlinParity,
+                  &gate->prefill_p40_vllm_marlin_parity, parity_reduction,
+                  kLayerMajorP40MarlinParityReductionWorkspaceBytes,
+                  kLayerMajorPrefillVllmMarlinParityTailSegmentTokens,
+                  kLayerMajorPrefillVllmMarlinParityFullSegmentTokens,
+                  parity_locks, kLayerMajorP40MarlinParityLockBytes,
+                  kLayerMajorPrefillPromptWideP40Tokens) &&
+                  matches(
+                      PrefillBindingRole::kNvfp4Down,
+                      NativePrefillTactic::
+                          kNvfp4DownBranchP40VllmMarlinParity,
+                      &down->prefill_p40_vllm_marlin_parity,
+                      parity_reduction,
+                      kLayerMajorP40MarlinParityReductionWorkspaceBytes,
+                      kLayerMajorPrefillVllmMarlinParityTailSegmentTokens,
+                      kLayerMajorPrefillVllmMarlinParityFullSegmentTokens,
+                      parity_locks, kLayerMajorP40MarlinParityLockBytes,
+                      kLayerMajorPrefillPromptWideP40Tokens)
+        : any_packed_projection
             ? matches(
                   PrefillBindingRole::kNvfp4GateUp,
                   packed_nvfp4_v2
@@ -3899,6 +4430,15 @@ std::string_view ReferenceEnginePrefillExecutor::deployment_plan_id(
   }
   if (plan.projection_tactic_ ==
       LayerMajorPrefillProjectionTactic::
+          kNativePromptWideP40VllmMarlinParity) {
+    return plan.full_attention_tactic_ ==
+                   LayerMajorPrefillFullAttentionTactic::
+                       kNativeFlashInferExactWholePrompt
+               ? kLayerMajorNativePromptWideP40VllmMarlinParityDeploymentPlanId
+               : std::string_view{};
+  }
+  if (plan.projection_tactic_ ==
+      LayerMajorPrefillProjectionTactic::
           kNativePromptWideP40PackedNvfp4V2) {
     return plan.full_attention_tactic_ ==
                    LayerMajorPrefillFullAttentionTactic::
@@ -4043,6 +4583,10 @@ ReferenceWholeRequestPrefillOutcome ReferenceEnginePrefillExecutor::execute(
            LayerMajorPrefillProjectionTactic::
                kNativePromptWideP40PackedNvfp4V2 &&
        !complete_packed_nvfp4_v2_geometry(geometry)) ||
+      (plan.projection_tactic_ ==
+           LayerMajorPrefillProjectionTactic::
+               kNativePromptWideP40VllmMarlinParity &&
+       !complete_vllm_marlin_parity_geometry(geometry)) ||
       ((plan.mlp_schedule_tactic_ ==
             LayerMajorPrefillMlpScheduleTactic::kPromptWideP40WholeCore ||
         plan.mlp_schedule_tactic_ ==
@@ -4053,7 +4597,10 @@ ReferenceWholeRequestPrefillOutcome ReferenceEnginePrefillExecutor::execute(
                 kPromptWideP40PackedProjection ||
         plan.mlp_schedule_tactic_ ==
             LayerMajorPrefillMlpScheduleTactic::
-                kPromptWideP40PackedNvfp4V2) &&
+                kPromptWideP40PackedNvfp4V2 ||
+        plan.mlp_schedule_tactic_ ==
+            LayerMajorPrefillMlpScheduleTactic::
+                kPromptWideP40VllmMarlinParity) &&
        g_reference_engine_prefill_compatibility_oracle_for_test)) {
     return execution_failure("bound_prefill_execute_authority");
   }
