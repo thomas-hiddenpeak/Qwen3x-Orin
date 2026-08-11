@@ -331,6 +331,9 @@ ZMQ_UUID_TEXT_BYTES = 36
 VLLM_RPC_SOCKET_NAME = re.compile(
     r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 )
+DELETED_POSIX_SEMAPHORE = re.compile(
+    r"/dev/shm/sem\.[A-Za-z0-9_-]+ \(deleted\)"
+)
 
 PROMPT_TOKENS = 40_000
 OUTPUT_TOKENS = 1
@@ -1433,6 +1436,7 @@ def collect_server_process_tree_runtime(
             )
         loaded_records: list[dict[str, Any]] = []
         executable_cache_records: list[dict[str, Any]] = []
+        deleted_posix_semaphore_records: list[dict[str, Any]] = []
         for line in maps.splitlines():
             parts = line.split(maxsplit=5)
             if len(parts) < 5 or len(parts) == 5:
@@ -1445,7 +1449,26 @@ def collect_server_process_tree_runtime(
                 raise GeometryError(f"invalid mapped inode for pid {pid}") from error
             mapped_path = parts[5]
             if mapped_path.endswith(" (deleted)"):
-                raise GeometryError(f"vLLM maps a deleted file: pid={pid}, {mapped_path}")
+                if (
+                    permissions != "rw-s"
+                    or mapped_inode <= 0
+                    or DELETED_POSIX_SEMAPHORE.fullmatch(mapped_path) is None
+                ):
+                    raise GeometryError(
+                        f"vLLM maps a forbidden deleted file: pid={pid}, "
+                        f"permissions={permissions}, path={mapped_path}"
+                    )
+                deleted_posix_semaphore_records.append(
+                    {
+                        "path": mapped_path,
+                        "device": device_text,
+                        "inode": mapped_inode,
+                        "permissions": permissions,
+                        "executable": False,
+                        "kind": "unlinked_posix_semaphore",
+                    }
+                )
+                continue
             path = pathlib.Path(mapped_path)
             is_core_runtime = path.name in expected_runtime_names
             is_executable_cache = "x" in permissions and path_is_within(
@@ -1502,6 +1525,9 @@ def collect_server_process_tree_runtime(
                 "loaded_core_runtime_paths": loaded,
                 "loaded_core_runtime_mappings": loaded_records,
                 "executable_cache_mappings": executable_cache_records,
+                "deleted_posix_semaphore_mappings": (
+                    deleted_posix_semaphore_records
+                ),
                 "thread_count": len(thread_records),
                 "threads": thread_records,
             }
@@ -1544,6 +1570,7 @@ def server_process_tree_stability_key(receipt: Mapping[str, Any]) -> list[Any]:
                     "loaded_core_runtime_paths",
                     "loaded_core_runtime_mappings",
                     "executable_cache_mappings",
+                    "deleted_posix_semaphore_mappings",
                     "thread_count",
                     "threads",
                 )
@@ -2045,14 +2072,11 @@ def observe_server_log(path: pathlib.Path, budget: int) -> dict[str, Any]:
         raise GeometryError(f"vLLM log shows a forbidden route: {matched_forbidden}")
     required_probes = {
         "chunked_prefill": "enable_chunked_prefill=True",
-        "exact_macrochunk_budget": (
-            "Chunked prefill is enabled with "
-            f"max_num_batched_tokens={budget}."
-        ),
+        "exact_macrochunk_budget": f"'max_num_batched_tokens': {budget}",
         "prefix_cache_off": "enable_prefix_caching=False",
         "speculative_none": "speculative_config=None",
         "modelopt_quantization": "quantization=modelopt",
-        "flashinfer_attention": "Using FLASHINFER backend.",
+        "flashinfer_attention": "Using AttentionBackendEnum.FLASHINFER backend.",
         "triton_fla_gdn": "Using Triton/FLA GDN prefill kernel",
     }
     probe_hits = {name: value in text for name, value in required_probes.items()}

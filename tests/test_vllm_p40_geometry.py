@@ -312,6 +312,15 @@ class VllmP40GeometryTest(unittest.TestCase):
             "third_party/deep_gemm/__init__.py", GEOMETRY.VLLM_SOURCE_SHA256
         )
 
+    def test_only_unlinked_posix_semaphore_matches_deleted_mapping_rule(self) -> None:
+        accepted = "/dev/shm/sem.5zLMSe (deleted)"
+        self.assertIsNotNone(GEOMETRY.DELETED_POSIX_SEMAPHORE.fullmatch(accepted))
+        self.assertIsNone(
+            GEOMETRY.DELETED_POSIX_SEMAPHORE.fullmatch(
+                "/cache/kernel.so (deleted)"
+            )
+        )
+
     def test_measured_tegrastats_envelope_is_windowed_and_strict(self) -> None:
         cpu = ",".join(["0%@2201"] * 12)
         lines = [
@@ -491,8 +500,8 @@ class VllmP40GeometryTest(unittest.TestCase):
                 (
                     "speculative_config=None, quantization=modelopt,",
                     "enable_prefix_caching=False, enable_chunked_prefill=True,",
-                    "Chunked prefill is enabled with max_num_batched_tokens=8192.",
-                    "Using FLASHINFER backend.",
+                    "non-default args: {'max_num_batched_tokens': 8192}",
+                    "Using AttentionBackendEnum.FLASHINFER backend.",
                     "Using Triton/FLA GDN prefill kernel (requested=auto).",
                     "Avg prompt throughput: 4300.0 tokens/s,",
                 )
@@ -503,7 +512,11 @@ class VllmP40GeometryTest(unittest.TestCase):
             self.assertEqual(
                 observed["ten_second_logger_prompt_throughput_maximum"], 4300.0
             )
-            log.write_text(required.replace("Using FLASHINFER backend.\n", ""))
+            log.write_text(
+                required.replace(
+                    "Using AttentionBackendEnum.FLASHINFER backend.\n", ""
+                )
+            )
             with self.assertRaisesRegex(GEOMETRY.GeometryError, "route evidence"):
                 GEOMETRY.observe_server_log(log, 8_192)
             log.write_text(required + "\nUsing Humming")

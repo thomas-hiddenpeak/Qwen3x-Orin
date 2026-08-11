@@ -322,6 +322,11 @@ run validates non-GPU identities and prints the complete plan without
 starting a server or probing the CUDA device. The formal run requires a clean
 Git worktree and a previously unused output directory.
 
+Executable deleted mappings remain forbidden. The only deleted mapping class
+accepted from the vLLM process group is a non-executable `rw-s`
+`/dev/shm/sem.*` POSIX semaphore: each such mapping is retained in the runtime
+receipt and must remain stable across warmup and measurement.
+
 The vLLM ZeroMQ base is the shortest safe repository-local path: its complete
 UUID socket path is checked against the 107-byte Unix-domain limit. Each
 budget requires no stale UUID socket before startup, and after the owned
