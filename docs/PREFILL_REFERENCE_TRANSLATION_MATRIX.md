@@ -299,12 +299,28 @@ geometry study before native implementation:
 - JIT, kernel warmup, and deterministic tuning completed before timing;
 - exact backend, model, token count, route, cache, memory, and process
   identity retained; and
-- EvalScope performance CLI plus vLLM pure-Prefill telemetry kept as distinct
-  observables.
+- EvalScope TTFT plus vLLM's scheduled-to-first-token Prefill-phase telemetry
+  kept as distinct observables. The latter is not mislabeled as pure GPU
+  kernel time or as the logger's 10-second aggregate prompt throughput.
 
 This witness chooses service/macrochunk geometry and reconciles the owner's
 known vLLM behavior with the exact current configuration. It is not repeated
 for every Q3X change and does not select a Q3X production dependency.
+
+The locked launcher is
+[`run_vllm_p40_geometry.py`](../tools/evaluation/run_vllm_p40_geometry.py).
+It runs fresh stock-vLLM servers for budgets `2048`, `4096`, `8192`, and
+`40000`; uses distinct hash-pinned P40 warmup and measured token-ID corpora;
+pins EvalScope `1.9.1` in offline mode; and requires exact Prometheus deltas
+for one no-cache request. The formal path also pins the Orin/Torch/CUDA
+runtime, brackets its CUDA identity probe with clean-host admissions, audits
+the actual vLLM process group and loaded runtime libraries, and requires a
+measured-request `tegrastats` GPU/thermal envelope. Every generated cache,
+log, command receipt, metric snapshot, cleanup receipt, and result stays
+under `/.q3x-work/`; child processes receive a repository-local `HOME`. A dry
+run validates non-GPU identities and prints the complete plan without
+starting a server or probing the CUDA device. The formal run requires a clean
+Git worktree and a previously unused output directory.
 
 Before the run, the Jetson clean-host preflight must pass with `tegrastats`,
 CPU/process inspection, and GPU-device-handle ownership. If another workload

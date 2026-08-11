@@ -724,6 +724,16 @@ if(BUILD_TESTING)
       WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
     )
     add_test(
+      NAME vllm_p40_geometry_host
+      COMMAND "${CMAKE_COMMAND}" -E env "PYTHONDONTWRITEBYTECODE=1"
+              "${Python3_EXECUTABLE}" -m unittest
+              tests.test_vllm_p40_geometry
+    )
+    set_tests_properties(vllm_p40_geometry_host PROPERTIES
+      LABELS "evaluation;host;prefill"
+      WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    )
+    add_test(
       NAME evalscope_triplet_validator
       COMMAND "${CMAKE_COMMAND}" -E env "PYTHONDONTWRITEBYTECODE=1"
               "${Python3_EXECUTABLE}"
