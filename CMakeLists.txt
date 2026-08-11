@@ -94,6 +94,10 @@ option(Q3X_BUILD_P40_PACKED_NVFP4_V2_ADMISSION
   "Build the test-only shape-specific packed NVFP4 v2 execution route"
   OFF
 )
+option(Q3X_BUILD_P40_VLLM_MARLIN_PARITY_ADMISSION
+  "Build the test-only exact-P40000 vLLM-Marlin projection host-dispatch reference"
+  OFF
+)
 if(Q3X_BUILD_GDN_B8_ADMISSION AND NOT BUILD_TESTING)
   message(FATAL_ERROR
     "Q3X_BUILD_GDN_B8_ADMISSION is test-only and requires BUILD_TESTING=ON"
@@ -252,6 +256,18 @@ if(Q3X_BUILD_P40_PACKED_NVFP4_V2_ADMISSION AND
     "Q3X_BUILD_P40_PACKED_NVFP4_V2_ADMISSION requires the packed-v1 asset route and exact-P40000 whole-core substrate"
   )
 endif()
+if(Q3X_BUILD_P40_VLLM_MARLIN_PARITY_ADMISSION AND NOT BUILD_TESTING)
+  message(FATAL_ERROR
+    "Q3X_BUILD_P40_VLLM_MARLIN_PARITY_ADMISSION is test-only and requires BUILD_TESTING=ON"
+  )
+endif()
+if(Q3X_BUILD_P40_VLLM_MARLIN_PARITY_ADMISSION AND
+   (NOT Q3X_BUILD_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION OR
+    NOT Q3X_BUILD_NVFP4_MARLIN_PREFILL_ADMISSION))
+  message(FATAL_ERROR
+    "Q3X_BUILD_P40_VLLM_MARLIN_PARITY_ADMISSION requires the exact-P40000 whole-core substrate and canonical NVFP4 Marlin inventory"
+  )
+endif()
 if((Q3X_BUILD_GDN_B8_ADMISSION AND
     Q3X_BUILD_GDN_C16_NORM_GATE_ADMISSION) OR
    (Q3X_BUILD_GDN_B8_ADMISSION AND
@@ -369,6 +385,14 @@ if(Q3X_BUILD_P40_PACKED_NVFP4_V2_ADMISSION)
   # v14 witness. Keep admission consistent across planner/runner/engine/tests.
   target_compile_definitions(q3x_core PUBLIC
     Q3X_ENABLE_P40_PACKED_NVFP4_V2_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_P40_VLLM_MARLIN_PARITY_ADMISSION)
+  # Keep the plan, workspace, runner, authority, and host witnesses on one
+  # default-off admission bit.  The CUDA implementation has a separate
+  # private definition below so default builds do not acquire the kernels.
+  target_compile_definitions(q3x_core PUBLIC
+    Q3X_ENABLE_P40_VLLM_MARLIN_PARITY_ADMISSION=1
   )
 endif()
 q3x_enable_warnings(q3x_core)
@@ -520,6 +544,14 @@ if(Q3X_BUILD_P40_PACKED_NVFP4_V2_ADMISSION)
   )
   target_compile_definitions(q3x_kernels PRIVATE
     Q3X_ENABLE_P40_PACKED_NVFP4_V2_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_P40_VLLM_MARLIN_PARITY_ADMISSION)
+  target_sources(q3x_kernels PRIVATE
+    src/kernels/sm87/nvfp4_marlin_p40_parity.cu
+  )
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_NVFP4_MARLIN_P40_PARITY_ADMISSION=1
   )
 endif()
 if(Q3X_BUILD_FP8_MARLIN_PREFILL_ADMISSION)
@@ -926,6 +958,38 @@ if(BUILD_TESTING)
     )
     set_tests_properties(sm87_p40_packed_nvfp4_v2_cuda PROPERTIES
       LABELS "cuda;sm87;prefill;correctness;packed;v2"
+      SKIP_RETURN_CODE 77
+      RESOURCE_LOCK q3x_gpu
+    )
+  endif()
+
+  if(Q3X_BUILD_P40_VLLM_MARLIN_PARITY_ADMISSION)
+    add_executable(q3x_sm87_nvfp4_marlin_p40_parity_host_test
+      tests/sm87_nvfp4_marlin_p40_parity_host_test.cpp
+    )
+    target_link_libraries(q3x_sm87_nvfp4_marlin_p40_parity_host_test
+      PRIVATE q3x::kernels
+    )
+    q3x_enable_warnings(q3x_sm87_nvfp4_marlin_p40_parity_host_test)
+    add_test(NAME sm87_nvfp4_marlin_p40_parity_host
+      COMMAND q3x_sm87_nvfp4_marlin_p40_parity_host_test
+    )
+    set_tests_properties(sm87_nvfp4_marlin_p40_parity_host PROPERTIES
+      LABELS "host;sm87;prefill;contract;parity;default_off"
+    )
+
+    add_executable(q3x_sm87_nvfp4_marlin_p40_parity_cuda_test
+      tests/sm87_nvfp4_marlin_p40_parity_cuda_test.cu
+    )
+    target_link_libraries(q3x_sm87_nvfp4_marlin_p40_parity_cuda_test
+      PRIVATE q3x::kernels CUDA::cudart
+    )
+    q3x_enable_warnings(q3x_sm87_nvfp4_marlin_p40_parity_cuda_test)
+    add_test(NAME sm87_nvfp4_marlin_p40_parity_cuda
+      COMMAND q3x_sm87_nvfp4_marlin_p40_parity_cuda_test
+    )
+    set_tests_properties(sm87_nvfp4_marlin_p40_parity_cuda PROPERTIES
+      LABELS "cuda;sm87;prefill;topology;parity;default_off"
       SKIP_RETURN_CODE 77
       RESOURCE_LOCK q3x_gpu
     )

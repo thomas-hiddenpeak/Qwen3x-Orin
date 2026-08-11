@@ -86,6 +86,12 @@ enum class LayerMajorRequestMlpLayout : std::uint8_t {
     // one disjoint normalized-input span are sufficient because GateUp fuses
     // SiLU and Down publishes directly into the request residual.
     kLayerWideP40PersistentTwoSpan,
+    // Default-off stock-vLLM-Marlin parity layout for exact P40000. One
+    // canonical token-major [M,34816] GateThenUp output and one independent
+    // [M,17408] activated output are materialized. Both projection temporary
+    // regions alias one sequentially reused Ctmp+locks span; only the legacy
+    // Gate/Up matrix views are empty.
+    kLayerWideP40MarlinParityMergedGateUp,
 };
 
 // Orthogonal to the MLP lifetime choice.  The old profile remains a C8192
@@ -256,9 +262,14 @@ struct LayerMajorAttentionPhaseRegions {
 };
 
 struct LayerMajorMlpPhaseRegions {
-    // The fused G2 route publishes activated BF16 here.  It may not publish
-    // into activated_bf16 because that span aliases normalized_input_bf16
-    // until Gate/Up has consumed every input row.
+    // Present only for the exact-P40000 Marlin-parity layout. It is one
+    // token-major [40000,34816] row-major tensor with per-token columns
+    // [Gate(17408), Up(17408)]. Every other layout leaves it empty.
+    RequestMatrixRegion merged_gate_up_bf16;
+    // Panel-local layouts expose independent Gate/Up matrices. Persistent
+    // fused layouts retain their historical aliases. Marlin parity leaves
+    // both legacy halves empty so tensor-major storage cannot masquerade as
+    // its canonical per-token GateThenUp publication.
     RequestMatrixRegion gate_bf16;                // [8192, 17408]
     RequestMatrixRegion up_bf16;                  // [8192, 17408]
     RequestMatrixRegion activated_bf16;           // [8192, 17408]
@@ -266,9 +277,9 @@ struct LayerMajorMlpPhaseRegions {
     // must die after Gate/Up projection, before SiLU writes activation. This
     // is not a row-prefix alias.
     RequestMatrixRegion normalized_input_bf16;
-    // One subrange is sufficient only for serialized Gate/Up projections or
-    // one fused-pair launch. Legacy dual-stream use is forbidden until a
-    // different physical plan is selected and bound.
+    // Marlin projection parity aliases GateUp and Down to one sequentially
+    // reused Ctmp+locks region. Other layouts retain their established
+    // semantics.
     RequestRegion gate_up_projection_temporary;
     RequestMatrixRegion branch_output_bf16;       // dead Up contiguous span
     RequestRegion down_projection_temporary;      // dead Gate contiguous span
@@ -483,6 +494,7 @@ struct LayerMajorAttentionPhaseViews {
 };
 
 struct LayerMajorMlpPhaseViews {
+    DeviceMatrixView merged_gate_up_bf16;
     DeviceMatrixView gate_bf16;
     DeviceMatrixView up_bf16;
     DeviceMatrixView activated_bf16;

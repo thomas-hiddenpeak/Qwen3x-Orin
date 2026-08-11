@@ -33,6 +33,18 @@ class TestContext {
          std::string_view(outcome.status.operation) == expected;
 }
 
+[[nodiscard]] bool empty_region(
+    const runtime::RequestRegion& region) noexcept {
+  return region.arena_offset == 0U && region.byte_size == 0U &&
+         region.element_capacity == 0U && region.element_size_bytes == 0U;
+}
+
+[[nodiscard]] bool empty_matrix(
+    const runtime::RequestMatrixRegion& matrix) noexcept {
+  return empty_region(matrix.storage) && matrix.row_capacity == 0U &&
+         matrix.columns == 0U && matrix.row_stride_elements == 0U;
+}
+
 void test_descriptor_target_profiles(TestContext& test) {
   constexpr std::array<std::uint64_t, 6U> kSequenceCapacities{
       1U, 40'000U, 40'001U, 60'000U, 130'000U,
@@ -89,6 +101,7 @@ void test_descriptor_target_profiles(TestContext& test) {
             descriptor.gdn.recurrent_core_bf16.columns == 6'144U &&
             descriptor.attention.raw_q_gate_bf16.columns == 12'288U &&
             descriptor.attention.processed_q_bf16.columns == 6'144U &&
+            empty_matrix(descriptor.mlp.merged_gate_up_bf16) &&
             descriptor.mlp.gate_bf16.columns == 17'408U &&
             descriptor.mlp.activated_bf16.columns == 17'408U &&
             descriptor.mlp.normalized_input_bf16.columns == 5'120U,
@@ -119,6 +132,113 @@ void test_descriptor_target_profiles(TestContext& test) {
                     kSeparateGateUpAndSilu,
         "descriptor binds only the fixed physical tactic identities");
   }
+}
+
+void test_p40_marlin_parity_descriptor(TestContext& test) {
+  runtime::LayerMajorRequestMemoryOptions options;
+  options.max_sequence_length =
+      runtime::kLayerMajorP40WholeCoreRequestCapacityTokens;
+  options.layout =
+      runtime::LayerMajorRequestLayout::kP40WholeCorePromptWide;
+  options.mlp_layout = runtime::LayerMajorRequestMlpLayout::
+                           kLayerWideP40MarlinParityMergedGateUp;
+  const runtime::LayerMajorRequestPlanResult planned =
+      runtime::build_layer_major_request_memory_plan(options);
+  if (!runtime::prompt_wide_p40_whole_core_prefill_plan_enabled() ||
+      !runtime::
+          prompt_wide_p40_vllm_marlin_parity_prefill_plan_enabled()) {
+    test.expect(!planned,
+                "old P40 admissions do not enable the parity layout");
+    return;
+  }
+  test.expect(planned.ok(), "P40 Marlin-parity descriptor source plan builds");
+  if (!planned) {
+    return;
+  }
+
+  const runtime::LayerMajorRequestMemoryPlan baseline = *planned.value;
+  const runtime::ReferenceLayerMajorRequestDescriptorOutcome described =
+      runtime::build_reference_layer_major_candidate_binding_descriptor(
+          baseline);
+  test.expect(
+      described &&
+          described.value->profile ==
+              runtime::RequestMemoryProfile::kLayerMajorP40WholeCore &&
+          described.value->mlp_layout == runtime::LayerMajorRequestMlpLayout::
+                                              kLayerWideP40MarlinParityMergedGateUp &&
+          described.value->mlp_tactic == runtime::PrefillMlpPhysicalTactic::
+                                              kLayerWideP40MarlinParityMergedGateUp &&
+          described.value->mlp.merged_gate_up_bf16.storage.arena_offset ==
+              baseline.p40_whole_core.family_phase_arena.arena_offset +
+                  runtime::kLayerMajorP40MarlinParityMergedGateUpOffset &&
+          described.value->mlp.merged_gate_up_bf16.row_capacity == 40'000U &&
+          described.value->mlp.merged_gate_up_bf16.columns == 34'816U &&
+          described.value->mlp.merged_gate_up_bf16.row_stride_elements ==
+              34'816U &&
+          described.value->mlp.merged_gate_up_bf16.storage.byte_size ==
+              2'785'280'000U &&
+          empty_matrix(described.value->mlp.gate_bf16) &&
+          empty_matrix(described.value->mlp.up_bf16) &&
+          described.value->mlp.activated_bf16.storage.arena_offset ==
+              baseline.p40_whole_core.family_phase_arena.arena_offset +
+                  runtime::kLayerMajorP40MarlinParityActivatedOffset &&
+          described.value->mlp.activated_bf16.storage.byte_size ==
+              1'392'640'000U &&
+          described.value->mlp.gate_up_projection_temporary.arena_offset ==
+              baseline.p40_whole_core.family_phase_arena.arena_offset +
+                  runtime::kLayerMajorP40MarlinParityTemporaryOffset &&
+          described.value->mlp.gate_up_projection_temporary.byte_size ==
+              runtime::kLayerMajorP40MarlinParityTemporaryBytes &&
+          described.value->mlp.down_projection_temporary.arena_offset ==
+              described.value->mlp.gate_up_projection_temporary.arena_offset &&
+          described.value->mlp.down_projection_temporary.byte_size ==
+              described.value->mlp.gate_up_projection_temporary.byte_size,
+      "descriptor preserves the distinct parity tactic and exact typed views");
+
+  runtime::LayerMajorRequestMemoryOptions v10_options = options;
+  v10_options.mlp_layout =
+      runtime::LayerMajorRequestMlpLayout::kLayerWideP40PersistentTwoSpan;
+  const runtime::LayerMajorRequestPlanResult v10_plan =
+      runtime::build_layer_major_request_memory_plan(v10_options);
+  test.expect(
+      v10_plan &&
+          runtime::build_reference_layer_major_candidate_binding_descriptor(
+              *v10_plan.value),
+      "existing v10 whole-core two-span descriptor remains independently valid");
+
+  runtime::LayerMajorRequestMemoryPlan candidate = baseline;
+  candidate.mlp.up_bf16.storage.arena_offset +=
+      runtime::kRequestArenaAlignment;
+  runtime::ReferenceLayerMajorRequestDescriptorOutcome rejected =
+      runtime::build_reference_layer_major_candidate_binding_descriptor(
+          candidate);
+  test.expect(!rejected && operation_is(rejected, "layer_major_mlp_views"),
+              "non-empty legacy parity Up view fails closed");
+
+  candidate = baseline;
+  candidate.mlp.down_projection_temporary.arena_offset +=
+      runtime::kRequestArenaAlignment;
+  rejected = runtime::build_reference_layer_major_candidate_binding_descriptor(
+      candidate);
+  test.expect(!rejected && operation_is(rejected, "layer_major_mlp_views"),
+              "parity rejects a Down temporary that no longer aliases GateUp");
+
+  candidate = baseline;
+  --candidate.mlp.merged_gate_up_bf16.row_stride_elements;
+  rejected = runtime::build_reference_layer_major_candidate_binding_descriptor(
+      candidate);
+  test.expect(!rejected && operation_is(rejected, "layer_major_mlp_views"),
+              "noncanonical parity GateThenUp row stride fails closed");
+
+  candidate = baseline;
+  candidate.mlp_tactic =
+      runtime::PrefillMlpPhysicalTactic::kLayerWideP40PersistentFusedGateUp;
+  rejected = runtime::build_reference_layer_major_candidate_binding_descriptor(
+      candidate);
+  test.expect(
+      !rejected &&
+          operation_is(rejected, "layer_major_physical_tactic_identity"),
+      "parity layout cannot be relabeled as the v10 persistent tactic");
 }
 
 void test_descriptor_fails_closed_by_family(TestContext& test) {
@@ -364,6 +484,7 @@ void test_collector_profile_gate_is_host_only(TestContext& test) {
 int main() {
   TestContext test;
   test_descriptor_target_profiles(test);
+  test_p40_marlin_parity_descriptor(test);
   test_descriptor_fails_closed_by_family(test);
   test_collector_profile_gate_is_host_only(test);
   if (test.failures() != 0) {

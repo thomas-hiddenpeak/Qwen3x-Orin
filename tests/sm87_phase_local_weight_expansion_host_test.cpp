@@ -179,6 +179,19 @@ static_assert(std::is_same_v<
       (bits + 0x0000'7fffU + ((bits >> 16U) & 1U)) >> 16U);
 }
 
+[[nodiscard]] std::uint32_t float_bits(const float value) noexcept {
+  std::uint32_t bits = 0U;
+  std::memcpy(&bits, &value, sizeof(bits));
+  return bits;
+}
+
+[[nodiscard]] float bf16_bits_to_float(const std::uint16_t value) noexcept {
+  const std::uint32_t bits = static_cast<std::uint32_t>(value) << 16U;
+  float result = 0.0F;
+  std::memcpy(&result, &bits, sizeof(result));
+  return result;
+}
+
 [[nodiscard]] bool check(const bool condition, const char* const message) {
   if (!condition) {
     std::cerr << message << '\n';
@@ -226,6 +239,32 @@ static_assert(std::is_same_v<
   return true;
 }
 
+[[nodiscard]] bool exhaustive_finite_nvfp4_products_are_exact_bf16() {
+  std::size_t finite_scale_count = 0U;
+  std::size_t finite_product_count = 0U;
+  for (unsigned int scale = 0U; scale < 256U; ++scale) {
+    const float scale_value = q3x::quantization::decode_e4m3fn(
+        static_cast<std::uint8_t>(scale));
+    if (!std::isfinite(scale_value)) {
+      continue;
+    }
+    ++finite_scale_count;
+    for (unsigned int nibble = 0U; nibble < 16U; ++nibble) {
+      const float product = q3x::quantization::decode_e2m1(
+                                static_cast<std::uint8_t>(nibble)) *
+                            scale_value;
+      const float bf16_product = bf16_bits_to_float(bf16_rne_bits(product));
+      if (float_bits(product) != float_bits(bf16_product)) {
+        return false;
+      }
+      ++finite_product_count;
+    }
+  }
+  return finite_scale_count == 254U && finite_product_count == 4'064U &&
+         !std::isfinite(q3x::quantization::decode_e4m3fn(0x7fU)) &&
+         !std::isfinite(q3x::quantization::decode_e4m3fn(0xffU));
+}
+
 [[nodiscard]] bool global_scale_is_not_baked() {
   constexpr std::uint8_t kOneE2M1 = 0x02U;
   constexpr std::uint8_t kOneE4M3 = 0x38U;
@@ -250,6 +289,8 @@ int main() {
               "all 256 E4M3FN codes must match the audited decoder");
   ok &= check(exhaustive_nvfp4_decode_matches(),
               "all 16 E2M1 codes x 256 E4M3FN scales must match");
+  ok &= check(exhaustive_finite_nvfp4_products_are_exact_bf16(),
+              "every finite E2M1 x E4M3FN product must be exactly BF16");
   ok &= check(global_scale_is_not_baked(),
               "phase-local expansion must preserve the FP32 global scale");
   ok &= check(q3x::kernels::

@@ -72,6 +72,16 @@ constexpr std::uint64_t kProjectionTemporaryBytes = 1'048'832U;
          left.element_size_bytes == right.element_size_bytes;
 }
 
+[[nodiscard]] bool empty_region(const RequestRegion& region) noexcept {
+  return region.arena_offset == 0U && region.byte_size == 0U &&
+         region.element_capacity == 0U && region.element_size_bytes == 0U;
+}
+
+[[nodiscard]] bool empty_matrix(const RequestMatrixRegion& matrix) noexcept {
+  return empty_region(matrix.storage) && matrix.row_capacity == 0U &&
+         matrix.columns == 0U && matrix.row_stride_elements == 0U;
+}
+
 [[nodiscard]] bool region_end(const RequestRegion& region,
                               std::uint64_t& end) noexcept {
   return checked_add(region.arena_offset, region.byte_size, end);
@@ -390,6 +400,11 @@ constexpr std::uint64_t kProjectionTemporaryBytes = 1'048'832U;
 
 [[nodiscard]] bool validate_p40_whole_core_regions(
     const LayerMajorRequestMemoryPlan& plan) noexcept {
+  const bool valid_p40_mlp_layout =
+      plan.mlp_layout ==
+          LayerMajorRequestMlpLayout::kLayerWideP40PersistentTwoSpan ||
+      plan.mlp_layout == LayerMajorRequestMlpLayout::
+                             kLayerWideP40MarlinParityMergedGateUp;
   if (plan.layout != LayerMajorRequestLayout::kP40WholeCorePromptWide ||
       plan.common.profile != RequestMemoryProfile::kLayerMajorP40WholeCore ||
       plan.common.max_sequence_length !=
@@ -397,8 +412,7 @@ constexpr std::uint64_t kProjectionTemporaryBytes = 1'048'832U;
       plan.operator_panel_capacity_tokens !=
           kLayerMajorP40WholeCorePanelTokens ||
       plan.mlp_capacity_tokens != kLayerMajorP40WholeCorePromptTokens ||
-      plan.mlp_layout !=
-          LayerMajorRequestMlpLayout::kLayerWideP40PersistentTwoSpan ||
+      !valid_p40_mlp_layout ||
       plan.common.arena_bytes != 8'640'542'976U) {
     return false;
   }
@@ -417,7 +431,8 @@ constexpr std::uint64_t kProjectionTemporaryBytes = 1'048'832U;
       whole.logical_panel_capacity_tokens !=
           kLayerMajorP40WholeCorePanelTokens ||
       whole.logical_panel_count != kLayerMajorP40WholeCorePanelCount ||
-      !valid_byte_region(family, 5'429'760'000U, arena_bytes) ||
+      !valid_byte_region(family, kLayerMajorP40WholeCoreFamilyArenaBytes,
+                         arena_bytes) ||
       !contiguous(plan.prompt_residual_bf16.storage, family)) {
     return false;
   }
@@ -519,23 +534,86 @@ constexpr std::uint64_t kProjectionTemporaryBytes = 1'048'832U;
     const LayerMajorRequestMemoryPlan& plan) noexcept {
   const std::uint32_t rows = plan.mlp_capacity_tokens;
   const std::uint64_t arena_bytes = plan.common.arena_bytes;
+  const bool whole_core_p40 =
+      plan.layout == LayerMajorRequestLayout::kP40WholeCorePromptWide;
+  const bool marlin_parity =
+      whole_core_p40 &&
+      plan.mlp_layout == LayerMajorRequestMlpLayout::
+                             kLayerWideP40MarlinParityMergedGateUp;
   const RequestRegion& family =
-      plan.layout == LayerMajorRequestLayout::kP40WholeCorePromptWide
+      whole_core_p40
           ? plan.p40_whole_core.family_phase_arena
           : plan.c8192_family_phase_arena;
   const LayerMajorMlpPhaseRegions& mlp = plan.mlp;
-  if (!valid_exact_matrix(mlp.gate_bf16, rows, 17'408U, 17'408U,
-                          kBf16Bytes, arena_bytes) ||
-      !valid_exact_matrix(mlp.up_bf16, rows, 17'408U, 17'408U,
-                          kBf16Bytes, arena_bytes) ||
-      !valid_exact_matrix(mlp.activated_bf16, rows, 17'408U, 17'408U,
+  if (!valid_exact_matrix(mlp.activated_bf16, rows, 17'408U, 17'408U,
                           kBf16Bytes, arena_bytes) ||
       !valid_exact_matrix(mlp.normalized_input_bf16, rows, 5'120U, 5'120U,
                           kBf16Bytes, arena_bytes) ||
+      !valid_exact_matrix(mlp.branch_output_bf16, rows, 5'120U, 5'120U,
+                          kBf16Bytes, arena_bytes)) {
+    return false;
+  }
+
+  if (marlin_parity) {
+    if (!valid_exact_matrix(
+            mlp.merged_gate_up_bf16, rows,
+            kLayerMajorP40MarlinParityMergedGateUpFeatures,
+            kLayerMajorP40MarlinParityMergedGateUpRowStrideElements,
+            kBf16Bytes, arena_bytes) ||
+        !empty_matrix(mlp.gate_bf16) || !empty_matrix(mlp.up_bf16) ||
+        !valid_byte_region(mlp.gate_up_projection_temporary,
+                           kProjectionTemporaryBytes, arena_bytes) ||
+        !valid_byte_region(mlp.down_projection_temporary,
+                           kProjectionTemporaryBytes, arena_bytes)) {
+      return false;
+    }
+    const std::array<RequestRegion, 6U> regions{
+        mlp.merged_gate_up_bf16.storage,
+        mlp.activated_bf16.storage,
+        mlp.gate_up_projection_temporary,
+        mlp.down_projection_temporary,
+        mlp.normalized_input_bf16.storage,
+        mlp.branch_output_bf16.storage};
+    for (const RequestRegion& region : regions) {
+      if (!contains(family, region)) {
+        return false;
+      }
+    }
+    std::uint64_t activated_end = 0U;
+    return rows == kLayerMajorP40WholeCorePromptTokens &&
+           mlp.merged_gate_up_bf16.storage.arena_offset ==
+               family.arena_offset +
+                   kLayerMajorP40MarlinParityMergedGateUpOffset &&
+           mlp.activated_bf16.storage.arena_offset ==
+               family.arena_offset +
+                   kLayerMajorP40MarlinParityActivatedOffset &&
+           mlp.gate_up_projection_temporary.arena_offset ==
+               family.arena_offset +
+                   kLayerMajorP40MarlinParityTemporaryOffset &&
+           mlp.down_projection_temporary.arena_offset ==
+               mlp.gate_up_projection_temporary.arena_offset &&
+           mlp.normalized_input_bf16.storage.arena_offset ==
+               family.arena_offset +
+                   kLayerMajorP40MarlinParityNormalizedOffset &&
+           mlp.branch_output_bf16.storage.arena_offset ==
+               mlp.normalized_input_bf16.storage.arena_offset &&
+           contiguous(mlp.merged_gate_up_bf16.storage,
+                      mlp.activated_bf16.storage) &&
+           region_end(mlp.activated_bf16.storage, activated_end) &&
+           activated_end ==
+               mlp.gate_up_projection_temporary.arena_offset &&
+           mlp.gate_up_projection_temporary.arena_offset +
+                   mlp.gate_up_projection_temporary.byte_size <=
+               mlp.normalized_input_bf16.storage.arena_offset;
+  }
+
+  if (!empty_matrix(mlp.merged_gate_up_bf16) ||
+      !valid_exact_matrix(mlp.gate_bf16, rows, 17'408U, 17'408U,
+                          kBf16Bytes, arena_bytes) ||
+      !valid_exact_matrix(mlp.up_bf16, rows, 17'408U, 17'408U,
+                          kBf16Bytes, arena_bytes) ||
       !valid_byte_region(mlp.gate_up_projection_temporary,
                          kProjectionTemporaryBytes, arena_bytes) ||
-      !valid_exact_matrix(mlp.branch_output_bf16, rows, 5'120U, 5'120U,
-                          kBf16Bytes, arena_bytes) ||
       !valid_byte_region(mlp.down_projection_temporary,
                          kProjectionTemporaryBytes, arena_bytes)) {
     return false;
@@ -553,21 +631,24 @@ constexpr std::uint64_t kProjectionTemporaryBytes = 1'048'832U;
       return false;
     }
   }
-  if (plan.layout ==
-      LayerMajorRequestLayout::kP40WholeCorePromptWide) {
-    return plan.mlp_layout ==
-               LayerMajorRequestMlpLayout::kLayerWideP40PersistentTwoSpan &&
-           rows == kLayerMajorP40WholeCorePromptTokens &&
-           mlp.gate_bf16.storage.arena_offset == family.arena_offset &&
-           mlp.up_bf16.storage.arena_offset == family.arena_offset &&
-           mlp.activated_bf16.storage.arena_offset == family.arena_offset &&
-           mlp.normalized_input_bf16.storage.arena_offset ==
-               plan.p40_whole_core.linear.output_bf16.storage.arena_offset &&
-           mlp.branch_output_bf16.storage.arena_offset ==
-               mlp.normalized_input_bf16.storage.arena_offset &&
-           mlp.gate_up_projection_temporary.arena_offset ==
-               plan.p40_whole_core.linear.prompt_wide_workspace.arena_offset &&
-           mlp.down_projection_temporary.arena_offset == family.arena_offset;
+  if (whole_core_p40) {
+    if (rows != kLayerMajorP40WholeCorePromptTokens ||
+        mlp.normalized_input_bf16.storage.arena_offset !=
+            plan.p40_whole_core.linear.output_bf16.storage.arena_offset ||
+        mlp.branch_output_bf16.storage.arena_offset !=
+            mlp.normalized_input_bf16.storage.arena_offset) {
+      return false;
+    }
+    if (plan.mlp_layout ==
+        LayerMajorRequestMlpLayout::kLayerWideP40PersistentTwoSpan) {
+      return mlp.gate_bf16.storage.arena_offset == family.arena_offset &&
+             mlp.up_bf16.storage.arena_offset == family.arena_offset &&
+             mlp.activated_bf16.storage.arena_offset == family.arena_offset &&
+             mlp.gate_up_projection_temporary.arena_offset ==
+                 plan.p40_whole_core.linear.prompt_wide_workspace.arena_offset &&
+             mlp.down_projection_temporary.arena_offset == family.arena_offset;
+    }
+    return false;
   }
   if (plan.mlp_layout ==
       LayerMajorRequestMlpLayout::kLayerWideP40PersistentTwoSpan) {
@@ -693,6 +774,11 @@ constexpr std::uint64_t kProjectionTemporaryBytes = 1'048'832U;
 [[nodiscard]] bool buffer_view_matches(
     const DeviceBufferView& view, const RequestRegion& region,
     const std::uintptr_t arena_identity) noexcept {
+  if (empty_region(region)) {
+    return view.device_data == nullptr && view.arena_offset == 0U &&
+           view.byte_size == 0U && view.element_capacity == 0U &&
+           view.element_size_bytes == 0U;
+  }
   if (view.device_data == nullptr ||
       view.arena_offset != region.arena_offset ||
       view.byte_size != region.byte_size ||
@@ -709,6 +795,11 @@ constexpr std::uint64_t kProjectionTemporaryBytes = 1'048'832U;
 [[nodiscard]] bool const_buffer_view_matches(
     const ConstDeviceBufferView& view, const RequestRegion& region,
     const std::uintptr_t arena_identity) noexcept {
+  if (empty_region(region)) {
+    return view.device_data == nullptr && view.arena_offset == 0U &&
+           view.byte_size == 0U && view.element_capacity == 0U &&
+           view.element_size_bytes == 0U;
+  }
   if (view.device_data == nullptr ||
       view.arena_offset != region.arena_offset ||
       view.byte_size != region.byte_size ||
@@ -807,7 +898,10 @@ constexpr std::uint64_t kProjectionTemporaryBytes = 1'048'832U;
     const LayerMajorMlpPhaseViews& views,
     const LayerMajorMlpPhaseRegions& regions,
     const std::uintptr_t arena_identity) noexcept {
-  return matrix_view_matches(views.gate_bf16, regions.gate_bf16,
+  return matrix_view_matches(views.merged_gate_up_bf16,
+                             regions.merged_gate_up_bf16,
+                             arena_identity) &&
+         matrix_view_matches(views.gate_bf16, regions.gate_bf16,
                              arena_identity) &&
          matrix_view_matches(views.up_bf16, regions.up_bf16,
                              arena_identity) &&
@@ -942,10 +1036,14 @@ build_reference_layer_major_candidate_binding_descriptor(
                     kLayerMajorP40WholeCoreRequestCapacityTokens &&
                 plan.mlp_capacity_tokens ==
                     kLayerMajorP40WholeCorePromptTokens &&
-                plan.mlp_layout == LayerMajorRequestMlpLayout::
-                                       kLayerWideP40PersistentTwoSpan &&
-                plan.mlp_tactic == PrefillMlpPhysicalTactic::
-                                       kLayerWideP40PersistentFusedGateUp &&
+                ((plan.mlp_layout == LayerMajorRequestMlpLayout::
+                                         kLayerWideP40PersistentTwoSpan &&
+                  plan.mlp_tactic == PrefillMlpPhysicalTactic::
+                                         kLayerWideP40PersistentFusedGateUp) ||
+                 (plan.mlp_layout == LayerMajorRequestMlpLayout::
+                                         kLayerWideP40MarlinParityMergedGateUp &&
+                  plan.mlp_tactic == PrefillMlpPhysicalTactic::
+                                         kLayerWideP40MarlinParityMergedGateUp)) &&
                 plan.scratch_strategy == PrefillOperatorScratchStrategy::
                                              kP40WholeCorePromptWideWithDisjointLegacyC512 &&
                 plan.gdn_tactic == PrefillGdnPhysicalTactic::

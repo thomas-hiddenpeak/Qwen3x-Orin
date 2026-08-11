@@ -6982,6 +6982,8 @@ ReferenceRunner::enqueue_prefill_layer_panel(
               kNativePromptWideP40PackedProjection:
           case LayerMajorPrefillProjectionTactic::
               kNativePromptWideP40PackedNvfp4V2:
+          case LayerMajorPrefillProjectionTactic::
+              kNativePromptWideP40VllmMarlinParity:
             // This helper is never part of the whole-core route. The latter
             // binds its explicit M8000 primitive before entering this legacy
             // panel executor.

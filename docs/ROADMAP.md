@@ -494,7 +494,8 @@ successor activation.
   without a parameter scan. Its default-off implementation remains
   correctness/forensic evidence and does not unblock accuracy repetition,
   P60/P130, Attention, or GDN promotion.
-- **WP-P40-VLLM-MARLIN-PARITY-v1 — active source-parity architecture:**
+- **WP-P40-VLLM-MARLIN-PARITY-v1 — source schedule mapped, default-off
+  projection reference implemented, production route incomplete:**
   reconstruct the actual stock-vLLM W4A16 Marlin route as the execution
   specification, then translate it into the native runner without a vLLM
   runtime dependency. Freeze v10 FP8, Attention, GDN, API, memory, and
@@ -506,11 +507,20 @@ successor activation.
   epilogues, and from v2's 3,124,992-CTA full-grid mapping. Gate and Up may
   share A and column composition only with independent accumulators, scales,
   and BF16 publications; Down residual remains after Down BF16 publication.
-  Stock part-2 split-K changes FP32 accumulation order, so the first
-  production-eligible candidate must assign every tail output tile to one
-  full-K CTA. An unmodified split-K reference may remain accuracy-unqualified
-  evidence but cannot silently enter the production contract. Return the
-  complete 64-layer NVFP4 replacement directly to the same real-checkpoint,
+  The pinned vLLM 0.26 host schedule is exactly 39 M1024 full-K launches plus
+  one M64 `LegacyStripe` split-K launch per projection. The M64 tail splits
+  8/136 GateUp or 12/20 Down output tiles two ways and reduces through a
+  1-MiB FP32 Ctmp plus 16 ordered locks. Replacing that tail with a full-K
+  raster changes FP32 parenthesization and is therefore a different candidate,
+  not stock parity. The default-off native projection reference now preserves
+  the stock split tail, canonical per-token GateThenUp rows, BF16 publication,
+  and standalone SiLU/Down-residual boundaries. It remains accuracy-
+  unqualified and is not connected to the production runner. Its current CUDA
+  witness is launch/capture topology only, not a numerical or SASS
+  differential. Route integration must bind typed Ctmp/lock subviews and place
+  the one request-level lock clear after the final old alias writer and before
+  the first M64 tail. The next decision unit must connect the complete 64-layer
+  NVFP4 replacement to the same real-checkpoint,
   cold/no-cache P40 OpenAI API + EvalScope one-request gate against v10. A
   negative result closes the parity skeleton; a positive result earns full
   state/accuracy qualification and then composes immediately into a
@@ -525,6 +535,19 @@ successor activation.
   cannot remove the order-of-magnitude dense work, and zero skipping would
   still need special-value equivalence. Do not build or benchmark a sparse
   successor for this checkpoint.
+- **Terminal-layer exact liveness deletion — designed, not implemented:**
+  layer 63 must still publish full-prompt K/V for Decode, but the ordinary
+  next-token API observes only the last prompt row after that boundary.
+  Full-prompt Q/gate, causal Attention/O and MLP work for earlier rows is dead
+  and may be omitted without approximation. At P40 the ledger removes about
+  24.3T MAC / 48.6T conventional operations. Relative to all projection work
+  plus the 16 full-Attention layers' causal QK/PV work
+  (`2,262,625,157,120,000` operations, excluding softmax, norm and GDN), this
+  is about 2.15%. Implement it under an independent terminal-
+  layer tactic, progress transition, M1 receipts and a liveness oracle that
+  compares complete K/V plus the last hidden/logits. It is a certain exact
+  system gain to compose with the successor, not the complete 4.3K solution
+  and not a reason to resume low-yield local scanning.
 - **WP-P40-EXACT-GDN-v1 — prompt-wide recurrent and BF16 path — designed,
   blocked behind a positive replacement projection architecture:** submit one panel's C64
   hierarchy as one GDN work graph, expose chunk-local KKT/WY work in parallel,

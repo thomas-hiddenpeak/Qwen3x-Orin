@@ -488,6 +488,46 @@ void test_layer_wide_p40_mlp_memory_plan(TestContext& test) {
       "P40 reserves three exact prompt-wide BF16 MLP spans while leaving "
       "allocation and launch bindings unbound");
 
+  const auto marlin_parity = build_plan(
+      runtime::kLayerMajorPrefillLayerWideMlpP40RequestCapacityTokens,
+      runtime::PrefillHiddenStrategy::kSinglePromptWideConditional,
+      runtime::PrefillOperatorScratchStrategy::
+          kC8192FamilyOverlayConditional,
+      runtime::kMaximumRequestArenaBytes,
+      runtime::PrefillGdnPhysicalTactic::kC64NativeInPlaceConv,
+      runtime::PrefillLegacyGdnPhysicalTactic::kC16Composite,
+      runtime::PrefillMlpPhysicalTactic::
+          kLayerWideP40MarlinParityMergedGateUp);
+  constexpr std::uint64_t kParityMlpLiveSet = kFullMThreeBf16Spans;
+  static_assert(kParityMlpLiveSet == 4'177'920'000U);
+  if (!runtime::
+          prompt_wide_p40_vllm_marlin_parity_prefill_plan_enabled()) {
+    test.expect(
+        !marlin_parity &&
+            marlin_parity.error ==
+                runtime::PrefillWorkspacePlanError::kInvalidArgument,
+        "old layer-wide admission does not enable Marlin parity implicitly");
+  } else {
+    test.expect(
+        marlin_parity &&
+            marlin_parity.value->operator_scratch.mlp_tactic ==
+                runtime::PrefillMlpPhysicalTactic::
+                    kLayerWideP40MarlinParityMergedGateUp &&
+            marlin_parity.value->operator_scratch.mlp_capacity_tokens ==
+                40'000U &&
+            marlin_parity.value->operator_scratch.mlp_gate_up_down_phase
+                    .required_bytes == kParityMlpLiveSet &&
+            marlin_parity.value->operator_scratch
+                    .c8192_family_overlay_conditional.total_required_bytes ==
+                kParityMlpLiveSet &&
+            marlin_parity.value->selected.required_bytes == 7'297'733'120U &&
+            marlin_parity.value->conservative.required_bytes ==
+                8'647'332'608U &&
+            !marlin_parity.value->executable(),
+        "Marlin parity owns merged GateUp plus independent activation without "
+        "adding Ctmp, locks, or reduction workspace to its MLP live set");
+  }
+
   const auto persistent = build_plan(
       runtime::kLayerMajorPrefillLayerWideMlpP40RequestCapacityTokens,
       runtime::PrefillHiddenStrategy::kSinglePromptWideConditional,
@@ -538,7 +578,18 @@ void test_layer_wide_p40_mlp_memory_plan(TestContext& test) {
                           kC64NativeInPlaceConv,
                       runtime::PrefillLegacyGdnPhysicalTactic::kC16Composite,
                       runtime::PrefillMlpPhysicalTactic::
-                          kLayerWideP40AlignedMarlin),
+                          kLayerWideP40AlignedMarlin) &&
+          !build_plan(39'968U,
+                      runtime::PrefillHiddenStrategy::
+                          kSinglePromptWideConditional,
+                      runtime::PrefillOperatorScratchStrategy::
+                          kC8192FamilyOverlayConditional,
+                      runtime::kMaximumRequestArenaBytes,
+                      runtime::PrefillGdnPhysicalTactic::
+                          kC64NativeInPlaceConv,
+                      runtime::PrefillLegacyGdnPhysicalTactic::kC16Composite,
+                      runtime::PrefillMlpPhysicalTactic::
+                          kLayerWideP40MarlinParityMergedGateUp),
       "layer-wide MLP memory cannot be generalized beyond exact P40000");
 }
 
@@ -654,7 +705,8 @@ void test_p40_whole_core_workspace_plan(TestContext& test) {
           plan.logical_panel_count == 5U &&
           plan.persistent_and_kv.required_bytes == 2'699'952'128U &&
           plan.prompt_residual_bf16.required_bytes == 409'610'240U &&
-          plan.whole_core_family_arena.required_bytes == 5'429'760'000U &&
+          plan.whole_core_family_arena.required_bytes ==
+              runtime::kLayerMajorP40WholeCoreFamilyArenaBytes &&
           plan.legacy_c512_workspace.required_bytes == 90'970'112U &&
           plan.final_hidden_handoff_bf16.required_bytes == 10'240U &&
           plan.rope_cos_sin_fp32.required_bytes == 10'240'256U &&
@@ -685,6 +737,49 @@ void test_p40_whole_core_workspace_plan(TestContext& test) {
               4'938'240'000U &&
           plan.linear_output_bf16.memory.required_bytes == 491'520'000U,
       "whole-core planner records the exact linear/GDN family offsets");
+
+  test.expect(
+      runtime::kLayerMajorP40MarlinParityMergedGateUpOffset == 0U &&
+          runtime::kLayerMajorP40MarlinParityMergedGateUpFeatures ==
+              34'816U &&
+          runtime::kLayerMajorP40MarlinParityMergedGateUpRowStrideElements ==
+              34'816U &&
+          runtime::kLayerMajorP40MarlinParityMergedGateUpRowStrideBytes ==
+              69'632U &&
+          runtime::kLayerMajorP40MarlinParityUpColumnOffsetElements ==
+              17'408U &&
+          runtime::kLayerMajorP40MarlinParityUpColumnOffsetBytes == 34'816U &&
+          runtime::kLayerMajorP40MarlinParityMergedGateUpBytes ==
+              2'785'280'000U &&
+          runtime::kLayerMajorP40MarlinParityActivatedOffset ==
+              2'785'280'000U &&
+          runtime::kLayerMajorP40MarlinParityActivatedBytes ==
+              1'392'640'000U &&
+          runtime::kLayerMajorP40MarlinParityTemporaryOffset ==
+              4'177'920'000U &&
+          runtime::kLayerMajorP40MarlinParityReductionWorkspaceOffset ==
+              runtime::kLayerMajorP40MarlinParityTemporaryOffset &&
+          runtime::kLayerMajorP40MarlinParityReductionWorkspaceBytes ==
+              1'048'576U &&
+          runtime::kLayerMajorP40MarlinParityLocksOffset ==
+              4'178'968'576U &&
+          runtime::kLayerMajorP40MarlinParityLockBytes == 64U &&
+          runtime::kLayerMajorP40MarlinParityTemporaryPayloadBytes ==
+              1'048'640U &&
+          runtime::kLayerMajorP40MarlinParityTemporaryBytes ==
+              1'048'832U &&
+          runtime::kLayerMajorP40MarlinParityLocksOffset +
+                  runtime::kLayerMajorP40MarlinParityLockBytes <=
+              runtime::kLayerMajorP40MarlinParityTemporaryOffset +
+                  runtime::kLayerMajorP40MarlinParityTemporaryBytes &&
+          runtime::kLayerMajorP40MarlinParityTemporaryOffset +
+                  runtime::kLayerMajorP40MarlinParityTemporaryBytes <=
+              runtime::kLayerMajorP40MarlinParityNormalizedOffset &&
+          runtime::kLayerMajorP40MarlinParityNormalizedOffset +
+                  runtime::kLayerMajorP40MarlinParityNormalizedBytes <=
+              plan.whole_core_family_arena.required_bytes,
+      "whole-core high-water contains canonical GateThenUp, activation, "
+      "stock tail temporary, and normalized/Down-branch ranges");
 
   test.expect(
       plan.prompt_token_ids_u32.family_relative_offset == 2'137'600'000U &&

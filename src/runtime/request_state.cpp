@@ -604,9 +604,15 @@ LayerMajorRequestPlanResult build_layer_major_request_memory_plan(
     const bool whole_core_p40 =
         options.layout ==
         LayerMajorRequestLayout::kP40WholeCorePromptWide;
-    const bool layer_wide_p40_mlp =
+    const bool persistent_two_span_p40_mlp =
         options.mlp_layout ==
         LayerMajorRequestMlpLayout::kLayerWideP40PersistentTwoSpan;
+    const bool marlin_parity_merged_gate_up_p40_mlp =
+        options.mlp_layout == LayerMajorRequestMlpLayout::
+                                  kLayerWideP40MarlinParityMergedGateUp;
+    const bool layer_wide_p40_mlp =
+        persistent_two_span_p40_mlp ||
+        marlin_parity_merged_gate_up_p40_mlp;
     if (options.batch_size != 1U || options.max_sequence_length == 0U ||
         options.max_sequence_length > kAbsoluteRequestMaxSequenceLength ||
         options.max_arena_bytes == 0U ||
@@ -617,6 +623,9 @@ LayerMajorRequestPlanResult build_layer_major_request_memory_plan(
         (options.mlp_layout !=
              LayerMajorRequestMlpLayout::kPanelLocalThreeSpan &&
          !layer_wide_p40_mlp) ||
+        (marlin_parity_merged_gate_up_p40_mlp && !whole_core_p40) ||
+        (marlin_parity_merged_gate_up_p40_mlp &&
+         !prompt_wide_p40_vllm_marlin_parity_prefill_plan_enabled()) ||
         (layer_wide_p40_mlp &&
          (!layer_wide_p40_mlp_prefill_plan_enabled() ||
           options.max_sequence_length !=
@@ -644,7 +653,10 @@ LayerMajorRequestPlanResult build_layer_major_request_memory_plan(
     workspace_options.legacy_gdn_tactic =
         PrefillLegacyGdnPhysicalTactic::kC16Composite;
     workspace_options.mlp_tactic =
-        layer_wide_p40_mlp
+        marlin_parity_merged_gate_up_p40_mlp
+            ? PrefillMlpPhysicalTactic::
+                  kLayerWideP40MarlinParityMergedGateUp
+        : persistent_two_span_p40_mlp
             ? PrefillMlpPhysicalTactic::kLayerWideP40PersistentFusedGateUp
             : PrefillMlpPhysicalTactic::kSeparateGateUpAndSilu;
     LayerMajorPrefillWorkspacePlanResult workspace_result;
@@ -765,6 +777,7 @@ LayerMajorRequestPlanResult build_layer_major_request_memory_plan(
     std::uint64_t mlp_normalized_bytes = 0U;
     std::uint64_t mlp_gate_up_temporary_offset = 0U;
     std::uint64_t mlp_branch_offset = 0U;
+    std::uint64_t mlp_down_temporary_offset = 0U;
     if (!checked_multiply(plan.mlp_capacity_tokens, kProjectionElements,
                           mlp_span_bytes) ||
         !checked_multiply(mlp_span_bytes, kBf16Bytes, mlp_span_bytes) ||
@@ -777,7 +790,26 @@ LayerMajorRequestPlanResult build_layer_major_request_memory_plan(
             "layer-major MLP layout arithmetic overflows uint64",
             "mlp_phase_layout"));
     }
-    if (whole_core_p40) {
+    if (marlin_parity_merged_gate_up_p40_mlp &&
+        (mlp_span_bytes != kLayerMajorP40MarlinParityActivatedBytes ||
+         mlp_normalized_bytes !=
+             kLayerMajorP40MarlinParityNormalizedBytes)) {
+        return layer_major_plan_failure(make_diagnostic(
+            RequestErrorCode::kInvalidLayerSchedule,
+            "P40 Marlin-parity MLP shape disagrees with its fixed ledger",
+            "mlp_phase_layout"));
+    }
+    if (whole_core_p40 && marlin_parity_merged_gate_up_p40_mlp) {
+        mlp_activated_offset =
+            kLayerMajorP40MarlinParityActivatedOffset;
+        mlp_normalized_offset =
+            kLayerMajorP40MarlinParityNormalizedOffset;
+        mlp_branch_offset = kLayerMajorP40MarlinParityNormalizedOffset;
+        mlp_gate_up_temporary_offset =
+            kLayerMajorP40MarlinParityTemporaryOffset;
+        mlp_down_temporary_offset =
+            kLayerMajorP40MarlinParityTemporaryOffset;
+    } else if (whole_core_p40) {
         mlp_up_offset = 0U;
         mlp_activated_offset = 0U;
         mlp_normalized_offset = kP40WholeCoreOutputOffset;
@@ -1019,30 +1051,57 @@ LayerMajorRequestPlanResult build_layer_major_request_memory_plan(
     }
 
     const std::uint32_t mlp_rows = plan.mlp_capacity_tokens;
-    if (!make_matrix_subregion_checked(family, 0U, mlp_rows, 17'408U,
-                                       17'408U, kBf16Bytes,
-                                       plan.mlp.gate_bf16) ||
-        !make_matrix_subregion_checked(family, mlp_up_offset, mlp_rows,
-                                       17'408U,
-                                       17'408U, kBf16Bytes,
-                                       plan.mlp.up_bf16) ||
-        !make_matrix_subregion_checked(family, mlp_activated_offset, mlp_rows,
-                                       17'408U, 17'408U, kBf16Bytes,
-                                       plan.mlp.activated_bf16) ||
-        !make_matrix_subregion_checked(family, mlp_normalized_offset, mlp_rows,
-                                       5'120U, 5'120U, kBf16Bytes,
-                                       plan.mlp.normalized_input_bf16) ||
-        !make_byte_subregion_checked(
-            family, mlp_gate_up_temporary_offset,
-            kProjectionTemporaryBytes,
-            plan.mlp.gate_up_projection_temporary) ||
-        !make_matrix_subregion_checked(family, mlp_branch_offset, mlp_rows,
-                                       5'120U,
-                                       5'120U, kBf16Bytes,
-                                       plan.mlp.branch_output_bf16) ||
-        !make_byte_subregion_checked(family, 0U,
-                                     kProjectionTemporaryBytes,
-                                     plan.mlp.down_projection_temporary)) {
+    const bool valid_mlp_regions =
+        marlin_parity_merged_gate_up_p40_mlp
+            ? make_matrix_subregion_checked(
+                  family, kLayerMajorP40MarlinParityMergedGateUpOffset,
+                  mlp_rows,
+                  kLayerMajorP40MarlinParityMergedGateUpFeatures,
+                  kLayerMajorP40MarlinParityMergedGateUpRowStrideElements,
+                  kBf16Bytes, plan.mlp.merged_gate_up_bf16) &&
+                  make_matrix_subregion_checked(
+                      family, mlp_activated_offset, mlp_rows, 17'408U,
+                      17'408U, kBf16Bytes, plan.mlp.activated_bf16) &&
+                  make_matrix_subregion_checked(
+                      family, mlp_normalized_offset, mlp_rows, 5'120U,
+                      5'120U, kBf16Bytes,
+                      plan.mlp.normalized_input_bf16) &&
+                  make_matrix_subregion_checked(
+                      family, mlp_branch_offset, mlp_rows, 5'120U, 5'120U,
+                      kBf16Bytes, plan.mlp.branch_output_bf16) &&
+                  make_byte_subregion_checked(
+                      family, mlp_gate_up_temporary_offset,
+                      kProjectionTemporaryBytes,
+                      plan.mlp.gate_up_projection_temporary) &&
+                  make_byte_subregion_checked(
+                      family, mlp_down_temporary_offset,
+                      kProjectionTemporaryBytes,
+                      plan.mlp.down_projection_temporary)
+            : make_matrix_subregion_checked(
+                  family, 0U, mlp_rows, 17'408U, 17'408U, kBf16Bytes,
+                  plan.mlp.gate_bf16) &&
+                  make_matrix_subregion_checked(
+                      family, mlp_up_offset, mlp_rows, 17'408U, 17'408U,
+                      kBf16Bytes, plan.mlp.up_bf16) &&
+                  make_matrix_subregion_checked(
+                      family, mlp_activated_offset, mlp_rows, 17'408U,
+                      17'408U, kBf16Bytes, plan.mlp.activated_bf16) &&
+                  make_matrix_subregion_checked(
+                      family, mlp_normalized_offset, mlp_rows, 5'120U,
+                      5'120U, kBf16Bytes,
+                      plan.mlp.normalized_input_bf16) &&
+                  make_byte_subregion_checked(
+                      family, mlp_gate_up_temporary_offset,
+                      kProjectionTemporaryBytes,
+                      plan.mlp.gate_up_projection_temporary) &&
+                  make_matrix_subregion_checked(
+                      family, mlp_branch_offset, mlp_rows, 5'120U, 5'120U,
+                      kBf16Bytes, plan.mlp.branch_output_bf16) &&
+                  make_byte_subregion_checked(
+                      family, mlp_down_temporary_offset,
+                      kProjectionTemporaryBytes,
+                      plan.mlp.down_projection_temporary);
+    if (!valid_mlp_regions) {
         return layer_major_plan_failure(make_diagnostic(
             RequestErrorCode::kInvalidLayerSchedule,
             "fixed MLP phase views exceed the C8192 family arena",
@@ -1284,6 +1343,10 @@ void RequestState::release() noexcept {
 DeviceBufferView RequestState::mutable_view(
     const RequestRegion& region) noexcept {
     DeviceBufferView result;
+    if (region.arena_offset == 0U && region.byte_size == 0U &&
+        region.element_capacity == 0U && region.element_size_bytes == 0U) {
+        return result;
+    }
     result.device_data = static_cast<std::uint8_t*>(arena_) +
                          static_cast<std::size_t>(region.arena_offset);
     result.arena_offset = region.arena_offset;
@@ -1306,6 +1369,10 @@ DeviceMatrixView RequestState::mutable_matrix_view(
 ConstDeviceBufferView RequestState::const_view(
     const RequestRegion& region) const noexcept {
     ConstDeviceBufferView result;
+    if (region.arena_offset == 0U && region.byte_size == 0U &&
+        region.element_capacity == 0U && region.element_size_bytes == 0U) {
+        return result;
+    }
     result.device_data = static_cast<const std::uint8_t*>(arena_) +
                          static_cast<std::size_t>(region.arena_offset);
     result.arena_offset = region.arena_offset;
@@ -1678,6 +1745,8 @@ RequestState::layer_major_mlp_phase_views() noexcept {
     }
     const LayerMajorMlpPhaseRegions& regions = layer_major_plan_->mlp;
     LayerMajorMlpPhaseViews views;
+    views.merged_gate_up_bf16 =
+        mutable_matrix_view(regions.merged_gate_up_bf16);
     views.gate_bf16 = mutable_matrix_view(regions.gate_bf16);
     views.up_bf16 = mutable_matrix_view(regions.up_bf16);
     views.activated_bf16 = mutable_matrix_view(regions.activated_bf16);

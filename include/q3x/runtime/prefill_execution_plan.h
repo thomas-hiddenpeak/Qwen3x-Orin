@@ -97,6 +97,63 @@ inline constexpr std::size_t
     kLayerMajorPrefillPackedNvfp4V2ArtifactCount = 128U;
 inline constexpr std::size_t
     kLayerMajorPrefillPackedNvfp4V2AuthenticatedSourceCount = 192U;
+// AC-PREFILL-P40-VLLM-MARLIN-PARITY-v1 owns independent canonical Marlin
+// sidecars derived from the same 192 authenticated logical NVFP4 sources.
+// Neither v10's interleaved Gate/Up artifact nor packed-v2's distinct artifact
+// identity can satisfy this route. The physical execution boundary is stock
+// prompt-wide Marlin M segmentation. Gate+Up remains one canonical row-major
+// [M, 34816] publication: each token row contains the complete Gate half
+// followed by the complete Up half. It must never be reinterpreted as two
+// tensor-major [M, 17408] planes.
+inline constexpr std::uint32_t
+    kLayerMajorPrefillVllmMarlinParityFullSegmentTokens = 1'024U;
+inline constexpr std::uint32_t
+    kLayerMajorPrefillVllmMarlinParityTailSegmentTokens = 64U;
+inline constexpr std::size_t
+    kLayerMajorPrefillVllmMarlinParityFullSegmentsPerProjection = 39U;
+inline constexpr std::size_t
+    kLayerMajorPrefillVllmMarlinParityTailSegmentsPerProjection = 1U;
+inline constexpr std::size_t
+    kLayerMajorPrefillVllmMarlinParityGateUpTailOutputTiles = 136U;
+inline constexpr std::size_t
+    kLayerMajorPrefillVllmMarlinParityGateUpTailSplitOutputTiles = 8U;
+inline constexpr std::size_t
+    kLayerMajorPrefillVllmMarlinParityDownTailOutputTiles = 20U;
+inline constexpr std::size_t
+    kLayerMajorPrefillVllmMarlinParityDownTailSplitOutputTiles = 12U;
+inline constexpr std::size_t
+    kLayerMajorPrefillVllmMarlinParitySegmentsPerProjection = 40U;
+inline constexpr std::size_t
+    kLayerMajorPrefillVllmMarlinParityGateUpSegmentsPerLayer = 40U;
+inline constexpr std::size_t
+    kLayerMajorPrefillVllmMarlinParityDownSegmentsPerLayer = 40U;
+inline constexpr std::size_t
+    kLayerMajorPrefillVllmMarlinParityStandaloneSiluLaunchesPerLayer = 1U;
+inline constexpr std::size_t
+    kLayerMajorPrefillVllmMarlinParityStandaloneResidualLaunchesPerLayer = 1U;
+inline constexpr std::size_t
+    kLayerMajorPrefillVllmMarlinParityLockClearOperationsPerRequest = 1U;
+inline constexpr std::size_t
+    kLayerMajorPrefillVllmMarlinParityNvFp4PhysicalLaunchesPerRequest =
+        5'120U;
+inline constexpr std::size_t
+    kLayerMajorPrefillVllmMarlinParityGateUpLogicalRoleHitsPerRequest = 64U;
+inline constexpr std::size_t
+    kLayerMajorPrefillVllmMarlinParityDownLogicalRoleHitsPerRequest = 64U;
+inline constexpr std::size_t
+    kLayerMajorPrefillVllmMarlinParityFp8PhysicalLaunchesPerRequest = 1'040U;
+inline constexpr std::size_t
+    kLayerMajorPrefillVllmMarlinParityFp8TensorRoleHitsPerRequest = 1'040U;
+inline constexpr std::size_t
+    kLayerMajorPrefillVllmMarlinParityArtifactCount = 128U;
+inline constexpr std::size_t
+    kLayerMajorPrefillVllmMarlinParityAuthenticatedSourceCount = 192U;
+inline constexpr std::uint32_t
+    kLayerMajorPrefillVllmMarlinParityHiddenFeatures = 5'120U;
+inline constexpr std::uint32_t
+    kLayerMajorPrefillVllmMarlinParityIntermediateFeatures = 17'408U;
+inline constexpr std::uint32_t
+    kLayerMajorPrefillVllmMarlinParityMergedGateUpFeatures = 34'816U;
 inline constexpr std::uint32_t kLayerMajorPrefillLayerWideMlpAlignmentTokens =
     64U;
 inline constexpr std::uint32_t kLayerMajorPrefillMaximumSequenceTokens =
@@ -156,6 +213,37 @@ static_assert(kLayerMajorPrefillPackedNvfp4V2ArtifactCount ==
               kLayerMajorPrefillLayerCount * 2U);
 static_assert(kLayerMajorPrefillPackedNvfp4V2AuthenticatedSourceCount ==
               kLayerMajorPrefillLayerCount * 3U);
+static_assert(kLayerMajorPrefillVllmMarlinParityFullSegmentTokens *
+                          kLayerMajorPrefillVllmMarlinParityFullSegmentsPerProjection +
+                      kLayerMajorPrefillVllmMarlinParityTailSegmentTokens *
+                          kLayerMajorPrefillVllmMarlinParityTailSegmentsPerProjection ==
+                  kLayerMajorPrefillPromptWideP40Tokens);
+static_assert(kLayerMajorPrefillVllmMarlinParitySegmentsPerProjection ==
+              kLayerMajorPrefillVllmMarlinParityFullSegmentsPerProjection +
+                  kLayerMajorPrefillVllmMarlinParityTailSegmentsPerProjection);
+static_assert(kLayerMajorPrefillVllmMarlinParityGateUpSegmentsPerLayer ==
+              kLayerMajorPrefillVllmMarlinParitySegmentsPerProjection);
+static_assert(kLayerMajorPrefillVllmMarlinParityDownSegmentsPerLayer ==
+              kLayerMajorPrefillVllmMarlinParitySegmentsPerProjection);
+static_assert(kLayerMajorPrefillVllmMarlinParityNvFp4PhysicalLaunchesPerRequest ==
+              kLayerMajorPrefillLayerCount *
+                  (kLayerMajorPrefillVllmMarlinParityGateUpSegmentsPerLayer +
+                   kLayerMajorPrefillVllmMarlinParityDownSegmentsPerLayer));
+static_assert(kLayerMajorPrefillVllmMarlinParityGateUpLogicalRoleHitsPerRequest ==
+              kLayerMajorPrefillLayerCount);
+static_assert(kLayerMajorPrefillVllmMarlinParityDownLogicalRoleHitsPerRequest ==
+              kLayerMajorPrefillLayerCount);
+static_assert(kLayerMajorPrefillVllmMarlinParityFp8PhysicalLaunchesPerRequest ==
+              kLayerMajorPrefillPackedNvfp4V2Fp8PhysicalLaunchesPerRequest);
+static_assert(kLayerMajorPrefillVllmMarlinParityFp8TensorRoleHitsPerRequest ==
+              kLayerMajorPrefillPackedNvfp4V2Fp8TensorRoleHitsPerRequest);
+static_assert(kLayerMajorPrefillVllmMarlinParityArtifactCount ==
+              kLayerMajorPrefillPackedNvfp4V2ArtifactCount);
+static_assert(kLayerMajorPrefillVllmMarlinParityAuthenticatedSourceCount ==
+              kLayerMajorPrefillPackedNvfp4V2AuthenticatedSourceCount);
+static_assert(kLayerMajorPrefillVllmMarlinParityMergedGateUpFeatures ==
+              2U *
+                  kLayerMajorPrefillVllmMarlinParityIntermediateFeatures);
 static_assert(kLayerMajorPrefillMaximumPanelCount == 32U);
 
 [[nodiscard]] constexpr bool is_nvfp4_true_large_m_prefill_panel_tokens(
@@ -260,6 +348,11 @@ enum class LayerMajorPrefillProjectionTactic : std::uint8_t {
   // an NVFP4-only authenticated inventory. This is append-only so every
   // historical tactic byte is stable.
   kNativePromptWideP40PackedNvfp4V2,
+  // AC-PREFILL-P40-VLLM-MARLIN-PARITY-v1. FP8 retains the v10 route while
+  // each NVFP4 projection preserves vLLM 0.26's 39xM1024 full-K launches and
+  // LegacyStripe M64 split tail under the canonical GateThenUp publication
+  // contract. This is a sealed, default-off topology and never aliases v2.
+  kNativePromptWideP40VllmMarlinParity,
 };
 
 [[nodiscard]] constexpr bool is_valid_layer_major_prefill_projection_tactic(
@@ -283,7 +376,9 @@ enum class LayerMajorPrefillProjectionTactic : std::uint8_t {
          tactic == LayerMajorPrefillProjectionTactic::
                        kNativePromptWideP40PackedProjection ||
          tactic == LayerMajorPrefillProjectionTactic::
-                       kNativePromptWideP40PackedNvfp4V2;
+                       kNativePromptWideP40PackedNvfp4V2 ||
+         tactic == LayerMajorPrefillProjectionTactic::
+                       kNativePromptWideP40VllmMarlinParity;
 }
 
 [[nodiscard]] constexpr std::string_view to_string(
@@ -316,6 +411,9 @@ enum class LayerMajorPrefillProjectionTactic : std::uint8_t {
     case LayerMajorPrefillProjectionTactic::
         kNativePromptWideP40PackedNvfp4V2:
       return "native-prompt-wide-p40-packed-nvfp4-v2";
+    case LayerMajorPrefillProjectionTactic::
+        kNativePromptWideP40VllmMarlinParity:
+      return "native-prompt-wide-p40-vllm-marlin-parity";
   }
   return "unknown";
 }
@@ -500,6 +598,7 @@ enum class PrefillNvFp4ArithmeticTactic : std::uint8_t {
   kP40000PersistentGateUpSiluDownResidual,
   kP40000PackedGateUpSiluDownResidual,
   kP40000PackedShapeSpecificV2GateUpSiluDownResidual,
+  kP40000VllmMarlinProjectionHostDispatchGateThenUpSiluDownResidual,
 };
 
 enum class PrefillGdnArithmeticTactic : std::uint8_t {
@@ -792,6 +891,41 @@ inline constexpr LayerMajorPrefillArithmeticContract
         true,
         true};
 
+// Parity-v1 retains packed-v2's surrounding BF16/FP8/GDN/Attention identities
+// while replacing its persistent NVFP4 boundary with vLLM 0.26's stock
+// projection host dispatch. The 39 M1024 segments own full K. The final M64
+// LegacyStripe segment preserves stock's bounded split-K tail, FP32 Ctmp
+// reduction, and lock protocol before canonical BF16 publication.
+inline constexpr LayerMajorPrefillArithmeticContract
+    kLayerMajorPrefillPromptWideP40VllmMarlinParityArithmeticContract{
+        10U,
+        PrefillBf16AbArithmeticTactic::kPromptWideP40SingleGrid,
+        PrefillFp8ArithmeticTactic::kP8000FillDrainSingleBulk,
+        PrefillNvFp4ArithmeticTactic::
+            kP40000VllmMarlinProjectionHostDispatchGateThenUpSiluDownResidual,
+        PrefillGdnArithmeticTactic::kPromptWideP40ChunkGraph,
+        PrefillAttentionPreprocessArithmeticTactic::
+            kP8000FillWholePromptFlashInferDrain,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        true,
+        true,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true};
+
 [[nodiscard]] constexpr bool is_valid_layer_major_prefill_arithmetic_contract(
     const LayerMajorPrefillArithmeticContract& contract) noexcept {
   const bool common =
@@ -1024,6 +1158,35 @@ inline constexpr LayerMajorPrefillArithmeticContract
       contract.p40000_bf16_ab_prompt_wide &&
       contract.p40000_gdn_prompt_wide &&
       contract.p40000_flashinfer_whole_prompt;
+  const bool prompt_wide_p40_vllm_marlin_parity =
+      contract.version == 10U &&
+      contract.bf16_ab ==
+          PrefillBf16AbArithmeticTactic::kPromptWideP40SingleGrid &&
+      contract.fp8 == PrefillFp8ArithmeticTactic::kP8000FillDrainSingleBulk &&
+      contract.nvfp4 == PrefillNvFp4ArithmeticTactic::
+                            kP40000VllmMarlinProjectionHostDispatchGateThenUpSiluDownResidual &&
+      contract.gdn == PrefillGdnArithmeticTactic::kPromptWideP40ChunkGraph &&
+      contract.attention_preprocess ==
+          PrefillAttentionPreprocessArithmeticTactic::
+              kP8000FillWholePromptFlashInferDrain &&
+      !contract.reset_fp8_locks_per_projection_span &&
+      !contract.nvfp4_interleaves_gate_silu_down_per_span &&
+      !contract.nvfp4_down_reuses_gate_up_locks &&
+      !contract.nvfp4_residual_follows_down_per_span &&
+      !contract.m8192_single_bulk_projection &&
+      !contract.m8192_fp8_resets_locks_once &&
+      !contract.m8192_nvfp4_uses_independent_down_workspace &&
+      !contract.m8192_nvfp4_residual_once_after_bulk &&
+      !contract.nvfp4_true_large_m_m8192 &&
+      !contract.nvfp4_true_large_m_m7712 &&
+      contract.nvfp4_gate_up_down_coupled &&
+      contract.p40000_post_attention_norm_prompt_wide &&
+      !contract.p40000_persistent_gate_up_silu &&
+      !contract.p40000_persistent_down_residual &&
+      contract.p8000_fp8_fill_drain_single_bulk &&
+      contract.p40000_bf16_ab_prompt_wide &&
+      contract.p40000_gdn_prompt_wide &&
+      contract.p40000_flashinfer_whole_prompt;
   return common &&
          ((legacy_common &&
            (exact || exact_marlin_m8192 || segmented_marlin ||
@@ -1031,7 +1194,8 @@ inline constexpr LayerMajorPrefillArithmeticContract
           prompt_wide_p40_whole_core ||
           prompt_wide_p40_projection_reset ||
           prompt_wide_p40_packed_projection ||
-          prompt_wide_p40_packed_nvfp4_v2);
+          prompt_wide_p40_packed_nvfp4_v2 ||
+          prompt_wide_p40_vllm_marlin_parity);
 }
 
 static_assert(kLayerMajorPrefillMaximumArithmeticSpanCount == 16U);
@@ -1053,6 +1217,8 @@ static_assert(is_valid_layer_major_prefill_arithmetic_contract(
     kLayerMajorPrefillPromptWideP40PackedProjectionArithmeticContract));
 static_assert(is_valid_layer_major_prefill_arithmetic_contract(
     kLayerMajorPrefillPromptWideP40PackedNvfp4V2ArithmeticContract));
+static_assert(is_valid_layer_major_prefill_arithmetic_contract(
+    kLayerMajorPrefillPromptWideP40VllmMarlinParityArithmeticContract));
 static_assert(is_valid_layer_major_prefill_arithmetic_span_ledger(
     make_layer_major_prefill_arithmetic_span_ledger(513U)));
 
@@ -1077,6 +1243,7 @@ enum class LayerMajorPrefillMlpScheduleTactic : std::uint8_t {
   kPromptWideP40ProjectionReset,
   kPromptWideP40PackedProjection,
   kPromptWideP40PackedNvfp4V2,
+  kPromptWideP40VllmMarlinParity,
 };
 
 [[nodiscard]] constexpr bool is_valid_layer_major_prefill_mlp_schedule_tactic(
@@ -1092,7 +1259,9 @@ enum class LayerMajorPrefillMlpScheduleTactic : std::uint8_t {
          tactic == LayerMajorPrefillMlpScheduleTactic::
                        kPromptWideP40PackedProjection ||
          tactic == LayerMajorPrefillMlpScheduleTactic::
-                       kPromptWideP40PackedNvfp4V2;
+                       kPromptWideP40PackedNvfp4V2 ||
+         tactic == LayerMajorPrefillMlpScheduleTactic::
+                       kPromptWideP40VllmMarlinParity;
 }
 
 [[nodiscard]] constexpr std::string_view to_string(
@@ -1110,6 +1279,8 @@ enum class LayerMajorPrefillMlpScheduleTactic : std::uint8_t {
       return "prompt-wide-p40-packed-projection";
     case LayerMajorPrefillMlpScheduleTactic::kPromptWideP40PackedNvfp4V2:
       return "prompt-wide-p40-packed-nvfp4-v2";
+    case LayerMajorPrefillMlpScheduleTactic::kPromptWideP40VllmMarlinParity:
+      return "prompt-wide-p40-vllm-marlin-parity";
   }
   return "unknown";
 }
@@ -1149,6 +1320,13 @@ enum class LayerMajorPrefillMlpScheduleTactic : std::uint8_t {
 // Independent default-OFF admission for the packed-v2 shape-specific NVFP4
 // package. Compiling packed-v1 never enables this successor by implication.
 [[nodiscard]] bool prompt_wide_p40_packed_nvfp4_v2_prefill_plan_enabled()
+    noexcept;
+
+// Independent default-OFF admission for the sealed vLLM/Marlin parity
+// topology. The build must define
+// Q3X_BUILD_P40_VLLM_MARLIN_PARITY_ADMISSION explicitly; no older P40
+// admission enables it by implication.
+[[nodiscard]] bool prompt_wide_p40_vllm_marlin_parity_prefill_plan_enabled()
     noexcept;
 
 enum class PrefillExecutionPlanError : std::uint8_t {
@@ -1322,6 +1500,93 @@ struct PrefillP40PackedNvfp4V2SchedulePlan {
   bool cublaslt_forbidden = false;
 };
 
+// Exact-P40000 vLLM/Marlin parity topology. FP8 remains byte-for-byte the v10
+// five-panel route. NVFP4 instead owns two logical projections per layer,
+// each internally partitioned as 39xM1024 + M64. The M1024 segments own full
+// K. The stock M64 LegacyStripe tail uses an in-kernel FP32 cross-CTA
+// reduction for 8/136 GateUp and 12/20 Down output tiles, backed by one
+// reusable Ctmp+locks region. Gate+Up publication is one token-major row-major
+// [M,34816] tensor whose per-token columns are [Gate, Up], followed by one
+// independent SiLU phase. Down is followed by one independent residual phase.
+struct PrefillP40VllmMarlinParitySchedulePlan {
+  bool enabled = false;
+  std::size_t input_preparation_panel_count_per_layer = 0U;
+  std::size_t prompt_core_phase_count_per_layer = 0U;
+  std::size_t segmented_mlp_phase_count_per_layer = 0U;
+  std::uint32_t panel_token_count = 0U;
+  std::uint32_t projection_m_tokens = 0U;
+  std::uint32_t request_capacity_tokens = 0U;
+  std::uint64_t route_pass_count = 0U;
+  std::size_t fp8_physical_launches_per_request = 0U;
+  std::size_t fp8_tensor_role_hits_per_request = 0U;
+  std::size_t gate_up_segments_per_layer = 0U;
+  std::size_t down_segments_per_layer = 0U;
+  std::size_t nvfp4_physical_launches_per_request = 0U;
+  std::size_t gate_up_logical_role_hits_per_request = 0U;
+  std::size_t down_logical_role_hits_per_request = 0U;
+  std::size_t standalone_silu_launches_per_layer = 0U;
+  std::size_t standalone_residual_launches_per_layer = 0U;
+  std::size_t lock_clear_operations_per_request = 0U;
+  std::size_t full_m1024_segments_per_projection = 0U;
+  std::size_t tail_m64_segments_per_projection = 0U;
+  std::size_t gate_up_tail_output_tiles = 0U;
+  std::size_t gate_up_tail_split_output_tiles = 0U;
+  std::size_t down_tail_output_tiles = 0U;
+  std::size_t down_tail_split_output_tiles = 0U;
+  std::uint32_t full_segment_m_tokens = 0U;
+  std::uint32_t tail_segment_m_tokens = 0U;
+  std::uint32_t gate_up_input_features = 0U;
+  std::uint32_t merged_gate_up_output_features = 0U;
+  std::uint32_t gate_output_features = 0U;
+  std::uint32_t up_output_features = 0U;
+  std::uint32_t down_input_features = 0U;
+  std::uint32_t down_output_features = 0U;
+  std::size_t authenticated_artifact_count = 0U;
+  std::size_t authenticated_source_count = 0U;
+  bool independent_canonical_marlin_sidecars_required = false;
+  bool canonical_token_major_gate_then_up_rows_required = false;
+  bool independent_activated_buffer_required = false;
+  bool bf16_projection_publication_required = false;
+  bool internal_m_segmentation_required = false;
+  bool m64_tail_is_final_segment_required = false;
+  bool m1024_segments_full_k_required = false;
+  bool m64_tail_split_k_required = false;
+  bool m64_tail_locks_required = false;
+  bool m64_tail_zero_initialized_locks_required = false;
+  bool m64_tail_fp32_reduction_workspace_required = false;
+  bool m64_tail_in_kernel_global_reduction_required = false;
+  bool request_time_repack_forbidden = false;
+  bool request_time_tactic_selection_forbidden = false;
+  bool production_accuracy_required = false;
+  bool approximate_numerics_forbidden = false;
+  bool mtp_forbidden = false;
+  bool cublaslt_forbidden = false;
+};
+
+// Device-completion evidence consumed by the parity-v1 progress transition.
+// Counts are per layer; only layer zero may report the one request-level lock
+// clear. A future runner must construct this after its completion event and
+// physical launch counters are visible. The host planner must not synthesize
+// a successful receipt merely from the intended schedule.
+struct PrefillP40VllmMarlinParityLayerCompletionReceipt {
+  std::size_t layer_index = 0U;
+  std::size_t request_lock_clear_operations = 0U;
+  std::size_t gate_up_full_m1024_launches = 0U;
+  std::size_t gate_up_split_m64_launches = 0U;
+  std::size_t standalone_silu_launches = 0U;
+  std::size_t down_full_m1024_launches = 0U;
+  std::size_t down_split_m64_launches = 0U;
+  std::size_t standalone_residual_launches = 0U;
+  bool retained_prompt_core_complete = false;
+  bool canonical_gate_then_up_bf16_published = false;
+  bool activated_bf16_published = false;
+  bool down_bf16_published = false;
+  bool locks_zero_before_gate_up_tail = false;
+  bool locks_zero_after_gate_up_tail = false;
+  bool locks_zero_after_down_tail = false;
+  bool completion_event_observed = false;
+};
+
 struct PrefillExecutionPlan {
   PrefillTraversalOrder traversal = PrefillTraversalOrder::kLayerMajor;
   // Descriptive compatibility metadata only. It never determines panels.
@@ -1342,6 +1607,7 @@ struct PrefillExecutionPlan {
   PrefillP40ProjectionResetSchedulePlan projection_reset_schedule;
   PrefillP40PackedProjectionSchedulePlan packed_projection_schedule;
   PrefillP40PackedNvfp4V2SchedulePlan packed_nvfp4_v2_schedule;
+  PrefillP40VllmMarlinParitySchedulePlan vllm_marlin_parity_schedule;
   PrefillFinalCommitPlan final_commit;
 
   // The scaffold deliberately has no mutation or binder that can make this
@@ -1386,6 +1652,7 @@ enum class PrefillExecutionProgressError : std::uint8_t {
   kExecutionIncomplete,
   kCommitNotReady,
   kAlreadyCommitted,
+  kInvalidCompletionReceipt,
 };
 
 // Mutable request-owned progress is intentionally not part of the immutable
@@ -1456,6 +1723,15 @@ advance_prompt_wide_p40_packed_projection_layer_progress_after_completion(
 advance_prompt_wide_p40_packed_nvfp4_v2_layer_progress_after_completion(
     const PrefillExecutionPlan& plan, PrefillExecutionProgress& progress,
     std::size_t layer_index) noexcept;
+
+// Parity-v1 owns a distinct atomic layer transition. A completed transition
+// attests all 40 Gate+Up segments, the independent SiLU, all 40 Down segments,
+// the independent residual, and the retained v10 FP8/core path for the layer.
+[[nodiscard]] PrefillExecutionProgressError
+advance_prompt_wide_p40_vllm_marlin_parity_layer_progress_after_completion(
+    const PrefillExecutionPlan& plan, PrefillExecutionProgress& progress,
+    std::size_t layer_index,
+    const PrefillP40VllmMarlinParityLayerCompletionReceipt& receipt) noexcept;
 
 [[nodiscard]] PrefillExecutionProgress make_prefill_execution_progress(
     const PrefillExecutionPlan& plan) noexcept;

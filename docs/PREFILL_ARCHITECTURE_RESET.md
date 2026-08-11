@@ -719,10 +719,17 @@ history and current implementation state belong in the evidence records and
 
 Prefill architecture starts from the following functions rather than from the
 current kernel boundaries. Let `R_bf16` denote BF16 round-to-nearest-even,
-`Acc_fp32^K` the declared K-fragment order and FP32 MMA accumulation, and
-`D4(q,s) = R_bf16(E2M1(q) * E4M3FN(s))` the current NVFP4
-per-value decode with one block scale for each 16-weight group. For projection
-role `r` with authenticated tensor-global scale `a_r`,
+`Acc_fp32^K` the complete declared K-fragment order, K-slice ownership,
+cross-CTA reduction tree/parenthesization, and FP32 MMA accumulation, and
+`D4(q,s) = E2M1(q) * E4M3FN(s)` the current NVFP4 per-value decode with one
+block scale for each 16-weight group. Exhaustive enumeration of all 16 E2M1
+codes and all 254 finite E4M3FN codes proves that every finite product is
+already exactly representable in BF16, including the signed-zero result; the
+nominal `R_bf16` conversion is therefore an identity on the finite-code
+domain. A production artifact must separately prove that its checkpoint block
+scales contain no forbidden NaN code. The two E4M3FN NaN encodings remain
+validation/special-value cases rather than an algebraic optimization license.
+For projection role `r` with authenticated tensor-global scale `a_r`,
 
 ```text
 P_r(A, Q_r, S_r)[m,n]
@@ -751,16 +758,160 @@ dense function; its qualitative opportunity is to raise useful MMA issue and
 remove redundant decode, movement, materialization, and synchronization around
 that irreducible computation.
 
+This also defines an **execution-class boundary**, without lowering the
+product target. Using the published approximately 43-TFLOP/s dense BF16 Tensor
+Core rate as a planning proxy, the MLP equation above alone has an ideal floor
+of about 31.84 s, or about 1,256 prompt token/s at P40, before any FP8
+projection, Attention, GDN, normalization, or runner cost. A 4.3K token/s P40
+request has a 9.30-s whole-Prefill budget and would require about 147.17
+effective TOP/s from these MLP operations if they remained one dense BF16 MMA
+per mathematical MAC. These figures are not a project or hardware
+impossibility claim: they prove that tuning the current dense-BF16 execution
+class cannot be the terminal answer. The owner's observed vLLM starting line
+remains authoritative; a matched observation above this proxy requires an
+audit of which arithmetic class, model work, cache state, token accounting, or
+other path assumption differs, rather than a lower target.
+
+The scope is wider than MLP. The 48 linear-Attention layers contribute
+`11,072,962,560` FP8-projection operations per token from QKV, Z, and O; the
+16 full-Attention layers contribute `3,355,443,200` per token from Q, K, V,
+and O. Together with MLP, these dominant NVFP4+FP8 projections contain
+`48,653,926,400` operations per prompt token. The two 48-by-5120 BF16 A/B
+projections in each linear-Attention layer add `47,185,920` operations per
+token, giving `48,701,112,320` projection operations per token or
+`1,948,044,492,800,000` at P40. If every one of those operations is still
+lowered to dense BF16 MMA, the same ideal proxy becomes 45.30 s / 883 token/s
+before Attention cores and GDN. This is why the mathematical successor must
+cover FP8 and BF16 projections as well as NVFP4 MLP and why an isolated Marlin
+win, even a large one, cannot by itself satisfy the whole-product starting
+line.
+
+The mathematical successor search therefore distinguishes three classes:
+
+1. **Strict finite-precision equivalence.** Repacking, exact finite-code
+   decode, shared-A Gate/Up composition, full-K ownership, and fusion at an
+   existing BF16 publication point may remove transport work while preserving
+   every operand and the complete declared FP32 accumulator/reduction tree.
+   Stock Marlin host-dispatch reconstruction is an immediate reference-
+   integrity step, but its M64 split-K tree is not strict equivalence to the
+   project's current full-K route; it remains accuracy-unqualified until an
+   independent numerical contract passes.
+2. **Exact model-function reformulation with a different arithmetic class.**
+   A block-floating or bit-plane decomposition may map BF16 activations and
+   E2M1/E4M3 weights onto faster integer or structured-sparse Tensor Core work
+   only when every represented value and final state is exact. Eligibility
+   must be decided from real prompt activations, with an exact fallback for
+   ineligible tiles and an oracle that exposes any changed accumulation order.
+   A correctly rounded dot is still not automatically bit-identical to the
+   declared ordered-FP32 dot.
+3. **Approximation.** Calibration-scale activation quantization, truncated
+   bit planes, approximate Attention, or delayed GDN state rounding changes
+   the numerical trajectory. The checkpoint's `input_scale` values do not
+   authorize such a route; it remains research-only and cannot enter
+   production under the current accuracy contract.
+
+This boundary prevents two opposite errors: treating a faster integer path as
+lossless merely because its real-number formula looks similar, and spending
+the remaining programme on a BF16 Marlin skeleton whose arithmetic class is
+already too narrow for the product target.
+
+The activation side also has a concrete representation lower bound.  A
+finite, normal BF16 value can be written as
+
+```text
+A_i = sign_i * M_i * 2^(e_i - 7),  128 <= M_i <= 255.
+```
+
+For one K16 block, choose the finest shared power-of-two quantum
+`2^(e_min-7)`.  If `r=e_max-e_min`, the exact signed integer coefficient may
+need `r+9` bits: eight significand bits, `r` exponent-alignment bits, and a
+sign.  Thus a generic normal BF16 K16 block is not one exact signed-INT8
+operand even when `r=0`, and it is never one exact signed-INT4 operand.
+Choosing a coarser quantum makes the coefficient fit only when every discarded
+significand bit is zero; otherwise a residual bit plane or an exact fallback is
+required.  This is a representation statement, not a benchmark result.
+
+Consequently, an integer-Tensor-Core successor must first capture, from the
+real P40 API path and for every projection boundary, the K16 exponent-span
+histogram, aligned-significand trailing-zero histogram, exact INT8/INT4 plane
+count, residual-plane density, exceptional/special-value count, and the share
+of tiles exactly reproduced by the authenticated checkpoint scale.  Its
+arithmetic expansion is the measured number of required planes plus fallback
+work, not the nominal INT4 peak ratio.  A one-pass calibrated W4A4 result is an
+approximation unless this exact-representation witness proves otherwise.
+
+The K16 weight scale gives a real-arithmetic identity
+
+```text
+sum_i A_i * (q_i * s) = s * sum_i A_i * q_i,
+```
+
+but does not by itself give the finite-precision identity needed by the
+runner.  A sufficient exact fast-path class must prove that the decoded
+operands, every reference FP32 accumulator update, the factorized partial, and
+the scale/rejoin operation are all exactly representable and publish the same
+bits, without overflow, underflow, or a changed special-value path.  A
+power-of-two `s` alone is insufficient once a nonzero accumulator from earlier
+K blocks and a different reduction tree are present.  The eligibility rate
+and checking cost therefore belong in the same real-activation witness; they
+cannot be inferred from the weight format.
+
+There is one narrower exact factoring class.  If a real activation value
+`A_i` multiplied by the block scale `s` is itself exactly representable in
+BF16, then both `A_i * BF16(q_i*s)` and `BF16(A_i*s) * q_i` are products of
+two BF16 operands and, when their product stays inside the exact FP32 exponent
+domain, are exact in FP32.  Repeating the original ordered FP32 accumulator
+update for every `i` preserves its bits.  A power-of-
+two scale without overflow or inexact underflow is a simple sufficient case;
+the general case depends on the activation and scale significands.  This does
+not by itself remove a dot product, because `s` varies by output row and K16
+block.  It becomes useful only when a real-activation witness also proves
+enough exact scale sharing to amortize the transformed A operand.
+
+The integer representation bound is similarly operational, not merely a
+type observation.  A generic same-exponent BF16 block already needs at least
+two signed-INT8 limbs (or at least three signed-INT4 limbs).  After doubling
+E2M1 values to integers, their range is `[-12,12]`: one INT8 limb but at least
+two INT4 limbs.  Incorporating an E4M3 scale mantissa into that integer B
+operand can require a second INT8 limb.  Thus a generic exact SM87 integer
+lowering expands one BF16 mathematical block into at least two, and commonly
+four, INT8 MMA passes; an INT4 construction is commonly larger still.  Only a
+measured one-limb tile class can plausibly change the arithmetic budget, so
+the witness must reject the integer architecture before kernel work when its
+average pass count consumes the nominal integer/BF16 throughput ratio.
+
+There is also a model-graph liveness deletion that is stronger than a generic
+one-layer observation.  All prompt-token hidden states are live through layer
+62 because a later Attention/GDN layer consumes them.  Layer 63 is a full-
+Attention layer.  Its complete normalized input and K/V projections remain
+live because Decode needs every prompt K/V entry, but the ordinary next-token
+API observes only the last token after that point.  Therefore Q+gate, causal
+Attention output, O projection, the attention residual/post norm, and the
+complete MLP are required only for the last prompt token.  At P40 this removes
+approximately 10.695T MLP MAC, 2.517T Q+gate MAC, 1.258T O-projection MAC,
+and 9.830T causal QK/PV MAC: about 24.3T MAC / 48.6T conventional operations,
+without an activation-dependent eligibility test. Against all projections
+plus the 16 full-Attention layers' causal QK/PV work
+(`2,262,625,157,120,000` conventional operations, excluding softmax, norm and
+GDN), that is about 2.15%. The exact oracle must
+compare the still-observable complete K/V handoff plus the last hidden/logits,
+not demand dead earlier-token layer-63 hidden values.  This remains a bounded
+component rather than the complete 4.3K solution.  Likewise, concatenating
+Gate and Up removes duplicate A transport but neither independent dot product.
+
 Gate and Up may be represented as one column-concatenated projection and may
 share A movement because each output retains its original K order, independent
 scale, BF16 publication, and SiLU/Up consumer. That equivalence removes an A
 producer boundary; it does not authorize a joint scale or mixed accumulator.
 Likewise Down may fuse its residual consumer only after the Down value has been
-scaled and published to BF16. Moving the residual add, tensor-global scale, or
-NVFP4 block scale across those boundaries is real-number algebra but not the
-declared finite-precision function. In particular, factoring the E4M3FN scale
-outside a K16 dot is ineligible because the current function rounds each
-decoded weight to BF16 before MMA.
+scaled and published to BF16. Moving the residual add or tensor-global scale
+across those boundaries is real-number algebra but not the declared finite-
+precision function. Although each finite E2M1-times-E4M3FN decoded operand is
+exact BF16, factoring the shared E4M3FN scale outside a K16 dot is not thereby
+bit-equivalent: it changes the individual BF16 products presented to tensor-
+core MMA and changes FP32 multiplication/addition order. It is an accuracy-
+unqualified transform unless a different exact construction reproduces the
+declared operand and accumulator sequence.
 
 For exact causal Attention, a KV block can be summarized by online-softmax
 state `(maximum, denominator, weighted_value)`. Block summaries compose in
@@ -857,12 +1008,38 @@ packing, scale handling, K64 load/decode/MMA pipeline, LegacyStripe MN
 scheduler, workspace/lock contract, epilogue, and Gate/Up versus Down dispatch
 before specializing them. This is not v10: v10 uses project-added
 GroupedM4NMajor/BStationaryNMajor full-K persistent schedules and custom fused
-epilogues. Stock Marlin's small part-2 tail may split K and globally reduce
-partial accumulators; that changes FP32 accumulation order and cannot silently
-enter the production numerical contract. A production-eligible parity
-candidate must retain stock full-tile behavior while assigning every tail
-tile to one full-K CTA, or else keep the original split-K route explicitly
-accuracy-unqualified until an independent numerical contract passes.
+epilogues. The pinned vLLM 0.26 source audit makes the stock contract exact.
+One P40000 call is split internally into 39 M1024 launches plus one M64 launch,
+all with the M64N256K64, four-stage, 16-CTA LegacyStripe specialization. The
+M1024 launches own full K. In the M64 tail, GateUp splits 8 of 136 N tiles two
+ways; Down splits 12 of 20 N tiles two ways. The default non-atomic route
+reduces those partial FP32 accumulators through a 1-MiB Ctmp and 16 int32
+locks, applies the tensor-global scale, and then publishes BF16 once.
+Replacing that tail with a full-K raster changes the FP32 parenthesization and
+is not stock parity even though its real-number matrix product is equal.
+
+The same source audit rules out treating JIT as a hidden arithmetic shortcut.
+The vLLM 0.26 ModelOpt W4A16-NVFP4 route binds Marlin and computes BF16 A
+against E2M1/E4M3FN weight values decoded to BF16, with FP32 accumulation and
+BF16 publication. For the pinned ModelOpt route on SM87, its FP8 projections
+are likewise W8A16:
+BF16 A against E4M3FN weights, not FP8 A against FP8 B. Humming specializes
+the frozen shape, tile, stage, resident-CTA, and Stream-K schedule and compiles
+that choice to cubin, but its dense scheduler still covers the complete
+M-by-N-by-K domain; this ModelOpt W4A16 path does not automatically dispatch
+to Humming. These mechanisms remain valuable implementation references, but
+they do not delete the mathematical projection work. Any apparent 4.3K
+discrepancy must therefore be reconciled by a real API route witness covering
+versions, token identity/count, cache state, batching/concurrency, backend and
+kernel shapes rather than by assuming an undocumented JIT arithmetic class.
+
+The reference candidate must therefore preserve the stock split tail and
+remain accuracy-unqualified until its independent numerical contract passes.
+After that gate it may be called **vLLM Marlin projection host-dispatch
+parity**. It is not whole-runner vLLM parity: FP8 projections, Attention, GDN,
+API scheduling, and the complete real request still require their own route
+witness. This distinction keeps reference integrity separate from production
+selection and from the later quantity-changing mathematical successor.
 
 ## 9. Global dataflow questions
 

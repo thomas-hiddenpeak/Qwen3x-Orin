@@ -60,6 +60,25 @@ bool matrix_is(const runtime::RequestMatrixRegion& matrix,
            matrix.row_stride_elements == stride;
 }
 
+bool region_is_empty(const runtime::RequestRegion& region) {
+    return region.arena_offset == 0U && region.byte_size == 0U &&
+           region.element_capacity == 0U &&
+           region.element_size_bytes == 0U;
+}
+
+bool region_is(const runtime::RequestRegion& region,
+               const std::uint64_t offset, const std::uint64_t byte_size,
+               const std::uint32_t element_size) {
+    return region.arena_offset == offset && region.byte_size == byte_size &&
+           region.element_capacity == byte_size / element_size &&
+           region.element_size_bytes == element_size;
+}
+
+bool matrix_is_empty(const runtime::RequestMatrixRegion& matrix) {
+    return region_is_empty(matrix.storage) && matrix.row_capacity == 0U &&
+           matrix.columns == 0U && matrix.row_stride_elements == 0U;
+}
+
 void test_default_exact_plan(TestContext& test) {
     const runtime::RequestMemoryOptions default_options;
     test.expect(default_options.max_arena_bytes ==
@@ -1066,7 +1085,8 @@ void test_layer_major_typed_phase_layout(TestContext& test) {
         "Attention live query/gate/core/branch/O-temp views are pairwise disjoint");
 
     test.expect(
-        matrix_is(plan.mlp.gate_bf16, base, 285'212'672U, 8'192U,
+        matrix_is_empty(plan.mlp.merged_gate_up_bf16) &&
+            matrix_is(plan.mlp.gate_bf16, base, 285'212'672U, 8'192U,
                   17'408U, 17'408U, 2U) &&
             matrix_is(plan.mlp.up_bf16, base + 285'212'672U,
                       285'212'672U, 8'192U, 17'408U, 17'408U, 2U) &&
@@ -1253,7 +1273,8 @@ void test_layer_wide_p40_mlp_request_layout(TestContext& test) {
         "P40 RequestState owns the planner-exact persistent two-span arena "
         "and remains unbound");
     test.expect(
-        matrix_is(plan.mlp.gate_bf16, base, 1'392'640'000U, 40'000U,
+        matrix_is_empty(plan.mlp.merged_gate_up_bf16) &&
+            matrix_is(plan.mlp.gate_bf16, base, 1'392'640'000U, 40'000U,
                   17'408U, 17'408U, 2U) &&
             matrix_is(plan.mlp.up_bf16, base,
                       1'392'640'000U, 40'000U, 17'408U, 17'408U, 2U) &&
@@ -1412,6 +1433,114 @@ void test_p40_whole_core_request_layout(TestContext& test) {
         "whole-core request layout rejects the panel-local MLP identity");
 }
 
+void test_p40_marlin_parity_request_layout(TestContext& test) {
+    runtime::LayerMajorRequestMemoryOptions options;
+    options.max_sequence_length =
+        runtime::kLayerMajorP40WholeCoreRequestCapacityTokens;
+    options.mlp_layout = runtime::LayerMajorRequestMlpLayout::
+                             kLayerWideP40MarlinParityMergedGateUp;
+    options.layout =
+        runtime::LayerMajorRequestLayout::kP40WholeCorePromptWide;
+    const auto result =
+        runtime::build_layer_major_request_memory_plan(options);
+    if (!runtime::prompt_wide_p40_whole_core_prefill_plan_enabled() ||
+        !runtime::
+            prompt_wide_p40_vllm_marlin_parity_prefill_plan_enabled()) {
+        test.expect(
+            !result &&
+                result.diagnostic.code ==
+                    runtime::RequestErrorCode::kInvalidOption,
+            "old P40 admissions do not enable the parity RequestState layout");
+        return;
+    }
+    test.expect(result.ok(),
+                "admission build constructs the P40 Marlin-parity layout");
+    if (!result) {
+        return;
+    }
+
+    const runtime::LayerMajorRequestMemoryPlan& plan = *result.value;
+    const std::uint64_t base =
+        plan.p40_whole_core.family_phase_arena.arena_offset;
+    test.expect(
+        plan.common.profile ==
+                runtime::RequestMemoryProfile::kLayerMajorP40WholeCore &&
+            plan.layout == runtime::LayerMajorRequestLayout::
+                               kP40WholeCorePromptWide &&
+            plan.mlp_layout == runtime::LayerMajorRequestMlpLayout::
+                                   kLayerWideP40MarlinParityMergedGateUp &&
+            plan.mlp_tactic == runtime::PrefillMlpPhysicalTactic::
+                                   kLayerWideP40MarlinParityMergedGateUp &&
+            plan.mlp_capacity_tokens == 40'000U &&
+            plan.p40_whole_core.family_phase_arena.byte_size ==
+                runtime::kLayerMajorP40WholeCoreFamilyArenaBytes &&
+            plan.common.arena_bytes == 8'640'542'976U &&
+            !plan.executable(),
+        "Marlin parity has a distinct identity without changing the whole-core "
+        "request high-water");
+    test.expect(
+        matrix_is(
+            plan.mlp.merged_gate_up_bf16,
+            base + runtime::kLayerMajorP40MarlinParityMergedGateUpOffset,
+            2'785'280'000U, 40'000U, 34'816U, 34'816U, 2U) &&
+            matrix_is_empty(plan.mlp.gate_bf16) &&
+            matrix_is_empty(plan.mlp.up_bf16) &&
+            matrix_is(
+                plan.mlp.activated_bf16,
+                base + runtime::kLayerMajorP40MarlinParityActivatedOffset,
+                1'392'640'000U, 40'000U, 17'408U, 17'408U, 2U) &&
+            region_is(plan.mlp.gate_up_projection_temporary,
+                      base + runtime::kLayerMajorP40MarlinParityTemporaryOffset,
+                      runtime::kLayerMajorP40MarlinParityTemporaryBytes, 1U) &&
+            region_is(plan.mlp.down_projection_temporary,
+                      base + runtime::kLayerMajorP40MarlinParityTemporaryOffset,
+                      runtime::kLayerMajorP40MarlinParityTemporaryBytes, 1U) &&
+            matrix_is(
+                plan.mlp.normalized_input_bf16,
+                base + runtime::kLayerMajorP40MarlinParityNormalizedOffset,
+                409'600'000U, 40'000U, 5'120U, 5'120U, 2U) &&
+            matrix_is(
+                plan.mlp.branch_output_bf16,
+                base + runtime::kLayerMajorP40MarlinParityNormalizedOffset,
+                409'600'000U, 40'000U, 5'120U, 5'120U, 2U),
+        "P40 typed views expose canonical GateThenUp, activation, shared "
+        "stock tail temporary, empty legacy halves, and the Down alias");
+    constexpr std::uint64_t kTokenOneGateByteOffset =
+        runtime::kLayerMajorP40MarlinParityMergedGateUpRowStrideBytes;
+    constexpr std::uint64_t kTokenOneUpByteOffset =
+        kTokenOneGateByteOffset +
+        runtime::kLayerMajorP40MarlinParityUpColumnOffsetBytes;
+    static_assert(kTokenOneGateByteOffset == 69'632U);
+    static_assert(kTokenOneUpByteOffset == 104'448U);
+    test.expect(
+        plan.mlp.merged_gate_up_bf16.storage.arena_offset +
+                plan.mlp.merged_gate_up_bf16.storage.byte_size ==
+            plan.mlp.activated_bf16.storage.arena_offset &&
+            plan.mlp.activated_bf16.storage.arena_offset +
+                    plan.mlp.activated_bf16.storage.byte_size ==
+                plan.mlp.gate_up_projection_temporary.arena_offset &&
+            plan.mlp.gate_up_projection_temporary.arena_offset ==
+                plan.mlp.down_projection_temporary.arena_offset &&
+            plan.mlp.gate_up_projection_temporary.arena_offset +
+                    plan.mlp.gate_up_projection_temporary.byte_size <=
+            plan.mlp.normalized_input_bf16.storage.arena_offset &&
+            plan.mlp.normalized_input_bf16.storage.arena_offset +
+                    plan.mlp.normalized_input_bf16.storage.byte_size <=
+                base + plan.p40_whole_core.family_phase_arena.byte_size,
+        "token-one Gate/Up columns share one row and the sequential tail "
+        "temporary alias is bounded outside live tensors");
+
+    runtime::LayerMajorRequestMemoryOptions wrong_profile = options;
+    wrong_profile.layout =
+        runtime::LayerMajorRequestLayout::kC8192FamilyOverlay;
+    runtime::LayerMajorRequestMemoryOptions wrong_capacity = options;
+    wrong_capacity.max_sequence_length = 40'000U;
+    test.expect(
+        !runtime::build_layer_major_request_memory_plan(wrong_profile) &&
+            !runtime::build_layer_major_request_memory_plan(wrong_capacity),
+        "Marlin parity fails closed outside exact whole-core P40000/P40001");
+}
+
 void test_layer_major_bad_options(TestContext& test) {
     test.expect(
         runtime::validate_request_memory_profile(
@@ -1525,6 +1654,7 @@ int main() {
     test_layer_major_disjoint_legacy_and_ownership(test);
     test_layer_wide_p40_mlp_request_layout(test);
     test_p40_whole_core_request_layout(test);
+    test_p40_marlin_parity_request_layout(test);
     test_layer_major_bad_options(test);
     test_sequence_length_publication_validation(test);
     if (test.failures() != 0) {

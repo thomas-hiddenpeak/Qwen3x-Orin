@@ -24,11 +24,21 @@ static_assert(static_cast<std::uint8_t>(
                   runtime::LayerMajorPrefillProjectionTactic::
                       kNativePromptWideP40PackedNvfp4V2) == 9U);
 static_assert(static_cast<std::uint8_t>(
+                  runtime::LayerMajorPrefillProjectionTactic::
+                      kNativePromptWideP40VllmMarlinParity) == 10U);
+static_assert(static_cast<std::uint8_t>(
                   runtime::LayerMajorPrefillMlpScheduleTactic::
                       kPromptWideP40PackedProjection) == 4U);
 static_assert(static_cast<std::uint8_t>(
                   runtime::LayerMajorPrefillMlpScheduleTactic::
                       kPromptWideP40PackedNvfp4V2) == 5U);
+static_assert(static_cast<std::uint8_t>(
+                  runtime::LayerMajorPrefillMlpScheduleTactic::
+                      kPromptWideP40VllmMarlinParity) == 6U);
+static_assert(static_cast<std::uint8_t>(
+                  runtime::PrefillNvFp4ArithmeticTactic::
+                      kP40000VllmMarlinProjectionHostDispatchGateThenUpSiluDownResidual) ==
+              7U);
 
 class TestContext {
  public:
@@ -169,6 +179,9 @@ void test_public_tile_and_operator_panel_are_independent(TestContext& test) {
           runtime::is_valid_layer_major_prefill_projection_tactic(
               runtime::LayerMajorPrefillProjectionTactic::
                   kNativePromptWideP40PackedNvfp4V2) &&
+          runtime::is_valid_layer_major_prefill_projection_tactic(
+              runtime::LayerMajorPrefillProjectionTactic::
+                  kNativePromptWideP40VllmMarlinParity) &&
           !runtime::is_valid_layer_major_prefill_projection_tactic(
               static_cast<runtime::LayerMajorPrefillProjectionTactic>(
                   0xffU)),
@@ -212,7 +225,11 @@ void test_public_tile_and_operator_panel_are_independent(TestContext& test) {
           runtime::to_string(
               runtime::LayerMajorPrefillProjectionTactic::
                   kNativePromptWideP40PackedNvfp4V2) ==
-              "native-prompt-wide-p40-packed-nvfp4-v2",
+              "native-prompt-wide-p40-packed-nvfp4-v2" &&
+          runtime::to_string(
+              runtime::LayerMajorPrefillProjectionTactic::
+                  kNativePromptWideP40VllmMarlinParity) ==
+              "native-prompt-wide-p40-vllm-marlin-parity",
       "projection tactic names preserve exact, segmented, native large-M, "
       "true-large-M, and G2/D2 NVFP4 route identity");
   const runtime::PrefillExecutionPlanResult result = build_plan(513U);
@@ -714,6 +731,250 @@ void test_prompt_wide_p40_packed_nvfp4_v2_schedule(TestContext& test) {
               runtime::PrefillExecutionProgressError::kNone &&
           runtime::prefill_final_commit_ready(*candidate.value, progress),
       "packed NVFP4 v2 publishes only atomic completed layers");
+}
+
+void test_prompt_wide_p40_vllm_marlin_parity_schedule(TestContext& test) {
+  using MlpSchedule = runtime::LayerMajorPrefillMlpScheduleTactic;
+  constexpr auto kParity = MlpSchedule::kPromptWideP40VllmMarlinParity;
+  const auto& arithmetic = runtime::
+      kLayerMajorPrefillPromptWideP40VllmMarlinParityArithmeticContract;
+  test.expect(
+      runtime::is_valid_layer_major_prefill_mlp_schedule_tactic(kParity) &&
+          runtime::to_string(kParity) ==
+              "prompt-wide-p40-vllm-marlin-parity" &&
+          runtime::prefill_route_layer_pass_count(5U, kParity) == 1U &&
+          runtime::is_valid_layer_major_prefill_arithmetic_contract(
+              arithmetic) &&
+          arithmetic.version == 10U &&
+          arithmetic.fp8 == runtime::PrefillFp8ArithmeticTactic::
+                                kP8000FillDrainSingleBulk &&
+          arithmetic.nvfp4 ==
+              runtime::PrefillNvFp4ArithmeticTactic::
+                  kP40000VllmMarlinProjectionHostDispatchGateThenUpSiluDownResidual &&
+          arithmetic.p8000_fp8_fill_drain_single_bulk &&
+          arithmetic.nvfp4_gate_up_down_coupled &&
+          arithmetic.p40000_post_attention_norm_prompt_wide &&
+          !arithmetic.p40000_persistent_gate_up_silu &&
+          !arithmetic.p40000_persistent_down_residual,
+      "vLLM/Marlin parity owns append-only v10 arithmetic without relabelling "
+      "the packed-v2 persistent contract");
+
+  runtime::LayerMajorPrefillArithmeticContract relabelled = arithmetic;
+  relabelled.nvfp4 = runtime::PrefillNvFp4ArithmeticTactic::
+      kP40000PackedShapeSpecificV2GateUpSiluDownResidual;
+  test.expect(
+      !runtime::is_valid_layer_major_prefill_arithmetic_contract(relabelled),
+      "parity arithmetic cannot be relabelled as packed-v2 NVFP4");
+
+  test.expect(
+      runtime::kLayerMajorPrefillVllmMarlinParityFullSegmentsPerProjection ==
+              39U &&
+          runtime::kLayerMajorPrefillVllmMarlinParityTailSegmentsPerProjection ==
+              1U &&
+          runtime::kLayerMajorPrefillVllmMarlinParityFullSegmentTokens ==
+              1'024U &&
+          runtime::kLayerMajorPrefillVllmMarlinParityTailSegmentTokens ==
+              64U &&
+          runtime::kLayerMajorPrefillVllmMarlinParityNvFp4PhysicalLaunchesPerRequest ==
+              5'120U &&
+          runtime::kLayerMajorPrefillVllmMarlinParityArtifactCount == 128U &&
+          runtime::kLayerMajorPrefillVllmMarlinParityAuthenticatedSourceCount ==
+              192U,
+      "parity constants seal exact P40000 segmentation and canonical "
+      "sidecar inventory");
+
+  const auto candidate = build_plan(
+      runtime::kLayerMajorPrefillPromptWideP40Tokens, 0U,
+      runtime::kLayerMajorPrefillPromptWideP40RequestCapacityTokens,
+      kParity);
+  if (!runtime::prompt_wide_p40_vllm_marlin_parity_prefill_plan_enabled()) {
+    test.expect(
+        !candidate &&
+            candidate.error ==
+                runtime::PrefillExecutionPlanError::kInvalidArgument,
+        "default builds fail closed on vLLM/Marlin parity");
+    return;
+  }
+
+  const runtime::PrefillP40VllmMarlinParitySchedulePlan* schedule =
+      candidate ? &candidate.value->vllm_marlin_parity_schedule : nullptr;
+  const runtime::PrefillMlpSchedulePlan* mlp =
+      candidate ? &candidate.value->mlp_schedule : nullptr;
+  test.expect(
+      candidate && schedule != nullptr && mlp != nullptr &&
+          schedule->enabled && candidate.value->panel_count == 5U &&
+          schedule->input_preparation_panel_count_per_layer == 5U &&
+          schedule->prompt_core_phase_count_per_layer == 1U &&
+          schedule->segmented_mlp_phase_count_per_layer == 1U &&
+          schedule->panel_token_count == 8'000U &&
+          schedule->projection_m_tokens == 40'000U &&
+          schedule->request_capacity_tokens == 40'001U &&
+          schedule->route_pass_count == 1U &&
+          schedule->fp8_physical_launches_per_request == 1'040U &&
+          schedule->fp8_tensor_role_hits_per_request == 1'040U &&
+          schedule->gate_up_segments_per_layer == 40U &&
+          schedule->down_segments_per_layer == 40U &&
+          schedule->nvfp4_physical_launches_per_request == 5'120U &&
+          schedule->gate_up_logical_role_hits_per_request == 64U &&
+          schedule->down_logical_role_hits_per_request == 64U &&
+          schedule->standalone_silu_launches_per_layer == 1U &&
+          schedule->standalone_residual_launches_per_layer == 1U &&
+          schedule->lock_clear_operations_per_request == 1U &&
+          schedule->full_m1024_segments_per_projection == 39U &&
+          schedule->tail_m64_segments_per_projection == 1U &&
+          schedule->gate_up_tail_output_tiles == 136U &&
+          schedule->gate_up_tail_split_output_tiles == 8U &&
+          schedule->down_tail_output_tiles == 20U &&
+          schedule->down_tail_split_output_tiles == 12U &&
+          schedule->full_segment_m_tokens == 1'024U &&
+          schedule->tail_segment_m_tokens == 64U &&
+          schedule->gate_up_input_features == 5'120U &&
+          schedule->merged_gate_up_output_features == 34'816U &&
+          schedule->gate_output_features == 17'408U &&
+          schedule->up_output_features == 17'408U &&
+          schedule->down_input_features == 17'408U &&
+          schedule->down_output_features == 5'120U &&
+          schedule->authenticated_artifact_count == 128U &&
+          schedule->authenticated_source_count == 192U &&
+          schedule->independent_canonical_marlin_sidecars_required &&
+          schedule->canonical_token_major_gate_then_up_rows_required &&
+          schedule->independent_activated_buffer_required &&
+          schedule->bf16_projection_publication_required &&
+          schedule->internal_m_segmentation_required &&
+          schedule->m64_tail_is_final_segment_required &&
+          schedule->m1024_segments_full_k_required &&
+          schedule->m64_tail_split_k_required &&
+          schedule->m64_tail_locks_required &&
+          schedule->m64_tail_zero_initialized_locks_required &&
+          schedule->m64_tail_fp32_reduction_workspace_required &&
+          schedule->m64_tail_in_kernel_global_reduction_required &&
+          schedule->request_time_repack_forbidden &&
+          schedule->request_time_tactic_selection_forbidden &&
+          schedule->production_accuracy_required &&
+          schedule->approximate_numerics_forbidden &&
+          schedule->mtp_forbidden && schedule->cublaslt_forbidden &&
+          mlp->required_gate_up_projection_launches_per_layer == 40U &&
+          mlp->maximum_standalone_silu_launches_per_layer == 1U &&
+          mlp->required_down_projection_launches_per_layer == 40U &&
+          mlp->minimum_total_kernel_launches_per_layer == 82U &&
+          mlp->maximum_total_kernel_launches_per_layer == 82U &&
+          !mlp->internal_m_segmentation_forbidden &&
+          !candidate.value->packed_nvfp4_v2_schedule.enabled &&
+          !candidate.value->packed_projection_schedule.enabled &&
+          !candidate.value->projection_reset_schedule.enabled &&
+          !candidate.value->whole_core_schedule.enabled &&
+          runtime::is_valid_unbound_layer_major_prefill_execution_plan(
+              *candidate.value),
+      "parity plan requires canonical GateThenUp, stock M64 FP32 reduction, "
+      "and 39xM1024+M64 projection host dispatch");
+
+  runtime::PrefillExecutionPlan mutated = *candidate.value;
+  mutated.vllm_marlin_parity_schedule
+      .canonical_token_major_gate_then_up_rows_required = false;
+  test.expect(
+      !runtime::is_valid_unbound_layer_major_prefill_execution_plan(mutated),
+      "tensor-major Gate and Up planes cannot satisfy canonical GateThenUp");
+  mutated = *candidate.value;
+  mutated.vllm_marlin_parity_schedule.independent_activated_buffer_required =
+      false;
+  test.expect(
+      !runtime::is_valid_unbound_layer_major_prefill_execution_plan(mutated),
+      "parity rejects an activation alias into the merged GateUp publication");
+  mutated = *candidate.value;
+  mutated.vllm_marlin_parity_schedule.m1024_segments_full_k_required = false;
+  test.expect(
+      !runtime::is_valid_unbound_layer_major_prefill_execution_plan(mutated),
+      "parity requires full-K ownership for every M1024 segment tile");
+  mutated = *candidate.value;
+  mutated.vllm_marlin_parity_schedule.m64_tail_split_k_required = false;
+  test.expect(
+      !runtime::is_valid_unbound_layer_major_prefill_execution_plan(mutated),
+      "parity requires the stock M64 split-K tail");
+  mutated = *candidate.value;
+  mutated.vllm_marlin_parity_schedule
+      .m64_tail_zero_initialized_locks_required = false;
+  test.expect(
+      !runtime::is_valid_unbound_layer_major_prefill_execution_plan(mutated),
+      "parity requires zeroed ordered locks before the first M64 tail");
+  mutated = *candidate.value;
+  mutated.vllm_marlin_parity_schedule.lock_clear_operations_per_request = 0U;
+  test.expect(
+      !runtime::is_valid_unbound_layer_major_prefill_execution_plan(mutated),
+      "parity records one request-level ordered-lock clear operation");
+  mutated = *candidate.value;
+  mutated.vllm_marlin_parity_schedule.down_tail_split_output_tiles = 11U;
+  test.expect(
+      !runtime::is_valid_unbound_layer_major_prefill_execution_plan(mutated),
+      "parity rejects a non-stock Down tail split topology");
+  mutated = *candidate.value;
+  mutated.vllm_marlin_parity_schedule.gate_up_segments_per_layer = 39U;
+  test.expect(
+      !runtime::is_valid_unbound_layer_major_prefill_execution_plan(mutated),
+      "parity rejects a missing M64 GateUp tail");
+  mutated = *candidate.value;
+  mutated.vllm_marlin_parity_schedule.m64_tail_is_final_segment_required =
+      false;
+  test.expect(
+      !runtime::is_valid_unbound_layer_major_prefill_execution_plan(mutated),
+      "parity rejects an M64 tail that is not the final segment");
+
+  const auto make_completion_receipt = [](const std::size_t layer) {
+    runtime::PrefillP40VllmMarlinParityLayerCompletionReceipt receipt;
+    receipt.layer_index = layer;
+    receipt.request_lock_clear_operations = layer == 0U ? 1U : 0U;
+    receipt.gate_up_full_m1024_launches = 39U;
+    receipt.gate_up_split_m64_launches = 1U;
+    receipt.standalone_silu_launches = 1U;
+    receipt.down_full_m1024_launches = 39U;
+    receipt.down_split_m64_launches = 1U;
+    receipt.standalone_residual_launches = 1U;
+    receipt.retained_prompt_core_complete = true;
+    receipt.canonical_gate_then_up_bf16_published = true;
+    receipt.activated_bf16_published = true;
+    receipt.down_bf16_published = true;
+    receipt.locks_zero_before_gate_up_tail = true;
+    receipt.locks_zero_after_gate_up_tail = true;
+    receipt.locks_zero_after_down_tail = true;
+    receipt.completion_event_observed = true;
+    return receipt;
+  };
+
+  runtime::PrefillExecutionProgress progress =
+      runtime::make_prefill_execution_progress(*candidate.value);
+  bool ordered = runtime::advance_prefill_progress_after_completion(
+                     *candidate.value, progress, 0U, 0U) ==
+                 runtime::PrefillExecutionProgressError::kOutOfOrder;
+  ordered = ordered &&
+            runtime::
+                    advance_prompt_wide_p40_packed_nvfp4_v2_layer_progress_after_completion(
+                        *candidate.value, progress, 0U) ==
+                runtime::PrefillExecutionProgressError::kOutOfOrder;
+  runtime::PrefillP40VllmMarlinParityLayerCompletionReceipt incomplete =
+      make_completion_receipt(0U);
+  --incomplete.gate_up_full_m1024_launches;
+  ordered = ordered &&
+            runtime::
+                    advance_prompt_wide_p40_vllm_marlin_parity_layer_progress_after_completion(
+                        *candidate.value, progress, 0U, incomplete) ==
+                runtime::PrefillExecutionProgressError::
+                    kInvalidCompletionReceipt &&
+            progress.next_layer == 0U;
+  for (std::size_t layer = 0U;
+       ordered && layer < candidate.value->layers.size(); ++layer) {
+    const auto receipt = make_completion_receipt(layer);
+    ordered = runtime::
+                  advance_prompt_wide_p40_vllm_marlin_parity_layer_progress_after_completion(
+                      *candidate.value, progress, layer, receipt) ==
+              runtime::PrefillExecutionProgressError::kNone;
+  }
+  test.expect(
+      ordered && progress.next_layer == candidate.value->layers.size() &&
+          runtime::mark_prefill_final_hidden_ready(*candidate.value,
+                                                   progress) ==
+              runtime::PrefillExecutionProgressError::kNone &&
+          runtime::prefill_final_commit_ready(*candidate.value, progress),
+      "parity publishes only a fully completed atomic layer and final "
+      "request commit");
 }
 
 void test_target_panel_matrix(TestContext& test) {
@@ -1487,6 +1748,7 @@ int main() {
   test_prompt_wide_p40_projection_reset_schedule(test);
   test_prompt_wide_p40_packed_projection_schedule(test);
   test_prompt_wide_p40_packed_nvfp4_v2_schedule(test);
+  test_prompt_wide_p40_vllm_marlin_parity_schedule(test);
   test_fail_closed_inputs(test);
   if (test.failures() != 0) {
     std::cerr << test.failures()

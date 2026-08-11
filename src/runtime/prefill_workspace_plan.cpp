@@ -144,14 +144,28 @@ template <std::size_t Count>
          tactic ==
              PrefillMlpPhysicalTactic::kLayerWideP40AlignedMarlin ||
          tactic == PrefillMlpPhysicalTactic::
-                       kLayerWideP40PersistentFusedGateUp;
+                       kLayerWideP40PersistentFusedGateUp ||
+         tactic == PrefillMlpPhysicalTactic::
+                       kLayerWideP40MarlinParityMergedGateUp;
+}
+
+[[nodiscard]] bool is_layer_wide_p40_mlp_tactic(
+    const PrefillMlpPhysicalTactic tactic) noexcept {
+  return tactic == PrefillMlpPhysicalTactic::kLayerWideP40AlignedMarlin ||
+         tactic == PrefillMlpPhysicalTactic::
+                       kLayerWideP40PersistentFusedGateUp ||
+         tactic == PrefillMlpPhysicalTactic::
+                       kLayerWideP40MarlinParityMergedGateUp;
 }
 
 [[nodiscard]] bool enabled_mlp_tactic(
     const PrefillMlpPhysicalTactic tactic) noexcept {
-  return (tactic != PrefillMlpPhysicalTactic::kLayerWideP40AlignedMarlin &&
-          tactic != PrefillMlpPhysicalTactic::
-                        kLayerWideP40PersistentFusedGateUp) ||
+  if (tactic == PrefillMlpPhysicalTactic::
+                    kLayerWideP40MarlinParityMergedGateUp) {
+    return layer_wide_p40_mlp_prefill_plan_enabled() &&
+           prompt_wide_p40_vllm_marlin_parity_prefill_plan_enabled();
+  }
+  return !is_layer_wide_p40_mlp_tactic(tactic) ||
          layer_wide_p40_mlp_prefill_plan_enabled();
 }
 
@@ -193,10 +207,7 @@ struct PrefillTacticByteRequirements {
     return false;
   }
 
-  const bool layer_wide_p40 =
-      mlp_tactic == PrefillMlpPhysicalTactic::kLayerWideP40AlignedMarlin ||
-      mlp_tactic == PrefillMlpPhysicalTactic::
-                        kLayerWideP40PersistentFusedGateUp;
+  const bool layer_wide_p40 = is_layer_wide_p40_mlp_tactic(mlp_tactic);
   const bool persistent_fused_gate_up =
       mlp_tactic == PrefillMlpPhysicalTactic::
                         kLayerWideP40PersistentFusedGateUp;
@@ -702,10 +713,7 @@ struct VariantBackingRequirements {
 
   const auto& scratch = plan.operator_scratch;
   const std::uint32_t expected_mlp_capacity =
-      scratch.mlp_tactic ==
-                  PrefillMlpPhysicalTactic::kLayerWideP40AlignedMarlin ||
-              scratch.mlp_tactic == PrefillMlpPhysicalTactic::
-                                        kLayerWideP40PersistentFusedGateUp
+      is_layer_wide_p40_mlp_tactic(scratch.mlp_tactic)
           ? kLayerMajorPrefillLayerWideMlpP40Tokens
           : kLayerMajorPrefillOperatorPanelTokens;
   if (scratch.c8192_panel_capacity_tokens !=
@@ -1076,10 +1084,7 @@ build_unbound_layer_major_prefill_workspace_plan(
       !valid_legacy_gdn_tactic(options.legacy_gdn_tactic) ||
       !valid_mlp_tactic(options.mlp_tactic) ||
       !enabled_mlp_tactic(options.mlp_tactic) ||
-      ((options.mlp_tactic ==
-            PrefillMlpPhysicalTactic::kLayerWideP40AlignedMarlin ||
-        options.mlp_tactic == PrefillMlpPhysicalTactic::
-                                  kLayerWideP40PersistentFusedGateUp) &&
+      (is_layer_wide_p40_mlp_tactic(options.mlp_tactic) &&
        options.sequence_capacity_tokens !=
            kLayerMajorPrefillLayerWideMlpP40RequestCapacityTokens)) {
     return failure(PrefillWorkspacePlanError::kInvalidArgument);
@@ -1226,10 +1231,7 @@ build_unbound_layer_major_prefill_workspace_plan(
   scratch.legacy_c512_panel_capacity_tokens =
       kLayerMajorPrefillLegacyPublicTileTokens;
   scratch.mlp_capacity_tokens =
-      options.mlp_tactic ==
-                  PrefillMlpPhysicalTactic::kLayerWideP40AlignedMarlin ||
-              options.mlp_tactic == PrefillMlpPhysicalTactic::
-                                        kLayerWideP40PersistentFusedGateUp
+      is_layer_wide_p40_mlp_tactic(options.mlp_tactic)
           ? kLayerMajorPrefillLayerWideMlpP40Tokens
           : kLayerMajorPrefillOperatorPanelTokens;
   scratch.gdn_tactic = options.gdn_tactic;
@@ -1870,7 +1872,8 @@ build_unbound_layer_major_p40_whole_core_workspace_plan(
       plan.linear_prompt_wide_workspace.family_relative_offset !=
           2'137'600'000U ||
       plan.linear_output_bf16.family_relative_offset != 4'938'240'000U ||
-      plan.whole_core_family_arena.required_bytes != 5'429'760'000U ||
+      plan.whole_core_family_arena.required_bytes !=
+          kLayerMajorP40WholeCoreFamilyArenaBytes ||
       plan.persistent_and_kv.required_bytes != 2'699'952'128U ||
       plan.prompt_residual_bf16.required_bytes != 409'610'240U ||
       plan.legacy_c512_workspace.required_bytes != 90'970'112U ||
