@@ -193,12 +193,18 @@ The first bounded package is
    explicit SM87 load, buffering, synchronization, MMA, residency, and AOT
    plan instead of excluding the reference;
 3. after source analysis, run one clean-host, real-weight, cold/no-cache P40
-   API geometry witness for the proven reference route at explicit macrochunk
-   budgets `2048`, `4096`, `8192`, and near-whole-prompt after its
-   JIT/autotune warmup;
-4. freeze the selected macrochunk geometry and role-specific plans into a
+   API geometry witness for the proven reference route at the target-first
+   whole-prompt scheduler budget `40000`, after its JIT/autotune warmup;
+4. treat any invalid witness as control feedback rather than a performance
+   result: keep the gate fixed, do not repeat an unchanged route, and reconcile
+   its startup/JIT cache, Humming/backend identity, execution geometry, and
+   physical power/thermal lane against the known optimized reference first;
+5. use `8192`, `4096`, or `2048` budgets only after a valid target witness and
+   only to answer a predeclared explanatory question; they cannot delay or
+   replace the target gate;
+6. freeze the selected macrochunk geometry and role-specific plans into a
    Q3X-only AOT candidate covering the complete family set above; and
-5. return the first executable composition directly to the incumbent P40 API
+7. return the first executable composition directly to the incumbent P40 API
    gate. A material whole-path step advances qualification; a small complete
    result reopens the global dataflow instead of starting a parameter scan.
 
@@ -241,14 +247,16 @@ and its current critical path.
 Execution order:
 
 1. complete the reference/source dataflow matrix and SM87 translation;
-2. choose macrochunk geometry and full-family ownership from that matrix;
-3. freeze numerical, state, buffer, synchronization, and AOT-plan identities;
-4. implement the mutually required projection, Attention, GDN, and handoff
+2. close any matched-path or physical-lane discrepancy exposed by the bounded
+   target-first reference witness before interpreting its timing;
+3. choose macrochunk geometry and full-family ownership from that matrix;
+4. freeze numerical, state, buffer, synchronization, and AOT-plan identities;
+5. implement the mutually required projection, Attention, GDN, and handoff
    seams in one candidate binary;
-5. return immediately to one clean-host real P40 API direction witness;
-6. use a bounded profile only to answer a predeclared causal question that can
+6. return immediately to one clean-host real P40 API direction witness;
+7. use a bounded profile only to answer a predeclared causal question that can
    select a materially different complete dataflow; and
-7. qualify a positive composition or close and redesign the architecture
+8. qualify a positive composition or close and redesign the architecture
    version. Do not convert a negative result into a local parameter scan.
 
 ### Promotion and stop gates

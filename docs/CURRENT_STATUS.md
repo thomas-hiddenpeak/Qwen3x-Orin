@@ -74,6 +74,21 @@ inferred from the current implementation. P60 and approximately P130 have not
 been opened because no competitive, accuracy-admissible P40 composition
 exists.
 
+A target-first stock-vLLM reference witness was then attempted from clean
+commit `fe626be` with the real checkpoint, one cold/no-cache P40 API request,
+one output token, and a whole-prompt scheduler budget of `40000`. The API
+transaction completed and the process-group, route, and cleanup receipts were
+captured, but the measurement is invalid: the request interval crossed the
+hard `70C` thermal gate, reached `81.812C`, and later showed real CPU
+downclocking from 2201 MHz to approximately 1.1 GHz. Its manifest is therefore
+`valid=false` with an empty result set. No timing from that run is retained,
+compared, or used to alter either the native incumbent or the owner-established
+4.3K tok/s starting line. The exact invalidation and artifact hashes are in the
+[`P40 reference-witness invalidation record`](metadata/qwen36-27b-vllm-p40-target-witness-invalid-2026-08-12.json).
+The current stock-auto route also selected Marlin FP8, FlashInfer Attention,
+and Triton/FLA GDN without Humming, so it is not yet a matched reconstruction
+of the known optimized vLLM observation.
+
 ## 2. Current capability matrix
 
 | Capability | Current state | Missing production condition |
@@ -231,7 +246,7 @@ sequence and successor identity live exclusively in
 
 | Gap | Current fact | Roadmap owner |
 | --- | --- | --- |
-| Documentation-control propagation | Integrated here, but not yet carried to every active development baseline; Codex loads `AGENTS.md` only from the worktree in which a session starts | P0 |
+| Documentation-control propagation | The canonical main line now has one `AGENTS.md -> docs/README.md` Codex entry; pre-existing dirty worktrees do not receive it until explicitly integrated, because Codex reads the worktree in which a session starts | P0 |
 | Product API and long-context admission | Validation and host planners exist, but the default contract cannot admit 40K/60K/130K | P1 |
 | Exact deliverable identity | No unique release binary plus authenticated DeploymentPlan | P2 |
 | Prefill parity and physical plan | P40 is 392.804397 tok/s, 10.95x below the useful vLLM line, and accuracy-unqualified | P3 |

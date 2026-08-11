@@ -289,8 +289,9 @@ measure that system trade, rather than treating chunking as a kernel feature.
 
 ## 9. One bounded reference-geometry witness
 
-After the source matrix is frozen, perform exactly one target-first
-reference-engine witness before native implementation:
+After the source matrix is frozen, obtain exactly one valid target-first
+reference-engine witness before native implementation. An invalid execution
+does not consume that valid-witness slot:
 
 - real checkpoint and tokenization;
 - one cold/no-cache, batch-one P40 API request with one output token;
@@ -350,12 +351,33 @@ consecutive five-second samples of CPU/GPU/TJ at or below `65C` are required
 before server startup, before the measured request, and before post-release
 admission; every measured sample must still remain strictly below `70C`.
 
+### 9.1 First target-first execution feedback
+
+The first formal `40000`-budget execution from clean commit `fe626be`
+completed its real API transaction and cleanup, but it did not produce a
+performance result. The measured interval exceeded the fixed thermal gate,
+reached `81.812C`, and later showed CPU clocks falling from 2201 MHz to about
+1.1 GHz. The launcher consequently wrote `valid=false`, retained no result,
+and left the native incumbent and the owner-established 4.3K tok/s reference
+unchanged. Its exact classification and artifact hashes are frozen in the
+[`invalid P40 reference-witness record`](metadata/qwen36-27b-vllm-p40-target-witness-invalid-2026-08-12.json).
+
+This feedback closes an unchanged rerun, not the target. The captured route
+used stock vLLM `0.26.0` with auto linear selection, Marlin FP8, FlashInfer
+Attention, and Triton/FLA GDN; Humming was not selected. Before another GPU
+run, the package must reconcile that exact route with the owner's known
+optimized vLLM startup, JIT/AOT-cache, backend, Humming, and scheduler
+configuration. Only a materially different, hash-bound route returns to the
+same target-first P40 gate. The thermal limit is not relaxed, and smaller
+budgets remain explanatory tools rather than substitutes for the product
+workload.
+
 ## 10. Package closure
 
 This package closes only when all of the following are true:
 
 1. source pins and invariant/ISA/SM87 translations are complete;
-2. the first P40 witness selects or rejects the whole-prompt target under the
+2. the first valid P40 witness selects or rejects the whole-prompt target under the
    matched reference protocol; explanatory smaller macrochunks are considered
    only after that result exists;
 3. projection, Attention, GDN, buffer, state, and handoff plans form one

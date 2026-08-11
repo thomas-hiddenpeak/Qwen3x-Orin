@@ -1,0 +1,106 @@
+{
+  "schema_version": 1,
+  "record_id": "qwen36-27b-vllm-p40-target-witness-invalid-2026-08-12",
+  "observed_at": "2026-08-12T05:32:47+08:00",
+  "timezone": "Asia/Shanghai",
+  "classification": {
+    "tier": "T3_TARGET_API_REFERENCE_WITNESS",
+    "decision_unit": "WP-PREFILL-REFERENCE-TRANSLATION-v1",
+    "authority": "invalid_evidence_only",
+    "valid_performance_sample": false,
+    "timing_authority": false,
+    "architecture_selection_authority": false,
+    "release_performance_authority": false,
+    "production_promotion_authority": false,
+    "decision": "invalidate_thermal_and_frequency_envelope"
+  },
+  "repository": {
+    "branch": "codex/prefill-target-path",
+    "commit": "fe626be2c699a64345cb2481435483ab5e3934e9",
+    "tree": "2ed52226d6efd26bf69e710542072c93f1ea709d",
+    "measurement_tree_clean": true
+  },
+  "workload": {
+    "checkpoint": "nvidia/Qwen3.6-27B-NVFP4",
+    "prompt_tokens": 40000,
+    "output_tokens": 1,
+    "parallel": 1,
+    "cold_no_cache": true,
+    "prefix_cache": false,
+    "mtp": false,
+    "framework": "EvalScope",
+    "framework_version": "1.9.1",
+    "api": "openai",
+    "max_num_batched_tokens": 40000
+  },
+  "reference_runtime": {
+    "vllm": "0.26.0",
+    "torch": "2.11.0+cu130",
+    "torch_cuda": "13.0",
+    "flashinfer": "0.6.14",
+    "triton": "3.6.0",
+    "linear_backend_request": "auto",
+    "fp8_linear_selection": "MarlinFP8ScaledMMLinearKernel",
+    "attention_selection": "AttentionBackendEnum.FLASHINFER",
+    "gdn_selection": "Triton/FLA GDN prefill kernel",
+    "humming_selected": false
+  },
+  "transaction": {
+    "api_success_requests": 1,
+    "api_failed_requests": 0,
+    "manifest_valid": false,
+    "manifest_result_count": 0,
+    "timing_disposition": "discarded_and_not_compared"
+  },
+  "invalidation": {
+    "harness_failure": "clock/RAM drift at tegrastats line 45: gpu=(1294,1294), emc=3200, cpu=2201 MHz, ram_total=62878 MiB",
+    "hard_temperature_limit_c": 70.0,
+    "observed_measured_peak_c": 81.812,
+    "gpu_active_percent_observed": 99,
+    "cpu_initial_mhz": 2201,
+    "cpu_throttled_mhz_approximately": 1100,
+    "interpretation": "The request completed, but the measured interval crossed the hard thermal limit and later contained real CPU downclocking. No performance number from this run may be retained, averaged, compared, or promoted."
+  },
+  "cleanup": {
+    "owned_process_group_empty": true,
+    "owned_rpc_sockets_observed": 3,
+    "owned_rpc_sockets_removed": 3,
+    "owned_rpc_sockets_remaining": 0,
+    "post_release_preflight": "pass",
+    "cooldown_elapsed_seconds": 420.478942517
+  },
+  "artifacts": {
+    "root": ".q3x-work/evaluation/vllm-p40-target-formal-20260812-r5",
+    "manifest": {
+      "path": ".q3x-work/evaluation/vllm-p40-target-formal-20260812-r5/manifest.json",
+      "sha256": "f95299d887d98c639d831b9979312be5de623c76ec35fa6916da0f80145b9b9d"
+    },
+    "evalscope_summary": {
+      "path": ".q3x-work/evaluation/vllm-p40-target-formal-20260812-r5/b40000/evalscope/p40-b40000/parallel_1_number_1/benchmark_summary.json",
+      "sha256": "bae52fba2ffbb5f8560c1c6c58e15bb404ea62a7537471781025afa23e50ca9f"
+    },
+    "measured_tegrastats_log": {
+      "path": ".q3x-work/evaluation/vllm-p40-target-formal-20260812-r5/b40000/measured-tegrastats.log",
+      "sha256": "d029dfecd068db44438154763cfc5d280152dfa583f753cd8cc723c1ce0239ef"
+    },
+    "measured_tegrastats_receipt": {
+      "path": ".q3x-work/evaluation/vllm-p40-target-formal-20260812-r5/b40000/measured-tegrastats.json",
+      "sha256": "ddd2aaf7903986bb10cdfe9f6cb060a5cc0830ef632fd2ca4eec142d2f27efbf"
+    },
+    "cleanup_receipt": {
+      "path": ".q3x-work/evaluation/vllm-p40-target-formal-20260812-r5/b40000/cleanup.json",
+      "sha256": "f5373c52c205be38822129519494dddfd01f93e6ac2b4719970243cddd09dec0"
+    },
+    "server_log": {
+      "path": ".q3x-work/evaluation/vllm-p40-target-formal-20260812-r5/b40000/server.log",
+      "sha256": "febdcdb72d4d2397a135efe26261f9238d3db9c83662f77d64dd927f3d2cc3db"
+    }
+  },
+  "control_action": {
+    "retry_unchanged": false,
+    "lower_thermal_gate": false,
+    "change_native_baseline": false,
+    "change_owner_vllm_floor": false,
+    "next": "Reconcile the exact optimized vLLM startup, JIT/AOT cache, Humming/backend, and execution geometry behind the owner-observed reference before binding a materially different target-first P40 witness."
+  }
+}
