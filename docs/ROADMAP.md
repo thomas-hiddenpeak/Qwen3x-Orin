@@ -184,7 +184,7 @@ MTP, approximate arithmetic, request-time JIT/repack/autotune, silent
 fallback, or request-time tactic discovery.
 
 The first bounded package is
-**`WP-PREFILL-REFERENCE-TRANSLATION-v1`**:
+**[`WP-PREFILL-REFERENCE-TRANSLATION-v1`](PREFILL_REFERENCE_TRANSLATION_MATRIX.md)**:
 
 1. read the relevant vLLM, FlashInfer SM8x, Humming/Triton, FLA, and Mamba
    source paths and separate invariant mathematics, dataflow, ownership,

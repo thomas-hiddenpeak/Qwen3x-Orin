@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: exhaustive tracked-Markdown inventory and classification
   effective: 2026-08-09
-  last_reviewed: 2026-08-11
+  last_reviewed: 2026-08-12
   supersedes: []
   superseded_by: []
   ssot_for: tracked Markdown paths, primary classes, roles, and lifecycle states
@@ -21,9 +21,9 @@ document. Classes and authority rules are defined by
 
 ## Audit snapshot
 
-- Audit date: 2026-08-11.
-- Expected integrated-tree coverage: **67 Markdown paths**.
-- Classified: **67**.
+- Audit date: 2026-08-12.
+- Expected integrated-tree coverage: **68 Markdown paths**.
+- Classified: **68**.
 - Unclassified: **0**.
 - Duplicate registrations: **0**.
 - Inventory basis: every literal path expected from `git ls-files '*.md'`
@@ -38,11 +38,12 @@ mentions. A dormant local design becomes active only through the named SDD and
 Roadmap work package; it never activates itself. `frozen` evidence keeps
 authority only for its exact recorded protocol.
 
-## Local work package (1)
+## Local work package (2)
 
 | Path | Role | Lifecycle | Authority / ownership boundary |
 | --- | --- | --- | --- |
 | `AGENTS.md` | `repository_work_package` | active | Repository execution and hygiene instructions; cannot amend mission, numerical contract, or business targets. |
+| `docs/PREFILL_REFERENCE_TRANSLATION_MATRIX.md` | `prefill_reference_translation_work_package` | active | Source pins, invariant-to-SM87 mapping, candidate hypotheses, and closure gates for `WP-PREFILL-REFERENCE-TRANSLATION-v1`; cannot amend the SDD, numerical contract, current status, or production route. |
 
 ## Normative (4)
 

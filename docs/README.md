@@ -44,7 +44,8 @@ Then read the complete route required by the work:
   [`REAL_MODEL_PERFORMANCE_POLICY.md`](REAL_MODEL_PERFORMANCE_POLICY.md);
 - Prefill architecture or implementation:
   [`PREFILL_ARCHITECTURE_RESET.md`](PREFILL_ARCHITECTURE_RESET.md), then
-  [`PREFILL_MATHEMATICAL_EQUIVALENCE_LEDGER.md`](PREFILL_MATHEMATICAL_EQUIVALENCE_LEDGER.md);
+  [`PREFILL_MATHEMATICAL_EQUIVALENCE_LEDGER.md`](PREFILL_MATHEMATICAL_EQUIVALENCE_LEDGER.md),
+  then the active local work package linked by [`ROADMAP.md`](ROADMAP.md);
 - external API evaluation or metric reconciliation:
   [`EVALSCOPE_EVALUATION.md`](EVALSCOPE_EVALUATION.md);
 - Markdown addition, movement, reclassification, or controlling-document
