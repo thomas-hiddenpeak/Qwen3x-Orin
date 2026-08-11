@@ -314,6 +314,8 @@ TEGRASTATS_RAM_TOTAL_MB = 62_878
 TEGRASTATS_GPU_MHZ = 1_300
 TEGRASTATS_EMC_MHZ = 3_200
 TEGRASTATS_CPU_MHZ = 2_201
+ZMQ_IPC_PATH_MAX_BYTES = 107
+ZMQ_UUID_TEXT_BYTES = 36
 
 PROMPT_TOKENS = 40_000
 OUTPUT_TOKENS = 1
@@ -360,6 +362,7 @@ DIRECTORY_ENVIRONMENT_KEYS = (
     "FLASHINFER_WORKSPACE_BASE",
     "VLLM_CACHE_ROOT",
     "VLLM_CONFIG_ROOT",
+    "VLLM_RPC_BASE_PATH",
     "VLLM_FLASHINFER_AUTOTUNE_CACHE_DIR",
     "CUDA_CACHE_PATH",
     "CUTE_DSL_CACHE_DIR",
@@ -877,6 +880,13 @@ def environment_overrides(budget: int) -> dict[str, str]:
     data = WORK_ROOT / "data"
     home = WORK_ROOT / "home"
     temporary = WORK_ROOT / "tmp"
+    rpc_base = WORK_ROOT.resolve()
+    rpc_probe = rpc_base / ("0" * ZMQ_UUID_TEXT_BYTES)
+    if len(os.fsencode(str(rpc_probe))) > ZMQ_IPC_PATH_MAX_BYTES:
+        raise GeometryError(
+            "repository .q3x-work path is too long for vLLM ZeroMQ IPC: "
+            f"{len(os.fsencode(str(rpc_probe)))} > {ZMQ_IPC_PATH_MAX_BYTES}"
+        )
     return {
         "HOME": str(home),
         "PATH": CONTROLLED_PATH,
@@ -916,7 +926,10 @@ def environment_overrides(budget: int) -> dict[str, str]:
         "FLASHINFER_WORKSPACE_BASE": str(cache / "flashinfer"),
         "VLLM_CACHE_ROOT": str(cache / "vllm"),
         "VLLM_CONFIG_ROOT": str(cache / "vllm/config"),
-        "VLLM_RPC_BASE_PATH": str(temporary / f"vllm-rpc-b{budget}"),
+        # vLLM appends a 36-byte UUID.  The nested Codex worktree leaves only
+        # enough sockaddr_un space for the .q3x-work root itself; using it
+        # keeps every socket in the workspace without falling back to /tmp.
+        "VLLM_RPC_BASE_PATH": str(rpc_base),
         "VLLM_FLASHINFER_AUTOTUNE_CACHE_DIR": str(cache / "flashinfer-autotune"),
         "CUDA_CACHE_PATH": str(cache / "cuda"),
         "CUTE_DSL_CACHE_DIR": str(cache / "cute-dsl"),

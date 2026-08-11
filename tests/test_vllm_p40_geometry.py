@@ -178,6 +178,12 @@ class VllmP40GeometryTest(unittest.TestCase):
                 ),
                 key,
             )
+        rpc_base = pathlib.Path(overrides["VLLM_RPC_BASE_PATH"])
+        rpc_probe = rpc_base / ("0" * GEOMETRY.ZMQ_UUID_TEXT_BYTES)
+        self.assertEqual(rpc_base, GEOMETRY.WORK_ROOT.resolve())
+        self.assertLessEqual(
+            len(os.fsencode(str(rpc_probe))), GEOMETRY.ZMQ_IPC_PATH_MAX_BYTES
+        )
 
     def test_route_and_python_environment_are_not_inherited(self) -> None:
         hostile = {
