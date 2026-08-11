@@ -322,6 +322,12 @@ run validates non-GPU identities and prints the complete plan without
 starting a server or probing the CUDA device. The formal run requires a clean
 Git worktree and a previously unused output directory.
 
+The vLLM ZeroMQ base is the shortest safe repository-local path: its complete
+UUID socket path is checked against the 107-byte Unix-domain limit. Each
+budget requires no stale UUID socket before startup, and after the owned
+process group is empty the launcher removes only inode-matched socket entries
+created under `/.q3x-work/`, records them, and proves that none remain.
+
 vLLM imports its vendored DeepGEMM extension while probing backend
 availability, so the witness also pins that wrapper, package entry point,
 mapped ELF hash, and build ID. This is load-time identity evidence, not a

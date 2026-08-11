@@ -328,6 +328,9 @@ TEGRASTATS_EMC_MHZ = 3_200
 TEGRASTATS_CPU_MHZ = 2_201
 ZMQ_IPC_PATH_MAX_BYTES = 107
 ZMQ_UUID_TEXT_BYTES = 36
+VLLM_RPC_SOCKET_NAME = re.compile(
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+)
 
 PROMPT_TOKENS = 40_000
 OUTPUT_TOKENS = 1
@@ -1180,6 +1183,70 @@ def stop_process_group(process: subprocess.Popen[bytes]) -> dict[str, Any]:
     process.poll()
     result["returncode"] = process.returncode
     return result
+
+
+def collect_vllm_rpc_sockets() -> list[dict[str, Any]]:
+    """Return only UUID-named Unix sockets directly below .q3x-work."""
+
+    root = WORK_ROOT.resolve()
+    if WORK_ROOT.is_symlink() or not root.is_dir():
+        raise GeometryError(f"vLLM RPC root is not a sealed directory: {WORK_ROOT}")
+    records: list[dict[str, Any]] = []
+    try:
+        entries = sorted(root.iterdir(), key=lambda path: path.name)
+    except OSError as error:
+        raise GeometryError(f"cannot inspect vLLM RPC root {root}: {error}") from error
+    for path in entries:
+        if VLLM_RPC_SOCKET_NAME.fullmatch(path.name) is None:
+            continue
+        try:
+            observed = path.lstat()
+        except OSError as error:
+            raise GeometryError(f"cannot attest vLLM RPC entry {path}: {error}") from error
+        if not stat.S_ISSOCK(observed.st_mode):
+            raise GeometryError(f"UUID-named vLLM RPC entry is not a socket: {path}")
+        records.append(
+            {
+                "path": str(path),
+                "device": observed.st_dev,
+                "inode": observed.st_ino,
+                "mode": observed.st_mode,
+            }
+        )
+    return records
+
+
+def cleanup_vllm_rpc_sockets() -> dict[str, Any]:
+    """Remove attested vLLM UUID sockets after its process group is empty."""
+
+    observed = collect_vllm_rpc_sockets()
+    removed: list[dict[str, Any]] = []
+    for record in observed:
+        path = pathlib.Path(record["path"])
+        try:
+            current = path.lstat()
+        except OSError as error:
+            raise GeometryError(f"vLLM RPC socket changed before cleanup: {path}") from error
+        if (
+            not stat.S_ISSOCK(current.st_mode)
+            or current.st_dev != record["device"]
+            or current.st_ino != record["inode"]
+        ):
+            raise GeometryError(f"vLLM RPC socket identity changed: {path}")
+        try:
+            path.unlink()
+        except OSError as error:
+            raise GeometryError(f"cannot remove vLLM RPC socket {path}: {error}") from error
+        removed.append(record)
+    remaining = collect_vllm_rpc_sockets()
+    if remaining:
+        raise GeometryError(f"vLLM RPC sockets remain after cleanup: {remaining}")
+    return {
+        "root": str(WORK_ROOT.resolve()),
+        "observed": observed,
+        "removed": removed,
+        "remaining": remaining,
+    }
 
 
 def fetch_text(url: str, timeout_seconds: float = 10.0) -> str:
@@ -2072,6 +2139,11 @@ def run_budget(
             "environment": environment_receipt(budget),
         },
     )
+    rpc_before_server = collect_vllm_rpc_sockets()
+    if rpc_before_server:
+        raise GeometryError(
+            f"stale vLLM RPC sockets exist before server start: {rpc_before_server}"
+        )
     result_preflight = run_preflight(
         config, run_dir / "preflight-before-server.json", ()
     )
@@ -2081,7 +2153,8 @@ def run_budget(
     server: subprocess.Popen[bytes] | None = None
     failure: BaseException | None = None
     result: dict[str, Any] = {
-        "preflight_before_server": result_preflight["decision"]
+        "preflight_before_server": result_preflight["decision"],
+        "rpc_socket_admission": {"before_server": rpc_before_server},
     }
     cleanup: dict[str, Any] = {}
     termination_state, previous_handlers = install_termination_handlers()
@@ -2222,6 +2295,16 @@ def run_budget(
                     cleanup["process_group"] = stop_process_group(server)
                 except BaseException as error:
                     cleanup["process_group_error"] = repr(error)
+                    if failure is None:
+                        failure = error
+            process_group_released = server is None or bool(
+                cleanup.get("process_group", {}).get("group_empty")
+            )
+            if process_group_released:
+                try:
+                    cleanup["rpc_sockets"] = cleanup_vllm_rpc_sockets()
+                except BaseException as error:
+                    cleanup["rpc_socket_error"] = repr(error)
                     if failure is None:
                         failure = error
             if server_log is not None:

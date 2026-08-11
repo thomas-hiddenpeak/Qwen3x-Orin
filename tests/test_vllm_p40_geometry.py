@@ -9,6 +9,7 @@ import importlib.util
 import json
 import os
 import pathlib
+import socket
 import subprocess
 import sys
 import tempfile
@@ -433,6 +434,36 @@ class VllmP40GeometryTest(unittest.TestCase):
         self.assertLess(elapsed, 5.0)
         self.assertEqual(cleanup["signals"], ["SIGINT"])
         self.assertTrue(cleanup["group_empty"])
+
+    def test_rpc_socket_cleanup_is_exact_and_leaves_no_entry(self) -> None:
+        GEOMETRY.WORK_ROOT.mkdir(parents=True, exist_ok=True)
+        path = GEOMETRY.WORK_ROOT / "00000000-0000-0000-0000-000000000001"
+        self.assertFalse(path.exists())
+        handle = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            handle.bind(str(path))
+            observed = GEOMETRY.collect_vllm_rpc_sockets()
+            self.assertEqual([record["path"] for record in observed], [str(path)])
+            cleanup = GEOMETRY.cleanup_vllm_rpc_sockets()
+            self.assertEqual(cleanup["observed"], observed)
+            self.assertEqual(cleanup["removed"], observed)
+            self.assertEqual(cleanup["remaining"], [])
+            self.assertFalse(path.exists())
+        finally:
+            handle.close()
+            path.unlink(missing_ok=True)
+
+    def test_uuid_named_non_socket_is_never_deleted(self) -> None:
+        GEOMETRY.WORK_ROOT.mkdir(parents=True, exist_ok=True)
+        path = GEOMETRY.WORK_ROOT / "00000000-0000-0000-0000-000000000002"
+        self.assertFalse(path.exists())
+        try:
+            path.write_bytes(b"not a socket")
+            with self.assertRaisesRegex(GEOMETRY.GeometryError, "not a socket"):
+                GEOMETRY.cleanup_vllm_rpc_sockets()
+            self.assertEqual(path.read_bytes(), b"not a socket")
+        finally:
+            path.unlink(missing_ok=True)
 
     def test_logged_command_rejects_surviving_descendants(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
