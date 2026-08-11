@@ -6,7 +6,7 @@ q3x_document:
   owner: project-owner
   authority: highest project engineering authority below an explicit current owner direction
   effective: 2026-08-09
-  last_reviewed: 2026-08-11
+  last_reviewed: 2026-08-12
   supersedes: []
   superseded_by: []
   ssot_for: mission, locked product constraints, and engineering philosophy
@@ -157,6 +157,15 @@ becoming release-grade published evidence.
    production dispatch, fallback, retention, or promotion eligibility. vLLM
    is also not a runtime dependency requirement; it is the external starting
    point and architectural reference.
+5. An upstream architecture-support guard is an execution fact, not a filter
+   on what this project may learn. Read the implementation deeply enough to
+   separate its mathematical transformation, dataflow, work decomposition,
+   scheduling, specialization, and tuning policy from its ISA and hardware-
+   resource shell. A mechanism that directly requires TMA, WGMMA, clusters,
+   TMEM, or native block-scaled FP4 may still define the correct residency,
+   producer/consumer, reduction, or planning structure for an SM87
+   translation. Source reuse remains subject to license and provenance; an
+   architectural idea does not become a production dependency by study.
 
 ## 4. Product-first measurement hierarchy
 
@@ -227,6 +236,14 @@ causal question.
    After the irreducible computation is identified, engineering mechanisms map
    it to SM87 ownership and residency. Kernel parameters may optimize that map;
    they may not substitute for the mathematical analysis.
+8. Additional computation may replace data movement when it preserves the
+   numerical and state contract, eliminates a larger measured cost in DRAM,
+   L2, shared memory, materialization, state publication, or synchronization,
+   and uses resources that do not extend the critical path. A lower byte count
+   is not sufficient if decode/feed instructions, register or shared-memory
+   pressure, occupancy loss, or a saturated execution pipe becomes the new
+   bottleneck. A FLOP increase is not presumed free. The complete architecture
+   and real API fitness result select the trade.
 
 ## 6. Accuracy and feature boundaries
 
@@ -284,11 +301,12 @@ specialization to exceed that general engine while preserving accuracy.
 
 ## 9. Continuity and change control
 
-1. At the start of performance work, and after any context compaction or
-   handoff, read `AGENTS.md`, this constitution, the canonical `SDD.md`,
-   `CURRENT_STATUS.md`, `REAL_MODEL_PERFORMANCE_POLICY.md`, the active phase
-   architecture document, and the external-evaluation contract before
-   proposing work.
+1. At the start of non-trivial project work, and after any context compaction
+   or handoff, enter through `AGENTS.md`, read the complete canonical
+   [`docs/README.md`](README.md) index, and follow its core orientation plus
+   the route for the active task before proposing work. The index is the only
+   owner of the reading order; controlling documents must not maintain
+   competing lists.
 2. Every material architecture decision, target change, retained result, and
    rejected mechanism must be written into tracked repository evidence. Chat
    history is not the authoritative memory.
@@ -354,3 +372,10 @@ specialization to exceed that general engine while preserving accuracy.
   uses legal equivalences to remove work before mapping the result to kernels,
   and does not treat real-number algebra alone as proof of production numerical
   equivalence.
+- **2026-08-12:** Cross-architecture reference and compute-for-movement
+  amendment. Upstream device guards no longer exclude an implementation from
+  architectural study; its invariant mathematics, dataflow, scheduling, and
+  specialization must be separated from its ISA shell and translated to SM87.
+  Added computation is admissible only when it removes a larger measured
+  movement or publication cost without creating a new critical bottleneck,
+  and the real API remains the selection surface.

@@ -6,7 +6,7 @@ q3x_document:
   owner: project-owner
   authority: end-to-end external-to-internal runner system design
   effective: 2026-08-09
-  last_reviewed: 2026-08-11
+  last_reviewed: 2026-08-12
   supersedes: []
   superseded_by: []
   ssot_for: runner product shape, system boundaries, lifecycle, and release architecture
@@ -317,7 +317,11 @@ The record starts with a user-visible gap and identifies:
    bytes, and compute;
 5. data residency and ownership across host, DRAM, L2, shared memory,
    registers, streams, and buffers; and
-6. the smallest coherent architectural mechanism capable of moving the
+6. for every relevant proven implementation, the invariant mathematics,
+   dataflow, work decomposition, scheduling, specialization, and tuning policy
+   separated from architecture-specific instructions and resources, together
+   with the proposed SM87 translation; and
+7. the smallest coherent architectural mechanism capable of moving the
    product budget.
 
 When a gap is large, the trace covers the full Gate/Up, Down, FP8 projection,
@@ -455,10 +459,31 @@ recurrence are not generally associative.
 Each active architecture work package records an **equivalence ledger**. For
 every proposed fusion or reorder it names the original expression, transformed
 expression, preserved accumulation and rounding boundaries, changed ownership,
-work or traffic eliminated, exact oracle, and any reason the transformation is
-research-only. This ledger is also the stop rule: when a mechanism merely
-reschedules the same ownership without removing a measured limiting dependency,
-the architecture must be reconsidered rather than parameter-scanned.
+added arithmetic and instructions, work or movement eliminated at every memory
+level, expected resource/critical-path transfer, exact oracle, target API
+effect, and any reason the transformation is research-only. This ledger is
+also the stop rule: when a mechanism merely reschedules the same ownership
+without removing a measured limiting dependency, or trades traffic for a new
+feed/occupancy bottleneck, the architecture must be reconsidered rather than
+parameter-scanned.
+
+### 9.2 Cross-architecture reference translation
+
+Reference eligibility is independent of an upstream device-support guard.
+Each architecture candidate may study implementations for newer, data-center,
+or otherwise different devices, but must record three separate layers:
+
+1. invariant mathematics, dataflow, lifetimes, work partition, and planning;
+2. unavailable ISA/resource mechanisms such as TMA, WGMMA, clusters, TMEM, or
+   native block-scaled FP4; and
+3. the SM87 realization using its own load, buffering, synchronization, MMA,
+   residency, and AOT-plan mechanisms.
+
+The translation is selected for eliminated movement and whole-path fitness,
+not source similarity. Runtime JIT/autotuning from a reference engine may
+discover a plan offline; the release receives only the authenticated AOT
+result. An added-compute translation is admissible only under the Constitution's
+compute-for-movement rule and the equivalence ledger above.
 
 ## 10. Observability contract
 

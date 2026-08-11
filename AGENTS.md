@@ -1,14 +1,12 @@
 # Repository operating instructions
 
-Before planning, implementing, or evaluating performance work, read these
-documents in order:
-
-1. [`docs/ENGINEERING_CONSTITUTION.md`](docs/ENGINEERING_CONSTITUTION.md)
-2. [`docs/SDD.md`](docs/SDD.md)
-3. [`docs/CURRENT_STATUS.md`](docs/CURRENT_STATUS.md)
-4. [`docs/REAL_MODEL_PERFORMANCE_POLICY.md`](docs/REAL_MODEL_PERFORMANCE_POLICY.md)
-5. [`docs/PREFILL_ARCHITECTURE_RESET.md`](docs/PREFILL_ARCHITECTURE_RESET.md)
-6. [`docs/EVALSCOPE_EVALUATION.md`](docs/EVALSCOPE_EVALUATION.md)
+Before planning, implementing, reviewing, or evaluating non-trivial project
+work, and again after context compaction or contributor handoff, read the
+complete canonical [`docs/README.md`](docs/README.md) entry point and follow
+its required orientation plus the route for the active task. Identify the
+current [`docs/CURRENT_STATUS.md`](docs/CURRENT_STATUS.md) snapshot and the
+active [`docs/ROADMAP.md`](docs/ROADMAP.md) slice before acting. This file
+intentionally does not duplicate the documentation index's reading list.
 
 The engineering constitution is normative. Project-owner production
 observations and targets are planning constraints, not claims to debate away

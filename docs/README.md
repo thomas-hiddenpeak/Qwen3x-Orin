@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: documentation navigation
   effective: 2026-08-09
-  last_reviewed: 2026-08-11
+  last_reviewed: 2026-08-12
   supersedes: []
   superseded_by: []
   ssot_for: documentation entry points and required reading order
@@ -20,31 +20,41 @@ system design, contracts, procedures, evidence, history, and external source
 material so that an old benchmark or local mechanism cannot silently become a
 current product requirement.
 
-## Required reading order
+## Required orientation and task routes
 
-Before planning, implementing, or evaluating performance work, read:
+Codex enters through [`../AGENTS.md`](../AGENTS.md), which sends it here. Do
+not recurse back to that file when it has already been applied. A human or
+tool entering through this index directly must read it once for repository
+hygiene and execution constraints.
 
-1. [`../AGENTS.md`](../AGENTS.md) — repository-local work package;
-2. [`ENGINEERING_CONSTITUTION.md`](ENGINEERING_CONSTITUTION.md) — mission,
+Before planning, implementing, reviewing, or evaluating non-trivial work, and
+again after context compaction or contributor handoff, read this core
+orientation in order:
+
+1. [`ENGINEERING_CONSTITUTION.md`](ENGINEERING_CONSTITUTION.md) — mission,
    locked constraints, and engineering philosophy;
-3. [`SDD.md`](SDD.md) — API-first, external-to-internal runner design;
-4. [`CURRENT_STATUS.md`](CURRENT_STATUS.md) — what the default release can do
-   now and the currently known gaps;
-5. [`REAL_MODEL_PERFORMANCE_POLICY.md`](REAL_MODEL_PERFORMANCE_POLICY.md) —
-   evidence, retention, and production-promotion rules;
-6. [`PREFILL_ARCHITECTURE_RESET.md`](PREFILL_ARCHITECTURE_RESET.md) — active
-   Prefill subsystem boundary and handoff contract;
-7. [`PREFILL_MATHEMATICAL_EQUIVALENCE_LEDGER.md`](PREFILL_MATHEMATICAL_EQUIVALENCE_LEDGER.md)
-   — Prefill proof order, finite-precision identity, and observable liveness;
-8. [`EVALSCOPE_EVALUATION.md`](EVALSCOPE_EVALUATION.md) — external-evaluation
-   contract and procedure;
-9. [`DOCUMENT_GOVERNANCE.md`](DOCUMENT_GOVERNANCE.md) — document authority and
-   lifecycle;
-10. [`ROADMAP.md`](ROADMAP.md) — active delivery order and exit criteria;
-11. the detailed subsystem SDD or contract for the work being changed.
+2. [`SDD.md`](SDD.md) — API-first, external-to-internal runner design;
+3. [`CURRENT_STATUS.md`](CURRENT_STATUS.md) — what the default release can do
+   now and the currently known gaps; and
+4. [`ROADMAP.md`](ROADMAP.md) — the active delivery slice and exit criteria.
 
-Items 2--8 preserve the mandatory order declared by `AGENTS.md`; the remaining
-items complete the end-state-first project orientation before implementation.
+Then read the complete route required by the work:
+
+- performance implementation, retention, or promotion:
+  [`REAL_MODEL_PERFORMANCE_POLICY.md`](REAL_MODEL_PERFORMANCE_POLICY.md);
+- Prefill architecture or implementation:
+  [`PREFILL_ARCHITECTURE_RESET.md`](PREFILL_ARCHITECTURE_RESET.md), then
+  [`PREFILL_MATHEMATICAL_EQUIVALENCE_LEDGER.md`](PREFILL_MATHEMATICAL_EQUIVALENCE_LEDGER.md);
+- external API evaluation or metric reconciliation:
+  [`EVALSCOPE_EVALUATION.md`](EVALSCOPE_EVALUATION.md);
+- Markdown addition, movement, reclassification, or controlling-document
+  change: [`DOCUMENT_GOVERNANCE.md`](DOCUMENT_GOVERNANCE.md), then
+  [`DOCUMENT_REGISTRY.md`](DOCUMENT_REGISTRY.md); and
+- subsystem implementation: the detailed subsystem SDD and every active
+  interface, numerical, state, or ownership contract named by that SDD.
+
+The index owns this order. `AGENTS.md`, the root README, SDDs, and Roadmap link
+here rather than maintaining parallel reading lists.
 
 The controlling authority and conflict order are defined in
 [`DOCUMENT_GOVERNANCE.md`](DOCUMENT_GOVERNANCE.md). The exhaustive inventory
