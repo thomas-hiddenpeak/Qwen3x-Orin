@@ -299,6 +299,18 @@ class VllmP40GeometryTest(unittest.TestCase):
             [20, 10, 5, 1],
         )
 
+    def test_vendored_deep_gemm_availability_probe_is_pinned(self) -> None:
+        relative = (
+            "vllm/third_party/deep_gemm/"
+            "_C.cpython-313-aarch64-linux-gnu.so"
+        )
+        self.assertIn(relative, GEOMETRY.VLLM_RUNTIME_FILE_SHA256)
+        self.assertIn(relative, GEOMETRY.VLLM_RUNTIME_BUILD_IDS)
+        self.assertIn("utils/deep_gemm.py", GEOMETRY.VLLM_SOURCE_SHA256)
+        self.assertIn(
+            "third_party/deep_gemm/__init__.py", GEOMETRY.VLLM_SOURCE_SHA256
+        )
+
     def test_measured_tegrastats_envelope_is_windowed_and_strict(self) -> None:
         cpu = ",".join(["0%@2201"] * 12)
         lines = [

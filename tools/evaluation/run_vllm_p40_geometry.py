@@ -142,6 +142,12 @@ VLLM_SOURCE_SHA256 = {
     "platforms/cuda.py": (
         "ea6cade0bc560dcafea09bef8d30249b949e322ed8696ff02c6d20fa250640d2"
     ),
+    "third_party/deep_gemm/__init__.py": (
+        "0e563c954d08b1fcf53f77c6ba403df060fa88571e0959cfab721645ef6c8ae9"
+    ),
+    "utils/deep_gemm.py": (
+        "c7adac1775842e9b0d5a1be9a323abb2840b5a93cc2a02d4f232cc3cfb0685a4"
+    ),
     "v1/core/sched/scheduler.py": (
         "2ed2a550b6558b2495eda845a97ae38bcf0225027b9e25fbf00fc3880c1d3941"
     ),
@@ -272,6 +278,9 @@ VLLM_RUNTIME_FILE_SHA256 = {
     "nvidia/cu13/lib/libnvJitLink.so.13": (
         "2ad249d2d60c87ea4941f5ce7ce1b06d4096032e95381c237f929cdaa5c7d5cc"
     ),
+    "vllm/third_party/deep_gemm/_C.cpython-313-aarch64-linux-gnu.so": (
+        "cc1b104f24d4e90e3fd1007f51bfa2e60c168efe59d92669ba4193f12c34a51c"
+    ),
 }
 VLLM_RUNTIME_BUILD_IDS = {
     "torch/_C.cpython-313-aarch64-linux-gnu.so": (
@@ -284,6 +293,9 @@ VLLM_RUNTIME_BUILD_IDS = {
     "torch/lib/libc10_cuda.so": "67359b9fbfbd743d8094de6c966509a134fafaa9",
     "nvidia/cu13/lib/libnvJitLink.so.13": (
         "80c2ce4f5c7fa22c8818122581c503d58ccff183"
+    ),
+    "vllm/third_party/deep_gemm/_C.cpython-313-aarch64-linux-gnu.so": (
+        "b8c610d1ab3c2fbc32983869d3922bf0e20daf4f"
     ),
 }
 LIBCUDA_PATH = pathlib.Path("/opt/nvidia/l4t-gpu-libs/nvgpu/libcuda.so.1.1")

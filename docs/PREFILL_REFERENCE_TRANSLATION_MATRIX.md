@@ -322,6 +322,12 @@ run validates non-GPU identities and prints the complete plan without
 starting a server or probing the CUDA device. The formal run requires a clean
 Git worktree and a previously unused output directory.
 
+vLLM imports its vendored DeepGEMM extension while probing backend
+availability, so the witness also pins that wrapper, package entry point,
+mapped ELF hash, and build ID. This is load-time identity evidence, not a
+claim that DeepGEMM executes on SM87: the pinned vLLM platform gate enables it
+only for SM90, SM100, or SM120 families.
+
 Before the run, the Jetson clean-host preflight must pass with `tegrastats`,
 CPU/process inspection, and GPU-device-handle ownership. If another workload
 owns a critical resource, the run does not start and no timing is retained.
