@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: current implementation, qualification, production, metric, and blocker snapshot
   effective: 2026-08-10
-  last_reviewed: 2026-08-10
+  last_reviewed: 2026-08-11
   supersedes: []
   superseded_by: []
   ssot_for: current delivered state and open production gaps
@@ -15,7 +15,7 @@ q3x_document:
 
 # Qwen3x-Orin current status
 
-Snapshot date: 2026-08-10. Baseline revision `a46d165` implements an
+Snapshot date: 2026-08-11. Baseline revision `a46d165` implements an
 exact-P40000 whole-core route: each layer executes five M8000 fill panels,
 one whole-prompt core, five M8000 drain panels, and one layer-wide NVFP4 MLP
 phase. Its clean-host cold/no-cache OpenAI API/EvalScope direction consumed all
@@ -106,6 +106,44 @@ default-off and accuracy-unqualified; full accuracy/repetition and P60/P130
 did not run. The v10 392.804397 tok/s direction remains the incumbent. Exact
 evidence is frozen in the
 [packed projection rejection record](metadata/qwen36-27b-prefill-p40k-packed-projection-rejection-2026-08-10.json).
+
+The subsequent packed-NVFP4-v2 package isolated that question: it restored
+the v10 FP8 path and replaced only Gate+Up and Down with shape-specific
+M128N256 packed NVFP4 consumers. The real-model load authenticated 128
+NVFP4-only artifacts from 192 checkpoint sources in a 9,625,927,680-byte
+engine-lifetime arena. Its independent v14 witness consumed all 40,000 prompt
+tokens, recorded the restored 1,040/1,040 FP8 ledger and 64/64/128 NVFP4
+ledger, completed every operator on the intended route, and reported zero
+cache, MTP, cuBLASLt, external, approximate, exact-fallback, and forbidden
+route hits.
+
+That valid whole-product result was negative. Server pure Prefill was
+128.493372 s / 311.300103 prompt tok/s; EvalScope reported 128.53205 s TTFT
+and 311.206330 New Prompt tok/s. Against v10, latency increased 26.181904%
+and pure-Prefill throughput fell 20.749333%. It did recover 20.393636% latency
+relative to rejected packed v1, proving that removing packed FP8 contamination
+and changing NVFP4 ownership mattered, but it did not beat the incumbent.
+Packed NVFP4 v2 is therefore closed without a parameter scan, remains
+default-off and accuracy-unqualified, and did not unlock repetition, full
+accuracy, P60, or P130. The v10 392.804397 tok/s direction remains the
+incumbent. Exact evidence is frozen in the
+[packed NVFP4 v2 rejection record](metadata/qwen36-27b-prefill-p40k-packed-nvfp4-v2-rejection-2026-08-11.json).
+
+The latest mathematical scope audit also closes two misleading shortcuts.
+With v10 FP8/Attention/GDN and all other work frozen, subtracting measured
+Gate+Up and Down still leaves 46.999328 s, so even a hypothetical zero-time
+NVFP4 MLP would expose only about 851.075992 prompt tok/s. This is an
+NVFP4-only work-package bound, not a hardware or project upper bound; the
+quantity-changing architecture must cover the other dominant roles. Separately,
+an exhaustive real-checkpoint scan of all 192 MLP weight tensors found only
+7.945540% exact E2M1 zero codes and 3.540535% K4 groups with at least two
+zeros. Exact sparsity is therefore not an active successor; the inventory is
+frozen in the
+[real-weight zero-structure audit](metadata/qwen36-27b-nvfp4-mlp-zero-structure-audit-2026-08-11.json).
+The next active
+source-parity work package reconstructs stock-vLLM Marlin scheduling and
+finite-precision behavior before specialization, then returns directly to the
+same P40 product gate.
 
 This is the single point-in-time status page. It records what is target,
 designed, implemented, qualified, and production. Architecture contracts
@@ -288,10 +326,10 @@ unqualified production runner**.
 | OpenAI-compatible evaluation API | Implemented | `/healthz`, `/v1/models`, completions/chat, non-streaming and committed-token SSE; explicit layer-major mode has bounded Prefill cancellation | Loopback/evaluation-only; no production exposure, security, admission, or multi-tenant contract |
 | Production serving API | Designed | Product/API contract is defined in the SDD | No installed release profile or release attestation exists |
 | Default context capacity | Implemented at 8,192 | Server default `max_sequence_length=8192`, maximum output 4,096, 2 GiB request-arena limit | Does not admit the locked long-context workloads |
-| 40K/60K/130K cold/no-cache service | Target; unqualified P40K development routes exercised | Token-ID ingress fails closed on capacity; v10 consumed all 40K tokens through the real API at 101.87053 s TTFT / 392.804397 pure prompt tok/s. v11 projection-reset, experimental v12 phase-local BF16, and sealed v13 packed-projection routes also consumed all 40K but reached only 205.951777, 320.472999, and 247.814694 pure prompt tok/s and were rejected; v12 alone lacks sealed-route authority | The incumbent is still 10.95x below the owner's 4.3K tok/s vLLM starting line and 50.92x above the 2-s P40K target; inherited FlashInfer full state differs. P60K has not been timed; P130K, whole-process capacity, and qualification remain open |
+| 40K/60K/130K cold/no-cache service | Target; unqualified P40K development routes exercised | Token-ID ingress fails closed on capacity; v10 consumed all 40K tokens through the real API at 101.87053 s TTFT / 392.804397 pure prompt tok/s. v11 projection-reset, experimental v12 phase-local BF16, sealed v13 packed-projection, and sealed v14 packed-NVFP4-v2 routes also consumed all 40K but reached only 205.951777, 320.472999, 247.814694, and 311.300103 pure prompt tok/s and were rejected; v12 alone lacks sealed-route authority | The incumbent is still 10.95x below the owner's 4.3K tok/s vLLM starting line and 50.92x above the 2-s P40K target; inherited FlashInfer full state differs. P60K has not been timed; P130K, whole-process capacity, and qualification remain open |
 | Prefill/Decode logical separation | Implemented in part | Separate phase APIs/metrics and an explicit state transition exist | Shared runner and synchronization-heavy physical plan prevent independent utilization and overlap |
-| Prompt-wide Prefill candidate | v10 whole-request substrate retained but accuracy-unqualified; v11, v12, and v13 projection packages rejected | Sealed Engine transaction and role receipts remain; v13 proves the complete 256-artifact/400-source AOT packed API route and exact launch ledger can execute without fallback, but it regressed pure Prefill to 161.410929 s / 247.814694 tok/s | Inherited Attention state differs. Packed v1 cannot be parameter-scanned; one bounded causal profile may choose a materially different successor, which must return to P40 before exact Attention/GDN continuation under the 9.302326-s total budget |
-| Large-M Prefill specializations | C1, G2/D2, shape-wide v3, projection-reset v1, phase-local BF16 v1, and packed projection v1 are rejected default-off experiments | v13 load-time assets cover all 400 real-checkpoint projection sources and the API/route/count contract is complete, but the composed path is 36.9114% slower in throughput than v10. The retained default-off code and synthetic CUDA gates are implementation/correctness evidence, not a performance path | Do not scan packed v1. Use at most one named same-payload causal profile, then activate only a materially different v2 dataflow hypothesis. Open P60 only after P40 is competitive and accuracy-admissible |
+| Prompt-wide Prefill candidate | v10 whole-request substrate retained but accuracy-unqualified; v11--v14 projection packages rejected | Sealed Engine transactions and role receipts remain; v14 proves the NVFP4-only 128-artifact/192-source route with restored v10 FP8 can execute without fallback, but it regressed pure Prefill to 128.493372 s / 311.300103 tok/s | Inherited Attention state differs. Packed v2 cannot be parameter-scanned; the next activation must change the mathematical/dataflow decomposition and return to P40 before exact Attention/GDN continuation under the 9.302326-s total budget |
+| Large-M Prefill specializations | C1, G2/D2, shape-wide v3, projection-reset v1, phase-local BF16 v1, packed projection v1, and packed NVFP4 v2 are rejected default-off experiments | v14 isolates NVFP4 with complete real-checkpoint assets and route identity, and improves materially on v13, but remains 20.749333% slower in throughput than v10. Retained default-off code and CUDA gates are implementation/correctness evidence, not a performance path | Do not scan packed v1 or v2. Derive a materially different whole-path architecture from mathematical equivalence, finite-precision boundaries, communication/reuse costs, and proven implementations; open P60 only after P40 is competitive and accuracy-admissible |
 | Decode target | Directionally near target | Short API evidence reports about 104 ms TPOT | At least 10 token/s, long-output stability, and release repetition are not qualified |
 | Production accuracy | Target with partial oracles | Exact deterministic outputs are available for selected prompts/routes | No complete public capability baseline and promotion gate has passed |
 | AOT DeploymentPlan | Implemented internally for the development route; release artifact still designed | Engine-lifetime sealed plan binds model/state/resources/operator identities and one-shot request receipts | No authenticated installed plan artifact is loaded and attested by the default release |
@@ -825,13 +863,23 @@ contract. It still regressed to 161.410929 s / 247.814694 tok/s. Thus packed
 representation alone does not validate this kernel ownership/pipeline; v1 is
 closed against parameter scans.
 
+Packed NVFP4 v2 then removed packed-v1 FP8 from the experiment, restored the
+v10 FP8 path, and changed only Gate+Up and Down ownership. Its authenticated
+128-artifact/192-source route was complete and improved pure-Prefill latency
+by 20.393636% relative to v13, but still reached only 128.493372 s /
+311.300103 tok/s. The valid v14 product result closes that M128N256/K128,
+one-CTA/SM skeleton as well. Neither packed representation nor its current
+shape-specific mapping is an active tuning surface.
+
 The first system selection point remains the same clean real P40K API against
 the 392.804397 tok/s whole-core direction and ultimately the owner's 4.3K
 tok/s vLLM starting line. Only a competitive, accuracy-admissible P40K
 composition unlocks M5424 implementation, P60, and then P130. No local packed
-v1 scan is active. One bounded same-payload profile may answer a predeclared
-causal question; the Roadmap must then activate a materially different named
-v2 ownership/dataflow hypothesis and return it directly to P40. The 4.3K tok/s
+v1 or v2 scan is active. One bounded same-payload profile may answer a
+predeclared successor-design question; the Roadmap must then activate a
+materially different named ownership/dataflow hypothesis, derived first from
+the exact mathematical function, finite-precision boundaries, and
+communication/reuse lower bound, and return it directly to P40. The 4.3K tok/s
 starting line permits only 9.302326 s at P40, while v10's non-projection
 kernels already consume about 21.416142 s. Exact Attention and GDN therefore
 remain mandatory system slices after a positive projection architecture, not
@@ -852,7 +900,7 @@ active dependency order and exit criteria are in
 | --- | --- | --- |
 | Product API and long-context admission | Configured token-ID validation and host requirement plans exist; 40K/60K/130K still do not fit or execute through the default contract | P1 |
 | Exact deliverable identity | No unique `BUILD_TESTING=OFF` release or authenticated DeploymentPlan | P2 |
-| Target-length performance and physical Prefill plan | The exact-P40000 whole-core direction reaches 392.804397 pure prompt tok/s, +7.02138% versus retained v6, with negligible API and kernel-gap overhead. Shape-wide NVFP4, grouped projection-reset, phase-local BF16, and AOT packed projection v1 all regressed and are closed. v13 proves the complete packed API/asset/route contract but reaches only 247.814694 tok/s, -36.9114% versus v10. The retained incumbent remains 10.95x below the owner's vLLM floor and accuracy-unqualified. P60/P130 were not timed | P3 |
+| Target-length performance and physical Prefill plan | The exact-P40000 whole-core direction reaches 392.804397 pure prompt tok/s, +7.02138% versus retained v6, with negligible API and kernel-gap overhead. Shape-wide NVFP4, grouped projection-reset, phase-local BF16, AOT packed projection v1, and packed NVFP4 v2 all regressed and are closed. v14 proves the complete NVFP4-only API/asset/route contract and improves on v13, but reaches only 311.300103 tok/s, -20.749333% versus v10. The retained incumbent remains 10.95x below the owner's vLLM floor and accuracy-unqualified. P60/P130 were not timed | P3 |
 | Accuracy, capability, stability, and release evidence | Partial deterministic oracles; no complete qualification bundle | P4 |
 | Packaging and operations | No attested install/startup/upgrade lane | P5 |
 
@@ -882,8 +930,11 @@ Until the gaps above close, use the following language:
   are unchanged. The rejected v13 route proves complete AOT packed assets and
   sealed API/route integration, but reached only 247.814694 tok/s, 36.9114%
   below v10, and remains default-off implementation/correctness evidence. The
-  historical v12 route is also rejected and cannot be reused. Neither is the
-  active performance architecture; no packed-v1 parameter scan is active.
+  historical v12 route is also rejected and cannot be reused. The rejected
+  v14 route restores v10 FP8 and proves a complete NVFP4-only sealed path, but
+  reaches only 311.300103 tok/s, 20.749333% below v10. None is the active
+  performance architecture; no packed-v1 or packed-v2 parameter scan is
+  active.
 - **Not current:** production server, 40K--130K support, release-grade vLLM
   parity, 1,224.7335 tok/s lossless Prefill, or a fully qualified 10 token/s
   Decode release.

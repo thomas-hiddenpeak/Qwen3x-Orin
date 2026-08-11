@@ -6,7 +6,7 @@ q3x_document:
   owner: project-owner
   authority: highest project engineering authority below an explicit current owner direction
   effective: 2026-08-09
-  last_reviewed: 2026-08-09
+  last_reviewed: 2026-08-11
   supersedes: []
   superseded_by: []
   ssot_for: mission, locked product constraints, and engineering philosophy
@@ -212,6 +212,21 @@ causal question.
    Single-variable isolation is a diagnostic tool, not a rule that forbids the
    complete dataflow required by the design. The package must still have a
    bounded mutation count, time/budget limit, and API return point.
+6. Architecture work begins from the mathematical computation, not from the
+   current kernel decomposition. Write the tensor or recurrence equations,
+   causal domain, accumulation order, storage dtype, rounding/publication
+   points, and state-transition boundary before choosing fusion, tiling, or
+   scheduling. Algebraic equality over real numbers is only a hypothesis:
+   floating-point reassociation, moving a quantization scale, suppressing a
+   signed zero or NaN path, or delaying a recurrent-state rounding boundary is
+   not production-equivalent unless the declared numerical contract proves it.
+7. Prefer equivalence-derived changes that remove necessary work or an
+   observable boundary: shared-input projection composition, producer-consumer
+   fusion at an already-declared publication point, online causal reductions,
+   or associative state composition where the exact state contract permits it.
+   After the irreducible computation is identified, engineering mechanisms map
+   it to SM87 ownership and residency. Kernel parameters may optimize that map;
+   they may not substitute for the mathematical analysis.
 
 ## 6. Accuracy and feature boundaries
 
@@ -334,3 +349,8 @@ specialization to exceed that general engine while preserving accuracy.
 - **2026-08-09:** Benchmark resource gate. Every timing/profile begins with a
   clean-host preflight; Jetson load authority is `tegrastats` plus process and
   device-handle inspection, never the incomplete `nvidia-smi` process view.
+- **2026-08-11:** Mathematical-equivalence requirement. Architecture analysis
+  now starts from the exact equations and finite-precision/state boundaries,
+  uses legal equivalences to remove work before mapping the result to kernels,
+  and does not treat real-number algebra alone as proof of production numerical
+  equivalence.

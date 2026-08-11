@@ -704,6 +704,9 @@ std::string serialize_target_prefill_witness(
   const bool p40_packed_projection_candidate_v13 =
       record.deployment_plan_id == runtime::
           kLayerMajorNativePromptWideP40PackedProjectionDeploymentPlanId;
+  const bool p40_packed_nvfp4_v2_candidate_v14 =
+      record.deployment_plan_id == runtime::
+          kLayerMajorNativePromptWideP40PackedNvfp4V2DeploymentPlanId;
   constexpr std::uint64_t kLayerCount = 64U;
   constexpr std::uint64_t kLinearAttentionLayerCount = 48U;
   constexpr std::uint64_t kAttentionLayerCount = 16U;
@@ -876,11 +879,17 @@ std::string serialize_target_prefill_witness(
       kP40ProjectionResetExpectedFp8PhysicalLaunches;
   constexpr std::uint64_t kP40PackedExpectedNvFp4PhysicalLaunches =
       2U * kLayerCount;
+  constexpr std::uint64_t kP40PackedNvfp4V2ExpectedFp8TensorRoleHits =
+      kP40WholeCoreExpectedFp8ProjectionHits;
+  constexpr std::uint64_t kP40PackedNvfp4V2ExpectedFp8PhysicalLaunches =
+      kP40WholeCoreExpectedFp8ProjectionHits;
   static_assert(kP40ProjectionResetExpectedFp8TensorRoleHits == 208U);
   static_assert(kP40ProjectionResetExpectedFp8PhysicalLaunches == 128U);
   static_assert(kP40PackedExpectedFp8TensorRoleHits == 208U);
   static_assert(kP40PackedExpectedFp8PhysicalLaunches == 128U);
   static_assert(kP40PackedExpectedNvFp4PhysicalLaunches == 128U);
+  static_assert(kP40PackedNvfp4V2ExpectedFp8TensorRoleHits == 1'040U);
+  static_assert(kP40PackedNvfp4V2ExpectedFp8PhysicalLaunches == 1'040U);
   bool prompt_wide_p40_whole_core_route_is_production_only = true;
   for (std::size_t index = 0U;
        index < runtime::kPrefillOperatorRoleCount; ++index) {
@@ -989,6 +998,23 @@ std::string serialize_target_prefill_witness(
           kP40PackedExpectedFp8PhysicalLaunches &&
       record.persistent_p40_nvfp4_physical_launches ==
           kP40PackedExpectedNvFp4PhysicalLaunches;
+  const bool p40_packed_nvfp4_v2_package_counts_complete =
+      prompt_wide_p40_common_package_counts_complete &&
+      record.full_prompt_consumed &&
+      record.consumed_prompt_tokens == record.prompt_tokens &&
+      record.completion_tokens > 0U &&
+      record.mlp_schedule_tactic == runtime::
+          LayerMajorPrefillMlpScheduleTactic::kPromptWideP40PackedNvfp4V2 &&
+      record.prompt_wide_p40_fp8_projection_hits ==
+          kP40PackedNvfp4V2ExpectedFp8TensorRoleHits &&
+      record.prompt_wide_p40_fp8_projection_physical_launches ==
+          kP40PackedNvfp4V2ExpectedFp8PhysicalLaunches &&
+      record.persistent_p40_nvfp4_physical_launches ==
+          kP40PackedExpectedNvFp4PhysicalLaunches &&
+      record.packed_nvfp4_v2_gate_up_hits == kLayerCount &&
+      record.packed_nvfp4_v2_down_hits == kLayerCount &&
+      record.packed_nvfp4_v2_physical_launches ==
+          kP40PackedExpectedNvFp4PhysicalLaunches;
   const bool accuracy_unqualified_candidate =
       candidate_v3 || projection_candidate_v4 ||
       native_large_m_candidate_v5 || flashinfer_exact_candidate_v6 ||
@@ -996,9 +1022,13 @@ std::string serialize_target_prefill_witness(
       persistent_p40_candidate_v9 ||
       prompt_wide_p40_whole_core_candidate_v10 ||
       p40_projection_reset_candidate_v11 ||
-      p40_packed_projection_candidate_v13;
+      p40_packed_projection_candidate_v13 ||
+      p40_packed_nvfp4_v2_candidate_v14;
   std::string output =
-      p40_packed_projection_candidate_v13
+      p40_packed_nvfp4_v2_candidate_v14
+          ? "{\"record\":\"target-prefill-witness-v14\","
+            "\"schema_version\":14,\"request\":{\"id\":"
+      : p40_packed_projection_candidate_v13
           ? "{\"record\":\"target-prefill-witness-v13\","
             "\"schema_version\":13,\"request\":{\"id\":"
       : p40_projection_reset_candidate_v11
@@ -1101,7 +1131,90 @@ std::string serialize_target_prefill_witness(
     output += record.bounded_submission_window ? "true" : "false";
     output += ",\"submission_window_retirements\":" +
               std::to_string(record.submission_window_retirements);
-    if (p40_packed_projection_candidate_v13) {
+    if (p40_packed_nvfp4_v2_candidate_v14) {
+      output += ",\"projection_tactic\":";
+      append_json_string(output,
+                         "native-prompt-wide-p40-packed-nvfp4-v2");
+      output += ",\"mlp_schedule\":";
+      append_json_string(output, "prompt-wide-p40-packed-nvfp4-v2");
+      output += ",\"attention_tactic\":";
+      append_json_string(output, "native-flashinfer-exact-whole-prompt");
+      output += ",\"package_complete\":";
+      output += p40_packed_nvfp4_v2_package_counts_complete ? "true"
+                                                            : "false";
+      output +=
+          ",\"route_layer_pass_count\":" +
+          std::to_string(record.route_layer_pass_count) +
+          ",\"operator_panel_executor_hits\":" +
+          std::to_string(record.operator_panel_executor_hits) +
+          ",\"prompt_wide_p40_whole_core_layer_hits\":" +
+          std::to_string(record.prompt_wide_p40_whole_core_layer_hits) +
+          ",\"prompt_wide_p40_fill_panel_hits\":" +
+          std::to_string(record.prompt_wide_p40_fill_panel_hits) +
+          ",\"prompt_wide_p40_prompt_core_hits\":" +
+          std::to_string(record.prompt_wide_p40_prompt_core_hits) +
+          ",\"prompt_wide_p40_drain_panel_hits\":" +
+          std::to_string(record.prompt_wide_p40_drain_panel_hits) +
+          ",\"prompt_wide_p40_fp8_projection_hits\":" +
+          std::to_string(record.prompt_wide_p40_fp8_projection_hits) +
+          ",\"prompt_wide_p40_fp8_projection_physical_launches\":" +
+          std::to_string(
+              record.prompt_wide_p40_fp8_projection_physical_launches) +
+          ",\"prompt_wide_p40_bf16_ab_hits\":" +
+          std::to_string(record.prompt_wide_p40_bf16_ab_hits) +
+          ",\"prompt_wide_p40_gdn_hits\":" +
+          std::to_string(record.prompt_wide_p40_gdn_hits) +
+          ",\"native_flashinfer_exact_whole_prompt_hits\":" +
+          std::to_string(record.native_flashinfer_exact_whole_prompt_hits) +
+          ",\"layer_wide_p40_mlp_layer_hits\":" +
+          std::to_string(record.layer_wide_p40_mlp_layer_hits) +
+          ",\"persistent_p40_nvfp4_gate_up_hits\":" +
+          std::to_string(record.persistent_p40_nvfp4_gate_up_hits) +
+          ",\"persistent_p40_nvfp4_down_residual_hits\":" +
+          std::to_string(record.persistent_p40_nvfp4_down_residual_hits) +
+          ",\"persistent_p40_nvfp4_physical_launches\":" +
+          std::to_string(record.persistent_p40_nvfp4_physical_launches) +
+          ",\"packed_nvfp4_v2_gate_up_hits\":" +
+          std::to_string(record.packed_nvfp4_v2_gate_up_hits) +
+          ",\"packed_nvfp4_v2_down_hits\":" +
+          std::to_string(record.packed_nvfp4_v2_down_hits) +
+          ",\"packed_nvfp4_v2_physical_launches\":" +
+          std::to_string(record.packed_nvfp4_v2_physical_launches) +
+          ",\"p40_packed_nvfp4_v2_package\":{\"identity\":";
+      append_json_string(output,
+                         "exact-p40000-packed-nvfp4-v2-dataflow-v1");
+      output += ",\"selection\":\"sealed-fail-closed\",\"complete\":";
+      output += p40_packed_nvfp4_v2_package_counts_complete ? "true"
+                                                            : "false";
+      output +=
+          ",\"logical_panels\":" +
+          std::to_string(kP40LogicalPanelCount) +
+          ",\"panel_tokens\":" +
+          std::to_string(
+              runtime::kLayerMajorPrefillPromptWideP40PanelTokens) +
+          ",\"projection_m_tokens\":" +
+          std::to_string(runtime::kLayerMajorPrefillPromptWideP40Tokens) +
+          ",\"count_validation\":{\"expected_layer_hits\":" +
+          std::to_string(kP40WholeCoreExpectedLayerHits) +
+          ",\"expected_panel_phase_hits\":" +
+          std::to_string(kP40WholeCoreExpectedPanelPhaseHits) +
+          ",\"expected_fp8_tensor_role_hits\":" +
+          std::to_string(kP40PackedNvfp4V2ExpectedFp8TensorRoleHits) +
+          ",\"expected_fp8_physical_launches\":" +
+          std::to_string(kP40PackedNvfp4V2ExpectedFp8PhysicalLaunches) +
+          ",\"expected_nvfp4_gate_up_hits\":" +
+          std::to_string(kLayerCount) +
+          ",\"expected_nvfp4_down_hits\":" +
+          std::to_string(kLayerCount) +
+          ",\"expected_nvfp4_physical_launches\":" +
+          std::to_string(kP40PackedExpectedNvFp4PhysicalLaunches) +
+          ",\"expected_bf16_ab_hits\":" +
+          std::to_string(kLinearAttentionLayerCount) +
+          ",\"expected_gdn_hits\":" +
+          std::to_string(kLinearAttentionLayerCount) +
+          ",\"expected_whole_prompt_attention_hits\":" +
+          std::to_string(kAttentionLayerCount) + "}}";
+    } else if (p40_packed_projection_candidate_v13) {
       output += ",\"projection_tactic\":";
       append_json_string(output,
                          "native-prompt-wide-p40-packed-projection");

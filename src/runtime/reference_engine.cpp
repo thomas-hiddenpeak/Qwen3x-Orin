@@ -1132,6 +1132,9 @@ struct EngineStepContext {
   std::size_t prefill_prompt_wide_p40_bf16_ab_hits = 0U;
   std::size_t prefill_prompt_wide_p40_gdn_hits = 0U;
   std::size_t prefill_native_flashinfer_exact_whole_prompt_hits = 0U;
+  std::size_t prefill_packed_nvfp4_v2_gate_up_hits = 0U;
+  std::size_t prefill_packed_nvfp4_v2_down_hits = 0U;
+  std::size_t prefill_packed_nvfp4_v2_physical_launches = 0U;
   // Armed before the first whole-request CUDA call and cleared only after
   // the sealed commit succeeds. EngineWholeRequestTransactionGuard owns the
   // rollback of every failure window in between.
@@ -1255,10 +1258,13 @@ prefill_whole_request_layer_major(
   const bool p40_packed_projection =
       immutable_topology.mlp_schedule.tactic ==
       LayerMajorPrefillMlpScheduleTactic::kPromptWideP40PackedProjection;
+  const bool p40_packed_nvfp4_v2 =
+      immutable_topology.mlp_schedule.tactic ==
+      LayerMajorPrefillMlpScheduleTactic::kPromptWideP40PackedNvfp4V2;
   const bool prompt_wide_p40_whole_core =
       immutable_topology.mlp_schedule.tactic ==
           LayerMajorPrefillMlpScheduleTactic::kPromptWideP40WholeCore ||
-      p40_projection_reset || p40_packed_projection;
+      p40_projection_reset || p40_packed_projection || p40_packed_nvfp4_v2;
   const std::size_t expected_submissions_per_layer =
       prompt_wide_p40_whole_core
           ? p40_projection_reset
@@ -1272,6 +1278,12 @@ prefill_whole_request_layer_major(
                       immutable_topology.packed_projection_schedule
                           .prompt_core_phase_count_per_layer +
                       immutable_topology.packed_projection_schedule
+                          .packed_mlp_phase_count_per_layer
+            : p40_packed_nvfp4_v2
+                ? 2U * immutable_topology.panel_count +
+                      immutable_topology.packed_nvfp4_v2_schedule
+                          .prompt_core_phase_count_per_layer +
+                      immutable_topology.packed_nvfp4_v2_schedule
                           .packed_mlp_phase_count_per_layer
                 : immutable_topology.whole_core_schedule
                           .fill_panel_phase_count_per_layer +
@@ -1320,6 +1332,9 @@ prefill_whole_request_layer_major(
       : p40_packed_projection
           ? immutable_topology.packed_projection_schedule
                 .fp8_tensor_role_hits_per_request
+      : p40_packed_nvfp4_v2
+          ? immutable_topology.packed_nvfp4_v2_schedule
+                .fp8_tensor_role_hits_per_request
           : kP40Fp8ProjectionsPerPanel * immutable_topology.panel_count;
   const std::size_t expected_prompt_wide_fp8_physical_launches =
       p40_projection_reset
@@ -1327,6 +1342,9 @@ prefill_whole_request_layer_major(
                 .fp8_physical_launches_per_request
       : p40_packed_projection
           ? immutable_topology.packed_projection_schedule
+                .fp8_physical_launches_per_request
+      : p40_packed_nvfp4_v2
+          ? immutable_topology.packed_nvfp4_v2_schedule
                 .fp8_physical_launches_per_request
           : expected_prompt_wide_fp8_hits;
   const std::size_t bulk_panel_count = [&immutable_topology]() noexcept {
@@ -1361,6 +1379,17 @@ prefill_whole_request_layer_major(
       executed.value->persistent_p40_fp8_projection_oracle_partial_hits ==
           0U &&
       executed.value->persistent_p40_fp8_projection_physical_launches == 0U;
+  const bool packed_nvfp4_v2_witness_valid =
+      p40_packed_nvfp4_v2
+          ? executed.value->packed_nvfp4_v2_gate_up_hits ==
+                    kReferenceDecoderLayerCount &&
+                executed.value->packed_nvfp4_v2_down_hits ==
+                    kReferenceDecoderLayerCount &&
+                executed.value->packed_nvfp4_v2_physical_launches ==
+                    2U * kReferenceDecoderLayerCount
+          : executed.value->packed_nvfp4_v2_gate_up_hits == 0U &&
+                executed.value->packed_nvfp4_v2_down_hits == 0U &&
+                executed.value->packed_nvfp4_v2_physical_launches == 0U;
   const bool valid_p40_witness =
       prompt_wide_p40_whole_core
           ? executed.value->operator_panel_executor_hits == 0U &&
@@ -1401,7 +1430,8 @@ prefill_whole_request_layer_major(
                 executed.value->prompt_wide_p40_gdn_hits ==
                     kLayerMajorPrefillLinearLayerCount &&
                 executed.value->native_flashinfer_exact_whole_prompt_hits ==
-                    kLayerMajorPrefillFullLayerCount
+                    kLayerMajorPrefillFullLayerCount &&
+                packed_nvfp4_v2_witness_valid
       : layer_wide_p40_mlp
           ? whole_core_witness_zero &&
                 executed.value->layer_wide_p40_mlp_layer_hits ==
@@ -1420,8 +1450,10 @@ prefill_whole_request_layer_major(
                 executed.value
                         ->persistent_p40_fp8_projection_oracle_partial_hits ==
                     kP40Fp8ProjectionsPerPanel *
-                        (immutable_topology.panel_count - bulk_panel_count)
-          : persistent_p40_witness_zero && whole_core_witness_zero;
+                        (immutable_topology.panel_count - bulk_panel_count) &&
+                packed_nvfp4_v2_witness_valid
+          : persistent_p40_witness_zero && whole_core_witness_zero &&
+                packed_nvfp4_v2_witness_valid;
   if (!valid_p40_witness) {
     result.status = whole_request_adapter_status(
         ReferenceRunnerError::kInvalidStepOptions,
@@ -1510,6 +1542,12 @@ prefill_whole_request_layer_major(
       executed.value->prompt_wide_p40_gdn_hits;
   context.prefill_native_flashinfer_exact_whole_prompt_hits =
       executed.value->native_flashinfer_exact_whole_prompt_hits;
+  context.prefill_packed_nvfp4_v2_gate_up_hits =
+      executed.value->packed_nvfp4_v2_gate_up_hits;
+  context.prefill_packed_nvfp4_v2_down_hits =
+      executed.value->packed_nvfp4_v2_down_hits;
+  context.prefill_packed_nvfp4_v2_physical_launches =
+      executed.value->packed_nvfp4_v2_physical_launches;
   result.value.emplace(std::move(transcript));
   return result;
 }
@@ -3648,6 +3686,36 @@ struct ReferenceEngine::Impl {
       return result;
     }
 #endif
+#if !defined(Q3X_ENABLE_P40_PACKED_NVFP4_V2_ADMISSION)
+    if (options.prefill_projection_tactic ==
+        LayerMajorPrefillProjectionTactic::
+            kNativePromptWideP40PackedNvfp4V2) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kPrefillPlanUnavailable,
+          "prefill_projection_tactic",
+          "this binary does not admit the test-only exact-P40000 packed "
+          "NVFP4-v2 package");
+      return result;
+    }
+#else
+    if (options.prefill_projection_tactic ==
+            LayerMajorPrefillProjectionTactic::
+                kNativePromptWideP40PackedNvfp4V2 &&
+        (options.prefill_execution_mode !=
+             ReferencePrefillExecutionMode::kWholeRequestLayerMajor ||
+         options.request_options.max_sequence_length !=
+             kLayerMajorPrefillPromptWideP40RequestCapacityTokens ||
+         options.prefill_full_attention_tactic !=
+             LayerMajorPrefillFullAttentionTactic::
+                 kNativeFlashInferExactWholePrompt)) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kInvalidArgument,
+          "prefill_projection_tactic",
+          "the packed NVFP4-v2 route admits only a cold exact P40000 "
+          "whole-request engine with whole-prompt FlashInfer");
+      return result;
+    }
+#endif
     if (!is_valid_reference_decode_graph_cache_policy(
             options.decode_graph_cache_policy)) {
       result.diagnostic = engine_diagnostic(
@@ -3670,6 +3738,11 @@ struct ReferenceEngine::Impl {
       impl->trace_enabled = options.enable_trace;
       impl->prefill_mlp_schedule_tactic =
           options.prefill_projection_tactic ==
+                  LayerMajorPrefillProjectionTactic::
+                      kNativePromptWideP40PackedNvfp4V2
+              ? LayerMajorPrefillMlpScheduleTactic::
+                    kPromptWideP40PackedNvfp4V2
+          : options.prefill_projection_tactic ==
                   LayerMajorPrefillProjectionTactic::
                       kNativePromptWideP40PackedProjection
               ? LayerMajorPrefillMlpScheduleTactic::
@@ -3769,7 +3842,10 @@ struct ReferenceEngine::Impl {
                               kPromptWideP40ProjectionReset ||
                       impl->prefill_mlp_schedule_tactic ==
                           LayerMajorPrefillMlpScheduleTactic::
-                              kPromptWideP40PackedProjection
+                              kPromptWideP40PackedProjection ||
+                      impl->prefill_mlp_schedule_tactic ==
+                          LayerMajorPrefillMlpScheduleTactic::
+                              kPromptWideP40PackedNvfp4V2
                   ? LayerMajorRequestMlpLayout::kLayerWideP40PersistentTwoSpan
                   : LayerMajorRequestMlpLayout::kPanelLocalThreeSpan;
           layer_major_options.layout =
@@ -3781,7 +3857,10 @@ struct ReferenceEngine::Impl {
                           kPromptWideP40ProjectionReset ||
                   impl->prefill_mlp_schedule_tactic ==
                       LayerMajorPrefillMlpScheduleTactic::
-                          kPromptWideP40PackedProjection
+                          kPromptWideP40PackedProjection ||
+                  impl->prefill_mlp_schedule_tactic ==
+                      LayerMajorPrefillMlpScheduleTactic::
+                          kPromptWideP40PackedNvfp4V2
                   ? LayerMajorRequestLayout::kP40WholeCorePromptWide
                   : LayerMajorRequestLayout::kC8192FamilyOverlay;
           request = create_layer_major_request_state(layer_major_options);
@@ -3865,6 +3944,10 @@ struct ReferenceEngine::Impl {
               options.prefill_projection_tactic ==
               LayerMajorPrefillProjectionTactic::
                   kNativePromptWideP40PackedProjection;
+          const bool prepare_p40_packed_nvfp4_v2 =
+              options.prefill_projection_tactic ==
+                  LayerMajorPrefillProjectionTactic::
+                      kNativePromptWideP40PackedNvfp4V2;
           if (prepare_p40_packed_projection) {
             const Clock::time_point packed_begin = Clock::now();
             const P40PackedProjectionPreparationStats preparation =
@@ -3977,51 +4060,90 @@ struct ReferenceEngine::Impl {
                 preparation.bytes;
           }
 #if defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION)
-          const Clock::time_point marlin_begin = Clock::now();
-          // The sealed layer-major arithmetic contract always launches the
-          // ordinary Gate+Up producer followed by its standalone SiLU. Its
-          // sidecar must therefore remain canonical even when a process-wide
-          // legacy admission asks another engine mode to prepare the fused
-          // interleaved epilogue layout.
-          const bool interleave_gate_up =
-              options.prefill_projection_tactic ==
-                  LayerMajorPrefillProjectionTactic::
-                      kNativeNvfp4PersistentP40LayerWideMlp ||
-              options.prefill_projection_tactic ==
-                  LayerMajorPrefillProjectionTactic::
-                      kNativePromptWideP40WholeCore ||
-              options.prefill_projection_tactic ==
-                  LayerMajorPrefillProjectionTactic::
-                      kNativePromptWideP40ProjectionReset ||
-              (options.prefill_execution_mode !=
-                   ReferencePrefillExecutionMode::kWholeRequestLayerMajor &&
-               prefill_marlin_gate_up_epilogue_environment_enabled());
-          const Sm87NvFp4MarlinPrefillPreparation marlin_preparation =
-              prepare_sm87_nvfp4_marlin_prefill_sidecars(
-                  *impl->model_weights,
-                  options.request_options.min_free_bytes_after_create,
-                  interleave_gate_up,
-                  impl->nvfp4_marlin_prefill_sidecars);
-          impl->load.nvfp4_marlin_prefill_sidecar_milliseconds =
-              elapsed_milliseconds(marlin_begin);
-          if (marlin_preparation.hard_failure ||
-              !marlin_preparation.enabled ||
-              marlin_preparation.layers != kQwen36DenseLayerCount) {
-            result.diagnostic = engine_diagnostic(
-                ReferenceEngineError::kRunnerFactoryFailure,
-                "nvfp4_marlin_prefill_sidecar_prepare",
-                marlin_preparation.message.empty()
-                    ? "the test admission did not publish all Marlin layers"
-                    : marlin_preparation.message);
-            result.diagnostic.cuda_error = marlin_preparation.cuda_error;
-            return result;
+          if (!prepare_p40_packed_nvfp4_v2) {
+            const Clock::time_point marlin_begin = Clock::now();
+            // The sealed layer-major arithmetic contract always launches the
+            // ordinary Gate+Up producer followed by its standalone SiLU. Its
+            // sidecar must therefore remain canonical even when a process-wide
+            // legacy admission asks another engine mode to prepare the fused
+            // interleaved epilogue layout.
+            const bool interleave_gate_up =
+                options.prefill_projection_tactic ==
+                    LayerMajorPrefillProjectionTactic::
+                        kNativeNvfp4PersistentP40LayerWideMlp ||
+                options.prefill_projection_tactic ==
+                    LayerMajorPrefillProjectionTactic::
+                        kNativePromptWideP40WholeCore ||
+                options.prefill_projection_tactic ==
+                    LayerMajorPrefillProjectionTactic::
+                        kNativePromptWideP40ProjectionReset ||
+                (options.prefill_execution_mode !=
+                     ReferencePrefillExecutionMode::kWholeRequestLayerMajor &&
+                 prefill_marlin_gate_up_epilogue_environment_enabled());
+            const Sm87NvFp4MarlinPrefillPreparation marlin_preparation =
+                prepare_sm87_nvfp4_marlin_prefill_sidecars(
+                    *impl->model_weights,
+                    options.request_options.min_free_bytes_after_create,
+                    interleave_gate_up,
+                    impl->nvfp4_marlin_prefill_sidecars);
+            impl->load.nvfp4_marlin_prefill_sidecar_milliseconds =
+                elapsed_milliseconds(marlin_begin);
+            if (marlin_preparation.hard_failure ||
+                !marlin_preparation.enabled ||
+                marlin_preparation.layers != kQwen36DenseLayerCount) {
+              result.diagnostic = engine_diagnostic(
+                  ReferenceEngineError::kRunnerFactoryFailure,
+                  "nvfp4_marlin_prefill_sidecar_prepare",
+                  marlin_preparation.message.empty()
+                      ? "the test admission did not publish all Marlin layers"
+                      : marlin_preparation.message);
+              result.diagnostic.cuda_error = marlin_preparation.cuda_error;
+              return result;
+            }
+            impl->load.nvfp4_marlin_prefill_sidecars_enabled = true;
+            impl->load.nvfp4_marlin_prefill_sidecar_layers =
+                marlin_preparation.layers;
+            impl->load.nvfp4_marlin_prefill_sidecar_bytes =
+                marlin_preparation.bytes;
           }
-          impl->load.nvfp4_marlin_prefill_sidecars_enabled = true;
-          impl->load.nvfp4_marlin_prefill_sidecar_layers =
-              marlin_preparation.layers;
-          impl->load.nvfp4_marlin_prefill_sidecar_bytes =
-              marlin_preparation.bytes;
 #endif
+          if (prepare_p40_packed_nvfp4_v2) {
+            const Clock::time_point packed_begin = Clock::now();
+            const P40PackedProjectionPreparationStats preparation =
+                prepare_p40_packed_nvfp4_assets(
+                    *impl->resident_weights, *impl->model_weights,
+                    options.request_options.min_free_bytes_after_create,
+                    impl->p40_packed_projection_assets);
+            impl->load.p40_packed_projection_asset_milliseconds =
+                elapsed_milliseconds(packed_begin);
+            if (preparation.hard_failure || !preparation.enabled ||
+                preparation.artifacts != kP40PackedNvfp4ArtifactCount ||
+                preparation.sources != kP40PackedNvfp4SourceCount ||
+                preparation.fp8_logical != 0U ||
+                preparation.fp8_physical != 0U ||
+                preparation.nvfp4_physical !=
+                    kP40PackedNvfp4ArtifactCount ||
+                preparation.bytes != kP40PackedNvfp4ArenaBytes) {
+              result.diagnostic = engine_diagnostic(
+                  ReferenceEngineError::kRunnerFactoryFailure,
+                  "p40_packed_nvfp4_asset_prepare",
+                  preparation.message.empty()
+                      ? "the P40 packed-NVFP4-v2 route did not publish its "
+                        "exact authenticated NVFP4 inventory"
+                      : preparation.message);
+              result.diagnostic.cuda_error = preparation.cuda_error;
+              return result;
+            }
+            impl->load.p40_packed_projection_assets_enabled = true;
+            impl->load.p40_packed_projection_artifacts =
+                preparation.artifacts;
+            impl->load.p40_packed_projection_sources = preparation.sources;
+            impl->load.p40_packed_projection_fp8_logical_roles = 0U;
+            impl->load.p40_packed_projection_fp8_physical_launches = 0U;
+            impl->load.p40_packed_projection_nvfp4_physical_launches =
+                preparation.nvfp4_physical;
+            impl->load.p40_packed_projection_asset_bytes = preparation.bytes;
+          }
           }
         }
 
@@ -5069,6 +5191,15 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
     generation.prefill_native_flashinfer_exact_whole_prompt_hits =
         static_cast<std::uint64_t>(
             step_context.prefill_native_flashinfer_exact_whole_prompt_hits);
+    generation.prefill_packed_nvfp4_v2_gate_up_hits =
+        static_cast<std::uint64_t>(
+            step_context.prefill_packed_nvfp4_v2_gate_up_hits);
+    generation.prefill_packed_nvfp4_v2_down_hits =
+        static_cast<std::uint64_t>(
+            step_context.prefill_packed_nvfp4_v2_down_hits);
+    generation.prefill_packed_nvfp4_v2_physical_launches =
+        static_cast<std::uint64_t>(
+            step_context.prefill_packed_nvfp4_v2_physical_launches);
     generation.all_prompt_tokens_prefilled_by_tiles =
         control_options.prefill_all_prompt_tokens;
     generation.single_arbitrary_prefill_tiles =

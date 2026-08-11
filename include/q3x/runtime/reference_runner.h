@@ -285,6 +285,9 @@ struct ReferenceWholeRequestPrefillResult {
   std::size_t prompt_wide_p40_bf16_ab_hits = 0U;
   std::size_t prompt_wide_p40_gdn_hits = 0U;
   std::size_t native_flashinfer_exact_whole_prompt_hits = 0U;
+  std::size_t packed_nvfp4_v2_gate_up_hits = 0U;
+  std::size_t packed_nvfp4_v2_down_hits = 0U;
+  std::size_t packed_nvfp4_v2_physical_launches = 0U;
   PrefillExecutionProgress progress;
   std::optional<ReferenceStepTiming> timing;
 };
@@ -828,6 +831,9 @@ class ReferenceRunner {
   commit_whole_request_layer_major_compatibility_core(
       const PrefillExecutionPlan& immutable_topology,
       const PrefillExecutionProgress& completed_uncommitted_progress) noexcept;
+  [[nodiscard]] static RequestMemoryProfile
+  whole_request_commit_memory_profile(
+      LayerMajorPrefillMlpScheduleTactic mlp_schedule_tactic) noexcept;
 
   struct PrefillTileExecutionControl {
     // The public legacy path reads RequestState::current_position(). A future
@@ -1000,11 +1006,17 @@ class ReferenceRunner {
       LayerMajorPrefillFullAttentionTactic full_attention_tactic,
       bool defer_mlp,
       const ReferenceLayerMajorRequestViews& request_views) noexcept;
+  enum class PromptWideP40ProjectionPackage : std::uint8_t {
+    kWholeCoreV10 = 0,
+    kProjectionResetV11,
+    kPackedV1,
+    kPackedNvfp4V2,
+  };
   [[nodiscard]] ReferenceRunnerStatus enqueue_layer_wide_p40_mlp(
       std::size_t layer,
       const ReferenceLayerMajorRequestViews& request_views,
-      bool use_projection_reset = false,
-      bool use_packed_projection = false) noexcept;
+      PromptWideP40ProjectionPackage projection_package =
+          PromptWideP40ProjectionPackage::kWholeCoreV10) noexcept;
   [[nodiscard]] static bool
   valid_prompt_wide_p40_whole_core_runner_contract(
       const PrefillExecutionPlan& immutable_topology,
@@ -1017,21 +1029,21 @@ class ReferenceRunner {
   enqueue_prompt_wide_p40_whole_core_fill_panel(
       std::size_t layer, const PrefillOperatorPanel& panel,
       const ReferenceLayerMajorRequestViews& request_views,
-      bool use_projection_reset, bool use_packed_projection,
+      PromptWideP40ProjectionPackage projection_package,
       std::size_t& fp8_projection_hits,
       std::size_t& fp8_physical_launches) noexcept;
   [[nodiscard]] ReferenceRunnerStatus
   enqueue_prompt_wide_p40_whole_core_prompt_core(
       std::size_t layer,
       const ReferenceLayerMajorRequestViews& request_views,
-      bool use_projection_reset, bool use_packed_projection,
+      PromptWideP40ProjectionPackage projection_package,
       std::size_t& fp8_projection_hits,
       std::size_t& fp8_physical_launches) noexcept;
   [[nodiscard]] ReferenceRunnerStatus
   enqueue_prompt_wide_p40_whole_core_drain_panel(
       std::size_t layer, const PrefillOperatorPanel& panel,
       const ReferenceLayerMajorRequestViews& request_views,
-      bool use_projection_reset, bool use_packed_projection,
+      PromptWideP40ProjectionPackage projection_package,
       std::size_t& fp8_projection_hits,
       std::size_t& fp8_physical_launches) noexcept;
   [[nodiscard]] static bool same_prefill_execution_progress(

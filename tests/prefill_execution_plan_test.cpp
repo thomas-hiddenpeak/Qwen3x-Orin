@@ -17,6 +17,18 @@ namespace runtime = q3x::runtime;
 static_assert(noexcept(
     runtime::is_valid_unbound_layer_major_prefill_execution_plan(
         std::declval<const runtime::PrefillExecutionPlan&>())));
+static_assert(static_cast<std::uint8_t>(
+                  runtime::LayerMajorPrefillProjectionTactic::
+                      kNativePromptWideP40PackedProjection) == 8U);
+static_assert(static_cast<std::uint8_t>(
+                  runtime::LayerMajorPrefillProjectionTactic::
+                      kNativePromptWideP40PackedNvfp4V2) == 9U);
+static_assert(static_cast<std::uint8_t>(
+                  runtime::LayerMajorPrefillMlpScheduleTactic::
+                      kPromptWideP40PackedProjection) == 4U);
+static_assert(static_cast<std::uint8_t>(
+                  runtime::LayerMajorPrefillMlpScheduleTactic::
+                      kPromptWideP40PackedNvfp4V2) == 5U);
 
 class TestContext {
  public:
@@ -154,6 +166,9 @@ void test_public_tile_and_operator_panel_are_independent(TestContext& test) {
           runtime::is_valid_layer_major_prefill_projection_tactic(
               runtime::LayerMajorPrefillProjectionTactic::
                   kNativePromptWideP40PackedProjection) &&
+          runtime::is_valid_layer_major_prefill_projection_tactic(
+              runtime::LayerMajorPrefillProjectionTactic::
+                  kNativePromptWideP40PackedNvfp4V2) &&
           !runtime::is_valid_layer_major_prefill_projection_tactic(
               static_cast<runtime::LayerMajorPrefillProjectionTactic>(
                   0xffU)),
@@ -193,7 +208,11 @@ void test_public_tile_and_operator_panel_are_independent(TestContext& test) {
           runtime::to_string(
               runtime::LayerMajorPrefillProjectionTactic::
                   kNativePromptWideP40PackedProjection) ==
-              "native-prompt-wide-p40-packed-projection",
+              "native-prompt-wide-p40-packed-projection" &&
+          runtime::to_string(
+              runtime::LayerMajorPrefillProjectionTactic::
+                  kNativePromptWideP40PackedNvfp4V2) ==
+              "native-prompt-wide-p40-packed-nvfp4-v2",
       "projection tactic names preserve exact, segmented, native large-M, "
       "true-large-M, and G2/D2 NVFP4 route identity");
   const runtime::PrefillExecutionPlanResult result = build_plan(513U);
@@ -598,6 +617,103 @@ void test_prompt_wide_p40_packed_projection_schedule(TestContext& test) {
           runtime::prefill_final_commit_ready(*candidate.value, progress),
       "packed route publishes one atomic completed layer and one final "
       "request commit");
+}
+
+void test_prompt_wide_p40_packed_nvfp4_v2_schedule(TestContext& test) {
+  using MlpSchedule = runtime::LayerMajorPrefillMlpScheduleTactic;
+  constexpr auto kPackedV2 = MlpSchedule::kPromptWideP40PackedNvfp4V2;
+  test.expect(
+      runtime::is_valid_layer_major_prefill_mlp_schedule_tactic(kPackedV2) &&
+          runtime::to_string(kPackedV2) ==
+              "prompt-wide-p40-packed-nvfp4-v2" &&
+          runtime::prefill_route_layer_pass_count(5U, kPackedV2) == 1U &&
+          runtime::is_valid_layer_major_prefill_arithmetic_contract(
+              runtime::
+                  kLayerMajorPrefillPromptWideP40PackedNvfp4V2ArithmeticContract) &&
+          runtime::
+                  kLayerMajorPrefillPromptWideP40PackedNvfp4V2ArithmeticContract
+                      .version == 9U &&
+          runtime::
+                  kLayerMajorPrefillPromptWideP40PackedNvfp4V2ArithmeticContract
+                      .fp8 ==
+              runtime::PrefillFp8ArithmeticTactic::
+                  kP8000FillDrainSingleBulk &&
+          runtime::
+                  kLayerMajorPrefillPromptWideP40PackedNvfp4V2ArithmeticContract
+                      .p8000_fp8_fill_drain_single_bulk,
+      "packed NVFP4 v2 owns append-only NVFP4 and v10 FP8 arithmetic "
+      "identities");
+
+  const auto candidate = build_plan(
+      runtime::kLayerMajorPrefillPromptWideP40Tokens, 0U,
+      runtime::kLayerMajorPrefillPromptWideP40RequestCapacityTokens,
+      kPackedV2);
+  if (!runtime::prompt_wide_p40_packed_nvfp4_v2_prefill_plan_enabled()) {
+    test.expect(
+        !candidate &&
+            candidate.error ==
+                runtime::PrefillExecutionPlanError::kInvalidArgument,
+        "default builds fail closed on packed NVFP4 v2");
+    return;
+  }
+
+  const runtime::PrefillP40PackedNvfp4V2SchedulePlan* schedule =
+      candidate ? &candidate.value->packed_nvfp4_v2_schedule : nullptr;
+  test.expect(
+      candidate && schedule != nullptr && schedule->enabled &&
+          schedule->input_preparation_panel_count_per_layer == 5U &&
+          schedule->prompt_core_phase_count_per_layer == 1U &&
+          schedule->packed_mlp_phase_count_per_layer == 1U &&
+          schedule->panel_token_count == 8'000U &&
+          schedule->projection_m_tokens == 40'000U &&
+          schedule->request_capacity_tokens == 40'001U &&
+          schedule->fp8_physical_launches_per_request == 1'040U &&
+          schedule->fp8_tensor_role_hits_per_request == 1'040U &&
+          schedule->nvfp4_physical_launches_per_request == 128U &&
+          schedule->authenticated_artifact_count == 128U &&
+          schedule->authenticated_source_count == 192U &&
+          schedule->stream_k_slice_count == 1U &&
+          schedule->packed_operands_retained_to_register_decode &&
+          schedule->role_specific_tactics_required &&
+          schedule->shape_specific_gate_up_required &&
+          schedule->shape_specific_down_required &&
+          schedule->request_time_repack_forbidden &&
+          schedule->request_time_tactic_selection_forbidden &&
+          schedule->internal_m_segmentation_forbidden &&
+          schedule->production_accuracy_required &&
+          schedule->approximate_numerics_forbidden &&
+          schedule->mtp_forbidden && schedule->cublaslt_forbidden &&
+          !candidate.value->packed_projection_schedule.enabled &&
+          !candidate.value->projection_reset_schedule.enabled &&
+          !candidate.value->whole_core_schedule.enabled,
+      "packed NVFP4 v2 authenticates only its NVFP4 payload while retaining "
+      "the v10 panel-wise FP8 topology");
+
+  runtime::PrefillExecutionPlan mutated = *candidate.value;
+  mutated.packed_nvfp4_v2_schedule.shape_specific_down_required = false;
+  test.expect(
+      !runtime::is_valid_unbound_layer_major_prefill_execution_plan(mutated),
+      "packed NVFP4 v2 rejects a missing shape-specific Down executor");
+
+  runtime::PrefillExecutionProgress progress =
+      runtime::make_prefill_execution_progress(*candidate.value);
+  bool ordered = runtime::advance_prefill_progress_after_completion(
+                     *candidate.value, progress, 0U, 0U) ==
+                 runtime::PrefillExecutionProgressError::kOutOfOrder;
+  for (std::size_t layer = 0U;
+       ordered && layer < candidate.value->layers.size(); ++layer) {
+    ordered = runtime::
+                  advance_prompt_wide_p40_packed_nvfp4_v2_layer_progress_after_completion(
+                      *candidate.value, progress, layer) ==
+              runtime::PrefillExecutionProgressError::kNone;
+  }
+  test.expect(
+      ordered && progress.next_layer == candidate.value->layers.size() &&
+          runtime::mark_prefill_final_hidden_ready(*candidate.value,
+                                                   progress) ==
+              runtime::PrefillExecutionProgressError::kNone &&
+          runtime::prefill_final_commit_ready(*candidate.value, progress),
+      "packed NVFP4 v2 publishes only atomic completed layers");
 }
 
 void test_target_panel_matrix(TestContext& test) {
@@ -1370,6 +1486,7 @@ int main() {
   test_prompt_wide_p40_whole_core_schedule(test);
   test_prompt_wide_p40_projection_reset_schedule(test);
   test_prompt_wide_p40_packed_projection_schedule(test);
+  test_prompt_wide_p40_packed_nvfp4_v2_schedule(test);
   test_fail_closed_inputs(test);
   if (test.failures() != 0) {
     std::cerr << test.failures()

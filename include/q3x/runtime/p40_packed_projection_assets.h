@@ -16,8 +16,15 @@ namespace q3x::runtime {
 // the host manifests below and are never inserted between device payloads.
 inline constexpr std::uint64_t kP40PackedProjectionArenaBytes =
     16'840'130'560ULL;
+// Exact retained payload extent for the append-only NVFP4-only transaction.
+// It owns one Gate+Up and one Down artifact per layer and deliberately has no
+// storage for any packed FP8 role.
+inline constexpr std::uint64_t kP40PackedNvfp4ArenaBytes =
+    9'625'927'680ULL;
+inline constexpr std::size_t kP40PackedNvfp4ArtifactCount = 128U;
+inline constexpr std::size_t kP40PackedNvfp4SourceCount = 192U;
 
-// Engine-lifetime owner for the complete fixed P40 projection inventory.
+// Engine-lifetime owner for either sealed fixed P40 projection inventory.
 // ModelWeights stores non-owning copies of descriptor views, so this owner
 // must be declared before ModelWeights (and therefore destroyed after it), or
 // released only while the runner is globally quiescent.  release() does not
@@ -77,6 +84,15 @@ prepare_p40_packed_projection_assets(
     std::uint64_t minimum_free_bytes_after_prepare,
     P40PackedProjectionAssets& owner);
 
+// Append-only hybrid preparation transaction used by packed-NVFP4-v2. It
+// authenticates and retains exactly 64 Gate+Up plus 64 Down artifacts while
+// leaving every FP8 packed view detached for the v10 whole-core provider.
+[[nodiscard]] P40PackedProjectionPreparationStats
+prepare_p40_packed_nvfp4_assets(
+    const ResidentWeights& resident, ModelWeights& model_weights,
+    std::uint64_t minimum_free_bytes_after_prepare,
+    P40PackedProjectionAssets& owner);
+
 [[nodiscard]] constexpr bool p40_packed_projection_assets_compiled()
     noexcept {
 #if defined(Q3X_ENABLE_P40_PACKED_PROJECTION_ADMISSION)
@@ -108,5 +124,18 @@ static_assert(kP40PackedProjectionArenaBytes ==
                       kernels::sm87_p40_packed_projection_plan(
                           kernels::Sm87P40PackedProjectionRole::kFp8FullQkv)
                           .payload_bytes);
+static_assert(
+    kP40PackedNvfp4ArenaBytes ==
+    kernels::kSm87P40PackedProjectionLayerCount *
+        (kernels::sm87_p40_packed_projection_plan(
+             kernels::Sm87P40PackedProjectionRole::kNvFp4GateUp)
+             .payload_bytes +
+         kernels::sm87_p40_packed_projection_plan(
+             kernels::Sm87P40PackedProjectionRole::kNvFp4Down)
+             .payload_bytes));
+static_assert(kP40PackedNvfp4ArtifactCount ==
+              2U * kernels::kSm87P40PackedProjectionLayerCount);
+static_assert(kP40PackedNvfp4SourceCount ==
+              3U * kernels::kSm87P40PackedProjectionLayerCount);
 
 }  // namespace q3x::runtime

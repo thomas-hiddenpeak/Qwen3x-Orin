@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-nvfp4-mlp-zero-structure-audit-2026-08-11",
+  "measured_at": "2026-08-11T17:48:49+08:00",
+  "timezone": "Asia/Shanghai",
+  "status": "complete_real_checkpoint_structural_audit_exact_sparsity_direction_rejected",
+  "authority": {
+    "planning_authority": "closes exact-zero and exact-2of4 sparsity as an order-of-magnitude Prefill architecture for this pinned checkpoint",
+    "performance_authority": false,
+    "accuracy_authority": false,
+    "production_promotion_authority": false,
+    "gpu_run": false,
+    "synthetic_data_used": false
+  },
+  "checkpoint": {
+    "repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "local_path": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "access": "read_only",
+    "config_sha256": "c04a19ba293737ad7be4f6e96d6666cb7e479cbe19ecc0c289fad267135b0338",
+    "index_sha256": "7aa103a2582b7d26631988de33dea19e8a308ee9c239e8e14feb374af30905e2"
+  },
+  "scope": {
+    "layers": 64,
+    "roles_per_layer": [
+      "gate",
+      "up",
+      "down"
+    ],
+    "tensor_count": 192,
+    "shards_covered": [
+      "model-00001-of-00003.safetensors",
+      "model-00002-of-00003.safetensors",
+      "model-00003-of-00003.safetensors"
+    ],
+    "nvfp4_value_count": 17112760320,
+    "consecutive_k4_group_count": 4278190080
+  },
+  "method": {
+    "source_format": "Safetensors U8 tensors with shape [N,K/2] and two E2M1 codes per byte",
+    "tensor_selection": "every model.language_model.layers.{0..63}.mlp.{gate,up,down}_proj.weight tensor",
+    "exact_zero_predicate": "(nibble & 0x7) == 0",
+    "zero_sign_handling": "both positive-zero and negative-zero encodings are counted",
+    "k4_definition": "the four consecutive stored-K E2M1 codes in two adjacent packed bytes",
+    "structured_test": "count a K4 group when at least two of its four codes satisfy the exact-zero predicate",
+    "raw_inventory": ".q3x-work/evidence/prefill-target-path/math-equivalence/nvfp4-mlp-zero-structure-full.json",
+    "raw_inventory_sha256": "15bdcdda592a3dc5abfd40f26fe65a7791e9c0dedba29349780c19194d048ada",
+    "raw_inventory_bytes": 86790
+  },
+  "aggregate": {
+    "exact_zero_codes": 1359701299,
+    "exact_zero_percent": 7.945540483091392,
+    "minimum_tensor_exact_zero_percent": 7.81926435582778,
+    "maximum_tensor_exact_zero_percent": 8.53744394638959,
+    "k4_groups_with_at_least_two_zero_codes": 151470811,
+    "k4_ge2_zero_percent": 3.5405348562726786,
+    "minimum_tensor_k4_ge2_zero_percent": 3.432756311753217,
+    "maximum_tensor_k4_ge2_zero_percent": 4.0814971923828125
+  },
+  "decision": {
+    "result": "REJECT_EXACT_ZERO_AND_EXACT_2OF4_SPARSITY_AS_MATERIAL_PREFILL_SUCCESSOR",
+    "reason": "Only 7.945540% of all pinned MLP E2M1 values are exact signed-or-unsigned zero codes, and only 3.540535% of consecutive K4 groups contain at least two such codes. The distribution is consistently low across every one of the 192 tensors. It cannot remove the order-of-magnitude dense work required by the target and does not justify a sparse-kernel architecture.",
+    "additional_numerical_boundary": "Even an exact zero code cannot be silently skipped under the complete finite-precision contract without preserving zero-times-NaN and signed-zero behavior. This audit measures structure; it does not grant a sparse production equivalence.",
+    "next_step": "Do not build or benchmark an exact-sparsity successor for this checkpoint. Continue with reference-parity dense dataflow and whole-core mathematical/communication redesign."
+  }
+}

@@ -63,6 +63,32 @@ struct PlannedArtifact {
       sources{};
 };
 
+enum class PreparationScope : std::uint8_t {
+  kCompleteProjection = 0U,
+  kNvfp4Only,
+};
+
+[[nodiscard]] constexpr std::size_t expected_artifact_count(
+    const PreparationScope scope) noexcept {
+  return scope == PreparationScope::kNvfp4Only
+             ? kP40PackedNvfp4ArtifactCount
+             : kernels::kSm87P40PackedProjectionArtifactCount;
+}
+
+[[nodiscard]] constexpr std::size_t expected_source_count(
+    const PreparationScope scope) noexcept {
+  return scope == PreparationScope::kNvfp4Only
+             ? kP40PackedNvfp4SourceCount
+             : kernels::kSm87P40PackedProjectionSourceIdentityCount;
+}
+
+[[nodiscard]] constexpr std::uint64_t expected_arena_bytes(
+    const PreparationScope scope) noexcept {
+  return scope == PreparationScope::kNvfp4Only
+             ? kP40PackedNvfp4ArenaBytes
+             : kP40PackedProjectionArenaBytes;
+}
+
 using ArtifactPlans =
     std::array<PlannedArtifact,
                kernels::kSm87P40PackedProjectionArtifactCount>;
@@ -351,7 +377,7 @@ template <typename Unsigned>
 [[nodiscard]] bool inventory_model(
     const ResidentWeights& resident, const ModelWeights& model_weights,
     ArtifactPlans& plans, std::size_t& plan_count,
-    std::string& message) {
+    const PreparationScope scope, std::string& message) {
   using kernels::Sm87P40PackedLogicalRole;
   using kernels::Sm87P40PackedProjectionRole;
   plan_count = 0U;
@@ -392,6 +418,16 @@ template <typename Unsigned>
                 "layer " +
                 std::to_string(layer_index);
       return false;
+    }
+
+    if (scope == PreparationScope::kNvfp4Only) {
+      if (!append_artifact(plans, plan_count, std::move(gate_up)) ||
+          !append_artifact(plans, plan_count, std::move(down_artifact))) {
+        message = "P40 NVFP4 physical artifact inventory overflowed its "
+                  "fixed bound";
+        return false;
+      }
+      continue;
     }
 
     PlannedArtifact fp8_input;
@@ -487,8 +523,11 @@ template <typename Unsigned>
       return false;
     }
   }
-  if (plan_count != kernels::kSm87P40PackedProjectionArtifactCount) {
-    message = "P40 inventory did not cover all 256 physical artifacts";
+  if (plan_count != expected_artifact_count(scope)) {
+    message = scope == PreparationScope::kNvfp4Only
+                  ? "P40 NVFP4 inventory did not cover all 128 physical "
+                    "artifacts"
+                  : "P40 inventory did not cover all 256 physical artifacts";
     return false;
   }
   return true;
@@ -616,10 +655,81 @@ template <typename Unsigned>
   return ok && identity != 0U;
 }
 
+[[nodiscard]] bool valid_nvfp4_only_manifest_inventory(
+    const std::array<kernels::Sm87P40PackedArtifactManifest,
+                     kernels::kSm87P40PackedProjectionArtifactCount>&
+        manifests,
+    const std::size_t manifest_count) noexcept {
+  if (manifest_count != kP40PackedNvfp4ArtifactCount) {
+    return false;
+  }
+  std::array<std::array<bool, 2U>,
+             kernels::kSm87P40PackedProjectionLayerCount>
+      seen{};
+  std::array<std::uint64_t, kP40PackedNvfp4ArtifactCount>
+      artifact_identities{};
+  std::array<std::uint64_t, kP40PackedNvfp4SourceCount>
+      source_identities{};
+  std::size_t source_count = 0U;
+  const auto role_slot = [](const kernels::Sm87P40PackedProjectionRole role)
+      noexcept -> std::size_t {
+    if (role ==
+        kernels::Sm87P40PackedProjectionRole::kNvFp4GateUp) {
+      return 0U;
+    }
+    if (role == kernels::Sm87P40PackedProjectionRole::kNvFp4Down) {
+      return 1U;
+    }
+    return 2U;
+  };
+
+  for (std::size_t index = 0U; index < manifest_count; ++index) {
+    const kernels::Sm87P40PackedArtifactManifest& manifest = manifests[index];
+    const std::size_t slot = role_slot(manifest.role);
+    const auto plan = kernels::sm87_p40_packed_projection_plan(manifest.role);
+    if (slot >= 2U ||
+        manifest.layer_index >=
+            kernels::kSm87P40PackedProjectionLayerCount ||
+        seen[manifest.layer_index][slot] || !plan.valid() ||
+        manifest.source_count != plan.source_count ||
+        !kernels::validate_sm87_p40_packed_artifact_manifest(manifest)
+             .valid() ||
+        manifest.model_digest != manifests[0U].model_digest ||
+        manifest.checkpoint_digest != manifests[0U].checkpoint_digest ||
+        std::find(artifact_identities.begin(),
+                  artifact_identities.begin() + index,
+                  manifest.artifact_identity) !=
+            artifact_identities.begin() + index) {
+      return false;
+    }
+    artifact_identities[index] = manifest.artifact_identity;
+    seen[manifest.layer_index][slot] = true;
+    for (std::size_t source = 0U; source < manifest.source_count; ++source) {
+      const std::uint64_t identity =
+          manifest.sources[source].tensor_identity;
+      if (source_count >= source_identities.size() || identity == 0U ||
+          std::find(source_identities.begin(),
+                    source_identities.begin() + source_count,
+                    identity) !=
+              source_identities.begin() + source_count) {
+        return false;
+      }
+      source_identities[source_count++] = identity;
+    }
+  }
+  for (const auto& layer : seen) {
+    if (!layer[0U] || !layer[1U]) {
+      return false;
+    }
+  }
+  return source_count == kP40PackedNvfp4SourceCount;
+}
+
 [[nodiscard]] bool build_manifests(
     const ArtifactPlans& plans, const std::size_t plan_count,
     const kernels::Sm87P40PackedDigest& model_digest,
     const kernels::Sm87P40PackedDigest& checkpoint_digest,
+    const PreparationScope scope,
     std::array<kernels::Sm87P40PackedArtifactManifest,
                kernels::kSm87P40PackedProjectionArtifactCount>& manifests,
     std::string& message) {
@@ -684,16 +794,25 @@ template <typename Unsigned>
     }
     manifests[index] = manifest;
   }
-  if (source_identity_count !=
-      kernels::kSm87P40PackedProjectionSourceIdentityCount) {
-    message = "P40 manifests did not derive all 400 source identities";
+  if (source_identity_count != expected_source_count(scope)) {
+    message = scope == PreparationScope::kNvfp4Only
+                  ? "P40 NVFP4 manifests did not derive all 192 source "
+                    "identities"
+                  : "P40 manifests did not derive all 400 source identities";
     return false;
   }
-  const auto inventory =
-      kernels::validate_sm87_p40_packed_artifact_inventory(manifests.data(),
-                                                            plan_count);
-  if (!inventory.valid()) {
-    message = "sealed P40 manifest inventory failed complete validation";
+  const bool inventory_valid =
+      scope == PreparationScope::kNvfp4Only
+          ? valid_nvfp4_only_manifest_inventory(manifests, plan_count)
+          : kernels::validate_sm87_p40_packed_artifact_inventory(
+                manifests.data(), plan_count)
+                .valid();
+  if (!inventory_valid) {
+    message = scope == PreparationScope::kNvfp4Only
+                  ? "sealed P40 NVFP4 manifest inventory failed exact "
+                    "validation"
+                  : "sealed P40 manifest inventory failed complete "
+                    "validation";
     return false;
   }
   return true;
@@ -723,7 +842,7 @@ template <typename Unsigned>
 [[nodiscard]] P40PackedProjectionPreparationStats prepare_impl(
     const ResidentWeights& resident, ModelWeights& model_weights,
     const std::uint64_t minimum_free_bytes_after_prepare,
-    P40PackedProjectionAssets& owner) {
+    const PreparationScope scope, P40PackedProjectionAssets& owner) {
   P40PackedProjectionPreparationStats result;
   if (!owner.empty()) {
     result.hard_failure = true;
@@ -733,8 +852,8 @@ template <typename Unsigned>
   }
 
   // Capability is deliberately established before model inventory or any
-  // allocation.  All five physical roles must meet the 2-CTA/SM and zero
-  // local-memory contract; a partial role set has no fallback authority.
+  // allocation. Each transaction checks every physical role it can execute;
+  // neither scope has request-time fallback authority.
   constexpr std::array<kernels::Sm87P40PackedProjectionRole, 5U> kRoles{
       kernels::Sm87P40PackedProjectionRole::kNvFp4GateUp,
       kernels::Sm87P40PackedProjectionRole::kNvFp4Down,
@@ -743,6 +862,11 @@ template <typename Unsigned>
       kernels::Sm87P40PackedProjectionRole::kFp8AttentionOutput};
   (void)cudaGetLastError();
   for (const auto role : kRoles) {
+    if (scope == PreparationScope::kNvfp4Only &&
+        role != kernels::Sm87P40PackedProjectionRole::kNvFp4GateUp &&
+        role != kernels::Sm87P40PackedProjectionRole::kNvFp4Down) {
+      continue;
+    }
     kernels::Sm87P40PackedProjectionResources resources{};
     const int status =
         kernels::query_sm87_p40_packed_projection_resources_cuda(
@@ -772,7 +896,7 @@ template <typename Unsigned>
 
   ArtifactPlans plans{};
   std::size_t plan_count = 0U;
-  if (!inventory_model(resident, model_weights, plans, plan_count,
+  if (!inventory_model(resident, model_weights, plans, plan_count, scope,
                        result.message)) {
     result.hard_failure = true;
     return result;
@@ -781,7 +905,7 @@ template <typename Unsigned>
              kernels::kSm87P40PackedProjectionArtifactCount>
       manifests{};
   if (!build_manifests(plans, plan_count, model_digest, checkpoint_digest,
-                       manifests, result.message)) {
+                       scope, manifests, result.message)) {
     result.hard_failure = true;
     return result;
   }
@@ -799,28 +923,33 @@ template <typename Unsigned>
     return result;
   }
   const std::uint64_t free_u64 = static_cast<std::uint64_t>(free_bytes);
-  if (kP40PackedProjectionArenaBytes > free_u64 ||
+  const std::uint64_t arena_bytes = expected_arena_bytes(scope);
+  if (arena_bytes > free_u64 ||
       minimum_free_bytes_after_prepare >
-          free_u64 - kP40PackedProjectionArenaBytes) {
+          free_u64 - arena_bytes) {
     result.hard_failure = true;
-    result.message = "insufficient device-memory margin for the complete "
-                     "P40 packed projection arena";
+    result.message = scope == PreparationScope::kNvfp4Only
+                         ? "insufficient device-memory margin for the exact "
+                           "P40 packed NVFP4 arena"
+                         : "insufficient device-memory margin for the "
+                           "complete P40 packed projection arena";
     return result;
   }
 
   void* allocation = nullptr;
-  status = cudaMalloc(&allocation,
-                      static_cast<std::size_t>(
-                          kP40PackedProjectionArenaBytes));
+  status = cudaMalloc(&allocation, static_cast<std::size_t>(arena_bytes));
   if (status != cudaSuccess || allocation == nullptr) {
     result.hard_failure = true;
     result.cuda_error = static_cast<int>(status);
-    result.message = "cudaMalloc failed for the complete P40 packed "
-                     "projection arena";
+    result.message = scope == PreparationScope::kNvfp4Only
+                         ? "cudaMalloc failed for the exact P40 packed "
+                           "NVFP4 arena"
+                         : "cudaMalloc failed for the complete P40 packed "
+                           "projection arena";
     return result;
   }
   owner.arena = static_cast<std::uint8_t*>(allocation);
-  owner.bytes = kP40PackedProjectionArenaBytes;
+  owner.bytes = arena_bytes;
   if (reinterpret_cast<std::uintptr_t>(owner.arena) %
           kernels::kSm87P40PackedProjectionPayloadAlignment !=
       0U) {
@@ -921,8 +1050,11 @@ template <typename Unsigned>
   owner.manifest_count = plan_count;
   if (offset != owner.bytes) {
     result.hard_failure = true;
-    result.message = "P40 packed projection payloads did not close the exact "
-                     "16,840,130,560-byte arena";
+    result.message = scope == PreparationScope::kNvfp4Only
+                         ? "P40 packed NVFP4 payloads did not close the exact "
+                           "9,625,927,680-byte arena"
+                         : "P40 packed projection payloads did not close the "
+                           "exact 16,840,130,560-byte arena";
     (void)cudaStreamSynchronize(stream);
     (void)cudaStreamDestroy(stream);
     owner.release();
@@ -942,16 +1074,28 @@ template <typename Unsigned>
     return result;
   }
 
-  const auto inventory =
-      kernels::validate_sm87_p40_packed_artifact_inventory(
-          owner.manifests.data(), owner.manifest_count);
-  if (!inventory.valid() ||
-      !model_weights.attach_p40_packed_projection_sidecars(
-          owner.descriptors.data(), owner.descriptor_count)) {
+  const bool manifest_inventory_valid =
+      scope == PreparationScope::kNvfp4Only
+          ? valid_nvfp4_only_manifest_inventory(owner.manifests,
+                                                owner.manifest_count)
+          : kernels::validate_sm87_p40_packed_artifact_inventory(
+                owner.manifests.data(), owner.manifest_count)
+                .valid();
+  const bool attachment_valid =
+      manifest_inventory_valid &&
+      (scope == PreparationScope::kNvfp4Only
+           ? model_weights.attach_p40_packed_nvfp4_sidecars(
+                 owner.descriptors.data(), owner.descriptor_count)
+           : model_weights.attach_p40_packed_projection_sidecars(
+                 owner.descriptors.data(), owner.descriptor_count));
+  if (!manifest_inventory_valid || !attachment_valid) {
     result.hard_failure = true;
-    result.message = !inventory.valid()
+    result.message = !manifest_inventory_valid
                          ? "retained P40 manifest inventory failed final "
                            "validation"
+                     : scope == PreparationScope::kNvfp4Only
+                         ? "ModelWeights rejected the exact P40 packed "
+                           "NVFP4-only transaction"
                          : "ModelWeights rejected the complete P40 packed "
                            "projection transaction";
     owner.release();
@@ -959,12 +1103,23 @@ template <typename Unsigned>
   }
 
   result.enabled = true;
-  result.artifacts = inventory.artifact_count;
-  result.sources = inventory.source_identities;
-  result.fp8_logical = inventory.fp8_logical_roles;
-  result.fp8_physical = inventory.fp8_artifacts;
-  result.nvfp4_physical =
-      inventory.gate_up_artifacts + inventory.down_artifacts;
+  if (scope == PreparationScope::kNvfp4Only) {
+    result.artifacts = kP40PackedNvfp4ArtifactCount;
+    result.sources = kP40PackedNvfp4SourceCount;
+    result.fp8_logical = 0U;
+    result.fp8_physical = 0U;
+    result.nvfp4_physical = kP40PackedNvfp4ArtifactCount;
+  } else {
+    const auto inventory =
+        kernels::validate_sm87_p40_packed_artifact_inventory(
+            owner.manifests.data(), owner.manifest_count);
+    result.artifacts = inventory.artifact_count;
+    result.sources = inventory.source_identities;
+    result.fp8_logical = inventory.fp8_logical_roles;
+    result.fp8_physical = inventory.fp8_artifacts;
+    result.nvfp4_physical =
+        inventory.gate_up_artifacts + inventory.down_artifacts;
+  }
   result.bytes = owner.bytes;
   return result;
 }
@@ -1024,7 +1179,8 @@ P40PackedProjectionPreparationStats prepare_p40_packed_projection_assets(
 #if defined(Q3X_ENABLE_P40_PACKED_PROJECTION_ADMISSION)
   try {
     return prepare_impl(resident, model_weights,
-                        minimum_free_bytes_after_prepare, owner);
+                        minimum_free_bytes_after_prepare,
+                        PreparationScope::kCompleteProjection, owner);
   } catch (const std::exception& error) {
     owner.release();
     P40PackedProjectionPreparationStats result;
@@ -1049,6 +1205,42 @@ P40PackedProjectionPreparationStats prepare_p40_packed_projection_assets(
   P40PackedProjectionPreparationStats result;
   result.hard_failure = true;
   result.message = "P40 packed projection asset preparation is not compiled";
+  return result;
+#endif
+}
+
+P40PackedProjectionPreparationStats prepare_p40_packed_nvfp4_assets(
+    const ResidentWeights& resident, ModelWeights& model_weights,
+    const std::uint64_t minimum_free_bytes_after_prepare,
+    P40PackedProjectionAssets& owner) {
+#if defined(Q3X_ENABLE_P40_PACKED_PROJECTION_ADMISSION)
+  try {
+    return prepare_impl(resident, model_weights,
+                        minimum_free_bytes_after_prepare,
+                        PreparationScope::kNvfp4Only, owner);
+  } catch (const std::exception& error) {
+    owner.release();
+    P40PackedProjectionPreparationStats result;
+    result.hard_failure = true;
+    result.message =
+        std::string("exception during P40 packed NVFP4 preparation: ") +
+        error.what();
+    return result;
+  } catch (...) {
+    owner.release();
+    P40PackedProjectionPreparationStats result;
+    result.hard_failure = true;
+    result.message = "unknown exception during P40 packed NVFP4 preparation";
+    return result;
+  }
+#else
+  (void)resident;
+  (void)model_weights;
+  (void)minimum_free_bytes_after_prepare;
+  (void)owner;
+  P40PackedProjectionPreparationStats result;
+  result.hard_failure = true;
+  result.message = "P40 packed NVFP4 asset preparation is not compiled";
   return result;
 #endif
 }

@@ -517,6 +517,13 @@ class ModelWeights {
       const P40PackedProjectionSidecarDescriptor* descriptors,
       std::size_t descriptor_count) noexcept;
 
+  // Append-only transaction for the packed-NVFP4-v2 hybrid route. It attaches
+  // exactly Gate+Up and Down for all 64 layers, preserves the v10 FP8 Marlin
+  // sidecars, and requires every packed FP8 view to remain detached.
+  [[nodiscard]] bool attach_p40_packed_nvfp4_sidecars(
+      const P40PackedProjectionSidecarDescriptor* descriptors,
+      std::size_t descriptor_count) noexcept;
+
  private:
   friend class ModelWeightBinder;
   friend struct WeightBindResult;

@@ -312,6 +312,11 @@ struct ReferenceRunnerPrefillControlTestPeer {
             kNativeFlashInferExactWholePrompt);
   }
 
+  [[nodiscard]] static RequestMemoryProfile whole_request_commit_profile(
+      const LayerMajorPrefillMlpScheduleTactic tactic) noexcept {
+    return ReferenceRunner::whole_request_commit_memory_profile(tactic);
+  }
+
   [[nodiscard]] static Result select(
       const Control& requested, const std::uint32_t current_position,
       const std::uint32_t max_sequence_length,
@@ -2473,6 +2478,30 @@ void test_layer_major_runner_view_binding_lifetime(TestContext& test) {
 
 void test_prompt_wide_p40_whole_core_runner_contract(TestContext& test) {
   using Peer = runtime::ReferenceRunnerPrefillControlTestPeer;
+  test.expect(
+      Peer::whole_request_commit_profile(
+          runtime::LayerMajorPrefillMlpScheduleTactic::
+              kPromptWideP40WholeCore) ==
+              runtime::RequestMemoryProfile::kLayerMajorP40WholeCore &&
+          Peer::whole_request_commit_profile(
+              runtime::LayerMajorPrefillMlpScheduleTactic::
+                  kPromptWideP40ProjectionReset) ==
+              runtime::RequestMemoryProfile::kLayerMajorP40WholeCore &&
+          Peer::whole_request_commit_profile(
+              runtime::LayerMajorPrefillMlpScheduleTactic::
+                  kPromptWideP40PackedProjection) ==
+              runtime::RequestMemoryProfile::kLayerMajorP40WholeCore &&
+          Peer::whole_request_commit_profile(
+              runtime::LayerMajorPrefillMlpScheduleTactic::
+                  kPromptWideP40PackedNvfp4V2) ==
+              runtime::RequestMemoryProfile::kLayerMajorP40WholeCore &&
+          Peer::whole_request_commit_profile(
+              runtime::LayerMajorPrefillMlpScheduleTactic::
+                  kPerOperatorPanel) ==
+              runtime::RequestMemoryProfile::kLayerMajorC8192,
+      "whole-request commit keeps every prompt-wide P40 route, including "
+      "packed NVFP4 v2, on the P40 memory profile");
+
   runtime::PrefillExecutionPlanOptions options;
   options.first_position = 0U;
   options.prompt_token_count =
@@ -2511,6 +2540,34 @@ void test_prompt_wide_p40_whole_core_runner_contract(TestContext& test) {
               runtime::RequestMemoryProfile::kLayerMajorP40WholeCore,
               runtime::kLayerMajorPrefillPromptWideP40Tokens),
       "runner rejects mixed profile, capacity, and panel geometry");
+
+  options.mlp_schedule_tactic = runtime::LayerMajorPrefillMlpScheduleTactic::
+      kPromptWideP40PackedNvfp4V2;
+  const runtime::PrefillExecutionPlanResult packed_nvfp4_v2 =
+      runtime::build_unbound_layer_major_prefill_execution_plan(options);
+  if (!runtime::prompt_wide_p40_packed_nvfp4_v2_prefill_plan_enabled()) {
+    test.expect(!packed_nvfp4_v2,
+                "default-off runner cannot construct packed NVFP4 v2");
+  } else {
+    test.expect(
+        packed_nvfp4_v2 &&
+            Peer::valid_prompt_wide_p40_whole_core_contract(
+                *packed_nvfp4_v2.value,
+                runtime::RequestMemoryProfile::kLayerMajorP40WholeCore,
+                runtime::
+                    kLayerMajorPrefillPromptWideP40RequestCapacityTokens,
+                runtime::LayerMajorPrefillProjectionTactic::
+                    kNativePromptWideP40PackedNvfp4V2) &&
+            !Peer::valid_prompt_wide_p40_whole_core_contract(
+                *packed_nvfp4_v2.value,
+                runtime::RequestMemoryProfile::kLayerMajorP40WholeCore,
+                runtime::
+                    kLayerMajorPrefillPromptWideP40RequestCapacityTokens,
+                runtime::LayerMajorPrefillProjectionTactic::
+                    kNativePromptWideP40PackedProjection),
+        "runner admits packed NVFP4 v2 only under its v14 route identity and "
+        "refuses to relabel it as packed v1");
+  }
 
   options.mlp_schedule_tactic = runtime::LayerMajorPrefillMlpScheduleTactic::
       kPromptWideP40ProjectionReset;

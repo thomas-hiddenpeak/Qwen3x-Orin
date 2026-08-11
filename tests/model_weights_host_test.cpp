@@ -1158,6 +1158,72 @@ void test_p40_packed_projection_sidecar_attachment(TestContext& test) {
                       layer_zero_linear.in_proj_qkv)
                           .prefill_p40_packed_artifact.payload == nullptr,
               "canonical empty call detaches the complete packed inventory");
+
+  std::vector<runtime::P40PackedProjectionSidecarDescriptor>
+      nvfp4_descriptors;
+  nvfp4_descriptors.reserve(
+      2U * kernels::kSm87P40PackedProjectionLayerCount);
+  for (std::size_t layer = 0U;
+       layer < kernels::kSm87P40PackedProjectionLayerCount; ++layer) {
+    nvfp4_descriptors.push_back(descriptors[4U * layer]);
+    nvfp4_descriptors.push_back(descriptors[4U * layer + 1U]);
+  }
+  auto& mutable_layer_zero =
+      const_cast<runtime::DecoderLayerWeights&>(weights.layer(0U));
+  runtime::Fp8LinearWeight& mutable_layer_zero_qkv =
+      std::get<runtime::Fp8LinearWeight>(
+          std::get<runtime::LinearAttentionWeights>(
+              mutable_layer_zero.attention)
+              .in_proj_qkv);
+  const auto* const retained_fp8_marlin_weight =
+      reinterpret_cast<const std::uint8_t*>(0x0000400000000000ULL);
+  const auto* const retained_fp8_marlin_scales =
+      reinterpret_cast<const std::uint16_t*>(0x0000400000000100ULL);
+  mutable_layer_zero_qkv.prefill_marlin_weight = retained_fp8_marlin_weight;
+  mutable_layer_zero_qkv.prefill_marlin_scales = retained_fp8_marlin_scales;
+  test.expect(
+      weights.attach_p40_packed_nvfp4_sidecars(nvfp4_descriptors.data(),
+                                               nvfp4_descriptors.size()) &&
+          std::get<runtime::NvFp4LinearWeight>(
+              weights.layer(0U).mlp.gate_proj)
+                  .prefill_p40_packed_artifact.artifact_identity ==
+              nvfp4_descriptors[0U].view.artifact_identity &&
+          std::get<runtime::NvFp4LinearWeight>(weights.layer(0U).mlp.up_proj)
+                  .prefill_p40_packed_artifact.artifact_identity ==
+              nvfp4_descriptors[0U].view.artifact_identity &&
+          std::get<runtime::NvFp4LinearWeight>(weights.layer(0U).mlp.down_proj)
+                  .prefill_p40_packed_artifact.artifact_identity ==
+              nvfp4_descriptors[1U].view.artifact_identity &&
+          mutable_layer_zero_qkv.prefill_p40_packed_artifact.payload ==
+              nullptr &&
+          mutable_layer_zero_qkv.prefill_marlin_weight ==
+              retained_fp8_marlin_weight &&
+          mutable_layer_zero_qkv.prefill_marlin_scales ==
+              retained_fp8_marlin_scales,
+      "NVFP4-only transaction attaches 128 MLP artifacts while preserving "
+      "the v10 FP8 provider and leaving packed FP8 detached");
+
+  auto invalid_nvfp4 = nvfp4_descriptors;
+  invalid_nvfp4.back().view.role =
+      kernels::Sm87P40PackedProjectionRole::kFp8AttentionOutput;
+  test.expect(
+      !weights.attach_p40_packed_nvfp4_sidecars(invalid_nvfp4.data(),
+                                                invalid_nvfp4.size()) &&
+          std::get<runtime::NvFp4LinearWeight>(
+              weights.layer(0U).mlp.gate_proj)
+                  .prefill_p40_packed_artifact.artifact_identity ==
+              nvfp4_descriptors[0U].view.artifact_identity,
+      "NVFP4-only transaction rejects a packed FP8 artifact atomically");
+  test.expect(
+      weights.attach_p40_packed_nvfp4_sidecars(nullptr, 0U) &&
+          std::get<runtime::NvFp4LinearWeight>(
+              weights.layer(0U).mlp.gate_proj)
+                  .prefill_p40_packed_artifact.payload == nullptr &&
+          mutable_layer_zero_qkv.prefill_marlin_weight ==
+              retained_fp8_marlin_weight &&
+          mutable_layer_zero_qkv.prefill_marlin_scales ==
+              retained_fp8_marlin_scales,
+      "NVFP4-only detach clears only packed MLP views");
 }
 
 void test_nvfp4_down_scale6_sidecar_attachment(TestContext& test) {

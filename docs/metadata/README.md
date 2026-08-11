@@ -142,6 +142,38 @@ therefore the record supports negative timing and hotspot attribution only,
 not exact replay, sealed-route attestation, accuracy, or production promotion.
 Only its default-off correctness primitives remain in the tree.
 
+The rejected complete packed-projection v1 P40K direction is frozen in
+[`qwen36-27b-prefill-p40k-packed-projection-rejection-2026-08-10.json`](qwen36-27b-prefill-p40k-packed-projection-rejection-2026-08-10.json).
+Its independent v13 witness authenticated 256 packed FP8/NVFP4 artifacts from
+400 checkpoint sources and completed the exact 40,000-token OpenAI/EvalScope
+route, but reached 161,410.929373 ms / 247.814694 pure prompt tok/s. The route
+is default-off, accuracy-unqualified, and rejected against the v10 whole-core
+incumbent; it is retained here as the direct non-incumbent comparator for the
+NVFP4-only successor.
+
+That successor and its clean-host real-API rejection are frozen in
+[`qwen36-27b-prefill-p40k-packed-nvfp4-v2-rejection-2026-08-11.json`](qwen36-27b-prefill-p40k-packed-nvfp4-v2-rejection-2026-08-11.json).
+The duplicate-key-free v14 witness consumed all 40,000 prompt tokens, restored
+v10's 1,040/1,040 FP8 ledger, and isolated 64 Gate+Up plus 64 Down operations
+in 128 packed NVFP4 v2 launches backed by 128 artifacts from 192 real
+checkpoint sources. Every fallback, Prefix-cache, MTP, cuBLASLt,
+external-reference, approximate-route, and forbidden-route counter was zero.
+Server pure Prefill was 128,493.372123 ms / 311.300103 tok/s and EvalScope
+TTFT was 128,532.05 ms. This recovers 20.393636% latency versus rejected v13,
+but regresses latency 26.181904% and throughput 20.749333% versus the v10
+incumbent. Packed NVFP4 v2 is therefore closed without a parameter scan,
+remains default-off and accuracy-unqualified, and does not unlock P60/P130 or
+production promotion.
+
+The complete real-checkpoint MLP exact-zero inventory is frozen in
+[`qwen36-27b-nvfp4-mlp-zero-structure-audit-2026-08-11.json`](qwen36-27b-nvfp4-mlp-zero-structure-audit-2026-08-11.json).
+It scans all 192 Gate/Up/Down NVFP4 tensors across 64 layers and all three
+checkpoint shards: only 7.945540% of E2M1 codes are exact signed-or-unsigned
+zero, and only 3.540535% of consecutive K4 groups contain at least two exact
+zero codes. This closes exact-zero/2:4 sparsity as a material successor for
+the pinned model; it is a CPU structural audit, not a GPU performance or
+accuracy result.
+
 The current Prefill architecture reset and same-host stock-vLLM P513 kernel
 profile are recorded in
 [`qwen36-27b-vllm-p513-architecture-profile-2026-07-29.json`](qwen36-27b-vllm-p513-architecture-profile-2026-07-29.json).

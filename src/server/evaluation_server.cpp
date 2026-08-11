@@ -923,6 +923,12 @@ void emit_target_prefill_witness(
         generation.prefill_prompt_wide_p40_gdn_hits;
     record.native_flashinfer_exact_whole_prompt_hits =
         generation.prefill_native_flashinfer_exact_whole_prompt_hits;
+    record.packed_nvfp4_v2_gate_up_hits =
+        generation.prefill_packed_nvfp4_v2_gate_up_hits;
+    record.packed_nvfp4_v2_down_hits =
+        generation.prefill_packed_nvfp4_v2_down_hits;
+    record.packed_nvfp4_v2_physical_launches =
+        generation.prefill_packed_nvfp4_v2_physical_launches;
     record.deployment_plan_id = generation.prefill_deployment_plan_id;
     std::cerr << serialize_target_prefill_witness(record) << '\n';
   } catch (...) {

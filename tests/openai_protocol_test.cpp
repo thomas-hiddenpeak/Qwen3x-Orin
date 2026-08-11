@@ -1051,6 +1051,78 @@ void test_target_prefill_witness_evidence(TestContext& test) {
       "P40000 v13 witness fails closed unless all packed FP8 logical, FP8 "
       "physical, and NVFP4 physical counts are exact");
 
+  server::TargetPrefillWitnessRecord v13_with_v14_only_fields =
+      packed_projection_p40_record;
+  v13_with_v14_only_fields.packed_nvfp4_v2_gate_up_hits = 64U;
+  v13_with_v14_only_fields.packed_nvfp4_v2_down_hits = 64U;
+  v13_with_v14_only_fields.packed_nvfp4_v2_physical_launches = 128U;
+  test.expect(
+      server::serialize_target_prefill_witness(v13_with_v14_only_fields) ==
+          packed_projection_p40_serialized,
+      "v13 serialization is byte-stable when append-only v14 fields exist");
+
+  server::TargetPrefillWitnessRecord packed_nvfp4_v2_p40_record =
+      packed_projection_p40_record;
+  packed_nvfp4_v2_p40_record.mlp_schedule_tactic = q3x::runtime::
+      LayerMajorPrefillMlpScheduleTactic::kPromptWideP40PackedNvfp4V2;
+  packed_nvfp4_v2_p40_record.prompt_wide_p40_fp8_projection_hits = 1'040U;
+  packed_nvfp4_v2_p40_record
+      .prompt_wide_p40_fp8_projection_physical_launches = 1'040U;
+  packed_nvfp4_v2_p40_record.packed_nvfp4_v2_gate_up_hits = 64U;
+  packed_nvfp4_v2_p40_record.packed_nvfp4_v2_down_hits = 64U;
+  packed_nvfp4_v2_p40_record.packed_nvfp4_v2_physical_launches = 128U;
+  packed_nvfp4_v2_p40_record.deployment_plan_id = q3x::runtime::
+      kLayerMajorNativePromptWideP40PackedNvfp4V2DeploymentPlanId;
+  const std::string packed_nvfp4_v2_p40_serialized =
+      server::serialize_target_prefill_witness(packed_nvfp4_v2_p40_record);
+  test.expect(
+      valid_json(packed_nvfp4_v2_p40_serialized) &&
+          packed_nvfp4_v2_p40_serialized.find(
+              R"("record":"target-prefill-witness-v14","schema_version":14)") !=
+              std::string::npos &&
+          packed_nvfp4_v2_p40_serialized.find(
+              R"("projection_tactic":"native-prompt-wide-p40-packed-nvfp4-v2","mlp_schedule":"prompt-wide-p40-packed-nvfp4-v2","attention_tactic":"native-flashinfer-exact-whole-prompt","package_complete":true)") !=
+              std::string::npos &&
+          packed_nvfp4_v2_p40_serialized.find(
+              R"("packed_nvfp4_v2_gate_up_hits":64,"packed_nvfp4_v2_down_hits":64,"packed_nvfp4_v2_physical_launches":128)") !=
+              std::string::npos &&
+          packed_nvfp4_v2_p40_serialized.find(
+              R"("prompt_wide_p40_fp8_projection_hits":1040,"prompt_wide_p40_fp8_projection_physical_launches":1040)") !=
+              std::string::npos &&
+          packed_nvfp4_v2_p40_serialized.find(
+              R"("p40_packed_nvfp4_v2_package":{"identity":"exact-p40000-packed-nvfp4-v2-dataflow-v1","selection":"sealed-fail-closed","complete":true)") !=
+              std::string::npos &&
+          packed_nvfp4_v2_p40_serialized.find(
+              R"("expected_fp8_tensor_role_hits":1040,"expected_fp8_physical_launches":1040,"expected_nvfp4_gate_up_hits":64)") !=
+              std::string::npos &&
+          packed_nvfp4_v2_p40_serialized.find(
+              R"("qualification":"accuracy-unqualified-architecture-candidate","numerical_contract":{"qualified":false)") !=
+              std::string::npos,
+      "packed NVFP4 v2 emits an isolated, complete accuracy-unqualified v14 "
+      "witness");
+
+  server::TargetPrefillWitnessRecord packed_nvfp4_v2_missing_down =
+      packed_nvfp4_v2_p40_record;
+  --packed_nvfp4_v2_missing_down.packed_nvfp4_v2_down_hits;
+  server::TargetPrefillWitnessRecord packed_nvfp4_v2_wrong_deployment =
+      packed_projection_p40_record;
+  packed_nvfp4_v2_wrong_deployment.deployment_plan_id = q3x::runtime::
+      kLayerMajorNativePromptWideP40PackedNvfp4V2DeploymentPlanId;
+  const std::string packed_nvfp4_v2_missing_down_serialized =
+      server::serialize_target_prefill_witness(packed_nvfp4_v2_missing_down);
+  const std::string packed_nvfp4_v2_wrong_deployment_serialized =
+      server::serialize_target_prefill_witness(
+          packed_nvfp4_v2_wrong_deployment);
+  test.expect(
+      valid_json(packed_nvfp4_v2_missing_down_serialized) &&
+          valid_json(packed_nvfp4_v2_wrong_deployment_serialized) &&
+          packed_nvfp4_v2_missing_down_serialized.find(
+              R"("package_complete":false)") != std::string::npos &&
+          packed_nvfp4_v2_wrong_deployment_serialized.find(
+              R"("package_complete":false)") != std::string::npos,
+      "v14 fails closed on a missing Down completion or a mismatched route "
+      "identity");
+
   server::TargetPrefillWitnessRecord reset_not_fully_consumed =
       projection_reset_p40_record;
   reset_not_fully_consumed.full_prompt_consumed = false;

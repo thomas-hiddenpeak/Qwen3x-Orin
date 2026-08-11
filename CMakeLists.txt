@@ -90,6 +90,10 @@ option(Q3X_BUILD_P40_PACKED_PROJECTION_ADMISSION
   "Build the test-only AC-PREFILL-P40-PACKED-DATAFLOW-v1 projection route"
   OFF
 )
+option(Q3X_BUILD_P40_PACKED_NVFP4_V2_ADMISSION
+  "Build the test-only shape-specific packed NVFP4 v2 execution route"
+  OFF
+)
 if(Q3X_BUILD_GDN_B8_ADMISSION AND NOT BUILD_TESTING)
   message(FATAL_ERROR
     "Q3X_BUILD_GDN_B8_ADMISSION is test-only and requires BUILD_TESTING=ON"
@@ -236,6 +240,18 @@ if(Q3X_BUILD_P40_PACKED_PROJECTION_ADMISSION AND
     "Q3X_BUILD_P40_PACKED_PROJECTION_ADMISSION requires the exact-P40000 whole-core execution substrate"
   )
 endif()
+if(Q3X_BUILD_P40_PACKED_NVFP4_V2_ADMISSION AND NOT BUILD_TESTING)
+  message(FATAL_ERROR
+    "Q3X_BUILD_P40_PACKED_NVFP4_V2_ADMISSION is test-only and requires BUILD_TESTING=ON"
+  )
+endif()
+if(Q3X_BUILD_P40_PACKED_NVFP4_V2_ADMISSION AND
+   (NOT Q3X_BUILD_P40_PACKED_PROJECTION_ADMISSION OR
+    NOT Q3X_BUILD_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION))
+  message(FATAL_ERROR
+    "Q3X_BUILD_P40_PACKED_NVFP4_V2_ADMISSION requires the packed-v1 asset route and exact-P40000 whole-core substrate"
+  )
+endif()
 if((Q3X_BUILD_GDN_B8_ADMISSION AND
     Q3X_BUILD_GDN_C16_NORM_GATE_ADMISSION) OR
    (Q3X_BUILD_GDN_B8_ADMISSION AND
@@ -345,6 +361,14 @@ if(Q3X_BUILD_P40_PACKED_PROJECTION_ADMISSION)
   # sealed authority. Keep one definition across planner/runner/engine/tests.
   target_compile_definitions(q3x_core PUBLIC
     Q3X_ENABLE_P40_PACKED_PROJECTION_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_P40_PACKED_NVFP4_V2_ADMISSION)
+  # V2 reuses the authenticated packed-v1 NVFP4 packing ABI through its own
+  # NVFP4-only asset transaction, execution tactic, deployment identity, and
+  # v14 witness. Keep admission consistent across planner/runner/engine/tests.
+  target_compile_definitions(q3x_core PUBLIC
+    Q3X_ENABLE_P40_PACKED_NVFP4_V2_ADMISSION=1
   )
 endif()
 q3x_enable_warnings(q3x_core)
@@ -488,6 +512,14 @@ if(Q3X_BUILD_P40_PACKED_PROJECTION_ADMISSION)
   )
   target_compile_definitions(q3x_kernels PRIVATE
     Q3X_ENABLE_P40_PACKED_PROJECTION_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_P40_PACKED_NVFP4_V2_ADMISSION)
+  target_sources(q3x_kernels PRIVATE
+    src/kernels/sm87/p40_packed_nvfp4_v2.cu
+  )
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_P40_PACKED_NVFP4_V2_ADMISSION=1
   )
 endif()
 if(Q3X_BUILD_FP8_MARLIN_PREFILL_ADMISSION)
@@ -876,6 +908,24 @@ if(BUILD_TESTING)
     )
     set_tests_properties(sm87_p40_packed_nvfp4_cuda PROPERTIES
       LABELS "cuda;sm87;prefill;correctness;packed"
+      SKIP_RETURN_CODE 77
+      RESOURCE_LOCK q3x_gpu
+    )
+  endif()
+
+  if(Q3X_BUILD_P40_PACKED_NVFP4_V2_ADMISSION)
+    add_executable(q3x_sm87_p40_packed_nvfp4_v2_cuda_test
+      tests/sm87_p40_packed_nvfp4_v2_cuda_test.cu
+    )
+    target_link_libraries(q3x_sm87_p40_packed_nvfp4_v2_cuda_test
+      PRIVATE q3x::kernels CUDA::cudart
+    )
+    q3x_enable_warnings(q3x_sm87_p40_packed_nvfp4_v2_cuda_test)
+    add_test(NAME sm87_p40_packed_nvfp4_v2_cuda
+      COMMAND q3x_sm87_p40_packed_nvfp4_v2_cuda_test
+    )
+    set_tests_properties(sm87_p40_packed_nvfp4_v2_cuda PROPERTIES
+      LABELS "cuda;sm87;prefill;correctness;packed;v2"
       SKIP_RETURN_CODE 77
       RESOURCE_LOCK q3x_gpu
     )

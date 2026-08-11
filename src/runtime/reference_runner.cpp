@@ -5,6 +5,9 @@
 #include "q3x/kernels/sm87_p40_projection_reset.h"
 #endif
 #include "q3x/kernels/sm87_p40_packed_projection.h"
+#if defined(Q3X_ENABLE_P40_PACKED_NVFP4_V2_ADMISSION)
+#include "q3x/kernels/sm87_p40_packed_nvfp4_v2.h"
+#endif
 #if defined(Q3X_ENABLE_BF16_AB_LARGE_M_PREFILL_ADMISSION)
 #include "q3x/kernels/sm87_bf16_ab_prefill.h"
 #endif
@@ -4592,15 +4595,22 @@ bool ReferenceRunner::valid_prompt_wide_p40_whole_core_runner_contract(
   const bool use_packed_projection =
       projection_tactic == LayerMajorPrefillProjectionTactic::
                                kNativePromptWideP40PackedProjection;
+  const bool use_packed_nvfp4_v2 =
+      projection_tactic == LayerMajorPrefillProjectionTactic::
+                               kNativePromptWideP40PackedNvfp4V2;
+  const bool use_any_packed_projection =
+      use_packed_projection || use_packed_nvfp4_v2;
   const bool use_legacy_whole_core =
       projection_tactic == LayerMajorPrefillProjectionTactic::
                                kNativePromptWideP40WholeCore;
-  if ((!use_projection_reset && !use_packed_projection &&
+  if ((!use_projection_reset && !use_any_packed_projection &&
        !use_legacy_whole_core) ||
       (use_projection_reset
            ? !prompt_wide_p40_projection_reset_prefill_plan_enabled()
        : use_packed_projection
            ? !prompt_wide_p40_packed_projection_prefill_plan_enabled()
+       : use_packed_nvfp4_v2
+           ? !prompt_wide_p40_packed_nvfp4_v2_prefill_plan_enabled()
            : !prompt_wide_p40_whole_core_prefill_plan_enabled()) ||
       memory_profile != RequestMemoryProfile::kLayerMajorP40WholeCore ||
       executor != LayerMajorLayerExecutor::kOperatorPanel ||
@@ -4624,6 +4634,9 @@ bool ReferenceRunner::valid_prompt_wide_p40_whole_core_runner_contract(
            : use_packed_projection
                ? LayerMajorPrefillMlpScheduleTactic::
                      kPromptWideP40PackedProjection
+           : use_packed_nvfp4_v2
+               ? LayerMajorPrefillMlpScheduleTactic::
+                     kPromptWideP40PackedNvfp4V2
                : LayerMajorPrefillMlpScheduleTactic::
                      kPromptWideP40WholeCore)) {
     return false;
@@ -4694,9 +4707,47 @@ bool ReferenceRunner::valid_prompt_wide_p40_whole_core_runner_contract(
       return false;
     }
   }
+  if (use_packed_nvfp4_v2) {
+    const PrefillP40PackedNvfp4V2SchedulePlan& schedule =
+        immutable_topology.packed_nvfp4_v2_schedule;
+    if (!schedule.enabled ||
+        schedule.input_preparation_panel_count_per_layer !=
+            kLayerMajorPrefillPromptWideP40PanelCount ||
+        schedule.prompt_core_phase_count_per_layer != 1U ||
+        schedule.packed_mlp_phase_count_per_layer != 1U ||
+        schedule.panel_token_count !=
+            kLayerMajorPrefillPromptWideP40PanelTokens ||
+        schedule.projection_m_tokens !=
+            kLayerMajorPrefillPromptWideP40Tokens ||
+        schedule.request_capacity_tokens !=
+            kLayerMajorPrefillPromptWideP40RequestCapacityTokens ||
+        schedule.route_pass_count != 1U ||
+        schedule.fp8_physical_launches_per_request !=
+            kLayerMajorPrefillPackedNvfp4V2Fp8PhysicalLaunchesPerRequest ||
+        schedule.fp8_tensor_role_hits_per_request !=
+            kLayerMajorPrefillPackedNvfp4V2Fp8TensorRoleHitsPerRequest ||
+        schedule.nvfp4_physical_launches_per_request != 128U ||
+        schedule.authenticated_artifact_count !=
+            kLayerMajorPrefillPackedNvfp4V2ArtifactCount ||
+        schedule.authenticated_source_count !=
+            kLayerMajorPrefillPackedNvfp4V2AuthenticatedSourceCount ||
+        schedule.stream_k_slice_count != 1U ||
+        !schedule.packed_operands_retained_to_register_decode ||
+        !schedule.role_specific_tactics_required ||
+        !schedule.shape_specific_gate_up_required ||
+        !schedule.shape_specific_down_required ||
+        !schedule.request_time_repack_forbidden ||
+        !schedule.request_time_tactic_selection_forbidden ||
+        !schedule.internal_m_segmentation_forbidden ||
+        !schedule.production_accuracy_required ||
+        !schedule.approximate_numerics_forbidden || !schedule.mtp_forbidden ||
+        !schedule.cublaslt_forbidden) {
+      return false;
+    }
+  }
   const PrefillWholeCoreSchedulePlan& schedule =
       immutable_topology.whole_core_schedule;
-  if (!use_projection_reset && !use_packed_projection &&
+  if (!use_projection_reset && !use_any_packed_projection &&
       (!schedule.enabled ||
       schedule.fill_panel_phase_count_per_layer !=
           kLayerMajorPrefillPromptWideP40PanelCount ||
@@ -4736,7 +4787,7 @@ ReferenceRunnerStatus
 ReferenceRunner::enqueue_prompt_wide_p40_whole_core_fill_panel(
     const std::size_t layer, const PrefillOperatorPanel& panel,
     const ReferenceLayerMajorRequestViews& request_views,
-    const bool use_projection_reset, const bool use_packed_projection,
+    const PromptWideP40ProjectionPackage projection_package,
     std::size_t& fp8_projection_hits,
     std::size_t& fp8_physical_launches) noexcept {
 #if !defined(Q3X_ENABLE_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION) || \
@@ -4744,13 +4795,16 @@ ReferenceRunner::enqueue_prompt_wide_p40_whole_core_fill_panel(
   (void)layer;
   (void)panel;
   (void)request_views;
-  (void)use_projection_reset;
-  (void)use_packed_projection;
+  (void)projection_package;
   (void)fp8_projection_hits;
   (void)fp8_physical_launches;
   return runner_status(ReferenceRunnerError::kInvalidDependency,
                        "prefill_whole_core_fill_build_inventory");
 #else
+  const bool use_projection_reset =
+      projection_package == PromptWideP40ProjectionPackage::kProjectionResetV11;
+  const bool use_packed_projection =
+      projection_package == PromptWideP40ProjectionPackage::kPackedV1;
   const auto exact_bf16_matrix = [](const DeviceMatrixView& view,
                                     const std::size_t rows,
                                     const std::size_t columns) noexcept {
@@ -4993,7 +5047,7 @@ ReferenceRunnerStatus
 ReferenceRunner::enqueue_prompt_wide_p40_whole_core_prompt_core(
     const std::size_t layer,
     const ReferenceLayerMajorRequestViews& request_views,
-    const bool use_projection_reset, const bool use_packed_projection,
+    const PromptWideP40ProjectionPackage projection_package,
     std::size_t& fp8_projection_hits,
     std::size_t& fp8_physical_launches) noexcept {
 #if !defined(Q3X_ENABLE_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION) || \
@@ -5002,13 +5056,16 @@ ReferenceRunner::enqueue_prompt_wide_p40_whole_core_prompt_core(
     !defined(Q3X_ENABLE_GDN_PROMPT_WIDE_CHUNK_GRAPH_ADMISSION)
   (void)layer;
   (void)request_views;
-  (void)use_projection_reset;
-  (void)use_packed_projection;
+  (void)projection_package;
   (void)fp8_projection_hits;
   (void)fp8_physical_launches;
   return runner_status(ReferenceRunnerError::kInvalidDependency,
                        "prefill_whole_core_prompt_core_build_inventory");
 #else
+  const bool use_projection_reset =
+      projection_package == PromptWideP40ProjectionPackage::kProjectionResetV11;
+  const bool use_packed_projection =
+      projection_package == PromptWideP40ProjectionPackage::kPackedV1;
   if (layer >= kReferenceDecoderLayerCount) {
     return runner_status(ReferenceRunnerError::kInvalidLayerSchedule,
                          "prefill_whole_core_prompt_core_layer", layer);
@@ -5224,7 +5281,7 @@ ReferenceRunnerStatus
 ReferenceRunner::enqueue_prompt_wide_p40_whole_core_drain_panel(
     const std::size_t layer, const PrefillOperatorPanel& panel,
     const ReferenceLayerMajorRequestViews& request_views,
-    const bool use_projection_reset, const bool use_packed_projection,
+    const PromptWideP40ProjectionPackage projection_package,
     std::size_t& fp8_projection_hits,
     std::size_t& fp8_physical_launches) noexcept {
 #if !defined(Q3X_ENABLE_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION) || \
@@ -5232,13 +5289,16 @@ ReferenceRunner::enqueue_prompt_wide_p40_whole_core_drain_panel(
   (void)layer;
   (void)panel;
   (void)request_views;
-  (void)use_projection_reset;
-  (void)use_packed_projection;
+  (void)projection_package;
   (void)fp8_projection_hits;
   (void)fp8_physical_launches;
   return runner_status(ReferenceRunnerError::kInvalidDependency,
                        "prefill_whole_core_drain_build_inventory");
 #else
+  const bool use_projection_reset =
+      projection_package == PromptWideP40ProjectionPackage::kProjectionResetV11;
+  const bool use_packed_projection =
+      projection_package == PromptWideP40ProjectionPackage::kPackedV1;
   if (layer >= kReferenceDecoderLayerCount ||
       panel.ordinal >= kPromptWideP40WholeCorePanelCount ||
       panel.first_position !=
@@ -5587,6 +5647,8 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
                                kNativePromptWideP40ProjectionReset ||
       projection_tactic == LayerMajorPrefillProjectionTactic::
                                kNativePromptWideP40PackedProjection ||
+      projection_tactic == LayerMajorPrefillProjectionTactic::
+                               kNativePromptWideP40PackedNvfp4V2 ||
       full_attention_tactic == LayerMajorPrefillFullAttentionTactic::
                                    kNativeFlashInferExactWholePrompt ||
       immutable_topology.mlp_schedule.tactic ==
@@ -5594,7 +5656,9 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
       immutable_topology.mlp_schedule.tactic ==
           LayerMajorPrefillMlpScheduleTactic::kPromptWideP40ProjectionReset ||
       immutable_topology.mlp_schedule.tactic ==
-          LayerMajorPrefillMlpScheduleTactic::kPromptWideP40PackedProjection;
+          LayerMajorPrefillMlpScheduleTactic::kPromptWideP40PackedProjection ||
+      immutable_topology.mlp_schedule.tactic ==
+          LayerMajorPrefillMlpScheduleTactic::kPromptWideP40PackedNvfp4V2;
   const bool prompt_wide_p40_whole_core =
       valid_prompt_wide_p40_whole_core_runner_contract(
           immutable_topology, state_->memory_profile(),
@@ -5606,6 +5670,17 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
   const bool use_packed_projection =
       projection_tactic == LayerMajorPrefillProjectionTactic::
                                kNativePromptWideP40PackedProjection;
+  const bool use_packed_nvfp4_v2 =
+      projection_tactic == LayerMajorPrefillProjectionTactic::
+                               kNativePromptWideP40PackedNvfp4V2;
+  const PromptWideP40ProjectionPackage projection_package =
+      use_projection_reset
+          ? PromptWideP40ProjectionPackage::kProjectionResetV11
+      : use_packed_projection
+          ? PromptWideP40ProjectionPackage::kPackedV1
+      : use_packed_nvfp4_v2
+          ? PromptWideP40ProjectionPackage::kPackedNvfp4V2
+          : PromptWideP40ProjectionPackage::kWholeCoreV10;
   if (!layer_major_request_views_.has_value() ||
       any_prompt_wide_p40_whole_core_identity !=
           prompt_wide_p40_whole_core ||
@@ -5803,6 +5878,9 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
   std::size_t prompt_wide_p40_bf16_ab_hits = 0U;
   std::size_t prompt_wide_p40_gdn_hits = 0U;
   std::size_t native_flashinfer_exact_whole_prompt_hits = 0U;
+  std::size_t packed_nvfp4_v2_gate_up_hits = 0U;
+  std::size_t packed_nvfp4_v2_down_hits = 0U;
+  std::size_t packed_nvfp4_v2_physical_launches = 0U;
   const auto retire_oldest_submission = [&]() noexcept {
     if (!bounded_submission_window || submission_window_in_flight == 0U) {
       return ReferenceRunnerStatus{};
@@ -5922,7 +6000,7 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
         }
         status = enqueue_prompt_wide_p40_whole_core_fill_panel(
             layer, immutable_topology.panels[panel_index], layer_major,
-            use_projection_reset, use_packed_projection,
+            projection_package,
             prompt_wide_p40_fp8_projection_hits,
             prompt_wide_p40_fp8_projection_physical_launches);
         if (!status) {
@@ -5940,7 +6018,7 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
         return fail_whole_request_prefill(status);
       }
       status = enqueue_prompt_wide_p40_whole_core_prompt_core(
-          layer, layer_major, use_projection_reset, use_packed_projection,
+          layer, layer_major, projection_package,
           prompt_wide_p40_fp8_projection_hits,
           prompt_wide_p40_fp8_projection_physical_launches);
       if (!status) {
@@ -5968,7 +6046,7 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
         }
         status = enqueue_prompt_wide_p40_whole_core_drain_panel(
             layer, immutable_topology.panels[panel_index], layer_major,
-            use_projection_reset, use_packed_projection,
+            projection_package,
             prompt_wide_p40_fp8_projection_hits,
             prompt_wide_p40_fp8_projection_physical_launches);
         if (!status) {
@@ -5987,8 +6065,7 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
         return fail_whole_request_prefill(status);
       }
       status = enqueue_layer_wide_p40_mlp(layer, layer_major,
-                                          use_projection_reset,
-                                          use_packed_projection);
+                                          projection_package);
       if (!status) {
         return fail_whole_request_prefill(status);
       }
@@ -5996,6 +6073,11 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
       ++persistent_p40_nvfp4_gate_up_hits;
       ++persistent_p40_nvfp4_down_residual_hits;
       persistent_p40_nvfp4_physical_launches += 2U;
+      if (use_packed_nvfp4_v2) {
+        ++packed_nvfp4_v2_gate_up_hits;
+        ++packed_nvfp4_v2_down_hits;
+        packed_nvfp4_v2_physical_launches += 2U;
+      }
       ++prompt_wide_p40_whole_core_layer_hits;
 
       PrefillLayerSegmentRouteFragment full_layer_fragment;
@@ -6442,6 +6524,16 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
   for (std::size_t layer = 0U; layer < kReferenceDecoderLayerCount;
        ++layer) {
     if (prompt_wide_p40_whole_core) {
+      if (use_packed_nvfp4_v2) {
+        if (advance_prompt_wide_p40_packed_nvfp4_v2_layer_progress_after_completion(
+                immutable_topology, progress, layer) !=
+            PrefillExecutionProgressError::kNone) {
+          return fail_whole_request_prefill(runner_status(
+              ReferenceRunnerError::kInvalidStepOptions,
+              "whole_request_prefill_packed_nvfp4_v2_progress", layer));
+        }
+        continue;
+      }
       if (use_packed_projection) {
         if (advance_prompt_wide_p40_packed_projection_layer_progress_after_completion(
                 immutable_topology, progress, layer) !=
@@ -6639,6 +6731,10 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
   result.prompt_wide_p40_gdn_hits = prompt_wide_p40_gdn_hits;
   result.native_flashinfer_exact_whole_prompt_hits =
       native_flashinfer_exact_whole_prompt_hits;
+  result.packed_nvfp4_v2_gate_up_hits = packed_nvfp4_v2_gate_up_hits;
+  result.packed_nvfp4_v2_down_hits = packed_nvfp4_v2_down_hits;
+  result.packed_nvfp4_v2_physical_launches =
+      packed_nvfp4_v2_physical_launches;
   result.progress = progress;
   if (options.measure_timing) {
     const std::chrono::duration<double, std::milli> elapsed =
@@ -6884,6 +6980,8 @@ ReferenceRunner::enqueue_prefill_layer_panel(
               kNativePromptWideP40ProjectionReset:
           case LayerMajorPrefillProjectionTactic::
               kNativePromptWideP40PackedProjection:
+          case LayerMajorPrefillProjectionTactic::
+              kNativePromptWideP40PackedNvfp4V2:
             // This helper is never part of the whole-core route. The latter
             // binds its explicit M8000 primitive before entering this legacy
             // panel executor.
@@ -7784,16 +7882,22 @@ ReferenceRunner::enqueue_prefill_layer_panel(
 ReferenceRunnerStatus ReferenceRunner::enqueue_layer_wide_p40_mlp(
     const std::size_t layer,
     const ReferenceLayerMajorRequestViews& request_views,
-    const bool use_projection_reset,
-    const bool use_packed_projection) noexcept {
+    const PromptWideP40ProjectionPackage projection_package) noexcept {
 #if !defined(Q3X_ENABLE_NVFP4_PERSISTENT_PREFILL_ADMISSION)
   (void)layer;
   (void)request_views;
-  (void)use_projection_reset;
-  (void)use_packed_projection;
+  (void)projection_package;
   return runner_status(ReferenceRunnerError::kInvalidDependency,
                        "prefill_layer_wide_p40_mlp_binary");
 #else
+  const bool use_projection_reset =
+      projection_package == PromptWideP40ProjectionPackage::kProjectionResetV11;
+  const bool use_packed_projection =
+      projection_package == PromptWideP40ProjectionPackage::kPackedV1;
+  const bool use_packed_nvfp4_v2 =
+      projection_package == PromptWideP40ProjectionPackage::kPackedNvfp4V2;
+  const bool use_any_packed_projection =
+      use_packed_projection || use_packed_nvfp4_v2;
   if (layer >= kReferenceDecoderLayerCount ||
       request_views.descriptor.mlp_layout !=
           LayerMajorRequestMlpLayout::kLayerWideP40PersistentTwoSpan ||
@@ -7842,7 +7946,7 @@ ReferenceRunnerStatus ReferenceRunner::enqueue_layer_wide_p40_mlp(
   if (gate == nullptr || up == nullptr || down == nullptr ||
       !valid_vector(layer_weights.post_attention_layernorm,
                     kReferenceHiddenSize) ||
-      (use_packed_projection
+      (use_any_packed_projection
 #if defined(Q3X_ENABLE_P40_PACKED_PROJECTION_ADMISSION)
            ? !valid_p40_packed_nvfp4_mlp_weights(*gate, *up, *down)
 #else
@@ -7883,7 +7987,13 @@ ReferenceRunnerStatus ReferenceRunner::enqueue_layer_wide_p40_mlp(
                          norm_status);
   }
   int gate_up_status = static_cast<int>(cudaErrorNotSupported);
-  if (use_packed_projection) {
+  if (use_packed_nvfp4_v2) {
+#if defined(Q3X_ENABLE_P40_PACKED_NVFP4_V2_ADMISSION)
+    gate_up_status = kernels::launch_sm87_p40_packed_nvfp4_v2_gate_up_cuda(
+        normalized, gate->prefill_p40_packed_artifact,
+        kLayerMajorPrefillLayerWideMlpP40Tokens, activated, stream_);
+#endif
+  } else if (use_packed_projection) {
 #if defined(Q3X_ENABLE_P40_PACKED_PROJECTION_ADMISSION)
     gate_up_status = kernels::launch_sm87_p40_packed_nvfp4_gate_up_cuda(
         normalized, gate->prefill_p40_packed_artifact,
@@ -7908,14 +8018,22 @@ ReferenceRunnerStatus ReferenceRunner::enqueue_layer_wide_p40_mlp(
   }
   if (gate_up_status != static_cast<int>(cudaSuccess)) {
     return runner_status(ReferenceRunnerError::kCudaFailure,
-                         use_packed_projection
-                             ? "prefill_p40_packed_nvfp4_gate_up"
+                         use_packed_nvfp4_v2
+                             ? "prefill_p40_packed_nvfp4_v2_gate_up"
+                         : use_packed_projection
+                             ? "prefill_p40_packed_nvfp4_v1_gate_up"
                              : "prefill_layer_wide_p40_persistent_gate_up",
                          layer,
                          gate_up_status);
   }
   int down_status = static_cast<int>(cudaErrorNotSupported);
-  if (use_packed_projection) {
+  if (use_packed_nvfp4_v2) {
+#if defined(Q3X_ENABLE_P40_PACKED_NVFP4_V2_ADMISSION)
+    down_status = kernels::launch_sm87_p40_packed_nvfp4_v2_down_cuda(
+        activated, down->prefill_p40_packed_artifact,
+        kLayerMajorPrefillLayerWideMlpP40Tokens, residual, stream_);
+#endif
+  } else if (use_packed_projection) {
 #if defined(Q3X_ENABLE_P40_PACKED_PROJECTION_ADMISSION)
     down_status = kernels::launch_sm87_p40_packed_nvfp4_down_cuda(
         activated, down->prefill_p40_packed_artifact,
@@ -7940,8 +8058,10 @@ ReferenceRunnerStatus ReferenceRunner::enqueue_layer_wide_p40_mlp(
   }
   if (down_status != static_cast<int>(cudaSuccess)) {
     return runner_status(ReferenceRunnerError::kCudaFailure,
-                         use_packed_projection
-                             ? "prefill_p40_packed_nvfp4_down_residual"
+                         use_packed_nvfp4_v2
+                             ? "prefill_p40_packed_nvfp4_v2_down_residual"
+                         : use_packed_projection
+                             ? "prefill_p40_packed_nvfp4_v1_down_residual"
                              : "prefill_layer_wide_p40_persistent_down_residual",
                          layer, down_status);
   }
@@ -9936,6 +10056,21 @@ ReferenceRunner::finish_whole_request_compatibility_core(
   return outcome;
 }
 
+RequestMemoryProfile
+ReferenceRunner::whole_request_commit_memory_profile(
+    const LayerMajorPrefillMlpScheduleTactic mlp_schedule_tactic) noexcept {
+  return mlp_schedule_tactic ==
+                 LayerMajorPrefillMlpScheduleTactic::kPromptWideP40WholeCore ||
+             mlp_schedule_tactic == LayerMajorPrefillMlpScheduleTactic::
+                                        kPromptWideP40ProjectionReset ||
+             mlp_schedule_tactic == LayerMajorPrefillMlpScheduleTactic::
+                                        kPromptWideP40PackedProjection ||
+             mlp_schedule_tactic == LayerMajorPrefillMlpScheduleTactic::
+                                        kPromptWideP40PackedNvfp4V2
+         ? RequestMemoryProfile::kLayerMajorP40WholeCore
+         : RequestMemoryProfile::kLayerMajorC8192;
+}
+
 ReferenceRunnerStatus
 ReferenceRunner::commit_whole_request_layer_major_compatibility_core(
     const PrefillExecutionPlan& immutable_topology,
@@ -9966,17 +10101,8 @@ ReferenceRunner::commit_whole_request_layer_major_compatibility_core(
                     .device_data)
           : nullptr;
   const RequestMemoryProfile expected_memory_profile =
-      immutable_topology.mlp_schedule.tactic ==
-                  LayerMajorPrefillMlpScheduleTactic::
-                      kPromptWideP40WholeCore ||
-              immutable_topology.mlp_schedule.tactic ==
-                  LayerMajorPrefillMlpScheduleTactic::
-                      kPromptWideP40ProjectionReset ||
-              immutable_topology.mlp_schedule.tactic ==
-                  LayerMajorPrefillMlpScheduleTactic::
-                      kPromptWideP40PackedProjection
-          ? RequestMemoryProfile::kLayerMajorP40WholeCore
-          : RequestMemoryProfile::kLayerMajorC8192;
+      whole_request_commit_memory_profile(
+          immutable_topology.mlp_schedule.tactic);
   if (state_->memory_profile() != expected_memory_profile ||
       !is_valid_unbound_layer_major_prefill_execution_plan(
           immutable_topology) ||

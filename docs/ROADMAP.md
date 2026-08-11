@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: current delivery dependency order and exit criteria
   effective: 2026-08-10
-  last_reviewed: 2026-08-10
+  last_reviewed: 2026-08-11
   supersedes: [docs/ROADMAP_LEGACY.md]
   superseded_by: []
   ssot_for: active unfinished delivery slices and their ordering
@@ -465,6 +465,66 @@ successor activation.
   incumbent by 59.579075 s. One bounded real-payload profile may answer a
   named successor-design question; after that, v1 closes completely and only
   a materially different architecture/work-package identity may run.
+- **WP-P40-PACKED-NVFP4-v2 — implemented, route-complete,
+  performance-rejected:** derive an
+  NVFP4-only subset of the authenticated packed-v1 transform in its own exact
+  engine-lifetime transaction, while retaining the v10 whole-core FP8
+  provider; replace only the NVFP4 consumer with distinct Gate+Up and Down
+  M128N256 ownership. Gate and Up are one column-composed equation with
+  independent accumulators,
+  tensor-global scales, BF16 publications, and SiLU/Up consumption; Down keeps
+  its scaled-BF16-before-residual boundary. Packed block scales are decoded to
+  the same BF16 words before the same ordered K reduction. This version may
+  change CTA/warp ownership, A/B cache residence, asynchronous staging, and
+  decoded-fragment reuse; it may not factor scales, reassociate K, change
+  special-value behavior, or delay a publication boundary. The M128N256,
+  eight-warp, one-CTA/SM skeleton matches the BF16-A branch selected by the
+  audited Humming SM87 policy; v2's K128 stage, 153,600-byte shared footprint,
+  warp ownership, and absence of Stream-K remain explicit high-risk
+  differences selected by the whole-route result. Its first decision unit was
+  one unprofiled, clean-host, cold/no-cache real-model P40 OpenAI API/EvalScope
+  request under an isolated v14 witness. That witness proved
+  128 NVFP4 artifacts from 192 sources and the v10 FP8 launch ledger, with no
+  packed-v1 FP8 artifact or launch. Full-K multi-stage and final-M-tail CUDA
+  correctness, default-off routing, resource sealing, and final state-commit
+  identity passed. The route completed with all forbidden counts zero, but
+  reached 128.493372 s / 311.300103 pure prompt tok/s and 128.53205 s external
+  TTFT. Against v10 this is +26.181904% latency and -20.749333% throughput;
+  against v13 it recovers 20.393636% latency. The valid negative closes v2
+  without a parameter scan. Its default-off implementation remains
+  correctness/forensic evidence and does not unblock accuracy repetition,
+  P60/P130, Attention, or GDN promotion.
+- **WP-P40-VLLM-MARLIN-PARITY-v1 — active source-parity architecture:**
+  reconstruct the actual stock-vLLM W4A16 Marlin route as the execution
+  specification, then translate it into the native runner without a vLLM
+  runtime dependency. Freeze v10 FP8, Attention, GDN, API, memory, and
+  whole-request control for the first decision unit. The source map must cover
+  real-checkpoint packing and scales, stock `LegacyStripe` MN ownership, K64
+  load/decode/MMA staging, workspace/lock behavior, epilogue publication, and
+  Gate+Up versus Down dispatch. This is materially different from v10's
+  project-added `GroupedM4NMajor`/`BStationaryNMajor` schedules and fused
+  epilogues, and from v2's 3,124,992-CTA full-grid mapping. Gate and Up may
+  share A and column composition only with independent accumulators, scales,
+  and BF16 publications; Down residual remains after Down BF16 publication.
+  Stock part-2 split-K changes FP32 accumulation order, so the first
+  production-eligible candidate must assign every tail output tile to one
+  full-K CTA. An unmodified split-K reference may remain accuracy-unqualified
+  evidence but cannot silently enter the production contract. Return the
+  complete 64-layer NVFP4 replacement directly to the same real-checkpoint,
+  cold/no-cache P40 OpenAI API + EvalScope one-request gate against v10. A
+  negative result closes the parity skeleton; a positive result earns full
+  state/accuracy qualification and then composes immediately into a
+  whole-core reference-parity architecture covering FP8, Attention, and GDN.
+  This handoff is mandatory: v10's fixed non-NVFP4 remainder is already
+  46.999328 s, so even zero-time NVFP4 would expose only about 851.075992
+  tok/s on the frozen composition. This is a work-package scope bound, not a
+  hardware or project upper bound.
+- **Exact-sparsity branch — closed before implementation:** an exhaustive
+  real-checkpoint CPU inventory of all 192 MLP tensors finds only 7.945540%
+  exact E2M1 zero codes and 3.540535% K4 groups with at least two zeros. This
+  cannot remove the order-of-magnitude dense work, and zero skipping would
+  still need special-value equivalence. Do not build or benchmark a sparse
+  successor for this checkpoint.
 - **WP-P40-EXACT-GDN-v1 — prompt-wide recurrent and BF16 path — designed,
   blocked behind a positive replacement projection architecture:** submit one panel's C64
   hierarchy as one GDN work graph, expose chunk-local KKT/WY work in parallel,
@@ -481,9 +541,12 @@ successor activation.
   Attention budget is 1.8 s at P40.
 - **Successor activation gate:** retain the whole-core control, arena, and
   witness substrate plus the proven v13 asset/route seam, but do not inherit
-  packed v1's kernel ownership as an incumbent mechanism. The bounded profile,
-  if run, must predeclare which observed kernel/traffic/stall fact will choose
-  a materially different v2 dataflow. The new package must freeze every
+  packed v1 or v2 kernel ownership as an incumbent mechanism. Any bounded
+  profile must predeclare which observed kernel/traffic/stall fact will choose
+  a materially different successor dataflow. Packed v2 is closed, so the
+  successor must first derive its real-number equation, finite-precision
+  publication/state boundaries, communication lower bound, and intended
+  operand residence/reuse before choosing its CUDA mapping. It must freeze every
   projection role in one binary and return directly to one unprofiled
   clean-host P40K API direction against 392.804397 tok/s. A positive result
   earns bounded correctness/statistical work and unblocks Attention/GDN; a

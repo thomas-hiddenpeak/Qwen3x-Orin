@@ -99,6 +99,17 @@ template <typename Weight>
          std::isfinite(weight->input_scale) && weight->input_scale >= 0.0F;
 }
 
+[[nodiscard]] bool empty_p40_packed_artifact_view(
+    const kernels::Sm87P40PackedProjectionDeviceView& view) noexcept {
+  return view.payload == nullptr && view.payload_bytes == 0U &&
+         view.artifact_identity == 0U &&
+         view.role == kernels::Sm87P40PackedProjectionRole::kInvalid &&
+         view.tactic == kernels::Sm87P40PackedTactic::kInvalid &&
+         view.source_count == 0U &&
+         std::all_of(view.scalar_scales.begin(), view.scalar_scales.end(),
+                     [](const float scale) { return scale == 0.0F; });
+}
+
 [[nodiscard]] LinearWeight* attention_output_projection(
     DecoderLayerWeights& layer) noexcept {
   if (auto* const linear =
@@ -1623,6 +1634,174 @@ bool ModelWeights::attach_p40_packed_projection_sidecars(
       std::get<Fp8LinearWeight>(full.o_proj).prefill_p40_packed_artifact =
           validated[layer_index][3U];
     }
+  }
+  return true;
+}
+
+bool ModelWeights::attach_p40_packed_nvfp4_sidecars(
+    const P40PackedProjectionSidecarDescriptor* const descriptors,
+    const std::size_t descriptor_count) noexcept {
+  using kernels::Sm87P40PackedProjectionDeviceView;
+  using kernels::Sm87P40PackedProjectionRole;
+  constexpr std::size_t kArtifactKindsPerLayer = 2U;
+  constexpr std::size_t kExpectedArtifacts =
+      2U * kernels::kSm87P40PackedProjectionLayerCount;
+  static_assert(kExpectedArtifacts == 128U);
+
+  const auto clear_nvfp4 = [this]() noexcept {
+    for (DecoderLayerWeights& layer : layers_) {
+      for (NvFp4LinearWeight* const projection :
+           {nvfp4_gate_projection(layer), nvfp4_up_projection(layer),
+            nvfp4_down_projection(layer)}) {
+        if (projection != nullptr) {
+          projection->prefill_p40_packed_artifact = {};
+        }
+      }
+    }
+  };
+
+  if (descriptors == nullptr && descriptor_count == 0U) {
+    clear_nvfp4();
+    return true;
+  }
+  if (descriptors == nullptr || descriptor_count != kExpectedArtifacts) {
+    return false;
+  }
+
+  using LayerViews =
+      std::array<Sm87P40PackedProjectionDeviceView,
+                 kArtifactKindsPerLayer>;
+  std::array<LayerViews, kQwen36DenseLayerCount> validated{};
+  std::array<std::array<bool, kArtifactKindsPerLayer>,
+             kQwen36DenseLayerCount>
+      seen{};
+  std::array<std::uintptr_t, kExpectedArtifacts> range_begins{};
+  std::array<std::uintptr_t, kExpectedArtifacts> range_ends{};
+  std::array<std::uint64_t, kExpectedArtifacts> identities{};
+
+  const auto role_slot = [](const Sm87P40PackedProjectionRole role)
+      noexcept -> std::size_t {
+    if (role == Sm87P40PackedProjectionRole::kNvFp4GateUp) {
+      return 0U;
+    }
+    if (role == Sm87P40PackedProjectionRole::kNvFp4Down) {
+      return 1U;
+    }
+    return kArtifactKindsPerLayer;
+  };
+
+  for (std::size_t index = 0U; index < descriptor_count; ++index) {
+    const P40PackedProjectionSidecarDescriptor& descriptor =
+        descriptors[index];
+    const Sm87P40PackedProjectionDeviceView& view = descriptor.view;
+    const std::size_t slot = role_slot(view.role);
+    const auto plan = kernels::sm87_p40_packed_projection_plan(view.role);
+    if (descriptor.layer_index >= kQwen36DenseLayerCount ||
+        slot >= kArtifactKindsPerLayer ||
+        seen[descriptor.layer_index][slot] || !plan.valid() ||
+        view.payload == nullptr || view.payload_bytes != plan.payload_bytes ||
+        view.artifact_identity == 0U || view.tactic != plan.tactic ||
+        view.source_count != plan.source_count ||
+        reinterpret_cast<std::uintptr_t>(view.payload) %
+                kernels::kSm87P40PackedProjectionPayloadAlignment !=
+            0U ||
+        view.payload_bytes >
+            std::numeric_limits<std::uintptr_t>::max() -
+                reinterpret_cast<std::uintptr_t>(view.payload)) {
+      return false;
+    }
+    for (std::size_t source = 0U; source < view.scalar_scales.size();
+         ++source) {
+      const float scale = view.scalar_scales[source];
+      if ((source < view.source_count &&
+           (!std::isfinite(scale) || scale < 0.0F)) ||
+          (source >= view.source_count && scale != 0.0F)) {
+        return false;
+      }
+    }
+    const std::uintptr_t begin =
+        reinterpret_cast<std::uintptr_t>(view.payload);
+    range_begins[index] = begin;
+    range_ends[index] = begin + view.payload_bytes;
+    identities[index] = view.artifact_identity;
+    for (std::size_t prior = 0U; prior < index; ++prior) {
+      if (identities[prior] == identities[index] ||
+          (range_begins[prior] < range_ends[index] &&
+           range_begins[index] < range_ends[prior])) {
+        return false;
+      }
+    }
+    seen[descriptor.layer_index][slot] = true;
+    validated[descriptor.layer_index][slot] = view;
+  }
+
+  for (std::size_t layer_index = 0U; layer_index < layers_.size();
+       ++layer_index) {
+    if (std::any_of(seen[layer_index].begin(), seen[layer_index].end(),
+                    [](const bool value) { return !value; })) {
+      return false;
+    }
+    DecoderLayerWeights& layer = layers_[layer_index];
+    NvFp4LinearWeight* const gate = nvfp4_gate_projection(layer);
+    NvFp4LinearWeight* const up = nvfp4_up_projection(layer);
+    NvFp4LinearWeight* const down = nvfp4_down_projection(layer);
+    if (!has_valid_nvfp4_payload(gate) || !has_valid_nvfp4_payload(up) ||
+        !has_valid_nvfp4_payload(down) || gate->output_size != 17'408U ||
+        gate->input_size != 5'120U || up->output_size != 17'408U ||
+        up->input_size != 5'120U || down->output_size != 5'120U ||
+        down->input_size != 17'408U ||
+        gate->prefill_marlin_gate_up_layout !=
+            NvFp4MarlinGateUpLayout::kUnbound ||
+        up->prefill_marlin_gate_up_layout !=
+            NvFp4MarlinGateUpLayout::kUnbound ||
+        gate->prefill_marlin_weight != nullptr ||
+        gate->prefill_marlin_scales != nullptr ||
+        gate->prefill_marlin_global_scale != nullptr ||
+        up->prefill_marlin_weight != nullptr ||
+        up->prefill_marlin_scales != nullptr ||
+        up->prefill_marlin_global_scale != nullptr ||
+        down->prefill_marlin_weight != nullptr ||
+        down->prefill_marlin_scales != nullptr ||
+        down->prefill_marlin_global_scale != nullptr) {
+      return false;
+    }
+
+    const auto fp8_packed_views_empty = [](const LinearWeight& binding) {
+      const auto* const fp8 = std::get_if<Fp8LinearWeight>(&binding);
+      return fp8 != nullptr &&
+             empty_p40_packed_artifact_view(
+                 fp8->prefill_p40_packed_artifact);
+    };
+    if (auto* const linear =
+            std::get_if<LinearAttentionWeights>(&layer.attention)) {
+      if (!fp8_packed_views_empty(linear->in_proj_qkv) ||
+          !fp8_packed_views_empty(linear->in_proj_z) ||
+          !fp8_packed_views_empty(linear->out_proj)) {
+        return false;
+      }
+    } else if (auto* const full =
+                   std::get_if<FullAttentionWeights>(&layer.attention)) {
+      if (!fp8_packed_views_empty(full->q_proj) ||
+          !fp8_packed_views_empty(full->k_proj) ||
+          !fp8_packed_views_empty(full->v_proj) ||
+          !fp8_packed_views_empty(full->o_proj)) {
+        return false;
+      }
+    } else {
+      return false;
+    }
+  }
+
+  clear_nvfp4();
+  for (std::size_t layer_index = 0U; layer_index < layers_.size();
+       ++layer_index) {
+    DecoderLayerWeights& layer = layers_[layer_index];
+    NvFp4LinearWeight* const gate = nvfp4_gate_projection(layer);
+    NvFp4LinearWeight* const up = nvfp4_up_projection(layer);
+    NvFp4LinearWeight* const down = nvfp4_down_projection(layer);
+    gate->prefill_p40_packed_artifact = validated[layer_index][0U];
+    up->prefill_p40_packed_artifact = validated[layer_index][0U];
+    down->prefill_p40_packed_artifact = validated[layer_index][1U];
   }
   return true;
 }

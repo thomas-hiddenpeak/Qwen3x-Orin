@@ -207,6 +207,10 @@ inline constexpr std::string_view
     kLayerMajorNativePromptWideP40PackedProjectionDeploymentPlanId =
         "q3x.sm87.ac-prefill-p40-packed-dataflow."
         "native-p40-packed-projection.v1";
+inline constexpr std::string_view
+    kLayerMajorNativePromptWideP40PackedNvfp4V2DeploymentPlanId =
+        "q3x.sm87.ac-prefill-p40-packed-dataflow-v2."
+        "native-p40-packed-nvfp4-shape-specific.v1";
 
 [[nodiscard]] constexpr bool is_valid_reference_prefill_execution_mode(
     const ReferencePrefillExecutionMode mode) noexcept {
@@ -440,6 +444,11 @@ struct ReferenceGeneration {
   std::uint64_t prefill_prompt_wide_p40_bf16_ab_hits = 0U;
   std::uint64_t prefill_prompt_wide_p40_gdn_hits = 0U;
   std::uint64_t prefill_native_flashinfer_exact_whole_prompt_hits = 0U;
+  // Packed-NVFP4-v2 executor evidence is additive to the common P40 packed
+  // FP8 and whole-core counters above. Selector admission never creates hits.
+  std::uint64_t prefill_packed_nvfp4_v2_gate_up_hits = 0U;
+  std::uint64_t prefill_packed_nvfp4_v2_down_hits = 0U;
+  std::uint64_t prefill_packed_nvfp4_v2_physical_launches = 0U;
 };
 
 struct ReferenceEngineLoadStats {

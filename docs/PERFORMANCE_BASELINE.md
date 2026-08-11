@@ -8714,3 +8714,44 @@ specializes Gate+Up, Down and FP8 roles, and returns first to the same external
 P40 gate. Complete hashes, route counts, limitations and profiler attribution
 are frozen in the
 [phase-local rejection record](metadata/qwen36-27b-prefill-p40k-phase-local-bf16-rejection-2026-08-10.json).
+
+## P40 packed NVFP4 v2 rejection
+
+`WP-P40-PACKED-NVFP4-v2` returned through the real
+`/v1/completions` API with EvalScope 1.9.1, the authenticated 40,000-token
+corpus, one greedy output token, no warmup, no cache, no MTP, and the real
+`nvidia/Qwen3.6-27B-NVFP4` checkpoint. Server-start and immediately
+pre-request preflights both used `tegrastats`, CPU/process inspection, and a
+root-complete GPU-device-handle audit; all admitted pre-request GR3D samples
+were zero. The measured server binary SHA-256 was
+`6e49b4b22562ed3669c55a9446ff145149d7a9a22ca5c4acc9c90aba986c3c96`.
+
+The candidate restored v10's FP8 execution and changed only NVFP4 Gate+Up and
+Down. At load time it authenticated 128 NVFP4-only artifacts from 192 real
+checkpoint sources. Its v14 witness consumed all 40,000 tokens, attested the
+1,040/1,040 FP8 and 64/64/128 NVFP4 launch ledgers, and recorded zero fallback,
+forbidden, Prefix-cache, MTP, cuBLASLt, external, or approximate-route hits.
+
+| Metric | v10 whole-core incumbent | Packed NVFP4 v2 | Result |
+| --- | ---: | ---: | ---: |
+| Server pure Prefill | 101,831.853876 ms | 128,493.372123 ms | **+26.181904% latency** |
+| Server pure Prefill throughput | 392.804397 tok/s | 311.300103 tok/s | **-20.749333%** |
+| EvalScope TTFT | 101,870.530 ms | 128,532.050 ms | rejected |
+| EvalScope New Prompt rate | incumbent record | 311.206330 tok/s | directional only |
+
+Relative to packed projection v1, v2 removed 32,917.557250 ms of pure-Prefill
+latency and improved throughput by 25.618097%. That recovery confirms that
+the FP8 inventory and NVFP4 ownership changes were material, but it does not
+beat the v10 whole-product incumbent. The first token was `Based`, matching
+the preceding P40 smoke outputs; one token is not an accuracy qualification.
+
+The predeclared early-stop rule therefore closes this architecture before
+repetition, full accuracy, P60/P130, or parameter scanning; no profile was
+required to make that decision. A later bounded real-payload profile may only
+answer a predeclared successor-design question, not reopen v2. Its default-off
+implementation and full-K/tail CUDA checks remain correctness and forensic
+evidence only. The next candidate must change the mathematical and physical
+dataflow decomposition rather than tune this M128N256/K128 skeleton.
+Complete hashes, route counts, metrics, limitations, and retained artifact
+paths are frozen in the
+[packed NVFP4 v2 rejection record](metadata/qwen36-27b-prefill-p40k-packed-nvfp4-v2-rejection-2026-08-11.json).

@@ -6,7 +6,7 @@ q3x_document:
   owner: prefill-maintainers
   authority: Prefill subsystem boundary, state contract, and architecture-candidate requirements
   effective: 2026-08-10
-  last_reviewed: 2026-08-10
+  last_reviewed: 2026-08-11
   supersedes: [docs/PREFILL_ARCHITECTURE_RESET_LEGACY.md, docs/PREFILL_REFERENCE_AUDIT.md]
   superseded_by: []
   ssot_for: Prefill inputs, outputs, ownership, synchronization, failure, and Decode handoff
@@ -714,6 +714,155 @@ identifier, tile, stage count, grid size, performance budget, or delivery
 order. Those decisions belong only in [`ROADMAP.md`](ROADMAP.md); measured
 history and current implementation state belong in the evidence records and
 [`CURRENT_STATUS.md`](CURRENT_STATUS.md).
+
+### 8.11 Mathematical-equivalence ledger
+
+Prefill architecture starts from the following functions rather than from the
+current kernel boundaries. Let `R_bf16` denote BF16 round-to-nearest-even,
+`Acc_fp32^K` the declared K-fragment order and FP32 MMA accumulation, and
+`D4(q,s) = R_bf16(E2M1(q) * E4M3FN(s))` the current NVFP4
+per-value decode with one block scale for each 16-weight group. For projection
+role `r` with authenticated tensor-global scale `a_r`,
+
+```text
+P_r(A, Q_r, S_r)[m,n]
+  = R_bf16(a_r * Acc_fp32^K(A[m,k] * D4(Q_r[n,k], S_r[n,floor(k/16)])))
+```
+
+The exact MLP boundary is therefore:
+
+```text
+G = P_gate(A, Q_gate, S_gate)
+U = P_up(A,   Q_up,   S_up)
+H[m,n] = R_bf16(SiLU(float(G[m,n])) * float(U[m,n]))
+D = P_down(H, Q_down, S_down)
+R_next[m,n] = R_bf16(float(D[m,n]) + float(R[m,n]))
+```
+
+For the fixed P40 workload (`M=40000`, hidden `H=5120`, intermediate
+`I=17408`, 64 MLP layers), Gate, Up, and Down each contain exactly
+`M*H*I = 3,565,158,400,000` multiply-accumulate pairs. The three roles across
+all layers therefore contain `684,510,412,800,000` MACs, or
+`1,369,020,825,600,000` operations under the conventional two operations per
+MAC accounting, before FP8 projection, Attention, GDN, normalization, or
+epilogues. This is a workload invariant, not a ceiling claim. Without a proven
+exact sparsity or model-structure equivalence, a candidate must execute this
+dense function; its qualitative opportunity is to raise useful MMA issue and
+remove redundant decode, movement, materialization, and synchronization around
+that irreducible computation.
+
+Gate and Up may be represented as one column-concatenated projection and may
+share A movement because each output retains its original K order, independent
+scale, BF16 publication, and SiLU/Up consumer. That equivalence removes an A
+producer boundary; it does not authorize a joint scale or mixed accumulator.
+Likewise Down may fuse its residual consumer only after the Down value has been
+scaled and published to BF16. Moving the residual add, tensor-global scale, or
+NVFP4 block scale across those boundaries is real-number algebra but not the
+declared finite-precision function. In particular, factoring the E4M3FN scale
+outside a K16 dot is ineligible because the current function rounds each
+decoded weight to BF16 before MMA.
+
+For exact causal Attention, a KV block can be summarized by online-softmax
+state `(maximum, denominator, weighted_value)`. Block summaries compose in
+real arithmetic by rescaling both denominators and weighted values to the
+combined maximum. A production parallel or streamed implementation must also
+preserve the causal domain, declared FP32 update order, final normalization,
+KV publication, and final state; the real-number monoid alone does not prove
+the finite-precision route. This is why an online-softmax implementation with
+a different final state remains accuracy-unqualified even if its formula is
+mathematically familiar.
+
+For one GDN value row with normalized key `k_t`, value `v_t`, decay `alpha_t`,
+and update gate `beta_t`, the unrounded real transition can be written
+
+```text
+s_t = s_(t-1) (alpha_t I - alpha_t beta_t k_t k_t^T)
+      + beta_t v_t k_t^T
+```
+
+and affine transitions can be composed hierarchically. The production state,
+however, applies `R_bf16` after every token while the token output consumes the
+unrounded updated FP32 row. That rounded map is not the same associative affine
+monoid. FLA WY/chunk composition and Mamba selective scan therefore identify
+the lower-level mathematical opportunity, but a production implementation
+must either reproduce every token's BF16 state boundary exactly or remain a
+separate numerical-contract research line. Exact work may still parallelize
+Q/K normalization, gate construction, value rows, chunk-local preparation,
+and consumer fusion around the serial rounded boundary.
+
+For every candidate, the work-package record must distinguish:
+
+| Transformation | Equivalence obligation | Intended qualitative removal |
+| --- | --- | --- |
+| shared-input projection composition | independent K reductions, scales, and publication points remain unchanged | duplicate A movement or materialization |
+| quantized-weight decode reuse | decoded BF16 word and special-value semantics remain identical | repeated decode and scale traffic within its legal reuse lifetime |
+| online causal reduction | causal membership, update order, normalization, and final state pass the exact oracle | repeated history traversal and intermediate score materialization |
+| recurrent block composition | every declared rounded state/output boundary is reproduced | token-serial work outside the irreducible state dependency |
+| producer-consumer fusion | the pre-existing rounded publication value is still consumed | global round trip, launch, and synchronization boundary |
+
+The ledger is mandatory before profiler-led parameter work. It can show that a
+physical mechanism is useful, or that the numerical contract makes a tempting
+algebraic shortcut illegal; neither conclusion may be replaced by a tile scan.
+
+### 8.12 Packed NVFP4 v2 closure and mathematical successor boundary
+
+The isolated packed-NVFP4-v2 experiment kept v10 FP8, Attention, GDN, API,
+memory, and whole-request control fixed and changed only Gate+Up and Down. Its
+valid v14 route completed all 40,000 prompt tokens with zero forbidden or
+fallback hits, but pure Prefill regressed from 101.831853876 s /
+392.804397 tok/s to 128.493372123 s / 311.300103 tok/s. It recovered
+20.393636% latency relative to rejected packed v1, so removing packed-v1 FP8
+and changing NVFP4 ownership was material; it did not make the candidate
+competitive and the v2 skeleton is closed. Exact route and measurement
+evidence is frozen in the
+[v14 rejection record](metadata/qwen36-27b-prefill-p40k-packed-nvfp4-v2-rejection-2026-08-11.json).
+
+The physical mapping explains why this is an architecture boundary rather
+than another tile cell. At P40, Gate+Up creates 42,568 M128/N256 output-tile
+CTAs per layer and Down creates 6,260. Across 64 layers v2 instantiates
+3,124,992 CTAs, while the v10 two-role persistent Marlin route instantiates
+2,048 physical CTAs that internally traverse the whole MN task space. Before
+any cache reuse, v2's logical requests per layer are 55.795 GB of Gate A plus
+31.385 GB of Gate/Up packed B and scales, and 27.897 GB of Down A plus
+15.692 GB of Down packed B and scales. These are logical request volumes, not
+measured DRAM bytes. They show that decoded-B reuse across eight M16 panels
+inside one CTA does not establish reuse or residence across the full output
+grid; a larger tile, another `cp.async` stage, or another cache operator does
+not alter that ownership fact.
+
+There is also a strict **work-package scope bound**. In v10, measured Gate+Up
+and Down consume 37.273068224 s and 17.559457280 s. Holding every other v10
+component fixed leaves 46.999328372 s even if NVFP4 MLP time is hypothetically
+zero, so an NVFP4-only candidate can expose at most about 851.075992 prompt
+tok/s on that frozen composition. This is not a hardware or project upper
+bound. It proves only that a projection-only scope cannot reach the owner's
+4.3K tok/s starting line; a quantity-changing successor must ultimately cover
+FP8, Attention, GDN, and their composition as well.
+
+Exact checkpoint sparsity does not provide the missing algebraic shortcut.
+An exhaustive CPU inventory of all 192 Gate/Up/Down tensors finds
+1,359,701,299 exact signed-or-unsigned E2M1 zero codes among
+17,112,760,320 values (7.945540%) and only 151,470,811 consecutive K4 groups
+with at least two zero codes among 4,278,190,080 groups (3.540535%). The
+per-tensor ranges remain 7.819264%--8.537444% and
+3.432756%--4.081497%, respectively. This cannot remove an order of magnitude
+of dense work, and skipping zero products would still have to preserve
+zero-times-NaN and signed-zero semantics. The sparse lineage is therefore
+closed without a GPU implementation. Exact evidence is frozen in the
+[real-weight zero-structure audit](metadata/qwen36-27b-nvfp4-mlp-zero-structure-audit-2026-08-11.json).
+
+The next lowest-risk structural hypothesis is reference parity, not another
+v2 mutation. The project must reconstruct the actual stock-vLLM W4A16 Marlin
+packing, scale handling, K64 load/decode/MMA pipeline, LegacyStripe MN
+scheduler, workspace/lock contract, epilogue, and Gate/Up versus Down dispatch
+before specializing them. This is not v10: v10 uses project-added
+GroupedM4NMajor/BStationaryNMajor full-K persistent schedules and custom fused
+epilogues. Stock Marlin's small part-2 tail may split K and globally reduce
+partial accumulators; that changes FP32 accumulation order and cannot silently
+enter the production numerical contract. A production-eligible parity
+candidate must retain stock full-tile behavior while assigning every tail
+tile to one full-K CTA, or else keep the original split-K route explicitly
+accuracy-unqualified until an independent numerical contract passes.
 
 ## 9. Global dataflow questions
 

@@ -6,7 +6,7 @@ q3x_document:
   owner: evaluation-maintainers
   authority: external API evaluation protocol, metric semantics, and artifact requirements
   effective: 2026-08-09
-  last_reviewed: 2026-08-10
+  last_reviewed: 2026-08-11
   supersedes: []
   superseded_by: []
   ssot_for: EvalScope and target-length external evaluation procedure
@@ -564,6 +564,153 @@ accuracy/repetition did not run, and P60/P130 stay locked. Exact hashes,
 counts, limitations, and the bounded post-rejection profiling boundary are
 frozen in the
 [v13 packed projection rejection record](metadata/qwen36-27b-prefill-p40k-packed-projection-rejection-2026-08-10.json).
+
+The successor packed-NVFP4-v2 experiment emits the independent
+`target-prefill-witness-v14` schema. Version 14 does not inherit v13's packed
+FP8 execution path or its 208-logical/128-physical FP8 counts: it restores the
+v10 whole-core FP8 dataflow and changes only the P40000 NVFP4 Gate+Up and Down
+executors. Existing v1--v13 records, fields, counters, and plan identities
+remain byte-stable. A conforming v14 request is complete only when all of the
+following are true:
+
+- projection tactic is `native-prompt-wide-p40-packed-nvfp4-v2`, MLP schedule
+  is `prompt-wide-p40-packed-nvfp4-v2`, Attention tactic is
+  `native-flashinfer-exact-whole-prompt`, request memory profile is
+  `layer-major-p40-whole-core`, and the sealed DeploymentPlan is exactly
+  `q3x.sm87.ac-prefill-p40-packed-dataflow-v2.native-p40-packed-nvfp4-shape-specific.v1`;
+- the package identity is
+  `exact-p40000-packed-nvfp4-v2-dataflow-v1`. Before readiness the engine has
+  prepared and authenticated exactly 128 physical P40 packed NVFP4 artifacts
+  from 192 logical checkpoint sources: 64 merged Gate+Up artifacts retain the
+  independent Gate and Up source identities, and 64 Down artifacts retain
+  their Down source identities. This NVFP4-only engine-lifetime asset arena is
+  exactly 9,625,927,680 bytes. Version 14 must not prepare or select v13's
+  packed FP8 artifacts, and it forbids request-time repacking or tactic
+  selection. The startup readiness record must therefore report
+  `p40_packed_projection_assets_enabled=1`,
+  `p40_packed_projection_artifacts=128`,
+  `p40_packed_projection_sources=192`, and
+  `p40_packed_projection_asset_bytes=9625927680`. The corresponding engine
+  load inventory must contain zero packed FP8 logical roles, zero packed FP8
+  physical artifacts, and 128 packed NVFP4 physical artifacts;
+- one 64-layer route pass consumes exactly five M8000 panels, completes 320
+  fill, 64 whole-prompt core, 320 drain, and 64 whole-prompt MLP phases, and
+  retires the bounded two-slot submission window exactly 768 times;
+- the restored v10 FP8 path records exactly 1,040 logical projection hits and
+  1,040 physical launches. BF16 A/B and GDN each record 48 completed hits and
+  whole-prompt FlashInfer records 16;
+- the common P40 MLP ledger records 64 completed layers, 64 Gate+Up hits, 64
+  Down+residual hits, and 128 physical NVFP4 launches. The v2 identity ledger
+  independently records `packed_nvfp4_v2_gate_up_hits=64`,
+  `packed_nvfp4_v2_down_hits=64`, and
+  `packed_nvfp4_v2_physical_launches=128`; these counters attest the same 128
+  physical launches and must not be added to the common ledger; and
+- every role receipt is production-only, every exact-fallback, forbidden, and
+  incompatible-route counter is zero, and Prefix cache, MTP, cuBLASLt,
+  external-reference, and approximate-route hits are zero.
+
+Configure and start this default-off candidate with the complete fixed P40
+geometry below. The whole-core request arena remains exactly 8,640,542,976
+bytes and is independent from the 9,625,927,680-byte engine-lifetime packed
+NVFP4 asset arena. The generic 2 GiB adapter default is invalid for this
+route.
+
+```bash
+Q3X_BUILD="$Q3X_WORK/build/p40-packed-nvfp4-v2"
+cmake -S . -B "$Q3X_BUILD" -DCMAKE_BUILD_TYPE=Release \
+  -DBUILD_TESTING=ON \
+  -DQ3X_BUILD_FP8_MARLIN_PREFILL_ADMISSION=ON \
+  -DQ3X_BUILD_NVFP4_MARLIN_PREFILL_ADMISSION=ON \
+  -DQ3X_BUILD_BF16_AB_LARGE_M_PREFILL_ADMISSION=ON \
+  -DQ3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION=ON \
+  -DQ3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION=ON \
+  -DQ3X_BUILD_GDN_PROMPT_WIDE_CHUNK_GRAPH_ADMISSION=ON \
+  -DQ3X_BUILD_LAYER_WIDE_P40_MLP_ADMISSION=ON \
+  -DQ3X_BUILD_NVFP4_PERSISTENT_PREFILL_ADMISSION=ON \
+  -DQ3X_BUILD_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION=ON \
+  -DQ3X_BUILD_P40_PACKED_PROJECTION_ADMISSION=ON \
+  -DQ3X_BUILD_P40_PACKED_NVFP4_V2_ADMISSION=ON
+cmake --build "$Q3X_BUILD" --target qwen3x-eval-server -j
+
+"$Q3X_BUILD/qwen3x-eval-server" MODEL_DIR \
+  --host 127.0.0.1 --port 18091 \
+  --model qwen3.6-27b-nvfp4 \
+  --max-sequence-length 40001 --max-output-tokens 1 \
+  --prefill-chunk-size 512 --prefill-execution-mode layer-major \
+  --prefill-attention-tactic native-flashinfer-exact-whole-prompt \
+  --prefill-projection-tactic native-prompt-wide-p40-packed-nvfp4-v2 \
+  --projection-backend sm87 \
+  --request-max-arena-bytes 8640542976 \
+  --min-free-bytes 4294967296 \
+  --queue-capacity 1 --ingress-threads 3
+```
+
+`Q3X_BUILD_P40_PACKED_PROJECTION_ADMISSION=ON` is a compile-time ABI and
+packing-source prerequisite for v2. Its presence does not authorize preparing
+or selecting the packed-v1 FP8 inventory; the selected v14 load transaction
+must still publish the NVFP4-only counts above.
+
+The v14 P40 first gate uses the frozen flat token-ID corpus
+`.q3x-work/evalscope/corpora/q3x-repository-agent-context-p40000-one-token.jsonl`,
+whose SHA-256 is
+`8970ac50693f49d1b27d35a0610ecbe5072594330d69b301f4dab731789b6844`.
+After an accepted clean-host preflight immediately before the request, run
+exactly one cold/no-cache EvalScope 1.9.1 request with no warmup:
+
+```bash
+Q3X_P40_CORPUS="$Q3X_WORK/evalscope/corpora/q3x-repository-agent-context-p40000-one-token.jsonl"
+Q3X_P40_RESULTS="$Q3X_WORK/evalscope/results/p40-packed-nvfp4-v2"
+
+TMPDIR="$Q3X_WORK/tmp" XDG_CACHE_HOME="$Q3X_WORK/cache" \
+UV_CACHE_DIR="$Q3X_WORK/cache/uv" \
+uvx --from 'evalscope[perf]==1.9.1' evalscope perf \
+  --model qwen3.6-27b-nvfp4 --api openai \
+  --url http://127.0.0.1:18091/v1/completions \
+  --tokenizer-path MODEL_DIR \
+  --dataset line_by_line --data-source local \
+  --dataset-path "$Q3X_P40_CORPUS" \
+  --number 1 --parallel 1 --warmup-num 0 --num-workers 1 \
+  --max-prompt-length 131072 \
+  --max-tokens 1 --temperature 0 --seed 42 \
+  --stream --tokenize-prompt --no-test-connection \
+  --total-timeout 680 \
+  --outputs-dir "$Q3X_P40_RESULTS" \
+  --name packed-nvfp4-v2 --no-timestamp
+```
+
+This single request has early-stop authority for the v2 architecture
+direction only. It is valid only if EvalScope reports one successful request,
+the server attests all 40,000 prompt tokens consumed without cache reuse, and
+one greedy token is committed under the complete v14 route above. A negative
+comparison with the frozen v10 P40 incumbent closes or redesigns v2 before
+full accuracy, repetition, P60, or P130 work; a positive direction unlocks
+the real-checkpoint numerical and capability gates but does not pass them.
+Version 14 therefore remains default-off and
+`accuracy-unqualified-architecture-candidate`, with
+`numerical_contract.qualified=false`. P60 remains fail-closed until P40 is
+competitive and accuracy-admissible and an independent exact-P60000
+geometry, capacity plan, route, and witness exist.
+
+The first valid clean-host v14 request completed on 2026-08-11 and exercised
+the exact route above. EvalScope reported one successful request, 40,000
+input tokens, one output token, zero cached-prompt throughput, 128,532.05 ms
+TTFT, and 311.206330 New Prompt tok/s. The server independently reported
+128,493.372123 ms pure Prefill, or 311.300103 prompt tok/s. Its single v14
+witness matched the frozen body and token hashes, consumed the complete
+prompt, recorded 1,040/1,040 restored-v10 FP8 hits/launches and both
+64/64/128 NVFP4 ledgers, completed every per-operator production route, and
+recorded zero fallback, forbidden, Prefix-cache, MTP, cuBLASLt, external, and
+approximate-route hits. The external/server TTFT gap was only 3.933331 ms.
+
+Against v10's 101,831.853876 ms / 392.804397 tok/s pure Prefill, v14 added
+26,661.518247 ms, increased latency by 26.181904%, and reduced throughput by
+20.749333%. This is a valid performance negative, not an invalid route or API
+result. Under the predeclared early-stop rule it closes packed NVFP4 v2
+without repetition, P60/P130, full accuracy, or a local parameter scan. The
+default-off implementation and CUDA correctness gates remain development
+evidence only. Exact hashes, preflights, counters, metrics, and cleanup facts
+are frozen in the
+[v14 packed NVFP4 rejection record](metadata/qwen36-27b-prefill-p40k-packed-nvfp4-v2-rejection-2026-08-11.json).
 
 The first WP-V2-C1-v3 direction reused the exact v10 host schedule and route
 counters through a binary-pinned, default-off overlay; the binary hash, not a

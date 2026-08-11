@@ -150,6 +150,9 @@ struct TargetPrefillWitnessRecord {
   std::uint64_t prompt_wide_p40_bf16_ab_hits = 0U;
   std::uint64_t prompt_wide_p40_gdn_hits = 0U;
   std::uint64_t native_flashinfer_exact_whole_prompt_hits = 0U;
+  std::uint64_t packed_nvfp4_v2_gate_up_hits = 0U;
+  std::uint64_t packed_nvfp4_v2_down_hits = 0U;
+  std::uint64_t packed_nvfp4_v2_physical_launches = 0U;
   // Empty for legacy/unsealed paths. A non-empty identifier is emitted only
   // after a sealed whole-request generation has completed successfully.
   std::string deployment_plan_id;

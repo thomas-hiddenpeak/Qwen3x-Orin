@@ -6,7 +6,7 @@ q3x_document:
   owner: project-owner
   authority: end-to-end external-to-internal runner system design
   effective: 2026-08-09
-  last_reviewed: 2026-08-09
+  last_reviewed: 2026-08-11
   supersedes: []
   superseded_by: []
   ssot_for: runner product shape, system boundaries, lifecycle, and release architecture
@@ -431,6 +431,34 @@ not a goal by kernel count alone. A fusion that changes rounding, extends a
 live range beyond capacity, serializes independent stages, or blocks an
 upstream gain fails the system contract even if its isolated launch count is
 lower.
+
+### 9.1 Mathematical equivalence before physical mapping
+
+Every dominant Prefill or Decode family has a four-level computation ledger:
+
+1. the real-number tensor, causal reduction, or state-transition equation;
+2. the actual finite-precision operator, including decode, accumulation order,
+   special values, rounding, and publication points;
+3. the observable output and persistent-state boundary consumed by the next
+   subsystem or request phase; and
+4. the physical ownership of the irreducible work across DRAM, L2, shared
+   memory, registers, CTAs, warps, streams, and request lifetimes.
+
+Design proceeds in that order. A candidate first looks for a lawful
+mathematical reformulation that removes materialization, repeated transforms,
+repeated history traversal, or unnecessary state publication. Only then does
+it select layouts, tiles, stages, buffering, cache policy, or launch geometry.
+The physical implementation must preserve level 2 and level 3; equality at
+level 1 alone is insufficient because floating-point arithmetic and a rounded
+recurrence are not generally associative.
+
+Each active architecture work package records an **equivalence ledger**. For
+every proposed fusion or reorder it names the original expression, transformed
+expression, preserved accumulation and rounding boundaries, changed ownership,
+work or traffic eliminated, exact oracle, and any reason the transformation is
+research-only. This ledger is also the stop rule: when a mechanism merely
+reschedules the same ownership without removing a measured limiting dependency,
+the architecture must be reconsidered rather than parameter-scanned.
 
 ## 10. Observability contract
 
