@@ -108,6 +108,42 @@ class VllmP40GeometryTest(unittest.TestCase):
         self.assertNotIn("--linear-backend", command)
         self.assertNotIn("--speculative-config", command)
 
+    def test_preflight_transfers_root_evidence_before_hashing(self) -> None:
+        events: list[str] = []
+
+        def record_run(command: list[str], **_: object) -> object:
+            events.append(pathlib.Path(command[2]).name)
+            return subprocess.CompletedProcess(command, 0)
+
+        def record_hash(_: pathlib.Path) -> str:
+            events.append("hash")
+            return "a" * 64
+
+        with tempfile.TemporaryDirectory() as temporary:
+            output = pathlib.Path(temporary) / "preflight.json"
+            output.write_text(
+                json.dumps({"decision": {"accepted": True, "result": "pass"}}),
+                encoding="utf-8",
+            )
+            with (
+                mock.patch.object(GEOMETRY, "_run_logged", return_value=0),
+                mock.patch.object(GEOMETRY, "build_environment", return_value={}),
+                mock.patch.object(
+                    GEOMETRY, "collect_performance_lane_state", return_value={}
+                ),
+                mock.patch.object(GEOMETRY, "write_json"),
+                mock.patch.object(GEOMETRY, "sha256_file", side_effect=record_hash),
+                mock.patch.object(
+                    GEOMETRY.subprocess, "run", side_effect=record_run
+                ),
+            ):
+                report = GEOMETRY.run_preflight(
+                    self.make_config(), output, allowed_pids=()
+                )
+
+        self.assertEqual(events, ["chown", "chmod", "hash"])
+        self.assertEqual(report["raw_preflight_sha256"], "a" * 64)
+
     def test_evalscope_command_is_offline_and_pinned(self) -> None:
         command = GEOMETRY.build_evalscope_command(
             self.make_config(),

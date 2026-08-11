@@ -1794,7 +1794,6 @@ def run_preflight(
     returncode = _run_logged(command, environment, output.with_suffix(".log"), 180.0)
     raw_preflight_sha256: str | None = None
     if output.exists():
-        raw_preflight_sha256 = sha256_file(output)
         owner = f"{os.getuid()}:{os.getgid()}"
         try:
             subprocess.run(
@@ -1813,6 +1812,7 @@ def run_preflight(
             raise GeometryError(
                 f"cannot transfer ownership of preflight evidence: {output}"
             ) from error
+        raw_preflight_sha256 = sha256_file(output)
     try:
         report = json.loads(output.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as error:
