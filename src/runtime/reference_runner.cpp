@@ -10756,7 +10756,9 @@ ReferenceRunner::whole_request_commit_memory_profile(
              mlp_schedule_tactic == LayerMajorPrefillMlpScheduleTactic::
                                         kPromptWideP40PackedProjection ||
              mlp_schedule_tactic == LayerMajorPrefillMlpScheduleTactic::
-                                        kPromptWideP40PackedNvfp4V2
+                                        kPromptWideP40PackedNvfp4V2 ||
+             mlp_schedule_tactic == LayerMajorPrefillMlpScheduleTactic::
+                                        kPromptWideP40VllmMarlinParity
          ? RequestMemoryProfile::kLayerMajorP40WholeCore
          : RequestMemoryProfile::kLayerMajorC8192;
 }

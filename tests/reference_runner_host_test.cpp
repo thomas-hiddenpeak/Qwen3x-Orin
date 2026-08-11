@@ -2497,10 +2497,14 @@ void test_prompt_wide_p40_whole_core_runner_contract(TestContext& test) {
               runtime::RequestMemoryProfile::kLayerMajorP40WholeCore &&
           Peer::whole_request_commit_profile(
               runtime::LayerMajorPrefillMlpScheduleTactic::
+                  kPromptWideP40VllmMarlinParity) ==
+              runtime::RequestMemoryProfile::kLayerMajorP40WholeCore &&
+          Peer::whole_request_commit_profile(
+              runtime::LayerMajorPrefillMlpScheduleTactic::
                   kPerOperatorPanel) ==
               runtime::RequestMemoryProfile::kLayerMajorC8192,
       "whole-request commit keeps every prompt-wide P40 route, including "
-      "packed NVFP4 v2, on the P40 memory profile");
+      "packed NVFP4 v2 and vLLM Marlin parity, on the P40 memory profile");
 
   runtime::PrefillExecutionPlanOptions options;
   options.first_position = 0U;
