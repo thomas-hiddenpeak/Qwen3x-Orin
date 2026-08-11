@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: legacy DESIGN path compatibility and subsystem-design navigation
   effective: 2026-08-09
-  last_reviewed: 2026-08-09
+  last_reviewed: 2026-08-12
   supersedes: []
   superseded_by: []
   ssot_for: DESIGN.md compatibility entry and subsystem-design index
@@ -24,30 +24,16 @@ externally delivered OpenAI-compatible runner and traces constraints inward to
 the kernel. Point-in-time implementation, qualification, production, and
 performance facts live only in [`CURRENT_STATUS.md`](CURRENT_STATUS.md).
 
-## 1. Document authority and reading order
+## 1. Document authority and navigation
 
-Repository operating instructions require these documents to be read in this
-exact order before architecture or performance work:
+This compatibility page owns no reading order. Enter through the canonical
+[`README.md`](README.md) documentation index and follow its core orientation
+and task-specific route. That index alone owns the order, so this subsystem
+map cannot drift into a second contributor or Codex bootstrap contract.
 
-1. [`ENGINEERING_CONSTITUTION.md`](ENGINEERING_CONSTITUTION.md) — mission,
-   owner authority, locked targets and non-negotiable product constraints.
-2. [`SDD.md`](SDD.md) — external product boundary and system decomposition.
-3. [`CURRENT_STATUS.md`](CURRENT_STATUS.md) — current implementation, route,
-   evidence authority, and blockers.
-4. [`REAL_MODEL_PERFORMANCE_POLICY.md`](REAL_MODEL_PERFORMANCE_POLICY.md) —
-   evidence authority and qualification rules.
-5. [`PREFILL_ARCHITECTURE_RESET.md`](PREFILL_ARCHITECTURE_RESET.md) — active
-   Prefill subsystem boundary, state, ownership, failure, and Decode-handoff
-   contract, subject to the documents above.
-6. [`EVALSCOPE_EVALUATION.md`](EVALSCOPE_EVALUATION.md) — external evaluation
-   protocol and evidence limitations.
-
-For documentation work, also read
-[`DOCUMENT_GOVERNANCE.md`](DOCUMENT_GOVERNANCE.md). Then read
-[`ROADMAP.md`](ROADMAP.md) and the active subsystem contracts for the work.
-[`README.md`](README.md) is the canonical documentation entry point and
-[`DOCUMENT_REGISTRY.md`](DOCUMENT_REGISTRY.md) is the exhaustive Markdown
-inventory.
+[`DOCUMENT_REGISTRY.md`](DOCUMENT_REGISTRY.md) remains the exhaustive Markdown
+inventory, and [`DOCUMENT_GOVERNANCE.md`](DOCUMENT_GOVERNANCE.md) defines the
+authority and lifecycle rules applied by this map.
 
 [`ROADMAP.md`](ROADMAP.md) orders unfinished work. It cannot redefine a locked
 target or promote a capability. Subsystem documents refine one boundary; they
@@ -90,9 +76,10 @@ in several places.
 | [`EVALSCOPE_EVALUATION.md`](EVALSCOPE_EVALUATION.md) | External API workload, metric semantics, validation and release evaluation protocol | Proof that the evaluation-only gateway is a production server |
 | [`VLLM_HUMMING_STARTUP_AUDIT.md`](VLLM_HUMMING_STARTUP_AUDIT.md) | Frozen snapshot of proven startup/tactic-selection mechanisms for AOT-specialization study | A runtime dependency decision, active plan, or performance result |
 
-The repository-root `AGENTS.md` is the contributor entry contract and gives
-the mandatory reading order, workspace boundary and clean-host performance
-preflight.
+The repository-root `AGENTS.md` is the Codex/contributor bootstrap contract.
+It points to the canonical documentation index and adds only repository-local
+workspace and clean-host execution constraints; it owns no parallel reading
+order.
 
 ## 4. Product, model and numerical contracts
 

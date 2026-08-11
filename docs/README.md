@@ -149,9 +149,12 @@ When a Markdown file is added, moved, deleted, or reclassified:
    document;
 2. update [`DOCUMENT_REGISTRY.md`](DOCUMENT_REGISTRY.md) in the same commit;
 3. update this index if a controlling document or SDD link changes;
-4. verify that every `git ls-files '*.md'` path appears exactly once in the
-   registry and that no registry path is absent from the tree;
-5. preserve historical/evidence contents and third-party source boundaries.
+4. run `python3 tools/docs/validate_document_control.py` from the repository
+   root; it checks registry coverage, required headers, identities, and local
+   links;
+5. run `python3 -B -m unittest tests.test_document_control` when changing the
+   validator itself; and
+6. preserve historical/evidence contents and third-party source boundaries.
 
 Generated builds, profiles, raw evaluation outputs, downloaded tools, and
 temporary source copies belong under the ignored `/.q3x-work/` tree and are

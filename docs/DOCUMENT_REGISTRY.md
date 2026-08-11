@@ -26,12 +26,14 @@ document. Classes and authority rules are defined by
 - Classified: **68**.
 - Unclassified: **0**.
 - Duplicate registrations: **0**.
+- Automated validator: **PASS** (`68` tracked, `68` registered, `38`
+  required first-party headers, `39` headers checked, `830` local links,
+  `0` errors).
 - Inventory basis: every literal path expected from `git ls-files '*.md'`
   after the SDD/document-governance refactor is committed.
-- Transitional rule: existing first-party documents without a standard
-  control header inherit their class, role, lifecycle, and authority from this
-  registry until materially rewritten. Historical evidence and third-party
-  documents are not rewritten merely to add headers.
+- Header transition: every registered non-evidence first-party document now
+  has a standard control header and is enforced by the validator. Frozen
+  evidence and third-party documents are not rewritten merely to add headers.
 
 `Lifecycle` describes the document, not the implementation or experiment it
 mentions. A dormant local design becomes active only through the named SDD and
@@ -153,14 +155,16 @@ authority only for its exact recorded protocol.
 
 ## Integrity check
 
-After all intended Markdown additions/deletions are staged, the literal paths
-in the tables above must equal the sorted output of:
+After all intended Markdown changes, run:
 
 ```bash
-git ls-files '*.md' | sort
+python3 tools/docs/validate_document_control.py
 ```
 
-The check must fail on any missing, extra, or duplicate path. A wildcard such
-as `docs/analysis/**` is not a registration. Generated Markdown under ignored
-`.q3x-work/` is outside the tracked registry and cannot be an authoritative
-project document.
+The check fails on any missing, extra, or duplicate registry path, required
+first-party header defect, duplicate document ID, registry/header class or
+lifecycle mismatch, missing or asymmetric supersession, repository-escaping
+link, or missing local link target. A
+wildcard such as `docs/analysis/**` is not a registration. Generated Markdown
+under ignored `.q3x-work/` is outside the tracked registry and cannot be an
+authoritative project document.

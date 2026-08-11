@@ -704,6 +704,26 @@ if(BUILD_TESTING)
   find_package(Python3 QUIET COMPONENTS Interpreter)
   if(Python3_Interpreter_FOUND)
     add_test(
+      NAME document_control
+      COMMAND "${CMAKE_COMMAND}" -E env "PYTHONDONTWRITEBYTECODE=1"
+              "${Python3_EXECUTABLE}"
+              "${CMAKE_CURRENT_SOURCE_DIR}/tools/docs/validate_document_control.py"
+              --repository "${CMAKE_CURRENT_SOURCE_DIR}"
+    )
+    set_tests_properties(document_control PROPERTIES
+      LABELS "documentation;host"
+      WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    )
+    add_test(
+      NAME document_control_unit
+      COMMAND "${CMAKE_COMMAND}" -E env "PYTHONDONTWRITEBYTECODE=1"
+              "${Python3_EXECUTABLE}" -m unittest tests.test_document_control
+    )
+    set_tests_properties(document_control_unit PROPERTIES
+      LABELS "documentation;host"
+      WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    )
+    add_test(
       NAME evalscope_triplet_validator
       COMMAND "${CMAKE_COMMAND}" -E env "PYTHONDONTWRITEBYTECODE=1"
               "${Python3_EXECUTABLE}"

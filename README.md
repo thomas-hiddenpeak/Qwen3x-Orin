@@ -4,9 +4,9 @@ q3x_document:
   class: active
   status: active
   owner: project-maintainers
-  authority: product introduction, bounded evaluation quick start, and repository documentation entry
+  authority: product introduction, bounded evaluation quick start, and high-level navigation
   effective: 2026-08-09
-  last_reviewed: 2026-08-09
+  last_reviewed: 2026-08-12
   supersedes: []
   superseded_by: []
   ssot_for: concise project introduction and bounded functional evaluation entry; dynamic state remains in docs/CURRENT_STATUS.md
@@ -200,7 +200,7 @@ current truth by appearing in the repository.
 | What should happen next? | [`Active Roadmap`](docs/ROADMAP.md) |
 | How is the pinned model identified? | [`Model Support`](docs/MODEL_SUPPORT.md) |
 | How do I run external evaluation? | [`EvalScope Evaluation`](docs/EVALSCOPE_EVALUATION.md) |
-| How do I contribute or optimize safely? | [`AGENTS.md`](AGENTS.md) and the [`documentation index`](docs/README.md) |
+| How do I contribute or optimize safely? | [`AGENTS.md`](AGENTS.md), which routes to the [`documentation index`](docs/README.md) |
 | Where is every Markdown document classified? | [`Document Registry`](docs/DOCUMENT_REGISTRY.md) |
 
 The documentation index owns the required reading order and routes active
@@ -227,12 +227,12 @@ docs/              Governance, SDDs, contracts, plans, and evidence
 .q3x-work/         Ignored project-owned builds, profiles, and artifacts
 ```
 
-Before performance or architecture work, read [`AGENTS.md`](AGENTS.md) and
-[`docs/README.md`](docs/README.md). Local tile, cache, stream, fusion, profiler,
-and benchmark rules have authority only inside an explicitly active named
-optimization work package. User-owned model directories, virtual environments,
-and shared caches remain external read-only inputs unless the project owner
-explicitly requests otherwise.
+Before performance or architecture work, start with [`AGENTS.md`](AGENTS.md).
+It routes contributors and Codex to [`docs/README.md`](docs/README.md). Local
+tile, cache, stream, fusion, profiler, and benchmark rules have authority only
+inside an explicitly active named optimization work package. User-owned model
+directories, virtual environments, and shared caches remain external read-only
+inputs unless the project owner explicitly requests otherwise.
 
 ## License and provenance
 

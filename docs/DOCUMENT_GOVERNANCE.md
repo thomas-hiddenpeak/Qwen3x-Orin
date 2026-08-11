@@ -6,7 +6,7 @@ q3x_document:
   owner: project-owner
   authority: documentation-control
   effective: 2026-08-09
-  last_reviewed: 2026-08-09
+  last_reviewed: 2026-08-12
   supersedes: []
   superseded_by: []
   ssot_for: document classes, authority, lifecycle, supersession, and registry completeness
@@ -236,11 +236,20 @@ protocol.
    as controlling documentation.
 
 Adding, deleting, moving, or reclassifying a Markdown file requires a registry
-update in the same commit. CI should compare the registry's literal paths with
-`git ls-files '*.md'`, reject duplicates or omissions, validate first-party
-headers when required, and check internal links. Until that check is automated,
-the author must record the exact coverage count and zero-unclassified result
-in the change handoff.
+update in the same commit. The repository validator compares the registry's
+literal paths with `git ls-files '*.md'`, rejects duplicates or omissions,
+validates the established first-party header floor and reciprocal supersession,
+and resolves local links:
+
+```bash
+python3 tools/docs/validate_document_control.py
+```
+
+The same command is registered as the host-only `document_control` CTest when
+a Python interpreter is available. Validator regression cases are registered
+as the adjacent host-only `document_control_unit` CTest. A documentation
+change cannot be committed as complete while the live validator or its unit
+suite fails.
 
 ## Change procedure
 
@@ -254,7 +263,8 @@ For a documentation or implementation milestone:
    state actually change;
 6. update `ROADMAP.md` when dependency order or exit criteria change;
 7. update the registry and index for any document-set change;
-8. validate links, registry coverage, and contradictions before commit.
+8. run `python3 tools/docs/validate_document_control.py`; and
+9. validate semantic contradictions before commit.
 
 This procedure does not require every local experiment to rewrite the system
 SDD. It requires a named local scope and an SDD update when the system boundary,

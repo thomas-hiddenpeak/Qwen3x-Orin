@@ -67,10 +67,8 @@ the targets. Current support and gaps are reported only in Current Status.
 Purpose: preserve project intent and system truth across agents, branches, and
 context compaction before further architecture work.
 
-Remaining deliverables:
+Remaining deliverable:
 
-- machine-checkable documentation rules for registry coverage, status
-  headers, links, and supersession; and
 - carry the documentation-control commit into every actual development
   baseline, because an `AGENTS.md` in another linked worktree is not a Codex
   entry point for a session started elsewhere.
@@ -78,6 +76,8 @@ Remaining deliverables:
 Exit criteria:
 
 - every tracked Markdown file is classified;
+- the `document_control` host test rejects registry, required-header,
+  identity, reciprocal-supersession, and local-link drift;
 - every active task can trace product constraint -> budget -> architecture
   candidate -> local work package -> API return point;
 - no active document calls a historical component proxy the product target;

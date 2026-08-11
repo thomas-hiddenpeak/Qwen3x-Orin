@@ -1,3 +1,18 @@
+---
+q3x_document:
+  id: q3x-repository-work-package
+  class: local-work-package
+  status: active
+  owner: project-maintainers
+  authority: repository execution, continuity, workspace hygiene, and performance-run preflight
+  effective: 2026-08-12
+  last_reviewed: 2026-08-12
+  supersedes: []
+  superseded_by: []
+  ssot_for: Codex repository entry and local operating constraints
+  review_trigger: documentation entry, workspace boundary, or clean-host procedure change
+---
+
 # Repository operating instructions
 
 Before planning, implementing, reviewing, or evaluating non-trivial project
