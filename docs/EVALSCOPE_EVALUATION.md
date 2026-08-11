@@ -743,16 +743,15 @@ evidence only. Exact hashes, preflights, counters, metrics, and cleanup facts
 are frozen in the
 [v14 packed NVFP4 rejection record](metadata/qwen36-27b-prefill-p40k-packed-nvfp4-v2-rejection-2026-08-11.json).
 
-### Pending v15 stock-vLLM-Marlin projection-parity P40 gate
+### Completed v15 stock-vLLM-Marlin projection-parity P40 rejection
 
-The Engine/runner/API host integration and stable lock-owner contract are now
-implemented and pass both ordinary default-off and explicit admission host
-builds/tests. The CUDA target compiles, but this exact integrated route has not
-yet run a GPU numerical or performance gate. The default-off stock-vLLM-Marlin
-projection-parity route must emit an independent
+The Engine/runner/API integration and stable lock-owner contract pass both
+ordinary default-off and explicit admission host builds/tests. The default-off
+stock-vLLM-Marlin projection-parity route emits an independent
 `target-prefill-witness-v15`. Version 15 may not deserialize as, relabel, or
 borrow qualification from v10 or v14. Its serialization fields are frozen by
-the host protocol tests, and the following facts are mandatory:
+the host protocol tests, and the following facts were mandatory for the
+completed direction screen:
 
 - request profile `layer-major-p40-whole-core`, projection tactic
   `native-prompt-wide-p40-vllm-marlin-parity`, Attention tactic
@@ -779,9 +778,9 @@ This route remains `accuracy-unqualified-architecture-candidate` and
 default-off. Matching one token cannot qualify the stock split-K reduction
 tree or the already known whole-prompt FlashInfer numerical difference.
 
-After a clean-host Jetson resource preflight, configure and start the pending
-v15 candidate with the fixed P40 geometry below. The command is a frozen
-future measurement procedure, not evidence that it has already run.
+The measured route was configured and started with the fixed P40 geometry
+below. The command remains the frozen reproduction procedure; the immutable
+record, not the command, carries evidence authority.
 
 ```bash
 Q3X_BUILD="$Q3X_WORK/build/p40-vllm-marlin-parity"
@@ -812,14 +811,14 @@ cmake --build "$Q3X_BUILD" --target qwen3x-eval-server -j
   --queue-capacity 1 --ingress-threads 3
 ```
 
-The first v15 decision unit uses the same exact frozen token-ID corpus and
-hash as v14. Immediately after an accepted clean-host Jetson preflight, run
-one cold/no-cache EvalScope 1.9.1 request, one greedy output token, concurrency
-one, no warmup:
+The v15 decision unit used the same exact frozen token-ID corpus and hash as
+v14. Immediately after an accepted clean-host Jetson preflight, it ran one
+cold/no-cache EvalScope 1.9.1 request, one greedy output token, concurrency
+one, and no warmup. The following is the reproduction command:
 
 ```bash
 Q3X_P40_CORPUS="$Q3X_WORK/evalscope/corpora/q3x-repository-agent-context-p40000-one-token.jsonl"
-Q3X_P40_RESULTS="$Q3X_WORK/evalscope/results/p40-vllm-marlin-parity-v1"
+Q3X_P40_RESULTS="$Q3X_WORK/evalscope/results/p40-vllm-marlin-parity-v1-r3"
 
 TMPDIR="$Q3X_WORK/tmp" XDG_CACHE_HOME="$Q3X_WORK/cache" \
 UV_CACHE_DIR="$Q3X_WORK/cache/uv" \
@@ -835,21 +834,36 @@ uvx --from 'evalscope[perf]==1.9.1' evalscope perf \
   --stream --tokenize-prompt --no-test-connection \
   --total-timeout 680 \
   --outputs-dir "$Q3X_P40_RESULTS" \
-  --name vllm-marlin-parity-v1 --no-timestamp
+  --name vllm-marlin-parity-v1-r3 --no-timestamp
 ```
 
-The result is valid only if EvalScope reports one successful request, the
-server attests the exact 40,000 input tokens and one committed output token,
-the complete v15 route facts above hold, and both the preflight and raw route
-witness are retained. Compare server pure Prefill and external TTFT against
-the frozen v10 native incumbent; vLLM and cuBLASLt remain references, not
-incremental rejection or production paths. A negative result closes or
-redesigns this parity skeleton before repetition, P60, P130, or full accuracy;
-a positive direction unlocks the independent numerical/SASS/state gates but
-does not pass them.
+The first attempt was invalid: r1 returned 0/1 success after
+`whole_request_prefill_commit_contract` failed with dependency error 14 before
+any Prefill quantum retired; it has no timing authority. Commit `986b9fd`
+corrected the P40 request-profile binding. An r2 timing was then discarded:
+its request preflight observed a non-allowlisted Codex app-server at 20.342201%
+of one core, below the collector's former 25% threshold but above the stricter
+project resource gate. No r2 timing has comparison or decision authority.
 
-**This v15 gate has not been run. There is currently no parity TTFT, pure-
-Prefill latency, or prompt-throughput result.**
+The replacement r3 predeclared a 5%-of-one-core unexpected-consumer ceiling.
+Its server-start, request, and post-run audits passed with mean/max GR3D 0,
+complete device-handle inspection, no unexpected GPU holder, and at most
+0.852786% of one core in a non-allowlisted process. The valid request returned
+1/1 success, 40,000 input tokens, one `Based` token, 101,896.324979 ms
+EvalScope TTFT, and 392.555711 New Prompt tok/s. Server v15 reported
+101,857.500727 ms pure Prefill / 392.705493 tok/s and 101,892.419376 ms TTFT.
+It completed 1,040 FP8 launches, 48 BF16 A/B, 48 GDN,
+16 Attention, 64 Gate+Up, 64 Down, 5,120 parity Marlin launches, 64 SiLU, 64
+residual, 64 complete lifetime receipts, and one stable-owner lock clear;
+every forbidden and fallback count was zero. Against v10, latency increased
+0.025185% and throughput decreased 0.025179%.
+
+This is a valid early-stop performance negative, not a statistically
+qualified regression. It closes or redesigns the skeleton before repetition,
+numerical/state/SASS qualification, P60, or P130. The route remains default-
+off, accuracy-unqualified, and non-production. Exact hashes, preflights,
+counters, metrics, and cleanup facts are frozen in the
+[v15 rejection record](metadata/qwen36-27b-prefill-p40k-vllm-marlin-parity-rejection-2026-08-11.json).
 
 The first WP-V2-C1-v3 direction reused the exact v10 host schedule and route
 counters through a binary-pinned, default-off overlay; the binary hash, not a

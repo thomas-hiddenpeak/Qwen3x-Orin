@@ -30,6 +30,7 @@ from typing import Any, Callable
 REPOSITORY_ROOT = pathlib.Path(__file__).resolve().parents[2]
 WORK_ROOT = REPOSITORY_ROOT / ".q3x-work"
 TEGRASTATS_PATH = pathlib.Path("/usr/bin/tegrastats")
+DEFAULT_MAX_UNEXPECTED_CPU_PERCENT = 5.0
 GR3D_PATTERN = re.compile(r"(?:^|\s)GR3D_FREQ\s+([0-9]+(?:\.[0-9]+)?)%")
 GPU_NVHOST_PATTERN = re.compile(r"^/dev/nvhost-[^/]*gpu(?:$|[-_])")
 GPU_NVIDIA_PATTERN = re.compile(
@@ -960,7 +961,9 @@ def parse_args(argv: Sequence[str] | None = None) -> PreflightConfig:
     parser.add_argument("--interval-ms", type=int, default=200)
     parser.add_argument("--max-gr3d-percent", type=float, default=0.0)
     parser.add_argument(
-        "--max-unexpected-cpu-percent", type=float, default=25.0
+        "--max-unexpected-cpu-percent",
+        type=float,
+        default=DEFAULT_MAX_UNEXPECTED_CPU_PERCENT,
     )
     parser.add_argument(
         "--allow-pid",

@@ -140,14 +140,14 @@ an exhaustive real-checkpoint scan of all 192 MLP weight tensors found only
 zeros. Exact sparsity is therefore not an active successor; the inventory is
 frozen in the
 [real-weight zero-structure audit](metadata/qwen36-27b-nvfp4-mlp-zero-structure-audit-2026-08-11.json).
-The next active
-source-parity work package reconstructs stock-vLLM Marlin scheduling and
-finite-precision behavior before specialization, then returns directly to the
-same P40 product gate. The named mathematical successor is qualification-
-first: it will measure whether real P40 activations admit an exact
-block-floating/integer-limb/bit-plane execution class within the system
-budget before any corresponding CUDA kernel is authorized. This is neither
-lossy activation quantization nor another tile-parameter scan.
+The stock-vLLM Marlin source-parity work package has now returned through the
+same P40 product gate and supplied no positive direction. The active successor
+is qualification-first: it must measure whether real P40 activations admit an
+exact block-floating/integer-limb/bit-plane execution class within the system
+budget, and whether an exact whole-live-graph rewrite can delete producer-
+consumer or recurrent-state traffic, before any corresponding CUDA kernel is
+authorized. This is neither lossy activation quantization nor another tile-
+parameter scan.
 
 Prefill architecture work now follows the normative order in the
 [`PREFILL_MATHEMATICAL_EQUIVALENCE_LEDGER.md`](PREFILL_MATHEMATICAL_EQUIVALENCE_LEDGER.md):
@@ -158,13 +158,31 @@ ownership, pipeline, fusion, buffering, and synchronization. This is a change
 to the design discipline, not a new performance result.
 
 Commit `1cb5ea1` implements the independent, default-off exact-P40000 stock-
-vLLM-Marlin **projection reference**. The current tree now connects that
-reference through an independent real-checkpoint sidecar owner, sealed Engine
-plan, runner, and `target-prefill-witness-v15` OpenAI API path. Both the
-ordinary default-off build and the explicit test-only admission build compile,
-and their host weight/plan/view/runner/protocol contracts pass. No default or
-production path changed. The route remains accuracy-unqualified and has not
-produced a real-API or EvalScope performance number.
+vLLM-Marlin **projection reference**. The tree connects that reference through
+an independent real-checkpoint sidecar owner, sealed Engine plan, runner, and
+`target-prefill-witness-v15` OpenAI API path. Both the ordinary default-off
+build and the explicit test-only admission build compile, and their host
+weight/plan/view/runner/protocol contracts pass. Commit `986b9fd` then corrected
+the P40 commit-profile binding exposed by the first API attempt. A subsequent
+r2 timing was discarded because its request preflight observed a non-
+allowlisted Codex control process above the stricter project resource limit;
+it has no comparison or decision authority. The replacement r3 used a 5%-of-
+one-core unexpected-consumer ceiling and passed the server, request, and post-
+run `tegrastats` plus complete process/device-handle audits.
+
+The valid r3 request consumed all 40,000 tokens, committed one `Based` token,
+completed the exact 64-layer parity ledger with zero forbidden or fallback hits, and
+reported 101,857.500727 ms pure Prefill / 392.705493 prompt tok/s. EvalScope
+recorded 101,896.324979 ms TTFT and 392.555711 New Prompt tok/s; its
+3.905603-ms gap beyond server TTFT excludes the loopback API boundary as the
+material bottleneck. Against v10 at 101,831.853876 ms / 392.804397 tok/s, v15
+was 25.646851 ms (+0.025185%) slower and 0.025179% lower in throughput. The
+single decision sample therefore supplied no positive direction and closes or
+redesigns this parity skeleton before repetition, numerical/SASS/state
+qualification, P60, or P130. It does not establish a statistically stable
+regression. The route remains default-off and accuracy-unqualified; v10 stays
+the incumbent and production is unchanged. Exact evidence is frozen in the
+[v15 rejection record](metadata/qwen36-27b-prefill-p40k-vllm-marlin-parity-rejection-2026-08-11.json).
 
 Its `transformation_digest` binds the pinned checkpoint provenance, source
 manifests, deterministic repack ABI, shape, and schedule. It is intentionally
@@ -186,8 +204,11 @@ reduction scratch; authority seals that proof and the runner revalidates it
 before the one clear. The v15 receipt deliberately attests stable ownership,
 alias exclusion, ordered protocol completion, and request-stream completion;
 it does not pretend that every intermediate lock value was copied to the host.
-Real-weight numerical/state qualification and the clean-host P40 API direction
-remain open, so this correction does not make the route production-eligible.
+The first request before `986b9fd` failed
+`whole_request_prefill_commit_contract` before retiring any Prefill quantum and
+has no performance authority. Real-weight numerical/state and SASS
+qualification were intentionally not run after the valid negative direction,
+so the lifetime correction does not make the route production-eligible.
 
 This is the single point-in-time status page. It records what is target,
 designed, implemented, qualified, and production. Architecture contracts
@@ -370,11 +391,11 @@ unqualified production runner**.
 | OpenAI-compatible evaluation API | Implemented | `/healthz`, `/v1/models`, completions/chat, non-streaming and committed-token SSE; explicit layer-major mode has bounded Prefill cancellation | Loopback/evaluation-only; no production exposure, security, admission, or multi-tenant contract |
 | Production serving API | Designed | Product/API contract is defined in the SDD | No installed release profile or release attestation exists |
 | Default context capacity | Implemented at 8,192 | Server default `max_sequence_length=8192`, maximum output 4,096, 2 GiB request-arena limit | Does not admit the locked long-context workloads |
-| 40K/60K/130K cold/no-cache service | Target; unqualified P40K development routes exercised | Token-ID ingress fails closed on capacity; v10 consumed all 40K tokens through the real API at 101.87053 s TTFT / 392.804397 pure prompt tok/s. v11 projection-reset, experimental v12 phase-local BF16, sealed v13 packed-projection, and sealed v14 packed-NVFP4-v2 routes also consumed all 40K but reached only 205.951777, 320.472999, 247.814694, and 311.300103 pure prompt tok/s and were rejected; v12 alone lacks sealed-route authority | The incumbent is still 10.95x below the owner's 4.3K tok/s vLLM starting line and 50.92x above the 2-s P40K target; inherited FlashInfer full state differs. P60K has not been timed; P130K, whole-process capacity, and qualification remain open |
+| 40K/60K/130K cold/no-cache service | Target; unqualified P40K development routes exercised | Token-ID ingress fails closed on capacity; v10 consumed all 40K tokens through the real API at 101.87053 s TTFT / 392.804397 pure prompt tok/s. v11 projection-reset, experimental v12 phase-local BF16, sealed v13 packed-projection, sealed v14 packed-NVFP4-v2, and sealed v15 stock-Marlin-parity routes also consumed all 40K but reached only 205.951777, 320.472999, 247.814694, 311.300103, and 392.705493 pure prompt tok/s and were rejected; v12 alone lacks sealed-route authority | The incumbent is still 10.95x below the owner's 4.3K tok/s vLLM starting line and 50.92x above the 2-s P40K target; inherited FlashInfer full state differs. P60K has not been timed; P130K, whole-process capacity, and qualification remain open |
 | Prefill/Decode logical separation | Implemented in part | Separate phase APIs/metrics and an explicit state transition exist | Shared runner and synchronization-heavy physical plan prevent independent utilization and overlap |
-| Prompt-wide Prefill candidate | v10 whole-request substrate retained but accuracy-unqualified; v11--v14 projection packages rejected | Sealed Engine transactions and role receipts remain; v14 proves the NVFP4-only 128-artifact/192-source route with restored v10 FP8 can execute without fallback, but it regressed pure Prefill to 128.493372 s / 311.300103 tok/s | Inherited Attention state differs. Packed v2 cannot be parameter-scanned; the next activation must change the mathematical/dataflow decomposition and return to P40 before exact Attention/GDN continuation under the 9.302326-s total budget |
-| Stock-vLLM Marlin projection parity | Default-off host integration implemented; no production or API performance claim | Independent 9,625,928,192-byte real-checkpoint owner, 128 transformation manifests from 192 sources, sealed Engine/runner path, stable request-long lock owner, and strict v15 API witness compile and pass host contracts in default-off and admission builds | Real-weight numerical/state oracle, CUDA/SASS qualification, and the first clean-host P40 API witness remain open; there is no parity API performance number |
-| Large-M Prefill specializations | C1, G2/D2, shape-wide v3, projection-reset v1, phase-local BF16 v1, packed projection v1, and packed NVFP4 v2 are rejected default-off experiments | v14 isolates NVFP4 with complete real-checkpoint assets and route identity, and improves materially on v13, but remains 20.749333% slower in throughput than v10. Retained default-off code and CUDA gates are implementation/correctness evidence, not a performance path | Do not scan packed v1 or v2. Derive a materially different whole-path architecture from mathematical equivalence, finite-precision boundaries, communication/reuse costs, and proven implementations; open P60 only after P40 is competitive and accuracy-admissible |
+| Prompt-wide Prefill candidate | v10 whole-request substrate retained but accuracy-unqualified; v11--v15 projection packages rejected | Sealed Engine transactions and role receipts remain; v15 proves the complete stock-Marlin host-dispatch reference can execute through the real P40 API, but it did not improve v10 | Inherited Attention state differs. The next activation must change the mathematical/dataflow decomposition and return to P40 before exact Attention/GDN continuation under the 9.302326-s total budget |
+| Stock-vLLM Marlin projection parity | Default-off route implemented; P40 direction rejected | Independent 9,625,928,192-byte real-checkpoint owner, 128 transformation manifests from 192 sources, sealed Engine/runner path, stable request-long lock owner, and strict v15 API witness completed 5,120 parity launches, 64 lifetime receipts, and one lock clear with no fallback | It did not beat v10. Numerical/SASS/full-state gates were intentionally not run; retain it only as finite-precision/schedule reference evidence, not a production or tuning lineage |
+| Large-M Prefill specializations | C1, G2/D2, shape-wide v3, projection-reset v1, phase-local BF16 v1, packed projection v1, packed NVFP4 v2, and stock-Marlin parity v1 are rejected default-off experiments | v15 closes the stock host-dispatch skeleton at 392.705493 tok/s; retained default-off code, topology, and correctness gates are implementation/reference evidence, not a performance path | Do not scan the rejected skeletons. Derive a materially different whole-path architecture from mathematical equivalence, finite-precision boundaries, communication/reuse costs, and proven implementations; open P60 only after P40 is competitive and accuracy-admissible |
 | Terminal-layer exact liveness deletion | Designed; not implemented | The ledger proves full layer-63 K/V remains live while ordinary next-token generation needs only the final row through Q/Attention/O/MLP | Its exact `2.1479599663%` arithmetic-scope deletion needs an independent tactic, receipts, progress and liveness oracle; it composes with a successor but does not lower the 4.3K tok/s target |
 | Decode target | Directionally near target | Short API evidence reports about 104 ms TPOT | At least 10 token/s, long-output stability, and release repetition are not qualified |
 | Production accuracy | Target with partial oracles | Exact deterministic outputs are available for selected prompts/routes | No complete public capability baseline and promotion gate has passed |

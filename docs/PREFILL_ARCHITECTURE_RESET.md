@@ -1081,6 +1081,31 @@ inside the prompt-wide family arena is invalid if GDN, Attention, projection,
 or residual work covers it during that lifetime. Address validation and a
 single successful clear do not satisfy this contract.
 
+### 8.13 Stock-Marlin parity closure
+
+The valid v15 witness proves that the reconstructed stock `LegacyStripe` host
+dispatch, split-M64 reduction protocol, publication boundaries, and complete
+cross-phase lock lifetime can execute through the real P40 API. It does not
+prove that this decomposition is a useful successor: pure Prefill was
+101.857501 s / 392.705493 tok/s, 0.025179% below v10 throughput in the single
+early-stop sample. The difference is too small for a statistical regression
+claim, but it fails the predeclared positive-direction condition, so this
+architecture version is closed before deeper qualification.
+
+The experiment proves only that this concrete finite-precision and scheduling
+combination did not improve the whole runner; without a matched profile it
+does not attribute the result to a particular traffic, occupancy, or stall
+mechanism. The mathematical classification remains useful independently of
+that causal question: host-dispatch parity preserves the dense equations and
+does not itself constitute a quantity-changing equivalence. Keep the finite-
+precision/source reconstruction as an oracle and design constraint. The next
+architecture must qualify an exact execution class or exact liveness rewrite
+that can change physical work or producer-consumer/state movement across the
+complete projection, Attention, and GDN live graph while preserving every
+declared rounding, publication, and recurrent-state boundary. Its first
+artifact is an eligibility proof over real P40 operands and observables, not a
+speculative CUDA kernel.
+
 ## 9. Global dataflow questions
 
 Every candidate must answer these questions for the full Prefill route, not

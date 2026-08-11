@@ -165,6 +165,23 @@ incumbent. Packed NVFP4 v2 is therefore closed without a parameter scan,
 remains default-off and accuracy-unqualified, and does not unlock P60/P130 or
 production promotion.
 
+The completed stock-vLLM-Marlin projection host-dispatch direction is frozen
+in
+[`qwen36-27b-prefill-p40k-vllm-marlin-parity-rejection-2026-08-11.json`](qwen36-27b-prefill-p40k-vllm-marlin-parity-rejection-2026-08-11.json).
+After an initial commit-profile failure with no timing authority, commit
+`986b9fd` corrected the request binding. An r2 sample with a non-allowlisted
+CPU consumer was discarded; its timing has no authority. The replacement r3
+passed the tightened resource preflight and completed the exact 40,000-token
+v15 OpenAI/EvalScope route at 101,857.500727 ms / 392.705493 pure prompt
+tok/s. Its 5,120 parity Marlin launches, 64 complete lifetime receipts, one
+stable-owner lock clear, and all
+zero fallback/forbidden counters prove the integrated schedule identity, not
+accuracy. The single valid sample was 0.025179% below v10 throughput and
+therefore supplied no positive direction under the predeclared early-stop
+gate. The skeleton is closed before repetition, numerical/SASS/full-state
+qualification, P60, or P130; it remains default-off reference evidence and
+does not alter production.
+
 The complete real-checkpoint MLP exact-zero inventory is frozen in
 [`qwen36-27b-nvfp4-mlp-zero-structure-audit-2026-08-11.json`](qwen36-27b-nvfp4-mlp-zero-structure-audit-2026-08-11.json).
 It scans all 192 Gate/Up/Down NVFP4 tensors across 64 layers and all three

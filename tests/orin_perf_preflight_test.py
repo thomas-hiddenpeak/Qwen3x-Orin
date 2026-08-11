@@ -39,6 +39,29 @@ def process(
 
 
 class OrinPerfPreflightTest(unittest.TestCase):
+    def test_cli_default_rejects_five_percent_unexpected_cpu(self) -> None:
+        config = PREFLIGHT.parse_args(
+            [
+                "--output",
+                str(REPOSITORY / ".q3x-work/preflight/default.json"),
+            ]
+        )
+        self.assertEqual(config.max_unexpected_cpu_percent, 5.0)
+        cpu = PREFLIGHT.CpuProcessSample(process(30, 1, 1, 1), 5.0)
+        reasons = PREFLIGHT.resource_rejection_reasons(
+            0.0,
+            0.0,
+            [],
+            [cpu],
+            set(),
+            config.max_unexpected_cpu_percent,
+            [],
+        )
+        self.assertEqual(
+            [reason["code"] for reason in reasons],
+            ["unexpected_cpu_consumers"],
+        )
+
     def test_tegrastats_gr3d_formats_are_strict(self) -> None:
         self.assertEqual(
             PREFLIGHT.parse_gr3d_percent(

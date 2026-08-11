@@ -508,8 +508,8 @@ successor activation.
   without a parameter scan. Its default-off implementation remains
   correctness/forensic evidence and does not unblock accuracy repetition,
   P60/P130, Attention, or GDN promotion.
-- **WP-P40-VLLM-MARLIN-PARITY-v1 — default-off host route integrated; real
-  P40 direction and numerical qualification pending:**
+- **WP-P40-VLLM-MARLIN-PARITY-v1 — P40 direction complete; closed for
+  performance:**
   reconstruct the actual stock-vLLM W4A16 Marlin route as the execution
   specification, then translate it into the native runner without a vLLM
   runtime dependency. Freeze v10 FP8, Attention, GDN, API, memory, and
@@ -529,27 +529,31 @@ successor activation.
   not stock parity. The default-off native projection reference now preserves
   the stock split tail, canonical per-token GateThenUp rows, BF16 publication,
   and standalone SiLU/Down-residual boundaries. It remains accuracy-
-  unqualified and default-off. Its Engine/runner/OpenAI v15 host route is now
-  integrated, but its current CUDA witness is launch/capture topology only,
-  not a numerical or SASS differential, and it has no real-API or EvalScope
-  performance number. Integration found and closed the lock-lifetime defect:
+  unqualified and default-off. Its Engine/runner/OpenAI v15 route is integrated.
+  Integration found and closed the lock-lifetime defect:
   the old family-temporary alias overlapped a later prompt-wide GDN writer.
   Ctmp remains in the parity family temporary, while locks now use a stable
   physically disjoint legacy owner. Authority and runner validate the full
   request writer set before the one clear; receipt fields attest that layout
   and ordered protocol rather than claiming unperformed D2H lock reads. Exact
   offsets and current qualification state are owned by
-  [`CURRENT_STATUS.md`](CURRENT_STATUS.md). The next decision unit must
-  connect the complete 64-layer
-  NVFP4 replacement to the same real-checkpoint,
-  cold/no-cache P40 OpenAI API + EvalScope one-request gate against v10. A
-  negative result closes the parity skeleton; a positive result earns full
-  state/accuracy qualification and then composes immediately into a
-  whole-core reference-parity architecture covering FP8, Attention, and GDN.
-  This handoff is mandatory: v10's fixed non-NVFP4 remainder is already
-  46.999328 s, so even zero-time NVFP4 would expose only about 851.075992
-  tok/s on the frozen composition. This is a work-package scope bound, not a
-  hardware or project upper bound.
+  [`CURRENT_STATUS.md`](CURRENT_STATUS.md). After commit `986b9fd` corrected
+  the request commit-profile binding, the complete 64-layer replacement
+  returned through the real-checkpoint cold/no-cache P40 OpenAI API +
+  EvalScope gate. An r2 sample with a non-allowlisted CPU consumer was
+  discarded. The replacement r3 passed the tightened 5%-of-one-core resource
+  gate and completed at 101.857501 s / 392.705493 pure prompt tok/s, 0.025179%
+  below v10 throughput.
+  Because the predeclared gate required a positive direction, close this host-
+  dispatch skeleton without repetition, parameter scanning, P60/P130, or full
+  accuracy qualification. The single sample is not a statistically stable
+  regression claim. Retain the implementation and source map only as a finite-
+  precision/scheduling reference, and do not compose it into FP8, Attention,
+  or GDN as though it passed. Activate the quantity-changing mathematical
+  successor instead. This handoff is mandatory: v10's fixed non-NVFP4
+  remainder is already 46.999328 s, so even zero-time NVFP4 would expose only
+  about 851.075992 tok/s on the frozen composition. This is a work-package
+  scope bound, not a hardware or project upper bound.
 - **Exact-sparsity branch — closed before implementation:** an exhaustive
   real-checkpoint CPU inventory of all 192 MLP tensors finds only 7.945540%
   exact E2M1 zero codes and 3.540535% K4 groups with at least two zeros. This
