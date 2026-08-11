@@ -289,15 +289,18 @@ class VllmP40GeometryTest(unittest.TestCase):
         )
         self.assertTrue(GEOMETRY.path_is_within(accepted, GEOMETRY.WORK_ROOT))
 
-    def test_plan_has_only_the_four_locked_budgets(self) -> None:
+    def test_plan_starts_with_only_the_target_like_whole_prompt_budget(self) -> None:
         plan = GEOMETRY.build_plan(self.make_config())
         self.assertEqual(
             [entry["max_num_batched_tokens"] for entry in plan["budgets"]],
-            [2_048, 4_096, 8_192, 40_000],
+            [40_000],
         )
         self.assertEqual(
             [entry["planned_scheduled_forwards"] for entry in plan["budgets"]],
-            [20, 10, 5, 1],
+            [1],
+        )
+        self.assertEqual(
+            plan["deferred_explanatory_budgets"], [8_192, 4_096, 2_048]
         )
 
     def test_vendored_deep_gemm_availability_probe_is_pinned(self) -> None:
@@ -355,6 +358,41 @@ class VllmP40GeometryTest(unittest.TestCase):
             )
             with self.assertRaises(GEOMETRY.GeometryError):
                 GEOMETRY.validate_measurement_telemetry(path, 1, 4)
+
+    def test_thermal_cooldown_requires_stable_hysteresis_samples(self) -> None:
+        def thermal(value: int) -> dict:
+            return {
+                "zones": {
+                    name: {"temperature_millic": value}
+                    for name in ("cpu-thermal", "gpu-thermal", "tj-thermal")
+                }
+            }
+
+        with (
+            mock.patch.object(
+                GEOMETRY,
+                "collect_thermal_state",
+                side_effect=(thermal(66_000), thermal(65_000), thermal(64_000)),
+            ) as collect,
+            mock.patch.object(GEOMETRY.time, "sleep") as sleep,
+        ):
+            receipt = GEOMETRY.wait_for_thermal_cooldown(
+                "test",
+                target_millic=65_000,
+                stable_samples=2,
+                interval_seconds=0.1,
+                timeout_seconds=10.0,
+            )
+        self.assertEqual(len(receipt["samples"]), 3)
+        self.assertEqual(
+            receipt["samples"][-1]["consecutive_at_or_below_target"], 2
+        )
+        self.assertEqual(collect.call_count, 3)
+        self.assertEqual(sleep.call_count, 2)
+        with self.assertRaisesRegex(GEOMETRY.GeometryError, "configuration"):
+            GEOMETRY.wait_for_thermal_cooldown(
+                "invalid", target_millic=GEOMETRY.JETSON_MAX_TEMPERATURE_MILLIC
+            )
 
     def test_formal_host_probe_is_bracketed_by_clean_admission(self) -> None:
         events: list[str] = []
@@ -425,7 +463,7 @@ class VllmP40GeometryTest(unittest.TestCase):
         )
         self.assertEqual(
             events[3:],
-            [f"budget:{value}" for value in (2048, 4096, 8192, 40000)],
+            ["budget:40000"],
         )
 
     def test_process_group_cleanup_reaps_leader_without_escalation(self) -> None:

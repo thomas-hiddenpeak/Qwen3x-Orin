@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Run the one bounded stock-vLLM P40 macrochunk geometry witness.
 
-This is deliberately not a general benchmark launcher.  It freezes the four
-scheduled-token budgets selected by WP-PREFILL-REFERENCE-TRANSLATION-v1 and
-fails closed around every source of evidence drift: repository identity,
-corpus identity, server command, clean-host ownership, warmup, external API
-result, Prometheus deltas, and process-group cleanup.
+This is deliberately not a general benchmark launcher.  It freezes the first
+target-like whole-P40 scheduled-token budget selected by
+WP-PREFILL-REFERENCE-TRANSLATION-v1 and fails closed around every source of
+evidence drift: repository identity, corpus identity, server command,
+clean-host ownership, warmup, external API result, Prometheus deltas, and
+process-group cleanup.
 
 The model directory and vLLM environment are external read-only inputs.  All
 generated state, including Python/JIT/tool caches, is redirected below the
@@ -241,6 +242,10 @@ JETSON_CPU_KHZ = 2_201_600
 JETSON_GPU_HZ = 1_300_500_000
 JETSON_EMC_HZ = 3_200_000_000
 JETSON_MAX_TEMPERATURE_MILLIC = 70_000
+THERMAL_COOLDOWN_TARGET_MILLIC = 65_000
+THERMAL_COOLDOWN_STABLE_SAMPLES = 3
+THERMAL_COOLDOWN_INTERVAL_SECONDS = 5.0
+THERMAL_COOLDOWN_TIMEOUT_SECONDS = 900.0
 JETSON_L4T_SHA256 = "626bc5b28a18d7cab5f50ed10d436181991f29fa9d41a1ee359c900cbed5704b"
 JETSON_DRIVER_SHA256 = (
     "ca994a48158f4a3a851abdec36a32978d7fe3798c15cd536e5b5fb07709a5311"
@@ -337,7 +342,8 @@ DELETED_POSIX_SEMAPHORE = re.compile(
 
 PROMPT_TOKENS = 40_000
 OUTPUT_TOKENS = 1
-MACROCHUNK_BUDGETS = (2_048, 4_096, 8_192, 40_000)
+MACROCHUNK_BUDGETS = (40_000,)
+DEFERRED_EXPLANATORY_BUDGETS = (8_192, 4_096, 2_048)
 MEASURED_CORPUS = (
     WORK_ROOT
     / "evalscope/corpora/q3x-repository-agent-context-p40000-one-token.jsonl"
@@ -2168,6 +2174,9 @@ def run_budget(
         raise GeometryError(
             f"stale vLLM RPC sockets exist before server start: {rpc_before_server}"
         )
+    cooldown_before_server = wait_for_thermal_cooldown(
+        f"b{budget}-before-server"
+    )
     result_preflight = run_preflight(
         config, run_dir / "preflight-before-server.json", ()
     )
@@ -2179,6 +2188,7 @@ def run_budget(
     result: dict[str, Any] = {
         "preflight_before_server": result_preflight["decision"],
         "rpc_socket_admission": {"before_server": rpc_before_server},
+        "thermal_cooldown_before_server": cooldown_before_server,
     }
     cleanup: dict[str, Any] = {}
     termination_state, previous_handlers = install_termination_handlers()
@@ -2229,6 +2239,9 @@ def run_budget(
         )
         write_json(
             run_dir / "server-runtime-after-warmup.json", runtime_after_warmup
+        )
+        result["thermal_cooldown_before_request"] = wait_for_thermal_cooldown(
+            f"b{budget}-before-request"
         )
         request_preflight = run_preflight(
             config,
@@ -2342,6 +2355,17 @@ def run_budget(
                     cleanup["server_log_audit_error"] = repr(error)
                     if failure is None:
                         failure = error
+            if server is not None and process_group_released:
+                try:
+                    cleanup["thermal_cooldown_before_post_release"] = (
+                        wait_for_thermal_cooldown(
+                            f"b{budget}-before-post-release"
+                        )
+                    )
+                except BaseException as error:
+                    cleanup["thermal_cooldown_error"] = repr(error)
+                    if failure is None:
+                        failure = error
             try:
                 cleanup["post_release_preflight"] = run_preflight(
                     config, run_dir / "post-release-preflight.json", ()
@@ -2398,6 +2422,7 @@ def build_plan(
             }
             for budget in MACROCHUNK_BUDGETS
         ],
+        "deferred_explanatory_budgets": list(DEFERRED_EXPLANATORY_BUDGETS),
         "environment": environment_receipt(MACROCHUNK_BUDGETS[0]),
         "output_dir": str(config.output_dir),
         "clean_host": {
@@ -2728,7 +2753,7 @@ def _elf_build_id(path: pathlib.Path) -> str:
     return matches[0].lower()
 
 
-def collect_thermal_state() -> dict[str, Any]:
+def collect_thermal_state(*, enforce_envelope: bool = True) -> dict[str, Any]:
     zones: dict[str, Any] = {}
     for zone in sorted(THERMAL_ROOT.glob("thermal_zone*"), key=lambda path: path.name):
         try:
@@ -2768,7 +2793,7 @@ def collect_thermal_state() -> dict[str, Any]:
         temperature = zones.get(name, {}).get("temperature_millic")
         if not isinstance(temperature, int):
             raise GeometryError(f"required thermal sensor is unavailable: {name}")
-        if temperature >= JETSON_MAX_TEMPERATURE_MILLIC:
+        if enforce_envelope and temperature >= JETSON_MAX_TEMPERATURE_MILLIC:
             raise GeometryError(
                 f"{name} is outside the admitted thermal envelope: {temperature}"
             )
@@ -2777,6 +2802,67 @@ def collect_thermal_state() -> dict[str, Any]:
         "required_sensors": list(required),
         "zones": zones,
     }
+
+
+def wait_for_thermal_cooldown(
+    stage: str,
+    *,
+    target_millic: int = THERMAL_COOLDOWN_TARGET_MILLIC,
+    stable_samples: int = THERMAL_COOLDOWN_STABLE_SAMPLES,
+    interval_seconds: float = THERMAL_COOLDOWN_INTERVAL_SECONDS,
+    timeout_seconds: float = THERMAL_COOLDOWN_TIMEOUT_SECONDS,
+) -> dict[str, Any]:
+    """Passively establish thermal hysteresis before an admission boundary."""
+
+    if (
+        target_millic <= 0
+        or target_millic >= JETSON_MAX_TEMPERATURE_MILLIC
+        or stable_samples < 1
+        or interval_seconds <= 0.0
+        or timeout_seconds <= 0.0
+    ):
+        raise GeometryError("invalid thermal cooldown controller configuration")
+    started = time.monotonic()
+    deadline = started + timeout_seconds
+    consecutive = 0
+    samples: list[dict[str, Any]] = []
+    required = ("cpu-thermal", "gpu-thermal", "tj-thermal")
+    while True:
+        thermal = collect_thermal_state(enforce_envelope=False)
+        temperatures = {
+            name: thermal["zones"][name]["temperature_millic"]
+            for name in required
+        }
+        if any(not isinstance(value, int) for value in temperatures.values()):
+            raise GeometryError(
+                f"thermal cooldown sensor is unavailable at {stage}: {temperatures}"
+            )
+        maximum = max(temperatures.values())
+        consecutive = consecutive + 1 if maximum <= target_millic else 0
+        samples.append(
+            {
+                "observed_at_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
+                "temperatures_millic": temperatures,
+                "maximum_millic": maximum,
+                "consecutive_at_or_below_target": consecutive,
+            }
+        )
+        if consecutive >= stable_samples:
+            return {
+                "stage": stage,
+                "target_millic": target_millic,
+                "rejection_millic": JETSON_MAX_TEMPERATURE_MILLIC,
+                "stable_samples_required": stable_samples,
+                "interval_seconds": interval_seconds,
+                "elapsed_seconds": time.monotonic() - started,
+                "samples": samples,
+            }
+        remaining = deadline - time.monotonic()
+        if remaining <= 0.0:
+            raise GeometryError(
+                f"thermal cooldown timed out at {stage}: last={temperatures}"
+            )
+        time.sleep(min(interval_seconds, remaining))
 
 
 def collect_performance_lane_state() -> dict[str, Any]:

@@ -283,19 +283,19 @@ vLLM chunked Prefill is primarily a scheduler token budget: it improves
 fairness, memory bounds, Decode interleaving, and hybrid-state management, and
 may align a GDN/Mamba boundary to a cacheable block. It can regress a
 single-request Prefill by shrinking M, repeating layer walks and weight
-traffic, or publishing more boundary state. The reference witness below
-measures that system trade rather than treating chunking as a kernel feature.
+traffic, or publishing more boundary state. The target-first witness below
+establishes the whole-prompt endpoint; only a later explanatory sweep may
+measure that system trade, rather than treating chunking as a kernel feature.
 
 ## 9. One bounded reference-geometry witness
 
-After the source matrix is frozen, perform exactly one reference-engine
-geometry study before native implementation:
+After the source matrix is frozen, perform exactly one target-first
+reference-engine witness before native implementation:
 
 - real checkpoint and tokenization;
 - one cold/no-cache, batch-one P40 API request with one output token;
 - MTP and prefix-cache reuse disabled;
-- explicit vLLM scheduled-token/macrochunk budgets `2048`, `4096`,
-  `8192`, and a near-whole-prompt admissible value;
+- an explicit target-like whole-P40 vLLM scheduled-token budget of `40000`;
 - JIT, kernel warmup, and deterministic tuning completed before timing;
 - exact backend, model, token count, route, cache, memory, and process
   identity retained; and
@@ -303,14 +303,17 @@ geometry study before native implementation:
   kept as distinct observables. The latter is not mislabeled as pure GPU
   kernel time or as the logger's 10-second aggregate prompt throughput.
 
-This witness chooses service/macrochunk geometry and reconciles the owner's
-known vLLM behavior with the exact current configuration. It is not repeated
-for every Q3X change and does not select a Q3X production dependency.
+This first witness reconciles the owner's known vLLM behavior with the exact
+current configuration at the production target before any explanatory
+geometry sweep. Budgets `8192`, `4096`, and `2048` are deferred: they may be
+used later to explain a target result, but cannot delay or invalidate the
+whole-P40 gate. The witness is not repeated for every Q3X change and does not
+select a Q3X production dependency.
 
 The locked launcher is
 [`run_vllm_p40_geometry.py`](../tools/evaluation/run_vllm_p40_geometry.py).
-It runs fresh stock-vLLM servers for budgets `2048`, `4096`, `8192`, and
-`40000`; uses distinct hash-pinned P40 warmup and measured token-ID corpora;
+It runs a fresh stock-vLLM server with budget `40000`; uses distinct
+hash-pinned P40 warmup and measured token-ID corpora;
 pins EvalScope `1.9.1` in offline mode; and requires exact Prometheus deltas
 for one no-cache request. The formal path also pins the Orin/Torch/CUDA
 runtime, brackets its CUDA identity probe with clean-host admissions, audits
@@ -329,7 +332,7 @@ receipt and must remain stable across warmup and measurement.
 
 The vLLM ZeroMQ base is the shortest safe repository-local path: its complete
 UUID socket path is checked against the 107-byte Unix-domain limit. Each
-budget requires no stale UUID socket before startup, and after the owned
+run requires no stale UUID socket before startup, and after the owned
 process group is empty the launcher removes only inode-matched socket entries
 created under `/.q3x-work/`, records them, and proves that none remain.
 
@@ -342,14 +345,19 @@ only for SM90, SM100, or SM120 families.
 Before the run, the Jetson clean-host preflight must pass with `tegrastats`,
 CPU/process inspection, and GPU-device-handle ownership. If another workload
 owns a critical resource, the run does not start and no timing is retained.
+Thermal admission uses hysteresis rather than changing the hard limit: three
+consecutive five-second samples of CPU/GPU/TJ at or below `65C` are required
+before server startup, before the measured request, and before post-release
+admission; every measured sample must still remain strictly below `70C`.
 
 ## 10. Package closure
 
 This package closes only when all of the following are true:
 
 1. source pins and invariant/ISA/SM87 translations are complete;
-2. the one P40 geometry witness either selects or rejects each macrochunk
-   class under the matched reference protocol;
+2. the first P40 witness selects or rejects the whole-prompt target under the
+   matched reference protocol; explanatory smaller macrochunks are considered
+   only after that result exists;
 3. projection, Attention, GDN, buffer, state, and handoff plans form one
    authenticated AOT candidate with no undeclared fallback;
 4. each added-compute-for-movement trade has an equivalence/resource ledger;
