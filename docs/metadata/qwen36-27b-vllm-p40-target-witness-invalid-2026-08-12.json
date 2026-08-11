@@ -52,6 +52,39 @@
     "manifest_result_count": 0,
     "timing_disposition": "discarded_and_not_compared"
   },
+  "server_log_analysis": {
+    "authority": "supporting_route_and_startup_evidence_only",
+    "successful_completion_responses": 2,
+    "startup": {
+      "compile_range": [1, 40000],
+      "torch_compile_seconds": 133.46,
+      "initial_profile_warmup_seconds": 99.82,
+      "aot_function_saved": true,
+      "flashinfer_autotune_enabled": true
+    },
+    "runtime_jit_events": [
+      {
+        "month_day_clock": "08-12 05:22:34",
+        "kernel": "_compute_slot_mapping_kernel",
+        "completed_completion_responses_seen": 1
+      }
+    ],
+    "logger_samples": [
+      {
+        "month_day_clock": "08-12 05:24:30",
+        "prompt_tokens_per_second": 3999.7,
+        "completed_completion_responses_seen": 1,
+        "phase_by_fixed_harness_order": "after_warmup_before_measured_response"
+      },
+      {
+        "month_day_clock": "08-12 05:24:40",
+        "prompt_tokens_per_second": 0.0,
+        "completed_completion_responses_seen": 1,
+        "phase_by_fixed_harness_order": "after_warmup_before_measured_response"
+      }
+    ],
+    "interpretation": "The 3999.7 tok/s sample belongs to the logger interval after the warmup response and before the measured response. vLLM 0.26.0 records the completed long iteration's prompt tokens atomically into its next local ten-second logger bucket, so this value is not request elapsed throughput, pure Prefill throughput, or the invalid measured request's result."
+  },
   "invalidation": {
     "harness_failure": "clock/RAM drift at tegrastats line 45: gpu=(1294,1294), emc=3200, cpu=2201 MHz, ram_total=62878 MiB",
     "hard_temperature_limit_c": 70.0,

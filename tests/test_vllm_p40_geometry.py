@@ -536,12 +536,32 @@ class VllmP40GeometryTest(unittest.TestCase):
             log = pathlib.Path(temporary) / "server.log"
             required = "\n".join(
                 (
-                    "speculative_config=None, quantization=modelopt,",
+                    "08-12 05:00:00 [core.py:116] speculative_config=None, "
+                    "quantization=modelopt_mixed,",
                     "enable_prefix_caching=False, enable_chunked_prefill=True,",
-                    "non-default args: {'max_num_batched_tokens': 8192}",
+                    "non-default args: {'max_num_batched_tokens': 8192}, "
+                    "kernel_config=KernelConfig(linear_backend='auto', "
+                    "enable_flashinfer_autotune=True)",
+                    "Selected MarlinFP8ScaledMMLinearKernel for "
+                    "ModelOptFp8LinearMethod",
                     "Using AttentionBackendEnum.FLASHINFER backend.",
-                    "Using Triton/FLA GDN prefill kernel (requested=auto).",
-                    "Avg prompt throughput: 4300.0 tokens/s,",
+                    "Using Triton/FLA GDN prefill kernel "
+                    "(requested=auto, head_k_dim=128).",
+                    "Cache the graph of compile range (1, 8192) for later use",
+                    "saved AOT compiled function to /workspace/cache/model",
+                    "torch.compile took 12.5 s in total",
+                    "Initial profiling/warmup run took 3.25 s",
+                    'INFO: 127.0.0.1 - "POST /v1/completions HTTP/1.1" '
+                    "200 OK",
+                    "08-12 05:00:10 [jit_monitor.py:135] Kernel JIT "
+                    "compilation during inference: warmup_kernel. This causes "
+                    "a latency spike.",
+                    "08-12 05:00:20 [loggers.py:310] Engine 000: Avg prompt "
+                    "throughput: 4300.0 tokens/s, Avg generation throughput: "
+                    "0.1 tokens/s, Running: 0 reqs, Waiting: 0 reqs, GPU KV "
+                    "cache usage: 0.0%, Prefix cache hit rate: 0.0%",
+                    'INFO: 127.0.0.1 - "POST /v1/completions HTTP/1.1" '
+                    "200 OK",
                 )
             )
             log.write_text(required)
@@ -550,6 +570,33 @@ class VllmP40GeometryTest(unittest.TestCase):
             self.assertEqual(
                 observed["ten_second_logger_prompt_throughput_maximum"], 4300.0
             )
+            self.assertEqual(
+                observed["backend_evidence"]["quantization"], "modelopt_mixed"
+            )
+            self.assertEqual(
+                observed["backend_evidence"]["requested_linear_backend"],
+                "auto",
+            )
+            self.assertEqual(
+                observed["ten_second_logger_samples"][0][
+                    "phase_by_fixed_harness_order"
+                ],
+                "after_warmup_before_measured_response",
+            )
+            self.assertEqual(len(observed["api_completion_responses"]), 2)
+            self.assertEqual(
+                observed["startup_and_compilation"]["runtime_jit_events"][0][
+                    "kernel"
+                ],
+                "warmup_kernel",
+            )
+            self.assertEqual(
+                observed["startup_and_compilation"][
+                    "torch_compile_total_seconds"
+                ],
+                12.5,
+            )
+            self.assertFalse(observed["authority"]["performance_promotion"])
             log.write_text(
                 required.replace(
                     "Using AttentionBackendEnum.FLASHINFER backend.\n", ""

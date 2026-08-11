@@ -2089,17 +2089,153 @@ def observe_server_log(path: pathlib.Path, budget: int) -> dict[str, Any]:
     missing = [name for name, hit in probe_hits.items() if not hit]
     if missing:
         raise GeometryError(f"vLLM log is missing required route evidence: {missing}")
+    logger_pattern = re.compile(
+        r"Avg prompt throughput:\s*(?P<prompt>[0-9]+(?:\.[0-9]+)?)\s+"
+        r"tokens/s,\s*Avg generation throughput:\s*"
+        r"(?P<generation>[0-9]+(?:\.[0-9]+)?)\s+tokens/s,\s*"
+        r"Running:\s*(?P<running>[0-9]+)\s+reqs,\s*"
+        r"Waiting:\s*(?P<waiting>[0-9]+)\s+reqs,.*?"
+        r"GPU KV cache usage:\s*(?P<kv>[0-9]+(?:\.[0-9]+)?)%,\s*"
+        r"Prefix cache hit rate:\s*(?P<prefix>[0-9]+(?:\.[0-9]+)?)%"
+    )
+    timestamp_pattern = re.compile(
+        r"\b(?P<stamp>[0-9]{2}-[0-9]{2} "
+        r"[0-9]{2}:[0-9]{2}:[0-9]{2})\s+\["
+    )
+    completion_pattern = re.compile(
+        r'"POST /v1/completions HTTP/1\.1"\s+(?P<status>[0-9]{3})\s+OK'
+    )
+    jit_pattern = re.compile(
+        r"(?:Triton )?[Kk]ernel JIT compilation during inference:\s*"
+        r"(?P<kernel>[^.]+)\."
+    )
+
+    logger_samples: list[dict[str, Any]] = []
+    completion_responses: list[dict[str, Any]] = []
+    runtime_jit_events: list[dict[str, Any]] = []
+    completed_responses = 0
+    for line_number, line in enumerate(text.splitlines(), start=1):
+        completion = completion_pattern.search(line)
+        if completion is not None:
+            completed_responses += 1
+            completion_responses.append(
+                {
+                    "ordinal": completed_responses,
+                    "line": line_number,
+                    "status": int(completion.group("status")),
+                }
+            )
+        stamp = timestamp_pattern.search(line)
+        logger = logger_pattern.search(line)
+        if logger is not None:
+            if completed_responses == 0:
+                harness_phase = "before_warmup_response"
+            elif completed_responses == 1:
+                harness_phase = "after_warmup_before_measured_response"
+            else:
+                harness_phase = "after_measured_response"
+            logger_samples.append(
+                {
+                    "line": line_number,
+                    "month_day_clock": (
+                        stamp.group("stamp") if stamp is not None else None
+                    ),
+                    "prompt_tokens_per_second": float(logger.group("prompt")),
+                    "generation_tokens_per_second": float(
+                        logger.group("generation")
+                    ),
+                    "running_requests": int(logger.group("running")),
+                    "waiting_requests": int(logger.group("waiting")),
+                    "gpu_kv_cache_usage_percent": float(logger.group("kv")),
+                    "prefix_cache_hit_rate_percent": float(
+                        logger.group("prefix")
+                    ),
+                    "completed_completion_responses_seen": completed_responses,
+                    "phase_by_fixed_harness_order": harness_phase,
+                }
+            )
+        jit = jit_pattern.search(line)
+        if jit is not None:
+            runtime_jit_events.append(
+                {
+                    "line": line_number,
+                    "month_day_clock": (
+                        stamp.group("stamp") if stamp is not None else None
+                    ),
+                    "kernel": jit.group("kernel").strip(),
+                    "completed_completion_responses_seen": completed_responses,
+                }
+            )
+
     logger_prompt_throughput = [
-        float(value)
-        for value in re.findall(
-            r"Avg prompt throughput:\s*([0-9]+(?:\.[0-9]+)?)\s+tokens/s",
-            text,
+        sample["prompt_tokens_per_second"] for sample in logger_samples
+    ]
+
+    def first_group(pattern: str) -> str | None:
+        match = re.search(pattern, text)
+        return match.group(1) if match is not None else None
+
+    def first_float(pattern: str) -> float | None:
+        value = first_group(pattern)
+        return float(value) if value is not None else None
+
+    compile_ranges = [
+        {"start": start, "end": end}
+        for start, end in sorted(
+            {
+                (int(start), int(end))
+                for start, end in re.findall(
+                    r"compile range \(([0-9]+),\s*([0-9]+)\)", text
+                )
+            }
         )
     ]
+    selected_attention = re.findall(
+        r"Using (AttentionBackendEnum\.[A-Z0-9_]+) backend\.", text
+    )
+    fp8_linear = re.findall(
+        r"Selected ([A-Za-z0-9_]+) for ModelOptFp8LinearMethod", text
+    )
     return {
         "budget": budget,
         "forbidden_route_matches": matched_forbidden,
         "required_route_probe_hits": probe_hits,
+        "backend_evidence": {
+            "quantization": first_group(r"\bquantization=([^,\s]+)"),
+            "requested_linear_backend": first_group(
+                r"\blinear_backend='([^']+)'"
+            ),
+            "selected_fp8_linear_kernels": fp8_linear,
+            "selected_attention_backends": selected_attention,
+            "gdn_prefill": first_group(
+                r"Using ([^\n]+ GDN prefill kernel \(requested=[^)]+\))\."
+            ),
+            "flashinfer_resolved_dtypes": first_group(
+                r"FlashInfer resolved query dtypes:\s*([^\n]+)"
+            ),
+            "nvfp4_linear_selection": (
+                "MarlinNvFp4LinearKernel (source-attested; no selection log)"
+            ),
+            "humming_runtime_selected": bool(
+                re.search(r"Using Humming|linear_backend=['\"]humming", text)
+            ),
+        },
+        "startup_and_compilation": {
+            "compile_ranges": compile_ranges,
+            "torch_compile_total_seconds": first_float(
+                r"torch\.compile took ([0-9]+(?:\.[0-9]+)?) s in total"
+            ),
+            "initial_profile_warmup_seconds": first_float(
+                r"Initial profiling/warmup run took "
+                r"([0-9]+(?:\.[0-9]+)?) s"
+            ),
+            "aot_function_saved": "saved AOT compiled function to" in text,
+            "flashinfer_autotune_enabled": "enable_flashinfer_autotune=True"
+            in text,
+            "runtime_jit_events": runtime_jit_events,
+        },
+        "api_completion_responses": completion_responses,
+        "ten_second_logger_samples": logger_samples,
         "ten_second_logger_prompt_throughput_tokens_per_second": (
             logger_prompt_throughput
         ),
@@ -2107,11 +2243,21 @@ def observe_server_log(path: pathlib.Path, budget: int) -> dict[str, Any]:
             max(logger_prompt_throughput) if logger_prompt_throughput else None
         ),
         "log_sha256": sha256_file(path),
+        "authority": {
+            "backend_and_startup_route": "supporting_route_evidence",
+            "logger_window_throughput": "supporting_telemetry_only",
+            "request_latency": "not_established_by_server_log",
+            "scheduler_geometry": "must_be_established_by_metric_delta",
+            "performance_promotion": False,
+        },
         "note": (
             "W4A16_NVFP4 is pinned to Marlin by vLLM 0.26.0 ModelOpt source; "
             "the complete startup log is retained because not every direct kernel "
             "binding emits a runtime selection line; the installed ModelOpt "
-            "source identity is attested separately"
+            "source identity is attested separately. Avg prompt throughput is "
+            "computed from tokens recorded during vLLM's local logger interval; "
+            "a long iteration is recorded atomically after it completes, so this "
+            "window rate is not request elapsed time or pure-Prefill latency."
         ),
     }
 
@@ -2348,9 +2494,23 @@ def run_budget(
                 server_log.close()
             if server is not None:
                 try:
-                    result.setdefault("server", {})["final_log_observations"] = (
-                        observe_server_log(server_log_path, budget)
+                    final_log_observations = observe_server_log(
+                        server_log_path, budget
                     )
+                    write_json(
+                        run_dir / "server-log-observations.json",
+                        final_log_observations,
+                    )
+                    result.setdefault("server", {})["final_log_observations"] = (
+                        final_log_observations
+                    )
+                    cleanup["server_log_observations"] = {
+                        "path": "server-log-observations.json",
+                        "sha256": sha256_file(
+                            run_dir / "server-log-observations.json"
+                        ),
+                        "retained_when_performance_invalid": True,
+                    }
                 except BaseException as error:
                     cleanup["server_log_audit_error"] = repr(error)
                     if failure is None:

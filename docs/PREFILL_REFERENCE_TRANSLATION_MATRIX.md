@@ -150,9 +150,17 @@ The principal audited loci are:
 ## 5. Projection translation
 
 vLLM distinguishes ModelOpt `W4A16_NVFP4` from native W4A4. On SM87 its
-automatic W4A16 route selects Marlin; Humming is an explicit backend choice.
-The project must therefore compare and translate W4A16 dataflows rather than
-projecting native-FP4 behavior onto Orin. vLLM's compatibility handling may
+ModelOpt W4A16 method directly constructs Marlin; even an explicit
+`--linear-backend humming` does not change Gate+Up or Down. An explicit
+`--quantization humming` is also not a valid substitute for this checkpoint:
+the installed adapter does not resolve its `MIXED_PRECISION` groups with
+explicit per-module targets. The FP8 backend selector can nominally choose
+Humming, but the installed ModelOpt handoff transposes the weight into a
+non-contiguous last dimension and loses the layout attributes required by
+the converter. Humming is therefore a source/dataflow reference here, not an
+executable full-model comparison route. The project must compare and
+translate W4A16 dataflows rather than projecting native-FP4 behavior onto
+Orin. vLLM's compatibility handling may
 collapse unequal fused-partition global scales by taking their maximum; that
 behavior is not admissible here. Every Gate, Up, and FP8 partition keeps its
 authenticated independent scale and publication boundary.
@@ -162,8 +170,23 @@ For BF16-A W4A16 on SM87, the inspected Humming heuristic first selects a
 one-CTA/SM seed. Gate+Up (`N=34816`) owns 136 N256 tiles and Down
 (`N=5120`) owns 20. This is a source-derived starting structure, not a
 performance result or immutable resource gate. Humming's dense-M table stops
-at 8192 and extends that final configuration upward; P40/P60/P130 therefore
-require explicit project AOT buckets rather than an unexamined extrapolation.
+at 8192 and extends that final configuration upward. Installed Humming 0.1.10
+therefore handles `M=40000` as one call that selects the terminal catch-all
+tactic: 16 persistent CTAs traverse all 313 M128 rows rather than issuing five
+M8192 calls. The installed version has no L2 raster field; the newer frozen
+`b18cfac` source adds role-specific Gate=2 and Down=1 M-raster groups. Those
+version boundaries must not be conflated. P40/P60/P130 receive explicit Q3X
+AOT range declarations rather than inheriting an unaudited `2^30` catch-all.
+
+| Source-derived P40 role | M/N/K | M128 x N256 tile space | Installed 0.1.10 terminal tactic |
+| --- | --- | ---: | --- |
+| Gate | 40000/17408/5120 | 313 x 68 = 21,284 | 16 persistent CTAs, 3 stages, Stream-K tail |
+| fused Gate+Up | 40000/34816/5120 | 313 x 136 = 42,568 | same base tactic; distinct fused role/scale contract |
+| Down | 40000/5120/17408 | 313 x 20 = 6,260 | 16 persistent CTAs, 3 stages, K-heavy Stream-K tail |
+
+This table is a source/heuristic extraction, not a benchmark. The first exact
+Q3X implementation keeps the persistent DP body and defers Stream-K until its
+finite-precision reduction identity is separately established.
 
 The distinction from the rejected Q3X packed-v2 skeleton is structural:
 packed-v2 used K128 stages with about 153.6 KiB shared memory and did not
@@ -361,6 +384,16 @@ reached `81.812C`, and later showed CPU clocks falling from 2201 MHz to about
 and left the native incumbent and the owner-established 4.3K tok/s reference
 unchanged. Its exact classification and artifact hashes are frozen in the
 [`invalid P40 reference-witness record`](metadata/qwen36-27b-vllm-p40-target-witness-invalid-2026-08-12.json).
+
+Its backend log remains valid route evidence. It records one `3999.7 tok/s`
+logger sample after the warmup response and before the measured response, so
+that value is not the measured P40 result. The vLLM 0.26.0 logger accumulates
+completed iteration tokens into a local ten-second bucket; a long single
+iteration is reported atomically after completion and can therefore print a
+rate unrelated to that iteration's elapsed time. Future witnesses retain a
+structured backend-log timeline even when their performance result is
+invalid, but join it with request TTFT and Prometheus scheduler geometry
+before any performance interpretation.
 
 This feedback closes an unchanged rerun, not the target. The captured route
 used stock vLLM `0.26.0` with auto linear selection, Marlin FP8, FlashInfer

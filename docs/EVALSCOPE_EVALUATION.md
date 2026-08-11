@@ -6,7 +6,7 @@ q3x_document:
   owner: evaluation-maintainers
   authority: external API evaluation protocol, metric semantics, and artifact requirements
   effective: 2026-08-09
-  last_reviewed: 2026-08-11
+  last_reviewed: 2026-08-12
   supersedes: []
   superseded_by: []
   ssot_for: EvalScope and target-length external evaluation procedure
@@ -222,6 +222,24 @@ For every witness retain both:
 - server-side route attestation and intervals separating queue/admission,
   Prefix, first-token Decode, response publication, and any fallback or
   synchronization cost.
+
+For a vLLM reference witness, the complete backend log and a structured log
+observation are mandatory even when thermal, frequency, correctness, or route
+admission invalidates the performance sample. The observation preserves, in
+request order, backend/quantization selection, compile range, JIT/autotune and
+cache events, successful API responses, and every `Avg prompt throughput`
+sample. It is joined with the EvalScope transaction, Prometheus before/after
+deltas, and `tegrastats` interval; none of those surfaces silently substitutes
+for another.
+
+The vLLM logger rate has supporting-telemetry authority only. In vLLM 0.26.0,
+computed prompt tokens are added when an engine iteration reports its stats,
+then divided by the elapsed local logger interval, whose default cadence is
+ten seconds. A single long Prefill iteration can therefore be accounted
+atomically in the next short logger bucket. Its printed token/s is neither the
+iteration's elapsed throughput nor request TTFT. The structured observation
+records how many fixed-harness completion responses precede each logger
+sample so a warmup bucket cannot be attributed to the measured request.
 
 Legacy/unsealed evidence retains the byte-stable
 `target-prefill-witness-v1` schema. A successfully committed sealed
