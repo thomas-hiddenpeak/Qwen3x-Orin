@@ -579,16 +579,39 @@ class VllmP40GeometryTest(unittest.TestCase):
             )
             self.assertEqual(
                 observed["ten_second_logger_samples"][0][
-                    "phase_by_fixed_harness_order"
+                    "position_by_fixed_harness_response_start_order"
                 ],
-                "after_warmup_before_measured_response",
+                "after_first_before_second_response_start_access",
             )
-            self.assertEqual(len(observed["api_completion_responses"]), 2)
+            self.assertEqual(
+                len(observed["http_response_start_accesses"]), 2
+            )
+            self.assertEqual(
+                observed["http_response_start_accesses"][0]["semantics"],
+                "http_response_start_access",
+            )
+            self.assertNotIn("api_completion_responses", observed)
             self.assertEqual(
                 observed["startup_and_compilation"]["runtime_jit_events"][0][
                     "kernel"
                 ],
                 "warmup_kernel",
+            )
+            self.assertEqual(
+                observed["startup_and_compilation"]["runtime_jit_events"][0][
+                    "http_response_start_accesses_seen"
+                ],
+                1,
+            )
+            self.assertEqual(
+                observed["startup_and_compilation"]["runtime_jit_events"][0][
+                    "request_phase_from_access_log"
+                ],
+                "indeterminate_including_streaming_warmup",
+            )
+            self.assertNotIn(
+                "completed_completion_responses_seen",
+                observed["startup_and_compilation"]["runtime_jit_events"][0],
             )
             self.assertEqual(
                 observed["startup_and_compilation"][
@@ -597,6 +620,15 @@ class VllmP40GeometryTest(unittest.TestCase):
                 12.5,
             )
             self.assertFalse(observed["authority"]["performance_promotion"])
+            self.assertEqual(
+                observed["authority"]["request_phase_from_access_log"],
+                "not_established",
+            )
+            self.assertIn(
+                "response-start observation, not request completion",
+                observed["note"],
+            )
+            self.assertIn("warmup completion", observed["note"])
             log.write_text(
                 required.replace(
                     "Using AttentionBackendEnum.FLASHINFER backend.\n", ""

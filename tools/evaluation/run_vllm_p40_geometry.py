@@ -2102,7 +2102,7 @@ def observe_server_log(path: pathlib.Path, budget: int) -> dict[str, Any]:
         r"\b(?P<stamp>[0-9]{2}-[0-9]{2} "
         r"[0-9]{2}:[0-9]{2}:[0-9]{2})\s+\["
     )
-    completion_pattern = re.compile(
+    response_start_access_pattern = re.compile(
         r'"POST /v1/completions HTTP/1\.1"\s+(?P<status>[0-9]{3})\s+OK'
     )
     jit_pattern = re.compile(
@@ -2111,29 +2111,32 @@ def observe_server_log(path: pathlib.Path, budget: int) -> dict[str, Any]:
     )
 
     logger_samples: list[dict[str, Any]] = []
-    completion_responses: list[dict[str, Any]] = []
+    http_response_start_accesses: list[dict[str, Any]] = []
     runtime_jit_events: list[dict[str, Any]] = []
-    completed_responses = 0
+    response_start_accesses_seen = 0
     for line_number, line in enumerate(text.splitlines(), start=1):
-        completion = completion_pattern.search(line)
-        if completion is not None:
-            completed_responses += 1
-            completion_responses.append(
+        response_start_access = response_start_access_pattern.search(line)
+        if response_start_access is not None:
+            response_start_accesses_seen += 1
+            http_response_start_accesses.append(
                 {
-                    "ordinal": completed_responses,
+                    "ordinal": response_start_accesses_seen,
                     "line": line_number,
-                    "status": int(completion.group("status")),
+                    "status": int(response_start_access.group("status")),
+                    "semantics": "http_response_start_access",
                 }
             )
         stamp = timestamp_pattern.search(line)
         logger = logger_pattern.search(line)
         if logger is not None:
-            if completed_responses == 0:
-                harness_phase = "before_warmup_response"
-            elif completed_responses == 1:
-                harness_phase = "after_warmup_before_measured_response"
+            if response_start_accesses_seen == 0:
+                response_start_position = "before_first_response_start_access"
+            elif response_start_accesses_seen == 1:
+                response_start_position = (
+                    "after_first_before_second_response_start_access"
+                )
             else:
-                harness_phase = "after_measured_response"
+                response_start_position = "after_second_response_start_access"
             logger_samples.append(
                 {
                     "line": line_number,
@@ -2150,8 +2153,12 @@ def observe_server_log(path: pathlib.Path, budget: int) -> dict[str, Any]:
                     "prefix_cache_hit_rate_percent": float(
                         logger.group("prefix")
                     ),
-                    "completed_completion_responses_seen": completed_responses,
-                    "phase_by_fixed_harness_order": harness_phase,
+                    "http_response_start_accesses_seen": (
+                        response_start_accesses_seen
+                    ),
+                    "position_by_fixed_harness_response_start_order": (
+                        response_start_position
+                    ),
                 }
             )
         jit = jit_pattern.search(line)
@@ -2163,7 +2170,12 @@ def observe_server_log(path: pathlib.Path, budget: int) -> dict[str, Any]:
                         stamp.group("stamp") if stamp is not None else None
                     ),
                     "kernel": jit.group("kernel").strip(),
-                    "completed_completion_responses_seen": completed_responses,
+                    "http_response_start_accesses_seen": (
+                        response_start_accesses_seen
+                    ),
+                    "request_phase_from_access_log": (
+                        "indeterminate_including_streaming_warmup"
+                    ),
                 }
             )
 
@@ -2234,7 +2246,7 @@ def observe_server_log(path: pathlib.Path, budget: int) -> dict[str, Any]:
             in text,
             "runtime_jit_events": runtime_jit_events,
         },
-        "api_completion_responses": completion_responses,
+        "http_response_start_accesses": http_response_start_accesses,
         "ten_second_logger_samples": logger_samples,
         "ten_second_logger_prompt_throughput_tokens_per_second": (
             logger_prompt_throughput
@@ -2247,6 +2259,7 @@ def observe_server_log(path: pathlib.Path, budget: int) -> dict[str, Any]:
             "backend_and_startup_route": "supporting_route_evidence",
             "logger_window_throughput": "supporting_telemetry_only",
             "request_latency": "not_established_by_server_log",
+            "request_phase_from_access_log": "not_established",
             "scheduler_geometry": "must_be_established_by_metric_delta",
             "performance_promotion": False,
         },
@@ -2257,7 +2270,11 @@ def observe_server_log(path: pathlib.Path, budget: int) -> dict[str, Any]:
             "source identity is attested separately. Avg prompt throughput is "
             "computed from tokens recorded during vLLM's local logger interval; "
             "a long iteration is recorded atomically after it completes, so this "
-            "window rate is not request elapsed time or pure-Prefill latency."
+            "window rate is not request elapsed time or pure-Prefill latency. "
+            "For streaming requests the retained POST access line is treated "
+            "only as an HTTP response-start observation, not request completion; "
+            "access-line order alone cannot assign a logger or JIT event to "
+            "warmup completion, the measured request, or another request phase."
         ),
     }
 

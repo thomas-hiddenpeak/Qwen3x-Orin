@@ -476,15 +476,31 @@ and left the native incumbent and the owner-established 4.3K tok/s reference
 unchanged. Its exact classification and artifact hashes are frozen in the
 [`invalid P40 reference-witness record`](metadata/qwen36-27b-vllm-p40-target-witness-invalid-2026-08-12.json).
 
-Its backend log remains valid route evidence. It records one `3999.7 tok/s`
-logger sample after the warmup response and before the measured response, so
-that value is not the measured P40 result. The vLLM 0.26.0 logger accumulates
-completed iteration tokens into a local ten-second bucket; a long single
-iteration is reported atomically after completion and can therefore print a
-rate unrelated to that iteration's elapsed time. Future witnesses retain a
+Its backend log remains valid route evidence, with an important streaming
+correction. Line 129 is the warmup POST's HTTP response-start access
+observation, not request completion; line 130 records
+`_compute_slot_mapping_kernel` JIT while that warmup inference/stream can still
+be active. The later `3999.7 tok/s` line is the aggregate logger window after
+the warmup's prompt accounting settled. It is before the measured POST's
+response-start observation and is not the measured P40 result. The vLLM
+0.26.0 logger accumulates iteration tokens into a local ten-second bucket; a
+long single iteration can be accounted atomically in a later bucket and print
+a rate unrelated to that iteration's elapsed time. Future witnesses retain a
 structured backend-log timeline even when their performance result is
-invalid, but join it with request TTFT and Prometheus scheduler geometry
-before any performance interpretation.
+invalid, but join it with request TTFT, explicit request/engine boundaries,
+and Prometheus scheduler geometry before any phase or performance
+interpretation. Access-line order alone never establishes request completion.
+
+The r5 thermal rejection also exposed a retained-evidence gap: the measured
+telemetry validator raised before the launcher captured
+`metrics-after.prom`, `cache-after-measured.json`, and the post-request runtime
+snapshot. Their absence is not evidence that scheduler state, compilation
+cache, or process identity remained stable. Before another reference GPU run,
+the launcher should best-effort capture those diagnostic-only snapshots while
+the owned server is still alive even when timing has already been invalidated;
+doing so must not restore timing authority to the rejected sample. This
+control-flow change is deferred here rather than mixed into the access-log
+semantic correction.
 
 The retained log currently gives the following causal comparison surface:
 
@@ -497,8 +513,8 @@ The retained log currently gives the following causal comparison surface:
 | Humming selected | `false` | This run does not exercise Humming's packed W4A16 pipeline | That Humming is unavailable or unsuitable on SM87 |
 | Compile and warmup | range `[1,40000]`; `torch.compile` 133.46 s; initial profile/warmup 99.82 s; AOT function saved | Startup specialization and cache readiness are material parts of the observed route | Timed-request Prefill or TTFT performance |
 | FlashInfer autotune | enabled | The Attention route may select a shape-specific plan during preparation | That every relevant shape was tuned or reused during measurement |
-| Inference-time JIT warning | `_compute_slot_mapping_kernel` after one completed response | The route was not entirely free of runtime compilation after nominal warmup | Its cost inside the invalid measured request without a joined timestamp interval |
-| Prompt-throughput logger | `3999.7`, then `0.0` tok/s; one completion previously observed | Ten-second service telemetry and its placement between warmup and measurement | Per-request elapsed throughput, pure Prefill throughput, or a valid P40 score |
+| Inference-time JIT warning | `_compute_slot_mapping_kernel` at line 130, immediately after the warmup streaming response-start access at line 129 | Runtime compilation occurred during the continuing warmup inference; the response-start access did not close the request | Its cost in the later invalid measured request, or any request phase inferred from access order alone |
+| Prompt-throughput logger | `3999.7`, then `0.0` tok/s; one HTTP response-start access previously observed | Joined with the harness, this is a post-warmup accounting window before the measured response start | Per-request elapsed throughput, pure Prefill throughput, measured-P40 throughput, or request completion from the access line |
 
 Joined with the current Q3X request witness, those facts narrow the gap without
 pretending that the invalid run is a reference score:
@@ -510,7 +526,7 @@ pretending that the invalid run is a reference score:
 | Attention route | Both observed paths name FlashInfer, while Q3X still spends 13.35% in whole-prompt Attention | Backend selection alone cannot explain parity. Preprocess layout, Q/K/V publication, cache format, selected tactic, and request-shape specialization must be compared on the joined request interval. |
 | GDN route | vLLM selected Triton/FLA; Q3X retains its own exact per-token-BF16 recurrence path | This is a genuine architecture difference, but FLA's algebra cannot be assumed numerically equivalent. The native layer-long fused candidate must preserve Q3X's exact recurrence boundary and prove accuracy before performance promotion. |
 | Shape preparation | vLLM completed `torch.compile`, warmup, AOT save, and FlashInfer autotune for the declared range before timing; Q3X's selected production route has no equivalent authenticated whole-system plan | The transferable mechanism is pre-request shape and tactic closure, not request-time JIT. Q3X therefore freezes P40/P60/P130 AOT plans and forbids request-time discovery. |
-| Runtime compilation | A slot-mapping kernel still JIT-compiled after one completed response | This can contaminate a nominally warmed request, but the current log cannot place its duration inside the invalid measured interval. A future valid witness must join JIT/cache events to explicit request boundaries and reject cache mutation during timing. |
+| Runtime compilation | A slot-mapping kernel JIT-compiled immediately after the first streaming response-start access | The line belongs to continuing warmup inference, not a completed-request boundary. It proves the warmup route exercised late JIT, while the current log cannot place such a cost inside the later invalid measured interval. A future valid witness must join JIT/cache events to explicit request boundaries and reject cache mutation during timing. |
 
 The current evidence therefore points first to whole-request dataflow and
 physical work geometry, not Python or HTTP overhead: Q3X's retained P40

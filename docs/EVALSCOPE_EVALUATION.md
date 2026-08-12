@@ -227,10 +227,14 @@ For a vLLM reference witness, the complete backend log and a structured log
 observation are mandatory even when thermal, frequency, correctness, or route
 admission invalidates the performance sample. The observation preserves, in
 request order, backend/quantization selection, compile range, JIT/autotune and
-cache events, successful API responses, and every `Avg prompt throughput`
-sample. It is joined with the EvalScope transaction, Prometheus before/after
-deltas, and `tegrastats` interval; none of those surfaces silently substitutes
-for another.
+cache events, HTTP response-start access observations, and every `Avg prompt
+throughput` sample. For a streaming POST, the access observation is not a
+request-completion event: it can precede later inference-time JIT and the
+remaining stream body. API success and completion come from the joined
+EvalScope transaction, not from that access line. The observation is joined
+with the EvalScope transaction, Prometheus before/after deltas, and
+`tegrastats` interval; none of those surfaces silently substitutes for
+another.
 
 The vLLM logger rate has supporting-telemetry authority only. In vLLM 0.26.0,
 computed prompt tokens are added when an engine iteration reports its stats,
@@ -238,8 +242,12 @@ then divided by the elapsed local logger interval, whose default cadence is
 ten seconds. A single long Prefill iteration can therefore be accounted
 atomically in the next short logger bucket. Its printed token/s is neither the
 iteration's elapsed throughput nor request TTFT. The structured observation
-records how many fixed-harness completion responses precede each logger
-sample so a warmup bucket cannot be attributed to the measured request.
+records how many fixed-harness HTTP response-start access observations precede
+each logger and JIT event. That ordering is useful but does not establish a
+request phase: after the first streaming response start, the warmup may still
+be executing. Warmup completion and measured-request attribution therefore
+require the joined EvalScope transaction and explicit request/engine
+boundaries.
 
 Legacy/unsealed evidence retains the byte-stable
 `target-prefill-witness-v1` schema. A successfully committed sealed

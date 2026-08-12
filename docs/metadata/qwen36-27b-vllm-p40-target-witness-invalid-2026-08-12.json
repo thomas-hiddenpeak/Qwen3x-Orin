@@ -54,7 +54,7 @@
   },
   "server_log_analysis": {
     "authority": "supporting_route_and_startup_evidence_only",
-    "successful_completion_responses": 2,
+    "successful_http_response_start_accesses": 2,
     "startup": {
       "compile_range": [1, 40000],
       "torch_compile_seconds": 133.46,
@@ -66,24 +66,25 @@
       {
         "month_day_clock": "08-12 05:22:34",
         "kernel": "_compute_slot_mapping_kernel",
-        "completed_completion_responses_seen": 1
+        "http_response_start_accesses_seen": 1,
+        "request_phase_from_access_log": "indeterminate_including_streaming_warmup"
       }
     ],
     "logger_samples": [
       {
         "month_day_clock": "08-12 05:24:30",
         "prompt_tokens_per_second": 3999.7,
-        "completed_completion_responses_seen": 1,
-        "phase_by_fixed_harness_order": "after_warmup_before_measured_response"
+        "http_response_start_accesses_seen": 1,
+        "position_by_fixed_harness_response_start_order": "after_first_before_second_response_start_access"
       },
       {
         "month_day_clock": "08-12 05:24:40",
         "prompt_tokens_per_second": 0.0,
-        "completed_completion_responses_seen": 1,
-        "phase_by_fixed_harness_order": "after_warmup_before_measured_response"
+        "http_response_start_accesses_seen": 1,
+        "position_by_fixed_harness_response_start_order": "after_first_before_second_response_start_access"
       }
     ],
-    "interpretation": "The 3999.7 tok/s sample belongs to the logger interval after the warmup response and before the measured response. vLLM 0.26.0 records the completed long iteration's prompt tokens atomically into its next local ten-second logger bucket, so this value is not request elapsed throughput, pure Prefill throughput, or the invalid measured request's result."
+    "interpretation": "The first POST 200 access line is the warmup streaming HTTP response-start observation, not request completion; the following JIT event can still belong to warmup inference. Joined with the harness transaction, the later 3999.7 tok/s sample is an aggregate logger window after warmup prompt accounting settled and before the measured POST response start. It is not request elapsed throughput, pure Prefill throughput, or the invalid measured request's result; access-line order alone cannot establish request phase."
   },
   "invalidation": {
     "harness_failure": "clock/RAM drift at tegrastats line 45: gpu=(1294,1294), emc=3200, cpu=2201 MHz, ram_total=62878 MiB",
